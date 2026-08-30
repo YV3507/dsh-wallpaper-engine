@@ -93,6 +93,13 @@
 ## 三、TODO（未完成）
 
 ### 功能
+- [x] **GLSL 嵌套/复合 `#if` 预处理修复（2026-08-30）**：`evaluateNumericIfs` 扩展 —
+      ①复合布尔条件（`&&`/`||`/`defined()`/括号，`||` 优先级更低）；
+      ②`#ifdef/#ifndef` 未定义宏按 C 语义可判定（旧逻辑回退扁平正则 → 嵌套 #if 留给
+      shaderfrog → 解析崩 → 效果回退原图）；③条件内**尾随/行内注释**剥除
+      （`#if TYPE == 0 // round` 曾令判定失配）。修复后 frame_builder_by_gariam
+      （Angel Mail 3641860575）、rounded_mask（3554161528）**0 残留指令、效果真正生效**
+      （此前遮罩效果回退 = 画面错误）。回归工具：`scripts/verify-preprocess.mjs`。
 - [x] **sceneVideo 健壮性修复（已恢复 2026-08-30）**：幽灵 error 守卫
       （`curLayer.contains(media)`）、瞬时错误重试（ABORTED/NETWORK/DECODE 重试 2 次、
       SRC_NOT_SUPPORTED 立即降级）、`preload="auto"`、播放看门狗（1s 强制 play）、
