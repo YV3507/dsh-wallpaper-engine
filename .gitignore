@@ -9,6 +9,9 @@ scene-diagnosis.tsv
 /ffmpeg/
 # 渲染验证产物 (可再生): 帧序列/对比图不入库
 scene-layers-out/
+# 诊断输出 (探针/对比 PNG、日志; 本地调试用, 不入库)
+.tmp-diag/
+.tmp-diag2/
 # 视觉工具工件
 .dsh-vision-router/
 

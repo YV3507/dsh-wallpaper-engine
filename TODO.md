@@ -132,6 +132,17 @@
       网格超出部分裁掉。已实现：`canvas.blitScaled` 增加可选 `srcRect` 源子矩形参数；
       `renderPuppet` 在 size 显式存在时按 quad 求交裁剪（缺失/autosize 时无裁切，
       行为不变）。3554161528 冒烟渲染验证通过。
+- [x] **puppet MDL stride 84 布局修复（2026-08-30）**：`_parseMdl`（puppet.js）与
+      `parseMdlPuppet`（mdl.js）原只认 80B 顶点 stride，Angel Mail（3641860575）的
+      cat11/RW0 puppet 因非 80 布局被跳过（"人物不在壁纸内"根因）。对照良好样本
+      （人物_puppet.mdl）逐字段 dump 发现：**顶点 stride 由块头 u32 高 16 位编码**
+      （0x0180→80B、0x0181→84B，84B = 80B 在 blendIdx 前多 4B），且字段偏移从
+      **stride 尾部**推导（uv@S-8、blendW@S-24、blendIdx@S-40、pos@0），80/84 通用。
+      全量扫描 22 个已装壁纸 27 个 puppet MDL 仅此两变体（25×80 + 2×84）。修复后
+      cat11/RW0 解析成功（vc=327/1259，bones=18/100，动画、蒙皮、blend 权重和≈1 全过），
+      Angel Mail 人物渲染出现（修复前该 puppet 静默跳过）。回归工具：
+      `scripts/verify-mdl-fix.mjs`（27/27 OK）+ `scripts/verify-all-scenes.mjs`
+      （4 问题壁纸 + 参考全渲染、0 puppet 跳过）。
 - [x] **剩余边缘脚本/效果（核验 2026-08-30，均优雅处理）**：
       - weizhi 未定义（3629379075 / 3660962877）：当前渲染 **0 脚本错误**——sf42 的
         NSL API 补全已让脚本不再抛错；残余 "Event ID does not exist" 是 NSL 框架
@@ -139,8 +150,8 @@
       - DAY DATE TIME 对 boolean 写 `.x`（3641860575）：壁纸自身缺陷，实测捕获 1 条
         `Cannot create property 'x' on boolean 'false'`，脚本保持原值、场景正常渲染。
         **已优雅处理**。
-      - puppet cat11 / RW0 MDL 解析失败（3641860575）：非标准 MDL 布局，渲染器
-        跳过该 puppet 并记日志，其余组件正常。**已优雅处理**。
+      - ~~puppet cat11 / RW0 MDL 解析失败（3641860575）~~：**已修复**（见上一条
+        stride 84 布局支持；不再是"跳过并优雅处理"而是完整解析渲染）。
 
 ### 已放弃（2026-08-30 方向决策，勿再投入）
 > 完整背景、技术要点、已删资产清单与三条未来实现路线见
@@ -183,6 +194,9 @@
 
 - **FOV 是垂直的**（50° 默认）；正交由 `projScale` 换算场景单位→像素。
 - **MDL UV 在 stride-8**（stride 64 时 36）；模型双面渲染 + 背面法线翻转。
+- **puppet MDL 顶点 stride**：块头 u32（材料串后第 29B）高 16 位 0x0180→80B、
+  0x0181→84B；字段偏移从尾部推导（uv@S-8、blendW@S-24、blendIdx@S-40、pos@0），
+  两种 stride 通用（lwe/linux-wallpaperengine 也只硬编码 80，84 变体为 DSH 独有发现）。
 - **混合**：D3D additive = `dst += src·srcA`；translucent = alpha over；opaque 直写。
 - **Bloom 参数可能是 `{script,value}` 对象** — 必须取 `.value` 否则 NaN→黑帧。
 - **效果材质**：`effects/xxx/effect.json` 定义多 pass + fbo；scene.json 对象的
