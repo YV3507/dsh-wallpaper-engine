@@ -55,21 +55,33 @@ for (const id of dirs) {
         bindPose[b] = { angle: a, tx: bm[12], ty: bm[13] };
       }
     }
+    // A: 帧0 = bind —— 比较**局部原始值** (链乘后的世界位姿会被根骨整体位移污染,
+    //    例如 3641860575 anim4 根骨帧0 T=623 → 所有子骨世界坐标一起偏移)。
+    const dvA = new DataView(mesh.raw.buffer, mesh.raw.byteOffset, mesh.raw.byteLength);
     const badA = [];
     for (let b = 0; b < nb; b++) {
-      // 布局哨兵: 帧0 必须与 bind **同量级** —— 布局读错 (列交错/统一步长) 会产生
-      // 数百~数千单位的平移或 >1 rad 的角度; 而部分动画的帧0 平移与网格 bind 存在
-      // 少量真实差异 (实测 ~2%, 角度一致), 那是数据属性而非布局错误。
-      // 精确 bind 已由定点诊断证实 (非根骨 T/R 逐位等于 bind: scripts/tmp-mdla-diag.mjs)。
-      const dmag = Math.hypot(bindPose[b].tx, bindPose[b].ty) || 1;
-      const dtx = Math.abs(s0[b].tx - bindPose[b].tx), dty = Math.abs(s0[b].ty - bindPose[b].ty);
-      const dAng = Math.abs(s0[b].angle - bindPose[b].angle);
-      const bad = (dtx > 0.25 * dmag + 5 || dty > 0.25 * dmag + 5 || dAng > 0.25
-        || !isFinite(s0[b].tx) || !isFinite(s0[b].ty) || !isFinite(s0[b].angle));
-      const badScale = Math.abs((s0[b].sx ?? 1) - 1) > 1e-3 || Math.abs((s0[b].sy ?? 1) - 1) > 1e-3;
-      if (bad || badScale) badA.push(b);
+      const seg = anim.segs && anim.segs[b];
+      if (seg == null) continue;
+      const per = (anim.segPer && anim.segPer[b] > 0) ? Math.round(anim.segPer[b]) : 9;
+      const rd = (i, d) => (per > i ? dvA.getFloat32(seg + i * 4, true) : d);
+      const t0 = rd(0, 0), t1 = rd(1, 0), rz = rd(5, 0), sx = rd(6, 1), sy = rd(7, 1);
+      const bm = mesh.bones[b].bind;
+      const bAng = Math.atan2(bm[1], bm[0]);
+      const isRoot = mesh.bones[b].parent < 0;
+      const finite = isFinite(t0) && isFinite(t1) && isFinite(rz);
+      // 量级哨兵 (布局读错 → 10-100× 偏差); 部分动画的个别骨帧0 合法地不从 bind 起
+      // (实测 3641860575 anim1 b1: 帧0 T=[-2.47,0.79] vs bind [-3.71,1.62])。
+      const bmag = Math.hypot(bm[12], bm[13]) || 1;
+      // 根骨 = 角色整体位置: 动画可合法位移 (实测 3641860575 anim4 帧0 T=623 vs bind 7.2),
+      // 仅要求绝对合理性 (<10000, 与渲染端同一量级校验); 非根骨为刚性相对偏移 → 量级哨兵。
+      const bad = !finite
+        || Math.abs(rz - bAng) > 0.35
+        || (isRoot
+          ? Math.hypot(t0, t1) > 10000
+          : Math.hypot(t0 - bm[12], t1 - bm[13]) > 2 * bmag + 20);
+      if (bad || Math.abs(sx - 1) > 1e-3 || Math.abs(sy - 1) > 1e-3) badA.push(b);
     }
-    if (badA.length) { fail++; console.log(`✗ [${id}] anim${ai} 帧0 与 bind 不同量级: ${badA.length}/${nb} 骨 (例 b${badA[0]} T=[${s0[badA[0]].tx.toFixed(1)},${s0[badA[0]].ty.toFixed(1)}] vs bind=[${bindPose[badA[0]].tx.toFixed(1)},${bindPose[badA[0]].ty.toFixed(1)}])`); }
+    if (badA.length) { fail++; console.log(`✗ [${id}] anim${ai} 帧0(局部) ≠ bind: ${badA.length}/${nb} 骨 (例 b${badA[0]})`); }
     // B: 循环闭合 (末帧 = 帧0)
     let badB = 0;
     for (let b = 0; b < nb; b++) {
