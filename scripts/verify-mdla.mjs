@@ -82,12 +82,23 @@ for (const id of dirs) {
       if (bad || Math.abs(sx - 1) > 1e-3 || Math.abs(sy - 1) > 1e-3) badA.push(b);
     }
     if (badA.length) { fail++; console.log(`✗ [${id}] anim${ai} 帧0(局部) ≠ bind: ${badA.length}/${nb} 骨 (例 b${badA[0]})`); }
-    // B: 循环闭合 (末帧 = 帧0)
+    // B: 循环闭合 (末帧 = 帧0) —— 仅对**循环**动画成立。一次性 (single/step/startpaused)
+    // 的末帧是作者设定的"保持姿态", 不要求等于帧0 (实测皓风琦[3640755971] anim6 id=208
+    // loop=single 有 1/25 骨末帧≠帧0)。旧实现在采样处取模, 使 sample(frameCount) 实际读到
+    // 帧0 ⇒ 该断言**空转**; 现按壁纸自带的 loop 模式区分, 一次性只校验末帧合理。
+    const loopMode = String(anim.loop == null ? 'loop' : anim.loop);
+    const isLooping = (loopMode === 'loop' || loopMode === 'mirror' || loopMode === '');
     let badB = 0;
     for (let b = 0; b < nb; b++) {
-      if (Math.abs(s0[b].angle - sEnd[b].angle) > 1e-3 || Math.abs(s0[b].tx - sEnd[b].tx) > 1e-2 || Math.abs(s0[b].ty - sEnd[b].ty) > 1e-2) badB++;
+      if (isLooping) {
+        if (Math.abs(s0[b].angle - sEnd[b].angle) > 1e-3 || Math.abs(s0[b].tx - sEnd[b].tx) > 1e-2 || Math.abs(s0[b].ty - sEnd[b].ty) > 1e-2) badB++;
+      } else {
+        const e = sEnd[b];
+        const finite = [e.angle, e.tx, e.ty, e.sx, e.sy].every((v) => typeof v === 'number' && isFinite(v));
+        if (!finite || Math.hypot(e.tx, e.ty) > 10000) badB++;
+      }
     }
-    if (badB > 0) { fail++; console.log(`✗ [${id}] anim${ai} 末帧≠帧0: ${badB}/${nb} 骨`); }
+    if (badB > 0) { fail++; console.log(`✗ [${id}] anim${ai} ${isLooping ? '末帧≠帧0' : '一次性末帧异常'}: ${badB}/${nb} 骨`); }
     // C: Plana 动画2 的已知缩放骨骼
     if (id === '3461168300' && /动画 2/.test(anim.name || '')) {
       const ext = (b, key) => { let mn = Infinity, mx = -Infinity; for (let f = 0; f <= anim.frameCount; f++) { const v = sample(f)[b][key]; mn = Math.min(mn, v); mx = Math.max(mx, v); } return [mn, mx]; };

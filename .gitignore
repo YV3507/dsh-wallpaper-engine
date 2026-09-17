@@ -49,3 +49,4 @@ scene-layers-out/
 # 本地分析产物 (可随时删除)
 .tmp-we-extract/
 scripts/tmp-*.mjs
+.tmp-*
