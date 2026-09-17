@@ -577,16 +577,16 @@ function schedulePersist() {
 
 // Flush a pending write when the page goes away (tab close / navigate), and
 // retry a failed PUT when the page becomes visible again.
-if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
-  window.addEventListener("pagehide", () => {
-    if (persistTimer && typeof window.clearTimeout === "function") {
-      window.clearTimeout(persistTimer);
-      flushPersist();
-    }
-  });
-  document.addEventListener("visibilitychange", () => {
-    if (!document.hidden && persistDirty && !persistTimer) schedulePersist();
-  });
+// 监听器改为具名函数, 由 apply 的 ctx.effect 注册/注销: 模块作用域注册的监听器
+// 每次 client-plugin 重载/HMR 重新求值 bundle 都会再叠一对, 且永远无法移除。
+function onPageHideFlush() {
+  if (persistTimer && typeof window.clearTimeout === "function") {
+    window.clearTimeout(persistTimer);
+    flushPersist();
+  }
+}
+function onVisibilityResyncPersist() {
+  if (!document.hidden && persistDirty && !persistTimer) schedulePersist();
 }
 
 function persistSelection() {
@@ -1336,6 +1336,7 @@ function cancelSceneAnimUpgrade() {
     // 清 src 触发浏览器 abort 下载 → 服务端 res close → 渲染任务取消
     try { u.probe.removeAttribute("src"); u.probe.load(); } catch { /* ignore */ }
     try { u.probe.remove(); } catch { /* ignore */ }
+    u.probe = null; // 防重复 teardown (快路径 stopPoll 可能已经清理过同一个 probe)
   }
   if (selection.sceneAnimProgress != null) selection.sceneAnimProgress = null;
 }
@@ -1366,9 +1367,23 @@ function queueSceneAnimUpgrade(frameUrl) {
     selection.sceneAnimProgress = 0;
     emit(); // 立即反映新进度 (fpsCap 变更路径的调用方 emit 在前, 这里补一次)
     let pollTimer = null, maxWait = null;
+    // probe 清理 (幂等): 快路径 onloadeddata 也要走这里。之前只把 sceneAnimUpgrade
+    // 置 null, 唯一的清理点 cancelSceneAnimUpgrade 就再也找不到这个 probe —
+    // 一个 <video preload="auto"> 永久留在文档里, 每次切壁纸泄漏一个。
+    let probeTornDown = false;
+    const teardownProbe = () => {
+      if (probeTornDown) return;
+      probeTornDown = true;
+      try { probe.pause(); } catch { /* ignore */ }
+      try { probe.removeAttribute("src"); probe.load(); } catch { /* ignore */ }
+      try { probe.remove(); } catch { /* ignore */ }
+      // 清掉状态里的引用, cancelSceneAnimUpgrade 之后就会跳过它 (不重复拆)
+      if (sceneAnimUpgrade && sceneAnimUpgrade.probe === probe) sceneAnimUpgrade.probe = null;
+    };
     const stopPoll = () => {
       if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
       if (maxWait) { clearTimeout(maxWait); maxWait = null; }
+      teardownProbe(); // 快路径完成后必须自己拆 probe (引用随即被置 null)
       if (sceneAnimUpgrade && sceneAnimUpgrade.pollTimer === pollTimer) sceneAnimUpgrade = null;
       if (selection.sceneAnimProgress != null) { selection.sceneAnimProgress = null; emit(); }
     };
@@ -1402,7 +1417,10 @@ function queueSceneAnimUpgrade(frameUrl) {
         }
       } catch { /* 保持默认循环 */ }
     };
+    let pollPending = false; // 上一 tick 未返回 → 跳过本次 (宿主饱和时避免 fetch 堆积)
     pollTimer = setInterval(async () => {
+      if (pollPending) return;
+      pollPending = true;
       try {
         const r = await fetch(progUrl, { cache: "no-store" });
         const j = await r.json();
@@ -1416,6 +1434,7 @@ function queueSceneAnimUpgrade(frameUrl) {
           if (selection.sceneAnimProgress != null) { selection.sceneAnimProgress = null; emit(); }
         }
       } catch { /* 网络错误: 保持上次进度 */ }
+      pollPending = false;
     }, 1500);
     // 渲染超时兜底: 15 分钟未完成 → 停止轮询 (进度条消失, 保持静态帧)。
     // 1080p×240 帧渲染 ~9 分钟 + 帧并行回退 (CPU/显存不足) 可能更久 —
@@ -1675,15 +1694,25 @@ let mediaInfoToken = "";
 // come back with fps ≤ cap (no transcode needed). Without this guard every
 // wallpaper selection used to trigger a throwaway host-side ffmpeg run.
 let mediaInfoInFlight = "";
+// 在途探测的 AbortController: token 变更或强制刷新时终止上一次 fetch — 否则被
+// 取代的探测会一直跑 (结果只靠 mediaInfoToken 检查丢弃), fiber 卸载时也要 abort。
+let mediaInfoAbort = null;
 async function refreshMediaInfo(force) {
   const token = selection.type === "video" && selection.url
     ? selection.url.split("/").pop()
     : null;
   if (!token || (!force && token === mediaInfoToken)) return;
+  // 旧探测的结果一定没用了 (token 变了, 或被 force 重刷取代) → 立刻断开
+  if (mediaInfoAbort) { try { mediaInfoAbort.abort(); } catch { /* ignore */ } mediaInfoAbort = null; }
+  // AbortController 可能不存在 (无计时器/无 fetch 设施的验证环境): 为 null 时退化为旧行为
+  const ctrl = typeof AbortController === "function" ? new AbortController() : null;
+  mediaInfoAbort = ctrl;
   mediaInfoToken = token;
   mediaInfoInFlight = token;
   try {
-    const res = await fetch("/wallpaper-engine/media-info/" + encodeURIComponent(token), { cache: "no-store" });
+    const init = { cache: "no-store" };
+    if (ctrl) init.signal = ctrl.signal;
+    const res = await fetch("/wallpaper-engine/media-info/" + encodeURIComponent(token), init);
     const data = await res.json().catch(() => ({}));
     if (mediaInfoToken === token) {
       selection.mediaInfo = (data && data.info) || null;
@@ -1700,9 +1729,12 @@ async function refreshMediaInfo(force) {
       }
     }
   } catch {
-    if (mediaInfoToken === token) selection.mediaInfo = null;
+    // abort 掉的探测不写状态 (它已被更新的探测取代)
+    if (!(ctrl && ctrl.signal.aborted) && mediaInfoToken === token) selection.mediaInfo = null;
   }
-  if (mediaInfoInFlight === token) mediaInfoInFlight = "";
+  const ownsAbort = mediaInfoAbort === ctrl; // 仍是本次探测 (没被更新的探测取代)
+  if (ownsAbort) mediaInfoAbort = null;
+  if (ownsAbort && mediaInfoInFlight === token) mediaInfoInFlight = "";
   // Settle → single re-emit so a deferred transcode decision (see
   // mediaInfoInFlight) runs against the final mediaInfo, success or failure.
   if (mediaInfoToken === token) emit();
@@ -1721,8 +1753,19 @@ let upgradePollTimer = null; // progress poller while the transcode fetch pends
 function clearUpgradePoll() {
   if (upgradePollTimer) { clearInterval(upgradePollTimer); upgradePollTimer = null; }
 }
+// 15s metadata 兜底 timer (见 maybeUpgradeToTranscoded): 必须挂到升级状态上,
+// abortTranscodeUpgrade 才能清掉它 — 否则被取代的请求超时后回调仍会跑在已
+// detach 的 <video> 上 (重新赋 src, 元素再也释放不掉)。
+let upgradeMetaTimer = null;
+function clearUpgradeMeta() {
+  if (upgradeMetaTimer && typeof window !== "undefined" && typeof window.clearTimeout === "function") {
+    window.clearTimeout(upgradeMetaTimer);
+  }
+  upgradeMetaTimer = null;
+}
 function abortTranscodeUpgrade() {
   clearUpgradePoll();
+  clearUpgradeMeta();
   if (upgradeAbort) { upgradeAbort.abort(); upgradeAbort = null; }
   upgradeToken = "";
   upgradeFps = 0;
@@ -1781,8 +1824,11 @@ function maybeUpgradeToTranscoded(video, token) {
   // then frame-based transcode % + ETA). Cleared on settle/abort. The timer is
   // ALSO kept in this closure so THIS request's completion only ever clears its
   // OWN timer — a stale request must not kill the newer request's poller.
+  let pollPending = false; // 上一 tick 未返回 → 跳过本次 (宿主高负载时避免 fetch 堆积)
   const pollProgress = () => {
     if (ctrl.signal.aborted) return;
+    if (pollPending) return;
+    pollPending = true;
     fetch("/wallpaper-engine/transcode-progress/" + encodeURIComponent(token) + "?fps=" + cap, { cache: "no-store" })
       .then((r) => r.json().catch(() => ({})))
       .then((d) => {
@@ -1801,7 +1847,8 @@ function maybeUpgradeToTranscoded(video, token) {
           }
         }
       })
-      .catch(() => { /* transient poll failure: ignore */ });
+      .catch(() => { /* transient poll failure: ignore */ })
+      .then(() => { pollPending = false; }); // 成功/失败都释放 in-flight 标记
   };
   clearUpgradePoll();
   const pollTimer = setInterval(pollProgress, 500);
@@ -1857,6 +1904,8 @@ function maybeUpgradeToTranscoded(video, token) {
           if (metaTimer && typeof window !== "undefined" && typeof window.clearTimeout === "function") {
             window.clearTimeout(metaTimer);
           }
+          // 同步清掉升级状态上的引用 (只清自己的, 否则会抹掉更新请求的 timer)
+          if (upgradeMetaTimer === metaTimer) upgradeMetaTimer = null;
           metaTimer = null;
         };
         const onErr = () => {
@@ -1888,6 +1937,7 @@ function maybeUpgradeToTranscoded(video, token) {
             video.removeEventListener("loadedmetadata", onMeta);
             onErr();
           }, 15000);
+          upgradeMetaTimer = metaTimer; // 挂到升级状态: abortTranscodeUpgrade 也要能清
         }
       }
     })
@@ -2423,6 +2473,12 @@ function swatchRow(label, presets, value, onPick, opts) {
 // the "CD player" presentation the author liked. Pure presentational: cover =
 // the current wallpaper's preview URL (or null), playing drives the spin.
 // Shown in BOTH settings layouts and in the picker modal head.
+// 旋转是挂在 backdrop-filter 玻璃面上的无限动画: 页面不可见时 (后台标签/最小化)
+// 它仍会驱动合成器反复重绘 backdrop。document.hidden 期间不转 — 元素此刻本来
+// 就看不见, visibilitychange (apply 的 occlusion 监听 → emit) 会立刻转回来。
+function vinylSpinVisible() {
+  return typeof document === "undefined" || document.hidden !== true;
+}
 function VinylRecord(props) {
   const cover = props.cover;
   const title = props.title || "未选择壁纸";
@@ -2830,7 +2886,7 @@ function WallpaperPicker(props) {
         React.createElement("div", { className: "we-picker__current" },
           React.createElement(VinylRecord, {
             cover: current && current.preview, title: current ? current.title : "",
-            playing: playbackLive && Boolean(sel.url),
+            playing: playbackLive && Boolean(sel.url) && vinylSpinVisible(),
           }),
           React.createElement("div", { className: "we-picker__current-info" },
             React.createElement("div", { className: "we-picker__current-title", title: current ? current.title : "" },
@@ -3673,7 +3729,7 @@ function WallpaperPicker(props) {
             React.createElement("div", { className: "we-picker__modal-head-left" },
               React.createElement(VinylRecord, {
                 cover: current && current.preview, title: current ? current.title : "",
-                playing: playbackLive && Boolean(sel.url), sm: true,
+                playing: playbackLive && Boolean(sel.url) && vinylSpinVisible(), sm: true,
               }),
               React.createElement("span", { className: "we-picker__modal-title" }, "选择壁纸"),
             ),
@@ -5699,14 +5755,26 @@ const CSS = `
 // old stylesheet tag from a previous bundle (TAG_ID dedupes the injection; a
 // static id would leave stale CSS rules active and new rules missing).
 const TAG_ID = "dsh-wallpaper-engine/styles-v3";
-if (typeof document !== "undefined" &&
-    document.querySelector("style[data-plugin-css=" + JSON.stringify(TAG_ID) + "]") === null) {
-  const tag = document.createElement("style");
-  tag.dataset.plugin = "dsh-wallpaper-engine";
-  tag.dataset.pluginCss = TAG_ID;
-  tag.textContent = CSS;
-  document.head.appendChild(tag);
+// 本次 bundle 求值的代际标记: cleanup 只移除自己这一代的 <style>, HMR 里
+// "新版已挂载、旧版才卸载"的顺序下不会误删新版仍在用的样式表。
+const CSS_GEN = Date.now() + ":" + Math.random().toString(36).slice(2);
+// 注入抽成函数: fiber cleanup (见 apply) 会移除这个 <style>, 所以 effect 挂载时
+// 必须能再注入一次 — 否则同一页面内 disable→enable 后整个界面无样式。
+function ensurePluginCss() {
+  if (typeof document === "undefined") return null;
+  let tag = document.querySelector("style[data-plugin-css=" + JSON.stringify(TAG_ID) + "]");
+  if (tag === null) {
+    tag = document.createElement("style");
+    tag.dataset.plugin = "dsh-wallpaper-engine";
+    tag.dataset.pluginCss = TAG_ID;
+    document.head.appendChild(tag);
+  }
+  // 同 id 的旧标签可能带的是上一个 bundle 的 CSS → 按当前 bundle 的内容刷新
+  if (tag.textContent !== CSS) tag.textContent = CSS;
+  tag.dataset.pluginCssGen = CSS_GEN;
+  return tag;
 }
+ensurePluginCss();
 
 // ── Plugin exports ──────────────────────────────────────────────────────────
 const inject = ["slots"];
@@ -5761,6 +5829,20 @@ function apply(ctx) {
           ocListeners.push(t);
         }
       }
+      // 持久化监听器: pagehide → 立即 flush 未落盘的设置; visibilitychange →
+      // 页面回到前台时重试失败过的 PUT。注册在这里 (而不是模块作用域) 才能随
+      // fiber 注销 — 否则每次插件重载/HMR 都会在同一页面再叠一对, 永不释放。
+      let pageHideBound = false, visBound = false;
+      if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+        window.addEventListener("pagehide", onPageHideFlush);
+        pageHideBound = true;
+      }
+      if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+        document.addEventListener("visibilitychange", onVisibilityResyncPersist);
+        visBound = true;
+      }
+      // 样式标签也按 fiber 生命周期注入 (dispose 会移除, 见下方 cleanup)
+      ensurePluginCss();
       // Battery optimization (省电暂停): navigator.getBattery is deprecated but
       // still functional in Chromium; feature-detected so other engines just
       // no-op. 'chargingchange' covers plug/unplug; onOcclusionChange re-applies
@@ -5786,11 +5868,24 @@ function apply(ctx) {
         unsubEffects();
         if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
           for (const t of ocListeners) window.removeEventListener(t, onOcclusionChange);
+          if (pageHideBound) window.removeEventListener("pagehide", onPageHideFlush);
+        }
+        if (visBound && typeof document !== "undefined" && typeof document.removeEventListener === "function") {
+          document.removeEventListener("visibilitychange", onVisibilityResyncPersist);
         }
         if (batteryCleanup) { batteryCleanup(); batteryCleanup = null; }
         weBattery = null;
         clearRotationTimer();
         abortTranscodeUpgrade(); // 含 clearUpgradePoll + AbortController.abort（否则卸载后 500ms 轮询永久泄漏）
+        cancelSceneAnimUpgrade(); // scene 动画升级: 清 1.5s 轮询 / 15min maxWait / 60s 延迟 timer + probe <video>
+        // 模块级 persistTimer 不属于 fiber: 卸载时清掉, 否则 200ms 后仍会跑一次
+        // flushPersist()（对已卸载的插件写入状态）。
+        if (persistTimer && typeof window !== "undefined" && typeof window.clearTimeout === "function") {
+          window.clearTimeout(persistTimer);
+          persistTimer = null;
+        }
+        // media-info 探测的 AbortController 也要断开 (token 可能永远不再变化)
+        if (mediaInfoAbort) { try { mediaInfoAbort.abort(); } catch { /* ignore */ } mediaInfoAbort = null; }
         weStopDraw();
         const node = document.getElementById(LAYER_ID);
         if (node) { releaseLayerMedia(node); node.remove(); }
@@ -5798,6 +5893,13 @@ function apply(ctx) {
         if (scrim) scrim.remove();
         clearEffects();
         document.body.removeAttribute(ACTIVE_ATTR);
+        // 主样式标签: 之前每个 bundle 求值都注入一次且从不移除 (HMR 后旧 <style>
+        // 永久留在 <head>)。只移除本次求值这一代, 重挂载由 ensurePluginCss() 补回。
+        if (typeof document !== "undefined" && typeof document.querySelector === "function") {
+          const cssTag = document.querySelector("style[data-plugin-css=" + JSON.stringify(TAG_ID) + "]");
+          if (cssTag && cssTag.dataset && cssTag.dataset.pluginCssGen === CSS_GEN
+              && typeof cssTag.remove === "function") cssTag.remove();
+        }
       };
     });
   }
