@@ -30,8 +30,8 @@ function makeEl(tag) {
     attributes: {},
     style: { _props: {}, setProperty(k, v) { this._props[k] = v; }, removeProperty(k) { delete this._props[k]; } },
     className: "",
-    appendChild(c) { this.children.push(c); if (c.id) byId[c.id] = c; return c; },
-    remove() { if (this._parent) { const i = this._parent.children.indexOf(this); if (i >= 0) this._parent.children.splice(i, 1); } },
+    appendChild(c) { this.children.push(c); c._parent = this; if (c.id) byId[c.id] = c; return c; },
+    remove() { if (this._parent) { const i = this._parent.children.indexOf(this); if (i >= 0) this._parent.children.splice(i, 1); } if (this.id) delete byId[this.id]; },
     setAttribute(k, v) { this.attributes[k] = v; },
     removeAttribute(k) { delete this.attributes[k]; },
     querySelector(sel) { return null; },
@@ -43,7 +43,9 @@ const document = {
   createElement: (t) => makeEl(t),
   getElementById: (id) => byId[id] || null,
   querySelector: () => null,
-  head: { appendChild: () => {} },
+  // makeEl so injected <style id="we-font-patch"/"we-caret-patch"> elements are
+  // tracked in byId and their textContent is assertable below.
+  head: makeEl("head"),
   body: bodyEl,
 };
 
@@ -167,6 +169,8 @@ setTimeout(() => {
   console.log('--we-blur:', JSON.stringify(p['--we-blur']));
   console.log('--we-wallpaper-blur:', JSON.stringify(p['--we-wallpaper-blur']));
   console.log('--we-wallpaper-scale:', JSON.stringify(p['--we-wallpaper-scale']));
+  console.log('--we-wallpaper-opacity (default 0% → unset):', JSON.stringify(p['--we-wallpaper-opacity']));
+  assert.equal(p['--we-wallpaper-opacity'], undefined, 'wallpaper opacity must stay untouched by default (no identity-opacity compositing layer)');
   console.log('--we-accent:', JSON.stringify(p['--we-accent']));
   console.log('--we-glass-alpha:', JSON.stringify(p['--we-glass-alpha']));
   console.log('--we-glass-color:', JSON.stringify(p['--we-glass-color']));
@@ -298,6 +302,40 @@ setTimeout(() => {
         treeText.includes('字体颜色') && treeText.includes('字重') && (treeText.match(/"aria-label":"字体 /g) || []).length === 7);
       fontSwitch.props.onChange({ target: { checked: false } });
       tree = renderPicker();
+      treeText = JSON.stringify(tree);
+    }
+
+    // ── 输入光标（#83）: caret color swatches live on the font tab and are
+    //    INDEPENDENT of the 字体自定义 master switch (visible while it is off). ──
+    console.log('font tab has 输入光标 section:', treeText.includes('输入光标'));
+    console.log('caret swatches (expect 7: 自动 + 6 presets):', (treeText.match(/"aria-label":"光标颜色 /g) || []).length);
+    console.log('caret custom color input present:', treeText.includes('自定义光标颜色'));
+    const findSwatch = (root, aria) => {
+      let hit = null;
+      (function walk(node) {
+        if (hit || !node || typeof node !== 'object') return;
+        if (Array.isArray(node)) { node.forEach(walk); return; }
+        if (node.props && node.props['aria-label'] === aria) { hit = node; return; }
+        if (Array.isArray(node.children)) node.children.forEach(walk);
+      })(root);
+      return hit;
+    };
+    const caretWhite = findSwatch(tree, '光标颜色 #ffffff');
+    const caretAuto = findSwatch(tree, '光标颜色 自动');
+    console.log('caret 白 preset + 自动 buttons present:', !!caretWhite && !!caretAuto);
+    if (caretWhite && caretAuto) {
+      caretWhite.props.onClick();
+      tree = renderPicker();
+      assert.equal(p['--we-caret-color'], '#ffffff', 'picking a caret color must arm --we-caret-color');
+      const caretSt = document.getElementById('we-caret-patch');
+      console.log('caret style injected with caret-color rule:',
+        !!caretSt && String(caretSt.textContent || '').includes('caret-color: var(--we-caret-color) !important'));
+      assert.ok(caretSt, 'we-caret-patch style element must exist while a caret color is set');
+      caretAuto.props.onClick();
+      tree = renderPicker();
+      assert.equal(p['--we-caret-color'], undefined, '自动 must clear --we-caret-color');
+      assert.equal(document.getElementById('we-caret-patch'), null, '自动 must remove the caret style element');
+      console.log('caret 自动 restores native caret: true');
     }
 
     // ── 吉祥物 tab: rope toggle + form cards (live preview) + size slider. ──
@@ -364,6 +402,21 @@ setTimeout(() => {
     tree = renderPicker();
     console.log('effects tab has empty-state-free sliders:', JSON.stringify(tree).includes('壁纸模糊'));
     console.log('玻璃 slider max (expect 60):', sliderMax(findSliderRow(tree, '玻璃')));
+
+    // ── 壁纸透明度（#82）: slider max 90; 60% → layer opacity 0.4; 0% unsets. ──
+    const wpOpacityRow = findSliderRow(tree, '壁纸透明度');
+    console.log('壁纸透明度 slider max (expect 90):', sliderMax(wpOpacityRow));
+    const wpOpacityInput = findRangeInput(wpOpacityRow);
+    if (wpOpacityInput) {
+      wpOpacityInput.props.onInput({ target: { value: '60' } });
+      tree = renderPicker();
+      assert.equal(p['--we-wallpaper-opacity'], '0.4', '壁纸透明度 60% must drive layer opacity 0.4');
+      const wpReset = findRangeInput(findSliderRow(tree, '壁纸透明度'));
+      if (wpReset) wpReset.props.onInput({ target: { value: '0' } });
+      tree = renderPicker();
+      assert.equal(p['--we-wallpaper-opacity'], undefined, '壁纸透明度 0% must unset the variable (identity opacity)');
+      console.log('壁纸透明度 drives --we-wallpaper-opacity (0.4 @60%, unset @0%): true');
+    }
 
     // ── 壁纸 tab again: modal / pagination / close card / sidebar stays armed.
     setTab('wallpaper');

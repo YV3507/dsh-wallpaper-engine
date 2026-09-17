@@ -68,6 +68,11 @@ const DEFAULTS = {
   backgroundBrightness: 100,
   backgroundContrast: 100,
   backgroundSaturate: 100,
+  // 壁纸透明度（#82，0–90%，0 = 不动）：壁纸层整体的 element opacity，越大越
+  // 透（与本插件其他「透明度」滑块同语义）。淡出时壁纸融向页面底色 —— IDEA
+  // 背景图式「看得见但喧宾不夺主」。作用于 .we-layer 整层，视频/图片/网页/
+  // 画布壁纸统一生效；暗化（scrim）叠在壁纸之上，建议先降到 0 再调本滑块。
+  wallpaperOpacity: 0,
   rotationEnabled: false,
   rotationInterval: 30,
   rotationGroupId: "",
@@ -195,6 +200,11 @@ const DEFAULTS = {
   fontColor: "#000000",
   fontWeight: 400,
   fontFamily: "inherit",
+  // 输入光标颜色（#83，空 = 跟随 dsh 原生）：壁纸透过玻璃输入框直贴光标，
+  // 光标色与壁纸相近时会「隐形」。caret-color 经独立 <style id="we-caret-patch">
+  // 以 !important 注入 textarea / input / contenteditable，与字体自定义
+  // （fontCustom）互不依赖 —— 只想要光标可见时无需打开全局字体染色。
+  caretColor: "",
 };
 
 // Selectable values for the two filters. Declared up top because
@@ -262,6 +272,17 @@ const GLASS_COLOR_PRESETS = [
   "#F1717F", // 珊瑚红
 ];
 
+// 输入光标颜色 presets（#83）：光标要在壁纸/玻璃底上「跳出来」，高对比的
+// 黑白最常用，其余给想让光标带主题色的用户；任意色可用后面的自定义取色器。
+const CARET_COLOR_PRESETS = [
+  "#ffffff", // 白（深色/深色壁纸）
+  "#000000", // 黑（浅色壁纸）
+  "#4f8cff", // 经典蓝（默认 accent）
+  "#67DCE7", // 冰青
+  "#DD8FAC", // 玫瑰粉
+  "#F1717F", // 珊瑚红
+];
+
 // ── Persisted selection ─────────────────────────────────────────────────────
 function clampNum(v, lo, hi, fallback) {
   return typeof v === "number" && v >= lo && v <= hi ? v : fallback;
@@ -305,6 +326,7 @@ function sanitizeSettings(o) {
     backgroundBrightness: clampNum(o.backgroundBrightness, 40, 160, DEFAULTS.backgroundBrightness),
     backgroundContrast: clampNum(o.backgroundContrast, 40, 200, DEFAULTS.backgroundContrast),
     backgroundSaturate: clampNum(o.backgroundSaturate, 0, 200, DEFAULTS.backgroundSaturate),
+    wallpaperOpacity: clampNum(o.wallpaperOpacity, 0, 90, DEFAULTS.wallpaperOpacity),
     rotationEnabled: o.rotationEnabled === true,
     rotationGroupId: typeof o.rotationGroupId === "string" ? o.rotationGroupId : "",
     rotationGroups: readRotationGroups(o.rotationGroups),
@@ -353,6 +375,8 @@ function sanitizeSettings(o) {
       ? o.fontColor : DEFAULTS.fontColor,
     fontWeight: clampNum(o.fontWeight, 100, 900, DEFAULTS.fontWeight),
     fontFamily: FONT_FAMILY_VALUES.includes(o.fontFamily) ? o.fontFamily : DEFAULTS.fontFamily,
+    caretColor: typeof o.caretColor === "string" && /^#[0-9a-f]{6}$/i.test(o.caretColor)
+      ? o.caretColor : DEFAULTS.caretColor,
   };
 }
 
@@ -395,6 +419,19 @@ const selection = {
   // polled from /transcode-progress while "working" (progress bar).
   transcodeProgress: null,
   playing: true,
+  // 真实播放态（#84，transient）: `playing` 是「用户意图」，这里是 <video>
+  // 元素的真实状态。play() 可能被拒（自动播放策略 / 浏览器解不了自上传视频的
+  // 编码 / 被紧接着的 src 切换打断），只信意图的话面板会一直写「播放中」、
+  // 卡片上唯一的按钮是「暂停」—— 壁纸冻在首帧（看上去就是空白）而用户找不到
+  // 「继续」。见 syncVideoState / applyVideoPlayback。
+  videoPlaying: true,
+  // 播放失败原因（#84，transient，"" = 正常）。非空时当前壁纸卡片显示一句
+  // 可读原因，提示用户重试或换编码。
+  videoError: "",
+  // 选择被拒原因（#84，transient）: applySelection 没能应用该 id（被内容分级 /
+  // 类型过滤排除，或文件已消失）。过去是「静默空白」——壁纸层直接消失、播放
+  // 按钮变灰，用户完全不知为何；现在卡片上给出一句可操作的说明。
+  blockedNote: "",
   loading: false,
   rotationTimer: null,
   // Draft of the rotation group currently being created/edited in the picker
@@ -448,6 +485,7 @@ function serializeSelection() {
     backgroundBrightness: selection.backgroundBrightness,
     backgroundContrast: selection.backgroundContrast,
     backgroundSaturate: selection.backgroundSaturate,
+    wallpaperOpacity: selection.wallpaperOpacity,
     rotationEnabled: selection.rotationEnabled,
     rotationGroupId: selection.rotationGroupId,
     rotationGroups: selection.rotationGroups,
@@ -484,6 +522,7 @@ function serializeSelection() {
     fontColor: selection.fontColor,
     fontWeight: selection.fontWeight,
     fontFamily: selection.fontFamily,
+    caretColor: selection.caretColor,
   };
 }
 
@@ -706,7 +745,13 @@ const PG13_RATING_PATTERN = /^(pg13|pg-13|pg ?13|questionable)$/i;
 
 function ratingOf(w) {
   const rating = typeof w.contentrating === "string" ? w.contentrating.trim() : "";
-  if (!rating) return "unrated";
+  // 自上传壁纸没有标注分级时按 Everyone 处理（#84）。用户自己的文件不该被
+  // 默认的「Everyone」过滤挡在门外 —— uploads/.meta.json 从不写 contentrating，
+  // 旧行为把它算成「未分级」，于是默认过滤下所有自上传壁纸既不出现在网格里，
+  // 也无法被选中：上传接口自动应用新 id 时 applySelection 直接拒绝，壁纸层
+  // 空白、播放按钮因 !sel.url 变灰 —— 表现就是「视频壁纸不能播放，也没有
+  // 继续按钮」。显式写了 G / PG13 / R 的照读（#77），成人内容依然会被过滤。
+  if (!rating) return isUploadedWallpaper(w) ? "everyone" : "unrated";
   if (/^(everyone|general|g)$/i.test(rating)) return "everyone";
   if (PG13_RATING_PATTERN.test(rating)) return "pg13";
   if (ADULT_RATING_PATTERN.test(rating)) return "mature";
@@ -738,6 +783,18 @@ function isRotatableWallpaper(w) {
   return isPlayableType(w) && matchesRatingFilter(w) && matchesTypeFilter(w);
 }
 
+// 选择被拒 / 被丢弃时的可读原因（#84）。过去这条路径是「静默空白」：壁纸层
+// 不渲染、播放按钮因 !sel.url 变灰，用户只看到一片空白，既不知道原因也没有
+// 可点的控制（自上传壁纸被默认的内容分级过滤掉时正是如此）。返回 "" 表示
+// 没有可解释的原因（正常应用）。
+function selectionBlockedNote(w) {
+  if (!w) return "当前壁纸已不在列表里（可能已被移除或隐藏）";
+  if (!isPlayableType(w)) return "这张壁纸没有可播放的媒体文件";
+  if (!matchesRatingFilter(w)) return "这张壁纸被「内容分级」过滤排除了 —— 把内容分级切回「全部」即可播放";
+  if (!matchesTypeFilter(w)) return "这张壁纸被「类型」过滤排除了 —— 把类型切回「全部」即可播放";
+  return "";
+}
+
 function playableInventory() {
   return selection.inventory.wallpapers.filter(
     (w) => isRotatableWallpaper(w) && !isHiddenWallpaper(w.id),
@@ -750,7 +807,11 @@ function playableInventory() {
 // selected categories; when rotation is on and nothing matches, pick the next
 // candidate instead of stopping playback.
 function revalidateSelection() {
+  // 被过滤条件丢弃的选择要留下原因（#84）：先取下来，applySelection("") 会清掉
+  // blockedNote，故在其之后写回 —— 否则用户改一次过滤条件，壁纸就无声变空白。
+  let droppedNote = "";
   if (selection.id && !selection.inventory.wallpapers.some((w) => w.id === selection.id && isRotatableWallpaper(w))) {
+    droppedNote = selectionBlockedNote(selection.inventory.wallpapers.find((w) => w.id === selection.id));
     selection.id = "";
     persistSelection();
   }
@@ -764,6 +825,8 @@ function revalidateSelection() {
     if (first) selection.id = first.id;
   }
   applySelection(selection.id);
+  // 仍然没有可播壁纸 → 把被排除的原因显示出来（有轮播接手则不打扰）。
+  if (droppedNote && !selection.id) selection.blockedNote = droppedNote;
   emit();
 }
 
@@ -948,6 +1011,7 @@ function applySelection(id) {
   selection.id = id || "";
   persistSelection();
   if (!selection.id) {
+    selection.blockedNote = "";
     selection.url = null;
     selection.type = null;
     selection.previewUrl = null;
@@ -962,6 +1026,8 @@ function applySelection(id) {
   }
   const w = selection.inventory.wallpapers.find((x) => x.id === selection.id);
   if (!w || !isRotatableWallpaper(w)) {
+    // 被过滤条件排除 / 条目消失时必须留下可读原因（#84），见 selectionBlockedNote。
+    selection.blockedNote = selectionBlockedNote(w);
     selection.url = null;
     selection.type = null;
     selection.previewUrl = null;
@@ -976,6 +1042,7 @@ function applySelection(id) {
   }
   selection.url = w.type === "scene" ? w.frameUrl : w.media;
   selection.type = w.type;
+  selection.blockedNote = "";
   // Scene 壁纸动画化: 先显示静态帧 (frameUrl, 立即), 后台预渲染动画视频
   // (scene-anim 路由 ?fmt=mp4, 首次分钟级) 完成后无缝切换 — video 元素提供
   // 播放/暂停/倍速 控制, 与视频壁纸同款。sceneFrameUrl 供 fpsCap 变更时重渲染。
@@ -1507,6 +1574,93 @@ function isEffectivelyPlaying() {
   return selection.playing && !occlusionActive();
 }
 
+// ── 真实播放态回写（#84）────────────────────────────────────────────────────
+// `selection.playing` 是用户意图；<video> 是否真的在播是另一回事 —— 自动播放
+// 策略可能拒绝、浏览器可能解不了自上传视频的编码（HEVC / 10-bit 等）、play()
+// 也可能被紧接着的 src 切换打断（AbortError）。旧代码把 play() 的 rejection
+// 整个吞掉（.catch(() => {})），意图就永远停在 true：面板写着「播放中」，卡片
+// 上唯一的按钮是「暂停」，而壁纸冻在首帧（看上去就是空白）—— 用户没有任何
+// 「继续」可点。这里把元素的真实状态同步进 store：按钮于是总能回到「播放」
+// （可点的继续），失败时还附带一句原因；播放成功后原因自动清掉。
+function videoPlaybackError(video) {
+  const err = video && video.error;
+  if (!err) return "";
+  // MediaError: 1 ABORTED / 2 NETWORK / 3 DECODE / 4 SRC_NOT_SUPPORTED
+  if (err.code === 4) return "浏览器无法解码这段视频（自上传建议改用 H.264 编码的 MP4）";
+  if (err.code === 3) return "视频解码失败（文件可能已损坏）";
+  if (err.code === 2) return "视频读取失败（文件可能已被移动或删除）";
+  return "视频加载失败";
+}
+// 拒绝的性质（记在元素的 dataset 上）: AbortError = play() 被 pause() / load() /
+// 换源打断，属瞬时失败 —— 媒体就绪后重试即可自愈，不该当「真拒绝」堵住重试。
+// 其余（NotAllowedError / NotSupportedError …）视为真拒绝，等用户显式点「播放」。
+function playRefusalBlocks(video) {
+  const r = video && video.dataset ? video.dataset.wePlayRefused : "";
+  return Boolean(r) && r !== "AbortError";
+}
+// 把元素真实状态写进 store（仅在变化时 emit —— play/pause/error 监听器会在
+// 每次浏览器驱动的状态切换时被调用，不能每次都触发整树重渲染）。
+function syncVideoState(video) {
+  const playing = Boolean(video) && !video.paused && !video.ended && !video.error;
+  // 拒绝原因只在「确实没在播」时报：转码替换 src 打断 play() 会让标记留下，
+  // 而随后 loadedmetadata 里补的 play() 成功时标记没人清 —— 不判 playing 的话
+  // 面板会同时显示「播放中」和「浏览器拒绝了播放请求」。
+  const reason = videoPlaybackError(video)
+    || (!playing && playRefusalBlocks(video) ? "浏览器拒绝了播放请求" : "");
+  if (selection.videoPlaying === playing && selection.videoError === reason) return;
+  selection.videoPlaying = playing;
+  selection.videoError = reason;
+  emit();
+}
+// 每个元素只挂一次状态监听（切壁纸会新建 <video>，故标记挂在元素上）。
+function watchVideoState(video) {
+  if (!video || !video.dataset || video.dataset.weStateWatched === "1") return;
+  video.dataset.weStateWatched = "1";
+  for (const t of ["play", "playing", "pause", "ended", "error", "emptied"]) {
+    try { video.addEventListener(t, () => syncVideoState(video)); } catch { /* ignore */ }
+  }
+  // 媒体就绪后按意图自动补一次播放：play() 最常见的失败是被紧接着的 src 切换
+  // （转码替换 / 换源）打断 —— 那一刻元素已经 paused，用户看到的就是冻在首帧
+  // 的静止画面。就绪事件里重试即可自愈；真的被拒过时由 wePlayRefused 兜底，
+  // 不会无限重试。
+  for (const t of ["loadeddata", "canplay"]) {
+    try { video.addEventListener(t, () => applyVideoPlayback(video)); } catch { /* ignore */ }
+  }
+}
+// 应用期望的播放态，语义是「可重试 + 不说谎」：
+//   * 意图 = 暂停            → pause()；
+//   * 意图 = 播放但没在播    → 再次 play()（幂等；这正是让卡片上的「播放」
+//                              成为真正的重试、而不是一个没反应的按钮）；
+//   * 真拒绝记在元素上        → emit / UI tick 不会无限重试 play()，只有用户
+//                              显式点击「播放」才清掉重来（见 onTogglePlay）；
+//                              AbortError（被换源打断）不算真拒绝，见
+//                              playRefusalBlocks。
+function applyVideoPlayback(video) {
+  if (!video) return;
+  watchVideoState(video);
+  if (!isEffectivelyPlaying()) {
+    try { video.pause(); } catch { /* ignore */ }
+    syncVideoState(video);
+    return;
+  }
+  if (!video.paused && !video.ended && !video.error) { syncVideoState(video); return; }
+  if (playRefusalBlocks(video)) { syncVideoState(video); return; } // 等用户显式重试
+  let p = null;
+  try { p = video.play(); } catch { p = null; }
+  if (!p || typeof p.then !== "function") { syncVideoState(video); return; }
+  p.then(
+    () => {
+      if (video.dataset) delete video.dataset.wePlayRefused;
+      syncVideoState(video);
+    },
+    (err) => {
+      // 浏览器真的拒绝了这个 play()：如实记录性质，等用户重试（不要沉默）。
+      if (video.dataset) video.dataset.wePlayRefused = (err && err.name) || "1";
+      syncVideoState(video);
+    },
+  );
+}
+
 // ── Source metadata + frame-skip transcode (抽帧转码) ────────────────────────
 // The decode-side fps cap (帧率上限) is implemented as a HOST re-encode, NOT as
 // playbackRate: playbackRate is a speed multiplier, so capping decode through
@@ -1810,8 +1964,9 @@ function syncLayers() {
       if (!sameDraw) weStartDraw(canvas, video, canvas.className.indexOf("we-media--fit") !== -1);
     }
     if (video) {
-      if (isEffectivelyPlaying()) { try { video.play().catch(() => {}); } catch {} }
-      else video.pause();
+      // 播放态收敛（#84）：意图 → 元素真实状态，失败时回写 store 让「播放」
+      // 按钮回来（见 applyVideoPlayback）。
+      applyVideoPlayback(video);
       // Keep the rate in sync on every layer sync (covers rate changes while
       // the same wallpaper keeps playing — instant, no media reload).
       try { if (video.playbackRate !== selection.playbackRate) video.playbackRate = selection.playbackRate; } catch { /* ignore */ }
@@ -1820,6 +1975,12 @@ function syncLayers() {
       if (selection.type === "video" && selection.url) {
         maybeUpgradeToTranscoded(video, selection.url.split("/").pop());
       }
+    } else if (selection.videoPlaying === false || selection.videoError) {
+      // 没有 <video>（图片 / 网页 / 静态帧壁纸）: 上一个视频留下的失败态必须
+      // 清掉，否则卡片会继续显示属于上一张壁纸的错误。这里不 emit —— 本次
+      // syncLayers 正是由 emit 驱动的，当前渲染会读到清空后的值。
+      selection.videoPlaying = true;
+      selection.videoError = "";
     }
   } else if (existing) {
     weStopDraw();
@@ -1916,6 +2077,40 @@ function removeFontStyles() {
   if (st) st.remove();
 }
 
+// ── 输入光标颜色注入（#83）──────────────────────────────────────────────────
+// <style id="we-caret-patch"> 把 body 上的 --we-caret-color 应用到所有文本
+// 输入位（textarea / input / contenteditable）。caret-color 可继承，覆盖到
+// contenteditable 的子节点无需逐个枚举；!important 压过宿主可能存在的显式
+// caret-color 声明。只在用户选了颜色时注入 —— 未设置时连规则都不进 DOM，
+// 光标保持 dsh 原生表现（auto 会随主题自动调整，是最不碍事的默认）。
+// 与字体自定义（fontCustom）互不依赖：字体染色关闭时本样式照常生效，反之
+// 字体开启而光标未设置时也不注入（fontCustom 的 color 不写 caret-color，
+// 两者不冲突）。
+function applyCaretStyles() {
+  try {
+    let st = document.getElementById("we-caret-patch");
+    if (!st) {
+      st = document.createElement("style");
+      st.id = "we-caret-patch";
+      (document.head || document.documentElement).appendChild(st);
+    }
+    st.textContent = [
+      'body textarea,',
+      'body input,',
+      'body [contenteditable="true"],',
+      'body [contenteditable="plaintext-only"],',
+      'body [contenteditable=""] {',
+      '  caret-color: var(--we-caret-color) !important;',
+      '}',
+    ].join('\n');
+  } catch { /* ignore */ }
+}
+
+function removeCaretStyles() {
+  const st = document.getElementById("we-caret-patch");
+  if (st) st.remove();
+}
+
 function applyEffects() {
   const s = document.body.style;
   s.setProperty("--we-scrim-color", "rgba(0,0,0," + selection.scrim + ")");
@@ -1958,6 +2153,16 @@ function applyEffects() {
       : "none");
   // Fit mode for the current wallpaper (consumed by .we-media--fit).
   s.setProperty("--we-object-fit", selection.objectFit);
+  // 壁纸透明度（#82）：element opacity 作用于 .we-layer 整层（视频/图片/网页/
+  // 画布统一生效），越大越透 —— 0% 时不设变量，保持 identity opacity（Blink
+  // 对 opacity:1 不建合成层，设置了反而给 kiosk 窗口多一层常驻合成）。
+  // 暗化（scrim）叠在壁纸之上：淡出壁纸时它会同时压暗页面底色，想要 IDEA 式
+  // 「融进底色」的效果，建议把暗化降到 0 后再调本滑块。
+  if (selection.wallpaperOpacity > 0) {
+    s.setProperty("--we-wallpaper-opacity", String((100 - selection.wallpaperOpacity) / 100));
+  } else {
+    s.removeProperty("--we-wallpaper-opacity");
+  }
 
   // Settings-page liquid-glass theming:
   // - --we-accent: plugin-owned accent color; every fallback below that used
@@ -2023,6 +2228,17 @@ function applyEffects() {
     removeFontStyles();
   }
 
+  // 输入光标颜色（#83）：空 = 跟随 dsh 原生（清空变量 + 不注入样式表）；
+  // 选定颜色后经 we-caret-patch 以 !important 覆盖所有文本输入位。与壁纸
+  // 是否启用无关 —— 这是独立的可读性设置，壁纸关掉后依然生效。
+  if (selection.caretColor) {
+    s.setProperty("--we-caret-color", selection.caretColor);
+    applyCaretStyles();
+  } else {
+    s.removeProperty("--we-caret-color");
+    removeCaretStyles();
+  }
+
   // Scrim immediacy: some composited/kiosk environments do not repaint a
   // z-index:-1 layer promptly when only an inherited CSS variable changes.
   // Write the resolved color DIRECTLY onto the scrim element's inline style and
@@ -2054,6 +2270,7 @@ function clearEffects() {
   s.removeProperty("--we-wallpaper-scale");
   s.removeProperty("--we-wallpaper-flip");
   s.removeProperty("--we-object-fit");
+  s.removeProperty("--we-wallpaper-opacity");
   s.removeProperty("--we-accent");
   s.removeProperty("--we-glass-alpha");
   s.removeProperty("--we-glass-color");
@@ -2071,9 +2288,15 @@ function clearEffects() {
   s.removeProperty("--we-font-weight");
   s.removeProperty("--we-font-family");
   removeFontStyles();
+  s.removeProperty("--we-caret-color");
+  removeCaretStyles();
   const scrim = document.getElementById(SCRIM_ID);
   if (scrim) scrim.style.background = "";
   lastScrimCss = "";
+  // 插件卸载（禁用 / HMR）后不该留下上一张壁纸的播放错误 / 被过滤提示（#84）。
+  selection.videoPlaying = true;
+  selection.videoError = "";
+  selection.blockedNote = "";
 }
 
 // ── Picker tabs ─────────────────────────────────────────────────────────────
@@ -2262,7 +2485,30 @@ function WallpaperPicker(props) {
   // copy suppresses its own so two identical modals never stack.
   const isRepoPanelCopy = Boolean(props && props.repoPanel);
   const sel = useStore();
-  const onTogglePlay = () => { selection.playing = !selection.playing; emit(); };
+  // 视频类壁纸（原生视频 + 内嵌 MP4 场景 + scene 动画视频）: 只有它们有
+  // 「真实播放态」的概念。
+  const isVideoLike = sel.type === "video"
+    || (sel.type === "scene" && Boolean(sel.sceneVideo))
+    || (sel.type === "scene" && Boolean(sel.url) && sel.url.indexOf("/scene-anim/") !== -1);
+  // 卡片上显示/按钮用的播放态（#84）: 视频类壁纸以 <video> 元素的真实状态为准。
+  // 意图为「播放」但元素被拒/解码失败时，面板必须说「已暂停」并把按钮显示成
+  // 「播放」，否则用户面对一张冻住的壁纸却只有「暂停」可点 —— 没有「继续」。
+  const playbackLive = isVideoLike ? sel.videoPlaying : sel.playing;
+  // 播放/暂停（#84）: 意图 =「播放」但元素并没有真的在播时（被拒 / 解码失败 /
+  // 被浏览器暂停），点击必须【重试播放】而不是把意图翻成 false —— 否则这个
+  // 按钮在冻住状态下等于没反应，用户没有可用的「继续」。
+  const onTogglePlay = () => {
+    if (selection.playing && isVideoLike && !selection.videoPlaying) {
+      const layer = document.getElementById(LAYER_ID);
+      const v = layer && layer.querySelector("video");
+      if (v && v.dataset) delete v.dataset.wePlayRefused; // 清掉拒绝标记才能重试
+      selection.videoError = "";
+      emit(); // syncLayers → applyVideoPlayback 会重新 play()
+      return;
+    }
+    selection.playing = !selection.playing;
+    emit();
+  };
   const onClear = () => applySelection("");
   const onRefresh = () => loadInventory();
   // Filter changes: persist + re-validate so wallpapers outside the selected
@@ -2345,6 +2591,11 @@ function WallpaperPicker(props) {
   // CSS vars synchronously AND re-renders the numeric readouts in one pass.
   // (Calling applyEffects directly here too used to double-apply every tick.)
   const onScrim = (pct) => { selection.scrim = pct / 100; persistSelection(); emit(); };
+  // 壁纸透明度（#82）：存 %（0–90），applyEffects 换算成 element opacity。
+  const onWallpaperOpacity = (pct) => {
+    selection.wallpaperOpacity = clampNum(pct, 0, 90, DEFAULTS.wallpaperOpacity);
+    persistSelection(); emit();
+  };
   const onBorder = (pct) => { selection.border = pct / 100; persistSelection(); emit(); };
   const onBlur = (px) => { selection.blur = px; persistSelection(); emit(); };
   const onWallpaperBlur = (px) => { selection.wallpaperBlur = px; persistSelection(); emit(); };
@@ -2431,6 +2682,17 @@ function WallpaperPicker(props) {
   const onFontFamily = (family) => {
     if (!FONT_FAMILY_VALUES.includes(family)) return;
     selection.fontFamily = family;
+    persistSelection(); applyEffects(); emit();
+  };
+  // 输入光标颜色（#83）："" = 跟随 dsh 原生（自动档），hex = 立即注入并持久化。
+  const onCaretColor = (hex) => {
+    if (hex === "") {
+      selection.caretColor = "";
+      persistSelection(); applyEffects(); emit();
+      return;
+    }
+    if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
+    selection.caretColor = hex;
     persistSelection(); applyEffects(); emit();
   };
 
@@ -2568,15 +2830,21 @@ function WallpaperPicker(props) {
         React.createElement("div", { className: "we-picker__current" },
           React.createElement(VinylRecord, {
             cover: current && current.preview, title: current ? current.title : "",
-            playing: sel.playing && Boolean(sel.url),
+            playing: playbackLive && Boolean(sel.url),
           }),
           React.createElement("div", { className: "we-picker__current-info" },
             React.createElement("div", { className: "we-picker__current-title", title: current ? current.title : "" },
               sel.id && current ? current.title : "未选择壁纸"),
             React.createElement("div", { className: "we-picker__current-meta" },
               current
-                ? ({ video: "视频壁纸", web: "网页壁纸", image: "图片壁纸", scene: "场景壁纸（静态帧）" }[current.type] || "壁纸") + (sel.playing ? " · 播放中" : " · 已暂停")
+                ? ({ video: "视频壁纸", web: "网页壁纸", image: "图片壁纸", scene: "场景壁纸（静态帧）" }[current.type] || "壁纸") + (playbackLive ? " · 播放中" : " · 已暂停")
                 : "尚未选择壁纸"),
+            // 播放失败原因（#84）: 浏览器解不了的编码 / 解码失败等，过去是
+            // 「静默空白」，现在给出可读原因，配合下面的「播放」按钮重试。
+            sel.videoError && React.createElement("div", { className: "we-picker__current-error" }, sel.videoError),
+            // 选择被过滤条件排除（#84）: 过去壁纸层直接空白、按钮变灰且无任何
+            // 说明，现在明确指出是哪一项过滤挡住了、怎么恢复。
+            sel.blockedNote && React.createElement("div", { className: "we-picker__current-error" }, sel.blockedNote),
           ),
           React.createElement("button", {
             className: "we-picker__btn we-picker__btn--primary", type: "button",
@@ -2595,7 +2863,8 @@ function WallpaperPicker(props) {
           React.createElement("button", {
             className: "we-picker__btn", type: "button",
             onClick: onTogglePlay, disabled: !sel.url,
-          }, sel.playing ? "暂停" : "播放"),
+            // 按钮显示真实状态（#84）: 播放失败时回到「播放」，就是用户要的「继续」。
+          }, playbackLive ? "暂停" : "播放"),
           React.createElement("button", {
             className: "we-picker__btn", type: "button",
             onClick: onClear, disabled: !sel.id,
@@ -2980,6 +3249,26 @@ function WallpaperPicker(props) {
           ),
         ),
       ),
+      // ── 输入光标（#83）：光标色与壁纸相近时会隐形，这里给它一个独立于字体
+      //    自定义的颜色项。「自动」= 不注入任何规则，跟随 dsh 原生表现。
+      React.createElement("div", { className: "we-picker__section" },
+        React.createElement("div", { className: "we-picker__section-head" },
+          React.createElement("span", { className: "we-picker__section-label" }, "输入光标"),
+        ),
+        swatchRow("光标颜色", CARET_COLOR_PRESETS, sel.caretColor, onCaretColor, {
+          key: "caret-color",
+          hint: "输入框光标看不清时换个颜色",
+          auto: React.createElement("button", {
+            key: "auto",
+            className: "we-picker__swatch we-picker__swatch--auto" + (sel.caretColor === "" ? " we-picker__swatch--active" : ""),
+            type: "button",
+            title: "跟随 dsh 原生光标颜色",
+            onClick: () => onCaretColor(""),
+            "aria-label": "光标颜色 自动",
+          }, "自动"),
+          colorValue: sel.caretColor || "#4f8cff",
+        }),
+      ),
     );
   }
 
@@ -3056,6 +3345,10 @@ function WallpaperPicker(props) {
         SliderRow("亮度", 40, 160, 5, sel.backgroundBrightness, onBackgroundBrightness, sel.backgroundBrightness + "%"),
         SliderRow("对比度", 40, 200, 5, sel.backgroundContrast, onBackgroundContrast, sel.backgroundContrast + "%"),
         SliderRow("饱和度", 0, 200, 5, sel.backgroundSaturate, onBackgroundSaturate, sel.backgroundSaturate + "%"),
+        // 壁纸透明度（#82）：越大越透，淡出后壁纸融向页面底色（IDEA 背景图式）。
+        // 与暗化互补 —— 一个减淡壁纸本身，一个压暗整体画面；上限 90% 避免调到
+        // 「壁纸完全不可见但暗化还在」的诡异状态（想关壁纸直接关掉即可）。
+        SliderRow("壁纸透明度", 0, 90, 5, sel.wallpaperOpacity, onWallpaperOpacity, sel.wallpaperOpacity + "%"),
         SliderRow("暗化", 0, 90, 5, Math.round(sel.scrim * 100), onScrim, Math.round(sel.scrim * 100) + "%"),
         SliderRow("边框", 0, 90, 5, Math.round(sel.border * 100), onBorder, Math.round(sel.border * 100) + "%"),
         SliderRow("玻璃", 0, 60, 1, sel.blur, onBlur, sel.blur + "px"),
@@ -3380,7 +3673,7 @@ function WallpaperPicker(props) {
             React.createElement("div", { className: "we-picker__modal-head-left" },
               React.createElement(VinylRecord, {
                 cover: current && current.preview, title: current ? current.title : "",
-                playing: sel.playing && Boolean(sel.url), sm: true,
+                playing: playbackLive && Boolean(sel.url), sm: true,
               }),
               React.createElement("span", { className: "we-picker__modal-title" }, "选择壁纸"),
             ),
@@ -3984,8 +4277,11 @@ function UpdateNotice() {
 
 // ── Styles ──────────────────────────────────────────────────────────────────
 const CSS = `
-  /* Wallpaper layer: a fixed child of <body>, sunk BELOW the app frame. */
-  .we-layer { position: fixed; inset: 0; z-index: -2; overflow: hidden; pointer-events: none; }
+  /* Wallpaper layer: a fixed child of <body>, sunk BELOW the app frame.
+     壁纸透明度（#82）走整层 element opacity —— 对 <video>/<img>/<iframe>/canvas
+     四类媒体统一生效，也无需逐媒体处理 fit/transform 的相互作用；变量缺省 1
+     （opacity:1 不产生合成层，见 applyEffects）。 */
+  .we-layer { position: fixed; inset: 0; z-index: -2; overflow: hidden; pointer-events: none; opacity: var(--we-wallpaper-opacity, 1); }
   /* Blurring via CSS filter darkens/thins the edges, so the layer is scaled up
      (--we-wallpaper-scale tracks blur) to hide the transparent fringe the blur
      would otherwise reveal at the viewport edges. */
@@ -4732,6 +5028,9 @@ const CSS = `
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .we-picker__current-meta { font-size: 0.75em; opacity: 0.55; margin-top: 2px; }
+  /* 播放失败 / 选择被过滤排除的原因（#84）: 紧跟在 meta 行下的一句可读说明，
+     过去这两种情况都表现为「壁纸一片空白且无从下手」，故必须可见但克制。 */
+  .we-picker__current-error { font-size: 0.75em; opacity: 0.9; margin-top: 2px; color: #e5534b; }
 
   /* Primary action (选择壁纸): the ONE solid-accent control per view — accent
      is reserved for primary action + selection states, never decoration. */

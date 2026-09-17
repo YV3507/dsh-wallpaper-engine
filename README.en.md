@@ -29,6 +29,9 @@ It discovers the Wallpaper Engine install on your machine, lists its wallpapers,
 - **Decode frame-rate cap (frame-skip transcode)** — high-fps sources (e.g. 4K120 H.264) are the dominant GPU cost (~60% Video Decode at 1.0x on a 4060). The **帧率上限** control (unlimited / 60 / 48 / 30 / 24 fps) has the host re-encode the wallpaper ONCE to the capped fps (timeline stays 1.0x normal speed, fully decoupled from 倍速) as **4K-preserving AV1**, with a **live download/transcode progress bar**; measured 4K120→24fps drops GPU from ~60% to **~15%**. ffmpeg is provisioned in three tiers: explicit path → **auto-download** (npmmirror + GitHub dual-source race, cross-platform asset table verified) → system PATH.
 - **Wallpaper-effect tuning sliders** (v0.6.x) — the **壁纸效果** area gains three new sliders: **亮度 / 对比度 / 饱和度** (wallpaper media filter), alongside wallpaper blur / scrim etc., so any wallpaper can be blended comfortably with the UI. All apply instantly and persist.
 - **Custom typography** (v0.6.7) — a new **字体** section in settings. The master switch defaults to off (stock dsh look); once enabled you can tune **font color / weight (100–900) / family** (default · YaHei · KaiTi · SimSun · SimHei · 行楷 Xingkai · monospace, each chip previewed in its own font). Error/danger/warning text keeps its system red; toggling the switch off restores defaults in one click.
+- **Wallpaper opacity** ([#82](https://github.com/elysia395/dsh-wallpaper-engine/issues/82)) — a new **壁纸透明度** slider in the effects tab (0–90 %, higher = more transparent): fades the whole wallpaper layer toward the page base colour — the IDEA background-image style of "visible but not overpowering". Complements the scrim, keeping text readable.
+- **Input caret color** ([#83](https://github.com/elysia395/dsh-wallpaper-engine/issues/83)) — a new **输入光标** section on the typography tab: when the caret is hard to see against the wallpaper, pick a high-contrast color from 6 presets or the custom picker (or **自动** to restore the native dsh caret). Applies to every text input and editable area, independent of the typography master switch.
+- **Custom uploads usable + honest playback state** ([#84](https://github.com/elysia395/dsh-wallpaper-engine/issues/84)) — fixes "my uploaded video wallpaper is blank and there is no resume button": ① `uploads/.meta.json` never records a `contentrating`, so uploads used to read as **unrated** while the rating filter defaults to **Everyone** — every custom upload was filtered out by default (absent from the grid, and rejected when the upload flow auto-applied it → blank wallpaper layer + a disabled 播放 button). An upload without a rating now counts as **Everyone**, so your own files work out of the box, while an explicit G / PG13 / R tag still filters normally. ② A refused `video.play()` (autoplay policy, a codec the browser cannot decode such as HEVC/10-bit, or a play() interrupted by the next src swap) used to be swallowed silently: the panel kept saying 「播放中」 and the only control was 「暂停」 — a wallpaper frozen on its first frame with no way to resume. The control now reflects the `<video>` element's REAL state, so it returns to 「播放」 (a working retry) with a readable reason, e.g. "cannot decode this video — use H.264", and it re-issues play() automatically once the media becomes ready (an aborted play() is the most common cause of a frozen wallpaper). ③ A wallpaper dropped by a filter now says which filter excluded it instead of leaving an unexplained blank.
 
 ![Main interface showcase](docs/images/main-interface.gif)
 
@@ -321,9 +324,9 @@ the 3–8 controls that belong there instead of a thirty-item single column:
 |---|---|
 | **壁纸** (wallpaper, default) | current-wallpaper card (vinyl + picker + pause/close/refresh), auto-rotation, custom wallpapers |
 | **外观** (appearance) | accent, glass color, glass transparency, settings-window glass, sidebar glass & content surface |
-| **字体** (typography) | master switch + color / weight / family |
+| **字体** (typography) | master switch + color / weight / family, input caret color |
 | **吉祥物** (mascot) | visibility switch, form cards (artwork doubles as a live preview), size slider |
-| **效果** (effects) | wallpaper blur / brightness / contrast / saturate / scrim / border / glass, playback speed, fps cap, fit, flip, occlusion pause (an empty state guides you to pick a wallpaper first) |
+| **效果** (effects) | wallpaper blur / brightness / contrast / saturate / wallpaper opacity / scrim / border / glass, playback speed, fps cap, fit, flip, occlusion pause (an empty state guides you to pick a wallpaper first) |
 | **高级** (advanced) | compact layout, Edge compatibility |
 
 The pill indicator slides between tabs; the settings page and the drawer keep
@@ -343,8 +346,11 @@ reproduce Wallpaper Engine's own categorisation:
   (WE wallpapers: `project.json`; custom uploads: `uploads/.meta.json`; the
   field mirrors WE's workshop tags G / PG13 / R): **全部** (all) /
   **Everyone (G, default)** / **PG13** (parental guidance) / **Mature (R)** /
-  **未分级** (unrated — wallpapers without the field, typically local projects;
-  custom uploads without a rating stay in this bucket too).
+  **未分级** (unrated — wallpapers without the field, typically local projects).
+  An upload without a rating counts as **Everyone**
+  ([#84](https://github.com/elysia395/dsh-wallpaper-engine/issues/84): the
+  default filter would otherwise hide the user's own files entirely — absent
+  from the grid and impossible to select).
 - **类型** (type) — filters by the embeddable type: **全部** (all) / **视频**
   (video) / **网页** (web) / **图片** (image, custom uploads).
 
@@ -482,9 +488,27 @@ The **字体** (typography) tab holds the dedicated typography section. The **ma
 
 > Each **字体** chip renders in its own font (WYSIWYG preview); 行楷 maps to `STXingkai` (falls back to KaiTi when not installed, `Xingkai SC` on macOS). Error / danger / warning elements keep their system red color — global tinting never overrides them.
 
-### The seven sliders
+### Input caret color
 
-The **效果** (effects) tab — available while a wallpaper is active — offers seven sliders to tune how it blends with the UI:
+The text caret takes its color from the dsh theme, while the wallpaper shows
+straight through the liquid-glass composer behind it — when the two colors are
+close, the caret becomes invisible ([#83](https://github.com/elysia395/dsh-wallpaper-engine/issues/83)).
+The **输入光标** section on the typography tab gives the caret its own color control:
+
+| Option | What it does |
+|---|---|
+| **自动** (auto) | Injects nothing — the caret keeps the native dsh behavior (default) |
+| **6 preset colors** | white / black / classic blue / ice cyan / rose pink / coral red — black & white give the strongest contrast on light / dark wallpapers |
+| **Custom picker** | any color |
+
+Once picked, the color is applied via `caret-color` to **every** text input
+(inputs, textareas, editable areas), instantly and persistently; it is
+independent of the **字体自定义** master switch — you do not need to turn on
+global font tinting just to make the caret visible.
+
+### The eight sliders
+
+The **效果** (effects) tab — available while a wallpaper is active — offers eight sliders to tune how it blends with the UI:
 
 | Slider | What it controls | Range | Default |
 |---|---|---|---|
@@ -492,6 +516,7 @@ The **效果** (effects) tab — available while a wallpaper is active — offer
 | **亮度** (brightness) | Wallpaper brightness (media filter) | 40–160 % | 100 % |
 | **对比度** (contrast) | Wallpaper contrast (media filter) | 40–200 % | 100 % |
 | **饱和度** (saturate) | Wallpaper saturation (media filter) | 0–200 % | 100 % |
+| **壁纸透明度** (wallpaper opacity) | Transparency of the whole wallpaper layer (higher = more transparent): fading it out blends the wallpaper into the page base colour — the IDEA background-image style of "visible but not overpowering". Complements **暗化** (scrim): one fades the wallpaper itself, the other darkens the whole picture; for the blend-into-base look, combine higher opacity with a lower scrim | 0–90 % | 0 % |
 | **暗化** (scrim) | Darkens the overlay between wallpaper and text | 0–90 % | 25 % |
 | **边框** (border) | Raises border/divider contrast | 0–90 % | 35 % |
 | **玻璃** (glass) | Blur radius of the frosted-glass panels (composer, bubbles) | 0–60 px | 16 |
@@ -501,8 +526,9 @@ The **效果** (effects) tab — available while a wallpaper is active — offer
 > **light** and **dark** to find which suits the current wallpaper. If text or
 > hairlines become hard to read on a bright or busy wallpaper, raise the
 > **暗化 / 边框** sliders, or use **亮度** to tame an overly bright wallpaper
-> (and optionally add a little **壁纸模糊**) until it is comfortable. All seven
-> sliders apply instantly — no page refresh needed.
+> (and optionally add a little **壁纸模糊**) until it is comfortable; if the
+> wallpaper is too loud instead, raise **壁纸透明度** to let it recede into the
+> base colour. All eight sliders apply instantly — no page refresh needed.
 
 ## Configuration
 
