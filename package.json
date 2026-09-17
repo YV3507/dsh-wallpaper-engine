@@ -93,5 +93,8 @@
   "dependencies": {
     "jpeg-js": "^0.4.4",
     "@shaderfrog/glsl-parser": "^7.0.1"
+  },
+  "overrides": {
+    "js-yaml": "4.3.2"
   }
 }
