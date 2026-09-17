@@ -384,8 +384,11 @@ async function runHandler(route, url) {
   const done = route.handler(fakeReq(url), res);
   if (done && typeof done.then === 'function') await done;
   if (!res.__state.ended) {
+    // 3840×2160 全场景渲染 (worker + 全分辨率效果) 冷缓存实测 20-30s — 8s 会超时
+    // 并误报 0B。放宽到 90s。(移植自 fork 2081b4b 线的等待预算; 缓存前缀断言仍
+    // 保留本线更严格的写法 — 本仓库 PIPELINE_VERSION 为 sf35a。)
     await new Promise((resolveFn) => {
-      const t = setTimeout(resolveFn, 8000);
+      const t = setTimeout(resolveFn, 90000);
       res.on('finish', () => { clearTimeout(t); resolveFn(); });
     });
   }

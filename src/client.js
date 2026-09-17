@@ -93,10 +93,17 @@ const DEFAULTS = {
   // (0-100; 后台渲染 scene-anim 视频期间轮询, 完成置 null)。
   sceneFrameUrl: null,
   sceneAnimProgress: null,
+  // 场景动画循环标志 (服务端 X-WE-Scene-Loop): true=有循环动画(视频循环) /
+  // false=全 single 动画(播完保持, 防动画重播闪现); 默认 true (未获取前循环)
+  sceneAnimLoop: true,
   // beta场景动画: 默认关闭 — 关闭时 scene 壁纸只渲染静态帧 (稳定), 不启动
   // scene-anim 视频后台渲染; 开启后才走动画化升级 (CPU 渲染试验性, 可能有
   // 组件错误), 渲染期间进度条 + 完成自动切换视频。
   betaSceneAnim: false,
+  // GPU 渲染加速 (附属 beta场景动画): 测试中功能, 默认关闭 — 仅当 beta场景
+  // 动画开启时显示/可用 (不渲染动画即不使用测试中功能); 开启后静态帧与
+  // 动画帧都走 GPU (x64 + supreium-headless-gl, 失败自动回退 CPU)。
+  sceneGpuAccel: false,
   // 遮挡暂停（借鉴 Wallpaper Engine 的「被遮挡时暂停」——桌面端大部分时间
   // GPU≈0 主因就是它）：
   // - pauseOnHidden：页面隐藏（窗口最小化 / 切到其它标签页）时暂停视频。
@@ -330,6 +337,8 @@ function sanitizeSettings(o) {
     playbackRate: clampNum(o.playbackRate, 0.5, 2, DEFAULTS.playbackRate),
     fpsCap: FPS_CAP_VALUES.includes(o.fpsCap) ? o.fpsCap : DEFAULTS.fpsCap,
     betaSceneAnim: o.betaSceneAnim === true,
+    // GPU 加速仅当 beta 场景动画开启时有效 (测试中功能; 附属 beta 开关)
+    sceneGpuAccel: o.sceneGpuAccel === true && o.betaSceneAnim === true,
     pauseOnHidden: o.pauseOnHidden !== false,
     pauseOnBlur: o.pauseOnBlur === true,
     pauseOnBattery: o.pauseOnBattery === true,
@@ -485,6 +494,7 @@ function serializeSelection() {
     playbackRate: selection.playbackRate,
     fpsCap: selection.fpsCap,
     betaSceneAnim: selection.betaSceneAnim,
+    sceneGpuAccel: selection.sceneGpuAccel,
     pauseOnHidden: selection.pauseOnHidden,
     pauseOnBlur: selection.pauseOnBlur,
     pauseOnBattery: selection.pauseOnBattery,
@@ -567,16 +577,16 @@ function schedulePersist() {
 
 // Flush a pending write when the page goes away (tab close / navigate), and
 // retry a failed PUT when the page becomes visible again.
-if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
-  window.addEventListener("pagehide", () => {
-    if (persistTimer && typeof window.clearTimeout === "function") {
-      window.clearTimeout(persistTimer);
-      flushPersist();
-    }
-  });
-  document.addEventListener("visibilitychange", () => {
-    if (!document.hidden && persistDirty && !persistTimer) schedulePersist();
-  });
+// 监听器改为具名函数, 由 apply 的 ctx.effect 注册/注销: 模块作用域注册的监听器
+// 每次 client-plugin 重载/HMR 重新求值 bundle 都会再叠一对, 且永远无法移除。
+function onPageHideFlush() {
+  if (persistTimer && typeof window.clearTimeout === "function") {
+    window.clearTimeout(persistTimer);
+    flushPersist();
+  }
+}
+function onVisibilityResyncPersist() {
+  if (!document.hidden && persistDirty && !persistTimer) schedulePersist();
 }
 
 function persistSelection() {
@@ -1041,7 +1051,12 @@ function applySelection(id) {
   // as a hardware-decoded <video>; scenes without one stay on the static frame.
   // 有内嵌 MP4 (sceneVideo) 的场景直接用硬件解码播放 — 不再触发 CPU scene-anim
   // 升级 (避免重复动画 + 浪费 CPU, 且 scene-anim 完成后会覆盖 sceneVideo)。
-  selection.sceneVideo = w.type === "scene" ? (w.sceneVideo || null) : null;
+  // ── 但 beta 场景动画开启时 (用户显式选择实验性完整渲染引擎), sceneVideo
+  //    快路径被绕过: 它是"视频纹理"的 MP4 提取, 丢失场景其他动画 (粒子/骨骼/
+  //    效果); beta + GPU 应走 scene-anim 完整渲染 (含 GPU 加速)。sceneVideo
+  //    仅作为 beta 关闭时的快路径保留。
+  selection.sceneVideo = (w.type === "scene" && selection.betaSceneAnim !== true)
+    ? (w.sceneVideo || null) : null;
   if (w.type === "scene" && w.frameUrl && !selection.sceneVideo) queueSceneAnimUpgrade(w.frameUrl);
   // Keep the preview around so a failed static frame can fall back to it.
   selection.previewUrl = w.preview || null;
@@ -1313,12 +1328,15 @@ function cancelSceneAnimUpgrade() {
   const u = sceneAnimUpgrade;
   sceneAnimUpgrade = null;
   if (!u) return;
+  if (u.delayTimer) { clearTimeout(u.delayTimer); u.delayTimer = null; }
+  u.cancelled = true; // 延迟期 timer 触发时 startUpgrade 检查此标志
   if (u.pollTimer) { clearInterval(u.pollTimer); }
   if (u.maxWait) { clearTimeout(u.maxWait); }
   if (u.probe) {
     // 清 src 触发浏览器 abort 下载 → 服务端 res close → 渲染任务取消
     try { u.probe.removeAttribute("src"); u.probe.load(); } catch { /* ignore */ }
     try { u.probe.remove(); } catch { /* ignore */ }
+    u.probe = null; // 防重复 teardown (快路径 stopPoll 可能已经清理过同一个 probe)
   }
   if (selection.sceneAnimProgress != null) selection.sceneAnimProgress = null;
 }
@@ -1329,8 +1347,9 @@ function queueSceneAnimUpgrade(frameUrl) {
   if (selection.betaSceneAnim !== true) return;
   // fps 取帧率上限 (fpsCap>0 时重渲染对应帧率, 与视频抽帧同款语义)
   const fps = selection.fpsCap > 0 ? Math.min(30, Math.max(2, selection.fpsCap)) : 12;
-  // 分辨率按屏幕 + devicePixelRatio (上限 1920×1080, CPU 渲染成本受限) —
-  // 提高分辨率避免动画放大模糊 (对比静态帧 3840 全分辨率)
+  // 分辨率按屏幕 + devicePixelRatio (上限 1920×1080 — PNG 帧序列管线 sf41h:
+  // 渲染每帧为独立无损 PNG, ffmpeg 直读帧目录合成视频, 无 APNG 数百 MB 限制
+  // → 动画预览恢复全分辨率, 不再降级 720p, 最终成品画质零损失)
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const vw = Math.min(1920, Math.max(320, Math.round((window.innerWidth || 1920) * dpr)));
   const vh = Math.min(1080, Math.max(180, Math.round((window.innerHeight || 1080) * dpr)));
@@ -1339,59 +1358,119 @@ function queueSceneAnimUpgrade(frameUrl) {
   // 渲染进度轮询 (首次分钟级; 缓存命中时第一次轮询即 100)
   const token = frameUrl.split("/").pop();
   const progUrl = "/wallpaper-engine/scene-anim-progress/" + token + q;
-  selection.sceneAnimProgress = 0;
-  emit(); // 立即反映新进度 (fpsCap 变更路径的调用方 emit 在前, 这里补一次)
-  let pollTimer = null, maxWait = null;
-  const stopPoll = () => {
-    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-    if (maxWait) { clearTimeout(maxWait); maxWait = null; }
-    if (sceneAnimUpgrade && sceneAnimUpgrade.pollTimer === pollTimer) sceneAnimUpgrade = null;
-    if (selection.sceneAnimProgress != null) { selection.sceneAnimProgress = null; emit(); }
-  };
-  // 渲染完成切换的主动路径: 轮询到 100% 直接切换 — 不依赖 probe 的
-  // onloadeddata (渲染分钟级时浏览器 video 请求长时间挂起, onloadeddata
-  // 可能不触发/被中断 → 之前"渲染后仍显示静态帧")。
-  const trySwitch = () => {
-    if (selection.url && selection.url === frameUrl) {
-      selection.url = animUrl;
-      syncLayers();
-    }
-  };
-  pollTimer = setInterval(async () => {
-    try {
-      const r = await fetch(progUrl, { cache: "no-store" });
-      const j = await r.json();
-      const pct = Number(j && j.percent);
-      selection.sceneAnimProgress = Number.isFinite(pct) ? pct : 100;
-      emit();
-      if (pct >= 100) {
-        clearInterval(pollTimer);
-        if (maxWait) { clearTimeout(maxWait); maxWait = null; }
-        trySwitch();
-        if (selection.sceneAnimProgress != null) { selection.sceneAnimProgress = null; emit(); }
+  // sf41j 启动延迟: DSH 启动后 1 分钟内是宿主初始化窗口 (LLM/会话/网络加载),
+  // 首次输入卡顿与插件 GPU 渲染叠加 (GLSL 编译/纹理上传的驱动锁)。缓存命中
+  // (percent 100) 立即升级 (无渲染); 否则延迟 ~60s 再启动渲染, 让初始化窗口
+  // 独占资源。beta 关闭时本函数提前 return — 该开关不影响 scene-frame 首帧。
+  const startUpgrade = () => {
+    if (sceneAnimUpgrade !== u) return; // 已取消 (null) 或已被替换
+    selection.sceneAnimProgress = 0;
+    emit(); // 立即反映新进度 (fpsCap 变更路径的调用方 emit 在前, 这里补一次)
+    let pollTimer = null, maxWait = null;
+    // probe 清理 (幂等): 快路径 onloadeddata 也要走这里。之前只把 sceneAnimUpgrade
+    // 置 null, 唯一的清理点 cancelSceneAnimUpgrade 就再也找不到这个 probe —
+    // 一个 <video preload="auto"> 永久留在文档里, 每次切壁纸泄漏一个。
+    let probeTornDown = false;
+    const teardownProbe = () => {
+      if (probeTornDown) return;
+      probeTornDown = true;
+      try { probe.pause(); } catch { /* ignore */ }
+      try { probe.removeAttribute("src"); probe.load(); } catch { /* ignore */ }
+      try { probe.remove(); } catch { /* ignore */ }
+      // 清掉状态里的引用, cancelSceneAnimUpgrade 之后就会跳过它 (不重复拆)
+      if (sceneAnimUpgrade && sceneAnimUpgrade.probe === probe) sceneAnimUpgrade.probe = null;
+    };
+    const stopPoll = () => {
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      if (maxWait) { clearTimeout(maxWait); maxWait = null; }
+      teardownProbe(); // 快路径完成后必须自己拆 probe (引用随即被置 null)
+      if (sceneAnimUpgrade && sceneAnimUpgrade.pollTimer === pollTimer) sceneAnimUpgrade = null;
+      if (selection.sceneAnimProgress != null) { selection.sceneAnimProgress = null; emit(); }
+    };
+    // 渲染完成切换的主动路径: 轮询到 100% 直接切换 — 不依赖 probe 的
+    // onloadeddata (渲染分钟级时浏览器 video 请求长时间挂起, onloadeddata
+    // 可能不触发/被中断 → 之前"渲染后仍显示静态帧")。
+    const trySwitch = () => {
+      // 静态帧 URL 可能带 gpu 刷新参数 (GPU 开关重取: ?gpu=0/1) — 去参数后与
+      // frameUrl 比较, 避免 GPU 开关后动画完成不切换。
+      const cur = selection.url || "";
+      const curBase = cur.split("?")[0];
+      if (curBase === frameUrl.split("?")[0]) {
+        selection.url = animUrl;
+        syncLayers();
       }
-    } catch { /* 网络错误: 保持上次进度 */ }
-  }, 1500);
-  // 渲染超时兜底: 8 分钟未完成 → 停止轮询 (进度条消失, 保持静态帧)
-  maxWait = setTimeout(() => {
-    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-    if (selection.sceneAnimProgress != null) { selection.sceneAnimProgress = null; emit(); }
-  }, 8 * 60 * 1000);
-  // probe video: 触发服务端渲染 (probe.src 请求)。必须挂 DOM + load(),
-  // detached video 设 src 不保证加载 → onloadeddata 不触发 (静止根因)。
-  // onloadeddata 是快路径 (渲染快时提前切换); 慢渲染由轮询 100% 兜底。
-  const probe = document.createElement("video");
-  probe.muted = true;
-  probe.preload = "auto";
-  probe.style.cssText = "position:absolute;left:-100000px;top:0;width:1px;height:1px;opacity:0;pointer-events:none;";
-  probe.onloadeddata = () => {
-    trySwitch();
-    stopPoll();
+    };
+    // 读取服务端场景循环标志 (X-WE-Scene-Loop): 1=有循环动画(视频循环) /
+    // 0=全 single 动画(播完保持, 防视频循环导致动画重播闪现 — 官方 g_Time 连续)
+    const fetchLoopFlag = async () => {
+      try {
+        // 从 progress 端点读 X-WE-Scene-Loop (无渲染触发, 与轮询同源)
+        const r = await fetch(progUrl, { cache: "no-store" });
+        const flag = r.headers.get("X-WE-Scene-Loop");
+        if (flag !== null) {
+          const loop = flag === "1";
+          if (selection.sceneAnimLoop !== loop) {
+            selection.sceneAnimLoop = loop;
+            // 若已切换到动画且 loop 状态变化 → 重建 media 应用新的循环设置
+            if (selection.url === animUrl) { try { syncLayers(); } catch { /* ignore */ } }
+          }
+        }
+      } catch { /* 保持默认循环 */ }
+    };
+    let pollPending = false; // 上一 tick 未返回 → 跳过本次 (宿主饱和时避免 fetch 堆积)
+    pollTimer = setInterval(async () => {
+      if (pollPending) return;
+      pollPending = true;
+      try {
+        const r = await fetch(progUrl, { cache: "no-store" });
+        const j = await r.json();
+        const pct = Number(j && j.percent);
+        selection.sceneAnimProgress = Number.isFinite(pct) ? pct : 100;
+        emit();
+        if (pct >= 100) {
+          clearInterval(pollTimer);
+          if (maxWait) { clearTimeout(maxWait); maxWait = null; }
+          trySwitch();
+          if (selection.sceneAnimProgress != null) { selection.sceneAnimProgress = null; emit(); }
+        }
+      } catch { /* 网络错误: 保持上次进度 */ }
+      pollPending = false;
+    }, 1500);
+    // 渲染超时兜底: 15 分钟未完成 → 停止轮询 (进度条消失, 保持静态帧)。
+    // 1080p×240 帧渲染 ~9 分钟 + 帧并行回退 (CPU/显存不足) 可能更久 —
+    // 8 分钟会过早截断轮询 (曾现"进度卡 77% 后跳变完成": 渲染 8.7min > 8min)。
+    maxWait = setTimeout(() => {
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      if (selection.sceneAnimProgress != null) { selection.sceneAnimProgress = null; emit(); }
+    }, 15 * 60 * 1000);
+    // probe video: 触发服务端渲染 (probe.src 请求)。必须挂 DOM + load(),
+    // detached video 设 src 不保证加载 → onloadeddata 不触发 (静止根因)。
+    // onloadeddata 是快路径 (渲染快时提前切换); 慢渲染由轮询 100% 兜底。
+    const probe = document.createElement("video");
+    probe.muted = true;
+    probe.preload = "auto";
+    probe.style.cssText = "position:absolute;left:-100000px;top:0;width:1px;height:1px;opacity:0;pointer-events:none;";
+    probe.onloadeddata = () => {
+      trySwitch();
+      stopPoll();
+    };
+    probe.onerror = () => { /* 渲染慢挂起超时 → 保持轮询, 由进度 100 主动切换 */ };
+    probe.src = animUrl;
+    try { document.body.appendChild(probe); probe.load(); } catch { /* ignore */ }
+    fetchLoopFlag(); // 异步读取场景循环标志 (影响 media.loop)
+    sceneAnimUpgrade = { pollTimer, probe, frameUrl, maxWait };
   };
-  probe.onerror = () => { /* 渲染慢挂起超时 → 保持轮询, 由进度 100 主动切换 */ };
-  probe.src = animUrl;
-  try { document.body.appendChild(probe); probe.load(); } catch { /* ignore */ }
-  sceneAnimUpgrade = { pollTimer, probe, frameUrl, maxWait };
+  // 缓存命中检查 (progress 100 = 已缓存, 无需渲染): 立即升级; 否则 60s 后启动
+  const u = { delayTimer: null, frameUrl, cancelled: false };
+  fetch(progUrl, { cache: "no-store" }).then((r) => r.json()).then((j) => {
+    if (j && Number(j.percent) >= 100) {
+      if (u.delayTimer) clearTimeout(u.delayTimer);
+      startUpgrade();
+    }
+    // 未缓存: 保持延迟 (由下方 timer 启动渲染)
+  }).catch(() => { /* 网络错误: 保持延迟 */ });
+  u.delayTimer = setTimeout(() => startUpgrade(), 60000);
+  sceneAnimUpgrade = u;
 }
 
 function buildMedia(sel) {
@@ -1415,7 +1494,10 @@ function buildMedia(sel) {
   if (sel.type === "video" || isSceneAnim) {
     media.src = sel.url;
     media.autoplay = true;
-    media.loop = true;
+    // scene-anim 循环由服务端判定 (X-WE-Scene-Loop): 无 single 属性动画
+    // (持续运动: 水波/粒子/呼吸) → 循环; 有 single 入场动画 → 播完保持
+    // (防循环点动画重播=闪现)。视频壁纸始终循环 (官方 videoloopmode=default)。
+    media.loop = isSceneAnim ? (sel.sceneAnimLoop !== false) : true;
     media.muted = true;
     media.setAttribute("playsinline", "");
     // Native playbackRate — hardware-decoded, instant, no reload (and the
@@ -1446,10 +1528,21 @@ function buildMedia(sel) {
     media.poster = sel.url;   // frameUrl as poster
     media.className = "we-media" + fitClass;
     // No embedded video (404) or codec failure → degrade to the static frame.
+    // 关键: 该场景实际无内嵌 MP4 (占位 URL 404) → 回退静态帧后补触发
+    // scene-anim 升级 (CPU/GPU 动画渲染 + 进度条)。否则所有无内嵌 MP4 的
+    // 场景 (inventory 恒提供 sceneVideo URL) 永不触发 queueSceneAnimUpgrade
+    // → 无进度条、无动画渲染 (GPU 开关对它们也无效)。
     media.addEventListener("error", () => {
       if (selection.sceneVideo) {
         selection.sceneVideo = null;
-        try { syncLayers(); emit(); } catch { /* ignore */ }
+        // 回退到静态帧; 若 beta 开启 → 触发动画升级 (与 applySelection 同款)
+        const fUrl = selection.sceneFrameUrl;
+        if (selection.type === "scene" && fUrl) {
+          try { syncLayers(); } catch { /* ignore */ }
+          if (selection.betaSceneAnim === true) queueSceneAnimUpgrade(fUrl);
+        } else {
+          try { syncLayers(); emit(); } catch { /* ignore */ }
+        }
       }
     });
   } else if (isStill) {
@@ -1601,15 +1694,25 @@ let mediaInfoToken = "";
 // come back with fps ≤ cap (no transcode needed). Without this guard every
 // wallpaper selection used to trigger a throwaway host-side ffmpeg run.
 let mediaInfoInFlight = "";
+// 在途探测的 AbortController: token 变更或强制刷新时终止上一次 fetch — 否则被
+// 取代的探测会一直跑 (结果只靠 mediaInfoToken 检查丢弃), fiber 卸载时也要 abort。
+let mediaInfoAbort = null;
 async function refreshMediaInfo(force) {
   const token = selection.type === "video" && selection.url
     ? selection.url.split("/").pop()
     : null;
   if (!token || (!force && token === mediaInfoToken)) return;
+  // 旧探测的结果一定没用了 (token 变了, 或被 force 重刷取代) → 立刻断开
+  if (mediaInfoAbort) { try { mediaInfoAbort.abort(); } catch { /* ignore */ } mediaInfoAbort = null; }
+  // AbortController 可能不存在 (无计时器/无 fetch 设施的验证环境): 为 null 时退化为旧行为
+  const ctrl = typeof AbortController === "function" ? new AbortController() : null;
+  mediaInfoAbort = ctrl;
   mediaInfoToken = token;
   mediaInfoInFlight = token;
   try {
-    const res = await fetch("/wallpaper-engine/media-info/" + encodeURIComponent(token), { cache: "no-store" });
+    const init = { cache: "no-store" };
+    if (ctrl) init.signal = ctrl.signal;
+    const res = await fetch("/wallpaper-engine/media-info/" + encodeURIComponent(token), init);
     const data = await res.json().catch(() => ({}));
     if (mediaInfoToken === token) {
       selection.mediaInfo = (data && data.info) || null;
@@ -1626,9 +1729,12 @@ async function refreshMediaInfo(force) {
       }
     }
   } catch {
-    if (mediaInfoToken === token) selection.mediaInfo = null;
+    // abort 掉的探测不写状态 (它已被更新的探测取代)
+    if (!(ctrl && ctrl.signal.aborted) && mediaInfoToken === token) selection.mediaInfo = null;
   }
-  if (mediaInfoInFlight === token) mediaInfoInFlight = "";
+  const ownsAbort = mediaInfoAbort === ctrl; // 仍是本次探测 (没被更新的探测取代)
+  if (ownsAbort) mediaInfoAbort = null;
+  if (ownsAbort && mediaInfoInFlight === token) mediaInfoInFlight = "";
   // Settle → single re-emit so a deferred transcode decision (see
   // mediaInfoInFlight) runs against the final mediaInfo, success or failure.
   if (mediaInfoToken === token) emit();
@@ -1647,8 +1753,19 @@ let upgradePollTimer = null; // progress poller while the transcode fetch pends
 function clearUpgradePoll() {
   if (upgradePollTimer) { clearInterval(upgradePollTimer); upgradePollTimer = null; }
 }
+// 15s metadata 兜底 timer (见 maybeUpgradeToTranscoded): 必须挂到升级状态上,
+// abortTranscodeUpgrade 才能清掉它 — 否则被取代的请求超时后回调仍会跑在已
+// detach 的 <video> 上 (重新赋 src, 元素再也释放不掉)。
+let upgradeMetaTimer = null;
+function clearUpgradeMeta() {
+  if (upgradeMetaTimer && typeof window !== "undefined" && typeof window.clearTimeout === "function") {
+    window.clearTimeout(upgradeMetaTimer);
+  }
+  upgradeMetaTimer = null;
+}
 function abortTranscodeUpgrade() {
   clearUpgradePoll();
+  clearUpgradeMeta();
   if (upgradeAbort) { upgradeAbort.abort(); upgradeAbort = null; }
   upgradeToken = "";
   upgradeFps = 0;
@@ -1707,8 +1824,11 @@ function maybeUpgradeToTranscoded(video, token) {
   // then frame-based transcode % + ETA). Cleared on settle/abort. The timer is
   // ALSO kept in this closure so THIS request's completion only ever clears its
   // OWN timer — a stale request must not kill the newer request's poller.
+  let pollPending = false; // 上一 tick 未返回 → 跳过本次 (宿主高负载时避免 fetch 堆积)
   const pollProgress = () => {
     if (ctrl.signal.aborted) return;
+    if (pollPending) return;
+    pollPending = true;
     fetch("/wallpaper-engine/transcode-progress/" + encodeURIComponent(token) + "?fps=" + cap, { cache: "no-store" })
       .then((r) => r.json().catch(() => ({})))
       .then((d) => {
@@ -1727,7 +1847,8 @@ function maybeUpgradeToTranscoded(video, token) {
           }
         }
       })
-      .catch(() => { /* transient poll failure: ignore */ });
+      .catch(() => { /* transient poll failure: ignore */ })
+      .then(() => { pollPending = false; }); // 成功/失败都释放 in-flight 标记
   };
   clearUpgradePoll();
   const pollTimer = setInterval(pollProgress, 500);
@@ -1783,6 +1904,8 @@ function maybeUpgradeToTranscoded(video, token) {
           if (metaTimer && typeof window !== "undefined" && typeof window.clearTimeout === "function") {
             window.clearTimeout(metaTimer);
           }
+          // 同步清掉升级状态上的引用 (只清自己的, 否则会抹掉更新请求的 timer)
+          if (upgradeMetaTimer === metaTimer) upgradeMetaTimer = null;
           metaTimer = null;
         };
         const onErr = () => {
@@ -1814,6 +1937,7 @@ function maybeUpgradeToTranscoded(video, token) {
             video.removeEventListener("loadedmetadata", onMeta);
             onErr();
           }, 15000);
+          upgradeMetaTimer = metaTimer; // 挂到升级状态: abortTranscodeUpgrade 也要能清
         }
       }
     })
@@ -2141,6 +2265,13 @@ function applyEffects() {
   if (selection.sidebarContentColor) s.setProperty("--we-content-surface-color", selection.sidebarContentColor);
   else s.removeProperty("--we-content-surface-color");
 
+  // 左侧工作区（增强模式）的 Mica 能力钩子（#73，见 detectMicaSupport）：Windows
+  // 上无 Mica（Win10 / build < 22621 / 探测不到）时挂 data-we-mica="off"，CSS 用
+  // 插件自己的近不透明玻璃面接管 .dshDesktopSidebarSurface，替代对系统材质的依赖；
+  // 支持或不适用（非 Windows）时移除，保持原生。探测结果缓存，这里只做同步读写。
+  if (detectMicaSupport() === false) document.body.setAttribute("data-we-mica", "off");
+  else document.body.removeAttribute("data-we-mica");
+
   // 字体自定义（#57 精简回归版）：开关关闭 → 清空变量与样式表，恢复原生外观。
   if (selection.fontCustom) {
     s.setProperty("--we-font-color", selection.fontColor);
@@ -2208,6 +2339,7 @@ function clearEffects() {
   s.removeProperty("--we-sidebar-color");
   s.removeProperty("--we-sidebar-tint");
   document.body.removeAttribute("data-we-sidebar-glass");
+  document.body.removeAttribute("data-we-mica"); // #73 Mica 能力钩子随 fiber 注销
   s.removeProperty("--we-content-surface-alpha");
   s.removeProperty("--we-content-surface-color");
   s.removeProperty("--we-font-color");
@@ -2349,6 +2481,12 @@ function swatchRow(label, presets, value, onPick, opts) {
 // the "CD player" presentation the author liked. Pure presentational: cover =
 // the current wallpaper's preview URL (or null), playing drives the spin.
 // Shown in BOTH settings layouts and in the picker modal head.
+// 旋转是挂在 backdrop-filter 玻璃面上的无限动画: 页面不可见时 (后台标签/最小化)
+// 它仍会驱动合成器反复重绘 backdrop。document.hidden 期间不转 — 元素此刻本来
+// 就看不见, visibilitychange (apply 的 occlusion 监听 → emit) 会立刻转回来。
+function vinylSpinVisible() {
+  return typeof document === "undefined" || document.hidden !== true;
+}
 function VinylRecord(props) {
   const cover = props.cover;
   const title = props.title || "未选择壁纸";
@@ -2756,7 +2894,7 @@ function WallpaperPicker(props) {
         React.createElement("div", { className: "we-picker__current" },
           React.createElement(VinylRecord, {
             cover: current && current.preview, title: current ? current.title : "",
-            playing: playbackLive && Boolean(sel.url),
+            playing: playbackLive && Boolean(sel.url) && vinylSpinVisible(),
           }),
           React.createElement("div", { className: "we-picker__current-info" },
             React.createElement("div", { className: "we-picker__current-title", title: current ? current.title : "" },
@@ -3286,7 +3424,9 @@ function WallpaperPicker(props) {
           const enable = e.target.checked;
           persistSelection();
           if (!enable) {
-            // 关闭: 取消动画升级 (渲染任务随 probe abort 取消), 回退静态帧
+            // 关闭: 取消动画升级 (渲染任务随 probe abort 取消), 回退静态帧;
+            // GPU 加速附属 beta — 一并关闭 (避免重开 beta 时 GPU 隐式恢复)
+            selection.sceneGpuAccel = false;
             cancelSceneAnimUpgrade();
             if (sel.type === "scene" && sel.sceneFrameUrl
               && selection.url && selection.url.indexOf("/scene-anim/") !== -1) {
@@ -3309,6 +3449,56 @@ function WallpaperPicker(props) {
           key: "beta-scene",
           hint: "实验性场景渲染 · 谨慎开启",
           tooltip: "实验性场景壁纸渲染引擎，不要开启（除非你知道自己在干什么）",
+        }),
+        // GPU 渲染加速 — 附属 beta场景动画 (类似侧栏模糊附属侧栏液态玻璃):
+        // 仅 beta 开启时显示/可用 (测试中功能, 不渲染动画即不使用); 开启后
+        // 静态帧与动画帧都走 GPU (x64 + supreium-headless-gl, 失败自动回退 CPU)。
+        sel.type === "scene" && sel.betaSceneAnim === true && switchRow("GPU 渲染加速", sel.sceneGpuAccel === true, (e) => {
+          const enable = e.target.checked;
+          selection.sceneGpuAccel = enable;
+          // 边缘处理:
+          // 1) 渲染过程中开关 — 静态帧: scene-frame URL 无 gpu 参数, 开关后
+          //    URL 不变浏览器不重取 → 加 ?gpu=0/1 查询参数强制重取 (服务端
+          //    忽略 query, 按配置算缓存键 sf34_<gpu>_ → 新管线帧)。
+          // 2) beta 已开但无 scene-anim 缓存 — 开关应触发渲染 (无缓存则
+          //    开始渲染; 有缓存则命中新 gpu 键重渲染)。queueSceneAnimUpgrade
+          //    内部先 cancel 旧升级 (probe abort → 服务端取消旧渲染) 再以
+          //    新配置重触发 → 渲染中开关自动取消旧 CPU 渲染转新管线。
+          // 3) 竞态: persistSelection 是 200ms 防抖 + 异步 PUT — 立即触发
+          //    渲染时宿主 config 可能还没收到 sceneGpuAccel → 服务端按旧
+          //    配置 (CPU) 渲染。与 beta 开启同款: 跳过防抖立即冲刷, 等
+          //    PUT 落盘完成 (宿主「响应即已持久化」) 再触发升级。
+          const frameUrl = sel.sceneFrameUrl;
+          const isScene = sel.type === "scene" && frameUrl;
+          const doRefresh = () => {
+            if (isScene) {
+              if (selection.url && selection.url.indexOf("/scene-frame/") !== -1) {
+                // 当前显示静态帧 → 强制刷新 (URL 加 gpu 标志触发重取)
+                selection.url = frameUrl + (enable ? "?gpu=1" : "?gpu=0");
+                syncLayers();
+              }
+              if (!sel.sceneVideo) {
+                // 无内嵌 MP4 → 触发/重触发 scene-anim 升级 (新 gpu 配置)
+                queueSceneAnimUpgrade(frameUrl);
+              }
+            }
+          };
+          if (isScene && !sel.sceneVideo) {
+            // 需要落盘后才渲染: 跳过防抖立即冲刷 + 等 PUT 完成
+            if (persistTimer) { clearTimeout(persistTimer); persistTimer = null; }
+            writeLocalCache();
+            const p = pushPersisted();
+            (p && typeof p.then === "function" ? p : Promise.resolve())
+              .then(doRefresh)
+              .catch(doRefresh); // 落盘失败也触发 (服务端读 localCache 兜底)
+          } else {
+            doRefresh();
+          }
+          emit();
+        }, {
+          key: "gpu-accel",
+          hint: "附属 beta 场景动画 · 测试中",
+          tooltip: "场景效果用 GPU 渲染（WebGL/ANGLE，仅 x64），失败自动回退 CPU",
         }),
       ),
       // ── 播放：倍速 / 帧率 / 适配 / 翻转（按当前壁纸类型显隐）──
@@ -3547,7 +3737,7 @@ function WallpaperPicker(props) {
             React.createElement("div", { className: "we-picker__modal-head-left" },
               React.createElement(VinylRecord, {
                 cover: current && current.preview, title: current ? current.title : "",
-                playing: playbackLive && Boolean(sel.url), sm: true,
+                playing: playbackLive && Boolean(sel.url) && vinylSpinVisible(), sm: true,
               }),
               React.createElement("span", { className: "we-picker__modal-title" }, "选择壁纸"),
             ),
@@ -4212,6 +4402,21 @@ const CSS = `
     --dsw-alias-border-l1: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
     --dsw-alias-border-l2: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
     --dsw-alias-border-l2-darkmode-thin: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
+  }
+
+  /* #73 增强模式 + Win10（无 Mica）：桌面外壳只在系统材质可用时让左侧工作区
+     (.dshDesktopSidebarSurface) 保持透明（壁纸透出）；material 回退 off 时它改用
+     --dsw-alias-bg-layer-1 实心绘制该区域，并把内部 sidebar 的
+     --dsw-specific-sidebar-fill 也改成实心色 —— 壁纸在这里完全不生效，只剩一块与
+     系统材质绑定的死底色。detectMicaSupport() 把「无 Mica」作为稳定钩子挂到
+     body[data-we-mica="off"]，这里用插件自己的近不透明玻璃面接管该区域：配方与
+     无 backdrop-filter 的内容面回退完全一致（主题面板色 + --we-content-surface-alpha，
+     由「内容面透明度 / 内容面底色」控制，默认 70% 不透明，壁纸仍有一层微光），
+     同时放行内部 fill token，让这块面重新与壁纸 + 暗化层同步。Mica 可用时该属性
+     不存在，本规则不参与匹配，行为与今天逐字节相同。 */
+  body[data-we-mica="off"][data-we-wallpaper] .dshDesktopSidebarSurface {
+    --dsw-specific-sidebar-fill: transparent !important;
+    background-color: color-mix(in srgb, var(--we-content-surface-color, var(--dsw-alias-bg-layer-1, #1e1f26)) var(--we-content-surface-alpha, 88%), transparent) !important;
   }
 
   /* ── Light-scheme text contrast boost ──────────────────────────────────────
@@ -5573,14 +5778,26 @@ const CSS = `
 // old stylesheet tag from a previous bundle (TAG_ID dedupes the injection; a
 // static id would leave stale CSS rules active and new rules missing).
 const TAG_ID = "dsh-wallpaper-engine/styles-v3";
-if (typeof document !== "undefined" &&
-    document.querySelector("style[data-plugin-css=" + JSON.stringify(TAG_ID) + "]") === null) {
-  const tag = document.createElement("style");
-  tag.dataset.plugin = "dsh-wallpaper-engine";
-  tag.dataset.pluginCss = TAG_ID;
-  tag.textContent = CSS;
-  document.head.appendChild(tag);
+// 本次 bundle 求值的代际标记: cleanup 只移除自己这一代的 <style>, HMR 里
+// "新版已挂载、旧版才卸载"的顺序下不会误删新版仍在用的样式表。
+const CSS_GEN = Date.now() + ":" + Math.random().toString(36).slice(2);
+// 注入抽成函数: fiber cleanup (见 apply) 会移除这个 <style>, 所以 effect 挂载时
+// 必须能再注入一次 — 否则同一页面内 disable→enable 后整个界面无样式。
+function ensurePluginCss() {
+  if (typeof document === "undefined") return null;
+  let tag = document.querySelector("style[data-plugin-css=" + JSON.stringify(TAG_ID) + "]");
+  if (tag === null) {
+    tag = document.createElement("style");
+    tag.dataset.plugin = "dsh-wallpaper-engine";
+    tag.dataset.pluginCss = TAG_ID;
+    document.head.appendChild(tag);
+  }
+  // 同 id 的旧标签可能带的是上一个 bundle 的 CSS → 按当前 bundle 的内容刷新
+  if (tag.textContent !== CSS) tag.textContent = CSS;
+  tag.dataset.pluginCssGen = CSS_GEN;
+  return tag;
 }
+ensurePluginCss();
 
 // ── Plugin exports ──────────────────────────────────────────────────────────
 const inject = ["slots"];
@@ -5606,6 +5823,42 @@ function detectAppWindow() {
     if (window.outerWidth === window.innerWidth && window.outerHeight === window.innerHeight) return true;
   } catch { /* ignore */ }
   return false;
+}
+
+// ── Mica 能力探测（#73）─────────────────────────────────────────────────────
+// 「增强模式」下 DSH 桌面外壳把左侧工作区 (.dshDesktopSidebarSurface) 交给系统
+// 材质：有 Mica 时保持透明（壁纸透出），没有 Mica 时改用 --dsw-alias-bg-layer-1
+// 实心绘制，左侧工作区的背景因此与壁纸无关。Mica 只在 Windows build ≥ 22621
+// （Win11 22H2+）存在，Win10 永远拿不到。桌面外壳已按 os.release() 的 build 号
+// 算好结果，并写进渲染 URL 的 dsh-desktop-mica 查询参数（1/0）——这是页面能拿到
+// 的最准信号，同步读取、零成本。参数缺失（普通浏览器 / 非增强模式）时退回 UA：
+// UA 几乎总是不带 build 号，平台不是 Windows 就完全不动作（非 Windows 行为不变），
+// 是 Windows 但解析不出 build 则按「不支持」处理（安全侧，宁可给确定性底色也不
+// 赌系统材质）。结果只探测一次并缓存 —— applyEffects 每次设置变动都会调用它。
+// 全程用 try/catch 吞掉异常，绝不抛出，也绝不因探测本身改变页面行为。
+const MICA_MIN_BUILD = 22621;
+let micaSupport; // undefined = 未探测 · null = 非 Windows（不适用）· false = 无 Mica
+function detectMicaSupport() {
+  if (micaSupport !== undefined) return micaSupport;
+  micaSupport = null;
+  try {
+    let marker = null;
+    if (typeof location !== "undefined" && location && typeof location.search === "string") {
+      marker = new URLSearchParams(location.search).get("dsh-desktop-mica");
+    }
+    if (marker === "1") {
+      micaSupport = true;
+    } else if (marker === "0") {
+      micaSupport = false;
+    } else {
+      const ua = (typeof navigator !== "undefined" && navigator && navigator.userAgent) || "";
+      if (/Windows/i.test(ua)) {
+        const build = /Windows NT 10\.0\.(\d+)/.exec(ua);
+        micaSupport = !!build && Number(build[1]) >= MICA_MIN_BUILD;
+      }
+    }
+  } catch { /* 探测异常：保持 null（不适用）→ 不改任何既有行为 */ }
+  return micaSupport;
 }
 
 function apply(ctx) {
@@ -5635,6 +5888,20 @@ function apply(ctx) {
           ocListeners.push(t);
         }
       }
+      // 持久化监听器: pagehide → 立即 flush 未落盘的设置; visibilitychange →
+      // 页面回到前台时重试失败过的 PUT。注册在这里 (而不是模块作用域) 才能随
+      // fiber 注销 — 否则每次插件重载/HMR 都会在同一页面再叠一对, 永不释放。
+      let pageHideBound = false, visBound = false;
+      if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+        window.addEventListener("pagehide", onPageHideFlush);
+        pageHideBound = true;
+      }
+      if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+        document.addEventListener("visibilitychange", onVisibilityResyncPersist);
+        visBound = true;
+      }
+      // 样式标签也按 fiber 生命周期注入 (dispose 会移除, 见下方 cleanup)
+      ensurePluginCss();
       // Battery optimization (省电暂停): navigator.getBattery is deprecated but
       // still functional in Chromium; feature-detected so other engines just
       // no-op. 'chargingchange' covers plug/unplug; onOcclusionChange re-applies
@@ -5660,11 +5927,24 @@ function apply(ctx) {
         unsubEffects();
         if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
           for (const t of ocListeners) window.removeEventListener(t, onOcclusionChange);
+          if (pageHideBound) window.removeEventListener("pagehide", onPageHideFlush);
+        }
+        if (visBound && typeof document !== "undefined" && typeof document.removeEventListener === "function") {
+          document.removeEventListener("visibilitychange", onVisibilityResyncPersist);
         }
         if (batteryCleanup) { batteryCleanup(); batteryCleanup = null; }
         weBattery = null;
         clearRotationTimer();
         abortTranscodeUpgrade(); // 含 clearUpgradePoll + AbortController.abort（否则卸载后 500ms 轮询永久泄漏）
+        cancelSceneAnimUpgrade(); // scene 动画升级: 清 1.5s 轮询 / 15min maxWait / 60s 延迟 timer + probe <video>
+        // 模块级 persistTimer 不属于 fiber: 卸载时清掉, 否则 200ms 后仍会跑一次
+        // flushPersist()（对已卸载的插件写入状态）。
+        if (persistTimer && typeof window !== "undefined" && typeof window.clearTimeout === "function") {
+          window.clearTimeout(persistTimer);
+          persistTimer = null;
+        }
+        // media-info 探测的 AbortController 也要断开 (token 可能永远不再变化)
+        if (mediaInfoAbort) { try { mediaInfoAbort.abort(); } catch { /* ignore */ } mediaInfoAbort = null; }
         weStopDraw();
         const node = document.getElementById(LAYER_ID);
         if (node) { releaseLayerMedia(node); node.remove(); }
@@ -5672,6 +5952,13 @@ function apply(ctx) {
         if (scrim) scrim.remove();
         clearEffects();
         document.body.removeAttribute(ACTIVE_ATTR);
+        // 主样式标签: 之前每个 bundle 求值都注入一次且从不移除 (HMR 后旧 <style>
+        // 永久留在 <head>)。只移除本次求值这一代, 重挂载由 ensurePluginCss() 补回。
+        if (typeof document !== "undefined" && typeof document.querySelector === "function") {
+          const cssTag = document.querySelector("style[data-plugin-css=" + JSON.stringify(TAG_ID) + "]");
+          if (cssTag && cssTag.dataset && cssTag.dataset.pluginCssGen === CSS_GEN
+              && typeof cssTag.remove === "function") cssTag.remove();
+        }
       };
     });
   }

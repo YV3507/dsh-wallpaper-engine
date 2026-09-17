@@ -43,6 +43,7 @@
     "lib/apng-encode.js",
     "lib/font-render.js",
     "lib/scene-scripts.js",
+    "lib/scene-script-apis.js",
     "lib/scene-manifest.js",
     "lib/scene-player.js",
     "lib/types/index.d.ts",
@@ -66,7 +67,7 @@
   "license": "MIT",
   "scripts": {
     "build": "node scripts/build-client.mjs",
-    "verify": "node scripts/verify-client.mjs && node scripts/verify-transcode-state.mjs && node scripts/verify-playback-controls.mjs",
+    "verify": "node scripts/verify-client.mjs && node scripts/verify-transcode-state.mjs && node scripts/verify-mdla.mjs && node scripts/verify-playback-controls.mjs && node scripts/verify-resource-lifecycle.mjs && node scripts/verify-package-files.mjs",
     "prepare": "node scripts/prepare.mjs"
   },
   "peerDependencies": {
@@ -82,7 +83,11 @@
     }
   },
   "dependencies": {
+    "@shaderfrog/glsl-parser": "^7.0.1",
     "jpeg-js": "^0.4.4",
-    "@shaderfrog/glsl-parser": "^7.0.1"
+    "supreium-headless-gl": "^8.3.0"
+  },
+  "overrides": {
+    "js-yaml": "4.3.2"
   }
 }

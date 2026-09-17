@@ -7,6 +7,11 @@
 #
 # A patch replaces the targeted row's whole `config`, so only additive
 # `insert` rows appear here (we never override an existing shipped row).
+#
+# Hot-mount only accepts PURE `insert` rows: a row carrying config / expression
+# fields is recombined by the bundle layer at startup, so editing it needs a DSH
+# restart. Host-side code under lib/ loads at startup too and never hot-updates
+# inside a running instance — restart DSH after editing it.
 
 - insert:
     # Host half: discovers the local Wallpaper Engine install (Steam app 431960),
