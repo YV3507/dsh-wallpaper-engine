@@ -4981,6 +4981,13 @@ function applyEffects() {
   if (selection.sidebarContentColor) s.setProperty("--we-content-surface-color", selection.sidebarContentColor);
   else s.removeProperty("--we-content-surface-color");
 
+  // 左侧工作区（增强模式）的 Mica 能力钩子（#73，见 detectMicaSupport）：Windows
+  // 上无 Mica（Win10 / build < 22621 / 探测不到）时挂 data-we-mica="off"，CSS 用
+  // 插件自己的近不透明玻璃面接管 .dshDesktopSidebarSurface，替代对系统材质的依赖；
+  // 支持或不适用（非 Windows）时移除，保持原生。探测结果缓存，这里只做同步读写。
+  if (detectMicaSupport() === false) document.body.setAttribute("data-we-mica", "off");
+  else document.body.removeAttribute("data-we-mica");
+
   // 字体自定义（#57 精简回归版）：开关关闭 → 清空变量与样式表，恢复原生外观。
   if (selection.fontCustom) {
     s.setProperty("--we-font-color", selection.fontColor);
@@ -5061,6 +5068,7 @@ function clearEffects() {
   s.removeProperty("--we-sidebar-color");
   s.removeProperty("--we-sidebar-tint");
   document.body.removeAttribute("data-we-sidebar-glass");
+  document.body.removeAttribute("data-we-mica"); // #73 Mica 能力钩子随 fiber 注销
   s.removeProperty("--we-content-surface-alpha");
   s.removeProperty("--we-content-surface-color");
   s.removeProperty("--we-font-color");
@@ -7738,6 +7746,21 @@ const CSS = `
     --dsw-alias-border-l1: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
     --dsw-alias-border-l2: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
     --dsw-alias-border-l2-darkmode-thin: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
+  }
+
+  /* #73 增强模式 + Win10（无 Mica）：桌面外壳只在系统材质可用时让左侧工作区
+     (.dshDesktopSidebarSurface) 保持透明（壁纸透出）；material 回退 off 时它改用
+     --dsw-alias-bg-layer-1 实心绘制该区域，并把内部 sidebar 的
+     --dsw-specific-sidebar-fill 也改成实心色 —— 壁纸在这里完全不生效，只剩一块与
+     系统材质绑定的死底色。detectMicaSupport() 把「无 Mica」作为稳定钩子挂到
+     body[data-we-mica="off"]，这里用插件自己的近不透明玻璃面接管该区域：配方与
+     无 backdrop-filter 的内容面回退完全一致（主题面板色 + --we-content-surface-alpha，
+     由「内容面透明度 / 内容面底色」控制，默认 70% 不透明，壁纸仍有一层微光），
+     同时放行内部 fill token，让这块面重新与壁纸 + 暗化层同步。Mica 可用时该属性
+     不存在，本规则不参与匹配，行为与今天逐字节相同。 */
+  body[data-we-mica="off"][data-we-wallpaper] .dshDesktopSidebarSurface {
+    --dsw-specific-sidebar-fill: transparent !important;
+    background-color: color-mix(in srgb, var(--we-content-surface-color, var(--dsw-alias-bg-layer-1, #1e1f26)) var(--we-content-surface-alpha, 88%), transparent) !important;
   }
 
   /* ── Light-scheme text contrast boost ──────────────────────────────────────
