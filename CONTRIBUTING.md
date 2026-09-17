@@ -20,11 +20,15 @@ macOS 版本由 [Jerry（@ruijiaang-lab）](https://github.com/ruijiaang-lab)维
 - `src/client.js` is the canonical browser source. Edit it, then run `npm run build` to regenerate `lib/client.js`.
 - `lib/client.js` is generated and tracked for distribution. Do not edit it by hand.
 - Host-side changes live directly in `lib/index.js` and the other `lib/*.js` host modules.
+- Restart DSH after host-side edits: `lib/*.js` is loaded at startup and is never hot-updated in a running instance.
+- Install a local dev build with the application **fully closed** (`dsh plugin --profile desktop add link:<path>`), then start it. Installing while the app is running leaves the plugin in `startup-unconfirmed`, which the recovery state rolls back on the next start.
 - Use the Node.js version required by the target branch and your DSH profile. The macOS package currently requires Node.js 24 or newer.
 
 - `src/client.js` 是浏览器端唯一源码。修改后运行 `npm run build` 重新生成 `lib/client.js`。
 - `lib/client.js` 是随包分发的构建产物，请勿手改。
 - 宿主端代码直接位于 `lib/index.js` 和其他 `lib/*.js` 模块中。
+- 改完宿主端代码需**重启 DSH**：`lib/*.js` 在启动时加载，运行中的实例不会热更新。
+- 安装本地 dev 构建请**先完全关闭应用**（`dsh plugin --profile desktop add link:<path>`）再启动；应用运行期间安装会停在 `startup-unconfirmed`，恢复状态会在下次启动时自动回滚。
 - 请使用目标分支与 DSH profile 要求的 Node.js 版本；当前 macOS 包要求 Node.js 24 或更高版本。
 
 > **不要直接改 `lib/client.js` 做"热补丁"验证**——它只是构建产物，下次 `npm run build` 会整体覆盖，

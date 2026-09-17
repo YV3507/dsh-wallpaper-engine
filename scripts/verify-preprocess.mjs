@@ -1,6 +1,9 @@
-// 验证 evaluateNumericIfs 修复: 两个失败 shader 预处理后应无残留条件指令
+// 验证嵌套/复合 #if 预处理修复: 两个失败 shader 预处理后应无残留条件指令。
+// 本仓库的预处理走 shaderfrog 真实 GLSL 预处理器 (preprocessShader), 早期 fork 线
+// 的 evaluateNumericIfs 手写求值器在本线已被替换 — 断言 (零残留) 与意图不变,
+// 仅把入口对齐到本线实现。(移植自 fork 2035647 的回归工装)
 import { SceneRenderer } from '../lib/scene-renderer.js';
-import { evaluateNumericIfs } from '../lib/we-renderer/glsl/preprocess.js';
+import { preprocessShader } from '../lib/we-renderer/glsl/preprocess.js';
 import fs from 'node:fs';
 
 const WE = 'C:/Program Files (x86)/Steam/steamapps/common/wallpaper_engine';
@@ -28,7 +31,7 @@ for (const [id, stem] of cases) {
     return expand(resolveInc(inc), seen);
   });
   const expanded = expand(src).replace(/\r/g, '');
-  const out = evaluateNumericIfs(expanded, {});
+  const out = preprocessShader(expanded, { defines: {} });
   const residual = (out.match(/^\s*#\s*(if|ifdef|ifndef|elif|else|endif)\b/gm) || []).length;
   const ok = residual === 0;
   if (!ok) fail++;
