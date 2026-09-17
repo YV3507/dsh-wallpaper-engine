@@ -2265,6 +2265,13 @@ function applyEffects() {
   if (selection.sidebarContentColor) s.setProperty("--we-content-surface-color", selection.sidebarContentColor);
   else s.removeProperty("--we-content-surface-color");
 
+  // 左侧工作区（增强模式）的 Mica 能力钩子（#73，见 detectMicaSupport）：Windows
+  // 上无 Mica（Win10 / build < 22621 / 探测不到）时挂 data-we-mica="off"，CSS 用
+  // 插件自己的近不透明玻璃面接管 .dshDesktopSidebarSurface，替代对系统材质的依赖；
+  // 支持或不适用（非 Windows）时移除，保持原生。探测结果缓存，这里只做同步读写。
+  if (detectMicaSupport() === false) document.body.setAttribute("data-we-mica", "off");
+  else document.body.removeAttribute("data-we-mica");
+
   // 字体自定义（#57 精简回归版）：开关关闭 → 清空变量与样式表，恢复原生外观。
   if (selection.fontCustom) {
     s.setProperty("--we-font-color", selection.fontColor);
@@ -2332,6 +2339,7 @@ function clearEffects() {
   s.removeProperty("--we-sidebar-color");
   s.removeProperty("--we-sidebar-tint");
   document.body.removeAttribute("data-we-sidebar-glass");
+  document.body.removeAttribute("data-we-mica"); // #73 Mica 能力钩子随 fiber 注销
   s.removeProperty("--we-content-surface-alpha");
   s.removeProperty("--we-content-surface-color");
   s.removeProperty("--we-font-color");
@@ -4396,6 +4404,21 @@ const CSS = `
     --dsw-alias-border-l2-darkmode-thin: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
   }
 
+  /* #73 增强模式 + Win10（无 Mica）：桌面外壳只在系统材质可用时让左侧工作区
+     (.dshDesktopSidebarSurface) 保持透明（壁纸透出）；material 回退 off 时它改用
+     --dsw-alias-bg-layer-1 实心绘制该区域，并把内部 sidebar 的
+     --dsw-specific-sidebar-fill 也改成实心色 —— 壁纸在这里完全不生效，只剩一块与
+     系统材质绑定的死底色。detectMicaSupport() 把「无 Mica」作为稳定钩子挂到
+     body[data-we-mica="off"]，这里用插件自己的近不透明玻璃面接管该区域：配方与
+     无 backdrop-filter 的内容面回退完全一致（主题面板色 + --we-content-surface-alpha，
+     由「内容面透明度 / 内容面底色」控制，默认 70% 不透明，壁纸仍有一层微光），
+     同时放行内部 fill token，让这块面重新与壁纸 + 暗化层同步。Mica 可用时该属性
+     不存在，本规则不参与匹配，行为与今天逐字节相同。 */
+  body[data-we-mica="off"][data-we-wallpaper] .dshDesktopSidebarSurface {
+    --dsw-specific-sidebar-fill: transparent !important;
+    background-color: color-mix(in srgb, var(--we-content-surface-color, var(--dsw-alias-bg-layer-1, #1e1f26)) var(--we-content-surface-alpha, 88%), transparent) !important;
+  }
+
   /* ── Light-scheme text contrast boost ──────────────────────────────────────
      In light mode the grays (tertiary/caption/secondary) were tuned against a
      near-white page. Over a busy wallpaper + light scrim they lose contrast, so
@@ -5800,6 +5823,42 @@ function detectAppWindow() {
     if (window.outerWidth === window.innerWidth && window.outerHeight === window.innerHeight) return true;
   } catch { /* ignore */ }
   return false;
+}
+
+// ── Mica 能力探测（#73）─────────────────────────────────────────────────────
+// 「增强模式」下 DSH 桌面外壳把左侧工作区 (.dshDesktopSidebarSurface) 交给系统
+// 材质：有 Mica 时保持透明（壁纸透出），没有 Mica 时改用 --dsw-alias-bg-layer-1
+// 实心绘制，左侧工作区的背景因此与壁纸无关。Mica 只在 Windows build ≥ 22621
+// （Win11 22H2+）存在，Win10 永远拿不到。桌面外壳已按 os.release() 的 build 号
+// 算好结果，并写进渲染 URL 的 dsh-desktop-mica 查询参数（1/0）——这是页面能拿到
+// 的最准信号，同步读取、零成本。参数缺失（普通浏览器 / 非增强模式）时退回 UA：
+// UA 几乎总是不带 build 号，平台不是 Windows 就完全不动作（非 Windows 行为不变），
+// 是 Windows 但解析不出 build 则按「不支持」处理（安全侧，宁可给确定性底色也不
+// 赌系统材质）。结果只探测一次并缓存 —— applyEffects 每次设置变动都会调用它。
+// 全程用 try/catch 吞掉异常，绝不抛出，也绝不因探测本身改变页面行为。
+const MICA_MIN_BUILD = 22621;
+let micaSupport; // undefined = 未探测 · null = 非 Windows（不适用）· false = 无 Mica
+function detectMicaSupport() {
+  if (micaSupport !== undefined) return micaSupport;
+  micaSupport = null;
+  try {
+    let marker = null;
+    if (typeof location !== "undefined" && location && typeof location.search === "string") {
+      marker = new URLSearchParams(location.search).get("dsh-desktop-mica");
+    }
+    if (marker === "1") {
+      micaSupport = true;
+    } else if (marker === "0") {
+      micaSupport = false;
+    } else {
+      const ua = (typeof navigator !== "undefined" && navigator && navigator.userAgent) || "";
+      if (/Windows/i.test(ua)) {
+        const build = /Windows NT 10\.0\.(\d+)/.exec(ua);
+        micaSupport = !!build && Number(build[1]) >= MICA_MIN_BUILD;
+      }
+    }
+  } catch { /* 探测异常：保持 null（不适用）→ 不改任何既有行为 */ }
+  return micaSupport;
 }
 
 function apply(ctx) {
