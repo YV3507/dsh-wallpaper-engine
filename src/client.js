@@ -4988,6 +4988,13 @@ function applyEffects() {
   if (detectMicaSupport() === false) document.body.setAttribute("data-we-mica", "off");
   else document.body.removeAttribute("data-we-mica");
 
+  // 软件渲染钩子（#95，见 detectSoftwareRender）：@supports 只做语法检查，软件
+  // 合成下 backdrop-filter 被静默忽略时它依然为真，所以近不透明回退必须靠运行时
+  // 探测来挂载。命中时 CSS（body[data-we-glass-fallback]）让面板/侧栏/内容面/
+  // 弹层改用与 @supports 回退完全相同的配方，并显式 backdrop-filter: none。
+  if (detectSoftwareRender()) document.body.setAttribute("data-we-glass-fallback", "1");
+  else document.body.removeAttribute("data-we-glass-fallback");
+
   // 字体自定义（#57 精简回归版）：开关关闭 → 清空变量与样式表，恢复原生外观。
   if (selection.fontCustom) {
     s.setProperty("--we-font-color", selection.fontColor);
@@ -5069,6 +5076,7 @@ function clearEffects() {
   s.removeProperty("--we-sidebar-tint");
   document.body.removeAttribute("data-we-sidebar-glass");
   document.body.removeAttribute("data-we-mica"); // #73 Mica 能力钩子随 fiber 注销
+  document.body.removeAttribute("data-we-glass-fallback"); // #95 软件渲染回退钩子同上
   s.removeProperty("--we-content-surface-alpha");
   s.removeProperty("--we-content-surface-color");
   s.removeProperty("--we-font-color");
@@ -9259,6 +9267,77 @@ const CSS = `
       backdrop-filter: none; -webkit-backdrop-filter: none;
     }
   }
+
+  /* ── 软件渲染回退（upstream #95，运行时探测）───────────────────────────────
+     有些第三方桌面外壳（增强 / 扩展窗口模式，通常走软件合成）根本不执行
+     backdrop-filter，但属性语法是认的 —— 所以上面那些
+     @supports not ((backdrop-filter: blur(1px)) or (…)) 回退永远为真、永不启用，
+     玻璃面板只剩全透明（「过透」）。detectSoftwareRender() 在运行时探测软件光栅器
+     并把结果挂到 body[data-we-glass-fallback]，下面把同一批回退配方原样再挂一次：
+     相同的 --we-* token、相同的 color-mix 近不透明声明（不新增任何 token /
+     机制），只多一条显式的 backdrop-filter: none（语法检查通过时 @supports
+     做不到这件事）。选择器与上面 @supports 回退逐条对应，并保留各自的总开关
+     (data-we-sidebar-glass / data-we-glass-window)，所以关掉开关仍然是原生外观。
+     手动覆盖：?we-glassfallback=on|off（见 detectSoftwareRender）。 ── */
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_boundaryError"],
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_panel"],
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_pane"],
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_tabBar"],
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_paneCard"],
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_editorHeader"],
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_explorerHeader"],
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_gitHeader"],
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_browserBar"],
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_terminalWrap"] {
+    background-color: color-mix(in srgb, var(--we-sidebar-color, #ffffff) 92%, transparent) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-sidebar-right-panel] {
+    background-color: color-mix(in srgb, var(--we-sidebar-color, #ffffff) 92%, transparent) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  /* 内容面（编辑器/终端）本来就是近不透明底板（--we-content-surface-alpha，默认
+     88%），这里把同一条声明再挂一遍，让软件渲染下三块侧栏区域落在同一个规则块里。 */
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] .cm-editor,
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] .xterm,
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-sidebar-right-panel] .cm-editor,
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-sidebar-right-panel] .xterm {
+    background-color: color-mix(in srgb, var(--we-content-surface-color, var(--dsw-alias-bg-layer-1, #1e1f26)) var(--we-content-surface-alpha, 88%), transparent) !important;
+  }
+  /* 设置窗口：把三层面板 token 钉回实色（@supports 回退里的同一条 token 覆写），
+     并显式关掉不会生效的 backdrop-filter。 */
+  body[data-we-glass-fallback][data-we-glass-window] [role="dialog"]:has([data-slot="settings.section"]) {
+    --dsw-alias-bg-layer-1: var(--we-glass-color, #ffffff);
+    --dsw-alias-bg-layer-2: var(--we-glass-color, #ffffff);
+    --dsw-alias-bg-layer-3: var(--we-glass-color, #ffffff);
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  body[data-ds-dark-theme][data-we-glass-fallback][data-we-glass-window] [role="dialog"]:has([data-slot="settings.section"]) {
+    --dsw-alias-bg-layer-1: var(--we-glass-color, #0d1524);
+    --dsw-alias-bg-layer-2: var(--we-glass-color, #0d1524);
+    --dsw-alias-bg-layer-3: var(--we-glass-color, #0d1524);
+  }
+  /* 仓库抽屉 / 面板弹窗：与 @supports 回退逐字相同的 92% / 94% 近不透明配方。 */
+  body[data-we-glass-fallback] .we-repo-panel {
+    background-color: color-mix(in srgb, var(--we-glass-color, #ffffff) 92%, transparent);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  body[data-we-glass-fallback] .we-picker__modal--panel {
+    background-color: color-mix(in srgb, var(--we-glass-color, #ffffff) 94%, transparent);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  /* 弹层遮罩 / 一次性通知：底色本身已经接近不透明（55% 黑 / 82% 深色底衬），
+     不需要换配方，只把永远不生效的 backdrop-filter 关掉。 */
+  body[data-we-glass-fallback] .we-picker__modal-overlay,
+  body[data-we-glass-fallback] .we-update-notice {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
   @media (prefers-reduced-motion: reduce) {
     .we-rope--settle, .we-repo-panel, .we-picker__modal--panel, .we-repo-panel__modal-scrim { transition: none !important; }
     .we-picker__modal--panel { animation: none !important; }
@@ -9374,6 +9453,74 @@ function useLegacySaturateCoupling() {
     }
   } catch { /* 解析异常：保持新行为（常量），绝不抛出 */ }
   return legacySaturateCoupling;
+}
+
+// ── 软件光栅化探测（upstream #95）───────────────────────────────────────────
+// 某些第三方桌面外壳（增强 / 扩展窗口模式，通常是软件合成）里 `backdrop-filter`
+// 被静默忽略：属性语法仍然被接受，所以 `@supports not (backdrop-filter: …)`
+// 永远为真 —— 那条回退根本不会启用，玻璃面板就变成「过透」（全透）。这里改为
+// 运行时探测：真的去建一个 WebGL 上下文并读渲染器字符串，如果它是软件光栅器
+// （或连上下文都建不出来），就把 body[data-we-glass-fallback] 挂上，让 CSS 用
+// 既有的近不透明配方接管（见 CSS 里那一段）。
+// 手动覆盖（用户排障 / 维护者无 GPU 环境复现）：
+//   ?we-glassfallback=on|1  → 强制回退 · off|0 → 强制关闭 · 其他值 = 自动探测
+// 只探测一次并缓存 —— applyEffects 每次设置变动都会读它。
+// 全程 typeof 守卫 + try/catch：非浏览器 / 验证沙箱里绝不抛出，也绝不改变行为。
+const SOFT_RENDER_RE = /swiftshader|software|llvmpipe|softpipe|microsoft basic render|angle \(software|stack-gl/i;
+let softRenderFallback; // undefined = 未探测 · true = 软件/无 WebGL · false = 硬件
+function detectSoftwareRender() {
+  if (softRenderFallback !== undefined) return softRenderFallback;
+  softRenderFallback = false;
+  try {
+    // 手动覆盖优先于一切探测（缓存最终决定）。
+    if (typeof location !== "undefined" && location && typeof location.search === "string") {
+      let raw = "";
+      if (typeof URLSearchParams === "function") {
+        raw = new URLSearchParams(location.search).get("we-glassfallback") || "";
+      } else {
+        const m = /[?&]we-glassfallback=([^&]*)/.exec(location.search);
+        raw = m ? decodeURIComponent(m[1]) : "";
+      }
+      const flag = String(raw).toLowerCase();
+      if (flag === "on" || flag === "1") return (softRenderFallback = true);
+      if (flag === "off" || flag === "0") return (softRenderFallback = false);
+    }
+    if (typeof document === "undefined" || !document
+        || typeof document.createElement !== "function") return softRenderFallback;
+    const canvas = document.createElement("canvas");
+    if (!canvas || typeof canvas.getContext !== "function") return (softRenderFallback = true);
+    let gl = null;
+    try { gl = canvas.getContext("webgl"); } catch { /* ignore */ }
+    if (!gl) { try { gl = canvas.getContext("experimental-webgl"); } catch { /* ignore */ } }
+    // 连 WebGL 上下文都拿不到 → 没有硬件合成，backdrop-filter 必定不生效。
+    if (!gl) return (softRenderFallback = true);
+    let renderer = "";
+    let vendor = "";
+    try {
+      const dbg = typeof gl.getExtension === "function" && gl.getExtension("WEBGL_debug_renderer_info");
+      if (dbg && typeof gl.getParameter === "function") {
+        renderer = gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || "";
+        vendor = gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) || "";
+      }
+      // 没有调试扩展（或被隐私设置屏蔽）时退回公开的 RENDERER / VENDOR。
+      if (!renderer && typeof gl.getParameter === "function" && gl.RENDERER !== undefined) {
+        renderer = gl.getParameter(gl.RENDERER) || "";
+      }
+      // VENDOR 只是同一判定的第二个可读串（实测：本仓库自带的 supreium-headless-gl
+      // 是软件光栅器，但 RENDERER 只报裸 "ANGLE"，软件线索只出现在 VENDOR="stack-gl"，
+      // 且它不暴露 WEBGL_debug_renderer_info）—— 浏览器硬件链路不会因此误判。
+      if (!vendor && typeof gl.getParameter === "function" && gl.VENDOR !== undefined) {
+        vendor = gl.getParameter(gl.VENDOR) || "";
+      }
+    } catch { /* 读不到渲染器字符串：不判定为软件渲染 */ }
+    softRenderFallback = SOFT_RENDER_RE.test(String(renderer) + " " + String(vendor));
+    // 礼貌释放：只探测一次，但也不给页面永久占一个 WebGL 槽位。
+    try {
+      const lose = typeof gl.getExtension === "function" && gl.getExtension("WEBGL_lose_context");
+      if (lose && typeof lose.loseContext === "function") lose.loseContext();
+    } catch { /* ignore */ }
+  } catch { /* 探测异常：保持 false（不改变既有行为） */ }
+  return softRenderFallback;
 }
 
 function apply(ctx) {
