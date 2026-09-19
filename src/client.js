@@ -5819,6 +5819,7 @@ const CSS = `
      机制），只多一条显式的 backdrop-filter: none（语法检查通过时 @supports
      做不到这件事）。选择器与上面 @supports 回退逐条对应，并保留各自的总开关
      (data-we-sidebar-glass / data-we-glass-window)，所以关掉开关仍然是原生外观。
+     输入框卡片按上游 #94 的 ::before 载体单独覆盖（见下方规则）。
      手动覆盖：?we-glassfallback=on|off（见 detectSoftwareRender）。 ── */
   body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_boundaryError"],
   body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_panel"],
@@ -5860,6 +5861,17 @@ const CSS = `
     --dsw-alias-bg-layer-1: var(--we-glass-color, #0d1524);
     --dsw-alias-bg-layer-2: var(--we-glass-color, #0d1524);
     --dsw-alias-bg-layer-3: var(--we-glass-color, #0d1524);
+  }
+  /* 输入框卡片（issue #95 报「过透」的那块界面）：上游 #94 已把模糊从卡片本体搬到
+     [data-composer-card]::before 载体（卡片上的 backdrop-filter 会成为 fixed 后代的
+     包含块，#89）——载体上没有背景，卡片自身的底色只有 --we-glass-alpha（默认 15%），
+     所以只关掉 backdrop-filter 仍然过透。这里让 ::before 自己变成近不透明底板：
+     载体是同一块表面，模糊没了就由它兜住底色，配方与上面 .we-repo-panel 逐字相同
+     （同一个 --we-glass-color / 92%，未新增 token 或机制）。 */
+  body[data-we-glass-fallback][data-we-wallpaper] [data-composer-card]::before {
+    background-color: color-mix(in srgb, var(--we-glass-color, #ffffff) 92%, transparent);
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
   }
   /* 仓库抽屉 / 面板弹窗：与 @supports 回退逐字相同的 92% / 94% 近不透明配方。 */
   body[data-we-glass-fallback] .we-repo-panel {
