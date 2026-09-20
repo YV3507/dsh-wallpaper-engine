@@ -4436,7 +4436,7 @@ function RopeDock() {
 // so it survives DSH Desktop's random --port restarts and never re-shows
 // after being closed. Bump NOTICE_VERSION next release to announce something
 // new again.
-const NOTICE_VERSION = "0.7.2";
+const NOTICE_VERSION = "0.7.4";
 
 function UpdateNotice() {
   const sel = useStore();
@@ -4454,20 +4454,28 @@ function UpdateNotice() {
   };
   if (!show) return null;
   return React.createElement("div", { className: "we-update-notice", role: "alert" },
-    React.createElement("div", { className: "we-update-notice__title" }, "⚠️ v0.7.2 前置条件：① DSH 内核最新 ② better-sidebar 最新"),
+    React.createElement("div", { className: "we-update-notice__title" }, "🎉 v0.7.4 更新：字体重做 · 场景壁纸修复 · 画面刷新与自定义画面"),
     React.createElement("div", { className: "we-update-notice__body" },
-      React.createElement("p",
-        null,
-        "本版本把液态玻璃适配扩展到 DSH 0.1.5 的官方原生右侧栏，并修复升级 better-sidebar 0.19 后右侧栏完全透明的问题。更新本插件前，请先满足两个前置条件："),
-      React.createElement("p",
-        null,
-        "① ", React.createElement("strong", null, "DeepSeek Harness 内核为最新版"), "——DSH Desktop ≥ 2.0.7（内置 0.1.5-rc.1+），桌面端在顶部导航栏的版本信息里检查更新；",
-        "② ", React.createElement("strong", null, "dsh-better-sidebar 插件为最新版"), "——0.19.0+（仍停留在 0.1.2-rc.1 旧内核的用户请保持 0.18.x，不要混搭）。"),
-      React.createElement("p",
-        null,
-        React.createElement("strong",
-          null,
-          "两个前置条件都满足之前，请不要更新本插件；顺序反了把内核与插件各自更新到匹配版本即可恢复。")),
+      React.createElement("p", null,
+        "本次更新聚焦字体自定义与场景壁纸显示质量，并加入两项新的显示控制："),
+      React.createElement("p", null,
+        "① ", React.createElement("strong", null, "字体自定义重做（#91）"),
+        "：覆盖策略改为「继承默认 + 主题令牌映射」，不再遮盖其他插件（如鲸鱼挂件）自带的文字颜色；聊天对话区字体生效；字重滑条改为连续调节（伪粗描边），中文字体下每一档都有可见粗细差。"),
+      React.createElement("p", null,
+        "② ", React.createElement("strong", null, "场景壁纸静态帧修复"),
+        "：提取优先——新壁纸点开毫秒级出图，不再等待渲染；合成器几何与图层过滤修正（人物五官归位、缺层修复）；puppet 图集与骨骼部件过滤（不再满屏乱飞）；后台预热保证已缓存壁纸零作废、零等待。"),
+      React.createElement("p", null,
+        "③ ", React.createElement("strong", null, "壁纸画面刷新"),
+        "：效果页签 →「画面」，场景壁纸可在 4 种生成逻辑间轮换（合成 / 主纹理 / 作者原画 / 预览图），选择按壁纸记忆；显示异常时逐档刷新直到满意。"),
+      React.createElement("p", null,
+        "④ ", React.createElement("strong", null, "自定义画面"),
+        "：对静态管线生成不了的壁纸（骨骼拼装场景等），手动对电脑桌面截图后点「导入画面…」，该壁纸即用你的截图展示（画质 = 截图分辨率），作为第 5 档可随刷新切换。"),
+      React.createElement("p", null,
+        "⑤ ", React.createElement("strong", null, "壁纸音轨控制（社区 PR #99）"),
+        "：视频壁纸可调音量 + 卡片一键「音乐开/关」；默认仍为静音，不影响现有习惯。"),
+      React.createElement("p", null,
+        "⑥ ", React.createElement("strong", null, "玻璃饱和度不再随模糊上涨（社区 PR #98）"),
+        "：高模糊档不再产生彩色鬼影；需要旧观感可在地址参数加 ", React.createElement("code", null, "?we-saturate=legacy"), "。"),
       React.createElement("p", { className: "we-update-notice__hint" },
         "本提示每个新版本只出现一次，点下方按钮关闭后不再弹出。"),
     ),
