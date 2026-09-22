@@ -108,6 +108,16 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe
 > preview frame looks fine, then the wallpaper goes fully black). The media origin
 > bypasses that fence, and third-party HTML no longer shares the host origin at all,
 > so the sandbox gets a second layer of isolation.
+>
+> **Frame cap and "it still stutters"**: the wallpaper's rAF cap is implemented by
+> **frame skipping** — every vsync is kept so the delivered frame stays phase-aligned
+> with the display and only every n-th frame reaches the page (a `setTimeout`-based cap
+> yields 17/33/50ms jitter, which looks worse). While live, a `live-fps` line is written
+> to the diagnostics file every 5 s: `ui=` whole-page fps, `web=` the wallpaper's own
+> fps, `rnd=` renderer-page fps, `cap=` the current cap. If it still feels heavy, that
+> line tells you whether the wallpaper itself is slow (`web` low) or the whole page is
+> (`ui` low too — e.g. the sidebar's `backdrop-filter` re-sampling the wallpaper every
+> frame; try lowering the blur to confirm).
 
 > **Known web-wallpaper limits**: author `fetch`/`XHR` carries `Origin: null` under
 > the opaque origin (the host answers with `Access-Control-Allow-Origin: *`, so

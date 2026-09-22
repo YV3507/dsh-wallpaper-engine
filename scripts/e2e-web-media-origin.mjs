@@ -104,7 +104,20 @@ writeFileSync(join(webDir, 'index.html'), [
   '      if (p && typeof p.volume === "number") window.__e2e.vol = p.volume;',
   '    },',
   '  };',
-  '  (function loop() { window.__e2e.frames++; requestAnimationFrame(loop); })();',
+  '  window.__e2e.iv = [];',
+  '  (function loop() {',
+  '    var t = performance.now();',
+  '    var iv = window.__e2e.iv;',
+  '    if (window.__e2e.last) { iv.push(t - window.__e2e.last); if (iv.length > 60) iv.shift(); }',
+  '    window.__e2e.last = t;',
+  '    window.__e2e.frames++;',
+  '    requestAnimationFrame(loop);',
+  '  })();',
+  '  function pct(a, q) {',
+  '    if (!a.length) return 0;',
+  '    var c = a.slice().sort(function (x, y) { return x - y; });',
+  '    return Math.round(c[Math.min(c.length - 1, Math.floor(c.length * q))]);',
+  '  }',
   '  function beacon(tag) {',
   '    var e = window.__e2e;',
   '    var img = new Image();',
@@ -112,7 +125,8 @@ writeFileSync(join(webDir, 'index.html'), [
   `      "${MARKER} " + tag`,
   '      + " ran=1 shim=" + (typeof window.__weSeedProps === "function" ? 1 : 0)',
   '      + " propsCalls=" + e.propsCalls + " fps=" + e.fps + " vol=" + e.vol',
-  '      + " frames=" + e.frames + " keys=" + e.keys.join(","));',
+  '      + " frames=" + e.frames + " keys=" + e.keys.join(",")',
+  '      + " p50=" + pct(e.iv, 0.5) + " p95=" + pct(e.iv, 0.95) + " n=" + e.iv.length);',
   '  }',
   '  window.addEventListener("load", function () {',
   '    setTimeout(function () { beacon("load"); }, 900);',
@@ -207,6 +221,15 @@ check('属性种子到达作者（propsCalls≥1，含 color0）',
   'propsCalls=' + (g('propsCalls') || '?') + ' keys=' + (g('keys') || '?'));
 check('跨源控制通道活着（渲染页下发的 sceneFps=15 到达作者）', g('fps') === '15',
   'fps=' + (g('fps') || '?'));
+// 帧率上限的实现质量：sceneFps=15 → 目标间隔 66.7ms。旧实现用 setTimeout(1000/fps)
+// 之后再 rAF，回调落在刷新的任意相位上 → 间隔抖动（17/33/50ms 混排，用户观感就是
+// 「限了 30 反而更卡」）。现在是跳帧：每帧都对齐 vsync，只交付第 n 帧。
+const p50 = Number(g('p50') || 0);
+const p95 = Number(g('p95') || 0);
+check('15fps 上限下帧间隔落在目标附近（跳帧生效）', p50 >= 45 && p50 <= 100,
+  `p50=${p50}ms（目标 67ms）n=${g('n') || '?'}`);
+check('帧间隔均匀（无定时器抖动）', p50 > 0 && (p95 - p50) <= 25,
+  `p50=${p50} p95=${p95} 抖动=${p95 - p50}ms`);
 
 // ── teardown ────────────────────────────────────────────────────────────────
 try { dispose && dispose(); } catch { /* ignore */ }

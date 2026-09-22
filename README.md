@@ -70,6 +70,8 @@ Scene 壁纸由本插件内置的 **WebWallGL 实时渲染引擎**（`lib/webwal
 **网页壁纸**同样走 WebWallGL：宿主把 **WE API shim**（`wallpaperRegisterAudioListener` / `wallpaperPropertyListener` / 媒体监听等，来自上游 `web-shim.js`，由 `/scene-files` 注入入口 HTML）交给渲染页加载 —— 依赖 WE API 的工坊网页壁纸（音频可视化、属性驱动、鼠标跟随等）因此能真正跑起来，不再是一片空白或报错。**安全**：壁纸 iframe 强制 `sandbox="allow-scripts"`（严格沙箱），第三方 HTML 拿不到 DSH 的 origin（无法冒用宿主身份调宿主 API / 读宿主存储）；跨源控制与指针注入经渲染页的 `postMessage` 通道下发。加载失败或运行失联时按壁纸记忆并自动退回旧的兼容 iframe（裸 HTML，无 WE API）。
 >
 > **载荷来源（独立媒体源）**：网页壁纸的入口 HTML 与全部子资源由宿主**自建的独立 loopback 媒体源**（`127.0.0.1` 上的随机端口，见 `GET /wallpaper-engine/media-origin`）提供，**不走**插件的 HTTP 路由。原因：DSH Desktop 给每条插件路由都套了能力头栅栏（`x-dsh-desktop-renderer`，只注入给同源 frame 发出的请求），而严格沙箱 iframe 是不透明源、永远拿不到这个头 —— 壁纸入口会一律 `403 Forbidden`（表现：预览图先正常、随后整块黑）。媒体源不经过该栅栏，第三方 HTML 也因此连宿主 origin 都不沾边，沙箱之外又多一层隔离。
+>
+> **帧率上限与「卡」的排查**：网页壁纸的 rAF 上限由 shim 按**跳帧**实现 —— 每帧都与显示器 vsync 对齐、只把第 n 帧交给壁纸（`setTimeout` 定时器式实现会产生 17/33/50ms 抖动，观感更差）。实时渲染期间每 5 秒往诊断文件写一条 `live-fps`：`ui=` 整页帧率、`web=` 壁纸自身帧率、`rnd=` 渲染页帧率、`cap=` 当前上限 —— 「限了 30 还是卡」时先看这条：只有 `web` 低＝壁纸自己的开销；`ui` 也低＝整页代价（例如侧栏液态玻璃的 `backdrop-filter` 每帧重采样壁纸，可先把模糊调小验证）。
 
 > **网页壁纸已知边界**：作者脚本的 `fetch`/`XHR` 在 opaque origin 下携带 `Origin: null`（宿主已返回 `Access-Control-Allow-Origin: *`，常规资源可用）；`wallpaperMediaIntegration`（系统 Now Playing）本项目未提供数据源，相关壁纸退到自身静态态；CSS `:hover` 等由浏览器 hit-test 驱动的交互不受外部指针注入影响（与上游文档一致）。
 
@@ -451,7 +453,7 @@ host 端（`lib/index.js`）是纯 ESM，无需构建。client 端（`lib/client
 npm run build                  # 从 src/client.js 重新生成 lib/client.js
 npm run verify                 # 物化生成的 bundle 并断言其导出（含 scene-live 链路自检）
 node scripts/verify-scene.mjs  # 场景静态帧提取 / scene-frame 路由自检（含合成 fixture，离线可跑）
-node scripts/verify-scene-live.mjs  # 场景实时渲染自检（vendor 产物 / scene-live + scene-files 路由 / 目录围栏 / Range / 壁纸媒体源）
+node scripts/verify-scene-live.mjs  # 场景实时渲染自检（vendor 产物 / scene-live + scene-files 路由 / 目录围栏 / Range / 壁纸媒体源 / 帧率上限实现质量）
 node scripts/e2e-web-media-origin.mjs  # 真浏览器端到端（需本机 Chromium 系浏览器）：媒体源 + 严格沙箱 iframe + shim/属性种子/控制通道
 node scripts/sync-webwallgl.mjs     # 从本地 webwallgl 仓库构建并同步渲染页产物到 lib/webwallgl/
 ```

@@ -150,6 +150,24 @@ if (existsSync(upstreamPath)) {
     missing.length ? 'missing: ' + missing.join(', ') : (up.name || '') + '@' + (up.version || '?'));
 }
 
+// 网页壁纸帧率上限的实现质量与 shim 幂等性 —— 这两条都是实测踩过的坑，且都藏在
+// vendor 产物里：升级上游后若忘记重新 vendor，断言会直接指出。
+const vendoredShim = existsSync(join(vendorDir, 'web-shim.js'))
+  ? readFileSync(join(vendorDir, 'web-shim.js'), 'utf8') : '';
+check('vendored shim throttles by vsync frame-skip (not setTimeout)',
+  /Math\.ceil\(1000 \/ fps \/ nativeMs/.test(vendoredShim),
+  '跳过帧的节流（旧实现 setTimeout 会产出 17/33/50ms 抖动）');
+check('vendored shim installs only once (idempotent guard)',
+  /__weShimInstalled/.test(vendoredShim),
+  '双 shim 会让 rAF 节流叠加：15fps 上限实测变成 7.5fps');
+const vendoredBundle = assetRefs
+  .filter((r) => r.endsWith('.js'))
+  .map((r) => { try { return readFileSync(join(vendorDir, r.replace('/wallpaper-engine/scene-live/', '')), 'utf8'); } catch { return ''; } })
+  .join('\n');
+check('renderer rewrite recognises any data-we-shim value (host-injected shim)',
+  vendoredBundle.includes('data-we-shim(?:-src)?'),
+  '宿主注入的是 data-we-shim="host"，按值匹配会重复注入');
+
 // ── shared mock webServer + req/res shims ───────────────────────────────────
 const routes = [];
 const mockCtx = {
@@ -475,6 +493,10 @@ const clientChecks = [
   ['controls are deduped before dispatch', /liveApplied\.playing !== playing/.test(src)],
   ['heartbeat reads stats before applying controls', /const stats = liveStats\(frame\);\s*\n\s*applyLiveControls\(frame\);/.test(src)],
   ['upload management list excludes project dirs', /isUploadedWallpaper\(w\) && !isDirWallpaper\(w\)/.test(src)],
+  // 帧率取证（「限了 30 还卡」时唯一能分清「壁纸自身掉帧」与「整页掉帧」的手段）
+  ['live fps probe reports ui / web / rnd to the diag channel',
+    src.includes('function reportLiveFps') && src.includes('"live-fps"')
+      && src.includes('function takeUiFps') && src.includes('wstate.webFps')],
   // 网页壁纸的 src 直用 host 给的绝对 URL（媒体源）；相对形态仅作回落。
   ['web live src reuses the absolute media-origin URL', src.includes('const webEntry = String(selLike.webLiveSrc || "")')
     && src.includes('/^https?:\\/\\//i.test(webEntry)')],

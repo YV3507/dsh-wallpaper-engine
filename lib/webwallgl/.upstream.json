@@ -2,14 +2,14 @@
   "repo": "/Users/oneincase/Documents/workspace/webwallgl-github",
   "name": "webwallgl",
   "version": "1.4.1",
-  "commit": "9711e360538fbcadd73e693a062a96e91b5d0145",
+  "commit": "6a4bc66743a107dad27658063c61d2e8d21ca2bc",
   "dirty": false,
   "base": "/wallpaper-engine/scene-live",
-  "syncedAt": "2026-09-22T15:59:58.090Z",
+  "syncedAt": "2026-09-22T17:02:48.732Z",
   "files": [
     "index.html",
     "web-shim.js",
-    "assets/renderer-iI93Q1-Z.js",
+    "assets/renderer-Bjhn07H2.js",
     "assets/modulepreload-polyfill-B5Qt9EMX.js"
   ]
 }

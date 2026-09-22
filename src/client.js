@@ -1675,6 +1675,50 @@ function liveStateOf(frame) {
     return wp.getState();
   } catch { return null; }
 }
+// 「整页卡不卡」与「壁纸自己卡不卡」是两回事：网页壁纸跑在跨源沙箱 iframe
+//（独立渲染进程），它内部掉帧＝壁纸自己的开销；整页同时掉帧＝合成/模糊这类
+// 全页代价（例如液态玻璃的 backdrop-filter 每帧重采样壁纸）。判读「限了 30
+// 还是卡」必须先分清是哪一种，所以这里用一条**只做计数**的 rAF 链量 UI 帧率，
+// 与渲染页上报的壁纸自身帧率（getState().webFps）一起写进诊断。
+let uiFpsFrames = 0;
+let uiFpsRaf = 0;
+let uiFpsSince = 0;
+function startUiFpsProbe() {
+  if (uiFpsRaf) return;
+  uiFpsFrames = 0;
+  uiFpsSince = performance.now();
+  const tick = () => { uiFpsFrames += 1; uiFpsRaf = requestAnimationFrame(tick); };
+  uiFpsRaf = requestAnimationFrame(tick);
+}
+function stopUiFpsProbe() {
+  if (uiFpsRaf) { try { cancelAnimationFrame(uiFpsRaf); } catch { /* ignore */ } }
+  uiFpsRaf = 0;
+  uiFpsFrames = 0;
+  uiFpsSince = 0;
+}
+function takeUiFps() {
+  const now = performance.now();
+  const seconds = uiFpsSince > 0 ? (now - uiFpsSince) / 1000 : 0;
+  const frames = uiFpsFrames;
+  uiFpsFrames = 0;
+  uiFpsSince = now;
+  return seconds > 0.2 ? Math.round(frames / seconds) : -1;
+}
+
+// 运行时帧率上报：每 5 秒一条，落进 host 的 diag 文件（DSH Desktop 拿不到
+// console，只能靠这条通道）。`cap` 是当前上限设置，`web` 是壁纸自身帧率
+//（-1 = 渲染页没给，例如纯 CSS 动画的壁纸不靠 rAF），`rnd` 是渲染页线程帧率。
+function reportLiveFps(watch, frame, stats, wstate) {
+  const secs = Math.max(1, Math.round((Date.now() - (watch.fpsAt || watch.startedAt)) / 1000));
+  watch.fpsAt = Date.now();
+  const ui = takeUiFps();
+  const web = wstate && typeof wstate.webFps === "number" ? wstate.webFps : -1;
+  const rnd = stats && typeof stats.fps === "number" ? Math.round(stats.fps) : -1;
+  reportClientDiag("live-fps",
+    `ui=${ui} web=${web} rnd=${rnd} cap=${selection.sceneLiveFps || "-"}`
+    + ` win=${secs}s playing=${isEffectivelyPlaying() ? 1 : 0}`);
+}
+
 function startLiveWatch(frame, wid) {
   stopLiveWatch();
   const watch = { frame, wid: String(wid || ""), timer: 0, startedAt: Date.now(), firstFrame: false, stall: 0, resumed: false };
@@ -1702,6 +1746,7 @@ function startLiveWatch(frame, wid) {
         watch.firstFrame = true;
         selection.sceneLiveActive = true;
         frame.classList.add("we-live-on");
+        startUiFpsProbe();
         try { syncSceneAudio(selection); emit(); } catch { /* ignore */ }
         // 网页壁纸：首帧稳定后抽一帧存到 host（下次加载/重启用它当占位图）。
         maybeCaptureLiveFrame(frame, selection);
@@ -1719,6 +1764,10 @@ function startLiveWatch(frame, wid) {
     if (responsive || !isEffectivelyPlaying()) {
       watch.stall = 0;
       watch.resumed = false;
+      // 帧率取证：每 5 秒一条（只上报，不做任何控制）——「限了 30 还卡」时
+      // 这条能立刻分清是壁纸自身帧率低还是整页一起掉。
+      watch.fpsTick = (watch.fpsTick || 0) + 1;
+      if (watch.fpsTick % 5 === 0) reportLiveFps(watch, frame, stats, wstate);
       return;
     }
     watch.stall += 1;
@@ -1821,6 +1870,7 @@ function startMediaSync(frame) {
 function stopLiveWatch() {
   if (!liveWatch) return;
   try { clearInterval(liveWatch.timer); } catch { /* ignore */ }
+  stopUiFpsProbe();
   stopMediaSync(liveWatch.frame);
   liveWatch = null;
   // 只重置标志；音频互斥由调用方收敛 —— 重建（fps 切换）时若在这里拉起
