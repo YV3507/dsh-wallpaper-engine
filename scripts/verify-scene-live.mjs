@@ -326,6 +326,7 @@ if (filesRoute && fixture && fixture.sceneLiveSrc) {
 // file as application/octet-stream is rejected by the browser), and allow
 // opaque-origin fetches via CORS.
 console.log('Level C3 — web wallpaper files (shim injection / MIME / CORS)');
+let mediaEntry = '';   // C4 复用：C3 里从 inventory 拿到的那条入口 URL
 {
   const res = await runHandler(invRoute, '/wallpaper-engine/inventory');
   const body = JSON.parse(res.__state.body.toString('utf8'));
@@ -333,10 +334,18 @@ console.log('Level C3 — web wallpaper files (shim injection / MIME / CORS)');
   check('web wallpaper listed with webLive + webLiveSrc',
     Boolean(web && web.webLive === true && web.webLiveSrc),
     web ? 'type=' + web.type + ' src=' + String(web.webLiveSrc || '').length + 'ch' : 'not found');
+  // 入口 URL 必须是**媒体源绝对 URL**（host 自建的第二个 loopback 监听），
+  // 而不是插件路由：Desktop 的能力头（x-dsh-desktop-renderer）栅栏拒绝不透明源
+  //（严格沙箱 iframe）对插件路由的请求，网页壁纸载荷因此整体挪到我们自己的源；
+  // 这条断言就是那次「网页壁纸全黑」事故的回归闸门。
+  mediaEntry = String((web && web.webLiveSrc) || '');
+  check('webLiveSrc 是媒体源绝对 URL（不再落回插件路由）',
+    /^http:\/\/127\.0\.0\.1:\d+\/wallpaper-engine\/scene-files\//.test(mediaEntry),
+    mediaEntry.slice(0, 76) || '(空)');
   if (web && web.webLiveSrc) {
-    // webLiveSrc 是完整入口 URL 路径（渲染页的 web 形态要求 src 为完整 URL），
-    // 所以直接作为请求路径用；子资源由入口目录推导。
-    const entryUrl = web.webLiveSrc;
+    // 应用源挂载仍然存在（场景 pkg / 媒体源不可用时的回落）：去掉源后用同一条
+    // 路径把同样的断言跑一遍，保证两处挂载行为一致。
+    const entryUrl = mediaEntry.replace(/^http:\/\/127\.0\.0\.1:\d+/, '');
     const baseUrl = entryUrl.replace(/\/[^/]*$/, '');
     const htmlRes = await runHandler(filesRoute, entryUrl);
     const html = htmlRes.__state.body.toString('utf8');
@@ -360,6 +369,50 @@ console.log('Level C3 — web wallpaper files (shim injection / MIME / CORS)');
     check('script served as javascript',
       jsRes.__state.status === 200 && /javascript/.test(h(jsRes, 'Content-Type')),
       h(jsRes, 'Content-Type'));
+  }
+}
+
+// ── Level C4: wallpaper media origin (real loopback listener) ───────────────
+// C3 打的是 mock 出来的「应用源挂载」；这一层对**真实 socket** 打一轮：不透明源
+//（Origin: null）能否取到入口、子资源 MIME、OPTIONS 预检、目录围栏、非本路由
+// 404。Desktop 上网页壁纸能不能显示，完全取决于这个源。
+console.log('Level C4 — 壁纸媒体源（真实 loopback 监听）');
+{
+  const moRoute = routes.find((r) => r.path === '/wallpaper-engine/media-origin');
+  check('media-origin 诊断路由已注册', Boolean(moRoute));
+  if (moRoute) {
+    const moRes = await runHandler(moRoute, '/wallpaper-engine/media-origin');
+    const mo = JSON.parse(moRes.__state.body.toString('utf8') || '{}');
+    const base = String(mo.base || '');
+    check('media-origin 上报可用源（127.0.0.1 + 随机端口）',
+      /^http:\/\/127\.0\.0\.1:\d+$/.test(base), 'base=' + (base || '(空)'));
+    if (base && mediaEntry) {
+      const entryPath = mediaEntry.replace(/^http:\/\/127\.0\.0\.1:\d+/, '');
+      const dirPath = entryPath.replace(/\/[^/]*$/, '');
+      // 不透明源（严格沙箱 iframe）真实发出的请求就长这样：Origin: null。
+      const opaque = await fetch(base + entryPath, { headers: { Origin: 'null' }, cache: 'no-store' });
+      const opaqueHtml = await opaque.text();
+      check('Origin: null 下入口 HTML 200 + shim/seed 注入 + CORS *',
+        opaque.status === 200 && opaque.headers.get('access-control-allow-origin') === '*'
+          && opaqueHtml.indexOf('data-we-shim="host"') !== -1
+          && opaqueHtml.indexOf('data-we-seed="host"') !== -1,
+        'status=' + opaque.status + ' acao=' + opaque.headers.get('access-control-allow-origin'));
+      const css = await fetch(base + dirPath + '/style.css', { cache: 'no-store' });
+      check('子资源经媒体源可达（text/css）',
+        css.status === 200 && /text\/css/.test(css.headers.get('content-type') || ''),
+        'status=' + css.status + ' ' + css.headers.get('content-type'));
+      const pre = await fetch(base + entryPath, { method: 'OPTIONS', cache: 'no-store' });
+      check('OPTIONS 预检放行（204 + ACAO *）',
+        pre.status === 204 && pre.headers.get('access-control-allow-origin') === '*',
+        'status=' + pre.status + ' acao=' + pre.headers.get('access-control-allow-origin'));
+      const fenced = await fetch(base + dirPath + '/%2e%2e%2f%2e%2e%2fsecret.txt', { cache: 'no-store' });
+      const fencedBody = await fenced.text();
+      check('媒体源同样受目录围栏保护（403 + 自解释体）',
+        fenced.status === 403 && fencedBody.indexOf('forbidden-scene-files[') === 0,
+        'status=' + fenced.status + ' body=' + fencedBody.slice(0, 32));
+      const off = await fetch(base + '/wallpaper-engine/media-status', { cache: 'no-store' });
+      check('媒体源只服务 /scene-files（其它路径 404）', off.status === 404, 'status=' + off.status);
+    }
   }
 }
 
@@ -422,6 +475,9 @@ const clientChecks = [
   ['controls are deduped before dispatch', /liveApplied\.playing !== playing/.test(src)],
   ['heartbeat reads stats before applying controls', /const stats = liveStats\(frame\);\s*\n\s*applyLiveControls\(frame\);/.test(src)],
   ['upload management list excludes project dirs', /isUploadedWallpaper\(w\) && !isDirWallpaper\(w\)/.test(src)],
+  // 网页壁纸的 src 直用 host 给的绝对 URL（媒体源）；相对形态仅作回落。
+  ['web live src reuses the absolute media-origin URL', src.includes('const webEntry = String(selLike.webLiveSrc || "")')
+    && src.includes('/^https?:\\/\\//i.test(webEntry)')],
 ];
 for (const [name, ok] of clientChecks) check(name, ok);
 // 实测踩坑回归（2026-09-22）：host 的 sanitizeSettings 是白名单，漏加
@@ -430,9 +486,25 @@ const hostSrc = readFileSync(join(root, 'lib', 'index.js'), 'utf8');
 check('host settings whitelist keeps sceneLiveFailures', /sceneLiveFailures: \(o\.sceneLiveFailures && typeof o\.sceneLiveFailures === 'object'/.test(hostSrc));
 check('host injects the vendored shim into web HTML', /data-we-shim="host"/.test(hostSrc) && /readWebShim\(\)/.test(hostSrc));
 check('host sends CORS for opaque-origin fetches', /Access-Control-Allow-Origin', '\*'/.test(hostSrc));
-check('inventory derives webLive via webFieldsFor', /webFieldsFor\(w, hasMedia\)/.test(hostSrc));
+check('inventory derives webLive via webFieldsFor', /webFieldsFor\(w, hasMedia, webMediaBase\)/.test(hostSrc));
+// 2026-09-23 黑屏事故回归：Desktop 的能力头栅栏（宿主 lib/webserver.js →
+// decideDesktopBrowserAccess）只放行同源 frame，不透明源的沙箱 iframe 永远拿不到
+// x-dsh-desktop-renderer → 插件路由一律 403。网页壁纸载荷因此必须走 host 自建的
+// 独立 loopback 源，两处挂载共用同一段处理函数。
+check('host 自建壁纸媒体源（独立 loopback 监听）',
+  /let mediaOrigin = null/.test(hostSrc) && /function ensureMediaOrigin\(\)/.test(hostSrc)
+    && /server\.listen\(0, '127\.0\.0\.1'/.test(hostSrc) && /function mediaOriginBase\(\)/.test(hostSrc));
+check('scene-files 处理函数被双挂载（应用源 + 媒体源）',
+  /function handleSceneFiles\(req, res, mount\)/.test(hostSrc)
+    && hostSrc.includes("handleSceneFiles(req, res, 'media')")
+    && hostSrc.includes("handleSceneFiles(req, res, 'app')")
+    && hostSrc.includes('function traceMediaRequests('));
+check('媒体源只服务 /scene-files 前缀', hostSrc.includes("pathname.startsWith(`${BASE}/scene-files/`)"));
 check('host builds the property seed from project.json', /function buildSeedScript\(entryAbs\)/.test(hostSrc));
 check('renderer diagnostics sink registered at /diag', /path: '\/diag'/.test(hostSrc) && /diag-log/.test(hostSrc));
+// 实测踩坑（2026-09-23）：同一份渲染页产物里还有一条走 ${BASE}/diag 的告警通道，
+// 只挂根路径会让「壁纸黑屏」时最关键的渲染页告警全部 404 静默丢掉。
+check('renderer diagnostics also accepted at ${BASE}/diag', hostSrc.includes('path: `${BASE}/diag`'));
 // 自定义存储位置的目录型条目：up-dir- 前缀（用户自己的内容 / 不参与 /remove）
 check('uploads scan tags project dirs with up-dir- prefix', /id: `up-dir-\$\{name\}`/.test(hostSrc));
 check('uploads scan resolves scene.pkg for declared scene.json', /resolveSceneMainFileP\(abs, proj\.file\)/.test(hostSrc));

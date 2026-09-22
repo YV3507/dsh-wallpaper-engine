@@ -96,6 +96,18 @@ read host storage as the app). Cross-origin control and pointer injection go
 through the renderer page's `postMessage` channel. On load failure or a stalled
 runtime the wallpaper is remembered and degrades to the legacy plain iframe
 (no WE API).
+>
+> **Payload origin (separate media origin)**: a web wallpaper's entry HTML and all of
+> its subresources are served by a **dedicated loopback media origin the host opens
+> itself** (a random port on `127.0.0.1`, reported by
+> `GET /wallpaper-engine/media-origin`) — *not* by the plugin's HTTP routes. Why: DSH
+> Desktop wraps every plugin route in a capability-header fence
+> (`x-dsh-desktop-renderer`, injected only into requests issued by same-origin
+> frames), and a strict-sandbox iframe is an opaque origin that can never carry that
+> header — the wallpaper entry would always answer `403 Forbidden` (symptom: the
+> preview frame looks fine, then the wallpaper goes fully black). The media origin
+> bypasses that fence, and third-party HTML no longer shares the host origin at all,
+> so the sandbox gets a second layer of isolation.
 
 > **Known web-wallpaper limits**: author `fetch`/`XHR` carries `Origin: null` under
 > the opaque origin (the host answers with `Access-Control-Allow-Origin: *`, so
@@ -141,7 +153,8 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe
      - `GET /wallpaper-engine/video-preview/<token>` → on-demand ffmpeg-extracted thumbnail for a custom MP4 upload (disk-cached)
      - `GET /wallpaper-engine/scene-frame/<token>` → scene full-scene frame (pure-JS renderer output 3840×2160, falls back to main-texture extraction, PNG disk-cached; also the live renderer's underlay)
      - `GET /wallpaper-engine/scene-live/*` → the vendored WebWallGL renderer page (built into `lib/webwallgl/`, loaded by the live-render iframe)
-     - `GET /wallpaper-engine/scene-files/<token>/<path>` → raw scene wallpaper files (`scene.pkg` / `project.json` …, Range supported; the renderer page parses the container itself)
+     - `GET /wallpaper-engine/scene-files/<token>/<path>` → raw scene wallpaper files (`scene.pkg` / `project.json` …, Range supported; the renderer page parses the container itself). The same path is also mounted on the **separate wallpaper media origin** (see above); web-wallpaper payloads are fetched from there
+     - `GET /wallpaper-engine/media-origin` → reports the active wallpaper media origin (diagnostics: which origin a web wallpaper is loaded from)
      - `POST /wallpaper-engine/upload` → upload a custom wallpaper (JPG / PNG / MP4, raw bytes)
      - `POST /wallpaper-engine/remove` → remove an uploaded wallpaper
      - `POST /wallpaper-engine/upload-dir` → change the upload directory (persisted to `~/.dsh-wallpaper-engine/config.json`, migrates existing files)
@@ -643,7 +656,8 @@ consumes (the same shape `tsdown` emits for in-box client packages).
 npm run build                  # regenerate lib/client.js from src/client.js
 npm run verify                 # materialize the emitted bundle and assert its exports (incl. the scene-live pipeline self-test)
 node scripts/verify-scene.mjs  # scene static-frame extraction / scene-frame route self-test (incl. synthetic fixtures, offline)
-node scripts/verify-scene-live.mjs  # scene live-render self-test (vendor artifacts / scene-live + scene-files routes / directory fence / Range)
+node scripts/verify-scene-live.mjs  # scene live-render self-test (vendor artifacts / scene-live + scene-files routes / directory fence / Range / media origin)
+node scripts/e2e-web-media-origin.mjs  # real-browser end-to-end (needs a local Chromium): media origin + strict-sandbox iframe + shim / property seed / control channel
 node scripts/sync-webwallgl.mjs     # build the renderer page from a local webwallgl checkout and vendor it into lib/webwallgl/
 ```
 
