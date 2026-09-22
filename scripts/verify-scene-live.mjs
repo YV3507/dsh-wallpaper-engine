@@ -261,6 +261,8 @@ mkdirSync(webDir, { recursive: true });
 writeFileSync(join(webDir, 'project.json'), JSON.stringify({
   title: 'Fixture Web Wallpaper', type: 'web', file: 'index.html', preview: 'preview.jpg',
   contentrating: 'Everyone',
+  // 用户属性：host 必须把它转成 seed 脚本注入 HTML（严格沙箱下渲染页无法运行时补推）
+  general: { properties: { color0: { order: 0, type: 'color', value: '1 0 0' }, fpslock: { order: 1, type: 'bool', value: true } } },
 }));
 writeFileSync(join(webDir, 'index.html'), [
   '<!doctype html><html><head><meta charset="utf-8"><title>fixture</title>',
@@ -342,6 +344,12 @@ console.log('Level C3 — web wallpaper files (shim injection / MIME / CORS)');
       htmlRes.__state.status === 200 && /text\/html/.test(h(htmlRes, 'Content-Type'))
         && html.indexOf('data-we-shim="host"') !== -1,
       'status=' + htmlRes.__state.status + ' shim=' + (html.indexOf('data-we-shim') !== -1));
+    // 属性 seed：严格沙箱下渲染页读不到 iframe（无法运行时补推 __weApplyProps），
+    // 属性只能由宿主随 HTML 注入 —— 漏掉它依赖属性的壁纸会画成默认（实测黑屏）。
+    check('HTML entry carries the property seed from project.json',
+      html.indexOf('data-we-seed="host"') !== -1 && html.indexOf('__weSeedProps') !== -1
+        && html.indexOf('color0') !== -1,
+      'seed=' + (html.indexOf('data-we-seed') !== -1));
     check('HTML entry advertises CORS for opaque origins',
       h(htmlRes, 'Access-Control-Allow-Origin') === '*', h(htmlRes, 'Access-Control-Allow-Origin'));
     const cssRes = await runHandler(filesRoute, `${baseUrl}/style.css`);
@@ -423,6 +431,8 @@ check('host settings whitelist keeps sceneLiveFailures', /sceneLiveFailures: \(o
 check('host injects the vendored shim into web HTML', /data-we-shim="host"/.test(hostSrc) && /readWebShim\(\)/.test(hostSrc));
 check('host sends CORS for opaque-origin fetches', /Access-Control-Allow-Origin', '\*'/.test(hostSrc));
 check('inventory derives webLive via webFieldsFor', /webFieldsFor\(w, hasMedia\)/.test(hostSrc));
+check('host builds the property seed from project.json', /function buildSeedScript\(entryAbs\)/.test(hostSrc));
+check('renderer diagnostics sink registered at /diag', /path: '\/diag'/.test(hostSrc) && /diag-log/.test(hostSrc));
 // 自定义存储位置的目录型条目：up-dir- 前缀（用户自己的内容 / 不参与 /remove）
 check('uploads scan tags project dirs with up-dir- prefix', /id: `up-dir-\$\{name\}`/.test(hostSrc));
 check('uploads scan resolves scene.pkg for declared scene.json', /resolveSceneMainFileP\(abs, proj\.file\)/.test(hostSrc));
