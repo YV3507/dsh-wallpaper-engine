@@ -226,8 +226,8 @@ wrapperHtml = `<!doctype html><html><head><meta charset="utf-8"><title>e2e host<
   + `<div class="we-picker__section"><div class="we-picker__current">`
   + `<div class="we-vinyl"><span class="we-vinyl__hole"></span></div>`
   + `<div class="we-picker__current-info">`
-  + `<div class="we-picker__current-title">音域回响</div>`
-  + `<div class="we-picker__current-sub"><div class="we-picker__current-meta">网页壁纸 · 播放中</div></div>`
+  + `<div class="we-picker__current-title"><span class="we-picker__current-name">一个特别长的壁纸名称用来压出省略号效果</span><span class="we-picker__current-meta">场景壁纸（实时渲染） · 播放中</span></div>`
+  + `<div class="we-picker__current-sub"></div>`
   + `</div>`
   + `<div class="we-picker__current-actions">`
   + `<button class="we-picker__btn we-picker__btn--props">壁纸属性</button>`
@@ -237,8 +237,8 @@ wrapperHtml = `<!doctype html><html><head><meta charset="utf-8"><title>e2e host<
   + `<div class="we-picker__section"><div class="we-picker__current">`
   + `<div class="we-vinyl"><span class="we-vinyl__hole"></span></div>`
   + `<div class="we-picker__current-info">`
-  + `<div class="we-picker__current-title">音域回响</div>`
-  + `<div class="we-picker__current-sub"><div class="we-picker__current-meta">网页壁纸 · 播放中</div></div>`
+  + `<div class="we-picker__current-title"><span>音域回响</span><span class="we-picker__current-meta">网页壁纸 · 播放中</span></div>`
+  + `<div class="we-picker__current-sub"></div>`
   + `</div>`
   + `<div class="we-picker__current-actions">`
   + `<button class="we-picker__btn we-picker__btn--props">壁纸属性</button>`
@@ -248,18 +248,27 @@ wrapperHtml = `<!doctype html><html><head><meta charset="utf-8"><title>e2e host<
   + `function measureCard(scope){`
   + `var card=scope.querySelector('.we-picker__current');`
   + `var root=card.getBoundingClientRect();`
-  + `var t=card.querySelector('.we-picker__current-title').getBoundingClientRect();`
+  + `var tl=card.querySelector('.we-picker__current-title');`
+  + `var wm=document.getElementById('e2e-wide').querySelector('.we-picker__current-meta');`
+  + `var t=tl.getBoundingClientRect();`
   + `var v=card.querySelector('.we-vinyl').getBoundingClientRect();`
   + `var bs=card.querySelectorAll('.we-picker__current-actions .we-picker__btn');`
   + `var a=bs[0].getBoundingClientRect(),b=bs[1].getBoundingClientRect();`
+  + `var m=card.querySelector('.we-picker__current-meta');`
+  + `var ms=getComputedStyle(m), ts=getComputedStyle(tl);`
+  + `var parens=(String(ms.content).indexOf('（')>=0||String(getComputedStyle(m,'::before').content).indexOf('（')>=0)?1:0;`
+  + `var oneLine=tl.getBoundingClientRect().height<=parseFloat(ts.fontSize)*2.0?1:0;`
+  + `var clipped=tl.scrollWidth>tl.clientWidth+1?1:0;`
   + `return {stacked:(Math.abs(a.left-b.left)<1.5&&b.top>a.bottom-1)?1:0,gap:Math.round(b.top-a.bottom),`
-  + `row:(Math.abs(a.top-b.top)<1.5&&b.left>a.right-1)?1:0,rowGap:Math.round(b.left-a.right),titleAbove:t.top<v.top?1:0};`
+  + `row:(Math.abs(a.top-b.top)<1.5&&b.left>a.right-1)?1:0,rowGap:Math.round(b.left-a.right),titleAbove:t.top<v.top?1:0,`
+  + `metaDisplay:ms.display,parens:parens,oneLine:oneLine,clipped:clipped,wideMeta:getComputedStyle(wm).display};`
   + `}`
   + `setTimeout(function(){`
   + `var d=measureCard(document.getElementById('e2e-drawer'));`
   + `var w=measureCard(document.getElementById('e2e-wide'));`
   + `var img=new Image();`
-  + `img.src='${APP}/wallpaper-engine/diag?msg='+encodeURIComponent('${MARKER} LAYOUT drawerStacked='+d.stacked+' drawerGap='+d.gap+' drawerTitleAbove='+d.titleAbove+' wideRow='+w.row+' wideRowGap='+w.rowGap);`
+  + `img.src='${APP}/wallpaper-engine/diag?msg='+encodeURIComponent('${MARKER} LAYOUT drawerStacked='+d.stacked+' drawerGap='+d.gap+' drawerTitleAbove='+d.titleAbove+' wideRow='+w.row+' wideRowGap='+w.rowGap`
+  + `+' metaInline='+(d.metaDisplay==='inline'?1:0)+' parens='+d.parens+' oneLine='+d.oneLine+' clipped='+d.clipped+' wideMetaBlock='+(w.wideMeta==='block'?1:0));`
   + `},1500);`
   + `</script></body></html>`;
 
@@ -363,6 +372,11 @@ check('抽屉里两个按钮上下排列、间距 8px',
   `stacked=${lg('drawerStacked')} gap=${lg('drawerGap')}`);
 check('宽容器里两个按钮并排（间距 8px）',
   lg('wideRow') === '1' && lg('wideRowGap') === '8', `row=${lg('wideRow')} gapX=${lg('wideRowGap')}`);
+// 用户口径：抽屉里「类型 · 播放中」跟在名称后面、括号包起来、超出一行用省略号
+check('抽屉里类型/播放态内联加括号、整行不换行且在超长时省略',
+  lg('metaInline') === '1' && lg('parens') === '1' && lg('oneLine') === '1' && lg('clipped') === '1',
+  `inline=${lg('metaInline')} 括号=${lg('parens')} 单行=${lg('oneLine')} 省略=${lg('clipped')}`);
+check('宽卡片里类型/播放态仍在名称下方另起一行', lg('wideMetaBlock') === '1', 'wide=' + (lg('wideMetaBlock') || '?'));
 // 属性热更新（「壁纸属性」面板的写路径）：渲染页 __wp.updateWebProps → shim
 // → 作者 applyUserProperties。种子给的是 '1 0 0'，热更新后必须是 '0 1 0'。
 check('属性热更新到达壁纸（updateWebProps）', g('prop0') === '0_1_0', 'prop0=' + (g('prop0') || '?'));

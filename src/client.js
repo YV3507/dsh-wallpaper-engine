@@ -4328,14 +4328,16 @@ function WallpaperPicker(props) {
           }),
           React.createElement("div", { className: "we-picker__current-info" },
             React.createElement("div", { className: "we-picker__current-title", title: current ? current.title : "" },
-              sel.id && current ? current.title : "未选择壁纸"),
-            // meta + 各种原因说明包一层：抽屉（窄容器）里标题要独占第一行，
-            // 该层用 display:contents 展开成 grid 项，靠这个包裹层保持一行一项。
+              sel.id && current ? current.title : "未选择壁纸",
+              // 类型 + 播放态：宽卡片里另起一行；抽屉（窄容器）里由 CSS 改成
+              // 「名称（类型 · 播放中）」同一行，整行超出省略（见 .we-repo-panel 规则）。
+              React.createElement("span", { className: "we-picker__current-meta" },
+                current
+                  ? ({ video: "视频壁纸", web: "网页壁纸", image: "图片壁纸", scene: isLiveScene ? "场景壁纸（实时渲染）" : "场景壁纸（静态帧）" }[current.type] || "壁纸") + (playbackLive ? " · 播放中" : " · 已暂停")
+                  : "尚未选择壁纸")),
+            // 失败/被过滤的原因说明包一层：抽屉里该层用 display:contents 展开成
+            // grid 项（标题已独走第一行），靠这个包裹层保证「一行一项」。
             React.createElement("div", { className: "we-picker__current-sub" },
-            React.createElement("div", { className: "we-picker__current-meta" },
-              current
-                ? ({ video: "视频壁纸", web: "网页壁纸", image: "图片壁纸", scene: isLiveScene ? "场景壁纸（实时渲染）" : "场景壁纸（静态帧）" }[current.type] || "壁纸") + (playbackLive ? " · 播放中" : " · 已暂停")
-                : "尚未选择壁纸"),
             // 播放失败原因（#84）: 浏览器解不了的编码 / 解码失败等，过去是
             // 「静默空白」，现在给出可读原因，配合下面的「播放」按钮重试。
             sel.videoError && React.createElement("div", { className: "we-picker__current-error" }, sel.videoError),
@@ -6677,7 +6679,8 @@ const CSS = `
     font-size: 0.9em; font-weight: 500;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .we-picker__current-meta { font-size: 0.75em; opacity: 0.55; margin-top: 2px; }
+  /* 类型 + 播放态：宽卡片里是标题下的独立一行（普通块级）。 */
+  .we-picker__current-meta { display: block; font-size: 0.75em; opacity: 0.55; margin-top: 2px; }
   /* 播放失败 / 选择被过滤排除的原因（#84）: 紧跟在 meta 行下的一句可读说明，
      过去这两种情况都表现为「壁纸一片空白且无从下手」，故必须可见但克制。 */
   .we-picker__current-error { font-size: 0.75em; opacity: 0.9; margin-top: 2px; color: #e5534b; }
@@ -6757,6 +6760,13 @@ const CSS = `
   }
   .we-repo-panel .we-picker__current-info { display: contents; }
   .we-repo-panel .we-picker__current-title { grid-area: title; }
+  /* 抽屉里：类型/播放态跟在名称后面、括号包裹，整行超出用省略号（标题元素本身
+     已经是 nowrap + overflow hidden + text-overflow ellipsis，内联文本才能整体截断）。 */
+  .we-repo-panel .we-picker__current-meta {
+    display: inline; margin-top: 0; font-size: inherit; opacity: 0.6;
+  }
+  .we-repo-panel .we-picker__current-meta::before { content: "（"; }
+  .we-repo-panel .we-picker__current-meta::after { content: "）"; }
   .we-repo-panel .we-picker__current-sub { grid-area: info; min-width: 0; }
   .we-repo-panel .we-vinyl, .we-repo-panel .we-picker__current-thumb { grid-area: vinyl; }
   .we-repo-panel .we-picker__current-actions {

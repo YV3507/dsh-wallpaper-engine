@@ -378,6 +378,17 @@ if (filesRoute && fixture && fixture.sceneLiveSrc) {
 // shim into the HTML entry, serve subresources with correct MIME types (a CSS
 // file as application/octet-stream is rejected by the browser), and allow
 // opaque-origin fetches via CORS.
+{
+  // 回归闸门：道具入口必须在**场景**壁纸上也在。踩过的坑：inventory 条目先展开
+  // sceneFieldsFor 再展开 webFieldsFor，两者都返回 propsUrl，后者的 null 把场景
+  // 的值盖掉 —— 表现就是「场景壁纸没有壁纸属性按钮」。
+  const inv = JSON.parse((await runHandler(invRoute, '/wallpaper-engine/inventory')).__state.body.toString('utf8'));
+  const sc = (inv.wallpapers || []).find((w) => w.id === '990001') || null;
+  check('场景壁纸也带 propsUrl（属性入口不被 web 分支覆盖）',
+    Boolean(sc && sc.propsUrl && sc.propsUrl.indexOf('/props/') > 0),
+    sc ? String(sc.propsUrl || '(空)').slice(0, 52) : 'scene not found');
+}
+
 console.log('Level C3 — web wallpaper files (shim injection / MIME / CORS)');
 let mediaEntry = '';   // C4 复用：C3 里从 inventory 拿到的那条入口 URL
 {
@@ -659,6 +670,10 @@ check('条件求值器已移植（fail open）',
   src.includes('function weEvalCondition(') && src.includes('function weCondParse('));
 check('场景就绪后回放覆盖值（无 HTML 种子通道）',
   src.includes('function applyStoredUserProps(') && src.includes('applyStoredUserProps(selection)'));
+check('标题里的类型/播放态在抽屉内联并加括号（整行省略）',
+  src.includes('className: "we-picker__current-meta" }') && src.includes('.we-repo-panel .we-picker__current-meta {')
+    && src.includes('.we-repo-panel .we-picker__current-meta::before { content: "（"; }')
+    && src.includes('.we-repo-panel .we-picker__current-meta::after { content: "）"; }'));
 check('抽屉窄容器：标题独占首行 + 按钮上下排列（8px）',
   src.includes('.we-repo-panel .we-picker__current {') && src.includes('grid-template-areas:')
     && src.includes('.we-repo-panel .we-picker__current-actions {')
