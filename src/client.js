@@ -1096,6 +1096,7 @@ function importPlaylistIntoDraft(playlist) {
 }
 
 function applySelection(id) {
+  reportClientDiag("apply", "id=" + String(id || "").slice(0, 40));
   // 切换壁纸 (任意类型): 终止旧的 scene 动画升级 — 旧轮询 timer 停止写进度,
   // 旧 probe 下载断开 → 服务端 res close → 取消渲染 (worker/ffmpeg 释放 CPU)。
   cancelSceneAnimUpgrade();
@@ -1695,6 +1696,7 @@ function startLiveWatch(frame, wid) {
         maybeCaptureLiveFrame(frame, selection);
         // 媒体桥接线：频谱（拉模式）与 Now Playing 转发。
         startMediaSync(frame);
+        reportClientDiag("live-ready", "firstFrame ok");
       } else if (Date.now() - watch.startedAt > LIVE_FIRST_FRAME_MS) {
         liveFail("timeout");
       }
@@ -1824,6 +1826,7 @@ function liveFail(reason) {
   const map = Object.assign({}, selection.sceneLiveFailures || {});
   // 记原因而不是 true：设置面板会把它显示出来（用户能反馈「为什么黑」）
   map[wid] = reason === "stall" ? "stall" : "timeout";
+  reportClientDiag("live-fail", "reason=" + reason);
   selection.sceneLiveFailures = map;
   try { persistSelection(); } catch { /* ignore */ }
   try { syncLayers(); } catch { /* ignore */ }
@@ -1897,6 +1900,26 @@ function ensureLivePointer(frame) {
 // 先铺主题色（WE 的 schemecolor），有图再叠：网页 = 自动首帧（host 缓存的
 // /live-frame）；场景 = 静态帧（frameUrl，本身就是抽帧）。图 404（首次尚无缓存）
 // 时保持主题色 —— 任何情况下加载期都不是黑屏，也不会停在作者预览图。
+// 渲染链路行为上报（宿主落盘 ~/.dsh-wallpaper-engine/diag/http.jsonl）：
+// 只在某个宿主环境复现的问题，靠「走了哪条分支、卡在哪一步」定位。
+// 失败静默，绝不打断渲染。
+function reportClientDiag(event, detail) {
+  try {
+    fetch("/wallpaper-engine/client-diag", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event,
+        type: selection.type || "",
+        id: selection.id || "",
+        detail: String(detail == null ? "" : detail).slice(0, 300),
+        src: String(selection.url || selection.sceneLiveSrc || selection.webLiveSrc || "").slice(0, 200),
+      }),
+      keepalive: true,
+    }).catch(() => { /* 忽略 */ });
+  } catch { /* 忽略 */ }
+}
+
 function buildLivePoster(sel) {
   const poster = document.createElement("div");
   poster.className = "we-media we-live-poster";
@@ -1989,7 +2012,8 @@ function maybeCaptureLiveFrame(frame, sel) {
         poster.dataset.weFrameApplied = "1";
         poster.style.backgroundImage = "url(" + sel.liveFrame + "?t=" + Date.now() + ")";
       }
-    }).catch(() => { /* 静默 */ });
+      reportClientDiag("live-capture", "uploaded");
+    }).catch((e) => { reportClientDiag("live-capture-fail", String(e && e.message || e)); });
   }, 3000);
 }
 
@@ -2007,6 +2031,7 @@ function buildMedia(sel) {
   const isSceneAnim = sel.type === "scene" && sel.url && sel.url.indexOf("/scene-anim/") !== -1;
   const isStill = sel.type === "image" || (sel.type === "scene" && !isLive && !isSceneVideo && !isSceneAnim);
   if (isLive) {
+    reportClientDiag("live-build", "type=" + sel.type + " delay=" + sel.liveBootDelay + " boot=" + bootRestore);
     const poster = buildLivePoster(sel);
     const frame = createLiveFrame(sel);
     // 启动延迟：仅「重启恢复上次壁纸」阶段（bootRestore）生效 —— 期间只显示占位图，
@@ -2015,6 +2040,7 @@ function buildMedia(sel) {
     const delaySecs = clampNum(sel.liveBootDelay, 0, 30, 3);
     const delayMs = bootRestore && delaySecs > 0 ? delaySecs * 1000 : 0;
     if (delayMs <= 0) return [poster, frame];
+    reportClientDiag("live-delayed", "ms=" + delayMs);
     scheduleLiveMount(sel, frame, delayMs);
     return poster;
   }
