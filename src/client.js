@@ -1215,6 +1215,14 @@ function isUploadedWallpaper(w) {
   return Boolean(w && w.id && w.id.indexOf("up-") === 0);
 }
 
+// 存储位置里的 WE 项目目录（project.json + scene.pkg/…，id 前缀 up-dir-）。
+// 与单文件上传同属「用户自己的内容」（ratingOf 的宽松分级、隐藏/轮转都适用），
+// 但不是「上传」、也没有可移除的文件（/remove 只解析 up-*.ext）——上传管理
+// 列表与计数须把它们排除，否则会出现点「移除」却删不掉的幽灵条目。
+function isDirWallpaper(w) {
+  return Boolean(w && w.id && w.id.indexOf("up-dir-") === 0);
+}
+
 async function uploadWallpaperFile(file) {
   const ctype = (file.type || "").toLowerCase();
   if (!UPLOAD_TYPES.includes(ctype)) {
@@ -3392,7 +3400,7 @@ function WallpaperPicker(props) {
   const cdMode = sel.pickerLayout === "classic";
   const hiddenList = hiddenInventoryList();
   const current = list.find((w) => w.id === sel.id) || null;
-  const uploadedList = list.filter(isUploadedWallpaper);
+  const uploadedList = list.filter((w) => isUploadedWallpaper(w) && !isDirWallpaper(w));
   const groups = sel.rotationGroups;
   const group = activeRotationGroup();
   const candidates = rotationCandidates();
@@ -3725,7 +3733,7 @@ function WallpaperPicker(props) {
         sel.uploadNote && React.createElement("div", { className: "we-picker__note" }, sel.uploadNote),
         React.createElement("div", { className: "we-picker__row" },
           React.createElement("span", { className: "we-picker__hint" }, "已上传 " + uploadedList.length + " 个"),
-          React.createElement("span", { className: "we-picker__hint" }, "格式仅限 JPG / PNG / MP4"),
+          React.createElement("span", { className: "we-picker__hint" }, "支持 JPG / PNG / MP4，及含 project.json 的 WE 壁纸目录"),
         ),
         uploadedList.length > 0 && React.createElement("div", { className: "we-picker__uploads-list" },
           uploadedList.map((w) => React.createElement("div", { key: w.id, className: "we-picker__uploads-item" },
@@ -4392,7 +4400,7 @@ function WallpaperPicker(props) {
                           })
                         : React.createElement("span", { className: "we-picker__card-placeholder" }, "无预览"),
                       React.createElement("span", { className: "we-picker__card-title" }, w.title),
-                      w.type === "scene" && React.createElement("span", { className: "we-picker__card-badge" }, "静态帧"),
+                      w.type === "scene" && React.createElement("span", { className: "we-picker__card-badge" }, w.sceneLive ? "实时渲染" : "静态帧"),
                       React.createElement("button", {
                         className: "we-picker__card-hide", type: "button",
                         title: "恢复此壁纸",
@@ -4525,7 +4533,7 @@ function WallpaperPicker(props) {
                           })
                         : React.createElement("span", { className: "we-picker__card-placeholder" }, "无预览"),
                       React.createElement("span", { className: "we-picker__card-title" }, w.title),
-                      w.type === "scene" && React.createElement("span", { className: "we-picker__card-badge" }, "静态帧"),
+                      w.type === "scene" && React.createElement("span", { className: "we-picker__card-badge" }, w.sceneLive ? "实时渲染" : "静态帧"),
                       selection.batchMode
                         ? React.createElement("span", { className: "we-picker__card-check" },
                             selection.batchSelected.indexOf(w.id) >= 0 ? "✓" : "")

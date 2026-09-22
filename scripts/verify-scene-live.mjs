@@ -34,6 +34,94 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // verify-scene.mjs) — apply() may sweep/purge caches on startup.
 const TEST_CACHE_DIR = join(root, '.test-cache', 'scene-live');
 process.env.DSH_WE_CACHE_DIR = TEST_CACHE_DIR;
+// Custom-storage fixture, created BEFORE lib/index.js is imported: UPLOAD_DIR
+// is resolved at module load, and the inventory scan must see the fixture from
+// its very first call (the scan result is TTL-cached for 3 s).
+const TEST_UPLOAD_DIR = join(TEST_CACHE_DIR, 'uploads-fixture');
+process.env.DSH_WE_UPLOAD_DIR = TEST_UPLOAD_DIR;
+
+/** Minimal PKGV writer (raw entries) — mirrors the synthetic builder in
+ *  verify-scene.mjs so the static-frame extractor has something real to chew on. */
+function buildPkg(entries) {
+  const parts = [];
+  const index = [];
+  let offset = 0;
+  for (const { path, bytes } of entries) {
+    index.push({ path, offset, length: bytes.length });
+    parts.push(bytes);
+    offset += bytes.length;
+  }
+  const headerSize = 12 + 8 + index.reduce((n, e) => n + 4 + Buffer.byteLength(e.path, 'utf8') + 8, 0);
+  const header = Buffer.alloc(headerSize);
+  let p = 0;
+  header.writeInt32LE(8, p); p += 4;
+  header.write('PKGV0001', p, 'ascii'); p += 8;
+  header.writeInt32LE(index.length, p); p += 4;
+  for (const e of index) {
+    header.writeInt32LE(Buffer.byteLength(e.path, 'utf8'), p); p += 4;
+    header.write(e.path, p, 'utf8'); p += Buffer.byteLength(e.path, 'utf8');
+    header.writeUInt32LE(e.offset, p); p += 4;
+    header.writeUInt32LE(e.length, p); p += 4;
+  }
+  return Buffer.concat([header.subarray(0, p), ...parts]);
+}
+function buildTexRgba(width, height, rgbaBytes) {
+  const mip = Buffer.alloc(20 + rgbaBytes.length);
+  mip.writeInt32LE(width, 0);
+  mip.writeInt32LE(height, 4);
+  mip.writeInt32LE(0, 8);
+  mip.writeInt32LE(0, 12);
+  mip.writeInt32LE(rgbaBytes.length, 16);
+  rgbaBytes.copy(mip, 20);
+  const header = Buffer.alloc(9 + 9 + 4 * 8 + 9 + 4 * 2);
+  let p = 0;
+  header.write('TEXV0005\0', p, 'ascii'); p += 9;
+  header.write('TEXI0001\0', p, 'ascii'); p += 9;
+  header.writeInt32LE(0, p); p += 4;  // RGBA8888
+  header.writeInt32LE(0, p); p += 4;
+  header.writeInt32LE(width, p); p += 4;
+  header.writeInt32LE(height, p); p += 4;
+  header.writeInt32LE(width, p); p += 4;
+  header.writeInt32LE(height, p); p += 4;
+  header.writeInt32LE(0, p); p += 4;
+  header.write('TEXB0002\0', p, 'ascii'); p += 9;
+  header.writeInt32LE(1, p); p += 4;
+  header.writeInt32LE(1, p); p += 4;
+  return Buffer.concat([header.subarray(0, p), mip]);
+}
+/** 32×32 noise RGBA (noise survives the extractor's flatness/color gates). */
+function noiseRgba(w) {
+  const rgba = Buffer.alloc(w * w * 4);
+  let seed = 0x12345678;
+  for (let i = 0; i < w * w; i++) {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    rgba[i * 4] = seed & 0xff;
+    rgba[i * 4 + 1] = (seed >> 8) & 0xff;
+    rgba[i * 4 + 2] = (seed >> 16) & 0xff;
+    rgba[i * 4 + 3] = 255;
+  }
+  return rgba;
+}
+function writeUploadsFixture() {
+  rmSync(TEST_UPLOAD_DIR, { recursive: true, force: true });
+  // A WE project directory, exactly the shape a WallpaperEM downloads folder
+  // has: project.json declaring scene.json while only scene.pkg ships.
+  const projDir = join(TEST_UPLOAD_DIR, 'my-scene-1');
+  mkdirSync(projDir, { recursive: true });
+  const pkg = buildPkg([
+    { path: 'scene.json', bytes: Buffer.from(JSON.stringify({ objects: [{ image: 'main.tex' }] })) },
+    { path: 'main.tex', bytes: buildTexRgba(32, 32, noiseRgba(32)) },
+  ]);
+  writeFileSync(join(projDir, 'scene.pkg'), pkg);
+  writeFileSync(join(projDir, 'project.json'), JSON.stringify({
+    title: 'Custom Dir Scene', type: 'scene', file: 'scene.json', preview: 'preview.jpg',
+    contentrating: 'Everyone',
+  }));
+  writeFileSync(join(projDir, 'preview.jpg'), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+  // A legacy single-file upload must keep working alongside directories.
+  writeFileSync(join(TEST_UPLOAD_DIR, 'up-fixture-image.jpg'), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+}
+writeUploadsFixture();
 
 let passed = 0;
 let failed = 0;
@@ -214,6 +302,46 @@ if (filesRoute && fixture && fixture.sceneLiveSrc) {
   check('missing subpath → 404', nosubRes.__state.status === 404, 'status=' + nosubRes.__state.status);
 }
 
+// ── Level C2: custom storage (uploads) — WE project directories ─────────────
+// The reported bug: pointing 存储位置 at a WallpaperEM-style downloads folder
+// found none of its scene wallpapers (the old scanner only matched `up-*.ext`
+// single files). The fixture (created before import) holds one WE project dir
+// plus one legacy single-file upload.
+console.log('Level C2 — custom storage scan (WE project dirs under uploads)');
+{
+  const sceneFrameRoute = routes.find((r) => r.path === '/wallpaper-engine/scene-frame');
+  const res = await runHandler(invRoute, '/wallpaper-engine/inventory');
+  const body = JSON.parse(res.__state.body.toString('utf8'));
+  const dirScene = (body.wallpapers || []).find((w) => w.id === 'up-dir-my-scene-1') || null;
+  check('uploads WE project dir listed as scene', Boolean(dirScene), dirScene ? dirScene.type : 'not found');
+  check('custom-storage scene takes its project.json title',
+    Boolean(dirScene && dirScene.title === 'Custom Dir Scene'), dirScene ? dirScene.title : '-');
+  check('custom-storage scene marked sceneLive + sceneLiveSrc',
+    Boolean(dirScene && dirScene.sceneLive === true && dirScene.sceneLiveSrc),
+    dirScene ? 'src len=' + String(dirScene.sceneLiveSrc || '').length : '-');
+  check('custom-storage scene has frameUrl + preview',
+    Boolean(dirScene && dirScene.frameUrl && dirScene.preview),
+    dirScene ? 'frameUrl=' + Boolean(dirScene.frameUrl) + ' preview=' + Boolean(dirScene.preview) : '-');
+  const fileUp = (body.wallpapers || []).find((w) => w.id === 'up-fixture-image') || null;
+  check('single-file upload still scanned alongside',
+    Boolean(fileUp && fileUp.type === 'image' && fileUp.playable === true),
+    fileUp ? fileUp.type + ' playable=' + fileUp.playable : 'not found');
+
+  if (dirScene && dirScene.sceneLiveSrc) {
+    const pkgRes = await runHandler(filesRoute, `/wallpaper-engine/scene-files/${dirScene.sceneLiveSrc}/scene.pkg`);
+    check('custom-storage scene.pkg served via /scene-files',
+      pkgRes.__state.status === 200 && pkgRes.__state.body.length > 1000,
+      'status=' + pkgRes.__state.status + ' ' + pkgRes.__state.body.length + 'B');
+  }
+  if (dirScene && dirScene.frameUrl && sceneFrameRoute) {
+    const frameRes = await runHandler(sceneFrameRoute, dirScene.frameUrl);
+    const ctype = h(frameRes, 'Content-Type');
+    check('custom-storage scene frame extracted (real pkg decode)',
+      frameRes.__state.status === 200 && /image\/(jpeg|png)/.test(ctype),
+      'status=' + frameRes.__state.status + ' ' + ctype + ' ' + frameRes.__state.body.length + 'B');
+  }
+}
+
 // ── Level D: client source contract ─────────────────────────────────────────
 console.log('Level D — client source wiring (src/client.js)');
 const src = readFileSync(join(root, 'src', 'client.js'), 'utf8');
@@ -231,17 +359,23 @@ const clientChecks = [
   // 且 tick 内先读统计再应用控制。
   ['controls are deduped before dispatch', /liveApplied\.playing !== playing/.test(src)],
   ['heartbeat reads stats before applying controls', /const stats = liveStats\(frame\);\s*\n\s*applyLiveControls\(frame\);/.test(src)],
+  ['upload management list excludes project dirs', /isUploadedWallpaper\(w\) && !isDirWallpaper\(w\)/.test(src)],
 ];
 for (const [name, ok] of clientChecks) check(name, ok);
 // 实测踩坑回归（2026-09-22）：host 的 sanitizeSettings 是白名单，漏加
 // sceneLiveFailures 会让 PUT 上来的失败记忆被丢弃、刷新后记忆消失。
 const hostSrc = readFileSync(join(root, 'lib', 'index.js'), 'utf8');
 check('host settings whitelist keeps sceneLiveFailures', /sceneLiveFailures: \(o\.sceneLiveFailures && typeof o\.sceneLiveFailures === 'object'/.test(hostSrc));
+// 自定义存储位置的目录型条目：up-dir- 前缀（用户自己的内容 / 不参与 /remove）
+check('uploads scan tags project dirs with up-dir- prefix', /id: `up-dir-\$\{name\}`/.test(hostSrc));
+check('uploads scan resolves scene.pkg for declared scene.json', /resolveSceneMainFileP\(abs, proj\.file\)/.test(hostSrc));
 
 // ── teardown ────────────────────────────────────────────────────────────────
 try { dispose && dispose(); } catch { /* ignore */ }
 delete process.env.DSH_WE_STEAM_ROOT;
+delete process.env.DSH_WE_UPLOAD_DIR;
 rmSync(fixtureRoot, { recursive: true, force: true });
+rmSync(TEST_UPLOAD_DIR, { recursive: true, force: true });
 
 console.log('');
 if (failed > 0) {
