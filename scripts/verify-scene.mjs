@@ -180,6 +180,66 @@ function buildTexRgba(width, height, rgbaBytes) {
   return Buffer.concat([header.subarray(0, p), mip]);
 }
 
+// A0: 图集 padding（四周纯黑）必须裁掉。
+//
+// 用户口径：「加载期的抽帧图没铺满屏幕」—— 真实场景的主纹理常是 2048²/4096² 的
+// 2 的幂次方图集，画面只占其中一条带、其余纯黑；原样当静态帧时客户端 cover 以
+// 图集**中心**铺满，屏幕上一大片黑。这里两种 padding 形态都覆盖：只在下方的
+// （真实样本）与四周的（顺带覆盖左右裁列）。
+//
+// 这个用例同时是「裁切不得吞掉候选」的闸门：cropRgba 曾在 Uint8Array 上用
+// Buffer#copy 抛错，候选循环把异常当「该贴图不可用」跳过 —— 结果整张静态帧被换成
+// 另一张贴图（实测 4096² 作者原画变成 256² 水波法线贴图）。
+{
+  const mk = (w, h, bandTop, bandBottom, left = 0, right = w) => {
+    const rgba = Buffer.alloc(w * h * 4, 0); // 全黑底（含 alpha=0 → 也算 padding）
+    for (let y = bandTop; y < bandBottom; y++) {
+      for (let x = left; x < right; x++) {
+        const i = (y * w + x) * 4;
+        // 棋盘：保证有真实方差，能过 colorfulness/flatness 门禁
+        const red = (x + y) % 2 === 0;
+        rgba[i] = red ? 220 : 30;
+        rgba[i + 1] = red ? 30 : 30;
+        rgba[i + 2] = red ? 30 : 220;
+        rgba[i + 3] = 255;
+      }
+    }
+    return rgba;
+  };
+  const sceneJson = Buffer.from(JSON.stringify({ objects: [{ image: 'materials/main.json' }] }));
+  const imgJson = Buffer.from(JSON.stringify({ material: 'materials/main.tex' }));
+  try {
+    // ① 只在下方的 padding：512x512 图集，画面是顶部 512x288
+    const pkg1 = buildPkg([
+      { path: 'scene.json', bytes: sceneJson },
+      { path: 'materials/main.json', bytes: imgJson },
+      { path: 'materials/main.tex', bytes: buildTexRgba(512, 512, mk(512, 512, 0, 288)) },
+    ]);
+    const r1 = pkgExtract.extractSceneMainImage(new Uint8Array(pkg1));
+    const i1 = pngInfo(r1.bytes);
+    check('图集下方黑边裁掉（512x512 → 512x288）',
+      r1.mime === 'image/png' && i1.width === 512 && i1.height === 288,
+      `${i1.width}x${i1.height} mime=${r1.mime} path=${String(r1.texturePath || '').split('/').pop()}`);
+  } catch (e) {
+    check('图集下方黑边裁掉（512x512 → 512x288）', false, e.message);
+  }
+  try {
+    // ② 四周 padding：画面是中间 384x288 的窗口（左右也要内缩，才能真正覆盖裁列）
+    const pkg2 = buildPkg([
+      { path: 'scene.json', bytes: sceneJson },
+      { path: 'materials/main.json', bytes: imgJson },
+      { path: 'materials/main.tex', bytes: buildTexRgba(512, 512, mk(512, 512, 112, 400, 64, 448)) },
+    ]);
+    const r2 = pkgExtract.extractSceneMainImage(new Uint8Array(pkg2));
+    const i2 = pngInfo(r2.bytes);
+    check('图集四周黑边裁掉（左右列同样要裁）',
+      r2.mime === 'image/png' && i2.width === 384 && i2.height === 288,
+      `${i2.width}x${i2.height}`);
+  } catch (e) {
+    check('图集四周黑边裁掉（左右列同样要裁）', false, e.message);
+  }
+}
+
 // ── Level A: pkg-extract ────────────────────────────────────────────────────
 console.log('Level A — pkg-extract unit');
 

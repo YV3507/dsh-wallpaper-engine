@@ -86,6 +86,7 @@ Scene 壁纸由本插件内置的 **WebWallGL 实时渲染引擎**（`lib/webwal
 - **puppet 网格**：MDL（MDLV）网格 + 绑定姿态光栅化（软件光栅 + 双线性 UV 采样 + 透明合成），人物/后发等骨骼模型正确显示。
 - **shader 效果链**：waterwaves（含 DUALWAVES 双波乘积）/ waterripple / shake 按 shader 精确数学在 CPU 实现；mask 纹理支持。
 - **粒子系统**：boxrandom/sphererandom 发射器、color/size/alpha/lifetime/velocity/rotation 等初始化器、movement/alphafade/sizechange/turbulence/oscillate* 等运算符、sprite 精灵绘制。
+- **图集黑边会裁掉**：场景主纹理常是 2048²/4096² 的 2 的幂次方**图集**，画面只占其中一条带、其余纯黑。静态帧按画面本身裁剪（四周连续黑边裁掉，裁完过小则放弃），所以加载期用它当占位图时能正常铺满屏幕，而不是以图集中心铺满、屏幕上一大片黑。
 - **缓存**：渲染结果按 `<版本>_<路径>_<mtime>` 缓存到 `~/.dsh-wallpaper-engine/cache/frames/`（可用 `DSH_WE_CACHE_DIR` 覆盖），工坊更新后自动失效重建；首次渲染约 3-4 秒，之后秒级命中。
 
 ## 工作原理

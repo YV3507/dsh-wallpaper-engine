@@ -166,6 +166,11 @@ Two switches in the「效果」tab (both on by default):
 - **particle systems**: boxrandom / sphererandom emitters, color / size / alpha /
   lifetime / velocity / rotation initializers, movement / alphafade / sizechange /
   turbulence / oscillate* operators, and sprite drawing.
+- **Atlas padding is trimmed**: a scene's main texture is often a power-of-two **atlas**
+  (2048²/4096²) where the artwork occupies just one band and the rest is pure black. The
+  static frame is cropped to the artwork itself (uniform black edges only; a crop leaving
+  too little is skipped), so the loading placeholder fills the screen instead of being
+  anchored to the atlas centre and showing mostly black.
 - **Cache**: results are cached at `~/.dsh-wallpaper-engine/cache/frames/`
   keyed by `<version>_<path>_<mtime>` (override with `DSH_WE_CACHE_DIR`);
   workshop updates and renderer upgrades invalidate the frame automatically.
