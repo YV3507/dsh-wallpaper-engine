@@ -73,7 +73,7 @@ Scene 壁纸由本插件内置的 **WebWallGL 实时渲染引擎**（`lib/webwal
 >
 > **帧率上限与「卡」的排查**：网页壁纸的 rAF 上限由 shim 按**跳帧**实现 —— 每帧都与显示器 vsync 对齐、只把第 n 帧交给壁纸（`setTimeout` 定时器式实现会产生 17/33/50ms 抖动，观感更差）。实时渲染期间每 5 秒往诊断文件写一条 `live-fps`：`ui=` 整页帧率、`web=` 壁纸自身帧率、`rnd=` 渲染页帧率、`cap=` 当前上限 —— 「限了 30 还是卡」时先看这条：只有 `web` 低＝壁纸自己的开销；`ui` 也低＝整页代价（例如侧栏液态玻璃的 `backdrop-filter` 每帧重采样壁纸，可先把模糊调小验证）。
 
-> **网页壁纸已知边界**：作者脚本的 `fetch`/`XHR` 在 opaque origin 下携带 `Origin: null`（宿主已返回 `Access-Control-Allow-Origin: *`，常规资源可用）；`wallpaperMediaIntegration`（系统 Now Playing）本项目未提供数据源，相关壁纸退到自身静态态；CSS `:hover` 等由浏览器 hit-test 驱动的交互不受外部指针注入影响（与上游文档一致）。
+> **网页壁纸已知边界**：作者脚本的 `fetch`/`XHR` 在 opaque origin 下携带 `Origin: null`（宿主已返回 `Access-Control-Allow-Origin: *`，常规资源可用）；`wallpaperMediaIntegration`（系统 Now Playing / 歌曲封面）已提供数据源，详见下文「系统音频反应与歌曲信息」；CSS `:hover` 等由浏览器 hit-test 驱动的交互不受外部指针注入影响（与上游文档一致）。
 
 > **渲染形态与降级**：渲染页在同源隔离 iframe 中运行，并有**心跳看护** —— 首帧 15 秒超时、或运行期连续 20 秒无帧（含一次自动恢复尝试）即判定失败，按壁纸记入失败记忆并自动降级到「内嵌 MP4 → 静态帧」旧链；松散 `scene.json` 目录与无 WebGL2 的环境直接走旧链。失败记忆可在设置里重新打开「场景实时渲染」开关清空重试。静态帧链（内置纯 JS 场景渲染器，下节）保留为垫底画面与降级目标。
 
@@ -401,6 +401,19 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 | **玻璃** | 玻璃面板（输入栏、气泡）的模糊半径 | 0–60 px | 16 |
 
 > **浅色 / 深色模式的适配提醒** — 每张壁纸的色系和明暗差异很大，**没有哪一种模式能适配所有壁纸**。请在 DSH 的「浅色 / 深色」主题之间来回切换，找到适合当前壁纸的那一种。如果在偏亮或花纹复杂的壁纸上 **文字或分割线看不清**，就把 **暗化**、**边框** 两个滑动条调高，或用 **亮度** 压低过亮的壁纸（必要时再稍微加一点 **壁纸模糊**），直到看着舒服为止；嫌壁纸太抢眼则相反——调高 **壁纸透明度** 让它退到底色里。八个滑动条都是即时生效的，**无需刷新页面**。
+
+### 系统音频反应与歌曲信息（Now Playing）
+
+「效果」页签里有两项与系统声音有关的开关（都默认开启）：
+
+| 开关 | 作用 |
+|---|---|
+| **系统音频反应** | 把**系统正在播放的声音**（任何 App，不只是浏览器标签）做成频谱喂给壁纸的音频反应效果。macOS 用 CoreAudio Process Tap（`lib/audio-tap.swift`，首次使用会编译到 `~/.dsh-wallpaper-engine/bin/` 并弹一次「音频录制」授权）；Linux 用 ffmpeg 抓 PulseAudio monitor；Windows 检测 dshow「立体声混音」/ VB-Cable 虚拟设备，没有就引导安装并先回落模拟源 |
+| **媒体信息** | 把系统 **Now Playing**（歌名 / 歌手 / 专辑 / 播放态 / 进度 / **封面**）交给壁纸：依赖 WE 官方 API `wallpaperRegisterMediaPropertiesListener` / `wallpaperRegisterMediaThumbnailListener` / `wallpaperRegisterMediaPlaybackListener`，识别这些 API 的工坊网页壁纸会自动显示歌曲信息与封面 |
+
+> **封面（artwork）从哪来** — macOS 直接取 `media-control` 的 `artworkData`（系统 MediaRemote，**任何播放器都有封面**：Music.app、Spotify、汽水音乐、网易云、浏览器里的音乐页…），Spotify 的 AppleScript 只作为老版本兜底；Linux 取 MPRIS 的 `artUrl`（http(s) 远端地址会先下载到本地缓存）。例行轮询带 `--no-artwork`（省掉每秒几百 KB 的 base64），只有换曲那一拍才取封面。
+>
+> **交付方式是 data URL**：封面在宿主侧降采样到 512² 后转成自包含的 data URL 再交给壁纸 —— 因为插件路由在桌面端被宿主的能力头栅栏保护（跨源沙箱壁纸取不到），而 data URL 不依赖任何源，壁纸还能直接画进 canvas（不受跨源污染限制）。
 
 ## 配置
 

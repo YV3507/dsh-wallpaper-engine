@@ -126,6 +126,29 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe
 > interaction driven by the browser's own hit-test cannot be triggered by external
 > pointer injection (as documented upstream).
 
+### System-audio reaction and Now Playing (song info + cover art)
+
+Two switches in the「效果」tab (both on by default):
+
+| Switch | What it does |
+|---|---|
+| **系统音频反应** | Feeds a spectrum of **whatever the system is playing** (any app) to the wallpaper's audio-reactive effects. macOS uses a CoreAudio Process Tap (`lib/audio-tap.swift`, compiled on first use into `~/.dsh-wallpaper-engine/bin/`, one "audio recording" permission prompt); Linux taps the PulseAudio monitor via ffmpeg; Windows probes dshow "Stereo Mix" / VB-Cable, guides installation and falls back to the simulated source |
+| **媒体信息** | Hands the system **Now Playing** (title / artist / album / playback / timeline / **cover art**) to the wallpaper through the official WE APIs `wallpaperRegisterMediaPropertiesListener` / `wallpaperRegisterMediaThumbnailListener` / `wallpaperRegisterMediaPlaybackListener` — workshop web wallpapers that use them show song info and cover art automatically |
+
+> **Where the cover art comes from**: on macOS it is read straight from `media-control`'s
+> `artworkData` (system MediaRemote, so **every player** has it — Music.app, Spotify,
+> 汽水音乐, 网易云, music pages in a browser…), with the Spotify AppleScript kept only as
+> a fallback for older versions; on Linux it comes from MPRIS `artUrl` (remote http(s)
+> URLs are downloaded into a local cache first). The routine poll uses `--no-artwork`
+> (saving a few hundred KB of base64 every second); artwork is fetched only when the
+> track changes.
+>
+> **Delivery is a data URL**: the host downscales the cover to 512² and converts it to a
+> self-contained data URL before handing it to the wallpaper — plugin routes are fenced
+> by the host capability gate on Desktop (a cross-origin sandboxed wallpaper cannot fetch
+> them), while a data URL depends on no origin at all and can even be drawn into a canvas
+> without tainting it.
+
 ### Static-frame fallback: how it works
 
 - **Object tree**: parses `scene.pkg` (PKGV container + LZ4 entry chains) or a

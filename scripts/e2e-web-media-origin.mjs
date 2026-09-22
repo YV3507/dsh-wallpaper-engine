@@ -76,9 +76,18 @@ const dispose = (host.apply || host.inject)(ctx);
 const matchRoute = (pathname) => routes.find((r) => (
   r.kind === 'exact' ? r.path === pathname : (pathname === r.path || pathname.startsWith(r.path + '/'))
 ));
+// 宿主页（等价于插件 client 的那半边）：嵌渲染页 + 就绪后推一次媒体快照。
+// 有它才能测「封面/歌名能不能穿过沙箱到达壁纸」—— 直接开渲染页没法调 __wp.setMedia。
+let wrapperHtml = '';
 const appServer = createServer((req, res) => {
   const pathname = new URL(req.url || '/', 'http://x').pathname;
   if (DEBUG) console.log(`[host] ${req.method} ${pathname}${req.url.indexOf('?') >= 0 ? '?…' : ''}`);
+  if (pathname === '/e2e/host.html') {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(wrapperHtml || '<!doctype html><title>no recipe</title>');
+    return;
+  }
   const route = matchRoute(pathname);
   if (!route) { res.statusCode = 404; res.end('no route'); return; }
   Promise.resolve(route.handler(req, res)).catch(() => { try { res.statusCode = 500; res.end('handler error'); } catch { /* ignore */ } });
@@ -93,7 +102,32 @@ writeFileSync(join(webDir, 'index.html'), [
   '<!doctype html><html><head><meta charset="utf-8"><title>e2e</title>',
   '<style>html,body{margin:0;background:#123}</style></head><body>',
   '<script>',
-  '  window.__e2e = { propsCalls: 0, fps: null, vol: null, keys: [], frames: 0 };',
+  '  window.__e2e = { propsCalls: 0, fps: null, vol: null, keys: [], frames: 0,',
+  '                  mediaTitle: "", mediaThumb: "", mediaImg: "none", mediaState: null };',
+  // 媒体三件套（WE 官方 API）：属性 / 封面 / 播放态。封面不仅看字符串，
+  // 还真的 new Image() 加载一次 —— 「data URL 到位」与「能显示」是两回事。
+  '  if (window.wallpaperRegisterMediaPropertiesListener) {',
+  '    window.wallpaperRegisterMediaPropertiesListener(function (e) {',
+  '      window.__e2e.mediaTitle = ((e && e.title) || "").replace(/\\s+/g, "_");',
+  '    });',
+  '  }',
+  '  if (window.wallpaperRegisterMediaThumbnailListener) {',
+  '    window.wallpaperRegisterMediaThumbnailListener(function (e) {',
+  '      var t = (e && e.thumbnail) || "";',
+  '      window.__e2e.mediaThumb = t;',
+  '      if (!t) { window.__e2e.mediaImg = "none"; return; }',
+  '      window.__e2e.mediaImg = "loading";',
+  '      var im = new Image();',
+  '      im.onload = function () { window.__e2e.mediaImg = "ok:" + im.naturalWidth + "x" + im.naturalHeight; };',
+  '      im.onerror = function () { window.__e2e.mediaImg = "err"; };',
+  '      im.src = t;',
+  '    });',
+  '  }',
+  '  if (window.wallpaperRegisterMediaPlaybackListener) {',
+  '    window.wallpaperRegisterMediaPlaybackListener(function (e) {',
+  '      window.__e2e.mediaState = e && e.state;',
+  '    });',
+  '  }',
   '  window.wallpaperPropertyListener = {',
   '    applyUserProperties: function (p) {',
   '      window.__e2e.propsCalls++;',
@@ -126,11 +160,15 @@ writeFileSync(join(webDir, 'index.html'), [
   '      + " ran=1 shim=" + (typeof window.__weSeedProps === "function" ? 1 : 0)',
   '      + " propsCalls=" + e.propsCalls + " fps=" + e.fps + " vol=" + e.vol',
   '      + " frames=" + e.frames + " keys=" + e.keys.join(",")',
-  '      + " p50=" + pct(e.iv, 0.5) + " p95=" + pct(e.iv, 0.95) + " n=" + e.iv.length);',
+  '      + " p50=" + pct(e.iv, 0.5) + " p95=" + pct(e.iv, 0.95) + " n=" + e.iv.length',
+  '      + " media=" + e.mediaTitle + " thumb=" + e.mediaThumb.length',
+  '      + " img=" + e.mediaImg + " mstate=" + e.mediaState);',
   '  }',
   '  window.addEventListener("load", function () {',
   '    setTimeout(function () { beacon("load"); }, 900);',
   '    setTimeout(function () { beacon("late"); }, 3200);',
+  // 媒体快照在渲染页就绪后才推（~1–2s），再晚一点收一次
+  '    setTimeout(function () { beacon("media"); }, 6500);',
   '  });',
   '</script></body></html>',
 ].join('\n'));
@@ -149,8 +187,23 @@ const rendererUrl = `${APP}/wallpaper-engine/scene-live/index.html?type=web&webS
   + `&src=${encodeURIComponent(web.webLiveSrc)}`
   + `&mediaBase=${encodeURIComponent(`${APP}/wallpaper-engine/scene-files`)}`;
 console.log(`渲染页 URL: ${rendererUrl.slice(0, 140)}…`);
+// 1x1 JPEG（合法最小图）：模拟 client 把宿主封面降采样成的 data URL。
+const THUMB_DATA_URL = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==';
+wrapperHtml = `<!doctype html><html><head><meta charset="utf-8"><title>e2e host</title>`
+  + `<style>html,body{margin:0;height:100%;background:#111}iframe{position:fixed;inset:0;width:100%;height:100%;border:0}</style>`
+  + `</head><body><script>`
+  + `var f=document.createElement('iframe');f.src=${JSON.stringify(rendererUrl)};document.body.appendChild(f);`
+  + `var tries=0;var timer=setInterval(function(){tries++;var wp=null,st=null;`
+  + `try{wp=f.contentWindow&&f.contentWindow.__wp;}catch(e){}`
+  + `try{st=wp&&wp.getState?wp.getState():null;}catch(e){}`
+  + `if(st&&st.iframeLoaded){clearInterval(timer);`
+  + `wp.setMedia({hasMedia:true,title:'E2E Song',artist:'E2E Artist',album:'E2E Album',`
+  + `playing:true,state:1,position:5,duration:100,thumbnail:${JSON.stringify(THUMB_DATA_URL)}});return;}`
+  + `if(tries>60)clearInterval(timer);},250);`
+  + `</script></body></html>`;
 
 // ── 起浏览器（Chromium 系；Edge 兜底）──────────────────────────────────────
+const NAV_URL = APP + '/e2e/host.html';
 const CANDIDATES = [
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
@@ -177,10 +230,10 @@ const child = spawn(browser, [
   '--disable-features=Translate,MediaRouter',
   `--user-data-dir=${profileDir}`,
   '--window-size=1280,720',
-  rendererUrl,
+  NAV_URL,
 ], { stdio: 'ignore' });
 
-await new Promise((r) => setTimeout(r, 9000));
+await new Promise((r) => setTimeout(r, 12000));
 try { child.kill('SIGKILL'); } catch { /* ignore */ }
 await new Promise((r) => setTimeout(r, 400));
 
@@ -230,6 +283,13 @@ check('15fps 上限下帧间隔落在目标附近（跳帧生效）', p50 >= 45 
   `p50=${p50}ms（目标 67ms）n=${g('n') || '?'}`);
 check('帧间隔均匀（无定时器抖动）', p50 > 0 && (p95 - p50) <= 25,
   `p50=${p50} p95=${p95} 抖动=${p95 - p50}ms`);
+// 媒体链路（歌名 / 封面 / 播放态）：封面必须真的能显示 —— 宿主给的是插件路由，
+// 沙箱壁纸取不到（能力头栅栏），所以 client 转成 data URL 再推。
+check('媒体属性到达壁纸（title）', g('media') === 'E2E_Song', 'media=' + (g('media') || '?'));
+check('播放态到达壁纸', g('mstate') === '1', 'mstate=' + (g('mstate') || '?'));
+check('封面 data URL 到达壁纸且能加载显示',
+  /^ok:\d+x\d+$/.test(g('img') || '') && Number(g('thumb') || 0) > 100,
+  `thumb=${g('thumb') || 0}ch img=${g('img') || '?'}`);
 
 // ── teardown ────────────────────────────────────────────────────────────────
 try { dispose && dispose(); } catch { /* ignore */ }

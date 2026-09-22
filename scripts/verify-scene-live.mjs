@@ -522,6 +522,29 @@ check('scene-files 处理函数被双挂载（应用源 + 媒体源）',
     && hostSrc.includes("handleSceneFiles(req, res, 'app')")
     && hostSrc.includes('function traceMediaRequests('));
 check('媒体源只服务 /scene-files 前缀', hostSrc.includes("pathname.startsWith(`${BASE}/scene-files/`)"));
+
+// 封面（Now Playing artwork）：实测用户反馈「不显示歌曲封面」的根因是只问 Spotify。
+// 现在通用路径是 media-control 自带的 artworkData（系统 MediaRemote，任何播放器都有），
+// 且缓存后缀按 MIME 决定（PNG 存成 .jpg 会按错误类型解码）。
+const bridgeSrc = readFileSync(join(root, 'lib', 'media-bridge.js'), 'utf8');
+check('封面走 media-control 的 artworkData（通用，不限 Spotify）',
+  bridgeSrc.includes('artworkData') && bridgeSrc.includes('artworkMimeType')
+    && bridgeSrc.includes('function takeArtworkMac('));
+check('例行轮询 --no-artwork（封面 base64 每秒几百 KB），换曲才取',
+  bridgeSrc.includes("'get', '--no-artwork'") && bridgeSrc.includes('npNoArtwork'));
+check('封面缓存按 MIME 定后缀并清旧文件',
+  bridgeSrc.includes('ARTWORK_EXT') && bridgeSrc.includes('function writeArtwork(')
+    && bridgeSrc.includes('writeArtwork') && bridgeSrc.includes("'artwork'"));
+check('Spotify AppleScript 降为兜底', bridgeSrc.includes('function fetchSpotifyArtwork('));
+check('媒体桥暴露 artworkMime', bridgeSrc.includes('artworkMime: () => artworkMime'));
+check('host 按扩展名回封面 Content-Type', hostSrc.includes("bmp: 'image/bmp'"));
+// 客户端：封面必须转成**自包含 data URL** —— 宿主给的是插件路由，
+// 沙箱壁纸在 Desktop 上取不到（能力头栅栏只放行同源 frame）。
+check('client 把封面降采样成 data URL 再推给壁纸',
+  src.includes('async function fetchArtworkDataUrl(') && src.includes('createImageBitmap(')
+    && src.includes('toDataURL("image/jpeg"') && src.includes('thumbnail: mediaArtData || undefined'));
+check('client 按曲目缓存封面并重试（宿主下载封面是异步的）',
+  src.includes('function scheduleArtworkFetch(') && src.includes('MEDIA_ART_MAX_TRIES'));
 check('host builds the property seed from project.json', /function buildSeedScript\(entryAbs\)/.test(hostSrc));
 check('renderer diagnostics sink registered at /diag', /path: '\/diag'/.test(hostSrc) && /diag-log/.test(hostSrc));
 // 实测踩坑（2026-09-23）：同一份渲染页产物里还有一条走 ${BASE}/diag 的告警通道，
