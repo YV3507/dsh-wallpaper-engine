@@ -670,6 +670,14 @@ check('条件求值器已移植（fail open）',
   src.includes('function weEvalCondition(') && src.includes('function weCondParse('));
 check('场景就绪后回放覆盖值（无 HTML 种子通道）',
   src.includes('function applyStoredUserProps(') && src.includes('applyStoredUserProps(selection)'));
+// 用户口径：选择壁纸页只保留**顶部**关闭按钮（底部那个是重复的）。
+// 计数口径：closePicker 的绑定 = 顶部按钮 + 点击遮罩，共 2 处。
+check('选择壁纸弹窗只留顶部关闭按钮（底部不再有）',
+  (src.match(/onClick: closePicker/g) || []).length === 2
+    && src.includes('we-picker__modal-foot" },')
+    && src.includes('ESC / 点击遮罩关闭'),
+  'closePicker 绑定数=' + ((src.match(/onClick: closePicker/g) || []).length));
+check('抽屉里名称行文字居中', src.includes('.we-repo-panel .we-picker__current-title { grid-area: title; text-align: center; }'));
 check('标题里的类型/播放态在抽屉内联并加括号（整行省略）',
   src.includes('className: "we-picker__current-meta" }') && src.includes('.we-repo-panel .we-picker__current-meta {')
     && src.includes('.we-repo-panel .we-picker__current-meta::before { content: "（"; }')

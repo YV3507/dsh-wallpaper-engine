@@ -261,14 +261,16 @@ wrapperHtml = `<!doctype html><html><head><meta charset="utf-8"><title>e2e host<
   + `var clipped=tl.scrollWidth>tl.clientWidth+1?1:0;`
   + `return {stacked:(Math.abs(a.left-b.left)<1.5&&b.top>a.bottom-1)?1:0,gap:Math.round(b.top-a.bottom),`
   + `row:(Math.abs(a.top-b.top)<1.5&&b.left>a.right-1)?1:0,rowGap:Math.round(b.left-a.right),titleAbove:t.top<v.top?1:0,`
-  + `metaDisplay:ms.display,parens:parens,oneLine:oneLine,clipped:clipped,wideMeta:getComputedStyle(wm).display};`
+  + `metaDisplay:ms.display,parens:parens,oneLine:oneLine,clipped:clipped,wideMeta:getComputedStyle(wm).display,`
+  + `titleAlign:ts.textAlign};`
   + `}`
   + `setTimeout(function(){`
   + `var d=measureCard(document.getElementById('e2e-drawer'));`
   + `var w=measureCard(document.getElementById('e2e-wide'));`
   + `var img=new Image();`
   + `img.src='${APP}/wallpaper-engine/diag?msg='+encodeURIComponent('${MARKER} LAYOUT drawerStacked='+d.stacked+' drawerGap='+d.gap+' drawerTitleAbove='+d.titleAbove+' wideRow='+w.row+' wideRowGap='+w.rowGap`
-  + `+' metaInline='+(d.metaDisplay==='inline'?1:0)+' parens='+d.parens+' oneLine='+d.oneLine+' clipped='+d.clipped+' wideMetaBlock='+(w.wideMeta==='block'?1:0));`
+  + `+' metaInline='+(d.metaDisplay==='inline'?1:0)+' parens='+d.parens+' oneLine='+d.oneLine+' clipped='+d.clipped+' wideMetaBlock='+(w.wideMeta==='block'?1:0)`
+  + `+' titleCenter='+(d.titleAlign==='center'?1:0)+' wideTitleAlign='+w.titleAlign);`
   + `},1500);`
   + `</script></body></html>`;
 
@@ -377,6 +379,9 @@ check('抽屉里类型/播放态内联加括号、整行不换行且在超长时
   lg('metaInline') === '1' && lg('parens') === '1' && lg('oneLine') === '1' && lg('clipped') === '1',
   `inline=${lg('metaInline')} 括号=${lg('parens')} 单行=${lg('oneLine')} 省略=${lg('clipped')}`);
 check('宽卡片里类型/播放态仍在名称下方另起一行', lg('wideMetaBlock') === '1', 'wide=' + (lg('wideMetaBlock') || '?'));
+check('抽屉里名称行文字居中（宽卡片保持左对齐）',
+  lg('titleCenter') === '1' && (lg('wideTitleAlign') === 'start' || lg('wideTitleAlign') === 'left'),
+  `drawer=${lg('titleCenter')} center / wide=${lg('wideTitleAlign')}`);
 // 属性热更新（「壁纸属性」面板的写路径）：渲染页 __wp.updateWebProps → shim
 // → 作者 applyUserProperties。种子给的是 '1 0 0'，热更新后必须是 '0 1 0'。
 check('属性热更新到达壁纸（updateWebProps）', g('prop0') === '0_1_0', 'prop0=' + (g('prop0') || '?'));

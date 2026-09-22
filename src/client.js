@@ -5495,11 +5495,10 @@ function WallpaperPicker(props) {
                   () => { selection.page++; emit(); },
                 ),
               ),
+          // 底部只留提示：关闭按钮在顶部（modal-head，也是初始焦点落点），
+          // 底部再放一个是重复的。
           React.createElement("div", { className: "we-picker__modal-foot" },
             React.createElement("span", { className: "we-picker__hint" }, "ESC / 点击遮罩关闭"),
-            React.createElement("button", {
-              className: "we-picker__btn", type: "button", onClick: closePicker,
-            }, "关闭"),
           ),
         ),
       ),
@@ -6759,7 +6758,8 @@ const CSS = `
     gap: 8px 10px;
   }
   .we-repo-panel .we-picker__current-info { display: contents; }
-  .we-repo-panel .we-picker__current-title { grid-area: title; }
+  /* 抽屉里标题独占首行，文字居中（用户口径）。 */
+  .we-repo-panel .we-picker__current-title { grid-area: title; text-align: center; }
   /* 抽屉里：类型/播放态跟在名称后面、括号包裹，整行超出用省略号（标题元素本身
      已经是 nowrap + overflow hidden + text-overflow ellipsis，内联文本才能整体截断）。 */
   .we-repo-panel .we-picker__current-meta {
