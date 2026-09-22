@@ -485,6 +485,25 @@ High-fps sources (e.g. 4K120 H.264) dominate GPU decode (~60% Video Decode at 1.
 
 > Transcoding uses **NVENC** (`av1_nvenc`, falling back to `h264_nvenc`) and requires an NVIDIA GPU + driver; without one the feature auto-disables (or falls back to slow software H.264). No ffmpeg or a failed transcode simply disables the feature — no side effects.
 
+### Wallpaper properties (live author-property editing)
+
+When the current wallpaper is a **scene** or **web** wallpaper, the 「当前壁纸」 card shows a
+green **壁纸属性** button next to 「选择壁纸」. It opens the adjustable properties the author
+defined in the WE editor (color / bool / slider / combo / text / file); applying one takes
+effect **immediately** (`__wp.updateWebProps`) — no re-mount needed.
+
+- Definitions come from the wallpaper's `project.json` → `general.properties`, labels from its
+  own `general.localization` (per-key fallback zh-chs → zh-cht → en-us); properties carrying a
+  `condition` show/hide by the current values, and `editable: false` internals are hidden from
+  the panel while still being sent to the wallpaper (WE semantics).
+- Edits are **remembered** per wallpaper: after a reload/restart a web wallpaper receives them
+  with its HTML seed, a scene wallpaper gets them replayed once live rendering is ready.
+  「恢复默认」 clears every edit for that wallpaper.
+- The panel shows the values **actually in effect** (read back from the renderer, since a
+  scene's defaults live in its own snapshot), not just the project.json defaults.
+- If live rendering is not active (static frame / compat mode) the panel says so; edits apply
+  once live rendering takes over.
+
 ### Custom wallpapers
 
 The **自定义壁纸** section uploads local images (JPG / PNG) or videos (MP4) as wallpapers:

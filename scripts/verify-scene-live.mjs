@@ -26,7 +26,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { Writable } from 'node:stream';
+import { Readable, Writable } from 'node:stream';
 import { execFileSync } from 'node:child_process';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -39,6 +39,10 @@ process.env.DSH_WE_CACHE_DIR = TEST_CACHE_DIR;
 // its very first call (the scan result is TTL-cached for 3 s).
 const TEST_UPLOAD_DIR = join(TEST_CACHE_DIR, 'uploads-fixture');
 process.env.DSH_WE_UPLOAD_DIR = TEST_UPLOAD_DIR;
+// 设置文件（config.json）也挪进来：本脚本会 PUT 设置来验证「覆盖值 → HTML 种子」
+// 这条链路，绝不能碰用户真实的那份（pluginDataDir 认这个变量，不设时行为不变）。
+const TEST_DATA_DIR = join(TEST_CACHE_DIR, 'data');
+process.env.DSH_WE_DATA_DIR = TEST_DATA_DIR;
 
 /** Minimal PKGV writer (raw entries) — mirrors the synthetic builder in
  *  verify-scene.mjs so the static-frame extractor has something real to chew on. */
@@ -196,6 +200,22 @@ function fakeRes() {
   res.__state = state;
   return res;
 }
+/** 带请求体的 fake 请求（settings PUT）：handler 里是 req.on('data'/'end')，用 Readable 即可。 */
+function fakeReqBody(url, method, obj) {
+  const r = Readable.from([Buffer.from(JSON.stringify(obj))]);
+  r.url = url;
+  r.method = method;
+  r.headers = { 'content-type': 'application/json' };
+  return r;
+}
+/** 等响应 end/finish（PUT 的应答在写盘之后才发，等它就是等持久化完成）。 */
+function waitRes(res) {
+  return new Promise((resolveFn) => {
+    if (res.__state.ended) { resolveFn(); return; }
+    const t = setTimeout(resolveFn, 5000);
+    res.on('finish', () => { clearTimeout(t); resolveFn(); });
+  });
+}
 async function runHandler(route, url, headers) {
   const res = fakeRes();
   const done = route.handler(fakeReq(url, headers), res);
@@ -280,7 +300,22 @@ writeFileSync(join(webDir, 'project.json'), JSON.stringify({
   title: 'Fixture Web Wallpaper', type: 'web', file: 'index.html', preview: 'preview.jpg',
   contentrating: 'Everyone',
   // 用户属性：host 必须把它转成 seed 脚本注入 HTML（严格沙箱下渲染页无法运行时补推）
-  general: { properties: { color0: { order: 0, type: 'color', value: '1 0 0' }, fpslock: { order: 1, type: 'bool', value: true } } },
+  general: {
+    properties: {
+      color0: { order: 0, type: 'color', value: '1 0 0' },
+      fpslock: { order: 1, type: 'bool', value: true },
+      // order 用浮点（真实壁纸拿它做细分排序）
+      size: { order: 2.5, type: 'slider', value: 0.5, min: 0, max: 2, step: 0.05, precision: 2, text: 'Size' },
+      // combo 选项值类型混用：必须原样保留（字符串化会让壁纸里的 === 失配）
+      mode: { order: 3, type: 'combo', value: 1, options: [{ label: 'One', value: 1 }, { label: 'Two', value: '2' }] },
+      tip: { order: 4, type: 'text', text: 'Section' },
+      // 条件只影响面板显隐，值照常下发
+      extra: { order: 5, type: 'bool', value: true, condition: 'fpslock.value == true' },
+      // 作者标记「用户不可编辑」：面板隐藏，值照常下发
+      internal: { order: 6, type: 'slider', value: 1, editable: false },
+    },
+    localization: { 'zh-chs': { tip: '分节标题', size: '尺寸' } },
+  },
 }));
 writeFileSync(join(webDir, 'index.html'), [
   '<!doctype html><html><head><meta charset="utf-8"><title>fixture</title>',
@@ -434,6 +469,67 @@ console.log('Level C4 — 壁纸媒体源（真实 loopback 监听）');
   }
 }
 
+// ── Level C5: 壁纸属性（project.json general.properties → 面板 / 种子）───────
+// 「壁纸属性」面板读这条路由；写入走 settings（userProps），再由 buildSeedScript
+// 并进 HTML 种子 —— 这里把整条链路验证到底。
+console.log('Level C5 — 壁纸属性解析 / 覆盖值 → HTML 种子');
+{
+  const propsRoute = routes.find((r) => r.path === '/wallpaper-engine/props');
+  const settingsRoute = routes.find((r) => r.path === '/wallpaper-engine/settings');
+  check('props 路由已注册', Boolean(propsRoute));
+  let token = '';
+  {
+    const inv = JSON.parse((await runHandler(invRoute, '/wallpaper-engine/inventory')).__state.body.toString('utf8'));
+    const web = (inv.wallpapers || []).find((w) => w.id === '990003') || null;
+    token = String((web && web.propsUrl) || '').split('/').pop();
+    check('inventory 给场景/网页壁纸带 propsUrl', Boolean(web && web.propsUrl), web ? String(web.propsUrl).slice(0, 48) : 'not found');
+  }
+  const pres = await runHandler(propsRoute, `/wallpaper-engine/props/${encodeURIComponent(token)}`);
+  const pdata = JSON.parse(pres.__state.body.toString('utf8') || '{}');
+  const byName = Object.fromEntries((pdata.props || []).map((p) => [p.name, p]));
+  check('属性面板数据可取（含全部类型）',
+    pres.__state.status === 200 && pdata.ok === true && (pdata.props || []).length === 6,
+    'count=' + ((pdata.props || []).length) + ' status=' + pres.__state.status);
+  check('editable:false 从面板隐藏（值照常下发）', !byName.internal);
+  check('order 按浮点排序（2.5 落在 2 与 3 之间）',
+    (pdata.props || []).map((p) => p.name).join(',') === 'color0,fpslock,size,mode,tip,extra',
+    (pdata.props || []).map((p) => p.name).join(','));
+  check('slider 带 min/max/step/precision',
+    byName.size && byName.size.min === 0 && byName.size.max === 2 && byName.size.step === 0.05 && byName.size.precision === 2);
+  check('combo 选项保留声明类型（数字 / 字符串混用）',
+    byName.mode && byName.mode.options[0].value === 1 && byName.mode.options[1].value === '2',
+    byName.mode ? JSON.stringify(byName.mode.options.map((o) => o.value)) : 'missing');
+  check('文案逐键本地化回退 zh-chs',
+    byName.size && byName.size.text === '尺寸' && byName.tip && byName.tip.text === '分节标题',
+    byName.size ? byName.size.text : 'missing');
+  check('text 类型是静态说明（无值）', byName.tip && byName.tip.value === null);
+  check('condition 只随定义带出（面板按当前值求值）', byName.extra && byName.extra.condition === 'fpslock.value == true');
+
+  // 覆盖值 → 种子：PUT 设置后，同一份 HTML 应当带上被改过的值
+  const entryPath = '/wallpaper-engine/scene-files/' + token + '/index.html';
+  const putRes = fakeRes();
+  await settingsRoute.handler(fakeReqBody('/wallpaper-engine/settings', 'PUT', {
+    userProps: { [token]: { color0: '0 1 0', size: 1.25 } },
+  }), putRes);
+  await waitRes(putRes);   // 「响应即已持久化」：等应答再读种子
+  check('设置接受 userProps 覆盖值（白名单）', putRes.__state.status === 200, 'status=' + putRes.__state.status);
+  const html2 = (await runHandler(filesRoute, entryPath)).__state.body.toString('utf8');
+  check('覆盖值并进 HTML 种子（host 侧合并，网页壁纸不闪默认值）',
+    html2.includes('__weSeedProps') && html2.includes('0 1 0') && html2.includes('1.25'),
+    'seed=' + html2.includes('__weSeedProps'));
+  const pdata2 = JSON.parse((await runHandler(propsRoute, `/wallpaper-engine/props/${encodeURIComponent(token)}`)).__state.body.toString('utf8'));
+  const byName2 = Object.fromEntries((pdata2.props || []).map((p) => [p.name, p]));
+  check('覆盖值在面板数据里标记为 overridden',
+    byName2.color0 && byName2.color0.overridden === true && byName2.color0.value === '0 1 0');
+  // 还原（同一份临时 config 后续断言还用它）
+  const putBack = fakeRes();
+  await settingsRoute.handler(fakeReqBody('/wallpaper-engine/settings', 'PUT', { userProps: {} }), putBack);
+  await waitRes(putBack);
+  const html3 = (await runHandler(filesRoute, entryPath)).__state.body.toString('utf8');
+  check('清空覆盖值后种子回到默认（1 0 0）',
+    html3.includes('1 0 0') && !html3.includes('0 1 0'));
+}
+
 // ── Level C2: custom storage (uploads) — WE project directories ─────────────
 // The reported bug: pointing 存储位置 at a WallpaperEM-style downloads folder
 // found none of its scene wallpapers (the old scanner only matched `up-*.ext`
@@ -545,7 +641,28 @@ check('client 把封面降采样成 data URL 再推给壁纸',
     && src.includes('toDataURL("image/jpeg"') && src.includes('thumbnail: mediaArtData || undefined'));
 check('client 按曲目缓存封面并重试（宿主下载封面是异步的）',
   src.includes('function scheduleArtworkFetch(') && src.includes('MEDIA_ART_MAX_TRIES'));
-check('host builds the property seed from project.json', /function buildSeedScript\(entryAbs\)/.test(hostSrc));
+check('host builds the property seed from project.json + 覆盖值',
+  /function buildSeedScript\(entryAbs, token\)/.test(hostSrc) && /parseUserPropDefs\(pj, overrides/.test(hostSrc)
+    && /userPropsFor\(token\)/.test(hostSrc));
+check('host 侧属性解析模块（order 浮点 / combo 保类型 / 逐键本地化 / condition）',
+  existsSync(join(root, 'lib', 'we-props.js'))
+    && /parseUserPropDefs/.test(readFileSync(join(root, 'lib', 'we-props.js'), 'utf8')));
+check('settings 白名单保留 userProps（按 token 存标量）',
+  /userProps: \(o\.userProps && typeof o\.userProps === 'object'/.test(hostSrc));
+check('「壁纸属性」按钮：仅场景/网页壁纸 + 绿色样式',
+  src.includes('we-picker__btn--props') && src.includes('(current.type === "scene" || current.type === "web") && sel.propsUrl'));
+check('属性面板热更新走 __wp.updateWebProps',
+  src.includes('function applyUserProps(') && src.includes('wp.updateWebProps(wire)'));
+check('属性面板值以渲染页实时表为准（getProperties）',
+  src.includes('wp.getProperties()') && src.includes('function loadUserPropDefs('));
+check('条件求值器已移植（fail open）',
+  src.includes('function weEvalCondition(') && src.includes('function weCondParse('));
+check('场景就绪后回放覆盖值（无 HTML 种子通道）',
+  src.includes('function applyStoredUserProps(') && src.includes('applyStoredUserProps(selection)'));
+check('抽屉窄容器：标题独占首行 + 按钮上下排列（8px）',
+  src.includes('.we-repo-panel .we-picker__current {') && src.includes('grid-template-areas:')
+    && src.includes('.we-repo-panel .we-picker__current-actions {')
+    && /grid-area: actions; flex-direction: column; align-items: stretch; gap: 8px;/.test(src));
 check('renderer diagnostics sink registered at /diag', /path: '\/diag'/.test(hostSrc) && /diag-log/.test(hostSrc));
 // 实测踩坑（2026-09-23）：同一份渲染页产物里还有一条走 ${BASE}/diag 的告警通道，
 // 只挂根路径会让「壁纸黑屏」时最关键的渲染页告警全部 404 静默丢掉。

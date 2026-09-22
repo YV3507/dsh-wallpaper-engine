@@ -79,6 +79,19 @@ const matchRoute = (pathname) => routes.find((r) => (
 // 宿主页（等价于插件 client 的那半边）：嵌渲染页 + 就绪后推一次媒体快照。
 // 有它才能测「封面/歌名能不能穿过沙箱到达壁纸」—— 直接开渲染页没法调 __wp.setMedia。
 let wrapperHtml = '';
+// 插件真实 CSS（src/client.js 的 CSS 模板字面量）——布局断言必须在真 CSS 上做，
+// 否则「抽屉里按钮上下排列、间距 8px」这种要求测了等于没测。
+const pluginCss = (() => {
+  const srcText = readFileSync(join(root, 'src', 'client.js'), 'utf8');
+  const start = srcText.indexOf('const CSS = `');
+  if (start < 0) return '';
+  const from = start + 'const CSS = `'.length;
+  const end = srcText.indexOf('`;', from);
+  return end > from ? srcText.slice(from, end) : '';
+})();
+if (!pluginCss.includes('.we-picker__current')) {
+  console.log('  ! 未能从 src/client.js 提取插件 CSS，布局断言会跳过');
+}
 const appServer = createServer((req, res) => {
   const pathname = new URL(req.url || '/', 'http://x').pathname;
   if (DEBUG) console.log(`[host] ${req.method} ${pathname}${req.url.indexOf('?') >= 0 ? '?…' : ''}`);
@@ -132,6 +145,7 @@ writeFileSync(join(webDir, 'index.html'), [
   '    applyUserProperties: function (p) {',
   '      window.__e2e.propsCalls++;',
   '      window.__e2e.keys = Object.keys(p || {});',
+  '      if (p && p.color0) window.__e2e.color0 = String(p.color0.value).replace(/\\s+/g, "_");',
   '    },',
   '    applyGeneralProperties: function (p) {',
   '      if (p && typeof p.fps === "number") window.__e2e.fps = p.fps;',
@@ -162,7 +176,8 @@ writeFileSync(join(webDir, 'index.html'), [
   '      + " frames=" + e.frames + " keys=" + e.keys.join(",")',
   '      + " p50=" + pct(e.iv, 0.5) + " p95=" + pct(e.iv, 0.95) + " n=" + e.iv.length',
   '      + " media=" + e.mediaTitle + " thumb=" + e.mediaThumb.length',
-  '      + " img=" + e.mediaImg + " mstate=" + e.mediaState);',
+  '      + " img=" + e.mediaImg + " mstate=" + e.mediaState',
+  '      + " prop0=" + (e.color0 || ""));',
   '  }',
   '  window.addEventListener("load", function () {',
   '    setTimeout(function () { beacon("load"); }, 900);',
@@ -197,9 +212,55 @@ wrapperHtml = `<!doctype html><html><head><meta charset="utf-8"><title>e2e host<
   + `try{wp=f.contentWindow&&f.contentWindow.__wp;}catch(e){}`
   + `try{st=wp&&wp.getState?wp.getState():null;}catch(e){}`
   + `if(st&&st.iframeLoaded){clearInterval(timer);`
-  + `wp.setMedia({hasMedia:true,title:'E2E Song',artist:'E2E Artist',album:'E2E Album',`
-  + `playing:true,state:1,position:5,duration:100,thumbnail:${JSON.stringify(THUMB_DATA_URL)}});return;}`
+  + `var pushErr='';`
+  + `try{wp.setMedia({hasMedia:true,title:'E2E Song',artist:'E2E Artist',album:'E2E Album',`
+  + `playing:true,state:1,position:5,duration:100,thumbnail:${JSON.stringify(THUMB_DATA_URL)}});}catch(e){pushErr=String(e&&e.message||e);}`
+  + `(function(){var im=new Image();im.src='${APP}/wallpaper-engine/diag?msg='+encodeURIComponent('${MARKER} SETMEDIA push='+(pushErr?('err:'+pushErr):'ok')+' hasFn='+(typeof wp.setMedia)+' type='+(st.type||''));})();`
+  + `setTimeout(function(){try{wp.updateWebProps({color0:{value:'0 1 0'}});}catch(e){}},1200);return;}`
   + `if(tries>60)clearInterval(timer);},250);`
+  // ── 卡片布局对照（真实 CSS + 镜像标记）：抽屉里名称独占首行、两个按钮上下
+  //    排列且间距 8px；宽容器里两个按钮并排。测的是 computed geometry。
+  + `</script>`
+  + `<style>${pluginCss}</style>`
+  + `<div class="we-repo-panel" id="e2e-drawer" style="transform:none">`
+  + `<div class="we-picker__section"><div class="we-picker__current">`
+  + `<div class="we-vinyl"><span class="we-vinyl__hole"></span></div>`
+  + `<div class="we-picker__current-info">`
+  + `<div class="we-picker__current-title">音域回响</div>`
+  + `<div class="we-picker__current-sub"><div class="we-picker__current-meta">网页壁纸 · 播放中</div></div>`
+  + `</div>`
+  + `<div class="we-picker__current-actions">`
+  + `<button class="we-picker__btn we-picker__btn--props">壁纸属性</button>`
+  + `<button class="we-picker__btn we-picker__btn--primary">选择壁纸</button>`
+  + `</div></div></div></div>`
+  + `<div id="e2e-wide" style="position:fixed;left:0;top:0;width:720px">`
+  + `<div class="we-picker__section"><div class="we-picker__current">`
+  + `<div class="we-vinyl"><span class="we-vinyl__hole"></span></div>`
+  + `<div class="we-picker__current-info">`
+  + `<div class="we-picker__current-title">音域回响</div>`
+  + `<div class="we-picker__current-sub"><div class="we-picker__current-meta">网页壁纸 · 播放中</div></div>`
+  + `</div>`
+  + `<div class="we-picker__current-actions">`
+  + `<button class="we-picker__btn we-picker__btn--props">壁纸属性</button>`
+  + `<button class="we-picker__btn we-picker__btn--primary">选择壁纸</button>`
+  + `</div></div></div></div>`
+  + `<script>`
+  + `function measureCard(scope){`
+  + `var card=scope.querySelector('.we-picker__current');`
+  + `var root=card.getBoundingClientRect();`
+  + `var t=card.querySelector('.we-picker__current-title').getBoundingClientRect();`
+  + `var v=card.querySelector('.we-vinyl').getBoundingClientRect();`
+  + `var bs=card.querySelectorAll('.we-picker__current-actions .we-picker__btn');`
+  + `var a=bs[0].getBoundingClientRect(),b=bs[1].getBoundingClientRect();`
+  + `return {stacked:(Math.abs(a.left-b.left)<1.5&&b.top>a.bottom-1)?1:0,gap:Math.round(b.top-a.bottom),`
+  + `row:(Math.abs(a.top-b.top)<1.5&&b.left>a.right-1)?1:0,rowGap:Math.round(b.left-a.right),titleAbove:t.top<v.top?1:0};`
+  + `}`
+  + `setTimeout(function(){`
+  + `var d=measureCard(document.getElementById('e2e-drawer'));`
+  + `var w=measureCard(document.getElementById('e2e-wide'));`
+  + `var img=new Image();`
+  + `img.src='${APP}/wallpaper-engine/diag?msg='+encodeURIComponent('${MARKER} LAYOUT drawerStacked='+d.stacked+' drawerGap='+d.gap+' drawerTitleAbove='+d.titleAbove+' wideRow='+w.row+' wideRowGap='+w.rowGap);`
+  + `},1500);`
   + `</script></body></html>`;
 
 // ── 起浏览器（Chromium 系；Edge 兜底）──────────────────────────────────────
@@ -287,6 +348,24 @@ check('帧间隔均匀（无定时器抖动）', p50 > 0 && (p95 - p50) <= 25,
 // 沙箱壁纸取不到（能力头栅栏），所以 client 转成 data URL 再推。
 check('媒体属性到达壁纸（title）', g('media') === 'E2E_Song', 'media=' + (g('media') || '?'));
 check('播放态到达壁纸', g('mstate') === '1', 'mstate=' + (g('mstate') || '?'));
+// 卡片布局（用户口径：抽屉里名称放顶层第一行、右边两个按钮上下排列、间距 8px）
+const layoutLine = (() => {
+  for (const d of mine) {
+    const m = String((d && d.msg) || '');
+    if (m.indexOf(MARKER) === 0 && m.indexOf('LAYOUT') > 0) return m;
+  }
+  return '';
+})();
+const lg = (k) => (new RegExp('(?:^|\\s)' + k + '=([^\\s]+)').exec(layoutLine) || [])[1] || '';
+check('抽屉里名称独占顶层第一行', lg('drawerTitleAbove') === '1', layoutLine || '未测到');
+check('抽屉里两个按钮上下排列、间距 8px',
+  lg('drawerStacked') === '1' && lg('drawerGap') === '8',
+  `stacked=${lg('drawerStacked')} gap=${lg('drawerGap')}`);
+check('宽容器里两个按钮并排（间距 8px）',
+  lg('wideRow') === '1' && lg('wideRowGap') === '8', `row=${lg('wideRow')} gapX=${lg('wideRowGap')}`);
+// 属性热更新（「壁纸属性」面板的写路径）：渲染页 __wp.updateWebProps → shim
+// → 作者 applyUserProperties。种子给的是 '1 0 0'，热更新后必须是 '0 1 0'。
+check('属性热更新到达壁纸（updateWebProps）', g('prop0') === '0_1_0', 'prop0=' + (g('prop0') || '?'));
 check('封面 data URL 到达壁纸且能加载显示',
   /^ok:\d+x\d+$/.test(g('img') || '') && Number(g('thumb') || 0) > 100,
   `thumb=${g('thumb') || 0}ch img=${g('img') || '?'}`);

@@ -42,6 +42,8 @@ const SETTINGS_KEY = "dsh-wallpaper-engine:selection";
 // localStorage, which is origin-scoped and therefore reset whenever DSH
 // Desktop restarts on a new random --port 0 loopback port.
 const SETTINGS_URL = "/wallpaper-engine/settings";
+// 「壁纸属性」面板：host 把项目目录的 project.json 解析成 UI 描述后从这里取。
+const PROPS_URL = "/wallpaper-engine/props";
 const INVENTORY_URL = "/wallpaper-engine/inventory";
 // Body attribute set while a wallpaper is active; CSS uses it to make the frame
 // background transparent so the behind-body layer shows through.
@@ -114,6 +116,9 @@ const DEFAULTS = {
   // 媒体集成（Now Playing）：把系统正在播放的歌名/歌手/封面推给壁纸的
   // wallpaperMediaIntegration 监听器（macOS media-control / Linux playerctl）。
   mediaIntegration: true,
+  // 用户改过的壁纸属性（「壁纸属性」面板）：{ [token]: { [属性名]: 值 } }。
+  // token = base64(入口文件绝对路径)，与 host 侧 /props 同一套键。
+  userProps: {},
   // 遮挡暂停（借鉴 Wallpaper Engine 的「被遮挡时暂停」——桌面端大部分时间
   // GPU≈0 主因就是它）：
   // - pauseOnHidden：页面隐藏（窗口最小化 / 切到其它标签页）时暂停视频。
@@ -371,6 +376,7 @@ function sanitizeSettings(o) {
     liveBootDelay: clampNum(o.liveBootDelay, 0, 30, DEFAULTS.liveBootDelay),
     audioSource: o.audioSource === "off" ? "off" : "auto",
     mediaIntegration: o.mediaIntegration !== false,
+    userProps: (o.userProps && typeof o.userProps === "object" && !Array.isArray(o.userProps)) ? o.userProps : {},
     pauseOnHidden: o.pauseOnHidden !== false,
     pauseOnBlur: o.pauseOnBlur === true,
     pauseOnBattery: o.pauseOnBattery === true,
@@ -448,6 +454,8 @@ const selection = {
   //（buildMedia 最高优先级，见 liveRenderEnabled）。
   sceneLiveSrc: null,
   webLiveSrc: null,
+  // Transient: 「壁纸属性」面板入口（host /props/<token>，仅场景/网页壁纸有）。
+  propsUrl: null,
   // Transient: live 渲染心跳已确认出帧（startLiveWatch）。音频互斥（live 时
   // WebWallGL 自播包内音频，不再启动外置 <audio>）与卡片状态用。
   sceneLiveActive: false,
@@ -586,6 +594,7 @@ function serializeSelection() {
     liveBootDelay: selection.liveBootDelay,
     audioSource: selection.audioSource,
     mediaIntegration: selection.mediaIntegration,
+    userProps: selection.userProps,
     pauseOnHidden: selection.pauseOnHidden,
     pauseOnBlur: selection.pauseOnBlur,
     pauseOnBattery: selection.pauseOnBattery,
@@ -1110,6 +1119,7 @@ function applySelection(id) {
     selection.sceneVideo = null;
     selection.sceneLiveSrc = null;
     selection.webLiveSrc = null;
+    selection.propsUrl = null;
     selection.sceneLiveActive = false;
     selection.sceneAudioUrl = null;
     selection.sceneHasAudio = false;
@@ -1132,6 +1142,7 @@ function applySelection(id) {
     selection.sceneVideo = null;
     selection.sceneLiveSrc = null;
     selection.webLiveSrc = null;
+    selection.propsUrl = null;
     selection.sceneLiveActive = false;
     selection.sceneAudioUrl = null;
     selection.sceneHasAudio = false;
@@ -1168,6 +1179,8 @@ function applySelection(id) {
   selection.sceneLiveSrc = w.type === "scene" && w.sceneLive && w.sceneLiveSrc ? w.sceneLiveSrc : null;
   // 网页壁纸的 live 入口（host inventory 的 webLive/webLiveSrc）。
   selection.webLiveSrc = w.type === "web" && w.webLive && w.webLiveSrc ? w.webLiveSrc : null;
+  // 「壁纸属性」面板：只有场景/网页壁纸的项目目录才有 project.json 用户属性。
+  selection.propsUrl = (w.type === "scene" || w.type === "web") && w.propsUrl ? w.propsUrl : null;
   selection.sceneLiveActive = false;
   // 场景包内独立音频（无内嵌 MP4 时播放；内嵌 MP4 场景由视频自带音轨，
   // syncSceneAudio 内部按 sceneVideo 互斥）。sceneHasAudio 经 HEAD 探测得出，
@@ -1750,6 +1763,9 @@ function startLiveWatch(frame, wid) {
         try { syncSceneAudio(selection); emit(); } catch { /* ignore */ }
         // 网页壁纸：首帧稳定后抽一帧存到 host（下次加载/重启用它当占位图）。
         maybeCaptureLiveFrame(frame, selection);
+        // 「壁纸属性」面板改过的值：网页壁纸随 HTML 种子到达（host 侧合并），
+        // 场景壁纸没有种子通道 —— 就绪后在这里回放一次。
+        applyStoredUserProps(selection);
         // 媒体桥接线：频谱（拉模式）与 Now Playing 转发。
         startMediaSync(frame);
         reportClientDiag("live-ready", "firstFrame ok");
@@ -2054,6 +2070,323 @@ function reportClientDiag(event, detail) {
       keepalive: true,
     }).catch(() => { /* 忽略 */ });
   } catch { /* 忽略 */ }
+}
+
+// ── 壁纸属性（WE 用户属性）──────────────────────────────────────────────────
+// 「壁纸属性」按钮 → 面板：读 host `/props/<token>`（把 project.json 的
+// general.properties 解析成 UI 描述），改动即时 `__wp.updateWebProps` 热更新到
+// 正在跑的壁纸，并写进设置（`userProps`，按 token 存）—— 刷新/重启后网页壁纸由
+// host 并进 HTML 种子、场景壁纸由 applyStoredUserProps 在就绪后回放。
+//
+// 条件求值器（condition）是上游 bench/we-condition.ts 的移植：真实壁纸里 86% 的
+// 属性带 condition，不求值就会把一堆无关项摊在面板上。受限语法、不用 eval、
+// **失败即显示**（fail open）——真实数据里有用 JS 三元/赋值写 condition 的壁纸，
+// 误判隐藏远比分多显示一项糟糕。编译结果按表达式缓存（拖动滑块时每帧重算数百个）。
+const WE_COND_OPS = ["===", "!==", "&&", "||", "==", "!=", ">=", "<=", ">", "<", "!", "(", ")", ".", "-"];
+const weCondCache = new Map();
+
+function weCondTokenize(src) {
+  const out = [];
+  let i = 0;
+  while (i < src.length) {
+    const c = src[i];
+    if (c === " " || c === "\t" || c === "\n" || c === "\r") { i++; continue; }
+    if (c === "'" || c === '"') {
+      const end = src.indexOf(c, i + 1);
+      if (end < 0) throw new Error("unterminated string");
+      out.push({ k: "str", v: src.slice(i + 1, end) });
+      i = end + 1;
+      continue;
+    }
+    if (c >= "0" && c <= "9") {
+      let j = i;
+      while (j < src.length && /[0-9.]/.test(src[j])) j++;
+      out.push({ k: "num", v: src.slice(i, j) });
+      i = j;
+      continue;
+    }
+    if (/[A-Za-z_$]/.test(c)) {
+      let j = i;
+      while (j < src.length && /[A-Za-z0-9_$]/.test(src[j])) j++;
+      out.push({ k: "id", v: src.slice(i, j) });
+      i = j;
+      continue;
+    }
+    const op = WE_COND_OPS.find((o) => src.startsWith(o, i));
+    if (!op) throw new Error("bad char " + c);
+    out.push({ k: "op", v: op });
+    i += op.length;
+  }
+  return out;
+}
+
+/** 宽松相等：值经 project.json → 宿主 wire → JSON → JS 传递，"1" 与 1 混用是常态 */
+function weCondLooseEq(a, b) {
+  if (a === b) return true;
+  if (a === undefined || a === null || b === undefined || b === null) {
+    return (a === undefined || a === null) && (b === undefined || b === null);
+  }
+  if (typeof a === typeof b) return false;
+  const na = Number(a);
+  const nb = Number(b);
+  return !Number.isNaN(na) && !Number.isNaN(nb) && na === nb;
+}
+
+function weCondNumCmp(a, b, op) {
+  const x = Number(a);
+  const y = Number(b);
+  if (Number.isNaN(x) || Number.isNaN(y)) return false;
+  if (op === ">") return x > y;
+  if (op === "<") return x < y;
+  if (op === ">=") return x >= y;
+  return x <= y;
+}
+
+/** 受限表达式语法 → 闭包（无副作用；不支持的语法抛错 → 调用方 fail open） */
+function weCondParse(tokens) {
+  let pos = 0;
+  const peek = () => tokens[pos];
+  const eat = (v) => {
+    const t = peek();
+    if (!t || t.k !== "op" || t.v !== v) throw new Error("expect " + v);
+    pos++;
+  };
+  function or() {
+    let left = and();
+    while (peek() && peek().k === "op" && peek().v === "||") {
+      pos++;
+      const right = and();
+      const l = left;
+      left = (v) => Boolean(l(v)) || Boolean(right(v));
+    }
+    return left;
+  }
+  function and() {
+    let left = cmp();
+    while (peek() && peek().k === "op" && peek().v === "&&") {
+      pos++;
+      const right = cmp();
+      const l = left;
+      left = (v) => Boolean(l(v)) && Boolean(right(v));
+    }
+    return left;
+  }
+  function cmp() {
+    const left = unary();
+    const t = peek();
+    if (t && t.k === "op" && ["==", "!=", "===", "!==", ">", "<", ">=", "<="].includes(t.v)) {
+      pos++;
+      const right = unary();
+      const op = t.v;
+      if (op === "==" || op === "===") return (v) => weCondLooseEq(left(v), right(v));
+      if (op === "!=" || op === "!==") return (v) => !weCondLooseEq(left(v), right(v));
+      return (v) => weCondNumCmp(left(v), right(v), op);
+    }
+    return left;
+  }
+  function unary() {
+    const t = peek();
+    if (t && t.k === "op" && t.v === "!") { pos++; const inner = unary(); return (v) => !inner(v); }
+    if (t && t.k === "op" && t.v === "-") { pos++; const inner = unary(); return (v) => -Number(inner(v)); }
+    return primary();
+  }
+  function primary() {
+    const t = peek();
+    if (!t) throw new Error("unexpected end");
+    if (t.k === "op" && t.v === "(") { pos++; const inner = or(); eat(")"); return inner; }
+    if (t.k === "num") { pos++; const n = Number(t.v); if (Number.isNaN(n)) throw new Error("bad num"); return () => n; }
+    if (t.k === "str") { pos++; const s = t.v; return () => s; }
+    if (t.k === "id") {
+      pos++;
+      if (t.v === "true") return () => true;
+      if (t.v === "false") return () => false;
+      const name = t.v;
+      // 只认 `ident` 与 `ident.value`；`.text`（赋值语句里的成员）落到 fail open
+      if (peek() && peek().k === "op" && peek().v === ".") {
+        pos++;
+        const m = peek();
+        if (!m || m.k !== "id" || m.v !== "value") throw new Error("only .value");
+        pos++;
+      }
+      return (v) => v[name];
+    }
+    throw new Error("unexpected token");
+  }
+  const root = or();
+  if (pos !== tokens.length) throw new Error("trailing tokens");
+  return root;
+}
+
+/** 属性显隐条件：无条件 / 空条件 / 语法不支持 → 一律可见 */
+function weEvalCondition(expr, values) {
+  if (!expr || !String(expr).trim()) return true;
+  let fn = weCondCache.get(expr);
+  if (fn === undefined) {
+    try {
+      const node = weCondParse(weCondTokenize(String(expr)));
+      fn = (v) => Boolean(node(v));
+    } catch {
+      fn = null; // 不支持的语法 → 恒显示
+    }
+    weCondCache.set(expr, fn);
+  }
+  if (!fn) return true;
+  try {
+    return fn(values);
+  } catch {
+    return true;
+  }
+}
+
+// 面板状态：token 变了就重新拉一次（换壁纸/换目录）。
+let propsPanelOpen = false;
+let propsState = { token: "", loading: false, error: "", props: [], remote: false };
+
+/** 当前 live 渲染 iframe（属性热更新与心跳读的是同一个）。 */
+function liveFrameEl() {
+  try {
+    const layer = document.getElementById(LAYER_ID);
+    return layer ? layer.querySelector("iframe.we-live-iframe") : null;
+  } catch {
+    return null;
+  }
+}
+
+/** token（propsUrl 末段；同时是设置里 userProps 的键）。 */
+function propTokenOf(selLike) {
+  const url = String((selLike && selLike.propsUrl) || "");
+  const i = url.lastIndexOf("/");
+  return i >= 0 ? url.slice(i + 1) : "";
+}
+
+function storedUserPropsOf(token) {
+  const all = selection.userProps;
+  const v = all && typeof all === "object" ? all[token] : null;
+  return v && typeof v === "object" && !Array.isArray(v) ? { ...v } : {};
+}
+
+/** 覆盖值写入设置（与默认值相同 = 删除该覆盖项）。 */
+function saveUserProp(token, name, value, isDefault) {
+  if (!token) return;
+  const all = { ...(selection.userProps || {}) };
+  const cur = { ...(all[token] || {}) };
+  if (isDefault) delete cur[name];
+  else cur[name] = value;
+  if (Object.keys(cur).length) all[token] = cur;
+  else delete all[token];
+  selection.userProps = all;
+  persistSelection();
+}
+
+/** 热更新到正在跑的壁纸（渲染页 __wp.updateWebProps → 场景对象脚本 / 网页 shim）。 */
+function applyUserProps(wire) {
+  const frame = liveFrameEl();
+  if (!frame) return false;
+  try {
+    const wp = frame.contentWindow && frame.contentWindow.__wp;
+    if (!wp || typeof wp.updateWebProps !== "function") return false;
+    wp.updateWebProps(wire);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function loadUserPropDefs(token, force) {
+  if (!token) return;
+  if (!force && (propsState.token === token && (propsState.props.length || propsState.loading))) return;
+  const url = PROPS_URL + "/" + encodeURIComponent(token);
+  propsState = { token, loading: true, error: "", props: propsState.token === token ? propsState.props : [], remote: true };
+  fetch(url, { cache: "no-store" })
+    .then((r) => r.json())
+    .then((d) => {
+      if (!d || !d.ok) throw new Error((d && d.error) || "读取失败");
+      if (propsState.token !== token) return; // 期间换了壁纸：丢弃
+      // 值以渲染页的实时表为准（场景壁纸的默认值在 scene.json 快照里，可能和
+      // project.json 不同 —— 上游 getProperties 正是为此存在）；拿不到就用宿主值。
+      let live = null;
+      try {
+        const frame = liveFrameEl();
+        const wp = frame && frame.contentWindow && frame.contentWindow.__wp;
+        live = wp && typeof wp.getProperties === "function" ? wp.getProperties() : null;
+      } catch { live = null; }
+      const props = (d.props || []).map((p) => {
+        if (!live || !(p.name in live)) return p;
+        return { ...p, value: live[p.name], overridden: Boolean(d.overrides && p.name in d.overrides) };
+      });
+      propsState = { token, loading: false, error: "", props, remote: false };
+      emit();
+    })
+    .catch((e) => {
+      if (propsState.token !== token) return;
+      propsState = { token, loading: false, error: String((e && e.message) || e), props: [], remote: false };
+      emit();
+    });
+}
+
+/** 一次属性改动：本地状态 + 热更新 + 持久化（silent = 拖动中不重渲染）。 */
+function onUserPropInput(def, value, silent) {
+  def.value = value;
+  def.overridden = !sameUserPropValue(value, def.default);
+  applyUserProps({ [def.name]: { value } });
+  saveUserProp(propsState.token, def.name, value, !def.overridden);
+  if (!silent) emit();
+}
+
+function sameUserPropValue(a, b) {
+  if (a === b) return true;
+  if (typeof a === "number" || typeof b === "number") return Number(a) === Number(b);
+  return false;
+}
+
+/** 恢复默认：清掉这张壁纸的全部覆盖值，并把默认值热更新回渲染页。 */
+function resetUserProps() {
+  const token = propsState.token;
+  if (!token) return;
+  const wire = {};
+  for (const p of propsState.props) {
+    p.value = p.default;
+    p.overridden = false;
+    if (p.default !== null) wire[p.name] = { value: p.default };
+  }
+  applyUserProps(wire);
+  const all = { ...(selection.userProps || {}) };
+  delete all[token];
+  selection.userProps = all;
+  persistSelection();
+  emit();
+}
+
+/** 就绪后回放覆盖值：网页壁纸由 host 并进 HTML 种子，场景壁纸没有种子通道。 */
+function applyStoredUserProps(selLike) {
+  if (!selLike) return;
+  const token = propTokenOf(selLike);
+  if (!token) return;
+  const ov = storedUserPropsOf(token);
+  const names = Object.keys(ov);
+  if (!names.length) return;
+  const wire = {};
+  for (const [k, v] of Object.entries(ov)) wire[k] = { value: v };
+  applyUserProps(wire);
+}
+
+/** Web 颜色 "r g b"（0–1 浮点）↔ #rrggbb */
+function weColorToHex(v) {
+  if (typeof v !== "string") return "#000000";
+  const parts = v.trim().split(/\s+/).map(Number);
+  if (parts.length < 3 || parts.some((n) => !Number.isFinite(n))) return "#000000";
+  const hex = parts.slice(0, 3)
+    .map((n) => Math.max(0, Math.min(255, Math.round(n * 255))).toString(16).padStart(2, "0"))
+    .join("");
+  return "#" + hex;
+}
+function weHexToColor(hex) {
+  const h = String(hex || "").replace(/^#/, "");
+  if (h.length !== 6) return "0 0 0";
+  const r = parseInt(h.slice(0, 2), 16) / 255;
+  const g = parseInt(h.slice(2, 4), 16) / 255;
+  const b = parseInt(h.slice(4, 6), 16) / 255;
+  return [r, g, b].map((n) => Math.round(n * 1000) / 1000).join(" ");
 }
 
 function buildLivePoster(sel) {
@@ -3864,6 +4197,122 @@ function WallpaperPicker(props) {
       }, "下一页 ›"),
     );
 
+  // ── 壁纸属性面板（渲染）──────────────────────────────────────────────────
+  // 按 ptype 出控件；拖动类（slider/color）在 input 时就热更新但**不重渲染**
+  //（拖动中每帧 emit 整个选择器很浪费），change 时才 emit 刷新数值回显。
+  function renderUserPropRow(p) {
+    if (p.ptype === "text" || p.ptype === "group") {
+      return React.createElement("div", {
+        key: p.name, className: "we-picker__props-section",
+      }, p.text);
+    }
+    const label = React.createElement("span", { className: "we-picker__props-label", title: p.name },
+      p.text,
+      p.overridden && React.createElement("span", { className: "we-picker__props-dot", title: "已改（点「恢复默认」还原）" }, "•"),
+    );
+    let control = null;
+    if (p.ptype === "bool") {
+      control = React.createElement("input", {
+        type: "checkbox", className: "we-picker__props-check",
+        checked: p.value === true,
+        onChange: (e) => onUserPropInput(p, e.target.checked, false),
+      });
+    } else if (p.ptype === "color") {
+      control = React.createElement("input", {
+        type: "color", className: "we-picker__props-color",
+        value: weColorToHex(p.value),
+        onInput: (e) => onUserPropInput(p, weHexToColor(e.target.value), true),
+        onChange: (e) => onUserPropInput(p, weHexToColor(e.target.value), false),
+      });
+    } else if (p.ptype === "slider") {
+      const min = typeof p.min === "number" ? p.min : 0;
+      const max = typeof p.max === "number" ? p.max : 1;
+      const step = typeof p.step === "number" && p.step > 0 ? p.step : (max - min) / 100;
+      const digits = typeof p.precision === "number" ? Math.max(0, Math.min(6, p.precision)) : 2;
+      const shown = typeof p.value === "number" ? p.value.toFixed(digits) : String(p.value === null ? "" : p.value);
+      control = React.createElement(React.Fragment, null,
+        React.createElement("input", {
+          type: "range", className: "we-picker__slider",
+          min, max, step,
+          value: typeof p.value === "number" ? p.value : min,
+          onInput: (e) => onUserPropInput(p, Number(e.target.value), true),
+          onChange: (e) => onUserPropInput(p, Number(e.target.value), false),
+        }),
+        React.createElement("span", { className: "we-picker__props-value" }, shown),
+      );
+    } else if (p.ptype === "combo" && Array.isArray(p.options)) {
+      // 选项值可能是数字/字符串/布尔混用：用**下标**做 select 的值，回写时取回
+      // 声明类型（字符串化会让壁纸里的 === / switch 失配）。
+      const idx = Math.max(0, p.options.findIndex((o) => sameUserPropValue(o.value, p.value)));
+      control = React.createElement("select", {
+        className: "we-picker__props-select",
+        value: String(idx),
+        onChange: (e) => {
+          const opt = p.options[Number(e.target.value)];
+          if (opt) onUserPropInput(p, opt.value, false);
+        },
+      }, p.options.map((o, i) => React.createElement("option", {
+        key: i, value: String(i),
+      }, o.label)));
+    } else if ((p.ptype === "file" || p.ptype === "directory") && Array.isArray(p.files)) {
+      const cur = typeof p.value === "string" ? p.value : "";
+      const list = p.files.includes(cur) || !cur ? p.files : [cur].concat(p.files);
+      control = React.createElement("select", {
+        className: "we-picker__props-select",
+        value: cur,
+        onChange: (e) => onUserPropInput(p, e.target.value, false),
+      }, [{ label: "（默认）", value: "" }].concat(list.map((f) => ({ label: f, value: f })))
+        .map((o, i) => React.createElement("option", { key: i, value: o.value }, o.label)));
+    } else {
+      control = React.createElement("input", {
+        type: "text", className: "we-picker__props-text",
+        defaultValue: typeof p.value === "string" ? p.value : "",
+        // 文本类不做逐键热更新（每敲一下都跑一遍壁纸的属性处理太重），失焦/回车生效
+        onChange: (e) => onUserPropInput(p, e.target.value, false),
+      });
+    }
+    return React.createElement("div", { key: p.name, className: "we-picker__props-row" }, label, control);
+  }
+
+  function renderUserPropsPanel() {
+    if (!propsPanelOpen) return null;
+    const token = propTokenOf(sel);
+    if (!token) return null;
+    // 面板开着换了壁纸：拉当前这张的属性
+    if (propsState.token !== token && !propsState.loading) loadUserPropDefs(token, true);
+    const values = {};
+    for (const p of propsState.props) {
+      if (p.ptype !== "text" && p.ptype !== "group") values[p.name] = p.value;
+    }
+    const rows = propsState.props
+      .filter((p) => !p.condition || weEvalCondition(p.condition, values))
+      .map((p) => renderUserPropRow(p));
+    const note = propsState.loading
+      ? "读取中…"
+      : propsState.error
+        ? propsState.error
+        : rows.length
+          ? ""
+          : propsState.props.length
+            ? "当前条件下没有可调项"
+            : "这张壁纸没有用户属性（project.json 的 general.properties）";
+    return React.createElement("div", { className: "we-picker__props" },
+      React.createElement("div", { className: "we-picker__props-head" },
+        React.createElement("span", { className: "we-picker__props-title" }, "壁纸属性"),
+        React.createElement("span", { className: "we-picker__props-note" }, note),
+        React.createElement("button", {
+          className: "we-picker__btn we-picker__btn--mini", type: "button",
+          onClick: resetUserProps,
+          disabled: !propsState.props.some((p) => p.overridden),
+        }, "恢复默认"),
+      ),
+      // 实时渲染没接管时改动不会立刻可见 —— 明说，免得以为面板坏了
+      !sel.sceneLiveActive && React.createElement("div", { className: "we-picker__props-hint" },
+        "实时渲染当前未接管（静态帧 / 兼容模式），改动会在下次实时渲染时生效。"),
+      rows,
+    );
+  }
+
   // ── 页签面板内容（函数声明提升，renderActiveTab 在 return 里先调用）──────
   function renderWallpaperTab() {
     return React.createElement(React.Fragment, null,
@@ -3880,6 +4329,9 @@ function WallpaperPicker(props) {
           React.createElement("div", { className: "we-picker__current-info" },
             React.createElement("div", { className: "we-picker__current-title", title: current ? current.title : "" },
               sel.id && current ? current.title : "未选择壁纸"),
+            // meta + 各种原因说明包一层：抽屉（窄容器）里标题要独占第一行，
+            // 该层用 display:contents 展开成 grid 项，靠这个包裹层保持一行一项。
+            React.createElement("div", { className: "we-picker__current-sub" },
             React.createElement("div", { className: "we-picker__current-meta" },
               current
                 ? ({ video: "视频壁纸", web: "网页壁纸", image: "图片壁纸", scene: isLiveScene ? "场景壁纸（实时渲染）" : "场景壁纸（静态帧）" }[current.type] || "壁纸") + (playbackLive ? " · 播放中" : " · 已暂停")
@@ -3894,18 +4346,36 @@ function WallpaperPicker(props) {
             // 用户反馈时能直接说明，也提示了重试入口（重开「实时渲染」开关）。
             liveFailReasonOf(sel) && React.createElement("div", { className: "we-picker__current-error" },
               "实时渲染失败（" + liveFailReasonOf(sel) + "），已自动回退；重新打开「实时渲染」开关可重试",)
+            ),
           ),
-          React.createElement("button", {
-            className: "we-picker__btn we-picker__btn--primary", type: "button",
-            ref: (el) => { pickerOpener = el; },
-            onClick: () => {
-              selection.pickerOpen = true;
-              selection.modalView = "normal";
-              pickerFocusPending = true; // 打开后焦点落入模态框（见 modalInitialFocus）
-              emit();
-            },
-          }, "选择壁纸"),
+          // 主操作区：壁纸属性（仅场景/网页壁纸）+ 选择壁纸。抽屉里两个按钮上下
+          // 排列（8px 间距），宽卡片里并排 —— 见 .we-picker__current-actions 的 CSS。
+          React.createElement("div", { className: "we-picker__current-actions" },
+            (current && (current.type === "scene" || current.type === "web") && sel.propsUrl)
+              && React.createElement("button", {
+                className: "we-picker__btn we-picker__btn--props" + (propsPanelOpen ? " is-on" : ""),
+                type: "button",
+                title: "壁纸作者提供的可调属性（改动立即生效）",
+                onClick: () => {
+                  propsPanelOpen = !propsPanelOpen;
+                  if (propsPanelOpen) loadUserPropDefs(propTokenOf(sel), true);
+                  emit();
+                },
+              }, "壁纸属性"),
+            React.createElement("button", {
+              className: "we-picker__btn we-picker__btn--primary", type: "button",
+              ref: (el) => { pickerOpener = el; },
+              onClick: () => {
+                selection.pickerOpen = true;
+                selection.modalView = "normal";
+                pickerFocusPending = true; // 打开后焦点落入模态框（见 modalInitialFocus）
+                emit();
+              },
+            }, "选择壁纸"),
+          ),
         ),
+        // 属性面板紧贴卡片下方（同一节里），抽屉/弹窗两种形态都可见。
+        renderUserPropsPanel(),
         // Playback controls (wallpaper-independent; the thumbnail grid lives in
         // the modal above, so these stay within reach).
         React.createElement("div", { className: "we-picker__row" },
@@ -6223,6 +6693,74 @@ const CSS = `
   .we-picker__btn--primary:hover {
     background: color-mix(in srgb, var(--we-accent, #4f8cff) 86%, #000);
     color: #fff;
+  }
+
+  /* ── 壁纸属性（作者可调属性）─────────────────────────────────────────────
+     绿色 = 次级动作，和 accent 的「选择壁纸」明确区分：两者永远不该读成同一个控件。 */
+  .we-picker__btn--props {
+    color: #fff;
+    background: #2ea043;
+    border-color: transparent;
+    font-weight: 600;
+  }
+  .we-picker__btn--props:hover { background: #2c974b; color: #fff; }
+  .we-picker__btn--props.is-on { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6); }
+  .we-picker__btn--mini { padding: 2px 8px; font-size: 0.75em; }
+
+  /* 主操作区（壁纸属性 + 选择壁纸）：宽卡片里并排；抽屉里上下排列（间距 8px）。 */
+  .we-picker__current-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+  .we-picker__current-sub { min-width: 0; }
+
+  /* ── 壁纸属性面板 ─────────────────────────────────────────────────────── */
+  .we-picker__props {
+    margin-top: 8px; padding: 10px; border-radius: 12px;
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.28));
+    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.06));
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .we-picker__props-head { display: flex; align-items: center; gap: 8px; }
+  .we-picker__props-title { font-size: 0.85em; font-weight: 600; }
+  .we-picker__props-note { flex: 1; min-width: 0; font-size: 0.75em; opacity: 0.6; }
+  .we-picker__props-hint { font-size: 0.75em; opacity: 0.85; color: #d29922; }
+  .we-picker__props-section { font-size: 0.78em; opacity: 0.6; margin-top: 6px; }
+  .we-picker__props-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .we-picker__props-label {
+    flex: 1; min-width: 0; font-size: 0.8em;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .we-picker__props-dot { margin-left: 4px; color: #2ea043; font-weight: 700; }
+  .we-picker__props-value { flex: 0 0 auto; min-width: 3.2em; text-align: right; font-size: 0.75em; opacity: 0.7; }
+  .we-picker__props-check { flex: 0 0 auto; }
+  .we-picker__props-color {
+    flex: 0 0 auto; width: 46px; height: 22px; padding: 0; cursor: pointer;
+    border-radius: 6px; background: transparent;
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+  }
+  .we-picker__props-select, .we-picker__props-text {
+    flex: 0 1 52%; min-width: 0; font-size: 0.8em; padding: 3px 6px; border-radius: 8px;
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+    background: var(--dsw-alias-bg-layer-2, rgba(0, 0, 0, 0.18)); color: inherit;
+  }
+
+  /* 抽屉（右侧窄容器）：名称独占顶层第一行，两个按钮在右侧上下排列、间距 8px。
+     标题与副信息原本同在一个 info 块里 —— 用 display:contents 把它展开成 grid 项，
+     才能把标题提到第一行（.we-picker__current-sub 是 meta+原因说明的包裹层，
+     保证「一行一项」而不是让多行叠在同一格）。 */
+  .we-repo-panel .we-picker__current {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "title title title"
+      "vinyl info  actions";
+    align-items: center;
+    gap: 8px 10px;
+  }
+  .we-repo-panel .we-picker__current-info { display: contents; }
+  .we-repo-panel .we-picker__current-title { grid-area: title; }
+  .we-repo-panel .we-picker__current-sub { grid-area: info; min-width: 0; }
+  .we-repo-panel .we-vinyl, .we-repo-panel .we-picker__current-thumb { grid-area: vinyl; }
+  .we-repo-panel .we-picker__current-actions {
+    grid-area: actions; flex-direction: column; align-items: stretch; gap: 8px;
   }
 
   /* Refined range sliders: thin track + circular brand ring thumb. */
