@@ -63,8 +63,13 @@ Wallpaper Engine 的壁纸分四种类型：
 | 类型 | 由谁渲染 | 能否搬到 DSH |
 |---|---|---|
 | **Scene（场景）** | Wallpaper Engine 自带的 3D 引擎 | ✅ 实时渲染 — 内置 WebWallGL WebGL 引擎（粒子/脚本/视差/包内音频）；失败自动回退场景帧 |
+| **Web（网页）** | Wallpaper Engine 内置的 HTML/JS 运行时 | ✅ 实时渲染 — 内置 WebWallGL 的网页挂载 + **注入 WE API**（音频监听/属性/媒体），严格沙箱隔离；失败自动回退兼容 iframe |
 
 Scene 壁纸由本插件内置的 **WebWallGL 实时渲染引擎**（`lib/webwallgl/`，MIT，上游 [webwallgl](https://github.com/oneincase/webwallgl)）在 WebGL2 里完整重放：解析 `scene.pkg` 的对象树，实时渲染全部 image 层（waterwaves/waterripple 等 shader 效果按 HLSL 转译后在 GPU 执行）、puppet 骨骼模型、粒子系统与文本对象，并执行场景自带的 SceneScript 脚本 —— 鼠标移动会驱动视差 / 光标交互，包内音频（BGM / 音效）随「音量 / 壁纸音轨」设置播放并驱动音频反应效果。
+
+**网页壁纸**同样走 WebWallGL：宿主把 **WE API shim**（`wallpaperRegisterAudioListener` / `wallpaperPropertyListener` / 媒体监听等，来自上游 `web-shim.js`，由 `/scene-files` 注入入口 HTML）交给渲染页加载 —— 依赖 WE API 的工坊网页壁纸（音频可视化、属性驱动、鼠标跟随等）因此能真正跑起来，不再是一片空白或报错。**安全**：壁纸 iframe 强制 `sandbox="allow-scripts"`（严格沙箱），第三方 HTML 拿不到 DSH 的 origin（无法冒用宿主身份调宿主 API / 读宿主存储）；跨源控制与指针注入经渲染页的 `postMessage` 通道下发。加载失败或运行失联时按壁纸记忆并自动退回旧的兼容 iframe（裸 HTML，无 WE API）。
+
+> **网页壁纸已知边界**：作者脚本的 `fetch`/`XHR` 在 opaque origin 下携带 `Origin: null`（宿主已返回 `Access-Control-Allow-Origin: *`，常规资源可用）；`wallpaperMediaIntegration`（系统 Now Playing）本项目未提供数据源，相关壁纸退到自身静态态；CSS `:hover` 等由浏览器 hit-test 驱动的交互不受外部指针注入影响（与上游文档一致）。
 
 > **渲染形态与降级**：渲染页在同源隔离 iframe 中运行，并有**心跳看护** —— 首帧 15 秒超时、或运行期连续 20 秒无帧（含一次自动恢复尝试）即判定失败，按壁纸记入失败记忆并自动降级到「内嵌 MP4 → 静态帧」旧链；松散 `scene.json` 目录与无 WebGL2 的环境直接走旧链。失败记忆可在设置里重新打开「场景实时渲染」开关清空重试。静态帧链（内置纯 JS 场景渲染器，下节）保留为垫底画面与降级目标。
 

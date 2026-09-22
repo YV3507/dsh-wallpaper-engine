@@ -254,6 +254,22 @@ writeFileSync(join(workshopDir, 'preview.jpg'), Buffer.from([0xff, 0xd8, 0xff, 0
 // A file OUTSIDE the wallpaper dir, targeted by the fence test.
 const secretPath = join(fixtureRoot, 'secret.txt');
 writeFileSync(secretPath, 'top-secret');
+// A web-wallpaper fixture directory (project.json + HTML entry + subresources):
+// drives the /scene-files HTML shim injection, subresource MIME and CORS asserts.
+const webDir = join(fixtureRoot, 'steamapps', 'workshop', 'content', '431960', '990003');
+mkdirSync(webDir, { recursive: true });
+writeFileSync(join(webDir, 'project.json'), JSON.stringify({
+  title: 'Fixture Web Wallpaper', type: 'web', file: 'index.html', preview: 'preview.jpg',
+  contentrating: 'Everyone',
+}));
+writeFileSync(join(webDir, 'index.html'), [
+  '<!doctype html><html><head><meta charset="utf-8"><title>fixture</title>',
+  '<link rel="stylesheet" href="style.css"></head>',
+  '<body><div id="app"></div><script src="app.js"></script></body></html>',
+].join('\n'));
+writeFileSync(join(webDir, 'style.css'), '#app{color:#fff}');
+writeFileSync(join(webDir, 'app.js'), 'window.__fixtureWeb=true;');
+writeFileSync(join(webDir, 'preview.jpg'), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
 process.env.DSH_WE_STEAM_ROOT = fixtureRoot;
 
 const invRoute = routes.find((r) => r.path === '/wallpaper-engine/inventory');
@@ -302,6 +318,43 @@ if (filesRoute && fixture && fixture.sceneLiveSrc) {
   check('missing subpath → 404', nosubRes.__state.status === 404, 'status=' + nosubRes.__state.status);
 }
 
+// ── Level C3: web wallpapers over /scene-files ──────────────────────────────
+// The strict-sandbox web path needs three host duties: inject the vendored WE
+// shim into the HTML entry, serve subresources with correct MIME types (a CSS
+// file as application/octet-stream is rejected by the browser), and allow
+// opaque-origin fetches via CORS.
+console.log('Level C3 — web wallpaper files (shim injection / MIME / CORS)');
+{
+  const res = await runHandler(invRoute, '/wallpaper-engine/inventory');
+  const body = JSON.parse(res.__state.body.toString('utf8'));
+  const web = (body.wallpapers || []).find((w) => w.id === '990003') || null;
+  check('web wallpaper listed with webLive + webLiveSrc',
+    Boolean(web && web.webLive === true && web.webLiveSrc),
+    web ? 'type=' + web.type + ' src=' + String(web.webLiveSrc || '').length + 'ch' : 'not found');
+  if (web && web.webLiveSrc) {
+    // webLiveSrc 是完整入口 URL 路径（渲染页的 web 形态要求 src 为完整 URL），
+    // 所以直接作为请求路径用；子资源由入口目录推导。
+    const entryUrl = web.webLiveSrc;
+    const baseUrl = entryUrl.replace(/\/[^/]*$/, '');
+    const htmlRes = await runHandler(filesRoute, entryUrl);
+    const html = htmlRes.__state.body.toString('utf8');
+    check('HTML entry served with shim injected',
+      htmlRes.__state.status === 200 && /text\/html/.test(h(htmlRes, 'Content-Type'))
+        && html.indexOf('data-we-shim="host"') !== -1,
+      'status=' + htmlRes.__state.status + ' shim=' + (html.indexOf('data-we-shim') !== -1));
+    check('HTML entry advertises CORS for opaque origins',
+      h(htmlRes, 'Access-Control-Allow-Origin') === '*', h(htmlRes, 'Access-Control-Allow-Origin'));
+    const cssRes = await runHandler(filesRoute, `${baseUrl}/style.css`);
+    check('stylesheet served as text/css (not octet-stream)',
+      cssRes.__state.status === 200 && /text\/css/.test(h(cssRes, 'Content-Type')),
+      h(cssRes, 'Content-Type'));
+    const jsRes = await runHandler(filesRoute, `${baseUrl}/app.js`);
+    check('script served as javascript',
+      jsRes.__state.status === 200 && /javascript/.test(h(jsRes, 'Content-Type')),
+      h(jsRes, 'Content-Type'));
+  }
+}
+
 // ── Level C2: custom storage (uploads) — WE project directories ─────────────
 // The reported bug: pointing 存储位置 at a WallpaperEM-style downloads folder
 // found none of its scene wallpapers (the old scanner only matched `up-*.ext`
@@ -346,12 +399,13 @@ console.log('Level C2 — custom storage scan (WE project dirs under uploads)');
 console.log('Level D — client source wiring (src/client.js)');
 const src = readFileSync(join(root, 'src', 'client.js'), 'utf8');
 const clientChecks = [
-  ['live is the top scene priority', /isSceneLive = sel\.type === "scene" && sceneLiveEnabled\(sel\)/.test(src)],
-  ['sceneVideo yields to live', /Boolean\(sel\.sceneVideo\) && !isSceneLive/.test(src)],
+  ['live is the top priority for scenes and web', /const isLive = \(sel\.type === "scene" \|\| sel\.type === "web"\) && liveRenderEnabled\(sel\)/.test(src)],
+  ['sceneVideo yields to live', /Boolean\(sel\.sceneVideo\) && !isLive/.test(src)],
+  ['web wallpapers force the strict sandbox', /webSandbox=strict/.test(src)],
   ['heartbeat watchdog exists', /function startLiveWatch/.test(src) && /LIVE_FIRST_FRAME_MS/.test(src)],
   ['failure memory persists', /sceneLiveFailures/.test(src) && /function liveFail/.test(src)],
   ['audio mux honours live', /!selLike\.sceneLiveActive/.test(src)],
-  ['syncLayers key carries live state', /"live\\u0000" \+ selection\.sceneLiveSrc/.test(src)],
+  ['syncLayers key carries live state', /"live\\u0000" \+ \(selection\.sceneLiveSrc \|\| selection\.webLiveSrc\)/.test(src)],
   ['pointer injection wired', /__wp\.pushPointer|wp\.pushPointer/.test(src) && /pointerLeave/.test(src)],
   ['fit mapping table present', /SCENE_LIVE_FIT = \{ cover: "cover"/.test(src)],
   // 实测踩坑回归（2026-09-22）：渲染页 resume() 会 resetFrameMeter，心跳若
@@ -366,6 +420,9 @@ for (const [name, ok] of clientChecks) check(name, ok);
 // sceneLiveFailures 会让 PUT 上来的失败记忆被丢弃、刷新后记忆消失。
 const hostSrc = readFileSync(join(root, 'lib', 'index.js'), 'utf8');
 check('host settings whitelist keeps sceneLiveFailures', /sceneLiveFailures: \(o\.sceneLiveFailures && typeof o\.sceneLiveFailures === 'object'/.test(hostSrc));
+check('host injects the vendored shim into web HTML', /data-we-shim="host"/.test(hostSrc) && /readWebShim\(\)/.test(hostSrc));
+check('host sends CORS for opaque-origin fetches', /Access-Control-Allow-Origin', '\*'/.test(hostSrc));
+check('inventory derives webLive via webFieldsFor', /webFieldsFor\(w, hasMedia\)/.test(hostSrc));
 // 自定义存储位置的目录型条目：up-dir- 前缀（用户自己的内容 / 不参与 /remove）
 check('uploads scan tags project dirs with up-dir- prefix', /id: `up-dir-\$\{name\}`/.test(hostSrc));
 check('uploads scan resolves scene.pkg for declared scene.json', /resolveSceneMainFileP\(abs, proj\.file\)/.test(hostSrc));

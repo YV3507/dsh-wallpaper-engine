@@ -90,6 +90,15 @@ for (const a of assets) {
   mkdirSync(dirname(a.out), { recursive: true });
   copyFileSync(a.src, a.out);
 }
+// web-shim.js 原文：宿主把它注入**网页壁纸**的 HTML 响应（见 lib/index.js 的
+// /scene-files 路由）—— 严格沙箱下渲染页与壁纸 iframe 不同源，shim 只能这样
+// 进入作者页面（渲染页内的 ?raw 版本是给 WallpaperEM 的注入路径用的）。
+const shimSrc = join(repo, 'renderer', 'src', 'web-shim.js');
+if (!existsSync(shimSrc)) {
+  console.error(`[sync-webwallgl] 缺少 ${shimSrc} —— 上游 web shim 位置变化？`);
+  process.exit(1);
+}
+copyFileSync(shimSrc, join(OUT_DIR, 'web-shim.js'));
 
 // 4. 溯源信息。
 const commit = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' });
@@ -102,9 +111,9 @@ writeFileSync(join(OUT_DIR, '.upstream.json'), JSON.stringify({
   dirty: dirty.status === 0 ? dirty.stdout.trim().length > 0 : null,
   base: BASE_PATH,
   syncedAt: new Date().toISOString(),
-  files: ['index.html', ...assets.map((a) => a.out.slice(OUT_DIR.length + 1))],
+  files: ['index.html', 'web-shim.js', ...assets.map((a) => a.out.slice(OUT_DIR.length + 1))],
 }, null, 2) + '\n');
 
 console.log(`[sync-webwallgl] 完成：webwallgl@${pkg.version} → lib/webwallgl/`);
 for (const a of assets) console.log(`  + ${a.out.slice(ROOT.length + 1)}`);
-console.log('  + index.html / .upstream.json');
+console.log('  + index.html / web-shim.js / .upstream.json');

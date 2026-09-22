@@ -64,7 +64,7 @@ Wallpaper Engine wallpapers come in four types:
 |---|---|---|
 | **Scene** | Wallpaper Engine's own 3D engine | ✅ Real-time — the built-in WebWallGL WebGL engine (particles / scripts / parallax / packaged audio); falls back to scene frames on failure |
 | **Video** | a plain `.mp4` file | ✅ Yes — plays in a `<video>` tag |
-| **Web** | a Chromium (`webwallpaper64.exe`) host for HTML | ✅ Yes — loads in an `<iframe>` |
+| **Web** | a Chromium (`webwallpaper64.exe`) host for HTML | ✅ Real-time — WebWallGL's web mount with the **injected WE API** (audio/property/media listeners) under a strict sandbox; falls back to a plain iframe on failure |
 | **Application** | an injected external window | ❌ No |
 
 Scene wallpapers are replayed in real time by the plugin's built-in **WebWallGL
@@ -83,6 +83,26 @@ SFX) plays under the shared volume / audio-switch settings.
 > environments without WebGL2 use that chain directly. Failure memory is
 > cleared by re-toggling 「场景实时渲染」 in the settings. The static-frame
 > chain (pure-JS scene renderer, below) remains the underlay and the fallback.
+
+**Web wallpapers** go through WebWallGL too: the host injects the **WE API shim**
+(`wallpaperRegisterAudioListener` / `wallpaperPropertyListener` / media
+listeners, from upstream `web-shim.js`, injected into the entry HTML by
+`/scene-files`) and hands the page to the renderer — so workshop web wallpapers
+that depend on the WE API (audio visualizers, property-driven and pointer-tracking
+pages) actually run instead of rendering blank or erroring. **Security**: the
+wallpaper iframe is forced into `sandbox="allow-scripts"` (strict sandbox) so the
+third-party HTML can never inherit the DSH origin (it cannot call host APIs or
+read host storage as the app). Cross-origin control and pointer injection go
+through the renderer page's `postMessage` channel. On load failure or a stalled
+runtime the wallpaper is remembered and degrades to the legacy plain iframe
+(no WE API).
+
+> **Known web-wallpaper limits**: author `fetch`/`XHR` carries `Origin: null` under
+> the opaque origin (the host answers with `Access-Control-Allow-Origin: *`, so
+> ordinary resources load); `wallpaperMediaIntegration` (system Now Playing) has no
+> data source here, so those pages stay on their own static state; CSS `:hover`
+> interaction driven by the browser's own hit-test cannot be triggered by external
+> pointer injection (as documented upstream).
 
 ### Static-frame fallback: how it works
 
