@@ -104,6 +104,16 @@ const DEFAULTS = {
   // 抽帧转码（解码 fps）互不相干。
   sceneLive: true,
   sceneLiveFps: 30,
+  // 实时渲染的启动延迟（秒）：只在「重启恢复上次壁纸」时生效（用户手动切换不延迟）
+  // —— 期间显示占位图（自动首帧 / 静态帧 / 主题色），避免大场景包与 DSH 首屏抢主线程。
+  liveBootDelay: 3,
+  // 系统音频反应（频谱来源）：auto = 宿主有采集能力就用（macOS 走 CoreAudio
+  // Process Tap，首次需一次性「音频录制」授权；Linux/Windows 走 ffmpeg +
+  // monitor/虚拟设备），off = 关闭（渲染页回落内置模拟源）。缺失/未授权时自动回落。
+  audioSource: "auto",
+  // 媒体集成（Now Playing）：把系统正在播放的歌名/歌手/封面推给壁纸的
+  // wallpaperMediaIntegration 监听器（macOS media-control / Linux playerctl）。
+  mediaIntegration: true,
   // 遮挡暂停（借鉴 Wallpaper Engine 的「被遮挡时暂停」——桌面端大部分时间
   // GPU≈0 主因就是它）：
   // - pauseOnHidden：页面隐藏（窗口最小化 / 切到其它标签页）时暂停视频。
@@ -358,6 +368,9 @@ function sanitizeSettings(o) {
     betaSceneAnim: o.betaSceneAnim === true,
     sceneLive: o.sceneLive !== false,
     sceneLiveFps: SCENE_LIVE_FPS_VALUES.includes(o.sceneLiveFps) ? o.sceneLiveFps : DEFAULTS.sceneLiveFps,
+    liveBootDelay: clampNum(o.liveBootDelay, 0, 30, DEFAULTS.liveBootDelay),
+    audioSource: o.audioSource === "off" ? "off" : "auto",
+    mediaIntegration: o.mediaIntegration !== false,
     pauseOnHidden: o.pauseOnHidden !== false,
     pauseOnBlur: o.pauseOnBlur === true,
     pauseOnBattery: o.pauseOnBattery === true,
@@ -570,6 +583,9 @@ function serializeSelection() {
     betaSceneAnim: selection.betaSceneAnim,
     sceneLive: selection.sceneLive,
     sceneLiveFps: selection.sceneLiveFps,
+    liveBootDelay: selection.liveBootDelay,
+    audioSource: selection.audioSource,
+    mediaIntegration: selection.mediaIntegration,
     pauseOnHidden: selection.pauseOnHidden,
     pauseOnBlur: selection.pauseOnBlur,
     pauseOnBattery: selection.pauseOnBattery,
@@ -1551,7 +1567,11 @@ function liveRenderEnabled(selLike) {
       || (selLike.type === "web" && selLike.webLiveSrc)));
 }
 // 失败原因 → 可读文案（设置面板展示，便于用户反馈「为什么黑」）。
-const LIVE_FAIL_LABELS = { timeout: "首帧超时（15 秒内无画面）", stall: "运行中断（20 秒无帧）" };
+const LIVE_FAIL_LABELS = {
+  timeout: "首帧超时（15 秒内无画面）",
+  stall: "运行中断（20 秒无帧）",
+  load: "壁纸加载失败",
+};
 function liveFailReasonOf(selLike) {
   const m = selLike && selLike.sceneLiveFailures;
   const v = m ? m[String(selLike && selLike.id)] : null;
@@ -1632,6 +1652,17 @@ function liveStats(frame) {
     return st.frame();
   } catch { return null; }
 }
+
+// 渲染页运行时状态（新渲染页提供 __wp.getState）：网页壁纸很多没有 rAF 帧打点
+// （setTimeout 主循环 / 纯静态页），fps 恒为 0 —— 「iframe 已 load」才是可靠的
+// 「壁纸就绪」信号。旧渲染页没有该方法时返回 null（退化为「可达即就绪」）。
+function liveStateOf(frame) {
+  try {
+    const wp = frame.contentWindow && frame.contentWindow.__wp;
+    if (!wp || typeof wp.getState !== "function") return null;
+    return wp.getState();
+  } catch { return null; }
+}
 function startLiveWatch(frame, wid) {
   stopLiveWatch();
   const watch = { frame, wid: String(wid || ""), timer: 0, startedAt: Date.now(), firstFrame: false, stall: 0, resumed: false };
@@ -1641,19 +1672,38 @@ function startLiveWatch(frame, wid) {
     // resume/pause），保持这个顺序让读数不受任何控制调用的副作用影响。
     const stats = liveStats(frame);
     applyLiveControls(frame);
-    const alive = Boolean(stats && stats.running && stats.fps > 0);
+    const isWeb = selection.type === "web";
+    const wstate = isWeb ? liveStateOf(frame) : null;
+    // 就绪判定分类型：场景每帧都有 GL 提交 → 要求真出帧；网页壁纸很多没有 rAF
+    // 打点（setTimeout 主循环 / 纯静态），只要渲染页可达（或 iframe 已 load）即算
+    // 就绪 —— 按 fps 判定会把它们误判失败并降级（实测：一直停在占位图，15 秒后黑屏）。
+    const alive = isWeb
+      ? (wstate ? wstate.iframeLoaded === true : Boolean(stats))
+      : Boolean(stats && stats.running && stats.fps > 0);
+    // 渲染页明确记录了 iframe 加载错误 → 立即降级，不必等 15 秒超时。
+    if (isWeb && wstate && wstate.iframeLoaded === false && wstate.webError) {
+      liveFail("load");
+      return;
+    }
     if (!watch.firstFrame) {
       if (alive) {
         watch.firstFrame = true;
         selection.sceneLiveActive = true;
         frame.classList.add("we-live-on");
         try { syncSceneAudio(selection); emit(); } catch { /* ignore */ }
+        // 网页壁纸：首帧稳定后抽一帧存到 host（下次加载/重启用它当占位图）。
+        maybeCaptureLiveFrame(frame, selection);
+        // 媒体桥接线：频谱（拉模式）与 Now Playing 转发。
+        startMediaSync(frame);
       } else if (Date.now() - watch.startedAt > LIVE_FIRST_FRAME_MS) {
         liveFail("timeout");
       }
       return;
     }
-    if (alive || !isEffectivelyPlaying()) {
+    // 运行期：场景要求持续出帧；网页只要求渲染页可达（能读到 getState / stats，
+    // 静止画面本身是正常状态，不是失联）。
+    const responsive = isWeb ? Boolean(wstate || stats) : alive;
+    if (responsive || !isEffectivelyPlaying()) {
       watch.stall = 0;
       watch.resumed = false;
       return;
@@ -1672,9 +1722,93 @@ function startLiveWatch(frame, wid) {
   }, 1000);
   liveWatch = watch;
 }
+// ── 媒体桥（宿主侧的系统音频频谱 / Now Playing → 渲染页）─────────────────────
+// 频谱：宿主 20fps 采集 → 渲染页经 __wp.setAudioBridge(fn) 每帧「拉」（拉模式是
+// 上游设计：避免每帧跨层推 128 个浮点）。这里 client 按 50ms 从 host 拉到本地
+// 缓存，fn 直接返回同一数组引用（零拷贝）。
+// 媒体：1s 一次的 Now Playing 轮询（宿主侧也是 1s），变化时 __wp.setMedia(wire)
+// —— 封面经宿主代理 URL（同源）。壁纸没有监听器时两者都无副作用。
+let mediaTimer = 0;
+let mediaSpectrum = null;
+let mediaNpKey = "";
+let mediaFetchBusy = false;
+let mediaNpTick = 0;
+function stopMediaSync(frame) {
+  if (mediaTimer) { try { clearInterval(mediaTimer); } catch { /* ignore */ } mediaTimer = 0; }
+  mediaNpKey = "";
+  const f = frame || (liveWatch && liveWatch.frame);
+  if (!f || !f.isConnected) return;
+  try {
+    const wp = f.contentWindow && f.contentWindow.__wp;
+    if (!wp) return;
+    if (typeof wp.setAudioBridge === "function") wp.setAudioBridge(null);
+    if (typeof wp.setMedia === "function") wp.setMedia(null);
+  } catch { /* ignore */ }
+}
+function startMediaSync(frame) {
+  stopMediaSync(frame);
+  if (selection.audioSource === "off" && selection.mediaIntegration === false) return;
+  const wantSpectrum = selection.audioSource !== "off";
+  const wantNp = selection.mediaIntegration !== false;
+  if (wantSpectrum) {
+    try {
+      const wp = frame.contentWindow && frame.contentWindow.__wp;
+      if (wp && typeof wp.setAudioBridge === "function") {
+        wp.setAudioBridge(() => (mediaSpectrum ? { left: mediaSpectrum, right: mediaSpectrum } : null));
+      }
+    } catch { /* ignore */ }
+  }
+  mediaTimer = setInterval(() => {
+    if (!frame.isConnected || !selection.sceneLiveActive) return;
+    if (wantSpectrum && !mediaFetchBusy) {
+      mediaFetchBusy = true;
+      fetch("/wallpaper-engine/audio-spectrum", { cache: "no-store" })
+        .then((r) => r.json())
+        .then((d) => {
+          if (d && d.ok && Array.isArray(d.bands) && d.bands.length) {
+            const arr = new Float32Array(d.bands.length);
+            for (let i = 0; i < d.bands.length; i++) arr[i] = (d.bands[i] || 0) / 255;
+            mediaSpectrum = arr;
+          }
+        })
+        .catch(() => { /* 静默：回落模拟源 */ })
+        .finally(() => { mediaFetchBusy = false; });
+    }
+    if (wantNp && ++mediaNpTick % 20 === 0) {
+      fetch("/wallpaper-engine/now-playing", { cache: "no-store" })
+        .then((r) => r.json())
+        .then((d) => {
+          if (!d || !d.ok) return;
+          const m = d.media || null;
+          const key = m ? [m.title, m.artist, m.playing ? 1 : 0, Math.floor((m.position || 0) / 5)].join("\u0000") : "";
+          if (key === mediaNpKey) return;
+          mediaNpKey = key;
+          try {
+            const wp = frame.contentWindow && frame.contentWindow.__wp;
+            if (!wp || typeof wp.setMedia !== "function") return;
+            if (!m) { wp.setMedia(null); return; }
+            wp.setMedia({
+              hasMedia: true,
+              title: m.title || "",
+              artist: m.artist || "",
+              album: m.album || "",
+              playing: Boolean(m.playing),
+              state: m.playing ? 1 : 2,
+              position: Number(m.position) || 0,
+              duration: Number(m.duration) || 0,
+              thumbnail: m.thumbnail ? location.origin + m.thumbnail : undefined,
+            });
+          } catch { /* ignore */ }
+        })
+        .catch(() => { /* 静默 */ });
+    }
+  }, 50);
+}
+
 function stopLiveWatch() {
   if (!liveWatch) return;
   try { clearInterval(liveWatch.timer); } catch { /* ignore */ }
+  stopMediaSync(liveWatch.frame);
   liveWatch = null;
   // 只重置标志；音频互斥由调用方收敛 —— 重建（fps 切换）时若在这里拉起
   // 外置 <audio>，新一帧 live 又要立刻把它停掉，中间会闪一下双声道。
@@ -1759,6 +1893,106 @@ function ensureLivePointer(frame) {
   }, opts);
 }
 
+// ── 加载期占位图（div + background 双层）─────────────────────────────────────
+// 先铺主题色（WE 的 schemecolor），有图再叠：网页 = 自动首帧（host 缓存的
+// /live-frame）；场景 = 静态帧（frameUrl，本身就是抽帧）。图 404（首次尚无缓存）
+// 时保持主题色 —— 任何情况下加载期都不是黑屏，也不会停在作者预览图。
+function buildLivePoster(sel) {
+  const poster = document.createElement("div");
+  poster.className = "we-media we-live-poster";
+  // 底色兜底：壁纸没写 schemecolor 时用主题面板色打底 —— 无抽帧图、无主题色时
+  // 加载期也必须是「一层安静的颜色」，不能是纯黑或透明。
+  poster.style.backgroundColor = sel.schemeColor || "var(--dsw-alias-bg-layer-1, #101418)";
+  const src = sel.type === "web" ? sel.liveFrame : sel.url;
+  if (src) {
+    poster.dataset.weFrameSrc = src;
+    const probe = new Image();
+    probe.onload = () => {
+      if (poster.isConnected) poster.style.backgroundImage = "url(" + src + ")";
+    };
+    probe.src = src; // 失败静默：保留主题色
+  }
+  return poster;
+}
+
+// 页面加载后是否仍处于「重启恢复」阶段：true 期间首次挂载 live 会延迟（见
+// buildMedia 的 liveBootDelay）；用户一旦有交互（点击/按键）立即置 false ——
+// 手动切换壁纸必须即时反馈，不延迟。
+let bootRestore = true;
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+  for (const ev of ["pointerdown", "keydown"]) {
+    window.addEventListener(ev, () => { bootRestore = false; }, { capture: true, passive: true, once: true });
+  }
+}
+let liveMountTimer = 0;
+// 延迟挂载：计时到点 + 首屏空闲后再把渲染 iframe 插进图层（期间显示占位图）。
+// 到点时校验壁纸没被换掉、live 仍启用、层还在 —— 任一不满足就放弃（syncLayers
+// 会负责当前状态的正确渲染）。
+function scheduleLiveMount(sel, frame, delayMs) {
+  if (liveMountTimer) { try { clearTimeout(liveMountTimer); } catch { /* ignore */ } liveMountTimer = 0; }
+  liveMountTimer = setTimeout(() => {
+    liveMountTimer = 0;
+    const mount = () => {
+      if (selection.id !== sel.id || !liveRenderEnabled(selection)) return;
+      const layer = document.getElementById(LAYER_ID);
+      if (!layer || frame.isConnected) return;
+      layer.appendChild(frame);
+    };
+    if (typeof window.requestIdleCallback === "function") {
+      window.requestIdleCallback(mount, { timeout: 2000 });
+    } else {
+      setTimeout(mount, 300);
+    }
+  }, delayMs);
+}
+
+function createLiveFrame(sel) {
+  const frame = document.createElement("iframe");
+  frame.src = liveRenderUrl(sel);
+  frame.setAttribute("frameborder", "0");
+  frame.setAttribute("scrolling", "no");
+  // iframe 内音频（HTMLAudioElement / 网页壁纸的媒体）的自动播放授权。
+  frame.setAttribute("allow", "autoplay");
+  frame.className = "we-media we-iframe we-live-iframe";
+  frame.addEventListener("load", () => {
+    // onload 只说明文档加载完成（模块还在执行 / pkg 未拉取），真正「活」
+    // 由心跳判定；文档若已被重建移除则直接放弃。
+    if (frame.isConnected) startLiveWatch(frame, sel.id);
+  });
+  return frame;
+}
+
+// 网页壁纸：live 就绪 3 秒后抽一帧（等动画进入稳定画面）存到 host，
+// 之后每次加载/重启先用它占位。抽帧失败静默（占位逻辑不受影响）。
+let liveFrameCapturedFor = "";
+function maybeCaptureLiveFrame(frame, sel) {
+  if (sel.type !== "web" || !sel.liveFrame) return;
+  if (liveFrameCapturedFor === String(sel.id)) return;
+  liveFrameCapturedFor = String(sel.id);
+  setTimeout(() => {
+    if (!frame.isConnected || selection.id !== sel.id) return;
+    let dataUrl = null;
+    try {
+      const wp = frame.contentWindow && frame.contentWindow.__wp;
+      dataUrl = wp && typeof wp.capture === "function" ? wp.capture(1920) : null;
+    } catch { return; }
+    if (!dataUrl || dataUrl.indexOf("data:image/") !== 0) return;
+    fetch(dataUrl).then((r) => r.blob()).then((blob) => fetch(sel.liveFrame, {
+      method: "POST",
+      headers: { "Content-Type": "image/jpeg" },
+      body: blob,
+    })).then(() => {
+      // 就地换上刚抽的帧（当前会话立刻可见；下次加载由 host 缓存直接提供）
+      const layer = document.getElementById(LAYER_ID);
+      const poster = layer && layer.querySelector(".we-live-poster");
+      if (poster && poster.style && !poster.dataset.weFrameApplied) {
+        poster.dataset.weFrameApplied = "1";
+        poster.style.backgroundImage = "url(" + sel.liveFrame + "?t=" + Date.now() + ")";
+      }
+    }).catch(() => { /* 静默 */ });
+  }, 3000);
+}
+
 function buildMedia(sel) {
   // 壁纸播放形态优先级:
   //   1. live — WebWallGL 实时 iframe（scene.pkg 走场景管线；web 壁纸走它的
@@ -1773,29 +2007,16 @@ function buildMedia(sel) {
   const isSceneAnim = sel.type === "scene" && sel.url && sel.url.indexOf("/scene-anim/") !== -1;
   const isStill = sel.type === "image" || (sel.type === "scene" && !isLive && !isSceneVideo && !isSceneAnim);
   if (isLive) {
-    // 垫底画面（加载期/降级重建期画面连续）+ live iframe（首帧心跳通过后淡入）。
-    // 场景用静态帧（sel.url = frameUrl，含 ?v= 档位）；网页壁纸用项目预览图
-    //（网页没有静态帧提取，preview 可能为空 → 那就只有 iframe）。
-    const posterSrc = sel.type === "web" ? (sel.previewUrl || null) : sel.url;
-    const frame = document.createElement("iframe");
-    frame.src = liveRenderUrl(sel);
-    frame.setAttribute("frameborder", "0");
-    frame.setAttribute("scrolling", "no");
-    // iframe 内音频（HTMLAudioElement / 网页壁纸的媒体）的自动播放授权。
-    frame.setAttribute("allow", "autoplay");
-    frame.className = "we-media we-iframe we-live-iframe";
-    frame.addEventListener("load", () => {
-      // onload 只说明文档加载完成（模块还在执行 / pkg 未拉取），真正「活」
-      // 由心跳判定；文档若已被重建移除则直接放弃。
-      if (frame.isConnected) startLiveWatch(frame, sel.id);
-    });
-    if (!posterSrc) return frame;
-    const poster = document.createElement("img");
-    poster.src = posterSrc;
-    poster.alt = "";
-    poster.draggable = false;
-    poster.className = "we-media we-live-poster";
-    return [poster, frame];
+    const poster = buildLivePoster(sel);
+    const frame = createLiveFrame(sel);
+    // 启动延迟：仅「重启恢复上次壁纸」阶段（bootRestore）生效 —— 期间只显示占位图，
+    // 避免大场景包的解码/纹理上传与 DSH 首屏抢主线程（用户实测「重启变慢」）。
+    // 用户一开始交互 bootRestore 即为 false（见其声明处），手动切换壁纸 → 立即挂载。
+    const delaySecs = clampNum(sel.liveBootDelay, 0, 30, 3);
+    const delayMs = bootRestore && delaySecs > 0 ? delaySecs * 1000 : 0;
+    if (delayMs <= 0) return [poster, frame];
+    scheduleLiveMount(sel, frame, delayMs);
+    return poster;
   }
   const media = sel.type === "video" || isSceneVideo || isSceneAnim
     ? document.createElement("video")
@@ -4082,6 +4303,22 @@ function WallpaperPicker(props) {
           SliderRow("音量", 0, 100, 5,
             Math.round((Number(sel.videoVolume) || 0) * 100), onVideoVolume,
             Math.round((Number(sel.videoVolume) || 0) * 100) + "%"),
+          switchRow("系统音频反应", sel.audioSource !== "off", (e) => {
+            selection.audioSource = e.target.checked ? "auto" : "off";
+            persistSelection();
+            emit();
+          }, {
+            hint: "壁纸随系统声音律动 · 未授权/未安装自动回落模拟",
+            tooltip: "把系统正在播放的声音（loopback，非麦克风）的频谱喂给壁纸的音频可视化。macOS 走 CoreAudio Process Tap（首次需在「系统设置 → 隐私与安全性 → 音频录制」授权）；Linux/Windows 走 ffmpeg + monitor/虚拟设备（未检测到则回落内置模拟频谱）",
+          }),
+          switchRow("媒体信息", sel.mediaIntegration !== false, (e) => {
+            selection.mediaIntegration = e.target.checked;
+            persistSelection();
+            emit();
+          }, {
+            hint: "歌名 / 歌手 / 封面 → 壁纸的媒体监听器",
+            tooltip: "把系统正在播放的歌曲信息推给壁纸（wallpaperMediaIntegration）：macOS 需 media-control（brew install media-control）；Linux 需 playerctl；Windows 二期。缺失时壁纸保持自身静态态",
+          }),
           switchRow("壁纸音轨", sel.videoAudioEnabled !== false, () => onToggleAudio(), {
             hint: "关闭=静音（保留音量数值）· 开启时音量 0 自动 50%",
             tooltip: "视频壁纸与场景壁纸（内嵌 MP4 音轨 / 包内独立音频）共用；默认静音，开启时若音量为 0 会自动提到 50%",
@@ -4106,6 +4343,20 @@ function WallpaperPicker(props) {
             ? "网页壁纸由 WebWallGL 加载并注入 WE API（音频/属性监听等），严格沙箱隔离（不继承宿主权限）；加载失败或运行失联时自动退回兼容 iframe。重新开启会重试此前失败的壁纸"
             : "场景壁纸由 WebWallGL 实时渲染（粒子/脚本/视差/包内音频）；加载失败或运行失联时自动退回内嵌视频/静态帧。重新开启会重试此前失败的壁纸",
         }),
+        (sel.type === "scene" || sel.type === "web") && sel.sceneLive !== false
+          && React.createElement("div", { className: "we-picker__ctl", key: "live-boot-delay" },
+          ctlText("启动延迟", "重启恢复壁纸时先显示占位图"),
+          React.createElement("div", { className: "we-picker__seg" },
+            [0, 3, 5, 10].map((secs) =>
+              React.createElement("button", {
+                key: secs,
+                className: "we-picker__btn we-picker__rate" + (Number(sel.liveBootDelay) === secs ? " we-picker__rate--active" : ""),
+                type: "button",
+                onClick: () => { selection.liveBootDelay = secs; persistSelection(); emit(); },
+              }, secs === 0 ? "立即" : secs + "s"),
+            ),
+          ),
+        ),
         (sel.type === "scene" || sel.type === "web") && sel.sceneLive !== false
           && (sel.sceneLiveSrc || sel.webLiveSrc)
           && React.createElement("div", { className: "we-picker__ctl", key: "scene-live-fps" },
@@ -5053,7 +5304,7 @@ const CSS = `
      the wallpaper-opacity leaf var (#82) via calc instead of overwriting it. */
   .we-layer .we-live-poster {
     position: absolute; inset: 0; width: 100%; height: 100%;
-    object-fit: var(--we-object-fit, cover);
+    background-size: cover; background-position: center; background-repeat: no-repeat;
   }
   .we-layer .we-live-iframe {
     position: absolute; inset: 0; width: 100%; height: 100%;
