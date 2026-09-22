@@ -513,6 +513,8 @@ const FRAME_VARIANTS = [
   { id: 3, label: "预览图" },
   { id: 4, label: "自定义画面" },
 ];
+// 卡片类型徽标（卡片左上角）：与「类型」筛选的四类一一对应。
+const CARD_TYPE_LABELS = { video: "视频", web: "网页", image: "图片", scene: "场景" };
 // 开启「壁纸音轨」时，音量若为 0 自动提升到的默认可听值（0–1）。
 // 默认音量是 0（静音起步），而音轨开关只翻总开关不动音量 —— 不自动提音量的话，
 // 用户点「音乐开」开关状态变了却依然无声，看起来就是「音量开/关都不生效」
@@ -4409,6 +4411,8 @@ function WallpaperPicker(props) {
                             onLoad: (e) => { e.target.style.opacity = "1"; },
                           })
                         : React.createElement("span", { className: "we-picker__card-placeholder" }, "无预览"),
+                      CARD_TYPE_LABELS[w.type]
+                        && React.createElement("span", { className: "we-picker__card-type" }, CARD_TYPE_LABELS[w.type]),
                       React.createElement("span", { className: "we-picker__card-title" }, w.title),
                       w.type === "scene" && React.createElement("span", { className: "we-picker__card-badge" }, w.sceneLive ? "实时渲染" : "静态帧"),
                       React.createElement("button", {
@@ -4542,6 +4546,9 @@ function WallpaperPicker(props) {
                             onLoad: (e) => { e.target.style.opacity = "1"; },
                           })
                         : React.createElement("span", { className: "we-picker__card-placeholder" }, "无预览"),
+                      // 类型徽标（卡片左上角）：批量模式下让位给勾选框。
+                      !selection.batchMode && CARD_TYPE_LABELS[w.type]
+                        && React.createElement("span", { className: "we-picker__card-type" }, CARD_TYPE_LABELS[w.type]),
                       React.createElement("span", { className: "we-picker__card-title" }, w.title),
                       w.type === "scene" && React.createElement("span", { className: "we-picker__card-badge" }, w.sceneLive ? "实时渲染" : "静态帧"),
                       selection.batchMode
@@ -6024,6 +6031,17 @@ const CSS = `
     position: absolute; inset: 0;
     display: flex; align-items: center; justify-content: center;
     font-size: 0.72em; opacity: 0.55;
+  }
+  /* Per-card wallpaper-type badge (视频 / 网页 / 图片 / 场景) — top-left
+     overlay, always visible (the type filter's own labels). In batch mode the
+     selection checkbox (.we-picker__card-check) owns the same corner, so the
+     badge is not rendered at all then. */
+  .we-picker__card-type {
+    position: absolute; top: 4px; left: 4px; z-index: 2;
+    padding: 2px 7px; font-size: 0.68em; line-height: 1.5;
+    border-radius: 4px; color: #fff;
+    background: rgba(0, 0, 0, 0.6);
+    pointer-events: none;
   }
   /* Per-card "hide" button (soft delete) — top-right overlay. 默认隐去，
      hover / 键盘聚焦（focus-within）时浮现：网格不常驻一层噪声按钮。 */
