@@ -97,6 +97,13 @@ const DEFAULTS = {
   // scene-anim 视频后台渲染; 开启后才走动画化升级 (CPU 渲染试验性, 可能有
   // 组件错误), 渲染期间进度条 + 完成自动切换视频。
   betaSceneAnim: false,
+  // 场景实时渲染（WebWallGL live WebGL）：scene.pkg 壁纸由 vendored WebWallGL
+  // 渲染页实时渲染（粒子/脚本/视差/包内音频），默认开启；加载失败或运行
+  // 失联时按壁纸记忆失败并自动降级回 sceneVideo → 静态帧链（见
+  // sceneLiveFailures / startLiveWatch）。帧率上限是渲染 fps，与视频壁纸的
+  // 抽帧转码（解码 fps）互不相干。
+  sceneLive: true,
+  sceneLiveFps: 30,
   // 遮挡暂停（借鉴 Wallpaper Engine 的「被遮挡时暂停」——桌面端大部分时间
   // GPU≈0 主因就是它）：
   // - pauseOnHidden：页面隐藏（窗口最小化 / 切到其它标签页）时暂停视频。
@@ -196,6 +203,10 @@ const DEFAULTS = {
   // 场景壁纸静态帧生成档位记忆：{ [wallpaperId]: 0..4 }（壁纸画面刷新）。
   // 档位进入 scene-frame 请求的 ?v= 参数与宿主缓存键，各档互不覆盖。
   frameVariants: {},
+  // 场景实时渲染失败记忆：{ [wallpaperId]: true }。心跳判定失败（首帧超时/
+  // 运行期失联）后写入，该壁纸此后走旧播放链；「场景实时渲染」开关重开时
+  // 清空全部（显式重试入口）。
+  sceneLiveFailures: {},
   // 自定义画面（截屏导入）状态记忆：{ [wallpaperId]: true }。
   customFrames: {},
   // 输入光标颜色（#83，空 = 跟随 dsh 原生）：壁纸透过玻璃输入框直贴光标，
@@ -251,6 +262,8 @@ function fontFamilyStack(v) {
 }
 // 帧率上限 options (fps); 0 = 无限制. Mirror of the host whitelist.
 const FPS_CAP_VALUES = [0, 60, 48, 30, 24];
+// 场景实时渲染（WebWallGL）帧率上限档位。Mirror of lib/index.js.
+const SCENE_LIVE_FPS_VALUES = [15, 30, 60];
 
 // 配色 presets for the settings-page liquid-glass theme. The accent drives
 // buttons/sliders/selected cards/badges and the glass sheen via --we-accent;
@@ -343,6 +356,8 @@ function sanitizeSettings(o) {
     videoAudioEnabled: o.videoAudioEnabled !== false,
     fpsCap: FPS_CAP_VALUES.includes(o.fpsCap) ? o.fpsCap : DEFAULTS.fpsCap,
     betaSceneAnim: o.betaSceneAnim === true,
+    sceneLive: o.sceneLive !== false,
+    sceneLiveFps: SCENE_LIVE_FPS_VALUES.includes(o.sceneLiveFps) ? o.sceneLiveFps : DEFAULTS.sceneLiveFps,
     pauseOnHidden: o.pauseOnHidden !== false,
     pauseOnBlur: o.pauseOnBlur === true,
     pauseOnBattery: o.pauseOnBattery === true,
@@ -381,6 +396,8 @@ function sanitizeSettings(o) {
     fontFamily: FONT_FAMILY_VALUES.includes(o.fontFamily) ? o.fontFamily : DEFAULTS.fontFamily,
     frameVariants: (o.frameVariants && typeof o.frameVariants === "object" && !Array.isArray(o.frameVariants))
       ? Object.assign({}, o.frameVariants) : {},
+    sceneLiveFailures: (o.sceneLiveFailures && typeof o.sceneLiveFailures === "object" && !Array.isArray(o.sceneLiveFailures))
+      ? Object.assign({}, o.sceneLiveFailures) : {},
     customFrames: (o.customFrames && typeof o.customFrames === "object" && !Array.isArray(o.customFrames))
       ? Object.assign({}, o.customFrames) : {},
     caretColor: typeof o.caretColor === "string" && /^#[0-9a-f]{6}$/i.test(o.caretColor)
@@ -412,6 +429,15 @@ const selection = {
   // When present the scene plays as a hardware-decoded <video>; on load error
   // it is nulled and the layer rebuilds as the extracted static frame.
   sceneVideo: null,
+  // Transient: WebWallGL 实时渲染 token（host /scene-files 路由的 src 参数）。
+  // 场景取 sceneLiveSrc（pkg 主文件），网页取 webLiveSrc（入口 HTML）；
+  // 存在且开关开启且无失败记忆时以 live iframe 形态播放
+  //（buildMedia 最高优先级，见 liveRenderEnabled）。
+  sceneLiveSrc: null,
+  webLiveSrc: null,
+  // Transient: live 渲染心跳已确认出帧（startLiveWatch）。音频互斥（live 时
+  // WebWallGL 自播包内音频，不再启动外置 <audio>）与卡片状态用。
+  sceneLiveActive: false,
   // Transient: 场景包内独立音频（mp3/ogg 等，host /scene-audio 路由）。与
   // sceneVideo 互斥使用 —— 内嵌 MP4 时视频自带音轨；无内嵌视频时由独立
   // <audio> 元素播放，音量/开关复用 videoVolume / videoAudioEnabled。
@@ -489,6 +515,13 @@ const FRAME_VARIANTS = [
   { id: 3, label: "预览图" },
   { id: 4, label: "自定义画面" },
 ];
+// 卡片类型徽标（卡片左上角）：与「类型」筛选的四类一一对应。
+const CARD_TYPE_LABELS = { video: "视频", web: "网页", image: "图片", scene: "场景" };
+// 开启「壁纸音轨」时，音量若为 0 自动提升到的默认可听值（0–1）。
+// 默认音量是 0（静音起步），而音轨开关只翻总开关不动音量 —— 不自动提音量的话，
+// 用户点「音乐开」开关状态变了却依然无声，看起来就是「音量开/关都不生效」
+//（2026-09-22 实测到的误读，见 onToggleAudio）。
+const DEFAULT_AUDIO_VOLUME = 0.5;
 // 当前壁纸可用档位数：未导入自定义画面时不轮入第 5 档。
 function frameVariantCount(selLike, wid) {
   const cf = selLike.customFrames || {};
@@ -515,6 +548,7 @@ function serializeSelection() {
   return {
     id: selection.id,
     frameVariants: selection.frameVariants,
+    sceneLiveFailures: selection.sceneLiveFailures,
     customFrames: selection.customFrames,
     scrim: selection.scrim,
     border: selection.border,
@@ -534,6 +568,8 @@ function serializeSelection() {
     videoAudioEnabled: selection.videoAudioEnabled,
     fpsCap: selection.fpsCap,
     betaSceneAnim: selection.betaSceneAnim,
+    sceneLive: selection.sceneLive,
+    sceneLiveFps: selection.sceneLiveFps,
     pauseOnHidden: selection.pauseOnHidden,
     pauseOnBlur: selection.pauseOnBlur,
     pauseOnBattery: selection.pauseOnBattery,
@@ -1055,6 +1091,9 @@ function applySelection(id) {
     selection.type = null;
     selection.previewUrl = null;
     selection.sceneVideo = null;
+    selection.sceneLiveSrc = null;
+    selection.webLiveSrc = null;
+    selection.sceneLiveActive = false;
     selection.sceneAudioUrl = null;
     selection.sceneHasAudio = false;
     selection.mediaInfo = null;
@@ -1074,6 +1113,9 @@ function applySelection(id) {
     selection.type = null;
     selection.previewUrl = null;
     selection.sceneVideo = null;
+    selection.sceneLiveSrc = null;
+    selection.webLiveSrc = null;
+    selection.sceneLiveActive = false;
     selection.sceneAudioUrl = null;
     selection.sceneHasAudio = false;
     selection.mediaInfo = null;
@@ -1104,6 +1146,12 @@ function applySelection(id) {
   // 有内嵌 MP4 (sceneVideo) 的场景直接用硬件解码播放 — 不再触发 CPU scene-anim
   // 升级 (避免重复动画 + 浪费 CPU, 且 scene-anim 完成后会覆盖 sceneVideo)。
   selection.sceneVideo = w.type === "scene" ? (w.sceneVideo || null) : null;
+  // WebWallGL 实时渲染 token：host inventory 只对 pkg 壁纸给出（loose
+  // scene.json 目录没有 scene.pkg 可供 httpSource 拉取，直接走旧链）。
+  selection.sceneLiveSrc = w.type === "scene" && w.sceneLive && w.sceneLiveSrc ? w.sceneLiveSrc : null;
+  // 网页壁纸的 live 入口（host inventory 的 webLive/webLiveSrc）。
+  selection.webLiveSrc = w.type === "web" && w.webLive && w.webLiveSrc ? w.webLiveSrc : null;
+  selection.sceneLiveActive = false;
   // 场景包内独立音频（无内嵌 MP4 时播放；内嵌 MP4 场景由视频自带音轨，
   // syncSceneAudio 内部按 sceneVideo 互斥）。sceneHasAudio 经 HEAD 探测得出，
   // 供卡片音乐按钮显示。
@@ -1118,7 +1166,9 @@ function applySelection(id) {
       }
     }).catch(() => { /* 无音频/探测失败：按钮保持隐藏 */ });
   }
-  if (w.type === "scene" && w.frameUrl && !selection.sceneVideo) queueSceneAnimUpgrade(w.frameUrl);
+  // live 渲染生效时不启动 scene-anim 后台 CPU 渲染（实时管线已覆盖动画，
+  // 双跑只浪费 CPU；live 失败降级后此处条件转真，升级路径照常可用）。
+  if (w.type === "scene" && w.frameUrl && !selection.sceneVideo && !liveRenderEnabled(selection)) queueSceneAnimUpgrade(w.frameUrl);
   // Keep the preview around so a failed static frame can fall back to it.
   selection.previewUrl = w.preview || null;
   selection.transcodeState = "idle";
@@ -1176,6 +1226,14 @@ const UPLOAD_TYPES = ["image/jpeg", "image/png", "video/mp4"];
 
 function isUploadedWallpaper(w) {
   return Boolean(w && w.id && w.id.indexOf("up-") === 0);
+}
+
+// 存储位置里的 WE 项目目录（project.json + scene.pkg/…，id 前缀 up-dir-）。
+// 与单文件上传同属「用户自己的内容」（ratingOf 的宽松分级、隐藏/轮转都适用），
+// 但不是「上传」、也没有可移除的文件（/remove 只解析 up-*.ext）——上传管理
+// 列表与计数须把它们排除，否则会出现点「移除」却删不掉的幽灵条目。
+function isDirWallpaper(w) {
+  return Boolean(w && w.id && w.id.indexOf("up-dir-") === 0);
 }
 
 async function uploadWallpaperFile(file) {
@@ -1470,15 +1528,275 @@ function queueSceneAnimUpgrade(frameUrl) {
   sceneAnimUpgrade = { pollTimer, probe, frameUrl, maxWait };
 }
 
+// ── 场景实时渲染（WebWallGL live WebGL）─────────────────────────────────────
+// scene.pkg 壁纸的实时播放形态：同源 iframe 加载 vendored WebWallGL 渲染页
+//（/scene-live，构建同步见 scripts/sync-webwallgl.mjs），由它 fetch
+// /scene-files/<token>/scene.pkg 自行解析渲染（LZ4/TEX/DXT 解码、HLSL→GLSL、
+// 粒子/脚本/音频全在渲染页内）。父页面经 contentWindow 直接调用渲染页的
+// window.__wp 控制面（pause/resume/setVolume/setFit/pushPointer），并轮询
+// __wpStats.frame() 作心跳：首帧超时 / 运行期失联 → 按壁纸记失败并降级回
+// sceneVideo → 静态帧链（buildMedia 优先级自动重排）。
+// 同源且不加 sandbox：sandbox 会产生 opaque origin，contentWindow.__wp 将
+// 无法访问；场景作者脚本隔离在渲染页自己的 SceneScript 沙箱内，与 DSH 宿主
+// API 无缘，安全边界与旧 /scene-runtime 播放器一致。同源还保住了父页面
+// backdrop-filter（液态玻璃）对 iframe 合成结果的采样。
+// 实时渲染形态的适用判定：场景（scene.pkg 走 WebWallGL 场景管线）与
+// 网页（入口 HTML 走 WebWallGL 的 web 挂载 + 注入 WE shim）共用同一开关
+// （sceneLive，默认开）、同一失败记忆与同一套心跳看护。
+function liveRenderEnabled(selLike) {
+  return Boolean(selLike && selLike.sceneLive !== false
+    // 失败记忆的值是失败原因（'timeout' / 'stall'）；兼容旧的 true。
+    && !(selLike.sceneLiveFailures && selLike.sceneLiveFailures[String(selLike.id)])
+    && ((selLike.type === "scene" && selLike.sceneLiveSrc)
+      || (selLike.type === "web" && selLike.webLiveSrc)));
+}
+// 失败原因 → 可读文案（设置面板展示，便于用户反馈「为什么黑」）。
+const LIVE_FAIL_LABELS = { timeout: "首帧超时（15 秒内无画面）", stall: "运行中断（20 秒无帧）" };
+function liveFailReasonOf(selLike) {
+  const m = selLike && selLike.sceneLiveFailures;
+  const v = m ? m[String(selLike && selLike.id)] : null;
+  if (!v) return "";
+  return LIVE_FAIL_LABELS[v] || "渲染失败";
+}
+// objectFit（object-fit 语义）→ WebWallGL fit 值。center 无精确对应
+//（渲染器的 contain 即完整显示居中，视觉最近似）；fill（拉伸变形）→ stretch。
+const SCENE_LIVE_FIT = { cover: "cover", contain: "contain", center: "contain", fill: "stretch" };
+function liveRenderUrl(selLike) {
+  const isWeb = selLike.type === "web";
+  // scene：src 是 mediaBase 下的 token（渲染页用它拼 httpSource）。
+  // web：src 必须是**完整入口 URL**（渲染页的 web 形态直接 iframe 加载它，
+  // 并从同目录取 project.json）—— 传 token 会被当成相对 URL 而 404。
+  const src = isWeb ? location.origin + selLike.webLiveSrc : selLike.sceneLiveSrc;
+  const fit = SCENE_LIVE_FIT[selLike.objectFit] || "cover";
+  const fps = SCENE_LIVE_FPS_VALUES.includes(selLike.sceneLiveFps) ? selLike.sceneLiveFps : 30;
+  const muted = weAudioVolume() > 0 ? "false" : "true";
+  return "/wallpaper-engine/scene-live/index.html?type=" + (isWeb ? "web" : "scene")
+    // 网页壁纸必须严格沙箱：第三方 workshop HTML 不得继承 DSH 的 origin
+    //（否则可冒用宿主身份调宿主 API / 读宿主存储）——只给 allow-scripts，
+    // 控制经渲染页的 postMessage 通道下发，shim 由宿主注入 HTML 响应。
+    + (isWeb ? "&webSandbox=strict" : "")
+    + "&fit=" + fit + "&sceneFps=" + fps + "&muted=" + muted
+    + "&src=" + encodeURIComponent(src)
+    + "&mediaBase=" + encodeURIComponent(location.origin + "/wallpaper-engine/scene-files");
+}
+// 向 live iframe 的 __wp 控制面收敛播放态/音量/fit。每次 emit 驱动的
+// syncLayers 与每秒心跳 tick 都会调用，但**只在目标值变化时真正下发**：
+// 渲染页的 resume() 会重置帧计量器（resetFrameMeter），若每秒无条件 resume，
+// 紧随其后的心跳读数永远是 fps=0 → 首帧判定永不通过 → 15s 误降级（实测踩
+// 坑，2026-09-22）。setVolume/setFit 同理省掉每秒无谓的跨文档调用。
+const liveApplied = { frame: null, playing: null, volume: null, fit: null };
+function applyLiveControls(frame) {
+  if (!frame) return;
+  let wp = null;
+  try { wp = frame.contentWindow && frame.contentWindow.__wp; } catch { return; }
+  if (!wp) return; // 渲染页未就绪：心跳 tick 每秒重试
+  // 新 iframe（或渲染页刚就绪）→ 强制全量同步一次。
+  if (liveApplied.frame !== frame) {
+    liveApplied.frame = frame;
+    liveApplied.playing = null;
+    liveApplied.volume = null;
+    liveApplied.fit = null;
+  }
+  try {
+    const playing = isEffectivelyPlaying();
+    if (liveApplied.playing !== playing) {
+      if (playing) wp.resume(); else wp.pause();
+      liveApplied.playing = playing;
+    }
+    const volume = weAudioVolume();
+    if (liveApplied.volume !== volume && typeof wp.setVolume === "function") {
+      wp.setVolume(volume);
+      liveApplied.volume = volume;
+    }
+    const fit = SCENE_LIVE_FIT[selection.objectFit] || "cover";
+    if (liveApplied.fit !== fit && typeof wp.setFit === "function") {
+      wp.setFit(fit);
+      liveApplied.fit = fit;
+    }
+  } catch { /* 渲染页内部异常：下一 tick 重试 */ }
+}
+
+// ── live 心跳 ───────────────────────────────────────────────────────────────
+// 1s tick 读渲染页 __wpStats.frame()（{fps, running}，最近 500ms 实测窗口）：
+// - 首帧：running 且 fps>0 → 记 sceneLiveActive、iframe 淡入（we-live-on）、
+//   音频互斥切换（停外置 <audio>）；
+// - 首帧超时（15s：大 pkg 下载 + 纹理解码 + shader 编译的合理上限）→ 失败；
+// - 运行期：期望播放却连续 20s 无帧（先单次 resume 自救）或页面失联 → 失败。
+const LIVE_FIRST_FRAME_MS = 15000;
+const LIVE_STALL_TICKS = 20;
+let liveWatch = null; // { frame, wid, timer, startedAt, firstFrame, stall, resumed }
+function liveStats(frame) {
+  try {
+    const st = frame.contentWindow && frame.contentWindow.__wpStats;
+    if (!st || typeof st.frame !== "function") return null;
+    return st.frame();
+  } catch { return null; }
+}
+function startLiveWatch(frame, wid) {
+  stopLiveWatch();
+  const watch = { frame, wid: String(wid || ""), timer: 0, startedAt: Date.now(), firstFrame: false, stall: 0, resumed: false };
+  watch.timer = setInterval(() => {
+    if (!frame.isConnected) { stopLiveWatch(); return; }
+    // 先读统计、后下发控制：虽然 applyLiveControls 已去重（只在变化时
+    // resume/pause），保持这个顺序让读数不受任何控制调用的副作用影响。
+    const stats = liveStats(frame);
+    applyLiveControls(frame);
+    const alive = Boolean(stats && stats.running && stats.fps > 0);
+    if (!watch.firstFrame) {
+      if (alive) {
+        watch.firstFrame = true;
+        selection.sceneLiveActive = true;
+        frame.classList.add("we-live-on");
+        try { syncSceneAudio(selection); emit(); } catch { /* ignore */ }
+      } else if (Date.now() - watch.startedAt > LIVE_FIRST_FRAME_MS) {
+        liveFail("timeout");
+      }
+      return;
+    }
+    if (alive || !isEffectivelyPlaying()) {
+      watch.stall = 0;
+      watch.resumed = false;
+      return;
+    }
+    watch.stall += 1;
+    if (watch.stall === LIVE_STALL_TICKS && !watch.resumed) {
+      // 单次自救：contextlost 恢复后渲染器可能停摆但未上报，先推一把。
+      watch.resumed = true;
+      try {
+        const wp = frame.contentWindow && frame.contentWindow.__wp;
+        if (wp) wp.resume();
+      } catch { /* ignore */ }
+      return;
+    }
+    if (watch.stall >= LIVE_STALL_TICKS * 2) liveFail("stall");
+  }, 1000);
+  liveWatch = watch;
+}
+function stopLiveWatch() {
+  if (!liveWatch) return;
+  try { clearInterval(liveWatch.timer); } catch { /* ignore */ }
+  liveWatch = null;
+  // 只重置标志；音频互斥由调用方收敛 —— 重建（fps 切换）时若在这里拉起
+  // 外置 <audio>，新一帧 live 又要立刻把它停掉，中间会闪一下双声道。
+  selection.sceneLiveActive = false;
+}
+// 判定失败：按壁纸写入持久失败记忆 → syncLayers key 变化重建为旧播放链
+//（sceneVideo / 静态帧）→ 恢复外置音频互斥。本会话不再对该壁纸尝试 live，
+// 直到用户重开「场景实时渲染」开关（显式重试入口，清空全部记忆）。
+function liveFail(reason) {
+  const wid = liveWatch ? liveWatch.wid : String(selection.id || "");
+  stopLiveWatch();
+  if (!wid) return;
+  const map = Object.assign({}, selection.sceneLiveFailures || {});
+  // 记原因而不是 true：设置面板会把它显示出来（用户能反馈「为什么黑」）
+  map[wid] = reason === "stall" ? "stall" : "timeout";
+  selection.sceneLiveFailures = map;
+  try { persistSelection(); } catch { /* ignore */ }
+  try { syncLayers(); } catch { /* ignore */ }
+  try { syncSceneAudio(selection); } catch { /* ignore */ }
+  try { emit(); } catch { /* ignore */ }
+}
+
+// ── live 指针注入（视差/click 交互场景）────────────────────────────────────
+// 壁纸层 pointer-events:none，鼠标事件由 DSH UI 消费；window 级 capture 监听
+// 仍能收到全部 mousemove/mousedown/mouseup（capture 阶段先于任何元素），归一
+// 化后经 __wp.pushPointer 注入渲染页 —— 视差 / cursor 脚本 / 粒子锁点等
+// 指针消费方全部激活。协议同 webwallgl docs/INTEGRATION.md §4：u,v ∈ [0,1]、
+// Y 朝下勿翻（shader 内自翻）、buttons bit0=左键、按下态保持 ≥16ms（渲染器
+// 按帧检测边缘，同帧内 down+up 会丢 click）。事件只在 DSH 窗口内可得 —— 与
+// WallpaperEM 的系统级轮询不同，窗口外不推（pointerLeave 语义由 blur 承担）。
+let livePointerFrame = null;
+let livePointerPending = null; // { u, v, buttons }
+let livePointerRaf = 0;
+let livePointerDownAt = 0;
+function livePointerFlush() {
+  livePointerRaf = 0;
+  const p = livePointerPending;
+  const frame = livePointerFrame;
+  if (!p || !frame || !frame.isConnected || !selection.sceneLiveActive) return;
+  try {
+    const wp = frame.contentWindow && frame.contentWindow.__wp;
+    if (wp && typeof wp.pushPointer === "function") wp.pushPointer(p.u, p.v, p.buttons);
+  } catch { /* ignore */ }
+}
+function livePointerSample(e, buttons) {
+  if (!livePointerFrame || !selection.sceneLiveActive) return;
+  const iw = window.innerWidth || 1;
+  const ih = window.innerHeight || 1;
+  livePointerPending = {
+    u: Math.max(0, Math.min(1, e.clientX / iw)),
+    v: Math.max(0, Math.min(1, e.clientY / ih)), // Y 朝下，归一化即协议值
+    buttons: buttons,
+  };
+  if (!livePointerRaf) livePointerRaf = requestAnimationFrame(livePointerFlush);
+}
+function ensureLivePointer(frame) {
+  livePointerFrame = frame;
+  if (ensureLivePointer.attached) return;
+  ensureLivePointer.attached = true;
+  const opts = { capture: true, passive: true };
+  window.addEventListener("mousemove", (e) => {
+    // e.buttons 实时位掩码；只取 bit0（渲染器也只消费左键语义）。
+    livePointerSample(e, e.buttons & 1);
+  }, opts);
+  window.addEventListener("mousedown", (e) => {
+    livePointerDownAt = Date.now();
+    livePointerSample(e, 1);
+  }, opts);
+  window.addEventListener("mouseup", (e) => {
+    // 快速点击边缘保持：down→up < 16ms 时延后一拍再抬，保住一次完整
+    // down→up 边缘（否则按帧采样会整段漏掉这次点击）。
+    if (Date.now() - livePointerDownAt < 16) setTimeout(() => livePointerSample(e, 0), 20);
+    else livePointerSample(e, 0);
+  }, opts);
+  window.addEventListener("blur", () => {
+    const f = livePointerFrame;
+    if (!f || !f.isConnected || !selection.sceneLiveActive) return;
+    try {
+      const wp = f.contentWindow && f.contentWindow.__wp;
+      if (wp && typeof wp.pointerLeave === "function") wp.pointerLeave();
+    } catch { /* ignore */ }
+  }, opts);
+}
+
 function buildMedia(sel) {
-  // Scene 壁纸播放形态优先级:
-  //   1. sceneVideo — 场景内嵌 MP4 (作者主分支, 硬件解码 <video>, poster=静态帧)
-  //   2. scene-anim — beta 动画升级 (本分支 CPU 渲染视频, URL 含 /scene-anim/)
-  //   3. 静态帧 img (frameUrl)
+  // 壁纸播放形态优先级:
+  //   1. live — WebWallGL 实时 iframe（scene.pkg 走场景管线；web 壁纸走它的
+  //      web 挂载 + 宿主注入的 WE shim，严格沙箱隔离）。心跳判定失败后自动
+  //      降级，见 startLiveWatch/liveFail。
+  //   2. sceneVideo — 场景内嵌 MP4 (作者主分支, 硬件解码 <video>, poster=静态帧)
+  //   3. scene-anim — beta 动画升级 (本分支 CPU 渲染视频, URL 含 /scene-anim/)
+  //   4. 静态帧 img (frameUrl) / 网页壁纸的裸 iframe 兼容路径
   // 未升级时仍是静态帧 img。
-  const isSceneVideo = sel.type === "scene" && Boolean(sel.sceneVideo);
+  const isLive = (sel.type === "scene" || sel.type === "web") && liveRenderEnabled(sel);
+  const isSceneVideo = sel.type === "scene" && Boolean(sel.sceneVideo) && !isLive;
   const isSceneAnim = sel.type === "scene" && sel.url && sel.url.indexOf("/scene-anim/") !== -1;
-  const isStill = sel.type === "image" || (sel.type === "scene" && !isSceneVideo && !isSceneAnim);
+  const isStill = sel.type === "image" || (sel.type === "scene" && !isLive && !isSceneVideo && !isSceneAnim);
+  if (isLive) {
+    // 垫底画面（加载期/降级重建期画面连续）+ live iframe（首帧心跳通过后淡入）。
+    // 场景用静态帧（sel.url = frameUrl，含 ?v= 档位）；网页壁纸用项目预览图
+    //（网页没有静态帧提取，preview 可能为空 → 那就只有 iframe）。
+    const posterSrc = sel.type === "web" ? (sel.previewUrl || null) : sel.url;
+    const frame = document.createElement("iframe");
+    frame.src = liveRenderUrl(sel);
+    frame.setAttribute("frameborder", "0");
+    frame.setAttribute("scrolling", "no");
+    // iframe 内音频（HTMLAudioElement / 网页壁纸的媒体）的自动播放授权。
+    frame.setAttribute("allow", "autoplay");
+    frame.className = "we-media we-iframe we-live-iframe";
+    frame.addEventListener("load", () => {
+      // onload 只说明文档加载完成（模块还在执行 / pkg 未拉取），真正「活」
+      // 由心跳判定；文档若已被重建移除则直接放弃。
+      if (frame.isConnected) startLiveWatch(frame, sel.id);
+    });
+    if (!posterSrc) return frame;
+    const poster = document.createElement("img");
+    poster.src = posterSrc;
+    poster.alt = "";
+    poster.draggable = false;
+    poster.className = "we-media we-live-poster";
+    return [poster, frame];
+  }
   const media = sel.type === "video" || isSceneVideo || isSceneAnim
     ? document.createElement("video")
     : isStill
@@ -1667,6 +1985,9 @@ let sceneAudioEl = null;
 function syncSceneAudio(selLike) {
   const wantUrl = (selLike && selLike.type === "scene" && selLike.sceneAudioUrl
     && !selLike.sceneVideo
+    // live 渲染心跳已过 → 包内音频由 WebWallGL 音频组件自播（音量走
+    // __wp.setVolume），外置 <audio> 不启动，避免双声道叠加。
+    && !selLike.sceneLiveActive
     && !(selLike.url && String(selLike.url).indexOf("/scene-anim/") !== -1))
     ? selLike.sceneAudioUrl : null;
   if (!wantUrl) {
@@ -1998,9 +2319,18 @@ function syncLayers() {
       // static-frame <img>), and the 404 fallback nulls sceneVideo — the key
       // must reflect it so the fallback rebuilds the layer.
       + "\u0000" + (selection.sceneVideo || "")
-      + "\u0000" + (selection.sceneAudioUrl || "");
+      + "\u0000" + (selection.sceneAudioUrl || "")
+      // Scene live render: entering/leaving live（开关切换、按壁纸失败记忆、
+      // 帧率档变更 → iframe query 变化）都必须重建层；fit/音量不进 key ——
+      // 它们经 __wp.setFit/setVolume 热切，无需重载渲染页。
+      + "\u0000" + (selection.type === "scene"
+        ? (liveRenderEnabled(selection)
+          ? "live\u0000" + (selection.sceneLiveSrc || selection.webLiveSrc) + "\u0000" + selection.sceneLiveFps
+          : "nolive")
+        : "");
     const gotKey = existing && existing.dataset.weKey;
     if (existing && gotKey !== wantKey) {
+      stopLiveWatch();
       releaseLayerMedia(existing);
       existing.remove();
       // Release the previous draw loop: without this, switching from an Edge
@@ -2023,6 +2353,14 @@ function syncLayers() {
     }
     const canvas = node.querySelector("canvas.we-media--canvas");
     const video = node.querySelector("video");
+    // Scene live render: 播放态/音量/fit 向渲染页 __wp 收敛（每次 emit 幂等；
+    // __wp 未就绪时由心跳 tick 每秒兜底），并挂上指针注入（capture 监听一次
+    // 注册，此后只更新目标 frame 引用）。
+    const liveFrame = node.querySelector("iframe.we-live-iframe");
+    if (liveFrame) {
+      applyLiveControls(liveFrame);
+      ensureLivePointer(liveFrame);
+    }
     // Edge-only: drive the canvas mirror from the hidden decoder video.
     // Incremental guard: every emit (including the 500ms transcode poll) used
     // to run a FULL weStopDraw + weStartDraw — rebuilding the ResizeObserver,
@@ -2054,6 +2392,7 @@ function syncLayers() {
     }
   } else if (existing) {
     weStopDraw();
+    stopLiveWatch();
     releaseLayerMedia(existing);
     existing.remove();
   }
@@ -2709,10 +3048,14 @@ function WallpaperPicker(props) {
   const isRepoPanelCopy = Boolean(props && props.repoPanel);
   const sel = useStore();
   // 视频类壁纸（原生视频 + 内嵌 MP4 场景 + scene 动画视频）: 只有它们有
-  // 「真实播放态」的概念。
-  const isVideoLike = sel.type === "video"
+  // 「真实播放态」的概念。实时渲染（live iframe）形态必须排除在外：它没有
+  // <video> 元素可回写真实状态，且 sceneVideo 在 live 形态下非空（降级备用），
+  // 沿用视频类判定会让 playbackLive 恒为 videoPlaying=true —— 「暂停」后按钮
+  // 永不变「播放」（2026-09-22 实测）。
+  const isLiveScene = (sel.type === "scene" || sel.type === "web") && liveRenderEnabled(sel);
+  const isVideoLike = !isLiveScene && (sel.type === "video"
     || (sel.type === "scene" && Boolean(sel.sceneVideo))
-    || (sel.type === "scene" && Boolean(sel.url) && sel.url.indexOf("/scene-anim/") !== -1);
+    || (sel.type === "scene" && Boolean(sel.url) && sel.url.indexOf("/scene-anim/") !== -1));
   // 卡片上显示/按钮用的播放态（#84）: 视频类壁纸以 <video> 元素的真实状态为准。
   // 意图为「播放」但元素被拒/解码失败时，面板必须说「已暂停」并把按钮显示成
   // 「播放」，否则用户面对一张冻住的壁纸却只有「暂停」可点 —— 没有「继续」。
@@ -2733,9 +3076,14 @@ function WallpaperPicker(props) {
     emit();
   };
   // 音乐开关：只翻总开关，不动 videoVolume —— 关掉再打开能恢复原音量。
-  // 切换后立刻作用于当前元素，不必等下一次 emit 收敛。
+  // 例外：**开启时若音量为 0**（默认值），自动提到默认可听音量 —— 否则开关
+  // 打开了却依然无声，用户把这条读作「音量开/关都不生效」（实测）。
   const onToggleAudio = () => {
-    selection.videoAudioEnabled = selection.videoAudioEnabled === false;
+    const enabling = selection.videoAudioEnabled === false;
+    selection.videoAudioEnabled = enabling;
+    if (enabling && clampNum(selection.videoVolume, 0, 1, 0) <= 0) {
+      selection.videoVolume = DEFAULT_AUDIO_VOLUME;
+    }
     const layer = document.getElementById(LAYER_ID);
     const v = layer && layer.querySelector("video");
     if (v) weApplyAudio(v);
@@ -3096,7 +3444,7 @@ function WallpaperPicker(props) {
   const cdMode = sel.pickerLayout === "classic";
   const hiddenList = hiddenInventoryList();
   const current = list.find((w) => w.id === sel.id) || null;
-  const uploadedList = list.filter(isUploadedWallpaper);
+  const uploadedList = list.filter((w) => isUploadedWallpaper(w) && !isDirWallpaper(w));
   const groups = sel.rotationGroups;
   const group = activeRotationGroup();
   const candidates = rotationCandidates();
@@ -3151,7 +3499,7 @@ function WallpaperPicker(props) {
               sel.id && current ? current.title : "未选择壁纸"),
             React.createElement("div", { className: "we-picker__current-meta" },
               current
-                ? ({ video: "视频壁纸", web: "网页壁纸", image: "图片壁纸", scene: "场景壁纸（静态帧）" }[current.type] || "壁纸") + (playbackLive ? " · 播放中" : " · 已暂停")
+                ? ({ video: "视频壁纸", web: "网页壁纸", image: "图片壁纸", scene: isLiveScene ? "场景壁纸（实时渲染）" : "场景壁纸（静态帧）" }[current.type] || "壁纸") + (playbackLive ? " · 播放中" : " · 已暂停")
                 : "尚未选择壁纸"),
             // 播放失败原因（#84）: 浏览器解不了的编码 / 解码失败等，过去是
             // 「静默空白」，现在给出可读原因，配合下面的「播放」按钮重试。
@@ -3159,6 +3507,10 @@ function WallpaperPicker(props) {
             // 选择被过滤条件排除（#84）: 过去壁纸层直接空白、按钮变灰且无任何
             // 说明，现在明确指出是哪一项过滤挡住了、怎么恢复。
             sel.blockedNote && React.createElement("div", { className: "we-picker__current-error" }, sel.blockedNote),
+            // 实时渲染失败原因（自动回退到旧链时显示）：让「为什么黑」可见 ——
+            // 用户反馈时能直接说明，也提示了重试入口（重开「实时渲染」开关）。
+            liveFailReasonOf(sel) && React.createElement("div", { className: "we-picker__current-error" },
+              "实时渲染失败（" + liveFailReasonOf(sel) + "），已自动回退；重新打开「实时渲染」开关可重试",)
           ),
           React.createElement("button", {
             className: "we-picker__btn we-picker__btn--primary", type: "button",
@@ -3188,7 +3540,7 @@ function WallpaperPicker(props) {
               onClick: onToggleAudio,
               disabled: !sel.url,
               title: selection.videoAudioEnabled === false
-                ? "开启壁纸音轨（按音量滑块生效）"
+                ? "开启壁纸音轨（音量为 0 时自动设为 50%）"
                 : "关闭壁纸音轨（画面继续播放）",
             }, selection.videoAudioEnabled === false ? "🔇 音乐关" : "🔊 音乐开"),
           React.createElement("button", {
@@ -3429,7 +3781,7 @@ function WallpaperPicker(props) {
         sel.uploadNote && React.createElement("div", { className: "we-picker__note" }, sel.uploadNote),
         React.createElement("div", { className: "we-picker__row" },
           React.createElement("span", { className: "we-picker__hint" }, "已上传 " + uploadedList.length + " 个"),
-          React.createElement("span", { className: "we-picker__hint" }, "格式仅限 JPG / PNG / MP4"),
+          React.createElement("span", { className: "we-picker__hint" }, "支持 JPG / PNG / MP4，及含 project.json 的 WE 壁纸目录"),
         ),
         uploadedList.length > 0 && React.createElement("div", { className: "we-picker__uploads-list" },
           uploadedList.map((w) => React.createElement("div", { key: w.id, className: "we-picker__uploads-item" },
@@ -3731,9 +4083,44 @@ function WallpaperPicker(props) {
             Math.round((Number(sel.videoVolume) || 0) * 100), onVideoVolume,
             Math.round((Number(sel.videoVolume) || 0) * 100) + "%"),
           switchRow("壁纸音轨", sel.videoAudioEnabled !== false, () => onToggleAudio(), {
-            hint: "关闭=静音（保留音量数值）",
-            tooltip: "视频壁纸与场景壁纸（内嵌 MP4 音轨 / 包内独立音频）共用；默认静音",
+            hint: "关闭=静音（保留音量数值）· 开启时音量 0 自动 50%",
+            tooltip: "视频壁纸与场景壁纸（内嵌 MP4 音轨 / 包内独立音频）共用；默认静音，开启时若音量为 0 会自动提到 50%",
           }),
+        ),
+        // ── 场景实时渲染（WebWallGL）：scene.pkg 壁纸的实时 WebGL 形态，默认
+        // 开启。失败（首帧超时/运行失联）按壁纸记忆并自动降级回内嵌 MP4 →
+        // 静态帧；重开本开关清空全部失败记忆（显式重试入口）。
+        (sel.type === "scene" || sel.type === "web") && switchRow(
+          sel.type === "web" ? "网页实时渲染" : "场景实时渲染",
+          sel.sceneLive !== false, (e) => {
+          selection.sceneLive = e.target.checked;
+          selection.sceneLiveFailures = {};
+          persistSelection();
+          syncLayers();               // key 的 live 段变化 → 层重建（升级/降级）
+          syncSceneAudio(selection);  // 音频互斥状态随形态切换
+          emit();
+        }, {
+          key: "scene-live",
+          hint: "WebGL 实时渲染 · 失败自动降级",
+          tooltip: sel.type === "web"
+            ? "网页壁纸由 WebWallGL 加载并注入 WE API（音频/属性监听等），严格沙箱隔离（不继承宿主权限）；加载失败或运行失联时自动退回兼容 iframe。重新开启会重试此前失败的壁纸"
+            : "场景壁纸由 WebWallGL 实时渲染（粒子/脚本/视差/包内音频）；加载失败或运行失联时自动退回内嵌视频/静态帧。重新开启会重试此前失败的壁纸",
+        }),
+        (sel.type === "scene" || sel.type === "web") && sel.sceneLive !== false
+          && (sel.sceneLiveSrc || sel.webLiveSrc)
+          && React.createElement("div", { className: "we-picker__ctl", key: "scene-live-fps" },
+          ctlText("实时渲染帧率", "渲染 fps · 越低越省电"),
+          React.createElement("div", { className: "we-picker__seg" },
+            SCENE_LIVE_FPS_VALUES.map((f) =>
+              React.createElement("button", {
+                key: f,
+                className: "we-picker__btn we-picker__rate" + (sel.sceneLiveFps === f ? " we-picker__rate--active" : ""),
+                type: "button",
+                // 帧率进 iframe query（sceneFps）→ syncLayers key 变化重建层
+                onClick: () => { selection.sceneLiveFps = f; persistSelection(); syncLayers(); emit(); },
+              }, f + "fps"),
+            ),
+          ),
         ),
         // beta场景动画: 默认关闭 → scene 壁纸只渲染静态帧 (稳定, 与官方静态帧
         // 一致); 开启后才启动 scene-anim 视频后台渲染 (CPU 渲染试验性, 可能有
@@ -4065,8 +4452,11 @@ function WallpaperPicker(props) {
                             onLoad: (e) => { e.target.style.opacity = "1"; },
                           })
                         : React.createElement("span", { className: "we-picker__card-placeholder" }, "无预览"),
+                      CARD_TYPE_LABELS[w.type]
+                        && React.createElement("span", { className: "we-picker__card-type" }, CARD_TYPE_LABELS[w.type]),
                       React.createElement("span", { className: "we-picker__card-title" }, w.title),
-                      w.type === "scene" && React.createElement("span", { className: "we-picker__card-badge" }, "静态帧"),
+                      w.type === "scene" && React.createElement("span", { className: "we-picker__card-badge" }, w.sceneLive ? "实时渲染" : "静态帧"),
+                      w.type === "web" && React.createElement("span", { className: "we-picker__card-badge" }, w.webLive ? "实时渲染" : "兼容模式"),
                       React.createElement("button", {
                         className: "we-picker__card-hide", type: "button",
                         title: "恢复此壁纸",
@@ -4198,8 +4588,12 @@ function WallpaperPicker(props) {
                             onLoad: (e) => { e.target.style.opacity = "1"; },
                           })
                         : React.createElement("span", { className: "we-picker__card-placeholder" }, "无预览"),
+                      // 类型徽标（卡片左上角）：批量模式下让位给勾选框。
+                      !selection.batchMode && CARD_TYPE_LABELS[w.type]
+                        && React.createElement("span", { className: "we-picker__card-type" }, CARD_TYPE_LABELS[w.type]),
                       React.createElement("span", { className: "we-picker__card-title" }, w.title),
-                      w.type === "scene" && React.createElement("span", { className: "we-picker__card-badge" }, "静态帧"),
+                      w.type === "scene" && React.createElement("span", { className: "we-picker__card-badge" }, w.sceneLive ? "实时渲染" : "静态帧"),
+                      w.type === "web" && React.createElement("span", { className: "we-picker__card-badge" }, w.webLive ? "实时渲染" : "兼容模式"),
                       selection.batchMode
                         ? React.createElement("span", { className: "we-picker__card-check" },
                             selection.batchSelected.indexOf(w.id) >= 0 ? "✓" : "")
@@ -4651,6 +5045,23 @@ const CSS = `
   /* The 适配 row sets the fit mode for the CURRENT wallpaper (any type);
      only .we-media--fit reads the variable (iframes have no object-fit). */
   .we-layer .we-media--fit { object-fit: var(--we-object-fit, cover); }
+
+  /* Scene live render (WebWallGL): static frame underlay + renderer iframe.
+     Both stack absolutely inside .we-layer; the iframe starts transparent and
+     fades in on the first heartbeat frame (.we-live-on, startLiveWatch) so the
+     load window and any live→frame degradation never flash. Fade composes with
+     the wallpaper-opacity leaf var (#82) via calc instead of overwriting it. */
+  .we-layer .we-live-poster {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: var(--we-object-fit, cover);
+  }
+  .we-layer .we-live-iframe {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    background: transparent;
+    opacity: calc(var(--we-wallpaper-opacity, 1) * var(--we-live-fade, 0));
+    transition: opacity .6s ease;
+  }
+  .we-layer .we-live-iframe.we-live-on { --we-live-fade: 1; }
 
   /* Scrim: sits ABOVE the wallpaper (z-index -1 > -2, so it never depends on
      DOM insertion order — the wallpaper element is re-appended on wallpaper
@@ -5663,6 +6074,17 @@ const CSS = `
     position: absolute; inset: 0;
     display: flex; align-items: center; justify-content: center;
     font-size: 0.72em; opacity: 0.55;
+  }
+  /* Per-card wallpaper-type badge (视频 / 网页 / 图片 / 场景) — top-left
+     overlay, always visible (the type filter's own labels). In batch mode the
+     selection checkbox (.we-picker__card-check) owns the same corner, so the
+     badge is not rendered at all then. */
+  .we-picker__card-type {
+    position: absolute; top: 4px; left: 4px; z-index: 2;
+    padding: 2px 7px; font-size: 0.68em; line-height: 1.5;
+    border-radius: 4px; color: #fff;
+    background: rgba(0, 0, 0, 0.6);
+    pointer-events: none;
   }
   /* Per-card "hide" button (soft delete) — top-right overlay. 默认隐去，
      hover / 键盘聚焦（focus-within）时浮现：网格不常驻一层噪声按钮。 */

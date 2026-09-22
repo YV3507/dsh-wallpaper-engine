@@ -11,14 +11,15 @@ A DSH bundle that turns your **Wallpaper Engine** wallpapers into the **backgrou
 > **v0.6.4 keeps reducing the compositing layers**: the repo panel is lazy-mounted when closed, the rope has no permanent filter, and the wallpaper media no longer forces a transform compositing layer by default — whilst **keeping the full frosted glass**. Normal browser tabs are unaffected and keep the full frosted glass + hardware acceleration.
 > The plugin shows a one-time notice (once per version) about this.
 
-It discovers the Wallpaper Engine install on your machine, lists its wallpapers, and renders them behind the DSH chat interface with an iOS-style **liquid glass** effect: Video (`.mp4`) plays live, Web/HTML loads in an iframe, and **Scene wallpapers are re-rendered as full-scene frames by the built-in renderer (object tree / textures / particles / shader effects)**. Since v0.2 it also adds:
+It discovers the Wallpaper Engine install on your machine, lists its wallpapers, and renders them behind the DSH chat interface with an iOS-style **liquid glass** effect: Video (`.mp4`) plays live, Web/HTML loads in an iframe, and **Scene wallpapers are rendered in real time by the built-in WebWallGL WebGL engine (particles / scripts / parallax / packaged audio, auto-falling back to scene frames)**. Since v0.2 it also adds:
 
 - **Modal wallpaper picker** — the thumbnail grid lives in a popup modal, so the settings page stays compact;
 - **Hide / restore (soft delete)** — hide wallpapers you don't want, restore them anytime; no source files are touched;
 - **Playback speed** — six native presets from 0.5x to 2x, instant, no media reload;
 - **Horizontal flip** — mirror the image (video / web / uploaded images);
-- **Custom uploads** — use your own local JPG / PNG / MP4 as a wallpaper, with a configurable storage location, fit modes, and automatic thumbnails for uploaded MP4s;
+- **Custom uploads** — use your own local JPG / PNG / MP4 as a wallpaper, with a configurable storage location, fit modes, and automatic thumbnails for uploaded MP4s; **WE project directories** in the storage location (scene/web/video folders containing `project.json`, e.g. a WallpaperEM downloads folder) are picked up automatically too — their scene wallpapers render live like any other;
 - **Scene full-scene frames** (v0.6) — Scene wallpapers are fully replayed by a pure-JS scene renderer (object tree / textures / particles / shader effects) instead of being an unusable "not playable" entry.
+- **Scene wallpapers in real time** (v0.8) — Scene wallpapers are now rendered live by the built-in **WebWallGL** engine (`lib/webwallgl/`, MIT, from [webwallgl](https://github.com/oneincase/webwallgl)): particle systems, puppet models, SceneScript, **mouse parallax / click interaction**, packaged audio and audio-reactive effects, at a selectable frame cap (15/30/60 fps). The renderer page runs in a same-origin isolated iframe under a **heartbeat watchdog**: first-frame timeout or a stalled runtime falls back to the embedded-MP4 → static-frame chain (remembered per wallpaper; re-toggling the switch retries).
 - **Liquid-glass settings page** (v0.3.1) — the settings UI is now a **first-level settings page** (following the dsh-web-ui-all skin-center design): the whole page is a customizable liquid-glass card with **accent color** (6 presets + a custom color picker) and **glass transparency** (0–60%). Both apply instantly and persist.
 - **Whole-settings-window liquid glass** (v0.3.2) — one click turns the **entire native DSH settings window** (dialog + left nav + ALL native sections: General / Models / Plugins / …) into liquid glass with your custom accent + transparency. With the「设置窗口液态玻璃」master switch on, the window background, nav active/hover, buttons, switches and links all follow the chosen accent and transparency; off restores the stock look.
 - **Unified glass tuning** (v0.3.3–v0.3.5) — the settings-window glass blur shares the SAME adjustment as the conversation bar: the **玻璃** (glass) slider (0–60 px) drives the blur radius of both the settings window and the composer/bubbles, with an identical saturation/brightness/contrast recipe. A new **玻璃颜色** (glass color) control lets you tint the glass BASE itself (6 presets + custom picker; defaults white in light / deep navy in dark; once picked, both themes use that color) — **配色** styles the interactive elements, **玻璃颜色** styles the glass itself.
@@ -61,27 +62,49 @@ Wallpaper Engine wallpapers come in four types:
 
 | Type | Rendered by | Portable to DSH? |
 |---|---|---|
-| **Scene** | Wallpaper Engine's own 3D engine | ✅ Full-scene frame — a pure-JS scene renderer (object tree / textures / particles / shader effects), see below |
+| **Scene** | Wallpaper Engine's own 3D engine | ✅ Real-time — the built-in WebWallGL WebGL engine (particles / scripts / parallax / packaged audio); falls back to scene frames on failure |
 | **Video** | a plain `.mp4` file | ✅ Yes — plays in a `<video>` tag |
-| **Web** | a Chromium (`webwallpaper64.exe`) host for HTML | ✅ Yes — loads in an `<iframe>` |
+| **Web** | a Chromium (`webwallpaper64.exe`) host for HTML | ✅ Real-time — WebWallGL's web mount with the **injected WE API** (audio/property/media listeners) under a strict sandbox; falls back to a plain iframe on failure |
 | **Application** | an injected external window | ❌ No |
 
-A Scene wallpaper's 3D scene is fully replayed by the plugin's **pure-JS scene
-renderer** (`lib/scene-renderer.js`, built from linux-wallpaperengine / repkg
-reverse-engineering): it parses `scene.pkg`'s object tree and renders every
-image layer (with CPU implementations of shader effects like waterwaves /
-waterripple / shake), the puppet skeletal meshes (bind pose), and the particle
-systems (emitters / initializers / operators / sprite drawing). Scene cards carry
-a 「静态帧」 badge in the picker.
+Scene wallpapers are replayed in real time by the plugin's built-in **WebWallGL
+engine** (`lib/webwallgl/`, MIT, upstream [webwallgl](https://github.com/oneincase/webwallgl)):
+it parses `scene.pkg`'s object tree in WebGL2 and renders every image layer
+(shader effects translated from HLSL and executed on the GPU), puppet skeletal
+models, particle systems and text objects, runs the scene's own SceneScript —
+mouse movement drives parallax / cursor interaction, and packaged audio (BGM /
+SFX) plays under the shared volume / audio-switch settings.
 
-> **Expected result**: the renderer outputs a 3840×2160 full-scene frame
-> (background + water + back hair + character + umbrella + particles), close to
-> the original for photographic, illustration and animation-screenshot scenes.
-> On failure (pure shader/procedural scenes, exotic texture formats) it falls
-> back to the older main-texture extractor, then to the workshop preview image
-> (`preview.jpg`) — expected behaviour, not a defect.
+> **Rendering form & fallback**: the renderer page runs in a same-origin
+> isolated iframe under a **heartbeat watchdog** — a 15 s first-frame timeout,
+> or 20 s without a frame while playback is expected (after one automatic
+> recovery attempt), marks the wallpaper failed and degrades it to the
+> embedded-MP4 → static-frame chain. Loose `scene.json` directories and
+> environments without WebGL2 use that chain directly. Failure memory is
+> cleared by re-toggling 「场景实时渲染」 in the settings. The static-frame
+> chain (pure-JS scene renderer, below) remains the underlay and the fallback.
 
-### Scene rendering: how it works
+**Web wallpapers** go through WebWallGL too: the host injects the **WE API shim**
+(`wallpaperRegisterAudioListener` / `wallpaperPropertyListener` / media
+listeners, from upstream `web-shim.js`, injected into the entry HTML by
+`/scene-files`) and hands the page to the renderer — so workshop web wallpapers
+that depend on the WE API (audio visualizers, property-driven and pointer-tracking
+pages) actually run instead of rendering blank or erroring. **Security**: the
+wallpaper iframe is forced into `sandbox="allow-scripts"` (strict sandbox) so the
+third-party HTML can never inherit the DSH origin (it cannot call host APIs or
+read host storage as the app). Cross-origin control and pointer injection go
+through the renderer page's `postMessage` channel. On load failure or a stalled
+runtime the wallpaper is remembered and degrades to the legacy plain iframe
+(no WE API).
+
+> **Known web-wallpaper limits**: author `fetch`/`XHR` carries `Origin: null` under
+> the opaque origin (the host answers with `Access-Control-Allow-Origin: *`, so
+> ordinary resources load); `wallpaperMediaIntegration` (system Now Playing) has no
+> data source here, so those pages stay on their own static state; CSS `:hover`
+> interaction driven by the browser's own hit-test cannot be triggered by external
+> pointer injection (as documented upstream).
+
+### Static-frame fallback: how it works
 
 - **Object tree**: parses `scene.pkg` (PKGV container + LZ4 entry chains) or a
   loose `scene.json` directory, topologically sorts every object (image /
@@ -116,7 +139,9 @@ a 「静态帧」 badge in the picker.
      - `GET /wallpaper-engine/media/<token>` → video / HTML (Range supported)
      - `GET /wallpaper-engine/preview/<token>` → preview image
      - `GET /wallpaper-engine/video-preview/<token>` → on-demand ffmpeg-extracted thumbnail for a custom MP4 upload (disk-cached)
-     - `GET /wallpaper-engine/scene-frame/<token>` → scene full-scene frame (pure-JS renderer output 3840×2160, falls back to main-texture extraction, PNG disk-cached)
+     - `GET /wallpaper-engine/scene-frame/<token>` → scene full-scene frame (pure-JS renderer output 3840×2160, falls back to main-texture extraction, PNG disk-cached; also the live renderer's underlay)
+     - `GET /wallpaper-engine/scene-live/*` → the vendored WebWallGL renderer page (built into `lib/webwallgl/`, loaded by the live-render iframe)
+     - `GET /wallpaper-engine/scene-files/<token>/<path>` → raw scene wallpaper files (`scene.pkg` / `project.json` …, Range supported; the renderer page parses the container itself)
      - `POST /wallpaper-engine/upload` → upload a custom wallpaper (JPG / PNG / MP4, raw bytes)
      - `POST /wallpaper-engine/remove` → remove an uploaded wallpaper
      - `POST /wallpaper-engine/upload-dir` → change the upload directory (persisted to `~/.dsh-wallpaper-engine/config.json`, migrates existing files)
@@ -419,7 +444,8 @@ High-fps sources (e.g. 4K120 H.264) dominate GPU decode (~60% Video Decode at 1.
 The **自定义壁纸** section uploads local images (JPG / PNG) or videos (MP4) as wallpapers:
 
 - **Storage location**: files default to `~/.dsh-wallpaper-engine/uploads` (your home directory — usually the C: drive). Click **更改** to move storage to any drive (absolute path, `~` supported); existing files migrate automatically and the choice persists across restarts — recommended for users who don't want wallpaper data on the system drive.
-- **Format limit**: JPG / PNG / MP4 only; validated twice (browser + host) with a clear error message.
+- **WE project directories** are recognized in the same location: any subfolder with a `project.json` (shipping `scene.pkg` / `scene.json` / `index.html` / `*.mp4`) becomes a wallpaper of the matching type — scene wallpapers render live. Folders are scanned in chunks (~30 ms for hundreds), are read-only (never listed under upload management, never removable), and loose `preview.jpg/png/gif` files are used as thumbnails.
+- **Format limit** for direct uploads: JPG / PNG / MP4 only; validated twice (browser + host) with a clear error message.
 - **Video thumbnails**: uploaded MP4s get an on-demand ffmpeg-extracted thumbnail in the picker (the first second is skipped to avoid black fade-ins), cached under `~/.dsh-wallpaper-engine/cache/video-previews/`; without ffmpeg the card keeps the "no preview" placeholder and playback is unaffected.
 - **Fit modes**: 覆盖 (cover) / 填充 (contain) / 居中 (center) / 拉伸 (fill) — applied to custom wallpapers only (WE wallpapers keep their intended cover framing).
 - **Management**: each upload can be **移除** (confirm dialog, deletes the local file); uploaded wallpapers also support hide/restore, playback speed, and flip.
@@ -595,7 +621,10 @@ near-opaque fill:
   `h264_nvenc` fallback): without ffmpeg (including unavailable auto-download,
   e.g. musl/Alpine or other uncovered platforms) or an NVIDIA GPU, the fps cap
   auto-disables and wallpapers keep playing the original — nothing else is affected.
-- **Occlusion pause applies to video wallpapers only**: web (iframe) wallpapers
+- **Occlusion pause applies to video wallpapers and scene live render**: videos
+  pause their decoder directly; the scene live render pauses its render loop
+  through the control surface (GPU usage drops with it). Plain web (iframe)
+  wallpapers
   cannot be paused from outside and are only throttled by the browser when hidden.
 - The picker is English/Chinese mixed (this bundle is not yet wired into DSH's
   locale namespaces).
@@ -612,9 +641,20 @@ consumes (the same shape `tsdown` emits for in-box client packages).
 
 ```sh
 npm run build                  # regenerate lib/client.js from src/client.js
-npm run verify                 # materialize the emitted bundle and assert its exports
-node scripts/verify-scene.mjs  # scene static-frame extraction / scene-frame route self-test (incl. synthetic fixtures)
+npm run verify                 # materialize the emitted bundle and assert its exports (incl. the scene-live pipeline self-test)
+node scripts/verify-scene.mjs  # scene static-frame extraction / scene-frame route self-test (incl. synthetic fixtures, offline)
+node scripts/verify-scene-live.mjs  # scene live-render self-test (vendor artifacts / scene-live + scene-files routes / directory fence / Range)
+node scripts/sync-webwallgl.mjs     # build the renderer page from a local webwallgl checkout and vendor it into lib/webwallgl/
 ```
+
+`lib/webwallgl/` is a **vendored build artifact** of the upstream renderer page
+(`index.html` + hashed assets + `.upstream.json` provenance), written
+overwriting-style by `scripts/sync-webwallgl.mjs` (built with
+`--base=/wallpaper-engine/scene-live/`). Make changes upstream, never by hand in
+that directory. The renderer page depends only on the host's `/scene-live` and
+`/scene-files` same-origin routes and is driven by the client through
+`frame.contentWindow.__wp` (same-origin iframe), so both halves evolve
+independently.
 
 Edit `src/client.js`, then `npm run build`. Do not hand-edit `lib/client.js`.
 `npm install`/`pnpm install` runs `prepare` → `build` automatically, so a
