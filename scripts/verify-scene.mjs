@@ -511,7 +511,10 @@ if (token) {
   check('scene-frame mime', /image\/(jpeg|png)/.test(ctype), ctype);
   // cache file written under the plugin data dir (env-overridden for tests)
   const cacheDir = TEST_CACHE_DIR;
-  const cached = existsSync(cacheDir) ? readdirSync(cacheDir).filter((f) => f.startsWith('sf33_' + token + '_')) : [];
+  // 缓存键版本从源码读（别写死：升版本时这里会静默测到旧文件，等于假通过）
+  const keyVersion = (/SCENE_FRAME_KEY_VERSION = '([^']+)'/.exec(
+    readFileSync(resolve(root, 'lib', 'index.js'), 'utf8')) || [])[1] || 'sf';
+  const cached = existsSync(cacheDir) ? readdirSync(cacheDir).filter((f) => f.startsWith(keyVersion + '_' + token + '_')) : [];
   check('frame cached on disk', cached.length >= 1, cacheDir + ' [' + cached.join(', ') + ']');
 
   // Second call must hit the cache (handler still returns the payload).
