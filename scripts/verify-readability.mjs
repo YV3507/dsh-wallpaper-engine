@@ -382,6 +382,24 @@ function main() {
   check('M2 contrast/veil helpers hold their positive + negative controls',
     bad.length === 0, controls.length + ' controls, failed=[' + bad.join(', ') + ']');
 
+  // ── C6: stylesheet integrity + the wallpaper layer can never cover the UI ──
+  // 一次未闭合的 `/*` 会把其后的规则**整段静默吞掉**（CSS 注释不嵌套，故必然造成
+  // `/*` 多于 `*/`）: 实测这让 .we-layer 丢掉 position:fixed/z-index:-2 —— 壁纸于是
+  // 掉进文档流（视频跑到页面底部）或直接盖住文字层。解析器不会为此报任何错。
+  // 判据用两条: ①注释配平; ②**剥掉注释后**关键规则仍然在, 且仍是 fixed 负 z-index。
+  {
+    const opens = (CSS.match(/\/\*/g) || []).length;
+    const closes = (CSS.match(/\*\//g) || []).length;
+    const stripped = CSS.replace(/\/\*[\s\S]*?\*\//g, '');
+    const layerBody = (stripped.match(/\.we-layer\s*\{([^}]*)\}/) || [])[1] || '';
+    const pos = (layerBody.match(/position:\s*([a-z-]+)/) || [])[1] || null;
+    const z = (layerBody.match(/z-index:\s*(-?\d+)/) || [])[1] || null;
+    check('C6s comment balance + .we-layer survives comment-stripping as position:fixed with a negative z-index',
+      opens === closes && pos === 'fixed' && Number(z) < 0,
+      'comments ' + opens + '/' + closes + ' · .we-layer position=' + JSON.stringify(pos)
+        + ' z-index=' + JSON.stringify(z));
+  }
+
   const failed = results.filter((r) => !r.ok);
   console.log('\n' + (failed.length === 0
     ? 'ALL READABILITY FLOOR CHECKS PASSED'
