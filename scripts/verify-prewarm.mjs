@@ -374,6 +374,32 @@ const okResult = (servedFrom) => async () => ({ fileAbs: '/x/' + servedFrom + '.
       'ids=[' + ids.join(',') + '] unique=' + uniq + ' customLast=' + customLast
         + ' clientUsesId=' + usesId + ' host=' + hostOk);
   }
+
+  // ── R39 渲染 worker 冒烟: 代码级错误必须立刻暴露 ────────────────────────────
+  // 场景渲染 worker 是**默认静态帧路径**的执行者。它一旦抛 ReferenceError / TypeError
+  // 这类代码级错误, 宿主会毫秒级失败并**静默回退主纹理提取**（画面"缺件"），而
+  // verify-scene 的 `200 + body>1000B` 断言照样通过（回退帧也是合法 PNG）——
+  // 648f502 删多帧分支时漏掉一处 `times` 引用就造成了这种"整条渲染链是死的"的静默失效。
+  // 这里用不存在的 src 启动它: 期望报**场景/资源类**错误, 而不是代码级错误。
+  {
+    const { Worker } = await import('node:worker_threads');
+    const wUrl = new URL('../lib/scene-render-worker.mjs', import.meta.url);
+    const verdict = await new Promise((resolve) => {
+      let w = null;
+      let settled = false;
+      const done = (v) => { if (settled) return; settled = true; try { if (w) w.terminate(); } catch { /* ignore */ } resolve(v); };
+      try {
+        w = new Worker(wUrl, { type: 'module', workerData: { src: 'X-does-not-exist', width: 8, height: 8, time: 0 } });
+      } catch (e) { done('spawn threw: ' + ((e && e.message) || e)); return; }
+      w.on('message', (m) => done(m && m.ok === false ? String(m.error) : 'unexpected ok:' + JSON.stringify(m && Object.keys(m))));
+      w.on('error', (e) => done(String((e && e.message) || e)));
+      w.on('exit', (c) => { if (c !== 0) done('exit ' + c); });
+      setTimeout(() => done('timeout'), 30000);
+    });
+    const codeBug = /ReferenceError|TypeError|SyntaxError|is not defined|is not a function/i.test(verdict);
+    check('R39 场景渲染 worker 可启动: 只报场景/资源错误, 不抛代码级错误 (渲染链是活的)',
+      !codeBug, String(verdict).slice(0, 130));
+  }
 }
 
 // ── R24–R26 isMainTextureUsable: **行为**断言 (不止正则) ────────────────────
