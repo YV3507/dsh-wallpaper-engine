@@ -117,44 +117,59 @@ const fire = (t) => { if (t && !t.cleared) { t.cleared = true; t.fn(); } };
 const flushPersist = () => timers.filter(t=>!t.cleared && t.ms===200).forEach(fire);
 const stagingDivs = () => bodyEl.children.filter(c => String(c.className).includes('we-layer--staging'));
 
+// 真失败通道：断言失败 → 非零退出（评审指出此前只有打印，把节点级领养改回
+// 元素级（即 0.7.7 修掉的那个 iframe 重载 bug）也能 exit 0）。
+let failures = 0;
+const check = (label, cond, detail = '') => {
+  if (cond) console.log('  ✓ ' + label + (detail ? ' — ' + detail : ''));
+  else { failures++; console.log('  ✗ ' + label + (detail ? ' — ' + detail : '')); }
+};
+const persistedId = () => JSON.parse(localStorage._store['dsh-wallpaper-engine:selection']).id;
+
 setTimeout(async () => {
   await Promise.resolve();
-  console.log('== boot done ==');
   const rot = timers.find(t=>!t.cleared && t.ms===10000);
-  console.log('10s rotation timer armed:', !!rot);
-  if (!rot) { console.log('FAIL: no rotation timer'); process.exit(1); }
+  check('轮换定时器已武装（测试钩子 10s）', !!rot);
+  if (!rot) { console.log('\n' + failures + ' CHECK(S) FAILED'); process.exit(1); }
 
-  console.log('-- fire rotation timer (prepare scene S via live staging) --');
   try { fire(rot); } catch(e){ console.log('EXCEPTION on rotation fire:', e && e.stack || e); process.exit(1); }
-  console.log('staged iframes created:', iframeEls.length);
   const staged = iframeEls[iframeEls.length-1];
-  console.log('staging div in body:', stagingDivs().length);
-  console.log('staged iframe src is scene-live:', String(staged.src).includes('/wallpaper-engine/scene-live/index.html'));
-  console.log('staged iframe src carries token:', String(staged.src).includes('tok-sss'));
-  const poll = timers.find(t=>!t.cleared && t.ms===300);
-  console.log('first-frame poll armed:', !!poll);
   const stagingDiv = stagingDivs()[0] || null;
-  console.log('-- fire first-frame poll (stats alive) --');
+  check('准备阶段创建了 staging 容器', !!stagingDiv, 'staging=' + stagingDivs().length);
+  check('staged iframe 指向 scene-live 且带 token',
+    String(staged.src).includes('/wallpaper-engine/scene-live/index.html') && String(staged.src).includes('tok-sss'),
+    String(staged.src));
+  const poll = timers.find(t=>!t.cleared && t.ms===300);
+  check('首帧轮询定时器已武装（300ms）', !!poll);
   try { fire(poll); } catch(e){ console.log('EXCEPTION on poll fire:', e && e.stack || e); process.exit(1); }
   const layer = byId['dsh-wallpaper-engine-layer'];
-  console.log('layer rebuilt (fadein):', layer && layer.className);
-  console.log('staging container became the layer (node-level adoption):', !!stagingDiv && layer === stagingDiv);
-  console.log('layer iframe is staged (never reparented):', layer && layer.querySelector('iframe.we-live-iframe') === staged && staged._parent === layer);
-  console.log('adopted iframe lit immediately (we-live-on):', String(staged.className).includes('we-live-on'));
-  console.log('staging class gone after commit:', stagingDivs().length === 0);
+  check('提交后新层带渐变类', !!layer && String(layer.className).includes('we-layer--fadein'),
+    layer ? String(layer.className) : 'no layer');
+  // 核心回归：节点级领养 —— staging 容器直接变成 layer，iframe 从未被搬动
+  //（元素级 appendChild 会让 Chromium 重载 browsing context → 首帧超时）。
+  check('staging 容器原地成为 layer（节点级领养）', !!stagingDiv && layer === stagingDiv);
+  check('iframe 未被重新挂载（父节点就是 layer）',
+    !!layer && layer.querySelector('iframe.we-live-iframe') === staged && staged._parent === layer);
+  check('领养后立即点亮 we-live-on', String(staged.className).includes('we-live-on'),
+    String(staged.className));
+  check('提交后 staging 类名已消失', stagingDivs().length === 0, 'staging=' + stagingDivs().length);
   flushPersist();
-  console.log('persisted id:', JSON.parse(localStorage._store['dsh-wallpaper-engine:selection']).id);
-  console.log('re-armed 10s timer:', timers.some(t=>!t.cleared && t.ms===10000));
+  check('提交已持久化到 scene（S）', persistedId() === 's', 'id=' + persistedId());
+  check('提交后重新武装轮换定时器', timers.some(t=>!t.cleared && t.ms===10000));
 
-  console.log('-- second cycle: back to video V (live → video 渐变) --');
+  // 第二轮：live → video，验证渐变退役路径。
   const rot2 = timers.find(t=>!t.cleared && t.ms===10000);
   fire(rot2);
   const probe = videoEls[videoEls.length-1];
   probe.__fire('canplay');
   const layer2 = byId['dsh-wallpaper-engine-layer'];
-  console.log('second commit layer video is probe (adopted):', layer2 && layer2.querySelector('video') === probe);
-  console.log('scene layer now fading (weFading):', layer.dataset.weFading === '1');
+  check('第二个提交领养了准备好的 video', !!layer2 && layer2.querySelector('video') === probe);
+  check('被换下的 scene 层标记为渐变中（weFading）', layer.dataset.weFading === '1',
+    'weFading=' + layer.dataset.weFading);
   flushPersist();
-  console.log('persisted id after wrap:', JSON.parse(localStorage._store['dsh-wallpaper-engine:selection']).id);
-  console.log('SMOKE DONE');
+  check('第二轮提交持久化回绕到 v', persistedId() === 'v', 'id=' + persistedId());
+
+  console.log('');
+  console.log(failures === 0 ? 'SMOKE PASSED' : failures + ' CHECK(S) FAILED');
+  process.exit(failures === 0 ? 0 : 1);
 }, 50);

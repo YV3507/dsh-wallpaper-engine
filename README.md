@@ -69,6 +69,12 @@ Scene 壁纸由本插件内置的 **WebWallGL 实时渲染引擎**（`lib/webwal
 
 **网页壁纸**同样走 WebWallGL：宿主把 **WE API shim**（`wallpaperRegisterAudioListener` / `wallpaperPropertyListener` / 媒体监听等，来自上游 `web-shim.js`，由 `/scene-files` 注入入口 HTML）交给渲染页加载 —— 依赖 WE API 的工坊网页壁纸（音频可视化、属性驱动、鼠标跟随等）因此能真正跑起来，不再是一片空白或报错。**安全**：壁纸 iframe 强制 `sandbox="allow-scripts"`（严格沙箱），第三方 HTML 拿不到 DSH 的 origin（无法冒用宿主身份调宿主 API / 读宿主存储）；跨源控制与指针注入经渲染页的 `postMessage` 通道下发。加载失败或运行失联时按壁纸记忆并自动退回旧的兼容 iframe（裸 HTML，无 WE API）。
 
+**GPU 抓帧回填**（v0.7.8）：实时渲染首帧确认后，客户端会从渲染页的 WebGL canvas（`preserveDrawingBuffer`，同源直读，无需渲染页配合）抓一张当前帧写回静态帧缓存（`PUT /scene-frame-cache/<token>`），存为独立的 `<key>_gpu.png`（文件名即标记，可直接打开查看）—— serve 时**全局优先**于 CPU 提取帧（画面效果档位 1–3 的请求同样服务 GPU 帧；自定义封面除外）：CPU 提取效果不理想的场景，之后加载期垫底图与降级回退图都会换成 GPU 渲染的真实帧。每壁纸只写一次（已存在则 409，同一缓存键的写入串行，并发 PUT 不会双双成功），不会重复生成。
+
+**空帧门禁与清除通道**：体积阈值不可靠（headless 实测全黑 PNG：960×540≈12KB、1080p≈44KB、4K≈165KB，都远超固定字节闸），因此抓帧前会把 canvas 降采样到 64×64 看亮度分布 —— 近全黑或几乎无对比度判为「还没渲染出画面」，直接放弃回填（保留 CPU 帧），另加分辨率相关的体积地板（≈0.02 B/px）。抓到不满意的一帧时，在**设置 → 效果 → 画面 → 「GPU 实时帧」**点「清除 GPU 帧」即可（等价于 `DELETE /wallpaper-engine/scene-frame-cache/<token>`，或 `POST …?clear=1`）—— 删后 HEAD 回到 `X-WE-GPU: 0`、当前档位立即生效、下次 live 会重新抓取。该行只在缓存里确实存在 GPU 帧时出现（面板用 HEAD 探测，30s 去重）。
+
+**测试**：`npm run verify`（client/转码/播放控制/scene/scene-live 五套）+ `npm run smoke`（轮换、轮换-live 节点级领养、GPU 回填抓帧三套冒烟）—— 所有断言都有失败通道（不通过即非零退出），`npm run verify:all` = 构建 + 两套全跑。
+
 > **网页壁纸已知边界**：作者脚本的 `fetch`/`XHR` 在 opaque origin 下携带 `Origin: null`（宿主已返回 `Access-Control-Allow-Origin: *`，常规资源可用）；`wallpaperMediaIntegration`（系统 Now Playing）本项目未提供数据源，相关壁纸退到自身静态态；CSS `:hover` 等由浏览器 hit-test 驱动的交互不受外部指针注入影响（与上游文档一致）。
 
 > **渲染形态与降级**：渲染页在同源隔离 iframe 中运行，并有**心跳看护** —— 首帧 15 秒超时、或运行期连续 20 秒无帧（含一次自动恢复尝试）即判定失败，按壁纸记入失败记忆并自动降级到「内嵌 MP4 → 静态帧」旧链；松散 `scene.json` 目录与无 WebGL2 的环境直接走旧链。失败记忆可在设置里重新打开「场景实时渲染」开关清空重试。静态帧链（内置纯 JS 场景渲染器，下节）保留为垫底画面与降级目标。
@@ -327,6 +333,8 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 每个列表至少需要 2 个可播放壁纸；手动切换壁纸会重新计算下一次轮转时间；不同列表可以有不同的间隔（比如一个每 5 分钟、一个每 30 分钟）。首次使用时，插件会自动把第一个可播放的 WE 播放列表导入成一个轮播列表，开箱即用；编辑列表时也可以用 **从 WE 播放列表导入** 把其它播放列表导入当前编辑的列表。Scene 和 Application 壁纸不能嵌入网页，会自动从轮转候选和选择器中剔除。
 
 轮换切换是**就绪后切换**：到点先在后台把下一张壁纸准备到完全就绪（实时渲染页首帧 / 静态帧提取完成 / 视频可播放 / 图片解码完成）才落实切换，旧壁纸在准备期间原样保持；就绪瞬间新旧两层做 1.2s 交叉淡化，上屏即是活画面，不再黑屏闪烁。准备失败（如视频 404）自动跳过该候选链式尝试下一张。开发/冒烟可用 `localStorage.weRotationTestSec`（秒）临时缩短轮换间隔。
+
+**GPU 帧优先于 CPU 渲染**：`<key>_gpu.png` 存在时，除了宿主侧服务优先级（静态帧请求一律给 GPU 帧、不再触发 CPU 提取，档 1–3 通吃、档 4 自定义画面豁免），客户端也**不启动 CPU scene-anim 后台渲染**（`maybeQueueSceneAnimUpgrade`：HEAD 探测槽位 → 有 GPU 帧就不跑）—— 否则分钟级 CPU 渲染完成后会把 GPU 帧覆盖掉。live 可用时本来就不跑（实时管线已覆盖动画）。想让某张壁纸换回 CPU 画面：面板点「清除 GPU 帧」，清除路径会重新评估并立即恢复 CPU 渲染。GPU 未就绪的首帧窗口里，垫底图就是 GPU 帧（live iframe 起始透明，首帧心跳通过才淡入），所以不会看到黑屏。
 
 ### 液态玻璃外观（整个设置窗口 + 配色 + 透明度）
 

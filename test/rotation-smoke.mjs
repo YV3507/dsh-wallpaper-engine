@@ -91,40 +91,52 @@ exportsObj.apply({ slots:{inject:(k,cb)=>cb(),register:()=>{}}, effect(fn){ effe
 
 const fire = (t) => { if (t && !t.cleared) { t.cleared = true; t.fn(); } };
 
+// 真失败通道：断言失败 → 非零退出（评审指出此前全是 console.log，打断功能
+// 仍会 exit 0，"全过"不可证伪）。
+let failures = 0;
+const check = (label, cond, detail = '') => {
+  if (cond) console.log('  ✓ ' + label + (detail ? ' — ' + detail : ''));
+  else { failures++; console.log('  ✗ ' + label + (detail ? ' — ' + detail : '')); }
+};
+const persistedId = () => JSON.parse(localStorage._store['dsh-wallpaper-engine:selection']).id;
+
 setTimeout(async () => {
   await Promise.resolve();
-  console.log('== boot done ==');
-  console.log('timers after boot:', timers.filter(t=>!t.cleared).map(t=>t.ms));
   const rot = timers.find(t=>!t.cleared && t.ms===10000);
-  console.log('10s rotation timer armed:', !!rot);
-  if (!rot) { console.log('FAIL: no rotation timer'); process.exit(1); }
-  console.log('-- fire rotation timer (prepare B begins) --');
+  check('轮换定时器已武装（5 分钟组间隔 → 测试钩子 10s）', !!rot);
+  if (!rot) { console.log('\n' + failures + ' CHECK(S) FAILED'); process.exit(1); }
   try { fire(rot); } catch(e){ console.log('EXCEPTION on rotation fire:', e && e.stack || e); process.exit(1); }
-  console.log('probe videos created:', mediaEls.length);
+  check('准备阶段创建了探测 video', mediaEls.length >= 1, 'count=' + mediaEls.length);
   const probe = mediaEls[mediaEls.length-1];
-  console.log('probe src:', probe.attributes.src || probe.src, '| poster:', probe.poster);
-  console.log('-- fire canplay on probe --');
-  try { probe.__fire('canplay'); } catch(e){ console.log('EXCEPTION on canplay:', e && e.stack || e); }
+  check('探测 video 指向下一张壁纸且带 preview 海报',
+    String(probe.attributes.src || probe.src).includes('/wallpaper-engine/media/bbb') && !!probe.poster,
+    'src=' + (probe.attributes.src || probe.src));
+  try { probe.__fire('canplay'); } catch(e){ console.log('EXCEPTION on canplay:', e && e.stack || e); failures++; }
   const layer = byId['dsh-wallpaper-engine-layer'];
-  console.log('layer rebuilt (fadein):', layer && layer.className);
-  console.log('layer video is probe (adopted):', layer && layer.querySelector('video') === probe);
+  check('提交后新层带渐变类', !!layer && String(layer.className).includes('we-layer--fadein'),
+    layer ? String(layer.className) : 'no layer');
+  check('新层里的 video 就是准备好的探测元素（领养而非重建）',
+    !!layer && layer.querySelector('video') === probe);
+  // 持久化有 200ms 防抖：先冲掉写盘定时器再断言落库。
   timers.filter(t=>!t.cleared && t.ms===200).forEach(fire);
-  console.log('persisted id:', JSON.parse(localStorage._store['dsh-wallpaper-engine:selection']).id);
-  console.log('re-armed 10s timer:', timers.some(t=>!t.cleared && t.ms===10000));
+  check('提交已持久化到下一张（b）', persistedId() === 'b', 'id=' + persistedId());
+  check('提交后重新武装轮换定时器', timers.some(t=>!t.cleared && t.ms===10000));
 
-  // Second cycle: timeout fallback (never fire canplay)
-  console.log('-- fire second rotation timer; do NOT fire canplay; fire 20s prep timeout --');
+  // 第二轮：准备超时回退（不触发 canplay，直接打 20s 准备超时）
   const rot2 = timers.find(t=>!t.cleared && t.ms===10000);
   fire(rot2);
   const probe2 = mediaEls[mediaEls.length-1];
   const t20 = timers.find(t=>!t.cleared && t.ms===20000);
-  console.log('prep timeout armed:', !!t20);
-  try { fire(t20); } catch(e){ console.log('EXCEPTION on prep timeout:', e && e.stack || e); }
+  check('准备超时定时器已武装（20s）', !!t20);
+  try { fire(t20); } catch(e){ console.log('EXCEPTION on prep timeout:', e && e.stack || e); failures++; }
   const layer2 = byId['dsh-wallpaper-engine-layer'];
-  console.log('second commit layer video is probe2 (timeout-adopted):', layer2 && layer2.querySelector('video') === probe2);
+  check('超时回退也领养了准备好的元素并提交',
+    !!layer2 && layer2.querySelector('video') === probe2);
   timers.filter(t=>!t.cleared && t.ms===200).forEach(fire);
-  console.log('persisted id after wrap:', JSON.parse(localStorage._store['dsh-wallpaper-engine:selection']).id);
-  console.log('SMOKE DONE');
+  check('第二轮提交持久化回绕到 a', persistedId() === 'a', 'id=' + persistedId());
+
+  console.log('');
+  console.log(failures === 0 ? 'SMOKE PASSED' : failures + ' CHECK(S) FAILED');
+  process.exit(failures === 0 ? 0 : 1);
 }, 50);
 
-// ── Scene path smoke (user env: typeFilter=scene, fpsCap=24) ─────────────────

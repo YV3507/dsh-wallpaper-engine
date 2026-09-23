@@ -1546,6 +1546,8 @@ function applySelection(id, opts) {
   // 切换壁纸 (任意类型): 终止旧的 scene 动画升级 — 旧轮询 timer 停止写进度,
   // 旧 probe 下载断开 → 服务端 res close → 取消渲染 (worker/ffmpeg 释放 CPU)。
   cancelSceneAnimUpgrade();
+  // GPU 抓帧回填的目标壁纸随切换作废（新壁纸的 live 首帧会重新调度）。
+  cancelLiveFrameBackfill();
   selection.id = id || "";
   persistSelection();
   if (!selection.id) {
@@ -1637,7 +1639,11 @@ function applySelection(id, opts) {
   }
   // live 渲染生效时不启动 scene-anim 后台 CPU 渲染（实时管线已覆盖动画，
   // 双跑只浪费 CPU；live 失败降级后此处条件转真，升级路径照常可用）。
-  if (w.type === "scene" && w.frameUrl && !selection.sceneVideo && !liveRenderEnabled(selection)) queueSceneAnimUpgrade(w.frameUrl);
+  // 槽位已有 GPU 抓帧时同样不跑：GPU 帧优先于任何 CPU 生成的画面（用户决策），
+  // 否则分钟级 CPU 渲染完成后会把 GPU 帧覆盖掉。判据见 maybeQueueSceneAnimUpgrade。
+  if (w.type === "scene" && w.frameUrl && !selection.sceneVideo && !liveRenderEnabled(selection)) {
+    maybeQueueSceneAnimUpgrade(w.frameUrl, w.id);
+  }
   // Keep the preview around so a failed static frame can fall back to it.
   selection.previewUrl = w.preview || null;
   selection.transcodeState = "idle";
@@ -1953,7 +1959,7 @@ function cancelSceneAnimUpgrade() {
   }
   if (selection.sceneAnimProgress != null) selection.sceneAnimProgress = null;
 }
-function queueSceneAnimUpgrade(frameUrl) {
+function queueSceneAnimUpgrade(frameUrl, wid) {
   cancelSceneAnimUpgrade(); // 旧升级终止 (旧壁纸渲染随服务端 res close 取消)
   // beta场景动画开关: 默认关闭 → scene 壁纸只显示静态帧, 不进入动画化升级。
   // 关闭状态下即使 sceneFrameUrl 变更 (fpsCap 点击) 也不启动后台渲染。
@@ -1982,11 +1988,22 @@ function queueSceneAnimUpgrade(frameUrl) {
   // 渲染完成切换的主动路径: 轮询到 100% 直接切换 — 不依赖 probe 的
   // onloadeddata (渲染分钟级时浏览器 video 请求长时间挂起, onloadeddata
   // 可能不触发/被中断 → 之前"渲染后仍显示静态帧")。
+  // 判定按**基路径**而不是全等：起点可能是带画面档位的静态帧（…?v=3），也可能
+  // 是已经在上屏的旧档位 /scene-anim/ URL（面板改「帧率上限」触发重渲染）——
+  // 原全等判定（selection.url === frameUrl）在这两种情况下都恒不成立，产物永远
+  // 不上屏（评审发现：点档位按钮白烧一次分钟级渲染，画面纹丝不动）。
+  const frameBase = String(frameUrl).split("?")[0];
+  const animBase = frameBase.replace("/scene-frame/", "/scene-anim/");
+  const widKey = String(wid || "");
   const trySwitch = () => {
-    if (selection.url && selection.url === frameUrl) {
-      selection.url = animUrl;
-      syncLayers();
-    }
+    const cur = String(selection.url || "");
+    if (!cur) return;
+    if (widKey && String(selection.id || "") !== widKey) return; // 期间已切到别的壁纸
+    const curBase = cur.split("?")[0];
+    if (curBase !== frameBase && curBase !== animBase) return;    // 当前不是这张的画面
+    if (cur === animUrl) return;                                  // 已经是目标档位
+    selection.url = animUrl;
+    syncLayers();
   };
   pollTimer = setInterval(async () => {
     try {
@@ -2023,6 +2040,75 @@ function queueSceneAnimUpgrade(frameUrl) {
   probe.src = animUrl;
   try { document.body.appendChild(probe); probe.load(); } catch { /* ignore */ }
   sceneAnimUpgrade = { pollTimer, probe, frameUrl, maxWait };
+}
+
+// 「有 GPU 抓帧就完全不跑 CPU 渲染」的判据（用户决策）：探测该壁纸静态帧槽位
+// 是否有 _gpu.png —— HEAD 是纯磁盘探测，不触发 CPU 提取。带 TTL 与 in-flight
+// 去重（同一壁纸反复进出只探一次）；探测失败/无 token 按「无 GPU 帧」处理：
+// 显示侧本来就会优先服务 GPU 帧，这里失败放开只影响「是否白跑一次 CPU 渲染」，
+// 不该让动画能力因一次网络抖动而消失。
+const GPU_FRAME_PIN_TTL_MS = 30000;
+const gpuFramePins = new Map();        // token -> { pinned, at }
+const gpuFramePinInflight = new Map(); // token -> Promise<boolean>
+function probeGpuFramePin(token, force) {
+  const key = String(token || "");
+  if (!key) return Promise.resolve(false);
+  const hit = gpuFramePins.get(key);
+  if (!force && hit && Date.now() - hit.at < GPU_FRAME_PIN_TTL_MS) return Promise.resolve(hit.pinned);
+  const flying = gpuFramePinInflight.get(key);
+  if (flying && !force) return flying;
+  const req = fetch("/wallpaper-engine/scene-frame/" + encodeURIComponent(key), { method: "HEAD", cache: "no-store" })
+    .then((r) => {
+      const pinned = Boolean(r && r.ok && r.headers && typeof r.headers.get === "function"
+        && r.headers.get("x-we-gpu") === "1");
+      gpuFramePins.set(key, { pinned, at: Date.now() });
+      return pinned;
+    })
+    .catch(() => false)
+    .then((pinned) => { if (gpuFramePinInflight.get(key) === req) gpuFramePinInflight.delete(key); return pinned; });
+  gpuFramePinInflight.set(key, req);
+  return req;
+}
+function forgetGpuFramePin(token) {
+  const key = String(token || "");
+  gpuFramePins.delete(key);
+  gpuFramePinInflight.delete(key);
+}
+function markGpuFramePin(token, pinned) {
+  const key = String(token || "");
+  if (key) gpuFramePins.set(key, { pinned: Boolean(pinned), at: Date.now() });
+}
+// CPU scene-anim 动画渲染的启动门禁（live 可用时早已不跑，见 applySelection）：
+// 槽位已有 GPU 抓帧 → 完全不跑（GPU 静帧优先；想恢复 CPU 渲染先在面板点
+// 「清除 GPU 帧」，清除路径会 forgetGpuFramePin 并重新走这里）。探测是 HEAD +
+// 毫秒级，故把启动推迟一拍；期间的守卫保证切了壁纸/换了档/live 恢复时不误启动。
+function maybeQueueSceneAnimUpgrade(frameUrl, wid) {
+  const url = String(frameUrl || "");
+  const id = String(wid || "");
+  if (!url || !id) return;
+  probeGpuFramePin(gpuFrameToken(url), false).then((pinned) => {
+    if (pinned) {
+      // 决策「GPU 帧优先于全部档位」→ 不重渲染。但必须把这件事说给用户：否则点
+      // 档位只有 chip 高亮变化、画面没动、也没有任何解释（评审 P4-②）。
+      gpuFrameUi.wid = id;
+      gpuFrameUi.gateHint = "该壁纸槽位已有 GPU 帧：改档位不会重新渲染，需先点上方「清除 GPU 帧」";
+      try { emit(); } catch { /* ignore */ }
+      return;
+    }
+    gpuFrameUi.gateHint = "";
+    if (String(selection.id || "") !== id) return;                       // 期间切了壁纸
+    if (liveRenderEnabled(selection)) return;                            // 期间 live 恢复
+    if (selection.sceneVideo) return;                                    // 期间有了内嵌 MP4
+    if (String(selection.sceneFrameUrl || "") !== url) return;            // 期间换了档/壁纸
+    // 启动失败（例如极端裁剪的运行环境缺 setInterval）只该让动画不启动，
+    // 不该把整个壁纸切换拖下水 —— 这里兜住并留一条可诊断的告警。
+    try { queueSceneAnimUpgrade(url, id); }
+    catch (e) {
+      try {
+        if (typeof console !== "undefined" && console.warn) console.warn("[wallpaper-engine] scene-anim 启动失败", e);
+      } catch { /* ignore */ }
+    }
+  }).catch(() => { /* 探测异常：保持不启动（探测本身已 fail-open） */ });
 }
 
 // ── 场景实时渲染（WebWallGL live WebGL）─────────────────────────────────────
@@ -2149,6 +2235,8 @@ function startLiveWatch(frame, wid) {
         selection.sceneLiveActive = true;
         frame.classList.add("we-live-on");
         try { syncSceneAudio(selection); emit(); } catch { /* ignore */ }
+        // GPU 抓帧回填静态帧缓存（best-effort，见 scheduleLiveFrameBackfill）。
+        scheduleLiveFrameBackfill(frame);
       } else if (Date.now() - watch.startedAt > LIVE_FIRST_FRAME_MS) {
         liveFail("timeout");
       }
@@ -2196,6 +2284,120 @@ function liveFail(reason) {
   try { syncLayers(); } catch { /* ignore */ }
   try { syncSceneAudio(selection); } catch { /* ignore */ }
   try { emit(); } catch { /* ignore */ }
+}
+
+// ── live GPU 抓帧回填静态帧缓存 ─────────────────────────────────────────────
+// 渲染页的显示 canvas 在 DOM 内（data-webwallgl-gl 标记）且 WebGL2 上下文带
+// preserveDrawingBuffer:true —— 父页面同源即可随时 toBlob 抓当前帧，无需渲染
+// 页/上游配合。首帧确认后 2.5s（场景动画进稳态）HEAD 探测静态帧槽位：
+// - 已有 GPU 帧（X-WE-GPU=1）→ 不动；
+// - 空槽（404）或 CPU 提取/预览帧（204+0）→ 抓帧 PUT 回填：GPU 帧升级覆盖
+//   CPU 提取的残破帧（host 每壁纸只接受一次，见 /scene-frame-cache）。
+// 失败路径会清 token，于是下一次 live 首帧（通常来自重新挂载）可以重试；
+// 成功/已被别人写入则保留 token，避免同一壁纸反复抓帧。
+const LIVE_FRAME_BACKFILL_DELAY_MS = 2500;
+const LIVE_FRAME_BACKFILL_MIN_BYTES = 4096;
+// 空帧门禁（内容判定）：体积不可靠 —— headless Chrome 实测全黑 PNG：
+// 960×540=12KB / 1080p=44KB / 4K=165KB，全都远超任何固定的字节阈值。改为把
+// canvas 降采样到 64×64 看亮度分布：近全黑或几乎无对比度 → 判为「还没渲染
+// 出画面」，放弃回填（宁可继续用 CPU 帧，也不要写一张坏帧被 409 永久固化）。
+const LIVE_FRAME_SAMPLE = 64;
+const LIVE_FRAME_LIT_RATIO = 0.02;   // 亮于阈值(12/255)的像素占比下限
+const LIVE_FRAME_MIN_VARIANCE = 4;   // 亮度方差下限（纯色帧≈0）
+const LIVE_FRAME_BYTES_PER_PX = 0.02; // 黑帧实测约 0.021 B/px，取作体积地板
+function liveFrameLooksUsable(canvas, blob) {
+  try {
+    const w = Number(canvas.width) || 0;
+    const h = Number(canvas.height) || 0;
+    // 分辨率相关的体积地板：比固定 4KB 有意义（真实画面远高于此）。
+    if (w > 0 && h > 0 && blob.size < Math.max(LIVE_FRAME_BACKFILL_MIN_BYTES, w * h * LIVE_FRAME_BYTES_PER_PX)) {
+      return false;
+    }
+    if (!w || !h) return true; // 尺寸未知：退回调用方的基础体积闸
+    const probe = document.createElement("canvas");
+    probe.width = LIVE_FRAME_SAMPLE;
+    probe.height = LIVE_FRAME_SAMPLE;
+    const ctx = probe.getContext && probe.getContext("2d");
+    if (!ctx || typeof ctx.drawImage !== "function" || typeof ctx.getImageData !== "function") return true;
+    ctx.drawImage(canvas, 0, 0, LIVE_FRAME_SAMPLE, LIVE_FRAME_SAMPLE);
+    const px = ctx.getImageData(0, 0, LIVE_FRAME_SAMPLE, LIVE_FRAME_SAMPLE).data;
+    let lit = 0, sum = 0, sumSq = 0, n = 0;
+    for (let i = 0; i + 3 < px.length; i += 4) {
+      const lum = (px[i] * 299 + px[i + 1] * 587 + px[i + 2] * 114) / 1000;
+      sum += lum; sumSq += lum * lum; n++;
+      if (lum > 12) lit++;
+    }
+    if (!n) return true;
+    const mean = sum / n;
+    const variance = sumSq / n - mean * mean;
+    return lit / n >= LIVE_FRAME_LIT_RATIO && variance >= LIVE_FRAME_MIN_VARIANCE;
+  } catch {
+    return true; // 采样失败不阻断（基础体积闸已过）
+  }
+}
+let liveFrameBackfill = { token: "", timer: 0 };
+function cancelLiveFrameBackfill() {
+  if (liveFrameBackfill.timer && typeof window !== "undefined" && typeof window.clearTimeout === "function") {
+    try { window.clearTimeout(liveFrameBackfill.timer); } catch { /* ignore */ }
+  }
+  liveFrameBackfill = { token: "", timer: 0 };
+}
+function scheduleLiveFrameBackfill(frame) {
+  const src = selection.sceneFrameUrl || "";
+  if (!src || src.indexOf("/scene-frame/") === -1 || !frame) return;
+  if (typeof window === "undefined" || typeof window.setTimeout !== "function") return;
+  const token = String(src.split("/scene-frame/").pop() || "").split("?")[0];
+  if (!token || liveFrameBackfill.token === token) return;
+  cancelLiveFrameBackfill();
+  liveFrameBackfill.token = token;
+  const backfillWid = String(selection.id || "");
+  liveFrameBackfill.timer = window.setTimeout(() => {
+    liveFrameBackfill.timer = 0;
+    (async () => {
+      const head = await fetch(src, { method: "HEAD", cache: "no-store" });
+      // 已有 GPU 帧（含并发窗口里被别人写入）：无需抓帧，保留 token 免重复。
+      if (head && head.ok && head.headers && head.headers.get("x-we-gpu") === "1") return true;
+      const win = frame.contentWindow;
+      const doc = win && win.document;
+      const canvas = doc && typeof doc.querySelector === "function"
+        ? doc.querySelector("canvas[data-webwallgl-gl]") : null;
+      if (!canvas || typeof canvas.toBlob !== "function") return false;
+      const blob = await new Promise((resolveBlob) => {
+        try { canvas.toBlob(resolveBlob, "image/png"); } catch { resolveBlob(null); }
+      });
+      if (!blob || blob.size < LIVE_FRAME_BACKFILL_MIN_BYTES) return false;
+      // 内容门禁：黑帧/纯色帧判为未渲染 → 放弃（保留 CPU 帧）。
+      if (!liveFrameLooksUsable(canvas, blob)) return false;
+      const put = await fetch("/wallpaper-engine/scene-frame-cache/" + encodeURIComponent(token), {
+        method: "PUT",
+        headers: { "Content-Type": "image/png" },
+        body: blob,
+      });
+      // 200 写入成功 / 409 已被写入：两种都算「已定局」，不必重试。
+      return Boolean(put && (put.ok || put.status === 409));
+    })().then((settled) => {
+      // 抓帧 + 上传是异步的（多 MB PNG 要 0.1–1s），期间用户可能已经切走：
+      // 状态更新只对发起时那张壁纸有效 —— 否则会给**当前**壁纸打上「已有 GPU 帧」
+      // 的假标记（面板提示错、CPU 渲染门禁在 30s 内误判为 pinned）。host 侧写入
+      // 仍落在 token 自己的槽位，下次回到这张壁纸时面板探测自然会读到。
+      if (String(selection.id || "") !== backfillWid) return;
+      if (settled) {
+        // 缓存里已有（或刚写入）GPU 帧 → 面板提示「优先于全部档位」。
+        markGpuFrameProbed(backfillWid, true);
+        markGpuFramePin(token, true); // 该 token 槽位刚写入 GPU 帧：门禁同步生效，无需再探
+        // GPU 静帧落地 → 作废在跑的 CPU 渲染：门禁只挡「启动」，挡不住已经开始的那
+        // 一次；它会跑完并按基路径把层切到 /scene-anim/，把刚落地的 GPU 静帧覆盖掉
+        //（评审 P2-M）。取消会断开探针下载，宿主侧渲染进程随之释放。
+        cancelSceneAnimUpgrade();
+        try { emit(); } catch { /* ignore */ }
+        return;
+      }
+      // 未定局（拿不到画面、门禁判定未渲染、网络失败）→ 清 token 允许下次重试。
+      if (liveFrameBackfill.token === token) liveFrameBackfill.token = "";
+    }).catch(() => {
+      if (liveFrameBackfill.token === token) liveFrameBackfill.token = "";
+    });
+  }, LIVE_FRAME_BACKFILL_DELAY_MS);
 }
 
 // ── live 指针注入（视差/click 交互场景）────────────────────────────────────
@@ -2994,6 +3196,12 @@ function syncLayers() {
     if (scrim) scrim.remove();
     document.body.removeAttribute(ACTIVE_ATTR);
   }
+
+  // 3. GPU 抓帧缓存状态（面板提示 + 清除入口）：场景壁纸才可能被抓帧。
+  // 带 TTL 去重，syncLayers 调用频繁也不会打爆 HEAD。
+  if (selection.type === "scene" && selection.sceneFrameUrl) {
+    try { probeGpuFrameState(selection.sceneFrameUrl, false); } catch { /* ignore */ }
+  }
 }
 
 // ── 轮换渐变：旧层退役 ───────────────────────────────────────────────────────
@@ -3624,6 +3832,43 @@ function VinylRecord(props) {
 let pickerOpener = null;
 let customFrameInput = null;
 let pickerFocusPending = false;
+// GPU 抓帧缓存状态（面板展示用）：wid 对应当前面板壁纸，pinned=缓存里已有
+// <key>_gpu.png。GPU 帧优先于「壁纸画面刷新」全部档位（按用户决策），因此
+// 想切档位/换回 CPU 生成的画面必须先清掉它 —— 面板据此给出提示与清除入口。
+const gpuFrameUi = { wid: "", pinned: false, busy: false, probedAt: 0, error: "", gateHint: "" };
+const GPU_FRAME_PROBE_TTL_MS = 30000;
+function gpuFrameToken(frameUrl) {
+  const src = String(frameUrl || "");
+  if (src.indexOf("/scene-frame/") === -1) return "";
+  return String(src.split("/scene-frame/").pop() || "").split("?")[0];
+}
+function markGpuFrameProbed(wid, pinned) {
+  gpuFrameUi.wid = String(wid || "");
+  gpuFrameUi.pinned = Boolean(pinned);
+  gpuFrameUi.probedAt = Date.now();
+}
+// 探测当前壁纸的静态帧槽位状态（HEAD，纯磁盘探测，不触发 CPU 提取）。带 TTL
+// 去重：syncLayers 调用频繁，同一壁纸 30s 内只探一次；force 用于清除后复检。
+function probeGpuFrameState(frameUrl, force) {
+  const wid = String(selection.id || "");
+  const token = gpuFrameToken(frameUrl);
+  if (!wid || !token) return;
+  if (!force && gpuFrameUi.wid === wid && Date.now() - gpuFrameUi.probedAt < GPU_FRAME_PROBE_TTL_MS) return;
+  const at = Date.now();
+  gpuFrameUi.wid = wid;
+  gpuFrameUi.probedAt = at;
+  const wasPinned = gpuFrameUi.pinned;
+  fetch("/wallpaper-engine/scene-frame/" + encodeURIComponent(token), { method: "HEAD", cache: "no-store" })
+    .then((r) => {
+      if (gpuFrameUi.wid !== wid || gpuFrameUi.probedAt !== at) return; // 期间切了壁纸
+      const pinned = Boolean(r && r.ok && r.headers && typeof r.headers.get === "function"
+        && r.headers.get("x-we-gpu") === "1");
+      gpuFrameUi.pinned = pinned;
+      gpuFrameUi.busy = false;
+      if (pinned !== wasPinned) { try { emit(); } catch { /* ignore */ } }
+    })
+    .catch(() => { /* 探测失败保持现状，30s 后再试 */ });
+}
 function modalInitialFocus(el) {
   if (el && pickerFocusPending) {
     pickerFocusPending = false;
@@ -3910,6 +4155,54 @@ function WallpaperPicker(props) {
     cancelSceneAnimUpgrade();
     selection.url = frameUrlWithVariant(sel.sceneFrameUrl, next);
     persistSelection(); syncLayers(); emit();
+  };
+  // 清除 GPU 抓帧缓存（<key>_gpu.png）：按用户决策 GPU 帧优先于全部档位，
+  // 所以「切档位 / 换回 CPU 生成画面」的前置动作就是先删掉它。删除后立刻按
+  // 当前档位重挂静态帧（scene-frame 响应带 no-store，重挂即重新取图）。
+  const onClearGpuFrame = () => {
+    if (sel.type !== "scene" || !sel.sceneFrameUrl || gpuFrameUi.busy) return;
+    const wid = String(sel.id || "");
+    const token = gpuFrameToken(sel.sceneFrameUrl);
+    if (!wid || !token) return;
+    gpuFrameUi.wid = wid;
+    gpuFrameUi.busy = true;
+    emit();
+    fetch("/wallpaper-engine/scene-frame-cache/" + encodeURIComponent(token), { method: "DELETE" })
+      .then(async (r) => {
+        // 宿主回 200 也可能没删掉（unlink 失败时 removed:false，评审 P2-L）：只判
+        // r.ok 会把「假成功」当清除 —— 面板行消失、提示已清除，而画面没变、也没
+        // 任何错误提示。这里把 removed:false 一并当失败（旧宿主无该字段 → 按 HTTP 判）。
+        let declaredRemoved = true;
+        try {
+          const body = await r.json();
+          if (body && body.removed === false) declaredRemoved = false;
+        } catch { /* 无 body：按 HTTP 状态判 */ }
+        if (!r.ok || !declaredRemoved) {
+          gpuFrameUi.busy = false;
+          gpuFrameUi.error = !r.ok ? ("宿主返回 " + r.status) : "缓存文件未删除（权限或占用）";
+          emit();
+          return;
+        }
+        gpuFrameUi.error = "";
+        gpuFrameUi.gateHint = "";
+        markGpuFrameProbed(wid, false);
+        forgetGpuFramePin(token);
+        gpuFrameUi.busy = false;
+        cancelSceneAnimUpgrade();
+        const variant = Number(selection.frameVariants && selection.frameVariants[wid]) || 0;
+        selection.url = frameUrlWithVariant(sel.sceneFrameUrl, variant);
+        persistSelection(); syncLayers(); emit();
+        // GPU 帧没了 → CPU 渲染恢复可用（面板提示「想在切档位/换回 CPU 生成的
+        // 画面，先点清除」的兑现点；live 可用时门禁内部会再挡一次）。
+        if (sel.sceneFrameUrl && !selection.sceneVideo && !liveRenderEnabled(selection)) {
+          maybeQueueSceneAnimUpgrade(sel.sceneFrameUrl, wid);
+        }
+      })
+      .catch(() => {
+        gpuFrameUi.busy = false;
+        gpuFrameUi.error = "清除请求失败";
+        emit();
+      });
   };
   // 自定义画面（截屏导入）：从 WE 等处截图后导入，成为该壁纸第 5 档显示源。
   const setCustomFrameLocal = (wid, on) => {
@@ -4703,6 +4996,23 @@ function WallpaperPicker(props) {
               + FRAME_VARIANTS[Number(sel.frameVariants && sel.frameVariants[String(sel.id)]) || 0].label
               + " · 共 " + frameVariantCount(sel, String(sel.id)) + " 种"),
         ),
+        // ── GPU 抓帧缓存：实时渲染抓的帧优先于上面全部档位（用户决策），
+        // 因此切档位前必须先清除它 —— 这里给出状态提示与唯一清除入口。
+        sel.type === "scene" && sel.sceneFrameUrl
+          && gpuFrameUi.wid === String(sel.id) && gpuFrameUi.pinned
+          && React.createElement("div", { className: "we-picker__ctl" },
+            ctlText("GPU 实时帧",
+              "已缓存，优先于全部画面档位",
+              "实时渲染成功后自动抓帧缓存了这张壁纸的静态画面（<key>_gpu.png），它优先于「壁纸画面刷新」的所有档位 —— 想切档位或换回 CPU 生成的画面，先点「清除 GPU 帧」删掉这份缓存，之后刷新档位立即生效。"),
+            React.createElement("button", {
+              className: "we-picker__btn", type: "button",
+              onClick: onClearGpuFrame,
+              "aria-label": "清除 GPU 实时帧缓存",
+            }, gpuFrameUi.busy ? "清除中…" : "清除 GPU 帧"),
+            gpuFrameUi.error
+              && React.createElement("div", { className: "we-picker__hint" },
+                "清除失败：" + gpuFrameUi.error + "（缓存仍在，画面仍是 GPU 帧）"),
+          ),
         // ── 自定义画面（截屏导入）：无法静态生成的壁纸（骨骼拼装场景，预览
         // gif 仅 160px）由用户从 WE 截图导入，画质=截图分辨率；作为第 5 档。
         sel.type === "scene" && React.createElement("div", { className: "we-picker__ctl" },
@@ -4808,9 +5118,17 @@ function WallpaperPicker(props) {
             if (persistTimer) { clearTimeout(persistTimer); persistTimer = null; }
             writeLocalCache();
             const p = pushPersisted();
+            // 走同一道 GPU 帧门禁（见 maybeQueueSceneAnimUpgrade）：槽位已有 GPU 抓帧
+            // 时即使手动打开开关也不跑 CPU 渲染 —— 否则分钟级渲染完成后会把 GPU 帧
+            // 覆盖掉，与「GPU 帧优先」的决策矛盾（面板提示先点「清除 GPU 帧」）。
+            const startAnimIfIdle = () => {
+              if (selection.betaSceneAnim && sel.sceneFrameUrl && !sel.sceneVideo) {
+                maybeQueueSceneAnimUpgrade(sel.sceneFrameUrl, sel.id);
+              }
+            };
             (p && typeof p.then === "function" ? p : Promise.resolve())
-              .then(() => { if (selection.betaSceneAnim && sel.sceneFrameUrl && !sel.sceneVideo) queueSceneAnimUpgrade(sel.sceneFrameUrl); })
-              .catch(() => { if (selection.betaSceneAnim && sel.sceneFrameUrl && !sel.sceneVideo) queueSceneAnimUpgrade(sel.sceneFrameUrl); });
+              .then(startAnimIfIdle)
+              .catch(startAnimIfIdle);
           }
           emit();
         }, {
@@ -4857,10 +5175,20 @@ function WallpaperPicker(props) {
                   selection.fpsCap = cap; persistSelection(); refreshMediaInfo(true); emit();
                   // scene 动画: fpsCap 变更 → 以新帧率重新渲染动画视频
                   // (sceneVideo 内嵌 MP4 的场景不重渲染 — 硬件解码不受 fpsCap 影响)
-                  if (sel.type === "scene" && sel.sceneFrameUrl && !sel.sceneVideo) queueSceneAnimUpgrade(sel.sceneFrameUrl);
+                  // 走同一道 GPU 帧门禁（评审发现此前的直调是门禁的唯一旁路：
+                  // 槽位已有 GPU 抓帧时仍会跑一次分钟级 CPU 渲染，与「有 GPU 帧就
+                  // 不跑 CPU 渲染」的决策矛盾）。
+                  if (sel.type === "scene" && sel.sceneFrameUrl && !sel.sceneVideo) {
+                    maybeQueueSceneAnimUpgrade(sel.sceneFrameUrl, sel.id);
+                  }
                 },
               }, cap === 0 ? "无限制" : cap + "fps"),
             ),
+            // 门禁拒绝过档位改动时必须解释（评审 P4-②）：否则用户只看到 chip 高亮
+            // 变化、画面没动、也没有任何提示。文案由点击路径自己置位，不依赖面板
+            // 探测缓存是否新鲜。
+            gpuFrameUi.wid === String(sel.id) && gpuFrameUi.gateHint
+              && React.createElement("div", { className: "we-picker__hint" }, gpuFrameUi.gateHint),
           ),
         ),
         // Scene 动画渲染进度: 首次渲染分钟级, 后台渲染期间显示进度条
@@ -7312,6 +7640,8 @@ function apply(ctx) {
         if (batteryCleanup) { batteryCleanup(); batteryCleanup = null; }
         weBattery = null;
         clearRotationTimer();
+        cancelLiveFrameBackfill(); // 卸载后不再发 HEAD/PUT（评审：此前会漏一次）
+        stopLiveWatch();
         abortTranscodeUpgrade(); // 含 clearUpgradePoll + AbortController.abort（否则卸载后 500ms 轮询永久泄漏）
         weStopDraw();
         const node = document.getElementById(LAYER_ID);
