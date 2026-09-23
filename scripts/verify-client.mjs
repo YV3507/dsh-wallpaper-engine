@@ -30,6 +30,7 @@ const animProbeSrcs = [];
 // 同一个 src 赋值也记录**元素**：用于区分「探测视频」与「上屏的层内视频」
 // （层内视频的 _parent 是 LAYER_ID 那个层节点）。
 const animVideoEls = [];
+const imgEls = [];
 function makeEl(tag) {
   return {
     tagName: tag.toUpperCase(),
@@ -60,6 +61,14 @@ const document = {
         },
       });
     }
+    if (t === 'img') {
+      // 静态帧层（buildMedia 的 img 分支）的 src：用于锁定「回退静态帧必须带画面档位」。
+      let _src = '';
+      Object.defineProperty(el, 'src', {
+        get: () => _src,
+        set: (v) => { _src = String(v || ''); imgEls.push({ el, src: _src }); },
+      });
+    }
     return el;
   },
   getElementById: (id) => byId[id] || null,
@@ -83,6 +92,8 @@ const localStorage = {
     // 打开实验性场景动画：CPU scene-anim 升级路径必须被走到，才能验证
     // 「槽位已有 GPU 帧 → 不跑 CPU 渲染」这条门禁。
     betaSceneAnim: true,
+    // 场景 C 记着画面档位 3：锁定「回退静态帧必须按该壁纸记住的档位加载」。
+    frameVariants: { c: 3 },
   }) },
   getItem(k) { return this._store[k] ?? null; },
   setItem(k, v) { this._store[k] = v; },
@@ -195,6 +206,15 @@ const sandbox = {
   },
   clearInterval: (token) => { if (token) token.cleared = true; },
 };
+// 可控时钟：「帧率上限」按钮只有走到门禁的**冷缓存**分支（probeGpuFramePin 的
+// 30s TTL 过期）才能被行为断言测出是否真的走了门禁 —— 否则按钮路径与「选壁纸」
+// 路径共用同一条 gpuFramePins 缓存命中，改回直调也照样绿。
+const RealDate = Date;
+let nowOffset = 0;
+const FakeDate = function (...a) { return a.length ? new RealDate(...a) : new RealDate(RealDate.now() + nowOffset); };
+FakeDate.now = () => RealDate.now() + nowOffset;
+FakeDate.parse = RealDate.parse; FakeDate.UTC = RealDate.UTC; FakeDate.prototype = RealDate.prototype;
+sandbox.Date = FakeDate;
 vm.createContext(sandbox);
 new vm.Script(code, { filename: 'client.js' }).runInContext(sandbox);
 
@@ -757,6 +777,65 @@ setTimeout(async () => {
     // ⑤ 抓帧回填落地必须校验「发起时那张壁纸」，不得把状态记到当前壁纸头上。
     assert.ok(code.includes('if (String(selection.id || "") !== backfillWid) return;'),
       'GPU 抓帧回填落地必须校验壁纸身份（否则切走后会给新壁纸误标「已有 GPU 帧」）');
+
+    // ⑥ 行为级：按钮路径必须真的走门禁（④ 只是源码级 lint，改坏行为保留字符串即可绿）。
+    // 把判据缓存熬过 30s TTL → 冷缓存 → 真 HEAD 报 pinned → 点档位必须被拒。
+    cccGpuPinned = true;  // 槽位又有 GPU 抓帧（例如 live 抓帧回填刚写入）
+    nowOffset += 31000;   // 跨过 probeGpuFramePin 的 30s TTL
+    tree3 = renderPicker();
+    const fps30 = findBtn(tree3, '30fps');
+    assert.ok(fps30, '画面已是 scene-anim 时必须渲染「帧率上限」控件（30fps 档）');
+    const probes3 = animProbeSrcs.length;
+    fps30.props.onClick();
+    await new Promise((r) => setTimeout(r, 60)); // 等门禁 HEAD 探测的 promise 回来
+    assert.equal(animProbeSrcs.slice(probes3).filter((s2) => s2.includes('/scene-anim/ccc')).length, 0,
+      '槽位已有 GPU 帧时点「帧率上限」不得启动 CPU 渲染（面板按钮必须走同一道门禁）');
+    // P4-②：拒绝必须解释 —— 否则用户只看到 chip 高亮变化、画面没动、没有任何提示。
+    assert.ok(JSON.stringify(renderPicker()).includes('改档位不会重新渲染'),
+      'P4-②：门禁拒绝档位改动时面板必须解释（chip 高亮 ≠ 画面帧率，且需指引清除）');
+    console.log('帧率按钮走门禁（行为级）+ 拒绝时给出解释: ok');
+
+    // ⑦ 关「beta场景动画」回退静态帧时必须按该壁纸记住的档位（?v=3）—— 否则画面掉回
+    // 档位 0 而面板标签仍显示记着的档位，与 A2 是同一条「读数 = 画面」不变量。
+    const layerImgSrcs = () => imgEls
+      .filter((e) => e.el && e.el._parent && e.el._parent.id === 'dsh-wallpaper-engine-layer')
+      .map((e) => e.src);
+    // 本地版 findCtlInput（另一段 if 块里的同名 helper 不在本作用域）：
+    // 找到提到该文字的 .we-picker__ctl 行，再取行内带 onChange 的 input。
+    const switchInput = (root, text) => {
+      let row = null;
+      (function walk(node) {
+        if (row || !node || typeof node !== 'object') return;
+        if (Array.isArray(node)) { node.forEach(walk); return; }
+        const cls = typeof node.props?.className === 'string' ? node.props.className : '';
+        if (cls.includes('we-picker__ctl') && JSON.stringify(node).includes(text)) { row = node; return; }
+        if (Array.isArray(node.children)) node.children.forEach(walk);
+      })(root);
+      let hit = null;
+      (function find(node) {
+        if (hit || !node || typeof node !== 'object') return;
+        if (Array.isArray(node)) { node.forEach(find); return; }
+        if (node.type === 'input' && node.props && typeof node.props.onChange === 'function') { hit = node; return; }
+        if (Array.isArray(node.children)) node.children.forEach(find);
+      })(row);
+      return hit;
+    };
+    tree3 = renderPicker();
+    const betaInput = switchInput(tree3, 'beta场景动画');
+    assert.ok(betaInput && typeof betaInput.props.onChange === 'function',
+      '面板必须有「beta场景动画」开关（回退静态帧路径的入口）');
+    betaInput.props.onChange({ target: { checked: false } });
+    await new Promise((r) => setTimeout(r, 30));
+    // 判据用层的 weKey（它含 selection.url）：静态帧的 img 可能来自准备槽（src 由
+    // prepareSceneStaticStage 决定），所以只有 weKey 能反映回退时写进 selection.url
+    // 的档位 —— 而「selection.url 必须等于 frameUrlWithVariant(frameUrl, 档位)」正是
+    // A2 那条不变量（面板标签读的也是 frameVariants）。
+    const layerKey = (document.getElementById('dsh-wallpaper-engine-layer') || {}).dataset?.weKey || '';
+    assert.ok(String(layerKey).includes('/scene-frame/ccc') && String(layerKey).includes('v=3'),
+      '关 beta 回退静态帧必须按该壁纸记住的档位（?v=3）—— 否则画面掉回档位 0 而面板'
+        + '标签仍显示记着的档位。层 weKey: ' + String(layerKey).slice(-90)
+        + ' / img: ' + JSON.stringify(layerImgSrcs().slice(-2)));
+    console.log('关 beta 回退静态帧按档位: ok');
   }
   console.log('effects ran:', effects.length);
   console.log('\nALL CLIENT CHECKS DONE');
