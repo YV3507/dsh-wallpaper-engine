@@ -365,14 +365,19 @@ const okResult = (servedFrom) => async () => ({ fileAbs: '/x/' + servedFrom + '.
     const customLast = /id:\s*4,\s*label:\s*"自定义画面"\s*\},?\s*\];/.test(cli);
     const usesId = /FRAME_VARIANTS\[\(curIdx \+ 1\) % total\]\.id/.test(cli)
       && /map\[wid\] = CUSTOM_FRAME_ID/.test(cli);
-    const hostOk = /vRaw >= 1 && vRaw <= 6/.test(idx)
-      && /const forceRender = variant === 5/.test(idx)
-      && /const vSuffix = \(variant && !forceRender\) \? '_v' \+ variant : ''/.test(idx)
+    const hostOk = /vParsed >= 1 && vParsed <= 6 && vParsed !== 5/.test(idx)
+      && !/forceRender/.test(idx)
+      && /const vSuffix = variant \? '_v' \+ variant : ''/.test(idx)
       && /variant === 1 \|\| variant === 2 \|\| variant === 6/.test(idx);
-    check('R38 画面档位: id 唯一 / 自定义档在末尾 / 客户端按 id 存取 / 宿主支持 1..6 (5=强渲染, 6=合成)',
-      ids.length >= 6 && uniq && customLast && usesId && hostOk,
+    // 「改用静态帧」必须复用**同一条**按壁纸禁用通道（sceneLiveFailures），
+    // 而不是新造一套状态 —— 否则又要多一处同步点与持久化白名单。
+    const manualChannel = /v === 'manual'/.test(idx)
+      && /m\[wid\] = "manual"/.test(cli)
+      && /sceneLiveFailures && selLike\.sceneLiveFailures\[String\(selLike\.id\)\]/.test(cli);
+    check('R38 画面档位: id 唯一 / 自定义档在末尾 / 客户端按 id 存取 / 宿主 1..6 但 5 已退役；「改用静态帧」复用 sceneLiveFailures',
+      ids.length >= 6 && uniq && customLast && usesId && hostOk && manualChannel,
       'ids=[' + ids.join(',') + '] unique=' + uniq + ' customLast=' + customLast
-        + ' clientUsesId=' + usesId + ' host=' + hostOk);
+        + ' clientUsesId=' + usesId + ' host=' + hostOk + ' manualChannel=' + manualChannel);
   }
 
   // ── R39 渲染 worker 冒烟: 代码级错误必须立刻暴露 ────────────────────────────

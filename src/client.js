@@ -541,8 +541,6 @@ function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 const FRAME_VARIANTS = [
   // 自动 = 按设置：有损路线关闭时=完整渲染，打开时=主纹理近似（宿主侧决定）。
   { id: 0, label: "自动（按设置）" },
-  // 显式「静态帧渲染」：强制走完整渲染（SceneRenderer），忽略有损路线的近似模式。
-  { id: 5, label: "静态帧渲染（完整渲染）" },
   // 显式「合成（分层）」：强制走 pkg 提取的多层合成（extraction variant 0）。
   { id: 6, label: "合成（分层）" },
   { id: 1, label: "主纹理（单张大图）" },
@@ -550,6 +548,9 @@ const FRAME_VARIANTS = [
   { id: 3, label: "预览图" },
   { id: 4, label: "自定义画面" },
 ];
+// 注意：**「改用静态帧」（实时渲染 → 静态帧的人工回退）不在本表**。它属于显示形态
+// 而不是帧的生成逻辑，走 sceneLiveFailures[wid]='manual'（见 liveRenderEnabled 与
+// 画面区的「静态帧渲染」开关）。历史 id 5 曾误放在本表，已退役。
 // 自定义画面档的 id（导入截屏后这一档才计入档位数）。
 const CUSTOM_FRAME_ID = 4;
 // 档位 id → 数组下标（未知 / 越界一律回落到 0 = 自动）。
@@ -1513,7 +1514,7 @@ function liveRenderEnabled(selLike) {
       || (selLike.type === "web" && selLike.webLiveSrc)));
 }
 // 失败原因 → 可读文案（设置面板展示，便于用户反馈「为什么黑」）。
-const LIVE_FAIL_LABELS = { timeout: "首帧超时（15 秒内无画面）", stall: "运行中断（20 秒无帧）" };
+const LIVE_FAIL_LABELS = { timeout: "首帧超时（15 秒内无画面）", stall: "运行中断（20 秒无帧）", manual: "已手动改用静态帧" };
 function liveFailReasonOf(selLike) {
   const m = selLike && selLike.sceneLiveFailures;
   const v = m ? m[String(selLike && selLike.id)] : null;
@@ -3539,10 +3540,12 @@ function WallpaperPicker(props) {
             // 选择被过滤条件排除（#84）: 过去壁纸层直接空白、按钮变灰且无任何
             // 说明，现在明确指出是哪一项过滤挡住了、怎么恢复。
             sel.blockedNote && React.createElement("div", { className: "we-picker__current-error" }, sel.blockedNote),
-            // 实时渲染失败原因（自动回退到旧链时显示）：让「为什么黑」可见 ——
-            // 用户反馈时能直接说明，也提示了重试入口（重开「实时渲染」开关）。
+            // 实时渲染降级/人工回退的提示：让「为什么不是实时渲染」可见 ——
+            // 自动失败说明原因并给出重试入口；手动切换则说明怎么切回去。
             liveFailReasonOf(sel) && React.createElement("div", { className: "we-picker__current-error" },
-              "实时渲染失败（" + liveFailReasonOf(sel) + "），已自动回退；重新打开「实时渲染」开关可重试",)
+              (sel.sceneLiveFailures && sel.sceneLiveFailures[String(sel.id)] === "manual")
+                ? "已手动改用静态帧渲染；关闭上面的「静态帧渲染」开关即可恢复实时渲染"
+                : "实时渲染失败（" + liveFailReasonOf(sel) + "），已自动回退；重新打开「实时渲染」开关可重试",)
           ),
           React.createElement("button", {
             className: "we-picker__btn we-picker__btn--primary", type: "button",
@@ -4151,6 +4154,29 @@ function WallpaperPicker(props) {
             ),
           ),
         ),
+        // 实时渲染「能出画面但看不过去」时的人工回退（**按壁纸**）：把该壁纸记入
+        // 'manual'，liveRenderEnabled 随即为假 → 走本插件的静态帧链。它与"心跳判定
+        // 失败"共用同一条按壁纸禁用通道（sceneLiveFailures），因此共享持久化，也共享
+        // 「重开上面的实时渲染开关即清空重试」这个入口 —— 不需要第二套状态。
+        (sel.type === "scene" || sel.type === "web") && sel.sceneLive !== false
+          && (sel.sceneLiveSrc || sel.webLiveSrc)
+          && switchRow("静态帧渲染",
+            Boolean(sel.sceneLiveFailures && sel.sceneLiveFailures[String(sel.id)] === "manual"),
+            (e) => {
+              const wid = String(sel.id);
+              const m = Object.assign({}, selection.sceneLiveFailures || {});
+              if (e.target.checked) m[wid] = "manual";
+              else delete m[wid];
+              selection.sceneLiveFailures = m;
+              persistSelection();
+              syncLayers();               // 显示形态切换 → 层重建
+              syncSceneAudio(selection);  // 音频互斥状态随形态切换
+              emit();
+            }, {
+            key: "manual-static",
+            hint: "实时渲染能出画面但看不过去时 · 只影响本壁纸",
+            tooltip: "实时渲染（WebWallGL）画出来了但观感不对（缺件、错位、比例异常等）时，把**这一张**壁纸改用本插件的静态帧渲染（完整场景帧，会慢一些但走的是自研渲染器）。只影响当前壁纸；关闭即恢复实时渲染。与「实时渲染失败自动降级」共用同一份记忆，重开上面的实时渲染开关会一并清空重试",
+          }),
         // ── 静态帧兜底（回退）───────────────────────────────────────────────
         // 场景/网页壁纸默认走上面的实时渲染。下面这一组只影响**回退到静态帧之后
         // 的那条链** —— 实时渲染不可用时才会走到: 松散 scene.json 目录(没有
@@ -4162,7 +4188,7 @@ function WallpaperPicker(props) {
             React.createElement("span", { className: "we-picker__section-label" }, "静态帧兜底（回退）"),
           ),
           React.createElement("div", { className: "we-picker__ctl" },
-            ctlText("仅在回退时生效", "实时渲染不可用才走这条链：松散 scene.json 目录 / 无 WebGL2 / 该壁纸已被记入失败记忆"),
+            ctlText("仅在回退时生效", "实时渲染不可用、或你在上面手动改用静态帧时才走这条链"),
           ),
           // ── 有损路线总开关 ─────────────────────────────────────────────
           // 集中管理"用观感换速度"的手段; 关闭时附属项一律失效 (宿主侧同样强制)。
