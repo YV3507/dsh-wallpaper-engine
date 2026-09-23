@@ -113,9 +113,15 @@ const DEFAULTS = {
   // Process Tap，首次需一次性「音频录制」授权；Linux/Windows 走 ffmpeg +
   // monitor/虚拟设备），off = 关闭（渲染页回落内置模拟源）。缺失/未授权时自动回落。
   audioSource: "auto",
-  // 媒体集成（Now Playing）：把系统正在播放的歌名/歌手/封面推给壁纸的
-  // wallpaperMediaIntegration 监听器（macOS media-control / Linux playerctl）。
+  // 媒体集成（Now Playing）：把系统正在播放的歌名/歌手/专辑/封面/进度推给壁纸的
+  // wallpaperMediaIntegration 监听器。数据由宿主侧的媒体后端提供（首选
+  // media-bridge 中间件：macOS MediaRemote / Windows GSMTC / Linux MPRIS，
+  // 三平台都内置；取不到时宿主自动回落到内置实现）。
   mediaIntegration: true,
+  // 在线歌词：本地（音频同目录 .lrc / 已缓存）找不到时向 lrclib.net 查询一次。
+  // 默认**关**：那是一次外发请求（带曲名/歌手/专辑），与插件「不上传任何服务器」
+  // 的口径一致才默认关；本地歌词不受影响。
+  mediaLyricsOnline: false,
   // 用户改过的壁纸属性（「壁纸属性」面板）：{ [token]: { [属性名]: 值 } }。
   // token = base64(入口文件绝对路径)，与 host 侧 /props 同一套键。
   userProps: {},
@@ -376,6 +382,7 @@ function sanitizeSettings(o) {
     liveBootDelay: clampNum(o.liveBootDelay, 0, 30, DEFAULTS.liveBootDelay),
     audioSource: o.audioSource === "off" ? "off" : "auto",
     mediaIntegration: o.mediaIntegration !== false,
+    mediaLyricsOnline: o.mediaLyricsOnline === true,
     userProps: (o.userProps && typeof o.userProps === "object" && !Array.isArray(o.userProps)) ? o.userProps : {},
     pauseOnHidden: o.pauseOnHidden !== false,
     pauseOnBlur: o.pauseOnBlur === true,
@@ -594,6 +601,7 @@ function serializeSelection() {
     liveBootDelay: selection.liveBootDelay,
     audioSource: selection.audioSource,
     mediaIntegration: selection.mediaIntegration,
+    mediaLyricsOnline: selection.mediaLyricsOnline,
     userProps: selection.userProps,
     pauseOnHidden: selection.pauseOnHidden,
     pauseOnBlur: selection.pauseOnBlur,
@@ -1800,14 +1808,15 @@ function startLiveWatch(frame, wid) {
   }, 1000);
   liveWatch = watch;
 }
-// ── 媒体桥（宿主侧的系统音频频谱 / Now Playing → 渲染页）─────────────────────
-// 频谱：宿主 20fps 采集 → 渲染页经 __wp.setAudioBridge(fn) 每帧「拉」（拉模式是
-// 上游设计：避免每帧跨层推 128 个浮点）。这里 client 按 50ms 从 host 拉到本地
-// 缓存，fn 直接返回同一数组引用（零拷贝）。
+// ── 媒体后端（宿主侧的系统音频频谱 / Now Playing → 渲染页）─────────────────────
+// 频谱：宿主侧采集（media-bridge 中间件按 50ms 推 64 段）→ 渲染页经
+// __wp.setAudioBridge(fn) 每帧「拉」（拉模式是上游设计：避免每帧跨层推 128 个浮点）。
+// 这里 client 按 50ms 从 host 拉到本地缓存，fn 直接返回同一数组引用（零拷贝）。
 // 媒体：1s 一次的 Now Playing 轮询（宿主侧也是 1s），变化时 __wp.setMedia(wire)
 // —— 封面经宿主代理 URL（同源）。壁纸没有监听器时两者都无副作用。
 let mediaTimer = 0;
 let mediaSpectrum = null;
+let mediaAudioInstalled = false;   // 音频桥当前是否已装进渲染页
 let mediaNpKey = "";
 let mediaFetchBusy = false;
 let mediaNpTick = 0;
@@ -1858,12 +1867,39 @@ function pushMediaSnapshot(frame, m) {
       title: m.title || "",
       artist: m.artist || "",
       album: m.album || "",
+      albumArtist: m.albumArtist || "",
       playing: Boolean(m.playing),
-      state: m.playing ? 1 : 2,
+      // 宿主给的是 0/1/2（停/播/暂停），比「playing?1:2」更准（能表达停止）；
+      // 老宿主不给 state 时回落到旧口径。
+      state: Number.isFinite(Number(m.state)) ? Number(m.state) : (m.playing ? 1 : 2),
       position: Number(m.position) || 0,
       duration: Number(m.duration) || 0,
       thumbnail: mediaArtData || undefined,
+      // 歌词：宿主已换算成渲染页要的 [[秒, 文本], …]（含 LRC 的 [offset:]），
+      // 渲染页自己按 position 算当前行（xd() → jA()），这里只透传，不做二次加工。
+      lyrics: Array.isArray(m.lyrics) && m.lyrics.length ? m.lyrics : undefined,
     });
+  } catch { /* ignore */ }
+}
+
+/**
+ * 音频桥的装/卸。**只在宿主确认采集真在跑时才装**：
+ * 渲染页一旦发现 audioBridge 存在，就会跳过给场景 BGM 接分析器
+ * （renderer 里 `if(t.audioBridge) return`），并优先用宿主返回的数组 ——
+ * 所以「装了桥但宿主拿不到音频（未授权/无设备）」的后果是把壁纸的音频反应
+ * 从内置模拟源换成一条死线。running=false 时保持不装，让渲染页用自己的源。
+ */
+function syncAudioBridge(frame, running) {
+  try {
+    const wp = frame.contentWindow && frame.contentWindow.__wp;
+    if (!wp || typeof wp.setAudioBridge !== "function") return;
+    if (running && !mediaAudioInstalled) {
+      wp.setAudioBridge(() => (mediaSpectrum ? { left: mediaSpectrum, right: mediaSpectrum } : null));
+      mediaAudioInstalled = true;
+    } else if (!running && mediaAudioInstalled) {
+      wp.setAudioBridge(null);
+      mediaAudioInstalled = false;
+    }
   } catch { /* ignore */ }
 }
 
@@ -1893,6 +1929,7 @@ function stopMediaSync(frame) {
   mediaArtKey = "";
   mediaArtData = "";
   mediaArtTries = 0;
+  mediaAudioInstalled = false;
   const f = frame || (liveWatch && liveWatch.frame);
   if (!f || !f.isConnected) return;
   try {
@@ -1907,14 +1944,6 @@ function startMediaSync(frame) {
   if (selection.audioSource === "off" && selection.mediaIntegration === false) return;
   const wantSpectrum = selection.audioSource !== "off";
   const wantNp = selection.mediaIntegration !== false;
-  if (wantSpectrum) {
-    try {
-      const wp = frame.contentWindow && frame.contentWindow.__wp;
-      if (wp && typeof wp.setAudioBridge === "function") {
-        wp.setAudioBridge(() => (mediaSpectrum ? { left: mediaSpectrum, right: mediaSpectrum } : null));
-      }
-    } catch { /* ignore */ }
-  }
   mediaTimer = setInterval(() => {
     if (!frame.isConnected || !selection.sceneLiveActive) return;
     if (wantSpectrum && !mediaFetchBusy) {
@@ -1922,13 +1951,16 @@ function startMediaSync(frame) {
       fetch("/wallpaper-engine/audio-spectrum", { cache: "no-store" })
         .then((r) => r.json())
         .then((d) => {
-          if (d && d.ok && Array.isArray(d.bands) && d.bands.length) {
+          if (!d || !d.ok) return;
+          if (Array.isArray(d.bands) && d.bands.length) {
             const arr = new Float32Array(d.bands.length);
             for (let i = 0; i < d.bands.length; i++) arr[i] = (d.bands[i] || 0) / 255;
             mediaSpectrum = arr;
           }
+          // 装桥的时机交给宿主的 running（见 syncAudioBridge 的说明）
+          syncAudioBridge(frame, d.running === true);
         })
-        .catch(() => { /* 静默：回落模拟源 */ })
+        .catch(() => { /* 静默：保持现状，回落模拟源 */ })
         .finally(() => { mediaFetchBusy = false; });
     }
     if (wantNp && ++mediaNpTick % 20 === 0) {
@@ -1937,7 +1969,11 @@ function startMediaSync(frame) {
         .then((d) => {
           if (!d || !d.ok) return;
           const m = d.media || null;
-          const key = m ? [m.title, m.artist, m.playing ? 1 : 0, Math.floor((m.position || 0) / 5)].join("\u0000") : "";
+          // key 里带歌词版本：歌词是异步到齐的（本地 .lrc → 缓存 → 在线），
+          // 到齐时 title/position 都没变 —— 不带它就不会再推一帧，壁纸永远拿不到歌词。
+          const lyr = m && Array.isArray(m.lyrics) ? m.lyrics : [];
+          const lyrRev = lyr.length ? lyr.length + ":" + String(lyr[lyr.length - 1][1] || "").length : 0;
+          const key = m ? [m.title, m.artist, m.playing ? 1 : 0, Math.floor((m.position || 0) / 5), lyrRev].join("\u0000") : "";
           if (key === mediaNpKey) return;
           mediaNpKey = key;
           // 换曲：清掉上一首的封面缓存与重试计数（position 每 5 秒变一次 key，
@@ -4942,16 +4978,25 @@ function WallpaperPicker(props) {
             persistSelection();
             emit();
           }, {
-            hint: "壁纸随系统声音律动 · 未授权/未安装自动回落模拟",
-            tooltip: "把系统正在播放的声音（loopback，非麦克风）的频谱喂给壁纸的音频可视化。macOS 走 CoreAudio Process Tap（首次需在「系统设置 → 隐私与安全性 → 音频录制」授权）；Linux/Windows 走 ffmpeg + monitor/虚拟设备（未检测到则回落内置模拟频谱）",
+            hint: "壁纸随系统声音律动 · 拿不到音频时回落模拟",
+            tooltip: "把系统正在播放的声音频谱喂给壁纸的音频可视化（采集系统输出/loopback，不是麦克风）。三平台都内置：macOS 走 CoreAudio、Windows 走 WASAPI 回环、Linux 走 PulseAudio/PipeWire —— 不需要额外安装，也不再需要「立体声混音」之类虚拟声卡；仅 macOS 首次使用会要一次「音频录制」授权。拿不到音频时自动回落壁纸内置的模拟频谱",
           }),
           switchRow("媒体信息", sel.mediaIntegration !== false, (e) => {
             selection.mediaIntegration = e.target.checked;
             persistSelection();
             emit();
           }, {
-            hint: "歌名 / 歌手 / 封面 → 壁纸的媒体监听器",
-            tooltip: "把系统正在播放的歌曲信息推给壁纸（wallpaperMediaIntegration）：macOS 需 media-control（brew install media-control）；Linux 需 playerctl；Windows 二期。缺失时壁纸保持自身静态态",
+            hint: "歌名 / 歌手 / 专辑 / 封面 / 进度 → 壁纸的媒体监听器",
+            tooltip: "把系统正在播放的歌曲信息推给壁纸（wallpaperMediaIntegration）：macOS 走 MediaRemote、Windows 走系统媒体会话（GSMTC）、Linux 走 MPRIS —— 三平台都内置，不需要安装 media-control / playerctl。没有正在播放的媒体时壁纸保持自身静态态",
+          }),
+          sel.mediaIntegration !== false && switchRow("在线歌词", sel.mediaLyricsOnline === true, (e) => {
+            selection.mediaLyricsOnline = e.target.checked;
+            persistSelection();
+            emit();
+          }, {
+            key: "media-lyrics-online",
+            hint: "本地找不到时联网查一次（lrclib.net）",
+            tooltip: "歌词优先取本地的（音频同目录的 .lrc、以及已经缓存过的歌词）；开启后，本地没有才会向 lrclib.net 查一次 —— 那次请求会把歌名/歌手/专辑发出去，所以默认关闭。本地歌词不受这个开关影响",
           }),
           switchRow("壁纸音轨", sel.videoAudioEnabled !== false, () => onToggleAudio(), {
             hint: "关闭=静音（保留音量数值）· 开启时音量 0 自动 50%",

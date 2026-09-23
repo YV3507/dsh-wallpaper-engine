@@ -633,18 +633,97 @@ check('媒体源只服务 /scene-files 前缀', hostSrc.includes("pathname.start
 // 封面（Now Playing artwork）：实测用户反馈「不显示歌曲封面」的根因是只问 Spotify。
 // 现在通用路径是 media-control 自带的 artworkData（系统 MediaRemote，任何播放器都有），
 // 且缓存后缀按 MIME 决定（PNG 存成 .jpg 会按错误类型解码）。
-const bridgeSrc = readFileSync(join(root, 'lib', 'media-bridge.js'), 'utf8');
+// 2026-09-23：这套降级为**回落实现**（lib/media/legacy.js），首选换成 media-bridge
+// 子进程（lib/media/*）——断言因此两边都盯：旧实现的能力不能退化，新链路的接缝要在。
+const legacyBridgeSrc = readFileSync(join(root, 'lib', 'media', 'legacy.js'), 'utf8');
+check('旧实现已挪进 lib/media/legacy.js（回落路径还在）',
+  existsSync(join(root, 'lib', 'media', 'legacy.js')) && !existsSync(join(root, 'lib', 'media-bridge.js')));
 check('封面走 media-control 的 artworkData（通用，不限 Spotify）',
-  bridgeSrc.includes('artworkData') && bridgeSrc.includes('artworkMimeType')
-    && bridgeSrc.includes('function takeArtworkMac('));
+  legacyBridgeSrc.includes('artworkData') && legacyBridgeSrc.includes('artworkMimeType')
+    && legacyBridgeSrc.includes('function takeArtworkMac('));
 check('例行轮询 --no-artwork（封面 base64 每秒几百 KB），换曲才取',
-  bridgeSrc.includes("'get', '--no-artwork'") && bridgeSrc.includes('npNoArtwork'));
+  legacyBridgeSrc.includes("'get', '--no-artwork'") && legacyBridgeSrc.includes('npNoArtwork'));
 check('封面缓存按 MIME 定后缀并清旧文件',
-  bridgeSrc.includes('ARTWORK_EXT') && bridgeSrc.includes('function writeArtwork(')
-    && bridgeSrc.includes('writeArtwork') && bridgeSrc.includes("'artwork'"));
-check('Spotify AppleScript 降为兜底', bridgeSrc.includes('function fetchSpotifyArtwork('));
-check('媒体桥暴露 artworkMime', bridgeSrc.includes('artworkMime: () => artworkMime'));
+  legacyBridgeSrc.includes('ARTWORK_EXT') && legacyBridgeSrc.includes('function writeArtwork(')
+    && legacyBridgeSrc.includes("'artwork'"));
+check('Spotify AppleScript 降为兜底', legacyBridgeSrc.includes('function fetchSpotifyArtwork('));
+check('回落实现暴露 artworkMime 与 backend 标记',
+  legacyBridgeSrc.includes('artworkMime: () => artworkMime') && legacyBridgeSrc.includes("backend: 'legacy'"));
+check('回落实现尊重「音频已关」（不会偷偷开采集/申请权限）',
+  legacyBridgeSrc.includes('if (audio) startAudio();'));
 check('host 按扩展名回封面 Content-Type', hostSrc.includes("bmp: 'image/bmp'"));
+
+// ── media-bridge 中间件的接缝（首选路径）────────────────────────────────────
+const provSrc = readFileSync(join(root, 'lib', 'media', 'provision.js'), 'utf8');
+const supSrc = readFileSync(join(root, 'lib', 'media', 'supervisor.js'), 'utf8');
+const facadeSrc = readFileSync(join(root, 'lib', 'media', 'index.js'), 'utf8');
+check('产物表：darwin 通用包 / linux x64 musl / win32 双架构',
+  provSrc.includes("'media-bridge-darwin-universal'")
+    && provSrc.includes("'media-bridge-linux-x64-musl'") && provSrc.includes("'media-bridge-win32-x64.exe'"));
+check('产物 sha256 全部固定（宁可回落也不执行未校验的二进制）',
+  // ≥5：win32-arm64 是可选产物，Release 里没有时它能没有哈希（靠 x64 回落链）
+  (provSrc.match(/[0-9a-f]{64}/g) || []).length >= 5 && provSrc.includes('MEDIA_BRIDGE_SHA256'));
+check('魔数识别包含 macOS universal 的 fat 头', provSrc.includes('0xca') && provSrc.includes('0xfe'));
+// win32-arm64 在 CI 里是可选产物（windows-11-arm runner 会卡）：没有它时 Windows ARM64
+// 必须能回落到 x64（系统自带模拟），否则那台机器会直接掉到 legacy 实现。
+check('Windows ARM64 有 x64 产物回落链',
+  /MEDIA_BRIDGE_FALLBACKS/.test(provSrc)
+    && /'media-bridge-win32-arm64\.exe': \['media-bridge-win32-x64\.exe'\]/.test(provSrc));
+check('产物解析链：环境变量 → 插件 bin/ → 下载缓存 → Release 下载',
+  provSrc.includes('DSH_WE_MEDIA_BRIDGE') && provSrc.includes("join(PLUGIN_ROOT, 'bin', asset)")
+    && provSrc.includes('cacheDirFor(dataDir, tag)') && provSrc.includes('releases/download/'));
+check('协议握手校验 hello.protocol（版本不符不硬来）',
+  supSrc.includes('hello.protocol') && supSrc.includes('PROTOCOL_VERSION'));
+check('事件与响应按字段分流（不能假设下一行是响应）',
+  supSrc.includes('if (msg.event)') && supSrc.includes('pending.has(msg.id)'));
+check('频谱走订阅推送（50ms），不是每帧去问', supSrc.includes('SPECTRUM_INTERVAL_MS') && supSrc.includes("events.push('spectrum')"));
+check('音频关时用 --no-audio（连音频授权都不会弹）', supSrc.includes("'--no-audio'"));
+check('位置外推用 updatedAtMs + rate（暂停不外推）',
+  supSrc.includes('playing && pb.positionSource !== ') && supSrc.includes('Date.now() - ref'));
+check('事件里已外推的位置不重复外推（参考时刻改写成事件时刻）',
+  supSrc.includes("pb.positionSource === 'interpolated'") && supSrc.includes('pb.updatedAtMs = refMs'));
+check('歌词换算成渲染页要的 [[秒, 文本], …]（含 LRC offset）',
+  supSrc.includes('export function lyricsToTuples') && supSrc.includes('offsetMs'));
+// 状态缓存兜底：中间件的 status 事件此前只在元数据源报错时发（v0.1.3），音频源
+// idle→preparing→running 的变化不通知 —— 消费端只在启动时读一次 status，会永远停在
+// preparing（Linux 实测：频谱有数据、客户端却拿不到）。v0.1.4 补了事件，插件这层
+// 兜底刷新也保留：两层互不依赖。
+check('supervisor 兜底刷新 status（不依赖中间件的事件是否齐全）',
+  /const STATUS_REFRESH_MS = /.test(supSrc) && /function refreshStatusSoon\(/.test(supSrc)
+    && /refreshStatusSoon\(\);/.test(supSrc));
+check('崩溃退避重启 + 超预算回落（onFatal）',
+  supSrc.includes('MAX_RESTARTS') && supSrc.includes('onUnexpectedExit') && supSrc.includes('onFatal'));
+check('空闲停进程 + 下次访问自动唤醒', supSrc.includes('IDLE_STOP_MS') && supSrc.includes('asleep'));
+// Windows 黑框回归：GUI 宿主（DSH Desktop / Electron）spawn 控制台子进程时必须带
+// windowsHide（= Win32 CREATE_NO_WINDOW），否则会弹出/闪一个黑框。中间件与 ffmpeg
+// 的每一处 spawn 都要带上；macOS/Linux 专属的调用（media-control/playerctl/xattr 等）
+// 不在 Windows 上跑，但一并带上也无害。
+const winHideSites = [
+  { file: 'lib/media/supervisor.js', spawn: /spawn\(binPath[\s\S]{0,80}\.\.\.a\.opts/, minFlags: 2 },
+  { file: 'lib/index.js', spawn: /spawn\(a\.file[\s\S]{0,80}\.\.\.a\.opts/, minFlags: 2 },
+  { file: 'lib/media/legacy.js', spawn: /spawnSync\('ffmpeg'[\s\S]{0,220}windowsHide: true/, minFlags: 1 },
+];
+const winHideBad = [];
+for (const site of winHideSites) {
+  const body = readFileSync(join(root, site.file), 'utf8');
+  const flags = (body.match(/windowsHide: true/g) || []).length;
+  if (!site.spawn.test(body) || flags < site.minFlags) winHideBad.push(site.file);
+}
+check('平台 spawn 点都带 windowsHide（GUI 宿主在 Windows 上不出黑框）',
+  winHideBad.length === 0, winHideBad.join(', ') || '已覆盖中间件 / ffmpeg 转码 / 回落路径');
+check('门面：中间件优先，失败回落旧实现并留下原因',
+  facadeSrc.includes('fallBackTo(') && facadeSrc.includes("backend: live ? 'bridge'"));
+check('门面支持 DSH_WE_MEDIA_LEGACY=1 强制走旧实现', facadeSrc.includes('DSH_WE_MEDIA_LEGACY'));
+check('门面把「音频已关」传给回落实现（不让回落偷偷开采集）',
+  facadeSrc.includes('createLegacy({ dataDir, log, audio: optsRef.audio })'));
+check('host 路由形状不变（客户端/渲染页无需感知后端切换）',
+  /path: `\$\{BASE\}\/media-status`/.test(hostSrc) && /path: `\$\{BASE\}\/audio-spectrum`/.test(hostSrc)
+    && /path: `\$\{BASE\}\/now-playing`/.test(hostSrc) && /path: `\$\{BASE\}\/now-playing\/artwork`/.test(hostSrc));
+check('spectrum 路由回报 running（客户端据此决定装不装音频桥）',
+  hostSrc.includes('running: st.audio.status ===') && hostSrc.includes('mediaBackend.status()'));
+check('settings 白名单保留 mediaLyricsOnline（否则开关会被丢）',
+  /mediaLyricsOnline: o\.mediaLyricsOnline === true/.test(hostSrc));
+
 // 客户端：封面必须转成**自包含 data URL** —— 宿主给的是插件路由，
 // 沙箱壁纸在 Desktop 上取不到（能力头栅栏只放行同源 frame）。
 check('client 把封面降采样成 data URL 再推给壁纸',
@@ -652,6 +731,16 @@ check('client 把封面降采样成 data URL 再推给壁纸',
     && src.includes('toDataURL("image/jpeg"') && src.includes('thumbnail: mediaArtData || undefined'));
 check('client 按曲目缓存封面并重试（宿主下载封面是异步的）',
   src.includes('function scheduleArtworkFetch(') && src.includes('MEDIA_ART_MAX_TRIES'));
+check('client 透传歌词与 albumArtist（[[秒, 文本]] 原样给渲染页）',
+  src.includes('lyrics: Array.isArray(m.lyrics) && m.lyrics.length ? m.lyrics : undefined')
+    && src.includes('albumArtist: m.albumArtist || ""'));
+check('client 的 push key 带歌词版本（歌词晚到也要再推一帧）',
+  src.includes('const lyrRev =') && src.includes('lyrRev].join('));
+check('音频桥按宿主 running 装卸（装了桥 = 渲染页放弃自带音频源）',
+  src.includes('function syncAudioBridge(frame, running)') && src.includes('syncAudioBridge(frame, d.running === true)'));
+check('「在线歌词」开关默认关（外发请求要用户点头）',
+  src.includes('mediaLyricsOnline: false') && src.includes('mediaLyricsOnline: o.mediaLyricsOnline === true')
+    && src.includes('在线歌词'));
 check('host builds the property seed from project.json + 覆盖值',
   /function buildSeedScript\(entryAbs, token\)/.test(hostSrc) && /parseUserPropDefs\(pj, overrides/.test(hostSrc)
     && /userPropsFor\(token\)/.test(hostSrc));

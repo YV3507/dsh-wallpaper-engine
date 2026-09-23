@@ -111,6 +111,10 @@ Scene 壁纸由本插件内置的 **WebWallGL 实时渲染引擎**（`lib/webwal
      - `GET /wallpaper-engine/media-info/<token>` → 媒体元数据（分辨率 / 编码 / 帧率 / 时长，moov 探测）
      - `GET /wallpaper-engine/transcoded/<token>?fps=N` → 抽帧转码流（ffmpeg 一次性重编码，磁盘缓存）
      - `GET /wallpaper-engine/transcode-progress/<token>?fps=N` → 下载 / 转码进度（进度条轮询）
+     - `GET /wallpaper-engine/media-status` → 媒体后端状态（`backend: bridge|legacy`、音频/媒体两个数据源的 `status`/`hint`、中间件版本与后端名、以及回落原因 `fallback`；排查媒体问题时先看它）
+     - `GET /wallpaper-engine/audio-spectrum` → 64 段频谱（0–255）+ `running`（客户端据此决定要不要把频谱接管给壁纸）
+     - `GET /wallpaper-engine/now-playing` → 当前曲目（歌名/歌手/专辑/专辑艺术家/播放态/进度秒/时长秒/歌词 `[[秒, 文本], …]`/封面路径）
+     - `GET /wallpaper-engine/now-playing/artwork` → 当前封面图片（宿主代理中间件落盘的文件；带内容指纹，换曲即换名）
 - **Client 端**（`lib/client.js`）：一个浏览器模块，拉取壁纸列表，把选中壁纸渲染到应用三列**后方**的固定图层，并在「设置」里注册一个**一级设置页**「Wallpaper Engine」（含液态玻璃卡片、选择弹窗、隐藏/恢复、倍速/翻转、配色/透明度与自定义壁纸管理）。
 - **自定义壁纸存储**：上传的文件写入插件管理的本地目录（默认 `~/.dsh-wallpaper-engine/uploads`，可在设置里改到任意盘符），经同一套 `/media`、`/preview` 路由服务（视频缩略图另走 `/video-preview`）——与 WE 媒体走完全相同的管道，天然跨重启持久、无浏览器配额限制。存储位置同时支持 **WE 项目目录**：子目录里含 `project.json`（`scene.pkg` / `scene.json` / `index.html` / `*.mp4`）即被识别为对应类型的壁纸（场景壁纸可实时渲染），扫描按目录分块异步执行（数百目录约 30ms）；这些目录只读收录，不参与上传管理与「移除」（不会误删你的库）。
 
@@ -414,16 +418,30 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 
 ### 系统音频反应与歌曲信息（Now Playing）
 
-「效果」页签里有两项与系统声音有关的开关（都默认开启）：
+「效果」页签里有两项与系统声音有关的开关（都默认开启），外加一项联网开关（默认关闭）：
 
 | 开关 | 作用 |
 |---|---|
-| **系统音频反应** | 把**系统正在播放的声音**（任何 App，不只是浏览器标签）做成频谱喂给壁纸的音频反应效果。macOS 用 CoreAudio Process Tap（`lib/audio-tap.swift`，首次使用会编译到 `~/.dsh-wallpaper-engine/bin/` 并弹一次「音频录制」授权）；Linux 用 ffmpeg 抓 PulseAudio monitor；Windows 检测 dshow「立体声混音」/ VB-Cable 虚拟设备，没有就引导安装并先回落模拟源 |
-| **媒体信息** | 把系统 **Now Playing**（歌名 / 歌手 / 专辑 / 播放态 / 进度 / **封面**）交给壁纸：依赖 WE 官方 API `wallpaperRegisterMediaPropertiesListener` / `wallpaperRegisterMediaThumbnailListener` / `wallpaperRegisterMediaPlaybackListener`，识别这些 API 的工坊网页壁纸会自动显示歌曲信息与封面 |
+| **系统音频反应** | 把**系统正在播放的声音**（任何 App，不只是浏览器标签）做成频谱喂给壁纸的音频反应效果。采集的是**系统输出回环**，不是麦克风；三平台都内置、都不需要额外安装：macOS 走 CoreAudio、Windows 走 WASAPI 回环（**不再需要「立体声混音」或虚拟声卡**）、Linux 走 PulseAudio/PipeWire。只有 macOS 首次使用会弹一次「音频录制」授权；拿不到音频时壁纸自动回落内置的模拟频谱 |
+| **媒体信息** | 把系统 **Now Playing**（歌名 / 歌手 / 专辑 / 专辑艺术家 / 播放态 / 进度 / 时长 / **封面**）交给壁纸：依赖 WE 官方 API `wallpaperRegisterMediaPropertiesListener` / `wallpaperRegisterMediaThumbnailListener` / `wallpaperRegisterMediaPlaybackListener`（以及 `…TimelineListener`），识别这些 API 的工坊网页壁纸会自动显示歌曲信息与封面 |
+| **在线歌词** | 歌词优先取本地的（音频同目录的 `.lrc`、以及已缓存的歌词）；开启后本地没有才向 [lrclib.net](https://lrclib.net) 查一次 —— 那次请求会把歌名/歌手/专辑发出去，所以**默认关闭** |
 
-> **封面（artwork）从哪来** — macOS 直接取 `media-control` 的 `artworkData`（系统 MediaRemote，**任何播放器都有封面**：Music.app、Spotify、汽水音乐、网易云、浏览器里的音乐页…），Spotify 的 AppleScript 只作为老版本兜底；Linux 取 MPRIS 的 `artUrl`（http(s) 远端地址会先下载到本地缓存）。例行轮询带 `--no-artwork`（省掉每秒几百 KB 的 base64），只有换曲那一拍才取封面。
+> **这些数据是怎么来的** — 宿主侧跑一个自带的 Rust 中间件
+> [media-bridge](https://github.com/oneincase/media-bridge) 的子进程（stdio NDJSON 协议，随插件按需下载、校验 sha256 后执行，缓存在 `~/.dsh-wallpaper-engine/bin/`）：
+> macOS 用 MediaRemote，Windows 用系统媒体会话（GSMTC），Linux 用 MPRIS over D-Bus；系统音频三平台分别是 CoreAudio Process Tap（14.2+）、WASAPI loopback、PulseAudio/PipeWire monitor。
+> 因此**不再需要** `brew install media-control`、`playerctl`、「立体声混音」或 VB-Cable，macOS 也不再需要在你的机器上编译 Swift 小工具（不再依赖 Xcode Command Line Tools）。
+> 中间件取不到或起不来时自动回落到内置实现（旧行为），原因写在 `GET /wallpaper-engine/media-status` 的 `fallback` 字段里。
 >
-> **交付方式是 data URL**：封面在宿主侧降采样到 512² 后转成自包含的 data URL 再交给壁纸 —— 因为插件路由在桌面端被宿主的能力头栅栏保护（跨源沙箱壁纸取不到），而 data URL 不依赖任何源，壁纸还能直接画进 canvas（不受跨源污染限制）。
+> **封面（artwork）** — 由中间件按**内容指纹**落盘（换曲即换名，不重复写盘），宿主用
+> `/wallpaper-engine/now-playing/artwork` 代理给主页面，再由主页面降采样到 512² 转成 **data URL** 交给壁纸：
+> 插件路由在桌面端被宿主的能力头栅栏保护（跨源沙箱壁纸取不到），而 data URL 不依赖任何源，
+> 壁纸还能直接画进 canvas（不受跨源污染限制）。
+>
+> **进度/时长归谁（渲染页侧）** — 内置 WebWallGL 渲染页带一个「演示媒体源」（预览时让壁纸看起来在放歌），
+> 它只在宿主**没有**提供媒体时出场：宿主一旦推来带 `hasMedia` 的媒体快照，源就存档到渲染页的
+> `rt.mediaSource`，属性 / 封面 / 播放态 / 进度 / 时长全部以宿主为准。
+> （旧版渲染页会继续按秒推演示源的假进度，把宿主的进度盖掉 —— 已在 WebWallGL 修掉，
+> 本插件侧的真浏览器端到端会一直守着这条。）
 
 ## 配置
 
@@ -437,6 +455,14 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 | `DSH_WE_FFMPEG_URL` | 替换自动下载源（自建镜像 / 代理加速） |
 | `DSH_WE_CACHE_DIR` | 覆盖缓存根目录（抽帧转码缓存 / 场景静态帧缓存） |
 | `DSH_WE_STEAM_ROOT` | 显式指定 Steam 根目录（逗号/分号分隔，Windows 或 `/mnt` 路径；注册表/自动探测失效时的兜底） |
+| `DSH_WE_MEDIA_BRIDGE` | 指定媒体中间件的可执行文件（开发/自备产物；解析链最高优先） |
+| `DSH_WE_MEDIA_BRIDGE_URL` | 替换中间件下载源（自建镜像 / 代理加速；支持 `{tag}` / `{asset}` 占位符） |
+| `DSH_WE_MEDIA_BRIDGE_TAG` / `DSH_WE_MEDIA_BRIDGE_SHA256` | 换用其它版本的中间件（自定义版本必须同时给出 sha256，否则拒绝执行） |
+| `DSH_WE_MEDIA_LEGACY` | `=1` 强制使用内置实现（对比排查用） |
+| `DSH_WE_MEDIA_NO_AUDIO` | `=1` 只取歌曲信息、**永不碰系统音频采集**（不申请授权） |
+| `DSH_WE_MEDIA_PROVIDER` | `=mock` 用中间件自带的假播放器联调（不需要真播放器） |
+| `DSH_WE_MEDIA_IDLE_MS` | 空闲多少毫秒后停掉中间件子进程（`0` = 不停；默认 15 分钟） |
+| `DSH_WE_MEDIA_DEBUG` | `=1` 把中间件的 stderr 与启动参数打到宿主日志 |
 
 ## 与 dsh-better-sidebar 的兼容适配
 

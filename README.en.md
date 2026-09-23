@@ -121,10 +121,10 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe
 
 > **Known web-wallpaper limits**: author `fetch`/`XHR` carries `Origin: null` under
 > the opaque origin (the host answers with `Access-Control-Allow-Origin: *`, so
-> ordinary resources load); `wallpaperMediaIntegration` (system Now Playing) has no
-> data source here, so those pages stay on their own static state; CSS `:hover`
-> interaction driven by the browser's own hit-test cannot be triggered by external
-> pointer injection (as documented upstream).
+> ordinary resources load); `wallpaperMediaIntegration` (system Now Playing / cover
+> art) **is** supplied by the host — see "System-audio reaction and Now Playing"
+> below; CSS `:hover` interaction driven by the browser's own hit-test cannot be
+> triggered by external pointer injection (as documented upstream).
 
 ### System-audio reaction and Now Playing (song info + cover art)
 
@@ -132,22 +132,33 @@ Two switches in the「效果」tab (both on by default):
 
 | Switch | What it does |
 |---|---|
-| **系统音频反应** | Feeds a spectrum of **whatever the system is playing** (any app) to the wallpaper's audio-reactive effects. macOS uses a CoreAudio Process Tap (`lib/audio-tap.swift`, compiled on first use into `~/.dsh-wallpaper-engine/bin/`, one "audio recording" permission prompt); Linux taps the PulseAudio monitor via ffmpeg; Windows probes dshow "Stereo Mix" / VB-Cable, guides installation and falls back to the simulated source |
-| **媒体信息** | Hands the system **Now Playing** (title / artist / album / playback / timeline / **cover art**) to the wallpaper through the official WE APIs `wallpaperRegisterMediaPropertiesListener` / `wallpaperRegisterMediaThumbnailListener` / `wallpaperRegisterMediaPlaybackListener` — workshop web wallpapers that use them show song info and cover art automatically |
+| **系统音频反应** | Feeds a spectrum of **whatever the system is playing** (any app) to the wallpaper's audio-reactive effects. It is the system-output **loopback**, not the microphone, and it is built in on all three platforms — no extra installs: CoreAudio on macOS, WASAPI loopback on Windows (**no "Stereo Mix" or virtual sound card needed**), PulseAudio/PipeWire on Linux. Only macOS asks once for "audio recording" permission on first use; when no audio can be captured the wallpaper falls back to its built-in simulated spectrum |
+| **媒体信息** | Hands the system **Now Playing** (title / artist / album / album artist / playback / timeline / **cover art**) to the wallpaper through the official WE APIs `wallpaperRegisterMediaPropertiesListener` / `wallpaperRegisterMediaThumbnailListener` / `wallpaperRegisterMediaPlaybackListener` (plus `…TimelineListener`) |
+| **在线歌词** | Lyrics come from local sources first (a `.lrc` next to the audio file, or an already-cached copy); when enabled, a missing lyric triggers one query to [lrclib.net](https://lrclib.net) — that request sends title/artist/album, hence **off by default** |
 
-> **Where the cover art comes from**: on macOS it is read straight from `media-control`'s
-> `artworkData` (system MediaRemote, so **every player** has it — Music.app, Spotify,
-> 汽水音乐, 网易云, music pages in a browser…), with the Spotify AppleScript kept only as
-> a fallback for older versions; on Linux it comes from MPRIS `artUrl` (remote http(s)
-> URLs are downloaded into a local cache first). The routine poll uses `--no-artwork`
-> (saving a few hundred KB of base64 every second); artwork is fetched only when the
-> track changes.
+> **Where this data comes from**: the host runs a bundled Rust middleware,
+> [media-bridge](https://github.com/oneincase/media-bridge), as a child process (stdio NDJSON;
+> downloaded on first use, sha256-verified, cached under `~/.dsh-wallpaper-engine/bin/`) —
+> MediaRemote on macOS, the system media session (GSMTC) on Windows, MPRIS over D-Bus on Linux;
+> system audio comes from a CoreAudio Process Tap (14.2+), WASAPI loopback and PulseAudio/PipeWire
+> monitors respectively. So `brew install media-control`, `playerctl`, "Stereo Mix"/VB-Cable and
+> even compiling a Swift helper on your machine (Xcode Command Line Tools) are all no longer needed.
+> When the middleware cannot be fetched or started, the plugin falls back to its built-in
+> implementation and reports the reason in `GET /wallpaper-engine/media-status` (`fallback`).
 >
-> **Delivery is a data URL**: the host downscales the cover to 512² and converts it to a
-> self-contained data URL before handing it to the wallpaper — plugin routes are fenced
-> by the host capability gate on Desktop (a cross-origin sandboxed wallpaper cannot fetch
-> them), while a data URL depends on no origin at all and can even be drawn into a canvas
-> without tainting it.
+> **Cover art**: written by the middleware under a content-fingerprinted name (a new file per
+> track), proxied by the host at `/wallpaper-engine/now-playing/artwork`, then downscaled to 512²
+> and converted to a **self-contained data URL** before it reaches the wallpaper — plugin routes
+> are fenced by the host capability gate on Desktop (a cross-origin sandboxed wallpaper cannot
+> fetch them), while a data URL depends on no origin and can be drawn into a canvas untainted.
+>
+> **Who owns the timeline (renderer side)**: the bundled WebWallGL page ships a demo media
+> source (so previews look alive) that only steps in when the host provides **no** media.
+> As soon as the host pushes a snapshot with `hasMedia`, that source is stored on the
+> renderer's `rt.mediaSource` and properties / thumbnail / playback / position / duration
+> all follow the host. (Older renderer builds kept pushing the demo source's fake progress
+> once per second and overwrote the host's timeline — fixed in WebWallGL, and the plugin's
+> real-browser end-to-end test now guards it.)
 
 ### Static-frame fallback: how it works
 
@@ -641,6 +652,14 @@ files** (in the directory you chose) and `~/.dsh-wallpaper-engine/config.json`
 | `DSH_WE_FFMPEG_URL` | replaces the auto-download source (self-hosted mirror / proxy) |
 | `DSH_WE_CACHE_DIR` | overrides the cache root (transcode cache / scene-frame cache) |
 | `DSH_WE_STEAM_ROOT` | explicit Steam root(s) (comma/semicolon separated, Windows or /mnt paths; fallback when registry/auto-detection misses) |
+| `DSH_WE_MEDIA_BRIDGE` | explicit media-middleware executable (dev/self-built artifact; highest priority) |
+| `DSH_WE_MEDIA_BRIDGE_URL` | replaces the middleware download source (`{tag}` / `{asset}` placeholders supported) |
+| `DSH_WE_MEDIA_BRIDGE_TAG` / `DSH_WE_MEDIA_BRIDGE_SHA256` | use another middleware version (an unpinned tag is refused unless you supply its sha256) |
+| `DSH_WE_MEDIA_LEGACY` | `=1` forces the built-in implementation (for A/B debugging) |
+| `DSH_WE_MEDIA_NO_AUDIO` | `=1` metadata only — never touches system audio capture (no permission prompt) |
+| `DSH_WE_MEDIA_PROVIDER` | `=mock` runs the middleware's built-in fake player (no real player needed) |
+| `DSH_WE_MEDIA_IDLE_MS` | idle ms before the middleware child is stopped (`0` = never; default 15 min) |
+| `DSH_WE_MEDIA_DEBUG` | `=1` logs the middleware's stderr and spawn arguments |
 
 ## dsh-better-sidebar compatibility
 

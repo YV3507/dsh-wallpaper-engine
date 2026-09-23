@@ -37,6 +37,10 @@ process.env.DSH_WE_UPLOAD_DIR = join(TEST_ROOT, 'uploads');
 const DIAG_FILE = join(process.env.HOME || '', '.dsh-wallpaper-engine', 'diag', 'http.jsonl');
 const DEBUG = process.env.E2E_DEBUG === '1';   // 打印迷你 host 的每条请求与本次新增的全部诊断行
 const MARKER = 'E2E-WEB-' + process.pid;
+// 媒体后端用中间件自带的假播放器：**不需要真播放器、也不会弹「音频录制」授权**
+//（DSH_WE_MEDIA_NO_AUDIO=1 让宿主只取元数据、永不碰系统音频采集）。
+process.env.DSH_WE_MEDIA_PROVIDER = 'mock';
+process.env.DSH_WE_MEDIA_NO_AUDIO = '1';
 
 let passed = 0;
 let failed = 0;
@@ -116,12 +120,15 @@ writeFileSync(join(webDir, 'index.html'), [
   '<style>html,body{margin:0;background:#123}</style></head><body>',
   '<script>',
   '  window.__e2e = { propsCalls: 0, fps: null, vol: null, keys: [], frames: 0,',
-  '                  mediaTitle: "", mediaThumb: "", mediaImg: "none", mediaState: null };',
+  '                  mediaTitle: "", mediaThumb: "", mediaImg: "none", mediaState: null,',
+  '                  mediaAA: "", mtlPos: null, mtlDur: null };',
   // 媒体三件套（WE 官方 API）：属性 / 封面 / 播放态。封面不仅看字符串，
   // 还真的 new Image() 加载一次 —— 「data URL 到位」与「能显示」是两回事。
   '  if (window.wallpaperRegisterMediaPropertiesListener) {',
   '    window.wallpaperRegisterMediaPropertiesListener(function (e) {',
   '      window.__e2e.mediaTitle = ((e && e.title) || "").replace(/\\s+/g, "_");',
+  // albumArtist：中间件才有的字段（旧实现不给），壁纸要能收到
+  '      window.__e2e.mediaAA = ((e && e.albumArtist) || "").replace(/\\s+/g, "_");',
   '    });',
   '  }',
   '  if (window.wallpaperRegisterMediaThumbnailListener) {',
@@ -139,6 +146,14 @@ writeFileSync(join(webDir, 'index.html'), [
   '  if (window.wallpaperRegisterMediaPlaybackListener) {',
   '    window.wallpaperRegisterMediaPlaybackListener(function (e) {',
   '      window.__e2e.mediaState = e && e.state;',
+  '    });',
+  '  }',
+  // 时间轴：进度/时长。旧实现在 Linux 上给不出这两个值（playerctl 那路没有），
+  // 换成中间件后三平台都有 —— 所以这条断言同时守着「字段真的送到了」。
+  '  if (window.wallpaperRegisterMediaTimelineListener) {',
+  '    window.wallpaperRegisterMediaTimelineListener(function (e) {',
+  '      window.__e2e.mtlPos = Math.round(((e && e.position) || 0) * 10) / 10;',
+  '      window.__e2e.mtlDur = Math.round(((e && e.duration) || 0) * 10) / 10;',
   '    });',
   '  }',
   '  window.wallpaperPropertyListener = {',
@@ -176,6 +191,7 @@ writeFileSync(join(webDir, 'index.html'), [
   '      + " frames=" + e.frames + " keys=" + e.keys.join(",")',
   '      + " p50=" + pct(e.iv, 0.5) + " p95=" + pct(e.iv, 0.95) + " n=" + e.iv.length',
   '      + " media=" + e.mediaTitle + " thumb=" + e.mediaThumb.length',
+  '      + " aa=" + e.mediaAA + " mtl=" + e.mtlPos + "," + e.mtlDur',
   '      + " img=" + e.mediaImg + " mstate=" + e.mediaState',
   '      + " prop0=" + (e.color0 || ""));',
   '  }',
@@ -213,8 +229,11 @@ wrapperHtml = `<!doctype html><html><head><meta charset="utf-8"><title>e2e host<
   + `try{st=wp&&wp.getState?wp.getState():null;}catch(e){}`
   + `if(st&&st.iframeLoaded){clearInterval(timer);`
   + `var pushErr='';`
+  // 推的字段对齐 client 的真实 wire：albumArtist + 歌词（[[秒,文本]]）+ 进度。
+  // 歌词放在 0s 与 8s 两行、position=5（渲染页只认这种元组，自己按 position 取当前行）。
   + `try{wp.setMedia({hasMedia:true,title:'E2E Song',artist:'E2E Artist',album:'E2E Album',`
-  + `playing:true,state:1,position:5,duration:100,thumbnail:${JSON.stringify(THUMB_DATA_URL)}});}catch(e){pushErr=String(e&&e.message||e);}`
+  + `albumArtist:'E2E AlbumArtist',playing:true,state:1,position:5,duration:100,`
+  + `lyrics:[[0,'line1'],[8,'line2']],thumbnail:${JSON.stringify(THUMB_DATA_URL)}});}catch(e){pushErr=String(e&&e.message||e);}`
   + `(function(){var im=new Image();im.src='${APP}/wallpaper-engine/diag?msg='+encodeURIComponent('${MARKER} SETMEDIA push='+(pushErr?('err:'+pushErr):'ok')+' hasFn='+(typeof wp.setMedia)+' type='+(st.type||''));})();`
   + `setTimeout(function(){try{wp.updateWebProps({color0:{value:'0 1 0'}});}catch(e){}},1200);return;}`
   + `if(tries>60)clearInterval(timer);},250);`
@@ -273,6 +292,56 @@ wrapperHtml = `<!doctype html><html><head><meta charset="utf-8"><title>e2e host<
   + `+' titleCenter='+(d.titleAlign==='center'?1:0)+' wideTitleAlign='+w.titleAlign);`
   + `},1500);`
   + `</script></body></html>`;
+
+// ── 宿主媒体路由：mock 播放器 + 不碰系统音频 ────────────────────────────────
+// 走真实 HTTP 打宿主自己的四条路由，把「中间件 → 门面 → 路由映射」这一半端到端
+// 验掉（另一半「client → 渲染页 → 壁纸」在下面的浏览器部分）。
+console.log('');
+console.log('· 宿主媒体路由（mock 播放器，不碰系统音频）');
+let mstat = null;
+for (let i = 0; i < 80; i++) {
+  const r = await fetch(`${APP}/wallpaper-engine/media-status`, { cache: 'no-store' });
+  mstat = await r.json();
+  if (mstat && mstat.nowPlaying && mstat.nowPlaying.status === 'running') break;
+  await new Promise((res) => setTimeout(res, 250));
+}
+check('媒体后端走中间件（backend=bridge，没有回落）',
+  Boolean(mstat) && mstat.ok === true && mstat.backend === 'bridge' && !mstat.fallback,
+  mstat ? `backend=${mstat.backend} fallback=${mstat.fallback || '-'} note=${mstat.note || '-'}` : '无响应');
+check('音频未启用时状态明确为 off（不申请授权、不装音频桥）',
+  Boolean(mstat && mstat.audio) && mstat.audio.status === 'off',
+  mstat && mstat.audio ? mstat.audio.status : '?');
+check('中间件版本/后端可查（排查时能一眼看出跑的是哪个产物）',
+  Boolean(mstat && mstat.bridge) && mstat.bridge.version === '0.1.4' && mstat.bridge.protocol === 1,
+  mstat && mstat.bridge ? `${mstat.bridge.version} ${mstat.bridge.provider}` : '?');
+
+const npRes = await fetch(`${APP}/wallpaper-engine/now-playing`, { cache: 'no-store' });
+const npj = await npRes.json();
+const m = (npj && npj.media) || null;
+check('now-playing 给出曲目 + 时长（秒，不是毫秒）',
+  Boolean(m) && m.title === '示例曲目' && m.albumArtist === '示例歌手'
+    && m.duration > 10 && m.duration < 10000 && m.playing === true && m.state === 1,
+  m ? `${m.title}/${m.artist} dur=${m.duration}s state=${m.state}` : 'null');
+check('进度按真实时间外推（不是卡在上报值）', await (async () => {
+  if (!m) return false;
+  const before = m.position;
+  await new Promise((res) => setTimeout(res, 1200));
+  const again = await (await fetch(`${APP}/wallpaper-engine/now-playing`, { cache: 'no-store' })).json();
+  const after = again && again.media ? again.media.position : 0;
+  return after > before;
+})(), m ? '两次读取比较（1.2s 间隔）' : '-');
+check('封面存在时给宿主代理路径 + hasArtwork', Boolean(m && m.thumbnail) === Boolean(npj.hasArtwork),
+  m && m.thumbnail ? String(m.thumbnail) : '（无封面）');
+const artUrl = m && m.thumbnail ? APP + m.thumbnail : '';
+const artRes = artUrl ? await fetch(artUrl, { cache: 'no-store' }) : null;
+check('封面路由直接给图片（宿主代理中间件落盘的封面文件）',
+  Boolean(artRes) && artRes.status === 200 && /^image\//.test(String(artRes.headers.get('content-type') || '')),
+  artRes ? `${artRes.status} ${artRes.headers.get('content-type')}` : '无封面 URL');
+const spRes = await fetch(`${APP}/wallpaper-engine/audio-spectrum`, { cache: 'no-store' });
+const spj = await spRes.json();
+check('频谱恒 64 段 + running=false（客户端据此不装音频桥）',
+  spj && spj.ok === true && Array.isArray(spj.bands) && spj.bands.length === 64 && spj.running === false,
+  spj ? `bands=${(spj.bands || []).length} running=${spj.running}` : '无响应');
 
 // ── 起浏览器（Chromium 系；Edge 兜底）──────────────────────────────────────
 const NAV_URL = APP + '/e2e/host.html';
@@ -359,6 +428,24 @@ check('帧间隔均匀（无定时器抖动）', p50 > 0 && (p95 - p50) <= 25,
 // 沙箱壁纸取不到（能力头栅栏），所以 client 转成 data URL 再推。
 check('媒体属性到达壁纸（title）', g('media') === 'E2E_Song', 'media=' + (g('media') || '?'));
 check('播放态到达壁纸', g('mstate') === '1', 'mstate=' + (g('mstate') || '?'));
+// 新字段（中间件带来的）：albumArtist 走 properties、进度/时长走 timeline。
+// 注意：渲染页自带一个「模拟媒体源」（WebWallGL 的演示播放列表，第一首时长 212s），
+// 它也在推 timeline —— 所以断言在全部信标里找**宿主推的那组值**，而不是取最后一条
+//（最后一条可能是模拟源的）。宿主该赢的地方是 properties/thumbnail/playback。
+check('albumArtist 到达壁纸（中间件新增字段）', g('aa') === 'E2E_AlbumArtist', 'aa=' + (g('aa') || '?'));
+// 时间轴（进度/时长）：`op:"timeline"` → wallpaperRegisterMediaTimelineListener 这条
+// 通道要通，**而且必须是宿主推的那组值**（旧实现的 Linux 路径根本给不出这两个值，
+// 中间件三平台都给）。
+// 这里同时守着一条修好的渲染页回归：渲染页自带「演示媒体源」（createSimulatedMedia，
+// 首曲时长 212s），此前它按秒推自己的 timeline 把宿主的进度盖掉（实测序列
+// 1,212 → 3.1,212 → 6.1,212）；WebWallGL 侧已修（宿主 wire 存档到 rt.mediaSource +
+// 与媒体泵共用 diff 记录），所以现在必须一路都是宿主的 5,100。
+const mtlSeen = beacons
+  .map((b) => (/(?:^|\s)mtl=([^\s]+)/.exec(String(b.msg || '')) || [])[1] || '')
+  .filter(Boolean);
+check('进度/时长到达壁纸，且归宿主（不再被演示源覆盖）',
+  mtlSeen.length > 0 && mtlSeen.every((v) => v === '5,100'),
+  `mtl 序列: ${mtlSeen.join(' → ') || '无'}`);
 // 卡片布局（用户口径：抽屉里名称放顶层第一行、右边两个按钮上下排列、间距 8px）
 const layoutLine = (() => {
   for (const d of mine) {

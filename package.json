@@ -45,6 +45,10 @@
     "lib/scene-scripts.js",
     "lib/scene-manifest.js",
     "lib/scene-player.js",
+    "lib/media/",
+    "lib/webwallgl/",
+    "lib/we-props.js",
+    "lib/audio-tap.swift",
     "lib/types/index.d.ts",
     "lib/types/client.d.ts",
     "cordis.patch.yml",
@@ -66,7 +70,8 @@
   "license": "MIT",
   "scripts": {
     "build": "node scripts/build-client.mjs",
-    "verify": "node scripts/verify-client.mjs && node scripts/verify-transcode-state.mjs && node scripts/verify-playback-controls.mjs && node scripts/verify-scene-live.mjs",
+    "verify": "node scripts/verify-client.mjs && node scripts/verify-transcode-state.mjs && node scripts/verify-playback-controls.mjs && node scripts/verify-scene-live.mjs && node scripts/verify-media-bridge.mjs",
+    "verify:bridge": "node scripts/verify-media-bridge.mjs --provision",
     "prepare": "node scripts/prepare.mjs",
     "verify:e2e": "node scripts/e2e-web-media-origin.mjs"
   },

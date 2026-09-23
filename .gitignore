@@ -45,3 +45,5 @@ scene-layers-out/
 
 # 临时预览/诊断脚本 (本地 QA 用, 不入库)
 /scripts/.tmp-*
+.DS_Store
+**/.DS_Store
