@@ -386,7 +386,7 @@ const okResult = (servedFrom) => async () => ({ fileAbs: '/x/' + servedFrom + '.
       && /variant === 1 \|\| variant === 2/.test(idx)
       && !/variant === 6/.test(idx);
     // 三级级联：实时渲染没在生效（父关 / 该壁纸已自动降级）→ 出现子「静态帧渲染」；
-    // 子打开 → 才出现「静态帧兜底（回退）」组（出图来源 + 调优项都在其中）。
+    // 子打开 → 才出现「静态帧兜底与调优」组（出图来源 + 调优项都在其中）。
     const cascade = /&& !liveRenderEnabled\(sel\)[\s\S]{0,60}switchRow\("静态帧渲染", sel\.sceneFrameRender !== false/.test(cli)
       && /sel\.sceneFrameRender !== false\s*\n\s*&& React\.createElement\("div", \{ className: "we-picker__section" \}/.test(cli)
       && /frameRenderOff \? \(hasCustom \? CUSTOM_FRAME_ID : 3\) : savedVariant/.test(cli)
@@ -397,6 +397,44 @@ const okResult = (servedFrom) => async () => ({ fileAbs: '/x/' + servedFrom + '.
       'ids=[' + ids.join(',') + '] unique=' + uniq + ' customLast=' + customLast
         + ' clientUsesId=' + usesId + ' host=' + hostOk + ' statusShort=' + statusShort
         + ' cascade=' + cascade);
+
+    // ── R38b 分组标题与行序（信息架构, 不是功能）────────────────────────────
+    // 本组横跨两条轴：**来源/回退**（出图来源）与**调优**（有损/预热/GPU 加速）。两条
+    // 断言把这次的整理固定下来：
+    //  ①标题**只占一行** —— 原「调优项」那行不是开关、不承载任何值, 纯粹给下面的行加
+    //    语义前缀, 已并进标题行右侧的 `.we-picker__hint` 说明；标题写"兜底与调优"是因为
+    //    出图来源**不属于调优**（它不拿观感换速度）, 只叫"调优项"会误导。
+    //  ②行序：**出图来源必须是本组第一个控件**（来源在前、调优在后）—— 画面不对时第一
+    //    反应是换来源；若某个 switchRow 被插到它前面, 用户会先撞上速度旋钮。
+    // 两条都带负对照：把标题改回旧名、把「调优项」行加回来、以及把一个 switchRow 插到
+    // 出图来源之前, 必须分别被抓到。
+    const SCOPE_HINT = 'React.createElement("span", { className: "we-picker__hint" }, "只作用于上面的静态帧渲染")';
+    // ⚠️ 正则里的 `" \)` 不能写成 `" \)` 带空格 —— 构建产物里是 `..."静态帧兜底与调优"),`
+    // （右括号紧贴引号）。第一版多写了一个空格, 正例恒 false, 而负对照照样"全抓到"
+    // （因为恒 false 时任何变体都 false）—— 那种负对照是空的, 必须靠正例为真才有意义。
+    const groupHead = (t) => /we-picker__section-label" \}, "静态帧兜底与调优"\)[\s\S]{0,200}?we-picker__hint" \}, "只作用于上面的静态帧渲染"\)/.test(t)
+      && !/ctlText\("调优项"/.test(t);
+    const srcFirst = (t) => {
+      const i = t.indexOf('"静态帧兜底与调优"');
+      const j = t.indexOf('ctlText("出图来源"');
+      if (i < 0 || j < 0 || j < i) return false;
+      return !/switchRow\(/.test(t.slice(i, j)); // 两者之间不得出现任何开关行
+    };
+    const headMutations = [
+      cli.replace('"静态帧兜底与调优"', '"静态帧兜底（回退）"'),
+      cli.replace(SCOPE_HINT, 'ctlText("调优项", "只作用于上面的静态帧渲染")'),
+    ];
+    const headCaught = headMutations.filter((t) => t !== cli && !groupHead(t)).length;
+    const orderMutations = [
+      cli.replace('ctlText("出图来源"', 'switchRow("GPU 渲染加速", false, () => {}, { key: "x" }),\n          ctlText("出图来源"'),
+    ];
+    const orderCaught = orderMutations.filter((t) => t !== cli && !srcFirst(t)).length;
+    check('R38b 组标题只占一行（「调优项」占位行已并进标题）+ 出图来源是本组第一个控件（来源在前、调优在后）',
+      groupHead(cli) && srcFirst(cli)
+      && headCaught === headMutations.length && orderCaught === orderMutations.length,
+      'head=' + groupHead(cli) + ' srcFirst=' + srcFirst(cli)
+        + ' 负对照: 标题 ' + headCaught + '/' + headMutations.length
+        + ' · 行序 ' + orderCaught + '/' + orderMutations.length);
   }
 
   // ── R39 渲染 worker 冒烟: 代码级错误必须立刻暴露 ────────────────────────────
