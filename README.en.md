@@ -35,7 +35,7 @@ Wallpaper Engine wallpapers come in four types:
 |---|---|---|
 | **Scene** | Wallpaper Engine's own 3D engine | ✅ Full-scene frame — a pure-JS scene renderer (object tree / textures / particles / shader effects), see below |
 | **Video** | a plain `.mp4` file | ✅ Yes — plays in a `<video>` tag |
-| **Web** | a Chromium (`webwallpaper64.exe`) host for HTML | ✅ Yes — loads in an `<iframe>` |
+| **Web** | a Chromium (`webwallpaper64.exe`) host for HTML | ✅ Yes — loads in an `<iframe>` (multi-file apps' sub-resources go through a dedicated route, see below) |
 | **Image** | — (this plugin's custom upload) | ✅ Yes — upload local JPG / PNG as a wallpaper |
 | **Application** | an injected external window | ❌ No |
 
@@ -460,6 +460,14 @@ near-opaque fill:
   auto-disables and wallpapers keep playing the original — nothing else is affected.
 - **Occlusion pause applies to video wallpapers only**: web (iframe) wallpapers
   cannot be paused from outside and are only throttled by the browser when hidden.
+- **A Web wallpaper's resource root is the entry HTML's own directory**: relative
+  references of a multi-file HTML app (`main.js` / `./js/x.js` / `images/*`,
+  including `<base href=".">`) all load; **root-absolute** references
+  (`/assets/x.js`) and references that climb **above the project directory**
+  (`../shared/x.js`) fall outside that model — the browser normalises them into
+  DSH's own path space and the host cannot recover them without rewriting the
+  HTML. The official default web wallpapers (CORSAIR Collection /
+  Corsair-O-Tron) are unaffected.
 - The picker is English/Chinese mixed (this bundle is not yet wired into DSH's
   locale namespaces).
 

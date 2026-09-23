@@ -35,7 +35,7 @@ Wallpaper Engine 的壁纸分四种类型（外加本插件的自定义上传）
 |---|---|---|
 | **Scene（场景）** | Wallpaper Engine 自带的 3D 引擎 | ✅ 完整场景帧 — 纯 JS 场景渲染器（对象树/纹理/粒子/shader 效果），见下方说明 |
 | **Video（视频）** | 普通 `.mp4` 文件 | ✅ 可以 — `<video>` 标签硬件解码播放（Edge 走 canvas 渲染规避悬浮工具栏），支持倍速 / 水平翻转 / 遮挡暂停 / 帧率上限 |
-| **Web（网页）** | Chromium 宿主（`webwallpaper64.exe`） | ✅ 可以 — `<iframe>` 加载 |
+| **Web（网页）** | Chromium 宿主（`webwallpaper64.exe`） | ✅ 可以 — `<iframe>` 加载（多文件 HTML 应用的子资源走专用路由，见下） |
 | **Image（图片）** | —（本插件自定义上传功能） | ✅ 可以 — 上传本地 JPG / PNG 直接当壁纸 |
 | **Application（应用）** | 注入的外部窗口 | ❌ 不可以 — 无法内嵌网页 |
 
@@ -324,6 +324,7 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 - 媒体从你本机的 Wallpaper Engine 安装路径提供；host 只提供它已枚举过的文件，不会暴露任意文件系统。自定义上传的文件同样只存在于本机，不上传任何服务器。
 - **抽帧转码依赖 ffmpeg 与 NVIDIA NVENC**（`av1_nvenc` → `h264_nvenc` 回退）：无 ffmpeg（含自动下载不可用，如 musl/Alpine 等未覆盖平台）或无 NVIDIA 显卡时，帧率上限功能自动关闭，壁纸保持原片播放，不影响其它任何功能。
 - **遮挡暂停仅对视频壁纸生效**：网页（iframe）壁纸无法从外部暂停，只能随页面隐藏被浏览器节流。
+- **网页（Web）壁纸的资源根 = 入口 HTML 所在目录**：多文件 HTML 应用的相对引用（`main.js` / `./js/x.js` / `images/*`，含 `<base href=".">` 这类写法）都能正常加载；但**根绝对路径**（`/assets/x.js`）与**向上越出项目目录**的引用（`../shared/x.js`）不在此模型内 —— 浏览器会把它们归一化到 DSH 自己的路径空间，服务端不靠改写 HTML 兜不住。实测官方默认网页壁纸（CORSAIR Collection / Corsair-O-Tron）不受影响。
 - 选择器文案为中英混合（本 bundle 尚未接入 DSH 的 locale 命名空间）。
 
 ## 开发 / 重建

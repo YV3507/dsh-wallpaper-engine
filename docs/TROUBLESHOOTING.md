@@ -57,6 +57,7 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 |---|---|
 | 选择壁纸弹窗是空的 | WE 是否装好并下载过壁纸；重启一次 `dsh web`（详见 [`../README.beginner.md`](../README.beginner.md) FAQ 1） |
 | 视频壁纸黑屏 / 冻在首帧 | 卡片上的播放按钮与提示文案：显示「播放」即未真正播放，点它重试；提示无法解码则换 **H.264** 编码的 MP4 |
+| 网页（Web）壁纸一片空白 / 只剩底色 | 该壁纸是多文件 HTML 应用，入口里的相对资源必须经 `/wallpaper-engine/web/<token>/…` 取回。**先刷新页面**；仍是空白就重启一次 `dsh web`（宿主端路由在插件加载时注册）。若重启后仍空白，用 DevTools 看 Network：子资源应当 200，出现 404/403 请附上该请求路径反馈 |
 | 自己上传的壁纸看不到 | 弹窗上方的**内容分级**筛选（默认 Everyone；未标注分级的自上传内容按 Everyone 处理） |
 | 场景壁纸是静止画面 | 预期行为：场景渲染器输出的是完整场景**静态帧**；渲染失败会回退主纹理 / 工坊预览图（见 [`HOW-IT-WORKS.md`](./HOW-IT-WORKS.md)） |
 | 帧率上限没效果 | 需要 ffmpeg 与 NVIDIA NVENC；无 ffmpeg / 无 N 卡时该功能自动关闭（见 `../README.md` 的「已知限制」） |
@@ -121,6 +122,7 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 |---|---|
 | The wallpaper picker is empty | Wallpaper Engine installed with at least one wallpaper; restart `dsh web` (see [`../README.beginner.md`](../README.beginner.md), FAQ 1 — Chinese) |
 | Video wallpaper is black / frozen | The card's play button and message: 「播放」 means it is not actually playing — click to retry; an "cannot decode" hint means re-export as **H.264** MP4 |
+| A Web (HTML) wallpaper shows nothing but the page background | It is a multi-file HTML app; its entry's relative assets must come from `/wallpaper-engine/web/<token>/…`. **Refresh the page first**; if it is still blank, restart `dsh web` once (the host route is registered when the plugin loads). If it is still blank after that, check DevTools → Network: sub-resources should be 200 — report the failing request path if you see 404/403 |
 | A custom upload is not visible | The **content rating** filter above the grid (defaults to Everyone; unrated uploads count as Everyone) |
 | Scene wallpaper shows a still image | Expected: the renderer outputs a full-scene **static frame**; failures fall back to the main texture / workshop preview (see [`HOW-IT-WORKS.md`](./HOW-IT-WORKS.md)) |
 | The frame-rate cap does nothing | It needs ffmpeg + NVIDIA NVENC; without either, the feature disables itself (see 「Limitations」 in `../README.en.md`) |
