@@ -364,7 +364,20 @@ const okResult = (servedFrom) => async () => ({ fileAbs: '/x/' + servedFrom + '.
   {
     const ids = [...cli.matchAll(/\{\s*id:\s*(\d+),\s*label:/g)].map((m) => Number(m[1]));
     const uniq = new Set(ids).size === ids.length;
-    const customLast = /id:\s*4,\s*label:\s*"自定义画面"\s*\},?\s*\];/.test(cli);
+    // 「自定义画面」末尾判定允许带 short 字段（short 只是状态行的短名, 不参与排序语义）。
+    const customLast = /id:\s*4,\s*label:\s*"自定义画面",\s*short:\s*"[^"]+"\s*\},?\s*\];/.test(cli);
+    // 状态行（「出图来源」按钮右侧那枚胶囊）**必须短**：旧格式把档名全塞进去
+    //（「第 N/M 档 · 自动（逐级回退 · 当前：完整渲染） · 共 3 种」）, 而该行是
+    // justify-content: space-between 且右侧 flex: 0 0 auto —— 胶囊一长就把左侧
+    // 「出图来源」标题挤成省略号。故断死：只许 `N/M 档  当前：<短名>`。
+    // ⚠️ 负向断言只咬**带引号的字符串字面量**（`" 档 · "` / `" · 共 "`）——
+    // 源码注释里正当地引用了旧格式做对照, 若直接搜裸文本会咬到注释而假失败。
+    const statusShort = /\+ "\/" \+ total \+ " 档  当前：" \+ short/.test(cli)
+      && !/" 档 · "/.test(cli)
+      && !/" · 共 "/.test(cli)
+      && /sceneFrameSource === "maintexture" \? "主纹理近似" : "完整渲染"/.test(cli)
+      && /id:\s*1,[^}]*short:\s*"单张大图"/.test(cli)
+      && /id:\s*2,[^}]*short:\s*"内嵌 JPEG\/PNG"/.test(cli);
     const usesId = /FRAME_VARIANTS\[\(curIdx \+ 1\) % total\]\.id/.test(cli)
       && /map\[wid\] = CUSTOM_FRAME_ID/.test(cli);
     const hostOk = /vParsed >= 1 && vParsed <= 4/.test(idx)
@@ -379,10 +392,11 @@ const okResult = (servedFrom) => async () => ({ fileAbs: '/x/' + servedFrom + '.
       && /frameRenderOff \? \(hasCustom \? CUSTOM_FRAME_ID : 3\) : savedVariant/.test(cli)
       && /sceneFrameRender: o\.sceneFrameRender !== false/.test(idx)
       && /st\.scenePrewarm === true && st\.sceneFrameRender !== false/.test(idx);
-    check('R38 出图来源档位 + 三级级联: 档位恰好 [0,1,2,4]（不含链上已有的 合成/预览图）/ 自定义档在末尾 / 宿主只认 1..4；实时渲染未生效 且 静态帧渲染开 才出现兜底组',
-      ids.join(',') === '0,1,2,4' && uniq && customLast && usesId && hostOk && cascade,
+    check('R38 出图来源档位 + 三级级联: 档位恰好 [0,1,2,4]（不含链上已有的 合成/预览图）/ 自定义档在末尾 / 宿主只认 1..4 / 状态行保持短格式（不挤掉左侧标题）；实时渲染未生效 且 静态帧渲染开 才出现兜底组',
+      ids.join(',') === '0,1,2,4' && uniq && customLast && usesId && hostOk && statusShort && cascade,
       'ids=[' + ids.join(',') + '] unique=' + uniq + ' customLast=' + customLast
-        + ' clientUsesId=' + usesId + ' host=' + hostOk + ' cascade=' + cascade);
+        + ' clientUsesId=' + usesId + ' host=' + hostOk + ' statusShort=' + statusShort
+        + ' cascade=' + cascade);
   }
 
   // ── R39 渲染 worker 冒烟: 代码级错误必须立刻暴露 ────────────────────────────
