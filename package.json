@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-wallpaper-engine",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "description": "Wallpaper Engine backgrounds for the DSH web GUI: render your local Wallpaper Engine Video/Web wallpapers behind the chat, Scene wallpapers as extracted static frames, with iOS-style liquid glass, adjustable scrim/border/blur, and a customizable accent color + glass transparency for the whole settings window. Prerequisites (update BOTH first): latest DeepSeek Harness (0.1.5-rc.1+ / DSH Desktop >= 2.0.7) and dsh-better-sidebar >= 0.19.0.",
   "type": "module",
   "main": "lib/index.js",
@@ -41,6 +41,7 @@
     "lib/scene-render-worker.mjs",
     "lib/scene-prewarm.js",
     "lib/we-renderer/",
+    "lib/webwallgl/",
     "lib/apng-encode.js",
     "lib/font-render.js",
     "lib/scene-scripts.js",
@@ -69,7 +70,7 @@
   "license": "MIT",
   "scripts": {
     "build": "node scripts/build-client.mjs",
-    "verify": "node scripts/verify-client.mjs && node scripts/verify-transcode-state.mjs && node scripts/verify-mdla.mjs && node scripts/verify-playback-controls.mjs && node scripts/verify-resource-lifecycle.mjs && node scripts/verify-softrender.mjs && node scripts/verify-readability.mjs && node scripts/verify-composite-blit.mjs && node scripts/verify-png-decode.mjs && node scripts/verify-atlas-frame-decode.mjs && node scripts/verify-band-parallel.mjs && node scripts/verify-fx-chain.mjs && node scripts/verify-prewarm.mjs && node scripts/verify-web-route.mjs && node scripts/verify-package-files.mjs",
+    "verify": "node scripts/verify-client.mjs && node scripts/verify-transcode-state.mjs && node scripts/verify-playback-controls.mjs && node scripts/verify-scene-live.mjs && node scripts/verify-mdla.mjs && node scripts/verify-resource-lifecycle.mjs && node scripts/verify-softrender.mjs && node scripts/verify-readability.mjs && node scripts/verify-composite-blit.mjs && node scripts/verify-png-decode.mjs && node scripts/verify-atlas-frame-decode.mjs && node scripts/verify-band-parallel.mjs && node scripts/verify-fx-chain.mjs && node scripts/verify-prewarm.mjs && node scripts/verify-web-route.mjs && node scripts/verify-package-files.mjs",
     "prepare": "node scripts/prepare.mjs"
   },
   "peerDependencies": {

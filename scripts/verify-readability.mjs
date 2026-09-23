@@ -38,7 +38,8 @@
 //   C2  the floor is NOT reduced at 玻璃透明度 = 60 (its most transparent end).
 //   C3  the floor is NOT affected by 壁纸透明度: the floor declarations never
 //       read --we-wallpaper-opacity, the effective alpha is identical for
-//       {0,50,90}, and that token still only drives .we-layer.
+//       {0,50,90}, and that token still only drives the wallpaper layer
+//       (v0.7.5: the opaque padded .we-layer + the fade on .we-layer .we-media).
 //   C4  above the floor the slider is NOT flattened: the alpha still changes
 //       monotonically with 玻璃透明度, and for the content plate every user
 //       alpha above the floor passes through unchanged.
@@ -312,16 +313,27 @@ function main() {
   const floorText = floorDeclRules.map((r) => r.header + ' { ' + r.body + ' }').join('\n')
     + '\n' + (lightVars ? lightVars[0] : '') + (darkVars ? darkVars[0] : '');
   const wpLeak = /--we-wallpaper-opacity/.test(floorText);
-  const layerOpacity = rulesWithProp('opacity').find((r) => /\.we-layer\s*$/.test(r.header));
   const alphaPerWp = GRID_WP.map((wp) => Number(surfaceFor('light', 30, wp).alpha.toFixed(6)));
   const contrastPerWp = GRID_WP.map((wp) => Number(surfaceFor('light', 30, wp).contrast.toFixed(2)));
   check('C3a the floor never reads --we-wallpaper-opacity: surface alpha is identical for 壁纸透明度 {0,50,90}',
     !wpLeak && new Set(alphaPerWp).size === 1 && new Set(contrastPerWp).size > 1,
     'floor declarations mention --we-wallpaper-opacity=' + wpLeak
       + ' · α=' + alphaPerWp.join('/') + ' (identical) · backdrop contrast=' + contrastPerWp.join('/') + ' (moves)');
-  check('C3b 壁纸透明度 keeps driving ONLY .we-layer (semantics unchanged)',
-    layerOpacity !== undefined && layerOpacity.body.includes('opacity: var(--we-wallpaper-opacity, 1)'),
-    '.we-layer opacity=' + JSON.stringify(layerOpacity && declValue(layerOpacity.body, 'opacity')));
+  // ── C3b: the slider stays scoped to the wallpaper layer only ─────────────
+  // 上游 v0.7.5 起淡出改在**媒体叶子**上（.we-layer .we-media）：.we-layer 保持
+  // 不透明并垫主题实色（--we-wallpaper-fade-bg），因为透明 backdrop 会让
+  // backdrop-filter（玻璃模糊）失效。语义不变 —— 仍只作用于壁纸层、不碰文字面。
+  const layerRule = rulesWithProp('background-color').find((r) => /\.we-layer\s*$/.test(r.header));
+  const mediaFadeRule = rulesWithProp('opacity').find((r) => /\.we-layer\s+\.we-media\s*$/.test(r.header));
+  check('C3b 壁纸透明度 stays scoped to the wallpaper layer (opaque padded layer + fade on the media leaf)',
+    layerRule !== undefined
+      && declValue(layerRule.body, 'opacity') === '1'
+      && /^var\(--we-wallpaper-fade-bg/.test(String(declValue(layerRule.body, 'background-color')))
+      && mediaFadeRule !== undefined
+      && mediaFadeRule.body.includes('opacity: var(--we-wallpaper-opacity, 1)'),
+    '.we-layer opacity=' + JSON.stringify(layerRule && declValue(layerRule.body, 'opacity'))
+      + ' · bg=' + JSON.stringify(layerRule && declValue(layerRule.body, 'background-color'))
+      + ' · .we-layer .we-media opacity=' + JSON.stringify(mediaFadeRule && declValue(mediaFadeRule.body, 'opacity')));
 
   // ── C4: the slider is not flattened above the floor ──────────────────────
   const strictlyDecreasing = (arr) => arr.every((v, i) => i === 0 || v < arr[i - 1]);

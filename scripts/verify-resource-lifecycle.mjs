@@ -28,8 +28,10 @@
 //      scene-anim poller + probe <video> outlived the fiber).
 //   S8 src/client.js must remove its pagehide / visibilitychange listeners in
 //      cleanup (module-scope listeners stacked on every reload).
-//   S9 src/client.js both progress pollers must carry an in-flight guard (a
-//      slow host used to accumulate one fetch per tick, forever).
+//   S9 src/client.js every fetch-based progress poller must carry an in-flight
+//      guard (a slow host used to accumulate one fetch per tick, forever).
+//      Non-fetch timers (the WebWallGL live heartbeat) are out of scope — their
+//      lifecycle is covered by stopLiveWatch()'s clearInterval.
 //   R1 lib/we-renderer/effects/_scratch.js pool: borrow → "out", return/recall →
 //      free again, next borrow reuses the same buffer (帧首召回 reclaims it).
 //   R2 lib/pkg-extract.js scene-frame fallback cannot return an image wider than
@@ -239,25 +241,31 @@ async function main() {
       'addedInFiber=' + addsPerFiber + ' removedPagehide=' + removesPagehide + ' removedVisibility=' + removesVis);
   }
 
-  // ── S9: both progress pollers carry an in-flight guard ──────────────────────
+  // ── S9: fetch-based progress pollers carry an in-flight guard ───────────────
+  // 判据按「该轮询是否发 fetch」划分, 而不是写死站点数量 —— 上游 #103 的
+  // WebWallGL 心跳 (startLiveWatch) 是第 3 个 setInterval, 但它是同步 tick、
+  // 不发 fetch, 不适用 in-flight 守卫 (其计时器由 stopLiveWatch 清理)。
   {
     const re = /setInterval\s*\(/g;
     const sites = [];
     let m;
     while ((m = re.exec(files.client))) sites.push(m.index);
+    let pollers = 0;
     let guarded = 0;
     const names = new Set();
     for (const i of sites) {
       const win = files.client.slice(Math.max(0, i - 2000), i + 2000);
+      if (!/fetch\s*\(/.test(win)) continue; // 非 fetch 轮询 (live 心跳) 不适用
+      pollers++;
       const decl = win.match(/let\s+(\w*[Pp]ending)\s*=\s*false/);
       if (decl && new RegExp('if\\s*\\(\\s*' + decl[1] + '\\s*\\)\\s*return').test(win)) {
         guarded++;
         names.add(decl[1]);
       }
     }
-    check('S9 src/client.js both progress pollers carry an in-flight (pending) guard',
-      sites.length === 2 && guarded === 2,
-      guarded + '/' + sites.length + ' setInterval pollers guarded' + (names.size ? ' (' + [...names].join(', ') + ')' : ''));
+    check('S9 src/client.js every fetch-based progress poller carries an in-flight (pending) guard',
+      pollers >= 2 && guarded === pollers,
+      guarded + '/' + pollers + ' fetch pollers guarded' + (names.size ? ' (' + [...names].join(', ') + ')' : ''));
   }
 
   // ── R1: scratch pool really reclaims borrowed buffers ───────────────────────

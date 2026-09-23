@@ -196,7 +196,9 @@ const okResult = (servedFrom) => async () => ({ fileAbs: '/x/' + servedFrom + '.
   const keyExpr = /PIPELINE_VERSION \+ '_' \+ gpuFlag/g;
   const keySites = (src.match(keyExpr) || []).length;
   const defined = /async function ensureSceneFrame\(/.test(src);
-  const routeCalls = /await ensureSceneFrame\(abs, \{ signal: ctrl\.signal \}\)/.test(src);
+  // 路由必须**调用** ensureSceneFrame (与预热共用同一条路径)。调用点可携带更多
+  // 选项 (如壁纸画面刷新档位 variant), 故只锚定 signal: ctrl.signal 这一必需项。
+  const routeCalls = /await ensureSceneFrame\(abs, \{ signal: ctrl\.signal[^}]*\}\)/.test(src);
   check('R10 结构: 缓存键只在 ensureSceneFrame 内构造一次, 路由调用它',
     keySites === 1 && defined && routeCalls,
     `缓存键构造点=${keySites} (期望 1), ensureSceneFrame 定义=${defined}, 路由调用=${routeCalls}`);

@@ -347,6 +347,45 @@ for (const fx of FIXTURES) {
   }
 }
 
+// ── Offline fixture: synthetic Steam library for Level B ────────────────────
+// Level B used to depend on a real workshop scene being installed (dev boxes
+// often have none → 'no scene wallpaper with frameUrl on this machine'). A
+// synthetic library wired through DSH_WE_STEAM_ROOT makes the route pipeline
+// testable anywhere: the pkg ships one 32×32 noise RGBA texture (noise keeps
+// the PNG payload above the >1000B assertion and passes the colorful-main-
+// texture gate that a flat fill would trip).
+const fixtureLib = join(root, '.test-cache', 'scene-fixture', 'steamlib');
+const fixtureItemDir = join(fixtureLib, 'steamapps', 'workshop', 'content', '431960', '990002');
+{
+  rmSync(join(root, '.test-cache', 'scene-fixture'), { recursive: true, force: true });
+  mkdirSync(fixtureItemDir, { recursive: true });
+  // A library root is only scanned when steamapps/common/wallpaper_engine
+  // exists (owningLibrariesP) — create it so the workshop content is found.
+  mkdirSync(join(fixtureLib, 'steamapps', 'common', 'wallpaper_engine'), { recursive: true });
+  const W = 32;
+  const rgba = Buffer.alloc(W * W * 4);
+  let seed = 0x12345678;
+  for (let i = 0; i < W * W; i++) {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    rgba[i * 4] = seed & 0xff;
+    rgba[i * 4 + 1] = (seed >> 8) & 0xff;
+    rgba[i * 4 + 2] = (seed >> 16) & 0xff;
+    rgba[i * 4 + 3] = 255;
+  }
+  const pkg = buildPkg([
+    { path: 'scene.json', bytes: Buffer.from(JSON.stringify({ objects: [{ image: 'main.tex' }] })) },
+    { path: 'main.tex', bytes: buildTexRgba(W, W, rgba) },
+  ]);
+  writeFileSync(join(fixtureItemDir, 'scene.pkg'), pkg);
+  writeFileSync(join(fixtureItemDir, 'project.json'), JSON.stringify({
+    title: 'Synthetic Fixture Scene', type: 'scene', file: 'scene.pkg', preview: 'preview.jpg',
+    contentrating: 'Everyone',
+  }));
+  writeFileSync(join(fixtureItemDir, 'preview.jpg'), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+  // Env roots are additive: a real Steam library on this machine still scans.
+  process.env.DSH_WE_STEAM_ROOT = [process.env.DSH_WE_STEAM_ROOT, fixtureLib].filter(Boolean).join(',');
+}
+
 // ── Level B: host route integration (mock webServer) ────────────────────────
 console.log('Level B — scene-frame route (mock webServer)');
 const routes = [];
@@ -407,9 +446,11 @@ let invBody = null;
 {
   const res = await runHandler(invRoute, '/wallpaper-engine/inventory');
   invBody = JSON.parse(res.__state.body.toString('utf8'));
-  const scene = (invBody.wallpapers || []).find((w) => w.type === 'scene' && w.frameUrl);
+  // The synthetic fixture (id 990002) is what Level B exercises; a real
+  // workshop scene on this machine would still be listed alongside it.
+  const scene = (invBody.wallpapers || []).find((w) => w.id === '990002' && w.frameUrl);
   token = scene ? scene.frameUrl.split('/').pop() : null;
-  check('inventory exposes scene frameUrl', Boolean(token), token ? 'frame token minted' : 'no scene wallpaper with frameUrl on this machine');
+  check('inventory exposes the fixture scene frameUrl', Boolean(token), token ? 'frame token minted' : 'fixture scene missing from inventory');
 }
 
 if (token) {
@@ -520,6 +561,8 @@ if (!existsSync(WE_DEFAULTS)) {
 }
 
 if (typeof dispose === 'function') dispose();
+delete process.env.DSH_WE_STEAM_ROOT;
+rmSync(join(root, '.test-cache', 'scene-fixture'), { recursive: true, force: true });
 
 console.log('');
 console.log(passed + ' passed, ' + failed + ' failed');
