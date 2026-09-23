@@ -114,9 +114,23 @@ node scripts/verify-scene.mjs   # 场景静态帧路由自检（含缓存断言�
 git diff --check
 ```
 
-`npm run verify` chains every guard script (client bundle / `verify-scene-live` + `verify-web-route` / `verify-package-files` / `verify-prewarm` / `verify-docs` … — the authoritative list is `scripts.verify` in `package.json`); `verify-scene.mjs` is deliberately **not** in that chain (it needs a real fixture) and is run separately above. Adding a file under `lib/` without adding it to `package.json`'s `files` will fail `verify-package-files`.
+`npm run verify` chains every guard script (client bundle / `verify-scene-live` + `verify-web-route` / `verify-package-files` / `verify-prewarm` / `verify-docs` / `verify-settings-keys` / `verify-sampling` … — the authoritative list is `scripts.verify` in `package.json`); `verify-scene.mjs` is deliberately **not** in that chain (it needs a real fixture) and is run separately above. Adding a file under `lib/` without adding it to `package.json`'s `files` will fail `verify-package-files`.
 
-`npm run verify` 串跑全部护栏脚本（客户端产物 / `verify-scene-live` + `verify-web-route` / `verify-package-files` / `verify-prewarm` / `verify-docs` …，**权威清单见 `package.json` 的 `scripts.verify`**）；`verify-scene.mjs` 需要真实 fixture，**不在**该链里，故上面单独跑。在 `lib/` 下新增文件却没写进 `package.json` 的 `files` 会被 `verify-package-files` 拦下。
+`npm run verify` 串跑全部护栏脚本（客户端产物 / `verify-scene-live` + `verify-web-route` / `verify-package-files` / `verify-prewarm` / `verify-docs` / `verify-settings-keys` / `verify-sampling` …，**权威清单见 `package.json` 的 `scripts.verify`**）；`verify-scene.mjs` 需要真实 fixture，**不在**该链里，故上面单独跑。在 `lib/` 下新增文件却没写进 `package.json` 的 `files` 会被 `verify-package-files` 拦下。
+
+### 新增设置项：必须同时改三处 / Adding a setting: change all three lists
+
+持久化设置由**三份手工维护的清单**描述，任何一份漏字段都会让用户的改动**静默丢失**（界面显示"保存成功"，下次加载回默认值）：
+
+| # | 位置 | 作用 |
+|---|---|---|
+| ① | `src/client.js` 的 `serializeSelection()` | 客户端**发送**的键（同时进 localStorage 与 PUT） |
+| ② | `src/client.js` 的 `sanitizeSettings(o)` | 客户端**读回**时的白名单 |
+| ③ | `lib/index.js` 的 `sanitizeSettings(raw)` | 宿主白名单 —— PUT 用它**整个覆盖** `config.json`，漏了即被丢弃 |
+
+`scripts/verify-settings-keys.mjs` 逐条断言这三份清单一致（含**反向漂移**：两端都认、只有"写"漏了的键），并带负对照。0.7.5 出过两次这类事故（画面档位存不住 / 四个调优开关从未持久化），排查成本很高，别绕过这条护栏。映射类字段（按壁纸 id 记忆）还需在宿主侧做键名与取值校验，别直接透传。
+
+Persisted settings live in **three hand-maintained lists** — miss a field in any one and the user's change **vanishes silently** (the UI says "saved", the next load returns the default): ① the client's `serializeSelection()` (what gets sent), ② the client's read-back `sanitizeSettings(o)`, ③ the host's `sanitizeSettings(raw)` — the PUT **overwrites** `config.json` with ③'s result, so a missing entry there is dropped outright. `scripts/verify-settings-keys.mjs` asserts all three agree, including the reverse drift (a key both ends accept but the client never sends), with negative controls. This class of bug shipped twice in 0.7.5 and is expensive to diagnose — do not bypass that guard. Per-wallpaper map fields also need host-side key/value validation rather than a pass-through.
 
 For UI changes, also describe the real DSH surface you tested, including browser or DSH Desktop mode. For platform-specific changes, call out the source layout used in the test—for example Wallpaper Engine, WSL, WaifuX, or loose media.
 

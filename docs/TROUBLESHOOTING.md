@@ -63,7 +63,7 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 | 场景 / 网页壁纸黑屏，约 15 秒后跳成静态帧（或只剩垫底画面） | 这是实时渲染的**看护降级**：首帧 15 秒无画面 ⇒ 记入失败记忆并自动降级。先确认能访问外网/磁盘读取正常、显卡驱动可用（需要 WebGL2）；重开「场景实时渲染」/「网页实时渲染」开关可清空记忆重试 |
 | 关掉「静态帧渲染」后场景就不动了 | 预期行为：该开关是静态帧链的总开关，关掉后不再出渲染帧（有作者内嵌 MP4 仍会播它；否则显示「自定义画面」或作者预览图） |
 | 帧率上限没效果 | 需要 ffmpeg 与 NVIDIA NVENC；无 ffmpeg / 无 N 卡时该功能自动关闭（见 `../README.md` 的「已知限制」） |
-| 设置改完重启又变回去 | v0.4.0 起设置存宿主端文件；确认 `~/.dsh-wallpaper-engine/config.json` 可写、且未回滚到旧版本 |
+| 设置改完重启又变回去 | 先分清是哪一类：① **画面档位（「出图来源」/「自定义画面」）** —— 0.7.5 有缺陷，档位与自定义画面标记在下一次加载时会丢，**下一版已修**，升级即可；② **有损路线 / GPU 渲染加速 / 空闲预热 / 预热整个库** —— 这四个开关在 0.7.5 上从未真正保存过（宿主永远读到默认值），**下一版已修**；③ 其它设置：v0.4.0 起存宿主端文件，确认 `~/.dsh-wallpaper-engine/config.json` 可写、且未回滚到旧版本。另：宿主日志里出现「settings PUT 丢弃了白名单外的键」说明客户端与宿主的字段清单不一致，请附上该行反馈 |
 
 ---
 
@@ -130,4 +130,4 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 | Scene / web wallpaper is black, and ~15 s later it falls back to a static frame (or just the poster) | That is the live renderer's **watchdog degrading**: no first frame within 15 s ⇒ the failure is remembered and it degrades automatically. Check that the file is readable and the GPU driver works (WebGL2 is required); re-enabling 「场景实时渲染」/「网页实时渲染」 clears the memory and retries |
 | Turning 「静态帧渲染」 off stops a scene from animating | Expected: that switch is the static-frame chain's master switch. With it off no frame is rendered (a scene with an author-embedded MP4 still plays it; otherwise the custom frame or the author's preview is shown) |
 | The frame-rate cap does nothing | It needs ffmpeg + NVIDIA NVENC; without either, the feature disables itself (see 「Limitations」 in `../README.en.md`) |
-| Settings revert after a restart | Since v0.4.0 settings live in a host file — check `~/.dsh-wallpaper-engine/config.json` is writable and that you did not roll back to an older version |
+| Settings revert after a restart | First work out which kind: ① **frame source (「出图来源」 / 「自定义画面」)** — 0.7.5 has a defect where the chosen tier and the custom-frame flag are dropped on the next load; **fixed in the next version**, just update; ② **lossy route / GPU acceleration / idle prewarm / prewarm whole library** — those four switches were never actually saved on 0.7.5 (the host always read the default); **fixed in the next version**; ③ anything else: since v0.4.0 settings live in a host file — check `~/.dsh-wallpaper-engine/config.json` is writable and that you did not roll back to an older version. Also: a host log line reading 「settings PUT 丢弃了白名单外的键」 means the client's and host's field lists have drifted — please report that line |

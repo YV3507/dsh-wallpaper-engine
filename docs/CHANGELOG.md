@@ -17,7 +17,21 @@
   - 「壁纸画面刷新」改名为「**出图来源**」（按钮「换一种」，状态行 `N/M 档  当前：<来源>`）。它只列**自动链没有用到的替代来源**（主纹理单张 / 作者原画 / 自定义画面）——「合成（分层）」与「预览图」正是自动链自己的第 2/3 步，摆出来等于让用户重试刚失败的那一步，故不再作为手动档位；历史档位 5（曾被误当成「静态帧渲染」）与档位 6（合成）**退役**，宿主只认 `?v=1..4`。
   - 「静态帧渲染」关闭时**不再请求渲染产物**：静态帧槽位改由「自定义画面」（档 4）或作者预览图（档 3）填充，并停止空闲预热。
   - 「有损路线」「空闲预热」「GPU 渲染加速」三项仍是调优项，**行为与默认值一律不变**；GPU 开关不再触发已删除的动画升级，改为给 `scene-frame` URL 加 `?gpu=0/1` 强制重取（宿主按新配置算缓存键）。
-- 回归护栏：`verify-resource-lifecycle` 的 S7 由「fiber dispose 调用 `cancelSceneAnimUpgrade()`」改为「**beta 场景动画路径在 client 与 host 中都已不存在**，且 dispose 仍清理存活的长命定时器」；新增 `verify-prewarm` R38/R38b（档位集合 / 三级级联 / 分组标题与行序）与 `verify-docs`（文档与注释不得停留在旧世界）。
+- **修复两处"设置存不住"（设置字段清单漂移）**：持久化设置由**三份手工维护的清单**描述 —— 客户端
+  `serializeSelection()`（发送）、宿主 `sanitizeSettings()`（白名单，PUT 用其结果**整个覆盖** config.json）、
+  客户端 `sanitizeSettings()`（读回）。任一份漏字段都会让用户的改动**静默丢失**（界面显示"保存成功"，
+  下次打开却回默认值）：
+  - **出图来源档位 / 自定义画面存不住**（0.7.5 用户反馈）：宿主白名单缺 `frameVariants` / `customFrames`，
+    客户端每次都发、宿主每次都丢 ⇒ 选好的档位与导入的自定义画面刷新即失效。补齐并加校验：档位只接受
+    `0..4`（退役的 5/6 丢弃）、键名必须是壁纸 id 形状、`customFrames` 只认字面 `true`、条数上限 200。
+  - **四个调优开关从未持久化**（同族反向漂移，`serializeSelection()` 漏发）：`sceneLossyRoute` /
+    `sceneGpuAccel` / `scenePrewarm` / `scenePrewarmScope` 在宿主白名单与客户端读回清单里都有，
+    只有"写"这一份漏了 —— 其中**空闲预热最严重**：宿主永远读到 `false`，整条预热链从 UI 不可达。
+  - **让漂移可观测**：PUT 时若请求带了白名单不认的键，记一行日志列出键名（静默丢弃正是这次难排查的原因）。
+  - 护栏：新增 `verify-settings-keys`（真函数往返 + 档位/自定义画面校验 + 三份清单一致 + 反向漂移，
+    每条带负对照）与 `verify-sampling`（把此前只存在于 `tmp-*` 探索脚本里的 `blitScaled` 采样证据固化：
+    缩小走盒式面积平均、放大走双线性、缩放比 1:1 逐字节不变，负对照用最近邻实现证明判据能区分二者）。
+- 回归护栏：`verify-resource-lifecycle` 的 S7 由「fiber dispose 调用 `cancelSceneAnimUpgrade()`」改为「**beta 场景动画路径在 client 与 host 中都已不存在**，且 dispose 仍清理存活的长命定时器」；新增 `verify-prewarm` R38/R38b（档位集合 / 三级级联 / 分组标题与行序）、`verify-docs`（文档与注释不得停留在旧世界）、`verify-settings-keys`、`verify-sampling`。
 
 ### v0.7.5
 
@@ -114,7 +128,12 @@
   - 「壁纸画面刷新」 was renamed to 「**出图来源**」 (button 「换一种」, status line `N/M 档  当前：<来源>`). It lists only the alternatives the automatic chain does **not** already use (主纹理单张 / 作者原画 / 自定义画面) — 「合成（分层）」 and 「预览图」 are that chain's own steps 2/3, so offering them again would just retry the step that failed; legacy tiers 5 (「静态帧渲染」 mistakenly treated as a tier) and 6 (composite) are **retired**, and the host accepts only `?v=1..4`.
   - With 「静态帧渲染」 off, **no render artifact is requested at all**: the static-frame slot is filled by a 「自定义画面」 (tier 4) or the author's preview (tier 3), and idle prewarming stops.
   - 「有损路线」 / 「空闲预热」 / 「GPU 渲染加速」 remain tuning options with **unchanged behaviour and defaults**; the GPU switch no longer triggers the deleted animation upgrade — it appends `?gpu=0/1` to the `scene-frame` URL to force a re-fetch under the new cache key.
-- Regression guards: `verify-resource-lifecycle` S7 changed from "fiber dispose calls `cancelSceneAnimUpgrade()`" to "**the beta scene-anim path is gone from both client and host**, while dispose still cleans the surviving long-lived timers"; new `verify-prewarm` R38/R38b (tier set / three-level cascade / group heading and row order) and `verify-docs` (docs and comments must not stay in the old world).
+- **Fixed two "settings don't stick" bugs (settings-key drift)**: persisted settings are described by **three hand-maintained lists** — the client's `serializeSelection()` (what it sends), the host's `sanitizeSettings()` (the whitelist; the PUT **overwrites** `config.json` with its result), and the client's read-back `sanitizeSettings()`. Any one of them missing a field makes the user's change **silently vanish** (the UI says "saved", the next load returns the default):
+  - **Frame-source tier / custom frame never persisted** (0.7.5 user report): the host whitelist lacked `frameVariants` / `customFrames`, so the client sent them on every PUT and the host dropped them on every PUT — the chosen tier and an imported custom frame were lost on refresh. Now whitelisted **with validation**: tiers only `0..4` (the retired 5/6 are dropped), key names must look like wallpaper ids, `customFrames` accepts only literal `true`, and there is a 200-entry cap.
+  - **Four tuning switches were never persisted at all** (the same drift, in the opposite direction — `serializeSelection()` never sent them): `sceneLossyRoute` / `sceneGpuAccel` / `scenePrewarm` / `scenePrewarmScope` existed in the host whitelist *and* in the client's read-back list, but not in the client's write list. Idle prewarming was the worst: the host always read `false`, so the whole prewarm chain was unreachable from the UI.
+  - **Drift is now observable**: a PUT carrying a key the whitelist does not recognise logs the key names (silent dropping is exactly what made this hard to diagnose).
+  - Guards: new `verify-settings-keys` (round-trip through the real function + tier/custom-frame validation + three-list consistency + reverse drift, each with a negative control) and `verify-sampling` (turns the `blitScaled` sampling evidence that used to live only in `tmp-*` exploration scripts into assertions: box-average downscale, bilinear upscale, byte-identical 1:1 path, with a nearest-neighbour negative control).
+- Regression guards: `verify-resource-lifecycle` S7 changed from "fiber dispose calls `cancelSceneAnimUpgrade()`" to "**the beta scene-anim path is gone from both client and host**, while dispose still cleans the surviving long-lived timers"; new `verify-prewarm` R38/R38b (tier set / three-level cascade / group heading and row order), `verify-docs` (docs and comments must not stay in the old world), `verify-settings-keys` and `verify-sampling`.
 
 ### v0.7.5
 
