@@ -531,14 +531,44 @@ function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 
 // ── 壁纸画面刷新：场景壁纸静态帧生成逻辑档位（beta 渲染不参与）─────────
 // 每张壁纸独立记忆所选档位；档位以 ?v= 进入 scene-frame 请求，宿主缓存键
-// 带 _vN 后缀 —— 不同档帧互不覆盖，档 0 沿用既有 sf33_ 键（现状不变）。
+// 带 _vN 后缀 —— 不同档帧互不覆盖，档 0 沿用既有键（现状不变）。
+//
+// ⚠️ 存的是**档位 id，不是数组下标**：数组顺序可调整、可插入新档，而已保存的值
+// 仍指向同一档。id 0–4 的历史语义保持不变（0=自动/渲染, 1=主纹理, 2=作者原画,
+// 3=预览图, 4=自定义画面），因此老配置无需迁移。
+// 数组顺序 = UI 轮换顺序；「自定义画面」**必须留在最后**（frameVariantCount 用它
+// 推算「未导入自定义画面时的档位数」）。
 const FRAME_VARIANTS = [
-  { id: 0, label: "合成（分层）" },
+  // 自动 = 按设置：有损路线关闭时=完整渲染，打开时=主纹理近似（宿主侧决定）。
+  { id: 0, label: "自动（按设置）" },
+  // 显式「静态帧渲染」：强制走完整渲染（SceneRenderer），忽略有损路线的近似模式。
+  { id: 5, label: "静态帧渲染（完整渲染）" },
+  // 显式「合成（分层）」：强制走 pkg 提取的多层合成（extraction variant 0）。
+  { id: 6, label: "合成（分层）" },
   { id: 1, label: "主纹理（单张大图）" },
   { id: 2, label: "作者原画（嵌入 JPEG/PNG）" },
   { id: 3, label: "预览图" },
   { id: 4, label: "自定义画面" },
 ];
+// 自定义画面档的 id（导入截屏后这一档才计入档位数）。
+const CUSTOM_FRAME_ID = 4;
+// 档位 id → 数组下标（未知 / 越界一律回落到 0 = 自动）。
+function frameVariantIndex(id) {
+  const i = FRAME_VARIANTS.findIndex((v) => v.id === (Number(id) || 0));
+  return i < 0 ? 0 : i;
+}
+// 「画面刷新」的状态文本：第 N/M 档 · <档名>。「自动」档补上当前设置实际生效的模式，
+// 否则用户会以为它永远是完整渲染（有损路线打开时它其实走主纹理近似）。
+function frameVariantStatusText(selLike) {
+  const wid = String(selLike.id || "");
+  const saved = Number(selLike.frameVariants && selLike.frameVariants[wid]) || 0;
+  const total = frameVariantCount(selLike, wid);
+  const idx = frameVariantIndex(saved);
+  const label = idx === 0
+    ? (selLike.sceneFrameSource === "maintexture" ? "自动（主纹理近似）" : "自动（完整渲染）")
+    : FRAME_VARIANTS[idx].label;
+  return "第 " + (idx + 1) + "/" + total + " 档 · " + label + " · 共 " + total + " 种";
+}
 // 卡片类型徽标（卡片左上角）：与「类型」筛选的四类一一对应。
 const CARD_TYPE_LABELS = { video: "视频", web: "网页", image: "图片", scene: "场景" };
 // 开启「壁纸音轨」时，音量若为 0 自动提升到的默认可听值（0–1）。
@@ -3282,13 +3312,12 @@ function WallpaperPicker(props) {
     persistSelection(); applyEffects(); emit();
   };
   // 壁纸画面刷新：当前场景壁纸循环切换静态帧生成档位（按壁纸记忆）。
-  // 档位数=4；已导入自定义画面时为 5（第 5 档=用户截屏）。
   const onRefreshFrame = () => {
     if (sel.type !== "scene" || !sel.sceneFrameUrl) return;
     const wid = String(sel.id);
     const total = frameVariantCount(sel, wid);
-    const cur = (Number(sel.frameVariants && sel.frameVariants[wid]) || 0) % total;
-    const next = (cur + 1) % total;
+    const curIdx = frameVariantIndex(sel.frameVariants && sel.frameVariants[wid]);
+    const next = FRAME_VARIANTS[(curIdx + 1) % total].id;
     const map = Object.assign({}, selection.frameVariants || {});
     map[wid] = next;
     selection.frameVariants = map;
@@ -3317,9 +3346,9 @@ function WallpaperPicker(props) {
       if (!r.ok) throw new Error("HTTP " + r.status);
       setCustomFrameLocal(wid, true);
       const map = Object.assign({}, selection.frameVariants || {});
-      map[wid] = 4;
+      map[wid] = CUSTOM_FRAME_ID;
       selection.frameVariants = map;
-      if (sel.sceneFrameUrl) selection.url = frameUrlWithVariant(sel.sceneFrameUrl, 4);
+      if (sel.sceneFrameUrl) selection.url = frameUrlWithVariant(sel.sceneFrameUrl, CUSTOM_FRAME_ID);
       persistSelection(); syncLayers(); emit();
     }).catch(() => { /* 导入失败保持现状 */ });
   };
@@ -3332,9 +3361,9 @@ function WallpaperPicker(props) {
         setCustomFrameLocal(wid, false);
         const map = Object.assign({}, selection.frameVariants || {});
         const cur = Number(map[wid]) || 0;
-        if (cur === 4) map[wid] = 0;
+        if (cur === CUSTOM_FRAME_ID) map[wid] = 0;
         selection.frameVariants = map;
-        if (cur === 4 && sel.sceneFrameUrl) {
+        if (cur === CUSTOM_FRAME_ID && sel.sceneFrameUrl) {
           selection.url = frameUrlWithVariant(sel.sceneFrameUrl, 0);
           syncLayers();
         }
@@ -4030,17 +4059,14 @@ function WallpaperPicker(props) {
         // 用户截屏）。档位按壁纸记忆；beta 渲染不参与。读数实时显示档位与总数。
         sel.type === "scene" && sel.sceneFrameUrl && React.createElement("div", { className: "we-picker__ctl" },
           ctlText("壁纸画面刷新", "显示异常时换一种生成逻辑",
-            "场景壁纸静态帧生成逻辑：合成 / 主纹理 / 作者原画 / 预览图（+导入后的自定义画面）。每点一次换一种，选择记忆在当前壁纸上；可反复刷新直到满意。不包含 beta 渲染"),
+            "场景壁纸静态帧生成逻辑：自动（按设置）/ 静态帧渲染（完整渲染）/ 合成（分层）/ 主纹理 / 作者原画 / 预览图（导入截屏后多一档自定义画面）。每点一次换一种，选择记忆在当前壁纸上；各档使用各自独立的帧缓存，来回切换不会互相作废"),
           React.createElement("button", {
             className: "we-picker__btn", type: "button",
             onClick: onRefreshFrame,
             "aria-label": "刷新壁纸画面生成逻辑",
           }, "刷新"),
           React.createElement("span", { className: "we-picker__hint we-picker__value" },
-            "第 " + ((Number(sel.frameVariants && sel.frameVariants[String(sel.id)]) || 0) + 1)
-              + "/" + frameVariantCount(sel, String(sel.id)) + " 秡 · "
-              + FRAME_VARIANTS[Number(sel.frameVariants && sel.frameVariants[String(sel.id)]) || 0].label
-              + " · 共 " + frameVariantCount(sel, String(sel.id)) + " 种"),
+            frameVariantStatusText(sel)),
         ),
         // ── 自定义画面（截屏导入）：无法静态生成的壁纸（骨骼拼装场景，预览
         // gif 仅 160px）由用户从 WE 截图导入，画质=截图分辨率；作为第 5 档。

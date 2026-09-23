@@ -354,6 +354,26 @@ const okResult = (servedFrom) => async () => ({ fileAbs: '/x/' + servedFrom + '.
     && !/sceneGpuAccel[\s\S]{0,80}sceneLossyRoute/.test(idx)
     && !/sceneLossyRoute[\s\S]{0,200}sceneGpuAccel/.test(idx)
     && /GPU 渲染加速/.test(cli));
+
+  // ── R38 画面刷新档位: id 与数组下标的解耦必须两侧一致 ──────────────────────
+  // 存的是**档位 id**（不是下标）, 否则一旦数组顺序调整, 已保存的选择就会指向别的档。
+  // 同时守住三件事: 档位 id 唯一; 「自定义画面」在数组末尾（frameVariantCount 用它
+  // 算"未导入自定义画面时的档位数"）; 宿主接受 1..6 且档 5=强渲染 / 档 6=合成。
+  {
+    const ids = [...cli.matchAll(/\{\s*id:\s*(\d+),\s*label:/g)].map((m) => Number(m[1]));
+    const uniq = new Set(ids).size === ids.length;
+    const customLast = /id:\s*4,\s*label:\s*"自定义画面"\s*\},?\s*\];/.test(cli);
+    const usesId = /FRAME_VARIANTS\[\(curIdx \+ 1\) % total\]\.id/.test(cli)
+      && /map\[wid\] = CUSTOM_FRAME_ID/.test(cli);
+    const hostOk = /vRaw >= 1 && vRaw <= 6/.test(idx)
+      && /const forceRender = variant === 5/.test(idx)
+      && /const vSuffix = \(variant && !forceRender\) \? '_v' \+ variant : ''/.test(idx)
+      && /variant === 1 \|\| variant === 2 \|\| variant === 6/.test(idx);
+    check('R38 画面档位: id 唯一 / 自定义档在末尾 / 客户端按 id 存取 / 宿主支持 1..6 (5=强渲染, 6=合成)',
+      ids.length >= 6 && uniq && customLast && usesId && hostOk,
+      'ids=[' + ids.join(',') + '] unique=' + uniq + ' customLast=' + customLast
+        + ' clientUsesId=' + usesId + ' host=' + hostOk);
+  }
 }
 
 // ── R24–R26 isMainTextureUsable: **行为**断言 (不止正则) ────────────────────
