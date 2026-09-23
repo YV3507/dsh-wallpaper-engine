@@ -24,12 +24,18 @@
 //   S6 lib/index.js spawnFfmpeg must re-check signal.aborted right after
 //      spawn() (an abort landing between the check and the spawn respawned an
 //      untracked encoder that ran to the 15-minute timeout).
-//   S7 src/client.js fiber dispose must call cancelSceneAnimUpgrade() (the
-//      scene-anim poller + probe <video> outlived the fiber).
+//   S7 the beta scene-anim path (betaSceneAnim / scene-anim) must be fully gone from
+//      client AND host — it used to own timers (1.5s poll / 15min maxWait / 60s delay)
+//      and a probe <video> that outlived the fiber. The surviving long-lived timers
+//      (transcode upgrade poll + module-level persistTimer) must still be cleaned in
+//      the fiber dispose block.
 //   S8 src/client.js must remove its pagehide / visibilitychange listeners in
 //      cleanup (module-scope listeners stacked on every reload).
 //   S9 src/client.js every fetch-based progress poller must carry an in-flight
-//      guard (a slow host used to accumulate one fetch per tick, forever).
+//      guard (a slow host used to accumulate one fetch per tick, forever). The
+//      scene-anim progress poller was removed with the beta path, so the surviving
+//      fetch poller is the transcode one — the check is "all fetch pollers guarded,
+//      and at least one exists", not a fixed count.
 //      Non-fetch timers (the WebWallGL live heartbeat) are out of scope — their
 //      lifecycle is covered by stopLiveWatch()'s clearInterval.
 //   R1 lib/we-renderer/effects/_scratch.js pool: borrow → "out", return/recall →
@@ -213,17 +219,26 @@ async function main() {
       tracked < 0 ? 'ACTIVE_FFMPEG.add(proc) not found in spawnFfmpeg' : 'postSpawnRecheck=' + recheck + ' proc.kill=' + kills);
   }
 
-  // ── S7: the fiber dispose block calls cancelSceneAnimUpgrade() ──────────────
+  // ── S7: the beta scene-anim path is fully gone; the surviving timers are still cleaned ──
+  // beta 场景动画 (betaSceneAnim / scene-anim) 曾有一整套比 fiber 活得更久的资源
+  // (1.5s 轮询 / 15min maxWait / 60s 延迟 timer + 探针 <video>), 靠 fiber dispose 里的
+  // cancelSceneAnimUpgrade() 清理。该路线已随 WebWallGL 实时渲染移除 —— 这里既守住
+  // "不再复活", 也要求 dispose 仍清理剩余的长命资源 (转码升级轮询 + 模块级 persistTimer)。
   {
     const effStart = files.client.indexOf('const unsub = subscribe(syncLayers);');
     const disposeIdx = files.client.indexOf('disposed = true;');
     const disposeBody = effStart >= 0 && disposeIdx > effStart ? files.client.slice(disposeIdx, disposeIdx + 3000) : '';
-    const inFiberDispose = effStart >= 0 && disposeIdx > effStart; // anchored inside the ctx.effect cleanup
-    const calls = /cancelSceneAnimUpgrade\(\)/.test(disposeBody);
-    const def = /function cancelSceneAnimUpgrade\s*\(/.test(files.client);
-    check('S7 src/client.js fiber dispose calls cancelSceneAnimUpgrade() (scene-anim poller + probe video)',
-      inFiberDispose && calls && def,
-      'fiberDispose=' + inFiberDispose + ' call=' + calls + ' helper=' + def);
+    const inFiberDispose = effStart >= 0 && disposeIdx > effStart;
+    const cleansTranscode = /abortTranscodeUpgrade\(\)/.test(disposeBody);
+    const cleansPersist = /clearTimeout\(persistTimer\)/.test(disposeBody);
+    // 只看**代码模式**, 不看注释 —— 允许在注释里记述这段历史 (如缓存清扫那条)。
+    const clientGone = !/sceneAnim|cancelSceneAnimUpgrade|queueSceneAnimUpgrade|betaSceneAnim/.test(files.client);
+    const hostGone = !/\$\{BASE\}\/scene-anim/.test(files.index)
+      && !/^\s*betaSceneAnim\s*:/m.test(files.index);
+    check('S7 beta scene-anim path removed (client + host); fiber dispose still cleans abortTranscodeUpgrade + persistTimer',
+      inFiberDispose && cleansTranscode && cleansPersist && clientGone && hostGone,
+      'fiberDispose=' + inFiberDispose + ' abortTranscodeUpgrade=' + cleansTranscode
+        + ' persistTimer=' + cleansPersist + ' clientClean=' + clientGone + ' hostClean=' + hostGone);
   }
 
   // ── S8: pagehide / visibilitychange listeners are REMOVED in cleanup ────────
@@ -264,8 +279,8 @@ async function main() {
       }
     }
     check('S9 src/client.js every fetch-based progress poller carries an in-flight (pending) guard',
-      pollers >= 2 && guarded === pollers,
-      guarded + '/' + pollers + ' fetch pollers guarded' + (names.size ? ' (' + [...names].join(', ') + ')' : ''));
+      pollers >= 1 && guarded === pollers,
+      guarded + '/' + pollers + ' fetch pollers guarded' + (names.size ? ' (' + [...names].join(', ') + ')' : '') + ' (>=1: 至少抽帧进度轮询必须在)');
   }
 
   // ── R1: scratch pool really reclaims borrowed buffers ───────────────────────

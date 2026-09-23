@@ -2,8 +2,9 @@
 
 > 本文件承接原先放在 README 首页的**实现细节**：场景渲染器、宿主 / 客户端分工、HTTP 路由表。
 > 门面（`../README.md`）只保留「支持哪些壁纸类型」的结论表 + 本文件链接。
-> 渲染路线的工程决策见 [`RENDERER-FEASIBILITY.md`](./RENDERER-FEASIBILITY.md)；未来实现路线见
-> [`SCENE-ANIMATION-HANDOFF.md`](./SCENE-ANIMATION-HANDOFF.md)。
+> 渲染路线的工程决策见 [`RENDERER-FEASIBILITY.md`](./RENDERER-FEASIBILITY.md)。
+> 场景动画的旧实现（beta 场景动画 / `/scene-anim`）已随 WebWallGL 实时渲染落地而**移除**，
+> 其历史记录见 [`SCENE-ANIMATION-HANDOFF.md`](./SCENE-ANIMATION-HANDOFF.md)（已归档）。
 
 ## 中文
 
@@ -46,8 +47,6 @@ linux-wallpaperengine / repkg 逆向成果）完整重放：解析 `scene.pkg` �
      - `GET /wallpaper-engine/video-preview/<token>` → 自上传 MP4 的按需抽帧缩略图（ffmpeg，磁盘缓存）
      - `GET /wallpaper-engine/scene-frame/<token>` → 场景壁纸完整场景帧（纯 JS 渲染器输出 3840 宽 / 高度随场景比例，失败回退主纹理提取，PNG 磁盘缓存）
      - `GET /wallpaper-engine/scene-video/<token>` → 场景内嵌 MP4（抽出后硬件解码播放，支持 Range；场景无内嵌视频时 404，客户端回退静态帧）
-     - `GET /wallpaper-engine/scene-anim/<token>?fps=N&sec=N&fmt=apng|mp4|webm` → 场景动画帧（多帧渲染成动画；实验性「beta 场景动画」，见「效果」页签开关）
-     - `GET /wallpaper-engine/scene-anim-progress/<token>?fps&sec&fmt` → 场景动画渲染进度（进度条轮询，读渲染中的 `.prog`）
      - `GET /wallpaper-engine/scene-runtime/<token>` → 场景 WebGL 播放器页面（同源 HTML；客户端默认不内嵌，仅作回退路径）
      - `GET /wallpaper-engine/scene-manifest/<token>` → 场景清单 JSON（图层 / 模型 / 粒子 / 相机，按需从 `scene.pkg` 构建，供播放器读取）
      - `GET /wallpaper-engine/scene-resource/<token>/<子路径>` → 场景资源（清单引用的纹理 / 精灵，可解码则返回 PNG，否则原始字节）
@@ -122,8 +121,6 @@ the picker.
      - `GET /wallpaper-engine/video-preview/<token>` → on-demand ffmpeg-extracted thumbnail for a custom MP4 upload (disk-cached)
      - `GET /wallpaper-engine/scene-frame/<token>` → scene full-scene frame (pure-JS renderer output 3840 wide / height from the scene aspect, falls back to main-texture extraction, PNG disk-cached)
      - `GET /wallpaper-engine/scene-video/<token>` → the scene's embedded MP4 (hardware-decoded playback, Range supported; 404 when the scene embeds no video, and the client falls back to the static frame)
-     - `GET /wallpaper-engine/scene-anim/<token>?fps=N&sec=N&fmt=apng|mp4|webm` → scene animation frames (multi-frame render to an animation; experimental beta scene animation, see the 效果 tab toggle)
-     - `GET /wallpaper-engine/scene-anim-progress/<token>?fps&sec&fmt` → scene animation render progress (progress-bar polling, reads the in-flight `.prog`)
      - `GET /wallpaper-engine/scene-runtime/<token>` → scene WebGL player page (same-origin HTML; the client does not embed it by default — fallback path only)
      - `GET /wallpaper-engine/scene-manifest/<token>` → scene manifest JSON (layers / models / particles / camera, built on demand from `scene.pkg` for the player)
      - `GET /wallpaper-engine/scene-resource/<token>/<subpath>` → scene resources (textures / sprites referenced by the manifest; PNG when decodable, raw bytes otherwise)

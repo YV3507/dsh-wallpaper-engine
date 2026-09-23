@@ -228,7 +228,7 @@ the 3–8 controls that belong there instead of a thirty-item single column:
 | **外观** (appearance) | accent, glass color, glass transparency, settings-window glass, sidebar glass & content surface |
 | **字体** (typography) | master switch + color / weight / family, input caret color |
 | **吉祥物** (mascot) | visibility switch, form cards (artwork doubles as a live preview), size slider |
-| **效果** (effects) | wallpaper blur / brightness / contrast / saturate / wallpaper opacity / scrim / border / glass, playback speed, fps cap, fit, flip, occlusion pause, beta scene animation / GPU render acceleration (scene wallpapers only, experimental) (an empty state guides you to pick a wallpaper first) |
+| **效果** (effects) | wallpaper blur / brightness / contrast / saturate / wallpaper opacity / scrim / border / glass, playback speed, fps cap, fit, flip, occlusion pause; plus the **static-frame fallback** group — lossy route / idle prewarm / GPU acceleration (they only apply to the fallback path taken when live rendering is unavailable) (an empty state guides you to pick a wallpaper first) |
 | **高级** (advanced) | compact layout, Edge compatibility |
 
 The pill indicator slides between tabs; the settings page and the drawer share
@@ -537,9 +537,10 @@ near-opaque fill:
 
 - Application wallpapers cannot be embedded and are hidden from the thumbnail
   picker and rotation candidates. Their live render remains Wallpaper Engine's
-  desktop job. Scene wallpapers are rendered to a full-scene frame (static) —
-  see 「Which wallpaper types are supported?」 above; any scene animation is
-  frozen in that frame.
+  desktop job. Scene wallpapers are rendered live by WebWallGL when possible and
+  otherwise fall back to an extracted full-scene frame (static) — see
+  「Which wallpaper types are supported?」 above; in the fallback frame any scene
+  animation is frozen.
 - The browser must be able to autoplay muted `<video>` (DSH runs on loopback; muted
   autoplay is allowed by modern browsers).
 - Media is served from your local Wallpaper Engine install paths; the host only

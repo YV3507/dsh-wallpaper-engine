@@ -9,6 +9,16 @@
 
 ## 中文
 
+### 未发布（下一版）
+
+- **移除「beta 场景动画」**：`betaSceneAnim` 开关、宿主 `/scene-anim` 与 `/scene-anim-progress` 路由、客户端动画升级队列 / 进度轮询 / 探针 `<video>`、worker 多帧渲染与 APNG 输出（含 `lib/apng-encode.js`）**整体删除**。理由：WebWallGL 实时渲染已是它的上位替代（粒子 / 脚本 / 视差 / 包内音频在渲染页内实时执行），而它本身默认关闭、实验性、且旧产物缓存无人回收。现行回退链变为 **实时渲染 → 内嵌 MP4（`/scene-video`）→ 静态帧（`/scene-frame`）**，与上游 README 的写法一致。磁盘上遗留的 `san_*.apng|mp4` 仍会被启动清扫回收。
+- **重新定位「静态帧兜底（回退）」**：**有损路线**、**空闲预热**、**GPU 渲染加速** 三项在「效果」页签里归入新分组「**静态帧兜底（回退）**」，并明确标注「仅在实时渲染不可用时生效（松散 `scene.json` 目录 / 无 WebGL2 / 该壁纸已被记入失败记忆）」。三者本就只作用于静态帧路径，**行为与默认值一律不变**；GPU 开关不再触发已删除的动画升级，改为给 `scene-frame` URL 加 `?gpu=0/1` 强制重取（宿主按新配置算缓存键）。
+- 回归护栏：`verify-resource-lifecycle` 的 S7 由「fiber dispose 调用 `cancelSceneAnimUpgrade()`」改为「**beta 场景动画路径在 client 与 host 中都已不存在**，且 dispose 仍清理存活的长命定时器」。
+
+### v0.7.5
+
+> 追版至上游 v0.7.5（含 `#103` WebWallGL 实时渲染、`#91` 字体重做与画面刷新、`#99` 音轨音量、玻璃饱和度解耦等），并与本仓库的静态帧兜底链合并 —— 两条路线**并存**：实时渲染优先，失败自动降级。同版本内还补了上游遗漏的 `lib/webwallgl/` 发布白名单项、把 `svKnown` 诚实化门控补回上游重构后的 `sceneFieldsFor()`、移除了上游那套写 `sf33_` 键、产物无人读取的 `sceneFramePrewarm`。
+
 ### v0.7.4
 
 > npm 上的 0.7.3 已被更早的提交占用且不可覆盖，故版本上调；0.7.4 = 0.7.3 内容 + #88（场景静态帧系列修复）+ 下列两条。
@@ -90,6 +100,16 @@
 ---
 
 ## English
+
+### Unreleased (next version)
+
+- **Removed "beta scene animation"**: the `betaSceneAnim` switch, the host `/scene-anim` and `/scene-anim-progress` routes, the client-side upgrade queue / progress polling / probe `<video>`, the worker's multi-frame rendering and APNG output (including `lib/apng-encode.js`) are **all deleted**. Rationale: WebWallGL live rendering supersedes it (particles / scripts / parallax / packaged audio run inside the renderer page), while it shipped off-by-default, experimental, and its on-disk artifacts were never reclaimed. The fallback chain is now **live render → embedded MP4 (`/scene-video`) → static frame (`/scene-frame`)**, matching upstream's README. Leftover `san_*.apng|mp4` files on disk are still reclaimed by the startup sweep.
+- **Repositioned the "static-frame fallback" controls**: **lossy route**, **idle prewarm** and **GPU acceleration** now live in a new 效果-tab group labelled 「静态帧兜底（回退）」 / "static-frame fallback", annotated "only applies when live rendering is unavailable (loose `scene.json` directory / no WebGL2 / this wallpaper is in the failure memory)". They always only affected the static-frame path, so **behaviour and defaults are unchanged**; the GPU switch no longer triggers the deleted animation upgrade — it now appends `?gpu=0/1` to the `scene-frame` URL to force a re-fetch under the new cache key.
+- Regression guard: `verify-resource-lifecycle` S7 changed from "fiber dispose calls `cancelSceneAnimUpgrade()`" to "**the beta scene-anim path is gone from both client and host**, while dispose still cleans the surviving long-lived timers".
+
+### v0.7.5
+
+> Caught up with upstream v0.7.5 (includes `#103` WebWallGL live rendering, `#91` font rework + frame refresh, `#99` track volume, glass saturation decoupling, …) and merged it with this repository's static-frame fallback chain — the two routes **coexist**: live rendering first, automatic degradation on failure. The same version also restored the `lib/webwallgl/` entry upstream omitted from the published `files` list, put the `svKnown` honesty gate back into upstream's refactored `sceneFieldsFor()`, and dropped upstream's `sceneFramePrewarm` (it wrote `sf33_` keys nothing ever read).
 
 ### v0.7.4
 

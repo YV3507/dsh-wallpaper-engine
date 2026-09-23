@@ -8,6 +8,16 @@
 > **自研动画子方向已放弃**（根因 A 框架级 + 维护打地鼠 + 分钟级渲染）。场景壁纸现行路径 =
 > 静态帧（`/scene-frame`）+ 内嵌视频纹理快路径（`/scene-video`，硬件解码）；GPU 加速保留为
 > 静态帧加速（`sceneGpuAccel`）。
+>
+> ## ⚠️ 追记（2026-09-23）
+>
+> 上游已把场景/网页壁纸接入 **WebWallGL 实时渲染**（`/scene-live` + `/scene-files`），成为
+> 首选形态；静态帧链整体**降级为回退**（实时渲染不可用时才走）。据此本仓库做了两件事：
+> ① **移除其后又短暂存在的「beta 场景动画」**（`betaSceneAnim` 开关 + `/scene-anim`、
+> `/scene-anim-progress` 路由 + 客户端升级队列/轮询/探针 + worker 多帧渲染与 APNG 输出）；
+> ② 把 **有损路线 / 空闲预热 / GPU 渲染加速** 重新定位为「**静态帧兜底（回退）**」分组 ——
+> 它们本就只作用于静态帧路径，行为与默认值不变。
+> 现行回退链：**WebWallGL 实时渲染 → 内嵌 MP4（`/scene-video`）→ 静态帧（`/scene-frame`）**。
 > **完整决策背景、已删资产清单与未来实现路线见 [`SCENE-ANIMATION-HANDOFF.md`](./SCENE-ANIMATION-HANDOFF.md)**。
 > 以下原文保留作决策背景，其中"动画"相关表述均已过时。
 
