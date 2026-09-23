@@ -372,7 +372,7 @@ const okResult = (servedFrom) => async () => ({ fileAbs: '/x/' + servedFrom + '.
     // 三级级联：父「场景实时渲染」> 子「静态帧渲染」(sceneFrameRender) > 兜底组。
     // 子只在父关时出现；兜底组只在子开时出现；关闭子开关时静态帧槽位改由非渲染档填。
     const cascade = /sel\.sceneLive === false[\s\S]{0,60}switchRow\("静态帧渲染", sel\.sceneFrameRender !== false/.test(cli)
-      && /sel\.sceneFrameRender !== false && React\.createElement\("div", \{ className: "we-picker__section" \}/.test(cli)
+      && /sel\.sceneLive === false && sel\.sceneFrameRender !== false\s*\n\s*&& React\.createElement\("div", \{ className: "we-picker__section" \}/.test(cli)
       && /frameRenderOff \? \(hasCustom \? CUSTOM_FRAME_ID : 3\) : savedVariant/.test(cli)
       && /sceneFrameRender: o\.sceneFrameRender !== false/.test(idx)
       && /st\.scenePrewarm === true && st\.sceneFrameRender !== false/.test(idx);

@@ -4188,10 +4188,11 @@ function WallpaperPicker(props) {
           }),
         // ── 静态帧兜底（回退）───────────────────────────────────────────────
         // ── 静态帧兜底（回退）───────────────────────────────────────────────
-        // **三级里的末级**：只在「静态帧渲染」打开时出现（而它又只在父级
-        // 「场景实时渲染」关闭时出现）。本组只影响静态帧链本身:
-        // 生成速度(有损路线) / 后台预热 / GPU 加速。
-        sel.sceneFrameRender !== false && React.createElement("div", { className: "we-picker__section" },
+        // **只在「场景实时渲染」关闭、「静态帧渲染」打开时出现**：实时渲染开着且正常运行时，
+        // 用户不必在意静态帧兜底这条链。组件级联的末级，不是"另一个并列开关组"。
+        // （这一组是全局设置，故不按"当前壁纸是不是场景"门控 —— 与它原本的设计一致。）
+        sel.sceneLive === false && sel.sceneFrameRender !== false
+          && React.createElement("div", { className: "we-picker__section" },
           React.createElement("div", { className: "we-picker__section-head" },
             React.createElement("span", { className: "we-picker__section-label" }, "静态帧兜底（回退）"),
           ),
