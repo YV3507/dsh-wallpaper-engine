@@ -545,18 +545,21 @@ function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 // 数组顺序 = UI 轮换顺序；「自定义画面」**必须留在最后**（frameVariantCount 用它
 // 推算「未导入自定义画面时的档位数」）。
 const FRAME_VARIANTS = [
-  // 自动 = 按设置：有损路线关闭时=完整渲染，打开时=主纹理近似（宿主侧决定）。
-  { id: 0, label: "自动（按设置）" },
-  // 显式「合成（分层）」：强制走 pkg 提取的多层合成（extraction variant 0）。
-  { id: 6, label: "合成（分层）" },
-  { id: 1, label: "主纹理（单张大图）" },
-  { id: 2, label: "作者原画（嵌入 JPEG/PNG）" },
-  { id: 3, label: "预览图" },
+  // 自动 = 走**自动回退链**：完整渲染 → 主纹理提取（合成优先）→ 作者预览图，逐级回退。
+  // 默认，也是唯一"会渲染"的一档。
+  { id: 0, label: "自动（逐级回退）" },
+  // 下面两档是**自动链上没有的替代来源**，只在自动链给出的画面也不满意时才需要手动指定：
+  { id: 1, label: "主纹理（单张大图，跳过合成）" },
+  { id: 2, label: "作者原画（内嵌 JPEG/PNG 优先）" },
+  // 自定义画面（用户截屏）——最可靠的逃生口，作为最后一档。
   { id: 4, label: "自定义画面" },
 ];
-// 注意：**「静态帧渲染」不在本表** —— 它是静态帧链的**总开关**（设置项
-// sceneFrameRender，父级是「场景实时渲染」），不是帧的生成逻辑。本表只描述"怎么生成一帧"。
-// 历史 id 5 曾把总开关误放进本表，已退役（见 lib/index.js 的档位注释）。
+// ⚠️ 本表**只列自动链没有用到的来源**。上游 #91 的原列表里还有「合成（分层）」与
+// 「预览图」，但这两者正是自动链自己的第 2/3 步（合成优先提取 → 作者预览图）——
+// 自动链失败时再摆出来，等于让用户重试刚刚失败的那一步。故本仓库不再提供它们
+// （宿主侧仍保留 ?v=3 供"静态帧渲染关闭时改显预览图"内部使用）。
+// 注意：「静态帧渲染」也不在本表 —— 它是静态帧链的总开关（设置项 sceneFrameRender），
+// 不是帧的生成逻辑。历史 id 5 曾把总开关误放进本表，已退役。
 // 自定义画面档的 id（导入截屏后这一档才计入档位数）。
 const CUSTOM_FRAME_ID = 4;
 // 档位 id → 数组下标（未知 / 越界一律回落到 0 = 自动）。
@@ -572,7 +575,7 @@ function frameVariantStatusText(selLike) {
   const total = frameVariantCount(selLike, wid);
   const idx = frameVariantIndex(saved);
   const label = idx === 0
-    ? (selLike.sceneFrameSource === "maintexture" ? "自动（主纹理近似）" : "自动（完整渲染）")
+    ? "自动（逐级回退 · 当前：" + (selLike.sceneFrameSource === "maintexture" ? "主纹理近似" : "完整渲染") + "）"
     : FRAME_VARIANTS[idx].label;
   return "第 " + (idx + 1) + "/" + total + " 档 · " + label + " · 共 " + total + " 种";
 }
@@ -4068,28 +4071,11 @@ function WallpaperPicker(props) {
         React.createElement("div", { className: "we-picker__section-head" },
           React.createElement("span", { className: "we-picker__section-label" }, "画面"),
         ),
-        // ── 壁纸画面刷新（用户方案）：场景静态帧生成逻辑手动轮换 ──
-        // 显示异常时逐档刷新；未导入自定义画面时 4 档，导入后 5 档（第 5 档=
-        // 用户截屏）。档位按壁纸记忆；beta 渲染不参与。读数实时显示档位与总数。
-        // 静态帧链在用、且「静态帧渲染」没关时才显示（三级级联的末级之一）。
-        sel.type === "scene" && sel.sceneFrameUrl && sel.sceneFrameRender !== false
-          && (sel.sceneLive === false || !liveRenderEnabled(sel))
-          && React.createElement("div", { className: "we-picker__ctl" },
-            ctlText("壁纸画面刷新", "显示异常时换一种生成逻辑",
-            "场景壁纸静态帧生成逻辑：自动（按设置）/ 静态帧渲染（完整渲染）/ 合成（分层）/ 主纹理 / 作者原画 / 预览图（导入截屏后多一档自定义画面）。每点一次换一种，选择记忆在当前壁纸上；各档使用各自独立的帧缓存，来回切换不会互相作废"),
-          React.createElement("button", {
-            className: "we-picker__btn", type: "button",
-            onClick: onRefreshFrame,
-            "aria-label": "刷新壁纸画面生成逻辑",
-          }, "刷新"),
-          React.createElement("span", { className: "we-picker__hint we-picker__value" },
-            frameVariantStatusText(sel)),
-        ),
         // ── 自定义画面（截屏导入）：无法静态生成的壁纸（骨骼拼装场景，预览
         // gif 仅 160px）由用户从 WE 截图导入，画质=截图分辨率；作为第 5 档。
-        // 属于静态帧链，因此同样在"静态帧在用"时才显示；但它**不随「静态帧渲染」
+        // 属于静态帧链，因此同样在"实时渲染没在生效"时才显示；但它**不随「静态帧渲染」
         // 关闭而隐藏** —— 关闭渲染后正是靠它（或预览图）撑住画面。
-        sel.type === "scene" && (sel.sceneLive === false || !liveRenderEnabled(sel))
+        sel.type === "scene" && !liveRenderEnabled(sel)
           && React.createElement("div", { className: "we-picker__ctl" },
           ctlText("自定义画面",
             "手动给电脑桌面截图，导入截图解决错误壁纸",
@@ -4174,7 +4160,7 @@ function WallpaperPicker(props) {
         // 静态帧链总开关（**子级**）：父级「场景实时渲染」关掉后才出现 —— 此时静态帧
         // 接管画面，因此默认开。关掉它 = 场景不再渲染（有内嵌 MP4 就放它，否则用作者
         // 预览图 / 已导入的自定义画面）。下一级「静态帧兜底（回退）」只在本开关打开时出现。
-        (sel.type === "scene" || sel.type === "web") && sel.sceneLive === false
+        (sel.type === "scene" || sel.type === "web") && !liveRenderEnabled(sel)
           && switchRow("静态帧渲染", sel.sceneFrameRender !== false, (e) => {
             selection.sceneFrameRender = e.target.checked;
             persistSelection();
@@ -4188,16 +4174,32 @@ function WallpaperPicker(props) {
           }),
         // ── 静态帧兜底（回退）───────────────────────────────────────────────
         // ── 静态帧兜底（回退）───────────────────────────────────────────────
-        // **只在「场景实时渲染」关闭、「静态帧渲染」打开时出现**：实时渲染开着且正常运行时，
-        // 用户不必在意静态帧兜底这条链。组件级联的末级，不是"另一个并列开关组"。
-        // （这一组是全局设置，故不按"当前壁纸是不是场景"门控 —— 与它原本的设计一致。）
-        sel.sceneLive === false && sel.sceneFrameRender !== false
+        // **只在实时渲染没在生效**时出现：父开关关掉、或这张壁纸已被判失败而自动降级
+        // （"实时渲染开且**正常运行**时用户不必在意这条链"）。再要求「静态帧渲染」打开。
+        // 本组是全局设置，故不按"当前壁纸是不是场景"以外的类型门控。
+        (sel.type === "scene" || sel.type === "web") && !liveRenderEnabled(sel)
+          && sel.sceneFrameRender !== false
           && React.createElement("div", { className: "we-picker__section" },
           React.createElement("div", { className: "we-picker__section-head" },
             React.createElement("span", { className: "we-picker__section-label" }, "静态帧兜底（回退）"),
           ),
           React.createElement("div", { className: "we-picker__ctl" },
             ctlText("调优项", "只作用于上面的静态帧渲染"),
+          ),
+          // ── 出图来源：**自动回退链**的手动指定 ──────────────────────────
+          // 它是"兜底"，所以只列自动链**没有**用到的替代来源（"合成 / 预览图"正是自动链
+          // 自己的第 2/3 步，摆出来等于让用户重试刚失败的那一步 —— 见 FRAME_VARIANTS 注释）。
+          sel.type === "scene" && sel.sceneFrameUrl
+            && React.createElement("div", { className: "we-picker__ctl" },
+            ctlText("出图来源", "自动链的画面也不满意时，换一种来源",
+              "默认「自动」= 自动回退链：完整渲染（自研渲染器）→ 主纹理提取（合成优先）→ 作者预览图，逐级回退。其它档是链上**没有**的替代来源（主纹理单张 / 作者原画 / 自定义画面），只在自动链给出的画面也不满意时才需要手动指定。按壁纸记忆；各档独立缓存，来回切换不会互相作废"),
+            React.createElement("button", {
+              className: "we-picker__btn", type: "button",
+              onClick: onRefreshFrame,
+              "aria-label": "换一种出图来源",
+            }, "换一种"),
+            React.createElement("span", { className: "we-picker__hint we-picker__value" },
+              frameVariantStatusText(sel)),
           ),
           // ── 有损路线总开关 ─────────────────────────────────────────────
           // 集中管理"用观感换速度"的手段; 关闭时附属项一律失效 (宿主侧同样强制)。

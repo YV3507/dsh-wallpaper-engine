@@ -355,29 +355,32 @@ const okResult = (servedFrom) => async () => ({ fileAbs: '/x/' + servedFrom + '.
     && !/sceneLossyRoute[\s\S]{0,200}sceneGpuAccel/.test(idx)
     && /GPU 渲染加速/.test(cli));
 
-  // ── R38 画面刷新档位: id 与数组下标的解耦必须两侧一致 ──────────────────────
+  // ── R38 出图来源档位 + 三级级联 ────────────────────────────────────────────
   // 存的是**档位 id**（不是下标）, 否则一旦数组顺序调整, 已保存的选择就会指向别的档。
-  // 同时守住三件事: 档位 id 唯一; 「自定义画面」在数组末尾（frameVariantCount 用它
-  // 算"未导入自定义画面时的档位数"）; 宿主接受 1..6 且档 5=强渲染 / 档 6=合成。
+  // 同时守住：①档位集合**恰好**是自动/主纹理/作者原画/自定义画面（"合成"与"预览图"
+  // 是自动链自己的第 2/3 步, 不许作为手动档重新出现）；②「自定义画面」在数组末尾
+  // （frameVariantCount 用它算"未导入自定义画面时的档位数"）；③宿主只认 1..4；
+  // ④三级级联的门控；⑤关闭「静态帧渲染」时不再请求渲染产物。
   {
     const ids = [...cli.matchAll(/\{\s*id:\s*(\d+),\s*label:/g)].map((m) => Number(m[1]));
     const uniq = new Set(ids).size === ids.length;
     const customLast = /id:\s*4,\s*label:\s*"自定义画面"\s*\},?\s*\];/.test(cli);
     const usesId = /FRAME_VARIANTS\[\(curIdx \+ 1\) % total\]\.id/.test(cli)
       && /map\[wid\] = CUSTOM_FRAME_ID/.test(cli);
-    const hostOk = /vParsed >= 1 && vParsed <= 6 && vParsed !== 5/.test(idx)
+    const hostOk = /vParsed >= 1 && vParsed <= 4/.test(idx)
       && !/forceRender/.test(idx)
       && /const vSuffix = variant \? '_v' \+ variant : ''/.test(idx)
-      && /variant === 1 \|\| variant === 2 \|\| variant === 6/.test(idx);
-    // 三级级联：父「场景实时渲染」> 子「静态帧渲染」(sceneFrameRender) > 兜底组。
-    // 子只在父关时出现；兜底组只在子开时出现；关闭子开关时静态帧槽位改由非渲染档填。
-    const cascade = /sel\.sceneLive === false[\s\S]{0,60}switchRow\("静态帧渲染", sel\.sceneFrameRender !== false/.test(cli)
-      && /sel\.sceneLive === false && sel\.sceneFrameRender !== false\s*\n\s*&& React\.createElement\("div", \{ className: "we-picker__section" \}/.test(cli)
+      && /variant === 1 \|\| variant === 2/.test(idx)
+      && !/variant === 6/.test(idx);
+    // 三级级联：实时渲染没在生效（父关 / 该壁纸已自动降级）→ 出现子「静态帧渲染」；
+    // 子打开 → 才出现「静态帧兜底（回退）」组（出图来源 + 调优项都在其中）。
+    const cascade = /&& !liveRenderEnabled\(sel\)[\s\S]{0,60}switchRow\("静态帧渲染", sel\.sceneFrameRender !== false/.test(cli)
+      && /sel\.sceneFrameRender !== false\s*\n\s*&& React\.createElement\("div", \{ className: "we-picker__section" \}/.test(cli)
       && /frameRenderOff \? \(hasCustom \? CUSTOM_FRAME_ID : 3\) : savedVariant/.test(cli)
       && /sceneFrameRender: o\.sceneFrameRender !== false/.test(idx)
       && /st\.scenePrewarm === true && st\.sceneFrameRender !== false/.test(idx);
-    check('R38 画面档位 + 三级级联: 档位 id 唯一 / 自定义档在末尾 / 宿主 1..6 但 5 已退役；父(实时渲染)>子(静态帧渲染)>兜底组，且关闭子开关时不再请求渲染产物',
-      ids.length >= 6 && uniq && customLast && usesId && hostOk && cascade,
+    check('R38 出图来源档位 + 三级级联: 档位恰好 [0,1,2,4]（不含链上已有的 合成/预览图）/ 自定义档在末尾 / 宿主只认 1..4；实时渲染未生效 且 静态帧渲染开 才出现兜底组',
+      ids.join(',') === '0,1,2,4' && uniq && customLast && usesId && hostOk && cascade,
       'ids=[' + ids.join(',') + '] unique=' + uniq + ' customLast=' + customLast
         + ' clientUsesId=' + usesId + ' host=' + hostOk + ' cascade=' + cascade);
   }
