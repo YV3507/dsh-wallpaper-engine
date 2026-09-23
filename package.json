@@ -69,7 +69,7 @@
   "license": "MIT",
   "scripts": {
     "build": "node scripts/build-client.mjs",
-    "verify": "node scripts/verify-client.mjs && node scripts/verify-transcode-state.mjs && node scripts/verify-playback-controls.mjs && node scripts/verify-scene-live.mjs && node scripts/verify-mdla.mjs && node scripts/verify-resource-lifecycle.mjs && node scripts/verify-softrender.mjs && node scripts/verify-readability.mjs && node scripts/verify-composite-blit.mjs && node scripts/verify-png-decode.mjs && node scripts/verify-atlas-frame-decode.mjs && node scripts/verify-band-parallel.mjs && node scripts/verify-fx-chain.mjs && node scripts/verify-prewarm.mjs && node scripts/verify-web-route.mjs && node scripts/verify-package-files.mjs && node scripts/verify-docs.mjs",
+    "verify": "node scripts/verify-client.mjs && node scripts/verify-transcode-state.mjs && node scripts/verify-playback-controls.mjs && node scripts/verify-scene-live.mjs && node scripts/verify-mdla.mjs && node scripts/verify-resource-lifecycle.mjs && node scripts/verify-softrender.mjs && node scripts/verify-readability.mjs && node scripts/verify-composite-blit.mjs && node scripts/verify-png-decode.mjs && node scripts/verify-atlas-frame-decode.mjs && node scripts/verify-band-parallel.mjs && node scripts/verify-fx-chain.mjs && node scripts/verify-prewarm.mjs && node scripts/verify-web-route.mjs && node scripts/verify-package-files.mjs && node scripts/verify-docs.mjs && node scripts/verify-settings-keys.mjs && node scripts/verify-sampling.mjs",
     "prepare": "node scripts/prepare.mjs"
   },
   "peerDependencies": {

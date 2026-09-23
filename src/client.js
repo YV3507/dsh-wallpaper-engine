@@ -637,6 +637,15 @@ function serializeSelection() {
     videoAudioEnabled: selection.videoAudioEnabled,
     fpsCap: selection.fpsCap,
     sceneFrameSource: selection.sceneFrameSource,
+    // ⚠️ 下面四个是「静态帧兜底与调优」组的开关，**必须在这里发送**：
+    // 宿主的 sanitizeSettings 白名单里有它们（`prewarmWanted()` 就靠 `scenePrewarm`，
+    // JPEG 缓存键/worker 靠 `sceneGpuAccel`），客户端读回白名单里也有它们 —— 唯独
+    // 这一份"写"的清单漏了，于是 UI 上开了也永远存不住（预热更彻底失效：宿主永远读到 false）。
+    // 与 frameVariants/customFrames 同一类漂移，见 scripts/verify-settings-keys.mjs。
+    sceneLossyRoute: selection.sceneLossyRoute,
+    sceneGpuAccel: selection.sceneGpuAccel,
+    scenePrewarm: selection.scenePrewarm,
+    scenePrewarmScope: selection.scenePrewarmScope,
 
     sceneLive: selection.sceneLive,
     sceneFrameRender: selection.sceneFrameRender,
