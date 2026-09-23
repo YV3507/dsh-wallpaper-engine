@@ -103,9 +103,18 @@ function runScenario(name, opts, body) {
     });
     if (tag === 'iframe') {
       el.__volumes = [];
+      // 渲染页 pause/resume 与心跳读数的真实耦合（真机取自 renderer bundle 的
+      // __wpStats：`!frameMeter.last || paused ? {fps:0,running:false} : …`）——
+      // 页面被 pause() 之后「无帧」是**预期**结果而不是渲染故障。mock 必须照抄
+      // 这条语义，否则「暂停被误判成首帧超时」这类缺陷在测试里根本不可见。
+      el.__wpPaused = false;
       el.contentWindow = {
-        __wpStats: { frame: () => { el.__statsCalls = (el.__statsCalls||0)+1; return statsFor(el.src); } },
-        __wp: { resume(){}, pause(){}, setVolume(v){ el.__volumes.push(v); }, setFit(){}, pushPointer(){}, pointerLeave(){} },
+        __wpStats: { frame: () => {
+          el.__statsCalls = (el.__statsCalls||0)+1;
+          return el.__wpPaused ? { fps: 0, running: false } : statsFor(el.src);
+        } },
+        __wp: { resume(){ el.__wpPaused = false; }, pause(){ el.__wpPaused = true; },
+          setVolume(v){ el.__volumes.push(v); }, setFit(){}, pushPointer(){}, pointerLeave(){} },
       };
     }
     return el;
@@ -123,6 +132,10 @@ function runScenario(name, opts, body) {
   }
 
   const bodyEl = makeEl('body');
+  // 真事件语义：客户端现在用 visibilitychange/focus 触发「隐藏期间被推迟的轮换」
+  // 的补做，mock 若仍是空实现，这条路径在测试里永远不可达（假绿）。
+  const docListeners = {}; const winListeners = {};
+  const fireOn = (reg, ev) => { for (const fn of (reg[ev] ? [...reg[ev]] : [])) fn({ type: ev }); };
   const document = {
     createElement: (t) => { const el = makeEl(t); if (t==='iframe') iframeEls.push(el); if (t==='video') mediaEls.push(el); return el; },
     // 真 DOM 语义：getElementById 跳过已脱离文档的节点（否则 mock 会让客户端
@@ -133,8 +146,8 @@ function runScenario(name, opts, body) {
     body: bodyEl,
     hidden: false,
     hasFocus: () => true,
-    addEventListener(){},
-    removeEventListener(){},
+    addEventListener(ev, fn){ (docListeners[ev] ||= []).push(fn); },
+    removeEventListener(ev, fn){ const a = docListeners[ev]; if (a) { const i = a.indexOf(fn); if (i >= 0) a.splice(i, 1); } },
     documentElement: makeEl('html'),
   };
 
@@ -157,7 +170,9 @@ function runScenario(name, opts, body) {
       clearTimeout:(t)=>{ if(t)t.cleared=true; },
       setInterval:(fn,ms)=>{ const t={fn,ms,cleared:false}; intervals.push(t); return t; },
       clearInterval:(t)=>{ if(t)t.cleared=true; },
-      addEventListener(){}, innerWidth:1920, innerHeight:1080, devicePixelRatio:1,
+      addEventListener(ev, fn){ (winListeners[ev] ||= []).push(fn); },
+      removeEventListener(ev, fn){ const a = winListeners[ev]; if (a) { const i = a.indexOf(fn); if (i >= 0) a.splice(i, 1); } },
+      innerWidth:1920, innerHeight:1080, devicePixelRatio:1,
     },
     document, localStorage, fetch, React, Date: MockDate, Image: ImageMock,
     location: { origin: 'http://localhost' },
@@ -188,7 +203,13 @@ function runScenario(name, opts, body) {
     // syncRotationTimer）：等它落定后再驱动轮换（同既有 smoke 的 50ms 等待）。
     await new Promise((r) => setTimeout(r, 50));
     return body({ timers, intervals, byId, mediaEls, iframeEls, cleanups, bodyEl, fire, fireLatest,
-      flushPersist, stagingDivs, layerEl, orphans, mediaSrc, persistedId, clock, setStats, imageEls });
+      flushPersist, stagingDivs, layerEl, orphans, mediaSrc, persistedId, clock, setStats, imageEls,
+      // 遮挡/隐藏相关的场景需要直接改这两个（真机上是页面自身的状态）。
+      document,
+      // 隐藏/恢复必须同时派发 visibilitychange（真机语义）：客户端靠它补做被推迟的轮换。
+      setHidden(v){ document.hidden = !!v; fireOn(docListeners, 'visibilitychange'); },
+      fireDoc(ev){ fireOn(docListeners, ev); },
+      fireWin(ev){ fireOn(winListeners, ev); }, failureMemory: () => (JSON.parse(localStorage._store['dsh-wallpaper-engine:selection']).sceneLiveFailures || {}) });
   })();
 }
 
@@ -522,6 +543,137 @@ await runScenario('G. 准备期 live 连续超时 → 冷却后跳过 live 阶�
   check('轮换回视频壁纸（清冷却前）', r === 0 && t.persistedId() === 'v', 'id=' + t.persistedId());
   r = startRound();                              // s1：冷却已清 → 恢复 live 探测
   check('live 真的出过首帧后冷却被清零 → 下轮恢复 live 探测', r === 1, 'staged=' + r);
+});
+
+// ── I：领养后的「主动暂停」不得被判成首帧超时 ────────────────────────────────
+// 真机复现（Chrome + 真渲染页 + 真宿主，见 PR）：轮换的节点级领养路径在同一个
+// 任务里就调用 applyLiveControls → 若此刻「非有效播放」（窗口失焦 pauseOnBlur /
+// 标签页隐藏 / 用户暂停），渲染页被我们自己的 pause() 停表，__wpStats.frame()
+// 恒为 {fps:0,running:false}；首帧看护若照常计时，15s 后就把这张壁纸持久记成
+// 「首帧超时」并降级回 sceneVideo/静态帧 —— 渲染页其实是好的，用户得手动重开
+// 「实时渲染」开关才能恢复。运行期 stall 规则早就有 !isEffectivelyPlaying() 守卫。
+await runScenario('I. 领养后处于暂停/失焦：首帧看护必须暂停计时，不得记超时', {
+  wallpapers: [wallpaperV, scene('s1', 'tok-s1')],
+  stats: { 'tok-s1': { fps: 30, running: true } },
+  selection: Object.assign(selSeed(['v','s1'], 'v'), { pauseOnBlur: true }),
+}, (t) => {
+  t.document.hasFocus = () => false;           // 窗口失焦（pauseOnBlur）
+  t.fireLatest(10000);                          // 轮换：准备 s1
+  t.fireLatest(300);                            // 首帧达标 → 提交（节点级领养）
+  const staged = t.iframeEls[t.iframeEls.length-1];
+  const layer = t.layerEl();
+  check('失焦状态下仍完成 live 准备与领养（准备期不看父页焦点；iframe 未搬动）',
+    !!layer && t.stagingDivs().length === 0 && layer.querySelector('iframe.we-live-iframe') === staged
+      && staged._parent === layer,
+    'layer=' + (layer ? String(layer.className) : 'none') + ' staging=' + t.stagingDivs().length);
+  check('领养后渲染页被 applyLiveControls 按「非有效播放」暂停（失焦的真实后果）',
+    staged.__wpPaused === true, '__wpPaused=' + staged.__wpPaused);
+  const tick = t.intervals.find(x => !x.cleared && x.ms === 1000);
+  check('live 心跳已武装（1s）', !!tick);
+  // 跨过 LIVE_FIRST_FRAME_MS：暂停期间连敲 20 tick（每秒一拍）
+  t.clock.offset += 20000;
+  for (let i = 0; i < 20; i++) if (tick) tick.fn();
+  t.flushPersist();                             // 失败记忆只有落库后才可见（200ms 定时器）
+  check('暂停期间不得记入 sceneLiveFailures（旧实现在这里写 timeout 并永久降级）',
+    !t.failureMemory()['s1'], JSON.stringify(t.failureMemory()));
+  // 诊断日志默认档（无需任何开关）：关键事件直接进宿主 /diag 环形缓冲 —— 这台机器上
+  // 打不开 DevTools，事后唯一的取证通道就是它，所以「默认有没有在记」必须被锁住。
+  const beacons = () => t.imageEls.map((e) => String(e.src || ''))
+    .filter((s) => s.indexOf('/diag?msg=') === 0).map((s) => decodeURIComponent(s));
+  check('默认就向宿主诊断缓冲上报关键事件（watch-start / adopt-live，无需开关）',
+    beacons().some((s) => s.indexOf('watch-start') !== -1) && beacons().some((s) => s.indexOf('adopt-live') !== -1),
+    'beacons=' + beacons().length);
+  check('暂停期间不上报 liveFail（日志与行为一致）',
+    !beacons().some((s) => s.indexOf('liveFail') !== -1),
+    beacons().filter((s) => s.indexOf('liveFail') !== -1).join(' | ').slice(0, 120));
+  check('暂停期间层不得被重建（仍是领养那个 iframe、渲染页不重载）',
+    t.layerEl() === layer && !!layer.querySelector('iframe.we-live-iframe'), 'rebuilt=' + (t.layerEl() !== layer));
+  // 焦点回来（真机上是 focus 事件 → emit → applyLiveControls.resume；心跳里也有一条）
+  t.document.hasFocus = () => true;
+  t.clock.offset += 1000;
+  if (tick) tick.fn();                          // 这一拍读到旧读数 + 下发 resume
+  t.clock.offset += 1000;
+  if (tick) tick.fn();                          // 这一拍读到出帧 → 确认首帧
+  check('恢复播放后心跳立刻确认首帧（渲染页 resume 后照常出帧）',
+    staged.__wpPaused === false && t.timers.some(x => !x.cleared && x.ms === 2500),
+    'wpPaused=' + staged.__wpPaused + ' 回填定时器=' + t.timers.filter(x => !x.cleared && x.ms === 2500).length);
+  t.flushPersist();
+  check('恢复后依然没有失败记忆', !t.failureMemory()['s1'], JSON.stringify(t.failureMemory()));
+});
+
+// ── J：标签页隐藏期间的 live 准备不得超时（隐藏页面物理上不可能出帧）───────────
+// 真机：Chromium 对隐藏页面完全停摆 rAF，渲染页心跳读数退化为 {fps:0,running:false}。
+// 若照常计时，隐藏期间的每次轮换都白等 15s 并退化成 sceneVideo/静态帧，连续两次
+// 还会给这张壁纸盖上「本会话不再尝试 live」（prepareLiveExhausted）—— 用户切回来
+// 看到的是一张回不到 live 的静态壁纸（要手动重选/重开开关）。
+await runScenario('J. 标签页隐藏：本轮轮换推迟（零驻留），可见后立刻补做', {
+  wallpapers: [wallpaperV, scene('s1', 'tok-s1')],
+  selection: selSeed(['v','s1'], 'v'),
+  // 隐藏期间渲染页读数为「没在跑」（rAF 停摆），可见后恢复出帧
+  stats: { 'tok-s1': { fps: 0, running: false } },
+}, (t) => {
+  t.setHidden(true);                            // 人切走了（真机语义：状态 + 事件）
+  t.fireLatest(10000);                          // 轮换到点
+  check('隐藏期间不建 staging 渲染页（零驻留：不加载 pkg、不占显存）',
+    t.stagingDivs().length === 0 && t.persistedId() === 'v',
+    'staging=' + t.stagingDivs().length + ' id=' + t.persistedId());
+  t.clock.offset += 300000;                     // 隐藏 5 分钟（旧实现：反复加载/释放 staging）
+  t.fireLatest(10000);                          // 下一个间隔又到点
+  check('长时间隐藏期间始终不建 staging、不提交、不记失败',
+    t.stagingDivs().length === 0 && t.persistedId() === 'v' && !t.failureMemory()['s1'],
+    'staging=' + t.stagingDivs().length + ' id=' + t.persistedId());
+  // 恢复可见 → visibilitychange → 立刻补做本轮（不等下一个间隔）
+  t.setStats('tok-s1', { fps: 30, running: true });
+  t.setHidden(false);
+  const staged = t.iframeEls[t.iframeEls.length - 1];
+  check('恢复可见立刻补做：建立 staging 渲染页',
+    t.stagingDivs().length === 1 && String(staged.src).includes('tok-s1'),
+    'staging=' + t.stagingDivs().length);
+  t.fireLatest(300);                            // 首拍轮询：出帧 → 领养
+  t.flushPersist();                             // 落库（200ms 定时器）
+  check('补做完成后提交到 s1', t.persistedId() === 's1', 'id=' + t.persistedId());
+  const layer = t.layerEl();
+  check('提交走节点级领养（staging 容器原地成为层，iframe 未重载）',
+    !!layer && layer.querySelector('iframe.we-live-iframe') === staged && staged._parent === layer);
+  t.flushPersist();
+  check('隐藏不产生失败记忆（隐藏 ≠ 这张壁纸 live 走不通）',
+    !t.failureMemory()['s1'], JSON.stringify(t.failureMemory()));
+});
+
+// ── K：准备中途被隐藏 —— 短暂离开仍等（回来即时看到本轮切换），超过 60s 上限则
+// 释放 staging 并转为「可见时补做」，且**不得**回退提交成静态帧、不得记超时。
+await runScenario('K. 准备中途隐藏：≤60s 继续等，超限释放 staging 且不回退成静态帧', {
+  wallpapers: [wallpaperV, scene('s1', 'tok-s1')],
+  selection: selSeed(['v','s1'], 'v'),
+  stats: { 'tok-s1': { fps: 0, running: false } },   // 先不出帧
+}, (t) => {
+  t.fireLatest(10000);                          // 可见时到点 → 开始准备
+  check('可见时准备立刻建立 staging', t.stagingDivs().length === 1, 'staging=' + t.stagingDivs().length);
+  t.fireLatest(300);                            // 首拍：无帧 → 继续等
+  t.setHidden(true);                            // 中途切走
+  t.clock.offset += 30000;                      // 隐藏 30s（未超上限）
+  t.fireLatest(500);                            // 隐藏后的第一次探测（上一次是在可见时 arm 的 500ms）
+  t.fireLatest(2000);                           // 隐藏期探测间隔 2000ms
+  check('隐藏未超上限：staging 保留（回来即可看到本轮切换）',
+    t.stagingDivs().length === 1 && t.persistedId() === 'v',
+    'staging=' + t.stagingDivs().length + ' id=' + t.persistedId());
+  t.clock.offset += 40000;                      // 累计 70s > 60s 上限
+  t.fireLatest(2000);                           // 隐藏期探测（间隔 2000ms）
+  check('超过上限：释放 staging、不提交、不回退成静态帧',
+    t.stagingDivs().length === 0 && t.persistedId() === 'v',
+    'staging=' + t.stagingDivs().length + ' id=' + t.persistedId());
+  check('隐藏超限不得记入失败记忆/超时计数（隐藏 ≠ 这张壁纸 live 走不通）',
+    !t.failureMemory()['s1'] && t.persistedId() === 'v', JSON.stringify(t.failureMemory()));
+  // 恢复可见 → 立刻重新准备 → 出帧 → 领养提交
+  t.setStats('tok-s1', { fps: 30, running: true });
+  t.setHidden(false);
+  check('恢复可见立刻重新准备（新 staging）', t.stagingDivs().length === 1, 'staging=' + t.stagingDivs().length);
+  t.fireLatest(300);                            // 新准备的首拍
+  t.flushPersist();
+  check('补做完成后提交到 s1（且是 live 形态）', t.persistedId() === 's1', 'id=' + t.persistedId());
+  const layer = t.layerEl();
+  check('补做提交后 live 渲染页在位（未被降级成静态帧/内嵌 MP4）',
+    !!layer && !!layer.querySelector('iframe.we-live-iframe'));
 });
 
 console.log('');

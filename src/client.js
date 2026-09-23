@@ -1047,6 +1047,7 @@ function syncRotationTimer() {
     // 完成），就绪才落实切换并做交叉淡化。准备期间旧壁纸原样保持。
     beginRotationPrepare(new Set());
   }, delayMs);
+  liveLog("rotation-arm", Math.round(delayMs / 1000) + "s 后（候选 " + rotationCandidates().length + " 张）");
 }
 
 // ── Rotation prepare pipeline (就绪后切换 + 渐变) ───────────────────────────
@@ -1161,9 +1162,43 @@ function consumePreparedMedia(tag, wantUrl) {
   return el;
 }
 
+// 隐藏期间的轮换处理：不建 staging 渲染页，只置一个待命标记，可见时立刻补做。
+// 为什么不在隐藏时照常准备：隐藏页 rAF 被 Chromium 完全停摆（出帧物理不可能），
+// staging 页（pkg 堆 + 数十 MB 显存纹理）挂在那里纯属白占 —— 人不在看的时候不
+// 轮换，回来再切（延迟 0.5–2s）既省资源又更符合直觉。
+let rotationPendingHidden = false;
+// 页面开始隐藏的墙钟时刻（0 = 可见）。隐藏页的定时器会被 Chromium 节流到 ≥1s、
+// 5 分钟后 1/min —— 用「第一次探测到隐藏」起算会低估隐藏时长（探测本身可能迟到
+// 几分钟），所以以 visibilitychange 为准记录起点。
+let pageHiddenSince = (typeof document !== "undefined" && document.hidden) ? Date.now() : 0;
+function deferRotationWhileHidden(tag) {
+  rotationPendingHidden = true;
+  liveLog(tag, "标签页隐藏 → 本轮轮换推迟到可见时补做（不建 staging 渲染页）");
+}
+function resumePendingRotation() {
+  pageHiddenSince = (typeof document !== "undefined" && document.hidden) ? (pageHiddenSince || Date.now()) : 0;
+  if (!rotationPendingHidden) return;
+  if (typeof document !== "undefined" && document.hidden) return;
+  rotationPendingHidden = false;
+  liveLog("rotation-resume-pending", "已恢复可见 → 立即补做被推迟的轮换 " + liveStateBrief());
+  if (selection.rotationEnabled && selection.id) beginRotationPrepare(new Set());
+}
+try {
+  if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+    document.addEventListener("visibilitychange", resumePendingRotation);
+  }
+  if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    window.addEventListener("focus", resumePendingRotation); // 兜底：事件缺失也不会把待命丢掉
+  }
+} catch { /* ignore */ }
+
 function beginRotationPrepare(excluded) {
   cancelRotationPrepare();
+  // 隐藏中：连 staging 都不建（cancelRotationPrepare 已释放上一轮的驻留）。
+  if (typeof document !== "undefined" && document.hidden) { deferRotationWhileHidden("rotation-defer"); return; }
   const next = rotationNextCandidate(excluded);
+  liveLog("rotation-fire", "当前 " + (selection.id || "-") + " → 候选 " + (next ? next.id : "无")
+    + " 候选池 " + rotationCandidates().length + " " + liveStateBrief());
   // 静默停摆修复语义保留：候选在 armed 期间被隐藏到不足时 re-arm（候选仍 <2
   // 时 syncRotationTimer 自身不会 arm；恢复 ≥2 由 hide/restore 的补 arm 接管）。
   if (!next) { syncRotationTimer(); return; }
@@ -1351,6 +1386,15 @@ function prepareWebProbe(w, prep, onReady) {
 // （探测放弃 ≠ 渲染失败）→ 不设闸就是每轮轮换重来一次。手动选择壁纸走的是建层
 // 路径、不经过准备链，不受此闸影响；准备期真的出首帧即清零，下轮恢复正常尝试。
 const PREPARE_LIVE_TIMEOUT_LIMIT = 2;
+// 准备期中途被隐藏（人切走了）最多等多久：短时间离开就等着 —— 回来能看到本轮
+// 立刻完成切换；超过上限则释放 staging 渲染页（pkg 堆 ~10MB + 数十 MB 显存），
+// 转为「可见时补做」，且不记超时计数（隐藏 ≠ 这张壁纸 live 走不通）。60s 与轮换
+// 间隔同量级：离开超过一轮就没必要替用户先切好，回来再切更贴近直觉，也省掉
+// 「隐藏数小时 = 每 4 分钟加载一次 pkg」的反复冷启动。
+const PREPARE_LIVE_HIDDEN_HOLD_MAX_MS = 60000;
+// 隐藏期探测间隔（显式拉长）：隐藏页定时器本来就被 Chromium 钳到 ≥1s、5 分钟后
+// 1/min，写 2s 是为了让「这里不需要高频探测」这层意图留在代码里。
+const PREPARE_LIVE_HIDDEN_POLL_MS = 2000;
 const prepareLiveTimeouts = new Map(); // wallpaper id -> 连续超时次数
 function prepareLiveExhausted(wid) {
   return (prepareLiveTimeouts.get(String(wid || "")) || 0) >= PREPARE_LIVE_TIMEOUT_LIMIT;
@@ -1401,23 +1445,54 @@ function prepareSceneLiveStage(w, prep, onReady, onFail) {
   prep.probeMedia = f;
   div.appendChild(f);
   document.body.appendChild(div);
-  const startedAt = Date.now();
-  const bail = () => {
+  let startedAt = Date.now();
+  let heldHidden = (typeof document !== "undefined" && document.hidden); // 准备开始时就已隐藏
+  const bail = (noStrike) => {
     if (prep.staged && prep.staged.div) { try { prep.staged.div.remove(); } catch { /* ignore */ } }
     prep.staged = null;
     releaseProbeMedia(prep);
-    notePrepareLiveTimeout(w.id); // 连续超时到限 → 本会话不再对它走 live 准备
+    // 连续超时到限 → 本会话不再对它走 live 准备。标签页隐藏期间的放弃不算：
+    // 那不是「这张壁纸 live 走不通」的证据（隐藏页面根本不可能出帧）。
+    if (!noStrike) notePrepareLiveTimeout(w.id);
     onFail();
   };
   const poll = () => {
     const st = liveStats(f);
     if (st && st.running && st.fps > 0) {
       clearPrepareLiveTimeout(w.id); // 真的出首帧 → 清掉超时计数
+      liveLog("prep-live-ready", "wid=" + w.id + " 用时 " + (Date.now() - startedAt) + "ms");
       adoptProbe(prep); // readyEl = iframe，监听摘除，元素随 commit 进新层
       onReady();
       return;
     }
-    if (Date.now() - startedAt > LIVE_FIRST_FRAME_MS) { bail(); return; }
+    // 标签页隐藏：渲染页的 rAF 被 Chromium 完全停摆（不是「渲染慢」），出帧物理
+    // 不可能 —— 这里必须冻结首帧预算，否则隐藏期间的每次轮换都白等 15s 并退化成
+    // sceneVideo/静态帧，连续两次还会给这张壁纸盖上「本会话不再尝试 live」
+    // （prepareLiveExhausted）：用户切回来看到的是一张回不到 live 的静态壁纸。
+    // 隐藏持续过久（超上限）才放弃，且不记超时计数（见 bail 的 noStrike）。
+    if (typeof document !== "undefined" && document.hidden) {
+      const now = Date.now();
+      heldHidden = true;
+      const hiddenFor = pageHiddenSince ? (now - pageHiddenSince) : 0;
+      if (hiddenFor > PREPARE_LIVE_HIDDEN_HOLD_MAX_MS) {
+        liveLog("prep-live-bail-hidden", "wid=" + w.id + " 隐藏已持续 " + hiddenFor + "ms → 释放 staging，转为可见时补做（不计超时）");
+        deferRotationWhileHidden("rotation-defer");
+        // 不走 bail()/onFail()：隐藏超时 ≠ 这张壁纸 live 走不通，回退链会把它提交成
+        // 静态帧/内嵌 MP4 —— 人回到窗口看到的会是静态壁纸。直接取消本轮准备（释放
+        // staging、停掉本链、不记 strike），可见时重新准备。
+        cancelRotationPrepare();
+        return;
+      }
+      startedAt = now; // 隐藏期间不计时：恢复可见后重新给满预算
+      prepTimeout(prep, poll, PREPARE_LIVE_HIDDEN_POLL_MS);
+      return;
+    }
+    if (heldHidden) { heldHidden = false; startedAt = Date.now(); } // 恢复可见：重新给满首帧预算
+    if (Date.now() - startedAt > LIVE_FIRST_FRAME_MS) {
+      liveLog("prep-live-bail", "wid=" + w.id + " 超时 " + (Date.now() - startedAt) + "ms，回退下一阶段");
+      bail();
+      return;
+    }
     prepTimeout(prep, poll, 500);
   };
   prepTimeout(prep, poll, 300); // 首拍稍早：小 pkg 可能一帧内就绪
@@ -1476,6 +1551,8 @@ function commitRotationSwitch(prep) {
   const w = wallpaperById().get(prep.id);
   const valid = selection.rotationEnabled && selection.id === prep.fromId
     && w && isRotatableWallpaper(w) && !isHiddenWallpaper(w.id);
+  liveLog("rotation-commit", "wid=" + prep.id + " from=" + prep.fromId + " kind=" + (prep.kind || "-")
+    + " valid=" + valid + " " + liveStateBrief());
   if (!valid) {
     if (staged) { try { staged.div.remove(); } catch { /* ignore */ } }
     if (prep.readyEl) disposeMediaEl(prep.readyEl);
@@ -2270,6 +2347,80 @@ function applyLiveControls(frame) {
   } catch { /* 渲染页内部异常：下一 tick 重试 */ }
 }
 
+// ── live 诊断日志 ───────────────────────────────────────────────────────────
+// live 这条路以前完全没有痕迹：判失败只写 sceneLiveFailures + 面板一行文案，
+// 事后无法回答「为什么 15 秒没出帧」。渲染页内部的问题由它自己的 reportDiag
+// 送到 host 的诊断环形缓冲（host 的 /diag 路由 → GET /wallpaper-engine/diag-log），
+// 这里把**客户端**事件送到同一个缓冲，两条时间线于是可以对齐着看：
+//   curl -s 127.0.0.1:<port>/wallpaper-engine/diag-log
+// 逐秒心跳 tick 只在 localStorage.weLiveDebug === "1" 时打（默认关：一秒一条
+// 会刷屏，也会给环形缓冲刷出无用的像素请求）。
+const LIVE_DIAG_KEY = "weLiveDebug";
+// 诊断代码版本 + 页面实例 id：日志里带着它们，事后能回答两个必问的问题 ——
+// 「这一行是哪个 bundle 打的」（刷新是否真的生效）和「是哪个页面/窗口在跑引擎」
+// （同时开两个 DSH 视图时，两个客户端会各自轮换、互相覆盖设置）。
+const LIVE_DIAG_BUILD = "d4";   // d3→d4：隐藏期改为「零驻留 + 可见补做」，上限 180s→60s
+const LIVE_PAGE_ID = (function () { try { return Math.random().toString(36).slice(2, 7); } catch { return "?"; } })();
+// 面板开关（本会话有效、不落盘）：给「打不开 DevTools」的环境留的入口 ——
+// DSH web 的根路径鉴权是 303 跳到干净的 `/`，URL 上的查询参数到不了客户端，
+// 所以不能靠 ?weLiveDebug=1 传参。
+let liveDiagOn = false;
+function liveDiagVerbose() {
+  if (liveDiagOn) return true;
+  try { return typeof localStorage !== "undefined" && localStorage.getItem(LIVE_DIAG_KEY) === "1"; } catch { return false; }
+}
+function liveLog(tag, detail, verboseOnly) {
+  if (verboseOnly && !liveDiagVerbose()) return;
+  // detail 支持传函数：热路径（每秒 tick）在开关关闭时不构造那串注定被丢弃的字符。
+  const text = typeof detail === "function" ? detail() : detail;
+  const line = "[we-live " + LIVE_DIAG_BUILD + "\u00b7p" + LIVE_PAGE_ID + "] " + tag + (text ? " · " + text : "");
+  try { if (typeof console !== "undefined" && console.info) console.info(line); } catch { /* ignore */ }
+  // 同源像素请求 → host /diag 环形缓冲（与渲染页 reportDiag 同一条通路；
+  // 无 host（单测 sandbox）时 Image 不存在，静默跳过）。
+  try {
+    if (typeof Image === "function") {
+      const img = new Image();
+      img.src = "/diag?msg=" + encodeURIComponent(line);
+    }
+  } catch { /* ignore */ }
+}
+// 一句话状态尾巴：出帧判定 + 暂停原因 + 首帧/运行期计数。
+function liveStateBrief(extra) {
+  const hold = livePauseReason();
+  return "playing=" + isEffectivelyPlaying() + (hold ? " hold=" + hold : "")
+    + " hidden=" + (typeof document !== "undefined" && document.hidden ? 1 : 0)
+    + " focus=" + (typeof document !== "undefined" && typeof document.hasFocus === "function" && document.hasFocus() ? 1 : 0)
+    + (extra ? " " + extra : "");
+}
+// 加载即留痕：确认「哪次刷新、哪个 bundle、哪个页面」真的生效了（用户这台机器
+// 打不开 DevTools，唯一取证通道是宿主诊断缓冲）。
+try { if (typeof document !== "undefined") liveLog("client-boot", "build=" + LIVE_DIAG_BUILD + " page=p" + LIVE_PAGE_ID + " " + liveStateBrief()); } catch { /* ignore */ }
+// 失焦/隐藏是「首帧看护为什么不计时」的直接证据 —— 事件级留痕（只在变化时触发）。
+try {
+  if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    window.addEventListener("focus", function () { liveLog("play-state", liveStateBrief("window-focus")); });
+    window.addEventListener("blur", function () { liveLog("play-state", liveStateBrief("window-blur")); });
+  }
+  if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+    document.addEventListener("visibilitychange", function () {
+      liveLog("play-state", liveStateBrief(document.hidden ? "tab-hidden" : "tab-visible"));
+    });
+  }
+} catch { /* ignore */ }
+// 心跳留痕（60s 一条，常开）：任何时候事后回看，都能知道「页面在跑吗 / 哪张壁纸 /
+// 什么播放态 / 看护进行到哪一步」，不必依赖复现时机。
+try {
+  if (typeof window !== "undefined" && typeof window.setInterval === "function") {
+    window.setInterval(function () {
+      const w = liveWatch;
+      liveLog("beat", liveStateBrief("id=" + (selection.id || "-")
+        + " liveOn=" + (selection.sceneLiveActive ? 1 : 0)
+        + (w ? " watch=" + w.wid + " first=" + (w.firstFrame ? 1 : 0) + " held=" + w.heldPaused + " stall=" + w.stall : " watch=-")
+        + " fails=" + Object.keys(selection.sceneLiveFailures || {}).length));
+    }, 60000);
+  }
+} catch { /* ignore */ }
+
 // ── live 心跳 ───────────────────────────────────────────────────────────────
 // 1s tick 读渲染页 __wpStats.frame()（{fps, running}，最近 500ms 实测窗口）：
 // - 首帧：running 且 fps>0 → 记 sceneLiveActive、iframe 淡入（we-live-on）、
@@ -2288,14 +2439,18 @@ function liveStats(frame) {
 }
 function startLiveWatch(frame, wid) {
   stopLiveWatch();
-  const watch = { frame, wid: String(wid || ""), timer: 0, startedAt: Date.now(), firstFrame: false, stall: 0, resumed: false };
+  const watch = { frame, wid: String(wid || ""), timer: 0, startedAt: Date.now(), firstFrame: false, stall: 0, resumed: false, heldPaused: 0 };
+  liveLog("watch-start", "wid=" + watch.wid + " " + liveStateBrief());
   watch.timer = setInterval(() => {
-    if (!frame.isConnected) { stopLiveWatch(); return; }
+    if (!frame.isConnected) { liveLog("watch-stop", "iframe 已从文档移除", true); stopLiveWatch(); return; }
     // 先读统计、后下发控制：虽然 applyLiveControls 已去重（只在变化时
     // resume/pause），保持这个顺序让读数不受任何控制调用的副作用影响。
     const stats = liveStats(frame);
     applyLiveControls(frame);
     const alive = Boolean(stats && stats.running && stats.fps > 0);
+    liveLog("tick", () => liveStateBrief("fps=" + (stats ? Math.round(stats.fps * 10) / 10 : "null")
+      + " running=" + (stats ? stats.running : "null") + " alive=" + alive
+      + " first=" + watch.firstFrame + " stall=" + watch.stall + " held=" + watch.heldPaused), true);
     if (!watch.firstFrame) {
       if (alive) {
         watch.firstFrame = true;
@@ -2305,9 +2460,22 @@ function startLiveWatch(frame, wid) {
         // 准备链，所以不在这里清的话，一张「准备期超时过、实际跑得动 live」的壁纸会被
         // 轮换降级成 sceneVideo/静态帧直到页面关闭，而用户手动点开它却是活的。
         clearPrepareLiveTimeout(watch.wid);
+        liveLog("first-frame-ok", "wid=" + watch.wid + " 用时 " + (Date.now() - watch.startedAt) + "ms"
+          + (watch.heldPaused ? "（其中暂停期跳过 " + watch.heldPaused + " tick 未计时）" : ""));
         try { syncSceneAudio(selection); emit(); } catch { /* ignore */ }
         // GPU 抓帧回填静态帧缓存（best-effort，见 scheduleLiveFrameBackfill）。
         scheduleLiveFrameBackfill(frame);
+      } else if (!isEffectivelyPlaying()) {
+        // 主动暂停（失焦/隐藏/用户暂停）→ 是我们自己 applyLiveControls 把渲染页
+        // pause() 掉的，而暂停中的渲染页 __wpStats.frame() 恒为 {fps:0,running:false}
+        // —— 「无帧」是预期行为，不是失败信号：暂停期间不计时（每 tick 重新起算），
+        // 恢复播放后再给满一个预算窗口。缺这条守卫时，轮换的**节点级领养**路径
+        // （syncLayers 领养分支在同一个任务里就 applyLiveControls → pause）只要碰上
+        // 失焦/隐藏/暂停，15s 后就会把这张壁纸持久记成「首帧超时」并降级回
+        // sceneVideo/静态帧（要手动重开开关才能恢复）—— 而渲染页其实是好好的。
+        // 运行期 stall 规则早就有同款守卫（见下），这里补齐对称性。
+        watch.heldPaused += 1;
+        watch.startedAt = Date.now();
       } else if (Date.now() - watch.startedAt > LIVE_FIRST_FRAME_MS) {
         liveFail("timeout");
       }
@@ -2322,6 +2490,7 @@ function startLiveWatch(frame, wid) {
     if (watch.stall === LIVE_STALL_TICKS && !watch.resumed) {
       // 单次自救：contextlost 恢复后渲染器可能停摆但未上报，先推一把。
       watch.resumed = true;
+      liveLog("stall-rescue", "wid=" + watch.wid + " 连续 " + watch.stall + "s 无帧 → 试 resume()");
       try {
         const wp = frame.contentWindow && frame.contentWindow.__wp;
         if (wp) wp.resume();
@@ -2345,6 +2514,17 @@ function stopLiveWatch() {
 // 直到用户重开「场景实时渲染」开关（显式重试入口，清空全部记忆）。
 function liveFail(reason) {
   const wid = liveWatch ? liveWatch.wid : String(selection.id || "");
+  // 失败前抓一份现场：这是「为什么黑/为什么降级」唯一的事后证据（host 侧
+  // /wallpaper-engine/diag-log 与渲染页自己的 reportDiag 对齐时间线）。
+  const watched = liveWatch;
+  liveLog("liveFail", "reason=" + reason + " wid=" + wid
+    + " 运行时长=" + (watched ? Date.now() - watched.startedAt : 0) + "ms"
+    + " stats=" + JSON.stringify(watched ? liveStats(watched.frame) : null)
+    + " 已确认首帧=" + Boolean(watched && watched.firstFrame)
+    + " 暂停期跳过tick=" + (watched ? watched.heldPaused : 0)
+    + " " + liveStateBrief()
+    + " prepare超时计数=" + (prepareLiveTimeouts.get(String(wid)) || 0)
+    + " 帧率档=" + selection.sceneLiveFps);
   stopLiveWatch();
   if (!wid) return;
   const map = Object.assign({}, selection.sceneLiveFailures || {});
@@ -2555,6 +2735,9 @@ function buildMedia(sel) {
     const posterSrc = sel.type === "web" ? (sel.previewUrl || null) : sel.url;
     const frame = document.createElement("iframe");
     frame.src = liveRenderUrl(sel);
+    // 建层路径（手动选择 / 降级重建 / fps 档切换）：这里必然是**冷启动**一次
+    // 渲染页（pkg 重下 + 纹理解码 + shader 编译），首帧预算从 iframe load 起算。
+    liveLog("build-live", "wid=" + sel.id + " 冷启动渲染页（重新加载） " + liveStateBrief());
     frame.setAttribute("frameborder", "0");
     frame.setAttribute("scrolling", "no");
     // iframe 内音频（HTMLAudioElement / 网页壁纸的媒体）的自动播放授权。
@@ -2671,12 +2854,23 @@ function buildMedia(sel) {
 // manually paused. Web/iframe wallpapers cannot be paused from outside — they
 // are only throttled by the browser while the page is hidden.
 let weBattery = null; // BatteryManager from navigator.getBattery (if available)
-function occlusionActive() {
-  if (selection.pauseOnHidden && typeof document !== "undefined" && document.hidden) return true;
+// 遮挡原因（可读文案；空串 = 没被遮挡）。occlusionActive 由它派生，保证「是谁把
+// 渲染页停掉的」只有一个判定源 —— 诊断日志直接引用这句话。
+function occlusionReason() {
+  if (selection.pauseOnHidden && typeof document !== "undefined" && document.hidden) return "标签页隐藏(pauseOnHidden)";
   if (selection.pauseOnBlur && typeof document !== "undefined"
-    && typeof document.hasFocus === "function" && !document.hasFocus()) return true;
-  if (selection.pauseOnBattery && weBattery && !weBattery.charging) return true;
-  return false;
+    && typeof document.hasFocus === "function" && !document.hasFocus()) return "窗口失焦(pauseOnBlur)";
+  if (selection.pauseOnBattery && weBattery && !weBattery.charging) return "电池供电(pauseOnBattery)";
+  return "";
+}
+function occlusionActive() {
+  return occlusionReason() !== "";
+}
+// 「live 渲染页为什么没在出帧」的一句话原因：用户暂停与遮挡都算 —— 两者都会让
+// applyLiveControls 把渲染页 pause() 掉，而暂停中的渲染页 __wpStats.frame()
+// 恒为 {fps:0, running:false}（渲染器实现：paused → running:false）。
+function livePauseReason() {
+  return selection.playing ? occlusionReason() : "用户暂停";
 }
 function isEffectivelyPlaying() {
   return selection.playing && !occlusionActive();
@@ -3194,6 +3388,22 @@ function codecLabel(codec) {
   return { avc1: "H.264", hvc1: "H.265", hev1: "H.265", av01: "AV1", vp09: "VP9", mp4v: "MPEG-4" }[codec] || codec;
 }
 
+// 层 key 分段名（wantKey 的拼装顺序，见下）：重建时只报变化的那几段，避免把整条
+// 带 scene 令牌的 URL 打进日志 —— 「为什么会重建（重建 = 渲染页冷启动）」必须能答。
+const LAYER_KEY_FIELDS = ["type", "url", "edge", "sceneVideo", "audio", "live"];
+function keySegBrief(v) {
+  const t = String(v == null ? "" : v);
+  return t ? (t.length > 46 ? "…" + t.slice(-44) : t) : "∅";
+}
+function layerKeyDiff(oldKey, nextKey) {
+  const a = String(oldKey || "").split("\u0000"), b = String(nextKey || "").split("\u0000");
+  const out = [];
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    if (a[i] !== b[i]) out.push((LAYER_KEY_FIELDS[i] || "seg" + i) + ":" + keySegBrief(a[i]) + "→" + keySegBrief(b[i]));
+  }
+  return out.join(" | ") || "(同 key)";
+}
+
 function syncLayers() {
   // 轮换渐变标记在入口消费：commitRotationSwitch 置位后首个 syncLayers 即
   // applySelection 的 emit；无旧层可淡（首壁纸/已清除）时自然作废，绝不
@@ -3224,6 +3434,7 @@ function syncLayers() {
     const gotKey = existing && existing.dataset.weKey;
     let startFade = false;
     if (existing && gotKey !== wantKey) {
+      liveLog("layer-rebuild", layerKeyDiff(gotKey, wantKey) + " " + liveStateBrief());
       startFade = rotationFade;
       if (startFade) {
         // 轮换渐变：旧层不立即拆除 —— 标记淡出保留（旧视频/旧 live 渲染页
@@ -3263,6 +3474,11 @@ function syncLayers() {
       if (adoptedLive) {
         // 首帧已在准备期确认：立即点亮 + 心跳续跑运行期看护。
         try { adoptedLive.classList.add("we-live-on"); } catch { /* ignore */ }
+        // 领养路径的渲染页是**已经在出帧**的热页：紧接着的 applyLiveControls
+        // （本函数末尾）若判定「非有效播放」会把它 pause 掉，而暂停中的渲染页
+        // __wpStats.frame() 恒为 {fps:0,running:false} —— 首帧看护必须据此暂停
+        // 计时（见 startLiveWatch），否则 15s 后误判首帧超时并永久降级。
+        liveLog("adopt-live", "wid=" + selection.id + " 节点级领养（渲染页不重载）");
         try { startLiveWatch(adoptedLive, selection.id); } catch { /* ignore */ }
       }
       if (startFade && fadingLayerNode) {
@@ -5294,6 +5510,23 @@ function WallpaperPicker(props) {
             ),
           ),
         ),
+        // live 诊断日志（本会话有效，不落盘）：默认只记关键事件（准备就绪/领养/
+        // 首帧确认/判失败，每轮轮换 2–3 条，写在控制台与宿主诊断缓冲
+        // `/wallpaper-engine/diag-log`）；这里开的是**逐秒心跳读数**（fps/running/
+        // 暂停原因），排查「为什么没出帧」时用。
+        (sel.type === "scene" || sel.type === "web") && sel.sceneLive !== false && switchRow(
+          "live 诊断日志", liveDiagVerbose(), () => {
+            liveDiagOn = !liveDiagVerbose();
+            // 开关本身也要留痕（强制档：不受本开关影响），否则事后无法判断当时是否在记
+            liveLog("diag-" + (liveDiagOn ? "on" : "off"),
+              liveDiagOn ? "逐秒心跳日志已开启（本会话有效，刷新后失效）" : "逐秒心跳日志已关闭");
+            emit();
+          }, {
+            key: "scene-live-diag",
+            hint: "本会话有效 · 逐秒心跳读数",
+            tooltip: "开启后每秒记录一次渲染页心跳读数（fps / running / 暂停原因）与准备、领养、判失败事件；"
+              + "同时写入浏览器控制台和宿主诊断缓冲（GET /wallpaper-engine/diag-log）。排查 live 掉帧/降级时用，平时关着。",
+          }),
         // beta场景动画: 默认关闭 → scene 壁纸只渲染静态帧 (稳定, 与官方静态帧
         // 一致); 开启后才启动 scene-anim 视频后台渲染 (CPU 渲染试验性, 可能有
         // 组件错误)。关闭时若已在播放动画视频 → 回退静态帧并取消进行中的渲染。
