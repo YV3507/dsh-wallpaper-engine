@@ -111,6 +111,8 @@ Scene 壁纸由本插件内置的 **WebWallGL 实时渲染引擎**（`lib/webwal
      - `GET /wallpaper-engine/media-info/<token>` → 媒体元数据（分辨率 / 编码 / 帧率 / 时长，moov 探测）
      - `GET /wallpaper-engine/transcoded/<token>?fps=N` → 抽帧转码流（ffmpeg 一次性重编码，磁盘缓存）
      - `GET /wallpaper-engine/transcode-progress/<token>?fps=N` → 下载 / 转码进度（进度条轮询）
+     - `GET|POST /wallpaper-engine/we-assets-dir` → 读取 / 设置**官方资源路径**（WE 安装目录的 assets 树；持久化到 `config.json`，可用 `DSH_WE_ASSETS_DIR` 环境覆盖）
+     - `GET /api/local-assets/*` → 按名服务官方素材（`materials/index.json` 列名、`.tex` 原样字节、fonts 后备路径），供内置渲染页取官方像素；未配置目录时 `404`，路径越界 `403`
 - **Client 端**（`lib/client.js`）：一个浏览器模块，拉取壁纸列表，把选中壁纸渲染到应用三列**后方**的固定图层，并在「设置」里注册一个**一级设置页**「Wallpaper Engine」（含液态玻璃卡片、选择弹窗、隐藏/恢复、倍速/翻转、配色/透明度与自定义壁纸管理）。
 - **自定义壁纸存储**：上传的文件写入插件管理的本地目录（默认 `~/.dsh-wallpaper-engine/uploads`，可在设置里改到任意盘符），经同一套 `/media`、`/preview` 路由服务（视频缩略图另走 `/video-preview`）——与 WE 媒体走完全相同的管道，天然跨重启持久、无浏览器配额限制。存储位置同时支持 **WE 项目目录**：子目录里含 `project.json`（`scene.pkg` / `scene.json` / `index.html` / `*.mp4`）即被识别为对应类型的壁纸（场景壁纸可实时渲染），扫描按目录分块异步执行（数百目录约 30ms）；这些目录只读收录，不参与上传管理与「移除」（不会误删你的库）。
 
@@ -314,6 +316,15 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 | **系统 PATH** | 以上都没有时使用系统 `ffmpeg`；仍不可用则该壁纸静默保持原片 |
 
 > 转码使用 **NVENC**（`av1_nvenc`，自动回退 `h264_nvenc`），要求 NVIDIA 显卡与驱动；无 NVIDIA 时功能自动关闭（或回退 H.264 纯软件编码，速度较慢）。本机无 ffmpeg 或转码失败时功能自动关闭，无副作用。
+
+### 官方资源路径（WE 素材目录）
+
+场景壁纸的效果链 / 材质 / 粒子按名引用的公共贴图（`util/*`、`particle/**`、`gradient/*`）**不在壁纸包里**，内置渲染页对它们默认走程序化复刻 —— 观感近似但逐像素对不上。把「官方资源路径」指向**本机 Wallpaper Engine 安装目录的 `assets` 树**（或它的拷贝）后，渲染页按名取官方像素，实时渲染与官方引擎对齐；没配置或目录无效时静默回落程序化复刻，行为与之前完全一致。
+
+- 设置入口：「设置 → Wallpaper Engine → 效果 → 画面 → 官方资源路径」（保存后立刻重建实时渲染层生效）；也可用 `DSH_WE_ASSETS_DIR` 环境变量覆盖（优先级最高）。
+- 目录要求：必须是**绝对路径**且含 `materials/` 子目录（相对路径 / 不存在的目录 / 结构不符会被拒绝并提示）。
+- 素材属 WE 版权内容：**只从你本机路径只读取用**，不复制、不上传、不入库（合规边界同上游 WebWallGL `docs/COMPLIANCE.md`）。
+- 契约：宿主按上游 `renderer/src/local-assets.ts` 提供四种请求形态（probe / `index.json` / `.tex` / 任意相对文件），渲染页由 URL 参数 `localAssets=1` 开启；验收见 `scripts/verify-scene-live.mjs` 的 Level E（20 条）。
 
 ### 自定义壁纸
 
