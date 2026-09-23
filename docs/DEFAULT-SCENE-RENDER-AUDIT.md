@@ -611,7 +611,15 @@ additive 通道。shimmering_particles t=60 @3840×720：
 
 ---
 
-## 7. 已落地 / 仍待办
+## 7. 首轮快照：已落地 / 仍待办（2026-10-03）
+
+> ⚠️ **本节是首轮审计的快照，且章节序号排在 §8/§9 之后**（原文按轮次追加），容易被误读成"最新状态"。
+> 2026-09-23 复核：下表"仍待办"里 **T1（genericimage Scroll 1/2）、T2（flowimage 全屏 quad）、
+> T3（bloom HDR 线性值）、T5（最终 blit 最近邻）、T7（p.lifetime）、T8（粒子世界 z）、T14（blitRotated
+> 点采样）七条均已被代码修掉**（见 §8.4 / §9.3 / §10.2 的追记）；仍有效的只有 T4（`blitRotated`
+> 缺 `blendMode` 形参）与 T9（`pkg-extract.js` 仍用 `Math.random()` 抽样）。行号、`verify-scene` 的
+> 检查条数与 `PIPELINE_VERSION` 一律**以代码为准**（当时记 sf35a→sf36a，现为 `sf45`）。
+> 正文保留作当时的证据记录。
 
 ### 已落地（本轮全部）
 

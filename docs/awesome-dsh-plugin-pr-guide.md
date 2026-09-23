@@ -6,6 +6,16 @@
 
 本指南依据上游 `CONTRIBUTING.md` 与 `check-submission.mjs` 的校验逻辑编写。上游 README 由脚本生成，**禁止手改**；所有改动只发生在 `data/plugins/` 下你的那个 YAML 文件 + 由脚本重新生成的 README。
 
+> ⚠️ **一次性任务的状态块（2026-09-23 追记 —— 正文按"勿改"约定保持原样，请以此块为准）**
+> 本文件是 2026-08 提交收录 PR 时的快照，其中**仓库专属事实已过期**：
+> ① 「你的现状」里的 **提交数量 29 → 现为 264**（`git rev-list --count HEAD`）；
+> ② 第 5 节的发布版本 **0.1.4 → 现为 `package.json` 的 0.7.5**（`npm version patch` 示例同理）；
+> ③ 第 4 节的 YAML 描述只提 Video / Web，**漏了 Scene**（Scene 是一等类型，现默认经 `/scene-live`
+> 实时渲染）—— 若还要重新提交，务必按代码补上；
+> ④ 截图 URL 指向 `…/main/assets/screenshot-*.png`，**本仓库没有 `assets/` 目录**，真实截图在
+> `docs/images/`（由根 `screenshots.json` 列出 5 张）。
+> 上游校验脚本（`check-submission.mjs` / `generate-readme.mjs`）属于**上游仓库**，本仓库没有它们是正常的。
+
 ---
 
 ## 〇、前置自检（提交前必须全部满足，否则 CI 直接打回）

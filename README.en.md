@@ -48,12 +48,20 @@ SFX) plays under the shared volume / audio-switch settings.
 
 > **Rendering form & fallback**: the renderer page runs in a same-origin
 > isolated iframe under a **heartbeat watchdog** — a 15 s first-frame timeout,
-> or 20 s without a frame while playback is expected (after one automatic
-> recovery attempt), marks the wallpaper failed and degrades it to the
+> or **40 s** without a frame while playback is expected (the heartbeat ticks once
+> per second and issues one rescue `resume()` at 20 s), marks the wallpaper failed
+> and degrades it to the
 > embedded-MP4 → static-frame chain. Loose `scene.json` directories and
 > environments without WebGL2 use that chain directly. Failure memory is
-> cleared by re-toggling 「场景实时渲染」 in the settings. The static-frame
-> chain (pure-JS scene renderer, below) remains the underlay and the fallback.
+> cleared by re-toggling 「场景实时渲染」 (「网页实时渲染」 for web wallpapers) in the settings. The static-frame
+> chain (in-house scene renderer, CPU effect chain by default, GPU acceleration optional, below) remains the underlay and the fallback.
+
+> **What the static-frame fallback looks like**: the in-house renderer outputs a **3840-wide** full scene
+> frame (height derived from the scene aspect — 2160 for a 16:9 scene) with background + water + back
+> hair + character + umbrella + particles, close to the original for photographic, illustration and
+> animation-screenshot scenes. On failure (pure shader/procedural scenes, exotic texture formats) it
+> falls back to the older main-texture extractor, then to the workshop preview image (`preview.jpg`) —
+> expected behaviour, not a defect.
 
 **Web wallpapers** go through WebWallGL too: the host injects the **WE API shim**
 (`wallpaperRegisterAudioListener` / `wallpaperPropertyListener` / media
@@ -93,9 +101,13 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe
   lifetime / velocity / rotation initializers, movement / alphafade / sizechange /
   turbulence / oscillate* operators, and sprite drawing.
 - **Cache**: results are cached at `~/.dsh-wallpaper-engine/cache/frames/`
-  keyed by `<version>_<path>_<mtime>` (override with `DSH_WE_CACHE_DIR`);
+  keyed by `sf45_<gpu-flag><source-flag>_<path>_<mtime>` (`sf45` = current pipeline
+  version; GPU/CPU and full-render/main-texture-approximation never share an entry —
+  override the root with `DSH_WE_CACHE_DIR`);
   workshop updates and renderer upgrades invalidate the frame automatically.
-  First render takes ~3–4s, then near-instant on cache hit.
+  A cold-cache first render measures **~2–10 s** (depends on the scene's layer count;
+  same-machine measurements in [`docs/SCENE-FRAME-PERF.md`](docs/SCENE-FRAME-PERF.md)),
+  then near-instant on cache hit.
 
 ## How it works
 
@@ -110,11 +122,14 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe
      - `GET /wallpaper-engine/media/<token>` → video / HTML (Range supported)
      - `GET /wallpaper-engine/preview/<token>` → preview image
      - `GET /wallpaper-engine/video-preview/<token>` → on-demand ffmpeg-extracted thumbnail for a custom MP4 upload (disk-cached)
-     - `GET /wallpaper-engine/scene-frame/<token>` → scene full-scene frame (pure-JS renderer output 3840×2160, falls back to main-texture extraction, PNG disk-cached; also the live renderer's underlay)
+     - `GET /wallpaper-engine/scene-frame/<token>` → scene full-scene frame (in-house renderer, 3840 wide / height from the scene aspect, falls back to main-texture extraction, PNG/JPG disk-cached; also the live renderer's underlay; `?v=` selects the frame-source tier)
      - `GET /wallpaper-engine/scene-live/*` → the vendored WebWallGL renderer page (built into `lib/webwallgl/`, loaded by the live-render iframe)
-     - `GET /wallpaper-engine/scene-files/<token>/<path>` → raw scene wallpaper files (`scene.pkg` / `project.json` …, Range supported; the renderer page parses the container itself)
+     - `GET /wallpaper-engine/scene-files/<token>/<path>` → raw scene wallpaper files (`scene.pkg` / `project.json` …, Range supported; the renderer page parses the container itself; web wallpapers get the WE shim + property seed injected here)
+     - `GET /wallpaper-engine/scene-video/<token>` → the scene's author-embedded MP4 (hardware-decoded playback, Range supported; 404 when there is none, and the client falls back to the static frame)
+     - `GET /wallpaper-engine/scene-audio/<token>` → the scene's packaged standalone audio (played for scenes without an embedded MP4, under the shared volume / audio-switch settings)
      - `GET /wallpaper-engine/web/<token>/<entry-file>` → sub-resources of multi-file web wallpapers (for the compatible-iframe fallback chain; relative refs resolve against the entry's own directory, CSS / SVG get correct MIME types)
      - `POST /wallpaper-engine/upload` → upload a custom wallpaper (JPG / PNG / MP4, raw bytes)
+     - `GET /wallpaper-engine/custom-frame/<token>` → the user-imported "custom frame" (the last frame tier, `overrides/`)
      - `POST /wallpaper-engine/remove` → remove an uploaded wallpaper
      - `POST /wallpaper-engine/upload-dir` → change the upload directory (persisted to `~/.dsh-wallpaper-engine/config.json`, migrates existing files)
      - `GET /wallpaper-engine/settings` → read plugin settings (v0.4.0)
@@ -219,8 +234,10 @@ Symptom-and-fix steps for the common install errors now live in
 ### Six adjustment tabs
 
 The settings page and the wallpaper-repo drawer share the same **top category
-tabs** — every control is grouped into one of six domains, each tab showing only
-the 3–8 controls that belong there instead of a thirty-item single column:
+tabs** — every control is grouped into one of six domains, each tab normally holding
+well under a dozen controls instead of a thirty-item single column (the 效果 tab has
+the most: with live rendering off and static-frame rendering on, the whole static-frame
+chain appears):
 
 | Tab | Contents |
 |---|---|
@@ -228,7 +245,7 @@ the 3–8 controls that belong there instead of a thirty-item single column:
 | **外观** (appearance) | accent, glass color, glass transparency, settings-window glass, sidebar glass & content surface |
 | **字体** (typography) | master switch + color / weight / family, input caret color |
 | **吉祥物** (mascot) | visibility switch, form cards (artwork doubles as a live preview), size slider |
-| **效果** (effects) | wallpaper blur / brightness / contrast / saturate / wallpaper opacity / scrim / border / glass, playback speed, fps cap, fit, flip, occlusion pause; plus the **static-frame fallback** group — lossy route / idle prewarm / GPU acceleration (they only apply to the fallback path taken when live rendering is unavailable) (an empty state guides you to pick a wallpaper first) |
+| **效果** (effects) | 「画面」 group: wallpaper blur / brightness / contrast / saturate / wallpaper opacity / scrim / border / glass, plus 「自定义画面」 (import a desktop screenshot as a frame source — scene wallpapers only); 「声音」 group: volume + wallpaper audio switch; **「场景实时渲染」** (「网页实时渲染」 for web wallpapers) + real-time render fps (15 / 30 / 60); when live rendering is not in effect, the **「静态帧渲染」** master switch (on by default) and the **「静态帧兜底与调优」** group it scopes — 「出图来源」 (frame source) / lossy route / idle prewarm / GPU acceleration; 「播放与适配」: playback speed, fps cap, fit, flip; 「省电」: the occlusion-pause trio (an empty state guides you to pick a wallpaper first) |
 | **高级** (advanced) | compact layout, Edge compatibility |
 
 The pill indicator slides between tabs; the settings page and the drawer share
@@ -254,8 +271,8 @@ reproduce Wallpaper Engine's own categorisation:
   default filter would otherwise hide the user's own files entirely — absent
   from the grid and impossible to select).
 - **类型** (type) — filters by the embeddable type: **全部** (all) / **视频**
-  (video) / **网页** (web) / **图片** (image, custom uploads) / **场景** (scene,
-  static frame).
+  (video) / **网页** (web) / **图片** (image, custom uploads) / **场景** (scene —
+  live-rendered by default, falling back to a static frame when unavailable).
 
 Every option shows how many playable wallpapers currently match. Wallpapers
 outside the selected categories are dropped from the grid, the rotation editor
@@ -285,7 +302,7 @@ mirroring Wallpaper Engine's conservative first-run stance.
 
 ### Playback speed & horizontal flip
 
-With a video wallpaper selected, the **效果** (effects) tab shows the **倍速** presets (0.5x / 0.75x / 1x / 1.25x / 1.5x / 2x) — driven by the browser's native `playbackRate`, instant, no reload or black flash (wallpaper videos are muted, so there is no audio to keep in sync). The **水平翻转** toggle mirrors the image via CSS `scaleX(-1)` — it works for video, web, and uploaded images/videos alike, with zero main-thread cost.
+With a video wallpaper selected, the **效果** (effects) tab shows the **倍速** presets (0.5x / 0.75x / 1x / 1.25x / 1.5x / 2x) — driven by the browser's native `playbackRate`, instant, no reload or black flash (wallpaper videos are muted, so there is no audio to keep in sync). The **水平翻转** toggle mirrors **every wallpaper type (scenes included — both live-rendered and static-frame forms)** via CSS `scaleX(-1)` applied to the whole wallpaper layer, with zero main-thread cost.
 
 ### Occlusion pause (battery-saving trio)
 
@@ -297,7 +314,7 @@ Like Wallpaper Engine's "pause when covered" — the main reason desktop WE is ~
 | **窗口失焦时暂停** (pause on focus loss) | off | pauses when another app takes focus (the wallpaper is likely covered) |
 | **使用电池时暂停** (pause on battery) | off | pauses while on battery via `navigator.getBattery` (no-op in browsers without it) |
 
-Playback resumes automatically when you come back / regain focus / plug in (unless you paused manually). Video wallpapers only — web (iframe) wallpapers cannot be paused from outside and are only throttled by the browser while the page is hidden.
+Playback resumes automatically when you come back / regain focus / plug in (unless you paused manually). It applies to video wallpapers **and to live-rendered scene / web wallpapers** (the latter pause their render loop through the control surface, so GPU usage drops too); only the **plain iframe web wallpaper** left after a fallback cannot be paused from outside, and is merely throttled by the browser while the page is hidden.
 
 ### Decode frame-rate cap (frame-skip transcode)
 
@@ -334,7 +351,7 @@ The **自定义壁纸** section uploads local images (JPG / PNG) or videos (MP4)
 
 Rotation runs over **user-defined carousel lists** (the 自动轮播 group in the **壁纸** tab). Create any number of lists with **新建**, pick Video/Web wallpapers — or a Scene whose frame is available — into each from the inventory, give each list its own switch interval (1, 5, 10, 30, 60 or 120 minutes) and order (顺序/随机), then enable **自动轮转** on the list you want active. Lists are persisted host-side to `~/.dsh-wallpaper-engine/config.json`; **rotation runs entirely client-side** and never depends on Wallpaper Engine's own `config.json` playlist paths.
 
-At least two playable wallpapers per list are required (Video/Web, or a Scene served as a static frame); manual changes reset the next timer; each list keeps its own cadence, so you can have one list switching every 5 minutes and another every 30. On first run, the first playable Wallpaper Engine playlist is imported automatically as a list so the feature works out of the box; **从 WE 播放列表导入** inside the editor imports any other playlist into the list being edited. Application wallpapers cannot be embedded in the web UI, so they are automatically excluded from rotation and hidden from the picker; Scene wallpapers (playable as a static frame) can join rotation.
+At least two playable wallpapers per list are required (Video/Web/Scene); manual changes reset the next timer; each list keeps its own cadence, so you can have one list switching every 5 minutes and another every 30. On first run, the first playable Wallpaper Engine playlist is imported automatically as a list so the feature works out of the box; **从 WE 播放列表导入** inside the editor imports any other playlist into the list being edited. Application wallpapers cannot be embedded in the web UI, so they are automatically excluded from rotation and hidden from the picker; Scene wallpapers (live-rendered, falling back to a static frame) can join rotation.
 
 ### Liquid-glass appearance (whole settings window + accent + transparency)
 
@@ -432,7 +449,7 @@ global font tinting just to make the caret visible.
 
 ### The eight sliders
 
-The **效果** (effects) tab — available while a wallpaper is active — offers eight sliders to tune how it blends with the UI:
+The **效果** (effects) tab's 「画面」 group — available while a wallpaper is active — offers eight sliders to tune how it blends with the UI (the same tab also has a 「声音」 group with a **音量** (volume) slider and the 「壁纸音轨」 (wallpaper audio) switch — see the supported-types section above):
 
 | Slider | What it controls | Range | Default |
 |---|---|---|---|
@@ -470,9 +487,11 @@ untouched). The plugin's own on-disk data is only:
 - `~/.dsh-wallpaper-engine/config.json` — **every plugin setting** (selected
   wallpaper, hidden list, rotation lists, appearance / typography / effects
   controls) plus the **upload directory**, i.e. 「Settings persistence」 above;
-- the **custom-upload files** and the **caches** — `uploads/` and
-  `cache/frames/`, `cache/transcodes/`, `cache/video-previews/`, `ffmpeg/` under the directories you chose
-  (the cache root can be overridden with `DSH_WE_CACHE_DIR`).
+- the **custom-upload files** and the **caches** — `uploads/` (which follows the upload
+  directory you chose) plus `cache/frames/`, `cache/transcodes/`, `cache/video-previews/` and `ffmpeg/`.
+  ⚠️ The caches and ffmpeg do **not** follow the upload directory: they live under the
+  `cache/` and `ffmpeg/` siblings of `config.json` (i.e. `~/.dsh-wallpaper-engine/`); the cache
+  root can be overridden with `DSH_WE_CACHE_DIR`.
 
 Browser `localStorage` keeps only pure UI state (tab memory, rope position) and
 acts as a synchronous read cache / fallback for the config.
@@ -483,7 +502,9 @@ acts as a synchronous read cache / fallback for the config.
 |---|---|
 | `DSH_WE_FFMPEG` | explicit ffmpeg executable path (highest priority in the resolution chain) |
 | `DSH_WE_FFMPEG_URL` | replaces the auto-download source (self-hosted mirror / proxy) |
-| `DSH_WE_CACHE_DIR` | overrides the cache root (transcode cache / scene-frame cache) |
+| `DSH_WE_CACHE_DIR` | overrides the cache root (transcode cache / scene-frame cache / video thumbnails) |
+| `DSH_WE_UPLOAD_DIR` | overrides the custom-upload directory (same effect as 「更改」 in the settings UI) |
+| `DSH_WE_NO_PREWARM` | set to `1` to force idle prewarming off even when the setting is on |
 | `DSH_WE_STEAM_ROOT` | explicit Steam root(s) (comma/semicolon separated, Windows or /mnt paths; fallback when registry/auto-detection misses) |
 
 ## dsh-better-sidebar compatibility
@@ -578,7 +599,7 @@ consumes (the same shape `tsdown` emits for in-box client packages).
 
 ```sh
 npm run build                  # regenerate lib/client.js from src/client.js
-npm run verify                 # materialize the emitted bundle and assert its exports (incl. the scene-live pipeline self-test)
+npm run verify                 # runs the full check chain (client bundle / scene-live + scene-files / packaging allowlist / prewarm / web route / doc drift …; see scripts.verify in package.json for the list)
 node scripts/verify-scene.mjs  # scene static-frame extraction / scene-frame route self-test (incl. synthetic fixtures, offline)
 node scripts/verify-scene-live.mjs  # scene live-render self-test (vendor artifacts / scene-live + scene-files routes / directory fence / Range)
 node scripts/sync-webwallgl.mjs     # build the renderer page from a local webwallgl checkout and vendor it into lib/webwallgl/

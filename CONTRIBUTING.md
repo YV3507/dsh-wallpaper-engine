@@ -19,14 +19,18 @@ macOS 版本由 [Jerry（@ruijiaang-lab）](https://github.com/ruijiaang-lab)维
 
 - `src/client.js` is the canonical browser source. Edit it, then run `npm run build` to regenerate `lib/client.js`.
 - `lib/client.js` is generated and tracked for distribution. Do not edit it by hand.
-- Host-side changes live directly in `lib/index.js` and the other `lib/*.js` host modules.
+- Host-side changes live directly in `lib/index.js` and the other `lib/*.js` host modules. The in-house scene renderer's implementation lives in **`lib/we-renderer/`** (with `lib/scene-render-worker.mjs` as its worker driver) — `lib/scene-renderer.js` is only a 9-line re-export shim, so do not go looking for the renderer there.
+- **`lib/webwallgl/` is a vendored artifact** (upstream WebWallGL's renderer page) rebuilt wholesale by `node scripts/sync-webwallgl.mjs`; make changes upstream and re-sync — never hand-edit that directory.
+- Adding a file under `lib/` also requires adding it to `package.json`'s `files` allowlist: `scripts/verify-package-files.mjs` (part of `npm run verify`) fails otherwise — upstream shipped a release that silently dropped a runtime module this way.
 - Restart DSH after host-side edits: `lib/*.js` is loaded at startup and is never hot-updated in a running instance.
 - Install a local dev build with the application **fully closed** (`dsh plugin --profile desktop add link:<path>`), then start it. Installing while the app is running leaves the plugin in `startup-unconfirmed`, which the recovery state rolls back on the next start.
 - Use the Node.js version required by the target branch and your DSH profile. The macOS package currently requires Node.js 24 or newer.
 
 - `src/client.js` 是浏览器端唯一源码。修改后运行 `npm run build` 重新生成 `lib/client.js`。
 - `lib/client.js` 是随包分发的构建产物，请勿手改。
-- 宿主端代码直接位于 `lib/index.js` 和其他 `lib/*.js` 模块中。
+- 宿主端代码直接位于 `lib/index.js` 和其他 `lib/*.js` 模块中。自研场景渲染器的实现全在 **`lib/we-renderer/`**（由 `lib/scene-render-worker.mjs` 作为 worker 驱动）—— `lib/scene-renderer.js` 只是 9 行 re-export 壳，别去那里找实现。
+- **`lib/webwallgl/` 是 vendor 产物**（上游 WebWallGL 的渲染页），由 `node scripts/sync-webwallgl.mjs` 覆盖式重建；需要的改动做在上游再同步，**不要手改该目录**。
+- 在 `lib/` 下新增文件必须同时写进 `package.json` 的 `files` 白名单：否则 `scripts/verify-package-files.mjs`（`npm run verify` 的一环）会失败 —— 上游曾因此发过一个静默丢掉运行时模块的版本。
 - 改完宿主端代码需**重启 DSH**：`lib/*.js` 在启动时加载，运行中的实例不会热更新。
 - 安装本地 dev 构建请**先完全关闭应用**（`dsh plugin --profile desktop add link:<path>`）再启动；应用运行期间安装会停在 `startup-unconfirmed`，恢复状态会在下次启动时自动回滚。
 - 请使用目标分支与 DSH profile 要求的 Node.js 版本；当前 macOS 包要求 Node.js 24 或更高版本。
@@ -109,6 +113,10 @@ npm run verify
 node scripts/verify-scene.mjs   # 场景静态帧路由自检（含缓存断言）
 git diff --check
 ```
+
+`npm run verify` chains every guard script (client bundle / `verify-scene-live` + `verify-web-route` / `verify-package-files` / `verify-prewarm` / `verify-docs` … — the authoritative list is `scripts.verify` in `package.json`); `verify-scene.mjs` is deliberately **not** in that chain (it needs a real fixture) and is run separately above. Adding a file under `lib/` without adding it to `package.json`'s `files` will fail `verify-package-files`.
+
+`npm run verify` 串跑全部护栏脚本（客户端产物 / `verify-scene-live` + `verify-web-route` / `verify-package-files` / `verify-prewarm` / `verify-docs` …，**权威清单见 `package.json` 的 `scripts.verify`**）；`verify-scene.mjs` 需要真实 fixture，**不在**该链里，故上面单独跑。在 `lib/` 下新增文件却没写进 `package.json` 的 `files` 会被 `verify-package-files` 拦下。
 
 For UI changes, also describe the real DSH surface you tested, including browser or DSH Desktop mode. For platform-specific changes, call out the source layout used in the test—for example Wallpaper Engine, WSL, WaifuX, or loose media.
 

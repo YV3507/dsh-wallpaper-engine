@@ -57,9 +57,11 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 |---|---|
 | 选择壁纸弹窗是空的 | WE 是否装好并下载过壁纸；重启一次 `dsh web`（详见 [`../README.beginner.md`](../README.beginner.md) FAQ 1） |
 | 视频壁纸黑屏 / 冻在首帧 | 卡片上的播放按钮与提示文案：显示「播放」即未真正播放，点它重试；提示无法解码则换 **H.264** 编码的 MP4 |
-| 网页（Web）壁纸一片空白 / 只剩底色 | 该壁纸是多文件 HTML 应用，入口里的相对资源必须经 `/wallpaper-engine/web/<token>/…` 取回。**先刷新页面**；仍是空白就重启一次 `dsh web`（宿主端路由在插件加载时注册）。若重启后仍空白，用 DevTools 看 Network：子资源应当 200，出现 404/403 请附上该请求路径反馈 |
+| 网页（Web）壁纸一片空白 / 只剩底色 | 网页壁纸默认走**实时渲染**（渲染页加载 `/scene-live/`，子资源经 `/scene-files/<token>/…` 取回）。**先刷新页面**；仍是空白就重启一次 `dsh web`（宿主端路由在插件加载时注册）。若怀疑是实时渲染路径的问题，可在「效果」页签关掉「**网页实时渲染**」验证**兼容路径**（`/wallpaper-engine/web/<token>/…`，多文件 HTML 应用的相对引用按入口所在目录解析）。两种路径下都用 DevTools 看 Network：子资源应当 200，出现 404/403 请附上该请求路径反馈 |
 | 自己上传的壁纸看不到 | 弹窗上方的**内容分级**筛选（默认 Everyone；未标注分级的自上传内容按 Everyone 处理） |
-| 场景壁纸是静止画面 | 预期行为：场景渲染器输出的是完整场景**静态帧**；渲染失败会回退主纹理 / 工坊预览图（见 [`HOW-IT-WORKS.md`](./HOW-IT-WORKS.md)） |
+| 场景壁纸是静止画面 | **默认不该如此** —— 场景壁纸默认由 WebWallGL **实时渲染**（粒子 / 脚本 / 视差都会动）。先看「效果」页签的「**场景实时渲染**」是否被关掉、以及开关下方是否显示失败原因（首帧超时 / 运行中断）：重开该开关会清空失败记忆并重试。只有实时渲染不可用时才会走「作者内嵌 MP4 → 静态帧」旧链；松散 `scene.json` 目录（没有 `scene.pkg`）与不支持 WebGL2 的浏览器**必然**走静态帧 —— 那种情况可用「出图来源」换一种出图方式，或导入「自定义画面」（见 [`HOW-IT-WORKS.md`](./HOW-IT-WORKS.md)） |
+| 场景 / 网页壁纸黑屏，约 15 秒后跳成静态帧（或只剩垫底画面） | 这是实时渲染的**看护降级**：首帧 15 秒无画面 ⇒ 记入失败记忆并自动降级。先确认能访问外网/磁盘读取正常、显卡驱动可用（需要 WebGL2）；重开「场景实时渲染」/「网页实时渲染」开关可清空记忆重试 |
+| 关掉「静态帧渲染」后场景就不动了 | 预期行为：该开关是静态帧链的总开关，关掉后不再出渲染帧（有作者内嵌 MP4 仍会播它；否则显示「自定义画面」或作者预览图） |
 | 帧率上限没效果 | 需要 ffmpeg 与 NVIDIA NVENC；无 ffmpeg / 无 N 卡时该功能自动关闭（见 `../README.md` 的「已知限制」） |
 | 设置改完重启又变回去 | v0.4.0 起设置存宿主端文件；确认 `~/.dsh-wallpaper-engine/config.json` 可写、且未回滚到旧版本 |
 
@@ -122,8 +124,10 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 |---|---|
 | The wallpaper picker is empty | Wallpaper Engine installed with at least one wallpaper; restart `dsh web` (see [`../README.beginner.md`](../README.beginner.md), FAQ 1 — Chinese) |
 | Video wallpaper is black / frozen | The card's play button and message: 「播放」 means it is not actually playing — click to retry; an "cannot decode" hint means re-export as **H.264** MP4 |
-| A Web (HTML) wallpaper shows nothing but the page background | It is a multi-file HTML app; its entry's relative assets must come from `/wallpaper-engine/web/<token>/…`. **Refresh the page first**; if it is still blank, restart `dsh web` once (the host route is registered when the plugin loads). If it is still blank after that, check DevTools → Network: sub-resources should be 200 — report the failing request path if you see 404/403 |
+| A Web (HTML) wallpaper shows nothing but the page background | Web wallpapers render **live** by default (the renderer page loads `/scene-live/` and pulls sub-resources via `/scene-files/<token>/…`). **Refresh the page first**; if it is still blank, restart `dsh web` once (the host route is registered when the plugin loads). To rule the live path out, turn off 「网页实时渲染」 in the effects tab and check the **compatibility path** (`/wallpaper-engine/web/<token>/…`, where a multi-file HTML app's relative references resolve against the entry's own directory). On either path, check DevTools → Network: sub-resources should be 200 — report the failing request path if you see 404/403 |
 | A custom upload is not visible | The **content rating** filter above the grid (defaults to Everyone; unrated uploads count as Everyone) |
-| Scene wallpaper shows a still image | Expected: the renderer outputs a full-scene **static frame**; failures fall back to the main texture / workshop preview (see [`HOW-IT-WORKS.md`](./HOW-IT-WORKS.md)) |
+| Scene wallpaper shows a still image | **It should not by default** — scene wallpapers are rendered **live** by WebWallGL (particles / scripts / parallax all animate). First check whether 「场景实时渲染」 on the effects tab was turned off, and whether a failure reason (first-frame timeout / runtime stall) is shown under that switch: re-enabling it clears the failure memory and retries. Only when live rendering is unavailable does it fall back to the older chain (author-embedded MP4 → static frame); a loose `scene.json` directory (no `scene.pkg`) and browsers without WebGL2 **always** take that chain — there, use 「出图来源」 to pick another frame source or import a 「自定义画面」 (see [`HOW-IT-WORKS.md`](./HOW-IT-WORKS.md)) |
+| Scene / web wallpaper is black, and ~15 s later it falls back to a static frame (or just the poster) | That is the live renderer's **watchdog degrading**: no first frame within 15 s ⇒ the failure is remembered and it degrades automatically. Check that the file is readable and the GPU driver works (WebGL2 is required); re-enabling 「场景实时渲染」/「网页实时渲染」 clears the memory and retries |
+| Turning 「静态帧渲染」 off stops a scene from animating | Expected: that switch is the static-frame chain's master switch. With it off no frame is rendered (a scene with an author-embedded MP4 still plays it; otherwise the custom frame or the author's preview is shown) |
 | The frame-rate cap does nothing | It needs ffmpeg + NVIDIA NVENC; without either, the feature disables itself (see 「Limitations」 in `../README.en.md`) |
 | Settings revert after a restart | Since v0.4.0 settings live in a host file — check `~/.dsh-wallpaper-engine/config.json` is writable and that you did not roll back to an older version |

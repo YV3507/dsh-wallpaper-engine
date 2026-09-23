@@ -34,7 +34,9 @@ Wallpaper Engine 的壁纸分四种类型（外加本插件的自定义上传）
 | 类型 | 由谁渲染 | 能否搬到 DSH |
 |---|---|---|
 | **Scene（场景）** | Wallpaper Engine 自带的 3D 引擎 | ✅ 实时渲染 — 内置 WebWallGL WebGL 引擎（粒子/脚本/视差/包内音频）；失败自动回退场景帧 |
+| **Video（视频）** | 一个普通 `.mp4` 文件 | ✅ 可以 —— 用 `<video>` 标签播放 |
 | **Web（网页）** | Wallpaper Engine 内置的 HTML/JS 运行时 | ✅ 实时渲染 — 内置 WebWallGL 的网页挂载 + **注入 WE API**（音频监听/属性/媒体），严格沙箱隔离；失败自动回退兼容 iframe |
+| **Application（应用）** | 注入的外部窗口 | ❌ 不行 |
 
 Scene 壁纸由本插件内置的 **WebWallGL 实时渲染引擎**（`lib/webwallgl/`，MIT，上游 [webwallgl](https://github.com/oneincase/webwallgl)）在 WebGL2 里完整重放：解析 `scene.pkg` 的对象树，实时渲染全部 image 层（waterwaves/waterripple 等 shader 效果按 HLSL 转译后在 GPU 执行）、puppet 骨骼模型、粒子系统与文本对象，并执行场景自带的 SceneScript 脚本 —— 鼠标移动会驱动视差 / 光标交互，包内音频（BGM / 音效）随「音量 / 壁纸音轨」设置播放并驱动音频反应效果。
 
@@ -42,18 +44,18 @@ Scene 壁纸由本插件内置的 **WebWallGL 实时渲染引擎**（`lib/webwal
 
 > **网页壁纸已知边界**：作者脚本的 `fetch`/`XHR` 在 opaque origin 下携带 `Origin: null`（宿主已返回 `Access-Control-Allow-Origin: *`，常规资源可用）；`wallpaperMediaIntegration`（系统 Now Playing）本项目未提供数据源，相关壁纸退到自身静态态；CSS `:hover` 等由浏览器 hit-test 驱动的交互不受外部指针注入影响（与上游文档一致）。
 
-> **渲染形态与降级**：渲染页在同源隔离 iframe 中运行，并有**心跳看护** —— 首帧 15 秒超时、或运行期连续 20 秒无帧（含一次自动恢复尝试）即判定失败，按壁纸记入失败记忆并自动降级到「内嵌 MP4 → 静态帧」旧链；松散 `scene.json` 目录与无 WebGL2 的环境直接走旧链。失败记忆可在设置里重新打开「场景实时渲染」开关清空重试。静态帧链（内置纯 JS 场景渲染器，下节）保留为垫底画面与降级目标。
+> **渲染形态与降级**：渲染页在同源隔离 iframe 中运行，并有**心跳看护** —— 首帧 15 秒超时，或运行期连续 **40 秒**无帧（第 20 秒先自动 `resume` 自救一次，心跳 1 秒/次）即判定失败，按壁纸记入失败记忆并自动降级到「内嵌 MP4 → 静态帧」旧链；松散 `scene.json` 目录与无 WebGL2 的环境直接走旧链。失败记忆可在设置里重新打开「场景实时渲染」（网页壁纸为「网页实时渲染」）开关清空重试。静态帧链（内置自研场景渲染器，默认 CPU 效果链、可开「GPU 渲染加速」，下节）保留为垫底画面与降级目标。
 
-> **展现效果**：渲染器输出 3840×2160 完整场景帧（背景+水+后发+人物+伞+粒子），对摄影、插画、动画截图类场景壁纸效果接近原版；渲染失败（纯 shader 生成类/特殊纹理格式）时自动回退旧的主纹理提取，再失败回退工坊预览图（`preview.jpg`），属预期行为，不视为缺陷。
+> **静态帧兜底的效果**：自研渲染器输出 **3840 宽**（高度按场景比例推导，16:9 场景即 2160）的完整场景帧（背景+水+后发+人物+伞+粒子），对摄影、插画、动画截图类场景壁纸效果接近原版；渲染失败（纯 shader 生成类/特殊纹理格式）时自动回退旧的主纹理提取，再失败回退工坊预览图（`preview.jpg`），属预期行为，不视为缺陷。
 
-### 静态帧兜底：怎么工作的
+### 静态帧链（实时渲染不可用时的回退）：怎么工作的
 
 - **对象树**：解析 `scene.pkg`（PKGV 容器 + LZ4 条目链）或松散 `scene.json` 目录，按 dependencies/parent 拓扑排序全部对象（image / particle / text / sound）。
 - **image 层**：加载材质主纹理（RGBA8888 / DXT1/3/5 等），按 scene 坐标定位（origin/scale/angle 父链累积），应用 alpha/brightness。
 - **puppet 网格**：MDL（MDLV）网格 + 绑定姿态光栅化（软件光栅 + 双线性 UV 采样 + 透明合成），人物/后发等骨骼模型正确显示。
 - **shader 效果链**：waterwaves（含 DUALWAVES 双波乘积）/ waterripple / shake 按 shader 精确数学在 CPU 实现；mask 纹理支持。
 - **粒子系统**：boxrandom/sphererandom 发射器、color/size/alpha/lifetime/velocity/rotation 等初始化器、movement/alphafade/sizechange/turbulence/oscillate* 等运算符、sprite 精灵绘制。
-- **缓存**：渲染结果按 `<版本>_<路径>_<mtime>` 缓存到 `~/.dsh-wallpaper-engine/cache/frames/`（可用 `DSH_WE_CACHE_DIR` 覆盖），工坊更新后自动失效重建；首次渲染约 3-4 秒，之后秒级命中。
+- **缓存**：渲染结果缓存到 `~/.dsh-wallpaper-engine/cache/frames/`（可用 `DSH_WE_CACHE_DIR` 覆盖），键形如 `sf45_<gpu 标志><来源标志>_<路径>_<mtime>`（`sf45` = 当前管线版本；GPU 与 CPU、完整渲染与主纹理近似各自独立，互不命中），工坊更新后自动失效重建；冷缓存首次渲染**实测约 2–10 秒**（视场景图层数；同机实测见 [`docs/SCENE-FRAME-PERF.md`](docs/SCENE-FRAME-PERF.md)），之后秒级命中。
 
 ## 工作原理
 
@@ -68,8 +70,11 @@ Scene 壁纸由本插件内置的 **WebWallGL 实时渲染引擎**（`lib/webwal
      - `GET /wallpaper-engine/scene-frame/<token>` → 场景壁纸完整场景帧（纯 JS 渲染器输出 3840×2160，失败回退主纹理提取，PNG 磁盘缓存；同时是实时渲染的垫底画面）
      - `GET /wallpaper-engine/scene-live/*` → 内置 WebWallGL 渲染页（vendor 产物 `lib/webwallgl/`，实时渲染 iframe 加载）
      - `GET /wallpaper-engine/scene-files/<token>/<path>` → 场景壁纸原始文件（`scene.pkg` / `project.json` 等，支持 Range；渲染页自行解析容器）
+     - `GET /wallpaper-engine/scene-video/<token>` → 场景**作者内嵌 MP4**（抽出后硬件解码播放，支持 Range；无内嵌视频时 404 并回退静态帧）
+     - `GET /wallpaper-engine/scene-audio/<token>` → 场景**包内独立音频**（无内嵌 MP4 的场景用它播放，走「音量 / 壁纸音轨」设置）
      - `GET /wallpaper-engine/web/<token>/<入口文件名>` → 网页壁纸多文件应用子资源（兼容 iframe 回退链；相对引用按入口所在目录解析，CSS / SVG 走正确 MIME）
      - `POST /wallpaper-engine/upload` → 上传自定义壁纸（JPG / PNG / MP4，原始字节流）
+     - `GET /wallpaper-engine/custom-frame/<token>` → 用户导入的「自定义画面」（场景帧档位的最后一档，`overrides/`）
      - `POST /wallpaper-engine/remove` → 移除已上传的壁纸
      - `POST /wallpaper-engine/upload-dir` → 更改上传目录（持久化到 `~/.dsh-wallpaper-engine/config.json`，自动迁移已有文件）
      - `GET /wallpaper-engine/settings` → 读取插件设置（v0.4.0）
@@ -140,7 +145,7 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 
 ### 六大调节页签
 
-设置页与吉祥物抽屉共用同一套**顶部分类页签**——所有调节项按用途归入六个域，每页只保留 3–8 个相关控件，不再是一列三十项的长滚动：
+设置页与吉祥物抽屉共用同一套**顶部分类页签**——所有调节项按用途归入六个域，壁纸激活后每个域通常只有十几个以内的相关控件，不再是一列三十项的长滚动（「效果」页签控件最多：实时渲染关闭且静态帧渲染打开时会出现整条静态帧链）：
 
 | 页签 | 收录内容 |
 |---|---|
@@ -148,7 +153,7 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 | **外观** | 配色、玻璃颜色、玻璃透明度、设置窗口液态玻璃、侧栏玻璃与内容面 |
 | **字体** | 字体自定义开关与颜色 / 字重 / 字体族、输入光标颜色 |
 | **吉祥物** | 显示开关、形态卡片（立绘即实时预览）、大小滑条 |
-| **效果** | 壁纸模糊 / 亮度 / 对比度 / 饱和度 / 壁纸透明度 / 暗化 / 边框 / 玻璃、倍速、帧率上限、适配、水平翻转、遮挡暂停；以及「**静态帧兜底（回退）**」分组的 有损路线 / 空闲预热 / GPU 渲染加速（仅在实时渲染不可用时的回退路径上生效）（未启用壁纸时显示引导空态） |
+| **效果** | 「画面」分组：壁纸模糊 / 亮度 / 对比度 / 饱和度 / 壁纸透明度 / 暗化 / 边框 / 玻璃、「自定义画面」（导入截图，仅场景壁纸）；「声音」分组：音量、壁纸音轨；「场景实时渲染」（网页壁纸为「网页实时渲染」）+ 实时渲染帧率；实时渲染不可用时出现「静态帧渲染」总开关与「**静态帧兜底与调优**」分组（出图来源 / 有损路线 / 空闲预热 / GPU 渲染加速，只作用于上面的静态帧渲染）；「播放与适配」：倍速、帧率上限、适配、水平翻转；「省电」：遮挡暂停三档（未启用壁纸时显示引导空态） |
 | **高级** | 紧凑布局、Edge 兼容 |
 
 页签指示胶囊随选中项平滑滑动；设置页与壁纸仓库抽屉**共用同一个已存页签**（同一个 `localStorage` 键，设置页里切换后拉开抽屉也停在该页签；只存浏览器 `localStorage`，不进配置文件）。长说明一律收进控件悬停提示（tooltip），行内只保留一句话简述。
@@ -162,7 +167,7 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 选择壁纸弹窗的网格上方有两个下拉框，复刻 Wallpaper Engine 自己的分类方式：
 
 - **内容分级** —— 读取每张壁纸的 `contentrating` 字段（WE 壁纸读 `project.json`，自上传内容读 `uploads/.meta.json`，即 WE workshop 的 G / PG13 / R 三档标签）：**全部** / **Everyone（G，默认）** / **PG13（家长指导级）** / **Mature（R）** / **未分级**（没有该字段的壁纸，通常是本地项目）。自上传内容未标注分级时按 **Everyone** 处理（[#84](https://github.com/elysia395/dsh-wallpaper-engine/issues/84)：否则默认过滤会把用户自己的文件全部藏起来，网格里看不到、也无法被选中）。
-- **类型** —— 按可内嵌类型筛选：**全部** / **视频** / **网页** / **图片**（自上传）/ **场景**（静态帧）。
+- **类型** —— 按可内嵌类型筛选：**全部** / **视频** / **网页** / **图片**（自上传）/ **场景**（默认实时渲染，不可用时回退静态帧）。
 
 每个选项都带当前可播放壁纸数量；被过滤的壁纸会从网格、轮播编辑器和轮播候选中整体剔除，也不会被自动选中或轮换。选择随设置一起持久化到宿主端 `config.json`；默认 Everyone 对应 WE 保守的首启立场。
 
@@ -175,7 +180,7 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 
 ### 视频倍速与水平翻转
 
-选中视频壁纸后，「效果」页签出现 **倍速** 档位（0.5x / 0.75x / 1x / 1.25x / 1.5x / 2x）——基于浏览器原生 `playbackRate`，即时生效、不重载不黑屏（壁纸视频本就静音，无需担心音画同步）。**水平翻转** 开关对视频、网页与上传的图片/视频都生效，镜像通过 CSS `scaleX(-1)` 完成，零主线程开销。
+选中视频壁纸后，「效果」页签出现 **倍速** 档位（0.5x / 0.75x / 1x / 1.25x / 1.5x / 2x）——基于浏览器原生 `playbackRate`，即时生效、不重载不黑屏（壁纸视频本就静音，无需担心音画同步）。**水平翻转** 开关对**全部壁纸类型（含场景，实时渲染与静态帧都算）**生效，镜像通过 CSS `scaleX(-1)` 作用在壁纸整层，零主线程开销。
 
 ### 遮挡暂停（省电三档）
 
@@ -187,7 +192,7 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 | **窗口失焦时暂停** | 关 | 切到其它应用（壁纸很可能被遮挡）时暂停 |
 | **使用电池时暂停** | 关 | `navigator.getBattery` 判定在电池供电时暂停（不支持的浏览器自动无操作） |
 
-恢复可见 / 聚焦 / 接通电源后自动继续（除非用户手动暂停过）。仅对视频壁纸生效——网页（iframe）壁纸无法从外部暂停，仅随页面隐藏被浏览器节流。
+恢复可见 / 聚焦 / 接通电源后自动继续（除非用户手动暂停过）。对视频壁纸与**实时渲染形态的场景/网页壁纸**都生效（后者经控制面 `pause()`/`resume()` 停推渲染循环，GPU 占用随之回落）；只有降级后的**裸 iframe 网页壁纸**无法从外部暂停，仅随页面隐藏被浏览器节流。
 
 ### 解码帧率上限（抽帧转码）
 
@@ -221,9 +226,9 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 
 ### 自动轮转（轮播列表）
 
-轮转基于**自定义轮播列表**（「壁纸」页签的自动轮播分组）。用 **新建** 可以创建任意多个列表，从库存里勾选 Video/Web 壁纸加入每个列表，并为每个列表单独设置**切换间隔**（1、5、10、30、60 或 120 分钟）和**播放顺序**（顺序/随机），勾选 **自动轮转** 后只在该列表内循环。列表随设置一起持久化到宿主端 `~/.dsh-wallpaper-engine/config.json`；**轮转完全在客户端执行**，不再依赖 Wallpaper Engine 自己的 `config.json` 播放列表路径。
+轮转基于**自定义轮播列表**（「壁纸」页签的自动轮播分组）。用 **新建** 可以创建任意多个列表，从库存里勾选 Video/Web/Scene 壁纸加入每个列表，并为每个列表单独设置**切换间隔**（1、5、10、30、60 或 120 分钟）和**播放顺序**（顺序/随机），勾选 **自动轮转** 后只在该列表内循环。列表随设置一起持久化到宿主端 `~/.dsh-wallpaper-engine/config.json`；**轮转完全在客户端执行**，不再依赖 Wallpaper Engine 自己的 `config.json` 播放列表路径。
 
-每个列表至少需要 2 个可播放壁纸；手动切换壁纸会重新计算下一次轮转时间；不同列表可以有不同的间隔（比如一个每 5 分钟、一个每 30 分钟）。首次使用时，插件会自动把第一个可播放的 WE 播放列表导入成一个轮播列表，开箱即用；编辑列表时也可以用 **从 WE 播放列表导入** 把其它播放列表导入当前编辑的列表。Application 壁纸不能嵌入网页，会自动从轮转候选和选择器中剔除；Scene 壁纸（静态帧可播放）可加入轮转。
+每个列表至少需要 2 个可播放壁纸；手动切换壁纸会重新计算下一次轮转时间；不同列表可以有不同的间隔（比如一个每 5 分钟、一个每 30 分钟）。首次使用时，插件会自动把第一个可播放的 WE 播放列表导入成一个轮播列表，开箱即用；编辑列表时也可以用 **从 WE 播放列表导入** 把其它播放列表导入当前编辑的列表。Application 壁纸不能嵌入网页，会自动从轮转候选和选择器中剔除；Scene 壁纸（实时渲染，不可用时回退静态帧）可加入轮转。
 
 ### 液态玻璃外观（整个设置窗口 + 配色 + 透明度）
 
@@ -283,7 +288,7 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 
 ### 八个滑动条
 
-「效果」页签（壁纸激活后）提供八个滑动条，微调壁纸与界面的融合效果：
+「效果」页签的「画面」分组（壁纸激活后）提供八个滑动条，微调壁纸与界面的融合效果（另有「声音」分组的**音量**滑条与「壁纸音轨」开关，见上文「支持哪些壁纸类型」）：
 
 | 滑动条 | 作用 | 范围 | 默认 |
 |---|---|---|---|
@@ -305,7 +310,7 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 本插件不会向模型暴露任何工具或提示文本，对 agent 零 token 开销，也不写入任何**持久化 DSH 设置**（不经过 harness 的设置系统）。插件自己的落盘数据只有两类：
 
 - `~/.dsh-wallpaper-engine/config.json` —— **全部插件设置**（已选壁纸、隐藏列表、轮播列表、外观 / 字体 / 效果等全部控件）与**上传目录**位置，即上文「设置持久化」；
-- **自定义壁纸文件**与**缓存** —— `uploads/` 与 `cache/frames/`、`cache/transcodes/`、`cache/video-previews/`、`ffmpeg/`，位于你设置的目录下（缓存根目录可用 `DSH_WE_CACHE_DIR` 覆盖）。
+- **自定义壁纸文件**与**缓存** —— `uploads/`（跟随你设置的上传目录）以及 `cache/frames/`、`cache/transcodes/`、`cache/video-previews/`、`ffmpeg/`。⚠️ 缓存与 ffmpeg **不跟随上传目录**：它们固定在 `config.json` 同级的 `cache/`、`ffmpeg/` 下（即 `~/.dsh-wallpaper-engine/`），缓存根可用 `DSH_WE_CACHE_DIR` 覆盖。
 
 浏览器端 `localStorage` 只保留纯界面状态（页签记忆、拉绳位置），并充当配置的同步读缓存 / 回退。
 
@@ -315,7 +320,9 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 |---|---|
 | `DSH_WE_FFMPEG` | 指定 ffmpeg 可执行文件（解析链最高优先） |
 | `DSH_WE_FFMPEG_URL` | 替换自动下载源（自建镜像 / 代理加速） |
-| `DSH_WE_CACHE_DIR` | 覆盖缓存根目录（抽帧转码缓存 / 场景静态帧缓存） |
+| `DSH_WE_CACHE_DIR` | 覆盖缓存根目录（抽帧转码缓存 / 场景静态帧缓存 / 视频缩略图） |
+| `DSH_WE_UPLOAD_DIR` | 覆盖自定义壁纸的上传目录（等价于设置里点「更改」，适合脚本化部署） |
+| `DSH_WE_NO_PREWARM` | 置 `1` 强制关闭「空闲预热」（即使设置里开着） |
 | `DSH_WE_STEAM_ROOT` | 显式指定 Steam 根目录（逗号/分号分隔，Windows 或 `/mnt` 路径；注册表/自动探测失效时的兜底） |
 
 ## 与 dsh-better-sidebar 的兼容适配
@@ -353,11 +360,11 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 
 ## 已知限制
 
-- Application 壁纸无法内嵌，不会显示在缩略图选择器和轮播候选中；它们的动态渲染仍是 Wallpaper Engine 在桌面上的工作。Scene 壁纸由插件渲染器提供完整场景帧（静态），可正常选择与轮换（见上文「支持哪些壁纸类型」）。
+- Application 壁纸无法内嵌，不会显示在缩略图选择器和轮播候选中；它们的动态渲染仍是 Wallpaper Engine 在桌面上的工作。Scene 壁纸**默认由内置 WebWallGL 实时渲染**（粒子/脚本/视差/包内音频都动），实时渲染不可用或失败时回退静态帧链，两种形态都可正常选择与轮换（见上文「支持哪些壁纸类型」）。
 - 浏览器需能自动播放静音 `<video>`（DSH 跑在 loopback，现代浏览器允许静音自动播放）。
 - 媒体从你本机的 Wallpaper Engine 安装路径提供；host 只提供它已枚举过的文件，不会暴露任意文件系统。自定义上传的文件同样只存在于本机，不上传任何服务器。
 - **抽帧转码依赖 ffmpeg 与 NVIDIA NVENC**（`av1_nvenc` → `h264_nvenc` 回退）：无 ffmpeg（含自动下载不可用，如 musl/Alpine 等未覆盖平台）或无 NVIDIA 显卡时，帧率上限功能自动关闭，壁纸保持原片播放，不影响其它任何功能。
-- **遮挡暂停对视频壁纸与场景实时渲染生效**：视频壁纸直接暂停解码；场景实时渲染经控制面暂停渲染循环（GPU 占用随之回落）。纯网页（iframe）壁纸无法从外部暂停，只能随页面隐藏被浏览器节流。
+- **遮挡暂停对视频壁纸与实时渲染（场景 / 网页）生效**：视频壁纸直接暂停解码；实时渲染经控制面暂停渲染循环（GPU 占用随之回落）。降级后的**裸 iframe 网页壁纸**无法从外部暂停，只能随页面隐藏被浏览器节流。
 - **网页（Web）壁纸的资源根 = 入口 HTML 所在目录**：多文件 HTML 应用的相对引用（`main.js` / `./js/x.js` / `images/*`，含 `<base href=".">` 这类写法）都能正常加载；但**根绝对路径**（`/assets/x.js`）与**向上越出项目目录**的引用（`../shared/x.js`）不在此模型内 —— 浏览器会把它们归一化到 DSH 自己的路径空间，服务端不靠改写 HTML 兜不住。实测官方默认网页壁纸（CORSAIR Collection / Corsair-O-Tron）不受影响。
 - 选择器文案为中英混合（本 bundle 尚未接入 DSH 的 locale 命名空间）。
 
@@ -369,7 +376,7 @@ host 端（`lib/index.js`）是纯 ESM，无需构建。client 端（`lib/client
 
 ```sh
 npm run build                  # 从 src/client.js 重新生成 lib/client.js
-npm run verify                 # 物化生成的 bundle 并断言其导出（含 scene-live 链路自检）
+npm run verify                 # 串跑全部验收链（客户端产物 / scene-live + scene-files / 打包白名单 / 预热 / web 路由 / 文档漂移 …；完整清单见 package.json 的 scripts.verify）
 node scripts/verify-scene.mjs  # 场景静态帧提取 / scene-frame 路由自检（含合成 fixture，离线可跑）
 node scripts/verify-scene-live.mjs  # 场景实时渲染自检（vendor 产物 / scene-live + scene-files 路由 / 目录围栏 / Range）
 node scripts/sync-webwallgl.mjs     # 从本地 webwallgl 仓库构建并同步渲染页产物到 lib/webwallgl/

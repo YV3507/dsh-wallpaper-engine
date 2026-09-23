@@ -9,7 +9,7 @@
 |---|---|
 | [UPGRADING.md](./UPGRADING.md) | **升级指南**——前置条件（内核 / better-sidebar 版本要求）、兼容矩阵、正确更新顺序与「顺序反了怎么恢复」 |
 | [CHANGELOG.md](./CHANGELOG.md) | **变更记录**——逐版本功能与修复（新版在前） |
-| [HOW-IT-WORKS.md](./HOW-IT-WORKS.md) | **工作原理**——场景渲染器、宿主 / 客户端分工、全部 HTTP 路由表 |
+| [HOW-IT-WORKS.md](./HOW-IT-WORKS.md) | **工作原理**——**两条渲染路线**（WebWallGL 实时渲染 + 静态帧链）、宿主 / 客户端分工、主要 HTTP 路由表 |
 | [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) | **排障**——安装失败排查（pnpm / `github:` 直装）与「症状 → 先看哪里」速查 |
 
 **分层约定（2026-09 起）**：门面 `README.md` / `README.en.md` 只放**不随版本变化、且新访客决策必需**的事实
@@ -22,6 +22,8 @@
 | 文档 | 内容 |
 |---|---|
 | [RENDERER-FEASIBILITY.md](./RENDERER-FEASIBILITY.md) | 渲染器三路线可行性 + 方向决策 + §7 重构执行记录（唯一决策文档） |
+| [DEFAULT-SCENE-RENDER-AUDIT.md](./DEFAULT-SCENE-RENDER-AUDIT.md) | **官方默认壁纸渲染审计**（2026-10-03）——「无损渲染」的纯数学取证（场景数据 / 插桩量 / preview 画像 / 宿主反编译），只记可复现的量与能指到行号的根因 |
+| [SCENE-FRAME-PERF.md](./SCENE-FRAME-PERF.md) | **静态帧冷渲染成本实测 + 渲染器优化记录**（基线 `pr97` / `sf35a`；当前管线 `sf45`）——哪些渲染可以砍。⚠️ §十四 起含**现行**实现决策；涉及 `scene-anim` 多帧动画的部分对应**已移除**的路线（文首已逐节标注被取代的小节） |
 | [SCENE-ANIMATION-HANDOFF.md](./SCENE-ANIMATION-HANDOFF.md) | ~~**场景动画交接手记**~~ **已归档**——beta 场景动画（`/scene-anim`）已随 WebWallGL 实时渲染落地整体移除；本文件仅存历史决策、技术要点与已删资产清单（供考古） |
 | [ROBUSTNESS-AUDIT.md](./ROBUSTNESS-AUDIT.md) | **健壮性审计记录**——发布包完整性/编码/跨平台/运行时容错/依赖兼容审计结果与重跑方法 |
 | [awesome-dsh-plugin-pr-guide.md](./awesome-dsh-plugin-pr-guide.md) | 向 awesome-dsh-plugin 收录目录提交的一次性发布指南（应作者要求保留原版，直接从 awesome-dsh-plugin 仓库复制，勿改） |

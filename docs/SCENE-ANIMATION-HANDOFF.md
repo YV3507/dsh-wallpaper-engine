@@ -19,9 +19,11 @@ WE 的 Scene 壁纸是**原生 3D 场景**（scene.pkg：对象树 + 纹理 + pu
 粒子系统 + 效果链 + NSL 脚本）。官方引擎在桌面实时渲染完整动画：粒子飘落、骨骼动画
 （呼吸/眨眼/摆裙）、相机运镜、效果随时间演化、脚本驱动的昼夜/入场/循环。
 
-本插件当前只渲染**静态帧**（`/scene-frame`，取场景静止态时刻）+ **内嵌视频纹理快路径**
+本插件**当时**只渲染**静态帧**（`/scene-frame`，取场景静止态时刻）+ **内嵌视频纹理快路径**
 （`/scene-video`，场景作者内嵌的 MP4 视频纹理，硬件解码）。**"场景动画"= 让 Scene 壁纸
 像官方一样动起来**（多帧渲染 → 视频播放，或实时渲染）。
+（2026-09-23 追记：**当前默认形态已是 WebWallGL 实时渲染**（`/scene-live`）——场景壁纸现在
+真的会动；本文第 2 节起描述的"自研多帧动画"仍然是被放弃的方向，`/scene-anim` 路由已删除。）
 
 ---
 
@@ -65,9 +67,9 @@ WE 的 Scene 壁纸是**原生 3D 场景**（scene.pkg：对象树 + 纹理 + pu
 
 | 模块 | 现状 | 动画复刻可复用 |
 |---|---|---|
-| `lib/we-renderer/`（40 文件） | 完整 SceneRenderer：puppet 蒙皮（MDLV/MDLS/MDLA）、粒子模拟、效果链（30+ 内置 + 第三方 GLSL 解释器）、相机（eye/ortho/zoom/paths）、文本、光照 | ✅ 全部 —— 动画 = 每帧换 t 渲染 |
+| `lib/we-renderer/`（**当时记 40 文件；2026-09 已是 70 文件**） | 完整 SceneRenderer：puppet 蒙皮（MDLV/MDLS/MDLA）、粒子模拟、效果链（30+ 内置 + 第三方 GLSL 解释器）、相机（eye/ortho/zoom/paths）、文本、光照 | ✅ 全部 —— 动画 = 每帧换 t 渲染 |
 | `lib/scene-render-worker.mjs` | 单帧协议（worker/fork 双模式，GPU 用系统 Node 子进程） | ✅ 扩展为多帧即可（旧多帧协议已删，见 §4） |
-| `lib/scene-player.js`（1,810 行，**已禁用**） | 客户端 WebGL 实时渲染器（每场景一个 WebGL 上下文冻结页面而禁用） | ✅ 场景图种子；未来 WebGPU 路线的起点 |
+| `lib/scene-player.js`（**现 1,960 行**；客户端**不再内嵌**，`/scene-runtime` 路由仍在服务） | 客户端 WebGL 实时渲染器（每场景一个 WebGL 上下文冻结页面而禁用） | ✅ 场景图种子；未来 WebGPU 路线的起点 |
 | `sceneStaticFrameTime`（lib/index.js） | 静止态时间选择（single 动画播完 + 相机路径总时长） | ✅ 可反向用于定位动画关键时间 |
 | `scene/animation.js` | 属性动画求值（c0/c1/c2 逐通道、relative 偏移、贝塞尔切线） | ✅ 已实现 |
 | `scene-scripts.js` 快进（P4a） | `DSH_WE_SCRIPT_FF=1` 状态脚本时间轴推进 | ⚠️ 半套，缺动画注册 API |

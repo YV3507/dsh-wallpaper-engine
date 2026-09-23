@@ -8,13 +8,37 @@
 
 ## 中文
 
-### 场景渲染器
+### 场景 / 网页壁纸的默认形态：WebWallGL 实时渲染
 
-Scene 壁纸的 3D 场景由本插件内置的**纯 JS 场景渲染器**（入口 `lib/scene-renderer.js` 只是 9 行
+**scene 与 web 壁纸默认走实时渲染**（设置项 `sceneLive`，UI 文案「场景实时渲染」/「网页实时渲染」，
+默认开）——渲染器是**上游 WebWallGL 1.4.1 的原版页面**，vendored 在 `lib/webwallgl/`，
+由宿主以 `/wallpaper-engine/scene-live/` 为 base 挂载（资源引用按该前缀解析），壁纸自身的文件
+（`scene.pkg` / 网页项目文件）经 `/wallpaper-engine/scene-files/` 供给。网页壁纸由宿主在返回的
+HTML 里注入 WE API shim（`lib/webwallgl/web-shim.js`）与 `project.json` 的属性 seed ——
+严格沙箱下渲染页够不到壁纸 iframe，shim 必须随文档一起到达。
+
+- **何时不走实时渲染**：壁纸开关被关掉、该壁纸已被记入**失败记忆**（首帧 15 秒超时；或运行期连续
+  **约 40 秒**无帧 —— 心跳 1 秒/次，第 20 秒先自动 `resume` 自救一次），或场景是**松散 `scene.json`
+  目录**（没有 `scene.pkg` 可供渲染页拉取）。此时按下面的静态帧链出图。重新打开开关会清空失败记忆
+  （显式重试入口）。
+- **完整显示优先级（代码事实，见 `buildMedia`）**：
+  ① 实时渲染 iframe（静态帧当 poster 垫底）→ ② 场景**作者内嵌 MP4**（`sceneVideo`，硬件解码
+  `<video>`；**排在静态帧之前，且不受「静态帧渲染」开关影响**）→ ③ 静态帧（`/scene-frame`，
+  自研渲染器；失败回退 ④ 主纹理提取）→ ⑤ 作者预览图 / 已导入的「自定义画面」。
+  关掉「静态帧渲染」不会改变 ①②，只把 ③ 槽位换成档 4 自定义画面 / 档 3 作者预览图，并停止空闲预热。
+- **实时渲染期间的画面连续性**：静态帧（`/scene-frame`）作为 poster 垫底，首帧心跳通过后 iframe 淡入。
+- **帧率**：`实时渲染帧率`（15 / 30 / 60 fps）经 iframe query 下发，改档会重建图层。
+- 护栏：`scripts/verify-scene-live.mjs`。
+
+### 场景渲染器（静态帧链 / 实时渲染不可用时的回退）
+
+Scene 壁纸的 3D 场景由本插件内置的**自研场景渲染器**（入口 `lib/scene-renderer.js` 只是 9 行
 re-export 壳，实现主体在 `lib/we-renderer/core.js` 及其子模块；参考
 linux-wallpaperengine / repkg 逆向成果）完整重放：解析 `scene.pkg` 的对象树，渲染全部 image 层
 （含 waterwaves / waterripple / shake 等 shader 效果的 CPU 实现）、puppet 骨骼网格（绑定姿态）、
-以及粒子系统（发射器 / 初始化器 / 运算符 / 精灵绘制）。选择器里场景卡片带有「静态帧」徽标，可与动态壁纸区分。
+以及粒子系统（发射器 / 初始化器 / 运算符 / 精灵绘制）。效果链可用「GPU 渲染加速」切到 WebGL 执行
+（无 GPU 时自身熔断回 CPU，两套产物不共用缓存）。选择器里场景卡片的**类型**徽标是「场景」，
+另有**形态**徽标显示当前走哪条路（实时渲染 / 静态帧）。
 
 > **展现效果**：渲染器输出 **3840 宽**（高度按场景比例推导，16:9 场景即 2160）的完整场景帧（背景 + 水 +
 > 后发 + 人物 + 伞 + 粒子），对摄影、
@@ -28,7 +52,7 @@ linux-wallpaperengine / repkg 逆向成果）完整重放：解析 `scene.pkg` �
 - **puppet 网格**：MDL（MDLV）网格 + 绑定姿态光栅化（软件光栅 + 双线性 UV 采样 + 透明合成），人物 / 后发等骨骼模型正确显示。
 - **shader 效果链**：waterwaves（含 DUALWAVES 双波乘积）/ waterripple / shake 按 shader 精确数学在 CPU 实现；mask 纹理支持。
 - **粒子系统**：boxrandom / sphererandom 发射器、color/size/alpha/lifetime/velocity/rotation 等初始化器、movement/alphafade/sizechange/turbulence/oscillate* 等运算符、sprite 精灵绘制。
-- **缓存**：渲染结果按 `<版本>_<gpu 标志>_<路径>_<mtime>` 缓存到 `~/.dsh-wallpaper-engine/cache/frames/`（可用 `DSH_WE_CACHE_DIR` 覆盖），工坊更新后自动失效重建；**冷缓存**首次渲染约 20-30 秒（3840 宽全场景 + 全分辨率效果），之后秒级命中。
+- **缓存**：渲染结果按 `sf45_<gpu 标志><来源标志>_<base64url(路径)>_<mtime>[_vN]` 缓存到 `~/.dsh-wallpaper-engine/cache/frames/`（可用 `DSH_WE_CACHE_DIR` 覆盖），工坊更新后自动失效重建；**冷缓存首次渲染实测约 2–10 秒**（视场景图层数；同机实测见 [`SCENE-FRAME-PERF.md`](./SCENE-FRAME-PERF.md)），之后秒级命中。
 
 ### 工作原理
 
@@ -45,11 +69,16 @@ linux-wallpaperengine / repkg 逆向成果）完整重放：解析 `scene.pkg` �
        `scripts/verify-web-route.mjs`
      - `GET /wallpaper-engine/preview/<token>` → 预览图
      - `GET /wallpaper-engine/video-preview/<token>` → 自上传 MP4 的按需抽帧缩略图（ffmpeg，磁盘缓存）
-     - `GET /wallpaper-engine/scene-frame/<token>` → 场景壁纸完整场景帧（纯 JS 渲染器输出 3840 宽 / 高度随场景比例，失败回退主纹理提取，PNG 磁盘缓存）
+     - `GET /wallpaper-engine/scene-live/<子路径>` → 内置 WebWallGL 渲染页（vendor 产物 `lib/webwallgl/`，以 `/wallpaper-engine/scene-live/` 为 base 挂载；实时渲染 iframe 加载它）
+     - `GET /wallpaper-engine/scene-files/<token>/<子路径>` → 壁纸原始文件（`scene.pkg` / 网页项目文件，支持 Range）；网页壁纸的 HTML 在这里被注入 WE shim 与属性 seed
+     - `GET /wallpaper-engine/scene-frame/<token>` → 场景壁纸完整场景帧（自研渲染器输出 3840 宽 / 高度随场景比例，失败回退主纹理提取，PNG/JPG 磁盘缓存；`?v=` 选帧来源档位）
      - `GET /wallpaper-engine/scene-video/<token>` → 场景内嵌 MP4（抽出后硬件解码播放，支持 Range；场景无内嵌视频时 404，客户端回退静态帧）
+     - `GET /wallpaper-engine/scene-audio/<token>` → 场景包内独立音频（无内嵌 MP4 的场景播放；与内嵌视频音轨互斥）
      - `GET /wallpaper-engine/scene-runtime/<token>` → 场景 WebGL 播放器页面（同源 HTML；客户端默认不内嵌，仅作回退路径）
      - `GET /wallpaper-engine/scene-manifest/<token>` → 场景清单 JSON（图层 / 模型 / 粒子 / 相机，按需从 `scene.pkg` 构建，供播放器读取）
      - `GET /wallpaper-engine/scene-resource/<token>/<子路径>` → 场景资源（清单引用的纹理 / 精灵，可解码则返回 PNG，否则原始字节）
+     - `GET /wallpaper-engine/custom-frame/<token>` → 用户导入的「自定义画面」（帧档位第 4 档；GET=读 / POST=导入 / DELETE=清除）
+     - `GET /wallpaper-engine/diag-log` → 渲染页的诊断日志回传（GPU / 效果链自检，排障用）
      - `POST /wallpaper-engine/upload` → 上传自定义壁纸（JPG / PNG / MP4，原始字节流）
      - `POST /wallpaper-engine/remove` → 移除已上传的壁纸
      - `POST /wallpaper-engine/upload-dir` → 更改上传目录（持久化到 `~/.dsh-wallpaper-engine/config.json`，自动迁移已有文件）
@@ -67,15 +96,44 @@ linux-wallpaperengine / repkg 逆向成果）完整重放：解析 `scene.pkg` �
 
 ## English
 
-### The scene renderer
+### The default form for scene / web wallpapers: WebWallGL live rendering
 
-A Scene wallpaper's 3D scene is fully replayed by the plugin's **pure-JS scene renderer**
+**Scene and web wallpapers render live by default** (setting `sceneLive`, UI labels 「场景实时渲染」 /
+「网页实时渲染」, on by default) — the renderer is the **upstream WebWallGL 1.4.1 page**, vendored under
+`lib/webwallgl/` and mounted by the host with `/wallpaper-engine/scene-live/` as its base (asset
+references resolve under that prefix); the wallpaper's own files (`scene.pkg` / web project files) are
+served through `/wallpaper-engine/scene-files/`. For web wallpapers the host injects the WE API shim
+(`lib/webwallgl/web-shim.js`) and the `project.json` property seed into the returned HTML — under the
+strict sandbox the renderer page cannot reach into the wallpaper iframe, so the shim must ride along
+with the document.
+
+- **When live rendering is skipped**: the wallpaper's switch is off, the wallpaper has been recorded in
+  the **failure memory** (15 s without a first frame; or **~40 s** without a frame at runtime — the
+  heartbeat ticks once per second and issues one rescue `resume()` at 20 s), or the scene is a **loose
+  `scene.json` directory** (no `scene.pkg` for the renderer page to fetch). It then falls back to the
+  static-frame chain below. Re-enabling the switch clears the failure memory (explicit retry entry point).
+- **Full display priority (code fact, see `buildMedia`)**:
+  ① the live-render iframe (static frame as poster) → ② the scene's **author-embedded MP4**
+  (`sceneVideo`, hardware-decoded `<video>`; **it outranks the static frame and is unaffected by the
+  「静态帧渲染」 switch**) → ③ the static frame (`/scene-frame`, in-house renderer; on failure ④
+  main-texture extraction) → ⑤ the author's preview image / an imported 「自定义画面」.
+  Turning the 「静态帧渲染」 switch off does not change ①② — it only replaces slot ③ with tier 4
+  (custom frame) or tier 3 (author preview) and stops idle prewarming.
+- **Continuity during live rendering**: the static frame (`/scene-frame`) is used as the poster; the
+  iframe fades in once the first-frame heartbeat passes.
+- **Frame rate**: 「实时渲染帧率」 (15 / 30 / 60 fps) is passed through the iframe query; changing it
+  rebuilds the layer.
+- Guard: `scripts/verify-scene-live.mjs`.
+
+### The scene renderer (static-frame chain / fallback when live rendering is unavailable)
+
+A Scene wallpaper's 3D scene is fully replayed by the plugin's **in-house scene renderer**
 (`lib/scene-renderer.js` is a 9-line re-export shell; the implementation body lives in
 `lib/we-renderer/core.js` and its submodules — built from linux-wallpaperengine / repkg
 reverse-engineering): it parses
 `scene.pkg`'s object tree and renders every image layer (with CPU implementations of shader effects
 like waterwaves / waterripple / shake), the puppet skeletal meshes (bind pose), and the particle
-systems (emitters / initializers / operators / sprite drawing). Scene cards carry a 「静态帧」 badge in
+systems (emitters / initializers / operators / sprite drawing). Scene cards carry a 「场景」 type badge in
 the picker.
 
 > **Expected result**: the renderer outputs a **3840-wide** full-scene frame (height derived from the
@@ -99,9 +157,11 @@ the picker.
   rotation initializers, movement / alphafade / sizechange / turbulence / oscillate* operators, and
   sprite drawing.
 - **Cache**: results are cached at `~/.dsh-wallpaper-engine/cache/frames/` keyed by
-  `<version>_<gpu-flag>_<path>_<mtime>` (override with `DSH_WE_CACHE_DIR`); workshop updates and renderer upgrades
-  invalidate the frame automatically. A cold-cache first render takes ~20–30 s (3840-wide full scene at
-  full-resolution effects), then near-instant on cache hit.
+  `sf45_<gpu-flag><source-flag>_<base64url(abs path)>_<mtime>[_vN]` (override with `DSH_WE_CACHE_DIR`);
+  workshop updates and renderer upgrades
+  invalidate the frame automatically. A cold-cache first render measures **~2–10 s** (depends on the
+  scene's layer count; same-machine measurements in [`SCENE-FRAME-PERF.md`](./SCENE-FRAME-PERF.md)),
+  then near-instant on cache hit.
 
 ### How it works
 
@@ -119,11 +179,16 @@ the picker.
        `scripts/verify-web-route.mjs`
      - `GET /wallpaper-engine/preview/<token>` → preview image
      - `GET /wallpaper-engine/video-preview/<token>` → on-demand ffmpeg-extracted thumbnail for a custom MP4 upload (disk-cached)
-     - `GET /wallpaper-engine/scene-frame/<token>` → scene full-scene frame (pure-JS renderer output 3840 wide / height from the scene aspect, falls back to main-texture extraction, PNG disk-cached)
+     - `GET /wallpaper-engine/scene-live/<subpath>` → the vendored WebWallGL renderer page (`lib/webwallgl/`, mounted with `/wallpaper-engine/scene-live/` as base; the live-render iframe loads it)
+     - `GET /wallpaper-engine/scene-files/<token>/<subpath>` → raw wallpaper files (`scene.pkg` / web project files, Range supported); a web wallpaper's HTML is served here with the WE shim and property seed injected
+     - `GET /wallpaper-engine/scene-frame/<token>` → scene full-scene frame (in-house renderer, 3840 wide / height from the scene aspect; falls back to main-texture extraction; PNG/JPG disk-cached; `?v=` selects the frame-source tier)
      - `GET /wallpaper-engine/scene-video/<token>` → the scene's embedded MP4 (hardware-decoded playback, Range supported; 404 when the scene embeds no video, and the client falls back to the static frame)
+     - `GET /wallpaper-engine/scene-audio/<token>` → the scene's packaged standalone audio (played for scenes without an embedded MP4; mutually exclusive with the embedded video's own track)
      - `GET /wallpaper-engine/scene-runtime/<token>` → scene WebGL player page (same-origin HTML; the client does not embed it by default — fallback path only)
      - `GET /wallpaper-engine/scene-manifest/<token>` → scene manifest JSON (layers / models / particles / camera, built on demand from `scene.pkg` for the player)
      - `GET /wallpaper-engine/scene-resource/<token>/<subpath>` → scene resources (textures / sprites referenced by the manifest; PNG when decodable, raw bytes otherwise)
+     - `GET /wallpaper-engine/custom-frame/<token>` → the user-imported "custom frame" (frame tier 4; GET = read / POST = import / DELETE = clear)
+     - `GET /wallpaper-engine/diag-log` → diagnostics log sink for the renderer page (GPU / effect-chain self-check, for troubleshooting)
      - `POST /wallpaper-engine/upload` → upload a custom wallpaper (JPG / PNG / MP4, raw bytes)
      - `POST /wallpaper-engine/remove` → remove an uploaded wallpaper
      - `POST /wallpaper-engine/upload-dir` → change the upload directory (persisted to `~/.dsh-wallpaper-engine/config.json`, migrates existing files)

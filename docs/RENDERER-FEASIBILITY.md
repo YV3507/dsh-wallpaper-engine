@@ -12,18 +12,22 @@
 > ## ⚠️ 追记（2026-09-23）
 >
 > 上游已把场景/网页壁纸接入 **WebWallGL 实时渲染**（`/scene-live` + `/scene-files`），成为
-> 首选形态；静态帧链整体**降级为回退**（实时渲染不可用时才走）。据此本仓库做了两件事：
+> **生产默认形态**；静态帧链整体**降级为回退**（实时渲染不可用时才走）。据此本仓库做了两件事：
 > ① **移除其后又短暂存在的「beta 场景动画」**（`betaSceneAnim` 开关 + `/scene-anim`、
 > `/scene-anim-progress` 路由 + 客户端升级队列/轮询/探针 + worker 多帧渲染与 APNG 输出）；
-> ② 把 **有损路线 / 空闲预热 / GPU 渲染加速** 重新定位为「**静态帧兜底（回退）**」分组 ——
-> 它们本就只作用于静态帧路径，行为与默认值不变。
-> 现行回退链：**WebWallGL 实时渲染 → 内嵌 MP4（`/scene-video`）→ 静态帧（`/scene-frame`）**。
+> ② 把 **有损路线 / 空闲预热 / GPU 渲染加速** 重新定位为分组的调优项 —— 它们本就只作用于静态帧
+> 路径，行为与默认值不变（分组现名「**静态帧兜底与调优**」，其第一行是「出图来源」）。
+> 现行显示优先级：**WebWallGL 实时渲染 → 场景作者内嵌 MP4（`/scene-video`）→ 静态帧
+> （`/scene-frame`）→ 主纹理近似 → 作者预览图 / 自定义画面**。
 > **完整决策背景、已删资产清单与未来实现路线见 [`SCENE-ANIMATION-HANDOFF.md`](./SCENE-ANIMATION-HANDOFF.md)**。
-> 以下原文保留作决策背景，其中"动画"相关表述均已过时。
+>
+> ⚠️ **以下 §0「现状盘点」是 2026-08-29 的历史快照**：其中的行数/文件计数、符号是否存在、
+> 以及"服务端 SceneRenderer 是生产默认""`/scene-anim` 多帧路径""`/scene-resources` 路由名"
+> 等表述**都已过时**（§1–§5 的路线分析仍然有效）。行号与计数一律以代码为准。
 
 ---
 
-## 0. 现状盘点（先看事实，再谈路线）
+## 0. 现状盘点（2026-08-29 快照 · 先看事实，再谈路线）
 
 ### 渲染代码规模
 
@@ -39,8 +43,8 @@
 
 ### 已经存在的三条渲染路径（关键事实）
 
-1. **服务端 SceneRenderer（生产默认）**：`/scene-frame`（单帧 PNG）+ `/scene-anim`（多帧 → ffmpeg 合成 MP4/WebM）。纯 JS CPU 软件光栅（Canvas + z-buffer），可选 GPU 加速（headless WebGL / ANGLE，`supreium-headless-gl`），worker 线程 / fork 系统 Node 子进程隔离，磁盘缓存（`sf*` 键）。
-2. **客户端 WebGL Scene Player（`/scene-runtime` + `/scene-manifest` + `/scene-resources`）**：浏览器内 WebGL 实时渲染，**因实测"每场景一个 WebGL 上下文冻结页面"被禁用**（index.js 注释原文），只保留作回退；功能子集（2D 图层 + reflection/waterwaves/foliagesway/tint 等少量 shader + 粒子）。
+1. ~~**服务端 SceneRenderer（生产默认）**：`/scene-frame`（单帧 PNG）+ `/scene-anim`（多帧 → ffmpeg 合成 MP4/WebM）~~ → **已过时（2026-09-23）**：`/scene-anim` 已删除，服务端渲染器**不再是生产默认**（默认是 WebWallGL 实时渲染 `/scene-live`；静态帧是回退）。纯 JS CPU 软件光栅（Canvas + z-buffer），可选 GPU 加速（headless WebGL / ANGLE，`supreium-headless-gl`，现由「GPU 渲染加速」独立开关控制），worker 线程 / fork 系统 Node 子进程隔离，磁盘缓存（`sf*` 键）。
+2. **客户端 WebGL Scene Player（`/scene-runtime` + `/scene-manifest` + `/scene-resource`，**单数**）**：浏览器内 WebGL 实时渲染，**因实测"每场景一个 WebGL 上下文冻结页面"被禁用**；路由仍在服务，但**当前客户端从不消费**（`sceneUrl` 只在 inventory 里发出）。
 3. **回退链**：SceneRenderer 失败 → 主纹理提取（`extractSceneMainImage`）→ 工坊 preview 图。
 
 ### Bug 存量（"bug 众多"的量化）

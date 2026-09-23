@@ -89,7 +89,7 @@ const DEFAULTS = {
   // 解码占用随帧率线性下降）。与倍速完全解耦 —— 倍速照常叠加在抽帧版上。
   // 无 ffmpeg 或转码失败时自动回退原片（transcodeState: "fallback"）。
   fpsCap: 0,
-  // 静态帧兜底：frameUrl（画面刷新的档位基准）+ GPU 加速开关。
+  // 静态帧链：frameUrl（「出图来源」的档位基准）+ GPU 加速开关。
   // 场景/网页壁纸默认走 WebWallGL 实时渲染；只有实时渲染不可用（松散 scene.json
   // 目录、无 WebGL2、或该壁纸已被记入失败记忆）时才回退到这条静态帧链。
   sceneFrameUrl: null,
@@ -216,7 +216,7 @@ const DEFAULTS = {
   fontColor: "#000000",
   fontWeight: 400,
   fontFamily: "inherit",
-  // 场景壁纸静态帧生成档位记忆：{ [wallpaperId]: 0..4 }（壁纸画面刷新）。
+  // 场景壁纸静态帧生成档位记忆：{ [wallpaperId]: 0..4 }（见「出图来源」）。
   // 档位进入 scene-frame 请求的 ?v= 参数与宿主缓存键，各档互不覆盖。
   frameVariants: {},
   // 场景实时渲染失败记忆：{ [wallpaperId]: true }。心跳判定失败（首帧超时/
@@ -371,7 +371,7 @@ function sanitizeSettings(o) {
     videoVolume: clampNum(o.videoVolume, 0, 1, DEFAULTS.videoVolume),
     videoAudioEnabled: o.videoAudioEnabled !== false,
     fpsCap: FPS_CAP_VALUES.includes(o.fpsCap) ? o.fpsCap : DEFAULTS.fpsCap,
-    // GPU 加速是**独立开关**：只作用于静态帧兜底路径（见 DEFAULTS 的注释）
+    // GPU 加速是**独立开关**：只作用于静态帧链（见 DEFAULTS 的注释）
     sceneGpuAccel: o.sceneGpuAccel === true,
     // 静态帧链总开关：默认开（只有显式 false 才关）
     sceneFrameRender: o.sceneFrameRender !== false,
@@ -535,7 +535,7 @@ const listeners = new Set();
 function emit() { for (const fn of [...listeners]) fn(); }
 function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 
-// ── 壁纸画面刷新：场景壁纸静态帧生成逻辑档位（beta 渲染不参与）─────────
+// ── 出图来源（原名「壁纸画面刷新」）：场景壁纸静态帧生成逻辑档位 ─────────
 // 每张壁纸独立记忆所选档位；档位以 ?v= 进入 scene-frame 请求，宿主缓存键
 // 带 _vN 后缀 —— 不同档帧互不覆盖，档 0 沿用既有键（现状不变）。
 //
@@ -569,7 +569,7 @@ function frameVariantIndex(id) {
   const i = FRAME_VARIANTS.findIndex((v) => v.id === (Number(id) || 0));
   return i < 0 ? 0 : i;
 }
-// 「画面刷新」的状态文本：`N/M 档  当前：<来源>`。刻意写短 —— 这行字与按钮同处
+// 「出图来源」的状态文本：`N/M 档  当前：<来源>`。刻意写短 —— 这行字与按钮同处
 // 一个窄栏，长档名（旧格式「第 N/M 档 · 自动（逐级回退 · 当前：完整渲染） · 共 3 种」）
 // 会把同一行/同一栏的字挤掉。故此处只回答两件事：第几档、当前实际用哪个来源。
 // 「自动」档不报档名 —— 它当前生效的来源才是用户要看的（有损路线打开时它其实走
@@ -918,8 +918,9 @@ function matchesTypeFilter(w) {
 
 function isPlayableType(w) {
   // "image" = user-uploaded still image (custom uploads, id prefix "up-").
-  // "scene" = WE scene wallpaper — usable as a static frame when the host
-  // served a frameUrl (extracted from its main texture).
+  // "scene" = WE scene wallpaper；**默认显示形态是实时渲染**（见 buildMedia 的
+  // live 分支），这里的 frameUrl 只是静态帧链的产物（自研渲染器出图，失败才回退
+  // 主纹理提取），实时渲染不可用/失败时由它接手，也是轮播用得到的"可播放"依据。
   if (!w) return false;
   if (w.playable && (w.type === "video" || w.type === "web" || w.type === "image")) return true;
   return w.type === "scene" && Boolean(w.frameUrl);
@@ -1203,7 +1204,7 @@ function applySelection(id) {
   // token 查表 ⇒ 全部 404 ⇒ 应用不 bootstrap，iframe 里什么都没有（深色底透出来）。
   // 故 web 类型改用宿主的 /web 路由（目录型基准，见 lib/index.js 的路由注释）。
   // 老宿主没有 webView 字段 → 退回 media，行为与修复前完全一致（不会更糟）。
-  // scene 走 frameUrlWithVariant：画面刷新档位（?v=N）随 URL 走，宿主按档生成。
+  // scene 走 frameUrlWithVariant：「出图来源」档位（?v=N）随 URL 走，宿主按档生成。
   // ⚠️ 「静态帧渲染」关闭时**不再请求渲染产物**：静态帧槽位改由两个非渲染档填 ——
   // 已导入自定义画面用档 4，否则用作者预览图（档 3）。这两档都不跑渲染器，也不需要
   // frameUrl 的渲染结果（宿主的档 3/4 直接给 preview / overrides 文件路径）。
@@ -1221,7 +1222,7 @@ function applySelection(id) {
   }
   selection.type = w.type;
   selection.blockedNote = "";
-  // 静态帧兜底：frameUrl 既是最底层画面，也是「画面刷新」档位（?v=）的基准。
+  // 静态帧链：frameUrl 既是最底层画面，也是「出图来源」档位（?v=）的基准。
   selection.sceneFrameUrl = w.type === "scene" ? (w.frameUrl || null) : null;
   // Scene wallpapers with an embedded animation (host-extracted MP4) play it
   // as a hardware-decoded <video>; scenes without one stay on the static frame.
@@ -1535,7 +1536,9 @@ function liveRenderEnabled(selLike) {
       || (selLike.type === "web" && selLike.webLiveSrc)));
 }
 // 失败原因 → 可读文案（设置面板展示，便于用户反馈「为什么黑」）。
-const LIVE_FAIL_LABELS = { timeout: "首帧超时（15 秒内无画面）", stall: "运行中断（20 秒无帧）" };
+// ⚠️ 数字必须与看护阈值一致（见 startLiveWatch）：stall 的判失败点是
+// LIVE_STALL_TICKS * 2 = 40 秒（第 20 秒先自救一次），不是 20 秒。
+const LIVE_FAIL_LABELS = { timeout: "首帧超时（15 秒内无画面）", stall: "运行中断（40 秒无帧）" };
 function liveFailReasonOf(selLike) {
   const m = selLike && selLike.sceneLiveFailures;
   const v = m ? m[String(selLike && selLike.id)] : null;
@@ -1605,7 +1608,8 @@ function applyLiveControls(frame) {
 // - 首帧：running 且 fps>0 → 记 sceneLiveActive、iframe 淡入（we-live-on）、
 //   音频互斥切换（停外置 <audio>）；
 // - 首帧超时（15s：大 pkg 下载 + 纹理解码 + shader 编译的合理上限）→ 失败；
-// - 运行期：期望播放却连续 20s 无帧（先单次 resume 自救）或页面失联 → 失败。
+// - 运行期：期望播放却连续 40s 无帧（第 20s 先单次 resume 自救，见 LIVE_STALL_TICKS）
+//   或页面失联 → 失败。心跳 1s/次，故 stall 计数即秒数。
 const LIVE_FIRST_FRAME_MS = 15000;
 const LIVE_STALL_TICKS = 20;
 let liveWatch = null; // { frame, wid, timer, startedAt, firstFrame, stall, resumed }
@@ -3333,7 +3337,7 @@ function WallpaperPicker(props) {
     selection.fontFamily = family;
     persistSelection(); applyEffects(); emit();
   };
-  // 壁纸画面刷新：当前场景壁纸循环切换静态帧生成档位（按壁纸记忆）。
+  // 出图来源：当前场景壁纸循环切换静态帧生成档位（按壁纸记忆）。
   const onRefreshFrame = () => {
     if (sel.type !== "scene" || !sel.sceneFrameUrl) return;
     const wid = String(sel.id);
@@ -4163,8 +4167,9 @@ function WallpaperPicker(props) {
           ),
         ),
         // 静态帧链总开关（**子级**）：父级「场景实时渲染」关掉后才出现 —— 此时静态帧
-        // 接管画面，因此默认开。关掉它 = 场景不再渲染（有内嵌 MP4 就放它，否则用作者
-        // 预览图 / 已导入的自定义画面）。下一级「静态帧兜底与调优」只在本开关打开时出现。
+        // 接管画面，因此默认开。关掉它 = 静态帧槽位不再跑渲染器，改由作者预览图 / 已导入
+        // 的自定义画面填充（作者内嵌 MP4 的场景本来就优先播内嵌视频，与前后景无关）。
+        // 下一级「静态帧兜底与调优」只在本开关打开时出现。
         (sel.type === "scene" || sel.type === "web") && !liveRenderEnabled(sel)
           && switchRow("静态帧渲染", sel.sceneFrameRender !== false, (e) => {
             selection.sceneFrameRender = e.target.checked;
@@ -4174,8 +4179,12 @@ function WallpaperPicker(props) {
             emit();
           }, {
             key: "scene-frame-render",
-            hint: "实时渲染关闭后由它接管 · 默认开",
-            tooltip: "用本插件的静态帧链路渲染场景：自研渲染器输出完整场景帧（比实时渲染慢，但走的是我们自己的引擎）。关闭后场景不再渲染 —— 有内嵌 MP4 就播内嵌视频，否则显示作者预览图（导入过自定义画面则用它）。下面的「静态帧兜底与调优」只在本开关打开时出现",
+            hint: "实时渲染关闭后由它出图 · 默认开",
+            // ⚠️ 不要把这里写成"有内嵌 MP4 就播内嵌视频，否则…"那种二选一的口气：按
+            // buildMedia 的优先级，作者内嵌 MP4（sceneVideo）**永远压过**静态帧，且与本
+            // 开关无关 —— 本开关只决定"静态帧槽位里放渲染帧还是预览图/自定义画面"，
+            // 对有内嵌 MP4 的场景只影响加载期垫底那一张。
+            tooltip: "用本插件的静态帧链路渲染场景：自研渲染器输出完整场景帧（比实时渲染慢，但走的是我们自己的引擎）。只对**没有作者内嵌 MP4** 的场景决定画面；作者内嵌 MP4 的场景优先播内嵌视频，静态帧只作加载期垫底。关闭后静态帧槽位改用作者预览图（导入过自定义画面则用它），空闲预热一并停止。下面的「静态帧兜底与调优」只在本开关打开时出现",
           }),
         // ── 静态帧兜底与调优 ────────────────────────────────────────────────
         // **只在实时渲染没在生效**时出现：父开关关掉、或这张壁纸已被判失败而自动降级
@@ -5116,12 +5125,10 @@ function UpdateNotice() {
         "② ", React.createElement("strong", null, "场景壁纸静态帧修复"),
         "：提取优先——新壁纸点开毫秒级出图，不再等待渲染；合成器几何与图层过滤修正（人物五官归位、缺层修复）；puppet 图集与骨骼部件过滤（不再满屏乱飞）；后台预热保证已缓存壁纸零作废、零等待。"),
       React.createElement("p", null,
-        "③ ", React.createElement("strong", null, "壁纸画面刷新 + 自定义画面（效果页签 →「画面」）"),
-        "：场景壁纸可在多种生成逻辑间轮换（合成 / 主纹理 / 作者原画 / 预览图），导入桌面截图后「自定义画面」成为额外一档，档位按壁纸记忆。"),
+        "③ ", React.createElement("strong", null, "出图来源 + 自定义画面（效果页签 →「静态帧兜底与调优」／「画面」）"),
+        "：场景壁纸可在几种生成逻辑间轮换（自动（逐级回退）/ 主纹理单张 / 作者原画 / 自定义画面），导入桌面截图后「自定义画面」成为额外一档，档位按壁纸记忆。"),
       React.createElement("p", { className: "we-update-notice__hint" },
-        "⚠️ 刷新特别声明：各档生成逻辑只是换一种出图方式，",
-        React.createElement("strong", null, "只有小概率能刷出显示完全正常的图片"),
-        "；对骨骼拼装等静态管线生成不了的壁纸，请用「自定义画面」手动对电脑桌面截图后导入（画质 = 截图分辨率，这是最可靠的解决方式）。"),
+        "⚠️ 特别声明：各档只是换一种出图方式 —— 「自动」是唯一会走渲染器的一档，其余几档是自动链没有用到的替代来源；对骨骼拼装等静态管线生成不了的壁纸，请用「自定义画面」手动对电脑桌面截图后导入（画质 = 截图分辨率，这是最可靠的解决方式）。"),
       React.createElement("p", null,
         "④ ", React.createElement("strong", null, "场景壁纸包内音频（v0.7.5）"),
         "：无内嵌视频的场景壁纸（包里带 BGM/音频文件的，如人物场景）现在可以播放音频；效果页签新增「声音」分区（音量滑块 + 壁纸音轨总开关，视频壁纸同样可用），卡片显示「音乐开/关」按钮。默认静音，不影响现有习惯。"),
@@ -6334,7 +6341,9 @@ const CSS = `
     background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
     text-overflow: ellipsis; white-space: nowrap; overflow: hidden;
   }
-  /* Scene-wallpaper "静态帧" badge — top-right under the hide button. */
+  /* Scene-wallpaper form badge — top-right under the hide button.
+     文案随形态变化：「实时渲染」/「静态帧」（web 壁纸为「实时渲染」/「兼容模式」），
+     见卡片渲染处的 w.sceneLive / w.webLive。 */
   .we-picker__card-badge {
     position: absolute; top: 4px; right: 4px; z-index: 1;
     padding: 1px 6px; font-size: 0.62em; line-height: 1.6;

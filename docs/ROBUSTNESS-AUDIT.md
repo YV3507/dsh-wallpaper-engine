@@ -2,6 +2,13 @@
 
 > 目标：杜绝"我这能用、你那不行"。审计维度：发布包完整性、编码、跨平台、运行时容错、依赖兼容。
 > 审计方法：脚本化校验（导入闭包/打包/编码扫描）+ 关键代码深读。配套工具：`scripts/audit-import-closure.mjs`。
+>
+> ⚠️ **这是 2026-08-30 的快照**（结论多数仍成立，**计数与文件名会随代码漂移**）。2026-09-23 复跑更正：
+> ① 导入闭包现为 **lib 81 文件 / 66 个被导入目标全部覆盖**（`node scripts/audit-import-closure.mjs`，exit 0）；
+> ② **BOM 并非"无"** —— `scripts/` 下有 35 个 `tmp-*.mjs` 带 UTF-8 BOM（历史调试脚本；`lib/`、`src/`、`docs/` 无）；
+> ③ 双编码乱码的文件对象**写反了**：真正乱码的是 **`lib/scene-render-worker.mjs`**（约 78 行，同文件内还混着正常中文），
+> `lib/scene-scripts.js` 现在是干净中文；
+> ④ `npm pack --dry-run` 未复跑（`prepare` 会重建 `lib/client.js`，会写文件），需要时请自行执行。
 
 ---
 
@@ -20,9 +27,9 @@
 
 | 检查 | 结果 |
 |---|---|
-| 全仓 91 个源文件 UTF-8 合法性（fatal 解码） | ✅ 全部合法 |
-| BOM 扫描（JSON.parse 杀手） | ✅ 无 BOM |
-| 双编码语义乱码 | ⚠️ 仅 `lib/scene-scripts.js` 注释区（30 处，字节合法、显示乱码、**零运行时影响**）；可选修复，风险>收益，暂留 |
+| 全仓 91 个源文件 UTF-8 合法性（fatal 解码） | ✅ 全部合法（2026-09-23 复跑：lib/src/scripts 的 `*.js`/`*.mjs` 严格 UTF-8 扫描无非法字节） |
+| BOM 扫描（JSON.parse 杀手） | ⚠️ **当时为"无 BOM"已不成立**：`scripts/` 下 35 个 `tmp-*.mjs` 带 UTF-8 BOM（历史调试脚本，不影响发布包）；`lib/`、`src/`、`docs/` 仍无 BOM |
+| 双编码语义乱码 | ⚠️ **真正乱码的是 `lib/scene-render-worker.mjs`**（约 78 行注释；同文件内混有正常中文），不是 `lib/scene-scripts.js`（现为干净中文）。字节合法、显示乱码、**零运行时影响**；可选修复，风险>收益，暂留 |
 
 ## 3. 跨平台（Windows / Linux(WSL) / macOS）
 
