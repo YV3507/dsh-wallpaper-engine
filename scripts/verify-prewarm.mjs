@@ -369,15 +369,17 @@ const okResult = (servedFrom) => async () => ({ fileAbs: '/x/' + servedFrom + '.
       && !/forceRender/.test(idx)
       && /const vSuffix = variant \? '_v' \+ variant : ''/.test(idx)
       && /variant === 1 \|\| variant === 2 \|\| variant === 6/.test(idx);
-    // 「改用静态帧」必须复用**同一条**按壁纸禁用通道（sceneLiveFailures），
-    // 而不是新造一套状态 —— 否则又要多一处同步点与持久化白名单。
-    const manualChannel = /v === 'manual'/.test(idx)
-      && /m\[wid\] = "manual"/.test(cli)
-      && /sceneLiveFailures && selLike\.sceneLiveFailures\[String\(selLike\.id\)\]/.test(cli);
-    check('R38 画面档位: id 唯一 / 自定义档在末尾 / 客户端按 id 存取 / 宿主 1..6 但 5 已退役；「改用静态帧」复用 sceneLiveFailures',
-      ids.length >= 6 && uniq && customLast && usesId && hostOk && manualChannel,
+    // 三级级联：父「场景实时渲染」> 子「静态帧渲染」(sceneFrameRender) > 兜底组。
+    // 子只在父关时出现；兜底组只在子开时出现；关闭子开关时静态帧槽位改由非渲染档填。
+    const cascade = /sel\.sceneLive === false[\s\S]{0,60}switchRow\("静态帧渲染", sel\.sceneFrameRender !== false/.test(cli)
+      && /sel\.sceneFrameRender !== false && React\.createElement\("div", \{ className: "we-picker__section" \}/.test(cli)
+      && /frameRenderOff \? \(hasCustom \? CUSTOM_FRAME_ID : 3\) : savedVariant/.test(cli)
+      && /sceneFrameRender: o\.sceneFrameRender !== false/.test(idx)
+      && /st\.scenePrewarm === true && st\.sceneFrameRender !== false/.test(idx);
+    check('R38 画面档位 + 三级级联: 档位 id 唯一 / 自定义档在末尾 / 宿主 1..6 但 5 已退役；父(实时渲染)>子(静态帧渲染)>兜底组，且关闭子开关时不再请求渲染产物',
+      ids.length >= 6 && uniq && customLast && usesId && hostOk && cascade,
       'ids=[' + ids.join(',') + '] unique=' + uniq + ' customLast=' + customLast
-        + ' clientUsesId=' + usesId + ' host=' + hostOk + ' manualChannel=' + manualChannel);
+        + ' clientUsesId=' + usesId + ' host=' + hostOk + ' cascade=' + cascade);
   }
 
   // ── R39 渲染 worker 冒烟: 代码级错误必须立刻暴露 ────────────────────────────
