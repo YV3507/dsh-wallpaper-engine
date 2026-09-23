@@ -37,6 +37,11 @@
 //      content-surface plate reuses --we-content-surface-alpha / -color.
 //   E4 the master switches are preserved (data-we-sidebar-glass /
 //      data-we-glass-window still gate the fallback surfaces).
+//   E5 GAP FIX (upstream #94): the composer card carries its blur on
+//      [data-composer-card]::before, so the fallback block covers that carrier
+//      too — a data-we-glass-fallback rule matching ::before with BOTH "none"
+//      declarations AND a near-opaque recipe that the SIBLING fallback rules
+//      also quote (same string, no new token / mechanism).
 //   F1 disposing the plugin (fiber cleanup) removes the hook.
 //   G1 the detection is cached: 3 applies → exactly 1 WebGL context created.
 //   H1 no WEBGL_debug_renderer_info → gl.getParameter(gl.RENDERER) is read and
@@ -395,6 +400,31 @@ function main() {
     check('E4 master switches preserved: sidebar fallback stays gated on data-we-sidebar-glass, dialog on data-we-glass-window',
       sidebarGated && dialogGated,
       'sidebarGated=' + sidebarGated + ' dialogGated=' + dialogGated);
+
+    // ── E5 (gap fix): upstream #94 moved the composer card's blur onto
+    // [data-composer-card]::before, so the fallback block must cover that
+    // carrier as well — otherwise the exact element issue #95 reports as 过透
+    // still has no fallback. Reuses the `recipes` list declared for E2 (no
+    // duplicated recipe table) and proves the plate quotes a string a SIBLING
+    // fallback rule already carries.
+    const composerBefore = fbRules.filter((r) => /\[data-composer-card\]::before/.test(r.header));
+    const composerNone = composerBefore.filter((r) => /(^|[^-])backdrop-filter:\s*none/.test(r.body)
+      && /-webkit-backdrop-filter:\s*none/.test(r.body));
+    const composerRecipe = recipes.find((rec) => composerNone.some((r) => r.body.includes(rec)));
+    // The recipe has to be the VALUE of a background declaration on that rule
+    // (not merely present), i.e. the ::before really is the near-opaque plate.
+    const composerPlate = composerRecipe !== undefined && composerNone.some((r) => {
+      const at = r.body.indexOf(composerRecipe);
+      return at >= 0 && /background(-color)?\s*:/.test(r.body.slice(0, at));
+    });
+    // …and that exact string must already be carried by a SIBLING fallback rule.
+    const composerRecipeShared = composerPlate
+      && fbRules.some((r) => !composerBefore.includes(r) && r.body.includes(composerRecipe));
+    check('E5 composer-card ::before carrier is covered: fallback rule with both "none" declarations + a recipe shared with the sibling fallback rules',
+      composerBefore.length >= 1 && composerNone.length >= 1 && composerRecipeShared,
+      '::before fallback rules=' + composerBefore.length + ' · with both "none"=' + composerNone.length
+        + ' · recipe=' + JSON.stringify(composerRecipe || null)
+        + ' · reused by a sibling fallback rule=' + composerRecipeShared);
 
     // ── F1: fiber disposal removes the hook ────────────────────────────────
     let disposeErr = null;

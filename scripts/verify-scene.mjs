@@ -347,6 +347,45 @@ for (const fx of FIXTURES) {
   }
 }
 
+// ── Offline fixture: synthetic Steam library for Level B ────────────────────
+// Level B used to depend on a real workshop scene being installed (dev boxes
+// often have none → 'no scene wallpaper with frameUrl on this machine'). A
+// synthetic library wired through DSH_WE_STEAM_ROOT makes the route pipeline
+// testable anywhere: the pkg ships one 32×32 noise RGBA texture (noise keeps
+// the PNG payload above the >1000B assertion and passes the colorful-main-
+// texture gate that a flat fill would trip).
+const fixtureLib = join(root, '.test-cache', 'scene-fixture', 'steamlib');
+const fixtureItemDir = join(fixtureLib, 'steamapps', 'workshop', 'content', '431960', '990002');
+{
+  rmSync(join(root, '.test-cache', 'scene-fixture'), { recursive: true, force: true });
+  mkdirSync(fixtureItemDir, { recursive: true });
+  // A library root is only scanned when steamapps/common/wallpaper_engine
+  // exists (owningLibrariesP) — create it so the workshop content is found.
+  mkdirSync(join(fixtureLib, 'steamapps', 'common', 'wallpaper_engine'), { recursive: true });
+  const W = 32;
+  const rgba = Buffer.alloc(W * W * 4);
+  let seed = 0x12345678;
+  for (let i = 0; i < W * W; i++) {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    rgba[i * 4] = seed & 0xff;
+    rgba[i * 4 + 1] = (seed >> 8) & 0xff;
+    rgba[i * 4 + 2] = (seed >> 16) & 0xff;
+    rgba[i * 4 + 3] = 255;
+  }
+  const pkg = buildPkg([
+    { path: 'scene.json', bytes: Buffer.from(JSON.stringify({ objects: [{ image: 'main.tex' }] })) },
+    { path: 'main.tex', bytes: buildTexRgba(W, W, rgba) },
+  ]);
+  writeFileSync(join(fixtureItemDir, 'scene.pkg'), pkg);
+  writeFileSync(join(fixtureItemDir, 'project.json'), JSON.stringify({
+    title: 'Synthetic Fixture Scene', type: 'scene', file: 'scene.pkg', preview: 'preview.jpg',
+    contentrating: 'Everyone',
+  }));
+  writeFileSync(join(fixtureItemDir, 'preview.jpg'), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+  // Env roots are additive: a real Steam library on this machine still scans.
+  process.env.DSH_WE_STEAM_ROOT = [process.env.DSH_WE_STEAM_ROOT, fixtureLib].filter(Boolean).join(',');
+}
+
 // ── Level B: host route integration (mock webServer) ────────────────────────
 console.log('Level B — scene-frame route (mock webServer)');
 const routes = [];
@@ -407,9 +446,11 @@ let invBody = null;
 {
   const res = await runHandler(invRoute, '/wallpaper-engine/inventory');
   invBody = JSON.parse(res.__state.body.toString('utf8'));
-  const scene = (invBody.wallpapers || []).find((w) => w.type === 'scene' && w.frameUrl);
+  // The synthetic fixture (id 990002) is what Level B exercises; a real
+  // workshop scene on this machine would still be listed alongside it.
+  const scene = (invBody.wallpapers || []).find((w) => w.id === '990002' && w.frameUrl);
   token = scene ? scene.frameUrl.split('/').pop() : null;
-  check('inventory exposes scene frameUrl', Boolean(token), token ? 'frame token minted' : 'no scene wallpaper with frameUrl on this machine');
+  check('inventory exposes the fixture scene frameUrl', Boolean(token), token ? 'frame token minted' : 'fixture scene missing from inventory');
 }
 
 if (token) {
@@ -440,7 +481,88 @@ if (token) {
   const res = await runHandler(sceneRoute, '/wallpaper-engine/scene-frame/not-a-real-token');
   check('unknown token → 404', res.__state.status === 404, 'status=' + res.__state.status);
 }
+// ── Level C: 官方 defaultprojects 的数学护栏 (仅当本机装了 WE 时运行) ────────
+// 来源: docs/DEFAULT-SCENE-RENDER-AUDIT.md —— 纯数学审计发现的三类缺陷, 全部
+// 断言"真实行为 + 可判定数字", 不是正则匹配源码。
+//   C1 场景主文件名不是常量 (audiophile/fantasticcar/ricepod/techno = <名字>.json)
+//   C2 正交场景的**静态** camera.eye 不得平移 2D 图层 (eagleflag: 修前 84.63%
+//      覆盖 + 左边界 15% 空带; 官方宿主把无相机路径的正交相机重置为默认 eye=0)
+//   C3 无 type 字段的 .exe 项目是 application, 不是 scene (官方 sheep)
+console.log('Level C — 官方 defaultprojects (数学断言)');
+const WE_DEFAULTS = process.env.DSH_WE_DEFAULTS
+  || 'E:\\SteamLibrary\\steamapps\\common\\wallpaper_engine\\projects\\defaultprojects';
+const WE_DIR = process.env.DSH_WE_DIR
+  || 'E:\\SteamLibrary\\steamapps\\common\\wallpaper_engine';
+if (!existsSync(WE_DEFAULTS)) {
+  console.log('  (skip — 未找到 ' + WE_DEFAULTS + ')');
+} else {
+  const { SceneRenderer } = await import(pathToFileURL(resolve(root, 'lib', 'scene-renderer.js')).href);
+  // C1 — 声明的主文件名必须被底层读到 (旧实现硬编码 scene.json ⇒ 4 个官方场景全灭)
+  for (const [name, declared] of [['audiophile', 'audiophile.json'], ['fantasticcar', 'fantasticcar.json'],
+    ['ricepod', 'ricepod.json'], ['techno', 'techno.json']]) {
+    const main = join(WE_DEFAULTS, name, declared);
+    if (!existsSync(main)) { console.log('  (skip ' + name + ' — 未安装)'); continue; }
+    try {
+      const r = new SceneRenderer(main, { width: 32, height: 32, time: 0, weAssetsDir: WE_DIR });
+      check('C1 主文件名 ' + declared + ' 被读取', r.sceneFile === declared && r.objects.length > 0,
+        'objects=' + r.objects.length + ' sceneFile=' + r.sceneFile);
+    } catch (e) { check('C1 主文件名 ' + declared + ' 被读取', false, String(e && e.message)); }
+  }
+  // C2 — eagleflag 必须满幅 (静态 eye=-378.29 不得产生 583px@4K 右移)
+  const egMain = join(WE_DEFAULTS, 'eagleflag', 'scene.json');
+  if (existsSync(egMain)) {
+    try {
+      const r = new SceneRenderer(egMain, { width: 240, height: 135, time: 2.5, weAssetsDir: WE_DIR });
+      const c = r.render();
+      const cc = String(r.scene.general.clearcolor || '0 0 0').trim().split(/\s+/).map(Number).map((v) => Math.round(v * 255));
+      let nonClear = 0, minX = c.w;
+      for (let y = 0; y < c.h; y++) {
+        for (let x = 0; x < c.w; x++) {
+          const i = (y * c.w + x) * 4;
+          if (Math.abs(c.data[i] - cc[0]) > 2 || Math.abs(c.data[i + 1] - cc[1]) > 2 || Math.abs(c.data[i + 2] - cc[2]) > 2) {
+            nonClear++;
+            if (x < minX) minX = x;
+          }
+        }
+      }
+      const pct = nonClear / (c.w * c.h) * 100;
+      check('C2 正交静态 eye 不平移 (eagleflag 满幅)', pct >= 99 && minX === 0,
+        '非清屏=' + pct.toFixed(2) + '% 左边界=' + minX + 'px (修复前 84.6% / 72px@480)');
+    } catch (e) { check('C2 正交静态 eye 不平移 (eagleflag 满幅)', false, String(e && e.message)); }
+  } else console.log('  (skip eagleflag — 未安装)');
+  // C4 — beach 的 flowimage 变体 B 不得再是纯黑 (旧过滤把基准层也排除 ⇒ [0,0,0,1] 满屏)
+  const beachMain = join(WE_DEFAULTS, 'beach', 'scene.json');
+  if (existsSync(beachMain)) {
+    try {
+      const r = new SceneRenderer(beachMain, { width: 240, height: 135, time: 2.5, weAssetsDir: WE_DIR });
+      const c = r.render();
+      let sum = 0, n = 0;
+      for (let i = 0; i < c.w * c.h; i++) { sum += (c.data[i * 4] + c.data[i * 4 + 1] + c.data[i * 4 + 2]) / 3; n++; }
+      const mean = sum / n;
+      check('C4 beach 背景不是纯黑 (flowimage 变体 B)', mean >= 100,
+        '全帧平均亮度=' + mean.toFixed(1) + '/255 (修复前 25.3 — flowimage 返回 [0,0,0,1])');
+    } catch (e) { check('C4 beach 背景不是纯黑 (flowimage 变体 B)', false, String(e && e.message)); }
+  } else console.log('  (skip beach — 未安装)');
+  // C3 — 类型判定真值表 (含官方 sheep: 无 type 字段 + .exe)
+  const infer = hostMod.inferType || (hostMod.default && hostMod.default.inferType);
+  if (typeof infer === 'function') {
+    const cases = [['sheep.exe', 'application'], ['clip.mp4', 'video'], ['index.html', 'web'], ['scene.json', 'scene']];
+    const bad = cases.filter(([f, want]) => infer(f) !== want);
+    check('C3 类型判定真值表 (含 .exe → application)', bad.length === 0, bad.length ? JSON.stringify(bad) : cases.map((c) => c[0] + '→' + c[1]).join(' '));
+    const sheepPj = join(WE_DEFAULTS, 'sheep', 'project.json');
+    if (existsSync(sheepPj)) {
+      const pj = JSON.parse(readFileSync(sheepPj, 'utf8'));
+      const t = typeof pj.type === 'string' ? pj.type.toLowerCase() : infer(pj.file);
+      check('C3b 官方 sheep (无 type) 判为 application', t === 'application', 'type=' + t + ' file=' + pj.file);
+    }
+  } else {
+    check('C3 inferType 已导出 (护栏可达)', false, 'lib/index.js 未导出 inferType');
+  }
+}
+
 if (typeof dispose === 'function') dispose();
+delete process.env.DSH_WE_STEAM_ROOT;
+rmSync(join(root, '.test-cache', 'scene-fixture'), { recursive: true, force: true });
 
 console.log('');
 console.log(passed + ' passed, ' + failed + ' failed');

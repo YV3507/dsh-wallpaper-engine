@@ -37,6 +37,11 @@ linux-wallpaperengine / repkg 逆向成果）完整重放：解析 `scene.pkg` �
   3. 在 DSH webserver 上注册同源 HTTP 路由，让浏览器端直接获取数据和流式加载媒体：
      - `GET /wallpaper-engine/inventory` → 壁纸 JSON 列表
      - `GET /wallpaper-engine/media/<token>` → 视频 / HTML（支持 Range）
+     - `GET /wallpaper-engine/web/<token>/<子路径>` → 网页壁纸的**子资源**（`main.js` / `styles.css` / `images/*`）。
+       web 壁纸是多文件 HTML 应用，入口里全是相对路径，而 iframe 的 src 决定相对解析基准 —— 必须用这条
+       「目录型」路由当入口，相对资源才会落回同一前缀（拿 `/media/<token>` 当入口会让每个子资源都变成
+       `/media/<文件名>` 而 404，iframe 里因此什么都没有）。资源根 = 入口 HTML 所在目录；护栏：
+       `scripts/verify-web-route.mjs`
      - `GET /wallpaper-engine/preview/<token>` → 预览图
      - `GET /wallpaper-engine/video-preview/<token>` → 自上传 MP4 的按需抽帧缩略图（ffmpeg，磁盘缓存）
      - `GET /wallpaper-engine/scene-frame/<token>` → 场景壁纸完整场景帧（纯 JS 渲染器输出 3840 宽 / 高度随场景比例，失败回退主纹理提取，PNG 磁盘缓存）
@@ -107,6 +112,12 @@ the picker.
   3. registers same-origin HTTP routes on the DSH webserver so the browser half can fetch data and stream media directly:
      - `GET /wallpaper-engine/inventory` → JSON list of wallpapers
      - `GET /wallpaper-engine/media/<token>` → video / HTML (Range supported)
+     - `GET /wallpaper-engine/web/<token>/<subpath>` → **sub-resources** of a web wallpaper (`main.js` / `styles.css` / `images/*`).
+       A web wallpaper is a multi-file HTML app whose entry references everything relatively, and the iframe `src`
+       is what decides the relative base — so the entry must be loaded through this **directory-shaped** route
+       (pointing the iframe at `/media/<token>` makes every sub-resource resolve to `/media/<filename>` and 404,
+       leaving the iframe empty). Resource root = the entry HTML's own directory; guard:
+       `scripts/verify-web-route.mjs`
      - `GET /wallpaper-engine/preview/<token>` → preview image
      - `GET /wallpaper-engine/video-preview/<token>` → on-demand ffmpeg-extracted thumbnail for a custom MP4 upload (disk-cached)
      - `GET /wallpaper-engine/scene-frame/<token>` → scene full-scene frame (pure-JS renderer output 3840 wide / height from the scene aspect, falls back to main-texture extraction, PNG disk-cached)

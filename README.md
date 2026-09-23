@@ -12,9 +12,9 @@
 
 它会自动发现你本机的 Wallpaper Engine 安装，列出你的壁纸，并把*可移植*的类型渲染到 DSH 对话界面的后方，配以 **iOS 风格液态玻璃**效果。开箱即得的能力：
 
-- **四类壁纸全覆盖** —— Video（`.mp4`）硬件解码播放、Web/HTML 以 iframe 加载、Scene 由内置渲染器输出完整场景帧、Image 走自定义上传（本地 JPG / PNG / MP4）；
+- **四类壁纸全覆盖** —— Video（`.mp4`）硬件解码播放、Web/HTML 由内置 **WebWallGL** 实时渲染（注入 WE API，失败回退兼容 iframe）、Scene 同样走 WebWallGL 实时渲染（失败回退完整场景帧链）、Image 走自定义上传（本地 JPG / PNG / MP4）；
 - **外观统一可控** —— 配色、玻璃颜色与透明度、整个设置窗口与侧栏的液态玻璃、字体与输入光标颜色，全部即时生效、持久保存；
-- **八个画面滑条** —— 壁纸模糊 / 亮度 / 对比度 / 饱和度 / 壁纸透明度 / 暗化 / 边框 / 玻璃；
+- **八个画面滑条** —— 壁纸模糊 / 亮度 / 对比度 / 饱和度 / 壁纸透明度 / 暗化 / 边框 / 玻璃（承载文字的面带可读性下限，怎么拉都不会把正文压到看不清）；
 - **省电与性能** —— 遮挡暂停（最小化 / 失焦 / 电池三档开关）与解码帧率上限（宿主端抽帧转码，大幅降低硬解占用）；
 - **壁纸库管理** —— 缩略图选择弹窗、隐藏 / 恢复（软删除）、内容分级与类型过滤、CD 架紧凑布局、旋转黑胶唱片；
 - **自动轮播** —— 任意多个自定义列表，各自的切换间隔与播放顺序；
@@ -33,18 +33,52 @@ Wallpaper Engine 的壁纸分四种类型（外加本插件的自定义上传）
 
 | 类型 | 由谁渲染 | 能否搬到 DSH |
 |---|---|---|
-| **Scene（场景）** | Wallpaper Engine 自带的 3D 引擎 | ✅ 完整场景帧 — 纯 JS 场景渲染器（对象树/纹理/粒子/shader 效果），见下方说明 |
-| **Video（视频）** | 普通 `.mp4` 文件 | ✅ 可以 — `<video>` 标签硬件解码播放（Edge 走 canvas 渲染规避悬浮工具栏），支持倍速 / 水平翻转 / 遮挡暂停 / 帧率上限 |
-| **Web（网页）** | Chromium 宿主（`webwallpaper64.exe`） | ✅ 可以 — `<iframe>` 加载 |
-| **Image（图片）** | —（本插件自定义上传功能） | ✅ 可以 — 上传本地 JPG / PNG 直接当壁纸 |
-| **Application（应用）** | 注入的外部窗口 | ❌ 不可以 — 无法内嵌网页 |
+| **Scene（场景）** | Wallpaper Engine 自带的 3D 引擎 | ✅ 实时渲染 — 内置 WebWallGL WebGL 引擎（粒子/脚本/视差/包内音频）；失败自动回退场景帧 |
+| **Web（网页）** | Wallpaper Engine 内置的 HTML/JS 运行时 | ✅ 实时渲染 — 内置 WebWallGL 的网页挂载 + **注入 WE API**（音频监听/属性/媒体），严格沙箱隔离；失败自动回退兼容 iframe |
 
-- **Video / Web**：插件直接服务源文件（`/media` 路由），浏览器原生播放/加载，动态完整保留；Video 额外支持倍速、翻转、遮挡暂停与抽帧转码（见下文「视频倍速与水平翻转」「遮挡暂停」「解码帧率上限」）。
-- **Image**：不是 WE 原生类型，来自本插件的**自定义壁纸上传**（JPG / PNG，可选四种画面适配模式），与 WE 壁纸走同一套媒体管道，见下文「自定义壁纸」。
-- **Scene**：由插件内置渲染器输出一张完整场景帧；场景内含视频纹理时，该视频会直接硬件解码播放。渲染失败自动回退主纹理提取，再失败回退工坊预览图，见下方说明。
-- **Application**：WE 里以独立窗口运行的壁纸（如桌面宠物、游戏启动器），插件不注入外部窗口，选择器与轮播候选中自动剔除，属预期行为。
+Scene 壁纸由本插件内置的 **WebWallGL 实时渲染引擎**（`lib/webwallgl/`，MIT，上游 [webwallgl](https://github.com/oneincase/webwallgl)）在 WebGL2 里完整重放：解析 `scene.pkg` 的对象树，实时渲染全部 image 层（waterwaves/waterripple 等 shader 效果按 HLSL 转译后在 GPU 执行）、puppet 骨骼模型、粒子系统与文本对象，并执行场景自带的 SceneScript 脚本 —— 鼠标移动会驱动视差 / 光标交互，包内音频（BGM / 音效）随「音量 / 壁纸音轨」设置播放并驱动音频反应效果。
 
-> Scene 壁纸由内置的**纯 JS 场景渲染器**输出**3840 宽**（高度按场景比例推导，默认 2160）的完整场景帧（对象树 / 纹理 / puppet 骨骼 / shader 效果 / 粒子），渲染失败时按「主纹理提取 → 工坊预览图」逐级回退。实现细节、宿主 / 客户端分工与全部 HTTP 路由见 **[`docs/HOW-IT-WORKS.md`](docs/HOW-IT-WORKS.md)**。
+**网页壁纸**同样走 WebWallGL：宿主把 **WE API shim**（`wallpaperRegisterAudioListener` / `wallpaperPropertyListener` / 媒体监听等，来自上游 `web-shim.js`，由 `/scene-files` 注入入口 HTML）交给渲染页加载 —— 依赖 WE API 的工坊网页壁纸（音频可视化、属性驱动、鼠标跟随等）因此能真正跑起来，不再是一片空白或报错。**安全**：壁纸 iframe 强制 `sandbox="allow-scripts"`（严格沙箱），第三方 HTML 拿不到 DSH 的 origin（无法冒用宿主身份调宿主 API / 读宿主存储）；跨源控制与指针注入经渲染页的 `postMessage` 通道下发。加载失败或运行失联时按壁纸记忆并自动退回旧的兼容 iframe（裸 HTML，无 WE API）。
+
+> **网页壁纸已知边界**：作者脚本的 `fetch`/`XHR` 在 opaque origin 下携带 `Origin: null`（宿主已返回 `Access-Control-Allow-Origin: *`，常规资源可用）；`wallpaperMediaIntegration`（系统 Now Playing）本项目未提供数据源，相关壁纸退到自身静态态；CSS `:hover` 等由浏览器 hit-test 驱动的交互不受外部指针注入影响（与上游文档一致）。
+
+> **渲染形态与降级**：渲染页在同源隔离 iframe 中运行，并有**心跳看护** —— 首帧 15 秒超时、或运行期连续 20 秒无帧（含一次自动恢复尝试）即判定失败，按壁纸记入失败记忆并自动降级到「内嵌 MP4 → 静态帧」旧链；松散 `scene.json` 目录与无 WebGL2 的环境直接走旧链。失败记忆可在设置里重新打开「场景实时渲染」开关清空重试。静态帧链（内置纯 JS 场景渲染器，下节）保留为垫底画面与降级目标。
+
+> **展现效果**：渲染器输出 3840×2160 完整场景帧（背景+水+后发+人物+伞+粒子），对摄影、插画、动画截图类场景壁纸效果接近原版；渲染失败（纯 shader 生成类/特殊纹理格式）时自动回退旧的主纹理提取，再失败回退工坊预览图（`preview.jpg`），属预期行为，不视为缺陷。
+
+### 静态帧兜底：怎么工作的
+
+- **对象树**：解析 `scene.pkg`（PKGV 容器 + LZ4 条目链）或松散 `scene.json` 目录，按 dependencies/parent 拓扑排序全部对象（image / particle / text / sound）。
+- **image 层**：加载材质主纹理（RGBA8888 / DXT1/3/5 等），按 scene 坐标定位（origin/scale/angle 父链累积），应用 alpha/brightness。
+- **puppet 网格**：MDL（MDLV）网格 + 绑定姿态光栅化（软件光栅 + 双线性 UV 采样 + 透明合成），人物/后发等骨骼模型正确显示。
+- **shader 效果链**：waterwaves（含 DUALWAVES 双波乘积）/ waterripple / shake 按 shader 精确数学在 CPU 实现；mask 纹理支持。
+- **粒子系统**：boxrandom/sphererandom 发射器、color/size/alpha/lifetime/velocity/rotation 等初始化器、movement/alphafade/sizechange/turbulence/oscillate* 等运算符、sprite 精灵绘制。
+- **缓存**：渲染结果按 `<版本>_<路径>_<mtime>` 缓存到 `~/.dsh-wallpaper-engine/cache/frames/`（可用 `DSH_WE_CACHE_DIR` 覆盖），工坊更新后自动失效重建；首次渲染约 3-4 秒，之后秒级命中。
+
+## 工作原理
+
+- **Host 端**（`lib/index.js`）：一个 Cordis 插件，负责
+  1. 通过读取 Steam 的 `libraryfolders.vdf` 定位 Wallpaper Engine 安装位置（所以 Steam 装在非默认盘也能用）；
+  2. 从 `projects/defaultprojects`、`projects/myprojects` 以及 `steamapps/workshop/content/431960/*` 枚举壁纸；
+  3. 在 DSH webserver 上注册同源 HTTP 路由，让浏览器端直接获取数据和流式加载媒体：
+     - `GET /wallpaper-engine/inventory` → 壁纸 JSON 列表
+     - `GET /wallpaper-engine/media/<token>` → 视频 / HTML（支持 Range）
+     - `GET /wallpaper-engine/preview/<token>` → 预览图
+     - `GET /wallpaper-engine/video-preview/<token>` → 自上传 MP4 的按需抽帧缩略图（ffmpeg，磁盘缓存）
+     - `GET /wallpaper-engine/scene-frame/<token>` → 场景壁纸完整场景帧（纯 JS 渲染器输出 3840×2160，失败回退主纹理提取，PNG 磁盘缓存；同时是实时渲染的垫底画面）
+     - `GET /wallpaper-engine/scene-live/*` → 内置 WebWallGL 渲染页（vendor 产物 `lib/webwallgl/`，实时渲染 iframe 加载）
+     - `GET /wallpaper-engine/scene-files/<token>/<path>` → 场景壁纸原始文件（`scene.pkg` / `project.json` 等，支持 Range；渲染页自行解析容器）
+     - `GET /wallpaper-engine/web/<token>/<入口文件名>` → 网页壁纸多文件应用子资源（兼容 iframe 回退链；相对引用按入口所在目录解析，CSS / SVG 走正确 MIME）
+     - `POST /wallpaper-engine/upload` → 上传自定义壁纸（JPG / PNG / MP4，原始字节流）
+     - `POST /wallpaper-engine/remove` → 移除已上传的壁纸
+     - `POST /wallpaper-engine/upload-dir` → 更改上传目录（持久化到 `~/.dsh-wallpaper-engine/config.json`，自动迁移已有文件）
+     - `GET /wallpaper-engine/settings` → 读取插件设置（v0.4.0）
+     - `PUT /wallpaper-engine/settings` → 保存插件设置（v0.4.0，写入 `~/.dsh-wallpaper-engine/config.json`）
+     - `GET /wallpaper-engine/media-info/<token>` → 媒体元数据（分辨率 / 编码 / 帧率 / 时长，moov 探测）
+     - `GET /wallpaper-engine/transcoded/<token>?fps=N` → 抽帧转码流（ffmpeg 一次性重编码，磁盘缓存）
+     - `GET /wallpaper-engine/transcode-progress/<token>?fps=N` → 下载 / 转码进度（进度条轮询）
+- **Client 端**（`lib/client.js`）：一个浏览器模块，拉取壁纸列表，把选中壁纸渲染到应用三列**后方**的固定图层，并在「设置」里注册一个**一级设置页**「Wallpaper Engine」（含液态玻璃卡片、选择弹窗、隐藏/恢复、倍速/翻转、配色/透明度与自定义壁纸管理）。
+- **自定义壁纸存储**：上传的文件写入插件管理的本地目录（默认 `~/.dsh-wallpaper-engine/uploads`，可在设置里改到任意盘符），经同一套 `/media`、`/preview` 路由服务（视频缩略图另走 `/video-preview`）——与 WE 媒体走完全相同的管道，天然跨重启持久、无浏览器配额限制。存储位置同时支持 **WE 项目目录**：子目录里含 `project.json`（`scene.pkg` / `scene.json` / `index.html` / `*.mp4`）即被识别为对应类型的壁纸（场景壁纸可实时渲染），扫描按目录分块异步执行（数百目录约 30ms）；这些目录只读收录，不参与上传管理与「移除」（不会误删你的库）。
 
 ## 设置持久化（v0.4.0）
 
@@ -204,6 +238,8 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 
 > 开启「设置窗口液态玻璃」后，**General、模型、插件等所有原生分区**和左侧导航都会变成同一套液态玻璃 + 配色（通过覆盖设置对话框作用域内的 shell token 实现，不侵入其他界面）。设置窗口的玻璃模糊与**对话栏使用同一套调节参数**：「玻璃」滑动条（0–60 px）同时控制设置窗口与输入栏/气泡的模糊半径，饱和度/亮度/对比度配方完全一致；**玻璃颜色**决定玻璃底色本身的色调（默认浅色白/深色深夜蓝，选定后两种主题统一使用该色），**玻璃透明度**决定浓淡，越高越"透"（壁纸颜色更清晰地透过面板），越低越接近实色。不支持 `backdrop-filter` 的浏览器自动回退到高不透明实色，保证文字可读。所有控件即时生效并随设置持久化到宿主端 `config.json`，重启 / 换浏览器都不丢。
 
+> **文字面可读性下限（默认开启，本版不提供开关）** —— 每个**承载文字的面**（输入栏卡片与工具弹窗、消息气泡、设置窗口的三层底板、侧栏面板与编辑器/终端内容面、插件自己的壁纸仓库抽屉与面板弹窗）都在玻璃色之下再压一层**主题底色**：浅色主题为白，深色主题为深夜蓝，固定权重 45%（深色主题 59%）。数值是按 **WCAG 正文 4.5:1** 在「玻璃透明度 {0,15,30,45,60} × 主题 × 壁纸透明度 {0,50,90}」全网格上实测出的最小值（最坏情况取浅色主题遇全黑壁纸像素、深色主题遇全白壁纸像素）：修复前后正文对比度从最坏 **1.00:1 提升到 4.63:1**。因此**把「玻璃透明度」拉到最高档、或把「壁纸透明度」调高，都不会再让文字看不清** —— 这两个滑条只作用于玻璃色那一半权重，下限那一半固定不动。语义不变：玻璃透明度依旧是"越大越透"且单调生效（仍可把面板调得更透/更实），只是压不下去下限；壁纸透明度依旧只作用于壁纸整层（`.we-layer`），仍是"融向页面底色"，与下限互不影响。
+
 ### 吉祥物（聊天顶部拉绳）
 
 「吉祥物」页签控制聊天的**拉绳吉祥物**（一条可拖拽的拉绳，沿顶部吸附，向下拉即拉出**壁纸仓库**抽屉）。**形态**以卡片呈现——卡片直接渲染当前形态的立绘并按「吉祥物大小」实时缩放，选形态与看大小在同一处完成：
@@ -255,12 +291,14 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 | **亮度** | 壁纸画面亮度（媒体滤镜） | 40–160 % | 100 % |
 | **对比度** | 壁纸画面对比度（媒体滤镜） | 40–200 % | 100 % |
 | **饱和度** | 壁纸画面饱和度（媒体滤镜） | 0–200 % | 100 % |
-| **壁纸透明度** | 壁纸整层的透明度（越大越透）：淡出后壁纸融向页面底色，即 IDEA 背景图式的「看得见但不喧宾夺主」。与**暗化**互补——一个减淡壁纸本身、一个压暗整体画面；想要融底色效果，建议「透明度调高 + 暗化调低」组合使用 | 0–90 % | 0 % |
+| **壁纸透明度** | 壁纸整层的透明度（越大越透）：淡出后壁纸融向页面底色（**浅色主题融向白、深色主题融向黑**），即 IDEA 背景图式的「看得见但不喧宾夺主」。与**暗化**互补——一个减淡壁纸本身、一个压暗整体画面；想要融底色效果，建议「透明度调高 + 暗化调低」组合使用 | 0–90 % | 0 % |
 | **暗化** | 加深壁纸与文字之间的遮罩 | 0–90 % | 25 % |
 | **边框** | 提高边框 / 分割线的对比度 | 0–90 % | 35 % |
 | **玻璃** | 玻璃面板（输入栏、气泡）的模糊半径 | 0–60 px | 16 |
 
 > **浅色 / 深色模式的适配提醒** — 每张壁纸的色系和明暗差异很大，**没有哪一种模式能适配所有壁纸**。请在 DSH 的「浅色 / 深色」主题之间来回切换，找到适合当前壁纸的那一种。如果在偏亮或花纹复杂的壁纸上 **文字或分割线看不清**，就把 **暗化**、**边框** 两个滑动条调高，或用 **亮度** 压低过亮的壁纸（必要时再稍微加一点 **壁纸模糊**），直到看着舒服为止；嫌壁纸太抢眼则相反——调高 **壁纸透明度** 让它退到底色里。八个滑动条都是即时生效的，**无需刷新页面**。
+>
+> **文字面永远保底** —— 承载文字的面（输入栏、气泡、设置窗口、侧栏与内容面、插件自己的抽屉/弹窗）都带**可读性下限**（默认开启、不可调节）：玻璃色之下固定压着一层主题底色，所以上面这几个滑条**再极端也不会把正文压到看不清**（见上文「文字面可读性下限」，最坏 4.63:1）。
 
 ## 配置
 
@@ -319,7 +357,8 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 - 浏览器需能自动播放静音 `<video>`（DSH 跑在 loopback，现代浏览器允许静音自动播放）。
 - 媒体从你本机的 Wallpaper Engine 安装路径提供；host 只提供它已枚举过的文件，不会暴露任意文件系统。自定义上传的文件同样只存在于本机，不上传任何服务器。
 - **抽帧转码依赖 ffmpeg 与 NVIDIA NVENC**（`av1_nvenc` → `h264_nvenc` 回退）：无 ffmpeg（含自动下载不可用，如 musl/Alpine 等未覆盖平台）或无 NVIDIA 显卡时，帧率上限功能自动关闭，壁纸保持原片播放，不影响其它任何功能。
-- **遮挡暂停仅对视频壁纸生效**：网页（iframe）壁纸无法从外部暂停，只能随页面隐藏被浏览器节流。
+- **遮挡暂停对视频壁纸与场景实时渲染生效**：视频壁纸直接暂停解码；场景实时渲染经控制面暂停渲染循环（GPU 占用随之回落）。纯网页（iframe）壁纸无法从外部暂停，只能随页面隐藏被浏览器节流。
+- **网页（Web）壁纸的资源根 = 入口 HTML 所在目录**：多文件 HTML 应用的相对引用（`main.js` / `./js/x.js` / `images/*`，含 `<base href=".">` 这类写法）都能正常加载；但**根绝对路径**（`/assets/x.js`）与**向上越出项目目录**的引用（`../shared/x.js`）不在此模型内 —— 浏览器会把它们归一化到 DSH 自己的路径空间，服务端不靠改写 HTML 兜不住。实测官方默认网页壁纸（CORSAIR Collection / Corsair-O-Tron）不受影响。
 - 选择器文案为中英混合（本 bundle 尚未接入 DSH 的 locale 命名空间）。
 
 ## 开发 / 重建
@@ -330,9 +369,13 @@ host 端（`lib/index.js`）是纯 ESM，无需构建。client 端（`lib/client
 
 ```sh
 npm run build                  # 从 src/client.js 重新生成 lib/client.js
-npm run verify                 # 物化生成的 bundle 并断言其导出
-node scripts/verify-scene.mjs  # 场景静态帧提取 / scene-frame 路由自检（含合成 fixture）
+npm run verify                 # 物化生成的 bundle 并断言其导出（含 scene-live 链路自检）
+node scripts/verify-scene.mjs  # 场景静态帧提取 / scene-frame 路由自检（含合成 fixture，离线可跑）
+node scripts/verify-scene-live.mjs  # 场景实时渲染自检（vendor 产物 / scene-live + scene-files 路由 / 目录围栏 / Range）
+node scripts/sync-webwallgl.mjs     # 从本地 webwallgl 仓库构建并同步渲染页产物到 lib/webwallgl/
 ```
+
+`lib/webwallgl/` 是**上游渲染页的 vendor 产物**（`index.html` + hash 资产 + `.upstream.json` 溯源），由 `scripts/sync-webwallgl.mjs` 从 webwallgl 仓库构建（`--base=/wallpaper-engine/scene-live/`）后覆盖式写入——需要的改动做在上游，不要手改该目录。渲染页只依赖 host 的 `/scene-live` 与 `/scene-files` 两条同源路由，与 client 侧经 `frame.contentWindow.__wp` 控制面耦合（同源 iframe），两端可独立演进。
 
 编辑 `src/client.js` 后运行 `npm run build`，不要手改 `lib/client.js`。`npm install`/`pnpm install` 会自动触发 `prepare` → `build`，因此全新 checkout 总是带最新的 `lib/client.js`。
 
