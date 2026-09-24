@@ -734,6 +734,7 @@ npm run verify                 # materialize the emitted bundle and assert its e
 node scripts/verify-scene.mjs  # scene static-frame extraction / scene-frame route self-test (incl. synthetic fixtures, offline)
 node scripts/verify-scene-live.mjs  # scene live-render self-test (vendor artifacts / scene-live + scene-files routes / directory fence / Range / media origin)
 node scripts/e2e-web-media-origin.mjs  # real-browser end-to-end (needs a local Chromium): media origin + strict-sandbox iframe + shim / property seed / control channel
+node scripts/diagnose-web-blank.mjs  # triage one blank web wallpaper (headless real browser + screenshot + console errors; WALL_ID=<dir name>)
 node scripts/sync-webwallgl.mjs     # build the renderer page from a local webwallgl checkout and vendor it into lib/webwallgl/
 ```
 
