@@ -422,8 +422,21 @@ const clientChecks = [
   ['controls are deduped before dispatch', /liveApplied\.playing !== playing/.test(src)],
   ['heartbeat reads stats before applying controls', /const stats = liveStats\(frame\);\s*\n\s*applyLiveControls\(frame\);/.test(src)],
   ['upload management list excludes project dirs', /isUploadedWallpaper\(w\) && !isDirWallpaper\(w\)/.test(src)],
+  // 实测回归（用户报「实时渲染在用但静态帧仍在算 → 卡顿/黑屏」）：live 分支的垫底图
+  // **不得**用静态帧 URL（sel.url = frameUrl），否则宿主会为一张只当过渡用的图跑冷渲染
+  // （4K 数秒、worker + GPU），与实时渲染首帧抢资源 → 卡顿、首帧超时被判失败（写进失败
+  // 记忆后该壁纸一直不实时渲染）、以及图没出来时的黑屏。垫底一律用作者预览图。
+  ['live poster uses the author preview, never the static-frame URL',
+    /const posterSrc = sel\.previewUrl \|\| null;/.test(src)
+    && !/posterSrc = sel\.type === "web" \?/.test(src)],
 ];
 for (const [name, ok] of clientChecks) check(name, ok);
+// 负对照：把"垫底用静态帧"的旧写法喂给同一判据，必须被判不合格
+{
+  const bad = 'const posterSrc = sel.type === "web" ? (sel.previewUrl || null) : sel.url;';
+  const good = /const posterSrc = sel\.previewUrl \|\| null;/.test(bad);
+  check('negative control: the old static-frame poster would be rejected', good === false);
+}
 // 实测踩坑回归（2026-09-22）：host 的 sanitizeSettings 是白名单，漏加
 // sceneLiveFailures 会让 PUT 上来的失败记忆被丢弃、刷新后记忆消失。
 const hostSrc = readFileSync(join(root, 'lib', 'index.js'), 'utf8');

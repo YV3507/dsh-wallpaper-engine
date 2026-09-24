@@ -1774,9 +1774,12 @@ function buildMedia(sel) {
     || (sel.type === "scene" && !isLive && !isSceneVideo);
   if (isLive) {
     // 垫底画面（加载期/降级重建期画面连续）+ live iframe（首帧心跳通过后淡入）。
-    // 场景用静态帧（sel.url = frameUrl，含 ?v= 档位）；网页壁纸用项目预览图
-    //（网页没有静态帧提取，preview 可能为空 → 那就只有 iframe）。
-    const posterSrc = sel.type === "web" ? (sel.previewUrl || null) : sel.url;
+    // ⚠️ 垫底**不再用静态帧 URL**（场景原先是 sel.url = frameUrl）：那会让宿主为一张只当
+    // 过渡用的图跑一次**冷渲染**（4K 数秒、worker + GPU），恰好与实时渲染的首帧抢 CPU/GPU。
+    // 实测症状：卡顿、首帧超时被判失败（liveFail 写进失败记忆，此后该壁纸一直不实时渲染）、
+    // 以及图还没渲染出来时的黑屏。实时渲染在用 ⇒ 静态帧链没有任何显示用途，故垫底一律用
+    // **作者预览图**（普通图片，零渲染）；网页壁纸本来就是这个口径，preview 为空则只有 iframe。
+    const posterSrc = sel.previewUrl || null;
     const frame = document.createElement("iframe");
     frame.src = liveRenderUrl(sel);
     frame.setAttribute("frameborder", "0");

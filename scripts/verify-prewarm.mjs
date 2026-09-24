@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { createPrewarmQueue, prewarmDisabledByEnv } from '../lib/scene-prewarm.js';
+import { liveSuppressesPrewarm } from '../lib/index.js';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const results = [];
@@ -225,6 +226,28 @@ const okResult = (servedFrom) => async () => ({ fileAbs: '/x/' + servedFrom + '.
       /disposers\.push\(\(\) => prewarmQueue\.stop\(\)\)/.test(idx)],
   ];
   for (const [name, ok] of checks) check(name, ok);
+
+  // ── R11b 实时渲染在用 ⇒ 预热必须停摆 (用户报告的黑屏/卡顿根因) ──────────────
+  // 为什么必须测: 预热是满载 CPU/GPU 的冷渲染 (4K, 数百 ms~数秒), 而屏幕上可能正在跑
+  // 实时渲染(动画)。两者抢资源 ⇒ 卡顿; 实时渲染首帧超时被判失败并写进失败记忆后,
+  // 该壁纸此后一直不实时渲染; 图还没渲染出来时的黑屏也来自同一条链。
+  {
+    const sceneAbs = 'E:\\SteamLibrary\\steamapps\\workshop\\content\\431960\\123\\scene.pkg';
+    const base = { scenePrewarm: true, sceneFrameRender: true, sceneLive: true, id: '123', sceneLiveFailures: {} };
+    check('R11b 实时渲染在用 (场景 pkg + 总开关开 + 无失败记忆) ⇒ 抑制预热',
+      liveSuppressesPrewarm(base, sceneAbs) === true);
+    check('R11b-1 负对照: 该壁纸已判实时渲染失败 ⇒ 不抑制 (它正需要静态帧)',
+      liveSuppressesPrewarm({ ...base, sceneLiveFailures: { 123: 'timeout' } }, sceneAbs) === false);
+    check('R11b-2 负对照: 实时渲染总开关关掉 ⇒ 不抑制 (此时静态帧才是显示形态)',
+      liveSuppressesPrewarm({ ...base, sceneLive: false }, sceneAbs) === false);
+    check('R11b-3 负对照: 非 pkg (图片/视频/网页) ⇒ 不抑制',
+      liveSuppressesPrewarm(base, 'E:\\x\\a.jpg') === false);
+    check('R11b-4 负对照: abs 解析不到 (null) ⇒ 不抑制 (宁可预热也不误停)',
+      liveSuppressesPrewarm(base, null) === false);
+    check('R11b-5 prewarmWanted 真的接上该判据, 且保留「静态帧渲染」总开关门控',
+      /liveSuppressesPrewarm\(st, absFromMediaUrl\(st\.url\)\)/.test(idx)
+      && /st\.scenePrewarm === true && st\.sceneFrameRender !== false/.test(idx));
+  }
 
   // 客户端侧: UI 行 + 默认值必须真的落到构建产物里
   const cli = readFileSync(join(ROOT, 'lib/client.js'), 'utf8');
