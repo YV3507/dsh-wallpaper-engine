@@ -201,12 +201,6 @@ const sandbox = {
     addEventListener() {}, innerWidth: 1920, innerHeight: 1080, devicePixelRatio: 1,
   },
   document, localStorage, fetch, React,
-  // 全局 Image：buildLivePoster 的预载探针用它（真浏览器恒有）。缺它会在建 live
-  // 层时抛 ReferenceError —— harness 缺口，不是产品缺陷。
-  Image: class { constructor(){ this.tagName='IMG'; this.attributes={}; }
-    set src(v){ this.attributes.src = v || ''; } get src(){ return this.attributes.src || ''; }
-    set className(v){ this._cls = v; } get className(){ return this._cls || ''; }
-    set alt(v){} set draggable(v){} },
   setTimeout: (fn, ms) => { const t = { fn, ms, cleared: false }; timers.push(t); return t; },
   clearTimeout: (t) => { if (t) t.cleared = true; },
   setInterval: (fn, ms) => { const t = { fn, ms, cleared: false }; intervals.push(t); return t; },

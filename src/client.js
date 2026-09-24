@@ -3394,6 +3394,10 @@ function buildLivePoster(sel) {
   const src = sel.type === "web" ? (sel.liveFrame || sel.previewUrl || null) : sel.url;
   if (src) {
     poster.dataset.weFrameSrc = src;
+    // 与 prepareSceneStaticStage 同一约定：无 Image 的环境（headless 验收 /
+    // 只给部分 DOM 的测试宿主）跳过预载，保留主题色兜底 —— 否则建 live 层时
+    // 会直接抛 ReferenceError。
+    if (typeof Image !== "function") return poster;
     const probe = new Image();
     probe.onload = () => {
       if (poster.isConnected) poster.style.backgroundImage = "url(" + src + ")";
