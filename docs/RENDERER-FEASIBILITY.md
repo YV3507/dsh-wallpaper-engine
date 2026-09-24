@@ -59,7 +59,7 @@
 ### GPU 加速现状（跨平台的软肋）
 
 - `supreium-headless-gl` 仅 **x64** prebuild（ABI 108-147）；DSH Electron ABI 148 没有 prebuild → 只能 **fork 系统 Node 子进程**跑 GPU（sf41 的 workaround）；arm64 直接门控回退 CPU（gl-core.js `SUPPORTED_ARCH = ['x64']`）。
-- **WebGPU/Dawn spike 已做过**（`.test-cache/spike/`，`webgpu` npm 包）：RTX 4060 上 960×540 计算着色器 **0.31ms/帧 vs CPU 6.58ms/帧（21.1×）**，双 pipeline 不崩溃；该包 prebuild 覆盖 **win32-x64 / linux-x64 / linux-arm64 / darwin-universal** —— 跨平台覆盖面远好于 supreium。但尚未接入渲染器。
+- ~~**WebGPU/Dawn spike 已做过**~~ → **⚠️ 已废弃（2026-09 决策更新，见 §8）**：spike 实测 21.1×（RTX 4060，960×540 计算着色器 0.31ms vs CPU 6.58ms）且跨平台 prebuild 覆盖面远好于 supreium，但**同进程二次 `create()` / unmap 后立即重建 pipeline 会原生崩溃**（每进程一实例），且现有 WebGL 路径尚未榨干、静态帧的读者（无可用 GPU 的虚拟机 / 远程端）与 Dawn 的适用面错位。`lib/we-renderer/gpu-dawn/backend.js` 与仅为它服务的 `lib/we-renderer/glsl/wgsl.js`（GLSL→WGSL）已删除，护栏 `scripts/verify-fx-chain.mjs` 阻止回流。
 
 ### 官方引擎逆向资产（事实已内联为代码注释；原 docs/WE-REVERSE.md 已溶解）
 
@@ -192,9 +192,9 @@
    preview.gif 是作者上传素材，非可靠基准，见顶部方向决策）。
 2. ~~脚本时间轴根治（根因 A）~~—— 2026-08-30 放弃（动画方向），完整背景与复刻要点见
    [`SCENE-ANIMATION-HANDOFF.md`](./SCENE-ANIMATION-HANDOFF.md) §3.1。
-3. GPU 后端从 supreium（x64-only）迁到 WebGPU/Dawn（spike 已验证 21×，prebuild 覆盖
-   全平台）—— 顺手消灭 Electron ABI/fork hack；Dawn 后端已存在（`lib/we-renderer/gpu-dawn/`，
-   `DSH_WE_DAWN` 门控，部署/边界见其头部注释）。
+3. ~~GPU 后端从 supreium（x64-only）迁到 WebGPU/Dawn~~ → **2026-09 撤销（见 §8）**：Dawn 后端已删除；
+   x64-only 与 Electron ABI/fork hack 的问题改由"**能力探针 + 三态策略**"消化（有可用 GPU 才走 GPU，
+   失败一律 CPU，绝不影响可用性）。
 
 **Windows 增强路径（可选，高性价比）—— 方案 C 的"完美帧"快路径：**
 4. `openWallpaper` 控制命令 + ffmpeg gdigrab 窗口捕获，产出官方像素帧，走现有缓存/动画管线；**失败自动回退内置渲染器**（与现有回退链同构，`scene-frame` 已有三层回退，加一层即可）；作为 beta 开关（与 `sceneGpuAccel` 同款门控）灰度。
@@ -216,3 +216,54 @@
 **保留决策**：`lib/scene-player.js`（已禁用的 WebGL Player）保留代码标注弃用（未来
 WebGPU 路线的场景图种子）；`_refs/` 保留官方 shader 源码 + lwe/repkg 参考实现（静态帧
 正确性对照基线）；`sceneGpuAccel` 保留为独立静态帧加速开关。
+
+---
+
+## 8. 决策更新（2026-09）：废弃 WebGPU/Dawn + 「接入 WebWallGL 同款加速」的权衡
+
+### 8.1 废弃 WebGPU/Dawn（已执行）
+
+- **删除**：`lib/we-renderer/gpu-dawn/backend.js`（21KB；无人 import，但因为 `files` 收录整个
+  `lib/we-renderer/` 而**随包出货**）与 `lib/we-renderer/glsl/wgsl.js`（GLSL→WGSL 转译器，仅 Dawn 引用）。
+- **清理**：`render/passes.js` 的 `_dawnEffectCache` 死钩子与相关注释、`render/framebuffer.js` 中
+  "Dawn 后端将以同一接口提供"的注释；`scripts/tmp-audit-verify-lines.mjs` 里指向已删文件的条目。
+- **护栏**：`scripts/verify-fx-chain.mjs` 新增 4 条 —— 文件确已删除 / 全仓无残留标识（含
+  `_dawnEffectCache`）/ 负对照（能抓到重新引入的 `gpu-dawn` 引用）/ 负对照（正常 GPU 引用不误判）。
+- **理由**：① **原生崩溃** —— 同进程二次 `create()`、`unmap` 后立即重建 pipeline 都会崩，只能每进程一实例；
+  ② 现有 WebGL 路径**尚未榨干** —— GPU 效果段现在主要由"每效果一次上传 + `readPixels` 回读"决定
+  （4K 单次 13–24ms），`runEffectChainOnGL` 批处理还能再砍一刀；③ 依赖更重（WGSL 转译 + 全平台 prebuild）；
+  ④ **适用面错位** —— 需要静态帧的机器是没有可用 GPU 的虚拟机 / 远程端，Dawn 恰好解决不了他们。
+- **关于"对应的 UI 按键"**：**不存在 WebGPU/Dawn 的 UI 开关**。全仓只有一行「GPU 渲染加速」
+  （`src/client.js` 的 `switchRow("GPU 渲染加速", sel.sceneGpuAccel …)`），它驱动的是 **WebGL**
+  效果适配层（`gpu-gl/adapter.js`），**不是** Dawn。故本次没有可删的 UI 项；若要把这一行也改成
+  自动策略（不再让用户手选设备），见 8.3 的三态方案。
+
+### 8.2 权衡：「接入 WebWallGL 同款加速」（= 让实时渲染器把帧喂给静态帧缓存）
+
+| 方案 | 做法 | 收益 | 代价 / 风险 |
+|---|---|---|---|
+| **A. 截帧复用（"同款加速"）** | 实时渲染器已经在 GPU 上把这一帧画好了 ⇒ 由渲染页/客户端回读一次，POST 给宿主写进静态帧缓存 | **零额外渲染**；与用户所见**像素一致**（彻底消灭"两套实现"的差异，也就不用再修那类分歧）；GPU 机器上不再需要 headless-gl 这条链 | ① 只覆盖"实时渲染能用"的机器 —— 而那正是静态帧**优先级最低**的机器；② 要给 **vendored 上游渲染页**加捕获入口（`__wp` 控制面；当前**没有任何 `preserveDrawingBuffer`**，需页内 rAF 内 readPixels 或加该选项）⇒ 持续的上游分歧，`sync-webwallgl.mjs` 每次同步都要保住它；③ 截的是**显示分辨率下的画面**（含 fit/cover 变换），不是 3840 生产帧 ⇒ 必须作为**独立产物类别**（单独缓存命名），不能混进 `sf45_` 键空间；④ 需要一个"帧回填"接口（上游 #108 有同型设计 `/scene-frame-cache/<token>`，本分支没有） |
+| **B. 宿主侧 WebGL 效果加速（现状 `gpu-gl`）** | 把效果链搬到 headless-gl | 实测整帧 **1.51×**（1920×1080：效果 3044→1093ms，合计 5887→3894ms）；identity 正确性 maxΔ=0；任何失败即回退 CPU（不影响可用性） | ① 只覆盖**效果链**，非效果段（解码/blit/文本/粒子 2843ms）仍 CPU；② x64-only + ABI 108–147 + **必须 fork 系统 Node** ⇒"有显卡"≠"能用 GPU"；③ 输出与 CPU 非逐字节一致（REPEAT vs CLAMP_TO_EDGE 已知语义差）⇒ 缓存键分段、默认关闭是有据的 |
+| **C. 不接（静态帧保持 CPU）** | — | 零风险；虚拟机 / 远程端（唯一真正需要静态帧的场景）本来就是 CPU | GPU 机器的静态帧仍慢 —— 但它们有实时渲染兜着 |
+
+**建议：分层，不是二选一**
+
+1. **实时渲染可用** ⇒ 用它；并（可选）在动画起来之后**截一帧入缓存**（方案 A），供 poster / 切换 /
+   轮换 / 失败回退 —— 正是"静态帧 = 缓存兜底"的定位，而且**不需要** headless-gl。
+2. **实时渲染不可用**（虚拟机 / 远程 / 无 WebGL2 / 已判失败）⇒ 走现有静态帧链；GPU 效果加速按 8.3
+   的"三态 + 探针"自动启用（方案 B），能白拿就白拿。
+3. **不做**静态帧的整帧 GPU 化 —— 那等于重做一条 WebWallGL；有 GPU 的机器本来就该走实时渲染。
+
+**若决定做 A，先验证两件事**：① vendored 页能否稳定截帧（现在没有 `preserveDrawingBuffer`；
+   需要在页内渲染 tick 里 readPixels，改完要复跑 `verify-scene-live` 的 55 项）；② 新产物类别与它的
+   消费方（poster / 兜底 / 轮换）在缓存与 UI 上是否讲得清，且不污染 `sf45_` 生产帧。
+
+### 8.3 后续（未做，待定）
+
+- **三态策略** `sceneGpuMode: 'auto' | 'cpu' | 'gpu'`（默认 `auto`）+ **能力探针**：当前启动诊断只验
+  "`require` 绑定成功"（`getWebGL(true) !== null`），**不验能否建上下文/能否渲染** —— 探针应到
+  `createGLContext()` + 一次 identity pass，并用软件光栅黑名单（可复用客户端的
+  `SOFT_RENDER_RE = /swiftshader|software|llvmpipe|softpipe|microsoft basic render|angle \(software|stack-gl/i`，
+  它验的是浏览器那条栈，不能替代宿主侧）。
+- `supreium-headless-gl` 从 `dependencies` 移到 `optionalDependencies`（设备支持不该让安装失败）。
+- `runEffectChainOnGL` 批处理，压掉 GPU 效果段的传输开销。

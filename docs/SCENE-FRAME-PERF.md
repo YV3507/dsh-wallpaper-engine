@@ -9,6 +9,9 @@
 > `gpuBackend=n/a`）。目的是回答"哪些渲染可以砍以提升性能"——**先量，再决定**。
 >
 > ⚠️ **已有后文/代码取代本文若干小节**（§十四 起才是现行决策；本文行号与符号状态**一律以代码为准**）：
+> **WebGPU/Dawn 后端已废弃（2026-09）**：`lib/we-renderer/gpu-dawn/backend.js` 与 `lib/we-renderer/glsl/wgsl.js`
+> **已删除**，护栏 `scripts/verify-fx-chain.mjs` 阻止回流 —— 因此本文中把 Dawn/Vulkan 列为候选后端的表格行
+> （§「砍不动」表 ⑥、§优化路线表末行等）**仅作历史记录**，决策与理由见 `RENDERER-FEASIBILITY.md` §8；
 > §八「GPU 链路符号从未定义 / 空开关 / Node 探测空转」→ 已被 §十四/§三十五 取代（`gpu-gl/adapter.js`
 > 已定义并接回为活路径，`sceneGpuAccel` 已是组内独立开关）；
 > §十七/§二十「接入或撤掉 `parallel.js` / `decode-worker.mjs`」→ 两文件**已删除**（§二十八⑤已记录）；

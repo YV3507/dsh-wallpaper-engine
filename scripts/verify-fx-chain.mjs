@@ -67,5 +67,40 @@ check('主循环其余行为未改 (仍逐个效果计时)',
   /profAdd\('效果:' \+ name, performance\.now\(\) - __te\)/.test(fxSrc),
   '不改剖析口径');
 
+// ── Dawn/WebGPU 已废弃: 不许回来 ────────────────────────────────
+// 决策见 docs/RENDERER-FEASIBILITY.md 的「决策更新」。理由: ① 0.4.0 spike 虽然实测
+// 21×, 但同进程二次 create() / unmap 后立即重建 pipeline 会**原生崩溃**（每进程一实例）；
+// ② 现有 WebGL 路径（gpu-gl）尚未榨干 —— GPU 效果段现在主要是每效果一次上传+readPixels
+// 回读，`runEffectChainOnGL` 批处理能再砍一刀；③ 依赖更重（WGSL 转译 + 全平台 prebuild）
+// 而静态帧的读者是"没有可用 GPU 的虚拟机/远程端"，与 Dawn 的适用面错位。
+{
+  const gone = (rel) => !fs.existsSync(new URL('../' + rel, import.meta.url));
+  check('Dawn 后端与 WGSL 转译器已删除（不再是"死代码但随包出货"）',
+    gone('lib/we-renderer/gpu-dawn/backend.js') && gone('lib/we-renderer/glsl/wgsl.js'));
+  // 扫描器: 任一源文件出现这些标识即判红（本守卫自身除外 —— 它按设计含这些字面量）
+  const SELF = 'verify-fx-chain.mjs';
+  const scanDirs = ['lib', 'src', 'scripts'];
+  const badTokens = /gpu-dawn|runEffectOnDawn|renderEffectsOnDawn|precomputeEffectsDawn|getDawnDevice|emitWgslWithSlots|_dawnEffectCache/;
+  const offenders = [];
+  const walk = (dir) => {
+    for (const e of fs.readdirSync(new URL('../' + dir + '/', import.meta.url), { withFileTypes: true })) {
+      if (e.name === 'node_modules' || e.name.startsWith('.')) continue;
+      const rel = dir + '/' + e.name;
+      if (e.isDirectory()) { walk(rel); continue; }
+      if (!/\.(js|mjs|cjs|ts)$/.test(e.name) || e.name === SELF) continue;
+      let txt = '';
+      try { txt = fs.readFileSync(new URL('../' + rel, import.meta.url), 'utf8'); } catch { continue; }
+      if (badTokens.test(txt)) offenders.push(rel);
+    }
+  };
+  for (const d of scanDirs) walk(d);
+  check('全仓无 Dawn/WGSL 残留引用（含预计算缓存钩子）', offenders.length === 0, offenders.slice(0, 3).join(' ') || '无');
+  // 负对照: 同一个扫描器必须能抓到一段真的引用（否则上面那条是恒真）
+  const probe = "import { getDawnDevice } from '../gpu-dawn/backend.js';";
+  check('负对照: 扫描器能抓到重新引入的 Dawn 引用', badTokens.test(probe) === true);
+  const cleanProbe = "import { getWebGL } from './gl-core.js';";
+  check('负对照: 正常的 GPU 引用不被误判', badTokens.test(cleanProbe) === false);
+}
+
 console.log(`\nGPU 链式执行守卫: ${pass} 通过, ${fail} 失败`);
 process.exit(fail ? 1 : 0);
