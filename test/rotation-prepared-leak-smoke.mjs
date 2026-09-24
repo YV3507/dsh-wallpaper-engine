@@ -17,6 +17,12 @@
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
+// 渐变退役定时器 = ROTATION_FADE_MS + 100ms 宽限：从被测源码读常量，改时长
+// 不用同步改这里的硬编码。注意必须模块级定义 —— 场景 body 回调在模块作用域
+// 求值，runScenario 内部的局部常量它看不见（ReferenceError 教训）。
+const FADE_GRACE_MS = Number(readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
+  .match(/ROTATION_FADE_MS = (\d+)/)[1]) + 100;
+
 const React = { Fragment:'Fragment', useState:(i)=>[i,()=>{}], useEffect:()=>{}, useRef:(v)=>({current:v}),
   createElement:(t,p,...c)=>typeof t==='function'?t(p||{}):({type:t,props:p||null,children:c}) };
 
@@ -162,9 +168,6 @@ function runScenario(name, opts, body) {
       { installDir:'D:/we', total:3, portableCount:3, playlists:[], wallpapers: opts.wallpapers }) });
 
   const code = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8');
-  // 渐变退役定时器 = ROTATION_FADE_MS + 100ms 宽限：从被测源码读常量，改时长
-  // 不用同步改这里的硬编码。
-  const FADE_GRACE_MS = Number(code.match(/ROTATION_FADE_MS = (\d+)/)[1]) + 100;
   const cap = { handoff: null };
   const sandbox = {
     window: {
