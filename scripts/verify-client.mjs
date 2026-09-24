@@ -786,6 +786,14 @@ setTimeout(async () => {
     assert.ok(code.includes('GPU_FRAME_ASPECT_TOL') && code.includes('"x-we-gpu-ar"'),
       'GPU 抓帧回填必须校验存帧视比（不符 → 清掉按当前视口重抓），行为级见 live-frame-backfill-smoke 的 G/H/I/J');
 
+    // ⑤c GPU 静帧 → live 首帧的淡入时长必须与轮换交叉渐变同口径（ROTATION_FADE_MS，
+    // 当前 1800ms ease）：两段渐变前后脚发生时（轮换到 live 壁纸 → 首帧就绪）观感一致。
+    // 注意 .we-layer--fadein 也是同样的 transition 串，必须锚定到 we-live-iframe 规则块。
+    const liveIframeCss = code.match(/\.we-layer \.we-live-iframe\s*\{[^}]*\}/);
+    assert.ok(code.includes('ROTATION_FADE_MS = 1800') && liveIframeCss
+      && /transition:\s*opacity 1\.8s ease/.test(liveIframeCss[0]),
+      'live 首帧淡入时长必须与 ROTATION_FADE_MS 同步（轮换交叉渐变同口径），改 ROTATION_FADE_MS 时同步 CSS');
+
     // ⑥ 行为级：按钮路径必须真的走门禁（④ 只是源码级 lint，改坏行为保留字符串即可绿）。
     // 把判据缓存熬过 30s TTL → 冷缓存 → 真 HEAD 报 pinned → 点档位必须被拒。
     cccGpuPinned = true;  // 槽位又有 GPU 抓帧（例如 live 抓帧回填刚写入）

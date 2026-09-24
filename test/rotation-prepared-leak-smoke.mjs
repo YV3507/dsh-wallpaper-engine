@@ -162,6 +162,9 @@ function runScenario(name, opts, body) {
       { installDir:'D:/we', total:3, portableCount:3, playlists:[], wallpapers: opts.wallpapers }) });
 
   const code = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8');
+  // 渐变退役定时器 = ROTATION_FADE_MS + 100ms 宽限：从被测源码读常量，改时长
+  // 不用同步改这里的硬编码。
+  const FADE_GRACE_MS = Number(code.match(/ROTATION_FADE_MS = (\d+)/)[1]) + 100;
   const cap = { handoff: null };
   const sandbox = {
     window: {
@@ -483,7 +486,7 @@ await runScenario('F. 渐变窗口内卸载：旧层随 cleanup 退役（不留�
   t.fireLatest(300);
   check('提交成功并进入渐变（body 里 2 层：淡出的旧层 + 新层）', layerCount() === 2,
     'layers=' + layerCount());
-  check('渐变退役定时器已武装（1.2s + 100ms）', !!t.timers.find(x=>!x.cleared && x.ms===1300));
+  check('渐变退役定时器已武装（ROTATION_FADE_MS + 100ms）', !!t.timers.find(x=>!x.cleared && x.ms===FADE_GRACE_MS));
   check('卸载前捕获到 cleanup', t.cleanups.length > 0, 'cleanups=' + t.cleanups.length);
   t.cleanups[t.cleanups.length-1](); // 模拟「禁用插件 / HMR 重挂」
   check('卸载后 body 里不再有 we-layer（旧层随 cleanup 退役，而不是等退役定时器）',

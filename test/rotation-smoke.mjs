@@ -92,6 +92,9 @@ const fetch = (url) => Promise.resolve({ ok:true, status:200, json:()=>Promise.r
   ] }) });
 
 const code = readFileSync(new URL('../lib/client.js', import.meta.url),'utf8');
+// 渐变退役定时器 = ROTATION_FADE_MS + 100ms 宽限：从被测源码读常量，改时长
+// 不用同步改这里的硬编码（教训：1.2s→1.8s 时三处 1300 全部漂移）。
+const FADE_GRACE_MS = Number(code.match(/ROTATION_FADE_MS = (\d+)/)[1]) + 100;
 const cap = { handoff:null };
 const sandbox = {
   window: {
@@ -140,7 +143,7 @@ setTimeout(async () => {
     layer ? String(layer.className) : 'no layer');
   check('新层里的 video 就是准备好的探测元素（领养而非重建）',
     !!layer && layer.querySelector('video') === probe);
-  // ── 轮换音频闸：提交瞬间新层必须静音（否则 1.2s 内两层 BGM 重叠），
+  // ── 轮换音频闸：提交瞬间新层必须静音（否则渐变时长内两层 BGM 重叠），
   //    这次渐变的旧层退场后才恢复真实音量。 ──
   check('提交后新层音源被压到 0（闸内静音）',
     probe.volume === 0 && probe.muted === true, 'volume=' + probe.volume + ' muted=' + probe.muted);
@@ -164,8 +167,8 @@ setTimeout(async () => {
   check('提交已持久化到下一张（b）', persistedId() === 'b', 'id=' + persistedId());
   check('提交后重新武装轮换定时器', timers.some(t=>!t.cleared && t.ms===10000));
   // 渐变时长 +100ms 的退役定时器：旧层移除 → 新层 BGM 此刻才起播。
-  const fade = timers.find(t=>!t.cleared && t.ms===1300);
-  check('渐变退役定时器已武装（1.2s + 100ms）', !!fade);
+  const fade = timers.find(t=>!t.cleared && t.ms===FADE_GRACE_MS);
+  check('渐变退役定时器已武装（ROTATION_FADE_MS + 100ms）', !!fade);
   if (fade) {
     fire(fade);
     const layersLeft = bodyEl.children.filter((c) => String(c.className).includes('we-layer'));
@@ -193,7 +196,7 @@ setTimeout(async () => {
   check('渐变期间场景 BGM 未出声（音量 0 / 未播放）',
     !bgmMid || (bgmMid.volume === 0 && bgmMid.muted === true && bgmMid.__paused !== false),
     bgmMid ? ('volume=' + bgmMid.volume + ' muted=' + bgmMid.muted + ' paused=' + bgmMid.__paused) : 'no audio el');
-  const fade2 = timers.find(t=>!t.cleared && t.ms===1300);
+  const fade2 = timers.find(t=>!t.cleared && t.ms===FADE_GRACE_MS);
   check('场景提交后渐变退役定时器已武装', !!fade2);
   if (fade2) {
     fire(fade2);
@@ -218,7 +221,7 @@ setTimeout(async () => {
       !!layer3 && layer3.querySelector('video') === probe3);
     check('场景 → 视频：新层同样先静音',
       probe3.volume === 0 && probe3.muted === true, 'volume=' + probe3.volume + ' muted=' + probe3.muted);
-    const fade3 = timers.find(t=>!t.cleared && t.ms===1300);
+    const fade3 = timers.find(t=>!t.cleared && t.ms===FADE_GRACE_MS);
     if (fade3) {
       fire(fade3);
       check('旧层退场后视频音量恢复 0.6',

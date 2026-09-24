@@ -1070,7 +1070,7 @@ let preparedMediaEl = null;
 const ROTATION_PREP_TIMEOUT_MS = 20000; // 单阶段就绪探测上限（超时走兜底，不卡死轮换）
 // 交叉渐变时长（新层淡入 + 旧层宽限移除的基准）。CSS .we-layer--fadein 的
 // transition 必须与之同步。
-const ROTATION_FADE_MS = 1200;
+const ROTATION_FADE_MS = 1800;
 
 function cancelRotationPrepare() {
   const prep = rotationPrep;
@@ -3079,7 +3079,7 @@ function weApplyAudio(video) {
 
 // ── 轮换音频闸：BGM 等上一张完全退场后再起播 ─────────────────────────────
 // 交叉渐变期间两层同时挂在 DOM 上，且旧层刻意保持播放（真交叉淡化）。若新层
-// 立刻带音量起播，两层 BGM 会重叠整整 1.2s。这里在提交瞬间把**新层**所有音源
+// 立刻带音量起播，两层 BGM 会重叠整整 1.8s。这里在提交瞬间把**新层**所有音源
 // 压到 0（<video>/<audio> 走 weApplyAudio 的闸判定，live iframe 走
 // __wp.setVolume(0)，场景包 BGM 走 rotationAudioHold 只准备不播），等这次渐变
 // 对应的旧层被移除（渐变结束）后再恢复：旧层音频在其可见期内照常出声，新层
@@ -6594,7 +6594,9 @@ const CSS = `
      Both stack absolutely inside .we-layer; the iframe starts transparent and
      fades in on the first heartbeat frame (.we-live-on, startLiveWatch) so the
      load window and any live→frame degradation never flash. Fade composes with
-     the wallpaper-opacity leaf var (#82) via calc instead of overwriting it. */
+     the wallpaper-opacity leaf var (#82) via calc instead of overwriting it.
+     时长与 ROTATION_FADE_MS 同口径（当前 1800ms ease）：GPU 静帧 → live 首帧
+     与轮换交叉渐变观感一致 —— 0.6s 时静帧「贴」一下就消失，用户能察觉换图。 */
   .we-layer .we-live-poster {
     position: absolute; inset: 0; width: 100%; height: 100%;
     object-fit: var(--we-object-fit, cover);
@@ -6603,7 +6605,7 @@ const CSS = `
     position: absolute; inset: 0; width: 100%; height: 100%;
     background: transparent;
     opacity: calc(var(--we-wallpaper-opacity, 1) * var(--we-live-fade, 0));
-    transition: opacity .6s ease;
+    transition: opacity 1.8s ease;
   }
   .we-layer .we-live-iframe.we-live-on { --we-live-fade: 1; }
 
@@ -6611,10 +6613,10 @@ const CSS = `
      - staging：live 渲染页预载驻留层 —— opacity 0 但 in-DOM 且几何满视口，
        渲染页按正常分辨率初始化出首帧，就绪后 iframe 被移动进正式层；
      - fadein：轮换提交时新层 opacity 0 起步，reflow 后加-on 触发交叉淡入
-       （时长与 ROTATION_FADE_MS 同步，当前 1200ms）；旧层不动画（被新层
+       （时长与 ROTATION_FADE_MS 同步，当前 1800ms）；旧层不动画（被新层
        覆盖等效淡出），渐变结束移除。 */
   .we-layer--staging { opacity: 0; }
-  .we-layer--fadein { opacity: 0; transition: opacity 1.2s ease; }
+  .we-layer--fadein { opacity: 0; transition: opacity 1.8s ease; }
   .we-layer--fadein.we-layer--fadein-on { opacity: 1; }
 
   /* Scrim: sits ABOVE the wallpaper (z-index -1 > -2, so it never depends on
