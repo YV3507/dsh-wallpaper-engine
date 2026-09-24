@@ -1103,7 +1103,14 @@ let preparedMediaEl = null;
 const ROTATION_PREP_TIMEOUT_MS = 20000; // 单阶段就绪探测上限（超时走兜底，不卡死轮换）
 // 交叉渐变时长（新层淡入 + 旧层宽限移除的基准）。CSS .we-layer--fadein 的
 // transition 必须与之同步。
-const ROTATION_FADE_MS = 1200;
+const ROTATION_FADE_MS = 1800;
+// GPU 静帧 → live 首帧的淡入时长（手动切换壁纸时用户面对的正是这条腿：
+// 点选壁纸先出 GPU 静帧，渲染页出首帧后缓慢过渡到实时动态画面）。与轮换
+// 交叉渐变同取 1.8s —— 0.8s 的短窗口实测过渡太急，用户明确要 1.8s 的缓慢
+// 过渡（即便渐变窗口内场景从 T0 播到 T1、目标是运动的）。与 ROTATION_FADE_MS
+// 保持独立常量，后续要单独调这条腿不必动轮换。
+// CSS .we-live-iframe 的 transition 必须与之同步。
+const LIVE_FIRST_FADE_MS = 1800;
 
 function cancelRotationPrepare() {
   const prep = rotationPrep;
@@ -2412,7 +2419,7 @@ const LIVE_DIAG_KEY = "weLiveDebug";
 // 诊断代码版本 + 页面实例 id：日志里带着它们，事后能回答两个必问的问题 ——
 // 「这一行是哪个 bundle 打的」（刷新是否真的生效）和「是哪个页面/窗口在跑引擎」
 // （同时开两个 DSH 视图时，两个客户端会各自轮换、互相覆盖设置）。
-const LIVE_DIAG_BUILD = "d4";   // d3→d4：隐藏期改为「零驻留 + 可见补做」，上限 180s→60s
+const LIVE_DIAG_BUILD = "d6";   // d4→d6：GPU 静帧几何校验（存帧视比不符 → 清除按当前视口重抓）
 const LIVE_PAGE_ID = (function () { try { return Math.random().toString(36).slice(2, 7); } catch { return "?"; } })();
 // 面板开关（本会话有效、不落盘）：给「打不开 DevTools」的环境留的入口 ——
 // DSH web 的根路径鉴权是 303 跳到干净的 `/`，URL 上的查询参数到不了客户端，
@@ -2915,6 +2922,71 @@ function liveFrameLooksUsable(canvas, blob) {
     return true; // 采样失败不阻断（基础体积闸已过）
   }
 }
+// ── 存帧几何校验（视口宽高比）────────────────────────────────────────────────
+// _gpu.png 是**抓帧那一刻渲染页视口的构图**，不是「这张壁纸该有的画面」：渲染器
+// 按画布比取景（WebWallGL fit：与设计比 2% 内 → 整张设计上屏；否则按画布比
+// cover 裁切），而静态帧上屏时还要再经 CSS object-fit: cover。两个比例一叠加，
+// 「在 3:2 窗口抓的帧」拿到 16:9 窗口上屏就是被再裁一次 —— 构图明显放大：
+// 实测 1440x960 的抓帧在 2488x1376 视口里只显示设计宽度的 84.5%（对 CPU 帧做
+// 最佳匹配拟合得到），人物比 live 大约 19% 且四周被切。抓帧回填以前只问
+// 「槽位有没有 GPU 帧」，不问「这张帧配不配当前视口」，于是别的窗口/别的会话
+// 留下的帧会永久上屏（宿主的唯一性闸让 PUT 只写一次，没人再动它）。
+// 判据：存帧视比与当前视口比的相对差 > 2%（与渲染页自己的 fit 容差同口径 ——
+// 2% 以内两个比例的取景/裁切差异不可见）。不符 → 清掉按当前视口重抓。
+// 两个窗口同时开引擎且窗口比不同时，双方会各按自己的比反复重抓（槽位只有一份，
+// 谁后挂载谁说了算）：构图正确性优先于这点 I/O，代价是每轮各抓一次 —— 正确做法
+// 仍是只留一个页面（同「两个客户端互相覆盖设置」的既有约束）。
+const GPU_FRAME_ASPECT_TOL = 0.02;
+// 本会话自己抓过的帧：宿主回了几何头时以头为准，没回（旧宿主）时至少知道自己
+// 刚写的是什么比例，免得「自己刚写的帧被自己判成旧帧」反复清写。
+const gpuFrameAspectKnown = new Map(); // token -> 视口比
+// 当前渲染页视口比 = iframe 的 client 盒（canvas 就按它定尺寸）。比
+// window.innerWidth 更准：父页面出现经典滚动条时 innerWidth 会比 .we-layer
+// 宽出一条滚动条（~1% 量级），够把 2% 容差吃掉。取不到返回 0（= 判不了）。
+function liveViewportAspect(frame) {
+  try {
+    const w = Number(frame && frame.clientWidth) || 0;
+    const h = Number(frame && frame.clientHeight) || 0;
+    if (w > 0 && h > 0) return w / h;
+  } catch { /* ignore */ }
+  try {
+    const w = Number(typeof window !== "undefined" ? window.innerWidth : 0) || 0;
+    const h = Number(typeof window !== "undefined" ? window.innerHeight : 0) || 0;
+    if (w > 0 && h > 0) return w / h;
+  } catch { /* ignore */ }
+  return 0;
+}
+// 清除槽位（同面板「清除 GPU 帧」的语义：宿主 200 + removed:false 也算没删掉，
+// 见其在 P2-L 的处理 —— 假成功会让画面纹丝不动而没有任何反馈）。
+function clearGpuFrameSlot(token) {
+  return fetch("/wallpaper-engine/scene-frame-cache/" + encodeURIComponent(token), { method: "DELETE" })
+    .then(async (r) => {
+      let declaredRemoved = true;
+      try {
+        const body = await r.json();
+        if (body && body.removed === false) declaredRemoved = false;
+      } catch { /* 无 body：按 HTTP 状态判 */ }
+      return Boolean(r && r.ok && declaredRemoved);
+    })
+    .catch(() => false);
+}
+// 重抓落地后，当前层若正显示这张静帧（静态帧 img / live 垫底 poster），就地重挂
+// 一次：scene-frame 响应带 no-store，换个 query 即重新取图（同「画面刷新」的既有
+// 做法）。否则用户要等下一次切换才看到修正后的构图。
+function refreshStaticFrameNodes(token) {
+  try {
+    const root = typeof document !== "undefined" && typeof document.getElementById === "function"
+      ? document.getElementById(LAYER_ID) : null;
+    if (!root || typeof root.querySelectorAll !== "function") return;
+    const imgs = root.querySelectorAll("img");
+    for (let i = 0; i < imgs.length; i++) {
+      const img = imgs[i];
+      const src = String((img.getAttribute && img.getAttribute("src")) || img.src || "");
+      if (!src || src.indexOf("/scene-frame/" + token) === -1) continue;
+      try { img.src = src + (src.indexOf("?") === -1 ? "?" : "&") + "gpur=" + Date.now(); } catch { /* ignore */ }
+    }
+  } catch { /* ignore */ }
+}
 let liveFrameBackfill = { token: "", timer: 0 };
 function cancelLiveFrameBackfill() {
   if (liveFrameBackfill.timer && typeof window !== "undefined" && typeof window.clearTimeout === "function") {
@@ -2931,16 +3003,48 @@ function scheduleLiveFrameBackfill(frame) {
   cancelLiveFrameBackfill();
   liveFrameBackfill.token = token;
   const backfillWid = String(selection.id || "");
+  // 本次是否因「存帧几何不符」而重抓（落地后据此刷新屏上静帧 + 留诊断痕迹）。
+  let recaptured = false;
+  let recaptureSize = "";
   liveFrameBackfill.timer = window.setTimeout(() => {
     liveFrameBackfill.timer = 0;
     (async () => {
       const head = await fetch(src, { method: "HEAD", cache: "no-store" });
-      // 已有 GPU 帧（含并发窗口里被别人写入）：无需抓帧，保留 token 免重复。
-      if (head && head.ok && head.headers && head.headers.get("x-we-gpu") === "1") return true;
+      const hasGpu = Boolean(head && head.ok && head.headers
+        && typeof head.headers.get === "function" && head.headers.get("x-we-gpu") === "1");
       const win = frame.contentWindow;
       const doc = win && win.document;
       const canvas = doc && typeof doc.querySelector === "function"
         ? doc.querySelector("canvas[data-webwallgl-gl]") : null;
+      // 「当前几何」的基准取**抓帧用的那个 canvas**（存帧的 IHDR 就是它的尺寸）：
+      // 渲染器若把画布尺寸夹到某个比例（画布比 ≠ iframe 盒比），拿盒比去对照会
+      // 永远判「不符」→ 每次挂载都清写一遍。canvas 读不到时退回 iframe 盒比。
+      const canvasW = canvas ? Number(canvas.width) || 0 : 0;
+      const canvasH = canvas ? Number(canvas.height) || 0 : 0;
+      const arRef = canvasW > 0 && canvasH > 0 ? canvasW / canvasH : liveViewportAspect(frame);
+      // 存帧几何：宿主从 PNG 的 IHDR 读（X-WE-GPU-AR）；旧宿主没有这个头时退回
+      // 本会话抓帧时记下的比例，两者都没有 = 未知。
+      let arStored = 0;
+      if (hasGpu) {
+        const raw = Number(head.headers.get("x-we-gpu-ar"));
+        arStored = Number.isFinite(raw) && raw > 0 ? raw : (gpuFrameAspectKnown.get(token) || 0);
+      }
+      // 未知（旧宿主 + 本会话没抓过）→ 按「可能不符」处理：重抓一次必然正确，
+      // 留一张别处视口的帧则会让用户一直看到放大且被裁的构图。判不了当前几何
+      // （arRef=0，如无头/极简环境）时反过来保守保留，避免无休止清写。
+      const stale = hasGpu && arRef > 0
+        && (arStored <= 0 || Math.abs(arStored - arRef) > GPU_FRAME_ASPECT_TOL * arRef);
+      // 已有 GPU 帧且几何相符（含并发窗口里被别人写入）：无需抓帧，保留 token 免重复。
+      if (hasGpu && !stale) {
+        // 未知几何的保留要留痕：这是「没有头也没重抓」的唯一解释。
+        if (arStored <= 0) liveLog("gpu-frame-keep-unknown", "wid=" + backfillWid + " 存帧视比未知 → 保留", true);
+        return true;
+      }
+      if (stale) {
+        liveLog("gpu-frame-stale", "wid=" + backfillWid + " 存帧视比 "
+          + (arStored > 0 ? arStored.toFixed(4) : "未知") + " ≠ 当前视口 " + arRef.toFixed(4)
+          + " → 清掉按当前视口重抓");
+      }
       if (!canvas || typeof canvas.toBlob !== "function") return false;
       const blob = await new Promise((resolveBlob) => {
         try { canvas.toBlob(resolveBlob, "image/png"); } catch { resolveBlob(null); }
@@ -2948,13 +3052,28 @@ function scheduleLiveFrameBackfill(frame) {
       if (!blob || blob.size < LIVE_FRAME_BACKFILL_MIN_BYTES) return false;
       // 内容门禁：黑帧/纯色帧判为未渲染 → 放弃（保留 CPU 帧）。
       if (!liveFrameLooksUsable(canvas, blob)) return false;
+      // 清旧帧放在抓帧+门禁**之后**：先清后抓一旦抓帧失败（画面没出来/网络断）就
+      // 只剩空槽 → 退回 CPU 帧，比留一张旧构图的帧更糟（旧的至少是同一张壁纸）。
+      if (stale) {
+        const cleared = await clearGpuFrameSlot(token);
+        if (!cleared) {
+          // 没删掉（权限/占用/宿主报错）→ PUT 也会 409，本帧没换成；清 token 让下
+          // 次挂载重试，并留痕（否则用户只看到构图依旧是旧的，没有任何线索）。
+          liveLog("gpu-frame-stale-blocked", "wid=" + backfillWid + " 旧帧未删除 → 本轮放弃，下次挂载重试");
+          return false;
+        }
+        recaptured = true;
+        recaptureSize = canvasW + "x" + canvasH;
+      }
       const put = await fetch("/wallpaper-engine/scene-frame-cache/" + encodeURIComponent(token), {
         method: "PUT",
         headers: { "Content-Type": "image/png" },
         body: blob,
       });
       // 200 写入成功 / 409 已被写入：两种都算「已定局」，不必重试。
-      return Boolean(put && (put.ok || put.status === 409));
+      const ok = Boolean(put && (put.ok || put.status === 409));
+      if (ok && arRef > 0) gpuFrameAspectKnown.set(token, arRef);
+      return ok;
     })().then((settled) => {
       // 抓帧 + 上传是异步的（多 MB PNG 要 0.1–1s），期间用户可能已经切走：
       // 状态更新只对发起时那张壁纸有效 —— 否则会给**当前**壁纸打上「已有 GPU 帧」
@@ -2969,6 +3088,11 @@ function scheduleLiveFrameBackfill(frame) {
         // 一次；它会跑完并按基路径把层切到 /scene-anim/，把刚落地的 GPU 静帧覆盖掉
         //（评审 P2-M）。取消会断开探针下载，宿主侧渲染进程随之释放。
         cancelSceneAnimUpgrade();
+        if (recaptured) {
+          liveLog("gpu-frame-recaptured", "wid=" + backfillWid + " 已按当前视口重抓（" + recaptureSize + "）");
+          // 屏上若正显示这张静帧（静态帧壁纸 / live 垫底 poster）→ 就地重挂取回新图。
+          refreshStaticFrameNodes(token);
+        }
         try { emit(); } catch { /* ignore */ }
         return;
       }
@@ -3722,7 +3846,7 @@ function weApplyAudio(video) {
 
 // ── 轮换音频闸：BGM 等上一张完全退场后再起播 ─────────────────────────────
 // 交叉渐变期间两层同时挂在 DOM 上，且旧层刻意保持播放（真交叉淡化）。若新层
-// 立刻带音量起播，两层 BGM 会重叠整整 1.2s。这里在提交瞬间把**新层**所有音源
+// 立刻带音量起播，两层 BGM 会重叠整整 1.8s。这里在提交瞬间把**新层**所有音源
 // 压到 0（<video>/<audio> 走 weApplyAudio 的闸判定，live iframe 走
 // __wp.setVolume(0)，场景包 BGM 走 rotationAudioHold 只准备不播），等这次渐变
 // 对应的旧层被移除（渐变结束）后再恢复：旧层音频在其可见期内照常出声，新层
@@ -4195,11 +4319,19 @@ function syncLayers() {
     let startFade = false;
     if (existing && gotKey !== wantKey) {
       liveLog("layer-rebuild", layerKeyDiff(gotKey, wantKey) + " " + liveStateBrief());
-      startFade = rotationFade;
+      // 交叉淡化判定：**换壁纸**（手动点选/轮换提交，层上 weWid ≠ 当前选择 id）
+      // 一律淡出 —— 旧层保留被新层盖过去（真交叉淡化）；**同一张壁纸的内部重建**
+      // （live 降级/fps 档/画面刷新/live 开关，weWid 相同）保持硬切：重建前后是
+      // 同一条 BGM，淡出 + 音频闸会让它断 ~2s，反而更糟。rotationFade（轮换
+      // commit 的显式标记）作为兜底保留 —— 覆盖 weWid 缺失或轮换同 wid 极端角落。
+      const widChanged = String(existing.dataset.weWid || "") !== String(selection.id || "");
+      startFade = rotationFade || widChanged;
       if (startFade) {
-        // 轮换渐变：旧层不立即拆除 —— 标记淡出保留（旧视频/旧 live 渲染页
+        // 交叉淡化：旧层不立即拆除 —— 标记淡出保留（旧视频/旧 live 渲染页
         // 继续播放，真交叉淡化），新层淡入结束后由定时器移除。任何时刻
-        // 最多 2 层：上一份 fading 层先即时退役。
+        // 最多 2 层：上一份 fading 层先即时退役。音频闸（下方
+        // openRotationAudioGate）对新层静音到旧层退场 —— 换壁纸的两条 BGM
+        // 不在渐变期重叠（轮换与手动切换同一套闸）。
         retireFadingLayer();
         existing.dataset.weFading = "1";
         try { existing.id = ""; } catch { /* ignore */ }
@@ -4229,6 +4361,7 @@ function syncLayers() {
       pendingStagedLayerNode = null;
       node.id = LAYER_ID;
       node.dataset.weKey = wantKey;
+      node.dataset.weWid = String(selection.id || "");
       node.className = "we-layer";
       const adoptedLive = node.querySelector && node.querySelector("iframe.we-live-iframe");
       if (adoptedLive) {
@@ -4255,6 +4388,7 @@ function syncLayers() {
       node.id = LAYER_ID;
       node.className = "we-layer";
       node.dataset.weKey = wantKey;
+      node.dataset.weWid = String(selection.id || "");
       const built = buildMedia(selection);
       if (Array.isArray(built)) for (const el of built) node.appendChild(el);
       else node.appendChild(built);
@@ -5352,6 +5486,7 @@ function WallpaperPicker(props) {
         gpuFrameUi.gateHint = "";
         markGpuFrameProbed(wid, false);
         forgetGpuFramePin(token);
+        gpuFrameAspectKnown.delete(token); // 槽位已空：几何记忆一并作废
         // 请求期间用户可能已经切走：槽位状态属于发起时那张壁纸，URL 重写/渲染恢复
         // 只对「还是它」的情况做（同 A4 的身份校验；否则会把当前壁纸的 URL 改写成
         // 「当前帧 URL + 旧壁纸的档位」→ 画面与面板读数不一致，评审 P2）。
@@ -7413,7 +7548,9 @@ const CSS = `
      Both stack absolutely inside .we-layer; the iframe starts transparent and
      fades in on the first heartbeat frame (.we-live-on, startLiveWatch) so the
      load window and any live→frame degradation never flash. Fade composes with
-     the wallpaper-opacity leaf var (#82) via calc instead of overwriting it. */
+     the wallpaper-opacity leaf var (#82) via calc instead of overwriting it.
+     时长与 LIVE_FIRST_FADE_MS 同步（当前 1800ms）：手动切换壁纸时
+     「GPU 静帧 → 实时动态帧」的缓慢过渡走的就是这条腿。 */
   .we-layer .we-live-poster {
     position: absolute; inset: 0; width: 100%; height: 100%;
     background-size: cover; background-position: center; background-repeat: no-repeat;
@@ -7422,7 +7559,7 @@ const CSS = `
     position: absolute; inset: 0; width: 100%; height: 100%;
     background: transparent;
     opacity: calc(var(--we-wallpaper-opacity, 1) * var(--we-live-fade, 0));
-    transition: opacity .6s ease;
+    transition: opacity 1.8s ease;
   }
   .we-layer .we-live-iframe.we-live-on { --we-live-fade: 1; }
 
@@ -7430,10 +7567,10 @@ const CSS = `
      - staging：live 渲染页预载驻留层 —— opacity 0 但 in-DOM 且几何满视口，
        渲染页按正常分辨率初始化出首帧，就绪后 iframe 被移动进正式层；
      - fadein：轮换提交时新层 opacity 0 起步，reflow 后加-on 触发交叉淡入
-       （时长与 ROTATION_FADE_MS 同步，当前 1200ms）；旧层不动画（被新层
+       （时长与 ROTATION_FADE_MS 同步，当前 1800ms）；旧层不动画（被新层
        覆盖等效淡出），渐变结束移除。 */
   .we-layer--staging { opacity: 0; }
-  .we-layer--fadein { opacity: 0; transition: opacity 1.2s ease; }
+  .we-layer--fadein { opacity: 0; transition: opacity 1.8s ease; }
   .we-layer--fadein.we-layer--fadein-on { opacity: 1; }
 
   /* Scrim: sits ABOVE the wallpaper (z-index -1 > -2, so it never depends on

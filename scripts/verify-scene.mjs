@@ -546,14 +546,18 @@ if (token) {
     const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(body));
     return Buffer.concat([len, body, crc]);
   };
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(64, 0); ihdr.writeUInt32BE(64, 4); ihdr[8] = 8; ihdr[9] = 2;
-  const pngHead = Buffer.concat([
+  const ihdrFor = (w, h) => {
+    const b = Buffer.alloc(13);
+    b.writeUInt32BE(w, 0); b.writeUInt32BE(h, 4); b[8] = 8; b[9] = 2;
+    return b;
+  };
+  const pngHeadFor = (w, h) => Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    pngChunk('IHDR', ihdr),
+    pngChunk('IHDR', ihdrFor(w, h)),
   ]);
   const pngTail = pngChunk('IEND', Buffer.alloc(0));
-  const makePng = (payloadBytes, fill = 7) => Buffer.concat([pngHead, pngChunk('IDAT', Buffer.alloc(payloadBytes, fill)), pngTail]);
+  const makePng = (payloadBytes, fill = 7, size = [64, 64]) =>
+    Buffer.concat([pngHeadFor(size[0], size[1]), pngChunk('IDAT', Buffer.alloc(payloadBytes, fill)), pngTail]);
   const gpuPng = makePng(4096);
   const runPut = async (url, body) => {
     const req = new Readable({ read() {} });
@@ -649,6 +653,32 @@ if (token) {
       'status=' + headAfterClear.__state.status + ' gpu=' + headAfterClear.__state.headers['X-WE-GPU']);
     const put3 = await runPut('/wallpaper-engine/scene-frame-cache/' + token, gpuPng);
     check('清除后可重新写入 → 200（坏帧不再是死结）', put3.__state.status === 200, 'status=' + put3.__state.status);
+    // ── 抓帧几何随 HEAD 暴露（客户端据此判断存帧是否还是当前视口的构图）────
+    // _gpu.png 是抓帧那一刻渲染页视口的构图（渲染器按画布比取景），别的窗口/
+    // 旧会话留下的帧拿到当前窗口上屏会被 CSS object-fit: cover 再裁一次 = 画面
+    // 放大且四周被切。IHDR 的宽高比就是抓帧画布的设备像素比 → 直接读文件头即可。
+    const headGeo64 = await runHead('/wallpaper-engine/scene-frame/' + token);
+    check('HEAD 报出抓帧几何（X-WE-GPU-W/H/AR，来自 PNG IHDR）',
+      headGeo64.__state.headers['X-WE-GPU-AR'] === '1.0000'
+      && headGeo64.__state.headers['X-WE-GPU-W'] === '64' && headGeo64.__state.headers['X-WE-GPU-H'] === '64',
+      'ar=' + headGeo64.__state.headers['X-WE-GPU-AR']
+      + ' wh=' + headGeo64.__state.headers['X-WE-GPU-W'] + 'x' + headGeo64.__state.headers['X-WE-GPU-H']);
+    await runClear('/wallpaper-engine/scene-frame-cache/' + token);
+    const putWide = await runPut('/wallpaper-engine/scene-frame-cache/' + token, makePng(4096, 7, [1440, 960]));
+    check('PUT 3:2 抓帧（1440x960）→ 200', putWide.__state.status === 200, 'status=' + putWide.__state.status);
+    const headGeoWide = await runHead('/wallpaper-engine/scene-frame/' + token);
+    check('HEAD 报出 3:2 抓帧几何（1.5000 → 客户端判「与 16:9 视口不符」→ 重抓）',
+      headGeoWide.__state.status === 204 && headGeoWide.__state.headers['X-WE-GPU-AR'] === '1.5000',
+      'ar=' + headGeoWide.__state.headers['X-WE-GPU-AR']);
+    const headGeoNoGpu = await (async () => {
+      await runClear('/wallpaper-engine/scene-frame-cache/' + token);
+      return runHead('/wallpaper-engine/scene-frame/' + token);
+    })();
+    check('无 GPU 帧时不得发几何头（CPU 帧是设计比例，与服务逻辑无关）',
+      headGeoNoGpu.__state.headers['X-WE-GPU'] === '0'
+      && headGeoNoGpu.__state.headers['X-WE-GPU-AR'] === undefined,
+      'gpu=' + headGeoNoGpu.__state.headers['X-WE-GPU'] + ' ar=' + String(headGeoNoGpu.__state.headers['X-WE-GPU-AR']));
+    await runPut('/wallpaper-engine/scene-frame-cache/' + token, gpuPng); // 还原槽位状态
     // ── P2-L：unlink 失败（权限/占用）必须报错 ────────────────────────────
     // 回 200 + removed:false 会让客户端把「清除」当成功（面板行消失、提示已清除），
     // 而宿主照旧发 GPU 帧 —— 画面纹丝不动且没有任何反馈。ENOENT 仍算幂等成功。

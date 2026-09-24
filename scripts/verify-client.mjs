@@ -677,6 +677,19 @@ setTimeout(async () => {
       return cards.find((card) => JSON.stringify(card).includes(text));
     };
     let tree3 = reopenPicker();
+    // 前置：先点选一张视频壁纸把层建出来（上文「无活动壁纸」用例清掉了层），
+    // 否则 scene C 是首层、无旧层可淡，手动淡出的断言失去对象。Wall 0 在
+    // 第 1 页：往前翻（上一页）找，翻到首页必现。
+    let seedCard = findCard(tree3, 'Wall 0');
+    for (let i = 0; i < 6 && !seedCard; i++) {
+      const prev = findBtn(tree3, '‹ 上一页');
+      if (!prev || prev.props.disabled) break;
+      prev.props.onClick();
+      tree3 = reopenPicker();
+      seedCard = findCard(tree3, 'Wall 0');
+    }
+    assert.ok(seedCard && typeof seedCard.props.onClick === 'function', 'video card (Wall 0) must be clickable');
+    seedCard.props.onClick(); // 建首层（existing=null → 本步不淡，正常）
     // 场景 C 落在第 2 页（上文翻页后 sel.page 就停在那里）——若不在，翻页找。
     let sceneCard = findCard(tree3, 'Scene C');
     for (let i = 0; i < 4 && !sceneCard; i++) {
@@ -687,6 +700,7 @@ setTimeout(async () => {
       sceneCard = findCard(tree3, 'Scene C');
     }
     assert.ok(sceneCard && typeof sceneCard.props.onClick === 'function', 'scene C card must be clickable');
+    const manualPreLayer = document.getElementById('dsh-wallpaper-engine-layer');
     sceneCard.props.onClick(); // 选中场景壁纸 → syncLayers → HEAD 探测
     await new Promise((r) => setTimeout(r, 20)); // 等 HEAD 探测的 promise 回来
     // 「画面」section（含 GPU 提示行）在 tab 面板里，模态框只渲染网格 →
@@ -696,6 +710,20 @@ setTimeout(async () => {
     modalClose.props.onClick();
     assert.ok(sceneFrameHeadCalls.some((u) => u.includes('/scene-frame/ccc')),
       '选中场景壁纸后必须 HEAD 探测 GPU 帧状态（面板据此提示）');
+    // ── 手动切换（非轮换）也是交叉淡化：此前只有轮换 commit 置 pendingRotationFade
+    //    才淡，手动点选硬切 —— 旧层即拆、下一张的静态帧缓存直接上屏。改为按
+    //    weWid 判定（层上 weWid ≠ 当前选择 id → 淡出）。syncLayers 在 onClick
+    //    内同步完成，无需再等待。
+    const manualPostLayer = document.getElementById('dsh-wallpaper-engine-layer');
+    assert.ok(manualPreLayer && manualPreLayer.dataset.weFading === '1',
+      '手动切换：旧壁纸层必须标记 weFading 淡出保留（不得即拆）');
+    assert.ok(manualPreLayer.id === '',
+      '手动切换：旧层必须让出 LAYER_ID');
+    assert.ok(manualPostLayer && manualPostLayer !== manualPreLayer
+      && manualPostLayer.className.indexOf('we-layer--fadein') !== -1,
+      '手动切换：新层必须带 fadein 类淡入（交叉淡化，不是硬切）');
+    assert.ok(manualPostLayer.dataset.weWid === 'c',
+      '新层必须记录 weWid（后续重建按它判定是否换壁纸）');
     tree3 = renderPicker(); // 模态框已关：此时渲染的是 tab 面板（含「画面」section）
     assert.ok(JSON.stringify(tree3).includes('壁纸画面刷新'), '选中场景壁纸后面板应出现「壁纸画面刷新」行');
     assert.equal(animProbeSrcs.length, 0,
@@ -760,8 +788,16 @@ setTimeout(async () => {
     assert.ok(animProbeSrcs.slice(probesBefore).some((s) => s.includes('/scene-anim/ccc') && s.includes('fps=24')),
       '点「帧率上限」必须按新帧率启动 CPU 渲染');
 
-    // ③ 产物必须上屏（按基路径判定）
+    // ③ 产物必须上屏（按基路径判定）——顺带断言**同壁纸内部重建不得交叉淡化**：
+    // scene-anim 完成换层是 selection.url 变化、weWid 相同的重建，硬切立即换；
+    // 若误走淡出，同一条 BGM/画面族会被音频闸断 ~2s（与换壁纸的交叉淡化区分）。
+    const animPreLayer = document.getElementById('dsh-wallpaper-engine-layer');
     await fireProgress();
+    const animPostLayer = document.getElementById('dsh-wallpaper-engine-layer');
+    assert.ok(animPostLayer && animPostLayer !== animPreLayer,
+      'scene-anim 完成必须重建层（url 切到 /scene-anim/）');
+    assert.ok(bodyEl.children.indexOf(animPreLayer) === -1 && !animPreLayer.dataset.weFading,
+      '同壁纸重建（scene-anim 换层）不得淡出：旧层立即移除');
     assert.ok(layerAnimSrcs().some((s) => s.includes('/scene-anim/ccc') && s.includes('fps=24')),
       '重渲染完成后层必须切到新帧率的动画（否则这次点击只是白烧一次渲染）');
     console.log('帧率档位：产物上屏 + 走门禁: ok');
@@ -777,6 +813,28 @@ setTimeout(async () => {
     // ⑤ 抓帧回填落地必须校验「发起时那张壁纸」，不得把状态记到当前壁纸头上。
     assert.ok(code.includes('if (String(selection.id || "") !== backfillWid) return;'),
       'GPU 抓帧回填落地必须校验壁纸身份（否则切走后会给新壁纸误标「已有 GPU 帧」）');
+
+    // ⑤b 抓帧回填必须校验存帧**几何**（视口宽高比），不只是「槽位有没有帧」：
+    // 抓帧是「抓帧那一刻视口的构图」，别的窗口/旧会话留下的帧拿到当前窗口上屏
+    // 会被 CSS object-fit: cover 再裁一次 —— 实测 1440x960 的帧在 2488x1376
+    // 视口里只显示设计宽度的 84.5%（对 CPU 帧做最佳匹配拟合），人物比 live 大
+    // 约 19% 且四周被切。判据来自宿主的 X-WE-GPU-AR（读 PNG 的 IHDR）。
+    assert.ok(code.includes('GPU_FRAME_ASPECT_TOL') && code.includes('"x-we-gpu-ar"'),
+      'GPU 抓帧回填必须校验存帧视比（不符 → 清掉按当前视口重抓），行为级见 live-frame-backfill-smoke 的 G/H/I/J');
+
+    // ⑤c 两条渐变链路的时长必须各自与常量同步（独立常量，不合并）：
+    // - 轮换交叉淡化（.we-layer--fadein）= ROTATION_FADE_MS（1800ms）：两端都是
+    //   静止画面，越长越柔顺；
+    // - GPU 静帧 → live 首帧（.we-live-iframe）= LIVE_FIRST_FADE_MS（1800ms）：
+    //   手动切换壁纸时「静帧 → 实时画面」的缓慢过渡正是这条腿。0.8s 短窗口
+    //   实测过渡太急，按用户明确要求回到与轮换同口径的 1.8s。
+    // 两个规则块的 transition 串相同，必须分别锚定断言。
+    const liveIframeCss = code.match(/\.we-layer \.we-live-iframe\s*\{[^}]*\}/);
+    const fadeinCss = code.match(/\.we-layer--fadein\s*\{[^}]*\}/);
+    assert.ok(code.includes('ROTATION_FADE_MS = 1800') && code.includes('LIVE_FIRST_FADE_MS = 1800')
+      && liveIframeCss && /transition:\s*opacity 1\.8s ease/.test(liveIframeCss[0])
+      && fadeinCss && /transition:\s*opacity 1\.8s ease/.test(fadeinCss[0]),
+      '渐变时长必须与常量同步（fadein=ROTATION_FADE_MS 1.8s / live 首帧=LIVE_FIRST_FADE_MS 1.8s），改常量时同步 CSS');
 
     // ⑥ 行为级：按钮路径必须真的走门禁（④ 只是源码级 lint，改坏行为保留字符串即可绿）。
     // 把判据缓存熬过 30s TTL → 冷缓存 → 真 HEAD 报 pinned → 点档位必须被拒。

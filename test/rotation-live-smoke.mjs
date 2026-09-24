@@ -103,6 +103,9 @@ const fetch = (url) => Promise.resolve({ ok:true, status:200, json:()=>Promise.r
   ] }) });
 
 const code = readFileSync(new URL('../lib/client.js', import.meta.url),'utf8');
+// 渐变退役定时器 = ROTATION_FADE_MS + 100ms 宽限：从被测源码读常量，改时长
+// 不用同步改这里的硬编码。
+const FADE_GRACE_MS = Number(code.match(/ROTATION_FADE_MS = (\d+)/)[1]) + 100;
 const cap = { handoff:null };
 const sandbox = {
   window: {
@@ -171,13 +174,13 @@ setTimeout(async () => {
   check('提交后重新武装轮换定时器', timers.some(t=>!t.cleared && t.ms===10000));
 
   // ── 轮换音频闸（live 路径）：渲染页自带 BGM 由 __wp.setVolume 控制，
-  //    提交瞬间必须压 0（否则与旧层 BGM 重叠 1.2s），旧层退场后才恢复。 ──
+  //    提交瞬间必须压 0（否则与旧层 BGM 重叠整个渐变时长），旧层退场后才恢复。 ──
   check('提交后 live 渲染页音量被压到 0（闸内静音）',
     staged.__volumes.length > 0 && staged.__volumes[staged.__volumes.length-1] === 0
       && !staged.__volumes.includes(0.6),
     'volumes=' + JSON.stringify(staged.__volumes));
-  const fade = timers.find(t=>!t.cleared && t.ms===1300);
-  check('渐变退役定时器已武装（1.2s + 100ms）', !!fade);
+  const fade = timers.find(t=>!t.cleared && t.ms===FADE_GRACE_MS);
+  check('渐变退役定时器已武装（ROTATION_FADE_MS + 100ms）', !!fade);
   if (fade) {
     fire(fade);
     check('旧层退场后 live 渲染页恢复设置音量 0.6',
@@ -203,7 +206,7 @@ setTimeout(async () => {
     'weFading=' + layer.dataset.weFading);
   flushPersist();
   check('第二轮提交持久化回绕到 v', persistedId() === 'v', 'id=' + persistedId());
-  const fade2 = timers.find((t) => !t.cleared && t.ms === 1300);
+  const fade2 = timers.find((t) => !t.cleared && t.ms === FADE_GRACE_MS);
 
   // ── P2-I：退场的旧层必须显式释放其中的 iframe。真 DOM 实测「从文档摘除的
   //    iframe 其 JS 世界仍在跑」（contentWindow 已 null 而 setInterval 照跳）——
