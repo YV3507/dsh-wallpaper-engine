@@ -1,15 +1,15 @@
 {
-  "repo": "/Users/oneincase/Documents/workspace/webwallgl-github",
+  "repo": "/home/beef/projects/dsh-my-ui/custom-plugins/dsh-wallpaper-engine/_refs/fork",
   "name": "webwallgl",
   "version": "1.4.1",
-  "commit": "9531aaf69ed54221054529fb97ee3843a6c065c1",
+  "commit": "5c5a6aa5e7aa4cef87b1ee66411948ec85b09e62",
   "dirty": false,
   "base": "/wallpaper-engine/scene-live",
-  "syncedAt": "2026-09-22T12:10:41.970Z",
+  "syncedAt": "2026-09-23T09:03:58.648Z",
   "files": [
     "index.html",
     "web-shim.js",
-    "assets/renderer-CKYVUCqm.js",
+    "assets/renderer-DI8RHIp3.js",
     "assets/modulepreload-polyfill-B5Qt9EMX.js"
   ]
 }
