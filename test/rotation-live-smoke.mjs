@@ -188,18 +188,18 @@ setTimeout(async () => {
       'volumes=' + JSON.stringify(staged.__volumes));
   }
 
-  // 第二轮：live → video，验证渐变退役路径。
+  // 第二轮：live → video，验证渐变退役路径。视频类壁纸不预热（0.7.5「选中即播」），
+  // 层内是新建的 <video>（不走 prepareVideoProbe 的 load()+play() 预热领养）。
   const rot2 = timers.find(t=>!t.cleared && t.ms===10000);
   fire(rot2);
-  const probe = videoEls[videoEls.length-1];
-  probe.__fire('canplay');
+  const probe = videoEls[videoEls.length-1]; // 提交后 = 新层里的 video
   const layer2 = byId['dsh-wallpaper-engine-layer'];
-  check('第二个提交领养了准备好的 video', !!layer2 && layer2.querySelector('video') === probe);
-  check('被领养的探测 video 未被误释放（仍在播 / 保留 src / 未额外 load）',
-    probe.__paused === false
-      && String(probe.attributes.src || probe.src).includes('/wallpaper-engine/media/vvv')
+  check('第二个提交层内是新建立的 video（不预热）', !!layer2 && layer2.querySelector('video') === probe);
+  check('层内 video 未被误释放（保留 src / 未额外 load）',
+    String(probe.attributes.src || probe.src).includes('/wallpaper-engine/media/vvv')
+      && (probe.__loads || 0) === 0
       && !(probe.__removedAttrs || []).includes('src'),
-    'paused=' + probe.__paused + ' src=' + String(probe.attributes.src || probe.src).slice(0, 40));
+    'loads=' + probe.__loads + ' src=' + String(probe.attributes.src || probe.src).slice(0, 40));
   check('没有「已脱离文档且仍在播」的 video（无孤儿）',
     videoEls.filter((v) => !v.isConnected && !v.__paused).length === 0);
   check('被换下的 scene 层标记为渐变中（weFading）', layer.dataset.weFading === '1',

@@ -1297,7 +1297,12 @@ function prepareWallpaper(w, prep, onReady, onFail) {
   }
   if (w.type === "video") {
     prep.kind = "video";
-    prepareVideoProbe(w.media, w.preview, prep, onReady, onFail);
+    // 视频类壁纸不跑「就绪后切换」的准备链：0.7.5 的行为是选中即播。
+    // 准备链会另起一个 video 元素在后台 load() + play() 做预热领养 —— 对视频
+    // 壁纸这意味着双解码（4K 下可见画面卡顿），而且预热元素带着 poster 进层，
+    // 观感就是「GIF→静态图→正片」的整套加载流程。轮换到视频时直接提交，加载
+    // 窗口由交叉渐变盖住。
+    onReady();
     return;
   }
   if (w.type === "scene") {
@@ -3653,7 +3658,11 @@ function buildMedia(sel) {
     if (!prepared) {
       media.src = sel.url;
       // poster=预览图：覆盖初始加载与抽帧转码 swap 的空窗（原黑屏闪烁点）。
-      if (sel.previewUrl) media.poster = sel.previewUrl;
+      // 视频类壁纸不设 —— WE 视频壁纸的预览常是动图（preview.gif），当 poster
+      // 会先播一段预览、再停在视频首帧、最后才进正片，用户看到的是「跑完整
+      // 加载流程」；0.7.5 是选中即播（加载期黑帧，由交叉渐变盖住）。场景内嵌
+      // MP4 / scene-anim 的 poster 是静态帧，是「先静帧后动态」的既有设计，保留。
+      if (sel.previewUrl && sel.type !== "video") media.poster = sel.previewUrl;
     }
     media.autoplay = true;
     media.loop = true;

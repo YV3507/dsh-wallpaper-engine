@@ -131,17 +131,20 @@ setTimeout(async () => {
   if (!rot) { console.log('\n' + failures + ' CHECK(S) FAILED'); process.exit(1); }
   const oldProbe = mediaEls[mediaEls.length-1]; // 当前层（a）的 video，提交后成旧层
   try { fire(rot); } catch(e){ console.log('EXCEPTION on rotation fire:', e && e.stack || e); process.exit(1); }
-  check('准备阶段创建了探测 video', mediaEls.length >= 1, 'count=' + mediaEls.length);
+  // 视频类壁纸不预热（0.7.5「选中即播」的语义）：不建探测元素 ——
+  // prepareVideoProbe 那套会给探测元素 load() + play() 预热领养，视频壁纸下
+  // 表现为「双解码 + GIF 海报先进层」的整套加载流程，已按用户要求移除。
+  // 提交后 mediaEls 末尾就是新层里新建的 <video>。
   const probe = mediaEls[mediaEls.length-1];
-  const loadsBeforeProbe = probe.__loads || 0;
-  check('探测 video 指向下一张壁纸且带 preview 海报',
-    String(probe.attributes.src || probe.src).includes('/wallpaper-engine/media/bbb') && !!probe.poster,
-    'src=' + (probe.attributes.src || probe.src));
-  try { probe.__fire('canplay'); } catch(e){ console.log('EXCEPTION on canplay:', e && e.stack || e); failures++; }
+  check('视频目标不预热：层内 video 未被 load() 过（无探测元素）',
+    (probe.__loads || 0) === 0, 'loads=' + probe.__loads + ' count=' + mediaEls.length);
+  check('层内 video 指向新壁纸且不带 preview 海报（选中即播）',
+    String(probe.attributes.src || probe.src).includes('/wallpaper-engine/media/bbb') && !probe.poster,
+    'src=' + (probe.attributes.src || probe.src) + ' poster=' + probe.poster);
   const layer = byId['dsh-wallpaper-engine-layer'];
   check('提交后新层带渐变类', !!layer && String(layer.className).includes('we-layer--fadein'),
     layer ? String(layer.className) : 'no layer');
-  check('新层里的 video 就是准备好的探测元素（领养而非重建）',
+  check('新层里的 video 就是刚建的那个元素',
     !!layer && layer.querySelector('video') === probe);
   // ── 轮换音频闸：提交瞬间新层必须静音（否则渐变时长内两层 BGM 重叠），
   //    这次渐变的旧层退场后才恢复真实音量。 ──
@@ -149,16 +152,13 @@ setTimeout(async () => {
     probe.volume === 0 && probe.muted === true, 'volume=' + probe.volume + ' muted=' + probe.muted);
   check('旧层（正在淡出）仍在出声，未被闸波及', oldProbe.volume === 0.6 && oldProbe.muted === false,
     'volume=' + oldProbe.volume + ' muted=' + oldProbe.muted);
-  // 领养通道的反向约束（防「兜底释放」越界）：被领养的探针不得被释放 ——
-  // 必须仍在播、保留 src、没有被额外 load()（disposeMediaEl 的 video 三连是
-  // pause + removeAttribute('src') + load()），也不得有「已脱离文档且仍在播」
-  // 的孤儿（prepareVideoProbe 会在 detached 状态先 play()）。
-  check('被领养的探测 video 未被误释放（仍在播 / 保留 src / 未额外 load）',
-    probe.__paused === false
-      && String(probe.attributes.src || probe.src).includes('/wallpaper-engine/media/bbb')
-      && (probe.__loads || 0) === loadsBeforeProbe
+  // 层内元素不得被误释放（disposeMediaEl 的 video 三连是 pause +
+  // removeAttribute('src') + load()）。
+  check('层内 video 未被误释放（保留 src / 未额外 load）',
+    String(probe.attributes.src || probe.src).includes('/wallpaper-engine/media/bbb')
+      && (probe.__loads || 0) === 0
       && !(probe.__removedAttrs || []).includes('src'),
-    'paused=' + probe.__paused + ' loads=' + probe.__loads);
+    'loads=' + probe.__loads);
   check('没有「已脱离文档且仍在播」的 video（无孤儿）',
     mediaEls.filter((v) => !v.isConnected && !v.__paused).length === 0);
 
