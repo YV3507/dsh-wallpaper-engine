@@ -531,6 +531,7 @@ npm run verify                 # 物化生成的 bundle 并断言其导出（含
 node scripts/verify-scene.mjs  # 场景静态帧提取 / scene-frame 路由自检（含合成 fixture，离线可跑）
 node scripts/verify-scene-live.mjs  # 场景实时渲染自检（vendor 产物 / scene-live + scene-files 路由 / 目录围栏 / Range / 壁纸媒体源 / 帧率上限实现质量）
 node scripts/e2e-web-media-origin.mjs  # 真浏览器端到端（需本机 Chromium 系浏览器）：媒体源 + 严格沙箱 iframe + shim/属性种子/控制通道
+node scripts/diagnose-web-blank.mjs  # 单张网页壁纸白屏排查（无头真浏览器 + 截图 + 控制台报错；WALL_ID=<目录名>）
 node scripts/sync-webwallgl.mjs     # 从本地 webwallgl 仓库构建并同步渲染页产物到 lib/webwallgl/
 ```
 

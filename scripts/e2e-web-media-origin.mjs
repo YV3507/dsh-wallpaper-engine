@@ -75,6 +75,10 @@ const ctx = {
 };
 const hostMod = await import(pathToFileURL(join(root, 'lib', 'index.js')).href);
 const host = hostMod.default || hostMod;
+// 期望的中间件版本从产物钉推导，不写字面量 —— 否则每次升 TAG 都要回来改断言
+// （v0.1.5 升级时就是撞在这条上：跑的是新产物、断言还钉着旧版本号）。
+const { MEDIA_BRIDGE_TAG } = await import(pathToFileURL(join(root, 'lib', 'media', 'provision.js')).href);
+const WANT_BRIDGE_VERSION = MEDIA_BRIDGE_TAG.replace(/^v/, '');
 const dispose = (host.apply || host.inject)(ctx);
 
 const matchRoute = (pathname) => routes.find((r) => (
@@ -105,6 +109,12 @@ const appServer = createServer((req, res) => {
     res.end(wrapperHtml || '<!doctype html><title>no recipe</title>');
     return;
   }
+  if (pathname === '/e2e/base.html') {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(baseWrapperHtml || '<!doctype html><title>no base recipe</title>');
+    return;
+  }
   const route = matchRoute(pathname);
   if (!route) { res.statusCode = 404; res.end('no route'); return; }
   Promise.resolve(route.handler(req, res)).catch(() => { try { res.statusCode = 500; res.end('handler error'); } catch { /* ignore */ } });
@@ -114,6 +124,41 @@ const appPort = appServer.address().port;
 const APP = `http://127.0.0.1:${appPort}`;
 console.log(`迷你 host 监听 ${APP}（${routes.length} 条路由）`);
 
+// ── 合成夹具 2：自带 <base href="./"> 的 SPA（白屏回归）────────────────────────
+// 跨源入口是经 **blob URL** 挂载的，blob 没有目录概念：作者自带的相对 base 会让相对
+// 子资源解析到 blob 自己 ⇒ 一个请求都发不出 ⇒ 整页白屏（SPA/Angular 构建常自带
+// `<base href="./">`；CRA 不带）。修法是挂载改写时**就地换掉相对 base**，绝对 base
+// 保留不动（见上游 renderer/src/web-rewrite.ts）。
+// 这个夹具的可见内容**全部**由相对路径脚本产出，所以「脚本跑了」就等于 base 解析对了；
+// 而「谁能解析」是浏览器行为，字符串断言测不出来 —— 必须真浏览器跑。
+const baseDir = join(STEAM_ROOT, 'steamapps', 'workshop', 'content', '431960', '990102');
+mkdirSync(join(baseDir, 'static'), { recursive: true });
+writeFileSync(join(baseDir, 'project.json'), JSON.stringify({
+  title: 'E2E Base Tag Wallpaper',
+  type: 'web',
+  file: 'index.html',
+  preview: 'preview.jpg',
+  contentrating: 'Everyone',
+}));
+writeFileSync(join(baseDir, 'preview.jpg'), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+writeFileSync(join(baseDir, 'index.html'), [
+  '<!doctype html><html lang="en"><head><meta charset="utf-8">',
+  '<base href="./">',
+  '<title>base</title>',
+  '<script defer="defer" src="./static/app.js"></script>',
+  '</head><body><div id="root"></div></body></html>',
+].join('\n'));
+writeFileSync(join(baseDir, 'static', 'app.js'), [
+  'document.body.style.background = "#0b2b1a";',
+  'document.getElementById("root").textContent = "APP JS RAN";',
+  // 回传两个判据：脚本真的执行了；document.baseURI 指到媒体源入口目录（改写生效）
+  'var i = new Image();',
+  `i.src = ${JSON.stringify(APP)} + '/wallpaper-engine/diag?msg=' + encodeURIComponent(`,
+  `  ${JSON.stringify(MARKER + ' BASEFIX ran=1 base=')} + document.baseURI +`,
+  `  ${JSON.stringify(' href=')} + String(location.href).slice(0, 40));`,
+  'var n = 0; (function loop(){ n++; document.title = "frames " + n; requestAnimationFrame(loop); })();',
+].join('\n'));
+
 // 壁纸 HTML：把判据回传给宿主的 /diag（<img> 信标，免 CORS）。
 writeFileSync(join(webDir, 'index.html'), [
   '<!doctype html><html><head><meta charset="utf-8"><title>e2e</title>',
@@ -121,7 +166,12 @@ writeFileSync(join(webDir, 'index.html'), [
   '<script>',
   '  window.__e2e = { propsCalls: 0, fps: null, vol: null, keys: [], frames: 0,',
   '                  mediaTitle: "", mediaThumb: "", mediaImg: "none", mediaState: null,',
-  '                  mediaAA: "", mtlPos: null, mtlDur: null };',
+  '                  mediaAA: "", mtlPos: null, mtlDur: null, ls: "?" };',
+  // 不透明源（严格沙箱）里 window.localStorage 的**读取本身**抛 SecurityError，而工坊
+  // 应用常在 useState 初始化里直读 → 首屏渲染崩 → 整页白屏（2905017768 Bocchi 实测）。
+  // shim 在作者脚本前换成内存实现，这条断言就是它的真浏览器闸门。
+  '  try { window.localStorage.setItem("e2e", "1"); window.__e2e.ls = "ok:" + window.localStorage.getItem("e2e"); }',
+  '  catch (e) { window.__e2e.ls = "throw:" + (e && e.name); }',
   // 媒体三件套（WE 官方 API）：属性 / 封面 / 播放态。封面不仅看字符串，
   // 还真的 new Image() 加载一次 —— 「data URL 到位」与「能显示」是两回事。
   '  if (window.wallpaperRegisterMediaPropertiesListener) {',
@@ -193,6 +243,7 @@ writeFileSync(join(webDir, 'index.html'), [
   '      + " media=" + e.mediaTitle + " thumb=" + e.mediaThumb.length',
   '      + " aa=" + e.mediaAA + " mtl=" + e.mtlPos + "," + e.mtlDur',
   '      + " img=" + e.mediaImg + " mstate=" + e.mediaState',
+  '      + " ls=" + e.ls',
   '      + " prop0=" + (e.color0 || ""));',
   '  }',
   '  window.addEventListener("load", function () {',
@@ -218,12 +269,30 @@ const rendererUrl = `${APP}/wallpaper-engine/scene-live/index.html?type=web&webS
   + `&src=${encodeURIComponent(web.webLiveSrc)}`
   + `&mediaBase=${encodeURIComponent(`${APP}/wallpaper-engine/scene-files`)}`;
 console.log(`渲染页 URL: ${rendererUrl.slice(0, 140)}…`);
+// 夹具 2 的渲染页 URL（自带 <base href="./"> 的那张）。**单独开一次浏览器运行**：
+// 同一页里跑两个渲染页 + 软件 GL 会把主运行的 rAF 节奏带偏（实测 p50 从 67ms 变
+// 33ms），而下面有几条断言正是拿帧间隔当判据的。
+const baseWall = (inv.wallpapers || []).find((w) => w.id === '990102') || null;
+check('inventory 也列出带 <base> 的夹具（否则下面的回归断言无从谈起）', Boolean(baseWall),
+  baseWall ? String(baseWall.webLiveSrc || '').slice(0, 60) : 'not found');
+const baseRendererUrl = baseWall
+  ? `${APP}/wallpaper-engine/scene-live/index.html?type=web&webSandbox=strict`
+    + `&fit=cover&sceneFps=15&muted=true`
+    + `&src=${encodeURIComponent(baseWall.webLiveSrc)}`
+    + `&mediaBase=${encodeURIComponent(`${APP}/wallpaper-engine/scene-files`)}`
+  : '';
+let baseWrapperHtml = '';
 // 1x1 JPEG（合法最小图）：模拟 client 把宿主封面降采样成的 data URL。
 const THUMB_DATA_URL = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==';
+baseWrapperHtml = baseRendererUrl
+  ? `<!doctype html><html><head><meta charset="utf-8"><title>e2e base host</title>`
+    + `<style>html,body{margin:0;height:100%;background:#111}iframe{position:fixed;inset:0;width:100%;height:100%;border:0}</style>`
+    + `</head><body><iframe src=${JSON.stringify(baseRendererUrl)}></iframe></body></html>`
+  : '';
 wrapperHtml = `<!doctype html><html><head><meta charset="utf-8"><title>e2e host</title>`
-  + `<style>html,body{margin:0;height:100%;background:#111}iframe{position:fixed;inset:0;width:100%;height:100%;border:0}</style>`
+  + `<style>html,body{margin:0;height:100%;background:#111}iframe.we-live{position:fixed;inset:0;width:100%;height:100%;border:0}</style>`
   + `</head><body><script>`
-  + `var f=document.createElement('iframe');f.src=${JSON.stringify(rendererUrl)};document.body.appendChild(f);`
+  + `var f=document.createElement('iframe');f.className='we-live';f.src=${JSON.stringify(rendererUrl)};document.body.appendChild(f);`
   + `var tries=0;var timer=setInterval(function(){tries++;var wp=null,st=null;`
   + `try{wp=f.contentWindow&&f.contentWindow.__wp;}catch(e){}`
   + `try{st=wp&&wp.getState?wp.getState():null;}catch(e){}`
@@ -312,8 +381,8 @@ check('音频未启用时状态明确为 off（不申请授权、不装音频桥
   Boolean(mstat && mstat.audio) && mstat.audio.status === 'off',
   mstat && mstat.audio ? mstat.audio.status : '?');
 check('中间件版本/后端可查（排查时能一眼看出跑的是哪个产物）',
-  Boolean(mstat && mstat.bridge) && mstat.bridge.version === '0.1.4' && mstat.bridge.protocol === 1,
-  mstat && mstat.bridge ? `${mstat.bridge.version} ${mstat.bridge.provider}` : '?');
+  Boolean(mstat && mstat.bridge) && mstat.bridge.version === WANT_BRIDGE_VERSION && mstat.bridge.protocol === 1,
+  mstat && mstat.bridge ? `${mstat.bridge.version} ${mstat.bridge.provider}（期望 ${WANT_BRIDGE_VERSION}）` : '?');
 
 const npRes = await fetch(`${APP}/wallpaper-engine/now-playing`, { cache: 'no-store' });
 const npj = await npRes.json();
@@ -378,6 +447,23 @@ await new Promise((r) => setTimeout(r, 12000));
 try { child.kill('SIGKILL'); } catch { /* ignore */ }
 await new Promise((r) => setTimeout(r, 400));
 
+// ── 第二次运行：带 <base href="./"> 的夹具（单独进程，不干扰上面的帧间隔断言）──────
+if (baseWrapperHtml) {
+  const baseProfile = join(TEST_ROOT, 'chromium-profile-base');
+  mkdirSync(baseProfile, { recursive: true });
+  const child2 = spawn(browser, [
+    '--headless=new',
+    '--enable-unsafe-swiftshader',
+    '--disable-extensions', '--no-first-run', '--no-default-browser-check',
+    `--user-data-dir=${baseProfile}`,
+    '--window-size=1280,720',
+    APP + '/e2e/base.html',
+  ], { stdio: 'ignore' });
+  await new Promise((r) => setTimeout(r, 9000));
+  try { child2.kill('SIGKILL'); } catch { /* ignore */ }
+  await new Promise((r) => setTimeout(r, 400));
+}
+
 // ── 读回信标（按本次运行的标记过滤）────────────────────────────────────────
 const lines = existsSync(DIAG_FILE) ? readFileSync(DIAG_FILE, 'utf8').slice(diagStart).split('\n') : [];
 const mine = [];
@@ -390,8 +476,14 @@ for (const line of lines) {
 const beacons = mine.filter((d) => d.kind === 'renderer' && String(d.msg || '').indexOf(MARKER) === 0);
 const mediaReqs = mine.filter((d) => d.kind === 'req' && d.route === 'scene-files@media');
 const rendererDiag = mine.filter((d) => d.kind === 'renderer' && String(d.msg || '').indexOf(MARKER) !== 0);
-const lastBeacon = beacons.length ? String(beacons[beacons.length - 1].msg || '') : '';
+// 夹具 2（自带 <base>）的信标形状与主夹具不同，必须分开取 —— 混在一起会把主夹具的
+// g() 断言带偏（谁最后发就取谁）。
+const baseBeacons = beacons.filter((b) => String(b.msg || '').includes(' BASEFIX '));
+const mainBeacons = beacons.filter((b) => !String(b.msg || '').includes(' BASEFIX '));
+const lastBeacon = mainBeacons.length ? String(mainBeacons[mainBeacons.length - 1].msg || '') : '';
+const baseMsg = baseBeacons.length ? String(baseBeacons[baseBeacons.length - 1].msg || '') : '';
 const g = (k) => (new RegExp('(?:^|\\s)' + k + '=([^\\s]+)').exec(lastBeacon) || [])[1] || '';
+const gb = (k) => (new RegExp('(?:^|\\s)' + k + '=([^\\s]+)').exec(baseMsg) || [])[1] || '';
 
 console.log('');
 if (DEBUG) {
@@ -409,6 +501,20 @@ for (const d of rendererDiag.slice(-6)) console.log('    · renderer ' + String(
 check('媒体源把壁纸入口 HTML 交给了渲染页', mediaReqs.some((r) => r.status === 200 && /\.html?$/i.test(String(r.path || ''))),
   mediaReqs.map((r) => r.status + ' ' + String(r.path || '')).join(' | ').slice(0, 120) || '无请求');
 check('壁纸文档里的脚本真的执行了（信标 ran=1）', g('ran') === '1', lastBeacon.slice(0, 80));
+// 白屏回归 ①：严格沙箱 = 不透明源，window.localStorage 的**读取本身**抛 SecurityError
+//（不是给一个不可用对象），而工坊应用常在 useState 初始化里直读 → 首屏渲染崩 →
+// 整页白屏（2905017768 Bocchi 实测：Uncaught SecurityError … lacks the
+// 'allow-same-origin' flag，随后作者一帧都没跑）。shim 在作者脚本前换成内存实现。
+// 本机全库 15 张 web 壁纸里 6 张读 localStorage、2 张读 document.cookie。
+check('不透明源里 localStorage 可用（shim 兜底，作者不会首屏崩）',
+  String(g('ls') || '').startsWith('ok:'), 'ls=' + (g('ls') || '?'));
+// 白屏回归 ②：自带 <base href="./"> 的 SPA（Angular/部分构建产物）。跨源入口经 blob
+// URL 挂载，blob 没有目录概念 —— 相对 base 会让相对子资源解析到 blob 自己，一个请求
+// 都发不出 ⇒ 整页白屏。改写时必须**就地换掉相对 base**（作者的绝对 base 保留）。
+// 只有真浏览器能测：这是 URL 解析行为，字符串断言测不出来。
+check('自带 <base href="./"> 的壁纸同样挂载成功（相对 base 被改写为入口目录）',
+  gb('ran') === '1' && String(gb('base') || '').indexOf('/scene-files/') !== -1,
+  baseMsg ? baseMsg.slice(0, 130) : '无信标：脚本没跑 = base 解析错（整页白屏）');
 check('宿主注入的 shim 在位（shim=1）', g('shim') === '1', 'shim=' + (g('shim') || '?'));
 check('属性种子到达作者（propsCalls≥1，含 color0）',
   Number(g('propsCalls') || 0) >= 1 && String(g('keys') || '').indexOf('color0') !== -1,
