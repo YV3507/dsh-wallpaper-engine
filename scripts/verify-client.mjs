@@ -822,13 +822,19 @@ setTimeout(async () => {
     assert.ok(code.includes('GPU_FRAME_ASPECT_TOL') && code.includes('"x-we-gpu-ar"'),
       'GPU 抓帧回填必须校验存帧视比（不符 → 清掉按当前视口重抓），行为级见 live-frame-backfill-smoke 的 G/H/I/J');
 
-    // ⑤c GPU 静帧 → live 首帧的淡入时长必须与轮换交叉渐变同口径（ROTATION_FADE_MS，
-    // 当前 1800ms ease）：两段渐变前后脚发生时（轮换到 live 壁纸 → 首帧就绪）观感一致。
-    // 注意 .we-layer--fadein 也是同样的 transition 串，必须锚定到 we-live-iframe 规则块。
+    // ⑤c 两条渐变链路的时长必须各自与常量同步（独立常量，不合并）：
+    // - 轮换交叉淡化（.we-layer--fadein）= ROTATION_FADE_MS（1800ms）：两端都是
+    //   静止画面，越长越柔顺；
+    // - GPU 静帧 → live 首帧（.we-live-iframe）= LIVE_FIRST_FADE_MS（1800ms）：
+    //   手动切换壁纸时「静帧 → 实时画面」的缓慢过渡正是这条腿。0.8s 短窗口
+    //   实测过渡太急，按用户明确要求回到与轮换同口径的 1.8s。
+    // 两个规则块的 transition 串相同，必须分别锚定断言。
     const liveIframeCss = code.match(/\.we-layer \.we-live-iframe\s*\{[^}]*\}/);
-    assert.ok(code.includes('ROTATION_FADE_MS = 1800') && liveIframeCss
-      && /transition:\s*opacity 1\.8s ease/.test(liveIframeCss[0]),
-      'live 首帧淡入时长必须与 ROTATION_FADE_MS 同步（轮换交叉渐变同口径），改 ROTATION_FADE_MS 时同步 CSS');
+    const fadeinCss = code.match(/\.we-layer--fadein\s*\{[^}]*\}/);
+    assert.ok(code.includes('ROTATION_FADE_MS = 1800') && code.includes('LIVE_FIRST_FADE_MS = 1800')
+      && liveIframeCss && /transition:\s*opacity 1\.8s ease/.test(liveIframeCss[0])
+      && fadeinCss && /transition:\s*opacity 1\.8s ease/.test(fadeinCss[0]),
+      '渐变时长必须与常量同步（fadein=ROTATION_FADE_MS 1.8s / live 首帧=LIVE_FIRST_FADE_MS 1.8s），改常量时同步 CSS');
 
     // ⑥ 行为级：按钮路径必须真的走门禁（④ 只是源码级 lint，改坏行为保留字符串即可绿）。
     // 把判据缓存熬过 30s TTL → 冷缓存 → 真 HEAD 报 pinned → 点档位必须被拒。
