@@ -16,11 +16,11 @@
  * Usage:  node scripts/verify-scene.mjs
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, rmSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, rmSync, readdirSync, chmodSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { inflateSync, deflateSync } from 'node:zlib';
-import { Writable } from 'node:stream';
+import { Writable, Readable } from 'node:stream';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // Point the frame cache at a workspace-relative dir so the suite passes under
@@ -520,12 +520,234 @@ if (token) {
   // Second call must hit the cache (handler still returns the payload).
   const secondRes = await runHandler(sceneRoute, '/wallpaper-engine/scene-frame/' + token);
   check('scene-frame cache-hit returns payload', secondRes.__state.status === 200 && secondRes.__state.body.equals(firstRes.__state.body), secondRes.__state.body.length + 'B');
+
+  // ── GPU 抓帧回填端点（HEAD 探测 + PUT 写入 + 唯一性/结构校验 + 清除通道）──
+  // 槽位此刻已被上面的 GET 提取填充（无 GPU 帧）→ PUT 应能写入。
+  const gpuRoute = routes.find((r) => r.path === '/wallpaper-engine/scene-frame-cache');
+  check('scene-frame-cache route registered', Boolean(gpuRoute), gpuRoute ? 'kind=' + gpuRoute.kind : 'missing');
+  // 结构合法的 PNG 构造器：签名 + IHDR + IDAT + IEND（host 只做结构校验，不解码）。
+  const CRC_TABLE = (() => {
+    const t = new Int32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      t[n] = c;
+    }
+    return t;
+  })();
+  const crc32 = (buf) => {
+    let c = 0xffffffff;
+    for (const b of buf) c = CRC_TABLE[(c ^ b) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const pngChunk = (type, payload) => {
+    const len = Buffer.alloc(4); len.writeUInt32BE(payload.length);
+    const body = Buffer.concat([Buffer.from(type, 'latin1'), payload]);
+    const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(body));
+    return Buffer.concat([len, body, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(64, 0); ihdr.writeUInt32BE(64, 4); ihdr[8] = 8; ihdr[9] = 2;
+  const pngHead = Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk('IHDR', ihdr),
+  ]);
+  const pngTail = pngChunk('IEND', Buffer.alloc(0));
+  const makePng = (payloadBytes, fill = 7) => Buffer.concat([pngHead, pngChunk('IDAT', Buffer.alloc(payloadBytes, fill)), pngTail]);
+  const gpuPng = makePng(4096);
+  const runPut = async (url, body) => {
+    const req = new Readable({ read() {} });
+    req.url = url; req.method = 'PUT'; req.headers = { 'content-type': 'image/png' };
+    const res = fakeRes();
+    gpuRoute.handler(req, res);
+    req.push(body); req.push(null);
+    await new Promise((resolveFn) => {
+      const t = setTimeout(resolveFn, 8000);
+      res.on('finish', () => { clearTimeout(t); resolveFn(); });
+      if (res.__state.ended) { clearTimeout(t); resolveFn(); }
+    });
+    return res;
+  };
+  const runClear = async (url, method = 'DELETE') => {
+    const req = { url, headers: {}, method };
+    const res = fakeRes();
+    gpuRoute.handler(req, res);
+    await new Promise((r) => setTimeout(r, 20));
+    return res;
+  };
+  const runHead = async (url) => {
+    const req = { url, headers: {}, method: 'HEAD' };
+    const res = fakeRes();
+    const done = sceneRoute.handler(req, res);
+    if (done && typeof done.then === 'function') await done;
+    return res;
+  };
+  if (gpuRoute) {
+    // 精确匹配本次运行的 key（含 fixture mtime）—— 目录里可能有历史运行
+    // 残留的其它 key 文件，不算失败。版本取自上面从源码读出的 keyVersion，
+    // 写死字面量会在宿主升键后静默测到旧文件（第 514 行的注释即此意）。
+    const curKey = keyVersion + '_' + token + '_' + Math.round(statSync(join(fixtureItemDir, 'scene.pkg')).mtimeMs);
+    const head0 = await runHead('/wallpaper-engine/scene-frame/' + token);
+    check('HEAD: occupied slot without GPU frame → 204 + X-WE-GPU=0',
+      head0.__state.status === 204 && head0.__state.headers['X-WE-GPU'] === '0',
+      'status=' + head0.__state.status + ' gpu=' + head0.__state.headers['X-WE-GPU']);
+    // 结构校验：只有魔数的 9 字节 / 有魔数无 IHDR-IEND / 结构合法但过短 → 全 415。
+    const putMagicOnly = await runPut('/wallpaper-engine/scene-frame-cache/' + token,
+      Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from([1])]));
+    check('PUT 9 字节假 PNG → 415（不再永久占槽）', putMagicOnly.__state.status === 415, 'status=' + putMagicOnly.__state.status);
+    const putNoChunks = await runPut('/wallpaper-engine/scene-frame-cache/' + token,
+      Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(4096, 7)]));
+    check('PUT 魔数正确但无 IHDR/IEND → 415', putNoChunks.__state.status === 415, 'status=' + putNoChunks.__state.status);
+    const putTooSmall = await runPut('/wallpaper-engine/scene-frame-cache/' + token, makePng(10));
+    check('PUT 结构合法但过小（< 1KB 地板）→ 415', putTooSmall.__state.status === 415, 'status=' + putTooSmall.__state.status);
+    check('以上三次拒绝都没有落盘', !existsSync(join(cacheDir, curKey + '_gpu.png')), 'ok');
+    const put1 = await runPut('/wallpaper-engine/scene-frame-cache/' + token, gpuPng);
+    check('PUT 合法 PNG → 200', put1.__state.status === 200, 'status=' + put1.__state.status);
+    const gpuFiles = readdirSync(cacheDir).filter((f) => f === curKey + '_gpu.png');
+    check('GPU frame stored as <key>_gpu.png (文件名即标记，可直接打开)',
+      gpuFiles.length === 1, gpuFiles.join(', ') || 'missing');
+    check('CPU 提取帧未被 GPU 写入覆盖（留作对照）', existsSync(join(cacheDir, curKey + '.png')), 'ok');
+    const head1 = await runHead('/wallpaper-engine/scene-frame/' + token);
+    check('HEAD after PUT → X-WE-GPU=1', head1.__state.status === 204 && head1.__state.headers['X-WE-GPU'] === '1',
+      'status=' + head1.__state.status + ' gpu=' + head1.__state.headers['X-WE-GPU']);
+    const getGpu = await runHandler(sceneRoute, '/wallpaper-engine/scene-frame/' + token);
+    check('GET now serves the GPU-captured bytes', getGpu.__state.status === 200 && getGpu.__state.body.equals(gpuPng),
+      getGpu.__state.body.length + 'B');
+    const getGpuV3 = await runHandler(sceneRoute, '/wallpaper-engine/scene-frame/' + token + '?v=3');
+    check('GET ?v=3 also serves the GPU frame (跨档位全局优先)', getGpuV3.__state.status === 200 && getGpuV3.__state.body.equals(gpuPng),
+      getGpuV3.__state.body.length + 'B');
+    const headV3 = await runHead('/wallpaper-engine/scene-frame/' + token + '?v=3');
+    check('HEAD ?v=3 → X-WE-GPU=1', headV3.__state.status === 204 && headV3.__state.headers['X-WE-GPU'] === '1',
+      'status=' + headV3.__state.status + ' gpu=' + headV3.__state.headers['X-WE-GPU']);
+    const put2 = await runPut('/wallpaper-engine/scene-frame-cache/' + token, gpuPng);
+    check('second PUT rejected → 409 (每壁纸一份)', put2.__state.status === 409, 'status=' + put2.__state.status);
+    // 并发写入（评审用真 socket 复现过 TOCTOU）：同 key 串行 → 恰好一 200 一 409。
+    await runClear('/wallpaper-engine/scene-frame-cache/' + token);
+    const raced = await Promise.all([
+      runPut('/wallpaper-engine/scene-frame-cache/' + token, makePng(4096, 1)),
+      runPut('/wallpaper-engine/scene-frame-cache/' + token, makePng(4096, 2)),
+      runPut('/wallpaper-engine/scene-frame-cache/' + token, makePng(4096, 3)),
+    ]);
+    const codes = raced.map((r) => r.__state.status).sort().join(',');
+    check('三个并发 PUT 只有一个成功（唯一性闸串行化）', codes === '200,409,409', 'codes=' + codes);
+    const survivor = readdirSync(cacheDir).filter((f) => f === curKey + '_gpu.png').length;
+    check('并发后磁盘上仍只有一份 GPU 帧', survivor === 1, 'count=' + survivor);
+    const noTmpLeft = readdirSync(cacheDir).filter((f) => f.startsWith(curKey + '_gpu.png.tmp')).length;
+    check('并发写入未残留 .tmp 垃圾', noTmpLeft === 0, 'tmp=' + noTmpLeft);
+    // 清除通道：DELETE（以及 POST ?clear=1）→ 可重新抓取。
+    const clr = await runClear('/wallpaper-engine/scene-frame-cache/' + token);
+    check('DELETE 清除 GPU 帧 → 200 + removed=true',
+      clr.__state.status === 200 && /"removed":true/.test(String(clr.__state.body)), 'status=' + clr.__state.status);
+    const clr2 = await runClear('/wallpaper-engine/scene-frame-cache/' + token, 'POST');
+    check('POST 无 clear 参数 → 405（不误触发清除）', clr2.__state.status === 405, 'status=' + clr2.__state.status);
+    const clr3 = await runClear('/wallpaper-engine/scene-frame-cache/' + token + '?clear=1', 'POST');
+    check('POST ?clear=1 清除路径 → 200',
+      clr3.__state.status === 200 && /"removed":false/.test(String(clr3.__state.body)), 'status=' + clr3.__state.status);
+    const headAfterClear = await runHead('/wallpaper-engine/scene-frame/' + token);
+    check('清除后 HEAD → 204 + X-WE-GPU=0（回到 CPU 帧）',
+      headAfterClear.__state.status === 204 && headAfterClear.__state.headers['X-WE-GPU'] === '0',
+      'status=' + headAfterClear.__state.status + ' gpu=' + headAfterClear.__state.headers['X-WE-GPU']);
+    const put3 = await runPut('/wallpaper-engine/scene-frame-cache/' + token, gpuPng);
+    check('清除后可重新写入 → 200（坏帧不再是死结）', put3.__state.status === 200, 'status=' + put3.__state.status);
+    // ── P2-L：unlink 失败（权限/占用）必须报错 ────────────────────────────
+    // 回 200 + removed:false 会让客户端把「清除」当成功（面板行消失、提示已清除），
+    // 而宿主照旧发 GPU 帧 —— 画面纹丝不动且没有任何反馈。ENOENT 仍算幂等成功。
+    {
+      const mode = statSync(cacheDir).mode & 0o777;
+      chmodSync(cacheDir, 0o555); // 目录不可写 → unlinkSync EACCES
+      let locked = null;
+      try {
+        locked = await runClear('/wallpaper-engine/scene-frame-cache/' + token);
+      } finally {
+        chmodSync(cacheDir, mode); // 立刻恢复，后续用例照常
+      }
+      check('unlink 失败 → 500（不得假成功）',
+        locked && locked.__state.status === 500 && /unlink-failed/.test(String(locked.__state.body)),
+        'status=' + (locked && locked.__state.status) + ' body=' + String(locked && locked.__state.body).slice(0, 90));
+      check('unlink 失败后 GPU 帧仍在盘上（清除确实没发生）',
+        readdirSync(cacheDir).filter((f) => f === curKey + '_gpu.png').length === 1);
+      const headLocked = await runHead('/wallpaper-engine/scene-frame/' + token);
+      check('unlink 失败后 HEAD 仍报 X-WE-GPU=1（与客户端所见一致）',
+        headLocked.__state.status === 204 && headLocked.__state.headers['X-WE-GPU'] === '1',
+        'gpu=' + headLocked.__state.headers['X-WE-GPU']);
+      const afterUnlock = await runClear('/wallpaper-engine/scene-frame-cache/' + token);
+      check('恢复可写后重试清除 → 200 + removed=true（失败不是死结）',
+        afterUnlock.__state.status === 200 && /"removed":true/.test(String(afterUnlock.__state.body)),
+        'status=' + afterUnlock.__state.status);
+    }
+    const putBad = await runPut('/wallpaper-engine/scene-frame-cache/' + token, Buffer.from('not-an-image'));
+    check('PUT bad magic → 415', putBad.__state.status === 415, 'status=' + putBad.__state.status);
+    const putUnknown = await runPut('/wallpaper-engine/scene-frame-cache/not-a-real-token', gpuPng);
+    check('PUT unknown token → 404', putUnknown.__state.status === 404, 'status=' + putUnknown.__state.status);
+    const headUnknown = await runHead('/wallpaper-engine/scene-frame/not-a-real-token');
+    check('HEAD unknown token → 404', headUnknown.__state.status === 404, 'status=' + headUnknown.__state.status);
+    // HEAD 契约（评审指出的盲区）：空槽 → 404，且纯探测绝不写盘。
+    await runClear('/wallpaper-engine/scene-frame-cache/' + token);
+    for (const ext of ['png', 'jpg', 'gif']) { rmSync(join(cacheDir, curKey + '.' + ext), { force: true }); }
+    const before = readdirSync(cacheDir).length;
+    const headEmpty = await runHead('/wallpaper-engine/scene-frame/' + token);
+    check('HEAD 空槽 → 404（纯探测不触发提取）', headEmpty.__state.status === 404, 'status=' + headEmpty.__state.status);
+    check('HEAD 空槽未写盘（文件数不变）', readdirSync(cacheDir).length === before,
+      before + ' → ' + readdirSync(cacheDir).length);
+  }
 }
 
 // C: error paths
 {
   const res = await runHandler(sceneRoute, '/wallpaper-engine/scene-frame/not-a-real-token');
   check('unknown token → 404', res.__state.status === 404, 'status=' + res.__state.status);
+}
+
+// D: 真 socket 端到端 —— 错误应答必须真的送到客户端。
+// mock res 无法暴露「res.end() 后立刻 req.destroy() 会丢掉写缓冲」这类问题
+//（评审实测：33MB 超限请求客户端只拿到 ECONNRESET 而不是 413），所以这里起
+// 一个真 http server，按框架语义（最长前缀优先）分发到同一个 handler。
+if (token) {
+  const http = await import('node:http');
+  const routesForHttp = routes.filter((r) => r.path.startsWith('/wallpaper-engine/'));
+  const server = http.createServer((req, res) => {
+    const path = new URL(req.url || '/', 'http://x').pathname;
+    const hit = routesForHttp
+      .filter((r) => path === r.path || path.startsWith(r.path + '/'))
+      .sort((a, b) => b.path.length - a.path.length)[0];
+    if (!hit) { res.statusCode = 404; res.end('no route'); return; }
+    try { hit.handler(req, res); } catch (err) { res.statusCode = 500; res.end(String(err)); }
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const port = server.address().port;
+  const sendOver = (method, path, body) => new Promise((resolveFn) => {
+    // agent:false + Connection:close —— 413 路径会主动断开连接（设计如此），
+    // 复用 keep-alive 套接字会让后续请求假性 ECONNRESET。
+    const req = http.request({
+      host: '127.0.0.1', port, method, path, agent: false,
+      headers: { 'Content-Type': 'image/png', Connection: 'close' },
+    }, (res) => {
+      res.resume();
+      res.on('end', () => resolveFn({ status: res.statusCode }));
+      res.on('close', () => resolveFn({ status: res.statusCode }));
+    });
+    // 连接被对端掐断（旧实现的症状）→ 状态记 0，便于断言区分。
+    req.on('error', () => resolveFn({ status: 0 }));
+    if (body) req.write(body);
+    req.end();
+  });
+  const overLimit = await sendOver('PUT', '/wallpaper-engine/scene-frame-cache/' + token, Buffer.alloc(33 * 1024 * 1024, 5));
+  check('真 socket：超限 PUT 收到 413（而不是连接被掐断）', overLimit.status === 413, 'status=' + overLimit.status);
+  const badBody = await sendOver('PUT', '/wallpaper-engine/scene-frame-cache/' + token, Buffer.from('not-an-image'));
+  check('真 socket：非法载荷收到 415', badBody.status === 415, 'status=' + badBody.status);
+  const cleared = await sendOver('DELETE', '/wallpaper-engine/scene-frame-cache/' + token);
+  check('真 socket：DELETE 清除通道可达', cleared.status === 200, 'status=' + cleared.status);
+  const headOver = await new Promise((resolveFn) => {
+    const req = http.request({ host: '127.0.0.1', port, method: 'HEAD', path: '/wallpaper-engine/scene-frame/' + token }, (res) => {
+      res.resume();
+      resolveFn({ status: res.statusCode, gpu: res.headers['x-we-gpu'] });
+    });
+    req.on('error', () => resolveFn({ status: 0 }));
+    req.end();
+  });
+  check('真 socket：HEAD 探测可达且报 X-WE-GPU', headOver.status === 204 || headOver.status === 404,
+    'status=' + headOver.status + ' gpu=' + headOver.gpu);
+  await new Promise((r) => server.close(r));
 }
 if (typeof dispose === 'function') dispose();
 delete process.env.DSH_WE_STEAM_ROOT;

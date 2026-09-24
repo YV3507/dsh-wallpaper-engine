@@ -22,6 +22,15 @@ const React = {
 
 let byId = {};
 const rotationTimers = [];
+const sceneFrameHeadCalls = [];
+const sceneFrameDeleteCalls = [];
+// CPU scene-anim 后台渲染的探针：queueSceneAnimUpgrade 建的 <video>.src 指向
+// /scene-anim/<token>?fmt=mp4 —— 它出现就代表「CPU 渲染真的启动了」。
+const animProbeSrcs = [];
+// 同一个 src 赋值也记录**元素**：用于区分「探测视频」与「上屏的层内视频」
+// （层内视频的 _parent 是 LAYER_ID 那个层节点）。
+const animVideoEls = [];
+const imgEls = [];
 function makeEl(tag) {
   return {
     tagName: tag.toUpperCase(),
@@ -40,7 +49,28 @@ function makeEl(tag) {
 
 const bodyEl = makeEl("body");
 const document = {
-  createElement: (t) => makeEl(t),
+  createElement: (t) => {
+    const el = makeEl(t);
+    if (t === 'video') {
+      let _src = '';
+      Object.defineProperty(el, 'src', {
+        get: () => _src,
+        set: (v) => {
+          _src = String(v || '');
+          if (_src.includes('/scene-anim/')) { animProbeSrcs.push(_src); animVideoEls.push({ el, src: _src }); }
+        },
+      });
+    }
+    if (t === 'img') {
+      // 静态帧层（buildMedia 的 img 分支）的 src：用于锁定「回退静态帧必须带画面档位」。
+      let _src = '';
+      Object.defineProperty(el, 'src', {
+        get: () => _src,
+        set: (v) => { _src = String(v || ''); imgEls.push({ el, src: _src }); },
+      });
+    }
+    return el;
+  },
   getElementById: (id) => byId[id] || null,
   querySelector: () => null,
   // makeEl so injected <style id="we-font-patch"/"we-caret-patch"> elements are
@@ -59,17 +89,55 @@ const localStorage = {
     rotationGroups: [
       { id: 'g1', name: 'My list', interval: 5, order: 'sequence', wallpaperIds: ['a', 'b'] },
     ],
+    // 打开实验性场景动画：CPU scene-anim 升级路径必须被走到，才能验证
+    // 「槽位已有 GPU 帧 → 不跑 CPU 渲染」这条门禁。
+    betaSceneAnim: true,
+    // 场景 C 记着画面档位 3：锁定「回退静态帧必须按该壁纸记住的档位加载」。
+    frameVariants: { c: 3 },
   }) },
   getItem(k) { return this._store[k] ?? null; },
   setItem(k, v) { this._store[k] = v; },
   removeItem(k) { delete this._store[k]; },
 };
-const fetch = (url) => {
+// 槽位是否已有 GPU 抓帧（场景 C）：DELETE 后翻假，模拟真宿主的磁盘状态。
+let cccGpuPinned = true;
+// P2-L：宿主 unlink 失败时回 200 + removed:false（文件其实还在磁盘上）。
+let cccClearUnlinkFails = false;
+const fetch = (url, opts) => {
+  const u = String(url);
+  const method = (opts && opts.method) || 'GET';
+  // GPU 抓帧缓存的 HEAD 探测 / DELETE 清除（面板提示与清除入口）：
+  // 场景 C（/scene-frame/ccc）假装缓存里已有 _gpu.png。
+  if (method === 'HEAD') {
+    sceneFrameHeadCalls.push(u);
+    return Promise.resolve({
+      ok: true, status: 204,
+      headers: { get: (k) => (String(k).toLowerCase() === 'x-we-gpu'
+        ? (u.includes('/scene-frame/ccc') && cccGpuPinned ? '1' : '0') : null) },
+    });
+  }
+  if (method === 'DELETE') {
+    sceneFrameDeleteCalls.push(u);
+    if (cccClearUnlinkFails) {
+      return Promise.resolve({
+        ok: true, status: 200,
+        json: () => Promise.resolve({ ok: true, removed: false, error: 'unlink-failed' }),
+      });
+    }
+    // 真宿主语义：DELETE 删掉 <key>_gpu.png → 之后 HEAD 回到 X-WE-GPU=0。
+    if (u.includes('/scene-frame-cache/ccc')) cccGpuPinned = false;
+    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true, removed: true }) });
+  }
+  // scene-anim 进度轮询：直接报 100% → 触发「渲染完成切换」主动路径
+  //（trySwitch）。修复前该判定的全等比较在这些情形下恒不成立，产物永不上屏。
+  if (u.includes('/scene-anim-progress/')) {
+    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ percent: 100 }) });
+  }
   // Route the settings GET: host reports dsh-better-sidebar as installed +
   // enabled (→ the 侧栏玻璃 control group must render), while keeping settings
   // empty so loadPersisted takes the "host has nothing yet → migrate the
   // localStorage seed" path the rest of the harness relies on.
-  if (String(url).includes('/wallpaper-engine/settings')) {
+  if (u.includes('/wallpaper-engine/settings')) {
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true, betterSidebar: true }) });
   }
   return Promise.resolve({
@@ -98,7 +166,8 @@ const fetch = (url) => {
   });
 };
 
-const code = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8');
+// 变异测试钩子：默认读构建产物，DSH_MUT_LIB 指向变异副本时读它。
+const code = readFileSync(process.env.DSH_MUT_LIB || new URL('../lib/client.js', import.meta.url), 'utf8');
 const independentSidebarSelector = 'body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_panel"]';
 const wallpaperGatedSidebarSelector = 'body[data-we-sidebar-glass][data-we-wallpaper] [data-dsh-better-sidebar]';
 assert.ok(code.includes(independentSidebarSelector), 'sidebar glass must not require an active wallpaper');
@@ -121,7 +190,31 @@ const sandbox = {
     clearTimeout: (token) => { if (token) token.cleared = true; },
   },
   document, localStorage, fetch, React,
+  // 浏览器里裸 setTimeout/setInterval 就是 window 上的 —— 沙箱必须同样提供：
+  // 只用裸全局的代码路径（scene-anim 进度轮询、live 心跳）否则会静默抛错，
+  // 让「CPU 渲染是否启动」这类断言变成假绿。
+  setTimeout: (fn, ms) => {
+    const token = { fn, ms, cleared: false };
+    rotationTimers.push(token);
+    return token;
+  },
+  clearTimeout: (token) => { if (token) token.cleared = true; },
+  setInterval: (fn, ms) => {
+    const token = { fn, ms, cleared: false, interval: true };
+    rotationTimers.push(token);
+    return token;
+  },
+  clearInterval: (token) => { if (token) token.cleared = true; },
 };
+// 可控时钟：「帧率上限」按钮只有走到门禁的**冷缓存**分支（probeGpuFramePin 的
+// 30s TTL 过期）才能被行为断言测出是否真的走了门禁 —— 否则按钮路径与「选壁纸」
+// 路径共用同一条 gpuFramePins 缓存命中，改回直调也照样绿。
+const RealDate = Date;
+let nowOffset = 0;
+const FakeDate = function (...a) { return a.length ? new RealDate(...a) : new RealDate(RealDate.now() + nowOffset); };
+FakeDate.now = () => RealDate.now() + nowOffset;
+FakeDate.parse = RealDate.parse; FakeDate.UTC = RealDate.UTC; FakeDate.prototype = RealDate.prototype;
+sandbox.Date = FakeDate;
 vm.createContext(sandbox);
 new vm.Script(code, { filename: 'client.js' }).runInContext(sandbox);
 
@@ -158,7 +251,7 @@ console.log('section id:', sectionReg ? sectionReg.id : '(missing)');
 console.log('section label:', sectionReg ? sectionReg.label : '(missing)');
 console.log('no longer registered as general item:', !registrations.some((r) => r.key === 'settings.general.item'));
 
-setTimeout(() => {
+setTimeout(async () => {
   console.log('body children ids:', JSON.stringify(bodyEl.children.map((c) => c.id)));
   console.log('has wallpaper layer:', !!document.getElementById('dsh-wallpaper-engine-layer'));
   console.log('has scrim:', !!document.getElementById('dsh-wallpaper-engine-scrim'));
@@ -175,15 +268,53 @@ setTimeout(() => {
   console.log('--we-glass-alpha:', JSON.stringify(p['--we-glass-alpha']));
   console.log('--we-glass-color:', JSON.stringify(p['--we-glass-color']));
   console.log('body[data-we-glass-window] (default on):', JSON.stringify(bodyEl.attributes['data-we-glass-window']));
-  const timer = rotationTimers.find((item) => !item.cleared);
-  console.log('rotation timer scheduled:', !!timer, timer ? timer.ms : null);
-  if (timer) {
-    timer.fn();
-    console.log('rotation next id:', JSON.parse(localStorage._store['dsh-wallpaper-engine:selection']).id);
-    const wrapTimer = rotationTimers.find((item) => !item.cleared);
-    if (wrapTimer) {
-      wrapTimer.fn();
-      console.log('rotation wraps to id:', JSON.parse(localStorage._store['dsh-wallpaper-engine:selection']).id);
+  // ── 轮换「就绪后切换 + 渐变」断言 ─────────────────────────────────
+  // mock 环境无 addEventListener/Image → 准备管线特性探测失败即同步直通提交。
+  // 按 5 分钟（300000ms）定位真正的轮换定时器，绕开 persist 防抖的 200ms
+  // 定时器；提交结果同步看新层 dataset.weKey（含 selection.url），持久化
+  // 需再手动 flush 200ms 的 persist 写。
+  // 断言走 assert.ok：任何一条不成立 → 非零退出（评审指出此前全是
+  // console.log，把轮换打回元素级领养也能 exit 0）。
+  const rotCheck = (label, cond) => { assert.ok(cond, label); console.log('  ✓ ' + label); };
+  const flushPersistWrites = () => {
+    for (const t of rotationTimers.filter((item) => !item.cleared && !item.fired && item.ms === 200)) {
+      t.fired = true;
+      try { t.fn(); } catch (e) { console.log('persist flush threw:', e && e.message); }
+    }
+  };
+  const findRotTimer = () => rotationTimers.find((item) => !item.cleared && !item.fired && item.ms === 5 * 60 * 1000);
+  const fireRot = (t) => { t.fired = true; t.fn(); };
+  const preLayer = document.getElementById('dsh-wallpaper-engine-layer');
+  const rotTimer = findRotTimer();
+  rotCheck('rotation timer scheduled (5min)', !!rotTimer);
+  if (rotTimer) {
+    fireRot(rotTimer); // a → b（直通提交）
+    const postLayer = document.getElementById('dsh-wallpaper-engine-layer');
+    const weKey1 = postLayer && postLayer.dataset ? postLayer.dataset.weKey : '';
+    rotCheck('rotation prepare: ready-commit switches layer to next (b/media/def)',
+      !!postLayer && postLayer !== preLayer && weKey1.indexOf('/wallpaper-engine/media/def') !== -1);
+    rotCheck('rotation fade: old layer marked weFading', !!preLayer && preLayer.dataset.weFading === '1');
+    rotCheck('rotation fade: old layer yielded LAYER_ID', !!preLayer && preLayer.id === '');
+    rotCheck('rotation fade: new layer carries fadein classes', !!postLayer
+      && postLayer.className.indexOf('we-layer--fadein') !== -1
+      && postLayer.className.indexOf('we-layer--fadein-on') !== -1);
+    flushPersistWrites();
+    rotCheck('rotation prepare: commit persisted (id b)',
+      JSON.parse(localStorage._store['dsh-wallpaper-engine:selection']).id === 'b');
+    // 第二次 fire（wrap）：上一份 fading 层被即时退役，选择绕回 a。
+    const rotTimer2 = findRotTimer();
+    rotCheck('rotation prepare: timer re-armed after commit', !!rotTimer2);
+    if (rotTimer2) {
+      fireRot(rotTimer2);
+      const layer2 = document.getElementById('dsh-wallpaper-engine-layer');
+      const weKey2 = layer2 && layer2.dataset ? layer2.dataset.weKey : '';
+      rotCheck('rotation prepare: second ready-commit wraps (a/media/xyz)',
+        !!layer2 && layer2 !== postLayer && weKey2.indexOf('/wallpaper-engine/media/xyz') !== -1);
+      rotCheck('rotation fade: second switch also fades', !!layer2
+        && layer2.className.indexOf('we-layer--fadein') !== -1);
+      rotCheck('rotation fade: previous fading layer retired immediately',
+        bodyEl.children.indexOf(preLayer) === -1);
+      flushPersistWrites();
     }
   }
   console.log('picker renders:', pickerRenders.length > 0);
@@ -490,6 +621,221 @@ setTimeout(() => {
     assert.equal(typeof p['--we-sidebar-alpha'], 'string', 'sidebar alpha variable must remain available');
     assert.equal(typeof p['--we-sidebar-blur'], 'string', 'sidebar blur variable must remain available');
     console.log('sidebar glass remains armed without an active wallpaper: true');
+  }
+
+  // ── GPU 抓帧缓存：状态提示 + 清除入口（面板）──────────────────────────
+  // 按用户决策：_gpu.png 存在时优先于「壁纸画面刷新」全部档位，所以切档位
+  // 的前置动作是先清除。这里验证完整链路：选中场景 → HEAD 探测 → 面板出现
+  // 「清除 GPU 帧」→ 点击 → DELETE 打到 host → 提示行消失。
+  {
+    // 与上文 setTab 同款：mock 的 useState 每次渲染都取 initializer，
+    // 重新种 localStorage 再渲染即可确定性地切到目标 tab。
+    // 「画面」section（壁纸画面刷新 + GPU 帧行）在「效果」tab 里。
+    localStorage.setItem('dsh-wallpaper-engine:picker-tab', 'effects');
+    assert.ok(pickerRenders.length > 0, 'picker render 回调必须已注册');
+    // 等 boot 的 promise 链（loadPersisted → loadInventory →
+    // revalidateSelection）全部落定：它会按持久化 id 覆盖选择。
+    await new Promise((r) => setTimeout(r, 80));
+    const renderPicker = () => {
+      try { return pickerRenders[0](); } catch (e) { console.log('picker render threw:', e && e.message); return null; }
+    };
+    const reopenPicker = () => {
+      let tree2 = renderPicker();
+      const openBtn = [];
+      (function walk(node) {
+        if (Array.isArray(node)) { node.forEach(walk); return; }
+        if (!node || typeof node !== 'object') return;
+        const cls = typeof node.props?.className === 'string' ? node.props.className : '';
+        if (cls.includes('we-picker__btn') && Array.isArray(node.children) && node.children.length === 1
+          && node.children[0] === '选择壁纸') openBtn.push(node);
+        if (Array.isArray(node.children)) node.children.forEach(walk);
+      })(tree2);
+      if (openBtn.length) { try { openBtn[0].props.onClick(); } catch { /* ignore */ } }
+      return renderPicker();
+    };
+    const findBtn = (root, label) => {
+      let hit = null;
+      (function walk(node) {
+        if (Array.isArray(node)) { node.forEach(walk); return; }
+        if (!node || typeof node !== 'object') return;
+        const cls = typeof node.props?.className === 'string' ? node.props.className : '';
+        if (cls.includes('we-picker__btn') && Array.isArray(node.children) && node.children.length === 1
+          && node.children[0] === label) hit = node;
+        if (Array.isArray(node.children)) node.children.forEach(walk);
+      })(root);
+      return hit;
+    };
+    const findCard = (root, text) => {
+      const cards = [];
+      (function walk(node) {
+        if (Array.isArray(node)) { node.forEach(walk); return; }
+        if (!node || typeof node !== 'object') return;
+        const cls = typeof node.props?.className === 'string' ? node.props.className : '';
+        if (cls === 'we-picker__card' || cls.startsWith('we-picker__card ')) cards.push(node);
+        if (Array.isArray(node.children)) node.children.forEach(walk);
+      })(root);
+      return cards.find((card) => JSON.stringify(card).includes(text));
+    };
+    let tree3 = reopenPicker();
+    // 场景 C 落在第 2 页（上文翻页后 sel.page 就停在那里）——若不在，翻页找。
+    let sceneCard = findCard(tree3, 'Scene C');
+    for (let i = 0; i < 4 && !sceneCard; i++) {
+      const next = findBtn(tree3, '下一页 ›');
+      if (!next || next.props.disabled) break;
+      next.props.onClick();
+      tree3 = reopenPicker();
+      sceneCard = findCard(tree3, 'Scene C');
+    }
+    assert.ok(sceneCard && typeof sceneCard.props.onClick === 'function', 'scene C card must be clickable');
+    sceneCard.props.onClick(); // 选中场景壁纸 → syncLayers → HEAD 探测
+    await new Promise((r) => setTimeout(r, 20)); // 等 HEAD 探测的 promise 回来
+    // 「画面」section（含 GPU 提示行）在 tab 面板里，模态框只渲染网格 →
+    // 选中后关掉模态框再断言（模态框关闭按钮文案恰为「关闭」）。
+    const modalClose = findBtn(renderPicker(), '关闭');
+    assert.ok(modalClose, '模态框应有「关闭」按钮');
+    modalClose.props.onClick();
+    assert.ok(sceneFrameHeadCalls.some((u) => u.includes('/scene-frame/ccc')),
+      '选中场景壁纸后必须 HEAD 探测 GPU 帧状态（面板据此提示）');
+    tree3 = renderPicker(); // 模态框已关：此时渲染的是 tab 面板（含「画面」section）
+    assert.ok(JSON.stringify(tree3).includes('壁纸画面刷新'), '选中场景壁纸后面板应出现「壁纸画面刷新」行');
+    assert.equal(animProbeSrcs.length, 0,
+      '槽位已有 GPU 帧时不得启动 CPU scene-anim 渲染（分钟级 CPU 渲染会把 GPU 帧覆盖掉）');
+    const clearBtn = findBtn(tree3, '清除 GPU 帧');
+    assert.ok(clearBtn, 'HEAD 报 X-WE-GPU=1 时面板必须给出「清除 GPU 帧」入口');
+    // ── P2-L：宿主回 200 但 removed:false（unlink 失败）时不得当清除成功 ──
+    // 只判 r.ok 会把「假成功」当清除：面板行消失、提示已清除，而宿主照旧发 GPU
+    // 帧 —— 画面纹丝不动、档位怎么点都不变、且没有任何反馈。
+    cccClearUnlinkFails = true;
+    const probesBeforeFail = animProbeSrcs.length;
+    clearBtn.props.onClick();
+    await new Promise((r) => setTimeout(r, 40));
+    tree3 = renderPicker();
+    assert.ok(findBtn(tree3, '清除 GPU 帧'),
+      'P2-L：宿主回 200 + removed:false 时必须保留清除入口（不得当清除成功）');
+    assert.ok(JSON.stringify(tree3).includes('清除失败'),
+      'P2-L：清除失败必须给出提示，而不是静默显示成功');
+    assert.equal(animProbeSrcs.slice(probesBeforeFail).length, 0,
+      'P2-L：没真删掉就不能恢复 CPU 渲染（否则与仍在生效的 GPU 帧叠加）');
+    cccClearUnlinkFails = false;
+    const clearBtn2 = findBtn(renderPicker(), '清除 GPU 帧');
+    assert.ok(clearBtn2, 'P2-L：失败后必须还能重试清除');
+    clearBtn2.props.onClick();
+    await new Promise((r) => setTimeout(r, 40)); // 等 DELETE + 清除后的 HEAD 判据回来
+    assert.ok(sceneFrameDeleteCalls.some((u) => u.includes('/scene-frame-cache/ccc')),
+      '点击清除必须 DELETE /scene-frame-cache/<token>');
+    tree3 = renderPicker();
+    assert.ok(!findBtn(tree3, '清除 GPU 帧'), '清除成功后提示行必须消失');
+    assert.ok(animProbeSrcs.some((s2) => s2.includes('/scene-anim/ccc')),
+      '清除 GPU 帧后 CPU 渲染必须恢复启动（面板提示「换回 CPU 生成的画面」的兑现点）');
+    console.log('GPU 帧提示 + 清除入口链路: ok');
+    console.log('GPU 帧优先于 CPU 渲染（门禁 + 清除后恢复）: ok');
+
+    // ── 帧率档位（fpsCap）路径 ────────────────────────────────────────────
+    // 两条要求：① 这条路径也必须走「槽位有 GPU 帧就不跑 CPU 渲染」的门禁
+    // （此前它是唯一旁路：直调 queueSceneAnimUpgrade）；② 重渲染的产物必须真的
+    // 上屏（原 trySwitch 的 `selection.url === frameUrl` 全等判定在这些情形下
+    // 恒不成立 → 点一次档位只是白烧一次分钟级 CPU 渲染，画面纹丝不动）。
+    const fireProgress = async () => {
+      const tk = rotationTimers.filter((x) => x && !x.cleared && x.ms === 1500).pop();
+      if (tk && typeof tk.fn === 'function') tk.fn();
+      await new Promise((r) => setTimeout(r, 30));
+      return tk;
+    };
+    const layerAnimSrcs = () => animVideoEls
+      .filter((e) => e.el && e.el._parent && e.el._parent.id === 'dsh-wallpaper-engine-layer')
+      .map((e) => e.src);
+
+    // ① 首次 CPU 渲染完成 → 画面切到 /scene-anim/（此后「帧率上限」行才可见）
+    assert.ok(await fireProgress(), 'CPU 渲染启动后必须武装 1500ms 进度轮询');
+    assert.ok(layerAnimSrcs().some((s) => s.includes('/scene-anim/ccc') && s.includes('fps=12')),
+      '进度 100% 后层内视频必须换成 scene-anim 动画（默认 12fps）');
+
+    // ② 点「帧率上限 24fps」→ 必须启动新帧率的 CPU 渲染
+    tree3 = renderPicker();
+    const fpsBtn = findBtn(tree3, '24fps');
+    assert.ok(fpsBtn, '当前画面已是 scene-anim 时必须渲染「帧率上限」控件');
+    const probesBefore = animProbeSrcs.length;
+    fpsBtn.props.onClick();
+    await new Promise((r) => setTimeout(r, 30)); // 等门禁探测的 promise 回来
+    assert.ok(animProbeSrcs.slice(probesBefore).some((s) => s.includes('/scene-anim/ccc') && s.includes('fps=24')),
+      '点「帧率上限」必须按新帧率启动 CPU 渲染');
+
+    // ③ 产物必须上屏（按基路径判定）
+    await fireProgress();
+    assert.ok(layerAnimSrcs().some((s) => s.includes('/scene-anim/ccc') && s.includes('fps=24')),
+      '重渲染完成后层必须切到新帧率的动画（否则这次点击只是白烧一次渲染）');
+    console.log('帧率档位：产物上屏 + 走门禁: ok');
+
+    // ④ 旁路不得回来：queueSceneAnimUpgrade 只允许「定义」+「门禁内部」两处。
+    const directCalls = [];
+    code.split('\n').forEach((line, i) => {
+      if (/[^\w.]queueSceneAnimUpgrade\(/.test(line)) directCalls.push(i + 1);
+    });
+    assert.equal(directCalls.length, 2,
+      'queueSceneAnimUpgrade 只允许函数定义 + maybeQueueSceneAnimUpgrade 内部各一处（fps 档位按钮不得直调），实际行: ' + directCalls.join(','));
+
+    // ⑤ 抓帧回填落地必须校验「发起时那张壁纸」，不得把状态记到当前壁纸头上。
+    assert.ok(code.includes('if (String(selection.id || "") !== backfillWid) return;'),
+      'GPU 抓帧回填落地必须校验壁纸身份（否则切走后会给新壁纸误标「已有 GPU 帧」）');
+
+    // ⑥ 行为级：按钮路径必须真的走门禁（④ 只是源码级 lint，改坏行为保留字符串即可绿）。
+    // 把判据缓存熬过 30s TTL → 冷缓存 → 真 HEAD 报 pinned → 点档位必须被拒。
+    cccGpuPinned = true;  // 槽位又有 GPU 抓帧（例如 live 抓帧回填刚写入）
+    nowOffset += 31000;   // 跨过 probeGpuFramePin 的 30s TTL
+    tree3 = renderPicker();
+    const fps30 = findBtn(tree3, '30fps');
+    assert.ok(fps30, '画面已是 scene-anim 时必须渲染「帧率上限」控件（30fps 档）');
+    const probes3 = animProbeSrcs.length;
+    fps30.props.onClick();
+    await new Promise((r) => setTimeout(r, 60)); // 等门禁 HEAD 探测的 promise 回来
+    assert.equal(animProbeSrcs.slice(probes3).filter((s2) => s2.includes('/scene-anim/ccc')).length, 0,
+      '槽位已有 GPU 帧时点「帧率上限」不得启动 CPU 渲染（面板按钮必须走同一道门禁）');
+    // P4-②：拒绝必须解释 —— 否则用户只看到 chip 高亮变化、画面没动、没有任何提示。
+    assert.ok(JSON.stringify(renderPicker()).includes('改档位不会重新渲染'),
+      'P4-②：门禁拒绝档位改动时面板必须解释（chip 高亮 ≠ 画面帧率，且需指引清除）');
+    console.log('帧率按钮走门禁（行为级）+ 拒绝时给出解释: ok');
+
+    // ⑦ 关「beta场景动画」回退静态帧时必须按该壁纸记住的档位（?v=3）—— 否则画面掉回
+    // 档位 0 而面板标签仍显示记着的档位，与 A2 是同一条「读数 = 画面」不变量。
+    const layerImgSrcs = () => imgEls
+      .filter((e) => e.el && e.el._parent && e.el._parent.id === 'dsh-wallpaper-engine-layer')
+      .map((e) => e.src);
+    // 本地版 findCtlInput（另一段 if 块里的同名 helper 不在本作用域）：
+    // 找到提到该文字的 .we-picker__ctl 行，再取行内带 onChange 的 input。
+    const switchInput = (root, text) => {
+      let row = null;
+      (function walk(node) {
+        if (row || !node || typeof node !== 'object') return;
+        if (Array.isArray(node)) { node.forEach(walk); return; }
+        const cls = typeof node.props?.className === 'string' ? node.props.className : '';
+        if (cls.includes('we-picker__ctl') && JSON.stringify(node).includes(text)) { row = node; return; }
+        if (Array.isArray(node.children)) node.children.forEach(walk);
+      })(root);
+      let hit = null;
+      (function find(node) {
+        if (hit || !node || typeof node !== 'object') return;
+        if (Array.isArray(node)) { node.forEach(find); return; }
+        if (node.type === 'input' && node.props && typeof node.props.onChange === 'function') { hit = node; return; }
+        if (Array.isArray(node.children)) node.children.forEach(find);
+      })(row);
+      return hit;
+    };
+    tree3 = renderPicker();
+    const betaInput = switchInput(tree3, 'beta场景动画');
+    assert.ok(betaInput && typeof betaInput.props.onChange === 'function',
+      '面板必须有「beta场景动画」开关（回退静态帧路径的入口）');
+    betaInput.props.onChange({ target: { checked: false } });
+    await new Promise((r) => setTimeout(r, 30));
+    // 判据用层的 weKey（它含 selection.url）：静态帧的 img 可能来自准备槽（src 由
+    // prepareSceneStaticStage 决定），所以只有 weKey 能反映回退时写进 selection.url
+    // 的档位 —— 而「selection.url 必须等于 frameUrlWithVariant(frameUrl, 档位)」正是
+    // A2 那条不变量（面板标签读的也是 frameVariants）。
+    const layerKey = (document.getElementById('dsh-wallpaper-engine-layer') || {}).dataset?.weKey || '';
+    assert.ok(String(layerKey).includes('/scene-frame/ccc') && String(layerKey).includes('v=3'),
+      '关 beta 回退静态帧必须按该壁纸记住的档位（?v=3）—— 否则画面掉回档位 0 而面板'
+        + '标签仍显示记着的档位。层 weKey: ' + String(layerKey).slice(-90)
+        + ' / img: ' + JSON.stringify(layerImgSrcs().slice(-2)));
+    console.log('关 beta 回退静态帧按档位: ok');
   }
   console.log('effects ran:', effects.length);
   console.log('\nALL CLIENT CHECKS DONE');

@@ -538,6 +538,8 @@ Rotation runs over **user-defined carousel lists** (the 自动轮播 group in th
 
 At least two playable Video/Web wallpapers per list are required; manual changes reset the next timer; each list keeps its own cadence, so you can have one list switching every 5 minutes and another every 30. On first run, the first playable Wallpaper Engine playlist is imported automatically as a list so the feature works out of the box; **从 WE 播放列表导入** inside the editor imports any other playlist into the list being edited. Application wallpapers cannot be embedded in the web UI, so they are automatically excluded from rotation and hidden from the picker.
 
+Rotation switches only when the next wallpaper is **fully ready**: at switch time the next candidate is prepared in the background (live renderer first frame / static-frame extraction / video canplay / image decode) while the current wallpaper keeps playing; the commit then cross-fades old and new layers over 1.2s, so the new layer is alive on arrival with no black flash. A candidate that fails to prepare (e.g. a 404 video) is skipped in a bounded chain to the next one. For development/smoke testing, `localStorage.weRotationTestSec` (seconds) temporarily shortens the rotation interval.
+
 ### Liquid-glass appearance (whole settings window + accent + transparency)
 
 The **外观** (appearance) tab controls the look

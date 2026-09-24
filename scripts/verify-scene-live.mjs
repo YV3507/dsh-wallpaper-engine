@@ -43,6 +43,11 @@ process.env.DSH_WE_UPLOAD_DIR = TEST_UPLOAD_DIR;
 // 这条链路，绝不能碰用户真实的那份（pluginDataDir 认这个变量，不设时行为不变）。
 const TEST_DATA_DIR = join(TEST_CACHE_DIR, 'data');
 process.env.DSH_WE_DATA_DIR = TEST_DATA_DIR;
+// POSIX 读 $HOME、Windows 读 %USERPROFILE%，两个都覆盖。
+const TEST_HOME = join(TEST_CACHE_DIR, 'home');
+mkdirSync(TEST_HOME, { recursive: true });
+process.env.HOME = TEST_HOME;
+process.env.USERPROFILE = TEST_HOME;
 
 /** Minimal PKGV writer (raw entries) — mirrors the synthetic builder in
  *  verify-scene.mjs so the static-frame extractor has something real to chew on. */
@@ -783,12 +788,136 @@ check('renderer diagnostics also accepted at ${BASE}/diag', hostSrc.includes('pa
 check('uploads scan tags project dirs with up-dir- prefix', /id: `up-dir-\$\{name\}`/.test(hostSrc));
 check('uploads scan resolves scene.pkg for declared scene.json', /resolveSceneMainFileP\(abs, proj\.file\)/.test(hostSrc));
 
+// ── Level E: WE 官方素材（local-assets）端点 + 目录设置 ─────────────────────
+// 契约对齐上游 renderer/src/local-assets.ts 的四种请求形；素材 fixture 是
+// 合成字节（端点不解析 .tex，只透传字节）。
+console.log('Level E — WE local-assets endpoint + assets-dir setting');
+const weAssetsFixture = join(TEST_CACHE_DIR, 'we-assets');
+rmSync(weAssetsFixture, { recursive: true, force: true });
+mkdirSync(join(weAssetsFixture, 'materials', 'util'), { recursive: true });
+mkdirSync(join(weAssetsFixture, 'materials', 'particle'), { recursive: true });
+mkdirSync(join(weAssetsFixture, 'materials', 'gradient'), { recursive: true });
+mkdirSync(join(weAssetsFixture, 'fonts'), { recursive: true });
+const NOISE_BYTES = Buffer.from('synthetic-util-noise-tex-bytes');
+writeFileSync(join(weAssetsFixture, 'materials', 'util', 'noise.tex'), NOISE_BYTES);
+writeFileSync(join(weAssetsFixture, 'materials', 'particle', 'halo.tex'), Buffer.from('synthetic-halo'));
+writeFileSync(join(weAssetsFixture, 'materials', 'gradient', 'gradient_0.tex'), Buffer.from('synthetic-gradient'));
+const FONT_BYTES = Buffer.from('synthetic-font-bytes');
+writeFileSync(join(weAssetsFixture, 'fonts', 'NotoSans.ttf'), FONT_BYTES);
+
+const laRoute = routes.find((r) => r.path === '/api/local-assets');
+const weDirRoute = routes.find((r) => r.path === '/wallpaper-engine/we-assets-dir');
+check('/api/local-assets route registered as prefix', Boolean(laRoute) && laRoute.kind === 'prefix',
+  laRoute ? 'kind=' + laRoute.kind : 'missing');
+check('we-assets-dir route registered', Boolean(weDirRoute) && weDirRoute.kind === 'exact');
+
+function fakePostReq(url, body) {
+  const listeners = {};
+  const req = {
+    url, method: 'POST', headers: {},
+    on(ev, fn) { (listeners[ev] = listeners[ev] || []).push(fn); return req; },
+  };
+  queueMicrotask(() => {
+    for (const fn of listeners.data || []) fn(Buffer.from(body));
+    for (const fn of listeners.end || []) fn();
+  });
+  return req;
+}
+async function postJson(route, url, obj) {
+  const res = fakeRes();
+  const done = route.handler(fakePostReq(url, JSON.stringify(obj)), res);
+  if (done && typeof done.then === 'function') await done;
+  if (!res.__state.ended) {
+    await new Promise((resolveFn) => {
+      const t = setTimeout(resolveFn, 8000);
+      res.on('finish', () => { clearTimeout(t); resolveFn(); });
+    });
+  }
+  return res;
+}
+
+if (laRoute && weDirRoute) {
+  // 未配置素材：探测 ok:false（渲染页静默回落，不是错误）。
+  const probe0 = await runHandler(laRoute, '/api/local-assets');
+  const probe0Body = JSON.parse(probe0.__state.body.toString('utf8'));
+  check('probe before configure → ok:false', probe0.__state.status === 200 && probe0Body.ok === false);
+
+  // POST 校验：不存在的目录 / 缺 materials/ 都 400。
+  const badPost = await postJson(weDirRoute, '/wallpaper-engine/we-assets-dir', { dir: join(TEST_CACHE_DIR, 'no-such-dir') });
+  check('POST with missing materials/ rejected', badPost.__state.status === 400,
+    'status=' + badPost.__state.status);
+  const relPost = await postJson(weDirRoute, '/wallpaper-engine/we-assets-dir', { dir: 'relative/path' });
+  check('POST with relative path rejected', relPost.__state.status === 400,
+    'status=' + relPost.__state.status);
+
+  // 配置合法素材目录 → available + 贴图计数。
+  const okPost = await postJson(weDirRoute, '/wallpaper-engine/we-assets-dir', { dir: weAssetsFixture });
+  const okBody = JSON.parse(okPost.__state.body.toString('utf8'));
+  check('POST valid assets dir accepted (with texture count)',
+    okPost.__state.status === 200 && okBody.available === true && okBody.textures === 3,
+    'status=' + okPost.__state.status + ' textures=' + okBody.textures);
+
+  const probe1 = await runHandler(laRoute, '/api/local-assets');
+  const probe1Body = JSON.parse(probe1.__state.body.toString('utf8'));
+  check('probe after configure → ok + roots[0].id=local',
+    probe1Body.ok === true && probe1Body.roots && probe1Body.roots[0] && probe1Body.roots[0].id === 'local');
+
+  const idxRes = await runHandler(laRoute, '/api/local-assets/local/materials/index.json');
+  const idxBody = JSON.parse(idxRes.__state.body.toString('utf8'));
+  check('materials index lists engine names (posix, ext stripped)',
+    Array.isArray(idxBody.names)
+      && idxBody.names.includes('util/noise')
+      && idxBody.names.includes('particle/halo')
+      && idxBody.names.includes('gradient/gradient_0'),
+    (idxBody.names || []).join(','));
+
+  const texRes = await runHandler(laRoute, '/api/local-assets/local/materials/util/noise.tex');
+  check('tex bytes served verbatim', texRes.__state.status === 200
+    && texRes.__state.body.equals(NOISE_BYTES), 'status=' + texRes.__state.status);
+
+  const fontRes = await runHandler(laRoute, '/api/local-assets/local/fonts/NotoSans.ttf');
+  check('arbitrary file served (fonts fallback path)', fontRes.__state.status === 200
+    && fontRes.__state.body.equals(FONT_BYTES), 'status=' + fontRes.__state.status);
+
+  // 安全与错误面：越界 → 403；未知素材源 → 404；缺失文件 → 404。
+  // 注意：%2e%2e 会被 WHATWG URL 解析器在 pathname 阶段直接归并掉（到不了
+  // 路由），真正能触达路径限定的是编码斜杠（..%2f 在 pathname 里保持编码，
+  // 经 decodeURIComponent 后才变成 '/'）—— 用后者测围栏。
+  const travRes = await runHandler(laRoute, '/api/local-assets/local/..%2f..%2fetc%2fpasswd');
+  check('encoded-slash traversal fenced (403)', travRes.__state.status === 403,
+    'status=' + travRes.__state.status);
+  const badIdRes = await runHandler(laRoute, '/api/local-assets/nope/materials/index.json');
+  check('unknown source id → 404', badIdRes.__state.status === 404, 'status=' + badIdRes.__state.status);
+  const missRes = await runHandler(laRoute, '/api/local-assets/local/materials/util/missing.tex');
+  check('missing file → 404', missRes.__state.status === 404, 'status=' + missRes.__state.status);
+
+  // 清除（空串）→ 探测回落 ok:false。
+  const clearPost = await postJson(weDirRoute, '/wallpaper-engine/we-assets-dir', { dir: '' });
+  const clearBody = JSON.parse(clearPost.__state.body.toString('utf8'));
+  check('POST empty dir clears the setting', clearPost.__state.status === 200 && clearBody.available === false);
+  const probe2 = await runHandler(laRoute, '/api/local-assets');
+  check('probe after clear → ok:false', JSON.parse(probe2.__state.body.toString('utf8')).ok === false);
+}
+
+// Level D 增补：local-assets 接线的静态契约（防重构丢线）。
+check('client gates localAssets=1 on inventory availability',
+  /weAssetsAvailable \? "&localAssets=1"/.test(src));
+check('syncLayers key carries local-assets availability',
+  /weAssetsAvailable \? "la1"/.test(src));
+check('client posts assets dir to host route',
+  /we-assets-dir/.test(src) && /function changeWeAssetsDir/.test(src));
+check('host inventory reports weAssets availability',
+  /weAssetsAvailable: weAssetsAvailable\(\)/.test(hostSrc));
+check('host fences local-assets file paths',
+  /未知素材源/.test(hostSrc) && /target\.startsWith\(root \+ sep\)/.test(hostSrc));
+
 // ── teardown ────────────────────────────────────────────────────────────────
 try { dispose && dispose(); } catch { /* ignore */ }
 delete process.env.DSH_WE_STEAM_ROOT;
 delete process.env.DSH_WE_UPLOAD_DIR;
 rmSync(fixtureRoot, { recursive: true, force: true });
 rmSync(TEST_UPLOAD_DIR, { recursive: true, force: true });
+rmSync(weAssetsFixture, { recursive: true, force: true });
 
 console.log('');
 if (failed > 0) {
