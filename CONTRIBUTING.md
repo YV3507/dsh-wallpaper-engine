@@ -114,9 +114,9 @@ node scripts/verify-scene.mjs   # 场景静态帧路由自检（含缓存断言�
 git diff --check
 ```
 
-`npm run verify` chains every guard script (client bundle / `verify-scene-live` + `verify-web-route` / `verify-package-files` / `verify-prewarm` / `verify-docs` / `verify-settings-keys` / `verify-sampling` … — the authoritative list is `scripts.verify` in `package.json`); `verify-scene.mjs` is deliberately **not** in that chain (it needs a real fixture) and is run separately above. Adding a file under `lib/` without adding it to `package.json`'s `files` will fail `verify-package-files`.
+`npm run verify` chains every guard script (client bundle / `verify-scene-live` + `verify-web-route` / `verify-package-files` / `verify-prewarm` / `verify-docs` / `verify-settings-keys` / `verify-sampling` / `verify-encoding` … — the authoritative list is `scripts.verify` in `package.json`); `verify-scene.mjs` is deliberately **not** in that chain (it needs a real fixture) and is run separately above. Adding a file under `lib/` without adding it to `package.json`'s `files` will fail `verify-package-files`.
 
-`npm run verify` 串跑全部护栏脚本（客户端产物 / `verify-scene-live` + `verify-web-route` / `verify-package-files` / `verify-prewarm` / `verify-docs` / `verify-settings-keys` / `verify-sampling` …，**权威清单见 `package.json` 的 `scripts.verify`**）；`verify-scene.mjs` 需要真实 fixture，**不在**该链里，故上面单独跑。在 `lib/` 下新增文件却没写进 `package.json` 的 `files` 会被 `verify-package-files` 拦下。
+`npm run verify` 串跑全部护栏脚本（客户端产物 / `verify-scene-live` + `verify-web-route` / `verify-package-files` / `verify-prewarm` / `verify-docs` / `verify-settings-keys` / `verify-sampling` / `verify-encoding` …，**权威清单见 `package.json` 的 `scripts.verify`**）；`verify-scene.mjs` 需要真实 fixture，**不在**该链里，故上面单独跑。在 `lib/` 下新增文件却没写进 `package.json` 的 `files` 会被 `verify-package-files` 拦下。
 
 ### 新增设置项：必须同时改三处 / Adding a setting: change all three lists
 

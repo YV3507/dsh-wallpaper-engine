@@ -26,6 +26,7 @@
 | [SCENE-FRAME-PERF.md](./SCENE-FRAME-PERF.md) | **静态帧冷渲染成本实测 + 渲染器优化记录**（基线 `pr97` / `sf35a`；当前管线 `sf45`）——哪些渲染可以砍。⚠️ §十四 起含**现行**实现决策；涉及 `scene-anim` 多帧动画的部分对应**已移除**的路线（文首已逐节标注被取代的小节） |
 | [SCENE-ANIMATION-HANDOFF.md](./SCENE-ANIMATION-HANDOFF.md) | ~~**场景动画交接手记**~~ **已归档**——beta 场景动画（`/scene-anim`）已随 WebWallGL 实时渲染落地整体移除；本文件仅存历史决策、技术要点与已删资产清单（供考古） |
 | [ROBUSTNESS-AUDIT.md](./ROBUSTNESS-AUDIT.md) | **健壮性审计记录**——发布包完整性/编码/跨平台/运行时容错/依赖兼容审计结果与重跑方法 |
+| [NATIVE-SCENE-EVIDENCE.md](./NATIVE-SCENE-EVIDENCE.md) | **原生场景引擎取证（WE 2.8.42）**——静态帧路径的几何依据：场景 y 轴朝向的首方证明、角度单位与合成顺序（`Rz(−z)·Ry(y)·Rx(−x)`）、puppet = 蒙皮网格，以及由取证确定的合成器缺陷 D-1/D-2/D-3（只裁决静态帧回退路径，不涉完整动画渲染） |
 | [awesome-dsh-plugin-pr-guide.md](./awesome-dsh-plugin-pr-guide.md) | 向 awesome-dsh-plugin 收录目录提交的一次性发布指南（应作者要求保留原版，直接从 awesome-dsh-plugin 仓库复制，勿改） |
 
 - 活的现状/TODO：仓库根 `TODO.md`（**当前未入库**，按需本地维护；含关键事实备忘、回归场景集、sceneVideo 修复记录）。

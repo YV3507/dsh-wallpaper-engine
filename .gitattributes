@@ -1,0 +1,4 @@
+# 归一化行尾：`lib/client.js` 是 `src/client.js` 的构建产物，仓库里以 LF 存储，
+# 但 Windows 工作区检出成 CRLF ⇒ 每次 `git add` 都报 "LF will be replaced by CRLF"，
+# 而且在 diff/合并里容易被误判成"整个产物文件都改了"。这里显式声明为 LF。
+lib/client.js text eol=lf
