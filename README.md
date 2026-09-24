@@ -71,9 +71,11 @@ Scene 壁纸由本插件内置的 **WebWallGL 实时渲染引擎**（`lib/webwal
 
 **GPU 抓帧回填**（v0.7.8）：实时渲染首帧确认后，客户端会从渲染页的 WebGL canvas（`preserveDrawingBuffer`，同源直读，无需渲染页配合）抓一张当前帧写回静态帧缓存（`PUT /scene-frame-cache/<token>`），存为独立的 `<key>_gpu.png`（文件名即标记，可直接打开查看）—— serve 时**全局优先**于 CPU 提取帧（画面效果档位 1–3 的请求同样服务 GPU 帧；自定义封面除外）：CPU 提取效果不理想的场景，之后加载期垫底图与降级回退图都会换成 GPU 渲染的真实帧。每壁纸只写一次（已存在则 409，同一缓存键的写入串行，并发 PUT 不会双双成功），不会重复生成。
 
+**抓帧几何校验（视口宽高比）**：抓帧是「抓帧那一刻渲染页视口的构图」—— 渲染器按画布比取景（与场景设计比 2% 内 → 整张设计上屏，否则按画布比 cover 裁切），而静态帧上屏时还要再经 CSS `object-fit: cover`。所以**在别的窗口 / 旧会话抓的帧**拿到当前窗口上屏会被再裁一次：实测一张 1440×960（3:2）的帧在 2488×1376 视口里只显示场景设计宽度的 84.5%（对 CPU 帧做最佳匹配拟合得到），人物比 live 大约 19% 且四周被切。因此宿主在 `HEAD /scene-frame/<token>` 上附带 `X-WE-GPU-W/H/AR`（读 PNG 的 IHDR，纯文件头，不触发提取），客户端拿它与当前视口比对照：相对差 > 2%（与渲染器自己的 fit 容差同口径）或几何未知（旧宿主 / 文件读不出）→ **先抓帧过内容门禁，再清槽、再 PUT**（清槽在抓帧之后：抓帧失败时留下空槽会退回 CPU 帧，比留一张旧构图的帧更糟），落地后就地重挂屏上静帧并记 `gpu-frame-stale` / `gpu-frame-recaptured` 诊断行。旧帧因此会在下次挂载 / 轮换时自愈，不必手动清理。
+
 **空帧门禁与清除通道**：体积阈值不可靠（headless 实测全黑 PNG：960×540≈12KB、1080p≈44KB、4K≈165KB，都远超固定字节闸），因此抓帧前会把 canvas 降采样到 64×64 看亮度分布 —— 近全黑或几乎无对比度判为「还没渲染出画面」，直接放弃回填（保留 CPU 帧），另加分辨率相关的体积地板（≈0.02 B/px）。抓到不满意的一帧时，在**设置 → 效果 → 画面 → 「GPU 实时帧」**点「清除 GPU 帧」即可（等价于 `DELETE /wallpaper-engine/scene-frame-cache/<token>`，或 `POST …?clear=1`）—— 删后 HEAD 回到 `X-WE-GPU: 0`、当前档位立即生效、下次 live 会重新抓取。该行只在缓存里确实存在 GPU 帧时出现（面板用 HEAD 探测，30s 去重）。
 
-**测试**：`npm run verify`（client/转码/播放控制/scene/scene-live 五套）+ `npm run smoke`（轮换、轮换-live 节点级领养、GPU 回填抓帧三套冒烟）—— 所有断言都有失败通道（不通过即非零退出），`npm run verify:all` = 构建 + 两套全跑。
+**测试**：`npm run verify`（client/转码/播放控制/scene/scene-live 五套）+ `npm run smoke`（轮换、轮换-live 节点级领养、轮换准备期零驻留、GPU 回填抓帧、抓帧身份校验五套冒烟）—— 所有断言都有失败通道（不通过即非零退出），`npm run verify:all` = 构建 + 两套全跑。
 
 > **网页壁纸已知边界**：作者脚本的 `fetch`/`XHR` 在 opaque origin 下携带 `Origin: null`（宿主已返回 `Access-Control-Allow-Origin: *`，常规资源可用）；`wallpaperMediaIntegration`（系统 Now Playing）本项目未提供数据源，相关壁纸退到自身静态态；CSS `:hover` 等由浏览器 hit-test 驱动的交互不受外部指针注入影响（与上游文档一致）。
 
