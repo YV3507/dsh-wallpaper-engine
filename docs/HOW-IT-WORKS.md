@@ -22,11 +22,17 @@ HTML 里注入 WE API shim（`lib/webwallgl/web-shim.js`）与 `project.json` �
   目录**（没有 `scene.pkg` 可供渲染页拉取）。此时按下面的静态帧链出图。重新打开开关会清空失败记忆
   （显式重试入口）。
 - **完整显示优先级（代码事实，见 `buildMedia`）**：
-  ① 实时渲染 iframe（静态帧当 poster 垫底）→ ② 场景**作者内嵌 MP4**（`sceneVideo`，硬件解码
+  ① 实时渲染 iframe（垫底图 = **缓存里的静态帧**，见下）→ ② 场景**作者内嵌 MP4**（`sceneVideo`，硬件解码
   `<video>`；**排在静态帧之前，且不受「静态帧渲染」开关影响**）→ ③ 静态帧（`/scene-frame`，
   自研渲染器；失败回退 ④ 主纹理提取）→ ⑤ 作者预览图 / 已导入的「自定义画面」。
   关掉「静态帧渲染」不会改变 ①②，只把 ③ 槽位换成档 4 自定义画面 / 档 3 作者预览图，并停止空闲预热。
-- **实时渲染期间的画面连续性**：静态帧（`/scene-frame`）作为 poster 垫底，首帧心跳通过后 iframe 淡入。
+- **实时渲染期间的画面连续性（静态帧降级为"缓存兜底"）**：垫底图只在静态帧**已经在缓存里**时才摆 ——
+  客户端用 `?cached=1` 请求 `/scene-frame`，宿主**只命中、绝不渲染**，未命中直接 404，客户端把垫底图摘掉留空
+  （**首次加载可以为空**：宁可牺牲它，也不为一张过渡图跑 4K 冷渲染去和实时渲染的首帧抢 CPU/GPU —— 那会导致
+  卡顿、首帧超时降级并写进失败记忆、以及黑屏）。作者预览图不再当垫底（画质太差）；实时渲染关掉（`sceneLive === false`）
+  或该壁纸已判失败时才回到"静态帧就是显示形态"的旧口径。对应地，宿主「空闲预热」的定位也变成**为切换 / 轮换攒缓存**：
+  实时渲染流量（`/scene-live` + `/scene-files`）算用户活动 ⇒ 预热自动推迟到动画起来之后；当前**正在实时渲染**的那张
+  **不进预热名单**（它的帧此刻最没必要算）。
 - **帧率**：`实时渲染帧率`（15 / 30 / 60 fps）经 iframe query 下发，改档会重建图层。
 - 护栏：`scripts/verify-scene-live.mjs`。
 
@@ -113,14 +119,24 @@ with the document.
   `scene.json` directory** (no `scene.pkg` for the renderer page to fetch). It then falls back to the
   static-frame chain below. Re-enabling the switch clears the failure memory (explicit retry entry point).
 - **Full display priority (code fact, see `buildMedia`)**:
-  ① the live-render iframe (static frame as poster) → ② the scene's **author-embedded MP4**
+  ① the live-render iframe (poster = **a cached static frame**, see below) → ② the scene's **author-embedded MP4**
   (`sceneVideo`, hardware-decoded `<video>`; **it outranks the static frame and is unaffected by the
   「静态帧渲染」 switch**) → ③ the static frame (`/scene-frame`, in-house renderer; on failure ④
   main-texture extraction) → ⑤ the author's preview image / an imported 「自定义画面」.
   Turning the 「静态帧渲染」 switch off does not change ①② — it only replaces slot ③ with tier 4
   (custom frame) or tier 3 (author preview) and stops idle prewarming.
-- **Continuity during live rendering**: the static frame (`/scene-frame`) is used as the poster; the
-  iframe fades in once the first-frame heartbeat passes.
+- **Continuity during live rendering (the static frame is now a *cache fallback*)**: a poster is shown only
+  when the static frame **is already cached** — the client requests `/scene-frame?cached=1`, the host
+  **answers from the cache and never renders**, and a miss returns 404 so the client drops the poster and
+  stays blank (**a blank first load is the accepted trade-off**: never run a cold 4K render for a merely
+  transitional image while live rendering is starting — that steals CPU/GPU from the first frame, which
+  produced stutter, watchdog degradation into the failure memory, and black screens). The author's preview
+  image is no longer used as a poster (quality too low). The old rule — "the static frame *is* the display
+  form" — applies again only when live rendering is off (`sceneLive === false`) or that wallpaper has
+  already failed. Accordingly the host's 「空闲预热」 now exists to **build the cache for switching /
+  rotation**: live-rendering traffic (`/scene-live` + `/scene-files`) counts as user activity, so prewarming
+  is pushed back until the animation is already up, and the wallpaper currently being **live-rendered** is
+  **excluded from the prewarm candidate list** (its frame is the least useful one to compute right now).
 - **Frame rate**: 「实时渲染帧率」 (15 / 30 / 60 fps) is passed through the iframe query; changing it
   rebuilds the layer.
 - Guard: `scripts/verify-scene-live.mjs`.

@@ -244,9 +244,27 @@ const okResult = (servedFrom) => async () => ({ fileAbs: '/x/' + servedFrom + '.
       liveSuppressesPrewarm(base, 'E:\\x\\a.jpg') === false);
     check('R11b-4 负对照: abs 解析不到 (null) ⇒ 不抑制 (宁可预热也不误停)',
       liveSuppressesPrewarm(base, null) === false);
-    check('R11b-5 prewarmWanted 真的接上该判据, 且保留「静态帧渲染」总开关门控',
-      /liveSuppressesPrewarm\(st, absFromMediaUrl\(st\.url\)\)/.test(idx)
-      && /st\.scenePrewarm === true && st\.sceneFrameRender !== false/.test(idx));
+    check('R11b-5 现行接线：当前正在实时渲染的那张不进候选名单 + 不提升 + prewarmWanted 不整体停摆',
+      /skipCurrent = Boolean\(currentAbs\) && liveSuppressesPrewarm\(readSettings\(\), currentAbs\)/.test(idx)
+      && /if \(currentAbs && !skipCurrent\) list\.push\(currentAbs\)/.test(idx)
+      && /if \(!liveSuppressesPrewarm\(sanitized, curAbs\)\) prewarmQueue\.promote\(curAbs\)/.test(idx)
+      && /return st\.scenePrewarm === true && st\.sceneFrameRender !== false;/.test(idx));
+  }
+
+  // ── R11c 只命中、不渲染 (?cached=1) ─────────────────────────────────────────
+  // 静态帧是"缓存兜底"：live 的垫底图必须只查缓存（有就白得一张真帧，没有就空着），
+  // 绝不能为过渡图触发 4K 冷渲染去抢实时渲染的 CPU/GPU。
+  {
+    const cachedGate = idx.indexOf('opts.cachedOnly === true');
+    const renderGate = idx.indexOf('SCENE_FRAME_INFLIGHT.get(key)');
+    check('R11c-1 cachedOnly 在渲染路径之前短路 (抛 not-cached, 不进 in-flight/worker)',
+      cachedGate > 0 && renderGate > cachedGate);
+    check('R11c-2 路由解析 ?cached=1 并回 404 (未命中是正常结果, 不是渲染失败)',
+      /searchParams\.get\('cached'\) \|\| ''\) === '1'/.test(idx)
+      && /const cachedOnly = /.test(idx)
+      && /res\.statusCode = err && err\.notCached \? 404 : 422;/.test(idx));
+    check('R11c-3 实时渲染流量算用户活动 ⇒ 预热推迟到动画起来之后 (前台路由 + /scene-live + /scene-files)',
+      (idx.match(/prewarmQueue\.noteActivity\(\);/g) || []).length >= 3);
   }
 
   // 客户端侧: UI 行 + 默认值必须真的落到构建产物里

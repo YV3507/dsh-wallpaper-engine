@@ -32,12 +32,17 @@
     每条带负对照）与 `verify-sampling`（把此前只存在于 `tmp-*` 探索脚本里的 `blitScaled` 采样证据固化：
     缩小走盒式面积平均、放大走双线性、缩放比 1:1 逐字节不变，负对照用最近邻实现证明判据能区分二者）。
 - **修复静态帧 worker 的历史编码乱码**：`lib/scene-render-worker.mjs` 里 **67 行**中文（51 行注释 + 16 行 `gpuDiag` 文案）是历史编码事故留下的乱码。成因已定位：一次被中断的 `main ← catchup-v0.7.5` 合并把乱码带了进来，该次合并的冲突中间态仍以**不可达 blob**（`19070f44`）留在对象库，其中 `main` 一侧就是干净原文（乱码版本还挂在 `catchup-v0.7.5` 分支上，故再次合并可能复发）。67 行**全部还原**：28 行按"转码恒等"判据从干净来源（上述 blob 干净侧 / 早期干净版本 / 遗留的干净工作副本）逐字取回，其余按逆变换碎片与上下文补齐并逐行机械自检；代码骨架逐行比对证明**只动了注释与字符串内容**（零逻辑改动）。新增 `verify-encoding` 护栏：全仓乱码扫描 + 正对照（历史样本必须判红）+ 负对照（专治把 U+9000–U+9FFF 当"生僻区"的误判 —— 道/都/里/重 等常用字都在该区间）。
-- **修复「实时渲染在用、静态帧仍在算」造成的卡顿与黑屏**：场景 / 网页壁纸默认走实时渲染，但此前有两条**多余的静态帧计算**在跟它抢 CPU/GPU ——
+- **静态帧降级为「缓存兜底」，实时渲染优先**（修「实时渲染在用、静态帧仍在算」的卡顿与黑屏）：场景 / 网页壁纸默认走实时渲染，但此前有两条**多余的静态帧计算**在跟它抢 CPU/GPU ——
   ① **客户端**把静态帧当 live 的**垫底图**（`poster`）：实时渲染一启动就要为这张过渡图跑一次 4K 冷渲染（worker + GPU，数百 ms~数秒）；
-  ② **宿主「空闲预热」**完全不区分实时渲染是否在用，用户空闲时持续为候选帧跑冷渲染。
+  ② **宿主「空闲预热」**不区分实时渲染是否在用，也不区分"当前这张是不是正在实时渲染"，用户空闲时照样为它跑冷渲染。
   两者都能把实时渲染的首帧挤到 15 秒超时之外 ⇒ 看护降级，并把该壁纸写进**失败记忆**（此后一直不实时渲染）；图还没渲染出来时就是**黑屏**。
-  现行行为：实时渲染在用（`sceneLive` 开 + 该壁纸无失败记忆 + 当前是 `scene.pkg`）⇒ 垫底图改用**作者预览图**（零渲染，与网页壁纸同口径）、宿主预热**整体停摆**；
-  实时渲染被关掉或该壁纸已判失败时才恢复预热（那时静态帧才是显示形态）。护栏：`verify-prewarm` R11b（真值表 + 四条负对照）、`verify-scene-live` 的垫底图断言 + 负对照。
+  现行规则（静态帧的本意 = 场景类壁纸出不了好效果时的取舍方案）：
+  - **只命中、不渲染**：新增 `GET /scene-frame/…?cached=1` —— 宿主只查缓存，命中就返回真帧，未命中回 404，**绝不进入渲染路径**（护栏 `verify-prewarm` R11c）。
+  - **垫底图只在缓存命中时摆**：客户端 live 分支用 `?cached=1` 取静态帧，未命中就摘掉留空 —— **首次加载可以为空**（宁可牺牲它，也不为过渡图抢实时渲染的资源）；作者预览图**不再**当垫底（画质太差被否）；「静态帧渲染」总开关关掉时连缓存也不摆。
+  - **预热改为"为切换 / 轮换攒缓存"**：`/scene-live` + `/scene-files` 的流量算用户活动 ⇒ 预热自动推迟到动画起来之后；当前**正在实时渲染**的那张**不进预热名单**、也不提升队首（判据 `liveSuppressesPrewarm`，与客户端 `liveRenderEnabled` 同口径；`verify-prewarm` R11b 真值表 + 四条负对照）。
+  - 实时渲染关掉（`sceneLive === false`）或该壁纸已判失败时，「静态帧就是显示形态」的旧口径照常生效（那时才渲染、才预热）。
+  - 护栏另含 `verify-scene-live` 的垫底图断言（缓存优先 + 未命中自摘除）与三个对照（两条负对照 + 一条正对照）。
+- 回归护栏：`verify-resource-lifecycle` 的 S7 由「fiber dispose 调用 `cancelSceneAnimUpgrade()`」改为「**beta 场景动画路径在 client 与 host 中都已不存在**，且 dispose 仍清理存活的长命定时器」；新增 `verify-prewarm` R38/R38b（档位集合 / 三级级联 / 分组标题与行序）、`verify-docs`（文档与注释不得停留在旧世界）、`verify-settings-keys`、`verify-sampling`、`verify-encoding`。
 - 回归护栏：`verify-resource-lifecycle` 的 S7 由「fiber dispose 调用 `cancelSceneAnimUpgrade()`」改为「**beta 场景动画路径在 client 与 host 中都已不存在**，且 dispose 仍清理存活的长命定时器」；新增 `verify-prewarm` R38/R38b（档位集合 / 三级级联 / 分组标题与行序）、`verify-docs`（文档与注释不得停留在旧世界）、`verify-settings-keys`、`verify-sampling`、`verify-encoding`。
 
 ### v0.7.5
@@ -141,11 +146,16 @@
   - **Drift is now observable**: a PUT carrying a key the whitelist does not recognise logs the key names (silent dropping is exactly what made this hard to diagnose).
   - Guards: new `verify-settings-keys` (round-trip through the real function + tier/custom-frame validation + three-list consistency + reverse drift, each with a negative control) and `verify-sampling` (turns the `blitScaled` sampling evidence that used to live only in `tmp-*` exploration scripts into assertions: box-average downscale, bilinear upscale, byte-identical 1:1 path, with a nearest-neighbour negative control).
 - **Fixed the static-frame worker's historical encoding mojibake**: **67 lines** of Chinese in `lib/scene-render-worker.mjs` (51 comments + 16 `gpuDiag` strings) were leftovers from an encoding accident. The cause is now pinned down: an interrupted `main ← catchup-v0.7.5` merge brought the mojibake in, and that merge's conflicted working state still sits in the object database as an **unreachable blob** (`19070f44`) whose `main` side is the clean original (the mangled version is still on the `catchup-v0.7.5` branch, so another merge could reintroduce it). All 67 lines are **restored**: 28 taken verbatim from clean sources (that blob's clean side / earlier clean revisions / a surviving clean working copy) under a "re-encode identity" criterion, the rest reconstructed from the inverse-transform fragments plus context, each line machine-checked; a line-by-line code-skeleton comparison proves **only comments and string contents changed** (zero logic change). New `verify-encoding` guard: a repo-wide mojibake scan with a positive control (a historical sample must be flagged) and a negative control (guarding against the "treat U+9000–U+9FFF as a rare block" false positive — 道/都/里/重 are all in that range).
-- **Fixed the stutter and black screen caused by static-frame work still running while live rendering was in use**: scene / web wallpapers render live by default, but two redundant static-frame computations competed with it for CPU/GPU —
+- **The static frame is now a *cache fallback*; live rendering comes first** (fixes the stutter and black screen caused by static-frame work still running while live rendering was in use): scene / web wallpapers render live by default, but two redundant static-frame computations competed with it for CPU/GPU —
   ① the **client** used the static frame as live's **poster**, so starting live rendering also kicked off a cold 4K render (worker + GPU, hundreds of ms to seconds) for a purely transitional image;
-  ② the host's **idle prewarming** had no idea whether live rendering was in use, so it kept cold-rendering candidate frames while the user was idle.
+  ② the host's **idle prewarming** neither knew whether live rendering was in use nor whether the wallpaper it was warming was the one being live-rendered.
   Either one can push live's first frame past the 15-second watchdog ⇒ guarded degradation, the wallpaper is written into the **failure memory** (so it never live-renders again), and the screen is **black** until the image finally exists.
-  New behaviour: while live rendering is in use (`sceneLive` on + no failure memory for that wallpaper + the current item is a `scene.pkg`) the poster becomes the **author preview image** (zero render, same rule web wallpapers already used) and host prewarming **stops entirely**; prewarming resumes only when live rendering is switched off or that wallpaper has already failed (that is when a static frame is the actual display form). Guards: `verify-prewarm` R11b (truth table + four negative controls) and the poster assertion plus negative control in `verify-scene-live`.
+  Current rules (the static frame's purpose is a trade-off for scenes that cannot render well):
+  - **Hit only, never render**: new `GET /scene-frame/…?cached=1` — the host answers from the cache, returns 404 on a miss, and **never enters the render path** (guard: `verify-prewarm` R11c).
+  - **A poster is shown only on a cache hit**: the client's live branch requests `?cached=1` and drops the poster on a miss, leaving it blank — **a blank first load is accepted** rather than stealing CPU/GPU from live rendering's first frame; the author preview image is **no longer** used as a poster (quality rejected), and with the 「静态帧渲染」 master switch off not even a cached frame is shown.
+  - **Prewarming now exists to build the cache for switching / rotation**: `/scene-live` + `/scene-files` traffic counts as user activity, so prewarming is pushed back until the animation is up, and the wallpaper currently being **live-rendered** is excluded from the candidate list and never promoted (`liveSuppressesPrewarm`, the same criterion as the client's `liveRenderEnabled`; guard: `verify-prewarm` R11b, truth table + four negative controls).
+  - The old rule ("the static frame *is* the display form") still applies when live rendering is off (`sceneLive === false`) or that wallpaper has already failed — only then does it render and prewarm.
+  - Guards also include `verify-scene-live`'s poster assertions (cache-first + self-removal on a miss) with three controls (two negative, one positive).
 - Regression guards: `verify-resource-lifecycle` S7 changed from "fiber dispose calls `cancelSceneAnimUpgrade()`" to "**the beta scene-anim path is gone from both client and host**, while dispose still cleans the surviving long-lived timers"; new `verify-prewarm` R38/R38b (tier set / three-level cascade / group heading and row order), `verify-docs` (docs and comments must not stay in the old world), `verify-settings-keys`, `verify-sampling` and `verify-encoding`.
 
 ### v0.7.5
