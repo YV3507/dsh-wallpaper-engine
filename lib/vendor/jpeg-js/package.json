@@ -1,0 +1,8 @@
+{
+  "name": "jpeg-js",
+  "version": "0.4.4",
+  "description": "vendored copy of jpeg-js 0.4.4 (BSD-3-Clause) - resolved relatively so the DSH host loads it regardless of bare-specifier resolution",
+  "type": "commonjs",
+  "main": "index.js",
+  "license": "BSD-3-Clause"
+}

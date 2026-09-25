@@ -414,10 +414,20 @@ check('频谱恒 64 段 + running=false（客户端据此不装音频桥）',
 
 // ── 起浏览器（Chromium 系；Edge 兜底）──────────────────────────────────────
 const NAV_URL = APP + '/e2e/host.html';
-const CANDIDATES = [
+const CANDIDATES = process.platform === 'win32' ? [
+  'C:/Program Files/Google/Chrome/Application/chrome.exe',
+  'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
+  'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
+  'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+] : process.platform === 'darwin' ? [
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
   '/Applications/Chromium.app/Contents/MacOS/Chromium',
+] : [
+  '/usr/bin/google-chrome',
+  '/usr/bin/chromium',
+  '/usr/bin/chromium-browser',
+  '/usr/bin/microsoft-edge',
 ];
 const browser = CANDIDATES.find((p) => existsSync(p));
 if (!browser) {
