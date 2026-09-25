@@ -211,7 +211,10 @@ function runScenario(name, opts, body) {
   const stagingDivs = () => bodyEl.children.filter(c => String(c.className).includes('we-layer--staging'));
   const layerEl = () => byId['dsh-wallpaper-engine-layer'];
   // 孤儿判据：已脱离文档且仍在播的 video —— 修复前回退探针正是这种形态。
-  const orphans = () => mediaEls.filter(v => !v.isConnected && !v.__paused);
+  // ⚠️ 判据必须要求 src 非空：本仓的释放三连是 pause() + removeAttribute("src") + load()，
+// 释放后元素的 __paused 可能仍停在 false（mock 的 load() 语义），但它已无资源、不占解码器
+// —— 不要求 src 会让判据退化成「凡脱离文档的 video 都算孤儿」，掩盖真正的泄漏形态。
+const orphans = () => mediaEls.filter(v => !v.isConnected && !v.__paused && mediaSrc(v) !== '');
   const mediaSrc = (el) => String((el && el.attributes && el.attributes.src) || '');
   const persistedId = () => JSON.parse(localStorage._store['dsh-wallpaper-engine:selection']).id;
 
@@ -309,9 +312,20 @@ await runScenario('A. live 首帧超时回退：探针不得留在领养槽位�
   const layer = t.layerEl();
   // 垫底画面在合并线里是 div.we-live-poster（background-image + 主题色兜底、
   // dataset.weFrameSrc 记录来源），不是 <img> —— 按类名判「有垫底画面」。
-  check('提交后层是 live iframe + poster（buildMedia 选了 live 分支，不消费槽位）',
-    !!layer && !!layer.querySelector('iframe.we-live-iframe') && !!layer.querySelector('div.we-live-poster'),
-    layer ? String(layer.dataset.weKey).slice(0, 70) : 'no layer');
+  // 垫底画面按**类名**判（上游合并线里是 div.we-live-poster：background-image + 主题色
+  // 兜底；本 fork 的场景档是 img.we-live-poster —— 只认缓存命中 `?cached=1`，因此**不能**
+  // 用上游那个会预载 sel.url（=冷渲染）的 buildLivePoster）。
+  // ⚠️ 语义差异：上游「总有垫底」（背景图/主题色），本 fork「**只在静态帧已缓存时才摆**，
+  // 否则空着等实时渲染」—— 本场景没有缓存帧，故有 live iframe、没有垫底图是**预期**。
+  // 断言因此是：live iframe 必须在；垫底图若出现，必须是场景帧来源（不得回退成作者预览图）。
+  const hasLiveIframe = !!layer && !!layer.querySelector('iframe.we-live-iframe');
+  const posterEl = layer ? layer.querySelector('.we-live-poster') : null;
+  const posterBg = posterEl ? String(posterEl.getAttribute('src') || posterEl.style.backgroundImage || '') : '';
+  const posterOk = !posterEl || (posterBg.includes('/scene-frame/') && !posterBg.includes('/preview/'));
+  check('提交后层是 live iframe（buildMedia 选了 live 分支，不消费槽位）',
+    hasLiveIframe && posterOk,
+    'liveIframe=' + hasLiveIframe + ' poster=' + (posterEl ? posterBg.slice(0, 40) : 'none(按设计：无缓存帧)')
+      + ' key=' + (layer ? String(layer.dataset.weKey).slice(0, 70) : 'no layer'));
   // ── 核心 1：回退探针必须被释放（disposeMediaEl 的 video 三连）──
   check('回退探针已暂停', probe1.__paused === true, 'paused=' + probe1.__paused);
   check('回退探针已清 src', probe1.__removedAttrs.includes('src') && t.mediaSrc(probe1) === '',
@@ -385,7 +399,11 @@ await runScenario('B. 陈旧槽位不得被当成当前壁纸的资产领养', {
     !!v3 && t.mediaSrc(v3).includes('/wallpaper-engine/scene-video/s2'),
     v3 ? 'src=' + t.mediaSrc(v3) : 'no video');
   check('s1 的探针未被复活/被领养', probeS1.__paused === true && v3 !== probeS1);
-  check('仍然没有孤儿 video', t.orphans().length === 0, 'orphans=' + t.orphans().length);
+  const orphansB = t.orphans();
+  check('仍然没有孤儿 video', orphansB.length === 0,
+    'orphans=' + orphansB.length
+      + (orphansB.length ? ' srcs=' + JSON.stringify(orphansB.map((e) => String(t.mediaSrc(e)).slice(0, 60)))
+        + ' paused=' + JSON.stringify(orphansB.map((e) => !!e.__paused)) : ''));
 });
 
 // ── C：卸载/禁用必须收掉进行中的准备与探针 ─────────────────────────────────
