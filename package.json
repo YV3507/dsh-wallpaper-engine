@@ -57,7 +57,8 @@
     "cordis.patch.yml",
     "README.md",
     "README.en.md",
-    "README.beginner.md"
+    "README.beginner.md",
+    "lib/vendor/"
   ],
   "dsh": {
     "bundle": {

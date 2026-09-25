@@ -2558,6 +2558,53 @@ function reportLiveFps(watch, frame, stats, wstate) {
     + ` win=${secs}s playing=${isEffectivelyPlaying() ? 1 : 0}`);
 }
 
+// 宿主窗口模式（页面 URL 的 dsh-desktop-mode 参数；兼容模式为缺省值）。
+function desktopWindowMode() {
+  try {
+    const m = new URLSearchParams(window.location.search).get("dsh-desktop-mode");
+    return m === "extended" || m === "advanced" ? m : "compatibility";
+  } catch { return "compatibility"; }
+}
+
+// extended 模式下，启动期创建的 live iframe 合成层坏死（元素级红底都上不了
+// 屏、文档 reload 与 reparent 均无效，实测 2.0.14；见 first-frame-ok 处的
+// 注释）。唯一有效的自救是换一个全新元素：同 src 新帧由宿主在窗口稳定后重新
+// 分配，合成恢复。只做一次（dataset 标记）。
+// 两个硬约束（首轮实现漏掉后踩出的坑）：
+// ① 只在 extended 触发——advanced 的帧合成正常，重建纯属误伤（切壁纸白闪 +
+//    指针/音频接线全断）；
+// ② 新元素不得拷贝 we-live-on：先隐藏装载，等它自己的 first-frame-ok 由首帧
+//    门点亮（走标准淡入），否则加载中的空白 iframe 直接可见 = 闪白。
+// 换元后同步改道三条接线：livePointerFrame（窗口 mousemove → pushPointer 的
+// 目标）、startMediaSync（模块级 mediaTimer 闭包锁帧，不重发音频就永远断）、
+// watch 状态（firstFrame/stall/startedAt 重走首帧门）。
+let liveFrameRebuildTimer = 0;
+function rebuildLiveFrame(frame, watch) {
+  if (desktopWindowMode() !== "extended") return false;
+  try {
+    if (!frame || frame.dataset.weRebuilt === "1") return false;
+    frame.dataset.weRebuilt = "1";
+    const fresh = document.createElement("iframe");
+    for (const a of frame.attributes) {
+      try { fresh.setAttribute(a.name, a.value); } catch { /* ignore */ }
+    }
+    fresh.classList.remove("we-live-on"); // 场景活着再由首帧门点亮，杜绝白闪
+    fresh.dataset.weRebuilt = "1";
+    if (frame.parentNode) frame.parentNode.replaceChild(fresh, frame);
+    else if (frame.isConnected) frame.replaceWith(fresh);
+    else return false;
+    watch.frame = fresh;
+    watch.firstFrame = false; // 新帧重走首帧门：alive 分支会补齐媒体接线/回放/回填
+    watch.stall = 0;
+    watch.startedAt = Date.now();
+    ensureLivePointer(fresh); // livePointerFrame 闭包还指着被移除的旧元素
+    startMediaSync(fresh);    // mediaTimer 闭包锁的是旧帧，音频/Now Playing 断供
+    liveLog("live-frame-rebuilt", "wid=" + watch.wid + " mode=extended"
+      + " 启动期子框架合成层坏死 → 换新元素重挂同 src（指针/音频已改道）");
+    return true;
+  } catch { return false; }
+}
+
 function startLiveWatch(frame, wid) {
   stopLiveWatch();
   const watch = { frame, wid: String(wid || ""), timer: 0, startedAt: Date.now(), firstFrame: false, stall: 0, resumed: false, heldPaused: 0 };
@@ -2607,6 +2654,28 @@ function startLiveWatch(frame, wid) {
         // GPU 抓帧回填静态帧缓存（best-effort，见 scheduleLiveFrameBackfill）。
         scheduleLiveFrameBackfill(frame);
         reportClientDiag("live-ready", "firstFrame ok");
+        // ── extended 窗口模式：启动期子框架合成层坏死 workaround ──
+        // 实测（2.0.14 / 内核 0.1.7-rc.1）：仅 extended 模式下，随页面启动创建的
+        // live iframe 无论内容是否在画（toDataURL 有完整帧、GL 无报错），其合成层
+        // 永远到不了屏幕——连元素级红底都不显示；而同 URL 的全新 iframe（哪怕含
+        // WebGL 子画布）完全正常。兼容/advanced 模式无此问题（advanced 误触发
+        // 重建会白闪 + 指针/音频接线全断，用户实测）。场景链路本身已由
+        // first-frame-ok 证明可用，此处把元素整个换成携带同一 src 的新元素：新帧
+        // 由渲染进程新 allocations 承载，合成恢复。换元后重置首帧门，让下方
+        // alive 分支对新元素再走一遍完整的同步链（媒体接线/属性回放/抓帧回填）。
+        // dataset 标记保证只换一次。
+        // 重建不在首帧瞬间执行：宿主窗口的合成环境在启动后数秒内仍未稳定
+        // （首帧即换，4s 新帧照样坏死，实测），因此先起一次性定时器延后换元。
+        // extended 里旧帧本来就不可见，延迟换元没有额外视觉代价。
+        if (desktopWindowMode() === "extended" && !liveFrameRebuildTimer) {
+          const cursed = frame;
+          liveFrameRebuildTimer = setTimeout(() => {
+            liveFrameRebuildTimer = 0;
+            try {
+              if (cursed.isConnected && watch.frame === cursed) rebuildLiveFrame(cursed, watch);
+            } catch { /* ignore */ }
+          }, 8000);
+        }
       } else if (!isEffectivelyPlaying()) {
         // 主动暂停（失焦/隐藏/用户暂停）→ 是我们自己 applyLiveControls 把渲染页
         // pause() 掉的，而暂停中的渲染页 __wpStats.frame() 恒为 {fps:0,running:false}
@@ -7950,6 +8019,20 @@ const CSS = `
      they did not stop the white flash and instead added compositing layers. The
      flash was traced to the rope's permanent CSS filter, which is now gone. */
 
+  /* ── 原生左栏在 extended/advanced 窗口模式下的不透明底 ─────────────────────
+     harness 的壳层样式表带一条模式门控规则：mode 为 extended/advanced 且
+     material=off 时，ASIDE.dshDesktopSidebarSurface（原生左栏 surface）被刷成
+     不透明的 var(--dsw-alias-bg-layer-1)，并经继承的 --dsw-specific-sidebar-fill
+     变量传给内层（兼容模式无此规则，左栏直接透出壁纸）。壁纸激活时恢复透明，
+     让两种模式观感一致；壳层关闭壁纸时原生不透明底照旧。 */
+  body[data-we-wallpaper][data-dsh-desktop-mode="extended"] .dshDesktopSidebarSurface,
+  body[data-we-wallpaper][data-dsh-desktop-mode="advanced"] .dshDesktopSidebarSurface {
+    /* !important 必需：宿主的模式门控规则在层叠里赢过本表的非 important 声明
+       （实测 var 被压回 #232324），important 才能让 fill 变量真正翻转。 */
+    --dsw-specific-sidebar-fill: transparent !important;
+    background: transparent !important;
+  }
+
   /* ── dsh-better-sidebar glass ──────────────────────────────────────────────
      The sidebar shell is portalled onto <body> under a stable host attribute
      "data-dsh-better-sidebar" (set by the plugin's own mount code), so we can
@@ -8053,11 +8136,24 @@ const CSS = `
      侧栏液态玻璃 master switch gates the SAME frosted recipe and the SAME
      侧栏模糊/透明度/玻璃颜色 knobs as the better-sidebar glass; with the
      switch off, the panel falls back to the theme's opaque layer colour so
-     「关闭则恢复原生外观」keeps holding there too. */
-  body[data-we-wallpaper] [data-sidebar-right-panel] {
+     「关闭则恢复原生外观」keeps holding there too.
+
+     harness 0.1.7 changed the panel's collapse mechanics (#107): the
+     CONTAINER stays mounted with its full width (reserved for the slide
+     animation, pointer-events:none) and only its CHILDREN hide via
+     "visibility:hidden", gated on the "data-sidebar-right-open" attribute
+     the host writes only while expanded. The container itself has no
+     background of its own — so any plate we paint on the bare
+     "[data-sidebar-right-panel]" selector stays VISIBLE over the wallpaper
+     while the panel is closed (the 「右栏关了还是一块灰/玻璃」 report). Every
+     container-painting rule below is therefore scoped to
+     "[data-sidebar-right-open]", plus an explicit closed-state clear so a
+     stale painted background can never linger. */
+  body[data-we-wallpaper] [data-sidebar-right-panel][data-sidebar-right-open] {
     background-color: var(--dsw-alias-bg-layer-1, #1e1f26);
   }
-  body[data-we-sidebar-glass] [data-sidebar-right-panel] {
+  /* 选择器取上游的三窗口修复（只作用于**打开态**右面板），颜色取本 fork 的可读性下限配方 */
+  body[data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open] {
     background-color: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
       color-mix(in srgb, var(--we-sidebar-color, #ffffff) var(--we-sidebar-tint, 20%), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
@@ -8072,15 +8168,24 @@ const CSS = `
       inset 0 -1px 0 rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.08)),
       inset 0 0 0 0.5px rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.06));
   }
-  body[data-ds-dark-theme][data-we-sidebar-glass] [data-sidebar-right-panel] {
+  body[data-ds-dark-theme][data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open] {
     background-color: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
       color-mix(in srgb, var(--we-sidebar-color, #ffffff) calc(var(--we-sidebar-tint, 20%) * 0.65), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
   }
+  /* Closed state: the host's own container carries no background — keep ours
+     off too, whatever the master-switch state (#107). */
+  body[data-we-wallpaper] [data-sidebar-right-panel]:not([data-sidebar-right-open]) {
+    background: none !important;
+    background-image: none !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    box-shadow: none !important;
+  }
   /* No backdrop-filter support: near-opaque tinted plate, same policy as the
      better-sidebar glass above. */
   @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    body[data-we-sidebar-glass] [data-sidebar-right-panel] {
+    body[data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open] {
       background-color: color-mix(in srgb, var(--we-sidebar-color, #ffffff) 92%, transparent) !important;
       backdrop-filter: none !important;
       -webkit-backdrop-filter: none !important;
