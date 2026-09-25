@@ -79,15 +79,21 @@ check('S1 往返：客户端 PUT 的每个键都能从宿主 sanitizeSettings �
 const rt = sanitizeSettings({ frameVariants: { '3669681034': 4 }, customFrames: { '3669681034': true } });
 const rtOk = rt.frameVariants['3669681034'] === 4 && rt.customFrames['3669681034'] === true;
 const dirty = sanitizeSettings({
-  frameVariants: { '3669681034': 5, up_1: -1, 'up-dir-x': 2, 'bad/key': 3, 'ok-1': 0, 'ok-2': 3 },
+  // 值域 {0,1,2,4,7,8}（docs/RENDER-FALLBACK-MODES.md §2/§6）：7=内嵌 MP4、8=静态帧渲染
+  // 合法；3=预览图作为回退来源已删除、5=历史退役、9=越界 —— 一律按 0（auto）**落库**，
+  // 不再丢键（显式 0 与「无记录=auto」对客户端等价，但诊断时看得见来源）。
+  frameVariants: { '3669681034': 5, up_1: -1, 'up-dir-x': 2, 'bad/key': 3, 'ok-1': 0, 'ok-2': 3, 'ok-3': 7, 'ok-4': 8, 'ok-5': 1, 'bad-9': 9 },
   customFrames: { 'ok-1': 'yes', 'ok-2': true, 'bad key': true },
 });
 const dirtyOk =
-  // 越界档位（含退役的 5）与非法键名一律丢弃
-  !('3669681034' in dirty.frameVariants) && !('up_1' in dirty.frameVariants)
-  && !('bad/key' in dirty.frameVariants)
-  // 合法项保留（0 与 3 都合法）
-  && dirty.frameVariants['ok-1'] === 0 && dirty.frameVariants['ok-2'] === 3
+  // 非法键名一律丢弃；up_1 的键名合法（上传壁纸 id），其值 -1 越界 ⇒ 按 0 落库
+  dirty.frameVariants['up_1'] === 0 && !('bad/key' in dirty.frameVariants)
+  // 退役 / 已删 / 越界 → 0（不是丢键）
+  && dirty.frameVariants['3669681034'] === 0 && dirty.frameVariants['ok-2'] === 0
+  && dirty.frameVariants['bad-9'] === 0
+  // 合法项原样保留
+  && dirty.frameVariants['ok-1'] === 0 && dirty.frameVariants['ok-3'] === 7
+  && dirty.frameVariants['ok-4'] === 8 && dirty.frameVariants['ok-5'] === 1
   && dirty.frameVariants['up-dir-x'] === 2
   // customFrames 只认字面 true
   && !('ok-1' in dirty.customFrames) && dirty.customFrames['ok-2'] === true
