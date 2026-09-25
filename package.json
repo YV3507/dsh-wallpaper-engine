@@ -42,6 +42,7 @@
     "lib/scene-prewarm.js",
     "lib/we-renderer/",
     "lib/webwallgl/",
+    "lib/static-frame/",
     "lib/font-render.js",
     "lib/scene-scripts.js",
     "lib/scene-script-apis.js",
