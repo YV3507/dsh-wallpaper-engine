@@ -644,7 +644,7 @@ The **效果** (effects) tab — available while a wallpaper is active — offer
 | **亮度** (brightness) | Wallpaper brightness (media filter) | 40–160 % | 100 % |
 | **对比度** (contrast) | Wallpaper contrast (media filter) | 40–200 % | 100 % |
 | **饱和度** (saturate) | Wallpaper saturation (media filter) | 0–200 % | 100 % |
-| **壁纸透明度** (wallpaper opacity) | Transparency of the whole wallpaper layer (higher = more transparent): fading it out blends the wallpaper into the page base colour (**light theme → toward white, dark theme → toward black**) — the IDEA background-image style of "visible but not overpowering". Complements **暗化** (scrim): one fades the wallpaper itself, the other darkens the whole picture; for the blend-into-base look, combine higher opacity with a lower scrim | 0–90 % | 0 % |
+| **壁纸透明度** (wallpaper opacity) | Transparency of the wallpaper layer (higher = more transparent): fading it out blends the wallpaper into the **native base colour** (**pure white in light, pure black in dark**) — the IDEA background-image style of "visible but not overpowering". Complements **暗化** (scrim): one fades the wallpaper itself, the other darkens the whole picture; for the blend-into-base look, combine higher opacity with a lower scrim. For scene wallpapers the static-frame underlay retires once the live renderer is on, so it can no longer show through the faded live picture | 0–90 % | 0 % |
 | **暗化** (scrim) | Darkens the overlay between wallpaper and text | 0–90 % | 25 % |
 | **边框** (border) | Raises border/divider contrast | 0–90 % | 35 % |
 | **玻璃** (glass) | Blur radius of the frosted-glass panels (composer, bubbles) | 0–60 px | 16 |
