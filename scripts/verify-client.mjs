@@ -111,8 +111,16 @@ const fetch = (url, opts) => {
     sceneFrameHeadCalls.push(u);
     return Promise.resolve({
       ok: true, status: 204,
-      headers: { get: (k) => (String(k).toLowerCase() === 'x-we-gpu'
-        ? (u.includes('/scene-frame/ccc') && cccGpuPinned ? '1' : '0') : null) },
+      headers: { get: (k) => {
+        const key = String(k).toLowerCase();
+        const pinned = u.includes('/scene-frame/ccc') && cccGpuPinned;
+        if (key === 'x-we-gpu') return pinned ? '1' : '0';
+        // 预览窗口要显示实时帧的像素尺寸（宿主从 PNG 的 IHDR 读）。
+        if (key === 'x-we-gpu-w') return pinned ? '2488' : null;
+        if (key === 'x-we-gpu-h') return pinned ? '1376' : null;
+        if (key === 'x-we-gpu-ar') return pinned ? '1.8081' : null;
+        return null;
+      } },
     });
   }
   if (method === 'DELETE') {
@@ -854,13 +862,45 @@ setTimeout(async () => {
     assert.ok(manualPostLayer.dataset.weWid === 'c',
       '新层必须记录 weWid（后续重建按它判定是否换壁纸）');
     tree3 = renderPicker(); // 模态框已关：此时渲染的是 tab 面板（含「画面」section）
-    // 场景 C 没有 live 源 ⇒ liveRenderEnabled(sel) 为假 ⇒ 三个「降级后才需要」的
-    // 画面来源选项必须出现（它们现在挂在「场景实时渲染」开关下方，不再排在最前面）。
+    // 画面来源三行的门禁（2026-09-26 按用户反馈调整）：
+    // 「壁纸画面刷新」换的是 CPU 静态帧 → 只在 live 未生效时出现；「实时帧」（GPU 抓帧
+    // 的重新截 / 清除 / 微缩预览）与「自定义画面」**不受实时渲染开关影响** —— 那张静帧
+    // 正是切换途中与 live 首帧前给用户看的画面，构图不对时必须能立刻重抓。
     assert.ok(JSON.stringify(tree3).includes('壁纸画面刷新'), '选中场景壁纸后面板应出现「壁纸画面刷新」行');
     assert.ok(JSON.stringify(tree3).includes('自定义画面'),
-      'live 未生效时「自定义画面」行必须可见（降级兜底入口）');
+      '「自定义画面」行必须可见（live 开着时也要能导入截图）');
     assert.ok(JSON.stringify(tree3).indexOf('壁纸画面刷新') > JSON.stringify(tree3).indexOf('场景实时渲染'),
       '「壁纸画面刷新」必须排在「场景实时渲染」开关注下方');
+    // ── 实时帧：重新截 + 微缩预览（当前壁纸实时帧） ──
+    {
+      const gpuText = JSON.stringify(tree3);
+      assert.ok(gpuText.includes('"重新截"'), '面板必须给出「重新截」（实时渲染开着时也能重抓当前帧）');
+      assert.ok(gpuText.includes('实时帧'), '「实时帧」分组必须存在');
+      const shot = (function find(n) {
+        if (!n || typeof n !== 'object') return null;
+        if (Array.isArray(n)) { for (const c of n) { const r = find(c); if (r) return r; } return null; }
+        if (n.type === 'img' && String(n.props && n.props.className).includes('we-picker__frame-shot')) return n;
+        if (Array.isArray(n.children)) { for (const c of n.children) { const r = find(c); if (r) return r; } }
+        return null;
+      })(tree3);
+      assert.ok(shot, '槽里有实时帧时必须给出「当前壁纸实时帧」微缩预览');
+      assert.ok(String(shot.props.src).indexOf('/scene-frame/ccc') !== -1
+        && String(shot.props.src).indexOf('we-prev=') !== -1,
+        '预览必须指向层里正在用的那个 scene-frame URL（+ 缓存破坏参数），否则预览与实屏不一致');
+      assert.ok(gpuText.includes('2488×1376'),
+        '预览旁必须显示实时帧的像素尺寸（宿主 X-WE-GPU-W/H）');
+      // 「重新截」在**没有实时渲染**时的行为：给出可读原因，且**不许**动现有缓存。
+      const deletesBefore = sceneFrameDeleteCalls.length;
+      const recaptureBtn = findBtn(tree3, '重新截');
+      assert.ok(recaptureBtn && typeof recaptureBtn.props.onClick === 'function', '「重新截」必须可点');
+      recaptureBtn.props.onClick();
+      tree3 = renderPicker();
+      assert.ok(JSON.stringify(tree3).includes('拿不到实时画面'),
+        '没有实时渲染时点「重新截」必须说明原因（而不是静默无事发生）');
+      assert.equal(sceneFrameDeleteCalls.length, deletesBefore,
+        '没有实时画面时「重新截」不得删除现有缓存（安全顺序：先抓到才清旧）');
+      console.log('实时帧：重新截 + 微缩预览: ok');
+    }
     assert.equal(animProbeSrcs.length, 0,
       '槽位已有 GPU 帧时不得启动任何 CPU 动画渲染（scene-anim 已删除）');
     // ── 高级页签：省电三档 + 实时渲染诊断（都从「效果」移来） ──

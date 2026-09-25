@@ -3116,18 +3116,35 @@ function cancelLiveFrameBackfill() {
   }
   liveFrameBackfill = { token: "", timer: 0 };
 }
-function scheduleLiveFrameBackfill(frame) {
+// 抓一张实时画面回填 <key>_gpu.png。
+// opts.force = 用户在面板上点了「重新截」：即使缓存里已有 GPU 帧也重抓一张，
+// 且失败原因要**告诉用户**（后台自动回填是静默的）。仍然遵守原有的安全顺序：
+// 先抓帧 + 过内容门禁，**成功之后**才清旧帧 —— 抓不到就原样保留，绝不留空槽。
+function scheduleLiveFrameBackfill(frame, opts) {
+  const force = Boolean(opts && opts.force);
   const src = selection.sceneFrameUrl || "";
-  if (!src || src.indexOf("/scene-frame/") === -1 || !frame) return;
+  if (!src || src.indexOf("/scene-frame/") === -1 || !frame) {
+    if (force) { gpuFrameUi.recapturing = false; gpuFrameUi.error = "拿不到实时画面（这个壁纸没有实时渲染）"; try { emit(); } catch { /* ignore */ } }
+    return;
+  }
   if (typeof window === "undefined" || typeof window.setTimeout !== "function") return;
   const token = String(src.split("/scene-frame/").pop() || "").split("?")[0];
-  if (!token || liveFrameBackfill.token === token) return;
+  // force 要能打断「同一 token 已排队/在途」的去重（否则用户点了没反应）。
+  if (!token || (!force && liveFrameBackfill.token === token)) return;
   cancelLiveFrameBackfill();
   liveFrameBackfill.token = token;
   const backfillWid = String(selection.id || "");
   // 本次是否因「存帧几何不符」而重抓（落地后据此刷新屏上静帧 + 留诊断痕迹）。
   let recaptured = false;
   let recaptureSize = "";
+  // 手动重抓的失败原因要落到面板上（后台自动回填失败是静默的，只在 liveLog 留痕）。
+  const forceFail = (msg) => {
+    if (!force) return;
+    liveLog("gpu-frame-recapture-fail", "wid=" + backfillWid + " " + msg);
+    gpuFrameUi.recapturing = false;
+    gpuFrameUi.error = msg;
+    try { emit(); } catch { /* ignore */ }
+  };
   liveFrameBackfill.timer = window.setTimeout(() => {
     liveFrameBackfill.timer = 0;
     (async () => {
@@ -3154,8 +3171,9 @@ function scheduleLiveFrameBackfill(frame) {
       // 未知（旧宿主 + 本会话没抓过）→ 按「可能不符」处理：重抓一次必然正确，
       // 留一张别处视口的帧则会让用户一直看到放大且被裁的构图。判不了当前几何
       // （arRef=0，如无头/极简环境）时反过来保守保留，避免无休止清写。
-      const stale = hasGpu && arRef > 0
-        && (arStored <= 0 || Math.abs(arStored - arRef) > GPU_FRAME_ASPECT_TOL * arRef);
+      // 用户手点「重新截」（force）时一律按需要重抓处理 —— 他就是要换一张。
+      const stale = force || (hasGpu && arRef > 0
+        && (arStored <= 0 || Math.abs(arStored - arRef) > GPU_FRAME_ASPECT_TOL * arRef));
       // 已有 GPU 帧且几何相符（含并发窗口里被别人写入）：无需抓帧，保留 token 免重复。
       if (hasGpu && !stale) {
         // 未知几何的保留要留痕：这是「没有头也没重抓」的唯一解释。
@@ -3167,13 +3185,22 @@ function scheduleLiveFrameBackfill(frame) {
           + (arStored > 0 ? arStored.toFixed(4) : "未知") + " ≠ 当前视口 " + arRef.toFixed(4)
           + " → 清掉按当前视口重抓");
       }
-      if (!canvas || typeof canvas.toBlob !== "function") return false;
+      if (!canvas || typeof canvas.toBlob !== "function") {
+        if (force) forceFail("拿不到实时画面（实时渲染没在运行，或渲染页还没画布）");
+        return false;
+      }
       const blob = await new Promise((resolveBlob) => {
         try { canvas.toBlob(resolveBlob, "image/png"); } catch { resolveBlob(null); }
       });
-      if (!blob || blob.size < LIVE_FRAME_BACKFILL_MIN_BYTES) return false;
+      if (!blob || blob.size < LIVE_FRAME_BACKFILL_MIN_BYTES) {
+        if (force) forceFail("抓到的画面是空的（实时渲染还在启动中？稍等一两秒再试）");
+        return false;
+      }
       // 内容门禁：黑帧/纯色帧判为未渲染 → 放弃（保留 CPU 帧）。
-      if (!liveFrameLooksUsable(canvas, blob)) return false;
+      if (!liveFrameLooksUsable(canvas, blob)) {
+        if (force) forceFail("抓到的画面还没有内容（全黑/纯色）→ 已保留原来那张");
+        return false;
+      }
       // 清旧帧放在抓帧+门禁**之后**：先清后抓一旦抓帧失败（画面没出来/网络断）就
       // 只剩空槽 → 退回 CPU 帧，比留一张旧构图的帧更糟（旧的至少是同一张壁纸）。
       if (stale) {
@@ -3182,6 +3209,7 @@ function scheduleLiveFrameBackfill(frame) {
           // 没删掉（权限/占用/宿主报错）→ PUT 也会 409，本帧没换成；清 token 让下
           // 次挂载重试，并留痕（否则用户只看到构图依旧是旧的，没有任何线索）。
           liveLog("gpu-frame-stale-blocked", "wid=" + backfillWid + " 旧帧未删除 → 本轮放弃，下次挂载重试");
+          if (force) forceFail("旧实时帧删不掉（被占用或宿主报错）→ 没有改动它，可稍后重试");
           return false;
         }
         recaptured = true;
@@ -3194,6 +3222,7 @@ function scheduleLiveFrameBackfill(frame) {
       });
       // 200 写入成功 / 409 已被写入：两种都算「已定局」，不必重试。
       const ok = Boolean(put && (put.ok || put.status === 409));
+      if (!ok && force) forceFail("写入失败（宿主返回 " + (put && put.status) + "）");
       if (ok && arRef > 0) gpuFrameAspectKnown.set(token, arRef);
       return ok;
     })().then((settled) => {
@@ -3201,6 +3230,11 @@ function scheduleLiveFrameBackfill(frame) {
       // 状态更新只对发起时那张壁纸有效 —— 否则会给**当前**壁纸打上「已有 GPU 帧」
       // 的假标记（面板提示错、CPU 渲染门禁在 30s 内误判为 pinned）。host 侧写入
       // 仍落在 token 自己的槽位，下次回到这张壁纸时面板探测自然会读到。
+      if (settled && force) {
+        gpuFrameUi.recapturing = false;
+        gpuFrameUi.error = "";
+        try { emit(); } catch { /* ignore */ }
+      }
       if (String(selection.id || "") !== backfillWid) return;
       if (settled) {
         // 缓存里已有（或刚写入）GPU 帧 → 面板提示「优先于全部档位」。
@@ -3216,8 +3250,10 @@ function scheduleLiveFrameBackfill(frame) {
       }
       // 未定局（拿不到画面、门禁判定未渲染、网络失败）→ 清 token 允许下次重试。
       if (liveFrameBackfill.token === token) liveFrameBackfill.token = "";
+      if (force) forceFail("这次没抓成（拿不到画面或写入失败）→ 原来那张没动");
     }).catch(() => {
       if (liveFrameBackfill.token === token) liveFrameBackfill.token = "";
+      forceFail("抓帧过程出错 → 原来那张没动");
     });
   }, LIVE_FRAME_BACKFILL_DELAY_MS);
 }
@@ -5360,7 +5396,11 @@ let pickerFocusPending = false;
 // GPU 抓帧缓存状态（面板展示用）：wid 对应当前面板壁纸，pinned=缓存里已有
 // <key>_gpu.png。GPU 帧优先于「壁纸画面刷新」全部档位（按用户决策），因此
 // 想切档位/换回 CPU 生成的画面必须先清掉它 —— 面板据此给出提示与清除入口。
-const gpuFrameUi = { wid: "", pinned: false, busy: false, probedAt: 0, error: "" };
+const gpuFrameUi = {
+  wid: "", pinned: false, busy: false, probedAt: 0, error: "",
+  // 实时帧预览用：抓帧的像素尺寸（宿主 HEAD 的 X-WE-GPU-W/H）+ 手动重抓是否在途。
+  w: 0, h: 0, recapturing: false,
+};
 const GPU_FRAME_PROBE_TTL_MS = 30000;
 function gpuFrameToken(frameUrl) {
   const src = String(frameUrl || "");
@@ -5371,6 +5411,16 @@ function markGpuFrameProbed(wid, pinned) {
   gpuFrameUi.wid = String(wid || "");
   gpuFrameUi.pinned = Boolean(pinned);
   gpuFrameUi.probedAt = Date.now();
+}
+// 面板上「当前壁纸实时帧」微缩预览的 URL：与层里正在用的那个 URL **同源**（同一
+// 画面档位；scene-frame 路由在有 _gpu.png 时优先服务它），所以预览看到什么、切换
+// 途中与 live 首帧前显示的就是什么。尾上挂一个缓存破坏参数：probedAt 一变（重抓/
+// 清除后的复检）URL 就变 → <img> 会重新取图，预览立刻跟上。
+function framePreviewSrc(selLike) {
+  const v = Number(selLike && selLike.frameVariants && selLike.frameVariants[String(selLike && selLike.id)]) || 0;
+  const base = frameUrlWithVariant(selLike && selLike.sceneFrameUrl, v);
+  if (!base) return "";
+  return base + (base.indexOf("?") === -1 ? "?" : "&") + "we-prev=" + (gpuFrameUi.probedAt || 0);
 }
 // 探测当前壁纸的静态帧槽位状态（HEAD，纯磁盘探测，不触发 CPU 提取）。带 TTL
 // 去重：syncLayers 调用频繁，同一壁纸 30s 内只探一次；force 用于清除后复检。
@@ -5389,6 +5439,11 @@ function probeGpuFrameState(frameUrl, force) {
       const pinned = Boolean(r && r.ok && r.headers && typeof r.headers.get === "function"
         && r.headers.get("x-we-gpu") === "1");
       gpuFrameUi.pinned = pinned;
+      // 存帧像素尺寸（预览窗口展示用；旧宿主没有这两个头 → 保持 0，预览只显示图）。
+      const gw = pinned ? Number(r.headers.get("x-we-gpu-w")) : 0;
+      const gh = pinned ? Number(r.headers.get("x-we-gpu-h")) : 0;
+      gpuFrameUi.w = Number.isFinite(gw) && gw > 0 ? gw : 0;
+      gpuFrameUi.h = Number.isFinite(gh) && gh > 0 ? gh : 0;
       gpuFrameUi.busy = false;
       if (pinned !== wasPinned) { try { emit(); } catch { /* ignore */ } }
     })
@@ -5719,7 +5774,7 @@ function WallpaperPicker(props) {
         } catch { /* 无 body：按 HTTP 状态判 */ }
         if (!r.ok || !declaredRemoved) {
           gpuFrameUi.busy = false;
-          gpuFrameUi.error = !r.ok ? ("宿主返回 " + r.status) : "缓存文件未删除（权限或占用）";
+          gpuFrameUi.error = !r.ok ? ("清除失败：宿主返回 " + r.status) : "清除失败：缓存文件未删除（权限或占用）";
           emit();
           return;
         }
@@ -5738,9 +5793,41 @@ function WallpaperPicker(props) {
       })
       .catch(() => {
         gpuFrameUi.busy = false;
-        gpuFrameUi.error = "清除请求失败";
+        gpuFrameUi.error = "清除失败：请求未完成";
         emit();
       });
+  };
+  // 「重新截」：实时渲染**开着时也要能用** —— GPU 实时帧就是切换途中 / live 首帧
+  // 之前给用户看的那张静帧，构图或时机不对时（黑帧、旧视口、切走时那张）用户必须
+  // 能立刻重抓，而不是先关掉实时渲染再回来。
+  // 走的是自动回填那条同一条安全路径（先抓帧 + 内容门禁 → 成功后才清旧帧 → PUT），
+  // 所以抓不到时**不会**把原来那张删掉；失败原因直接显示在面板上。
+  // 当前 live 渲染页的 iframe（面板「重新截」的抓帧源）。
+  // livePointerFrame 由 syncLayers 每次挂上 live 层时更新；切到非 live 壁纸后它可能
+  // 仍指向已移除的旧元素，所以再用 DOM 查一次兜底。
+  const currentLiveFrame = () => {
+    const ref = livePointerFrame;
+    if (ref && (!("isConnected" in ref) || ref.isConnected)) return ref;
+    try {
+      const node = document.getElementById(LAYER_ID);
+      const f = node && typeof node.querySelector === "function" ? node.querySelector("iframe.we-live-iframe") : null;
+      if (f) return f;
+    } catch { /* ignore */ }
+    return null;
+  };
+  const onRecaptureGpuFrame = () => {
+    if (sel.type !== "scene" || !sel.sceneFrameUrl || gpuFrameUi.recapturing) return;
+    const live = currentLiveFrame();
+    if (!live) {
+      gpuFrameUi.error = "拿不到实时画面（实时渲染没在运行）→ 想抓实时帧请先开「场景实时渲染」";
+      emit();
+      return;
+    }
+    gpuFrameUi.recapturing = true;
+    gpuFrameUi.error = "";
+    emit();
+    // force：即使槽里已有 GPU 帧也重抓一张（用户显式要求换一张）。
+    scheduleLiveFrameBackfill(live, { force: true });
   };
   // 自定义画面（截屏导入）：从 WE 等处截图后导入，成为该壁纸第 5 档显示源。
   const setCustomFrameLocal = (wid, on) => {
@@ -6773,6 +6860,12 @@ function WallpaperPicker(props) {
         }, "选择壁纸"),
       );
     }
+    // 画面来源相关的判定算一次给下面几行用：
+    // - sceneWithFrame：有静态帧可换/可抓的场景壁纸；
+    // - gpuPinnedHere：当前面板这张壁纸的槽里确实有实时帧（探测带 TTL，见
+    //   probeGpuFrameState）—— 跨壁纸的 pinned 状态不能拿来显示。
+    const sceneWithFrame = sel.type === "scene" && Boolean(sel.sceneFrameUrl);
+    const gpuPinnedHere = gpuFrameUi.wid === String(sel.id) && gpuFrameUi.pinned;
     return React.createElement(React.Fragment, null,
       // ── 画面：壁纸层滤镜与边框细调 ──
       React.createElement("div", { className: "we-picker__section" },
@@ -6841,67 +6934,82 @@ function WallpaperPicker(props) {
             ),
           ),
         ),
-        // ── 降级后才需要的画面来源选项：实时渲染**生效时整块不渲染** —— 它对实时画面
-        //    没有任何作用，摆出来只会让人以为能干预实时渲染。实时渲染被关掉、或这张
-        //    壁纸已降级（首帧超时 / 运行失联）、或它根本没有 live 源时才会出现。──
-        sel.type === "scene" && !liveRenderEnabled(sel)
-          && React.createElement(React.Fragment, null,
-          // ── 壁纸画面刷新（用户方案）：场景静态帧生成逻辑手动轮换 ──
-          // 显示异常时逐档刷新；未导入自定义画面时 4 档，导入后 5 档（第 5 档=
-          // 用户截屏）。档位按壁纸记忆；beta 渲染不参与。读数实时显示档位与总数。
-          sel.type === "scene" && sel.sceneFrameUrl && React.createElement("div", { className: "we-picker__ctl" },
-            ctlText("壁纸画面刷新", "显示异常时换一种生成逻辑",
-              "场景壁纸静态帧生成逻辑：合成 / 主纹理 / 作者原画 / 预览图（+导入后的自定义画面）。每点一次换一种，选择记忆在当前壁纸上；可反复刷新直到满意。不包含 beta 渲染"),
-            React.createElement("button", {
-              className: "we-picker__btn", type: "button",
-              onClick: onRefreshFrame,
-              "aria-label": "刷新壁纸画面生成逻辑",
-            }, "刷新"),
-            React.createElement("span", { className: "we-picker__hint we-picker__value" },
-              "第 " + ((Number(sel.frameVariants && sel.frameVariants[String(sel.id)]) || 0) + 1)
-                + "/" + frameVariantCount(sel, String(sel.id)) + " 秡 · "
-                + FRAME_VARIANTS[Number(sel.frameVariants && sel.frameVariants[String(sel.id)]) || 0].label
-                + " · 共 " + frameVariantCount(sel, String(sel.id)) + " 种"),
-          ),
-          // ── GPU 抓帧缓存：实时渲染抓的帧优先于上面全部档位（用户决策），
-          // 因此切档位前必须先清除它 —— 这里给出状态提示与唯一清除入口。
-          sel.type === "scene" && sel.sceneFrameUrl
-            && gpuFrameUi.wid === String(sel.id) && gpuFrameUi.pinned
-            && React.createElement("div", { className: "we-picker__ctl" },
-              ctlText("GPU 实时帧",
-                "已缓存，优先于全部画面档位",
-                "实时渲染成功后自动抓帧缓存了这张壁纸的静态画面（<key>_gpu.png），它优先于「壁纸画面刷新」的所有档位 —— 想切档位或换回 CPU 生成的画面，先点「清除 GPU 帧」删掉这份缓存，之后刷新档位立即生效。"),
-              React.createElement("button", {
-                className: "we-picker__btn", type: "button",
-                onClick: onClearGpuFrame,
-                "aria-label": "清除 GPU 实时帧缓存",
-              }, gpuFrameUi.busy ? "清除中…" : "清除 GPU 帧"),
-              gpuFrameUi.error
-                && React.createElement("div", { className: "we-picker__hint" },
-                  "清除失败：" + gpuFrameUi.error + "（缓存仍在，画面仍是 GPU 帧）"),
-            ),
-          // ── 自定义画面（截屏导入）：无法静态生成的壁纸（骨骼拼装场景，预览
-          // gif 仅 160px）由用户从 WE 截图导入，画质=截图分辨率；作为第 5 档。
-          sel.type === "scene" && React.createElement("div", { className: "we-picker__ctl" },
-            ctlText("自定义画面",
-              "手动给电脑桌面截图，导入截图解决错误壁纸",
-              "手动对电脑桌面截图（壁纸显示效果的分辨率即最终展示画质），再回来点「导入画面…」选中该截图；导入后自动切换为该图，可随刷新档位切回其他生成逻辑"),
-            React.createElement("button", {
-              className: "we-picker__btn", type: "button",
-              onClick: () => { if (customFrameInput) customFrameInput.click(); },
-            }, frameVariantCount(sel, String(sel.id)) === FRAME_VARIANTS.length ? "替换图片…" : "导入画面…"),
-            frameVariantCount(sel, String(sel.id)) === FRAME_VARIANTS.length && React.createElement("button", {
-              className: "we-picker__btn", type: "button",
-              onClick: onClearCustomFrame,
-            }, "清除"),
-            React.createElement("input", {
-              type: "file",
-              accept: "image/png,image/jpeg,image/webp",
-              style: { display: "none" },
-              ref: (el) => { customFrameInput = el; },
-              onChange: onCustomFrameFile,
-            }),
-          ),
+        // ── 壁纸画面刷新：**只在实时渲染未生效时**出现 —— 它换的是 CPU 生成的静态帧，
+        //    实时画面在跑时它没有任何作用（换实时帧用下面的「重新截」）。──
+        sel.type === "scene" && sel.sceneFrameUrl && !liveRenderEnabled(sel)
+          && React.createElement("div", { className: "we-picker__ctl" },
+          ctlText("壁纸画面刷新", "显示异常时换一种生成逻辑",
+            "场景壁纸静态帧生成逻辑：合成 / 主纹理 / 作者原画 / 预览图（+导入后的自定义画面）。每点一次换一种，选择记忆在当前壁纸上；可反复刷新直到满意。实时渲染生效时本行不显示（那时画面来自实时渲染，换档位不会生效）"),
+          React.createElement("button", {
+            className: "we-picker__btn", type: "button",
+            onClick: onRefreshFrame,
+            "aria-label": "刷新壁纸画面生成逻辑",
+          }, "刷新"),
+          React.createElement("span", { className: "we-picker__hint we-picker__value" },
+            "第 " + ((Number(sel.frameVariants && sel.frameVariants[String(sel.id)]) || 0) + 1)
+              + "/" + frameVariantCount(sel, String(sel.id)) + " 秡 · "
+              + FRAME_VARIANTS[Number(sel.frameVariants && sel.frameVariants[String(sel.id)]) || 0].label
+              + " · 共 " + frameVariantCount(sel, String(sel.id)) + " 种"),
+        ),
+        // ── GPU 实时帧（抓帧缓存 + 重新截 + 微缩预览）：**实时渲染开着时同样显示**。
+        //    它是切换途中 / live 首帧之前给用户看的那张静帧 —— 构图不对（黑帧、旧视口、
+        //    切走瞬间抓的）时用户必须能立刻重抓，而不是先关掉实时渲染再回来。
+        //    预览窗口指向的就是**层上正在用的那个 URL**（同一档位 + 缓存破坏参数），
+        //    所以「预览看到什么，切换途中就是什么」。──
+        sceneWithFrame && (gpuPinnedHere || liveRenderEnabled(sel))
+          && React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
+          ctlText("实时帧",
+            gpuPinnedHere
+              ? "已抓帧 · 优先于全部画面档位"
+              : "实时渲染中 · 可随时抓一张",
+            "实时渲染成功后会自动抓帧缓存这一帧（<key>_gpu.png），它优先于「壁纸画面刷新」的全部档位；切换壁纸途中、以及 live 首帧出来之前，屏幕上显示的就是它。「重新截」会按**当前**画面重抓一张（已存在的缓存会被替换，抓不到则原样保留）；「清除 GPU 帧」删掉缓存、回到 CPU 生成的静态帧。"),
+          // 微缩预览：只有槽里真有实时帧时才显示（否则这里会显示成 CPU 档位帧，误导）。
+          gpuPinnedHere && React.createElement("img", {
+            className: "we-picker__frame-shot",
+            src: framePreviewSrc(sel),
+            alt: "当前壁纸实时帧预览",
+            title: "当前壁纸的实时帧（就是切换途中 / live 首帧前显示的那张静帧）"
+              + (gpuFrameUi.w > 0 && gpuFrameUi.h > 0 ? " · " + gpuFrameUi.w + "×" + gpuFrameUi.h : ""),
+          }),
+          React.createElement("button", {
+            className: "we-picker__btn", type: "button",
+            onClick: onRecaptureGpuFrame,
+            disabled: gpuFrameUi.recapturing,
+            "aria-label": "重新截取当前壁纸实时帧",
+          }, gpuFrameUi.recapturing ? "抓帧中…" : "重新截"),
+          gpuPinnedHere && React.createElement("button", {
+            className: "we-picker__btn", type: "button",
+            onClick: onClearGpuFrame,
+            "aria-label": "清除 GPU 实时帧缓存",
+          }, gpuFrameUi.busy ? "清除中…" : "清除 GPU 帧"),
+          gpuPinnedHere && gpuFrameUi.w > 0
+            && React.createElement("span", { className: "we-picker__hint we-picker__value" },
+              gpuFrameUi.w + "×" + gpuFrameUi.h),
+          gpuFrameUi.error
+            && React.createElement("div", { className: "we-picker__hint" }, gpuFrameUi.error),
+        ),
+        // ── 自定义画面（截屏导入）：无法静态生成的壁纸（骨骼拼装场景，预览 gif 仅
+        //    160px）由用户从 WE 截图导入，画质=截图分辨率；作为第 5 档。
+        //    同样**不受实时渲染开关影响**（导入/清除与 live 互不干扰）。──
+        sel.type === "scene" && React.createElement("div", { className: "we-picker__ctl" },
+          ctlText("自定义画面",
+            "手动给电脑桌面截图，导入截图解决错误壁纸",
+            "手动对电脑桌面截图（壁纸显示效果的分辨率即最终展示画质），再回来点「导入画面…」选中该截图；导入后自动切换为该图，可随刷新档位切回其他生成逻辑。实时渲染生效时它仍会作为「壁纸画面刷新」的第 5 档、以及降级回退时的静态帧"),
+          React.createElement("button", {
+            className: "we-picker__btn", type: "button",
+            onClick: () => { if (customFrameInput) customFrameInput.click(); },
+          }, frameVariantCount(sel, String(sel.id)) === FRAME_VARIANTS.length ? "替换图片…" : "导入画面…"),
+          frameVariantCount(sel, String(sel.id)) === FRAME_VARIANTS.length && React.createElement("button", {
+            className: "we-picker__btn", type: "button",
+            onClick: onClearCustomFrame,
+          }, "清除"),
+          React.createElement("input", {
+            type: "file",
+            accept: "image/png,image/jpeg,image/webp",
+            style: { display: "none" },
+            ref: (el) => { customFrameInput = el; },
+            onChange: onCustomFrameFile,
+          }),
         ),
         // Playback speed — native playbackRate, instant, no media reload. Video
         // wallpapers only (web/iframe and scene wallpapers have no playbackRate).
@@ -8604,6 +8712,13 @@ const CSS = `
   .we-picker select:hover { background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.12)); }
   .we-picker select:disabled { opacity: 0.45; cursor: default; }
   .we-picker__hint { font-size: 0.8em; color: var(--we-ink-3, rgba(128, 128, 128, 0.75)); }
+  /* 「当前壁纸实时帧」微缩预览：就是切换途中 / live 首帧前显示的那张静帧。
+     固定 16:9 小图 + 细边框，居中放在控件行里（行已 --wrap，窄面板会自动折行）。 */
+  .we-picker__frame-shot {
+    display: block; width: 168px; height: 94.5px; object-fit: cover;
+    border-radius: 6px; border: 1px solid var(--dsw-alias-border-l1, rgba(128, 128, 128, 0.28));
+    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.1));
+  }
   /* 数字读数等宽：页码 / 计数 / fps / 百分比切换时不再跳动。 */
   .we-picker__pager .we-picker__hint, .we-picker__card-badge, .we-picker__value {
     font-variant-numeric: tabular-nums;
