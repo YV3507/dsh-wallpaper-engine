@@ -6233,19 +6233,18 @@ function WallpaperPicker(props) {
         React.createElement("div", { className: "we-picker__section-head" },
           React.createElement("span", { className: "we-picker__section-label" }, "切换过场"),
         ),
-        React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
+        // 过场动画：**下拉菜单**（不用水平平铺）—— 过场会持续增加，平铺一排按钮
+        // 迟早挤成两行、还会把「方向 / 时长」挤下去；下拉天然可扩展。
+        React.createElement("div", { className: "we-picker__ctl" },
           ctlText("过场动画", "换壁纸时的转场"),
-          React.createElement("div", { className: "we-picker__seg" },
-            SWITCH_TRANSITIONS.map((t) =>
-              React.createElement("button", {
-                key: t.id,
-                className: "we-picker__btn we-picker__rate" + (sel.switchTransition === t.id ? " we-picker__rate--active" : ""),
-                type: "button",
-                onClick: () => onSwitchTransition(t.id),
-                "aria-pressed": sel.switchTransition === t.id ? "true" : "false",
-                "aria-label": "过场动画 " + t.label,
-              }, t.label),
-            ),
+          React.createElement("select", {
+            className: "we-picker__select",
+            value: sel.switchTransition,
+            onChange: (e) => onSwitchTransition(e.target.value),
+            "aria-label": "过场动画",
+          },
+            ...SWITCH_TRANSITIONS.map((t) =>
+              React.createElement("option", { key: t.id, value: t.id }, t.label)),
           ),
         ),
         // 方向：只有方向型过场（推移 / 擦除 / 条带）听它；条带用它决定竖条 / 横条。
@@ -6280,8 +6279,6 @@ function WallpaperPicker(props) {
             ),
           ),
         ),
-        React.createElement("span", { className: "we-picker__hint" },
-          "手动点选与自动轮播共用；「硬切」= 不动画、即时切换。系统开启「减少动态效果」时一律按硬切处理"),
       ),
       // ── 自动轮播（原「轮播列表」）: user-defined carousel lists, each with
       //    its own wallpaper set, interval and order. Fully client-side. ──
@@ -7156,8 +7153,6 @@ function WallpaperPicker(props) {
         switchRow("最小化/切页时暂停", sel.pauseOnHidden, (e) => { selection.pauseOnHidden = e.target.checked; persistSelection(); emit(); }, { key: "pause-hidden" }),
         switchRow("窗口失焦时暂停", sel.pauseOnBlur, (e) => { selection.pauseOnBlur = e.target.checked; persistSelection(); emit(); }, { key: "pause-blur" }),
         switchRow("使用电池时暂停", sel.pauseOnBattery, (e) => { selection.pauseOnBattery = e.target.checked; persistSelection(); emit(); }, { key: "pause-battery" }),
-        React.createElement("span", { className: "we-picker__hint" },
-          "被遮挡或用电池时暂停视频、解码归零；回到界面自动继续"),
       ),
       // ── 实时渲染诊断（本会话有效，不落盘；从「效果」页签移来）：只对**能走实时
       //    渲染**的壁纸（场景 / 网页）显示 —— 视频、图片壁纸没有渲染页，摆出来是空的。──

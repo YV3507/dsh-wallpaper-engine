@@ -304,17 +304,33 @@ setTimeout(async () => {
     })(tree);
     return hit;
   };
+  // 过场动画是**下拉菜单**（过场会持续增加，平铺按钮迟早挤爆）——
+  // 断言集中在「选项集合 + 选中值驱动」两件事上，新增过场只需扩这张表。
+  const TRANSITION_IDS = { 硬切: 'cut', 交叉淡化: 'fade', 推移: 'push', 擦除: 'wipe', 光圈: 'iris', 缩放: 'zoom', 条带: 'bars' };
+  const findTransitionSelect = () => findAriaBtn('过场动画');
   const pickTransition = (label) => {
-    const b = findAriaBtn('过场动画 ' + label);
-    assert.ok(b, '过场动画按钮必须存在：' + label);
-    b.props.onClick();
+    const el = findTransitionSelect();
+    assert.ok(el, '「过场动画」下拉必须存在');
+    const id = TRANSITION_IDS[label];
+    assert.ok(id, '测试用的过场名必须在这张表里：' + label);
+    assert.ok(Array.isArray(el.children) && el.children.some((o) => o && o.props && o.props.value === id),
+      '下拉里必须有这个过场选项：' + label);
+    el.props.onChange({ target: { value: id } });
   };
   const preLayer = document.getElementById('dsh-wallpaper-engine-layer');
   const rotTimer = findRotTimer();
   rotCheck('rotation timer scheduled (5min)', !!rotTimer);
-  rotCheck('切换过场 renders all seven transition buttons',
-    ['硬切', '交叉淡化', '推移', '擦除', '光圈', '缩放', '条带']
-      .every((l) => !!findAriaBtn('过场动画 ' + l)));
+  rotCheck('切换过场 renders a dropdown with all seven transitions',
+    (() => {
+      const el = findTransitionSelect();
+      if (!el || el.type !== 'select' || !Array.isArray(el.children)) return false;
+      const ids = el.children.map((o) => o.props && o.props.value);
+      const labels = el.children.map((o) => (o.children || [])[0]);
+      return Object.keys(TRANSITION_IDS).length === ids.length
+        && Object.values(TRANSITION_IDS).every((v) => ids.includes(v))
+        && Object.keys(TRANSITION_IDS).every((l) => labels.includes(l))
+        && el.props.value === 'cut'; // 默认硬切
+    })());
   rotCheck('默认过场是硬切（未设置时）',
     JSON.parse(localStorage._store['dsh-wallpaper-engine:selection'] || '{}').switchTransition === undefined
       || JSON.parse(localStorage._store['dsh-wallpaper-engine:selection'] || '{}').switchTransition === 'cut');
