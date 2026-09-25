@@ -627,6 +627,20 @@ const clientChecks = [
   // 网页壁纸的 src 直用 host 给的绝对 URL（媒体源）；相对形态仅作回落。
   ['web live src reuses the absolute media-origin URL', src.includes('const webEntry = String(selLike.webLiveSrc || "")')
     && src.includes('/^https?:\\/\\//i.test(webEntry)')],
+  // 实机回归（2026-09-25）：**静态帧是资产，资产操作不得拆掉 live 层**。
+  // 用户报「兼容模式下 GPU 抓帧完成之后就只剩静态壁纸」。diag/http.jsonl 取证：同一张
+  // 壁纸的层 key 在 `url: …scene.pkg?v=8 ⇄ …scene.pkg` 与 `live: live ⇄ nolive` 之间反复
+  // 抖，每抖一次都伴随 `build-live 冷启动渲染页（重新加载）` + `watch-start`。根因：
+  // `selection.url` 是层 key 字段之一，而 live 在跑时层里是渲染页 —— 静态帧 URL（含出图
+  // 档位）只是垫底资产；「清除 GPU 抓帧缓存」「切换出图档位」都会改写它并 syncLayers
+  // ⇒ 拆掉 live 层、渲染页冷启动重载，加载期屏上就只剩垫底静态帧。
+  ['layer key ignores the static-frame asset URL while live is rendering',
+    /const liveOn = \(selection\.type === "scene" \|\| selection\.type === "web"\)\s*\n\s*&& liveRenderEnabled\(selection\);/.test(src)
+    && /const wantKey = selection\.type \+ "\\u0000" \+ \(liveOn \? "live-asset" : selection\.url\) \+ "\\u0000"/.test(src)],
+  ['clearing the GPU frame refreshes the poster in place instead of rebuilding the live layer',
+    /if \(liveRenderEnabled\(sel\)\) \{\s*\n\s*persistSelection\(\);\s*\n\s*refreshStaticFrameNodes\(token\);\s*\n\s*emit\(\);\s*\n\s*return;\s*\n\s*\}\s*\n\s*persistSelection\(\); syncLayers\(\); emit\(\);/.test(src)],
+  ['switching the frame tier refreshes the poster in place instead of rebuilding the live layer',
+    /if \(liveRenderEnabled\(sel\)\) \{\s*\n\s*persistSelection\(\);\s*\n\s*refreshStaticFrameNodes\(gpuFrameToken\(sel\.sceneFrameUrl\)\);\s*\n\s*emit\(\);\s*\n\s*return;\s*\n\s*\}\s*\n\s*persistSelection\(\); syncLayers\(\); emit\(\);/.test(src)],
 ];
 for (const [name, ok] of clientChecks) check(name, ok);
 // 负对照：把两种旧写法喂给**同一判据**，必须都被判不合格
@@ -637,6 +651,17 @@ for (const [name, ok] of clientChecks) check(name, ok);
   check('negative control: the old static-frame poster is rejected', isCacheOnlyPoster(oldStatic) === false);
   check('negative control: the plain-preview poster is rejected', isCacheOnlyPoster(oldPreview) === false);
   check('positive control: the current live-branch source passes the same criterion', isCacheOnlyPoster(src) === true);
+}
+// 负对照：把「资产操作无条件 syncLayers」与「层 key 吃资产 URL」两种旧写法喂给**同一判据**，
+// 必须都被判不合格（否则这两条断言只是恒真摆设）。
+{
+  const assetsDoNotRebuildLive = (s) => /if \(liveRenderEnabled\(sel\)\) \{\s*\n\s*persistSelection\(\);\s*\n\s*refreshStaticFrameNodes\(token\);\s*\n\s*emit\(\);\s*\n\s*return;\s*\n\s*\}\s*\n\s*persistSelection\(\); syncLayers\(\); emit\(\);/.test(s);
+  const keyIgnoresAssetUrl = (s) => /const wantKey = selection\.type \+ "\\u0000" \+ \(liveOn \? "live-asset" : selection\.url\) \+ "\\u0000"/.test(s);
+  const oldClear = 'selection.url = frameUrlWithVariant(sel.sceneFrameUrl, variant);\n        persistSelection(); syncLayers(); emit();';
+  const oldKey = 'const wantKey = selection.type + "\\u0000" + selection.url + "\\u0000"';
+  check('negative control: the unconditional asset rebuild is rejected', assetsDoNotRebuildLive(oldClear) === false);
+  check('negative control: the asset URL in the layer key is rejected', keyIgnoresAssetUrl(oldKey) === false);
+  check('positive control: the current client passes both asset criteria', assetsDoNotRebuildLive(src) === true && keyIgnoresAssetUrl(src) === true);
 }
 // 实测踩坑回归（2026-09-22）：host 的 sanitizeSettings 是白名单，漏加
 // sceneLiveFailures 会让 PUT 上来的失败记忆被丢弃、刷新后记忆消失。
