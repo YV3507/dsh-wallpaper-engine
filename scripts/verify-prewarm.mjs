@@ -221,7 +221,14 @@ const okResult = (servedFrom) => async () => ({ fileAbs: '/x/' + servedFrom + '.
       /scenePrewarm:\s*o\.scenePrewarm === true/.test(idx)
       && /scenePrewarmScope:\s*o\.scenePrewarmScope === 'all' \? 'all' : 'recent'/.test(idx)],
     ['R14 预热队列以 allowFallback 透传给 ensureSceneFrame (共用同一函数)',
-      /ensure:\s*\(abs, o\) => ensureSceneFrame\(abs, o\)/.test(idx)],
+      /ensure:\s*async\s*\(abs, o\) => \{[\s\S]{0,240}?return ensureSceneFrame\(abs, o\);[\s\S]{0,60}?\}/.test(idx)],
+    // 与上游提取式预热互斥（用户 2026-09-25 定）：上游那轮在跑时渲染队列原地等待，
+    // 上游优先。三处必须同时在：运行标志、让路轮询、上游函数进出标志。
+    ['R14b 两套预热互斥：上游提取式预热期间渲染队列让路（上游优先）',
+      /let extractionPrewarmRunning = false;/.test(idx)
+      && /async function sceneFramePrewarm\(\)[\s\S]{0,400}?extractionPrewarmRunning = true;[\s\S]{0,300}?finally \{[\s\S]{0,120}?extractionPrewarmRunning = false;/.test(idx)
+      && /while \(extractionPrewarmRunning\)/.test(idx)
+      && /await waitForExtractionPrewarm\(o && o\.signal\)/.test(idx)],
     ['R15 队列随插件 dispose 停止 (disposers 按函数调用)',
       /disposers\.push\(\(\) => prewarmQueue\.stop\(\)\)/.test(idx)],
   ];
@@ -423,7 +430,10 @@ const okResult = (servedFrom) => async () => ({ fileAbs: '/x/' + servedFrom + '.
       && /map\[wid\] = CUSTOM_FRAME_ID/.test(cli);
     const hostOk = /vParsed >= 1 && vParsed <= 4/.test(idx)
       && !/forceRender/.test(idx)
-      && /const vSuffix = variant \? '_v' \+ variant : ''/.test(idx)
+      // 档位后缀与键构造已收敛到单一构造点 sceneFrameCachePaths（P0-0 合并时合并
+      // 上游 GPU 槽与渲染产物键，避免两处各自拼键而错位）—— 断言新位置的同一语义。
+      && /const key = PIPELINE_VERSION \+ '_' \+ gpuFlag \+ srcSuffix/.test(idx)
+      && /\(variant \? '_v' \+ variant : ''\)/.test(idx)
       && /variant === 1 \|\| variant === 2/.test(idx)
       && !/variant === 6/.test(idx);
     // 三级级联：实时渲染没在生效（父关 / 该壁纸已自动降级）→ 出现子「静态帧渲染」；

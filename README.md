@@ -41,8 +41,19 @@ Wallpaper Engine 的壁纸分四种类型（外加本插件的自定义上传）
 Scene 壁纸由本插件内置的 **WebWallGL 实时渲染引擎**（`lib/webwallgl/`，MIT，上游 [webwallgl](https://github.com/oneincase/webwallgl)）在 WebGL2 里完整重放：解析 `scene.pkg` 的对象树，实时渲染全部 image 层（waterwaves/waterripple 等 shader 效果按 HLSL 转译后在 GPU 执行）、puppet 骨骼模型、粒子系统与文本对象，并执行场景自带的 SceneScript 脚本 —— 鼠标移动会驱动视差 / 光标交互，包内音频（BGM / 音效）随「音量 / 壁纸音轨」设置播放并驱动音频反应效果。
 
 **网页壁纸**同样走 WebWallGL：宿主把 **WE API shim**（`wallpaperRegisterAudioListener` / `wallpaperPropertyListener` / 媒体监听等，来自上游 `web-shim.js`，由 `/scene-files` 注入入口 HTML）交给渲染页加载 —— 依赖 WE API 的工坊网页壁纸（音频可视化、属性驱动、鼠标跟随等）因此能真正跑起来，不再是一片空白或报错。**安全**：壁纸 iframe 强制 `sandbox="allow-scripts"`（严格沙箱），第三方 HTML 拿不到 DSH 的 origin（无法冒用宿主身份调宿主 API / 读宿主存储）；跨源控制与指针注入经渲染页的 `postMessage` 通道下发。加载失败或运行失联时按壁纸记忆并自动退回旧的兼容 iframe（裸 HTML，无 WE API）。
+>
+> **载荷来源（独立媒体源）**：网页壁纸的入口 HTML 与全部子资源由宿主**自建的独立 loopback 媒体源**（`127.0.0.1` 上的随机端口，见 `GET /wallpaper-engine/media-origin`）提供，**不走**插件的 HTTP 路由。原因：DSH Desktop 给每条插件路由都套了能力头栅栏（`x-dsh-desktop-renderer`，只注入给同源 frame 发出的请求），而严格沙箱 iframe 是不透明源、永远拿不到这个头 —— 壁纸入口会一律 `403 Forbidden`（表现：预览图先正常、随后整块黑）。媒体源不经过该栅栏，第三方 HTML 也因此连宿主 origin 都不沾边，沙箱之外又多一层隔离。
+>
+> **帧率上限与「卡」的排查**：网页壁纸的 rAF 上限由 shim 按**跳帧**实现 —— 每帧都与显示器 vsync 对齐、只把第 n 帧交给壁纸（`setTimeout` 定时器式实现会产生 17/33/50ms 抖动，观感更差）。实时渲染期间每 5 秒往诊断文件写一条 `live-fps`：`ui=` 整页帧率、`web=` 壁纸自身帧率、`rnd=` 渲染页帧率、`cap=` 当前上限 —— 「限了 30 还是卡」时先看这条：只有 `web` 低＝壁纸自己的开销；`ui` 也低＝整页代价（例如侧栏液态玻璃的 `backdrop-filter` 每帧重采样壁纸，可先把模糊调小验证）。
 
-> **网页壁纸已知边界**：作者脚本的 `fetch`/`XHR` 在 opaque origin 下携带 `Origin: null`（宿主已返回 `Access-Control-Allow-Origin: *`，常规资源可用）；`wallpaperMediaIntegration`（系统 Now Playing）本项目未提供数据源，相关壁纸退到自身静态态；CSS `:hover` 等由浏览器 hit-test 驱动的交互不受外部指针注入影响（与上游文档一致）。
+
+**抓帧几何校验（视口宽高比）**：抓帧是「抓帧那一刻渲染页视口的构图」—— 渲染器按画布比取景（与场景设计比 2% 内 → 整张设计上屏，否则按画布比 cover 裁切），而静态帧上屏时还要再经 CSS `object-fit: cover`。所以**在别的窗口 / 旧会话抓的帧**拿到当前窗口上屏会被再裁一次：实测一张 1440×960（3:2）的帧在 2488×1376 视口里只显示场景设计宽度的 84.5%（对 CPU 帧做最佳匹配拟合得到），人物比 live 大约 19% 且四周被切。因此宿主在 `HEAD /scene-frame/<token>` 上附带 `X-WE-GPU-W/H/AR`（读 PNG 的 IHDR，纯文件头，不触发提取），客户端拿它与当前视口比对照：相对差 > 2%（与渲染器自己的 fit 容差同口径）或几何未知（旧宿主 / 文件读不出）→ **先抓帧过内容门禁，再清槽、再 PUT**（清槽在抓帧之后：抓帧失败时留下空槽会退回 CPU 帧，比留一张旧构图的帧更糟），落地后就地重挂屏上静帧并记 `gpu-frame-stale` / `gpu-frame-recaptured` 诊断行。旧帧因此会在下次挂载 / 轮换时自愈，不必手动清理。
+
+**空帧门禁与清除通道**：体积阈值不可靠（headless 实测全黑 PNG：960×540≈12KB、1080p≈44KB、4K≈165KB，都远超固定字节闸），因此抓帧前会把 canvas 降采样到 64×64 看亮度分布 —— 近全黑或几乎无对比度判为「还没渲染出画面」，直接放弃回填（保留 CPU 帧），另加分辨率相关的体积地板（≈0.02 B/px）。抓到不满意的一帧时，在**设置 → 效果 → 画面 → 「GPU 实时帧」**点「清除 GPU 帧」即可（等价于 `DELETE /wallpaper-engine/scene-frame-cache/<token>`，或 `POST …?clear=1`）—— 删后 HEAD 回到 `X-WE-GPU: 0`、当前档位立即生效、下次 live 会重新抓取。该行只在缓存里确实存在 GPU 帧时出现（面板用 HEAD 探测，30s 去重）。
+
+**测试**：`npm run verify`（client/转码/播放控制/scene/scene-live 五套）+ `npm run smoke`（轮换、轮换-live 节点级领养、轮换准备期零驻留、GPU 回填抓帧、抓帧身份校验五套冒烟）—— 所有断言都有失败通道（不通过即非零退出），`npm run verify:all` = 构建 + 两套全跑。
+
+> **网页壁纸已知边界**：作者脚本的 `fetch`/`XHR` 在 opaque origin 下携带 `Origin: null`（宿主已返回 `Access-Control-Allow-Origin: *`，常规资源可用）；`wallpaperMediaIntegration`（系统 Now Playing / 歌曲封面）已提供数据源，详见下文「系统音频反应与歌曲信息」；CSS `:hover` 等由浏览器 hit-test 驱动的交互不受外部指针注入影响（与上游文档一致）。
 
 > **渲染形态与降级**：渲染页在同源隔离 iframe 中运行，并有**心跳看护** —— 首帧 15 秒超时，或运行期连续 **40 秒**无帧（第 20 秒先自动 `resume` 自救一次，心跳 1 秒/次）即判定失败，按壁纸记入失败记忆并自动降级到「内嵌 MP4 → 静态帧」旧链；松散 `scene.json` 目录与无 WebGL2 的环境直接走旧链。失败记忆可在设置里重新打开「场景实时渲染」（网页壁纸为「网页实时渲染」）开关清空重试。静态帧链（内置自研场景渲染器，默认 CPU 效果链、可开「GPU 渲染加速」，下节）保留为垫底画面与降级目标。
 
@@ -56,6 +67,8 @@ Scene 壁纸由本插件内置的 **WebWallGL 实时渲染引擎**（`lib/webwal
 - **shader 效果链**：waterwaves（含 DUALWAVES 双波乘积）/ waterripple / shake 按 shader 精确数学在 CPU 实现；mask 纹理支持。
 - **粒子系统**：boxrandom/sphererandom 发射器、color/size/alpha/lifetime/velocity/rotation 等初始化器、movement/alphafade/sizechange/turbulence/oscillate* 等运算符、sprite 精灵绘制。
 - **缓存**：渲染结果缓存到 `~/.dsh-wallpaper-engine/cache/frames/`（可用 `DSH_WE_CACHE_DIR` 覆盖），键形如 `sf45_<gpu 标志><来源标志>_<路径>_<mtime>`（`sf45` = 当前管线版本；GPU 与 CPU、完整渲染与主纹理近似各自独立，互不命中），工坊更新后自动失效重建；冷缓存首次渲染**实测约 2–10 秒**（视场景图层数；同机实测见 [`docs/SCENE-FRAME-PERF.md`](docs/SCENE-FRAME-PERF.md)），之后秒级命中。
+- **图集黑边会裁掉**：场景主纹理常是 2048²/4096² 的 2 的幂次方**图集**，画面只占其中一条带、其余纯黑。静态帧按画面本身裁剪（四周连续黑边裁掉，裁完过小则放弃），所以加载期用它当占位图时能正常铺满屏幕，而不是以图集中心铺满、屏幕上一大片黑。
+- **缓存**：渲染结果按 `<版本>_<路径>_<mtime>` 缓存到 `~/.dsh-wallpaper-engine/cache/frames/`（可用 `DSH_WE_CACHE_DIR` 覆盖），工坊更新后自动失效重建；首次渲染约 3-4 秒，之后秒级命中。
 
 ## 工作原理
 
@@ -73,6 +86,8 @@ Scene 壁纸由本插件内置的 **WebWallGL 实时渲染引擎**（`lib/webwal
      - `GET /wallpaper-engine/scene-video/<token>` → 场景**作者内嵌 MP4**（抽出后硬件解码播放，支持 Range；无内嵌视频时 404 并回退静态帧）
      - `GET /wallpaper-engine/scene-audio/<token>` → 场景**包内独立音频**（无内嵌 MP4 的场景用它播放，走「音量 / 壁纸音轨」设置）
      - `GET /wallpaper-engine/web/<token>/<入口文件名>` → 网页壁纸多文件应用子资源（兼容 iframe 回退链；相对引用按入口所在目录解析，CSS / SVG 走正确 MIME）
+     - `GET /wallpaper-engine/scene-files/<token>/<path>` → 场景壁纸原始文件（`scene.pkg` / `project.json` 等，支持 Range；渲染页自行解析容器）。同一条路径还挂在**独立媒体源**上（见上），网页壁纸的入口 HTML 与其子资源从那里取
+     - `GET /wallpaper-engine/media-origin` → 上报当前壁纸媒体源地址（诊断用：网页壁纸到底从哪个源加载）
      - `POST /wallpaper-engine/upload` → 上传自定义壁纸（JPG / PNG / MP4，原始字节流）
      - `GET /wallpaper-engine/custom-frame/<token>` → 用户导入的「自定义画面」（场景帧档位的最后一档，`overrides/`）
      - `POST /wallpaper-engine/remove` → 移除已上传的壁纸
@@ -82,6 +97,11 @@ Scene 壁纸由本插件内置的 **WebWallGL 实时渲染引擎**（`lib/webwal
      - `GET /wallpaper-engine/media-info/<token>` → 媒体元数据（分辨率 / 编码 / 帧率 / 时长，moov 探测）
      - `GET /wallpaper-engine/transcoded/<token>?fps=N` → 抽帧转码流（ffmpeg 一次性重编码，磁盘缓存）
      - `GET /wallpaper-engine/transcode-progress/<token>?fps=N` → 下载 / 转码进度（进度条轮询）
+     - `GET /wallpaper-engine/media-status` → 媒体后端状态（`backend: bridge|legacy`、音频/媒体两个数据源的 `status`/`hint`、中间件版本与后端名、以及回落原因 `fallback`；排查媒体问题时先看它）
+     - `GET /wallpaper-engine/audio-spectrum` → 64 段频谱（0–255）+ `running`（客户端据此决定要不要把频谱接管给壁纸）
+     - `GET /wallpaper-engine/now-playing` → 当前曲目（歌名/歌手/专辑/专辑艺术家/播放态/进度秒/时长秒/歌词 `[[秒, 文本], …]`/封面路径）
+     - `GET /wallpaper-engine/now-playing/artwork` → 当前封面图片（宿主代理中间件落盘的文件；带内容指纹，换曲即换名）
+     - `GET /api/local-assets/*` → 按名服务官方素材（`materials/index.json` 列名、`.tex` 原样字节、fonts 后备路径），供内置渲染页取官方像素；未配置目录时 `404`，路径越界 `403`
 - **Client 端**（`lib/client.js`）：一个浏览器模块，拉取壁纸列表，把选中壁纸渲染到应用三列**后方**的固定图层，并在「设置」里注册一个**一级设置页**「Wallpaper Engine」（含液态玻璃卡片、选择弹窗、隐藏/恢复、倍速/翻转、配色/透明度与自定义壁纸管理）。
 - **自定义壁纸存储**：上传的文件写入插件管理的本地目录（默认 `~/.dsh-wallpaper-engine/uploads`，可在设置里改到任意盘符），经同一套 `/media`、`/preview` 路由服务（视频缩略图另走 `/video-preview`）——与 WE 媒体走完全相同的管道，天然跨重启持久、无浏览器配额限制。存储位置同时支持 **WE 项目目录**：子目录里含 `project.json`（`scene.pkg` / `scene.json` / `index.html` / `*.mp4`）即被识别为对应类型的壁纸（场景壁纸可实时渲染），扫描按目录分块异步执行（数百目录约 30ms）；这些目录只读收录，不参与上传管理与「移除」（不会误删你的库）。
 
@@ -213,6 +233,22 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 
 > 转码使用 **NVENC**（`av1_nvenc`，自动回退 `h264_nvenc`），要求 NVIDIA 显卡与驱动；无 NVIDIA 时功能自动关闭。本机无 ffmpeg 或转码失败时功能自动关闭，无副作用。
 
+### 壁纸属性（作者属性热更新）
+
+当前壁纸是**场景**或**网页**壁纸时，「当前壁纸」卡片上会出现绿色的 **壁纸属性** 按钮（就在「选择壁纸」左边）。点开即列出壁纸作者在 WE 编辑器里定义的可调属性（颜色 / 开关 / 滑块 / 下拉 / 文本 / 文件），改一下**立刻生效**（渲染页 `__wp.updateWebProps`），不需要重开壁纸。
+
+- 属性来自壁纸目录的 `project.json` → `general.properties`，文案取壁纸自带的 `general.localization`（zh-chs → zh-cht → en-us **逐键**回退）；带 `condition` 的属性按当前值显隐，作者标了 `editable: false` 的内部变量不显示（但值照常下发给壁纸，WE 语义如此）。
+- 改动**会记住**（按壁纸存进设置）：刷新 / 重启后网页壁纸随 HTML 种子一起送达，场景壁纸在实时渲染就绪后回放；「恢复默认」一键清掉这张壁纸的全部改动。
+- 面板显示的是**真正生效**的值 —— 值以渲染页的实时表为准（场景壁纸的默认值在场景快照里，可能与 project.json 不一致），而不是照抄 project.json。
+- 实时渲染没接管时（静态帧 / 兼容模式）改动不会立刻可见，面板里会有一句提示；重新打开「实时渲染」后生效。
+
+场景壁纸的效果链 / 材质 / 粒子按名引用的公共贴图（`util/*`、`particle/**`、`gradient/*`）**不在壁纸包里**，内置渲染页对它们默认走程序化复刻 —— 观感近似但逐像素对不上。把「官方资源路径」指向**本机 Wallpaper Engine 安装目录的 `assets` 树**（或它的拷贝）后，渲染页按名取官方像素，实时渲染与官方引擎对齐；没配置或目录无效时静默回落程序化复刻，行为与之前完全一致。
+
+- 设置入口：「设置 → Wallpaper Engine → 效果 → 画面 → 官方资源路径」（保存后立刻重建实时渲染层生效）；也可用 `DSH_WE_ASSETS_DIR` 环境变量覆盖（优先级最高）。
+- 目录要求：必须是**绝对路径**且含 `materials/` 子目录（相对路径 / 不存在的目录 / 结构不符会被拒绝并提示）。
+- 素材属 WE 版权内容：**只从你本机路径只读取用**，不复制、不上传、不入库（合规边界同上游 WebWallGL `docs/COMPLIANCE.md`）。
+- 契约：宿主按上游 `renderer/src/local-assets.ts` 提供四种请求形态（probe / `index.json` / `.tex` / 任意相对文件），渲染页由 URL 参数 `localAssets=1` 开启；验收见 `scripts/verify-scene-live.mjs` 的 Level E（20 条）。
+
 ### 自定义壁纸
 
 在「自定义壁纸」区可以上传本地图片（JPG / PNG）或视频（MP4）作为壁纸：
@@ -229,6 +265,21 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 轮转基于**自定义轮播列表**（「壁纸」页签的自动轮播分组）。用 **新建** 可以创建任意多个列表，从库存里勾选 Video/Web/Scene 壁纸加入每个列表，并为每个列表单独设置**切换间隔**（1、5、10、30、60 或 120 分钟）和**播放顺序**（顺序/随机），勾选 **自动轮转** 后只在该列表内循环。列表随设置一起持久化到宿主端 `~/.dsh-wallpaper-engine/config.json`；**轮转完全在客户端执行**，不再依赖 Wallpaper Engine 自己的 `config.json` 播放列表路径。
 
 每个列表至少需要 2 个可播放壁纸；手动切换壁纸会重新计算下一次轮转时间；不同列表可以有不同的间隔（比如一个每 5 分钟、一个每 30 分钟）。首次使用时，插件会自动把第一个可播放的 WE 播放列表导入成一个轮播列表，开箱即用；编辑列表时也可以用 **从 WE 播放列表导入** 把其它播放列表导入当前编辑的列表。Application 壁纸不能嵌入网页，会自动从轮转候选和选择器中剔除；Scene 壁纸（实时渲染，不可用时回退静态帧）可加入轮转。
+
+轮换切换是**就绪后切换**：到点先在后台把下一张壁纸准备到完全就绪（实时渲染页首帧 / 静态帧提取完成 / 视频可播放 / 图片解码完成）才落实切换，旧壁纸在准备期间原样保持；就绪瞬间新旧两层做 1.8s 交叉淡化，上屏即是活画面，不再黑屏闪烁。**手动点选切换同样走这套交叉淡化**（旧层保留被新层盖过去，等效淡出 + 音频闸防两条 BGM 在渐变期重叠）；**同一张壁纸的内部重建保持硬切**（live 降级、抓帧回填、画面档位变更、画面刷新 —— 重建前后是同一条 BGM，淡出 + 音频闸反而让它断 ~2s）。准备期的 live 首帧探测**连续 2 次超时**的候选，本会话不再对它尝试 live 准备（直接走 sceneVideo / 静态帧）：超时候选本来也进不了 live，而不设闸就要每轮重新完整拉一次 scene.pkg（宿主 no-store，无 HTTP 缓存）+ 满视口渲染最多 15s。手动选择壁纸走建层路径、不经过准备链，不受此闸影响；**准备期真的出首帧、或建层后那条 live 真的出首帧（手动点开这张壁纸跑起来了）都会清零冷却** —— 否则一张「准备期超时过、实际跑得动 live」的壁纸会被轮换一路降级到页面关闭，而用户手动点它却是活的。准备失败（如视频 404）自动跳过该候选链式尝试下一张。开发/冒烟可用 `localStorage.weRotationTestSec`（秒）临时缩短轮换间隔。
+
+**BGM 不重叠**：交叉渐变期间两层同时在 DOM 上，且旧层刻意保持播放（真交叉淡化）——若新层立刻带音量起播，两层音乐会在 1.8s 里叠在一起。因此提交瞬间会把**新层**所有音源压到 0（`<video>`/`<audio>` 走统一音量函数、实时渲染页走 `__wp.setVolume(0)`、场景包 BGM 只装音源不播），等这次渐变对应的旧层退场（渐变结束、旧层被移除）之后才恢复：旧层音频在其可见期内照常出声，新层 BGM 严格晚于旧层退场。渐变期间改音量不影响结果 —— 恢复时读的是最新值。
+
+**GPU 帧优先于静态帧**：`<key>_gpu.png` 存在时，除了宿主侧服务优先级（静态帧请求一律给 GPU 帧、不再触发 CPU 提取，档 1–3 通吃、档 4 自定义画面豁免），客户端**没有任何 CPU 动画渲染**可被覆盖 —— scene-anim 整条路线已删除，场景动画只保留
+WebWallGL 实时渲染一条，回退链是 MP4 → 静态帧 → 单张大图 → 内嵌图（见
+`docs/RENDER-FALLBACK-MODES.md`）。想让某张壁纸换掉这张静帧：面板点「清除 GPU 帧」，
+清除后画面回落静态帧链。GPU 未就绪的首帧窗口里，垫底图就是 GPU 帧（live iframe 起始透明，首帧心跳通过才淡入——时长 1.8s，与轮换交叉淡化同口径：手动切换壁纸时「GPU 静帧 → 实时动态帧」的缓慢过渡正是这条腿，0.8s 短窗口实测过渡太急，按用户明确要求回到 1.8s；`LIVE_FIRST_FADE_MS` 保持独立常量，后续可单独调节），所以不会看到黑屏。
+
+**领养槽位不变量（槽位寿命 = 一次建层）**：轮换准备期创建的就绪元素（`<img>`/`<video>`）通过单一槽位交给建层函数收编，但 live 分支自建 iframe、iframe 类的节点级领养整条绕过收编 —— 这两条路径下若槽里还压着元素（准备期 live 首帧 15s 探测超时 → 回退到内嵌 MP4/静态帧，提交时建层又选了 live），它既不上屏也无处释放：脱离文档的 `<video>` 是解码器根，会以满速后台解码活到页面关闭（实测 4K ≈35% 单核/个，`gc()` 收不走），而且它属于**上一张壁纸** —— 之后任何非提交重建（live 运行期失败、抓帧回填、档位切换等）都可能按类型命中它、把它领养进当前壁纸的层（层里播上一张的画面，而选择态/`weKey` 是当前壁纸）。因此 `syncLayers` 收尾强制清空该槽位，卸载/禁用时也一并收掉在途准备与槽位。收编时还要校验**类型与目标 URL**：静态帧准备要按**提交后会显示的 URL**加载（`frameUrlWithVariant(w.frameUrl, selection.frameVariants[id])`，即带画面档位 `…?v=N`），否则档位 1–3 的探针会在收编时被判为不符 → 释放重建：预载白做、还多一次全分辨率帧下载（宿主静态帧响应 `no-store`）；不符的元素仍一律释放、按目标 URL 重建（档位在准备与提交之间被改时照旧兜住），所以读数与实际画面永远一致（视频/内嵌 MP4 两侧同源，预载收益不受影响）。
+
+另外，**web 壁纸的 live 状态同样进层 key**（此前只有 scene 进）：否则 web 的「网页实时渲染」运行期失败后 `syncLayers` 判定 key 未变而不重建，页面会一直停在坏帧/黑帧上。
+
+回归测试见 `test/rotation-prepared-leak-smoke.mjs`（可控时钟跨过 15s 首帧超时阈值，断言探针被真释放、无「脱离文档且仍在播」的孤儿、层内视频属于当前壁纸）。
 
 ### 液态玻璃外观（整个设置窗口 + 配色 + 透明度）
 
@@ -305,6 +356,33 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 >
 > **文字面永远保底** —— 承载文字的面（输入栏、气泡、设置窗口、侧栏与内容面、插件自己的抽屉/弹窗）都带**可读性下限**（默认开启、不可调节）：玻璃色之下固定压着一层主题底色，所以上面这几个滑条**再极端也不会把正文压到看不清**（见上文「文字面可读性下限」，最坏 4.63:1）。
 
+### 系统音频反应与歌曲信息（Now Playing）
+
+「效果」页签里有两项与系统声音有关的开关（都默认开启），外加一项联网开关（默认关闭）：
+
+| 开关 | 作用 |
+|---|---|
+| **系统音频反应** | 把**系统正在播放的声音**（任何 App，不只是浏览器标签）做成频谱喂给壁纸的音频反应效果。采集的是**系统输出回环**，不是麦克风；三平台都内置、都不需要额外安装：macOS 走 CoreAudio、Windows 走 WASAPI 回环（**不再需要「立体声混音」或虚拟声卡**）、Linux 走 PulseAudio/PipeWire。只有 macOS 首次使用会弹一次「音频录制」授权；拿不到音频时壁纸自动回落内置的模拟频谱 |
+| **媒体信息** | 把系统 **Now Playing**（歌名 / 歌手 / 专辑 / 专辑艺术家 / 播放态 / 进度 / 时长 / **封面**）交给壁纸：依赖 WE 官方 API `wallpaperRegisterMediaPropertiesListener` / `wallpaperRegisterMediaThumbnailListener` / `wallpaperRegisterMediaPlaybackListener`（以及 `…TimelineListener`），识别这些 API 的工坊网页壁纸会自动显示歌曲信息与封面 |
+| **在线歌词** | 歌词优先取本地的（音频同目录的 `.lrc`、以及已缓存的歌词）；开启后本地没有才向 [lrclib.net](https://lrclib.net) 查一次 —— 那次请求会把歌名/歌手/专辑发出去，所以**默认关闭** |
+
+> **这些数据是怎么来的** — 宿主侧跑一个自带的 Rust 中间件
+> [media-bridge](https://github.com/oneincase/media-bridge) 的子进程（stdio NDJSON 协议，随插件按需下载、校验 sha256 后执行，缓存在 `~/.dsh-wallpaper-engine/bin/`）：
+> macOS 用 MediaRemote，Windows 用系统媒体会话（GSMTC），Linux 用 MPRIS over D-Bus；系统音频三平台分别是 CoreAudio Process Tap（14.2+）、WASAPI loopback、PulseAudio/PipeWire monitor。
+> 因此**不再需要** `brew install media-control`、`playerctl`、「立体声混音」或 VB-Cable，macOS 也不再需要在你的机器上编译 Swift 小工具（不再依赖 Xcode Command Line Tools）。
+> 中间件取不到或起不来时自动回落到内置实现（旧行为），原因写在 `GET /wallpaper-engine/media-status` 的 `fallback` 字段里。
+>
+> **封面（artwork）** — 由中间件按**内容指纹**落盘（换曲即换名，不重复写盘），宿主用
+> `/wallpaper-engine/now-playing/artwork` 代理给主页面，再由主页面降采样到 512² 转成 **data URL** 交给壁纸：
+> 插件路由在桌面端被宿主的能力头栅栏保护（跨源沙箱壁纸取不到），而 data URL 不依赖任何源，
+> 壁纸还能直接画进 canvas（不受跨源污染限制）。
+>
+> **进度/时长归谁（渲染页侧）** — 内置 WebWallGL 渲染页带一个「演示媒体源」（预览时让壁纸看起来在放歌），
+> 它只在宿主**没有**提供媒体时出场：宿主一旦推来带 `hasMedia` 的媒体快照，源就存档到渲染页的
+> `rt.mediaSource`，属性 / 封面 / 播放态 / 进度 / 时长全部以宿主为准。
+> （旧版渲染页会继续按秒推演示源的假进度，把宿主的进度盖掉 —— 已在 WebWallGL 修掉，
+> 本插件侧的真浏览器端到端会一直守着这条。）
+
 ## 配置
 
 本插件不会向模型暴露任何工具或提示文本，对 agent 零 token 开销，也不写入任何**持久化 DSH 设置**（不经过 harness 的设置系统）。插件自己的落盘数据只有两类：
@@ -324,6 +402,14 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 | `DSH_WE_UPLOAD_DIR` | 覆盖自定义壁纸的上传目录（等价于设置里点「更改」，适合脚本化部署） |
 | `DSH_WE_NO_PREWARM` | 置 `1` 强制关闭「空闲预热」（即使设置里开着） |
 | `DSH_WE_STEAM_ROOT` | 显式指定 Steam 根目录（逗号/分号分隔，Windows 或 `/mnt` 路径；注册表/自动探测失效时的兜底） |
+| `DSH_WE_MEDIA_BRIDGE` | 指定媒体中间件的可执行文件（开发/自备产物；解析链最高优先） |
+| `DSH_WE_MEDIA_BRIDGE_URL` | 替换中间件下载源（自建镜像 / 代理加速；支持 `{tag}` / `{asset}` 占位符） |
+| `DSH_WE_MEDIA_BRIDGE_TAG` / `DSH_WE_MEDIA_BRIDGE_SHA256` | 换用其它版本的中间件（自定义版本必须同时给出 sha256，否则拒绝执行） |
+| `DSH_WE_MEDIA_LEGACY` | `=1` 强制使用内置实现（对比排查用） |
+| `DSH_WE_MEDIA_NO_AUDIO` | `=1` 只取歌曲信息、**永不碰系统音频采集**（不申请授权） |
+| `DSH_WE_MEDIA_PROVIDER` | `=mock` 用中间件自带的假播放器联调（不需要真播放器） |
+| `DSH_WE_MEDIA_IDLE_MS` | 空闲多少毫秒后停掉中间件子进程（`0` = 不停；默认 15 分钟） |
+| `DSH_WE_MEDIA_DEBUG` | `=1` 把中间件的 stderr 与启动参数打到宿主日志 |
 
 ## 与 dsh-better-sidebar 的兼容适配
 
@@ -378,7 +464,9 @@ host 端（`lib/index.js`）是纯 ESM，无需构建。client 端（`lib/client
 npm run build                  # 从 src/client.js 重新生成 lib/client.js
 npm run verify                 # 串跑全部验收链（客户端产物 / scene-live + scene-files / 打包白名单 / 预热 / web 路由 / 文档漂移 …；完整清单见 package.json 的 scripts.verify）
 node scripts/verify-scene.mjs  # 场景静态帧提取 / scene-frame 路由自检（含合成 fixture，离线可跑）
-node scripts/verify-scene-live.mjs  # 场景实时渲染自检（vendor 产物 / scene-live + scene-files 路由 / 目录围栏 / Range）
+node scripts/verify-scene-live.mjs  # 场景实时渲染自检（vendor 产物 / scene-live + scene-files 路由 / 目录围栏 / Range / 壁纸媒体源 / 帧率上限实现质量）
+node scripts/e2e-web-media-origin.mjs  # 真浏览器端到端（需本机 Chromium 系浏览器）：媒体源 + 严格沙箱 iframe + shim/属性种子/控制通道
+node scripts/diagnose-web-blank.mjs  # 单张网页壁纸白屏排查（无头真浏览器 + 截图 + 控制台报错；WALL_ID=<目录名>）
 node scripts/sync-webwallgl.mjs     # 从本地 webwallgl 仓库构建并同步渲染页产物到 lib/webwallgl/
 ```
 

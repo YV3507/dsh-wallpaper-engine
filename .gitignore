@@ -53,3 +53,5 @@ scene-layers-out/
 .tmp-we-extract/
 scripts/tmp-*.mjs
 .tmp-*
+.DS_Store
+**/.DS_Store

@@ -75,13 +75,69 @@ read host storage as the app). Cross-origin control and pointer injection go
 through the renderer page's `postMessage` channel. On load failure or a stalled
 runtime the wallpaper is remembered and degrades to the legacy plain iframe
 (no WE API).
+>
+> **Payload origin (separate media origin)**: a web wallpaper's entry HTML and all of
+> its subresources are served by a **dedicated loopback media origin the host opens
+> itself** (a random port on `127.0.0.1`, reported by
+> `GET /wallpaper-engine/media-origin`) — *not* by the plugin's HTTP routes. Why: DSH
+> Desktop wraps every plugin route in a capability-header fence
+> (`x-dsh-desktop-renderer`, injected only into requests issued by same-origin
+> frames), and a strict-sandbox iframe is an opaque origin that can never carry that
+> header — the wallpaper entry would always answer `403 Forbidden` (symptom: the
+> preview frame looks fine, then the wallpaper goes fully black). The media origin
+> bypasses that fence, and third-party HTML no longer shares the host origin at all,
+> so the sandbox gets a second layer of isolation.
+>
+> **Frame cap and "it still stutters"**: the wallpaper's rAF cap is implemented by
+> **frame skipping** — every vsync is kept so the delivered frame stays phase-aligned
+> with the display and only every n-th frame reaches the page (a `setTimeout`-based cap
+> yields 17/33/50ms jitter, which looks worse). While live, a `live-fps` line is written
+> to the diagnostics file every 5 s: `ui=` whole-page fps, `web=` the wallpaper's own
+> fps, `rnd=` renderer-page fps, `cap=` the current cap. If it still feels heavy, that
+> line tells you whether the wallpaper itself is slow (`web` low) or the whole page is
+> (`ui` low too — e.g. the sidebar's `backdrop-filter` re-sampling the wallpaper every
+> frame; try lowering the blur to confirm).
 
 > **Known web-wallpaper limits**: author `fetch`/`XHR` carries `Origin: null` under
 > the opaque origin (the host answers with `Access-Control-Allow-Origin: *`, so
-> ordinary resources load); `wallpaperMediaIntegration` (system Now Playing) has no
-> data source here, so those pages stay on their own static state; CSS `:hover`
-> interaction driven by the browser's own hit-test cannot be triggered by external
-> pointer injection (as documented upstream).
+> ordinary resources load); `wallpaperMediaIntegration` (system Now Playing / cover
+> art) **is** supplied by the host — see "System-audio reaction and Now Playing"
+> below; CSS `:hover` interaction driven by the browser's own hit-test cannot be
+> triggered by external pointer injection (as documented upstream).
+
+### System-audio reaction and Now Playing (song info + cover art)
+
+Two switches in the「效果」tab (both on by default):
+
+| Switch | What it does |
+|---|---|
+| **系统音频反应** | Feeds a spectrum of **whatever the system is playing** (any app) to the wallpaper's audio-reactive effects. It is the system-output **loopback**, not the microphone, and it is built in on all three platforms — no extra installs: CoreAudio on macOS, WASAPI loopback on Windows (**no "Stereo Mix" or virtual sound card needed**), PulseAudio/PipeWire on Linux. Only macOS asks once for "audio recording" permission on first use; when no audio can be captured the wallpaper falls back to its built-in simulated spectrum |
+| **媒体信息** | Hands the system **Now Playing** (title / artist / album / album artist / playback / timeline / **cover art**) to the wallpaper through the official WE APIs `wallpaperRegisterMediaPropertiesListener` / `wallpaperRegisterMediaThumbnailListener` / `wallpaperRegisterMediaPlaybackListener` (plus `…TimelineListener`) |
+| **在线歌词** | Lyrics come from local sources first (a `.lrc` next to the audio file, or an already-cached copy); when enabled, a missing lyric triggers one query to [lrclib.net](https://lrclib.net) — that request sends title/artist/album, hence **off by default** |
+
+> **Where this data comes from**: the host runs a bundled Rust middleware,
+> [media-bridge](https://github.com/oneincase/media-bridge), as a child process (stdio NDJSON;
+> downloaded on first use, sha256-verified, cached under `~/.dsh-wallpaper-engine/bin/`) —
+> MediaRemote on macOS, the system media session (GSMTC) on Windows, MPRIS over D-Bus on Linux;
+> system audio comes from a CoreAudio Process Tap (14.2+), WASAPI loopback and PulseAudio/PipeWire
+> monitors respectively. So `brew install media-control`, `playerctl`, "Stereo Mix"/VB-Cable and
+> even compiling a Swift helper on your machine (Xcode Command Line Tools) are all no longer needed.
+> When the middleware cannot be fetched or started, the plugin falls back to its built-in
+> implementation and reports the reason in `GET /wallpaper-engine/media-status` (`fallback`).
+>
+> **Cover art**: written by the middleware under a content-fingerprinted name (a new file per
+> track), proxied by the host at `/wallpaper-engine/now-playing/artwork`, then downscaled to 512²
+> and converted to a **self-contained data URL** before it reaches the wallpaper — plugin routes
+> are fenced by the host capability gate on Desktop (a cross-origin sandboxed wallpaper cannot
+> fetch them), while a data URL depends on no origin and can be drawn into a canvas untainted.
+>
+> **Who owns the timeline (renderer side)**: the bundled WebWallGL page ships a demo media
+> source (so previews look alive) that only steps in when the host provides **no** media.
+> As soon as the host pushes a snapshot with `hasMedia`, that source is stored on the
+> renderer's `rt.mediaSource` and properties / thumbnail / playback / position / duration
+> all follow the host. (Older renderer builds kept pushing the demo source's fake progress
+> once per second and overwrote the host's timeline — fixed in WebWallGL, and the plugin's
+> real-browser end-to-end test now guards it.)
 
 ### Static-frame fallback: how it works
 
@@ -100,6 +156,11 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe
 - **particle systems**: boxrandom / sphererandom emitters, color / size / alpha /
   lifetime / velocity / rotation initializers, movement / alphafade / sizechange /
   turbulence / oscillate* operators, and sprite drawing.
+- **Atlas padding is trimmed**: a scene's main texture is often a power-of-two **atlas**
+  (2048²/4096²) where the artwork occupies just one band and the rest is pure black. The
+  static frame is cropped to the artwork itself (uniform black edges only; a crop leaving
+  too little is skipped), so the loading placeholder fills the screen instead of being
+  anchored to the atlas centre and showing mostly black.
 - **Cache**: results are cached at `~/.dsh-wallpaper-engine/cache/frames/`
   keyed by `sf45_<gpu-flag><source-flag>_<path>_<mtime>` (`sf45` = current pipeline
   version; GPU/CPU and full-render/main-texture-approximation never share an entry —
@@ -128,6 +189,8 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe
      - `GET /wallpaper-engine/scene-video/<token>` → the scene's author-embedded MP4 (hardware-decoded playback, Range supported; 404 when there is none, and the client falls back to the static frame)
      - `GET /wallpaper-engine/scene-audio/<token>` → the scene's packaged standalone audio (played for scenes without an embedded MP4, under the shared volume / audio-switch settings)
      - `GET /wallpaper-engine/web/<token>/<entry-file>` → sub-resources of multi-file web wallpapers (for the compatible-iframe fallback chain; relative refs resolve against the entry's own directory, CSS / SVG get correct MIME types)
+     - `GET /wallpaper-engine/scene-files/<token>/<path>` → raw scene wallpaper files (`scene.pkg` / `project.json` …, Range supported; the renderer page parses the container itself). The same path is also mounted on the **separate wallpaper media origin** (see above); web-wallpaper payloads are fetched from there
+     - `GET /wallpaper-engine/media-origin` → reports the active wallpaper media origin (diagnostics: which origin a web wallpaper is loaded from)
      - `POST /wallpaper-engine/upload` → upload a custom wallpaper (JPG / PNG / MP4, raw bytes)
      - `GET /wallpaper-engine/custom-frame/<token>` → the user-imported "custom frame" (the last frame tier, `overrides/`)
      - `POST /wallpaper-engine/remove` → remove an uploaded wallpaper
@@ -335,6 +398,25 @@ High-fps sources (e.g. 4K120 H.264) dominate GPU decode (~60% Video Decode at 1.
 
 > Transcoding uses **NVENC** (`av1_nvenc`, falling back to `h264_nvenc`) and requires an NVIDIA GPU + driver; without one the feature auto-disables. No ffmpeg or a failed transcode simply disables the feature — no side effects.
 
+### Wallpaper properties (live author-property editing)
+
+When the current wallpaper is a **scene** or **web** wallpaper, the 「当前壁纸」 card shows a
+green **壁纸属性** button next to 「选择壁纸」. It opens the adjustable properties the author
+defined in the WE editor (color / bool / slider / combo / text / file); applying one takes
+effect **immediately** (`__wp.updateWebProps`) — no re-mount needed.
+
+- Definitions come from the wallpaper's `project.json` → `general.properties`, labels from its
+  own `general.localization` (per-key fallback zh-chs → zh-cht → en-us); properties carrying a
+  `condition` show/hide by the current values, and `editable: false` internals are hidden from
+  the panel while still being sent to the wallpaper (WE semantics).
+- Edits are **remembered** per wallpaper: after a reload/restart a web wallpaper receives them
+  with its HTML seed, a scene wallpaper gets them replayed once live rendering is ready.
+  「恢复默认」 clears every edit for that wallpaper.
+- The panel shows the values **actually in effect** (read back from the renderer, since a
+  scene's defaults live in its own snapshot), not just the project.json defaults.
+- If live rendering is not active (static frame / compat mode) the panel says so; edits apply
+  once live rendering takes over.
+
 ### Custom wallpapers
 
 The **自定义壁纸** section uploads local images (JPG / PNG) or videos (MP4) as wallpapers:
@@ -352,6 +434,8 @@ The **自定义壁纸** section uploads local images (JPG / PNG) or videos (MP4)
 Rotation runs over **user-defined carousel lists** (the 自动轮播 group in the **壁纸** tab). Create any number of lists with **新建**, pick Video/Web wallpapers — or a Scene whose frame is available — into each from the inventory, give each list its own switch interval (1, 5, 10, 30, 60 or 120 minutes) and order (顺序/随机), then enable **自动轮转** on the list you want active. Lists are persisted host-side to `~/.dsh-wallpaper-engine/config.json`; **rotation runs entirely client-side** and never depends on Wallpaper Engine's own `config.json` playlist paths.
 
 At least two playable wallpapers per list are required (Video/Web/Scene); manual changes reset the next timer; each list keeps its own cadence, so you can have one list switching every 5 minutes and another every 30. On first run, the first playable Wallpaper Engine playlist is imported automatically as a list so the feature works out of the box; **从 WE 播放列表导入** inside the editor imports any other playlist into the list being edited. Application wallpapers cannot be embedded in the web UI, so they are automatically excluded from rotation and hidden from the picker; Scene wallpapers (live-rendered, falling back to a static frame) can join rotation.
+
+Rotation switches only when the next wallpaper is **fully ready**: at switch time the next candidate is prepared in the background (live renderer first frame / static-frame extraction / video canplay / image decode) while the current wallpaper keeps playing; the commit then cross-fades old and new layers over 1.2s, so the new layer is alive on arrival with no black flash. A candidate that fails to prepare (e.g. a 404 video) is skipped in a bounded chain to the next one. For development/smoke testing, `localStorage.weRotationTestSec` (seconds) temporarily shortens the rotation interval.
 
 ### Liquid-glass appearance (whole settings window + accent + transparency)
 
@@ -506,6 +590,14 @@ acts as a synchronous read cache / fallback for the config.
 | `DSH_WE_UPLOAD_DIR` | overrides the custom-upload directory (same effect as 「更改」 in the settings UI) |
 | `DSH_WE_NO_PREWARM` | set to `1` to force idle prewarming off even when the setting is on |
 | `DSH_WE_STEAM_ROOT` | explicit Steam root(s) (comma/semicolon separated, Windows or /mnt paths; fallback when registry/auto-detection misses) |
+| `DSH_WE_MEDIA_BRIDGE` | explicit media-middleware executable (dev/self-built artifact; highest priority) |
+| `DSH_WE_MEDIA_BRIDGE_URL` | replaces the middleware download source (`{tag}` / `{asset}` placeholders supported) |
+| `DSH_WE_MEDIA_BRIDGE_TAG` / `DSH_WE_MEDIA_BRIDGE_SHA256` | use another middleware version (an unpinned tag is refused unless you supply its sha256) |
+| `DSH_WE_MEDIA_LEGACY` | `=1` forces the built-in implementation (for A/B debugging) |
+| `DSH_WE_MEDIA_NO_AUDIO` | `=1` metadata only — never touches system audio capture (no permission prompt) |
+| `DSH_WE_MEDIA_PROVIDER` | `=mock` runs the middleware's built-in fake player (no real player needed) |
+| `DSH_WE_MEDIA_IDLE_MS` | idle ms before the middleware child is stopped (`0` = never; default 15 min) |
+| `DSH_WE_MEDIA_DEBUG` | `=1` logs the middleware's stderr and spawn arguments |
 
 ## dsh-better-sidebar compatibility
 
@@ -601,7 +693,9 @@ consumes (the same shape `tsdown` emits for in-box client packages).
 npm run build                  # regenerate lib/client.js from src/client.js
 npm run verify                 # runs the full check chain (client bundle / scene-live + scene-files / packaging allowlist / prewarm / web route / doc drift …; see scripts.verify in package.json for the list)
 node scripts/verify-scene.mjs  # scene static-frame extraction / scene-frame route self-test (incl. synthetic fixtures, offline)
-node scripts/verify-scene-live.mjs  # scene live-render self-test (vendor artifacts / scene-live + scene-files routes / directory fence / Range)
+node scripts/verify-scene-live.mjs  # scene live-render self-test (vendor artifacts / scene-live + scene-files routes / directory fence / Range / media origin)
+node scripts/e2e-web-media-origin.mjs  # real-browser end-to-end (needs a local Chromium): media origin + strict-sandbox iframe + shim / property seed / control channel
+node scripts/diagnose-web-blank.mjs  # triage one blank web wallpaper (headless real browser + screenshot + console errors; WALL_ID=<dir name>)
 node scripts/sync-webwallgl.mjs     # build the renderer page from a local webwallgl checkout and vendor it into lib/webwallgl/
 ```
 

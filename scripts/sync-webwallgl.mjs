@@ -14,7 +14,8 @@
  *
  * 同步后写 lib/webwallgl/.upstream.json（上游 commit / 版本 / 文件清单）。
  * 上游更新渲染器后重跑本脚本即可；手动改 lib/webwallgl/ 会被下次同步
- * 覆盖 —— 需要的改动应做在上游。
+ * 覆盖 —— 需要的改动应做在上游。唯一例外是下面的 applyLocalPatches()：
+ * 它在上游修好前于同步末尾自动重打补丁（上游修复后连同该函数与说明一起删）。
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, copyFileSync } from 'node:fs';
@@ -99,6 +100,46 @@ if (!existsSync(shimSrc)) {
   process.exit(1);
 }
 copyFileSync(shimSrc, join(OUT_DIR, 'web-shim.js'));
+
+// 3b. 本地补丁（上游修好后删掉本段 + 头部说明）。
+//   [webwallgl#9] interactive 效果（x-ray 等）的精灵贴图极小化采样退化：
+//   程序化/位图原始贴图上传函数把 MIN_FILTER 设为 LINEAR_MIPMAP_LINEAR。
+//   x-ray 类效果按 1/size（size≈0.07 → 约 14 倍）缩放采样 halo 精灵，极小化
+//   采样落到小 mip 层级后精灵被平均成一层灰 ——「精灵外 = 透明」的语义丢失，
+//   混合铺满全屏（用户可见：x-ray 范围扩张到整张壁纸）。改成 LINEAR（只用
+//   base level）后精灵外采样回到透明边缘，范围收在光标附近。
+//   复现/验证：壁纸 3475149989「Lumen—凝-蓝线稿」（effects/xray，size=0.07）
+//   —— 修补前深色叠加铺满全图，修补后仅光标附近。壁纸图层贴图走 cl() 那条
+//   路径（保留 mipmap），不受影响。
+//   **锚点用签名而不是压缩名**：该函数的 minified 名每换一版 bundle 就轮换
+//   （webwallgl 1.4.1 的 Jy / 1.4.2 的 Wy / 1.4.2+ 的 Vw…），钉名字等于每次
+//   同步都失败一次再手改。签名 + `createTexture()` 前缀在已见的各版里稳定。
+function applyLocalPatches() {
+  const from = 't.texParameteri(t.TEXTURE_2D,t.TEXTURE_MIN_FILTER,t.LINEAR_MIPMAP_LINEAR)';
+  const to = 't.texParameteri(t.TEXTURE_2D,t.TEXTURE_MIN_FILTER,t.LINEAR)';
+  const sig = '(t,e,n=!1,r=null){const i=t.createTexture()';
+  let patched = 0;
+  for (const a of assets) {
+    if (!/\.js$/.test(a.out)) continue;
+    let s = readFileSync(a.out, 'utf8');
+    const sigAt = s.indexOf(sig);
+    if (sigAt < 0) continue;
+    const start = s.lastIndexOf('function ', sigAt);
+    const end = s.indexOf('function ', sigAt + sig.length);
+    if (start < 0 || end < 0) continue;
+    const body = s.slice(start, end);
+    if (!body.includes(from)) continue;
+    s = s.slice(0, start) + body.split(from).join(to) + s.slice(end);
+    writeFileSync(a.out, s);
+    patched++;
+  }
+  if (!patched) {
+    console.error('[sync-webwallgl] 本地补丁未命中（Jy 的 MIN_FILTER 模式变化）—— 请核对上游是否已修复 webwallgl#9');
+    process.exit(1);
+  }
+  console.log(`[sync-webwallgl] 本地补丁已应用（xray 精灵采样，${patched} 个产物）`);
+}
+applyLocalPatches();
 
 // 4. 溯源信息。
 const commit = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' });

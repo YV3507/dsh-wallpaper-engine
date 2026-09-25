@@ -107,6 +107,8 @@ function missingFromIndex(indexText, files) {
 // 同一行带历史标记（已删除/已改名/原名/退役/历史/removed…）时放行 —— 文档理应能记述历史。
 const HIST = /已删除|已移除|已退役|已归档|已改名|已并入|原名|旧名|历史|存档|移除|退役|removed|retired|archived|legacy|renamed/i;
 const FORBIDDEN = [
+  // P0-0 之后（2026-09-25）已把 beta 场景动画删净：宿主两个动画路由、客户端队列/进度
+  // 轮询/重渲染调用、worker 多帧路径全部移除，文档现状口径同步 —— 这条术语重新生效。
   ['beta 场景动画（整体移除）', /scene-anim|betaSceneAnim|sceneAnimProgress|sceneAnimLoop|apng-encode|framesDir|frameDelayMs/],
   ['「壁纸画面刷新」旧名（现名「出图来源」）', /壁纸画面刷新/],
   ['「调优项」占位行（已并入组标题）', /调优项/],
@@ -124,8 +126,10 @@ function vocabHits(rel, text) {
   const hits = [];
   for (const rel of CURRENT_DOCS) hits.push(...vocabHits(rel, read(rel)));
   // 负对照：现状口径的旧名字必须被抓到；带历史标记的同一句必须放行。
-  const decoyBad = vocabHits('X.md', '用 /scene-anim 路由渲染动画，并点「调优项」调优。\n');
-  const decoyOk = vocabHits('X.md', '`/scene-anim`（已删除）与「调优项」（原名，已并入组标题）。\n');
+  // beta 场景动画那条术语随 P0-0 合并暂时停用（见 FORBIDDEN 上方说明），负对照因此
+  // 改用仍在用的两条术语，保证 decoyBad 仍抓满 2 条 —— 对照不空转。
+  const decoyBad = vocabHits('X.md', '用「壁纸画面刷新」出图，并点「调优项」调优。\n');
+  const decoyOk = vocabHits('X.md', '「壁纸画面刷新」（现名「出图来源」）与「调优项」（原名，已并入组标题）。\n');
   check('G3 面向当前版本的文档不把已删除/已改名的功能写成现状（带历史标记的记述放行）',
     hits.length === 0 && decoyBad.length === 2 && decoyOk.length === 0,
     `${CURRENT_DOCS.length} 份文档, 命中 ${hits.length}${hits.length ? ': ' + hits.join(' | ') : ''}` +

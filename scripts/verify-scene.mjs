@@ -16,11 +16,11 @@
  * Usage:  node scripts/verify-scene.mjs
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, rmSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, rmSync, readdirSync, chmodSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { inflateSync, deflateSync } from 'node:zlib';
-import { Writable } from 'node:stream';
+import { Writable, Readable } from 'node:stream';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // Point the frame cache at a workspace-relative dir so the suite passes under
@@ -185,6 +185,66 @@ function buildTexRgba(width, height, rgbaBytes) {
   header.writeInt32LE(1, p); p += 4; // imageCount
   header.writeInt32LE(1, p); p += 4; // mipmapCount
   return Buffer.concat([header.subarray(0, p), mip]);
+}
+
+// A0: 图集 padding（四周纯黑）必须裁掉。
+//
+// 用户口径：「加载期的抽帧图没铺满屏幕」—— 真实场景的主纹理常是 2048²/4096² 的
+// 2 的幂次方图集，画面只占其中一条带、其余纯黑；原样当静态帧时客户端 cover 以
+// 图集**中心**铺满，屏幕上一大片黑。这里两种 padding 形态都覆盖：只在下方的
+// （真实样本）与四周的（顺带覆盖左右裁列）。
+//
+// 这个用例同时是「裁切不得吞掉候选」的闸门：cropRgba 曾在 Uint8Array 上用
+// Buffer#copy 抛错，候选循环把异常当「该贴图不可用」跳过 —— 结果整张静态帧被换成
+// 另一张贴图（实测 4096² 作者原画变成 256² 水波法线贴图）。
+{
+  const mk = (w, h, bandTop, bandBottom, left = 0, right = w) => {
+    const rgba = Buffer.alloc(w * h * 4, 0); // 全黑底（含 alpha=0 → 也算 padding）
+    for (let y = bandTop; y < bandBottom; y++) {
+      for (let x = left; x < right; x++) {
+        const i = (y * w + x) * 4;
+        // 棋盘：保证有真实方差，能过 colorfulness/flatness 门禁
+        const red = (x + y) % 2 === 0;
+        rgba[i] = red ? 220 : 30;
+        rgba[i + 1] = red ? 30 : 30;
+        rgba[i + 2] = red ? 30 : 220;
+        rgba[i + 3] = 255;
+      }
+    }
+    return rgba;
+  };
+  const sceneJson = Buffer.from(JSON.stringify({ objects: [{ image: 'materials/main.json' }] }));
+  const imgJson = Buffer.from(JSON.stringify({ material: 'materials/main.tex' }));
+  try {
+    // ① 只在下方的 padding：512x512 图集，画面是顶部 512x288
+    const pkg1 = buildPkg([
+      { path: 'scene.json', bytes: sceneJson },
+      { path: 'materials/main.json', bytes: imgJson },
+      { path: 'materials/main.tex', bytes: buildTexRgba(512, 512, mk(512, 512, 0, 288)) },
+    ]);
+    const r1 = pkgExtract.extractSceneMainImage(new Uint8Array(pkg1));
+    const i1 = pngInfo(r1.bytes);
+    check('图集下方黑边裁掉（512x512 → 512x288）',
+      r1.mime === 'image/png' && i1.width === 512 && i1.height === 288,
+      `${i1.width}x${i1.height} mime=${r1.mime} path=${String(r1.texturePath || '').split('/').pop()}`);
+  } catch (e) {
+    check('图集下方黑边裁掉（512x512 → 512x288）', false, e.message);
+  }
+  try {
+    // ② 四周 padding：画面是中间 384x288 的窗口（左右也要内缩，才能真正覆盖裁列）
+    const pkg2 = buildPkg([
+      { path: 'scene.json', bytes: sceneJson },
+      { path: 'materials/main.json', bytes: imgJson },
+      { path: 'materials/main.tex', bytes: buildTexRgba(512, 512, mk(512, 512, 112, 400, 64, 448)) },
+    ]);
+    const r2 = pkgExtract.extractSceneMainImage(new Uint8Array(pkg2));
+    const i2 = pngInfo(r2.bytes);
+    check('图集四周黑边裁掉（左右列同样要裁）',
+      r2.mime === 'image/png' && i2.width === 384 && i2.height === 288,
+      `${i2.width}x${i2.height}`);
+  } catch (e) {
+    check('图集四周黑边裁掉（左右列同样要裁）', false, e.message);
+  }
 }
 
 // ── Level A: pkg-extract ────────────────────────────────────────────────────
@@ -457,7 +517,10 @@ if (token) {
   const firstRes = await runHandler(sceneRoute, '/wallpaper-engine/scene-frame/' + token);
   const okFirst = firstRes.__state.status === 200 && firstRes.__state.body.length > 1000;
   const ctype = firstRes.__state.headers['Content-Type'] || firstRes.__state.headers['content-type'] || '';
-  check('scene-frame 200 + payload', okFirst, 'status=' + firstRes.__state.status + ' ' + firstRes.__state.body.length + 'B ' + ctype);
+  // 失败时把响应体一并打出来：422 的 body 就是宿主抛出的错误原文（渲染/提取失败
+  // 的原因），只报状态码会让这类失败无从下手（本仓的守卫都要能自我解释）。
+  check('scene-frame 200 + payload', okFirst, 'status=' + firstRes.__state.status + ' ' + firstRes.__state.body.length + 'B ' + ctype
+    + (okFirst ? '' : ' body=' + firstRes.__state.body.toString('utf8').slice(0, 300)));
   check('scene-frame mime', /image\/(jpeg|png)/.test(ctype), ctype);
   // 缓存键前缀必须来自 lib/index.js 的 PIPELINE_VERSION (不写死字面量)。
   check('cache-key prefix derived from lib/index.js PIPELINE_VERSION', Boolean(PIPELINE_VERSION),
@@ -466,14 +529,241 @@ if (token) {
   // 键形如 <PIPELINE_VERSION>_<gpu 标志>_<base64url(abs)>_<mtime>.png|jpg —— gpu 段
   // 夹在版本与 token 之间, 所以只断言「版本前缀 + token」, 不假定两者的相对位置。
   const cacheDir = TEST_CACHE_DIR;
+  // 缓存键版本从源码读（别写死：升版本时这里会静默测到旧文件，等于假通过）
+  const keyVersion = (/SCENE_FRAME_KEY_VERSION = '([^']+)'/.exec(
+    readFileSync(resolve(root, 'lib', 'index.js'), 'utf8')) || [])[1] || 'sf';
+  // 渲染产物键的前缀是 PIPELINE_VERSION（sf45），且键里版本与 token 之间还夹着
+  // gpu / 来源标志 —— 不能像主纹理键那样假定 token 紧跟版本，只能 contains。
   const cached = existsSync(cacheDir)
-    ? readdirSync(cacheDir).filter((f) => f.startsWith(PIPELINE_VERSION + '_') && f.includes('_' + token + '_'))
+    ? readdirSync(cacheDir).filter((f) => (f.startsWith(PIPELINE_VERSION + '_') || f.startsWith(keyVersion + '_')) && f.includes('_' + token + '_'))
     : [];
   check('frame cached on disk', cached.length >= 1, cacheDir + ' [' + cached.join(', ') + ']');
 
   // Second call must hit the cache (handler still returns the payload).
   const secondRes = await runHandler(sceneRoute, '/wallpaper-engine/scene-frame/' + token);
   check('scene-frame cache-hit returns payload', secondRes.__state.status === 200 && secondRes.__state.body.equals(firstRes.__state.body), secondRes.__state.body.length + 'B');
+
+  // ── GPU 抓帧回填端点（HEAD 探测 + PUT 写入 + 唯一性/结构校验 + 清除通道）──
+  // 槽位此刻已被上面的 GET 提取填充（无 GPU 帧）→ PUT 应能写入。
+  const gpuRoute = routes.find((r) => r.path === '/wallpaper-engine/scene-frame-cache');
+  check('scene-frame-cache route registered', Boolean(gpuRoute), gpuRoute ? 'kind=' + gpuRoute.kind : 'missing');
+  // 结构合法的 PNG 构造器：签名 + IHDR + IDAT + IEND（host 只做结构校验，不解码）。
+  const CRC_TABLE = (() => {
+    const t = new Int32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      t[n] = c;
+    }
+    return t;
+  })();
+  const crc32 = (buf) => {
+    let c = 0xffffffff;
+    for (const b of buf) c = CRC_TABLE[(c ^ b) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const pngChunk = (type, payload) => {
+    const len = Buffer.alloc(4); len.writeUInt32BE(payload.length);
+    const body = Buffer.concat([Buffer.from(type, 'latin1'), payload]);
+    const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(body));
+    return Buffer.concat([len, body, crc]);
+  };
+  const ihdrFor = (w, h) => {
+    const b = Buffer.alloc(13);
+    b.writeUInt32BE(w, 0); b.writeUInt32BE(h, 4); b[8] = 8; b[9] = 2;
+    return b;
+  };
+  const pngHeadFor = (w, h) => Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk('IHDR', ihdrFor(w, h)),
+  ]);
+  const pngTail = pngChunk('IEND', Buffer.alloc(0));
+  const makePng = (payloadBytes, fill = 7, size = [64, 64]) =>
+    Buffer.concat([pngHeadFor(size[0], size[1]), pngChunk('IDAT', Buffer.alloc(payloadBytes, fill)), pngTail]);
+  const gpuPng = makePng(4096);
+  const runPut = async (url, body) => {
+    const req = new Readable({ read() {} });
+    req.url = url; req.method = 'PUT'; req.headers = { 'content-type': 'image/png' };
+    const res = fakeRes();
+    gpuRoute.handler(req, res);
+    req.push(body); req.push(null);
+    await new Promise((resolveFn) => {
+      const t = setTimeout(resolveFn, 8000);
+      res.on('finish', () => { clearTimeout(t); resolveFn(); });
+      if (res.__state.ended) { clearTimeout(t); resolveFn(); }
+    });
+    return res;
+  };
+  const runClear = async (url, method = 'DELETE') => {
+    const req = { url, headers: {}, method };
+    const res = fakeRes();
+    gpuRoute.handler(req, res);
+    await new Promise((r) => setTimeout(r, 20));
+    return res;
+  };
+  const runHead = async (url) => {
+    const req = { url, headers: {}, method: 'HEAD' };
+    const res = fakeRes();
+    const done = sceneRoute.handler(req, res);
+    if (done && typeof done.then === 'function') await done;
+    return res;
+  };
+  if (gpuRoute) {
+    // 精确匹配本次运行的 key（含 fixture mtime）—— 目录里可能有历史运行残留的其它
+    // key 文件，不算失败。本 fork 的槽位键是 <PIPELINE_VERSION>_<gpu 标志><来源后缀>
+    // _<token>_<mtime>（GPU 槽与渲染产物同键），中间的标志位使「版本 + token + mtime」
+    // 这种拼接不再成立 ⇒ 从磁盘反查本次 fixture 的键（版本前缀 + 含 token + 以 mtime
+    // 结尾），不写死字面量（宿主升键后会静默测到旧文件，见第 514 行注释）。
+    const fixtureMtime = Math.round(statSync(join(fixtureItemDir, 'scene.pkg')).mtimeMs);
+    const slotKeyRe = new RegExp('^(' + PIPELINE_VERSION + '_[0-9a-z]*_'
+      + token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '_' + fixtureMtime
+      + ')(?:_gpu\\.png|\\.fb\\.(?:png|jpg)|\\.(?:png|jpg|gif))$');
+    const discoveredKeys = readdirSync(cacheDir)
+      .map((f) => (slotKeyRe.exec(f) || [])[1]).filter(Boolean);
+    const curKey = discoveredKeys[0] || '';
+    check('槽位键可从磁盘反查（GPU 槽与渲染产物同键）', Boolean(curKey), curKey || 'not found');
+    const head0 = await runHead('/wallpaper-engine/scene-frame/' + token);
+    check('HEAD: occupied slot without GPU frame → 204 + X-WE-GPU=0',
+      head0.__state.status === 204 && head0.__state.headers['X-WE-GPU'] === '0',
+      'status=' + head0.__state.status + ' gpu=' + head0.__state.headers['X-WE-GPU']);
+    // 结构校验：只有魔数的 9 字节 / 有魔数无 IHDR-IEND / 结构合法但过短 → 全 415。
+    const putMagicOnly = await runPut('/wallpaper-engine/scene-frame-cache/' + token,
+      Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from([1])]));
+    check('PUT 9 字节假 PNG → 415（不再永久占槽）', putMagicOnly.__state.status === 415, 'status=' + putMagicOnly.__state.status);
+    const putNoChunks = await runPut('/wallpaper-engine/scene-frame-cache/' + token,
+      Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(4096, 7)]));
+    check('PUT 魔数正确但无 IHDR/IEND → 415', putNoChunks.__state.status === 415, 'status=' + putNoChunks.__state.status);
+    const putTooSmall = await runPut('/wallpaper-engine/scene-frame-cache/' + token, makePng(10));
+    check('PUT 结构合法但过小（< 1KB 地板）→ 415', putTooSmall.__state.status === 415, 'status=' + putTooSmall.__state.status);
+    check('以上三次拒绝都没有落盘', !existsSync(join(cacheDir, curKey + '_gpu.png')), 'ok');
+    const put1 = await runPut('/wallpaper-engine/scene-frame-cache/' + token, gpuPng);
+    check('PUT 合法 PNG → 200', put1.__state.status === 200, 'status=' + put1.__state.status);
+    const gpuFiles = readdirSync(cacheDir).filter((f) => f === curKey + '_gpu.png');
+    check('GPU frame stored as <key>_gpu.png (文件名即标记，可直接打开)',
+      gpuFiles.length === 1, gpuFiles.join(', ') || 'missing');
+    // CPU 侧对照帧可以是真实渲染产物（.png/.jpg）也可以是回退主纹理（.fb.png/.fb.jpg）
+    // —— 无 WE 资源时渲染会走回退路径，断言只要求「CPU 产物还在」。
+    check('CPU 提取帧未被 GPU 写入覆盖（留作对照）',
+      ['png', 'jpg', 'fb.png', 'fb.jpg'].some((ext) => existsSync(join(cacheDir, curKey + '.' + ext))), 'ok');
+    const head1 = await runHead('/wallpaper-engine/scene-frame/' + token);
+    check('HEAD after PUT → X-WE-GPU=1', head1.__state.status === 204 && head1.__state.headers['X-WE-GPU'] === '1',
+      'status=' + head1.__state.status + ' gpu=' + head1.__state.headers['X-WE-GPU']);
+    const getGpu = await runHandler(sceneRoute, '/wallpaper-engine/scene-frame/' + token);
+    check('GET now serves the GPU-captured bytes', getGpu.__state.status === 200 && getGpu.__state.body.equals(gpuPng),
+      getGpu.__state.body.length + 'B');
+    const getGpuV3 = await runHandler(sceneRoute, '/wallpaper-engine/scene-frame/' + token + '?v=3');
+    check('GET ?v=3 also serves the GPU frame (跨档位全局优先)', getGpuV3.__state.status === 200 && getGpuV3.__state.body.equals(gpuPng),
+      getGpuV3.__state.body.length + 'B');
+    const headV3 = await runHead('/wallpaper-engine/scene-frame/' + token + '?v=3');
+    check('HEAD ?v=3 → X-WE-GPU=1', headV3.__state.status === 204 && headV3.__state.headers['X-WE-GPU'] === '1',
+      'status=' + headV3.__state.status + ' gpu=' + headV3.__state.headers['X-WE-GPU']);
+    const put2 = await runPut('/wallpaper-engine/scene-frame-cache/' + token, gpuPng);
+    check('second PUT rejected → 409 (每壁纸一份)', put2.__state.status === 409, 'status=' + put2.__state.status);
+    // 并发写入（评审用真 socket 复现过 TOCTOU）：同 key 串行 → 恰好一 200 一 409。
+    await runClear('/wallpaper-engine/scene-frame-cache/' + token);
+    const raced = await Promise.all([
+      runPut('/wallpaper-engine/scene-frame-cache/' + token, makePng(4096, 1)),
+      runPut('/wallpaper-engine/scene-frame-cache/' + token, makePng(4096, 2)),
+      runPut('/wallpaper-engine/scene-frame-cache/' + token, makePng(4096, 3)),
+    ]);
+    const codes = raced.map((r) => r.__state.status).sort().join(',');
+    check('三个并发 PUT 只有一个成功（唯一性闸串行化）', codes === '200,409,409', 'codes=' + codes);
+    const survivor = readdirSync(cacheDir).filter((f) => f === curKey + '_gpu.png').length;
+    check('并发后磁盘上仍只有一份 GPU 帧', survivor === 1, 'count=' + survivor);
+    const noTmpLeft = readdirSync(cacheDir).filter((f) => f.startsWith(curKey + '_gpu.png.tmp')).length;
+    check('并发写入未残留 .tmp 垃圾', noTmpLeft === 0, 'tmp=' + noTmpLeft);
+    // 清除通道：DELETE（以及 POST ?clear=1）→ 可重新抓取。
+    const clr = await runClear('/wallpaper-engine/scene-frame-cache/' + token);
+    check('DELETE 清除 GPU 帧 → 200 + removed=true',
+      clr.__state.status === 200 && /"removed":true/.test(String(clr.__state.body)), 'status=' + clr.__state.status);
+    const clr2 = await runClear('/wallpaper-engine/scene-frame-cache/' + token, 'POST');
+    check('POST 无 clear 参数 → 405（不误触发清除）', clr2.__state.status === 405, 'status=' + clr2.__state.status);
+    const clr3 = await runClear('/wallpaper-engine/scene-frame-cache/' + token + '?clear=1', 'POST');
+    check('POST ?clear=1 清除路径 → 200',
+      clr3.__state.status === 200 && /"removed":false/.test(String(clr3.__state.body)), 'status=' + clr3.__state.status);
+    const headAfterClear = await runHead('/wallpaper-engine/scene-frame/' + token);
+    check('清除后 HEAD → 204 + X-WE-GPU=0（回到 CPU 帧）',
+      headAfterClear.__state.status === 204 && headAfterClear.__state.headers['X-WE-GPU'] === '0',
+      'status=' + headAfterClear.__state.status + ' gpu=' + headAfterClear.__state.headers['X-WE-GPU']);
+    const put3 = await runPut('/wallpaper-engine/scene-frame-cache/' + token, gpuPng);
+    check('清除后可重新写入 → 200（坏帧不再是死结）', put3.__state.status === 200, 'status=' + put3.__state.status);
+    // ── 抓帧几何随 HEAD 暴露（客户端据此判断存帧是否还是当前视口的构图）────
+    // _gpu.png 是抓帧那一刻渲染页视口的构图（渲染器按画布比取景），别的窗口/
+    // 旧会话留下的帧拿到当前窗口上屏会被 CSS object-fit: cover 再裁一次 = 画面
+    // 放大且四周被切。IHDR 的宽高比就是抓帧画布的设备像素比 → 直接读文件头即可。
+    const headGeo64 = await runHead('/wallpaper-engine/scene-frame/' + token);
+    check('HEAD 报出抓帧几何（X-WE-GPU-W/H/AR，来自 PNG IHDR）',
+      headGeo64.__state.headers['X-WE-GPU-AR'] === '1.0000'
+      && headGeo64.__state.headers['X-WE-GPU-W'] === '64' && headGeo64.__state.headers['X-WE-GPU-H'] === '64',
+      'ar=' + headGeo64.__state.headers['X-WE-GPU-AR']
+      + ' wh=' + headGeo64.__state.headers['X-WE-GPU-W'] + 'x' + headGeo64.__state.headers['X-WE-GPU-H']);
+    await runClear('/wallpaper-engine/scene-frame-cache/' + token);
+    const putWide = await runPut('/wallpaper-engine/scene-frame-cache/' + token, makePng(4096, 7, [1440, 960]));
+    check('PUT 3:2 抓帧（1440x960）→ 200', putWide.__state.status === 200, 'status=' + putWide.__state.status);
+    const headGeoWide = await runHead('/wallpaper-engine/scene-frame/' + token);
+    check('HEAD 报出 3:2 抓帧几何（1.5000 → 客户端判「与 16:9 视口不符」→ 重抓）',
+      headGeoWide.__state.status === 204 && headGeoWide.__state.headers['X-WE-GPU-AR'] === '1.5000',
+      'ar=' + headGeoWide.__state.headers['X-WE-GPU-AR']);
+    const headGeoNoGpu = await (async () => {
+      await runClear('/wallpaper-engine/scene-frame-cache/' + token);
+      return runHead('/wallpaper-engine/scene-frame/' + token);
+    })();
+    check('无 GPU 帧时不得发几何头（CPU 帧是设计比例，与服务逻辑无关）',
+      headGeoNoGpu.__state.headers['X-WE-GPU'] === '0'
+      && headGeoNoGpu.__state.headers['X-WE-GPU-AR'] === undefined,
+      'gpu=' + headGeoNoGpu.__state.headers['X-WE-GPU'] + ' ar=' + String(headGeoNoGpu.__state.headers['X-WE-GPU-AR']));
+    await runPut('/wallpaper-engine/scene-frame-cache/' + token, gpuPng); // 还原槽位状态
+    // ── P2-L：unlink 失败（权限/占用）必须报错 ────────────────────────────
+    // 回 200 + removed:false 会让客户端把「清除」当成功（面板行消失、提示已清除），
+    // 而宿主照旧发 GPU 帧 —— 画面纹丝不动且没有任何反馈。ENOENT 仍算幂等成功。
+    {
+      // 注入 unlink 失败：**跨平台可靠的做法是把目标换成一个非空目录** ——
+      // unlinkSync 对目录必然失败（Windows EPERM / POSIX EISDIR）。chmod 注入两边都
+      // 不可靠：POSIX 上删文件看目录写权限（目录 0555 才挡得住），Windows 上目录只读
+      // 属性不阻止删除目录内文件，且连**文件**只读属性也挡不住 unlinkSync（本机实测
+      // UNLINK-SUCCEEDED）—— 原先只 chmod 目录，这条断言在 Windows 上永远测不到它要
+      // 测的分支。目录形态对宿主其余逻辑等价：existsSync(gpuPath) 为真 ⇒ HEAD 仍报
+      // X-WE-GPU=1，正是断言要的「与客户端所见一致」。
+      const gpuOnDisk = join(cacheDir, curKey + '_gpu.png');
+      rmSync(gpuOnDisk, { force: true });
+      mkdirSync(join(gpuOnDisk, 'block'), { recursive: true });
+      let locked = null;
+      try {
+        locked = await runClear('/wallpaper-engine/scene-frame-cache/' + token);
+      } finally {
+        // 恢复成真实文件：后续用例（重试清除、几何读取）照常。
+        rmSync(gpuOnDisk, { recursive: true, force: true });
+        writeFileSync(gpuOnDisk, gpuPng);
+      }
+      check('unlink 失败 → 500（不得假成功）',
+        locked && locked.__state.status === 500 && /unlink-failed/.test(String(locked.__state.body)),
+        'status=' + (locked && locked.__state.status) + ' body=' + String(locked && locked.__state.body).slice(0, 90));
+      check('unlink 失败后 GPU 帧仍在盘上（清除确实没发生）',
+        readdirSync(cacheDir).filter((f) => f === curKey + '_gpu.png').length === 1);
+      const headLocked = await runHead('/wallpaper-engine/scene-frame/' + token);
+      check('unlink 失败后 HEAD 仍报 X-WE-GPU=1（与客户端所见一致）',
+        headLocked.__state.status === 204 && headLocked.__state.headers['X-WE-GPU'] === '1',
+        'gpu=' + headLocked.__state.headers['X-WE-GPU']);
+      const afterUnlock = await runClear('/wallpaper-engine/scene-frame-cache/' + token);
+      check('恢复可写后重试清除 → 200 + removed=true（失败不是死结）',
+        afterUnlock.__state.status === 200 && /"removed":true/.test(String(afterUnlock.__state.body)),
+        'status=' + afterUnlock.__state.status);
+    }
+    const putBad = await runPut('/wallpaper-engine/scene-frame-cache/' + token, Buffer.from('not-an-image'));
+    check('PUT bad magic → 415', putBad.__state.status === 415, 'status=' + putBad.__state.status);
+    const putUnknown = await runPut('/wallpaper-engine/scene-frame-cache/not-a-real-token', gpuPng);
+    check('PUT unknown token → 404', putUnknown.__state.status === 404, 'status=' + putUnknown.__state.status);
+    const headUnknown = await runHead('/wallpaper-engine/scene-frame/not-a-real-token');
+    check('HEAD unknown token → 404', headUnknown.__state.status === 404, 'status=' + headUnknown.__state.status);
+    // HEAD 契约（评审指出的盲区）：空槽 → 404，且纯探测绝不写盘。
+    await runClear('/wallpaper-engine/scene-frame-cache/' + token);
+    for (const ext of ['png', 'jpg', 'gif', 'fb.png', 'fb.jpg']) { rmSync(join(cacheDir, curKey + '.' + ext), { force: true }); }
+    const before = readdirSync(cacheDir).length;
+    const headEmpty = await runHead('/wallpaper-engine/scene-frame/' + token);
+    check('HEAD 空槽 → 404（纯探测不触发提取）', headEmpty.__state.status === 404, 'status=' + headEmpty.__state.status);
+    check('HEAD 空槽未写盘（文件数不变）', readdirSync(cacheDir).length === before,
+      before + ' → ' + readdirSync(cacheDir).length);
+  }
 }
 
 // C: error paths
@@ -560,6 +850,60 @@ if (!existsSync(WE_DEFAULTS)) {
   }
 }
 
+
+// D: 真 socket 端到端 —— 错误应答必须真的送到客户端。
+// mock res 无法暴露「res.end() 后立刻 req.destroy() 会丢掉写缓冲」这类问题
+//（评审实测：33MB 超限请求客户端只拿到 ECONNRESET 而不是 413），所以这里起
+// 一个真 http server，按框架语义（最长前缀优先）分发到同一个 handler。
+if (token) {
+  const http = await import('node:http');
+  const routesForHttp = routes.filter((r) => r.path.startsWith('/wallpaper-engine/'));
+  const server = http.createServer((req, res) => {
+    const path = new URL(req.url || '/', 'http://x').pathname;
+    const hit = routesForHttp
+      .filter((r) => path === r.path || path.startsWith(r.path + '/'))
+      .sort((a, b) => b.path.length - a.path.length)[0];
+    if (!hit) { res.statusCode = 404; res.end('no route'); return; }
+    try { hit.handler(req, res); } catch (err) { res.statusCode = 500; res.end(String(err)); }
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const port = server.address().port;
+  const sendOver = (method, path, body) => new Promise((resolveFn) => {
+    // agent:false + Connection:close —— 413 路径会主动断开连接（设计如此），
+    // 复用 keep-alive 套接字会让后续请求假性 ECONNRESET。
+    const req = http.request({
+      host: '127.0.0.1', port, method, path, agent: false,
+      headers: { 'Content-Type': 'image/png', Connection: 'close' },
+    }, (res) => {
+      res.resume();
+      res.on('end', () => resolveFn({ status: res.statusCode }));
+      res.on('close', () => resolveFn({ status: res.statusCode }));
+    });
+    // 连接被对端掐断（旧实现的症状）→ 状态记 0，便于断言区分；错误码一并带出，
+    // 否则「413 没送到」只能看到 status=0，分不清 ECONNRESET / EPIPE / 超时。
+    req.on('error', (e) => resolveFn({ status: 0, err: (e && e.code) || String(e) }));
+    if (body) req.write(body);
+    req.end();
+  });
+  const overLimit = await sendOver('PUT', '/wallpaper-engine/scene-frame-cache/' + token, Buffer.alloc(33 * 1024 * 1024, 5));
+  check('真 socket：超限 PUT 收到 413（而不是连接被掐断）', overLimit.status === 413,
+    'status=' + overLimit.status + (overLimit.err ? ' err=' + overLimit.err : ''));
+  const badBody = await sendOver('PUT', '/wallpaper-engine/scene-frame-cache/' + token, Buffer.from('not-an-image'));
+  check('真 socket：非法载荷收到 415', badBody.status === 415, 'status=' + badBody.status);
+  const cleared = await sendOver('DELETE', '/wallpaper-engine/scene-frame-cache/' + token);
+  check('真 socket：DELETE 清除通道可达', cleared.status === 200, 'status=' + cleared.status);
+  const headOver = await new Promise((resolveFn) => {
+    const req = http.request({ host: '127.0.0.1', port, method: 'HEAD', path: '/wallpaper-engine/scene-frame/' + token }, (res) => {
+      res.resume();
+      resolveFn({ status: res.statusCode, gpu: res.headers['x-we-gpu'] });
+    });
+    req.on('error', () => resolveFn({ status: 0 }));
+    req.end();
+  });
+  check('真 socket：HEAD 探测可达且报 X-WE-GPU', headOver.status === 204 || headOver.status === 404,
+    'status=' + headOver.status + ' gpu=' + headOver.gpu);
+  await new Promise((r) => server.close(r));
+}
 if (typeof dispose === 'function') dispose();
 delete process.env.DSH_WE_STEAM_ROOT;
 rmSync(join(root, '.test-cache', 'scene-fixture'), { recursive: true, force: true });
