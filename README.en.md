@@ -583,7 +583,8 @@ skin-center design):
 > floor half stays fixed. Semantics are unchanged: glass transparency still means
 > "higher = more transparent" and still applies monotonically (you can still make
 > a panel clearer or more solid), it just cannot go below the floor; wallpaper
-> opacity still drives only the wallpaper layer (`.we-layer`) and still means
+> opacity still drives only the wallpaper layer (`.we-layer` stays opaque; the
+> fade lands on the media leaf) and still means
 > "blend into the page base colour", with no coupling to the floor.
 
 ### Mascot (chat pull-cord)
