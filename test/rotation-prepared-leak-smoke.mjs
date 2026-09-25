@@ -499,21 +499,20 @@ await runScenario('E. 静态帧预载按提交档位；不符（preview 回退�
   const frameImg = t.imageEls[t.imageEls.length-1];
   check('第二轮 s3 仍按档位 3 预载', t.mediaSrc(frameImg) === '/wallpaper-engine/scene-frame/s3?v=3',
     'src=' + t.mediaSrc(frameImg));
-  if (frameImg && typeof frameImg.onerror === 'function') frameImg.onerror(); // 提取失败 → preview 回退
-  const previewImg = t.imageEls[t.imageEls.length-1];
-  check('提取失败后回退到 preview 探针',
-    previewImg !== frameImg && t.mediaSrc(previewImg) === '/wallpaper-engine/preview/s3',
-    'src=' + t.mediaSrc(previewImg));
-  if (previewImg && typeof previewImg.onload === 'function') previewImg.onload(); // 就绪 → 提交
-  // ── 核心 2（186df3a 的 URL 校验不能退化）：src 与提交 URL 不符的元素（preview）
-  //    绝不能被原样收编成「当前档位的静态帧」──
-  const layer2 = t.layerEl();
-  const img2 = layer2 && layer2.querySelector('img');
-  check('不符的 preview 探针未被原样收编（层内 img 按帧 URL 重建）',
-    !!img2 && img2 !== previewImg && String(img2.src).includes('/wallpaper-engine/scene-frame/s3?v=3'),
-    img2 ? ('src=' + String(img2.src) + ' same=' + (img2 === previewImg)) : 'no img');
-  check('重建的 img 带 onerror 兜底（提取失败仍能退回 preview）',
-    !!img2 && typeof img2.onerror === 'function');
+  const frameIdx = t.imageEls.indexOf(frameImg);
+  if (frameImg && typeof frameImg.onerror === 'function') frameImg.onerror(); // 提取失败
+  // §5：作者预览图**不再**是静态帧的回退来源 —— 失败后不得再创建 preview 探针；§4：该级
+  // 失败交给调用方前进/终止（本 smoke 的轮换准备链 ⇒ 不提交，暂留上一张）。
+  // ⚠️ 只判「探针之后新创建的图」：客户端还会追加诊断信标图（/diag?msg=…），按"最后一张"
+  // 判会误咬到它（本轮踩到）。
+  const createdAfter = t.imageEls.slice(frameIdx + 1);
+  check('提取失败不再回退到作者预览图（该回退级已删）',
+    !createdAfter.some((e) => String(t.mediaSrc(e)).includes('/preview/')),
+    'after=' + JSON.stringify(createdAfter.map((e) => String(t.mediaSrc(e)).slice(0, 36))));
+  check('提取失败不提交新层（按 §4 前进/终止，不硬塞 preview）',
+    t.persistedId() === 'v', 'id=' + t.persistedId());
+  check('层内 img 不再挂 preview onerror 兜底（§5 删掉的那处）',
+    (() => { const l = t.layerEl(); const i = l && l.querySelector('img'); return !i || typeof i.onerror !== 'function'; })());
 });
 
 // ── F：渐变窗口内卸载 → 渐变中的旧层必须随 cleanup 一起退役 ────────────────

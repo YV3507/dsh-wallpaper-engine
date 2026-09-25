@@ -255,7 +255,7 @@ const okResult = (servedFrom) => async () => ({ fileAbs: '/x/' + servedFrom + '.
       /skipCurrent = Boolean\(currentAbs\) && liveSuppressesPrewarm\(readSettings\(\), currentAbs\)/.test(idx)
       && /if \(currentAbs && !skipCurrent\) list\.push\(currentAbs\)/.test(idx)
       && /if \(!liveSuppressesPrewarm\(sanitized, curAbs\)\) prewarmQueue\.promote\(curAbs\)/.test(idx)
-      && /return st\.scenePrewarm === true && st\.sceneFrameRender !== false;/.test(idx));
+      && /return st\.scenePrewarm === true;/.test(idx));
   }
 
   // ── R11c 只命中、不渲染 (?cached=1) ─────────────────────────────────────────
@@ -451,18 +451,19 @@ const okResult = (servedFrom) => async () => ({ fileAbs: '/x/' + servedFrom + '.
       && /variant === 1 \|\| variant === 2/.test(idx)
       && !/variant === 6/.test(idx);
     // §8 新增：显式来源档（maintex/art）不被 GPU 抓帧顶掉；形态 → 媒体分支的映射。
-    const gpuGate = /if \(variant === 1 \|\| variant === 2 \|\| variant === 3\) return null;/.test(idx);
+    const gpuGate = /if \(variant === 1 \|\| variant === 2\) return null;/.test(idx);
     const mediaTier = /const wantStatic = tierId === STATIC_FRAME_ID/.test(cli)
       && /const wantVideo = tierId === MP4_FRAME_ID \? Boolean\(w\.sceneVideo\)/.test(cli)
       && /selection\.url = mp4Tier \? w\.sceneVideo/.test(cli);
-    // 三级级联：实时渲染没在生效（父关 / 该壁纸已自动降级）→ 出现子「静态帧渲染」；
-    // 子打开 → 才出现「静态帧兜底与调优」组（出图来源 + 调优项都在其中）。
-    const cascade = /&& !liveRenderEnabled\(sel\)[\s\S]{0,60}switchRow\("静态帧渲染", sel\.sceneFrameRender !== false/.test(cli)
-      && /sel\.sceneFrameRender !== false\s*\n\s*&& React\.createElement\("div", \{ className: "we-picker__section" \}/.test(cli)
-      && /frameRenderOff \? \(hasCustom \? CUSTOM_FRAME_ID : 2\) : savedVariant/.test(cli)
-      && /sceneFrameRender: o\.sceneFrameRender !== false/.test(idx)
-      && /st\.scenePrewarm === true && st\.sceneFrameRender !== false/.test(idx);
-    check('R38 回退链档位 + 三级级联: 链序恰好 [0,4,7,8,1,2]（auto→custom→mp4→static→maintex→art，不含已删的预览图/合成）/ 宿主值域 {0,1,2,4,7,8} 且显式 static 与 auto 同槽 / 显式来源档不被抓帧顶掉 / 形态→媒体分支 / 状态行保持短格式；实时渲染未生效 且 静态帧渲染开 才出现兜底组',
+    // 二级级联（§7）：live 没在生效 ⇒ **直接**出现「静态帧兜底与调优」组（中间那级
+    // 「静态帧渲染」总开关已删除 —— live 关掉必定落在链上某一档，不存在"不渲染"态）。
+    const cascade = /\(sel\.type === "scene" \|\| sel\.type === "web"\) && !liveRenderEnabled\(sel\)\s*\n\s*&& React\.createElement\("div", \{ className: "we-picker__section" \}/.test(cli)
+      && !/switchRow\("静态帧渲染"/.test(cli)
+      // 只断「代码里不再使用它」：属性访问与键名都不许在。**不能**用 `!/sceneFrameRender/`
+      // —— 注释里正当地记着"该开关已删除（§7）"，全文否定会咬到注释而假失败（本轮踩到）。
+      && !/\.sceneFrameRender\b/.test(cli) && !/sceneFrameRender\s*:/.test(cli)
+      && /st\.scenePrewarm === true;/.test(idx);
+    check('R38 回退链档位 + 二级级联: 链序恰好 [0,4,7,8,1,2]（auto→custom→mp4→static→maintex→art，不含已删的预览图/合成）/ 宿主值域 {0,1,2,4,7,8} 且显式 static 与 auto 同槽 / 显式来源档不被抓帧顶掉 / 形态→媒体分支 / 状态行保持短格式；实时渲染没生效即出现兜底组（中间那级总开关已删）',
       chainOrder && constsOk && uniq && usesId && hostOk && gpuGate && mediaTier && statusShort && cascade,
       'ids=[' + ids.join(',') + '] unique=' + uniq + ' consts=' + constsOk + ' chainOrder=' + chainOrder
         + ' clientUsesId=' + usesId + ' host=' + hostOk + ' gpuGate=' + gpuGate + ' media=' + mediaTier

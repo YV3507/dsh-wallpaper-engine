@@ -608,12 +608,12 @@ const clientChecks = [
   // 实测回归（用户报「实时渲染在用但静态帧仍在算 → 卡顿/黑屏」）：live 分支的垫底图
   // **只认缓存命中**（`?cached=1`，宿主只命中不渲染），未命中就空着等动画；作者预览图
   // 不再当垫底（画质太差被否）。静态帧的定位 = 实时渲染出不了好效果时的取舍方案。
-  // 合并上游后的形状：场景档是 `sel.sceneFrameRender === false ? null : cachedOnlyFrameUrl(...)`
-  //（上游的 buildLivePoster 明确**不能**用于场景垫底 —— 它把 sel.url 当背景图预载 = 冷渲染），
-  // 网页档才走 buildLivePoster 的 `liveFrame || previewUrl`。
+  // 合并上游后的形状：场景档是 `cachedOnlyFrameUrl(...)`（「静态帧渲染」总开关已删除，
+  // 见 §7 —— 垫底图只认缓存命中，与任何开关无关）；上游的 buildLivePoster **不能**用于
+  // 场景垫底（它把 sel.url 当背景图预载 = 冷渲染），网页档才走它。
   ['live poster is cache-only (no render, no low-quality preview)',
     /cachedOnlyFrameUrl\(/.test(src)
-    && /const posterSrc = sel\.sceneFrameRender === false \? null/.test(src)
+    && /const posterSrc = cachedOnlyFrameUrl\(/.test(src)
     && !/const posterSrc = sel\.previewUrl \|\| null;/.test(src)
     && !/posterSrc = sel\.type === "web" \?/.test(src)],
   ['cache-only poster drops itself when the frame is not cached',
@@ -631,7 +631,7 @@ const clientChecks = [
 for (const [name, ok] of clientChecks) check(name, ok);
 // 负对照：把两种旧写法喂给**同一判据**，必须都被判不合格
 {
-  const isCacheOnlyPoster = (s) => /cachedOnlyFrameUrl\(/.test(s) && /const posterSrc = sel\.sceneFrameRender === false \? null/.test(s);
+  const isCacheOnlyPoster = (s) => /cachedOnlyFrameUrl\(/.test(s) && /const posterSrc = cachedOnlyFrameUrl\(/.test(s);
   const oldStatic = 'const posterSrc = sel.type === "web" ? (sel.previewUrl || null) : sel.url;';
   const oldPreview = 'const posterSrc = sel.previewUrl || null;';
   check('negative control: the old static-frame poster is rejected', isCacheOnlyPoster(oldStatic) === false);
