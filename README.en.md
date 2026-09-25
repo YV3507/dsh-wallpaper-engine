@@ -482,11 +482,11 @@ Pick the animation used when the wallpaper changes. **Manual picks and automatic
 | **擦除** wipe | a hard edge sweeps across to reveal the new picture | 700 ms |
 | **光圈** iris | a circle opens from the centre | 800 ms |
 | **缩放** zoom | the new picture eases in slightly zoomed, the old one pushes forward | 900 ms |
-| **条带** bars | a sawtooth stripe front sweeps across | 800 ms |
+| **条带** bars (venetian blind) | 7 slats — horizontal for a lateral transition, vertical for a vertical one — open in parallel from the entering side, with gaps that close at the end | 800 ms |
 
-**Direction** only applies to the directional transitions (push / wipe / bars): for push and wipe it picks the entering side, for bars it picks vertical vs horizontal stripes. **Duration** is each type’s baseline × fast (0.6×) / normal (1×) / slow (1.6×), with the resulting milliseconds shown on the control.
+**Direction** only applies to the directional transitions (push / wipe / bars): for push and wipe it picks the entering side; for bars it picks the entering side too, which is also what makes the slats horizontal (lateral) or vertical (up/down). **Duration** is each type’s baseline × fast (0.6×) / normal (1×) / slow (1.6×), with the resulting milliseconds shown on the control.
 
-Three constraints shaped the shortlist: only `transform` / `opacity` / `clip-path` are animated (compositor-friendly — `mask` and `filter` fall off the composited layer on `<video>` and live render `<iframe>`s, which is why 条带 uses a `clip-path` sawtooth instead of a mask); the outgoing picture always stays **opaque underneath** the incoming one, because glass `backdrop-filter` silently stops working over a transparent backdrop; and every duration comes from a single source (the inline `--we-switch-ms`, with the cross-fade baseline referencing `ROTATION_FADE_MS`).
+Three constraints shaped the shortlist: only `transform` / `opacity` / `clip-path` are animated (compositor-friendly — `mask` and `filter` fall off the composited layer on `<video>` and live render `<iframe>`s, which is why 条带 uses a `clip-path` polygon instead of a mask: its N slats are disconnected, so a thin "spine" hugging the entering edge (growing from zero width) joins them into a single connected polygon); the outgoing picture always stays **opaque underneath** the incoming one, because glass `backdrop-filter` silently stops working over a transparent backdrop; and every duration comes from a single source (the inline `--we-switch-ms`, with the cross-fade baseline referencing `ROTATION_FADE_MS`).
 
 With `prefers-reduced-motion: reduce` every transition degrades to a hard cut, and the incoming layer’s temporary inline styles are cleared when the transition ends (a full-screen video would otherwise keep a compositing layer forever).
 

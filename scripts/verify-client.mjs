@@ -370,8 +370,9 @@ setTimeout(async () => {
             && pushLayer.style._props['--we-switch-ms'] === undefined);
         }
         flushPersistWrites();
-        // ── 条带：终态必须是满屏矩形，且外封闭边落在右侧（方向 left）──
-        // 方向反了会把封闭边放到左边，条纹从反方向扫出来 —— 这里从终态就能判出来。
+        // ── 条带（百叶窗）：终态必须是满屏矩形，且 N 块板都从进入侧（右侧）长出来 ──
+        // 两个易错点都在终态里可判：① 方向反了 → 封闭边/板会跑到左侧；
+        // ② 退回「锯齿扫过」那版（板塌成一条直边、与擦除无异）→ N 块板的深度点消失。
         pickTransition('条带');
         const barsTimer = findRotTimer();
         rotCheck('rotation timer re-armed for the 条带 case', !!barsTimer);
@@ -383,8 +384,12 @@ setTimeout(async () => {
             !!clip && clip.indexOf('polygon(100.00% 0.00%') === 0
             && clip.indexOf('0.00% 0.00%') !== -1
             && clip.indexOf('100.00% 100.00%') !== -1);
-          rotCheck('条带：齿数恒定（多边形点数 = 2 + 2N + 1）',
-            !!clip && (clip.match(/%/g) || []).length / 2 === 2 + 2 * 5 + 1);
+          // 板数从产物里读，断言按 4N+1 算 —— 改板数不会误报，但**几何退回
+          // 「锯齿扫过」那版**（点数公式不同）会翻红。
+          const barsN = Number((code.match(/const SWITCH_BARS_TEETH = (\d+)/) || [])[1]);
+          rotCheck('条带：N 块板的深度点都在（百叶窗，不是锯齿擦除）—— 点数 = 4N+1',
+            !!clip && barsN >= 2 && (clip.match(/%/g) || []).length / 2 === 4 * barsN + 1);
+          // 中段「板 + 缝」的几何在下面的单元级断言里直接算产物函数验证（终态看不出）。
           flushPersistWrites();
           // ── 硬切：默认值，旧层立即拆除、不排任何过场 ──
         pickTransition('硬切');
@@ -993,8 +998,49 @@ setTimeout(async () => {
       // 反了用户一眼就能看出，所以必须锁住映射本身。
       assert.ok(/if \(dir === "up"\) return "inset\(100% 0 0 0\)";/.test(code)
         && /const fromEnd = dir === "left" \|\| dir === "up";/.test(code)
-        && /const front = fromEnd \? 1 - p : p;/.test(code),
+        && /const inward = fromEnd \? -1 : 1;/.test(code),
         '方向映射必须保持「left = 画面向左移动 / 新画面自右进入」（擦除与条带同语义）');
+
+      // 条带几何（单元级）：DOM 里只能看到终态，而「中段有没有板缝」才是百叶窗的
+      // 关键 —— 直接从产物里取出 barsPolygon 在 p=0.5 求值。板缝一旦合并（例如
+      // slat 恒等于 period），中段就退化成一块实心矩形，肉眼看与「擦除」无异
+      // （用户实测反馈：擦除和条带分不出来）。这里把那个退化钉死。
+      {
+        const i = code.indexOf('function barsPolygon(');
+        assert.ok(i >= 0, 'barsPolygon 必须存在');
+        let depth = 0, started = false, srcFn = '';
+        for (let j = i; j < code.length; j++) {
+          if (code[j] === '{') { depth++; started = true; }
+          else if (code[j] === '}') { depth--; if (started && depth === 0) { srcFn = code.slice(i, j + 1); break; } }
+        }
+        const n = Number((code.match(/const SWITCH_BARS_TEETH = (\d+)/) || [])[1]);
+        const fn = new Function('const SWITCH_BARS_TEETH = ' + n + ';\n' + srcFn + '\nreturn barsPolygon;')();
+        const xsOf = (poly) => [...new Set([...poly.matchAll(/([\d.]+)% ([\d.]+)%/g)].map((m) => Number(m[1])))];
+        const ptsOf = (poly) => [...poly.matchAll(/([\d.]+)% ([\d.]+)%/g)].map((m) => [Number(m[1]), Number(m[2])]);
+        for (const p of [0.3, 0.5]) {
+          const pts = ptsOf(fn('left', p));
+          const depthX = 100 * (1 - p);            // dir=left：板从右侧伸进来 p
+          assert.ok(pts.some((q) => Math.abs(q[0] - depthX) < 0.01),
+            '条带 p=' + p + ' 必须有「板深」点 x≈' + depthX.toFixed(1) + '（实际 x：' + JSON.stringify(xsOf(fn('left', p))) + '）');
+          // 缝里那条「脊」必须是有长度的线段：板厚 slat = p/N < 周期 period 时缝才存在。
+          // 板厚一旦等于周期（缝合并），脊上的相邻点 y 相同 → 长度归零 → 中段就是一块
+          // 实心矩形，肉眼与「擦除」无异（用户实测反馈的原始问题）。这条把该退化钉死。
+          const spineYs = pts.filter((q) => q[0] > 99 && q[0] < 100).map((q) => q[1]);
+          // 脊上的点是**成对**发出的（每条缝一对：缝起点 → 缝终点），所以必须成对相减。
+          // 跨缝相减会得到「周期」而恒定非零，那样板厚等于周期也测不出来。
+          const gapLens = [];
+          for (let k = 0; k + 1 < spineYs.length; k += 2) gapLens.push(Math.abs(spineYs[k + 1] - spineYs[k]));
+          assert.ok(gapLens.some((g) => g > 0.5),
+            '条带 p=' + p + ' 的缝必须有非零长度（缝存在 → 百叶窗而非实心擦除）；缝长：' + JSON.stringify(gapLens.slice(0, 6)));
+        }
+        // 两端必须退化：p=0 零面积（什么都没露出）、p=1 满屏（块缝闭合）。
+        const xs0 = xsOf(fn('left', 0)).map(Number);
+        const xs1 = xsOf(fn('left', 1)).map(Number);
+        assert.ok(xs0.every((v) => v > 99.9), '条带 p=0 必须零面积（不能一开始就露出板）');
+        assert.ok(xs1.some((v) => v < 0.1) && xs1.some((v) => v > 99.9),
+          '条带 p=1 必须覆盖满屏（从进入侧一路铺到对侧）');
+        console.log('条带几何（板 + 缝 · 两端退化）: ok');
+      }
       // 默认 = 硬切（用户裁决：先上零成本零风险，等「最帅的」定了再改这一处）。
       // 断在**被测产物**（code）上，这样 DSH_MUT_LIB 变异也能验到这条有牙。
       assert.ok(/switchTransition: "cut"/.test(code), '默认过场必须是硬切（DEFAULTS.switchTransition）');
