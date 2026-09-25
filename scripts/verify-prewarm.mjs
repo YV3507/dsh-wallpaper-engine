@@ -436,6 +436,38 @@ const okResult = (servedFrom) => async () => ({ fileAbs: '/x/' + servedFrom + '.
     // 失败记忆不得进入持久化：发送清单里不许出现该键（"每会话一次"的机制保证）。
     && !/frameFailures\s*:/.test(cli));
 
+  // ── R41 §6 陈条清理：分批 16 / 批间静息 30s / 复用空闲门控 / 库空不清理 ─────
+  {
+    const { collectStaleEntries } = await import('../lib/index.js');
+    const tok = (p) => Buffer.from(p, 'utf8').toString('base64url');
+    const liveTok = tok('D:/we/library/keep/scene.pkg');
+    const goneTok = tok('D:/we/library/gone/scene.pkg');
+    const settings = {
+      frameVariants: { keep: 0, gone: 1 },
+      customFrames: { keep: true, stale: true },
+      sceneLiveFailures: { keep: 'timeout', stale: 'stall' },
+      userProps: { [liveTok]: { x: 1 }, [goneTok]: { y: 2 } },
+    };
+    const pathExists = (p) => p.indexOf('gone') === -1; // gone 的路径不存在
+    const stale = collectStaleEntries(settings, new Set(['keep']), pathExists);
+    const got = stale.map(([a, b]) => a + ':' + b).sort().join(',');
+    const want = ['customFrames:stale', 'frameVariants:gone', 'sceneLiveFailures:stale', 'userProps:' + goneTok].sort().join(',');
+    // 负对照：库里有全部 id 且两条路径都存在 ⇒ 不得报任何陈条（证明判据不是恒真）。
+    const clean = collectStaleEntries(settings, new Set(['keep', 'gone', 'stale']), () => true);
+    check('R41 陈条清理：纯函数按「库 id」+「路径存在性」判定（含负对照）',
+      got === want && clean.length === 0,
+      'stale=' + got + ' · 负对照=' + clean.length);
+    check('R41b 陈条清理的节奏与门控：16/批 · 静息 30s · 复用预热空闲门控 · 库空不清理 · 每轮 diag',
+      /const STALE_PRUNE_BATCH = 16;/.test(idx)
+      && /const STALE_PRUNE_QUIET_MS = 30000;/.test(idx)
+      && /prewarmQueue\.status\(\)/.test(idx)
+      && /if \(!valid\.size\) \{ gpuDiag\('\[prune-stale\] 跳过/.test(idx)
+      && /gpuDiag\('\[prune-stale\] 清理陈条 '/.test(idx)
+      && /stalePruneTimer\.unref\(\)/.test(idx)
+      && /disposers\.push\(\(\) => \{ try \{ clearTimeout\(stalePruneTimer\)/.test(idx)
+      && /STALE_PRUNE_START_DELAY_MS = 90000/.test(idx));
+  }
+
     // ── R38b 分组标题与行序（信息架构, 不是功能）────────────────────────────
     // 本组横跨两条轴：**来源/回退**（出图来源）与**调优**（有损/预热/GPU 加速）。两条
     // 断言把这次的整理固定下来：
