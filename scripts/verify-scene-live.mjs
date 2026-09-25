@@ -641,6 +641,15 @@ const clientChecks = [
     /if \(liveRenderEnabled\(sel\)\) \{\s*\n\s*persistSelection\(\);\s*\n\s*refreshStaticFrameNodes\(token\);\s*\n\s*emit\(\);\s*\n\s*return;\s*\n\s*\}\s*\n\s*persistSelection\(\); syncLayers\(\); emit\(\);/.test(src)],
   ['switching the frame tier refreshes the poster in place instead of rebuilding the live layer',
     /if \(liveRenderEnabled\(sel\)\) \{\s*\n\s*persistSelection\(\);\s*\n\s*refreshStaticFrameNodes\(gpuFrameToken\(sel\.sceneFrameUrl\)\);\s*\n\s*emit\(\);\s*\n\s*return;\s*\n\s*\}\s*\n\s*persistSelection\(\); syncLayers\(\); emit\(\);/.test(src)],
+  // 实机回归（2026-09-25 20:18，用户 + 生鱼）：「场景类壁纸正常几秒就失效」「网页也是」
+  // 「失效以后是静态的」「只有扩展模式」「网页类是 gif 预览图」。成因就是 extended 的
+  // 「首帧后延迟 8000ms 换元」自救：换元后的新元素为防白闪被摘掉 `we-live-on`，层回落垫底图
+  // （场景=静态帧、网页=gif 预览），而渲染页照旧出声。日志逐条吻合：first-frame-ok 后
+  // **正好 +8s** 出现 live-frame-rebuilt。故改成 **opt-in**（?we-ext-swap=1 才换元）。
+  ['extended frame swap is opt-in (default off) — it is the "几秒后失效" 病因',
+    /function useExtendedFrameSwap\(\)/.test(src)
+    && /extendedFrameSwap = String\(rawFlag\)\.toLowerCase\(\) === "1";/.test(src)
+    && /if \(desktopWindowMode\(\) === "extended" && !liveFrameRebuildTimer && useExtendedFrameSwap\(\)\) \{/.test(src)],
 ];
 for (const [name, ok] of clientChecks) check(name, ok);
 // 负对照：把两种旧写法喂给**同一判据**，必须都被判不合格
@@ -662,6 +671,14 @@ for (const [name, ok] of clientChecks) check(name, ok);
   check('negative control: the unconditional asset rebuild is rejected', assetsDoNotRebuildLive(oldClear) === false);
   check('negative control: the asset URL in the layer key is rejected', keyIgnoresAssetUrl(oldKey) === false);
   check('positive control: the current client passes both asset criteria', assetsDoNotRebuildLive(src) === true && keyIgnoresAssetUrl(src) === true);
+}
+// 负对照：**没有开关的**换元调用点（旧写法）喂给同一判据必须被判不合格 —— 否则这条断言
+// 只要文件里出现 `we-ext-swap` 字样就会通过，等于没有牙。
+{
+  const swapIsOptIn = (s) => /if \(desktopWindowMode\(\) === "extended" && !liveFrameRebuildTimer && useExtendedFrameSwap\(\)\) \{/.test(s);
+  const ungated = 'if (desktopWindowMode() === "extended" && !liveFrameRebuildTimer) {';
+  check('negative control: the ungated extended swap call site is rejected', swapIsOptIn(ungated) === false);
+  check('positive control: the current client gates the extended swap', swapIsOptIn(src) === true);
 }
 // 实测踩坑回归（2026-09-22）：host 的 sanitizeSettings 是白名单，漏加
 // sceneLiveFailures 会让 PUT 上来的失败记忆被丢弃、刷新后记忆消失。
