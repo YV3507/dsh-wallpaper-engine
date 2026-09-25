@@ -2459,7 +2459,9 @@ function liveStateBrief(extra) {
 }
 // 加载即留痕：确认「哪次刷新、哪个 bundle、哪个页面」真的生效了（用户这台机器
 // 打不开 DevTools，唯一取证通道是宿主诊断缓冲）。
-try { if (typeof document !== "undefined") liveLog("client-boot", "build=" + LIVE_DIAG_BUILD + " page=p" + LIVE_PAGE_ID + " " + liveStateBrief()); } catch { /* ignore */ }
+try { if (typeof document !== "undefined") liveLog("client-boot", "build=" + LIVE_DIAG_BUILD + " page=p" + LIVE_PAGE_ID
+    + " mode=" + desktopWindowMode() + " extSwap=" + (useExtendedFrameSwap() ? 1 : 0)
+    + " " + liveStateBrief()); } catch { /* ignore */ }
 // 失焦/隐藏是「首帧看护为什么不计时」的直接证据 —— 事件级留痕（只在变化时触发）。
 try {
   if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
@@ -2569,6 +2571,34 @@ function desktopWindowMode() {
   } catch { return "compatibility"; }
 }
 
+// A/B 逃生舱：extended 模式的「首帧后延迟换元」自救开关（与 dsh-desktop-mica /
+// we-saturate 同风格，只解析一次并缓存）。
+//   ?we-ext-swap=1 → 恢复换元（用于复验"启动期子框架合成层坏死"那个老问题）
+//   缺省 / 垃圾值 → **不换元**（现行默认）
+// 为什么默认关掉：换元后的新元素为防白闪被刻意摘掉 `we-live-on`（见 rebuildLiveFrame），
+// 层随即回落垫底图（场景=静态帧、网页=作者预览图），而渲染页仍照旧出声。实机表现
+// 「场景/网页壁纸都正常几秒后失效成静态、只有扩展模式、网页退成预览图」与 8000ms
+// 定时器 + first-frame-ok 后正好 +8s 的 live-frame-rebuilt 日志逐条吻合 —— 前提
+//（"启动期 iframe 永不上屏"）在当前 2.0.14 上已不成立，换元只剩破坏。
+let extendedFrameSwap; // undefined = 未解析 · true = 换元 · false = 不换元
+function useExtendedFrameSwap() {
+  if (extendedFrameSwap !== undefined) return extendedFrameSwap;
+  extendedFrameSwap = false;
+  try {
+    if (typeof location !== "undefined" && location && typeof location.search === "string") {
+      let rawFlag = "";
+      if (typeof URLSearchParams === "function") {
+        rawFlag = new URLSearchParams(location.search).get("we-ext-swap") || "";
+      } else {
+        const m = /[?&]we-ext-swap=([^&]*)/.exec(location.search);
+        rawFlag = m ? decodeURIComponent(m[1]) : "";
+      }
+      extendedFrameSwap = String(rawFlag).toLowerCase() === "1";
+    }
+  } catch { /* 解析异常：保持不换元（现行默认），绝不抛出 */ }
+  return extendedFrameSwap;
+}
+
 // extended 模式下，启动期创建的 live iframe 合成层坏死（元素级红底都上不了
 // 屏、文档 reload 与 reparent 均无效，实测 2.0.14；见 first-frame-ok 处的
 // 注释）。唯一有效的自救是换一个全新元素：同 src 新帧由宿主在窗口稳定后重新
@@ -2669,8 +2699,10 @@ function startLiveWatch(frame, wid) {
         // dataset 标记保证只换一次。
         // 重建不在首帧瞬间执行：宿主窗口的合成环境在启动后数秒内仍未稳定
         // （首帧即换，4s 新帧照样坏死，实测），因此先起一次性定时器延后换元。
-        // extended 里旧帧本来就不可见，延迟换元没有额外视觉代价。
-        if (desktopWindowMode() === "extended" && !liveFrameRebuildTimer) {
+        // ⚠️ 该前提在当前 2.0.14 上已不成立：live 首帧能正常上屏，而换元把 `we-live-on`
+        // 摘掉后层只剩下垫底图（正是"正常几秒后失效"的成因）⇒ **改为 opt-in**，缺省
+        // 不换元（见 useExtendedFrameSwap）。
+        if (desktopWindowMode() === "extended" && !liveFrameRebuildTimer && useExtendedFrameSwap()) {
           const cursed = frame;
           liveFrameRebuildTimer = setTimeout(() => {
             liveFrameRebuildTimer = 0;
