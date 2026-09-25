@@ -329,17 +329,20 @@ console.log('K. 渲染器把画布比夹到别的比例（画布比 ≠ 窗口�
     'clear=' + r.clearCalls.length + ' put=' + r.putCalls.length);
 }
 
-console.log('F. P2-M：GPU 静帧落地必须作废在跑的 CPU 渲染');
+console.log('F. P2-M：GPU 静帧落地后不得有任何 CPU 渲染（该路线已删除）');
 {
-  const r = await runScenario({ mode: 'varied', blobSize: 120000, liveStall: true, betaSceneAnim: true });
-  check('前置：live 失联降级后 CPU scene-anim 渲染已在跑（进度轮询在发请求）',
-    r.animPollBefore > 0 && r.progBefore > 0,
+  const r = await runScenario({ mode: 'varied', blobSize: 120000, liveStall: true });
+  // 目标形态：场景动画只保留 WebWallGL 一条路线，回退链是
+  // MP4 → 静态帧 → 单张大图 → 内嵌图，**没有 CPU 动画渲染**（scene-anim / APNG 已删除）。
+  // 因此原先「降级后 CPU 渲染在跑 → 落地时必须取消它」的前提不复存在；这里断的是新的
+  // 不变量：整条流程里一帧 CPU 渲染都不许起（进度轮询/探针恒为 0）。
+  check('live 失联降级后没有任何 CPU 动画渲染在跑（scene-anim 已删除）',
+    r.animPollBefore === 0 && r.progBefore === 0,
     'poll=' + r.animPollBefore + ' prog=' + r.progBefore);
   check('回填 PUT 成功（GPU 静帧已落地）', r.putCalls.length === 1, 'put=' + r.putCalls.length);
-  check('落地后必须取消在跑的渲染（轮询已清，再敲不得发进度请求）',
-    r.animPollAfter === 0 && r.progCalls.length === r.progBefore,
-    'poll=' + r.animPollAfter + ' prog=' + r.progCalls.length + '/' + r.progBefore + ' id=' + r.selectedId
-     );
+  check('落地后仍无任何 CPU 渲染请求（轮询恒为 0）',
+    r.animPollAfter === 0 && r.progCalls.length === 0,
+    'poll=' + r.animPollAfter + ' prog=' + r.progCalls.length + ' id=' + r.selectedId);
 }
 
 console.log('');
