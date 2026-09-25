@@ -621,6 +621,11 @@ const clientChecks = [
     fadeBgBody.includes('--dsw-alias-bg-base')
     && /"#000000" : "#ffffff"/.test(fadeBgBody)
     && !fadeBgBody.includes('--dsw-alias-bg-layer-1')],
+  // 「降级后才需要的画面来源选项」（壁纸画面刷新 / GPU 实时帧 / 自定义画面）只在
+  // live **未生效**时渲染：生效时它们对实时画面没有任何作用，摆出来会误导用户；
+  // 位置也必须在实时渲染开关下方（verify-client 断行为，这里断接线）。
+  ['fallback picture-source rows render only while live is not effective',
+    /sel\.type === "scene" && !liveRenderEnabled\(sel\)\s*\n\s*&& React\.createElement\(React\.Fragment, null,/.test(src)],
   ['pointer injection wired', /__wp\.pushPointer|wp\.pushPointer/.test(src) && /pointerLeave/.test(src)],
   ['fit mapping table present', /SCENE_LIVE_FIT = \{ cover: "cover"/.test(src)],
   // 实测踩坑回归（2026-09-22）：渲染页 resume() 会 resetFrameMeter，心跳若

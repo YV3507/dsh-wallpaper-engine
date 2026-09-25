@@ -128,7 +128,7 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe
 
 ### System-audio reaction and Now Playing (song info + cover art)
 
-Two switches in the「效果」tab (both on by default):
+Two switches in the「声音」(sound) tab (both on by default):
 
 | Switch | What it does |
 |---|---|

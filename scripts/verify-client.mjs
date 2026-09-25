@@ -318,10 +318,10 @@ setTimeout(async () => {
   }
   console.log('picker renders:', pickerRenders.length > 0);
   if (pickerRenders.length) {
-    // ── Tabbed IA: the picker splits into six tabs (壁纸/外观/字体/吉祥物/效果/
-    //    高级). Each WallpaperPicker instance keeps its active tab in
-    //    localStorage; mock React's useState returns the initializer value, so
-    //    re-seeding the key + re-rendering switches tabs deterministically. ──
+    // ── Tabbed IA: the picker splits into six tabs (壁纸/外观/吉祥物/效果/声音/
+    //    高级 —— 「字体」已并入「外观」). Each WallpaperPicker instance keeps its
+    //    active tab in localStorage; mock React's useState returns the initializer
+    //    value, so re-seeding the key + re-rendering switches tabs deterministically. ──
     const TAB_KEY = 'dsh-wallpaper-engine:picker-tab';
     const setTab = (id) => localStorage.setItem(TAB_KEY, id);
     const renderPicker = () => {
@@ -378,6 +378,21 @@ setTimeout(async () => {
     console.log('other tabs keep their controls out of the tree:',
       !treeText.includes('玻璃透明度') && !treeText.includes('字体自定义') && !treeText.includes('吉祥物大小'));
 
+    // ── 设置页签重组：六个页签 = 壁纸 / 外观 / 吉祥物 / 效果 / 声音 / 高级 ──
+    //    「字体」并入「外观」；「声音」从「效果」里独立出来与「效果」平级。
+    {
+      const tabButtons = [];
+      (function walk(node) {
+        if (!node || typeof node !== 'object') return;
+        if (Array.isArray(node)) { node.forEach(walk); return; }
+        if (node.props && node.props.role === 'tab') tabButtons.push(node);
+        if (Array.isArray(node.children)) node.children.forEach(walk);
+      })(tree);
+      const labels = tabButtons.map((b) => String((b.children || [])[0] || ''));
+      assert.deepEqual(labels, ['壁纸', '外观', '吉祥物', '效果', '声音', '高级'],
+        'tab bar must render exactly 壁纸/外观/吉祥物/效果/声音/高级');
+    }
+
     // ── 外观 tab: swatches / sliders / sidebar-glass group. ──
     setTab('appearance');
     tree = renderPicker();
@@ -418,11 +433,15 @@ setTimeout(async () => {
     console.log('whole-window glass master switch present:', treeText.includes('设置窗口液态玻璃'));
     console.log('window glass tooltip present:', treeText.includes('整个设置窗口'));
 
-    // ── 字体 tab: master switch + conditional trio (颜色/字重/字体族). ──
+    // ── 「字体」已并入「外观」：老的 localStorage 页签值必须迁移过去（不能把用户
+    //    甩回「壁纸」），且字体三件套 + 输入光标都在「外观」里。 ──
     setTab('font');
     tree = renderPicker();
     treeText = JSON.stringify(tree);
-    console.log('font tab has 字体自定义 switch:', treeText.includes('字体自定义'));
+    assert.ok(treeText.includes('玻璃透明度'),
+      'legacy "font" tab value must migrate to 外观 (its own rows must be on screen)');
+    assert.ok(treeText.includes('字体自定义'), '外观 must host the 字体自定义 switch');
+    console.log('legacy font tab migrates into 外观:', treeText.includes('玻璃透明度') && treeText.includes('字体自定义'));
     const fontSwitch = findCtlInput(tree, '字体自定义');
     if (fontSwitch) {
       fontSwitch.props.onChange({ target: { checked: true } });
@@ -430,14 +449,17 @@ setTimeout(async () => {
       treeText = JSON.stringify(tree);
       console.log('font on reveals 颜色/字重/字体族 chips (expect 7):',
         treeText.includes('字体颜色') && treeText.includes('字重') && (treeText.match(/"aria-label":"字体 /g) || []).length === 7);
+      assert.ok(treeText.includes('字体颜色') && (treeText.match(/"aria-label":"字体 /g) || []).length === 7,
+        '外观 tab must reveal the font trio once the master switch is on');
       fontSwitch.props.onChange({ target: { checked: false } });
       tree = renderPicker();
       treeText = JSON.stringify(tree);
     }
 
-    // ── 输入光标（#83）: caret color swatches live on the font tab and are
-    //    INDEPENDENT of the 字体自定义 master switch (visible while it is off). ──
-    console.log('font tab has 输入光标 section:', treeText.includes('输入光标'));
+    // ── 输入光标（#83）: caret color swatches live alongside the font controls
+    //    (same 外观 tab now) and are INDEPENDENT of the 字体自定义 master switch. ──
+    assert.ok(treeText.includes('输入光标'), '外观 must host the 输入光标 section');
+    console.log('appearance tab has 输入光标 section:', treeText.includes('输入光标'));
     console.log('caret swatches (expect 7: 自动 + 6 presets):', (treeText.match(/"aria-label":"光标颜色 /g) || []).length);
     console.log('caret custom color input present:', treeText.includes('自定义光标颜色'));
     const findSwatch = (root, aria) => {
@@ -527,11 +549,20 @@ setTimeout(async () => {
       console.log('mascot rope size slider: false (not found)');
     }
 
-    // ── 效果 tab: 玻璃 slider spans 0–60 px (wallpaper 'a' is active). ──
+    // ── 「边框」「玻璃(→雾化)」已从「效果」移到「外观」的「细节」段：
+    //    在新家要能在、在旧家必须不在（否则就是搬了个寂寞）。 ──
+    setTab('appearance');
+    tree = renderPicker();
+    assert.equal(sliderMax(findSliderRow(tree, '雾化')), '60', '雾化（原「玻璃」）必须在「外观」里，上限 60px');
+    assert.equal(sliderMax(findSliderRow(tree, '边框')), '90', '边框必须在「外观」里，上限 90%');
+    assert.equal(findSliderRow(tree, '玻璃'), null, '「玻璃」这个行名必须已改掉（避免与玻璃颜色/玻璃透明度撞车）');
     setTab('effects');
     tree = renderPicker();
-    console.log('effects tab has empty-state-free sliders:', JSON.stringify(tree).includes('壁纸模糊'));
-    console.log('玻璃 slider max (expect 60):', sliderMax(findSliderRow(tree, '玻璃')));
+    assert.equal(findSliderRow(tree, '雾化'), null, '雾化 不得再留在「效果」');
+    assert.equal(findSliderRow(tree, '边框'), null, '边框 不得再留在「效果」');
+    console.log('边框 / 雾化 已迁到外观（效果里不再有）: ok');
+    // 注意：效果页签的 tooltip 里仍会出现「玻璃」二字（壁纸透明度那条），所以这里
+    // 用**结构化**判定（slider-row 的标签），不能用 treeText.includes('玻璃')。
 
     // ── 壁纸透明度（#82）: slider max 90; 60% → layer opacity 0.4; 0% unsets. ──
     const wpOpacityRow = findSliderRow(tree, '壁纸透明度');
@@ -724,9 +755,29 @@ setTimeout(async () => {
     assert.ok(manualPostLayer.dataset.weWid === 'c',
       '新层必须记录 weWid（后续重建按它判定是否换壁纸）');
     tree3 = renderPicker(); // 模态框已关：此时渲染的是 tab 面板（含「画面」section）
+    // 场景 C 没有 live 源 ⇒ liveRenderEnabled(sel) 为假 ⇒ 三个「降级后才需要」的
+    // 画面来源选项必须出现（它们现在挂在「场景实时渲染」开关下方，不再排在最前面）。
     assert.ok(JSON.stringify(tree3).includes('壁纸画面刷新'), '选中场景壁纸后面板应出现「壁纸画面刷新」行');
+    assert.ok(JSON.stringify(tree3).includes('自定义画面'),
+      'live 未生效时「自定义画面」行必须可见（降级兜底入口）');
+    assert.ok(JSON.stringify(tree3).indexOf('壁纸画面刷新') > JSON.stringify(tree3).indexOf('场景实时渲染'),
+      '「壁纸画面刷新」必须排在「场景实时渲染」开关注下方');
     assert.equal(animProbeSrcs.length, 0,
       '槽位已有 GPU 帧时不得启动任何 CPU 动画渲染（scene-anim 已删除）');
+    // ── 高级页签：省电三档 + 实时渲染诊断（都从「效果」移来） ──
+    {
+      localStorage.setItem('dsh-wallpaper-engine:picker-tab', 'advanced');
+      const adv = JSON.stringify(renderPicker());
+      assert.ok(adv.includes('省电') && adv.includes('最小化/切页时暂停')
+        && adv.includes('窗口失焦时暂停') && adv.includes('使用电池时暂停'),
+        '高级 must host the 省电 group');
+      assert.ok(adv.includes('实时渲染诊断'), '高级 must host the live 诊断 group');
+      localStorage.setItem('dsh-wallpaper-engine:picker-tab', 'effects');
+      const eff = JSON.stringify(renderPicker());
+      assert.ok(!eff.includes('最小化/切页时暂停'), '省电 must not stay in 效果');
+      assert.ok(!eff.includes('实时渲染诊断'), '实时渲染诊断 must not stay in 效果');
+      console.log('省电 / live 诊断已迁到高级（效果里不再有）: ok');
+    }
     const clearBtn = findBtn(tree3, '清除 GPU 帧');
     assert.ok(clearBtn, 'HEAD 报 X-WE-GPU=1 时面板必须给出「清除 GPU 帧」入口');
     // ── P2-L：宿主回 200 但 removed:false（unlink 失败）时不得当清除成功 ──
