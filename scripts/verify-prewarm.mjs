@@ -321,87 +321,37 @@ const okResult = (servedFrom) => async () => ({ fileAbs: '/x/' + servedFrom + '.
   const pkg = readFileSync(join(ROOT, 'lib/pkg-extract.js'), 'utf8');
   const cli = readFileSync(join(ROOT, 'lib/client.js'), 'utf8');
 
-  check('R19 sanitizeSettings 收纳 sceneFrameSource, 且不再直接照抄输入值 (经总开关解析)',
-    /sceneFrameSource: effectiveFrameSource\(o\)/.test(idx)
-    && !/sceneFrameSource: o\.sceneFrameSource === 'maintexture'/.test(idx));
-
-  // ⚠️ 兼容性是这条断言的核心: 默认模式必须**沿用旧键格式** (只在非默认模式追加后缀),
-  // 否则升级会让用户已缓存的全部帧失效 —— 用户回退 0.7.3 的头号原因就是这个。
-  check('R20 缓存键: 默认模式沿用旧格式 (不失效既有缓存), 非默认模式才加后缀',
-    /PIPELINE_VERSION \+ '_' \+ gpuFlag \+ srcSuffix \+ '_'/.test(idx)
-    && /srcSuffix = readSettings\(\)\.sceneFrameSource === 'maintexture' \? 'm' : ''/.test(idx)
-    && /if \(srcSuffix === 'm'\)/.test(idx));
-
-  check('R21 maintexture 分支存在并用 isMainTextureUsable 决定回退真实渲染',
-    /isMainTextureUsable\(mainTexFrame\)/.test(idx)
-    && /主纹理不适用 → 回退真实渲染/.test(idx)
-    && /主纹理提取失败 → 回退真实渲染/.test(idx));
-
+  // ── R19–R37（已退役）：有损路线总开关 / 画面来源模式 ──────────────────────
+  // 这两者表达的正是链上的 static / maintex 两档，现由「出图来源」直接选
+  //（docs/RENDER-FALLBACK-MODES.md §6：两者退役）。旧的一组断言（白名单解析、缓存键
+  // 后缀、全局主纹理分支、UI 行、真值表与迁移）随功能一起删除 —— 这里改为把「删干净 +
+  // 兜底路径不受影响」钉死，并保留与它们无关的两条（hasPuppet / GPU 加速独立）。
+  check('R19 有损路线 / 画面来源模式已从两端删净（含缓存键后缀与全局主纹理分支）',
+    // 只断**代码用法**（属性访问 / 键名 / 内部标识符），不断全文 —— 注释里正当地记着
+    // "已退役"，全文否定会咬到注释（本轮已在 R38 踩过同类坑）。
+    !/\.sceneLossyRoute\b/.test(idx) && !/sceneLossyRoute\s*:/.test(idx)
+    && !/\.sceneFrameSource\b/.test(idx) && !/sceneFrameSource\s*:/.test(idx)
+    && !/srcSuffix/.test(idx)
+    // ⚠️ 只断**函数定义已删**：注释里仍会提到这两个名字（"与 lossyRouteOn 同一惯例"），
+    // 裸词否定会咬到注释 —— 与 R38 的 sceneFrameRender 是同一个坑。
+    && !/function lossyRouteOn\(/.test(idx) && !/function effectiveFrameSource\(/.test(idx)
+    && !/\.sceneLossyRoute\b/.test(cli) && !/sceneLossyRoute\s*:/.test(cli)
+    && !/\.sceneFrameSource\b/.test(cli) && !/sceneFrameSource\s*:/.test(cli)
+    && !/switchRow\("有损路线/.test(cli));
+  check('R19b 缓存键不再带模式后缀（默认格式不变），渲染失败的兜底帧路径不受影响',
+    /const key = PIPELINE_VERSION \+ '_' \+ gpuFlag \+ '_' \+ Buffer/.test(idx)
+    && /variant !== 8 \? '_v' \+ variant/.test(idx)
+    // 兜底路径：真实渲染失败后 `mainTexFrame` 由提取填充并复用（不再有全局主纹理模式，
+    // 所以 isMainTextureUsable 也随之删除 —— 这里断的是兜底本身还在）。
+    && /const frame = mainTexFrame \|\|/.test(idx)
+    && /\.fb\.png/.test(idx));
   check('R22 hasPuppet 判据在提取侧实现并附加到两条返回路径 (打包/目录)',
     /function sceneHasPuppet\(scene, access\)/.test(pkg)
     && (pkg.match(/hasPuppet: sceneHasPuppet\(/g) || []).length === 2);
-
-  check('R23 客户端: UI 行 + 默认值均进入构建产物, 且文案如实说明不含骨骼/粒子/效果',
-    /使用主纹理近似画面/.test(cli)
-    && /sceneFrameSource:\s*"render"/.test(cli)
-    && /不含角色骨骼合成/.test(cli));
-
-  // ── R33–R37 有损路线总开关 (真值表 / 迁移 / 与 GPU 加速解耦) ──────────────
-  // 语义 (用户确认): 总开关默认关; 关闭时附属项**强制失效**; 打开时附属项**默认开**;
-  // 旧配置只设过 maintexture 的自动打开总开关; GPU 渲染加速**不在**其内。
-  // 这里直接 import 宿主导出做**真实行为**断言, 而不是正则匹配表达式。
-  const { lossyRouteOn, effectiveFrameSource } = await import('../lib/index.js');
-
-  check('R33 有损路线总开关: 宿主用单一事实来源 + 客户端默认关闭 + UI 行进入产物',
-    /sceneLossyRoute: lossyRouteOn\(o\)/.test(idx)
-    && /sceneFrameSource: effectiveFrameSource\(o\)/.test(idx)
-    && /sceneLossyRoute:\s*false/.test(cli)
-    && /有损路线/.test(cli));
-
-  // [输入, lossyRouteOn, effectiveFrameSource]
-  const TABLE = [
-    [{}, false, 'render'],
-    [{ sceneFrameSource: 'render' }, false, 'render'],
-    [{ sceneFrameSource: 'maintexture' }, true, 'maintexture'],              // 迁移
-    [{ sceneLossyRoute: false }, false, 'render'],
-    [{ sceneLossyRoute: false, sceneFrameSource: 'maintexture' }, false, 'render'], // 显式关 ⇒ 强制失效
-    [{ sceneLossyRoute: true }, true, 'maintexture'],                        // 打开 ⇒ 附属项默认开
-    [{ sceneLossyRoute: true, sceneFrameSource: 'render' }, true, 'render'], // 显式改回仍尊重
-    [{ sceneLossyRoute: true, sceneFrameSource: 'maintexture' }, true, 'maintexture'],
-  ];
-  let bad = 0;
-  for (const [inp, on, src] of TABLE) {
-    if (lossyRouteOn(inp) !== on || effectiveFrameSource(inp) !== src) bad++;
-  }
-  check('R34 真值表 (含迁移 + "关闭即强制失效" + "打开默认开")', bad === 0,
-    `${TABLE.length} 组合, 失败 ${bad}`);
-
-  // 负对照: 两种"看起来对"的错误实现必须被真值表抓到
-  const wrongKeep = (o) => (o.sceneFrameSource === 'render' ? 'render' : 'maintexture'); // 不做强制失效
-  const wrongMigrate = (o) => (o.sceneFrameSource === 'maintexture' ? true : o.sceneLossyRoute === true); // 无条件迁移
-  let passKeep = 0;
-  let passMig = 0;
-  for (const [inp, on, src] of TABLE) {
-    if (wrongKeep(inp) === src) passKeep++;
-    if (wrongMigrate(inp) === on) passMig++;
-  }
-  check('R34b 负对照: 去掉"关闭即强制失效"会被抓到', passKeep < TABLE.length,
-    `错误实现通过 ${passKeep}/${TABLE.length}`);
-  check('R34c 负对照: 无条件迁移(会重新打开用户显式关掉的总开关)会被抓到', passMig < TABLE.length,
-    `错误实现通过 ${passMig}/${TABLE.length}`);
-
-  check('R35 客户端镜像与宿主同式 (字段缺失 + maintexture ⇒ 打开)',
-    /o\.sceneLossyRoute === undefined && o\.sceneFrameSource === "maintexture"/.test(cli)
-    && /o\.sceneFrameSource === "render" \? "render" : "maintexture"/.test(cli));
-
-  check('R36 总开关打开时 UI 把附属项预设为 maintexture',
-    /selection\.sceneFrameSource = on \? "maintexture" : "render"/.test(cli));
-
-  check('R37 GPU 渲染加速未被并入有损路线 (仍是独立开关)',
+  check('R37 GPU 渲染加速仍是独立开关 (不再有"有损路线"这层容器)',
     /sceneGpuAccel: o\.sceneGpuAccel === true/.test(idx)
-    && !/sceneGpuAccel[\s\S]{0,80}sceneLossyRoute/.test(idx)
-    && !/sceneLossyRoute[\s\S]{0,200}sceneGpuAccel/.test(idx)
-    && /GPU 渲染加速/.test(cli));
+    && /GPU 渲染加速/.test(cli)
+    && !/function lossyRouteOn\(/.test(idx));
 
   // ── R38 出图来源档位 + 三级级联 ────────────────────────────────────────────
   // 存的是**档位 id**（不是下标）, 否则一旦数组顺序调整, 已保存的选择就会指向别的档。
@@ -446,7 +396,7 @@ const okResult = (servedFrom) => async () => ({ fileAbs: '/x/' + servedFrom + '.
       // 档位后缀与键构造已收敛到单一构造点 sceneFrameCachePaths（P0-0 合并时合并
       // 上游 GPU 槽与渲染产物键，避免两处各自拼键而错位）—— 断言新位置的同一语义；
       // 显式 static(8) 与 auto(0) **同槽**（§8）。
-      && /const key = PIPELINE_VERSION \+ '_' \+ gpuFlag \+ srcSuffix/.test(idx)
+      && /const key = PIPELINE_VERSION \+ '_' \+ gpuFlag \+ '_' \+ Buffer/.test(idx)
       && /\(variant && variant !== 8 \? '_v' \+ variant : ''\)/.test(idx)
       && /variant === 1 \|\| variant === 2/.test(idx)
       && !/variant === 6/.test(idx);
