@@ -410,44 +410,63 @@ const okResult = (servedFrom) => async () => ({ fileAbs: '/x/' + servedFrom + '.
   // （frameVariantCount 用它算"未导入自定义画面时的档位数"）；③宿主只认 1..4；
   // ④三级级联的门控；⑤关闭「静态帧渲染」时不再请求渲染产物。
   {
-    const ids = [...cli.matchAll(/\{\s*id:\s*(\d+),\s*label:/g)].map((m) => Number(m[1]));
+    // 档位表用常量写 id（CUSTOM_FRAME_ID / MP4_FRAME_ID / STATIC_FRAME_ID），所以先把
+    // 常量名解析成数字再断言**链序**（§1/§2）：auto → custom → mp4 → static → maintex → art。
+    const ID_OF = { CUSTOM_FRAME_ID: 4, MP4_FRAME_ID: 7, STATIC_FRAME_ID: 8 };
+    const ids = [...cli.matchAll(/\{\s*id:\s*([A-Z_][A-Z0-9_]*|\d+),\s*label:/g)]
+      .map((m) => (/^\d+$/.test(m[1]) ? Number(m[1]) : ID_OF[m[1]]));
     const uniq = new Set(ids).size === ids.length;
-    // 「自定义画面」末尾判定允许带 short 字段（short 只是状态行的短名, 不参与排序语义）。
-    const customLast = /id:\s*4,\s*label:\s*"自定义画面",\s*short:\s*"[^"]+"\s*\},?\s*\];/.test(cli);
+    const constsOk = /const CUSTOM_FRAME_ID = 4;/.test(cli) && /const MP4_FRAME_ID = 7;/.test(cli)
+      && /const STATIC_FRAME_ID = 8;/.test(cli);
+    const chainOrder = ids.join(',') === '0,4,7,8,1,2';
     // 状态行（「出图来源」按钮右侧那枚胶囊）**必须短**：旧格式把档名全塞进去
     //（「第 N/M 档 · 自动（逐级回退 · 当前：完整渲染） · 共 3 种」）, 而该行是
     // justify-content: space-between 且右侧 flex: 0 0 auto —— 胶囊一长就把左侧
     // 「出图来源」标题挤成省略号。故断死：只许 `N/M 档  当前：<短名>`。
     // ⚠️ 负向断言只咬**带引号的字符串字面量**（`" 档 · "` / `" · 共 "`）——
     // 源码注释里正当地引用了旧格式做对照, 若直接搜裸文本会咬到注释而假失败。
-    const statusShort = /\+ "\/" \+ total \+ " 档  当前：" \+ short/.test(cli)
+    const statusShort = /\+ "\/" \+ avail\.length \+ " 档  当前：" \+ short/.test(cli)
       && !/" 档 · "/.test(cli)
       && !/" · 共 "/.test(cli)
-      && /sceneFrameSource === "maintexture" \? "主纹理近似" : "完整渲染"/.test(cli)
+      // auto 报**链头解析到的那一项**（sceneFrameSource 已退役，不再参与状态行）
+      && /chainHeadIdFor\(selLike, wid\)/.test(cli)
       && /id:\s*1,[^}]*short:\s*"单张大图"/.test(cli)
-      && /id:\s*2,[^}]*short:\s*"内嵌 JPEG\/PNG"/.test(cli);
-    const usesId = /FRAME_VARIANTS\[\(curIdx \+ 1\) % total\]\.id/.test(cli)
-      && /map\[wid\] = CUSTOM_FRAME_ID/.test(cli);
-    const hostOk = /vParsed >= 1 && vParsed <= 4/.test(idx)
+      && /id:\s*2,[^}]*short:\s*"内嵌 JPEG\/PNG"/.test(cli)
+      && /id:\s*CUSTOM_FRAME_ID,[^}]*short:\s*"自定义画面"/.test(cli)
+      && /id:\s*MP4_FRAME_ID,[^}]*short:\s*"内嵌 MP4"/.test(cli)
+      && /id:\s*STATIC_FRAME_ID,[^}]*short:\s*"静态帧"/.test(cli);
+    // 循环在**该壁纸实际存在的项**之间转（§3），「回到链头」由 avail 的模运算表达。
+    const usesId = /const next = avail\[\(curIdx \+ 1\) % avail\.length\]/.test(cli)
+      && /function availableFrameVariantIds\(selLike, wid\)/.test(cli)
+      && /map\[wid\] = next/.test(cli);
+    const hostOk = /const FRAME_VARIANT_IDS = new Set\(\[0, 1, 2, 4, 7, 8\]\)/.test(idx)
+      && /function clampFrameVariant\(v\)/.test(idx)
+      && /const variant = clampFrameVariant\(vParsed\)/.test(idx)
       && !/forceRender/.test(idx)
       // 档位后缀与键构造已收敛到单一构造点 sceneFrameCachePaths（P0-0 合并时合并
-      // 上游 GPU 槽与渲染产物键，避免两处各自拼键而错位）—— 断言新位置的同一语义。
+      // 上游 GPU 槽与渲染产物键，避免两处各自拼键而错位）—— 断言新位置的同一语义；
+      // 显式 static(8) 与 auto(0) **同槽**（§8）。
       && /const key = PIPELINE_VERSION \+ '_' \+ gpuFlag \+ srcSuffix/.test(idx)
-      && /\(variant \? '_v' \+ variant : ''\)/.test(idx)
+      && /\(variant && variant !== 8 \? '_v' \+ variant : ''\)/.test(idx)
       && /variant === 1 \|\| variant === 2/.test(idx)
       && !/variant === 6/.test(idx);
+    // §8 新增：显式来源档（maintex/art）不被 GPU 抓帧顶掉；形态 → 媒体分支的映射。
+    const gpuGate = /if \(variant === 1 \|\| variant === 2 \|\| variant === 3\) return null;/.test(idx);
+    const mediaTier = /const wantStatic = tierId === STATIC_FRAME_ID/.test(cli)
+      && /const wantVideo = tierId === MP4_FRAME_ID \? Boolean\(w\.sceneVideo\)/.test(cli)
+      && /selection\.url = mp4Tier \? w\.sceneVideo/.test(cli);
     // 三级级联：实时渲染没在生效（父关 / 该壁纸已自动降级）→ 出现子「静态帧渲染」；
     // 子打开 → 才出现「静态帧兜底与调优」组（出图来源 + 调优项都在其中）。
     const cascade = /&& !liveRenderEnabled\(sel\)[\s\S]{0,60}switchRow\("静态帧渲染", sel\.sceneFrameRender !== false/.test(cli)
       && /sel\.sceneFrameRender !== false\s*\n\s*&& React\.createElement\("div", \{ className: "we-picker__section" \}/.test(cli)
-      && /frameRenderOff \? \(hasCustom \? CUSTOM_FRAME_ID : 3\) : savedVariant/.test(cli)
+      && /frameRenderOff \? \(hasCustom \? CUSTOM_FRAME_ID : 2\) : savedVariant/.test(cli)
       && /sceneFrameRender: o\.sceneFrameRender !== false/.test(idx)
       && /st\.scenePrewarm === true && st\.sceneFrameRender !== false/.test(idx);
-    check('R38 出图来源档位 + 三级级联: 档位恰好 [0,1,2,4]（不含链上已有的 合成/预览图）/ 自定义档在末尾 / 宿主只认 1..4 / 状态行保持短格式（不挤掉左侧标题）；实时渲染未生效 且 静态帧渲染开 才出现兜底组',
-      ids.join(',') === '0,1,2,4' && uniq && customLast && usesId && hostOk && statusShort && cascade,
-      'ids=[' + ids.join(',') + '] unique=' + uniq + ' customLast=' + customLast
-        + ' clientUsesId=' + usesId + ' host=' + hostOk + ' statusShort=' + statusShort
-        + ' cascade=' + cascade);
+    check('R38 回退链档位 + 三级级联: 链序恰好 [0,4,7,8,1,2]（auto→custom→mp4→static→maintex→art，不含已删的预览图/合成）/ 宿主值域 {0,1,2,4,7,8} 且显式 static 与 auto 同槽 / 显式来源档不被抓帧顶掉 / 形态→媒体分支 / 状态行保持短格式；实时渲染未生效 且 静态帧渲染开 才出现兜底组',
+      chainOrder && constsOk && uniq && usesId && hostOk && gpuGate && mediaTier && statusShort && cascade,
+      'ids=[' + ids.join(',') + '] unique=' + uniq + ' consts=' + constsOk + ' chainOrder=' + chainOrder
+        + ' clientUsesId=' + usesId + ' host=' + hostOk + ' gpuGate=' + gpuGate + ' media=' + mediaTier
+        + ' statusShort=' + statusShort + ' cascade=' + cascade);
 
     // ── R38b 分组标题与行序（信息架构, 不是功能）────────────────────────────
     // 本组横跨两条轴：**来源/回退**（出图来源）与**调优**（有损/预热/GPU 加速）。两条
