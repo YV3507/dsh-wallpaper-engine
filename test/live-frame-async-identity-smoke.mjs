@@ -135,7 +135,7 @@ const localStorage = {
     'dsh-wallpaper-engine:selection': JSON.stringify({
       id: 'a', rotationEnabled: true, rotationGroupId: 'g1',
       rotationGroups: [{ id: 'g1', name: 'L', interval: 5, order: 'sequence', wallpaperIds: ['a', 'b'] }],
-      videoVolume: 0.6, videoAudioEnabled: true, betaSceneAnim: true,
+      videoVolume: 0.6, videoAudioEnabled: true,
       // liveBootDelay: 0 —— 「重启恢复」期的启动延迟会把 iframe 的挂载推迟到
       // scheduleLiveMount，而 startLiveWatch 只对已进文档的 iframe 生效
       //（frame.isConnected 守卫）→ 延迟期间 fire('load') 不会武装心跳。
