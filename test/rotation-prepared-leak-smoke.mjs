@@ -469,21 +469,21 @@ await runScenario('E. 静态帧预载按提交档位；不符（preview 回退�
     { id:'s3', title:'S3', type:'scene', playable:false, media:null,
       frameUrl:'/wallpaper-engine/scene-frame/s3', preview:'/wallpaper-engine/preview/s3', contentrating:'Everyone' },
   ],
-  selection: Object.assign(selSeed(['v','s3'], 'v'), { frameVariants: { s3: 3 } }), // 该壁纸停在画面档位 3
+  selection: Object.assign(selSeed(['v','s3'], 'v'), { frameVariants: { s3: 8 } }), // 该壁纸停在**静态帧**档（8；旧值 3 已退役，按 §2 归一为 auto）
 }, (t) => {
   t.fireLatest(10000); // 准备 s3：静态帧探针
   const probeImg = t.imageEls[t.imageEls.length-1];
   // ── 核心 1（本轮修复）：探针按提交档位准备，于是能真的被收编 ──
-  check('静态帧探针按提交档位准备（?v=3，不再是无档位 URL）',
-    !!probeImg && t.mediaSrc(probeImg) === '/wallpaper-engine/scene-frame/s3?v=3',
+  check('静态帧探针按提交档位准备（?v=8，不再是无档位 URL）',
+    !!probeImg && t.mediaSrc(probeImg) === '/wallpaper-engine/scene-frame/s3?v=8',
     'src=' + String(probeImg && probeImg.src));
   if (probeImg && typeof probeImg.onload === 'function') probeImg.onload();
   const layer = t.layerEl();
   const img = layer && layer.querySelector('img');
   check('同档位预载被原样收编（零重建：层内 img 就是探针元素）', !!img && img === probeImg,
     img ? ('same=' + (img === probeImg)) : 'no img');
-  check('层内静态帧按当前档位加载（?v=3）',
-    !!img && String(img.src).includes('/wallpaper-engine/scene-frame/s3?v=3'),
+  check('层内静态帧按当前档位加载（?v=8）',
+    !!img && String(img.src).includes('/wallpaper-engine/scene-frame/s3?v=8'),
     img ? 'src=' + String(img.src) : 'no img');
   t.flushPersist();
   check('提交已落库到 s3', t.persistedId() === 's3', 'id=' + t.persistedId());
@@ -497,7 +497,7 @@ await runScenario('E. 静态帧预载按提交档位；不符（preview 回退�
 
   t.fireLatest(10000); // 再准备 s3
   const frameImg = t.imageEls[t.imageEls.length-1];
-  check('第二轮 s3 仍按档位 3 预载', t.mediaSrc(frameImg) === '/wallpaper-engine/scene-frame/s3?v=3',
+  check('第二轮 s3 仍按档位 8 预载', t.mediaSrc(frameImg) === '/wallpaper-engine/scene-frame/s3?v=8',
     'src=' + t.mediaSrc(frameImg));
   const frameIdx = t.imageEls.indexOf(frameImg);
   if (frameImg && typeof frameImg.onerror === 'function') frameImg.onerror(); // 提取失败

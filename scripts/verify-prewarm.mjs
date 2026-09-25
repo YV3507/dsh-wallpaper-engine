@@ -419,6 +419,23 @@ const okResult = (servedFrom) => async () => ({ fileAbs: '/x/' + servedFrom + '.
         + ' clientUsesId=' + usesId + ' host=' + hostOk + ' gpuGate=' + gpuGate + ' media=' + mediaTier
         + ' statusShort=' + statusShort + ' cascade=' + cascade);
 
+  // ── R40 §4 失败语义：逐级「每会话重试一次 + 记住原因」+ 全失败 ⇒ 不渲染 ─────
+  // 只断**代码形状**（注释里正当地记着这些概念，全文否定会咬到注释 —— 本文件已踩两次）。
+  // 机制要点：失败记忆是模块级 Map（不持久化）⇒ 刷新即清空 = 每会话重试一次；
+  // auto(0) 先解析到链头再扫（`idx = 1`），这样失败记在**真正失败的那一级**上。
+  check('R40 回退链失败语义：会话级失败记忆 + 链上前进 + 全失败不渲染（不回退预览档）',
+    /const frameFailures = new Map\(\)/.test(cli)
+    && /function noteFrameFailure\(wid, tierId, reason\)/.test(cli)
+    && /function frameFailureReason\(wid, tierId\)/.test(cli)
+    && /function chainIdForBuild\(selLike, wid\)/.test(cli)
+    && /if \(avail\[idx\] === 0\) idx = 1;/.test(cli)
+    && /const chainId = w\.type === "scene" && w\.frameUrl \? chainIdForBuild\(selection, String\(w\.id\)\) : savedVariant;/.test(cli)
+    && /variantForUrl === null \? null : frameUrlWithVariant/.test(cli)
+    && /else if \(sel\.type !== "scene"\) media\.src = sel\.previewUrl;/.test(cli)
+    && /noteFrameFailure\(sel\.id, tier, "load"\)/.test(cli)
+    // 失败记忆不得进入持久化：发送清单里不许出现该键（"每会话一次"的机制保证）。
+    && !/frameFailures\s*:/.test(cli));
+
     // ── R38b 分组标题与行序（信息架构, 不是功能）────────────────────────────
     // 本组横跨两条轴：**来源/回退**（出图来源）与**调优**（有损/预热/GPU 加速）。两条
     // 断言把这次的整理固定下来：

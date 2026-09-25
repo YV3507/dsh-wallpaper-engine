@@ -602,6 +602,49 @@ function chainHeadIdFor(selLike, wid) {
   const explicit = availableFrameVariantIds(selLike, wid).filter((v) => v !== 0);
   return explicit.length ? explicit[0] : STATIC_FRAME_ID;
 }
+// ── 逐级失败记忆（docs/RENDER-FALLBACK-MODES.md §4）────────────────────────
+// 键 = 壁纸 id，值 = Map(档位 id → 失败原因)。**只活在本次会话**（模块级、不持久化）：
+// 刷新/重开即清空 ⇒ 每级"每会话重试一次"（既不永久贴在低质量档，也不把一次抖动当成
+// 永久结论）。live 的失败记忆是**另一套**（sceneLiveFailures 会持久化：那是"这张壁纸
+// live 走不通"的长期判断，可由用户在面板清除）。
+const frameFailures = new Map();
+function noteFrameFailure(wid, tierId, reason) {
+  const k = String(wid || "");
+  if (!k) return;
+  let m = frameFailures.get(k);
+  if (!m) { m = new Map(); frameFailures.set(k, m); }
+  const t = Number(tierId) || 0;
+  m.set(t, String(reason || "failed"));
+  try { liveLog("frame-fail", "wid=" + k + " tier=" + t + " reason=" + String(reason || "failed")); } catch { /* ignore */ }
+}
+function frameFailureReason(wid, tierId) {
+  const m = frameFailures.get(String(wid || ""));
+  return m ? (m.get(Number(tierId) || 0) || "") : "";
+}
+function forgetFrameFailures(wid) { frameFailures.delete(String(wid || "")); }
+/** 从帧 URL 反解**实际请求**的档位（无 ?v= ⇒ 0=auto）。失败要记在真正失败的那一级上。 */
+function tierFromFrameUrl(u) {
+  const s = String(u || "");
+  if (s.indexOf("/scene-frame/") === -1) return null;
+  const m = /[?&]v=(\d+)/.exec(s);
+  return m ? Number(m[1]) : 0;
+}
+/**
+ * §4：从"该壁纸记的档位"出发，跳过**本次会话已失败**的级，返回要用的档位 id。
+ * auto(0) 不是独立来源 —— 先解析到**链头**再沿链往后方扫；显式档则从该档开始扫。
+ * 返回 null = 链上全部可用者都失败过 ⇒ **不渲染**（画面为空，等同没装该插件）。
+ */
+function chainIdForBuild(selLike, wid) {
+  const avail = availableFrameVariantIds(selLike, wid);
+  const saved = Number(selLike.frameVariants && selLike.frameVariants[wid]) || 0;
+  let idx = avail.indexOf(avail.includes(saved) ? saved : 0);
+  if (idx < 0) idx = 0;
+  if (avail[idx] === 0) idx = 1; // 跳到链头
+  for (let i = idx; i < avail.length; i++) {
+    if (!frameFailureReason(wid, avail[i])) return avail[i];
+  }
+  return null;
+}
 // 「出图来源」的状态文本：`N/M 档  当前：<来源>`。刻意写短 —— 这行字与按钮同处
 // 一个窄栏，长档名（旧格式「第 N/M 档 · 自动（逐级回退 · 当前：完整渲染） · 共 3 种」）
 // 会把同一行/同一栏的字挤掉。故此处只回答两件事：第几档、当前实际用哪个来源。
@@ -1862,14 +1905,15 @@ function applySelection(id, opts) {
   // ⚠️ 「静态帧渲染」关闭时**不再请求渲染产物**：静态帧槽位改由两个非渲染档填 ——
   // 已导入自定义画面用档 4，否则用作者预览图（档 3）。这两档都不跑渲染器，也不需要
   // frameUrl 的渲染结果（宿主的档 3/4 直接给 preview / overrides 文件路径）。
-  // 形态直接用该壁纸记的档位（0 = auto = 链头）：「静态帧渲染」总开关已删除（§7）⇒
-  // live 关掉时必定落在链上某一档，不存在「什么都不渲染」的态。
-  const variantForUrl = savedVariant;
+  // 形态 = 该壁纸记的档位，经 §4 的**逐级失败前进**：跳过本会话已失败的级；全失败 ⇒ null。
+  //（「静态帧渲染」总开关已删除（§7）：live 关掉时必定落在链上某一档或走到终端。）
+  const chainId = w.type === "scene" && w.frameUrl ? chainIdForBuild(selection, String(w.id)) : savedVariant;
+  const variantForUrl = chainId;
   // 形态 = mp4（§8「形态 = mp4 ⇒ buildMedia 走 MP4 分支」）：媒体就是作者内嵌 MP4，
   // 不是静态帧 URL —— URL 与 selection.sceneVideo 保持一致，层内即 <video>。
   const mp4Tier = w.type === "scene" && variantForUrl === MP4_FRAME_ID && Boolean(w.sceneVideo);
   selection.url = mp4Tier ? w.sceneVideo
-    : w.type === "scene" ? frameUrlWithVariant(w.frameUrl, variantForUrl)
+    : w.type === "scene" ? (variantForUrl === null ? null : frameUrlWithVariant(w.frameUrl, variantForUrl))
       : w.type === "web" && w.webView ? w.webView
         : w.media;
   // 宿主 inventory 权威标记：已有自定义画面时同步进本地记忆（换机/清配置后恢复）。
@@ -3713,14 +3757,27 @@ function buildMedia(sel) {
   } else if (isStill) {
     const prepared = consumePreparedMedia("IMG", sel.url);
     if (prepared) media = prepared;
-    // 应用型壁纸 / 无帧 URL 的图：src 兜底到作者预览图（原实现如此，别丢）。
-    else media.src = sel.url || sel.previewUrl;
+    else if (sel.url) media.src = sel.url;
+    // 应用型壁纸 / 无帧 URL 的图：src 兜底到作者预览图（原实现如此，别丢）——注意那是
+    // 它们的**正常内容**，不是回退档；场景档不走这条兜底（见下）。
+    else if (sel.type !== "scene") media.src = sel.previewUrl;
+    // §4 终端：场景且 sel.url 为空（链上全部可用者都在本会话失败过）⇒ **不设 src**：
+    // 层里是一张空 img，画面为空 —— 看起来和没装该插件一样（不回退到已删的预览档）。
+    else { try { liveLog("fallback-empty", "wid=" + sel.id + " 链上全部级失败 → 不渲染"); } catch { /* ignore */ } }
     media.alt = "";
     media.draggable = false;
     media.className = "we-media" + fitClass;
-    // 场景静态帧**不再**在提取失败时回退到作者预览图（§5：缩略图放大必糊，该回退级已删）；
-    // 应用型/图片型壁纸的 src 本来就是预览图（见上面的兜底），也不需要 onerror 再兜一次。
-    // 因此这里不再挂 preview onerror —— 提取失败按 §4 交给上层前进到链中下一项 / 终止。
+    // 场景静态帧**不再**在提取失败时回退到作者预览图（§5）。§4：失败要**记住并前进** ——
+    // 记在"实际请求的那一级"上（由 URL 的 ?v= 反解），然后重建；重建时 chainIdForBuild
+    // 会跳过它、沿链取下一个可用者；全部失败就走到上面的终端（不设 src）。
+    // 应用型/图片型壁纸的 src 是预览图（正常内容），不参与回退链，故不记失败。
+    media.onerror = () => {
+      if (sel.type !== "scene") return;
+      const tier = tierFromFrameUrl(sel.url);
+      if (tier === null) return;
+      noteFrameFailure(sel.id, tier, "load");
+      try { syncLayers(); } catch { /* ignore */ }
+    };
   } else {
     // web 旧链不走元素级领养（iframe reparent 重载）：轮换的 web 提交是
     // 节点级领养（staging 容器整体转为新层），此处只会是手动选择路径。
