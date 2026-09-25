@@ -838,6 +838,35 @@ async function loadInventory() {
   // covers the rating/type filters): drop vanished/no-longer-matching
   // selections, then restore rotation state.
   revalidateSelection();
+  scheduleSceneVideoResync();
+}
+
+// ── sceneVideo 诚实化的时序补拉 ────────────────────────────────────────────────
+// 宿主侧 sceneVideo 现在是**真探测**的结果（遍历 .tex 找内嵌 MP4）：未命中缓存时
+// 先给 null（不猜）并把探测投到后台（整库约 1–3 秒出定论），绝不再用 hasFrame
+// 冒充。而客户端只在启动 / 手动刷新 / 目录变更后重拉 inventory ⇒ **首次加载**时
+// 真正内嵌 MP4 的场景会先落到静态帧（本机实测 3/35 个场景，探测本身 ~0.9s）。
+// 这里对每一批「新的场景集合」补拉一次，把窗口收掉：只在库里有场景壁纸时补、
+// 每批只补一次（补拉结果不会自触发成轮询）。
+const SCENE_VIDEO_RESYNC_MS = 3000;
+let sceneVideoResyncTimer = null;
+let sceneVideoResyncedKey = ""; // 已补拉过的场景 id 集合指纹
+function sceneVideoResyncKey() {
+  const list = (selection.inventory && selection.inventory.wallpapers) || [];
+  const ids = [];
+  for (const w of list) if (w.type === "scene") ids.push(String(w.id));
+  return ids.sort().join(",");
+}
+function scheduleSceneVideoResync() {
+  if (typeof window === "undefined" || typeof window.setTimeout !== "function") return;
+  const key = sceneVideoResyncKey();
+  if (!key || key === sceneVideoResyncedKey) return; // 没有场景壁纸 / 这批已补过
+  if (sceneVideoResyncTimer) return; // 已在等待
+  sceneVideoResyncTimer = window.setTimeout(() => {
+    sceneVideoResyncTimer = null;
+    sceneVideoResyncedKey = key; // 先记账：这次补拉不会再排一个定时器
+    loadInventory().catch(() => { /* 失败保持现状，用户仍可手动刷新 */ });
+  }, SCENE_VIDEO_RESYNC_MS);
 }
 
 // ── Content-rating + type filters ───────────────────────────────────────────
@@ -2819,7 +2848,7 @@ function liveFail(reason) {
 // ── live GPU 抓帧回填静态帧缓存 ─────────────────────────────────────────────
 // 渲染页的显示 canvas 在 DOM 内（data-webwallgl-gl 标记）且 WebGL2 上下文带
 // preserveDrawingBuffer:true —— 父页面同源即可随时 toBlob 抓当前帧，无需渲染
-// 页/上游配合。首帧确认后 2.5s（场景动画进稳态）HEAD 探测静态帧槽位：
+// 页/上游配合。首帧确认后 2.5s（实时画面进稳态）HEAD 探测静态帧槽位：
 // - 已有 GPU 帧（X-WE-GPU=1）→ 不动；
 // - 空槽（404）或 CPU 提取/预览帧（204+0）→ 抓帧 PUT 回填：GPU 帧升级覆盖
 //   CPU 提取的残破帧（host 每壁纸只接受一次，见 /scene-frame-cache）。
@@ -4267,18 +4296,25 @@ function syncLayers() {
   // 1. Wallpaper element.
   const existing = document.getElementById(LAYER_ID);
   if (selection.url) {
+    // live 是否生效只需算一次：它同时决定「media 种类看不看 sceneVideo」与 live 段本身。
+    const layerLive = (selection.type === "scene" || selection.type === "web") && liveRenderEnabled(selection);
     const wantKey = selection.type + "\u0000" + selection.url + "\u0000"
       + (IS_EDGE && selection.edgeCompat !== false ? "canvas" : "video")
       // Scene wallpapers: the media kind depends on sceneVideo (MP4 <video> vs
       // static-frame <img>), and the 404 fallback nulls sceneVideo — the key
       // must reflect it so the fallback rebuilds the layer.
-      + "\u0000" + (selection.sceneVideo || "")
+      // ⚠️ live 生效期间不算它：buildMedia 的 isSceneVideo 已被 isLive 短路，此时
+      // sceneVideo 只影响「live 失败后的回退」，进 key 只会白白冷启动渲染页 ——
+      // 「sceneVideo 诚实化」的时序补拉（scheduleSceneVideoResync）落地时正好会
+      // 触发这种无意义重建。live 一失效，下面的 live 段就变化 → 仍会重建，且那一次
+      // 会用上当时的 sceneVideo 值（回退路径因此照旧正确）。
+      + "\u0000" + (layerLive ? "" : (selection.sceneVideo || ""))
       + "\u0000" + (selection.sceneAudioUrl || "")
       // Scene live render: entering/leaving live（开关切换、按壁纸失败记忆、
       // 帧率档变更 → iframe query 变化）都必须重建层；fit/音量不进 key ——
       // 它们经 __wp.setFit/setVolume 热切，无需重载渲染页。
       + "\u0000" + ((selection.type === "scene" || selection.type === "web")
-        ? (liveRenderEnabled(selection)
+        ? (layerLive
           // weAssetsAvailable 进 key：素材目录开关切换时 live iframe URL 的
           // localAssets 参数变化，必须重建渲染页才生效。
           ? "live\u0000" + (selection.sceneLiveSrc || selection.webLiveSrc) + "\u0000" + selection.sceneLiveFps
@@ -9562,6 +9598,11 @@ function apply(ctx) {
         }
         // media-info 探测的 AbortController 也要断开 (token 可能永远不再变化)
         if (mediaInfoAbort) { try { mediaInfoAbort.abort(); } catch { /* ignore */ } mediaInfoAbort = null; }
+        // sceneVideo 时序补拉: 卸载后不该再拉 inventory (也不该钉住本次求值的闭包)
+        if (sceneVideoResyncTimer && typeof window !== "undefined" && typeof window.clearTimeout === "function") {
+          window.clearTimeout(sceneVideoResyncTimer);
+        }
+        sceneVideoResyncTimer = null;
         weStopDraw();
         const node = document.getElementById(LAYER_ID);
         if (node) { releaseLayerMedia(node); node.remove(); }

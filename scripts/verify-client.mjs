@@ -100,9 +100,11 @@ const localStorage = {
 let cccGpuPinned = true;
 // P2-L：宿主 unlink 失败时回 200 + removed:false（文件其实还在磁盘上）。
 let cccClearUnlinkFails = false;
+const inventoryCalls = []; // /inventory 请求次数（sceneVideo 时序补拉断言用）
 const fetch = (url, opts) => {
   const u = String(url);
   const method = (opts && opts.method) || 'GET';
+  if (u.includes('/wallpaper-engine/inventory')) inventoryCalls.push(u);
   // GPU 抓帧缓存的 HEAD 探测 / DELETE 清除（面板提示与清除入口）：
   // 场景 C（/scene-frame/ccc）假装缓存里已有 _gpu.png。
   if (method === 'HEAD') {
@@ -810,6 +812,24 @@ setTimeout(async () => {
     assert.equal(animProbeSrcs.length, 0,
       'CPU 动画渲染已删除：全流程不得出现任何 /scene-anim 请求');
     console.log('CPU 动画渲染路线已删除（源码钉死 + 行为级零请求）: ok');
+
+    // ── sceneVideo 诚实化的时序补拉 ────────────────────────────────────────
+    // 宿主对 sceneVideo 改为「按 pkg 真探测」：未命中缓存时先给 null（不猜）并把探测
+    // 投到后台，而客户端启动时那次 inventory 必然早于定论 ⇒ 必须有一次延迟补拉，
+    // 否则真正内嵌 MP4 的场景首屏会掉到静态帧（本机实测 3/35 个场景）。
+    {
+      const before = inventoryCalls.length;
+      const tick = rotationTimers.filter((t) => !t.cleared && t.ms === 3000);
+      assert.ok(tick.length >= 1,
+        '启动加载完 inventory 后必须安排一次 sceneVideo 时序补拉（3000ms 定时器）');
+      for (const t of tick) { t.cleared = true; t.fn(); }
+      await new Promise((r) => setTimeout(r, 40));
+      assert.equal(inventoryCalls.length, before + 1,
+        'sceneVideo 补拉必须真的重拉一次 inventory');
+      assert.ok(!rotationTimers.some((t) => !t.cleared && t.ms === 3000),
+        'sceneVideo 补拉只做一次：补拉自身不得再排定时器（否则变成轮询）');
+      console.log('sceneVideo 时序补拉（一次 · 不自触发）: ok');
+    }
   }
   console.log('effects ran:', effects.length);
   console.log('\nALL CLIENT CHECKS DONE');

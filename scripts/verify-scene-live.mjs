@@ -597,6 +597,12 @@ const clientChecks = [
   ['failure memory persists', /sceneLiveFailures/.test(src) && /function liveFail/.test(src)],
   ['audio mux honours live', /!selLike\.sceneLiveActive/.test(src)],
   ['syncLayers key carries live state', /"live\\u0000" \+ \(selection\.sceneLiveSrc \|\| selection\.webLiveSrc\)/.test(src)],
+  // sceneVideo 只在**非 live** 形态下进 key：live 生效时 buildMedia 已把 isSceneVideo
+  // 短路，把 sceneVideo 算进 key 会让「sceneVideo 诚实化的时序补拉」
+  //（scheduleSceneVideoResync 落地时 sceneVideo 由 null 变 URL）在 live 播放中
+  // 冷启动一次渲染页 —— 无意义重建，用户会看到画面重新加载。
+  ['sceneVideo stays out of the layer key while live renders',
+    /\(layerLive \? "" : \(selection\.sceneVideo \|\| ""\)\)/.test(src)],
   ['pointer injection wired', /__wp\.pushPointer|wp\.pushPointer/.test(src) && /pointerLeave/.test(src)],
   ['fit mapping table present', /SCENE_LIVE_FIT = \{ cover: "cover"/.test(src)],
   // 实测踩坑回归（2026-09-22）：渲染页 resume() 会 resetFrameMeter，心跳若
