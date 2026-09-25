@@ -250,6 +250,32 @@ function main() {
     fbPlatePct / 100 >= Math.max(FLOOR.light, FLOOR.dark),
     'fallback plate=' + (isNaN(fbPlatePct) ? 'missing' : fbPlatePct + '%') + ' · floor=' + Math.max(FLOOR.light, FLOOR.dark));
 
+  // ── F5: DSH Desktop **extended** 模式的外壳画布底必须被清掉 ────────────────
+  // 壳层样式表里有两条扩展模式**专属**规则（兼容模式没有，所以只有扩展模式会把壁纸
+  // 整片盖住 → 用户看到的就是「没选壁纸」）：
+  //   body[data-dsh-desktop-mode="extended"] .dshDesktopFrame            { background: var(--dsh-desktop-frame-fill) }
+  //   body[data-dsh-desktop-mode="extended"] .dshDesktopConversationSurface { background: var(--dsw-alias-bg-base) }
+  // Windows 上 material 只能是 off ⇒ --dsh-desktop-frame-fill = --dsw-alias-bg-layer-1（不透明）。
+  // 主内容区那条读 --dsw-alias-bg-base，插件已在 body[data-we-wallpaper] 上置 transparent，
+  // 所以这里只要守住**画布**那一层被清掉（且用的是 transparent，不是某个不透明色）。
+  // ⚠️ 本仓的 CSS 规则解析器把**前置注释**也算进 header，所以判据必须先剥注释再匹配选择器
+  // —— 否则我在这条规则上方写的那段说明注释本身就含 `.dshDesktopFrame`，断言会靠注释过关
+  //（"负对照空转"的老坑）。两条负对照：同形但不含 transparent / 只在注释里出现选择器。
+  const selOf = (r) => String(r.header).replace(/\/\*[\s\S]*?\*\//g, '');
+  const clearsShellFrame = (r) => {
+    const h = selOf(r);
+    return h.includes('[data-we-wallpaper]') && h.includes('data-dsh-desktop-mode="extended"')
+      && h.includes('.dshDesktopFrame') && /transparent/.test(r.body);
+  };
+  const shellFrameRules = rulesWithProp('background').filter(clearsShellFrame);
+  const shellDecoy = { header: 'body[data-we-wallpaper][data-dsh-desktop-mode="extended"] .dshDesktopFrame', body: 'background: var(--dsh-desktop-frame-fill) !important;' };
+  const commentDecoy = { header: '/* body[data-we-wallpaper][data-dsh-desktop-mode="extended"] .dshDesktopFrame */ body', body: 'background: transparent;' };
+  check('F5 extended 模式的外壳画布底被清掉（否则整窗盖住壁纸 = 像没选壁纸）',
+    shellFrameRules.length >= 1 && !clearsShellFrame(shellDecoy) && !clearsShellFrame(commentDecoy),
+    shellFrameRules.length + ' rule(s): ' + shellFrameRules.map((r) => selOf(r).slice(-64)).join(' | ')
+      + ' · 负对照[不透明]=' + (clearsShellFrame(shellDecoy) ? 'FAIL' : 'ok')
+      + ' · 负对照[仅注释]=' + (clearsShellFrame(commentDecoy) ? 'FAIL' : 'ok'));
+
   // ── C1/C2: the grid — effective composer alpha ≥ floor, numbers printed ───
   check('C1a the glass-alpha mapping was derived from the source',
     glassAlpha !== null, 'mapping=' + JSON.stringify(GMAP ? GMAP.slice(1) : null));
