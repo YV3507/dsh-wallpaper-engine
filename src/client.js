@@ -8353,7 +8353,12 @@ const CSS = `
      while the panel is closed (the 「右栏关了还是一块灰/玻璃」 report). Every
      container-painting rule below is therefore scoped to
      "[data-sidebar-right-open]", plus an explicit closed-state clear so a
-     stale painted background can never linger. */
+     stale painted background can never linger.
+     ⚠️ 同类陷阱：凡是"宿主容器留在布局里、只靠子元素隐藏"的元素都不能无条件上色；
+     护栏见 scripts/verify-host-paint-scope.mjs（另见 #91 的 body * { !important } 教训）。
+     ⚠️ **本注释块（以及整段 CSS）不得出现反引号**：它是一个模板字符串，反引号会提前
+     截断它，让所有"提取样式表"的护栏读到空串（verify-readability F1b 会报 css chars=0）。
+     行内提到标识符时一律裸写或用「」，不要用 markdown 反引号。 */
   body[data-we-wallpaper] [data-sidebar-right-panel][data-sidebar-right-open] {
     background-color: var(--dsw-alias-bg-layer-1, #1e1f26);
   }
@@ -8419,8 +8424,8 @@ const CSS = `
      or 内容面透明度 / 内容面底色 stop responding for those tabs. */
   body[data-we-sidebar-glass] [data-dsh-better-sidebar] .cm-editor,
   body[data-we-sidebar-glass] [data-dsh-better-sidebar] .xterm,
-  body[data-we-sidebar-glass] [data-sidebar-right-panel] .cm-editor,
-  body[data-we-sidebar-glass] [data-sidebar-right-panel] .xterm {
+  body[data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open] .cm-editor,
+  body[data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open] .xterm {
     background-color: color-mix(in srgb, var(--we-content-surface-color, var(--dsw-alias-bg-layer-1, #1e1f26)) max(calc(var(--we-readability-floor) * 100%), var(--we-content-surface-alpha, 88%)), transparent) !important;
   }
 
@@ -9689,7 +9694,7 @@ const CSS = `
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }
-  body[data-we-glass-fallback][data-we-sidebar-glass] [data-sidebar-right-panel] {
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open] {
     background-color: color-mix(in srgb, var(--we-sidebar-color, #ffffff) 92%, transparent) !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
@@ -9698,8 +9703,8 @@ const CSS = `
      88%），这里把同一条声明再挂一遍，让软件渲染下三块侧栏区域落在同一个规则块里。 */
   body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] .cm-editor,
   body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] .xterm,
-  body[data-we-glass-fallback][data-we-sidebar-glass] [data-sidebar-right-panel] .cm-editor,
-  body[data-we-glass-fallback][data-we-sidebar-glass] [data-sidebar-right-panel] .xterm {
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open] .cm-editor,
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open] .xterm {
     background-color: color-mix(in srgb, var(--we-content-surface-color, var(--dsw-alias-bg-layer-1, #1e1f26)) max(calc(var(--we-readability-floor) * 100%), var(--we-content-surface-alpha, 88%)), transparent) !important;
   }
   /* 设置窗口：把三层面板 token 钉回实色（@supports 回退里的同一条 token 覆写），
