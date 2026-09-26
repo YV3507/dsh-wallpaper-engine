@@ -4,12 +4,12 @@
  *               并给出该贴图 .tex 的 mip0 真实尺寸 (判断是不是解码到了更小的 mip)
  *   ② 过暗    → 全帧/逐对象均值亮度 + 材质常数 (Bright/Alpha/Power) + 对象 brightness + general.hdr/bloom
  *   ③ 回退    → 复刻 scene-render-worker 的空帧门禁 (抽样 diff%) 与 index.js 的质量门口径
- * 用法: DSH_WE_PROFILE=1 node docs/evidence/symptom-probe.mjs [scene...]
+ * 用法: DSH_WE_PROFILE=1 node docs/archive/static-frame/evidence/symptom-probe.mjs [scene...]
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { SceneRenderer } from '../../lib/scene-renderer.js';
-import { parseTex, texMip0Info } from '../../lib/pkg-extract.js';
+import { SceneRenderer } from '../../../../lib/scene-renderer.js';
+import { parseTex, texMip0Info } from '../../../../lib/pkg-extract.js';
 
 const WE = 'E:\\SteamLibrary\\steamapps\\common\\wallpaper_engine';
 const ROOT = path.join(WE, 'projects', 'defaultprojects');

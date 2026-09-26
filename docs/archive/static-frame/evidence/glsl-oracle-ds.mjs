@@ -14,11 +14,11 @@
  * 屏幕尺寸), 逐点比较 0-1 通道值; 采样器两边共用 (采样器本身由 _texSample /
  * loadTexImage 提供, 不在本次审查范围)。比较口径 = 8bit UNORM 目标写入 (逐通道 clamp)。
  *
- * 用法: node docs/evidence/glsl-oracle-ds.mjs
+ * 用法: node docs/archive/static-frame/evidence/glsl-oracle-ds.mjs
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { SceneRenderer } from '../../lib/scene-renderer.js';
+import { SceneRenderer } from '../../../../lib/scene-renderer.js';
 
 const WE = 'E:\\SteamLibrary\\steamapps\\common\\wallpaper_engine';
 const ROOT = path.join(WE, 'projects', 'defaultprojects');

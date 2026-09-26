@@ -21,16 +21,36 @@
 
 | 文档 | 内容 |
 |---|---|
-| [RENDERER-FEASIBILITY.md](./RENDERER-FEASIBILITY.md) | 渲染器三路线可行性 + 方向决策 + §7 重构执行记录（唯一决策文档） |
-| [DEFAULT-SCENE-RENDER-AUDIT.md](./DEFAULT-SCENE-RENDER-AUDIT.md) | **官方默认壁纸渲染审计**（2026-10-03）——「无损渲染」的纯数学取证（场景数据 / 插桩量 / preview 画像 / 宿主反编译），只记可复现的量与能指到行号的根因 |
-| [SCENE-FRAME-PERF.md](./SCENE-FRAME-PERF.md) | **静态帧冷渲染成本实测 + 渲染器优化记录**（基线 `pr97` / `sf35a`；当前管线 `sf45`）——哪些渲染可以砍。⚠️ §十四 起含**现行**实现决策；涉及 `scene-anim` 多帧动画的部分对应**已移除**的路线（文首已逐节标注被取代的小节） |
 | [SCENE-ANIMATION-HANDOFF.md](./SCENE-ANIMATION-HANDOFF.md) | ~~**场景动画交接手记**~~ **已归档**——beta 场景动画（`/scene-anim`）已随 WebWallGL 实时渲染落地整体移除；本文件仅存历史决策、技术要点与已删资产清单（供考古） |
 | [ROBUSTNESS-AUDIT.md](./ROBUSTNESS-AUDIT.md) | **健壮性审计记录**——发布包完整性/编码/跨平台/运行时容错/依赖兼容审计结果与重跑方法 |
-| [NATIVE-SCENE-EVIDENCE.md](./NATIVE-SCENE-EVIDENCE.md) | **原生场景引擎取证（WE 2.8.42）**——静态帧路径的几何依据：场景 y 轴朝向的首方证明、角度单位与合成顺序（`Rz(−z)·Ry(y)·Rx(−x)`）、puppet = 蒙皮网格，以及由取证确定的合成器缺陷 D-1/D-2/D-3（只裁决静态帧回退路径，不涉完整动画渲染） |
 | [RENDER-FALLBACK-MODES.md](./RENDER-FALLBACK-MODES.md) | **回退形态设计（2026-09-24 定稿）**——两层模型（live = T/F 开关；回退链 = 全局唯一枚举 `mp4 → static → maintex → art`）、逐壁纸 pin 的 id 表与兼容规则、UI 循环顺序、失败与"不渲染"终端、`preview` 级的删除范围、陈条后台清理，以及「静态帧渲染」开关的删除 |
 | [awesome-dsh-plugin-pr-guide.md](./awesome-dsh-plugin-pr-guide.md) | 向 awesome-dsh-plugin 收录目录提交的一次性发布指南（应作者要求保留原版，直接从 awesome-dsh-plugin 仓库复制，勿改） |
 
-- 活的现状/TODO：仓库根 `TODO.md`（**当前未入库**，按需本地维护；含关键事实备忘、回归场景集、sceneVideo 修复记录）。
+## 已归档：静态帧渲染线（2026-09-26）
+
+**为什么归档**：静态帧渲染（`/scene-frame`，把场景离线渲染成一张 PNG）**将被移除** —— 相关逻辑已迁往
+独立仓库 [`YV3507/we-static-frame`](https://github.com/YV3507/we-static-frame)（可当库或 CLI 用、不依赖任何宿主）。
+本仓库只保留历史记录：下列文档整体移入 `archive/static-frame/`，**不再反映本仓库的现行实现**，也不再维护。
+
+| 文档 | 内容 |
+|---|---|
+| [SCENE-FRAME-PERF.md](./archive/static-frame/SCENE-FRAME-PERF.md) | **静态帧冷渲染成本实测 + 渲染器优化记录**（38 节；基线 `pr97` / `sf35a`）——哪些渲染可以砍、哪些假设被数据推翻 |
+| [DEFAULT-SCENE-RENDER-AUDIT.md](./archive/static-frame/DEFAULT-SCENE-RENDER-AUDIT.md) | **官方默认壁纸渲染审计**（2026-10-03）——「无损渲染」的纯数学取证（场景数据 / 插桩量 / preview 画像 / 宿主反编译），只记可复现的量与能指到行号的根因 |
+| [RENDERER-FEASIBILITY.md](./archive/static-frame/RENDERER-FEASIBILITY.md) | 渲染器三路线可行性 + 方向决策 + §7 重构执行记录（该方向决策的终点即**迁往独立仓库**） |
+| [NATIVE-SCENE-EVIDENCE.md](./archive/static-frame/NATIVE-SCENE-EVIDENCE.md) | **原生场景引擎取证（WE 2.8.42）**——静态帧路径的几何依据：y 轴朝向、角度单位与合成顺序（`Rz(−z)·Ry(y)·Rx(−x)`）、puppet = 蒙皮网格，以及取证确定的合成器缺陷 D-1/D-2/D-3 |
+| [TODO.md](./archive/static-frame/TODO.md) | **渲染引擎现状与 TODO**（迁出前的已实现组件、验证基线与本机环境；原在仓库根） |
+| [`evidence/`](./archive/static-frame/evidence/) | 上述文档的实测证据脚本（9 个；跑法 `node docs/archive/static-frame/evidence/<name>.mjs`） |
+
+> ⚠️ 新仓库 `we-static-frame` 有它自己的 `docs/perf-report.md` 与 `docs/perf-and-gpu-notes.md`；
+> 本目录的文件是**插件侧历史**，**没有**被迁往那里，两边内容不重复。
+>
+> 保留在本目录的文档里仍指向它们的链接已改为 `archive/static-frame/...`；
+> 文中涉及静态帧的**正文段落尚未摘除**（`HOW-IT-WORKS.md`、`RENDER-FALLBACK-MODES.md`、
+> `CHANGELOG.md`、`TROUBLESHOOTING.md`、`UPGRADING.md`），留待后续整理。
+
+## 其它
+
+- 现状/TODO：原仓库根 `TODO.md` 已随静态帧线移入 `archive/static-frame/TODO.md`（其主体是迁走的渲染器，不再维护）。
 - 开发/发布指南：仓库根 `CONTRIBUTING.md`（从本地源码安装、构建验证、热挂载/编码铁律；收录提交速查见其附录，完整版见上表原版指南）。
 - 用户门面：仓库根 `README.md` / `README.en.md` / `README.beginner.md`（小白向）。
 - `images/`：README 引用的截图。

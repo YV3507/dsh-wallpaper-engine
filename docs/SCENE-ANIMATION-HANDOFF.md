@@ -8,7 +8,7 @@
 >
 > ⚠️ **后续更新（2026-09）**：文中推荐的 **WebGPU/Dawn 后端路线已废弃** ——
 > `lib/we-renderer/gpu-dawn/backend.js` 与 `lib/we-renderer/glsl/wgsl.js` 已删除（原生崩溃 +
-> 适用面错位），决策与理由见 `RENDERER-FEASIBILITY.md` §8；文中把它列为"路线 B / 未来实现"
+> 适用面错位），决策与理由见 `archive/static-frame/RENDERER-FEASIBILITY.md` §8；文中把它列为"路线 B / 未来实现"
 > 的段落仅作历史记录。
 >
 > 供未来实现者使用。本插件曾实现过完整的"WE 场景动画"渲染管线，2026-08-30 因可靠性与
@@ -141,8 +141,8 @@ WE 的 Scene 壁纸是**原生 3D 场景**（scene.pkg：对象树 + 纹理 + pu
 ### 知识落点索引
 - 渲染器事实：代码注释（sf 标记；camera.js eye/zoom、puppet.js MDLA/additive、
   image.js 定位、scene/animation.js relative、scene-scripts.js 快进）。
-- 官方数学基准：TODO.md §四 + `_refs/we-shaders/`（官方 shader 源码）+ `_refs/linux-wallpaperengine/`
+- 官方数学基准：archive/static-frame/TODO.md §四 + `_refs/we-shaders/`（官方 shader 源码）+ `_refs/linux-wallpaperengine/`
   （lwe 参考实现）。
-- 可行性分析：`docs/RENDERER-FEASIBILITY.md`（三路线 + 约束矩阵）。
+- 可行性分析：`docs/archive/static-frame/RENDERER-FEASIBILITY.md`（三路线 + 约束矩阵）。
 - 已删资产细节：git 历史（sf31-sf44 提交）+ 备份 `D:\dsh-wallpaper-engine_20260830`。
-- 验收基线：TODO.md §二 验证基线（15 场景回归集）；静态帧渲染器是动画的对照基准。
+- 验收基线：archive/static-frame/TODO.md §二 验证基线（15 场景回归集）；静态帧渲染器是动画的对照基准。

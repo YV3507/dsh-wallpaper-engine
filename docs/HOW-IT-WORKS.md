@@ -2,7 +2,7 @@
 
 > 本文件承接原先放在 README 首页的**实现细节**：场景渲染器、宿主 / 客户端分工、HTTP 路由表。
 > 门面（`../README.md`）只保留「支持哪些壁纸类型」的结论表 + 本文件链接。
-> 渲染路线的工程决策见 [`RENDERER-FEASIBILITY.md`](./RENDERER-FEASIBILITY.md)。
+> 渲染路线的工程决策见 [`RENDERER-FEASIBILITY.md`](./archive/static-frame/RENDERER-FEASIBILITY.md)。
 > 场景动画的旧实现（beta 场景动画 / `/scene-anim`）已随 WebWallGL 实时渲染落地而**移除**，
 > 其历史记录见 [`SCENE-ANIMATION-HANDOFF.md`](./SCENE-ANIMATION-HANDOFF.md)（已归档）。
 
@@ -58,7 +58,7 @@ linux-wallpaperengine / repkg 逆向成果）完整重放：解析 `scene.pkg` �
 - **puppet 网格**：MDL（MDLV）网格 + 绑定姿态光栅化（软件光栅 + 双线性 UV 采样 + 透明合成），人物 / 后发等骨骼模型正确显示。
 - **shader 效果链**：waterwaves（含 DUALWAVES 双波乘积）/ waterripple / shake 按 shader 精确数学在 CPU 实现；mask 纹理支持。
 - **粒子系统**：boxrandom / sphererandom 发射器、color/size/alpha/lifetime/velocity/rotation 等初始化器、movement/alphafade/sizechange/turbulence/oscillate* 等运算符、sprite 精灵绘制。
-- **缓存**：渲染结果按 `sf45_<gpu 标志><来源标志>_<base64url(路径)>_<mtime>[_vN]` 缓存到 `~/.dsh-wallpaper-engine/cache/frames/`（可用 `DSH_WE_CACHE_DIR` 覆盖），工坊更新后自动失效重建；**冷缓存首次渲染实测约 2–10 秒**（视场景图层数；同机实测见 [`SCENE-FRAME-PERF.md`](./SCENE-FRAME-PERF.md)），之后秒级命中。
+- **缓存**：渲染结果按 `sf45_<gpu 标志><来源标志>_<base64url(路径)>_<mtime>[_vN]` 缓存到 `~/.dsh-wallpaper-engine/cache/frames/`（可用 `DSH_WE_CACHE_DIR` 覆盖），工坊更新后自动失效重建；**冷缓存首次渲染实测约 2–10 秒**（视场景图层数；同机实测见 [`SCENE-FRAME-PERF.md`](./archive/static-frame/SCENE-FRAME-PERF.md)），之后秒级命中。
 
 ### 工作原理
 
@@ -176,7 +176,7 @@ the picker.
   `sf45_<gpu-flag><source-flag>_<base64url(abs path)>_<mtime>[_vN]` (override with `DSH_WE_CACHE_DIR`);
   workshop updates and renderer upgrades
   invalidate the frame automatically. A cold-cache first render measures **~2–10 s** (depends on the
-  scene's layer count; same-machine measurements in [`SCENE-FRAME-PERF.md`](./SCENE-FRAME-PERF.md)),
+  scene's layer count; same-machine measurements in [`SCENE-FRAME-PERF.md`](./archive/static-frame/SCENE-FRAME-PERF.md)),
   then near-instant on cache hit.
 
 ### How it works

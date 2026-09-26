@@ -1,12 +1,12 @@
-// 临时探针 (gitignored): 在同一批贴图字节上对比"合成路径"与"渲染器路径"的解码耗时。
+// 归档证据脚本: 在同一批贴图字节上对比"合成路径"与"渲染器路径"的解码耗时。
 // 动机: 端到端测量里渲染器 ~47ms/张、合成 ~207ms/张 (4.4x)。若属实, 先修这个比
 // 剔除离屏层收益大得多; 若实测相同, 说明之前是"纹理集合不同"导致的误比。
-// 用法: node docs/evidence/decode-compare.mjs [sceneId] [最多几张]
+// 用法: node docs/archive/static-frame/evidence/decode-compare.mjs [sceneId] [最多几张]
 import fs from 'node:fs';
 import path from 'node:path';
 import { decode as decodeJpeg } from 'jpeg-js';
-import { parsePkg, readPkgEntry, decodeTex } from '../../lib/pkg-extract.js';
-import { loadTexImage } from '../../lib/we-renderer/textures.js';
+import { parsePkg, readPkgEntry, decodeTex } from '../../../../lib/pkg-extract.js';
+import { loadTexImage } from '../../../../lib/we-renderer/textures.js';
 
 const ROOT = process.env.DSH_WE_SCENE_ROOT || 'E:\\SteamLibrary\\steamapps\\workshop\\content\\431960';
 const id = process.argv[2] || '3486806915';

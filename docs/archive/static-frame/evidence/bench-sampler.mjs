@@ -1,7 +1,7 @@
-// 临时基准 (gitignored): 量 _texSampleInto 的原始吞吐, 判断"内核微优化"有多少无损空间。
+// 归档基准: 量 _texSampleInto 的原始吞吐, 判断"内核微优化"有多少无损空间。
 // 对照实测: blurradial 494ms/Mpx 且每像素 8 次采样 ⇒ 线上约 62ns/采样。
 // 若裸采样远快于 62ns → 内核是采样受限, 微优化有收益; 若接近 → 只能靠并行/GPU。
-import { SceneRenderer } from '../../lib/scene-renderer.js';
+import { SceneRenderer } from '../../../../lib/scene-renderer.js';
 
 const proto = SceneRenderer.prototype;
 const sample = proto._texSampleInto; // 不引用 this, 可直接 call(null,...)

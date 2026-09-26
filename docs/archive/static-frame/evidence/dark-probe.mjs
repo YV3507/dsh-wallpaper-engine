@@ -4,12 +4,12 @@
  *   (b) 材质常数把亮度压到 0 (Bright/Power/Alpha 未接)
  *   (c) 光照/环境项为 0 (场景 ambient/skylight=0 且没有灯, 官方靠自发光)
  *   (d) HDR/bloom 后处理写线性值而缺 sRGB 编码 (整帧变暗)
- * 用法: node docs/evidence/dark-probe.mjs [scene...]
+ * 用法: node docs/archive/static-frame/evidence/dark-probe.mjs [scene...]
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { SceneRenderer } from '../../lib/scene-renderer.js';
-import { parseTex, decodeTex } from '../../lib/pkg-extract.js';
+import { SceneRenderer } from '../../../../lib/scene-renderer.js';
+import { parseTex, decodeTex } from '../../../../lib/pkg-extract.js';
 
 const WE = 'E:\\SteamLibrary\\steamapps\\common\\wallpaper_engine';
 const ROOT = path.join(WE, 'projects', 'defaultprojects');

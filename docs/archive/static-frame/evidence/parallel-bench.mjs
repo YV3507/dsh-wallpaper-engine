@@ -1,7 +1,7 @@
-// 临时基准 (gitignored): 行切分多线程的加速曲线 —— 决定 worker 数上限的依据。
+// 归档基准: 行切分多线程的加速曲线 —— 决定 worker 数上限的依据。
 // 负载取"逐像素双线性重采样 + alpha 合成"(多层合成 blit 的形状), 属内存带宽敏感型,
 // 与效果内核同族。用 SharedArrayBuffer 共享源/目标, 只有行区间通过 postMessage 传参。
-// 用法: node docs/evidence/parallel-bench.mjs
+// 用法: node docs/archive/static-frame/evidence/parallel-bench.mjs
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
 import os from 'node:os';
 

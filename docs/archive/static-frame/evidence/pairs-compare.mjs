@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { decodeTex } from '../../lib/pkg-extract.js';
-import { decodePngBuffer } from '../../lib/we-renderer/canvas.js';
+import { decodeTex } from '../../../../lib/pkg-extract.js';
+import { decodePngBuffer } from '../../../../lib/we-renderer/canvas.js';
 
 const ROOT = 'E:/SteamLibrary/steamapps/common/wallpaper_engine/projects/defaultprojects';
 const worst = []; let n = 0, ok = 0, mismatch = 0;
