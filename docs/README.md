@@ -22,7 +22,8 @@
 | 文档 | 内容 |
 |---|---|
 | [ROBUSTNESS-AUDIT.md](./ROBUSTNESS-AUDIT.md) | **健壮性审计记录**——发布包完整性/编码/跨平台/运行时容错/依赖兼容审计结果与重跑方法 |
-| [RENDER-FALLBACK-MODES.md](./RENDER-FALLBACK-MODES.md) | **回退形态设计（目标 · 2026-09-26 · 未实施）**——**整条静态帧线**（找最大图片/作者 PNG 的开山提交 `3666a66` · 合成 `3b43034` · 离线渲染器）移除后的回退形态：目标显示链 `live → 内嵌 MP4 → 自定义画面 → 空`；静帧档位收缩为 `{0=自动, 4=自定义}`，旧 pin 值 `1/2/3` clamp 到 0（**零迁移**）；要删的 `extractSceneMainImage*`/`tryCompositeSceneLayers`/渲染器/`we-renderer` 清单与**必须保留的活依赖**（`readPkg`/`parseVec3`/`extractTexVideoMp4`/实时抓帧）、`preview` 的双重身份、`v=0` 静默回落陷阱、守卫计划与 5 阶段迁移 |
+| [REFACTOR-ASSESSMENT.md](./REFACTOR-ASSESSMENT.md) | **重构与设计落实账本（活文档 · 2026-09-26 建立）**——四组维护难度指标（复杂度/冗余度/耦合度/进程：含可达闭包实测 **8,590 行死码**、平均每次提交动 **7.09 个文件**）、风险清单、以及**可跟踪的 P0/P1/P2 计划**（状态列是唯一进度真源，每步按「一步三交」同时落代码结构 / 不变量 / 守卫）。**§6 是设计基线**：整条静态帧线（找最大图片 `3666a66` · 合成 `3b43034` · 离线渲染器）移除后的目标回退形态 —— 显示链 `live → 内嵌 MP4 → 实时抓帧 → 自定义画面 → 空`、档位收缩为 `{0=自动, 4=自定义}`（旧 pin `1/2/3` clamp，**零迁移**）、`v=0` 静默回落陷阱、删除与保留清单、预热三拆分与守卫计划，**与 §5 P2-12 的 5 阶段绑定**。**§9 + §5 轨道 F 是第二条设计线**：**字体系统大改**（工作区草案归口）—— 机制换成官方 **`ctx.get("theme")` 令牌层**（`ctx.theme` 裸访问实测抛错，故不改 `inject`）、按角色上色（首期 5 个颜色角色，替代今天"4 角色压成 1 个用户色"）、字体集独立文件化、7 条红线与 4 条待拍板，并标注它**必须排在 P1-5 / P1-7 / P2-9 / P2-10 之后** |
+| [F0-THEME-SERVICE-CHECKLIST.md](./F0-THEME-SERVICE-CHECKLIST.md) | **F0 真机确认清单（已关闭 · 保留为记录）**——字体系统 `theme` 令牌层落地前的逐条真机动作：C0 冻结环境 · C1 令牌盘点（两套配色）· C2 `theme` 可达性 + `overrideTokens` 往返 + 语义边界（含探针代码与采集方法）· **C3 实测结果表** · **C4 结论**（主路径成立 + 对旧结论的修正 + **锁定的 F1 实现形态**）。结论已并入上方账本 §9.1 的 V1–V10 |
 | [awesome-dsh-plugin-pr-guide.md](./awesome-dsh-plugin-pr-guide.md) | 向 awesome-dsh-plugin 收录目录提交的一次性发布指南（应作者要求保留原版，直接从 awesome-dsh-plugin 仓库复制，勿改） |
 
 ## 已归档：已退役的场景渲染路线（2026-09-26）
@@ -48,8 +49,9 @@ npm / CDN，MIT）。本仓库只保留历史记录：下列文档整体移入 `
 > 本目录的文件是**插件侧历史**，**没有**被迁往那里，两边内容不重复。
 >
 > 保留在本目录的文档里仍指向它们的链接已改为 `archive/static-frame/...`；
-> 文中涉及静态帧的**正文段落尚未摘除**（`HOW-IT-WORKS.md`、`RENDER-FALLBACK-MODES.md`、
-> `CHANGELOG.md`、`TROUBLESHOOTING.md`、`UPGRADING.md`），留待后续整理。
+> 文中涉及静态帧的**正文段落尚未摘除**（`HOW-IT-WORKS.md`、`CHANGELOG.md`、`TROUBLESHOOTING.md`、
+> `UPGRADING.md`），**收口动作与进度记在 [`REFACTOR-ASSESSMENT.md`](./REFACTOR-ASSESSMENT.md)
+> §5 的 P2-12 阶段 4**。
 
 ### 场景动画线（`/scene-anim`，已移除）
 
