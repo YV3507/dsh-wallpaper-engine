@@ -612,9 +612,13 @@ const clientChecks = [
   ['sceneVideo stays out of the layer key while live renders',
     /\(layerLive \? "" : \(selection\.sceneVideo \|\| ""\)\)/.test(src)],
   // 垫底静态帧是 iframe 的**下层**：只要 iframe 半透明（壁纸透明度一高），它就会以
-  // a(1−a) 的强度透出来（实测「壁纸透明度高时显现静态帧」）。首帧点亮后必须整块退场。
+  // a(1−a) 的强度透出来（实测「壁纸透明度高时显现静态帧」）。首帧点亮后必须整块退场，
+  // 且必须**串行**——延迟到 iframe 淡入（1.8s）完成后再快收。若退回与 iframe 同步
+  // 双淡出，两个半透明层互换会让黑底在中点漏出 ~25%（层底是原生纯黑/纯白），实测
+  // 症状「切换完成后整屏呼吸式变暗后恢复」会复发。
   ['the static-frame underlay retires once the live frame is on',
-    /:has\(\.we-live-iframe\.we-live-on\) \.we-live-poster\s*\{[^}]*opacity:\s*0/.test(src)],
+    /:has\(\.we-live-iframe\.we-live-on\) \.we-live-poster\s*\{[^}]*opacity:\s*0/.test(src)
+    && /:has\(\.we-live-iframe\.we-live-on\) \.we-live-poster\s*\{[^}]*transition:\s*opacity\s+0\.3s\s+ease\s+1\.8s/.test(src)],
   // 淡出底色必须是**原生外观**（纯黑/纯白），不能是主题面板色 —— 否则拉高「壁纸
   // 透明度」会露出一块与原生外观不符的主题色（用户实测反馈）。
   ['the wallpaper fade base is the native black/white, not the panel token',
