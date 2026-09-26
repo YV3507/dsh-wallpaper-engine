@@ -415,9 +415,10 @@ the 3–8 controls that belong there instead of a thirty-item single column:
 | **效果** (effects) | wallpaper blur / brightness / contrast / saturate / wallpaper opacity / scrim / border / glass, playback speed, fps cap, fit, flip, occlusion pause (an empty state guides you to pick a wallpaper first) |
 | **高级** (advanced) | compact layout, Edge compatibility |
 
-The pill indicator slides between tabs; the settings page and the drawer keep
-independent tab state (remembered in `localStorage`, never written to the config
-file). Long explanations moved into tooltips — each row keeps a one-line hint.
+The pill indicator slides between tabs; the settings page and the drawer share
+one remembered tab (the same `localStorage` entry, never written to the config
+file) — switching in either place restores that tab on both next time. Long
+explanations moved into tooltips — each row keeps a one-line hint.
 
 ### Hide & restore (soft delete)
 
