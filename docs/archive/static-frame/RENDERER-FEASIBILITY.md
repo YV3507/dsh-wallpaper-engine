@@ -19,7 +19,7 @@
 > 路径，行为与默认值不变（分组现名「**静态帧兜底与调优**」，其第一行是「出图来源」）。
 > 现行显示优先级：**WebWallGL 实时渲染 → 场景作者内嵌 MP4（`/scene-video`）→ 静态帧
 > （`/scene-frame`）→ 主纹理近似 → 作者预览图 / 自定义画面**。
-> **完整决策背景、已删资产清单与未来实现路线见 [`SCENE-ANIMATION-HANDOFF.md`](../../SCENE-ANIMATION-HANDOFF.md)**。
+> **完整决策背景、已删资产清单与未来实现路线见 [`SCENE-ANIMATION-HANDOFF.md`](../scene-animation/SCENE-ANIMATION-HANDOFF.md)**。
 >
 > ⚠️ **以下 §0「现状盘点」是 2026-08-29 的历史快照**：其中的行数/文件计数、符号是否存在、
 > 以及"服务端 SceneRenderer 是生产默认""`/scene-anim` 多帧路径""`/scene-resources` 路由名"
@@ -191,7 +191,7 @@
    `materials/compile.js` 注释）。~~官方 preview 像素 A/B 回归~~（2026-08-30 放弃：
    preview.gif 是作者上传素材，非可靠基准，见顶部方向决策）。
 2. ~~脚本时间轴根治（根因 A）~~—— 2026-08-30 放弃（动画方向），完整背景与复刻要点见
-   [`SCENE-ANIMATION-HANDOFF.md`](../../SCENE-ANIMATION-HANDOFF.md) §3.1。
+   [`SCENE-ANIMATION-HANDOFF.md`](../scene-animation/SCENE-ANIMATION-HANDOFF.md) §3.1。
 3. ~~GPU 后端从 supreium（x64-only）迁到 WebGPU/Dawn~~ → **2026-09 撤销（见 §8）**：Dawn 后端已删除；
    x64-only 与 Electron ABI/fork hack 的问题改由"**能力探针 + 三态策略**"消化（有可用 GPU 才走 GPU，
    失败一律 CPU，绝不影响可用性）。
@@ -209,7 +209,7 @@
 ## 7. 重构执行记录（2026-08-30）
 
 **方向决策**：放弃 scene-anim 自研动画方向。**已删资产清单、技术要点与未来实现路线见
-[`SCENE-ANIMATION-HANDOFF.md`](../../SCENE-ANIMATION-HANDOFF.md) §3-§5**（git 已恢复，可考古）。
+[`SCENE-ANIMATION-HANDOFF.md`](../scene-animation/SCENE-ANIMATION-HANDOFF.md) §3-§5**（git 已恢复，可考古）。
 
 **删除验证**：`npm run build` / `npm run verify` / `verify-scene` 13/13 全绿。
 

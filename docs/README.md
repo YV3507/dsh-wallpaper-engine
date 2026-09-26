@@ -21,16 +21,18 @@
 
 | 文档 | 内容 |
 |---|---|
-| [SCENE-ANIMATION-HANDOFF.md](./SCENE-ANIMATION-HANDOFF.md) | ~~**场景动画交接手记**~~ **已归档**——beta 场景动画（`/scene-anim`）已随 WebWallGL 实时渲染落地整体移除；本文件仅存历史决策、技术要点与已删资产清单（供考古） |
 | [ROBUSTNESS-AUDIT.md](./ROBUSTNESS-AUDIT.md) | **健壮性审计记录**——发布包完整性/编码/跨平台/运行时容错/依赖兼容审计结果与重跑方法 |
 | [RENDER-FALLBACK-MODES.md](./RENDER-FALLBACK-MODES.md) | **回退形态设计（2026-09-24 定稿）**——两层模型（live = T/F 开关；回退链 = 全局唯一枚举 `mp4 → static → maintex → art`）、逐壁纸 pin 的 id 表与兼容规则、UI 循环顺序、失败与"不渲染"终端、`preview` 级的删除范围、陈条后台清理，以及「静态帧渲染」开关的删除 |
 | [awesome-dsh-plugin-pr-guide.md](./awesome-dsh-plugin-pr-guide.md) | 向 awesome-dsh-plugin 收录目录提交的一次性发布指南（应作者要求保留原版，直接从 awesome-dsh-plugin 仓库复制，勿改） |
 
-## 已归档：静态帧渲染线（2026-09-26）
+## 已归档：已退役的场景渲染路线（2026-09-26）
 
-**为什么归档**：静态帧渲染（`/scene-frame`，把场景离线渲染成一张 PNG）**将被移除** —— 相关逻辑已迁往
-独立仓库 [`YV3507/we-static-frame`](https://github.com/YV3507/we-static-frame)（可当库或 CLI 用、不依赖任何宿主）。
-本仓库只保留历史记录：下列文档整体移入 `archive/static-frame/`，**不再反映本仓库的现行实现**，也不再维护。
+**为什么归档**：以下两条路线**将被移除 / 已移除**，其渲染器实现均在**独立仓库**维护 ——
+[`YV3507/we-static-frame`](https://github.com/YV3507/we-static-frame)（把场景离线渲染成一张 PNG，可当库或
+CLI 用、不依赖任何宿主）与 [`YV3507/webwallgl`](https://github.com/YV3507/webwallgl)（浏览器端场景渲染器，
+npm / CDN，MIT）。本仓库只保留历史记录：下列文档整体移入 `archive/`，**不再反映本仓库的现行实现**，也不再维护。
+
+### 静态帧渲染线（`/scene-frame`，将被移除）
 
 | 文档 | 内容 |
 |---|---|
@@ -47,6 +49,15 @@
 > 保留在本目录的文档里仍指向它们的链接已改为 `archive/static-frame/...`；
 > 文中涉及静态帧的**正文段落尚未摘除**（`HOW-IT-WORKS.md`、`RENDER-FALLBACK-MODES.md`、
 > `CHANGELOG.md`、`TROUBLESHOOTING.md`、`UPGRADING.md`），留待后续整理。
+
+### 场景动画线（`/scene-anim`，已移除）
+
+| 文档 | 内容 |
+|---|---|
+| [SCENE-ANIMATION-HANDOFF.md](./archive/scene-animation/SCENE-ANIMATION-HANDOFF.md) | **场景动画交接手记**——beta 场景动画（`betaSceneAnim` 开关 + 宿主 `/scene-anim`、`/scene-anim-progress` 路由 + 客户端升级队列 / 进度轮询 / 探针 `<video>` + worker 多帧渲染与 APNG 输出）**已整体移除**，WebWallGL 实时渲染是其上位替代。文中存：放弃决策与理由、复刻必读的技术要点（含 NSL 脚本时间轴的根因 A）、已实现又删除的资产清单、三条推荐复刻路线，以及知识落点索引 |
+
+> 该线的可复用资产与静态帧线同源（§3.2：「静态帧渲染器 = 动画渲染器的地基」），
+> 故其数据与实测一并见上方 `archive/static-frame/`。
 
 ## 其它
 

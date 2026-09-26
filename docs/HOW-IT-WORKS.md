@@ -4,7 +4,7 @@
 > 门面（`../README.md`）只保留「支持哪些壁纸类型」的结论表 + 本文件链接。
 > 渲染路线的工程决策见 [`RENDERER-FEASIBILITY.md`](./archive/static-frame/RENDERER-FEASIBILITY.md)。
 > 场景动画的旧实现（beta 场景动画 / `/scene-anim`）已随 WebWallGL 实时渲染落地而**移除**，
-> 其历史记录见 [`SCENE-ANIMATION-HANDOFF.md`](./SCENE-ANIMATION-HANDOFF.md)（已归档）。
+> 其历史记录见 [`SCENE-ANIMATION-HANDOFF.md`](./archive/scene-animation/SCENE-ANIMATION-HANDOFF.md)（已归档）。
 
 ## 中文
 
