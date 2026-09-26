@@ -2329,7 +2329,7 @@ function markGpuFramePin(token, pinned) {
 // sceneVideo → 静态帧链（buildMedia 优先级自动重排）。
 // 同源且不加 sandbox：sandbox 会产生 opaque origin，contentWindow.__wp 将
 // 无法访问；场景作者脚本隔离在渲染页自己的 SceneScript 沙箱内，与 DSH 宿主
-// API 无缘，安全边界与旧 /scene-runtime 播放器一致。同源还保住了父页面
+// API 无缘，安全边界只由同源 + 渲染页自有沙箱提供。同源还保住了父页面
 // backdrop-filter（液态玻璃）对 iframe 合成结果的采样。
 // 实时渲染形态的适用判定：场景（scene.pkg 走 WebWallGL 场景管线）与
 // 网页（入口 HTML 走 WebWallGL 的 web 挂载 + 注入 WE shim）共用同一开关
@@ -6943,7 +6943,7 @@ function WallpaperPicker(props) {
           }, "刷新"),
           React.createElement("span", { className: "we-picker__hint we-picker__value" },
             "第 " + ((Number(sel.frameVariants && sel.frameVariants[String(sel.id)]) || 0) + 1)
-              + "/" + frameVariantCount(sel, String(sel.id)) + " 秡 · "
+              + "/" + frameVariantCount(sel, String(sel.id)) + " 档 · "
               + FRAME_VARIANTS[Number(sel.frameVariants && sel.frameVariants[String(sel.id)]) || 0].label
               + " · 共 " + frameVariantCount(sel, String(sel.id)) + " 种"),
         ),

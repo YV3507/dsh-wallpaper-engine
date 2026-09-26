@@ -1,0 +1,49 @@
+name: verify
+
+# 本仓的铁律是「提交前必须绿」，而 9,500+ 行守卫此前只能靠人记得在本机跑。
+# 这个 workflow 把它变成机器事实：每次 push / PR 都跑同一套（build + verify + smoke）。
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    # Windows：本项目的开发与发布平台；部分守卫还带平台条件分支（例如 unlink 用例
+    # 在 win32 上只能断言「确实清除 + ENOENT 幂等」，POSIX 才断言 chmod 拦截），
+    # 换平台会改变被断言的那一半。
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # 故意不跑 `npm ci`：build / verify / smoke 只 import `node:` 内置模块与相对路径，
+      # 整条链对 registry 与 peer 解析免疫 —— 这条不变量由
+      # scripts/verify-package-files.mjs 的 P5 断言钉住（谁往守卫里加裸依赖，本地就会先红）。
+      # 装依赖只会引入 registry 抖动、peer 解析失败这两类与改动无关的红灯。
+      - name: build —— 重建 lib/client.js
+        run: npm run build
+
+      - name: verify —— 结构性守卫（含正/负对照）
+        run: npm run verify
+
+      - name: smoke —— 节点级冒烟
+        run: npm run smoke
+
+      # src/client.js 改了却没重建产物 ⇒ 发出去的是旧行为（CONTRIBUTING 的 PR 清单
+      # 要求源码与产物同时包含，这一条把它变成机器判定）。
+      - name: lib/client.js 与 src/client.js 同步
+        run: git diff --exit-code -- lib/client.js
+
+      - name: 无尾随空白 / 冲突标记
+        run: git diff --check

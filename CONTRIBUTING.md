@@ -98,11 +98,17 @@ If Steam is installed in a non-standard location, the host auto-detects it via `
 ## Verify before opening a PR / 提交 PR 前验证
 
 ```sh
-npm ci
-npm run build
-npm run verify
-git diff --check
+npm ci              # 本地取工具链（CI 不装依赖，见下）
+npm run verify:all  # = build + verify + smoke
 ```
+
+**提交前必须全绿。** `.github/workflows/verify.yml` 在每次 push / PR 上跑同一套
+（build + verify + smoke），并额外断言两件事：`lib/client.js` 与 `src/client.js` 同步，
+以及 `git diff --check` 无尾随空白 / 冲突标记。
+
+> CI **故意不执行 `npm ci`**：build / verify / smoke 只用 `node:` 内置模块与相对路径，
+> 整条链对 registry 与 peer 解析完全免疫 —— 这条不变量由 `scripts/verify-package-files.mjs`
+> 的 P5 断言钉住。本地开发仍需 `npm ci` 取工具链。
 
 For UI changes, also describe the real DSH surface you tested, including browser or DSH Desktop mode. For platform-specific changes, call out the source layout used in the test—for example Wallpaper Engine, WSL, WaifuX, or loose media.
 

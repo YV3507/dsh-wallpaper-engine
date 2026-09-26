@@ -44,7 +44,6 @@
     "lib/scene-scripts.js",
     "lib/scene-script-apis.js",
     "lib/scene-manifest.js",
-    "lib/scene-player.js",
     "lib/media/",
     "lib/webwallgl/",
     "lib/we-props.js",
@@ -72,7 +71,7 @@
   "license": "MIT",
   "scripts": {
     "build": "node scripts/build-client.mjs",
-    "verify": "node scripts/verify-client.mjs && node scripts/verify-transcode-state.mjs && node scripts/verify-playback-controls.mjs && node scripts/verify-scene.mjs && node scripts/verify-scene-live.mjs && node scripts/verify-comment-discipline.mjs && node scripts/verify-media-bridge.mjs && node scripts/verify-softrender.mjs && node scripts/verify-readability.mjs && node scripts/verify-package-files.mjs && node scripts/verify-host-paint-scope.mjs",
+    "verify": "node scripts/verify-client.mjs && node scripts/verify-transcode-state.mjs && node scripts/verify-playback-controls.mjs && node scripts/verify-scene.mjs && node scripts/verify-scene-live.mjs && node scripts/verify-comment-discipline.mjs && node scripts/verify-media-bridge.mjs && node scripts/verify-softrender.mjs && node scripts/verify-readability.mjs && node scripts/verify-package-files.mjs && node scripts/verify-host-paint-scope.mjs && node scripts/verify-retired-lines.mjs",
     "verify:bridge": "node scripts/verify-media-bridge.mjs --provision",
     "verify:e2e": "node scripts/e2e-web-media-origin.mjs",
     "smoke": "node test/rotation-smoke.mjs && node test/rotation-live-smoke.mjs && node test/rotation-prepared-leak-smoke.mjs && node test/live-frame-backfill-smoke.mjs && node test/live-frame-async-identity-smoke.mjs",
@@ -92,7 +91,6 @@
     }
   },
   "dependencies": {
-    "jpeg-js": "^0.4.4",
     "@shaderfrog/glsl-parser": "^7.0.1"
   },
   "overrides": {

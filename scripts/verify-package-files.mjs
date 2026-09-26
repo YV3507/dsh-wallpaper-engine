@@ -21,6 +21,7 @@
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, relative, sep } from 'node:path';
+import { builtinModules } from 'node:module';
 
 const results = [];
 function check(name, ok, detail) {
@@ -122,6 +123,81 @@ async function main() {
     check('P3 named runtime entry points exist under lib/ AND are shipped by `files`',
       absent.length === 0 && unlisted.length === 0,
       'required=' + required.length + ' absent=[' + absent.join(', ') + '] unlisted=[' + unlisted.join(', ') + ']');
+  }
+
+  // ── P4: 声明的依赖必须有消费者 (防"死声明") ──────────────────────────────────
+  // 本仓库的运行时策略是**自带副本**（lib/vendor/jpeg-js、lib/webgl…），因此
+  // package.json 里每一条 `dependencies` 都必须在 lib/ 里真的被 import ——
+  // 否则它只是给用户装了一个永远不会被 require 的包（jpeg-js 就是这样的一种情况：
+  // 代码只 import './vendor/jpeg-js/index.js'，裸包名在 link: 安装下根本解析不到）。
+  // 注意口径：这里只断言"声明有消费者"，**不断言可达**（可达性属 P2-12 的活）。
+  {
+    const deps = Object.keys(pkg.dependencies || {});
+    const libSrc = walkFiles(join(ROOT, 'lib'))
+      .filter((rel) => /\.(js|mjs|cjs)$/.test(rel))
+      .map((rel) => readFileSync(join(ROOT, rel), 'utf8'))
+      .join('\n');
+    const consumers = deps.filter((d) => new RegExp(
+      '(?:from\\s+|import\\s*\\(\\s*|require\\s*\\(\\s*)[\'"]' + d.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:/[\'"]|[\'"])'
+    ).test(libSrc));
+    const orphans = deps.filter((d) => !consumers.includes(d));
+    check('P4 every declared dependency is imported by lib/ (no dead declaration)',
+      orphans.length === 0,
+      'deps=' + deps.length + ' consumers=[' + consumers.join(', ') + '] orphans=[' + orphans.join(', ') + ']');
+    check('P4 negative control: a synthetic dependency name is reported unconsumed',
+      !new RegExp('(?:from\\s+|import\\s*\\(\\s*|require\\s*\\(\\s*)[\'"]' +
+        'dsh-definitely-not-a-real-dep' + '[\'"\\)]').test(libSrc));
+  }
+
+  // ── P5: 构建 / 校验链保持"零裸依赖"(CI 不装依赖的前提) ───────────────────────
+  // .github/workflows/verify.yml 故意**不跑 npm ci**：build + verify + smoke 只用
+  // node: 内置模块与相对路径，因此整条流水线对 registry / peer 解析完全免疫。
+  // 这是一条真不变量，不是偶然 —— 一旦有人在守卫里 import 一个裸包，CI 会红在
+  // "command not found" 而不是给出可读原因，所以在这里显式钉住。
+  {
+    const builtins = new Set(builtinModules || []);
+    const chainNames = ['build', 'verify', 'smoke', 'prepare'];
+    const scripts = [];
+    for (const n of chainNames) {
+      const cmd = (pkg.scripts || {})[n] || '';
+      for (const m of cmd.matchAll(/node\s+([\w./-]+\.mjs)/g)) scripts.push(m[1]);
+    }
+    const offenders = [];
+    for (const rel of [...new Set(scripts)]) {
+      let src = '';
+      try { src = readFileSync(join(ROOT, rel), 'utf8'); } catch { offenders.push(rel + '(缺文件)'); continue; }
+      for (const m of src.matchAll(/(?:from\s+|import\s*\(\s*|require\s*\(\s*)[\'"]([^\'"]+)[\'"]/g)) {
+        const spec = m[1];
+        if (spec.startsWith('.') || spec.startsWith('node:') || spec.startsWith('/')) continue;
+        const root = spec.startsWith('@') ? spec.split('/').slice(0, 2).join('/') : spec.split('/')[0];
+        if (builtins.has(root)) continue;
+        offenders.push(rel + ' -> ' + spec);
+      }
+    }
+    check('P5 build/verify/smoke/prepare chain has NO bare-package import (CI installs nothing)',
+      offenders.length === 0,
+      scripts.length + ' script(s) referenced; offenders=[' + offenders.join(', ') + ']');
+    check('P5 negative control: the detector catches a bare import and ignores builtins/relative',
+      (() => {
+        const probe = (src) => {
+          const out = [];
+          for (const m of src.matchAll(/(?:from\s+|import\s*\(\s*|require\s*\(\s*)[\'"]([^\'"]+)[\'"]/g)) {
+            const spec = m[1];
+            if (spec.startsWith('.') || spec.startsWith('node:') || spec.startsWith('/')) continue;
+            const root = spec.startsWith('@') ? spec.split('/').slice(0, 2).join('/') : spec.split('/')[0];
+            if (builtins.has(root)) continue;
+            out.push(spec);
+          }
+          return out;
+        };
+        // 假包名在运行时拼出来 —— 否则这条负对照的**字符串字面量**会被上面的扫描
+        // 当成真的裸依赖，把守卫自己判红（本守卫也在被扫的链里）。
+        const fake = ['left', 'pad'].join('-');
+        return probe('import x from "' + fake + '"').length === 1
+          && probe("import fs from 'fs'").length === 0
+          && probe("import p from 'node:path'").length === 0
+          && probe("import q from './local.mjs'").length === 0;
+      })());
   }
 
   const failed = results.filter((r) => !r.ok);

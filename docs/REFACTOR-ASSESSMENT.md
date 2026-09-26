@@ -56,7 +56,7 @@
 3. **当前最高风险不在代码结构，而在工程保障缺口：零 CI。** 唯一 workflow 只管 macOS 分支自动合并，
    9,533 行守卫全靠人记得在本机跑。**这个缺口让"重构"本身变得危险 —— 先补它，再动结构。**
 
-**顺序（详见 §5）**：`P0 加固（零删除风险）` → `P1 单一真源 + 零耦合抽取` → `P2 按接缝抽取` →
+**顺序（详见 §5）**：`P0 加固 ✅（2026-09-26 完成）` → `P1 单一真源 + 零耦合抽取` → `P2 按接缝抽取` →
 `P2 末项 = 静态帧渲染整体移除（§6 的 5 阶段）`。
 
 **并行轨道（功能，非重构）**：`F 字体系统大改（要点见 §9）` —— **F0 真机确认已完成（2026-09-26）**，
@@ -78,6 +78,20 @@
 | 文档 | 跟踪的 22 个 `.md` 共 **8,596 行**（`archive/static-frame/SCENE-FRAME-PERF.md` 独占 2,903） |
 | 本地未跟踪 | `.integration-notes/` 290 个 JS / 27,165 行；`_refs/` 215.6 MB（**均已 gitignore，不入库** ✅） |
 | 提交史 | 281 次提交 / 17 位作者；最近 30 天 **110 次**（39%） |
+
+**P0 完成后的增量（2026-09-26）** —— 上表基线保留原值以便对照：
+
+| 指标 | 基线 | P0 后 | 变化来源 |
+|---|---|---|---|
+| 宿主手写 | 22,263 行 / 60 文件 | **20,214 行 / 59 文件** | P0-3：删 `lib/scene-player.js`（1,946 行）+ `lib/index.js` 三条孤儿路由（103 行） |
+| 运行时不可达（死码） | 8,590 行 / 44 文件 | **8,590 行 / 44 文件（未动）** | P0 **不删死码**、只加探针；删除属 P2-12 |
+| 运行时可达 | 15,648 行 / 16 文件 | **13,599 行 / 15 文件** | 同上（`scene-player.js` 原属"可达但无消费者"） |
+| 守卫 | 7,721 行 / verify 链 11 项 | **7,942 行 / 链 12 项** | P0-2 + P0-4：新增 `verify-retired-lines.mjs`；`verify-package-files` 加 P4/P5 |
+| `dependencies` | 2（含死声明 `jpeg-js`） | **1**（`@shaderfrog/glsl-parser`） | P0-2 |
+| `files` 条目 | 22 | **21** | P0-3 |
+| 跟踪面 `.md` | 22 / 8,596 行 | **24 / 9,323 行** | +账本、+F0 记录、+吉祥物资产 README；−1 转发页 |
+| 吉祥物源资产 | 散在**仓库根目录**（3 PNG + 1 SVG） | **归档到 `assets/mascot/`（5 文件，不随包发布）** | P0-2 —— **归档而非删除**：它们是「吉祥物」功能的源资产，运行期用的是 `src/client.js` 里内联的派生版本 |
+| CI | **无** | **`.github/workflows/verify.yml`**（windows-latest：build + verify + smoke + 产物同步 + 空白检查） | P0-1 |
 
 ---
 
@@ -108,12 +122,12 @@
 | 项 | 体量 | 证据 |
 |---|---|---|
 | CPU 全场景渲染器整条链**不可达** | **8,590 行** | 唯一入口 `lib/index.js` `renderSceneFrameInWorker` **零调用点**；`index.js` 只用 `we-renderer/textures.js` 的 `readPkg` |
-| 孤儿路由 + 其专用播放页 | 3 路由 + 1,946 行 | `/scene-runtime`、`/scene-manifest`、`/scene-resource`；`inventory.sceneUrl` 仍被赋值，而 **`src/client.js` 全文零引用 `sceneUrl`** |
+| ~~孤儿路由 + 其专用播放页~~ **已下线（P0-3 ✅）** | −3 路由 −1,946 行 | `/scene-runtime`、`/scene-manifest`、`/scene-resource`、`lib/scene-player.js`、`inventory.sceneUrl` 全部删除（客户端零引用，vendored WebWallGL 渲染页也不请求它们）。**遗留**：旧 manifest 构建器（`scene-manifest.js` 内约 640 行）因消费者下线而成为无引用子模块，其 `/scene-resource/` URL 由 `verify-retired-lines.mjs` 按"只许减少"钉住，处置归 P2-12 阶段 2 |
 | 双媒体后端并存 | 1,296 行 | bridge（`supervisor.js` 565 + `provision.js` 297）与 `legacy.js` 434 —— **两者都接线且都有守卫，属有意保留，非死码** |
 | jpeg-js 双份 | 1,975 行 | `lib/vendor/jpeg-js` 与 npm 依赖并存，而代码只 import vendored 路径 ⇒ `package.json` 的 `jpeg-js` 是**死声明** |
 | 设置键 4 处镜像 + 6 张手抄常量表 | — | client `DEFAULTS` 60 键 / `sanitizeSettings` 59 / `serializeSelection` / 宿主白名单 56 键；RATING / TYPE / OBJECT_FIT / ROPE_FORM / FONT_FAMILY / FPS_CAP / SCENE_LIVE_FPS |
 | 缓存键**两处构造**（违反其同文件不变量） | — | `SCENE_FRAME_KEY_VERSION` 声明处写着"**只能有一处实现**"，而 `sceneFrameCacheKey` 与 `sceneFrameSlot` 各写一遍；且邻近注释仍写 `sf33` 而常量已是 `sf34` ⇒ **漂移已发生** |
-| 打包元数据漂移 | — | `overrides` 的 `js-yaml 4.3.2` vs lock 解析到 `4.3.1`；22 条 `files` 手维护；根目录 3 张 ChatGPT PNG + 1 个 hash.svg 留在库内 |
+| ~~打包元数据漂移~~ **已修（P0-2 ✅）** | — | 死依赖 `jpeg-js` 已删（代码只用 `lib/vendor/` 副本）；lock 的 `js-yaml` 已对齐 override **4.3.2**；根目录那 4 个文件**是「吉祥物」源资产、已归档到 `assets/mascot/`（归档而非删除）**—— 运行期用的是 `src/client.js` 内联的 256×283 / 384×576 派生版本。`files` 仍手维护，改由 P4/P5 断言兜住 |
 
 ### 3.3 耦合度：**一个真接缝 + 一堆全局变量**
 
@@ -160,12 +174,12 @@
 
 | # | 风险 | 证据锚点 | 归口 |
 |---|---|---|---|
-| R1 | **零 CI**：9,533 行守卫只在本机跑 | `.github/workflows/` 仅 `auto-merge-mac.yml` | P0-1 |
-| R2 | **8,590 行死码 + 孤儿路由**让读者与守卫判据产生幻觉（README 甚至仍在宣传该链为兜底） | §3.2；`README.md` 静态帧段落 | P0-3 / P2-12 |
-| R3 | **vendored 补丁靠压缩名锚点**，上游一动就手工重锚 | `scripts/sync-webwallgl.mjs` `applyLocalPatches()` | P0-2（记录）/ 长期：向上游提修复 |
+| R1 | **零 CI**：9,533 行守卫只在本机跑 | `.github/workflows/` 仅 `auto-merge-mac.yml` | P0-1 ✅ |
+| R2 | **8,590 行死码 + 孤儿路由**让读者与守卫判据产生幻觉（README 甚至仍在宣传该链为兜底） | §3.2；`README.md` 静态帧段落 | P0-3 ✅（孤儿路由已下线）/ P2-12（死码仍在） |
+| R3 | **vendored 补丁靠压缩名锚点**，上游一动就手工重锚 | `scripts/sync-webwallgl.mjs` `applyLocalPatches()` | 未行动（本仓只能重锚）⇒ 待办：向上游 `webwallgl` 提 webwallgl#9 修复 |
 | R4 | **设置键四处镜像** ⇒ 加一个设置改 4–6 个文件 | §3.2；`verify-client.mjs` 的文本镜像校验 | P1-5 |
 | R5 | **缓存键两处构造**违反同文件不变量（且注释已漂到 `sf33`） | §3.2 | P1-6 |
-| R6 | **打包漂移**：死依赖 + override/lock 不一致 + 根目录杂物 | §3.2 | P0-2 |
+| R6 | ~~**打包漂移**~~：死依赖 + override/lock 不一致 + 根目录杂物 | §3.2 | P0-2 ✅ |
 | R7 | **门面巨石**（`apply(ctx)` 2,046 行 / `WallpaperPicker` 1,999 行）使单次理解与改动成本持续上升 | §3.1 | P2-9/10/11 |
 | R8 | **守卫的文本判据脆弱**：补丁会让旧判据假失败 | §3.4 | P1-5 / P1-7（逐步换成结构性/行为断言） |
 | R9 | **字体系统换机制**（改用官方 `ctx.theme.overrideTokens()`）带三类风险：API 可注入性**未在真机确认**、令牌名随 DSH 升级漂移、撞白闪红线（v0.6.4 禁 `:has()` / 祖先相关选择器） | §9；现行实现是 `<style id="we-font-patch">` + 4 个 label 白名单 + `!important`，且把 DSH 四级文字层次**压平成一个用户色** | F0 / F1 |
@@ -181,10 +195,10 @@
 
 | # | 动作 | 设计落实物（结构 / 规则 / 守卫） | 风险 | 状态 |
 |---|---|---|---|---|
-| P0-1 | **上 CI**：每次 push / PR 跑 `npm run build && npm run verify && npm run smoke` | 结构：新增 workflow（不改产品代码）／规则：提交前必须绿（写入 `CONTRIBUTING.md`）／守卫：CI 本身即守卫 | ≈0 | ⬜ |
-| P0-2 | **修打包漂移**：删死依赖 `jpeg-js`、对齐 `overrides` 与 lock 的 `js-yaml`、清根目录 4 个杂物 | 结构：`package.json` + lock／规则：vendored 副本的**唯一来源**写成注释／守卫：`verify-package-files` 增断言"`dependencies` 引用的包必须真的被源码 import" | ≈0 | ⬜ |
-| P0-3 | **下线孤儿路由组**：`/scene-runtime` + `/scene-manifest` + `/scene-resource` + `lib/scene-player.js`（1,946 行）+ `inventory.sceneUrl` 字段 | 结构：删 3 路由 + 1 文件 + 1 字段／规则：注释写明"客户端零引用的路由不得保留"／守卫：**反向探针**（`WE_SCENE_PLAYER_HTML` / `scene-runtime` 仓内零引用） | ≈0（客户端零引用、守卫零覆盖） | ⬜ |
-| P0-4 | **静态帧线：只落地「阶段 0」**（反向探针 + 修 UI 笔误「秡」），**不删任何代码** | 结构：无删除／规则：§6.12 的探针清单／守卫：§6.12 全部反向探针 + 负对照 | ≈0 | ⬜ |
+| P0-1 | ✅ **已完成** —— `.github/workflows/verify.yml`：每次 push / PR 在 **windows-latest** 跑 build + verify + smoke，并额外断言「`lib/client.js` 与 `src/client.js` 同步」与「无尾随空白/冲突标记」 | 结构：新增 workflow（产品代码零改动）／规则：**提交前必须绿**已写进 `CONTRIBUTING.md`（含"CI 故意不装依赖"的理由）／守卫：CI 本身即守卫 | ≈0 | ✅ |
+| P0-2 | ✅ **已完成** —— 删死依赖 `jpeg-js`（`dependencies` 2→1）；lock 的 `js-yaml` 对齐 override **4.3.2**（取自 `npm --package-lock-only` 重算结果，**不做整份重生成**：那会顺带改 19 条与 `peer` 标记相关的无关条目）；根目录那 4 个文件**归档**到 `assets/mascot/`（**不是杂物、更不删** —— 见 §3.2） | 结构：`package.json` + lock + `assets/mascot/`／规则：vendored 副本的**唯一来源**（代码只 import `./vendor/...`）／守卫：`verify-package-files` 新增 **P4**（每条 `dependencies` 必须被 `lib/` 真的 import）+ **P5**（build/verify/smoke 链**零裸依赖** —— CI 不装依赖的前提），各带负对照 | ≈0 | ✅ |
+| P0-3 | ✅ **已完成** —— 删 `/scene-runtime` + `/scene-manifest` + `/scene-resource` 三条路由、`lib/scene-player.js`（1,946 行）、`inventory.sceneUrl` 字段（含类型声明）；`files` 同步去掉该条目 | 结构：−3 路由 −1 模块 −1 字段／规则：删前先证"零消费者"（客户端零引用 + vendored 渲染页只请求 `/scene-live` 与 `/scene-files`）／守卫：`verify-retired-lines.mjs` 断言这组标识**零残留** + 模块不存在 + `files` 不收 + 登记遗留不扩散（各带负对照） | ≈0（客户端零引用、守卫零覆盖） | ✅ |
+| P0-4 | ✅ **已完成**（**未删任何静态帧代码**）—— 反向探针以**"防蔓延"形态**落地（见 §6.12 的说明）：退役词只允许出现在冻结基线的 18 个文件里，基线只许缩小；UI 笔误「秡」→「档」 | 结构：无删除 + 1 个新守卫／规则：为什么这一阶段只能钉"不蔓延"、以及 P2-12 阶段 2 如何翻成"零残留"／守卫：`verify-retired-lines.mjs`（11 项，含 4 条正/负对照）并挂进 verify 链 | ≈0 | ✅ |
 
 > **为什么 P0-4 不删代码**：删除整条线是 **P2-12** 的收口动作。**探针先行**是它的阶段 0 ——
 > 先把"不许复活"变成机器事实，再动手删，才能避免"删完又被某条路径引回来"（§6.4 的陷阱就是先例）。
@@ -424,6 +438,13 @@ UI 命名：`壁纸画面刷新` → **`出图来源`**（它换的是**来源**
 | **预热时长闸**：`prepareSceneLiveStage` 的就绪判定含"运行满 N 秒" | §6.11 的语义断言（N=0 时该断言应可关闭） |
 | 状态行不含「秡」 | 顺手修 UI 笔误 |
 
+> **P0-4 已落地（2026-09-26）**：上表前两条以 **"防蔓延"形态**实现在 `scripts/verify-retired-lines.mjs`
+> —— 退役词只允许出现在**冻结基线的 18 个文件**里（基线只许缩小，脚本会提示可收紧项），
+> 末条（「秡」）已修并由同一守卫断言，另有 4 条正/负对照。
+> **为什么不直接写"零引用"**：P0 阶段一行静态帧代码都还没删，零引用断言**必然红** ——
+> 而本仓铁律是「verify 未绿不得提交」。先钉住"不许蔓延"是这一阶段能真正执行的那一半。
+> **P2-12 阶段 2 删完后**：把该脚本的 `SF_BASELINE` 清空，这一节即自动升级为"零残留"断言。
+
 > ⚠️ **`scripts/verify-comment-discipline.mjs` 的两处钉子要同步收窄**：它的 `FILES` 名单含
 > `lib/scene-render-worker.mjs` 与 `lib/we-renderer/core.js`，棘轮基线 `CEIL` 里也钉着这两个文件。
 > 被删文件会被该脚本的 `try/catch` **静默跳过** ⇒ 等于**悄悄失去覆盖**。删除时应把它们**从名单移除**，
@@ -433,9 +454,9 @@ UI 命名：`壁纸画面刷新` → **`出图来源`**（它换的是**来源**
 
 | 阶段 | 内容 | 出口条件 | 状态 |
 |---|---|---|---|
-| **0** | 加全部反向探针 + 修「秡」笔误 → `npm run verify` 全绿（**此时不删任何东西**；**已在 P0-4 执行**） | 探针全部在位且有负对照 | ⬜（= P0-4） |
+| **0** | 加反向探针 + 修「秡」笔误 → `npm run verify` 全绿（**不删任何东西**） | 探针全部在位且有负对照 | ✅ = **P0-4**（`scripts/verify-retired-lines.mjs`，11 项含 4 条对照） |
 | **1** | 把 `readPkg` / `parseVec3` 落点**迁出** `we-renderer/`；`parsePkg` / `readPkgEntry` / `extractTexVideoMp4` 留在 `pkg-extract.js`（或一并迁出） | 可达闭包干净、无悬空 import | ⬜ |
-| **2** | 删 `extractSceneMainImage*` 全链 + 合成 + 渲染器 + `we-renderer/`；`?v=` 只认 `{0,4}`；客户端档位表只留 `{0,4}` | 反向探针全绿 + 全链验证绿 | ⬜ |
+| **2** | 删 `extractSceneMainImage*` 全链 + 合成 + 渲染器 + `we-renderer/`；`?v=` 只认 `{0,4}`；客户端档位表只留 `{0,4}`。**并入 P0-3 新产生的无引用子模块**：`scene-manifest.js` 的 manifest/resource 构建器（约 640 行，含 `/scene-resource/` URL 拼接 —— 其消费者已随 P0-3 下线） | 反向探针全绿 + 全链验证绿 + `SF_BASELINE` 清空 + `DECLARED_RESIDUE` 注销 | ⬜ |
 | **3** | 缓存键常量改名升值：`SCENE_FRAME_KEY_VERSION` → `LIVE_FRAME_KEY_VERSION = 'lf1'`（**升值的代价此时已降到"重抓几张帧"**） | §6.10 的语义断言绿 | ⬜ |
 | **4** | UI 改名「出图来源」+ 文档/注释统一去掉「静态帧」「画面刷新」旧词 | 术语零残留（含 README 中英、`HOW-IT-WORKS`、`TROUBLESHOOTING`、`UPGRADING`、`CHANGELOG`） | ⬜ |
 
@@ -502,7 +523,7 @@ UI 命名：`壁纸画面刷新` → **`出图来源`**（它换的是**来源**
 | 共变耦合 | `git log --pretty=format:'@%H' --name-only` → 以 `src/client.js` 为锚统计同改文件与耦合系数 |
 | 打包一致性 | `node scripts/build-client.mjs` 后 `git status --porcelain lib/client.js` 必须为空 |
 | 守卫健康度 | `npm run verify`（退出码 0 才算绿）；`npm run smoke` 为节点级冒烟 |
-| 已有辅助工具 | `node scripts/audit-import-closure.mjs`（lib 导入闭包 vs `files` 白名单） |
+| 已有辅助工具 | `node scripts/audit-import-closure.mjs`（lib 导入闭包 vs `files` 白名单）；`node scripts/verify-retired-lines.mjs`（退役线：零残留 + 防蔓延棘轮 + 对照） |
 
 ---
 
