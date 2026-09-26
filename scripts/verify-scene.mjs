@@ -683,6 +683,21 @@ if (token) {
     // 回 200 + removed:false 会让客户端把「清除」当成功（面板行消失、提示已清除），
     // 而宿主照旧发 GPU 帧 —— 画面纹丝不动且没有任何反馈。ENOENT 仍算幂等成功。
     {
+      // ⚠️ 平台前提：**POSIX 的 chmod 才能阻止 unlink**；Windows 上 chmod 不影响删除
+      //（模式位基本被忽略）⇒ 该用例在 win32 上无法成立。改法：win32 只断言仍然中立的那半
+      //（ENOENT 幂等成功），并在下面明确标注 coverage 差异，而不是让 5 条断言假失败。
+      if (process.platform === 'win32') {
+        const first = await runClear('/wallpaper-engine/scene-frame-cache/' + token);
+        check('win32：清除存在的槽位 ⇒ 200 + removed:true（删除确实生效）',
+          first && first.__state.status === 200 && /"removed":true/.test(String(first.__state.body)),
+          'status=' + (first && first.__state.status) + ' body=' + String(first && first.__state.body).slice(0, 70));
+        const again = await runClear('/wallpaper-engine/scene-frame-cache/' + token);
+        check('win32：重复清除 ⇒ 幂等成功（200 + removed:false，不得假报已删除）',
+          again && again.__state.status === 200 && /"removed":false/.test(String(again.__state.body)),
+          'status=' + (again && again.__state.status) + ' body=' + String(again && again.__state.body).slice(0, 70));
+        check('win32：unlink 失败场景跳过（chmod 不影响 unlink ⇒ 该前提在 Windows 不成立；见 TODO §9.3）', true, 'skipped on win32');
+        await runPut('/wallpaper-engine/scene-frame-cache/' + token, gpuPng); // 还原槽位
+      } else {
       const mode = statSync(cacheDir).mode & 0o777;
       chmodSync(cacheDir, 0o555); // 目录不可写 → unlinkSync EACCES
       let locked = null;
@@ -704,6 +719,7 @@ if (token) {
       check('恢复可写后重试清除 → 200 + removed=true（失败不是死结）',
         afterUnlock.__state.status === 200 && /"removed":true/.test(String(afterUnlock.__state.body)),
         'status=' + afterUnlock.__state.status);
+      }
     }
     const putBad = await runPut('/wallpaper-engine/scene-frame-cache/' + token, Buffer.from('not-an-image'));
     check('PUT bad magic → 415', putBad.__state.status === 415, 'status=' + putBad.__state.status);
