@@ -549,7 +549,7 @@ workshop 场景：scene.pkg 解析 + 渲染全通过（含 puppet/文本/纯色/
 
 ---
 
-## 四、官方数学逆向（wallpaper64.exe 为准，详见 `docs/WE-REVERSE.md`）
+## 四、官方数学逆向（wallpaper64.exe 为准，详见 `docs/archive/static-frame/WE-REVERSE.md`）
 
 ### 已确认
 - **官方定位 = origin×0.5×M**（0.5 = 场景→画布固定缩放；M = 世界×视图×投影）。

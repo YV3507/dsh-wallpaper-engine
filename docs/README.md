@@ -22,7 +22,7 @@
 | 文档 | 内容 |
 |---|---|
 | [ROBUSTNESS-AUDIT.md](./ROBUSTNESS-AUDIT.md) | **健壮性审计记录**——发布包完整性/编码/跨平台/运行时容错/依赖兼容审计结果与重跑方法 |
-| [RENDER-FALLBACK-MODES.md](./RENDER-FALLBACK-MODES.md) | **回退形态设计（2026-09-24 定稿）**——两层模型（live = T/F 开关；回退链 = 全局唯一枚举 `mp4 → static → maintex → art`）、逐壁纸 pin 的 id 表与兼容规则、UI 循环顺序、失败与"不渲染"终端、`preview` 级的删除范围、陈条后台清理，以及「静态帧渲染」开关的删除 |
+| [RENDER-FALLBACK-MODES.md](./RENDER-FALLBACK-MODES.md) | **回退形态设计（目标 · 2026-09-26 · 未实施）**——**整条静态帧线**（找最大图片/作者 PNG 的开山提交 `3666a66` · 合成 `3b43034` · 离线渲染器）移除后的回退形态：目标显示链 `live → 内嵌 MP4 → 自定义画面 → 空`；静帧档位收缩为 `{0=自动, 4=自定义}`，旧 pin 值 `1/2/3` clamp 到 0（**零迁移**）；要删的 `extractSceneMainImage*`/`tryCompositeSceneLayers`/渲染器/`we-renderer` 清单与**必须保留的活依赖**（`readPkg`/`parseVec3`/`extractTexVideoMp4`/实时抓帧）、`preview` 的双重身份、`v=0` 静默回落陷阱、守卫计划与 5 阶段迁移 |
 | [awesome-dsh-plugin-pr-guide.md](./awesome-dsh-plugin-pr-guide.md) | 向 awesome-dsh-plugin 收录目录提交的一次性发布指南（应作者要求保留原版，直接从 awesome-dsh-plugin 仓库复制，勿改） |
 
 ## 已归档：已退役的场景渲染路线（2026-09-26）
@@ -40,6 +40,7 @@ npm / CDN，MIT）。本仓库只保留历史记录：下列文档整体移入 `
 | [DEFAULT-SCENE-RENDER-AUDIT.md](./archive/static-frame/DEFAULT-SCENE-RENDER-AUDIT.md) | **官方默认壁纸渲染审计**（2026-10-03）——「无损渲染」的纯数学取证（场景数据 / 插桩量 / preview 画像 / 宿主反编译），只记可复现的量与能指到行号的根因 |
 | [RENDERER-FEASIBILITY.md](./archive/static-frame/RENDERER-FEASIBILITY.md) | 渲染器三路线可行性 + 方向决策 + §7 重构执行记录（该方向决策的终点即**迁往独立仓库**） |
 | [NATIVE-SCENE-EVIDENCE.md](./archive/static-frame/NATIVE-SCENE-EVIDENCE.md) | **原生场景引擎取证（WE 2.8.42）**——静态帧路径的几何依据：y 轴朝向、角度单位与合成顺序（`Rz(−z)·Ry(y)·Rx(−x)`）、puppet = 蒙皮网格，以及取证确定的合成器缺陷 D-1/D-2/D-3 |
+| [WE-REVERSE.md](./archive/static-frame/WE-REVERSE.md) | **Wallpaper Engine 官方引擎逆向 — 技术细节**——wallpaper64.exe 的逆向方法 / 工具链、关键地址与已确认数学（定位数学、M 的来源、puppet 骨骼链、视图平移、动画语义实证、动画层合成、组件数据流、attachment→MDAT 锚点）；以官方引擎为**事实基准**复刻 WE 场景渲染的取证记录 |
 | [TODO.md](./archive/static-frame/TODO.md) | **渲染引擎现状与 TODO**（迁出前的已实现组件、验证基线与本机环境；原在仓库根） |
 | [`evidence/`](./archive/static-frame/evidence/) | 上述文档的实测证据脚本（9 个；跑法 `node docs/archive/static-frame/evidence/<name>.mjs`） |
 
@@ -67,10 +68,10 @@ npm / CDN，MIT）。本仓库只保留历史记录：下列文档整体移入 `
 - `images/`：README 引用的截图。
 
 已溶解文档（2026-08-30，代码即真相）：
-- WE-REVERSE.md / WE-REVERSE-CAMERA-MATH.md → camera.js / image.js / puppet.js / scene/transform.js / scene/animation.js 等注释
+- WE-REVERSE.md / WE-REVERSE-CAMERA-MATH.md → camera.js / image.js / puppet.js / scene/transform.js / scene/animation.js 等注释（⚠️ 此处的"溶解"指**结论已进代码**；`WE-REVERSE.md` 文件本身仍在，2026-09-26 已归档到 [`archive/static-frame/`](./archive/static-frame/WE-REVERSE.md)）
 - RENDERER-OFFICIAL-STRUCTURE.md → effects/registry.js / materials/compile.js 注释 + FEASIBILITY §6 结论
 - RENDER-ISSUES-ANALYSIS.md / REFACTOR-ROUND-2026-08-28.md → 代码 sf 标记 + TODO.md
 - REFACTOR-STATIC-FRAME.md → FEASIBILITY §7
-- dev-notes-bom-and-dsh-boot.md → CONTRIBUTING.md
+- dev-notes-bom-and-dsh-boot.md → CONTRIBUTING.md（⚠️ 同上：结论已进 CONTRIBUTING，文件本身仍在 [`./dev-notes-bom-and-dsh-boot.md`](./dev-notes-bom-and-dsh-boot.md)）
 - HOOK-PROGRESS.md / V6-DUMP-ANALYSIS.md / EYE-PREDICTION.md / FIX-PLAN-AMYA.md /
   AMYA-CAMERA-ANALYSIS.md / RENDER-ISSUES-PROGRESS.md → 废弃方向，删除（重构前备份可找回）

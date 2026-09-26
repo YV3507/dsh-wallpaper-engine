@@ -29,7 +29,7 @@
 |---|---|
 | 全仓 91 个源文件 UTF-8 合法性（fatal 解码） | ✅ 全部合法（2026-09-23 复跑：lib/src/scripts 的 `*.js`/`*.mjs` 严格 UTF-8 扫描无非法字节） |
 | BOM 扫描（JSON.parse 杀手） | ⚠️ **当时为"无 BOM"已不成立**：`scripts/` 下 35 个 `tmp-*.mjs` 带 UTF-8 BOM（历史调试脚本，不影响发布包）；`lib/`、`src/`、`docs/` 仍无 BOM |
-| 双编码语义乱码 | ✅ **已全部还原（2026-09）**：`lib/scene-render-worker.mjs` 实测 **67 行**（51 行注释 + 16 行 `gpuDiag` 文案）。成因：一次被中断的 `main ← catchup-v0.7.5` 合并 —— 其冲突中间态仍是对象库里的**不可达 blob `19070f44`**，`main` 一侧即干净原文。还原方式：28 行按"转码恒等"判据逐字取回（来源可追），其余按逆变换碎片 + 上下文补齐并逐行机械自检；代码骨架逐行比对证明**只动注释与字符串内容**。护栏 `scripts/verify-encoding.mjs`（全仓扫描 + 正/负对照）。⚠️ 乱码版本仍挂在 `catchup-v0.7.5` 分支上，再次合并/rebase 是唯一复发来源 |
+| 双编码语义乱码 | ✅ **已全部还原（2026-09）**：`lib/scene-render-worker.mjs` 实测 **67 行**（51 行注释 + 16 行 `gpuDiag` 文案）。成因：一次被中断的 `main ← catchup-v0.7.5` 合并 —— 其冲突中间态仍是对象库里的**不可达 blob `19070f44`**，`main` 一侧即干净原文。还原方式：28 行按"转码恒等"判据逐字取回（来源可追），其余按逆变换碎片 + 上下文补齐并逐行机械自检；代码骨架逐行比对证明**只动注释与字符串内容**。护栏 `scripts/verify-encoding.mjs`（全仓扫描 + 正/负对照；**该护栏未随本线保留**）。⚠️ 乱码版本仍挂在 `catchup-v0.7.5` 分支上，再次合并/rebase 是唯一复发来源 |
 
 ## 3. 跨平台（Windows / Linux(WSL) / macOS）
 
@@ -72,6 +72,6 @@
 
 - **已修复**：`spawnFfmpeg` 跨平台 cwd（真实 bug，非 Windows 上 ffmpeg 必失败）。
 - **已保证**：发布包导入闭包完整、编码合法、降级链全覆盖。
-- **watch items**（非阻断）：glsl-parser exports（DEP0151）；`STEAM_PROBE_DIRS` 未过 wslPath（无碍，WSL 由 /mnt 扫描覆盖）。双编码乱码已消除并由 `verify-encoding` 长期看护（历史乱码版本仍挂在 `catchup-v0.7.5` 分支上，是唯一复发来源）。
+- **watch items**（非阻断）：glsl-parser exports（DEP0151）；`STEAM_PROBE_DIRS` 未过 wslPath（无碍，WSL 由 /mnt 扫描覆盖）。双编码乱码已消除并由 `verify-encoding` 长期看护（**该护栏未随本线保留**；历史乱码版本仍挂在 `catchup-v0.7.5` 分支上，是唯一复发来源）。
 
 **重跑审计**：`node scripts/audit-import-closure.mjs && npm pack --dry-run && npm run verify && node scripts/verify-scene.mjs`

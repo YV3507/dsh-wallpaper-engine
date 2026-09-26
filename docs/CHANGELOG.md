@@ -3,6 +3,9 @@
 > 本文件承接原先堆在 README 首页的**版本公告与功能清单**。门面（`../README.md` / `../README.en.md`）
 > 只保留与版本无关的亮点；带版本号、issue 号、性能数字的内容一律记在这里。
 >
+> **当前发布版本：`v1.0.1`**（与 `package.json` 的 `version` 一致；上游最新 release 亦是 v1.0.1）。
+> 顶部 `### 未发布（下一版）` 记的是**相对 v1.0.1 的增量**（即本仓库与上游 `origin/main` 的差异）。
+>
 > **归档说明**：本仓库从 **v0.6.8** 起才有 git tag，更早的版本没有独立标签。早于 v0.6.8 的条目
 > 按**原 README 原文的版本标注**归档；原文未标注小版本的条目放进区间桶，不臆造版本号。
 > 完整逐提交历史见 GitHub Commits / Releases；升级前置条件见 [`UPGRADING.md`](./UPGRADING.md)。
@@ -11,47 +14,64 @@
 
 ### 未发布（下一版）
 
-- **追版合并上游的 WebWallGL 实时渲染（上游 `#103`）**：scene / web 壁纸新增**实时渲染**（`/scene-live` + `/scene-files`，vendored `lib/webwallgl/`，UI 文案「场景实时渲染」/「网页实时渲染」，默认开）。两条渲染路线**并存**：实时渲染优先，失败（首帧 15 秒超时 / 运行期约 40 秒无帧）按壁纸记入失败记忆并自动降级到静态帧链。同批追版还补了上游遗漏的 `lib/webwallgl/` 发布白名单项、把 `svKnown` 诚实化门控补回上游重构后的 `sceneFieldsFor()`、移除了上游那套写 `sf33_` 键而产物无人读取的 `sceneFramePrewarm`，并把 `PIPELINE_VERSION` 提到 `sf45`（**旧帧全部失效、首次显示重新冷渲染，属预期**）。
-- **移除「beta 场景动画」**：`betaSceneAnim` 开关、宿主 `/scene-anim` 与 `/scene-anim-progress` 路由、客户端动画升级队列 / 进度轮询 / 探针 `<video>`、worker 多帧渲染与 APNG 输出（含 `lib/apng-encode.js`）**整体删除**。理由：WebWallGL 实时渲染已是它的上位替代（粒子 / 脚本 / 视差 / 包内音频在渲染页内实时执行），而它本身默认关闭、实验性、且旧产物缓存无人回收。用户可见的显示优先级为 **实时渲染 → 场景作者内嵌 MP4（`/scene-video`）→ 静态帧（`/scene-frame`，失败回退主纹理近似）→ 作者预览图 / 自定义画面**。磁盘上遗留的 `san_*.apng|mp4` 仍会被启动清扫回收。
-- **静态帧侧 UI 改为三级级联**：「场景实时渲染」（父）→「**静态帧渲染**」（静态帧链**总开关**，默认开）→「**静态帧兜底与调优**」（子分组）。三者都只在上一级"没在生效"时才出现。
-  - 「壁纸画面刷新」改名为「**出图来源**」（按钮「换一种」，状态行 `N/M 档  当前：<来源>`）。它只列**自动链没有用到的替代来源**（主纹理单张 / 作者原画 / 自定义画面）——「合成（分层）」与「预览图」正是自动链自己的第 2/3 步，摆出来等于让用户重试刚失败的那一步，故不再作为手动档位；历史档位 5（曾被误当成「静态帧渲染」）与档位 6（合成）**退役**，宿主只认 `?v=1..4`。
-  - 「静态帧渲染」关闭时**不再请求渲染产物**：静态帧槽位改由「自定义画面」（档 4）或作者预览图（档 3）填充，并停止空闲预热。
-  - 「有损路线」「空闲预热」「GPU 渲染加速」三项仍是调优项，**行为与默认值一律不变**；GPU 开关不再触发已删除的动画升级，改为给 `scene-frame` URL 加 `?gpu=0/1` 强制重取（宿主按新配置算缓存键）。
-- **修复两处"设置存不住"（设置字段清单漂移）**：持久化设置由**三份手工维护的清单**描述 —— 客户端
-  `serializeSelection()`（发送）、宿主 `sanitizeSettings()`（白名单，PUT 用其结果**整个覆盖** config.json）、
-  客户端 `sanitizeSettings()`（读回）。任一份漏字段都会让用户的改动**静默丢失**（界面显示"保存成功"，
-  下次打开却回默认值）：
-  - **出图来源档位 / 自定义画面存不住**（0.7.5 用户反馈）：宿主白名单缺 `frameVariants` / `customFrames`，
-    客户端每次都发、宿主每次都丢 ⇒ 选好的档位与导入的自定义画面刷新即失效。补齐并加校验：档位只接受
-    `0..4`（退役的 5/6 丢弃）、键名必须是壁纸 id 形状、`customFrames` 只认字面 `true`、条数上限 200。
-  - **四个调优开关从未持久化**（同族反向漂移，`serializeSelection()` 漏发）：`sceneLossyRoute` /
-    `sceneGpuAccel` / `scenePrewarm` / `scenePrewarmScope` 在宿主白名单与客户端读回清单里都有，
-    只有"写"这一份漏了 —— 其中**空闲预热最严重**：宿主永远读到 `false`，整条预热链从 UI 不可达。
-  - **让漂移可观测**：PUT 时若请求带了白名单不认的键，记一行日志列出键名（静默丢弃正是这次难排查的原因）。
-  - 护栏：新增 `verify-settings-keys`（真函数往返 + 档位/自定义画面校验 + 三份清单一致 + 反向漂移，
-    每条带负对照）与 `verify-sampling`（把此前只存在于 `tmp-*` 探索脚本里的 `blitScaled` 采样证据固化：
-    缩小走盒式面积平均、放大走双线性、缩放比 1:1 逐字节不变，负对照用最近邻实现证明判据能区分二者）。
-- **修复 harness 0.1.7 下"右栏关闭态露出玻璃底板"（上游 issue #107）**：宿主右栏面板容器
-  `[data-sidebar-right-panel]` 在**关闭态**仍然占着宽度 —— 0.1.7 把隐藏方式改成"子元素
-  `visibility:hidden` + 沿 `--dsh-sidebar-width` 滑出屏幕"，容器自身**没有背景**；而插件
-  无条件给该容器刷了玻璃底 / 近不透明底，于是在对话区右侧露出一块中灰板（控制台零报错，
-  很容易被误判成主题或皮肤问题）。现在**所有**给该容器上色的规则都限定在
-  `[data-sidebar-right-open]`（宿主只在展开时写入 `expanded || void 0`；该属性在最低支持的
-  harness 0.1.5-rc.2 上就已存在且语义相同，故这层限定是向后兼容的 no-op：关闭态本来也看不见，
-  展开态照旧）。护栏：新增 `verify-host-paint-scope`。
-- **修复静态帧 worker 的历史编码乱码**：`lib/scene-render-worker.mjs` 里 **67 行**中文（51 行注释 + 16 行 `gpuDiag` 文案）是历史编码事故留下的乱码。成因已定位：一次被中断的 `main ← catchup-v0.7.5` 合并把乱码带了进来，该次合并的冲突中间态仍以**不可达 blob**（`19070f44`）留在对象库，其中 `main` 一侧就是干净原文（乱码版本还挂在 `catchup-v0.7.5` 分支上，故再次合并可能复发）。67 行**全部还原**：28 行按"转码恒等"判据从干净来源（上述 blob 干净侧 / 早期干净版本 / 遗留的干净工作副本）逐字取回，其余按逆变换碎片与上下文补齐并逐行机械自检；代码骨架逐行比对证明**只动了注释与字符串内容**（零逻辑改动）。新增 `verify-encoding` 护栏：全仓乱码扫描 + 正对照（历史样本必须判红）+ 负对照（专治把 U+9000–U+9FFF 当"生僻区"的误判 —— 道/都/里/重 等常用字都在该区间）。
-- **静态帧降级为「缓存兜底」，实时渲染优先**（修「实时渲染在用、静态帧仍在算」的卡顿与黑屏）：场景 / 网页壁纸默认走实时渲染，但此前有两条**多余的静态帧计算**在跟它抢 CPU/GPU ——
-  ① **客户端**把静态帧当 live 的**垫底图**（`poster`）：实时渲染一启动就要为这张过渡图跑一次 4K 冷渲染（worker + GPU，数百 ms~数秒）；
-  ② **宿主「空闲预热」**不区分实时渲染是否在用，也不区分"当前这张是不是正在实时渲染"，用户空闲时照样为它跑冷渲染。
-  两者都能把实时渲染的首帧挤到 15 秒超时之外 ⇒ 看护降级，并把该壁纸写进**失败记忆**（此后一直不实时渲染）；图还没渲染出来时就是**黑屏**。
-  现行规则（静态帧的本意 = 场景类壁纸出不了好效果时的取舍方案）：
-  - **只命中、不渲染**：新增 `GET /scene-frame/…?cached=1` —— 宿主只查缓存，命中就返回真帧，未命中回 404，**绝不进入渲染路径**（护栏 `verify-prewarm` R11c）。
-  - **垫底图只在缓存命中时摆**：客户端 live 分支用 `?cached=1` 取静态帧，未命中就摘掉留空 —— **首次加载可以为空**（宁可牺牲它，也不为过渡图抢实时渲染的资源）；作者预览图**不再**当垫底（画质太差被否）；「静态帧渲染」总开关关掉时连缓存也不摆。
-  - **预热改为"为切换 / 轮换攒缓存"**：`/scene-live` + `/scene-files` 的流量算用户活动 ⇒ 预热自动推迟到动画起来之后；当前**正在实时渲染**的那张**不进预热名单**、也不提升队首（判据 `liveSuppressesPrewarm`，与客户端 `liveRenderEnabled` 同口径；`verify-prewarm` R11b 真值表 + 四条负对照）。
-  - 实时渲染关掉（`sceneLive === false`）或该壁纸已判失败时，「静态帧就是显示形态」的旧口径照常生效（那时才渲染、才预热）。
-  - 护栏另含 `verify-scene-live` 的垫底图断言（缓存优先 + 未命中自摘除）与三个对照（两条负对照 + 一条正对照）。
-- **废弃 WebGPU/Dawn 后端（GPU 只保留 WebGL 一条）**：删除 `lib/we-renderer/gpu-dawn/backend.js`（21KB；无人 import，但因为 `files` 收录整个 `lib/we-renderer/` 而**随包出货**）与仅为它服务的 `lib/we-renderer/glsl/wgsl.js`（GLSL→WGSL），并清掉 `render/passes.js` 的 `_dawnEffectCache` 死钩子与相关注释。理由：① **原生崩溃**（同进程二次 `create()` / `unmap` 后立即重建 pipeline，只能每进程一实例）；② 现有 WebGL 路径**尚未榨干**（GPU 效果段现由"每效果一次上传 + `readPixels` 回读"主导，`runEffectChainOnGL` 批处理还能再砍）；③ 依赖更重（WGSL 转译 + 全平台 prebuild）；④ **适用面错位** —— 需要静态帧的机器是没有可用 GPU 的虚拟机 / 远程端。护栏：`verify-fx-chain` 新增 4 条（文件确已删除 / 全仓无残留标识 / 两条负对照）。**注意：并没有对应的 UI 开关可删** —— 全仓唯一的 GPU 行「GPU 渲染加速」驱动的是 **WebGL** 效果适配层（`gpu-gl/adapter.js`），不是 Dawn。另：是否"接入 WebWallGL 同款加速"（用实时渲染器截帧喂静态帧缓存）的权衡与建议见 `docs/archive/static-frame/RENDERER-FEASIBILITY.md` §8.2。
-- 回归护栏：`verify-resource-lifecycle` 的 S7 由「fiber dispose 调用 `cancelSceneAnimUpgrade()`」改为「**beta 场景动画路径在 client 与 host 中都已不存在**，且 dispose 仍清理存活的长命定时器」；新增 `verify-prewarm` R38/R38b（档位集合 / 三级级联 / 分组标题与行序）、`verify-docs`（文档与注释不得停留在旧世界）、`verify-settings-keys`、`verify-sampling`、`verify-encoding`。
+> 相对已发布的 **v1.0.1** 的增量（与上游 `origin/main` 的差异，逐提交可查）。
+
+**界面**
+
+- **设置页签重组**：四个域职责归位 —— 「外观 / 效果 / 声音 / 高级」；「玻璃」改名「**雾化**」。
+- **换壁纸过场动画（7 种可选）**：交叉淡化 / 推移 / 擦除 / 光圈 / 缩放 / 条带 / 百叶窗；**默认硬切**，手动点选与自动轮播共用同一套；类型 / 方向 / 速度档**走白名单**（未知值回落默认）。「条带」本轮改为真·百叶窗（原实现与「擦除」肉眼分辨不出）。
+- **实时帧行**不再受「实时渲染」开关限制（随时可重新截帧），并显示当前壁纸的实时帧**微缩预览**。
+- 过场动画选项改为**下拉菜单**，删去两行冗余面板提示。
+
+**修复**
+
+- **修复 harness 0.1.7 下「右栏关闭态露出玻璃底板」（上游 issue #107）**：宿主右栏面板容器在**关闭态**仍占宽度、且自身没有背景，而插件无条件给它刷玻璃底 ⇒ 对话区右侧露出一块中灰板（控制台零报错，易被误判成主题问题）。现在**所有**给该容器上色的规则（含 `.cm-editor` / `.xterm` 内容面与软件渲染兜底）都限定在 `[data-sidebar-right-open]`，并补一条关闭态显式清底；护栏 `verify-host-paint-scope`。
+- **移除「beta 场景动画」**：`betaSceneAnim` 开关、宿主 `/scene-anim` 与 `/scene-anim-progress` 路由、客户端动画升级队列 / 进度轮询 / 探针 `<video>`、worker 多帧渲染与 APNG 输出**整体删除**（WebWallGL 实时渲染已是其上位替代）；`verify-client` 增**反向探针**，断言该路线不会复活。
+- **资源泄漏修复（审计 12 项）**：scene-anim 析构、探针视频、监听器、定时器、轮询守卫；宿主侧资源与缓存上限一并修复。
+- **`sceneVideo` 字段诚实化**：仅在壁纸真含内嵌 MP4 时输出；补时序拉取，且 live 期间不进层 key。
+- **壁纸透明度拉高时垫底静态帧透出**：淡出底色改为原生纯黑 / 纯白。
+- **未闭合的 CSS 注释吞掉 `.we-layer` 规则**（视频壁纸掉到页面底部 / 场景壁纸盖住文字层）。
+- **extended 模式壁纸被外壳画布盖住**：清掉 `.dshDesktopFrame` 的不透明底。
+- **增强模式左侧工作区在 Win10（无 Mica）下的兜底**（上游 #73）。
+- **软件渲染下玻璃不兜底**（上游 issue #95）：`@supports not (backdrop-filter)` 这类**语法**检测在「语法支持但渲染不发生」时仍为真 ⇒ 兜底永不触发、面板过透。新增 `detectSoftwareRender()`（取不到 WebGL 上下文即判软件，并按 `UNMASKED_RENDERER_WEBGL` / `VENDOR` 匹配 swiftshader / llvmpipe 等）与 `?we-glassfallback=on|off` 手动覆盖；兜底同时覆盖 composer 卡片的 `::before` 载体。
+- **玻璃可读性下限**（#82）：给承载文字的面压一层主题底色（`--we-readability-floor`，明 0.45 / 暗 0.59）—— 壁纸可被压暗混淡，正文保持 ≥4.5:1。
+- **输入框卡片的模糊改由 `::before` 承载**（#89 / #94），恢复 fixed 后代的视口定位。
+- **ffmpeg 子进程 cwd 跨平台修复** + 健壮性审计。
+
+**依赖与护栏**
+
+- 以最小形式采纳上游 PR #87 的 `js-yaml` 约束（非可达漏洞）。
+- 打包白名单回归断言（`verify-package-files`），并补上 `lib/scene-script-apis.js`。
+
+**文档与仓库整理**
+
+- 规划文档入库（`docs/`）；**静态帧渲染线归档**到 `docs/archive/static-frame/` —— 该线与 beta 场景动画线的渲染器实现均已迁往独立仓库 [`YV3507/we-static-frame`](https://github.com/YV3507/we-static-frame)（把场景离线渲染成一张 PNG，可当库或 CLI 用），**将由其它贡献者在下次更新移除**。
+
+### v1.0.1（里程碑 · 2026-09-25）
+
+> 本安装包含 **0.7.6 + 0.7.7 + 0.7.8 + 1.0.1**。
+
+- **「扩展模式」兼容修复**：修复扩展模式下壁纸不显示、以及壁纸「正常几秒后失效成静态图 / 预览图」的问题 —— **兼容 / 增强 / 扩展三种窗口模式下壁纸与全部效果均可用**，无需再切换窗口模式。
+- 应用内公告升级至 1.0.1：移除「扩展模式暂不支持」窗口模式警告；新增 Tips：设置面板中部分暂未生效的选项为后续版本的待更新内容，会随更新逐步开放。
+
+### v0.7.8（场景壁纸实时渲染全面上线）
+
+- **场景壁纸实时渲染引擎**：接入 WebWallGL 实时渲染，90% 以上的场景效果都能完整实时呈现；个别渲染不动的壁纸自动回落静态帧管线（毫秒级出图 + 后台预热），不会黑屏。
+- **鼠标视差 / 鼠标透视**：场景层次随鼠标移动产生位移；透视 / 景深随鼠标位置实时变化。
+- **动态粒子 + 水波纹 + 鼠标点击交互**：粒子系统实时运行（质量档位可在效果页签调整）；水面 / 液体波纹；光标脚本、粒子锁点等点击响应（左键）。
+- **音频检测（音乐频谱律动）**：Windows 走系统音频（WASAPI 回环 + GSMTC），**无需 Stereo Mix / 虚拟声卡 / 任何额外接线**；同时带 Now Playing —— 曲目 / 歌手 / 封面直达壁纸。
+- **帧率上限与播放态管理**：15 / 30 / 60 fps 上限自由设定；窗口隐藏 / 最小化 / 失焦自动暂停；电池供电自动暂停（均可在效果页签关闭）。
+- **dsh-desktop 2.0.14 全面适配**：修复升级后的插件加载失败、右栏玻璃关闭态露灰板、增强模式左栏灰面板遮挡壁纸等问题；建议搭配 dsh-desktop 2.0.14 及以上版本。
+
+### v0.7.6 / v0.7.7
+
+- **壁纸属性面板**：作者属性热更新 + 卡片在抽屉里的窄布局；抽屉名称行居中等 UI 修正。
+- **轮换升级**：就绪后切换 + 交叉渐变（统一放慢到 1.8s：轮换 / GPU 静帧→首帧淡入 / 手动换壁纸同一套渐变）+ live / web 节点级领养。
+- **媒体三平台**：media-bridge 接入（macOS / Windows / Linux），中间件版本钉 v0.1.5（频谱口径修正 + 采集跟随默认输出设备）；歌曲封面（Now Playing artwork）通用取源。
+- **网页壁纸修复**：独立壁纸媒体源提供载荷（修 Desktop 全黑）、跨源重复注入 shim 导致帧率被限两次、渲染页同步 webwallgl 1.4.2（含两类网页壁纸白屏修复）。
+- **GPU 抓帧回填 + 几何校验**：实时帧缓存回填静态帧缓存、面板状态 / 清除入口、CPU 渲染严格门禁；存帧视比与当前视口不符自动清掉重抓。
+- **视频类壁纸恢复 0.7.5「选中即播」**（去掉 preview 海报与预热探测链）；官方资源路径（WE assets 目录，宿主半边 + 客户端半边）。
+- **排查台**：网页壁纸「白屏」排查（无头真浏览器截图 + 控制台报错）；渲染链路黑匣子（客户端关键步骤上报 + 宿主落盘）。
 
 ### v0.7.5
 
@@ -142,31 +162,64 @@
 
 ### Unreleased (next version)
 
-- **Caught up with upstream's WebWallGL live rendering (upstream `#103`)**: scene / web wallpapers gain **live rendering** (`/scene-live` + `/scene-files`, vendored `lib/webwallgl/`; UI labels 「场景实时渲染」/「网页实时渲染」, on by default). The two render routes **coexist**: live rendering first, degrading automatically to the static-frame chain on failure (15 s without a first frame / ~40 s without a frame at runtime), with the failure remembered per wallpaper. The same catch-up restored the `lib/webwallgl/` entry upstream omitted from the published `files` list, put the `svKnown` honesty gate back into upstream's refactored `sceneFieldsFor()`, dropped upstream's `sceneFramePrewarm` (it wrote `sf33_` keys nothing ever read), and bumped `PIPELINE_VERSION` to `sf45` (**every cached frame is invalidated and re-rendered cold on first display — expected**).
-- **Removed "beta scene animation"**: the `betaSceneAnim` switch, the host `/scene-anim` and `/scene-anim-progress` routes, the client-side upgrade queue / progress polling / probe `<video>`, the worker's multi-frame rendering and APNG output (including `lib/apng-encode.js`) are **all deleted**. Rationale: WebWallGL live rendering supersedes it (particles / scripts / parallax / packaged audio run inside the renderer page), while it shipped off-by-default, experimental, and its on-disk artifacts were never reclaimed. The user-visible display priority is **live render → the scene's author-embedded MP4 (`/scene-video`) → static frame (`/scene-frame`, falling back to main-texture approximation) → the author's preview image / a custom frame**. Leftover `san_*.apng|mp4` files on disk are still reclaimed by the startup sweep.
-- **The static-frame side is now a three-level cascade**: 「场景实时渲染」 (parent) → 「**静态帧渲染**」 (the static-frame chain's **master switch**, on by default) → 「**静态帧兜底与调优**」 (child group). Each level only appears when the one above it is not in effect.
-  - 「壁纸画面刷新」 was renamed to 「**出图来源**」 (button 「换一种」, status line `N/M 档  当前：<来源>`). It lists only the alternatives the automatic chain does **not** already use (主纹理单张 / 作者原画 / 自定义画面) — 「合成（分层）」 and 「预览图」 are that chain's own steps 2/3, so offering them again would just retry the step that failed; legacy tiers 5 (「静态帧渲染」 mistakenly treated as a tier) and 6 (composite) are **retired**, and the host accepts only `?v=1..4`.
-  - With 「静态帧渲染」 off, **no render artifact is requested at all**: the static-frame slot is filled by a 「自定义画面」 (tier 4) or the author's preview (tier 3), and idle prewarming stops.
-  - 「有损路线」 / 「空闲预热」 / 「GPU 渲染加速」 remain tuning options with **unchanged behaviour and defaults**; the GPU switch no longer triggers the deleted animation upgrade — it appends `?gpu=0/1` to the `scene-frame` URL to force a re-fetch under the new cache key.
-- **Fixed two "settings don't stick" bugs (settings-key drift)**: persisted settings are described by **three hand-maintained lists** — the client's `serializeSelection()` (what it sends), the host's `sanitizeSettings()` (the whitelist; the PUT **overwrites** `config.json` with its result), and the client's read-back `sanitizeSettings()`. Any one of them missing a field makes the user's change **silently vanish** (the UI says "saved", the next load returns the default):
-  - **Frame-source tier / custom frame never persisted** (0.7.5 user report): the host whitelist lacked `frameVariants` / `customFrames`, so the client sent them on every PUT and the host dropped them on every PUT — the chosen tier and an imported custom frame were lost on refresh. Now whitelisted **with validation**: tiers only `0..4` (the retired 5/6 are dropped), key names must look like wallpaper ids, `customFrames` accepts only literal `true`, and there is a 200-entry cap.
-  - **Four tuning switches were never persisted at all** (the same drift, in the opposite direction — `serializeSelection()` never sent them): `sceneLossyRoute` / `sceneGpuAccel` / `scenePrewarm` / `scenePrewarmScope` existed in the host whitelist *and* in the client's read-back list, but not in the client's write list. Idle prewarming was the worst: the host always read `false`, so the whole prewarm chain was unreachable from the UI.
-  - **Drift is now observable**: a PUT carrying a key the whitelist does not recognise logs the key names (silent dropping is exactly what made this hard to diagnose).
-  - Guards: new `verify-settings-keys` (round-trip through the real function + tier/custom-frame validation + three-list consistency + reverse drift, each with a negative control) and `verify-sampling` (turns the `blitScaled` sampling evidence that used to live only in `tmp-*` exploration scripts into assertions: box-average downscale, bilinear upscale, byte-identical 1:1 path, with a nearest-neighbour negative control).
-- **Fixed the "collapsed right sidebar still shows a glass plate on harness 0.1.7" bug (upstream issue #107)**: the host's right-panel container `[data-sidebar-right-panel]` keeps its **width while collapsed** on 0.1.7 — the harness now hides the panel's **children** (`visibility:hidden` + slid out along `--dsh-sidebar-width`) and the container itself paints **no background**; the plugin painted the container unconditionally, so a mid-grey slab appeared across the right of the conversation area (zero console errors, easily mistaken for a theme or skin problem). Every rule that paints that container is now scoped to `[data-sidebar-right-open]` (the host sets it only while expanded — `expanded || void 0`; it already exists with identical semantics in the minimum supported harness 0.1.5-rc.2, so the scoping is a backwards-compatible no-op: the collapsed panel was invisible anyway, the expanded one is unchanged). Guard: new `verify-host-paint-scope`.
-- **Fixed the static-frame worker's historical encoding mojibake**: **67 lines** of Chinese in `lib/scene-render-worker.mjs` (51 comments + 16 `gpuDiag` strings) were leftovers from an encoding accident. The cause is now pinned down: an interrupted `main ← catchup-v0.7.5` merge brought the mojibake in, and that merge's conflicted working state still sits in the object database as an **unreachable blob** (`19070f44`) whose `main` side is the clean original (the mangled version is still on the `catchup-v0.7.5` branch, so another merge could reintroduce it). All 67 lines are **restored**: 28 taken verbatim from clean sources (that blob's clean side / earlier clean revisions / a surviving clean working copy) under a "re-encode identity" criterion, the rest reconstructed from the inverse-transform fragments plus context, each line machine-checked; a line-by-line code-skeleton comparison proves **only comments and string contents changed** (zero logic change). New `verify-encoding` guard: a repo-wide mojibake scan with a positive control (a historical sample must be flagged) and a negative control (guarding against the "treat U+9000–U+9FFF as a rare block" false positive — 道/都/里/重 are all in that range).
-- **The static frame is now a *cache fallback*; live rendering comes first** (fixes the stutter and black screen caused by static-frame work still running while live rendering was in use): scene / web wallpapers render live by default, but two redundant static-frame computations competed with it for CPU/GPU —
-  ① the **client** used the static frame as live's **poster**, so starting live rendering also kicked off a cold 4K render (worker + GPU, hundreds of ms to seconds) for a purely transitional image;
-  ② the host's **idle prewarming** neither knew whether live rendering was in use nor whether the wallpaper it was warming was the one being live-rendered.
-  Either one can push live's first frame past the 15-second watchdog ⇒ guarded degradation, the wallpaper is written into the **failure memory** (so it never live-renders again), and the screen is **black** until the image finally exists.
-  Current rules (the static frame's purpose is a trade-off for scenes that cannot render well):
-  - **Hit only, never render**: new `GET /scene-frame/…?cached=1` — the host answers from the cache, returns 404 on a miss, and **never enters the render path** (guard: `verify-prewarm` R11c).
-  - **A poster is shown only on a cache hit**: the client's live branch requests `?cached=1` and drops the poster on a miss, leaving it blank — **a blank first load is accepted** rather than stealing CPU/GPU from live rendering's first frame; the author preview image is **no longer** used as a poster (quality rejected), and with the 「静态帧渲染」 master switch off not even a cached frame is shown.
-  - **Prewarming now exists to build the cache for switching / rotation**: `/scene-live` + `/scene-files` traffic counts as user activity, so prewarming is pushed back until the animation is up, and the wallpaper currently being **live-rendered** is excluded from the candidate list and never promoted (`liveSuppressesPrewarm`, the same criterion as the client's `liveRenderEnabled`; guard: `verify-prewarm` R11b, truth table + four negative controls).
-  - The old rule ("the static frame *is* the display form") still applies when live rendering is off (`sceneLive === false`) or that wallpaper has already failed — only then does it render and prewarm.
-  - Guards also include `verify-scene-live`'s poster assertions (cache-first + self-removal on a miss) with three controls (two negative, one positive).
-- **WebGPU/Dawn backend dropped (WebGL is now the only GPU backend)**: deleted `lib/we-renderer/gpu-dawn/backend.js` (21 KB; nothing imported it, yet it *shipped* because `files` includes all of `lib/we-renderer/`) and `lib/we-renderer/glsl/wgsl.js` (GLSL→WGSL, only Dawn used it), plus Dawn's dead `_dawnEffectCache` hook and comments in `render/passes.js`. Reasons: ① **native crashes** (a second `create()` in the same process, or rebuilding a pipeline right after `unmap`, takes the process down — one instance per process); ② the existing WebGL path is **not yet squeezed** (its GPU effects stage is now dominated by one upload + `readPixels` readback per effect, which `runEffectChainOnGL` batching can still cut); ③ heavier dependencies (WGSL transpile + prebuilds everywhere); ④ **audience mismatch** — the machines that need static frames are VMs / remote sessions with no usable GPU. Guards: four new checks in `verify-fx-chain` (files gone / no references repo-wide / two negative controls). **Note: there was no UI switch to remove** — the only GPU row, 「GPU 渲染加速」, drives the **WebGL** effects adapter (`gpu-gl/adapter.js`), not Dawn. The weighing of "reuse WebWallGL's acceleration" (capture a frame from the live renderer into the static-frame cache) is in `docs/archive/static-frame/RENDERER-FEASIBILITY.md` §8.2.
-- Regression guards: `verify-resource-lifecycle` S7 changed from "fiber dispose calls `cancelSceneAnimUpgrade()`" to "**the beta scene-anim path is gone from both client and host**, while dispose still cleans the surviving long-lived timers"; new `verify-prewarm` R38/R38b (tier set / three-level cascade / group heading and row order), `verify-docs` (docs and comments must not stay in the old world), `verify-settings-keys`, `verify-sampling` and `verify-encoding`.
+> Increment over the published **v1.0.1** (the diff against upstream `origin/main`, verifiable commit by commit).
+
+**UI**
+
+- **Settings tabs reorganised**: the four domains are now where they belong — 「外观」/「效果」/「声音」/「高级」; 「玻璃」 was renamed to 「**雾化**」.
+- **Wallpaper-switch transitions (7 options)**: cross-fade / push / wipe / iris / zoom / strip / blinds; **hard cut by default**, shared by manual selection and automatic rotation; type / direction / speed tier are **whitelisted** (unknown values fall back to the default). 「条带」 (strip) became a real venetian blind this round — the previous implementation was visually indistinguishable from 「擦除」 (wipe).
+- **The live-frame row** is no longer gated by the live-rendering switch (you can re-capture at any time) and shows a **thumbnail of the current wallpaper's live frame**.
+- The transition options moved into a **dropdown**, and two redundant panel hints were removed.
+
+**Fixes**
+
+- **Fixed the "collapsed right sidebar still shows a glass plate on harness 0.1.7" bug (upstream issue #107)**: the host's right-panel container keeps its **width while collapsed** and paints no background of its own, while the plugin painted it unconditionally ⇒ a mid-grey slab across the right of the conversation area (zero console errors, easily mistaken for a theme problem). Every rule that paints that container (including the `.cm-editor` / `.xterm` content surfaces and the software-render fallback) is now scoped to `[data-sidebar-right-open]`, plus an explicit closed-state clear; guard `verify-host-paint-scope`.
+- **Removed "beta scene animation"**: the `betaSceneAnim` switch, the host `/scene-anim` and `/scene-anim-progress` routes, the client-side upgrade queue / progress polling / probe `<video>`, and the worker's multi-frame rendering and APNG output are **all deleted** (WebWallGL live rendering supersedes it); `verify-client` gained a **reverse probe** asserting that route never comes back.
+- **Resource leaks fixed (12 findings from the audit)**: scene-anim teardown, probe videos, listeners, timers, polling guards; host-side resources and cache caps too.
+- **`sceneVideo` made honest**: only emitted when the wallpaper really embeds an MP4; added a follow-up fetch for ordering, and it no longer enters the layer key while live rendering.
+- **The poster static frame showing through at high wallpaper opacity**: the fade-out backing colour is now native pure black / white.
+- **An unterminated CSS comment swallowing the `.we-layer` rule** (video wallpapers dropping to the bottom of the page / scene wallpapers covering the text layer).
+- **The wallpaper being covered by the shell canvas in extended mode**: the opaque background on `.dshDesktopFrame` is cleared.
+- **Fallback for the enhanced-mode left workspace on Win10 (no Mica)** (upstream #73).
+- **Glass did not fall back under software rendering** (upstream issue #95): a *syntax* check such as `@supports not (backdrop-filter)` stays true when the syntax is supported but rasterisation never happens ⇒ the fallback never fired and panels stayed too transparent. Added `detectSoftwareRender()` (no WebGL context ⇒ software; otherwise match `UNMASKED_RENDERER_WEBGL` / `VENDOR` against swiftshader / llvmpipe / …) and a `?we-glassfallback=on|off` manual override; the fallback now also covers the composer card's `::before` carrier.
+- **Text-surface readability floor** (#82): text-bearing surfaces get a theme base colour layered on top (`--we-readability-floor`, 0.45 light / 0.59 dark) — the wallpaper may be dimmed and faded, the body text stays at ≥4.5:1.
+- **The input-card blur moved onto `::before`** (#89 / #94), restoring viewport positioning for fixed descendants.
+- **Cross-platform fix for the ffmpeg child process cwd** plus a robustness audit.
+
+**Dependencies & guards**
+
+- Adopted upstream PR #87's `js-yaml` constraint in minimal form (a non-reachable vulnerability).
+- Packaging-whitelist regression assertions (`verify-package-files`), and `lib/scene-script-apis.js` added back.
+
+**Docs & repo housekeeping**
+
+- Planning documents brought into the repo (`docs/`); the **static-frame rendering line is archived** under `docs/archive/static-frame/` — that line's renderer, like the beta scene-animation line's, now lives in the standalone repo [`YV3507/we-static-frame`](https://github.com/YV3507/we-static-frame) (offline scene → a single PNG, usable as a library or CLI) and **will be removed by other contributors in the next update**.
+
+### v1.0.1 (milestone · 2026-09-25)
+
+> This install contains **0.7.6 + 0.7.7 + 0.7.8 + 1.0.1**.
+
+- **"Extended mode" compatibility fix**: fixed wallpapers not showing in extended mode, and wallpapers that "work for a few seconds and then fall back to a static image / preview image" — **wallpapers and every effect now work in all three window modes** (compatible / enhanced / extended), with no need to switch modes.
+- The in-app notice was bumped to 1.0.1: the "extended mode not supported yet" warning is gone; a new Tip states that some settings-panel options not yet in effect are upcoming work that will open up as updates land.
+
+### v0.7.8 (scene-wallpaper live rendering goes fully live)
+
+- **Scene-wallpaper live rendering engine**: WebWallGL live rendering is wired in, and 90 %+ of scene effects render fully in real time; the rare wallpaper that cannot render live automatically falls back to the static-frame pipeline (millisecond output + background prewarming) — no black screen.
+- **Mouse parallax / mouse perspective**: scene layers shift as the mouse moves; perspective / depth of field change with the pointer in real time.
+- **Live particles + water ripples + click interaction**: the particle system runs live (quality tier adjustable on the effects tab); water / liquid ripples; cursor scripts, particle anchors and other click responses (left button).
+- **Audio detection (music spectrum)**: on Windows it taps system audio (WASAPI loopback + GSMTC) — **no Stereo Mix, no virtual audio device, no extra wiring**; it also brings Now Playing — track / artist / artwork straight into the wallpaper.
+- **Frame-rate cap & playback-state management**: pick 15 / 30 / 60 fps; auto-pause when the window is hidden / minimised / unfocused; auto-pause on battery (all switchable on the effects tab).
+- **Full dsh-desktop 2.0.14 adaptation**: fixes plugin load failures after the upgrade, the right-sidebar glass showing a grey plate when collapsed, and the enhanced-mode left grey panel covering the wallpaper; pairing with dsh-desktop 2.0.14 or newer is recommended.
+
+### v0.7.6 / v0.7.7
+
+- **Wallpaper properties panel**: live author-property updates + a narrow card layout inside the drawer; centred name row and other UI corrections.
+- **Rotation upgrade**: switch when ready + cross-fade (slowed to a uniform 1.8 s: rotation / GPU still frame → first-frame fade-in / manual wallpaper switches all share one recipe) + node-level adoption for live / web.
+- **Media on three platforms**: media-bridge integrated (macOS / Windows / Linux), middleware pinned at v0.1.5 (spectrum semantics corrected + capture follows the default output device); Now Playing artwork with a generic source.
+- **Web wallpaper fixes**: a dedicated wallpaper media origin serves the payload (fixes an all-black Desktop), a cross-origin duplicate shim injection that capped the frame rate twice, and the renderer page synced to webwallgl 1.4.2 (including both classes of web-wallpaper white-screen fix).
+- **GPU frame capture backfill + geometry validation**: live frames backfilled into the static-frame cache, panel state / clear entry points, a strict gate for CPU rendering; a stored frame whose aspect ratio does not match the viewport is dropped and re-captured.
+- **Video wallpapers got 0.7.5's "play on selection" back** (the preview poster and the prewarm probe chain are gone); official asset path (the WE assets directory, host half + client half).
+- **Diagnostics workbench**: web-wallpaper "white screen" triage (headless real-browser screenshot + console errors); a render-path black box (client step reporting + host-side log dump).
 
 ### v0.7.5
 

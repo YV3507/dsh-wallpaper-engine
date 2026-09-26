@@ -72,7 +72,7 @@ linux-wallpaperengine / repkg 逆向成果）完整重放：解析 `scene.pkg` �
        web 壁纸是多文件 HTML 应用，入口里全是相对路径，而 iframe 的 src 决定相对解析基准 —— 必须用这条
        「目录型」路由当入口，相对资源才会落回同一前缀（拿 `/media/<token>` 当入口会让每个子资源都变成
        `/media/<文件名>` 而 404，iframe 里因此什么都没有）。资源根 = 入口 HTML 所在目录；护栏：
-       `scripts/verify-web-route.mjs`
+       `scripts/verify-web-route.mjs`（该护栏未随本线保留）
      - `GET /wallpaper-engine/preview/<token>` → 预览图
      - `GET /wallpaper-engine/video-preview/<token>` → 自上传 MP4 的按需抽帧缩略图（ffmpeg，磁盘缓存）
      - `GET /wallpaper-engine/scene-live/<子路径>` → 内置 WebWallGL 渲染页（vendor 产物 `lib/webwallgl/`，以 `/wallpaper-engine/scene-live/` 为 base 挂载；实时渲染 iframe 加载它）
@@ -192,7 +192,7 @@ the picker.
        is what decides the relative base — so the entry must be loaded through this **directory-shaped** route
        (pointing the iframe at `/media/<token>` makes every sub-resource resolve to `/media/<filename>` and 404,
        leaving the iframe empty). Resource root = the entry HTML's own directory; guard:
-       `scripts/verify-web-route.mjs`
+       `scripts/verify-web-route.mjs`（该护栏未随本线保留）
      - `GET /wallpaper-engine/preview/<token>` → preview image
      - `GET /wallpaper-engine/video-preview/<token>` → on-demand ffmpeg-extracted thumbnail for a custom MP4 upload (disk-cached)
      - `GET /wallpaper-engine/scene-live/<subpath>` → the vendored WebWallGL renderer page (`lib/webwallgl/`, mounted with `/wallpaper-engine/scene-live/` as base; the live-render iframe loads it)

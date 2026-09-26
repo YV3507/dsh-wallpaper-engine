@@ -61,7 +61,7 @@
 - `supreium-headless-gl` 仅 **x64** prebuild（ABI 108-147）；DSH Electron ABI 148 没有 prebuild → 只能 **fork 系统 Node 子进程**跑 GPU（sf41 的 workaround）；arm64 直接门控回退 CPU（gl-core.js `SUPPORTED_ARCH = ['x64']`）。
 - ~~**WebGPU/Dawn spike 已做过**~~ → **⚠️ 已废弃（2026-09 决策更新，见 §8）**：spike 实测 21.1×（RTX 4060，960×540 计算着色器 0.31ms vs CPU 6.58ms）且跨平台 prebuild 覆盖面远好于 supreium，但**同进程二次 `create()` / unmap 后立即重建 pipeline 会原生崩溃**（每进程一实例），且现有 WebGL 路径尚未榨干、静态帧的读者（无可用 GPU 的虚拟机 / 远程端）与 Dawn 的适用面错位。`lib/we-renderer/gpu-dawn/backend.js` 与仅为它服务的 `lib/we-renderer/glsl/wgsl.js`（GLSL→WGSL）已删除，护栏 `scripts/verify-fx-chain.mjs` 阻止回流。
 
-### 官方引擎逆向资产（事实已内联为代码注释；原 docs/WE-REVERSE.md 已溶解）
+### 官方引擎逆向资产（事实已内联为代码注释；原 docs/WE-REVERSE.md 现归档于本目录）
 
 - 官方引擎逆向：wallpaper64.exe 函数地址表（定位数学 0x1401EC25A、相机矩阵应用 0x1401ED0D0 等）+ 已确认官方数学（eye/ortho/MDLA/蒙皮，内联在各实现处注释）。
 - 本机 WE 安装目录内 `scene-renderer-analysis.md`（2.8.42）：**官方渲染器 = wallpaper64.exe（D3D11 宿主）+ bin/scenescript64.dll（场景引擎 + 内嵌 V8）+ resourcecompiler64.exe；官方 shader 以源码形式随发行版发布（assets/shaders/ ~90 个）**；难度自评：协议层 ★★ 已基本破译，C++ 宿主端 ★★★★（无符号 ~15k 函数），全量重建 ≈ 0.5–1 人年。

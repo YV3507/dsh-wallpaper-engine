@@ -1,5 +1,51 @@
 # 场景静态帧冷渲染 —— 成本实测与"砍谁"的结论
 
+<!-- status-banner: code-is-truth -->
+> **状态：历史调研（已归档，非现状）** —— 本文件是性能可行性/测量报告，**以代码为准**。
+>
+> 已核对：文中若干"建议/目标"**并未实现**，例如 `workerBudget = 核数×0.34`、
+> `MAX_GLSL_PIXELS = 65536`、并行阈值（1 Mpx / 2 项 / 512KB）。勿当作现有行为引用。
+>
+> **路径范围声明**：文中"采样选点 / 空白帧门禁 / 预览标定"等机制属**静态帧渲染线**，
+> **不在当前分支**（本分支无 `PROBE_W` / `BLANK_RATIO` / `MAX_PROBE` / `REFINE_N` / `COARSE_MAX`
+> 等符号，`lib/scene-render-worker.mjs` 只是薄壳 worker）。要引用这些机制请去对应分支。
+>
+> **本分支确实存在、可作为对照的锚点**（守卫会校验其存在性）：
+> | 事实 | 位置 |
+> |---|---|
+> | 静态帧渲染入口与尺寸（3840×round(3840/ar)）、质量门与缓存键 | `lib/index.js` |
+> | 场景资源解析 / 提取（合成器所在） | `lib/pkg-extract.js` |
+> | 渲染器模型与实现 | `lib/we-renderer/model.js` |
+>
+> **淘汰提示**：文中「空闲预热 / 队列预热 / `lib/scene-prewarm.js`」等**已不在本分支**
+> （该文件不存在）。引用请以本分支实际代码为准。
+>
+> 
+> **本分支不存在的路径声明**（文中引用它们的地方属另一世系；守卫会校验本清单完整）：
+> - `lib/scene-prewarm.js`
+> - `lib/we-renderer/decode-worker.mjs`
+> - `lib/we-renderer/effects/registry.js`
+> - `lib/we-renderer/gpu-gl/adapter.js`
+> - `lib/we-renderer/parallel.js`
+> - `lib/we-renderer/predecode.js`
+> - `lib/we-renderer/profile.js`
+> - `lib/we-renderer/render/framebuffer.js`
+> - `lib/we-renderer/render/passes.js`
+> - `scripts/bench-dxt-parallel.mjs`
+> - `scripts/diagnose-atlas-frame.mjs`
+> - `scripts/diagnose-scene-atlas-ab.mjs`
+> - `scripts/inspect-decode-cost.mjs`
+> - `scripts/tmp-gpu-probe.mjs`
+> - `scripts/verify-atlas-frame-decode.mjs`
+> - `scripts/verify-band-parallel.mjs`
+> - `scripts/verify-composite-anchor.mjs`
+> - `scripts/verify-composite-blit.mjs`
+> - `scripts/verify-fx-chain.mjs`
+> - `scripts/verify-png-decode.mjs`
+> - `scripts/verify-prewarm.mjs`
+> 归并原则见 TODO.md §3：**注释写不变量，不写编年史**；能写在代码旁的规则不单写文档。
+
+
 > ⚠️ **历史记录（2026-09-23 追记）**：本文中涉及 **beta 场景动画 / `scene-anim` 多帧
 > 动画**的实测与结论（多帧渲染、APNG/帧序列管线、帧并行 worker、逐帧进度等）对应的是
 > 已移除的路线；该路线随 WebWallGL 实时渲染落地而整体删除。**静态帧（单帧）相关的实测

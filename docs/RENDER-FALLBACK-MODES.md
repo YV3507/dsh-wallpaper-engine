@@ -1,243 +1,335 @@
-# 回退形态设计：两层模型 + 全局回退链
+# 回退形态设计（**目标**）：静态帧渲染归档之后
 
-> 状态：**2026-09-24 设计定稿** · **2026-09-25 已全量实施**（§1–§7 全部落地，逐节带守卫）
-> 适用范围：**场景类壁纸**。网页壁纸的形态与垫底**不在本文范围**（其它贡献者在处理，我们不碰）。
-> 设计原则：**兼容优先**（沿用现有持久化形态，不写迁移）；**不做**"完全禁用渲染产物"的高级项。
-> 附 **§10 实测附录**：两例"live 在跑却看到回退层画面"的边界泄漏（均已修复并带守卫）。
+> **本文是目标设计，不是现状说明。** 上一版（旧主线 2026-09-24 的「两层模型 + 全局回退链」）描述的
+> 是另一条线的实现 —— 其档位 id 体系（`{0,2,4,7,8}`、`0=auto`、`7=mp4`、`8=static`）与本仓库
+> **完全不同**，其 `静态帧兜底与调优` 三级级联 / `?cached=1` / `sceneLossyRoute` 在本仓库均不存在。
+> 那一版作废，本文取而代之。
+>
+> **状态：2026-09-26 目标稿 · 未实施。**
+> 前置：**整条「静态帧渲染」线**（不只是那个离线渲染器）**将由其它贡献者在下一次更新移除** —— 它的
+> 完整血统见 §1.3。实现已迁往独立仓库
+> [`YV3507/we-static-frame`](https://github.com/YV3507/we-static-frame)；**该仓库的文件清单里包含
+> `src/pkg-extract.js`**，即提取器也一并迁走了。
+> 适用范围：**场景类壁纸**。网页壁纸的形态与垫底不在本文范围（其它贡献者在处理）。
+> 设计原则：**零迁移优先**（不改用户可感知的持久化语义）；**不新增用户可见开关**；**不留死代码**。
 
-## 0. 实施对照（2026-09-25）
+---
 
-| 节 | 落地位置 | 守卫 |
+## 1. 现状取证（写本文时的代码事实，可逐条复核）
+
+### 1.1 有**两层**结构，别把两层混成一层
+
+| 层 | 是什么 | 落点 |
 |---|---|---|
-| §1 两层模型 | live 仍是独立开关 `sceneLive`；回退链是全局枚举 | R38（链序 + 级联） |
-| §2 枚举与 id | `FRAME_VARIANTS = [0,4,7,8,1,2]`；宿主 `clampFrameVariant()` 值域 `{0,1,2,4,7,8}`，3/5/6/越界按 0 | verify-settings-keys S1b · R38 |
-| §3 人工切换 | 「出图来源」行按可用集循环（auto → custom → mp4 → static → maintex → art → auto） | R38 |
-| §4 失败与终端 | 会话级 `frameFailures` + `chainIdForBuild()` 前进；全失败 ⇒ 不设 src（不渲染） | R40 |
-| §5 预览档删除 | 宿主 `?v=3` 分支、客户端 `tryPreview`、层内 img 的 preview onerror 全删；`preview` 仅作资产 | R19b · smoke 场景 E |
-| §6 持久化与陈条清理 | 值域校验 + 无记录=auto；`collectStaleEntries()` + 90s 后一轮、16/批、批间静息 30s、复用预热空闲门控 | R41 · R41b |
-| §7 `sceneFrameRender` 删除 | 客户端 9 处 + 宿主 3 处 + 守卫 6 处全部移除 | R38 · R40 |
-| §8 守卫清单 | 各节断言均已落地（含负对照） | verify-prewarm · verify-settings-keys · verify-scene · smoke |
-| §10 实测附录 | 两例边界泄漏：资产操作拆 live 层、extended 换元自救 | verify-scene-live |
+| **显示链** | 屏上"动态还是静态" | `buildMedia()`，`lib/client.js:3743-3752` |
+| **静帧来源枚举** | 静态时那张图**由哪个来源产出** | `FRAME_VARIANTS`，`lib/client.js:531` |
 
-## 1. 两层模型（语义）
-
-- **① live 是一个 T/F 开关**（`sceneLive`，UI「场景实时渲染」）：**开着读 live；关掉才读回退链**。
-  live 与回退链**不是同一条枚举**，是两个层级。
-- **② 回退链是一条全局唯一的枚举顺序**（"壁纸下一个回退到哪"只有一份定义）：
+**显示链**（源码注释称"优先级不变量"，`lib/client.js:1456`）：
 
 ```
-链头 = 下列各项中**第一个存在的**：
-     custom（自定义画面，用户已导入时）
-   → mp4（作者内嵌 MP4，存在时）
-   → static（静态帧渲染）
-   → maintex（单张大图）
-   → art（内嵌 JPEG/PNG）
+① live（WebWallGL） → ② sceneVideo（作者内嵌 MP4，poster = 静帧） → ③ 静帧图（sel.url → /scene-frame?v=N）
 ```
 
-- **只持久化"该壁纸用链中的哪一个"**；默认 `auto` = **取链头**（= 第一个可用者）。
-- ⚠️ **`auto` 的语义后果**（按"链头"定义推出，如有异议请否决）：live 关掉且用户已为某壁纸导入自定义画面时，`auto` 会**先显示 custom**，而不是 mp4/static。
+`isSceneVideo = (type==='scene' && sceneVideo && !isLive)`；
+`isStill = (type==='image') || (type==='scene' && !isLive && !isSceneVideo)`。
 
-## 2. 枚举与 id（兼容优先，不做迁移）
+### 1.2 静帧来源枚举（本仓库的真实档位）
 
-沿用现有 `frameVariants` 的**数字形态**（键 = 壁纸 id，值 = 下表 id），只扩展值域：
+`FRAME_VARIANTS`（`lib/client.js:531-537`）↔ 宿主 `?v=`（`lib/index.js:3201`：`?v=1..4` 有效，缺省/0 → 0）：
 
-| id | 名称 | 含义 | 备注 |
+| 档 | 客户端标签 | 宿主的真实来源 | 落点 |
 |---|---|---|---|
-| **0** | `auto` | 取链头（第一个可用者） | 既有语义，默认值 |
-| **4** | `custom` | 用户导入的自定义画面 | **沿用既有 id 4**；存在时即**链头**（在 mp4 之前） |
-| **7** | `mp4` | 作者内嵌 MP4（`/scene-video`） | **新 id** —— 历史 5=总开关、6=合成 曾被 0.7.x 写过，复用会让老配置被误读 |
-| **8** | `static` | 静态帧渲染（`/scene-frame`，可含 `_gpu.png` 抓帧） | **新 id** |
-| **1** | `maintex` | 单张大图（主纹理，跳过合成） | 既有 |
-| **2** | `art` | 内嵌 JPEG/PNG（作者原画优先） | 既有 |
-| ~~3~~ | ~~`preview`~~ | ~~作者预览图~~ | **已删除**（见 §5） |
-| ~~5 / 6~~ | — | 历史退役（5=「静态帧渲染」总开关误入档位表、6=合成） | 一律按 `0` 处理 |
+| **0** | 合成（分层） | `tryCompositeSceneLayers()` 多层合成；**失败则静默回落到单图排序** | `lib/pkg-extract.js:1643-1651` |
+| **1** | 主纹理（单张大图） | **找最大图片**：遍历包内 `.tex`，按 `面积 × 嵌入格式权重 × 路径惩罚` 打分排序 | `lib/pkg-extract.js:1683-1706` |
+| **2** | 作者原画（嵌入 JPEG/PNG） | **作者 PNG**：包内嵌入 JPEG/PNG 整图按面积置顶 | `lib/pkg-extract.js:1711-1729` |
+| **3** | 预览图 | 直接读工坊目录 `preview.jpg|png|gif`（**不经** `pkg-extract`） | `lib/index.js:3260` |
+| **4** | 自定义画面 | 用户导入的 `overrides/<id>.*`，缺失 → 422 | `lib/index.js:3253` |
 
-## 3. 人工切换（UI）
+**GPU 实时帧（`<key>_gpu.png`）优先于 v=0–3 的全部档位**（`lib/index.js:1980-1987`）；**v=4 豁免**。
+该帧由 live 渲染页经 `PUT /scene-frame-cache/<token>` 回填（`lib/index.js:3325` 起）。
+缓存键：`SCENE_FRAME_KEY_VERSION = 'sf34'`（`lib/index.js:1941`），非 0 档追加 `_vN`（`:1960-1961`）。
 
-- 「回退形态」行**只在 live 关掉时出现**（沿用现有级联：`!liveRenderEnabled(sel)` 才显示子行）。
-- **循环顺序**（点「换一种」）：
+### 1.3 「静态帧渲染」的完整血统 —— 它**不只是**那个离线渲染器
 
-```
-[custom] → [mp4] → static → maintex → art → 回到「链头」
-```
+按提交史核实，下面这些都属同一条线，**应当一起走**：
 
-  其中 `[custom]` / `[mp4]` **只在存在时出现**；**"回到链头"= 回到第一个存在的项**：
-  有 custom 就回 custom，否则有 mp4 回 mp4，否则回 static。
-- 状态行文案：`回退形态：<名称>（N/M）`（`N/M` 只统计**当前壁纸实际存在**的项）。
-
-## 4. 失败与终端
-
-- **逐级失败**：**每次会话重试一次**（避免永久贴在低质量档）+ **记住失败原因**（可解释、可诊断），随后自动前进到链中下一个可用者。
-- **全部不可用 / 报错 ⇒ 不渲染**：画面为空，**看起来和没装该插件一样** —— **不回退到 preview**（缩略图放大必糊，该级已删除）。
-- live 打开但判失败（首帧超时 / 运行中断）时，语义等同于"live 不可用"⇒ 读回退链，并把失败写进记忆（可由用户重试清除）。
-
-## 5. `preview` 的删除范围（只删"回退来源"）
-
-**删除**（作为回退来源）：
-- 宿主 `/scene-frame?v=3` 分支（`lib/index.js:3509-3511`，服务 `preview.jpg/png/gif`）；
-- 客户端 `isStill` 的 preview 兜底与失败回退（`src/client.js:1879`、`:1886-1888`）与 `Keep the preview around …`（`:1268`）的注释/逻辑；
-- `frameRenderOff ? (hasCustom ? 4 : 3)`（`src/client.js:1207`，随「静态帧渲染」开关一起消失）；
-- 文档中的"作者预览图"作为回退档的表述。
-
-**不删（资产，另有用途）**：
-- inventory 的 `preview`（`lib/index.js:3036`）——**选择器缩略图**需要（`src/client.js:3574` 封面）；
-- **网页壁纸的垫底**（`src/client.js:1808`）——**不动**，其它贡献者在处理这块。
-
-## 6. 持久化
-
-- 形态：沿用 `frameVariants`（`{ "<wallpaperId>": <id> }`）。宿主按**值域**校验：合法值 `{0,1,2,4,7,8}`；越界/退役值（5/6/其它）一律按 `0`；键名走已有 `WALLPAPER_ID_RE`；条数上限沿用 200。
-- **无记录的壁纸 = `auto`**（兼容即默认，不需要迁移代码）。
-- 我们 fork 的 `sceneFrameSource`（render/maintexture）与 `sceneLossyRoute` **退役**：这两者表达的就是 `static` / `maintex`，由链上枚举取代。
-- **陈条清理（定案）**：
-  - **频率**：**每次启动后只完整跑一轮**（不追求实时清理）；
-  - **节奏**：每批 **16 条**，批与批之间**静息 30 秒**（复用空闲/活动门控 `noteActivity`）；
-  - **绝不拖延启动**：清理完全在后台进行，启动路径不做任何同步扫描；
-  - **当心设备压力**：不与 live 渲染、预热抢资源（同样走空闲门控），每轮写 `gpu-diag` 日志。
-
-## 7. 「静态帧渲染」开关（`sceneFrameRender`）：删除
-
-- 理由：与「场景实时渲染」同时关闭时该壁纸的形态无意义；"省渲染开销"的需求已由**空闲预热**与**逐壁纸回退形态**覆盖。
-- 删后语义：live 关掉 ⇒ **必定落在回退链的某一档**（默认 `auto`），不再存在"什么都不渲染"的态。
-- 牵连面（实测）：`src/client.js` 9 处、`lib/index.js` 3 处、`scripts/verify-prewarm.mjs` 6 处；docs 仅出现中文 UI 名。
-
-## 8. 守卫清单（实施时同步）
-
-- `verify-settings-keys`：合法值域 `{0,1,2,4,7,8}`、越界/退役值按 `0`、三份清单一致。
-- 新增断言（各带负对照）：
-  - `variant ∈ {1,2}`（maintex/art）⇒ **不吃** `_gpu.png`（对应宿主 `gpuFrameFileFor()` 的 `variant > 0`）；
-  - 形态 = `mp4` ⇒ `buildMedia` 走 MP4 分支；形态 = `static` ⇒ 走静态帧；
-  - **循环顺序**：`art` 的下一项 = **链头**（有 custom 回 custom，否则有 mp4 回 mp4，否则 static）；
-  - 「回退形态」行**仅在 live 关掉时出现**。
-- `verify-prewarm`：删除对 `sceneFrameRender` 的 6 处断言，改为"预热按形态决策"（只预热需要渲染产物的壁纸）。
-
-## 9. 未决
-
-无。本文档内所有条目均已定案（2026-09-24）。
-
-## 10. 实测附录：live 与回退层的边界（两例，2026-09-25）
-
-回退链只在 **live 关掉** 或 **live 判失败** 时才被读。但实测发现两个"边界泄漏"的坑 ——
-live 明明在跑（**音频还在响**），用户却看到回退层的画面（垫底静态帧 / 作者预览图）。
-两例都已修复并带守卫，记在这里：它们的判据都落在"层 key 是否被**资产操作**改写"与
-"回退层何时顶上来"这两点上。
-
-### 10.1 资产操作不得拆掉 live 层
-
-**症状**：清一次 GPU 抓帧缓存、或切一次「出图来源」档位之后，画面变成静态（像是 live 停了）。
-
-**成因**：`selection.url` 是层 key 的字段之一（`type / url / edge / sceneVideo / audio / live`），
-而 live 在跑时层里是渲染页 —— 静态帧 URL（含出图档位）只是**垫底资产**。两个资产处理器却都会
-改写它并 `syncLayers()`：`onClearGpuFrame`（清 GPU 抓帧缓存）、`onRefreshFrame`（切出图档位）
-⇒ 每次资产操作都拆掉 live 层、渲染页冷启动重载；重载期屏上就是垫底静态帧。
-
-**判据（实机日志）**：层 key 在 `url: …scene.pkg?v=8 ⇄ …scene.pkg`（档位两种等价写法互相抖）
-与 `live: live ⇄ nolive` 之间反复抖，每抖一次紧跟 `build-live 冷启动渲染页（重新加载）`；
-而 `beat` 里是 `liveOn=0 watch=-` **`fails=0`** —— 不是失败降级，是层被**主动拆掉**。
-
-**修法**：① live 在跑时层 key **不吃资产 URL**（用 `live-asset` 占位）；② 两个处理器在 live 在
-跑时改为**就地重挂垫底图**（`refreshStaticFrameNodes`）+ `emit()`，不再 `syncLayers()`；
-live 未启用时行为**完全不变**（静态帧确实要换图）。
-
-**守卫**：`verify-scene-live` 三条断言（key 不吃资产 URL / 两个处理器都被 live 判据挡住）+
-两条**负对照**（无条件 `syncLayers`、旧 key 写法喂给同一判据必须被判不合格）。
-
-### 10.2 extended 模式的「换元」自救：默认关闭
-
-**症状**：**只有扩展模式**，场景与网页壁纸都"正常几秒就失效"，失效后显示静态图（网页类显示
-作者预览图），而**音频仍在播放**。
-
-**成因**：扩展模式在首帧后延迟 **8000ms** 把 live iframe 换成一个新元素（本意是绕开 2.0.14
-"启动期子框架合成层坏死"）。而新元素为防白闪被**刻意摘掉 `we-live-on`** ⇒ 层回落垫底图
-（场景 = 静态帧、网页 = 作者预览图），渲染页却照旧出声。
-
-**判据**：`first-frame-ok` 之后**正好 +8s** 出现 `live-frame-rebuilt`；三条特征逐条吻合 ——
-"几秒" = 8000ms 定时器、"只有扩展模式" = 换元只在 extended 触发、"网页退成预览图" = 网页的
-垫底图就是它。
-
-**修法**：换元改为 **opt-in**（`?we-ext-swap=1` 才换元，缺省不换元），并在 `client-boot` 日志
-带上 `mode=` / `extSwap=`，事后可确认页面跑的是哪种行为。
-
-**守卫**：`verify-scene-live` 一条断言（换元必须 opt-in）+ **负对照**（没有开关的旧调用点
-喂给同一判据必须被判不合格）。
-
-> **两例的共同教训**：回退层的可见性**只应由 live 的状态决定** —— 任何"资产层"的写操作
-> （缓存、档位、缩略图、抓帧）都不该改写 live 层的层 key，也不该让回退层顶上来。
-
-## 11. 实时 ↔ 静态的状态链与「黑屏窗口」（2026-09-25 定稿，实施中）
-
-> 目标：**任何时刻屏上都有画面，且渲染永不落在切换的关键路径上**。手段是「GPU 实时帧优先」——
-> 失去 live 时先用**渲染器自己的真帧**顶上（抓帧 → `blob:` 立即上屏 + 后台回填 `<key>_gpu.png`），
-> 而不是等 CPU 4K 渲染。为什么不能用主题色 / 作者预览图顶：前者没画面、后者放大必糊（§5 已因
-> 此把 preview 从回退档删除）。
-
-### 11.1 状态与转移
-
-| 状态 | 屏上是什么 | 层里挂了什么 |
+| 组成 | 引入 | 说明 |
 |---|---|---|
-| **S0** 无壁纸 | 无（主题底） | 无层 |
-| **S1** live 加载中（未点亮） | 垫底图：该槽有 GPU/CPU 帧 ⇒ **真帧**；没有 ⇒ **露背景（黑/空）** ✗B2 | `[垫底 img(?cached=1), iframe(opacity 0)]` |
-| **S2** live 显示中 | 渲染页（`we-live-on` 已点亮） | 同上（垫底仍在下面） |
-| **S3** 静态显示中 | 档位帧（链头：自定义 4 / 内嵌 MP4 7 / 静态帧 8） | `<img src=sel.url>` 或 `<video poster>` |
-| **S4** 全档失败（终端） | **无画面**（有意如此，且不再渲染） | `sel.url = null` |
+| **找最大图片**（打分排序） | **`3666a66` · 2026-08-19 · v0.3.0** | `feat: scene wallpaper static frames with quality gating` —— **这条线的开山提交** |
+| **作者 PNG**（嵌入整图置顶） | **同上 `3666a66`** | 与「找最大图片」同批诞生 |
+| 合成（分层） | `3b43034` · 2026-08-23 | `fix(scene-frame): 多图层场景按场景变换合成整帧，修复只显示中间一块` |
+| 档位表把它俩暴露成可切换档 | `152aa74` · 2026-09-21 | `feat: #91 …、壁纸画面刷新与自定义画面` |
+| 离线渲染器（`SceneRenderer`） | 更早的静态帧路线 | **在本仓库已无调用点**（§1.5） |
+
+**⇒ 口径确认**：找最大图片与作者 PNG 是「很早期的逻辑」，与渲染器、合成同属「静态帧渲染」。
+**⇒ 因此整条线一起移除**：`extractSceneMainImage*`（**含合成**）、渲染器，以及档位 `1/2/3`。
+
+### 1.4 ⚠️ 一个会从后门活下来的陷阱：`v=0` 的静默回落
+
+```js
+// lib/pkg-extract.js:1643-1651
+if (!variant) {
+  try { const composite = tryCompositeSceneLayers(scene, access, label); if (composite) return composite; }
+  catch { /* fall through to the single-texture path */ }   // ← 「找最大图片」从这里继续活着
+}
+```
+
+**只要合成路径还在，删掉 `v=1/v=2` 这两个"档"并不能把「找最大图片」移出自动链。**
+本设计因此**连合成一起移除**，从根上断掉这条回落。
+
+### 1.5 离线渲染器在本仓库**已经是死代码**
+
+- 入口 `renderSceneFrameInWorker`（`lib/index.js:922`）**只有定义、无调用点**；`lib/index.js` 只导出
+  `inject` / `apply` / `default`（`:2562` / `:2618` / `:4647`）—— **它也没被导出**。
+- `/scene-frame` 注释写明原因：「**提取优先（2026-09-20，用户确认后实施）：scene-frame 不再先试
+  SceneRenderer worker**」（`lib/index.js:3273-3278`）。
+- beta 场景动画（多帧/APNG）已移除，`scripts/verify-client.mjs:27-28` 有**反向探针**断言永不复活。
+
+### 1.6 依赖分解（决定什么能删、什么必须留）
+
+| 模块 / 依赖 | 归属 | 依据 |
+|---|---|---|
+| `extractSceneMainImage*`、`tryCompositeSceneLayers`、打分排序、puppet 图集分流、作者原画置顶 | **静态帧 → 删** | §1.3 |
+| `renderSceneFrameInWorker`（`lib/index.js:922`）、`extractSceneVideoFrames`（`:840`） | **静态帧 → 删** | 死代码；后者仅被前者调用 |
+| `lib/scene-render-worker.mjs`、`lib/scene-renderer.js`（再导出壳） | **静态帧 → 删** | 仅为渲染器服务 |
+| `lib/we-renderer/**`（**除下面两项**） | **静态帧 → 删** | `core` / `canvas` / `mdl` / `bloom` / `camera` / `effects*` / `glsl/*` / `gpu-*` / `model` / `particles` / `puppet` / `text` / `jpeg` / `image` / `profile` / `predecode*` 等 |
+| `readPkg`（`we-renderer/textures.js`） | **必须留** | `lib/index.js:72` |
+| `parseVec3`（`we-renderer/math.js`） | **必须留** | `lib/scene-script-apis.js:4` |
+| `parsePkg` / `readPkgEntry` / `extractTexVideoMp4`（同在 `pkg-extract.js`） | **必须留** | `/scene-video`（作者内嵌 MP4）这条**非静态帧**线要用（`lib/index.js:872-885`） |
+| `_gpu.png` 实时抓帧与 `/scene-frame-cache` | **必须留** | 它是**实时**帧的缓存，不是静态帧产物 |
+| 自定义画面通道（`overrides/`、`customFramePath`） | **必须留** | §2.1 ④ |
+
+> **落地要求**：不要"整目录 / 整文件删除"。`pkg-extract.js` 与 `we-renderer/` 都是**混合体** ——
+> 先把活依赖迁到语义正确的位置（如 `lib/pkg-read.js` / `lib/scene-math.js`），再删其余。
+> 否则会留下"删了模块、import 悬空"的破窗。
+
+### 1.7 `preview` 是**双重身份**，不能一刀切
+
+| 用途 | 落点 | 处置 |
+|---|---|---|
+| **壁纸来源**（档 3） | `FRAME_VARIANTS` id 3、`lib/index.js:3260` | **删** —— 作者 preview 比静态帧废弃更早，实测**几乎任何情况下都糊成一团**，作壁纸来源完全不可用 |
+| **选择器缩略图 / 卡片封面** | `lib/client.js:6344-6346`、`:7277`、`:6120`、`:1960`；`inventory.preview`（`lib/index.js:2755`、`:2808`） | **必须留** |
+| **视频探测期的海报** | `lib/client.js:1472`、`:1482`（`prepareVideoProbe(…, w.frameUrl \|\| w.preview, …)`） | **留**（探测期占位，与"来源"无关） |
+
+### 1.8 UI 现状
+
+- 「**壁纸画面刷新**」行只在实时渲染未生效时出现（`lib/client.js:6912`），状态行 `第 N/M 档 · <来源> · 共 M 种`。
+- 「**实时帧**」行独立显示（live 开着也显示），含「重新截」/「清除 GPU 帧」（`:6927-6938`）。
+- 失败记忆 `sceneLiveFailures[id]`（值 `true | 'timeout' | 'stall'`，`lib/index.js:1081`），
+  `liveRenderEnabled()` 一旦读到记录就不再走 live（`lib/client.js:2313-2327`）。
+- ⚠️ **现存笔误**：状态行的「档」写成了「**秡**」—— `lib/client.js:6923`、`src/client.js:6947`。
+
+---
+
+## 2. 目标
+
+### 2.1 显示链（唯一权威顺序，5 级）
 
 ```
-S0 →(选中场景 A)→ S1
-S1 →(首帧确认 we-live-on)→ S2
-S1 →(15s 无首帧 / liveFail)→ S3                      (B3)
-S2 →(关「场景实时渲染」)→ S3                          (B1)
-S2 →(liveFail: timeout / stall)→ S3                   (B3)
-S2 →(切到别的壁纸)→ S0 / S1(新)                       (B4)
-S2 →(fps 档 / 素材目录 / 失败记忆变化 → 层重建)→ S1    (B2)
-S2 →(窗口隐藏 / 失焦 / 电池)→ S2（pause，层保留，不黑）
-S3 →(img 加载失败 → 前进档位)→ S3                      (B5)
-S3 →(全部档位失败)→ S4
+① live（WebWallGL 实时渲染）
+② sceneVideo（作者内嵌 MP4，/scene-video）        ← 与 ① 同属「动」；作者本意
+③ 实时抓帧缓存（场景 _gpu.png / 网页 liveFrame）  ← 「静」的链头；真实画面，不是猜图
+④ 自定义画面（用户导入 overrides/）               ← 用户显式资产
+⑤ 空（不渲染）                                   ← 全链不可用时的诚实终端
 ```
 
-### 11.2 黑屏窗口逐条与处理
+**①→② 的顺序不变**：沿用现有优先级不变量 `live > sceneVideo > 静帧`（`lib/client.js:1456`）——
+本次只移除静态帧线，不借机改这条已验证的顺序。
 
-| # | 场景 | 现在为什么会黑 | 处理 |
-|---|---|---|---|
-| **B1** | **关闭「场景实时渲染」**，且该槽既无 GPU 帧也无 CPU 帧 | 静态档走**非缓存** GET ⇒ 宿主 4K 渲染（秒级） | **切换前补抓当前 live 帧**：`canvas.toBlob` → `blob:` 立即上屏（不动层、不等网络）→ 后台 `PUT /scene-frame-cache/<token>` 回填 ⇒ 此后 `?v=8` 与 `?cached=1` 都命中真帧。抓帧失败 → 用缓存里已有的 GPU 帧；再没有 → 主题色（**不黑**即可，不用作者预览图）。⚠️ 这条 blob **只对 auto(0)/static(8) 生效**（与宿主 `gpuFrameFileFor` 同口径）：1/2/4/7 是用户显式选的来源，抓帧不得顶掉，否则「换出图来源」会毫无反应（2026-09-25 实测）|
-| **B2** | **首次进入 live 的首帧之前**（垫底 `?cached=1` 未命中） | 垫底 poster 404 后自我移除 ⇒ 露背景 | ①**首帧即刻抓帧**（把现有 2.5s 提前到首帧，门禁通过才用）；②首帧前用 `schemeColor`（该字段本就是为此设计："尚无抽帧图时的兜底，避免一上来就是黑屏"）；③层重建（fps 档等）走同一路径 |
-| **B3** | **live 失效**（首帧超时 / 运行中断）→ 落静态档 | 同 B1 | 同 B1 的补抓；失效时 iframe 已停 ⇒ 用**最近一次成功抓帧**（2.5s 回填成功过即有）；再没有 → 主题色。注意 `liveFail` 会写失败记忆 ⇒ 该壁纸此后不再 live，所以这一帧要尽量拿到 |
-| **B4** | **切到另一张"非 live 且无帧"的场景** | 首次显示 ⇒ 4K 渲染 | 有画面可抓的只有"当前这张" ⇒ 切走前补抓（帮的是切回来时）；新那张：**链头优先**（自定义 / 内嵌 MP4 都是即时档）+ 主题色过渡 + 渲染完成后**原地换 src**（不重建层） |
-| **B5** | **静态档加载失败**（404/422）前进到下一档 | 档间空窗 | 前进档位时**保留上一张已上屏的帧**（不清空 src），新帧就绪后替换 ⇒ 不出现纯空窗 |
-| **B6** | 启动恢复期（`bootRestore` + `liveBootDelay`） | 现在只挂主题色占位 | 已有"绝不触发冷渲染"的设计 ✓；补一条：`?cached=1` 命中 GPU 帧时直接用它 |
-| **B7** | 轮换准备（旧 live 在播时准备候选） | 不黑（旧画面在），但白烧一次 4K 渲染且**提交时被丢弃** | 见 §10 审计第 4 条（待做） |
+**③ 是上一稿的缺口，这里补上**：实时抓帧是**这台机器真实渲染出来的**最后一帧
+（`__wp.capture` → `PUT /scene-frame-cache` → `_gpu.png`），与 ① 同源，**优先于 ④**；
+这与宿主 `gpuFrameFileFor()` 的既有语义一致（`v=4` 豁免，见 §2.3）。网页侧的 `liveFrame`
+（`PUT /live-frame/<token>`）现状只用作 live 启动海报；目标形态里它同时是 ③ 的来源。
 
-### 11.3 blob 优先的接线要点（(a) 方案）
+**没有 ⑥。明确不做**：不再有任何"替作者猜一张图"的来源 —— 找最大图片 / 作者 PNG / 合成
+**正是**在干这件事，也正是本次要移除的。
 
-1. 抓帧**复用** `scheduleLiveFrameBackfill` 的既有内核（`canvas.toBlob` + 体积闸 + 亮度/方差闸 +
-   几何校验），**不改门禁**；
-2. `URL.createObjectURL(blob)` 立刻作为新层 `<img>`（或垫底 poster）的 src ⇒ 0 延迟；
-3. 同时 `PUT`；落盘成功后把 src 换回正常 URL（`?v=8`，此刻必然命中 GPU 帧），并
-   `URL.revokeObjectURL()` 防泄漏；
-4. PUT 失败、或换 src 前层已被替换 ⇒ revoke 交给层释放路径（与现有 `releaseLayerMedia` 同处）；
-5. 抓帧/门禁失败一律静默降级为"缓存帧 → 主题色"，**绝不因为抓帧失败去触发渲染**。
+### 2.2 静帧来源档位（目标枚举）
 
-> 实施状态：**B1/B2 已实施**（`captureLiveFrameBlob` + 关 live 前先抓帧 + 垫底图恒存在，
-> 守卫见 verify-scene-live 的 B1/B2 断言与三条负对照）；**B3/B5/B6 待实施**；B7 与 §10 审计的
-> 第 4/5/6/7 条另列。
+| id | 名称 | 说明 |
+|---|---|---|
+| **0** | **自动** | **取链头**（③→④ 中第一个可用者）—— 见 §2.3 |
+| **4** | 自定义画面 | 沿用既有 id |
 
-## 12. 删除「渲染式排队预热」（2026-09-25）
+**移除的 id**：`1`（主纹理 / 找最大图片）、`2`（作者原画 / 作者 PNG）、`3`（预览图）。
+宿主侧对 `1/2/3` 及越界值一律 **clamp 到 0**（沿用旧主线 `clampFrameVariant()` 的思路）。
 
-定调：**静态帧渲染只在实时渲染被关掉或失败降级时启动**。据此：
+> 值域里的洞（缺 1/2/3）**有意保留**：它让"哪些档已退役"在数据里可读，同时避免值域迁移。
 
-- **删除**本 fork 的渲染式排队预热（原 `lib/scene-prewarm.js`：候选 / MRU / 空闲门控 / 失败退避 /
-  并发=1 全套），以及只为它存在的三样东西：`liveSuppressesPrewarm`、
-  `currentItemFrameUrl` + `currentAbsForSettings`（"当前壁纸"反查）、
-  `waitForExtractionPrewarm`（与上游预热让路）；设置面板的「空闲预热 / 预热整个库」两行与
-  `scenePrewarm` / `scenePrewarmScope` 两个键（宿主白名单 + 客户端写/读三份清单）一并移除。
-- **保留**上游的**提取式**预热（廉价提取、不起渲染 worker）—— 属其它贡献者的线，本 fork 不碰。
-- §6 陈条清理原先复用队列的 `lastActivityAt` 作空闲门控 ⇒ 改为宿主自己的
-  `noteUserActivity()` / `lastUserActivityAt`（语义不变：用户一交互就让路）。
-- 失去 live 的那一刻由 §11 B1 的**真帧抓取**顶上（blob 立即上屏 + 回填 GPU 槽），因此
-  "切换要用的帧"不再需要后台预烧；其余情况按需渲染（§11 B2/B4 负责过渡画面）。
+### 2.3 默认 = 链头
 
-守卫变化（`scripts/verify-prewarm.mjs`）：删除全部绑定队列的断言（原 R1–R9 单测、R11–R18 接线、
-R27–R29 泄漏/退避），保留 R10（缓存键唯一构造点）、R11c-1/2（`?cached=1` 语义）、R19+（回退链）、
-R41/R41b（陈条清理，门控改指活动时钟）与 R42（提取式预热写进被服务的槽位）；新增
-**R12「队列已删除」**（宿主 / 客户端 / 模块文件 / 设置键四处均无残留）+ 负对照，以及
-**R12b「§6 用宿主活动时钟」**。
+`GET /scene-frame/<token>`（**无 `?v=`**）不再隐含"档 0 = 合成"，而是**求链头**：
+**有实时抓帧（`_gpu.png`）→ 服务它**；否则有自定义画面 → 服务它；否则 → 404 / 空态（客户端走 ⑤）。
 
+`?v=4` 仍是"强制自定义画面"（缺失 → 422，客户端明示"自定义画面已失效"）。
 
+### 2.4 失败语义与终端
+
+| 环节 | 目标行为 |
+|---|---|
+| live 首帧逾时 / 运行期失联 | 记 `sceneLiveFailures[id]` → 前进到 ②；**同会话对该壁纸不再重试 live**（现状即此，保留） |
+| ② 内嵌 MP4 | 取不到 → 静默前进；**不记失败记忆**（作者没给视频是常态，不是故障） |
+| ③ 自定义画面 | 缺失 → 前进到 ④ |
+| ④ 空 | **留空**，状态行给出可判定原因。**不回落任何"猜图"来源**，也不回落预览图 |
+
+### 2.5 持久化与兼容（零迁移论证）
+
+- 用户可感知的语义不变：**"我为这张壁纸 pin 过一个来源"这个事实仍被记住**。
+  被移除的 pin 值（`1/2/3`）**clamp 到 0（自动）** ⇒ 旧配置**原样可用**，只是那条 pin 变成"自动"。
+  这是唯一可接受的降级方向 —— 反向（把 auto 变成某个具体档）会让老配置被误读成用户没选过的来源。
+- `customFrames`（`{[id]: true}`）形状不变；`sceneLiveFailures` 值域不变。
+- 三个键必须同时存在于**客户端发送 / 宿主白名单 / 客户端读回**三份清单（历史"设置存不住"的根因类别）。
+
+### 2.6 要删除 / 要保留的代码
+
+**删（静态帧线，§1.3 血统）**
+
+- `pkg-extract.js`：`extractSceneMainImage` / `extractSceneMainImageFromDir` /
+  `tryCompositeSceneLayers` / `collectImageObjectTextures` / puppet 图集分流 / 打分排序 / 作者原画置顶
+  （**保留** `parsePkg` / `readPkgEntry` / `extractTexVideoMp4` 及 sceneVideo 需要的解码部分）
+- `lib/index.js`：`renderSceneFrameInWorker`（`:922`）、`extractSceneVideoFrames`（`:840`）、
+  `/scene-frame` 里 `variant ∈ {0,1,2,3}` 的提取分支、`gpuFrameFileFor` 的 `variant > 3` 旧豁免需按新档位重写
+- **`sceneFramePrewarm()`（`lib/index.js:2570`）** 与它的一整套记账：`SCENE_PREWARM_LOGIC`（`:2568`）、
+  `_scenePrewarmStarted`、`prewarm-state.json`，以及 `:2875` 的开机自调用。
+  ⚠️ **它是静态帧线的直接附属** —— 它 `import` 的正是将被删的 `extractSceneMainImage*`：
+  不一起删就会引用已删导出而崩；而且它就是"旧预热"的本体（见 §3）。
+- `lib/scene-render-worker.mjs`、`lib/scene-renderer.js`、`lib/we-renderer/**`（除 §1.6 两项活依赖）
+- 客户端 `FRAME_VARIANTS` 的 `1/2/3` 三项与相关文案
+- **`scripts/verify-comment-discipline.mjs` 的两处钉子要同步收窄**：它的 `FILES` 名单含
+  `lib/scene-render-worker.mjs` 与 `lib/we-renderer/core.js`（删掉后被 `try/catch` 静默跳过 ⇒
+  等于悄悄失去覆盖），棘轮基线 `CEIL` 里也钉着这两个文件 —— 删除时应把它们**从名单移除**，而不是留空跑。
+
+**保留**
+
+- `/scene-frame` 路由名、`?v=` 参数形态、`?v=4` 语义（URL 兼容）
+- GPU 实时帧 `_gpu.png` 与 `/scene-frame-cache`（**它不是静态帧**）
+- `preview` 作为缩略图 / 海报（§1.7）
+- `readPkg` / `parseVec3` / `extractTexVideoMp4` 的落点
+
+### 2.7 缓存键与命名：**本稿结论与上一稿相反**
+
+移除提取链后，帧缓存目录里**只剩 `_gpu.png`（实时抓帧）** —— 提取产物 `<key>.png|jpg|gif` 不再产生，
+自定义画面存在 `overrides/` 而不进缓存目录。
+
+**⇒ 升 `SCENE_FRAME_KEY_VERSION` 的代价，从"所有壁纸重新提取"降为"重抓几张实时帧"（几秒、零画质损失）。**
+另有第二条理由：若采纳 §3.3 的「抓帧延后到 t≈N」，**抓帧内容本身会变**，旧帧本就该作废。
+因此本稿**建议一并改名并升值**：
+
+| 现名 | 目标 | 理由 |
+|---|---|---|
+| `SCENE_FRAME_KEY_VERSION = 'sf34'` | `LIVE_FRAME_KEY_VERSION = 'lf1'` | 语义已从"静态帧产物"变为"实时帧缓存"，且此时升值很便宜 |
+
+UI 命名：`壁纸画面刷新` → **`出图来源`**（它换的是**来源**，不是"刷新"；"刷新"会被误读成重抓实时帧
+—— 那是「实时帧」行的「重新截」）。
+
+### 2.8 守卫计划（实施时同步落地）
+
+| 断言 | 目的 |
+|---|---|
+| **反向探针**：`renderSceneFrameInWorker` / `scene-render-worker` / `extractSceneMainImage` 仓内**零引用** | 防静态帧线悄悄复活（沿用 `/scene-anim/` 的做法） |
+| **反向探针**：`collectImageObjectTextures` / `FORMAT_PENALTY` 等「找最大图片」标识零残留 | 防它换条路径回来（§1.4 的教训） |
+| `lib/we-renderer/` 已不存在，且 `readPkg` / `parseVec3` 新落点可解析 | 防"删了目录但 import 悬空" |
+| `?v=1/2/3` 与越界值均 clamp 到 0（正/负对照） | 零迁移的机器保证 |
+| `?v=4` 不被 GPU 帧覆盖；无 `?v=` 时求链头 | §2.1–2.3 的语义断言 |
+| 自动链末尾**留空**、不回落预览图 | §2.4 |
+| `inventory.preview` 仍在（缩略图可用） | 防 §1.7 误删 |
+| **反向探针**：`sceneFramePrewarm` / `SCENE_PREWARM_LOGIC` / `prewarm-state` 零残留 | 防"旧预热"复活（§2.6 / §3.2） |
+| **预热时长闸**：`prepareSceneLiveStage` 的就绪判定含"运行满 N 秒" | §3.3 的语义断言（N=0 时该断言应可关闭） |
+| 状态行不含「秡」 | 顺手修 §1.8 的笔误 |
+
+### 2.9 分阶段迁移（交给接手者）
+
+1. **阶段 0**：加全部反向探针 + 修「秡」笔误 → `npm run verify` 全绿（**此时不删任何东西**）。
+2. **阶段 1**：把 `readPkg` / `parseVec3` 落点迁出 `we-renderer/`；把 sceneVideo 依赖的
+   `parsePkg` / `readPkgEntry` / `extractTexVideoMp4` 留在 `pkg-extract.js`（或一并迁出）。验证。
+3. **阶段 2**：删 `extractSceneMainImage*` 全链 + 渲染器 + `we-renderer/`；`?v=` 只认 `{0,4}`；
+   客户端档位表只留 `{0,4}`；跑反向探针与全链验证。
+4. **阶段 3**：缓存键常量改名升值（`LIVE_FRAME_KEY_VERSION = 'lf1'`）。
+5. **阶段 4**：UI 改名「出图来源」+ 文档/注释统一去掉「静态帧」「画面刷新」旧词。
+
+---
+
+## 3. 开机镜头与预热（本次新增目标）
+
+### 3.1 取证：WebWallGL **不支持**渲染特定时刻（`__wp` 全成员表）
+
+判断依据（全部取自 vendored 1.4.2）：
+
+- 渲染页只读 4 个 URL 参数：`localAssets` / `resources` / `texcompress` / `texr8` —— **无时间参数**。
+- `window.__wp` 的**完整**成员（逐个提取）：
+  `setWallpaper pause resume release restore capture loadSceneFile setFit fit setFilter filter
+  setQuality getQuality setRenderDpr renderDpr setSceneFps sceneFps mode type source setVolume
+  muted setAudioBridge setMedia props getProperties updateWebProps pushPointer pushWheel
+  pointerLeave buttons mods getState loop`
+  —— **没有 `seek` / `setTime` / `renderAt` / `setRuntime`**。
+- 源码里 30+ 处 `seek`/`setTime` 命中全在**视频纹理**控制（`videoCtl.setCurrentTime` → `<video>.currentTime`）
+  与通用媒体控制，**不是场景时钟**。
+- 场景时钟是**内部累积量**：`engine.runtime = B`，`B` 由 rAF 循环里 `performance.now()` 的差值累加，
+  脚本只读；唯一外部杠杆是 `pause()` / `resume()`。
+- 上游 `webwallgl` 无 release/tag；最新提交为 2026-09-23 的 camerashake 修复，**无时间 API 迹象**。
+
+**⇒ 「跳到 t=N 以避开开机镜头」在当前渲染器上做不到。**
+
+**而且即使上游加了 `setSceneTime(t)`，「跳」也不是纯赋值**：场景时钟驱动的是**累积状态** ——
+动画控制器逐帧 `ctrl.advance(O)`、粒子系统内部计时、脚本 `engine.runtime`。直接设数字会得到
+"动画根本没走到那一步"的错误画面。**正确实现最便宜的路径仍然是「从头快进跑 N 帧」—— 那就是预热。**
+
+### 3.2 把三种「预热」拆开（它们的命运完全不同）
+
+| # | 机制 | 它解决什么 | 移除静态帧后 | 结论 |
+|---|---|---|---|---|
+| ① | **宿主静态帧预提取** `sceneFramePrewarm()`（`lib/index.js:2570`；`SCENE_PREWARM_LOGIC` + `prewarm-state.json` 记账；`:2875` 开机自调） | 把 ~10s 的 CPU 提取等待移出交互路径（"切换即命中缓存，感知 ≈ 0"） | **服务对象消失** | **不回归**，随 §2.6 一并删除 |
+| ② | **轮换的 live 渲染页预载** `prepareSceneLiveStage`（staging 层 `opacity:0` 但满视口几何 → 渲染页**全分辨率**初始化 → 首帧就绪后节点级领养） | live 冷启动窗口（拉 pkg + 纹理上传） | **仍在，而且更重要**（live 是唯一动态来源） | **已经在了** —— 不需要"回归"，需要**延长预热时长** |
+| ③ | **手动切换的 live 启动**（`buildMedia` 直接挂 iframe + 主题色海报，不走准备链） | 同上 | 同上 | **缺** —— 手动切换必然看到开机镜头 |
+
+### 3.3 目标：把「首帧就绪」升级为「运行满 N 秒」
+
+② 的就绪判定现在是 `st.running && st.fps > 0`（`lib/client.js:1653`）—— **首帧一到位就提交，
+而首帧正是开机镜头**。改成「首帧就绪 **且** 已运行 ≥ N 秒」即可跨过去。
+
+**轮换场景下这 N 秒是免费的**：用户正看着上一张，时间本来就在流逝。现有机制已覆盖"预热期间
+用户切走"的各种情况（`PREPARE_LIVE_TIMEOUT_LIMIT = 2`、`PREPARE_LIVE_HIDDEN_HOLD_MAX_MS = 60s`、
+隐藏期 2s 轮询），**不需要新造机制**。
+
+③ 手动切换有两个选择：
+
+- **A（彻底）**：手动路径也走准备链 —— 代价是牺牲"即时反馈"，除非改成"先亮主题色/上一张、
+  预热满 N 秒再切"。
+- **B（折中，推荐）**：手动切换的**首次可见**保持即时（接受开机镜头），但**把抓帧延后到 t≈N** ——
+  于是"降级时 / 切走再切回时看到的静帧"是干净的。代价接近零，并给 §2.7 的升值多一条理由。
+
+**N 取多少**需要拍板（见 §5）：默认 0（关闭，行为不变）还是 2–3s？per-wallpaper 覆盖可以后挂到
+已有的「壁纸属性」面板（`propsUrl` / `updateWebProps`），不在本次范围。
+
+---
+
+## 4. 与上一版（旧主线那版）的关系
+
+**不采纳其结构，但采纳其中两条结论** —— 它们与本仓库独立得出的方向一致：
+
+| 旧版主张 | 本稿态度 |
+|---|---|
+| `0 = auto`（取链头） | **采纳**（§2.3）—— 与"默认 = 链头"一致 |
+| 删除 `preview` 作为回退来源 | **采纳**（§1.7 / §2.4）—— 与本仓库实测"作者 preview 糊到不可用"一致 |
+| 新增 `7=mp4` / `8=static` | **不采纳** —— 内嵌 MP4 属**显示链**②（§1.1），塞进静帧档位表就是把两层又混了；`static` 是被移除的东西，不该再占 id |
+| `1=maintex` / `2=art` 继续占 id | **不采纳** —— 它们正是要移除的"找最大图片 / 作者 PNG"（§1.3） |
+| 「静态帧兜底与调优」三级级联 | **不采纳** —— 不新增用户可见开关 |
+| 教训：回退层可见性只由 live 状态决定；资产层写操作不得改写 live 层 key | **保留** —— 对应实现见 `LAYER_KEY_FIELDS` 与 live 期间不吃资产 URL |
+
+---
+
+## 5. 未决（需要拍板）
+
+1. **`/scene-frame` 路由是否改名**（→ `/scene-image`）：它此后只服务"自定义画面 + 实时帧"，名字里的
+   "frame" 已无静态帧含义。**本稿默认不改**（URL 兼容零风险）。
+2. **`?v=` 参数是否保留**：只剩 `{0,4}` 两个值后参数价值不大；删掉会打断既有客户端约定。
+   **本稿默认保留。**
+3. **⑤ 空态的呈现**：留空 + 状态行原因之外，是否给一次"可导入自定义画面"的引导？
+   （考虑：这会把"失败"变成"推销"，可能被反感。）
+4. **③ 与 ④ 的先后**：本稿把实时抓帧（③）放在自定义画面（④）之前，与宿主 `gpuFrameFileFor()`
+   既有语义一致。但若用户已**显式导入**自定义画面却被一张抓帧顶掉，体感是"我导入了却不生效" ——
+   这是产品判断（注：`?v=4` 是显式 pin，不受影响；有疑问的是"自动"档下的默认选择）。
+5. **预热的 N 取多少**（§3.3）：默认 **0（关闭、行为不变）** 还是 2–3s？以及手动切换是否走
+   §3.3 的 B 方案（只延后抓帧、不延后首帧可见）。
+6. **是否向上游提 `setSceneTime` 需求**：可以提，但需一并说明"正确实现必须快进"（§3.1），
+   所以它大概率仍以预热为底层实现 —— 提了也不替代 §3.3。
