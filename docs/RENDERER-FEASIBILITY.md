@@ -226,7 +226,7 @@ WebGPU 路线的场景图种子）；`_refs/` 保留官方 shader 源码 + lwe/r
 - **删除**：`lib/we-renderer/gpu-dawn/backend.js`（21KB；无人 import，但因为 `files` 收录整个
   `lib/we-renderer/` 而**随包出货**）与 `lib/we-renderer/glsl/wgsl.js`（GLSL→WGSL 转译器，仅 Dawn 引用）。
 - **清理**：`render/passes.js` 的 `_dawnEffectCache` 死钩子与相关注释、`render/framebuffer.js` 中
-  "Dawn 后端将以同一接口提供"的注释；`scripts/tmp-audit-verify-lines.mjs` 里指向已删文件的条目。
+  "Dawn 后端将以同一接口提供"的注释；`evidence/verify-report-lines.mjs` 里指向已删文件的条目。
 - **护栏**：`scripts/verify-fx-chain.mjs` 新增 4 条 —— 文件确已删除 / 全仓无残留标识（含
   `_dawnEffectCache`）/ 负对照（能抓到重新引入的 `gpu-dawn` 引用）/ 负对照（正常 GPU 引用不误判）。
 - **理由**：① **原生崩溃** —— 同进程二次 `create()`、`unmap` 后立即重建 pipeline 都会崩，只能每进程一实例；

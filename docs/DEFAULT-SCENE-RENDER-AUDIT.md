@@ -425,7 +425,7 @@ alpha 唯一=198），却被 `effects.js` 的 `flat` 判据判为退化并回退
 
 用户报告 Arsenal、Beach、Deep Space、DNA Fragment、Razer Bedroom、Retro、Ricepod、Sheep、
 Shimmering Particles 仍"过暗（疑似缺少光源）、马赛克（普遍是背景）、失败回退缩略图"。
-三类症状各自转成可判定量（`scripts/tmp-symptom-probe.mjs`、`tmp-dark-probe.mjs`）：
+三类症状各自转成可判定量（`evidence/symptom-probe.mjs`、`evidence/dark-probe.mjs`）：
 
 ### 8.1 马赛克 = 绘制采样是最近邻且不做 mip（背景恰好是缩放倍数最大的层）
 
@@ -448,7 +448,7 @@ Shimmering Particles 仍"过暗（疑似缺少光源）、马赛克（普遍是�
 ### 8.2 过暗 = 两个独立机制（都不是贴图解码问题）
 
 **(a) 先排除解码**：用官方随项目发布的 **PNG 源图**逐像素校验 `.tex` 解码
-（`scripts/tmp-pairs.mjs`，同尺寸对照 42 对）：**37/42 逐通道平均差 ≤2**；唯二大偏差是
+（`evidence/pairs-compare.mjs`，同尺寸对照 42 对）：**37/42 逐通道平均差 ≤2**；唯二大偏差是
 `flag_normal` / `planks_normal` —— 那是法线贴图的**打包差异**（源 PNG 是标准 RGBA 法线图，
 编译后 DXT5 把 x/y 放进 G/A，官方着色器按 `TEX1FORMAT` 解码），不是解码错误。
 ⇒ **排除"贴图解出来就黑"这一整类假设**，并反证 §4.5 的 `DecompressNormal` 修法方向正确。
@@ -694,7 +694,7 @@ scale 1.117、-3.667° 旋转）。材质常数 `Bright/Alpha/Power` 已核对�
 顺手修掉 3 条真错：`_shadeDna` 最近邻 → 双线性（oracle 修前 max|Δ|=0.117 / 12.3% 像素）、
 `_dnaVertex` 的 `Math.PI` → 官方字面量 3.1416、`_shadeCurve` 的 `Freq` 默认 1 → 0。
 
-oracle（`scripts/tmp-oracle-ds.mjs`，范式同 `.test-cache/fix-3d-shaders.md`）：
+oracle（`evidence/glsl-oracle-ds.mjs`，范式同 `.test-cache/fix-3d-shaders.md`）：
 `bg`(dna)/`bg`(retro)/`curve`/`dna`/`dna-vert`/`flowimage` **逐点 max|Δ| ≤ 1e-9**（多数为 0）；
 `retro.frag`（含 DOTS）**8bit 逐字节相同**。
 

@@ -149,7 +149,7 @@ node scripts/profile-scene.mjs 3582367840 3840 2160 2.5
 
 原以为 `blurradial` 494ms/Mpx、`godrays` 401ms/Mpx 是"实现写得慢"。实测否掉了。
 
-采样原语 `_texSampleInto` / `_texRG` 的裸吞吐（`scripts/tmp-bench-sampler.mjs`，4096×4096）：
+采样原语 `_texSampleInto` / `_texRG` 的裸吞吐（`evidence/bench-sampler.mjs`，4096×4096）：
 
 | 变体 | ns/采样 |
 |---|---|
@@ -188,7 +188,7 @@ Math"这类微优化没有空间。
 和启动时**探测**，渲染路径从不经过它们。
 
 **但后端代码是完好的。** 直接调 `runEffectOnGL`（绕过被移除的适配层）实测
-（`scripts/tmp-gpu-probe.mjs`）：
+（原 `scripts/tmp-gpu-probe.mjs`，该脚本未随仓库保留）：
 
 ```
 getWebGL(true) = OK
@@ -500,7 +500,7 @@ lib/scene-still.js            独立无计算渲染层
 | 3641860575 | 11 | 604ms | 365ms | 1.65x |
 | 3655429099 | 30 | 1409ms | 1295ms | 1.09x |
 
-### 真正的成本构成（改后实测，`scripts/tmp-composite-profile.mjs`）
+### 真正的成本构成（改后实测，`evidence/composite-profile.mjs`）
 
 | 场景 | 层数 | **纹理解码** | 重采样+合成 | PNG 编码 | 质量门 |
 |---|---|---|---|---|---|
@@ -542,7 +542,7 @@ lib/scene-still.js            独立无计算渲染层
 
 上一轮我写过"渲染器解码 47ms/张、合成 207ms/张，同样贴图慢 4.4 倍"。**这个比较是错的** ——
 它比的是两批不同的贴图，不是两条代码路径。在同一批贴图字节上直接对照
-（`scripts/tmp-decode-compare.mjs`，65 张贴图各测两条路径）：
+（`evidence/decode-compare.mjs`，65 张贴图各测两条路径）：
 
 ```
 可解码 65 张:  合成路径合计 1988ms (31ms/张)   渲染器路径合计 2264ms (35ms/张)
@@ -753,7 +753,7 @@ PNG 编码 140–900ms。
 先量加速曲线再决定是否动线程模型。负载取"逐像素双线性重采样 + alpha 合成"
 （多层合成 blit 的形状，内存带宽敏感型，与效果内核同族）：
 源 4096×4096 → 目标 3840×2160，SharedArrayBuffer 共享，仅行区间走 postMessage。
-`scripts/tmp-parallel-bench.mjs`。
+`evidence/parallel-bench.mjs`。
 
 | workers | 耗时 | 加速 | 与单线程逐位一致 |
 |---|---|---|---|
@@ -2018,7 +2018,7 @@ frameReqs=1  frameDecodes=0        ← 请求发出了, 区域解码一次都没
 ### ⑤ 为什么块行并行没有直接接线（结构性原因，非意愿问题）
 
 `parallel.js` / `decode-worker.mjs` 实现的是**按纹理**并行 —— §十七 实测仅
-**1.34×**，该轴被否定，**已删除**（连同只验证它的 `scripts/tmp-verify-parallel.mjs`）。
+**1.34×**，该轴被否定，**已删除**（连同只验证它的 `scripts/tmp-verify-parallel.mjs`，未随仓库保留）。
 
 但删掉之后，块行并行也**不能**直接塞进现有路径，原因在代码结构：
 `loadTexture` / `loadTexImage` 是**完全同步**的，被同步的渲染循环直接调用，
@@ -2041,7 +2041,7 @@ frameReqs=1  frameDecodes=0        ← 请求发出了, 区域解码一次都没
 ### ① 前提实测：块行并行 **DXT 解码** 到底多快
 
 **先纠正一处引用错误**：§十六 的 2.91× 是在
-`scripts/tmp-parallel-bench.mjs` 上测的，而那个基准跑的是**双线性重采样 + alpha
+`evidence/parallel-bench.mjs` 上测的，而那个基准跑的是**双线性重采样 + alpha
 合成**（内存带宽敏感型），**不是 DXT 解码**（整数位运算 + 243MB 写出）。加速比
 不可外推，所以重新实测（`scripts/bench-dxt-parallel.mjs`，负载取真实规模
 7680×7920 → 58MB 块流 → 232MB RGBA）：
