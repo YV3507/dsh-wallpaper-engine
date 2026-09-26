@@ -22,6 +22,23 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 const results = [];
+/** 转码编码器兜底（issue：只有 NVENC ⇒ 无 NVENC 的 ffmpeg 必然全失败）。 */
+{
+  const idx = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8');
+  const oldBaseForm = idx.includes("'-map', '0:v:0', '-an', '-preset', 'p1',");
+  const p1OnlyInEncTune = idx.includes("av1_nvenc: ['-preset', 'p1'")
+    && idx.includes("h264_nvenc: ['-preset', 'p1'");
+  const encTune = idx.includes('const ENC_TUNE = {');
+  const swFallback = idx.includes("libx264: ['-preset', 'veryfast', '-crf', '20']")
+    && idx.includes("for (const enc of ['av1_nvenc', 'h264_nvenc', 'libx264'])");
+  check('转码：NVENC 专属 preset 已从公共参数移出（旧 base 形态不存在且 p1 只在 ENC_TUNE）',
+    !oldBaseForm && p1OnlyInEncTune);
+  check('转码：质量参数按编码器拆分（ENC_TUNE）', encTune);
+  check('转码：libx264 软件兜底在列（无 NVENC 的 ffmpeg 也能出片）', swFallback);
+  const decoy = "const base = ['-i', abs, '-preset', 'p1'];\nfor (const enc of ['av1_nvenc', 'h264_nvenc']) {}";
+  check('negative control: 旧的 NVENC-only 写法被拒',
+    !(decoy.includes('ENC_TUNE') || decoy.includes('libx264')));
+}
 function check(name, ok, detail) {
   results.push({ name, ok });
   console.log((ok ? 'PASS' : 'FAIL') + ' | ' + name + (detail ? ' | ' + detail : ''));
