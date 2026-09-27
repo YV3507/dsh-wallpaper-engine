@@ -138,15 +138,19 @@ const fetchMock = (url, opts) => {
       transcodePending.push({ fps, url, signal: opts.signal || null, resolve, reject, detach });
     });
   }
+  // ⚠️ 每个替身响应都必须带 `status`：真实 Response 的 `ok` **由 status 推出**，
+  //    而 api-client 正是据此判成败 —— 少了 status 会被读成 0（= 失败），
+  //    症状是"清单加载失败 → picker 按钮不渲染"这类看似与网络层无关的断言红。
   if (typeof url === 'string' && url.includes('/wallpaper-engine/transcode-progress/')) {
-    return Promise.resolve({ ok: true, json: () => Promise.resolve({ phase: 'transcode', percent: 50, source: 'ffmpeg', finalizing: false, eta: 10 }) });
+    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ phase: 'transcode', percent: 50, source: 'ffmpeg', finalizing: false, eta: 10 }) });
   }
   if (typeof url === 'string' && url.includes('/wallpaper-engine/media-info/')) {
-    return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, info: mediaInfo }) });
+    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true, info: mediaInfo }) });
   }
   if (typeof url === 'string' && url.includes('/wallpaper-engine/inventory')) {
     return Promise.resolve({
       ok: true,
+      status: 200,
       json: () => Promise.resolve({
         installDir: 'D:/we', total: 1, portableCount: 1, playlists: [],
         wallpapers: [
@@ -156,7 +160,7 @@ const fetchMock = (url, opts) => {
     });
   }
   if (typeof url === 'string' && url.includes('/wallpaper-engine/settings')) {
-    return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) });
+    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true }) });
   }
   return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) });
 };

@@ -113,7 +113,7 @@ check('negative control: 带日期的注释会被判不合格',
   // 它们大多是有信息量的「旧实现 vs 现状」对照（如"旧版 harness 不支持该属性"），
   // 所以棘轮只**封顶**、不强制清零。
   const CEIL = {
-    'src/client.js': 9,
+    'src/client.js': 8,
     'lib/index.js': 9,
     'lib/scene-render-worker.mjs': 0,
     'lib/we-renderer/core.js': 1,

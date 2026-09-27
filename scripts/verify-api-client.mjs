@@ -12,8 +12,8 @@
  * Usage:  node scripts/verify-api-client.mjs
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -25,11 +25,12 @@ const { BASE, apiUrl, apiFetch, apiJson, apiHead, apiPostJson, apiDelete } = api
  * 改写一处调用点后把这个数字改小（守卫会告诉你当前实际值）。
  * 终态 0 —— 届时本常量归零，断言变成"业务代码零裸 fetch"。
  *
- * 进度：26 → 20 → **16**（批 1：帧缓存 / 帧探测 6 处 —— `probeGpuFramePin`、`clearGpuFrameSlot`、
- * live 回填的 HEAD 与 PUT、`probeGpuFrameState`、面板「清除 GPU 帧」；
- * 批 2：轮询 / 上报 4 处 —— `audio-spectrum`、`now-playing`、`client-diag`、`transcode-progress`）。
+ * 进度：26 → 20 → 16 → **13**（第一批：帧缓存 / 帧探测 6 处 —— `probeGpuFramePin`、
+ * `clearGpuFrameSlot`、live 回填的 HEAD 与 PUT、`probeGpuFrameState`、面板「清除 GPU 帧」；
+ * 第二批：轮询 / 上报 4 处 —— `audio-spectrum`、`now-playing`、`client-diag`、`transcode-progress`；
+ * 第三批：设置 / 库存 3 处 —— 设置 GET/PUT、库存 GET）。
  */
-const CLIENT_FETCH_BASELINE = 16;   // 只许减少；每批改写后同步下调
+const CLIENT_FETCH_BASELINE = 13;   // 只许减少；每批改写后同步下调
 
 let failed = 0;
 const check = (name, ok, detail) => {
@@ -47,8 +48,8 @@ console.log('\n① 裸 fetch 棘轮（业务代码只许减少）');
   const client = count('src/client.js');
   check(`src/client.js 裸 fetch ≤ 基线 ${CLIENT_FETCH_BASELINE}`, client <= CLIENT_FETCH_BASELINE,
     `当前 ${client}`);
-  for (const rel of ['src/effects.js', 'src/font/apply.js', 'src/font/color-roles.js',
-    'src/font/typography.js', 'src/we-cond.js']) {
+  for (const rel of ['src/api-client.js', 'src/effects.js', 'src/font/apply.js',
+    'src/font/color-roles.js', 'src/font/typography.js', 'src/we-cond.js']) {
     check(`${rel} 零裸 fetch`, count(rel) === 0, `当前 ${count(rel)}`);
   }
   check('src/api-client.js 存在且是出入囗模块',
@@ -126,8 +127,8 @@ console.log('\n⑤ 源码不变量');
     !/https?:\/\/[a-z0-9]/i.test(code) && !/localhost|127\.0\.0\.1/i.test(code));
 }
 
-// ── ⑥ 出入口必须真的在产物里（"孤儿模块"防线）──────────────────────────────
-// `src/api-client.js` 曾是**孤儿**：文件在、守卫在逐条测它，但它既不在 `INLINE_MODULES`
+// ── ⑥ 出入口必须真的在产物里（"孤儿模块"防线，P2-9 的教训）──────────────────
+// `src/api-client.js` 一度是**孤儿**：文件在、守卫在逐条测它，但它既不在 `INLINE_MODULES`
 // 里、也没有被任何文件 import ⇒ **从不进 bundle**。那时调用点一改用它就会 ReferenceError，
 // 而没有任何守卫会红 —— 浏览器半的模块只有登记进构建清单才存在。
 console.log('\n⑥ 出入口已登记进构建清单、并真的进了产物');
@@ -142,6 +143,57 @@ console.log('\n⑥ 出入口已登记进构建清单、并真的进了产物');
     (bundle.match(/async function apiFetch\(/g) || []).length === 1);
   check('负对照：登记判据对未登记的模块名有牙',
     !/file:\s*'src\/not-registered\.js'/.test(build));
+}
+
+// ── ⑦ Response 替身必须给出 `status`（`ok` 的唯一来源）──────────────────────
+// 教训（P2-9 第一次改写**回退的真因**）：`api-client` 的 `ok` 由 `response.status` 推出；
+// 替身若只写 `{ ok: true, json }`（没有 status），status 被读成 0 ⇒ **一律判失败**。
+// 症状却是"清单加载失败 → picker 按钮不渲染"，与网络层完全看不出关系，上次为此回退了一整批改写。
+// 所以把"替身形态"钉在这里：**同时带 `ok:` 与 `json:` 的替身对象必须带 `status:`**。
+console.log('\n⑦ Response 替身必须带 status');
+{
+  const walk = (dir, out = []) => {
+    let names = [];
+    try { names = readdirSync(dir); } catch { return out; }
+    for (const n of names) {
+      const abs = join(dir, n);
+      let st = null;
+      try { st = statSync(abs); } catch { continue; }
+      if (st.isDirectory()) walk(abs, out);
+      else if (st.isFile() && /\.mjs$/.test(n)) out.push(relative(root, abs).split('\\').join('/'));
+    }
+    return out;
+  };
+  const stubFiles = [...walk(join(root, 'scripts')), ...walk(join(root, 'test'))];
+  const offenders = [];
+  for (const rel of stubFiles) {
+    const text = readFileSync(join(root, rel), 'utf8');
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] !== '{') continue;
+      // 只认"像替身对象"的花括号：紧跟 Promise.resolve( / => ( / return
+      const head = text.slice(Math.max(0, i - 16), i);
+      if (!/(Promise\.resolve\(|=>\s*\(|return\s*)$/.test(head)) continue;
+      let depth = 0; let j = i;
+      for (; j < text.length; j++) {
+        if (text[j] === '{') depth++;
+        else if (text[j] === '}') { depth--; if (!depth) break; }
+      }
+      const block = text.slice(i, j + 1);
+      if (/\bok\s*:/.test(block) && /\bjson\s*:/.test(block) && !/\bstatus\s*:/.test(block)) {
+        offenders.push(rel + ':' + (text.slice(0, i).split('\n').length));
+      }
+    }
+  }
+  check('所有 Response 替身都带 status（ok 只能由 status 推出）', offenders.length === 0,
+    offenders.length ? offenders.join(', ') : stubFiles.length + ' 个 mjs 文件干净');
+  // **覆盖面断言**：上面那句"都带 status"在扫不到文件时也会绿（本仓踩过：walk 里少导入
+  // readdirSync，异常被吞 ⇒ 0 个文件、假绿）。所以先钉住"真的扫到了文件"。
+  check('负对照：扫描确实覆盖到文件（>20 个 mjs，防 walker 静默返回空表）',
+    stubFiles.length > 20, stubFiles.length + ' 个');
+  const mk = (o, j, s) => `${o ? '{ ok: true, ' : '{ '}${j ? 'json: () => x, ' : ''}${s ? 'status: 200, ' : ''}}`;
+  check('负对照：判据对"缺 status 的替身"有牙、对合规替身放行',
+    /\bok\s*:/.test(mk(true, true, false)) && !/\bstatus\s*:/.test(mk(true, true, false))
+    && /\bstatus\s*:/.test(mk(true, true, true)));
 }
 
 console.log('');
