@@ -77,6 +77,7 @@
     "verify:e2e": "node scripts/e2e-web-media-origin.mjs",
     "smoke": "node test/rotation-smoke.mjs && node test/rotation-live-smoke.mjs && node test/rotation-prepared-leak-smoke.mjs && node test/live-frame-backfill-smoke.mjs && node test/live-frame-async-identity-smoke.mjs",
     "verify:all": "npm run build && npm run verify && npm run smoke",
+    "prepublishOnly": "node scripts/verify-package-publish.mjs --release",
     "prepare": "node scripts/prepare.mjs"
   },
   "peerDependencies": {

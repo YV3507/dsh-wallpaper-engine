@@ -192,6 +192,86 @@ check('负对照：语法网对坏产物有牙', (() => {
   catch { return true; }
 })());
 
+// ── ⑦ 发布前闸（只在 `npm publish` 的 prepublishOnly 里跑，`npm run verify` 不带）──
+// 发布不可重来：版本号必须是"没用过"的。判据纯本地（不查 registry，也就不需要网络）：
+// 若已存在 `v<version>` 这个 tag，而 HEAD 已经走在它前面 ⇒ 这个版本号**已经用过**了，
+// 继续发要么被 registry 拒绝（"cannot publish over ..."），要么把 tag 之后的改动
+// 悄悄塞进同一个版本号里 —— 两种都不该发生。
+section('⑦ 发布前闸：版本号是否已被用过');
+if (!process.argv.includes('--release')) {
+  console.log('  · 跳过（只在 npm publish 前跑：node scripts/verify-package-publish.mjs --release）');
+} else {
+  // 读 git 元数据用纯文件操作（不 spawn `git`）：本仓的守卫要能在受限沙箱里跑完。
+  const gitDir = join(ROOT, '.git');
+  // ⚠️ 优先级：**松散 ref 胜过 packed-refs**（git 更新 ref 时写松散文件，旧值可能仍留在
+  //    packed-refs 里 —— 早前顺序反了，于是 HEAD 读到一个陈旧提交）。
+  const readRef = (name) => {
+    try { return readFileSync(join(gitDir, name), 'utf8').trim(); } catch { /* 无松散 ref */ }
+    try {
+      const packed = readFileSync(join(gitDir, 'packed-refs'), 'utf8');
+      const hit = packed.split('\n').find((l) => l.endsWith(' ' + name) && !l.startsWith('#'));
+      if (hit) return hit.split(' ')[0];
+    } catch { /* 没有 packed-refs */ }
+    return null;
+  };
+  const tags = new Map();
+  try {
+    for (const l of readFileSync(join(gitDir, 'packed-refs'), 'utf8').split('\n')) {
+      if (l.startsWith('#') || !l.includes(' refs/tags/')) continue;
+      const [sha, ref] = l.split(' ');
+      tags.set(ref.replace('refs/tags/', ''), sha);
+    }
+  } catch { /* ignore */ }
+  // 松散 tag：**逐条 try**，且要能进子目录（tag 名允许带 `/`，如 `verified/main-v0.7.5`）。
+  // 早前把整个循环包在一个 try 里 ⇒ 撞到目录就抛、静默少读一批 tag ⇒ "无同名 tag" 假绿。
+  const readTagDir = (dir, prefix) => {
+    let names = [];
+    try { names = readdirSync(dir); } catch { return; }
+    for (const name of names) {
+      const abs = join(dir, name);
+      let st = null;
+      try { st = statSync(abs); } catch { continue; }
+      if (st.isDirectory()) { readTagDir(abs, prefix + name + '/'); continue; }
+      try { tags.set(prefix + name, readFileSync(abs, 'utf8').trim()); } catch { /* 单条失败不影响其余 */ }
+    }
+  };
+  readTagDir(join(gitDir, 'refs', 'tags'), '');
+  let head = null;
+  try {
+    const h = readFileSync(join(gitDir, 'HEAD'), 'utf8').trim();
+    head = h.startsWith('ref: ') ? readRef(h.slice(5)) : h;
+  } catch { /* 非 git 工作树 */ }
+  // 独立交叉校验：reflog 最后一条的 new-sha 就是当前 HEAD。
+  // 这条控制专治"packed-refs 陈旧导致 HEAD 读错"（已真实发生过一次）。
+  let headFromLog = null;
+  try {
+    const lines = readFileSync(join(gitDir, 'logs', 'HEAD'), 'utf8').trim().split('\n');
+    const f = lines[lines.length - 1].split('\t')[0].trim().split(/\s+/);
+    headFromLog = f[1] || null;
+  } catch { /* 没有 reflog（裸克隆等） */ }
+
+  if (!head || tags.size === 0) {
+    console.log('  · 跳过（不是完整 git 工作树：没有 HEAD 或没有任何 tag）');
+  } else {
+    // 读取器保真度：读不到任何 `v*` tag 时，"无同名 tag，可以发布"就是假绿。
+    const semverTags = [...tags.keys()].filter((t) => /^v\d/.test(t));
+    check('负对照：tag 读取器确实读到了仓内的版本 tag（否则下面的通过是假绿）',
+      semverTags.length > 0, semverTags.slice(0, 6).join(' ') || '一个都没读到');
+    check('HEAD 解析与 reflog 一致（防 packed-refs 陈旧）',
+      !headFromLog || head === headFromLog,
+      headFromLog ? (head === headFromLog ? head.slice(0, 7) : `ref=${head.slice(0, 7)} reflog=${headFromLog.slice(0, 7)}`)
+        : '无 reflog，跳过');
+    const tag = 'v' + pkg.version;
+    const at = tags.get(tag) || null;
+    const sameAsHead = Boolean(at && at === head);
+    check(`版本 ${pkg.version} 尚未被用过`, !at || sameAsHead,
+      at ? (sameAsHead ? 'tag ' + tag + ' 正指向 HEAD' : `tag ${tag} 指向 ${at.slice(0, 7)}，HEAD 已在 ${head.slice(0, 7)} ⇒ 发布前必须 bump 版本`)
+        : '无同名 tag，可以发布');
+    check('负对照：版本闸对"已发布过的版本号"有牙',
+      (() => { const fake = { at: 'aaaaaaa', head: 'bbbbbbb' }; return !(fake.at === fake.head); })());
+  }
+}
+
 console.log('');
 if (failed) { console.log(`PACKAGE PUBLISH CHECKS FAILED — ${failed} failed`); process.exit(1); }
 console.log('ALL PACKAGE PUBLISH CHECKS PASSED');

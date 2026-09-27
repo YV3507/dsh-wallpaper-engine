@@ -113,6 +113,7 @@
 | 内联模块浏览器安全 / `markers` 在位 / 名字不与正文冲突 | ✅ `scripts/build-client.mjs`（构建期硬失败） | — |
 | `files` 覆盖 `lib/`；具名入口在位；依赖无死声明；工具链零裸依赖 | ✅ `scripts/verify-package-files.mjs` P1–P5（各带负对照） | — |
 | **发布面自洽（npm 方向）**：可达闭包 ⊆ `files`；发布集无开发目录；发布文本无**同步机器**的用户目录路径；`dependencies` 每条都被**活的代码**加载（不是"lib/ 里某处 import 过"）；入口/导出目标都在包里；发布出去的 `lib/client.js` 是加载器形态且可解析 | ✅ `scripts/verify-package-publish.mjs`（六组，各带负对照） | — |
+| **发布前闸**：版本号不得是"已打过 `v<version>` tag 且 HEAD 已往前走"的旧版本（发布不可重来） | ✅ 同一脚本的 `--release` 模式，挂在 `prepublishOnly`（**不进** `npm run verify`，CI 不受影响） | — |
 | `lib/client.js` 与 `src/` 同步 | ✅ CI（重建后 `git diff --exit-code`） | — |
 | **`src/` 无孤儿**：除 `src/client.js` 外每个文件都必须在 `INLINE_MODULES` 里 | ❌ | 新增。棘轮形态：现有孤儿写进白名单，**只许清零**（与 `verify-api-client.mjs` 的裸 fetch 棘轮同手法） |
 | **依赖方向单向**：`lib/**` 不得 import `src/**` | ❌（今天为 0） | 新增。零容忍，不需要棘轮 |
