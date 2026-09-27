@@ -50,9 +50,8 @@ const COMPONENT_FONT_TARGETS = [
     route: 'hooks', dslHooks: ['--dsl-terminal-font'] },
   { prefix: 'table', label: '表格', group: '对话', probe: '_table_', route: 'tokens' },
   { prefix: 'sidebar', label: '侧栏', group: '界面', probe: '_sidebar_', route: 'props' },
-  { prefix: 'label', label: '标签/字段名', group: '界面', probe: '_label_', route: 'props' },
-  { prefix: 'tab', label: '页签', group: '界面', probe: '_tab_', route: 'props' },
-  { prefix: 'input', label: '输入框', group: '界面', probe: '_input_', route: 'props' },
+  // 首期就这 5 个（目标口径 3–5）。刻意**不放开** `label` / `tab` / `input` 这类泛前缀：
+  // 它们在多个模块里重名（`[class*="_label_"]` 会命中一堆无关模块），命中面不可控。
 ];
 
 const PREFIX_RE = /^[A-Za-z][A-Za-z0-9]*$/;

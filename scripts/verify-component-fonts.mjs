@@ -111,8 +111,13 @@ section('⑤ 源码不变量');
   check('不碰 katex 与 @font-face', !/katex/i.test(code) && !/@font-face/.test(code));
   check('负对照：哈希判据对真实哈希类名有牙', /_[A-Za-z0-9]+_[a-z0-9]{5,}_\d+/.test('_wordmark_u7vgf_31'));
   check('属性白名单就是三项', JSON.stringify(COMPONENT_FONT_PROPS) === JSON.stringify(['font-size', 'font-weight', 'font-family']));
-  check('首期白名单 3–8 个模块（避免一次放开过宽）',
-    COMPONENT_FONT_TARGETS.length >= 3 && COMPONENT_FONT_TARGETS.length <= 8, String(COMPONENT_FONT_TARGETS.length));
+  // 棘轮：首期口径 3–5 个模块。**上限就是棘轮** —— 想加模块必须同时改这条断言（有意动作），
+  // 并解释新前缀的命中面（避免放进 `label`/`tab` 这类跨模块重名的泛前缀）。
+  check('首期白名单 3–5 个模块（上限即棘轮）',
+    COMPONENT_FONT_TARGETS.length >= 3 && COMPONENT_FONT_TARGETS.length <= 5, String(COMPONENT_FONT_TARGETS.length));
+  check('不含跨模块重名的泛前缀（label/tab/input/content/item/row）',
+    !COMPONENT_FONT_TARGETS.some((t) => ['label', 'tab', 'input', 'content', 'item', 'row'].includes(t.prefix)),
+    COMPONENT_FONT_TARGETS.map((t) => t.prefix).join(' '));
   check('每个白名单项都有 label/group/probe',
     COMPONENT_FONT_TARGETS.every((t) => t.label && t.group && t.probe));
 }
