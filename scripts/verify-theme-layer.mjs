@@ -270,16 +270,19 @@ section('④b 排版角色（F2）');
     Object.values(payload).every((v) => v.light === v.dark && typeof v.light === 'string'));
   check('绝不重写字重/字族令牌（不在载荷里）',
     !Object.keys(payload).some((k) => /-font-weight$|-font-family$|-font-style$/.test(k)));
-  // G2：「初始值 = 官方默认值」必须**可见**，且描述来自角色表（不复制数据）。
-  check('describeTypeRole 给出可读官方值（含字重）',
-    typo.describeTypeRole(typo.THEME_TYPE_ROLES.find((r) => r.id === 'markdown-h1')) === '700 21px+δ / 30px+δ',
-    typo.describeTypeRole(typo.THEME_TYPE_ROLES.find((r) => r.id === 'markdown-h1')));
-  check('无字重前缀的角色不产生多余空格',
-    typo.describeTypeRole(typo.THEME_TYPE_ROLES.find((r) => r.id === 'markdown-small')) === '12px / 20px');
-  check('跟随 DSH 正文字号的角色如实标注（不写成固定 px）',
-    typo.describeTypeRole(typo.THEME_TYPE_ROLES.find((r) => r.id === 'markdown-base')).includes('14px(正文基准)'));
-  // 面板**不再用占位字样**，直接显示默认值（用户口径）：角色行显示默认字阶、
-  // 字重输入框显示默认字重、颜色块显示当前默认色。
+  // G2：「初始值 = 官方默认值」必须**可见**，且值来自角色表（不复制数据）。
+  // 逐字复述 DSH 字阶的展示函数已随收口删除（面板改为直接显示 `defaultPx` / `prefix`），
+  // 但它承载的两条**不变量**必须留下 —— 删函数不许顺手删掉判据：
+  check('跟随 DSH 正文字号的角色必须继续跟随（不得写成固定 px）',
+    typo.THEME_TYPE_ROLES.filter((r) => String(r.size).includes('--dsh-content-font-size'))
+      .every((r) => String(r.size).startsWith('var(--dsh-content-font-size')
+        && typo.THEME_TYPE_ROLES.some((r2) => r2.id === r.id)),
+    typo.THEME_TYPE_ROLES.filter((r) => String(r.size).includes('--dsh-content-font-size'))
+      .map((r) => r.id).join(' ') || '（无此类角色）');
+  check('负对照：该判据对写死的字阶有牙',
+    !String('14px').startsWith('var(--dsh-content-font-size'));
+  // 面板**不再用占位字样**，直接显示默认值（用户口径）：角色行显示默认字阶与默认字重、
+  // 颜色块显示当前默认色。
   const clientFontUi = readFileSync(join(root, 'src', 'client.js'), 'utf8');
   // 默认值**直接显示在输入框里**（角色表：字号列未填时显示 role.defaultPx），
   // 不再用行内小字复述一遍 DSH 原字阶。
@@ -287,6 +290,11 @@ section('④b 排版角色（F2）');
     /value: size === undefined \? role\.defaultPx : size/.test(clientFontUi));
   check('负对照：该判据对旧写法有牙',
     !/value: size === undefined \? role\.defaultPx : size/.test('value: size === undefined ? "" : size'));
+  // 字重同理：未填时显示角色表里的默认字重（`prefix` 即字重），无前缀的角色显示 400。
+  check('面板直接显示默认字重（未填时取 role.prefix，缺省 400）',
+    /role\.prefix \? Number\(role\.prefix\) : 400/.test(clientFontUi));
+  check('负对照：字重默认值判据对合成文本有牙',
+    !/role\.prefix \? Number\(role\.prefix\) : 400/.test('role.prefix ? 700 : 400'));
   check('面板不再有「官方」占位字样（placeholder）',
     !/placeholder:\s*"官方/.test(clientFontUi));
   check('负对照：占位判据对合成文本有牙', /placeholder:\s*"官方/.test('placeholder: "官方"'));

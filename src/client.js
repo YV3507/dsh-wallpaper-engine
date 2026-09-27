@@ -7920,7 +7920,6 @@ const CSS = `
   .we-picker__slider::-webkit-slider-thumb,
   .we-picker__switch-thumb,
   .we-picker__switch-track,
-  .we-picker__font-chip,
   .we-picker__value {
     corner-shape: round;
   }
@@ -7959,28 +7958,6 @@ const CSS = `
   }
   .we-picker__swatch-custom input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
   .we-picker__swatch-custom input[type="color"]::-webkit-color-swatch { border: 1px solid rgba(255, 255, 255, 0.6); border-radius: 50%; }
-  /* 字体族选择：胶囊 chip（文字选项需要横向空间与自字体预览）。
-     容器 .we-picker__chips 见「统一设置行」区块。 */
-  .we-picker__font-chip {
-    padding: 3px 12px; border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.35);
-    background: transparent;
-    color: var(--dsw-alias-label-secondary, #666);
-    font-size: 12px; line-height: 1.5; cursor: pointer;
-    transition: border-color var(--we-dur-fast, 120ms) var(--we-ease, ease),
-      color var(--we-dur-fast, 120ms) var(--we-ease, ease),
-      box-shadow var(--we-dur-fast, 120ms) var(--we-ease, ease);
-  }
-  .we-picker__font-chip:hover {
-    color: var(--dsw-alias-text-primary, inherit);
-    border-color: rgba(255, 255, 255, 0.65);
-  }
-  .we-picker__font-chip--active,
-  .we-picker__font-chip--active:hover {
-    color: var(--we-ink, inherit);
-    border-color: var(--we-accent, #4f8cff);
-    background: color-mix(in srgb, var(--we-accent, #4f8cff) 12%, transparent);
-  }
 
   /* 字体配置矩阵：把「字号 / 字重 / 字体」提到表头，一行一个角色/组件。
      三类控件固定在列上对齐，比每行重复三个无标签控件好扫读；
@@ -8153,7 +8130,6 @@ const CSS = `
   }
   .we-picker__ctl-side { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
   .we-picker__swatches { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-  .we-picker__chips { display: flex; flex-wrap: wrap; gap: 6px; }
 
   /* ── 吉祥物形态卡片：立绘即实时预览（随大小滑块缩放）。 ── */
   .we-picker__mascot-row { display: flex; gap: 10px; flex-wrap: wrap; }

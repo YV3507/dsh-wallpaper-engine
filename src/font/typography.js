@@ -150,28 +150,8 @@ function buildTypePayload(sizes, isAvailable, weights, families, resolveFamily) 
   return { payload, roles };
 }
 
-/**
- * 把角色表里的 DSH 原表达式转成面板可读的官方值（例如 `700 21px+δ / 30px+δ`）。
- *
- * G2「初始值 = 官方默认值」的展示层：单一真源仍是角色表里的表达式，这里只做展示、
- * 不复制数据（所以 DSH 升级后重取角色表，面板显示的官方值自动跟着变）。
- * δ = `--dsh-content-font-delta`（DSH 自己的「通用 → 字号」偏移，自带 14px 兜底）。
- */
-function describeTypeRole(role) {
-  const pretty = (v) => String(v)
-    .replace(/var\(--dsh-content-font-size-secondary,13px\)/g, '13px(副基准)')
-    .replace(/var\(--dsh-content-font-size,14px\)/g, '14px(正文基准)')
-    .replace(/var\(--dsh-content-font-delta-secondary\)/g, 'δ2')
-    .replace(/var\(--dsh-content-font-delta\)/g, 'δ')
-    .replace(/calc\(([^)]+)\)/g, '$1')
-    .replace(/\s*\+\s*/g, '+')
-    .trim();
-  const weight = role.prefix ? role.prefix + ' ' : '';
-  return weight + pretty(role.size) + ' / ' + pretty(role.lh);
-}
-
 export {
   THEME_TYPE_SOURCE, THEME_TYPE_ROLES,
   THEME_SIZE_MIN, THEME_SIZE_MAX,
-  isTypeSize, typeTokenNames, buildTypePayload, describeTypeRole,
+  isTypeSize, typeTokenNames, buildTypePayload,
 };
