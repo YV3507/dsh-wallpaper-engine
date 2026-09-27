@@ -1171,5 +1171,70 @@ setTimeout(async () => {
     }
   }
   console.log('effects ran:', effects.length);
-  console.log('\nALL CLIENT CHECKS DONE');
+  
+// ⑦ P1-7：条件求值器已抽成独立模块（src/we-cond.js），因此可以直接 import 做**行为**测试
+// —— 这是抽模块的核心收益（此前只能对 src/client.js 做文本断言）。
+// 期望值是 P1-7 **搬移前**从实现里采下来的快照：搬移只允许"行为不动"。
+// ⚠️ 已知语义：本求值器把 `===` / `!==` 也走**宽松**比较（实现如此，P1-7 逐字搬移未改）。
+//    若将来要改成严格比较，必须同步本表并评估对真实壁纸 condition 的影响。
+{
+  const { weEvalCondition, weCondTokenize, weCondParse } = await import(
+    new URL('../src/we-cond.js', import.meta.url).href);
+
+  const CASES = [
+    // [说明, 表达式, values, 期望]
+    ['无条件（空串）', '', undefined, true],
+    ['空白条件', '   ', undefined, true],
+    ['数值相等命中', 'x == 1', { x: 1 }, true],
+    ['字符串同值也算相等（宽松）', 'x == 1', { x: '1' }, true],
+    ['数值不等', 'x == 1', { x: 2 }, false],
+    ['=== 目前也是宽松比较', 'x === 1', { x: '1' }, true],
+    ['!= 取反', 'x != 1', { x: 1 }, false],
+    ['与运算真', 'a && b', { a: 1, b: 1 }, true],
+    ['与运算假', 'a && b', { a: 1, b: 0 }, false],
+    ['或运算', 'a || b', { a: 0, b: 1 }, true],
+    ['取反', '!a', { a: 0 }, true],
+    ['取反带括号', '!(a)', { a: 0 }, true],
+    ['浮点大于命中', 'a > 1.5', { a: 2 }, true],
+    ['浮点大于不满足', 'a > 1.5', { a: 1 }, false],
+    ['大于等于', 'a >= 2', { a: 2 }, true],
+    ['字符串字面量比较', 'str == "hi"', { str: 'hi' }, true],
+    ['成员访问', 'obj.prop == 1', { obj: { prop: 1 } }, true],
+    ['括号组合', '(a == 1) && (b != 2)', { a: 1, b: 3 }, true],
+    ['嵌套成员 + 与运算', 'p.mode == 1 && p.on', { p: { mode: 1, on: true } }, true],
+    ['枚举字符串比较', 'mode == "auto"', { mode: 'auto' }, true],
+    ['三元素（不支持）→ fail open 可见', 'a ? 1 : 0', { a: 1 }, true],
+    ['赋值（不支持）→ fail open 可见', 'a = 1', { a: 1 }, true],
+    ['垃圾表达式 → fail open 可见', '@@@', {}, true],
+    ['values 缺失 → fail open 可见', 'a == 1', undefined, true],
+  ];
+  const wrong = [];
+  for (const [label, expr, values, want] of CASES) {
+    let got;
+    try { got = weEvalCondition(expr, values); } catch (e) { got = 'THREW:' + e.message; }
+    if (got !== want) wrong.push(label + '（期望 ' + want + ' 实得 ' + got + '）');
+  }
+  assert.deepEqual(wrong, [], '条件求值器行为必须与搬移前一致：' + wrong.join(' / '));
+
+  // 负对照：故意植入一条**错期望**，检测器必须恰好抓到它（证明上面的比较真在比，
+  // 而不是恒真）。
+  const planted = CASES.concat([['植入的错期望', 'x == 1', { x: 2 }, true]]);
+  const plantedWrong = planted.filter(([label, expr, values, want]) => {
+    let got;
+    try { got = weEvalCondition(expr, values); } catch { got = 'THREW'; }
+    return got !== want;
+  });
+  assert.deepEqual(plantedWrong.map((c) => c[0]), ['植入的错期望'],
+    '负对照：植入的那条错期望必须被抓到（且只抓到它）');
+
+  // 编译结果按表达式缓存（拖动滑块时每帧要过数百项）—— 同表达式两次必须是同一函数
+  const f1 = weCondParse(weCondTokenize('a == 1'));
+  const f2 = weCondParse(weCondTokenize('a == 1'));
+  assert.equal(typeof f1, 'function', 'weCondParse 必须返回可调用函数');
+  assert.equal(f1({ a: 1 }), true, '编译出的函数必须可直接求值');
+  assert.equal(typeof f2, 'function', '重复编译必须同样可用');
+  console.log('条件求值器行为用例（搬移前后一致 + 可独立测）: ok（' + CASES.length + ' 例）');
+}
+
+console.log('\nALL CLIENT CHECKS DONE');
 }, 50);

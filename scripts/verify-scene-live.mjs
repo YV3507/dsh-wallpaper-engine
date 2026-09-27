@@ -830,8 +830,16 @@ check('属性面板热更新走 __wp.updateWebProps',
   src.includes('function applyUserProps(') && src.includes('wp.updateWebProps(wire)'));
 check('属性面板值以渲染页实时表为准（getProperties）',
   src.includes('wp.getProperties()') && src.includes('function loadUserPropDefs('));
-check('条件求值器已移植（fail open）',
-  src.includes('function weEvalCondition(') && src.includes('function weCondParse('));
+// 求值器自 P1-7 起是**独立模块** src/we-cond.js（构建期内联回客户端作用域）。
+// 断言改为三件事：模块在位、产物里确实有它、client.js 不再自带实现 —— 免得抽出去之后
+// 两边各留一份（那正是要防的漂移）。
+const weCondSrc = readFileSync(join(root, 'src', 'we-cond.js'), 'utf8');
+const bundleSrc = readFileSync(join(root, 'lib', 'client.js'), 'utf8');
+check('条件求值器已抽成独立模块并被内联（fail open）',
+  /\(function weEvalCondition|function weEvalCondition\(/.test(weCondSrc)
+    && weCondSrc.includes('function weCondParse(')
+    && bundleSrc.includes('function weEvalCondition(')
+    && !src.includes('function weEvalCondition('));
 check('场景就绪后回放覆盖值（无 HTML 种子通道）',
   src.includes('function applyStoredUserProps(') && src.includes('applyStoredUserProps(selection)'));
 // 用户口径：选择壁纸页只保留**顶部**关闭按钮（底部那个是重复的）。
