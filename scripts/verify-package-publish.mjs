@@ -64,10 +64,13 @@ const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
 const files = Array.isArray(pkg.files) ? pkg.files : [];
 const publishSet = (r) => files.some((entry) => coveredBy(r, entry));
 
+/** 遍历仓库文件；跳过永远不可能"被发布"的重目录（否则本机要白走一遍 .git 与 node_modules）。 */
+const SKIP_DIRS = new Set(['.git', 'node_modules', '.test-cache', '_refs', '.integration-notes']);
 const walk = (dir, out = []) => {
   let names = [];
   try { names = readdirSync(dir); } catch { return out; }
   for (const name of names) {
+    if (SKIP_DIRS.has(name)) continue;
     const abs = join(dir, name);
     let st = null;
     try { st = statSync(abs); } catch { continue; }
@@ -137,7 +140,7 @@ check('发布文本里没有真实用户目录路径（占位符不算）', path
   pathHits.length ? [...new Set(pathHits)].join('; ') : '干净');
 check('负对照：路径判据放行占位符、拦住真实用户名',
   PLACEHOLDER.test('<你的用户名>') && PLACEHOLDER.test('xxx') && PLACEHOLDER.test('%USERPROFILE%')
-  && !PLACEHOLDER.test('oneincase'));
+  && !PLACEHOLDER.test('some-real-user'));
 
 // ── ④ 白下载的运行时依赖 ────────────────────────────────────────────────────
 section('④ 每个 dependencies 都被**可达闭包**用到');

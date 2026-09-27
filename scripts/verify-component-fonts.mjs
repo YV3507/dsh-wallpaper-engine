@@ -170,13 +170,19 @@ section('⑤b 模块名的实测出处（source）');
     ![undefined, 'guess.css', ''].every((s) => typeof s === 'string' && s.endsWith('.module.css')));
   // 机会性核对：装了 DSH 就逐个打开出处文件，断言里面真的定义了 `.prefix`。
   // 没装则显式跳过（并打印），不假装有牙 —— CI 上没有 DSH，这条必须能安全跳过。
-  const dshRoot = process.env.DSH_WE_DSH_ROOT || 'D:\\DSH Desktop\\resources\\app';
-  const nm = join(dshRoot, 'node_modules');
-  if (existsSync(nm)) {
+  // 候选位置：环境变量优先，其次几个常见安装位置；全都不在就跳过。
+  const dshCandidates = [
+    process.env.DSH_WE_DSH_ROOT,
+    process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, 'Programs', 'DSH Desktop', 'resources', 'app'),
+    'C:\\Program Files\\DSH Desktop\\resources\\app',
+    'D:\\DSH Desktop\\resources\\app',
+  ].filter(Boolean);
+  const dshRoot = dshCandidates.find((c) => existsSync(join(c, 'node_modules'))) || null;
+  const nm = dshRoot ? join(dshRoot, 'node_modules') : null;
+  if (nm) {
     const wrong = [];
     for (const t of COMPONENT_FONT_TARGETS) {
-      const rel = String(t.source).replace('@deepseek-ai/', '@deepseek-ai/');
-      const abs = join(nm, rel);
+      const abs = join(nm, String(t.source));
       if (!existsSync(abs)) { wrong.push(t.id + ':缺文件'); continue; }
       const css = readFileSync(abs, 'utf8');
       // 类名必须作为**独立的类选择器**出现（`.block` 不能靠 `.blockWrap` 之类的子串蒙混）
@@ -184,7 +190,7 @@ section('⑤b 模块名的实测出处（source）');
       if (!re.test(css)) wrong.push(t.id + ':' + t.prefix);
     }
     check('★ 出处文件真实存在且里面定义了该模块名（本机 DSH 静态核对）', wrong.length === 0,
-      wrong.join(' ') || COMPONENT_FONT_TARGETS.length + ' 个组件逐个核对通过');
+      wrong.join(' ') || COMPONENT_FONT_TARGETS.length + ' 个组件逐个核对通过（' + dshRoot + '）');
     check('负对照：核对判据对不存在的类名有牙',
       !new RegExp('^\\.' + 'definitelyNotAClass' + '(?![A-Za-z0-9_-])', 'm')
         .test(readFileSync(join(nm, String(COMPONENT_FONT_TARGETS[0].source)), 'utf8')));
