@@ -22,7 +22,7 @@
  * Usage:  node test/verify-ledger.mjs
  */
 
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -99,6 +99,14 @@ const EVIDENCE = {
     ['账本自检守卫在位', () => has('test/verify-ledger.mjs')],
     ['账本自检守卫已入链', () => JSON.parse(read('package.json')).scripts.verify.includes('verify-ledger')],
   ],
+  'F0': [
+    ['真机清单已归档（结论并入 §9.1 的 V1–V10）',
+      () => has('docs/archive/audits/F0-THEME-SERVICE-CHECKLIST.md')],
+    ['账本 §9.1 的 V 表在册（首尾两行都查）', () => {
+      const l = read('docs/wip/REFACTOR-ASSESSMENT.md');
+      return l.includes('| V1 |') && l.includes('| V10 |');
+    }],
+  ],
   'F1': [
     ['令牌层模块在位', () => has('src/font/color-roles.js')],
     ['令牌层已内联进产物', () => read('lib/client.js').includes('function createThemeLayer(')],
@@ -114,6 +122,48 @@ const EVIDENCE = {
     ['排版模块已内联进产物', () => read('lib/client.js').includes('function buildTypePayload(')],
     ['设置侧已派生（themeType 进 schema 与宿主白名单）', () => read('lib/settings-schema.js').includes('THEME_TYPE_ROLE_IDS')],
     ['面板可设置（排版角色 UI 在位）', () => read('src/panel-tabs.js').includes('排版角色')],
+  ],
+  'G1': [
+    // 四条 !important 折叠 + 全局墨色覆盖 + 三个全局字体键都已删除；判据在主题层守卫里，
+    // 这里只断言"那两条判据在册"（不在两处各写一份）。
+    ['legacy 全局字体键的删除有判据（三个键 + 零 !important）', () => {
+      const g = read('test/verify-theme-layer.mjs');
+      return g.includes('三个全局字体键都已不存在（fontColor / fontWeight / fontFamily）')
+        && g.includes('模块内零 `!important`（红线 2）');
+    }],
+    ['设置真源里这三个键确实不在默认值里', () => {
+      const d = read('lib/settings-schema.js');
+      return !/'fontColor'/.test(d) && !/^\s*fontWeight:/m.test(d) && !/^\s*fontFamily:/m.test(d);
+    }],
+  ],
+  'G2': [
+    // 「初始值 = 官方默认值」必须**可见**且来自角色表（不复制数据）。
+    ['面板直接显示角色表里的官方默认值（字号 / 字重 / 角色默认字号各一条判据）', () => {
+      const g = read('test/verify-theme-layer.mjs');
+      return g.includes('面板直接显示默认值（字号输入框未填时取 role.defaultPx）')
+        && g.includes('面板直接显示默认字重（未填时取 role.prefix，缺省 400）')
+        && g.includes('每个角色都带**可见的官方默认字号**（面板显示它）');
+    }],
+  ],
+  'G3': [
+    ['官方 --dsl-* 钩子白名单在位（通道的唯一真源）',
+      () => read('src/font/components.js').includes('const DSL_FONT_HOOKS = [')],
+    ['钩子通道的作用域判据在册（泛模块名只许走 route=hooks）', () => {
+      const g = read('test/verify-component-fonts.mjs');
+      return g.includes('const genericOnlyInHooks =') && g.includes("t.route === 'hooks'");
+    }],
+  ],
+  'G4': [
+    ['组件字体模块在位（id 与实测模块名分离 + 启动自探测）', () => {
+      const m = read('src/font/components.js');
+      return m.includes('const COMPONENT_FONT_TARGETS = [') && m.includes('function probeComponentTargets(')
+        && m.includes('function buildComponentCss(');
+    }],
+    ['守卫逐条钉住 id/prefix/route 与自探测返回值', () => {
+      const g = read('test/verify-component-fonts.mjs');
+      return g.includes('每个白名单项都有 id/label/group/prefix 且 route 合法')
+        && g.includes('只返回命中的组件 id');
+    }],
   ],
   'P2-9': [
     // 判据与 `test/verify-api-client.mjs` ① **同源**：那份守卫的 `CLIENT_MODULES` 是模块清单的
@@ -186,6 +236,115 @@ const EVIDENCE = {
     ['活依赖存活：/scene-audio 的 TEX 视频提取落点仍在 lib/pkg-extract.js',
       () => read('lib/pkg-extract.js').includes('function extractTexVideoMp4(')],
   ],
+  'P3-1': [
+    ['类型守卫在位且已入链', () => has('test/verify-types.mjs')
+      && JSON.parse(read('package.json')).scripts.verify.includes('verify-types.mjs')],
+    ['类型面两条判据在册（必需字段 + 值导出各一条）', () => {
+      const g = read('test/verify-types.mjs');
+      return g.includes('钉住的必需字段全部已声明，且没有多出的字段')
+        && g.includes('每个 `exports.X =` 都有对应的值导出声明');
+    }],
+  ],
+  'P3-2': [
+    // 指标表述的**正确说法**住在入库位置，且 CI 真的按它判。
+    ['指标表述已收口（MODULE-LAYOUT 记着"重建后 git status 干净"）',
+      () => read('docs/MODULE-LAYOUT.md').includes('重建后 `git status` 干净')],
+    ['CI 按该口径判（重建后 diff 必须干净）',
+      () => read('.github/workflows/verify.yml').includes('git diff --exit-code -- lib/client.js')],
+    // §2 是"当前基线"表 ⇒ 表里的派生计数必须等于**现算值**（结构变了就必须改账本）。
+    ['§2 基线表：内联模块计数 == 构建清单条数', () => {
+      const n = (read('scripts/build-client.mjs').match(/file:\s*['"]/g) || []).length;
+      return n >= 10 && read('docs/wip/REFACTOR-ASSESSMENT.md').includes('| 构建期内联模块 | **' + n + ' 个**');
+    }],
+    ['§2 基线表：守卫计数 == verify 链条数', () => {
+      const chain = JSON.parse(read('package.json')).scripts.verify;
+      const n = new Set(chain.match(/verify-[a-z-]+\.mjs/g) || []).size;
+      const stated = Number((read('docs/wip/REFACTOR-ASSESSMENT.md')
+        .match(/\*\*(\d+) 个 `verify-\*`/) || [])[1] || 0);
+      return n >= 20 && stated === n;
+    }],
+    ['§2 基线表：冒烟计数 == smoke 链条数', () => {
+      const chain = JSON.parse(read('package.json')).scripts.smoke;
+      const n = new Set(chain.match(/[a-z-]+-smoke\.mjs/g) || []).size;
+      const stated = Number((read('docs/wip/REFACTOR-ASSESSMENT.md')
+        .match(/\+ (\d+) 个 smoke（/) || [])[1] || 0);
+      return n >= 3 && stated === n;
+    }],
+    // 规模类只设**上限**（棘轮）：表里的数字只许比实测大，不许比实测小 —— 重构后基线悄悄变大
+    // 会被判红，而"实际比表里小"是安全的（表是上界，不是精确值）。
+    ['§2 基线表：src/client.js 行数仍是上界（棘轮）', () => {
+      const stated = Number(String((read('docs/wip/REFACTOR-ASSESSMENT.md')
+        .match(/浏览器正文 `src\/client\.js` \| \*\*([\d,]+) 行\*\*/) || [])[1] || '').replace(/,/g, ''));
+      const actual = read('src/client.js').replace(/\n$/, '').split('\n').length;
+      return stated > 0 && actual <= stated;
+    }],
+    ['§2 基线表：lib 扫描面（文件数 / 行数）与守卫口径一致', () => {
+      // 口径 = `verify-reachability` 打印的「lib 扫描面」一行：`lib/**.{js,mjs}` **全量**
+      //（vendored 与生成物都算）、行数含末尾空行。文件数取等号（加一个 lib 模块就该改账本），
+      // 行数只设上限（生成物每次重建都会变）。
+      const walk = (dir, out = []) => {
+        for (const n of readdirSync(dir)) {
+          const p = join(dir, n);
+          if (statSync(p).isDirectory()) walk(p, out);
+          else if (/\.(js|mjs)$/.test(n)) out.push(p);
+        }
+        return out;
+      };
+      const files = walk(join(root, 'lib'));
+      const total = files.reduce((n, f) => n + readFileSync(f, 'utf8').split('\n').length, 0);
+      const m = read('docs/wip/REFACTOR-ASSESSMENT.md')
+        .match(/`lib\/\*\*`（[^\n|]*）\s*\|\s*\*\*([\d,]+) 文件 \/ ([\d,]+) 行\*\*/) || [];
+      const statedFiles = Number(String(m[1] || '').replace(/,/g, ''));
+      const statedLines = Number(String(m[2] || '').replace(/,/g, ''));
+      return statedFiles === files.length && statedLines > 0 && total <= statedLines;
+    }],
+  ],
+  'P3-3': [
+    ['可达性守卫在位且已入链', () => has('test/verify-reachability.mjs')
+      && JSON.parse(read('package.json')).scripts.verify.includes('verify-reachability.mjs')],
+    ['棘轮基线已收到 0 文件 / 0 行（只许收紧）',
+      () => read('test/verify-reachability.mjs').includes('const BASELINE = { files: 0, lines: 0 };')],
+  ],
+  'P3-4': [
+    ['死 import 已删（lib/index.js 不再有裸 readPkg；readPkgEntry 是活依赖）',
+      () => !/\breadPkg\b/.test(stripComments(read('lib/index.js')))],
+    ['两口径与假活锚点的建模写进脚本头（as-is / pruned / 假活锚点）', () => {
+      const g = read('test/verify-reachability.mjs');
+      return g.includes('假活锚点') && g.includes('as-is') && g.includes('pruned');
+    }],
+  ],
+  'P3-5': [
+    ['孤儿扫描判据在册（除 client.js 外每个 src/**/*.js 都必须登记）', () => {
+      const g = read('test/verify-module-layout.mjs');
+      return g.includes('function findSrcOrphans(') && g.includes("rel !== 'src/client.js'");
+    }],
+  ],
+  'P3-6': [
+    ['依赖方向判据在册（lib → src 零条边，零容忍）', () => {
+      const g = read('test/verify-module-layout.mjs');
+      return g.includes('function findLibToSrcEdges(') && g.includes('lib/ 里零条指向 src/ 的依赖边');
+    }],
+  ],
+  'P3-7': [
+    ['共享内核白名单在册（当前恰好一条）', () => {
+      const g = read('test/verify-module-layout.mjs');
+      return g.includes("const SHARED_KERNEL_WHITELIST = ['lib/settings-schema.js'];")
+        && g.includes('function findUnlistedSharedKernels(');
+    }],
+  ],
+  'P3-8': [
+    ['CEIL 键存在性 + 覆盖面从磁盘枚举两条判据在册', () => {
+      const g = read('test/verify-comment-discipline.mjs');
+      return g.includes('ghostsOf(Object.keys(CEIL))')
+        && g.includes('棘轮覆盖全部 src/**/*.js、lib/routes/*.js、test/**/*.mjs 与 scripts/**/*.mjs（新文件必须进表）');
+    }],
+  ],
+  'P3-9': [
+    ['P2-9 / P2-10 / P2-11 三条都已有机器证据（本条自己的产物）', () => {
+      const g = read('test/verify-ledger.mjs');
+      return ["'P2-9': [", "'P2-10': [", "'P2-11': ["].every((k) => g.includes(k));
+    }],
+  ],
   'P3-10': [
     // 判据与守卫**同源**：不在这里复制第二份路径清单，只断言守卫自己的判据在册；方向也不能反
     // —— 是"搬走了"才成立，不是"还指着"才成立。
@@ -232,6 +391,63 @@ const EVIDENCE = {
       () => read('test/verify-client.mjs').includes("'../src/picker-props-panel.js'")],
     ['计划文件已归档（wip 里不再有 P3-11-PLAN.md）',
       () => !has('docs/wip/P3-11-PLAN.md') && has('docs/archive/audits/P3-11-PLAN.md')],
+  ],
+  'P3-12': [
+    ['package.json 声明 engines.node = 代码真实下限', () => {
+      const p = JSON.parse(read('package.json'));
+      return Boolean(p.engines && p.engines.node === '>=18');
+    }],
+    ['守卫 ① 断言 engines 与真实用到的 API 对齐', () => {
+      const g = read('test/verify-contracts.mjs');
+      return g.includes('const hasNodeEngine =') && g.includes('package.json 声明了 engines.node');
+    }],
+  ],
+  'P3-13': [
+    // 已完成的一半：缺前置**默认红**，要接受"不跑"必须在命令行上显式写出来。
+    ['缺前置默认红、要接受不跑必须显式 --allow-skip', () => {
+      const g = read('test/verify-media-bridge.mjs');
+      return g.includes('function blockedBy(') && g.includes("process.argv.includes('--allow-skip')");
+    }],
+    // 残留项：CI 没给这条通道加 `--provision` ⇒ 端到端那一段在 CI 里仍然不跑。
+    // 这条当前**必须为假**（它就是"未完成"的定义）；CI 接上后它会变真，届时账本守卫
+    // 会以"证据全成立 ⇒ 状态列该翻了"逼着把这一行翻正。
+    ['CI 已给 media-bridge 端到端接上 --provision（残留项）',
+      () => read('.github/workflows/verify.yml').includes('verify:bridge')],
+  ],
+  'P3-14': [
+    ['四处"过滤集变空即恒真"都补了下限或单独计数', () => {
+      // 判据针对**代码**：四个守卫都先剥注释 —— 否则判据会被解释这些阈值的散文满足
+      //（实测：`fbRules.length >= 5` 在 softrender 的一条注释里也出现 ⇒ 不剥注释时
+      // 把真断言删掉，这条证据照样绿）。
+      const theme = stripComments(read('test/verify-theme-layer.mjs'));
+      const soft = stripComments(read('test/verify-softrender.mjs'));
+      const pkg = stripComments(read('test/verify-package-files.mjs'));
+      const scene = stripComments(read('test/verify-scene.mjs'));
+      return theme.includes('followBody.length > 0')
+        && soft.includes('fbRules.length >= 5') && soft.includes('supportsRules.length >= 4')
+        && pkg.includes('const CHAIN_FLOOR = {') && pkg.includes('below floor')
+        && scene.includes('platform-skipped');
+    }],
+  ],
+  'P3-15': [
+    ['EVIDENCE 键必须被查到（防"证据成了死代码却仍按类数报可核"）',
+      () => read('test/verify-ledger.mjs').includes('EVIDENCE keys never matched')],
+    ['F 轨（F1/F2/F3 这类无横线 ID）行能被账本解析并匹配', () => {
+      const g = read('test/verify-ledger.mjs');
+      return g.includes('(?:-\\d+)?') && g.includes("'F1': [") && g.includes("'F2': [");
+    }],
+    ['`|| typeof fetch` 逃生口已拆成两条都无门的断言', () => {
+      // 判据针对**代码**：先剥注释 —— 那段散文本就解释着"旧断言长什么样"。
+      const g = stripComments(read('test/verify-api-client.mjs'));
+      return g.includes("check('fetch: null（非函数）⇒ 回退到全局 fetch")
+        && g.includes('环境里也没有 fetch 时给出结构化失败而不是抛')
+        && !g.includes("typeof fetch === 'function'");
+    }],
+    ['退役键扫描面已扩到 5 个可能承载设置键的文件',
+      () => read('test/verify-comment-discipline.mjs')
+        .includes("const SETTING_OWNERS = ['lib/index.js', 'src/client.js', 'lib/settings-schema.js', 'src/panel-tabs.js', 'src/persistence.js'];")],
+    ['apply 抛错是硬断言（不是打印后继续）',
+      () => read('test/verify-client.mjs').includes("assert.equal(thrown, null, 'apply(ctx) 不得抛")],
   ],
   'P3-16': [
     // 判据与守卫**同源**：不在这里复制判据，只断言"命名判据在位 + 旧的恒真写法已消失"。
@@ -281,6 +497,39 @@ const EVIDENCE = {
     ['两个消费者都从共享模块取（不是各自又长回一份）', () =>
       read('lib/pkg-extract.js').includes("'./pkg-read.js'")
       && read('lib/scene-manifest.js').includes("'./pkg-read.js'")],
+  ],
+  'P3-18': [
+    ['lib/index.js 的死 readPkg import 已删（不再有第 3 份 PKG 解析器；readPkgEntry 不算）',
+      () => !/\breadPkg\b/.test(stripComments(read('lib/index.js')))],
+  ],
+  'P3-19': [
+    ['活依赖存活的两条反向判据在册（挂在 P2-12 的证据里）', () => {
+      const g = read('test/verify-ledger.mjs');
+      return g.includes('活依赖存活：lib/index.js 仍从 scene-manifest 取 extractSceneVideo*')
+        && g.includes('活依赖存活：/scene-audio 的 TEX 视频提取落点仍在 lib/pkg-extract.js');
+    }],
+    ['scene-manifest 仍然存活（收窄机器退出条件的依据）', () => has('lib/scene-manifest.js')],
+  ],
+  'P3-20': [
+    ['复制度结论写明了作用域（单边结论不得当全仓不变量）', () => {
+      const l = read('docs/wip/REFACTOR-ASSESSMENT.md');
+      return l.includes('只对浏览器半边成立') && l.includes('已限定作用域');
+    }],
+  ],
+  'P3-21': [
+    ['跨半边词汇表由守卫**读两边源码**比对（BASE + 上传 MIME + 自定义画面 MIME）', () => {
+      const g = read('test/verify-contracts.mjs');
+      return g.includes('跨半边契约（读两边源码比对，不是 import 一边自己比）')
+        && g.includes('BASE 两侧一致')
+        && g.includes('上传 MIME：客户端 UPLOAD_TYPES 与宿主 UPLOAD_EXT 键集一致')
+        && g.includes('自定义画面 MIME：客户端有一个 accept 列表');
+    }],
+  ],
+  'P3-22': [
+    ['413 用例接受两种合法结果，且"恰好 limit+1"那条仍在（精确 413 由它钉死）', () => {
+      const g = read('test/verify-scene.mjs');
+      return g.includes('或连接被主动掐断') && g.includes('恰好 limit+1（超限块即最后一块）仍收到 413');
+    }],
   ],
 };
 

@@ -46,12 +46,12 @@
 
 | 指标 | 当前值 |
 |---|---|
-| 浏览器正文 `src/client.js` | **4,254 行**（重构起点 10,119 行） |
-| 构建期内联模块 | **14 个**（13 个来自 `src/` + 共享内核 `lib/settings-schema.js`） |
-| `lib/**`（`verify-reachability` 的扫描面） | **22 文件 / 26,188 行**（含生成物 `lib/client.js`；不含 `vendor/`、`webwallgl/`） |
+| 浏览器正文 `src/client.js` | **3,882 行**（重构起点 10,119 行） |
+| 构建期内联模块 | **17 个**（16 个来自 `src/` + 共享内核 `lib/settings-schema.js`） |
+| `lib/**`（`verify-reachability` 打印的「lib 扫描面」：`lib/**.{js,mjs}` **全量**，vendored 与生成物都在内） | **22 文件 / 26,475 行** |
 | 其中**运行时不可达** | **0 文件 / 0 行**（P2-12 第一半已删净；此前 48 文件 / 9,618 行曾在 `files` 里、真的发给用户） |
-| 生成物 `lib/client.js` | 11,745 行 / 1.22 MiB（提交；判据是"重建后 `git status` 干净"） |
-| 守卫 + 冒烟 | **24 个 `verify-*`（9,968 行）+ 5 个 smoke（1,807 行）**，均在 `test/` |
+| 生成物 `lib/client.js` | 12,030 行 / 1.24 MiB（提交；判据是"重建后 `git status` 干净"） |
+| 守卫 + 冒烟 | **27 个 `verify-*`（12,525 行）+ 5 个 smoke（2,070 行）**，均在 `test/` |
 | vendored | `webwallgl/` + `vendor/` 共 **12 文件 / 6,950 行** |
 
 > 逐阶段的增量对照表（P0 后 / P1 后 / F1 后 / F2 后）已删除：那些数字只在当时有意义，现值以上表为准。
@@ -64,7 +64,7 @@
 
 | 巨石 | 体量 | 锚点 |
 |---|---|---|
-| `WallpaperPicker` 组件 | **1,051 行 / 分支代理 202 = `src/client.js` 的 25%** | `src/client.js`；六个页签渲染器已抽到 `src/panel-tabs.js`，但仍有约 100 处瞬态直写 |
+| `WallpaperPicker` 组件 | **722 行**（P3-11 前 1,033 / 原估 1,051 行，分支代理 202 = 当时的 `src/client.js` 的 25%）；模型 / 模态框 / 属性面板已抽到 `src/picker-*.js` | `src/client.js`；六个页签渲染器在 `src/panel-tabs.js`，仍有约 100 处瞬态直写 |
 | `apply(ctx)` 宿主函数 | **1,171 行 = `lib/index.js` 的 34%**，分支代理 219，31 条路由（**5 族 / 17 条已拆出**到 `lib/routes/`） | `lib/index.js`；内含 4 个巨石 `buildInventory`(137) / `handleSceneFiles`(65) / `serveFile`(49) / `ensureMediaOrigin`(42) |
 
 ⚠️ **复杂度的分布比总量更值得注意**：`lib/media/` 分层清楚（`lib/we-renderer/` 曾也是一棵干净的树，已随 P2-12 删除）。
@@ -192,7 +192,7 @@
 | P3-12 | 补 `engines`（`>=18`，= 代码真实下限） + `verify-contracts.mjs` ① | ✅ |
 | P3-13 | 挂链缺失的守卫、缺前置改为**默认红**或显式 `--allow-skip`（不再与"通过"同形）。**残留**：CI 仍未给 `verify-media-bridge` 加 `--provision` ⇒ 该通道在 CI 无断言覆盖（已显式打印） | 🟡 部分 |
 | P3-14 | 四处"过滤集变空即恒真"的判据补下限或改成单独计数（theme-layer G2 / softrender 两个 gate / package-files P5 / scene 平台跳过） | ✅ |
-| P3-15 | 修"断言被写法或环境短路"：F 轨解析、"每个 EVIDENCE 键都必须被查到"、去掉 `\|\| typeof fetch` 逃生口、退役键扫描扩面、`apply` 抛错改硬断言 | 🟡 部分 |
+| P3-15 | 修"断言被写法或环境短路"：F 轨解析、"每个 EVIDENCE 键都必须被查到"、去掉 `\|\| typeof fetch` 逃生口、退役键扫描扩面、`apply` 抛错改硬断言 —— **五项逐条核过并各自挂了机器证据**（见 `verify-ledger` 的 `P3-15`：F 轨 ID 能被账本解析、逃生口已拆成两条无门断言、退役键扫描覆盖 5 个归属文件、`apply` 抛错是 `assert.equal`），状态由账本守卫的"证据全成立 ⇒ 该翻"逼正 | ✅ |
 | P3-16 | 替换**恒真式负对照**（名不副实）：route-index / retired-lines / theme-layer / softrender / package-files 已修；两个残留文件已**逐条审计 18 条对照** —— 实测只有 **2 条真恒真**（`verify-component-fonts` 里"只断言常量 / 数组不含 X"），另有 4 条是**判据副本**（对照里另抄一份判据 ⇒ 生产侧改了也不会红），其余本就有牙。判据已抽成命名函数 / 命名正则、正负共用；形态规则写进 [`TEST-LAYOUT.md`](../TEST-LAYOUT.md) §约定 5。**验收判据**：把判据中和成"永远说没问题" ⇒ 对应负对照必须变红（实测两条全红，而正判据此时照过 = 空转） | ✅ |
 | P3-17 | ✅ **已合并**（P3-17 那一刀）：容器/压缩原语搬进唯一实现 `lib/pkg-read.js`（270 行），取更严格的一侧（带 `MAX_DECOMPRESSED_BYTES` 上限）；`pkg-extract` 850→644、`scene-manifest` 511→254。详见下方原判据 |
 | P3-17（原判据留档） | **同一套 PKG/TEX 读取器两份实现、且两份都在活路径上**（`lib/pkg-extract.js` ↔ `lib/scene-manifest.js`），不受信输入的分配上限**只加在副本上** ⇒ 同一 `scene.pkg` 在 `/scene-video` 被拒、在 `/scene-audio` 却能驱动 ~2GiB 分配；没有任何守卫比较两份。**验收判据**：导出点唯一 + 上限常量唯一 + 同一夹具对两条路由给出一致裁决 | ✅ |
