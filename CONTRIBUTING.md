@@ -107,7 +107,7 @@ npm run verify:all  # = build + verify + smoke
 以及 `git diff --check` 无尾随空白 / 冲突标记。
 
 > CI **故意不执行 `npm ci`**：build / verify / smoke 只用 `node:` 内置模块与相对路径，
-> 整条链对 registry 与 peer 解析完全免疫 —— 这条不变量由 `scripts/verify-package-files.mjs`
+> 整条链对 registry 与 peer 解析完全免疫 —— 这条不变量由 `test/verify-package-files.mjs`
 > 的 P5 断言钉住。本地开发仍需 `npm ci` 取工具链。
 
 For UI changes, also describe the real DSH surface you tested, including browser or DSH Desktop mode. For platform-specific changes, call out the source layout used in the test—for example Wallpaper Engine, WSL, WaifuX, or loose media.
@@ -117,11 +117,11 @@ UI 改动还应说明实际测试过的 DSH 界面、浏览器或 DSH Desktop �
 ## Release / 发布
 
 - **Publishing is the upstream repository's job** (`elysia395/dsh-wallpaper-engine`). This fork is a development line; it does not publish to npm, and it carries no version-bump gate.
-- What this fork *does* guard is the **publish surface**, via `scripts/verify-package-publish.mjs` inside `npm run verify`: the reachable closure of `lib/index.js` must be covered by `files`, no dev directories may leak into the package, published text must not carry another machine's home path, every `dependencies` entry must actually be loaded by reachable code, and no install-time script may reference a file that `files` does not ship.
+- What this fork *does* guard is the **publish surface**, via `test/verify-package-publish.mjs` inside `npm run verify`: the reachable closure of `lib/index.js` must be covered by `files`, no dev directories may leak into the package, published text must not carry another machine's home path, every `dependencies` entry must actually be loaded by reachable code, and no install-time script may reference a file that `files` does not ship.
 - Check the surface locally at any time with `npm pack --dry-run`（它给出的条目数会比守卫的清单多 `package.json` + `LICENSE`）。
 
 - **发布是上游仓库的事**（`elysia395/dsh-wallpaper-engine`）。本 fork 是开发线：**不发布到 npm**，也不带版本号闸门。
-- 本 fork 守的是**发布面**，由 `npm run verify` 里的 `scripts/verify-package-publish.mjs` 负责：`lib/index.js` 的可达闭包必须被 `files` 覆盖、不得泄漏开发目录、发布文本不得带别的机器的家目录路径、`dependencies` 每条都必须被可达代码加载、安装期脚本不得引用未随包发布的文件。
+- 本 fork 守的是**发布面**，由 `npm run verify` 里的 `test/verify-package-publish.mjs` 负责：`lib/index.js` 的可达闭包必须被 `files` 覆盖、不得泄漏开发目录、发布文本不得带别的机器的家目录路径、`dependencies` 每条都必须被可达代码加载、安装期脚本不得引用未随包发布的文件。
 - 随时可以用 `npm pack --dry-run` 核对发布面（它的条目数会比守卫清单多 `package.json` 与 `LICENSE`）。
 
 ## Pull request checklist / PR 检查清单

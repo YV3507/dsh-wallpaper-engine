@@ -127,7 +127,7 @@ if (!binPath && PROVISION) {
   else console.log('    · 下载没成功：' + prov.error);
 }
 if (!binPath) {
-  blockedBy('中间件端到端用例', '本机没有产物 —— 跑 `node scripts/verify-media-bridge.mjs --provision` 下载 '
+  blockedBy('中间件端到端用例', '本机没有产物 —— 跑 `node test/verify-media-bridge.mjs --provision` 下载 '
     + MEDIA_BRIDGE_TAG + '；明确接受这次不跑就传 `--allow-skip`');
 } else {
   console.log(`   产物：${binPath}（${binSource}）`);

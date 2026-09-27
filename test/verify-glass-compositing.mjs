@@ -50,7 +50,7 @@
 //       own fallback default, and the `?we-saturate=legacy` escape hatch still
 //       restores the old coupled ramp verbatim.
 //
-// Usage: node scripts/verify-glass-compositing.mjs [path-to-client-bundle]
+// Usage: node test/verify-glass-compositing.mjs [path-to-client-bundle]
 //   The optional argument points the parser at another bundle; the negative
 //   control uses it to prove the assertions fail on a mutated copy.
 import { readFileSync } from 'node:fs';

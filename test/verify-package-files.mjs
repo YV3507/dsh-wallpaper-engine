@@ -17,7 +17,7 @@
 //      lib/scene-render-worker.mjs (or its entry) fails loudly instead of merely
 //      shrinking P1's input set.
 //
-// Usage: node scripts/verify-package-files.mjs
+// Usage: node test/verify-package-files.mjs
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, relative, sep } from 'node:path';

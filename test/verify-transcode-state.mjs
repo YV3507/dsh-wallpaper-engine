@@ -17,7 +17,7 @@
 //   3. switching back to 24fps after the swap starts + completes a 24fps
 //      request and the state/UI stay truthful.
 //
-// Usage: node scripts/verify-transcode-state.mjs
+// Usage: node test/verify-transcode-state.mjs
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 

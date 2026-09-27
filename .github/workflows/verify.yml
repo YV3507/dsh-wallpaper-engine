@@ -29,7 +29,7 @@ jobs:
 
       # 故意不跑 `npm ci`：build / verify / smoke 只 import `node:` 内置模块与相对路径，
       # 整条链对 registry 与 peer 解析免疫 —— 这条不变量由
-      # scripts/verify-package-files.mjs 的 P5 断言钉住（谁往守卫里加裸依赖，本地就会先红）。
+      # test/verify-package-files.mjs 的 P5 断言钉住（谁往守卫里加裸依赖，本地就会先红）。
       # 装依赖只会引入 registry 抖动、peer 解析失败这两类与改动无关的红灯。
       - name: build —— 重建 lib/client.js
         run: npm run build

@@ -10,7 +10,7 @@
  *
  * 每条行为都带负对照（负对照本身也断言"确实能抓到"）。
  *
- * Usage:  node scripts/verify-theme-layer.mjs
+ * Usage:  node test/verify-theme-layer.mjs
  */
 
 import { readFileSync } from 'node:fs';

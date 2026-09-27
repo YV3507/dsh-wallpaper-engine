@@ -9,7 +9,7 @@
 > ③ **已完成项每条一句** —— 展开属 CHANGELOG 或提交信息。
 >
 > **分工**：仓库根 `TODO.md` 是**不提交上游**的本地流程债与本机配方；本文是**入库**的重构/设计账本。
-> 状态列由 [`scripts/verify-ledger.mjs`](../scripts/verify-ledger.mjs) 机器核对（谎报状态即红）。
+> 状态列由 [`test/verify-ledger.mjs`](../test/verify-ledger.mjs) 机器核对（谎报状态即红）。
 
 ---
 
@@ -94,7 +94,7 @@
 
 ### 3.5 E：`apply(ctx)` 拆分的必要性评估
 
-> 复算：`node scripts/analyze-host-apply.mjs`。
+> 复算：`node test/tools/analyze-host-apply.mjs`。
 > **结论：不整体重写** —— 先做三条前置，之后**按路由族拆、一次一族**。触发条件见 §7 第 6、7 条。
 
 **为什么不现在拆**：① 没有具体病痛指向它（对比 P2-9：那时有 26 处裸 `fetch` 的具体隐患）；② 代价是 **24 个共享可变闭包状态**
@@ -113,7 +113,7 @@
 ### 3.6 P3 的来源：**未归口 / 未声明需求**的判定依据
 
 **方法**：四路并行**只读**审计（守卫是否"无牙" / 类型与打包面 / 结构重复 / 活文件内的零调用点代码）＋ 客户端与文档侧自查。
-每条结论都要求 `file:line` 与可复算命令；可达性测量已提升为入库工具 `scripts/verify-reachability.mjs`。
+每条结论都要求 `file:line` 与可复算命令；可达性测量已提升为入库工具 `test/verify-reachability.mjs`。
 
 **关键实测**（都能由 §8 命令复算）：路由索引 vs 运行时注册 **31 == 31**（已成守卫）· 剪掉两条**假活锚点**后
 `lib/` **48 文件 / 9,618 行不可达** · `lib/types/*.d.ts` 字段差（`WallpaperDescriptor` 缺 10、`Inventory` 缺 3、`client.d.ts` 零值导出）·
@@ -402,7 +402,7 @@ UI 命名：`壁纸画面刷新` → **`出图来源`**（它换的是**来源**
 4. **单次会话上下文已无法容纳读懂 `apply(ctx)` 或 `WallpaperPicker`** —— 当前已处于临界。
 5. **出现一次无法定位原因的生产级回归** —— 说明守卫的覆盖结构已失效，先补覆盖再谈结构。
 6. **宿主某个路由族长到 ≥3 条路由**，或**一次改动要同时动 ≥3 条共享可变状态的路由** ⇒ 按族单独拆（先做 §3.5 的三条前置）。
-   判定：`node scripts/analyze-host-apply.mjs` 的第 ② 组数。✅ **已对 `diag` 族成立**（4 条路由）⇒ P2-11 的第一刀就是这么做的；下一个满足它的是 `now-playing`（2 条，**未达线**）。
+   判定：`node test/tools/analyze-host-apply.mjs` 的第 ② 组数。✅ **已对 `diag` 族成立**（4 条路由）⇒ P2-11 的第一刀就是这么做的；下一个满足它的是 `now-playing`（2 条，**未达线**）。
 7. **出现一次跨路由状态的"隔空故障"** ⇒ 说明 24 个共享可变闭包状态已从"读起来长"变成"真的会坏"，此时 P2-11 升级为**立即做**。
    ⚠️ 拆 `media` 族前先记住匹配语义（`exact` 与 `prefix` 是两张表，prefix 表**最长前缀胜出**且必须落在路径边界上）⇒ 族内与族间的相对注册顺序都不影响匹配。
 
@@ -413,16 +413,16 @@ UI 命名：`壁纸画面刷新` → **`出图来源`**（它换的是**来源**
 | 指标 | 方法 |
 |---|---|
 | 行数 / 体积 | 按 `\n` 计数（⚠️ PowerShell `Measure-Object -Line` **不计空行**，会少算约 260 行） |
-| 可达闭包 / 死码 | `node scripts/verify-reachability.mjs` —— 五类边（静态 import / `export … from` 再导出 / 动态 `import()` / `require()` / `new Worker(…)`），打印 **as-is** 与 **pruned** 两口径；`lib/webwallgl/**`（按文本注入）与 `lib/vendor/**` 特判排除 |
-| 宿主 `apply` 拆分取证 | `node scripts/analyze-host-apply.mjs`（体量 / 路由族 / 闭包状态 / 各路由守卫覆盖；路由枚举只认 `host-route-index.mjs` 的 `buildIndex()`） |
+| 可达闭包 / 死码 | `node test/verify-reachability.mjs` —— 五类边（静态 import / `export … from` 再导出 / 动态 `import()` / `require()` / `new Worker(…)`），打印 **as-is** 与 **pruned** 两口径；`lib/webwallgl/**`（按文本注入）与 `lib/vendor/**` 特判排除 |
+| 宿主 `apply` 拆分取证 | `node test/tools/analyze-host-apply.mjs`（体量 / 路由族 / 闭包状态 / 各路由守卫覆盖；路由枚举只认 `host-route-index.mjs` 的 `buildIndex()`） |
 | 顶层块体量 / 圈复杂度 | 以列 0 声明为界切块。⚠️ 对"函数体内混着缩进 0 声明"的老代码必须改用**花括号配对**求区间 |
 | 重复率 | 归一化后滑动窗口（8 / 20 行）。⚠️ **必须写明作用域**：`src/**` 与 `lib/**` 差别极大（§3.2） |
 | 共变耦合 | `git log --pretty=format:'@%H' --name-only` → 以 `src/client.js` 为锚统计同改文件 |
 | 打包一致性 | `node scripts/build-client.mjs` 后 `git status --porcelain lib/client.js` 必须为空 |
 | 守卫健康度 | `npm run verify`（退出码 0 才算绿）；`npm run smoke` 为节点级冒烟 |
-| 账本自检 | `node scripts/verify-ledger.mjs`（状态列机器核对 + 两条自动推导的负对照） |
+| 账本自检 | `node test/verify-ledger.mjs`（状态列机器核对 + 两条自动推导的负对照） |
 
-> ⚠️ `node scripts/audit-import-closure.mjs` **不能**用来判"发布面只剩活代码"：它只验"被导入的文件都在 `files` 里"，
+> ⚠️ `node test/tools/audit-import-closure.mjs` **不能**用来判"发布面只剩活代码"：它只验"被导入的文件都在 `files` 里"，
 > 今天**就已经打印 ✅**（而 48 个死文件全在 `files` 里）⇒ 该条件会在动手前就成立，等于没有条件。正确判据是 P3-3 的可达性棘轮。
 
 ---

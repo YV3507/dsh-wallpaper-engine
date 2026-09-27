@@ -53,7 +53,7 @@
 //   I1 a non-browser-ish sandbox WITHOUT `location` / URLSearchParams does not
 //      throw and still detects (typeof guards hold).
 //
-// Usage: node scripts/verify-softrender.mjs
+// Usage: node test/verify-softrender.mjs
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import vm from 'node:vm';

@@ -9,8 +9,8 @@
  * /scene-live 路由）——默认 base 是 "/"，挂在子路径下会 404。
  *
  * 用法：
- *   node scripts/sync-webwallgl.mjs                 # 默认上游 ../webwallgl-github
- *   WEBWALLGL_REPO=/path/to/webwallgl node scripts/sync-webwallgl.mjs
+ *   node test/tools/sync-webwallgl.mjs                 # 默认上游 ../webwallgl-github
+ *   WEBWALLGL_REPO=/path/to/webwallgl node test/tools/sync-webwallgl.mjs
  *
  * 同步后写 lib/webwallgl/.upstream.json（上游 commit / 版本 / 文件清单）。
  * 上游更新渲染器后重跑本脚本即可；手动改 lib/webwallgl/ 会被下次同步
@@ -23,7 +23,8 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const ROOT = resolve(HERE, '..');
+// 本文件在 test/tools/ 下 ⇒ 仓库根要退两层（这一行在目录重整时最容易漏改）。
+const ROOT = resolve(HERE, '..', '..');
 const OUT_DIR = join(ROOT, 'lib', 'webwallgl');
 /** 必须与 lib/index.js 的 /scene-live 路由前缀一致（BASE + '/scene-live'）。 */
 const BASE_PATH = '/wallpaper-engine/scene-live';

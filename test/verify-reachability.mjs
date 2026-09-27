@@ -28,7 +28,7 @@
  *   R4 抽取器有牙——合成源码必须抽出五类边，空源码 / 非相对说明符 / 解析失败必须抽不出边；
  *      这是 R1 之所以有意义的依据（否则"可达 ≥10"可能出自一个恒真的抽取器）。
  *
- * 用法：`node scripts/verify-reachability.mjs`
+ * 用法：`node test/verify-reachability.mjs`
  */
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';

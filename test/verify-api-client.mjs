@@ -9,7 +9,7 @@
  *      非 2xx 不改判、网络中断不抛、JSON 解析失败不吞 ok、POST 序列化）。
  *      每条带负对照。
  *
- * Usage:  node scripts/verify-api-client.mjs
+ * Usage:  node test/verify-api-client.mjs
  */
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';

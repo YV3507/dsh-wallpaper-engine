@@ -26,7 +26,7 @@
 //   C. A selection dropped by a filter explains itself instead of showing an
 //      unexplained blank background.
 //
-// Usage: node scripts/verify-playback-controls.mjs
+// Usage: node test/verify-playback-controls.mjs
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 

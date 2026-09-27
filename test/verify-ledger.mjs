@@ -19,7 +19,7 @@
  *
  * 自带负对照：对"篡改过的账本文本"跑同一套判据，必须能报出问题（否则判据没牙）。
  *
- * Usage:  node scripts/verify-ledger.mjs
+ * Usage:  node test/verify-ledger.mjs
  */
 
 import { readFileSync, existsSync } from 'node:fs';
@@ -62,7 +62,7 @@ const EVIDENCE = {
     }],
   ],
   'P0-4': [
-    ['退役行守卫在位', () => has('scripts/verify-retired-lines.mjs')],
+    ['退役行守卫在位', () => has('test/verify-retired-lines.mjs')],
     ['退役行守卫已入链', () => JSON.parse(read('package.json')).scripts.verify.includes('verify-retired-lines')],
   ],
   'P1-5': [
@@ -96,7 +96,7 @@ const EVIDENCE = {
     ['效果应用也已抽成独立模块（本条完成才算整项完成）', () => has('src/effects.js')],
   ],
   'P1-8': [
-    ['账本自检守卫在位', () => has('scripts/verify-ledger.mjs')],
+    ['账本自检守卫在位', () => has('test/verify-ledger.mjs')],
     ['账本自检守卫已入链', () => JSON.parse(read('package.json')).scripts.verify.includes('verify-ledger')],
   ],
   'F1': [
@@ -116,10 +116,10 @@ const EVIDENCE = {
     ['面板可设置（排版角色 UI 在位）', () => read('src/panel-tabs.js').includes('排版角色')],
   ],
   'P2-9': [
-    // 判据与 `scripts/verify-api-client.mjs` ① **同源**：那份守卫的 `CLIENT_MODULES` 是模块清单的
+    // 判据与 `test/verify-api-client.mjs` ① **同源**：那份守卫的 `CLIENT_MODULES` 是模块清单的
     // 真源，这里现读它（不在两处各维护一份清单）。`>= 13` 是覆盖面下限 —— 清单读空时不许假绿。
     ['客户端全模块零裸 fetch（P2-9 终态）', () => {
-      const guard = read('scripts/verify-api-client.mjs');
+      const guard = read('test/verify-api-client.mjs');
       const body = (guard.match(/const CLIENT_MODULES = \[([\s\S]*?)\];/) || [, ''])[1];
       const modules = [...body.matchAll(/'([^']+)'/g)].map((m) => m[1]);
       if (modules.length < 13) return false;
@@ -138,7 +138,7 @@ const EVIDENCE = {
       () => read('src/api-client.js').includes('const doFetch = pickFetch(o.fetch);')],
   ],
   'P2-10': [
-    // 三条判据与 `scripts/verify-client.mjs` 的 P2-10 后半保持一致（同一组正则）；
+    // 三条判据与 `test/verify-client.mjs` 的 P2-10 后半保持一致（同一组正则）；
     // 两个入口的**实现体**必须被反查到，否则判据是空转。
     ['页签不碰 store（零 selection. / persistSelection 引用）', () => {
       const tabs = read('src/panel-tabs.js');
@@ -159,7 +159,7 @@ const EVIDENCE = {
     ['第一族（diag）已落地：路由模块在位且 apply 调用了它',
       () => has('lib/routes/diag.js') && read('lib/index.js').includes('registerDiagRoutes')],
     // 未完成的那一半：其余族仍内联在 `apply` 里 ⇒ 这条断言当前必须为假（否则状态列该翻了）。
-    // 判据与 `scripts/verify-route-index.mjs` ② 同一形态。
+    // 判据与 `test/verify-route-index.mjs` ② 同一形态。
     ['所有路由族都已拆出 lib/routes/（lib/index.js 内零注册）',
       () => !read('lib/index.js').includes('webServer.register({')],
   ],
@@ -172,7 +172,7 @@ const EVIDENCE = {
     ['manifest/resource 构建器已随无消费者的 /scene-resource/ URL 一并删除',
       () => !read('lib/scene-manifest.js').includes('/wallpaper-engine/scene-resource/')],
     ['退役行守卫的静态帧棘轮已翻成零残留',
-      () => /SF_BASELINE[^=]*=\s*\[\s*\]/.test(read('scripts/verify-retired-lines.mjs'))],
+      () => /SF_BASELINE[^=]*=\s*\[\s*\]/.test(read('test/verify-retired-lines.mjs'))],
     // 反向：**活依赖必须活下来**。`/scene-video` 与库存视频探测走这两个出口，
     // 整文件删除会把活路由弄坏 —— 断言要把它们钉成"必须存在"，不是"必须消失"。
     ['活依赖存活：lib/index.js 仍从 scene-manifest 取 extractSceneVideo*', () => {

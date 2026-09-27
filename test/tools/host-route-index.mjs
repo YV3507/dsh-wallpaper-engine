@@ -18,15 +18,15 @@
  *     这里按 `registerXxxRoutes(webServer, …)` 调用点把模块的路由展开回原位置。
  *
  * 用法：
- *   node scripts/host-route-index.mjs            # 打印索引（守卫用它比对）
- *   node scripts/host-route-index.mjs --write    # 写入 docs/ROUTE-INDEX.md
- *   node scripts/host-route-index.mjs --deps     # 额外打印四个巨石的闭包状态清单（前置 3）
+ *   node test/tools/host-route-index.mjs            # 打印索引（守卫用它比对）
+ *   node test/tools/host-route-index.mjs --write    # 写入 docs/ROUTE-INDEX.md
+ *   node test/tools/host-route-index.mjs --deps     # 额外打印四个巨石的闭包状态清单（前置 3）
  */
 import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 /** 剥掉源码里的字符串/注释，**保住换行**（否则行号错位）。跨行模板字面量一并处理。 */
 function stripSource(raw) {
@@ -227,7 +227,7 @@ export function buildIndex() {
   const md = [];
   md.push('# 宿主路由索引（P2-11 前置 1 · 自动生成，勿手改）');
   md.push('');
-  md.push('> 生成：`node scripts/host-route-index.mjs --write`；核对：`node scripts/verify-route-index.mjs`');
+  md.push('> 生成：`node test/tools/host-route-index.mjs --write`；核对：`node test/verify-route-index.mjs`');
   md.push('> （守卫会在索引与代码不一致时失败 —— 索引因此不会烂掉）。');
   md.push('>');
   md.push('> **依赖** = 该处理器块里引用到的 `apply` 作用域声明（缩进 ≤2）= **将来 context 对象的字段候选**；');

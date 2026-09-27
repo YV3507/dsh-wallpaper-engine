@@ -13,7 +13,7 @@
  * Real fixtures are probed when present (Steam workshop + skin-center import
  * store); synthetic fixtures always run, so the script passes without Steam.
  *
- * Usage:  node scripts/verify-scene.mjs
+ * Usage:  node test/verify-scene.mjs
  */
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, rmSync, readdirSync, chmodSync } from 'node:fs';

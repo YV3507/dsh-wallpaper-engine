@@ -205,7 +205,7 @@ origin/size 决定，不存在「shader 把它拉回来」的可能。
 | eagleflag 非清屏包围盒 | `[72,0,479,269]`（左侧 15% 空带） | **`[0,0,479,269]`** |
 | 4K 下左侧空带 | 583px | **0** |
 
-护栏：`scripts/verify-scene.mjs` Level C2（真实渲染 + 覆盖率/左边界断言，非正则）。
+护栏：`test/verify-scene.mjs` Level C2（真实渲染 + 覆盖率/左边界断言，非正则）。
 
 
 ---

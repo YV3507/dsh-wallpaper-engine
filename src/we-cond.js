@@ -3,7 +3,7 @@
  *
  * 为什么单独一个文件：真实壁纸里 **86% 的属性带 condition**，不求值就会把一堆无关项
  * 摊在面板上；而它是纯计算（词法 → 递归下降 → 缓存编译结果），与 DOM、设置、宿主都无关。
- * 抽出来后它可以**独立测**（scripts/verify-client.mjs 直接 import 本文件跑用例表）。
+ * 抽出来后它可以**独立测**（test/verify-client.mjs 直接 import 本文件跑用例表）。
  *
  * 契约（本文件是客户端程序的一部分，构建期由 scripts/build-client.mjs 内联进 bundle 的
  * 工厂作用域，因此"外部作用域"就是 src/client.js 的顶层）：

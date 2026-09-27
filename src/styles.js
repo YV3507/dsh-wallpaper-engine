@@ -7,7 +7,7 @@
  *
  * ⚠️ 可读性下限（READABILITY_FLOOR / READABILITY_FLOOR_DARK）**必须和 CSS 同处一文件**：
  *    它们是样式表模板里的插值，且**只**在这里被使用 —— 一旦分开，"数值与样式表漂移"
- *    就重新变成可能。数值的来龙去脉见下面那段注释（scripts/verify-readability.mjs 复算同一张网格）。
+ *    就重新变成可能。数值的来龙去脉见下面那段注释（test/verify-readability.mjs 复算同一张网格）。
  *
  * ⚠️ **本文件的注释里不得出现反引号，也不得复述下面那条样式表声明语句的字面量**：样式表模板
  *    由若干守卫从**产物**里按"行首的那条声明"取出来，散文里出现同样的字面量或裸反引号会把
@@ -43,7 +43,7 @@
 // flatten the slider completely. The theme-base layer fixes both themes and
 // keeps the slider alive above the floor.
 //
-// Both values come from measurement (scripts/verify-readability.mjs recomputes
+// Both values come from measurement (test/verify-readability.mjs recomputes
 // the same grid): 玻璃透明度 {0,15,30,45,60} × theme {light,dark} ×
 // 壁纸透明度 {0,50,90}, theme text colour (light #000 / dark #fff) against the
 // surface composited onto the worst-case backdrop (light: darkest plausible
@@ -498,7 +498,7 @@ const CSS = `
      "[data-sidebar-right-open]", plus an explicit closed-state clear so a
      stale painted background can never linger.
      ⚠️ 同类陷阱：凡是"宿主容器留在布局里、只靠子元素隐藏"的元素都不能无条件上色；
-     护栏见 scripts/verify-host-paint-scope.mjs（另见 #91 的 body * { !important } 修复）。
+     护栏见 test/verify-host-paint-scope.mjs（另见 #91 的 body * { !important } 修复）。
      ⚠️ **本注释块（以及整段 CSS）不得出现反引号**：它是一个模板字符串，反引号会提前
      截断它，让所有"提取样式表"的护栏读到空串（verify-readability F1b 会报 css chars=0）。
      行内提到标识符时一律裸写或用「」，不要用 markdown 反引号。 */

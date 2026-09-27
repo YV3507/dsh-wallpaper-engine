@@ -6,14 +6,14 @@
  *
  * Reads only; writes a TSV report to <root>/scene-diagnosis.tsv.
  *
- * Usage: node scripts/diagnose-scenes.mjs
+ * Usage: node test/tools/diagnose-scenes.mjs
  */
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { inflateSync } from 'node:zlib';
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const WE_APPID = '431960';
 const FMT = { 0: 'RGBA8888', 1: 'RGB888', 2: 'RGB565', 4: 'DXT5', 6: 'DXT3', 7: 'DXT1', 8: 'RG88', 9: 'R8', 10: 'RG1616F', 11: 'R16F', 12: 'BC7', 13: 'RGBA1010102', 14: 'RGBA16161616F', 15: 'RGB161616F' };
 

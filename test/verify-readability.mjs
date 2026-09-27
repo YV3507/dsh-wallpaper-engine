@@ -48,7 +48,7 @@
 //       4.5:1 in the worst case (the bug), the floored surface passes.
 //   M2  helpers behave (positive + negative controls on the contrast maths).
 //
-// Usage: node scripts/verify-readability.mjs
+// Usage: node test/verify-readability.mjs
 import { readFileSync } from 'node:fs';
 
 const results = [];

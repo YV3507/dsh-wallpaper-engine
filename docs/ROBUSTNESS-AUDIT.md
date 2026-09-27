@@ -1,10 +1,10 @@
 # 健壮性审计记录（2026-08-30）
 
 > 目标：杜绝"我这能用、你那不行"。审计维度：发布包完整性、编码、跨平台、运行时容错、依赖兼容。
-> 审计方法：脚本化校验（导入闭包/打包/编码扫描）+ 关键代码深读。配套工具：`scripts/audit-import-closure.mjs`。
+> 审计方法：脚本化校验（导入闭包/打包/编码扫描）+ 关键代码深读。配套工具：`test/tools/audit-import-closure.mjs`。
 >
 > ⚠️ **这是 2026-08-30 的快照**（结论多数仍成立，**计数与文件名会随代码漂移**）。2026-09-23 复跑更正：
-> ① 导入闭包现为 **lib 81 文件 / 66 个被导入目标全部覆盖**（`node scripts/audit-import-closure.mjs`，exit 0）；
+> ① 导入闭包现为 **lib 81 文件 / 66 个被导入目标全部覆盖**（`node test/tools/audit-import-closure.mjs`，exit 0）；
 > ② **BOM 并非"无"** —— `scripts/` 下有 35 个 `tmp-*.mjs` 带 UTF-8 BOM（历史调试脚本；`lib/`、`src/`、`docs/` 无）；
 > ③ 双编码乱码的文件对象**写反了**：真正乱码的是 **`lib/scene-render-worker.mjs`**（实测 67 行），
 > `lib/scene-scripts.js` 现在是干净中文；**该乱码已于 2026-09 全部还原**（成因、来源与护栏见 §2）；
@@ -16,12 +16,12 @@
 
 | 检查 | 结果 |
 |---|---|
-| lib/ 全部运行时导入闭包 vs `files` 列表 | ✅ 68 文件 / 63 被导入目标全部覆盖（`scripts/audit-import-closure.mjs`，可随时重跑） |
+| lib/ 全部运行时导入闭包 vs `files` 列表 | ✅ 68 文件 / 63 被导入目标全部覆盖（`test/tools/audit-import-closure.mjs`，可随时重跑） |
 | `npm pack --dry-run` 实际内容 | ✅ 75 文件 / 865KB；关键文件（scene-script-apis.js、worker、cordis.patch.yml、gpu-gl/gpu-dawn/scene/materials/render/registry/wgsl）全部在位 |
 | 不应发布的内容混入 | ✅ 无 src/、scripts/、docs/、node_modules、临时文件（`prepare` 在发布时重建 client、tarball 内无源） |
 | worker 路径解析 | ✅ `new URL('./scene-render-worker.mjs', import.meta.url)` 相对 lib/，发布包内正确 |
 
-**保证**：发布前 `npm pack --dry-run` + `node scripts/audit-import-closure.mjs` 双检查；`prepare` 保证 `lib/client.js` 始终由发布时的 `src/client.js` 构建。
+**保证**：发布前 `npm pack --dry-run` + `node test/tools/audit-import-closure.mjs` 双检查；`prepare` 保证 `lib/client.js` 始终由发布时的 `src/client.js` 构建。
 
 ## 2. 编码健壮性
 
@@ -74,4 +74,4 @@
 - **已保证**：发布包导入闭包完整、编码合法、降级链全覆盖。
 - **watch items**（非阻断）：glsl-parser exports（DEP0151）；`STEAM_PROBE_DIRS` 未过 wslPath（无碍，WSL 由 /mnt 扫描覆盖）。双编码乱码已消除并由 `verify-encoding` 长期看护（**该护栏未随本线保留**；历史乱码版本仍挂在 `catchup-v0.7.5` 分支上，是唯一复发来源）。
 
-**重跑审计**：`node scripts/audit-import-closure.mjs && npm pack --dry-run && npm run verify && node scripts/verify-scene.mjs`
+**重跑审计**：`node test/tools/audit-import-closure.mjs && npm pack --dry-run && npm run verify && node test/verify-scene.mjs`

@@ -13,7 +13,7 @@
  * 路径（`for (const seg of ['media','preview'])` 注册的两条全丢），报出"25 条"而索引是 31 条。
  * 度量工具与设计稿给出两个不同的路由数，比不度量更坏 —— 现在只有一处枚举。
  *
- * 用法：node scripts/analyze-host-apply.mjs
+ * 用法：node test/tools/analyze-host-apply.mjs
  * 退出码恒为 0（这是度量工具，不是守卫）。
  */
 import { readFileSync } from 'node:fs';
@@ -21,7 +21,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildIndex } from './host-route-index.mjs';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const INDEX = buildIndex();
 const { routes, stateNames, applyStart, applyEnd, giants } = INDEX;
 

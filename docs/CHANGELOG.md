@@ -107,7 +107,7 @@
 
 ### v0.6.8
 
-- 场景渲染管线的稳定化修复批次（solid layer 白方块 / JPEG 回退 alpha / clearcolor / `#86` 残留 / 资源泄漏回归护栏）；发布包 `files` 白名单回归由 `scripts/verify-package-files.mjs` 长期看护。
+- 场景渲染管线的稳定化修复批次（solid layer 白方块 / JPEG 回退 alpha / clearcolor / `#86` 残留 / 资源泄漏回归护栏）；发布包 `files` 白名单回归由 `test/verify-package-files.mjs` 长期看护。
 
 ### v0.6.7
 
@@ -255,7 +255,7 @@
 
 ### v0.6.8
 
-- A stabilization batch for the scene rendering pipeline (solid-layer white boxes / JPEG fallback alpha / clearcolor / `#86` residue / resource-leak regression guards). The `files` allowlist regression that silently dropped a runtime module is now guarded permanently by `scripts/verify-package-files.mjs`.
+- A stabilization batch for the scene rendering pipeline (solid-layer white boxes / JPEG fallback alpha / clearcolor / `#86` residue / resource-leak regression guards). The `files` allowlist regression that silently dropped a runtime module is now guarded permanently by `test/verify-package-files.mjs`.
 
 ### v0.6.7
 

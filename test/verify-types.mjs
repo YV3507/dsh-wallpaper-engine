@@ -26,7 +26,7 @@
  *      指向生成的 docs/ROUTE-INDEX.md、不写死一个会漂移的路由条数。
  *   P9 负对照：同一散文判据对改坏的文本必须为假。
  *
- * 用法: node scripts/verify-types.mjs
+ * 用法: node test/verify-types.mjs
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';

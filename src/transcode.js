@@ -28,7 +28,7 @@
  *     `transcodeProgress`。src/client.js 只允许在**换壁纸/切走**时把它们**复位**
  *     （`= null` / `= "idle"`，紧接着 abortTranscodeUpgrade() + refreshMediaInfo() 交接给本文件）
  *     —— 别处改写会绕过状态机，让"旧请求的结果覆盖新请求"重新变成可能。
- *     这条不是口号：scripts/verify-transcode-state.mjs 扫两个源文件核对它。
+ *     这条不是口号：test/verify-transcode-state.mjs 扫两个源文件核对它。
  *   · 自己的运行状态（两个探测/升级的 token、AbortController、两个 timer）**不外露**，只经入口操作。
  *   · 定时器与 AbortController 必须成对清理：卸载路径调用 abortTranscodeUpgrade() ——
  *     漏掉就是"卸载后 500ms 轮询永久泄漏"（真实缺陷）。

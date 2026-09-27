@@ -16,7 +16,7 @@
  * 注：这里核对的是 **`files` 驱动的集合**；npm 还会自动带上 `package.json` / `LICENSE` /
  * `README*`，所以真实 tarball 的条目数会比这里多 2–3 条（本机实测 79 vs 77，差额正是前两者）。
  *
- * Usage:  node scripts/verify-package-publish.mjs
+ * Usage:  node test/verify-package-publish.mjs
  */
 
 import { readFileSync, existsSync, statSync, readdirSync } from 'node:fs';

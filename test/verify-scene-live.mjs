@@ -20,7 +20,7 @@
  *
  * Runs anywhere (no Steam needed — the fixture is synthetic).
  *
- * Usage:  node scripts/verify-scene-live.mjs
+ * Usage:  node test/verify-scene-live.mjs
  */
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync } from 'node:fs';

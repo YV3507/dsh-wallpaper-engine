@@ -3,7 +3,7 @@
  * verify-route-index.mjs — **路由索引不许烂掉**（P2-11 前置 1 的守卫）。
  *
  * 账本 §3.5 把"路由索引"列为 P2-11 的前置 1：它既是导航表，也是将来 context 对象的**设计稿**。
- * 但手写索引一定会烂 —— 所以索引由 `scripts/host-route-index.mjs` 生成，本守卫**重算并逐字节比对**
+ * 但手写索引一定会烂 —— 所以索引由 `test/tools/host-route-index.mjs` 生成，本守卫**重算并逐字节比对**
  * `docs/ROUTE-INDEX.md`：路由增删、路径改名、处理器换了形态而忘了重新生成，这里都会红。
  *
  * 断言（每条都配负对照，见各节）：
@@ -22,7 +22,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { buildIndex, parseRouteModuleText } from './host-route-index.mjs';
+import { buildIndex, parseRouteModuleText } from './tools/host-route-index.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 let failed = 0;
@@ -35,7 +35,7 @@ console.log('\n① 路由索引与代码一致');
 const { text, routes, modules, orphanModules } = buildIndex();
 const file = readFileSync(join(ROOT, 'docs', 'ROUTE-INDEX.md'), 'utf8').replace(/\r\n/g, '\n').trimEnd();
 check('docs/ROUTE-INDEX.md 与现算的索引一致', file === text.trimEnd(),
-  file === text.trimEnd() ? routes.length + ' 条路由' : '不一致 ⇒ 跑 `node scripts/host-route-index.mjs --write`');
+  file === text.trimEnd() ? routes.length + ' 条路由' : '不一致 ⇒ 跑 `node test/tools/host-route-index.mjs --write`');
 // 覆盖面：解析器若静默返回空表，上面那条会变成空对空
 check('负对照：解析器确实抓到了路由（>20 条）', routes.length > 20, routes.length + ' 条');
 // 负对照：必须把改动后的文本**喂给同一条判据**再断言它判"不一致"。

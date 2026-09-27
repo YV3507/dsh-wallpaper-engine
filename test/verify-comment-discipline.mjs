@@ -167,42 +167,47 @@ check('negative control: 带日期的注释会被判不合格',
     //   verify-client / verify-comment-discipline（本文件：词表与负对照必须写出那些词）/
     //   verify-component-fonts / verify-contracts / verify-host-paint-scope / verify-media-bridge /
     //   verify-route-index / verify-scene-live / verify-scene。
-    'scripts/analyze-host-apply.mjs': 0,
-    'scripts/audit-import-closure.mjs': 0,
+    'test/tools/analyze-host-apply.mjs': 0,
+    'test/tools/audit-import-closure.mjs': 0,
     'scripts/build-client.mjs': 1,
-    'scripts/diagnose-scenes.mjs': 0,
-    'scripts/diagnose-web-blank.mjs': 0,
-    'scripts/e2e-web-media-origin.mjs': 5,
-    'scripts/host-route-index.mjs': 1,
+    'test/tools/diagnose-scenes.mjs': 0,
+    'test/tools/diagnose-web-blank.mjs': 0,
+    'test/e2e-web-media-origin.mjs': 5,
+    'test/live-frame-async-identity-smoke.mjs': 3,
+    'test/live-frame-backfill-smoke.mjs': 3,
+    'test/rotation-live-smoke.mjs': 0,
+    'test/rotation-prepared-leak-smoke.mjs': 3,
+    'test/rotation-smoke.mjs': 1,
+    'test/tools/host-route-index.mjs': 1,
     'scripts/prepare.mjs': 0,
-    'scripts/sync-webwallgl.mjs': 0,
-    'scripts/verify-all-scenes.mjs': 0,
-    'scripts/verify-angel-skin.mjs': 0,
-    'scripts/verify-api-client.mjs': 2,
-    'scripts/verify-client.mjs': 4,
-    'scripts/verify-comment-discipline.mjs': 32,
-    'scripts/verify-component-fonts.mjs': 2,
-    'scripts/verify-contracts.mjs': 1,
-    'scripts/verify-glass-compositing.mjs': 0,
-    'scripts/verify-host-paint-scope.mjs': 3,
-    'scripts/verify-ledger.mjs': 0,
-    'scripts/verify-mdl-fix.mjs': 0,
-    'scripts/verify-media-bridge.mjs': 2,
-    'scripts/verify-module-layout.mjs': 0,
-    'scripts/verify-package-files.mjs': 0,
-    'scripts/verify-package-publish.mjs': 0,
-    'scripts/verify-playback-controls.mjs': 0,
-    'scripts/verify-preprocess.mjs': 0,
-    'scripts/verify-reachability.mjs': 0,
-    'scripts/verify-readability.mjs': 0,
-    'scripts/verify-retired-lines.mjs': 0,
-    'scripts/verify-route-index.mjs': 1,
-    'scripts/verify-scene-live.mjs': 8,
-    'scripts/verify-scene.mjs': 1,
-    'scripts/verify-softrender.mjs': 0,
-    'scripts/verify-theme-layer.mjs': 0,
-    'scripts/verify-transcode-state.mjs': 0,
-    'scripts/verify-types.mjs': 0,
+    'test/tools/sync-webwallgl.mjs': 0,
+    'test/verify-all-scenes.mjs': 0,
+    'test/verify-angel-skin.mjs': 0,
+    'test/verify-api-client.mjs': 2,
+    'test/verify-client.mjs': 4,
+    'test/verify-comment-discipline.mjs': 32,
+    'test/verify-component-fonts.mjs': 2,
+    'test/verify-contracts.mjs': 1,
+    'test/verify-glass-compositing.mjs': 0,
+    'test/verify-host-paint-scope.mjs': 3,
+    'test/verify-ledger.mjs': 0,
+    'test/verify-mdl-fix.mjs': 0,
+    'test/verify-media-bridge.mjs': 2,
+    'test/verify-module-layout.mjs': 0,
+    'test/verify-package-files.mjs': 0,
+    'test/verify-package-publish.mjs': 0,
+    'test/verify-playback-controls.mjs': 0,
+    'test/verify-preprocess.mjs': 0,
+    'test/verify-reachability.mjs': 0,
+    'test/verify-readability.mjs': 0,
+    'test/verify-retired-lines.mjs': 0,
+    'test/verify-route-index.mjs': 1,
+    'test/verify-scene-live.mjs': 8,
+    'test/verify-scene.mjs': 1,
+    'test/verify-softrender.mjs': 0,
+    'test/verify-theme-layer.mjs': 0,
+    'test/verify-transcode-state.mjs': 0,
+    'test/verify-types.mjs': 0,
   };
   const measure = (s) => (s.match(/曾经|旧实现|以前|原先|旧版|教训|踩到|踩坑/g) || []).length;
 
@@ -228,7 +233,7 @@ check('negative control: 带日期的注释会被判不合格',
     && ghostsOf(['lib/routes/diag.js']).length === 0);
 
   // 覆盖面**从磁盘枚举**（不是手抄第二份名单）：棘轮的域 = src/**/*.js + lib/routes/*.js
-  // + scripts/**/*.mjs，每个文件都必须逐条在表里，否则"棘轮只许减少"对它是空的。
+  // + scripts/**/*.mjs + test/**/*.mjs，每个文件都必须逐条在表里，否则"棘轮只许减少"对它是空的。
   const walkMatching = (relDir, rx) => {
     const out = [];
     for (const ent of readdirSync(ROOT + relDir, { withFileTypes: true })) {
@@ -243,12 +248,13 @@ check('negative control: 带日期的注释会被判不合格',
     ...walkMatching('src', /\.js$/),
     ...walkMatching('lib/routes', /\.js$/),
     ...walkMatching('scripts', /\.mjs$/),
+    ...walkMatching('test', /\.mjs$/),
   ];
   const uncovered = uncoveredIn(REQUIRED, CEIL);
-  check('棘轮覆盖全部 src/**/*.js、lib/routes/*.js 与 scripts/**/*.mjs（新文件必须进表）',
+  check('棘轮覆盖全部 src/**/*.js、lib/routes/*.js、scripts/**/*.mjs 与 test/**/*.mjs（新文件必须进表）',
     uncovered.length === 0 && REQUIRED.length >= 51,
     '覆盖 ' + (REQUIRED.length - uncovered.length) + '/' + REQUIRED.length
-      + ' 个文件（地板 51 = 14 src + 1 路由 + 36 脚本）'
+      + ' 个文件（地板 51 = 14 src + 1 路由 + 2 脚本 + 39 test）'
       + (uncovered.length ? '；未登记：' + uncovered.join(', ') : ''));
   // 负对照用**纯合成**清单（不掺 REQUIRED）：它测的是判据本身，不该因为真实域恰好有漏项而变色。
   check('negative control: 同一个覆盖判据会点名未登记的合成文件',

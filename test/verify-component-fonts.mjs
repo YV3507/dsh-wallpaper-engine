@@ -17,7 +17,7 @@
  * 名字写错时那一行只是静默不生效。改动白名单时**必须**照 src/font/components.js 文件头
  * 记的口径重新实测。
  *
- * Usage:  node scripts/verify-component-fonts.mjs
+ * Usage:  node test/verify-component-fonts.mjs
  */
 
 import { readFileSync, existsSync } from 'node:fs';

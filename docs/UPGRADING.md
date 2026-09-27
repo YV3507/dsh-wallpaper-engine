@@ -57,7 +57,7 @@ DSH 0.1.5 的官方原生侧栏；仍停留在 0.1.2-rc.1 旧内核的用户请�
 - v0.7.2 起官方原生右侧栏纳入「侧栏液态玻璃」适配（修复升级 better-sidebar 0.19 后右侧栏整体透明的
   回归），细节见 [`CHANGELOG.md`](./CHANGELOG.md) 的 v0.7.2 条目。
 - **当前版本 1.0.1**（上游最新 release 亦是 v1.0.1）：本文件的端到端实测记录停在 v0.7.1/v0.7.2；
-  v0.7.5 及之后的实时渲染链路另有离线验收（`scripts/verify-scene-live.mjs` 等 16 条链，`npm run verify`）。
+  v0.7.5 及之后的实时渲染链路另有离线验收（`test/verify-scene-live.mjs` 等 16 条链，`npm run verify`）。
 
   **v1.0.1 的搭配建议：`dsh-desktop` ≥ 2.0.14** —— 该版修复了插件加载失败、右栏玻璃关闭态露灰板、
   增强模式左栏灰面板遮挡壁纸等问题；v1.0.1 起**兼容 / 增强 / 扩展三种窗口模式**下壁纸与全部效果均可用。
@@ -110,7 +110,7 @@ The plugin shows a one-time in-app notice per release; missing it is harmless.
 
 - **Current version 1.0.1** (also the latest upstream release): the end-to-end record in this file stops
   at v0.7.1/v0.7.2; the live-rendering chain from v0.7.5 on has offline verification only
-  (`scripts/verify-scene-live.mjs` and more, `npm run verify`). **Recommended pairing: `dsh-desktop` ≥ 2.0.14** —
+  (`test/verify-scene-live.mjs` and more, `npm run verify`). **Recommended pairing: `dsh-desktop` ≥ 2.0.14** —
   that release fixed plugin load failures, the right-sidebar glass grey plate when collapsed, and the
   enhanced-mode left grey panel covering the wallpaper; from v1.0.1 wallpapers and every effect work in all
   three window modes (compatibility / enhanced / extended). See the v1.0.1 and v0.7.6–v0.7.8 entries in

@@ -18,9 +18,9 @@
  *     → 相对子资源一个请求都发不出 → 白屏（上游 web-rewrite.ts 已修：就地改写相对 base）。
  *
  * 用法（环境变量）：
- *   WALL_ID=2905017768 node scripts/diagnose-web-blank.mjs
- *   WALL_ROOT=/path/to/library WALL_ID=my-fixture node scripts/diagnose-web-blank.mjs
- *   SHOT=/tmp/x.png FPS=30 WAIT_MS=14000 RENDERER_DIR=… node scripts/diagnose-web-blank.mjs
+ *   WALL_ID=2905017768 node test/tools/diagnose-web-blank.mjs
+ *   WALL_ROOT=/path/to/library WALL_ID=my-fixture node test/tools/diagnose-web-blank.mjs
+ *   SHOT=/tmp/x.png FPS=30 WAIT_MS=14000 RENDERER_DIR=… node test/tools/diagnose-web-blank.mjs
  *
  *   WALL_ID      壁纸目录名（库存 id 的 up-dir- 之后那段）
  *   WALL_ROOT    壁纸库根目录（默认读插件 config.json 的 uploadDir）
@@ -37,7 +37,7 @@ import { spawn } from 'node:child_process';
 import { join, resolve, dirname, extname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const WALL_ID = process.env.WALL_ID || '2905017768';
 const FPS = process.env.FPS || '30';
 const WAIT_MS = Number(process.env.WAIT_MS || 14000);

@@ -70,7 +70,7 @@
 3. **是宿主自己的实现吗？**
    → `lib/<语义名>.js` **并加进 `files`**。按职责分子目录（现状：`lib/media/`）。门面 `lib/index.js` 只做注册与协议聚合，**不装新逻辑**（P2-11 的目标形态）。
 4. **是第三方副本 / 类型声明吗？**
-   → vendored 放 `lib/vendor/`（内联副本）或 `lib/webwallgl/`（按文本注入的 shim），**不许改**，同步走 `scripts/sync-webwallgl.mjs`；
+   → vendored 放 `lib/vendor/`（内联副本）或 `lib/webwallgl/`（按文本注入的 shim），**不许改**，同步走 `test/tools/sync-webwallgl.mjs`；
    → 类型放 `lib/types/*.d.ts`，**必须与代码一致**。
 
 **一句话版**：*浏览器手写 → `src/` 且登记内联；两侧共用 → `lib/` 且登记内联；只有宿主 → `lib/` 且登记 `files`；第三方 → vendored 子目录。*
@@ -87,9 +87,9 @@
 
 | # | 偏离 | 证据锚点 | 归口 |
 |---|---|---|---|
-| 1 | **死码在发布面里**：`font-render.js` / `scene-scripts.js` / `scene-script-apis.js` / `scene-renderer.js` / `scene-render-worker.mjs` 与 `we-renderer/`（**活下来的只有 `textures.js` 及其依赖 `canvas.js` / `math.js` / `jpeg.js`**）构成一个自相引用、但整体只从一个**零调用点**的函数进门的簇（`renderSceneFrameInWorker` → `new Worker('./scene-render-worker.mjs')`），而它们**全在 `files` 里 ⇒ 真的发给用户** | 账本 §3.2、§6.5；**口径与实测值以 `node scripts/verify-reachability.mjs` 的输出为准**（该脚本按**内容**而非行号定位两个"假活锚点"）—— 剪枝后 **48 个文件 / 9,618 行 = `lib` 的 24.6%** | P2-12（动手）· **P3-3/P3-4 ✅**（已变成机器事实） |
+| 1 | **死码在发布面里**：`font-render.js` / `scene-scripts.js` / `scene-script-apis.js` / `scene-renderer.js` / `scene-render-worker.mjs` 与 `we-renderer/`（**活下来的只有 `textures.js` 及其依赖 `canvas.js` / `math.js` / `jpeg.js`**）构成一个自相引用、但整体只从一个**零调用点**的函数进门的簇（`renderSceneFrameInWorker` → `new Worker('./scene-render-worker.mjs')`），而它们**全在 `files` 里 ⇒ 真的发给用户** | 账本 §3.2、§6.5；**口径与实测值以 `node test/verify-reachability.mjs` 的输出为准**（该脚本按**内容**而非行号定位两个"假活锚点"）—— 剪枝后 **48 个文件 / 9,618 行 = `lib` 的 24.6%** | P2-12（动手）· **P3-3/P3-4 ✅**（已变成机器事实） |
 | 2 | ~~**`src/` 孤儿**：`src/api-client.js` 既不在 `INLINE_MODULES` 也不被任何文件 import ⇒ **不进产物**~~ **已收敛**：已登记进 `INLINE_MODULES`（P2-9 第一批调用点改写同时落地），并由 `verify-api-client.mjs` ⑥ 断言「已登记 + 已在产物里 + 产物里只有一份」——**它曾经是孤儿**这件事本身说明"漏登记不报错"是真陷阱 | `verify-api-client.mjs` ⑥（含负对照） | ✅ |
-| 3 | ~~`lib/types/index.d.ts` 与代码矛盾（称"暴露三条路由"、把 `webServer` 当可选；`WallpaperDescriptor` 缺 10 个字段、`Inventory` 缺 3 个、`client.d.ts` 零值导出）~~ **已收敛** | 类型面与代码一致，由 `scripts/verify-types.mjs` 从**实现**派生键集断言 | P3-1 ✅ |
+| 3 | ~~`lib/types/index.d.ts` 与代码矛盾（称"暴露三条路由"、把 `webServer` 当可选；`WallpaperDescriptor` 缺 10 个字段、`Inventory` 缺 3 个、`client.d.ts` 零值导出）~~ **已收敛** | 类型面与代码一致，由 `test/verify-types.mjs` 从**实现**派生键集断言 | P3-1 ✅ |
 | 4 | ~~账本 §2 基线表仍写 `lib/client.js` 与 `src/client.js` **逐字节一致**~~ **已收敛** —— 产物是加载器包装 + 14 个内联模块，二者不可能逐字节一致 | 该指标现在的正确表述是"重建后 `git status` 干净"，由 CI 的 `git diff --exit-code` 钉住 | P3-2 ✅ |
 
 > **可达性分析的两个已知例外**（写守卫时必须特判，否则会把活代码判成死码）：`lib/webwallgl/web-shim.js` 是**按文本注入**（`fs.readFile` + 塞进 HTML），`lib/vendor/**` 与部分产物是**按字符串 require**。账本 §8 已把这条记为度量方法的一部分。
@@ -103,9 +103,9 @@
 1. §5 的**剩余**偏离全部收敛（当前只剩 1 条：死码在发布面里，属 P2-12）；
 2. §7 的守卫全部在位，**且各带负对照**；
 3. P2-12 完成 ⇒ 发布面只剩活代码，`files` 与可达闭包一致。
-   ⚠️ **不能拿 `scripts/audit-import-closure.mjs` 当这条的判据**：它只验"被导入的文件都在 `files` 里"，
+   ⚠️ **不能拿 `test/tools/audit-import-closure.mjs` 当这条的判据**：它只验"被导入的文件都在 `files` 里"，
    今天**就已经打印 ✅**（而 48 个死文件全在 `files` 里）⇒ 该条件会**在动手前就成立**，等于没有条件。
-   正确判据是有可达性棘轮（**P3-3 ✅**：`scripts/verify-reachability.mjs`），口径见账本 §3.6 与 §8。
+   正确判据是有可达性棘轮（**P3-3 ✅**：`test/verify-reachability.mjs`），口径见账本 §3.6 与 §8。
 
 ---
 
@@ -114,10 +114,10 @@
 | 规则 | 现状 | 缺口 |
 |---|---|---|
 | 内联模块浏览器安全 / `markers` 在位 / 名字不与正文冲突 | ✅ `scripts/build-client.mjs`（构建期硬失败） | — |
-| `files` 覆盖 `lib/`；具名入口在位；依赖无死声明；工具链零裸依赖 | ✅ `scripts/verify-package-files.mjs` P1–P5（各带负对照） | — |
-| **发布面自洽（npm 方向）**：可达闭包 ⊆ `files`；发布集无开发目录；发布文本无**同步机器**的用户目录路径；`dependencies` 每条都被**活的代码**加载（不是"lib/ 里某处 import 过"）；入口/导出目标都在包里；发布出去的 `lib/client.js` 是加载器形态且可解析；安装期脚本不得引用未随包发布的文件 | ✅ `scripts/verify-package-publish.mjs`（七组，各带负对照） | — |
+| `files` 覆盖 `lib/`；具名入口在位；依赖无死声明；工具链零裸依赖 | ✅ `test/verify-package-files.mjs` P1–P5（各带负对照） | — |
+| **发布面自洽（npm 方向）**：可达闭包 ⊆ `files`；发布集无开发目录；发布文本无**同步机器**的用户目录路径；`dependencies` 每条都被**活的代码**加载（不是"lib/ 里某处 import 过"）；入口/导出目标都在包里；发布出去的 `lib/client.js` 是加载器形态且可解析；安装期脚本不得引用未随包发布的文件 | ✅ `test/verify-package-publish.mjs`（七组，各带负对照） | — |
 | `lib/client.js` 与 `src/` 同步 | ✅ CI（重建后 `git diff --exit-code`） | — |
-| **`src/` 无孤儿**：除 `src/client.js` 外每个文件都必须在 `INLINE_MODULES` 里 | ✅ `scripts/verify-module-layout.mjs` ①（全量扫描 + 负对照） | — |
+| **`src/` 无孤儿**：除 `src/client.js` 外每个文件都必须在 `INLINE_MODULES` 里 | ✅ `test/verify-module-layout.mjs` ①（全量扫描 + 负对照） | — |
 | **依赖方向单向**：`lib/**` 不得 import `src/**` | ✅ 同守卫 ②（零容忍，不需要棘轮） | — |
 | **共享内核白名单**：允许被内联进浏览器的 `lib/**` 文件只许来自一张显式清单（当前**恰好 1 条**：`lib/settings-schema.js`；其余 13 个内联模块都是 `src/`） | ✅ 同守卫 ③（再加一条必须改清单 ⇒ 共享是**决策**而不是顺手） | — |
-| **类型面与代码同源**：`lib/types/*.d.ts` 必须与实现一致 | ✅ `scripts/verify-types.mjs`（从实现派生键集断言类型覆盖） | — |
+| **类型面与代码同源**：`lib/types/*.d.ts` 必须与实现一致 | ✅ `test/verify-types.mjs`（从实现派生键集断言类型覆盖） | — |

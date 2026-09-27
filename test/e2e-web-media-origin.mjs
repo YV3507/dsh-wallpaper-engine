@@ -18,7 +18,7 @@
  *     fps=15       渲染页经 postMessage 通道下发的 setFps 到达作者（跨源控制通道活着）
  *
  * 不属于 npm run verify —— 它需要本机有 Chromium 系浏览器。
- * Usage: node scripts/e2e-web-media-origin.mjs
+ * Usage: node test/e2e-web-media-origin.mjs
  */
 
 import { createServer } from 'node:http';

@@ -370,7 +370,7 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 - 设置入口：「设置 → Wallpaper Engine → 效果 → 画面 → 官方资源路径」（保存后立刻重建实时渲染层生效）；也可用 `DSH_WE_ASSETS_DIR` 环境变量覆盖（优先级最高）。
 - 目录要求：必须是**绝对路径**且含 `materials/` 子目录（相对路径 / 不存在的目录 / 结构不符会被拒绝并提示）。
 - 素材属 WE 版权内容：**只从你本机路径只读取用**，不复制、不上传、不入库（合规边界同上游 WebWallGL `docs/COMPLIANCE.md`）。
-- 契约：宿主按上游 `renderer/src/local-assets.ts` 提供四种请求形态（probe / `index.json` / `.tex` / 任意相对文件），渲染页由 URL 参数 `localAssets=1` 开启；验收见 `scripts/verify-scene-live.mjs` 的 Level E（20 条）。
+- 契约：宿主按上游 `renderer/src/local-assets.ts` 提供四种请求形态（probe / `index.json` / `.tex` / 任意相对文件），渲染页由 URL 参数 `localAssets=1` 开启；验收见 `test/verify-scene-live.mjs` 的 Level E（20 条）。
 
 ### 自定义壁纸
 
@@ -561,14 +561,14 @@ host 端（`lib/index.js`）是纯 ESM，无需构建。client 端（`lib/client
 ```sh
 npm run build                  # 从 src/client.js 重新生成 lib/client.js
 npm run verify                 # 物化生成的 bundle 并断言其导出（含 scene-live 链路自检）
-node scripts/verify-scene.mjs  # 场景静态帧提取 / scene-frame 路由自检（含合成 fixture，离线可跑）
-node scripts/verify-scene-live.mjs  # 场景实时渲染自检（vendor 产物 / scene-live + scene-files 路由 / 目录围栏 / Range / 壁纸媒体源 / 帧率上限实现质量）
-node scripts/e2e-web-media-origin.mjs  # 真浏览器端到端（需本机 Chromium 系浏览器）：媒体源 + 严格沙箱 iframe + shim/属性种子/控制通道
-node scripts/diagnose-web-blank.mjs  # 单张网页壁纸白屏排查（无头真浏览器 + 截图 + 控制台报错；WALL_ID=<目录名>）
-node scripts/sync-webwallgl.mjs     # 从本地 webwallgl 仓库构建并同步渲染页产物到 lib/webwallgl/
+node test/verify-scene.mjs  # 场景静态帧提取 / scene-frame 路由自检（含合成 fixture，离线可跑）
+node test/verify-scene-live.mjs  # 场景实时渲染自检（vendor 产物 / scene-live + scene-files 路由 / 目录围栏 / Range / 壁纸媒体源 / 帧率上限实现质量）
+node test/e2e-web-media-origin.mjs  # 真浏览器端到端（需本机 Chromium 系浏览器）：媒体源 + 严格沙箱 iframe + shim/属性种子/控制通道
+node test/tools/diagnose-web-blank.mjs  # 单张网页壁纸白屏排查（无头真浏览器 + 截图 + 控制台报错；WALL_ID=<目录名>）
+node test/tools/sync-webwallgl.mjs     # 从本地 webwallgl 仓库构建并同步渲染页产物到 lib/webwallgl/
 ```
 
-`lib/webwallgl/` 是**上游渲染页的 vendor 产物**（`index.html` + hash 资产 + `.upstream.json` 溯源），由 `scripts/sync-webwallgl.mjs` 从 webwallgl 仓库构建（`--base=/wallpaper-engine/scene-live/`）后覆盖式写入——需要的改动做在上游，不要手改该目录。渲染页只依赖 host 的 `/scene-live` 与 `/scene-files` 两条同源路由，与 client 侧经 `frame.contentWindow.__wp` 控制面耦合（同源 iframe），两端可独立演进。
+`lib/webwallgl/` 是**上游渲染页的 vendor 产物**（`index.html` + hash 资产 + `.upstream.json` 溯源），由 `test/tools/sync-webwallgl.mjs` 从 webwallgl 仓库构建（`--base=/wallpaper-engine/scene-live/`）后覆盖式写入——需要的改动做在上游，不要手改该目录。渲染页只依赖 host 的 `/scene-live` 与 `/scene-files` 两条同源路由，与 client 侧经 `frame.contentWindow.__wp` 控制面耦合（同源 iframe），两端可独立演进。
 
 编辑 `src/client.js` 后运行 `npm run build`，不要手改 `lib/client.js`。`npm install`/`pnpm install` 会自动触发 `prepare` → `build`，因此全新 checkout 总是带最新的 `lib/client.js`。
 

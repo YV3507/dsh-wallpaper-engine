@@ -29,7 +29,7 @@
  * 只断言"今天干净"是不够的 —— 解析器一旦静默返回空表，正断言会恒绿。
  * 覆盖面断言（`src` 树 ≥13 个 `.js`、登记表 ≥10 条、`lib` ≥20 个模块且 ≥10 条依赖边）正是为此存在。
  *
- * Usage:  node scripts/verify-module-layout.mjs
+ * Usage:  node test/verify-module-layout.mjs
  */
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';

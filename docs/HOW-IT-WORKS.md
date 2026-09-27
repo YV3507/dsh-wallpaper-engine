@@ -34,7 +34,7 @@ HTML 里注入 WE API shim（`lib/webwallgl/web-shim.js`）与 `project.json` �
   实时渲染流量（`/scene-live` + `/scene-files`）算用户活动 ⇒ 预热自动推迟到动画起来之后；当前**正在实时渲染**的那张
   **不进预热名单**（它的帧此刻最没必要算）。
 - **帧率**：`实时渲染帧率`（15 / 30 / 60 fps）经 iframe query 下发，改档会重建图层。
-- 护栏：`scripts/verify-scene-live.mjs`。
+- 护栏：`test/verify-scene-live.mjs`。
 
 ### 场景渲染器（静态帧链 / 实时渲染不可用时的回退）
 
@@ -139,7 +139,7 @@ with the document.
   **excluded from the prewarm candidate list** (its frame is the least useful one to compute right now).
 - **Frame rate**: 「实时渲染帧率」 (15 / 30 / 60 fps) is passed through the iframe query; changing it
   rebuilds the layer.
-- Guard: `scripts/verify-scene-live.mjs`.
+- Guard: `test/verify-scene-live.mjs`.
 
 ### The scene renderer (static-frame chain / fallback when live rendering is unavailable)
 

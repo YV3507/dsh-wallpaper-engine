@@ -1,6 +1,6 @@
 # 宿主路由索引（P2-11 前置 1 · 自动生成，勿手改）
 
-> 生成：`node scripts/host-route-index.mjs --write`；核对：`node scripts/verify-route-index.mjs`
+> 生成：`node test/tools/host-route-index.mjs --write`；核对：`node test/verify-route-index.mjs`
 > （守卫会在索引与代码不一致时失败 —— 索引因此不会烂掉）。
 >
 > **依赖** = 该处理器块里引用到的 `apply` 作用域声明（缩进 ≤2）= **将来 context 对象的字段候选**；

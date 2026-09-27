@@ -41,7 +41,7 @@ function walk(dir, out = []) {
 const FILES = [...walk('lib'), ...walk('src'), ...walk('scripts'), ...walk('test')]
   // 本脚本必须把退役词**拼出来**才能搜它们 ⇒ 扫自己必然是假阳性。只排除这一个文件，
   // 不得扩大（新加的守卫若也要拼这些词，应改为从本脚本 import 词表，而不是再开一个豁免）。
-  .filter((f) => f !== 'scripts/verify-retired-lines.mjs')
+  .filter((f) => f !== 'test/verify-retired-lines.mjs')
   .sort();
 const read = (rel) => readFileSync(ROOT + rel, 'utf8');
 
@@ -54,7 +54,7 @@ const DECLARED_RESIDUE = {
   needle: '/wallpaper-engine/scene-resource/',
   // **必须编码"这条线已被删除"的守卫，无法不写出该 needle** —— 它们不是"这条线又长回来了"，
   // 而是检查它是否消失的人。名单只许缩小：产品侧一消失，就该把 DECLARED_RESIDUE 整条移除。
-  inspectors: ['scripts/verify-ledger.mjs'],
+  inspectors: ['test/verify-ledger.mjs'],
 };
 
 const LEGACY_FORBIDDEN = [
@@ -119,11 +119,11 @@ const SF_BASELINE = [
   'lib/index.js', 'lib/pkg-extract.js', 'lib/scene-manifest.js', 'lib/scene-render-worker.mjs',
   'lib/scene-renderer.js', 'lib/scene-script-apis.js', 'lib/scene-scripts.js',
   'lib/we-renderer/core.js', 'lib/we-renderer/text.js',
-  'scripts/audit-import-closure.mjs', 'scripts/diagnose-scenes.mjs', 'scripts/verify-all-scenes.mjs',
-  'scripts/verify-angel-skin.mjs', 'scripts/verify-comment-discipline.mjs', 'scripts/verify-mdl-fix.mjs',
-  'scripts/verify-package-files.mjs', 'scripts/verify-preprocess.mjs', 'scripts/verify-scene.mjs',
+  'test/tools/audit-import-closure.mjs', 'test/tools/diagnose-scenes.mjs', 'test/verify-all-scenes.mjs',
+  'test/verify-angel-skin.mjs', 'test/verify-comment-discipline.mjs', 'test/verify-mdl-fix.mjs',
+  'test/verify-package-files.mjs', 'test/verify-preprocess.mjs', 'test/verify-scene.mjs',
   // 账本守卫要把 P2-12 的"完成"编码成断言，就必须点名这条线的标识符（否则无法断言"它没了"）。
-  'scripts/verify-ledger.mjs',
+  'test/verify-ledger.mjs',
 ];
 {
   const found = new Map(); // file -> 命中的退役词
