@@ -102,8 +102,17 @@ section('② 载荷构建（白名单 + 双值 + 形状）');
     || typeof v.light !== 'string' || typeof v.dark !== 'string');
   check('载荷里绝无裸字符串 / 缺项（服务的校验会抛 TypeError）', bare.length === 0,
     bare.map(([k]) => k).join(' '));
-  check('每个令牌都是 {light,dark} 对',
-    Object.values(payload).every((v) => v.light === '#112233' || v.dark === '#aabbcc' || true));
+  // 不变量：载荷里每个令牌的值都是**该角色所配的那一对**色值 —— 串色（两个角色的令牌拿错
+  // 色值）与落空都必须判出，所以这里比对白名单里的完整 `light/dark` 组合而不是只比一侧；
+  // 空载荷也一并挡掉，`.every()` 对空集恒真。
+  {
+    const pairs = Object.values(payload);
+    const allowed = Object.values(COLORS_OK).map((c) => c.light + '/' + c.dark);
+    const wrong = pairs.filter((v) => !v || !allowed.includes(String(v.light) + '/' + String(v.dark)));
+    check('每个令牌都是 {light,dark} 对，且两侧同属该角色所配的色值（不串色、不落空）',
+      pairs.length > 0 && wrong.length === 0,
+      pairs.length + ' 个令牌; 异常=[' + wrong.map((v) => JSON.stringify(v)).join(' ') + ']');
+  }
 }
 {
   const { roles } = buildTokenPayload({ primary: { light: '#112233', dark: 'BAD' } }, allAvailable);
@@ -264,8 +273,10 @@ section('④b 排版角色（F2）');
     typo.buildTypePayload({}, all, { 'markdown-h1': 500 }).payload['--dsw-font-markdown-h1'].light
       .includes('var(--dsw-font-markdown-h1-font-size)'));
   check('每个角色都带**可见的官方默认字号**（面板显示它）',
-    typo.THEME_TYPE_ROLES.every((r) => Number.isInteger(r.defaultPx)
-      && r.defaultPx >= typo.THEME_SIZE_MIN && r.defaultPx <= typo.THEME_SIZE_MAX));
+    typo.THEME_TYPE_ROLES.length > 0
+    && typo.THEME_TYPE_ROLES.every((r) => Number.isInteger(r.defaultPx)
+      && r.defaultPx >= typo.THEME_SIZE_MIN && r.defaultPx <= typo.THEME_SIZE_MAX),
+    typo.THEME_TYPE_ROLES.length + ' 个角色');
   check('值一律 {light,dark} 且两侧同值（排版与配色无关）',
     Object.values(payload).every((v) => v.light === v.dark && typeof v.light === 'string'));
   check('绝不重写字重/字族令牌（不在载荷里）',
@@ -273,12 +284,18 @@ section('④b 排版角色（F2）');
   // G2：「初始值 = 官方默认值」必须**可见**，且值来自角色表（不复制数据）。
   // 逐字复述 DSH 字阶的展示函数已随收口删除（面板改为直接显示 `defaultPx` / `prefix`），
   // 但它承载的两条**不变量**必须留下 —— 删函数不许顺手删掉判据：
+  // 跟随 DSH 正文字号的角色是这 4 个：markdown-h4 / markdown-base（`--dsh-content-font-size`）
+  // 与 markdown-table / markdown-table-head（`--dsh-content-font-size-secondary`）。
+  // 判据必须**逐个钉住这 4 个 id 仍在**，不能只看筛出来的子集：子集为空时 `.every()` 恒真，
+  // 而"4 个都改成固定 px"正是这条不变量要防的回归 —— 那样筛出来是空集，旧写法会静默通过。
+  const followBody = typo.THEME_TYPE_ROLES.filter((r) => String(r.size).includes('--dsh-content-font-size'));
+  const FOLLOW_EXPECTED = ['markdown-h4', 'markdown-base', 'markdown-table', 'markdown-table-head'];
+  const missingFollow = FOLLOW_EXPECTED.filter((id) => !followBody.some((r) => r.id === id));
   check('跟随 DSH 正文字号的角色必须继续跟随（不得写成固定 px）',
-    typo.THEME_TYPE_ROLES.filter((r) => String(r.size).includes('--dsh-content-font-size'))
-      .every((r) => String(r.size).startsWith('var(--dsh-content-font-size')
-        && typo.THEME_TYPE_ROLES.some((r2) => r2.id === r.id)),
-    typo.THEME_TYPE_ROLES.filter((r) => String(r.size).includes('--dsh-content-font-size'))
-      .map((r) => r.id).join(' ') || '（无此类角色）');
+    followBody.length > 0 && missingFollow.length === 0
+    && followBody.every((r) => String(r.size).startsWith('var(--dsh-content-font-size')),
+    '跟随的角色=' + followBody.length + '（' + followBody.map((r) => r.id).join(' ') + '）'
+      + '；缺失=[' + missingFollow.join(' ') + ']');
   check('负对照：该判据对写死的字阶有牙',
     !String('14px').startsWith('var(--dsh-content-font-size'));
   // 面板**不再用占位字样**，直接显示默认值（用户口径）：角色行显示默认字阶与默认字重、

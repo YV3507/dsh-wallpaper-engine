@@ -3,6 +3,9 @@
   "version": "1.0.1",
   "description": "Wallpaper Engine backgrounds for the DSH web GUI: render your local Wallpaper Engine Video/Web wallpapers behind the chat, Scene wallpapers as extracted static frames, with iOS-style liquid glass, adjustable scrim/border/blur, and a customizable accent color + glass transparency for the whole settings window. Prerequisites (update BOTH first): latest DeepSeek Harness (0.1.5-rc.1+ / DSH Desktop >= 2.0.7) and dsh-better-sidebar >= 0.19.0.",
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
   "repository": {
@@ -73,7 +76,7 @@
   "license": "MIT",
   "scripts": {
     "build": "node scripts/build-client.mjs",
-    "verify": "node scripts/verify-client.mjs && node scripts/verify-transcode-state.mjs && node scripts/verify-playback-controls.mjs && node scripts/verify-scene.mjs && node scripts/verify-scene-live.mjs && node scripts/verify-comment-discipline.mjs && node scripts/verify-media-bridge.mjs && node scripts/verify-softrender.mjs && node scripts/verify-readability.mjs && node scripts/verify-package-files.mjs && node scripts/verify-package-publish.mjs && node scripts/verify-host-paint-scope.mjs && node scripts/verify-retired-lines.mjs && node scripts/verify-ledger.mjs && node scripts/verify-route-index.mjs && node scripts/verify-theme-layer.mjs && node scripts/verify-api-client.mjs && node scripts/verify-component-fonts.mjs",
+    "verify": "node scripts/verify-client.mjs && node scripts/verify-transcode-state.mjs && node scripts/verify-playback-controls.mjs && node scripts/verify-scene.mjs && node scripts/verify-scene-live.mjs && node scripts/verify-comment-discipline.mjs && node scripts/verify-media-bridge.mjs --allow-skip && node scripts/verify-softrender.mjs && node scripts/verify-readability.mjs && node scripts/verify-glass-compositing.mjs && node scripts/verify-package-files.mjs && node scripts/verify-package-publish.mjs && node scripts/verify-contracts.mjs && node scripts/verify-module-layout.mjs && node scripts/verify-reachability.mjs && node scripts/verify-types.mjs && node scripts/verify-host-paint-scope.mjs && node scripts/verify-retired-lines.mjs && node scripts/verify-ledger.mjs && node scripts/verify-route-index.mjs && node scripts/verify-theme-layer.mjs && node scripts/verify-api-client.mjs && node scripts/verify-component-fonts.mjs",
     "verify:bridge": "node scripts/verify-media-bridge.mjs --provision",
     "verify:e2e": "node scripts/e2e-web-media-origin.mjs",
     "smoke": "node test/rotation-smoke.mjs && node test/rotation-live-smoke.mjs && node test/rotation-prepared-leak-smoke.mjs && node test/live-frame-backfill-smoke.mjs && node test/live-frame-async-identity-smoke.mjs",

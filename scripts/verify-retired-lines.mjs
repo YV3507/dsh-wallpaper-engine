@@ -49,7 +49,13 @@ const read = (rel) => readFileSync(ROOT + rel, 'utf8');
 // 登记遗留：scene-manifest.js 的 manifest 构建器仍会拼 /scene-resource/ 的 URL。
 // 它的**消费者（/scene-manifest 路由）已在 P0-3 下线** ⇒ 那些 URL 目前无任何读取方；
 // 整块构建器（约 640 行）归 P2-12 阶段 2 处理，故此处只把出现次数**钉住**（只许减少）。
-const DECLARED_RESIDUE = { file: 'lib/scene-manifest.js', needle: '/wallpaper-engine/scene-resource/' };
+const DECLARED_RESIDUE = {
+  file: 'lib/scene-manifest.js',
+  needle: '/wallpaper-engine/scene-resource/',
+  // **必须编码"这条线已被删除"的守卫，无法不写出该 needle** —— 它们不是"这条线又长回来了"，
+  // 而是检查它是否消失的人。名单只许缩小：产品侧一消失，就该把 DECLARED_RESIDUE 整条移除。
+  inspectors: ['scripts/verify-ledger.mjs'],
+};
 
 const LEGACY_FORBIDDEN = [
   'WE_SCENE_PLAYER_HTML',
@@ -75,14 +81,28 @@ const LEGACY_FORBIDDEN = [
     !(pkg.files || []).includes('lib/scene-player.js'));
 
   const residue = FILES.filter((f) => read(f).includes(DECLARED_RESIDUE.needle));
-  const inDeclared = residue.length === 1 && residue[0] === DECLARED_RESIDUE.file;
-  check('登记遗留（manifest 构建器里的 /scene-resource/ URL）未扩散',
-    inDeclared,
-    residue.length === 0
-      ? 'INFO：该遗留已消失 ⇒ 请把 DECLARED_RESIDUE 从本脚本移除（P2-12 进度）'
-      : '出现在 ' + residue.join(', '));
+  const residueAllowed = [DECLARED_RESIDUE.file, ...(DECLARED_RESIDUE.inspectors || [])];
+  const residueSpread = residue.filter((f) => !residueAllowed.includes(f));
+  check('登记遗留（manifest 构建器里的 /scene-resource/ URL）未扩散到名单外的文件',
+    residueSpread.length === 0,
+    !residue.includes(DECLARED_RESIDUE.file)
+      ? 'INFO：产品侧该遗留已消失 ⇒ 请把 DECLARED_RESIDUE 从本脚本移除（P2-12 进度）'
+      : (residueSpread.length ? '越界 ' + residueSpread.join(', ') : '仅出现在 ' + residue.join(', ')));
 
-  check('negative control: 旧播放页标识会被判不合格', 'x WE_SCENE_PLAYER_HTML y'.includes('WE_SCENE_PLAYER_HTML'));
+  // 负对照：把"名单外的文件"喂给**同一个**判据，必须被判为扩散
+  {
+    const probe = (files) => files.filter((f) => !residueAllowed.includes(f));
+    check('negative control: 登记遗留扩散到名单外会被判不合格',
+      probe([DECLARED_RESIDUE.file, ...(DECLARED_RESIDUE.inspectors || []), 'lib/elsewhere.js']).length === 1
+      && probe(residueAllowed).length === 0);
+  }
+
+  {
+    // 负对照：走**同一个** needle 判据，而不是断言"这个常量包含它自己"
+    const legacyHit = (s) => LEGACY_FORBIDDEN.filter((n) => s.includes(n));
+    check('negative control: 旧播放页标识会被判不合格',
+      legacyHit('x WE_SCENE_PLAYER_HTML y').length === 1 && legacyHit('x 干净 y').length === 0);
+  }
 }
 
 // ── ② 静态帧渲染线：不蔓延（BASELINE 只许缩小）───────────────────────────────
@@ -102,6 +122,8 @@ const SF_BASELINE = [
   'scripts/audit-import-closure.mjs', 'scripts/diagnose-scenes.mjs', 'scripts/verify-all-scenes.mjs',
   'scripts/verify-angel-skin.mjs', 'scripts/verify-comment-discipline.mjs', 'scripts/verify-mdl-fix.mjs',
   'scripts/verify-package-files.mjs', 'scripts/verify-preprocess.mjs', 'scripts/verify-scene.mjs',
+  // 账本守卫要把 P2-12 的"完成"编码成断言，就必须点名这条线的标识符（否则无法断言"它没了"）。
+  'scripts/verify-ledger.mjs',
 ];
 {
   const found = new Map(); // file -> 命中的退役词
@@ -138,7 +160,12 @@ const SF_BASELINE = [
   // 状态行现在画在抽出的面板块里（src/panel-tabs.js，壁纸页签）；源与产物两边都看。
   check('状态行用的是「档」（源）',
     read('src/panel-tabs.js').includes(' 档 · ') && read('lib/client.js').includes(' 档 · '));
-  check('negative control: 「秡」会被判不合格', 'x 秡 y'.includes('秡'));
+  {
+    // 负对照：走**同一个**判据（错别字缺席检查），两个方向都要能判
+    const typoAbsent = (s) => !s.includes('秡');
+    check('negative control: 「秡」会被判不合格',
+      typoAbsent('x 秡 y') === false && typoAbsent('x 档 y') === true);
+  }
 }
 
 const failed = results.filter((r) => !r).length;

@@ -395,11 +395,24 @@ function main() {
         + '/' + fbRules.length + ' · content rules=' + fbContentRules.length
         + ' reuse(--we-content-surface-*)= ' + contentReuse);
 
-    const sidebarGated = fbRules.filter((r) => r.header.includes('_panel')).every((r) => r.header.includes('[data-we-sidebar-glass]'));
-    const dialogGated = fbRules.filter((r) => r.header.includes('settings.section')).every((r) => r.header.includes('[data-we-glass-window]'));
+    // E4: the two master switches must keep gating their own fallback
+    // surfaces. NON-EMPTINESS IS PART OF THE ASSERTION: deleting a whole
+    // family empties the filtered list, and `.every()` over an empty list is
+    // vacuously true — E1 only demands `fbRules.length >= 5`, so dropping
+    // these one or two rules would otherwise stay silent. Each family reports
+    // its measured size so a shrink is visible in the output.
+    const gatedFamily = (needle, gate) => {
+      const all = fbRules.filter((r) => r.header.includes(needle));
+      return { needle, total: all.length, ungated: all.filter((r) => !r.header.includes(gate)) };
+    };
+    const sidebarFamily = gatedFamily('_panel', '[data-we-sidebar-glass]');
+    const settingsFamily = gatedFamily('settings.section', '[data-we-glass-window]');
+    const dialogFamily = gatedFamily('[role="dialog"]', '[data-we-glass-window]');
+    const familyLine = (f) => f.needle + '=' + f.total
+      + (f.ungated.length ? ' (ungated=' + f.ungated.length + ')' : '');
     check('E4 master switches preserved: sidebar fallback stays gated on data-we-sidebar-glass, dialog on data-we-glass-window',
-      sidebarGated && dialogGated,
-      'sidebarGated=' + sidebarGated + ' dialogGated=' + dialogGated);
+      [sidebarFamily, settingsFamily, dialogFamily].every((f) => f.total > 0 && f.ungated.length === 0),
+      [sidebarFamily, settingsFamily, dialogFamily].map(familyLine).join(' · '));
 
     // ── E5 (gap fix): upstream #94 moved the composer card's blur onto
     // [data-composer-card]::before, so the fallback block must cover that

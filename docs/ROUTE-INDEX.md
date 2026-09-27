@@ -14,37 +14,37 @@
 
 | # | 路径 | 来源 | 形态 | 依赖（闭包状态 / `c` 字段） | 守卫提及 |
 |---|---|---|---|---|---|
-| 1 | `/inventory` | lib/index.js:2803 | async 箭头 | webServer buildInventory disposers | 8 |
-| 2 | `/media-info` | lib/index.js:2905 | 箭头 | webServer mediaMap disposers | 7 |
-| 3 | `/transcode-progress` | lib/index.js:2931 | 箭头 | webServer mediaMap disposers | 1 |
-| 4 | `/transcoded` | lib/index.js:2984 | 箭头 | webServer mediaMap disposers serveFile | 1 |
-| 5 | `/media` | lib/index.js:3040 | 箭头 | webServer mediaMap disposers serveFile | 10 |
-| 6 | `/preview` | lib/index.js:3040 | 箭头 | webServer mediaMap disposers serveFile | 7 |
-| 7 | `/video-preview` | lib/index.js:3064 | 箭头 | webServer mediaMap disposers serveFile | 1 |
-| 8 | `/scene-frame` | lib/index.js:3104 | 箭头 | webServer mediaMap disposers trackStream | 8 |
-| 9 | `/scene-frame-cache` | lib/index.js:3246 | 箭头 | webServer mediaMap disposers | 4 |
-| 10 | `/scene-live` | lib/index.js:3338 | 箭头 | webServer disposers serveFile | 5 |
-| 11 | `/scene-files` | lib/index.js:3461 | 箭头 | webServer disposers handleSceneFiles | 4 |
-| 12 | `/media-origin` | lib/index.js:3533 | 箭头 | webServer disposers mediaOrigin mediaOriginBase | 1 |
-| 13 | `/props` | lib/index.js:3549 | 箭头 | webServer mediaMap disposers | 2 |
-| 14 | `/live-frame` | lib/index.js:3595 | 箭头 | webServer mediaMap disposers serveFile | 1 |
-| 15 | `/media-status` | lib/index.js:3678 | 箭头 | webServer disposers ensureMedia | 2 |
-| 16 | `/audio-spectrum` | lib/index.js:3688 | 箭头 | webServer disposers mediaBackend ensureMedia | 2 |
-| 17 | `/now-playing` | lib/index.js:3707 | 箭头 | webServer disposers mediaBackend ensureMedia | 2 |
-| 18 | `/now-playing/artwork` | lib/index.js:3721 | 箭头 | webServer disposers serveFile mediaBackend | 1 |
+| 1 | `/inventory` | lib/index.js:2808 | async 箭头 | webServer buildInventory disposers | 8 |
+| 2 | `/media-info` | lib/index.js:2910 | 箭头 | webServer mediaMap disposers | 7 |
+| 3 | `/transcode-progress` | lib/index.js:2936 | 箭头 | webServer mediaMap disposers | 1 |
+| 4 | `/transcoded` | lib/index.js:2989 | 箭头 | webServer mediaMap disposers serveFile | 1 |
+| 5 | `/media` | lib/index.js:3045 | 箭头 | webServer mediaMap disposers serveFile | 11 |
+| 6 | `/preview` | lib/index.js:3045 | 箭头 | webServer mediaMap disposers serveFile | 7 |
+| 7 | `/video-preview` | lib/index.js:3069 | 箭头 | webServer mediaMap disposers serveFile | 1 |
+| 8 | `/scene-frame` | lib/index.js:3109 | 箭头 | webServer mediaMap disposers trackStream | 8 |
+| 9 | `/scene-frame-cache` | lib/index.js:3251 | 箭头 | webServer mediaMap disposers | 4 |
+| 10 | `/scene-live` | lib/index.js:3343 | 箭头 | webServer disposers serveFile | 5 |
+| 11 | `/scene-files` | lib/index.js:3466 | 箭头 | webServer disposers handleSceneFiles | 4 |
+| 12 | `/media-origin` | lib/index.js:3538 | 箭头 | webServer disposers mediaOrigin mediaOriginBase | 1 |
+| 13 | `/props` | lib/index.js:3554 | 箭头 | webServer mediaMap disposers | 2 |
+| 14 | `/live-frame` | lib/index.js:3600 | 箭头 | webServer mediaMap disposers serveFile | 1 |
+| 15 | `/media-status` | lib/index.js:3683 | 箭头 | webServer disposers ensureMedia | 2 |
+| 16 | `/audio-spectrum` | lib/index.js:3693 | 箭头 | webServer disposers mediaBackend ensureMedia | 2 |
+| 17 | `/now-playing` | lib/index.js:3712 | 箭头 | webServer disposers mediaBackend ensureMedia | 2 |
+| 18 | `/now-playing/artwork` | lib/index.js:3726 | 箭头 | webServer disposers serveFile mediaBackend | 1 |
 | 19 | `/client-diag` | lib/routes/diag.js:29 | 箭头 | disposers appendDiagLine base | 1 |
-| 20 | `/diag` | lib/routes/diag.js:90 | 箭头 | disposers | 5 |
-| 21 | `/diag` | lib/routes/diag.js:91 | 箭头 | disposers base | 5 |
+| 20 | `/diag` | lib/routes/diag.js:90 | 箭头 | disposers | 6 |
+| 21 | `/diag` | lib/routes/diag.js:91 | 箭头 | disposers base | 6 |
 | 22 | `/diag-log` | lib/routes/diag.js:92 | 箭头 | disposers base | 1 |
-| 23 | `/api/local-assets` | lib/index.js:3748 | async 箭头 | webServer disposers serveFile | 1 |
-| 24 | `/we-assets-dir` | lib/index.js:3798 | 箭头 | webServer disposers | 1 |
-| 25 | `/scene-video` | lib/index.js:3851 | 箭头 | webServer mediaMap disposers serveFile SCENE_VIDEO_INFLIGHT | 1 |
-| 26 | `/scene-audio` | lib/index.js:3934 | 箭头 | webServer mediaMap disposers serveFile | 2 |
-| 27 | `/custom-frame` | lib/index.js:3970 | 箭头 | webServer disposers serveFile | 1 |
-| 28 | `/upload` | lib/index.js:4056 | 箭头 | webServer tokenFor disposers | 1 |
-| 29 | `/remove` | lib/index.js:4204 | 箭头 | webServer disposers | 1 |
-| 30 | `/upload-dir` | lib/index.js:4248 | 箭头 | webServer disposers | 1 |
-| 31 | `/settings` | lib/index.js:4309 | 箭头 | webServer disposers SETTINGS_MAX_BYTES | 11 |
+| 23 | `/api/local-assets` | lib/index.js:3753 | async 箭头 | webServer disposers serveFile | 1 |
+| 24 | `/we-assets-dir` | lib/index.js:3803 | 箭头 | webServer disposers | 1 |
+| 25 | `/scene-video` | lib/index.js:3856 | 箭头 | webServer mediaMap disposers serveFile SCENE_VIDEO_INFLIGHT | 2 |
+| 26 | `/scene-audio` | lib/index.js:3939 | 箭头 | webServer mediaMap disposers serveFile | 3 |
+| 27 | `/custom-frame` | lib/index.js:3975 | 箭头 | webServer disposers serveFile | 1 |
+| 28 | `/upload` | lib/index.js:4061 | 箭头 | webServer tokenFor disposers | 1 |
+| 29 | `/remove` | lib/index.js:4209 | 箭头 | webServer disposers | 1 |
+| 30 | `/upload-dir` | lib/index.js:4253 | 箭头 | webServer disposers | 1 |
+| 31 | `/settings` | lib/index.js:4314 | 箭头 | webServer disposers SETTINGS_MAX_BYTES | 11 |
 
 **零提及（拆分前必须先补守卫）**：（无）
 

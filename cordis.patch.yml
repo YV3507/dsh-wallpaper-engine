@@ -11,9 +11,11 @@
 - insert:
     # Host half: discovers the local Wallpaper Engine install (Steam app 431960),
     # enumerates Video/Web-type wallpapers from the Workshop + default projects,
-    # and serves their media + a JSON inventory over same-origin HTTP routes the
-    # browser half fetches directly (GET /wallpaper-engine/{inventory,media,preview}).
+    # and serves their media + a JSON inventory over 31 same-origin HTTP routes
+    # the browser half fetches directly (GET /wallpaper-engine/inventory, /media,
+    # /preview, …; docs/ROUTE-INDEX.md is the authoritative table).
     - id: wallpaper-engine
       name: 'dsh-plugin-wallpaper-engine'
-      # webServer is optional so this bundle also loads in the headless/TUI
-      # profile without failing; the host half guards its absence with ctx.get.
+      # webServer is a hard dependency (`inject = ['webServer']` in lib/index.js):
+      # the Loader waits for the HTTP server to mount, so a headless/TUI profile
+      # without one does not load this bundle at all.

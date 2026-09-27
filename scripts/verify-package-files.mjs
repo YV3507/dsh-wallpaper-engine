@@ -34,6 +34,27 @@ function assert(cond, name, detail) {
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 
+/** node: 内置模块根名（`fs` / `fs/promises` 按根名判，`node:` 前缀另判）—— P4 / P5 共用。 */
+const BUILTIN_ROOTS = new Set(builtinModules || []);
+
+/** 说明符的包根名：`@scope/pkg/sub` → `@scope/pkg`，`fs/promises` → `fs`。 */
+const specRoot = (spec) => (spec.startsWith('@')
+  ? spec.split('/').slice(0, 2).join('/')
+  : spec.split('/')[0]);
+
+/** 源码里的**裸包** import 说明符：跳过相对路径 / 绝对路径 / 内置模块。
+ *  P5 的主扫描与负对照共用这一条判据。 */
+function bareImportSpecs(src) {
+  const out = [];
+  for (const m of src.matchAll(/(?:from\s+|import\s*\(\s*|require\s*\(\s*)[\'"]([^\'"]+)[\'"]/g)) {
+    const spec = m[1];
+    if (spec.startsWith('.') || spec.startsWith('node:') || spec.startsWith('/')) continue;
+    if (BUILTIN_ROOTS.has(specRoot(spec))) continue;
+    out.push(spec);
+  }
+  return out;
+}
+
 // ── lib/ 文件枚举 + `files` 条目覆盖判定 ────────────────────────────────────
 /** 递归列出 dir 下的文件 (相对 ROOT 的 posix 路径, 已排序)。 */
 function walkFiles(dir, out = []) {
@@ -137,16 +158,39 @@ async function main() {
       .filter((rel) => /\.(js|mjs|cjs)$/.test(rel))
       .map((rel) => readFileSync(join(ROOT, rel), 'utf8'))
       .join('\n');
-    const consumers = deps.filter((d) => new RegExp(
-      '(?:from\\s+|import\\s*\\(\\s*|require\\s*\\(\\s*)[\'"]' + d.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:/[\'"]|[\'"])'
-    ).test(libSrc));
+    // 消费者判据（与 P5 的裸依赖扫描同一口径）：源码里的 from / 动态 import() / require()
+    // 三种形态各接一个引号包裹的依赖名，且名字后紧跟斜杠或收尾引号 —— 前缀相近的名字
+    // （jpeg-js-extra）不算消费者。声明名本身是内置模块或相对路径时不算：那种声明在 Node
+    // 解析下拿不到包（内置模块名命中的是内置模块，不是装进来的包）。
+    const consumerRe = (dep) => new RegExp(
+      '(?:from\\s+|import\\s*\\(\\s*|require\\s*\\(\\s*)[\'"]'
+      + dep.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:/[\'"]|[\'"])');
+    const consumes = (dep, src) => !dep.startsWith('.') && !dep.startsWith('/')
+      && !(dep.startsWith('node:') || BUILTIN_ROOTS.has(specRoot(dep)))
+      && consumerRe(dep).test(src);
+    const consumers = deps.filter((d) => consumes(d, libSrc));
     const orphans = deps.filter((d) => !consumers.includes(d));
     check('P4 every declared dependency is imported by lib/ (no dead declaration)',
       orphans.length === 0,
       'deps=' + deps.length + ' consumers=[' + consumers.join(', ') + '] orphans=[' + orphans.join(', ') + ']');
-    check('P4 negative control: a synthetic dependency name is reported unconsumed',
-      !new RegExp('(?:from\\s+|import\\s*\\(\\s*|require\\s*\\(\\s*)[\'"]' +
-        'dsh-definitely-not-a-real-dep' + '[\'"\\)]').test(libSrc));
+    // 负对照必须跑**同一条** consumes 判据（不是另写一条正则、也不比常量字符串），否则它
+    // 证明不了这条判据会 FAIL。合成源码里：假依赖名必须被判为"有消费者"；内置模块 /
+    // `node:` 前缀 / 相对路径 / 前缀相近的名字必须不判为消费者。
+    const fake = ['dsh', 'not-a-real-dep'].join('-');
+    const controls = [
+      [consumes(fake, 'import x from "' + fake + '"'), 'positive: from'],
+      [consumes(fake, 'const x = require("' + fake + '")'), 'positive: require'],
+      [consumes(fake, 'const m = await import("' + fake + '")'), 'positive: dynamic import'],
+      [!consumes(fake, 'import x from "' + fake + '-extra"'), 'negative: near-miss name'],
+      [!consumes(fake, 'import x from "./' + fake + '.mjs"'), 'negative: relative specifier'],
+      [!consumes('./local.mjs', "import x from './local.mjs'"), 'negative: relative declaration'],
+      [!consumes('node:path', 'import p from "node:path"'), 'negative: node: builtin'],
+      [!consumes('fs', 'import f from "fs"'), 'negative: bare builtin'],
+    ];
+    const bad = controls.filter(([ok]) => !ok).map(([, label]) => label);
+    check('P4 negative control: the consumer predicate reports a synthetic dependency and rejects builtins/relative/near-miss names',
+      bad.length === 0,
+      controls.length + ' controls, failed=[' + bad.join(', ') + ']');
   }
 
   // ── P5: 构建 / 校验链保持"零裸依赖"(CI 不装依赖的前提) ───────────────────────
@@ -155,48 +199,48 @@ async function main() {
   // 这是一条真不变量，不是偶然 —— 一旦有人在守卫里 import 一个裸包，CI 会红在
   // "command not found" 而不是给出可读原因，所以在这里显式钉住。
   {
-    const builtins = new Set(builtinModules || []);
-    const chainNames = ['build', 'verify', 'smoke', 'prepare'];
-    const scripts = [];
+    // 链路外围必须钉住：四个脚本键都在，且**每个键下被引用到的脚本数**不低于实测下限 ——
+    // 键被改名 / 条目被删掉时扫描集不能"静默缩小后照旧通过"（空集里没有裸依赖，也就没有
+    // offender，主判据会恒真）。下限取自本轮实测值（build 1 / verify 21 / smoke 5 / prepare 1）：
+    // 新增脚本不受限制，删或改名即判红。
+    const CHAIN_FLOOR = { build: 1, verify: 21, smoke: 5, prepare: 1 };
+    const chainNames = Object.keys(CHAIN_FLOOR);
+    const missingKeys = chainNames.filter((n) => {
+      const cmd = (pkg.scripts || {})[n];
+      return typeof cmd !== 'string' || cmd.trim() === '';
+    });
+    const refsByKey = {};
     for (const n of chainNames) {
       const cmd = (pkg.scripts || {})[n] || '';
-      for (const m of cmd.matchAll(/node\s+([\w./-]+\.mjs)/g)) scripts.push(m[1]);
+      refsByKey[n] = [...cmd.matchAll(/node\s+([\w./-]+\.mjs)/g)].map((m) => m[1]);
     }
+    const shortKeys = chainNames.filter((n) => refsByKey[n].length < CHAIN_FLOOR[n]);
+    const scripts = [...new Set(chainNames.flatMap((n) => refsByKey[n]))];
     const offenders = [];
-    for (const rel of [...new Set(scripts)]) {
+    for (const rel of scripts) {
       let src = '';
       try { src = readFileSync(join(ROOT, rel), 'utf8'); } catch { offenders.push(rel + '(缺文件)'); continue; }
-      for (const m of src.matchAll(/(?:from\s+|import\s*\(\s*|require\s*\(\s*)[\'"]([^\'"]+)[\'"]/g)) {
-        const spec = m[1];
-        if (spec.startsWith('.') || spec.startsWith('node:') || spec.startsWith('/')) continue;
-        const root = spec.startsWith('@') ? spec.split('/').slice(0, 2).join('/') : spec.split('/')[0];
-        if (builtins.has(root)) continue;
-        offenders.push(rel + ' -> ' + spec);
-      }
+      for (const spec of bareImportSpecs(src)) offenders.push(rel + ' -> ' + spec);
     }
+    check('P5 the chain perimeter is pinned: all four keys exist and each references at least its measured script count',
+      missingKeys.length === 0 && shortKeys.length === 0,
+      chainNames.map((n) => n + '=' + refsByKey[n].length + '/' + CHAIN_FLOOR[n]).join(' ')
+        + ' · unique scripts=' + scripts.length
+        + ' · missing keys=[' + missingKeys.join(', ') + '] below floor=[' + shortKeys.join(', ') + ']');
     check('P5 build/verify/smoke/prepare chain has NO bare-package import (CI installs nothing)',
-      offenders.length === 0,
+      scripts.length > 0 && offenders.length === 0,
       scripts.length + ' script(s) referenced; offenders=[' + offenders.join(', ') + ']');
     check('P5 negative control: the detector catches a bare import and ignores builtins/relative',
       (() => {
-        const probe = (src) => {
-          const out = [];
-          for (const m of src.matchAll(/(?:from\s+|import\s*\(\s*|require\s*\(\s*)[\'"]([^\'"]+)[\'"]/g)) {
-            const spec = m[1];
-            if (spec.startsWith('.') || spec.startsWith('node:') || spec.startsWith('/')) continue;
-            const root = spec.startsWith('@') ? spec.split('/').slice(0, 2).join('/') : spec.split('/')[0];
-            if (builtins.has(root)) continue;
-            out.push(spec);
-          }
-          return out;
-        };
-        // 假包名在运行时拼出来 —— 否则这条负对照的**字符串字面量**会被上面的扫描
-        // 当成真的裸依赖，把守卫自己判红（本守卫也在被扫的链里）。
+        // 负对照跑**主扫描用的同一个** bareImportSpecs（不是另抄一份），否则它证明不了
+        // 主判据会 FAIL。假包名在运行时拼出来 —— 否则这条负对照的**字符串字面量**会被
+        // 上面的扫描当成真的裸依赖，把守卫自己判红（本守卫也在被扫的链里）。
         const fake = ['left', 'pad'].join('-');
-        return probe('import x from "' + fake + '"').length === 1
-          && probe("import fs from 'fs'").length === 0
-          && probe("import p from 'node:path'").length === 0
-          && probe("import q from './local.mjs'").length === 0;
+        return bareImportSpecs('import x from "' + fake + '"').length === 1
+          && bareImportSpecs("const x = require('" + fake + "')").length === 1
+          && bareImportSpecs("import fs from 'fs'").length === 0
+          && bareImportSpecs("import p from 'node:path'").length === 0
+          && bareImportSpecs("import q from './local.mjs'").length === 0;
       })());
   }
 

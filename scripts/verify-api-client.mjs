@@ -125,8 +125,41 @@ console.log('\n③ 语义（非 2xx / 网络中断 / 解析失败）');
   check('本地 data:/blob: URL 原样通过（本模块也是本地字节转换的出口）',
     apiUrl('data:image/png;base64,AAA') === 'data:image/png;base64,AAA'
     && apiUrl('blob:http://x/y') === 'blob:http://x/y');
-  check('无 fetch 可用时给出结构化失败而不是抛', (await apiFetch('/a', { fetch: null })).error === 'no-fetch'
-    || typeof fetch === 'function');
+  // `fetch: null` **不是**"没有 fetch"：`pickFetch` 只认函数，任何非函数都回退到环境里的全局
+  // fetch（模块契约：fetch 由调用方或全局提供，`o.fetch` 只是可选注入口）—— 于是"传 null"
+  // 与"不注入"同路，会真的发请求。旧断言写成 `error === 'no-fetch' || typeof fetch === 'function'`，
+  // 而 Node ≥18 上后半句恒真 ⇒ 这条从来测不出任何东西（抛错/真发网络请求都照样绿）。
+  // 现在拆成两条、都无逃生门：①环境里有 fetch 时必须真的用它，且结果照常结构化、不抛；
+  // ②环境里也没有 fetch 时才给 'no-fetch' 结构化失败，同样不抛。
+  const isNoFetchShape = (r) => !!r && r.ok === false && r.status === 0 && r.data === null
+    && r.error === 'no-fetch' && r.url === BASE + '/a';
+  {
+    const realFetch = globalThis.fetch;
+    try {
+      const seen = [];
+      globalThis.fetch = async (url, init) => { seen.push({ url, init }); return { status: 200, json: async () => ({ ok: 1 }) }; };
+      let viaGlobal = null, threw = null;
+      try { viaGlobal = await apiFetch('/a', { fetch: null }); } catch (e) { threw = String(e); }
+      check('fetch: null（非函数）⇒ 回退到全局 fetch，并按同一形状返回结果（不抛）',
+        !threw && seen.length === 1 && seen[0].url === BASE + '/a'
+        && viaGlobal.ok === true && viaGlobal.status === 200
+        && !!viaGlobal.data && viaGlobal.data.ok === 1 && viaGlobal.url === BASE + '/a',
+        threw ? '抛了：' + threw : JSON.stringify(seen));
+
+      globalThis.fetch = undefined;
+      let noFetch = null; threw = null;
+      try { noFetch = await apiFetch('/a', { fetch: null }); } catch (e) { threw = String(e); }
+      check('环境里也没有 fetch 时给出结构化失败而不是抛（error=no-fetch）',
+        !threw && isNoFetchShape(noFetch), threw ? '抛了：' + threw : JSON.stringify(noFetch));
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  }
+  check('负对照：no-fetch 形状判据对"抛了 / 形状不对 / 其实是别的原因"都有牙',
+    !isNoFetchShape(null)
+    && !isNoFetchShape({ ok: false, status: 0, data: null, error: 'TypeError', url: BASE + '/a' })
+    && !isNoFetchShape({ ok: true, status: 200, data: {}, error: null, url: BASE + '/a' })
+    && !isNoFetchShape({ ok: false, status: 0, data: null, error: 'no-fetch' }));
 }
 
 // ── ④ POST：序列化与头 ─────────────────────────────────────────────────────

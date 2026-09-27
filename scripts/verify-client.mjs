@@ -247,9 +247,12 @@ const slots = {
 };
 const ctx = { slots, effect(fn) { effects.push(fn); fn(); return fn; } };
 
+// apply(ctx) 在这个夹具里必须跑通：ctx 已提供 slots / effect / document / fetch，任何抛出都会
+// 让后面的注册与层断言在"什么都没挂上"的空跑上继续绿下去（此前只 console.log，throw 完仍 exit 0）。
 let thrown = null;
-try { exportsObj.apply(ctx); } catch (e) { thrown = e && e.message; }
-console.log('apply threw:', thrown || '(none)');
+try { exportsObj.apply(ctx); } catch (e) { thrown = (e && (e.stack || e.message)) || String(e); }
+assert.equal(thrown, null, 'apply(ctx) 不得抛（夹具已给 slots/effect/document/fetch）：' + thrown);
+console.log('apply threw: (none)');
 console.log('slot registrations:', JSON.stringify(registrations));
 
 const sectionReg = registrations.find((r) => r.key === 'settings.section');

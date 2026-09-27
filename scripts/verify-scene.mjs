@@ -33,12 +33,20 @@ const pkgExtract = await import(pathToFileURL(resolve(root, 'lib', 'pkg-extract.
 
 let passed = 0;
 let failed = 0;
+let platformSkipped = 0;
+const platformSkippedNames = [];
 const results = [];
 function check(name, ok, detail) {
   results.push({ name, ok, detail });
   if (ok) passed++;
   else failed++;
   console.log((ok ? '  ✓ ' : '  ✗ ') + name + (detail ? ' — ' + detail : ''));
+}
+/** 本平台不适用的断言：**不得计为通过** —— 否则"在 CI 平台上跑不了的那一半"会伪装成绿。 */
+function platformSkip(name, why) {
+  platformSkipped++;
+  platformSkippedNames.push(name);
+  console.log('  ○ ' + name + (why ? ' — ' + why : ''));
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -696,7 +704,8 @@ if (token) {
         check('win32：重复清除 ⇒ 幂等成功（200 + removed:false，不得假报已删除）',
           again && again.__state.status === 200 && /"removed":false/.test(String(again.__state.body)),
           'status=' + (again && again.__state.status) + ' body=' + String(again && again.__state.body).slice(0, 70));
-        check('win32：unlink 失败场景跳过（chmod 不影响 unlink ⇒ 该前提在 Windows 不成立；见 TODO §9.3）', true, 'skipped on win32');
+        platformSkip('unlink 失败场景（chmod 不影响 unlink ⇒ 前提在 Windows 不成立；见 TODO §9.3）',
+          'POSIX 才有牙的那一半本平台不执行');
         await runPut('/wallpaper-engine/scene-frame-cache/' + token, gpuPng); // 还原槽位
       } else {
       const mode = statSync(cacheDir).mode & 0o777;
@@ -967,5 +976,12 @@ delete process.env.DSH_WE_STEAM_ROOT;
 rmSync(join(root, '.test-cache', 'scene-fixture'), { recursive: true, force: true });
 
 console.log('');
-console.log(passed + ' passed, ' + failed + ' failed');
+console.log(passed + ' passed, ' + failed + ' failed'
+  + (platformSkipped ? ', ' + platformSkipped + ' platform-skipped' : ''));
+if (platformSkipped) {
+  console.log('  ⚠️ 本平台不执行的断言（不计入通过）：');
+  for (const n of platformSkippedNames) console.log('     ○ ' + n);
+  console.log('     来自 posix 分支的 5 条（500 unlink-failed / 帧仍在盘上 / 重试可用 …）在 '
+    + process.platform + ' 上没有任何覆盖 —— 这是覆盖差异，不是通过。');
+}
 process.exit(failed === 0 ? 0 : 1);

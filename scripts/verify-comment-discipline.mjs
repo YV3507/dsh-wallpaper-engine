@@ -12,18 +12,28 @@
  *
  * 所以棘轮只数 ① 的词，**不数「实测」**。
  */
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
-// ⚠️ 名单里的文件必须真实存在：此处曾写 `lib/media/probe.js`（**该文件不存在**），
-//    于是它被下面的 try/catch 静默跳过 ⇒ 那两处覆盖长期是空的。
+// ⚠️ 名单里的文件必须真实存在：名单是手工维护的，写错/改名不会报错，只会让该文件
+//    从扫描里消失（`catch { continue; }` 静默跳过）⇒ 那几条覆盖长期是空的。
 const FILES = ['lib/index.js', 'lib/scene-render-worker.mjs', 'src/client.js', 'lib/we-renderer/core.js', 'lib/media/supervisor.js', 'lib/media/legacy.js', 'lib/media/provision.js', 'lib/pkg-extract.js'];
+/** 存在性判据：名单/覆盖表里的路径必须先在盘上找到 —— 找不到就是"覆盖静默归零"。 */
+const ghostsOf = (names) => names.filter((f) => !existsSync(ROOT + f));
 const DATE = /20\d\d-\d\d-\d\d/;   // 不带 /g：配 test() 时 lastIndex 会造成假结果
 const results = [];
 function check(name, ok, detail) {
   results.push(Boolean(ok));
   console.log((ok ? '✓ ' : '✗ ') + name + (detail ? ' — ' + detail : ''));
+}
+
+// 名单先钉在盘上：只要有一个键不存在，下面三条基于 FILES 的扫描（日期 / 断句 / 回溯）
+// 就会对那个文件静默空转，而扫描本身仍然全绿。
+{
+  const ghostFiles = ghostsOf(FILES);
+  check('扫描名单的文件都真实存在（幽灵路径 = 那几条扫描对它是空的）', ghostFiles.length === 0,
+    ghostFiles.length ? '不存在：' + ghostFiles.join(', ') : FILES.length + ' 个路径都在盘上');
 }
 
 let totalDates = 0;
@@ -98,11 +108,20 @@ check('negative control: 带日期的注释会被判不合格',
   const ts = readFileSync(ROOT + 'docs/TROUBLESHOOTING.md', 'utf8');
   check('TROUBLESHOOTING 带世系标注（引用不存在的开关时必须声明）',
     ts.includes('<!-- lineage-note: branch-scope -->') && ts.includes('当前分支并不存在'));
-  const code = readFileSync(ROOT + 'lib/index.js', 'utf8') + readFileSync(ROOT + 'src/client.js', 'utf8');
+  // "这四个开关不存在"必须在**所有可能承载设置键的文件**上成立：少扫一个文件，这条断言
+  // 在那个文件上就是恒真。设置单一真源是 lib/settings-schema.js，客户端侧还有页签与
+  // 持久化层 —— 键只可能在这五处之一（两个入口 + 三个归属文件）。
+  const SETTING_OWNERS = ['lib/index.js', 'src/client.js', 'lib/settings-schema.js', 'src/panel-tabs.js', 'src/persistence.js'];
+  const present = SETTING_OWNERS.filter((f) => existsSync(ROOT + f));
+  check('退休开关的扫描面完整（键可能落在 schema / 页签 / 持久化层，不能只看两个入口）',
+    present.length === SETTING_OWNERS.length,
+    '扫描 ' + present.length + '/' + SETTING_OWNERS.length + ' 个文件' + (present.length === SETTING_OWNERS.length
+      ? '' : '；缺：' + SETTING_OWNERS.filter((f) => !present.includes(f)).join(', ')));
+  const code = present.map((f) => readFileSync(ROOT + f, 'utf8')).join('\n');
   const ABSENT = ['sceneFrameRender', 'scenePrewarmScope', 'sceneLossyRoute', 'sceneGpuAccel'];
   const stillThere = ABSENT.filter((k) => code.includes(k));
   check('标注所依据的事实成立（这四个开关键在代码里确实不存在）', stillThere.length === 0,
-    stillThere.length ? '出现=' + stillThere.join(',') : '全部不存在');
+    stillThere.length ? '出现=' + stillThere.join(',') : '全部不存在（扫了 ' + present.length + ' 个归属文件）');
 }
 // ── 棘轮：**叙事 / 编年史**标记只许减少，不许回增 ────────────────────────────
 // 词表刻意**不含「实测」**：那是出处，不是编年史（见文件头 ②）。
@@ -131,14 +150,112 @@ check('negative control: 带日期的注释会被判不合格',
     'lib/pkg-extract.js': 0,
     // P2-11 拆出去的路由族：新模块从 0 起钉（拆一个补一个，别让新文件落在棘轮之外）。
     'lib/routes/diag.js': 0,
+    // 客户端侧抽出的模块：按**当前实际值**钉住（只许减少）。非零的两处是随源码逐字搬过来的
+    // 既有散文（一处讲 json() 优先的由来，一处是饱和度耦合的术语对照），仍是回溯框定、
+    // 不是出处，所以基线不为 0；改动那两行时必须同步下修这里的数字。
+    'src/api-client.js': 1,
+    'src/effects.js': 1,
+    'src/we-cond.js': 0,
+    'src/font/apply.js': 0,
+    'src/font/color-roles.js': 0,
+    'src/font/components.js': 0,
+    'src/font/typography.js': 0,
+    // scripts/**/*.mjs 同样是棘轮的域：守卫脚本里的散文也会被后人当现状读，与源码同口径。
+    // 非零的 13 个文件按**实测量**钉住 —— 它们绝大多数是随被测源码逐字搬过来的既有散文
+    // 或术语对照，不是新写的编年史 ⇒ 只封顶、不清零；清理后同步下修这里的数字。
+    // 非零文件：build-client / e2e-web-media-origin / host-route-index / verify-api-client /
+    //   verify-client / verify-comment-discipline（本文件：词表与负对照必须写出那些词）/
+    //   verify-component-fonts / verify-contracts / verify-host-paint-scope / verify-media-bridge /
+    //   verify-route-index / verify-scene-live / verify-scene。
+    'scripts/analyze-host-apply.mjs': 0,
+    'scripts/audit-import-closure.mjs': 0,
+    'scripts/build-client.mjs': 1,
+    'scripts/diagnose-scenes.mjs': 0,
+    'scripts/diagnose-web-blank.mjs': 0,
+    'scripts/e2e-web-media-origin.mjs': 5,
+    'scripts/host-route-index.mjs': 1,
+    'scripts/prepare.mjs': 0,
+    'scripts/sync-webwallgl.mjs': 0,
+    'scripts/verify-all-scenes.mjs': 0,
+    'scripts/verify-angel-skin.mjs': 0,
+    'scripts/verify-api-client.mjs': 2,
+    'scripts/verify-client.mjs': 4,
+    'scripts/verify-comment-discipline.mjs': 32,
+    'scripts/verify-component-fonts.mjs': 2,
+    'scripts/verify-contracts.mjs': 1,
+    'scripts/verify-glass-compositing.mjs': 0,
+    'scripts/verify-host-paint-scope.mjs': 3,
+    'scripts/verify-ledger.mjs': 0,
+    'scripts/verify-mdl-fix.mjs': 0,
+    'scripts/verify-media-bridge.mjs': 2,
+    'scripts/verify-module-layout.mjs': 0,
+    'scripts/verify-package-files.mjs': 0,
+    'scripts/verify-package-publish.mjs': 0,
+    'scripts/verify-playback-controls.mjs': 0,
+    'scripts/verify-preprocess.mjs': 0,
+    'scripts/verify-reachability.mjs': 0,
+    'scripts/verify-readability.mjs': 0,
+    'scripts/verify-retired-lines.mjs': 0,
+    'scripts/verify-route-index.mjs': 1,
+    'scripts/verify-scene-live.mjs': 8,
+    'scripts/verify-scene.mjs': 1,
+    'scripts/verify-softrender.mjs': 0,
+    'scripts/verify-theme-layer.mjs': 0,
+    'scripts/verify-transcode-state.mjs': 0,
+    'scripts/verify-types.mjs': 0,
   };
   const measure = (s) => (s.match(/曾经|旧实现|以前|原先|旧版|教训|踩到|踩坑/g) || []).length;
+
+  // 覆盖表是手工维护的 ⇒ 两条独立的牙：①表里的键必须在盘上存在且可读；②盘上的文件必须在表里。
+  // 缺①：改名/删除后旧键留着，那条覆盖静默归零；缺②：新抽出的模块根本没人量它。
+  const ghosts = ghostsOf(Object.keys(CEIL));
+  const blind = [];
   const over = [];
   for (const [f, ceil] of Object.entries(CEIL)) {
-    let s; try { s = readFileSync(ROOT + f, 'utf8'); } catch { continue; }
+    let s = null;
+    // 读失败必须**记账**（存在性另有一条断言），不许 continue 了事：那正是覆盖静默归零的形态。
+    try { s = readFileSync(ROOT + f, 'utf8'); } catch { blind.push(f); continue; }
     const n = measure(s);
     if (n > ceil) over.push(f + '=' + n + '>' + ceil);
   }
+  const blindDetail = (ghosts.length ? '不存在：' + ghosts.join(', ') + ' ' : '')
+    + (blind.length ? '读不到：' + blind.join(', ') : '');
+  check('棘轮名单里的文件都真实存在且可读（幽灵键 / 读不到 = 该条覆盖静默归零）',
+    ghosts.length === 0 && blind.length === 0,
+    blindDetail || Object.keys(CEIL).length + ' 个键都在盘上且可读');
+  check('negative control: 同一个存在性判据能点出幽灵键',
+    ghostsOf(['lib/routes/diag.js', 'lib/does-not-exist.js']).join() === 'lib/does-not-exist.js'
+    && ghostsOf(['lib/routes/diag.js']).length === 0);
+
+  // 覆盖面**从磁盘枚举**（不是手抄第二份名单）：棘轮的域 = src/**/*.js + lib/routes/*.js
+  // + scripts/**/*.mjs，每个文件都必须逐条在表里，否则"棘轮只许减少"对它是空的。
+  const walkMatching = (relDir, rx) => {
+    const out = [];
+    for (const ent of readdirSync(ROOT + relDir, { withFileTypes: true })) {
+      const rel = relDir + '/' + ent.name;
+      if (ent.isDirectory()) out.push(...walkMatching(rel, rx));
+      else if (rx.test(ent.name)) out.push(rel);
+    }
+    return out;
+  };
+  const uncoveredIn = (list, table) => list.filter((f) => !(f in table));
+  const REQUIRED = [
+    ...walkMatching('src', /\.js$/),
+    ...walkMatching('lib/routes', /\.js$/),
+    ...walkMatching('scripts', /\.mjs$/),
+  ];
+  const uncovered = uncoveredIn(REQUIRED, CEIL);
+  check('棘轮覆盖全部 src/**/*.js、lib/routes/*.js 与 scripts/**/*.mjs（新文件必须进表）',
+    uncovered.length === 0 && REQUIRED.length >= 51,
+    '覆盖 ' + (REQUIRED.length - uncovered.length) + '/' + REQUIRED.length
+      + ' 个文件（地板 51 = 14 src + 1 路由 + 36 脚本）'
+      + (uncovered.length ? '；未登记：' + uncovered.join(', ') : ''));
+  // 负对照用**纯合成**清单（不掺 REQUIRED）：它测的是判据本身，不该因为真实域恰好有漏项而变色。
+  check('negative control: 同一个覆盖判据会点名未登记的合成文件',
+    uncoveredIn(['src/synthetic-a.js', 'src/synthetic-new-module.js'], { 'src/synthetic-a.js': 0 }).join()
+      === 'src/synthetic-new-module.js'
+    && uncoveredIn(['src/synthetic-a.js'], { 'src/synthetic-a.js': 0 }).length === 0);
+
   check('棘轮：叙事标记不超过基线（只许减少）', over.length === 0,
     over.length ? '超出：' + over.join(' ') : '全部 ≤ 基线（共 ' + Object.values(CEIL).reduce((a, b) => a + b, 0) + '）');
   check('negative control: 超过基线的文本会被判不合格', measure('曾经'.repeat(50)) > CEIL['src/client.js']);

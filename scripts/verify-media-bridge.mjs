@@ -12,8 +12,14 @@
  *   6. 生命周期：stop() 之后子进程真的没了（不留孤儿）
  *
  * 产物从哪来：DSH_WE_MEDIA_BRIDGE（显式路径）→ 插件目录 bin/ → 自检缓存 →
- * 真实数据目录的下载缓存 → 都没有就 **SKIP**（退出码 0）。加 `--provision` 才会
- * 联网下载到自检缓存（`.test-cache/`）。
+ * 真实数据目录的下载缓存。都没有时**端到端那一段不会执行**，而"没执行"必须与"通过"区分开：
+ * 那种情况计为 **blocked**（打印 ⛔），并**默认让本脚本失败**（退出码 1），除非显式传
+ * `--allow-skip`。加 `--provision` 会联网下载到自检缓存（`.test-cache/`）后真正执行。
+ *
+ * 为什么默认要红：`verify` 链里"整块被跳过但仍退 0"会让 CI 看起来覆盖了这一条通道，
+ * 实际上一条断言都没跑（假绿比没有守卫更坏）。要接受不跑，就把它写在命令行上 ——
+ * 于是"本机/CI 到底覆盖了什么"在脚本里和链里都是可 grep 的事实。
+ * 平台条件跳过（如 Windows 上没有 pgrep）仍用 `skip()`，只计数不判失败。
  *
  * 属于 `npm run verify`；用 npm run verify:bridge 单独跑也可以。
  */
@@ -33,17 +39,28 @@ import { lyricsToTuples } from '../lib/media/supervisor.js';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const TEST_DIR = join(root, '.test-cache', 'verify-media-bridge');
 const PROVISION = process.argv.includes('--provision');
+/** 缺前置时是否允许"不跑但仍通过"。默认不允许 —— 见文件头。 */
+const ALLOW_SKIP = process.argv.includes('--allow-skip');
 
 let passed = 0;
 let failed = 0;
 let skipped = 0;
+let blocked = 0;
+const blockedNames = [];
 function check(name, ok, detail) {
   if (ok) passed++; else failed++;
   console.log((ok ? '  ✓ ' : '  ✗ ') + name + (detail ? ' — ' + detail : ''));
 }
+/** 平台条件跳过：本平台不适用，只计数（不是"本该跑却没跑"）。 */
 function skip(name, why) {
   skipped++;
   console.log('  ○ ' + name + (why ? ' — ' + why : ''));
+}
+/** 缺前置导致**整段没执行**：默认判失败，除非显式 --allow-skip。 */
+function blockedBy(name, why) {
+  blocked++;
+  blockedNames.push(name);
+  console.log('  ⛔ ' + name + ' —— 未执行' + (why ? '：' + why : ''));
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -110,7 +127,8 @@ if (!binPath && PROVISION) {
   else console.log('    · 下载没成功：' + prov.error);
 }
 if (!binPath) {
-  skip('中间件端到端用例', '本机没有产物（跑 `node scripts/verify-media-bridge.mjs --provision` 会下载 ' + MEDIA_BRIDGE_TAG + '）');
+  blockedBy('中间件端到端用例', '本机没有产物 —— 跑 `node scripts/verify-media-bridge.mjs --provision` 下载 '
+    + MEDIA_BRIDGE_TAG + '；明确接受这次不跑就传 `--allow-skip`');
 } else {
   console.log(`   产物：${binPath}（${binSource}）`);
 
@@ -240,5 +258,17 @@ rmSync(join(TEST_DIR, 'fallback'), { recursive: true, force: true });
 rmSync(join(TEST_DIR, 'bogus'), { recursive: true, force: true });
 rmSync(bogus, { force: true });
 
-console.log(`\nmedia-bridge 自检：${passed} 通过 / ${failed} 失败${skipped ? ` / ${skipped} 跳过` : ''}`);
+console.log(`\nmedia-bridge 自检：${passed} 通过 / ${failed} 失败`
+  + `${skipped ? ` / ${skipped} 平台跳过` : ''}`
+  + `${blocked ? ` / ${blocked} 未执行（缺前置）` : ''}`);
+if (blocked && !ALLOW_SKIP) {
+  console.log(`\n✗ 有 ${blocked} 段因缺前置**没有执行**（${blockedNames.join('、')}）—— `
+    + '默认判失败，因为"没跑"与"通过"不能同形。');
+  console.log('  要么补前置（--provision / 设 DSH_WE_MEDIA_BRIDGE），要么显式接受：--allow-skip');
+  process.exit(1);
+}
+if (blocked) {
+  console.log(`\n⚠️  ${blocked} 段被显式允许跳过（--allow-skip）：${blockedNames.join('、')} —— `
+    + '这条通道本次没有任何断言覆盖。');
+}
 process.exit(failed ? 1 : 0);
