@@ -810,27 +810,35 @@ if (token) {
     'status=' + headOver.status + ' gpu=' + headOver.gpu);
   await new Promise((r) => server.close(r));
 }
-// ── Level D2: 超限应答的断开时机（确定性；真 socket 上只能碰运气）──────────
+// ── Level D2: 中途放弃请求的断开时机（确定性；真 socket 上只能碰运气）──────
 // 真 socket 用例是**竞态**断言：断开早于应答刷出才失败，而那一刻取决于背压与
-// 事件循环负载。这里用替身把时序钉死，判据是**顺序**：
-//   413 先写 → 请求体排空（req 'end'）→ 应答真刷完（res 'finish'）→ 才允许 req.destroy()。
+// 事件循环负载。这里用替身把时序钉死，判据是**顺序**，对每条"收到一半就放弃"的
+// 路由都一样：
+//   应答先写 → 请求体排空（req 'end'）→ 应答真刷完（res 'finish'）→ 才允许 req.destroy()。
 // 语义依据（可复算）：`res.writableEnded` 在 res.end() 一调即为真，**不代表已刷出**；
 // 代表刷出的是 `writableFinished`（'finish' 已发出）。替身的 fidelity 由负对照钉住。
-if (token) {
-  const cacheRoute = routes.find((r) => r.path === '/wallpaper-engine/scene-frame-cache');
-  const mkOrderReq = () => {
-    const req = new EventEmitter();
-    req.url = '/wallpaper-engine/scene-frame-cache/' + token;
-    req.method = 'PUT';
-    req.headers = { 'content-type': 'image/png' };
-    req.readableEnded = false;
-    req.destroyed = false;
-    req.destroy = () => { req.destroyed = true; };
-    req.resume = () => {};
-    req.pause = () => {};
-    req.setTimeout = () => req;
-    return req;
+//
+// ⚠️ `/upload` 与 `/custom-frame` 不在此表内：前者的上限是 512MB（行为级触发要一次性
+//    写出 512MB+1），后者会在**真实**的用户 overrides 目录里删同名兄弟文件。两者的
+//    接线由下面的 Level D3 结构棘轮覆盖。
+{
+  const hostSrc = readFileSync(resolve(root, 'lib', 'index.js'), 'utf8');
+  // 上限一律按**源码原文**解析/核对（不写死尺寸：上限一改，这里会红而不是静默测旧值）
+  const constNum = (name) => {
+    const expr = (new RegExp('const ' + name + ' = ([^;]+);').exec(hostSrc) || [])[1] || '';
+    return /^[\d\s*+()]+$/.test(expr) ? Number(new Function('return (' + expr + ')')()) : 0;
   };
+  const ABORT_CASES = [
+    { label: 'scene-frame-cache PUT', route: '/wallpaper-engine/scene-frame-cache', method: 'PUT',
+      cap: constNum('GPU_FRAME_MAX_BYTES'), needle: 'size > GPU_FRAME_MAX_BYTES',
+      headers: { 'content-type': 'image/png' } },
+    { label: 'live-frame POST', route: '/wallpaper-engine/live-frame', method: 'POST',
+      cap: constNum('LIVE_FRAME_MAX_BYTES') || 4 * 1024 * 1024, needle: 'size > 4 * 1024 * 1024',
+      headers: { 'content-type': 'image/png' } },
+    { label: 'settings PUT', route: '/wallpaper-engine/settings', method: 'PUT',
+      cap: constNum('SETTINGS_MAX_BYTES'), needle: 'body.length > SETTINGS_MAX_BYTES',
+      headers: { 'content-type': 'application/json' } },
+  ];
   // ServerResponse 的刷出语义：end() 只把 writableEnded 置真，'finish' 要等真正 flush。
   const mkFlushableRes = () => {
     const res = new EventEmitter();
@@ -852,18 +860,49 @@ if (token) {
   };
   check('负对照：替身区分「end() 已调用」与「应答已刷完」',
     (() => { const r = mkFlushableRes(); r.end('x'); return r.writableEnded === true && r.writableFinished === false; })());
-  {
-    const req = mkOrderReq();
+  for (const c of ABORT_CASES) {
+    const route = routes.find((r) => r.path === c.route);
+    check(`${c.label}：路由在位且源码里的体积判定与用例一致`,
+      Boolean(route) && hostSrc.includes(c.needle), c.needle);
+    if (!route || !(c.cap > 0) || !token) continue;
+    const req = new EventEmitter();
+    req.url = c.route + '/' + token;
+    req.method = c.method;
+    req.headers = c.headers || {};
+    req.readableEnded = false;
+    req.destroyed = false;
+    req.destroy = () => { req.destroyed = true; };
+    req.resume = () => {};
+    req.pause = () => {};
+    req.setTimeout = () => req;
     const res = mkFlushableRes();
-    cacheRoute.handler(req, res);
-    req.emit('data', Buffer.alloc(frameLimit + 1, 7)); // 超限块**恰好是最后一块**
-    check('超限 PUT：应答为 413', res.__state.status === 413, 'status=' + res.__state.status);
+    route.handler(req, res);
+    req.emit('data', Buffer.alloc(c.cap + 1, 7)); // 超限块**恰好是最后一块**
+    check(`${c.label}：超限时应答为 413`, res.__state.status === 413, 'status=' + res.__state.status);
     req.emit('end'); // 客户端已发完 ⇒ 排空完成
-    check('排空完成但应答未刷出：不得断开（否则 413 随写缓冲一起丢）',
-      req.destroyed === false, 'destroyed=' + req.destroyed);
+    check(`${c.label}：排空完成但应答未刷出 ⇒ 不得断开`, req.destroyed === false,
+      'destroyed=' + req.destroyed);
     res.__flush();
-    check('应答刷出后才断开（不留悬挂连接）', req.destroyed === true, 'destroyed=' + req.destroyed);
+    check(`${c.label}：应答刷出后才断开（不留悬挂连接）`, req.destroyed === true,
+      'destroyed=' + req.destroyed);
   }
+}
+// ── Level D3: 断开路径只有一处（结构棘轮）──────────────────────────────────
+// "先写应答、再排空、等应答刷完才断"必须是**唯一**入口（lingerClose）。谁再写一次裸
+// req.destroy()，计数立刻变红 —— 那是**有意的**棘轮：请把该路由接到 lingerClose 上。
+// 覆盖 Level D2 因成本/副作用跑不了的两条：/upload（上限 512MB）与 /custom-frame
+// （会在真实 overrides 目录里删同名兄弟文件）。
+{
+  const src = readFileSync(resolve(root, 'lib', 'index.js'), 'utf8');
+  const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+  const bare = strip(src).match(/req\.destroy\(\)/g) || [];
+  check('D3 全仓 req.destroy() 只允许两处收口（lingerClose / idle 兜底）', bare.length <= 2,
+    '当前 ' + bare.length + ' 处');
+  const calls = strip(src).match(/lingerClose\(/g) || [];
+  check('D3 每条"收到一半就放弃"的路由都接了 lingerClose（当前 5 条：帧缓存 / 实时帧 / 自定义画面 / 上传 / 设置）',
+    calls.length >= 6, '出现 ' + calls.length + ' 次（1 处定义 + 调用点）');
+  check('负对照：裸 req.destroy() 计数判据有牙',
+    (strip("try { req.destroy(); } catch { /* ignore */ }").match(/req\.destroy\(\)/g) || []).length === 1);
 }
 // ── Level E: 缓存键单一构造点（结构不变量，P1-6）────────────────────────────
 // 帧缓存键曾在 sceneFrameCacheKey 与 sceneFrameSlot 里各拼一遍字面量 ⇒ 升版本
