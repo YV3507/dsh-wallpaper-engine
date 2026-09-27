@@ -5833,7 +5833,7 @@ const officialColorOf = (tokens) => {
           // 已确认接受的副作用：设过绝对值的角色不再随 DSH「通用 → 字号」缩放（未设的照旧跟随）；
           // 行高一律沿用 DSH 的令牌，不随绝对值缩放。我们始终**不写** --dsh-content-font-size（红线 3）。
           React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
-            ctlText("排版角色", "字号 px；三项留空即用 DSH 默认（输入框里显示的就是默认值）"),
+            ctlText("排版角色", "字号 px；留空 = 不改（字号/字重显示 DSH 当前值，字族选「跟随」）"),
           ),
           switchRow("只看改过的", sel.themeTypeOnly, (e) => onThemeTypeOnly(e.target.checked), {
             tooltip: "只列出改过字号/字重/字族的角色，便于收尾核对",
@@ -5851,7 +5851,11 @@ const officialColorOf = (tokens) => {
             ),
             React.createElement("tbody", null,
           THEME_TYPE_ROLES
-            .filter((role) => !sel.themeTypeOnly || sel.themeSize[role.id] !== undefined)
+            // 「只看改过的」= 字号 / 字重 / 字族**任一**有设置（早前只判了字号，是漏判）。
+            .filter((role) => !sel.themeTypeOnly
+              || sel.themeSize[role.id] !== undefined
+              || sel.themeWeight[role.id] !== undefined
+              || sel.themeFamily[role.id] !== undefined)
             .map((role) => {
               const size = sel.themeSize[role.id];
               return React.createElement("tr", { key: role.id },
@@ -5882,9 +5886,9 @@ const officialColorOf = (tokens) => {
                   value: sel.themeFamily[role.id] === undefined ? "" : sel.themeFamily[role.id],
                   style: { width: "92px" },
                   onChange: (e) => onThemeFamily(role.id, e.target.value),
-                  title: role.label + "：字族（空 = DSH 默认）",
+                  title: role.label + "：字族（跟随 = 不覆盖，用 DSH 该角色的字族）",
                 },
-                  React.createElement("option", { value: "" }, "默认"),
+                  React.createElement("option", { value: "" }, "跟随"),
                   FONT_FAMILY_LABELS.map((f) =>
                     React.createElement("option", { key: f.v, value: f.v }, f.label)),
                 )),
@@ -5949,9 +5953,9 @@ const officialColorOf = (tokens) => {
                   value: famKey,
                   style: { width: "96px" },
                   onChange: (e) => onComponentFamily(target.prefix, e.target.value),
-                  title: target.label + "：字体族（空 = DSH 默认）",
+                  title: target.label + "：字体族（跟随 = 不覆盖，用 DSH 默认）",
                 },
-                  React.createElement("option", { value: "" }, "默认"),
+                  React.createElement("option", { value: "" }, "跟随"),
                   FONT_FAMILY_LABELS.map((f) =>
                     React.createElement("option", { key: f.v, value: f.v }, f.label)),
                 )),
