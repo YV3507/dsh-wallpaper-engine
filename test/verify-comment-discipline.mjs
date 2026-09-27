@@ -174,6 +174,7 @@ check('negative control: 带日期的注释会被判不合格',
     'scripts/build-client.mjs': 1,
     'test/tools/diagnose-web-blank.mjs': 0,
     'test/e2e-web-media-origin.mjs': 5,
+    'test/verify-client-sync.mjs': 0,
     'test/tools/host-route-index.mjs': 1,
     'scripts/prepare.mjs': 0,
     'test/tools/sync-webwallgl.mjs': 0,
@@ -253,7 +254,7 @@ check('negative control: 带日期的注释会被判不合格',
   check('棘轮覆盖全部 src/**/*.js、lib/routes/*.js、test/**/*.mjs 与 scripts/**/*.mjs（新文件必须进表）',
     uncovered.length === 0 && REQUIRED.length >= 50,
     '覆盖 ' + (REQUIRED.length - uncovered.length) + '/' + REQUIRED.length
-      + ' 个文件（地板 50 = 14 src + 5 路由 + 29 test + 2 scripts）'
+      + ' 个文件（地板 50 = 14 src + 5 路由 + 30 test + 2 scripts）'
       + (uncovered.length ? '；未登记：' + uncovered.join(', ') : ''));
   // 负对照用**纯合成**清单（不掺 REQUIRED）：它测的是判据本身，不该因为真实域恰好有漏项而变色。
   check('negative control: 同一个覆盖判据会点名未登记的合成文件',

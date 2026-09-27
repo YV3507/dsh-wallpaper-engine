@@ -36,7 +36,7 @@ macOS 版本由 [Jerry（@ruijiaang-lab）](https://github.com/ruijiaang-lab)维
 - **Anatomy**: `lib/client.js` = the `src/client.js` body **+ the 14 modules listed in `INLINE_MODULES`** (`scripts/build-client.mjs`), all inlined into a single `factory(require)` scope. `npm run build` prints that inlined list. Most of the file's lines therefore come from `src/**`, not from `client.js` itself — it *looks* like a monolith but is a flattened repository slice.
 - **Why inlining**: the browser half has **no local-module resolver** — the loader's `require` resolves only external packages, so `import './panel-tabs.js'` cannot work at runtime. Everything split out of `src/client.js` for readability is inlined back as a prelude in the same scope. Each entry declares `markers`, and a missing marker is a **hard build failure** — that is what stops the split from silently going empty. The output must also parse (`new Script(...)`) before it is written.
 - **Its role**: `package.json` exposes it as `exports["./client"]` with `dsh.client.immediately: true`; the DSH client loader fetches it from package metadata (no host route serves it). It is **tracked in git** because the supported install paths (`pnpm add github:…`, `link:`) never run a build.
-- **Rule 1 — rebuild in the same commit**: any `src/**` change requires `npm run build` + committing the artifact together. CI asserts it (`git diff --exit-code -- lib/client.js` right after `npm run build`). ⚠️ The **local** `npm run verify` does *not* check this — to catch a stale artifact locally, run `npm run verify:all` (which builds) and confirm `git status` is clean.
+- **Rule 1 — rebuild in the same commit**: any `src/**` change requires `npm run build` + committing the artifact together. CI asserts it (`git diff --exit-code -- lib/client.js` right after `npm run build`), and the **local chain asserts it too** via `test/verify-client-sync.mjs`: it rebuilds, compares byte-for-byte, and restores the file — so a stale artifact fails **before you push**.
 - **Rule 2**: never hand-edit `lib/client.js`; the next build overwrites it.
 - **Rule 3 — the artifact is a contract**: several guards test the **built** file (`verify-readability`, `verify-softrender`, `verify-client`), and some extract the stylesheet from it by a line-leading anchor. That is why `src/styles.js` forbids backticks and literal copies of its own declaration in its comments — one stray backtick once made `verify-host-paint-scope` report "bare backticks: 489".
 - **Trap — comments in `src/**` ship to users**: prefer the *measurement command* over a number that drifts (two module headers still cite `src/client.js` as "9,500 lines").
@@ -45,7 +45,7 @@ macOS 版本由 [Jerry（@ruijiaang-lab）](https://github.com/ruijiaang-lab)维
 - **构成**：`lib/client.js` = `src/client.js` 正文 **+ `INLINE_MODULES` 里那 14 个模块**（见 `scripts/build-client.mjs`），全部内联进**同一个** `factory(require)` 作用域。`npm run build` 会把内联清单打印出来。**它的大部分行来自 `src/**` 而不是 `client.js` 自己**（占比按那份内联清单复算，勿记死数）—— 看着像巨石，实为"压平的仓库切片"。
 - **为什么必须内联**：浏览器半边**没有本地模块解析器** —— loader 的 `require` 只解析外部包，`import './panel-tabs.js'` 在运行时根本不成立。凡为可读性拆出去的代码，都在构建期作为 prelude 内联回同一作用域。每项都带 `markers`，**缺任何一个都构建硬失败** —— 这正是"拆分不会悄悄变空"的保证；产物还必须能通过 `new Script(...)` 解析才会被写出。
 - **它的身份**：`package.json` 用 `exports["./client"]` + `dsh.client.immediately: true` 暴露它，DSH 客户端加载器按**包元数据**取（宿主侧没有任何路由发它）。它**必须入库**：本仓支持的安装路径（`pnpm add github:…`、`link:`）都不跑构建。
-- **铁律一 —— 同提交重建**：改任何 `src/**` 都要 `npm run build` 并把产物**同一个提交**带上。CI 会判定（`npm run build` 之后 `git diff --exit-code -- lib/client.js`）。⚠️ **本地 `npm run verify` 不查这条** —— 想在本地早发现，跑 `npm run verify:all`（含构建）再看 `git status` 是否干净。
+- **铁律一 —— 同提交重建**：改任何 `src/**` 都要 `npm run build` 并把产物**同一个提交**带上。CI 会判定（`npm run build` 之后 `git diff --exit-code -- lib/client.js`）；**本地链现在也判**：`test/verify-client-sync.mjs` 会重建、逐字节比对、并把文件**还原**（守卫不改工作树）⇒ 产物过期会在 **push 之前**就红。
 - **铁律二**：绝不手改 `lib/client.js`，下一次构建会抹掉。
 - **铁律三 —— 产物即契约**：多个守卫跑的是**产物**（`verify-readability`、`verify-softrender`、`verify-client`），另有一些**按行首锚点从产物里**取样式表。这就是 `src/styles.js` 禁止在自己注释里写反引号、也禁止复述那条声明语句的原因（实测踩到过：`verify-host-paint-scope` 报"裸反引号 489"）。
 - **陷阱 —— `src/**` 的注释会随包发给用户**：涉及行数 / 体积这类会漂的量，写**复算命令**而不是写数字（现仍有两处模块头注释把 `src/client.js` 说成"9,500 行"）。
@@ -123,7 +123,7 @@ npm run verify:all  # = build + verify + smoke
 ```
 
 **提交前必须全绿。** `.github/workflows/verify.yml` 在每次 push / PR 上跑同一套
-（build + verify + smoke），并额外断言两件事：`lib/client.js` 与 `src/client.js` 同步，
+（build + verify + smoke），并额外断言两件事：`lib/client.js` 与 `src/client.js` 同步（**本地链里也有这一条**：`test/verify-client-sync.mjs`），
 以及 `git diff --check` 无尾随空白 / 冲突标记。
 
 > CI **故意不执行 `npm ci`**：build / verify / smoke 只用 `node:` 内置模块与相对路径，
