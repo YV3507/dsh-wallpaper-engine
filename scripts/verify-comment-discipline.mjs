@@ -113,8 +113,12 @@ check('negative control: 带日期的注释会被判不合格',
   // 它们大多是有信息量的「旧实现 vs 现状」对照（如"旧版 harness 不支持该属性"），
   // 所以棘轮只**封顶**、不强制清零。
   const CEIL = {
-    'src/client.js': 8,
+    'src/client.js': 7,
     'lib/index.js': 9,
+    // 抽出来的模块按**当前实际值**钉住（只许减少）。styles.js 的 2 处是随样式表逐字搬过来的
+    // 既有散文（CSS 注释里的"旧版"对照），不是新写的编年史。
+    'src/styles.js': 2,
+    'src/transcode.js': 0,
     'lib/scene-render-worker.mjs': 0,
     'lib/we-renderer/core.js': 1,
     'lib/media/supervisor.js': 1,

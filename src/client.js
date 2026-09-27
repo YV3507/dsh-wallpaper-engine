@@ -1553,7 +1553,7 @@ function applySelection(id, opts) {
     selection.sceneHasAudio = false;
     selection.mediaInfo = null;
     selection.transcodeState = "idle";
-    mediaInfoToken = "";
+    invalidateMediaInfoProbe();
     abortTranscodeUpgrade();
     syncSceneAudio(selection);
     syncRotationTimer();
@@ -1576,7 +1576,7 @@ function applySelection(id, opts) {
     selection.sceneHasAudio = false;
     selection.mediaInfo = null;
     selection.transcodeState = "idle";
-    mediaInfoToken = "";
+    invalidateMediaInfoProbe();
     abortTranscodeUpgrade();
     syncSceneAudio(selection);
     syncRotationTimer();
@@ -3659,291 +3659,10 @@ function applyVideoPlayback(video) {
   );
 }
 
-// ── Source metadata + frame-skip transcode (抽帧转码) ────────────────────────
-// The decode-side fps cap (帧率上限) is implemented as a HOST re-encode, NOT as
-// playbackRate: playbackRate is a speed multiplier, so capping decode through
-// it would slow the motion. The host transcodes the wallpaper once to the cap
-// fps (4K120 → 4K60, timeline 1.0x, AV1 via NVENC) and caches it; here we play
-// the ORIGINAL immediately (instant first paint) and, while the host runs the
-// one-time transcode, swap to the capped-fps file when it is ready — normal
-// speed + halved decode. 倍速 (playbackRate) keeps working on top of either.
-let mediaInfoToken = "";
-// In-flight marker: while the /media-info probe for this token is pending,
-// maybeUpgradeToTranscoded must NOT fire a transcode request — the probe may
-// come back with fps ≤ cap (no transcode needed). Without this guard every
-// wallpaper selection used to trigger a throwaway host-side ffmpeg run.
-let mediaInfoInFlight = "";
-// 在途探测的 AbortController: token 变更或强制刷新时终止上一次 fetch — 否则被
-// 取代的探测会一直跑 (结果只靠 mediaInfoToken 检查丢弃), fiber 卸载时也要 abort。
-let mediaInfoAbort = null;
-async function refreshMediaInfo(force) {
-  const token = selection.type === "video" && selection.url
-    ? selection.url.split("/").pop()
-    : null;
-  if (!token || (!force && token === mediaInfoToken)) return;
-  // 旧探测的结果一定没用了 (token 变了, 或被 force 重刷取代) → 立刻断开
-  if (mediaInfoAbort) { try { mediaInfoAbort.abort(); } catch { /* ignore */ } mediaInfoAbort = null; }
-  // AbortController 可能不存在 (无计时器/无 fetch 设施的验证环境): 为 null 时退化为旧行为
-  const ctrl = typeof AbortController === "function" ? new AbortController() : null;
-  mediaInfoAbort = ctrl;
-  mediaInfoToken = token;
-  mediaInfoInFlight = token;
-  try {
-    const init = { cache: "no-store" };
-    if (ctrl) init.signal = ctrl.signal;
-    const res = await fetch("/wallpaper-engine/media-info/" + encodeURIComponent(token), init);
-    const data = await res.json().catch(() => ({}));
-    if (mediaInfoToken === token) {
-      selection.mediaInfo = (data && data.info) || null;
-      // Source fps ≤ cap → no transcode needed; cancel an in-flight upgrade.
-      const mi = selection.mediaInfo;
-      if (mi && mi.fps && mi.fps > 0 && selection.fpsCap > 0 && mi.fps <= selection.fpsCap) {
-        abortTranscodeUpgrade();
-        // Also drop a swapped transcode from a previous LOWER cap, so the
-        // "无需抽帧" hint matches what is actually playing (the original).
-        const layer = document.getElementById(LAYER_ID);
-        const video = layer && layer.querySelector("video");
-        if (video && video.dataset.weTranscoded) revertTranscodedVideo(video);
-        selection.transcodeState = "skipped";
-      }
-    }
-  } catch {
-    // abort 掉的探测不写状态 (它已被更新的探测取代)
-    if (!(ctrl && ctrl.signal.aborted) && mediaInfoToken === token) selection.mediaInfo = null;
-  }
-  const ownsAbort = mediaInfoAbort === ctrl; // 仍是本次探测 (没被更新的探测取代)
-  if (ownsAbort) mediaInfoAbort = null;
-  if (ownsAbort && mediaInfoInFlight === token) mediaInfoInFlight = "";
-  // Settle → single re-emit so a deferred transcode decision (see
-  // mediaInfoInFlight) runs against the final mediaInfo, success or failure.
-  if (mediaInfoToken === token) emit();
-}
-
-let upgradeAbort = null;
-let upgradeToken = "";
-// The fps cap the in-flight upgrade request targets (0 = none). The in-flight
-// latch is keyed by token ONLY in the old code, so switching 24→48 while the
-// 24fps transcode was still running was treated as "already working on it" —
-// the stale 24fps request then completed and swapped the video to a 24fps
-// re-encode while the picker advertised the new cap ("已切换至 48fps 抽帧版").
-// Tracking the cap lets a cap change abort the stale request and start fresh.
-let upgradeFps = 0;
-let upgradePollTimer = null; // progress poller while the transcode fetch pends
-function clearUpgradePoll() {
-  if (upgradePollTimer) { clearInterval(upgradePollTimer); upgradePollTimer = null; }
-}
-// 15s metadata 兜底 timer (见 maybeUpgradeToTranscoded): 必须挂到升级状态上,
-// abortTranscodeUpgrade 才能清掉它 — 否则被取代的请求超时后回调仍会跑在已
-// detach 的 <video> 上 (重新赋 src, 元素再也释放不掉)。
-let upgradeMetaTimer = null;
-function clearUpgradeMeta() {
-  if (upgradeMetaTimer && typeof window !== "undefined" && typeof window.clearTimeout === "function") {
-    window.clearTimeout(upgradeMetaTimer);
-  }
-  upgradeMetaTimer = null;
-}
-function abortTranscodeUpgrade() {
-  clearUpgradePoll();
-  clearUpgradeMeta();
-  if (upgradeAbort) { upgradeAbort.abort(); upgradeAbort = null; }
-  upgradeToken = "";
-  upgradeFps = 0;
-  selection.transcodeProgress = null;
-}
-// Revert a video that was swapped to a capped-fps transcode back to the source.
-// NOTE: no emit() here — this runs inside syncLayers (already inside an emit
-// cycle); emitting synchronously from a subscriber re-enters the listener chain
-// and recurses until the stack overflows. UI updates ride the outer emit.
-function revertTranscodedVideo(video) {
-  if (!video || !video.dataset.weTranscoded) return;
-  delete video.dataset.weTranscoded;
-  try { video.src = selection.url; video.load(); } catch { /* ignore */ }
-}
-function maybeUpgradeToTranscoded(video, token) {
-  if (!video || !video.isConnected) return;
-  const cap = selection.fpsCap;
-  // Cap off / lowered to 0: revert any swapped video back to the original.
-  if (!cap || cap <= 0) {
-    abortTranscodeUpgrade();
-    if (video.dataset.weTranscoded) {
-      revertTranscodedVideo(video);
-      selection.transcodeState = "idle";
-    }
-    return;
-  }
-  const mi = selection.mediaInfo;
-  if (mi && mi.fps && mi.fps > 0 && mi.fps <= cap) {
-    // Source already at/below the cap — no transcode needed; drop any previously
-    // swapped (lower-cap) version. No in-flight reservation is made, so raising
-    // the cap later can still start one.
-    if (video.dataset.weTranscoded) revertTranscodedVideo(video);
-    selection.transcodeState = "skipped";
-    return;
-  }
-  // mediaInfo probe still in flight for THIS token: defer the decision — the
-  // probe may come back with fps ≤ cap (transcode unnecessary). The settle
-  // emit in refreshMediaInfo re-runs syncLayers and brings us back here.
-  if (!mi && mediaInfoInFlight === token) return;
-  if (video.dataset.weTranscoded === String(cap)) return; // already on this cap
-  // Only an in-flight request for THIS cap counts as "working on it": a request
-  // for a different cap would complete and swap in a stale-fps re-encode while
-  // the picker advertises the current cap (24→48 direct switch bug). The guard
-  // is deliberately NOT conditioned on weTranscoded: the progress poller emits
-  // (→ syncLayers → this function), and with the video already on a transcode
-  // that emit used to abort + re-start the request forever (page freeze).
-  if (upgradeToken === token && upgradeAbort && upgradeFps === cap) return; // already working on this cap
-  abortTranscodeUpgrade();
-  upgradeToken = token;
-  upgradeFps = cap;
-  const ctrl = new AbortController();
-  upgradeAbort = ctrl;
-  selection.transcodeState = "working";
-  selection.transcodeProgress = null;
-  // Progress poller: 500ms interval reading /transcode-progress (download %,
-  // then frame-based transcode % + ETA). Cleared on settle/abort. The timer is
-  // ALSO kept in this closure so THIS request's completion only ever clears its
-  // OWN timer — a stale request must not kill the newer request's poller.
-  let pollPending = false; // 上一 tick 未返回 → 跳过本次 (宿主高负载时避免 fetch 堆积)
-  const pollProgress = () => {
-    if (ctrl.signal.aborted) return;
-    if (pollPending) return;
-    pollPending = true;
-    apiJson("/transcode-progress/" + encodeURIComponent(token) + "?fps=" + cap)
-      .then((res) => {
-        const d = res.data || {};
-        if (ctrl.signal.aborted) return;
-        if (d && d.phase) {
-          const changed = !selection.transcodeProgress
-            || selection.transcodeProgress.phase !== d.phase
-            || selection.transcodeProgress.percent !== d.percent
-            || selection.transcodeProgress.eta !== d.eta;
-          if (changed) {
-            selection.transcodeProgress = {
-              phase: d.phase, percent: d.percent || 0, source: d.source || "",
-              finalizing: d.finalizing === true, eta: typeof d.eta === "number" ? d.eta : null,
-            };
-            emit();
-          }
-        }
-      })
-      .catch(() => { /* transient poll failure: ignore */ })
-      .then(() => { pollPending = false; }); // 成功/失败都释放 in-flight 标记
-  };
-  clearUpgradePoll();
-  const pollTimer = setInterval(pollProgress, 500);
-  upgradePollTimer = pollTimer;
-  pollProgress();
-  const transcodedUrl = "/wallpaper-engine/transcoded/" + encodeURIComponent(token) + "?fps=" + cap;
-  // Trigger + completion probe: a tiny Range request that blocks until the host
-  // has the transcode cached, then answers 206 with one byte (discarded). The
-  // <video> then streams the SAME url via range requests — no full-file blob is
-  // ever held in memory and playback starts as soon as the first bytes arrive.
-  fetch(transcodedUrl, { signal: ctrl.signal, headers: { Range: "bytes=0-0" } })
-    .then(async (res) => {
-      if (ctrl.signal.aborted) return; // superseded by a newer request
-      if (pollTimer) clearInterval(pollTimer); // only ever this request's own timer
-      if (!res.ok) { transcodeUpgradeFailed(video, token); return; }
-      try { await res.arrayBuffer(); } catch { /* 1-byte body; discard */ }
-      if (ctrl.signal.aborted) return;
-      if (selection.fpsCap !== cap || !video.isConnected) {
-        // The user changed the cap (or the wallpaper) while this request was in
-        // flight: its output is stale. NEVER swap a stale-fps re-encode in —
-        // drop the request state and re-decide for the CURRENT cap instead.
-        abortTranscodeUpgrade();
-        if (video.isConnected && selection.url && token === selection.url.split("/").pop()) {
-          const cur = selection.fpsCap;
-          if (cur > 0 && video.dataset.weTranscoded === String(cur)) {
-            // Already playing exactly the requested cap (the user switched back
-            // while this request was in flight): just settle as ready.
-            selection.transcodeState = "ready";
-            selection.transcodeProgress = null;
-            emit();
-          } else {
-            maybeUpgradeToTranscoded(video, token);
-          }
-        } else {
-          // The layer/video was rebuilt while this request was in flight (e.g.
-          // Edge 兼容 render-mode toggle, or a wallpaper switch that raced the
-          // abort): re-run syncLayers so the CURRENT video gets its own fresh
-          // upgrade decision — otherwise it would sit on the original (full
-          // decode) until some unrelated emit happened to re-trigger it.
-          emit();
-        }
-        return;
-      }
-      if (selection.url && token === selection.url.split("/").pop()) {
-        video.dataset.weTranscoded = String(cap);
-        const t = video.currentTime;
-        const wasPlaying = isEffectivelyPlaying();
-        // 兜底超时：转码文件损坏 / 元数据异常时 loadedmetadata 可能永远不来，
-        // UI 会永停「转码中」——15s 未就绪按失败回退原片。定时器走 window.*
-        //（headless 验证环境无计时器设施时直接跳过超时兜底）。
-        let metaTimer = null;
-        const clearMetaTimer = () => {
-          if (metaTimer && typeof window !== "undefined" && typeof window.clearTimeout === "function") {
-            window.clearTimeout(metaTimer);
-          }
-          // 同步清掉升级状态上的引用 (只清自己的, 否则会抹掉更新请求的 timer)
-          if (upgradeMetaTimer === metaTimer) upgradeMetaTimer = null;
-          metaTimer = null;
-        };
-        const onErr = () => {
-          clearMetaTimer();
-          if (video.dataset.weTranscoded) {
-            delete video.dataset.weTranscoded;
-            try { video.src = selection.url; video.load(); } catch { /* ignore */ }
-            selection.transcodeState = "fallback";
-            emit();
-          }
-        };
-        video.addEventListener("error", onErr, { once: true });
-        video.src = transcodedUrl;
-        video.load();
-        const onMeta = () => {
-          clearMetaTimer();
-          try { if (t > 0 && t < video.duration) video.currentTime = t; } catch { /* ignore */ }
-          if (wasPlaying) { try { video.play().catch(() => {}); } catch { /* ignore */ } }
-          // Edge canvas：转码 swap 复用同一 <video>，weLoadedOnce 已置位，
-          // 暂停态下补一帧避免画布停在旧画面。
-          weDrawFrame();
-          selection.transcodeState = "ready";
-          selection.transcodeProgress = null;
-          emit(); // syncLayers re-arms the Edge canvas + re-applies rate/play
-        };
-        video.addEventListener("loadedmetadata", onMeta, { once: true });
-        if (typeof window !== "undefined" && typeof window.setTimeout === "function") {
-          metaTimer = window.setTimeout(() => {
-            video.removeEventListener("loadedmetadata", onMeta);
-            onErr();
-          }, 15000);
-          upgradeMetaTimer = metaTimer; // 挂到升级状态: abortTranscodeUpgrade 也要能清
-        }
-      }
-    })
-    .catch(() => {
-      if (ctrl.signal.aborted) return;
-      if (pollTimer) clearInterval(pollTimer); // only ever this request's own timer
-      transcodeUpgradeFailed(video, token);
-    });
-}
-
-// A transcode request for the CURRENT cap failed (502 / network / encode
-// error): the documented fallback is to play the ORIGINAL, so revert any
-// swapped transcode (a request only ever runs when the video is on a DIFFERENT
-// cap's transcode or the original, so this restores the honest "原片" state).
-// The in-flight latch (upgradeToken/upgradeAbort/upgradeFps) is deliberately
-// LEFT set: it is what stops the emit-driven syncLayers re-entry from
-// auto-restarting a request that just failed, while a cap change / 无限制
-// switch still clears it and allows a retry.
-function transcodeUpgradeFailed(video, token) {
-  if (video && video.isConnected && video.dataset.weTranscoded) {
-    revertTranscodedVideo(video);
-  }
-  selection.transcodeState = "fallback";
-  selection.transcodeProgress = null;
-  emit();
-}
-
+// ── 源元数据 + 抽帧转码（抽帧转码 / 帧率上限）────────────────────────────────
+// 这一族的实现已抽到 **src/transcode.js**（约 285 行：探测 → 决策 → 进度轮询 → 落地/回退；
+// 构建期内联回本作用域，调用点无需改动）。它拥有 selection.mediaInfo / transcodeState /
+// transcodeProgress 三个字段的写入权；依赖清点、入口与不变量见该文件头。
 function codecLabel(codec) {
   return { avc1: "H.264", hvc1: "H.265", hev1: "H.265", av01: "AV1", vp09: "VP9", mp4v: "MPEG-4" }[codec] || codec;
 }
@@ -7490,7 +7209,7 @@ function apply(ctx) {
           persistTimer = null;
         }
         // media-info 探测的 AbortController 也要断开 (token 可能永远不再变化)
-        if (mediaInfoAbort) { try { mediaInfoAbort.abort(); } catch { /* ignore */ } mediaInfoAbort = null; }
+        abortMediaInfoProbe();
         // sceneVideo 时序补拉: 卸载后不该再拉 inventory (也不该钉住本次求值的闭包)
         if (sceneVideoResyncTimer && typeof window !== "undefined" && typeof window.clearTimeout === "function") {
           window.clearTimeout(sceneVideoResyncTimer);

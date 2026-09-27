@@ -85,6 +85,13 @@ const INLINE_MODULES = [
       'function removeFontStyles()'],
   },
   {
+    file: 'src/transcode.js',
+    why: '源元数据探测 + 抽帧转码升级的完整生命周期（有状态；拥有 selection 的三个转码字段）',
+    markers: ['let mediaInfoToken = ', 'function clearUpgradePoll(', 'async function refreshMediaInfo(',
+      'function abortTranscodeUpgrade(', 'function maybeUpgradeToTranscoded(',
+      'function invalidateMediaInfoProbe('],
+  },
+  {
     file: 'src/api-client.js',
     why: '宿主 API 的唯一出入口（P2-9）：前缀 / 默认 no-store / 不吞错的结构化结果',
     markers: ['const BASE = ', 'function apiUrl(', 'function pickFetch(', 'async function apiFetch(',
