@@ -212,6 +212,12 @@ check('negative control: 带日期的注释会被判不合格',
     'src/live-layer.js': 1,
     'src/media-prep.js': 0,
     'src/panel-tabs.js': 0,
+    // P3-11 阶段 1：选择器模型层（判定 + 派生 + 分页）拆出去，从 0 起钉。
+    'src/picker-model.js': 0,
+    // P3-11 阶段 2：选择器模态框的渲染器拆出去，从 0 起钉。
+    'src/picker-modal.js': 0,
+    // P3-11 阶段 3：「壁纸属性」面板的渲染器拆出去，从 0 起钉。
+    'src/picker-props-panel.js': 0,
     'src/persistence.js': 0,
     'lib/media/supervisor.js': 1,
     'lib/media/legacy.js': 1,
@@ -247,6 +253,12 @@ check('negative control: 带日期的注释会被判不合格',
     'scripts/build-client.mjs': 1,
     'test/tools/diagnose-web-blank.mjs': 0,
     'test/e2e-web-media-origin.mjs': 5,
+    // P3-11 阶段 0b：选择器上传区的守卫（新文件从 0 起钉）
+    'test/verify-picker-upload.mjs': 0,
+    // P3-11 阶段 1：选择器模型层的守卫（用例表 + 负对照 + 跨层对拍），从 0 起钉。
+    'test/verify-picker-model.mjs': 0,
+    // P3-11 阶段 3：「壁纸属性」面板的守卫（可达性 + 控件分支 + 标记等价 golden），从 0 起钉。
+    'test/verify-picker-props.mjs': 0,
     'test/verify-client-sync.mjs': 0,
     'test/tools/host-route-index.mjs': 1,
     'scripts/prepare.mjs': 0,

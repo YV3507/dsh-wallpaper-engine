@@ -57,7 +57,7 @@
 
 | 文档 | 内容 |
 |---|---|
-| [REFACTOR-ASSESSMENT.md](./wip/REFACTOR-ASSESSMENT.md) | **重构与设计落实账本（活文档）** —— 只留**决策、顺序、验收判据**：现状基线、风险归口、P0/P1/P2/P3 计划（**§5 的状态列是唯一进度真源**，由 `verify-ledger` 机器核对）。未闭合项：P2-11（**未过触发线**）· P3-11 · F3（见其状态列）。**该线全部收口后整份移入 `archive/`** |
+| [REFACTOR-ASSESSMENT.md](./wip/REFACTOR-ASSESSMENT.md) | **重构与设计落实账本（活文档）** —— 只留**决策、顺序、验收判据**：现状基线、风险归口、P0/P1/P2/P3 计划（**§5 的状态列是唯一进度真源**，由 `verify-ledger` 机器核对）。未闭合项：P2-11（**未过触发线**）· F3（见其状态列）。**该线全部收口后整份移入 `archive/`** |
 
 ## 已归档（`archive/`，只作记录）
 
@@ -79,12 +79,13 @@
 | [static-frame/evidence/](./archive/static-frame/evidence/) | 上述文档的实测证据脚本（跑法 `node docs/archive/static-frame/evidence/<name>.mjs`） |
 | [scene-animation/SCENE-ANIMATION-HANDOFF.md](./archive/scene-animation/SCENE-ANIMATION-HANDOFF.md) | 场景动画交接手记（`/scene-anim` 已整体移除） |
 
-### 已完成的审计与真机记录
+### 已完成的审计、真机记录与工作项计划
 
 | 文档 | 内容 |
 |---|---|
 | [audits/ROBUSTNESS-AUDIT.md](./archive/audits/ROBUSTNESS-AUDIT.md) | 健壮性审计（已收口）—— 结论已归口为账本 §5 的 P3-1 … P3-22 |
 | [audits/F0-THEME-SERVICE-CHECKLIST.md](./archive/audits/F0-THEME-SERVICE-CHECKLIST.md) | F0 真机确认（已关闭）—— 结论（`V1–V10` 约束）在账本 §9.1；原始证据在本地未跟踪目录 |
+| [audits/P3-11-PLAN.md](./archive/audits/P3-11-PLAN.md) | `WallpaperPicker` 拆分的过程记录（**已完成**：模型 / 模态框 / 属性面板三块都搬走）—— 开工前的事实核对、先决断言清单与收口时的牙齿证明；结论在账本 §5 的 `P3-11` 行，判据在守卫本身 |
 
 ## 其它
 

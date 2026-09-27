@@ -31,6 +31,10 @@ const animProbeSrcs = [];
 // （层内视频的 _parent 是 LAYER_ID 那个层节点）。
 const animVideoEls = [];
 const imgEls = [];
+// 真 DOM 语义：`document.activeElement` 是**元素自己** `focus()` 的结果。焦点陷阱
+// （trapModalTab）与模态框初始焦点（modalInitialFocus）都读它 ⇒ 挂载台必须真的实现，
+// 否则这两条判据结构上不可达（同 pauseOnBlur 那次的修法：补语义，不把断言写弱）。
+let activeEl = null;
 function makeEl(tag) {
   return {
     tagName: tag.toUpperCase(),
@@ -43,12 +47,16 @@ function makeEl(tag) {
     remove() { if (this._parent) { const i = this._parent.children.indexOf(this); if (i >= 0) this._parent.children.splice(i, 1); } if (this.id) delete byId[this.id]; },
     setAttribute(k, v) { this.attributes[k] = v; },
     removeAttribute(k) { delete this.attributes[k]; },
+    focus() { activeEl = this; },
+    blur() { if (activeEl === this) activeEl = null; },
     querySelector(sel) { return null; },
   };
 }
 
 const bodyEl = makeEl("body");
+activeEl = bodyEl;
 const document = {
+  get activeElement() { return activeEl; },
   createElement: (t) => {
     const el = makeEl(t);
     if (t === 'video') {
@@ -100,11 +108,19 @@ const localStorage = {
 let cccGpuPinned = true;
 // P2-L：宿主 unlink 失败时回 200 + removed:false（文件其实还在磁盘上）。
 let cccClearUnlinkFails = false;
+// 库存加载失败的模拟开关（P3-11 0b：错误态 + 「重试」恢复的往返断言用）。与 `cccClearUnlinkFails`
+// 同款：测试里翻它，然后走**真实**的重载路径（页签的「刷新」按钮 → onRefresh → loadInventory）。
+let inventoryFails = false;
 const inventoryCalls = []; // /inventory 请求次数（sceneVideo 时序补拉断言用）
 const fetch = (url, opts) => {
   const u = String(url);
   const method = (opts && opts.method) || 'GET';
-  if (u.includes('/wallpaper-engine/inventory')) inventoryCalls.push(u);
+  if (u.includes('/wallpaper-engine/inventory')) {
+    inventoryCalls.push(u);
+    if (inventoryFails) {
+      return Promise.resolve({ ok: false, status: 503, json: () => Promise.resolve({ error: '测试用宿主故障' }) });
+    }
+  }
   // GPU 抓帧缓存的 HEAD 探测 / DELETE 清除（面板提示与清除入口）：
   // 场景 C（/scene-frame/ccc）假装缓存里已有 _gpu.png。
   if (method === 'HEAD') {
@@ -213,6 +229,21 @@ const sandbox = {
   },
   clearInterval: (token) => { if (token) token.cleared = true; },
 };
+// 事件监听表：客户端把未聚焦/遮挡与 ESC 处理器注册在 window/document 上。挂载台默认**没有**
+// `addEventListener`，加上它（纯追加、不影响既有断言）才能让"注册了没有 / 派发后行为"可判。
+// 注意处理器本身注册在 `useEffect` 里，而 mock React 的 `useEffect` 是空实现 ⇒ 需要那类断言的
+// 用例要**临时**把它换成收集器（见 ESC 那段），跑完立刻还原。
+const winListeners = {};
+const docListeners = {};
+const addListenerTo = (reg) => (ev, fn) => { (reg[ev] ||= []).push(fn); };
+const removeListenerFrom = (reg) => (ev, fn) => {
+  const a = reg[ev]; if (a) { const i = a.indexOf(fn); if (i >= 0) a.splice(i, 1); }
+};
+sandbox.window.addEventListener = addListenerTo(winListeners);
+sandbox.window.removeEventListener = removeListenerFrom(winListeners);
+document.addEventListener = addListenerTo(docListeners);
+document.removeEventListener = removeListenerFrom(docListeners);
+
 // 可控时钟：「帧率上限」按钮只有走到门禁的**冷缓存**分支（probeGpuFramePin 的
 // 30s TTL 过期）才能被行为断言测出是否真的走了门禁 —— 否则按钮路径与「选壁纸」
 // 路径共用同一条 gpuFramePins 缓存命中，改回直调也照样绿。
@@ -259,7 +290,7 @@ const sectionReg = registrations.find((r) => r.key === 'settings.section');
 console.log('registered as first-level settings.section:', !!sectionReg);
 console.log('section id:', sectionReg ? sectionReg.id : '(missing)');
 console.log('section label:', sectionReg ? sectionReg.label : '(missing)');
-console.log('no longer registered as general item:', !registrations.some((r) => r.key === 'settings.general.item'));
+assert.ok(!registrations.some((r) => r.key === 'settings.general.item'), 'no longer registered as general item:');
 
 setTimeout(async () => {
   console.log('body children ids:', JSON.stringify(bodyEl.children.map((c) => c.id)));
@@ -442,7 +473,7 @@ setTimeout(async () => {
       }
     }
   }
-  console.log('picker renders:', pickerRenders.length > 0);
+  assert.ok(pickerRenders.length > 0, 'picker 至少被渲染一次');
   if (pickerRenders.length) {
     // ── Tabbed IA: the picker splits into six tabs (壁纸/外观/吉祥物/效果/声音/
     //    高级 —— 「字体」已并入「外观」). Each WallpaperPicker instance keeps its
@@ -497,10 +528,10 @@ setTimeout(async () => {
     localStorage.removeItem(TAB_KEY);
     let tree = renderPicker();
     let treeText = JSON.stringify(tree);
-    console.log('tab bar renders (6 tabs):', countMatches(tree, /"role":"tab"/g) === 6);
-    console.log('default tab is 壁纸:', treeText.includes('"we-tabs__tab we-tabs__tab--active"') && treeText.includes('自动轮播'));
-    console.log('wallpaper tab has 选择壁纸:', treeText.includes('"选择壁纸"'));
-    console.log('wallpaper tab has 自定义壁纸:', treeText.includes('自定义壁纸'));
+    assert.ok(countMatches(tree, /"role":"tab"/g) === 6, 'tab bar renders (6 tabs):');
+    assert.ok(treeText.includes('"we-tabs__tab we-tabs__tab--active"') && treeText.includes('自动轮播'), 'default tab is 壁纸:');
+    assert.ok(treeText.includes('"选择壁纸"'), 'wallpaper tab has 选择壁纸:');
+    assert.ok(treeText.includes('自定义壁纸'), 'wallpaper tab has 自定义壁纸:');
     console.log('other tabs keep their controls out of the tree:',
       !treeText.includes('玻璃透明度') && !treeText.includes('字体自定义') && !treeText.includes('吉祥物大小'));
 
@@ -523,17 +554,17 @@ setTimeout(async () => {
     setTab('appearance');
     tree = renderPicker();
     treeText = JSON.stringify(tree);
-    console.log('appearance tab active:', treeText.includes('"we-tabs__tab we-tabs__tab--active"'));
-    console.log('accent preset swatches (expect 6):', (treeText.match(/"aria-label":"配色 /g) || []).length);
-    console.log('glass-color preset swatches (expect 6):', (treeText.match(/"aria-label":"玻璃颜色 /g) || []).length);
-    console.log('glass color custom input present:', treeText.includes('自定义玻璃颜色'));
-    console.log('custom color input present:', treeText.includes('type":"color"'));
-    console.log('glass transparency slider row present:', treeText.includes('玻璃透明度'));
-    console.log('sidebar-glass master switch present:', treeText.includes('侧栏液态玻璃'));
-    console.log('sidebar blur slider present:', treeText.includes('侧栏模糊'));
-    console.log('sidebar alpha slider present:', treeText.includes('侧栏透明度'));
-    console.log('sidebar glass-color swatches (expect 6):', (treeText.match(/"aria-label":"侧栏玻璃颜色 /g) || []).length);
-    console.log('sidebar glass color custom input present:', treeText.includes('自定义侧栏玻璃颜色'));
+    assert.ok(treeText.includes('"we-tabs__tab we-tabs__tab--active"'), 'appearance tab active:');
+    assert.equal((treeText.match(/"aria-label":"配色 /g) || []).length, 6, '配色预设应有 6 个色板');
+    assert.equal((treeText.match(/"aria-label":"玻璃颜色 /g) || []).length, 6, '玻璃颜色预设应有 6 个色板');
+    assert.ok(treeText.includes('自定义玻璃颜色'), 'glass color custom input present:');
+    assert.ok(treeText.includes('type":"color"'), 'custom color input present:');
+    assert.ok(treeText.includes('玻璃透明度'), 'glass transparency slider row present:');
+    assert.ok(treeText.includes('侧栏液态玻璃'), 'sidebar-glass master switch present:');
+    assert.ok(treeText.includes('侧栏模糊'), 'sidebar blur slider present:');
+    assert.ok(treeText.includes('侧栏透明度'), 'sidebar alpha slider present:');
+    assert.equal((treeText.match(/"aria-label":"侧栏玻璃颜色 /g) || []).length, 6, '侧栏玻璃颜色预设应有 6 个色板');
+    assert.ok(treeText.includes('自定义侧栏玻璃颜色'), 'sidebar glass color custom input present:');
     // The three detail knobs (侧栏模糊 / 侧栏透明度 / 侧栏玻璃颜色) are
     // conditional on the 侧栏液态玻璃 master switch: off → hidden, on →
     // restored, in the SAME render pass (the toggle re-emits synchronously).
@@ -545,7 +576,7 @@ setTimeout(async () => {
       const offText = JSON.stringify(tree);
       console.log('switch off hides the three detail knobs:',
         !offText.includes('侧栏模糊') && !offText.includes('侧栏透明度') && !offText.includes('侧栏玻璃颜色'));
-      console.log('switch itself stays visible when off:', offText.includes('侧栏液态玻璃'));
+      assert.ok(offText.includes('侧栏液态玻璃'), 'switch itself stays visible when off:');
       sidebarSwitch.props.onChange({ target: { checked: true } });
       assert.equal(bodyEl.attributes['data-we-sidebar-glass'], 'on', 'sidebar master on must re-arm sidebar surfaces');
       tree = renderPicker();
@@ -554,10 +585,10 @@ setTimeout(async () => {
     } else {
       console.log('switch off hides the three detail knobs: false (switch not found)');
     }
-    console.log('sidebar blur slider max (expect 200):', sliderMax(findSliderRow(tree, '侧栏模糊')));
-    console.log('sidebar alpha slider max (expect 200):', sliderMax(findSliderRow(tree, '侧栏透明度')));
-    console.log('whole-window glass master switch present:', treeText.includes('设置窗口液态玻璃'));
-    console.log('window glass tooltip present:', treeText.includes('整个设置窗口'));
+    assert.equal(sliderMax(findSliderRow(tree, '侧栏模糊')), '200', '侧栏模糊上限必须是 200px');
+    assert.equal(sliderMax(findSliderRow(tree, '侧栏透明度')), '200', '侧栏透明度上限必须是 200');
+    assert.ok(treeText.includes('设置窗口液态玻璃'), 'whole-window glass master switch present:');
+    assert.ok(treeText.includes('整个设置窗口'), 'window glass tooltip present:');
 
     // ── 「字体」已并入「外观」：老的 localStorage 页签值必须迁移过去（不能把用户
     //    甩回「壁纸」），且字体三件套 + 输入光标都在「外观」里。 ──
@@ -567,7 +598,7 @@ setTimeout(async () => {
     assert.ok(treeText.includes('玻璃透明度'),
       'legacy "font" tab value must migrate to 外观 (its own rows must be on screen)');
     assert.ok(treeText.includes('字体自定义'), '外观 must host the 字体自定义 switch');
-    console.log('legacy font tab migrates into 外观:', treeText.includes('玻璃透明度') && treeText.includes('字体自定义'));
+    assert.ok(treeText.includes('玻璃透明度') && treeText.includes('字体自定义'), 'legacy font tab migrates into 外观:');
     const fontSwitch = findCtlInput(tree, '字体自定义');
     if (fontSwitch) {
       fontSwitch.props.onChange({ target: { checked: true } });
@@ -583,9 +614,9 @@ setTimeout(async () => {
     // ── 输入光标（#83）: caret color swatches live alongside the font controls
     //    (same 外观 tab now) and are INDEPENDENT of the 字体自定义 master switch. ──
     assert.ok(treeText.includes('输入光标'), '外观 must host the 输入光标 section');
-    console.log('appearance tab has 输入光标 section:', treeText.includes('输入光标'));
-    console.log('caret swatches (expect 7: 自动 + 6 presets):', (treeText.match(/"aria-label":"光标颜色 /g) || []).length);
-    console.log('caret custom color input present:', treeText.includes('自定义光标颜色'));
+    assert.ok(treeText.includes('输入光标'), 'appearance tab has 输入光标 section:');
+    assert.equal((treeText.match(/"aria-label":"光标颜色 /g) || []).length, 7, '光标颜色应有 7 个色板（自动 + 6 预设）');
+    assert.ok(treeText.includes('自定义光标颜色'), 'caret custom color input present:');
     const findSwatch = (root, aria) => {
       let hit = null;
       (function walk(node) {
@@ -620,15 +651,15 @@ setTimeout(async () => {
     const ropeToggle = findCtlInput(tree, '显示吉祥物');
     console.log('mascot rope toggle present:', !!ropeToggle);
     if (ropeToggle) {
-      console.log('rope toggle checked by default:', ropeToggle.props.checked === true);
+      assert.ok(ropeToggle.props.checked === true, 'rope toggle checked by default:');
       ropeToggle.props.onChange({ target: { checked: false } });
       tree = renderPicker();
       const ropeOff = findCtlInput(tree, '显示吉祥物');
-      console.log('unchecking hides the rope (checkbox off):', !!ropeOff && ropeOff.props.checked === false);
+      assert.ok(!!ropeOff && ropeOff.props.checked === false, 'unchecking hides the rope (checkbox off):');
       ropeToggle.props.onChange({ target: { checked: true } });
       tree = renderPicker();
       const ropeOn = findCtlInput(tree, '显示吉祥物');
-      console.log('re-checking restores the rope (checkbox on):', !!ropeOn && ropeOn.props.checked === true);
+      assert.ok(!!ropeOn && ropeOn.props.checked === true, 're-checking restores the rope (checkbox on):');
     } else {
       console.log('mascot rope toggle: false (not found)');
     }
@@ -646,27 +677,27 @@ setTimeout(async () => {
     };
     const activeForm = (cards) => cards.find((c) => String(c.props.className).includes('--active'));
     let mascotCards = findMascotCards(tree);
-    console.log('mascot form cards (expect 2):', mascotCards.length === 2);
-    console.log('default form is maid:', !!activeForm(mascotCards) && activeForm(mascotCards).props.title === '小女仆');
+    assert.ok(mascotCards.length === 2, 'mascot form cards (expect 2):');
+    assert.ok(!!activeForm(mascotCards) && activeForm(mascotCards).props.title === '小女仆', 'default form is maid:');
     const whaleCard = mascotCards.find((c) => c.props.title === '鲸御姐');
     if (whaleCard) { whaleCard.props.onClick(); tree = renderPicker(); }
     mascotCards = findMascotCards(tree);
-    console.log('form switches to whale:', !!activeForm(mascotCards) && activeForm(mascotCards).props.title === '鲸御姐');
+    assert.ok(!!activeForm(mascotCards) && activeForm(mascotCards).props.title === '鲸御姐', 'form switches to whale:');
     const maidCard = mascotCards.find((c) => c.props.title === '小女仆');
     if (maidCard) { maidCard.props.onClick(); tree = renderPicker(); }
     mascotCards = findMascotCards(tree);
-    console.log('form switches back to maid:', !!activeForm(mascotCards) && activeForm(mascotCards).props.title === '小女仆');
+    assert.ok(!!activeForm(mascotCards) && activeForm(mascotCards).props.title === '小女仆', 'form switches back to maid:');
     const ropeScaleSlider = findSliderRow(tree, '吉祥物大小');
     console.log('mascot rope size slider present:', !!ropeScaleSlider);
     if (ropeScaleSlider) {
       const ri = findRangeInput(ropeScaleSlider);
       console.log('rope size slider min/max (0.5/2.5):',
         ri && String(ri.props.min) === '0.5' && String(ri.props.max) === '2.5');
-      console.log('rope size default scale (1):', ri && String(ri.props.value) === '1');
+      assert.ok(ri && String(ri.props.value) === '1', 'rope size default scale (1):');
       if (ri) ri.props.onInput({ target: { value: '1.5' } });
       tree = renderPicker();
       const ri2 = findRangeInput(findSliderRow(tree, '吉祥物大小'));
-      console.log('rope size slider updates to 1.5:', ri2 && String(ri2.props.value) === '1.5');
+      assert.ok(ri2 && String(ri2.props.value) === '1.5', 'rope size slider updates to 1.5:');
       if (ri2) ri2.props.onInput({ target: { value: '1' } });
       tree = renderPicker();
     } else {
@@ -690,7 +721,7 @@ setTimeout(async () => {
 
     // ── 壁纸透明度（#82）: slider max 90; 60% → layer opacity 0.4; 0% unsets. ──
     const wpOpacityRow = findSliderRow(tree, '壁纸透明度');
-    console.log('壁纸透明度 slider max (expect 90):', sliderMax(wpOpacityRow));
+    assert.equal(sliderMax(wpOpacityRow), '90', '壁纸透明度上限必须是 90%');
     const wpOpacityInput = findRangeInput(wpOpacityRow);
     if (wpOpacityInput) {
       wpOpacityInput.props.onInput({ target: { value: '60' } });
@@ -727,7 +758,10 @@ setTimeout(async () => {
         if (Array.isArray(node)) { node.forEach(walk2); return; }
         if (!node || typeof node !== 'object') return;
         const cls = typeof node.props?.className === 'string' ? node.props.className : '';
-        if (cls === 'we-picker__card' || cls === 'we-picker__card we-picker__card--selected') cards.push(node);
+        // 按**class 令牌**匹配，不是精确串：卡片有多个修饰态（`--selected` 当前播放、
+        // `--checked` 批量勾选），枚举式精确匹配会把 `--checked` 的卡片整批漏掉。
+        // 令牌匹配同时排除 `we-picker__card-wrap` 这类近似名（它不是 `we-picker__card`）。
+        if (cls.split(/\s+/).includes('we-picker__card')) cards.push(node);
         if (Array.isArray(node.children)) node.children.forEach(walk2);
       })(root);
       return cards;
@@ -745,23 +779,507 @@ setTimeout(async () => {
       return hit;
     };
     // Page 1: 33 playable wallpapers → 2 pages @ 24; grid = close card + 24.
+    // 判据必须**真断言**：整块 `console.log` 只在日志里像断言、不判真假（形态规则见
+    // docs/TEST-LAYOUT.md §约定 5）—— 分页器这条路径此前就是这么被漏掉的。
     let cards = collectCards(tree);
-    console.log('page 1 cards (expect 25: close + 24):', cards.length);
-    console.log('pager rendered (pages > 1):', JSON.stringify(tree).includes('we-picker__pager'));
+    rotCheck('分页：第 1 页 25 张卡（关闭卡 + 24）', cards.length === 25);
+    rotCheck('分页：页数 > 1 时渲染分页器', JSON.stringify(tree).includes('we-picker__pager'));
     const page1Text = JSON.stringify(cards);
-    console.log('page 1 shows first wallpaper (Wall 0):', page1Text.includes('Wall 0'));
-    console.log('page 1 does NOT show page-2 item (Wall 30):', !page1Text.includes('Wall 30'));
-    console.log('scene D (no frameUrl) excluded from grid:', !page1Text.includes('Scene D'));
-    console.log('pg13 wallpaper excluded under default Everyone filter:', !page1Text.includes('PG13 E'));
+    rotCheck('分页：第 1 页含首张（Wall 0）', page1Text.includes('Wall 0'));
+    rotCheck('分页：第 1 页不含第 2 页的项（Wall 30）', !page1Text.includes('Wall 30'));
+    rotCheck('筛选：无 frameUrl 的场景（Scene D）不进网格', !page1Text.includes('Scene D'));
+    rotCheck('筛选：默认 Everyone 下 PG13 不进网格', !page1Text.includes('PG13 E'));
     // Flip to page 2 → 33 - 24 = 9 wallpapers + close card = 10.
-    clickPager(tree, '下一页 ›');
+    const pagerHit = clickPager(tree, '下一页 ›');
+    rotCheck('分页：找得到「下一页」按钮（找不到时不得静默通过）', !!pagerHit);
     tree = renderPicker();
     cards = collectCards(tree);
-    console.log('page 2 cards (expect 10: close + 9):', cards.length);
+    rotCheck('分页：第 2 页 10 张卡（关闭卡 + 9）', cards.length === 10);
     const page2Text = JSON.stringify(cards);
-    console.log('page 2 shows last wallpaper (Wall 29):', page2Text.includes('Wall 29'));
-    console.log('page 2 no longer shows page-1 item (Wall 0):', !page2Text.includes('Wall 0'));
-    console.log('scene C (frameUrl) in grid:', page2Text.includes('Scene C'));
+    rotCheck('分页：第 2 页含末张（Wall 29）', page2Text.includes('Wall 29'));
+    rotCheck('分页：翻页后不再含第 1 页的项（Wall 0）', !page2Text.includes('Wall 0'));
+    rotCheck('筛选：有 frameUrl 的场景（Scene C）进网格', page2Text.includes('Scene C'));
+    // 负对照：把**变异输入**喂进**同一条判据**，证明这两条判据真能失败
+    const mutated = { props: { className: 'we-picker__card' },
+      children: [{ props: { className: 'we-picker__card-wrap' }, children: [] }] };
+    rotCheck('负对照：卡片判据不把近似类名算进去（多算一张就会被判出）',
+      collectCards(mutated).length === 1 && collectCards({}).length === 0);
+    rotCheck('负对照：两页内容确实不同（否则「翻页换了内容」这条判据恒真）',
+      !page1Text.includes('Wall 29') && page2Text.includes('Wall 29'));
+
+    // ── 0b：搜索 / 类型筛选 / 批量 / 隐藏页 / 卡片头计数（这些区域此前零判据）──
+    // 判据只在**一处**定义，正判据与负对照都调它（形态规则见 docs/TEST-LAYOUT.md §约定 5）。
+    const cardTexts = (root) => collectCards(root).map((c) => JSON.stringify(c));
+    // 关闭卡也是 `we-picker__card`（分页计数里它一直算一张）⇒ 判"只剩匹配项"时必须先摘掉它。
+    const wallpaperCardTexts = (root) => cardTexts(root).filter((s) => !s.includes('✕ 关闭'));
+    const onlyMatching = (root, needle) => {
+      const t = wallpaperCardTexts(root);
+      return t.length > 0 && t.every((s) => s.includes(needle));
+    };
+    const synthCards = (texts) => texts.map((t) => ({ props: { className: 'we-picker__card' }, children: [t] }));
+    const findByProp = (root, name, value) => { let hit = null; (function walk(n) {
+      if (Array.isArray(n)) { n.forEach(walk); return; }
+      if (!n || typeof n !== 'object') return;
+      if (n.props && n.props[name] === value) hit = n;
+      if (Array.isArray(n.children)) n.children.forEach(walk);
+    })(root); return hit; };
+    const findByClass = (root, cls) => { let hit = null; (function walk(n) {
+      if (hit) return;
+      if (Array.isArray(n)) { n.forEach(walk); return; }
+      if (!n || typeof n !== 'object') return;
+      const c = typeof n.props?.className === 'string' ? n.props.className : '';
+      if (c.split(/\s+/).includes(cls)) { hit = n; return; }
+      if (Array.isArray(n.children)) n.children.forEach(walk);
+    })(root); return hit; };
+    const textOf = (root) => { let out = ''; (function walk(n) {
+      if (typeof n === 'string') { out += n; return; }
+      if (Array.isArray(n)) { n.forEach(walk); return; }
+      if (!n || typeof n !== 'object') return;
+      if (Array.isArray(n.children)) n.children.forEach(walk);
+    })(root); return out; };
+    // 徽标只在**卡片头**里找：壁纸卡片自己也有 `we-picker__card-badge`（如「静态帧」），
+    // 不限定范围会取到卡片上那个。
+    const badgeOf = (root) => {
+      const head = findByClass(root, 'we-picker__card-head');
+      const b = head ? findByClass(head, 'we-picker__card-badge') : null;
+      return b ? textOf(b) : null;
+    };
+    const persisted = () => JSON.parse(localStorage._store['dsh-wallpaper-engine:selection'] || '{}');
+
+    // 卡片头徽标 = 当前（过滤后）**全量**可播放数；网格只渲染**当页** —— 两者是"全量与分页"
+    // 的关系（上一步翻到了第 2 页，先翻回来让状态确定）。
+    clickPager(tree, '‹ 上一页');
+    tree = renderPicker();
+    assert.equal(badgeOf(tree), '33', '卡片头徽标显示当前可播放数（全量）');
+    assert.equal(collectCards(tree).length, 25, '第 1 页渲染关闭卡 + 24 张（全量 33 ⇒ 分两页）');
+    assert.ok(textOf(tree).includes('1 / 2'), '分页器显示 1 / 2（页数 = ceil(全量 / 24)）');
+
+    // ── P3-11 阶段 2 交付物 A：模态框**标记等价**（搬迁前后逐字未变）──────────────
+    // 模态框那棵子树被 116 个 `.we-picker__*` 选择器按**层级 / 相邻关系**选元素
+    // （src/styles.js 586–1603），test/e2e-web-media-origin.mjs 里另有一份**手抄**的
+    // picker DOM 镜像 —— 标记只要改一个类名、或只挪一层嵌套，CSS 与那份镜像都会**静默**漂，
+    // 所以"搬走这段渲染"必须证明逐字未变。判据：以 `we-picker__modal` 为根深度优先遍历，
+    // 把每个元素的 class 令牌按「深度:令牌」摊平成序列，与搬迁前录下的 golden 逐项相等。
+    // 深度进序列 ⇒「增删一个类名」与「改一个层级」都会让判据变假（负对照实测）。
+    // 三个状态各录一份：普通视图 / 批量模式（批量条 + 勾选标记）/ 隐藏页。
+    const modalClassSequence = (root) => {
+      const modal = findByClass(root, 'we-picker__modal');
+      if (!modal) return [];
+      const out = [];
+      (function walk(node, depth) {
+        if (Array.isArray(node)) { node.forEach((c) => walk(c, depth)); return; }
+        if (!node || typeof node !== 'object') return;
+        const cls = typeof node.props?.className === 'string' ? node.props.className : '';
+        for (const token of cls.split(/\s+/).filter(Boolean)) out.push(depth + ':' + token);
+        if (Array.isArray(node.children)) node.children.forEach((c) => walk(c, depth + 1));
+      })(modal, 0);
+      return out;
+    };
+    // 判据只有这一处：正判据与全部负对照都调它（形态规则见 docs/TEST-LAYOUT.md §约定 5）。
+    const classSequenceMatches = (seq, golden) =>
+      seq.length === golden.length && seq.every((t, i) => t === golden[i]);
+    // 只把**第一个**壁纸卡的深度 +1：序列长度不变，只有层级变 —— 用来证明逐项比较真在比内容。
+    const bumpFirstCardDepth = (seq) => {
+      const out = seq.slice();
+      const i = out.findIndex((t) => t.startsWith('3:we-picker__card'));
+      if (i >= 0) out[i] = '4:' + out[i].slice(2);
+      return out;
+    };
+    const EXPECTED_NORMAL = [
+      '0:we-picker__modal 1:we-picker__modal-head 2:we-picker__modal-head-left 3:we-vinyl 3:we-vinyl--playing 3:we-vinyl--sm 4:we-vinyl__cover 5:we-vinyl__empty',
+      '4:we-vinyl__hole 3:we-picker__modal-title 2:we-picker__btn 1:we-picker__modal-tabs 2:we-picker__btn 2:we-picker__tab 2:we-picker__tab--active 2:we-picker__btn',
+      '2:we-picker__tab 1:we-picker__modal-body 2:we-picker__row 3:we-picker__hint 3:we-picker__btn 2:we-picker__row 2:we-picker__filter-row 3:we-picker__text',
+      '3:we-picker__search 3:we-picker__hint 3:we-picker__label 3:we-picker__playlist-select 3:we-picker__hint 3:we-picker__label 3:we-picker__playlist-select 2:we-picker__grid',
+      '3:we-picker__card 4:we-picker__card-close 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card',
+      '4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title',
+      '4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder',
+      '4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide',
+      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type',
+      '4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card',
+      '4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title',
+      '4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder',
+      '4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide',
+      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type',
+      '4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card',
+      '4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title',
+      '4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder',
+      '4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide',
+      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type',
+      '4:we-picker__card-title 4:we-picker__card-hide 2:we-picker__pager 3:we-picker__hint 3:we-picker__btn 3:we-picker__btn 1:we-picker__modal-foot 2:we-picker__hint',
+    ].join(' ').split(' ');
+    const EXPECTED_BATCH = [
+      '0:we-picker__modal 1:we-picker__modal-head 2:we-picker__modal-head-left 3:we-vinyl 3:we-vinyl--playing 3:we-vinyl--sm 4:we-vinyl__cover 5:we-vinyl__empty',
+      '4:we-vinyl__hole 3:we-picker__modal-title 2:we-picker__btn 1:we-picker__modal-tabs 2:we-picker__btn 2:we-picker__tab 2:we-picker__tab--active 2:we-picker__btn',
+      '2:we-picker__tab 1:we-picker__modal-body 2:we-picker__row 3:we-picker__hint 3:we-picker__btn 2:we-picker__row 2:we-picker__batch-bar 3:we-picker__hint',
+      '3:we-picker__btn 3:we-picker__btn 2:we-picker__row 2:we-picker__filter-row 3:we-picker__text 3:we-picker__search 3:we-picker__hint 3:we-picker__label',
+      '3:we-picker__playlist-select 3:we-picker__hint 3:we-picker__label 3:we-picker__playlist-select 2:we-picker__grid 3:we-picker__card 4:we-picker__card-close 3:we-picker__card',
+      '3:we-picker__card--checked 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
+      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
+      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
+      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
+      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
+      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
+      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
+      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
+      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
+      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
+      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
+      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
+      '2:we-picker__pager 3:we-picker__hint 3:we-picker__btn 3:we-picker__btn 1:we-picker__modal-foot 2:we-picker__hint',
+    ].join(' ').split(' ');
+    const EXPECTED_HIDDEN = [
+      '0:we-picker__modal 1:we-picker__modal-head 2:we-picker__modal-head-left 3:we-vinyl 3:we-vinyl--playing 3:we-vinyl--sm 4:we-vinyl__cover 5:we-vinyl__empty',
+      '4:we-vinyl__hole 3:we-picker__modal-title 2:we-picker__btn 1:we-picker__modal-tabs 2:we-picker__btn 2:we-picker__tab 2:we-picker__btn 2:we-picker__tab',
+      '2:we-picker__tab--active 1:we-picker__modal-body 2:we-picker__grid 3:we-picker__row 4:we-picker__hint 4:we-picker__btn 3:we-picker__card 3:we-picker__card--hidden',
+      '4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 1:we-picker__modal-foot 2:we-picker__hint',
+    ].join(' ').split(' ');
+    const modalRoot = findByClass(tree, 'we-picker__modal');
+    const seqNormal = modalClassSequence(tree);
+    // 绝对锚点（不读 golden）：否则"两边都空"也算相等。
+    assert.equal(seqNormal.length, 160, '绝对锚点：普通视图的 class 令牌数（空序列不得算通过）');
+    assert.ok(collectCards(modalRoot).length >= 25, '绝对锚点：模态框里的卡片数 ≥ 25（关闭卡 + 当页 24 张）');
+    assert.ok(classSequenceMatches(seqNormal, EXPECTED_NORMAL), '普通视图：模态框标记序列与搬迁前逐字一致');
+    // 负对照：把**变异输入**喂进**同一条判据**
+    assert.ok(!classSequenceMatches(seqNormal.filter((_, i) => i !== 7), EXPECTED_NORMAL),
+      '负对照：删掉一个类名 ⇒ 判据变假');
+    assert.ok(!classSequenceMatches(seqNormal.concat(['0:we-picker__fake']), EXPECTED_NORMAL),
+      '负对照：插入一个类名 ⇒ 判据变假');
+    assert.ok(!classSequenceMatches(bumpFirstCardDepth(seqNormal), EXPECTED_NORMAL),
+      '负对照：只把一个节点的层级挪一格（长度不变）⇒ 判据变假');
+    assert.ok(!classSequenceMatches([], EXPECTED_NORMAL), '负对照：空序列不得算作"一致"');
+
+    // 搜索：标题过滤（输入即过滤）+ 瞬态不落盘
+    const searchInput = findByClass(tree, 'we-picker__search');
+    assert.ok(searchInput && typeof searchInput.props.onInput === 'function', '搜索框必须存在且可输入');
+    searchInput.props.onInput({ target: { value: 'Wall 3' } });
+    tree = renderPicker();
+    assert.ok(onlyMatching(tree, 'Wall 3'), '搜索 Wall 3 ⇒ 网格只剩匹配项');
+    assert.ok(collectCards(tree).length < 25, '命中数必须真的变少（不是换页）');
+    assert.equal(Number(badgeOf(tree)), collectCards(tree).length - 1, '跨层对拍（搜索后）：徽标数 == 网格卡片数');
+    assert.ok(!JSON.stringify(persisted()).includes('"search"'), '搜索是瞬态字段，不得落盘');
+    // 负对照：把**变异输入**喂进同一条判据
+    assert.ok(onlyMatching(synthCards(['Wall 3', 'Wall 30']), 'Wall 3'), '负对照：全匹配时判据为真');
+    assert.ok(!onlyMatching(synthCards(['Wall 3', 'Wall 40']), 'Wall 3'), '负对照：混入一张不匹配 ⇒ 判据变假');
+    assert.ok(!onlyMatching(synthCards([]), 'Wall 3'), '负对照：空网格不得算作「只剩匹配项」');
+    // 搜不到 ⇒ 只剩关闭卡（网格空态），徽标归 0
+    searchInput.props.onInput({ target: { value: '不存在的标题 zzz' } });
+    tree = renderPicker();
+    assert.equal(collectCards(tree).length, 1, '搜不到时网格只剩关闭卡');
+    assert.equal(badgeOf(tree), '0', '搜不到时徽标显示 0');
+    searchInput.props.onInput({ target: { value: '' } });
+    tree = renderPicker();
+
+    // 类型筛选：持久化设置（走 setSetting），且真的换掉网格内容
+    const typeSel = findByProp(tree, 'aria-label', '类型');
+    assert.ok(typeSel && typeof typeSel.props.onChange === 'function', '类型筛选必须存在且可切换');
+    assert.ok(typeSel.children.some((o) => o && o.props && o.props.value === 'scene'), '类型筛选必须有「场景」档');
+    typeSel.props.onChange({ target: { value: 'scene' } });
+    tree = renderPicker();
+    assert.ok(onlyMatching(tree, 'Scene'), '类型=场景 ⇒ 网格只剩场景卡');
+    assert.equal(findByProp(tree, 'aria-label', '类型').props.value, 'scene', '类型筛选落到状态（重渲染后的值）');
+    // 落盘是 200ms 去抖 ⇒ 读 localStorage 前必须先把在途的 persist 放掉（同 rotation 段的做法）
+    for (const t of rotationTimers.filter((x) => !x.cleared && !x.fired && x.ms === 200)) { t.fired = true; t.fn(); }
+    assert.equal(persisted().typeFilter, 'scene', '类型筛选是持久化设置（setSetting 落盘）');
+    typeSel.props.onChange({ target: { value: 'all' } });
+    tree = renderPicker();
+    assert.equal(collectCards(tree).length, 25, '类型切回全部 ⇒ 网格恢复满页');
+
+    // 批量模式：进入/勾选/计数/退出不留痕
+    assert.ok(clickPager(tree, '批量'), '批量按钮必须存在');
+    tree = renderPicker();
+    const batchBar = findByClass(tree, 'we-picker__batch-bar');
+    assert.ok(batchBar, '进入批量 ⇒ 出现批量条');
+    assert.ok(textOf(batchBar).includes('已选 0 张'), '批量条初始计数为 0');
+    const pickCard = collectCards(tree).find((c) => JSON.stringify(c).includes('Wall 0'));
+    assert.ok(pickCard && typeof pickCard.props.onClick === 'function', '批量模式下卡片仍可点');
+    pickCard.props.onClick();
+    tree = renderPicker();
+    assert.ok(textOf(findByClass(tree, 'we-picker__batch-bar')).includes('已选 1 张'), '点一张卡 ⇒ 计数变 1');
+    const seqBatch = modalClassSequence(tree);
+    assert.ok(classSequenceMatches(seqBatch, EXPECTED_BATCH),
+      '批量模式：模态框标记序列与搬迁前逐字一致（多出批量条与勾选标记）');
+    // 勾选标记是批量模式下卡片里的 `we-picker__card-check`（选中显示 ✓，未选为空字符串）
+    const checkOf = (root, title) => {
+      const card = collectCards(root).find((c) => JSON.stringify(c).includes(title));
+      const span = card ? findByClass(card, 'we-picker__card-check') : null;
+      return span ? textOf(span) : null;
+    };
+    assert.equal(checkOf(tree, 'Wall 0'), '✓', '被选中的卡片带 ✓ 勾选标记');
+    assert.equal(checkOf(tree, 'Wall 1'), '', '未选中的卡片勾选标记为空（不是所有卡都算选中）');
+    assert.ok(clickPager(tree, '取消'), '批量条必须有「取消」');
+    tree = renderPicker();
+    assert.equal(findByClass(tree, 'we-picker__batch-bar'), null, '退出批量 ⇒ 批量条消失');
+    assert.equal(checkOf(tree, 'Wall 0'), null, '退出批量 ⇒ 勾选标记消失（零残留）');
+    assert.ok(findByClass(tree, 'we-picker__card-hide'), '退出批量 ⇒ 卡片恢复「隐藏」按钮');
+    // 负对照：批量条计数判据对变异输入有牙
+    const fakeBar = { props: { className: 'we-picker__batch-bar' }, children: ['已选 9 张'] };
+    assert.ok(!textOf(fakeBar).includes('已选 0 张') && textOf(fakeBar).includes('已选 9 张'),
+      '负对照：计数判据读的是渲染值（换个数字就不再命中）');
+
+    // 隐藏页：真隐藏一张 ⇒ hiddenIds +1 ⇒ 页签计数与隐藏页文案同步（跨状态一致）
+    const flushPersistTimers = () => {
+      for (const t of rotationTimers.filter((x) => !x.cleared && !x.fired && x.ms === 200)) { t.fired = true; t.fn(); }
+    };
+    const findHiddenTab = (root) => { let hit = null; (function walk(n) {
+      if (hit) return;
+      if (Array.isArray(n)) { n.forEach(walk); return; }
+      if (!n || typeof n !== 'object') return;
+      const c = typeof n.props?.className === 'string' ? n.props.className : '';
+      if (c.split(/\s+/).includes('we-picker__tab') && textOf(n).includes('已隐藏')) { hit = n; return; }
+      if (Array.isArray(n.children)) n.children.forEach(walk);
+    })(root); return hit; };
+    const hiddenCountMatches = (text, n) => text.includes('已隐藏 ' + n + ' 张');
+    const beforeHidden = persisted().hiddenIds.length;
+    const hideBtn = findByClass(tree, 'we-picker__card-hide');
+    assert.ok(hideBtn && typeof hideBtn.props.onClick === 'function', '普通视图的卡片上必须有「隐藏」按钮');
+    hideBtn.props.onClick({ stopPropagation() {} });
+    tree = renderPicker();
+    flushPersistTimers();
+    assert.equal(persisted().hiddenIds.length, beforeHidden + 1, '隐藏一张 ⇒ hiddenIds 增 1（且被持久化）');
+    assert.ok(findHiddenTab(tree) && textOf(findHiddenTab(tree)).includes('已隐藏（' + (beforeHidden + 1) + '）'),
+      '页签上的已隐藏计数跟随 hiddenIds');
+    assert.ok(!wallpaperCardTexts(tree).some((s) => s.includes('"Wall 0"')),
+      '被隐藏的壁纸不再出现在普通网格里');
+    findHiddenTab(tree).props.onClick();
+    tree = renderPicker();
+    assert.ok(hiddenCountMatches(textOf(tree), beforeHidden + 1),
+      '隐藏页标题的计数与 hiddenIds 一致（当前 ' + (beforeHidden + 1) + '）');
+    const seqHidden = modalClassSequence(tree);
+    assert.ok(classSequenceMatches(seqHidden, EXPECTED_HIDDEN),
+      '隐藏页：模态框标记序列与搬迁前逐字一致');
+    // 负对照：把**变异输入**喂进同一条「计数一致」判据
+    assert.ok(!hiddenCountMatches('已隐藏 7 张', 3) && hiddenCountMatches('已隐藏 3 张', 3),
+      '负对照：计数对不上号判为假、对得上为真（判据不是恒真）');
+    // 复原（否则后面依赖 Wall 0 在网格里的断言会红）：隐藏页里的按钮是"恢复此壁纸"
+    // —— 与普通视图的"隐藏"**同类名**（`we-picker__card-hide`），靠 title 区分。
+    const restoreBtn = findByClass(tree, 'we-picker__card-hide');
+    assert.ok(restoreBtn && restoreBtn.props.title === '恢复此壁纸', '隐藏页卡片的按钮是「恢复此壁纸」');
+    restoreBtn.props.onClick({ stopPropagation() {} });
+    tree = renderPicker();
+    flushPersistTimers();
+    assert.equal(persisted().hiddenIds.length, beforeHidden, '恢复那张 ⇒ hiddenIds 回到原值');
+    assert.ok(textOf(findHiddenTab(tree)).includes('已隐藏（' + beforeHidden + '）'), '页签计数随之回落');
+    // 回到普通视图（后续段落假定它在普通视图）
+    findByClass(tree, 'we-picker__tab').props.onClick();
+    tree = renderPicker();
+
+    // ── 0b：模态框键盘可达性（Tab 陷阱 + 初始焦点）──────────────────────────
+    const fakeButton = () => { const el = makeEl('button'); el.disabled = false; el.tabIndex = 0; el.getClientRects = () => [1]; return el; };
+    const modalNode = findByClass(tree, 'we-picker__modal');
+    assert.ok(modalNode && typeof modalNode.props.onKeyDown === 'function', '模态框必须挂着 onKeyDown（Tab 陷阱）');
+    // 判据只在**一处**：跑一次 Tab/Shift+Tab，回"是否拦下 + 焦点落到第几个"（正负共用）
+    const tabTrap = (shift, activeIndex, count) => {
+      const els = Array.from({ length: count }, fakeButton);
+      if (count) els[activeIndex].focus();
+      let prevented = false;
+      modalNode.props.onKeyDown({
+        key: 'Tab', shiftKey: shift, preventDefault: () => { prevented = true; },
+        currentTarget: { querySelectorAll: () => els },
+      });
+      return { prevented, active: els.findIndex((el) => document.activeElement === el) };
+    };
+    assert.deepEqual(tabTrap(false, 2, 3), { prevented: true, active: 0 }, 'Tab 在最后一个 ⇒ 拦下并绕回第一个');
+    assert.deepEqual(tabTrap(true, 0, 3), { prevented: true, active: 2 }, 'Shift+Tab 在第一个 ⇒ 拦下并绕回最后一个');
+    assert.deepEqual(tabTrap(false, 1, 3), { prevented: false, active: 1 }, 'Tab 在中间 ⇒ 不拦（否则焦点被锁死）');
+    assert.deepEqual(tabTrap(false, 0, 0), { prevented: false, active: -1 }, '没有可聚焦元素 ⇒ 不拦也不炸（负对照）');
+    // 初始焦点：面板在打开 picker 时置 `pickerFocusPending`，模态框关闭按钮的 ref 消费它（一次性）
+    const findCloseBtn = (root) => { let hit = null; (function walk(n) {
+      if (hit) return;
+      if (Array.isArray(n)) { n.forEach(walk); return; }
+      if (!n || typeof n !== 'object') return;
+      const c = typeof n.props?.className === 'string' ? n.props.className : '';
+      if (c.split(/\s+/).includes('we-picker__btn') && textOf(n) === '关闭' && typeof n.props.ref === 'function') { hit = n; return; }
+      if (Array.isArray(n.children)) n.children.forEach(walk);
+    })(root); return hit; };
+    const closeBtn = findCloseBtn(tree);
+    assert.ok(closeBtn, '模态框的关闭按钮必须挂 ref（初始焦点落点）');
+    const fakeClose = fakeButton();
+    closeBtn.props.ref(fakeClose);
+    assert.equal(document.activeElement, fakeClose, '打开模态框后初始焦点落在关闭按钮上');
+    const elsewhere = fakeButton(); elsewhere.focus();
+    closeBtn.props.ref(fakeButton());
+    assert.equal(document.activeElement, elsewhere, 'ref 只消费一次（第二次不得把焦点抢回来）');
+
+    // ── 0b：轮换列表编辑器（选项文案 / 改间隔 / 删除组，confirm 门控）────────
+    // 挂载台没有 `window.confirm`，而客户端写的是 `window.confirm(...)`（属性访问）⇒ 直接给
+    // 沙箱的 window 挂一个**可切换答案**的实现即可（无需改挂载台），顺带解锁批量隐藏与
+    // 「全部恢复」这两条 confirm 门控路径。
+    let confirmAnswer = true;
+    const confirmCalls = [];
+    sandbox.window.confirm = (msg) => { confirmCalls.push(String(msg)); return confirmAnswer; };
+    const groupSel = findByProp(tree, 'aria-label', '轮播列表');
+    assert.ok(groupSel && typeof groupSel.props.onChange === 'function', '轮播列表下拉必须存在');
+    const groupOptionText = (sel) => sel.children.filter((o) => o && o.props && o.props.value !== undefined)
+      .map((o) => textOf(o)).join(' | ');
+    assert.ok(groupOptionText(groupSel).includes('My list（2 可播放 · 5 分钟）'),
+      '每个列表的选项文案 = 名称（可播放数 · 间隔分钟）：' + groupOptionText(groupSel));
+    // 改间隔：写进**当前活动列表**（无 confirm）
+    const intervalSel = findByProp(tree, 'aria-label', '轮转间隔');
+    assert.ok(intervalSel && typeof intervalSel.props.onChange === 'function', '轮转间隔下拉必须存在');
+    intervalSel.props.onChange({ target: { value: '30' } });
+    tree = renderPicker();
+    flushPersistTimers();
+    const activeGroup = () => persisted().rotationGroups.find((x) => x.id === persisted().rotationGroupId);
+    assert.equal(activeGroup().interval, 30, '改间隔 ⇒ 写进活动列表（并落盘）');
+    assert.equal(findByProp(tree, 'aria-label', '轮转间隔').props.value, '30', '下拉回读新间隔');
+    // 删除列表：confirm 门控 —— 先答 false（不删），再答 true（真删，且不留悬空 id）
+    const findBtnByText = (root, label) => { let hit = null; (function walk(n) {
+      if (hit) return;
+      if (Array.isArray(n)) { n.forEach(walk); return; }
+      if (!n || typeof n !== 'object') return;
+      const c = typeof n.props?.className === 'string' ? n.props.className : '';
+      if (c.split(/\s+/).includes('we-picker__btn') && textOf(n) === label && typeof n.props.onClick === 'function') { hit = n; return; }
+      if (Array.isArray(n.children)) n.children.forEach(walk);
+    })(root); return hit; };
+    const groupsBefore = persisted().rotationGroups.length;
+    // 判据读**渲染出的**状态，不读 localStorage：`deleteGroup` 直接改内存（splice）而不落盘，
+    // 拿 localStorage 比会得到一条恒真的空转判据（取消也"通过"）。
+    const groupOptionCount = (t) => findByProp(t, 'aria-label', '轮播列表').children
+      .filter((o) => o && o.props && o.props.value).length;
+    confirmAnswer = false;
+    findBtnByText(tree, '删除').props.onClick();
+    tree = renderPicker();
+    assert.equal(confirmCalls.length, 1, '删除前必须先问一次（confirm）');
+    assert.equal(groupOptionCount(tree), groupsBefore, 'confirm=false ⇒ 不删（取消就是取消）');
+    confirmAnswer = true;
+    findBtnByText(tree, '删除').props.onClick();
+    tree = renderPicker();
+    assert.equal(groupOptionCount(tree), groupsBefore - 1, 'confirm=true ⇒ 真删（下拉里少一个列表）');
+    assert.equal(findByProp(tree, 'aria-label', '轮播列表').props.value, '', '删掉活动列表 ⇒ 选择回落为空（不留悬空 id）');
+    assert.ok(textOf(findByProp(tree, 'aria-label', '轮播列表')).includes('暂无轮播列表'),
+      '删光之后下拉显示「暂无轮播列表」（而不是一个空下拉）');
+
+    // 新建 / 保存：此刻列表已被删空 ⇒ 保存后应恰好回到 1 个（断言是确定的）
+    assert.ok(findBtnByText(tree, '新建'), '轮播列表必须有「新建」');
+    findBtnByText(tree, '新建').props.onClick();
+    tree = renderPicker();
+    const nameInput = findByProp(tree, 'aria-label', '轮播列表名称');
+    assert.ok(nameInput && typeof nameInput.props.onInput === 'function', '新建 ⇒ 打开编辑页（名称输入框）');
+    assert.ok(findByProp(tree, 'aria-label', '轮播间隔'), '编辑页要有间隔档');
+    assert.ok(findByProp(tree, 'aria-label', '轮播顺序'), '编辑页要有顺序档');
+    const editorCard = findByClass(tree, 'we-picker__editor-card');
+    assert.ok(editorCard && typeof editorCard.props.onClick === 'function', '编辑页要列出候选壁纸');
+    editorCard.props.onClick();
+    tree = renderPicker();
+    assert.ok(textOf(tree).includes('已选 1 个'), '点候选 ⇒ 草稿里已选 1 个');
+    nameInput.props.onInput({ target: { value: '新列表' } });
+    tree = renderPicker();
+    assert.equal(findByProp(tree, 'aria-label', '轮播列表名称').props.value, '新列表', '名称输入回写草稿');
+    assert.equal(groupOptionCount(tree), 0, '保存之前下拉里仍是 0 个（判据能区分保存前后）');
+    findBtnByText(tree, '保存').props.onClick();
+    tree = renderPicker();
+    assert.equal(groupOptionCount(tree), 1, '保存 ⇒ 轮播列表从 0 变成 1');
+    assert.ok(groupOptionText(findByProp(tree, 'aria-label', '轮播列表')).includes('新列表'),
+      '新列表以草稿里的名字出现在下拉里');
+    assert.equal(findByProp(tree, 'aria-label', '轮播列表名称'), null, '保存后编辑页关闭');
+    // 负对照：把变异输入喂进同一条"下拉里出现该名字"判据
+    assert.ok(!groupOptionText({ children: ['别的列表（1 可播放 · 5 分钟）'] }).includes('新列表'),
+      '负对照：同一条判据对不含该名字的选项文案为假');
+    // 切换活动列表：再造一个（夹具只有一个 ⇒ 要测"切到另一个"就得先造第二个）
+    const optionIds = (t) => findByProp(t, 'aria-label', '轮播列表').children
+      .filter((o) => o && o.props && o.props.value).map((o) => o.props.value);
+    assert.equal(optionIds(tree).length, 1, '此刻恰好一个列表');
+    findBtnByText(tree, '新建').props.onClick();
+    tree = renderPicker();
+    findByProp(tree, 'aria-label', '轮播列表名称').props.onInput({ target: { value: '第二个' } });
+    tree = renderPicker();
+    findByClass(tree, 'we-picker__editor-card').props.onClick();
+    tree = renderPicker();
+    findBtnByText(tree, '保存').props.onClick();
+    tree = renderPicker();
+    assert.equal(optionIds(tree).length, 2, '再保存一个 ⇒ 两个列表');
+    const activeNow = findByProp(tree, 'aria-label', '轮播列表').props.value;
+    const other = optionIds(tree).find((id) => id !== activeNow);
+    findByProp(tree, 'aria-label', '轮播列表').props.onChange({ target: { value: other } });
+    tree = renderPicker();
+    assert.equal(findByProp(tree, 'aria-label', '轮播列表').props.value, other,
+      'onGroupChange ⇒ 活动列表真的切过去了（下拉值跟着变）');
+
+    // ── 0b：批量隐藏（confirm 门控）+ 隐藏页「全部恢复」──────────────────────
+    // 先答 false（不隐藏、且不退批量），再答 true（隐藏并从网格消失、自动退批量），最后用
+    // 隐藏页的「全部恢复」把状态收回去 —— 三步都读**渲染出的**证据。
+    // （放在轮换块之后：`confirmAnswer` 与 `findBtnByText` 都在那里声明。）
+    assert.ok(clickPager(tree, '批量'), '批量按钮必须存在');
+    tree = renderPicker();
+    const batchPick = collectCards(tree).find((c) => JSON.stringify(c).includes('Wall 0'));
+    assert.ok(batchPick && typeof batchPick.props.onClick === 'function', '批量模式下卡片可点');
+    batchPick.props.onClick();
+    tree = renderPicker();
+    confirmAnswer = false;
+    findBtnByText(tree, '批量隐藏').props.onClick();
+    tree = renderPicker();
+    assert.ok(wallpaperCardTexts(tree).some((s) => s.includes('"Wall 0"')), 'confirm=false ⇒ 不隐藏（取消就是取消）');
+    assert.ok(findByClass(tree, 'we-picker__batch-bar'), 'confirm=false ⇒ 仍留在批量模式（选择没被清掉）');
+    confirmAnswer = true;
+    findBtnByText(tree, '批量隐藏').props.onClick();
+    tree = renderPicker();
+    assert.ok(!wallpaperCardTexts(tree).some((s) => s.includes('"Wall 0"')), 'confirm=true ⇒ 被隐藏的壁纸退出网格');
+    assert.equal(findByClass(tree, 'we-picker__batch-bar'), null, '隐藏成功后自动退出批量模式');
+    findHiddenTab(tree).props.onClick();
+    tree = renderPicker();
+    assert.ok(textOf(tree).includes('已隐藏 ' + (beforeHidden + 1) + ' 张'),
+      '隐藏页计数 +1（批量隐藏走的是同一条隐藏路径）');
+    assert.ok(findBtnByText(tree, '全部恢复'), '隐藏页必须有「全部恢复」');
+    findBtnByText(tree, '全部恢复').props.onClick();
+    tree = renderPicker();
+    assert.ok(textOf(findHiddenTab(tree)).includes('已隐藏（' + beforeHidden + '）'), '全部恢复 ⇒ 计数回到零基');
+    findByClass(tree, 'we-picker__tab').props.onClick();
+    tree = renderPicker();
+    assert.ok(wallpaperCardTexts(tree).some((s) => s.includes('"Wall 0"')), '全部恢复 ⇒ 那张壁纸回到网格');
+
+    // ── 0b：库存加载失败的错误态 + 「重试」恢复（WallpaperPicker 的两条早退分支）──
+    // 进错误态的唯一入口是"重载库存失败"⇒ 先用页签里的「刷新」把它打失败（真实路径，不是注入状态）。
+    const showsInventoryError = (t) => textOf(t).includes('未检测到 Wallpaper Engine：');
+    inventoryFails = true;
+    findBtnByText(tree, '刷新').props.onClick();
+    await new Promise((r) => setTimeout(r, 80)); // 等 loadInventory 的 promise 落定
+    tree = renderPicker();
+    assert.ok(showsInventoryError(tree), '库存加载失败 ⇒ 显示「未检测到 Wallpaper Engine：<原因>」');
+    assert.ok(findBtnByText(tree, '重试'), '错误态必须给「重试」按钮（否则用户无路可走）');
+    assert.equal(findBtnByText(tree, '刷新'), null, '错误态下整块面板被替换（不是叠在面板上）');
+    // 负对照：把变异输入喂进同一条判据
+    assert.ok(showsInventoryError({ children: ['未检测到 Wallpaper Engine：合成'] }),
+      '负对照：合成文本必须被判为错误态（判据读的是渲染文本，不是常量）');
+    // 重试：开关放回成功 ⇒ 点「重试」⇒ 面板与网格都应回来
+    inventoryFails = false;
+    findBtnByText(tree, '重试').props.onClick();
+    await new Promise((r) => setTimeout(r, 80));
+    tree = renderPicker();
+    assert.ok(!showsInventoryError(tree), '重试成功 ⇒ 错误态消失');
+    assert.ok(findByProp(tree, 'aria-label', '类型'), '恢复后回到正常面板（类型筛选下拉回来了）');
+
+    // ── 0b：ESC 关闭 picker（处理器住在 useEffect 里 ⇒ 必须让 effect 跑一次才可达）──────
+    // 做法：**临时**把 mock 的 `useEffect` 换成收集器 ⇒ 渲染一次拿到注册函数 ⇒ 立刻还原 ⇒
+    // 再跑收集到的 effect（它们只做注册）⇒ 派发 keydown。全程不改全局行为，所以不会牵动既有
+    // 断言里的定时器与监听时序（把 useEffect 永久改成"会跑"会打开一堆路径，那是另一件事）。
+    if (!findByClass(tree, 'we-picker__modal')) {
+      const reopener = findBtnByText(tree, '选择壁纸');
+      assert.ok(reopener, '前置：模态框关着时必须能找到「选择壁纸」入口');
+      reopener.props.onClick();
+      tree = renderPicker();
+    }
+    assert.ok(findByClass(tree, 'we-picker__modal'), '前置：模态框当前是打开的');
+    const collectedEffects = [];
+    const realUseEffect = React.useEffect;
+    React.useEffect = (fn) => { collectedEffects.push(fn); };
+    tree = renderPicker();
+    React.useEffect = realUseEffect;
+    assert.ok(collectedEffects.length >= 1, '渲染期必须注册 effect（ESC 处理器就住在里面）');
+    const keydownBefore = (winListeners['keydown'] || []).length;
+    for (const fn of collectedEffects) { try { fn(); } catch { /* 依赖挂载台没有的宿主接口的 effect，忽略 */ } }
+    assert.ok((winListeners['keydown'] || []).length > keydownBefore,
+      '窗口上必须因此多一个 keydown 处理器（capture 注册）');
+    const dispatchKey = (key) => {
+      const beforeOpen = !!findByClass(renderPicker(), 'we-picker__modal');
+      for (const fn of [...(winListeners['keydown'] || [])]) {
+        fn({ key, type: 'keydown', stopPropagation() {}, preventDefault() {} });
+      }
+      return { beforeOpen, afterOpen: !!findByClass(renderPicker(), 'we-picker__modal') };
+    };
+    assert.deepEqual(dispatchKey('Enter'), { beforeOpen: true, afterOpen: true },
+      '负对照：非 Escape 键不得关闭（与下一条共用同一条判据）');
+    assert.deepEqual(dispatchKey('Escape'), { beforeOpen: true, afterOpen: false },
+      'Escape ⇒ 关闭 picker（模态框从渲染树里消失）');
 
     // Turn the active wallpaper off through the real picker callback. Sidebar
     // theming must remain armed because it is an independent feature; only
@@ -1145,7 +1663,8 @@ setTimeout(async () => {
       // 默认 = 硬切（用户裁决：先上零成本零风险，等「最帅的」定了再改这一处）。
       // 断在**被测产物**（code）上，这样 DSH_MUT_LIB 变异也能验到这条有牙。
       assert.ok(/switchTransition: "cut"/.test(code), '默认过场必须是硬切（DEFAULTS.switchTransition）');
-      console.log('设置键两端对账（派生自 schema：客户端 ' + persisted.length + ' 键 / 宿主 ' + hostSan.length + ' 键 + 行为 golden ' + golden.cases.length + ' 例）: ok');
+      assert.ok(persisted.length > 0 && hostSan.length > 0 && golden.cases.length > 0,
+    '设置键两端对账：三份来源都非空（客户端 ' + persisted.length + ' / 宿主 ' + hostSan.length + ' / golden ' + golden.cases.length + '）');
     }
 
     // ⑥ 行为级不变量：整条流程（选中 → HEAD 探测 → 抓帧回填 → 清除 → 后续重建）
@@ -1175,7 +1694,7 @@ setTimeout(async () => {
       console.log('sceneVideo 时序补拉（一次 · 不自触发）: ok');
     }
   }
-  console.log('effects ran:', effects.length);
+  assert.ok(effects.length > 0, '效果链至少要跑过一次（effects 记录 ' + effects.length + ' 条）');
   
 // ⑦ P1-7：条件求值器已抽成独立模块（src/we-cond.js），因此可以直接 import 做**行为**测试
 // —— 这是抽模块的核心收益（此前只能对 src/client.js 做文本断言）。
@@ -1238,7 +1757,7 @@ setTimeout(async () => {
   assert.equal(typeof f1, 'function', 'weCondParse 必须返回可调用函数');
   assert.equal(f1({ a: 1 }), true, '编译出的函数必须可直接求值');
   assert.equal(typeof f2, 'function', '重复编译必须同样可用');
-  console.log('条件求值器行为用例（搬移前后一致 + 可独立测）: ok（' + CASES.length + ' 例）');
+  assert.ok(CASES.length >= 20, '条件求值器用例表不得被清空（当前 ' + CASES.length + ' 例）');
 }
 
 // ── P2-10 后半：store 写入的单一入口 ─────────────────────────────────────────
@@ -1266,6 +1785,81 @@ setTimeout(async () => {
     .test('selection.x = 1; persistSelection();'), '负对照：手抄形态必须能被判出');
   assert.ok(((('selection.y = 2;').match(/(^|[^.\w$])selection\.|persistSelection/g) || []).length) === 1,
     '负对照：页签直写必须能被判出');
+}
+
+// ── P3-11 阶段 2/3：搬出去的渲染器都只经 ctx（不写 selection / 不自发通知）──────
+// 两次搬迁的契约同口径：模态框 → `src/picker-modal.js`（那 11 处原本内联改 `selection.*`
+// 的箭头都成了 ctx 里的具名回调，动作体留在组件里）；属性面板 → `src/picker-props-panel.js`
+// （面板状态与「改一个属性」的动作同样留在组件里，渲染器只拿值 + 回调）。
+// 判据只有这一处：数"越过接缝直呼"的次数 —— **按代码判**（先剥注释，否则这些文件的头注
+// 自己提到这两个词就会被误伤）。
+{
+  // 唯一判据。剥注释的口径与 scripts/build-client.mjs 的"浏览器安全"扫描一致
+  //（本仓已在同类假阳性上踩过三次）。
+  const seamCrossings = (text) => {
+    const code = text.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+    return {
+      selection: (code.match(/(^|[^.\w$])selection\b/g) || []).length,
+      notify: (code.match(/\bemit\s*\(/g) || []).length,
+      readsCtx: /\}\s*=\s*ctx;/.test(code),
+    };
+  };
+  // 每条都带一个**非空转锚点**：那串必须在文件里真的存在，否则"零次越界"只是扫了个空文件。
+  const RENDERERS = [
+    { file: '../src/picker-modal.js', user: '模态框',
+      anchor: ['function renderPickerModal(ctx)', 'we-picker__modal-overlay'] },
+    { file: '../src/picker-props-panel.js', user: '属性面板',
+      anchor: ['function renderPickerPropsPanel(ctx)', 'we-picker__props-row'] },
+  ];
+  for (const r of RENDERERS) {
+    const src = readFileSync(new URL(r.file, import.meta.url), 'utf8');
+    const got = seamCrossings(src);
+    assert.ok(r.anchor.every((a) => src.includes(a)),
+      r.file + ' 必须真的含有' + r.user + '渲染器（否则下面的零次判据是空转）');
+    assert.ok(got.readsCtx, r.user + '渲染器必须从 `ctx` 解构取外界（唯一入参）');
+    assert.equal(got.selection, 0, r.user + '渲染器不得直接读写 selection（当前 ' + got.selection + ' 处）');
+    assert.equal(got.notify, 0, r.user + '渲染器不得自己发通知（当前 ' + got.notify + ' 处）');
+  }
+  // 负对照：把**变异输入**喂进同一条判据 —— 两种越界各一例，且正常文本不得被误伤。
+  const planted = seamCrossings('const onX = () => { selection.modalView = "normal"; emit(); };');
+  assert.equal(planted.selection, 1, '负对照：直写 selection 必须被判出');
+  assert.equal(planted.notify, 1, '负对照：自己发通知必须被判出');
+  assert.equal(seamCrossings('  // 契约：不写 selection、不自己发通知\n  const a = 1;\n').selection, 0,
+    '负对照：注释里提到这两个词不得被误伤（注释先剥掉）');
+  assert.equal(seamCrossings('function f(ctx) { const { sel } = ctx; return sel; }').readsCtx, true,
+    '正对照：从 ctx 解构的文本必须被认出来');
+  assert.equal(seamCrossings('function f() { const { sel } = ctx; return sel; }').readsCtx, true,
+    '正对照：解构本身被判据认作"经 ctx 取外界"（判据盯的是解构形态）');
+}
+
+// ── 判据纪律：本文件不许有"log 形式的伪判据" ─────────────────────────────────
+// `console.log('x (expect 1):', n === 1)` 在日志里**像**断言，实际不判真假 —— 产品改坏了
+// 它照样 exit 0（分页器那一整块就是这么漏掉的）。棘轮**已归零**：本文件必须一处都没有；
+// `catch` 里的错误上报不是判据，排除在外。
+{
+  const selfSrc = readFileSync(new URL(import.meta.url), 'utf8');
+  // 判据只认**以 `console.log(` 开头的语句**：伪判据都是这种形态，而本段自己的负对照行以
+  // `assert.equal(` 开头（它的字符串字面量里正是带着 `console.log(… === …)` 样本）——
+  // 不收紧就会被自己的对照绊倒（同 `docs/TEST-LAYOUT.md` §约定 3 那条陷阱）。
+  const isFakeJudgement = (line) => {
+    const t = line.trim();
+    if (!/^console\.log\(/.test(t)) return false;      // 不是 log 语句
+    if (/catch|threw|\.message/.test(t)) return false; // 错误上报不是判据
+    return /(===|!==|\.includes\(|\.length|\.some\(|\.every\()/.test(t) || /expect|应该|必须|不得/.test(t);
+  };
+  const fakeJudgements = (src) => src.split('\n')
+    .map((line, i) => ({ n: i + 1, line }))
+    .filter((x) => isFakeJudgement(x.line));
+  const found = fakeJudgements(selfSrc);
+  assert.equal(found.length, 0,
+    'log 形式的伪判据必须为 0（39 处已清零，不许再出现）：行 ' + found.map((x) => x.n).join(','));
+  // 负对照：把**变异输入**喂进同一条判据
+  assert.equal(fakeJudgements("  console.log('x (expect 1):', n === 1);").length, 1,
+    '负对照：log 形式的伪判据必须能被判出');
+  assert.equal(fakeJudgements("  assert.equal(n, 1, 'x');").length, 0,
+    '负对照：真断言不得被误伤');
+  assert.equal(fakeJudgements("  catch (e) { console.log('threw:', e && e.message); }").length, 0,
+    '负对照：catch 里的错误上报不得被当成判据');
 }
 
 console.log('\nALL CLIENT CHECKS DONE');

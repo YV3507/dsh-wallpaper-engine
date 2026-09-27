@@ -98,6 +98,28 @@ const INLINE_MODULES = [
       'function renderEffectsTab(ctx)', 'function renderAdvancedTab(ctx)'],
   },
   {
+    file: 'src/picker-model.js',
+    why: '选择器模型层：过滤判定 + 派生数据 + 分页切片（纯函数 / 显式入参 / 零 DOM）',
+    markers: ['function ratingOf(w)', 'function isPlayableType(w)',
+      'function isRotatableWallpaper(w, ratingFilter, typeFilter)',
+      'function isHiddenWallpaper(id, hiddenIds)', 'const PICKER_PAGE_SIZE = 24',
+      'function pageSlice(list, page)', 'function pickerModel(input)'],
+  },
+  {
+    file: 'src/picker-modal.js',
+    why: '选择器模态框的渲染器（整棵 we-picker__modal 子树 + portal 包裹）—— 显式 ctx 取外界，标记逐字搬',
+    markers: ['function renderPickerModal(ctx)',
+      'className: isRepoPanelCopy ? "we-picker__modal we-picker__modal--panel" : "we-picker__modal"',
+      'className: "we-picker__modal-head"', 'className: "we-picker__grid"'],
+  },
+  {
+    file: 'src/picker-props-panel.js',
+    why: '选择器「壁纸属性」面板的渲染器（整棵 we-picker__props 子树 + 每个 ptype 的控件分支）—— 显式 ctx 取外界，标记逐字搬',
+    markers: ['function renderPickerPropsPanel(ctx)', 'function renderUserPropRow(p, onPropInput)',
+      'className: "we-picker__props"', 'className: "we-picker__props-row"',
+      'className: "we-picker__props-section"'],
+  },
+  {
     file: 'src/media-prep.js',
     why: '选中项落地：预准备（预挂载 + 探测 + 超时记账）→ buildMedia → applySelection',
     markers: ['function beginRotationPrepare(', 'function prepareWallpaper(', 'const prepareLiveTimeouts = ',

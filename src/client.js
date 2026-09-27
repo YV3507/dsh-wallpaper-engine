@@ -434,57 +434,11 @@ function scheduleSceneVideoResync() {
 }
 
 // ── Content-rating + type filters ───────────────────────────────────────────
-// Reproduces Wallpaper Engine's own content categories (project.json
-// `contentrating`): "Everyone" (G) / "PG13" (parental guidance) / "Mature" (R);
-// projects without the field are "unrated". A separate type filter narrows the
-// playable types (video / web / image / scene static frame). Both are enforced
-// at the single choke point below, so the grid, the rotation editor, the
-// rotation candidates and the auto-selection all stay consistent. Matching is
-// case-insensitive and accepts common spellings so other local copies behave
-// the same.
-const ADULT_RATING_PATTERN = /^(mature|adult|adultonly|18\+|r18)$/i;
-const PG13_RATING_PATTERN = /^(pg13|pg-13|pg ?13|questionable)$/i;
-
-function ratingOf(w) {
-  const rating = typeof w.contentrating === "string" ? w.contentrating.trim() : "";
-  // 自上传壁纸没有标注分级时按 Everyone 处理（#84）。用户自己的文件不该被
-  // 默认的「Everyone」过滤挡在门外 —— uploads/.meta.json 从不写 contentrating，
-  // 旧行为把它算成「未分级」，于是默认过滤下所有自上传壁纸既不出现在网格里，
-  // 也无法被选中：上传接口自动应用新 id 时 applySelection 直接拒绝，壁纸层
-  // 空白、播放按钮因 !sel.url 变灰 —— 表现就是「视频壁纸不能播放，也没有
-  // 继续按钮」。显式写了 G / PG13 / R 的照读（#77），成人内容依然会被过滤。
-  if (!rating) return isUploadedWallpaper(w) ? "everyone" : "unrated";
-  if (/^(everyone|general|g)$/i.test(rating)) return "everyone";
-  if (PG13_RATING_PATTERN.test(rating)) return "pg13";
-  if (ADULT_RATING_PATTERN.test(rating)) return "mature";
-  return "unrated";
-}
-
-function matchesRatingFilter(w) {
-  const filter = selection.contentRatingFilter;
-  if (filter === "all") return true;
-  return ratingOf(w) === filter;
-}
-
-function matchesTypeFilter(w) {
-  const filter = selection.typeFilter;
-  if (filter === "all") return true;
-  return w.type === filter;
-}
-
-function isPlayableType(w) {
-  // "image" = user-uploaded still image (custom uploads, id prefix "up-").
-  // "scene" = WE scene wallpaper — usable as a still image when the host served
-  // a frameUrl (a GPU frame the live render page backfilled, or the user-imported
-  // custom frame; there is no texture extraction).
-  if (!w) return false;
-  if (w.playable && (w.type === "video" || w.type === "web" || w.type === "image")) return true;
-  return w.type === "scene" && Boolean(w.frameUrl);
-}
-
-function isRotatableWallpaper(w) {
-  return isPlayableType(w) && matchesRatingFilter(w) && matchesTypeFilter(w);
-}
+// 判定本身（`ratingOf` / `matchesRatingFilter` / `matchesTypeFilter` /
+// `isPlayableType` / `isRotatableWallpaper` / `isHiddenWallpaper`）与它们的分级正则已抽到
+// **src/picker-model.js** —— 网格、轮换编辑器、轮换候选、自动选择与两个下拉的计数共用
+// 同一份判定，判定留在本文件就会长出第二个真源。这里是**调用点**：两个过滤档从
+// `selection` 显式传入，模型自己不读任何模块级状态。
 
 // 选择被拒 / 被丢弃时的可读原因（#84）。过去这条路径是「静默空白」：壁纸层
 // 不渲染、播放按钮因 !sel.url 变灰，用户只看到一片空白，既不知道原因也没有
@@ -493,14 +447,14 @@ function isRotatableWallpaper(w) {
 function selectionBlockedNote(w) {
   if (!w) return "当前壁纸已不在列表里（可能已被移除或隐藏）";
   if (!isPlayableType(w)) return "这张壁纸没有可播放的媒体文件";
-  if (!matchesRatingFilter(w)) return "这张壁纸被「内容分级」过滤排除了 —— 把内容分级切回「全部」即可播放";
-  if (!matchesTypeFilter(w)) return "这张壁纸被「类型」过滤排除了 —— 把类型切回「全部」即可播放";
+  if (!matchesRatingFilter(w, selection.contentRatingFilter)) return "这张壁纸被「内容分级」过滤排除了 —— 把内容分级切回「全部」即可播放";
+  if (!matchesTypeFilter(w, selection.typeFilter)) return "这张壁纸被「类型」过滤排除了 —— 把类型切回「全部」即可播放";
   return "";
 }
 
 function playableInventory() {
-  return selection.inventory.wallpapers.filter(
-    (w) => isRotatableWallpaper(w) && !isHiddenWallpaper(w.id),
+  return playableWallpapers(
+    selection.inventory.wallpapers, selection.contentRatingFilter, selection.typeFilter, selection.hiddenIds,
   );
 }
 
@@ -513,7 +467,8 @@ function revalidateSelection() {
   // 被过滤条件丢弃的选择要留下原因（#84）：先取下来，applySelection("") 会清掉
   // blockedNote，故在其之后写回 —— 否则用户改一次过滤条件，壁纸就无声变空白。
   let droppedNote = "";
-  if (selection.id && !selection.inventory.wallpapers.some((w) => w.id === selection.id && isRotatableWallpaper(w))) {
+  if (selection.id && !selection.inventory.wallpapers.some((w) => w.id === selection.id
+    && isRotatableWallpaper(w, selection.contentRatingFilter, selection.typeFilter))) {
     droppedNote = selectionBlockedNote(selection.inventory.wallpapers.find((w) => w.id === selection.id));
     setSetting("id", "");
   }
@@ -556,7 +511,9 @@ function groupWallpapers(group) {
   const byId = wallpaperById();
   return group.wallpaperIds
     .map((id) => byId.get(id))
-    .filter((w) => w && isRotatableWallpaper(w) && !isHiddenWallpaper(w.id));
+    .filter((w) => w
+      && isRotatableWallpaper(w, selection.contentRatingFilter, selection.typeFilter)
+      && !isHiddenWallpaper(w.id, selection.hiddenIds));
 }
 
 function rotationCandidates() {
@@ -956,7 +913,8 @@ function commitRotationSwitch(prep) {
   prep.staged = null;
   const w = wallpaperById().get(prep.id);
   const valid = selection.rotationEnabled && selection.id === prep.fromId
-    && w && isRotatableWallpaper(w) && !isHiddenWallpaper(w.id);
+    && w && isRotatableWallpaper(w, selection.contentRatingFilter, selection.typeFilter)
+    && !isHiddenWallpaper(w.id, selection.hiddenIds);
   liveLog("rotation-commit", "wid=" + prep.id + " from=" + prep.fromId + " kind=" + (prep.kind || "-")
     + " valid=" + valid + " " + liveStateBrief());
   if (!valid) {
@@ -1075,14 +1033,9 @@ function importPlaylistIntoDraft(playlist) {
 // Hiding is a pure status flag: no source file is touched, and a hidden
 // wallpaper that is currently playing keeps playing (it only leaves the
 // lists). Rotation candidates exclude hidden ids via groupWallpapers(), so a
-// hidden wallpaper can never be auto-selected by the carousel.
-function isHiddenWallpaper(id) {
-  return Boolean(id) && selection.hiddenIds.includes(id);
-}
-
-function hiddenInventoryList() {
-  return selection.inventory.wallpapers.filter((w) => isHiddenWallpaper(w.id));
-}
+// hidden wallpaper can never be auto-selected by the carousel. The membership
+// test itself lives in **src/picker-model.js**（`isHiddenWallpaper(id, hiddenIds)`）——
+// 隐藏集合从调用点显式传入。
 
 function hideWallpapers(ids) {
   const added = ids.filter((id) => id && !selection.hiddenIds.includes(id));
@@ -1113,17 +1066,8 @@ const UPLOAD_URL = "/wallpaper-engine/upload";
 const REMOVE_URL = "/wallpaper-engine/remove";
 const UPLOAD_TYPES = ["image/jpeg", "image/png", "video/mp4"];
 
-function isUploadedWallpaper(w) {
-  return Boolean(w && w.id && w.id.indexOf("up-") === 0);
-}
-
-// 存储位置里的 WE 项目目录（project.json + scene.pkg/…，id 前缀 up-dir-）。
-// 与单文件上传同属「用户自己的内容」（ratingOf 的宽松分级、隐藏/轮转都适用），
-// 但不是「上传」、也没有可移除的文件（/remove 只解析 up-*.ext）——上传管理
-// 列表与计数须把它们排除，否则会出现点「移除」却删不掉的幽灵条目。
-function isDirWallpaper(w) {
-  return Boolean(w && w.id && w.id.indexOf("up-dir-") === 0);
-}
+// `isUploadedWallpaper(w)` / `isDirWallpaper(w)`（id 前缀判定）现在住在
+// **src/picker-model.js** —— ratingOf 的宽松分级与上传管理列表共用同一对判定。
 
 async function uploadWallpaperFile(file) {
   const ctype = (file.type || "").toLowerCase();
@@ -2937,31 +2881,25 @@ const officialColorOf = (tokens) => {
   }
 
   const list = sel.inventory.wallpapers;
-  // Title search (picker modal): narrows the playable grid on top of the
-  // rating/type filters. Case-insensitive substring match.
-  const query = (sel.search || "").trim().toLowerCase();
-  // Only playable Video/Web/Image wallpapers are shown — Scene/Application
-  // cannot be embedded in the web UI, so hiding them keeps the grid useful.
-  // Hidden (soft-deleted) wallpapers leave this list and move to the 已隐藏
-  // section. The rating/type filters further narrow playableList.
-  const playableList = list.filter((w) =>
-    isRotatableWallpaper(w) && !isHiddenWallpaper(w.id)
-    && (!query || String(w.title || "").toLowerCase().indexOf(query) !== -1));
-  // Per-category counts for the two filter dropdowns (playable, non-hidden):
-  // they reflect what is actually available, independent of the active filters.
-  const basePlayable = list.filter((w) => isPlayableType(w) && !isHiddenWallpaper(w.id));
-  // Single-pass aggregation — used to be 10 separate O(n) filters per render
-  // (5 rating options + 5 type options, each a full basePlayable scan).
-  const ratingCounts = { everyone: 0, pg13: 0, mature: 0, unrated: 0 };
-  const typeCounts = { video: 0, web: 0, image: 0, scene: 0 };
-  for (const w of basePlayable) {
-    const r = ratingOf(w);
-    ratingCounts[r] = (ratingCounts[r] || 0) + 1;
-    typeCounts[w.type] = (typeCounts[w.type] || 0) + 1;
-  }
+  // 派生数据 + 分页全部由 **src/picker-model.js** 算（`pickerModel`）：可播放网格、两个
+  // 过滤下拉的分档计数、隐藏列表，以及三个列表各自的当页切片。搜索是大小写不敏感的
+  // 标题子串匹配（空查询 = 不过滤），每页 24 张，页号越界自动 clamp。这里只把状态喂
+  // 进去、把结果取出来 —— 组件体不再就地算这些（分级/类型/隐藏的判定也在那边）。
+  const {
+    query, playableList, basePlayable, ratingCounts, typeCounts, hiddenList,
+    normalPage, hiddenPageView, editorPageView,
+  } = pickerModel({
+    wallpapers: list,
+    hiddenIds: selection.hiddenIds,
+    search: sel.search,
+    ratingFilter: sel.contentRatingFilter,
+    typeFilter: sel.typeFilter,
+    page: sel.page,
+    hiddenPage: sel.hiddenPage,
+    editorPage: sel.editorPage,
+  });
   // CD-rack mode: compact one-page grid (no pagination) + stronger overlap.
   const cdMode = sel.pickerLayout === "classic";
-  const hiddenList = hiddenInventoryList();
   const current = list.find((w) => w.id === sel.id) || null;
   const uploadedList = list.filter((w) => isUploadedWallpaper(w) && !isDirWallpaper(w));
   const groups = sel.rotationGroups;
@@ -2971,19 +2909,9 @@ const officialColorOf = (tokens) => {
   const editing = sel.editing;
   const INTERVALS = [1, 5, 10, 30, 60, 120];
 
-  // ── Pagination: big libraries must not render every card at once (hundreds
-  //    of thumbnails per emit make the picker lag). Each list slices to one
-  //    page of PAGE_SIZE cards; the page number clamps automatically when the
-  //    list shrinks (hide/restore/refresh). ──
-  const PAGE_SIZE = 24;
-  function pageSlice(list, page) {
-    const pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
-    const p = Math.min(Math.max(0, page | 0), pages - 1);
-    return { items: list.slice(p * PAGE_SIZE, (p + 1) * PAGE_SIZE), page: p, pages };
-  }
-  const normalPage = pageSlice(playableList, sel.page);
-  const hiddenPageView = pageSlice(hiddenList, sel.hiddenPage);
-  const editorPageView = pageSlice(playableInventory(), sel.editorPage);
+  // ── Pagination row: big libraries must not render every card at once (hundreds
+  //    of thumbnails per emit make the picker lag). The slicing itself is the
+  //    model's (`pageSlice` in src/picker-model.js); 这里只画「上一页 / 下一页」。──
   const pagerRow = (count, page, pages, onPrev, onNext) =>
     React.createElement("div", { className: "we-picker__pager" },
       React.createElement("span", { className: "we-picker__hint" },
@@ -3000,120 +2928,26 @@ const officialColorOf = (tokens) => {
       }, "下一页 ›"),
     );
 
-  // ── 壁纸属性面板（渲染）──────────────────────────────────────────────────
-  // 按 ptype 出控件；拖动类（slider/color）在 input 时就热更新但**不重渲染**
-  //（拖动中每帧 emit 整个选择器很浪费），change 时才 emit 刷新数值回显。
-  function renderUserPropRow(p) {
-    if (p.ptype === "text" || p.ptype === "group") {
-      return React.createElement("div", {
-        key: p.name, className: "we-picker__props-section",
-      }, p.text);
-    }
-    const label = React.createElement("span", { className: "we-picker__props-label", title: p.name },
-      p.text,
-      p.overridden && React.createElement("span", { className: "we-picker__props-dot", title: "已改（点「恢复默认」还原）" }, "•"),
-    );
-    let control = null;
-    if (p.ptype === "bool") {
-      control = React.createElement("input", {
-        type: "checkbox", className: "we-picker__props-check",
-        checked: p.value === true,
-        onChange: (e) => onUserPropInput(p, e.target.checked, false),
-      });
-    } else if (p.ptype === "color") {
-      control = React.createElement("input", {
-        type: "color", className: "we-picker__props-color",
-        value: weColorToHex(p.value),
-        onInput: (e) => onUserPropInput(p, weHexToColor(e.target.value), true),
-        onChange: (e) => onUserPropInput(p, weHexToColor(e.target.value), false),
-      });
-    } else if (p.ptype === "slider") {
-      const min = typeof p.min === "number" ? p.min : 0;
-      const max = typeof p.max === "number" ? p.max : 1;
-      const step = typeof p.step === "number" && p.step > 0 ? p.step : (max - min) / 100;
-      const digits = typeof p.precision === "number" ? Math.max(0, Math.min(6, p.precision)) : 2;
-      const shown = typeof p.value === "number" ? p.value.toFixed(digits) : String(p.value === null ? "" : p.value);
-      control = React.createElement(React.Fragment, null,
-        React.createElement("input", {
-          type: "range", className: "we-picker__slider",
-          min, max, step,
-          value: typeof p.value === "number" ? p.value : min,
-          onInput: (e) => onUserPropInput(p, Number(e.target.value), true),
-          onChange: (e) => onUserPropInput(p, Number(e.target.value), false),
-        }),
-        React.createElement("span", { className: "we-picker__props-value" }, shown),
-      );
-    } else if (p.ptype === "combo" && Array.isArray(p.options)) {
-      // 选项值可能是数字/字符串/布尔混用：用**下标**做 select 的值，回写时取回
-      // 声明类型（字符串化会让壁纸里的 === / switch 失配）。
-      const idx = Math.max(0, p.options.findIndex((o) => sameUserPropValue(o.value, p.value)));
-      control = React.createElement("select", {
-        className: "we-picker__props-select",
-        value: String(idx),
-        onChange: (e) => {
-          const opt = p.options[Number(e.target.value)];
-          if (opt) onUserPropInput(p, opt.value, false);
-        },
-      }, p.options.map((o, i) => React.createElement("option", {
-        key: i, value: String(i),
-      }, o.label)));
-    } else if ((p.ptype === "file" || p.ptype === "directory") && Array.isArray(p.files)) {
-      const cur = typeof p.value === "string" ? p.value : "";
-      const list = p.files.includes(cur) || !cur ? p.files : [cur].concat(p.files);
-      control = React.createElement("select", {
-        className: "we-picker__props-select",
-        value: cur,
-        onChange: (e) => onUserPropInput(p, e.target.value, false),
-      }, [{ label: "（默认）", value: "" }].concat(list.map((f) => ({ label: f, value: f })))
-        .map((o, i) => React.createElement("option", { key: i, value: o.value }, o.label)));
-    } else {
-      control = React.createElement("input", {
-        type: "text", className: "we-picker__props-text",
-        defaultValue: typeof p.value === "string" ? p.value : "",
-        // 文本类不做逐键热更新（每敲一下都跑一遍壁纸的属性处理太重），失焦/回车生效
-        onChange: (e) => onUserPropInput(p, e.target.value, false),
-      });
-    }
-    return React.createElement("div", { key: p.name, className: "we-picker__props-row" }, label, control);
-  }
-
+  // ── 壁纸属性面板的接线（P3-11 阶段 3）────────────────────────────────────
+  // 面板标记搬去了 `src/picker-props-panel.js`（构建期内联回本作用域）。这里只做**组装**：
+  // 面板状态（开关 / token / 加载态 / 错误 / 属性表 / 实时渲染是否接管）与三个动作
+  // （该重拉时重拉、改一个属性、恢复默认）都留在本文件 —— 状态与处理器是 ctx 的**供给方**，
+  // 渲染器只拿值 + 回调（同模态框那条契约）。`ensureDefs` 里的判定就是原来内联的那一句：
+  // token 变了且不在加载中才重拉。
   function renderUserPropsPanel() {
-    if (!propsPanelOpen) return null;
-    const token = propTokenOf(sel);
-    if (!token) return null;
-    // 面板开着换了壁纸：拉当前这张的属性
-    if (propsState.token !== token && !propsState.loading) loadUserPropDefs(token, true);
-    const values = {};
-    for (const p of propsState.props) {
-      if (p.ptype !== "text" && p.ptype !== "group") values[p.name] = p.value;
-    }
-    const rows = propsState.props
-      .filter((p) => !p.condition || weEvalCondition(p.condition, values))
-      .map((p) => renderUserPropRow(p));
-    const note = propsState.loading
-      ? "读取中…"
-      : propsState.error
-        ? propsState.error
-        : rows.length
-          ? ""
-          : propsState.props.length
-            ? "当前条件下没有可调项"
-            : "这张壁纸没有用户属性（project.json 的 general.properties）";
-    return React.createElement("div", { className: "we-picker__props" },
-      React.createElement("div", { className: "we-picker__props-head" },
-        React.createElement("span", { className: "we-picker__props-title" }, "壁纸属性"),
-        React.createElement("span", { className: "we-picker__props-note" }, note),
-        React.createElement("button", {
-          className: "we-picker__btn we-picker__btn--mini", type: "button",
-          onClick: resetUserProps,
-          disabled: !propsState.props.some((p) => p.overridden),
-        }, "恢复默认"),
-      ),
-      // 实时渲染没接管时改动不会立刻可见 —— 明说，免得以为面板坏了
-      !sel.sceneLiveActive && React.createElement("div", { className: "we-picker__props-hint" },
-        "实时渲染当前未接管（静态帧 / 兼容模式），改动会在下次实时渲染时生效。"),
-      rows,
-    );
+    return renderPickerPropsPanel({
+      open: propsPanelOpen,
+      token: propTokenOf(sel),
+      loading: propsState.loading,
+      error: propsState.error,
+      props: propsState.props,
+      sceneLiveActive: sel.sceneLiveActive,
+      ensureDefs: (token) => {
+        if (propsState.token !== token && !propsState.loading) loadUserPropDefs(token, true);
+      },
+      onPropInput: onUserPropInput,
+      onReset: resetUserProps,
+    });
   }
 
   // ── 页签面板内容（函数声明提升，renderActiveTab 在 return 里先调用）──────
@@ -3144,6 +2978,38 @@ const officialColorOf = (tokens) => {
   };
   const tabIdx = Math.max(0, PICKER_TABS.findIndex((t) => t.id === activeTab));
 
+  // ── 模态框交互的接线（P3-11 阶段 2）─────────────────────────────────────────
+  // 模态框标记里原本有 11 处**内联箭头**直接写 `selection.*`（页签切换 ×2、分页 ×4、批量 ×3、
+  // 搜索 ×1、卡片点击 ×1）。契约要求渲染器（src/picker-modal.js）不写 selection、不自己发通知
+  // ⇒ 这些「改状态 + 发通知」的动作**留在组件里**（处理器区那 53 个 on* 一个没动），经 ctx 交给
+  // 渲染器；标记里只剩 `onClick: onShowNormalView` 这样的引用。
+  const onShowNormalView = () => { selection.modalView = "normal"; emit(); };
+  const onShowHiddenView = () => { selection.modalView = "hidden"; selection.batchMode = false; selection.batchSelected = []; emit(); };
+  const onHiddenPagePrev = () => { selection.hiddenPage--; emit(); };
+  const onHiddenPageNext = () => { selection.hiddenPage++; emit(); };
+  const onToggleBatchMode = () => { selection.batchMode = !selection.batchMode; selection.batchSelected = []; emit(); };
+  const onBatchHide = () => {
+    const n = selection.batchSelected.length;
+    if (!window.confirm("隐藏选中的 " + n + " 张壁纸？可在「已隐藏」中随时恢复。")) return;
+    hideWallpapers(selection.batchSelected.slice());
+    selection.batchMode = false;
+    selection.batchSelected = [];
+    emit();
+  };
+  const onBatchCancel = () => { selection.batchMode = false; selection.batchSelected = []; emit(); };
+  const onSearchInput = (e) => { selection.search = e.target.value; selection.page = 0; emit(); };
+  const onPickCard = (w) => {
+    if (selection.batchMode) {
+      const i = selection.batchSelected.indexOf(w.id);
+      if (i >= 0) selection.batchSelected.splice(i, 1);
+      else selection.batchSelected.push(w.id);
+      emit();
+    } else {
+      applySelection(w.id);
+    }
+  };
+  const onNormalPagePrev = () => { selection.page--; emit(); };
+  const onNormalPageNext = () => { selection.page++; emit(); };
   return React.createElement("div", { className: "we-picker", "data-we-cards": sel.pickerLayout },
     // ── Card header (mirrors the skin-center's pluginCard header): plugin
     //    name + live wallpaper count badge + description. ──
@@ -3177,253 +3043,14 @@ const officialColorOf = (tokens) => {
     //    immune to ancestor transforms/backdrop-filters (the shell's own glass
     //    effects would otherwise trap it), and z-index 1000 sits above the
     //    shell overlays. Close: ESC, backdrop click, or the close buttons. ──
-    sel.pickerOpen && (isRepoPanelCopy || !repoPanelOwnsModal) && ReactDOM.createPortal(
-      // repoPanel path: the picker opens as its own right-quarter liquid-glass
-      // window (same recipe as the repo panel), NOT the centred dark dialog that
-      // the settings copy uses. The scrim is a transparent full-screen click
-      // catcher (no dark dim/blur) so picking stays visually continuous.
-      React.createElement("div", { className: isRepoPanelCopy ? "we-repo-panel__modal-scrim" : "we-picker__modal-overlay", onClick: closePicker },
-        React.createElement("div", {
-          className: isRepoPanelCopy ? "we-picker__modal we-picker__modal--panel" : "we-picker__modal",
-          "data-we-cards": sel.pickerLayout,
-          role: "dialog",
-          "aria-modal": "true",
-          "aria-label": "选择壁纸",
-          onClick: (e) => e.stopPropagation(),
-          onKeyDown: trapModalTab,
-        },
-          React.createElement("div", { className: "we-picker__modal-head" },
-            React.createElement("div", { className: "we-picker__modal-head-left" },
-              React.createElement(VinylRecord, {
-                cover: current && current.preview, title: current ? current.title : "",
-                playing: playbackLive && Boolean(sel.url) && vinylSpinVisible(), sm: true,
-              }),
-              React.createElement("span", { className: "we-picker__modal-title" }, "选择壁纸"),
-            ),
-            React.createElement("button", {
-              className: "we-picker__btn", type: "button", onClick: closePicker,
-              // 打开模态框时焦点落在这里（一次性，见 modalInitialFocus）。
-              ref: modalInitialFocus,
-            }, "关闭"),
-          ),
-          React.createElement("div", { className: "we-picker__modal-tabs", role: "tablist" },
-            React.createElement("button", {
-              className: "we-picker__btn we-picker__tab" + (sel.modalView === "hidden" ? "" : " we-picker__tab--active"),
-              type: "button",
-              role: "tab",
-              "aria-selected": sel.modalView !== "hidden",
-              onClick: () => { selection.modalView = "normal"; emit(); },
-            }, "正常列表（" + playableList.length + "）"),
-            React.createElement("button", {
-              className: "we-picker__btn we-picker__tab" + (sel.modalView === "hidden" ? " we-picker__tab--active" : ""),
-              type: "button",
-              role: "tab",
-              "aria-selected": sel.modalView === "hidden",
-              onClick: () => { selection.modalView = "hidden"; selection.batchMode = false; selection.batchSelected = []; emit(); },
-            }, "已隐藏（" + hiddenList.length + "）"),
-          ),
-          sel.modalView === "hidden"
-            ? React.createElement("div", { className: "we-picker__modal-body" },
-                hiddenList.length === 0
-                  ? React.createElement("span", { className: "we-picker__hint" }, "没有已隐藏的壁纸")
-                  : React.createElement("div", { className: "we-picker__grid" },
-                      React.createElement("div", { className: "we-picker__row" },
-                        React.createElement("span", { className: "we-picker__hint" },
-                          "已隐藏 " + hiddenList.length + " 张（仅从列表隐藏，不删除源文件）"),
-                        React.createElement("button", {
-                          className: "we-picker__btn", type: "button",
-                          onClick: () => {
-                            if (!window.confirm("恢复全部 " + hiddenList.length + " 张已隐藏壁纸？")) return;
-                            restoreWallpapers(hiddenList.map((w) => w.id));
-                          },
-                        }, "全部恢复"),
-                      ),
-                      (cdMode ? hiddenList : hiddenPageView.items).map((w) => React.createElement("div", {
-                        key: w.id,
-                        className: "we-picker__card we-picker__card--hidden",
-                        role: "button",
-                        tabIndex: 0,
-                        title: w.title,
-                        "aria-label": "恢复并应用 " + w.title,
-                        onClick: () => applySelection(w.id),
-                        // 键盘可达性：正常列表卡片一直有 Enter/Space 处理，
-                        // 已隐藏卡片漏了 —— 补上（共享 cardKeyDown）。
-                        onKeyDown: cardKeyDown,
-                      },
-                      w.preview
-                        ? React.createElement("img", {
-                            src: w.preview, alt: w.title, loading: "lazy",
-                            onError: (e) => { e.target.style.display = "none"; },
-                            onLoad: (e) => { e.target.style.opacity = "1"; },
-                          })
-                        : React.createElement("span", { className: "we-picker__card-placeholder" }, "无预览"),
-                      CARD_TYPE_LABELS[w.type]
-                        && React.createElement("span", { className: "we-picker__card-type" }, CARD_TYPE_LABELS[w.type]),
-                      React.createElement("span", { className: "we-picker__card-title" }, w.title),
-                      w.type === "scene" && React.createElement("span", { className: "we-picker__card-badge" }, w.sceneLive ? "实时渲染" : "静态帧"),
-                      w.type === "web" && React.createElement("span", { className: "we-picker__card-badge" }, w.webLive ? "实时渲染" : "兼容模式"),
-                      React.createElement("button", {
-                        className: "we-picker__card-hide", type: "button",
-                        title: "恢复此壁纸",
-                        onClick: (e) => { e.stopPropagation(); restoreWallpapers([w.id]); },
-                      }, "恢复"),
-                      )),
-                    ),
-                    !cdMode && hiddenPageView.pages > 1 && pagerRow(
-                      hiddenList.length, hiddenPageView.page, hiddenPageView.pages,
-                      () => { selection.hiddenPage--; emit(); },
-                      () => { selection.hiddenPage++; emit(); },
-                    ),
-              )
-            : React.createElement("div", { className: "we-picker__modal-body" },
-                React.createElement("div", { className: "we-picker__row" },
-                  React.createElement("span", { className: "we-picker__hint" },
-                    playableList.length + " 个可播放壁纸 · 点击卡片即应用"),
-                  React.createElement("button", {
-                    className: "we-picker__btn", type: "button",
-                    onClick: () => { selection.batchMode = !selection.batchMode; selection.batchSelected = []; emit(); },
-                    disabled: playableList.length === 0,
-                    title: "多选后批量隐藏",
-                  }, selection.batchMode ? "退出批量" : "批量"),
-                ),
-                selection.batchMode && React.createElement("div", { className: "we-picker__row we-picker__batch-bar" },
-                  React.createElement("span", { className: "we-picker__hint" }, "已选 " + selection.batchSelected.length + " 张"),
-                  React.createElement("button", {
-                    className: "we-picker__btn", type: "button",
-                    disabled: selection.batchSelected.length === 0,
-                    onClick: () => {
-                      const n = selection.batchSelected.length;
-                      if (!window.confirm("隐藏选中的 " + n + " 张壁纸？可在「已隐藏」中随时恢复。")) return;
-                      hideWallpapers(selection.batchSelected.slice());
-                      selection.batchMode = false;
-                      selection.batchSelected = [];
-                      emit();
-                    },
-                  }, "批量隐藏"),
-                  React.createElement("button", {
-                    className: "we-picker__btn", type: "button",
-                    onClick: () => { selection.batchMode = false; selection.batchSelected = []; emit(); },
-                  }, "取消"),
-                ),
-                React.createElement("div", { className: "we-picker__row we-picker__filter-row" },
-                  // 标题搜索：几百上千张壁纸时最快的定位方式。输入即过滤
-                  // （重置到第 1 页），与分级/类型过滤叠加。
-                  React.createElement("input", {
-                    className: "we-picker__text we-picker__search", type: "text",
-                    value: sel.search,
-                    placeholder: "搜索壁纸标题…",
-                    "aria-label": "搜索壁纸标题",
-                    onInput: (e) => { selection.search = e.target.value; selection.page = 0; emit(); },
-                  }),
-                  React.createElement("span", { className: "we-picker__hint we-picker__label" }, "内容分级"),
-                  React.createElement("select", {
-                    className: "we-picker__playlist-select",
-                    value: sel.contentRatingFilter,
-                    onChange: onRatingFilterChange,
-                    "aria-label": "内容分级",
-                    title: "对应 Wallpaper Engine 的内容分级（project.json contentrating）",
-                  },
-                  React.createElement("option", { value: "all" }, "全部（" + basePlayable.length + "）"),
-                  React.createElement("option", { value: "everyone" }, "Everyone / G（" + ratingCounts.everyone + "）"),
-                  React.createElement("option", { value: "pg13" }, "PG13（" + ratingCounts.pg13 + "）"),
-                  React.createElement("option", { value: "mature" }, "Mature / R（" + ratingCounts.mature + "）"),
-                  React.createElement("option", { value: "unrated" }, "未分级（" + ratingCounts.unrated + "）"),
-                  ),
-                  React.createElement("span", { className: "we-picker__hint we-picker__label" }, "类型"),
-                  React.createElement("select", {
-                    className: "we-picker__playlist-select",
-                    value: sel.typeFilter,
-                    onChange: onTypeFilterChange,
-                    "aria-label": "类型",
-                    title: "按壁纸类型过滤",
-                  },
-                  React.createElement("option", { value: "all" }, "全部（" + basePlayable.length + "）"),
-                  React.createElement("option", { value: "video" }, "视频（" + (typeCounts.video || 0) + "）"),
-                  React.createElement("option", { value: "web" }, "网页（" + (typeCounts.web || 0) + "）"),
-                  React.createElement("option", { value: "image" }, "图片（" + (typeCounts.image || 0) + "）"),
-                  React.createElement("option", { value: "scene" }, "场景（" + (typeCounts.scene || 0) + "）"),
-                  ),
-                ),
-                React.createElement("div", { className: "we-picker__grid" },
-                  // "Close wallpaper" card — equivalent of the old first <option>.
-                  // Rendered as a <div role="button"> like every other card:
-                  // <button> ignores aspect-ratio in several browsers, which
-                  // collapses the cell and lets the "✕ 关闭" label float over
-                  // the adjacent thumbnail.
-                  React.createElement("div", {
-                    className: "we-picker__card" + (sel.id ? "" : " we-picker__card--selected"),
-                    role: "button",
-                    tabIndex: 0,
-                    onClick: onClear,
-                    title: "关闭壁纸",
-                    onKeyDown: cardKeyDown,
-                  },
-                  React.createElement("span", { className: "we-picker__card-close" }, "✕ 关闭"),
-                  ),
-                  playableList.length === 0
-                    ? React.createElement("span", { className: "we-picker__hint" },
-                        query
-                          ? "没有匹配「" + sel.search + "」的壁纸 · 试试缩短关键词或清除过滤"
-                          : "没有可播放的壁纸")
-                    : (cdMode ? playableList : normalPage.items).map((w) => React.createElement("div", {
-                        key: w.id,
-                        className: "we-picker__card" + (w.id === sel.id ? " we-picker__card--selected" : "")
-                          // 批量勾选高亮：此前勾选态只进了 batchSelected，高亮 CSS
-                          // 却挂在 --selected（=当前播放）上，勾了永远不亮。
-                          + (selection.batchMode && selection.batchSelected.indexOf(w.id) >= 0 ? " we-picker__card--checked" : ""),
-                        role: "button",
-                        tabIndex: 0,
-                        title: w.title,
-                        onClick: () => {
-                          if (selection.batchMode) {
-                            const i = selection.batchSelected.indexOf(w.id);
-                            if (i >= 0) selection.batchSelected.splice(i, 1);
-                            else selection.batchSelected.push(w.id);
-                            emit();
-                          } else {
-                            applySelection(w.id);
-                          }
-                        },
-                        onKeyDown: cardKeyDown,
-                      },
-                      w.preview
-                        ? React.createElement("img", {
-                            src: w.preview, alt: w.title, loading: "lazy",
-                            onError: (e) => { e.target.style.display = "none"; },
-                            onLoad: (e) => { e.target.style.opacity = "1"; },
-                          })
-                        : React.createElement("span", { className: "we-picker__card-placeholder" }, "无预览"),
-                      // 类型徽标（卡片左上角）：批量模式下让位给勾选框。
-                      !selection.batchMode && CARD_TYPE_LABELS[w.type]
-                        && React.createElement("span", { className: "we-picker__card-type" }, CARD_TYPE_LABELS[w.type]),
-                      React.createElement("span", { className: "we-picker__card-title" }, w.title),
-                      w.type === "scene" && React.createElement("span", { className: "we-picker__card-badge" }, w.sceneLive ? "实时渲染" : "静态帧"),
-                      w.type === "web" && React.createElement("span", { className: "we-picker__card-badge" }, w.webLive ? "实时渲染" : "兼容模式"),
-                      selection.batchMode
-                        ? React.createElement("span", { className: "we-picker__card-check" },
-                            selection.batchSelected.indexOf(w.id) >= 0 ? "✓" : "")
-                        : React.createElement("button", {
-                            className: "we-picker__card-hide", type: "button",
-                            title: "隐藏此壁纸（可在「已隐藏」中恢复）",
-                            onClick: (e) => { e.stopPropagation(); hideWallpapers([w.id]); },
-                          }, "隐藏"),
-                      )),
-                ),
-                !cdMode && normalPage.pages > 1 && pagerRow(
-                  playableList.length, normalPage.page, normalPage.pages,
-                  () => { selection.page--; emit(); },
-                  () => { selection.page++; emit(); },
-                ),
-              ),
-          // 底部只留提示：关闭按钮在顶部（modal-head，也是初始焦点落点），
-          // 底部再放一个是重复的。
-          React.createElement("div", { className: "we-picker__modal-foot" },
-            React.createElement("span", { className: "we-picker__hint" }, "ESC / 点击遮罩关闭"),
-          ),
-        ),
-      ),
-      document.body,
-    ),
+    sel.pickerOpen && (isRepoPanelCopy || !repoPanelOwnsModal) && renderPickerModal({
+      sel, isRepoPanelCopy, closePicker, current, playbackLive, playableList, hiddenList, hiddenPageView, normalPage,
+      cdMode, pagerRow, query, basePlayable, ratingCounts, typeCounts,
+      onClear, onRatingFilterChange, onTypeFilterChange,
+      onShowNormalView, onShowHiddenView, onHiddenPagePrev, onHiddenPageNext,
+      onToggleBatchMode, onBatchHide, onBatchCancel, onSearchInput, onPickCard,
+      onNormalPagePrev, onNormalPageNext,
+    }),
   );
 }
 

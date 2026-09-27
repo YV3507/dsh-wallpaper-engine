@@ -203,6 +203,36 @@ const EVIDENCE = {
     ['本机待办不再承载写作纪律（规则正文已搬走）',
       () => !has('TODO.md') || !read('TODO.md').includes('跳过不得与通过同形')],
   ],
+  'P3-11': [
+    // 三个拆出去的模块都在构建清单里（漏登记不会报错，只会让那个文件永不进产物）。
+    ['模型 / 模态框 / 属性面板三个模块都在 INLINE_MODULES 里（含 why + markers）', () => {
+      const b = read('scripts/build-client.mjs');
+      return ['src/picker-model.js', 'src/picker-modal.js', 'src/picker-props-panel.js']
+        .every((f) => b.includes("file: '" + f + "'"));
+    }],
+    // 属性面板的渲染器**真的搬走了**（留在 client.js 的只有组装用的那层适配）。
+    ['属性面板渲染器住在 src/picker-props-panel.js（client.js 里只剩接线）', () => {
+      const c = read('src/client.js');
+      const m = read('src/picker-props-panel.js');
+      return m.includes('function renderPickerPropsPanel(ctx)')
+        && m.includes('function renderUserPropRow(p, onPropInput)')
+        && !c.includes('function renderUserPropRow(')
+        && c.includes('renderPickerPropsPanel({');
+    }],
+    // 可达性 + 标记等价：守卫在册、已入链，且判据带 golden / 绝对锚点 / 负对照。
+    ['属性面板守卫在册（可达性 + golden + 负对照 + 绝对锚点）且已入 verify 链', () => {
+      const g = read('test/verify-picker-props.mjs');
+      const chain = JSON.parse(read('package.json')).scripts.verify;
+      return chain.includes('verify-picker-props.mjs')
+        && g.includes('EXPECTED_PROPS_GOLDEN') && g.includes('EXPECTED_PROPS_LENGTH')
+        && g.includes('负对照：只把一个节点的层级挪一格')
+        && g.includes("'/wallpaper-engine/props/'");
+    }],
+    ['接缝判据覆盖属性面板（零 selection / 零 emit）',
+      () => read('test/verify-client.mjs').includes("'../src/picker-props-panel.js'")],
+    ['计划文件已归档（wip 里不再有 P3-11-PLAN.md）',
+      () => !has('docs/wip/P3-11-PLAN.md') && has('docs/archive/audits/P3-11-PLAN.md')],
+  ],
   'P3-16': [
     // 判据与守卫**同源**：不在这里复制判据，只断言"命名判据在位 + 旧的恒真写法已消失"。
     ['两个残留文件的判据已抽成命名函数/命名正则（正负对照共用同一份）', () => {

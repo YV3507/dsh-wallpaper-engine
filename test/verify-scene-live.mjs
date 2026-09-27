@@ -966,11 +966,16 @@ check('场景就绪后回放覆盖值（无 HTML 种子通道）',
   src.includes('function applyStoredUserProps(') && liveSrc.includes('applyStoredUserProps(selection)'));
 // 用户口径：选择壁纸页只保留**顶部**关闭按钮（底部那个是重复的）。
 // 计数口径：closePicker 的绑定 = 顶部按钮 + 点击遮罩，共 2 处。
+// P3-11 阶段 2：模态框标记已搬到 src/picker-modal.js ⇒ 这三条文本断言跟着**所属文件**走
+// （同下面诊断族那批"按所属文件分家"的口径）。计数口径仍覆盖**整个客户端半**
+// （client.js + picker-modal.js），所以在别处再加一个关闭按钮照样会被判出。
+const modalSrc = readFileSync(join(root, 'src', 'picker-modal.js'), 'utf8');
+const clientHalf = src + '\n' + modalSrc;
 check('选择壁纸弹窗只留顶部关闭按钮（底部不再有）',
-  (src.match(/onClick: closePicker/g) || []).length === 2
-    && src.includes('we-picker__modal-foot" },')
-    && src.includes('ESC / 点击遮罩关闭'),
-  'closePicker 绑定数=' + ((src.match(/onClick: closePicker/g) || []).length));
+  (clientHalf.match(/onClick: closePicker/g) || []).length === 2
+    && modalSrc.includes('we-picker__modal-foot" },')
+    && modalSrc.includes('ESC / 点击遮罩关闭'),
+  'closePicker 绑定数=' + ((clientHalf.match(/onClick: closePicker/g) || []).length));
 check('抽屉里名称行文字居中', stylesSrc.includes('.we-repo-panel .we-picker__current-title { grid-area: title; text-align: center; }'));
 check('标题里的类型/播放态在抽屉内联并加括号（整行省略）',
   tabsSrc.includes('className: "we-picker__current-meta" }') && stylesSrc.includes('.we-repo-panel .we-picker__current-meta {')

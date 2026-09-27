@@ -434,7 +434,8 @@ function applySelection(id, opts) {
     return;
   }
   const w = selection.inventory.wallpapers.find((x) => x.id === selection.id);
-  if (!w || !isRotatableWallpaper(w)) {
+  // 判定来自 src/picker-model.js：过滤档与隐藏集合从调用点显式传入（模型不读 selection）。
+  if (!w || !isRotatableWallpaper(w, selection.contentRatingFilter, selection.typeFilter)) {
     // 被过滤条件排除 / 条目消失时必须留下可读原因（#84），见 selectionBlockedNote。
     selection.blockedNote = selectionBlockedNote(w);
     selection.url = null;
