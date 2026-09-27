@@ -211,7 +211,7 @@
 | 贡献者 | **17 位作者** | 多人乱流集成；`TODO.md` 记录过"工作树里有别人正在改的 8 个 docs" |
 | 静态保障 | lint 0 / 类型检查 0 / **CI 0** | 9,533 行守卫靠手动跑 |
 | 守卫质量 | 好：全绿、带负对照、有 WCAG 数值与棘轮；**坏：部分判据是正则匹配源码文本**（`verify-client.mjs` 靠文本抽取函数体做镜像校验） | `TODO.md` 自述"守卫判据追具体字符串 ⇒ 每次补丁都让旧判据假失败（≥4 次）" |
-| 类型声明 | `lib/types/index.d.ts` 称"暴露**三条**路由"且"把 `webServer` 当**可选**" | 实际 **34** 条路由，且是**硬依赖**（`export const inject = ['webServer']`）—— `lib/index.js:2569-2576` 的注释明确论证过"`ctx.get` 在挂载期有竞态，故必须硬注入" ⇒ **声明与代码互相矛盾** |
+| 类型声明 | `lib/types/index.d.ts` 称"暴露**三条**路由"且"把 `webServer` 当**可选**" | 实际 **31** 条路由（§3.6 更正：旧记的 34 已过期），且是**硬依赖**（`export const inject = ['webServer']`）—— `lib/index.js` 的注释明确论证过"`ctx.get` 在挂载期有竞态，故必须硬注入" ⇒ **声明与代码互相矛盾**（同一句话还抄在 `lib/index.js:22-24` 与 `cordis.patch.yml:18-19`）⇒ **归口 P3-1** |
 | vendored 同步 | 补丁以**压缩名签名**为锚点，未命中即 `exit(1)`；`.upstream.json` 记 `dirty: true`，且 `../webwallgl-github` **在本机不存在**（⚠️ 它原先还记着**同步机器的绝对路径**并随包发布 —— 已由 `scripts/sync-webwallgl.mjs` 停止写入、旧值清掉，并由 `verify-package-publish` 的"发布文本不得含真实用户目录路径"钉住） | 上游换一版 bundle 就要手工重锚；**本机不可复现** |
 
 > 行号漂移的现场样本：早期设计稿记 `sceneFramePrewarm` 在 `lib/index.js:2570`，实测已是 **2585**。
@@ -311,6 +311,46 @@
 
 ---
 
+### 3.6 本轮审计：**未归口 / 未声明需求**的判定依据（P3 的来源）
+
+**方法**：四路并行**只读**审计（守卫是否"无牙"／类型与打包面／结构重复／活文件内的零调用点代码）
+＋ 客户端与文档侧自查。每条结论都要求 `file:line` 与可复算命令。审计过程中的一次性脚本写在
+`.test-cache/`（已 ignore）；**作为结论依据的可达性测量已提升为入库工具**
+`scripts/audit-reachability.mjs`（否则账本里的数字别人复算不了）。工作树全程干净。
+
+**关键实测**（都能由 §8 的命令复算）：
+
+| 实测 | 数字 | 归口 |
+|---|---|---|
+| 路由索引 vs 运行时注册 | **31 == 31**（对账已成守卫） | ✅ 已做（本轮） |
+| `audit-import-closure.mjs` 今天的结论 | **"✅ 导入闭包全部被 files 覆盖"** —— 而 48 个死文件全在 `files` 里 | P3-3 |
+| 可达性 `as-is` 口径 | `lib/` 65 个文件**全部可达、不可达 0 行** | P3-4 |
+| 可达性**剪掉两条假活锚点**后 | **48 个文件 / 9,618 行 = `lib` 的 24.6%** | P3-4 |
+| 注释纪律棘轮覆盖面 | `CEIL` 15 键 / 应有 15 文件 ⇒ **7 个未覆盖** | P3-8 |
+| `verify-ledger.mjs` 的"未覆盖"清单 | **P2-9, P2-10, P2-11**（标 ✅ 却无机器证据） | P3-9 |
+| `lib/types/*.d.ts` 字段差 | `WallpaperDescriptor` 8/18（缺 10）· `Inventory` 5/8（缺 3）· `client.d.ts` **零值导出** | P3-1 |
+| `WallpaperPicker` 体量 | **1,046 行 / 分支代理 202 = `src/client.js` 的 25%**；体内最大嵌套单元仅 **6 行** | P3-11 |
+| `src/` 孤儿 / 共享内核 | 今天**孤儿 0 个**、共享内核**恰好 1 条**（`lib/settings-schema.js`）—— 现状正确，缺的是守卫 | P3-5/6/7 |
+| `TODO.md` 是否入库 | **否**（`.git/info/exclude:9`），却被 **17 处**引用 | P3-10 |
+
+**两处更正（诚实记录）**：
+
+1. **我自己的第一版可达性测量是错的 —— 已更正。** v1 漏掉了 `export … from` **再导出**边，于是把
+   `lib/we-renderer/core.js` 等（它们由 `scene-renderer.js` 再导出）判成不可达，得出"42 个文件 /
+   8,549 行不可达"，以及"**活代码与死树之间没有引用边**"。更正后的事实相反：
+   - `as-is` 口径下**一个不可达文件都没有**；
+   - 死树之所以"看起来活着"，**只因为两条边**：`lib/index.js:67` 那个**从未被调用**的
+     `import { readPkg } from './we-renderer/textures.js'`，以及 `lib/index.js:915` 那个位于
+     **零调用点函数** `renderSceneFrameInWorker` 里的 `new Worker('./scene-render-worker.mjs')`；
+   - 结论**方向不变**（死树确实死），但**判据形态完全不同**：不是"已经断开、删起来安全"，而是
+     "**只靠两条边连着**"。这正是 P3-3/P3-4 要把它变成机器事实的理由。
+2. **§3.4 的"实际 34 条路由"是旧数**：现在运行时注册 **31** 条（同一行的引用行号亦已漂移）。
+   该句随之更正。
+
+**审计结论**：**存在未声明 / 未归口的需求**，共 12 条，已归口为 §5 的 **P3-1 … P3-12**。
+
+---
+
 ## 4. 风险清单（每条都已归口到 §5 的某一步）
 
 | # | 风险 | 证据锚点 | 归口 |
@@ -365,6 +405,32 @@
 > **P2-12 为什么必须最后**：① 它是全仓最大的一次删除（死码 8,590 + 提取链 + 档位 + 预热 + 路由/缓存/UI
 > 收口）；② 它**依赖 live 渲染的可靠性已成事实**（live 是删除后的唯一动态来源）；③ 它需要 P0-4 的反向探针
 > 已经落地，否则删完会从后门复活；④ 它同时是 §6 设计基线的**终点**——"边重构边落实设计"的最后一刀。
+
+### P3 —— **未归口 / 未声明的需求**（本轮审计得出；与 P2 并列，互不阻塞）
+
+> **为什么单列一层**：P2 是"动手拆巨石"；P3 是**让已经写下的声明变成真的** —— 修掉与代码不符的
+> 类型面/文档、补上被规范自己点名却"未归口"的守卫、给"守卫的判据本身不可信"这一类补真判据，
+> 并给已识别但从未归口的项归口。P3 各条都远小于 P2 的一刀，可在 P2 之间插空做。
+> 判定依据（审计方法与实测数字）见 §3.6；复算命令见 §8。
+
+| # | 动作 | 设计落实物（结构 / 规则 / 守卫） | 风险 | 状态 |
+|---|---|---|---|---|
+| **P3-1** | **类型面与代码对齐**。`lib/types/index.d.ts` 称"暴露**三条**路由"（实际 **31**）、把 `webServer` 当**可选**（实际 `inject = ['webServer']` 硬依赖、`ctx.webServer` 直接取用），而**同一个文件第 66 行自相矛盾**（"hard-depends"）；同一句假话还抄在 `lib/index.js:22-24` 与 `cordis.patch.yml:18-19`。字段级：`WallpaperDescriptor` 声明 8 / 实际 18（缺 10：`contentrating` `schemeColor` `sceneLive` `sceneLiveSrc` `sceneAudio` `hasCustomFrame` `webLive` `webLiveSrc` `propsUrl` `liveFrame`）· `Inventory` 声明 5 / 实际 8（缺 `uploadDir` `weAssetsDir` `weAssetsAvailable`）· `PlaylistDescriptor` 精确一致；`lib/types/client.d.ts` **不声明任何值导出**，而运行时导出 `apply` / `inject` | 结构：改 3 处散文 + 补 13 个字段 + `client.d.ts` 补两个值导出／规则：类型面是**发布契约**，必须与代码同源／守卫：**新增** `scripts/verify-types.mjs`（从 `buildInventory` / `sceneFieldsFor` / `webFieldsFor` 派生键集断言类型覆盖；断言 `exports` 映射的值目标在 `client.d.ts` 里有声明；各带负对照） | 低 | ⬜ |
+| **P3-2** | **§2 基线表里的一句假话**：`lib/client.js` "与 `src/client.js` **逐字节一致**"。自内联模块引入起即不成立 —— 实测 `lib/client.js` 11,749 行 / 1,157,072 B，`src/client.js` 4,261 行 / 770,874 B；产物是 `window.__ModuleLoader__.load({…})` 包装 + 15 个内联模块 | 结构：无／规则：该指标的正确表述是"重建后 `git status` 干净"／守卫：同步性已由 CI 的 `git diff --exit-code` 钉住 | 低 | ⬜ |
+| **P3-3** | **可达性没有守卫，且被规范引用的那个工具判不了它**。`scripts/audit-import-closure.mjs` 今天打印 "✅ 导入闭包全部被 `files` 覆盖"，而**死树全在 `files` 里**（见 P3-4）⇒ 它的绿与"发布面只剩活代码"无关，**且它不在 verify 链里**。偏偏 `docs/MODULE-LAYOUT.md` §6 的**冻结条件 #3 就引用它**（"零未覆盖"）—— 该条件**今天已经成立**，等于没有条件。**测量工具已入库**：`scripts/audit-reachability.mjs`（本轮新增，两口径 + 五类边 + 锚点建模）；**缺的是守卫** | 守卫（待做）：把"不可达行数"做成**只许减少**的棘轮（基线 = 当前 pruned 口径的 **9,618 行 / 48 文件**）+ 覆盖面断言（解析器抓到 >20 个文件、锚点仍存在）+ 负对照（故意删掉一条 import 必须被算出来），并挂进 verify 链／规则：口径（含两个锚点）必须写在脚本头并在守卫里断言其仍然成立 | 中 | ⬜ |
+| **P3-4** | **死树只靠两条边"看起来活着"**（本轮实测的关键结论）：`as-is` 口径下 `lib/` **65 个文件全部可达、不可达 0 行**；剪掉两条边后 **48 个文件 / 9,618 行 = `lib` 的 24.6%** 在**文件级**就已不可达。两条边：① `lib/index.js:67` 的 `import { readPkg } from './we-renderer/textures.js'` —— 导入后**从未调用**；② `lib/index.js:915` 的 `new Worker('./scene-render-worker.mjs')` —— 位于 `renderSceneFrameInWorker`（`lib/index.js:898`），该函数名**全文件只出现一次（它自己的声明）**且未导出 ⇒ **零调用点**。48 个 = `we-renderer/` 43 + `font-render.js`(813) + `scene-scripts.js`(408) + `scene-script-apis.js`(80) + `scene-render-worker.mjs`(31) + `scene-renderer.js`(10) | 结构：删 `index.js:67` 死 import + 处置 `index.js:898` 那个零调用点函数（归 P2-12 阶段 1）／规则：**"只有一条边的活"必须在守卫里显式建模**，否则一次无关重构就能让 9,618 行复活或消失／守卫：P3-3 的棘轮 | 低（测量）／中（动手，属 P2-12） | ⬜ |
+| **P3-5** | **`src/` 通用孤儿守卫缺失**：`MODULE-LAYOUT.md` §7 自陈只有 `verify-api-client.mjs` ⑥ 钉住 `src/api-client.js` **一个**；其余 `src/**` 忘了登记 `INLINE_MODULES` 不会报错（该文件曾经就是孤儿）。实测今天孤儿 **0 个**、13/13 全登记 | 规则：除 `src/client.js` 外每个 `src/**/*.js` 都必须在 `INLINE_MODULES` 里／守卫：**新增**全量孤儿扫描 + 负对照 | 低 | ⬜ |
+| **P3-6** | **依赖方向无守卫**：`lib/**` 不得 import `src/**`（实测今天 **0 处**） | 守卫：**新增**零容忍断言 + 负对照 | 低 | ⬜ |
+| **P3-7** | **共享内核白名单无守卫**：允许被内联进浏览器的 `lib/**` 只许来自一张显式清单（实测今天**恰好 1 条**：`lib/settings-schema.js`；其余 13 个内联模块都是 `src/`） | 守卫：**新增**白名单断言 + 负对照（再加一条必须改清单 ⇒ 共享是**决策**而不是顺手） | 低 | ⬜ |
+| **P3-8** | **注释纪律棘轮的覆盖面靠手维护**：`CEIL` 15 键，而 `src/` + `lib/routes/` 共 15 个文件里有 **7 个未被覆盖**（`api-client.js` `effects.js` `we-cond.js` `font/{apply,color-roles,components,typography}.js`）；且读取用 `catch { continue }` **静默跳过缺失文件** —— 注释里明确记着"此处曾写 `lib/media/probe.js`（该文件不存在），于是那两处覆盖长期是空的"，**但代码没修** | 守卫：两条覆盖断言（CEIL 键必须真实存在 + 每个内联模块必须被覆盖）+ 负对照 | 低 | ⬜ |
+| **P3-9** | **账本自身的可核性**：`P2-9` / `P2-10` 标 **✅** 却**没有任何机器证据**（`verify-ledger.mjs` 明确把它们列进"未覆盖"）—— 违反账本自己的规则。而证据其实**已经存在**（零裸 `fetch(` 棘轮、页签零 `selection`、`setSetting`/`setTransient` 唯一入口 …），只是没接进 `EVIDENCE` | 守卫：给 `P2-9` / `P2-10` 补 `EVIDENCE`（复用现成断言），并给 `P2-11` 补"第一族已落地"的可核证据 | 低 | ⬜ |
+| **P3-10** | **`TODO.md` 不在版本控制里**：被 `.git/info/exclude:9` 排除 ⇒ 只存在于本机。而账本 **11 处**、守卫 **3 处**、`README.md` **3 处**引用它，其中包括 **P2-12 阶段 2 的"规则再归宿"计划**（§6.13 要求把规则改落到活下来的接收方，而计划写在 `TODO.md` §3）⇒ **计划本身不随仓库走**；已入库的 `docs/archive/static-frame/SCENE-FRAME-PERF.md` 正文也指向一个别人看不到的文件 | 结构：把 `TODO.md` 里**仍然成立**的规则/配方搬进已入库文档（或直接入库）／规则：**计划与不变量必须在版本控制内**／守卫：**新增**"已入库文档不得引用被 exclude 的文件"断言 | 低 | ⬜ |
+| **P3-11** | **客户端最后一个巨石没有工作项**：`WallpaperPicker` = `src/client.js:2390-3435`，**1,046 行 / 分支代理 202 = 全文件 25%**。§7 触发条件 4 说"已无法容纳读懂 `apply(ctx)` 或 `WallpaperPicker`（当前已处于临界）"，R7 把巨石归口写成 "P2-9/10/11" —— 但**这三项都不拆它**（P2-9 网络/持久化、P2-10 页签与 store 写、P2-11 宿主路由）。且它体内**最大的嵌套可调用单元只有 6 行** ⇒ **没有现成切点**，不是 P2 那种"搬一整块"的活，需要换策略（按 UI 区域拆子组件 / 把状态机提成模块） | 结构：`WallpaperPicker` → 若干子组件 + 一个状态机模块／规则：组件只从 props/ctx 取外界／守卫：先补**行为**断言（现有 148 处提及以结构/文本断言为主，无分支覆盖度量） | **中偏高**（无自然切点 + 覆盖以文本断言为主） | ⬜ |
+| **P3-12** | **`engines` 缺失**：`package.json` 无 `engines`（也无 `.nvmrc`），而 `lib/media/legacy.js:344` / `:403` 用了全局 `fetch`（Node ≥18）与 `AbortSignal.timeout`（≥17.3）；失败被 `.catch(() => { artworkFile = null; })` **吞掉** ⇒ 用户只看到"没有封面"，永远看不到原因。宿主 DSH 自身声明 `^22.19.0 || >=24.0.0`，CI 钉 node 22 ⇒ 诚实下限是 `>=18` | 结构：加 `engines` + README 前置说明／规则：运行时下限是**发布契约**的一部分／守卫：断言 `engines` 存在且不低于代码真实下限 | 低 | ⬜ |
+| **P3-13** | **有守卫，但从来不运行 / 整块被跳过**（审计 28 个脚本）：① `verify-media-bridge.mjs:112` 在拿不到 `binPath` 时 `skip('中间件端到端用例')`，而 CI 走的是 `npm run verify`（**不带 `--provision`**），仓库不跟踪 `bin/`、`.test-cache/` 被 ignore、新 runner 无 `~/.dsh-wallpaper-engine` ⇒ 该分支**在 CI 永不执行**，仍以 exit 0 收尾（本机实测 `15 通过 / 0 失败 / 2 跳过`，被跳过的正是整个门面用例块 ~30 条）⇒ P0-1"CI 是安全网"对这条通道**不成立**；② `scripts/verify-glass-compositing.mjs`（**414 行**）**没有接进任何 npm script 或 workflow**（全仓只有它自己提到自己的名字），而它守的是**活的产品行为**（玻璃合成） | 结构：CI 步骤补 `--provision`（或固定产物）；把 `verify-glass-compositing.mjs` 挂进 verify 链／规则：**跳过必须是显式的、且不得与通过同形**（缺前置要么红、要么要 `--allow-skip`）／守卫：断言"每条守卫都在链里被调用"+"跳过计数为 0" | **高** | ⬜ |
+| **P3-14** | **判据会静默变空（`.every()` over 空集）**：① `verify-theme-layer.mjs:276` 的 G2 不变量对 `filter(...)` 结果 `.every(...)`，而过滤集今天 4 条且**没有下限断言** —— 把四个角色全改成固定 px（正是 G2 声称机器钉住的那个回归）⇒ 过滤集为空 ⇒ `.every()` 恒真 ⇒ **绿**；同一表达式里的 `.some(r2 => r2.id === r.id)` 还是恒真式。② `verify-softrender.mjs:398` 同形（整体删掉 sidebar/dialog 回落规则不会被抓，因为 E1 只要求别处还有 ≥5 条）。③ `verify-package-files.mjs:157` P5 的扫描集来自 `pkg.scripts`，**无下限断言**（`verify`/`smoke` 改名即静默缩到 0）。④ `verify-scene.mjs:699` 把 `check(name, true, 'skipped on win32')` **硬编码为通过**，而 CI 就跑在 `windows-latest` ⇒ 有牙的 POSIX 那一半（500/unlink-failed/重试）**在 CI 里从不执行** | 守卫：每处过滤集补 `length >= 1`（或 `=== 已知条数`）；把"平台跳过"从"通过"里分出来单独计数 | **高**（P3-14①）/ 中 | ⬜ |
+| **P3-15** | **断言被写法或环境短路**：① **`verify-ledger.mjs:120` 的解析器认不出 F 轨** —— 正则 `((?:P[0-2]\|F)-\d+)` 匹配 `F-1` 而账本行写的是 `\| **F1** \|` ⇒ `EVIDENCE.F1/F2` 是**死代码**，而它仍打印"可核 **11** 类条目"（实际只有 9 类被查到）⇒ **F 轨状态被谎报也能全绿**。② `verify-api-client.mjs:128` 的"无 fetch 可用时不抛"写成 `... || typeof fetch === 'function'` ⇒ 在 Node ≥18 / CI 22 上**恒真**。③ `verify-comment-discipline.mjs:101` 的"这四个退役键不存在"只读 `lib/index.js` + `src/client.js`，而 P1-5 之后设置键住在 `lib/settings-schema.js`、UI 住在 `src/panel-tabs.js` / `src/persistence.js` ⇒ 5 个该看的地方只看 2 个。④ `verify-client.mjs:250` 把 `apply(ctx)` 的抛错 `catch` 后只 `console.log`，`thrown` 无人断言 | 规则：**同一事实只有一个真源，且"被查集合"要有下限**；跨文件断言按**所属文件**分源（本仓已有先例）／守卫：修 F 轨正则 + 补"每个 EVIDENCE 键都被本轮用到"断言；去掉 `\|\| typeof fetch` 逃生口；退役键扫描扩到全部落点；`apply` 抛错改为硬断言 | **高**（P3-15①）/ 中 | ⬜ |
+| **P3-16** | **"负对照"里有恒真式，名不副实**：多处"负对照"是常真表达式（`'x WE_SCENE_PLAYER_HTML y'.includes('…')`、`'x 秡 y'.includes('秡')`、`!routes.some(r => r.src === 'lib/routes/nope.js')`、`!/file:\s*'src\/not-registered\.js'/.test(build)`、`['@shaderfrog/glsl-parser'].every(d => !['node:fs'].some(…))` 等 10 余处）—— 单条不会放过回归，但它**推翻了"每条都配负对照"这一纪律声明**，且会掩盖主判据已经坏掉。另有 ① `verify-route-index.mjs:44` 的 `/零提及/.test(text)` 只命中索引自己的**图例行**、从不看路由行；② `verify-client.mjs:1036` 的键集恒等式两侧都遍历 `Object.keys(KINDS)`（同源比较，少一个键两边一起少）；③ golden 夹具的 `cases[].client` 列是**死数据**（没有任何断言读它） | 规则：负对照必须是"把坏输入喂给**同一个**判据函数并断言它判坏"（本仓已有正确范式：`verify-package-files` P2、`verify-route-index` ④）／守卫：逐个替换恒真式；`verify-route-index` 的零提及断言改为**读索引里那一行的内容**；键集恒等式补"与 DEFAULTS 的键集对齐"这条非同源断言 | 低（但会掩盖高） | ⬜ |
 
 ### F —— 并行**功能**轨道：字体系统大改（**非重构项**；设计要点见 §9）
 
@@ -681,7 +747,9 @@ UI 命名：`壁纸画面刷新` → **`出图来源`**（它换的是**来源**
 | 共变耦合 | `git log --pretty=format:'@%H' --name-only` → 以 `src/client.js` 为锚统计同改文件与耦合系数 |
 | 打包一致性 | `node scripts/build-client.mjs` 后 `git status --porcelain lib/client.js` 必须为空 |
 | 守卫健康度 | `npm run verify`（退出码 0 才算绿）；`npm run smoke` 为节点级冒烟 |
-| 已有辅助工具 | `node scripts/audit-import-closure.mjs`（lib 导入闭包 vs `files` 白名单）；`node scripts/verify-retired-lines.mjs`（退役线：零残留 + 防蔓延棘轮 + 对照）；**`node scripts/analyze-host-apply.mjs`**（宿主 `apply(ctx)` 的拆分评估取证：体量 / 路由族 / 闭包状态 / 各路由的守卫覆盖 —— §3.5 与 §7 第 6、7 条的数字都由它复算；路由枚举**只认 `host-route-index.mjs` 的 `buildIndex()`**，避免"度量工具与设计稿给出两个路由数"） |
+| 已有辅助工具 | `node scripts/audit-import-closure.mjs`（**只验"被导入的文件都在 `files` 里"** —— 它今天打印 ✅ 而 48 个死文件全在 `files` 里，**不能**用来判"发布面只剩活代码"，见 P3-3）· `node scripts/verify-retired-lines.mjs`（退役线：零残留 + 防蔓延棘轮 + 对照）· **`node scripts/analyze-host-apply.mjs`**（宿主 `apply(ctx)` 的拆分评估取证：体量 / 路由族 / 闭包状态 / 各路由的守卫覆盖 —— §3.5 与 §7 第 6、7 条的数字都由它复算；路由枚举**只认 `host-route-index.mjs` 的 `buildIndex()`**） |
+| 可达性（P3-3/P3-4 的复算） | **`node scripts/audit-reachability.mjs`**（已入库）：从 `lib/index.js` + `lib/client.js` 出发，跟随**五类边** —— 静态 `import` / **`export … from` 再导出** / 动态 `import()` / `require()` / `new Worker(…)`；`lib/webwallgl/**`（按 URL 提供）与 `lib/vendor/**` 特判排除。同时打印 **A) as-is** 与 **B) pruned** 两口径（pruned 剪掉两个"假活锚点"：`lib/index.js:67` 从未调用的 `readPkg` import、`lib/index.js:915` 零调用点函数里的 `new Worker`）。⚠️ **漏掉 `export … from` 会把再导出的死树误判为不可达** —— 本轮实测踩到并更正，见 §3.6 |
+| 棘轮覆盖面（P3-8 的复算） | 从 `verify-comment-discipline.mjs` 的 `CEIL` 字面量抠出键，与 `src/**/*.js` + `lib/routes/*.js` 求差集 —— 差值必须为 0 |
 
 ---
 
