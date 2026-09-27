@@ -797,21 +797,34 @@ function buildLivePoster(sel) {
   // 底色兜底：壁纸没写 schemecolor 时用主题面板色打底 —— 无抽帧图、无主题色时
   // 加载期也必须是「一层安静的颜色」，不能是纯黑或透明。
   poster.style.backgroundColor = sel.schemeColor || "var(--dsw-alias-bg-layer-1, #101418)";
-  // 网页壁纸优先用 live 抽帧（真实渲染画面，见 maybeCaptureLiveFrame），还没抽到
-  // 时退回项目预览图；场景壁纸用出图 URL（`?v=` 只剩 0 / 4 两档）。都没有 → 只留主题色。
-  const src = sel.type === "web" ? (sel.liveFrame || sel.previewUrl || null) : sel.url;
-  if (src) {
-    poster.dataset.weFrameSrc = src;
-    // 与 prepareSceneStaticStage 同一约定：无 Image 的环境（headless 验收 /
-    // 只给部分 DOM 的测试宿主）跳过预载，保留主题色兜底 —— 否则建 live 层时
-    // 会直接抛 ReferenceError。
-    if (typeof Image !== "function") return poster;
+  // 垫底画面的来源（**唯一权威顺序**）：**实时抓帧 → 作者随包发布的工程预览图 → 主题色**。
+  //   · 抓帧 = 场景的出图 URL（`?v=` 只剩 0 / 4 两档）或网页的 live 抽帧（见 maybeCaptureLiveFrame）；
+  //   · 预览图**只作首帧前的占位**：新壁纸**第一次**激活时抓帧还不存在（要等这一轮 live 首帧
+  //     回填），只试一级会 404 —— 而失败若「静默保留主题色」（`#101418`，近黑）就是一块黑屏。
+  //   · 预览图是**作者随包发布的那张**，不是本插件合成的"猜图"（与 buildMedia 里 scene 静态
+  //     img 的 onerror 回落同源）⇒ 不破「要么给真画面、要么诚实留空」那条裁定。
+  // 顺序不能反：抓帧才是当前视口的真实构图，它一到就被顶掉；预览图只是"还没来得及出帧"的占位。
+  const candidates = (sel.type === "web" ? [sel.liveFrame, sel.previewUrl] : [sel.url, sel.previewUrl])
+    .filter((s) => typeof s === "string" && s);
+  if (!candidates.length) return poster;
+  poster.dataset.weFrameSrc = candidates[0];
+  // 与 prepareSceneStaticStage 同一约定：无 Image 的环境（headless 验收 /
+  // 只给部分 DOM 的测试宿主）跳过预载，保留主题色兜底 —— 否则建 live 层时
+  // 会直接抛 ReferenceError。
+  if (typeof Image !== "function") return poster;
+  let next = 0;
+  const probeNext = () => {
+    if (next >= candidates.length) return; // 全部失败：保留主题色兜底（不猜、也不留黑底图）
+    const src = candidates[next++];
+    poster.dataset.weFrameSrc = src; // 记录**正在试**的那一级（诊断时能看出退到哪一级）
     const probe = new Image();
     probe.onload = () => {
       if (poster.isConnected) poster.style.backgroundImage = "url(" + src + ")";
     };
-    probe.src = src; // 失败静默：保留主题色
-  }
+    probe.onerror = probeNext; // 这一级没有 ⇒ 退下一级
+    probe.src = src;
+  };
+  probeNext();
   return poster;
 }
 
@@ -824,26 +837,70 @@ if (typeof window !== "undefined" && typeof window.addEventListener === "functio
     window.addEventListener(ev, () => { bootRestore = false; }, { capture: true, passive: true, once: true });
   }
 }
-let liveMountTimer = 0;
-// 延迟挂载：计时到点 + 首屏空闲后再把渲染 iframe 插进图层（期间显示占位图）。
-// 到点时校验壁纸没被换掉、live 仍启用、层还在 —— 任一不满足就放弃（syncLayers
-// 会负责当前状态的正确渲染）。
+// 延迟挂载（只作用于「重启恢复上次壁纸」那一档）：**延迟期照常开始加载** —— iframe 一赋
+// `src` 就已经在拉 pkg / 解码纹理 / 编译 shader，这正是这一档存在的理由（让首帧先热起来，
+// 上屏时才不至于慢）。延迟只决定**什么时候把它插进图层**。
+//
+// 两条不变量，缺哪条都会变成用户可见的卡顿：
+//   ① **首帧就绪即挂载**：`liveBootDelay` 是**上限**而不是固定等待 —— 读到首帧就立刻换屏，
+//      出帧快的壁纸不再白等满 N 秒；到上限仍未出帧也照挂（最坏情况与固定等待一致）。
+//   ② **切走必须取消并释放**：未挂载的预热页是一个**正在跑**的渲染页，不是普通元素 ——
+//      换壁纸时不显式终止（`src = about:blank`）它就会留在后台继续抢 CPU/GPU，与新壁纸的
+//      启动叠在同一主线程上（用户反馈：延迟期切下一张会卡）。这与轮换准备期的 staging 探针
+//      是同一条纪律（见 prepareSceneLiveStage 的 bail / 「准备期零驻留」）。
+let liveMountPending = null; // { sel, frame, timer, deadline }
+const LIVE_MOUNT_POLL_MS = 300;
+function cancelLiveMount(reason) {
+  const p = liveMountPending;
+  if (!p) return;
+  liveMountPending = null;
+  if (p.timer) { try { clearTimeout(p.timer); } catch { /* ignore */ } }
+  // 未挂载 ⇒ 显式中止在途加载并拆掉那个渲染页（WebGL context / rAF / 定时器一起消失）。
+  try { if (p.frame && !p.frame.isConnected) p.frame.src = "about:blank"; } catch { /* ignore */ }
+  if (reason) liveLog("boot-mount-cancel", "wid=" + p.sel.id + " reason=" + reason);
+}
+/** 首帧是否已出来。场景与 startLiveWatch 的「活」判据同源（running 且 fps>0）；网页壁纸
+ *  常无 rAF 打点，退化为「渲染页可达」（getState 可读）—— 与运行期 watchdog 同口径。 */
+function liveFrameReady(frame, sel) {
+  if (sel.type === "web") return Boolean(liveStateOf(frame));
+  const st = liveStats(frame);
+  return Boolean(st && st.running && st.fps > 0);
+}
 function scheduleLiveMount(sel, frame, delayMs) {
-  if (liveMountTimer) { try { clearTimeout(liveMountTimer); } catch { /* ignore */ } liveMountTimer = 0; }
-  liveMountTimer = setTimeout(() => {
-    liveMountTimer = 0;
-    const mount = () => {
-      if (selection.id !== sel.id || !liveRenderEnabled(selection)) return;
-      const layer = document.getElementById(LAYER_ID);
-      if (!layer || frame.isConnected) return;
-      layer.appendChild(frame);
-    };
-    if (typeof window.requestIdleCallback === "function") {
-      window.requestIdleCallback(mount, { timeout: 2000 });
-    } else {
-      setTimeout(mount, 300);
+  cancelLiveMount("replaced"); // 同一时刻只允许一个未上屏的预热页
+  const entry = { sel, frame, timer: 0, deadline: Date.now() + delayMs };
+  liveMountPending = entry;
+  const mount = (viaIdle) => {
+    if (liveMountPending !== entry) return; // 已被取消 / 被替换
+    const layer = document.getElementById(LAYER_ID);
+    if (selection.id !== sel.id || !liveRenderEnabled(selection) || !layer) { cancelLiveMount("stale"); return; }
+    if (frame.isConnected) { liveMountPending = null; return; } // 已被别的路径挂上（轮换领养）
+    // 层里已经有 live 页（轮换的节点级领养）：绝不再插第二个。
+    if (layer.querySelector("iframe.we-live-iframe")) { cancelLiveMount("layer-has-live"); return; }
+    liveMountPending = null;
+    layer.appendChild(frame);
+    // ⚠️ 必须在这里补一次武装：`load` 回调只在 `isConnected` 时武装心跳，而延迟路径的文档
+    //    很可能**在挂载之前**就 load 完了（那一刻 isConnected=false）⇒ 不补这一次，首帧确认
+    //    永远不会发生、`we-live-on` 永远不加上、iframe 一直停在 opacity 0（只有垫底图）。
+    //    startLiveWatch 自己会停掉上一个，重复武装是安全的。
+    try { startLiveWatch(frame, sel.id); } catch { /* ignore */ }
+    liveLog("boot-mount", "wid=" + sel.id + (viaIdle ? " idle" : " ready"));
+  };
+  const tick = () => {
+    if (liveMountPending !== entry) return;
+    if (liveFrameReady(frame, sel)) { mount(false); return; } // ① 就绪即挂载，不等上限
+    if (Date.now() >= entry.deadline) {
+      // 到上限仍未出帧：仍走「等首屏空闲再挂」（最坏情况与固定等待那一版一致）。
+      if (typeof window.requestIdleCallback === "function") {
+        window.requestIdleCallback(() => mount(true), { timeout: 2000 });
+      } else {
+        setTimeout(() => mount(true), 300);
+      }
+      return;
     }
-  }, delayMs);
+    entry.timer = setTimeout(tick, LIVE_MOUNT_POLL_MS);
+  };
+  entry.timer = setTimeout(tick, Math.min(LIVE_MOUNT_POLL_MS, delayMs)); // 首拍稍早：小 pkg 可能一帧内就绪
 }
 
 function createLiveFrame(sel) {
@@ -1199,6 +1256,6 @@ export {
   syncLayers, startLiveWatch, stopLiveWatch, liveFail, liveRenderEnabled, liveRenderUrl,
   liveFailReasonOf, liveLog, liveStateBrief, liveDiagVerbose, liveStats, applyLiveControls,
   scheduleLiveFrameBackfill, cancelLiveFrameBackfill, liveFrameEl, buildLivePoster,
-  scheduleLiveMount, createLiveFrame, retireFadingLayer, toggleLiveDiag,
+  scheduleLiveMount, cancelLiveMount, createLiveFrame, retireFadingLayer, toggleLiveDiag,
   liveWatch, livePointerFrame, liveApplied, liveDiagOn, LIVE_FIRST_FRAME_MS, bootRestore,
 };

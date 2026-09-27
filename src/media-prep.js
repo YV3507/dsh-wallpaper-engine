@@ -18,6 +18,7 @@
  *                     releaseRotationAudioGate · isRotatableWallpaper · groupWallpapers
  *   媒体与探测        adoptProbe · releaseProbeMedia · consumePreparedMedia · disposePreparedMedia ·
  *                     frameUrlWithVariant · weApplyAudio · syncSceneAudio · weStartDraw · weDrawFrame
+ *   live 挂载         createLiveFrame · scheduleLiveMount · cancelLiveMount（后者用于「换壁纸即终止预热页」）
  *   prelude/client    emit · persistSelection · reportClientDiag · apiHead/apiFetch（prelude）
  * 提供的入口：
  *   applySelection(id, opts)               选中项落地（**唯一**入口：解析 → 门禁 → 持久化 → 层同步 → emit）
@@ -403,6 +404,10 @@ function applySelection(id, opts) {
   if (!opts || !opts.fromRotation) { cancelRotationPrepare(); disposePreparedMedia(); }
   // GPU 抓帧回填的目标壁纸随切换作废（新壁纸的 live 首帧会重新调度）。
   cancelLiveFrameBackfill();
+  // 延迟期那个**正在预热**的渲染页也随切换作废：它是「正在跑的渲染页」而不是普通元素，
+  // 不终止就会留在后台继续抢 CPU/GPU，与新壁纸的启动叠在同一主线程上（用户反馈：启动
+  // 延迟期切下一张会卡）。清定时器 + 未挂载则 `src=about:blank`，见 cancelLiveMount。
+  cancelLiveMount("selection");
   // 手动切换不走渐变 → 立即放行轮换音频闸（轮换提交由旧层退场放行）。
   if (!opts || !opts.fromRotation) releaseRotationAudioGate();
   selection.id = id || "";
@@ -523,9 +528,11 @@ function buildMedia(sel) {
     liveLog("build-live", "wid=" + sel.id + " 冷启动渲染页（重新加载） " + liveStateBrief());
     const poster = buildLivePoster(sel);
     const frame = createLiveFrame(sel);
-    // 启动延迟：仅「重启恢复上次壁纸」阶段（bootRestore）生效 —— 期间只显示占位图，
-    // 避免大场景包的解码/纹理上传与 DSH 首屏抢主线程（用户反馈「重启变慢」）。
-    // 用户一开始交互 bootRestore 即为 false（见其声明处），手动切换壁纸 → 立即挂载。
+    // 启动等待（仅「重启恢复上次壁纸」阶段，bootRestore）：**延迟期照常加载**（iframe 已建，
+    // 正在拉 pkg / 解码纹理 / 编译 shader —— 让首帧先热起来才是这一档存在的理由），只是先显示
+    // 占位图；`liveBootDelay` 是**上限**：首帧一就绪就立刻挂载，到上限仍未出帧也挂载。
+    // 用户一开始交互 bootRestore 即为 false（见其声明处），手动切换壁纸 → 立即挂载、不等待。
+    // 切换离开时由 cancelLiveMount 终止这个预热页（否则它会在后台抢资源压住新壁纸）。
     const delaySecs = clampNum(sel.liveBootDelay, 0, 30, 3);
     const delayMs = bootRestore && delaySecs > 0 ? delaySecs * 1000 : 0;
     if (delayMs <= 0) return [poster, frame];

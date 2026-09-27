@@ -4123,6 +4123,7 @@ function apply(ctx) {
         stopSceneAudioEl();
         cancelLiveFrameBackfill(); // 卸载后不再发 HEAD/PUT（评审：此前会漏一次）
         stopLiveWatch();
+        cancelLiveMount("unload"); // 延迟期那个正在预热的渲染页也要终止（否则卸载后仍在后台跑）
         abortTranscodeUpgrade(); // 含 clearUpgradePoll + AbortController.abort（否则卸载后 500ms 轮询永久泄漏）
         cancelPendingPersist(); // 模块级 persistTimer 不属于 fiber：不取消则 200ms 后仍会写一次
         // media-info 探测的 AbortController 也要断开 (token 可能永远不再变化)

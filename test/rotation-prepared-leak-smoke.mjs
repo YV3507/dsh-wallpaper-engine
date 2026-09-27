@@ -705,6 +705,138 @@ await runScenario('K. 准备中途隐藏：≤60s 继续等，超限释放 stagi
     !!layer && !!layer.querySelector('iframe.we-live-iframe'));
 });
 
+// ── P：首帧前的垫底画面来源顺序（**实时抓帧 → 作者预览图 → 主题色**）────────────
+// 为什么需要：新壁纸**第一次**激活时抓帧还不存在（要等这一轮 live 首帧回填），只试一级
+// 会 404 —— 而失败若「静默保留主题色」（近黑）就是一块黑屏。预览图是**作者随包发布的那张**，
+// 不是本插件合成的"猜图"（与 buildMedia 里 scene 静态 img 的 onerror 回落同源）。
+//
+// 夹具形态：**启动即选中该壁纸**（手动/恢复路径 ⇒ 走 buildMedia 建层）。轮换提交走节点级
+// 领养（staging 容器原地成层、iframe 不移动，见 syncLayers 的 pendingStagedLayerNode 分支），
+// 那条路径不经过 buildMedia，因此**没有**垫底图 —— 用它测这张图会测到空气。
+// stats fps=0：live 永远不出首帧 ⇒ iframe 停在 `--we-live-fade:0`（透明），屏上就是垫底图本身，
+// 正是用户报的"第一次激活黑屏"那一刻。
+await runScenario('P. 首帧前垫底图：抓帧 → 作者预览图 → 主题色（首次激活不留黑屏）', {
+  wallpapers: [scene('s1', 'tok-s1')],
+  stats: { 'tok-s1': { fps: 0, running: true } },
+  selection: selSeed(['s1'], 's1'),
+}, (t) => {
+  const layer = t.layerEl();
+  const poster = layer && layer.querySelector('div.we-live-poster');
+  check('场景 live 层带垫底图（不是空层）', !!poster);
+  const frameSrc = '/wallpaper-engine/scene-frame/s1';
+  const previewSrc = '/wallpaper-engine/preview/s1';
+  const probeFrame = t.imageEls.filter((i) => t.mediaSrc(i) === frameSrc).pop() || null;
+  check('① 垫底图先试**实时抓帧**（当前视口的真实构图优先于预览图）',
+    !!probeFrame, 'probe=' + (probeFrame ? t.mediaSrc(probeFrame) : 'none'));
+  check('   来源已记录（诊断能看出退到哪一级）',
+    !!poster && poster.dataset.weFrameSrc === frameSrc,
+    'weFrameSrc=' + (poster ? poster.dataset.weFrameSrc : 'no poster'));
+  // 首次激活：抓帧不存在（这一轮 live 才回填）⇒ 必须退到作者预览图
+  if (probeFrame && typeof probeFrame.onerror === 'function') probeFrame.onerror();
+  const probePreview = t.imageEls.filter((i) => t.mediaSrc(i) === previewSrc).pop() || null;
+  check('② 抓帧 404 ⇒ 退到**作者预览图**（而不是停在近黑主题色）',
+    !!probePreview, 'probe=' + (probePreview ? t.mediaSrc(probePreview) : 'none'));
+  if (probePreview && typeof probePreview.onload === 'function') probePreview.onload();
+  check('③ 预览图就绪 ⇒ 铺上垫底画面（首帧前不再是黑屏）',
+    !!poster && String(poster.style.backgroundImage) === 'url(' + previewSrc + ')',
+    'bg=' + (poster ? String(poster.style.backgroundImage) : 'no poster'));
+  check('   链在首个成功处停（不再产生第三级探针）',
+    t.imageEls[t.imageEls.length - 1] === probePreview);
+});
+
+// ── P2：负对照 —— 没有预览图时**不得凭空造一级**（否则就是把"猜图"接回来）──────
+await runScenario('P2. 无预览图：垫底图只留主题色兜底，不猜图（负对照）', {
+  wallpapers: [Object.assign(scene('s2', 'tok-s2'), { preview: null })],
+  stats: { 'tok-s2': { fps: 0, running: true } },
+  selection: selSeed(['s2'], 's2'),
+}, (t) => {
+  const layer = t.layerEl();
+  const poster = layer && layer.querySelector('div.we-live-poster');
+  const frameSrc = '/wallpaper-engine/scene-frame/s2';
+  const probeFrame = t.imageEls.filter((i) => t.mediaSrc(i) === frameSrc).pop() || null;
+  check('垫底图仍先试实时抓帧', !!probeFrame, 'probe=' + (probeFrame ? t.mediaSrc(probeFrame) : 'none'));
+  const imagesBefore = t.imageEls.length;
+  if (probeFrame && typeof probeFrame.onerror === 'function') probeFrame.onerror();
+  check('抓帧失败且无预览图 ⇒ 不产生第二级探针（不猜图、不回退到别的东西）',
+    t.imageEls.length === imagesBefore, 'images=' + imagesBefore + '→' + t.imageEls.length);
+  check('垫底图保留主题色兜底（背景图始终没被赋上 —— 判据有牙）',
+    !!poster && !poster.style.backgroundImage,
+    'bg=' + (poster ? String(poster.style.backgroundImage) : 'no poster'));
+});
+
+// ── Q：启动等待（`liveBootDelay`）—— 上限前就绪即挂载 / 切走必须终止预热页 ──────
+// 这一档此前**零行为覆盖**（全部冒烟都把 liveBootDelay 钉成 0，见 selSeed 的注释），
+// 所以它的两条不变量都没被判据钉住：
+//   ① `liveBootDelay` 是**上限**不是固定等待：延迟期照常加载（这正是这一档存在的理由），
+//      但首帧一就绪就该立刻换屏 —— 否则出帧快的壁纸白等满 N 秒。
+//   ② 延迟期那个未上屏的 iframe 是**正在跑的渲染页**：换壁纸时必须显式终止
+//      （`src=about:blank`），否则它留在后台继续抢 CPU/GPU，与新壁纸的启动叠在同一
+//      主线程上 —— 用户反馈的「延迟期切下一张会卡」。
+const liveIframeOf = (t) => {
+  const layer = t.layerEl();
+  return layer && layer.querySelector ? layer.querySelector('iframe.we-live-iframe') : null;
+};
+const pendingLiveIframe = (t) => t.iframeEls.filter((f) => t.mediaSrc(f).includes('/scene-live/')).pop() || null;
+const bootDelaySel = (ids, cur, secs) => Object.assign(selSeed(ids, cur), { liveBootDelay: secs });
+
+await runScenario('Q1. 启动等待：上限前首帧就绪 ⇒ 立刻挂载（不白等满上限）', {
+  wallpapers: [scene('s1', 'tok-s1')],
+  stats: { 'tok-s1': { fps: 0, running: true } }, // 一开始没有首帧
+  selection: bootDelaySel(['s1'], 's1', 3),
+}, (t) => {
+  const pending = pendingLiveIframe(t);
+  check('延迟期：预热 iframe **已在加载**（src 非空）但未上屏',
+    !!pending && t.mediaSrc(pending).includes('/scene-live/') && !pending.isConnected,
+    'iframes=' + t.iframeEls.length + ' src=' + t.mediaSrc(pending || {}));
+  check('延迟期：层里只有垫底图（未挂载 iframe）', !liveIframeOf(t));
+  // 首帧就绪（心跳读数 fps>0）⇒ 下一拍就该挂载，不必等满 3s
+  t.setStats('tok-s1', { fps: 30, running: true });
+  t.fireLatest(300);
+  check('① 首帧就绪 ⇒ **立刻挂载**（不用等满上限）', liveIframeOf(t) === pending,
+    'inLayer=' + (liveIframeOf(t) === pending));
+  check('   挂载时 src 仍是渲染页（预热成果没被丢弃）',
+    t.mediaSrc(pending).includes('/scene-live/'), 'src=' + t.mediaSrc(pending));
+});
+
+await runScenario('Q2. 启动等待：到上限仍未出帧 ⇒ 也挂载（最坏情况与固定等待一致）', {
+  wallpapers: [scene('s1', 'tok-s1')],
+  stats: { 'tok-s1': { fps: 0, running: true } }, // 永远不出首帧
+  selection: bootDelaySel(['s1'], 's1', 3),
+}, (t) => {
+  t.fireLatest(300); // 第 1 拍：未就绪、未到上限
+  check('② 未就绪且未到上限 ⇒ 不挂载（判据有牙：不是无条件立刻挂）', !liveIframeOf(t));
+  t.clock.offset += 3000; // 跨过 3s 上限
+  t.fireLatest(300);      // 到上限那一拍：排「等首屏空闲再挂」
+  t.fireLatest(300);      // 兜底路径的 300ms 定时器 → 真正挂载
+  check('② 到上限仍未出帧 ⇒ 仍挂载（不让壁纸永远停在占位图）',
+    liveIframeOf(t) === pendingLiveIframe(t));
+});
+
+await runScenario('Q3. 启动等待期切走：预热页被**终止**、零孤儿（卡顿的根因）', {
+  wallpapers: [wallpaperV, scene('s1', 'tok-s1')],
+  stats: { 'tok-s1': { fps: 0, running: true } },
+  selection: bootDelaySel(['v', 's1'], 's1', 3), // 启动即 s1（延迟期）→ 轮换到 v
+}, (t) => {
+  const pending = pendingLiveIframe(t);
+  check('启动等待期：s1 的预热 iframe 已在加载但未上屏',
+    !!pending && !pending.isConnected, 'src=' + t.mediaSrc(pending || {}));
+  t.fireLatest(10000); // 轮换到 v → applySelection（唯一的换壁纸入口）
+  t.fireLatest(300);   // 提交
+  t.flushPersist();    // 持久化走 200ms 去抖：不 flush 会读到上一张的 id
+  check('切走后预热页被**终止**（src=about:blank ⇒ 中止在途加载并拆掉渲染页）',
+    t.mediaSrc(pending) === 'about:blank', 'src=' + t.mediaSrc(pending));
+  // 这一刻正是用户卡顿的那个窗口：已经切走了，预热页**必须已经**不在后台跑
+  // （判据要在此刻成立 —— 再往后拖会被「到上限时那条陈旧检查」兜住，就测不到真问题了）。
+  const orphansNow = t.iframeEls.filter((f) => !f.isConnected && t.mediaSrc(f) && t.mediaSrc(f) !== 'about:blank');
+  check('切走那一刻零孤儿（没有「已脱离文档且仍在加载」的预热 iframe）', orphansNow.length === 0,
+    'orphans=' + orphansNow.map((f) => t.mediaSrc(f).slice(0, 40)).join(' | '));
+  // 再往前跑：延迟到点也不得把已作废的预热页挂上来
+  t.clock.offset += 3000;
+  for (let i = 0; i < 4; i++) t.fireLatest(300);
+  check('到点也不得挂上已作废的预热页（当前壁纸是 v）',
+    t.persistedId() === 'v' && !liveIframeOf(t), 'id=' + t.persistedId());
+});
+
 console.log('');
 console.log(failures === 0 ? 'ROTATION PREPARED-LEAK SMOKE PASSED' : failures + ' CHECK(S) FAILED');
 process.exit(failures === 0 ? 0 : 1);

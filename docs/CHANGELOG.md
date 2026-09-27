@@ -22,9 +22,12 @@
 - **换壁纸过场动画（7 种可选）**：交叉淡化 / 推移 / 擦除 / 光圈 / 缩放 / 条带 / 百叶窗；**默认硬切**，手动点选与自动轮播共用同一套；类型 / 方向 / 速度档**走白名单**（未知值回落默认）。「条带」本轮改为真·百叶窗（原实现与「擦除」肉眼分辨不出）。
 - **实时帧行**不再受「实时渲染」开关限制（随时可重新截帧），并显示当前壁纸的实时帧**微缩预览**。
 - 过场动画选项改为**下拉菜单**，删去两行冗余面板提示。
+- **「启动延迟」改名「启动最长等待时间」，语义改为上限**：延迟期照常预加载（首帧先热起来），**首帧一就绪就换上**、到上限仍未出帧也换上；选项写成 `立即 / ≤3s / ≤5s / ≤10s`。
 
 **修复**
 
+- **启动等待期切下一张会卡**：延迟期那个未上屏的 iframe 是**正在跑的渲染页**（不是普通元素），换壁纸时无人终止 ⇒ 它留在后台继续拉 pkg / 解码纹理 / 上传，与新壁纸的启动叠在同一主线程上。现在 `applySelection` 与卸载都会清定时器并把它 `src=about:blank` **中止**；挂载处另补一次心跳武装（`load` 回调只在已挂载时武装，而延迟路径的文档可能在挂载前就 load 完 ⇒ `we-live-on` 会永远不加上）。护栏 `rotation-prepared-leak-smoke` 的 Q1 / Q2 / Q3（各带可失败对照）。
+- **首次激活场景壁纸不再黑屏**：新壁纸**第一次**激活时实时抓帧还不存在（要等这一轮 live 回填），而垫底画面当时只试「抓帧」一级、失败后**静默保留近黑主题色** ⇒ 首帧前是一块黑屏。现在垫底画面按 **实时抓帧 → 作者随包发布的预览图 → 主题色** 取：预览图**只作占位**（不算"替作者猜一张图"，`/scene-frame` 的空态语义**不变**、服务端一个字节没改），live 首帧一到即被顶掉；护栏 `rotation-prepared-leak-smoke` 的 P / P2（正 / 负对照成对）。
 - **修复 harness 0.1.7 下「右栏关闭态露出玻璃底板」（上游 issue #107）**：宿主右栏面板容器在**关闭态**仍占宽度、且自身没有背景，而插件无条件给它刷玻璃底 ⇒ 对话区右侧露出一块中灰板（控制台零报错，易被误判成主题问题）。现在**所有**给该容器上色的规则（含 `.cm-editor` / `.xterm` 内容面与软件渲染兜底）都限定在 `[data-sidebar-right-open]`，并补一条关闭态显式清底；护栏 `verify-host-paint-scope`。
 - **移除「beta 场景动画」**：`betaSceneAnim` 开关、宿主 `/scene-anim` 与 `/scene-anim-progress` 路由、客户端动画升级队列 / 进度轮询 / 探针 `<video>`、worker 多帧渲染与 APNG 输出**整体删除**（WebWallGL 实时渲染已是其上位替代）；`verify-client` 增**反向探针**，断言该路线不会复活。
 - **资源泄漏修复（审计 12 项）**：scene-anim 析构、探针视频、监听器、定时器、轮询守卫；宿主侧资源与缓存上限一并修复。
@@ -176,9 +179,12 @@
 - **Wallpaper-switch transitions (7 options)**: cross-fade / push / wipe / iris / zoom / strip / blinds; **hard cut by default**, shared by manual selection and automatic rotation; type / direction / speed tier are **whitelisted** (unknown values fall back to the default). 「条带」 (strip) became a real venetian blind this round — the previous implementation was visually indistinguishable from 「擦除」 (wipe).
 - **The live-frame row** is no longer gated by the live-rendering switch (you can re-capture at any time) and shows a **thumbnail of the current wallpaper's live frame**.
 - The transition options moved into a **dropdown**, and two redundant panel hints were removed.
+- **「启动延迟」 renamed to 「启动最长等待时间」, and the value is now a cap**: the delay period still preloads (so the first frame warms up), the live picture is swapped in **the moment the first frame is ready**, and at the cap it is swapped in regardless; the options read `立即 / ≤3s / ≤5s / ≤10s`.
 
 **Fixes**
 
+- **Stutter when switching away during the boot wait**: the not-yet-mounted iframe is a **running renderer page**, not a plain element — nothing terminated it on a wallpaper switch, so it kept fetching the package / decoding textures / uploading in the background, on the same main thread as the new wallpaper's own startup. `applySelection` and unload now clear its timer and **abort** it (`src=about:blank`); the mount path also arms the heartbeat once (the `load` handler only arms it when mounted, and a delayed frame's document may finish loading before that — which would leave `we-live-on` off forever). Guard: `rotation-prepared-leak-smoke` cases Q1 / Q2 / Q3 (each with a failing control).
+- **No more black screen when a scene wallpaper is activated for the first time**: on a wallpaper's **first** activation the live-captured frame does not exist yet (this live session has to backfill it), while the placeholder tried 「captured frame」 as its only source and **silently kept a near-black theme colour** on failure ⇒ a black screen until the first frame. The placeholder now takes **live-captured frame → the author's packaged preview image → the theme colour**: the preview is **only a stand-in** (never "guessing a picture on the author's behalf" — `/scene-frame`'s empty-state semantics are **unchanged**, not a byte on the host side) and is displaced the moment the live first frame lands; guard `rotation-prepared-leak-smoke` cases P / P2 (positive / negative controls paired).
 - **Fixed the "collapsed right sidebar still shows a glass plate on harness 0.1.7" bug (upstream issue #107)**: the host's right-panel container keeps its **width while collapsed** and paints no background of its own, while the plugin painted it unconditionally ⇒ a mid-grey slab across the right of the conversation area (zero console errors, easily mistaken for a theme problem). Every rule that paints that container (including the `.cm-editor` / `.xterm` content surfaces and the software-render fallback) is now scoped to `[data-sidebar-right-open]`, plus an explicit closed-state clear; guard `verify-host-paint-scope`.
 - **Removed "beta scene animation"**: the `betaSceneAnim` switch, the host `/scene-anim` and `/scene-anim-progress` routes, the client-side upgrade queue / progress polling / probe `<video>`, and the worker's multi-frame rendering and APNG output are **all deleted** (WebWallGL live rendering supersedes it); `verify-client` gained a **reverse probe** asserting that route never comes back.
 - **Resource leaks fixed (12 findings from the audit)**: scene-anim teardown, probe videos, listeners, timers, polling guards; host-side resources and cache caps too.

@@ -243,6 +243,12 @@
    裁定过的"把抓帧延后到 t≈N"**未启用**（N=0，行为不变）。
 5. **URL 与命名**：`/scene-frame` **不改名**（兼容零风险）；`?v=` 保留；③ 排在 ④ 之前（与
    `gpuFrameFileFor()` 一致）。§6.14 其余未决项均按当时的默认执行。
+6. **首帧之前的垫底画面**：来源顺序 = **实时抓帧 → 作者随包发布的工程预览图 → 主题色**
+   （客户端 `buildLivePoster`）。预览图**只作占位**，不破上面那条"不替作者猜一张图"的裁定：
+   `/scene-frame` 在没有帧时**仍给 404 空态**（服务端一个字节都不变），预览图从不被当作"这张壁纸的
+   出图"，live 首帧（`.we-live-on` 淡入）一到就被顶掉。**第二级不可省**：抓帧要等本轮 live 回填才
+   存在，只试一级会 404，而失败是"静默保留主题色"（近黑）⇒ 首帧前就是黑屏。判据：
+   `rotation-prepared-leak-smoke` 的 P / P2（正 / 负对照成对）。
 
 **守卫**：反向探针（`renderSceneFrameInWorker` / `extractSceneMainImage` / `collectImageObjectTextures` /
 `sceneFramePrewarm` 等标识符零残留）在 `test/verify-retired-lines.mjs`；语义断言（clamp、`v=4` 豁免、

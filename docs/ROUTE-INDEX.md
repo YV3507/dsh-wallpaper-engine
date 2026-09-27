@@ -24,7 +24,7 @@
 | 8 | `/scene-frame` | lib/routes/scene-frame.js:57 | 箭头 | disposers base mediaMap trackStream customFramePath customIdFromAbs …(+3) | 9 |
 | 9 | `/scene-frame-cache` | lib/routes/scene-frame.js:134 | 箭头 | disposers base mediaMap GPU_FRAME_MAX_BYTES GPU_WRITE_INFLIGHT armBodyIdleTimeout …(+4) | 4 |
 | 10 | `/custom-frame` | lib/routes/scene-frame.js:221 | 箭头 | disposers base serveFile CUSTOM_FRAME_EXT CUSTOM_FRAME_MAX_BYTES armBodyIdleTimeout …(+3) | 1 |
-| 11 | `/scene-live` | lib/routes/scene-serve.js:49 | 箭头 | disposers base WEBWALLGL_DIR appendDiagLine traceRequests serveFile | 5 |
+| 11 | `/scene-live` | lib/routes/scene-serve.js:49 | 箭头 | disposers base WEBWALLGL_DIR appendDiagLine traceRequests serveFile | 6 |
 | 12 | `/scene-files` | lib/routes/scene-serve.js:82 | 箭头 | disposers base handleSceneFiles | 4 |
 | 13 | `/media-origin` | lib/routes/scene-serve.js:90 | 箭头 | disposers base mediaOriginInfo | 1 |
 | 14 | `/props` | lib/index.js:3041 | 箭头 | webServer mediaMap disposers | 2 |

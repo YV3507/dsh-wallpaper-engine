@@ -956,7 +956,7 @@
         }),
         (sel.type === "scene" || sel.type === "web") && sel.sceneLive !== false
           && React.createElement("div", { className: "we-picker__ctl", key: "live-boot-delay" },
-          ctlText("启动延迟", "重启恢复壁纸时先显示占位图"),
+          ctlText("启动最长等待时间"),
           React.createElement("div", { className: "we-picker__seg" },
             [0, 3, 5, 10].map((secs) =>
               React.createElement("button", {
@@ -964,7 +964,7 @@
                 className: "we-picker__btn we-picker__rate" + (Number(sel.liveBootDelay) === secs ? " we-picker__rate--active" : ""),
                 type: "button",
                 onClick: () => { setSetting("liveBootDelay", secs); emit(); },
-              }, secs === 0 ? "立即" : secs + "s"),
+              }, secs === 0 ? "立即" : "≤" + secs + "s"),
             ),
           ),
         ),
