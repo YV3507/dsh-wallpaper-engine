@@ -17,6 +17,11 @@
  * 名字写错时那一行只是静默不生效。改动白名单时**必须**照 src/font/components.js 文件头
  * 记的口径重新实测。
  *
+ * **负对照的形态规则（P3-16）**：变异输入必须喂进**同一条判据**（同一个命名函数 / 同一个正则
+ * 常量）。两种写法不算数：① 只断言"某个常量 / 数组不含 X" —— 判据根本没被执行；
+ * ② 在对照里另抄一份判据 —— 生产侧（这里是 `src/font/components.js`）改了它也不会红。
+ * 规则全文与其余守卫约定见 [`docs/TEST-LAYOUT.md`](../docs/TEST-LAYOUT.md) §约定。
+ *
  * Usage:  node test/verify-component-fonts.mjs
  */
 
@@ -39,6 +44,21 @@ const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^
 const ALL = COMPONENT_FONT_TARGETS.map((t) => t.id);
 const MARKDOWN = 'markdown';
 
+// ── 命名判据（正判据与负对照**共用同一份** —— 见文件头的形态规则）─────────────
+const SELECTOR_SHAPE = /^body \[class\*="_[A-Za-z][A-Za-z0-9]*_"\] \{$/;
+const HASHED_CLASS = /_[A-Za-z0-9]+_[a-z0-9]{5,}_\d+/;
+/** 泛模块名（跨模块重名）：只许出现在 hooks 通道（那里写自定义属性，非消费方元素上惰性）。 */
+const GENERIC_PREFIXES = ['label', 'tab', 'input', 'content', 'item', 'row', 'block'];
+/** 这段 CSS 里所有**白名单外**的属性声明。 */
+const offendingProps = (css) => [...css.matchAll(/^\s*([a-z-]+):/gm)].map((m) => m[1])
+  .filter((p) => !COMPONENT_FONT_PROPS.includes(p));
+/** 泛模块名是否只出现在 hooks 通道。 */
+const genericOnlyInHooks = (list) => list.every((t) => !GENERIC_PREFIXES.includes(t.prefix) || t.route === 'hooks');
+/** 是否每一项都登记了 `.module.css` 出处。 */
+const allHaveModuleCssSource = (sources) => sources.every((s) => typeof s === 'string' && s.endsWith('.module.css'));
+/** 声明出来的钩子是否全在官方白名单内（防漂移）。 */
+const hooksAllKnown = (list, hooks) => list.every((h) => hooks.includes(h));
+
 // ── ① 选择器形态（唯一合法模板） ────────────────────────────────────────────
 section('① 选择器形态：只许 `body [class*="_前缀_"]`');
 {
@@ -49,12 +69,12 @@ section('① 选择器形态：只许 `body [class*="_前缀_"]`');
   check('拒绝带特殊字符的前缀', (() => { try { selectorFor('a b'); return false; } catch { return true; } })());
   const css = buildComponentCss({ markdown: { size: 15 } }, ALL);
   check('生成的 CSS 里每个选择器都符合唯一形态',
-    css.split('\n').filter((l) => l.includes('{')).every((l) => /^body \[class\*="_[A-Za-z][A-Za-z0-9]*_"\] \{$/.test(l.trim())),
+    css.split('\n').filter((l) => l.includes('{')).every((l) => SELECTOR_SHAPE.test(l.trim())),
     css.split('\n').filter((l) => l.includes('{')).join(' | '));
   check('负对照：形态判据对越界写法有牙',
-    !/^body \[class\*="_[A-Za-z][A-Za-z0-9]*_"\] \{$/.test('.markdown {')
-    && !/^body \[class\*="_[A-Za-z][A-Za-z0-9]*_"\] \{$/.test('body :has(.markdown) {')
-    && !/^body \[class\*="_[A-Za-z][A-Za-z0-9]*_"\] \{$/.test('body .markdown {'));
+    ['.markdown {', 'body :has(.markdown) {', 'body .markdown {', 'body [class*="_markdown"] {']
+      .every((s) => !SELECTOR_SHAPE.test(s))
+    && SELECTOR_SHAPE.test('body [class*="_markdown_"] {')); // 反向：合规形态必须被接受
 }
 
 // ── ② 只写白名单前缀 + 三个字体属性 ─────────────────────────────────────────
@@ -63,10 +83,12 @@ section('② 白名单与前缀/属性边界');
   const css = buildComponentCss(
     { markdown: { size: 15, weight: 600, family: '"KaiTi"' }, evilTarget: { size: 99 } }, ALL);
   check('只出现白名单内前缀', !css.includes('evilTarget'));
-  const props = [...css.matchAll(/^\s*([a-z-]+):/gm)].map((m) => m[1]);
-  const bad = props.filter((p) => !COMPONENT_FONT_PROPS.includes(p));
+  const bad = offendingProps(css);
   check('只写 font-size / font-weight / font-family', bad.length === 0, bad.join(' ') || '（无越界属性）');
-  check('负对照：属性判据能抓到越界属性', !COMPONENT_FONT_PROPS.includes('line-height'));
+  // 变异输入喂进**同一条**判据：越界属性必须被抓到，合规的那份必须放行
+  check('负对照：属性判据能抓到越界属性',
+    offendingProps('body [class*="_markdown_"] {\n  font-size: 15px;\n  line-height: 1.5;\n}').length === 1
+    && offendingProps('body [class*="_markdown_"] {\n  font-size: 15px;\n}').length === 0);
 }
 
 // ── ③ 自探测降级 ────────────────────────────────────────────────────────────
@@ -122,10 +144,10 @@ section('⑤ 源码不变量');
     !/:has\(/.test(code)
     && !buildComponentCss({ markdown: { size: 15 } }, ALL).includes('>')
     && !buildComponentCss({ markdown: { size: 15 } }, ALL).includes('~'));
-  check('**不把哈希写进代码**（写死哈希 = DSH 一升级就静默失效）',
-    !/_[A-Za-z0-9]+_[a-z0-9]{5,}_\d+/.test(code));
+  check('**不把哈希写进代码**（写死哈希 = DSH 一升级就静默失效）', !HASHED_CLASS.test(code));
   check('不碰 katex 与 @font-face', !/katex/i.test(code) && !/@font-face/.test(code));
-  check('负对照：哈希判据对真实哈希类名有牙', /_[A-Za-z0-9]+_[a-z0-9]{5,}_\d+/.test('_wordmark_u7vgf_31'));
+  check('负对照：哈希判据对真实哈希类名有牙',
+    HASHED_CLASS.test('_wordmark_u7vgf_31') && !HASHED_CLASS.test('_markdown_plain'));
   check('属性白名单就是三项', JSON.stringify(COMPONENT_FONT_PROPS) === JSON.stringify(['font-size', 'font-weight', 'font-family']));
   // 棘轮：首期口径 3–5 个组件。**上限就是棘轮** —— 想加组件必须同时改这条断言（有意动作），
   // 并按 components.js 文件头记的口径**实测**模块名，不许按"组件叫什么"猜。
@@ -139,13 +161,13 @@ section('⑤ 源码不变量');
       && ['tokens', 'hooks', 'props'].includes(t.route)));
   // 泛模块名（跨模块重名）只许出现在 hooks 通道：那里写的是自定义属性，非消费方元素上是惰性的。
   // 写真实属性的通道用了泛名 ⇒ 会打到同名的别的块上（搜索块 / 网页块），必须红。
-  const GENERIC = ['label', 'tab', 'input', 'content', 'item', 'row', 'block'];
-  const genericOk = COMPONENT_FONT_TARGETS.every((t) => !GENERIC.includes(t.prefix) || t.route === 'hooks');
-  check('泛模块名只许出现在 hooks 通道（写真实属性的通道不得用）', genericOk,
+  check('泛模块名只许出现在 hooks 通道（写真实属性的通道不得用）',
+    genericOnlyInHooks(COMPONENT_FONT_TARGETS),
     COMPONENT_FONT_TARGETS.map((t) => t.id + ':' + t.prefix + '/' + t.route).join(' '));
   check('负对照：把泛模块名挪到非 hooks 通道会被判出',
-    ![...COMPONENT_FONT_TARGETS.filter((t) => t.id !== 'codeBlock'),
-      { id: 'x', prefix: 'block', route: 'tokens' }].every((t) => !GENERIC.includes(t.prefix) || t.route === 'hooks'));
+    !genericOnlyInHooks([{ id: 'x', prefix: 'block', route: 'tokens' }])       // 泛名 + 真实属性通道 ⇒ 红
+    && genericOnlyInHooks([{ id: 'x', prefix: 'block', route: 'hooks' }])      // 反向：hooks 通道放行
+    && genericOnlyInHooks([{ id: 'x', prefix: 'markdown', route: 'tokens' }])); // 非泛名放行
   // 一个模块名可以被两条共用（代码块 / 终端块），但**不许**三条以上：共用越多，
   // "面板默认值只读第一个命中元素"这条已知代价的偏差面越大。
   {
@@ -162,12 +184,12 @@ section('⑤ 源码不变量');
 // 顺带把出处**真的打开核对**一遍（这是唯一能机器判定"名字是真的"的路子）。
 section('⑤b 模块名的实测出处（source）');
 {
-  const bad = COMPONENT_FONT_TARGETS.filter((t) => typeof t.source !== 'string'
-    || !t.source.endsWith('.module.css'));
+  const bad = COMPONENT_FONT_TARGETS.filter((t) => !allHaveModuleCssSource([t.source]));
   check('每个组件都登记了 .module.css 出处', bad.length === 0,
     bad.map((t) => t.id).join(' ') || COMPONENT_FONT_TARGETS.map((t) => t.id).join(' '));
   check('负对照：出处判据对缺失/乱填有牙',
-    ![undefined, 'guess.css', ''].every((s) => typeof s === 'string' && s.endsWith('.module.css')));
+    !allHaveModuleCssSource([undefined]) && !allHaveModuleCssSource(['guess.css']) && !allHaveModuleCssSource([''])
+    && allHaveModuleCssSource(['block.module.css']));
   // 机会性核对：装了 DSH 就逐个打开出处文件，断言里面真的定义了 `.prefix`。
   // 没装则显式跳过（并打印），不假装有牙 —— CI 上没有 DSH，这条必须能安全跳过。
   // 候选位置：环境变量优先，其次几个常见安装位置；全都不在就跳过。
@@ -209,7 +231,7 @@ section('⑥ G3 官方钩子（--dsl-*，作用域 = 钩子的**定义点**）')
     HOOKS.join(' '));
   // 防漂移主线：route=hooks 的组件声明的钩子必须全在官方白名单里
   const declared = COMPONENT_FONT_TARGETS.flatMap((t) => t.dslHooks || []);
-  check('所有声明的钩子都在官方白名单内（防漂移）', declared.every((h) => HOOKS.includes(h)), declared.join(' '));
+  check('所有声明的钩子都在官方白名单内（防漂移）', hooksAllKnown(declared, HOOKS), declared.join(' '));
   check('每个组件都标了 route（tokens/hooks/props）',
     COMPONENT_FONT_TARGETS.every((t) => ['tokens', 'hooks', 'props'].includes(t.route)));
   check('route=hooks 的组件必须声明至少一个钩子',
@@ -262,8 +284,9 @@ section('⑥ G3 官方钩子（--dsl-*，作用域 = 钩子的**定义点**）')
   check('负对照：四令牌齐全时必须生成',
     mod.buildDslBlocks({ codeBlock: { size: 14 } }, ['codeBlock'], () => true, SCOPES)
       .includes('--dsl-code-block-content-font'));
-  check('负对照：钩子名判据能抓到拼错的钩子（防手滑）',
-    !HOOKS.includes('--dsl-codeblock-content-font'));
+  check('负对照：钩子漂移判据能抓到拼错的钩子（防手滑）',
+    !hooksAllKnown(['--dsl-codeblock-content-font'], HOOKS)   // 变异输入：少一个连字符 ⇒ 红
+    && hooksAllKnown(['--dsl-terminal-font'], HOOKS));        // 反向：白名单内的必须放行
 }
 
 // ── ⑥b 钩子定义点扫描（scanHookScopes）──────────────────────────────────────

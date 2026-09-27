@@ -17,6 +17,11 @@
  * `README*` 等，所以真实 tarball 的条目数会比这里略多（差额即这些自动附带项）。
  * 需要精确条目数时以本机 `npm pack --dry-run` 的输出为准 —— 此处不写死数字。
  *
+ * **负对照的形态规则（P3-16）**：变异输入必须喂进**同一条判据** —— 本文件里就是那几个命名实体
+ * （`publishSet` / `DEV` / `PLACEHOLDER` / `unshippedRefs` / `usedByClosure` / `vm.Script`），
+ * 正判据与负对照都调它。只断言"某个常量不含 X"不算（判据没被执行）；在对照里另抄一份判据
+ * 也不算（生产侧改了也不会红）。规则全文见 [`docs/TEST-LAYOUT.md`](../docs/TEST-LAYOUT.md) §约定 5。
+ *
  * Usage:  node test/verify-package-publish.mjs
  */
 
@@ -104,6 +109,11 @@ while (queue.length) {
   }
 }
 const closure = [...seen].map(rel).sort();
+
+/** 判据：某条声明依赖是否被**可达闭包**加载（正判据与负对照都走它；`list` 可注入）。 */
+function usedByClosure(dep, list = bare) {
+  return list.some((s) => s === dep || s.startsWith(dep + '/'));
+}
 const uncovered = closure.filter((r) => !publishSet(r));
 check('可达闭包里的每个文件都被 `files` 覆盖', uncovered.length === 0,
   uncovered.length ? '未覆盖：' + uncovered.join(', ') : closure.length + ' 个文件');
@@ -149,7 +159,7 @@ section('④ 每个 dependencies 都被**可达闭包**用到');
 // 也已从 package.json 移除 ⇒ 白名单清空（这条断言会强制你删干净后把条目一起清掉）。
 const DEP_UNUSED_ALLOW = {};
 const deps = Object.keys(pkg.dependencies || {});
-const unused = deps.filter((d) => ![...bare].some((s) => s === d || s.startsWith(d + '/')));
+const unused = deps.filter((d) => !usedByClosure(d));
 const unexpected = unused.filter((d) => !(d in DEP_UNUSED_ALLOW));
 check('没有"声明了但活代码从不加载"的依赖', unexpected.length === 0,
   unexpected.join(', ') || deps.join(', ') || '（无声明）');
@@ -157,7 +167,9 @@ check('棘轮只许缩小：白名单里的依赖必须仍未被使用（删干�
   Object.keys(DEP_UNUSED_ALLOW).every((d) => deps.includes(d) && unused.includes(d)),
   '白名单 ' + Object.keys(DEP_UNUSED_ALLOW).length + ' 条');
 check('负对照：依赖使用判据对合成输入有牙',
-  ['left' + '-pad'].every((d) => ![...['node:fs']].some((s) => s === d || s.startsWith(d + '/'))));
+  usedByClosure('left-pad', ['left-pad/sub'])     // 子路径算用到
+  && !usedByClosure('left-pad', ['left-padx'])    // 近失：前缀必须落在路径边界上
+  && !usedByClosure('left-pad', ['node:fs']));    // 不相关的内置不是它
 
 // ── ⑤ 入口 / 导出目标都在包里 ───────────────────────────────────────────────
 section('⑤ 入口与导出目标都被发布');
@@ -213,8 +225,12 @@ section('⑦ 安装期脚本不得引用未随包发布的文件');
     offending.map(([n, c]) => n + ' → ' + unshippedRefs(c).join(',')).join('; ')
     || Object.keys(pkg.scripts || {}).length + ' 个脚本全部合规');
   check('负对照：安装期脚本引用 scripts/ 会被判出',
-    INSTALL_HOOKS.includes('postinstall') && unshippedRefs('node scripts/thing.mjs').length === 1
-    && unshippedRefs('node lib/index.js').length === 0);
+    unshippedRefs('node scripts/thing.mjs').length === 1
+    && unshippedRefs('node lib/index.js').length === 0
+    && unshippedRefs('node myscripts/thing.mjs').length === 0); // 近失：前缀必须落在路径边界上
+  // 安装期钩子是**用户侧**会跑的：谁把它塞进 DEV_ONLY（为了让上面那条闭嘴）就等于放行"装完就炸"
+  check('负对照：安装期钩子不得被 DEV_ONLY 放行',
+    INSTALL_HOOKS.every((h) => !DEV_ONLY.includes(h)), INSTALL_HOOKS.join(' '));
 }
 
 console.log('');
