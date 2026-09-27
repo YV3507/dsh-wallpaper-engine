@@ -587,13 +587,15 @@ console.log('Level C2 — custom storage scan (WE project dirs under uploads)');
 }
 
 // ── Level D: client source contract ─────────────────────────────────────────
-console.log('Level D — client source wiring (src/client.js)');
-// 客户端源码现在**分为两个文件**：逻辑（src/client.js）与注入的样式表（src/styles.js）。
-// Level D 的判据里既有 JS 结构断言、也有样式规则断言（甚至有同一条里两种都有的），
-// 所以两个来源都读出来，**各自用在对应的判据上**（不图省事拼成一个字符串——那样样式文本
-// 就能满足 JS 结构断言，判据会失去牙）。
+console.log('Level D — client source wiring (src/client.js + 抽出的模块)');
+// 客户端源码现在是**三个文件**：逻辑（src/client.js）、注入的样式表（src/styles.js）、
+// 实时渲染管线（src/live-layer.js）。Level D 的判据里既有 JS 结构断言、也有样式规则断言、
+// 还有"跨文件的接线"断言（如"面板调用 + 被调函数里的门禁"）—— 所以三个来源都读出来，
+// **各自用在对应的判据上**（不图省事拼成一个字符串：那样一个文件的文本就能满足另一个文件的
+// 结构断言，判据会失去牙）。
 const src = readFileSync(join(root, 'src', 'client.js'), 'utf8');
 const stylesSrc = readFileSync(join(root, 'src', 'styles.js'), 'utf8');
+const liveSrc = readFileSync(join(root, 'src', 'live-layer.js'), 'utf8');
 /** `function name() { … }` 的函数体源码（用于按内容而非脆弱的跨行正则断言）。 */
 function fnBody(source, name) {
   const i = source.indexOf('function ' + name + '(');
@@ -612,17 +614,17 @@ check('效果应用层已抽成独立模块并被内联',
 const clientChecks = [
   ['live is the top priority for scenes and web', /const isLive = \(sel\.type === "scene" \|\| sel\.type === "web"\) && liveRenderEnabled\(sel\)/.test(src)],
   ['sceneVideo yields to live', /Boolean\(sel\.sceneVideo\) && !isLive/.test(src)],
-  ['web wallpapers force the strict sandbox', /webSandbox=strict/.test(src)],
-  ['heartbeat watchdog exists', /function startLiveWatch/.test(src) && /LIVE_FIRST_FRAME_MS/.test(src)],
-  ['failure memory persists', /sceneLiveFailures/.test(src) && /function liveFail/.test(src)],
+  ['web wallpapers force the strict sandbox', /webSandbox=strict/.test(liveSrc)],
+  ['heartbeat watchdog exists', /function startLiveWatch/.test(liveSrc) && /LIVE_FIRST_FRAME_MS/.test(liveSrc)],
+  ['failure memory persists', /sceneLiveFailures/.test(src) && /function liveFail/.test(liveSrc)],
   ['audio mux honours live', /!selLike\.sceneLiveActive/.test(src)],
-  ['syncLayers key carries live state', /"live\\u0000" \+ \(selection\.sceneLiveSrc \|\| selection\.webLiveSrc\)/.test(src)],
+  ['syncLayers key carries live state', /"live\\u0000" \+ \(selection\.sceneLiveSrc \|\| selection\.webLiveSrc\)/.test(liveSrc)],
   // sceneVideo 只在**非 live** 形态下进 key：live 生效时 buildMedia 已把 isSceneVideo
   // 短路，把 sceneVideo 算进 key 会让「sceneVideo 诚实化的时序补拉」
   //（scheduleSceneVideoResync 落地时 sceneVideo 由 null 变 URL）在 live 播放中
   // 冷启动一次渲染页 —— 无意义重建，用户会看到画面重新加载。
   ['sceneVideo stays out of the layer key while live renders',
-    /\(layerLive \? "" : \(selection\.sceneVideo \|\| ""\)\)/.test(src)],
+    /\(layerLive \? "" : \(selection\.sceneVideo \|\| ""\)\)/.test(liveSrc)],
   // 垫底静态帧是 iframe 的**下层**：只要 iframe 半透明（壁纸透明度一高），它就会以
   // a(1−a) 的强度透出来（实测「壁纸透明度高时显现静态帧」）。首帧点亮后必须整块退场，
   // 且必须**串行**——延迟到 iframe 淡入（1.8s）完成后再快收。若退回与 iframe 同步
@@ -652,35 +654,37 @@ const clientChecks = [
   // 「重新截」= force 重抓：必须走「先抓帧 + 内容门禁 → 成功后才清旧帧」的安全顺序，
   // 抓不到时不许把原来那张删掉（面板上给失败原因）。
   ['manual re-capture forces a fresh capture through the safe path',
+    // 跨文件接线：面板（client.js）发起 force 重抓；"先抓帧 + 内容门禁 → 成功后才清旧帧"
+    // 的安全顺序在被调的 scheduleLiveFrameBackfill 里（live-layer.js）。
     /scheduleLiveFrameBackfill\(live, \{ force: true \}\)/.test(src)
-    && /const stale = force \|\| \(hasGpu && arRef > 0/.test(src)],
+    && /const stale = force \|\| \(hasGpu && arRef > 0/.test(liveSrc)],
   // 微缩预览必须指向层里正在用的那个 URL（同档位）+ 缓存破坏参数。
   ['frame preview points at the live layer URL',
     /function framePreviewSrc\(selLike\)[\s\S]{0,500}?frameUrlWithVariant\(selLike && selLike\.sceneFrameUrl, v\)[\s\S]{0,200}?we-prev=/.test(src)],
-  ['pointer injection wired', /__wp\.pushPointer|wp\.pushPointer/.test(src) && /pointerLeave/.test(src)],
-  ['fit mapping table present', /SCENE_LIVE_FIT = \{ cover: "cover"/.test(src)],
+  ['pointer injection wired', /__wp\.pushPointer|wp\.pushPointer/.test(liveSrc) && /pointerLeave/.test(liveSrc)],
+  ['fit mapping table present', /SCENE_LIVE_FIT = \{ cover: "cover"/.test(liveSrc)],
   // 实测踩坑回归（2026-09-22）：渲染页 resume() 会 resetFrameMeter，心跳若
   // 每秒无条件调 resume 会永远读到 fps=0 → 15s 误降级。控制必须去重下发，
   // 且 tick 内先读统计再应用控制。
-  ['controls are deduped before dispatch', /liveApplied\.playing !== playing/.test(src)],
-  ['heartbeat reads stats before applying controls', /const stats = liveStats\(frame\);\s*\n\s*applyLiveControls\(frame\);/.test(src)],
+  ['controls are deduped before dispatch', /liveApplied\.playing !== playing/.test(liveSrc)],
+  ['heartbeat reads stats before applying controls', /const stats = liveStats\(frame\);\s*\n\s*applyLiveControls\(frame\);/.test(liveSrc)],
   ['upload management list excludes project dirs', /isUploadedWallpaper\(w\) && !isDirWallpaper\(w\)/.test(src)],
   // 帧率取证（「限了 30 还卡」时唯一能分清「壁纸自身掉帧」与「整页掉帧」的手段）
   ['live fps probe reports ui / web / rnd to the diag channel',
-    src.includes('function reportLiveFps') && src.includes('"live-fps"')
-      && src.includes('function takeUiFps') && src.includes('wstate.webFps')],
+    liveSrc.includes('function reportLiveFps') && liveSrc.includes('"live-fps"')
+      && liveSrc.includes('function takeUiFps') && liveSrc.includes('wstate.webFps')],
   // 网页壁纸的 src 直用 host 给的绝对 URL（媒体源）；相对形态仅作回落。
-  ['web live src reuses the absolute media-origin URL', src.includes('const webEntry = String(selLike.webLiveSrc || "")')
-    && src.includes('/^https?:\\/\\//i.test(webEntry)')],
+  ['web live src reuses the absolute media-origin URL', liveSrc.includes('const webEntry = String(selLike.webLiveSrc || "")')
+    && liveSrc.includes('/^https?:\\/\\//i.test(webEntry)')],
   // 实机回归（2026-09-25）：「场景类壁纸正常几秒就失效」「网页也是」「失效以后是静态的」
   // 「只有扩展模式」「网页类是预览图」。成因是 extended 的「首帧后延迟 8000ms 换元」自救：
   // 换元后的新元素为防白闪被摘掉 `we-live-on`，层回落垫底图（场景=静态帧、网页=预览图），
   // 而渲染页照旧出声；日志上 first-frame-ok 后**正好 +8s** 出现 live-frame-rebuilt。
   // 该 workaround 的前提（启动期 iframe 永不上屏）已不成立 ⇒ 改成 **opt-in**。
   ['extended frame swap is opt-in (default off) — it is the "几秒后失效" 病因',
-    /function useExtendedFrameSwap\(\)/.test(src)
-    && /extendedFrameSwap = String\(rawFlag\)\.toLowerCase\(\) === "1";/.test(src)
-    && /if \(desktopWindowMode\(\) === "extended" && !liveFrameRebuildTimer && useExtendedFrameSwap\(\)\) \{/.test(src)],
+    /function useExtendedFrameSwap\(\)/.test(liveSrc)
+    && /extendedFrameSwap = String\(rawFlag\)\.toLowerCase\(\) === "1";/.test(liveSrc)
+    && /if \(desktopWindowMode\(\) === "extended" && !liveFrameRebuildTimer && useExtendedFrameSwap\(\)\) \{/.test(liveSrc)],
 ];
 for (const [name, ok] of clientChecks) check(name, ok);
 // 负对照：**没有开关的**换元调用点（旧写法）喂给同一判据必须被判不合格 —— 否则这条断言
@@ -689,8 +693,30 @@ for (const [name, ok] of clientChecks) check(name, ok);
   const swapIsOptIn = (s) => /if \(desktopWindowMode\(\) === "extended" && !liveFrameRebuildTimer && useExtendedFrameSwap\(\)\) \{/.test(s);
   const ungated = 'if (desktopWindowMode() === "extended" && !liveFrameRebuildTimer) {';
   check('negative control: the ungated extended swap call site is rejected', swapIsOptIn(ungated) === false);
-  check('positive control: the current client gates the extended swap', swapIsOptIn(src) === true);
+  check('positive control: the current client gates the extended swap', swapIsOptIn(liveSrc) === true);
 }
+// ── Level D2: 实时管线抽模块的结构契约（抽出来之后钉住）─────────────────────
+// 契约的可核对形式：
+//   · 管线**只在 live-layer.js 里**（client.js 不得再留一份同名实现）；
+//   · 它对 client.js 的跨模块**写**为零 —— 唯一一处曾被外部翻转的状态（liveDiagOn）
+//     必须走 toggleLiveDiag() 入口；
+//   · 必须登记进 INLINE_MODULES **且真的进了产物**（防孤儿：文件在却不进 bundle）。
+{
+  const build = readFileSync(join(root, 'scripts', 'build-client.mjs'), 'utf8');
+  const bundle = readFileSync(join(root, 'lib', 'client.js'), 'utf8');
+  const MOVED = ['function startLiveWatch(', 'function syncLayers()', 'function scheduleLiveFrameBackfill(',
+    'function liveLog(', 'function createLiveFrame('];
+  const stillInClient = MOVED.filter((m) => src.includes(m));
+  check('实时管线只在 src/live-layer.js（client.js 不留第二份）', stillInClient.length === 0,
+    stillInClient.join(' ') || '搬走了 ' + MOVED.length + ' 个入口');
+  check('client.js 对管线状态零跨模块写（liveDiagOn 必须走入口）',
+    !/^\s*liveDiagOn\s*=/m.test(src) && /toggleLiveDiag\(\)/.test(src));
+  check('live-layer.js 已登记进 INLINE_MODULES 且在产物里只有一份',
+    /file:\s*'src\/live-layer\.js'/.test(build)
+    && (bundle.match(/function syncLayers\(\)/g) || []).length === 1);
+  check('negative control: 未登记的模块名会被判出', !/file:\s*'src\/nope\.js'/.test(build));
+}
+
 // 实测踩坑回归（2026-09-22）：host 的 sanitizeSettings 是白名单，漏加
 // sceneLiveFailures 会让 PUT 上来的失败记忆被丢弃、刷新后记忆消失。
 const hostSrc = readFileSync(join(root, 'lib', 'index.js'), 'utf8');
@@ -853,7 +879,8 @@ check('条件求值器已抽成独立模块并被内联（fail open）',
     && bundleSrc.includes('function weEvalCondition(')
     && !src.includes('function weEvalCondition('));
 check('场景就绪后回放覆盖值（无 HTML 种子通道）',
-  src.includes('function applyStoredUserProps(') && src.includes('applyStoredUserProps(selection)'));
+  // 声明留在 client.js（用户属性域），调用点在实时管线的挂载路径里（live-layer.js）。
+  src.includes('function applyStoredUserProps(') && liveSrc.includes('applyStoredUserProps(selection)'));
 // 用户口径：选择壁纸页只保留**顶部**关闭按钮（底部那个是重复的）。
 // 计数口径：closePicker 的绑定 = 顶部按钮 + 点击遮罩，共 2 处。
 check('选择壁纸弹窗只留顶部关闭按钮（底部不再有）',
@@ -991,9 +1018,9 @@ if (laRoute && weDirRoute) {
 
 // Level D 增补：local-assets 接线的静态契约（防重构丢线）。
 check('client gates localAssets=1 on inventory availability',
-  /weAssetsAvailable \? "&localAssets=1"/.test(src));
+  /weAssetsAvailable \? "&localAssets=1"/.test(liveSrc));
 check('syncLayers key carries local-assets availability',
-  /weAssetsAvailable \? "la1"/.test(src));
+  /weAssetsAvailable \? "la1"/.test(liveSrc));
 check('client posts assets dir to host route',
   /we-assets-dir/.test(src) && /function changeWeAssetsDir/.test(src));
 check('host inventory reports weAssets availability',

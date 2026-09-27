@@ -85,6 +85,12 @@ const INLINE_MODULES = [
       'function removeFontStyles()'],
   },
   {
+    file: 'src/live-layer.js',
+    why: '实时渲染管线：live 看护/判失败/抓帧回填/指针/poster 与壁纸层构建（syncLayers）与过场',
+    markers: ['const LIVE_FIRST_FRAME_MS = ', 'function liveLog(', 'function startLiveWatch(',
+      'function scheduleLiveFrameBackfill(', 'function syncLayers()', 'function toggleLiveDiag('],
+  },
+  {
     file: 'src/transcode.js',
     why: '源元数据探测 + 抽帧转码升级的完整生命周期（有状态；拥有 selection 的三个转码字段）',
     markers: ['let mediaInfoToken = ', 'function clearUpgradePoll(', 'async function refreshMediaInfo(',

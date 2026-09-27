@@ -119,6 +119,7 @@ check('negative control: 带日期的注释会被判不合格',
     // 既有散文（CSS 注释里的"旧版"对照），不是新写的编年史。
     'src/styles.js': 2,
     'src/transcode.js': 0,
+    'src/live-layer.js': 1,
     'lib/scene-render-worker.mjs': 0,
     'lib/we-renderer/core.js': 1,
     'lib/media/supervisor.js': 1,
