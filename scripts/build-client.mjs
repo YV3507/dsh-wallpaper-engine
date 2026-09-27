@@ -45,6 +45,11 @@ const id = pkg.name;
  */
 const INLINE_MODULES = [
   {
+    file: 'src/styles.js',
+    why: '注入的整份样式表（纯数据，零分支；可读性下限与 CSS 必须同处一文件）',
+    markers: ['const READABILITY_FLOOR = ', 'const READABILITY_FLOOR_DARK = ', 'const CSS = '],
+  },
+  {
     file: 'src/font/components.js',
     why: 'G3/G4 组件级字体：模块前缀白名单 + 启动自探测 + 官方 --dsl-* 钩子生成',
     markers: ['const COMPONENT_FONT_TARGETS = [', 'function probeComponentTargets(',

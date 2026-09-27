@@ -87,15 +87,13 @@ const matchRoute = (pathname) => routes.find((r) => (
 // 宿主页（等价于插件 client 的那半边）：嵌渲染页 + 就绪后推一次媒体快照。
 // 有它才能测「封面/歌名能不能穿过沙箱到达壁纸」—— 直接开渲染页没法调 __wp.setMedia。
 let wrapperHtml = '';
-// 插件真实 CSS（src/client.js 的 CSS 模板字面量）——布局断言必须在真 CSS 上做，
+// 插件真实 CSS（样式表模块里的模板字面量）——布局断言必须在真 CSS 上做，
 // 否则「抽屉里按钮上下排列、间距 8px」这种要求测了等于没测。
+// ⚠️ 取模板用**行首锚定（容忍缩进）**：散文里出现同样的声明字面量会把锚点带偏。
 const pluginCss = (() => {
-  const srcText = readFileSync(join(root, 'src', 'client.js'), 'utf8');
-  const start = srcText.indexOf('const CSS = `');
-  if (start < 0) return '';
-  const from = start + 'const CSS = `'.length;
-  const end = srcText.indexOf('`;', from);
-  return end > from ? srcText.slice(from, end) : '';
+  const srcText = readFileSync(join(root, 'src', 'styles.js'), 'utf8');
+  const m = /^\s*const CSS = `([^`]*)`;/m.exec(srcText);
+  return m ? m[1] : '';
 })();
 if (!pluginCss.includes('.we-picker__current')) {
   console.log('  ! 未能从 src/client.js 提取插件 CSS，布局断言会跳过');

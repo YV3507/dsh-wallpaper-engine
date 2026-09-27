@@ -1,0 +1,1910 @@
+/**
+ * styles.js — 插件注入的**整份样式表**（纯数据；构建期内联进 lib/client.js 的工厂作用域）。
+ *
+ * 为什么单独一个文件：这是全仓最大的一块**纯数据**（1,800+ 行 CSS、**零分支**），夹在
+ * src/client.js 的 9,500 行里会让"这段逻辑从哪开始"极难定位。它不参与任何控制流，
+ * 只被样式注入代码读一次（本文件底部那个样式表常量 → 注入处的 textContent 赋值）。
+ *
+ * ⚠️ 可读性下限（READABILITY_FLOOR / READABILITY_FLOOR_DARK）**必须和 CSS 同处一文件**：
+ *    它们是样式表模板里的插值，且**只**在这里被使用 —— 一旦分开，"数值与样式表漂移"
+ *    就重新变成可能。数值的来龙去脉见下面那段注释（scripts/verify-readability.mjs 复算同一张网格）。
+ *
+ * ⚠️ **本文件的注释里不得出现反引号，也不得复述下面那条样式表声明语句的字面量**：样式表模板
+ *    由若干守卫从**产物**里按"行首的那条声明"取出来，散文里出现同样的字面量或裸反引号会把
+ *    锚点带偏 —— 判据会读出整份 bundle（实测踩到过：verify-host-paint-scope 的 H0 报"裸反引号 489"）。
+ *
+ * 契约：需要的外界**无**；对外提供样式表常量与两个可读性下限。
+ * 不变量：
+ *   · 浏览器安全（无 import / require / Node API），且**不得有顶层可执行语句**去读宿主状态——
+ *     它被内联到 bundle 顶部（早于 client.js 正文）。顶层样式表常量是**纯数据**，
+ *     插值只引用本文件自己的常量 ⇒ 不触发 TDZ。
+ *   · 这是**纯数据**：逻辑（何时注入、何时移除、代际标记）留在 src/client.js。
+ */
+// ── Text-surface readability floor (upstream #82) ───────────────────────────
+// The wallpaper may be dimmed/blended so it "does not dominate", but TEXT MUST
+// STAY READABLE. IDEA's background-image feature has ONE knob (image opacity)
+// and still "just works" because the image always sits BEHIND the editor /
+// tool-window surfaces, which keep a background of their own
+// (https://www.jetbrains.com/help/idea/setting-background-image.html). This
+// plugin lacked exactly that structural property: every text-bearing surface
+// was painted as `glass colour @ --we-glass-alpha`, and in dark mode that alpha
+// is additionally multiplied by 0.4 — worst case 0.03 × 0.4 = 0.012, i.e. no
+// frost at all, so conversation text scrolling behind the composer read
+// straight through.
+//
+// The floor is a THEME-BASE LAYER composited OVER that glass tint at a fixed
+// weight no slider can lower: the tint's alpha only scales the other operand,
+// so the effective coverage is floor + a·(1−floor) ≥ floor. Clamping the tint
+// alpha itself with max() cannot work here — in dark mode the tint is a WHITE
+// glaze, so over the brightest plausible wallpaper pixel the surface composites
+// to white at ANY alpha and white body text keeps exactly 1.00:1 (the measured
+// before row below). In light mode such a clamp would work but would have to
+// sit at 0.44, above every alpha the slider can reach (max 0.25) — it would
+// flatten the slider completely. The theme-base layer fixes both themes and
+// keeps the slider alive above the floor.
+//
+// Both values come from measurement (scripts/verify-readability.mjs recomputes
+// the same grid): 玻璃透明度 {0,15,30,45,60} × theme {light,dark} ×
+// 壁纸透明度 {0,50,90}, theme text colour (light #000 / dark #fff) against the
+// surface composited onto the worst-case backdrop (light: darkest plausible
+// wallpaper pixel #000; dark: brightest #fff):
+//   light  exact 0.44194 → 0.45   worst case 4.63:1  (bubble @ 玻璃透明度=60)
+//   dark   exact 0.58136 → 0.59   worst case 4.63:1  (settings layer-3 @ 0)
+// The floor is independent of 壁纸透明度: it never reads --we-wallpaper-opacity,
+// which keeps affecting .we-layer only. Values are interpolated into the CSS
+// below so the stylesheet and this comment can never drift apart.
+const READABILITY_FLOOR = 0.45;
+const READABILITY_FLOOR_DARK = 0.59;
+
+// ── Styles ──────────────────────────────────────────────────────────────────
+const CSS = `
+  /* Wallpaper layer: a fixed child of <body>, sunk BELOW the app frame.
+     壁纸透明度（#82）作用在**媒体叶子**（.we-layer .we-media）上 —— 对
+     <video>/<img>/<iframe>/canvas 四类媒体统一生效，也无需逐媒体处理
+     fit/transform 的相互作用；层自身垫一层**原生底色**
+     （--we-wallpaper-fade-bg，浅色纯白 / 深色纯黑）保持不透明合成（透明
+     backdrop 会让玻璃 backdrop-filter 静默失效）。变量缺省 1。 */
+  .we-layer { position: fixed; inset: 0; z-index: -2; overflow: hidden; pointer-events: none; opacity: 1; background-color: var(--we-wallpaper-fade-bg, transparent); }
+  /* Blurring via CSS filter darkens/thins the edges, so the layer is scaled up
+     (--we-wallpaper-scale tracks blur) to hide the transparent fringe the blur
+     would otherwise reveal at the viewport edges. */
+  .we-layer .we-media {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+    background: transparent; border: 0;
+    /* 壁纸透明度（#82）作用于媒体叶子而非 .we-layer 整层：layer 垫**原生底色**
+       （--we-wallpaper-fade-bg，浅色纯白 / 深色纯黑）保持不透明合成，避免透明
+       backdrop 让玻璃 backdrop-filter 失效（见 applyEffects 注释）。 */
+    opacity: var(--we-wallpaper-opacity, 1);
+    /* Blur is applied ONLY when > 0 (see --we-media-filter in applyEffects):
+       a permanent blur(0px) would still force an offscreen filter layer on
+       the wallpaper <video>/canvas every frame — a known source of periodic
+       compositing glitches (brief white flash) in Chromium. */
+    filter: var(--we-media-filter, none);
+    /* Single transform var — "none" at default so the full-screen <video> isn't
+       forced onto a transform compositing layer; the blur-compensation scale and
+       the mirror are composed in the SAME var when active. */
+    transform: var(--we-wallpaper-transform, none);
+    transform-origin: center;
+  }
+  /* The 适配 row sets the fit mode for the CURRENT wallpaper (any type);
+     only .we-media--fit reads the variable (iframes have no object-fit). */
+  .we-layer .we-media--fit { object-fit: var(--we-object-fit, cover); }
+
+  /* Scene live render (WebWallGL): static frame underlay + renderer iframe.
+     Both stack absolutely inside .we-layer; the iframe starts transparent and
+     fades in on the first heartbeat frame (.we-live-on, startLiveWatch) so the
+     load window and any live→frame degradation never flash. Fade composes with
+     the wallpaper-opacity leaf var (#82) via calc instead of overwriting it.
+     时长与 LIVE_FIRST_FADE_MS 同步（当前 1800ms）：手动切换壁纸时
+     「GPU 静帧 → 实时动态帧」的缓慢过渡走的就是这条腿。 */
+  .we-layer .we-live-poster {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    background-size: cover; background-position: center; background-repeat: no-repeat;
+  }
+  /* live 首帧点亮后，垫底静态帧必须**整块退场** —— 但必须**串行**：等 iframe
+     淡入完成后再快收，不能与 iframe 同步双淡出。同步双淡出时两个半透明层互换，
+     黑底会在过渡中点以 (1−f)(1−p)≈25% 的强度漏出来（层底是原生纯黑/纯白），
+     用户实测可见「切换完成后整屏呼吸式变暗后恢复」—— 它违反了本仓「旧画面
+     保持不透明垫底」的铁律。串行后 iframe 淡入期间的合成是
+     f·live + (1−f)·静态帧，黑底永不参与；延迟 1.8s（与 LIVE_FIRST_FADE_MS
+     同步）时 iframe 已到终态 —— a=1 时静态帧被完全不透明 iframe 盖住，0.3s
+     快收完全不可见；a<1 时残余的 a(1−a) 静态帧鬼影（本规则存在的理由，见下）
+     由这 0.3s 平滑收掉。
+     ⚠️ 它在 DOM 里是 iframe 的**下层**，而「壁纸透明度」是把上层 iframe 变半透明
+     —— 一个 0.1 的 alpha 会让静态帧以 a(1−a)≈0.09 的强度重新透出来：现象就是
+     「壁纸透明度高时显现静态帧」，而预期是只该看到原生底色 + 淡出的实时画面。
+     首帧确认前 / 降级回静态帧后本规则不匹配，垫底照旧负责盖住加载窗口。
+     transition 写在**这条规则里**：状态翻转时按上式延迟快收，翻回（降级）时规则
+     连同 transition 一起消失、立即恢复垫底；live 生效期间这里的 opacity 是字面量 0，
+     与「壁纸透明度」滑块无关 —— 不会拖慢滑块手感。 */
+  .we-layer:has(.we-live-iframe.we-live-on) .we-live-poster {
+    opacity: 0;
+    transition: opacity 0.3s ease 1.8s;
+  }
+  .we-layer .we-live-iframe {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    background: transparent;
+    opacity: calc(var(--we-wallpaper-opacity, 1) * var(--we-live-fade, 0));
+    transition: opacity 1.8s ease;
+  }
+  .we-layer .we-live-iframe.we-live-on { --we-live-fade: 1; }
+
+  /* 切换过场（手动点选与自动轮播共用）：
+     - staging：live 渲染页预载驻留层 —— opacity 0 但 in-DOM 且几何满视口，
+       渲染页按正常分辨率初始化出首帧，就绪后 iframe 被移动进正式层；
+     - switch：入场层的初态/终态由 startLayerTransition 用内联样式写入（每种过场
+       的初态见 switchFrames），这里只提供**一条通用 transition**：transform /
+       opacity / clip-path 都是合成器友好属性（mask/filter 在 <video> 与 live
+       <iframe> 上会掉出合成层，故不用）。时长由内联 --we-switch-ms 决定
+       （= 类型基准 × 速度档，见 SWITCH_TRANSITIONS / SWITCH_SPEEDS）。
+     - switch-out：退场层（旧壁画）；只有需要它同时动起来的过场（推移 / 缩放）
+       才会加这个类 —— 其余过场旧层保持不透明静止，垫在新层之下（玻璃
+       backdrop-filter 依赖这层不透明背景，所以没有任何过场让中间态透明）。 */
+  .we-layer--staging { opacity: 0; }
+  .we-layer--switch {
+    transition:
+      transform var(--we-switch-ms, 700ms) var(--we-switch-ease, cubic-bezier(0.22, 0.61, 0.36, 1)),
+      opacity var(--we-switch-ms, 700ms) var(--we-switch-ease, cubic-bezier(0.22, 0.61, 0.36, 1)),
+      clip-path var(--we-switch-ms, 700ms) var(--we-switch-ease, cubic-bezier(0.22, 0.61, 0.36, 1));
+    will-change: transform, opacity, clip-path;
+  }
+  /* 减少动态效果偏好：过场一律退化成即时切换（不覆盖用户选择，只是把动画关掉）。 */
+  @media (prefers-reduced-motion: reduce) {
+    .we-layer--switch { transition: none !important; }
+  }
+
+  /* Scrim: sits ABOVE the wallpaper (z-index -1 > -2, so it never depends on
+     DOM insertion order — the wallpaper element is re-appended on wallpaper
+     switch and could otherwise slide above the scrim). Below the UI. */
+  .we-scrim {
+    position: fixed; inset: 0; z-index: -1;
+    pointer-events: none;
+    background: var(--we-scrim-color, rgba(0, 0, 0, 0.25));
+  }
+
+  /* While a wallpaper is active: make the app frame AND sidebar transparent so
+     all columns share the same wallpaper+scrim background, raise border alpha
+     for visibility, and apply the frosted-glass effect to opaque surfaces. */
+  body[data-we-wallpaper] {
+    --dsw-alias-bg-base: transparent;
+    --dsw-specific-sidebar-fill: transparent;
+    /* Border emphasis: neutral gray so it reads on both light and dark themes;
+       alpha is driven by the "边框" slider through --we-border-alpha. */
+    --dsw-alias-border-l1: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
+    --dsw-alias-border-l2: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
+    --dsw-alias-border-l2-darkmode-thin: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
+  }
+  /* DSH rc.7+ injects the theme palette (design-platform.css) as a plugin-owned
+     stylesheet appended to <head> AFTER this one, so in dark mode the shell's
+     body[data-ds-dark-theme] rules (equal specificity 0,1,1, later in the
+     document) win the cascade and repaint the app frame / sidebar / borders
+     with their opaque dark colors — hiding the wallpaper behind them. Repeat
+     the transparency + border-emphasis overrides under the higher-specificity
+     dark selector (0,2,1) so the wallpaper always wins regardless of stylesheet
+     order. */
+  body[data-ds-dark-theme][data-we-wallpaper] {
+    --dsw-alias-bg-base: transparent;
+    --dsw-specific-sidebar-fill: transparent;
+    --dsw-alias-border-l1: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
+    --dsw-alias-border-l2: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
+    --dsw-alias-border-l2-darkmode-thin: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
+  }
+
+  /* #73 增强模式 + Win10（无 Mica）：桌面外壳只在系统材质可用时让左侧工作区
+     (.dshDesktopSidebarSurface) 保持透明（壁纸透出）；material 回退 off 时它改用
+     --dsw-alias-bg-layer-1 实心绘制该区域，并把内部 sidebar 的
+     --dsw-specific-sidebar-fill 也改成实心色 —— 壁纸在这里完全不生效，只剩一块与
+     系统材质绑定的死底色。detectMicaSupport() 把「无 Mica」作为稳定钩子挂到
+     body[data-we-mica="off"]，这里用插件自己的近不透明玻璃面接管该区域：配方与
+     无 backdrop-filter 的内容面回退完全一致（主题面板色 + --we-content-surface-alpha，
+     由「内容面透明度 / 内容面底色」控制，默认 70% 不透明，壁纸仍有一层微光），
+     同时放行内部 fill token，让这块面重新与壁纸 + 暗化层同步。Mica 可用时该属性
+     不存在，本规则不参与匹配，行为与今天逐字节相同。 */
+  body[data-we-mica="off"][data-we-wallpaper] .dshDesktopSidebarSurface {
+    --dsw-specific-sidebar-fill: transparent !important;
+    background-color: color-mix(in srgb, var(--we-content-surface-color, var(--dsw-alias-bg-layer-1, #1e1f26)) max(calc(var(--we-readability-floor) * 100%), var(--we-content-surface-alpha, 88%)), transparent) !important;
+  }
+
+  /* ── Light-scheme text contrast boost ──────────────────────────────────────
+     In light mode the grays (tertiary/caption/secondary) were tuned against a
+     near-white page. Over a busy wallpaper + light scrim they lose contrast, so
+     push the whole gray ramp darker while a wallpaper is active. Primary text
+     is already near-black; we still pin it to pure black for max legibility.
+     (Dark mode is untouched: its white-on-dark text already reads fine.) */
+  body[data-we-wallpaper]:not([data-ds-dark-theme]) {
+    --dsw-alias-label-primary: rgb(0, 0, 0);
+    --dsw-alias-label-primary-dimmed: rgb(10, 10, 12);
+    --dsw-alias-label-secondary: rgb(40, 42, 46);
+    --dsw-alias-label-tertiary: rgb(70, 73, 79);
+    --dsw-alias-label-caption: rgb(110, 114, 120);
+    --dsw-alias-label-dimmed: rgb(50, 52, 56);
+  }
+
+  /* ── 文字面可读性下限 (text-surface readability floor, #82) ───────────────
+     动机、IDEA 模型与 4.5:1 目标见 JS 的 READABILITY_FLOOR 注释（数值的唯一
+     来源，下面用模板插值注入，二者不会漂移）。写法：每个承载文字的面都从
+         <原玻璃色 @ 原 alpha>
+     变成
+         color-mix(in srgb, <主题底色> floor%, <原玻璃色 @ 原 alpha> (1-floor)%)
+     —— color-mix 在预乘空间按权重插值，权重会乘上操作数自身的 alpha，
+     所以这条声明恰好等于「主题底色 @floor 压在 原玻璃色 之上」：
+         effective alpha = floor + a_glass × (1 − floor) ≥ floor
+     玻璃透明度 与 暗主题的 ×0.4 只改 a_glass（另一项权重），floor 这一项
+     固定不动 —— 下限因此不可能被滑杆削弱；floor 之上仍是原来的玻璃配方，
+     只是压了一层主题底色（壁纸在亮/暗极端像素处不再吃掉文字）。
+     --we-wallpaper-opacity 不参与本层：壁纸透明度仍只作用于 .we-layer。 */
+  body {
+    --we-readability-floor: ${READABILITY_FLOOR};
+    --we-readability-base: #ffffff;
+  }
+  body[data-ds-dark-theme] {
+    --we-readability-floor: ${READABILITY_FLOOR_DARK};
+    --we-readability-base: #0d1524;
+  }
+
+  /* ── iOS liquid glass ──────────────────────────────────────────────────────
+     The opaque conversation surfaces become translucent glass. The recipe is
+     Apple-like, not a plain blur:
+       - LARGE-radius blur + a modest constant saturation + brightness/contrast
+         lift, so the wallpaper colour melts into a soft glow instead of a gray
+         smear (saturation is DECOUPLED from the blur radius — see GLASS_SATURATE
+         in applyEffects — so a big radius no longer amplifies the residual
+         wallpaper text into a colour ghost);
+       - a top-weighted specular gradient (background-image) — the sheen is
+         what makes the surface read as "wet glass", not a flat tint;
+       - a light, low-alpha base (not a dark one) so the wallpaper shows through;
+       - a 1px top refraction highlight + 0.5px hairline + soft elevation
+         shadow for "thick glass";
+       - --we-blur drives the blur radius (the 玻璃 slider's one job now) and
+         --we-saturate is a flat material constant, so composer, bubbles AND the
+         better-sidebar shell stay in one uniform liquid look at every radius.
+
+     Transparency is driven through the design tokens the surfaces already read
+     (--dsw-specific-input-major on the composer card, --dsw-specific-bubble on
+     message bubbles) rather than through class selectors: CSS-module class
+     names are build hashes and change whenever the shell frontend is rebuilt,
+     which silently kills the effect. backdrop-filter cannot be expressed as a
+     token, so the blur itself still needs an element selector — [data-composer-card]
+     is authored in the shell source and survives rebuilds. Bubbles carry no such
+     attribute, so they fall back to the module-CSS suffix convention; if that
+     ever stops matching the bubble stays translucent, just without the blur.
+     Both tokens carry text, so both go through the readability floor (the
+     composer card AND the tool popups that read --dsw-specific-input-major). */
+  body[data-we-wallpaper] {
+    --dsw-specific-input-major: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      rgba(255, 255, 255, var(--we-glass-alpha, 0.15)) calc((1 - var(--we-readability-floor)) * 100%));
+    --dsw-specific-bubble: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      rgba(255, 255, 255, calc(var(--we-glass-alpha, 0.15) * 0.8)) calc((1 - var(--we-readability-floor)) * 100%));
+  }
+  body[data-ds-dark-theme][data-we-wallpaper] {
+    /* The ×0.4 / ×0.33 factors below only scale the TINT operand; the floor
+       keeps its own weight, so the dark-theme undercut cannot happen. */
+    --dsw-specific-input-major: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      rgba(255, 255, 255, calc(var(--we-glass-alpha, 0.15) * 0.4)) calc((1 - var(--we-readability-floor)) * 100%));
+    --dsw-specific-bubble: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      rgba(255, 255, 255, calc(var(--we-glass-alpha, 0.15) * 0.33)) calc((1 - var(--we-readability-floor)) * 100%));
+  }
+  body[data-we-wallpaper] [data-composer-card],
+  body[data-we-wallpaper] [class*="_bubble"],
+  /* Interactive tool popup cards read the SAME --dsw-specific-input-major
+     token as the composer (question / plan-review / approval), so they turn
+     translucent along with it — but unlike the composer they had NO
+     backdrop-filter, so at high transparency the popup's own text sits
+     directly on the busy wallpaper → 文字重叠 (#66). Each popup renders its
+     surface as a css-module *_card child of a STABLE, source-authored
+     container attribute: [data-question-key] (ask_user_question),
+     [data-plan-review-key] (plan review / exit_plan_mode panel) and
+     [data-approval-key] (tool-permission approval card). We scope _card
+     inside those containers instead of a broad [class*="_card"] (which would
+     also blur nested *_cardBody / hovercard surfaces). */
+  body[data-we-wallpaper] [data-question-key] [class*="_card"],
+  body[data-we-wallpaper] [data-plan-review-key] [class*="_card"],
+  body[data-we-wallpaper] [data-approval-key] [class*="_card"] {
+    /* Specular sheen: a top-weighted white gradient turns a flat translucent
+       tint into "wet glass" — kept faint so the wallpaper stays 通透 (clear)
+       instead of glaring. */
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.05) 38%, rgba(255, 255, 255, 0.02));
+    -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, var(--we-glass-highlight, 0.32)),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.08),
+      inset 0 0 0 0.5px rgba(255, 255, 255, 0.08),
+      0 12px 40px rgba(0, 0, 0, var(--we-glass-shadow, 0.12));
+  }
+  /* ── composer card: the blur must not live on the card itself ─────────────
+     [data-composer-card] contains position:fixed descendants: @dsh-external/
+     dsh-webui mounts the "AI 浏览器" seat (.dsh-browser-seat-wrap) inside it with a
+     hard-coded position:fixed. A non-none backdrop-filter makes the element a
+     containing block for its fixed descendants, so that button stops being
+     viewport-anchored and drops ~522px below the card. The seat then carries
+     543px of phantom overflow, which becomes extra scrollable content in the
+     conversation scroller: by the time you reach the bottom the sticky travel is
+     already spent, so the composer is left stranded above it (#89).
+     Hosting the blur on ::before fixes it — a pseudo-element has no DOM
+     descendants, so it can never become a containing block. Same blur radius,
+     same --we-* tokens, same inset/radius → visually identical.
+     把模糊改由 ::before 伪元素承载：伪元素没有 DOM 后代，不会成为 fixed 后代的包含块。 */
+  body[data-we-wallpaper] [data-composer-card] {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  body[data-we-wallpaper] [data-composer-card]::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    z-index: -1;
+    -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+  }
+  /* Note (anti-flicker): the composer/bubbles keep ONLY the backdrop-filter
+     glass. Extra always-on layers (transform/will-change/contain) were removed —
+     they did not stop the white flash and instead added compositing layers. The
+     flash was traced to the rope's permanent CSS filter, which is now gone. */
+
+  /* ── 原生左栏在 extended/advanced 窗口模式下的不透明底 ─────────────────────
+     harness 的壳层样式表带一条模式门控规则：mode 为 extended/advanced 且
+     material=off 时，ASIDE.dshDesktopSidebarSurface（原生左栏 surface）被刷成
+     不透明的 var(--dsw-alias-bg-layer-1)，并经继承的 --dsw-specific-sidebar-fill
+     变量传给内层（兼容模式无此规则，左栏直接透出壁纸）。壁纸激活时恢复透明，
+     让两种模式观感一致；壳层关闭壁纸时原生不透明底照旧。 */
+  body[data-we-wallpaper][data-dsh-desktop-mode="extended"] .dshDesktopSidebarSurface,
+  body[data-we-wallpaper][data-dsh-desktop-mode="advanced"] .dshDesktopSidebarSurface {
+    /* !important 必需：宿主的模式门控规则在层叠里赢过本表的非 important 声明
+       （实测 var 被压回 #232324），important 才能让 fill 变量真正翻转。 */
+    --dsw-specific-sidebar-fill: transparent !important;
+    background: transparent !important;
+  }
+
+  /* ── extended 模式的外壳画布底（dsh-desktop 2.0.14）────────────────────────
+     与上面那条同类，但这条是**扩展模式专属**。壳层样式表里有：
+       body[data-dsh-desktop-mode="extended"] .dshDesktopFrame {
+         background: var(--dsh-desktop-frame-fill);
+       }
+     兼容模式**没有**这条（.dshDesktopFrame 的基线样式是 transparent），所以只有扩展模式
+     会把壁纸整片盖住 —— 用户看到的就是「壁纸没生效 / 像没选壁纸」。机制：Windows 上 material
+     只能是 off（壳层 isWindowsMaterial 只接受 "off"）⇒ --dsh-desktop-frame-fill =
+     var(--dsw-alias-bg-layer-1)（不透明）；而 .dshDesktopFrame 是整窗 grid 容器，位于
+     #root（{ position: fixed; transform: translateZ(0) } ⇒ 自成层叠上下文）之内，于是挂在
+     body 上的 z-index:-1 壁纸层被它整片盖住。
+     ⚠️ 只清**画布**这一层、不改 --dsh-desktop-frame-fill 变量本身：标题栏
+     （.dshDesktopFrameTitlebar）读同一个变量，必须保留底色，否则标题栏文字直接压在壁纸上。
+     主内容区（.dshDesktopConversationSurface）读的是 --dsw-alias-bg-base，本表已在
+     body[data-we-wallpaper] 上把它置为 transparent（见上面那条），因此无需再写。 */
+  body[data-we-wallpaper][data-dsh-desktop-mode="extended"] .dshDesktopFrame {
+    background: transparent !important;
+  }
+
+  /* ── dsh-better-sidebar glass ──────────────────────────────────────────────
+     The sidebar shell is portalled onto <body> under a stable host attribute
+     "data-dsh-better-sidebar" (set by the plugin's own mount code), so we can
+     target the whole tree without depending on its CSS-module hashes. Its root
+     panels read the opaque --dsw-alias-bg-layer-1 token (hence the "black
+     frame") — give them the SAME clear liquid-glass recipe as the
+     composer/bubbles (faint specular sheen + gentle frosted melt).
+     Unlike the conversation surfaces, the sidebar glass is FULLY independent
+     from the active wallpaper: it can tint and frost the stock DSH surface or
+     any other background source without pretending a plugin wallpaper exists.
+     The master switch body[data-we-sidebar-glass] (侧栏液态玻璃) gates the whole
+     adaptation, and blur / saturation / transparency / base tint each have
+     their own knob (--we-sidebar-blur / --we-sidebar-saturate /
+     --we-sidebar-alpha / --we-sidebar-color, from 侧栏模糊 / 侧栏透明度 /
+     侧栏玻璃颜色), so the sidebar can be blurrier, clearer, more transparent
+     or tinted however you like without touching the 玻璃 / 玻璃透明度 sliders.
+     Inner chrome surfaces that paint the same opaque tokens get a translucent
+     base too; the blur lives on the root panels (one blur per shell). */
+  body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_boundaryError"],
+  body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_panel"] {
+    /* 侧栏面板同样承载文字 → 同一层可读性下限（--we-sidebar-tint 是这里的
+       玻璃色权重，只在另一项上生效）。 */
+    background-color: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-sidebar-color, #ffffff) var(--we-sidebar-tint, 20%), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
+    /* Specular sheen + refraction highlights follow --we-sidebar-sheen
+       (= min(1, alpha/0.2236)): at default (12%) and any MORE solid setting
+       the sheen keeps the ORIGINAL design strength (0.14/0.04/0.01,
+       0.32/0.08/0.06); only toward transparency does the white glaze fade,
+       so 100% is truly near-transparent instead of pale white. */
+    background-image: linear-gradient(180deg,
+      rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.14)),
+      rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.04)) 38%,
+      rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.01))) !important;
+    -webkit-backdrop-filter: blur(var(--we-sidebar-blur, 16px)) saturate(var(--we-sidebar-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
+    backdrop-filter: blur(var(--we-sidebar-blur, 16px)) saturate(var(--we-sidebar-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.32)),
+      inset 0 -1px 0 rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.08)),
+      inset 0 0 0 0.5px rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.06));
+  }
+  body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_pane"],
+  body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_tabBar"],
+  body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_paneCard"],
+  body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_editorHeader"],
+  body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_explorerHeader"],
+  body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_gitHeader"],
+  body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_browserBar"],
+  body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_terminalWrap"] {
+    background-color: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-sidebar-color, #ffffff) calc(var(--we-sidebar-tint, 20%) * 0.75), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
+  }
+  body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_boundaryError"],
+  body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_panel"] {
+    background-color: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-sidebar-color, #ffffff) calc(var(--we-sidebar-tint, 20%) * 0.65), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
+  }
+  body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_pane"],
+  body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_tabBar"],
+  body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_paneCard"],
+  body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_editorHeader"],
+  body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_explorerHeader"],
+  body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_gitHeader"],
+  body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_browserBar"],
+  body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_terminalWrap"] {
+    background-color: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-sidebar-color, #ffffff) calc(var(--we-sidebar-tint, 20%) * 0.5), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
+  }
+  /* No backdrop-filter support: fall back to near-opaque tinted surfaces so
+     sidebar text never sits directly on a busy wallpaper (same policy as the
+     settings-window glass). The tint still applies. */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_boundaryError"],
+    body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_panel"],
+    body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_pane"],
+    body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_tabBar"],
+    body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_paneCard"],
+    body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_editorHeader"],
+    body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_explorerHeader"],
+    body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_gitHeader"],
+    body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_browserBar"],
+    body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_terminalWrap"] {
+      background-color: color-mix(in srgb, var(--we-sidebar-color, #ffffff) 92%, transparent) !important;
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+    }
+  }
+
+  /* ── Official right sidebar (harness 0.1.5+) ──────────────────────────────
+     0.1.5 moved the right column into the NATIVE sidebar (better-sidebar 0.19
+     registers its tabs into it and only keeps its own bottom dock). The native
+     panel paints background: var(--dsw-alias-bg-base) — the EXACT token WE
+     sets to transparent while a wallpaper is active — so without adaptation
+     the whole right column went fully see-through with no frost (v0.7.2 fix).
+     The panel is addressed via its stable data attributes
+     (data-sidebar-right-panel="push"|"fullscreen"; CSS-module hashes like
+     P3OORG_panel drift between harness builds and must not be used). The
+     侧栏液态玻璃 master switch gates the SAME frosted recipe and the SAME
+     侧栏模糊/透明度/玻璃颜色 knobs as the better-sidebar glass; with the
+     switch off, the panel falls back to the theme's opaque layer colour so
+     「关闭则恢复原生外观」keeps holding there too.
+
+     harness 0.1.7 changed the panel's collapse mechanics (#107): the
+     CONTAINER stays mounted with its full width (reserved for the slide
+     animation, pointer-events:none) and only its CHILDREN hide via
+     "visibility:hidden", gated on the "data-sidebar-right-open" attribute
+     the host writes only while expanded. The container itself has no
+     background of its own — so any plate we paint on the bare
+     "[data-sidebar-right-panel]" selector stays VISIBLE over the wallpaper
+     while the panel is closed (the 「右栏关了还是一块灰/玻璃」 report). Every
+     container-painting rule below is therefore scoped to
+     "[data-sidebar-right-open]", plus an explicit closed-state clear so a
+     stale painted background can never linger.
+     ⚠️ 同类陷阱：凡是"宿主容器留在布局里、只靠子元素隐藏"的元素都不能无条件上色；
+     护栏见 scripts/verify-host-paint-scope.mjs（另见 #91 的 body * { !important } 修复）。
+     ⚠️ **本注释块（以及整段 CSS）不得出现反引号**：它是一个模板字符串，反引号会提前
+     截断它，让所有"提取样式表"的护栏读到空串（verify-readability F1b 会报 css chars=0）。
+     行内提到标识符时一律裸写或用「」，不要用 markdown 反引号。 */
+  body[data-we-wallpaper] [data-sidebar-right-panel][data-sidebar-right-open] {
+    background-color: var(--dsw-alias-bg-layer-1, #1e1f26);
+  }
+  body[data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open] {
+    background-color: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-sidebar-color, #ffffff) var(--we-sidebar-tint, 20%), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
+    background-image: linear-gradient(180deg,
+      rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.14)),
+      rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.04)) 38%,
+      rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.01))) !important;
+    -webkit-backdrop-filter: blur(var(--we-sidebar-blur, 16px)) saturate(var(--we-sidebar-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
+    backdrop-filter: blur(var(--we-sidebar-blur, 16px)) saturate(var(--we-sidebar-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.32)),
+      inset 0 -1px 0 rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.08)),
+      inset 0 0 0 0.5px rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.06));
+  }
+  body[data-ds-dark-theme][data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open] {
+    background-color: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-sidebar-color, #ffffff) calc(var(--we-sidebar-tint, 20%) * 0.65), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
+  }
+  /* Closed state: the host's own container carries no background — keep ours
+     off too, whatever the master-switch state (#107). */
+  body[data-we-wallpaper] [data-sidebar-right-panel]:not([data-sidebar-right-open]) {
+    background: none !important;
+    background-image: none !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    box-shadow: none !important;
+  }
+  /* No backdrop-filter support: near-opaque tinted plate, same policy as the
+     better-sidebar glass above. */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    body[data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open] {
+      background-color: color-mix(in srgb, var(--we-sidebar-color, #ffffff) 92%, transparent) !important;
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+    }
+  }
+
+  /* ── dsh-better-sidebar CONTENT surfaces: near-opaque tinted glass ─────────
+     The editor (CodeMirror) surface is transparent by design, and the terminal
+     background reads --dsw-alias-bg-base — which we must keep transparent so
+     the wallpaper shows through. Their fixed content palettes (syntax
+     highlighting / ANSI colors) are designed for an OPAQUE backdrop (One
+     Dark/Light, xterm themes): on the fully frosted composite the mid-gray
+     comments etc. lose all contrast (实测注释灰 1.7–2.3:1，看不清).
+     Fully opaque surfaces fix readability but kill the glass look. Balance:
+     a NEAR-OPAQUE TINTED glass plate — the theme's opaque panel color
+     (--dsw-alias-bg-layer-1) at 88% keeps the wallpaper glow bleeding through
+     (still reads as glass) while the composite stays dark/light enough for the
+     the designed content palettes. Tune via the 内容面透明度 / 内容面底色 controls
+     (--we-content-surface-alpha / --we-content-surface-color; color empty =
+     follow the theme panel color). The sidebar master switch gates these
+     surfaces too, so turning it off restores the complete native sidebar even
+     when a wallpaper remains active. .cm-editor / .xterm are library-global
+     class names (stable across the sidebar's builds).
+     v0.7.2: with better-sidebar 0.19 the editor / preview tabs render inside
+     the NATIVE right sidebar ([data-sidebar-right-panel]), no longer under
+     the plugin's own shell — extend the same plate to content surfaces there,
+     or 内容面透明度 / 内容面底色 stop responding for those tabs. */
+  body[data-we-sidebar-glass] [data-dsh-better-sidebar] .cm-editor,
+  body[data-we-sidebar-glass] [data-dsh-better-sidebar] .xterm,
+  body[data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open] .cm-editor,
+  body[data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open] .xterm {
+    background-color: color-mix(in srgb, var(--we-content-surface-color, var(--dsw-alias-bg-layer-1, #1e1f26)) max(calc(var(--we-readability-floor) * 100%), var(--we-content-surface-alpha, 88%)), transparent) !important;
+  }
+
+  /* Picker chrome. */
+  .we-picker {
+    display: flex; flex-direction: column; gap: 14px;
+    /* ── 统一控件 token：一套高度/圆角/墨色词汇贯穿全部控件 ──
+       墨色走宿主主题 token（明暗主题都可读），强调色只用于选中态/激活态。 */
+    --we-ui-h: 30px;
+    --we-ui-radius: 8px;
+    --we-ink: var(--dsw-alias-label-primary, inherit);
+    --we-ink-2: var(--dsw-alias-label-secondary, rgba(128, 128, 128, 0.9));
+    --we-ink-3: var(--dsw-alias-label-tertiary, rgba(128, 128, 128, 0.65));
+  }
+  .we-picker__select { max-width: 100%; }
+  .we-picker__row { display: flex; gap: 8px; align-items: center; }
+  /* 抽帧转码下载/转码进度条. */
+  .we-picker__prog { gap: 8px; }
+  .we-picker__prog-track {
+    flex: 1; min-width: 0; height: 5px; border-radius: 3px;
+    background: rgba(128, 128, 128, 0.3);
+    overflow: hidden;
+  }
+  .we-picker__prog-bar {
+    height: 100%; border-radius: 3px;
+    background: var(--we-accent, #4f8cff);
+    transition: width 0.4s ease;
+  }
+  /* First-level settings section wrapper (mirrors the skin-center's
+     sectionList): the ul/li carry no default list styling. */
+  .we-picker__section-list { margin: 0; padding: 0; list-style: none; }
+
+  /* ── WHOLE native settings window → liquid glass (master switch).
+     Keyed on body[data-we-glass-window] (set by applyEffects from the
+     glassWindow preference). The settings dialog is the shell's
+     div[role="dialog"] containing the settings.section outlet anchor
+     (data-slot="settings.section" — stamped by the slot renderer, same anchor
+     the skin-center's semantic layer uses). The dialog reads inherited shell
+     tokens (panel background = --dsw-alias-bg-layer-2, nav active/hover =
+     --dsw-specific-sidebar-nav-item-*, close hover = --dsw-alias-interactive-bg-hover,
+     accents = --dsw-alias-brand-primary), so overriding those tokens ON the
+     dialog element restyles the ENTIRE window — left nav, content header and
+     every native section (General / Models / Plugins / …) — in one shot:
+     translucent glass base + backdrop blur + specular sheen + inner highlight,
+     with the accent color remapped to --we-accent (配色) and all surface alphas
+     driven by --we-glass-alpha (玻璃透明度). Off = stock shell look. ── */
+  body[data-we-glass-window] [role="dialog"]:has([data-slot="settings.section"]) {
+    /* Glass surface alphas (light scheme): the base tint is --we-glass-color
+       (玻璃颜色) mixed with transparent at the 玻璃透明度-driven alpha, so the
+       whole window glass can be tinted to any color. Default (no custom color)
+       = white glass, the stock look. 这三层同样是文字面（导航 + 原生分区），
+       所以每层都压在可读性下限的主题底色之下。 */
+    --dsw-alias-bg-layer-1: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-glass-color, #ffffff) calc(var(--we-glass-alpha, 0.5) * 0.9 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+    --dsw-alias-bg-layer-2: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-glass-color, #ffffff) calc(var(--we-glass-alpha, 0.5) * 1.0 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+    --dsw-alias-bg-layer-3: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-glass-color, #ffffff) calc(var(--we-glass-alpha, 0.5) * 1.1 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+    /* Nav + interactive states tinted with the accent. */
+    --dsw-specific-sidebar-nav-item-active: color-mix(in srgb, var(--we-accent, #4f8cff) 26%, rgba(255, 255, 255, 0.08));
+    --dsw-specific-sidebar-nav-item-hover: color-mix(in srgb, var(--we-accent, #4f8cff) 13%, rgba(255, 255, 255, 0.05));
+    --dsw-alias-interactive-bg-hover: color-mix(in srgb, var(--we-accent, #4f8cff) 14%, transparent);
+    --dsw-alias-interactive-bg-hover-accent: color-mix(in srgb, var(--we-accent, #4f8cff) 18%, transparent);
+    /* Whole-dialog accent remap: every native control (links, primary buttons,
+       switches, active tabs, slider fills) follows the 配色 control. */
+    --dsw-alias-brand-primary: var(--we-accent, #4f8cff);
+    --dsw-alias-brand-text: var(--we-accent, #4f8cff);
+    --dsw-alias-button-primary-fill: var(--we-accent, #4f8cff);
+    --dsw-alias-button-primary-hover: color-mix(in srgb, var(--we-accent, #4f8cff) 88%, #fff);
+    --dsw-alias-button-primary-dimmed: color-mix(in srgb, var(--we-accent, #4f8cff) 22%, transparent);
+    --dsw-alias-state-business-primary: var(--we-accent, #4f8cff);
+    /* Frosted finish — the SAME recipe as the conversation surfaces (composer
+       card / bubbles): the blur radius, saturation melt and brightness all
+       read the 玻璃 slider (--we-blur 0–60px, --we-saturate, --we-glass-brightness),
+       so the settings window glass tracks the conversation-bar adjustment range
+       exactly. Plus a specular sheen + inner edge highlight + diffuse shadow
+       (the shell already rounds the panel at 24px). */
+    -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    background-image: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.1) 0%,
+      rgba(255, 255, 255, 0.03) 38%,
+      rgba(255, 255, 255, 0.05) 100%
+    );
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+      0 24px 80px rgba(0, 7, 18, 0.35);
+  }
+  /* Dark scheme: deep translucent base instead of white. The default glass
+     color is deep navy; a user-picked 玻璃颜色 overrides it in both themes. */
+  body[data-ds-dark-theme][data-we-glass-window] [role="dialog"]:has([data-slot="settings.section"]) {
+    /* 设置窗口的整块面板（导航 + 每个原生分区）都承载文字 → 同样过下限。 */
+    --dsw-alias-bg-layer-1: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-glass-color, #0d1524) calc(var(--we-glass-alpha, 0.5) * 0.9 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+    --dsw-alias-bg-layer-2: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-glass-color, #0d1524) calc(var(--we-glass-alpha, 0.5) * 1.0 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+    --dsw-alias-bg-layer-3: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-glass-color, #0d1524) calc(var(--we-glass-alpha, 0.5) * 1.1 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+    --dsw-specific-sidebar-nav-item-active: color-mix(in srgb, var(--we-accent, #4f8cff) 30%, rgba(255, 255, 255, 0.06));
+    --dsw-specific-sidebar-nav-item-hover: color-mix(in srgb, var(--we-accent, #4f8cff) 14%, rgba(255, 255, 255, 0.04));
+    background-image: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.07) 0%,
+      rgba(255, 255, 255, 0.02) 38%,
+      rgba(255, 255, 255, 0.03) 100%
+    );
+  }
+  /* No backdrop-filter support: fall back to near-opaque glass so text stays
+     readable (same policy as the skin's patches.css). */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    body[data-we-glass-window] [role="dialog"]:has([data-slot="settings.section"]) {
+      --dsw-alias-bg-layer-1: var(--we-glass-color, #ffffff);
+      --dsw-alias-bg-layer-2: var(--we-glass-color, #ffffff);
+      --dsw-alias-bg-layer-3: var(--we-glass-color, #ffffff);
+    }
+    body[data-ds-dark-theme][data-we-glass-window] [role="dialog"]:has([data-slot="settings.section"]) {
+      --dsw-alias-bg-layer-1: var(--we-glass-color, #0d1524);
+      --dsw-alias-bg-layer-2: var(--we-glass-color, #0d1524);
+      --dsw-alias-bg-layer-3: var(--we-glass-color, #0d1524);
+    }
+  }
+
+  /* Section card (mirrors the skin-center's pluginCard): a quiet layer card —
+     translucent token background + hairline border + radius. NO own backdrop
+     blur: the whole settings window is the glass surface (see the
+     body[data-we-glass-window] dialog rules above), so a nested blur would
+     double-frost and look muddy. Without the master switch the card still
+     reads as a subtle layer over the stock panel. */
+  .we-picker__card-shell {
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.28));
+    border-radius: 12px;
+    background: var(--dsw-alias-bg-layer-3, rgba(128, 128, 128, 0.08));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    padding: 14px 16px;
+    transition: border-color 0.16s ease, background-color 0.16s ease;
+  }
+  .we-picker__card-shell:hover { border-color: var(--dsw-alias-label-dimmed, rgba(128, 128, 128, 0.5)); }
+  /* Card header: name + count badge + description (mirrors skin-center). */
+  .we-picker__card-head {
+    display: flex; align-items: baseline; gap: 8px;
+    padding-bottom: 10px; border-bottom: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.22));
+  }
+  .we-picker__card-name {
+    font-size: 15px; font-weight: 600; color: var(--dsw-alias-label-primary, inherit);
+  }
+  .we-picker__card-badge {
+    font-size: 11px; font-weight: 500; color: var(--dsw-alias-label-secondary, #6b7280);
+  }
+  .we-picker__card-desc {
+    margin-left: auto; font-size: 12px; color: var(--dsw-alias-label-tertiary, #6b7280);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* 配色 swatches: circular preset buttons + native color picker. The active
+     swatch gets an accent ring so the current choice is obvious at a glance. */
+  /* ── DSH harness 0.1.2-rc.1 corner-shape 兼容（Issue #74）─────────────────
+     rc.1 的主题层新增 corner-shape.css，给 * / ::before / ::after 统一加了
+     corner-shape: superellipse(1.5)（方圆形角，@supports 包裹）。任何
+     border-radius 圆形都会被渲染成圆角矩形——色板、黑胶唱片、滑杆圆点、
+     开关滑块全部中招。这里对插件画的所有正圆/胶囊控件显式重置回
+     corner-shape: round；harness 的规则是 * 选择器（特异度 0），类选择器
+     天然胜出，无需 !important。旧版 harness 不支持该属性时本声明被忽略。
+     注意：::-moz-* 是 Firefox 专用伪元素，Chromium 视为非法选择器，而选择器
+     列表中只要有一个非法项整条规则就会作废——因此 moz 伪元素必须单独成条。 */
+  .we-picker__swatch,
+  .we-picker__swatch--auto,
+  .we-picker__swatch-custom input[type="color"],
+  .we-picker__swatch-custom input[type="color"]::-webkit-color-swatch,
+  .we-vinyl,
+  .we-vinyl__cover,
+  .we-vinyl__hole,
+  .we-picker__slider::-webkit-slider-thumb,
+  .we-picker__switch-thumb,
+  .we-picker__switch-track,
+  .we-picker__value {
+    corner-shape: round;
+  }
+  .we-picker__slider::-moz-range-thumb { corner-shape: round; }
+  .we-picker__accent-row { flex-wrap: wrap; }
+  .we-picker__swatch {
+    width: 22px; height: 22px; padding: 0; border-radius: 50%;
+    border: 0;
+    /* 内圈发丝环让深色圆点在浅玻璃上也有边界；去外描边、留给选中态。 */
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55), 0 1px 3px rgba(0, 0, 0, 0.35);
+    cursor: pointer;
+    transition: transform var(--we-dur-fast, 120ms) var(--we-ease, ease), box-shadow var(--we-dur-fast, 120ms) var(--we-ease, ease);
+  }
+  .we-picker__swatch:hover { transform: scale(1.12); }
+  .we-picker__swatch--active {
+    /* 双环选中态：表面色间隔环 + accent 外环，比裸描边读得更清。 */
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.55),
+      0 0 0 2px var(--dsw-alias-bg-layer-2, rgba(128, 128, 128, 0.2)),
+      0 0 0 4px var(--we-accent, #4f8cff);
+  }
+  /* "跟随主题" auto swatch (内容面底色): no fill, split ring showing both
+     themes so it reads as "use the theme panel color". */
+  .we-picker__swatch--auto {
+    font-size: 10px; line-height: 1; font-weight: 600;
+    color: var(--dsw-alias-label-secondary, #666);
+    background: linear-gradient(135deg, #2a2d35 0 50%, #f2f3f5 50% 100%);
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .we-picker__swatch-custom {
+    display: inline-flex; align-items: center; gap: 4px; cursor: pointer;
+  }
+  .we-picker__swatch-custom input[type="color"] {
+    width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%;
+    background: transparent; cursor: pointer;
+  }
+  .we-picker__swatch-custom input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+  .we-picker__swatch-custom input[type="color"]::-webkit-color-swatch { border: 1px solid rgba(255, 255, 255, 0.6); border-radius: 50%; }
+
+  /* 字体配置矩阵：把「字号 / 字重 / 字体」提到表头，一行一个角色/组件。
+     三类控件固定在列上对齐，比每行重复三个无标签控件好扫读；
+     th 用小字弱化色（--we-host-* 是宿主角色色快照，取不到时有兜底）。 */
+  .we-picker__font-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 4px;
+  }
+  .we-picker__font-table th {
+    font-weight: 400;
+    text-align: left;
+    padding: 4px 4px;
+    font-size: 12px;
+    color: var(--we-host-dsw-alias-label-tertiary, rgba(128, 128, 128, 0.75));
+  }
+  .we-picker__font-table td {
+    padding: 2px 4px;
+    vertical-align: middle;
+  }
+  /* 数字框按内容收纳：面板基础样式给 input 的左右内边距在这里制造了明显的空占位。 */
+  .we-picker__font-table input[type="number"] {
+    padding-left: 3px;
+    padding-right: 3px;
+  }
+  /* 第 2 列起（字号/字重/字体）**按内容收缩**（width:1% + nowrap 是经典写法），
+     余量全部归首列。否则 table{width:100%} 会把三列均匀拉宽，控件之间空出一大片。 */
+  .we-picker__font-table th:nth-child(n + 2),
+  .we-picker__font-table td:nth-child(n + 2) {
+    width: 1%;
+    white-space: nowrap;
+  }
+  /* 主开关说明已收进行内一句话 + tooltip（见 we-picker__ctl-hint）。 */
+
+  /* Pagination bar under each paged grid (normal / hidden / group editor).
+     Horizontally centered; as a direct child of the flex modal body it sinks
+     to the bottom when the grid leaves free space (margin-top: auto). */
+  .we-picker__pager {
+    display: flex; gap: 10px; align-items: center; justify-content: center;
+    margin-top: auto; padding-top: 8px; flex-wrap: wrap;
+  }
+  .we-picker__playlist-select { flex: 1; min-width: 0; }
+  .we-picker__filter-row { flex-wrap: wrap; flex-shrink: 0; }
+  .we-picker__filter-row .we-picker__playlist-select { flex: 1 1 130px; }
+  .we-picker__rotation-interval { margin-left: auto; }
+  /* Flat, uniform-height controls. Native <select> renders as a raised "3D"
+     OS widget whose height can shift a pixel on hover; inside tightly packed
+     rows that squeezes the neighbours and, with the cursor near a row edge,
+     oscillates (hover → grow → shift → unhover → shrink → …). Strip the
+     native chrome and PIN the height so no control's intrinsic size can move
+     a row. */
+  .we-picker__btn {
+    cursor: pointer; height: var(--we-ui-h, 30px); line-height: calc(var(--we-ui-h, 30px) - 2px); padding: 0 12px;
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+    border-radius: var(--we-ui-radius, 8px); background: transparent;
+    color: var(--we-ink, inherit); font-size: 0.82em;
+    white-space: nowrap;
+  }
+  .we-picker__btn:hover { background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.12)); }
+  .we-picker__btn:disabled { opacity: 0.45; cursor: default; }
+  /* 音乐开关处于「开」时用 accent 色描边，一眼可辨但不抢主按钮。 */
+  .we-picker__btn.is-on {
+    border-color: var(--we-accent, var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35)));
+    color: var(--we-accent, inherit);
+  }
+  .we-picker select {
+    appearance: none; -webkit-appearance: none;
+    height: var(--we-ui-h, 30px); padding: 0 8px;
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+    border-radius: var(--we-ui-radius, 8px); background: transparent;
+    color: var(--we-ink, inherit); font-size: 0.82em;
+    cursor: pointer;
+  }
+  .we-picker select:hover { background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.12)); }
+  .we-picker select:disabled { opacity: 0.45; cursor: default; }
+  .we-picker__hint { font-size: 0.8em; color: var(--we-ink-3, rgba(128, 128, 128, 0.75)); }
+  /* 「当前壁纸实时帧」微缩预览：就是切换途中 / live 首帧前显示的那张静帧。
+     固定 16:9 小图 + 细边框，居中放在控件行里（行已 --wrap，窄面板会自动折行）。 */
+  .we-picker__frame-shot {
+    display: block; width: 168px; height: 94.5px; object-fit: cover;
+    border-radius: 6px; border: 1px solid var(--dsw-alias-border-l1, rgba(128, 128, 128, 0.28));
+    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.1));
+  }
+  /* 数字读数等宽：页码 / 计数 / fps / 百分比切换时不再跳动。 */
+  .we-picker__pager .we-picker__hint, .we-picker__card-badge, .we-picker__value {
+    font-variant-numeric: tabular-nums;
+  }
+  /* 统一焦点环：accent 色、2px、外偏移（a11y + 跟随配色）。 */
+  .we-picker button:focus-visible, .we-picker select:focus-visible,
+  .we-picker input:focus-visible, .we-picker [role="button"]:focus-visible,
+  .we-picker__modal button:focus-visible, .we-picker__modal select:focus-visible,
+  .we-picker__modal input:focus-visible, .we-picker__modal [role="button"]:focus-visible {
+    outline: 2px solid var(--we-accent, #4f8cff);
+    outline-offset: 2px;
+  }
+  /* Text inputs (搜索 / 路径 / 列表名称): match the flat control style. */
+  .we-picker__text {
+    height: var(--we-ui-h, 30px); padding: 0 8px;
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+    border-radius: var(--we-ui-radius, 8px); background: transparent;
+    color: var(--we-ink, inherit); font-size: 0.82em;
+  }
+  .we-picker__search { flex: 1 1 150px; min-width: 0; }
+  .we-picker__error { font-size: 0.82em; opacity: 0.9; color: #e5534b; }
+  .we-picker__note { font-size: 0.8em; opacity: 0.85; color: var(--we-accent, var(--dsw-alias-brand-primary, #4f8cff)); }
+
+  /* ── Visual grouping: sections with a hairline divider + quiet label. ── */
+  .we-picker__section { display: flex; flex-direction: column; gap: 10px; }
+  .we-picker__section + .we-picker__section {
+    border-top: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.22));
+    padding-top: 12px;
+  }
+  .we-picker__section-head { display: flex; align-items: center; }
+  .we-picker__section-label {
+    font-size: 0.72em; font-weight: 600; letter-spacing: 0.04em;
+    /* 分组标题是「找路」信息而非装饰：次级墨色保证暗玻璃上可读。 */
+    color: var(--we-ink-2, rgba(128, 128, 128, 0.9));
+  }
+
+  /* ── 页签栏（分段式）：玻璃轨道 + 滑动指示胶囊。窄抽屉里六枚等宽页签
+     恰好放下两至三字标签；指示胶囊平移走 transform（合成器属性）。 ── */
+  .we-tabs {
+    position: relative; display: flex; flex: 0 0 auto;
+    padding: 3px; border-radius: 10px;
+    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.12));
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.22));
+    overflow: hidden;
+  }
+  .we-tabs__pill {
+    position: absolute; top: 3px; left: 3px; bottom: 3px;
+    border-radius: 8px;
+    background: var(--dsw-alias-bg-layer-3, rgba(255, 255, 255, 0.16));
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    transition: transform 220ms var(--we-ease, cubic-bezier(0.16, 1, 0.3, 1));
+    will-change: transform;
+  }
+  .we-tabs__tab {
+    position: relative; z-index: 1; flex: 1 1 0; min-width: 0;
+    height: 28px; padding: 0 4px; border: 0; background: transparent;
+    border-radius: 8px; cursor: pointer; white-space: nowrap;
+    font-size: 12px; line-height: 1;
+    color: var(--we-ink-2, rgba(128, 128, 128, 0.9));
+    transition: color var(--we-dur-fast, 120ms) var(--we-ease, ease);
+  }
+  .we-tabs__tab:hover { color: var(--we-ink, inherit); }
+  .we-tabs__tab--active { color: var(--we-ink, inherit); font-weight: 600; }
+  /* 页签面板：淡入 + 轻微上移落定（reduced-motion 由全局媒体查询静止）。 */
+  .we-tabpanel {
+    display: flex; flex-direction: column; gap: 12px;
+    animation: we-tab-in 180ms var(--we-ease, cubic-bezier(0.16, 1, 0.3, 1));
+  }
+  @keyframes we-tab-in {
+    from { opacity: 0; transform: translateY(4px); }
+  }
+
+  /* ── 统一设置行：左「标签(+一句话说明)」、右控件；32px 触达高度。 ── */
+  .we-picker__ctl {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; min-height: 32px;
+  }
+  .we-picker__ctl--wrap { flex-wrap: wrap; row-gap: 8px; }
+  .we-picker__ctl-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .we-picker__ctl-label {
+    font-size: 0.88em; color: var(--we-ink, inherit);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .we-picker__ctl-hint {
+    font-size: 0.7em; color: var(--we-ink-3, rgba(128, 128, 128, 0.65));
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
+  }
+  .we-picker__ctl-side { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+  .we-picker__swatches { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+
+  /* ── 吉祥物形态卡片：立绘即实时预览（随大小滑块缩放）。 ── */
+  .we-picker__mascot-row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .we-picker__mascot-card {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    padding: 12px 16px 10px; min-width: 96px;
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.28));
+    border-radius: 12px; cursor: pointer;
+    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.08));
+    transition:
+      border-color var(--we-dur-fast, 120ms) var(--we-ease, ease),
+      background-color var(--we-dur-fast, 120ms) var(--we-ease, ease),
+      box-shadow var(--we-dur-fast, 120ms) var(--we-ease, ease),
+      transform var(--we-dur-fast, 120ms) var(--we-ease, ease);
+  }
+  .we-picker__mascot-card:hover { border-color: var(--dsw-alias-label-dimmed, rgba(128, 128, 128, 0.5)); }
+  .we-picker__mascot-card:active { transform: scale(0.97); }
+  .we-picker__mascot-card--active {
+    border-color: var(--we-accent, #4f8cff);
+    background: color-mix(in srgb, var(--we-accent, #4f8cff) 10%, transparent);
+    box-shadow: 0 0 0 1px var(--we-accent, #4f8cff);
+  }
+  .we-picker__mascot-art { display: flex; align-items: flex-end; justify-content: center; }
+  .we-picker__mascot-art img { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+  .we-picker__mascot-name { font-size: 0.78em; color: var(--we-ink-2, rgba(128, 128, 128, 0.9)); }
+  .we-picker__mascot-card--active .we-picker__mascot-name { color: var(--we-ink, inherit); }
+
+  /* ── 效果页签空态：不摆一列无效滑块，引导去选壁纸。 ── */
+  .we-picker__empty {
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    padding: 36px 16px; text-align: center;
+  }
+  .we-picker__empty-title { font-size: 0.95em; font-weight: 600; color: var(--we-ink, inherit); }
+
+  /* ── Vinyl record (黑胶唱片): rotating disc with the selected wallpaper's
+     cover as the label. Spins while the wallpaper is playing; pauses
+     otherwise. Shown in both settings layouts and in the modal head. ── */
+  .we-vinyl {
+    position: relative; width: 128px; height: 128px; flex: 0 0 auto;
+    border-radius: 50%;
+    background:
+      repeating-radial-gradient(circle at center, #191920 0 2px, #23232c 2px 4px);
+    box-shadow:
+      0 6px 18px rgba(0, 0, 0, 0.55),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+    animation: we-vinyl-spin 8s linear infinite;
+    animation-play-state: paused;
+  }
+  .we-vinyl--playing { animation-play-state: running; }
+  .we-vinyl--sm { width: 56px; height: 56px; }
+  .we-vinyl__cover {
+    position: absolute; inset: 24%; border-radius: 50%; overflow: hidden;
+    background: rgba(128, 128, 128, 0.25);
+    border: 2px solid rgba(0, 0, 0, 0.85);
+    box-shadow:
+      0 0 0 2px rgba(255, 255, 255, 0.1),
+      inset 0 0 8px rgba(0, 0, 0, 0.6);
+  }
+  .we-vinyl__cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .we-vinyl__empty {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: rgba(255, 255, 255, 0.45); font-size: 1.3em;
+  }
+  .we-vinyl__hole {
+    position: absolute; left: 50%; top: 50%;
+    width: 12px; height: 12px; margin: -6px 0 0 -6px;
+    border-radius: 50%; background: #0b0b0e;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.9);
+  }
+  .we-vinyl--sm .we-vinyl__hole { width: 6px; height: 6px; margin: -3px 0 0 -3px; }
+  @keyframes we-vinyl-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .we-vinyl { animation: none; }
+  }
+  .we-picker__modal-head-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
+
+  /* ── Current-wallpaper card: thumbnail + title + type + primary action. ── */
+  .we-picker__current {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px; border-radius: 12px;
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.28));
+    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.06));
+  }
+  .we-picker__current-thumb {
+    width: 64px; height: 36px; flex: 0 0 auto;
+    object-fit: cover; border-radius: 8px;
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+    background: rgba(128, 128, 128, 0.14);
+  }
+  .we-picker__current-thumb--empty {
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.85em; opacity: 0.4;
+  }
+  .we-picker__current-info { flex: 1; min-width: 0; }
+  .we-picker__current-title {
+    font-size: 0.9em; font-weight: 500;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* 类型 + 播放态：宽卡片里是标题下的独立一行（普通块级）。 */
+  .we-picker__current-meta { display: block; font-size: 0.75em; opacity: 0.55; margin-top: 2px; }
+  /* 播放失败 / 选择被过滤排除的原因（#84）: 紧跟在 meta 行下的一句可读说明，
+     过去这两种情况都表现为「壁纸一片空白且无从下手」，故必须可见但克制。 */
+  .we-picker__current-error { font-size: 0.75em; opacity: 0.9; margin-top: 2px; color: #e5534b; }
+
+  /* Primary action (选择壁纸): the ONE solid-accent control per view — accent
+     is reserved for primary action + selection states, never decoration. */
+  .we-picker__btn--primary {
+    color: #fff;
+    background: var(--we-accent, #4f8cff);
+    border-color: transparent;
+    font-weight: 600;
+  }
+  .we-picker__btn--primary:hover {
+    background: color-mix(in srgb, var(--we-accent, #4f8cff) 86%, #000);
+    color: #fff;
+  }
+
+  /* ── 壁纸属性（作者可调属性）─────────────────────────────────────────────
+     绿色 = 次级动作，和 accent 的「选择壁纸」明确区分：两者永远不该读成同一个控件。 */
+  .we-picker__btn--props {
+    color: #fff;
+    background: #2ea043;
+    border-color: transparent;
+    font-weight: 600;
+  }
+  .we-picker__btn--props:hover { background: #2c974b; color: #fff; }
+  .we-picker__btn--props.is-on { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6); }
+  .we-picker__btn--mini { padding: 2px 8px; font-size: 0.75em; }
+
+  /* 主操作区（壁纸属性 + 选择壁纸）：宽卡片里并排；抽屉里上下排列（间距 8px）。 */
+  .we-picker__current-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+  .we-picker__current-sub { min-width: 0; }
+
+  /* ── 壁纸属性面板 ─────────────────────────────────────────────────────── */
+  .we-picker__props {
+    margin-top: 8px; padding: 10px; border-radius: 12px;
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.28));
+    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.06));
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .we-picker__props-head { display: flex; align-items: center; gap: 8px; }
+  .we-picker__props-title { font-size: 0.85em; font-weight: 600; }
+  .we-picker__props-note { flex: 1; min-width: 0; font-size: 0.75em; opacity: 0.6; }
+  .we-picker__props-hint { font-size: 0.75em; opacity: 0.85; color: #d29922; }
+  .we-picker__props-section { font-size: 0.78em; opacity: 0.6; margin-top: 6px; }
+  .we-picker__props-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .we-picker__props-label {
+    flex: 1; min-width: 0; font-size: 0.8em;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .we-picker__props-dot { margin-left: 4px; color: #2ea043; font-weight: 700; }
+  .we-picker__props-value { flex: 0 0 auto; min-width: 3.2em; text-align: right; font-size: 0.75em; opacity: 0.7; }
+  .we-picker__props-check { flex: 0 0 auto; }
+  .we-picker__props-color {
+    flex: 0 0 auto; width: 46px; height: 22px; padding: 0; cursor: pointer;
+    border-radius: 6px; background: transparent;
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+  }
+  .we-picker__props-select, .we-picker__props-text {
+    flex: 0 1 52%; min-width: 0; font-size: 0.8em; padding: 3px 6px; border-radius: 8px;
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+    background: var(--dsw-alias-bg-layer-2, rgba(0, 0, 0, 0.18)); color: inherit;
+  }
+
+  /* 抽屉（右侧窄容器）：名称独占顶层第一行，两个按钮在右侧上下排列、间距 8px。
+     标题与副信息原本同在一个 info 块里 —— 用 display:contents 把它展开成 grid 项，
+     才能把标题提到第一行（.we-picker__current-sub 是 meta+原因说明的包裹层，
+     保证「一行一项」而不是让多行叠在同一格）。 */
+  .we-repo-panel .we-picker__current {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "title title title"
+      "vinyl info  actions";
+    align-items: center;
+    gap: 8px 10px;
+  }
+  .we-repo-panel .we-picker__current-info { display: contents; }
+  /* 抽屉里标题独占首行，文字居中（用户口径）。 */
+  .we-repo-panel .we-picker__current-title { grid-area: title; text-align: center; }
+  /* 抽屉里：类型/播放态跟在名称后面、括号包裹，整行超出用省略号（标题元素本身
+     已经是 nowrap + overflow hidden + text-overflow ellipsis，内联文本才能整体截断）。 */
+  .we-repo-panel .we-picker__current-meta {
+    display: inline; margin-top: 0; font-size: inherit; opacity: 0.6;
+  }
+  .we-repo-panel .we-picker__current-meta::before { content: "（"; }
+  .we-repo-panel .we-picker__current-meta::after { content: "）"; }
+  .we-repo-panel .we-picker__current-sub { grid-area: info; min-width: 0; }
+  .we-repo-panel .we-vinyl, .we-repo-panel .we-picker__current-thumb { grid-area: vinyl; }
+  .we-repo-panel .we-picker__current-actions {
+    grid-area: actions; flex-direction: column; align-items: stretch; gap: 8px;
+  }
+
+  /* Refined range sliders: thin track + circular brand ring thumb. */
+  .we-picker__slider {
+    -webkit-appearance: none; appearance: none;
+    flex: 1; height: 18px; background: transparent; cursor: pointer;
+  }
+  .we-picker__slider::-webkit-slider-runnable-track {
+    height: 4px; border-radius: 2px;
+    /* accent 填充段（0 → --we-fill）+ 灰色剩余段 */
+    background: linear-gradient(to right,
+      var(--we-accent, #4f8cff) var(--we-fill, 0%),
+      var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.4)) var(--we-fill, 0%));
+  }
+  .we-picker__slider::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 16px; height: 16px; margin-top: -6px; border-radius: 50%;
+    background: #fff;
+    border: 2px solid var(--we-accent, #4f8cff);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+    transition: transform var(--we-dur-fast, 120ms) var(--we-ease, ease);
+  }
+  .we-picker__slider:hover::-webkit-slider-thumb { transform: scale(1.12); }
+  .we-picker__slider:active::-webkit-slider-thumb { transform: scale(1.2); }
+  .we-picker__slider::-moz-range-track {
+    height: 4px; border-radius: 2px;
+    background: var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.4));
+  }
+  /* Firefox 的填充段走专用伪元素（不认 webkit 的渐变轨道方案）。 */
+  .we-picker__slider::-moz-range-progress {
+    height: 4px; border-radius: 2px;
+    background: var(--we-accent, #4f8cff);
+  }
+  .we-picker__slider::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: #fff;
+    border: 2px solid var(--we-accent, #4f8cff);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  }
+  /* （原生 checkbox 已全部替换为胶囊开关 .we-picker__switch。） */
+
+  /* Sliding toggle switch (紧凑布局). Track + thumb slide left/right with a
+     snappy 120ms transition; pinned accent so light themes stay readable. */
+  .we-picker__switch {
+    position: relative; display: inline-flex; cursor: pointer;
+  }
+  .we-picker__switch input {
+    position: absolute; opacity: 0; width: 0; height: 0;
+  }
+  .we-picker__switch-track {
+    position: relative; width: 36px; height: 20px; border-radius: 999px;
+    background: var(--dsw-alias-bg-layer-3, rgba(128, 128, 128, 0.4));
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.25));
+    box-sizing: border-box;
+    transition: background-color 180ms var(--we-ease, ease), border-color 180ms var(--we-ease, ease);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.16);
+  }
+  .we-picker__switch:hover .we-picker__switch-track { border-color: var(--dsw-alias-label-dimmed, rgba(128, 128, 128, 0.5)); }
+  /* 键盘焦点环：input 视觉隐藏但可聚焦，焦点环落在 track 上。 */
+  .we-picker__switch input:focus-visible + .we-picker__switch-track {
+    outline: 2px solid var(--we-accent, #4f8cff);
+    outline-offset: 2px;
+  }
+  .we-picker__switch input:checked + .we-picker__switch-track {
+    background: var(--we-accent, #4f8cff); /* 跟随「配色」设置，不再硬编码 */
+  }
+  .we-picker__switch-thumb {
+    position: absolute; left: 2px; top: 2px;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+    transition: transform 180ms var(--we-ease, ease);
+  }
+  .we-picker__switch input:checked + .we-picker__switch-track .we-picker__switch-thumb {
+    transform: translateX(16px);
+  }
+
+  /* Custom chevron for the flat selects (appearance: none removed the native
+     arrow; heights stay pinned at 26px so rows can never shift). */
+  .we-picker select {
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M1 1l3 3 3-3' fill='none' stroke='%23888' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 8px center;
+    padding-right: 24px;
+  }
+
+  /* Motion tokens: one shared ease (expo-out) + two durations. Modal is
+     portalled onto <body> (outside .we-picker), so the token scope covers both
+     roots. */
+  .we-picker, .we-picker__modal, .we-picker__modal-overlay {
+    --we-ease: cubic-bezier(0.16, 1, 0.3, 1);
+    --we-dur-fast: 120ms;
+    --we-dur: 200ms;
+  }
+  /* Motion: state-only transitions (background/color/border/transform — never
+     layout), token-driven; disabled entirely under prefers-reduced-motion. */
+  .we-picker__btn, .we-picker select, .we-picker__card, .we-picker__editor-card,
+  .we-picker__tab, .we-picker__rate, .we-picker__card-hide {
+    transition:
+      background-color var(--we-dur-fast, 120ms) var(--we-ease, ease),
+      border-color var(--we-dur-fast, 120ms) var(--we-ease, ease),
+      color var(--we-dur-fast, 120ms) var(--we-ease, ease),
+      box-shadow var(--we-dur-fast, 120ms) var(--we-ease, ease),
+      transform var(--we-dur-fast, 120ms) var(--we-ease, ease);
+  }
+  /* 按压反馈：点击即缩，松手回弹（transform = 合成器属性，不引发布局）。 */
+  .we-picker__btn:active, .we-picker__rate:active, .we-picker__tab:active {
+    transform: scale(0.96);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .we-picker *, .we-picker__modal, .we-picker__modal *, .we-picker__modal-overlay {
+      transition: none !important;
+      animation: none !important;
+    }
+  }
+  .we-picker__slider-row { display: flex; align-items: center; gap: 10px; }
+  .we-picker__label { min-width: 28px; flex: 0 0 auto; color: var(--we-ink, inherit); font-size: 0.88em; }
+  .we-picker__value {
+    min-width: 48px; text-align: right; flex: 0 0 auto;
+    padding: 2px 8px; border-radius: 999px; font-size: 0.72em;
+    background: var(--dsw-alias-bg-layer-2, rgba(128, 128, 128, 0.14));
+    color: var(--we-ink-2, rgba(128, 128, 128, 0.9));
+  }
+  .we-picker__text { flex: 1; min-width: 0; }
+  .we-picker__editor {
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 8px;
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+    border-radius: 8px;
+  }
+  /* Wallpaper thumbnail grid (main picker).
+     Cards use a FIXED height + absolutely-positioned filling <img>, never
+     aspect-ratio: some browsers (old Chromium/WebView) ignore aspect-ratio on
+     cards and let percentage-height images resolve to their intrinsic size,
+     which made previews bleed over the row above. inset:0 + overflow:hidden
+     pins the image inside the card in every engine. */
+  .we-picker__grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 8px; max-height: 280px; overflow-y: auto; padding: 2px;
+    /* hover 放大（CD 架 scale 1.12）不得撑出水平滚动条：clip 裁掉溢出且不
+       产生滚动条（hidden 仍可被程序滚动，clip 才是纯裁剪），scrollbar-gutter
+       让垂直滚动条的出现/消失也不再挤压内容 —— 两者一起消除「hover 最后一列
+       → 溢出 → 滚动条 → 宽度变化 → unhover → 回缩」的震荡循环。 */
+    overflow-x: hidden; /* fallback：老旧内核不认识 clip 时的平替 */
+    overflow-x: clip;
+    scrollbar-gutter: stable;
+  }
+  .we-picker__card {
+    position: relative; height: 92px; padding: 0; cursor: pointer;
+    display: block; overflow: hidden;
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+    border-radius: 8px;
+    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.15));
+  }
+  .we-picker__card img {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; display: block;
+    /* 加载淡入（onLoad 置 opacity:1）+ hover 微放大（合成器属性）。 */
+    opacity: 0;
+    transition:
+      opacity var(--we-dur, 200ms) ease,
+      transform 300ms var(--we-ease, ease);
+  }
+  /* hover 缩略图缓放大 —— 仅非 CD 架模式（CD 架是卡片整体 scale，叠加会双重放大）。 */
+  .we-picker:not([data-we-cards="classic"]) .we-picker__card:hover img,
+  .we-picker__modal:not([data-we-cards="classic"]) .we-picker__card:hover img {
+    transform: scale(1.06);
+  }
+  /* 编辑器卡片 / 黑胶封面同样加载淡入。 */
+  .we-picker__editor-card img, .we-vinyl__cover img {
+    opacity: 0;
+    transition: opacity var(--we-dur, 200ms) ease;
+  }
+  /* Classic — "CD 架" (CD-rack) card style: cards stack like CD jewel cases
+     on a rack. Each row strongly overlaps the row ABOVE it (the lower card's
+     top covers roughly half of the upper card's bottom — vertical only, never
+     horizontal), with a soft drop shadow for shelf depth. Hovering scales the
+     card up and brings it to the front. Opt-in via the 卡片样式 switch. The
+     modal is PORTALLED onto <body>, so the attribute is scoped on BOTH the
+     settings root and the modal element. The grid gets extra bottom padding
+     so the last row's overlap is not clipped. */
+  .we-picker[data-we-cards="classic"] .we-picker__grid,
+  .we-picker__modal[data-we-cards="classic"] .we-picker__grid {
+    /* Compact CD-rack columns: ~7 cards per row at modal width. 两侧留出
+       8px 让位列：最左/最右列 hover 放大 12%（≈6px/侧）时在让位区内展开，
+       不触碰溢出边界、不被 clip 裁掉。 */
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    padding: 2px 8px 42px;
+  }
+  .we-picker[data-we-cards="classic"] .we-picker__editor-grid,
+  .we-picker__modal[data-we-cards="classic"] .we-picker__editor-grid {
+    grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  }
+  .we-picker[data-we-cards="classic"] .we-picker__card,
+  .we-picker__modal[data-we-cards="classic"] .we-picker__card {
+    position: relative; width: 100%; padding: 0; cursor: pointer;
+    height: auto; aspect-ratio: 16 / 9; display: block; overflow: hidden;
+    margin-bottom: -36px;
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+    border-radius: 8px;
+    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.15));
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+    transition: transform 120ms ease, box-shadow 120ms ease;
+  }
+  .we-picker[data-we-cards="classic"] .we-picker__card:hover,
+  .we-picker__modal[data-we-cards="classic"] .we-picker__card:hover {
+    transform: scale(1.12);
+    z-index: 10;
+    box-shadow: 0 14px 28px rgba(0, 0, 0, 0.5);
+  }
+  .we-picker[data-we-cards="classic"] .we-picker__card img,
+  .we-picker__modal[data-we-cards="classic"] .we-picker__card img {
+    position: static; width: 100%; height: 100%; object-fit: cover; display: block;
+  }
+  .we-picker[data-we-cards="classic"] .we-picker__editor-card,
+  .we-picker__modal[data-we-cards="classic"] .we-picker__editor-card {
+    position: relative; width: 100%; padding: 0; cursor: pointer;
+    height: auto; aspect-ratio: 16 / 10; display: block; overflow: hidden;
+    margin-bottom: -30px;
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+    border-radius: 6px;
+    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.15));
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+    transition: transform 120ms ease, box-shadow 120ms ease;
+  }
+  .we-picker[data-we-cards="classic"] .we-picker__editor-card:hover,
+  .we-picker__modal[data-we-cards="classic"] .we-picker__editor-card:hover {
+    transform: scale(1.1);
+    z-index: 10;
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.5);
+  }
+  .we-picker[data-we-cards="classic"] .we-picker__editor-card img,
+  .we-picker__modal[data-we-cards="classic"] .we-picker__editor-card img {
+    position: static; width: 100%; height: 100%; object-fit: cover; display: block;
+  }
+  .we-picker__card--selected {
+    outline: 2px solid var(--we-accent, #4f8cff);
+    outline-offset: -2px;
+    /* 选中即"发光"：accent 色柔光晕，比裸描边更读得出"当前"。 */
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--we-accent, #4f8cff) 45%, transparent),
+      0 4px 16px color-mix(in srgb, var(--we-accent, #4f8cff) 30%, transparent);
+  }
+  .we-picker__card-close {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.8em; color: var(--dsw-alias-label-secondary, #888);
+  }
+  .we-picker__card-title {
+    position: absolute; left: 0; right: 0; bottom: 0; padding: 3px 6px;
+    font-size: 0.7em; line-height: 1.2; color: #fff;
+    background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+    text-overflow: ellipsis; white-space: nowrap; overflow: hidden;
+  }
+  /* Scene-wallpaper "静态帧" badge — top-right under the hide button. */
+  .we-picker__card-badge {
+    position: absolute; top: 4px; right: 4px; z-index: 1;
+    padding: 1px 6px; font-size: 0.62em; line-height: 1.6;
+    border-radius: 4px; color: #fff;
+    background: rgba(30, 90, 160, 0.85);
+  }
+  .we-picker__card-placeholder {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.72em; opacity: 0.55;
+  }
+  /* Per-card wallpaper-type badge (视频 / 网页 / 图片 / 场景) — top-left
+     overlay, always visible (the type filter's own labels). In batch mode the
+     selection checkbox (.we-picker__card-check) owns the same corner, so the
+     badge is not rendered at all then. */
+  .we-picker__card-type {
+    position: absolute; top: 4px; left: 4px; z-index: 2;
+    padding: 2px 7px; font-size: 0.68em; line-height: 1.5;
+    border-radius: 4px; color: #fff;
+    background: rgba(0, 0, 0, 0.6);
+    pointer-events: none;
+  }
+  /* Per-card "hide" button (soft delete) — top-right overlay. 默认隐去，
+     hover / 键盘聚焦（focus-within）时浮现：网格不常驻一层噪声按钮。 */
+  .we-picker__card-hide {
+    position: absolute; top: 4px; right: 4px; z-index: 2;
+    padding: 2px 7px; font-size: 0.68em; line-height: 1.5;
+    border: 0; border-radius: 4px; cursor: pointer;
+    background: rgba(0, 0, 0, 0.6); color: #fff;
+    opacity: 0;
+  }
+  .we-picker__card:hover .we-picker__card-hide,
+  .we-picker__card:focus-within .we-picker__card-hide { opacity: 1; }
+  .we-picker__card-hide:hover { background: rgba(190, 50, 50, 0.9); }
+  /* Batch-mode selection check — top-left overlay. */
+  .we-picker__card-check {
+    position: absolute; top: 4px; left: 4px; z-index: 2;
+    width: 18px; height: 18px; border-radius: 4px;
+    background: rgba(0, 0, 0, 0.6); color: #fff;
+    font-size: 12px; line-height: 18px; text-align: center;
+  }
+  /* 批量勾选高亮：独立的 --checked class（勾选 ≠ 当前播放的 --selected）。 */
+  .we-picker__card--checked {
+    outline: 2px solid var(--we-accent, #4f8cff);
+    outline-offset: -2px;
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--we-accent, #4f8cff) 45%, transparent),
+      0 4px 16px color-mix(in srgb, var(--we-accent, #4f8cff) 30%, transparent);
+  }
+  .we-picker__card--checked .we-picker__card-check {
+    background: var(--we-accent, #4f8cff);
+  }
+  /* Hidden wallpapers view: dimmed cards. */
+  .we-picker__card--hidden { opacity: 0.78; }
+  .we-picker__card--hidden .we-picker__card-title {
+    background: linear-gradient(transparent, rgba(0, 0, 0, 0.78));
+  }
+  /* Batch-action bar. */
+  .we-picker__batch-bar {
+    padding: 4px 6px; border-radius: 6px;
+    border: 1px dashed var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+  }
+  /* Current-wallpaper summary (replaces the inline grid in settings). */
+  .we-picker__summary {
+    flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 0.85em; opacity: 0.85;
+  }
+  /* ── Wallpaper picker modal (portalled onto <body>, z-index above the shell
+     overlays). Fixed positioning from a body child is immune to ancestor
+     transforms/backdrop-filters, which would otherwise trap it. ── */
+  .we-picker__modal-overlay {
+    position: fixed; inset: 0; z-index: 1000;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0, 0, 0, 0.55);
+    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: blur(3px);
+    animation: we-overlay-in var(--we-dur, 200ms) var(--we-ease, ease-out);
+  }
+  .we-picker__modal {
+    position: relative; z-index: 1001;
+    width: min(760px, 92vw); max-height: 86vh;
+    display: flex; flex-direction: column; gap: 10px;
+    padding: 16px; border-radius: 14px;
+    background: var(--dsw-alias-bg-layer-1, #202127);
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.25);
+    /* 入场：轻微上浮 + 缩放 settle，expo-out；reduced-motion 由上面的
+       媒体查询统一静止为瞬现。 */
+    animation: we-modal-in 240ms var(--we-ease, ease-out);
+  }
+  @keyframes we-overlay-in { from { opacity: 0; } }
+  @keyframes we-modal-in {
+    from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  }
+  .we-picker__modal-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.22));
+  }
+  .we-picker__modal-title { font-weight: 600; font-size: 0.95em; }
+  .we-picker__modal-tabs { display: flex; gap: 6px; }
+  .we-picker__tab {
+    flex: 1; padding: 0; text-align: center; font-size: 0.82em; cursor: pointer;
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+    border-radius: 6px; background: transparent;
+    color: var(--dsw-alias-label-secondary, #888);
+  }
+  .we-picker__tab--active {
+    background: var(--we-accent, #4f8cff);
+    border-color: var(--we-accent, #4f8cff); color: #fff;
+  }
+  .we-picker__modal-body {
+    overflow-y: auto; min-height: 0; flex: 1;
+    display: flex; flex-direction: column; gap: 8px;
+    overscroll-behavior: contain; /* 滚轮不穿透到背后的设置页 */
+    /* modal 里 grid 的 max-height 被放开（见下），真正的滚动容器是这里 ——
+       同样的 hover 放大震荡防护也要落在这层。 */
+    overflow-x: hidden; /* fallback：老旧内核不认识 clip 时的平替 */
+    overflow-x: clip;
+    scrollbar-gutter: stable;
+  }
+  /* The modal is tall enough: let the grid fill it instead of its own 280px
+     internal scroll (the modal body scrolls as a whole). */
+  .we-picker__modal-body .we-picker__grid { max-height: none; }
+  .we-picker__modal-foot { display: flex; align-items: center; justify-content: space-between; }
+  /* Custom-upload section. */
+  .we-picker__uploads {
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 10px; border-radius: 10px;
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.26));
+    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.05));
+  }
+  .we-picker__file { flex: 1; min-width: 0; max-width: 260px; font-size: 0.8em; }
+  .we-picker__uploads-list {
+    display: flex; flex-direction: column; gap: 4px; max-height: 150px; overflow-y: auto;
+  }
+  .we-picker__uploads-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 3px 6px; border-radius: 6px;
+    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.12));
+  }
+  .we-picker__uploads-name {
+    flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 0.82em;
+  }
+  .we-picker__uploads-path {
+    flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 0.8em; opacity: 0.85;
+  }
+  /* Playback-rate segmented control (video wallpapers only). Also reused as
+     the 卡片样式 two-button switch (wrapped in .we-picker__seg). */
+  .we-picker__seg { display: flex; gap: 4px; flex: 1; min-width: 0; }
+  .we-picker__rate {
+    flex: 1; height: var(--we-ui-h, 30px); padding: 0; text-align: center; font-size: 0.78em;
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+    border-radius: var(--we-ui-radius, 8px); background: transparent; cursor: pointer;
+    color: var(--we-ink-2, rgba(128, 128, 128, 0.9));
+  }
+  .we-picker__rate + .we-picker__rate { margin-left: 0; }
+  .we-picker__rate--active {
+    background: var(--we-accent, #4f8cff);
+    border-color: var(--we-accent, #4f8cff);
+    color: #fff;
+  }
+  /* Rotation group editor thumbnail grid. */
+  .we-picker__editor-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 6px; max-height: 220px; overflow-y: auto; padding: 2px;
+    /* 同主网格：CD 架 hover 放大不得撑出水平滚动条（防震荡）。 */
+    overflow-x: hidden; /* fallback：老旧内核不认识 clip 时的平替 */
+    overflow-x: clip;
+    scrollbar-gutter: stable;
+  }
+  .we-picker__editor-card {
+    position: relative; height: 80px; padding: 0; cursor: pointer;
+    display: block; overflow: hidden;
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+    border-radius: 6px;
+    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.15));
+  }
+  .we-picker__editor-card img {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; display: block;
+  }
+  .we-picker__editor-card--checked {
+    outline: 2px solid var(--we-accent, #4f8cff);
+    outline-offset: -2px;
+  }
+  .we-picker__editor-check {
+    position: absolute; top: 4px; left: 4px; width: 18px; height: 18px;
+    border-radius: 4px; background: rgba(0, 0, 0, 0.55); color: #fff;
+    font-size: 12px; line-height: 18px; text-align: center;
+  }
+
+  /* ── Rope dock: chibi pull-cord + glass repo drawer ────────────────────────
+     The rope floats over the chat (fixed, body-child → immune to ancestor
+     transforms/backdrop-filters, same policy as the picker modal). It snaps to
+     the TOP edge on release (any horizontal spot); the settle class animates
+     that snap via top/left (tiny element, release-only). Dragging removes the
+     settle class so the rope follows the pointer 1:1. Pulling it DOWN draws
+     out the repo panel, which descends from the top like a drawer. Z-order:
+     repo panel 995 < rope 996 (the rope stays grabbable/clickable as the
+     panel's handle while it is out) < repo modal scrim 1003 < repo modal 1004. ── */
+  .we-rope {
+    position: fixed;
+    z-index: 996;
+    width: 52px; height: 57px;
+    box-sizing: border-box;
+    cursor: grab;
+    touch-action: none;              /* keep the pointer stream unbroken */
+    user-select: none; -webkit-user-select: none;
+    outline-offset: 2px;
+  }
+  .we-rope:focus-visible {
+    outline: 2px solid var(--we-accent, #4f8cff);
+    border-radius: 12px;
+  }
+  .we-rope--dragging { cursor: grabbing; }
+  .we-rope--settle {
+    transition:
+      top 280ms var(--we-ease, cubic-bezier(0.16, 1, 0.3, 1)),
+      left 280ms var(--we-ease, cubic-bezier(0.16, 1, 0.3, 1));
+  }
+  /* Art box holds the chibi <img>. The PNG is transparent-backed, and
+     object-fit: contain keeps its aspect ratio (no stretch) inside the box.
+     No CSS filter here: a permanent drop-shadow on a fixed element over the
+     wallpaper forces a filter layer that Chromium re-rasterises on any repaint
+     (click/typing) and can momentarily flash white. The chibi's own outline
+     keeps it readable, so we skip the filter entirely. */
+  .we-rope__art {
+    width: 100%; height: 100%;
+    transition: transform var(--we-dur-fast, 120ms) var(--we-ease, ease);
+  }
+  .we-rope:hover .we-rope__art { transform: scale(1.06); }
+  .we-rope__art img {
+    display: block; width: 100%; height: 100%;
+    object-fit: contain;
+    pointer-events: none; /* drag/capture stays on the .we-rope box */
+  }
+
+  /* One-time update notice — a floating glass toast (bottom-center) that tells
+     immersive/kiosk-window users about the white flash and its one fix. High
+     z-index so it sits above the chat; buttons reuse the flat picker style.
+     底板跟着主题底色走（max(下限, 82%) 保住原来的 82% 衬底）：明主题白衬黑字、
+     暗主题深蓝衬白字，不再是一块写死的深色板。 */
+  .we-update-notice {
+    position: fixed; left: 50%; bottom: 26px; z-index: 1100;
+    transform: translateX(-50%);
+    width: min(600px, 92vw);
+    box-sizing: border-box;
+    display: flex; flex-direction: column; gap: 10px;
+    padding: 16px 18px; border-radius: 14px;
+    background-color: color-mix(in srgb, var(--we-glass-color, #ffffff) calc(var(--we-glass-alpha, 0.5) * 90%), var(--we-readability-base) calc(max(var(--we-readability-floor), 0.82) * 100%));
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.03) 40%, rgba(255, 255, 255, 0.01));
+    -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(1.2);
+    backdrop-filter: blur(var(--we-blur, 16px)) saturate(1.2);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    color: inherit;
+    animation: we-notice-in 240ms var(--we-ease, cubic-bezier(0.16, 1, 0.3, 1));
+  }
+  @keyframes we-notice-in { from { opacity: 0; transform: translate(-50%, 12px); } }
+  .we-update-notice__title { font-weight: 600; font-size: 0.95em; }
+  .we-update-notice__body { font-size: 0.82em; line-height: 1.5; opacity: 0.92; }
+  .we-update-notice__body p { margin: 0 0 6px; }
+  .we-update-notice__hint { font-size: 0.78em; opacity: 0.6; }
+  .we-update-notice__btn { align-self: flex-end; }
+  @media (prefers-reduced-motion: reduce) { .we-update-notice { animation: none !important; } }
+
+  /* Glass repo side panel — docked right, locked to 1/4 of the viewport,
+     full height, inner body scrolls. Same liquid-glass recipe as the settings
+     window: reads the very same --we-blur / --we-saturate / --we-glass-alpha /
+     --we-glass-color / --we-glass-brightness knobs, so the 玻璃 sliders in
+     settings retint this panel live. Open/close = transform + opacity fade,
+     token-driven; closed keeps visibility hidden (delayed so the fade-out
+     finishes first) with pointer-events off. */
+  .we-repo-panel {
+    position: fixed; top: 0; right: 0;
+    width: 25vw; max-width: 25vw;
+    height: 100vh; height: 100dvh;
+    z-index: 995;
+    display: flex; flex-direction: column;
+    padding: 14px;
+    box-sizing: border-box;
+    transform: translateY(-102%);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+      transform 800ms cubic-bezier(0.45, 0, 0.55, 1),
+      opacity 690ms cubic-bezier(0.45, 0, 0.55, 1),
+      visibility 0s linear 800ms;
+  }
+  /* The glass (backdrop-filter + tint + shadow) lives ONLY on the open state:
+     while closed the panel is off-screen and must not allocate a full-viewport
+     backdrop-filter compositing layer (a fixed, always-present backdrop-filter
+     layer is a known Chromium white-flash-on-repaint source). */
+  .we-repo-panel--open {
+    border-left: 1px solid rgba(255, 255, 255, 0.22);
+    /* 插件自己的抽屉同样是文字面 → 同一层可读性下限。 */
+    background-color: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-glass-color, #ffffff) calc(var(--we-glass-alpha, 0.5) * 72%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.05) 38%, rgba(255, 255, 255, 0.02));
+    -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    box-shadow:
+      inset 1px 0 0 rgba(255, 255, 255, var(--we-glass-highlight, 0.32)),
+      inset 0 1px 0 rgba(255, 255, 255, 0.14),
+      -18px 0 44px rgba(0, 0, 0, 0.22);
+    transform: translateY(0);
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition:
+      transform 800ms cubic-bezier(0.45, 0, 0.55, 1),
+      opacity 690ms cubic-bezier(0.45, 0, 0.55, 1),
+      visibility 0s;
+  }
+  .we-repo-panel__head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; flex: 0 0 auto;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.22));
+  }
+  .we-repo-panel__title { font-weight: 600; font-size: 0.95em; white-space: nowrap; }
+  /* Body: THE scroll container. Content (the whole WallpaperPicker) grows
+     freely; hover-scale overflow guards mirror the modal body's. */
+  .we-repo-panel__body {
+    flex: 1; min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;   /* wheel doesn't bleed into the chat behind */
+    scrollbar-gutter: stable;
+    display: flex; flex-direction: column;
+    padding-top: 10px;
+  }
+  .we-repo-panel__body > .we-picker { flex: 1 0 auto; }
+  /* Panel is tall: let grids fill instead of their own internal scroll caps —
+     same release as the modal body uses. Layout styles themselves untouched. */
+  .we-repo-panel .we-picker__grid { max-height: none; }
+  /* Enlarged CD disc inside the panel context only (~1.4×), per design. The
+     cover inset is %-based so it scales along; just resize the spindle hole.
+     The platter stays a solid black vinyl (user asked to keep it black). */
+  .we-repo-panel .we-vinyl {
+    width: 176px; height: 176px;
+    background: repeating-radial-gradient(circle at center, #191920 0 2px, #23232c 2px 4px);
+    box-shadow:
+      0 6px 18px rgba(0, 0, 0, 0.55),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+  }
+  .we-repo-panel .we-vinyl__hole { width: 16px; height: 16px; margin: -8px 0 0 -8px; }
+  /* While the drawer is closed it is hidden but the picker stays mounted, so
+     the vinyl's spin animation would keep running unseen — constant hidden
+     compositor work that can contend with chat repaints and flash white.
+     Freeze the disc until the drawer actually opens. */
+  .we-repo-panel:not(.we-repo-panel--open) .we-vinyl { animation-play-state: paused; }
+  /* Req: the CD-adjacent current-wallpaper card and the custom-wallpaper
+     partition render as transparent glass instead of the dark surface layer,
+     so the blur behind shows through. */
+  .we-repo-panel .we-picker__current,
+  .we-repo-panel .we-picker__uploads,
+  .we-repo-panel .we-picker__uploads-item { background: transparent !important; }
+  /* Repo-path picker modal → its own right-quarter liquid-glass window instead
+     of the centred dark dialog. A transparent full-screen scrim keeps "click
+     outside to close" + focus containment without dimming the page behind.
+     (z-order: repo panel 995 < rope 996 < scrim 1003 < panel modal 1004.) */
+  .we-repo-panel__modal-scrim {
+    position: fixed; inset: 0; z-index: 1003;
+    background: transparent;
+  }
+  .we-picker__modal--panel {
+    position: fixed; top: 0; right: 0; z-index: 1004;
+    box-sizing: border-box;
+    width: 25vw; max-width: 25vw;
+    height: 100dvh; max-height: 100dvh;
+    border-radius: 0;
+    border: 0; border-left: 1px solid rgba(255, 255, 255, 0.22);
+    /* 仓库抽屉的右四分之一弹窗同样是文字面 → 同一层可读性下限。 */
+    background-color: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-glass-color, #ffffff) calc(var(--we-glass-alpha, 0.5) * 80%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.05) 38%, rgba(255, 255, 255, 0.02));
+    -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    box-shadow:
+      inset 1px 0 0 rgba(255, 255, 255, var(--we-glass-highlight, 0.32)),
+      inset 0 1px 0 rgba(255, 255, 255, 0.14),
+      -18px 0 44px rgba(0, 0, 0, 0.22);
+    animation: we-repo-panel-in 800ms cubic-bezier(0.45, 0, 0.55, 1);
+  }
+  @keyframes we-repo-panel-in {
+    from { transform: translateX(102%); opacity: 0; }
+  }
+
+  /* No backdrop-filter support: near-opaque tinted surface, same policy as the
+     settings-window/sidebar fallbacks, so panel text stays readable. */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .we-repo-panel {
+      background-color: color-mix(in srgb, var(--we-glass-color, #ffffff) 92%, transparent);
+      backdrop-filter: none; -webkit-backdrop-filter: none;
+    }
+    .we-picker__modal--panel {
+      background-color: color-mix(in srgb, var(--we-glass-color, #ffffff) 94%, transparent);
+      backdrop-filter: none; -webkit-backdrop-filter: none;
+    }
+  }
+
+  /* ── 软件渲染回退（upstream #95，运行时探测）───────────────────────────────
+     有些第三方桌面外壳（增强 / 扩展窗口模式，通常走软件合成）根本不执行
+     backdrop-filter，但属性语法是认的 —— 所以上面那些
+     @supports not ((backdrop-filter: blur(1px)) or (…)) 回退永远为真、永不启用，
+     玻璃面板只剩全透明（「过透」）。detectSoftwareRender() 在运行时探测软件光栅器
+     并把结果挂到 body[data-we-glass-fallback]，下面把同一批回退配方原样再挂一次：
+     相同的 --we-* token、相同的 color-mix 近不透明声明（不新增任何 token /
+     机制），只多一条显式的 backdrop-filter: none（语法检查通过时 @supports
+     做不到这件事）。选择器与上面 @supports 回退逐条对应，并保留各自的总开关
+     (data-we-sidebar-glass / data-we-glass-window)，所以关掉开关仍然是原生外观。
+     输入框卡片按上游 #94 的 ::before 载体单独覆盖（见下方规则）。
+     手动覆盖：?we-glassfallback=on|off（见 detectSoftwareRender）。 ── */
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_boundaryError"],
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_panel"],
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_pane"],
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_tabBar"],
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_paneCard"],
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_editorHeader"],
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_explorerHeader"],
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_gitHeader"],
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_browserBar"],
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_terminalWrap"] {
+    background-color: color-mix(in srgb, var(--we-sidebar-color, #ffffff) 92%, transparent) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open] {
+    background-color: color-mix(in srgb, var(--we-sidebar-color, #ffffff) 92%, transparent) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  /* 内容面（编辑器/终端）本来就是近不透明底板（--we-content-surface-alpha，默认
+     88%），这里把同一条声明再挂一遍，让软件渲染下三块侧栏区域落在同一个规则块里。 */
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] .cm-editor,
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] .xterm,
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open] .cm-editor,
+  body[data-we-glass-fallback][data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open] .xterm {
+    background-color: color-mix(in srgb, var(--we-content-surface-color, var(--dsw-alias-bg-layer-1, #1e1f26)) max(calc(var(--we-readability-floor) * 100%), var(--we-content-surface-alpha, 88%)), transparent) !important;
+  }
+  /* 设置窗口：把三层面板 token 钉回实色（@supports 回退里的同一条 token 覆写），
+     并显式关掉不会生效的 backdrop-filter。 */
+  body[data-we-glass-fallback][data-we-glass-window] [role="dialog"]:has([data-slot="settings.section"]) {
+    --dsw-alias-bg-layer-1: var(--we-glass-color, #ffffff);
+    --dsw-alias-bg-layer-2: var(--we-glass-color, #ffffff);
+    --dsw-alias-bg-layer-3: var(--we-glass-color, #ffffff);
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  body[data-ds-dark-theme][data-we-glass-fallback][data-we-glass-window] [role="dialog"]:has([data-slot="settings.section"]) {
+    --dsw-alias-bg-layer-1: var(--we-glass-color, #0d1524);
+    --dsw-alias-bg-layer-2: var(--we-glass-color, #0d1524);
+    --dsw-alias-bg-layer-3: var(--we-glass-color, #0d1524);
+  }
+  /* 输入框卡片（issue #95 报「过透」的那块界面）：上游 #94 已把模糊从卡片本体搬到
+     [data-composer-card]::before 载体（卡片上的 backdrop-filter 会成为 fixed 后代的
+     包含块，#89）——载体上没有背景，卡片自身的底色只有 --we-glass-alpha（默认 15%），
+     所以只关掉 backdrop-filter 仍然过透。这里让 ::before 自己变成近不透明底板：
+     载体是同一块表面，模糊没了就由它兜住底色，配方与上面 .we-repo-panel 逐字相同
+     （同一个 --we-glass-color / 92%，未新增 token 或机制）。 */
+  body[data-we-glass-fallback][data-we-wallpaper] [data-composer-card]::before {
+    background-color: color-mix(in srgb, var(--we-glass-color, #ffffff) 92%, transparent);
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  /* 仓库抽屉 / 面板弹窗：与 @supports 回退逐字相同的 92% / 94% 近不透明配方。 */
+  body[data-we-glass-fallback] .we-repo-panel {
+    background-color: color-mix(in srgb, var(--we-glass-color, #ffffff) 92%, transparent);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  body[data-we-glass-fallback] .we-picker__modal--panel {
+    background-color: color-mix(in srgb, var(--we-glass-color, #ffffff) 94%, transparent);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  /* 弹层遮罩 / 一次性通知：底色本身已经接近不透明（55% 黑 / 82% 深色底衬），
+     不需要换配方，只把永远不生效的 backdrop-filter 关掉。 */
+  body[data-we-glass-fallback] .we-picker__modal-overlay,
+  body[data-we-glass-fallback] .we-update-notice {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .we-rope--settle, .we-repo-panel, .we-picker__modal--panel, .we-repo-panel__modal-scrim { transition: none !important; }
+    .we-picker__modal--panel { animation: none !important; }
+  }
+`;
+
+export { READABILITY_FLOOR, READABILITY_FLOOR_DARK, CSS };

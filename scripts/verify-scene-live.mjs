@@ -588,7 +588,12 @@ console.log('Level C2 — custom storage scan (WE project dirs under uploads)');
 
 // ── Level D: client source contract ─────────────────────────────────────────
 console.log('Level D — client source wiring (src/client.js)');
+// 客户端源码现在**分为两个文件**：逻辑（src/client.js）与注入的样式表（src/styles.js）。
+// Level D 的判据里既有 JS 结构断言、也有样式规则断言（甚至有同一条里两种都有的），
+// 所以两个来源都读出来，**各自用在对应的判据上**（不图省事拼成一个字符串——那样样式文本
+// 就能满足 JS 结构断言，判据会失去牙）。
 const src = readFileSync(join(root, 'src', 'client.js'), 'utf8');
+const stylesSrc = readFileSync(join(root, 'src', 'styles.js'), 'utf8');
 /** `function name() { … }` 的函数体源码（用于按内容而非脆弱的跨行正则断言）。 */
 function fnBody(source, name) {
   const i = source.indexOf('function ' + name + '(');
@@ -624,8 +629,8 @@ const clientChecks = [
   // 双淡出，两个半透明层互换会让黑底在中点漏出 ~25%（层底是原生纯黑/纯白），实测
   // 症状「切换完成后整屏呼吸式变暗后恢复」会复发。
   ['the static-frame underlay retires once the live frame is on',
-    /:has\(\.we-live-iframe\.we-live-on\) \.we-live-poster\s*\{[^}]*opacity:\s*0/.test(src)
-    && /:has\(\.we-live-iframe\.we-live-on\) \.we-live-poster\s*\{[^}]*transition:\s*opacity\s+0\.3s\s+ease\s+1\.8s/.test(src)],
+    /:has\(\.we-live-iframe\.we-live-on\) \.we-live-poster\s*\{[^}]*opacity:\s*0/.test(stylesSrc)
+    && /:has\(\.we-live-iframe\.we-live-on\) \.we-live-poster\s*\{[^}]*transition:\s*opacity\s+0\.3s\s+ease\s+1\.8s/.test(stylesSrc)],
   // 淡出底色必须是**原生外观**（纯黑/纯白），不能是主题面板色 —— 否则拉高「壁纸
   // 透明度」会露出一块与原生外观不符的主题色（用户实测反馈）。
   ['the wallpaper fade base is the native black/white, not the panel token',
@@ -856,15 +861,15 @@ check('选择壁纸弹窗只留顶部关闭按钮（底部不再有）',
     && src.includes('we-picker__modal-foot" },')
     && src.includes('ESC / 点击遮罩关闭'),
   'closePicker 绑定数=' + ((src.match(/onClick: closePicker/g) || []).length));
-check('抽屉里名称行文字居中', src.includes('.we-repo-panel .we-picker__current-title { grid-area: title; text-align: center; }'));
+check('抽屉里名称行文字居中', stylesSrc.includes('.we-repo-panel .we-picker__current-title { grid-area: title; text-align: center; }'));
 check('标题里的类型/播放态在抽屉内联并加括号（整行省略）',
-  src.includes('className: "we-picker__current-meta" }') && src.includes('.we-repo-panel .we-picker__current-meta {')
-    && src.includes('.we-repo-panel .we-picker__current-meta::before { content: "（"; }')
-    && src.includes('.we-repo-panel .we-picker__current-meta::after { content: "）"; }'));
+  src.includes('className: "we-picker__current-meta" }') && stylesSrc.includes('.we-repo-panel .we-picker__current-meta {')
+    && stylesSrc.includes('.we-repo-panel .we-picker__current-meta::before { content: "（"; }')
+    && stylesSrc.includes('.we-repo-panel .we-picker__current-meta::after { content: "）"; }'));
 check('抽屉窄容器：标题独占首行 + 按钮上下排列（8px）',
-  src.includes('.we-repo-panel .we-picker__current {') && src.includes('grid-template-areas:')
-    && src.includes('.we-repo-panel .we-picker__current-actions {')
-    && /grid-area: actions; flex-direction: column; align-items: stretch; gap: 8px;/.test(src));
+  stylesSrc.includes('.we-repo-panel .we-picker__current {') && stylesSrc.includes('grid-template-areas:')
+    && stylesSrc.includes('.we-repo-panel .we-picker__current-actions {')
+    && /grid-area: actions; flex-direction: column; align-items: stretch; gap: 8px;/.test(stylesSrc));
 check('renderer diagnostics sink registered at /diag', /path: '\/diag'/.test(hostSrc) && /diag-log/.test(hostSrc));
 // 实测踩坑（2026-09-23）：同一份渲染页产物里还有一条走 ${BASE}/diag 的告警通道，
 // 只挂根路径会让「壁纸黑屏」时最关键的渲染页告警全部 404 静默丢掉。

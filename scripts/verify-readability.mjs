@@ -73,7 +73,8 @@ const FLOOR_JS = {
 
 // 2) the injected stylesheet: evaluate the CSS template literal with exactly
 // those constants (so the string checked here IS the string the plugin injects).
-const CSS_BODY_MATCH = SRC.match(/const CSS = `([^`]*)`;/);
+// ⚠️ 锚点锚在行首且容忍缩进（产物把内联模块整段缩进过）：散文里出现同样的声明字面量会把锚点带偏。
+const CSS_BODY_MATCH = SRC.match(/^\s*const CSS = `([^`]*)`;/m);
 const CSS_BODY = CSS_BODY_MATCH ? CSS_BODY_MATCH[1] : '';
 let CSS = '';
 let cssError = null;

@@ -33,7 +33,9 @@ function check(name, ok, detail) {
 }
 
 // 注入的样式表：与 verify-readability 同法求值（选择器本身不含插值，但保持同一来源）。
-const CSS_BODY = (SRC.match(/const CSS = `([^`]*)`;/) || [])[1] || '';
+// ⚠️ 锚点**锚在行首且容忍缩进**（产物把内联模块整段缩进过）：否则注释/散文里出现同样的
+//    声明字面量会把锚点带偏，取出的"模板"会从注释一直吃到文件尾（本仓真踩过：H0 报"裸反引号 489"）。
+const CSS_BODY = (SRC.match(/^\s*const CSS = `([^`]*)`;/m) || [])[1] || '';
 const num = (re) => Number((SRC.match(re) || [])[1]);
 let CSS = '';
 try {
@@ -73,12 +75,13 @@ const qualified = sels.filter((s) => s.includes(GATE));
 // "提取样式表"的护栏（本文件与 verify-readability F1b）都读到空串 —— 而且报错信息
 // 只说"css chars=0"，不看源码根本猜不到原因。这条把它变成一句人能看懂的失败。
 {
-  const start = SRC.indexOf('const CSS = `');
-  const endMark = '\n\t\t`;';
-  const altEnd = '\n  `;';
-  let end = endMark ? SRC.indexOf(endMark, start) : -1;
-  if (end < 0 && altEnd) end = SRC.indexOf(altEnd, start);
-  const region = start >= 0 ? SRC.slice(start + 'const CSS = `'.length, end < 0 ? undefined : end) : '';
+  // ⚠️ 取模板的三处都必须**容忍缩进**，一件事都不能写死：
+  //   · 起始锚：`const CSS = ` —— 用行首锚定（`^\s*`），散文里出现同样字面量时不会带偏；
+  //   · 结束标记：原先写死 `'\n\t\t`;'`（正文里是 2 个 tab）—— 样式表搬到**内联模块**后
+  //     整段缩进变成 4 个 tab，写死的标记就找不到了，切片会一路吃到文件尾
+  //（实测踩到：H0 报"模板长度 1130572 字符" = 整份 bundle）。
+  const startMatch = /^\s*const CSS = `([^`]*)`;/m.exec(SRC);
+  const region = startMatch ? startMatch[1] : '';
   // 允许转义反引号（奇数个反斜杠前缀），其余一律视为截断风险。
   const rawBackticks = [...region.matchAll(/(^|[^\\])((?:\\\\)*)`/g)].length;
   const mutatedRegion = region + '\n  /* 反引号 ` 注入 */';
