@@ -236,26 +236,36 @@ section('④b 排版角色（F2）');
   check('角色表与 schema 白名单一致（跨文件，机械核对）',
     JSON.stringify(IDS) === JSON.stringify(schema.THEME_TYPE_ROLE_IDS),
     '模块=' + IDS.length + ' schema=' + schema.THEME_TYPE_ROLE_IDS.length);
-  check('范围上下限两份一致', typo.THEME_TYPE_MIN === -6 && typo.THEME_TYPE_MAX === 12);
+  check('范围上下限两份一致（8–48）', typo.THEME_SIZE_MIN === 8 && typo.THEME_SIZE_MAX === 48);
   check('负对照：给角色表多塞一个 id 会被判出',
     JSON.stringify([...IDS, 'ghost']) !== JSON.stringify(schema.THEME_TYPE_ROLE_IDS));
 
   const all = () => true;
-  const { payload, roles } = typo.buildTypePayload({ 'markdown-h1': 2, 'markdown-small': -1, 'markdown-base': 0 }, all);
-  check('偏移 0 = 不接管（不产生任何令牌）', roles.length === 2 && !Object.keys(payload).some((k) => k.includes('markdown-base')));
-  check('每个角色恰好写 3 个令牌（size / line-height / shorthand）',
-    Object.keys(payload).length === 6, Object.keys(payload).length + ' 个');
+  const { payload, roles } = typo.buildTypePayload({ 'markdown-h1': 24, 'markdown-small': 10, 'markdown-base': 0 }, all);
+  check('0 / 未设置 = 不接管（绝对值语义下 0 不是合法字号）',
+    roles.length === 2 && !Object.keys(payload).some((k) => k.includes('markdown-base')));
+  check('每个角色恰好写 2 个令牌（字号 + shorthand）—— 行高沿用 DSH，不再写它',
+    Object.keys(payload).length === 4 && !Object.keys(payload).some((k) => k.endsWith('-line-height')),
+    Object.keys(payload).length + ' 个');
   check('★ 写了 shorthand（组件消费的就是它）',
     !!payload['--dsw-font-markdown-h1'] && !!payload['--dsw-font-markdown-small']);
-  check('shorthand 由细粒度令牌组合，从而保住字重/字族',
-    payload['--dsw-font-markdown-h1'].light.includes('var(--dsw-font-markdown-h1-font-size)')
+  check('shorthand 由细粒度令牌组合，从而保住行高/字族（设了绝对值时字号为 px）',
+    payload['--dsw-font-markdown-h1'].light.includes('var(--dsw-font-markdown-h1-line-height)')
       && payload['--dsw-font-markdown-h1'].light.includes('var(--dsw-font-markdown-h1-font-family)')
       && payload['--dsw-font-markdown-h1'].light.startsWith('700 '),
     payload['--dsw-font-markdown-h1'].light.slice(0, 80));
-  check('只追加偏移：DSH 原表达式仍在（h1 基准 21px + delta）',
-    payload['--dsw-font-markdown-h1-font-size'].light === 'calc(calc(21px + var(--dsh-content-font-delta)) + 2px)');
-  check('小字类照旧不随 DSH 字号缩放（12px 基准，没有 delta）',
-    payload['--dsw-font-markdown-small-font-size'].light === 'calc(12px + -1px)');
+  check('★ 字号是**绝对值**（不再 calc 叠加 DSH 表达式）',
+    payload['--dsw-font-markdown-h1-font-size'].light === '24px');
+  check('组合式用绝对字号 + DSH 的行高/字族令牌（行高不被我们写）',
+    payload['--dsw-font-markdown-h1'].light
+      === '700 24px / var(--dsw-font-markdown-h1-line-height) var(--dsw-font-markdown-h1-font-family)',
+    payload['--dsw-font-markdown-h1'].light);
+  check('未设字号的角色仍走 DSH 令牌（保留 delta 联动）',
+    typo.buildTypePayload({}, all, { 'markdown-h1': 500 }).payload['--dsw-font-markdown-h1'].light
+      .includes('var(--dsw-font-markdown-h1-font-size)'));
+  check('每个角色都带**可见的官方默认字号**（面板显示它）',
+    typo.THEME_TYPE_ROLES.every((r) => Number.isInteger(r.defaultPx)
+      && r.defaultPx >= typo.THEME_SIZE_MIN && r.defaultPx <= typo.THEME_SIZE_MAX));
   check('值一律 {light,dark} 且两侧同值（排版与配色无关）',
     Object.values(payload).every((v) => v.light === v.dark && typeof v.light === 'string'));
   check('绝不重写字重/字族令牌（不在载荷里）',
@@ -271,8 +281,12 @@ section('④b 排版角色（F2）');
   // 面板**不再用占位字样**，直接显示默认值（用户口径）：角色行显示默认字阶、
   // 字重输入框显示默认字重、颜色块显示当前默认色。
   const clientFontUi = readFileSync(join(root, 'src', 'client.js'), 'utf8');
-  check('面板直接显示默认值（角色行 = describeTypeRole 的默认字阶）',
-    clientFontUi.includes('ctlText(role.label, describeTypeRole(role))'));
+  // 默认值**直接显示在输入框里**（角色表：字号列未填时显示 role.defaultPx），
+  // 不再用行内小字复述一遍 DSH 原字阶。
+  check('面板直接显示默认值（字号输入框未填时取 role.defaultPx）',
+    /value: size === undefined \? role\.defaultPx : size/.test(clientFontUi));
+  check('负对照：该判据对旧写法有牙',
+    !/value: size === undefined \? role\.defaultPx : size/.test('value: size === undefined ? "" : size'));
   check('面板不再有「官方」占位字样（placeholder）',
     !/placeholder:\s*"官方/.test(clientFontUi));
   check('负对照：占位判据对合成文本有牙', /placeholder:\s*"官方/.test('placeholder: "官方"'));
@@ -296,11 +310,14 @@ section('④b 排版角色（F2）');
     check('缺字重令牌 ⇒ 整角色跳过（组合式缺项会写出坏 font）',
       typo.buildTypePayload({}, (t) => t !== '--dsw-font-markdown-h1-font-weight', { 'markdown-h1': 500 })
         .roles.length === 0);
-    check('负对照：字重与字号同时设置时两者都在',
-      (() => { const both = typo.buildTypePayload({ 'markdown-h1': 2 }, all, { 'markdown-h1': 500 });
-        return !!both.payload['--dsw-font-markdown-h1-font-size'] && !!both.payload['--dsw-font-markdown-h1-font-weight']; })());
+    check('负对照：字重与字号同时设置时两者都在（字号用合法绝对值）',
+      (() => { const both = typo.buildTypePayload({ 'markdown-h1': 24 }, all, { 'markdown-h1': 500 });
+        return !!both.payload['--dsw-font-markdown-h1-font-size']
+          && !!both.payload['--dsw-font-markdown-h1-font-weight']; })());
     check('不调字重时组合式仍用 DSH 的写死前缀（行为不变）',
-      typo.buildTypePayload({ 'markdown-h1': 2 }, all).payload['--dsw-font-markdown-h1'].light.startsWith('700 '));
+      typo.buildTypePayload({ 'markdown-h1': 24 }, all).payload['--dsw-font-markdown-h1'].light.startsWith('700 '));
+    check('非法绝对值（低于 8 / 高于 48）被拒', 
+      typo.buildTypePayload({ 'markdown-h1': 2, 'markdown-h2': 99 }, all).roles.length === 0);
   }
   // G4 字族（角色级）：只调字族时**只写字族令牌**，组合式引用它（族键 → CSS 栈由调用方解析）。
   {
@@ -320,7 +337,7 @@ section('④b 排版角色（F2）');
     check('空字族键 ⇒ 不接管', typo.buildTypePayload({}, all, {}, { 'markdown-h1': '' }, (k) => k).roles.length === 0);
     check('负对照：字族 + 字重 + 字号三者同时设置时都在',
       (() => {
-        const three = typo.buildTypePayload({ 'markdown-h1': 2 }, all, { 'markdown-h1': 500 },
+        const three = typo.buildTypePayload({ 'markdown-h1': 24 }, all, { 'markdown-h1': 500 },
           { 'markdown-h1': 'KaiTi' }, (k) => 'S:' + k);
         return !!three.payload['--dsw-font-markdown-h1-font-size']
           && !!three.payload['--dsw-font-markdown-h1-font-weight']
@@ -348,14 +365,14 @@ section('④b 排版角色（F2）');
       /we-font-patch/.test('id="we-font-patch"') && /--we-font-family/.test('font-family:var(--we-font-family)')
       && /data-we-font-ignore/.test(':where([data-we-font-ignore])'));
     check('剩下的字体键全是按角色/按组件 + 总开关',
-      ['themeColors', 'themeType', 'themeWeight', 'themeFamily', 'componentFonts', 'fontCustom']
+      ['themeColors', 'themeSize', 'themeWeight', 'themeFamily', 'componentFonts', 'fontCustom']
         .every((k) => k in schema.DEFAULTS)
       && ['fontColor', 'fontWeight', 'fontFamily'].every((k) => !(k in schema.DEFAULTS)));
     const clientSrc = readFileSync(join(root, 'src', 'client.js'), 'utf8');
     check('面板「恢复默认」清掉全部字体自定义项（4 个容器 + 字体族 + 视图开关）',
       clientSrc.includes('const onFontResetAll = ()')
       && /selection\.themeColors = \{\};/.test(clientSrc)
-      && /selection\.themeType = \{\};/.test(clientSrc)
+      && /selection\.themeSize = \{\};/.test(clientSrc)
       && /selection\.themeWeight = \{\};/.test(clientSrc)
       && /selection\.themeFamily = \{\};/.test(clientSrc)
       && /selection\.componentFonts = \{\};/.test(clientSrc));
@@ -366,7 +383,7 @@ section('④b 排版角色（F2）');
   check('非法偏移（0 / 越界 / 非整数 / 未知角色 / 非数）全部被拒', bad.roles.length === 0);
   const partial = typo.buildTypePayload({ 'markdown-h1': 2 }, (t) => t !== '--dsw-font-markdown-h1-line-height');
   check('四个令牌缺一 ⇒ 整角色跳过（否则会写出坏 shorthand）', partial.roles.length === 0);
-  check('负对照：四令牌齐全时必须接管', typo.buildTypePayload({ 'markdown-h1': 2 }, all).roles.length === 1);
+  check('负对照：四令牌齐全时必须接管', typo.buildTypePayload({ 'markdown-h1': 24 }, all).roles.length === 1);
 }
 
 // ── ⑤ 静态不变量（源码级） ──────────────────────────────────────────────────

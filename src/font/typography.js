@@ -59,9 +59,9 @@
 
 const THEME_TYPE_SOURCE = 'wallpaper-engine-typography';
 
-/** 偏移范围（px）。上限故意保守：排版是"微调层次"，不是重做字阶。 */
-const THEME_TYPE_MIN = -6;
-const THEME_TYPE_MAX = 12;
+/** 绝对字号范围（px）。用户口径：字号用**绝对值**，默认值可见（角色表的 defaultPx）。 */
+const THEME_SIZE_MIN = 8;
+const THEME_SIZE_MAX = 48;
 
 const DELTA = 'var(--dsh-content-font-delta)';
 const DELTA_2 = 'var(--dsh-content-font-delta-secondary)';
@@ -74,19 +74,19 @@ const BODY_SIZE_2 = 'var(--dsh-content-font-size-secondary,13px)';
  */
 const THEME_TYPE_ROLES = [
   // —— 对话区 markdown（MarkdownText.module.css 消费）——
-  { id: 'markdown-h1', label: '标题 1', prefix: '700', size: `calc(21px + ${DELTA})`, lh: `calc(30px + ${DELTA})` },
-  { id: 'markdown-h2', label: '标题 2', prefix: '700', size: `calc(19px + ${DELTA})`, lh: `calc(28px + ${DELTA})` },
-  { id: 'markdown-h3', label: '标题 3', prefix: '700', size: `calc(18px + ${DELTA})`, lh: `calc(26px + ${DELTA})` },
-  { id: 'markdown-h4', label: '标题 4', prefix: '600', size: BODY_SIZE, lh: `calc(24px + ${DELTA})` },
-  { id: 'markdown-base', label: '对话正文', prefix: '', size: BODY_SIZE, lh: `calc(24px + ${DELTA})` },
-  { id: 'markdown-small', label: '小字说明', prefix: '', size: '12px', lh: '20px' },
-  { id: 'markdown-code', label: '行内代码', prefix: '', size: '12px', lh: '19px' },
-  { id: 'markdown-code-block', label: '代码块', prefix: '', size: '11px', lh: '19px' },
-  { id: 'markdown-table', label: '表格', prefix: '', size: BODY_SIZE_2, lh: `calc(22px + ${DELTA_2})` },
-  { id: 'markdown-table-head', label: '表头', prefix: '500', size: BODY_SIZE_2, lh: `calc(22px + ${DELTA_2})` },
+  { id: 'markdown-h1', label: '标题 1', prefix: '700', size: `calc(21px + ${DELTA})`, lh: `calc(30px + ${DELTA})`, defaultPx: 21 },
+  { id: 'markdown-h2', label: '标题 2', prefix: '700', size: `calc(19px + ${DELTA})`, lh: `calc(28px + ${DELTA})`, defaultPx: 19 },
+  { id: 'markdown-h3', label: '标题 3', prefix: '700', size: `calc(18px + ${DELTA})`, lh: `calc(26px + ${DELTA})`, defaultPx: 18 },
+  { id: 'markdown-h4', label: '标题 4', prefix: '600', size: BODY_SIZE, lh: `calc(24px + ${DELTA})`, defaultPx: 14 },
+  { id: 'markdown-base', label: '对话正文', prefix: '', size: BODY_SIZE, lh: `calc(24px + ${DELTA})`, defaultPx: 14 },
+  { id: 'markdown-small', label: '小字说明', prefix: '', size: '12px', lh: '20px', defaultPx: 12 },
+  { id: 'markdown-code', label: '行内代码', prefix: '', size: '12px', lh: '19px', defaultPx: 12 },
+  { id: 'markdown-code-block', label: '代码块', prefix: '', size: '11px', lh: '19px', defaultPx: 11 },
+  { id: 'markdown-table', label: '表格', prefix: '', size: BODY_SIZE_2, lh: `calc(22px + ${DELTA_2})`, defaultPx: 13 },
+  { id: 'markdown-table-head', label: '表头', prefix: '500', size: BODY_SIZE_2, lh: `calc(22px + ${DELTA_2})`, defaultPx: 13 },
   // —— 界面通用阶梯（SearchBlock / WebBlock / TerminalBlock 消费 xs-13）——
-  { id: 'xs-13', label: '界面小字', prefix: '', size: '13px', lh: '20px' },
-  { id: 'xxs-12', label: '界面极小字', prefix: '', size: '12px', lh: '18px' },
+  { id: 'xs-13', label: '界面小字', prefix: '', size: '13px', lh: '20px', defaultPx: 13 },
+  { id: 'xxs-12', label: '界面极小字', prefix: '', size: '12px', lh: '18px', defaultPx: 12 },
 ];
 
 const typeTokenNames = (role) => ({
@@ -97,10 +97,9 @@ const typeTokenNames = (role) => ({
   shorthand: `--dsw-font-${role}`,
 });
 
-/** 偏移是否可用（整数、在范围内、非 0）。0 = 不接管该角色（回到 DSH 原样）。 */
-function isTypeOffset(v) {
-  return typeof v === 'number' && Number.isFinite(v) && Number.isInteger(v)
-    && v >= THEME_TYPE_MIN && v <= THEME_TYPE_MAX && v !== 0;
+/** 字号是否可用（整数、在范围内）。未设置 = 用 DSH 官方值（保留 delta 联动）。 */
+function isTypeSize(v) {
+  return typeof v === 'number' && Number.isInteger(v) && v >= THEME_SIZE_MIN && v <= THEME_SIZE_MAX;
 }
 
 /**
@@ -109,51 +108,42 @@ function isTypeOffset(v) {
  * @param isAvailable `(token) => boolean` —— 四个令牌全可用才接管该角色
  * @returns {{ payload: object, roles: string[] }}
  */
-function buildTypePayload(offsets, isAvailable, weights, families, resolveFamily) {
-  const src = offsets && typeof offsets === 'object' ? offsets : {};
+function buildTypePayload(sizes, isAvailable, weights, families, resolveFamily) {
+  const szs = sizes && typeof sizes === 'object' ? sizes : {};
   const wts = weights && typeof weights === 'object' ? weights : {};
   const fams = families && typeof families === 'object' ? families : {};
   const ok = typeof isAvailable === 'function' ? isAvailable : () => true;
   const payload = {};
   const roles = [];
   for (const role of THEME_TYPE_ROLES) {
-    const off = src[role.id];
+    const sz = szs[role.id];
+    const useSize = isTypeSize(sz);
     const w = wts[role.id];
     const useWeight = typeof w === 'number' && Number.isInteger(w) && w >= 100 && w <= 900;
-    // 字族：存的是**族键**（FONT_FAMILY_VALUES 里的值），这里经调用方的解析器换成 CSS 栈。
-    // 没有解析器（或键为空）就不接管 —— 宁可保持官方值，也不写出坏 font 简写。
     const famKey = typeof fams[role.id] === 'string' && fams[role.id] ? fams[role.id] : '';
     const famStack = famKey && typeof resolveFamily === 'function' ? resolveFamily(famKey) : '';
     const useFamily = typeof famStack === 'string' && famStack.length > 0;
-    if (!isTypeOffset(off) && !useWeight && !useFamily) continue;
+    if (!useSize && !useWeight && !useFamily) continue;
     const t = typeTokenNames(role.id);
-    // 令牌齐备性：默认四件套（size/line-height/family/shorthand）；
-    // 要调字重就多要 `-font-weight`；调字族则**覆盖**四件套里的 `-font-family`。
+    // 令牌齐备性：四件套（size/line-height/family/shorthand），调字重时多要 -font-weight。
     const need = [t.size, t.lineHeight, t.family, t.shorthand];
     if (useWeight) need.push(t.weight);
     if (!need.every((n) => ok(n))) continue;
-    // 字重：用户调了就写 DSH 的细粒度令牌并让组合式**引用它**（而不是写死字面量），
-    // 这样"角色级字重"与"DSH 自己的字重"仍在同一条链上（官方值作初始值：不调就不写）。
     let prefix = role.prefix ? role.prefix + ' ' : '';
     if (useWeight) {
       payload[t.weight] = { light: String(Math.round(w)), dark: String(Math.round(w)) };
       prefix = `var(${t.weight}) `;
     }
     if (useFamily) {
-      // 覆盖 DSH 的字族令牌（两侧同值：字族与配色无关）。这样"按角色的字体"能真正落到
-      // 标题/表格这类用 `font:` 简写的元素上 —— 全局字体族只靠 body 继承是到不了它们的。
+      // 覆盖 DSH 的字族令牌（两侧同值）：这样"按角色的字体"能落到用 `font:` 简写的元素上。
       payload[t.family] = { light: famStack, dark: famStack };
     }
-    const size = isTypeOffset(off)
-      ? `calc(${role.size} + ${off}px)` : `var(${t.size})`;
-    const lh = isTypeOffset(off)
-      ? `calc(${role.lh} + ${off}px)` : `var(${t.lineHeight})`;
-    const shorthand = `${prefix}var(${t.size}) / var(${t.lineHeight}) var(${t.family})`;
-    // 排版与配色无关 ⇒ 两侧同值（服务要求成对，给不同值会让深浅配色下字阶不一致）。
-    if (isTypeOffset(off)) {
-      payload[t.size] = { light: size, dark: size };
-      payload[t.lineHeight] = { light: lh, dark: lh };
-    }
+    // 字号：**绝对值**（用户口径）—— 设了就写该角色的字号令牌，组合式直接用这个 px。
+    // 副作用（已确认接受）：设过的角色不再随 DSH「通用 → 字号」缩放；未设的照旧跟随。
+    if (useSize) payload[t.size] = { light: sz + 'px', dark: sz + 'px' };
+    const sizeExpr = useSize ? sz + 'px' : `var(${t.size})`;
+    // 行高一律沿用 DSH 的令牌（用户口径：行高保持 DSH 的，不随绝对值缩放）。
+    const shorthand = `${prefix}${sizeExpr} / var(${t.lineHeight}) var(${t.family})`;
     payload[t.shorthand] = { light: shorthand, dark: shorthand };
     roles.push(role.id);
   }
@@ -182,6 +172,6 @@ function describeTypeRole(role) {
 
 export {
   THEME_TYPE_SOURCE, THEME_TYPE_ROLES,
-  THEME_TYPE_MIN, THEME_TYPE_MAX,
-  isTypeOffset, typeTokenNames, buildTypePayload, describeTypeRole,
+  THEME_SIZE_MIN, THEME_SIZE_MAX,
+  isTypeSize, typeTokenNames, buildTypePayload, describeTypeRole,
 };

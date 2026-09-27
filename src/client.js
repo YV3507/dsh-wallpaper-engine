@@ -4754,6 +4754,16 @@ const onThemeFamily = (role, key) => {
   persistSelection(); applyEffects(); emit();
 };
 
+// F2/G4 字号（角色级，**绝对值**）：空 = 用 DSH 官方值（角色表的 defaultPx 即面板显示的默认）。
+const onThemeSize = (role, raw) => {
+  const next = Object.assign({}, selection.themeSize);
+  const num = raw === "" ? NaN : Number(raw);
+  if (!Number.isFinite(num)) delete next[role];
+  else next[role] = Math.round(num);
+  selection.themeSize = next;
+  persistSelection(); applyEffects(); emit();
+};
+
 // G4 字重（角色级）：空/0 = 回官方字重（组合式里的字面量前缀）。
 const onThemeWeight = (role, raw) => {
   const next = Object.assign({}, selection.themeWeight);
@@ -4862,7 +4872,7 @@ const officialColorOf = (tokens) => {
 // 「恢复默认」：所有字体自定义项清回 DSH 默认值（空 = 不覆盖；字体族回 inherit）。
   const onFontResetAll = () => {
     selection.themeColors = {};
-    selection.themeType = {};
+    selection.themeSize = {};
     selection.themeWeight = {};
     selection.themeFamily = {};
     selection.componentFonts = {};
@@ -5762,7 +5772,7 @@ const officialColorOf = (tokens) => {
           React.createElement("span", { className: "we-picker__section-label" }, "全局字体"),
         ),
         switchRow("字体自定义", sel.fontCustom, (e) => onToggleFontCustom(e.target.checked), {
-          tooltip: "关闭后恢复 dsh 默认字体外观；开启后可调颜色角色/排版角色/字体族/组件字体",
+          tooltip: "关闭后恢复 dsh 默认字体外观；开启后可调颜色角色、排版角色（字号/字重/字族）与组件字体",
         }),
         // 「恢复默认」只在总开关开启时出现：关闭时字体本就是 DSH 默认值，摆一个"恢复默认"
         // 没有意义（也会让人以为关掉开关还残留了什么自定义）。
@@ -5779,7 +5789,7 @@ const officialColorOf = (tokens) => {
           // 层次压平）；这里逐个角色放开，留空 = 跟随原生。经 theme 令牌层生效：body 内联、
           // 免 !important、{light,dark} 随配色自动换值。
           React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
-            ctlText("文字颜色角色", "留空 = 跟随原生层次"),
+            ctlText("文字颜色角色", "未设置 = 用 DSH 默认色（色块显示当前值）"),
           ),
           switchRow("深色单独设置", sel.themeDarkSeparate, (e) => onThemeDarkSeparate(e.target.checked), {
             tooltip: "关闭时一个颜色同时用于浅色与深色两套（内部仍存两套值）；开启后浅色/深色分别设置",
@@ -5818,16 +5828,70 @@ const officialColorOf = (tokens) => {
               }, "清除"),
             );
           }),
-          // F2：排版角色（字号偏移）。为什么是"偏移"而不是"绝对字号"：
-          // DSH 自己的「通用 → 字号」经 --dsh-content-font-delta 流进各角色令牌，
-          // 我们只叠一层偏移，用户调 DSH 字号时这些角色跟着缩放，且我们从不写
-          // --dsh-content-font-size（那是 DSH 的设置，红线 3）。
+          // F2/G4：排版角色（**绝对字号**）。用户口径：字号用绝对值、默认值可见 ——
+          // 未填时输入框显示 DSH 官方字号（角色表的 defaultPx），清空即回它。
+          // 已确认接受的副作用：设过绝对值的角色不再随 DSH「通用 → 字号」缩放（未设的照旧跟随）；
+          // 行高一律沿用 DSH 的令牌，不随绝对值缩放。我们始终**不写** --dsh-content-font-size（红线 3）。
           React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
-            ctlText("排版角色", "字号偏移 px；0 = 跟随 DSH 原生字阶"),
+            ctlText("排版角色", "字号 px；三项留空即用 DSH 默认（输入框里显示的就是默认值）"),
           ),
           switchRow("只看改过的", sel.themeTypeOnly, (e) => onThemeTypeOnly(e.target.checked), {
-            tooltip: "只列出偏移不为 0 的角色，便于收尾核对",
+            tooltip: "只列出改过字号/字重/字族的角色，便于收尾核对",
           }),
+          // 表格化：表头放「字号 / 字重 / 字体」，一行一个角色 —— 三项在固定列上对齐，
+          // 比每行重复三个无标签控件好扫读（颜色角色那张形状不同，仍用行式）。
+          React.createElement("table", { className: "we-picker__font-table" },
+            React.createElement("thead", null,
+              React.createElement("tr", null,
+                React.createElement("th", null, "角色"),
+                React.createElement("th", null, "字号"),
+                React.createElement("th", null, "字重"),
+                React.createElement("th", null, "字体"),
+              ),
+            ),
+            React.createElement("tbody", null,
+          THEME_TYPE_ROLES
+            .filter((role) => !sel.themeTypeOnly || sel.themeSize[role.id] !== undefined)
+            .map((role) => {
+              const size = sel.themeSize[role.id];
+              return React.createElement("tr", { key: role.id },
+                React.createElement("td", null, ctlText(role.label)),
+                React.createElement("td", null, React.createElement("input", {
+                  type: "number",
+                  value: size === undefined ? role.defaultPx : size,
+                  min: THEME_SIZE_MIN,
+                  max: THEME_SIZE_MAX,
+                  step: 1,
+                  style: { width: "46px" },
+                  onChange: (e) => onThemeSize(role.id, e.target.value),
+                  title: role.label + "：字号 px（清空即回 DSH 默认 " + role.defaultPx + "px）",
+                })),
+                React.createElement("td", null, React.createElement("input", {
+                  type: "number",
+                  value: sel.themeWeight[role.id] === undefined
+                    ? (role.prefix ? Number(role.prefix) : 400)
+                    : sel.themeWeight[role.id],
+                  min: 100,
+                  max: 900,
+                  step: 100,
+                  style: { width: "54px" },
+                  onChange: (e) => onThemeWeight(role.id, e.target.value),
+                  title: role.label + "：字重 100–900（清空即回默认）",
+                })),
+                React.createElement("td", null, React.createElement("select", {
+                  value: sel.themeFamily[role.id] === undefined ? "" : sel.themeFamily[role.id],
+                  style: { width: "92px" },
+                  onChange: (e) => onThemeFamily(role.id, e.target.value),
+                  title: role.label + "：字族（空 = DSH 默认）",
+                },
+                  React.createElement("option", { value: "" }, "默认"),
+                  FONT_FAMILY_LABELS.map((f) =>
+                    React.createElement("option", { key: f.v, value: f.v }, f.label)),
+                )),
+              );
+            }),
+            ),
+          ),
           // G3/G4：组件字体 —— 属"高级"，收进本区内的「高级字体设置」子分支
           //（是"字体"的子分支，**不是**「高级」页签）。三条来自静态分析的纪律：
           //   ① 命中靠启动自探测（未命中的组件整条不生效，改名即降级、不误伤）；
@@ -5838,104 +5902,64 @@ const officialColorOf = (tokens) => {
           }),
           sel.fontAdvanced && React.createElement(React.Fragment, null,
             React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
-              ctlText("组件字体", "输入框显示的是当前 DSH 默认值；清空即回默认"),
+              ctlText("组件字体", "未填时显示该组件当前的 DSH 默认值（— = 此刻不在页面上）；清空即回默认"),
             ),
+            // 表格化：与「排版角色」表同构 —— 表头放「字号 / 字重 / 字体」，一行一个组件。
+            React.createElement("table", { className: "we-picker__font-table" },
+              React.createElement("thead", null,
+                React.createElement("tr", null,
+                  React.createElement("th", null, "组件"),
+                  React.createElement("th", null, "字号"),
+                  React.createElement("th", null, "字重"),
+                  React.createElement("th", null, "字体"),
+                ),
+              ),
+              React.createElement("tbody", null,
             COMPONENT_FONT_TARGETS.map((target) => {
               const c = sel.componentFonts[target.prefix] || {};
-              // 未填时**直接显示 DSH 当前默认值**（启动自探测时顺带读回的 computed 值），
-              // 不再用"官方"占位字样 —— 看到的就是实际生效的值。
+              // 未填时**直接显示 DSH 当前默认值**（启动自探测时顺带读回的 computed 值）。
               const d = (typeof componentFontDefaults === "function"
                 ? componentFontDefaults()[target.prefix] : null) || {};
               const famKey = FONT_FAMILY_LABELS.reduce(
                 (acc, f) => (acc === "" && c.family !== undefined && fontFamilyStack(f.v) === c.family ? f.v : acc), "");
-              return React.createElement("div", { className: "we-picker__ctl", key: target.prefix },
-                ctlText(target.label, target.group + " · 走" + target.route),
-                React.createElement("input", {
+              return React.createElement("tr", { key: target.prefix },
+                React.createElement("td", null, ctlText(target.label, target.group + " · 走 " + target.route)),
+                React.createElement("td", null, React.createElement("input", {
                   type: "number",
                   value: c.size === undefined ? (d.size || "") : c.size,
+                  placeholder: d.size ? "" : "—",
                   min: 6,
                   max: 40,
-                  style: { width: "64px" },
+                  style: { width: "44px" },
                   onChange: (e) => onComponentFont(target.prefix, "size", e.target.value),
                   title: target.label + "：字号 px（清空即回 DSH 默认" + (d.size ? " " + d.size + "px" : "") + "）",
-                }),
-                React.createElement("input", {
+                })),
+                React.createElement("td", null, React.createElement("input", {
                   type: "number",
                   value: c.weight === undefined ? (d.weight || "") : c.weight,
+                  placeholder: d.weight ? "" : "—",
                   min: 100,
                   max: 900,
                   step: 100,
-                  style: { width: "76px" },
+                  style: { width: "54px" },
                   onChange: (e) => onComponentFont(target.prefix, "weight", e.target.value),
                   title: target.label + "：字重 100–900（清空即回 DSH 默认" + (d.weight ? " " + d.weight : "") + "）",
-                }),
-                React.createElement("select", {
+                })),
+                React.createElement("td", null, React.createElement("select", {
                   value: famKey,
-                  style: { width: "112px" },
+                  style: { width: "96px" },
                   onChange: (e) => onComponentFamily(target.prefix, e.target.value),
                   title: target.label + "：字体族（空 = DSH 默认）",
                 },
                   React.createElement("option", { value: "" }, "默认"),
                   FONT_FAMILY_LABELS.map((f) =>
                     React.createElement("option", { key: f.v, value: f.v }, f.label)),
-                ),
+                )),
               );
             }),
+              ),
+            ),
           ),
-          THEME_TYPE_ROLES
-            .filter((role) => !sel.themeTypeOnly || (sel.themeType[role.id] || 0) !== 0)
-            .map((role) => {
-              const off = sel.themeType[role.id] || 0;
-              return React.createElement("div", { className: "we-picker__ctl", key: role.id },
-                // G2「初始值 = 官方默认值」：副标题显示 DSH 的官方字阶（含字重与基准表达式），
-                // 0 = 不接管（用官方值）—— 数据仍只来自角色表，不在此复制。
-                ctlText(role.label, describeTypeRole(role)),
-                // 字号偏移用**数字输入**（与字重同款）：原来是与字重并排的滑杆，一屏十二行时既占宽又难对齐。
-                // 单位 px，±（THEME_TYPE_MIN/MAX），0 = 用 DSH 默认。
-                React.createElement("input", {
-                  type: "number",
-                  value: off,
-                  min: THEME_TYPE_MIN,
-                  max: THEME_TYPE_MAX,
-                  step: 1,
-                  style: { width: "72px" },
-                  onChange: (e) => onThemeType(role.id, Number(e.target.value) || 0),
-                  title: role.label + "：字号偏移 px（0 = 用 DSH 默认 " + describeTypeRole(role) + "）",
-                }),
-                // G4 字重（角色级）：未填时**直接显示 DSH 的默认字重**（角色表的 prefix 就是它；
-                // 无前缀的角色官方值是 400）。清空即回默认。
-                React.createElement("input", {
-                  type: "number",
-                  value: sel.themeWeight[role.id] === undefined
-                    ? (role.prefix ? Number(role.prefix) : 400)
-                    : sel.themeWeight[role.id],
-                  min: 100,
-                  max: 900,
-                  step: 100,
-                  style: { width: "86px" },
-                  onChange: (e) => onThemeWeight(role.id, e.target.value),
-                  title: role.label + "：字重 100–900（清空即回默认）",
-                }),
-                // G4 字族（角色级）：空 = DSH 官方字族。用族键（FONT_FAMILY_VALUES），
-                // 模块侧经 fontFamilyStack 换成 CSS 栈写进该角色的字族令牌。
-                React.createElement("select", {
-                  value: sel.themeFamily[role.id] === undefined ? "" : sel.themeFamily[role.id],
-                  style: { width: "104px" },
-                  onChange: (e) => onThemeFamily(role.id, e.target.value),
-                  title: role.label + "：字族（空 = DSH 默认）",
-                },
-                  React.createElement("option", { value: "" }, "默认"),
-                  FONT_FAMILY_LABELS.map((f) =>
-                    React.createElement("option", { key: f.v, value: f.v }, f.label)),
-                ),
-                off !== 0 && React.createElement("button", {
-                  type: "button",
-                  className: "we-picker__chip",
-                  onClick: () => onThemeType(role.id, 0),
-                  title: "复位该角色",
-                }, "复位"),
-              );
-            }),
           // 全局字重已移除（与「字体颜色」同一类问题：一个全局值会把 DSH 的粗细层次压成
           // 一档）。字重改**按角色**细化（下面「排版角色」每行一个输入框）与**按组件**细化
           // （「高级字体设置」里每组件一项），都能填任意值；留空/「恢复默认」即回 DSH 官方字重。
@@ -7953,6 +7977,38 @@ const CSS = `
     border-color: var(--we-accent, #4f8cff);
     background: color-mix(in srgb, var(--we-accent, #4f8cff) 12%, transparent);
   }
+
+  /* 字体配置矩阵：把「字号 / 字重 / 字体」提到表头，一行一个角色/组件。
+     三类控件固定在列上对齐，比每行重复三个无标签控件好扫读；
+     th 用小字弱化色（--we-host-* 是宿主角色色快照，取不到时有兜底）。 */
+  .we-picker__font-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 4px;
+  }
+  .we-picker__font-table th {
+    font-weight: 400;
+    text-align: left;
+    padding: 4px 4px;
+    font-size: 12px;
+    color: var(--we-host-dsw-alias-label-tertiary, rgba(128, 128, 128, 0.75));
+  }
+  .we-picker__font-table td {
+    padding: 2px 4px;
+    vertical-align: middle;
+  }
+  /* 数字框按内容收纳：面板基础样式给 input 的左右内边距在这里制造了明显的空占位。 */
+  .we-picker__font-table input[type="number"] {
+    padding-left: 3px;
+    padding-right: 3px;
+  }
+  /* 第 2 列起（字号/字重/字体）**按内容收缩**（width:1% + nowrap 是经典写法），
+     余量全部归首列。否则 table{width:100%} 会把三列均匀拉宽，控件之间空出一大片。 */
+  .we-picker__font-table th:nth-child(n + 2),
+  .we-picker__font-table td:nth-child(n + 2) {
+    width: 1%;
+    white-space: nowrap;
+  }
   /* 主开关说明已收进行内一句话 + tooltip（见 we-picker__ctl-hint）。 */
 
   /* Pagination bar under each paged grid (normal / hidden / group editor).
@@ -9393,7 +9449,7 @@ function apply(ctx) {
               theme,
               source: THEME_TYPE_SOURCE,
               buildPayload: () => buildTypePayload(
-                selection.fontCustom ? selection.themeType : {},
+                selection.fontCustom ? selection.themeSize : {},
                 hasToken,
                 selection.fontCustom ? selection.themeWeight : {},
                 selection.fontCustom ? selection.themeFamily : {},

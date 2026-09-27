@@ -38,7 +38,7 @@ const COMPONENT_FONT_PROPS = ['font-size', 'font-weight', 'font-family'];
  * `label` 用于面板；`group` 用于折叠分组。
  */
 const COMPONENT_FONT_TARGETS = [
-  { prefix: 'markdown', label: '对话正文（markdown 容器）', group: '对话', probe: '_markdown_',
+  { prefix: 'markdown', label: '对话正文', group: 'markdown 容器', probe: '_markdown_',
     // markdown 的字号由各元素自己的 `font: var(--dsw-font-markdown-h1)` 决定 ⇒ 直接在容器上
     // 写 font-size 会被那些简写盖掉；这里的正解是 F2 的角色令牌（已实现）。
     route: 'tokens' },

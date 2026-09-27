@@ -114,11 +114,17 @@ function resolveWallpaperFadeBg() {
  *   · 前缀命中靠**启动自探测**（结果缓存；打包器改名 ⇒ 整条降级，不误伤）；
  *   · 字体来自后代 `font:` 简写的组件（代码块/终端）**只有官方 `--dsl-*` 钩子这条腿有效**；
  *   · 空配置 = 不生成任何规则（**官方值作初始值**）。
- * 探测结果只算一次：applyEffects 每次滑杆回调都会跑，不能每次读 computed 样式。
+ * 探测结果缓存，但**可重试**：命中集不全时（组件后来才出现在页面上）超过 2s 就重探一次 ——
+ * 既不必刷新页面，也不会每次输入都去读 computed 样式（那是布局抖动）。
+ * UI 显示（componentFontDefaults）与 CSS 生成（applyComponentFonts）都走这里，共用同一份。
  */
 let componentFontProbe = null;
+let componentFontProbeAt = 0;
 function componentFontAvailability() {
-  if (componentFontProbe === null) {
+  const stale = componentFontProbe !== null
+    && componentFontProbe.prefixes.length < COMPONENT_FONT_TARGETS.length
+    && Date.now() - componentFontProbeAt > 2000;
+  if (componentFontProbe === null || stale) {
     const prefixes = probeComponentTargets(document);
     // 顺带把"当前 DSH 默认值"读回来：面板直接显示它（而不是"官方"占位字样）——
     // 取该前缀命中的第一个元素读 computed 的字号/字重/字族。探测只做一次。
@@ -135,6 +141,7 @@ function componentFontAvailability() {
         };
       } catch { /* 读不到就不显示默认值，不影响覆盖能力 */ }
     }
+    componentFontProbeAt = Date.now();
     componentFontProbe = {
       prefixes,
       defaults,
