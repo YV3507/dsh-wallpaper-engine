@@ -10,7 +10,8 @@
  * 需要的外界：
  *   COMPONENT_FONT_TARGETS   ← src/font/components.js（用组件总数判"命中集不全"）
  *   probeComponentTargets()  ← 同上（启动自探测）
- *   componentScopeSelector() ← 同上（id → 作用域选择器；**id→模块名的映射只有那一处**）
+ *   scanHookScopes()         ← 同上（扫样式表取每个 `--dsl-*` 钩子的**定义点**）
+ *   componentScopeSelector() ← 同上（id → 作用域选择器；**id→作用域的映射只有那一处**）
  *   buildComponentCss()      ← 同上（tokens 通道：写真实属性）
  *   buildDslBlocks()         ← 同上（hooks 通道：写官方 --dsl-* 钩子）
  *   selection                ← src/client.js 的设置/选中项 store（**只读**）
@@ -60,15 +61,17 @@ function componentFontAvailability() {
     && Date.now() - componentFontProbeAt > 2000;
   if (componentFontProbe === null || stale) {
     const ids = probeComponentTargets(document);
+    // hooks 通道的作用域不靠模块名，而靠**钩子定义点**（扫样式表 ⇒ 精确到文件级哈希）。
+    // 同一个模块名会被多个组件共用（代码块 / 终端都是 `.block`），只有定义点能区分它们。
+    const hookScopes = scanHookScopes(document);
     // 顺带把"当前 DSH 默认值"读回来：面板直接显示它（而不是"官方"占位字样）——
-    // 取该组件作用域命中的第一个元素读 computed 的字号/字重/字族。探测只做一次。
-    // ⚠️ 两个组件共用同一个模块名时（代码块 / 终端块都是 `block`），两行会读到**同一个**
-    //    元素 ⇒ 显示值可能相同。作用域选择器只能由 componentScopeSelector 给出（id→模块名
-    //    的映射只有一处），这里不得自己拼模块名。
+    // 取该组件**精确作用域**里命中的第一个元素读 computed 的字号/字重/字族。探测只做一次。
+    // 作用域选择器只能由 componentScopeSelector 给出（id→作用域的映射只有一处），
+    // 这里不得自己拼模块名。
     const defaults = {};
     for (const id of ids) {
       try {
-        const scope = componentScopeSelector(id);
+        const scope = componentScopeSelector(id, hookScopes);
         const el = scope ? document.querySelector(scope) : null;
         if (!el) continue;
         const cs = getComputedStyle(el);
@@ -82,6 +85,7 @@ function componentFontAvailability() {
     componentFontProbeAt = Date.now();
     componentFontProbe = {
       ids,
+      hookScopes,
       defaults,
       hasToken: (t) => {
         try { return getComputedStyle(document.body).getPropertyValue(t).trim() !== ""; } catch { return false; }
@@ -107,8 +111,8 @@ function applyComponentFonts() {
   try {
     const cfg = selection.componentFonts && typeof selection.componentFonts === "object"
       ? selection.componentFonts : {};
-    const { ids, hasToken } = componentFontAvailability();
-    const css = buildComponentCss(cfg, ids) + buildDslBlocks(cfg, ids, hasToken);
+    const { ids, hookScopes, hasToken } = componentFontAvailability();
+    const css = buildComponentCss(cfg, ids) + buildDslBlocks(cfg, ids, hasToken, hookScopes);
     const st = fontScopeEl();
     if (st.textContent !== css) st.textContent = css;
   } catch { /* 组件字体是增强：任何异常都不该影响主路径 */ }

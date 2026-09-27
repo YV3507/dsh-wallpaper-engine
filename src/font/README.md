@@ -15,15 +15,22 @@
 | 通道 | 里的文件 | 覆盖对象 | 机制 | 守卫 |
 |---|---|---|---|---|
 | ① **角色令牌** | `color-roles.js`、`typography.js` | DSH 的**角色**（正文/次要/弱化/极小/禁用；标题 1–4/正文/小字/代码/表格…） | DSH `theme` 服务的 `overrideTokens`（body 内联，**免 `!important`**） | `scripts/verify-theme-layer.mjs` |
-| ② **官方组件钩子** | `components.js`（`DSL_FONT_HOOKS`） | 代码块 / 终端 | 官方 `--dsl-*` 钩子，**写进组件作用域** | `scripts/verify-component-fonts.mjs` |
+| ② **官方组件钩子** | `components.js`（`DSL_FONT_HOOKS`） | 代码块 / 终端 | 官方 `--dsl-*` 钩子，**作用域 = 该钩子在样式表里的定义点**（`scanHookScopes` 推导，不靠模块名） | `scripts/verify-component-fonts.mjs` |
 | ③ **模块名直接命中** | `components.js` | 首期 4 个组件（markdown / codeBlock / terminal / table） | `body [class*="_<模块名>_"]` 直接命中（**等特异性**，不用 `!important`） | 同上 |
 
 > ①②③ 的结果都由 `apply.js` 落到 DOM（①走 DSH 服务的令牌层，②③ 拼成 `#we-font-scope` 的 CSS）。
 >
-> ⚠️ **③ 的模块名必须是实测值**（在 DSH 产物 / `@deepseek-ai/dsh-client-ui-primitives` 的
-> `*.module.css` 里核对），不许按"组件叫什么"猜 —— 本仓踩过：`codeBlock` / `table` / `sidebar`
-> 三个猜出来的名字在 DSH 里**一个都不存在**，那 3 行曾是"看得见、填了没用"。
+> ⚠️ **③ 的模块名必须是实测值**（在 `@deepseek-ai/dsh-client-ui-primitives` 的 `*.module.css`
+> 里核对，出处登记在每个目标的 `source` 字段上、守卫强制非空并在本机装了 DSH 时**逐个打开核对**），
+> 不许按"组件叫什么"猜 —— 本仓踩过：`codeBlock` / `table` / `sidebar` 三个猜出来的名字在 DSH 里
+> **一个都不存在**，那 3 行曾是"看得见、填了没用"。
 > 每个目标的 `id`（= 设置键，稳定）与 `prefix`（= 实测模块名，会随 DSH 变）因此是**两件事**。
+>
+> ⚠️ **② 反过来不用模块名**：代码块与终端的模块名**都是 `.block`**（同名的还有搜索块 / 网页块），
+> 按模块名生成作用域会一起命中 —— 改"代码块"会连带改终端正文，面板的"当前默认值"也只能读到
+> 同一个元素。钩子的**定义点**天然区分它们（`--dsl-code-block-*` 只在代码块的规则上、
+> `--dsl-terminal-font` 只在终端的规则上，文件级哈希不同）⇒ 扫样式表取定义点，
+> 与 ① 取令牌清单的口径一致：**样式表是权威来源**。
 
 **路由规则（三个通道的选择依据，来自静态分析，不是偏好）**
 
@@ -47,10 +54,12 @@
 6. **空配置 = 不生成任何规则**：所有可调项都以 **DSH 官方值作初始值**，清空即回官方。
 7. **打包器产物不是官方 API**：③ 依赖 CSS-module 的 `_<模块名>_<哈希>_<行>` 命名 ⇒
    启动时**自探测**（`probeComponentTargets`），未命中就整条降级，不误伤。
-8. **泛模块名（跨模块重名）只许出现在 `route: 'hooks'` 通道**：那里写的是 `--dsl-*`
-   **自定义属性**，非消费方元素上惰性 ⇒ 共用作用域安全（代码块与终端都是 `.block`，
-   同名的还有搜索块 / 网页块）。反过来，写**真实属性**的通道一旦用泛名就会误伤同名块 ——
-   所以 `buildComponentCss` 必须跳过 hooks 组件，这条有守卫。
+8. **hooks 通道的作用域只能来自"定义点扫描"**：它写的是 `--dsl-*` **自定义属性**，
+   但**不许**按模块名生成作用域 —— 泛模块名（代码块 / 终端 / 搜索块 / 网页块都是 `.block`）
+   会一起命中，且终端**也消费**代码块的内容钩子 ⇒ 改一个会动两个。查不到定义点就整条降级
+   （不退回泛命中），扫描结果还必须过"单类选择器"形态校验才允许注入。
+9. **真实属性通道不得用泛模块名**（`buildComponentCss` 必须跳过 hooks 组件）：那里写的是
+   `font-size/weight/family`，打到同名的搜索块 / 网页块上就是误伤 —— 这条有守卫。
 
 ## 加一个新角色 / 新组件时要动的地方
 
@@ -58,11 +67,12 @@
 |---|---|---|
 | 排版角色 | `typography.js` 的 `THEME_TYPE_ROLES`（表达式**照抄 DSH**） | `lib/settings-schema.js` 的 `THEME_TYPE_ROLE_IDS`（两份必须一致） |
 | 颜色角色 | `color-roles.js` 的 `THEME_COLOR_ROLES` | schema 的 `THEME_COLOR_ROLE_IDS` |
-| 组件（③/②） | `components.js` 的 `COMPONENT_FONT_TARGETS`（`id` + **实测** `prefix` + `route`/`dslHooks`） | schema 的 `COMPONENT_FONT_KEYS`（比对的是 **id**，不是模块名）；白名单上限 3–5 是**棘轮** |
+| 组件（③/②） | `components.js` 的 `COMPONENT_FONT_TARGETS`（`id` + **实测** `prefix` + `source` + `route`/`dslHooks`） | schema 的 `COMPONENT_FONT_KEYS`（比对的是 **id**，不是模块名）；`source` 必须非空且以 `.module.css` 结尾；白名单上限 3–5 是**棘轮** |
 
-加组件时的三步：① 在 DSH 产物 / `*.module.css` 里**实测**模块名（记进 `components.js` 文件头
-的口径）；② 加白名单项并**同步 schema 键**；③ 想清 `route` —— 字体来自后代 `font:` 简写的
-只有 `hooks` 一条腿有效，而泛模块名也只许用在 `hooks` 上。
+加组件时的三步：① 在 `@deepseek-ai/dsh-client-ui-primitives` 的 `*.module.css` 里**实测**
+模块名，并把那个文件路径填进 `source`（本机装了 DSH 时守卫会打开它核对 `.prefix` 真的在里面）；
+② 加白名单项并**同步 schema 键**；③ 想清 `route` —— 字体来自后代 `font:` 简写的只有 `hooks`
+一条腿有效（而它的作用域由扫描推导，与 `prefix` 无关）。
 
 DSH 升级后**重取角色表**的命令写在 `typography.js` 文件头（跑一遍即可核对基准值有没有变）。
 

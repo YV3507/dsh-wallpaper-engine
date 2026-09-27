@@ -20,7 +20,7 @@
  * Usage:  node scripts/verify-component-fonts.mjs
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -156,8 +156,45 @@ section('⑤ 源码不变量');
   }
 }
 
+// ── ⑤b 每个组件的模块名必须有**实测出处**（B4）──────────────────────────────
+// 这条通道最脆的地方是"模块名是猜的"（本仓真发生过：三个猜出来的名字在 DSH 里都不存在，
+// 那三行静默无效）。守卫读不到 DSH 安装目录时至少能强制**登记出处**；本机装了 DSH 时
+// 顺带把出处**真的打开核对**一遍（这是唯一能机器判定"名字是真的"的路子）。
+section('⑤b 模块名的实测出处（source）');
+{
+  const bad = COMPONENT_FONT_TARGETS.filter((t) => typeof t.source !== 'string'
+    || !t.source.endsWith('.module.css'));
+  check('每个组件都登记了 .module.css 出处', bad.length === 0,
+    bad.map((t) => t.id).join(' ') || COMPONENT_FONT_TARGETS.map((t) => t.id).join(' '));
+  check('负对照：出处判据对缺失/乱填有牙',
+    ![undefined, 'guess.css', ''].every((s) => typeof s === 'string' && s.endsWith('.module.css')));
+  // 机会性核对：装了 DSH 就逐个打开出处文件，断言里面真的定义了 `.prefix`。
+  // 没装则显式跳过（并打印），不假装有牙 —— CI 上没有 DSH，这条必须能安全跳过。
+  const dshRoot = process.env.DSH_WE_DSH_ROOT || 'D:\\DSH Desktop\\resources\\app';
+  const nm = join(dshRoot, 'node_modules');
+  if (existsSync(nm)) {
+    const wrong = [];
+    for (const t of COMPONENT_FONT_TARGETS) {
+      const rel = String(t.source).replace('@deepseek-ai/', '@deepseek-ai/');
+      const abs = join(nm, rel);
+      if (!existsSync(abs)) { wrong.push(t.id + ':缺文件'); continue; }
+      const css = readFileSync(abs, 'utf8');
+      // 类名必须作为**独立的类选择器**出现（`.block` 不能靠 `.blockWrap` 之类的子串蒙混）
+      const re = new RegExp('^\\.' + t.prefix + '(?![A-Za-z0-9_-])', 'm');
+      if (!re.test(css)) wrong.push(t.id + ':' + t.prefix);
+    }
+    check('★ 出处文件真实存在且里面定义了该模块名（本机 DSH 静态核对）', wrong.length === 0,
+      wrong.join(' ') || COMPONENT_FONT_TARGETS.length + ' 个组件逐个核对通过');
+    check('负对照：核对判据对不存在的类名有牙',
+      !new RegExp('^\\.' + 'definitelyNotAClass' + '(?![A-Za-z0-9_-])', 'm')
+        .test(readFileSync(join(nm, String(COMPONENT_FONT_TARGETS[0].source)), 'utf8')));
+  } else {
+    console.log('  · 跳过出处核对（本机没有 DSH 安装：' + nm + '；可用 DSH_WE_DSH_ROOT 指定）');
+  }
+}
+
 // ── ⑥ G3：官方 `--dsl-*` 组件钩子 ───────────────────────────────────────────
-section('⑥ G3 官方钩子（--dsl-*，必须写进组件作用域）');
+section('⑥ G3 官方钩子（--dsl-*，作用域 = 钩子的**定义点**）');
 {
   const HOOKS = mod.DSL_FONT_HOOKS.map((h) => h.name);
   check('钩子白名单就是官方那三个（不多不少）',
@@ -172,29 +209,89 @@ section('⑥ G3 官方钩子（--dsl-*，必须写进组件作用域）');
   check('route=hooks 的组件必须声明至少一个钩子',
     COMPONENT_FONT_TARGETS.filter((t) => t.route === 'hooks').every((t) => (t.dslHooks || []).length > 0));
 
-  const css = mod.buildDslBlocks({ codeBlock: { size: 14, family: '"KaiTi"' } }, ['codeBlock', 'terminal'], () => true);
-  check('写进组件作用域（而不是 body 全局）',
-    css.includes('[class*="_block_"]') && !/^body\s*\{/m.test(css), css.split('\n')[0]);
+  // 作用域由**扫描样式表**得到：代码块与终端共用模块名 `.block`，但定义点不同 ⇒ 必须分开。
+  const SCOPES = {
+    '--dsl-code-block-content-font': '._cbHASH_1',
+    '--dsl-code-block-banner-font': '._cbHASH_1',
+    '--dsl-terminal-font': '._termHASH_2',
+  };
+  const css = mod.buildDslBlocks({ codeBlock: { size: 14, family: '"KaiTi"' } },
+    ['codeBlock', 'terminal'], () => true, SCOPES);
+  check('写进**该钩子的定义点**（而不是按模块名生成的泛作用域）',
+    css.includes('._cbHASH_1 {') && !css.includes('[class*="_block_"]'), css.split('\n')[0]);
   check('用官方钩子名，且组合式取自 DSH 细粒度令牌',
     css.includes('--dsl-code-block-content-font:') && css.includes('var(--dsw-font-markdown-code-block-font-weight)')
     && css.includes('var(--dsw-font-markdown-code-block-line-height)'), css.split('\n')[1]);
   check('只动用户改的两项（字号/字族），字重与行高沿用 DSH 令牌',
     css.includes('14px') && css.includes('"KaiTi"') && !css.includes('font-weight:'));
   check('零 !important（等特异性即可 —— 简写在组件根作用域上）', !/!\s*important/.test(css));
-  // 共用作用域安全的前提：这里只写自定义属性。若哪天写进 font-*，代码块与终端块就会互相污染，
-  // 还会打到同名的搜索块 / 网页块上。
-  check('hooks 通道只写自定义属性（共用作用域安全的前提）',
+  // 本轮修掉的两处遗留，各一条断言：
+  const both = mod.buildDslBlocks({ codeBlock: { size: 14 }, terminal: { size: 13 } },
+    ['codeBlock', 'terminal'], () => true, SCOPES);
+  check('★ 代码块与终端落到**各自**的定义点（改一个不再连带改另一个）',
+    both.includes('._cbHASH_1 {') && both.includes('._termHASH_2 {'));
+  check('★ 两个组件的钩子各自成块（不混进同一条规则）',
+    (both.match(/\{/g) || []).length === 2);
+  check('同一组件的多个钩子合并进它自己的定义点',
+    (css.match(/\{/g) || []).length === 1
+    && css.includes('--dsl-code-block-banner-font:'));
+  // 共用作用域安全的前提：这里只写自定义属性。
+  check('hooks 通道只写自定义属性（共用/精确作用域都安全的前提）',
     !/^\s*font-/m.test(css) && !/^\s*font:/m.test(css));
+  // 降级：没有定义点 或 定义点形态不合规 ⇒ 该钩子不生成（不退回泛命中）
   check('未命中的组件不生成（自探测降级）',
-    mod.buildDslBlocks({ terminal: { size: 13 } }, ['codeBlock'], () => true) === '');
-  check('空配置不生成（官方值作初始值）', mod.buildDslBlocks({}, ['codeBlock'], () => true) === '');
+    mod.buildDslBlocks({ terminal: { size: 13 } }, ['codeBlock'], () => true, SCOPES) === '');
+  check('扫不到定义点 ⇒ 不生成（不退回按模块名的泛作用域）',
+    mod.buildDslBlocks({ codeBlock: { size: 14 } }, ['codeBlock'], () => true, {}) === '');
+  check('定义点形态不合规 ⇒ 拒绝注入（复合/后代/列表选择器）',
+    mod.buildDslBlocks({ codeBlock: { size: 14 } }, ['codeBlock'], () => true,
+      { '--dsl-code-block-content-font': 'body .x', '--dsl-code-block-banner-font': '.a, .b' }) === '');
+  check('负对照：合规定义点必须被接受',
+    mod.buildDslBlocks({ codeBlock: { size: 14 } }, ['codeBlock'], () => true, SCOPES)
+      .includes('--dsl-code-block-content-font'));
+  check('空配置不生成（官方值作初始值）', mod.buildDslBlocks({}, ['codeBlock'], () => true, SCOPES) === '');
   check('四令牌缺一 ⇒ 跳过该钩子（与 F2 同一规则）',
     mod.buildDslBlocks({ codeBlock: { size: 14 } }, ['codeBlock'],
-      (t) => t !== '--dsw-font-markdown-code-block-line-height') === '');
+      (t) => t !== '--dsw-font-markdown-code-block-line-height', SCOPES) === '');
   check('负对照：四令牌齐全时必须生成',
-    mod.buildDslBlocks({ codeBlock: { size: 14 } }, ['codeBlock'], () => true).includes('--dsl-code-block-content-font'));
+    mod.buildDslBlocks({ codeBlock: { size: 14 } }, ['codeBlock'], () => true, SCOPES)
+      .includes('--dsl-code-block-content-font'));
   check('负对照：钩子名判据能抓到拼错的钩子（防手滑）',
     !HOOKS.includes('--dsl-codeblock-content-font'));
+}
+
+// ── ⑥b 钩子定义点扫描（scanHookScopes）──────────────────────────────────────
+section('⑥b 扫样式表取钩子定义点（F1 同一口径：样式表是权威来源）');
+{
+  // 假的 document.styleSheets：一条 @media 包着的规则 + 一条顶层规则 + 一条跨域（cssRules 抛）
+  const sheetOf = (rules) => ({ cssRules: rules });
+  const ruleOf = (selectorText, decls) => ({
+    selectorText,
+    style: { getPropertyValue: (n) => (decls[n] === undefined ? '' : decls[n]) },
+  });
+  const deps = ruleOf('._block_cbH_1', { '--dsl-code-block-content-font': 'var(--x)' });
+  const term = ruleOf('._block_tmH_2', { '--dsl-terminal-font': 'var(--y)' });
+  const nested = { selectorText: '', style: null, cssRules: [term] };
+  const media = { selectorText: '', style: null, cssRules: [nested] };
+  const foreign = { get cssRules() { throw new Error('cross-origin'); } };
+  const fakeDoc = { styleSheets: [sheetOf([deps, media]), foreign] };
+  const scopes = mod.scanHookScopes(fakeDoc);
+  check('从定义该钩子的规则上取选择器（含 @media 嵌套）',
+    scopes['--dsl-code-block-content-font'] === '._block_cbH_1' && scopes['--dsl-terminal-font'] === '._block_tmH_2',
+    JSON.stringify(scopes));
+  check('共用模块名但定义点不同 ⇒ 两条钩子分别落到各自规则',
+    scopes['--dsl-code-block-content-font'] !== scopes['--dsl-terminal-font']);
+  check('跨域样式表（cssRules 抛）不炸、也不吞掉其它样式表',
+    Object.keys(scopes).length === 2);
+  check('没有 document 也不炸', Object.keys(mod.scanHookScopes(null)).length === 0);
+  check('形态不合规的选择器被丢弃（复合/后代/列表）',
+    Object.keys(mod.scanHookScopes({ styleSheets: [sheetOf([
+      ruleOf('body .x', { '--dsl-terminal-font': 'v' }),
+      ruleOf('.a, .b', { '--dsl-code-block-content-font': 'v' }),
+    ])] })).length === 0);
+  check('负对照：形态判据对合规单类选择器有牙',
+    mod.HOOK_SCOPE_RE.test('._block_9ufs4_4') && !mod.HOOK_SCOPE_RE.test('body .x')
+      && !mod.HOOK_SCOPE_RE.test('.a, .b') && !mod.HOOK_SCOPE_RE.test('.a .b'));
 }
 
 // ── ⑦ 设置侧一致性（跨文件，机械核对） ──────────────────────────────────────
