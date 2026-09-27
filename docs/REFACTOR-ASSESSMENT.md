@@ -229,7 +229,7 @@
 | 体量 | **1,923 行 = 全文件 43%**；分支代理 **360**（全仓最大的单个函数） |
 | 路由 | **29 条** `webServer.register`，**全在这一个作用域内**；按族看**几乎都是 1 条一族**（媒体/场景/上传/设置/诊断各 1–2 条） |
 | 闭包状态 | **26 个** `apply` 局部：`mediaMap` `tokenFor` `sceneFieldsFor` `webFieldsFor` `inventoryCache` `buildInventory` `disposers` `prewarmTimer` `activeStreams` `trackStream` `serveFile` `handleSceneFiles` `mediaOrigin` `mediaOriginTask` `mediaOriginDead` `mediaOriginBase` `ensureMediaOrigin` `mediaBackend` `ensureMedia` `diagLog` `handleDiag` `SCENE_VIDEO_INFLIGHT` `SETTINGS_MAX_BYTES` … |
-| 内部巨石 | `ensureMediaOrigin` **981** 行 · `serveFile` **542** · `buildInventory` **182** · `handleSceneFiles` **90**（四者合计 1,795 行 ≈ `apply` 的 **93%**） |
+| 内部巨石 | ~~`ensureMediaOrigin` 981 · `serveFile` 542 · `buildInventory` 182 · `handleSceneFiles` 90~~ ⚠️ **2026-09-27 更正**：以上是**误测**（量的是"到下一个同级声明的距离"，不是函数体）。`node scripts/host-route-index.mjs --deps` 的实测真值：`buildInventory` **137** · `handleSceneFiles` **65** · `serveFile` **49** · `ensureMediaOrigin` **42**（四者合计 **293 行 ≈ `apply` 的 15%**）⇒ **`apply` 不是被几个大函数撑起来的**，而是被 ~29 个中等处理器 + 一堆助手铺开的 |
 | 守卫覆盖 | 口径 = 路由片段在守卫/冒烟源码里**被提到**的次数（**提到 ≠ 有断言**）。29 条里 **3 条零提及**：`/client-diag`、`/upload-dir`、`/now-playing/artwork` |
 
 **为什么不现在拆**：
@@ -252,8 +252,16 @@
    （否则索引会烂掉）。**这张表就是 P2-11 "显式 context 对象"的设计稿**：表里反复出现在同一列的状态，
    就是要提成 context 的字段。
 2. **补 3 条零覆盖路由的守卫**（`/client-diag`、`/upload-dir`、`/now-playing/artwork`），至少各一条行为断言。
-3. **给 `apply` 内四个巨石各写一份"它捕获了哪些闭包状态"的机械清单**：真正要拆的是
-   `ensureMediaOrigin`(981) 与 `serveFile`(542)，先看清它们的输入 → 输出 → 副作用。
+3. **给 `apply` 内的"巨石"各自写一份闭包状态清单**（机械清点）。
+   ✅ **前置 3 已完成**（`node scripts/host-route-index.mjs --deps`）：`buildInventory` 137 行
+   捕获 3 个（`INVENTORY_TTL_MS` `inventoryCache` `mediaOriginBase`）· `handleSceneFiles` 65 行
+   捕获 2 个（`mediaMap` `serveFile`）· `serveFile` 49 行捕获 1 个（`trackStream`）·
+   `ensureMediaOrigin` 42 行捕获 4 个（`handleSceneFiles` `mediaOrigin` `mediaOriginTask`
+   `mediaOriginDead`）。
+   ⚠️ **这一步同时更正了一个错数字**：原先记的"四巨石 981/542/182/90 = 1,795 行 ≈ apply 的 93%"
+   是**误测**（量的是同级声明间距）；真值 293 行 ≈ **15%**。⇒ **P2-11 的形态判断随之改变**：
+   `apply` 不是"几块大肉"，而是**~29 个中等处理器 + 助手共享 26 个闭包状态**；
+   这**更支持"按路由族拆"**（每族切一刀的风险更低），而不是"先拆两个大函数"。
 
 **将来怎么拆（草图，触发时直接用）**：宿主侧**没有客户端那条"必须内联"的约束** —— `lib/` 是真 ESM，
 可以正常 `import`/`export` ⇒ 机械上比客户端**更容易**。按**路由族**拆 `lib/routes/<族>.js`，每个导出

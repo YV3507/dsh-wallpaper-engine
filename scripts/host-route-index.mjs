@@ -121,33 +121,36 @@ md.push([...freq.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12)
   .map(([k, n]) => '`' + k + '`×' + n).join(' · '));
 md.push('');
 const text = md.join('\n');
-return { text, routes, stateNames, applyStart, applyEnd };
+// ── 前置 3：四大巨石的闭包状态清单 ──────────────────────────────────────────
+// ⚠️ 必须在**整份剥好的源码**（stripped）里找声明与配花括号：逐行剥字符串会把跨行模板
+//    字面量里的花括号算进深度，巨石会被切成几十行（实测 ensureMediaOrigin 被切成 42 行）。
+const GIANTS = ['ensureMediaOrigin', 'serveFile', 'buildInventory', 'handleSceneFiles'];
+const giants = GIANTS.map((g) => {
+  let at = -1;
+  for (let i = applyStart + 1; i <= applyEnd; i++) {
+    const s = stripped[i - 1] || '';
+    // 函数声明形态与"常量 + 箭头/函数表达式"形态都要认
+    if (new RegExp('(^|\\s)(?:async\\s+)?function\\s+' + g + '\\s*\\(').test(s)
+      || new RegExp('(^|\\s)(?:const|let|var)\\s+' + g + '\\s*=').test(s)) { at = i; break; }
+  }
+  if (at < 0) return { name: g, from: 0, to: 0, lines: 0, deps: [] };
+  const end = braceEnd(at);
+  const body = stripped.slice(at - 1, end).join('\n');
+  const deps = stateNames.filter((n) => n !== g && new RegExp('(^|[^.\\w$])' + n + '\\b').test(body));
+  return { name: g, from: at, to: end, lines: end - at + 1, deps };
+});
+return { text, routes, stateNames, applyStart, applyEnd, giants };
 }
 
 // ── CLI ─────────────────────────────────────────────────────────────────────
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
-  const { text, routes, stateNames, applyStart, applyEnd } = buildIndex();
+  const { text, routes, giants } = buildIndex();
   if (process.argv.includes('--deps')) {
     console.log('\n== 四个巨石的闭包状态清单（前置 3）==');
-    const GIANTS = ['ensureMediaOrigin', 'serveFile', 'buildInventory', 'handleSceneFiles'];
-    const L2 = readFileSync(join(ROOT, 'lib', 'index.js'), 'utf8').split('\n');
-    for (const g of GIANTS) {
-      let at = -1;
-      // ⚠️ 必须在**剥掉字符串/注释**的文本里找声明：否则会先撞上注释或调用点，
-      //    切出 42 行的"假巨石"（实测踩到过）。
-      for (let i = applyStart; i <= applyEnd; i++) {
-        if (new RegExp('(^|\\s)function ' + g + '\\s*\\(').test(stripLine(L2[i - 1]))) { at = i; break; }
-      }
-      if (at < 0) { console.log('  ?? ' + g); continue; }
-      let d = 0, end = at;
-      for (let i = at; i <= L2.length; i++) {
-        for (const c of stripLine(L2[i - 1])) { if (c === '{') d++; else if (c === '}') d--; }
-        if (d <= 0) { end = i; break; }
-      }
-      const body = L2.slice(at - 1, end).map(stripLine).join('\n');
-      const deps = stateNames.filter((n) => n !== g && new RegExp('(^|[^.\\w$])' + n + '\\b').test(body));
-      console.log(`  ${g}  ${at}-${end}（${end - at + 1} 行）捕获 ${deps.length} 个: ${deps.join(' ')}`);
+    for (const g of giants) {
+      if (!g.lines) { console.log('  ?? ' + g.name + '（没找到声明）'); continue; }
+      console.log(`  ${g.name}  ${g.from}-${g.to}（${g.lines} 行）捕获 ${g.deps.length} 个: ${g.deps.join(' ')}`);
     }
   } else if (process.argv.includes('--write')) {
     writeFileSync(join(ROOT, 'docs', 'ROUTE-INDEX.md'), text + '\n');
