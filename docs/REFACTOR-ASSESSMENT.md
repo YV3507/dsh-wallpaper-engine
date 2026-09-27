@@ -200,7 +200,7 @@
 | 静态保障 | lint 0 / 类型检查 0 / **CI 0** | 9,533 行守卫靠手动跑 |
 | 守卫质量 | 好：全绿、带负对照、有 WCAG 数值与棘轮；**坏：部分判据是正则匹配源码文本**（`verify-client.mjs` 靠文本抽取函数体做镜像校验） | `TODO.md` 自述"守卫判据追具体字符串 ⇒ 每次补丁都让旧判据假失败（≥4 次）" |
 | 类型声明 | `lib/types/index.d.ts` 称"暴露**三条**路由"且"把 `webServer` 当**可选**" | 实际 **34** 条路由，且是**硬依赖**（`export const inject = ['webServer']`）—— `lib/index.js:2569-2576` 的注释明确论证过"`ctx.get` 在挂载期有竞态，故必须硬注入" ⇒ **声明与代码互相矛盾** |
-| vendored 同步 | 补丁以**压缩名签名**为锚点，未命中即 `exit(1)`；`.upstream.json` 记录作者本机 macOS 路径 + `dirty: true`，且 `../webwallgl-github` **在本机不存在** | 上游换一版 bundle 就要手工重锚；**本机不可复现** |
+| vendored 同步 | 补丁以**压缩名签名**为锚点，未命中即 `exit(1)`；`.upstream.json` 记 `dirty: true`，且 `../webwallgl-github` **在本机不存在**（⚠️ 它原先还记着**同步机器的绝对路径**并随包发布 —— 已由 `scripts/sync-webwallgl.mjs` 停止写入、旧值清掉，并由 `verify-package-publish` 的"发布文本不得含真实用户目录路径"钉住） | 上游换一版 bundle 就要手工重锚；**本机不可复现** |
 
 > 行号漂移的现场样本：早期设计稿记 `sceneFramePrewarm` 在 `lib/index.js:2570`，实测已是 **2585**。
 > 这就是 §0 要求"以符号名锚定"的原因。

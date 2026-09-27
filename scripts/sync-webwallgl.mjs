@@ -142,10 +142,12 @@ function applyLocalPatches() {
 applyLocalPatches();
 
 // 4. 溯源信息。
+// ⚠️ **不写本机的仓库路径**：这个文件随包发布（`files` 含 `lib/webwallgl/`），
+//    写进去等于把同步机器的绝对路径发给每个用户（本仓被发布面守卫抓到过一次）。
+//    `name` + `commit` + `version` 已足够复现"哪一版上游"，路径对复现没有价值。
 const commit = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' });
 const dirty = spawnSync('git', ['status', '--porcelain'], { cwd: repo, encoding: 'utf8' });
 writeFileSync(join(OUT_DIR, '.upstream.json'), JSON.stringify({
-  repo,
   name: pkg.name,
   version: pkg.version,
   commit: commit.status === 0 ? commit.stdout.trim() : null,

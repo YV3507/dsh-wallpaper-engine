@@ -49,6 +49,11 @@
 5. **导出形态**：`src/` 模块用 `export { … }` 列出对外名字；构建剥掉 `export` 关键字与 `export {}` 块。**导出清单同时是守卫的接口**（守卫直接 `import` 模块做行为断言）。
 6. **产物入库**：`lib/client.js` 是生成物但**提交**；CI 断言「重建后 `git diff --exit-code -- lib/client.js` 干净」。**永不手改 `lib/client.js`。**
 7. **打包面**：`files` 覆盖 `lib/` 全部运行期文件（P1）；具名入口既存在又被发布（P3）；`dependencies` 每条都真的被 `lib/` import（P4）；build/verify/smoke 链**零裸依赖**（P5）。
+8. **发布面必须"装上就能跑、且不多带东西"**（npm 方向的四条，见 `verify-package-publish`）：
+   ① 活的代码所需文件（从 `lib/index.js` 出发的**可达闭包**）必须全在 `files` 里；
+   ② 发布集里不得出现 `src/` `scripts/` `test/` `docs/` 等开发目录；
+   ③ 发布文本里不得带**同步机器**的用户目录路径（占位符不算）—— 那是不可复现的元数据；
+   ④ `dependencies` 每一条都必须被**可达闭包**加载（死码 import 不算 ⇒ 否则是白下载）。
 
 ---
 
@@ -107,6 +112,7 @@
 |---|---|---|
 | 内联模块浏览器安全 / `markers` 在位 / 名字不与正文冲突 | ✅ `scripts/build-client.mjs`（构建期硬失败） | — |
 | `files` 覆盖 `lib/`；具名入口在位；依赖无死声明；工具链零裸依赖 | ✅ `scripts/verify-package-files.mjs` P1–P5（各带负对照） | — |
+| **发布面自洽（npm 方向）**：可达闭包 ⊆ `files`；发布集无开发目录；发布文本无**同步机器**的用户目录路径；`dependencies` 每条都被**活的代码**加载（不是"lib/ 里某处 import 过"）；入口/导出目标都在包里；发布出去的 `lib/client.js` 是加载器形态且可解析 | ✅ `scripts/verify-package-publish.mjs`（六组，各带负对照） | — |
 | `lib/client.js` 与 `src/` 同步 | ✅ CI（重建后 `git diff --exit-code`） | — |
 | **`src/` 无孤儿**：除 `src/client.js` 外每个文件都必须在 `INLINE_MODULES` 里 | ❌ | 新增。棘轮形态：现有孤儿写进白名单，**只许清零**（与 `verify-api-client.mjs` 的裸 fetch 棘轮同手法） |
 | **依赖方向单向**：`lib/**` 不得 import `src/**` | ❌（今天为 0） | 新增。零容忍，不需要棘轮 |
