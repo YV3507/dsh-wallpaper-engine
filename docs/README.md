@@ -1,79 +1,63 @@
 # docs — 决策与用户文档
 
-本项目采用**「代码即真相」**文档模式（2026-08-30 起）：渲染 / 逆向 / 根因知识直接内联在
-对应实现文件的代码注释中（sf 标记），docs/ 只保留决策与用户文档。
+本项目采用**「代码即真相」**文档模式：渲染 / 逆向 / 根因知识直接内联在对应实现文件的代码注释里，
+`docs/` 只保留**决策**（含验收判据）与**用户文档**。
 
 ## 用户文档（中英双语，中文在前）
 
 | 文档 | 内容 |
 |---|---|
-| [UPGRADING.md](./UPGRADING.md) | **升级指南**——前置条件（内核 / better-sidebar 版本要求）、兼容矩阵、正确更新顺序与「顺序反了怎么恢复」 |
-| [CHANGELOG.md](./CHANGELOG.md) | **变更记录**——逐版本功能与修复（新版在前） |
-| [HOW-IT-WORKS.md](./HOW-IT-WORKS.md) | **工作原理**——**两条渲染路线**（WebWallGL 实时渲染 + 静态帧链）、宿主 / 客户端分工、主要 HTTP 路由表 |
-| [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) | **排障**——安装失败排查（pnpm / `github:` 直装）与「症状 → 先看哪里」速查 |
+| [UPGRADING.md](./UPGRADING.md) | **升级指南** —— 前置条件、兼容矩阵、正确更新顺序与「顺序反了怎么恢复」 |
+| [CHANGELOG.md](./CHANGELOG.md) | **变更记录** —— 逐版本功能与修复（新版在前） |
+| [HOW-IT-WORKS.md](./HOW-IT-WORKS.md) | **工作原理** —— 观看链（WebWallGL 实时渲染 → 内嵌 MP4 → 实时抓帧 → 自定义画面 → 空态）、宿主 / 客户端分工、HTTP 路由表 |
+| [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) | **排障** —— 安装失败排查与「症状 → 先看哪里」速查 |
 
-**分层约定（2026-09 起）**：门面 `README.md` / `README.en.md` 只放**不随版本变化、且新访客决策必需**的事实
-（定位、支持的壁纸类型、安装、使用手册、已知限制）；任何**带版本号 / issue 号 / 性能数字 / 排障步骤 /
-实现细节**的内容一律进上表或 `CHANGELOG.md` —— 避免首页随版本迭代腐烂（本次拆分即源于 README 里
-7 处 `localStorage` 陈述在 v0.4.0 后集体失真）。
+**分层约定**：门面 `README.md` / `README.en.md` 只放**不随版本变化、且新访客决策必需**的事实；
+任何**带版本号 / issue 号 / 性能数字 / 排障步骤 / 实现细节**的内容一律进上表或 `CHANGELOG.md`
+（起因：首页曾有 7 处 `localStorage` 陈述在 v0.4.0 后集体失真）。
 
 ## 工程文档
 
 | 文档 | 内容 |
 |---|---|
-| [ROBUSTNESS-AUDIT.md](./ROBUSTNESS-AUDIT.md) | **健壮性审计记录**——发布包完整性/编码/跨平台/运行时容错/依赖兼容审计结果与重跑方法 |
-| [REFACTOR-ASSESSMENT.md](./REFACTOR-ASSESSMENT.md) | **重构与设计落实账本（活文档）**——**只留决策、顺序与验收判据**：现状形状（两个门面仍是巨石；**48 文件 / 9,618 行不可达代码仍在发布面**）、风险清单、可跟踪的 P0/P1/P2/**P3** 计划（**§5 的状态列是唯一进度真源**，由 `verify-ledger` 机器核对；每步按「一步三交」同时落结构 / 不变量 / 守卫）。**§6 = 静态帧线移除的设计基线**（目标显示链、档位收缩为 `{0=自动, 4=自定义}`、`v=0` 静默回落陷阱、删除与保留清单、与 P2-12 五阶段的绑定）；**§9 = 字体系统大改的设计要点**（F0/F1/F2 与 G1–G4 已落地，**实现细节见 [`src/font/README.md`](../src/font/README.md)**）。**实现机制不在本文**，在代码注释里 |
-| [F0-THEME-SERVICE-CHECKLIST.md](./F0-THEME-SERVICE-CHECKLIST.md) | **F0 真机确认清单（已关闭 · 保留为记录）**——字体系统 `theme` 令牌层落地前的逐条真机动作：C0 冻结环境 · C1 令牌盘点（两套配色）· C2 `theme` 可达性 + `overrideTokens` 往返 + 语义边界（含探针代码与采集方法）· **C3 实测结果表** · **C4 结论**（主路径成立 + 对旧结论的修正 + **锁定的 F1 实现形态**）。结论已并入上方账本 §9.1 的 V1–V10 |
-| [awesome-dsh-plugin-pr-guide.md](./awesome-dsh-plugin-pr-guide.md) | 向 awesome-dsh-plugin 收录目录提交的一次性发布指南（应作者要求保留原版，直接从 awesome-dsh-plugin 仓库复制，勿改） |
+| [REFACTOR-ASSESSMENT.md](./REFACTOR-ASSESSMENT.md) | **重构与设计落实账本（活文档）** —— 只留**决策、顺序、验收判据**：现状基线、风险归口、P0/P1/P2/P3 计划（**§5 的状态列是唯一进度真源**，由 `verify-ledger` 机器核对）。**机制不在这里** —— 在代码注释里 |
+| [MODULE-LAYOUT.md](./MODULE-LAYOUT.md) | `lib/` 与 `src/` 的分工规范与目录约定（含 `test/` 的职责划分） |
+| [ROUTE-INDEX.md](./ROUTE-INDEX.md) | 宿主路由的**生成索引**（由 `test/tools/host-route-index.mjs` 重算并逐字节比对 —— 手写必烂） |
+| [ROBUSTNESS-AUDIT.md](./ROBUSTNESS-AUDIT.md) | 健壮性审计（**已收口**）—— 结论已归口为账本 §5 的 P3-1 … P3-22 |
+| [F0-THEME-SERVICE-CHECKLIST.md](./F0-THEME-SERVICE-CHECKLIST.md) | F0 真机确认（**已关闭**）—— 结论（`V1–V10` 约束）在账本 §9.1；原始证据在本地未跟踪目录 |
+| [awesome-dsh-plugin-pr-guide.md](./awesome-dsh-plugin-pr-guide.md) | 向 awesome-dsh-plugin 收录目录提交的一次性发布指南（应作者要求保留原版，勿改） |
 
-## 已归档：已退役的场景渲染路线（2026-09-26）
+## 已归档：已退役的渲染路线
 
-**为什么归档**：以下两条路线**将被移除 / 已移除**，其渲染器实现均在**独立仓库**维护 ——
-[`YV3507/we-static-frame`](https://github.com/YV3507/we-static-frame)（把场景离线渲染成一张 PNG，可当库或
-CLI 用、不依赖任何宿主）与 [`YV3507/webwallgl`](https://github.com/YV3507/webwallgl)（浏览器端场景渲染器，
-npm / CDN，MIT）。本仓库只保留历史记录：下列文档整体移入 `archive/`，**不再反映本仓库的现行实现**，也不再维护。
+**为什么归档**：这些路线的实现已在**独立仓库**维护 ——
+[`YV3507/we-static-frame`](https://github.com/YV3507/we-static-frame)（离线渲染成 PNG）与
+[`YV3507/webwallgl`](https://github.com/YV3507/webwallgl)（浏览器端实时渲染器）。
+本仓库**只保留历史记录**：下列文档在 `archive/` 下，**不反映现行实现**，也不再维护。
 
-### 静态帧渲染线（`/scene-frame`，将被移除）
+### 静态帧渲染线（`/scene-frame` 的离线渲染，**已随 P2-12 整体移除**）
 
 | 文档 | 内容 |
 |---|---|
-| [SCENE-FRAME-PERF.md](./archive/static-frame/SCENE-FRAME-PERF.md) | **静态帧冷渲染成本实测 + 渲染器优化记录**（38 节；基线 `pr97` / `sf35a`）——哪些渲染可以砍、哪些假设被数据推翻 |
-| [DEFAULT-SCENE-RENDER-AUDIT.md](./archive/static-frame/DEFAULT-SCENE-RENDER-AUDIT.md) | **官方默认壁纸渲染审计**（2026-10-03）——「无损渲染」的纯数学取证（场景数据 / 插桩量 / preview 画像 / 宿主反编译），只记可复现的量与能指到行号的根因 |
-| [RENDERER-FEASIBILITY.md](./archive/static-frame/RENDERER-FEASIBILITY.md) | 渲染器三路线可行性 + 方向决策 + §7 重构执行记录（该方向决策的终点即**迁往独立仓库**） |
-| [NATIVE-SCENE-EVIDENCE.md](./archive/static-frame/NATIVE-SCENE-EVIDENCE.md) | **原生场景引擎取证（WE 2.8.42）**——静态帧路径的几何依据：y 轴朝向、角度单位与合成顺序（`Rz(−z)·Ry(y)·Rx(−x)`）、puppet = 蒙皮网格，以及取证确定的合成器缺陷 D-1/D-2/D-3 |
-| [WE-REVERSE.md](./archive/static-frame/WE-REVERSE.md) | **Wallpaper Engine 官方引擎逆向 — 技术细节**——wallpaper64.exe 的逆向方法 / 工具链、关键地址与已确认数学（定位数学、M 的来源、puppet 骨骼链、视图平移、动画语义实证、动画层合成、组件数据流、attachment→MDAT 锚点）；以官方引擎为**事实基准**复刻 WE 场景渲染的取证记录 |
-| [TODO.md](./archive/static-frame/TODO.md) | **渲染引擎现状与 TODO**（迁出前的已实现组件、验证基线与本机环境；原在仓库根） |
-| [`evidence/`](./archive/static-frame/evidence/) | 上述文档的实测证据脚本（9 个；跑法 `node docs/archive/static-frame/evidence/<name>.mjs`） |
-
-> ⚠️ 新仓库 `we-static-frame` 有它自己的 `docs/perf-report.md` 与 `docs/perf-and-gpu-notes.md`；
-> 本目录的文件是**插件侧历史**，**没有**被迁往那里，两边内容不重复。
->
-> 保留在本目录的文档里仍指向它们的链接已改为 `archive/static-frame/...`；
-> 文中涉及静态帧的**正文段落尚未摘除**（`HOW-IT-WORKS.md`、`CHANGELOG.md`、`TROUBLESHOOTING.md`、
-> `UPGRADING.md`），**收口动作与进度记在 [`REFACTOR-ASSESSMENT.md`](./REFACTOR-ASSESSMENT.md)
-> §5 的 P2-12 阶段 4**。
+| [SCENE-FRAME-PERF.md](./archive/static-frame/SCENE-FRAME-PERF.md) | 静态帧冷渲染成本实测 + 渲染器优化记录（哪些渲染可以砍、哪些假设被数据推翻） |
+| [DEFAULT-SCENE-RENDER-AUDIT.md](./archive/static-frame/DEFAULT-SCENE-RENDER-AUDIT.md) | 官方默认壁纸渲染审计 —— 「无损渲染」的纯数学取证 |
+| [RENDERER-FEASIBILITY.md](./archive/static-frame/RENDERER-FEASIBILITY.md) | 渲染器三路线可行性 + 方向决策（终点即迁往独立仓库） |
+| [NATIVE-SCENE-EVIDENCE.md](./archive/static-frame/NATIVE-SCENE-EVIDENCE.md) | 原生场景引擎取证（WE 2.8.42）—— 几何依据与合成器缺陷 D-1/D-2/D-3 |
+| [WE-REVERSE.md](./archive/static-frame/WE-REVERSE.md) | 官方引擎逆向的技术细节（以官方引擎为事实基准的复刻取证） |
+| [TODO.md](./archive/static-frame/TODO.md) | 渲染引擎现状与 TODO（迁出前） |
+| [`evidence/`](./archive/static-frame/evidence/) | 上述文档的实测证据脚本（跑法 `node docs/archive/static-frame/evidence/<name>.mjs`） |
 
 ### 场景动画线（`/scene-anim`，已移除）
 
 | 文档 | 内容 |
 |---|---|
-| [SCENE-ANIMATION-HANDOFF.md](./archive/scene-animation/SCENE-ANIMATION-HANDOFF.md) | **场景动画交接手记**——beta 场景动画（`betaSceneAnim` 开关 + 宿主 `/scene-anim`、`/scene-anim-progress` 路由 + 客户端升级队列 / 进度轮询 / 探针 `<video>` + worker 多帧渲染与 APNG 输出）**已整体移除**，WebWallGL 实时渲染是其上位替代。文中存：放弃决策与理由、复刻必读的技术要点（含 NSL 脚本时间轴的根因 A）、已实现又删除的资产清单、三条推荐复刻路线，以及知识落点索引 |
-
-> 该线的可复用资产与静态帧线同源（§3.2：「静态帧渲染器 = 动画渲染器的地基」），
-> 故其数据与实测一并见上方 `archive/static-frame/`。
+| [SCENE-ANIMATION-HANDOFF.md](./archive/scene-animation/SCENE-ANIMATION-HANDOFF.md) | 场景动画交接手记 —— 放弃决策与理由、复刻必读的技术要点、已实现又删除的资产清单 |
 
 ## 其它
 
-- 现状/TODO：**仓库根 `TODO.md` 是本机专用的本地流程债与本机配方** —— 它在 `.git/info/exclude` 里，**不随仓库走**（归口见账本 **P3-10**）；静态帧线当年的渲染器 TODO 已随该线归档到 [`archive/static-frame/TODO.md`](./archive/static-frame/TODO.md)（其主体是迁走的渲染器，不再维护）。
-- 开发/发布指南：仓库根 `CONTRIBUTING.md`（从本地源码安装、构建验证、热挂载/编码铁律；收录提交速查见其附录，完整版见上表原版指南）。
-- 用户门面：仓库根 `README.md` / `README.en.md` / `README.beginner.md`（小白向）。
+- 现状/TODO：仓库根 `TODO.md` **本机专用**（在 `.git/info/exclude` 里，不随仓库走；归口见账本 **P3-10**）。
+- 开发/发布：仓库根 `CONTRIBUTING.md`；用户门面：`README.md` / `README.en.md` / `README.beginner.md`；测试目录说明：`test/README.md`。
 - `images/`：README 引用的截图。
-
-已溶解文档（2026-08-30，代码即真相）：
-- WE-REVERSE.md / WE-REVERSE-CAMERA-MATH.md → camera.js / image.js / puppet.js / scene/transform.js / scene/animation.js 等注释（⚠️ 此处的"溶解"指**结论已进代码**；`WE-REVERSE.md` 文件本身仍在，2026-09-26 已归档到 [`archive/static-frame/`](./archive/static-frame/WE-REVERSE.md)）
-- RENDERER-OFFICIAL-STRUCTURE.md → effects/registry.js / materials/compile.js 注释 + FEASIBILITY §6 结论
-- RENDER-ISSUES-ANALYSIS.md / REFACTOR-ROUND-2026-08-28.md → 代码 sf 标记 + TODO.md
-- REFACTOR-STATIC-FRAME.md → FEASIBILITY §7
-- dev-notes-bom-and-dsh-boot.md → CONTRIBUTING.md（⚠️ 同上：结论已进 CONTRIBUTING，文件本身仍在 [`./dev-notes-bom-and-dsh-boot.md`](./dev-notes-bom-and-dsh-boot.md)）
-- HOOK-PROGRESS.md / V6-DUMP-ANALYSIS.md / EYE-PREDICTION.md / FIX-PLAN-AMYA.md /
-  AMYA-CAMERA-ANALYSIS.md / RENDER-ISSUES-PROGRESS.md → 废弃方向，删除（重构前备份可找回）
+- **已溶解进代码**的文档（结论进注释，文件本身按上表处置）：`RENDERER-OFFICIAL-STRUCTURE.md`、
+  `RENDER-ISSUES-ANALYSIS.md`、`REFACTOR-ROUND-2026-08-28.md`、`REFACTOR-STATIC-FRAME.md`、
+  `dev-notes-bom-and-dsh-boot.md`；废弃方向（`HOOK-PROGRESS` / `V6-DUMP-ANALYSIS` / `EYE-PREDICTION` /
+  `FIX-PLAN-AMYA` / `AMYA-CAMERA-ANALYSIS` / `RENDER-ISSUES-PROGRESS`）已删除。

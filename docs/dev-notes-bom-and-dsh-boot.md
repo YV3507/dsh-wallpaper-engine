@@ -37,7 +37,7 @@ Get-ChildItem <dir> -Recurse -Filter *.json | ForEach-Object {
 - **bundle patch 含配置/表达式行**（config / expression rows）**不支持热挂载**——修改后必须
   **重启 DSH**，由 bundle 层在启动时重新组合生效。
 - 对 dsh-wallpaper-engine 的意义：
-  - host 侧改动（`lib/index.js`、`lib/scene-renderer.js`、`lib/scene-render-worker.mjs`）都是
+  - host 侧改动（`lib/index.js`、`lib/routes/*.js`）都是
     启动时加载的代码，**任何修改都要重启 DSH Desktop 才生效**；运行中的实例不会热更新 host 代码。
   - 客户端（`lib/client.js`）改动在 dev 模式下可热挂载（纯 insert），生产同样以重启为准。
 
