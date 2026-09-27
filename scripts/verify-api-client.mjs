@@ -25,10 +25,11 @@ const { BASE, apiUrl, apiFetch, apiJson, apiHead, apiPostJson, apiDelete } = api
  * 改写一处调用点后把这个数字改小（守卫会告诉你当前实际值）。
  * 终态 0 —— 届时本常量归零，断言变成"业务代码零裸 fetch"。
  *
- * 进度：26 → **20**（批 1：帧缓存 / 帧探测 6 处 —— `probeGpuFramePin`、`clearGpuFrameSlot`、
- * live 回填的 HEAD 与 PUT、`probeGpuFrameState`、面板「清除 GPU 帧」）。
+ * 进度：26 → 20 → **16**（批 1：帧缓存 / 帧探测 6 处 —— `probeGpuFramePin`、`clearGpuFrameSlot`、
+ * live 回填的 HEAD 与 PUT、`probeGpuFrameState`、面板「清除 GPU 帧」；
+ * 批 2：轮询 / 上报 4 处 —— `audio-spectrum`、`now-playing`、`client-diag`、`transcode-progress`）。
  */
-const CLIENT_FETCH_BASELINE = 20;   // 只许减少；每批改写后同步下调
+const CLIENT_FETCH_BASELINE = 16;   // 只许减少；每批改写后同步下调
 
 let failed = 0;
 const check = (name, ok, detail) => {

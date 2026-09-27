@@ -2550,9 +2550,9 @@ function startMediaSync(frame) {
     if (!frame.isConnected || !selection.sceneLiveActive) return;
     if (wantSpectrum && !mediaFetchBusy) {
       mediaFetchBusy = true;
-      fetch("/wallpaper-engine/audio-spectrum", { cache: "no-store" })
-        .then((r) => r.json())
-        .then((d) => {
+      apiJson("/audio-spectrum")
+        .then((res) => {
+          const d = res.data;
           if (!d || !d.ok) return;
           if (Array.isArray(d.bands) && d.bands.length) {
             const arr = new Float32Array(d.bands.length);
@@ -2566,9 +2566,9 @@ function startMediaSync(frame) {
         .finally(() => { mediaFetchBusy = false; });
     }
     if (wantNp && ++mediaNpTick % 20 === 0) {
-      fetch("/wallpaper-engine/now-playing", { cache: "no-store" })
-        .then((r) => r.json())
-        .then((d) => {
+      apiJson("/now-playing")
+        .then((res) => {
+          const d = res.data;
           if (!d || !d.ok) return;
           const m = d.media || null;
           // key 里带歌词版本：歌词是异步到齐的（本地 .lrc → 缓存 → 在线），
@@ -2972,18 +2972,15 @@ function ensureLivePointer(frame) {
 // 失败静默，绝不打断渲染。
 function reportClientDiag(event, detail) {
   try {
-    fetch("/wallpaper-engine/client-diag", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        event,
-        type: selection.type || "",
-        id: selection.id || "",
-        detail: String(detail == null ? "" : detail).slice(0, 300),
-        src: String(selection.url || selection.sceneLiveSrc || selection.webLiveSrc || "").slice(0, 200),
-      }),
-      keepalive: true,
-    }).catch(() => { /* 忽略 */ });
+    // `keepalive` 必须留下：页面卸载走 pagehide 时靠它把最后一条上报送出去
+    //（api-client 的契约里显式透传该字段）。
+    apiPostJson("/client-diag", {
+      event,
+      type: selection.type || "",
+      id: selection.id || "",
+      detail: String(detail == null ? "" : detail).slice(0, 300),
+      src: String(selection.url || selection.sceneLiveSrc || selection.webLiveSrc || "").slice(0, 200),
+    }, { keepalive: true }).catch(() => { /* 忽略 */ });
   } catch { /* 忽略 */ }
 }
 
@@ -3803,9 +3800,9 @@ function maybeUpgradeToTranscoded(video, token) {
     if (ctrl.signal.aborted) return;
     if (pollPending) return;
     pollPending = true;
-    fetch("/wallpaper-engine/transcode-progress/" + encodeURIComponent(token) + "?fps=" + cap, { cache: "no-store" })
-      .then((r) => r.json().catch(() => ({})))
-      .then((d) => {
+    apiJson("/transcode-progress/" + encodeURIComponent(token) + "?fps=" + cap)
+      .then((res) => {
+        const d = res.data || {};
         if (ctrl.signal.aborted) return;
         if (d && d.phase) {
           const changed = !selection.transcodeProgress
