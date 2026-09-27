@@ -143,13 +143,19 @@
 
 | 巨石 | 体量 | 近似圈复杂度 | 锚点（符号名优先） |
 |---|---|---|---|
-| `WallpaperPicker` 组件 | **1,999 行**，最大嵌套 6 | **294** | `src/client.js` `function WallpaperPicker`；55 处直写 store、45+ 内联 handler、8 个内联 render 闭包 |
-| `apply(ctx)` 宿主函数 | **2,046 行**（= 插件全部逻辑） | **387** | `lib/index.js` `export function apply(ctx)`；**33 处 `webServer.register` 全在这一个作用域内** |
+| `WallpaperPicker` 组件 | **1,077 行**（2026-09-27 B/C/D 三刀后；此前 2,273 行 / 294 分支），最大嵌套 6 | **202** | `src/client.js` `function WallpaperPicker`；**六个页签渲染器已抽到 `src/panel-tabs.js`**（C，1,208 行），但仍有 **81 处直写 store**、45+ 内联 handler ⇒ P2-10 的后半（"收敛成 `set(path, value)`"）仍是客户端最大的一块 |
+| `apply(ctx)` 宿主函数 | **1,923 行**（= 插件全部逻辑，占 `lib/index.js` **43%**） | **360** | `lib/index.js` `export function apply(ctx)`；**29 条 `webServer.register` 全在这一个作用域内**；闭包状态 **26 个局部**；内含 4 个巨石 `ensureMediaOrigin`(981) / `serveFile`(542) / `buildInventory`(182) / `handleSceneFiles`(90) —— **拆分必要性评估见 §3.5**（结论：现在不拆，触发条件见 §7） |
 | 内联 CSS 模板 | **1,833 行** | — | ~~`src/client.js` 的 `CSS` 模板字符串~~ **已抽出**：现为 `src/styles.js`（1,907 行，含可读性下限说明与两个常量），仍由构建期内联进产物 |
 | `selection` 全局对象 | **101 个字段** | — | `src/client.js` `const selection`；被 **76 个函数**读写（44 读 / 32 写），而 `DEFAULTS` 只列 60 个 |
 
 补充：`src/client.js` 220+ 顶层函数 / 387 顶层声明；最大花括号嵌套 **7 层**（`startLiveWatch`、
 `startMediaSync`、`maybeUpgradeToTranscoded`）；`src/client.js` + `lib/index.js` = 14,797 行 ≈ 手写生产代码的 **46%**。
+
+> **2026-09-27 更新**：`src/client.js` **9,504 → 4,425 行**（−53%），方法是把四块**成单元的逻辑**
+> 抽成构建期内联模块（`styles.js` 1,911 / `panel-tabs.js` 1,246 / `live-layer.js` 1,204 /
+> `media-prep.js` 643 / `transcode.js` 347）——每块都带**文件头契约**（依赖机械清点成表）与
+> **守卫**（登记 + 不变量 + 负对照）。**"两个门面文件"现在只剩宿主那一个**：客户端门面已从
+> 9,504 行降到 4,425 行，宿主 `apply(ctx)` 仍是 1,923 行的单函数（§3.5 评估）。
 
 ⚠️ **复杂度的分布比总量更值得注意**：`lib/we-renderer/`（43 文件）是**干净的树**（叶子模块单消费者、
 低扇入），`lib/media/` 分层清楚。**烂的是两个门面文件，不是整个仓库** —— 这决定了 §5 的 P2 是"拆门面"
@@ -210,6 +216,49 @@
 > 行号漂移的现场样本：早期设计稿记 `sceneFramePrewarm` 在 `lib/index.js:2570`，实测已是 **2585**。
 > 这就是 §0 要求"以符号名锚定"的原因。
 
+### 3.5 E：`apply(ctx)` 拆分的必要性评估
+
+> 复算命令：`node scripts/analyze-host-apply.mjs`（三组数 + 路由覆盖一次跑出来）。
+> **结论：现在不拆**，改为先做三条**前置**；触发条件写进 §7 第 6/7 条。
+
+取证（`apply(ctx)` = `lib/index.js` 2541–4463）：
+
+| 指标 | 实测（2026-09-27） |
+|---|---|
+| 体量 | **1,923 行 = 全文件 43%**；分支代理 **360**（全仓最大的单个函数） |
+| 路由 | **29 条** `webServer.register`，**全在这一个作用域内**；按族看**几乎都是 1 条一族**（媒体/场景/上传/设置/诊断各 1–2 条） |
+| 闭包状态 | **26 个** `apply` 局部：`mediaMap` `tokenFor` `sceneFieldsFor` `webFieldsFor` `inventoryCache` `buildInventory` `disposers` `prewarmTimer` `activeStreams` `trackStream` `serveFile` `handleSceneFiles` `mediaOrigin` `mediaOriginTask` `mediaOriginDead` `mediaOriginBase` `ensureMediaOrigin` `mediaBackend` `ensureMedia` `diagLog` `handleDiag` `SCENE_VIDEO_INFLIGHT` `SETTINGS_MAX_BYTES` … |
+| 内部巨石 | `ensureMediaOrigin` **981** 行 · `serveFile` **542** · `buildInventory` **182** · `handleSceneFiles` **90**（四者合计 1,795 行 ≈ `apply` 的 **93%**） |
+| 守卫覆盖 | 口径 = 路由片段在守卫/冒烟源码里**被提到**的次数（**提到 ≠ 有断言**）。29 条里 **3 条零提及**：`/client-diag`、`/upload-dir`、`/now-playing/artwork` |
+
+**为什么不现在拆**：
+
+1. **没有具体病痛指向它。** 对比 P2-9：那时有 26 处裸 `fetch(` 的**具体隐患**，还真的回退过一次，所以拆；
+   而 `apply(ctx)` 目前的问题是"读起来长" —— 29 条路由**彼此独立**、块内有编号注释（`// 1. Inventory JSON.`…），
+   定位成本靠一份**路由索引**就能压下去，不需要动结构。
+2. **代价是 26 个共享可变闭包状态。** `mediaOrigin*` 的解析结果、`activeStreams` 的记账、`inventoryCache` 的失效
+   都是**跨路由共享**的；某个 `register*` 一旦拿到**拷贝**而不是引用，服务端会**静默**出错
+   （不报错，而是"某些路由偶发 404 / 统计错乱"）—— 这类故障最难定位。
+3. **宿主这侧的安全网比客户端薄。** 客户端那一刀（B）敢一次搬 1,200 行，是因为有 5 个 smoke + 171 条
+   `verify-scene-live` 断言兜着；宿主侧有 3 条路由**零提及**、另有多条只是"被提到过"。
+4. **没有"必须现在做"的外部压力。** 不像客户端那样有"隐式边界挡住第二平台"的硬阻塞（§7 第 3 条）——
+   那条是否成立取决于 mac 分叉的实际进展，而不是这条评估本身。
+
+**现在该做的三条前置**（都很便宜；做完之后任何一次拆分都会降级为"低风险"）：
+
+1. **路由索引**：把 29 条路由 → 处理器 → 依赖的闭包状态 → 覆盖它的守卫，列成一张表
+   （放 `lib/index.js` 顶部注释或 `docs/`），并让守卫断言它与 `webServer.register` 的实际条数/路径一致
+   （否则索引会烂掉）。**这张表就是 P2-11 "显式 context 对象"的设计稿**：表里反复出现在同一列的状态，
+   就是要提成 context 的字段。
+2. **补 3 条零覆盖路由的守卫**（`/client-diag`、`/upload-dir`、`/now-playing/artwork`），至少各一条行为断言。
+3. **给 `apply` 内四个巨石各写一份"它捕获了哪些闭包状态"的机械清单**：真正要拆的是
+   `ensureMediaOrigin`(981) 与 `serveFile`(542)，先看清它们的输入 → 输出 → 副作用。
+
+**将来怎么拆（草图，触发时直接用）**：宿主侧**没有客户端那条"必须内联"的约束** —— `lib/` 是真 ESM，
+可以正常 `import`/`export` ⇒ 机械上比客户端**更容易**。按**路由族**拆 `lib/routes/<族>.js`，每个导出
+`registerXxx(webServer, c)`，`c` 是按第 1 条索引表提炼出的显式 context（建议分 4 组
+`media` / `upload` / `inventory` / `diag`），**共享可变状态只以引用形式进 context**，不做拷贝。
+
 ---
 
 ## 4. 风险清单（每条都已归口到 §5 的某一步）
@@ -260,7 +309,7 @@
 |---|---|---|---|---|
 | P2-9 | 🚧 **进行中（结构 + 守卫完成；调用点 13/26）** —— ✅ `src/api-client.js`（宿主 API 唯一出入口：`apiUrl` 前缀 / `apiFetch` 不吞错 / `apiJson` / `apiHead` / `apiPostJson` / `apiDelete`；默认 `no-store`、HEAD/DELETE 不解析体、网络中断与解析失败都回结构化结果）+ `scripts/verify-api-client.mjs`（**裸 fetch 棘轮** + 注入假 fetch 的行为用例，每条带负对照）。**已建三批调用点改写**：① 帧缓存 / 帧探测 6 处；② 轮询 / 上报 4 处（`audio-spectrum` / `now-playing` / `client-diag` / `transcode-progress`）；③ 设置 GET/PUT + 库存 GET 3 处 ⇒ 棘轮 **26 → 13**。⏳ 剩 13 处（上传与目录、媒体信息、自定义画面、场景音频探测等）＋**持久化层抽离**待做。 ⚠️ **首批（设置/库存）第一次尝试回退的真因已定位并修掉**：不是产品语义，而是 `verify-transcode-state.mjs` 的 **Response 替身缺 `status`** —— `api-client` 的 `ok` **由 `status` 推出**，替身只写 `{ ok: true, json }` 会被读成 `status=0 ⇒ ok:false`，症状却是"清单加载失败 → picker 按钮不渲染"。已给替身补 `status`，并新增守卫 **⑦「Response 替身必须带 status」**（扫 `scripts/` + `test/` 的替身对象，带覆盖面断言 + 三条负对照）——这类失败从此当场指名文件行号。另新增守卫 **⑥「出入口已登记进 INLINE_MODULES 且进了产物」**：`src/api-client.js` 曾是**孤儿**（文件在、守卫在测它，但从不进 bundle ⇒ 调用点一改用它就 ReferenceError 且无守卫会红） | 结构：2 个模块 + 调用点分批改写／规则：网络与持久化的**唯一出入口**；两种失败（`status=0` / 非 2xx）必须保持可区分／守卫：裸 `fetch(` 棘轮（终态 0）+ 行为用例 + 替身保真度 + 登记与内联 | 中 | 🚧 |
 | P2-10 | 拆 `WallpaperPicker`：**先**按现成的 8 个内联 render 闭包拆成 6 个页签组件（tab 已用 `activeTab` 隔离，边界现成）；**再**把 55 处 `selection.x = ` 收敛成单一 `set(path, value)` 入口 | 结构：1 文件 → 7 文件／规则：页面组件不得直接写 store／守卫：断言组件内零直接赋值 | 中 | ⬜ |
-| P2-11 | 拆 `apply(ctx)`：**先**把闭包状态（`mediaMap`、inventory 缓存等）提成**显式 context 对象**，**再**按路由区块拆成 3–4 个 `register*` 函数分文件 | 结构：1 函数 → 4 个 + context 对象／规则：路由处理器只依赖显式 context，不依赖闭包／守卫：断言 `register` 调用数与路由表一致 | 中 | ⬜ |
+| P2-11 | 🟡 **评估完成（E，见 §3.5）：现在不拆** —— 三条前置（路由索引 / 补 3 条零覆盖路由的守卫 / 四个巨石的闭包状态清单）与触发条件（§7 第 6、7 条）已写入账本。原计划保留：先把闭包状态提成**显式 context 对象**（设计稿 = 路由索引表的列），再按路由族拆成 `lib/routes/*.js` 的 `registerXxx(webServer, c)` | 结构：1 函数 → 4 个 + context 对象／规则：路由处理器只依赖显式 context，共享可变状态**只以引用进** context／守卫：断言 `register` 调用数与路由表一致 | 中 | 🟡 评估完成（待触发） |
 | **P2-12** | **末项：静态帧渲染整体移除**（capstone，按 §6.13 的 5 阶段执行） | 见 §6.13 逐阶段 | **高**（唯一高风险项，故置于最后） | ⬜ |
 
 > **P2-12 为什么必须最后**：① 它是全仓最大的一次删除（死码 8,590 + 提取链 + 档位 + 预热 + 路由/缓存/UI
@@ -555,6 +604,12 @@ UI 命名：`壁纸画面刷新` → **`出图来源`**（它换的是**来源**
    会成为硬阻塞。
 4. **单次会话上下文已无法容纳读懂 `apply(ctx)` 或 `WallpaperPicker`** —— 当前已处于临界（§3.1）。
 5. **出现一次无法定位原因的生产级回归**：说明现有守卫的覆盖结构已失效，先补覆盖再谈结构。
+6. **宿主某个路由族长到 ≥3 条路由**，或**一次改动要同时动 ≥3 条共享可变状态的路由**（如 `mediaOrigin*`
+   那组）⇒ 那时**按族单独拆**（而不是整个 `apply`），并先做 §3.5 的三条前置。
+   —— 判定方法：`node scripts/analyze-host-apply.mjs` 的第 ② 组数（各族条数）。
+7. **出现一次跨路由状态的"隔空故障"**（典型：`mediaOrigin` 解析结果被别的路由覆盖、`activeStreams`
+   记账错乱导致流被提前关闭）⇒ 说明"26 个共享可变闭包状态"已经从"读起来长"变成"真的会坏"，
+   此时 P2-11 升级为**立即做**（先补 §3.5 前置 1、2，再拆）。
 
 ---
 
@@ -564,12 +619,12 @@ UI 命名：`壁纸画面刷新` → **`出图来源`**（它换的是**来源**
 |---|---|
 | 行数 / 体积 | 按 `\n` 计数（**注意**：PowerShell `Measure-Object -Line` **不计空行**，会少算约 260 行） |
 | 可达闭包 / 死码 | 从 `lib/index.js` + `lib/client.js` 出发，按**静态 import + 动态 `import()` + `require()`** 三态解析依赖图；`lib/webwallgl/web-shim.js` 需**单独识别为"按文本注入"**（`fs.readFile` + 注入 HTML），否则会被误判为死码 |
-| 顶层块体量 / 圈复杂度 | 以列 0 声明为界切块，块内计 `if/for/while/case/catch/&&/\|\|/??` |
+| 顶层块体量 / 圈复杂度 | 以列 0 声明为界切块，块内计 `if/for/while/case/catch/&&/\|\|/??`。⚠️ **对 `WallpaperPicker` 这类"函数体内混着缩进 0 声明"的老代码，列 0 分块会把它截成几段**（实测把 1,077 行的组件报成"250 + 721"）⇒ 量它时必须改用**花括号配对**求函数区间 |
 | 重复率 | 归一化后滑动窗口（8 行 / 20 行）统计同窗口出现次数 |
 | 共变耦合 | `git log --pretty=format:'@%H' --name-only` → 以 `src/client.js` 为锚统计同改文件与耦合系数 |
 | 打包一致性 | `node scripts/build-client.mjs` 后 `git status --porcelain lib/client.js` 必须为空 |
 | 守卫健康度 | `npm run verify`（退出码 0 才算绿）；`npm run smoke` 为节点级冒烟 |
-| 已有辅助工具 | `node scripts/audit-import-closure.mjs`（lib 导入闭包 vs `files` 白名单）；`node scripts/verify-retired-lines.mjs`（退役线：零残留 + 防蔓延棘轮 + 对照） |
+| 已有辅助工具 | `node scripts/audit-import-closure.mjs`（lib 导入闭包 vs `files` 白名单）；`node scripts/verify-retired-lines.mjs`（退役线：零残留 + 防蔓延棘轮 + 对照）；**`node scripts/analyze-host-apply.mjs`**（宿主 `apply(ctx)` 的拆分评估取证：体量 / 路由族 / 26 个闭包状态 / 各路由的守卫覆盖 —— §3.5 与 §7 第 6、7 条的数字都由它复算） |
 
 ---
 
