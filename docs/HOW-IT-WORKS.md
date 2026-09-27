@@ -27,6 +27,9 @@ HTML 里注入 WE API shim（`lib/webwallgl/web-shim.js`）与 `project.json` �
   ① 实时渲染 iframe → ② 场景**作者内嵌 MP4**（`sceneVideo`，硬件解码 `<video>`）→ ③ **实时抓帧**
   （`<key>_gpu.png`，live 渲染页首帧确认后由客户端回填）→ ④ **自定义画面**（用户导入的截屏）
   → ⑤ **空态**（404 + 可判定原因）。
+  **首帧之前不留黑屏**：垫底画面按 **实时抓帧 → 作者随包发布的工程预览图 → 主题色** 取
+  （`buildLivePoster`）—— 新壁纸**第一次**激活时抓帧还不存在（要等这一轮 live 回填），先由作者的
+  预览图占位，live 首帧一到即被顶掉。预览图只是占位，**不会被当成"这张壁纸的出图"**。
   关掉实时渲染不会改变 ①②；`?v=4` 是"强制自定义画面"（**豁免**抓帧：显式 pin 的来源不被一张抓帧顶掉），
   `?v=1/2/3` 已退役、一律 clamp 到 0。
 - **为什么没有 CPU 兜底出图（P2-12 的设计决定）**：0.6–0.7.x 曾用「离线场景渲染器 / 主纹理提取 /
@@ -34,6 +37,9 @@ HTML 里注入 WE API shim（`lib/webwallgl/web-shim.js`）与 `project.json` �
   让"这张壁纸没有可用画面"这个**可判定事实**退化成一张看似正常的画面 —— 用户看到的是"壁纸糊了"，
   而不是"它没有画面"。整条线（渲染器 + 提取链 + 合成器，约 1 万行）已随 P2-12 删除；现在的契约是
   **要么给真画面、要么明确留空**（状态行给出可判定原因）。
+  ⚠️ **这条裁定管的是服务端"出图"**：`/scene-frame` 不会产出猜来的图。而客户端在**首帧前 / 空帧时
+  的占位**仍会用**作者随包发布的预览图**（那是作者自己的图，不是本插件合成的）—— 它只顶到 live 首帧
+  或用户导入的自定义画面出现为止。
 - **帧率**：`实时渲染帧率`（15 / 30 / 60 fps）经 iframe query 下发，改档会重建图层。
 - 护栏：`test/verify-scene-live.mjs`（实时链）、`test/verify-scene.mjs`（出图来源链 + 抓帧缓存）。
 
@@ -148,6 +154,11 @@ with the document.
   ① live-render iframe → ② the author-embedded MP4 (`sceneVideo`) → ③ **live-captured frame**
   (`<key>_gpu.png`, PUT back by the live page once the first frame lands) → ④ **custom frame** (a
   screenshot the user imported) → ⑤ **empty state** (404 with a machine-readable reason).
+  **No black screen before the first frame**: the placeholder still is chosen as **live-captured frame →
+  the author's packaged project preview → the theme colour** (`buildLivePoster`) — on a wallpaper's
+  **first** activation the captured frame does not exist yet (this live session has to backfill it), so
+  the author's preview stands in and is displaced the moment the live first frame lands. It is only a
+  placeholder and is **never treated as "this wallpaper's out-figure"**.
   `?v=4` forces the custom frame and is **exempt** from the captured frame (an explicit pin is never
   displaced by a capture); `?v=1/2/3` are retired and clamped to 0.
 - **Why there is no CPU fallback image any more (the P2-12 design decision)**: 0.6–0.7.x fell back to an
@@ -156,6 +167,10 @@ with the document.
   turning a decidable fact ("this wallpaper has no usable picture") into something that looks like a
   normal frame. The whole line (renderer + extraction + compositor, ~10k lines) is gone; the contract
   now is **either a real picture or an honest blank** (the status row names the reason).
+  ⚠️ **That ruling governs the server-side "out-figure"**: `/scene-frame` never produces a guessed
+  image. The client's **pre-first-frame / empty-frame placeholder** still uses the **author's packaged
+  preview** (the author's own image, not one this plugin synthesised) — it only holds until the live
+  first frame or a user-imported custom frame appears.
 - **Frame rate**: 「实时渲染帧率」 (15 / 30 / 60 fps) is passed through the iframe query.
 - Guards: `test/verify-scene-live.mjs` (live chain), `test/verify-scene.mjs` (out-figure chain + cache).
 

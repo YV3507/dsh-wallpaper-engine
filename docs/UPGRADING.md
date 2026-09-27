@@ -42,7 +42,8 @@ DSH 0.1.5 的官方原生侧栏；仍停留在 0.1.2-rc.1 旧内核的用户请�
   该目录同时还存场景内嵌视频（`sv1_*.mp4`）与场景包内音频（`sa1_*`），各有自己的版本前缀。
 - **新增实时渲染需要 WebGL2**：升级后场景 / 网页壁纸**默认走 WebWallGL 实时渲染**（「场景实时渲染」/
   「网页实时渲染」开关，默认开）。浏览器不支持 WebGL2、或显卡驱动异常时，渲染页首帧 15 秒超时后会
-  **静默降级**回「内嵌 MP4 → 实时抓帧 → 自定义画面 → 空态」这条链（不会黑屏卡住）；场景是松散
+  **静默降级**回「内嵌 MP4 → 实时抓帧 → 自定义画面 → 空态」这条链（首帧之前垫的是**作者的预览图**，
+  连它都取不到才诚实留空 —— 不会黑屏卡住）；场景是松散
   `scene.json` 目录（没有 `scene.pkg`）时同样直接走那条链。
 - **实时渲染默认开**（`sceneLive`），升级后无需任何操作。
 
@@ -119,7 +120,8 @@ The plugin shows a one-time in-app notice per release; missing it is harmless.
 - **Live rendering needs WebGL2**: after upgrading, scene / web wallpapers render live through WebWallGL by
   default (「场景实时渲染」/「网页实时渲染」, on by default). Without WebGL2, or with a broken GPU driver, the
   renderer page times out after a 15 s first frame and **degrades silently** to the
-  「embedded MP4 → live capture → custom frame → empty state」 chain (no black screen); a loose `scene.json`
+  「embedded MP4 → live capture → custom frame → empty state」 chain (before the first frame the
+  **author's preview** stands in and only a missing preview leaves it honestly blank — no black screen); a loose `scene.json`
   directory takes that chain directly.
 - **Live rendering is on by default** (`sceneLive`) — nothing to do after upgrading.
 
