@@ -60,207 +60,17 @@ const ROPE_POS_KEY = "dsh-wallpaper-engine:rope-pos";
 // scrim default is intentionally LOW now: iOS liquid glass needs the wallpaper
 // colour to pass through the glass, so we no longer crush it behind a near-black
 // scrim. Users can raise it back via the 暗化 slider for busy wallpapers.
-const DEFAULTS = {
-  scrim: 0.25,
-  border: 0.35,
-  blur: 16,
-  wallpaperBlur: 0,
-  // Background knobs (%, 100 = untouched): brightness / contrast / saturate of
-  // the wallpaper media filter. Ranges mirror the readability lab.
-  backgroundBrightness: 100,
-  backgroundContrast: 100,
-  backgroundSaturate: 100,
-  // 壁纸透明度（#82，0–90%，0 = 不动）：媒体叶子的 element opacity，越大越透
-  // （与本插件其他「透明度」滑块同语义）。淡出时壁纸融向**原生外观**（浅色纯白 /
-  // 深色纯黑）—— IDEA 背景图式「看得见但不喧宾夺主」。作用在 .we-layer 的媒体
-  // 叶子（视频/图片/网页/画布统一生效），层本身垫这层原生底色以保住玻璃模糊；
-  // 暗化（scrim）叠在壁纸之上，建议先降到 0 再调本滑块。
-  wallpaperOpacity: 0,
-  rotationEnabled: false,
-  rotationInterval: 30,
-  // ── 切换过场（手动点选与自动轮播共用）────────────────────────────────
-  // 默认 **硬切**：先上零成本、零风险的切换，等把「最帅的」讨论定下来再改默认
-  // （改默认只需要动这一个值 + 一条断言）。可选：交叉淡化 / 推移 / 擦除 / 光圈 /
-  // 缩放 / 条带。allTransitions 见 SWITCH_TRANSITIONS。
-  switchTransition: "cut",
-  // 方向（只对方向型转场有意义：推移 / 擦除 / 条带）。left = 画面整体向左移动，
-  // 亦即新画面从右侧进入。
-  switchTransitionDir: "left",
-  // 时长档：每类型自带基准毫秒 × 本乘子（SWITCH_SPEEDS）。默认 normal。
-  switchTransitionSpeed: "normal",
-  rotationGroupId: "",
-  rotationGroups: [],
-  rotationSeeded: false,
-  // Soft-delete: ids of wallpapers the user hid (localStorage only, no file
-  // changes). Hidden wallpapers leave the normal list + rotation candidates
-  // but keep playing if already active; they reappear on restore.
-  hiddenIds: [],
-  // Video playback speed (0.5x–2x, applied via native playbackRate).
-  playbackRate: 1,
-  // 解码帧率上限（fps；0 = 无限制）：对源帧率高于上限的视频壁纸，host 一次性
-  // ffmpeg 重编码为上限帧率的"抽帧版"（4K120→4K60，时间线保持 1.0x 正常速度，
-  // 解码占用随帧率线性下降）。与倍速完全解耦 —— 倍速照常叠加在抽帧版上。
-  // 无 ffmpeg 或转码失败时自动回退原片（transcodeState: "fallback"）。
-  fpsCap: 0,
-  // Scene 壁纸的静态帧 URL（供页面刷新 / 档位切换时重挂静态帧）。
-  sceneFrameUrl: null,
-  // 场景实时渲染（WebWallGL live WebGL）：scene.pkg 壁纸由 vendored WebWallGL
-  // 渲染页实时渲染（粒子/脚本/视差/包内音频），默认开启；加载失败或运行
-  // 失联时按壁纸记忆失败并自动降级回 sceneVideo → 静态帧链（见
-  // sceneLiveFailures / startLiveWatch）。帧率上限是渲染 fps，与视频壁纸的
-  // 抽帧转码（解码 fps）互不相干。
-  sceneLive: true,
-  sceneLiveFps: 30,
-  // 实时渲染的启动延迟（秒）：只在「重启恢复上次壁纸」时生效（用户手动切换不延迟）
-  // —— 期间显示占位图（自动首帧 / 静态帧 / 主题色），避免大场景包与 DSH 首屏抢主线程。
-  liveBootDelay: 3,
-  // 系统音频反应（频谱来源）：auto = 宿主有采集能力就用（macOS 走 CoreAudio
-  // Process Tap，首次需一次性「音频录制」授权；Linux/Windows 走 ffmpeg +
-  // monitor/虚拟设备），off = 关闭（渲染页回落内置模拟源）。缺失/未授权时自动回落。
-  audioSource: "auto",
-  // 媒体集成（Now Playing）：把系统正在播放的歌名/歌手/专辑/封面/进度推给壁纸的
-  // wallpaperMediaIntegration 监听器。数据由宿主侧的媒体后端提供（首选
-  // media-bridge 中间件：macOS MediaRemote / Windows GSMTC / Linux MPRIS，
-  // 三平台都内置；取不到时宿主自动回落到内置实现）。
-  mediaIntegration: true,
-  // 在线歌词：本地（音频同目录 .lrc / 已缓存）找不到时向 lrclib.net 查询一次。
-  // 默认**关**：那是一次外发请求（带曲名/歌手/专辑），与插件「不上传任何服务器」
-  // 的口径一致才默认关；本地歌词不受影响。
-  mediaLyricsOnline: false,
-  // 用户改过的壁纸属性（「壁纸属性」面板）：{ [token]: { [属性名]: 值 } }。
-  // token = base64(入口文件绝对路径)，与 host 侧 /props 同一套键。
-  userProps: {},
-  // 遮挡暂停（借鉴 Wallpaper Engine 的「被遮挡时暂停」——桌面端大部分时间
-  // GPU≈0 主因就是它）：
-  // - pauseOnHidden：页面隐藏（窗口最小化 / 切到其它标签页）时暂停视频。
-  //   浏览器对后台页的节流并不保证解码停止，显式 pause 让解码引擎直接归零。
-  // - pauseOnBlur：窗口失焦（切到其它应用，壁纸很可能被遮挡）时暂停。
-  //   浏览器无法直接探测"被窗口遮挡"，失焦是最接近的代理信号。
-  // 恢复可见 / 聚焦后，若用户未手动暂停则自动继续（同步 effective 播放态）。
-  pauseOnHidden: true,
-  pauseOnBlur: false,
-  // 使用电池供电时暂停（类似 WE 的电池优化）：navigator.getBattery 判定
-  // 是否在电池上（!charging），不支持的浏览器自动无操作。
-  pauseOnBattery: false,
-  // Horizontal mirror (CSS scaleX(-1)) — pure compositor, no main-thread cost.
-  flip: false,
-  // Fit mode for CUSTOM-uploaded wallpapers only (WE wallpapers keep cover):
-  // 覆盖=cover · 填充=contain · 居中=center · 拉伸=fill (one object-fit var).
-  objectFit: "cover",
-  // Content-rating filter, reproducing Wallpaper Engine's own rating taxonomy
-  // (project.json `contentrating`: "Everyone" / "PG13" / "Mature" — WE's
-  // workshop tags G / PG13 / R; projects without the field are "unrated").
-  // "everyone" is the default, matching WE's conservative first-run stance.
-  contentRatingFilter: "everyone",
-  // Wallpaper-type filter (all / video / web / image / scene). "all" disables it.
-  typeFilter: "all",
-  // Thumbnail-card style: "classic" (WE's original aspect-ratio 16/9 cards —
-  // the CD-like look the author liked; can overlap in older browsers) or
-  // "fixed" (rewritten fixed-height cards that never overlap). The vinyl
-  // record next to the selection is shown in BOTH styles (here + modal head).
-  pickerLayout: "fixed",
-  // Edge 兼容渲染：Edge（且仅 Edge）会在任何"可见的 <video>"上绘制浏览器
-  // 自带的「下载 / 投屏」悬浮工具栏且无官方开关，故默认在 Edge 中把视频壁纸
-  // 改为 canvas 渲染（见 IS_EDGE / weStartDraw）；关闭后所有浏览器一律使用
-  // 原生 <video>（Edge 上悬浮栏会重新出现，属预期）。
-  edgeCompat: true,
-  // Settings-page liquid-glass theming:
-  // - accent: the plugin's own accent color (#rrggbb), written to --we-accent
-  //   and consumed by buttons/sliders/selected cards/badges/glass highlights —
-  //   independent of the shell's theme brand token.
-  // - glassAlpha: glass-surface transparency in % (0–60, step 5), written to
-  //   --we-glass-alpha and used by the settings window, settings card, composer
-  //   card, bubbles and sidebar panels. Higher = MORE transparent (clearer
-  //   wallpaper shows through), lower = closer to solid.
-  // - glassColor: the GLASS BASE COLOR of the settings window (#rrggbb),
-  //   written to --we-glass-color. Defaults keep the stock look (white glass
-  //   in light mode, deep navy in dark); once the user picks a color BOTH
-  //   themes use it, so the window glass can be tinted to taste.
-  // - glassWindow: master switch for the WHOLE native settings window — when
-  //   on, the dialog (nav + every native section: General/Models/Plugins/…)
-  //   becomes liquid glass with the accent + transparency above; off restores
-  //   the shell's stock look.
-  accent: "#4f8cff",
-  glassAlpha: 12,
-  glassColor: "#ffffff",
-  glassWindow: true,
-  // dsh-better-sidebar 液态玻璃：与设置窗口玻璃同级的一套「细节自由」控制，
-  // 独立于会话玻璃（玻璃 / 玻璃透明度）——侧栏想多透 / 多糊 / 换个底色都行：
-  // - sidebarGlass：总开关，关闭后侧栏恢复原生外观（不再透明 / 不再模糊）；
-  // - sidebarBlur：侧栏专用 backdrop 模糊半径（px，0 = 关闭毛玻璃）；
-  // - sidebarAlpha：侧栏玻璃透明度（%），语义与玻璃透明度一致（越大越透）。
-  //   默认 120（映射后白罩 ≈16.3%；旧默认 12 ≈35.9%，面板明显发亮（#56 实测）：
-  //   已存配置经 sanitize 只钳范围不覆盖，故仅影响新用户开箱观感；编辑器/终端
-  //   内容面有独立近不透明底色兜底，文字可读性不受影响。
-  // - sidebarColor：侧栏玻璃基底色调（#rrggbb），默认白色，双主题统一生效。
-  sidebarGlass: true,
-  sidebarBlur: 16,
-  sidebarAlpha: 120,
-  sidebarColor: "#ffffff",
-  // 内容面（编辑器/终端）近不透明玻璃底的细调——既有固定调色板（语法高亮/
-  // ANSI）为不透明底设计，全透明毛玻璃下注释灰不可读，全不透明又失去玻璃感：
-  // - sidebarContentAlpha：内容面透明度（%），越大越透（映射到底色不透明度
-  //   100%→20%；默认 30 → 70% 不透明，亮/暗主题实测显示均合理，玻璃感与
-  //   注释可读性平衡）；
-  // - sidebarContentColor：内容面底色（#rrggbb），空 = 跟随主题面板色
-  //   (--dsw-alias-bg-layer-1)，选定后双主题统一使用该色。
-  sidebarContentAlpha: 30,
-  sidebarContentColor: "",
-  // Persisted: show the chat-interface mascot pull-cord (rope dock).
-  ropeShown: true,
-  // Persisted: which mascot artwork + how big. ropeForm ∈ {maid, whale};
-  // ropeScale multiplies the form's base box (0.5×–2.5×).
-  ropeForm: "maid",
-  ropeScale: 1,
-  // Persisted "what's new" notice: the last version the user dismissed. Stored
-  // with the other settings (host file, port-independent) so it survives DSH
-  // Desktop's random --port restarts and never re-shows after being closed.
-  noticeSeen: "",
-  // ── 字体自定义（#57 精简回归版）：仅字体颜色 / 字重 / 字体族 ──
-  // - fontCustom：总开关。关闭 = 全部恢复 dsh 原生字体外观（清空注入的变量与
-  //   样式表，即「恢复默认」）；开启后下方三项才生效。默认关闭——PR #57 全局
-  //   染色的开箱观感不佳，本次重做默认不给用户任何覆盖。
-  // - fontColor / fontWeight / fontFamily：应用范围与报错红字保护见
-  //   applyFontStyles()（<style id="we-font-patch">）。
-  fontCustom: false,
-  fontColor: "#000000",
-  fontWeight: 400,
-  fontFamily: "inherit",
-  // 场景壁纸静态帧生成档位记忆：{ [wallpaperId]: 0..4 }（壁纸画面刷新）。
-  // 档位进入 scene-frame 请求的 ?v= 参数与宿主缓存键，各档互不覆盖。
-  frameVariants: {},
-  // 场景实时渲染失败记忆：{ [wallpaperId]: true }。心跳判定失败（首帧超时/
-  // 运行期失联）后写入，该壁纸此后走旧播放链；「场景实时渲染」开关重开时
-  // 清空全部（显式重试入口）。
-  sceneLiveFailures: {},
-  // 自定义画面（截屏导入）状态记忆：{ [wallpaperId]: true }。
-  customFrames: {},
-  // 输入光标颜色（#83，空 = 跟随 dsh 原生）：壁纸透过玻璃输入框直贴光标，
-  // 光标色与壁纸相近时会「隐形」。caret-color 经独立 <style id="we-caret-patch">
-  // 以 !important 注入 textarea / input / contenteditable，与字体自定义
-  // （fontCustom）互不依赖 —— 只想要光标可见时无需打开全局字体染色。
-  caretColor: "",
-  // ── 壁纸音轨（壁纸引擎视频自带的声音）────────────────────────────────
-  // 音量 0–1，0 = 静音。原版把视频壁纸一律 muted，这里把静音变成「音量 0」
-  // 这一特例，并补上一个可记忆的总开关。
-  videoVolume: 0,
-  // 音轨总开关：false = 静音但保留 videoVolume 数值（关掉再打开能恢复原音量）。
-  videoAudioEnabled: true,
-};
+// 默认值来自**唯一真源** `lib/settings-schema.js`：构建期由 scripts/build-client.mjs
+// 把该文件内联进本 bundle 的工厂作用域（缺标记即构建失败），所以 `DEFAULTS` / `KINDS` /
+// 各枚举白名单在这里**直接可用、且不得重复声明**（重复即 SyntaxError，构建脚本会拦）。
+// 每个键的语义注释也随默认值一起迁到了 schema。
 
-// Selectable values for the two filters. Declared up top because
-// readPersisted() validates against them at module load (const TDZ).
-const RATING_VALUES = ["all", "everyone", "pg13", "mature", "unrated"];
-const TYPE_VALUES = ["all", "video", "web", "image", "scene"];
-// 吉祥物（拉绳）可选形态：maid = 默认小女仆，whale = 鲸御姐；以及可调大小
-// （scale 0.5–2.5，默认 1）。形态/大小常量必须在此声明（同理于 RATING_VALUES）：
-// readPersisted() 会在模块加载时用它们校验持久化值（const TDZ）。
-const ROPE_FORM_VALUES = ["maid", "whale"];
-const ROPE_SCALE_MIN = 0.5, ROPE_SCALE_MAX = 2.5, ROPE_SCALE_STEP = 0.05;
-// 字体族白名单（字体自定义三件套之一）。inherit = 跟随 dsh 原生字体栈。
-// 必须在此声明：readPersisted() 在模块加载时用它校验持久化值（const TDZ）。
-const FONT_FAMILY_VALUES = ["inherit", "Microsoft YaHei", "KaiTi", "SimSun", "SimHei", "STXingkai", "monospace"];
-// 字体族按钮数据：label 显示名 + stack 应用/预览字体栈。stack 里保留中文
+// 白名单常量（过滤器取值 / 形态 / 帧率档 / 转场 / 字体族 / scale 上下限）由 schema 预置：
+// 它们随 lib/settings-schema.js 在构建期内联到本作用域，本文件不再声明（重复即构建失败）。
+// 吉祥物（拉绳）形态：maid = 默认小女仆 / whale = 鲸御姐；大小步进见下。
+const ROPE_SCALE_STEP = 0.05;
+// 字体族按钮数据（白名单 FONT_FAMILY_VALUES 在 schema 里；inherit = 跟随 dsh 原生字体栈）：
+// label 显示名 + stack 应用/预览字体栈。stack 里保留中文
 // fallback 链（行楷缺字体时退楷体、等宽用系统等宽栈），预览与应用同源，
 // 用户在按钮上看到的就是应用后的效果。
 // 华文行楷 STXingkai 随 Office 安装，缺失时退 KaiTi；macOS 走 "Xingkai SC"。
@@ -287,9 +97,7 @@ function fontFamilyStack(v) {
   return FONT_FAMILY_STACKS[v] || "inherit";
 }
 // 帧率上限 options (fps); 0 = 无限制. Mirror of the host whitelist.
-const FPS_CAP_VALUES = [0, 60, 48, 30, 24];
 // 场景实时渲染（WebWallGL）帧率上限档位。Mirror of lib/index.js.
-const SCENE_LIVE_FPS_VALUES = [15, 30, 60];
 
 // 配色 presets for the settings-page liquid-glass theme. The accent drives
 // buttons/sliders/selected cards/badges and the glass sheen via --we-accent;
@@ -327,119 +135,12 @@ const CARET_COLOR_PRESETS = [
 ];
 
 // ── Persisted selection ─────────────────────────────────────────────────────
-function clampNum(v, lo, hi, fallback) {
-  return typeof v === "number" && v >= lo && v <= hi ? v : fallback;
-}
 
-// Rotation groups are user-defined carousel lists: each holds a set of
-// wallpaper ids picked from the inventory, its own switch interval (minutes),
-// and its own playback order. They are fully client-side (localStorage), so
-// rotation never depends on Wallpaper Engine's own config.json paths.
-function readRotationGroups(raw) {
-  if (!Array.isArray(raw)) return [];
-  const groups = [];
-  for (const g of raw) {
-    if (!g || typeof g !== "object") continue;
-    const id = typeof g.id === "string" && g.id ? g.id : "";
-    if (!id) continue;
-    groups.push({
-      id,
-      name: typeof g.name === "string" && g.name.trim() ? g.name.trim() : "轮播列表",
-      interval: clampNum(g.interval, 1, 1440, DEFAULTS.rotationInterval),
-      order: g.order === "random" ? "random" : "sequence",
-      wallpaperIds: Array.isArray(g.wallpaperIds)
-        ? g.wallpaperIds.filter((x) => typeof x === "string" && x)
-        : [],
-    });
-  }
-  return groups;
-}
 
-// Shared settings sanitizer: used by readPersisted() (localStorage cache) and
-// by loadPersisted() (host /wallpaper-engine/settings). The host half keeps a
-// mirror (lib/index.js sanitizeSettings) — keep the two in sync.
+// 设置规范化：白名单与每个键的校验规则**全部**来自 lib/settings-schema.js（唯一真源）。
+// 宿主侧调用同一个函数（side='host'，不收 CLIENT_ONLY 的键），因此两侧不可能再漂。
 function sanitizeSettings(o) {
-  if (!o || typeof o !== "object") return { id: "", ...DEFAULTS };
-  return {
-    id: typeof o.id === "string" ? o.id : "",
-    scrim: clampNum(o.scrim, 0, 1, DEFAULTS.scrim),
-    border: clampNum(o.border, 0, 1, DEFAULTS.border),
-    blur: clampNum(o.blur, 0, 60, DEFAULTS.blur),
-    wallpaperBlur: clampNum(o.wallpaperBlur, 0, 60, DEFAULTS.wallpaperBlur),
-    backgroundBrightness: clampNum(o.backgroundBrightness, 40, 160, DEFAULTS.backgroundBrightness),
-    backgroundContrast: clampNum(o.backgroundContrast, 40, 200, DEFAULTS.backgroundContrast),
-    backgroundSaturate: clampNum(o.backgroundSaturate, 0, 200, DEFAULTS.backgroundSaturate),
-    wallpaperOpacity: clampNum(o.wallpaperOpacity, 0, 90, DEFAULTS.wallpaperOpacity),
-    // 切换过场：类型 / 方向 / 速度档都走白名单（未知值回落默认）。
-    switchTransition: SWITCH_TRANSITION_VALUES.includes(o.switchTransition)
-      ? o.switchTransition : DEFAULTS.switchTransition,
-    switchTransitionDir: SWITCH_DIRS.includes(o.switchTransitionDir)
-      ? o.switchTransitionDir : DEFAULTS.switchTransitionDir,
-    switchTransitionSpeed: SWITCH_SPEED_VALUES.includes(o.switchTransitionSpeed)
-      ? o.switchTransitionSpeed : DEFAULTS.switchTransitionSpeed,
-    rotationEnabled: o.rotationEnabled === true,
-    rotationGroupId: typeof o.rotationGroupId === "string" ? o.rotationGroupId : "",
-    rotationGroups: readRotationGroups(o.rotationGroups),
-    rotationSeeded: o.rotationSeeded === true,
-    hiddenIds: Array.isArray(o.hiddenIds)
-      ? o.hiddenIds.filter((x) => typeof x === "string" && x)
-      : [],
-    playbackRate: clampNum(o.playbackRate, 0.5, 2, DEFAULTS.playbackRate),
-    videoVolume: clampNum(o.videoVolume, 0, 1, DEFAULTS.videoVolume),
-    videoAudioEnabled: o.videoAudioEnabled !== false,
-    fpsCap: FPS_CAP_VALUES.includes(o.fpsCap) ? o.fpsCap : DEFAULTS.fpsCap,
-    sceneLive: o.sceneLive !== false,
-    sceneLiveFps: SCENE_LIVE_FPS_VALUES.includes(o.sceneLiveFps) ? o.sceneLiveFps : DEFAULTS.sceneLiveFps,
-    liveBootDelay: clampNum(o.liveBootDelay, 0, 30, DEFAULTS.liveBootDelay),
-    audioSource: o.audioSource === "off" ? "off" : "auto",
-    mediaIntegration: o.mediaIntegration !== false,
-    mediaLyricsOnline: o.mediaLyricsOnline === true,
-    userProps: (o.userProps && typeof o.userProps === "object" && !Array.isArray(o.userProps)) ? o.userProps : {},
-    pauseOnHidden: o.pauseOnHidden !== false,
-    pauseOnBlur: o.pauseOnBlur === true,
-    pauseOnBattery: o.pauseOnBattery === true,
-    flip: o.flip === true,
-    objectFit: ["cover", "contain", "center", "fill"].includes(o.objectFit)
-      ? o.objectFit : DEFAULTS.objectFit,
-    contentRatingFilter: RATING_VALUES.includes(o.contentRatingFilter)
-      ? o.contentRatingFilter : DEFAULTS.contentRatingFilter,
-    typeFilter: TYPE_VALUES.includes(o.typeFilter)
-      ? o.typeFilter : DEFAULTS.typeFilter,
-    pickerLayout: o.pickerLayout === "classic" ? "classic" : "fixed",
-    edgeCompat: o.edgeCompat !== false,
-    accent: typeof o.accent === "string" && /^#[0-9a-f]{6}$/i.test(o.accent)
-      ? o.accent : DEFAULTS.accent,
-    glassAlpha: clampNum(o.glassAlpha, 0, 60, DEFAULTS.glassAlpha),
-    glassColor: typeof o.glassColor === "string" && /^#[0-9a-f]{6}$/i.test(o.glassColor)
-      ? o.glassColor : DEFAULTS.glassColor,
-    glassWindow: o.glassWindow !== false,
-    sidebarGlass: o.sidebarGlass !== false,
-    sidebarBlur: clampNum(o.sidebarBlur, 0, 200, DEFAULTS.sidebarBlur),
-    sidebarAlpha: clampNum(o.sidebarAlpha, 0, 200, DEFAULTS.sidebarAlpha),
-    sidebarColor: typeof o.sidebarColor === "string" && /^#[0-9a-f]{6}$/i.test(o.sidebarColor)
-      ? o.sidebarColor : DEFAULTS.sidebarColor,
-    sidebarContentAlpha: clampNum(o.sidebarContentAlpha, 0, 80, DEFAULTS.sidebarContentAlpha),
-    sidebarContentColor: typeof o.sidebarContentColor === "string" && /^#[0-9a-f]{6}$/i.test(o.sidebarContentColor)
-      ? o.sidebarContentColor : DEFAULTS.sidebarContentColor,
-    ropeShown: o.ropeShown !== false,
-    ropeForm: ROPE_FORM_VALUES.includes(o.ropeForm) ? o.ropeForm : DEFAULTS.ropeForm,
-    ropeScale: clampNum(o.ropeScale, ROPE_SCALE_MIN, ROPE_SCALE_MAX, DEFAULTS.ropeScale),
-    noticeSeen: typeof o.noticeSeen === "string" ? o.noticeSeen : "",
-    // 字体自定义（#57 精简回归版）：只钳范围不覆盖已存配置
-    fontCustom: o.fontCustom === true,
-    fontColor: typeof o.fontColor === "string" && /^#[0-9a-f]{6}$/i.test(o.fontColor)
-      ? o.fontColor : DEFAULTS.fontColor,
-    fontWeight: clampNum(o.fontWeight, 100, 900, DEFAULTS.fontWeight),
-    fontFamily: FONT_FAMILY_VALUES.includes(o.fontFamily) ? o.fontFamily : DEFAULTS.fontFamily,
-    frameVariants: (o.frameVariants && typeof o.frameVariants === "object" && !Array.isArray(o.frameVariants))
-      ? Object.assign({}, o.frameVariants) : {},
-    sceneLiveFailures: (o.sceneLiveFailures && typeof o.sceneLiveFailures === "object" && !Array.isArray(o.sceneLiveFailures))
-      ? Object.assign({}, o.sceneLiveFailures) : {},
-    customFrames: (o.customFrames && typeof o.customFrames === "object" && !Array.isArray(o.customFrames))
-      ? Object.assign({}, o.customFrames) : {},
-    caretColor: typeof o.caretColor === "string" && /^#[0-9a-f]{6}$/i.test(o.caretColor)
-      ? o.caretColor : DEFAULTS.caretColor,
-  };
+  return sanitizeFromSchema(o, "client");
 }
 
 function readPersisted() {
@@ -586,70 +287,10 @@ function useStore() {
   return selection;
 }
 
-// Whitelist serialization of the persisted settings (the ONLY fields the host
-// file and the localStorage cache carry).
+// 持久化白名单（宿主文件 + localStorage 缓存携带的字段）：同样派生自 schema。
+// id 放在最前，保持既有形状；键集由 schema 决定，两端一致。
 function serializeSelection() {
-  return {
-    id: selection.id,
-    frameVariants: selection.frameVariants,
-    sceneLiveFailures: selection.sceneLiveFailures,
-    customFrames: selection.customFrames,
-    scrim: selection.scrim,
-    border: selection.border,
-    blur: selection.blur,
-    wallpaperBlur: selection.wallpaperBlur,
-    backgroundBrightness: selection.backgroundBrightness,
-    backgroundContrast: selection.backgroundContrast,
-    backgroundSaturate: selection.backgroundSaturate,
-    wallpaperOpacity: selection.wallpaperOpacity,
-    switchTransition: selection.switchTransition,
-    switchTransitionDir: selection.switchTransitionDir,
-    switchTransitionSpeed: selection.switchTransitionSpeed,
-    rotationEnabled: selection.rotationEnabled,
-    rotationGroupId: selection.rotationGroupId,
-    rotationGroups: selection.rotationGroups,
-    rotationSeeded: selection.rotationSeeded,
-    hiddenIds: selection.hiddenIds,
-    playbackRate: selection.playbackRate,
-    videoVolume: selection.videoVolume,
-    videoAudioEnabled: selection.videoAudioEnabled,
-    fpsCap: selection.fpsCap,
-    sceneLive: selection.sceneLive,
-    sceneLiveFps: selection.sceneLiveFps,
-    liveBootDelay: selection.liveBootDelay,
-    audioSource: selection.audioSource,
-    mediaIntegration: selection.mediaIntegration,
-    mediaLyricsOnline: selection.mediaLyricsOnline,
-    userProps: selection.userProps,
-    pauseOnHidden: selection.pauseOnHidden,
-    pauseOnBlur: selection.pauseOnBlur,
-    pauseOnBattery: selection.pauseOnBattery,
-    flip: selection.flip,
-    objectFit: selection.objectFit,
-    contentRatingFilter: selection.contentRatingFilter,
-    typeFilter: selection.typeFilter,
-    pickerLayout: selection.pickerLayout,
-    edgeCompat: selection.edgeCompat,
-    accent: selection.accent,
-    glassAlpha: selection.glassAlpha,
-    glassColor: selection.glassColor,
-    glassWindow: selection.glassWindow,
-    sidebarGlass: selection.sidebarGlass,
-    sidebarBlur: selection.sidebarBlur,
-    sidebarAlpha: selection.sidebarAlpha,
-    sidebarColor: selection.sidebarColor,
-    sidebarContentAlpha: selection.sidebarContentAlpha,
-    sidebarContentColor: selection.sidebarContentColor,
-    ropeShown: selection.ropeShown,
-    ropeForm: selection.ropeForm,
-    ropeScale: selection.ropeScale,
-    noticeSeen: selection.noticeSeen,
-    fontCustom: selection.fontCustom,
-    fontColor: selection.fontColor,
-    fontWeight: selection.fontWeight,
-    fontFamily: selection.fontFamily,
-    caretColor: selection.caretColor,
-  };
+  return serializeSettings(selection);
 }
 
 // Host persistence: debounced PUT to /wallpaper-engine/settings (same origin;
@@ -1162,14 +803,11 @@ const SWITCH_TRANSITIONS = [
   { id: "zoom", label: "缩放", ms: 900 },
   { id: "bars", label: "条带", ms: 800 },
 ];
-const SWITCH_TRANSITION_VALUES = SWITCH_TRANSITIONS.map((t) => t.id);
 const SWITCH_SPEEDS = [
   { id: "fast", label: "快", factor: 0.6 },
   { id: "normal", label: "标准", factor: 1 },
   { id: "slow", label: "慢", factor: 1.6 },
 ];
-const SWITCH_SPEED_VALUES = SWITCH_SPEEDS.map((s) => s.id);
-const SWITCH_DIRS = ["left", "right", "up", "down"];
 const SWITCH_DIR_LABELS = { left: "左", right: "右", up: "上", down: "下" };
 // 只有方向型过场听 switchTransitionDir（条带用它决定竖条 / 横条）。
 const SWITCH_DIRECTIONAL = ["push", "wipe", "bars"];

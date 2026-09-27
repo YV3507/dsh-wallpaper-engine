@@ -678,7 +678,12 @@ for (const [name, ok] of clientChecks) check(name, ok);
 // 实测踩坑回归（2026-09-22）：host 的 sanitizeSettings 是白名单，漏加
 // sceneLiveFailures 会让 PUT 上来的失败记忆被丢弃、刷新后记忆消失。
 const hostSrc = readFileSync(join(root, 'lib', 'index.js'), 'utf8');
-check('host settings whitelist keeps sceneLiveFailures', /sceneLiveFailures: \(o\.sceneLiveFailures && typeof o\.sceneLiveFailures === 'object'/.test(hostSrc));
+// 宿主设置白名单已改为**派生**（唯一真源 lib/settings-schema.js，P1-5）。因此这几条不再
+// 抠实现里的字面量，而是把值喂给宿主的规范化函数看它收不收 —— 断言的是**行为**。
+const schemaMod = await import(pathToFileURL(join(root, 'lib', 'settings-schema.js')).href);
+const sanitizeHost = (raw0) => schemaMod.sanitizeFromSchema(raw0, 'host');
+const hostKeeps = (k, v) => JSON.stringify(sanitizeHost({ [k]: v })[k]) === JSON.stringify(v);
+check('host settings whitelist keeps sceneLiveFailures', hostKeeps('sceneLiveFailures', { w1: 'timeout' }));
 check('host injects the vendored shim into web HTML', /data-we-shim="host"/.test(hostSrc) && /readWebShim\(\)/.test(hostSrc));
 check('host sends CORS for opaque-origin fetches', /Access-Control-Allow-Origin', '\*'/.test(hostSrc));
 check('inventory derives webLive via webFieldsFor', /webFieldsFor\(w, hasMedia, webMediaBase\)/.test(hostSrc));
@@ -787,8 +792,7 @@ check('host 路由形状不变（客户端/渲染页无需感知后端切换）'
     && /path: `\$\{BASE\}\/now-playing`/.test(hostSrc) && /path: `\$\{BASE\}\/now-playing\/artwork`/.test(hostSrc));
 check('spectrum 路由回报 running（客户端据此决定装不装音频桥）',
   hostSrc.includes('running: st.audio.status ===') && hostSrc.includes('mediaBackend.status()'));
-check('settings 白名单保留 mediaLyricsOnline（否则开关会被丢）',
-  /mediaLyricsOnline: o\.mediaLyricsOnline === true/.test(hostSrc));
+check('settings 白名单保留 mediaLyricsOnline（否则开关会被丢）', hostKeeps('mediaLyricsOnline', true));
 
 // 客户端：封面必须转成**自包含 data URL** —— 宿主给的是插件路由，
 // 沙箱壁纸在 Desktop 上取不到（能力头栅栏只放行同源 frame）。
@@ -805,7 +809,7 @@ check('client 的 push key 带歌词版本（歌词晚到也要再推一帧）',
 check('音频桥按宿主 running 装卸（装了桥 = 渲染页放弃自带音频源）',
   src.includes('function syncAudioBridge(frame, running)') && src.includes('syncAudioBridge(frame, d.running === true)'));
 check('「在线歌词」开关默认关（外发请求要用户点头）',
-  src.includes('mediaLyricsOnline: false') && src.includes('mediaLyricsOnline: o.mediaLyricsOnline === true')
+  schemaMod.DEFAULTS.mediaLyricsOnline === false && Boolean(schemaMod.KINDS.mediaLyricsOnline)
     && src.includes('在线歌词'));
 check('host builds the property seed from project.json + 覆盖值',
   /function buildSeedScript\(entryAbs, token\)/.test(hostSrc) && /parseUserPropDefs\(pj, overrides/.test(hostSrc)
@@ -814,7 +818,8 @@ check('host 侧属性解析模块（order 浮点 / combo 保类型 / 逐键本�
   existsSync(join(root, 'lib', 'we-props.js'))
     && /parseUserPropDefs/.test(readFileSync(join(root, 'lib', 'we-props.js'), 'utf8')));
 check('settings 白名单保留 userProps（按 token 存标量）',
-  /userProps: \(o\.userProps && typeof o\.userProps === 'object'/.test(hostSrc));
+  JSON.stringify(sanitizeHost({ userProps: { tok: { c: 'x', n: 1, obj: { bad: 1 } } } }).userProps)
+    === '{"tok":{"c":"x","n":1}}');
 check('「壁纸属性」按钮：仅场景/网页壁纸 + 绿色样式',
   src.includes('we-picker__btn--props') && src.includes('(current.type === "scene" || current.type === "web") && sel.propsUrl'));
 check('属性面板热更新走 __wp.updateWebProps',

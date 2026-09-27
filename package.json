@@ -44,6 +44,7 @@
     "lib/scene-scripts.js",
     "lib/scene-script-apis.js",
     "lib/scene-manifest.js",
+    "lib/settings-schema.js",
     "lib/media/",
     "lib/webwallgl/",
     "lib/we-props.js",

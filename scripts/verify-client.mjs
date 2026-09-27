@@ -1017,37 +1017,77 @@ setTimeout(async () => {
     assert.ok(/\{ id: "fade", label: "交叉淡化", ms: ROTATION_FADE_MS \}/.test(code),
       '「交叉淡化」的基准必须直接引用 ROTATION_FADE_MS（不写死 1800）');
 
-    // ⑤d 设置键两端对账（#106 那类「宿主白名单漏键 → 客户端设置被静默丢弃」的漂移）：
-    // 客户端 serializeSelection 的每个键都必须被宿主 sanitizeSettings 接受。
-    // 唯一例外是两个纯客户端状态：画面刷新档位 / 自定义画面 —— 宿主完全不读它们
-    // （档位经 scene-frame 的 ?v= 走 URL，不进设置体），故显式列白。
+    // ⑤d 设置键**两端一致**（#106 那类「宿主白名单漏键 → 客户端设置被静默丢弃」的漂移）。
+    // 旧实现是"从两边源码文本里抠键名"对账。P1-5 起两侧都改为**派生**（唯一真源
+    // lib/settings-schema.js），源码里已无手写键列表可抠，而且抠名字也证明不了
+    // "宿主真的会接受"。现在改成 ①键集派生 ②结构上必须委托 ③**行为**与重构前逐键一致。
     {
       const src = readFileSync(new URL('../src/client.js', import.meta.url), 'utf8');
       const host = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8');
-      const fnBody = (source, anchor) => {
-        const i = source.indexOf(anchor);
-        assert.ok(i >= 0, 'anchor missing: ' + anchor);
-        const open = source.indexOf('{', i);
-        let depth = 0;
-        for (let j = open; j < source.length; j++) {
-          if (source[j] === '{') depth++;
-          else if (source[j] === '}') { depth--; if (depth === 0) return source.slice(open + 1, j); }
+      const schemaMod = await import(new URL('../lib/settings-schema.js', import.meta.url).href);
+      const { sanitizeFromSchema, serializeSettings, CLIENT_ONLY, DEFAULTS_ONLY, KINDS, DEFAULTS } = schemaMod;
+
+      const persisted = Object.keys(serializeSettings({}));
+      const clientSan = Object.keys(sanitizeFromSchema({}, 'client'));
+      const hostSan = Object.keys(sanitizeFromSchema({}, 'host'));
+
+      // ① 键集恒等式（全部派生，无手写清单）
+      assert.deepEqual(persisted.slice().sort(), clientSan.slice().sort(),
+        '持久化白名单必须与客户端 sanitize 键集完全相同');
+      assert.deepEqual(hostSan.slice().sort(),
+        clientSan.filter((k) => !CLIENT_ONLY.includes(k)).sort(),
+        '宿主接受的键集 = 客户端键集 − CLIENT_ONLY');
+      for (const k of CLIENT_ONLY) {
+        assert.ok(clientSan.includes(k) && !hostSan.includes(k), 'CLIENT_ONLY 必须只存在于客户端：' + k);
+      }
+      for (const k of DEFAULTS_ONLY) {
+        assert.ok(!clientSan.includes(k) && !hostSan.includes(k) && k in DEFAULTS,
+          'DEFAULTS_ONLY 必须只在默认值里：' + k);
+      }
+      assert.ok(clientSan.includes('id') && hostSan.includes('id') && !('id' in DEFAULTS),
+        'id 必须在两侧白名单里但不在 DEFAULTS 里（它是选中项，不是设置项）');
+
+      // ② 结构：两侧都必须**委托**给 schema，宿主不得再有手写逐键白名单
+      assert.ok(/sanitizeFromSchema\(o, "client"\)/.test(src), '客户端 sanitizeSettings 必须委托给 schema');
+      assert.ok(/serializeSettings\(selection\)/.test(src), '客户端 serializeSelection 必须委托给 schema');
+      assert.ok(/sanitizeFromSchema\(raw, 'host'\)/.test(host), '宿主 sanitizeSettings 必须委托给 schema');
+      const handWritten = (host.match(/clampNum\(o\.|clampStr\(o\./g) || []).length;
+      assert.equal(handWritten, 0,
+        '宿主不得再手写逐键白名单（发现 ' + handWritten + ' 处）—— 手抄正是漂移的来源');
+
+      // ③ golden：P1-5 之前从**旧实现**采下来的行为快照。夹具体积小、人可读，
+      //    任何"顺手改了某个范围/默认值"的改动都会在这里现形；确属有意修改时，
+      //    连同夹具一起更新（更新动作本身就是一次评审点）。
+      const golden = JSON.parse(readFileSync(
+        new URL('../test/fixtures/settings-sanitize-golden.json', import.meta.url), 'utf8'));
+      const canon = (o) => JSON.stringify(o && typeof o === 'object' && !Array.isArray(o)
+        ? Object.fromEntries(Object.keys(o).sort().map((k) => [k, o[k]])) : o);
+      const goldenDrift = [];
+      for (const c of golden.cases) {
+        const want = c.host === '__null__' ? null : c.host;
+        if (canon(sanitizeFromSchema(c.input, 'host')) !== canon(want)) goldenDrift.push(c.name);
+      }
+      assert.deepEqual(goldenDrift, [],
+        '宿主设置规范化必须与 P1-5 前的实现逐键一致（漂移用例：' + goldenDrift.join(', ') + '）');
+
+      // ④ 共有键上 client 与 host 必须逐键相同 —— 这就是"两侧不会再漂"的定义。
+      //    （历史差异只剩非对象输入：host 返回 null、client 返回默认值，见 schema 头注释。）
+      const sharedDrift = [];
+      for (const c of golden.cases) {
+        if (!c.input || typeof c.input !== 'object') continue;
+        const cl = sanitizeFromSchema(c.input, 'client') || {};
+        const ho = sanitizeFromSchema(c.input, 'host') || {};
+        for (const k of hostSan) {
+          if (JSON.stringify(cl[k]) !== JSON.stringify(ho[k])) sharedDrift.push(c.name + ':' + k);
         }
-        throw new Error('unbalanced: ' + anchor);
-      };
-      // `key: value` 与简写 `key,` 都要认（简写漏判会造出假阴性）。
-      const keysOf = (body) => new Set([
-        ...[...body.matchAll(/^\s{2,}([A-Za-z_][A-Za-z0-9_]*)\s*:/gm)].map((m) => m[1]),
-        ...[...body.matchAll(/^\s{2,}([A-Za-z_][A-Za-z0-9_]*)\s*,\s*$/gm)].map((m) => m[1]),
-      ]);
-      const clientKeys = keysOf(fnBody(src, 'function serializeSelection('));
-      const hostKeys = keysOf(fnBody(host, 'function sanitizeSettings('));
-      const CLIENT_ONLY = ['frameVariants', 'customFrames'];
-      const dropped = [...clientKeys].filter((k) => !hostKeys.has(k) && !CLIENT_ONLY.includes(k));
-      assert.deepEqual(dropped, [],
-        '客户端设置键必须全部被宿主白名单接受（漏键 = 静默丢弃）：' + dropped.join(', '));
+      }
+      assert.deepEqual(sharedDrift, [],
+        '共有键上 client 与 host 必须给出相同结果（漂移：' + sharedDrift.slice(0, 5).join(', ') + '）');
+
+      // 切换过场三键仍必须三处都在（#106 的当事键，单独钉一次）
       for (const k of ['switchTransition', 'switchTransitionDir', 'switchTransitionSpeed']) {
-        assert.ok(clientKeys.has(k) && hostKeys.has(k), '切换过场的设置键必须两端都在：' + k);
+        assert.ok(persisted.includes(k) && hostSan.includes(k) && KINDS[k],
+          '切换过场的设置键必须在 schema + 两侧白名单里：' + k);
       }
       // 方向映射钉死：left = 新画面自右进入（擦除从右侧长出来 / 条带从右端长出）。
       // 这条是纯源码契约 —— 终态看不出方向（起点被 reflow 后的终态覆盖），但方向
@@ -1100,7 +1140,7 @@ setTimeout(async () => {
       // 默认 = 硬切（用户裁决：先上零成本零风险，等「最帅的」定了再改这一处）。
       // 断在**被测产物**（code）上，这样 DSH_MUT_LIB 变异也能验到这条有牙。
       assert.ok(/switchTransition: "cut"/.test(code), '默认过场必须是硬切（DEFAULTS.switchTransition）');
-      console.log('设置键两端对账（客户端 ' + clientKeys.size + ' 键）: ok');
+      console.log('设置键两端对账（派生自 schema：客户端 ' + persisted.length + ' 键 / 宿主 ' + hostSan.length + ' 键 + 行为 golden ' + golden.cases.length + ' 例）: ok');
     }
 
     // ⑥ 行为级不变量：整条流程（选中 → HEAD 探测 → 抓帧回填 → 清除 → 后续重建）

@@ -795,6 +795,25 @@ if (token) {
     'status=' + headOver.status + ' gpu=' + headOver.gpu);
   await new Promise((r) => server.close(r));
 }
+// ── Level E: 缓存键单一构造点（结构不变量，P1-6）────────────────────────────
+// 帧缓存键曾在 sceneFrameCacheKey 与 sceneFrameSlot 里各拼一遍字面量 ⇒ 升版本
+// 只改一处就会让「写盘的产物」与「读取的路径」错位（症状：改了却没生效、
+// 缓存永不命中、白烧 CPU）。这里把「每种缓存各只有一个派生点」钉死；
+// 新增第 4 种缓存时本断言会红 —— 那是**有意的**棘轮，请连同这里一起改。
+{
+  const hostSrc = readFileSync(join(root, 'lib', 'index.js'), 'utf8');
+  const derivations = hostSrc.match(/Buffer\.from\(abs, 'utf8'\)\.toString\('base64url'\)/g) || [];
+  const slotBody = hostSrc.slice(hostSrc.indexOf('function sceneFrameSlot('), hostSrc.indexOf('function sceneFrameSlotFile('));
+  check('P1-6 每种缓存各只有一个键派生点（当前 3 种：帧 / 场景音频 / 场景视频）',
+    derivations.length === 3,
+    '派生点 ' + derivations.length + ' 处');
+  check('P1-6 sceneFrameSlot 复用 sceneFrameCacheKey 且不再自带版本前缀',
+    slotBody.includes('sceneFrameCacheKey(abs, mtime)') && !slotBody.includes('SCENE_FRAME_KEY_VERSION'),
+    'reuse=' + slotBody.includes('sceneFrameCacheKey(abs, mtime)') + ' versionInSlot=' + slotBody.includes('SCENE_FRAME_KEY_VERSION'));
+  check('P1-6 negative control: 再写一份派生会被数出来',
+    (hostSrc + "\nconst x = Buffer.from(abs, 'utf8').toString('base64url');").match(/Buffer\.from\(abs, 'utf8'\)\.toString\('base64url'\)/g).length === derivations.length + 1);
+}
+
 if (typeof dispose === 'function') dispose();
 delete process.env.DSH_WE_STEAM_ROOT;
 rmSync(join(root, '.test-cache', 'scene-fixture'), { recursive: true, force: true });
