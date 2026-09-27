@@ -960,10 +960,21 @@ check('抽屉窄容器：标题独占首行 + 按钮上下排列（8px）',
   stylesSrc.includes('.we-repo-panel .we-picker__current {') && stylesSrc.includes('grid-template-areas:')
     && stylesSrc.includes('.we-repo-panel .we-picker__current-actions {')
     && /grid-area: actions; flex-direction: column; align-items: stretch; gap: 8px;/.test(stylesSrc));
-check('renderer diagnostics sink registered at /diag', /path: '\/diag'/.test(hostSrc) && /diag-log/.test(hostSrc));
+// ── 诊断族（P2-11 第一族）：注册已搬到 lib/routes/diag.js ⇒ 文本断言按**所属文件**分家 ──
+// 行为断言（上面的 Level E 405/413）走 mock webServer，搬去哪个文件都照样有效；这里钉的是
+// "这一族只在那个文件里注册"—— 两边各留一份会让同一路径被重复挂载，而卸载只放掉一份。
+const diagSrc = readFileSync(join(root, 'lib', 'routes', 'diag.js'), 'utf8');
+check('renderer diagnostics sink registered at /diag', /path: '\/diag'/.test(diagSrc) && /diag-log/.test(diagSrc));
 // 实测踩坑（2026-09-23）：同一份渲染页产物里还有一条走 ${BASE}/diag 的告警通道，
 // 只挂根路径会让「壁纸黑屏」时最关键的渲染页告警全部 404 静默丢掉。
-check('renderer diagnostics also accepted at ${BASE}/diag', hostSrc.includes('path: `${BASE}/diag`'));
+check('renderer diagnostics also accepted at ${BASE}/diag', diagSrc.includes('path: `${BASE}/diag`'));
+check('诊断族只在 lib/routes/diag.js 注册（lib/index.js 只留一次调用）',
+  !/path: '\/diag'/.test(hostSrc) && !/path: `\$\{BASE\}\/diag/.test(hostSrc)
+  && !/const diagLog = \[\]/.test(hostSrc) && !/const handleDiag = /.test(hostSrc)
+  && /registerDiagRoutes\(webServer, \{/.test(hostSrc));
+// 负对照：把注册塞回主文件那种写法必须被判出（否则上面这条只是"主文件恰好没这几个字"
+const diagBackInMain = "disposers.push(webServer.register({ kind: 'exact', path: '/diag', handler: handleDiag }));";
+check('negative control: diag 注册回流 lib/index.js 会被判出', /path: '\/diag'/.test(diagBackInMain));
 // 自定义存储位置的目录型条目：up-dir- 前缀（用户自己的内容 / 不参与 /remove）
 check('uploads scan tags project dirs with up-dir- prefix', /id: `up-dir-\$\{name\}`/.test(hostSrc));
 check('uploads scan resolves scene.pkg for declared scene.json', /resolveSceneMainFileP\(abs, proj\.file\)/.test(hostSrc));

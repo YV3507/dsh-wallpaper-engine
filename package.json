@@ -35,6 +35,7 @@
   },
   "files": [
     "lib/index.js",
+    "lib/routes/",
     "lib/client.js",
     "lib/pkg-extract.js",
     "lib/scene-renderer.js",
