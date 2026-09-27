@@ -224,6 +224,32 @@ section('⑦ schema 设置键与模块一致');
   check('宿主侧也有该键（白名单自动派生）', 'componentFonts' in schema.sanitizeFromSchema({}, 'host'));
 }
 
+// ── ⑧ 落地点已独立成模块（P1-7 手法：在位 + 已内联 + 不在正文）──────────────
+// 抽出去之后**最危险的漂移是"两边各留一份"**：产物里一份、正文里还留一份旧实现，
+// 于是改了模块却没生效（或反之）。三件事一起断言才能防住：模块在位、产物里有、正文里没有。
+section('⑧ 字体落地点已抽成 src/font/apply.js 并内联');
+{
+  const applySrc = readFileSync(join(root, 'src', 'font', 'apply.js'), 'utf8');
+  const effectsSrc = readFileSync(join(root, 'src', 'effects.js'), 'utf8');
+  const clientSrc = readFileSync(join(root, 'src', 'client.js'), 'utf8');
+  const bundleSrc = readFileSync(join(root, 'lib', 'client.js'), 'utf8');
+  const moved = ['function componentFontAvailability()', 'function componentFontDefaults()',
+    'function applyComponentFonts()', 'function removeComponentFonts()',
+    'function snapshotHostFontDefaults()', 'function removeFontStyles()'];
+  const missing = moved.filter((m) => !applySrc.includes(m));
+  check('落地点模块在位（六个定义齐全）', missing.length === 0, missing.join(' ') || 'ok');
+  const notInlined = moved.filter((m) => !bundleSrc.includes(m));
+  check('六个定义都已内联进 lib/client.js', notInlined.length === 0, notInlined.join(' ') || 'ok');
+  const stale = moved.filter((m) => clientSrc.includes(m) || effectsSrc.includes(m));
+  check('client.js 与 effects.js 都不再自带这些实现（防"两边各留一份"）', stale.length === 0,
+    stale.join(' ') || 'ok');
+  // effects.js 里不该再有任何字体 DOM 落点：`#we-font-scope` 这个 style 元素的 id 是它的指纹
+  check('effects.js 里零字体落点（不再引用 #we-font-scope）',
+    !effectsSrc.includes('we-font-scope'));
+  check('负对照：搬家判据对"正文里还留一份"有牙',
+    !moved.every((m) => !('function applyComponentFonts() { /* 旧实现 */ }').includes(m)));
+}
+
 console.log('');
 if (failed) { console.log(`COMPONENT FONT CHECKS FAILED — ${failed} failed`); process.exit(1); }
 console.log('ALL COMPONENT FONT CHECKS PASSED');

@@ -406,8 +406,9 @@ section('⑤ 源码不变量');
     /!\s*important/.test('color:red !important') && !/!\s*important/.test('color:red'));
   // 红线 3：全仓不得写 DSH 自己的字号变量（那是「通用 → 字号」的地盘）。
   {
+    // ⚠️ 名单里的文件必须真实存在且**覆盖所有会写令牌的模块**：漏一个就是静默失去覆盖。
     const files = ['lib/settings-schema.js', 'src/font/color-roles.js', 'src/font/typography.js',
-      'src/effects.js', 'src/client.js'];
+      'src/font/apply.js', 'src/effects.js', 'src/client.js'];
     const guilty = files.filter((rel) => {
       const c = readFileSync(join(root, rel), 'utf8')
         .replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');

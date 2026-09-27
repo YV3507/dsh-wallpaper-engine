@@ -43,7 +43,8 @@ console.log('\n① 裸 fetch 棘轮（业务代码只许减少）');
   const client = count('src/client.js');
   check(`src/client.js 裸 fetch ≤ 基线 ${CLIENT_FETCH_BASELINE}`, client <= CLIENT_FETCH_BASELINE,
     `当前 ${client}`);
-  for (const rel of ['src/effects.js', 'src/font/color-roles.js', 'src/font/typography.js', 'src/we-cond.js']) {
+  for (const rel of ['src/effects.js', 'src/font/apply.js', 'src/font/color-roles.js',
+    'src/font/typography.js', 'src/we-cond.js']) {
     check(`${rel} 零裸 fetch`, count(rel) === 0, `当前 ${count(rel)}`);
   }
   check('src/api-client.js 存在且是出入囗模块',

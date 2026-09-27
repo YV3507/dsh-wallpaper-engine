@@ -1,20 +1,25 @@
 /**
- * effects.js — 把设置**应用到 DOM**（CSS 变量、内联样式、字体/光标、scrim）（P1-7 后半）。
+ * effects.js — 把设置**应用到 DOM**（CSS 变量、内联样式、光标、scrim）（P1-7 后半）。
  *
- * 为什么单独一个文件：这是"设置 → 界面"的唯一落点，约 460 行里同时有 scrim 即时性优化、
- * 玻璃/雾化合成、字体与光标注入、壁纸淡出底色选择五件事。它与设置表、求值器一样属于
- * "看得懂的单元"，此前埋在 src/client.js 中段，任何改动都要在 9,600 行里定位。
+ * 为什么单独一个文件：这是"设置 → 界面"的落地层，约 400 行里同时有 scrim 即时性优化、
+ * 玻璃/雾化合成、光标注入、壁纸淡出底色选择四件事（**字体自定义不在这里**，见
+ * src/font/apply.js）。它与设置表、求值器一样属于"看得懂的单元"，此前埋在 src/client.js
+ * 中段，任何改动都要在 9,500 行里定位。
  *
  * 契约（本文件是客户端程序的一部分，构建期由 scripts/build-client.mjs 内联进 bundle 的
- * 工厂作用域，因此"外部作用域"= src/client.js 的顶层。依赖是**机械清点**出来的，不是印象）：
+ * 工厂作用域，因此"外部作用域"= 同一 prelude / src/client.js 的顶层。依赖是**机械清点**
+ * 出来的，不是印象）：
  *   selection                    ← 设置/选中项的唯一 store（顶层 const，定义于 client.js 前部）
  *   SCRIM_ID                     ← scrim 元素的固定 id（顶层 const）
  *   GLASS_SATURATE               ← 玻璃饱和度耦合常量（顶层 const）
- *   fontFamilyStack(v)           ← 字体族 → CSS 字体栈（顶层 function）
  *   syncSceneAudio(selLike)      ← 场景音轨同步（顶层 function）
  *   detectMicaSupport()          ← 惰性探针：Mica 支持
  *   detectSoftwareRender()       ← 惰性探针：软件渲染回退
  *   useLegacySaturateCoupling()  ← 惰性探针：旧版饱和度耦合
+ *   applyComponentFonts()        ← src/font/apply.js（字体：组件作用域）
+ *   removeComponentFonts()       ← 同上
+ *   snapshotHostFontDefaults()   ← 同上（宿主角色色快照）
+ *   removeFontStyles()           ← 同上
  * 提供的入口：applyEffects() / clearEffects()（client.js 各有一处调用；其余 apply* / remove*
  * 助手仅本文件内部使用，导出是为了让守卫能单独取用）。
  *
@@ -32,27 +37,6 @@
 // every emit — i.e. twice per slider tick (handler + subscribed applyEffects)
 // and on every 500ms transcode poll — a forced synchronous layout storm.
 let lastScrimCss = "";
-// ── 字体系统：**没有任何全局字体配置**─────────────────────────
-// 全局字色 / 字重 / 字体族三条通路都已删除 —— 一个全局值会把 DSH 的文字层次（四级颜色）
-// 或粗细层次、字体栈层次压成一档。字体自定义只剩两套**作用域**覆盖，都不写全局规则：
-//   · 按角色（src/font/color-roles.js、typography.js）：经 DSH theme 服务的 overrideTokens
-//     写 body 内联的角色令牌，免 !important、随配色自动换值；
-//   · 按组件（src/font/components.js）：`body [class*="_前缀_"]` 直接命中 + 官方
-//     --dsl-* 组件钩子，等特异性即可（DSH 写死的字体声明里 !important 只占 4/319）。
-// 下面这个数组与 snapshotHostFontDefaults 现在只服务一件事：把**宿主角色色的当前值**
-// 记进 --we-host-*，供面板显示「当前默认色」。它不注入任何规则，也不再有"还原契约"
-//（[data-we-font-ignore] 全仓没有消费者，已随全局层删除）。
-// 白闪红线（v0.6.4 起）：不要引入 :has() 或祖先相关选择器——祖先失效集
-// 会把点击/输入的样式重算扩大到整棵 DOM，是 kiosk 窗口整屏刷白的点火条件。
-const WE_HOST_TOKENS = [
-  "--dsw-alias-label-primary",
-  "--dsw-alias-label-secondary",
-  "--dsw-alias-label-tertiary",
-  "--dsw-alias-label-dimmed",
-];
-
-
-
 
 // ── 输入光标颜色注入（#83）──────────────────────────────────────────────────
 // <style id="we-caret-patch"> 把 body 上的 --we-caret-color 应用到所有文本
@@ -104,113 +88,6 @@ function resolveWallpaperFadeBg() {
   try {
     return document.body.hasAttribute("data-ds-dark-theme") ? "#000000" : "#ffffff";
   } catch { return "#000000"; }
-}
-
-/**
- * G3/G4：组件级字体（把 `body [class*="_<组件>_"]` 的覆盖写进 `#we-font-scope`）。
- *
- * 与上面那条腿的分工：这里改的是**单个组件**（对话正文/代码块/终端/表格/侧栏/标签/页签/输入框），
- * 不是全局角色。三条规矩来自静态分析（详见 src/font/components.js 文件头）：
- *   · 前缀命中靠**启动自探测**（结果缓存；打包器改名 ⇒ 整条降级，不误伤）；
- *   · 字体来自后代 `font:` 简写的组件（代码块/终端）**只有官方 `--dsl-*` 钩子这条腿有效**；
- *   · 空配置 = 不生成任何规则（**官方值作初始值**）。
- * 探测结果缓存，但**可重试**：命中集不全时（组件后来才出现在页面上）超过 2s 就重探一次 ——
- * 既不必刷新页面，也不会每次输入都去读 computed 样式（那是布局抖动）。
- * UI 显示（componentFontDefaults）与 CSS 生成（applyComponentFonts）都走这里，共用同一份。
- */
-let componentFontProbe = null;
-let componentFontProbeAt = 0;
-function componentFontAvailability() {
-  const stale = componentFontProbe !== null
-    && componentFontProbe.ids.length < COMPONENT_FONT_TARGETS.length
-    && Date.now() - componentFontProbeAt > 2000;
-  if (componentFontProbe === null || stale) {
-    const ids = probeComponentTargets(document);
-    // 顺带把"当前 DSH 默认值"读回来：面板直接显示它（而不是"官方"占位字样）——
-    // 取该组件作用域命中的第一个元素读 computed 的字号/字重/字族。探测只做一次。
-    // ⚠️ 两个组件共用同一个模块前缀时（代码块 / 终端块都是 `block`），两行会读到**同一个**
-    //    元素 ⇒ 显示值可能相同。作用域选择器只能由 componentScopeSelector 给出（id→prefix
-    //    的映射只有一处），这里不得自己拼前缀。
-    const defaults = {};
-    for (const id of ids) {
-      try {
-        const scope = componentScopeSelector(id);
-        const el = scope ? document.querySelector(scope) : null;
-        if (!el) continue;
-        const cs = getComputedStyle(el);
-        defaults[id] = {
-          size: Math.round(parseFloat(cs.fontSize) || 0) || 0,
-          weight: parseInt(cs.fontWeight, 10) || 0,
-          family: cs.fontFamily || "",
-        };
-      } catch { /* 读不到就不显示默认值，不影响覆盖能力 */ }
-    }
-    componentFontProbeAt = Date.now();
-    componentFontProbe = {
-      ids,
-      defaults,
-      hasToken: (t) => {
-        try { return getComputedStyle(document.body).getPropertyValue(t).trim() !== ""; } catch { return false; }
-      },
-    };
-  }
-  return componentFontProbe;
-}
-/** 面板显示用的"当前 DSH 默认值"（按组件前缀）。 */
-function componentFontDefaults() {
-  return componentFontAvailability().defaults;
-}
-function fontScopeEl() {
-  let st = document.getElementById("we-font-scope");
-  if (!st) {
-    st = document.createElement("style");
-    st.id = "we-font-scope";
-    (document.head || document.documentElement).appendChild(st);
-  }
-  return st;
-}
-function applyComponentFonts() {
-  try {
-    const cfg = selection.componentFonts && typeof selection.componentFonts === "object"
-      ? selection.componentFonts : {};
-    const { ids, hasToken } = componentFontAvailability();
-    const css = buildComponentCss(cfg, ids) + buildDslBlocks(cfg, ids, hasToken);
-    const st = fontScopeEl();
-    if (st.textContent !== css) st.textContent = css;
-  } catch { /* 组件字体是增强：任何异常都不该影响主路径 */ }
-}
-function removeComponentFonts() {
-  try {
-    const st = document.getElementById("we-font-scope");
-    if (st) st.textContent = "";
-  } catch { /* ignore */ }
-}
-
-function snapshotHostFontDefaults() {
-  // 只服务一件事：把**宿主此刻的角色色**读进 --we-host-*，供面板显示「当前默认色」。
-  // 不再服务任何"还原契约"——那段契约（[data-we-font-ignore]）全仓没有消费者，已随全局
-  // 字体层一起删除。已快照则跳过；removeFontStyles 会清空，重开时再取。
-  try {
-    const es = document.documentElement.style;
-    let need = false;
-    for (const t of WE_HOST_TOKENS) {
-      if (!es.getPropertyValue("--we-host-" + t.slice(2))) { need = true; break; }
-    }
-    if (!need) return;
-    const bodyCs = getComputedStyle(document.body);
-    for (const t of WE_HOST_TOKENS) {
-      const v = bodyCs.getPropertyValue(t).trim();
-      if (v) es.setProperty("--we-host-" + t.slice(2), v);
-    }
-  } catch { /* ignore */ }
-}
-
-function removeFontStyles() {
-  // 全局字体配置已不存在 ⇒ 这里只清角色色快照（下次开启重新取；期间可能切了主题）。
-  try {
-    const es = document.documentElement.style;
-    for (const t of WE_HOST_TOKENS) es.removeProperty("--we-host-" + t.slice(2));
-  } catch { /* ignore */ }
 }
 
 function applyEffects() {
@@ -443,6 +320,5 @@ function clearEffects() {
 }
 export {
   applyEffects, clearEffects,
-  removeFontStyles, applyCaretStyles, removeCaretStyles,
-  resolveWallpaperFadeBg, snapshotHostFontDefaults,
+  applyCaretStyles, removeCaretStyles, resolveWallpaperFadeBg,
 };

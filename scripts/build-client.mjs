@@ -73,10 +73,17 @@ const INLINE_MODULES = [
     markers: ['const THEME_TYPE_ROLES = [', 'function buildTypePayload(', 'const THEME_TYPE_SOURCE ='],
   },
   {
+    file: 'src/font/apply.js',
+    why: '字体自定义的落地点（宿主默认值快照 + 组件作用域样式表；设置 → DOM 的唯一字体出口）',
+    markers: ['const WE_HOST_TOKENS = [', 'function componentFontAvailability()',
+      'function applyComponentFonts()', 'function snapshotHostFontDefaults()',
+      'function removeFontStyles()'],
+  },
+  {
     file: 'src/effects.js',
     why: '效果应用层（设置 → DOM；契约见文件头，见 P1-7 后半）',
     markers: ['let lastScrimCss = "";', 'function applyEffects()', 'function clearEffects()',
-      'function applyComponentFonts()', 'function resolveWallpaperFadeBg()'],
+      'function resolveWallpaperFadeBg()'],
   },
 ];
 
