@@ -358,6 +358,7 @@ async function main() {
   //   · transcode.js 必须登记进 INLINE_MODULES 且**真的进了产物**（防孤儿：文件在却不进 bundle）。
   {
     const clientSrc = readFileSync(new URL('../src/client.js', import.meta.url), 'utf8');
+    const prepSrc = readFileSync(new URL('../src/media-prep.js', import.meta.url), 'utf8');
     const tcSrc = readFileSync(new URL('../src/transcode.js', import.meta.url), 'utf8');
     const bundle = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8');
     const build = readFileSync(new URL('../scripts/build-client.mjs', import.meta.url), 'utf8');
@@ -375,11 +376,18 @@ async function main() {
     check('negative control: transcode.js 里确有状态机写入（防判据空转）', machine >= 8, machine + ' 处');
     check('negative control: 非复位的写法会被判出',
       writes('selection.mediaInfo = await probe();', 'mediaInfo').some((v) => !isReset(v)));
+    // 调用点按文件分别计数（跨文件接线：换壁纸的两处在 applySelection（media-prep.js），
+    // 卸载路径的一处在 client.js 的 apply 清理里）—— 不拼接字符串，免得"在哪个文件"这条
+    // 信息被抹掉，将来搬动时也不会再出现"计数对了但位置错了"。
+    const countIn = (src, name) => (src.match(new RegExp(name + '\\(\\)', 'g')) || []).length;
+    const wired = (name) => countIn(clientSrc, name) + countIn(prepSrc, name);
     check('新入口已接线（invalidateMediaInfoProbe ×2 + abortMediaInfoProbe ×1）',
-      (clientSrc.match(/invalidateMediaInfoProbe\(\)/g) || []).length === 2
-      && (clientSrc.match(/abortMediaInfoProbe\(\)/g) || []).length === 1);
+      wired('invalidateMediaInfoProbe') === 2 && wired('abortMediaInfoProbe') === 1,
+      `client.js=${countIn(clientSrc, 'invalidateMediaInfoProbe')}/${countIn(clientSrc, 'abortMediaInfoProbe')}`
+      + ` media-prep.js=${countIn(prepSrc, 'invalidateMediaInfoProbe')}/${countIn(prepSrc, 'abortMediaInfoProbe')}`);
     check('client.js 不再直写探测状态（探测的 token/AbortController 只属于 transcode.js）',
-      !/\bmediaInfoToken\s*=/.test(clientSrc) && !/\bmediaInfoAbort\s*=/.test(clientSrc));
+      !/\bmediaInfoToken\s*=/.test(clientSrc) && !/\bmediaInfoAbort\s*=/.test(clientSrc)
+      && !/\bmediaInfoToken\s*=/.test(prepSrc) && !/\bmediaInfoAbort\s*=/.test(prepSrc));
     check('transcode.js 已登记进 INLINE_MODULES 且在产物里只有一份',
       /file:\s*'src\/transcode\.js'/.test(build)
       && (bundle.match(/async function refreshMediaInfo\(/g) || []).length === 1);

@@ -596,6 +596,7 @@ console.log('Level D — client source wiring (src/client.js + 抽出的模块)'
 const src = readFileSync(join(root, 'src', 'client.js'), 'utf8');
 const stylesSrc = readFileSync(join(root, 'src', 'styles.js'), 'utf8');
 const liveSrc = readFileSync(join(root, 'src', 'live-layer.js'), 'utf8');
+const prepSrc = readFileSync(join(root, 'src', 'media-prep.js'), 'utf8');
 /** `function name() { … }` 的函数体源码（用于按内容而非脆弱的跨行正则断言）。 */
 function fnBody(source, name) {
   const i = source.indexOf('function ' + name + '(');
@@ -612,8 +613,9 @@ check('效果应用层已抽成独立模块并被内联',
     && readFileSync(join(root, 'lib', 'client.js'), 'utf8').includes('function applyEffects()')
     && !src.includes('function applyEffects()'));
 const clientChecks = [
-  ['live is the top priority for scenes and web', /const isLive = \(sel\.type === "scene" \|\| sel\.type === "web"\) && liveRenderEnabled\(sel\)/.test(src)],
-  ['sceneVideo yields to live', /Boolean\(sel\.sceneVideo\) && !isLive/.test(src)],
+  // live 优先与 sceneVideo 让位都发生在 **buildMedia** 里（已抽到 media-prep.js）。
+  ['live is the top priority for scenes and web', /const isLive = \(sel\.type === "scene" \|\| sel\.type === "web"\) && liveRenderEnabled\(sel\)/.test(prepSrc)],
+  ['sceneVideo yields to live', /Boolean\(sel\.sceneVideo\) && !isLive/.test(prepSrc)],
   ['web wallpapers force the strict sandbox', /webSandbox=strict/.test(liveSrc)],
   ['heartbeat watchdog exists', /function startLiveWatch/.test(liveSrc) && /LIVE_FIRST_FRAME_MS/.test(liveSrc)],
   ['failure memory persists', /sceneLiveFailures/.test(src) && /function liveFail/.test(liveSrc)],

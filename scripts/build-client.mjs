@@ -85,6 +85,12 @@ const INLINE_MODULES = [
       'function removeFontStyles()'],
   },
   {
+    file: 'src/media-prep.js',
+    why: '选中项落地：预准备（预挂载 + 探测 + 超时记账）→ buildMedia → applySelection',
+    markers: ['function beginRotationPrepare(', 'function prepareWallpaper(', 'const prepareLiveTimeouts = ',
+      'function prepareSceneLiveStage(', 'function applySelection(', 'function buildMedia('],
+  },
+  {
     file: 'src/live-layer.js',
     why: '实时渲染管线：live 看护/判失败/抓帧回填/指针/poster 与壁纸层构建（syncLayers）与过场',
     markers: ['const LIVE_FIRST_FRAME_MS = ', 'function liveLog(', 'function startLiveWatch(',

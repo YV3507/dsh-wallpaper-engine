@@ -30,7 +30,18 @@ const { BASE, apiUrl, apiFetch, apiJson, apiHead, apiPostJson, apiDelete } = api
  * 第二批：轮询 / 上报 4 处 —— `audio-spectrum`、`now-playing`、`client-diag`、`transcode-progress`；
  * 第三批：设置 / 库存 3 处 —— 设置 GET/PUT、库存 GET）。
  */
-const CLIENT_FETCH_BASELINE = 13;   // 只许减少；每批改写后同步下调
+const CLIENT_FETCH_BASELINE = 8;   // 只许减少；每批改写后同步下调
+/**
+ * 抽出来的客户端模块各自的裸 fetch 基线（只许减少）。**覆盖面必须跟着代码走**：
+ * 把带裸 fetch 的代码搬进新模块时，若判据只盯 client.js，棘轮就会因为"搬走"而变绿。
+ */
+const MODULE_FETCH_BASELINE = {
+  'src/live-layer.js': 2,   // 转码 Range 探测 / live 帧探测之外的遗留调用点
+  'src/media-prep.js': 1,
+  'src/transcode.js': 2,    // 转码 Range 探测 + 首帧探测（P2-9 剩余）
+};
+/** 客户端裸 fetch **总计**只许减少 —— 搬动代码改不了总计，这条骗不过。 */
+const TOTAL_FETCH_BASELINE = 13;
 
 let failed = 0;
 const check = (name, ok, detail) => {
@@ -48,8 +59,19 @@ console.log('\n① 裸 fetch 棘轮（业务代码只许减少）');
   const client = count('src/client.js');
   check(`src/client.js 裸 fetch ≤ 基线 ${CLIENT_FETCH_BASELINE}`, client <= CLIENT_FETCH_BASELINE,
     `当前 ${client}`);
+  // ⚠️ **覆盖面必须跟着代码走**：把带裸 fetch 的代码搬进新模块，如果判据只盯 client.js，
+  //    棘轮就会"因为搬走而变绿"（把裸 fetch 藏起来）。所以：每个客户端模块各有基线，
+  //    并且额外断言**总计**只许减少 —— 搬动改不了总计，这条骗不过。
+  let total = client;
+  for (const [rel, base] of Object.entries(MODULE_FETCH_BASELINE)) {
+    const n = count(rel);
+    total += n;
+    check(`${rel} 裸 fetch ≤ 基线 ${base}`, n <= base, `当前 ${n}`);
+  }
+  check(`客户端裸 fetch 总计 ≤ 基线 ${TOTAL_FETCH_BASELINE}（搬动骗不过这条）`,
+    total <= TOTAL_FETCH_BASELINE, `当前 ${total}`);
   for (const rel of ['src/api-client.js', 'src/effects.js', 'src/font/apply.js',
-    'src/font/color-roles.js', 'src/font/typography.js', 'src/we-cond.js']) {
+    'src/font/color-roles.js', 'src/font/typography.js', 'src/we-cond.js', 'src/styles.js']) {
     check(`${rel} 零裸 fetch`, count(rel) === 0, `当前 ${count(rel)}`);
   }
   check('src/api-client.js 存在且是出入囗模块',
@@ -57,6 +79,8 @@ console.log('\n① 裸 fetch 棘轮（业务代码只许减少）');
   // 负对照：判据对合成文本必须有牙
   check('负对照：棘轮判据能数出合成文本里的裸 fetch',
     (strip("const r = await fetch('/x'); // fetch( in comment").match(/\bfetch\s*\(/g) || []).length === 1);
+  check('负对照：总计判据对"搬进新模块"的裸 fetch 有牙',
+    count('src/live-layer.js') > 0 && MODULE_FETCH_BASELINE['src/live-layer.js'] >= count('src/live-layer.js'));
 }
 
 // ── ② 前缀与默认值 ──────────────────────────────────────────────────────────
