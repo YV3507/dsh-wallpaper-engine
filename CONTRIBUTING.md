@@ -31,6 +31,26 @@ macOS 版本由 [Jerry（@ruijiaang-lab）](https://github.com/ruijiaang-lab)维
 - 安装本地 dev 构建请**先完全关闭应用**（`dsh plugin --profile desktop add link:<path>`）再启动；应用运行期间安装会停在 `startup-unconfirmed`，恢复状态会在下次启动时自动回滚。
 - 请使用目标分支与 DSH profile 要求的 Node.js 版本；当前 macOS 包要求 Node.js 24 或更高版本。
 
+### What `lib/client.js` actually is / `lib/client.js` 到底是什么
+
+- **Anatomy**: `lib/client.js` = the `src/client.js` body **+ the 14 modules listed in `INLINE_MODULES`** (`scripts/build-client.mjs`), all inlined into a single `factory(require)` scope. `npm run build` prints that inlined list. Most of the file's lines therefore come from `src/**`, not from `client.js` itself — it *looks* like a monolith but is a flattened repository slice.
+- **Why inlining**: the browser half has **no local-module resolver** — the loader's `require` resolves only external packages, so `import './panel-tabs.js'` cannot work at runtime. Everything split out of `src/client.js` for readability is inlined back as a prelude in the same scope. Each entry declares `markers`, and a missing marker is a **hard build failure** — that is what stops the split from silently going empty. The output must also parse (`new Script(...)`) before it is written.
+- **Its role**: `package.json` exposes it as `exports["./client"]` with `dsh.client.immediately: true`; the DSH client loader fetches it from package metadata (no host route serves it). It is **tracked in git** because the supported install paths (`pnpm add github:…`, `link:`) never run a build.
+- **Rule 1 — rebuild in the same commit**: any `src/**` change requires `npm run build` + committing the artifact together. CI asserts it (`git diff --exit-code -- lib/client.js` right after `npm run build`). ⚠️ The **local** `npm run verify` does *not* check this — to catch a stale artifact locally, run `npm run verify:all` (which builds) and confirm `git status` is clean.
+- **Rule 2**: never hand-edit `lib/client.js`; the next build overwrites it.
+- **Rule 3 — the artifact is a contract**: several guards test the **built** file (`verify-readability`, `verify-softrender`, `verify-client`), and some extract the stylesheet from it by a line-leading anchor. That is why `src/styles.js` forbids backticks and literal copies of its own declaration in its comments — one stray backtick once made `verify-host-paint-scope` report "bare backticks: 489".
+- **Trap — comments in `src/**` ship to users**: prefer the *measurement command* over a number that drifts (two module headers still cite `src/client.js` as "9,500 lines").
+- **Don't shrink it as if it were a monolith**: its size is the size of `src/**`. The lever is the sources.
+
+- **构成**：`lib/client.js` = `src/client.js` 正文 **+ `INLINE_MODULES` 里那 14 个模块**（见 `scripts/build-client.mjs`），全部内联进**同一个** `factory(require)` 作用域。`npm run build` 会把内联清单打印出来。**它六成以上的行来自 `src/**` 而不是 `client.js` 自己** —— 看着像巨石，实为"压平的仓库切片"。
+- **为什么必须内联**：浏览器半边**没有本地模块解析器** —— loader 的 `require` 只解析外部包，`import './panel-tabs.js'` 在运行时根本不成立。凡为可读性拆出去的代码，都在构建期作为 prelude 内联回同一作用域。每项都带 `markers`，**缺任何一个都构建硬失败** —— 这正是"拆分不会悄悄变空"的保证；产物还必须能通过 `new Script(...)` 解析才会被写出。
+- **它的身份**：`package.json` 用 `exports["./client"]` + `dsh.client.immediately: true` 暴露它，DSH 客户端加载器按**包元数据**取（宿主侧没有任何路由发它）。它**必须入库**：本仓支持的安装路径（`pnpm add github:…`、`link:`）都不跑构建。
+- **铁律一 —— 同提交重建**：改任何 `src/**` 都要 `npm run build` 并把产物**同一个提交**带上。CI 会判定（`npm run build` 之后 `git diff --exit-code -- lib/client.js`）。⚠️ **本地 `npm run verify` 不查这条** —— 想在本地早发现，跑 `npm run verify:all`（含构建）再看 `git status` 是否干净。
+- **铁律二**：绝不手改 `lib/client.js`，下一次构建会抹掉。
+- **铁律三 —— 产物即契约**：多个守卫跑的是**产物**（`verify-readability`、`verify-softrender`、`verify-client`），另有一些**按行首锚点从产物里**取样式表。这就是 `src/styles.js` 禁止在自己注释里写反引号、也禁止复述那条声明语句的原因（实测踩到过：`verify-host-paint-scope` 报"裸反引号 489"）。
+- **陷阱 —— `src/**` 的注释会随包发给用户**：涉及行数 / 体积这类会漂的量，写**复算命令**而不是写数字（现仍有两处模块头注释把 `src/client.js` 说成"9,500 行"）。
+- **不要把它当巨石来"治理"**：它的体积就是 `src/**` 的体积，杠杆在源文件。
+
 ## Install a local dev build / 从本地源码安装（开发者）
 
 ### 1. Get the code (`checkout`) / 取得源码
