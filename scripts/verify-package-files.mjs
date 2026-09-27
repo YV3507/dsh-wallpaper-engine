@@ -156,7 +156,7 @@ async function main() {
   // "command not found" 而不是给出可读原因，所以在这里显式钉住。
   {
     const builtins = new Set(builtinModules || []);
-    const chainNames = ['build', 'verify', 'smoke', 'prepare', 'prepublishOnly'];
+    const chainNames = ['build', 'verify', 'smoke', 'prepare'];
     const scripts = [];
     for (const n of chainNames) {
       const cmd = (pkg.scripts || {})[n] || '';

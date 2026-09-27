@@ -116,14 +116,12 @@ UI 改动还应说明实际测试过的 DSH 界面、浏览器或 DSH Desktop �
 
 ## Release / 发布
 
-- **Bump the version first.** The published version number must be one that has never been used, tagged `v<version>` on the release commit.
-- `npm publish` runs `prepublishOnly` → `scripts/verify-package-publish.mjs --release`, which **refuses to publish** when `v<package.json version>` already exists and `HEAD` has moved past it (publishing is not repeatable).
-- The same script (without `--release`) runs inside `npm run verify` and guards the **publish surface**: the reachable closure of `lib/index.js` must be covered by `files`, no dev directories may leak, published text must not carry another machine's home path, and every `dependencies` entry must actually be loaded by reachable code.
+- **Publishing is the upstream repository's job** (`elysia395/dsh-wallpaper-engine`). This fork is a development line; it does not publish to npm, and it carries no version-bump gate.
+- What this fork *does* guard is the **publish surface**, via `scripts/verify-package-publish.mjs` inside `npm run verify`: the reachable closure of `lib/index.js` must be covered by `files`, no dev directories may leak into the package, published text must not carry another machine's home path, every `dependencies` entry must actually be loaded by reachable code, and no install-time script may reference a file that `files` does not ship.
 - Check the surface locally at any time with `npm pack --dry-run`（它给出的条目数会比守卫的清单多 `package.json` + `LICENSE`）。
 
-- **先 bump 版本号。** 要发布的版本号必须是**没用过**的，并在发布提交上打 `v<version>` 标签。
-- `npm publish` 会先跑 `prepublishOnly` → `scripts/verify-package-publish.mjs --release`：当 `v<package.json 版本>` 已存在、而 `HEAD` 已经走在它前面时**拒绝发布**（发布不可重来）。
-- 同一个脚本（不带 `--release`）也跑在 `npm run verify` 里，守的是**发布面**：`lib/index.js` 的可达闭包必须被 `files` 覆盖、不得泄漏开发目录、发布文本不得带别的机器的家目录路径、`dependencies` 每条都必须被可达代码加载。
+- **发布是上游仓库的事**（`elysia395/dsh-wallpaper-engine`）。本 fork 是开发线：**不发布到 npm**，也不带版本号闸门。
+- 本 fork 守的是**发布面**，由 `npm run verify` 里的 `scripts/verify-package-publish.mjs` 负责：`lib/index.js` 的可达闭包必须被 `files` 覆盖、不得泄漏开发目录、发布文本不得带别的机器的家目录路径、`dependencies` 每条都必须被可达代码加载、安装期脚本不得引用未随包发布的文件。
 - 随时可以用 `npm pack --dry-run` 核对发布面（它的条目数会比守卫清单多 `package.json` 与 `LICENSE`）。
 
 ## Pull request checklist / PR 检查清单
