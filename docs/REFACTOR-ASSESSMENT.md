@@ -576,6 +576,19 @@ UI 命名：`壁纸画面刷新` → **`出图来源`**（它换的是**来源**
 > 本文档早前条目里的 `src/theme-layer.js` / `src/theme-typography.js` / `src/component-fonts.js`
 > 即这三个文件（已随手一并更新路径）。
 
+> **2026-09-27 细化（用户口径）**：
+> ① **取消全局字重** —— 删 `fontWeight` 键与 body 字重覆盖、伪粗描边（`--we-font-weight` / `--we-font-stroke`）。
+>    理由与「字体颜色」同源：一个全局值会把 DSH 的粗细层次压成**一档**。字重改按**角色**（`themeWeight`）
+>    与按**组件**（`componentFonts[].weight`）细化，未设置即 DSH 默认字重。
+> ② **字族按角色细化**（`themeFamily`：存族键，客户端 `fontFamilyStack` 换 CSS 栈后写该角色的字族令牌）——
+>    与字重路径同构；组件也支持族（`componentFonts[].family`，存 CSS 栈）。这修掉一个隐性问题：
+>    全局字体族只经 body 继承，**到不了**用 `font:` 简写的标题/表格/代码。
+> ③ 面板**直接显示默认值**：角色行显示 DSH 默认字阶、字重输入框显示默认字重、
+>    颜色块显示当前默认色（读宿主墨色快照）、组件输入框显示探测到的 computed 默认值 ——
+>    删掉 "官方" 占位字样（守卫新增断言：不再有该 placeholder）。
+> ④ 新增「**恢复默认**」按钮（「字体自定义」总开关正下方）：清空颜色/排版/字重/字族/组件五项并让字体族回 inherit。
+> ⑤ 组件通道收进本区「**高级字体设置**」子分支（视图键 `fontAdvanced`，defaults-only；**不是**「高级」页签）。
+
 
 > **来源**：工作区草案《字体系统大改 —— 设计蓝图》，**未入库**（原稿在
 > `.integration-notes/scratch-scripts/FONT-SYSTEM-BLUEPRINT.md`，属本地未跟踪文件）。本节只留**决策与红线**；

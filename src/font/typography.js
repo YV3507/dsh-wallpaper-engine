@@ -109,9 +109,10 @@ function isTypeOffset(v) {
  * @param isAvailable `(token) => boolean` —— 四个令牌全可用才接管该角色
  * @returns {{ payload: object, roles: string[] }}
  */
-function buildTypePayload(offsets, isAvailable, weights) {
+function buildTypePayload(offsets, isAvailable, weights, families, resolveFamily) {
   const src = offsets && typeof offsets === 'object' ? offsets : {};
   const wts = weights && typeof weights === 'object' ? weights : {};
+  const fams = families && typeof families === 'object' ? families : {};
   const ok = typeof isAvailable === 'function' ? isAvailable : () => true;
   const payload = {};
   const roles = [];
@@ -119,10 +120,15 @@ function buildTypePayload(offsets, isAvailable, weights) {
     const off = src[role.id];
     const w = wts[role.id];
     const useWeight = typeof w === 'number' && Number.isInteger(w) && w >= 100 && w <= 900;
-    if (!isTypeOffset(off) && !useWeight) continue;
+    // 字族：存的是**族键**（FONT_FAMILY_VALUES 里的值），这里经调用方的解析器换成 CSS 栈。
+    // 没有解析器（或键为空）就不接管 —— 宁可保持官方值，也不写出坏 font 简写。
+    const famKey = typeof fams[role.id] === 'string' && fams[role.id] ? fams[role.id] : '';
+    const famStack = famKey && typeof resolveFamily === 'function' ? resolveFamily(famKey) : '';
+    const useFamily = typeof famStack === 'string' && famStack.length > 0;
+    if (!isTypeOffset(off) && !useWeight && !useFamily) continue;
     const t = typeTokenNames(role.id);
     // 令牌齐备性：默认四件套（size/line-height/family/shorthand）；
-    // 一旦要**调字重**，就必须多一件 `--dsw-font-<角色>-font-weight` —— 组合式要引用它。
+    // 要调字重就多要 `-font-weight`；调字族则**覆盖**四件套里的 `-font-family`。
     const need = [t.size, t.lineHeight, t.family, t.shorthand];
     if (useWeight) need.push(t.weight);
     if (!need.every((n) => ok(n))) continue;
@@ -132,6 +138,11 @@ function buildTypePayload(offsets, isAvailable, weights) {
     if (useWeight) {
       payload[t.weight] = { light: String(Math.round(w)), dark: String(Math.round(w)) };
       prefix = `var(${t.weight}) `;
+    }
+    if (useFamily) {
+      // 覆盖 DSH 的字族令牌（两侧同值：字族与配色无关）。这样"按角色的字体"能真正落到
+      // 标题/表格这类用 `font:` 简写的元素上 —— 全局字体族只靠 body 继承是到不了它们的。
+      payload[t.family] = { light: famStack, dark: famStack };
     }
     const size = isTypeOffset(off)
       ? `calc(${role.size} + ${off}px)` : `var(${t.size})`;

@@ -4745,6 +4745,15 @@ function WallpaperPicker(props) {
   };
   // F1：角色色。默认「单色」—— 一个色同时写进 light/dark 两套（内部始终存两套，
 // 因为令牌服务的值必须是 {light,dark} 对，缺一套在另一套配色下会不可读）。
+// G4 字族（角色级）：空 = 回官方字族。存**族键**（CSS 栈由 fontFamilyStack 在模块侧解析）。
+const onThemeFamily = (role, key) => {
+  const next = Object.assign({}, selection.themeFamily);
+  if (!key) delete next[role];
+  else next[role] = key;
+  selection.themeFamily = next;
+  persistSelection(); applyEffects(); emit();
+};
+
 // G4 字重（角色级）：空/0 = 回官方字重（组合式里的字面量前缀）。
 const onThemeWeight = (role, raw) => {
   const next = Object.assign({}, selection.themeWeight);
@@ -4811,13 +4820,61 @@ const onFontColorAll = (hex, separate) => {
   selection.themeColors = next;
   persistSelection(); applyEffects(); emit();
 };
-  const onFontWeight = (v) => {
-    selection.fontWeight = clampNum(v, 100, 900, DEFAULTS.fontWeight);
-    persistSelection(); applyEffects(); emit();
-  };
+  // 全局字重已移除（按角色/按组件细化）；字体族仍保留全局胶囊按钮。
   const onFontFamily = (family) => {
     if (!FONT_FAMILY_VALUES.includes(family)) return;
     selection.fontFamily = family;
+    persistSelection(); applyEffects(); emit();
+  };
+  // 「高级字体设置」视图开关（defaults-only，不持久化）。
+  const onFontAdvanced = (v) => {
+    selection.fontAdvanced = v;
+    emit();
+  };
+  // 组件字体族：存 **CSS 栈**（模块把它直接写进 font-family），不是族键。
+  const onComponentFamily = (prefix, key) => {
+    const next = Object.assign({}, selection.componentFonts);
+    const one = Object.assign({}, next[prefix]);
+    if (!key) delete one.family;
+    else one.family = fontFamilyStack(key);
+    if (Object.keys(one).length) next[prefix] = one;
+    else delete next[prefix];
+    selection.componentFonts = next;
+    persistSelection(); applyEffects(); emit();
+  };
+  // 颜色角色的「当前 DSH 默认值」：宿主墨色快照（snapshotHostFontDefaults 写在 documentElement
+// 上）转为 #rrggbb 供 <input type="color"> 用。取不到就返回空串 —— 面板会退回显示"跟随"，
+// 不影响覆盖能力。这样色块本身显示的就是当前实际生效的颜色，而不是占位字样。
+const toHexColor = (v) => {
+  const s = String(v || "").trim();
+  if (/^#[0-9a-f]{6}$/i.test(s)) return s;
+  const m = s.match(/^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/i);
+  if (!m) return "";
+  const h = (n) => Number(n).toString(16).padStart(2, "0");
+  return "#" + h(m[1]) + h(m[2]) + h(m[3]);
+};
+const officialColorOf = (tokens) => {
+  try {
+    const es = document.documentElement.style;
+    for (const t of tokens || []) {
+      const hex = toHexColor(es.getPropertyValue("--we-host-" + t.slice(2)));
+      if (hex) return hex;
+    }
+  } catch { /* ignore */ }
+  return "";
+};
+
+// 「恢复默认」：所有字体自定义项清回 DSH 默认值（空 = 不覆盖；字体族回 inherit）。
+  const onFontResetAll = () => {
+    selection.themeColors = {};
+    selection.themeType = {};
+    selection.themeWeight = {};
+    selection.themeFamily = {};
+    selection.componentFonts = {};
+    selection.fontFamily = "inherit";
+    selection.themeDarkSeparate = false;
+    selection.themeTypeOnly = false;
+    selection.fontAdvanced = false;
     persistSelection(); applyEffects(); emit();
   };
   // 壁纸画面刷新：当前场景壁纸循环切换静态帧生成档位（按壁纸记忆）。
@@ -5704,15 +5761,25 @@ const onFontColorAll = (hex, separate) => {
         }),
       ),
       // ── 字体 (custom typography)：原「字体」页签并入「外观」——总开关（关 =
-      //    恢复 dsh 原生字体）+ 颜色 / 字重 / 字体族，开启时才渲染细节控件。
-      //    #57 精简回归版。 ──
+      //    恢复 dsh 原生字体）+ 颜色角色 / 排版角色 / 字体族 / 组件字体（高级），
+      //    开启时才渲染细节控件。字重不设全局值：按角色与按组件细化。 ──
       React.createElement("div", { className: "we-picker__section" },
         React.createElement("div", { className: "we-picker__section-head" },
           React.createElement("span", { className: "we-picker__section-label" }, "全局字体"),
         ),
         switchRow("字体自定义", sel.fontCustom, (e) => onToggleFontCustom(e.target.checked), {
-          tooltip: "关闭后恢复 dsh 默认字体外观；开启后可调颜色/字重/字体族",
+          tooltip: "关闭后恢复 dsh 默认字体外观；开启后可调颜色角色/排版角色/字体族/组件字体",
         }),
+        // 「恢复默认」放在总开关正下方：一键把所有字体自定义项清回 DSH 默认值
+        // （颜色角色/排版偏移/角色字重/组件字体清空，字体族回 inherit）。
+        React.createElement("div", { className: "we-picker__ctl" },
+          React.createElement("button", {
+            type: "button",
+            className: "we-picker__chip",
+            onClick: onFontResetAll,
+            title: "清空所有字体自定义项（颜色角色 / 排版偏移 / 角色字重 / 组件字体）并让字体族跟随原生",
+          }, "恢复默认"),
+        ),
         sel.fontCustom && React.createElement(React.Fragment, null,
           // F1：分角色上色。今天的「字体颜色」把四个角色压成同一个色（把 DSH 的四级文字
           // 层次压平）；这里逐个角色放开，留空 = 跟随原生。经 theme 令牌层生效：body 内联、
@@ -5730,24 +5797,24 @@ const onFontColorAll = (hex, separate) => {
               React.createElement("label", { className: "we-picker__swatch-custom" },
                 React.createElement("input", {
                   type: "color",
-                  value: v.light || "#ffffff",
+                  value: v.light || officialColorOf(role.tokens) || "#ffffff",
                   onInput: (e) => onThemeColor(role.id, "light", e.target.value, sel.themeDarkSeparate),
                   onChange: (e) => onThemeColor(role.id, "light", e.target.value, sel.themeDarkSeparate),
                   title: role.label + " · 浅色配色",
                 }),
                 React.createElement("span", { className: "we-picker__hint we-picker__value" },
-                  v.light ? "浅 " + v.light : "官方"),
+                  v.light ? "浅 " + v.light : (officialColorOf(role.tokens) || "跟随")),
               ),
               sel.themeDarkSeparate && React.createElement("label", { className: "we-picker__swatch-custom" },
                 React.createElement("input", {
                   type: "color",
-                  value: v.dark || "#000000",
+                  value: v.dark || officialColorOf(role.tokens) || "#000000",
                   onInput: (e) => onThemeColor(role.id, "dark", e.target.value, true),
                   onChange: (e) => onThemeColor(role.id, "dark", e.target.value, true),
                   title: role.label + " · 深色配色",
                 }),
                 React.createElement("span", { className: "we-picker__hint we-picker__value" },
-                  v.dark ? "深 " + v.dark : "官方"),
+                  v.dark ? "深 " + v.dark : (officialColorOf(role.tokens) || "跟随")),
               ),
               (v.light || v.dark) && React.createElement("button", {
                 type: "button",
@@ -5767,40 +5834,60 @@ const onFontColorAll = (hex, separate) => {
           switchRow("只看改过的", sel.themeTypeOnly, (e) => onThemeTypeOnly(e.target.checked), {
             tooltip: "只列出偏移不为 0 的角色，便于收尾核对",
           }),
-          // G3/G4：组件字体（按组件前缀，不是全局角色）。三条来自静态分析的纪律：
+          // G3/G4：组件字体 —— 属"高级"，收进本区内的「高级字体设置」子分支
+          //（是"字体"的子分支，**不是**「高级」页签）。三条来自静态分析的纪律：
           //   ① 命中靠启动自探测（未命中的组件整条不生效，改名即降级、不误伤）；
           //   ② 代码块/终端的字体来自后代 `font:` 简写 ⇒ 只有官方 `--dsl-*` 钩子这条腿有效；
-          //   ③ 留空 = 官方值（不生成规则）。
-          React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
-            ctlText("组件字体", "留空 = 官方值"),
-          ),
-          COMPONENT_FONT_TARGETS.map((target) => {
-            const c = sel.componentFonts[target.prefix] || {};
-            return React.createElement("div", { className: "we-picker__ctl", key: target.prefix },
-              ctlText(target.label, target.group + " · 走" + target.route),
-              React.createElement("input", {
-                type: "number",
-                placeholder: "官方",
-                value: c.size === undefined ? "" : c.size,
-                min: 6,
-                max: 40,
-                style: { width: "64px" },
-                onChange: (e) => onComponentFont(target.prefix, "size", e.target.value),
-                title: target.label + "：字号 px（留空 = 官方值）",
-              }),
-              React.createElement("input", {
-                type: "number",
-                placeholder: "官方",
-                value: c.weight === undefined ? "" : c.weight,
-                min: 100,
-                max: 900,
-                step: 100,
-                style: { width: "76px" },
-                onChange: (e) => onComponentFont(target.prefix, "weight", e.target.value),
-                title: target.label + "：字重 100–900（留空 = 官方值）",
-              }),
-            );
+          //   ③ 不填 = 不生成规则（DSH 官方值）。
+          switchRow("高级字体设置", sel.fontAdvanced, (e) => onFontAdvanced(e.target.checked), {
+            tooltip: "按组件细化（模块前缀通道 + 官方 --dsl-* 钩子）：只对探测到的组件生效；不填即用 DSH 默认值",
           }),
+          sel.fontAdvanced && React.createElement(React.Fragment, null,
+            React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
+              ctlText("组件字体", "输入框显示的是当前 DSH 默认值；清空即回默认"),
+            ),
+            COMPONENT_FONT_TARGETS.map((target) => {
+              const c = sel.componentFonts[target.prefix] || {};
+              // 未填时**直接显示 DSH 当前默认值**（启动自探测时顺带读回的 computed 值），
+              // 不再用"官方"占位字样 —— 看到的就是实际生效的值。
+              const d = (typeof componentFontDefaults === "function"
+                ? componentFontDefaults()[target.prefix] : null) || {};
+              const famKey = FONT_FAMILY_LABELS.reduce(
+                (acc, f) => (acc === "" && c.family !== undefined && fontFamilyStack(f.v) === c.family ? f.v : acc), "");
+              return React.createElement("div", { className: "we-picker__ctl", key: target.prefix },
+                ctlText(target.label, target.group + " · 走" + target.route),
+                React.createElement("input", {
+                  type: "number",
+                  value: c.size === undefined ? (d.size || "") : c.size,
+                  min: 6,
+                  max: 40,
+                  style: { width: "64px" },
+                  onChange: (e) => onComponentFont(target.prefix, "size", e.target.value),
+                  title: target.label + "：字号 px（清空即回 DSH 默认" + (d.size ? " " + d.size + "px" : "") + "）",
+                }),
+                React.createElement("input", {
+                  type: "number",
+                  value: c.weight === undefined ? (d.weight || "") : c.weight,
+                  min: 100,
+                  max: 900,
+                  step: 100,
+                  style: { width: "76px" },
+                  onChange: (e) => onComponentFont(target.prefix, "weight", e.target.value),
+                  title: target.label + "：字重 100–900（清空即回 DSH 默认" + (d.weight ? " " + d.weight : "") + "）",
+                }),
+                React.createElement("select", {
+                  value: famKey,
+                  style: { width: "112px" },
+                  onChange: (e) => onComponentFamily(target.prefix, e.target.value),
+                  title: target.label + "：字体族（空 = DSH 默认）",
+                },
+                  React.createElement("option", { value: "" }, "默认"),
+                  FONT_FAMILY_LABELS.map((f) =>
+                    React.createElement("option", { key: f.v, value: f.v }, f.label)),
+                ),
+              );
+            }),
+          ),
           THEME_TYPE_ROLES
             .filter((role) => !sel.themeTypeOnly || (sel.themeType[role.id] || 0) !== 0)
             .map((role) => {
@@ -5808,7 +5895,7 @@ const onFontColorAll = (hex, separate) => {
               return React.createElement("div", { className: "we-picker__ctl", key: role.id },
                 // G2「初始值 = 官方默认值」：显示 DSH 的官方字阶（含字重与该角色的基准表达式），
                 // 滑到 0 即回官方 —— 数据仍只来自角色表，不在此复制。
-                ctlText(role.label, "官方 " + describeTypeRole(role)),
+                ctlText(role.label, describeTypeRole(role)),
                 React.createElement("input", {
                   type: "range",
                   min: THEME_TYPE_MIN,
@@ -5822,18 +5909,32 @@ const onFontColorAll = (hex, separate) => {
                 }),
                 React.createElement("span", { className: "we-picker__hint we-picker__value" },
                   (off > 0 ? "+" : "") + off + "px"),
-                // G4 字重（角色级）：留空 = DSH 官方字重；填了就走该角色的字重令牌。
+                // G4 字重（角色级）：未填时**直接显示 DSH 的默认字重**（角色表的 prefix 就是它；
+                // 无前缀的角色官方值是 400）。清空即回默认。
                 React.createElement("input", {
                   type: "number",
-                  placeholder: role.prefix ? "官方 " + role.prefix : "官方",
-                  value: sel.themeWeight[role.id] === undefined ? "" : sel.themeWeight[role.id],
+                  value: sel.themeWeight[role.id] === undefined
+                    ? (role.prefix ? Number(role.prefix) : 400)
+                    : sel.themeWeight[role.id],
                   min: 100,
                   max: 900,
                   step: 100,
                   style: { width: "86px" },
                   onChange: (e) => onThemeWeight(role.id, e.target.value),
-                  title: role.label + "：字重 100–900（留空 = 官方值）",
+                  title: role.label + "：字重 100–900（清空即回默认）",
                 }),
+                // G4 字族（角色级）：空 = DSH 官方字族。用族键（FONT_FAMILY_VALUES），
+                // 模块侧经 fontFamilyStack 换成 CSS 栈写进该角色的字族令牌。
+                React.createElement("select", {
+                  value: sel.themeFamily[role.id] === undefined ? "" : sel.themeFamily[role.id],
+                  style: { width: "104px" },
+                  onChange: (e) => onThemeFamily(role.id, e.target.value),
+                  title: role.label + "：字族（空 = DSH 默认）",
+                },
+                  React.createElement("option", { value: "" }, "默认"),
+                  FONT_FAMILY_LABELS.map((f) =>
+                    React.createElement("option", { key: f.v, value: f.v }, f.label)),
+                ),
                 off !== 0 && React.createElement("button", {
                   type: "button",
                   className: "we-picker__chip",
@@ -5842,10 +5943,9 @@ const onFontColorAll = (hex, separate) => {
                 }, "复位"),
               );
             }),
-          SliderRow("字重", 100, 900, 50, sel.fontWeight, onFontWeight, String(sel.fontWeight), "font-weight", {
-            tooltip: "每 50 一档，插件按数值连续补粗细（描边渐变），不再只有常规/粗体两档"
-              + "。单字面中文字体（黑体/宋体等）低于 400 无更细字面；600 起系统合成粗体会再叠一层",
-          }),
+          // 全局字重已移除（与「字体颜色」同一类问题：一个全局值会把 DSH 的粗细层次压成
+          // 一档）。字重改**按角色**细化（下面「排版角色」每行一个输入框）与**按组件**细化
+          // （「高级字体设置」里每组件一项），都能填任意值；留空/「恢复默认」即回 DSH 官方字重。
           // 字体族选择：专用胶囊按钮（.we-picker__font-chip），每个选项用它
           // 自己的字体渲染预览 —— 按钮上看到的字样即应用后的效果。
           React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
@@ -9318,7 +9418,9 @@ function apply(ctx) {
               buildPayload: () => buildTypePayload(
                 selection.fontCustom ? selection.themeType : {},
                 hasToken,
-                selection.fontCustom ? selection.themeWeight : {}),
+                selection.fontCustom ? selection.themeWeight : {},
+                selection.fontCustom ? selection.themeFamily : {},
+                fontFamilyStack),
             });
             layer.sync();
             typeLayer.sync();

@@ -106,25 +106,22 @@ function applyFontStyles() {
       (document.head || document.documentElement).appendChild(st);
     }
     st.textContent = [
-      /* 1) 默认字重/字族：只设 body 继承默认（声明 > 继承，所以任何
-            自带声明的元素——包括第三方挂件与 DSH 标题——都不再被碰）。
-            墨色**不在这里设**：文字颜色已完全交给角色令牌层（见下面第 2 段）。 */
+      /* 1) 默认字族：只设 body 继承默认（声明 > 继承，所以任何自带声明的元素——
+            包括第三方挂件与 DSH 标题——都不再被碰）。
+            **字重与墨色都不在这里设**：两者都已按角色/按组件细化 —— 墨色走角色令牌层
+            （第 2 段），字重走 `--dsw-font-<角色>-font-weight`（src/font/typography.js）
+            或组件作用域（src/font/components.js）。全局单一字重会把 DSH 的粗细层次
+            压成"只有一档"，与四级文字层次被压平是同一类问题。 */
       'body {',
-      '  font-weight:var(--we-font-weight, 400) !important;',
       '  font-family:var(--we-font-family, inherit) !important;',
-      // 伪粗描边跟随字重滑条（见 applyEffects 的映射）；宿主从不声明
-      // text-stroke，这里作为继承默认即可，不用 !important。
-      '  -webkit-text-stroke-width:var(--we-font-stroke, 0px);',
       '}',
       /* 1b) 聊天正文定向映射：DSH 的 markdown 容器用 font: var(--dsw-font-
-            markdown-base) 简写同时声明 font-family/weight，body 级继承压不过
-            它 —— 用户选的字族/字重在对话区会"看起来没生效"（颜色经令牌映射
-            已生效，但暗色主题下白字与主题墨色接近，更看不出差别）。对宿主
-            自己的聊天文本面定向接管族与字重（font 简写里的字号/行高不碰），
+            markdown-base) 简写声明 font-family，body 级继承压不过它 —— 用户选的
+            字族在对话区会"看起来没生效"。对宿主自己的聊天文本面定向接管族
+            （字号/字重/行高都不碰：字重已按角色细化，字号见 F2 的角色令牌），
             仍是单属性声明级覆盖，不是 body * 全局强制（#91 边界不变）。 */
       'body :is([class*="_markdown_"], [class*="markdownPayload"], [class*="markdownPreview"]) {',
       '  font-family:var(--we-font-family, inherit) !important;',
-      '  font-weight:var(--we-font-weight, 400) !important;',
       '}',
       /* 2) 文字**颜色**不再走这条通路。
             这里原先把四个 `--dsw-alias-label-*` 角色压成同一个用户色（带 !important），
@@ -251,14 +248,35 @@ function resolveWallpaperFadeBg() {
 let componentFontProbe = null;
 function componentFontAvailability() {
   if (componentFontProbe === null) {
+    const prefixes = probeComponentTargets(document);
+    // 顺带把"当前 DSH 默认值"读回来：面板直接显示它（而不是"官方"占位字样）——
+    // 取该前缀命中的第一个元素读 computed 的字号/字重/字族。探测只做一次。
+    const defaults = {};
+    for (const prefix of prefixes) {
+      try {
+        const el = document.querySelector('[class*="_' + prefix + '_"]');
+        if (!el) continue;
+        const cs = getComputedStyle(el);
+        defaults[prefix] = {
+          size: Math.round(parseFloat(cs.fontSize) || 0) || 0,
+          weight: parseInt(cs.fontWeight, 10) || 0,
+          family: cs.fontFamily || "",
+        };
+      } catch { /* 读不到就不显示默认值，不影响覆盖能力 */ }
+    }
     componentFontProbe = {
-      prefixes: probeComponentTargets(document),
+      prefixes,
+      defaults,
       hasToken: (t) => {
         try { return getComputedStyle(document.body).getPropertyValue(t).trim() !== ""; } catch { return false; }
       },
     };
   }
   return componentFontProbe;
+}
+/** 面板显示用的"当前 DSH 默认值"（按组件前缀）。 */
+function componentFontDefaults() {
+  return componentFontAvailability().defaults;
 }
 function fontScopeEl() {
   let st = document.getElementById("we-font-scope");
@@ -429,23 +447,11 @@ function applyEffects() {
 
   // 字体自定义（#57 精简回归版）：开关关闭 → 清空变量与样式表，恢复原生外观。
   if (selection.fontCustom) {
-    s.setProperty("--we-font-weight", String(selection.fontWeight));
-    // 字重滑条的伪粗描边：中文系统字体（黑体/宋体/楷体等）大多只有单一字面，
-    // Chrome 字体匹配对 <600 一律落回常规面、≥600 一律合成粗体 —— 滑条在
-    // 视觉上塌成两档。按超出 400 的比例线性映射 -webkit-text-stroke-width
-    // （继承属性，覆盖路径与 font-family 一致：正文 + 聊天区），让每一档都有
-    // 可感知的粗细差。低于 400 无法把单字面变细，描边为 0；多字重/可变字体
-    // 则由真实字面与少量描边叠加生效。900 档 0.045em 在 15px 正文约 0.68px。
-    const strokeEm = selection.fontWeight > 400
-      ? ((selection.fontWeight - 400) / 500) * 0.045 : 0;
-    s.setProperty("--we-font-stroke", strokeEm.toFixed(4) + "em");
     s.setProperty("--we-font-family", fontFamilyStack(selection.fontFamily));
     applyFontStyles();
     // G3/G4：组件级字体与字重/字族那条腿并列（各自独立作用域）。
     applyComponentFonts();
   } else {
-    s.removeProperty("--we-font-weight");
-    s.removeProperty("--we-font-stroke");
     s.removeProperty("--we-font-family");
     removeFontStyles();
     removeComponentFonts();
@@ -512,8 +518,6 @@ function clearEffects() {
   document.body.removeAttribute("data-we-glass-fallback"); // #95 软件渲染回退钩子同上
   s.removeProperty("--we-content-surface-alpha");
   s.removeProperty("--we-content-surface-color");
-    s.removeProperty("--we-font-weight");
-  s.removeProperty("--we-font-stroke");
   s.removeProperty("--we-font-family");
   removeFontStyles();
   s.removeProperty("--we-caret-color");

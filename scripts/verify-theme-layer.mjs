@@ -268,8 +268,14 @@ section('④b 排版角色（F2）');
     typo.describeTypeRole(typo.THEME_TYPE_ROLES.find((r) => r.id === 'markdown-small')) === '12px / 20px');
   check('跟随 DSH 正文字号的角色如实标注（不写成固定 px）',
     typo.describeTypeRole(typo.THEME_TYPE_ROLES.find((r) => r.id === 'markdown-base')).includes('14px(正文基准)'));
-  check('面板确实显示官方值',
-    readFileSync(join(root, 'src', 'client.js'), 'utf8').includes('官方 " + describeTypeRole(role)'));
+  // 面板**不再用占位字样**，直接显示默认值（用户口径）：角色行显示默认字阶、
+  // 字重输入框显示默认字重、颜色块显示当前默认色。
+  const clientFontUi = readFileSync(join(root, 'src', 'client.js'), 'utf8');
+  check('面板直接显示默认值（角色行 = describeTypeRole 的默认字阶）',
+    clientFontUi.includes('ctlText(role.label, describeTypeRole(role))'));
+  check('面板不再有「官方」占位字样（placeholder）',
+    !/placeholder:\s*"官方/.test(clientFontUi));
+  check('负对照：占位判据对合成文本有牙', /placeholder:\s*"官方/.test('placeholder: "官方"'));
   // G4 字重（角色级）：只调字重时**只写字重令牌**，且组合式改为引用它（不再用写死前缀）。
   {
     const wOnly = typo.buildTypePayload({}, all, { 'markdown-h1': 500 });
@@ -295,6 +301,49 @@ section('④b 排版角色（F2）');
         return !!both.payload['--dsw-font-markdown-h1-font-size'] && !!both.payload['--dsw-font-markdown-h1-font-weight']; })());
     check('不调字重时组合式仍用 DSH 的写死前缀（行为不变）',
       typo.buildTypePayload({ 'markdown-h1': 2 }, all).payload['--dsw-font-markdown-h1'].light.startsWith('700 '));
+  }
+  // G4 字族（角色级）：只调字族时**只写字族令牌**，组合式引用它（族键 → CSS 栈由调用方解析）。
+  {
+    const fOnly = typo.buildTypePayload({}, all, {}, { 'markdown-h1': 'KaiTi' }, (k) => 'STACK:' + k);
+    check('只调字族 ⇒ 写该角色的字族令牌（族键经解析器换成 CSS 栈、两侧同值）',
+      JSON.stringify(fOnly.payload['--dsw-font-markdown-h1-font-family'])
+        === '{"light":"STACK:KaiTi","dark":"STACK:KaiTi"}',
+      JSON.stringify(fOnly.payload['--dsw-font-markdown-h1-font-family']));
+    check('字号/行高/字重**不被无谓改写**（只调字族时）',
+      !('--dsw-font-markdown-h1-font-size' in fOnly.payload)
+      && !('--dsw-font-markdown-h1-line-height' in fOnly.payload)
+      && !('--dsw-font-markdown-h1-font-weight' in fOnly.payload));
+    check('组合式仍引用字族令牌（覆盖它即可按角色换字体）',
+      fOnly.payload['--dsw-font-markdown-h1'].light.includes('var(--dsw-font-markdown-h1-font-family)'));
+    check('缺解析器 ⇒ 不接管（宁可保持 DSH 默认，也不写坏 font 简写）',
+      typo.buildTypePayload({}, all, {}, { 'markdown-h1': 'KaiTi' }, null).roles.length === 0);
+    check('空字族键 ⇒ 不接管', typo.buildTypePayload({}, all, {}, { 'markdown-h1': '' }, (k) => k).roles.length === 0);
+    check('负对照：字族 + 字重 + 字号三者同时设置时都在',
+      (() => {
+        const three = typo.buildTypePayload({ 'markdown-h1': 2 }, all, { 'markdown-h1': 500 },
+          { 'markdown-h1': 'KaiTi' }, (k) => 'S:' + k);
+        return !!three.payload['--dsw-font-markdown-h1-font-size']
+          && !!three.payload['--dsw-font-markdown-h1-font-weight']
+          && !!three.payload['--dsw-font-markdown-h1-font-family'];
+      })());
+  }
+  // 全局字重已移除（用户口径：取消字重的全局唯一值）——按角色/按组件细化。
+  {
+    check('schema 里不再有全局 fontWeight 键', !('fontWeight' in schema.DEFAULTS));
+    const effectsSrc = readFileSync(join(root, 'src', 'effects.js'), 'utf8');
+    check('注入的字体补丁里不再有 --we-font-weight / --we-font-stroke',
+      !/--we-font-weight|--we-font-stroke/.test(effectsSrc));
+    check('负对照：判据对旧写法有牙', /--we-font-weight/.test('font-weight:var(--we-font-weight, 400)'));
+    const clientSrc = readFileSync(join(root, 'src', 'client.js'), 'utf8');
+    check('面板「恢复默认」清掉全部字体自定义项（4 个容器 + 字体族 + 视图开关）',
+      clientSrc.includes('const onFontResetAll = ()')
+      && /selection\.themeColors = \{\};/.test(clientSrc)
+      && /selection\.themeType = \{\};/.test(clientSrc)
+      && /selection\.themeWeight = \{\};/.test(clientSrc)
+      && /selection\.themeFamily = \{\};/.test(clientSrc)
+      && /selection\.componentFonts = \{\};/.test(clientSrc));
+    check('组件通道收在本区「高级字体设置」子分支（视图键 fontAdvanced，defaults-only）',
+      schema.DEFAULTS_ONLY.includes('fontAdvanced') && clientSrc.includes('switchRow("高级字体设置"'));
   }
   const bad = typo.buildTypePayload({ 'markdown-h1': 0, 'markdown-h2': 99, 'markdown-h3': 1.5, 'nope': 2, 'markdown-h4': 'x' }, all);
   check('非法偏移（0 / 越界 / 非整数 / 未知角色 / 非数）全部被拒', bad.roles.length === 0);

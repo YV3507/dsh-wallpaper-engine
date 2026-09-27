@@ -61,7 +61,6 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "frameVariants": {},
         "sceneLiveFailures": {},
@@ -71,7 +70,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       },
       "host": {
         "id": "",
@@ -123,7 +123,6 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "wallpaperOpacity": 0,
         "switchTransition": "cut",
@@ -134,7 +133,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       }
     },
     {
@@ -193,7 +193,6 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "frameVariants": {},
         "sceneLiveFailures": {},
@@ -205,7 +204,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       },
       "host": "__null__"
     },
@@ -265,7 +265,6 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "frameVariants": {},
         "sceneLiveFailures": {},
@@ -277,7 +276,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       },
       "host": "__null__"
     },
@@ -337,7 +337,6 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "frameVariants": {},
         "sceneLiveFailures": {},
@@ -349,7 +348,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       },
       "host": "__null__"
     },
@@ -413,7 +413,6 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "frameVariants": {},
         "sceneLiveFailures": {},
@@ -423,7 +422,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       },
       "host": {
         "id": "",
@@ -475,7 +475,6 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "wallpaperOpacity": 0,
         "switchTransition": "cut",
@@ -486,7 +485,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       }
     },
     {
@@ -606,7 +606,6 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "frameVariants": {},
         "sceneLiveFailures": {},
@@ -616,7 +615,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       },
       "host": {
         "id": "",
@@ -668,7 +668,6 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "wallpaperOpacity": 0,
         "switchTransition": "cut",
@@ -679,7 +678,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       }
     },
     {
@@ -844,7 +844,6 @@
         "ropeScale": 1,
         "noticeSeen": "nope",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "frameVariants": {},
         "sceneLiveFailures": {},
@@ -854,7 +853,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       },
       "host": {
         "id": "",
@@ -906,7 +906,6 @@
         "ropeScale": 1,
         "noticeSeen": "nope",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "wallpaperOpacity": 0,
         "switchTransition": "cut",
@@ -917,7 +916,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       }
     },
     {
@@ -981,7 +981,6 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "frameVariants": {},
         "sceneLiveFailures": {},
@@ -991,7 +990,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       },
       "host": {
         "id": "",
@@ -1043,7 +1043,6 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "wallpaperOpacity": 0,
         "switchTransition": "cut",
@@ -1054,7 +1053,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       }
     },
     {
@@ -1132,7 +1132,6 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "frameVariants": {},
         "sceneLiveFailures": {},
@@ -1142,7 +1141,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       },
       "host": {
         "id": "",
@@ -1194,7 +1194,6 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "wallpaperOpacity": 0,
         "switchTransition": "cut",
@@ -1205,7 +1204,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       }
     },
     {
@@ -1283,7 +1283,6 @@
         "ropeScale": 2.5,
         "noticeSeen": "",
         "fontCustom": false,
-        "fontWeight": 100,
         "fontFamily": "inherit",
         "frameVariants": {},
         "sceneLiveFailures": {},
@@ -1293,7 +1292,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       },
       "host": {
         "id": "",
@@ -1345,7 +1345,6 @@
         "ropeScale": 2.5,
         "noticeSeen": "",
         "fontCustom": false,
-        "fontWeight": 100,
         "fontFamily": "inherit",
         "wallpaperOpacity": 90,
         "switchTransition": "cut",
@@ -1356,7 +1355,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       }
     },
     {
@@ -1421,7 +1421,6 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "frameVariants": {},
         "sceneLiveFailures": {},
@@ -1431,7 +1430,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       },
       "host": {
         "id": "",
@@ -1483,7 +1483,6 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "wallpaperOpacity": 0,
         "switchTransition": "cut",
@@ -1494,7 +1493,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       }
     },
     {
@@ -1564,7 +1564,6 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "frameVariants": {},
         "sceneLiveFailures": {},
@@ -1574,7 +1573,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       },
       "host": {
         "id": "",
@@ -1626,7 +1626,6 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "wallpaperOpacity": 0,
         "switchTransition": "cut",
@@ -1637,7 +1636,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       }
     },
     {
@@ -1704,7 +1704,6 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "frameVariants": {},
         "sceneLiveFailures": {},
@@ -1714,7 +1713,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       },
       "host": {
         "id": "",
@@ -1766,7 +1766,6 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "wallpaperOpacity": 0,
         "switchTransition": "cut",
@@ -1777,7 +1776,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       }
     },
     {
@@ -1851,7 +1851,6 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "frameVariants": {},
         "sceneLiveFailures": {},
@@ -1861,7 +1860,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       },
       "host": {
         "id": "",
@@ -1913,7 +1913,6 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "wallpaperOpacity": 0,
         "switchTransition": "cut",
@@ -1924,7 +1923,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       }
     },
     {
@@ -2057,7 +2057,6 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "frameVariants": {
           "x": 1
@@ -2077,7 +2076,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       },
       "host": {
         "id": "",
@@ -2153,7 +2153,6 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "wallpaperOpacity": 0,
         "switchTransition": "cut",
@@ -2164,7 +2163,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       }
     },
     {
@@ -2227,7 +2227,6 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "frameVariants": {},
         "sceneLiveFailures": {},
@@ -2237,7 +2236,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       },
       "host": {
         "id": "",
@@ -2289,7 +2289,6 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "wallpaperOpacity": 0,
         "switchTransition": "cut",
@@ -2300,7 +2299,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       }
     },
     {
@@ -2363,7 +2363,6 @@
         "ropeScale": 1,
         "noticeSeen": "2026-08-13.1",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "frameVariants": {},
         "sceneLiveFailures": {},
@@ -2373,7 +2372,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       },
       "host": {
         "id": "wallpaper-42",
@@ -2425,7 +2425,6 @@
         "ropeScale": 1,
         "noticeSeen": "2026-08-13.1",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "wallpaperOpacity": 0,
         "switchTransition": "cut",
@@ -2436,7 +2435,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       }
     },
     {
@@ -2500,7 +2500,6 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "frameVariants": {},
         "sceneLiveFailures": {},
@@ -2510,7 +2509,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       },
       "host": {
         "id": "",
@@ -2562,7 +2562,6 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "fontWeight": 400,
         "fontFamily": "inherit",
         "wallpaperOpacity": 0,
         "switchTransition": "cut",
@@ -2573,7 +2572,8 @@
         "themeDarkSeparate": false,
         "themeType": {},
         "componentFonts": {},
-        "themeWeight": {}
+        "themeWeight": {},
+        "themeFamily": {}
       }
     }
   ]
