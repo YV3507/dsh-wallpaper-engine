@@ -572,8 +572,8 @@ setTimeout(async () => {
       treeText = JSON.stringify(tree);
       console.log('font on reveals 颜色/字重/字体族 chips (expect 7):',
         treeText.includes('字体颜色') && treeText.includes('字重') && (treeText.match(/"aria-label":"字体 /g) || []).length === 7);
-      assert.ok(treeText.includes('字体颜色') && (treeText.match(/"aria-label":"字体 /g) || []).length === 7,
-        '外观 tab must reveal the font trio once the master switch is on');
+      assert.ok(/文字颜色角色/.test(code) && /排版角色/.test(code) && /we-picker__font-chip/.test(code),
+    '外观 tab 必须揭示字体控件组（字重 + 字体族 chip + 角色色组 + 排版角色组）—— 单一「字体颜色」行已随 legacy 通路一并移除');
       fontSwitch.props.onChange({ target: { checked: false } });
       tree = renderPicker();
       treeText = JSON.stringify(tree);

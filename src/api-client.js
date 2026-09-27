@@ -1,0 +1,111 @@
+/**
+ * api-client.js — 客户端访问宿主 API 的**唯一出入口**（P2-9 第一步）。
+ *
+ * ══ 为什么需要（账本 §5 P2-9）══════════════════════════════════════════════════
+ * `src/client.js` 里曾有 **25 处**裸 `fetch(`，散落在设置、库存、上传、抓帧缓存、诊断、
+ * 媒体、转码等 8 个家族里。同一个后端契约（路径前缀、`cache: "no-store"`、JSON 解析、
+ * 非 2xx 语义、超时/中断）被各写一遍 —— 想改一处行为（例如统一加超时、统一记诊断）
+ * 必须找到全部 25 处，而漏掉一处不会有任何提示。
+ *
+ * 本模块把"**怎么发请求**"收成一处；调用点只说"**要什么**"（path + method + 期望）。
+ * 守卫是一条**棘轮**：业务代码里的裸 `fetch(` 只许减少（当前基线见
+ * scripts/verify-api-client.mjs），新代码必须走本模块 —— 与 P0-4 的"反向探针防蔓延"同手法。
+ *
+ * ══ 契约 ══════════════════════════════════════════════════════════════════════
+ * 需要的外界：**无**（`fetch` 由调用方或全局提供，便于单测注入）。
+ * 对外提供：BASE / apiUrl(path) / apiFetch / apiJson / apiHead / apiPostJson / apiDelete。
+ *
+ * 不变量：
+ *   · **不吞错**：网络失败与非 2xx 都返回结构化结果（`{ ok, status, data, error }`），
+ *     由调用点决定语义 —— 本模块不替业务决定"404 算不算失败"。
+ *   · 只有 `apiJson/apiPostJson` 会解析 JSON；HEAD/DELETE 不解析（避免空体报错）。
+ *   · 默认 `cache: "no-store"`：这些接口全是"读当前状态"，缓存只会带来陈旧数据。
+ *     （唯一例外由调用方显式覆盖 —— 目前无例外。）
+ *   · 路径一律经 `apiUrl()` 补前缀，禁止把裸路径直接交给 fetch（棘轮守卫检查的也是这一点）。
+ */
+
+const BASE = '/wallpaper-engine';
+
+/** 拼出带前缀的 URL（path 允许已含前缀 / 已含查询串 / 是绝对 URL —— 后者原样返回）。 */
+function apiUrl(path) {
+  const p = String(path == null ? '' : path);
+  if (/^https?:\/\//i.test(p) || p.startsWith('data:') || p.startsWith('blob:')) return p;
+  if (p.startsWith(BASE)) return p;
+  return BASE + (p.startsWith('/') ? p : '/' + p);
+}
+
+function pickFetch(injected) {
+  if (typeof injected === 'function') return injected;
+  if (typeof fetch === 'function') return fetch;
+  return null;
+}
+
+/**
+ * 发一个请求。**不抛**（除调用方显式要求）：返回
+ *   { ok, status, data, error, response }
+ * `ok` 仅表示"HTTP 2xx"；`error` 是网络/中断/解析失败的说明字符串。
+ */
+async function apiFetch(path, options) {
+  const o = options || {};
+  const doFetch = pickFetch(o.fetch);
+  const url = apiUrl(path);
+  if (!doFetch) return { ok: false, status: 0, data: null, error: 'no-fetch', url };
+  const init = { method: o.method || 'GET', cache: o.cache || 'no-store' };
+  if (o.signal) init.signal = o.signal;
+  if (o.headers) init.headers = o.headers;
+  if (o.body !== undefined) init.body = o.body;
+  // 透传我们真正用到的原生 init 字段。keepalive 必须留下：落盘 flush 靠它活过 pagehide。
+  if (o.keepalive) init.keepalive = true;
+  if (o.credentials) init.credentials = o.credentials;
+  if (o.mode) init.mode = o.mode;
+  if (o.integrity) init.integrity = o.integrity;
+  let response = null;
+  try {
+    response = await doFetch(url, init);
+  } catch (e) {
+    // 中断（AbortError）与网络故障都走这里：调用点据 error 区分即可，不必各自 try/catch。
+    return { ok: false, status: 0, data: null, error: String((e && e.name) || (e && e.message) || e), url };
+  }
+  const status = (response && response.status) || 0;
+  const ok = status >= 200 && status < 300;
+  let data = null;
+  let error = null;
+  if (o.parse !== false && ok && o.parse !== 'none') {
+    try {
+      // **json() 优先**：调用点原先就是 res.json()，替身与真实 Response 都实现它；
+      // 空体（204 / 无体 200）在真实 Response 上会抛，于是再用 text() 兜一次 ——
+      // 这样"只实现 json() 的替身"与"真实 Response"两种形态都能吃。
+      // （反过来 text() 优先会让只实现 json() 的替身静默读到 null：smoke 的 fetch 替身
+      // 就是这么把库存读成空、轮播定时器不武装的。）
+      if (typeof response.json === 'function') {
+        data = await response.json();
+      } else if (typeof response.text === 'function') {
+        const text = await response.text();
+        data = text ? JSON.parse(text) : null;
+      }
+    } catch (e) {
+      // 解析失败不改判 ok：有些接口成功但无体/非 JSON；由调用点看 data === null 决定。
+      data = null;
+      error = 'parse:' + String((e && e.message) || e);
+    }
+  }
+  return { ok, status, data, error, response, url };
+}
+
+/** GET + 解析 JSON（最常用的一条）。 */
+const apiJson = (path, options) => apiFetch(path, Object.assign({ method: 'GET' }, options));
+
+/** HEAD（探测存在性/取响应头，不解析体）。 */
+const apiHead = (path, options) => apiFetch(path, Object.assign({ method: 'HEAD', parse: false }, options));
+
+/** POST/PUT + JSON 体（自动序列化与 Content-Type）。 */
+const apiPostJson = (path, payload, options) => apiFetch(path, Object.assign({
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(payload === undefined ? {} : payload),
+}, options));
+
+/** DELETE（多数接口不返回体；需要时传 parse: true）。 */
+const apiDelete = (path, options) => apiFetch(path, Object.assign({ method: 'DELETE', parse: false }, options));
+
+export { BASE, apiUrl, apiFetch, apiJson, apiHead, apiPostJson, apiDelete };

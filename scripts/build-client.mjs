@@ -45,6 +45,12 @@ const id = pkg.name;
  */
 const INLINE_MODULES = [
   {
+    file: 'src/component-fonts.js',
+    why: 'G3/G4 组件级字体：模块前缀白名单 + 启动自探测 + 官方 --dsl-* 钩子生成',
+    markers: ['const COMPONENT_FONT_TARGETS = [', 'function probeComponentTargets(',
+      'function buildComponentCss(', 'const DSL_FONT_HOOKS = ['],
+  },
+  {
     file: 'lib/settings-schema.js',
     why: '设置唯一真源（宿主也 import 同一文件，见 P1-5）',
     markers: ['const KINDS = {', 'function sanitizeFromSchema(', 'function settingsDefaults(',

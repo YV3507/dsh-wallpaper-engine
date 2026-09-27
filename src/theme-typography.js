@@ -31,6 +31,18 @@
  *    node -e "const s=require('fs').readFileSync(process.argv[1],'utf8');for(const m of s.matchAll(/--dsw-font-([a-z0-9-]+?):([^;{}\\"]+)/g))if(!/-font-|-line-height$|-font$/.test(m[1]))console.log(m[1],'=',m[2].trim().slice(0,90))"
  *      "D:/DSH Desktop/resources/app/node_modules/@deepseek-ai/dsh-client-ui-theme/lib/client.js"
  *
+ * ⑤ **字重同样可细化（静态盘点 2026-09-27，比字号更简单）**：
+ *    39 个组件 CSS 里 `font-weight` 写死 **71 处、`!important` 零处**
+ *    （值分布 500×24 / 400×19 / 600×12 / 700×11 / 300×1 / inherit×4），
+ *    且每个角色在 design-platform 里都有细粒度令牌 `--dsw-font-<角色>-font-weight`
+ *    （本表的 `prefix` 就是它的值）⇒ 两条路径：
+ *      · **角色级**：把下面组合式里的字重前缀换成 `var(--dsw-font-<角色>-font-weight)`
+ *        再覆盖该令牌即可（字号/行高/字族机制完全不变）；
+ *      · **组件级**：与字号同一条 `[class*="_<模块>_"]` 通道（零 `!important` ⇒ 等特异性即可压过）。
+ *    官方默认值：角色级取自细粒度令牌；组件级取组件自己的声明（写前先 getComputedStyle
+ *    取基线 —— 与令牌层 `onBeforeFirstWrite` 同一套"先取基线再写"手法）。
+ *    ⚠️ katex（数学排版自带度量）与 `@font-face` 不碰。
+ *
  * ══ 契约 ══════════════════════════════════════════════════════════════════════════
  * 需要的外界：**无**（纯计算；令牌可用性由调用方给的判据决定）。
  * 对外提供：THEME_TYPE_ROLES / buildTypePayload / THEME_TYPE_SOURCE / 偏移上下限。
@@ -81,6 +93,7 @@ const typeTokenNames = (role) => ({
   size: `--dsw-font-${role}-font-size`,
   lineHeight: `--dsw-font-${role}-line-height`,
   family: `--dsw-font-${role}-font-family`,
+  weight: `--dsw-font-${role}-font-weight`,
   shorthand: `--dsw-font-${role}`,
 });
 
@@ -96,33 +109,68 @@ function isTypeOffset(v) {
  * @param isAvailable `(token) => boolean` —— 四个令牌全可用才接管该角色
  * @returns {{ payload: object, roles: string[] }}
  */
-function buildTypePayload(offsets, isAvailable) {
+function buildTypePayload(offsets, isAvailable, weights) {
   const src = offsets && typeof offsets === 'object' ? offsets : {};
+  const wts = weights && typeof weights === 'object' ? weights : {};
   const ok = typeof isAvailable === 'function' ? isAvailable : () => true;
   const payload = {};
   const roles = [];
   for (const role of THEME_TYPE_ROLES) {
     const off = src[role.id];
-    if (!isTypeOffset(off)) continue;
+    const w = wts[role.id];
+    const useWeight = typeof w === 'number' && Number.isInteger(w) && w >= 100 && w <= 900;
+    if (!isTypeOffset(off) && !useWeight) continue;
     const t = typeTokenNames(role.id);
-    // 四个令牌缺一不可：缺 -line-height 或 -font-family 会写出坏 shorthand（整条 font 失效）。
-    if (![t.size, t.lineHeight, t.family, t.shorthand].every((n) => ok(n))) continue;
-    const size = `calc(${role.size} + ${off}px)`;
-    const lh = `calc(${role.lh} + ${off}px)`;
-    // 字重/字族不重写：走 DSH 自己的细粒度令牌（它们本来就在）。
-    const prefix = role.prefix ? role.prefix + ' ' : '';
+    // 令牌齐备性：默认四件套（size/line-height/family/shorthand）；
+    // 一旦要**调字重**，就必须多一件 `--dsw-font-<角色>-font-weight` —— 组合式要引用它。
+    const need = [t.size, t.lineHeight, t.family, t.shorthand];
+    if (useWeight) need.push(t.weight);
+    if (!need.every((n) => ok(n))) continue;
+    // 字重：用户调了就写 DSH 的细粒度令牌并让组合式**引用它**（而不是写死字面量），
+    // 这样"角色级字重"与"DSH 自己的字重"仍在同一条链上（官方值作初始值：不调就不写）。
+    let prefix = role.prefix ? role.prefix + ' ' : '';
+    if (useWeight) {
+      payload[t.weight] = { light: String(Math.round(w)), dark: String(Math.round(w)) };
+      prefix = `var(${t.weight}) `;
+    }
+    const size = isTypeOffset(off)
+      ? `calc(${role.size} + ${off}px)` : `var(${t.size})`;
+    const lh = isTypeOffset(off)
+      ? `calc(${role.lh} + ${off}px)` : `var(${t.lineHeight})`;
     const shorthand = `${prefix}var(${t.size}) / var(${t.lineHeight}) var(${t.family})`;
     // 排版与配色无关 ⇒ 两侧同值（服务要求成对，给不同值会让深浅配色下字阶不一致）。
-    payload[t.size] = { light: size, dark: size };
-    payload[t.lineHeight] = { light: lh, dark: lh };
+    if (isTypeOffset(off)) {
+      payload[t.size] = { light: size, dark: size };
+      payload[t.lineHeight] = { light: lh, dark: lh };
+    }
     payload[t.shorthand] = { light: shorthand, dark: shorthand };
     roles.push(role.id);
   }
   return { payload, roles };
 }
 
+/**
+ * 把角色表里的 DSH 原表达式转成面板可读的官方值（例如 `700 21px+δ / 30px+δ`）。
+ *
+ * G2「初始值 = 官方默认值」的展示层：单一真源仍是角色表里的表达式，这里只做展示、
+ * 不复制数据（所以 DSH 升级后重取角色表，面板显示的官方值自动跟着变）。
+ * δ = `--dsh-content-font-delta`（DSH 自己的「通用 → 字号」偏移，自带 14px 兜底）。
+ */
+function describeTypeRole(role) {
+  const pretty = (v) => String(v)
+    .replace(/var\(--dsh-content-font-size-secondary,13px\)/g, '13px(副基准)')
+    .replace(/var\(--dsh-content-font-size,14px\)/g, '14px(正文基准)')
+    .replace(/var\(--dsh-content-font-delta-secondary\)/g, 'δ2')
+    .replace(/var\(--dsh-content-font-delta\)/g, 'δ')
+    .replace(/calc\(([^)]+)\)/g, '$1')
+    .replace(/\s*\+\s*/g, '+')
+    .trim();
+  const weight = role.prefix ? role.prefix + ' ' : '';
+  return weight + pretty(role.size) + ' / ' + pretty(role.lh);
+}
+
 export {
   THEME_TYPE_SOURCE, THEME_TYPE_ROLES,
   THEME_TYPE_MIN, THEME_TYPE_MAX,
-  isTypeOffset, typeTokenNames, buildTypePayload,
+  isTypeOffset, typeTokenNames, buildTypePayload, describeTypeRole,
 };

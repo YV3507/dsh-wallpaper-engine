@@ -260,6 +260,42 @@ section('④b 排版角色（F2）');
     Object.values(payload).every((v) => v.light === v.dark && typeof v.light === 'string'));
   check('绝不重写字重/字族令牌（不在载荷里）',
     !Object.keys(payload).some((k) => /-font-weight$|-font-family$|-font-style$/.test(k)));
+  // G2：「初始值 = 官方默认值」必须**可见**，且描述来自角色表（不复制数据）。
+  check('describeTypeRole 给出可读官方值（含字重）',
+    typo.describeTypeRole(typo.THEME_TYPE_ROLES.find((r) => r.id === 'markdown-h1')) === '700 21px+δ / 30px+δ',
+    typo.describeTypeRole(typo.THEME_TYPE_ROLES.find((r) => r.id === 'markdown-h1')));
+  check('无字重前缀的角色不产生多余空格',
+    typo.describeTypeRole(typo.THEME_TYPE_ROLES.find((r) => r.id === 'markdown-small')) === '12px / 20px');
+  check('跟随 DSH 正文字号的角色如实标注（不写成固定 px）',
+    typo.describeTypeRole(typo.THEME_TYPE_ROLES.find((r) => r.id === 'markdown-base')).includes('14px(正文基准)'));
+  check('面板确实显示官方值',
+    readFileSync(join(root, 'src', 'client.js'), 'utf8').includes('官方 " + describeTypeRole(role)'));
+  // G4 字重（角色级）：只调字重时**只写字重令牌**，且组合式改为引用它（不再用写死前缀）。
+  {
+    const wOnly = typo.buildTypePayload({}, all, { 'markdown-h1': 500 });
+    check('只调字重 ⇒ 写该角色的字重令牌（两侧同值）',
+      JSON.stringify(wOnly.payload['--dsw-font-markdown-h1-font-weight']) === '{"light":"500","dark":"500"}',
+      JSON.stringify(wOnly.payload['--dsw-font-markdown-h1-font-weight']));
+    check('字号/行高**不被无谓改写**（只调字重时不写它们）',
+      !('--dsw-font-markdown-h1-font-size' in wOnly.payload)
+      && !('--dsw-font-markdown-h1-line-height' in wOnly.payload));
+    check('组合式改为**引用**字重令牌（而不是写死 700）',
+      wOnly.payload['--dsw-font-markdown-h1'].light.startsWith('var(--dsw-font-markdown-h1-font-weight) ')
+      && !wOnly.payload['--dsw-font-markdown-h1'].light.startsWith('700 '),
+      wOnly.payload['--dsw-font-markdown-h1'].light.slice(0, 60));
+    check('越界字重被忽略（50 / 1000 / 非整数）',
+      typo.buildTypePayload({}, all, { 'markdown-h1': 50 }).roles.length === 0
+      && typo.buildTypePayload({}, all, { 'markdown-h1': 1000 }).roles.length === 0
+      && typo.buildTypePayload({}, all, { 'markdown-h1': 550.5 }).roles.length === 0);
+    check('缺字重令牌 ⇒ 整角色跳过（组合式缺项会写出坏 font）',
+      typo.buildTypePayload({}, (t) => t !== '--dsw-font-markdown-h1-font-weight', { 'markdown-h1': 500 })
+        .roles.length === 0);
+    check('负对照：字重与字号同时设置时两者都在',
+      (() => { const both = typo.buildTypePayload({ 'markdown-h1': 2 }, all, { 'markdown-h1': 500 });
+        return !!both.payload['--dsw-font-markdown-h1-font-size'] && !!both.payload['--dsw-font-markdown-h1-font-weight']; })());
+    check('不调字重时组合式仍用 DSH 的写死前缀（行为不变）',
+      typo.buildTypePayload({ 'markdown-h1': 2 }, all).payload['--dsw-font-markdown-h1'].light.startsWith('700 '));
+  }
   const bad = typo.buildTypePayload({ 'markdown-h1': 0, 'markdown-h2': 99, 'markdown-h3': 1.5, 'nope': 2, 'markdown-h4': 'x' }, all);
   check('非法偏移（0 / 越界 / 非整数 / 未知角色 / 非数）全部被拒', bad.roles.length === 0);
   const partial = typo.buildTypePayload({ 'markdown-h1': 2 }, (t) => t !== '--dsw-font-markdown-h1-line-height');

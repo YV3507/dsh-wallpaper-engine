@@ -62,21 +62,6 @@ const WE_HOST_TOKENS = [
   "--dsw-alias-label-dimmed",
 ];
 
-/**
- * 折叠行（把四个文字角色压成同一个用户色）：**只对令牌层没接管的角色输出**。
- *
- * 为什么必须让位：这四行带 `!important`，而「作者样式表的 !important」在级联上**高于**
- * 「普通内联声明」—— 令牌层写的正是 body 内联。照旧输出的话，用户在面板里按角色设的颜色
- * 会被这四行原样压回去，表现就是"改了没反应"。没被接管的角色照旧折叠（回落通道的行为不变）。
- */
-function themeCollapseLines() {
-  const owned = typeof themeLayerOwnedRoles === "function" ? themeLayerOwnedRoles() : [];
-  const prefix = "--dsw-alias-label-";
-  return WE_HOST_TOKENS
-    .filter((t) => !owned.includes(t.slice(prefix.length)))
-    .map((t) => "  " + t + ":var(--we-font-color) !important;");
-}
-
 function snapshotHostFontDefaults() {
   // applyFontStyles 每次滑杆回调都会执行：若已快照则跳过，否则会把上一轮
   // 注入后的自家映射值当成宿主原值写进快照（自我污染）。removeFontStyles
@@ -121,10 +106,10 @@ function applyFontStyles() {
       (document.head || document.documentElement).appendChild(st);
     }
     st.textContent = [
-      /* 1) 默认墨色/字重/字族：只设 body 继承默认（声明 > 继承，所以任何
-            自带声明的元素——包括第三方挂件与 DSH 标题——都不再被碰）。 */
+      /* 1) 默认字重/字族：只设 body 继承默认（声明 > 继承，所以任何
+            自带声明的元素——包括第三方挂件与 DSH 标题——都不再被碰）。
+            墨色**不在这里设**：文字颜色已完全交给角色令牌层（见下面第 2 段）。 */
       'body {',
-      '  color:var(--we-font-color, #000) !important;',
       '  font-weight:var(--we-font-weight, 400) !important;',
       '  font-family:var(--we-font-family, inherit) !important;',
       // 伪粗描边跟随字重滑条（见 applyEffects 的映射）；宿主从不声明
@@ -141,17 +126,11 @@ function applyFontStyles() {
       '  font-family:var(--we-font-family, inherit) !important;',
       '  font-weight:var(--we-font-weight, 400) !important;',
       '}',
-      /* 2) 主题文本令牌白名单映射：中性 label 层级跟用户字体色走（覆盖核心
-            UI 与聊天正文）；state-* 与 link 令牌不在白名单（报错红字/链接色保
-            留主题设计）。声明在 body 而非 :root —— 宿主令牌就定义在 body 层
-            （body / body[data-ds-dark-theme] 特异性更高），且 --we-font-* 变量
-            也挂在 body 上（:root 读不到子元素变量会 invalid）。!important 压过
-            宿主的同名正常声明；第三方/插件面板在自己子树重新声明同名令牌即可
-            遮蔽（自定义属性按元素级联，body 的 !important 不影响子树自身声明）。 */
-      'body {',
-      // 角色色被令牌层接管的那些让位（见 themeCollapseLines 的注释）。
-      ...themeCollapseLines(),
-      '}',
+      /* 2) 文字**颜色**不再走这条通路。
+            这里原先把四个 `--dsw-alias-label-*` 角色压成同一个用户色（带 !important），
+            结果是 DSH 的四级文字层次被**压平** —— 正是「全局同色不如原生」的根因。
+            颜色改由 src/theme-layer.js 的令牌层按角色接管（body 内联、免 !important、
+            随配色自动换值）；未设置的角色直接跟随 DSH 官方值。 */
       /* 3) 退出契约（#91 建议 2）：data-we-font-ignore 子树还原宿主原值。
             :where() 零特异性 —— 还原声明足以压过 body 继承（声明 > 继承），
             但子树内自带的任何颜色/字重声明仍按正常级联压过还原值（即"我自管"
@@ -257,6 +236,54 @@ function resolveWallpaperFadeBg() {
   try {
     return document.body.hasAttribute("data-ds-dark-theme") ? "#000000" : "#ffffff";
   } catch { return "#000000"; }
+}
+
+/**
+ * G3/G4：组件级字体（把 `body [class*="_<组件>_"]` 的覆盖写进 `#we-font-scope`）。
+ *
+ * 与上面那条腿的分工：这里改的是**单个组件**（对话正文/代码块/终端/表格/侧栏/标签/页签/输入框），
+ * 不是全局角色。三条规矩来自静态分析（详见 src/component-fonts.js 文件头）：
+ *   · 前缀命中靠**启动自探测**（结果缓存；打包器改名 ⇒ 整条降级，不误伤）；
+ *   · 字体来自后代 `font:` 简写的组件（代码块/终端）**只有官方 `--dsl-*` 钩子这条腿有效**；
+ *   · 空配置 = 不生成任何规则（**官方值作初始值**）。
+ * 探测结果只算一次：applyEffects 每次滑杆回调都会跑，不能每次读 computed 样式。
+ */
+let componentFontProbe = null;
+function componentFontAvailability() {
+  if (componentFontProbe === null) {
+    componentFontProbe = {
+      prefixes: probeComponentTargets(document),
+      hasToken: (t) => {
+        try { return getComputedStyle(document.body).getPropertyValue(t).trim() !== ""; } catch { return false; }
+      },
+    };
+  }
+  return componentFontProbe;
+}
+function fontScopeEl() {
+  let st = document.getElementById("we-font-scope");
+  if (!st) {
+    st = document.createElement("style");
+    st.id = "we-font-scope";
+    (document.head || document.documentElement).appendChild(st);
+  }
+  return st;
+}
+function applyComponentFonts() {
+  try {
+    const cfg = selection.componentFonts && typeof selection.componentFonts === "object"
+      ? selection.componentFonts : {};
+    const { prefixes, hasToken } = componentFontAvailability();
+    const css = buildComponentCss(cfg, prefixes) + buildDslBlocks(cfg, prefixes, hasToken);
+    const st = fontScopeEl();
+    if (st.textContent !== css) st.textContent = css;
+  } catch { /* 组件字体是增强：任何异常都不该影响主路径 */ }
+}
+function removeComponentFonts() {
+  try {
+    const st = document.getElementById("we-font-scope");
+    if (st) st.textContent = "";
+  } catch { /* ignore */ }
 }
 
 function applyEffects() {
@@ -402,7 +429,6 @@ function applyEffects() {
 
   // 字体自定义（#57 精简回归版）：开关关闭 → 清空变量与样式表，恢复原生外观。
   if (selection.fontCustom) {
-    s.setProperty("--we-font-color", selection.fontColor);
     s.setProperty("--we-font-weight", String(selection.fontWeight));
     // 字重滑条的伪粗描边：中文系统字体（黑体/宋体/楷体等）大多只有单一字面，
     // Chrome 字体匹配对 <600 一律落回常规面、≥600 一律合成粗体 —— 滑条在
@@ -415,12 +441,14 @@ function applyEffects() {
     s.setProperty("--we-font-stroke", strokeEm.toFixed(4) + "em");
     s.setProperty("--we-font-family", fontFamilyStack(selection.fontFamily));
     applyFontStyles();
+    // G3/G4：组件级字体与字重/字族那条腿并列（各自独立作用域）。
+    applyComponentFonts();
   } else {
-    s.removeProperty("--we-font-color");
     s.removeProperty("--we-font-weight");
     s.removeProperty("--we-font-stroke");
     s.removeProperty("--we-font-family");
     removeFontStyles();
+    removeComponentFonts();
   }
 
   // 输入光标颜色（#83）：空 = 跟随 dsh 原生（清空变量 + 不注入样式表）；
@@ -484,8 +512,7 @@ function clearEffects() {
   document.body.removeAttribute("data-we-glass-fallback"); // #95 软件渲染回退钩子同上
   s.removeProperty("--we-content-surface-alpha");
   s.removeProperty("--we-content-surface-color");
-  s.removeProperty("--we-font-color");
-  s.removeProperty("--we-font-weight");
+    s.removeProperty("--we-font-weight");
   s.removeProperty("--we-font-stroke");
   s.removeProperty("--we-font-family");
   removeFontStyles();
