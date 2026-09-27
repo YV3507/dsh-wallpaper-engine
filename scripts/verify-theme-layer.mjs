@@ -283,20 +283,23 @@ section('④b 排版角色（F2）');
     !String('14px').startsWith('var(--dsh-content-font-size'));
   // 面板**不再用占位字样**，直接显示默认值（用户口径）：角色行显示默认字阶与默认字重、
   // 颜色块显示当前默认色。
-  const clientFontUi = readFileSync(join(root, 'src', 'client.js'), 'utf8');
+  // 字体页签的渲染器已抽到 src/panel-tabs.js（C）：这里按文件分源，不拼接 ——
+// 拼接会让一个文件的文本满足另一个文件的结构断言。
+const clientFontUi = readFileSync(join(root, 'src', 'client.js'), 'utf8');
+const fontTabsUi = readFileSync(join(root, 'src', 'panel-tabs.js'), 'utf8');
   // 默认值**直接显示在输入框里**（角色表：字号列未填时显示 role.defaultPx），
   // 不再用行内小字复述一遍 DSH 原字阶。
   check('面板直接显示默认值（字号输入框未填时取 role.defaultPx）',
-    /value: size === undefined \? role\.defaultPx : size/.test(clientFontUi));
+    /value: size === undefined \? role\.defaultPx : size/.test(fontTabsUi));
   check('负对照：该判据对旧写法有牙',
     !/value: size === undefined \? role\.defaultPx : size/.test('value: size === undefined ? "" : size'));
   // 字重同理：未填时显示角色表里的默认字重（`prefix` 即字重），无前缀的角色显示 400。
   check('面板直接显示默认字重（未填时取 role.prefix，缺省 400）',
-    /role\.prefix \? Number\(role\.prefix\) : 400/.test(clientFontUi));
+    /role\.prefix \? Number\(role\.prefix\) : 400/.test(fontTabsUi));
   check('负对照：字重默认值判据对合成文本有牙',
     !/role\.prefix \? Number\(role\.prefix\) : 400/.test('role.prefix ? 700 : 400'));
   check('面板不再有「官方」占位字样（placeholder）',
-    !/placeholder:\s*"官方/.test(clientFontUi));
+    !/placeholder:\s*"官方/.test(fontTabsUi));
   check('负对照：占位判据对合成文本有牙', /placeholder:\s*"官方/.test('placeholder: "官方"'));
   // G4 字重（角色级）：只调字重时**只写字重令牌**，且组合式改为引用它（不再用写死前缀）。
   {
@@ -376,6 +379,9 @@ section('④b 排版角色（F2）');
       ['themeColors', 'themeSize', 'themeWeight', 'themeFamily', 'componentFonts', 'fontCustom']
         .every((k) => k in schema.DEFAULTS)
       && ['fontColor', 'fontWeight', 'fontFamily'].every((k) => !(k in schema.DEFAULTS)));
+    // 这一族是**跨文件接线**：处理器（onFontResetAll 清空 6 个容器）住在面板组件里
+    // （client.js），而"高级字体设置"那个子分支的渲染在抽出的页签模块里（panel-tabs.js）。
+    // 两半各取对应来源，不拼接 —— 拼接会让一个文件的文本满足另一个文件的断言。
     const clientSrc = readFileSync(join(root, 'src', 'client.js'), 'utf8');
     check('面板「恢复默认」清掉全部字体自定义项（4 个容器 + 字体族 + 视图开关）',
       clientSrc.includes('const onFontResetAll = ()')
@@ -385,7 +391,7 @@ section('④b 排版角色（F2）');
       && /selection\.themeFamily = \{\};/.test(clientSrc)
       && /selection\.componentFonts = \{\};/.test(clientSrc));
     check('组件通道收在本区「高级字体设置」子分支（视图键 fontAdvanced，defaults-only）',
-      schema.DEFAULTS_ONLY.includes('fontAdvanced') && clientSrc.includes('switchRow("高级字体设置"'));
+      schema.DEFAULTS_ONLY.includes('fontAdvanced') && fontTabsUi.includes('switchRow("高级字体设置"'));
   }
   const bad = typo.buildTypePayload({ 'markdown-h1': 0, 'markdown-h2': 99, 'markdown-h3': 1.5, 'nope': 2, 'markdown-h4': 'x' }, all);
   check('非法偏移（0 / 越界 / 非整数 / 未知角色 / 非数）全部被拒', bad.roles.length === 0);

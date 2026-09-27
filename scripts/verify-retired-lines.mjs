@@ -135,7 +135,9 @@ const SF_BASELINE = [
   const bad = ['src/client.js', 'lib/client.js'].filter((f) => existsSync(ROOT + f) && read(f).includes('秡'));
   check('状态行不再出现笔误「秡」（源 + 构建产物）', bad.length === 0,
     bad.length ? '仍在：' + bad.join(', ') : '干净');
-  check('状态行用的是「档」（源）', read('src/client.js').includes(' 档 · '));
+  // 状态行现在画在抽出的面板块里（src/panel-tabs.js，壁纸页签）；源与产物两边都看。
+  check('状态行用的是「档」（源）',
+    read('src/panel-tabs.js').includes(' 档 · ') && read('lib/client.js').includes(' 档 · '));
   check('negative control: 「秡」会被判不合格', 'x 秡 y'.includes('秡'));
 }
 

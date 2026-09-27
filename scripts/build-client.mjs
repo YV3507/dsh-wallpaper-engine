@@ -85,6 +85,13 @@ const INLINE_MODULES = [
       'function removeFontStyles()'],
   },
   {
+    file: 'src/panel-tabs.js',
+    why: '面板六个页签的渲染器（wallpaper/appearance/audio/mascot/effects/advanced）—— 显式 ctx 取外界',
+    markers: ['function renderWallpaperTab(ctx)', 'function renderAppearanceTab(ctx)',
+      'function renderAudioTab(ctx)', 'function renderMascotTab(ctx)',
+      'function renderEffectsTab(ctx)', 'function renderAdvancedTab(ctx)'],
+  },
+  {
     file: 'src/media-prep.js',
     why: '选中项落地：预准备（预挂载 + 探测 + 超时记账）→ buildMedia → applySelection',
     markers: ['function beginRotationPrepare(', 'function prepareWallpaper(', 'const prepareLiveTimeouts = ',

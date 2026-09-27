@@ -597,6 +597,7 @@ const src = readFileSync(join(root, 'src', 'client.js'), 'utf8');
 const stylesSrc = readFileSync(join(root, 'src', 'styles.js'), 'utf8');
 const liveSrc = readFileSync(join(root, 'src', 'live-layer.js'), 'utf8');
 const prepSrc = readFileSync(join(root, 'src', 'media-prep.js'), 'utf8');
+const tabsSrc = readFileSync(join(root, 'src', 'panel-tabs.js'), 'utf8');
 /** `function name() { … }` 的函数体源码（用于按内容而非脆弱的跨行正则断言）。 */
 function fnBody(source, name) {
   const i = source.indexOf('function ' + name + '(');
@@ -618,7 +619,7 @@ const clientChecks = [
   ['sceneVideo yields to live', /Boolean\(sel\.sceneVideo\) && !isLive/.test(prepSrc)],
   ['web wallpapers force the strict sandbox', /webSandbox=strict/.test(liveSrc)],
   ['heartbeat watchdog exists', /function startLiveWatch/.test(liveSrc) && /LIVE_FIRST_FRAME_MS/.test(liveSrc)],
-  ['failure memory persists', /sceneLiveFailures/.test(src) && /function liveFail/.test(liveSrc)],
+  ['failure memory persists', /sceneLiveFailures/.test(tabsSrc) && /function liveFail/.test(liveSrc)],
   ['audio mux honours live', /!selLike\.sceneLiveActive/.test(src)],
   ['syncLayers key carries live state', /"live\\u0000" \+ \(selection\.sceneLiveSrc \|\| selection\.webLiveSrc\)/.test(liveSrc)],
   // sceneVideo 只在**非 live** 形态下进 key：live 生效时 buildMedia 已把 isSceneVideo
@@ -648,11 +649,11 @@ const clientChecks = [
   //   同样显示** —— 那张静帧正是切换途中与 live 首帧前给用户看的画面，构图不对时
   //   必须能立刻重抓，而不是先关掉实时渲染；导入截图与 live 也互不干扰。
   ['CPU frame-variant row shows only while live is not effective',
-    /sel\.type === "scene" && sel\.sceneFrameUrl && !liveRenderEnabled\(sel\)/.test(src)],
+    /sel\.type === "scene" && sel\.sceneFrameUrl && !liveRenderEnabled\(sel\)/.test(tabsSrc)],
   ['live-frame (GPU capture) row is NOT gated on the live switch',
-    /sceneWithFrame && \(gpuPinnedHere \|\| liveRenderEnabled\(sel\)\)/.test(src)],
+    /sceneWithFrame && \(gpuPinnedHere \|\| liveRenderEnabled\(sel\)\)/.test(tabsSrc)],
   ['custom-frame row is NOT gated on the live switch',
-    /sel\.type === "scene" && React\.createElement\("div", \{ className: "we-picker__ctl" \}/.test(src)],
+    /sel\.type === "scene" && React\.createElement\("div", \{ className: "we-picker__ctl" \}/.test(tabsSrc)],
   // 「重新截」= force 重抓：必须走「先抓帧 + 内容门禁 → 成功后才清旧帧」的安全顺序，
   // 抓不到时不许把原来那张删掉（面板上给失败原因）。
   ['manual re-capture forces a fresh capture through the safe path',
@@ -712,11 +713,31 @@ for (const [name, ok] of clientChecks) check(name, ok);
   check('实时管线只在 src/live-layer.js（client.js 不留第二份）', stillInClient.length === 0,
     stillInClient.join(' ') || '搬走了 ' + MOVED.length + ' 个入口');
   check('client.js 对管线状态零跨模块写（liveDiagOn 必须走入口）',
-    !/^\s*liveDiagOn\s*=/m.test(src) && /toggleLiveDiag\(\)/.test(src));
+    !/^\s*liveDiagOn\s*=/m.test(src) && !/^\s*liveDiagOn\s*=/m.test(tabsSrc)
+    && /toggleLiveDiag\(\)/.test(tabsSrc));
   check('live-layer.js 已登记进 INLINE_MODULES 且在产物里只有一份',
     /file:\s*'src\/live-layer\.js'/.test(build)
     && (bundle.match(/function syncLayers\(\)/g) || []).length === 1);
   check('negative control: 未登记的模块名会被判出', !/file:\s*'src\/nope\.js'/.test(build));
+  // ── 面板页签（C）：渲染器只在 panel-tabs.js，且**只从一个参数取外界** ──
+  const TAB_FNS = ['renderWallpaperTab', 'renderAppearanceTab', 'renderAudioTab',
+    'renderMascotTab', 'renderEffectsTab', 'renderAdvancedTab'];
+  check('页签渲染器只在 src/panel-tabs.js（client.js 不留第二份）',
+    TAB_FNS.every((n) => !new RegExp('function ' + n + '\\s*\\(').test(src))
+    && TAB_FNS.every((n) => tabsSrc.includes('function ' + n + '(ctx) {')));
+  // 每个渲染器的**首行**必须是 `const { … } = ctx;` —— "要什么"写在签名处，
+  // 而不是靠闭包默默捕获（这正是这一刀的意义；也防止后来人图省事把捕获加回去）。
+  const tabBodies = tabsSrc.split(/^  function (render\w+Tab)\(ctx\) \{$/m).slice(1);
+  const noCtxLine = [];
+  for (let i = 0; i < tabBodies.length; i += 2) {
+    const fn = tabBodies[i], body = tabBodies[i + 1] || '';
+    if (!/^\s*\n\s*const \{[^}]*\} = ctx;/.test(body)) noCtxLine.push(fn);
+  }
+  check('每个页签首行都从 ctx 解构（不许再靠闭包捕获）', noCtxLine.length === 0,
+    noCtxLine.join(' ') || TAB_FNS.length + ' 个页签都显式取外界');
+  check('panel-tabs.js 已登记进 INLINE_MODULES 且在产物里只有一份',
+    /file:\s*'src\/panel-tabs\.js'/.test(build)
+    && (bundle.match(/function renderEffectsTab\(ctx\)/g) || []).length === 1);
 }
 
 // 实测踩坑回归（2026-09-22）：host 的 sanitizeSettings 是白名单，漏加
@@ -854,7 +875,7 @@ check('音频桥按宿主 running 装卸（装了桥 = 渲染页放弃自带音�
   src.includes('function syncAudioBridge(frame, running)') && src.includes('syncAudioBridge(frame, d.running === true)'));
 check('「在线歌词」开关默认关（外发请求要用户点头）',
   schemaMod.DEFAULTS.mediaLyricsOnline === false && Boolean(schemaMod.KINDS.mediaLyricsOnline)
-    && src.includes('在线歌词'));
+    && tabsSrc.includes('在线歌词'));
 check('host builds the property seed from project.json + 覆盖值',
   /function buildSeedScript\(entryAbs, token\)/.test(hostSrc) && /parseUserPropDefs\(pj, overrides/.test(hostSrc)
     && /userPropsFor\(token\)/.test(hostSrc));
@@ -865,7 +886,7 @@ check('settings 白名单保留 userProps（按 token 存标量）',
   JSON.stringify(sanitizeHost({ userProps: { tok: { c: 'x', n: 1, obj: { bad: 1 } } } }).userProps)
     === '{"tok":{"c":"x","n":1}}');
 check('「壁纸属性」按钮：仅场景/网页壁纸 + 绿色样式',
-  src.includes('we-picker__btn--props') && src.includes('(current.type === "scene" || current.type === "web") && sel.propsUrl'));
+  tabsSrc.includes('we-picker__btn--props') && tabsSrc.includes('(current.type === "scene" || current.type === "web") && sel.propsUrl'));
 check('属性面板热更新走 __wp.updateWebProps',
   src.includes('function applyUserProps(') && src.includes('wp.updateWebProps(wire)'));
 check('属性面板值以渲染页实时表为准（getProperties）',
@@ -892,7 +913,7 @@ check('选择壁纸弹窗只留顶部关闭按钮（底部不再有）',
   'closePicker 绑定数=' + ((src.match(/onClick: closePicker/g) || []).length));
 check('抽屉里名称行文字居中', stylesSrc.includes('.we-repo-panel .we-picker__current-title { grid-area: title; text-align: center; }'));
 check('标题里的类型/播放态在抽屉内联并加括号（整行省略）',
-  src.includes('className: "we-picker__current-meta" }') && stylesSrc.includes('.we-repo-panel .we-picker__current-meta {')
+  tabsSrc.includes('className: "we-picker__current-meta" }') && stylesSrc.includes('.we-repo-panel .we-picker__current-meta {')
     && stylesSrc.includes('.we-repo-panel .we-picker__current-meta::before { content: "（"; }')
     && stylesSrc.includes('.we-repo-panel .we-picker__current-meta::after { content: "）"; }'));
 check('抽屉窄容器：标题独占首行 + 按钮上下排列（8px）',
