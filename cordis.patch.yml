@@ -10,7 +10,8 @@
 
 - insert:
     # Host half: discovers the local Wallpaper Engine install (Steam app 431960),
-    # enumerates Video/Web-type wallpapers from the Workshop + default projects,
+    # enumerates Scene/Video/Web wallpapers from the Workshop + default projects
+    # (Application wallpapers are listed but never rendered),
     # and serves their media + a JSON inventory over 31 same-origin HTTP routes
     # the browser half fetches directly (GET /wallpaper-engine/inventory, /media,
     # /preview, …; docs/ROUTE-INDEX.md is the authoritative table).

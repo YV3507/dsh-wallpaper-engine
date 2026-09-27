@@ -14,8 +14,8 @@
 
 | 通道 | 里的文件 | 覆盖对象 | 机制 | 守卫 |
 |---|---|---|---|---|
-| ① **角色令牌** | `color-roles.js`、`typography.js` | DSH 的**角色**（正文/次要/弱化/极小/禁用；标题 1–4/正文/小字/代码/表格…） | DSH `theme` 服务的 `overrideTokens`（body 内联，**免 `!important`**） | `scripts/verify-theme-layer.mjs` |
-| ② **官方组件钩子** | `components.js`（`DSL_FONT_HOOKS`） | 代码块 / 终端 | 官方 `--dsl-*` 钩子，**作用域 = 该钩子在样式表里的定义点**（`scanHookScopes` 推导，不靠模块名） | `scripts/verify-component-fonts.mjs` |
+| ① **角色令牌** | `color-roles.js`、`typography.js` | DSH 的**角色**（正文/次要/弱化/极小/禁用；标题 1–4/正文/小字/代码/表格…） | DSH `theme` 服务的 `overrideTokens`（body 内联，**免 `!important`**） | `test/verify-theme-layer.mjs` |
+| ② **官方组件钩子** | `components.js`（`DSL_FONT_HOOKS`） | 代码块 / 终端 | 官方 `--dsl-*` 钩子，**作用域 = 该钩子在样式表里的定义点**（`scanHookScopes` 推导，不靠模块名） | `test/verify-component-fonts.mjs` |
 | ③ **模块名直接命中** | `components.js` | 首期 4 个组件（markdown / codeBlock / terminal / table） | `body [class*="_<模块名>_"]` 直接命中（**等特异性**，不用 `!important`） | 同上 |
 
 > ①②③ 的结果都由 `apply.js` 落到 DOM（①走 DSH 服务的令牌层，②③ 拼成 `#we-font-scope` 的 CSS）。
@@ -78,7 +78,7 @@ DSH 升级后**重取角色表**的命令写在 `typography.js` 文件头（跑�
 
 ## 这些模块怎么进浏览器包
 
-四个文件都由 [`scripts/build-client.mjs`](../../scripts/build-client.mjs) 的 `INLINE_MODULES`
+四个文件都由 [`scripts/build-client.mjs`](../scripts/build-client.mjs) 的 `INLINE_MODULES`
 **构建期内联**进 `lib/client.js`（浏览器半没有本地模块解析器，只能内联）。构建对每个模块断言
 "浏览器安全 / 结构标记齐全 / 机器提取的注入名不与 `src/client.js` 重复"——**缺标记即构建失败**，
 所以拆分不会悄悄变成重复定义。

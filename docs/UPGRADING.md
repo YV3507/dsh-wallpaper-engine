@@ -35,18 +35,16 @@ DSH 0.1.5 的官方原生侧栏；仍停留在 0.1.2-rc.1 旧内核的用户请�
 
 ### 升级后会发生什么（帧缓存 / 实时渲染）
 
-- **场景静态帧缓存会整体失效一次**：帧缓存键以管线版本打头（当前 `LIVE_FRAME_KEY_VERSION = 'lf1'`，
-  已发布版本是 `sf33_`），源码里渲染逻辑一改就会升版 —— 升版后 `~/.dsh-wallpaper-engine/cache/frames/`
-  里的旧帧**全部不再命中**，每张场景壁纸首次显示时重新冷渲染一次（实测约 2–10 秒/张，见
-  [`SCENE-FRAME-PERF.md`](./archive/static-frame/SCENE-FRAME-PERF.md)）。**这是预期行为，不是回归**，旧帧也不会自动删除
-  （可手动清 `cache/frames/` 回收磁盘）。想摊平这段时间可在「效果」页签提前开「空闲预热」。
-  同理，切换「GPU 渲染加速」或「有损路线（主纹理近似）」也会各自换一套缓存键，两套产物互不命中。
+- **帧缓存会整体失效一次**：缓存键以管线版本打头（当前 `LIVE_FRAME_KEY_VERSION = 'lf1'`，
+  已发布版本用过 `sf33_`（见 CHANGELOG 的 v0.7.5 条目）），源码里抓帧 / 实时渲染逻辑一改就会升版 —— 升版后
+  `~/.dsh-wallpaper-engine/cache/frames/` 里的旧产物**全部不再命中**，每张场景壁纸需要重新抓一次
+  实时帧。**这是预期行为，不是回归**，旧文件也不会自动删除（可手动清 `cache/frames/` 回收磁盘）。
+  该目录同时还存场景内嵌视频（`sv1_*.mp4`）与场景包内音频（`sa1_*`），各有自己的版本前缀。
 - **新增实时渲染需要 WebGL2**：升级后场景 / 网页壁纸**默认走 WebWallGL 实时渲染**（「场景实时渲染」/
   「网页实时渲染」开关，默认开）。浏览器不支持 WebGL2、或显卡驱动异常时，渲染页首帧 15 秒超时后会
-  **静默降级**回旧的「内嵌 MP4」链（行为与升级前一致，不会黑屏卡住）；场景是松散
-  `scene.json` 目录（没有 `scene.pkg`）时同样直接走旧链。
-- 两级静态帧开关默认都是**开**（「静态帧渲染」/ 三级级联见 [`HOW-IT-WORKS.md`](./HOW-IT-WORKS.md)），
-  升级后无需任何操作。
+  **静默降级**回「内嵌 MP4 → 实时抓帧 → 自定义画面 → 空态」这条链（不会黑屏卡住）；场景是松散
+  `scene.json` 目录（没有 `scene.pkg`）时同样直接走那条链。
+- **实时渲染默认开**（`sceneLive`），升级后无需任何操作。
 
 ### 兼容性实测记录
 
@@ -57,13 +55,26 @@ DSH 0.1.5 的官方原生侧栏；仍停留在 0.1.2-rc.1 旧内核的用户请�
 - v0.7.2 起官方原生右侧栏纳入「侧栏液态玻璃」适配（修复升级 better-sidebar 0.19 后右侧栏整体透明的
   回归），细节见 [`CHANGELOG.md`](./CHANGELOG.md) 的 v0.7.2 条目。
 - **当前版本 1.0.1**（上游最新 release 亦是 v1.0.1）：本文件的端到端实测记录停在 v0.7.1/v0.7.2；
-  v0.7.5 及之后的实时渲染链路另有离线验收（`test/verify-scene-live.mjs` 等 16 条链，`npm run verify`）。
+  v0.7.5 及之后的实时渲染链路另有离线验收（`test/verify-scene-live.mjs` 等 24 条链，`npm run verify`）。
 
   **v1.0.1 的搭配建议：`dsh-desktop` ≥ 2.0.14** —— 该版修复了插件加载失败、右栏玻璃关闭态露灰板、
   增强模式左栏灰面板遮挡壁纸等问题；v1.0.1 起**兼容 / 增强 / 扩展三种窗口模式**下壁纸与全部效果均可用。
   行为差异见 [`CHANGELOG.md`](./CHANGELOG.md) 的 v1.0.1 / v0.7.6–v0.7.8 条目。
 
 ---
+
+### 设置持久化：改存宿主端文件（v0.4.0）
+
+**你的全部设置（已选壁纸、配色、透明度、布局、轮播、隐藏、倍速/翻转等）从 v0.4.0 起保存在宿主端文件里，不再依赖浏览器 localStorage。**
+
+- **存在哪里**：`~/.dsh-wallpaper-engine/config.json`（与「上传目录」的配置是同一个文件）。
+  Windows：`C:\Users\<你的用户名>\.dsh-wallpaper-engine\config.json`；WSL / Linux / macOS：`~/.dsh-wallpaper-engine/config.json`。
+- **为什么改**：localStorage 按「地址 + 端口」隔离，而 **DSH Desktop 每次启动用随机端口** ⇒ 每次都是全新的存储空间，配置全部恢复默认（Web 端固定端口无此问题）。改存宿主端文件后与端口无关。
+- **好处**：重启 / 换端口 / 清浏览器数据 / 换浏览器 / 无痕模式都不再丢失配置。
+- **旧数据迁移**：老版本存在 localStorage 里的配置会在**首次启动时自动迁移**，无需手动操作。
+- **行为变化**：同一台电脑上多个浏览器（如 Chrome 与 Edge）访问同一个 dsh 时**共享同一份配置**（此前各存各的）；回滚到旧版本仍会读 localStorage 里的缓存副本，配置不会丢。
+- **读写**：每次修改自动写入（200ms 防抖合并）；文件损坏时回退默认值且**不会覆盖**你的文件。
+
 
 ## English
 
@@ -97,6 +108,21 @@ Bringing the kernel and better-sidebar back to their matching latest versions re
 
 The plugin shows a one-time in-app notice per release; missing it is harmless.
 
+### What changes after the upgrade (frame cache / live rendering)
+
+- **The frame cache is invalidated once**: cache keys are prefixed with a pipeline version (currently
+  `LIVE_FRAME_KEY_VERSION = 'lf1'`; the published version was `sf33_`), and any change to the capture /
+  live-render logic bumps it — after a bump nothing under `~/.dsh-wallpaper-engine/cache/frames/` hits any
+  more, and each scene wallpaper is captured afresh. **This is expected, not a regression**; old files are
+  not deleted automatically (clear `cache/frames/` by hand to reclaim the space). The same directory also
+  holds the scene's embedded video (`sv1_*.mp4`) and packaged audio (`sa1_*`), each with its own prefix.
+- **Live rendering needs WebGL2**: after upgrading, scene / web wallpapers render live through WebWallGL by
+  default (「场景实时渲染」/「网页实时渲染」, on by default). Without WebGL2, or with a broken GPU driver, the
+  renderer page times out after a 15 s first frame and **degrades silently** to the
+  「embedded MP4 → live capture → custom frame → empty state」 chain (no black screen); a loose `scene.json`
+  directory takes that chain directly.
+- **Live rendering is on by default** (`sceneLive`) — nothing to do after upgrading.
+
 ### Verified compatibility
 
 - **v0.7.1** has been verified on DSH Desktop v2.0.5 (harness 0.1.2-rc.1): host routes (inventory / media /
@@ -115,3 +141,20 @@ The plugin shows a one-time in-app notice per release; missing it is harmless.
   enhanced-mode left grey panel covering the wallpaper; from v1.0.1 wallpapers and every effect work in all
   three window modes (compatibility / enhanced / extended). See the v1.0.1 and v0.7.6–v0.7.8 entries in
   [`CHANGELOG.md`](./CHANGELOG.md).
+
+### Settings persistence: moved to a host-side file (v0.4.0)
+
+**Since v0.4.0 every setting (selected wallpaper, accent, transparency, layout, rotation, hidden list,
+playback speed/flip, …) lives in a host-side file instead of browser localStorage.**
+
+- **Where**: `~/.dsh-wallpaper-engine/config.json` (the same file that stores your upload directory).
+- **Why**: localStorage is isolated per "origin + port", and **DSH Desktop picks a random port on every
+  start** — so each launch looked like a brand-new store and every setting reverted to default. A host-side
+  file is port-independent.
+- **Benefits**: restarts, port changes, cleared browser data, a different browser or a private window no
+  longer lose your settings.
+- **Migration**: settings previously kept in localStorage are **migrated automatically on first start**.
+- **Behaviour change**: several browsers on the same machine now **share one config** (they used to be
+  separate); rolling back to an older version still reads the localStorage copy, so nothing is lost.
+- **Writes**: debounced 200 ms; a corrupt file falls back to defaults and is **never overwritten**.
+

@@ -7,7 +7,7 @@
 
 | 层 | 内容 | 谁跑 |
 |---|---|---|
-| **`test/*.mjs`（守门）** | `verify-*.mjs` —— 结构性守卫：断言代码/文档/发布面与声明一致，**正负对照成对** | `npm run verify`（23 条链）与 CI |
+| **`test/*.mjs`（守门）** | `verify-*.mjs` —— 结构性守卫：断言代码/文档/发布面与声明一致，**正负对照成对** | `npm run verify`（24 条链）与 CI |
 | **`test/*-smoke.mjs`（冒烟）** | 节点级行为冒烟：轮换、实时帧回填、身份校验 | `npm run smoke` |
 | **`test/e2e-*.mjs`（端到端）** | 真浏览器路径（需本机 Chromium 系浏览器） | `npm run verify:e2e`（不进 verify 链） |
 | **`test/tools/`（工具）** | 诊断 / 分析 / 生成 —— **没有 CI 消费者**，靠手敲；其中 `host-route-index.mjs` 同时是 `verify-route-index` 的库（生成 `docs/ROUTE-INDEX.md`） | 手动 |

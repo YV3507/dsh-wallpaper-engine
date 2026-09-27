@@ -18,7 +18,7 @@
 
 **界面**
 
-- **设置页签重组**：四个域职责归位 —— 「外观 / 效果 / 声音 / 高级」；「玻璃」改名「**雾化**」。
+- **设置页签重组**：「字体」页签并入「**外观**」，「玻璃」改名「**雾化**」，调节项按用途归位（外观 / 效果 / 声音 / 高级）—— 页签仍是六个（壁纸 / 外观 / 吉祥物 / 效果 / 声音 / 高级）。
 - **换壁纸过场动画（7 种可选）**：交叉淡化 / 推移 / 擦除 / 光圈 / 缩放 / 条带 / 百叶窗；**默认硬切**，手动点选与自动轮播共用同一套；类型 / 方向 / 速度档**走白名单**（未知值回落默认）。「条带」本轮改为真·百叶窗（原实现与「擦除」肉眼分辨不出）。
 - **实时帧行**不再受「实时渲染」开关限制（随时可重新截帧），并显示当前壁纸的实时帧**微缩预览**。
 - 过场动画选项改为**下拉菜单**，删去两行冗余面板提示。
@@ -41,11 +41,17 @@
 **依赖与护栏**
 
 - 以最小形式采纳上游 PR #87 的 `js-yaml` 约束（非可达漏洞）。
-- 打包白名单回归断言（`verify-package-files`），并补上 `lib/scene-script-apis.js`。
+- 打包白名单回归断言（`verify-package-files`），覆盖 `lib/**` 全部运行时模块。
 
 **文档与仓库整理**
 
 - 规划文档入库（`docs/`）；**静态帧渲染线归档**到 `docs/archive/static-frame/` —— 该线与 beta 场景动画线的渲染器实现均已迁往独立仓库 [`YV3507/we-static-frame`](https://github.com/YV3507/we-static-frame)（把场景离线渲染成一张 PNG，可当库或 CLI 用），**将由其它贡献者在下次更新移除**。
+
+**移除 / 行为变更**
+
+- **静态帧线整体移除**：离线场景渲染器 / 主纹理提取 / 合成器，以及「静态帧」后台预热**全部删除**（约 1 万行）。场景壁纸的**出图来源**现在只有两级 —— **实时画面**（实时抓帧，优先）与**自定义画面**（你导入的截图）；两者都没有时**诚实留空**，不再"替作者猜一张图"（那会产出一张糊图，把"这张壁纸没有可用画面"这个**可判定事实**掩盖掉）。
+  配套：`?v=1/2/3` 档位退役（旧配置按"自动"处理，**无需迁移**）；帧缓存键改名升值（旧缓存自动失效重建，代价只是重抓几张实时帧）；面板上「壁纸画面刷新」改名为「**出图来源**」（两档）。
+
 
 ### v1.0.1（里程碑 · 2026-09-25）
 
@@ -67,7 +73,7 @@
 
 - **壁纸属性面板**：作者属性热更新 + 卡片在抽屉里的窄布局；抽屉名称行居中等 UI 修正。
 - **轮换升级**：就绪后切换 + 交叉渐变（统一放慢到 1.8s：轮换 / GPU 静帧→首帧淡入 / 手动换壁纸同一套渐变）+ live / web 节点级领养。
-- **媒体三平台**：media-bridge 接入（macOS / Windows / Linux），中间件版本钉 v0.1.5（频谱口径修正 + 采集跟随默认输出设备）；歌曲封面（Now Playing artwork）通用取源。
+- **媒体三平台**：media-bridge 接入（macOS / Windows / Linux），中间件版本钉 v0.1.5（频谱口径修正 + 采集跟随默认输出设备）；歌曲封面（Now Playing artwork）通用取源；新增**在线歌词**（本地 `.lrc` / 已缓存优先，本地没有才向 lrclib.net 查一次 —— 该请求会外发歌名 / 歌手 / 专辑，因此默认关闭）。
 - **网页壁纸修复**：独立壁纸媒体源提供载荷（修 Desktop 全黑）、跨源重复注入 shim 导致帧率被限两次、渲染页同步 webwallgl 1.4.2（含两类网页壁纸白屏修复）。
 - **GPU 抓帧回填 + 几何校验**：实时帧缓存回填静态帧缓存、面板状态 / 清除入口、CPU 渲染严格门禁；存帧视比与当前视口不符自动清掉重抓。
 - **视频类壁纸恢复 0.7.5「选中即播」**（去掉 preview 海报与预热探测链）；官方资源路径（WE assets 目录，宿主半边 + 客户端半边）。
@@ -91,13 +97,13 @@
   - ① 自上传内容在 `uploads/.meta.json` 里从不写 `contentrating`，过去算「未分级」而内容分级默认是 **Everyone**，于是**所有自上传壁纸默认被过滤掉**（网格里看不到、被上传流程自动应用时直接拒绝 → 壁纸层空白 + 播放按钮变灰）。现在未标注分级的自上传内容按 **Everyone** 处理，自己的文件开箱即用，显式标注 G / PG13 / R 的照常过滤。
   - ② 视频 `play()` 被拒（自动播放策略、浏览器解不了的编码如 HEVC/10-bit、被紧接着的 src 切换打断）时过去**静默吞掉**：面板继续写「播放中」、卡片上只有「暂停」，壁纸冻在首帧却无「继续」可点。现在按 `<video>` 的**真实状态**显示，按钮回到「播放」可重试并给出原因（如「无法解码这段视频，建议改用 H.264」），并在媒体就绪后**自动补一次播放**。
   - ③ 被过滤条件丢弃的当前壁纸不再是无解释的空白，卡片上会写明是哪一项过滤挡住的。
-- **壁纸透明度**（[#82](https://github.com/elysia395/dsh-wallpaper-engine/issues/82)）：「效果」区新增滑动条（0–90 %，越大越透）——把壁纸整层淡出、融向页面底色，即 IDEA 背景图式的「看得见但不喧宾夺主」；与暗化互补，文字可读性不受影响。
-- **输入光标颜色**（[#83](https://github.com/elysia395/dsh-wallpaper-engine/issues/83)）：「字体」页签新增 **输入光标** 分区——光标颜色与壁纸相近看不清时，可从 6 种预设或自定义取色器里挑一个高对比颜色（也可选「自动」恢复 dsh 原生表现）；作用于所有输入框与可编辑区域，独立于字体自定义开关。
+- **壁纸透明度**（[#82](https://github.com/elysia395/dsh-wallpaper-engine/issues/82)）：「效果」区新增滑动条（0–90 %，越大越透，默认 0 %）——把壁纸整层淡出、融向页面底色，即 IDEA 背景图式的「看得见但不喧宾夺主」；与暗化互补，文字可读性不受影响。
+- **输入光标颜色**（[#83](https://github.com/elysia395/dsh-wallpaper-engine/issues/83)）：「字体」页签新增 **输入光标** 分区——光标颜色与壁纸相近看不清时，可从 6 种预设或自定义取色器里挑一个高对比颜色（也可选「自动」恢复 dsh 原生表现，默认即为「自动」）；作用于所有输入框与可编辑区域，独立于字体自定义开关。
 
 ### v0.7.2
 
 - **前置条件升级**：适配 DeepSeek Harness **0.1.5-rc.1**（DSH Desktop ≥ 2.0.7），并要求 **dsh-better-sidebar ≥ 0.19.0**。升级顺序与回退方式见 [`UPGRADING.md`](./UPGRADING.md)。
-- **修复「右侧栏完全透明」并把玻璃扩展到官方原生右侧栏**：harness 0.1.5 的官方原生右侧栏面板直接绘制 `--dsw-alias-bg-base`——这正是本插件为露出壁纸设成透明的 token，且官方面板没有自己的毛玻璃，导致升级 better-sidebar 0.19 后右侧栏整体透明。v0.7.2 起官方原生右侧栏纳入「侧栏液态玻璃」适配：同一组**侧栏模糊 / 透明度 / 玻璃颜色**滑杆生效，总开关关闭时回退主题面板色（不再透明）。
+- **修复「右侧栏完全透明」并把玻璃扩展到官方原生右侧栏**：harness 0.1.5 的官方原生右侧栏面板直接绘制 `--dsw-alias-bg-base`——这正是本插件为露出壁纸设成透明的 token，且官方面板没有自己的毛玻璃，导致升级 better-sidebar 0.19 后右侧栏整体透明。v0.7.2 起官方原生右侧栏纳入「侧栏液态玻璃」适配：同一组**侧栏模糊 / 透明度 / 玻璃颜色**滑杆生效，总开关关闭时回退主题面板色（不再透明）。这组滑杆是：**侧栏液态玻璃**（总开关，默认开）· **侧栏模糊**（0–200 px，默认 16）· **侧栏透明度**（0–200 %，默认 120 %，越大越透）· **侧栏玻璃颜色**（6 预设 + 自定义取色，默认 `#ffffff`）。
 - 追补修复：侧栏颜色调节与内容面在官方原生右侧栏失效；侧栏颜色混入强度改为独立于透明度的可见性曲线。
 
 ### v0.7.1
@@ -120,7 +126,7 @@
 ### v0.6.3 前后
 
 - **吉祥物（聊天顶部拉绳）**：一条可拖拽的拉绳沿顶部吸附，向下拉即拉出**壁纸仓库**抽屉；可切换形态（小女仆 / 鲸御姐）与大小（0.5×–2.5×）。
-- **壁纸效果调节条扩充**（v0.6.x）：「壁纸效果」区新增 **亮度 / 对比度 / 饱和度** 三个滑动条（作用于壁纸媒体滤镜），与壁纸模糊 / 暗化等配合，任意壁纸都能调到与界面融合舒服的状态；全部即时生效、持久保存。
+- **壁纸效果调节条扩充**（v0.6.x）：「壁纸效果」区新增 **亮度 / 对比度 / 饱和度** 三个滑动条（**亮度 40–160 % / 对比度 40–200 % / 饱和度 0–200 %**，默认均 100 %；作用于壁纸媒体滤镜），与壁纸模糊 / 暗化等配合，任意壁纸都能调到与界面融合舒服的状态；全部即时生效、持久保存。
 
 ### v0.6.0
 
@@ -128,8 +134,8 @@
 
 ### v0.5.x
 
-- **遮挡暂停（省电三档）**：类似 Wallpaper Engine 的「被遮挡时暂停」——最小化 / 切页、窗口失焦、使用电池供电时自动暂停视频壁纸，**解码引擎直接归零**；回到界面 / 接通电源自动继续（网页壁纸仅随页面隐藏被浏览器节流）。三档开关均持久保存。
-- **解码帧率上限（抽帧转码）**：高帧率源（如 4K120 H.264）的硬解是 GPU 占用大头（4060 实测 1.0x 达 ~60% Video Decode）。宿主端用 ffmpeg 一次性重编码为上限帧率（时间线保持 1.0x **正常速度**、与倍速完全解耦），输出 **4K 保留 + AV1**，带下载 / 转码实时进度条；实测 4K120→24fps 后占用从 ~60% 降至 **~15%**。ffmpeg 三档供给：显式指定 → 自动下载（npmmirror + GitHub 双源竞速）→ 系统 PATH。
+- **遮挡暂停（省电三档）**：类似 Wallpaper Engine 的「被遮挡时暂停」——最小化 / 切页、窗口失焦、使用电池供电时自动暂停视频壁纸，**解码引擎直接归零**；回到界面 / 接通电源自动继续（网页壁纸仅随页面隐藏被浏览器节流）。三档开关均持久保存，分别是「最小化 / 切页时暂停」（默认开）、「窗口失焦时暂停」（默认关）、「使用电池时暂停」（默认关）；场景实时渲染同样会在这些时机暂停渲染循环。
+- **解码帧率上限（抽帧转码）**：高帧率源（如 4K120 H.264）的硬解是 GPU 占用大头（4060 实测 1.0x 达 ~60% Video Decode）。宿主端用 ffmpeg 一次性重编码为上限帧率（时间线保持 1.0x **正常速度**、与倍速完全解耦），输出 **4K 保留 + AV1**，带下载 / 转码实时进度条；实测 4K120→24fps 后占用从 ~60% 降至 **~15%**。ffmpeg 三档供给：显式指定 → 自动下载（npmmirror + GitHub 双源竞速）→ 系统 PATH。档位为 无限制 / 60 / 48 / 30 / 24 fps，源帧率已在上限内自动跳过；按「路径 + mtime + 上限」缓存，轮转里每张只付一次成本；转码优先 **NVENC**（`av1_nvenc` → `h264_nvenc`），无 NVIDIA 显卡时回落 **libx264 软件编码**；只有拿不到 ffmpeg 时才自动关闭、壁纸保持原片。
 
 ### v0.4.1
 
@@ -143,7 +149,7 @@
 
 ### v0.3.1–v0.3.6
 
-- **液态玻璃设置页**（v0.3.1）：设置页升级为**一级设置页**（参照 dsh-web-ui-all 皮肤中心的设计），整页是可自定义的液态玻璃卡片 —— **配色**（6 种预设 + 自定义取色）与**玻璃透明度**（0–60 %）即时生效、持久保存。
+- **液态玻璃设置页**（v0.3.1）：设置页升级为**一级设置页**（参照 dsh-web-ui-all 皮肤中心的设计），整页是可自定义的液态玻璃卡片 —— **配色**（6 种预设 + 自定义取色）与**配色**（默认经典蓝 `#4f8cff`）与**玻璃透明度**（0–60 %，默认 12 %）即时生效、持久保存。
 - **整个设置窗口液态玻璃化**（v0.3.2）：一键把 **DSH 原生设置窗口整体**（对话框 + 左侧导航 + General / 模型 / 插件等**全部原生分区**）换成液态玻璃 + 自定义配色；关闭则恢复原生样式。
 - **玻璃调节统一**（v0.3.3–v0.3.5）：设置窗口的玻璃模糊与**对话栏共用同一套调节参数**（「玻璃」滑动条 0–60 px 同时控制设置窗口与输入栏 / 气泡的模糊半径，饱和度 / 亮度 / 对比度配方一致）；新增「**玻璃颜色**」—— 设置窗口玻璃的**底色色调**可自定义（6 预设 + 自定义取色，默认浅色白 / 深色深夜蓝，选定后两种主题统一使用该色），与「配色」分工：**配色管控件、玻璃颜色管玻璃本身**。
 - **卡片样式与黑胶唱片**：「紧凑布局」开关（CD 架式纵向层叠）与旋转黑胶唱片标签效果。
@@ -154,7 +160,7 @@
 - **隐藏 / 恢复**：不想看的壁纸一键隐藏（软删除），随时恢复，不碰源文件。
 - **视频倍速**：0.5x – 2x 六档原生调速，即时生效、不重载。
 - **水平翻转**：镜像画面（视频 / 网页 / 上传图片均适用）。
-- **自定义壁纸**：直接上传本地 JPG / PNG / MP4 当壁纸，可选存储位置与画面适配模式；上传的 MP4 自动生成抽帧缩略图。
+- **自定义壁纸**：直接上传本地 JPG / PNG / MP4 当壁纸，可选存储位置（默认 `~/.dsh-wallpaper-engine/uploads`，可改到任意盘符并自动迁移已有文件）与画面适配模式（覆盖 / 填充 / 居中 / 拉伸）；上传的 MP4 自动生成抽帧缩略图。
 
 ---
 
@@ -166,7 +172,7 @@
 
 **UI**
 
-- **Settings tabs reorganised**: the four domains are now where they belong — 「外观」/「效果」/「声音」/「高级」; 「玻璃」 was renamed to 「**雾化**」.
+- **Settings tabs reorganised**: the 「字体」 tab merged into 「**外观**」, 「玻璃」 was renamed to 「**雾化**」, and the adjustment controls were regrouped by purpose (appearance / effects / sound / advanced) — the six tabs stay 壁纸 / 外观 / 吉祥物 / 效果 / 声音 / 高级.
 - **Wallpaper-switch transitions (7 options)**: cross-fade / push / wipe / iris / zoom / strip / blinds; **hard cut by default**, shared by manual selection and automatic rotation; type / direction / speed tier are **whitelisted** (unknown values fall back to the default). 「条带」 (strip) became a real venetian blind this round — the previous implementation was visually indistinguishable from 「擦除」 (wipe).
 - **The live-frame row** is no longer gated by the live-rendering switch (you can re-capture at any time) and shows a **thumbnail of the current wallpaper's live frame**.
 - The transition options moved into a **dropdown**, and two redundant panel hints were removed.
@@ -189,11 +195,23 @@
 **Dependencies & guards**
 
 - Adopted upstream PR #87's `js-yaml` constraint in minimal form (a non-reachable vulnerability).
-- Packaging-whitelist regression assertions (`verify-package-files`), and `lib/scene-script-apis.js` added back.
+- Packaging-whitelist regression assertions (`verify-package-files`), covering every runtime module under `lib/**`.
 
 **Docs & repo housekeeping**
 
 - Planning documents brought into the repo (`docs/`); the **static-frame rendering line is archived** under `docs/archive/static-frame/` — that line's renderer, like the beta scene-animation line's, now lives in the standalone repo [`YV3507/we-static-frame`](https://github.com/YV3507/we-static-frame) (offline scene → a single PNG, usable as a library or CLI) and **will be removed by other contributors in the next update**.
+
+**Removals / behaviour changes**
+
+- **The static-frame line is gone**: the offline scene renderer, main-texture extraction, the compositor and
+  the "static frame" prewarming job were **deleted** (~10k lines). A scene wallpaper now has only two
+  out-figure sources — **live frame** (captured from the running render, preferred) and **custom frame**
+  (a screenshot you imported); with neither, it stays **honestly empty** instead of guessing an image (a
+  guessed image is blurry and hides the decidable fact that this wallpaper has no usable picture).
+  Also: `?v=1/2/3` tiers are retired (old values simply mean "auto" — **no migration needed**); the frame
+  cache key was renamed/bumped (old caches expire; the only cost is re-capturing a few live frames); the
+  panel row "wallpaper picture refresh" became "**out-figure source**" (two tiers).
+
 
 ### v1.0.1 (milestone · 2026-09-25)
 
@@ -215,7 +233,7 @@
 
 - **Wallpaper properties panel**: live author-property updates + a narrow card layout inside the drawer; centred name row and other UI corrections.
 - **Rotation upgrade**: switch when ready + cross-fade (slowed to a uniform 1.8 s: rotation / GPU still frame → first-frame fade-in / manual wallpaper switches all share one recipe) + node-level adoption for live / web.
-- **Media on three platforms**: media-bridge integrated (macOS / Windows / Linux), middleware pinned at v0.1.5 (spectrum semantics corrected + capture follows the default output device); Now Playing artwork with a generic source.
+- **Media on three platforms**: media-bridge integrated (macOS / Windows / Linux), middleware pinned at v0.1.5 (spectrum semantics corrected + capture follows the default output device); Now Playing artwork with a generic source. Online lyrics were added too: a local `.lrc` / cached copy comes first, and only a missing lyric triggers one lrclib.net query, which sends title / artist / album — hence off by default.
 - **Web wallpaper fixes**: a dedicated wallpaper media origin serves the payload (fixes an all-black Desktop), a cross-origin duplicate shim injection that capped the frame rate twice, and the renderer page synced to webwallgl 1.4.2 (including both classes of web-wallpaper white-screen fix).
 - **GPU frame capture backfill + geometry validation**: live frames backfilled into the static-frame cache, panel state / clear entry points, a strict gate for CPU rendering; a stored frame whose aspect ratio does not match the viewport is dropped and re-captured.
 - **Video wallpapers got 0.7.5's "play on selection" back** (the preview poster and the prewarm probe chain are gone); official asset path (the WE assets directory, host half + client half).
@@ -239,13 +257,13 @@
   - ① `uploads/.meta.json` never recorded a `contentrating`, so uploads used to read as **unrated** while the rating filter defaults to **Everyone** — every custom upload was filtered out by default (absent from the grid, and rejected when the upload flow auto-applied it → blank wallpaper layer + a disabled 播放 button). An upload without a rating now counts as **Everyone**, so your own files work out of the box, while an explicit G / PG13 / R tag still filters normally.
   - ② A refused `video.play()` (autoplay policy, a codec the browser cannot decode such as HEVC/10-bit, or a play() interrupted by the next src swap) used to be swallowed silently: the panel kept saying 「播放中」 and the only control was 「暂停」 — a wallpaper frozen on its first frame with no way to resume. The control now reflects the `<video>` element's REAL state, so it returns to 「播放」 (a working retry) with a readable reason, e.g. "cannot decode this video — use H.264", and it re-issues play() automatically once the media becomes ready.
   - ③ A wallpaper dropped by a filter now says which filter excluded it instead of leaving an unexplained blank.
-- **Wallpaper opacity** ([#82](https://github.com/elysia395/dsh-wallpaper-engine/issues/82)) — a new slider in the effects tab (0–90 %, higher = more transparent): fades the whole wallpaper layer toward the page base colour — the IDEA background-image style of "visible but not overpowering". Complements the scrim, keeping text readable.
-- **Input caret color** ([#83](https://github.com/elysia395/dsh-wallpaper-engine/issues/83)) — a new **输入光标** section on the typography tab: when the caret is hard to see against the wallpaper, pick a high-contrast color from 6 presets or the custom picker (or **自动** to restore the native dsh caret). Applies to every text input and editable area, independent of the typography master switch.
+- **Wallpaper opacity** ([#82](https://github.com/elysia395/dsh-wallpaper-engine/issues/82)) — a new slider in the effects tab (0–90 %, higher = more transparent, default 0 %): fades the whole wallpaper layer toward the page base colour — the IDEA background-image style of "visible but not overpowering". Complements the scrim, keeping text readable.
+- **Input caret color** ([#83](https://github.com/elysia395/dsh-wallpaper-engine/issues/83)) — a new **输入光标** section on the typography tab: when the caret is hard to see against the wallpaper, pick a high-contrast color from 6 presets or the custom picker (or **自动** to restore the native dsh caret — 自动 is the default). Applies to every text input and editable area, independent of the typography master switch.
 
 ### v0.7.2
 
 - **Prerequisite bump**: targets DeepSeek Harness **0.1.5-rc.1** (DSH Desktop ≥ 2.0.7) and requires **dsh-better-sidebar ≥ 0.19.0**. Update order and rollback: see [`UPGRADING.md`](./UPGRADING.md).
-- **Fixes the "right sidebar fully transparent" regression and extends the glass to the native right sidebar**: the harness 0.1.5 native sidebar panel paints `var(--dsw-alias-bg-base)` — the exact token this plugin sets to transparent while a wallpaper is active — and the native panel ships no frosted glass of its own, so after moving to better-sidebar 0.19 the whole right column went see-through. From v0.7.2 the native right sidebar is covered by the「侧栏液态玻璃」adaptation: the same **侧栏模糊 / 透明度 / 玻璃颜色** sliders drive it, and with the master switch off it falls back to the theme's opaque panel colour (no longer transparent).
+- **Fixes the "right sidebar fully transparent" regression and extends the glass to the native right sidebar**: the harness 0.1.5 native sidebar panel paints `var(--dsw-alias-bg-base)` — the exact token this plugin sets to transparent while a wallpaper is active — and the native panel ships no frosted glass of its own, so after moving to better-sidebar 0.19 the whole right column went see-through. From v0.7.2 the native right sidebar is covered by the「侧栏液态玻璃」adaptation: the same **侧栏模糊 / 透明度 / 玻璃颜色** sliders drive it, and with the master switch off it falls back to the theme's opaque panel colour (no longer transparent). The group is: **侧栏液态玻璃** (master switch, on by default) · **侧栏模糊** (0–200 px, default 16) · **侧栏透明度** (0–200 %, default 120 %, higher = clearer) · **侧栏玻璃颜色** (6 presets + custom picker, default `#ffffff`).
 - Follow-up fixes: sidebar colour controls and the content surface had no effect on the official native right sidebar; the sidebar colour mix strength is now a visibility curve independent of transparency.
 
 ### v0.7.1
@@ -268,7 +286,7 @@
 ### Around v0.6.3
 
 - **Mascot (chat pull-cord)** — a draggable cord that snaps along the top edge; pull it down to reveal the **wallpaper library** drawer, with two character forms (maid / orca) and a 0.5×–2.5× size control.
-- **Wallpaper-effect tuning sliders** (v0.6.x) — the **壁纸效果** area gains three new sliders: **亮度 / 对比度 / 饱和度** (wallpaper media filter), alongside wallpaper blur / scrim etc., so any wallpaper can be blended comfortably with the UI. All apply instantly and persist.
+- **Wallpaper-effect tuning sliders** (v0.6.x) — the **壁纸效果** area gains three new sliders: **亮度 / 对比度 / 饱和度** (wallpaper media filter — **亮度 40–160 % / 对比度 40–200 % / 饱和度 0–200 %**, all defaulting to 100 %), alongside wallpaper blur / scrim etc., so any wallpaper can be blended comfortably with the UI. All apply instantly and persist.
 
 ### v0.6.0
 
@@ -276,8 +294,8 @@
 
 ### v0.5.x
 
-- **Occlusion pause (battery-saving trio)** — like Wallpaper Engine's "pause when covered": pause the video wallpaper on minimize / tab-switch, on window focus loss, and/or on battery power, dropping the decoder engine to zero; it resumes automatically when you come back (web/iframe wallpapers are only throttled by the browser while hidden). Each toggle persists.
-- **Decode frame-rate cap (frame-skip transcode)** — high-fps sources (e.g. 4K120 H.264) are the dominant GPU cost (~60% Video Decode at 1.0x on a 4060). The host re-encodes the wallpaper ONCE with ffmpeg to the capped fps (timeline stays 1.0x normal speed, fully decoupled from 倍速) as **4K-preserving AV1**, with a **live download/transcode progress bar**; measured 4K120→24fps drops GPU from ~60% to **~15%**. ffmpeg is provisioned in three tiers: explicit path → auto-download (npmmirror + GitHub dual-source race) → system PATH.
+- **Occlusion pause (battery-saving trio)** — like Wallpaper Engine's "pause when covered": pause the video wallpaper on minimize / tab-switch, on window focus loss, and/or on battery power, dropping the decoder engine to zero; it resumes automatically when you come back (web/iframe wallpapers are only throttled by the browser while hidden). Each toggle persists, and the trio is 「最小化/切页时暂停」 (on by default), 「窗口失焦时暂停」 (off by default) and 「使用电池时暂停」 (off by default); the scene live render pauses its render loop on the same conditions.
+- **Decode frame-rate cap (frame-skip transcode)** — high-fps sources (e.g. 4K120 H.264) are the dominant GPU cost (~60% Video Decode at 1.0x on a 4060). The host re-encodes the wallpaper ONCE with ffmpeg to the capped fps (timeline stays 1.0x normal speed, fully decoupled from 倍速) as **4K-preserving AV1**, with a **live download/transcode progress bar**; measured 4K120→24fps drops GPU from ~60% to **~15%**. ffmpeg is provisioned in three tiers: explicit path → auto-download (npmmirror + GitHub dual-source race) → system PATH. The tiers are unlimited / 60 / 48 / 30 / 24 fps, and a source already at or below the cap is skipped; the cache key is "path + mtime + cap", so rotation pays once per wallpaper; transcoding prefers **NVENC** (`av1_nvenc` → `h264_nvenc`) and falls back to **libx264 software encoding** without an NVIDIA GPU; only a missing ffmpeg auto-disables it and leaves the wallpaper on the original.
 
 ### v0.4.1
 
@@ -291,7 +309,7 @@
 
 ### v0.3.1–v0.3.6
 
-- **Liquid-glass settings page** (v0.3.1) — the settings UI is now a **first-level settings page** (following the dsh-web-ui-all skin-center design): the whole page is a customizable liquid-glass card with **accent color** (6 presets + a custom color picker) and **glass transparency** (0–60 %). Both apply instantly and persist.
+- **Liquid-glass settings page** (v0.3.1) — the settings UI is now a **first-level settings page** (following the dsh-web-ui-all skin-center design): the whole page is a customizable liquid-glass card with **accent color** (6 presets + a custom color picker, default classic blue `#4f8cff`) and **glass transparency** (0–60 %, default 12 %). Both apply instantly and persist.
 - **Whole-settings-window liquid glass** (v0.3.2) — one click turns the **entire native DSH settings window** (dialog + left nav + ALL native sections: General / Models / Plugins / …) into liquid glass with your custom accent + transparency. Off restores the stock look.
 - **Unified glass tuning** (v0.3.3–v0.3.5) — the settings-window glass blur shares the SAME adjustment as the conversation bar: the **玻璃** (glass) slider (0–60 px) drives the blur radius of both the settings window and the composer/bubbles, with an identical saturation/brightness/contrast recipe. A new **玻璃颜色** (glass color) control lets you tint the glass BASE itself (6 presets + custom picker; defaults white in light / deep navy in dark; once picked, both themes use that color) — **配色** styles the interactive elements, **玻璃颜色** styles the glass itself.
 - **Card style & vinyl record** — the 紧凑布局 (compact CD-rack stacking) toggle and the spinning vinyl-record artwork label.
@@ -302,4 +320,4 @@
 - **Hide / restore (soft delete)** — hide wallpapers you don't want, restore them anytime; no source files are touched.
 - **Playback speed** — six native presets from 0.5x to 2x, instant, no media reload.
 - **Horizontal flip** — mirror the image (video / web / uploaded images).
-- **Custom uploads** — use your own local JPG / PNG / MP4 as a wallpaper, with a configurable storage location, fit modes, and automatic thumbnails for uploaded MP4s.
+- **Custom uploads** — use your own local JPG / PNG / MP4 as a wallpaper, with a configurable storage location (default `~/.dsh-wallpaper-engine/uploads`, movable to any drive, existing files migrated) and fit modes (cover / contain / center / fill), plus automatic thumbnails for uploaded MP4s.

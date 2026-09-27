@@ -47,5 +47,5 @@ Get-ChildItem <dir> -Recurse -Filter *.json | ForEach-Object {
 - 插件安装恢复状态：`C:\Users\Kai\AppData\Roaming\DSH Desktop\plugin-install-recovery\state.json`
   （CLI 在应用运行期间安装 → `startup-unconfirmed` 自动回滚；正确流程：应用完全关闭 →
   执行 `dsh plugin --profile desktop add link:<path>` → 重启应用确认 `verified`）
-- 场景帧缓存：`C:\Users\Kai\.dsh-wallpaper-engine\cache\frames\`（缓存键前缀 sf3/sf4/sf5
+- 场景帧缓存：`C:\Users\Kai\.dsh-wallpaper-engine\cache\frames\`（缓存键前缀 `lf1` / `sv1_` / `sa1_`
   标识渲染逻辑版本；改动渲染器后必须 bump 前缀，否则旧坏帧被复用）

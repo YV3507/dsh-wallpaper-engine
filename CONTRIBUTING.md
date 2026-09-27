@@ -39,7 +39,7 @@ macOS 版本由 [Jerry（@ruijiaang-lab）](https://github.com/ruijiaang-lab)维
 - **Rule 1 — rebuild in the same commit**: any `src/**` change requires `npm run build` + committing the artifact together. CI asserts it (`git diff --exit-code -- lib/client.js` right after `npm run build`), and the **local chain asserts it too** via `test/verify-client-sync.mjs`: it rebuilds, compares byte-for-byte, and restores the file — so a stale artifact fails **before you push**.
 - **Rule 2**: never hand-edit `lib/client.js`; the next build overwrites it.
 - **Rule 3 — the artifact is a contract**: several guards test the **built** file (`verify-readability`, `verify-softrender`, `verify-client`), and some extract the stylesheet from it by a line-leading anchor. That is why `src/styles.js` forbids backticks and literal copies of its own declaration in its comments — one stray backtick once made `verify-host-paint-scope` report "bare backticks: 489".
-- **Trap — comments in `src/**` ship to users**: prefer the *measurement command* over a number that drifts (two module headers still cite `src/client.js` as "9,500 lines").
+- **Trap — comments in `src/**` ship to users**: prefer the *measurement command* over a number that drifts (two module headers once cited `src/client.js` as "9,500 lines" — both are fixed now; don't write one back).
 - **Don't shrink it as if it were a monolith**: its size is the size of `src/**`. The lever is the sources.
 
 - **构成**：`lib/client.js` = `src/client.js` 正文 **+ `INLINE_MODULES` 里那 14 个模块**（见 `scripts/build-client.mjs`），全部内联进**同一个** `factory(require)` 作用域。`npm run build` 会把内联清单打印出来。**它的大部分行来自 `src/**` 而不是 `client.js` 自己**（占比按那份内联清单复算，勿记死数）—— 看着像巨石，实为"压平的仓库切片"。
@@ -48,7 +48,7 @@ macOS 版本由 [Jerry（@ruijiaang-lab）](https://github.com/ruijiaang-lab)维
 - **铁律一 —— 同提交重建**：改任何 `src/**` 都要 `npm run build` 并把产物**同一个提交**带上。CI 会判定（`npm run build` 之后 `git diff --exit-code -- lib/client.js`）；**本地链现在也判**：`test/verify-client-sync.mjs` 会重建、逐字节比对、并把文件**还原**（守卫不改工作树）⇒ 产物过期会在 **push 之前**就红。
 - **铁律二**：绝不手改 `lib/client.js`，下一次构建会抹掉。
 - **铁律三 —— 产物即契约**：多个守卫跑的是**产物**（`verify-readability`、`verify-softrender`、`verify-client`），另有一些**按行首锚点从产物里**取样式表。这就是 `src/styles.js` 禁止在自己注释里写反引号、也禁止复述那条声明语句的原因（实测踩到过：`verify-host-paint-scope` 报"裸反引号 489"）。
-- **陷阱 —— `src/**` 的注释会随包发给用户**：涉及行数 / 体积这类会漂的量，写**复算命令**而不是写数字（现仍有两处模块头注释把 `src/client.js` 说成"9,500 行"）。
+- **陷阱 —— `src/**` 的注释会随包发给用户**：涉及行数 / 体积这类会漂的量，写**复算命令**而不是写数字（曾有两处模块头注释把 `src/client.js` 说成"9,500 行"，现已修掉 —— 别再写回去）。
 - **不要把它当巨石来"治理"**：它的体积就是 `src/**` 的体积，杠杆在源文件。
 
 ## Install a local dev build / 从本地源码安装（开发者）

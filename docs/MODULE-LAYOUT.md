@@ -23,7 +23,7 @@
 | **浏览器进程** | `lib/client.js` —— **生成物，全仓唯一一个** | `src/**` —— 浏览器侧的**唯一真源** |
 | **宿主进程**（Node / Electron main） | `lib/index.js` ＋ 它 import 的 `lib/**` 模块 ＋ `lib/vendor/`、`lib/webwallgl/`（第三方副本） ＋ `lib/types/` | **`test/`（守门：`verify-*` + `*-smoke` + `e2e-*`）· `test/tools/`（诊断/分析/生成工具）** · `scripts/`（只有 `build-client` / `prepare`，构建与发布期用）· `docs/`、`.integration-notes/`、`_refs/` |
 
-**关键推论**：`files` 是发布面的唯一定义，而 `verify-package-files` 的 **P1** 断言「`lib/` 下每个运行期 `.js/.mjs` 都被 `files` 覆盖」⇒ **留在 `lib/` 的任何文件都会被打进发布包**。所以死码**不许**留在 `lib/`：要么删，要么移出发布面（`docs/archive/`、`assets/`）。这条不是洁癖，是"**48 文件 / 9,618 行**不可达代码目前在 `files` 里、正在发给每个用户"的直接后果（账本 §2、§5 P2-12；口径见账本 §3.6）。
+**关键推论**：`files` 是发布面的唯一定义，而 `verify-package-files` 的 **P1** 断言「`lib/` 下每个运行期 `.js/.mjs` 都被 `files` 覆盖」⇒ **留在 `lib/` 的任何文件都会被打进发布包**。所以死码**不许**留在 `lib/`：要么删，要么移出发布面（`docs/archive/`、`assets/`）。这条不是洁癖，曾是"**48 文件 / 9,618 行**不可达代码留在 `files` 里、发给每个用户"的直接后果（那批死码已随 P2-12 删净，`verify-reachability` 现测 0 文件 / 0 行）（账本 §2、§5 P2-12；口径见账本 §3.6）。
 
 ---
 
