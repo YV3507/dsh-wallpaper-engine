@@ -4743,7 +4743,28 @@ function WallpaperPicker(props) {
     selection.fontCustom = !!v;
     persistSelection(); applyEffects(); emit();
   };
-  const onFontColor = (hex) => {
+  // F1：角色色。默认「单色」—— 一个色同时写进 light/dark 两套（内部始终存两套，
+// 因为令牌服务的值必须是 {light,dark} 对，缺一套在另一套配色下会不可读）。
+const onThemeColor = (role, mode, hex, separate) => {
+  const cur = selection.themeColors[role] || { light: "", dark: "" };
+  const next = { light: cur.light || "", dark: cur.dark || "" };
+  if (separate) next[mode] = hex;
+  else { next.light = hex; next.dark = hex; }
+  selection.themeColors = Object.assign({}, selection.themeColors, { [role]: next });
+  persistSelection(); applyEffects(); emit();
+};
+const onThemeColorClear = (role) => {
+  const next = Object.assign({}, selection.themeColors);
+  delete next[role];
+  selection.themeColors = next;
+  persistSelection(); applyEffects(); emit();
+};
+const onThemeDarkSeparate = (v) => {
+  selection.themeDarkSeparate = v;
+  persistSelection(); applyEffects(); emit();
+};
+
+const onFontColor = (hex) => {
     if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
     selection.fontColor = hex;
     persistSelection(); applyEffects(); emit();
@@ -5664,6 +5685,49 @@ function WallpaperPicker(props) {
               React.createElement("span", { className: "we-picker__hint we-picker__value" }, sel.fontColor),
             ),
           ),
+          // F1：分角色上色。今天的「字体颜色」把四个角色压成同一个色（把 DSH 的四级文字
+          // 层次压平）；这里逐个角色放开，留空 = 跟随原生。经 theme 令牌层生效：body 内联、
+          // 免 !important、{light,dark} 随配色自动换值。
+          React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
+            ctlText("文字颜色角色", "留空 = 跟随原生层次"),
+          ),
+          switchRow("深色单独设置", sel.themeDarkSeparate, (e) => onThemeDarkSeparate(e.target.checked), {
+            tooltip: "关闭时一个颜色同时用于浅色与深色两套（内部仍存两套值）；开启后浅色/深色分别设置",
+          }),
+          THEME_COLOR_ROLES.map((role) => {
+            const v = sel.themeColors[role.id] || { light: "", dark: "" };
+            return React.createElement("div", { className: "we-picker__ctl", key: role.id },
+              ctlText(role.label),
+              React.createElement("label", { className: "we-picker__swatch-custom" },
+                React.createElement("input", {
+                  type: "color",
+                  value: v.light || "#ffffff",
+                  onInput: (e) => onThemeColor(role.id, "light", e.target.value, sel.themeDarkSeparate),
+                  onChange: (e) => onThemeColor(role.id, "light", e.target.value, sel.themeDarkSeparate),
+                  title: role.label + " · 浅色配色",
+                }),
+                React.createElement("span", { className: "we-picker__hint we-picker__value" },
+                  v.light ? "浅 " + v.light : "未设置"),
+              ),
+              sel.themeDarkSeparate && React.createElement("label", { className: "we-picker__swatch-custom" },
+                React.createElement("input", {
+                  type: "color",
+                  value: v.dark || "#000000",
+                  onInput: (e) => onThemeColor(role.id, "dark", e.target.value, true),
+                  onChange: (e) => onThemeColor(role.id, "dark", e.target.value, true),
+                  title: role.label + " · 深色配色",
+                }),
+                React.createElement("span", { className: "we-picker__hint we-picker__value" },
+                  v.dark ? "深 " + v.dark : "未设置"),
+              ),
+              (v.light || v.dark) && React.createElement("button", {
+                type: "button",
+                className: "we-picker__chip",
+                onClick: () => onThemeColorClear(role.id),
+                title: "清除该角色，回到原生层次",
+              }, "清除"),
+            );
+          }),
           SliderRow("字重", 100, 900, 50, sel.fontWeight, onFontWeight, String(sel.fontWeight), "font-weight", {
             tooltip: "每 50 一档，插件按数值连续补粗细（描边渐变），不再只有常规/粗体两档"
               + "。单字面中文字体（黑体/宋体等）低于 400 无更细字面；600 起系统合成粗体会再叠一层",
@@ -9099,6 +9163,48 @@ function apply(ctx) {
           if (cssTag && cssTag.dataset && cssTag.dataset.pluginCssGen === CSS_GEN
               && typeof cssTag.remove === "function") cssTag.remove();
         }
+      };
+    });
+  }
+
+  // 1b. F1「文字颜色角色」令牌层：后台轮询 theme 服务（启动竞态：实测 7ms 时还没有、
+  //     325ms 才有），拿到后按设置给每个角色上色；拿不到就**什么都不做** —— 今天的
+  //     #we-font-patch 折叠路径照旧可用（红线 7 的双通道，按能力探测而非二选一）。
+  //     - 不声明 `inject: ["theme"]`：缺服务时声明式依赖会让插件 park（F0 A7）。
+  //     - 首次写入前先取宿主墨色基线，否则退出契约会把我们的颜色当宿主原值快照。
+  //     - 不监听配色变化重注册：值给的是 {light,dark} 对，配色切换由服务自己换值。
+  if (ctx.effect && typeof ctx.get === "function" && typeof document !== "undefined") {
+    ctx.effect(() => {
+      let layer = null;
+      let unsub = null;
+      const cancelPoll = pollThemeService(ctx, {
+        intervalMs: 250,
+        timeoutMs: 6000,
+        onReady: (theme) => {
+          try {
+            const available = scanThemeTokens(document);
+            // 样式表扫描是清单的权威来源（active.tokens 为空、exportInspectTokens 只有 14 条）；
+            // 再叠一层 computed 存在性探测，跨源样式表读不到 cssRules 时也能判定。
+            const hasToken = (t) => available.has(t)
+              || (typeof getComputedStyle === "function"
+                && getComputedStyle(document.body).getPropertyValue(t).trim() !== "");
+            layer = createThemeLayer({
+              theme,
+              // 绑在「字体自定义」总开关下：关闭 = 连颜色一起恢复原生（与面板文案一致）。
+              getColors: () => (selection.fontCustom ? selection.themeColors : {}),
+              isAvailable: hasToken,
+              onBeforeFirstWrite: () => { try { snapshotHostFontDefaults(); } catch { /* 基线失败不阻断上色 */ } },
+            });
+            layer.sync();
+            unsub = subscribe(() => { if (layer) layer.sync(); });
+          } catch { /* 主题层是增强：任何异常都不该影响壁纸主路径 */ }
+        },
+      });
+      return () => {
+        try { if (unsub) unsub(); } catch { /* ignore */ }
+        try { if (cancelPoll) cancelPoll(); } catch { /* ignore */ }
+        // 交给服务的 disposer 把令牌还原（F0 实测干净）；这里只保证调用一次
+        try { if (layer) layer.dispose(); } catch { /* ignore */ }
       };
     });
   }

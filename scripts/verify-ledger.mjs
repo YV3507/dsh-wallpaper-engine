@@ -87,6 +87,16 @@ const EVIDENCE = {
     ['账本自检守卫在位', () => has('scripts/verify-ledger.mjs')],
     ['账本自检守卫已入链', () => JSON.parse(read('package.json')).scripts.verify.includes('verify-ledger')],
   ],
+  'F1': [
+    ['令牌层模块在位', () => has('src/theme-layer.js')],
+    ['令牌层已内联进产物', () => read('lib/client.js').includes('function createThemeLayer(')],
+    ['设置侧已派生（宿主也认这两个新键）', () => {
+      const s = read('lib/settings-schema.js');
+      return s.includes('themeColors') && s.includes('themeDarkSeparate') && s.includes('THEME_COLOR_ROLE_IDS');
+    }],
+    ['面板可设置（角色色 UI 在位）', () => read('src/client.js').includes('文字颜色角色')],
+    ['F1 守卫已入链', () => JSON.parse(read('package.json')).scripts.verify.includes('verify-theme-layer')],
+  ],
   'P2-12': [
     // 注意方向：这是"**做完**才成立"的证据。未完成时它们**必须不成立** ——
     // 若把"未做的前置条件"写成证据，非 ✅ 行反而会全部命中，判据就成了反向的。

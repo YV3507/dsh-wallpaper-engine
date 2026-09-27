@@ -62,6 +62,21 @@ const WE_HOST_TOKENS = [
   "--dsw-alias-label-dimmed",
 ];
 
+/**
+ * 折叠行（把四个文字角色压成同一个用户色）：**只对令牌层没接管的角色输出**。
+ *
+ * 为什么必须让位：这四行带 `!important`，而「作者样式表的 !important」在级联上**高于**
+ * 「普通内联声明」—— 令牌层写的正是 body 内联。照旧输出的话，用户在面板里按角色设的颜色
+ * 会被这四行原样压回去，表现就是"改了没反应"。没被接管的角色照旧折叠（回落通道的行为不变）。
+ */
+function themeCollapseLines() {
+  const owned = typeof themeLayerOwnedRoles === "function" ? themeLayerOwnedRoles() : [];
+  const prefix = "--dsw-alias-label-";
+  return WE_HOST_TOKENS
+    .filter((t) => !owned.includes(t.slice(prefix.length)))
+    .map((t) => "  " + t + ":var(--we-font-color) !important;");
+}
+
 function snapshotHostFontDefaults() {
   // applyFontStyles 每次滑杆回调都会执行：若已快照则跳过，否则会把上一轮
   // 注入后的自家映射值当成宿主原值写进快照（自我污染）。removeFontStyles
@@ -134,10 +149,8 @@ function applyFontStyles() {
             宿主的同名正常声明；第三方/插件面板在自己子树重新声明同名令牌即可
             遮蔽（自定义属性按元素级联，body 的 !important 不影响子树自身声明）。 */
       'body {',
-      '  --dsw-alias-label-primary:var(--we-font-color) !important;',
-      '  --dsw-alias-label-secondary:var(--we-font-color) !important;',
-      '  --dsw-alias-label-tertiary:var(--we-font-color) !important;',
-      '  --dsw-alias-label-dimmed:var(--we-font-color) !important;',
+      // 角色色被令牌层接管的那些让位（见 themeCollapseLines 的注释）。
+      ...themeCollapseLines(),
       '}',
       /* 3) 退出契约（#91 建议 2）：data-we-font-ignore 子树还原宿主原值。
             :where() 零特异性 —— 还原声明足以压过 body 继承（声明 > 继承），

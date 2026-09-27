@@ -56,6 +56,12 @@ const INLINE_MODULES = [
     markers: ['const WE_COND_OPS = [', 'function weEvalCondition(', 'function weCondTokenize('],
   },
   {
+    file: 'src/theme-layer.js',
+    why: 'F1 令牌层：给文字颜色角色分角色上色（纯逻辑 + feature-detect，契约见文件头）',
+    markers: ['const THEME_COLOR_ROLES = [', 'function createThemeLayer(', 'function pollThemeService(',
+      'function buildTokenPayload('],
+  },
+  {
     file: 'src/effects.js',
     why: '效果应用层（设置 → DOM；契约见文件头，见 P1-7 后半）',
     markers: ['let lastScrimCss = "";', 'function applyEffects()', 'function clearEffects()',

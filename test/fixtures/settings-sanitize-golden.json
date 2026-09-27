@@ -1,5 +1,5 @@
 {
-  "note": "由 P1-5 前的旧实现（vm 内跑源码文本）生成；新实现必须逐字节复现 host 输出。",
+  "note": "由 P1-5 前的旧实现（vm 内跑源码文本）生成；新实现必须逐字节复现 host 输出。 F1 起补入 themeColors / themeDarkSeparate 两键（新增键按\"引入时行为\"记录）。",
   "generatedFrom": {
     "client": "src/client.js sanitizeSettings",
     "host": "lib/index.js sanitizeSettings"
@@ -67,7 +67,9 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": ""
+        "caretColor": "",
+        "themeColors": {},
+        "themeDarkSeparate": false
       },
       "host": {
         "id": "",
@@ -126,7 +128,9 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": ""
+        "caretColor": "",
+        "themeColors": {},
+        "themeDarkSeparate": false
       }
     },
     {
@@ -193,7 +197,9 @@
         "customFrames": {},
         "caretColor": "",
         "videoVolume": 0,
-        "videoAudioEnabled": true
+        "videoAudioEnabled": true,
+        "themeColors": {},
+        "themeDarkSeparate": false
       },
       "host": "__null__"
     },
@@ -261,7 +267,9 @@
         "customFrames": {},
         "caretColor": "",
         "videoVolume": 0,
-        "videoAudioEnabled": true
+        "videoAudioEnabled": true,
+        "themeColors": {},
+        "themeDarkSeparate": false
       },
       "host": "__null__"
     },
@@ -329,7 +337,9 @@
         "customFrames": {},
         "caretColor": "",
         "videoVolume": 0,
-        "videoAudioEnabled": true
+        "videoAudioEnabled": true,
+        "themeColors": {},
+        "themeDarkSeparate": false
       },
       "host": "__null__"
     },
@@ -399,7 +409,9 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": ""
+        "caretColor": "",
+        "themeColors": {},
+        "themeDarkSeparate": false
       },
       "host": {
         "id": "",
@@ -458,7 +470,9 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": ""
+        "caretColor": "",
+        "themeColors": {},
+        "themeDarkSeparate": false
       }
     },
     {
@@ -584,7 +598,9 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": ""
+        "caretColor": "",
+        "themeColors": {},
+        "themeDarkSeparate": false
       },
       "host": {
         "id": "",
@@ -643,7 +659,9 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": ""
+        "caretColor": "",
+        "themeColors": {},
+        "themeDarkSeparate": false
       }
     },
     {
@@ -814,7 +832,9 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": ""
+        "caretColor": "",
+        "themeColors": {},
+        "themeDarkSeparate": false
       },
       "host": {
         "id": "",
@@ -873,7 +893,9 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": ""
+        "caretColor": "",
+        "themeColors": {},
+        "themeDarkSeparate": false
       }
     },
     {
@@ -943,7 +965,9 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": ""
+        "caretColor": "",
+        "themeColors": {},
+        "themeDarkSeparate": false
       },
       "host": {
         "id": "",
@@ -1002,7 +1026,9 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": ""
+        "caretColor": "",
+        "themeColors": {},
+        "themeDarkSeparate": false
       }
     },
     {
@@ -1086,7 +1112,9 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": ""
+        "caretColor": "",
+        "themeColors": {},
+        "themeDarkSeparate": false
       },
       "host": {
         "id": "",
@@ -1145,7 +1173,9 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": ""
+        "caretColor": "",
+        "themeColors": {},
+        "themeDarkSeparate": false
       }
     },
     {
@@ -1229,7 +1259,9 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": ""
+        "caretColor": "",
+        "themeColors": {},
+        "themeDarkSeparate": false
       },
       "host": {
         "id": "",
@@ -1288,7 +1320,9 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": ""
+        "caretColor": "",
+        "themeColors": {},
+        "themeDarkSeparate": false
       }
     },
     {
@@ -1359,7 +1393,9 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": ""
+        "caretColor": "",
+        "themeColors": {},
+        "themeDarkSeparate": false
       },
       "host": {
         "id": "",
@@ -1418,7 +1454,9 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": ""
+        "caretColor": "",
+        "themeColors": {},
+        "themeDarkSeparate": false
       }
     },
     {
@@ -1494,7 +1532,9 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": ""
+        "caretColor": "",
+        "themeColors": {},
+        "themeDarkSeparate": false
       },
       "host": {
         "id": "",
@@ -1553,7 +1593,9 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": ""
+        "caretColor": "",
+        "themeColors": {},
+        "themeDarkSeparate": false
       }
     },
     {
@@ -1626,7 +1668,9 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": ""
+        "caretColor": "",
+        "themeColors": {},
+        "themeDarkSeparate": false
       },
       "host": {
         "id": "",
@@ -1685,7 +1729,9 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": ""
+        "caretColor": "",
+        "themeColors": {},
+        "themeDarkSeparate": false
       }
     },
     {
@@ -1765,7 +1811,9 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": ""
+        "caretColor": "",
+        "themeColors": {},
+        "themeDarkSeparate": false
       },
       "host": {
         "id": "",
@@ -1824,7 +1872,9 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": ""
+        "caretColor": "",
+        "themeColors": {},
+        "themeDarkSeparate": false
       }
     },
     {
@@ -1973,7 +2023,9 @@
         "customFrames": {
           "y": true
         },
-        "caretColor": ""
+        "caretColor": "",
+        "themeColors": {},
+        "themeDarkSeparate": false
       },
       "host": {
         "id": "",
@@ -2056,7 +2108,9 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": ""
+        "caretColor": "",
+        "themeColors": {},
+        "themeDarkSeparate": false
       }
     },
     {
@@ -2125,7 +2179,9 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": ""
+        "caretColor": "",
+        "themeColors": {},
+        "themeDarkSeparate": false
       },
       "host": {
         "id": "",
@@ -2184,7 +2240,9 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": ""
+        "caretColor": "",
+        "themeColors": {},
+        "themeDarkSeparate": false
       }
     },
     {
@@ -2253,7 +2311,9 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": ""
+        "caretColor": "",
+        "themeColors": {},
+        "themeDarkSeparate": false
       },
       "host": {
         "id": "wallpaper-42",
@@ -2312,7 +2372,9 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": ""
+        "caretColor": "",
+        "themeColors": {},
+        "themeDarkSeparate": false
       }
     },
     {
@@ -2382,7 +2444,9 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": ""
+        "caretColor": "",
+        "themeColors": {},
+        "themeDarkSeparate": false
       },
       "host": {
         "id": "",
@@ -2441,7 +2505,9 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": ""
+        "caretColor": "",
+        "themeColors": {},
+        "themeDarkSeparate": false
       }
     }
   ]
