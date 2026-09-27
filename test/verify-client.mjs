@@ -573,8 +573,6 @@ setTimeout(async () => {
       fontSwitch.props.onChange({ target: { checked: true } });
       tree = renderPicker();
       treeText = JSON.stringify(tree);
-      console.log('font on reveals 颜色/字重/字体族 chips (expect 7):',
-        treeText.includes('字体颜色') && treeText.includes('字重') && (treeText.match(/"aria-label":"字体 /g) || []).length === 7);
       assert.ok(/文字颜色角色/.test(code) && /排版角色/.test(code) && /恢复默认/.test(code),
     '外观 tab 必须揭示字体控件组（角色色组 + 排版角色组 + 恢复默认）—— 单一「字体颜色」行与全局字重/字族都已移除');
       fontSwitch.props.onChange({ target: { checked: false } });

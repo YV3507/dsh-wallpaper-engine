@@ -5,7 +5,7 @@
  * 规则要把**两条线分清**：
  *  ① **禁编年史与叙事回溯**：日期（会过期，并让人误以为"当时如此 = 现在如此"）、
  *     「曾经 / 以前 / 原先 / 旧实现 / 旧版」框定，以及「实测症状 / 踩坑 / 教训」这类
- *     回溯句。历史价值的内容进 CHANGELOG 或本地 TODO.md（见 TODO.md §3）。
+ *     回溯句。历史价值的内容进 CHANGELOG 或 git 历史（写作纪律见 docs/README.md §写作纪律）。
  *  ② **「实测」作为出处必须留**：「实测 X ≈ Y」「headless Chrome 实测全黑 PNG」这类
  *     是在给经验值与浏览器行为**标出处** —— 正是它让魔法数字可核对。删掉它，读者就
  *     分不清"测出来的"与"猜的"，反而更不可核对。
@@ -45,7 +45,7 @@ for (const f of FILES) {
     if (DATE.test(l)) { DATE.lastIndex = 0; offenders.push(f + ':' + (i + 1)); totalDates++; }
   });
 }
-check('代码注释里没有日期（编年史归 CHANGELOG / 本地 TODO）', totalDates === 0,
+check('代码注释里没有日期（编年史归 CHANGELOG / git 历史）', totalDates === 0,
   totalDates ? '命中 ' + totalDates + ' 处：' + offenders.slice(0, 5).join(' ') : '干净');
 check('negative control: 带日期的注释会被判不合格',
   DATE.test('// 2026-09-25 实测：这样做会失败') === true);
@@ -77,7 +77,7 @@ check('negative control: 带日期的注释会被判不合格',
 {
   const doc = readFileSync(ROOT + 'docs/archive/static-frame/SCENE-FRAME-PERF.md', 'utf8');
   const start = doc.indexOf('<!-- status-banner: code-is-truth -->');
-  const end = doc.indexOf('> 归并原则见 TODO.md §3');
+  const end = doc.indexOf('> 写作纪律见 ../../README.md');
   const block = start >= 0 && end > start ? doc.slice(start, end) : '';
   const paths = [...block.matchAll(/`([A-Za-z0-9_./-]+\.(?:js|mjs|ts|json|md))`/g)].map((m) => m[1]);
   // ⚠️ 只对**断言存在**的引用做存在性校验：如果同一行明确写了"已不在本分支/不存在/无此"，
@@ -101,6 +101,77 @@ check('negative control: 带日期的注释会被判不合格',
 {
   const doc = readFileSync(ROOT + 'docs/archive/static-frame/SCENE-FRAME-PERF.md', 'utf8');
   check('归档性能报告带 code-is-truth 状态横幅', doc.includes('status-banner: code-is-truth'));
+}
+
+// ── 入库文档不得指向**本机专用**的未跟踪路径（P3-10）─────────────────────────
+// 病灶：本仓的写作纪律与取证配方曾只住在一个不入库的根目录待办里，而入库文档与守卫都指向它
+// ⇒ 读者（GitHub / npm 上的人）打不开。规则一旦只住在未入库文件里，它对仓库就等于不存在。
+// 规矩：**读者打不开的东西，入库文档不指向它**。
+//
+// 豁免面是**显式且有据**的：`docs/archive/**` 是历史记录（顶部横幅已声明不反映现行实现），
+// 其价值正是那些本机取证线索；`docs/wip/**` 是进行中的过程记录。把它们一起判红只会逼人改写
+// 历史记录，而不是修好现行面 —— 所以同时也断言这两个目录里**确有**这类提及（豁免为空 = 该删）。
+//
+// 守卫脚本自己不在扫描面里：它必须把被禁路径**拼出来**才能搜它们（同 verify-retired-lines 对
+// 自己的处理）。本条判据只面向**文档**。
+{
+  const DENIED = [
+    ['TODO.md', '仓库根的本地待办（本机 .git/info/exclude）—— 规则必须住在入库位置'],
+    ['.integration-notes/', '本机研究与过程记录（不入库）'],
+    ['_refs/', '本机逆向参考副本（不入库）'],
+    ['.test-cache/', '本机构建 / 取证缓存（不入库）'],
+    ['we-static-frame/', '已迁出的独立仓库（本机 .git/info/exclude）'],
+    ['scene-layers-out/', '本机渲染验证产物（不入库）'],
+    ['scripts/reverse/', '本机逆向工具（.gitignore 覆盖）'],
+    ['scripts/out/', '本机渲染输出（.gitignore 覆盖）'],
+    ['scripts/lwe-ref/', '本机 lwe 参考实现（.gitignore 覆盖）'],
+  ];
+  // 只在**根相对**位置命中：`./archive/static-frame/TODO.md` 是另一个（**已入库**的）文件，不算。
+  const hit = (text, p) =>
+    new RegExp('(?<![\\w./-])' + p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).test(text);
+
+  const EXPLICIT = ['README.md', 'README.en.md', 'README.beginner.md', 'CONTRIBUTING.md'];
+  const SCAN = [...EXPLICIT, ...readdirSync(ROOT + 'docs', { withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.endsWith('.md'))
+    .map((e) => 'docs/' + e.name)].filter((f) => existsSync(ROOT + f)).sort();
+
+  const violations = [];
+  for (const f of SCAN) {
+    const text = readFileSync(ROOT + f, 'utf8');
+    for (const [p] of DENIED) if (hit(text, p)) violations.push(f + ' → ' + p);
+  }
+  check('扫描面覆盖常青入库文档（防 walker 返回空表）', SCAN.length >= 8, SCAN.length + ' 个文档');
+  check('常青文档不引用本机专用路径（清单是棘轮，只许缩小）', violations.length === 0,
+    violations.length ? '命中 ' + violations.length + ' 处：' + violations.slice(0, 4).join(' | ')
+      : '干净（' + SCAN.length + ' 个文档 × ' + DENIED.length + ' 条路径）');
+
+  const walkMd = (dir, out = []) => {
+    for (const e of readdirSync(ROOT + dir, { withFileTypes: true })) {
+      const rel = dir + '/' + e.name;
+      if (e.isDirectory()) walkMd(rel, out);
+      else if (e.name.endsWith('.md')) out.push(rel);
+    }
+    return out;
+  };
+  const exemptFiles = [...walkMd('docs/archive'), ...walkMd('docs/wip')];
+  let exemptHits = 0;
+  for (const f of exemptFiles) {
+    const text = readFileSync(ROOT + f, 'utf8');
+    for (const [p] of DENIED) if (hit(text, p)) exemptHits++;
+  }
+  check('豁免不空转：docs/archive/ 与 docs/wip/ 里确有这类提及（历史 / 过程记录，见上）',
+    exemptFiles.length >= 5 && exemptHits > 0,
+    exemptFiles.length + ' 个文档 / ' + exemptHits + ' 处提及');
+
+  // 负对照：同一条判据对合成文本有牙。
+  const SYNTH = DENIED.map(([p]) => '详见 `' + p + '`。').join('\n');
+  check('negative control: 合成文本里的每条被禁路径都被判出', DENIED.every(([p]) => hit(SYNTH, p)));
+  // 正对照：**已入库**的同名文件不得被误伤（`docs/archive/static-frame/TODO.md` 真的在库里）。
+  check('positive control: 入库的同名文件不被误伤',
+    !hit('见 [static-frame/TODO.md](./archive/static-frame/TODO.md)', 'TODO.md'));
+  // 横幅指向的章节必须真实存在（否则指针又烂成"指向不存在的东西"）。
+  check('归档横幅指向的写作纪律章节真实存在',
+    readFileSync(ROOT + 'docs/README.md', 'utf8').includes('## 写作纪律'));
 }
 
 // 文档世系标注：文档引用了本分支不存在的开关 ⇒ 必须显式声明，且"不存在"这一事实可核对。
@@ -296,7 +367,7 @@ check('negative control: 带日期的注释会被判不合格',
 // 文档路径断言：SCENE-FRAME-PERF.md 里"断言存在但缺失"的路径必须逐条列进它的横幅。
 {
   const doc = readFileSync(ROOT + 'docs/archive/static-frame/SCENE-FRAME-PERF.md', 'utf8');
-  const bannerEnd = doc.indexOf('> 归并原则见 TODO.md §3');
+  const bannerEnd = doc.indexOf('> 写作纪律见 ../../README.md');
   const banner = bannerEnd > 0 ? doc.slice(0, bannerEnd) : '';
   const ABSENT_CTX = /已不在本分支|不在当前分支|不存在|无此|已移除|已删除|旧实现|deprecated|不再|未随本线保留|未随本分支|已废弃|删除|迁走|迁移|搬到|雏形|spike/;
   const PATH_RE = /`((?:lib|scripts|src|test)\/[A-Za-z0-9_./-]+\.(?:js|mjs|ts|json|md))`/g;

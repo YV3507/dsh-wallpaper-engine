@@ -186,6 +186,23 @@ const EVIDENCE = {
     ['活依赖存活：/scene-audio 的 TEX 视频提取落点仍在 lib/pkg-extract.js',
       () => read('lib/pkg-extract.js').includes('function extractTexVideoMp4(')],
   ],
+  'P3-10': [
+    // 判据与守卫**同源**：不在这里复制第二份路径清单，只断言守卫自己的判据在册；方向也不能反
+    // —— 是"搬走了"才成立，不是"还指着"才成立。
+    ['常青入库文档的"本机专用路径"扫描在守卫里（含正/负对照）', () => {
+      const g = read('test/verify-comment-discipline.mjs');
+      return g.includes('常青文档不引用本机专用路径')
+        && g.includes('negative control: 合成文本里的每条被禁路径都被判出')
+        && g.includes('positive control: 入库的同名文件不被误伤');
+    }],
+    ['写作纪律已住进入库位置（docs/README.md 有该章节）',
+      () => read('docs/README.md').includes('## 写作纪律')],
+    // 本机待办在 CI 的检出里本就不存在 ⇒ 两种情形都算达成（不存在 = 更彻底）。
+    // 判据盯**规则正文**（第 6 条那句只住在这里过），不盯"归并原则"这个词 —— 本机待办里
+    // 会留一句"这个家搬去哪了"的历史说明，用词做判据会被它自己绊倒。
+    ['本机待办不再承载写作纪律（规则正文已搬走）',
+      () => !has('TODO.md') || !read('TODO.md').includes('跳过不得与通过同形')],
+  ],
   'P3-17': [
     // 验收判据三条里的前两条：**导出点唯一** + **上限常量唯一**（此前上限只长在副本上）。
     ['容器原语只有一份实现（lib/pkg-read.js）', () => {

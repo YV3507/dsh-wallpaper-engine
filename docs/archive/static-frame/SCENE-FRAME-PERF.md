@@ -50,7 +50,7 @@
 > - `scripts/verify-fx-chain.mjs`
 > - `scripts/verify-png-decode.mjs`
 > - `scripts/verify-prewarm.mjs`
-> 归并原则见 TODO.md §3：**注释写不变量，不写编年史**；能写在代码旁的规则不单写文档。
+> 写作纪律见 ../../README.md（§写作纪律）：**注释写不变量，不写编年史**；能写在代码旁的规则不单写文档。
 
 
 > ⚠️ **历史记录（2026-09-23 追记）**：本文中涉及 **beta 场景动画 / `scene-anim` 多帧
