@@ -268,6 +268,26 @@
 `registerXxx(webServer, c)`，`c` 是按第 1 条索引表提炼出的显式 context（建议分 4 组
 `media` / `upload` / `inventory` / `diag`），**共享可变状态只以引用形式进 context**，不做拷贝。
 
+#### P2-11 实施方案（**三条前置已就绪，开拆从这里开始**）
+
+前置状态：**1 路由索引 ✅**（`e286c1a`）· **2 三条零覆盖路由的守卫 ✅**（`a411e23`，
+`/client-diag` 405/413、`/upload-dir` 405、`/now-playing/artwork` 404-or-2xx）·
+**3 巨石闭包清单 ✅**（`7c33249`，并更正了"四巨石 1,795 行"的误测 —— 真值 293 行）。
+
+**第一刀：`diag` 族**（`/client-diag` + `/diag-log`）。选它的理由是可核对的：索引里这两条的
+闭包状态只有 `webServer` / `disposers`（**最少的共享状态**），且刚补上行为断言 ⇒ 切口最小、
+安全网最厚。每族的固定动作（照 B/C/D 的契约模型，但宿主是真 ESM、**不需要内联**）：
+
+1. 新建 `lib/routes/<族>.js`：`export function register<族>Routes(webServer, c)`，把该族的注册块
+   与**只属于该族的状态/助手**（如 `diagLog` / `appendDiagLine` / `handleDiag`）一起搬进去；
+2. `apply` 里改成一次调用，族内共享的东西以 `c = { … }` 显式传入 —— **共享可变状态只以引用进
+   context，不做拷贝**（拷贝会静默出错：统计错乱、缓存不一致，都不报错）；
+3. 重新生成 `docs/ROUTE-INDEX.md`（守卫会"重算并逐字节比对"，忘了生成就红）；
+4. **该族的守卫必须先存在**（索引的"守卫提及"列非 0）—— 零提及的先补，正如前置 2 所做。
+
+后续族按同一模板推进（`inventory` → `upload` → `scene` → `media`），每族一刀、独立提交、全绿；
+`serveFile` / `handleSceneFiles` 这类**被多族复用**的助手留在 `apply` 里、以引用进各族 context。
+
 ---
 
 ## 4. 风险清单（每条都已归口到 §5 的某一步）
