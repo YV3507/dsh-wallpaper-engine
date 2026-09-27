@@ -118,7 +118,7 @@
 **关键实测**（都能由 §8 命令复算）：路由索引 vs 运行时注册 **31 == 31**（已成守卫）· 剪掉两条**假活锚点**后
 `lib/` 曾 **48 文件 / 9,618 行不可达**（P2-12 第一半已删净 ⇒ 现为 **0 / 0**）· `lib/types/*.d.ts` 字段差（`WallpaperDescriptor` 缺 10、`Inventory` 缺 3、`client.d.ts` 零值导出）·
 `WallpaperPicker` 体量 · 本机待办是否入库（**否**，指向**根**待办文件的引用 9 处 ⇒ 已归零，见 P3-10）。
-**结论**：存在未声明 / 未归口的需求共 **22** 条 → 归口为 §5 的 **P3-1 … P3-22**。
+**结论**：存在未声明 / 未归口的需求共 **23** 条 → 归口为 §5 的 **P3-1 … P3-23**（P3-23 为后续新增：夹具把被测行为中和掉的**零覆盖类**）。
 
 ---
 
@@ -193,7 +193,7 @@
 | P3-13 | 挂链缺失的守卫、缺前置改为**默认红**或显式 `--allow-skip`（不再与"通过"同形）。**残留**：CI 仍未给 `verify-media-bridge` 加 `--provision` ⇒ 该通道在 CI 无断言覆盖（已显式打印） | 🟡 部分 |
 | P3-14 | 四处"过滤集变空即恒真"的判据补下限或改成单独计数（theme-layer G2 / softrender 两个 gate / package-files P5 / scene 平台跳过） | ✅ |
 | P3-15 | 修"断言被写法或环境短路"：F 轨解析、"每个 EVIDENCE 键都必须被查到"、去掉 `\|\| typeof fetch` 逃生口、退役键扫描扩面、`apply` 抛错改硬断言 | 🟡 部分 |
-| P3-16 | 替换**恒真式负对照**（名不副实）：route-index / retired-lines / theme-layer / softrender / package-files 已修；`verify-component-fonts` 与 `verify-package-publish` 未动 | 🟡 部分 |
+| P3-16 | 替换**恒真式负对照**（名不副实）：route-index / retired-lines / theme-layer / softrender / package-files 已修；两个残留文件已**逐条审计 18 条对照** —— 实测只有 **2 条真恒真**（`verify-component-fonts` 里"只断言常量 / 数组不含 X"），另有 4 条是**判据副本**（对照里另抄一份判据 ⇒ 生产侧改了也不会红），其余本就有牙。判据已抽成命名函数 / 命名正则、正负共用；形态规则写进 [`TEST-LAYOUT.md`](../TEST-LAYOUT.md) §约定 5。**验收判据**：把判据中和成"永远说没问题" ⇒ 对应负对照必须变红（实测两条全红，而正判据此时照过 = 空转） | ✅ |
 | P3-17 | ✅ **已合并**（P3-17 那一刀）：容器/压缩原语搬进唯一实现 `lib/pkg-read.js`（270 行），取更严格的一侧（带 `MAX_DECOMPRESSED_BYTES` 上限）；`pkg-extract` 850→644、`scene-manifest` 511→254。详见下方原判据 |
 | P3-17（原判据留档） | **同一套 PKG/TEX 读取器两份实现、且两份都在活路径上**（`lib/pkg-extract.js` ↔ `lib/scene-manifest.js`），不受信输入的分配上限**只加在副本上** ⇒ 同一 `scene.pkg` 在 `/scene-video` 被拒、在 `/scene-audio` 却能驱动 ~2GiB 分配；没有任何守卫比较两份。**验收判据**：导出点唯一 + 上限常量唯一 + 同一夹具对两条路由给出一致裁决 | ✅ |
 | P3-18 | 删掉 `lib/index.js` 的死 `readPkg` import（不再为它新建第 3 份、语义不同的 PKG 解析器） | ✅ |
@@ -201,6 +201,7 @@
 | P3-20 | 复制度结论写明**作用域**（`src/**` 与 `lib/**` 差别极大，单边结论不得当全仓不变量） | ✅ |
 | P3-21 | 跨半边词汇表（`BASE`、上传 / 自定义画面 MIME）由 `verify-contracts.mjs` ② **读两边源码**比对（不是 import 一边的自证） | ✅ |
 | P3-22 | ✅ **已修**：病灶是 `verify-scene.mjs` 真 socket 的 **33MB 超限 PUT** —— 413 路径本身会 `res.end()` 后立刻 `req.destroy()`（设计如此），而 33MB 请求体远没写完 ⇒ 客户端可能先拿到 ECONNRESET。按验收判据改为**接受两种合法结果**（413 / 连接被主动掐断），并**保留"恰好 limit+1"那条**（超限块即最后一块、无竞态）把精确 413 语义钉死；判据仍有牙：服务端若不拒绝，拿到的是 200 而不是 0 | ✅ |
+| P3-23 | **夹具把被测行为中和掉**（零覆盖类，后续新增）：实例 —— 所有冒烟都把 `liveBootDelay` 钉成 0，于是"启动等待"路径**零覆盖**，它的两个缺陷（延迟期切走不释放 / 挂载后不武装心跳）只能靠用户反馈发现。交付**只给候选、不下判决**的手动工具 `test/tools/audit-fixture-coverage.mjs`（行为面与数据面分开；自带"必须抓到 `liveBootDelay`"的自检；三个已知局限写在工具头）。**验收判据**：A/B 两族候选**逐条**给出"已有守卫覆盖 / 待补"的结论，待补的落成能失败的守卫 | ✅ A 类 5 个 + B 类 2 个**全部裁定并落成守卫**（都在 `rotation-prepared-leak-smoke`）：`liveBootDelay`（Q1–Q3）· `videoVolume`（R1/R1b/R1c）· `rotationEnabled`（R2）· `rotationGroupId`（R3/R3b）· `pauseOnBlur`（R4/R4b）· `sceneLive`（R5）· `playbackRate`（R6）。**`pauseOnBlur` 的缺口比"没写用例"更深**：挂载台把 `hasFocus` 硬编码为 `() => true`，且 `play()/pause()` 不同步真 DOM 的 `paused` ⇒ 两个分支都不可达 —— 故一并修了**挂载台保真**（不修的话"夺回焦点自动恢复"永远走不到 `play()`，与真机分叉）。**牙齿实证四组**：中和 `weAudioVolume` / `syncRotationTimer` 的早退 / `pauseOnBlur` 那一档 / `liveRenderEnabled` + **两处** `playbackRate` ⇒ 每次**恰好**对应断言变红、其余不受影响（`playbackRate` 有两处落地：只中和一处**不红** —— 判据测的是"结果"而非"某处实现"，这正是想要的） |
 
 ### F —— 并行**功能**轨道：字体系统大改（**非重构项**）
 

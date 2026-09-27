@@ -97,8 +97,11 @@ function runScenario(name, opts, body) {
       addEventListener(ev,fn){ (listeners[ev] ||= []).push(fn); },
       removeEventListener(ev,fn){ const l=listeners[ev]; if(l){const i=l.indexOf(fn); if(i>=0)l.splice(i,1);} },
       __fire(ev){ (listeners[ev]||[]).slice().forEach(f=>f()); },
-      play(){ this.__plays = (this.__plays||0)+1; this.__paused = false; return Promise.resolve(); },
-      pause(){ this.__pauses = (this.__pauses||0)+1; this.__paused = true; },
+      // 真 DOM 语义：`play()/pause()` 会同时改 `paused`（**产品读的是它**，见 applyVideoPlayback
+      // 的 `!video.paused` 短路）—— 只记 `__paused` 会让"夺回焦点后自动恢复"这条路在测试里
+      // 永远走不到 play()，与真机行为分叉（同 getElementById / isConnected 那两处的保真修法）。
+      play(){ this.__plays = (this.__plays||0)+1; this.__paused = false; this.paused = false; return Promise.resolve(); },
+      pause(){ this.__pauses = (this.__pauses||0)+1; this.__paused = true; this.paused = true; },
       load(){ this.__loads = (this.__loads||0)+1; },
     };
     if (tag === 'video') { el.__plays = 0; el.__pauses = 0; el.__loads = 0; el.__paused = false; el.__removedAttrs = []; }
@@ -153,6 +156,10 @@ function runScenario(name, opts, body) {
   // 的补做，mock 若仍是空实现，这条路径在测试里永远不可达（假绿）。
   const docListeners = {}; const winListeners = {};
   const fireOn = (reg, ev) => { for (const fn of (reg[ev] ? [...reg[ev]] : [])) fn({ type: ev }); };
+  // 焦点必须**可切换**：遮挡暂停里 `pauseOnBlur` 那一档的判据就是 `!document.hasFocus()`，
+  // 写死 true 会让它两个分支都不可达（P3-23 的 A 类候选正是这么漏掉的）。客户端把
+  // blur/focus 挂在 **window** 上（见 apply 的 onOcclusionChange），所以配 `fireWin` 用。
+  let docFocus = true;
   const document = {
     createElement: (t) => { const el = makeEl(t); if (t==='iframe') iframeEls.push(el); if (t==='video') mediaEls.push(el); return el; },
     // 真 DOM 语义：getElementById 跳过已脱离文档的节点（否则 mock 会让客户端
@@ -162,7 +169,7 @@ function runScenario(name, opts, body) {
     head: { appendChild: () => {} },
     body: bodyEl,
     hidden: false,
-    hasFocus: () => true,
+    hasFocus: () => docFocus,
     addEventListener(ev, fn){ (docListeners[ev] ||= []).push(fn); },
     removeEventListener(ev, fn){ const a = docListeners[ev]; if (a) { const i = a.indexOf(fn); if (i >= 0) a.splice(i, 1); } },
     documentElement: makeEl('html'),
@@ -221,10 +228,14 @@ function runScenario(name, opts, body) {
     await new Promise((r) => setTimeout(r, 50));
     return body({ timers, intervals, byId, mediaEls, iframeEls, cleanups, bodyEl, fire, fireLatest,
       flushPersist, stagingDivs, layerEl, orphans, mediaSrc, persistedId, clock, setStats, setWebState, imageEls,
+      // 整份持久化 selection（P3-23 的 A 类候选要断言的不只是 id：`rotationGroupId` 自愈等）。
+      persistedSel: () => JSON.parse(localStorage._store['dsh-wallpaper-engine:selection']),
       // 遮挡/隐藏相关的场景需要直接改这两个（真机上是页面自身的状态）。
       document,
       // 隐藏/恢复必须同时派发 visibilitychange（真机语义）：客户端靠它补做被推迟的轮换。
       setHidden(v){ document.hidden = !!v; fireOn(docListeners, 'visibilitychange'); },
+      // 焦点：只改读数，事件要另派（客户端把 blur/focus 挂在 window 上 ⇒ fireWin）
+      setFocus(v){ docFocus = !!v; },
       fireDoc(ev){ fireOn(docListeners, ev); },
       fireWin(ev){ fireOn(winListeners, ev); }, failureMemory: () => (JSON.parse(localStorage._store['dsh-wallpaper-engine:selection']).sceneLiveFailures || {}) });
   })();
@@ -835,6 +846,126 @@ await runScenario('Q3. 启动等待期切走：预热页被**终止**、零孤�
   for (let i = 0; i < 4; i++) t.fireLatest(300);
   check('到点也不得挂上已作废的预热页（当前壁纸是 v）',
     t.persistedId() === 'v' && !liveIframeOf(t), 'id=' + t.persistedId());
+});
+
+// ── R：P3-23 的 A 类候选（默认值分支此前零覆盖）──────────────────────────────
+// 这三个键的**默认值**从来没在任何行为夹具里出现过（见 `test/tools/audit-fixture-coverage.mjs`
+// 的 A 类清单）—— 默认值恰恰是"不写即生效"的那条路，最容易被夹具集体绕开。
+// 每个用例都断言**默认值那条分支**的行为，并配一条反向（非默认值）对照。
+await runScenario('R1. 音量映射：默认 0 ⇒ 静音；0.6 ⇒ 0.6；总开关关 ⇒ 0', {
+  wallpapers: [wallpaperV],
+  selection: Object.assign(selSeed(['v'], 'v'), { videoVolume: 0, videoAudioEnabled: true }),
+}, (t) => {
+  const vol = () => { const v = t.mediaEls[t.mediaEls.length - 1]; return v ? Number(v.volume) : NaN; };
+  check('默认音量 0（静音）⇒ 媒体音量就是 0', vol() === 0, 'volume=' + vol());
+});
+
+await runScenario('R1b. 音量映射（非默认值对照）：0.6 ⇒ 0.6', {
+  wallpapers: [wallpaperV],
+  selection: Object.assign(selSeed(['v'], 'v'), { videoVolume: 0.6, videoAudioEnabled: true }),
+}, (t) => {
+  const vol = () => { const v = t.mediaEls[t.mediaEls.length - 1]; return v ? Number(v.volume) : NaN; };
+  check('音量 0.6 ⇒ 媒体音量 0.6（与默认那条不是同一个数）', vol() === 0.6, 'volume=' + vol());
+});
+
+await runScenario('R1c. 音量映射：总开关关 ⇒ 0（保留数值，关掉再开能恢复）', {
+  wallpapers: [wallpaperV],
+  selection: Object.assign(selSeed(['v'], 'v'), { videoVolume: 0.6, videoAudioEnabled: false }),
+}, (t) => {
+  const vol = () => { const v = t.mediaEls[t.mediaEls.length - 1]; return v ? Number(v.volume) : NaN; };
+  check('总开关关闭 ⇒ 即使 volume 是 0.6 也静音', vol() === 0, 'volume=' + vol());
+  check('关闭总开关不动 videoVolume（数值保留）', Number(t.persistedSel().videoVolume) === 0.6,
+    'videoVolume=' + t.persistedSel().videoVolume);
+});
+
+await runScenario('R2. 轮播关闭（默认值）⇒ 不武装定时器、到点也不换壁纸', {
+  wallpapers: [wallpaperV, scene('s1', 'tok-s1')],
+  selection: Object.assign(selSeed(['v', 's1'], 'v'), { rotationEnabled: false }),
+}, (t) => {
+  check('关闭轮播 ⇒ 没有武装中的轮换定时器（10s 那个）',
+    !t.timers.some((x) => !x.cleared && x.ms === 10000),
+    'timers=' + t.timers.filter((x) => !x.cleared).map((x) => x.ms).join(','));
+  t.fireLatest(10000); // 万一被武装了：到点也不该换
+  t.flushPersist();
+  check('到点也不换壁纸（仍是 v）', t.persistedId() === 'v', 'id=' + t.persistedId());
+});
+
+await runScenario('R3. 轮播开着但没选列表 ⇒ 自愈到可用列表；无可用列表 ⇒ 关掉轮播', {
+  wallpapers: [wallpaperV, scene('s1', 'tok-s1')],
+  selection: Object.assign(selSeed(['v', 's1'], 'v'), { rotationGroupId: '' }),
+}, (t) => {
+  t.flushPersist(); // 持久化走 200ms 去抖：不 flush 会读到启动时那份旧值
+  const sel = t.persistedSel();
+  check('空 rotationGroupId ⇒ 自愈选中可用列表 g1（而不是静默不轮播）',
+    sel.rotationGroupId === 'g1' && sel.rotationEnabled === true,
+    'group=' + JSON.stringify(sel.rotationGroupId) + ' enabled=' + sel.rotationEnabled);
+});
+
+await runScenario('R3b. 轮播开着但列表全不可用 ⇒ 关掉轮播（不是留一个永远不动的开关）', {
+  wallpapers: [wallpaperV],
+  selection: Object.assign(selSeed([], 'v'), { rotationGroupId: '' }),
+}, (t) => {
+  t.flushPersist();
+  const sel = t.persistedSel();
+  check('无可用列表 ⇒ rotationEnabled 被关掉（开关状态与实际能力一致）',
+    sel.rotationEnabled === false, 'enabled=' + sel.rotationEnabled);
+});
+
+// ── R4：遮挡暂停里 `pauseOnBlur` 那一档（P3-23 最后一个 A 类候选）──────────────
+// 为什么焦点必须**可切换**：`hasFocus` 若写死 `() => true`，判据
+// `pauseOnBlur && !document.hasFocus()` 就永远不成立、两个分支都不可达 —— P3-23 的 A 类
+// 候选正是这么漏掉的。事件走 window（客户端在 apply 里对 ["visibilitychange","blur","focus"]
+// 注册 onOcclusionChange → emit → syncLayers → applyVideoPlayback ⇒ `if (!isEffectivelyPlaying()) video.pause()`）。
+await runScenario('R4. 失焦 + pauseOnBlur=true ⇒ 暂停；夺回焦点 ⇒ 恢复', {
+  wallpapers: [wallpaperV],
+  selection: Object.assign(selSeed(['v'], 'v'), { pauseOnBlur: true }),
+}, (t) => {
+  const vid = () => t.mediaEls[t.mediaEls.length - 1];
+  check('焦点在时照常播放（前置：确实在播，否则下面的暂停测不出东西）',
+    !!vid() && vid().__paused === false, 'paused=' + (vid() && vid().__paused));
+  t.setFocus(false);
+  t.fireWin('blur');
+  check('失焦 + pauseOnBlur=true ⇒ 媒体被暂停（省电档真的生效）',
+    !!vid() && vid().__paused === true, 'paused=' + (vid() && vid().__paused));
+  t.setFocus(true);
+  t.fireWin('focus');
+  check('夺回焦点 ⇒ 自动恢复播放（不需要用户手动点）',
+    !!vid() && vid().__paused === false, 'paused=' + (vid() && vid().__paused));
+});
+
+await runScenario('R4b. 默认 pauseOnBlur=false ⇒ 失焦**不**暂停（负对照：反向就是 R4）', {
+  wallpapers: [wallpaperV],
+  selection: selSeed(['v'], 'v'), // 不带 pauseOnBlur ⇒ 走默认 false
+}, (t) => {
+  const vid = () => t.mediaEls[t.mediaEls.length - 1];
+  t.setFocus(false);
+  t.fireWin('blur');
+  check('失焦 + 默认 pauseOnBlur=false ⇒ 仍继续播放（开关关掉就不该被遮挡逻辑管）',
+    !!vid() && vid().__paused === false, 'paused=' + (vid() && vid().__paused));
+});
+
+// ── R5/R6：B 类候选（行为面只跑过默认值 ⇒ 非默认那条路没人走）──────────────
+await runScenario('R5. 关掉实时渲染（sceneLive=false）⇒ 不挂 live iframe，改走内嵌 MP4', {
+  wallpapers: [scene('s1', 'tok-s1')],
+  selection: Object.assign(selSeed(['s1'], 's1'), { sceneLive: false }),
+}, (t) => {
+  const layer = t.layerEl();
+  check('关掉实时渲染 ⇒ 层里**没有** live iframe（不会偷偷还在渲染）',
+    !!layer && !layer.querySelector('iframe.we-live-iframe'),
+    layer ? 'hasLive=' + !!layer.querySelector('iframe.we-live-iframe') : 'no layer');
+  check('改走内嵌 MP4 那条路（挂了 <video>，不再建渲染页）',
+    t.mediaEls.length >= 1 && t.iframeEls.filter((f) => String(f.src).includes('/scene-live/')).length === 0,
+    'videos=' + t.mediaEls.length + ' liveIframes=' + t.iframeEls.length);
+});
+
+await runScenario('R6. 倍速：非默认值 1.5 真的落到 <video> 上', {
+  wallpapers: [wallpaperV],
+  selection: Object.assign(selSeed(['v'], 'v'), { playbackRate: 1.5 }),
+}, (t) => {
+  const vid = () => t.mediaEls[t.mediaEls.length - 1];
+  check('playbackRate 1.5 ⇒ 视频元素 playbackRate=1.5（原生倍速，不是重载）',
+    !!vid() && Number(vid().playbackRate) === 1.5,
+    'playbackRate=' + (vid() && vid().playbackRate));
 });
 
 console.log('');

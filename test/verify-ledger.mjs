@@ -203,6 +203,38 @@ const EVIDENCE = {
     ['本机待办不再承载写作纪律（规则正文已搬走）',
       () => !has('TODO.md') || !read('TODO.md').includes('跳过不得与通过同形')],
   ],
+  'P3-16': [
+    // 判据与守卫**同源**：不在这里复制判据，只断言"命名判据在位 + 旧的恒真写法已消失"。
+    ['两个残留文件的判据已抽成命名函数/命名正则（正负对照共用同一份）', () => {
+      const cf = read('test/verify-component-fonts.mjs');
+      const pp = read('test/verify-package-publish.mjs');
+      return ['const SELECTOR_SHAPE =', 'const HASHED_CLASS =', 'const offendingProps =',
+        'const genericOnlyInHooks =', 'const allHaveModuleCssSource =', 'const hooksAllKnown =']
+        .every((s) => cf.includes(s))
+        && pp.includes('function usedByClosure(');
+    }],
+    ['旧的恒真写法已消失（只断言"某个常量/数组不含 X"）', () => {
+      const cf = read('test/verify-component-fonts.mjs');
+      return !cf.includes("!COMPONENT_FONT_PROPS.includes('line-height')")
+        && !cf.includes("!HOOKS.includes('--dsl-codeblock-content-font')");
+    }],
+    ['形态规则写进了守卫约定的家（TEST-LAYOUT §约定）',
+      () => read('docs/TEST-LAYOUT.md').includes('负对照必须把变异输入喂进「同一条判据」')],
+  ],
+  'P3-23': [
+    ['审计工具在位且带自检（必须抓到已知实例 `liveBootDelay`，否则非零退出）', () => {
+      const t = read('test/tools/audit-fixture-coverage.mjs');
+      return t.includes('已知实例 liveBootDelay 被列为 A 类') && t.includes('process.exitCode = 1');
+    }],
+    ['A/B 两族候选都落成了守卫（R1–R6 在册）', () => {
+      const s = read('test/rotation-prepared-leak-smoke.mjs');
+      return ["'R1.", "'R2.", "'R3.", "'R3b.", "'R4.", "'R4b.", "'R5.", "'R6."].every((tag) => s.includes(tag));
+    }],
+    ['挂载台保真：焦点可切换 + play/pause 同步真 DOM 的 `paused`', () => {
+      const s = read('test/rotation-prepared-leak-smoke.mjs');
+      return s.includes('setFocus(v)') && s.includes('this.paused = true;') && s.includes('this.paused = false;');
+    }],
+  ],
   'P3-17': [
     // 验收判据三条里的前两条：**导出点唯一** + **上限常量唯一**（此前上限只长在副本上）。
     ['容器原语只有一份实现（lib/pkg-read.js）', () => {

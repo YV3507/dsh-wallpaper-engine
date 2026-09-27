@@ -242,6 +242,8 @@ check('negative control: 带日期的注释会被判不合格',
     //   verify-route-index / verify-scene-live / verify-scene。
     'test/tools/analyze-host-apply.mjs': 0,
     'test/tools/audit-import-closure.mjs': 0,
+    // P3-23 的手动审计工具（无 CI 消费者）：从 0 起钉
+    'test/tools/audit-fixture-coverage.mjs': 0,
     'scripts/build-client.mjs': 1,
     'test/tools/diagnose-web-blank.mjs': 0,
     'test/e2e-web-media-origin.mjs': 5,
