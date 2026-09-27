@@ -742,6 +742,46 @@ for (const [name, ok] of clientChecks) check(name, ok);
 
 // 实测踩坑回归（2026-09-22）：host 的 sanitizeSettings 是白名单，漏加
 // sceneLiveFailures 会让 PUT 上来的失败记忆被丢弃、刷新后记忆消失。
+// ── Level E: 三条此前"守卫零提及"的宿主路由（P2-11 前置 2）──────────────────
+// `docs/ROUTE-INDEX.md` 把这三条标成 **0 提及** ⇒ 在拆分 `apply(ctx)` 之前必须补上真实行为
+// 断言，否则动它们等于没有安全网。三条都只断言**无副作用的失败路径**：不写宿主持久化配置、
+// 不落盘、不依赖本机是否真有封面（否则 CI 会随环境飘）。
+{
+  const byPath = (p) => routes.find((r) => r.path === '/wallpaper-engine' + p);
+  const clientDiag = byPath('/client-diag');
+  const uploadDir = byPath('/upload-dir');
+  const artwork = byPath('/now-playing/artwork');
+  check('/client-diag 已注册（kind=exact）', Boolean(clientDiag) && clientDiag.kind === 'exact');
+  check('/upload-dir 已注册（kind=exact）', Boolean(uploadDir) && uploadDir.kind === 'exact');
+  check('/now-playing/artwork 已注册（kind=exact）', Boolean(artwork) && artwork.kind === 'exact');
+  if (clientDiag) {
+    const wrongMethod = await runHandler(clientDiag, '/wallpaper-engine/client-diag', {});
+    check('/client-diag 非 POST ⇒ 405（早退，不落盘）', wrongMethod.__state.status === 405,
+      'status=' + wrongMethod.__state.status);
+    // 超限体 ⇒ 413：与客户端半的 64KB 上限对齐，同时钉住"不会把大体读进内存"。
+    const big = Readable.from([Buffer.alloc(70 * 1024, 0x41)]);
+    big.url = '/wallpaper-engine/client-diag';
+    big.method = 'POST';
+    big.headers = { 'content-type': 'application/json' };
+    const resBig = fakeRes();
+    clientDiag.handler(big, resBig);
+    await waitRes(resBig);
+    check('/client-diag 超 64KB ⇒ 413', resBig.__state.status === 413, 'status=' + resBig.__state.status);
+  }
+  if (uploadDir) {
+    const wrongMethod = await runHandler(uploadDir, '/wallpaper-engine/upload-dir', {});
+    check('/upload-dir 非 POST ⇒ 405（不改宿主持久化配置）', wrongMethod.__state.status === 405,
+      'status=' + wrongMethod.__state.status);
+  }
+  if (artwork) {
+    const r = await runHandler(artwork, '/wallpaper-engine/now-playing/artwork', {});
+    const st = r.__state.status;
+    check('/now-playing/artwork 无封面 ⇒ 404 no-artwork；有封面 ⇒ 2xx（绝不 5xx）',
+      (st === 404 && r.__state.body.toString('utf8') === 'no-artwork') || (st >= 200 && st < 300),
+      'status=' + st);
+  }
+}
+
 const hostSrc = readFileSync(join(root, 'lib', 'index.js'), 'utf8');
 // 宿主设置白名单已改为**派生**（唯一真源 lib/settings-schema.js，P1-5）。因此这几条不再
 // 抠实现里的字面量，而是把值喂给宿主的规范化函数看它收不收 —— 断言的是**行为**。

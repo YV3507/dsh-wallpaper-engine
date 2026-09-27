@@ -26,8 +26,8 @@
 | 14 | `/media-status` | 3677 | 箭头 | webServer disposers ensureMedia | 2 |
 | 15 | `/audio-spectrum` | 3687 | 箭头 | webServer disposers mediaBackend ensureMedia | 2 |
 | 16 | `/now-playing` | 3706 | 箭头 | webServer disposers mediaBackend ensureMedia | 2 |
-| 17 | `/now-playing/artwork` | 3720 | 箭头 | webServer disposers serveFile mediaBackend | **0** |
-| 18 | `/client-diag` | 3735 | 箭头 | webServer disposers | **0** |
+| 17 | `/now-playing/artwork` | 3720 | 箭头 | webServer disposers serveFile mediaBackend | 1 |
+| 18 | `/client-diag` | 3735 | 箭头 | webServer disposers | 1 |
 | 19 | `/api/local-assets` | 3778 | async 箭头 | webServer disposers serveFile | 1 |
 | 20 | `/we-assets-dir` | 3828 | 箭头 | webServer disposers | 1 |
 | 21 | `/diag` | 3903 | 箭头 | webServer disposers handleDiag | 6 |
@@ -36,12 +36,12 @@
 | 24 | `/scene-video` | 3920 | 箭头 | webServer mediaMap disposers serveFile SCENE_VIDEO_INFLIGHT | 1 |
 | 25 | `/scene-audio` | 4003 | 箭头 | webServer mediaMap disposers serveFile | 2 |
 | 26 | `/custom-frame` | 4039 | 箭头 | webServer disposers serveFile | 1 |
-| 27 | `/upload` | 4125 | 箭头 | webServer tokenFor disposers | 1 |
+| 27 | `/upload` | 4125 | 箭头 | webServer tokenFor disposers | 2 |
 | 28 | `/remove` | 4273 | 箭头 | webServer disposers | 1 |
-| 29 | `/upload-dir` | 4317 | 箭头 | webServer disposers | **0** |
+| 29 | `/upload-dir` | 4317 | 箭头 | webServer disposers | 1 |
 | 30 | `/settings` | 4378 | 箭头 | webServer disposers SETTINGS_MAX_BYTES | 15 |
 
-**零提及（拆分前必须先补守卫）**：`(动态路径)`、`/now-playing/artwork`、`/client-diag`、`/upload-dir`
+**零提及（拆分前必须先补守卫）**：`(动态路径)`
 
 **被最多路由引用的闭包状态（context 字段优先级）**：
 
