@@ -54,7 +54,7 @@ console.log('\n① 裸 fetch 棘轮（业务代码只许减少）');
   const count = (rel) => (strip(readFileSync(join(root, rel), 'utf8')).match(/\bfetch\s*\(/g) || []).length;
   const CLIENT_MODULES = [
     'src/client.js', 'src/panel-tabs.js', 'src/live-layer.js', 'src/media-prep.js',
-    'src/transcode.js', 'src/styles.js', 'src/effects.js', 'src/font/apply.js',
+    'src/transcode.js', 'src/persistence.js', 'src/styles.js', 'src/effects.js', 'src/font/apply.js',
     'src/font/color-roles.js', 'src/font/typography.js', 'src/we-cond.js', 'src/api-client.js',
   ];
   const counts = CLIENT_MODULES.map((rel) => [rel, count(rel)]);
@@ -63,8 +63,8 @@ console.log('\n① 裸 fetch 棘轮（业务代码只许减少）');
     dirty.length ? dirty.map(([f, n]) => f + '=' + n).join(' ') : CLIENT_MODULES.length + ' 个模块全为 0');
   // 覆盖面断言：上面那条在"扫不到文件"时也会绿（本仓踩过 walker 静默返回空表），
   // 所以先钉住"文件真的都在、而且真的含 fetch 字样以外的东西"。
-  check('负对照：扫描覆盖面成立（12 个模块都存在且非空）',
-    counts.length === 12 && CLIENT_MODULES.every((rel) => readFileSync(join(root, rel), 'utf8').length > 500));
+  check('负对照：扫描覆盖面成立（13 个模块都存在且非空）',
+    counts.length === 13 && CLIENT_MODULES.every((rel) => readFileSync(join(root, rel), 'utf8').length > 500));
   check('负对照：判据能数出合成文本里的裸 fetch',
     (strip("const r = await fetch('/x'); // fetch( in comment").match(/\bfetch\s*\(/g) || []).length === 1);
   check('src/api-client.js 存在且是出入囗模块',

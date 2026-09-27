@@ -1023,6 +1023,7 @@ setTimeout(async () => {
     // "宿主真的会接受"。现在改成 ①键集派生 ②结构上必须委托 ③**行为**与重构前逐键一致。
     {
       const src = readFileSync(new URL('../src/client.js', import.meta.url), 'utf8');
+      const persistSrc = readFileSync(new URL('../src/persistence.js', import.meta.url), 'utf8');
       const host = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8');
       const schemaMod = await import(new URL('../lib/settings-schema.js', import.meta.url).href);
       const { sanitizeFromSchema, serializeSettings, CLIENT_ONLY, DEFAULTS_ONLY, KINDS, DEFAULTS } = schemaMod;
@@ -1047,9 +1048,12 @@ setTimeout(async () => {
       assert.ok(clientSan.includes('id') && hostSan.includes('id') && !('id' in DEFAULTS),
         'id 必须在两侧白名单里但不在 DEFAULTS 里（它是选中项，不是设置项）');
 
-      // ② 结构：两侧都必须**委托**给 schema，宿主不得再有手写逐键白名单
+      // ② 结构：两侧都必须**委托**给 schema，宿主不得再有手写逐键白名单。
+      //    ⚠️ `serializeSelection` 已随持久化层抽到 src/persistence.js（P2-9 后半）⇒ 那一条按
+      //    文件归属分源；`sanitizeSettings` 仍在 client.js，不动。
       assert.ok(/sanitizeFromSchema\(o, "client"\)/.test(src), '客户端 sanitizeSettings 必须委托给 schema');
-      assert.ok(/serializeSettings\(selection\)/.test(src), '客户端 serializeSelection 必须委托给 schema');
+      assert.ok(/serializeSettings\(selection\)/.test(persistSrc),
+        '客户端 serializeSelection 必须委托给 schema（现在住在 src/persistence.js）');
       assert.ok(/sanitizeFromSchema\(raw, 'host'\)/.test(host), '宿主 sanitizeSettings 必须委托给 schema');
       const handWritten = (host.match(/clampNum\(o\.|clampStr\(o\./g) || []).length;
       assert.equal(handWritten, 0,

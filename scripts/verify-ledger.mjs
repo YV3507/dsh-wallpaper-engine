@@ -62,9 +62,11 @@ const EVIDENCE = {
       return h.includes("sanitizeFromSchema(raw, 'host')") && !/clampNum\(o\./.test(h);
     }],
     ['客户端改为派生', () => {
+      // `serializeSelection` 已随持久化层抽到 src/persistence.js（P2-9 后半）⇒ 证据按文件分源。
       const c = read('src/client.js');
-      return c.includes('sanitizeFromSchema(o, "client")') && c.includes('serializeSettings(selection)')
-        && !/clampNum\(o\./.test(c);
+      const p = read('src/persistence.js');
+      return c.includes('sanitizeFromSchema(o, "client")') && p.includes('serializeSettings(selection)')
+        && !/clampNum\(o\./.test(c) && !/clampNum\(o\./.test(p);
     }],
     ['schema 已被内联进产物', () => read('lib/client.js').includes('const KINDS = {')],
   ],

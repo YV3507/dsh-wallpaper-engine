@@ -143,15 +143,7 @@ function sanitizeSettings(o) {
   return sanitizeFromSchema(o, "client");
 }
 
-function readPersisted() {
-  try {
-    const raw = localStorage.getItem(SETTINGS_KEY);
-    if (!raw) return { id: "", ...DEFAULTS };
-    return sanitizeSettings(JSON.parse(raw));
-  } catch {
-    return { id: "", ...DEFAULTS };
-  }
-}
+// `readPersisted()` 已随持久化层抽到 src/persistence.js（store 初始化仍在下面调用它）。
 
 // ── Shared selection store (React + DOM layer share it) ────────────────────
 const selection = {
@@ -287,137 +279,10 @@ function useStore() {
   return selection;
 }
 
-// 持久化白名单（宿主文件 + localStorage 缓存携带的字段）：同样派生自 schema。
-// id 放在最前，保持既有形状；键集由 schema 决定，两端一致。
-function serializeSelection() {
-  return serializeSettings(selection);
-}
-
-// Host persistence: debounced PUT to /wallpaper-engine/settings (same origin;
-// the host writes ~/.dsh-wallpaper-engine/config.json — port-independent).
-// localStorage stays a synchronous-read cache + migration source + rollback,
-// never the source of truth — and its WRITE is debounced together with the
-// PUT: slider drags used to trigger a full JSON.stringify + synchronous
-// localStorage write on every input tick (dozens per drag). Timers go through
-// window.* (guarded) like the rotation timer below, so headless verify
-// environments without a timer facility fall back to an immediate write.
-let persistTimer = null;
-// Dirty flag: a failed/非-2xx PUT must not be silently dropped — the host file
-// would go stale and the NEXT load (host = source of truth) would roll the
-// user's settings back. Retried on the next persistSelection or when the page
-// becomes visible again.
-let persistDirty = false;
-// Write counter: loadPersisted() snapshots it before its GET and skips the
-// host→selection merge when the user edited settings while the GET was in
-// flight (the user's pending PUT is newer than the host's answer).
-let persistWrites = 0;
-function writeLocalCache() {
-  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(serializeSelection())); } catch { /* ignore */ }
-}
-async function pushPersisted() {
-  try {
-    const res = await apiFetch(SETTINGS_URL, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(serializeSelection()),
-      keepalive: true, // let a pending flush survive pagehide/close
-    });
-    // 「非 2xx」与「宿主不可达」对调用点是同一件事（都要重试）⇒ 这里只看 ok。
-    persistDirty = !res.ok;
-  } catch {
-    // 只剩 serializeSelection() 自己抛这一条路径（apiFetch 不抛，见其契约）。
-    persistDirty = true;
-  }
-}
-function flushPersist() {
-  persistTimer = null;
-  writeLocalCache();
-  pushPersisted();
-}
-function schedulePersist() {
-  if (persistTimer) return;
-  if (typeof window === "undefined" || typeof window.setTimeout !== "function") {
-    flushPersist();
-    return;
-  }
-  persistTimer = window.setTimeout(flushPersist, 200);
-}
-
-// Flush a pending write when the page goes away (tab close / navigate), and
-// retry a failed PUT when the page becomes visible again.
-// 监听器改为具名函数, 由 apply 的 ctx.effect 注册/注销: 模块作用域注册的监听器
-// 每次 client-plugin 重载/HMR 重新求值 bundle 都会再叠一对, 且永远无法移除。
-function onPageHideFlush() {
-  if (persistTimer && typeof window.clearTimeout === "function") {
-    window.clearTimeout(persistTimer);
-    flushPersist();
-  }
-}
-function onVisibilityResyncPersist() {
-  if (!document.hidden && persistDirty && !persistTimer) schedulePersist();
-}
-
-function persistSelection() {
-  persistWrites++;
-  schedulePersist();
-}
-
-// ── Host-sourced settings (load once at startup) ────────────────────────────
-// GET /wallpaper-engine/settings: the host file is the source of truth (it
-// survives DSH Desktop's random --port 0 restarts and browser data clears;
-// localStorage is origin-scoped). Migration: when the host has nothing yet but
-// localStorage does, upload it once so the host becomes the truth. On any host
-// failure fall back to localStorage so a plain web load keeps working.
-async function loadPersisted() {
-  let hostSettings = null;
-  let hostOk = false;
-  // Race guard: if the user edits settings while this GET is in flight, the
-  // response is STALE (their pending PUT is newer) and must not overwrite the
-  // live selection.
-  const writesAtStart = persistWrites;
-  try {
-    const res = await apiJson(SETTINGS_URL);
-    // ⚠️ `!res.error` 不能省（不变量）：**"宿主回了 200 但体不是 JSON" 与 "宿主没有存档"
-    // 必须分开** —— 前者按"宿主不可达"回落本地，后者要把本地副本 PUT 上去；只看 `ok` 会把
-    // 前者读成后者（多一次写盘、语义也不同）。`error` 是 apiFetch 为"成功但解析失败"留的信号。
-    if (res.ok && !res.error) {
-      const data = res.data;
-      hostSettings = data && data.settings;
-      // 侧栏玻璃控制组只在 dsh-better-sidebar 已安装且启用时显示（host 检测）。
-      selection.sidebarPresent = !!(data && data.betterSidebar);
-      hostOk = true;
-    }
-  } catch { /* 宿主不可达：apiFetch 已不抛，这里兜住赋值/消毒期的异常 */ }
-
-  const stale = persistWrites !== writesAtStart;
-  if (hostOk && hostSettings && typeof hostSettings === "object") {
-    // Host is the truth: apply it and refresh the local cache copy — unless the
-    // user edited settings during the fetch (their write wins).
-    if (!stale) {
-      Object.assign(selection, sanitizeSettings(hostSettings));
-      writeLocalCache();
-    }
-  } else if (hostOk) {
-    // Host has nothing saved yet: migrate any existing localStorage data once.
-    // JSON.parse MUST be guarded here: a corrupted localStorage payload used to
-    // reject loadPersisted(), which broke the loadPersisted().then(loadInventory)
-    // boot chain and left the picker stuck on "扫描 Wallpaper Engine…" forever.
-    const local = localStorage.getItem(SETTINGS_KEY);
-    let parsedLocal = null;
-    try { parsedLocal = local ? JSON.parse(local) : null; } catch { /* corrupted cache: treat as absent */ }
-    if (!stale) Object.assign(selection, parsedLocal ? sanitizeSettings(parsedLocal) : { id: "", ...DEFAULTS });
-    if (parsedLocal) pushPersisted();
-  } else {
-    // Host unreachable (route missing / static load): localStorage fallback.
-    if (!stale) Object.assign(selection, readPersisted());
-  }
-
-  // Settings applied (host or fallback). Mark loaded so gated UI — the one-time
-  // notice — knows the persisted noticeSeen is final before it renders.
-  selection.hostLoaded = true;
-  applyEffects();
-  emit();
-}
+// ── 设置持久化（debounce / 迁移 / 重试 / 启动加载）────────────────────────────
+// 这一族的实现已抽到 **src/persistence.js**（约 140 行）。构建期内联回本作用域，
+// 调用点（persistSelection / flushPersist / onPageHideFlush / …）无需改动。
+// 契约：8 个出向依赖的清单、入口与不变量 —— 见该文件头。
 
 // Concurrency guard: 刷新 / 上传完成 / 移除 / 改目录 all call loadInventory(),
 // and two overlapping requests used to resolve in arbitrary order — an older,
@@ -4287,12 +4152,7 @@ function apply(ctx) {
         cancelLiveFrameBackfill(); // 卸载后不再发 HEAD/PUT（评审：此前会漏一次）
         stopLiveWatch();
         abortTranscodeUpgrade(); // 含 clearUpgradePoll + AbortController.abort（否则卸载后 500ms 轮询永久泄漏）
-        // 模块级 persistTimer 不属于 fiber: 卸载时清掉, 否则 200ms 后仍会跑一次
-        // flushPersist()（对已卸载的插件写入状态）。
-        if (persistTimer && typeof window !== "undefined" && typeof window.clearTimeout === "function") {
-          window.clearTimeout(persistTimer);
-          persistTimer = null;
-        }
+        cancelPendingPersist(); // 模块级 persistTimer 不属于 fiber：不取消则 200ms 后仍会写一次
         // media-info 探测的 AbortController 也要断开 (token 可能永远不再变化)
         abortMediaInfoProbe();
         // sceneVideo 时序补拉: 卸载后不该再拉 inventory (也不该钉住本次求值的闭包)

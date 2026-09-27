@@ -85,6 +85,12 @@ const INLINE_MODULES = [
       'function removeFontStyles()'],
   },
   {
+    file: 'src/persistence.js',
+    why: '设置持久化层：debounce 写 / 脏标记重试 / 宿主→本地迁移 / 在途 GET 竞态守卫',
+    markers: ['function readPersisted()', 'function serializeSelection()', 'function pushPersisted()',
+      'function schedulePersist()', 'async function loadPersisted()', 'function cancelPendingPersist()'],
+  },
+  {
     file: 'src/panel-tabs.js',
     why: '面板六个页签的渲染器（wallpaper/appearance/audio/mascot/effects/advanced）—— 显式 ctx 取外界',
     markers: ['function renderWallpaperTab(ctx)', 'function renderAppearanceTab(ctx)',
