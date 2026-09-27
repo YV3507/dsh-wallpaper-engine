@@ -272,6 +272,28 @@ if (!process.argv.includes('--release')) {
   }
 }
 
+// ── ⑦ 安装期脚本不得引用未随包发布的文件（否则每个用户"装完就炸"）──────────────
+// npm 只为**依赖**运行 `preinstall` / `install` / `postinstall`；`prepare` / `prepublishOnly`
+// 等是**开发期**脚本，消费者装包时不会跑。于是"引用 scripts/ 的安装期脚本"= 发布出去之后
+// 每个用户 install 直接失败 —— 而 `files` 里根本没有 `scripts/`。
+section('⑦ 安装期脚本不得引用未随包发布的文件');
+{
+  const INSTALL_HOOKS = ['preinstall', 'install', 'postinstall'];
+  const DEV_ONLY = ['prepare', 'prepublishOnly', 'prepack', 'postpack', 'prepublish',
+    'build', 'verify', 'verify:all', 'verify:bridge', 'verify:e2e', 'smoke'];
+  const unshippedRefs = (cmd) => [...String(cmd)
+    .matchAll(/(?:^|\s)((?:scripts|src|test|docs|\.test-cache)\/[\w./-]+)/g)]
+    .map((m) => m[1]).filter((p) => !publishSet(p));
+  const offending = Object.entries(pkg.scripts || {})
+    .filter(([name, cmd]) => unshippedRefs(cmd).length > 0 && !DEV_ONLY.includes(name));
+  check('引用未随包发布文件的脚本只能是开发期脚本', offending.length === 0,
+    offending.map(([n, c]) => n + ' → ' + unshippedRefs(c).join(',')).join('; ')
+    || Object.keys(pkg.scripts || {}).length + ' 个脚本全部合规');
+  check('负对照：安装期脚本引用 scripts/ 会被判出',
+    INSTALL_HOOKS.includes('postinstall') && unshippedRefs('node scripts/thing.mjs').length === 1
+    && unshippedRefs('node lib/index.js').length === 0);
+}
+
 console.log('');
 if (failed) { console.log(`PACKAGE PUBLISH CHECKS FAILED — ${failed} failed`); process.exit(1); }
 console.log('ALL PACKAGE PUBLISH CHECKS PASSED');
