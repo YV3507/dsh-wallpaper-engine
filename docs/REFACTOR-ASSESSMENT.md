@@ -166,6 +166,11 @@
 
 - **文本级重复极低**：8 行以上重复窗口仅 26 簇、约 8.4k 归一化字符（**<1%**）；**20 行以上 0 簇**。
   ⇒ 不存在"复制粘贴式"的技术债，**不要按"去重复"立项**。
+  ⚠️ **该结论是"浏览器半边"的口径，不适用于 `lib/**`**（§3.6 / **P3-20**）：按其自身方法复算，
+  `src/**` 确实是 8 行 16 簇 / 0.8%、20 行 **0 簇**，但 `lib/**` 是 **103 簇 / 9.6%**、**20 行 28 簇**。
+  §1 第 1 点那句"代码复制率不足 1%"因此也需要按作用域限定。**反例是活的**：PKG/TEX 读取器在
+  `lib/pkg-extract.js` 与 `lib/scene-manifest.js` 各有一份、且**都在活路径上**，其中一份还已经
+  漂到**少了不受信输入的分配上限**（**P3-17**，安全相关）。
 - **结构级冗余**（详见 §4 与 §6.10）：
 
 | 项 | 体量 | 证据 |
@@ -347,7 +352,10 @@
 2. **§3.4 的"实际 34 条路由"是旧数**：现在运行时注册 **31** 条（同一行的引用行号亦已漂移）。
    该句随之更正。
 
-**审计结论**：**存在未声明 / 未归口的需求**，共 12 条，已归口为 §5 的 **P3-1 … P3-12**。
+**审计结论**：**存在未声明 / 未归口的需求** —— 共 **22** 条，已归口为 §5 的 **P3-1 … P3-22**。
+其中来自"守卫无牙"审计 4 条（P3-13…16）、"结构重复"审计 5 条（P3-17…21）、客户端/文档自查 12 条
+（P3-1…12）、本轮 CI 实况 1 条（P3-22）。**两条会直接误导 P2-12 的执行**：P3-18（阶段 1 会为
+死代码新建一个家）与 P3-19（机器编码的退出条件要求删掉一个活模块）。
 
 ---
 
@@ -431,6 +439,14 @@
 | **P3-14** | **判据会静默变空（`.every()` over 空集）**：① `verify-theme-layer.mjs:276` 的 G2 不变量对 `filter(...)` 结果 `.every(...)`，而过滤集今天 4 条且**没有下限断言** —— 把四个角色全改成固定 px（正是 G2 声称机器钉住的那个回归）⇒ 过滤集为空 ⇒ `.every()` 恒真 ⇒ **绿**；同一表达式里的 `.some(r2 => r2.id === r.id)` 还是恒真式。② `verify-softrender.mjs:398` 同形（整体删掉 sidebar/dialog 回落规则不会被抓，因为 E1 只要求别处还有 ≥5 条）。③ `verify-package-files.mjs:157` P5 的扫描集来自 `pkg.scripts`，**无下限断言**（`verify`/`smoke` 改名即静默缩到 0）。④ `verify-scene.mjs:699` 把 `check(name, true, 'skipped on win32')` **硬编码为通过**，而 CI 就跑在 `windows-latest` ⇒ 有牙的 POSIX 那一半（500/unlink-failed/重试）**在 CI 里从不执行** | 守卫：每处过滤集补 `length >= 1`（或 `=== 已知条数`）；把"平台跳过"从"通过"里分出来单独计数 | **高**（P3-14①）/ 中 | ⬜ |
 | **P3-15** | **断言被写法或环境短路**：① **`verify-ledger.mjs:120` 的解析器认不出 F 轨** —— 正则 `((?:P[0-2]\|F)-\d+)` 匹配 `F-1` 而账本行写的是 `\| **F1** \|` ⇒ `EVIDENCE.F1/F2` 是**死代码**，而它仍打印"可核 **11** 类条目"（实际只有 9 类被查到）⇒ **F 轨状态被谎报也能全绿**。② `verify-api-client.mjs:128` 的"无 fetch 可用时不抛"写成 `... || typeof fetch === 'function'` ⇒ 在 Node ≥18 / CI 22 上**恒真**。③ `verify-comment-discipline.mjs:101` 的"这四个退役键不存在"只读 `lib/index.js` + `src/client.js`，而 P1-5 之后设置键住在 `lib/settings-schema.js`、UI 住在 `src/panel-tabs.js` / `src/persistence.js` ⇒ 5 个该看的地方只看 2 个。④ `verify-client.mjs:250` 把 `apply(ctx)` 的抛错 `catch` 后只 `console.log`，`thrown` 无人断言 | 规则：**同一事实只有一个真源，且"被查集合"要有下限**；跨文件断言按**所属文件**分源（本仓已有先例）／守卫：修 F 轨正则 + 补"每个 EVIDENCE 键都被本轮用到"断言；去掉 `\|\| typeof fetch` 逃生口；退役键扫描扩到全部落点；`apply` 抛错改为硬断言 | **高**（P3-15①）/ 中 | ⬜ |
 | **P3-16** | **"负对照"里有恒真式，名不副实**：多处"负对照"是常真表达式（`'x WE_SCENE_PLAYER_HTML y'.includes('…')`、`'x 秡 y'.includes('秡')`、`!routes.some(r => r.src === 'lib/routes/nope.js')`、`!/file:\s*'src\/not-registered\.js'/.test(build)`、`['@shaderfrog/glsl-parser'].every(d => !['node:fs'].some(…))` 等 10 余处）—— 单条不会放过回归，但它**推翻了"每条都配负对照"这一纪律声明**，且会掩盖主判据已经坏掉。另有 ① `verify-route-index.mjs:44` 的 `/零提及/.test(text)` 只命中索引自己的**图例行**、从不看路由行；② `verify-client.mjs:1036` 的键集恒等式两侧都遍历 `Object.keys(KINDS)`（同源比较，少一个键两边一起少）；③ golden 夹具的 `cases[].client` 列是**死数据**（没有任何断言读它） | 规则：负对照必须是"把坏输入喂给**同一个**判据函数并断言它判坏"（本仓已有正确范式：`verify-package-files` P2、`verify-route-index` ④）／守卫：逐个替换恒真式；`verify-route-index` 的零提及断言改为**读索引里那一行的内容**；键集恒等式补"与 DEFAULTS 的键集对齐"这条非同源断言 | 低（但会掩盖高） | ⬜ |
+
+| **P3-17** | **同一套 PKG/TEX 读取器有两份实现，且**两份都在活路径上**（未声明）。`lib/pkg-extract.js` ↔ `lib/scene-manifest.js`：函数级相似度 **1.00** 的有 `probeCompressedEntry`(`:220-236` vs `:367-388`) `readMipmap` `buildColorPalette` `decodeColorBlocks` `decodeDxt3` `decodeDxt5` `pkgSceneAccess`，`lz4DecompressBlock` 0.98；`git diff --no-index --ignore-all-space --ignore-blank-lines` 命中 **1,170 行**（保守窗口口径 708 行）。两边都活：`/scene-audio` 走 `pkg-extract.js`，`/scene-video` 走 `scene-manifest.js`（`lib/index.js:66` → `:3891-3893`、`:798-800`）。⚠️ **已经漂了，且漂在安全方向**：`576fbaa`（创建 `scene-manifest.js` 的那次复制）只给**副本**加了不受信输入的分配上限（`MAX_PKG_ENTRY_BYTES` 512MB `MAX_DECOMPRESSED_BYTES` 256MB `MAX_TEX_DIMENSION` `MAX_TEX_PIXELS`，见其文件头"Workshop files are untrusted"），`pkg-extract.js` 那份**没有** ⇒ 同一个 `scene.pkg` 在 `/scene-video` 被拒、在 `/scene-audio` 却能驱动 ~2GiB 的 `new Uint8Array`。**没有任何守卫比较两份**（`grep MAX_DECOMPRESSED_BYTES\|MAX_PKG_ENTRY_BYTES scripts/*.mjs` → 0 命中；守卫是分开的：`verify-scene.mjs` 打 A 份、`verify-mdl-fix.mjs` 打 B 份） | 结构：一个 `lib/pkg-read.js` 供两边 import，上限成为**它的**常量／规则：同一容器只许一份解析实现，上限只有一处定义／守卫：断言导出点唯一（两份不再各自实现）+ 上限常量唯一 + 同一夹具对 A/B 两条路由给出一致裁决 | **高**（安全相关的不一致） | ⬜ |
+| **P3-18** | **P2-12 阶段 1 的原计划会"给死代码新建一个家"**：§6.13 阶段 1 要把 `readPkg` / `parseVec3` **迁出** `we-renderer/` 到拟新建的 `lib/pkg-read.js` / `lib/scene-math.js`。但实测 `lib/index.js:67` 的 `readPkg` import **从未被调用**（全文件只有那一处提到该名字；唯一真实调用点在死链里）⇒ 该迁移**没有活的消费者**，只会把第三份（且与另两份语义**不同**：容两种头布局、无 LZ4 块链支持）的 PKG 解析器搬进活目录。正确动作是**删掉那行 import**，而不是迁移 | 结构：删 `lib/index.js:67` 的死 import（归 P2-12 阶段 1）／规则：迁移必须有人消费；"为将来留着"不算消费者／守卫：无（删掉即消解） | 低 | ⬜ |
+| **P3-19** | **P2-12 的机器编码退出条件要求删掉一个活模块**：`scripts/verify-ledger.mjs:111` 把 P2-12 完成写成 `!has('lib/scene-manifest.js')`（**整文件不许存在**），但该文件是 `/scene-video`（`lib/index.js:66` → `:3891-3893`）与库存视频探测（`:798-800`）的**活依赖**；§6.13 的散文更窄且正确（只并入 ~640 行的无引用构建器）⇒ 执行者会二选一：**弄坏 `/scene-video`**，或为了满足断言把活文件删掉。另：该文件实测有 **40 个不可达函数 / ~1,908 行**（活可达只有 11 函数 / 347 行），比 §6.13 声明的 692 行多出约 1,216 行（多为与 `pkg-extract.js` 重复的死 TEX/DXT/PNG/MDL 代码） | 结构：把断言收窄为"manifest/resource 构建器 + 图像链 + `we-renderer/` 已删除"／守卫：**新增**"`lib/index.js` 仍在 import `extractSceneVideo`"与"共享 PKG 读取器存在"两条，并显式说明 `parsePkg`/`readPkgEntry` **存活一份（共享）**而不是随文件删除 | **高**（会诱导执行者删活代码） | ⬜ |
+| **P3-20** | **§3.2 的复制度结论是"半边口径"**：§3.2 称"20 行以上 **0 簇** ⇒ 不存在复制粘贴式技术债"，§1 第 1 点据此写"代码复制率不足 1%"。按其自身方法复算：8 行窗口在**浏览器半边**（`src/**`）确实是 16 簇 / 0.8%、20 行 **0 簇** ✅；但在 **`lib/**`** 上是 **103 簇 / 9.6%**、**20 行 28 簇**（954 行 / 2.3%）⇒ 那个数字是**浏览器半边的**，却被当成全仓不变量，而 §3.1 恰指出复杂度集中在宿主半边 | 结构：无／规则：度量必须写明**口径与作用域**；跨半边结论不得由单边推得／守卫：§8 的度量条目补上"作用域"这一列 | 低 | ⬜ |
+| **P3-21** | **跨半边的"词汇表"没有单一真源也没有守卫**：① **上传 MIME** —— 客户端 `src/client.js:1108` 的 `UPLOAD_TYPES` 与自定义画面接受列表（`src/client.js:4717`、`src/panel-tabs.js:1058`）vs 宿主 `lib/index.js:2043` 的 `UPLOAD_EXT` / `:2049` 的 `CUSTOM_FRAME_EXT`，**没有任何守卫提到这些名字**（`grep UPLOAD_TYPES\|UPLOAD_EXT\|video/mp4 scripts/*.mjs` → 0 命中）⇒ 单边加一种类型 = 选择器收下一个宿主映射不出扩展名的文件（静默失败）。② **`BASE = '/wallpaper-engine'`** 在 `lib/index.js:79` 与 `src/api-client.js:35` 各一份，而唯一相关守卫（`verify-api-client.mjs:80-84`）拿 `apiUrl(...)` 与**自己 import 的** `BASE` 比 —— 对"host 与 client 一致"这件事是同源比较 | 结构：MIME↔扩展名表进共享（构建期内联）模块，或由宿主端点派生／规则：跨半边契约必须单一真源（同 P1-5 的设置键）／守卫：一条**读两边源码比对**的等式断言（不是 import 一边），并为 MIME 表补覆盖断言 | 中 | ⬜ |
+
+| **P3-22** | **有一条守卫会偶发假红（"狼来了"）**：本轮 CI 上 `verify-scene.mjs` 的「真 socket：超限 PUT 收到 413（而不是连接被掐断）」实测 `status=0 why=req-error:ECONNRESET` —— **同一棵树 rerun 即绿**（run `36304341268` 失败 → rerun 成功；本地 `verify:all` 亦两次绿）⇒ 该用例**时序/环境敏感**：应答尚未刷出时连接被重置就被判不合格。假红会让"红 = 真的坏了"这条前提失效，进而养成"重跑一下"的习惯，**把真有牙的守卫一起贬值** | 守卫：该用例接受两种合法结果（收到 413，**或**在 413 刷出前连接被重置）并保留一条必红的负对照；或把它移出 CI 关键路径／规则：偶发红按缺陷处理，不得靠重跑消化 | 中 | ⬜ |
 
 ### F —— 并行**功能**轨道：字体系统大改（**非重构项**；设计要点见 §9）
 
