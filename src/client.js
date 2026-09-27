@@ -5920,13 +5920,13 @@ const officialColorOf = (tokens) => {
               ),
               React.createElement("tbody", null,
             COMPONENT_FONT_TARGETS.map((target) => {
-              const c = sel.componentFonts[target.prefix] || {};
+              const c = sel.componentFonts[target.id] || {};
               // 未填时**直接显示 DSH 当前默认值**（启动自探测时顺带读回的 computed 值）。
               const d = (typeof componentFontDefaults === "function"
-                ? componentFontDefaults()[target.prefix] : null) || {};
+                ? componentFontDefaults()[target.id] : null) || {};
               const famKey = FONT_FAMILY_LABELS.reduce(
                 (acc, f) => (acc === "" && c.family !== undefined && fontFamilyStack(f.v) === c.family ? f.v : acc), "");
-              return React.createElement("tr", { key: target.prefix },
+              return React.createElement("tr", { key: target.id },
                 React.createElement("td", null, ctlText(target.label, target.group + " · 走 " + target.route)),
                 React.createElement("td", null, React.createElement("input", {
                   type: "number",
@@ -5935,7 +5935,7 @@ const officialColorOf = (tokens) => {
                   min: 6,
                   max: 40,
                   style: { width: "44px" },
-                  onChange: (e) => onComponentFont(target.prefix, "size", e.target.value),
+                  onChange: (e) => onComponentFont(target.id, "size", e.target.value),
                   title: target.label + "：字号 px（清空即回 DSH 默认" + (d.size ? " " + d.size + "px" : "") + "）",
                 })),
                 React.createElement("td", null, React.createElement("input", {
@@ -5946,13 +5946,13 @@ const officialColorOf = (tokens) => {
                   max: 900,
                   step: 100,
                   style: { width: "54px" },
-                  onChange: (e) => onComponentFont(target.prefix, "weight", e.target.value),
+                  onChange: (e) => onComponentFont(target.id, "weight", e.target.value),
                   title: target.label + "：字重 100–900（清空即回 DSH 默认" + (d.weight ? " " + d.weight : "") + "）",
                 })),
                 React.createElement("td", null, React.createElement("select", {
                   value: famKey,
                   style: { width: "96px" },
-                  onChange: (e) => onComponentFamily(target.prefix, e.target.value),
+                  onChange: (e) => onComponentFamily(target.id, e.target.value),
                   title: target.label + "：字体族（跟随 = 不覆盖，用 DSH 默认）",
                 },
                   React.createElement("option", { value: "" }, "跟随"),

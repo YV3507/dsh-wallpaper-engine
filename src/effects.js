@@ -122,19 +122,23 @@ let componentFontProbe = null;
 let componentFontProbeAt = 0;
 function componentFontAvailability() {
   const stale = componentFontProbe !== null
-    && componentFontProbe.prefixes.length < COMPONENT_FONT_TARGETS.length
+    && componentFontProbe.ids.length < COMPONENT_FONT_TARGETS.length
     && Date.now() - componentFontProbeAt > 2000;
   if (componentFontProbe === null || stale) {
-    const prefixes = probeComponentTargets(document);
+    const ids = probeComponentTargets(document);
     // 顺带把"当前 DSH 默认值"读回来：面板直接显示它（而不是"官方"占位字样）——
-    // 取该前缀命中的第一个元素读 computed 的字号/字重/字族。探测只做一次。
+    // 取该组件作用域命中的第一个元素读 computed 的字号/字重/字族。探测只做一次。
+    // ⚠️ 两个组件共用同一个模块前缀时（代码块 / 终端块都是 `block`），两行会读到**同一个**
+    //    元素 ⇒ 显示值可能相同。作用域选择器只能由 componentScopeSelector 给出（id→prefix
+    //    的映射只有一处），这里不得自己拼前缀。
     const defaults = {};
-    for (const prefix of prefixes) {
+    for (const id of ids) {
       try {
-        const el = document.querySelector('[class*="_' + prefix + '_"]');
+        const scope = componentScopeSelector(id);
+        const el = scope ? document.querySelector(scope) : null;
         if (!el) continue;
         const cs = getComputedStyle(el);
-        defaults[prefix] = {
+        defaults[id] = {
           size: Math.round(parseFloat(cs.fontSize) || 0) || 0,
           weight: parseInt(cs.fontWeight, 10) || 0,
           family: cs.fontFamily || "",
@@ -143,7 +147,7 @@ function componentFontAvailability() {
     }
     componentFontProbeAt = Date.now();
     componentFontProbe = {
-      prefixes,
+      ids,
       defaults,
       hasToken: (t) => {
         try { return getComputedStyle(document.body).getPropertyValue(t).trim() !== ""; } catch { return false; }
@@ -169,8 +173,8 @@ function applyComponentFonts() {
   try {
     const cfg = selection.componentFonts && typeof selection.componentFonts === "object"
       ? selection.componentFonts : {};
-    const { prefixes, hasToken } = componentFontAvailability();
-    const css = buildComponentCss(cfg, prefixes) + buildDslBlocks(cfg, prefixes, hasToken);
+    const { ids, hasToken } = componentFontAvailability();
+    const css = buildComponentCss(cfg, ids) + buildDslBlocks(cfg, ids, hasToken);
     const st = fontScopeEl();
     if (st.textContent !== css) st.textContent = css;
   } catch { /* 组件字体是增强：任何异常都不该影响主路径 */ }

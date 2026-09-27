@@ -3,11 +3,19 @@
  *
  * 这条通道抓的是 DSH 的 CSS-module 类名（`_模块_哈希_行`），**是打包器产物而非官方 API**
  * ⇒ 守卫的重点不是"功能对不对"，而是"**不许越界**"：
- *   · 选择器只能是 `body [class*="_<白名单前缀>_"]` 这一种形态（不许裸类名/标签/`:has()`/祖先关联）；
- *   · 只写白名单前缀、只写三个字体属性；
- *   · 不许把**哈希**写进代码（写死哈希 = DSH 一升级就静默失效）；
+ *   · 选择器只能是 `body [class*="_<白名单模块名>_"]` 这一种形态（不许裸类名/标签/`:has()`/祖先关联）；
+ *   · 选择器**只能由组件 id 生成**（模块名不许从外部传进来），且只写白名单内的组件；
+ *   · 只写三个字体属性；不许把**哈希**写进代码（写死哈希 = DSH 一升级就静默失效）；
+ *   · **`id` 与模块名分离**：`id` 是设置键（稳定），模块名是实测产物（会变）；
+ *   · **泛模块名只许出现在 `route: 'hooks'` 通道**：那里写的是自定义属性，写在非消费方元素上
+ *     是惰性的；写真实属性的通道用泛模块名会误伤同名元素 ⇒ `buildComponentCss` 必须跳过 hooks；
  *   · 未命中的组件整条不启用（自探测降级）；
  *   · 空配置不生成任何规则（**官方值作初始值**：不设置 = 回官方）。
+ *
+ * ⚠️ **覆盖缺口（已知、不假装有牙）**：模块名的**真伪**（它是否真的存在于 DSH 产物里）
+ * 无法在这里判定 —— 守卫读不到 DSH 安装目录。它只能靠"实测记录 + 启动自探测降级"兜住：
+ * 名字写错时那一行只是静默不生效。改动白名单时**必须**照 src/font/components.js 文件头
+ * 记的口径重新实测。
  *
  * Usage:  node scripts/verify-component-fonts.mjs
  */
@@ -28,7 +36,7 @@ const check = (name, ok, detail) => {
 const section = (t) => console.log('\n' + t);
 const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
 
-const ALL = COMPONENT_FONT_TARGETS.map((t) => t.prefix);
+const ALL = COMPONENT_FONT_TARGETS.map((t) => t.id);
 const MARKDOWN = 'markdown';
 
 // ── ① 选择器形态（唯一合法模板） ────────────────────────────────────────────
@@ -62,18 +70,26 @@ section('② 白名单与前缀/属性边界');
 }
 
 // ── ③ 自探测降级 ────────────────────────────────────────────────────────────
-section('③ 自探测：未命中整条不启用');
+section('③ 自探测：未命中整条不启用（按模块名采样，返回组件 id）');
 {
   const fake = (hits) => ({ querySelectorAll: (sel) => ({ length: hits.some((h) => sel.includes('_' + h + '_')) ? 1 : 0 }) });
-  const hit = probeComponentTargets(fake(['markdown', 'table']));
-  check('只返回命中的前缀', JSON.stringify(hit.slice().sort()) === JSON.stringify(['markdown', 'table']), hit.join(' '));
+  const hit = probeComponentTargets(fake(['markdown', 'tableScroll']));
+  check('只返回命中的组件 id', JSON.stringify(hit.slice().sort()) === JSON.stringify(['markdown', 'table']), hit.join(' '));
+  // 代码块与终端块共用模块名 `block` ⇒ 命中一个即两条都启用（各自的钩子仍互不干扰）
+  const shared = probeComponentTargets(fake(['block']));
+  check('共用模块名的两个组件一起命中', JSON.stringify(shared.slice().sort()) === JSON.stringify(['codeBlock', 'terminal']), shared.join(' '));
   const none = probeComponentTargets(fake([]));
   check('全不命中 ⇒ 空数组（打包器改名时整条降级）', none.length === 0);
   check('没有 document 也不炸', probeComponentTargets(null).length === 0);
   const css = buildComponentCss({ markdown: { size: 15 }, table: { size: 14 } }, ['markdown']);
-  check('只给命中的组件生成规则', css.includes('_markdown_') && !css.includes('_table_'));
+  check('只给命中的组件生成规则', css.includes('_markdown_') && !css.includes('_tableScroll_'));
   check('负对照：全命中时两个都该生成',
-    buildComponentCss({ markdown: { size: 15 }, table: { size: 14 } }, ['markdown', 'table']).includes('_table_'));
+    buildComponentCss({ markdown: { size: 15 }, table: { size: 14 } }, ['markdown', 'table']).includes('_tableScroll_'));
+  // 这条是"泛模块名可以共用"的前提：真实属性通道必须把 hooks 组件整体排除
+  check('buildComponentCss 绝不写 hooks 通道的组件（否则误伤同名的搜索块 / 网页块）',
+    buildComponentCss({ codeBlock: { size: 20 }, terminal: { size: 20 } }, ['codeBlock', 'terminal']) === '');
+  check('负对照：同一次调用里非 hooks 组件照常生成（判据有牙）',
+    buildComponentCss({ markdown: { size: 20 } }, ['markdown']).includes('font-size: 20px'));
 }
 
 // ── ④ "官方值作初始值"：空配置不生成 ────────────────────────────────────────
@@ -111,15 +127,33 @@ section('⑤ 源码不变量');
   check('不碰 katex 与 @font-face', !/katex/i.test(code) && !/@font-face/.test(code));
   check('负对照：哈希判据对真实哈希类名有牙', /_[A-Za-z0-9]+_[a-z0-9]{5,}_\d+/.test('_wordmark_u7vgf_31'));
   check('属性白名单就是三项', JSON.stringify(COMPONENT_FONT_PROPS) === JSON.stringify(['font-size', 'font-weight', 'font-family']));
-  // 棘轮：首期口径 3–5 个模块。**上限就是棘轮** —— 想加模块必须同时改这条断言（有意动作），
-  // 并解释新前缀的命中面（避免放进 `label`/`tab` 这类跨模块重名的泛前缀）。
-  check('首期白名单 3–5 个模块（上限即棘轮）',
+  // 棘轮：首期口径 3–5 个组件。**上限就是棘轮** —— 想加组件必须同时改这条断言（有意动作），
+  // 并按 components.js 文件头记的口径**实测**模块名，不许按"组件叫什么"猜。
+  check('首期白名单 3–5 个组件（上限即棘轮）',
     COMPONENT_FONT_TARGETS.length >= 3 && COMPONENT_FONT_TARGETS.length <= 5, String(COMPONENT_FONT_TARGETS.length));
-  check('不含跨模块重名的泛前缀（label/tab/input/content/item/row）',
-    !COMPONENT_FONT_TARGETS.some((t) => ['label', 'tab', 'input', 'content', 'item', 'row'].includes(t.prefix)),
-    COMPONENT_FONT_TARGETS.map((t) => t.prefix).join(' '));
-  check('每个白名单项都有 label/group/probe',
-    COMPONENT_FONT_TARGETS.every((t) => t.label && t.group && t.probe));
+  check('组件 id 唯一（id 是设置键：重复 = 两行抢同一份配置）',
+    new Set(COMPONENT_FONT_TARGETS.map((t) => t.id)).size === COMPONENT_FONT_TARGETS.length,
+    COMPONENT_FONT_TARGETS.map((t) => t.id).join(' '));
+  check('每个白名单项都有 id/label/group/prefix 且 route 合法',
+    COMPONENT_FONT_TARGETS.every((t) => t.id && t.label && t.group && t.prefix
+      && ['tokens', 'hooks', 'props'].includes(t.route)));
+  // 泛模块名（跨模块重名）只许出现在 hooks 通道：那里写的是自定义属性，非消费方元素上是惰性的。
+  // 写真实属性的通道用了泛名 ⇒ 会打到同名的别的块上（搜索块 / 网页块），必须红。
+  const GENERIC = ['label', 'tab', 'input', 'content', 'item', 'row', 'block'];
+  const genericOk = COMPONENT_FONT_TARGETS.every((t) => !GENERIC.includes(t.prefix) || t.route === 'hooks');
+  check('泛模块名只许出现在 hooks 通道（写真实属性的通道不得用）', genericOk,
+    COMPONENT_FONT_TARGETS.map((t) => t.id + ':' + t.prefix + '/' + t.route).join(' '));
+  check('负对照：把泛模块名挪到非 hooks 通道会被判出',
+    ![...COMPONENT_FONT_TARGETS.filter((t) => t.id !== 'codeBlock'),
+      { id: 'x', prefix: 'block', route: 'tokens' }].every((t) => !GENERIC.includes(t.prefix) || t.route === 'hooks'));
+  // 一个模块名可以被两条共用（代码块 / 终端块），但**不许**三条以上：共用越多，
+  // "面板默认值只读第一个命中元素"这条已知代价的偏差面越大。
+  {
+    const byPrefix = new Map();
+    for (const t of COMPONENT_FONT_TARGETS) byPrefix.set(t.prefix, (byPrefix.get(t.prefix) || 0) + 1);
+    const worst = Math.max(...byPrefix.values());
+    check('同一模块名最多被 2 个组件共用', worst <= 2, '最多的模块名被 ' + worst + ' 条共用');
+  }
 }
 
 // ── ⑥ G3：官方 `--dsl-*` 组件钩子 ───────────────────────────────────────────
@@ -140,13 +174,17 @@ section('⑥ G3 官方钩子（--dsl-*，必须写进组件作用域）');
 
   const css = mod.buildDslBlocks({ codeBlock: { size: 14, family: '"KaiTi"' } }, ['codeBlock', 'terminal'], () => true);
   check('写进组件作用域（而不是 body 全局）',
-    css.includes('[class*="_codeBlock_"]') && !/^body\s*\{/m.test(css), css.split('\n')[0]);
+    css.includes('[class*="_block_"]') && !/^body\s*\{/m.test(css), css.split('\n')[0]);
   check('用官方钩子名，且组合式取自 DSH 细粒度令牌',
     css.includes('--dsl-code-block-content-font:') && css.includes('var(--dsw-font-markdown-code-block-font-weight)')
     && css.includes('var(--dsw-font-markdown-code-block-line-height)'), css.split('\n')[1]);
   check('只动用户改的两项（字号/字族），字重与行高沿用 DSH 令牌',
     css.includes('14px') && css.includes('"KaiTi"') && !css.includes('font-weight:'));
   check('零 !important（等特异性即可 —— 简写在组件根作用域上）', !/!\s*important/.test(css));
+  // 共用作用域安全的前提：这里只写自定义属性。若哪天写进 font-*，代码块与终端块就会互相污染，
+  // 还会打到同名的搜索块 / 网页块上。
+  check('hooks 通道只写自定义属性（共用作用域安全的前提）',
+    !/^\s*font-/m.test(css) && !/^\s*font:/m.test(css));
   check('未命中的组件不生成（自探测降级）',
     mod.buildDslBlocks({ terminal: { size: 13 } }, ['codeBlock'], () => true) === '');
   check('空配置不生成（官方值作初始值）', mod.buildDslBlocks({}, ['codeBlock'], () => true) === '');
@@ -160,15 +198,21 @@ section('⑥ G3 官方钩子（--dsl-*，必须写进组件作用域）');
 }
 
 // ── ⑦ 设置侧一致性（跨文件，机械核对） ──────────────────────────────────────
-section('⑦ schema 白名单与模块一致');
+section('⑦ schema 设置键与模块一致');
 {
   const schema = await import(new URL('../lib/settings-schema.js', import.meta.url).href);
-  const modPrefixes = COMPONENT_FONT_TARGETS.map((t) => t.prefix);
-  check('组件前缀白名单两份一致（宿主只 import schema，浏览器只带模块）',
-    JSON.stringify(modPrefixes) === JSON.stringify(schema.COMPONENT_FONT_PREFIXES),
-    'module=' + modPrefixes.join(',') + ' schema=' + schema.COMPONENT_FONT_PREFIXES.join(','));
-  check('负对照：多塞一个前缀会被判出',
-    JSON.stringify([...modPrefixes, 'ghost']) !== JSON.stringify(schema.COMPONENT_FONT_PREFIXES));
+  const modIds = COMPONENT_FONT_TARGETS.map((t) => t.id);
+  check('组件设置键两份一致（宿主只 import schema，浏览器只带模块）',
+    JSON.stringify(modIds) === JSON.stringify(schema.COMPONENT_FONT_KEYS),
+    'module=' + modIds.join(',') + ' schema=' + schema.COMPONENT_FONT_KEYS.join(','));
+  check('负对照：多塞一个键会被判出',
+    JSON.stringify([...modIds, 'ghost']) !== JSON.stringify(schema.COMPONENT_FONT_KEYS));
+  // 键名与模块名**解耦**的收益：模块名改了（table → tableScroll）老设置照旧有效
+  check('模块名改而设置键不变 ⇒ 老设置零迁移',
+    schema.sanitizeFromSchema({ componentFonts: { table: { size: 13 } } }, 'client').componentFonts.table.size === 13
+    && COMPONENT_FONT_TARGETS.find((t) => t.id === 'table').prefix === 'tableScroll');
+  check('已退役的 sidebar 设置被丢弃（模块里根本没有可命中的前缀）',
+    JSON.stringify(schema.sanitizeFromSchema({ componentFonts: { sidebar: { size: 12 } } }, 'client').componentFonts) === '{}');
   // 值必须能安全进 CSS：字族消毒（防设置文件里的字符串变成任意 CSS）
   const dirty = schema.sanitizeFromSchema(
     { componentFonts: { markdown: { size: 15, weight: 600, family: 'KaiTi; } body { display:none' } } }, 'client');
