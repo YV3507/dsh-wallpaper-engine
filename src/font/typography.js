@@ -1,7 +1,7 @@
 /**
  * font/typography.js — 按角色调整**排版**（字号/行高的偏移），走 DSH theme 令牌层（F2）。
  *
- * ══ 为什么是这套令牌（静态分析结论，2026-09-27；不是猜的）══════════════════════════
+ * ══ 为什么是这套令牌（静态分析结论；不是猜的）══════════════════════════
  *
  * ① **组件消费的是 shorthand，不是细粒度令牌。**
  *    DSH 组件里 `font:` 用的全是简写，例如
@@ -31,7 +31,7 @@
  *    node -e "const s=require('fs').readFileSync(process.argv[1],'utf8');for(const m of s.matchAll(/--dsw-font-([a-z0-9-]+?):([^;{}\\"]+)/g))if(!/-font-|-line-height$|-font$/.test(m[1]))console.log(m[1],'=',m[2].trim().slice(0,90))"
  *      "D:/DSH Desktop/resources/app/node_modules/@deepseek-ai/dsh-client-ui-theme/lib/client.js"
  *
- * ⑤ **字重同样可细化（静态盘点 2026-09-27，比字号更简单）**：
+ * ⑤ **字重同样可细化（静态盘点 ，比字号更简单）**：
  *    39 个组件 CSS 里 `font-weight` 写死 **71 处、`!important` 零处**
  *    （值分布 500×24 / 400×19 / 600×12 / 700×11 / 300×1 / inherit×4），
  *    且每个角色在 design-platform 里都有细粒度令牌 `--dsw-font-<角色>-font-weight`

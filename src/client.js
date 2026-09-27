@@ -4820,12 +4820,7 @@ const onFontColorAll = (hex, separate) => {
   selection.themeColors = next;
   persistSelection(); applyEffects(); emit();
 };
-  // 全局字重已移除（按角色/按组件细化）；字体族仍保留全局胶囊按钮。
-  const onFontFamily = (family) => {
-    if (!FONT_FAMILY_VALUES.includes(family)) return;
-    selection.fontFamily = family;
-    persistSelection(); applyEffects(); emit();
-  };
+  // 全局字重与全局字体族都已移除：字重/字族都按角色与按组件细化（见 src/font/）。
   // 「高级字体设置」视图开关（defaults-only，不持久化）。
   const onFontAdvanced = (v) => {
     selection.fontAdvanced = v;
@@ -4871,7 +4866,6 @@ const officialColorOf = (tokens) => {
     selection.themeWeight = {};
     selection.themeFamily = {};
     selection.componentFonts = {};
-    selection.fontFamily = "inherit";
     selection.themeDarkSeparate = false;
     selection.themeTypeOnly = false;
     selection.fontAdvanced = false;
@@ -5946,25 +5940,9 @@ const officialColorOf = (tokens) => {
           // 全局字重已移除（与「字体颜色」同一类问题：一个全局值会把 DSH 的粗细层次压成
           // 一档）。字重改**按角色**细化（下面「排版角色」每行一个输入框）与**按组件**细化
           // （「高级字体设置」里每组件一项），都能填任意值；留空/「恢复默认」即回 DSH 官方字重。
-          // 字体族选择：专用胶囊按钮（.we-picker__font-chip），每个选项用它
-          // 自己的字体渲染预览 —— 按钮上看到的字样即应用后的效果。
-          React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
-            ctlText("字体", "按钮以自身字体预览"),
-            React.createElement("div", { className: "we-picker__chips" },
-              FONT_FAMILY_LABELS.map((f) =>
-                React.createElement("button", {
-                  key: f.v,
-                  type: "button",
-                  className: "we-picker__font-chip" + (sel.fontFamily === f.v ? " we-picker__font-chip--active" : ""),
-                  style: { fontFamily: fontFamilyStack(f.v) },
-                  title: f.v === "inherit" ? "跟随 dsh 原生字体栈" : FONT_FAMILY_STACKS[f.v],
-                  onClick: () => onFontFamily(f.v),
-                  "aria-pressed": sel.fontFamily === f.v ? "true" : "false",
-                  "aria-label": "字体 " + f.label,
-                }, f.label),
-              ),
-            ),
-          ),
+          // 全局字体族已移除：字族改按角色（「排版角色」每行的字族下拉）
+          // 与按组件（「高级字体设置」里每项的下拉）设置 —— 全局字族只经 body 继承，
+          // 既压平 DSH 的字体栈层次，又够不到用 `font:` 简写的标题/表格/代码。
         ),
       ),
       // ── 输入光标（#83）：光标色与壁纸相近时会隐形，这里给它一个独立于字体

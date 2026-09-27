@@ -32,27 +32,16 @@
 // every emit — i.e. twice per slider tick (handler + subscribed applyEffects)
 // and on every 500ms transcode poll — a forced synchronous layout storm.
 let lastScrimCss = "";
-// ── 字体自定义样式注入 ──────────────────────────────────────────────────────
-// <style id="we-font-patch"> 应用「字体自定义」三项（#91 修复，方案A升级版）：
-// 旧实现 body * { color/weight/family !important } 会 ① 强制覆盖其它插件
-// 自带的文字颜色（白字白底"字消失"，#91）；② 压平全页加粗（DSH 标题的
-// 700 也被抹成设置值）；③ 失效范围遍布整棵 DOM。新语义是「改默认墨色 +
-// 主题文本令牌」，不再碰任何自带声明：
-// - body 级只设继承默认 —— 自己声明过 color/font-weight 的元素（第三方
-//   挂件、DSH 标题加粗）保持自己的声明；
-// - 颜色经 --dsw-alias-label-* 中性白名单映射为用户字体色（DSH 核心约 90%
-//   的文字颜色走这几个令牌，含聊天正文 label-primary），核心 UI 覆盖不缩水；
-//   state-* 与 link 令牌刻意排除 → 报错红字/链接色天然保住（替代旧规则 2 的
-//   revert —— 实测 revert 回滚整个 author 源，会把宿主自己的错误色声明一并
-//   取消，见 #91 讨论）；
-// - 注入前把宿主原值快照进 --we-host-*（只取一次，防自我污染），供
-//   [data-we-font-ignore] 子树契约「还原宿主原值」使用：自定义属性可被子树
-//   遮蔽，第三方一行属性即可声明「这块我自管颜色」（#91 建议 2）；
-// - 聊天 markdown 容器用 font: var(--dsw-font-markdown-base) 简写同时声明
-//   font-family/weight，body 级继承压不过它 —— 需要定向接管族与字重，
-//   否则用户的字族/字重在对话区"看起来没生效"；
-// - 面板铬字（原规则 3）改读快照值 —— 令牌已被映射，不能直接读。
-// 总开关 fontCustom 关闭时注入整体清空（含快照），页面回到 dsh 原生字体外观。
+// ── 字体系统：**没有任何全局字体配置**─────────────────────────
+// 全局字色 / 字重 / 字体族三条通路都已删除 —— 一个全局值会把 DSH 的文字层次（四级颜色）
+// 或粗细层次、字体栈层次压成一档。字体自定义只剩两套**作用域**覆盖，都不写全局规则：
+//   · 按角色（src/font/color-roles.js、typography.js）：经 DSH theme 服务的 overrideTokens
+//     写 body 内联的角色令牌，免 !important、随配色自动换值；
+//   · 按组件（src/font/components.js）：`body [class*="_前缀_"]` 直接命中 + 官方
+//     --dsl-* 组件钩子，等特异性即可（DSH 写死的字体声明里 !important 只占 4/319）。
+// 下面这个数组与 snapshotHostFontDefaults 现在只服务一件事：把**宿主角色色的当前值**
+// 记进 --we-host-*，供面板显示「当前默认色」。它不注入任何规则，也不再有"还原契约"
+//（[data-we-font-ignore] 全仓没有消费者，已随全局层删除）。
 // 白闪红线（v0.6.4 起）：不要引入 :has() 或祖先相关选择器——祖先失效集
 // 会把点击/输入的样式重算扩大到整棵 DOM，是 kiosk 窗口整屏刷白的点火条件。
 const WE_HOST_TOKENS = [
@@ -62,126 +51,8 @@ const WE_HOST_TOKENS = [
   "--dsw-alias-label-dimmed",
 ];
 
-function snapshotHostFontDefaults() {
-  // applyFontStyles 每次滑杆回调都会执行：若已快照则跳过，否则会把上一轮
-  // 注入后的自家映射值当成宿主原值写进快照（自我污染）。removeFontStyles
-  // 会清空快照，重新开启时再取一次（期间若宿主切了主题，取到的就是新主题
-  // 的墨色 —— 快照在开启期间不跟随主题切换，属已知边界）。
-  // 读取范围是 body 而不是 :root —— 宿主把 --dsw-alias-* 定义在 body 层
-  // （body / body[data-ds-dark-theme]），:root 上算出来是空串。
-  // 防污染关键：若 patch 样式已存在（上次注入留下的），先清空其内容再读。
-  // 否则「首次快照时宿主 CSS 未就绪 → 令牌读空跳过 → 下次重试时自家映射
-  // 已生效 → 读回 #ffffff 自我污染」这条链必然发生（getComputedStyle 是
-  // 惰性的，清空后同步读会强制按干净级联重算）。调用方随后会重写
-  // st.textContent，中间不会发生绘制。
-  try {
-    const es = document.documentElement.style;
-    let need = !es.getPropertyValue("--we-host-body-color");
-    for (const t of WE_HOST_TOKENS) {
-      if (!es.getPropertyValue("--we-host-" + t.slice(2))) { need = true; break; }
-    }
-    if (!need) return;
-    const st = document.getElementById("we-font-patch");
-    const prevCss = st ? st.textContent : null;
-    if (st) st.textContent = "";
-    const bodyCs = getComputedStyle(document.body);
-    for (const t of WE_HOST_TOKENS) {
-      const v = bodyCs.getPropertyValue(t).trim();
-      if (v) es.setProperty("--we-host-" + t.slice(2), v);
-    }
-    es.setProperty("--we-host-body-color", bodyCs.color);
-    es.setProperty("--we-host-body-weight", bodyCs.fontWeight);
-    es.setProperty("--we-host-body-family", bodyCs.fontFamily);
-    if (st) st.textContent = prevCss;
-  } catch { /* ignore */ }
-}
 
-function applyFontStyles() {
-  try {
-    snapshotHostFontDefaults();
-    let st = document.getElementById("we-font-patch");
-    if (!st) {
-      st = document.createElement("style");
-      st.id = "we-font-patch";
-      (document.head || document.documentElement).appendChild(st);
-    }
-    st.textContent = [
-      /* 1) 默认字族：只设 body 继承默认（声明 > 继承，所以任何自带声明的元素——
-            包括第三方挂件与 DSH 标题——都不再被碰）。
-            **字重与墨色都不在这里设**：两者都已按角色/按组件细化 —— 墨色走角色令牌层
-            （第 2 段），字重走 `--dsw-font-<角色>-font-weight`（src/font/typography.js）
-            或组件作用域（src/font/components.js）。全局单一字重会把 DSH 的粗细层次
-            压成"只有一档"，与四级文字层次被压平是同一类问题。 */
-      'body {',
-      '  font-family:var(--we-font-family, inherit) !important;',
-      '}',
-      /* 1b) 聊天正文定向映射：DSH 的 markdown 容器用 font: var(--dsw-font-
-            markdown-base) 简写声明 font-family，body 级继承压不过它 —— 用户选的
-            字族在对话区会"看起来没生效"。对宿主自己的聊天文本面定向接管族
-            （字号/字重/行高都不碰：字重已按角色细化，字号见 F2 的角色令牌），
-            仍是单属性声明级覆盖，不是 body * 全局强制（#91 边界不变）。 */
-      'body :is([class*="_markdown_"], [class*="markdownPayload"], [class*="markdownPreview"]) {',
-      '  font-family:var(--we-font-family, inherit) !important;',
-      '}',
-      /* 2) 文字**颜色**不再走这条通路。
-            这里原先把四个 `--dsw-alias-label-*` 角色压成同一个用户色（带 !important），
-            结果是 DSH 的四级文字层次被**压平** —— 正是「全局同色不如原生」的根因。
-            颜色改由 src/font/color-roles.js 的令牌层按角色接管（body 内联、免 !important、
-            随配色自动换值）；未设置的角色直接跟随 DSH 官方值。 */
-      /* 3) 退出契约（#91 建议 2）：data-we-font-ignore 子树还原宿主原值。
-            :where() 零特异性 —— 还原声明足以压过 body 继承（声明 > 继承），
-            但子树内自带的任何颜色/字重声明仍按正常级联压过还原值（即"我自管"
-            的部分照常生效）。不用 revert：实测 revert 回滚整个 author 源，会把
-            子树自己的声明一并取消（Chrome 实测）。 */
-      ':where([data-we-font-ignore]) {',
-      '  color:var(--we-host-body-color, inherit);',
-      '  font-weight:var(--we-host-body-weight, 400);',
-      '  font-family:var(--we-host-body-family, inherit);',
-      '  -webkit-text-stroke-width:0;',
-      '  --dsw-alias-label-primary:var(--we-host-dsw-alias-label-primary, inherit);',
-      '  --dsw-alias-label-secondary:var(--we-host-dsw-alias-label-secondary, inherit);',
-      '  --dsw-alias-label-tertiary:var(--we-host-dsw-alias-label-tertiary, inherit);',
-      '  --dsw-alias-label-dimmed:var(--we-host-dsw-alias-label-dimmed, inherit);',
-      '}',
-      /* 4) 插件面板铬字：调节面板（设置页 / 壁纸仓库抽屉 / 选择弹窗）是控件
-            而非内容 —— 标签/读数/页签保持主题墨色（可读性优先），用户的字体
-            「颜色」只作用于聊天内容。容器级令牌还原（普通声明压过 body 的继
-            承值，且容器内任何 --we-ink 消费者一并回到宿主原值）+ 下方两条对
-            显式铬字类名的直接染色（读宿主快照，令牌此时已被规则 2 映射）。 */
-      'body :is(.we-picker, .we-picker__modal, .we-repo-panel) {',
-      '  --dsw-alias-label-primary:var(--we-host-dsw-alias-label-primary, inherit);',
-      '  --dsw-alias-label-secondary:var(--we-host-dsw-alias-label-secondary, inherit);',
-      '  --dsw-alias-label-tertiary:var(--we-host-dsw-alias-label-tertiary, inherit);',
-      '  --dsw-alias-label-dimmed:var(--we-host-dsw-alias-label-dimmed, inherit);',
-      '}',
-      'body :is(.we-picker, .we-picker__modal, .we-repo-panel) '
-        + ':is(.we-picker__ctl-label,.we-picker__card-name,.we-picker__current-title,'
-        + '.we-picker__btn,.we-picker select,.we-picker__text,.we-tabs__tab,'
-        + '.we-repo-panel__title,.we-picker__mascot-name,.we-picker__empty-title) {',
-      '  color: var(--we-host-dsw-alias-label-primary, inherit) !important;',
-      '}',
-      'body :is(.we-picker, .we-picker__modal, .we-repo-panel) '
-        + ':is(.we-picker__hint,.we-picker__ctl-hint,.we-picker__value,'
-        + '.we-picker__section-label,.we-picker__card-desc,.we-picker__card-badge,'
-        + '.we-picker__current-meta,.we-picker__uploads-name,.we-picker__uploads-path) {',
-      '  color: var(--we-host-dsw-alias-label-tertiary, rgba(128, 128, 128, 0.75)) !important;',
-      '}',
-    ].join('\n');
-  } catch { /* ignore */ }
-}
 
-function removeFontStyles() {
-  const st = document.getElementById("we-font-patch");
-  if (st) st.remove();
-  // 宿主原值快照随开关一起清掉：下次开启重新取（可能已切主题）。
-  try {
-    const es = document.documentElement.style;
-    for (const t of WE_HOST_TOKENS) es.removeProperty("--we-host-" + t.slice(2));
-    es.removeProperty("--we-host-body-color");
-    es.removeProperty("--we-host-body-weight");
-    es.removeProperty("--we-host-body-family");
-  } catch { /* ignore */ }
-}
 
 // ── 输入光标颜色注入（#83）──────────────────────────────────────────────────
 // <style id="we-caret-patch"> 把 body 上的 --we-caret-color 应用到所有文本
@@ -301,6 +172,33 @@ function removeComponentFonts() {
   try {
     const st = document.getElementById("we-font-scope");
     if (st) st.textContent = "";
+  } catch { /* ignore */ }
+}
+
+function snapshotHostFontDefaults() {
+  // 只服务一件事：把**宿主此刻的角色色**读进 --we-host-*，供面板显示「当前默认色」。
+  // 不再服务任何"还原契约"——那段契约（[data-we-font-ignore]）全仓没有消费者，已随全局
+  // 字体层一起删除。已快照则跳过；removeFontStyles 会清空，重开时再取。
+  try {
+    const es = document.documentElement.style;
+    let need = false;
+    for (const t of WE_HOST_TOKENS) {
+      if (!es.getPropertyValue("--we-host-" + t.slice(2))) { need = true; break; }
+    }
+    if (!need) return;
+    const bodyCs = getComputedStyle(document.body);
+    for (const t of WE_HOST_TOKENS) {
+      const v = bodyCs.getPropertyValue(t).trim();
+      if (v) es.setProperty("--we-host-" + t.slice(2), v);
+    }
+  } catch { /* ignore */ }
+}
+
+function removeFontStyles() {
+  // 全局字体配置已不存在 ⇒ 这里只清角色色快照（下次开启重新取；期间可能切了主题）。
+  try {
+    const es = document.documentElement.style;
+    for (const t of WE_HOST_TOKENS) es.removeProperty("--we-host-" + t.slice(2));
   } catch { /* ignore */ }
 }
 
@@ -445,14 +343,14 @@ function applyEffects() {
   if (detectSoftwareRender()) document.body.setAttribute("data-we-glass-fallback", "1");
   else document.body.removeAttribute("data-we-glass-fallback");
 
-  // 字体自定义（#57 精简回归版）：开关关闭 → 清空变量与样式表，恢复原生外观。
+  // 字体自定义：**已无任何全局字体配置** —— 只剩「按角色」（颜色/排版/字重/字族，见
+  // src/font/color-roles.js 与 typography.js）与「按组件」（src/font/components.js）
+  // 两套作用域覆盖。这里只做两件事：取一次宿主角色色快照（面板要显示「当前默认色」）、
+  // 同步组件样式表（没配就当没有，清空样式表）。
   if (selection.fontCustom) {
-    s.setProperty("--we-font-family", fontFamilyStack(selection.fontFamily));
-    applyFontStyles();
-    // G3/G4：组件级字体与字重/字族那条腿并列（各自独立作用域）。
+    snapshotHostFontDefaults();
     applyComponentFonts();
   } else {
-    s.removeProperty("--we-font-family");
     removeFontStyles();
     removeComponentFonts();
   }
@@ -518,7 +416,6 @@ function clearEffects() {
   document.body.removeAttribute("data-we-glass-fallback"); // #95 软件渲染回退钩子同上
   s.removeProperty("--we-content-surface-alpha");
   s.removeProperty("--we-content-surface-color");
-  s.removeProperty("--we-font-family");
   removeFontStyles();
   s.removeProperty("--we-caret-color");
   removeCaretStyles();
@@ -535,6 +432,6 @@ function clearEffects() {
 }
 export {
   applyEffects, clearEffects,
-  applyFontStyles, removeFontStyles, applyCaretStyles, removeCaretStyles,
+  removeFontStyles, applyCaretStyles, removeCaretStyles,
   resolveWallpaperFadeBg, snapshotHostFontDefaults,
 };

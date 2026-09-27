@@ -76,7 +76,7 @@ const INLINE_MODULES = [
     file: 'src/effects.js',
     why: '效果应用层（设置 → DOM；契约见文件头，见 P1-7 后半）',
     markers: ['let lastScrimCss = "";', 'function applyEffects()', 'function clearEffects()',
-      'function applyFontStyles()', 'function resolveWallpaperFadeBg()'],
+      'function applyComponentFonts()', 'function resolveWallpaperFadeBg()'],
   },
 ];
 

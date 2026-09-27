@@ -334,6 +334,23 @@ section('④b 排版角色（F2）');
     check('注入的字体补丁里不再有 --we-font-weight / --we-font-stroke',
       !/--we-font-weight|--we-font-stroke/.test(effectsSrc));
     check('负对照：判据对旧写法有牙', /--we-font-weight/.test('font-weight:var(--we-font-weight, 400)'));
+    // 用户口径的最终确认：**不存在任何全局性质的字体配置**。
+    check('三个全局字体键都已不存在（fontColor / fontWeight / fontFamily）',
+      !('fontColor' in schema.DEFAULTS) && !('fontWeight' in schema.DEFAULTS) && !('fontFamily' in schema.DEFAULTS));
+    // 判据针对**代码**：先剥注释 —— 头注释里为说明「已删除」正会提到这些名字（散文不是代码）。
+    const effectsCode = effectsSrc
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+    check('源码里不再有全局字体注入层（#we-font-patch / --we-font-family / --we-font-weight / 还原契约）',
+      !/we-font-patch|--we-font-family|--we-font-weight|--we-font-stroke|data-we-font-ignore/.test(effectsCode),
+      (effectsCode.match(/we-font-patch|--we-font-family|--we-font-weight|data-we-font-ignore/g) || []).join(' '));
+    check('负对照：全局字体判据对旧写法有牙（三条都能被抓到）',
+      /we-font-patch/.test('id="we-font-patch"') && /--we-font-family/.test('font-family:var(--we-font-family)')
+      && /data-we-font-ignore/.test(':where([data-we-font-ignore])'));
+    check('剩下的字体键全是按角色/按组件 + 总开关',
+      ['themeColors', 'themeType', 'themeWeight', 'themeFamily', 'componentFonts', 'fontCustom']
+        .every((k) => k in schema.DEFAULTS)
+      && ['fontColor', 'fontWeight', 'fontFamily'].every((k) => !(k in schema.DEFAULTS)));
     const clientSrc = readFileSync(join(root, 'src', 'client.js'), 'utf8');
     check('面板「恢复默认」清掉全部字体自定义项（4 个容器 + 字体族 + 视图开关）',
       clientSrc.includes('const onFontResetAll = ()')
