@@ -1,5 +1,5 @@
 /**
- * verify-theme-layer.mjs — F1 令牌层的**行为**守卫（可直接 import src/theme-layer.js 测）。
+ * verify-theme-layer.mjs — F1 令牌层的**行为**守卫（可直接 import src/font/color-roles.js 测）。
  *
  * 覆盖三件容易写错、且错了只在真机才看得出来（面板被染色 / 改了没反应）的事：
  *   ① 载荷形态：服务的校验对裸字符串与缺 `{light,dark}` **抛 TypeError**（读源码确认），
@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const mod = await import(new URL('../src/theme-layer.js', import.meta.url).href);
+const mod = await import(new URL('../src/font/color-roles.js', import.meta.url).href);
 const {
   THEME_LAYER_SOURCE, THEME_COLOR_ROLES,
   isThemeHex, themeLayerOwnedRoles, buildTokenPayload, pollThemeService, createThemeLayer,
@@ -27,7 +27,7 @@ const {
 // 角色 id 的**校验白名单归 schema**（宿主也要用；theme-layer 只进浏览器包，拿不到同一份绑定）。
 // 这里断言两处一致 —— 有守卫的重复，好过拿不到的共享。
 const schema = await import(new URL('../lib/settings-schema.js', import.meta.url).href);
-const typo = await import(new URL('../src/theme-typography.js', import.meta.url).href);
+const typo = await import(new URL('../src/font/typography.js', import.meta.url).href);
 const THEME_COLOR_ROLE_IDS = THEME_COLOR_ROLES.map((r) => r.id);
 
 let failed = 0;
@@ -306,7 +306,7 @@ section('④b 排版角色（F2）');
 // ── ⑤ 静态不变量（源码级） ──────────────────────────────────────────────────
 section('⑤ 源码不变量');
 {
-  const src = readFileSync(join(root, 'src', 'theme-layer.js'), 'utf8');
+  const src = readFileSync(join(root, 'src', 'font', 'color-roles.js'), 'utf8');
   // 判据针对**代码**而非散文：先剥注释。否则"模块里不许出现 !important"会被
   // 头注释里那句"不写 !important"自身命中（今天第二次踩这个坑：源码级不变量必须先剥注释/字符串）。
   const code = src
@@ -323,7 +323,7 @@ section('⑤ 源码不变量');
     /!\s*important/.test('color:red !important') && !/!\s*important/.test('color:red'));
   // 红线 3：全仓不得写 DSH 自己的字号变量（那是「通用 → 字号」的地盘）。
   {
-    const files = ['lib/settings-schema.js', 'src/theme-layer.js', 'src/theme-typography.js',
+    const files = ['lib/settings-schema.js', 'src/font/color-roles.js', 'src/font/typography.js',
       'src/effects.js', 'src/client.js'];
     const guilty = files.filter((rel) => {
       const c = readFileSync(join(root, rel), 'utf8')

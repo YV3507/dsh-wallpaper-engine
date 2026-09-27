@@ -1,5 +1,5 @@
 /**
- * theme-typography.js — 按角色调整**排版**（字号/行高的偏移），走 DSH theme 令牌层（F2）。
+ * font/typography.js — 按角色调整**排版**（字号/行高的偏移），走 DSH theme 令牌层（F2）。
  *
  * ══ 为什么是这套令牌（静态分析结论，2026-09-27；不是猜的）══════════════════════════
  *
@@ -46,7 +46,7 @@
  * ══ 契约 ══════════════════════════════════════════════════════════════════════════
  * 需要的外界：**无**（纯计算；令牌可用性由调用方给的判据决定）。
  * 对外提供：THEME_TYPE_ROLES / buildTypePayload / THEME_TYPE_SOURCE / 偏移上下限。
- *   建层与轮询复用 src/theme-layer.js 的 createThemeLayer / pollThemeService ——
+ *   建层与轮询复用 src/font/color-roles.js 的 createThemeLayer / pollThemeService ——
  *   **必须用不同的 source**：同 source 再注册会整层替换，会把 F1 的颜色层顶掉。
  *
  * 不变量（有守卫）：

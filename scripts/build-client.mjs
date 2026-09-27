@@ -45,7 +45,7 @@ const id = pkg.name;
  */
 const INLINE_MODULES = [
   {
-    file: 'src/component-fonts.js',
+    file: 'src/font/components.js',
     why: 'G3/G4 组件级字体：模块前缀白名单 + 启动自探测 + 官方 --dsl-* 钩子生成',
     markers: ['const COMPONENT_FONT_TARGETS = [', 'function probeComponentTargets(',
       'function buildComponentCss(', 'const DSL_FONT_HOOKS = ['],
@@ -62,13 +62,13 @@ const INLINE_MODULES = [
     markers: ['const WE_COND_OPS = [', 'function weEvalCondition(', 'function weCondTokenize('],
   },
   {
-    file: 'src/theme-layer.js',
+    file: 'src/font/color-roles.js',
     why: 'F1 令牌层：给文字颜色角色分角色上色（纯逻辑 + feature-detect，契约见文件头）',
     markers: ['const THEME_COLOR_ROLES = [', 'function createThemeLayer(', 'function pollThemeService(',
       'function buildTokenPayload('],
   },
   {
-    file: 'src/theme-typography.js',
+    file: 'src/font/typography.js',
     why: 'F2 排版角色：按角色调整字号/行高偏移（基准表达式照抄 DSH，见文件头）',
     markers: ['const THEME_TYPE_ROLES = [', 'function buildTypePayload(', 'const THEME_TYPE_SOURCE ='],
   },

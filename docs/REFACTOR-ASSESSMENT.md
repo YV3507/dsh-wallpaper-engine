@@ -110,7 +110,7 @@
 | 指标 | F1 前 | F1 后 | 变化来源 |
 |---|---|---|---|
 | 客户端正文 | `src/client.js` 9,150 行 | **9256 行** | F1 的面板 5 行 + 处理器 + `apply(ctx)` 接线（约 27 行） |
-| 新增功能模块 | — | **`src/theme-layer.js` 205 行** | F1：令牌层（角色表/轮询/白名单/建层），构建期内联 |
+| 新增功能模块 | — | **`src/font/color-roles.js` 205 行** | F1：令牌层（角色表/轮询/白名单/建层），构建期内联 |
 | 生成产物 | 10,222 行 | **10569 行** | 第 4 个内联模块 |
 | 守卫 | 链 13 项 / 8,354 行 | **链 14 项 / 8620 行** | +`verify-theme-layer`（行为 + 负对照） |
 | 设置键 | 59 键（客户端） | **61 键** | +`themeColors` / +`themeDarkSeparate`（golden 夹具同步更新） |
@@ -120,7 +120,7 @@
 
 | 指标 | F2 前 | F2 后 | 变化来源 |
 |---|---|---|---|
-| 新增功能模块 | \`src/theme-layer.js\` 205 行 | **+ \`src/theme-typography.js\` 129 行** | F2：12 个排版角色（DSH 基准表达式照抄）+ 载荷构建 |
+| 新增功能模块 | \`src/font/color-roles.js\` 205 行 | **+ \`src/font/typography.js\` 129 行** | F2：12 个排版角色（DSH 基准表达式照抄）+ 载荷构建 |
 | 生成产物 | 10,569 行 | **10792 行** | 第 5 个内联模块 |
 | 设置键 | 61 键（客户端） | **62 键**（+\`themeType\`）＋ defaults-only 视图键 \`themeTypeOnly\` | F2 |
 | 守卫 | 链 14 项 / 8,620 行 | **链 14 项 / 8698 行** | +排版章节 + 红线 3 全仓断言（同链数） |
@@ -272,13 +272,13 @@
 | # | 动作 | 前置（顺序约束） | 设计落实物（结构 / 规则 / 守卫） | 状态 |
 |---|---|---|---|---|
 | **F0** | ✅ **已完成（2026-09-26 真机实测）** —— 实测表与结论在 [F0-THEME-SERVICE-CHECKLIST.md](./F0-THEME-SERVICE-CHECKLIST.md) §C3/§C4（该文件**保留为 F0 记录**）。**主路径成立**：`ctx.get('theme')` 可用但**是启动竞态**（3ms / 325ms / 418ms 三种时序）⇒ 必须轮询；写入即 body 内联；`dispose()` 干净还原；一层随配色自动换值。**两处旧结论被推翻**：快照令牌表为空（`active.tokens`=0）、`exportInspectTokens()` 仅 14 条 | — | 结构：**不改 `inject`**（`ctx.theme` 裸访问实测**抛错**）／规则：令牌清单与取值的权威来源是**样式表扫描**／守卫：令牌名过 **377 条**白名单，未知令牌静默忽略且面板置灰 | ✅ |
-| **F1** | ✅ **已完成**（首期只做颜色，5 个角色 / 6 个令牌）—— 新增 `src/theme-layer.js`（205 行，构建期内联）：角色表 + `pollThemeService`（后台轮询 250ms×24，**拿到即停**，解决启动竞态）+ `scanThemeTokens`（样式表扫描白名单）+ `buildTokenPayload` + `createThemeLayer`。设置新增 `themeColors`（**内部始终存 `{light,dark}` 两套**）/ `themeDarkSeparate`，仍是"schema + UI + 夹具"三处改动 —— 宿主白名单与持久化**自动派生**（P1-5 的收益）。面板在「全局字体」区加 5 行角色色 + 深色开关 + 逐角色清除 | 结构：新模块 + schema 两个新键／规则：五条不变量写进模块头（不写 `!important`、不用 DOM 选择器、值必须成对、未知令牌自己筛、**任何写入前先取宿主基线**）／守卫：新增 `scripts/verify-theme-layer.mjs`（行为用例 + 负对照：载荷形态、轮询拿到即停、**同 source 替换语义**、基线时序、清空撤层、源码不变量），并断言 theme-layer 的角色表与 schema 校验白名单**跨文件一致** | 低 | ✅ |
-| **F2** | ✅ **已完成** —— 新增 `src/theme-typography.js`（12 个排版角色，构建期内联）+ 面板「排版角色」组（滑杆偏移 + 「只看改过的」过滤，走 defaults-only 视图键）。**静态分析定的形态**：组件消费的是 `font: var(--dsw-font-<角色>)` **shorthand**（全仓 24 处消费点），而细粒度 `-font-size/-weight/-style` **零消费者** ⇒ 只改细粒度令牌无效。故每个被调角色写 3 个令牌：`-font-size`(`calc(原表达式 + 偏移)`)、`-line-height`(同)、以及由细粒度令牌组合出的 shorthand（保住字重/字族）。DSH 自己的字号经 `--dsh-content-font-delta` 照常叠加；**从不写** `--dsh-content-font-size` | 结构：新模块 + 第二个令牌层（**独立 source**，同 source 会整层替换掉颜色层）／规则：只追加偏移、不重写 DSH 表达式、不碰字重字族、四令牌缺一不接管／守卫：`verify-theme-layer` 增排版章节（杠杆断言、只追加偏移、两侧同值、非法偏移全拒、缺令牌跳过）+ **红线 3 全仓断言** `--dsh-content-font-size` 零写入 | 中 | ✅ |
+| **F1** | ✅ **已完成**（首期只做颜色，5 个角色 / 6 个令牌）—— 新增 `src/font/color-roles.js`（205 行，构建期内联）：角色表 + `pollThemeService`（后台轮询 250ms×24，**拿到即停**，解决启动竞态）+ `scanThemeTokens`（样式表扫描白名单）+ `buildTokenPayload` + `createThemeLayer`。设置新增 `themeColors`（**内部始终存 `{light,dark}` 两套**）/ `themeDarkSeparate`，仍是"schema + UI + 夹具"三处改动 —— 宿主白名单与持久化**自动派生**（P1-5 的收益）。面板在「全局字体」区加 5 行角色色 + 深色开关 + 逐角色清除 | 结构：新模块 + schema 两个新键／规则：五条不变量写进模块头（不写 `!important`、不用 DOM 选择器、值必须成对、未知令牌自己筛、**任何写入前先取宿主基线**）／守卫：新增 `scripts/verify-theme-layer.mjs`（行为用例 + 负对照：载荷形态、轮询拿到即停、**同 source 替换语义**、基线时序、清空撤层、源码不变量），并断言 theme-layer 的角色表与 schema 校验白名单**跨文件一致** | 低 | ✅ |
+| **F2** | ✅ **已完成** —— 新增 `src/font/typography.js`（12 个排版角色，构建期内联）+ 面板「排版角色」组（滑杆偏移 + 「只看改过的」过滤，走 defaults-only 视图键）。**静态分析定的形态**：组件消费的是 `font: var(--dsw-font-<角色>)` **shorthand**（全仓 24 处消费点），而细粒度 `-font-size/-weight/-style` **零消费者** ⇒ 只改细粒度令牌无效。故每个被调角色写 3 个令牌：`-font-size`(`calc(原表达式 + 偏移)`)、`-line-height`(同)、以及由细粒度令牌组合出的 shorthand（保住字重/字族）。DSH 自己的字号经 `--dsh-content-font-delta` 照常叠加；**从不写** `--dsh-content-font-size` | 结构：新模块 + 第二个令牌层（**独立 source**，同 source 会整层替换掉颜色层）／规则：只追加偏移、不重写 DSH 表达式、不碰字重字族、四令牌缺一不接管／守卫：`verify-theme-layer` 增排版章节（杠杆断言、只追加偏移、两侧同值、非法偏移全拒、缺令牌跳过）+ **红线 3 全仓断言** `--dsh-content-font-size` 零写入 | 中 | ✅ |
 | **F3** | **字体集文件化**：`~/.dsh-wallpaper-engine/fontsets/<id>.json` ＋ 导入导出 ＋ 独立编辑器面板 | **P2-9** ＋ **P2-10** | 结构：新文件通道 + 独立面板／规则：`config.json` 只记 `{fontSetId, fontCustom}`（settings blob 不装字体集）／守卫：`$schema` 版本迁移 + 未知角色**拒绝并回报**（不静默） | ⬜ |
 | G1 | ✅ **已完成** —— 清除 legacy「字体颜色」通路：删四条压平 `--dsw-alias-label-*` 的 `!important` 折叠（含 `themeCollapseLines()`）、删 `body{color:var(--we-font-color)!important}` 全局墨色覆盖、删 `--we-font-color` 三处写入、删 schema 键 `fontColor` 与面板那一行；新增 `onFontColorAll`（写进 5 个角色，保住"就想要一个色"的用法而不留独立通路） | 结构：删 1 条通路 + 1 个动作／规则：颜色只有"按角色"一条语义／守卫：`verify-client` 的"字体三件套"旧期望改为"字体控件组" | 低 | ✅ |
 | G2 | ✅ **已完成** —— 面板显示**官方默认值**（`describeTypeRole()`：`700 21px+δ / 30px+δ`、`12px / 20px`、`14px(正文基准)`），颜色行"未设置"→"官方"；数据仍只来自角色表（不复制 ⇒ DSH 升变后自动跟随）。"初始值 = 官方值、清空即回官方" | 结构：1 个纯展示函数／规则：官方值单一真源在角色表／守卫：4 条断言（含"跟随 DSH 正文基准的角色不得写成固定 px"） | 低 | ✅ |
 | G3 | ✅ **已完成** —— 官方 `--dsl-*` 组件钩子（三个）写进**组件作用域**（`body [class*="_block_"]`）：`DSL_FONT_HOOKS` 白名单 + `buildDslBlocks()`（组合式 `<DSH 字重> <我们的字号>/<DSH 行高> <我们的字族>`，只动用户改的两项）。**关键结论**：钩子定义在组件根类上、后代 `font:` 简写压过继承 ⇒ 全局写无效、泛类名 `.block` 不能用。守卫：钩子名白名单（防漂移）+ 必须写进组件作用域 + 组合式取自 DSH 细粒度令牌 + 四令牌缺一即跳过 + 零 `!important` | 结构：白名单 + 生成器 + `#we-font-scope` 注入／规则：钩子属**组件作用域**／守卫：7 组断言 + 负对照 | 中 | ✅ |
-| G4 | ✅ **已完成** —— 组件通道：`src/component-fonts.js`（**首期 5 项**模块前缀白名单：markdown/codeBlock/terminal/table/sidebar —— 刻意不含 label/tab/input 这类跨模块重名的泛前缀；**启动自探测** + `route` 三分类 tokens/hooks/props）+ `#we-font-scope` 注入（探测结果与令牌可用性**只算一次**）+ 设置 `componentFonts`（值经消毒：字族剔除 `;{}<>` 等）+ 面板「组件字体」组（每组件字号/字重，留空 = 官方）。**字重两条路径**：角色级（`themeWeight`，组合式改用 `var(--dsw-font-<角色>-font-weight)` 并覆盖该令牌）/ 组件级（同本通道）。守卫：形态唯一（只许 `body [class*="_前缀_"]`）、白名单、三属性边界、自探测降级、空=回官方、不写死哈希、不碰 katex、跨文件前缀一致、字族消毒 —— 逐条带负对照 | 结构：1 模块 + 1 注入通道 + 1 设置键／规则：**打包器产物非官方 API** ⇒ 自探测降级 + 只许直接命中／守卫：形态与边界 + 负对照 | 中高 | ✅ |
+| G4 | ✅ **已完成** —— 组件通道：`src/font/components.js`（**首期 5 项**模块前缀白名单：markdown/codeBlock/terminal/table/sidebar —— 刻意不含 label/tab/input 这类跨模块重名的泛前缀；**启动自探测** + `route` 三分类 tokens/hooks/props）+ `#we-font-scope` 注入（探测结果与令牌可用性**只算一次**）+ 设置 `componentFonts`（值经消毒：字族剔除 `;{}<>` 等）+ 面板「组件字体」组（每组件字号/字重，留空 = 官方）。**字重两条路径**：角色级（`themeWeight`，组合式改用 `var(--dsw-font-<角色>-font-weight)` 并覆盖该令牌）/ 组件级（同本通道）。守卫：形态唯一（只许 `body [class*="_前缀_"]`）、白名单、三属性边界、自探测降级、空=回官方、不写死哈希、不碰 katex、跨文件前缀一致、字族消毒 —— 逐条带负对照 | 结构：1 模块 + 1 注入通道 + 1 设置键／规则：**打包器产物非官方 API** ⇒ 自探测降级 + 只许直接命中／守卫：形态与边界 + 负对照 | 中高 | ✅ |
 
 ---
 
@@ -569,6 +569,13 @@ UI 命名：`壁纸画面刷新` → **`出图来源`**（它换的是**来源**
 ---
 
 ## 9. 并行轨道 F 的设计要点（字体系统大改 · 草案摘要）
+
+> **实现位置（2026-09-27 起）**：字体系统的三个模块集中在 `src/font/`
+> （`color-roles.js` / `typography.js` / `components.js`），目录说明见
+> [src/font/README.md](../src/font/README.md)（三个通道的分工与路由规则、不变量、扩展步骤）。
+> 本文档早前条目里的 `src/theme-layer.js` / `src/theme-typography.js` / `src/component-fonts.js`
+> 即这三个文件（已随手一并更新路径）。
+
 
 > **来源**：工作区草案《字体系统大改 —— 设计蓝图》，**未入库**（原稿在
 > `.integration-notes/scratch-scripts/FONT-SYSTEM-BLUEPRINT.md`，属本地未跟踪文件）。本节只留**决策与红线**；

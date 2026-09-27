@@ -88,7 +88,7 @@ const EVIDENCE = {
     ['账本自检守卫已入链', () => JSON.parse(read('package.json')).scripts.verify.includes('verify-ledger')],
   ],
   'F1': [
-    ['令牌层模块在位', () => has('src/theme-layer.js')],
+    ['令牌层模块在位', () => has('src/font/color-roles.js')],
     ['令牌层已内联进产物', () => read('lib/client.js').includes('function createThemeLayer(')],
     ['设置侧已派生（宿主也认这两个新键）', () => {
       const s = read('lib/settings-schema.js');
@@ -98,7 +98,7 @@ const EVIDENCE = {
     ['F1 守卫已入链', () => JSON.parse(read('package.json')).scripts.verify.includes('verify-theme-layer')],
   ],
   'F2': [
-    ['排版模块在位', () => has('src/theme-typography.js')],
+    ['排版模块在位', () => has('src/font/typography.js')],
     ['排版模块已内联进产物', () => read('lib/client.js').includes('function buildTypePayload(')],
     ['设置侧已派生（themeType 进 schema 与宿主白名单）', () => read('lib/settings-schema.js').includes('THEME_TYPE_ROLE_IDS')],
     ['面板可设置（排版角色 UI 在位）', () => read('src/client.js').includes('排版角色')],

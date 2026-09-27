@@ -1,5 +1,5 @@
 /**
- * theme-layer.js — 用 DSH 的 `theme` 服务给「文字颜色角色」分角色上色（F1 · 首期只做颜色）。
+ * font/color-roles.js — 用 DSH 的 `theme` 服务给「文字颜色角色」分角色上色（F1 · 首期只做颜色）。
  *
  * 为什么需要它：今天四个文字角色被压成**同一个**用户色（`src/effects.js` 的 `#we-font-patch`
  * 里那四条 `--dsw-alias-label-*: var(--we-font-color) !important`），把 DSH 的四级文字层次

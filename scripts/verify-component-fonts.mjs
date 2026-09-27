@@ -17,7 +17,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const mod = await import(new URL('../src/component-fonts.js', import.meta.url).href);
+const mod = await import(new URL('../src/font/components.js', import.meta.url).href);
 const { COMPONENT_FONT_TARGETS, COMPONENT_FONT_PROPS, probeComponentTargets, buildComponentCss, selectorFor } = mod;
 
 let failed = 0;
@@ -98,7 +98,7 @@ section('④ 空 = 回官方（不生成规则）');
 // ── ⑤ 源码不变量 ────────────────────────────────────────────────────────────
 section('⑤ 源码不变量');
 {
-  const code = strip(readFileSync(join(root, 'src/component-fonts.js'), 'utf8'));
+  const code = strip(readFileSync(join(root, 'src', 'font', 'components.js'), 'utf8'));
   check('零 !important（写死的声明里 315/319 无 !important ⇒ 等特异性即可）', !/!\s*important/.test(code));
   // 判据只针对**生成的 CSS**（源码里的 `length > 0` 是 JS 比较符，不是 CSS 子组合器 ——
   // 对源码做 `\s>\s` 匹配是假阳性）。

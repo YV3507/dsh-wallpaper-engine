@@ -129,7 +129,7 @@ function applyFontStyles() {
       /* 2) 文字**颜色**不再走这条通路。
             这里原先把四个 `--dsw-alias-label-*` 角色压成同一个用户色（带 !important），
             结果是 DSH 的四级文字层次被**压平** —— 正是「全局同色不如原生」的根因。
-            颜色改由 src/theme-layer.js 的令牌层按角色接管（body 内联、免 !important、
+            颜色改由 src/font/color-roles.js 的令牌层按角色接管（body 内联、免 !important、
             随配色自动换值）；未设置的角色直接跟随 DSH 官方值。 */
       /* 3) 退出契约（#91 建议 2）：data-we-font-ignore 子树还原宿主原值。
             :where() 零特异性 —— 还原声明足以压过 body 继承（声明 > 继承），
@@ -242,7 +242,7 @@ function resolveWallpaperFadeBg() {
  * G3/G4：组件级字体（把 `body [class*="_<组件>_"]` 的覆盖写进 `#we-font-scope`）。
  *
  * 与上面那条腿的分工：这里改的是**单个组件**（对话正文/代码块/终端/表格/侧栏/标签/页签/输入框），
- * 不是全局角色。三条规矩来自静态分析（详见 src/component-fonts.js 文件头）：
+ * 不是全局角色。三条规矩来自静态分析（详见 src/font/components.js 文件头）：
  *   · 前缀命中靠**启动自探测**（结果缓存；打包器改名 ⇒ 整条降级，不误伤）；
  *   · 字体来自后代 `font:` 简写的组件（代码块/终端）**只有官方 `--dsl-*` 钩子这条腿有效**；
  *   · 空配置 = 不生成任何规则（**官方值作初始值**）。
