@@ -14,7 +14,8 @@
  * 不调 npm：`files` 的展开语义在这里复刻（目录条目 / `*` 不跨 `/` / `**` 跨），
  * 于是 CI 与本机沙箱都能跑；tarball 的权威清单仍以 `npm pack --dry-run` 为准。
  * 注：这里核对的是 **`files` 驱动的集合**；npm 还会自动带上 `package.json` / `LICENSE` /
- * `README*`，所以真实 tarball 的条目数会比这里多 2–3 条（本机实测 79 vs 77，差额正是前两者）。
+ * `README*` 等，所以真实 tarball 的条目数会比这里略多（差额即这些自动附带项）。
+ * 需要精确条目数时以本机 `npm pack --dry-run` 的输出为准 —— 此处不写死数字。
  *
  * Usage:  node test/verify-package-publish.mjs
  */

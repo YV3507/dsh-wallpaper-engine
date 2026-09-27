@@ -230,9 +230,9 @@ async function main() {
   {
     // 链路外围必须钉住：四个脚本键都在，且**每个键下被引用到的脚本数**不低于实测下限 ——
     // 键被改名 / 条目被删掉时扫描集不能"静默缩小后照旧通过"（空集里没有裸依赖，也就没有
-    // offender，主判据会恒真）。下限取自本轮实测值（build 1 / verify 21 / smoke 5 / prepare 1）：
+    // offender，主判据会恒真）。下限取自本轮实测值（build 1 / verify 24 / smoke 5 / prepare 1）：
     // 新增脚本不受限制，删或改名即判红。
-    const CHAIN_FLOOR = { build: 1, verify: 21, smoke: 5, prepare: 1 };
+    const CHAIN_FLOOR = { build: 1, verify: 24, smoke: 5, prepare: 1 };
     const chainNames = Object.keys(CHAIN_FLOOR);
     const missingKeys = chainNames.filter((n) => {
       const cmd = (pkg.scripts || {})[n];

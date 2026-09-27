@@ -23,10 +23,12 @@
  *   4. Automatic rotation over USER-DEFINED carousel lists (轮播列表): the user
  *      can create any number of lists, pick wallpapers into each from the
  *      inventory, and give each list its own switch interval and order. Lists
- *      are persisted client-side (localStorage), so rotation never depends on
- *      Wallpaper Engine's own config.json playlist paths. A playable WE
- *      playlist is imported as the first list on first run so the feature
- *      starts working out of the box.
+ *      are persisted with the rest of the settings (schema key `rotationGroups`
+ *      → the host's own ~/.dsh-wallpaper-engine/config.json; localStorage is
+ *      only the client-side cache), so rotation never depends on Wallpaper
+ *      Engine's own config.json playlist paths — WE playlists are an import
+ *      source only. A playable WE playlist is imported as the first list on
+ *      first run so the feature starts working out of the box.
  */
 
 const React = require("react");
@@ -157,7 +159,8 @@ const selection = {
   previewUrl: null,
   // Transient: scene wallpaper animation MP4 URL (host /scene-video route).
   // When present the scene plays as a hardware-decoded <video>; on load error
-  // it is nulled and the layer rebuilds as the extracted static frame.
+  // it is nulled and the layer rebuilds as a still image (the frame URL:
+  // live-backfilled GPU frame / user-imported custom frame / empty state).
   sceneVideo: null,
   // Transient: WebWallGL 实时渲染 token（host /scene-files 路由的 src 参数）。
   // 场景取 sceneLiveSrc（pkg 主文件），网页取 webLiveSrc（入口 HTML）；
@@ -243,7 +246,8 @@ function emit() { for (const fn of [...listeners]) fn(); }
 function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 
 // ── 出图来源：场景壁纸「这张画面从哪来」（beta 渲染不参与）───────────────
-// 值域与宿主 /scene-frame **逐字一致**（账本 §6.6/§6.7），只剩两档：
+// 值域与宿主 /scene-frame **逐字一致**（真源：lib/routes/scene-frame.js 的
+// `const variant = vRaw === 4 ? 4 : 0;`），只剩两档：
 //   0 = 自动（求链头：实时抓帧 → 自定义画面 → 空态）
 //   4 = 强制自定义画面（用户导入的截屏）
 // ⚠️ 1/2/3（合成 / 主纹理 / 作者原画 / 预览图）已随 P2-12 退役。宿主会把它们
@@ -298,7 +302,7 @@ function setTransient(field, value) {
 }
 
 // ── 设置持久化（debounce / 迁移 / 重试 / 启动加载）────────────────────────────
-// 这一族的实现已抽到 **src/persistence.js**（约 140 行）。构建期内联回本作用域，
+// 这一族的实现已抽到 **src/persistence.js**（194 行）。构建期内联回本作用域，
 // 调用点（persistSelection / flushPersist / onPageHideFlush / …）无需改动。
 // 契约：8 个出向依赖的清单、入口与不变量 —— 见该文件头。
 
@@ -470,8 +474,9 @@ function matchesTypeFilter(w) {
 
 function isPlayableType(w) {
   // "image" = user-uploaded still image (custom uploads, id prefix "up-").
-  // "scene" = WE scene wallpaper — usable as a static frame when the host
-  // served a frameUrl (extracted from its main texture).
+  // "scene" = WE scene wallpaper — usable as a still image when the host served
+  // a frameUrl (a GPU frame the live render page backfilled, or the user-imported
+  // custom frame; there is no texture extraction).
   if (!w) return false;
   if (w.playable && (w.type === "video" || w.type === "web" || w.type === "image")) return true;
   return w.type === "scene" && Boolean(w.frameUrl);
@@ -938,9 +943,9 @@ try {
 } catch { /* ignore */ }
 
 // ── 媒体准备（预准备 / 构建 / 选中项落地）────────────────────────────────────
-// 这一族的实现已抽到 **src/media-prep.js**（约 600 行，跨三个不相邻区段：预准备与轮换预挂载、
+// 这一族的实现已抽到 **src/media-prep.js**（642 行，跨三个不相邻区段：预准备与轮换预挂载、
 // applySelection、buildMedia）。构建期内联回本作用域，调用点无需改动。
-// 契约：27 个出向依赖的清单、入口与不变量 —— 见该文件头。
+// 契约：出向依赖清单 / 入口 / 不变量 —— 见该文件头（清单只在那里维护，此处不复述数量）。
 
 function commitRotationSwitch(prep) {
   rotationPrep = null;
@@ -1399,12 +1404,12 @@ function markGpuFramePin(token, pinned) {
 // 网页（入口 HTML 走 WebWallGL 的 web 挂载 + 注入 WE shim）共用同一开关
 // （sceneLive，默认开）、同一失败记忆与同一套心跳看护。
 // ── 实时渲染管线（live 看护 / 抓帧回填 / 壁纸层构建与过场）──────────────────
-// 这一族的实现已抽到 **src/live-layer.js**（约 1,130 行，原先跨多个不相邻区段：live 渲染
+// 这一族的实现已抽到 **src/live-layer.js**（1,204 行，原先跨多个不相邻区段：live 渲染
 // URL 与控制、诊断日志、看护心跳、判失败、帧可用性、抓帧回填、指针转发、poster/挂载/抓首帧，
 // 以及 syncLayers 与层过渡）。构建期内联回本作用域，调用点无需改动。
-// **故意留在本文件的**（别的域，别处找）：媒体集成（下方 2421 起的段）、GPU 帧槽助手
+// **故意留在本文件的**（别的域，别处找）：媒体集成（下方「媒体后端」段）、GPU 帧槽助手
 // （clearGpuFrameSlot / refreshStaticFrameNodes / liveViewportAspect 等）、用户属性、diag 上报。
-// 契约：53 个出向依赖的清单、25 个入口、不变量 —— 见该文件头。
+// 契约：出向依赖清单 / 入口 / 不变量 —— 见该文件头（清单只在那里维护，此处不复述数量）。
 
 // ── 媒体后端（宿主侧的系统音频频谱 / Now Playing → 渲染页）─────────────────────
 // 频谱：宿主侧采集（media-bridge 中间件按 50ms 推 64 段）→ 渲染页经
@@ -1598,7 +1603,7 @@ function startMediaSync(frame) {
 // 按画布比取景（WebWallGL fit：与设计比 2% 内 → 整张设计上屏；否则按画布比
 // cover 裁切），而静态帧上屏时还要再经 CSS object-fit: cover。两个比例一叠加，
 // 「在 3:2 窗口抓的帧」拿到 16:9 窗口上屏就是被再裁一次 —— 构图明显放大：
-// 实测 1440x960 的抓帧在 2488x1376 视口里只显示设计宽度的 84.5%（对 CPU 帧做
+// 实测 1440x960 的抓帧在 2488x1376 视口里只显示设计宽度的 84.5%（按设计比做
 // 最佳匹配拟合得到），人物比 live 大约 19% 且四周被切。抓帧回填原先只问
 // 「槽位有没有 GPU 帧」，不问「这张帧配不配当前视口」，于是别的窗口/别的会话
 // 留下的帧会永久上屏（宿主的唯一性闸让 PUT 只写一次，没人再动它）。
@@ -2026,7 +2031,7 @@ function releaseRotationAudioGate() {
 
 // ── 场景包内独立音频（scene-audio）────────────────────────────────────────
 // 长安雪等场景把 BGM/音效以独立音频文件（mp3/ogg…）放在 scene.pkg 里，由 WE
-// 运行时的音频组件播放；静态帧管线没有播放器，此前完全无声。这里用独立
+// 运行时的音频组件播放；静帧路径没有播放器，此前完全无声。这里用独立
 // <audio> 元素补上：宿主 /scene-audio 路由抽出音频（最大者当 BGM），音量与
 // 总开关复用视频壁纸同一套设置（默认 0 = 静音，行为与旧版一致）。
 // 与 sceneVideo 互斥：有内嵌 MP4 时视频自带音轨，避免双声道叠加。
@@ -2109,7 +2114,7 @@ function applyVideoPlayback(video) {
 }
 
 // ── 源元数据 + 抽帧转码（抽帧转码 / 帧率上限）────────────────────────────────
-// 这一族的实现已抽到 **src/transcode.js**（约 285 行：探测 → 决策 → 进度轮询 → 落地/回退；
+// 这一族的实现已抽到 **src/transcode.js**（345 行：探测 → 决策 → 进度轮询 → 落地/回退；
 // 构建期内联回本作用域，调用点无需改动）。它拥有 selection.mediaInfo / transcodeState /
 // transcodeProgress 三个字段的写入权；依赖清点、入口与不变量见该文件头。
 function codecLabel(codec) {
@@ -2139,7 +2144,7 @@ function layerKeyDiff(oldKey, nextKey) {
 // 因此下面这些 applyEffects() / clearEffects() 调用点无需改动（契约见该文件头）。
 
 // ── Picker tabs ─────────────────────────────────────────────────────────────
-// 调节面板的信息架构：六个域互斥页签，每页只留相关控件 —— 替代旧版三十个
+// 调节面板的信息架构：六个页签互斥展示，每页只留相关控件 —— 替代旧版三十个
 // 控件的单列长滚动。最后停留的页签记在 localStorage（仅 UI 状态，不进
 // config.json，也不需要 sanitize / serialize）。
 const PICKER_TAB_KEY = "dsh-wallpaper-engine:picker-tab";
@@ -2667,13 +2672,6 @@ const onThemeColorClear = (role) => {
   delete next[role];
   setSetting("themeColors", next); applyEffects(); emit();
 };
-// F2：排版偏移（px，整数，0 = 不接管该角色 ⇒ 直接删键，回到 DSH 原生字阶）。
-const onThemeType = (role, px) => {
-  const next = Object.assign({}, selection.themeType);
-  if (!px) delete next[role];
-  else next[role] = px;
-  setSetting("themeType", next); applyEffects(); emit();
-};
 // 视图开关（defaults-only，不持久化）：只列调过的角色，便于收尾核对。
 const onThemeTypeOnly = (v) => {
   selection.themeTypeOnly = v;
@@ -2682,16 +2680,6 @@ const onThemeTypeOnly = (v) => {
 
 const onThemeDarkSeparate = (v) => {
   setSetting("themeDarkSeparate", v); applyEffects(); emit();
-};
-
-const onFontColorAll = (hex, separate) => {
-  // 「全部角色同色」：写进 5 个角色（不是一个独立通路）—— 保住"我就想一个色"的用法，
-  // 但语义统一到 themeColors，且随配色/角色机制一起工作（无回落盲区）。
-  const next = Object.assign({}, selection.themeColors);
-  for (const role of THEME_COLOR_ROLES) {
-    next[role.id] = separate ? { light: hex, dark: hex } : { light: hex, dark: hex };
-  }
-  setSetting("themeColors", next); applyEffects(); emit();
 };
   // 全局字重与全局字体族都已移除：字重/字族都按角色与按组件细化（见 src/font/）。
   // 「高级字体设置」视图开关（defaults-only，不持久化）。
@@ -2830,7 +2818,8 @@ const officialColorOf = (tokens) => {
     // force：即使槽里已有 GPU 帧也重抓一张（用户显式要求换一张）。
     scheduleLiveFrameBackfill(live, { force: true });
   };
-  // 自定义画面（截屏导入）：从 WE 等处截图后导入，成为该壁纸第 5 档显示源。
+  // 自定义画面（截屏导入）：从 WE 等处截图后导入，成为该壁纸的「自定义画面」档
+  // （?v=4）显示源。
   const setCustomFrameLocal = (wid, on) => {
     const m = Object.assign({}, selection.customFrames || {});
     if (on) m[wid] = true; else delete m[wid];
@@ -2924,7 +2913,7 @@ const officialColorOf = (tokens) => {
     return () => { document.body.style.overflow = prev; };
   }, [sel.pickerOpen]);
 
-  // ── 页签状态：调节面板分六个域（壁纸/外观/字体/吉祥物/效果/高级），每份
+  // ── 页签状态：调节面板分六个页签（壁纸/外观/吉祥物/效果/声音/高级），每份
   //    实例独立记忆（设置页与仓库抽屉互不影响）；只存 localStorage，不进
   //    config.json。useState 必须在下方早退分支之前调用（Rules of Hooks）。 ──
   const [activeTab, setActiveTab] = React.useState(readSavedPickerTab);
@@ -3163,7 +3152,7 @@ const officialColorOf = (tokens) => {
       React.createElement("span", { className: "we-picker__card-badge" }, String(playableList.length)),
       React.createElement("span", { className: "we-picker__card-desc" }, "本地 Wallpaper Engine 壁纸 · 液态玻璃主题"),
     ),
-    // ── 页签栏（分段式）：六个域互斥展示，替代旧版三十控件的单列长滚动。
+    // ── 页签栏（分段式）：六个页签互斥展示，替代旧版三十控件的单列长滚动。
     //    指示胶囊随 activeTab 平移（transform 合成器属性，不引发布局）。 ──
     React.createElement("div", { className: "we-tabs", role: "tablist", "aria-label": "Wallpaper Engine 设置分区" },
       React.createElement("span", {
@@ -3798,7 +3787,7 @@ function UpdateNotice() {
       React.createElement("p", { className: "we-update-notice__hint" },
         "⚠️ 效果诚实声明：视差 / 透视 / 粒子 / 频谱等效果由场景作者在壁纸内制作，本插件负责把渲染引擎完整跑起来——",
         React.createElement("strong", null, "壁纸本身没有制作对应效果的话不会凭空出现"),
-        "；个别场景渲染不动时自动回落静态帧，不会黑屏。"),
+        "；个别场景渲染不动时自动回落静帧，不会黑屏。"),
       React.createElement("p", { className: "we-update-notice__hint" },
         "💡 Tips：",
         React.createElement("strong", null, "设置面板中部分暂未生效的选项为后续版本的待更新内容"),
@@ -3809,7 +3798,7 @@ function UpdateNotice() {
         "。"),
       React.createElement("p", null,
         "① ", React.createElement("strong", null, "场景壁纸实时渲染引擎"),
-        "：接入 WebWallGL 实时渲染，场景壁纸从「一张静态图」变成「活的」——下面这些由场景作者制作的动态效果全部激活；个别渲染不动的壁纸会自动回落到静态帧管线（毫秒级出图 + 后台预热，v0.7.5 的静态帧修复全部保留，不会黑屏）。"),
+        "：接入 WebWallGL 实时渲染，场景壁纸从「一张静态图」变成「活的」——下面这些由场景作者制作的动态效果全部激活；个别渲染不动的壁纸会自动回落到实时帧（live 渲染页抓帧缓存的 `<key>_gpu.png`，或你导入的自定义画面），都没有时是干净的空态，不会黑屏）。"),
       React.createElement("p", null,
         "② ", React.createElement("strong", null, "鼠标视差"),
         "：场景层次随鼠标移动产生位移，壁纸「跟着鼠标活起来」。"),
@@ -3818,7 +3807,7 @@ function UpdateNotice() {
         "：场景透视 / 景深随鼠标位置实时变化。"),
       React.createElement("p", null,
         "④ ", React.createElement("strong", null, "动态粒子"),
-        "：粒子系统实时运行（质量档位可在效果页签调整）。"),
+        "：粒子系统实时运行（渲染帧率档位可在效果页签调整）。"),
       React.createElement("p", null,
         "⑤ ", React.createElement("strong", null, "水波纹"),
         "：水面 / 液体波纹交互效果。"),
@@ -3832,7 +3821,7 @@ function UpdateNotice() {
         "；同时带 Now Playing——曲目 / 歌手 / 封面直达壁纸。"),
       React.createElement("p", null,
         "⑧ ", React.createElement("strong", null, "帧率上限与播放态管理"),
-        "：15 / 30 / 60 fps 上限自由设定（省电与流畅自选）；窗口隐藏 / 最小化 / 失焦自动暂停；电池供电自动暂停（均可在效果页签关闭）。"),
+        "：15 / 30 / 60 fps 上限自由设定（省电与流畅自选）；窗口隐藏 / 最小化 / 失焦自动暂停；电池供电自动暂停（均可在「高级」页签关闭）。"),
       React.createElement("p", null,
         "⑨ ", React.createElement("strong", null, "dsh-desktop 2.0.14 全面适配"),
         "：修复升级 2.0.14 后的插件加载失败、右栏玻璃关闭态露灰板、增强模式左栏灰面板遮挡壁纸等问题；建议搭配 dsh-desktop 2.0.14 及以上版本使用。"),
@@ -4162,8 +4151,9 @@ function apply(ctx) {
   }
 
   // 1b. F1「文字颜色角色」令牌层：后台轮询 theme 服务（启动竞态：实测 7ms 时还没有、
-  //     325ms 才有），拿到后按设置给每个角色上色；拿不到就**什么都不做** —— 今天的
-  //     #we-font-patch 折叠路径照旧可用（红线 7 的双通道，按能力探测而非二选一）。
+  //     325ms 才有），拿到后按设置给每个角色上色；拿不到就**什么都不做** —— 全局
+  //     字体层已删，`#we-font-patch` 不再是回落通道，此时角色色就是不上色
+  //     （红线 7 的双通道只剩令牌层这一条腿）。
   //     - 不声明 `inject: ["theme"]`：缺服务时声明式依赖会让插件 park（F0 A7）。
   //     - 首次写入前先取宿主墨色基线，否则退出契约会把我们的颜色当宿主原值快照。
   //     - 不监听配色变化重注册：值给的是 {light,dark} 对，配色切换由服务自己换值。

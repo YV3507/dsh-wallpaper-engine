@@ -32,6 +32,7 @@
 //   F3  the content-surface plate uses a literal max() clamp on its own alpha.
 //   F4  the software-render fallback plate still clears the floor (the #95
 //       fallback from 8894670/7ba5643 keeps working).
+//   F5  DSH Desktop **extended** 模式的外壳画布底必须被清掉
 //   C1  full grid 玻璃透明度 {0,15,30,45,60} × theme {light,dark} × 壁纸透明度
 //       {0,50,90}: the effective composer-surface alpha is ≥ the floor, with the
 //       computed numbers printed.
@@ -47,6 +48,7 @@
 //   M1  the measurement has discriminating power: the UN-floored tint fails
 //       4.5:1 in the worst case (the bug), the floored surface passes.
 //   M2  helpers behave (positive + negative controls on the contrast maths).
+//   C6  stylesheet integrity + the wallpaper layer can never cover the UI.
 //
 // Usage: node test/verify-readability.mjs
 import { readFileSync } from 'node:fs';

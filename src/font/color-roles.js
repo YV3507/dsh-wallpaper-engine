@@ -1,10 +1,10 @@
 /**
  * font/color-roles.js — 用 DSH 的 `theme` 服务给「文字颜色角色」分角色上色（F1 · 首期只做颜色）。
  *
- * 为什么需要它：今天四个文字角色被压成**同一个**用户色（`src/effects.js` 的 `#we-font-patch`
- * 里那四条 `--dsw-alias-label-*: var(--we-font-color) !important`），把 DSH 的四级文字层次
- * **压平**了 —— 这正是"全局同色不如原生"的根因。本模块改用官方令牌层：每个角色一个色，
- * 原生层次保留。
+ * 为什么需要它：原「字体颜色」把四个文字角色压成**同一个**用户色（`#we-font-patch` 里那四条
+ * `--dsw-alias-label-*` 覆盖），把 DSH 的四级文字层次**压平**了 —— 那条全局折叠路径已随全局
+ * 字体层一起删除（见 src/font/apply.js 的 removeFontStyles）。本模块用官方令牌层取代它：
+ * 每个角色一个色，原生层次保留。
  *
  * 契约（本文件是客户端程序的一部分，构建期由 scripts/build-client.mjs 内联进 bundle 的工厂
  * 作用域；依赖少到可以列全）：
@@ -15,7 +15,7 @@
  *             scanThemeTokens(doc)               当前 DSH 真的定义了哪些 --dsw-*（白名单来源）
  *             buildTokenPayload(colors, isAvailable)  设置 → overrideTokens 载荷
  *             createThemeLayer(opts)             建层/同步/销毁
- *             themeLayerOwnedRoles()             层当前接管的角色（供 effects.js 让位）
+ *             themeLayerOwnedRoles()             层当前接管的角色（按 source 记账；当前无消费者）
  *
  * 不变量（都有守卫）：
  *   · **不写 `!important`、不用 DOM 选择器**：令牌层走 body 内联，天然压过宿主样式表。
@@ -30,8 +30,8 @@
 const THEME_LAYER_SOURCE = 'wallpaper-engine';
 
 /**
- * 首期开放的 5 个角色（对应 6 个令牌）。用量见账本 §9.3（正文 353 / 弱化说明 329 /
- * 次要 270 / 极小说明 91 / 禁用 14）。`label-error` **不开放**（错误色有语义）。
+ * 开放的 5 个角色（对应 6 个令牌）。`label-error` **不开放**（错误色有语义）。
+ * （原记的用量数字没有可复算的出处，已撤；需要时按 token 在 DSH 样式表里重新统计。）
  */
 const THEME_COLOR_ROLES = [
   { id: 'primary', label: '正文', tokens: ['--dsw-alias-label-primary'] },
@@ -48,9 +48,9 @@ function isThemeHex(v) {
 }
 
 /**
- * 层当前接管的角色，**按 source 分别记账**：颜色层（THEME_LAYER_SOURCE）的角色决定
- * effects.js 让出哪些 `!important` 折叠行；排版层（THEME_TYPE_SOURCE）与折叠行无关，
- * 若两层共用一份记账，后同步的那层会把前者的角色列表覆盖掉（折叠行于是错误地让位）。
+ * 层当前接管的角色，**按 source 分别记账**：颜色层与排版层（THEME_TYPE_SOURCE）的角色集合
+ * 必须分开 —— 若两层共用一份记账，后同步的那层会把前者的列表覆盖掉。
+ * ⚠️ `themeLayerOwnedRoles()` 目前**没有消费者**（原消费者是已删的全局字体折叠行）。
  */
 const themeLayerRolesBySource = Object.create(null);
 function themeLayerOwnedRoles() { return (themeLayerRolesBySource[THEME_LAYER_SOURCE] || []).slice(); }

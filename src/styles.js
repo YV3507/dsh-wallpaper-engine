@@ -27,7 +27,7 @@
 // tool-window surfaces, which keep a background of their own
 // (https://www.jetbrains.com/help/idea/setting-background-image.html). This
 // plugin lacked exactly that structural property: every text-bearing surface
-// was painted as `glass colour @ --we-glass-alpha`, and in dark mode that alpha
+// was painted as glass colour @ --we-glass-alpha, and in dark mode that alpha
 // is additionally multiplied by 0.4 — worst case 0.03 × 0.4 = 0.012, i.e. no
 // frost at all, so conversation text scrolling behind the composer read
 // straight through.
@@ -644,11 +644,11 @@ const CSS = `
     --dsw-alias-button-primary-dimmed: color-mix(in srgb, var(--we-accent, #4f8cff) 22%, transparent);
     --dsw-alias-state-business-primary: var(--we-accent, #4f8cff);
     /* Frosted finish — the SAME recipe as the conversation surfaces (composer
-       card / bubbles): the blur radius, saturation melt and brightness all
-       read the 玻璃 slider (--we-blur 0–60px, --we-saturate, --we-glass-brightness),
-       so the settings window glass tracks the conversation-bar adjustment range
-       exactly. Plus a specular sheen + inner edge highlight + diffuse shadow
-       (the shell already rounds the panel at 24px). */
+       card / bubbles): the blur radius comes from the 玻璃 slider (--we-blur
+       0–60px), the saturation melt is a flat material constant (--we-saturate,
+       see the composer note above) and brightness is pinned — so the settings
+       window glass tracks the conversation-bar blur range exactly. Plus a
+       specular sheen + inner edge highlight + diffuse shadow (panel rounds at 24px). */
     -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
     backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
     background-image: linear-gradient(
@@ -1194,7 +1194,7 @@ const CSS = `
     border: 2px solid var(--we-accent, #4f8cff);
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
   }
-  /* （原生 checkbox 已全部替换为胶囊开关 .we-picker__switch。） */
+  /* （设置行的原生 checkbox 已全部换成胶囊开关 .we-picker__switch；壁纸属性面板的 bool 项仍是原生 checkbox。） */
 
   /* Sliding toggle switch (紧凑布局). Track + thumb slide left/right with a
      snappy 120ms transition; pinned accent so light themes stay readable. */

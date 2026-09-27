@@ -74,7 +74,7 @@ const INLINE_MODULES = [
   },
   {
     file: 'src/font/typography.js',
-    why: 'F2 排版角色：按角色调整字号/行高偏移（基准表达式照抄 DSH，见文件头）',
+    why: 'F2 排版角色：按角色调整字号（绝对值 px）/字重/字族（基准表达式照抄 DSH，见文件头）',
     markers: ['const THEME_TYPE_ROLES = [', 'function buildTypePayload(', 'const THEME_TYPE_SOURCE ='],
   },
   {
@@ -166,7 +166,7 @@ const target = resolve(root, 'lib', 'client.js');
 mkdirSync(dirname(target), { recursive: true });
 writeFileSync(target, output);
 const inlined = INLINE_MODULES.map((m) => m.file).join(' + ');
-console.log(`built ${target} (${output.length} bytes; inlined: ${inlined})`);
+console.log(`built ${target} (${Buffer.byteLength(output)} bytes; inlined: ${inlined})`);
 
 function indent(text) {
   return text.split('\n').map((line) => (line.trim() === '' ? '' : '\t\t' + line)).join('\n');

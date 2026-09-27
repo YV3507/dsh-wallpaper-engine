@@ -316,7 +316,8 @@ console.log('\n④ 相对说明符必须解析到真实文件');
   };
   // 扫描面 = `lib/**`（运行期）**加上开发面**（`scripts/**` + `test/**`）。开发面必须一并覆盖：
   // 目录重整（守门进 test/、工具进 test/tools/）会让相对说明符按新位置重解析 —— 实测
-  // `test/verify-route-index.mjs` 的 `from './host-route-index.mjs'` 在工具搬进 test/tools/ 后断链。
+  // `test/verify-route-index.mjs` 的 `from './host-route-index.mjs'` 在工具搬进 test/tools/ 后断链
+  // （它现在写的是 `from './tools/host-route-index.mjs'`，即搬目录后的正确形态）。
   const devSources = [...walkFiles(join(ROOT, 'scripts')), ...walkFiles(join(ROOT, 'test'))]
     .filter((rel) => rel.endsWith('.mjs'))
     .map((rel) => ({ rel, text: readFileSync(join(ROOT, rel), 'utf8') }));

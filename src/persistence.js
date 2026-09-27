@@ -2,17 +2,17 @@
  * persistence.js — 设置持久化层：**宿主文件是真源，localStorage 是同步缓存 + 迁移源 + 回滚**。
  *
  * 为什么单独一个文件：这一族是"用户改了设置之后到底存到哪、什么时候存、失败了怎么办"的**全部答案**
- * （约 140 行）：debounce 写、脏标记与重试、页面隐藏时 flush、启动时的宿主→本地迁移、以及
+ * （194 行）：debounce 写、脏标记与重试、页面隐藏时 flush、启动时的宿主→本地迁移、以及
  * "用户在这次 GET 在途时改了设置 ⇒ 宿主的答案已过期，不许覆盖"的竞态守卫。此前它散在
  * src/client.js 的头部与中段（读 localStorage 的助手在 store 定义之前、其余在 store 之后），
  * 读的时候要跳两处；抽出来之后"设置为什么丢了"只需读一个文件。
  *
  * 契约（构建期由 scripts/build-client.mjs 内联进 bundle 的工厂作用域，"外部作用域"=
- * 同一 prelude / src/client.js 的顶层。依赖是**机械清点**出来的：8 个）：
+ * 同一 prelude / src/client.js 的顶层。依赖见下方逐条列举，此处不写死数量）：
  *   selection        ← 设置/选中项的唯一 store（本文件读它、并在启动时**合并**宿主/本地值）
  *   SETTINGS_KEY     ← localStorage 键（client.js 顶层 const）
  *   SETTINGS_URL     ← 宿主设置路由（client.js 顶层 const）
- *   sanitizeSettings ← 派生于 schema 的消毒（client.js → lib/settings-schema.js）
+ *   sanitizeSettings / serializeSettings / DEFAULTS ← lib/settings-schema.js（消毒 / 白名单 / 默认值）
  *   emit             ← 单向重渲染（启动加载完成后通知一次）
  *   applyEffects     ← src/effects.js（设置落地到 DOM）
  *   apiJson / apiFetch ← src/api-client.js（宿主 API 唯一出入口）

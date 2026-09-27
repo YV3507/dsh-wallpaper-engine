@@ -300,7 +300,7 @@ section('④b 排版角色（F2）');
     !String('14px').startsWith('var(--dsh-content-font-size'));
   // 面板**不再用占位字样**，直接显示默认值（用户口径）：角色行显示默认字阶与默认字重、
   // 颜色块显示当前默认色。
-  // 字体页签的渲染器已抽到 src/panel-tabs.js（C）：这里按文件分源，不拼接 ——
+  // 调节面板的渲染器已抽到 src/panel-tabs.js（C）：这里按文件分源，不拼接 ——
 // 拼接会让一个文件的文本满足另一个文件的结构断言。
 const clientFontUi = readFileSync(join(root, 'src', 'client.js'), 'utf8');
 const fontTabsUi = readFileSync(join(root, 'src', 'panel-tabs.js'), 'utf8');
@@ -396,11 +396,11 @@ const fontTabsUi = readFileSync(join(root, 'src', 'panel-tabs.js'), 'utf8');
       ['themeColors', 'themeSize', 'themeWeight', 'themeFamily', 'componentFonts', 'fontCustom']
         .every((k) => k in schema.DEFAULTS)
       && ['fontColor', 'fontWeight', 'fontFamily'].every((k) => !(k in schema.DEFAULTS)));
-    // 这一族是**跨文件接线**：处理器（onFontResetAll 清空 6 个容器）住在面板组件里
+    // 这一族是**跨文件接线**：处理器（onFontResetAll 清空 5 个容器 + 2 个视图开关）住在面板组件里
     // （client.js），而"高级字体设置"那个子分支的渲染在抽出的页签模块里（panel-tabs.js）。
     // 两半各取对应来源，不拼接 —— 拼接会让一个文件的文本满足另一个文件的断言。
     const clientSrc = readFileSync(join(root, 'src', 'client.js'), 'utf8');
-    check('面板「恢复默认」清掉全部字体自定义项（4 个容器 + 字体族 + 视图开关）',
+    check('面板「恢复默认」清掉全部字体自定义项（5 个容器 + 2 个视图开关）',
       clientSrc.includes('const onFontResetAll = ()')
       && /selection\.themeColors = \{\};/.test(clientSrc)
       && /selection\.themeSize = \{\};/.test(clientSrc)

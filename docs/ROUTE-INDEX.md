@@ -41,9 +41,9 @@
 | 25 | `/we-assets-dir` | lib/index.js:3212 | 箭头 | webServer disposers | 1 |
 | 26 | `/scene-video` | lib/index.js:3265 | 箭头 | webServer mediaMap disposers serveFile SCENE_VIDEO_INFLIGHT | 2 |
 | 27 | `/scene-audio` | lib/index.js:3348 | 箭头 | webServer mediaMap disposers serveFile | 3 |
-| 28 | `/upload` | lib/routes/upload.js:54 | 箭头 | disposers base tokenFor UPLOAD_EXT UPLOAD_MAX_BYTES ensureUploadDir …(+6) | 3 |
-| 29 | `/remove` | lib/routes/upload.js:202 | 箭头 | disposers base ensureUploadDir removeUploadMeta resolveUploadFile armBodyIdleTimeout | 1 |
-| 30 | `/upload-dir` | lib/routes/upload.js:246 | 箭头 | disposers base setUploadDir normalizeUserDir | 1 |
+| 28 | `/upload` | lib/routes/upload.js:55 | 箭头 | disposers base tokenFor UPLOAD_EXT UPLOAD_MAX_BYTES ensureUploadDir …(+6) | 3 |
+| 29 | `/remove` | lib/routes/upload.js:203 | 箭头 | disposers base ensureUploadDir removeUploadMeta resolveUploadFile armBodyIdleTimeout | 1 |
+| 30 | `/upload-dir` | lib/routes/upload.js:247 | 箭头 | disposers base setUploadDir normalizeUserDir | 1 |
 | 31 | `/settings` | lib/index.js:3396 | 箭头 | webServer disposers SETTINGS_MAX_BYTES | 11 |
 
 **零提及（拆分前必须先补守卫）**：（无）

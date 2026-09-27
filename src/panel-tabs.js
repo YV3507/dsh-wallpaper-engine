@@ -1,7 +1,7 @@
 /**
- * panel-tabs.js — 面板六个页签的**渲染器**（壁纸 / 外观 / 音频 / 摆件 / 效果 / 高级）。
+ * panel-tabs.js — 面板六个页签的**渲染器**（壁纸 / 外观 / 吉祥物 / 效果 / 声音 / 高级）。
  *
- * 为什么单独一个文件：这六个渲染器共 **1,208 行**，此前是 `WallpaperPicker` 内部的六个闭包
+ * 为什么单独一个文件：这六个渲染器共 **1,240 行**，此前是 `WallpaperPicker` 内部的六个闭包
  * （夹在 2,400 行的组件体里）。它们**读**面板状态、**调**面板处理器，但自己不持有状态 ——
  * 正是最适合搬出去的一层。搬出后：面板组件体只剩"状态 + 处理器 + 装配"，页签怎么画看这里。
  *
@@ -172,8 +172,8 @@
           ),
         ),
       ),
-      // ── 自动轮播（原「轮播列表」）: user-defined carousel lists, each with
-      //    its own wallpaper set, interval and order. Fully client-side. ──
+      // ── 自动轮播（原「轮播列表」）: user-defined carousel lists, each with its own
+      //    wallpaper set, interval and order. Persisted as `rotationGroups` (host config.json). ──
       React.createElement("div", { className: "we-picker__section" },
         React.createElement("div", { className: "we-picker__section-head" },
           React.createElement("span", { className: "we-picker__section-label" }, "自动轮播"),
@@ -534,9 +534,9 @@
           }, "恢复默认"),
         ),
         sel.fontCustom && React.createElement(React.Fragment, null,
-          // F1：分角色上色。今天的「字体颜色」把四个角色压成同一个色（把 DSH 的四级文字
-          // 层次压平）；这里逐个角色放开，留空 = 跟随原生。经 theme 令牌层生效：body 内联、
-          // 免 !important、{light,dark} 随配色自动换值。
+          // F1：分角色上色。原「字体颜色」把四个角色压成同一个色（把 DSH 的四级文字层次
+          // 压平）—— 那条全局折叠路径已随全局字体层删除；这里逐个角色放开，留空 = 跟随
+          // 原生。经 theme 令牌层生效：body 内联、免 !important、{light,dark} 随配色自动换值。
           React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
             ctlText("文字颜色角色", "未设置 = 用 DSH 默认色（色块显示当前值）"),
           ),
@@ -1014,7 +1014,7 @@
             gpuPinnedHere
               ? "已抓帧 · 优先于全部画面档位"
               : "实时渲染中 · 可随时抓一张",
-            "实时渲染成功后会自动抓帧缓存这一帧（<key>_gpu.png），它优先于「出图来源」的自动档；切换壁纸途中、以及 live 首帧出来之前，屏幕上显示的就是它。「重新截」会按**当前**画面重抓一张（已存在的缓存会被替换，抓不到则原样保留）；「清除 GPU 帧」删掉缓存、回到「自动」（没有实时画面时就是空态，不再回落任何猜图来源）。"),
+            "实时渲染成功后会自动抓帧缓存这一帧（<key>_gpu.png），它优先于「出图来源」的自动档；切换壁纸途中、以及 live 首帧出来之前，屏幕上显示的就是它。「重新截」会按**当前**画面重抓一张（已存在的缓存会被替换，抓不到则原样保留）；「清除 GPU 帧」删掉缓存、回到「自动」：没有实时画面时是空态（不再**合成**任何「猜」出来的图）；唯一的例外是该帧连**加载都失败**、而壁纸有工程预览图时，退到预览图垫底（作者随包发布的图）。"),
           // 微缩预览：只有槽里真有实时帧时才显示（否则这里会显示成 CPU 档位帧，误导）。
           gpuPinnedHere && React.createElement("img", {
             className: "we-picker__frame-shot",
@@ -1040,13 +1040,13 @@
           gpuFrameUi.error
             && React.createElement("div", { className: "we-picker__hint" }, gpuFrameUi.error),
         ),
-        // ── 自定义画面（截屏导入）：无法静态生成的壁纸（骨骼拼装场景，预览 gif 仅
-        //    160px）由用户从 WE 截图导入，画质=截图分辨率；作为第 5 档。
+        // ── 自定义画面（截屏导入）：出不了实时画面的壁纸（骨骼拼装场景，预览 gif 仅
+        //    160px）由用户从 WE 截图导入，画质=截图分辨率；就是 ?v=4 那一档。
         //    同样**不受实时渲染开关影响**（导入/清除与 live 互不干扰）。──
         sel.type === "scene" && React.createElement("div", { className: "we-picker__ctl" },
           ctlText("自定义画面",
             "手动给电脑桌面截图，导入截图解决错误壁纸",
-            "手动对电脑桌面截图（壁纸显示效果的分辨率即最终展示画质），再回来点「导入画面…」选中该截图；导入后自动切换为该图，可随刷新档位切回其他生成逻辑。实时渲染生效时它仍会作为「出图来源」的自定义档"),
+            "手动对电脑桌面截图（壁纸显示效果的分辨率即最终展示画质），再回来点「导入画面…」选中该截图；导入后自动切换为该图，可随时切回「实时画面」档。实时渲染生效时它仍会作为「出图来源」的自定义档"),
           React.createElement("button", {
             className: "we-picker__btn", type: "button",
             onClick: () => { if (customFrameInput) customFrameInput.click(); },

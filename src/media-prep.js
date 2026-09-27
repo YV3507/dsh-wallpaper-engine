@@ -2,14 +2,14 @@
  * media-prep.js — **选中的壁纸 → 屏幕上的媒体**：预准备（预挂载 + 探测 + 超时记账）、
  * 媒体元素构建（buildMedia）、选中项落地（applySelection）。
  *
- * 为什么单独一个文件：这一族是"切换壁纸"这条主链路的三段（**约 600 行**），跨 src/client.js
+ * 为什么单独一个文件：这一族是"切换壁纸"这条主链路的三段（**642 行**），跨 src/client.js
  * 的三个不相邻区段，中间夹着播放列表编辑、隐藏列表、用户属性、遮挡检测 —— 读一处改一处，
  * 很难看清"准备 → 构建 → 落地"的关系。抽出来之后，"为什么这张壁纸白屏/等了很久才出来"
  * 只需读一个文件。
  *
  * 契约（本文件是客户端程序的一部分，构建期由 scripts/build-client.mjs 内联进 bundle 的
- * 工厂作用域，"外部作用域"= 同一 prelude / src/client.js 的顶层。依赖是**机械清点**出来的：
- * 27 个）：
+ * 工厂作用域，"外部作用域"= 同一 prelude / src/client.js 的顶层。依赖见下表分组
+ * （清单只在这里维护，不在此处写死数量）：
  *   状态 store        selection · rotationPrep · rotationCandidates · rotationNextCandidate ·
  *                     pendingStagedLayerNode · selectionBlockedNote · pageHiddenSince ·
  *                     prepareLiveTimeouts（本文件声明）
@@ -352,9 +352,9 @@ function prepareSceneLiveStage(w, prep, onReady, onFail) {
   prepTimeout(prep, poll, 300); // 首拍稍早：小 pkg 可能一帧内就绪
 }
 
-// 出图来源阶段：GET frameUrl 由 host 从磁盘取（已无任何生成动作），img onload
-// = 提取+解码完成，元素随 commit 移入新层。提取失败（422）→ preview 探测；
-// preview 也失败 → onFail 跳过。
+// 出图来源阶段：GET frameUrl 由 host 从磁盘取（`<key>_gpu.png` 或用户导入的自定义画面），
+// img onload = 解码完成，元素随 commit 移入新层。空槽是 404（no-frame）→ preview 探测；
+// 422 只属于 v=4 自定义画面缺失。preview 也失败 → onFail 跳过。
 function prepareSceneStaticStage(w, prep, onReady, onFail) {
   prep.kind = "static";
   if (typeof Image !== "function") { onReady(); return; }
@@ -371,19 +371,19 @@ function prepareSceneStaticStage(w, prep, onReady, onFail) {
   };
   if (!w.frameUrl) { tryPreview(); return; }
   // 探针必须加载**提交后真正会显示的那个 URL**：提交时 selection.url 会带上该
-  // 壁纸记住的画面档位（frameUrlWithVariant）。若这里用无档位的 frameUrl，档位
-  // 1–3 的元素会在收编时被 URL 校验判为不符 → 释放重建：预载白做、新层仍从零
-  // 加载（机制本意消除的加载窗口又回来了），还多一次全分辨率帧下载（host 对
-  // 静态帧响应 no-store，浏览器缓存不复用；v0 槽没访问过时 host 还会白跑一次
-  // CPU 提取）。档位在准备与提交之间被改（理论上只有用户手动刷新）时 URL 仍会
-  // 不符，校验照旧兜住重建。
+  // 壁纸记住的画面档位（frameUrlWithVariant）。若这里用无档位的 frameUrl，带档位
+  // 的元素（?v=4）会在收编时被 URL 校验判为不符 → 释放重建：预载白做、新层仍从零
+  // 加载（机制本意消除的加载窗口又回来了），还多一次全分辨率帧下载（host 对出图
+  // 响应 no-store，浏览器缓存不复用；空槽时这次探测本身也白跑一次）。
+  // 档位在准备与提交之间被改（理论上只有用户手动刷新）时 URL 仍会不符，
+  // 校验照旧兜住重建。
   const savedVariant = Number(selection.frameVariants && selection.frameVariants[String(w.id)]) || 0;
   const frameSrc = frameUrlWithVariant(w.frameUrl, savedVariant);
   const img = new Image();
   prep.probeMedia = img;
   img.onload = () => { adoptProbe(prep); onReady(); };
   img.onerror = () => { releaseProbeMedia(prep); tryPreview(); };
-  prepTimeout(prep, () => { adoptProbe(prep); onReady(); }); // 慢提取兜底提交
+  prepTimeout(prep, () => { adoptProbe(prep); onReady(); }); // 慢帧兜底提交
   img.alt = "";
   img.draggable = false;
   img.className = "we-media we-media--fit";
@@ -600,8 +600,9 @@ function buildMedia(sel) {
     media.alt = "";
     media.draggable = false;
     media.className = "we-media" + fitClass;
-    // Scene frames are generated on demand; a failed extraction (e.g. an
-    // unsupported texture format) falls back to the project preview image.
+    // Scene frames are no longer generated (the host serves an existing frame: the live-backfilled
+    // GPU frame, or the user-imported custom frame). 代码事实：该帧**加载失败**（img onerror）且该壁纸
+    // 有工程预览图时，退到 previewUrl 垫底 —— 那是作者随包发布的图，不是本插件合成的"猜图"。
     if (sel.type === "scene" && sel.previewUrl) {
       media.onerror = () => {
         if (media.src !== sel.previewUrl) media.src = sel.previewUrl;

@@ -745,9 +745,9 @@ for (const [name, ok] of clientChecks) check(name, ok);
 // 实测踩坑回归（2026-09-22）：host 的 sanitizeSettings 是白名单，漏加
 // sceneLiveFailures 会让 PUT 上来的失败记忆被丢弃、刷新后记忆消失。
 // ── Level E: 三条此前"守卫零提及"的宿主路由（P2-11 前置 2）──────────────────
-// `docs/ROUTE-INDEX.md` 把这三条标成 **0 提及** ⇒ 在拆分 `apply(ctx)` 之前必须补上真实行为
-// 断言，否则动它们等于没有安全网。三条都只断言**无副作用的失败路径**：不写宿主持久化配置、
-// 不落盘、不依赖本机是否真有封面（否则 CI 会随环境飘）。
+// 补守卫之前，`docs/ROUTE-INDEX.md` 把这三条标成 **0 提及**（该节现已收缩为「（无）」）⇒ 拆分
+// `apply(ctx)` 之前必须补上真实行为断言，否则动它们等于没有安全网。三条都只断言**无副作用的
+// 失败路径**：不写宿主持久化配置、不落盘、不依赖本机是否真有封面（否则 CI 会随环境飘）。
 {
   const byPath = (p) => routes.find((r) => r.path === '/wallpaper-engine' + p);
   const clientDiag = byPath('/client-diag');
@@ -802,8 +802,8 @@ check('host settings whitelist keeps sceneLiveFailures', hostKeeps('sceneLiveFai
 check('host injects the vendored shim into web HTML', /data-we-shim="host"/.test(hostSrc) && /readWebShim\(\)/.test(hostSrc));
 check('host sends CORS for opaque-origin fetches', /Access-Control-Allow-Origin', '\*'/.test(hostSrc));
 check('inventory derives webLive via webFieldsFor', /webFieldsFor\(w, hasMedia, webMediaBase\)/.test(hostSrc));
-// 2026-09-23 黑屏事故回归：Desktop 的能力头栅栏（宿主 lib/webserver.js →
-// decideDesktopBrowserAccess）只放行同源 frame，不透明源的沙箱 iframe 永远拿不到
+// 2026-09-23 黑屏事故回归：Desktop 的能力头栅栏（**外部宿主** `@deepseek-ai/dsh-host-webserver`
+// 的 decideDesktopBrowserAccess —— 本仓没有该文件）只放行同源 frame，不透明源的沙箱 iframe 永远拿不到
 // x-dsh-desktop-renderer → 插件路由一律 403。网页壁纸载荷因此必须走 host 自建的
 // 独立 loopback 源，两处挂载共用同一段处理函数。
 check('host 自建壁纸媒体源（独立 loopback 监听）',

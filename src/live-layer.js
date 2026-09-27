@@ -2,14 +2,14 @@
  * live-layer.js — **实时渲染管线**：live 渲染与控制、看护心跳、判失败、抓帧回填、指针转发、
  * poster/挂载/抓首帧，以及壁纸层的构建（syncLayers）与过场过渡。
  *
- * 为什么单独一个文件：这是"壁纸层从建到退"的整条链路（**约 1,130 行**），此前散在
+ * 为什么单独一个文件：这是"壁纸层从建到退"的整条链路（**1,204 行**），此前散在
  * src/client.js 的多个不相邻区段里 —— 中间还夹着**别的域**（媒体集成、GPU 帧槽助手、
  * 用户属性、diag 上报），改一处 live 行为要先在 7,300 行里找齐四五段。抽出来之后，
  * "画面为什么没出来"这类问题只需读一个文件；client.js 那边留了一段指路注释。
  *
  * 契约（本文件是客户端程序的一部分，构建期由 scripts/build-client.mjs 内联进 bundle 的
- * 工厂作用域，"外部作用域"= 同一 prelude / src/client.js 的顶层。依赖是**机械清点**出来的：
- * 53 个，按下表分组）：
+ * 工厂作用域，"外部作用域"= 同一 prelude / src/client.js 的顶层。依赖见下表分组
+ * （清单只在这里维护，不在此处写死数量）：
  *   状态 store        selection · gpuFrameUi · liveWatch · livePointerFrame · liveApplied ·
  *                     bootRestore · liveDiagOn · LIVE_FIRST_FRAME_MS（后五个由本文件声明，
  *                     因被外部读取而导出）
@@ -28,7 +28,7 @@
  *                     applyEffects/clearEffects（prelude）· reportClientDiag · emit ·
  *                     persistSelection · applySelection · applyStoredUserProps ·
  *                     apiFetch/apiHead（prelude）
- * 提供的入口（25 个；被 client.js 或守卫引用，其余是同族助手）：
+ * 提供的入口（被 client.js 或守卫引用，其余是同族助手）：
  *   syncLayers · startLiveWatch · stopLiveWatch · liveFail · liveRenderEnabled · liveRenderUrl ·
  *   liveFailReasonOf · liveLog · liveStateBrief · liveDiagVerbose · liveStats · applyLiveControls ·
  *   scheduleLiveFrameBackfill · cancelLiveFrameBackfill · liveFrameEl · buildLivePoster ·
@@ -528,8 +528,8 @@ function liveFail(reason) {
 // preserveDrawingBuffer:true —— 父页面同源即可随时 toBlob 抓当前帧，无需渲染
 // 页/上游配合。首帧确认后 2.5s（实时画面进稳态）HEAD 探测静态帧槽位：
 // - 已有 GPU 帧（X-WE-GPU=1）→ 不动；
-// - 空槽（404）或 CPU 提取/预览帧（204+0）→ 抓帧 PUT 回填：GPU 帧升级覆盖
-//   CPU 提取的残破帧（host 每壁纸只接受一次，见 /scene-frame-cache）。
+// - 空槽（404）或已有自定义画面（204 + X-WE-GPU=0）→ 抓帧 PUT 回填：GPU 帧优先
+//   于自定义画面（host 每壁纸只接受一次 GPU 帧写入，见 /scene-frame-cache）。
 // 失败路径会清 token，于是下一次 live 首帧（通常来自重新挂载）可以重试；
 // 成功/已被别人写入则保留 token，避免同一壁纸反复抓帧。
 const LIVE_FRAME_BACKFILL_DELAY_MS = 2500;
@@ -537,7 +537,7 @@ const LIVE_FRAME_BACKFILL_MIN_BYTES = 4096;
 // 空帧门禁（内容判定）：体积不可靠 —— headless Chrome 实测全黑 PNG：
 // 960×540=12KB / 1080p=44KB / 4K=165KB，全都远超任何固定的字节阈值。改为把
 // canvas 降采样到 64×64 看亮度分布：近全黑或几乎无对比度 → 判为「还没渲染
-// 出画面」，放弃回填（宁可继续用 CPU 帧，也不要写一张坏帧被 409 永久固化）。
+// 出画面」，放弃回填（宁可继续用自定义画面，也不要写一张坏帧被 409 永久固化）。
 const LIVE_FRAME_SAMPLE = 64;
 const LIVE_FRAME_LIT_RATIO = 0.02;   // 亮于阈值(12/255)的像素占比下限
 const LIVE_FRAME_MIN_VARIANCE = 4;   // 亮度方差下限（纯色帧≈0）
@@ -660,13 +660,13 @@ function scheduleLiveFrameBackfill(frame, opts) {
         if (force) forceFail("抓到的画面是空的（实时渲染还在启动中？稍等一两秒再试）");
         return false;
       }
-      // 内容门禁：黑帧/纯色帧判为未渲染 → 放弃（保留 CPU 帧）。
+      // 内容门禁：黑帧/纯色帧判为未渲染 → 放弃（保留槽里原有的帧）。
       if (!liveFrameLooksUsable(canvas, blob)) {
         if (force) forceFail("抓到的画面还没有内容（全黑/纯色）→ 已保留原来那张");
         return false;
       }
       // 清旧帧放在抓帧+门禁**之后**：先清后抓一旦抓帧失败（画面没出来/网络断）就
-      // 只剩空槽 → 退回 CPU 帧，比留一张旧构图的帧更糟（旧的至少是同一张壁纸）。
+      // 只剩空槽 → 退回自定义画面/空态，比留一张旧构图的帧更糟（旧的至少是同一张壁纸）。
       if (stale) {
         const cleared = await clearGpuFrameSlot(token);
         if (!cleared) {
@@ -692,7 +692,7 @@ function scheduleLiveFrameBackfill(frame, opts) {
     })().then((settled) => {
       // 抓帧 + 上传是异步的（多 MB PNG 要 0.1–1s），期间用户可能已经切走：
       // 状态更新只对发起时那张壁纸有效 —— 否则会给**当前**壁纸打上「已有 GPU 帧」
-      // 的假标记（面板提示错、CPU 渲染门禁在 30s 内误判为 pinned）。host 侧写入
+      // 的假标记（面板提示错、30s 内被误判为 pinned）。host 侧写入
       // 仍落在 token 自己的槽位，下次回到这张壁纸时面板探测自然会读到。
       if (settled && force) {
         gpuFrameUi.recapturing = false;

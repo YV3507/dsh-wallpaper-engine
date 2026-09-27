@@ -3,7 +3,7 @@
  *
  * 两件事：
  *   ① **棘轮**：`src/client.js` 里的裸 `fetch(` 只许减少。P2-9 的终态是零裸 fetch
- *      （全部走 src/api-client.js），但 25 处调用点分批改写 —— 于是先用棘轮把"只许减少"
+ *      （全部走 src/api-client.js），但 26 处调用点分批改写 —— 于是先用棘轮把"只许减少"
  *      钉住（与 P0-4 的"反向探针防蔓延"同手法）：**新代码必须走本模块**。
  *   ② **行为**：用注入的假 fetch 测本模块自己的契约（前缀、no-store、HEAD/DELETE 不解析、
  *      非 2xx 不改判、网络中断不抛、JSON 解析失败不吞 ok、POST 序列化）。
@@ -25,7 +25,7 @@ const { BASE, apiUrl, apiFetch, apiJson, apiHead, apiPostJson, apiDelete } = api
  * 改写一处调用点后把这个数字改小（守卫会告诉你当前实际值）。
  * 终态 0 —— 届时本常量归零，断言变成"业务代码零裸 fetch"。
  *
- * ✅ **终态已到（2026-09-27）**：26 处全部改完 —— 客户端 12 个模块全为 0，
+ * ✅ **终态已到（2026-09-27）**：26 处全部改完 —— 客户端 13 个模块全为 0，
  * 断言已由"≤ 基线"翻成"**全部模块零裸 fetch**"（见 ① 的 `CLIENT_MODULES`）。
  * 下面这两个常量保留作**历史坐标**：`CLIENT_FETCH_BASELINE` 记 client.js 最后的值（8），
  * `MODULE_FETCH_BASELINE` 记各模块搬迁后的中间值 —— 它们解释"总数 13 是怎么构成的"，
