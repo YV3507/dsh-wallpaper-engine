@@ -88,7 +88,7 @@
 | # | 偏离 | 证据锚点 | 归口 |
 |---|---|---|---|
 | 1 | **死码在发布面里**：`font-render.js` / `scene-scripts.js` / `scene-script-apis.js` / `scene-renderer.js` / `scene-render-worker.mjs` 与 `we-renderer/`（**活下来的只有 `textures.js` 及其依赖 `canvas.js` / `math.js` / `jpeg.js`**）构成一个自相引用、但整体只从一个**零调用点**的函数进门的簇（`renderSceneFrameInWorker` → `new Worker('./scene-render-worker.mjs')`），而它们**全在 `files` 里 ⇒ 真的发给用户** | 账本 §3.2（8,590 行 / 44 文件不可达）、§6.5（渲染器已是死码） | P2-12 |
-| 2 | **`src/` 孤儿**：`src/api-client.js` 既不在 `INLINE_MODULES` 也不被任何文件 import ⇒ **不进产物**；而 `verify-api-client.mjs` 正在为它做断言（P2-9 的"裸 fetch 棘轮"因此暂时没有实际作用对象） | 本机统计：`src/**/*.js` 里唯一未登记项 | P2-9 收尾 |
+| 2 | ~~**`src/` 孤儿**：`src/api-client.js` 既不在 `INLINE_MODULES` 也不被任何文件 import ⇒ **不进产物**~~ **已收敛**：已登记进 `INLINE_MODULES`（P2-9 第一批调用点改写同时落地），并由 `verify-api-client.mjs` ⑥ 断言「已登记 + 已在产物里 + 产物里只有一份」——**它曾经是孤儿**这件事本身说明"漏登记不报错"是真陷阱 | `verify-api-client.mjs` ⑥（含负对照） | ✅ |
 | 3 | `lib/types/index.d.ts` 与代码矛盾（称"暴露三条路由"、把 `webServer` 当可选，实际 34 条且硬注入） | 账本 §3.4 | 未归口 |
 | 4 | 账本 §2 基线表仍写 `lib/client.js` 与 `src/client.js` **逐字节一致**；自内联模块引入后产物多了前奏，二者已不可能逐字节一致（该指标现在的正确表述是"重建后 `git status` 干净"） | `lib/client.js` 10,032 行 vs `src/client.js` 9,521 行 | 文档修正 |
 
@@ -114,6 +114,6 @@
 | `files` 覆盖 `lib/`；具名入口在位；依赖无死声明；工具链零裸依赖 | ✅ `scripts/verify-package-files.mjs` P1–P5（各带负对照） | — |
 | **发布面自洽（npm 方向）**：可达闭包 ⊆ `files`；发布集无开发目录；发布文本无**同步机器**的用户目录路径；`dependencies` 每条都被**活的代码**加载（不是"lib/ 里某处 import 过"）；入口/导出目标都在包里；发布出去的 `lib/client.js` 是加载器形态且可解析；安装期脚本不得引用未随包发布的文件 | ✅ `scripts/verify-package-publish.mjs`（七组，各带负对照） | — |
 | `lib/client.js` 与 `src/` 同步 | ✅ CI（重建后 `git diff --exit-code`） | — |
-| **`src/` 无孤儿**：除 `src/client.js` 外每个文件都必须在 `INLINE_MODULES` 里 | ❌ | 新增。棘轮形态：现有孤儿写进白名单，**只许清零**（与 `verify-api-client.mjs` 的裸 fetch 棘轮同手法） |
+| **`src/` 无孤儿**：除 `src/client.js` 外每个文件都必须在 `INLINE_MODULES` 里 | 🟡 **部分**：`verify-api-client.mjs` ⑥ 只钉住 `src/api-client.js` 这一个（含"已内联 + 产物里只有一份"） | 缺口仍在：**通用**的孤儿扫描（对 `src/**/*.js` 全量）尚未做 |
 | **依赖方向单向**：`lib/**` 不得 import `src/**` | ❌（今天为 0） | 新增。零容忍，不需要棘轮 |
 | **共享内核白名单**：允许被内联进浏览器的 `lib/**` 文件只许来自一张显式清单（今天恰好 `lib/settings-schema.js` 一条） | ❌ | 新增。再加一条必须改清单 ⇒ 共享是**决策**而不是顺手 |

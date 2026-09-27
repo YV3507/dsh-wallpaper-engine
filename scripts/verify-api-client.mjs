@@ -24,8 +24,11 @@ const { BASE, apiUrl, apiFetch, apiJson, apiHead, apiPostJson, apiDelete } = api
  * 裸 fetch 的**棘轮基线**：只许减少。
  * 改写一处调用点后把这个数字改小（守卫会告诉你当前实际值）。
  * 终态 0 —— 届时本常量归零，断言变成"业务代码零裸 fetch"。
+ *
+ * 进度：26 → **20**（批 1：帧缓存 / 帧探测 6 处 —— `probeGpuFramePin`、`clearGpuFrameSlot`、
+ * live 回填的 HEAD 与 PUT、`probeGpuFrameState`、面板「清除 GPU 帧」）。
  */
-const CLIENT_FETCH_BASELINE = 26;   // 实测基线（P2-9 调用点改写尚未开始，只许减少）
+const CLIENT_FETCH_BASELINE = 20;   // 只许减少；每批改写后同步下调
 
 let failed = 0;
 const check = (name, ok, detail) => {
@@ -120,6 +123,24 @@ console.log('\n⑤ 源码不变量');
   check('模块不读 selection / DOM（纯网络出入口）', !/\bselection\b/.test(code) && !/querySelector/.test(code));
   check('不硬编码宿主地址（只走相对前缀）',
     !/https?:\/\/[a-z0-9]/i.test(code) && !/localhost|127\.0\.0\.1/i.test(code));
+}
+
+// ── ⑥ 出入口必须真的在产物里（"孤儿模块"防线）──────────────────────────────
+// `src/api-client.js` 曾是**孤儿**：文件在、守卫在逐条测它，但它既不在 `INLINE_MODULES`
+// 里、也没有被任何文件 import ⇒ **从不进 bundle**。那时调用点一改用它就会 ReferenceError，
+// 而没有任何守卫会红 —— 浏览器半的模块只有登记进构建清单才存在。
+console.log('\n⑥ 出入口已登记进构建清单、并真的进了产物');
+{
+  const build = readFileSync(join(root, 'scripts/build-client.mjs'), 'utf8');
+  const bundle = readFileSync(join(root, 'lib/client.js'), 'utf8');
+  check('INLINE_MODULES 登记了 src/api-client.js',
+    /file:\s*'src\/api-client\.js'/.test(build));
+  check('产物里确有 apiFetch 实现（已内联，不是只登记）',
+    bundle.includes('async function apiFetch('));
+  check('产物里只有**一份**实现（防"正文自带一份旧的"两处漂移）',
+    (bundle.match(/async function apiFetch\(/g) || []).length === 1);
+  check('负对照：登记判据对未登记的模块名有牙',
+    !/file:\s*'src\/not-registered\.js'/.test(build));
 }
 
 console.log('');

@@ -1935,13 +1935,16 @@ function probeGpuFramePin(token, force) {
   if (!force && hit && Date.now() - hit.at < GPU_FRAME_PIN_TTL_MS) return Promise.resolve(hit.pinned);
   const flying = gpuFramePinInflight.get(key);
   if (flying && !force) return flying;
-  const req = fetch("/wallpaper-engine/scene-frame/" + encodeURIComponent(key), { method: "HEAD", cache: "no-store" })
-    .then((r) => {
-      const pinned = Boolean(r && r.ok && r.headers && typeof r.headers.get === "function"
-        && r.headers.get("x-we-gpu") === "1");
+  const req = apiHead("/scene-frame/" + encodeURIComponent(key))
+    .then((res) => {
+      // HEAD 探测：`res.response` 才是原始 Response —— 判 X-WE-GPU 要读它的头。
+      const h = res.response;
+      const pinned = Boolean(res.ok && h && h.headers && typeof h.headers.get === "function"
+        && h.headers.get("x-we-gpu") === "1");
       gpuFramePins.set(key, { pinned, at: Date.now() });
       return pinned;
     })
+    // 保留兜底：上面 `.then` 体里若抛（例如 map 操作），不能让 inflight 记录悬着。
     .catch(() => false)
     .then((pinned) => { if (gpuFramePinInflight.get(key) === req) gpuFramePinInflight.delete(key); return pinned; });
   gpuFramePinInflight.set(key, req);
@@ -2717,17 +2720,19 @@ function liveViewportAspect(frame) {
 }
 // 清除槽位（同面板「清除 GPU 帧」的语义：宿主 200 + removed:false 也算没删掉，
 // 见其在 P2-L 的处理 —— 假成功会让画面纹丝不动而没有任何反馈）。
+/**
+ * 宿主回 200 也可能没删掉（unlink 失败时 `removed:false`，评审 P2-L）：只判 HTTP 状态
+ * 会把「假成功」当清除 —— 面板行消失、提示已清除，而画面没变、也没有任何错误提示。
+ * 旧宿主无该字段 ⇒ 按 HTTP 状态判（`removed !== false` 即为真）。
+ *
+ * 「清除」有两处调用点（内部逻辑只要布尔值、面板还要区分失败原因），语义必须一致 ⇒ 收在这里。
+ */
+function removedFromResponse(res) {
+  return !(res && res.data && res.data.removed === false);
+}
 function clearGpuFrameSlot(token) {
-  return fetch("/wallpaper-engine/scene-frame-cache/" + encodeURIComponent(token), { method: "DELETE" })
-    .then(async (r) => {
-      let declaredRemoved = true;
-      try {
-        const body = await r.json();
-        if (body && body.removed === false) declaredRemoved = false;
-      } catch { /* 无 body：按 HTTP 状态判 */ }
-      return Boolean(r && r.ok && declaredRemoved);
-    })
-    .catch(() => false);
+  return apiDelete("/scene-frame-cache/" + encodeURIComponent(token), { parse: true })
+    .then((res) => Boolean(res.ok && removedFromResponse(res)));
 }
 // 重抓落地后，当前层若正显示这张静帧（静态帧 img / live 垫底 poster），就地重挂
 // 一次：scene-frame 响应带 no-store，换个 query 即重新取图（同「画面刷新」的既有
@@ -2785,9 +2790,10 @@ function scheduleLiveFrameBackfill(frame, opts) {
   liveFrameBackfill.timer = window.setTimeout(() => {
     liveFrameBackfill.timer = 0;
     (async () => {
-      const head = await fetch(src, { method: "HEAD", cache: "no-store" });
-      const hasGpu = Boolean(head && head.ok && head.headers
-        && typeof head.headers.get === "function" && head.headers.get("x-we-gpu") === "1");
+      const head = await apiHead(src);
+      const hh = head.response;
+      const hasGpu = Boolean(head.ok && hh && hh.headers
+        && typeof hh.headers.get === "function" && hh.headers.get("x-we-gpu") === "1");
       const win = frame.contentWindow;
       const doc = win && win.document;
       const canvas = doc && typeof doc.querySelector === "function"
@@ -2802,7 +2808,7 @@ function scheduleLiveFrameBackfill(frame, opts) {
       // 本会话抓帧时记下的比例，两者都没有 = 未知。
       let arStored = 0;
       if (hasGpu) {
-        const raw = Number(head.headers.get("x-we-gpu-ar"));
+        const raw = Number(hh.headers.get("x-we-gpu-ar"));
         arStored = Number.isFinite(raw) && raw > 0 ? raw : (gpuFrameAspectKnown.get(token) || 0);
       }
       // 未知（旧宿主 + 本会话没抓过）→ 按「可能不符」处理：重抓一次必然正确，
@@ -2852,7 +2858,7 @@ function scheduleLiveFrameBackfill(frame, opts) {
         recaptured = true;
         recaptureSize = canvasW + "x" + canvasH;
       }
-      const put = await fetch("/wallpaper-engine/scene-frame-cache/" + encodeURIComponent(token), {
+      const put = await apiFetch("/scene-frame-cache/" + encodeURIComponent(token), {
         method: "PUT",
         headers: { "Content-Type": "image/png" },
         body: blob,
@@ -4454,15 +4460,16 @@ function probeGpuFrameState(frameUrl, force) {
   gpuFrameUi.wid = wid;
   gpuFrameUi.probedAt = at;
   const wasPinned = gpuFrameUi.pinned;
-  fetch("/wallpaper-engine/scene-frame/" + encodeURIComponent(token), { method: "HEAD", cache: "no-store" })
-    .then((r) => {
+  apiHead("/scene-frame/" + encodeURIComponent(token))
+    .then((res) => {
       if (gpuFrameUi.wid !== wid || gpuFrameUi.probedAt !== at) return; // 期间切了壁纸
-      const pinned = Boolean(r && r.ok && r.headers && typeof r.headers.get === "function"
-        && r.headers.get("x-we-gpu") === "1");
+      const rh = res.response;
+      const pinned = Boolean(res.ok && rh && rh.headers && typeof rh.headers.get === "function"
+        && rh.headers.get("x-we-gpu") === "1");
       gpuFrameUi.pinned = pinned;
       // 存帧像素尺寸（预览窗口展示用；旧宿主没有这两个头 → 保持 0，预览只显示图）。
-      const gw = pinned ? Number(r.headers.get("x-we-gpu-w")) : 0;
-      const gh = pinned ? Number(r.headers.get("x-we-gpu-h")) : 0;
+      const gw = pinned ? Number(rh.headers.get("x-we-gpu-w")) : 0;
+      const gh = pinned ? Number(rh.headers.get("x-we-gpu-h")) : 0;
       gpuFrameUi.w = Number.isFinite(gw) && gw > 0 ? gw : 0;
       gpuFrameUi.h = Number.isFinite(gh) && gh > 0 ? gh : 0;
       gpuFrameUi.busy = false;
@@ -4907,16 +4914,10 @@ const officialColorOf = (tokens) => {
     gpuFrameUi.wid = wid;
     gpuFrameUi.busy = true;
     emit();
-    fetch("/wallpaper-engine/scene-frame-cache/" + encodeURIComponent(token), { method: "DELETE" })
-      .then(async (r) => {
-        // 宿主回 200 也可能没删掉（unlink 失败时 removed:false，评审 P2-L）：只判
-        // r.ok 会把「假成功」当清除 —— 面板行消失、提示已清除，而画面没变、也没
-        // 任何错误提示。这里把 removed:false 一并当失败（旧宿主无该字段 → 按 HTTP 判）。
-        let declaredRemoved = true;
-        try {
-          const body = await r.json();
-          if (body && body.removed === false) declaredRemoved = false;
-        } catch { /* 无 body：按 HTTP 状态判 */ }
+    apiDelete("/scene-frame-cache/" + encodeURIComponent(token), { parse: true })
+      .then((r) => {
+        // 宿主回 200 也可能没删掉（`removed:false`）⇒ 语义统一走 removedFromResponse。
+        const declaredRemoved = removedFromResponse(r);
         if (!r.ok || !declaredRemoved) {
           gpuFrameUi.busy = false;
           gpuFrameUi.error = !r.ok ? ("清除失败：宿主返回 " + r.status) : "清除失败：缓存文件未删除（权限或占用）";

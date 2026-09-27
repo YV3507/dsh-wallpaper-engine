@@ -80,6 +80,12 @@ const INLINE_MODULES = [
       'function removeFontStyles()'],
   },
   {
+    file: 'src/api-client.js',
+    why: '宿主 API 的唯一出入口（P2-9）：前缀 / 默认 no-store / 不吞错的结构化结果',
+    markers: ['const BASE = ', 'function apiUrl(', 'function pickFetch(', 'async function apiFetch(',
+      'const apiJson = ', 'const apiHead = '],
+  },
+  {
     file: 'src/effects.js',
     why: '效果应用层（设置 → DOM；契约见文件头，见 P1-7 后半）',
     markers: ['let lastScrimCss = "";', 'function applyEffects()', 'function clearEffects()',
