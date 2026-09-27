@@ -42,7 +42,7 @@ macOS 版本由 [Jerry（@ruijiaang-lab）](https://github.com/ruijiaang-lab)维
 - **Trap — comments in `src/**` ship to users**: prefer the *measurement command* over a number that drifts (two module headers still cite `src/client.js` as "9,500 lines").
 - **Don't shrink it as if it were a monolith**: its size is the size of `src/**`. The lever is the sources.
 
-- **构成**：`lib/client.js` = `src/client.js` 正文 **+ `INLINE_MODULES` 里那 14 个模块**（见 `scripts/build-client.mjs`），全部内联进**同一个** `factory(require)` 作用域。`npm run build` 会把内联清单打印出来。**它六成以上的行来自 `src/**` 而不是 `client.js` 自己** —— 看着像巨石，实为"压平的仓库切片"。
+- **构成**：`lib/client.js` = `src/client.js` 正文 **+ `INLINE_MODULES` 里那 14 个模块**（见 `scripts/build-client.mjs`），全部内联进**同一个** `factory(require)` 作用域。`npm run build` 会把内联清单打印出来。**它的大部分行来自 `src/**` 而不是 `client.js` 自己**（占比按那份内联清单复算，勿记死数）—— 看着像巨石，实为"压平的仓库切片"。
 - **为什么必须内联**：浏览器半边**没有本地模块解析器** —— loader 的 `require` 只解析外部包，`import './panel-tabs.js'` 在运行时根本不成立。凡为可读性拆出去的代码，都在构建期作为 prelude 内联回同一作用域。每项都带 `markers`，**缺任何一个都构建硬失败** —— 这正是"拆分不会悄悄变空"的保证；产物还必须能通过 `new Script(...)` 解析才会被写出。
 - **它的身份**：`package.json` 用 `exports["./client"]` + `dsh.client.immediately: true` 暴露它，DSH 客户端加载器按**包元数据**取（宿主侧没有任何路由发它）。它**必须入库**：本仓支持的安装路径（`pnpm add github:…`、`link:`）都不跑构建。
 - **铁律一 —— 同提交重建**：改任何 `src/**` 都要 `npm run build` 并把产物**同一个提交**带上。CI 会判定（`npm run build` 之后 `git diff --exit-code -- lib/client.js`）。⚠️ **本地 `npm run verify` 不查这条** —— 想在本地早发现，跑 `npm run verify:all`（含构建）再看 `git status` 是否干净。
