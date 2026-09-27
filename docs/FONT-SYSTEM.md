@@ -7,8 +7,8 @@
 `apply.js` 是**唯一碰 DOM 的那个**（宿主默认值快照 + 组件作用域样式表）。效果应用层
 （`src/effects.js`）只调用它的入口，不再夹带任何字体实现。
 
-> 设计文档在 [`docs/REFACTOR-ASSESSMENT.md`](../../docs/REFACTOR-ASSESSMENT.md) §9（F 轨道设计要点）；
-> 真机确认记录在 [`docs/F0-THEME-SERVICE-CHECKLIST.md`](../../docs/F0-THEME-SERVICE-CHECKLIST.md)。
+> 设计文档在 [`docs/wip/REFACTOR-ASSESSMENT.md`](./wip/REFACTOR-ASSESSMENT.md) §9（F 轨道设计要点）；
+> 真机确认记录在 [`docs/archive/audits/F0-THEME-SERVICE-CHECKLIST.md`](./archive/audits/F0-THEME-SERVICE-CHECKLIST.md)。
 
 ## 三个通道（用哪个，取决于"字体从哪来"）
 

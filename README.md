@@ -559,7 +559,7 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 
 host 端（`lib/index.js`）是纯 ESM，无需构建。client 端（`lib/client.js`）是**编译产物**，由规范源文件 `src/client.js` 经 `scripts/build-client.mjs` 生成，输出 DSH 模块加载器要求的 `window.__ModuleLoader__.load({ id, factory })` 外壳（与盒内 client 包 `tsdown` 产出的形态一致）。
 
-**开发面的目录语义**：**守门**（`verify-*` 结构守卫、`*-smoke` 冒烟、`e2e-*` 端到端）在 **`test/`**；**手动工具**（诊断 / 分析 / 生成）在 **`test/tools/`**；**`scripts/` 只放构建与发布期脚本**（`build-client` / `prepare`）。详见 [`docs/MODULE-LAYOUT.md`](docs/MODULE-LAYOUT.md) §4 与 [`test/README.md`](test/README.md)。
+**开发面的目录语义**：**守门**（`verify-*` 结构守卫、`*-smoke` 冒烟、`e2e-*` 端到端）在 **`test/`**；**手动工具**（诊断 / 分析 / 生成）在 **`test/tools/`**；**`scripts/` 只放构建与发布期脚本**（`build-client` / `prepare`）。详见 [`docs/MODULE-LAYOUT.md`](docs/MODULE-LAYOUT.md) §4 与 [`docs/TEST-LAYOUT.md`](docs/TEST-LAYOUT.md)。
 
 ```sh
 npm run build                  # 从 src/client.js 重新生成 lib/client.js

@@ -204,7 +204,7 @@
 ### F —— 并行**功能**轨道：字体系统大改（**非重构项**）
 
 > 它要动的东西**正好落在重构的接缝上**：设置模型（P1-5）、效果/样式应用层（P1-7）、面板结构（P2-10）、宿主文件通道（P2-9）。
-> 设计与不变量已收口在 [`src/font/README.md`](../src/font/README.md)（三个通道、9 条不变量、扩展步骤），本文不重复。
+> 设计与不变量已收口在 [`docs/FONT-SYSTEM.md`](../FONT-SYSTEM.md)（三个通道、9 条不变量、扩展步骤），本文不重复。
 
 | # | 动作 | 状态 |
 |---|---|---|
@@ -223,7 +223,7 @@
 
 > 本节曾是"目标设计基线"（14 个小节的论证与取证）。P2-12 已按它执行完毕 ⇒ 此处只留**契约**与
 > **仍在生效的裁定**。机制细节的权威来源是代码：`lib/routes/scene-frame.js` 的文件头（出图来源链
-> 与档位值域）、`lib/index.js` 的 `sceneFrameCacheKey`（缓存键）、[`HOW-IT-WORKS.md`](./HOW-IT-WORKS.md)（用户可见行为）。
+> 与档位值域）、`lib/index.js` 的 `sceneFrameCacheKey`（缓存键）、[`HOW-IT-WORKS.md`](../HOW-IT-WORKS.md)（用户可见行为）。
 
 **出图来源（唯一权威顺序）**：① 实时渲染 iframe → ② 作者内嵌 MP4（`sceneVideo`）→ ③ **实时抓帧**
 （`<key>_gpu.png`，live 页首帧确认后回填）→ ④ **自定义画面**（用户导入）→ ⑤ **空态**（404 + 可判定原因）。
@@ -289,15 +289,15 @@
 ## 9. 并行轨道 F 的设计要点（字体系统大改）
 
 > **实现位置（收口后）**：`src/font/` 四个文件 —— 三个**纯计算**（角色表 / 令牌 / 钩子生成，不碰 DOM）+ `apply.js`（唯一碰 DOM 的落地点）。
-> **通道分工、9 条不变量、扩展步骤、进浏览器包的约束**已全部收口在 [`src/font/README.md`](../src/font/README.md)，**本文不重复**。
-> F0 的真机记录（逐条证据、探针代码、两套配色的 377 条令牌取值）保留在 [`F0-THEME-SERVICE-CHECKLIST.md`](./F0-THEME-SERVICE-CHECKLIST.md)。
+> **通道分工、9 条不变量、扩展步骤、进浏览器包的约束**已全部收口在 [`docs/FONT-SYSTEM.md`](../FONT-SYSTEM.md)，**本文不重复**。
+> F0 的真机记录（逐条证据、探针代码、两套配色的 377 条令牌取值）保留在 [`F0-THEME-SERVICE-CHECKLIST.md`](../archive/audits/F0-THEME-SERVICE-CHECKLIST.md)。
 
 ### 9.1 官方令牌层（F0 实测结论 —— **实现必须继续满足**）
 
 官方扩展面是客户端 Cordis 服务 `theme`（入口 `ctx.get("theme")`，`overrideTokens(source, {令牌:{light,dark}})`）；
 presenter 把快照写进 `body` 内联样式 ⇒ 内联胜过主题样式表 ⇒ 不需要 `!important`、不用 DOM 选择器、
 不碰白闪路径；同 source 再调 = **替换**该层。**F0/F1 已关闭**，实现收口在 `src/font/`（三个纯计算文件 +
-唯一碰 DOM 的 `apply.js`）；通道分工 / 9 条不变量 / 扩展步骤见 [`src/font/README.md`](../src/font/README.md)。
+唯一碰 DOM 的 `apply.js`）；通道分工 / 9 条不变量 / 扩展步骤见 [`docs/FONT-SYSTEM.md`](../FONT-SYSTEM.md)。
 
 **F0 真机实测结论**（`V1–V10` 是**约束**，不是编年史）：
 
@@ -348,9 +348,9 @@ presenter 把快照写进 `body` 内联样式 ⇒ 内联胜过主题样式表 �
 
 | 文档 | 关系 |
 |---|---|
-| [`docs/MODULE-LAYOUT.md`](./MODULE-LAYOUT.md) | `lib/` 与 `src/` 的分工规范（新文件放哪、什么算越界）；本文不重复它，它不重复本文的进度 |
-| [`docs/ROUTE-INDEX.md`](./ROUTE-INDEX.md) | 路由 → 处理器 → 依赖 → 守卫覆盖的索引，由守卫重算比对（**不可手改**） |
-| [`docs/F0-THEME-SERVICE-CHECKLIST.md`](./F0-THEME-SERVICE-CHECKLIST.md) | F0 真机记录（已关闭，保留）；结论已并入 §9.1 的 V1–V10 |
-| [`docs/archive/static-frame/*`](./archive/static-frame/) | 静态帧线的历史与逆向记录（**不反映现行实现**）；§6 是它的终点决策 |
+| [`docs/MODULE-LAYOUT.md`](../MODULE-LAYOUT.md) | `lib/` 与 `src/` 的分工规范（新文件放哪、什么算越界）；本文不重复它，它不重复本文的进度 |
+| [`docs/ROUTE-INDEX.md`](../ROUTE-INDEX.md) | 路由 → 处理器 → 依赖 → 守卫覆盖的索引，由守卫重算比对（**不可手改**） |
+| [`docs/archive/audits/F0-THEME-SERVICE-CHECKLIST.md`](../archive/audits/F0-THEME-SERVICE-CHECKLIST.md) | F0 真机记录（已关闭，保留）；结论已并入 §9.1 的 V1–V10 |
+| [`docs/archive/static-frame/*`](../archive/static-frame/) | 静态帧线的历史与逆向记录（**不反映现行实现**）；§6 是它的终点决策 |
 | `HOW-IT-WORKS.md` / `TROUBLESHOOTING.md` / `UPGRADING.md` | 已随 P2-12 阶段 4 收口：正文不再宣传已删除的链（改写为"出图来源"） |
 | 仓库根 `TODO.md` | 本地、**不入库**的流程债与本机配方（归口 P3-10） |

@@ -782,7 +782,7 @@ consumes (the same shape `tsdown` emits for in-box client packages).
 node-level smoke tests, `e2e-*` real-browser end-to-end) live in **`test/`**; **manual tools**
 (diagnostics / analysis / generators) live in **`test/tools/`**; **`scripts/` holds only
 build- and publish-time scripts** (`build-client` / `prepare`). See
-[`docs/MODULE-LAYOUT.md`](docs/MODULE-LAYOUT.md) §4 and [`test/README.md`](test/README.md).
+[`docs/MODULE-LAYOUT.md`](docs/MODULE-LAYOUT.md) §4 and [`docs/TEST-LAYOUT.md`](docs/TEST-LAYOUT.md).
 
 ```sh
 npm run build                  # regenerate lib/client.js from src/client.js

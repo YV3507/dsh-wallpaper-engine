@@ -1,5 +1,5 @@
 /**
- * verify-ledger.mjs — 账本自检（P1-8）：断言 docs/REFACTOR-ASSESSMENT.md §5 的
+ * verify-ledger.mjs — 账本自检（P1-8）：断言 docs/wip/REFACTOR-ASSESSMENT.md §5 的
  * **状态列与仓库实际一致**，防止账本说谎（"✅ 但代码里没有" / "⬜ 但其实已经做了"）。
  *
  * 为什么需要：账本自己写着"状态列是唯一进度真源"。真源一旦能写错，后面所有基于它的
@@ -31,7 +31,7 @@ function resolve0() {
   return join(dirname(fileURLToPath(import.meta.url)), '..');
 }
 
-const LEDGER = join(root, 'docs', 'REFACTOR-ASSESSMENT.md');
+const LEDGER = join(root, 'docs', 'wip', 'REFACTOR-ASSESSMENT.md');
 
 const read = (rel) => readFileSync(join(root, rel), 'utf8');
 const has = (rel) => existsSync(join(root, rel));
