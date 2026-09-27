@@ -23,7 +23,7 @@
  * Usage:  node test/verify-scene-live.mjs
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Readable, Writable } from 'node:stream';
@@ -579,10 +579,12 @@ console.log('Level C2 — custom storage scan (WE project dirs under uploads)');
   }
   if (dirScene && dirScene.frameUrl && sceneFrameRoute) {
     const frameRes = await runHandler(sceneFrameRoute, dirScene.frameUrl);
-    const ctype = h(frameRes, 'Content-Type');
-    check('custom-storage scene frame extracted (real pkg decode)',
-      frameRes.__state.status === 200 && /image\/(jpeg|png)/.test(ctype),
-      'status=' + frameRes.__state.status + ' ' + ctype + ' ' + frameRes.__state.body.length + 'B');
+    // P2-12 之后 `/scene-frame` 只剩「实时抓帧 → 自定义画面 → 空」三级：这个 fixture 既没被
+    // 抓过帧、也没导入自定义画面 ⇒ 必须是**诚实的空态**（404），而不是"替作者猜一张图"
+    //（旧语义会在这里 CPU 解包一张静态帧并回 200）。
+    check('custom-storage scene frame：无抓帧且无自定义画面 ⇒ 404 空态（不猜图）',
+      frameRes.__state.status === 404,
+      'status=' + frameRes.__state.status + ' ' + frameRes.__state.body.length + 'B');
   }
 }
 
@@ -783,6 +785,14 @@ for (const [name, ok] of clientChecks) check(name, ok);
 }
 
 const hostSrc = readFileSync(join(root, 'lib', 'index.js'), 'utf8');
+/**
+ * 宿主半的**全部注册面** = `lib/index.js` + `lib/routes/*.js`。
+ * 路由族拆出 `apply(ctx)` 是 P2-11 的正常动作 ⇒ 凡断言"宿主仍实现某契约"的判据必须覆盖那个目录，
+ * 否则"已搬走"会被误报成"契约丢了"。⚠️ 反过来，断言"某路由**已不在正文**"（如 /diag）的判据
+ * 必须继续只用 `hostSrc` —— 拿扩面集合去检查"不在"，会把搬走的代码判成还在。
+ */
+const hostHalfSrc = [hostSrc, ...readdirSync(join(root, 'lib', 'routes')).filter((f) => f.endsWith('.js'))
+  .map((f) => readFileSync(join(root, 'lib', 'routes', f), 'utf8'))].join('\n');
 // 宿主设置白名单已改为**派生**（唯一真源 lib/settings-schema.js，P1-5）。因此这几条不再
 // 抠实现里的字面量，而是把值喂给宿主的规范化函数看它收不收 —— 断言的是**行为**。
 const schemaMod = await import(pathToFileURL(join(root, 'lib', 'settings-schema.js')).href);
@@ -800,10 +810,10 @@ check('host 自建壁纸媒体源（独立 loopback 监听）',
   /let mediaOrigin = null/.test(hostSrc) && /function ensureMediaOrigin\(\)/.test(hostSrc)
     && /server\.listen\(0, '127\.0\.0\.1'/.test(hostSrc) && /function mediaOriginBase\(\)/.test(hostSrc));
 check('scene-files 处理函数被双挂载（应用源 + 媒体源）',
-  /function handleSceneFiles\(req, res, mount\)/.test(hostSrc)
-    && hostSrc.includes("handleSceneFiles(req, res, 'media')")
-    && hostSrc.includes("handleSceneFiles(req, res, 'app')")
-    && hostSrc.includes('function traceMediaRequests('));
+  /function handleSceneFiles\(req, res, mount\)/.test(hostHalfSrc)
+    && hostHalfSrc.includes("handleSceneFiles(req, res, 'media')")
+    && hostHalfSrc.includes("handleSceneFiles(req, res, 'app')")
+    && hostHalfSrc.includes('function traceMediaRequests('));
 check('媒体源只服务 /scene-files 前缀', hostSrc.includes("pathname.startsWith(`${BASE}/scene-files/`)"));
 
 // 封面（Now Playing artwork）：实测用户反馈「不显示歌曲封面」的根因是只问 Spotify。
@@ -892,11 +902,21 @@ check('门面：中间件优先，失败回落旧实现并留下原因',
 check('门面支持 DSH_WE_MEDIA_LEGACY=1 强制走旧实现', facadeSrc.includes('DSH_WE_MEDIA_LEGACY'));
 check('门面把「音频已关」传给回落实现（不让回落偷偷开采集）',
   facadeSrc.includes('createLegacy({ dataDir, log, audio: optsRef.audio })'));
+// 媒体状态族已搬到 lib/routes/now-playing.js（P2-11）。判据按 diag 族的同一形态翻成三条：
+// ① URL 形状由**真实注册表**（mock webServer 跑一遍 apply 的结果）断言 —— 与代码住在哪个文件无关；
+// ② 该路由的实现契约在**它现在所在的文件**里断言；③ 正文侧钉住"已搬走"（零路径字面量 + 一次调用）。
+const nowPlayingSrc = readFileSync(join(root, 'lib', 'routes', 'now-playing.js'), 'utf8');
+const nowPlayingPaths = ['/media-status', '/audio-spectrum', '/now-playing', '/now-playing/artwork'];
+const missingNowPlaying = nowPlayingPaths.filter((p) => !routes.some((r) => r.path === '/wallpaper-engine' + p));
 check('host 路由形状不变（客户端/渲染页无需感知后端切换）',
-  /path: `\$\{BASE\}\/media-status`/.test(hostSrc) && /path: `\$\{BASE\}\/audio-spectrum`/.test(hostSrc)
-    && /path: `\$\{BASE\}\/now-playing`/.test(hostSrc) && /path: `\$\{BASE\}\/now-playing\/artwork`/.test(hostSrc));
+  missingNowPlaying.length === 0, missingNowPlaying.join(', ') || '四条都在');
+check('negative control: 同一条判据能点出没注册的路径',
+  ['/media-status', '/not-registered'].filter((p) => !routes.some((r) => r.path === '/wallpaper-engine' + p)).join() === '/not-registered');
 check('spectrum 路由回报 running（客户端据此决定装不装音频桥）',
-  hostSrc.includes('running: st.audio.status ===') && hostSrc.includes('mediaBackend.status()'));
+  nowPlayingSrc.includes('running: st.audio.status ===') && nowPlayingSrc.includes('mediaBackend.status()'));
+check('媒体状态族已搬出 lib/index.js（正文零路径字面量 + 一次调用）',
+  !/path: `\$\{BASE\}\/(media-status|audio-spectrum|now-playing)/.test(hostSrc)
+    && /registerNowPlayingRoutes\(webServer, \{/.test(hostSrc));
 check('settings 白名单保留 mediaLyricsOnline（否则开关会被丢）', hostKeeps('mediaLyricsOnline', true));
 
 // 客户端：封面必须转成**自包含 data URL** —— 宿主给的是插件路由，

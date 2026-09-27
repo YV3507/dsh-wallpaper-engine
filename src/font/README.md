@@ -87,5 +87,6 @@ DSH 升级后**重取角色表**的命令写在 `typography.js` 文件头（跑�
 > `src/api-client.js` 一度是孤儿）。`verify-component-fonts.mjs` ⑧ 就是按
 > 「模块在位 + 已内联 + **不在**正文」三件套断言 `apply.js` 的 —— 抽模块时照抄这个形状。
 
-> 注：守卫脚本本身仍按本仓既有约定平铺在 `scripts/`（`verify-theme-layer.mjs` 覆盖 ① 与
-> 角色级字重，`verify-component-fonts.mjs` 覆盖 ②③ 与跨文件一致性）。等结构整体规划时再一并归置。
+> 注：守卫脚本按本仓目录约定放在 **`test/`**（`verify-theme-layer.mjs` 覆盖 ① 与角色级字重，
+> `verify-component-fonts.mjs` 覆盖 ②③ 与跨文件一致性）；**`test/tools/`** 留给没有 CI 消费者的
+> 手动工具（诊断 / 分析 / 生成）；`scripts/` 只放构建与发布期脚本。目录语义见 `docs/MODULE-LAYOUT.md` §4。

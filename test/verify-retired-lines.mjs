@@ -45,17 +45,13 @@ const FILES = [...walk('lib'), ...walk('src'), ...walk('scripts'), ...walk('test
   .sort();
 const read = (rel) => readFileSync(ROOT + rel, 'utf8');
 
-// ── ① 旧场景播放器线：零残留（+ 一条登记遗留）────────────────────────────────
-// 登记遗留：scene-manifest.js 的 manifest 构建器仍会拼 /scene-resource/ 的 URL。
-// 它的**消费者（/scene-manifest 路由）已在 P0-3 下线** ⇒ 那些 URL 目前无任何读取方；
-// 整块构建器（约 640 行）归 P2-12 阶段 2 处理，故此处只把出现次数**钉住**（只许减少）。
-const DECLARED_RESIDUE = {
-  file: 'lib/scene-manifest.js',
-  needle: '/wallpaper-engine/scene-resource/',
-  // **必须编码"这条线已被删除"的守卫，无法不写出该 needle** —— 它们不是"这条线又长回来了"，
-  // 而是检查它是否消失的人。名单只许缩小：产品侧一消失，就该把 DECLARED_RESIDUE 整条移除。
-  inspectors: ['test/verify-ledger.mjs'],
-};
+// ── ① 旧场景播放器线：零残留 ─────────────────────────────────────────────────
+// `scene-manifest.js` 的 manifest 构建器曾拼 `/scene-resource/` 的 URL（它的消费者
+// `/scene-manifest` 路由已在 P0-3 下线）。P2-12 阶段 2 把那整块无引用声明（约 2,000 行）
+// 删净 ⇒ 这条 needle 不再需要"登记遗留（DECLARED_RESIDUE）"那个中间态，直接并入零残留断言。
+// 名单只许缩小：检验者 = 必须点名该 needle 才能断言"它没了"的守卫。
+const LEGACY_RESOURCE_URL = '/wallpaper-engine/scene-resource/';
+const RESIDUE_INSPECTORS = ['test/verify-ledger.mjs'];
 
 const LEGACY_FORBIDDEN = [
   'WE_SCENE_PLAYER_HTML',
@@ -80,21 +76,18 @@ const LEGACY_FORBIDDEN = [
   check('package.json `files` 不再收录 scene-player.js',
     !(pkg.files || []).includes('lib/scene-player.js'));
 
-  const residue = FILES.filter((f) => read(f).includes(DECLARED_RESIDUE.needle));
-  const residueAllowed = [DECLARED_RESIDUE.file, ...(DECLARED_RESIDUE.inspectors || [])];
-  const residueSpread = residue.filter((f) => !residueAllowed.includes(f));
-  check('登记遗留（manifest 构建器里的 /scene-resource/ URL）未扩散到名单外的文件',
+  const residue = FILES.filter((f) => read(f).includes(LEGACY_RESOURCE_URL));
+  const residueSpread = residue.filter((f) => !RESIDUE_INSPECTORS.includes(f));
+  check('旧 /scene-resource/ URL 零残留（只许出现在点名它的检验者里）',
     residueSpread.length === 0,
-    !residue.includes(DECLARED_RESIDUE.file)
-      ? 'INFO：产品侧该遗留已消失 ⇒ 请把 DECLARED_RESIDUE 从本脚本移除（P2-12 进度）'
-      : (residueSpread.length ? '越界 ' + residueSpread.join(', ') : '仅出现在 ' + residue.join(', ')));
+    residue.length ? '仅出现在 ' + residue.join(', ') : '干净（连检验者也不再提它）');
 
   // 负对照：把"名单外的文件"喂给**同一个**判据，必须被判为扩散
   {
-    const probe = (files) => files.filter((f) => !residueAllowed.includes(f));
+    const probe = (files) => files.filter((f) => !RESIDUE_INSPECTORS.includes(f));
     check('negative control: 登记遗留扩散到名单外会被判不合格',
-      probe([DECLARED_RESIDUE.file, ...(DECLARED_RESIDUE.inspectors || []), 'lib/elsewhere.js']).length === 1
-      && probe(residueAllowed).length === 0);
+      probe([...RESIDUE_INSPECTORS, 'lib/elsewhere.js']).length === 1
+      && probe(RESIDUE_INSPECTORS).length === 0);
   }
 
   {
@@ -115,14 +108,12 @@ const SF_VOCAB = [
   'SceneRenderer', 'scene-renderer', 'we-renderer', 'font-render',
   'scene-scripts', 'scene-script-apis',
 ];
+// 冻结于 P0-4。P2-12 阶段 2 已删净死树与提取链 ⇒ 名单只剩**两个仍含退役词的活文件** +
+// 一个**检验者**（它必须点名标识符才能断言"它没了"）。删除过的文件不要再留
+//（本节 INFO 会提示可收紧项）。
 const SF_BASELINE = [
-  'lib/index.js', 'lib/pkg-extract.js', 'lib/scene-manifest.js', 'lib/scene-render-worker.mjs',
-  'lib/scene-renderer.js', 'lib/scene-script-apis.js', 'lib/scene-scripts.js',
-  'lib/we-renderer/core.js', 'lib/we-renderer/text.js',
-  'test/tools/audit-import-closure.mjs', 'test/tools/diagnose-scenes.mjs', 'test/verify-all-scenes.mjs',
-  'test/verify-angel-skin.mjs', 'test/verify-comment-discipline.mjs', 'test/verify-mdl-fix.mjs',
-  'test/verify-package-files.mjs', 'test/verify-preprocess.mjs', 'test/verify-scene.mjs',
-  // 账本守卫要把 P2-12 的"完成"编码成断言，就必须点名这条线的标识符（否则无法断言"它没了"）。
+  // 产品侧已零残留（P2-12 阶段 2 删净死树 + 提取链 + `scene-manifest` 的 2,000 行无引用声明）。
+  // 只剩**检验者**：账本守卫必须点名这条线的标识符，才能断言"它没了"。
   'test/verify-ledger.mjs',
 ];
 {

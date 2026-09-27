@@ -798,7 +798,7 @@ function buildLivePoster(sel) {
   // 加载期也必须是「一层安静的颜色」，不能是纯黑或透明。
   poster.style.backgroundColor = sel.schemeColor || "var(--dsw-alias-bg-layer-1, #101418)";
   // 网页壁纸优先用 live 抽帧（真实渲染画面，见 maybeCaptureLiveFrame），还没抽到
-  // 时退回项目预览图；场景壁纸用静态帧 URL（含 ?v= 档位）。都没有 → 只留主题色。
+  // 时退回项目预览图；场景壁纸用出图 URL（`?v=` 只剩 0 / 4 两档）。都没有 → 只留主题色。
   const src = sel.type === "web" ? (sel.liveFrame || sel.previewUrl || null) : sel.url;
   if (src) {
     poster.dataset.weFrameSrc = src;
@@ -937,7 +937,7 @@ function syncLayers() {
       liveLog("layer-rebuild", layerKeyDiff(gotKey, wantKey) + " " + liveStateBrief());
       // 交叉淡化判定：**换壁纸**（手动点选/轮换提交，层上 weWid ≠ 当前选择 id）
       // 一律淡出 —— 旧层保留被新层盖过去（真交叉淡化）；**同一张壁纸的内部重建**
-      // （live 降级/fps 档/画面刷新/live 开关，weWid 相同）保持硬切：重建前后是
+      // （live 降级/fps 档/切换出图来源/live 开关，weWid 相同）保持硬切：重建前后是
       // 同一条 BGM，淡出 + 音频闸会让它断 ~2s，反而更糟。rotationFade（轮换
       // commit 的显式标记）作为兜底保留 —— 覆盖 weWid 缺失或轮换同 wid 极端角落。
       const widChanged = String(existing.dataset.weWid || "") !== String(selection.id || "");

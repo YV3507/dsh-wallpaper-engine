@@ -20,7 +20,7 @@
  *   只出现一次（它自己的声明）且未被导出 ⇒ 该函数零调用点 ⇒ 它发出的边都不算数。
  *
  * 不变量：
- *   R1 覆盖面——入口集合解析到 ≥2 个文件、扫描面 `lib` 文件数 ≥60、可达集合 ≥10 个文件；
+ *   R1 覆盖面——入口集合解析到 ≥2 个文件、扫描面 `lib` 文件数 ≥15、可达集合 ≥10 个文件；
  *      空解析 / 解析失败必须红，不许"空对空"通过。
  *   R2 棘轮——剪掉假活锚点后的不可达行数与文件数都 ≤ BASELINE，只许收紧。
  *   R3 锚点校验——包围函数名出现次数为 1 且未导出；若锚点已不存在（P2-12 删掉了死树），
@@ -43,7 +43,9 @@ const ENTRY = ['lib/index.js', 'lib/client.js'];
 const EXCLUDE = [/^lib\/webwallgl\//, /^lib\/vendor\//];
 
 /** 棘轮基线：剪掉假活锚点后的不可达规模（文件数 / 行数）。数字只许变小。 */
-const BASELINE = { files: 48, lines: 9618 };
+// 棘轮基线：P2-12 已把整棵死树删净（不可达 0 文件 / 0 行）⇒ 基线收到 0。
+// 此后任何一条新的不可达边都会立刻把它顶红 —— 这正是"发布面只剩活代码"的最终形态。
+const BASELINE = { files: 0, lines: 0 };
 
 // ── 输出 ────────────────────────────────────────────────────────────────────
 let failed = 0;
@@ -312,7 +314,8 @@ console.log('\nR1 覆盖面（防"空对空"通过）');
   const entries = ENTRY.filter((f) => AS_IS.has(f));
   check('入口集合解析到 ≥2 个文件', entries.length >= 2,
     entries.length + '/' + ENTRY.length + '（' + ENTRY.join(', ') + '）');
-  check('扫描面 lib 文件数 ≥60', ALL.length >= 60, ALL.length + ' 个文件 / ' + TOTAL_LINES + ' 行');
+  check('扫描面 lib 文件数 ≥15（P2-12 已删除 48 个死文件，地板随之收紧）', ALL.length >= 15,
+    ALL.length + ' 个文件 / ' + TOTAL_LINES + ' 行');
   check('可达集合 ≥10 个文件', libReachable(AS_IS) >= 10, libReachable(AS_IS) + ' 个 lib 文件可达');
 }
 
@@ -380,9 +383,15 @@ console.log('\nR3 假活锚点（按内容定位，非行号）');
     && countRefs('function helper() {}\nhelper();', 'helper') === 2,
     '导出形态与引用计数均可判非零');
   // 行为对照：剪枝必须真的把东西剪掉，否则 R2 的棘轮是空转。
+  // ⚠️ P2-12 删掉死树后锚点消失 ⇒ 剪枝**按定义**是空操作（上面 R3 已断言 pruned == as-is），
+  //    此时这条对照改报 INFO，而不是判红。
   const cut = AS_IS.size - PRUNED.size;
-  check('剪枝确实缩小了可达集合（棘轮不是空转）', cut >= 1,
-    '可达 ' + AS_IS.size + ' → ' + PRUNED.size + ' 个（-' + cut + '）');
+  if (workerEdges.length === 0) {
+    info('剪枝对照不适用（无锚点可剪）：pruned == as-is 已在上一条断言');
+  } else {
+    check('剪枝确实缩小了可达集合（棘轮不是空转）', cut >= 1,
+      '可达 ' + AS_IS.size + ' → ' + PRUNED.size + ' 个（-' + cut + '）');
+  }
 }
 
 // ── R2 棘轮：只许收紧 ───────────────────────────────────────────────────────

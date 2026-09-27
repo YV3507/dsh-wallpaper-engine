@@ -108,6 +108,25 @@ console.log('\n④ context 契约没有死声明');
   check('负对照：嵌套回调里同名的 `c` 不会污染 context 契约',
     shadow.fields.map((f) => f.field).join(',') === 'base',
     'fields=[' + shadow.fields.map((f) => f.field).join(',') + ']');
+  // 下限断言（防空集恒真）：**源码里有 `= c;` 解构，就必须解析出 ≥1 个字段**。
+  // 少了这条，解析器一旦解析不出多行解构就会静默返回空字段表 —— 于是"无死声明"与索引里
+  // 那一整列**一起空转**（实测：字段一多就换行，upload.js 的 15 个字段曾被整列显示为空）。
+  const blind = modules.filter((m) => readFileSync(join(ROOT, m.rel), 'utf8').includes('= c;') && m.fields.length === 0);
+  check('有解构的路由模块都解析出了 `c` 字段（解析不得静默变空）', blind.length === 0,
+    blind.map((m) => m.rel).join(' ') || modules.map((m) => m.rel + ':' + m.fields.length).join(' '));
+  // 负对照：跨多行的解构必须被解析出来（逐行匹配的旧写法会在这一条上红）
+  const multiline = parseRouteModuleText([
+    'export function registerZ(webServer, c) {',
+    '  const {',
+    '    alpha, beta: B, gamma,',
+    '  } = c;',
+    '  void alpha; void B; void gamma;',
+    "  webServer.register({ kind: 'exact', path: '/z', handler: (q, r) => r.end() });",
+    '}',
+  ].join('\n'), 'lib/routes/z.js', 'registerZ');
+  check('负对照：跨多行的 `c` 解构会被解析出全部字段',
+    multiline.fields.map((f) => f.field).join(',') === 'alpha,beta,gamma',
+    'fields=[' + multiline.fields.map((f) => f.field).join(',') + ']');
 }
 
 // ── ⑤ 运行时对账：真的跑一遍 apply()，数它注册了多少条 ────────────────────────

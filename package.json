@@ -41,12 +41,7 @@
     "lib/routes/",
     "lib/client.js",
     "lib/pkg-extract.js",
-    "lib/scene-renderer.js",
-    "lib/scene-render-worker.mjs",
-    "lib/we-renderer/",
-    "lib/font-render.js",
-    "lib/scene-scripts.js",
-    "lib/scene-script-apis.js",
+    "lib/pkg-read.js",
     "lib/scene-manifest.js",
     "lib/settings-schema.js",
     "lib/media/",
@@ -95,9 +90,7 @@
       "optional": true
     }
   },
-  "dependencies": {
-    "@shaderfrog/glsl-parser": "^7.0.1"
-  },
+  "dependencies": {},
   "overrides": {
     "js-yaml": "4.3.2"
   }

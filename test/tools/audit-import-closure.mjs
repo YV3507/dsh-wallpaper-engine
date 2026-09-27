@@ -1,6 +1,6 @@
 // 健壮性审计 A1: 校验 lib/ 全部运行时导入闭包 vs package.json files
 // 用法: node test/tools/audit-import-closure.mjs
-// 输出: 未覆盖的导入（发布包缺文件 → registry 安装即崩，即 scene-script-apis 类 bug）
+// 输出: 未覆盖的导入（发布包缺文件 → registry 安装即崩）
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, resolve, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';

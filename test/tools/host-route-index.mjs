@@ -127,22 +127,22 @@ export function parseRouteModuleText(raw, rel, fnName) {
   const at = L.findIndex((l) => new RegExp('export\\s+function\\s+' + fnName + '\\s*\\(').test(l)) + 1;
   const end = at > 0 ? braceEnd(L, st, at) : 0;
   const indent = at > 0 ? (/^(\s*)/.exec(L[at - 1])[1]).length : 0;
-  // `const { a, b: C } = c;` → 字段 a、b（本地名 C）
+  // `const { a, b: C } = c;` → 字段 a、b（本地名 C）。**解构可以跨多行**（字段一多就会换行），
+  // 所以必须在整个函数体文本上匹配一次，而不是逐行 —— 逐行匹配多行解构会静默解析出 0 个字段，
+  // 于是该模块的契约列与死声明检查**一起空转**（判据变空即恒真）。
   const fields = [];
-  let dsAt = 0; // 解构所在行（1-based）：**dead-declaration 判定的正文必须从它之后算起**，
+  let dsAt = 0; // 解构**结束**所在行（1-based）：**dead-declaration 判定的正文必须从它之后算起**，
   // 否则解构行自己就"用到了"每个字段，死声明永远测不出来。
-  const dmRe = /const\s*\{([^}]*)\}\s*=\s*c\s*;/;
-  for (let i = at; at > 0 && i <= end; i++) {
-    const dm = dmRe.exec(st[i - 1] || '');
-    if (!dm) continue;
-    dsAt = i;
+  const bodyAll = at > 0 ? L.slice(at - 1, end).join('\n') : '';
+  const dm = at > 0 ? /const\s*\{([^}]*)\}\s*=\s*c\s*;/.exec(bodyAll) : null;
+  if (dm) {
+    dsAt = at + (bodyAll.slice(0, dm.index + dm[0].length).match(/\n/g) || []).length;
     for (const part of dm[1].split(',')) {
       const t = part.trim();
       if (!t) continue;
       const [field, local] = t.split(':').map((s) => s.trim());
       fields.push({ field, local: local || field });
     }
-    break;
   }
   // `c.xxx` 形式的使用也算契约的一部分 —— 但**只在函数体顶层**：嵌套回调（如
   // `req.on('data', (c) => … c.length)`) 里的 `c` 是形参、与 context 同名但无关。

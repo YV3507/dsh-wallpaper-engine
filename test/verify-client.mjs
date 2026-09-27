@@ -780,13 +780,13 @@ setTimeout(async () => {
   }
 
   // ── GPU 抓帧缓存：状态提示 + 清除入口（面板）──────────────────────────
-  // 按用户决策：_gpu.png 存在时优先于「壁纸画面刷新」全部档位，所以切档位
+  // 按用户决策：_gpu.png 存在时优先于「出图来源」全部档位，所以切档位
   // 的前置动作是先清除。这里验证完整链路：选中场景 → HEAD 探测 → 面板出现
   // 「清除 GPU 帧」→ 点击 → DELETE 打到 host → 提示行消失。
   {
     // 与上文 setTab 同款：mock 的 useState 每次渲染都取 initializer，
     // 重新种 localStorage 再渲染即可确定性地切到目标 tab。
-    // 「画面」section（壁纸画面刷新 + GPU 帧行）在「效果」tab 里。
+    // 「画面」section（出图来源 + GPU 帧行）在「效果」tab 里。
     localStorage.setItem('dsh-wallpaper-engine:picker-tab', 'effects');
     assert.ok(pickerRenders.length > 0, 'picker render 回调必须已注册');
     // 等 boot 的 promise 链（loadPersisted → loadInventory →
@@ -882,14 +882,14 @@ setTimeout(async () => {
       '新层必须记录 weWid（后续重建按它判定是否换壁纸）');
     tree3 = renderPicker(); // 模态框已关：此时渲染的是 tab 面板（含「画面」section）
     // 画面来源三行的门禁（2026-09-26 按用户反馈调整）：
-    // 「壁纸画面刷新」换的是 CPU 静态帧 → 只在 live 未生效时出现；「实时帧」（GPU 抓帧
+    // 「出图来源」换的是 CPU 静态帧 → 只在 live 未生效时出现；「实时帧」（GPU 抓帧
     // 的重新截 / 清除 / 微缩预览）与「自定义画面」**不受实时渲染开关影响** —— 那张静帧
     // 正是切换途中与 live 首帧前给用户看的画面，构图不对时必须能立刻重抓。
-    assert.ok(JSON.stringify(tree3).includes('壁纸画面刷新'), '选中场景壁纸后面板应出现「壁纸画面刷新」行');
+    assert.ok(JSON.stringify(tree3).includes('出图来源'), '选中场景壁纸后面板应出现「出图来源」行');
     assert.ok(JSON.stringify(tree3).includes('自定义画面'),
       '「自定义画面」行必须可见（live 开着时也要能导入截图）');
-    assert.ok(JSON.stringify(tree3).indexOf('壁纸画面刷新') > JSON.stringify(tree3).indexOf('场景实时渲染'),
-      '「壁纸画面刷新」必须排在「场景实时渲染」开关注下方');
+    assert.ok(JSON.stringify(tree3).indexOf('出图来源') > JSON.stringify(tree3).indexOf('场景实时渲染'),
+      '「出图来源」必须排在「场景实时渲染」开关注下方');
     // ── 实时帧：重新截 + 微缩预览（当前壁纸实时帧） ──
     {
       const gpuText = JSON.stringify(tree3);

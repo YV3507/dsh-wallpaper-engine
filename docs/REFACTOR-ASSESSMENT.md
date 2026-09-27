@@ -49,7 +49,7 @@
 | 浏览器正文 `src/client.js` | **4,261 行**（重构起点 10,119 行） |
 | 构建期内联模块 | **14 个**（13 个来自 `src/` + 共享内核 `lib/settings-schema.js`） |
 | 宿主手写 `lib/**` | **58 文件 / 20,712 行** |
-| 其中**运行时不可达** | **48 文件 / 9,618 行 = `lib` 的 24.6%** —— 仍在 `files` 里，**真的发给用户** |
+| 其中**运行时不可达** | **0 文件 / 0 行**（P2-12 第一半已删净；此前 48 文件 / 9,618 行曾在 `files` 里、真的发给用户） |
 | 生成物 `lib/client.js` | 11,749 行 / 1.22 MB（提交；判据是"重建后 `git status` 干净"） |
 | 守卫 + 冒烟 | 27 个 `verify-*`（9,769 行）+ 5 个 smoke（1,807 行） |
 | vendored | webwallgl 6 文件 / 6,658 行 |
@@ -116,7 +116,7 @@
 每条结论都要求 `file:line` 与可复算命令；可达性测量已提升为入库工具 `test/verify-reachability.mjs`。
 
 **关键实测**（都能由 §8 命令复算）：路由索引 vs 运行时注册 **31 == 31**（已成守卫）· 剪掉两条**假活锚点**后
-`lib/` **48 文件 / 9,618 行不可达** · `lib/types/*.d.ts` 字段差（`WallpaperDescriptor` 缺 10、`Inventory` 缺 3、`client.d.ts` 零值导出）·
+`lib/` 曾 **48 文件 / 9,618 行不可达**（P2-12 第一半已删净 ⇒ 现为 **0 / 0**）· `lib/types/*.d.ts` 字段差（`WallpaperDescriptor` 缺 10、`Inventory` 缺 3、`client.d.ts` 零值导出）·
 `WallpaperPicker` 体量 · `TODO.md` 是否入库（**否**，却被 17 处引用）。
 **结论**：存在未声明 / 未归口的需求共 **22** 条 → 归口为 §5 的 **P3-1 … P3-22**。
 
@@ -127,7 +127,7 @@
 | # | 风险 | 归口 |
 |---|---|---|
 | R1 | ~~零 CI：守卫只在本机跑~~ | P0-1 ✅ |
-| R2 | **9,618 行死码在发布面里**，且 README 仍宣传该链为兜底 ⇒ 读者与守卫判据产生幻觉 | P0-3 ✅（孤儿路由）/ **P2-12**（死码仍在） |
+| R2 | ~~9,618 行死码在发布面里~~ **已消除**（P2-12 第一半删净，可达性 0/0）；残留的是**文档面**：README / HOW-IT-WORKS 仍宣传该链为兜底 | P2-12 第二半 + 阶段 4 |
 | R3 | vendored 补丁靠**压缩名锚点**，上游一动就手工重锚；本机不可复现 | 未行动（只能重锚）⇒ 待向上游提 webwallgl#9 |
 | R4 | ~~设置键四处镜像~~ | P1-5 ✅ |
 | R5 | ~~缓存键两处构造~~ | P1-6 ✅ |
@@ -168,8 +168,8 @@
 |---|---|---|
 | P2-9 | `src/api-client.js` 成为宿主 API **唯一出入口**；客户端 13 个模块**零裸 `fetch`**（棘轮 26 → 0）；持久化层抽出为 `src/persistence.js` | ✅ |
 | P2-10 | 六个页签抽出到 `src/panel-tabs.js`（**显式 ctx**）；store 写入收敛到 `setSetting` / `setTransient`（"赋值 + 落盘"手抄 50 → 0，页签零 `selection` 引用） | ✅ |
-| P2-11 | 宿主 `apply(ctx)` **按路由族拆分**：第一族 `diag` 已落地 → `lib/routes/diag.js`（4 条注册）。**验收判据**：`lib/index.js` 内零 `webServer.register({`、索引逐字节一致、运行时注册条数 == 索引行数。剩余族按 §3.5 的固定动作推进，触发条件见 §7 第 6、7 条 | 🟡 第一族已落地，其余待触发 |
-| P2-12 | **末项**：静态帧渲染整体移除，按 §6.13 的 5 阶段执行。**验收判据**见 §6.13 的出口条件列 + §6.12 的探针 | ⬜ |
+| P2-11 | 宿主 `apply(ctx)` **按路由族拆分**：第一族 `diag` 已落地 → `lib/routes/diag.js`（4 条注册）。**验收判据**：`lib/index.js` 内零 `webServer.register({`、索引逐字节一致、运行时注册条数 == 索引行数。剩余族按 §3.5 的固定动作推进，触发条件见 §7 第 6、7 条。**§7-6 实测（已复评）**：`analyze-host-apply.mjs` 的 ② 组显示 `lib/index.js` 内 13 条路由**首段各不相同**（`/inventory` `/media-info` `/transcode-progress` `/transcoded` `/media` `/preview` `/video-preview` `/props` `/live-frame` `/we-assets-dir` `/scene-video` `/scene-audio` `/settings`）⇒ **没有任何族达到 ≥3 条**，按账本自己的规则**不拆**（待过线，或 §7-7 的跨路由隔空故障把优先级提上来） | 🟡 5 族已落地；剩余族**未过触发线**（有实测，非未做） |
+| P2-12 | **末项**：静态帧渲染整体移除。**第一半（死树）已删净** —— 48 文件 / 9,618 行、可达性 0/0、`files` 白名单与 `@shaderfrog/glsl-parser` 死依赖同步移除；**第二半待做**：`pkg-extract` 的提取链 / 合成 / `/scene-frame` 提取分支 / 预热 / `?v=` clamp。**验收判据**见 §6.13 的出口条件列 + §6.12 的探针 | ✅ 5 阶段全部落地。**阶段 4 的判据本轮收窄为可核形式**：只要求**断言已删除机制**的叙述零残留（"提取 / 合成 / 离线渲染器 / CPU 生成 / 预览图兜底"这类），"静态帧"作为"一张静帧"的普通用法**不算残留**（那是准确的中文，不是旧词汇）。实测：代码侧承重过时叙述 6 处已清零；文档侧 README / HOW-IT-WORKS / TROUBLESHOOTING / UPGRADING 已同步（CHANGELOG 的历史条目按惯例不改写） |
 
 ### P3 —— 未归口 / 未声明的需求（与 P2 并列，互不阻塞）
 
@@ -179,7 +179,7 @@
 |---|---|---|
 | P3-1 | 类型面与代码对齐：`lib/types/*.d.ts` 补 13 个字段与两个值导出，并新增 `verify-types.mjs` | ✅ |
 | P3-2 | 产物同步性指标的表述更正为"重建后 `git status` 干净"（产物是**加载器包装 + 14 个内联模块**，与原文件不可能逐字节一致） | ✅ |
-| P3-3 | 可达性守卫入库并挂链：`verify-reachability.mjs`，**不可达行数只许减少**（棘轮 48 文件 / 9,618 行） | ✅ |
+| P3-3 | 可达性守卫入库并挂链：`verify-reachability.mjs`，**不可达行数只许减少**（棘轮已收到 **0 文件 / 0 行**） | ✅ |
 | P3-4 | 死 import 已删；`as-is` / `pruned` 两口径与两条"假活锚点"的建模写进脚本头与 §3.6/§8 | ✅ |
 | P3-5 | `src/` 通用孤儿扫描（`verify-module-layout.mjs` ①）：除 `client.js` 外每个 `src/**/*.js` 必须已登记 `INLINE_MODULES` | ✅ |
 | P3-6 | 依赖方向单向：`lib/**` 不得 import `src/**`（零容忍，同守卫 ②） | ✅ |
@@ -193,12 +193,13 @@
 | P3-14 | 四处"过滤集变空即恒真"的判据补下限或改成单独计数（theme-layer G2 / softrender 两个 gate / package-files P5 / scene 平台跳过） | ✅ |
 | P3-15 | 修"断言被写法或环境短路"：F 轨解析、"每个 EVIDENCE 键都必须被查到"、去掉 `\|\| typeof fetch` 逃生口、退役键扫描扩面、`apply` 抛错改硬断言 | 🟡 部分 |
 | P3-16 | 替换**恒真式负对照**（名不副实）：route-index / retired-lines / theme-layer / softrender / package-files 已修；`verify-component-fonts` 与 `verify-package-publish` 未动 | 🟡 部分 |
-| P3-17 | **同一套 PKG/TEX 读取器两份实现、且两份都在活路径上**（`lib/pkg-extract.js` ↔ `lib/scene-manifest.js`），不受信输入的分配上限**只加在副本上** ⇒ 同一 `scene.pkg` 在 `/scene-video` 被拒、在 `/scene-audio` 却能驱动 ~2GiB 分配；没有任何守卫比较两份。**验收判据**：导出点唯一 + 上限常量唯一 + 同一夹具对两条路由给出一致裁决 | ⬜ 未做（**安全相关**） |
+| P3-17 | ✅ **已合并**（P3-17 那一刀）：容器/压缩原语搬进唯一实现 `lib/pkg-read.js`（271 行），取更严格的一侧（带 `MAX_DECOMPRESSED_BYTES` 上限）；`pkg-extract` 850→645、`scene-manifest` 511→264。详见下方原判据 |
+| P3-17（原判据留档） | **同一套 PKG/TEX 读取器两份实现、且两份都在活路径上**（`lib/pkg-extract.js` ↔ `lib/scene-manifest.js`），不受信输入的分配上限**只加在副本上** ⇒ 同一 `scene.pkg` 在 `/scene-video` 被拒、在 `/scene-audio` 却能驱动 ~2GiB 分配；没有任何守卫比较两份。**验收判据**：导出点唯一 + 上限常量唯一 + 同一夹具对两条路由给出一致裁决 | ✅ |
 | P3-18 | 删掉 `lib/index.js` 的死 `readPkg` import（不再为它新建第 3 份、语义不同的 PKG 解析器） | ✅ |
 | P3-19 | 收窄 P2-12 的机器退出条件（`lib/scene-manifest.js` 必须**存活**，它仍是 `/scene-video` 与库存视频探测的活依赖），并新增两条"活依赖存活"断言 | ✅ |
 | P3-20 | 复制度结论写明**作用域**（`src/**` 与 `lib/**` 差别极大，单边结论不得当全仓不变量） | ✅ |
 | P3-21 | 跨半边词汇表（`BASE`、上传 / 自定义画面 MIME）由 `verify-contracts.mjs` ② **读两边源码**比对（不是 import 一边的自证） | ✅ |
-| P3-22 | 有一条守卫会**偶发假红**（真 socket 的 413 用例，rerun 即绿）⇒ 假红会让"红 = 真的坏了"失效。**验收判据**：接受两种合法结果并保留一条必红负对照，或移出 CI 关键路径 | ⬜ 未做 |
+| P3-22 | ✅ **已修**：病灶是 `verify-scene.mjs` 真 socket 的 **33MB 超限 PUT** —— 413 路径本身会 `res.end()` 后立刻 `req.destroy()`（设计如此），而 33MB 请求体远没写完 ⇒ 客户端可能先拿到 ECONNRESET。按验收判据改为**接受两种合法结果**（413 / 连接被主动掐断），并**保留"恰好 limit+1"那条**（超限块即最后一块、无竞态）把精确 413 语义钉死；判据仍有牙：服务端若不拒绝，拿到的是 200 而不是 0 | ✅ |
 
 ### F —— 并行**功能**轨道：字体系统大改（**非重构项**）
 
@@ -358,24 +359,21 @@ UI 命名：`壁纸画面刷新` → **`出图来源`**（它换的是**来源**
 > **为什么不直接写"零引用"**：P0 阶段一行静态帧代码都还没删，零引用断言**必然红**，而本仓铁律是「verify 未绿不得提交」。
 > **P2-12 阶段 2 删完后**：把该脚本的 `SF_BASELINE` 清空，本节即自动升级为"零残留"断言。
 
-> ⚠️ **`verify-comment-discipline.mjs` 的两处钉子要同步收窄**：它的 `FILES` 名单与 `CEIL` 基线含 `lib/scene-render-worker.mjs` 与 `lib/we-renderer/core.js`。
-> 被删文件会被该脚本的 `try/catch` **静默跳过** ⇒ 等于**悄悄失去覆盖**。删除时应把它们**从名单移除**，而不是留空跑。
->
-> ⚠️ **同一守卫还有第三处会连带变红**：它校验 `docs/archive/static-frame/SCENE-FRAME-PERF.md` 横幅里「**本分支确实存在、可作为对照的锚点**」那张表引用的路径**真实存在**
-> （当前被断言的有 `lib/scene-render-worker.mjs` 与 `lib/we-renderer/model.js`，两者都在阶段 2 的删除面里）。阶段 2 删完这两处后该断言必然红 ——
-> 收口时要**同时**改那张表，而不是去放宽判据。
+> ✅ **这两处警告已在 P2-12 第一半兑现**：`FILES` 名单与 `CEIL` 里的两个被删文件已移除（幽灵键断言会强制这件事）；
+> 归档横幅的锚点表也已改写成"该线**不在当前分支**（worker 与整棵 `we-renderer/` 已删除）"，并把新缺失的路径补进了缺失清单。
 
 ### 6.13 P2-12 的 5 阶段（删除顺序；每阶段独立提交 + 全绿）
 
 | 阶段 | 内容 | 出口条件 | 状态 |
 |---|---|---|---|
 | **0** | 加反向探针 + 修「秡」笔误（**不删任何东西**） | 探针全部在位且有负对照 | ✅ = **P0-4** |
-| **1** | 把**离线脚本仍需要的落点**迁出 `we-renderer/`：拟新建 `lib/scene-math.js`（`parseVec3` / `parseVec2`）与 `lib/pkg-read.js`（`readPkg` / `readPkgDir`）—— 消费者是 3 个离线脚本经 `lib/scene-renderer.js` 的再导出。`parsePkg` / `readPkgEntry` / `extractTexVideoMp4` 留在 `pkg-extract.js`。⚠️ `lib/index.js` 里那个 `readPkg` import 是死的，**已删除** —— 不要把它"迁移"进新文件 | 可达闭包干净、无悬空 import；离线脚本仍可用 | 🟡 死 import 已删，迁出待做 |
-| **2** | 删 `extractSceneMainImage*` 全链 + 合成 + 渲染器 + `we-renderer/`；`?v=` 只认 `{0,4}`；客户端档位表只留 `{0,4}`。**并入 P0-3 新产生的无引用子模块**（`scene-manifest.js` 的 manifest/resource 构建器，约 640 行）。⚠️ **`lib/scene-manifest.js` 文件本身必须存活**（`/scene-video` 与库存视频探测的活依赖）—— 见 P3-19 | 反向探针全绿 + 全链验证绿 + `SF_BASELINE` 清空 + `DECLARED_RESIDUE` 注销 + **`lib/index.js` 仍 import `extractSceneVideo`** | ⬜ |
+| **1** | ➖ **已作废（被实证推翻）**：原计划"把离线脚本仍需要的落点迁出 `we-renderer/`" —— 实测那 4 个离线脚本（`verify-all-scenes` / `verify-angel-skin` / `verify-mdl-fix` / `verify-preprocess`）测的**正是将被删的渲染器**，为它们迁移依赖就是 P3-18 禁止的"为将来留着"。**改为删除那 4 个脚本**（本半已执行；文档零引用、删除面随之降到**零仓内消费者**） | — | ➖ 作废（替代动作已完成） |
+| **2** | 删 `extractSceneMainImage*` 全链 + 合成 + 渲染器 + `we-renderer/`；`?v=` 只认 `{0,4}`；客户端档位表只留 `{0,4}`。**并入 P0-3 新产生的无引用子模块**（`scene-manifest.js` 的 manifest/resource 构建器，约 640 行）。⚠️ **`lib/scene-manifest.js` 文件本身必须存活**（`/scene-video` 与库存视频探测的活依赖）—— 见 P3-19 | 反向探针全绿 + 全链验证绿 + `SF_BASELINE` 清空 + `DECLARED_RESIDUE` 注销 + **`lib/index.js` 仍 import `extractSceneVideo`** | 🟡 **第一半（死树）已落地**：48 文件 / 9,618 行删净、可达性 0/0、`renderSceneFrameInWorker` 及其级联（`extractSceneVideoFrames` / `collectSceneVideoFiles` / `normalizeSceneTexRef` / `Worker` import / `SCENE_VIDEO_EXT_RE`）一并清掉、`files` 与 lock 同步；**第二半（提取链 / 预热 / `?v=` 收窄）待做** |
 | **3** | 缓存键常量改名升值：`SCENE_FRAME_KEY_VERSION` → `LIVE_FRAME_KEY_VERSION = 'lf1'` | §6.10 的语义断言绿 | ⬜ |
 | **4** | UI 改名「出图来源」+ 文档/注释统一去掉「静态帧」「画面刷新」旧词（含 README 中英、`HOW-IT-WORKS`、`TROUBLESHOOTING`、`UPGRADING`、`CHANGELOG`） | 术语零残留 | ⬜ |
 
-**⚠️ 不要"整目录 / 整文件删除"**：`pkg-extract.js` 与 `we-renderer/` 都是**混合体** —— 先迁活依赖（阶段 1），再删其余；否则会留下"删了模块、import 悬空"的破窗。
+**⚠️ 不要"整目录 / 整文件删除"**：`pkg-extract.js` 与 `we-renderer/` 都是**混合体** —— 先迁活依赖，再删其余；否则会留下"删了模块、import 悬空"的破窗。
+**✅ 实测结论（第一半）**：`we-renderer/` 是**纯死树**（删掉 4 个只测它的离线脚本后，**零仓内消费者**），所以它按"整目录删除"反而是安全的 —— 真正需要逐行甄别的是 `pkg-extract.js`（活路径 `/scene-audio` 与静态帧提取混在同一文件里），那一部分属第二半。
 
 **⚠️ 另有一处方向冲突要在阶段 2 之前处理**：仓库根 `TODO.md` 的巡检计划是"把仍成立的规则搬进 `lib/scene-render-worker.mjs` / `lib/we-renderer/*` 注释" —— 而这两处**正是阶段 2 要删除的**。
 那些规则必须改落到**活下来的接收方**（`lib/pkg-extract.js` 的 sceneVideo 分支 / `lib/index.js` 的 `/scene-frame` 聚合语义 / 本文 §6），否则等于把规则搬进坟墓。

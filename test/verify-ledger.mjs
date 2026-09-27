@@ -86,7 +86,7 @@ const EVIDENCE = {
       const at = h.indexOf('function sceneFrameSlot(');
       if (at < 0) return false;
       const end = h.indexOf('\n}', at);
-      return !h.slice(at, end).includes('SCENE_FRAME_KEY_VERSION');
+      return !h.slice(at, end).includes('LIVE_FRAME_KEY_VERSION');
     }],
   ],
   'P1-7': [
@@ -171,8 +171,11 @@ const EVIDENCE = {
       () => !has('lib/we-renderer/core.js') && !read('lib/index.js').includes('extractSceneMainImage')],
     ['manifest/resource 构建器已随无消费者的 /scene-resource/ URL 一并删除',
       () => !read('lib/scene-manifest.js').includes('/wallpaper-engine/scene-resource/')],
-    ['退役行守卫的静态帧棘轮已翻成零残留',
-      () => /SF_BASELINE[^=]*=\s*\[\s*\]/.test(read('test/verify-retired-lines.mjs'))],
+    ['退役行守卫的静态帧棘轮已翻成零残留（产品侧零残留；名单只剩点名检验者）', () => {
+      const block = (read('test/verify-retired-lines.mjs').match(/const SF_BASELINE = \[([\s\S]*?)\];/) || [])[1] || '';
+      const entries = [...block.matchAll(/'([^']+)'/g)].map((m) => m[1]);
+      return entries.length === 1 && entries[0] === 'test/verify-ledger.mjs';
+    }],
     // 反向：**活依赖必须活下来**。`/scene-video` 与库存视频探测走这两个出口，
     // 整文件删除会把活路由弄坏 —— 断言要把它们钉成"必须存在"，不是"必须消失"。
     ['活依赖存活：lib/index.js 仍从 scene-manifest 取 extractSceneVideo*', () => {
@@ -182,6 +185,23 @@ const EVIDENCE = {
     }],
     ['活依赖存活：/scene-audio 的 TEX 视频提取落点仍在 lib/pkg-extract.js',
       () => read('lib/pkg-extract.js').includes('function extractTexVideoMp4(')],
+  ],
+  'P3-17': [
+    // 验收判据三条里的前两条：**导出点唯一** + **上限常量唯一**（此前上限只长在副本上）。
+    ['容器原语只有一份实现（lib/pkg-read.js）', () => {
+      const defines = (f, n) => new RegExp('^(?:export\\s+)?(?:async\\s+)?(?:function|const|class)\\s+' + n + '\\b', 'm').test(read(f));
+      return defines('lib/pkg-read.js', 'parsePkg') && defines('lib/pkg-read.js', 'readPkgEntry')
+        && defines('lib/pkg-read.js', 'lz4DecompressBlock') && defines('lib/pkg-read.js', 'probeCompressedEntry')
+        && !defines('lib/pkg-extract.js', 'parsePkg') && !defines('lib/pkg-extract.js', 'lz4DecompressBlock')
+        && !defines('lib/scene-manifest.js', 'parsePkg') && !defines('lib/scene-manifest.js', 'lz4DecompressBlock');
+    }],
+    ['分配上限唯一（不再"只长在副本上"）', () => {
+      const hit = (f) => (read(f).match(/^const MAX_DECOMPRESSED_BYTES\b/m) || []).length;
+      return hit('lib/pkg-read.js') === 1 && hit('lib/pkg-extract.js') === 0 && hit('lib/scene-manifest.js') === 0;
+    }],
+    ['两个消费者都从共享模块取（不是各自又长回一份）', () =>
+      read('lib/pkg-extract.js').includes("'./pkg-read.js'")
+      && read('lib/scene-manifest.js').includes("'./pkg-read.js'")],
   ],
 };
 

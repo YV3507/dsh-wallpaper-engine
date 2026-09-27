@@ -242,14 +242,15 @@ const listeners = new Set();
 function emit() { for (const fn of [...listeners]) fn(); }
 function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 
-// ── 壁纸画面刷新：场景壁纸静态帧生成逻辑档位（beta 渲染不参与）─────────
-// 每张壁纸独立记忆所选档位；档位以 ?v= 进入 scene-frame 请求，宿主缓存键
-// 带 _vN 后缀 —— 不同档帧互不覆盖，档 0 沿用既有 sf33_ 键（现状不变）。
+// ── 出图来源：场景壁纸「这张画面从哪来」（beta 渲染不参与）───────────────
+// 值域与宿主 /scene-frame **逐字一致**（账本 §6.6/§6.7），只剩两档：
+//   0 = 自动（求链头：实时抓帧 → 自定义画面 → 空态）
+//   4 = 强制自定义画面（用户导入的截屏）
+// ⚠️ 1/2/3（合成 / 主纹理 / 作者原画 / 预览图）已随 P2-12 退役。宿主会把它们
+// clamp 到 0，所以 UI **不能再给出这些档** —— 否则用户点了按钮却"没反应"。
+// ⚠️ 表里存的是**档位值**（进 ?v=），不是下标；值域有洞（0 与 4）⇒ 推进不能用取模。
 const FRAME_VARIANTS = [
-  { id: 0, label: "合成（分层）" },
-  { id: 1, label: "主纹理（单张大图）" },
-  { id: 2, label: "作者原画（嵌入 JPEG/PNG）" },
-  { id: 3, label: "预览图" },
+  { id: 0, label: "实时画面" },
   { id: 4, label: "自定义画面" },
 ];
 // 卡片类型徽标（卡片左上角）：与「类型」筛选的四类一一对应。
@@ -259,12 +260,12 @@ const CARD_TYPE_LABELS = { video: "视频", web: "网页", image: "图片", scen
 // 用户点「音乐开」开关状态变了却依然无声，看起来就是「音量开/关都不生效」
 //（注意勿误读：语义见 onToggleAudio）。
 const DEFAULT_AUDIO_VOLUME = 0.5;
-// 当前壁纸可用档位数：未导入自定义画面时不轮入第 5 档。
+// 当前壁纸可用档位数：未导入自定义画面时只剩「自动」一档（切过去会被宿主 422）。
 function frameVariantCount(selLike, wid) {
   const cf = selLike.customFrames || {};
   const inv = (selLike.inventory && selLike.inventory.wallpapers) || [];
   const wp = inv.find((w) => String(w.id) === wid);
-  return (cf[wid] === true || (wp && wp.hasCustomFrame)) ? FRAME_VARIANTS.length : FRAME_VARIANTS.length - 1;
+  return (cf[wid] === true || (wp && wp.hasCustomFrame)) ? FRAME_VARIANTS.length : 1;
 }
 function frameUrlWithVariant(frameUrl, v) {
   if (!frameUrl) return frameUrl;
@@ -654,7 +655,7 @@ function syncRotationTimer() {
     selection.rotationTimer = null;
     if (!selection.rotationEnabled || !selection.id) return;
     // 就绪后切换：不再到点即 applySelection —— 先在后台把下一张壁纸准备到
-    // 完全 ready（live 渲染页首帧 / 静态帧提取完成 / 视频可播放 / 图片解码
+    // 完全 ready（live 渲染页首帧 / 实时抓帧就绪 / 视频可播放 / 图片解码
     // 完成），就绪才落实切换并做交叉淡化。准备期间旧壁纸原样保持。
     beginRotationPrepare(new Set());
   }, delayMs);
@@ -1342,8 +1343,8 @@ function weStartDraw(canvas, video, customFit) {
   weResizeObs.observe(canvas);
 }
 
-// 「有 GPU 抓帧就优先于 CPU 生成的画面」的判据（用户决策）：探测该壁纸静态帧
-// 槽位是否有 _gpu.png —— HEAD 是纯磁盘探测，不触发 CPU 提取。带 TTL 与 in-flight
+// 「有抓帧就优先于其它来源的画面」的判据（用户决策）：探测该壁纸出图
+// 槽位是否有 _gpu.png —— HEAD 是纯磁盘探测，绝不触发任何生成。带 TTL 与 in-flight
 // 去重（同一壁纸反复进出只探一次）；探测失败/无 token 按「无 GPU 帧」处理：
 // 显示侧本来就会优先服务 GPU 帧，这里失败放开只影响一次多余探测，不该让判定
 // 因一次网络抖动而反转。
@@ -1643,7 +1644,7 @@ function clearGpuFrameSlot(token) {
     .then((res) => Boolean(res.ok && removedFromResponse(res)));
 }
 // 重抓落地后，当前层若正显示这张静帧（静态帧 img / live 垫底 poster），就地重挂
-// 一次：scene-frame 响应带 no-store，换个 query 即重新取图（同「画面刷新」的既有
+// 一次：scene-frame 响应带 no-store，换个 query 即重新取图（同「切换出图来源」的既有
 // 做法）。否则用户要等下一次切换才看到修正后的构图。
 function refreshStaticFrameNodes(token) {
   try {
@@ -2305,7 +2306,7 @@ let pickerOpener = null;
 let customFrameInput = null;
 let pickerFocusPending = false;
 // GPU 抓帧缓存状态（面板展示用）：wid 对应当前面板壁纸，pinned=缓存里已有
-// <key>_gpu.png。GPU 帧优先于「壁纸画面刷新」全部档位（按用户决策），因此
+// <key>_gpu.png。GPU 帧优先于「出图来源」的自动档（按用户决策），因此
 // 想切档位/换回 CPU 生成的画面必须先清掉它 —— 面板据此给出提示与清除入口。
 const gpuFrameUi = {
   wid: "", pinned: false, busy: false, probedAt: 0, error: "",
@@ -2333,7 +2334,7 @@ function framePreviewSrc(selLike) {
   if (!base) return "";
   return base + (base.indexOf("?") === -1 ? "?" : "&") + "we-prev=" + (gpuFrameUi.probedAt || 0);
 }
-// 探测当前壁纸的静态帧槽位状态（HEAD，纯磁盘探测，不触发 CPU 提取）。带 TTL
+// 探测当前壁纸的抓帧槽位状态（HEAD，纯磁盘探测，绝不触发任何生成）。带 TTL
 // 去重：syncLayers 调用频繁，同一壁纸 30s 内只探一次；force 用于清除后复检。
 function probeGpuFrameState(frameUrl, force) {
   const wid = String(selection.id || "");
@@ -2741,18 +2742,21 @@ const officialColorOf = (tokens) => {
     selection.themeTypeOnly = false;
     setSetting("fontAdvanced", false); applyEffects(); emit();
   };
-  // 壁纸画面刷新：当前场景壁纸循环切换静态帧生成档位（按壁纸记忆）。
-  // 档位数=4；已导入自定义画面时为 5（第 5 档=用户截屏）。
+  // 出图来源：当前场景壁纸在「自动 ⇄ 自定义画面」之间切换（按壁纸记忆）。
+  // 只有一档可切（没导入自定义画面）时**不动** —— 避免"点了没反应"。
   const onRefreshFrame = () => {
     if (sel.type !== "scene" || !sel.sceneFrameUrl) return;
     const wid = String(sel.id);
     const total = frameVariantCount(sel, wid);
-    const cur = (Number(sel.frameVariants && sel.frameVariants[wid]) || 0) % total;
-    const next = (cur + 1) % total;
+    if (total < 2) return;
+    // 推进**下标**、存**档位值**：值域有洞（0 与 4），取模会造出 1/2/3 这种退役档位。
+    const cur = Number(sel.frameVariants && sel.frameVariants[wid]) || 0;
+    const idx = Math.max(0, FRAME_VARIANTS.findIndex((f) => f.id === cur));
+    const next = FRAME_VARIANTS[(idx + 1) % total].id;
     const map = Object.assign({}, selection.frameVariants || {});
     map[wid] = next;
     selection.frameVariants = map;
-    // 刷新作用于静态帧：把层切回当前档位的静态帧。
+    // 切换作用于出图来源：把层切到该档的画面。
     setSetting("url", frameUrlWithVariant(sel.sceneFrameUrl, next)); syncLayers(); emit();
   };
   // 清除 GPU 抓帧缓存（<key>_gpu.png）：按用户决策 GPU 帧优先于全部档位，

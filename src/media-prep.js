@@ -118,7 +118,7 @@ function prepareWallpaper(w, prep, onReady, onFail) {
     // 优先级不变量（与 buildMedia 一致）：live > sceneVideo > 静态帧。
     // live 探测失败回退 sceneVideo（host 对每个 scene 都 mint
     // sceneVideo URL，是否有内嵌视频只有请求后才知道），404/解码失败再降
-    // 静态帧；静态帧提取失败 → preview → onFail 跳过。
+    // 出图来源；那一帧拿不到 → preview → onFail 跳过。
     const liveSel = {
       type: "scene", id: w.id,
       sceneLiveSrc: w.sceneLiveSrc || null,
@@ -352,7 +352,7 @@ function prepareSceneLiveStage(w, prep, onReady, onFail) {
   prepTimeout(prep, poll, 300); // 首拍稍早：小 pkg 可能一帧内就绪
 }
 
-// 静态帧阶段：GET frameUrl 由 host 按需触发提取（in-flight 去重），img onload
+// 出图来源阶段：GET frameUrl 由 host 从磁盘取（已无任何生成动作），img onload
 // = 提取+解码完成，元素随 commit 移入新层。提取失败（422）→ preview 探测；
 // preview 也失败 → onFail 跳过。
 function prepareSceneStaticStage(w, prep, onReady, onFail) {

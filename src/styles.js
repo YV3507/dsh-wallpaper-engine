@@ -101,19 +101,19 @@ const CSS = `
     position: absolute; inset: 0; width: 100%; height: 100%;
     background-size: cover; background-position: center; background-repeat: no-repeat;
   }
-  /* live 首帧点亮后，垫底静态帧必须**整块退场** —— 但必须**串行**：等 iframe
+  /* live 首帧点亮后，垫底实时帧必须**整块退场** —— 但必须**串行**：等 iframe
      淡入完成后再快收，不能与 iframe 同步双淡出。同步双淡出时两个半透明层互换，
      黑底会在过渡中点以 (1−f)(1−p)≈25% 的强度漏出来（层底是原生纯黑/纯白），
      用户实测可见「切换完成后整屏呼吸式变暗后恢复」—— 它违反了本仓「旧画面
      保持不透明垫底」的铁律。串行后 iframe 淡入期间的合成是
-     f·live + (1−f)·静态帧，黑底永不参与；延迟 1.8s（与 LIVE_FIRST_FADE_MS
+     f·live + (1−f)·实时帧，黑底永不参与；延迟 1.8s（与 LIVE_FIRST_FADE_MS
      同步）时 iframe 已到终态 —— a=1 时静态帧被完全不透明 iframe 盖住，0.3s
      快收完全不可见；a<1 时残余的 a(1−a) 静态帧鬼影（本规则存在的理由，见下）
      由这 0.3s 平滑收掉。
      ⚠️ 它在 DOM 里是 iframe 的**下层**，而「壁纸透明度」是把上层 iframe 变半透明
      —— 一个 0.1 的 alpha 会让静态帧以 a(1−a)≈0.09 的强度重新透出来：现象就是
-     「壁纸透明度高时显现静态帧」，而预期是只该看到原生底色 + 淡出的实时画面。
-     首帧确认前 / 降级回静态帧后本规则不匹配，垫底照旧负责盖住加载窗口。
+     「壁纸透明度高时显现实时帧」，而预期是只该看到原生底色 + 淡出的实时画面。
+     首帧确认前 / 降级回实时帧后本规则不匹配，垫底照旧负责盖住加载窗口。
      transition 写在**这条规则里**：状态翻转时按上式延迟快收，翻回（降级）时规则
      连同 transition 一起消失、立即恢复垫底；live 生效期间这里的 opacity 是字面量 0，
      与「壁纸透明度」滑块无关 —— 不会拖慢滑块手感。 */
@@ -1408,7 +1408,7 @@ const CSS = `
     background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
     text-overflow: ellipsis; white-space: nowrap; overflow: hidden;
   }
-  /* Scene-wallpaper "静态帧" badge — top-right under the hide button. */
+  /* Scene-wallpaper "实时帧" badge — top-right under the hide button. */
   .we-picker__card-badge {
     position: absolute; top: 4px; right: 4px; z-index: 1;
     padding: 1px 6px; font-size: 0.62em; line-height: 1.6;

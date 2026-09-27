@@ -912,7 +912,7 @@
       );
     }
     // 画面来源相关的判定算一次给下面几行用：
-    // - sceneWithFrame：有静态帧可换/可抓的场景壁纸；
+    // - sceneWithFrame：有出图来源可换、有槽位可抓的场景壁纸；
     // - gpuPinnedHere：当前面板这张壁纸的槽里确实有实时帧（探测带 TTL，见
     //   probeGpuFrameState）—— 跨壁纸的 pinned 状态不能拿来显示。
     const sceneWithFrame = sel.type === "scene" && Boolean(sel.sceneFrameUrl);
@@ -932,7 +932,7 @@
         // 整体画面；上限 90% 避免调到「壁纸完全不可见但暗化还在」的诡异状态
         // （想关壁纸直接关掉即可）。
         SliderRow("壁纸透明度", 0, 90, 5, sel.wallpaperOpacity, onWallpaperOpacity, sel.wallpaperOpacity + "%", "wallpaper-opacity", {
-          tooltip: "壁纸向原生底色淡出（浅色纯白 / 深色纯黑）；透明生效时壁纸层会垫这层原生底色，以保证玻璃模糊不被透明背景破坏。场景壁纸的垫底静态帧会在实时画面出场后退场，不会在淡出时透出来",
+          tooltip: "壁纸向原生底色淡出（浅色纯白 / 深色纯黑）；透明生效时壁纸层会垫这层原生底色，以保证玻璃模糊不被透明背景破坏。场景壁纸的垫底实时帧会在实时画面出场后退场，不会在淡出时透出来",
         }),
         SliderRow("暗化", 0, 90, 5, Math.round(sel.scrim * 100), onScrim, Math.round(sel.scrim * 100) + "%"),
         // ── 场景实时渲染（WebWallGL）：scene.pkg 壁纸的实时 WebGL 形态，默认
@@ -952,7 +952,7 @@
           hint: "WebGL 实时渲染 · 失败自动降级",
           tooltip: sel.type === "web"
             ? "网页壁纸由 WebWallGL 加载并注入 WE API（音频/属性监听等），严格沙箱隔离（不继承宿主权限）；加载失败或运行失联时自动退回兼容 iframe。重新开启会重试此前失败的壁纸"
-            : "场景壁纸由 WebWallGL 实时渲染（粒子/脚本/视差/包内音频）；加载失败或运行失联时自动退回内嵌视频/静态帧。重新开启会重试此前失败的壁纸",
+            : "场景壁纸由 WebWallGL 实时渲染（粒子/脚本/视差/包内音频）；加载失败或运行失联时自动退回内嵌视频 / 实时帧。重新开启会重试此前失败的壁纸",
         }),
         (sel.type === "scene" || sel.type === "web") && sel.sceneLive !== false
           && React.createElement("div", { className: "we-picker__ctl", key: "live-boot-delay" },
@@ -984,22 +984,24 @@
             ),
           ),
         ),
-        // ── 壁纸画面刷新：**只在实时渲染未生效时**出现 —— 它换的是 CPU 生成的静态帧，
+        // ── 出图来源：**只在实时渲染未生效时**出现 —— 它换的是「没有实时画面时显示什么」，
         //    实时画面在跑时它没有任何作用（换实时帧用下面的「重新截」）。──
         sel.type === "scene" && sel.sceneFrameUrl && !liveRenderEnabled(sel)
           && React.createElement("div", { className: "we-picker__ctl" },
-          ctlText("壁纸画面刷新", "显示异常时换一种生成逻辑",
-            "场景壁纸静态帧生成逻辑：合成 / 主纹理 / 作者原画 / 预览图（+导入后的自定义画面）。每点一次换一种，选择记忆在当前壁纸上；可反复刷新直到满意。实时渲染生效时本行不显示（那时画面来自实时渲染，换档位不会生效）"),
+          ctlText("出图来源", "这张画面从哪来",
+            "场景壁纸「这张画面从哪来」。两档：**实时画面**（有抓帧就用它，没有则留空）与**自定义画面**（手动导入的截图）。点一次切换一次，选择记忆在当前壁纸上。实时渲染生效时本行不显示（那时画面来自实时渲染，切这里不会生效）"),
           React.createElement("button", {
             className: "we-picker__btn", type: "button",
             onClick: onRefreshFrame,
-            "aria-label": "刷新壁纸画面生成逻辑",
-          }, "刷新"),
+            "aria-label": "切换出图来源",
+          }, "切换"),
           React.createElement("span", { className: "we-picker__hint we-picker__value" },
-            "第 " + ((Number(sel.frameVariants && sel.frameVariants[String(sel.id)]) || 0) + 1)
-              + "/" + frameVariantCount(sel, String(sel.id)) + " 档 · "
-              + FRAME_VARIANTS[Number(sel.frameVariants && sel.frameVariants[String(sel.id)]) || 0].label
-              + " · 共 " + frameVariantCount(sel, String(sel.id)) + " 种"),
+            // 按**档位值**查表，不能当下标：值域有洞（0 与 4），下标会越界成 undefined.label
+            (() => {
+              const v = Number(sel.frameVariants && sel.frameVariants[String(sel.id)]) || 0;
+              const i = Math.max(0, FRAME_VARIANTS.findIndex((f) => f.id === v));
+              return "第 " + (i + 1) + "/" + frameVariantCount(sel, String(sel.id)) + " 档 · " + FRAME_VARIANTS[i].label;
+            })()),
         ),
         // ── GPU 实时帧（抓帧缓存 + 重新截 + 微缩预览）：**实时渲染开着时同样显示**。
         //    它是切换途中 / live 首帧之前给用户看的那张静帧 —— 构图不对（黑帧、旧视口、
@@ -1012,7 +1014,7 @@
             gpuPinnedHere
               ? "已抓帧 · 优先于全部画面档位"
               : "实时渲染中 · 可随时抓一张",
-            "实时渲染成功后会自动抓帧缓存这一帧（<key>_gpu.png），它优先于「壁纸画面刷新」的全部档位；切换壁纸途中、以及 live 首帧出来之前，屏幕上显示的就是它。「重新截」会按**当前**画面重抓一张（已存在的缓存会被替换，抓不到则原样保留）；「清除 GPU 帧」删掉缓存、回到 CPU 生成的静态帧。"),
+            "实时渲染成功后会自动抓帧缓存这一帧（<key>_gpu.png），它优先于「出图来源」的自动档；切换壁纸途中、以及 live 首帧出来之前，屏幕上显示的就是它。「重新截」会按**当前**画面重抓一张（已存在的缓存会被替换，抓不到则原样保留）；「清除 GPU 帧」删掉缓存、回到「自动」（没有实时画面时就是空态，不再回落任何猜图来源）。"),
           // 微缩预览：只有槽里真有实时帧时才显示（否则这里会显示成 CPU 档位帧，误导）。
           gpuPinnedHere && React.createElement("img", {
             className: "we-picker__frame-shot",
@@ -1044,7 +1046,7 @@
         sel.type === "scene" && React.createElement("div", { className: "we-picker__ctl" },
           ctlText("自定义画面",
             "手动给电脑桌面截图，导入截图解决错误壁纸",
-            "手动对电脑桌面截图（壁纸显示效果的分辨率即最终展示画质），再回来点「导入画面…」选中该截图；导入后自动切换为该图，可随刷新档位切回其他生成逻辑。实时渲染生效时它仍会作为「壁纸画面刷新」的第 5 档、以及降级回退时的静态帧"),
+            "手动对电脑桌面截图（壁纸显示效果的分辨率即最终展示画质），再回来点「导入画面…」选中该截图；导入后自动切换为该图，可随刷新档位切回其他生成逻辑。实时渲染生效时它仍会作为「出图来源」的自定义档"),
           React.createElement("button", {
             className: "we-picker__btn", type: "button",
             onClick: () => { if (customFrameInput) customFrameInput.click(); },

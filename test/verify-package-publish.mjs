@@ -144,20 +144,19 @@ check('负对照：路径判据放行占位符、拦住真实用户名',
 
 // ── ④ 白下载的运行时依赖 ────────────────────────────────────────────────────
 section('④ 每个 dependencies 都被**可达闭包**用到');
-// 棘轮：只许缩小。`@shaderfrog/glsl-parser` 只被**不可达的 GLSL 转译子树** import ——
-// 它是 P2-12 删除那条线之后必须一起删掉的声明（账本 §5）。
-const DEP_UNUSED_ALLOW = {
-  '@shaderfrog/glsl-parser': '只被不可达的 GLSL 转译子树使用 —— 随 P2-12 删掉该子树时一并删除本声明（账本 §5）',
-};
+// 棘轮：只许缩小。P2-12 删掉不可达的 GLSL 转译子树之后，它唯一那个"白下载"的运行时依赖
+// 也已从 package.json 移除 ⇒ 白名单清空（这条断言会强制你删干净后把条目一起清掉）。
+const DEP_UNUSED_ALLOW = {};
 const deps = Object.keys(pkg.dependencies || {});
 const unused = deps.filter((d) => ![...bare].some((s) => s === d || s.startsWith(d + '/')));
 const unexpected = unused.filter((d) => !(d in DEP_UNUSED_ALLOW));
 check('没有"声明了但活代码从不加载"的依赖', unexpected.length === 0,
-  unexpected.join(', ') || (unused.length ? '已知：' + unused.join(',') + '（' + DEP_UNUSED_ALLOW[unused[0]] + '）' : deps.join(', ') || '（无声明）'));
+  unexpected.join(', ') || deps.join(', ') || '（无声明）');
 check('棘轮只许缩小：白名单里的依赖必须仍未被使用（删干净后请一并清掉本条）',
-  Object.keys(DEP_UNUSED_ALLOW).every((d) => deps.includes(d) && unused.includes(d)));
+  Object.keys(DEP_UNUSED_ALLOW).every((d) => deps.includes(d) && unused.includes(d)),
+  '白名单 ' + Object.keys(DEP_UNUSED_ALLOW).length + ' 条');
 check('负对照：依赖使用判据对合成输入有牙',
-  ['@shaderfrog/glsl-parser'].every((d) => ![...['node:fs']].some((s) => s === d || s.startsWith(d + '/'))));
+  ['left' + '-pad'].every((d) => ![...['node:fs']].some((s) => s === d || s.startsWith(d + '/'))));
 
 // ── ⑤ 入口 / 导出目标都在包里 ───────────────────────────────────────────────
 section('⑤ 入口与导出目标都被发布');

@@ -21,7 +21,7 @@
 | | **随包发布** | **不发布（开发面）** |
 |---|---|---|
 | **浏览器进程** | `lib/client.js` —— **生成物，全仓唯一一个** | `src/**` —— 浏览器侧的**唯一真源** |
-| **宿主进程**（Node / Electron main） | `lib/index.js` ＋ 它 import 的 `lib/**` 模块 ＋ `lib/vendor/`、`lib/webwallgl/`（第三方副本） ＋ `lib/types/` | `scripts/`、`test/`、`docs/`、`.integration-notes/`、`_refs/` |
+| **宿主进程**（Node / Electron main） | `lib/index.js` ＋ 它 import 的 `lib/**` 模块 ＋ `lib/vendor/`、`lib/webwallgl/`（第三方副本） ＋ `lib/types/` | **`test/`（守门：`verify-*` + `*-smoke` + `e2e-*`）· `test/tools/`（诊断/分析/生成工具）** · `scripts/`（只有 `build-client` / `prepare`，构建与发布期用）· `docs/`、`.integration-notes/`、`_refs/` |
 
 **关键推论**：`files` 是发布面的唯一定义，而 `verify-package-files` 的 **P1** 断言「`lib/` 下每个运行期 `.js/.mjs` 都被 `files` 覆盖」⇒ **留在 `lib/` 的任何文件都会被打进发布包**。所以死码**不许**留在 `lib/`：要么删，要么移出发布面（`docs/archive/`、`assets/`）。这条不是洁癖，是"**48 文件 / 9,618 行**不可达代码目前在 `files` 里、正在发给每个用户"的直接后果（账本 §2、§5 P2-12；口径见账本 §3.6）。
 
@@ -59,27 +59,33 @@
 
 ## 4. 新文件放哪（决策程序）
 
-按顺序问四句，第一句命中就停：
+按顺序问五句，第一句命中就停：
 
 1. **要在浏览器里跑吗？**
    → `src/**`，**并且必须登记进 `scripts/build-client.mjs` 的 `INLINE_MODULES`**（含 `markers` 锚点）。
    ⚠️ 忘了登记**不会报错**，只是这个文件永远不进产物 —— 见 §5 偏离 2。
 2. **两侧都要用吗？**（同一份数据/规则同时被宿主与客户端消费）
    → 放 `lib/`（宿主 ES `import`）**并**登记进 `INLINE_MODULES`（客户端构建期内联）。
-   这就是 `lib/settings-schema.js` 的形态（P1-5 的设置键单一真源），因此它同时受 §3 全部约束（浏览器安全）。**这是唯一被允许的共享形态**，第二个共享内核要显式登记（§7 最后一行）。
+   这就是 `lib/settings-schema.js` 的形态（P1-5 设置键单一真源），因此它同时受 §3 全部约束（浏览器安全）。**这是唯一被允许的共享形态**，第二个共享内核要显式登记（§7 最后一行）。
 3. **是宿主自己的实现吗？**
-   → `lib/<语义名>.js` **并加进 `files`**。按职责分子目录（现状：`lib/media/`）。门面 `lib/index.js` 只做注册与协议聚合，**不装新逻辑**（P2-11 的目标形态）。
+   → `lib/<语义名>.js` **并加进 `files`**。按职责分子目录（现状：`lib/media/`、`lib/routes/`）。门面 `lib/index.js` 只做注册与协议聚合，**不装新逻辑**（P2-11 的目标形态）。
 4. **是第三方副本 / 类型声明吗？**
    → vendored 放 `lib/vendor/`（内联副本）或 `lib/webwallgl/`（按文本注入的 shim），**不许改**，同步走 `test/tools/sync-webwallgl.mjs`；
    → 类型放 `lib/types/*.d.ts`，**必须与代码一致**。
+5. **是开发面的东西吗？**（不进发布包）
+   → **守门与冒烟 → `test/`**（`verify-*.mjs` 结构守卫、`*-smoke.mjs` 节点级冒烟、`e2e-*.mjs` 真浏览器端到端）；
+   → **诊断 / 分析 / 生成工具 → `test/tools/`**（无 CI 消费者的手动工具）；
+   → **构建与发布期脚本 → `scripts/`**（只放 `build-client.mjs` / `prepare.mjs` 这类用户与发布流程真的会跑的；`scripts/` 不再是"开发脚本杂物间"）。
+   ⚠️ `test/tools/` 比 `test/` **深一层** ⇒ 用 `import.meta.url` 推仓库根时要退**两层**（`verify-module-layout` ④ 有断言钉住）。
 
-**一句话版**：*浏览器手写 → `src/` 且登记内联；两侧共用 → `lib/` 且登记内联；只有宿主 → `lib/` 且登记 `files`；第三方 → vendored 子目录。*
+**一句话版**：*浏览器手写 → `src/` 且登记内联；两侧共用 → `lib/` 且登记内联；只有宿主 → `lib/` 且登记 `files`；第三方 → vendored 子目录；守门 → `test/`；工具 → `test/tools/`；用户脚本 → `scripts/`。*
 
 **反例（不要这么做）**
 - 把"顺手拆出来的工具函数"放 `lib/`，然后又内联进浏览器 —— 边界就从这里开始烂。
 - 在 `src/` 建一个文件却不登记 —— 它静默不生效（今天正有一例）。
 - 为了少改一个 import，把宿主模块搬进 `src/` 或反向搬 —— 两侧的**依赖方向是单向**的（§7）。
 - 手改 `lib/client.js` 让产物"看起来对"。
+- 把一次性诊断脚本丢回 `scripts/` —— 那里只放用户与发布流程真的会跑的脚本（`test/tools/` 才是手动工具的家）。
 
 ---
 
@@ -87,7 +93,7 @@
 
 | # | 偏离 | 证据锚点 | 归口 |
 |---|---|---|---|
-| 1 | **死码在发布面里**：`font-render.js` / `scene-scripts.js` / `scene-script-apis.js` / `scene-renderer.js` / `scene-render-worker.mjs` 与 `we-renderer/`（**活下来的只有 `textures.js` 及其依赖 `canvas.js` / `math.js` / `jpeg.js`**）构成一个自相引用、但整体只从一个**零调用点**的函数进门的簇（`renderSceneFrameInWorker` → `new Worker('./scene-render-worker.mjs')`），而它们**全在 `files` 里 ⇒ 真的发给用户** | 账本 §3.2、§6.5；**口径与实测值以 `node test/verify-reachability.mjs` 的输出为准**（该脚本按**内容**而非行号定位两个"假活锚点"）—— 剪枝后 **48 个文件 / 9,618 行 = `lib` 的 24.6%** | P2-12（动手）· **P3-3/P3-4 ✅**（已变成机器事实） |
+| 1 | ~~**死码在发布面里**：`font-render.js` / `scene-scripts.js` / `scene-script-apis.js` / `scene-renderer.js` / `scene-render-worker.mjs` 与 `we-renderer/` 构成一个自相引用、但整体只从一个**零调用点**的函数进门的簇，而它们**全在 `files` 里 ⇒ 真的发给用户**~~ **已收敛**：P2-12 第一半把 48 文件 / 9,618 行整棵死树删净（连带 `files` 白名单与 `@shaderfrog/glsl-parser` 死依赖），可达性棘轮收到 **0 文件 / 0 行** | **口径与实测值以 `node test/verify-reachability.mjs` 的输出为准**（当前 `A) as-is` 与 `B) pruned` 都是 0） | **P2-12 第二半**（提取链 / 预热）· **P3-3/P3-4 ✅** |
 | 2 | ~~**`src/` 孤儿**：`src/api-client.js` 既不在 `INLINE_MODULES` 也不被任何文件 import ⇒ **不进产物**~~ **已收敛**：已登记进 `INLINE_MODULES`（P2-9 第一批调用点改写同时落地），并由 `verify-api-client.mjs` ⑥ 断言「已登记 + 已在产物里 + 产物里只有一份」——**它曾经是孤儿**这件事本身说明"漏登记不报错"是真陷阱 | `verify-api-client.mjs` ⑥（含负对照） | ✅ |
 | 3 | ~~`lib/types/index.d.ts` 与代码矛盾（称"暴露三条路由"、把 `webServer` 当可选；`WallpaperDescriptor` 缺 10 个字段、`Inventory` 缺 3 个、`client.d.ts` 零值导出）~~ **已收敛** | 类型面与代码一致，由 `test/verify-types.mjs` 从**实现**派生键集断言 | P3-1 ✅ |
 | 4 | ~~账本 §2 基线表仍写 `lib/client.js` 与 `src/client.js` **逐字节一致**~~ **已收敛** —— 产物是加载器包装 + 14 个内联模块，二者不可能逐字节一致 | 该指标现在的正确表述是"重建后 `git status` 干净"，由 CI 的 `git diff --exit-code` 钉住 | P3-2 ✅ |
@@ -100,7 +106,7 @@
 
 本文从"草案"升为"规范"，需要同时满足：
 
-1. §5 的**剩余**偏离全部收敛（当前只剩 1 条：死码在发布面里，属 P2-12）；
+1. §5 的**剩余**偏离全部收敛（**当前已全部收敛** —— 死码那条随 P2-12 第一半删净）；
 2. §7 的守卫全部在位，**且各带负对照**；
 3. P2-12 完成 ⇒ 发布面只剩活代码，`files` 与可达闭包一致。
    ⚠️ **不能拿 `test/tools/audit-import-closure.mjs` 当这条的判据**：它只验"被导入的文件都在 `files` 里"，

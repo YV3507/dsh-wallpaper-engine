@@ -32,7 +32,7 @@
  * Usage:  node test/verify-module-layout.mjs
  */
 
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { dirname, join, relative, sep, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -83,6 +83,27 @@ function scanEdges(code) {
     re.lastIndex = 0;
     let m;
     while ((m = re.exec(code)) !== null) out.push({ form, spec: m[1] });
+  }
+  return out;
+}
+
+/**
+ * 开发面（`scripts/` / `test/`）的说明符抽取：只认**语句位置**的 import/export，外加
+ * `new URL('…', import.meta.url)`。守卫与冒烟的负对照里大量存在**合成字符串**
+ *（如 `"import a from '../../src/a.js';"`），全量正则会把它们当成真依赖（实测 16 条假阳性）。
+ */
+function devSpecifiers(text) {
+  const out = [];
+  for (const line of stripComments(text).split('\n')) {
+    // 合成夹具一律以引号开头（`"import a from '…';",`）—— 跳过，否则负对照会被算成真依赖。
+    if (/^\s*['"`]/.test(line)) continue;
+    const m = /^\s*(?:import|export)\b[^;'"]*?\bfrom\s*['"]([^'"]+)['"]/.exec(line)
+      || /^\s*import\s*['"]([^'"]+)['"]/.exec(line);
+    if (m) out.push({ form: '语句位置 import/export', spec: m[1] });
+    for (const u of line.matchAll(/new URL\(\s*['"]([^'"]+)['"]\s*,\s*import\.meta\.url\s*\)/g)) {
+      // `new URL('..', import.meta.url)` 指的是**目录**（仓库根），所以这一类允许目录命中。
+      out.push({ form: 'new URL(…, import.meta.url)', spec: u[1], allowDir: true });
+    }
   }
   return out;
 }
@@ -274,6 +295,149 @@ console.log('\n③ 共享内核白名单：INLINE_MODULES 里非 src/ 的项只�
   check('负对照：真实登记表里注入 lib/telemetry.js 会被判越界',
     JSON.stringify(injected) === JSON.stringify(['lib/telemetry.js']),
     '注入后越界=[' + injected.join(', ') + ']');
+}
+
+// ═══ ④ 相对说明符必须解析到真实文件（移动代码 ⇒ 相对路径必须重解析）════════════
+// 为什么需要：把一段代码从 `lib/index.js` 搬进 `lib/routes/` 时，块里的相对说明符会**按新位置
+// 重新解析**。静态 import 走这一步会在加载期直接抛（响亮、易查），而**动态 `import()` 的拒绝是
+// 运行期、且常被 try/catch 吞成业务错误** —— 实测：scene 帧提取的那句
+// `await import('./pkg-extract.js')` 搬进 `lib/routes/` 后指向一个不存在的文件，最终表现是
+// 《无可用纹理》的 422，看起来像数据问题而不是路径问题。所以判据按"说明符必须解析到真实文件"。
+console.log('\n④ 相对说明符必须解析到真实文件');
+{
+  // Node 式解析：说明符可以省略扩展名（`require('./lib/encoder')` ⇒ `./lib/encoder.js`），
+  // 也可以落在一个目录的 index 上。只做"存在性"是错的判据 —— vendored 的 jpeg-js 正是这种写法。
+  const resolves = (rel) => {
+    const abs = join(ROOT, rel);
+    try { if (existsSync(abs) && statSync(abs).isFile()) return true; } catch { /* 继续探测 */ }
+    for (const ext of ['.js', '.mjs', '.cjs', '.json']) if (existsSync(abs + ext)) return true;
+    for (const idx of ['/index.js', '/index.mjs', '/index.cjs']) if (existsSync(abs + idx)) return true;
+    return false;
+  };
+  // 扫描面 = `lib/**`（运行期）**加上开发面**（`scripts/**` + `test/**`）。开发面必须一并覆盖：
+  // 目录重整（守门进 test/、工具进 test/tools/）会让相对说明符按新位置重解析 —— 实测
+  // `test/verify-route-index.mjs` 的 `from './host-route-index.mjs'` 在工具搬进 test/tools/ 后断链。
+  const devSources = [...walkFiles(join(ROOT, 'scripts')), ...walkFiles(join(ROOT, 'test'))]
+    .filter((rel) => rel.endsWith('.mjs'))
+    .map((rel) => ({ rel, text: readFileSync(join(ROOT, rel), 'utf8') }));
+  const allSources = [...libSources, ...devSources];
+  // ⚠️ 开发面**不能**沿用 `scanEdges`：守卫自己的负对照里就有**合成字符串**
+  //（如 `"import a from '../../src/a.js';"`），它们不是真说明符 —— 拿全量正则扫开发面会把
+  // 这些夹具判成断链（实测 16 条假阳性）。所以开发面只认**语句位置**的说明符，
+  // 外加 `new URL('…', import.meta.url)`（它同样是"按本文件位置解析"的相对路径）。
+  const specsOf = (rel, text) => (rel.startsWith('lib/') ? scanEdges(stripComments(text)) : devSpecifiers(text));
+  // 目录也算命中（`new URL('..', import.meta.url)` 指的就是目录；模块说明符另有 index 探测）。
+  const resolvesDirOk = (rel) => resolves(rel) || (() => { try { return existsSync(join(ROOT, rel)) && statSync(join(ROOT, rel)).isDirectory(); } catch { return false; } })();
+  const missing = [];
+  for (const { rel, text } of allSources) {
+    for (const { form, spec, allowDir } of specsOf(rel, text)) {
+      const resolved = resolveRelative(spec, rel);
+      if (!resolved) continue; // node: 内置 / 裸包名：不由本判据负责
+      const ok = allowDir ? resolvesDirOk(resolved) : resolves(resolved);
+      if (!ok) missing.push(`${rel} → ${spec}（${form}）`);
+    }
+  }
+  // 覆盖面：扫描集非空且至少扫出一条相对边，否则这条断言是空对空
+  const relativeEdges = allSources.flatMap(({ rel, text }) => specsOf(rel, text)
+    .map(({ spec }) => resolveRelative(spec, rel)).filter(Boolean));
+  check('覆盖面：扫到 ≥10 条相对说明符（防解析器静默返回空表）', relativeEdges.length >= 10,
+    relativeEdges.length + ' 条');
+  check('覆盖面：开发面也被扫到（scripts/ + test/ 至少 30 个 .mjs）', devSources.length >= 30,
+    devSources.length + ' 个开发面 .mjs');
+  check('lib/ 与开发面的每条相对路径都指向存在的文件', missing.length === 0,
+    missing.length ? missing.join('; ') : relativeEdges.length + ' 条全部可解析');
+  // 负对照：同一条判据喂给一条指向不存在文件的相对边，必须报出来
+  const probe = scanEdges("const m = await import('./does-not-exist.js');")
+    .map(({ spec }) => resolveRelative(spec, 'lib/routes/probe.js'))
+    .filter((r) => r && !resolves(r));
+  check('负对照：指向不存在文件的相对 import 会被判出',
+    probe.length === 1 && probe[0] === 'lib/routes/does-not-exist.js', 'probe=' + probe.join(','));
+  // 负对照 2：省略扩展名的合法说明符**不得**被判缺失（vendored 的 jpeg-js 就是这种写法）
+  check('负对照：省略扩展名的真实文件会被正确解析',
+    resolves('lib/vendor/jpeg-js/lib/encoder') && resolves('lib/routes/no-such-module') === false,
+    'encoder=' + resolves('lib/vendor/jpeg-js/lib/encoder') + ' 不存在的=' + resolves('lib/routes/no-such-module'));
+  // 负对照 3：合成夹具字符串**不得**被当成真说明符（否则这条判据在开发面必然假红）
+  check('负对照：守卫负对照里的合成 import 字符串不会被误判',
+    devSpecifiers('    "import a from \'../../src/a.js\';",').length === 0
+      && devSpecifiers("import { x } from './real.js';").length === 1);
+
+  // `test/tools/` 比 `scripts/`、`test/` **深一层** ⇒ 用 `import.meta.url` 推仓库根必须退**两层**。
+  // 这是搬迁最容易漏的一处，且症状离奇：退一层会把 ROOT 解析成 `test/`，于是 buildIndex 读
+  // `test/lib/index.js` 直接 ENOENT —— 看起来像"文件没了"，其实是根找错了。
+  const rootDepthOf = (text) => {
+    // 只看**真正推导仓库根**的那一行：它必然同时含 `'..'`（`HERE = …import.meta.url` 那行不含）。
+    const line = stripComments(text).split('\n')
+      .find((l) => /\b(?:ROOT|root|HERE)\b\s*=/.test(l) && /'\.\.'/.test(l));
+    return line ? (line.match(/'\.\.'/g) || []).length : null;
+  };
+  const shallow = devSources.filter(({ rel }) => rel.startsWith('test/tools/'))
+    .map(({ rel, text }) => ({ rel, depth: rootDepthOf(text) }))
+    .filter((x) => x.depth !== null && x.depth < 2);
+  check('test/tools/*.mjs 的仓库根推导退两层（深一层目录最易漏改）', shallow.length === 0,
+    shallow.map((x) => x.rel + '(depth=' + x.depth + ')').join(', ') || '全部退两层');
+  check('负对照：单层仓库根推导会被判出',
+    rootDepthOf("const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');") === 1
+      && rootDepthOf("const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');") === 2);
+}
+
+// ═══ ⑤ 路由模块不得"继承" lib/index.js 的 import ══════════════════════════════
+// 为什么需要：把一段代码搬进 `lib/routes/` 之后，它原来靠 `lib/index.js` 顶层 import 拿到的名字
+// （`readFile` / `existsSync` / …）在新文件里**不存在**了 —— 必须自己 import。缺失的静态 import
+// **不是语法错误**，加载期不报；跑到那一行才是 ReferenceError，而且常被 try/catch 吞成业务错误
+// （实测：scene 帧提取因此变成《无可用纹理》的 422，看起来像数据问题而不是代码问题）。
+// 判据：路由模块里出现、`lib/index.js` 有 import，而它自己既没 import 也没声明的名字。
+console.log('\n⑤ 路由模块必须自己 import 用到的库函数（不得吃 lib/index.js 的 import）');
+{
+  const importNames = (text) => {
+    const out = new Set();
+    for (const m of stripComments(text).matchAll(/\bimport\b([^;]*?)\bfrom\s*['"][^'"]+['"]/g)) {
+      const clause = m[1];
+      const braced = /\{([^}]*)\}/.exec(clause);
+      if (braced) for (const p of braced[1].split(',')) {
+        const t = p.trim().split(/\s+as\s+/).pop().trim();
+        if (t) out.add(t);
+      }
+      const rest = clause.replace(/\{[^}]*\}/, ' ').replace(/,/g, ' ').trim();
+      if (rest && !rest.startsWith('*')) out.add(rest);
+    }
+    return out;
+  };
+  const declaredNames = (code) => new Set([
+    ...[...code.matchAll(/\b(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)/g)].map((m) => m[1]),
+    ...[...code.matchAll(/\{([^}]*)\}\s*=\s*c\b/g)]
+      .flatMap((m) => m[1].split(',').map((p) => p.trim().split(':').pop().trim())),
+  ]);
+  /** 同一个判据函数：返回该模块"吃了 index.js 的 import"的名字。 */
+  const staleRefs = (code, ownImports, hostImports) => {
+    const declared = declaredNames(code);
+    return [...hostImports].filter((n) => !ownImports.has(n) && !declared.has(n)
+      && new RegExp('(^|[^.\\w$])' + n + '\\b').test(code));
+  };
+
+  const hostImports = importNames(readFileSync(join(ROOT, 'lib/index.js'), 'utf8'));
+  const hostRouteFiles = walkFiles(join(ROOT, 'lib', 'routes')).filter((f) => f.endsWith('.js'));
+  const offenders = [];
+  for (const rel of hostRouteFiles) {
+    const raw = readFileSync(join(ROOT, rel), 'utf8');
+    const stale = staleRefs(stripComments(raw), importNames(raw), hostImports);
+    if (stale.length) offenders.push(rel + ' → ' + stale.join(','));
+  }
+  check('覆盖面：解析出 lib/index.js 的 import 名与路由模块（防判据空转）',
+    hostImports.size >= 10 && hostRouteFiles.length >= 4,
+    hostImports.size + ' 个 import 名 / ' + hostRouteFiles.length + ' 个路由模块');
+  check('路由模块不引用 lib/index.js 单独 import 的名字', offenders.length === 0,
+    offenders.join('; ') || '全部自足');
+  // 负对照：把"缺 import"的合成源码喂给**同一个**判据；形参与 c 字段不得被误报
+  const synth = stripComments([
+    'export function registerX(webServer, c) {',
+    '  const { base } = c;',
+    '  const b = readFile(base);',
+    '}',
+  ].join('\n'));
+  const synthStale = staleRefs(synth, importNames(''), hostImports);
+  check('负对照：少了 import 的库函数会被判出，形参与 c 字段不误报',
+    synthStale.includes('readFile') && !synthStale.includes('webServer') && !synthStale.includes('base'),
+    '报出=[' + synthStale.join(',') + ']');
 }
 
 console.log('');

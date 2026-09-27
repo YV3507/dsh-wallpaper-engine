@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 // ⚠️ 名单里的文件必须真实存在：名单是手工维护的，写错/改名不会报错，只会让该文件
 //    从扫描里消失（`catch { continue; }` 静默跳过）⇒ 那几条覆盖长期是空的。
-const FILES = ['lib/index.js', 'lib/scene-render-worker.mjs', 'src/client.js', 'lib/we-renderer/core.js', 'lib/media/supervisor.js', 'lib/media/legacy.js', 'lib/media/provision.js', 'lib/pkg-extract.js'];
+const FILES = ['lib/index.js', 'src/client.js', 'lib/media/supervisor.js', 'lib/media/legacy.js', 'lib/media/provision.js', 'lib/pkg-extract.js'];
 /** 存在性判据：名单/覆盖表里的路径必须先在盘上找到 —— 找不到就是"覆盖静默归零"。 */
 const ghostsOf = (names) => names.filter((f) => !existsSync(ROOT + f));
 const DATE = /20\d\d-\d\d-\d\d/;   // 不带 /g：配 test() 时 lastIndex 会造成假结果
@@ -142,14 +142,16 @@ check('negative control: 带日期的注释会被判不合格',
     'src/media-prep.js': 0,
     'src/panel-tabs.js': 0,
     'src/persistence.js': 0,
-    'lib/scene-render-worker.mjs': 0,
-    'lib/we-renderer/core.js': 1,
     'lib/media/supervisor.js': 1,
     'lib/media/legacy.js': 1,
     'lib/media/provision.js': 0,
     'lib/pkg-extract.js': 0,
     // P2-11 拆出去的路由族：新模块从 0 起钉（拆一个补一个，别让新文件落在棘轮之外）。
     'lib/routes/diag.js': 0,
+    'lib/routes/now-playing.js': 0,
+    'lib/routes/upload.js': 0,
+    'lib/routes/scene-frame.js': 0,
+    'lib/routes/scene-serve.js': 0,
     // 客户端侧抽出的模块：按**当前实际值**钉住（只许减少）。非零的两处是随源码逐字搬过来的
     // 既有散文（一处讲 json() 优先的由来，一处是饱和度耦合的术语对照），仍是回溯框定、
     // 不是出处，所以基线不为 0；改动那两行时必须同步下修这里的数字。
@@ -170,19 +172,11 @@ check('negative control: 带日期的注释会被判不合格',
     'test/tools/analyze-host-apply.mjs': 0,
     'test/tools/audit-import-closure.mjs': 0,
     'scripts/build-client.mjs': 1,
-    'test/tools/diagnose-scenes.mjs': 0,
     'test/tools/diagnose-web-blank.mjs': 0,
     'test/e2e-web-media-origin.mjs': 5,
-    'test/live-frame-async-identity-smoke.mjs': 3,
-    'test/live-frame-backfill-smoke.mjs': 3,
-    'test/rotation-live-smoke.mjs': 0,
-    'test/rotation-prepared-leak-smoke.mjs': 3,
-    'test/rotation-smoke.mjs': 1,
     'test/tools/host-route-index.mjs': 1,
     'scripts/prepare.mjs': 0,
     'test/tools/sync-webwallgl.mjs': 0,
-    'test/verify-all-scenes.mjs': 0,
-    'test/verify-angel-skin.mjs': 0,
     'test/verify-api-client.mjs': 2,
     'test/verify-client.mjs': 4,
     'test/verify-comment-discipline.mjs': 32,
@@ -191,13 +185,11 @@ check('negative control: 带日期的注释会被判不合格',
     'test/verify-glass-compositing.mjs': 0,
     'test/verify-host-paint-scope.mjs': 3,
     'test/verify-ledger.mjs': 0,
-    'test/verify-mdl-fix.mjs': 0,
     'test/verify-media-bridge.mjs': 2,
     'test/verify-module-layout.mjs': 0,
     'test/verify-package-files.mjs': 0,
     'test/verify-package-publish.mjs': 0,
     'test/verify-playback-controls.mjs': 0,
-    'test/verify-preprocess.mjs': 0,
     'test/verify-reachability.mjs': 0,
     'test/verify-readability.mjs': 0,
     'test/verify-retired-lines.mjs': 0,
@@ -208,6 +200,13 @@ check('negative control: 带日期的注释会被判不合格',
     'test/verify-theme-layer.mjs': 0,
     'test/verify-transcode-state.mjs': 0,
     'test/verify-types.mjs': 0,
+    // `test/` 的节点级冒烟也同域（它此前不在棘轮域里，是这次目录重整才纳进来的）：
+    // 按**实测量**钉住，非零的是随被测源码搬过来的既有散文 ⇒ 只封顶，清理后同步下修。
+    'test/rotation-smoke.mjs': 1,
+    'test/rotation-live-smoke.mjs': 0,
+    'test/rotation-prepared-leak-smoke.mjs': 3,
+    'test/live-frame-backfill-smoke.mjs': 3,
+    'test/live-frame-async-identity-smoke.mjs': 3,
   };
   const measure = (s) => (s.match(/曾经|旧实现|以前|原先|旧版|教训|踩到|踩坑/g) || []).length;
 
@@ -233,7 +232,7 @@ check('negative control: 带日期的注释会被判不合格',
     && ghostsOf(['lib/routes/diag.js']).length === 0);
 
   // 覆盖面**从磁盘枚举**（不是手抄第二份名单）：棘轮的域 = src/**/*.js + lib/routes/*.js
-  // + scripts/**/*.mjs + test/**/*.mjs，每个文件都必须逐条在表里，否则"棘轮只许减少"对它是空的。
+  // + scripts/**/*.mjs，每个文件都必须逐条在表里，否则"棘轮只许减少"对它是空的。
   const walkMatching = (relDir, rx) => {
     const out = [];
     for (const ent of readdirSync(ROOT + relDir, { withFileTypes: true })) {
@@ -247,14 +246,14 @@ check('negative control: 带日期的注释会被判不合格',
   const REQUIRED = [
     ...walkMatching('src', /\.js$/),
     ...walkMatching('lib/routes', /\.js$/),
-    ...walkMatching('scripts', /\.mjs$/),
-    ...walkMatching('test', /\.mjs$/),
+    ...walkMatching('test', /\.mjs$/),   // 守门（test/）+ 工具（test/tools/）
+    ...walkMatching('scripts', /\.mjs$/), // 用户/发布脚本（build-client、prepare）
   ];
   const uncovered = uncoveredIn(REQUIRED, CEIL);
-  check('棘轮覆盖全部 src/**/*.js、lib/routes/*.js、scripts/**/*.mjs 与 test/**/*.mjs（新文件必须进表）',
-    uncovered.length === 0 && REQUIRED.length >= 51,
+  check('棘轮覆盖全部 src/**/*.js、lib/routes/*.js、test/**/*.mjs 与 scripts/**/*.mjs（新文件必须进表）',
+    uncovered.length === 0 && REQUIRED.length >= 50,
     '覆盖 ' + (REQUIRED.length - uncovered.length) + '/' + REQUIRED.length
-      + ' 个文件（地板 51 = 14 src + 1 路由 + 2 脚本 + 39 test）'
+      + ' 个文件（地板 50 = 14 src + 5 路由 + 29 test + 2 scripts）'
       + (uncovered.length ? '；未登记：' + uncovered.join(', ') : ''));
   // 负对照用**纯合成**清单（不掺 REQUIRED）：它测的是判据本身，不该因为真实域恰好有漏项而变色。
   check('negative control: 同一个覆盖判据会点名未登记的合成文件',

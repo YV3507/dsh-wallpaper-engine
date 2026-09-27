@@ -778,6 +778,12 @@ The host half (`lib/index.js`) is plain ESM with no build step. The client half
 `window.__ModuleLoader__.load({ id, factory })` envelope the DSH module loader
 consumes (the same shape `tsdown` emits for in-box client packages).
 
+**Dev-face directory semantics**: the **gatekeepers** (`verify-*` structural guards, `*-smoke`
+node-level smoke tests, `e2e-*` real-browser end-to-end) live in **`test/`**; **manual tools**
+(diagnostics / analysis / generators) live in **`test/tools/`**; **`scripts/` holds only
+build- and publish-time scripts** (`build-client` / `prepare`). See
+[`docs/MODULE-LAYOUT.md`](docs/MODULE-LAYOUT.md) §4 and [`test/README.md`](test/README.md).
+
 ```sh
 npm run build                  # regenerate lib/client.js from src/client.js
 npm run verify                 # materialize the emitted bundle and assert its exports (incl. the scene-live pipeline self-test)

@@ -1,24 +1,24 @@
 // Verify the PUBLISHED package's `files` allowlist actually ships every file
 // under lib/ — this packaging regression shipped TWICE (PR #61 fixed it, v0.7.2
-// lost it again): lib/scene-script-apis.js was dropped from `files`, so the
-// tarball was missing it, lib/scene-scripts.js threw on import inside the render
-// worker, and EVERY Scene wallpaper silently fell back to 回退主纹理 (upstream
-// #86: the 8K / 146MB-decoded main texture).
+// lost it again): one runtime module was dropped from `files`, so the tarball
+// was missing it, another module threw on import inside the render worker, and
+// EVERY Scene wallpaper silently fell back to 回退主纹理 (upstream #86).
 //
 // The checkout always runs, so nothing in the repo notices a gap — only the
 // PUBLISHED package breaks. This guard asserts the allowlist directly:
 //   P1 every file under lib/ is covered by a `files` entry. Entries resolve as
 //      exact paths, directories (with or without the trailing slash, e.g.
-//      "lib/we-renderer/") and globs; the uncovered files are PRINTED, never
+//      "lib/media/") and globs; the uncovered files are PRINTED, never
 //      silently ignored.
 //   P2 the resolver itself distinguishes covered from uncovered (a guard that
 //      cannot fail is worthless) — positive + negative controls.
 //   P3 the named runtime entry points exist on disk AND are covered, so deleting
-//      lib/scene-render-worker.mjs (or its entry) fails loudly instead of merely
+//      a runtime module (or its entry) fails loudly instead of merely
 //      shrinking P1's input set.
 //
 // Usage: node test/verify-package-files.mjs
-import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync, existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { join, relative, sep } from 'node:path';
 import { builtinModules } from 'node:module';
@@ -42,11 +42,17 @@ const specRoot = (spec) => (spec.startsWith('@')
   ? spec.split('/').slice(0, 2).join('/')
   : spec.split('/')[0]);
 
+/** 判据只针对**代码**：先剥注释。否则散文里一句 `from '…'`（说明"夹具长什么样"的注释）
+ *  会被当成真的裸包依赖，把守卫自己判红。 */
+const stripComments = (src) => src
+  .replace(/\/\*[\s\S]*?\*\//g, ' ')
+  .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+
 /** 源码里的**裸包** import 说明符：跳过相对路径 / 绝对路径 / 内置模块。
  *  P5 的主扫描与负对照共用这一条判据。 */
 function bareImportSpecs(src) {
   const out = [];
-  for (const m of src.matchAll(/(?:from\s+|import\s*\(\s*|require\s*\(\s*)[\'"]([^\'"]+)[\'"]/g)) {
+  for (const m of stripComments(src).matchAll(/(?:from\s+|import\s*\(\s*|require\s*\(\s*)[\'"]([^\'"]+)[\'"]/g)) {
     const spec = m[1];
     if (spec.startsWith('.') || spec.startsWith('node:') || spec.startsWith('/')) continue;
     if (BUILTIN_ROOTS.has(specRoot(spec))) continue;
@@ -84,8 +90,8 @@ function globRe(pattern) {
   return new RegExp('^' + re + '$');
 }
 
-/** 条目 entry 是否覆盖相对路径 rel。目录条目可写 "lib/we-renderer/" 或
- *  "lib/we-renderer" (后者按磁盘上是否为目录判定), 其余支持精确路径与 glob。 */
+/** 条目 entry 是否覆盖相对路径 rel。目录条目可写 "lib/media/" 或
+ *  "lib/media" (后者按磁盘上是否为目录判定), 其余支持精确路径与 glob。 */
 function coveredBy(rel, entry) {
   const e = String(entry).replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '');
   if (!e) return false;
@@ -119,13 +125,15 @@ async function main() {
   {
     const controls = [
       [coveredBy('lib/index.js', 'lib/index.js'), 'exact file'],
-      [coveredBy('lib/we-renderer/bloom.js', 'lib/we-renderer/'), 'dir entry (trailing slash)'],
-      [coveredBy('lib/we-renderer/bloom.js', 'lib/we-renderer'), 'dir entry (no trailing slash)'],
-      [coveredBy('lib/we-renderer/glsl/common.h', 'lib/we-renderer/**'), 'glob entry'],
+      // 目录条目：用**仍存在的**目录做正对照（拿一个已删除的目录当例子，会让"无尾斜杠"
+      // 那条正对照恒假 —— 判据本身没问题，是例子过期了）。
+      [coveredBy('lib/media/index.js', 'lib/media/'), 'dir entry (trailing slash)'],
+      [coveredBy('lib/media/index.js', 'lib/media'), 'dir entry (no trailing slash)'],
+      [coveredBy('lib/media/legacy.js', 'lib/media/**'), 'glob entry'],
       [!coveredBy('lib/__absent__.js', 'lib/index.js'), 'negative: unlisted file'],
-      [!coveredBy('lib/we-renderer/__absent__.js', 'lib/index.js'), 'negative: wrong prefix'],
-      [!coveredBy('lib/scene-render-worker.mjs', 'lib/we-renderer'), 'negative: dir must not match sibling'],
-      [!coveredBy('lib/__absent__/x.js', 'lib/we-renderer/'), 'negative: outside the dir entry'],
+      [!coveredBy('lib/__absent__/x.js', 'lib/index.js'), 'negative: wrong prefix'],
+      [!coveredBy('lib/routes/upload.js', 'lib/media'), 'negative: dir must not match sibling'],
+      [!coveredBy('lib/__absent__/x.js', 'lib/media/'), 'negative: outside the dir entry'],
     ];
     const bad = controls.filter(([ok]) => !ok).map(([, label]) => label);
     check('P2 coverage resolver separates covered from uncovered (positive + negative controls)',
@@ -136,14 +144,35 @@ async function main() {
   // ── P3: 具名运行时入口必须在磁盘上且被收录 (防文件被删后 P1 空转通过) ────────
   {
     const required = [
-      'lib/index.js', 'lib/client.js', 'lib/scene-render-worker.mjs',
-      'lib/pkg-extract.js', 'lib/scene-scripts.js', 'lib/scene-script-apis.js',
+      'lib/index.js', 'lib/client.js', 'lib/pkg-extract.js',
     ];
     const absent = required.filter((rel) => !libFiles.includes(rel));
     const unlisted = required.filter((rel) => libFiles.includes(rel) && !files.some((e) => coveredBy(rel, e)));
     check('P3 named runtime entry points exist under lib/ AND are shipped by `files`',
       absent.length === 0 && unlisted.length === 0,
       'required=' + required.length + ' absent=[' + absent.join(', ') + '] unlisted=[' + unlisted.join(', ') + ']');
+  }
+
+  // ── P6: 每个 lib/ 运行时模块都能被解析（语法 / 早期错误；`lib/` 里还有 .swift/LICENSE/.html，不参与）─────────────────────────
+  // 来自一次真实事故：P3-17 合并读器后 `pkg-extract.js` 少 import 了一个**再导出**的名字
+  //（`export { parsePkg }` 而 parsePkg 未定义）⇒ 模块根本加载不起来；而当时**没有任何守卫 import 它**，
+  // 于是整条链仍是绿的。这里用 `node --check`：只解析、不执行（避免 `lib/client.js` 这类在 Node 里跑起来）。
+  {
+    const broken = runtime.filter((rel) => {
+      try { execFileSync(process.execPath, ['--check', join(ROOT, rel)], { stdio: 'ignore' }); return false; }
+      catch { return true; }
+    });
+    check('P6 every lib/ module parses (node --check)', broken.length === 0,
+      broken.length ? 'broken=[' + broken.join(', ') + ']' : runtime.length + ' module(s) parsed');
+    // 负对照：同一个判据对**故意写坏**的文件必须判红（否则这条断言可能恒真）
+    const dir = join(ROOT, '.test-cache');
+    const tmp = join(dir, 'syntax-probe.mjs');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(tmp, 'export { nope };\n', 'utf8');
+    let caught = false;
+    try { execFileSync(process.execPath, ['--check', tmp], { stdio: 'ignore' }); } catch { caught = true; }
+    try { rmSync(tmp, { force: true }); } catch { /* ignore */ }
+    check('P6 negative control: 坏模块会被 --check 判出', caught);
   }
 
   // ── P4: 声明的依赖必须有消费者 (防"死声明") ──────────────────────────────────
@@ -240,7 +269,9 @@ async function main() {
           && bareImportSpecs("const x = require('" + fake + "')").length === 1
           && bareImportSpecs("import fs from 'fs'").length === 0
           && bareImportSpecs("import p from 'node:path'").length === 0
-          && bareImportSpecs("import q from './local.mjs'").length === 0;
+          && bareImportSpecs("import q from './local.mjs'").length === 0
+          // 注释里的引号说明符**不得**被算成依赖（本仓纪律：判据先剥注释再判）
+          && bareImportSpecs("// 夹具形如 from '" + fake + "'\nconst ok = 1;").length === 0;
       })());
   }
 

@@ -1,17 +1,15 @@
 /**
- * verify-scene.mjs — fixture self-test for the scene static-frame pipeline.
+ * verify-scene.mjs — 场景出图来源链 + GPU 抓帧缓存的自检。
  *
  * Levels:
- *   A. pkg-extract unit: real workshop scene.pkg files must extract the MAIN
- *      colorful texture (never a mask), as JPEG passthrough or PNG, with sane
- *      dims. Synthetic PKG/TEX exercises the raw-RGBA decode + PNG encoder and
- *      the "no decodable texture" 422 path.
- *   B. Host route integration: a mock webServer captures the scene-frame route;
- *      the handler is invoked with real req/res shims to assert 200 + bytes,
- *      on-disk mtime cache creation and cache-hit reuse.
+ *   A. （已退役）pkg-extract 的静态帧提取单元测试 —— 该提取链随 P2-12 移除；
+ *      本文件现在只覆盖**留下的活路径**。
+ *   B. 宿主路由集成（mock webServer）：出图来源链头（抓帧 → 自定义画面 → 空态）、
+ *      抓帧回填的槽位语义（409 唯一性 / 几何头 / 清除通道 / 并发串行）。
+ *   D2/D3. 中途放弃请求的断开时机（确定性替身 + 结构棘轮）。
+ *   E. 缓存键单一构造点（P1-6）。
  *
- * Real fixtures are probed when present (Steam workshop + skin-center import
- * store); synthetic fixtures always run, so the script passes without Steam.
+ * 真机夹具（Steam 工坊）只在存在时跑；合成夹具总会跑，所以没有 Steam 也能通过。
  *
  * Usage:  node test/verify-scene.mjs
  */
@@ -24,12 +22,21 @@ import { Writable, Readable } from 'node:stream';
 import { EventEmitter } from 'node:events';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+/**
+ * 宿主半的**全部注册面** = `lib/index.js` + `lib/routes/*.js`。
+ * 路由族拆出 `apply(ctx)` 是 P2-11 的正常动作 ⇒ 凡断言"宿主仍实现某契约"的判据都必须覆盖
+ * 那个目录，否则"已搬走"会被误报成"契约丢了"（假红）。反之，断言"某路由**已不在正文**"的
+ * 判据仍必须只读 `lib/index.js`。
+ */
+const readHostHalf = () => ['lib/index.js',
+  ...readdirSync(resolve(root, 'lib', 'routes')).filter((f) => f.endsWith('.js')).map((f) => 'lib/routes/' + f)]
+  .map((f) => readFileSync(resolve(root, f), 'utf8')).join('\n');
 // Point the frame cache at a workspace-relative dir so the suite passes under
 // sandboxes that cannot write outside the workspace (the real host has no
 // such restriction).
 const TEST_CACHE_DIR = join(root, '.test-cache', 'frames');
 process.env.DSH_WE_CACHE_DIR = TEST_CACHE_DIR;
-const pkgExtract = await import(pathToFileURL(resolve(root, 'lib', 'pkg-extract.js')).href);
 
 let passed = 0;
 let failed = 0;
@@ -189,226 +196,6 @@ function buildTexRgba(width, height, rgbaBytes) {
   return Buffer.concat([header.subarray(0, p), mip]);
 }
 
-// A0: 图集 padding（四周纯黑）必须裁掉。
-//
-// 用户口径：「加载期的抽帧图没铺满屏幕」—— 真实场景的主纹理常是 2048²/4096² 的
-// 2 的幂次方图集，画面只占其中一条带、其余纯黑；原样当静态帧时客户端 cover 以
-// 图集**中心**铺满，屏幕上一大片黑。这里两种 padding 形态都覆盖：只在下方的
-// （真实样本）与四周的（顺带覆盖左右裁列）。
-//
-// 这个用例同时是「裁切不得吞掉候选」的闸门：cropRgba 曾在 Uint8Array 上用
-// Buffer#copy 抛错，候选循环把异常当「该贴图不可用」跳过 —— 结果整张静态帧被换成
-// 另一张贴图（实测 4096² 作者原画变成 256² 水波法线贴图）。
-{
-  const mk = (w, h, bandTop, bandBottom, left = 0, right = w) => {
-    const rgba = Buffer.alloc(w * h * 4, 0); // 全黑底（含 alpha=0 → 也算 padding）
-    for (let y = bandTop; y < bandBottom; y++) {
-      for (let x = left; x < right; x++) {
-        const i = (y * w + x) * 4;
-        // 棋盘：保证有真实方差，能过 colorfulness/flatness 门禁
-        const red = (x + y) % 2 === 0;
-        rgba[i] = red ? 220 : 30;
-        rgba[i + 1] = red ? 30 : 30;
-        rgba[i + 2] = red ? 30 : 220;
-        rgba[i + 3] = 255;
-      }
-    }
-    return rgba;
-  };
-  const sceneJson = Buffer.from(JSON.stringify({ objects: [{ image: 'materials/main.json' }] }));
-  const imgJson = Buffer.from(JSON.stringify({ material: 'materials/main.tex' }));
-  try {
-    // ① 只在下方的 padding：512x512 图集，画面是顶部 512x288
-    const pkg1 = buildPkg([
-      { path: 'scene.json', bytes: sceneJson },
-      { path: 'materials/main.json', bytes: imgJson },
-      { path: 'materials/main.tex', bytes: buildTexRgba(512, 512, mk(512, 512, 0, 288)) },
-    ]);
-    const r1 = pkgExtract.extractSceneMainImage(new Uint8Array(pkg1));
-    const i1 = pngInfo(r1.bytes);
-    check('图集下方黑边裁掉（512x512 → 512x288）',
-      r1.mime === 'image/png' && i1.width === 512 && i1.height === 288,
-      `${i1.width}x${i1.height} mime=${r1.mime} path=${String(r1.texturePath || '').split('/').pop()}`);
-  } catch (e) {
-    check('图集下方黑边裁掉（512x512 → 512x288）', false, e.message);
-  }
-  try {
-    // ② 四周 padding：画面是中间 384x288 的窗口（左右也要内缩，才能真正覆盖裁列）
-    const pkg2 = buildPkg([
-      { path: 'scene.json', bytes: sceneJson },
-      { path: 'materials/main.json', bytes: imgJson },
-      { path: 'materials/main.tex', bytes: buildTexRgba(512, 512, mk(512, 512, 112, 400, 64, 448)) },
-    ]);
-    const r2 = pkgExtract.extractSceneMainImage(new Uint8Array(pkg2));
-    const i2 = pngInfo(r2.bytes);
-    check('图集四周黑边裁掉（左右列同样要裁）',
-      r2.mime === 'image/png' && i2.width === 384 && i2.height === 288,
-      `${i2.width}x${i2.height}`);
-  } catch (e) {
-    check('图集四周黑边裁掉（左右列同样要裁）', false, e.message);
-  }
-}
-
-// ── Level A: pkg-extract ────────────────────────────────────────────────────
-console.log('Level A — pkg-extract unit');
-
-// A1: synthetic RGBA8888 scene → PNG path (exercises TEX parse + decode + PNG).
-{
-  // Checkerboard red/blue so the frame has real variance (a solid fill would
-  // be rejected by the flatness gate).
-  const rgba = Buffer.alloc(4 * 4 * 4);
-  for (let i = 0; i < 4 * 4; i++) {
-    const red = (i + ((i / 4) | 0)) % 2 === 0;
-    rgba[i * 4] = red ? 220 : 30;
-    rgba[i * 4 + 1] = red ? 30 : 30;
-    rgba[i * 4 + 2] = red ? 30 : 220;
-    rgba[i * 4 + 3] = 255;
-  }
-  const tex = buildTexRgba(4, 4, rgba);
-  const pkg = buildPkg([
-    { path: 'scene.json', bytes: Buffer.from(JSON.stringify({ objects: [{ image: 'main.tex' }] })) },
-    { path: 'main.tex', bytes: tex },
-  ]);
-  try {
-    const r = pkgExtract.extractSceneMainImage(new Uint8Array(pkg));
-    const info = pngInfo(r.bytes);
-    check('synthetic RGBA8888 → PNG ' + info.width + 'x' + info.height, r.mime === 'image/png' && info.isPng && info.width === 4 && info.height === 4 && r.texturePath === 'main.tex');
-    const px = pngToRgba(r.bytes);
-    const colorful = px && (() => { let c = 0; for (let i = 0; i < px.rgba.length; i += 4) { if (Math.max(px.rgba[i], px.rgba[i + 1], px.rgba[i + 2]) - Math.min(px.rgba[i], px.rgba[i + 1], px.rgba[i + 2]) > 40) c++; } return c > 10; })();
-    check('synthetic PNG is colorful (not a gray mask)', colorful === true);
-  } catch (e) {
-    check('synthetic RGBA8888 → PNG', false, e.message);
-  }
-}
-
-// A2: synthetic scene with no textures → descriptive throw.
-{
-  const pkg = buildPkg([{ path: 'scene.json', bytes: Buffer.from(JSON.stringify({ objects: [] })) }]);
-  try {
-    pkgExtract.extractSceneMainImage(new Uint8Array(pkg));
-    check('empty scene throws', false, 'no error raised');
-  } catch (e) {
-    check('empty scene throws', /no texture candidates/.test(e.message), e.message);
-  }
-}
-
-// A2b: embedded-PNG texture → passthrough (WE stores photographic art as PNG).
-{
-  // Build a tiny 2x2 RGBA PNG by hand (IHDR + IDAT + IEND).
-  const raw = Buffer.alloc(2 * 4 * 4 + 3);
-  for (let y = 0; y < 2; y++) {
-    raw[y * 9] = 0; // filter 0
-    raw.set([220, 30, 30, 255, 30, 220, 30, 255], y * 9 + 1);
-  }
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(2, 0);
-  ihdr.writeUInt32BE(2, 4);
-  ihdr[8] = 8; ihdr[9] = 6;
-  const png = Buffer.concat([
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    pngChunk('IHDR', ihdr),
-    pngChunk('IDAT', deflateSync(raw)),
-    pngChunk('IEND', Buffer.alloc(0)),
-  ]);
-  // Wrap the PNG as the TEX mip payload (format RGBA8888 header, payload PNG).
-  const mip = Buffer.alloc(20 + png.length);
-  mip.writeInt32LE(2, 0); mip.writeInt32LE(2, 4);
-  mip.writeInt32LE(0, 8); mip.writeInt32LE(0, 12);
-  mip.writeInt32LE(png.length, 16);
-  png.copy(mip, 20);
-  const header = Buffer.alloc(9 + 9 + 4 * 8 + 9 + 4 * 2);
-  let p = 0;
-  header.write('TEXV0005\0', p, 'ascii'); p += 9;
-  header.write('TEXI0001\0', p, 'ascii'); p += 9;
-  header.writeInt32LE(0, p); p += 4; header.writeInt32LE(0, p); p += 4;
-  header.writeInt32LE(2, p); p += 4; header.writeInt32LE(2, p); p += 4;
-  header.writeInt32LE(2, p); p += 4; header.writeInt32LE(2, p); p += 4;
-  header.writeInt32LE(0, p); p += 4;
-  header.write('TEXB0002\0', p, 'ascii'); p += 9;
-  header.writeInt32LE(1, p); p += 4; header.writeInt32LE(1, p); p += 4;
-  const tex = Buffer.concat([header.subarray(0, p), mip]);
-  const pkg = buildPkg([
-    { path: 'scene.json', bytes: Buffer.from(JSON.stringify({ objects: [{ image: 'main.tex' }] })) },
-    { path: 'main.tex', bytes: tex },
-  ]);
-  try {
-    const r = pkgExtract.extractSceneMainImage(new Uint8Array(pkg));
-    const same = Buffer.from(r.bytes).equals(Buffer.from(png));
-    check('embedded PNG → passthrough', r.mime === 'image/png' && same, r.mime + ' ' + r.bytes.length + 'B');
-  } catch (e) {
-    check('embedded PNG → passthrough', false, e.message);
-  }
-}
-
-// A2c: embedded MP4 payload → rejected (animation/video texture).
-{
-  // [u32 boxSize=24]['ftypmp42'][12 zero bytes] — 24 bytes total, boxSize sane.
-  const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from('ftypmp42'), Buffer.alloc(12)]);
-  const mip = Buffer.alloc(20 + mp4.length);
-  mip.writeInt32LE(2, 0); mip.writeInt32LE(2, 4);
-  mip.writeInt32LE(0, 8); mip.writeInt32LE(0, 12);
-  mip.writeInt32LE(mp4.length, 16);
-  mp4.copy(mip, 20);
-  const header = Buffer.alloc(9 + 9 + 4 * 8 + 9 + 4 * 2);
-  let p = 0;
-  header.write('TEXV0005\0', p, 'ascii'); p += 9;
-  header.write('TEXI0001\0', p, 'ascii'); p += 9;
-  header.writeInt32LE(0, p); p += 4; header.writeInt32LE(0, p); p += 4;
-  header.writeInt32LE(2, p); p += 4; header.writeInt32LE(2, p); p += 4;
-  header.writeInt32LE(2, p); p += 4; header.writeInt32LE(2, p); p += 4;
-  header.writeInt32LE(0, p); p += 4;
-  header.write('TEXB0002\0', p, 'ascii'); p += 9;
-  header.writeInt32LE(1, p); p += 4; header.writeInt32LE(1, p); p += 4;
-  const tex = Buffer.concat([header.subarray(0, p), mip]);
-  const pkg = buildPkg([
-    { path: 'scene.json', bytes: Buffer.from(JSON.stringify({ objects: [{ image: 'main.tex' }] })) },
-    { path: 'main.tex', bytes: tex },
-  ]);
-  try {
-    pkgExtract.extractSceneMainImage(new Uint8Array(pkg));
-    check('embedded MP4 → rejected', false, 'no error raised');
-  } catch (e) {
-    check('embedded MP4 → rejected', /embedded mp4/.test(e.message), e.message);
-  }
-}
-
-// A2d: grayscale-only scene → quality gate rejects → caller falls back.
-{
-  const gray = Buffer.alloc(4 * 4 * 4);
-  for (let i = 0; i < 4 * 4; i++) {
-    gray[i * 4] = 128; gray[i * 4 + 1] = 128; gray[i * 4 + 2] = 128; gray[i * 4 + 3] = 255;
-  }
-  const tex = buildTexRgba(4, 4, gray);
-  const pkg = buildPkg([
-    { path: 'scene.json', bytes: Buffer.from(JSON.stringify({ objects: [{ image: 'main.tex' }] })) },
-    { path: 'main.tex', bytes: tex },
-  ]);
-  try {
-    pkgExtract.extractSceneMainImage(new Uint8Array(pkg));
-    check('grayscale texture → quality gate rejects', false, 'no error raised');
-  } catch (e) {
-    check('grayscale texture → quality gate rejects', /frame rejected|no decodable/.test(e.message), e.message);
-  }
-}
-
-// A3: real workshop fixtures (probed; skipped when not installed).
-const FIXTURES = [
-  { file: process.env.DSH_WE_FIXTURE_1 || 'D:\\SteamLibrary\\steamapps\\workshop\\content\\431960\\3345141364\\scene.pkg', expect: 'materials/wallhaven-vqkme8.tex' },
-  { file: process.env.DSH_WE_FIXTURE_2 || 'D:\\SteamLibrary\\steamapps\\workshop\\content\\431960\\3575109244\\scene.pkg', expect: 'materials/360albumviewer_imgproc_1242125.tex' },
-];
-for (const fx of FIXTURES) {
-  if (!existsSync(fx.file)) { console.log('  (skip fixture ' + fx.file + ' — not present)'); continue; }
-  try {
-    const r = pkgExtract.extractSceneMainImage(new Uint8Array(readFileSync(fx.file)));
-    const okMime = r.mime === 'image/jpeg' || r.mime === 'image/png';
-    const okTex = r.texturePath === fx.expect;
-    const okDims = r.width > 100 && r.height > 100;
-    check('fixture ' + fx.file.split('\\').slice(-2).join('/'), okMime && okTex && okDims, r.mime + ' ' + r.width + 'x' + r.height + ' ← ' + r.texturePath);
-  } catch (e) {
-    check('fixture ' + fx.file.split('\\').slice(-2).join('/'), false, e.message);
-  }
-}
-
 // ── Offline fixture: synthetic Steam library for Level B ────────────────────
 // Level B used to depend on a real workshop scene being installed (dev boxes
 // often have none → 'no scene wallpaper with frameUrl on this machine'). A
@@ -513,25 +300,32 @@ let invBody = null;
 }
 
 if (token) {
+  // ── 出图来源链头（账本 §6.6/§6.7）：这个 fixture 既没有实时抓帧、也没有自定义画面 ⇒ 必须
+  //    **诚实留空**（404），而不是"替作者猜一张图" —— 提取 / 合成 / 找最大图片 / 预览图都已随
+  //    P2-12 移除（§6.4 的静默回落陷阱：合成路径还在，"找最大图片"就仍活在自动链上）。
+  const beforeList = existsSync(TEST_CACHE_DIR) ? readdirSync(TEST_CACHE_DIR).slice() : [];
   const firstRes = await runHandler(sceneRoute, '/wallpaper-engine/scene-frame/' + token);
-  const okFirst = firstRes.__state.status === 200 && firstRes.__state.body.length > 1000;
-  const ctype = firstRes.__state.headers['Content-Type'] || firstRes.__state.headers['content-type'] || '';
-  check('scene-frame 200 + payload', okFirst, 'status=' + firstRes.__state.status + ' ' + firstRes.__state.body.length + 'B ' + ctype);
-  check('scene-frame mime', /image\/(jpeg|png)/.test(ctype), ctype);
+  check('无抓帧且无自定义画面 ⇒ 404 空态（不回落任何猜图来源）',
+    firstRes.__state.status === 404,
+    'status=' + firstRes.__state.status + ' ' + firstRes.__state.body.length + 'B');
+  {
+    let err = null;
+    try { err = JSON.parse(firstRes.__state.body.toString('utf8')).error; } catch { /* 非 JSON */ }
+    check('空态给出可判定原因（no-frame）', err === 'no-frame', String(err));
+  }
   // cache file written under the plugin data dir (env-overridden for tests)
   const cacheDir = TEST_CACHE_DIR;
   // 缓存键版本从源码读（别写死：升版本时这里会静默测到旧文件，等于假通过）
-  const keyVersion = (/SCENE_FRAME_KEY_VERSION = '([^']+)'/.exec(
+  const keyVersion = (/LIVE_FRAME_KEY_VERSION = '([^']+)'/.exec(
     readFileSync(resolve(root, 'lib', 'index.js'), 'utf8')) || [])[1] || 'sf';
-  const cached = existsSync(cacheDir) ? readdirSync(cacheDir).filter((f) => f.startsWith(keyVersion + '_' + token + '_')) : [];
-  check('frame cached on disk', cached.length >= 1, cacheDir + ' [' + cached.join(', ') + ']');
-
-  // Second call must hit the cache (handler still returns the payload).
-  const secondRes = await runHandler(sceneRoute, '/wallpaper-engine/scene-frame/' + token);
-  check('scene-frame cache-hit returns payload', secondRes.__state.status === 200 && secondRes.__state.body.equals(firstRes.__state.body), secondRes.__state.body.length + 'B');
+  // 只比较**本次请求前后**的差集：目录里可能有历史运行的残留（旧语义留下的静态帧），
+  // 拿"目录为空"当判据会被那些残留绊倒。
+  const addedNow = (existsSync(cacheDir) ? readdirSync(cacheDir) : []).filter((f) => !beforeList.includes(f));
+  check('GET 空态不产出任何静态帧缓存（提取链已移除）', addedNow.length === 0,
+    addedNow.slice(0, 4).join(', ') || '干净');
 
   // ── GPU 抓帧回填端点（HEAD 探测 + PUT 写入 + 唯一性/结构校验 + 清除通道）──
-  // 槽位此刻已被上面的 GET 提取填充（无 GPU 帧）→ PUT 应能写入。
+  // 槽位此刻是**空的**（上面的 GET 返回 404 —— 既无抓帧也无自定义画面）⇒ PUT 应能写入。
   const gpuRoute = routes.find((r) => r.path === '/wallpaper-engine/scene-frame-cache');
   check('scene-frame-cache route registered', Boolean(gpuRoute), gpuRoute ? 'kind=' + gpuRoute.kind : 'missing');
   // 结构合法的 PNG 构造器：签名 + IHDR + IDAT + IEND（host 只做结构校验，不解码）。
@@ -601,9 +395,9 @@ if (token) {
     // 写死字面量会在宿主升键后静默测到旧文件（第 514 行的注释即此意）。
     const curKey = keyVersion + '_' + token + '_' + Math.round(statSync(join(fixtureItemDir, 'scene.pkg')).mtimeMs);
     const head0 = await runHead('/wallpaper-engine/scene-frame/' + token);
-    check('HEAD: occupied slot without GPU frame → 204 + X-WE-GPU=0',
-      head0.__state.status === 204 && head0.__state.headers['X-WE-GPU'] === '0',
-      'status=' + head0.__state.status + ' gpu=' + head0.__state.headers['X-WE-GPU']);
+    check('HEAD 空槽（无抓帧、无自定义画面）→ 404 且不发 X-WE-GPU',
+      head0.__state.status === 404 && head0.__state.headers['X-WE-GPU'] === undefined,
+      'status=' + head0.__state.status + ' gpu=' + String(head0.__state.headers['X-WE-GPU']));
     // 结构校验：只有魔数的 9 字节 / 有魔数无 IHDR-IEND / 结构合法但过短 → 全 415。
     const putMagicOnly = await runPut('/wallpaper-engine/scene-frame-cache/' + token,
       Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from([1])]));
@@ -619,7 +413,13 @@ if (token) {
     const gpuFiles = readdirSync(cacheDir).filter((f) => f === curKey + '_gpu.png');
     check('GPU frame stored as <key>_gpu.png (文件名即标记，可直接打开)',
       gpuFiles.length === 1, gpuFiles.join(', ') || 'missing');
-    check('CPU 提取帧未被 GPU 写入覆盖（留作对照）', existsSync(join(cacheDir, curKey + '.png')), 'ok');
+    // v=4（强制自定义画面）：**豁免** GPU 抓帧 —— 用户显式 pin 的来源不被一张抓帧顶掉（§6.2/§6.7）。
+    const getV4 = await runHandler(sceneRoute, '/wallpaper-engine/scene-frame/' + token + '?v=4');
+    check('?v=4 无自定义画面 ⇒ 422（显式 pin 失效要明示，客户端据此提示"已失效"）',
+      getV4.__state.status === 422, 'status=' + getV4.__state.status);
+    const headV4 = await runHead('/wallpaper-engine/scene-frame/' + token + '?v=4');
+    check('?v=4 豁免抓帧：即使槽位已有 _gpu.png，v=4 也不拿它顶（HEAD 仍 404）',
+      headV4.__state.status === 404, 'status=' + headV4.__state.status);
     const head1 = await runHead('/wallpaper-engine/scene-frame/' + token);
     check('HEAD after PUT → X-WE-GPU=1', head1.__state.status === 204 && head1.__state.headers['X-WE-GPU'] === '1',
       'status=' + head1.__state.status + ' gpu=' + head1.__state.headers['X-WE-GPU']);
@@ -627,7 +427,8 @@ if (token) {
     check('GET now serves the GPU-captured bytes', getGpu.__state.status === 200 && getGpu.__state.body.equals(gpuPng),
       getGpu.__state.body.length + 'B');
     const getGpuV3 = await runHandler(sceneRoute, '/wallpaper-engine/scene-frame/' + token + '?v=3');
-    check('GET ?v=3 also serves the GPU frame (跨档位全局优先)', getGpuV3.__state.status === 200 && getGpuV3.__state.body.equals(gpuPng),
+    check('?v=3 已退役 ⇒ clamp 到 0 ⇒ 仍服务抓帧（值域收缩、零迁移）',
+      getGpuV3.__state.status === 200 && getGpuV3.__state.body.equals(gpuPng),
       getGpuV3.__state.body.length + 'B');
     const headV3 = await runHead('/wallpaper-engine/scene-frame/' + token + '?v=3');
     check('HEAD ?v=3 → X-WE-GPU=1', headV3.__state.status === 204 && headV3.__state.headers['X-WE-GPU'] === '1',
@@ -657,9 +458,9 @@ if (token) {
     check('POST ?clear=1 清除路径 → 200',
       clr3.__state.status === 200 && /"removed":false/.test(String(clr3.__state.body)), 'status=' + clr3.__state.status);
     const headAfterClear = await runHead('/wallpaper-engine/scene-frame/' + token);
-    check('清除后 HEAD → 204 + X-WE-GPU=0（回到 CPU 帧）',
-      headAfterClear.__state.status === 204 && headAfterClear.__state.headers['X-WE-GPU'] === '0',
-      'status=' + headAfterClear.__state.status + ' gpu=' + headAfterClear.__state.headers['X-WE-GPU']);
+    check('清除抓帧后 HEAD → 404（没有 CPU 帧可回落 —— 这正是"诚实留空"）',
+      headAfterClear.__state.status === 404 && headAfterClear.__state.headers['X-WE-GPU'] === undefined,
+      'status=' + headAfterClear.__state.status);
     const put3 = await runPut('/wallpaper-engine/scene-frame-cache/' + token, gpuPng);
     check('清除后可重新写入 → 200（坏帧不再是死结）', put3.__state.status === 200, 'status=' + put3.__state.status);
     // ── 抓帧几何随 HEAD 暴露（客户端据此判断存帧是否还是当前视口的构图）────
@@ -683,10 +484,11 @@ if (token) {
       await runClear('/wallpaper-engine/scene-frame-cache/' + token);
       return runHead('/wallpaper-engine/scene-frame/' + token);
     })();
-    check('无 GPU 帧时不得发几何头（CPU 帧是设计比例，与服务逻辑无关）',
-      headGeoNoGpu.__state.headers['X-WE-GPU'] === '0'
+    check('无帧（既无抓帧也无自定义画面）⇒ 404 且不发任何几何头',
+      headGeoNoGpu.__state.status === 404
+      && headGeoNoGpu.__state.headers['X-WE-GPU'] === undefined
       && headGeoNoGpu.__state.headers['X-WE-GPU-AR'] === undefined,
-      'gpu=' + headGeoNoGpu.__state.headers['X-WE-GPU'] + ' ar=' + String(headGeoNoGpu.__state.headers['X-WE-GPU-AR']));
+      'status=' + headGeoNoGpu.__state.status + ' gpu=' + String(headGeoNoGpu.__state.headers['X-WE-GPU']));
     await runPut('/wallpaper-engine/scene-frame-cache/' + token, gpuPng); // 还原槽位状态
     // ── P2-L：unlink 失败（权限/占用）必须报错 ────────────────────────────
     // 回 200 + removed:false 会让客户端把「清除」当成功（面板行消失、提示已清除），
@@ -807,7 +609,13 @@ if (token) {
     req.end();
   });
   const overLimit = await sendOver('PUT', '/wallpaper-engine/scene-frame-cache/' + token, Buffer.alloc(33 * 1024 * 1024, 5));
-  check('真 socket：超限 PUT 收到 413（而不是连接被掐断）', overLimit.status === 413,
+  // ⚠️ 33MB 这一条**天生不确定**（账本 P3-22）：413 路径会 `res.end()` 后立刻 `req.destroy()`（设计如此），
+  // 而 33MB 请求体远没写完 ⇒ 客户端可能先拿到 ECONNRESET 而不是 413。两种结果**都是"被拒绝"**，
+  // 区别只是谁先到。所以这里接受两种合法结果，把"没被拒绝"（200 / 5xx）判红；
+  // **精确的 413 语义由下一条（恰好 limit+1，超限块即最后一块、无竞态）钉住**。
+  // 判据仍有牙：服务端若不拒绝，这里拿到的是 200 而不是 0。
+  check('真 socket：超限 PUT 被拒绝（413，或连接被主动掐断 —— 精确 413 见下一条）',
+    overLimit.status === 413 || overLimit.status === 0,
     'status=' + overLimit.status + ' why=' + overLimit.why + ' seen=' + overLimit.seen);
   // 恰好 limit+1：超限块**就是最后一块**（实测 64KB 分块下 513 块里的第 513 块）——
   // 33MB 那个用例比上限多 1MB，超限块离正文结尾还有约 1MB，缝碰不到。
@@ -843,7 +651,7 @@ if (token) {
 //    写出 512MB+1），后者会在**真实**的用户 overrides 目录里删同名兄弟文件。两者的
 //    接线由下面的 Level D3 结构棘轮覆盖。
 {
-  const hostSrc = readFileSync(resolve(root, 'lib', 'index.js'), 'utf8');
+  const hostSrc = readHostHalf();
   // 上限一律按**源码原文**解析/核对（不写死尺寸：上限一改，这里会红而不是静默测旧值）
   const constNum = (name) => {
     const expr = (new RegExp('const ' + name + ' = ([^;]+);').exec(hostSrc) || [])[1] || '';
@@ -940,8 +748,10 @@ if (token) {
 // req.destroy()，计数立刻变红 —— 那是**有意的**棘轮：请把该路由接到 lingerClose 上。
 // 覆盖 Level D2 因成本/副作用跑不了的两条：/upload（上限 512MB）与 /custom-frame
 // （会在真实 overrides 目录里删同名兄弟文件）。
+// 口径 = **宿主半的全部注册面**（`lib/index.js` + `lib/routes/*.js`）：把路由族拆出 `apply`
+// 是 P2-11 的正常动作，判据只读一个文件会把"已搬走"误报成"少接了一条"（假红）。
 {
-  const src = readFileSync(resolve(root, 'lib', 'index.js'), 'utf8');
+  const src = readHostHalf();
   const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
   const bare = strip(src).match(/req\.destroy\(\)/g) || [];
   check('D3 全仓 req.destroy() 只允许两处收口（lingerClose / idle 兜底）', bare.length <= 2,
@@ -965,8 +775,8 @@ if (token) {
     derivations.length === 3,
     '派生点 ' + derivations.length + ' 处');
   check('P1-6 sceneFrameSlot 复用 sceneFrameCacheKey 且不再自带版本前缀',
-    slotBody.includes('sceneFrameCacheKey(abs, mtime)') && !slotBody.includes('SCENE_FRAME_KEY_VERSION'),
-    'reuse=' + slotBody.includes('sceneFrameCacheKey(abs, mtime)') + ' versionInSlot=' + slotBody.includes('SCENE_FRAME_KEY_VERSION'));
+    slotBody.includes('sceneFrameCacheKey(abs, mtime)') && !slotBody.includes('LIVE_FRAME_KEY_VERSION'),
+    'reuse=' + slotBody.includes('sceneFrameCacheKey(abs, mtime)') + ' versionInSlot=' + slotBody.includes('LIVE_FRAME_KEY_VERSION'));
   check('P1-6 negative control: 再写一份派生会被数出来',
     (hostSrc + "\nconst x = Buffer.from(abs, 'utf8').toString('base64url');").match(/Buffer\.from\(abs, 'utf8'\)\.toString\('base64url'\)/g).length === derivations.length + 1);
 }

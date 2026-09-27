@@ -7,15 +7,16 @@
 > `MAX_GLSL_PIXELS = 65536`、并行阈值（1 Mpx / 2 项 / 512KB）。勿当作现有行为引用。
 >
 > **路径范围声明**：文中"采样选点 / 空白帧门禁 / 预览标定"等机制属**静态帧渲染线**，
-> **不在当前分支**（本分支无 `PROBE_W` / `BLANK_RATIO` / `MAX_PROBE` / `REFINE_N` / `COARSE_MAX`
-> 等符号，`lib/scene-render-worker.mjs` 只是薄壳 worker）。要引用这些机制请去对应分支。
+> 该线**不在当前分支**：`lib/scene-render-worker.mjs` 与整棵 `lib/we-renderer/` 树都已删除，
+> 本分支同样没有 `PROBE_W` / `BLANK_RATIO` / `MAX_PROBE` / `REFINE_N` / `COARSE_MAX` 这些符号。
+> ⇒ 文中所有实现引用都属**另一世系**，只能当历史读。
 >
 > **本分支确实存在、可作为对照的锚点**（守卫会校验其存在性）：
 > | 事实 | 位置 |
 > |---|---|
-> | 静态帧渲染入口与尺寸（3840×round(3840/ar)）、质量门与缓存键 | `lib/index.js` |
-> | 场景资源解析 / 提取（合成器所在） | `lib/pkg-extract.js` |
-> | 渲染器模型与实现 | `lib/we-renderer/model.js` |
+> | 出图来源两档（实时抓帧 / 自定义画面）与帧缓存键 | `lib/routes/scene-frame.js` |
+> | 场景资源解析 / 提取（`/scene-video`、`/scene-audio` 的活落点） | `lib/pkg-extract.js` |
+> | 库存聚合与场景字段（`buildInventory` / `sceneFieldsFor`） | `lib/index.js` |
 >
 > **淘汰提示**：文中「空闲预热 / 队列预热 / `lib/scene-prewarm.js`」等**已不在本分支**
 > （该文件不存在）。引用请以本分支实际代码为准。
@@ -23,6 +24,12 @@
 > 
 > **本分支不存在的路径声明**（文中引用它们的地方属另一世系；守卫会校验本清单完整）：
 > - `lib/scene-prewarm.js`
+> - `lib/we-renderer/model.js`
+> - `lib/we-renderer/core.js`
+> - `lib/we-renderer/textures.js`
+> - `lib/we-renderer/image.js`
+> - `lib/we-renderer/math.js`
+> - `lib/we-renderer/canvas.js`
 > - `lib/we-renderer/decode-worker.mjs`
 > - `lib/we-renderer/effects/registry.js`
 > - `lib/we-renderer/gpu-gl/adapter.js`

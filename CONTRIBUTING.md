@@ -130,10 +130,17 @@ UI 改动还应说明实际测试过的 DSH 界面、浏览器或 DSH Desktop �
 - Source and generated client output are both included when `src/client.js` changes.
 - Existing platform behavior is preserved or the intentional change is explained.
 - Build and verification commands pass.
+- New dev-face files go where the layout says: guards and smoke tests in `test/`, manual
+  diagnostics/analysis/generators in `test/tools/`, build- and publish-time scripts in `scripts/`
+  (see `docs/MODULE-LAYOUT.md` §4). A new guard must also be registered where the rules require it
+  (e.g. the comment-discipline ratchet table).
 - The PR contains no credentials, local media, generated caches, or unrelated cleanup.
 
 - PR 已选择正确的平台分支。
 - 修改 `src/client.js` 时同时包含重新生成的客户端产物。
 - 现有平台行为已保留，或正文已解释有意变更。
 - 构建与验证命令全部通过。
+- 新增的开发面文件放在**约定位置**：守门与冒烟在 `test/`，手动诊断/分析/生成工具在 `test/tools/`，
+  构建与发布期脚本在 `scripts/`（见 `docs/MODULE-LAYOUT.md` §4）；新守卫还要按规则登记
+  （例如注释纪律的棘轮表）。
 - PR 不含凭据、本地媒体、生成缓存或无关清理。
