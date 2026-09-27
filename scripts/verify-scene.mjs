@@ -21,6 +21,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { inflateSync, deflateSync } from 'node:zlib';
 import { Writable, Readable } from 'node:stream';
+import { EventEmitter } from 'node:events';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // Point the frame cache at a workspace-relative dir so the suite passes under
@@ -744,6 +745,14 @@ if (token) {
   check('unknown token → 404', res.__state.status === 404, 'status=' + res.__state.status);
 }
 
+// 帧上限从源码解析（别写死：上限一改，超限用例会静默测到旧尺寸 = 假通过）
+const frameLimit = (() => {
+  const expr = (/const GPU_FRAME_MAX_BYTES = ([^;]+);/.exec(
+    readFileSync(resolve(root, 'lib', 'index.js'), 'utf8')) || [])[1] || '';
+  return /^[\d\s*+()]+$/.test(expr) ? Number(new Function('return (' + expr + ')')()) : 0;
+})();
+check('帧上限常量可从源码解析（超限块尺寸不写死）', frameLimit > 0, 'GPU_FRAME_MAX_BYTES = ' + frameLimit);
+
 // D: 真 socket 端到端 —— 错误应答必须真的送到客户端。
 // mock res 无法暴露「res.end() 后立刻 req.destroy() 会丢掉写缓冲」这类问题
 //（评审实测：33MB 超限请求客户端只拿到 ECONNRESET 而不是 413），所以这里起
@@ -779,6 +788,12 @@ if (token) {
   });
   const overLimit = await sendOver('PUT', '/wallpaper-engine/scene-frame-cache/' + token, Buffer.alloc(33 * 1024 * 1024, 5));
   check('真 socket：超限 PUT 收到 413（而不是连接被掐断）', overLimit.status === 413, 'status=' + overLimit.status);
+  // 恰好 limit+1：超限块**就是最后一块**（实测 64KB 分块下 513 块里的第 513 块）——
+  // 33MB 那个用例比上限多 1MB，超限块离正文结尾还有约 1MB，缝碰不到。
+  const exactLimit = await sendOver('PUT', '/wallpaper-engine/scene-frame-cache/' + token,
+    Buffer.alloc(frameLimit + 1, 6));
+  check('真 socket：恰好 limit+1（超限块即最后一块）仍收到 413',
+    exactLimit.status === 413, 'status=' + exactLimit.status);
   const badBody = await sendOver('PUT', '/wallpaper-engine/scene-frame-cache/' + token, Buffer.from('not-an-image'));
   check('真 socket：非法载荷收到 415', badBody.status === 415, 'status=' + badBody.status);
   const cleared = await sendOver('DELETE', '/wallpaper-engine/scene-frame-cache/' + token);
@@ -794,6 +809,61 @@ if (token) {
   check('真 socket：HEAD 探测可达且报 X-WE-GPU', headOver.status === 204 || headOver.status === 404,
     'status=' + headOver.status + ' gpu=' + headOver.gpu);
   await new Promise((r) => server.close(r));
+}
+// ── Level D2: 超限应答的断开时机（确定性；真 socket 上只能碰运气）──────────
+// 真 socket 用例是**竞态**断言：断开早于应答刷出才失败，而那一刻取决于背压与
+// 事件循环负载。这里用替身把时序钉死，判据是**顺序**：
+//   413 先写 → 请求体排空（req 'end'）→ 应答真刷完（res 'finish'）→ 才允许 req.destroy()。
+// 语义依据（可复算）：`res.writableEnded` 在 res.end() 一调即为真，**不代表已刷出**；
+// 代表刷出的是 `writableFinished`（'finish' 已发出）。替身的 fidelity 由负对照钉住。
+if (token) {
+  const cacheRoute = routes.find((r) => r.path === '/wallpaper-engine/scene-frame-cache');
+  const mkOrderReq = () => {
+    const req = new EventEmitter();
+    req.url = '/wallpaper-engine/scene-frame-cache/' + token;
+    req.method = 'PUT';
+    req.headers = { 'content-type': 'image/png' };
+    req.readableEnded = false;
+    req.destroyed = false;
+    req.destroy = () => { req.destroyed = true; };
+    req.resume = () => {};
+    req.pause = () => {};
+    req.setTimeout = () => req;
+    return req;
+  };
+  // ServerResponse 的刷出语义：end() 只把 writableEnded 置真，'finish' 要等真正 flush。
+  const mkFlushableRes = () => {
+    const res = new EventEmitter();
+    const state = { status: 0, body: null, headers: {} };
+    let pendingFlush = null;
+    res.setHeader = (k, v) => { state.headers[k] = v; };
+    res.writeHead = (s, h) => { state.status = s; Object.assign(state.headers, h || {}); };
+    Object.defineProperty(res, 'statusCode', { get: () => state.status, set: (v) => { state.status = v; } });
+    res.writableEnded = false;
+    res.writableFinished = false;
+    res.end = (b) => {
+      if (b !== undefined) state.body = Buffer.isBuffer(b) ? b : Buffer.from(String(b));
+      res.writableEnded = true;
+      pendingFlush = () => { res.writableFinished = true; res.emit('finish'); };
+    };
+    res.__flush = () => { if (pendingFlush) pendingFlush(); };
+    res.__state = state;
+    return res;
+  };
+  check('负对照：替身区分「end() 已调用」与「应答已刷完」',
+    (() => { const r = mkFlushableRes(); r.end('x'); return r.writableEnded === true && r.writableFinished === false; })());
+  {
+    const req = mkOrderReq();
+    const res = mkFlushableRes();
+    cacheRoute.handler(req, res);
+    req.emit('data', Buffer.alloc(frameLimit + 1, 7)); // 超限块**恰好是最后一块**
+    check('超限 PUT：应答为 413', res.__state.status === 413, 'status=' + res.__state.status);
+    req.emit('end'); // 客户端已发完 ⇒ 排空完成
+    check('排空完成但应答未刷出：不得断开（否则 413 随写缓冲一起丢）',
+      req.destroyed === false, 'destroyed=' + req.destroyed);
+    res.__flush();
+    check('应答刷出后才断开（不留悬挂连接）', req.destroyed === true, 'destroyed=' + req.destroyed);
+  }
 }
 // ── Level E: 缓存键单一构造点（结构不变量，P1-6）────────────────────────────
 // 帧缓存键曾在 sceneFrameCacheKey 与 sceneFrameSlot 里各拼一遍字面量 ⇒ 升版本
