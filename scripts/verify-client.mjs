@@ -1240,5 +1240,32 @@ setTimeout(async () => {
   console.log('条件求值器行为用例（搬移前后一致 + 可独立测）: ok（' + CASES.length + ' 例）');
 }
 
+// ── P2-10 后半：store 写入的单一入口 ─────────────────────────────────────────
+// "赋值 + persistSelection()" 这两件事此前被手抄 50+ 次：漏掉 persist 就是"改了不生效/
+// 刷新后回退"，而没有任何判据会红。现在收成 `setSetting(field, value)`（写 + 落盘）与
+// `setTransient(field, value)`（只写），并断言：
+//   · **页签**（src/panel-tabs.js）连 `selection` 都不许提 —— 只能经 ctx 的两个入口；
+//   · client.js 里"赋值 + 紧跟 persistSelection()"的手抄形态为 **0**（棘轮只许减少）；
+//   · 两个入口本身是唯一的"写 + 落盘"实现处（反查：入口体内必须有 selection[field] = 与
+//     persistSelection()，否则判据是空转）。
+{
+  const tabsSrc2 = readFileSync(new URL('../src/panel-tabs.js', import.meta.url), 'utf8');
+  const storeSrc = readFileSync(new URL('../src/client.js', import.meta.url), 'utf8');
+  const tabRefs = (tabsSrc2.match(/(^|[^.\w$])selection\.|persistSelection/g) || []).length;
+  assert.equal(tabRefs, 0,
+    '页签不得直接读写 selection / persistSelection（必须走 ctx 的 setSetting / setTransient）');
+  const pairs = (storeSrc.match(/selection\.[A-Za-z_$][\w$]*\s*=[^=][^\n]*persistSelection\(\);/g) || []).length;
+  assert.equal(pairs, 0, 'client.js 里不许再有手抄的"赋值 + persistSelection()"（当前 ' + pairs + ' 处）');
+  assert.ok(/function setSetting\(field, value\) \{\s*\n\s*selection\[field\] = value;\s*\n\s*persistSelection\(\);/.test(storeSrc),
+    'setSetting 必须是"写 store + 落盘"的唯一实现处');
+  assert.ok(/function setTransient\(field, value\) \{\s*\n\s*selection\[field\] = value;/.test(storeSrc),
+    'setTransient 必须是"只写 store"的实现处（瞬态字段不落盘）');
+  // 负对照：判据对合成文本有牙（手抄形态 / 页签直写都必须被判出）
+  assert.ok(/selection\.[A-Za-z_$][\w$]*\s*=[^=][^\n]*persistSelection\(\);/
+    .test('selection.x = 1; persistSelection();'), '负对照：手抄形态必须能被判出');
+  assert.ok(((('selection.y = 2;').match(/(^|[^.\w$])selection\.|persistSelection/g) || []).length) === 1,
+    '负对照：页签直写必须能被判出');
+}
+
 console.log('\nALL CLIENT CHECKS DONE');
 }, 50);

@@ -279,6 +279,23 @@ function useStore() {
   return selection;
 }
 
+// ── 改 store 的两个入口（P2-10 后半）────────────────────────────────────────
+// "赋值 + persistSelection()" 这两件事此前被手抄了 56 次 —— 漏掉 persist 就是
+// "改了不生效 / 刷新后回退"，而且没有任何判据会红。收成两个入口后：
+//   · setSetting(field, value)   改**设置**并落盘（唯一入口）
+//   · setTransient(field, value) 改**瞬态**字段（上传中/编辑中/加载中…），不落盘 ——
+//     它们不在 schema 白名单里，落盘只会白跑一次 debounce。
+// 页签（src/panel-tabs.js）通过 ctx 拿到这两个入口，因此**完全不碰** `selection`。
+function setSetting(field, value) {
+  selection[field] = value;
+  persistSelection();
+  return value;
+}
+function setTransient(field, value) {
+  selection[field] = value;
+  return value;
+}
+
 // ── 设置持久化（debounce / 迁移 / 重试 / 启动加载）────────────────────────────
 // 这一族的实现已抽到 **src/persistence.js**（约 140 行）。构建期内联回本作用域，
 // 调用点（persistSelection / flushPersist / onPageHideFlush / …）无需改动。
@@ -361,8 +378,7 @@ async function loadInventory() {
     persistSelection();
   }
   if (selection.rotationGroupId && !activeRotationGroup()) {
-    selection.rotationGroupId = "";
-    persistSelection();
+    setSetting("rotationGroupId", "");
   }
   if (selection.rotationEnabled) {
     if (!selection.rotationGroupId) {
@@ -493,13 +509,11 @@ function revalidateSelection() {
   let droppedNote = "";
   if (selection.id && !selection.inventory.wallpapers.some((w) => w.id === selection.id && isRotatableWallpaper(w))) {
     droppedNote = selectionBlockedNote(selection.inventory.wallpapers.find((w) => w.id === selection.id));
-    selection.id = "";
-    persistSelection();
+    setSetting("id", "");
   }
   if (selection.rotationEnabled && selection.id && !rotationCandidates().some((w) => w.id === selection.id)) {
     const first = rotationCandidates()[0];
-    selection.id = first ? first.id : "";
-    persistSelection();
+    setSetting("id", first ? first.id : "");
   }
   if (!selection.id && selection.rotationEnabled) {
     const first = rotationCandidates()[0];
@@ -1039,8 +1053,7 @@ function deleteGroup(id) {
       else selection.rotationEnabled = false;
     }
   }
-  if (selection.editing && selection.editing.id === id) selection.editing = null;
-  persistSelection();
+  if (selection.editing && selection.editing.id === id) setSetting("editing", null);
   syncRotationTimer();
   emit();
 }
@@ -1705,8 +1718,7 @@ function saveUserProp(token, name, value, isDefault) {
   else cur[name] = value;
   if (Object.keys(cur).length) all[token] = cur;
   else delete all[token];
-  selection.userProps = all;
-  persistSelection();
+  setSetting("userProps", all);
 }
 
 /** 热更新到正在跑的壁纸（渲染页 __wp.updateWebProps → 场景对象脚本 / 网页 shim）。 */
@@ -1783,8 +1795,7 @@ function resetUserProps() {
   applyUserProps(wire);
   const all = { ...(selection.userProps || {}) };
   delete all[token];
-  selection.userProps = all;
-  persistSelection();
+  setSetting("userProps", all);
   emit();
 }
 
@@ -2448,26 +2459,22 @@ function WallpaperPicker(props) {
   // Filter changes: persist + re-validate so wallpapers outside the selected
   // categories drop out of the grid/rotation immediately.
   const onRatingFilterChange = (e) => {
-    selection.contentRatingFilter = e.target.value;
-    persistSelection();
+    setSetting("contentRatingFilter", e.target.value);
     revalidateSelection();
   };
   const onTypeFilterChange = (e) => {
-    selection.typeFilter = e.target.value;
-    persistSelection();
+    setSetting("typeFilter", e.target.value);
     revalidateSelection();
   };
   // Card style: classic (CD-rack) vs fixed (overlap-proof).
   const onLayoutChange = (value) => {
-    selection.pickerLayout = value;
-    persistSelection();
+    setSetting("pickerLayout", value);
     emit();
   };
   // Edge 兼容渲染开关：关闭后任何浏览器都走原生 <video>。改的是渲染模式，
   // syncLayers 的 wantKey 已并入模式，emit 会重建壁纸层并立即按新路径生效。
   const onEdgeCompatChange = (checked) => {
-    selection.edgeCompat = checked;
-    persistSelection();
+    setSetting("edgeCompat", checked);
     emit();
   };
   const onGroupChange = (e) => {
@@ -2526,87 +2533,73 @@ function WallpaperPicker(props) {
   // applyEffects is a subscribed listener (see apply()), so emit() applies the
   // CSS vars synchronously AND re-renders the numeric readouts in one pass.
   // (Calling applyEffects directly here too used to double-apply every tick.)
-  const onScrim = (pct) => { selection.scrim = pct / 100; persistSelection(); emit(); };
+  const onScrim = (pct) => { setSetting("scrim", pct / 100); emit(); };
   // 壁纸透明度（#82）：存 %（0–90），applyEffects 换算成 element opacity。
   const onWallpaperOpacity = (pct) => {
-    selection.wallpaperOpacity = clampNum(pct, 0, 90, DEFAULTS.wallpaperOpacity);
-    persistSelection(); emit();
+    setSetting("wallpaperOpacity", clampNum(pct, 0, 90, DEFAULTS.wallpaperOpacity)); emit();
   };
-  const onBorder = (pct) => { selection.border = pct / 100; persistSelection(); emit(); };
-  const onBlur = (px) => { selection.blur = px; persistSelection(); emit(); };
+  const onBorder = (pct) => { setSetting("border", pct / 100); emit(); };
+  const onBlur = (px) => { setSetting("blur", px); emit(); };
   // 切换过场（类型 / 方向 / 速度）：只写选择 —— 下一次换壁纸（手动点选或轮换提交）
   // 生效，不需要重建当前层。
   const onSwitchTransition = (id) => {
     if (!SWITCH_TRANSITION_VALUES.includes(id)) return;
-    selection.switchTransition = id;
-    persistSelection(); emit();
+    setSetting("switchTransition", id); emit();
   };
   const onSwitchTransitionDir = (dir) => {
     if (!SWITCH_DIRS.includes(dir)) return;
-    selection.switchTransitionDir = dir;
-    persistSelection(); emit();
+    setSetting("switchTransitionDir", dir); emit();
   };
   const onSwitchTransitionSpeed = (id) => {
     if (!SWITCH_SPEED_VALUES.includes(id)) return;
-    selection.switchTransitionSpeed = id;
-    persistSelection(); emit();
+    setSetting("switchTransitionSpeed", id); emit();
   };
-  const onWallpaperBlur = (px) => { selection.wallpaperBlur = px; persistSelection(); emit(); };
-  const onBackgroundBrightness = (pct) => { selection.backgroundBrightness = pct; persistSelection(); emit(); };
-  const onBackgroundContrast = (pct) => { selection.backgroundContrast = pct; persistSelection(); emit(); };
-  const onBackgroundSaturate = (pct) => { selection.backgroundSaturate = pct; persistSelection(); emit(); };
+  const onWallpaperBlur = (px) => { setSetting("wallpaperBlur", px); emit(); };
+  const onBackgroundBrightness = (pct) => { setSetting("backgroundBrightness", pct); emit(); };
+  const onBackgroundContrast = (pct) => { setSetting("backgroundContrast", pct); emit(); };
+  const onBackgroundSaturate = (pct) => { setSetting("backgroundSaturate", pct); emit(); };
   // 配色 (accent color) + 玻璃透明度 (glass transparency) + 玻璃颜色 (glass base
   // tint): applied instantly through applyEffects() (--we-accent /
   // --we-glass-alpha / --we-glass-color), persisted so the settings page keeps
   // its custom look across reloads.
   const onAccent = (hex) => {
     if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-    selection.accent = hex;
-    persistSelection(); emit();
+    setSetting("accent", hex); emit();
   };
   const onGlassColor = (hex) => {
     if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-    selection.glassColor = hex;
-    persistSelection(); emit();
+    setSetting("glassColor", hex); emit();
   };
   const onGlassAlpha = (pct) => {
-    selection.glassAlpha = clampNum(pct, 0, 60, DEFAULTS.glassAlpha);
-    persistSelection(); emit();
+    setSetting("glassAlpha", clampNum(pct, 0, 60, DEFAULTS.glassAlpha)); emit();
   };
   // 侧栏玻璃（dsh-better-sidebar）：独立于会话玻璃的一套细粒度控制，各自立即
   // 生效并持久化（--we-sidebar-blur / --we-sidebar-alpha / --we-sidebar-color）。
   const onSidebarBlur = (px) => {
-    selection.sidebarBlur = clampNum(px, 0, 200, DEFAULTS.sidebarBlur);
-    persistSelection(); emit();
+    setSetting("sidebarBlur", clampNum(px, 0, 200, DEFAULTS.sidebarBlur)); emit();
   };
   const onSidebarAlpha = (pct) => {
-    selection.sidebarAlpha = clampNum(pct, 0, 200, DEFAULTS.sidebarAlpha);
-    persistSelection(); emit();
+    setSetting("sidebarAlpha", clampNum(pct, 0, 200, DEFAULTS.sidebarAlpha)); emit();
   };
   const onSidebarColor = (hex) => {
     if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-    selection.sidebarColor = hex;
-    persistSelection(); emit();
+    setSetting("sidebarColor", hex); emit();
   };
   // Mascot pull-cord show/hide, persisted with the other toggles.
   const onRopeVisibilityChange = (e) => {
-    selection.ropeShown = e.target.checked;
-    persistSelection(); emit();
+    setSetting("ropeShown", e.target.checked); emit();
   };
   // Mascot form (maid / whale) + scale, persisted with the other rope settings.
   const onRopeFormChange = (form) => {
     if (!ROPE_FORM_VALUES.includes(form)) return;
-    selection.ropeForm = form;
-    persistSelection(); emit();
+    setSetting("ropeForm", form); emit();
   };
   const onRopeScaleChange = (scale) => {
-    selection.ropeScale = clampNum(scale, ROPE_SCALE_MIN, ROPE_SCALE_MAX, DEFAULTS.ropeScale);
-    persistSelection(); emit();
+    setSetting("ropeScale", clampNum(scale, ROPE_SCALE_MIN, ROPE_SCALE_MAX, DEFAULTS.ropeScale)); emit();
   };
   // 内容面（编辑器/终端）近不透明玻璃底：透明度滑块 + 底色（空 = 跟随主题）。
   const onSidebarContentAlpha = (pct) => {
-    selection.sidebarContentAlpha = clampNum(pct, 0, 80, DEFAULTS.sidebarContentAlpha);
-    persistSelection(); applyEffects(); emit();
+    setSetting("sidebarContentAlpha", clampNum(pct, 0, 80, DEFAULTS.sidebarContentAlpha)); applyEffects(); emit();
   };
   const onSidebarContentColor = (hex) => {
     if (hex === "") {
@@ -2615,13 +2608,11 @@ function WallpaperPicker(props) {
       return;
     }
     if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-    selection.sidebarContentColor = hex;
-    persistSelection(); applyEffects(); emit();
+    setSetting("sidebarContentColor", hex); applyEffects(); emit();
   };
   // 字体自定义（#57 精简回归版）：总开关 + 颜色/字重/字体族，各项立即生效并持久化。
   const onToggleFontCustom = (v) => {
-    selection.fontCustom = !!v;
-    persistSelection(); applyEffects(); emit();
+    setSetting("fontCustom", !!v); applyEffects(); emit();
   };
   // F1：角色色。默认「单色」—— 一个色同时写进 light/dark 两套（内部始终存两套，
 // 因为令牌服务的值必须是 {light,dark} 对，缺一套在另一套配色下会不可读）。
@@ -2630,8 +2621,7 @@ const onThemeFamily = (role, key) => {
   const next = Object.assign({}, selection.themeFamily);
   if (!key) delete next[role];
   else next[role] = key;
-  selection.themeFamily = next;
-  persistSelection(); applyEffects(); emit();
+  setSetting("themeFamily", next); applyEffects(); emit();
 };
 
 // F2/G4 字号（角色级，**绝对值**）：空 = 用 DSH 官方值（角色表的 defaultPx 即面板显示的默认）。
@@ -2640,8 +2630,7 @@ const onThemeSize = (role, raw) => {
   const num = raw === "" ? NaN : Number(raw);
   if (!Number.isFinite(num)) delete next[role];
   else next[role] = Math.round(num);
-  selection.themeSize = next;
-  persistSelection(); applyEffects(); emit();
+  setSetting("themeSize", next); applyEffects(); emit();
 };
 
 // G4 字重（角色级）：空/0 = 回官方字重（组合式里的字面量前缀）。
@@ -2650,8 +2639,7 @@ const onThemeWeight = (role, raw) => {
   const num = raw === "" ? NaN : Number(raw);
   if (!Number.isFinite(num)) delete next[role];
   else next[role] = Math.round(num);
-  selection.themeWeight = next;
-  persistSelection(); applyEffects(); emit();
+  setSetting("themeWeight", next); applyEffects(); emit();
 };
 
 // G3/G4：组件级字体。空/删键 = 回官方值（**官方值作初始值**）。
@@ -2663,8 +2651,7 @@ const onComponentFont = (prefix, prop, raw) => {
   else one[prop] = Math.round(num);
   if (Object.keys(one).length) next[prefix] = one;
   else delete next[prefix];
-  selection.componentFonts = next;
-  persistSelection(); applyEffects(); emit();
+  setSetting("componentFonts", next); applyEffects(); emit();
 };
 
 const onThemeColor = (role, mode, hex, separate) => {
@@ -2672,22 +2659,19 @@ const onThemeColor = (role, mode, hex, separate) => {
   const next = { light: cur.light || "", dark: cur.dark || "" };
   if (separate) next[mode] = hex;
   else { next.light = hex; next.dark = hex; }
-  selection.themeColors = Object.assign({}, selection.themeColors, { [role]: next });
-  persistSelection(); applyEffects(); emit();
+  setSetting("themeColors", Object.assign({}, selection.themeColors, { [role]: next })); applyEffects(); emit();
 };
 const onThemeColorClear = (role) => {
   const next = Object.assign({}, selection.themeColors);
   delete next[role];
-  selection.themeColors = next;
-  persistSelection(); applyEffects(); emit();
+  setSetting("themeColors", next); applyEffects(); emit();
 };
 // F2：排版偏移（px，整数，0 = 不接管该角色 ⇒ 直接删键，回到 DSH 原生字阶）。
 const onThemeType = (role, px) => {
   const next = Object.assign({}, selection.themeType);
   if (!px) delete next[role];
   else next[role] = px;
-  selection.themeType = next;
-  persistSelection(); applyEffects(); emit();
+  setSetting("themeType", next); applyEffects(); emit();
 };
 // 视图开关（defaults-only，不持久化）：只列调过的角色，便于收尾核对。
 const onThemeTypeOnly = (v) => {
@@ -2696,8 +2680,7 @@ const onThemeTypeOnly = (v) => {
 };
 
 const onThemeDarkSeparate = (v) => {
-  selection.themeDarkSeparate = v;
-  persistSelection(); applyEffects(); emit();
+  setSetting("themeDarkSeparate", v); applyEffects(); emit();
 };
 
 const onFontColorAll = (hex, separate) => {
@@ -2707,8 +2690,7 @@ const onFontColorAll = (hex, separate) => {
   for (const role of THEME_COLOR_ROLES) {
     next[role.id] = separate ? { light: hex, dark: hex } : { light: hex, dark: hex };
   }
-  selection.themeColors = next;
-  persistSelection(); applyEffects(); emit();
+  setSetting("themeColors", next); applyEffects(); emit();
 };
   // 全局字重与全局字体族都已移除：字重/字族都按角色与按组件细化（见 src/font/）。
   // 「高级字体设置」视图开关（defaults-only，不持久化）。
@@ -2724,8 +2706,7 @@ const onFontColorAll = (hex, separate) => {
     else one.family = fontFamilyStack(key);
     if (Object.keys(one).length) next[prefix] = one;
     else delete next[prefix];
-    selection.componentFonts = next;
-    persistSelection(); applyEffects(); emit();
+    setSetting("componentFonts", next); applyEffects(); emit();
   };
   // 颜色角色的「当前 DSH 默认值」：宿主墨色快照（snapshotHostFontDefaults 写在 documentElement
 // 上）转为 #rrggbb 供 <input type="color"> 用。取不到就返回空串 —— 面板会退回显示"跟随"，
@@ -2758,8 +2739,7 @@ const officialColorOf = (tokens) => {
     selection.componentFonts = {};
     selection.themeDarkSeparate = false;
     selection.themeTypeOnly = false;
-    selection.fontAdvanced = false;
-    persistSelection(); applyEffects(); emit();
+    setSetting("fontAdvanced", false); applyEffects(); emit();
   };
   // 壁纸画面刷新：当前场景壁纸循环切换静态帧生成档位（按壁纸记忆）。
   // 档位数=4；已导入自定义画面时为 5（第 5 档=用户截屏）。
@@ -2773,8 +2753,7 @@ const officialColorOf = (tokens) => {
     map[wid] = next;
     selection.frameVariants = map;
     // 刷新作用于静态帧：把层切回当前档位的静态帧。
-    selection.url = frameUrlWithVariant(sel.sceneFrameUrl, next);
-    persistSelection(); syncLayers(); emit();
+    setSetting("url", frameUrlWithVariant(sel.sceneFrameUrl, next)); syncLayers(); emit();
   };
   // 清除 GPU 抓帧缓存（<key>_gpu.png）：按用户决策 GPU 帧优先于全部档位，
   // 所以「切档位 / 换回 CPU 生成画面」的前置动作就是先删掉它。删除后立刻按
@@ -2807,8 +2786,7 @@ const officialColorOf = (tokens) => {
         if (String(selection.id || "") !== wid) { gpuFrameUi.busy = false; emit(); return; }
         gpuFrameUi.busy = false;
         const variant = Number(selection.frameVariants && selection.frameVariants[wid]) || 0;
-        selection.url = frameUrlWithVariant(sel.sceneFrameUrl, variant);
-        persistSelection(); syncLayers(); emit();
+        setSetting("url", frameUrlWithVariant(sel.sceneFrameUrl, variant)); syncLayers(); emit();
       })
       .catch(() => {
         gpuFrameUi.busy = false;
@@ -2874,8 +2852,7 @@ const officialColorOf = (tokens) => {
       // 上传可能花掉秒级（截屏多 MB）：期间用户切走就只记账到发起时那张壁纸，
       // 不改当前壁纸的 URL（否则当前壁纸会被套上旧壁纸的档位 4，评审 P2）。
       if (String(selection.id || "") !== wid) { persistSelection(); emit(); return; }
-      if (sel.sceneFrameUrl) selection.url = frameUrlWithVariant(sel.sceneFrameUrl, 4);
-      persistSelection(); syncLayers(); emit();
+      if (sel.sceneFrameUrl) setSetting("url", frameUrlWithVariant(sel.sceneFrameUrl, 4)); syncLayers(); emit();
     }).catch(() => { /* 导入失败保持现状 */ });
   };
   const onClearCustomFrame = () => {
@@ -2900,13 +2877,11 @@ const officialColorOf = (tokens) => {
   // 输入光标颜色（#83）："" = 跟随 dsh 原生（自动档），hex = 立即注入并持久化。
   const onCaretColor = (hex) => {
     if (hex === "") {
-      selection.caretColor = "";
-      persistSelection(); applyEffects(); emit();
+      setSetting("caretColor", ""); applyEffects(); emit();
       return;
     }
     if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-    selection.caretColor = hex;
-    persistSelection(); applyEffects(); emit();
+    setSetting("caretColor", hex); applyEffects(); emit();
   };
 
   // Close the picker modal (ESC / backdrop / close buttons share this path).
@@ -3151,21 +3126,26 @@ const officialColorOf = (tokens) => {
   // ── 页签面板内容（函数声明提升，renderActiveTab 在 return 里先调用）──────
   const renderActiveTab = () => {
     if (activeTab === "appearance") return renderAppearanceTab({
+      setSetting, setTransient,
       officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onToggleFontCustom, sel,
     });
     if (activeTab === "mascot") return renderMascotTab({
       onRopeFormChange, onRopeScaleChange, onRopeVisibilityChange, sel,
     });
     if (activeTab === "effects") return renderEffectsTab({
+      setSetting, setTransient,
       onBackgroundBrightness, onBackgroundContrast, onBackgroundSaturate, onClearCustomFrame, onClearGpuFrame, onCustomFrameFile, onRecaptureGpuFrame, onRefreshFrame, onScrim, onWallpaperBlur, onWallpaperOpacity, sel,
     });
     if (activeTab === "audio") return renderAudioTab({
+      setSetting, setTransient,
       onToggleAudio, onVideoVolume, sel,
     });
     if (activeTab === "advanced") return renderAdvancedTab({
+      setSetting, setTransient,
       onEdgeCompatChange, onLayoutChange, sel,
     });
     return renderWallpaperTab({
+      setSetting, setTransient,
       INTERVALS, cdMode, current, editing, editorPageView, group, groups, isLiveScene, onClear, onDeleteGroup, onGroupChange, onGroupInterval, onRefresh, onSwitchTransition, onSwitchTransitionDir, onSwitchTransitionSpeed, onToggleAudio, onTogglePlay, onToggleRotation, pagerRow, playableCount, playableList, playbackLive, renderUserPropsPanel, sel, uploadedList,
     });
   };
@@ -3804,8 +3784,7 @@ function UpdateNotice() {
   const dismiss = () => {
     // Persist the dismissed version through the settings pipeline (localStorage
     // cache + host file). emit() re-renders this component (useStore) to hide it.
-    selection.noticeSeen = NOTICE_VERSION;
-    persistSelection();
+    setSetting("noticeSeen", NOTICE_VERSION);
     emit();
   };
   if (!show) return null;
