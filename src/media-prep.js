@@ -18,7 +18,7 @@
  *                     releaseRotationAudioGate · isRotatableWallpaper · groupWallpapers
  *   媒体与探测        adoptProbe · releaseProbeMedia · consumePreparedMedia · disposePreparedMedia ·
  *                     frameUrlWithVariant · weApplyAudio · syncSceneAudio · weStartDraw · weDrawFrame
- *   prelude/client    emit · persistSelection · reportClientDiag · apiFetch（prelude）
+ *   prelude/client    emit · persistSelection · reportClientDiag · apiHead/apiFetch（prelude）
  * 提供的入口：
  *   applySelection(id, opts)               选中项落地（**唯一**入口：解析 → 门禁 → 持久化 → 层同步 → emit）
  *   buildMedia(sel)                        按 selection 造媒体元素（img/video/iframe/canvas）
@@ -487,7 +487,7 @@ function applySelection(id, opts) {
   selection.sceneHasAudio = false;
   if (selection.sceneAudioUrl) {
     const probeUrl = selection.sceneAudioUrl;
-    fetch(probeUrl, { method: "HEAD", cache: "no-store" }).then((r) => {
+    apiHead(probeUrl).then((r) => {
       if (r.ok && selection.sceneAudioUrl === probeUrl) {
         selection.sceneHasAudio = true;
         try { emit(); } catch { /* ignore */ }

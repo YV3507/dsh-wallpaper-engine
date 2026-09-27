@@ -877,7 +877,8 @@ function maybeCaptureLiveFrame(frame, sel) {
       dataUrl = wp && typeof wp.capture === "function" ? wp.capture(1920) : null;
     } catch { return; }
     if (!dataUrl || dataUrl.indexOf("data:image/") !== 0) return;
-    fetch(dataUrl).then((r) => r.blob()).then((blob) => fetch(sel.liveFrame, {
+    // 两跳都走统一出入口：`data:` URL 是**本地字节转换**（apiUrl 原样放行），POST 才是宿主 API。
+    apiFetch(dataUrl).then((r) => r.response.blob()).then((blob) => apiFetch(sel.liveFrame, {
       method: "POST",
       headers: { "Content-Type": "image/jpeg" },
       body: blob,

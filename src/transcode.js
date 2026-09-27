@@ -12,7 +12,7 @@
  *   emit()                    ← 单向重渲染（本文件不直接碰 DOM 结构）
  *   isEffectivelyPlaying()    ← "当前是否在播"（换源前判断，避免打断播放）
  *   weDrawFrame()             ← 抓/重绘一帧（换源后立刻上屏）
- *   apiJson(path)             ← src/api-client.js（宿主 API 唯一出入口）
+ *   apiJson(path) / apiFetch(path)  ← src/api-client.js（宿主 API 唯一出入口；探测带 signal 透传）
  * 提供的入口：
  *   refreshMediaInfo(force)              读 /media-info，写 selection.mediaInfo（含"源 fps ≤ 上限 ⇒ 无需转码"）
  *   maybeUpgradeToTranscoded(video, token) 决策并启动/落地抽帧转码（syncLayers 调用）
@@ -66,10 +66,9 @@ async function refreshMediaInfo(force) {
   mediaInfoToken = token;
   mediaInfoInFlight = token;
   try {
-    const init = { cache: "no-store" };
-    if (ctrl) init.signal = ctrl.signal;
-    const res = await fetch("/wallpaper-engine/media-info/" + encodeURIComponent(token), init);
-    const data = await res.json().catch(() => ({}));
+    // 探测带 abort：`apiJson` 透传 signal，被取代的探测不写状态（下方 mediaInfoToken 校验）。
+    const res = await apiJson("/media-info/" + encodeURIComponent(token), { signal: ctrl ? ctrl.signal : undefined });
+    const data = res.data || {};
     if (mediaInfoToken === token) {
       selection.mediaInfo = (data && data.info) || null;
       // Source fps ≤ cap → no transcode needed; cancel an in-flight upgrade.
@@ -215,12 +214,12 @@ function maybeUpgradeToTranscoded(video, token) {
   // has the transcode cached, then answers 206 with one byte (discarded). The
   // <video> then streams the SAME url via range requests — no full-file blob is
   // ever held in memory and playback starts as soon as the first bytes arrive.
-  fetch(transcodedUrl, { signal: ctrl.signal, headers: { Range: "bytes=0-0" } })
+  apiFetch(transcodedUrl, { signal: ctrl.signal, headers: { Range: "bytes=0-0" } })
     .then(async (res) => {
       if (ctrl.signal.aborted) return; // superseded by a newer request
       if (pollTimer) clearInterval(pollTimer); // only ever this request's own timer
       if (!res.ok) { transcodeUpgradeFailed(video, token); return; }
-      try { await res.arrayBuffer(); } catch { /* 1-byte body; discard */ }
+      try { await res.response.arrayBuffer(); } catch { /* 1-byte body; discard */ }
       if (ctrl.signal.aborted) return;
       if (selection.fpsCap !== cap || !video.isConnected) {
         // The user changed the cap (or the wallpaper) while this request was in

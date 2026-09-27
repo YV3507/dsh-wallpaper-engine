@@ -25,23 +25,19 @@ const { BASE, apiUrl, apiFetch, apiJson, apiHead, apiPostJson, apiDelete } = api
  * 改写一处调用点后把这个数字改小（守卫会告诉你当前实际值）。
  * 终态 0 —— 届时本常量归零，断言变成"业务代码零裸 fetch"。
  *
- * 进度：26 → 20 → 16 → **13**（第一批：帧缓存 / 帧探测 6 处 —— `probeGpuFramePin`、
- * `clearGpuFrameSlot`、live 回填的 HEAD 与 PUT、`probeGpuFrameState`、面板「清除 GPU 帧」；
- * 第二批：轮询 / 上报 4 处 —— `audio-spectrum`、`now-playing`、`client-diag`、`transcode-progress`；
- * 第三批：设置 / 库存 3 处 —— 设置 GET/PUT、库存 GET）。
+ * ✅ **终态已到（2026-09-27）**：26 处全部改完 —— 客户端 12 个模块全为 0，
+ * 断言已由"≤ 基线"翻成"**全部模块零裸 fetch**"（见 ① 的 `CLIENT_MODULES`）。
+ * 下面这两个常量保留作**历史坐标**：`CLIENT_FETCH_BASELINE` 记 client.js 最后的值（8），
+ * `MODULE_FETCH_BASELINE` 记各模块搬迁后的中间值 —— 它们解释"总数 13 是怎么构成的"，
+ * 也给将来若有人回退时一个对照。
  */
-const CLIENT_FETCH_BASELINE = 8;   // 只许减少；每批改写后同步下调
-/**
- * 抽出来的客户端模块各自的裸 fetch 基线（只许减少）。**覆盖面必须跟着代码走**：
- * 把带裸 fetch 的代码搬进新模块时，若判据只盯 client.js，棘轮就会因为"搬走"而变绿。
- */
-const MODULE_FETCH_BASELINE = {
-  'src/live-layer.js': 2,   // 转码 Range 探测 / live 帧探测之外的遗留调用点
-  'src/media-prep.js': 1,
-  'src/transcode.js': 2,    // 转码 Range 探测 + 首帧探测（P2-9 剩余）
+const CLIENT_FETCH_BASELINE = 0;   // 终态：0（历史：26 → 20 → 16 → 13 → 8 → 0）
+const MODULE_FETCH_BASELINE = {    // 终态：全 0（历史峰值见注释）
+  'src/live-layer.js': 0,   // 曾 2
+  'src/media-prep.js': 0,   // 曾 1
+  'src/transcode.js': 0,    // 曾 2
 };
-/** 客户端裸 fetch **总计**只许减少 —— 搬动代码改不了总计，这条骗不过。 */
-const TOTAL_FETCH_BASELINE = 13;
+const TOTAL_FETCH_BASELINE = 0;    // 终态：0（历史：13）
 
 let failed = 0;
 const check = (name, ok, detail) => {
@@ -52,35 +48,30 @@ const strip = (src) => src
   .replace(/\/\*[\s\S]*?\*\//g, ' ')
   .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
 
-// ── ① 棘轮 ──────────────────────────────────────────────────────────────────
+// ── ① 棘轮（**终态已到**：客户端全模块零裸 fetch）────────────────────────────
 console.log('\n① 裸 fetch 棘轮（业务代码只许减少）');
 {
   const count = (rel) => (strip(readFileSync(join(root, rel), 'utf8')).match(/\bfetch\s*\(/g) || []).length;
-  const client = count('src/client.js');
-  check(`src/client.js 裸 fetch ≤ 基线 ${CLIENT_FETCH_BASELINE}`, client <= CLIENT_FETCH_BASELINE,
-    `当前 ${client}`);
-  // ⚠️ **覆盖面必须跟着代码走**：把带裸 fetch 的代码搬进新模块，如果判据只盯 client.js，
-  //    棘轮就会"因为搬走而变绿"（把裸 fetch 藏起来）。所以：每个客户端模块各有基线，
-  //    并且额外断言**总计**只许减少 —— 搬动改不了总计，这条骗不过。
-  let total = client;
-  for (const [rel, base] of Object.entries(MODULE_FETCH_BASELINE)) {
-    const n = count(rel);
-    total += n;
-    check(`${rel} 裸 fetch ≤ 基线 ${base}`, n <= base, `当前 ${n}`);
-  }
-  check(`客户端裸 fetch 总计 ≤ 基线 ${TOTAL_FETCH_BASELINE}（搬动骗不过这条）`,
-    total <= TOTAL_FETCH_BASELINE, `当前 ${total}`);
-  for (const rel of ['src/api-client.js', 'src/effects.js', 'src/font/apply.js',
-    'src/font/color-roles.js', 'src/font/typography.js', 'src/we-cond.js', 'src/styles.js']) {
-    check(`${rel} 零裸 fetch`, count(rel) === 0, `当前 ${count(rel)}`);
-  }
+  const CLIENT_MODULES = [
+    'src/client.js', 'src/panel-tabs.js', 'src/live-layer.js', 'src/media-prep.js',
+    'src/transcode.js', 'src/styles.js', 'src/effects.js', 'src/font/apply.js',
+    'src/font/color-roles.js', 'src/font/typography.js', 'src/we-cond.js', 'src/api-client.js',
+  ];
+  const counts = CLIENT_MODULES.map((rel) => [rel, count(rel)]);
+  const dirty = counts.filter(([, n]) => n > 0);
+  check('客户端**全部**模块零裸 fetch（P2-9 终态）', dirty.length === 0,
+    dirty.length ? dirty.map(([f, n]) => f + '=' + n).join(' ') : CLIENT_MODULES.length + ' 个模块全为 0');
+  // 覆盖面断言：上面那条在"扫不到文件"时也会绿（本仓踩过 walker 静默返回空表），
+  // 所以先钉住"文件真的都在、而且真的含 fetch 字样以外的东西"。
+  check('负对照：扫描覆盖面成立（12 个模块都存在且非空）',
+    counts.length === 12 && CLIENT_MODULES.every((rel) => readFileSync(join(root, rel), 'utf8').length > 500));
+  check('负对照：判据能数出合成文本里的裸 fetch',
+    (strip("const r = await fetch('/x'); // fetch( in comment").match(/\bfetch\s*\(/g) || []).length === 1);
   check('src/api-client.js 存在且是出入囗模块',
     readFileSync(join(root, 'src/api-client.js'), 'utf8').includes('async function apiFetch'));
-  // 负对照：判据对合成文本必须有牙
-  check('负对照：棘轮判据能数出合成文本里的裸 fetch',
-    (strip("const r = await fetch('/x'); // fetch( in comment").match(/\bfetch\s*\(/g) || []).length === 1);
-  check('负对照：总计判据对"搬进新模块"的裸 fetch 有牙',
-    count('src/live-layer.js') > 0 && MODULE_FETCH_BASELINE['src/live-layer.js'] >= count('src/live-layer.js'));
+  // 唯一的 fetch 调用点在出入口模块内部（`pickFetch` 里把它取出来），不在业务代码里。
+  check('fetch 只在出入口模块内部被"取用"（业务代码零调用）',
+    readFileSync(join(root, 'src/api-client.js'), 'utf8').includes('const doFetch = pickFetch(o.fetch);'));
 }
 
 // ── ② 前缀与默认值 ──────────────────────────────────────────────────────────
@@ -121,6 +112,19 @@ console.log('\n③ 语义（非 2xx / 网络中断 / 解析失败）');
   check('HEAD 不解析体', headRes.data === null);
   const delRes = await apiDelete('/a', { fetch: mk(200, '{"should":"not parse"}') });
   check('DELETE 默认不解析体（很多接口 204/空体）', delRes.data === null && delRes.ok === true);
+  // 非 2xx 的体：默认不读（错误页不是数据），显式要 `parse: 'always'` 才读（读宿主给的 {error}）。
+  const errBody = { status: 400, text: async () => '{"error":"素材目录不存在"}' };
+  const errDefault = await apiFetch('/a', { fetch: async () => errBody });
+  check('非 2xx 默认**不**解析体（错误页不当数据）',
+    errDefault.ok === false && errDefault.status === 400 && errDefault.data === null);
+  const errAlways = await apiFetch('/a', { fetch: async () => errBody, parse: 'always' });
+  check("parse:'always' 能读到宿主给的原因（4xx 的 {error}）",
+    errAlways.ok === false && errAlways.data && errAlways.data.error === '素材目录不存在');
+  check('负对照：默认解析策略下读不到那句原因（否则上一条是假绿）',
+    !(errDefault.data && errDefault.data.error === '素材目录不存在'));
+  check('本地 data:/blob: URL 原样通过（本模块也是本地字节转换的出口）',
+    apiUrl('data:image/png;base64,AAA') === 'data:image/png;base64,AAA'
+    && apiUrl('blob:http://x/y') === 'blob:http://x/y');
   check('无 fetch 可用时给出结构化失败而不是抛', (await apiFetch('/a', { fetch: null })).error === 'no-fetch'
     || typeof fetch === 'function');
 }

@@ -423,6 +423,17 @@ async function loadPersisted() {
 // and two overlapping requests used to resolve in arbitrary order — an older,
 // slower response could clobber a newer inventory. The last caller wins;
 // superseded requests drop their result entirely.
+/**
+ * 把"请求失败"的两种情形翻成**同一句可读原因**（P2-9 的显式语义，**唯一一处**）：
+ *   · `status === 0` ⇒ 请求没完成（宿主不可达）—— 不是"宿主返回了 0"；
+ *   · 其余 ⇒ 宿主有响应但非 2xx，优先用宿主给的原因（`{ error }`，需 `parse: "always"`）。
+ * 面板与错误行都靠这句话告诉用户"到底哪一步不对"，所以不许各自手写。
+ */
+function hostFailureReason(res) {
+  if (!res || !res.status) return "宿主不可达（请求未完成）";
+  const data = res.data;
+  return (data && data.error) || ("宿主返回 " + res.status);
+}
 let inventorySeq = 0;
 async function loadInventory() {
   const seq = ++inventorySeq;
@@ -431,11 +442,8 @@ async function loadInventory() {
   let next;
   try {
     const res = await apiJson(INVENTORY_URL);
-    if (!res.ok) {
-      // 不变量：两种失败必须保持**可区分** —— `status === 0` = 请求没完成（宿主不可达），
-      // 其余 = 宿主有响应但非 2xx。面板的错误行据此给出可读原因，不许合并成一句话。
-      throw new Error(res.status ? "inventory HTTP " + res.status : "宿主不可达（清单请求未完成）");
-    }
+    // 两种失败（宿主不可达 / 非 2xx）由 hostFailureReason 统一翻译，面板那一行据此显示。
+    if (!res.ok) throw new Error(hostFailureReason(res));
     const data = res.data || {};
     next = {
       installDir: data.installDir,
@@ -1251,13 +1259,14 @@ async function uploadWallpaperFile(file) {
   emit();
   try {
     const title = file.name.replace(/\.[^.]+$/, "").slice(0, 80);
-    const res = await fetch(UPLOAD_URL + "?title=" + encodeURIComponent(title), {
+    const res = await apiFetch(UPLOAD_URL + "?title=" + encodeURIComponent(title), {
       method: "POST",
       headers: { "Content-Type": ctype },
       body: file,
+      parse: "always", // 失败时也要读宿主给的原因（4xx/5xx 的 {error}）
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+    const data = res.data || {};
+    if (!res.ok) throw new Error(hostFailureReason(res));
     // Host dedup: uploading the same file again returns the existing entry
     // (data.duplicate) instead of storing a second copy.
     if (data.duplicate) {
@@ -1278,13 +1287,8 @@ async function removeUploadWallpaper(id) {
   selection.uploadError = "";
   emit();
   try {
-    const res = await fetch(REMOVE_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+    const res = await apiPostJson(REMOVE_URL, { id }, { parse: "always" });
+    if (!res.ok) throw new Error(hostFailureReason(res));
     if (selection.id === id) applySelection("");
     await loadInventory();
   } catch (err) {
@@ -1309,13 +1313,9 @@ async function changeUploadDir(dir, migrate) {
   selection.uploadError = "";
   emit();
   try {
-    const res = await fetch(UPLOAD_DIR_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ dir: String(dir).trim(), migrate: migrate !== false }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+    const res = await apiPostJson(UPLOAD_DIR_URL,
+      { dir: String(dir).trim(), migrate: migrate !== false }, { parse: "always" });
+    if (!res.ok) throw new Error(hostFailureReason(res));
     selection.editingUploadDir = false;
     selection.uploadDirDraft = "";
     await loadInventory();
@@ -1337,13 +1337,9 @@ async function changeWeAssetsDir(dir) {
   selection.weAssetsError = "";
   emit();
   try {
-    const res = await fetch(WE_ASSETS_DIR_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ dir: String(dir || "").trim() }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+    const res = await apiPostJson(WE_ASSETS_DIR_URL,
+      { dir: String(dir || "").trim() }, { parse: "always" });
+    if (!res.ok) throw new Error(hostFailureReason(res));
     selection.editingWeAssetsDir = false;
     selection.weAssetsDirDraft = "";
     await loadInventory();
@@ -1557,9 +1553,10 @@ const MEDIA_ART_MAX_TRIES = 4;
 
 /** 取封面并按 MEDIA_THUMB_MAX 降采样成 JPEG data URL（失败返回空串）。 */
 async function fetchArtworkDataUrl(url) {
-  const r = await fetch(url, { cache: "no-store" });
+  // 封面 URL 由宿主给（`/now-playing/artwork`），走统一出入口；体是二进制，只要原始 Response。
+  const r = await apiFetch(url);
   if (!r.ok) return "";
-  const blob = await r.blob();
+  const blob = await r.response.blob();
   if (!/^image\//.test(blob.type || "")) return "";
   const bitmap = await createImageBitmap(blob).catch(() => null);
   if (!bitmap) return "";
@@ -1866,9 +1863,9 @@ function loadUserPropDefs(token, force) {
   if (!force && (propsState.token === token && (propsState.props.length || propsState.loading))) return;
   const url = PROPS_URL + "/" + encodeURIComponent(token);
   propsState = { token, loading: true, error: "", props: propsState.token === token ? propsState.props : [], remote: true };
-  fetch(url, { cache: "no-store" })
-    .then((r) => r.json())
-    .then((d) => {
+  apiJson(url)
+    .then((res) => {
+      const d = res.data;
       if (!d || !d.ok) throw new Error((d && d.error) || "读取失败");
       if (propsState.token !== token) return; // 期间换了壁纸：丢弃
       // 值以渲染页的实时表为准（场景壁纸的默认值在 scene.json 快照里，可能和
@@ -2999,12 +2996,12 @@ const officialColorOf = (tokens) => {
     const wid = String(sel.id);
     const ctype = (file.type === "image/jpeg" || file.type === "image/png" || file.type === "image/webp")
       ? file.type : "image/png";
-    fetch("/wallpaper-engine/custom-frame/" + encodeURIComponent(wid), {
+    apiFetch("/custom-frame/" + encodeURIComponent(wid), {
       method: "POST",
       headers: { "Content-Type": ctype },
       body: file,
     }).then((r) => {
-      if (!r.ok) throw new Error("HTTP " + r.status);
+      if (!r.ok) throw new Error("宿主返回 " + r.status);
       setCustomFrameLocal(wid, true);
       const map = Object.assign({}, selection.frameVariants || {});
       map[wid] = 4;
@@ -3019,9 +3016,9 @@ const officialColorOf = (tokens) => {
   const onClearCustomFrame = () => {
     if (!sel.id) return;
     const wid = String(sel.id);
-    fetch("/wallpaper-engine/custom-frame/" + encodeURIComponent(wid), { method: "DELETE" })
+    apiDelete("/custom-frame/" + encodeURIComponent(wid))
       .then((r) => {
-        if (!r.ok) throw new Error("HTTP " + r.status);
+        if (!r.ok) throw new Error("宿主返回 " + r.status);
         setCustomFrameLocal(wid, false);
         const map = Object.assign({}, selection.frameVariants || {});
         const cur = Number(map[wid]) || 0;
