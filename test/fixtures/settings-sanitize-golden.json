@@ -1,5 +1,5 @@
 {
-  "note": "由 P1-5 前的旧实现（vm 内跑源码文本）生成；新实现必须逐字节复现 host 输出。 F1 起补入 themeColors / themeDarkSeparate 两键（新增键按\"引入时行为\"记录）。",
+  "note": "由 P1-5 前的旧实现（vm 内跑源码文本）生成；新实现必须逐字节复现 host 输出。 F1 起补入 themeColors / themeDarkSeparate 两键（新增键按\"引入时行为\"记录；F2 起含 themeType）。",
   "generatedFrom": {
     "client": "src/client.js sanitizeSettings",
     "host": "lib/index.js sanitizeSettings"
@@ -69,7 +69,8 @@
         "customFrames": {},
         "caretColor": "",
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       },
       "host": {
         "id": "",
@@ -130,7 +131,8 @@
         "switchTransitionSpeed": "normal",
         "caretColor": "",
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       }
     },
     {
@@ -199,7 +201,8 @@
         "videoVolume": 0,
         "videoAudioEnabled": true,
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       },
       "host": "__null__"
     },
@@ -269,7 +272,8 @@
         "videoVolume": 0,
         "videoAudioEnabled": true,
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       },
       "host": "__null__"
     },
@@ -339,7 +343,8 @@
         "videoVolume": 0,
         "videoAudioEnabled": true,
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       },
       "host": "__null__"
     },
@@ -411,7 +416,8 @@
         "customFrames": {},
         "caretColor": "",
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       },
       "host": {
         "id": "",
@@ -472,7 +478,8 @@
         "switchTransitionSpeed": "normal",
         "caretColor": "",
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       }
     },
     {
@@ -600,7 +607,8 @@
         "customFrames": {},
         "caretColor": "",
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       },
       "host": {
         "id": "",
@@ -661,7 +669,8 @@
         "switchTransitionSpeed": "normal",
         "caretColor": "",
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       }
     },
     {
@@ -834,7 +843,8 @@
         "customFrames": {},
         "caretColor": "",
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       },
       "host": {
         "id": "",
@@ -895,7 +905,8 @@
         "switchTransitionSpeed": "normal",
         "caretColor": "",
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       }
     },
     {
@@ -967,7 +978,8 @@
         "customFrames": {},
         "caretColor": "",
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       },
       "host": {
         "id": "",
@@ -1028,7 +1040,8 @@
         "switchTransitionSpeed": "normal",
         "caretColor": "",
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       }
     },
     {
@@ -1114,7 +1127,8 @@
         "customFrames": {},
         "caretColor": "",
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       },
       "host": {
         "id": "",
@@ -1175,7 +1189,8 @@
         "switchTransitionSpeed": "normal",
         "caretColor": "",
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       }
     },
     {
@@ -1261,7 +1276,8 @@
         "customFrames": {},
         "caretColor": "",
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       },
       "host": {
         "id": "",
@@ -1322,7 +1338,8 @@
         "switchTransitionSpeed": "normal",
         "caretColor": "",
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       }
     },
     {
@@ -1395,7 +1412,8 @@
         "customFrames": {},
         "caretColor": "",
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       },
       "host": {
         "id": "",
@@ -1456,7 +1474,8 @@
         "switchTransitionSpeed": "normal",
         "caretColor": "",
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       }
     },
     {
@@ -1534,7 +1553,8 @@
         "customFrames": {},
         "caretColor": "",
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       },
       "host": {
         "id": "",
@@ -1595,7 +1615,8 @@
         "switchTransitionSpeed": "normal",
         "caretColor": "",
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       }
     },
     {
@@ -1670,7 +1691,8 @@
         "customFrames": {},
         "caretColor": "",
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       },
       "host": {
         "id": "",
@@ -1731,7 +1753,8 @@
         "switchTransitionSpeed": "normal",
         "caretColor": "",
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       }
     },
     {
@@ -1813,7 +1836,8 @@
         "customFrames": {},
         "caretColor": "",
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       },
       "host": {
         "id": "",
@@ -1874,7 +1898,8 @@
         "switchTransitionSpeed": "normal",
         "caretColor": "",
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       }
     },
     {
@@ -2025,7 +2050,8 @@
         },
         "caretColor": "",
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       },
       "host": {
         "id": "",
@@ -2110,7 +2136,8 @@
         "switchTransitionSpeed": "normal",
         "caretColor": "",
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       }
     },
     {
@@ -2181,7 +2208,8 @@
         "customFrames": {},
         "caretColor": "",
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       },
       "host": {
         "id": "",
@@ -2242,7 +2270,8 @@
         "switchTransitionSpeed": "normal",
         "caretColor": "",
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       }
     },
     {
@@ -2313,7 +2342,8 @@
         "customFrames": {},
         "caretColor": "",
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       },
       "host": {
         "id": "wallpaper-42",
@@ -2374,7 +2404,8 @@
         "switchTransitionSpeed": "normal",
         "caretColor": "",
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       }
     },
     {
@@ -2446,7 +2477,8 @@
         "customFrames": {},
         "caretColor": "",
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       },
       "host": {
         "id": "",
@@ -2507,7 +2539,8 @@
         "switchTransitionSpeed": "normal",
         "caretColor": "",
         "themeColors": {},
-        "themeDarkSeparate": false
+        "themeDarkSeparate": false,
+        "themeType": {}
       }
     }
   ]

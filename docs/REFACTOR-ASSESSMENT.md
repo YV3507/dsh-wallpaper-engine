@@ -115,6 +115,16 @@
 | 守卫 | 链 13 项 / 8,354 行 | **链 14 项 / 8620 行** | +`verify-theme-layer`（行为 + 负对照） |
 | 设置键 | 59 键（客户端） | **61 键** | +`themeColors` / +`themeDarkSeparate`（golden 夹具同步更新） |
 
+
+**F2 完成后的增量（2026-09-27）** —— 排版角色（F 轨道第二项）：
+
+| 指标 | F2 前 | F2 后 | 变化来源 |
+|---|---|---|---|
+| 新增功能模块 | \`src/theme-layer.js\` 205 行 | **+ \`src/theme-typography.js\` 129 行** | F2：12 个排版角色（DSH 基准表达式照抄）+ 载荷构建 |
+| 生成产物 | 10,569 行 | **10792 行** | 第 5 个内联模块 |
+| 设置键 | 61 键（客户端） | **62 键**（+\`themeType\`）＋ defaults-only 视图键 \`themeTypeOnly\` | F2 |
+| 守卫 | 链 14 项 / 8,620 行 | **链 14 项 / 8698 行** | +排版章节 + 红线 3 全仓断言（同链数） |
+
 > **F1 修掉的是一个说得清的体验缺陷**：此前四个文字角色被压成**同一个**用户色
 > （`src/effects.js` 的四条 `!important` 折叠行），把 DSH 的四级文字层次**压平** ——
 > 这正是"全局同色不如原生"的根因。现在按角色上色，且走官方令牌层（body 内联、免
@@ -263,7 +273,7 @@
 |---|---|---|---|---|
 | **F0** | ✅ **已完成（2026-09-26 真机实测）** —— 实测表与结论在 [F0-THEME-SERVICE-CHECKLIST.md](./F0-THEME-SERVICE-CHECKLIST.md) §C3/§C4（该文件**保留为 F0 记录**）。**主路径成立**：`ctx.get('theme')` 可用但**是启动竞态**（3ms / 325ms / 418ms 三种时序）⇒ 必须轮询；写入即 body 内联；`dispose()` 干净还原；一层随配色自动换值。**两处旧结论被推翻**：快照令牌表为空（`active.tokens`=0）、`exportInspectTokens()` 仅 14 条 | — | 结构：**不改 `inject`**（`ctx.theme` 裸访问实测**抛错**）／规则：令牌清单与取值的权威来源是**样式表扫描**／守卫：令牌名过 **377 条**白名单，未知令牌静默忽略且面板置灰 | ✅ |
 | **F1** | ✅ **已完成**（首期只做颜色，5 个角色 / 6 个令牌）—— 新增 `src/theme-layer.js`（205 行，构建期内联）：角色表 + `pollThemeService`（后台轮询 250ms×24，**拿到即停**，解决启动竞态）+ `scanThemeTokens`（样式表扫描白名单）+ `buildTokenPayload` + `createThemeLayer`。设置新增 `themeColors`（**内部始终存 `{light,dark}` 两套**）/ `themeDarkSeparate`，仍是"schema + UI + 夹具"三处改动 —— 宿主白名单与持久化**自动派生**（P1-5 的收益）。面板在「全局字体」区加 5 行角色色 + 深色开关 + 逐角色清除 | 结构：新模块 + schema 两个新键／规则：五条不变量写进模块头（不写 `!important`、不用 DOM 选择器、值必须成对、未知令牌自己筛、**任何写入前先取宿主基线**）／守卫：新增 `scripts/verify-theme-layer.mjs`（行为用例 + 负对照：载荷形态、轮询拿到即停、**同 source 替换语义**、基线时序、清空撤层、源码不变量），并断言 theme-layer 的角色表与 schema 校验白名单**跨文件一致** | 低 | ✅ |
-| **F2** | **排版角色**（字号/字重/字族）：折叠分组 ＋「只看改过的」过滤 | F1 ＋ **P1-7** | 结构：样式应用层内聚／规则：**不抢** `--dsh-content-font-size`（那是 DSH「通用 → 字号」）／守卫：断言全仓不写该令牌 | ⬜ |
+| **F2** | ✅ **已完成** —— 新增 `src/theme-typography.js`（12 个排版角色，构建期内联）+ 面板「排版角色」组（滑杆偏移 + 「只看改过的」过滤，走 defaults-only 视图键）。**静态分析定的形态**：组件消费的是 `font: var(--dsw-font-<角色>)` **shorthand**（全仓 24 处消费点），而细粒度 `-font-size/-weight/-style` **零消费者** ⇒ 只改细粒度令牌无效。故每个被调角色写 3 个令牌：`-font-size`(`calc(原表达式 + 偏移)`)、`-line-height`(同)、以及由细粒度令牌组合出的 shorthand（保住字重/字族）。DSH 自己的字号经 `--dsh-content-font-delta` 照常叠加；**从不写** `--dsh-content-font-size` | 结构：新模块 + 第二个令牌层（**独立 source**，同 source 会整层替换掉颜色层）／规则：只追加偏移、不重写 DSH 表达式、不碰字重字族、四令牌缺一不接管／守卫：`verify-theme-layer` 增排版章节（杠杆断言、只追加偏移、两侧同值、非法偏移全拒、缺令牌跳过）+ **红线 3 全仓断言** `--dsh-content-font-size` 零写入 | 中 | ✅ |
 | **F3** | **字体集文件化**：`~/.dsh-wallpaper-engine/fontsets/<id>.json` ＋ 导入导出 ＋ 独立编辑器面板 | **P2-9** ＋ **P2-10** | 结构：新文件通道 + 独立面板／规则：`config.json` 只记 `{fontSetId, fontCustom}`（settings blob 不装字体集）／守卫：`$schema` 版本迁移 + 未知角色**拒绝并回报**（不静默） | ⬜ |
 
 ---

@@ -97,6 +97,12 @@ const EVIDENCE = {
     ['面板可设置（角色色 UI 在位）', () => read('src/client.js').includes('文字颜色角色')],
     ['F1 守卫已入链', () => JSON.parse(read('package.json')).scripts.verify.includes('verify-theme-layer')],
   ],
+  'F2': [
+    ['排版模块在位', () => has('src/theme-typography.js')],
+    ['排版模块已内联进产物', () => read('lib/client.js').includes('function buildTypePayload(')],
+    ['设置侧已派生（themeType 进 schema 与宿主白名单）', () => read('lib/settings-schema.js').includes('THEME_TYPE_ROLE_IDS')],
+    ['面板可设置（排版角色 UI 在位）', () => read('src/client.js').includes('排版角色')],
+  ],
   'P2-12': [
     // 注意方向：这是"**做完**才成立"的证据。未完成时它们**必须不成立** ——
     // 若把"未做的前置条件"写成证据，非 ✅ 行反而会全部命中，判据就成了反向的。

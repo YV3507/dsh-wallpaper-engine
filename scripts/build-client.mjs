@@ -62,6 +62,11 @@ const INLINE_MODULES = [
       'function buildTokenPayload('],
   },
   {
+    file: 'src/theme-typography.js',
+    why: 'F2 排版角色：按角色调整字号/行高偏移（基准表达式照抄 DSH，见文件头）',
+    markers: ['const THEME_TYPE_ROLES = [', 'function buildTypePayload(', 'const THEME_TYPE_SOURCE ='],
+  },
+  {
     file: 'src/effects.js',
     why: '效果应用层（设置 → DOM；契约见文件头，见 P1-7 后半）',
     markers: ['let lastScrimCss = "";', 'function applyEffects()', 'function clearEffects()',
@@ -125,6 +130,11 @@ function readInlinedPrelude() {
   for (const mod of INLINE_MODULES) {
     const abs = resolve(root, mod.file);
     const text = readFileSync(abs, 'utf8').replace(/\r\n/g, '\n');
+    // 判据针对**代码**：先剥注释。否则模块头里写一句 `node -e "require('fs')…"` 的
+    // 复核命令就会被判成"含 require"（本仓已三次踩到同类假阳性）。
+    const code = text
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
 
     for (const [re, what] of [
       [/^\s*import\s/m, 'import 语句'],
@@ -133,7 +143,7 @@ function readInlinedPrelude() {
       [/\bprocess\.\w/, 'process.*'],
       [/\b__dirname\b|\b__filename\b/, 'CommonJS 路径全局量'],
     ]) {
-      if (re.test(text)) {
+      if (re.test(code)) {
         console.error(`[build-client] ${mod.file} 必须浏览器安全，但含${what}`);
         process.exit(1);
       }

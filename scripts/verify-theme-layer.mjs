@@ -27,6 +27,7 @@ const {
 // 角色 id 的**校验白名单归 schema**（宿主也要用；theme-layer 只进浏览器包，拿不到同一份绑定）。
 // 这里断言两处一致 —— 有守卫的重复，好过拿不到的共享。
 const schema = await import(new URL('../lib/settings-schema.js', import.meta.url).href);
+const typo = await import(new URL('../src/theme-typography.js', import.meta.url).href);
 const THEME_COLOR_ROLE_IDS = THEME_COLOR_ROLES.map((r) => r.id);
 
 let failed = 0;
@@ -228,6 +229,44 @@ section('④ 建层：替换语义与基线时序');
   })());
 }
 
+// ── ④b 排版角色（F2）：杠杆是 shorthand，不是细粒度令牌 ──────────────────────
+section('④b 排版角色（F2）');
+{
+  const IDS = typo.THEME_TYPE_ROLES.map((r) => r.id);
+  check('角色表与 schema 白名单一致（跨文件，机械核对）',
+    JSON.stringify(IDS) === JSON.stringify(schema.THEME_TYPE_ROLE_IDS),
+    '模块=' + IDS.length + ' schema=' + schema.THEME_TYPE_ROLE_IDS.length);
+  check('范围上下限两份一致', typo.THEME_TYPE_MIN === -6 && typo.THEME_TYPE_MAX === 12);
+  check('负对照：给角色表多塞一个 id 会被判出',
+    JSON.stringify([...IDS, 'ghost']) !== JSON.stringify(schema.THEME_TYPE_ROLE_IDS));
+
+  const all = () => true;
+  const { payload, roles } = typo.buildTypePayload({ 'markdown-h1': 2, 'markdown-small': -1, 'markdown-base': 0 }, all);
+  check('偏移 0 = 不接管（不产生任何令牌）', roles.length === 2 && !Object.keys(payload).some((k) => k.includes('markdown-base')));
+  check('每个角色恰好写 3 个令牌（size / line-height / shorthand）',
+    Object.keys(payload).length === 6, Object.keys(payload).length + ' 个');
+  check('★ 写了 shorthand（组件消费的就是它）',
+    !!payload['--dsw-font-markdown-h1'] && !!payload['--dsw-font-markdown-small']);
+  check('shorthand 由细粒度令牌组合，从而保住字重/字族',
+    payload['--dsw-font-markdown-h1'].light.includes('var(--dsw-font-markdown-h1-font-size)')
+      && payload['--dsw-font-markdown-h1'].light.includes('var(--dsw-font-markdown-h1-font-family)')
+      && payload['--dsw-font-markdown-h1'].light.startsWith('700 '),
+    payload['--dsw-font-markdown-h1'].light.slice(0, 80));
+  check('只追加偏移：DSH 原表达式仍在（h1 基准 21px + delta）',
+    payload['--dsw-font-markdown-h1-font-size'].light === 'calc(calc(21px + var(--dsh-content-font-delta)) + 2px)');
+  check('小字类照旧不随 DSH 字号缩放（12px 基准，没有 delta）',
+    payload['--dsw-font-markdown-small-font-size'].light === 'calc(12px + -1px)');
+  check('值一律 {light,dark} 且两侧同值（排版与配色无关）',
+    Object.values(payload).every((v) => v.light === v.dark && typeof v.light === 'string'));
+  check('绝不重写字重/字族令牌（不在载荷里）',
+    !Object.keys(payload).some((k) => /-font-weight$|-font-family$|-font-style$/.test(k)));
+  const bad = typo.buildTypePayload({ 'markdown-h1': 0, 'markdown-h2': 99, 'markdown-h3': 1.5, 'nope': 2, 'markdown-h4': 'x' }, all);
+  check('非法偏移（0 / 越界 / 非整数 / 未知角色 / 非数）全部被拒', bad.roles.length === 0);
+  const partial = typo.buildTypePayload({ 'markdown-h1': 2 }, (t) => t !== '--dsw-font-markdown-h1-line-height');
+  check('四个令牌缺一 ⇒ 整角色跳过（否则会写出坏 shorthand）', partial.roles.length === 0);
+  check('负对照：四令牌齐全时必须接管', typo.buildTypePayload({ 'markdown-h1': 2 }, all).roles.length === 1);
+}
+
 // ── ⑤ 静态不变量（源码级） ──────────────────────────────────────────────────
 section('⑤ 源码不变量');
 {
@@ -246,6 +285,19 @@ section('⑤ 源码不变量');
     !/\bselection\b/.test(code) && !/\bDEFAULTS\b/.test(code), hit(/\bselection\b|\bDEFAULTS\b/) || '');
   check('负对照：不变量判据对内联示例必须有牙',
     /!\s*important/.test('color:red !important') && !/!\s*important/.test('color:red'));
+  // 红线 3：全仓不得写 DSH 自己的字号变量（那是「通用 → 字号」的地盘）。
+  {
+    const files = ['lib/settings-schema.js', 'src/theme-layer.js', 'src/theme-typography.js',
+      'src/effects.js', 'src/client.js'];
+    const guilty = files.filter((rel) => {
+      const c = readFileSync(join(root, rel), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+      return /--dsh-content-font-size\s*:/.test(c) || /setProperty\(\s*['\"]--dsh-content-font-size/.test(c);
+    });
+    check('红线 3：全仓不写 `--dsh-content-font-size`', guilty.length === 0, guilty.join(' '));
+    check('负对照：该判据对示例文本有牙',
+      /--dsh-content-font-size\s*:/.test('body{--dsh-content-font-size:14px;}'));
+  }
   check('负对照：剥注释后仍能抓到真代码里的 `!important`',
     /!\s*important/.test(src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ')
       .replace('const THEME_LAYER_SOURCE', 'color:red !important;\nconst THEME_LAYER_SOURCE')));

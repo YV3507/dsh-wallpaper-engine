@@ -47,9 +47,13 @@ function isThemeHex(v) {
   return typeof v === 'string' && THEME_HEX_RE.test(v.trim());
 }
 
-/** 层当前接管的角色（effects.js 据此让出同角色的 `!important` 折叠行）。 */
-let themeLayerRoles = [];
-function themeLayerOwnedRoles() { return themeLayerRoles.slice(); }
+/**
+ * 层当前接管的角色，**按 source 分别记账**：颜色层（THEME_LAYER_SOURCE）的角色决定
+ * effects.js 让出哪些 `!important` 折叠行；排版层（THEME_TYPE_SOURCE）与折叠行无关，
+ * 若两层共用一份记账，后同步的那层会把前者的角色列表覆盖掉（折叠行于是错误地让位）。
+ */
+const themeLayerRolesBySource = Object.create(null);
+function themeLayerOwnedRoles() { return (themeLayerRolesBySource[THEME_LAYER_SOURCE] || []).slice(); }
 
 /**
  * 扫描样式表，收集当前 DSH **真的定义了**的 `--dsw-*` 令牌名。
@@ -144,8 +148,12 @@ function pollThemeService(ctx, opts) {
 function createThemeLayer(opts) {
   const o = opts || {};
   const theme = o.theme;
+  // source 必须由调用方区分：同 source 再注册 = 整层替换（会把另一层的令牌顶掉）。
+  const source = o.source || THEME_LAYER_SOURCE;
   const getColors = o.getColors || (() => ({}));
   const isAvailable = o.isAvailable || (() => true);
+  // 载荷构建可注入（排版层传自己的）：默认是颜色角色那一套，保持 F1 的调用面不变。
+  const build = o.buildPayload || (() => buildTokenPayload(getColors(), isAvailable));
   let dispose = null;
   let owned = [];
   let firstWriteDone = false;
@@ -158,13 +166,13 @@ function createThemeLayer(opts) {
       disposes++;
     }
     owned = [];
-    themeLayerRoles = [];
+    themeLayerRolesBySource[source] = [];
   }
 
   function sync() {
     attempts++;
     if (!theme || typeof theme.overrideTokens !== 'function') return { ok: false, reason: 'no-theme' };
-    const { payload, roles } = buildTokenPayload(getColors(), isAvailable);
+    const { payload, roles } = build();
     if (!Object.keys(payload).length) {
       // 没有可用角色 ⇒ 撤层（用户清空颜色时回到原生层次），并让 effects.js 恢复折叠行
       releaseLayer();
@@ -177,7 +185,7 @@ function createThemeLayer(opts) {
     }
     try {
       // 再注册即替换：旧 disposer 已失效，直接丢弃引用（调用它反而是 no-op 语义陷阱）
-      dispose = theme.overrideTokens(THEME_LAYER_SOURCE, payload);
+      dispose = theme.overrideTokens(source, payload);
       applies++;
     } catch (e) {
       dispose = null;
@@ -185,7 +193,7 @@ function createThemeLayer(opts) {
       return { ok: false, reason: 'throw', error: String((e && e.message) || e).slice(0, 120) };
     }
     owned = roles;
-    themeLayerRoles = roles.slice();
+    themeLayerRolesBySource[source] = roles.slice();
     return { ok: true, roles };
   }
 

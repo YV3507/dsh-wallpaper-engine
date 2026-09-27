@@ -4759,6 +4759,20 @@ const onThemeColorClear = (role) => {
   selection.themeColors = next;
   persistSelection(); applyEffects(); emit();
 };
+// F2：排版偏移（px，整数，0 = 不接管该角色 ⇒ 直接删键，回到 DSH 原生字阶）。
+const onThemeType = (role, px) => {
+  const next = Object.assign({}, selection.themeType);
+  if (!px) delete next[role];
+  else next[role] = px;
+  selection.themeType = next;
+  persistSelection(); applyEffects(); emit();
+};
+// 视图开关（defaults-only，不持久化）：只列调过的角色，便于收尾核对。
+const onThemeTypeOnly = (v) => {
+  selection.themeTypeOnly = v;
+  emit();
+};
+
 const onThemeDarkSeparate = (v) => {
   selection.themeDarkSeparate = v;
   persistSelection(); applyEffects(); emit();
@@ -5728,6 +5742,43 @@ const onFontColor = (hex) => {
               }, "清除"),
             );
           }),
+          // F2：排版角色（字号偏移）。为什么是"偏移"而不是"绝对字号"：
+          // DSH 自己的「通用 → 字号」经 --dsh-content-font-delta 流进各角色令牌，
+          // 我们只叠一层偏移，用户调 DSH 字号时这些角色跟着缩放，且我们从不写
+          // --dsh-content-font-size（那是 DSH 的设置，红线 3）。
+          React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
+            ctlText("排版角色", "字号偏移 px；0 = 跟随 DSH 原生字阶"),
+          ),
+          switchRow("只看改过的", sel.themeTypeOnly, (e) => onThemeTypeOnly(e.target.checked), {
+            tooltip: "只列出偏移不为 0 的角色，便于收尾核对",
+          }),
+          THEME_TYPE_ROLES
+            .filter((role) => !sel.themeTypeOnly || (sel.themeType[role.id] || 0) !== 0)
+            .map((role) => {
+              const off = sel.themeType[role.id] || 0;
+              return React.createElement("div", { className: "we-picker__ctl", key: role.id },
+                ctlText(role.label),
+                React.createElement("input", {
+                  type: "range",
+                  min: THEME_TYPE_MIN,
+                  max: THEME_TYPE_MAX,
+                  step: 1,
+                  value: off,
+                  style: { flex: "1 1 120px" },
+                  onInput: (e) => onThemeType(role.id, Number(e.target.value)),
+                  onChange: (e) => onThemeType(role.id, Number(e.target.value)),
+                  title: role.id + "（DSH 令牌角色名）",
+                }),
+                React.createElement("span", { className: "we-picker__hint we-picker__value" },
+                  (off > 0 ? "+" : "") + off + "px"),
+                off !== 0 && React.createElement("button", {
+                  type: "button",
+                  className: "we-picker__chip",
+                  onClick: () => onThemeType(role.id, 0),
+                  title: "复位该角色",
+                }, "复位"),
+              );
+            }),
           SliderRow("字重", 100, 900, 50, sel.fontWeight, onFontWeight, String(sel.fontWeight), "font-weight", {
             tooltip: "每 50 一档，插件按数值连续补粗细（描边渐变），不再只有常规/粗体两档"
               + "。单字面中文字体（黑体/宋体等）低于 400 无更细字面；600 起系统合成粗体会再叠一层",
@@ -9176,6 +9227,9 @@ function apply(ctx) {
   if (ctx.effect && typeof ctx.get === "function" && typeof document !== "undefined") {
     ctx.effect(() => {
       let layer = null;
+      // F2 排版层：**必须独立 source** —— 同 source 再注册会整层替换，会把颜色层顶掉。
+      // 它不碰 --dsw-alias-label-*，因此与宿主墨色基线（onBeforeFirstWrite）无关。
+      let typeLayer = null;
       let unsub = null;
       const cancelPoll = pollThemeService(ctx, {
         intervalMs: 250,
@@ -9195,8 +9249,15 @@ function apply(ctx) {
               isAvailable: hasToken,
               onBeforeFirstWrite: () => { try { snapshotHostFontDefaults(); } catch { /* 基线失败不阻断上色 */ } },
             });
+            typeLayer = createThemeLayer({
+              theme,
+              source: THEME_TYPE_SOURCE,
+              buildPayload: () => buildTypePayload(
+                selection.fontCustom ? selection.themeType : {}, hasToken),
+            });
             layer.sync();
-            unsub = subscribe(() => { if (layer) layer.sync(); });
+            typeLayer.sync();
+            unsub = subscribe(() => { if (layer) layer.sync(); if (typeLayer) typeLayer.sync(); });
           } catch { /* 主题层是增强：任何异常都不该影响壁纸主路径 */ }
         },
       });
@@ -9205,6 +9266,7 @@ function apply(ctx) {
         try { if (cancelPoll) cancelPoll(); } catch { /* ignore */ }
         // 交给服务的 disposer 把令牌还原（F0 实测干净）；这里只保证调用一次
         try { if (layer) layer.dispose(); } catch { /* ignore */ }
+        try { if (typeLayer) typeLayer.dispose(); } catch { /* ignore */ }
       };
     });
   }
