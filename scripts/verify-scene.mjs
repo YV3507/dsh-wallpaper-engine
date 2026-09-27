@@ -770,7 +770,17 @@ if (token) {
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const port = server.address().port;
+  // 结果里带上**是哪个信号先到**（`res end` / `res close` / `req error`）与响应状态码：
+  // 偶发 `status=0` 时，这一条决定了"是服务端没送到"还是"客户端侧先报错、但 413 其实收到了"
+  // —— 不写清就没法定位（本仓规矩：拿到断言原文再查实现）。
   const sendOver = (method, path, body) => new Promise((resolveFn) => {
+    const seen = [];
+    let settled = false;
+    const done = (status, why) => {
+      if (settled) return;
+      settled = true;
+      resolveFn({ status, why, seen: seen.join('>') });
+    };
     // agent:false + Connection:close —— 413 路径会主动断开连接（设计如此），
     // 复用 keep-alive 套接字会让后续请求假性 ECONNRESET。
     const req = http.request({
@@ -778,16 +788,18 @@ if (token) {
       headers: { 'Content-Type': 'image/png', Connection: 'close' },
     }, (res) => {
       res.resume();
-      res.on('end', () => resolveFn({ status: res.statusCode }));
-      res.on('close', () => resolveFn({ status: res.statusCode }));
+      res.on('end', () => { seen.push('end:' + res.statusCode); done(res.statusCode, 'res-end'); });
+      res.on('close', () => { seen.push('close:' + res.statusCode); done(res.statusCode, 'res-close'); });
+      res.on('aborted', () => seen.push('aborted'));
     });
     // 连接被对端掐断（旧实现的症状）→ 状态记 0，便于断言区分。
-    req.on('error', () => resolveFn({ status: 0 }));
+    req.on('error', (e) => { seen.push('error:' + (e && e.code)); done(0, 'req-error:' + (e && e.code)); });
     if (body) req.write(body);
     req.end();
   });
   const overLimit = await sendOver('PUT', '/wallpaper-engine/scene-frame-cache/' + token, Buffer.alloc(33 * 1024 * 1024, 5));
-  check('真 socket：超限 PUT 收到 413（而不是连接被掐断）', overLimit.status === 413, 'status=' + overLimit.status);
+  check('真 socket：超限 PUT 收到 413（而不是连接被掐断）', overLimit.status === 413,
+    'status=' + overLimit.status + ' why=' + overLimit.why + ' seen=' + overLimit.seen);
   // 恰好 limit+1：超限块**就是最后一块**（实测 64KB 分块下 513 块里的第 513 块）——
   // 33MB 那个用例比上限多 1MB，超限块离正文结尾还有约 1MB，缝碰不到。
   const exactLimit = await sendOver('PUT', '/wallpaper-engine/scene-frame-cache/' + token,
@@ -860,31 +872,58 @@ if (token) {
   };
   check('负对照：替身区分「end() 已调用」与「应答已刷完」',
     (() => { const r = mkFlushableRes(); r.end('x'); return r.writableEnded === true && r.writableFinished === false; })());
-  for (const c of ABORT_CASES) {
-    const route = routes.find((r) => r.path === c.route);
-    check(`${c.label}：路由在位且源码里的体积判定与用例一致`,
-      Boolean(route) && hostSrc.includes(c.needle), c.needle);
-    if (!route || !(c.cap > 0) || !token) continue;
+  // 忠实的 IncomingMessage 替身：`end` 一发出 ⇒ `readableEnded`/`complete` 为真；
+  // `close` 在 Node ≥16 也表示**请求已完成** ⇒ 同样置 complete。不模拟这两点，
+  // 下面"请求体读完"的判据就成了摆设。
+  const mkOrderReq = (c) => {
     const req = new EventEmitter();
     req.url = c.route + '/' + token;
     req.method = c.method;
     req.headers = c.headers || {};
     req.readableEnded = false;
+    req.complete = false;
     req.destroyed = false;
     req.destroy = () => { req.destroyed = true; };
     req.resume = () => {};
     req.pause = () => {};
     req.setTimeout = () => req;
+    const rawEmit = req.emit.bind(req);
+    req.emit = (ev, ...args) => {
+      if (ev === 'end' || ev === 'close') { req.readableEnded = true; req.complete = true; }
+      return rawEmit(ev, ...args);
+    };
+    return req;
+  };
+  for (const c of ABORT_CASES) {
+    const route = routes.find((r) => r.path === c.route);
+    check(`${c.label}：路由在位且源码里的体积判定与用例一致`,
+      Boolean(route) && hostSrc.includes(c.needle), c.needle);
+    if (!route || !(c.cap > 0) || !token) continue;
+    const req = mkOrderReq(c);
     const res = mkFlushableRes();
     route.handler(req, res);
     req.emit('data', Buffer.alloc(c.cap + 1, 7)); // 超限块**恰好是最后一块**
     check(`${c.label}：超限时应答为 413`, res.__state.status === 413, 'status=' + res.__state.status);
-    req.emit('end'); // 客户端已发完 ⇒ 排空完成
-    check(`${c.label}：排空完成但应答未刷出 ⇒ 不得断开`, req.destroyed === false,
-      'destroyed=' + req.destroyed);
+    // ① 应答已刷完，但**请求体还没读完** ⇒ 不得断开（带着未读入站数据关闭会 RST）。
+    //    这是"小应答先刷完"的常态：413 只有几十字节，而请求体还剩很多。
     res.__flush();
-    check(`${c.label}：应答刷出后才断开（不留悬挂连接）`, req.destroyed === true,
+    check(`${c.label}：应答已刷完但请求体未读完 ⇒ 不得断开`, req.destroyed === false,
       'destroyed=' + req.destroyed);
+    // ② 请求体读完（req 'end'）——**两条件齐了**才允许断开。
+    req.emit('end');
+    check(`${c.label}：两条件齐了才断开（不留悬挂连接）`, req.destroyed === true,
+      'destroyed=' + req.destroyed);
+    // ③ `req 'close'` 先于应答刷出 ⇒ 同样不许断。这条缝曾漏掉 —— A/B 实测（各 12 次）：
+    //    在这条路径上直接 destroy ⇒ 丢 1 次 413。
+    const req2 = mkOrderReq(c);
+    const res2 = mkFlushableRes();
+    route.handler(req2, res2);
+    req2.emit('data', Buffer.alloc(c.cap + 1, 7));
+    req2.emit('close'); // 请求完成，但应答还没刷出
+    check(`${c.label}：req 'close' 早于应答刷出 ⇒ 不得断开`, req2.destroyed === false,
+      'destroyed=' + req2.destroyed);
+    res2.__flush();
+    check(`${c.label}：应答刷完后才断开`, req2.destroyed === true, 'destroyed=' + req2.destroyed);
   }
 }
 // ── Level D3: 断开路径只有一处（结构棘轮）──────────────────────────────────
