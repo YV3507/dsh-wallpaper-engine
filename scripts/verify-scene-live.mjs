@@ -596,7 +596,14 @@ function fnBody(source, name) {
   const j = source.indexOf('\n}', i);
   return j < 0 ? source.slice(i) : source.slice(i, j);
 }
-const fadeBgBody = fnBody(src, 'resolveWallpaperFadeBg');
+// resolveWallpaperFadeBg 自 P1-7 后半起住在 src/effects.js —— 断言改读该模块
+// （函数体判据本身不变；同时钉住它**不在** src/client.js，防两边各留一份）。
+const effectsSrc = readFileSync(join(root, 'src', 'effects.js'), 'utf8');
+const fadeBgBody = fnBody(effectsSrc, 'resolveWallpaperFadeBg');
+check('效果应用层已抽成独立模块并被内联',
+  effectsSrc.includes('function applyEffects()') && effectsSrc.includes('function clearEffects()')
+    && readFileSync(join(root, 'lib', 'client.js'), 'utf8').includes('function applyEffects()')
+    && !src.includes('function applyEffects()'));
 const clientChecks = [
   ['live is the top priority for scenes and web', /const isLive = \(sel\.type === "scene" \|\| sel\.type === "web"\) && liveRenderEnabled\(sel\)/.test(src)],
   ['sceneVideo yields to live', /Boolean\(sel\.sceneVideo\) && !isLive/.test(src)],

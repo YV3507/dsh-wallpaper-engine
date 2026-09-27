@@ -55,6 +55,12 @@ const INLINE_MODULES = [
     why: 'WE 条件求值器（纯计算、零外界依赖，独立可测，见 P1-7）',
     markers: ['const WE_COND_OPS = [', 'function weEvalCondition(', 'function weCondTokenize('],
   },
+  {
+    file: 'src/effects.js',
+    why: '效果应用层（设置 → DOM；契约见文件头，见 P1-7 后半）',
+    markers: ['let lastScrimCss = "";', 'function applyEffects()', 'function clearEffects()',
+      'function applyFontStyles()', 'function resolveWallpaperFadeBg()'],
+  },
 ];
 
 const src = readFileSync(resolve(root, 'src', 'client.js'), 'utf8');
