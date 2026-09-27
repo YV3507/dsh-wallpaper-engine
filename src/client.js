@@ -5764,14 +5764,14 @@ const officialColorOf = (tokens) => {
         switchRow("字体自定义", sel.fontCustom, (e) => onToggleFontCustom(e.target.checked), {
           tooltip: "关闭后恢复 dsh 默认字体外观；开启后可调颜色角色/排版角色/字体族/组件字体",
         }),
-        // 「恢复默认」放在总开关正下方：一键把所有字体自定义项清回 DSH 默认值
-        // （颜色角色/排版偏移/角色字重/组件字体清空，字体族回 inherit）。
-        React.createElement("div", { className: "we-picker__ctl" },
+        // 「恢复默认」只在总开关开启时出现：关闭时字体本就是 DSH 默认值，摆一个"恢复默认"
+        // 没有意义（也会让人以为关掉开关还残留了什么自定义）。
+        sel.fontCustom && React.createElement("div", { className: "we-picker__ctl" },
           React.createElement("button", {
             type: "button",
             className: "we-picker__chip",
             onClick: onFontResetAll,
-            title: "清空所有字体自定义项（颜色角色 / 排版偏移 / 角色字重 / 组件字体）并让字体族跟随原生",
+            title: "清空所有字体自定义项（颜色角色 / 排版 / 字重 / 字族 / 组件字体），回到 DSH 默认",
           }, "恢复默认"),
         ),
         sel.fontCustom && React.createElement(React.Fragment, null,
@@ -5887,22 +5887,21 @@ const officialColorOf = (tokens) => {
             .map((role) => {
               const off = sel.themeType[role.id] || 0;
               return React.createElement("div", { className: "we-picker__ctl", key: role.id },
-                // G2「初始值 = 官方默认值」：显示 DSH 的官方字阶（含字重与该角色的基准表达式），
-                // 滑到 0 即回官方 —— 数据仍只来自角色表，不在此复制。
+                // G2「初始值 = 官方默认值」：副标题显示 DSH 的官方字阶（含字重与基准表达式），
+                // 0 = 不接管（用官方值）—— 数据仍只来自角色表，不在此复制。
                 ctlText(role.label, describeTypeRole(role)),
+                // 字号偏移用**数字输入**（与字重同款）：原来是与字重并排的滑杆，一屏十二行时既占宽又难对齐。
+                // 单位 px，±（THEME_TYPE_MIN/MAX），0 = 用 DSH 默认。
                 React.createElement("input", {
-                  type: "range",
+                  type: "number",
+                  value: off,
                   min: THEME_TYPE_MIN,
                   max: THEME_TYPE_MAX,
                   step: 1,
-                  value: off,
-                  style: { flex: "1 1 120px" },
-                  onInput: (e) => onThemeType(role.id, Number(e.target.value)),
-                  onChange: (e) => onThemeType(role.id, Number(e.target.value)),
-                  title: role.id + "（DSH 令牌角色名）",
+                  style: { width: "72px" },
+                  onChange: (e) => onThemeType(role.id, Number(e.target.value) || 0),
+                  title: role.label + "：字号偏移 px（0 = 用 DSH 默认 " + describeTypeRole(role) + "）",
                 }),
-                React.createElement("span", { className: "we-picker__hint we-picker__value" },
-                  (off > 0 ? "+" : "") + off + "px"),
                 // G4 字重（角色级）：未填时**直接显示 DSH 的默认字重**（角色表的 prefix 就是它；
                 // 无前缀的角色官方值是 400）。清空即回默认。
                 React.createElement("input", {
