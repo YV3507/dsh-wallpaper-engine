@@ -269,6 +269,11 @@ check('negative control: 带日期的注释会被判不合格',
     'test/tools/host-route-index.mjs': 1,
     'scripts/prepare.mjs': 0,
     'test/tools/sync-webwallgl.mjs': 0,
+    // harness 适配 CI 的四个新文件：从 0 起钉（散文只讲不变量与判据，不讲编年史）。
+    'scripts/harness-compat-baseline.mjs': 0,
+    'test/compat-harness-live.mjs': 0,
+    'test/compat-harness-surfaces.mjs': 0,
+    'test/compat-harness-pages.mjs': 0,
     'test/verify-api-client.mjs': 2,
     'test/verify-client.mjs': 4,
     'test/verify-comment-discipline.mjs': 32,
@@ -355,7 +360,7 @@ check('negative control: 带日期的注释会被判不合格',
   check('棘轮覆盖全部 src/**/*.js、lib/routes/*.js、test/**/*.mjs 与 scripts/**/*.mjs（新文件必须进表）',
     uncovered.length === 0 && REQUIRED.length >= 50,
     '覆盖 ' + (REQUIRED.length - uncovered.length) + '/' + REQUIRED.length
-      + ' 个文件（实测 56 = 14 src + 5 路由 + 35 test + 2 scripts；断言地板 50）'
+      + ' 个文件（计数从磁盘枚举；断言地板 50）'
       + (uncovered.length ? '；未登记：' + uncovered.join(', ') : ''));
   // 负对照用**纯合成**清单（不掺 REQUIRED）：它测的是判据本身，不该因为真实域恰好有漏项而变色。
   check('negative control: 同一个覆盖判据会点名未登记的合成文件',
