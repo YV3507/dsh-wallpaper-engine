@@ -19,6 +19,8 @@
 **界面**
 
 - **设置页签重组**：「字体」页签并入「**外观**」，「玻璃」改名「**雾化**」，调节项按用途归位（外观 / 效果 / 声音 / 高级）—— 页签仍是六个（壁纸 / 外观 / 吉祥物 / 效果 / 声音 / 高级）。
+- **字体集（整套字体外观的预设）**：字体自定义从此以**一整套**为单位 —— 随包自带预设，可**新建（以当前外观）/ 重命名 / 删除**；改任何字体项都只落到**当前这一套**，随时可以「恢复原样」回到它本来的样子（改过之后那一套会标注「已改」，点「使用」即整份读回来）。支持**导出 / 导入**一份 `.json`（导出走系统「另存为」对话框，导入前先校验文件里的版本标记，坏文件会给出具体原因）。界面只说"哪一套在用"，不区分随包还是自建。
+- **「只看改过的」默认开启**：排版角色表默认只列改过字号 / 字重 / 字族的角色（一行都没改时会给一行提示），并挂成「字体自定义」的一部分 —— 总开关关掉时整块收起。
 - **换壁纸过场动画（7 种可选）**：交叉淡化 / 推移 / 擦除 / 光圈 / 缩放 / 条带 / 百叶窗；**默认硬切**，手动点选与自动轮播共用同一套；类型 / 方向 / 速度档**走白名单**（未知值回落默认）。「条带」本轮改为真·百叶窗（原实现与「擦除」肉眼分辨不出）。
 - **实时帧行**不再受「实时渲染」开关限制（随时可重新截帧），并显示当前壁纸的实时帧**微缩预览**。
 - 过场动画选项改为**下拉菜单**，删去两行冗余面板提示。
@@ -30,10 +32,13 @@
 - **成功提示改走独立通道**：终端上的一行 `[wallpaper-engine] … ✔`（「壁纸媒体源已监听」「场景壁纸已就绪」，**与日志行同前缀**，`✔` 只标记"这是成功提示、不是问题"），**每条每会话至多一条**（HMR 重挂不重发）；不经日志、不带级别、不落档。它只在 stdout 是终端时出现 —— DSH 桌面端的宿主由 Electron 以管道启动（`isTTY` 为假）⇒ 桌面端默认安静，`DSH_WE_NOTICE=1` 可显式打开、`=0` 永久静默；**投递失败**才产生一条 `warn`。
 - **每个上报端点都自己声明级别**：客户端 `[we-live]` 的诊断行随同源像素请求带上 `&lvl=`（宿主对未知 / 缺失一律落 `info`）；**渲染页**（随包的 WebWallGL 产物）原先只把级别喂给浏览器控制台、请求里丢掉，现在由本地补丁按**与宿主同一张失败模式表**算出并随请求发出 —— 宿主的"文案关键字"判定因此退化为兜底。轮换准备期的首帧连续超时从裸 `console.info` 并入同一条通道并标 `warn`。
 - **诊断档案加上限**：`~/.dsh-wallpaper-engine/diag/http.jsonl` 写到 8 MiB 时轮转为 `http.jsonl.1`（只留一代）；`/diag-log` 与每行 JSON 的形状不变。
+- **客户端异常也留痕**：面板的渲染期异常此前只表现为"界面白掉"——而那台机器打不开 DevTools，诊断缓冲里什么都没有。现在 `error` 与 `unhandledrejection` 会把消息与栈前三行写进同一条诊断通道（标签 `client-error`，级别 `error`），排查时先 `Select-String 'client-error'`。
 - 详情与开闸命令见 [`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md) 的「终端输出：默认只报问题」。
 
 **修复**
 
+- **原生确认弹窗会让壁纸停住、且不再自己恢复**（上游无 issue，实测复现）：`window.confirm` 把焦点交给它自己的窗口 ⇒ 若开着「窗口失焦时暂停」（`pauseOnBlur`），弹窗一出现壁纸就停；模态期间渲染线程被**同步阻塞**（输入框收不到键）；关闭时回来的 `focus` 事件**不保证送达** ⇒ 遮挡判定永久卡在"窗口失焦"，只能重载页面。现在遮挡判定除事件外还做**低频复核**（3s，只在判定变化时 emit 并留一行 `occlusion-recheck` 诊断），并把字体集里的删除改成**面板内确认**（不再使用原生对话框）。
+- **按钮与链接不再大小不一**：「重命名」（`<button>`）与「导出」（`<a>`）共用那枚类名，而它原先只钉住了 `<button>` 的盒子 —— `<a>` 默认 `inline`（**行内盒忽略 `height`**）、`content-box`、不继承字体，还带下划线。现在该类名对两种元素都成立（`display` / `box-sizing` / `font` / `line-height` / `text-decoration` 全部写明）。
 - **启动等待期切下一张会卡**：延迟期那个未上屏的 iframe 是**正在跑的渲染页**（不是普通元素），换壁纸时无人终止 ⇒ 它留在后台继续拉 pkg / 解码纹理 / 上传，与新壁纸的启动叠在同一主线程上。现在 `applySelection` 与卸载都会清定时器并把它 `src=about:blank` **中止**；挂载处另补一次心跳武装（`load` 回调只在已挂载时武装，而延迟路径的文档可能在挂载前就 load 完 ⇒ `we-live-on` 会永远不加上）。护栏 `rotation-prepared-leak-smoke` 的 Q1 / Q2 / Q3（各带可失败对照）。
 - **首次激活场景壁纸不再黑屏**：新壁纸**第一次**激活时实时抓帧还不存在（要等这一轮 live 回填），而垫底画面当时只试「抓帧」一级、失败后**静默保留近黑主题色** ⇒ 首帧前是一块黑屏。现在垫底画面按 **实时抓帧 → 作者随包发布的预览图 → 主题色** 取：预览图**只作占位**（不算"替作者猜一张图"，`/scene-frame` 的空态语义**不变**、服务端一个字节没改），live 首帧一到即被顶掉；护栏 `rotation-prepared-leak-smoke` 的 P / P2（正 / 负对照成对）。
 - **修复 harness 0.1.7 下「右栏关闭态露出玻璃底板」（上游 issue #107）**：宿主右栏面板容器在**关闭态**仍占宽度、且自身没有背景，而插件无条件给它刷玻璃底 ⇒ 对话区右侧露出一块中灰板（控制台零报错，易被误判成主题问题）。现在**所有**给该容器上色的规则（含 `.cm-editor` / `.xterm` 内容面与软件渲染兜底）都限定在 `[data-sidebar-right-open]`，并补一条关闭态显式清底；护栏 `verify-host-paint-scope`。
@@ -184,6 +189,8 @@
 **UI**
 
 - **Settings tabs reorganised**: the 「字体」 tab merged into 「**外观**」, 「玻璃」 was renamed to 「**雾化**」, and the adjustment controls were regrouped by purpose (appearance / effects / sound / advanced) — the six tabs stay 壁纸 / 外观 / 吉祥物 / 效果 / 声音 / 高级.
+- **Font sets (a whole typography look as one preset)**: custom typography is now organised in **sets** — a preset ships with the plugin, and you can **create (from the current look) / rename / delete**; editing any font item lands **only in the current set**, and 「restore」 puts that set back the way it was (a set you edited is marked 「已改」 and "use" reads the whole set back). **Export / import** a `.json` (export opens the system **Save as** dialog; import validates the version tag first and names the reason for a bad file). The UI only says *which* set is in use — it never reveals whether a set shipped with the plugin.
+- **「Only modified」 is on by default**: the typography-role table initially lists just the roles whose size / weight / family you changed (with an explicit line when nothing is modified yet), and the whole block is now part of "custom typography" — turning the master switch off collapses it.
 - **Wallpaper-switch transitions (7 options)**: cross-fade / push / wipe / iris / zoom / strip / blinds; **hard cut by default**, shared by manual selection and automatic rotation; type / direction / speed tier are **whitelisted** (unknown values fall back to the default). 「条带」 (strip) became a real venetian blind this round — the previous implementation was visually indistinguishable from 「擦除」 (wipe).
 - **The live-frame row** is no longer gated by the live-rendering switch (you can re-capture at any time) and shows a **thumbnail of the current wallpaper's live frame**.
 - The transition options moved into a **dropdown**, and two redundant panel hints were removed.
@@ -213,11 +220,27 @@
   first-frame timeout moved from a bare `console.info` onto the same channel and is tagged `warn`.
 - **The diagnostics file has a cap**: `~/.dsh-wallpaper-engine/diag/http.jsonl` rotates to
   `http.jsonl.1` at 8 MiB (one generation only); `/diag-log` and the per-line JSON shape are unchanged.
+- **Client-side exceptions are traced too**: a render-time exception in the panel used to show up only as
+  a blank UI — and on that machine DevTools cannot be opened, so the diagnostics buffer held nothing.
+  `error` and `unhandledrejection` now write the message plus the first three stack frames into the same
+  diagnostics channel (tag `client-error`, level `error`); search for `client-error` first when triaging.
 - Details and the gate commands are in [`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md), "Terminal output:
   problems only by default".
 
 **Fixes**
 
+- **A native confirmation dialog left the wallpaper paused for good** (no upstream issue; reproduced on
+  the real machine): `window.confirm` hands focus to its own window, so with "pause on window blur"
+  (`pauseOnBlur`) enabled the wallpaper stopped the moment the dialog appeared; the modal also **blocks
+  the render thread** (an input box receives no keys), and the `focus` event on dismissal is **not
+  guaranteed to arrive** ⇒ the occlusion decision stuck on "window blurred" and only a page reload
+  recovered it. The decision is now also **re-checked on a low-frequency timer** (3 s, emitting and
+  logging one `occlusion-recheck` line only when the decision changes), and deleting a font set moved to
+  an **in-panel confirmation** (no native dialog).
+- **Buttons and links are no longer different sizes**: the class shared by 「rename」 (`<button>`) and
+  「export」 (`<a>`) used to pin only the `<button>` box — an `<a>` defaults to `inline` (an **inline box
+  ignores `height`**), `content-box`, a non-inherited font, and an underline. The class now holds for
+  both element kinds (`display` / `box-sizing` / `font` / `line-height` / `text-decoration` all spelled out).
 - **Stutter when switching away during the boot wait**: the not-yet-mounted iframe is a **running renderer page**, not a plain element — nothing terminated it on a wallpaper switch, so it kept fetching the package / decoding textures / uploading in the background, on the same main thread as the new wallpaper's own startup. `applySelection` and unload now clear its timer and **abort** it (`src=about:blank`); the mount path also arms the heartbeat once (the `load` handler only arms it when mounted, and a delayed frame's document may finish loading before that — which would leave `we-live-on` off forever). Guard: `rotation-prepared-leak-smoke` cases Q1 / Q2 / Q3 (each with a failing control).
 - **No more black screen when a scene wallpaper is activated for the first time**: on a wallpaper's **first** activation the live-captured frame does not exist yet (this live session has to backfill it), while the placeholder tried 「captured frame」 as its only source and **silently kept a near-black theme colour** on failure ⇒ a black screen until the first frame. The placeholder now takes **live-captured frame → the author's packaged preview image → the theme colour**: the preview is **only a stand-in** (never "guessing a picture on the author's behalf" — `/scene-frame`'s empty-state semantics are **unchanged**, not a byte on the host side) and is displaced the moment the live first frame lands; guard `rotation-prepared-leak-smoke` cases P / P2 (positive / negative controls paired).
 - **Fixed the "collapsed right sidebar still shows a glass plate on harness 0.1.7" bug (upstream issue #107)**: the host's right-panel container keeps its **width while collapsed** and paints no background of its own, while the plugin painted it unconditionally ⇒ a mid-grey slab across the right of the conversation area (zero console errors, easily mistaken for a theme problem). Every rule that paints that container (including the `.cm-editor` / `.xterm` content surfaces and the software-render fallback) is now scoped to `[data-sidebar-right-open]`, plus an explicit closed-state clear; guard `verify-host-paint-scope`.

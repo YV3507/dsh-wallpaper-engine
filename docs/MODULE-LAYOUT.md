@@ -97,7 +97,7 @@
 | 1 | ~~**死码在发布面里**：`font-render.js` / `scene-scripts.js` / `scene-script-apis.js` / `scene-renderer.js` / `scene-render-worker.mjs` 与 `we-renderer/` 构成一个自相引用、但整体只从一个**零调用点**的函数进门的簇，而它们**全在 `files` 里 ⇒ 真的发给用户**~~ **已收敛**：P2-12 第一半把 48 文件 / 9,618 行整棵死树删净（连带 `files` 白名单与 `@shaderfrog/glsl-parser` 死依赖），可达性棘轮收到 **0 文件 / 0 行** | **口径与实测值以 `node test/verify-reachability.mjs` 的输出为准**（当前 `A) as-is` 与 `B) pruned` 都是 0） | **P2-12 第二半**（提取链 / 预热）· **P3-3/P3-4 ✅** |
 | 2 | ~~**`src/` 孤儿**：`src/api-client.js` 既不在 `INLINE_MODULES` 也不被任何文件 import ⇒ **不进产物**~~ **已收敛**：已登记进 `INLINE_MODULES`（P2-9 第一批调用点改写同时落地），并由 `verify-api-client.mjs` ⑥ 断言「已登记 + 已在产物里 + 产物里只有一份」——**它曾经是孤儿**这件事本身说明"漏登记不报错"是真陷阱 | `verify-api-client.mjs` ⑥（含负对照） | ✅ |
 | 3 | ~~`lib/types/index.d.ts` 与代码矛盾（称"暴露三条路由"、把 `webServer` 当可选；`WallpaperDescriptor` 缺 10 个字段、`Inventory` 缺 3 个、`client.d.ts` 零值导出）~~ **已收敛** | 类型面与代码一致，由 `test/verify-types.mjs` 从**实现**派生键集断言 | P3-1 ✅ |
-| 4 | ~~账本 §2 基线表仍写 `lib/client.js` 与 `src/client.js` **逐字节一致**~~ **已收敛** —— 产物是加载器包装 + 14 个内联模块，二者不可能逐字节一致 | 该指标现在的正确表述是"重建后 `git status` 干净"，由 CI 的 `git diff --exit-code` 钉住 | P3-2 ✅ |
+| 4 | ~~账本 §2 基线表仍写 `lib/client.js` 与 `src/client.js` **逐字节一致**~~ **已收敛** —— 产物是加载器包装 + 19 个内联模块，二者不可能逐字节一致 | 该指标现在的正确表述是"重建后 `git status` 干净"，由 CI 的 `git diff --exit-code` 钉住 | P3-2 ✅ |
 
 > **可达性分析的两个已知例外**（写守卫时必须特判，否则会把活代码判成死码）：`lib/webwallgl/web-shim.js` 是**按文本注入**（`fs.readFile` + 塞进 HTML），`lib/vendor/**` 与部分产物是**按字符串 require**。账本 §8 已把这条记为度量方法的一部分。
 
@@ -126,5 +126,5 @@
 | `lib/client.js` 与 `src/` 同步 | ✅ CI（重建后 `git diff --exit-code`） | — |
 | **`src/` 无孤儿**：除 `src/client.js` 外每个文件都必须在 `INLINE_MODULES` 里 | ✅ `test/verify-module-layout.mjs` ①（全量扫描 + 负对照） | — |
 | **依赖方向单向**：`lib/**` 不得 import `src/**` | ✅ 同守卫 ②（零容忍，不需要棘轮） | — |
-| **共享内核白名单**：允许被内联进浏览器的 `lib/**` 文件只许来自一张显式清单（当前**恰好 1 条**：`lib/settings-schema.js`；其余 13 个内联模块都是 `src/`） | ✅ 同守卫 ③（再加一条必须改清单 ⇒ 共享是**决策**而不是顺手） | — |
+| **共享内核白名单**：允许被内联进浏览器的 `lib/**` 文件只许来自一张显式清单（当前**恰好 1 条**：`lib/settings-schema.js`；其余 18 个内联模块都是 `src/`） | ✅ 同守卫 ③（再加一条必须改清单 ⇒ 共享是**决策**而不是顺手） | — |
 | **类型面与代码同源**：`lib/types/*.d.ts` 必须与实现一致 | ✅ `test/verify-types.mjs`（从实现派生键集断言类型覆盖） | — |

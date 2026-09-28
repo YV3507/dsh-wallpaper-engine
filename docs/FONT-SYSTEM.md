@@ -40,6 +40,20 @@
 - 字体是组件自己的写死声明、且元素没有自带 `font:` 简写 ⇒ 走 **③**。
 - `components.js` 里每个目标的 `route` 字段就是这条判断的落地（`tokens` / `hooks` / `props`）。
 
+## 值的真源在哪（与上面三个通道正交）
+
+上面三个通道回答"**怎么把值投到页面上**"；值本身住在哪是另一件事，别混：
+
+- **真源 = `fontsets/<活动 id>.json`**（随包层 `lib/fontsets/` 只读 + 用户层 `<pluginDataDir>/fontsets/`，
+  同 id **用户层胜**；改随包那份会**写时复制**成用户层的一份，删掉它即"恢复原样"）。`config.json`
+  里只留根字段 `{ fontSetId, fontCustom }` —— **六个字体键不在 settings 的持久化白名单里**
+  （`lib/settings-schema.js` 的 `FONTSET_KEYS` 由客户端 `src/fontset-store.js` 与宿主
+  `lib/routes/fontsets.js` 共用同一份 kind 元数据消毒）。
+- **写回是设计的一部分**：面板里改任何一个字体项都只落到**当前这一套**；导入导出按整份 `.json` 走
+  （导出用宿主响应头 + 普通链接 ⇒ 桌面端即系统"另存为"）。
+- 决策与验收判据见账本 §9.5，过程记录见归档计划 [`archive/audits/F3-PLAN.md`](./archive/audits/F3-PLAN.md)；
+  机制与不变量在各文件头（`lib/routes/fontsets.js` / `src/fontset-store.js` / `src/fontset-editor.js`）。
+
 ## 不变量（每个都有守卫断言）
 
 1. **令牌层与组件层都不写 `!important`** —— DSH 写死的字体声明里 `!important` 只占 4/319

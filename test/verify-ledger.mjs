@@ -674,6 +674,33 @@ for (const [what, ok] of controls) {
 }
 if (!controls.length) { console.log('  ⚠️ 负对照无法构造（账本里没有既带证据又状态可翻转的条目）'); controlFailed++; }
 
+// ── 账本里的"条路由"是**现状断言**：必须与生成的索引一致（数字只许复算）──────────────
+// 本次时效性审计实测：账本 §3 写着"宿主 31 条路由"，而同文件 §3.1 已经写 32 —— 一份文档里
+// 两个数，没有任何守卫看着它们。这里只**现算**：索引条数来自生成物、族数/已拆出条数来自源码。
+{
+  const idxCount = Number((/共 \*\*(\d+)\*\* 条路由/.exec(read('docs/ROUTE-INDEX.md')) || [])[1]);
+  const ledger = read('docs/wip/REFACTOR-ASSESSMENT.md');
+  const famFiles = readdirSync(join(root, 'lib', 'routes')).filter((f) => f.endsWith('.js'));
+  const famRegs = famFiles.reduce((n, f) => n + ((read('lib/routes/' + f).match(/register\(/g) || []).length), 0);
+  const row = /\*\*([\d,]+) 行 = `lib\/index\.js` 的 \d+%\*\*，分支代理 \d+，(\d+) 条路由（\*\*(\d+) 族 \/ (\d+) 条已拆出/.exec(ledger);
+  const sentence = /宿主 \*\*(\d+)\*\* 条路由注册/.exec(ledger);
+  const routeProblems = [];
+  if (!idxCount) routeProblems.push('索引里读不到"共 N 条路由"');
+  if (!row) routeProblems.push('找不到 §3.1 那句（改写句子会让判据失效，请同步判据）');
+  if (!sentence) routeProblems.push('找不到 §3 那句"宿主 N 条路由注册"');
+  if (row && Number(row[2]) !== idxCount) routeProblems.push('§3.1 路由总数 ' + row[2] + ' ≠ 索引 ' + idxCount);
+  if (row && Number(row[3]) !== famFiles.length) routeProblems.push('§3.1 族数 ' + row[3] + ' ≠ lib/routes/ 文件数 ' + famFiles.length);
+  if (row && Number(row[4]) !== famRegs) routeProblems.push('§3.1 已拆出 ' + row[4] + ' ≠ 族内注册数 ' + famRegs);
+  if (sentence && Number(sentence[1]) !== idxCount) routeProblems.push('§3 的 N ' + sentence[1] + ' ≠ 索引 ' + idxCount);
+  console.log('  ' + (routeProblems.length ? '✗' : '✓') + ' 账本里的路由数字与实测一致（索引 ' + idxCount
+    + ' / 族 ' + famFiles.length + ' / 族内注册 ' + famRegs + '）' + (routeProblems.length ? ' — ' + routeProblems.join('；') : ''));
+  if (routeProblems.length) problems.push(...routeProblems);
+  // 负对照：喂一份被改坏的账本，同一判据必须判出不一致
+  const mutated = ledger.replace(/，(\d+) 条路由（/, '，17 条路由（');
+  const mutatedRow = /\*\*([\d,]+) 行 = `lib\/index\.js` 的 \d+%\*\*，分支代理 \d+，(\d+) 条路由（/.exec(mutated);
+  controls.push(['账本里的路由条数被改坏', Boolean(mutatedRow) && Number(mutatedRow[2]) !== idxCount]);
+}
+
 if (problems.length || controlFailed) {
   for (const p of problems) console.log('  ✗ ' + p);
   console.log(`\nLEDGER SELF-CHECK FAILED — ${problems.length} 个不一致，${controlFailed} 个负对照失效`);

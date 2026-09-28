@@ -98,6 +98,22 @@ HTML 里注入 WE API shim（`lib/webwallgl/web-shim.js`）与 `project.json` �
 
 > 开发相关（构建产物、热挂载规则、缓存键前缀）见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。
 
+### 字体集：一整套外观住在哪
+
+字体自定义以**一套**为单位（「字体集」）。它**不是** settings 里的一堆键，而是**文件**：
+
+- **两层存储**：随包层 `lib/fontsets/<id>.json`（只读）+ 用户层 `<pluginDataDir>/fontsets/<id>.json`；
+  同 id **用户层胜**。改随包那份会**写时复制**成用户层的一份，删掉它 = 「恢复原样」（随包那份
+  重新可见）。`config.json` 只留根字段 `{ fontSetId, fontCustom }` —— 六个字体键不在 settings 的
+  持久化白名单里（唯一真源是 `lib/settings-schema.js`，客户端与宿主共用同一份 kind 消毒）。
+- **谁负责什么**：宿主 `lib/routes/fontsets.js` 一个 `prefix` 注册挂七个端点（列表 / 读 / 写 / 删 /
+  激活 / 导入 / 导出）；客户端 `src/fontset-store.js` 是**另一条**通道（与设置平行：真源不同、键集不同、
+  失败语义也不同 —— 字体集读不出来必须**整套不采用**）；`src/fontset-editor.js` 是纯渲染面板。
+- **切换只有一条写原语**：`POST …/activate` 改指针，改完客户端**必须把它那份值读回来采用**（只挪指针
+  界面不会变）。"使用中"的判据是**值仍与采纳时一致**，指针另作能力判定（活动集不可删）。
+- **导入导出**：导出走宿主响应头 + 普通链接（桌面端 = 系统「另存为」），导入前按文件里的 `$schema`
+  预检并给出具体原因。决策见账本 §9.5，过程记录见 [`archive/audits/F3-PLAN.md`](./archive/audits/F3-PLAN.md)。
+
 ### 抓帧几何校验（视口宽高比）
 
 抓帧是「抓帧那一刻渲染页视口的构图」—— 渲染器按画布比取景（与场景设计比 2% 内 → 整张设计上屏，

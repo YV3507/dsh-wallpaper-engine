@@ -36,7 +36,7 @@ It discovers the Wallpaper Engine install on your machine, lists your wallpapers
 
 - **Liquid glass across the whole settings window**: the entire native DSH settings window (dialog + left nav + every native section) becomes liquid glass, with accent color, glass base tint, transparency and blur all adjustable.
 - **Text surfaces keep a floor**: every text-bearing surface composites a theme base layer underneath, worst-case body-text contrast **4.63:1** — no slider extreme can make text illegible.
-- **Typography and caret, refined**: fonts are tunable per **color role / typographic role / component** (size, weight and family each), with an independent color for the input caret.
+- **Typography and caret, refined**: fonts are tunable per **color role / typographic role / component** (size, weight and family each), with an independent color for the input caret. A whole look can be saved as a **font set** (a preset ships with the plugin; create / rename / delete / restore, and **export/import** it as `.json` to share).
 - **Wallpaper-to-UI blending**: wallpaper blur, brightness / contrast / saturation, wallpaper opacity, scrim, border and glass blur — all applied instantly.
 
 **Signature features**
@@ -204,7 +204,8 @@ Two independent groups in the **外观** tab:
   - **Text color roles**: tint each of DSH's **color roles** separately (unset = keep the DSH default);
   - **Typographic roles**: one row per role with **size / weight / family** — size is an **absolute px** value (the box shows DSH's official size; empty = leave it alone), weight is 100–900, family is a 7-option picker ("follow" = do not override), plus a "changed only" filter;
   - **Advanced font settings** (sub-switch): refine **code blocks / terminal / markdown / tables** **per component** — effective only for components found by the startup self-probe (if DSH renames one, that entry degrades instead of misfiring).
-  Error / danger / warning elements keep their system red; **恢复默认** clears every typography override.
+  - **Font-set presets**: save a whole typography look as a **font set** — one preset ships with the plugin; you can **create one from the current look / rename / delete**, and every edit lands **only in the current set** (with 「restore」 putting it back the way it was). Sets can be **exported / imported** as `.json` (export opens the system "Save as"). It belongs to custom typography: turning the master switch off collapses the whole block.
+  Error / danger / warning elements keep their system red; **恢复默认** clears every typography override (it does **not** touch view switches such as 「只看改过的」).
 - **Input caret** — when the wallpaper shows through the liquid-glass composer and the caret blends into it ([#83](https://github.com/elysia395/dsh-wallpaper-engine/issues/83)), this group gives the caret its own color: **自动** (default, native dsh) / 6 presets / custom picker, applied via `caret-color` to every text input.
 
 ### System-audio reaction and Now Playing

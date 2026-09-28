@@ -441,6 +441,29 @@ console.log('\n⑤ 路由模块必须自己 import 用到的库函数（不得�
     '报出=[' + synthStale.join(',') + ']');
 }
 
+// ═══ ④ MODULE-LAYOUT 的内联计数 == 构建清单（数字只许复算）══════════════════════
+// 散文里的数字没人看着就会漂：时效性审计实测，这份文档的内联计数停在 13 / 14，而实际已是 19。
+// 数字一律**现算**（同一条清单），不手抄；句子被改写时判据要**红**，而不是静默失效。
+console.log('\n④ MODULE-LAYOUT 的内联计数与构建清单一致');
+{
+  const doc = readFileSync(join(ROOT, 'docs', 'MODULE-LAYOUT.md'), 'utf8');
+  const whitelist = /其余\s*(\d+)\s*个内联模块都是 `src\/`/.exec(doc);
+  const total = /加载器包装\s*\+\s*(\d+)\s*个内联模块/.exec(doc);
+  const n = inline.files.length;
+  check('判据找得到那两句（改写句子会红，而不是静默失效）',
+    Boolean(whitelist) && Boolean(total) && n > 0,
+    '总数=' + (total ? total[1] : '—') + ' / 其余=' + (whitelist ? whitelist[1] : '—') + ' / 实测=' + n);
+  check('总数 == 构建清单条数，且"其余 N-1 == src/"',
+    Boolean(total) && Boolean(whitelist) && Number(total[1]) === n && Number(whitelist[1]) === n - 1,
+    '文档 ' + (total ? total[1] : '—') + '/' + (whitelist ? whitelist[1] : '—') + ' vs 实测 ' + n + '/' + (n - 1));
+  check('negative control: 数字对不上会被判出',
+    (() => {
+      const bad = doc.replace(/其余\s*\d+\s*个内联模块/, '其余 13 个内联模块');
+      const m = /其余\s*(\d+)\s*个内联模块/.exec(bad);
+      return Boolean(m) && Number(m[1]) !== n - 1;
+    })());
+}
+
 console.log('');
 if (failed) {
   console.log('MODULE LAYOUT CHECKS FAILED — ' + failed + ' failed');
