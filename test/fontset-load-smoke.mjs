@@ -1,4 +1,18 @@
-﻿// fontset-load-smoke.mjs — F3 阶段 2：客户端**从活动字体集载入**这条通道的节点级冒烟。
+// React #31 校验：**对象不能作为子节点**。替身若默默吞掉，这类错就只能在真机上炸
+// （实测：参数位置上的赋值表达式把"角色对象数组"当成了子节点，空表时看不出、
+// 一旦筛出角色整块面板就崩）。替身必须和 React 一样**抛**。
+function badChild(c) {
+  if (c === null || c === undefined || typeof c === 'boolean' || typeof c === 'string' || typeof c === 'number') return null;
+  if (Array.isArray(c)) { for (const x of c) { const b = badChild(x); if (b) return b; } return null; }
+  if (typeof c === 'object' && c.type) return null;
+  return c;
+}
+function assertChildren(children) {
+  for (const c of children) {
+    const bad = badChild(c);
+    if (bad) throw new Error('React #31：无效子节点（对象不能作为子节点）: ' + JSON.stringify(Object.keys(bad)).slice(0, 80));
+  }
+}// fontset-load-smoke.mjs — F3 阶段 2：客户端**从活动字体集载入**这条通道的节点级冒烟。
 //
 // 为什么值得单独一条：`src/fontset-store.js` 是"字体值到底存哪"的另一半答案，而它的失败形态
 // 与设置不同 —— 设置丢一次只是回退，字体集读不出来必须**整套不采用**（半套用会让外观说不清）。
@@ -27,7 +41,7 @@ const check = (label, cond, detail = '') => {
 // 假 React 直接把它当值返回的话，页签永远是默认的「壁纸」——面板内容就驱动不到。
 const React = { Fragment: 'Fragment', useState: (init) => [typeof init === 'function' ? init() : init, () => {}],
   useEffect: () => {}, useRef: (v) => ({ current: v }),
-  createElement: (t, p, ...c) => (typeof t === 'function' ? t(p || {}) : { type: t, props: p || null, children: c }) };
+  createElement: (t, p, ...c) => { assertChildren(c); return typeof t === 'function' ? t(p || {}, ...c) : { type: t, props: p || null, children: c }; } };
 
 /** 宿主那份活动集（六个键齐全 —— 宿主永远给全）。 */
 const HOST_VALUES = {
@@ -230,6 +244,18 @@ const waitBoot = () => new Promise((r) => setTimeout(r, 50));
   check('挂载/启动不抛（六个键的兜底在位 ⇒ 面板与令牌层的取值路径拿到的都是对象）',
     mountThrew === '', mountThrew || 'fontCustom=true + 无字体集缓存 + 宿主读不出来');
 
+  // ── 共用驱动器：点开「字体集预设」子分支 + 读面板文案（D/E/F/G 都要用）──────────
+  /** 点开「字体集预设」子分支：面板里那个 checkbox 的 aria-label 就是行标签。 */
+  const openFontSetEditor = (d) => {
+    const box = d.renderPanel().flatMap((t) => collectTree(t))
+      .find((n) => n.type === 'input' && n.props && n.props['aria-label'] === '字体集预设');
+    if (box) box.props.onChange({ target: { checked: true } });
+    return Boolean(box);
+  };
+  /** 面板整棵树的文案（标记、失败态都长在这里）。 */
+  const panelText = (d) => d.renderPanel().flatMap((t) => collectTree(t))
+    .map((n) => (Array.isArray(n.children) ? n.children.filter((c) => typeof c === 'string').join('') : '')).join(' | ');
+
   // ── 场景 D：写路径（阶段 2 记下的差额，在这里补上）────────────────────────────
   // 面板的初始页签取自 localStorage（`PICKER_TAB_KEY`）⇒ 挂载台可以**直接渲染「外观」页签**，
   // 于是"点一下字号滑块 ⇒ 写活动集、不写 /settings"第一次成为**行为**判据。
@@ -246,6 +272,13 @@ const waitBoot = () => new Promise((r) => setTimeout(r, 50));
     .filter((n) => n.type === 'input' && /字号 px/.test(String((n.props || {}).title || '')));
   check('「外观」页签里找得到排版角色的字号输入（写路径的前置：UI 可达）',
     sizeInputs.length > 0, sizeInputs.length + ' 个字号输入');
+  // 「使用中」= **值仍然一致**（不是"宿主指针指着它"）：这里先记下**改之前**的标记，
+  // 改完再对照 —— 一组真正的前后对照，而不是只看改完那一眼。
+  openFontSetEditor(d);
+  await new Promise((r) => setTimeout(r, 20));
+  const markBefore = panelText(d);
+  check('改之前：那一行标「（使用中）」（刚采纳，值一致）',
+    markBefore.includes('（使用中）') && !markBefore.includes('（已改）'), markBefore.slice(-64));
   // 先把**启动期**挂起的写放掉（真机里 200ms 后自然落的那次）：否则它会被下面这次
   // `fireTimers(200)` 一起释放，混进"改字号之后发了什么"的窗口里（判据就说不清了）。
   d.fireTimers(200);
@@ -254,7 +287,8 @@ const waitBoot = () => new Promise((r) => setTimeout(r, 50));
   if (sizeInputs.length) sizeInputs[0].props.onChange({ target: { value: '26' } });
   d.fireTimers(200); // 200ms debounce 到点 ⇒ flushFontSet ⇒ PUT
   await new Promise((r) => setTimeout(r, 10));
-  const written = d.requests.slice(before);  const fontPuts = written.filter((r) => r.method === 'PUT' && r.url.includes('/fontsets/'));
+  const written = d.requests.slice(before);
+  const fontPuts = written.filter((r) => r.method === 'PUT' && r.url.includes('/fontsets/'));
   const settingsPuts = written.filter((r) => r.method === 'PUT' && r.url.includes('/settings'));
   check('改字号 ⇒ PUT 落到**活动集**（/fontsets/compact）',
     fontPuts.length === 1 && fontPuts[0].url.endsWith('/fontsets/compact'),
@@ -264,26 +298,57 @@ const waitBoot = () => new Promise((r) => setTimeout(r, 50));
     String(fontPuts[0] && fontPuts[0].body).slice(0, 96));
   check('同期**完全没有**写 /settings（字体值不走那条通道）',
     settingsPuts.length === 0, settingsPuts.map((r) => r.url).join(' | ') || '零次');
+  const markAfter = panelText(d);
+  check('改之后：标记换成「（已改）」—— 同一套、同一行，只是值被手动改过（不是凭空消失）',
+    !markAfter.includes('（使用中）') && markAfter.includes('（已改）'), markAfter.slice(-64));
+  // 「只看改过的」**默认开**（真机反馈那一轮把默认值翻了）：DEFAULTS_ONLY 的键不在持久化白名单里，
+  // 必须由 `panelDefaults()` 显式铺进 selection —— 少了这一层默认值就**静默失效**（这条钉住它）。
+  const typeRoleRows = () => {
+    const nodes = d.renderPanel().flatMap((t) => collectTree(t));
+    const table = nodes.find((n) => n.type === 'table'
+      && collectTree(n).some((x) => Array.isArray(x.children) && x.children.join('') === '角色'));
+    return table ? collectTree(table).filter((n) => n.type === 'tr' && collectTree(n).some((c) => c.type === 'td')).length : -1;
+  };
+  check('「只看改过的」默认开：表里只列改过的那个角色（默认值为 false 时会铺满 12 行）',
+    typeRoleRows() === 1, typeRoleRows() + ' 行');
 
   // ── 场景 E：导入（阶段 4）—— 往返 + 三种失败态都要"说得出为什么" ───────────────
   // 驱动器是**真面板**：先点开「字体集预设」子分支（fire 那个 checkbox 的 onChange），
   // 再把文件喂给隐藏的 .json input —— 与用户操作是同一串。
-  /** 点开「字体集预设」子分支：面板里那个 checkbox 的 aria-label 就是行标签。 */
-  const openFontSetEditor = (d) => {
-    const box = d.renderPanel().flatMap((t) => collectTree(t))
-      .find((n) => n.type === 'input' && n.props && n.props['aria-label'] === '字体集预设');
-    if (box) box.props.onChange({ target: { checked: true } });
-    return Boolean(box);
-  };
-  /** 面板整棵树的文案（失败态就长在这里）。 */
-  const panelText = (d) => d.renderPanel().flatMap((t) => collectTree(t))
-    .map((n) => (Array.isArray(n.children) ? n.children.filter((c) => typeof c === 'string').join('') : '')).join(' | ');
+
   console.log('E. 导入：导出字节 ⇒ 读回同一份；三种坏文件各自给可判定文案');
   const eStore = {
     'dsh-wallpaper-engine:selection': JSON.stringify({ id: 'v', fontCustom: true }),
     'dsh-wallpaper-engine:picker-tab': 'appearance',
   };
-  const e = mount({ fetchImpl: hostWith({ id: 'v', fontCustom: true }), store: eStore });
+  // **有状态的宿主**：PUT 建集 / POST activate 真的改这份清单。没有它就测不出"列表刷新了没有"——
+  // 固定清单的替身会让"新建之后新那一行出没出现"永远为真（真机报过：新建/使用后界面留着旧信息）。
+  const eSets = [{ id: 'compact', name: '紧凑', origin: 'builtin', active: true }];
+  let eActive = 'compact';
+  const baseHost = hostWith({ id: 'v', fontCustom: true });
+  const statefulHost = (url, init) => {
+    const u = String(url);
+    const method = String((init && init.method) || 'GET').toUpperCase();
+    if (u.includes('/fontsets/') && method === 'PUT') {
+      const id = decodeURIComponent(/\/fontsets\/([^/?]+)/.exec(u)[1]);
+      let name = id;
+      try { name = JSON.parse(String(init.body)).name || id; } catch { /* 体不成形就退回 id */ }
+      const row = eSets.find((r) => r.id === id);
+      if (row) row.name = name; else eSets.push({ id, name, origin: 'user', active: false });
+      return baseHost(u, init);
+    }
+    if (u.includes('/activate') && method === 'POST') {
+      eActive = decodeURIComponent(/\/fontsets\/([^/]+)\/activate/.exec(u)[1]);
+      eSets.forEach((r) => { r.active = r.id === eActive; });
+      return baseHost(u, init);
+    }
+    if (u.includes('/fontsets') && !u.includes('/fontsets/')) {
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({
+        fontsets: eSets.map((r) => Object.assign({}, r)), active: eActive, migrated: true, adopted: false }) });
+    }
+    return baseHost(u, init);
+  };
+  const e = mount({ fetchImpl: statefulHost, store: eStore });
   await waitBoot();
   /** 编辑器（含导入 input）在不在树上；顺带把整棵树的文案拼出来看失败态。 */
   const editorTree = () => {
@@ -352,6 +417,16 @@ const waitBoot = () => new Promise((r) => setTimeout(r, 50));
     check('建完立刻切过去（activate 指向那个新 id）—— 用户的下一步一定是调它',
       Boolean(newId) && round.some((r) => r.method === 'POST' && r.url.endsWith('/fontsets/' + newId + '/activate')),
       'id=' + newId);
+
+    // ── 激活的语义：**必须真的把那一份的值读回来采用**（只挪指针 ⇒ 界面上什么都不会变）──
+    // 新建时快照 = 当前值 ⇒ 建完那一眼应当是「（使用中）」；若 activate 不读值，会停在「（已改）」。
+    await new Promise((r) => setTimeout(r, 20));
+    const afterCreate = panelText(e);
+    check('新建/切换之后马上又是「（使用中）」（激活确实采用了那一份，而不是只挪指针）',
+      afterCreate.includes('（使用中）') && !afterCreate.includes('（已改）'), afterCreate.slice(-64));
+    // **列表必须当场更新**：新建的那一行要立刻出现在面板里，不能等刷新页面（真机报过的"留着旧信息"）。
+    check('新建之后新那一行**立刻**出现在面板里（列表跟着刷新，不必重载）',
+      afterCreate.includes('我的字体集'), afterCreate.slice(-70));
   }
 
   // ── 场景 G：宿主没重挂（真机实测的形态）───────────────────────────────────────
@@ -364,7 +439,8 @@ const waitBoot = () => new Promise((r) => setTimeout(r, 50));
     // 根本走不到外观页签 —— 那测的就不是本段要测的东西了）。
     const bareFontsets = (body) => (url, init) => (String(url).includes('/fontsets')
       ? Promise.resolve({ ok: false, status: 404, json: body })
-      : hostWith({ id: 'v' })(url, init));
+      // 字体集是「字体自定义」的**附属** ⇒ 这一场必须把总开关打开，否则那块（连同错误行）整块不渲染。
+      : hostWith({ id: 'v', fontCustom: true })(url, init));
     const staleHost = bareFontsets(() => Promise.reject(new Error('empty body')));
     const g = mount({ fetchImpl: staleHost, store: {
       'dsh-wallpaper-engine:selection': JSON.stringify({ id: 'v' }),
@@ -389,6 +465,85 @@ const waitBoot = () => new Promise((r) => setTimeout(r, 50));
     const envText = panelText(h);
     check('成对项：带 `{ error }` 的 404 ⇒ 原话照搬（"not found"），**不**出现"重启 DSH"那句',
       envText.includes('not found') && !envText.includes('重启 DSH 后再试'), envText.slice(0, 70));
+  }
+
+  // ── 场景 H：切换的语义 —— **点「使用」必须真的把那一份的值读回来采用** ─────────────
+  // 这条的牙齿在于"值不同的第二份"：只挪指针不读值时，改的只是宿主清单里那个 active 字段，
+  // 界面上的值一个都不会变（要等下次启动才生效）。替身的 active 跟着 activate 真的变。
+  console.log('H. 切换：点「使用」⇒ 值真的换成那一份（不是只挪指针）');
+  {
+    const WIDE_VALUES = {
+      themeColors: { primary: { light: '#ff0000', dark: '#00ff00' } },
+      themeDarkSeparate: false,
+      themeSize: { 'markdown-h1': 30 },
+      themeWeight: {},
+      themeFamily: {},
+      componentFonts: {},
+    };
+    let active = 'compact';
+    const twoSets = (url, init) => {
+      const u = String(url);
+      const method = String((init && init.method) || 'GET').toUpperCase();
+      if (u.includes('/activate')) {
+        const m = /\/fontsets\/([^/]+)\/activate/.exec(u);
+        if (m) active = decodeURIComponent(m[1]);
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true }) });
+      }
+      if (u.includes('/fontsets/')) {
+        const m = /\/fontsets\/([^/?]+)/.exec(u);
+        const id = m ? decodeURIComponent(m[1]) : 'compact';
+        const values = id === 'wide' ? WIDE_VALUES : HOST_VALUES;
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true, id, name: id, values }) });
+      }
+      if (u.includes('/fontsets')) {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({
+          fontsets: [
+            { id: 'compact', name: '紧凑', origin: 'builtin', active: active === 'compact' },
+            { id: 'wide', name: '宽敞', origin: 'user', active: active === 'wide' },
+          ], active, migrated: true, adopted: false,
+        }) });
+      }
+      return hostWith({ id: 'v', fontCustom: true })(url, init);
+    };
+    const h = mount({ fetchImpl: twoSets, store: {
+      'dsh-wallpaper-engine:selection': JSON.stringify({ id: 'v', fontCustom: true }),
+      'dsh-wallpaper-engine:picker-tab': 'appearance',
+    } });
+    await waitBoot();
+    openFontSetEditor(h);
+    await new Promise((r) => setTimeout(r, 20));
+    const before = panelText(h);
+    check('切换前：活动那一份是「（使用中）」、另一份不是',
+      before.includes('（使用中）') && !before.includes('（已改）'));
+    const sizeOf = () => (h.renderPanel().flatMap((t) => collectTree(t))
+      .find((n) => n.type === 'input' && /：字号 px/.test(String((n.props || {}).title || ''))) || {}).props;
+    const rowText = (name) => {
+      const rows = h.renderPanel().flatMap((t) => collectTree(t)).filter((n) => n.type === 'tr');
+      const row = rows.map((r) => collectTree(r)).find((cells) => cells.some((c) => c.type === 'td'
+        && collectTree(c).some((x) => Array.isArray(x.children) && x.children.join('') === name)));
+      return row ? row.map((c) => collectTree(c).map((x) => (Array.isArray(x.children) ? x.children.filter((y) => typeof y === 'string').join('') : '')).join('')).join('') : '';
+    };
+    check('切换前：字号输入显示的是活动那份的值（24）', (sizeOf() || {}).value === 24, String((sizeOf() || {}).value));
+    const at = h.requests.length;
+    // 只有"非活动"的那一行有「使用」（活动那份已经是使用中）⇒ 面板里就这一枚。
+    const useBtn = h.renderPanel().flatMap((t) => collectTree(t))
+      .find((n) => n.type === 'button' && Array.isArray(n.children) && n.children.join('') === '使用');
+    check('待切换那一行点得到「使用」', Boolean(useBtn));
+    if (useBtn) useBtn.props.onClick();
+    await new Promise((r) => setTimeout(r, 30));
+    const round = h.requests.slice(at);
+    check('「使用」⇒ POST activate 到那一份',
+      round.some((r) => r.method === 'POST' && r.url.endsWith('/fontsets/wide/activate')),
+      round.map((r) => r.method + ' ' + r.url.split('/').slice(-2).join('/')).join(' | '));
+    check('并且真的**读了那一份的值**（GET /fontsets/wide）', round.some((r) => r.method === 'GET' && r.url.endsWith('/fontsets/wide')),
+      round.filter((r) => r.method === 'GET').map((r) => r.url.split('/').pop()).join(','));
+    check('值真的换了：字号输入从 24 变成 30（只挪指针的话这里纹丝不动）',
+      (sizeOf() || {}).value === 30, String((sizeOf() || {}).value));
+    const after = panelText(h);
+    check('切换后：「（使用中）」搬到了**宽敞**那一行，紧凑那一行不再有它',
+      after.includes('（使用中）') && !after.includes('（已改）')
+      && rowText('宽敞').includes('（使用中）') && !rowText('紧凑').includes('（使用中）'),
+      '宽敞=' + rowText('宽敞').slice(0, 40) + ' | 紧凑=' + rowText('紧凑').slice(0, 40));
   }
 
   console.log('');

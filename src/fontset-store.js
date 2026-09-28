@@ -1,4 +1,4 @@
-﻿/**
+/**
  * fontset-store.js — 字体集的**客户端通道**（F3 阶段 2）：活动集的值住宿主文件，
  * 与设置（src/persistence.js）**平行但另一条**通道。
  *
@@ -105,6 +105,13 @@ function writeFontSetCache(id, values) {
 
 // 活动集 id：宿主回的为准；未知时留空，落盘时退回 FONTSET_MIGRATED_ID。
 let activeFontSetId = "";
+/**
+ * **采纳时那份值的快照**（规范化后的字符串）。「使用中」的判据是"当前这六个键 == 这份"，而**不是**
+ * "宿主指针指着它"：用户一旦手动改过字体值（字体自定义有变更），那一行就不再是"使用中"。
+ * 注意这不与写回冲突：写回把改动落进这套里，快照仍是**上次采纳时**那份 ⇒ 标记消失，直到用户重新
+ * 「使用」或重载（那时读回的正是含改动的那份）⇒ 标记回来。空串 = 还没采纳过（不判漂移）。
+ */
+let activeFontSetValues = "";
 let fontSetTimer = null;
 // 脏标记：非 2xx / 不可达都算"没写进去"，下次编辑或页面回到前台时重试（否则宿主那份会变旧，
 // 而宿主是真源 ⇒ 下次加载会把用户刚改的字体**回滚**）。
@@ -202,7 +209,11 @@ async function loadFontSet() {
   let why = "";
   try {
     const listRes = await fsJson(fontSetsUrl());
-    const active = listRes.ok && !listRes.error && listRes.data ? listRes.data.active : null;
+    const listData = (listRes.ok && !listRes.error && listRes.data) ? listRes.data : null;
+    // 清单**顺手更新**：它就在手里。少了这一句，`loadFontSet()` 的调用方（新建 / 切换）之后
+    // 列表还是旧的 —— 新那一行不出现、"使用中"的落点看着也不对，要刷新页面才好（真机报过）。
+    if (listData && Array.isArray(listData.fontsets)) selection.fontSets = listData.fontsets;
+    const active = listData ? listData.active : null;
     if (!listRes.ok || listRes.error) {
       why = fontSetFailureReason(listRes);
     } else if (!isFontSetId(active)) {
@@ -222,13 +233,18 @@ async function loadFontSet() {
 
   if (values) {
     activeFontSetId = id;
+    selection.fontSetActive = id; // 指针（= 宿主那边正在用的那份；能力判定用它）
     // 用户在 GET 在途时改过 ⇒ 他的值更新，别覆盖（但活动 id 必须记下：写目标要对）。
     if (fontSetWrites === writesAtStart) {
       Object.assign(selection, values); // 六个键一次写完 —— 这就是"整套采用"
       writeFontSetCache(id, values);
     }
+    // 快照 = **宿主那份**（不管上面有没有覆盖 selection）：被覆盖时正好判成"已改"。
+    activeFontSetValues = canonicalFontValues(values);
     selection.fontSetError = "";
   } else {
+    // 只拿到指针、没拿到正文：能力判定（活动集不可删）仍要准，但**不设快照** ⇒ 不判漂移。
+    if (isFontSetId(id)) { activeFontSetId = id; selection.fontSetActive = id; }
     selection.fontSetError = why || "字体集不可用";
   }
   selection.fontSetLoaded = true;
@@ -261,7 +277,23 @@ async function refreshFontSets() {
   }
 }
 
-/** 切换活动集（人工切换的**唯一**写原语；宿主那边也只认这一条）。 */
+/** 一份值的**规范化**形态（比对"有没有被改过"必须过同一套消毒 + 同一份键序）。 */
+function canonicalFontValues(values) {
+  return JSON.stringify(sanitizeFontset(values || {}));
+}
+
+/**
+ * 当前字体值是否已经**偏离**上次采纳的那一份（= 面板里"使用中"该不该亮）。
+ * 没采纳过（快照空）时返回 false —— 宁可不标，也不谎报"已改"。
+ */
+function fontSetDrifted() {
+  return activeFontSetValues !== "" && canonicalFontValues(pickFontValues()) !== activeFontSetValues;
+}
+
+/**
+ * 切换活动集（人工切换的**唯一**写原语；宿主那边也只认这一条）。
+ * 挪完指针要**把它那份值读回来采用** —— 否则界面上什么都不会变（得等下次启动才生效）。
+ */
 async function activateFontSet(id) {
   if (!isFontSetId(id)) return false;
   try {
@@ -270,7 +302,7 @@ async function activateFontSet(id) {
     activeFontSetId = id;
     selection.fontSetActive = id;
     selection.fontSetError = "";
-    await refreshFontSets();
+    await loadFontSet(); // 读回这一份的值并采用（值 + 快照 + **清单** + 「使用中」标记都在它里面）
     return true;
   } catch {
     selection.fontSetError = "宿主不可达（请求未完成）";
@@ -298,8 +330,7 @@ async function createFontSet(name) {
       body: JSON.stringify({ name: typeof name === "string" && name.trim() ? name.trim() : id, values }),
     });
     if (!res.ok) { selection.fontSetError = fontSetFailureReason(res); return ""; }
-    await activateFontSet(id);
-    await refreshFontSets();
+    await activateFontSet(id); // 里面会 loadFontSet：新集的快照 = 当前值 ⇒ 立刻是「使用中」
     return id;
   } catch {
     selection.fontSetError = "宿主不可达（请求未完成）";
@@ -446,5 +477,5 @@ export {
   fontValueDefaults, readCachedFontSetValues, loadFontSet, setFontValues, persistFontSet,
   flushFontSet, onPageHideFlushFontSet, onVisibilityResyncFontSet, cancelPendingFontSet,
   refreshFontSets, activateFontSet, createFontSet, renameFontSet, deleteFontSet,
-  exportFontSetUrl, importFontSet, flushFontSetNow,
+  exportFontSetUrl, importFontSet, flushFontSetNow, fontSetDrifted,
 };

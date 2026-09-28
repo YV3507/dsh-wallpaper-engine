@@ -1,4 +1,18 @@
-// GPU 抓帧回填的「异步落地身份校验」行为级 smoke（评审第二轮产出物，已进仓库）：
+// React #31 校验：**对象不能作为子节点**。替身若默默吞掉，这类错就只能在真机上炸
+// （实测：参数位置上的赋值表达式把"角色对象数组"当成了子节点，空表时看不出、
+// 一旦筛出角色整块面板就崩）。替身必须和 React 一样**抛**。
+function badChild(c) {
+  if (c === null || c === undefined || typeof c === 'boolean' || typeof c === 'string' || typeof c === 'number') return null;
+  if (Array.isArray(c)) { for (const x of c) { const b = badChild(x); if (b) return b; } return null; }
+  if (typeof c === 'object' && c.type) return null;
+  return c;
+}
+function assertChildren(children) {
+  for (const c of children) {
+    const bad = badChild(c);
+    if (bad) throw new Error('React #31：无效子节点（对象不能作为子节点）: ' + JSON.stringify(Object.keys(bad)).slice(0, 80));
+  }
+}// GPU 抓帧回填的「异步落地身份校验」行为级 smoke（评审第二轮产出物，已进仓库）：
 // 回填的落地回调只对**发起时那张壁纸**记账 —— 多 MB PNG 的 HEAD+toBlob+PUT 要
 // 0.1–1.5s，期间用户可能已经切走；旧实现用「当前 selection」记账，会把「已有 GPU
 // 帧」记到新壁纸头上，后果不只是面板提示错 ≤30s：回到被误标的壁纸时 CPU scene-anim
@@ -24,7 +38,7 @@ const check = (label, cond, detail = '') => {
 
 const React = {
   Fragment: 'Fragment', useState: (i) => [i, () => {}], useEffect: () => {}, useRef: (v) => ({ current: v }),
-  createElement: (t, p, ...c) => (typeof t === 'function' ? t(p || {}) : { type: t, props: p || null, children: c }),
+  createElement: (t, p, ...c) => { assertChildren(c); return typeof t === 'function' ? t(p || {}, ...c) : { type: t, props: p || null, children: c }; },
 };
 
 const timers = [];

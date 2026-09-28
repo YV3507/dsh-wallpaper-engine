@@ -141,6 +141,13 @@ HTML 里注入 WE API shim（`lib/webwallgl/web-shim.js`）与 `project.json` �
 > `src/**` 里还剩 4 处 `window.confirm`（轮播列表 / 隐藏壁纸 / 移除自定义画面 / 恢复已隐藏），
 > 它们同样会抢焦点 —— `verify-fontset` 里有一条棘轮只许它们减少。
 
+### 客户端异常也留痕（`client-error`）
+
+面板是 React 渲染的，一次渲染期异常会让整块界面白掉，而**这台机器打不开 DevTools** ⇒ 诊断缓冲里
+什么都没有、只剩"UI 崩了"这句转述。因此客户端挂了两个监听器（`error` / `unhandledrejection`），
+把异常的消息与栈前三行写进同一条诊断通道（`[we-live …] client-error · …`，级别 `error`，随 fiber 注销）。
+标签是 `client-error`：排查时先 `Select-String 'client-error' diag/http.jsonl`，有栈就能直接定位。
+
 ### 测试
 
 `npm run verify`（24 条链，含 client / 转码 / 播放控制 / scene / scene-live）+ `npm run smoke`

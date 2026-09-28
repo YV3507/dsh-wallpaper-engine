@@ -1,5 +1,19 @@
 #!/usr/bin/env node
-/**
+// React #31 校验：**对象不能作为子节点**。替身若默默吞掉，这类错就只能在真机上炸
+// （实测：参数位置上的赋值表达式会把"角色对象数组"当成子节点，空表时看不出、
+// 一旦筛出角色整块面板就崩）。替身必须和 React 一样**抛**。
+function badChild(c) {
+  if (c === null || c === undefined || typeof c === 'boolean' || typeof c === 'string' || typeof c === 'number') return null;
+  if (Array.isArray(c)) { for (const x of c) { const b = badChild(x); if (b) return b; } return null; }
+  if (typeof c === 'object' && c.type) return null;
+  return c;
+}
+function assertChildren(children) {
+  for (const c of children) {
+    const bad = badChild(c);
+    if (bad) throw new Error('React #31：无效子节点（对象不能作为子节点）: ' + JSON.stringify(Object.keys(bad)).slice(0, 80));
+  }
+}/**
  * verify-fontset.mjs — F3「字体集文件化」的守卫（阶段 0 的前置网 + 阶段 1 的宿主侧判据）。
  *
  * 覆盖三件容易"看起来对、实际什么都没发生"的事：
@@ -906,7 +920,7 @@ section('⑧ 面板渲染回归（配色区在总开关打开时必须渲染得�
   const panelMod = await import(pathToFileURL(join(root, 'src', 'panel-tabs.js')).href);
   const ReactStub = {
     Fragment: 'Fragment', useState: (i) => [i, () => {}], useEffect: () => {}, useRef: (v) => ({ current: v }),
-    createElement: (t, p, ...c) => (typeof t === 'function' ? t(p || {}) : { type: t, props: p || null, children: c }),
+    createElement: (t, p, ...c) => { assertChildren(c); return typeof t === 'function' ? t(p || {}, ...c) : { type: t, props: p || null, children: c }; },
   };
   const noop = () => null;
   const same = (g, k, v) => { if (!(k in g)) g[k] = v; };
@@ -976,11 +990,94 @@ section('⑧ 面板渲染回归（配色区在总开关打开时必须渲染得�
   const renderThrew = (sel) => {
     try { panelMod.renderAppearanceTab(panelCtx(sel)); return ''; } catch (e) { return String((e && e.message) || e); }
   };
+  /** 面板整棵树里的文本（结构判据用）。 */
+  const panelText = (sel) => {
+    const out = [];
+    (function walk(n) {
+      if (Array.isArray(n)) { n.forEach(walk); return; }
+      if (!n || typeof n !== 'object') return;
+      if (Array.isArray(n.children)) {
+        out.push(...n.children.filter((c) => typeof c === 'string'));
+        n.children.forEach(walk);
+      }
+    })(panelMod.renderAppearanceTab(panelCtx(sel)));
+    return out.join(' | ');
+  };
+  const panelTables = (sel) => (function walk(n, acc = []) {
+    if (Array.isArray(n)) { n.forEach((x) => walk(x, acc)); return acc; }
+    if (!n || typeof n !== 'object') return acc;
+    if (n.type === 'table') acc.push(n);
+    if (Array.isArray(n.children)) n.children.forEach((x) => walk(x, acc));
+    return acc;
+  })(panelMod.renderAppearanceTab(panelCtx(sel)), []);
   check('总开关打开 + 客户端那份兜底值 ⇒ 外观页签渲染得出（修复前这里是崩溃点）',
     renderThrew(panelSel()) === '', renderThrew(panelSel()) || 'ok');
   const missing = renderThrew(panelSel({ themeColors: undefined }));
   check('配对项：缺 themeColors 时**确实会抛**（证明上一条不是恒真）',
     missing !== '', missing || '没抛 —— 夹具可能把那一行空转了，本段必须重写');
+
+  // ── 语义：字体集是「字体自定义」的**附属** ────────────────────────────────────
+  // 判据认**编辑器自己那张表**（表头「操作」），不认文案 —— 本段的 harness 里 `switchRow` /
+  // `ctlText` 是 noop（只求"渲染得出"），拿标签文字去判会**空转**：两种情况下都找不到。
+  const treeText = (n) => {
+    if (Array.isArray(n)) return n.map(treeText).join('');
+    if (!n || typeof n !== 'object') return '';
+    const own = Array.isArray(n.children) ? n.children.filter((c) => typeof c === 'string').join('') : '';
+    const kids = Array.isArray(n.children) ? n.children.map(treeText).join('') : '';
+    return own + kids;
+  };
+  const hasFontSetTable = (sel) => panelTables(sel).some((tb) => treeText(tb).includes('操作'));
+  check('字体集是「字体自定义」的附属：关掉总开关 ⇒ 面板里没有字体集那张表',
+    !hasFontSetTable(panelSel({ fontCustom: false, fontSetOpen: true })), 'fontCustom=false');
+  check('负对照：打开总开关 ⇒ 表必须在（证明上一条不是空转）',
+    hasFontSetTable(panelSel({ fontCustom: true, fontSetOpen: true })), 'fontCustom=true');
+
+  // ── 语义：「只看改过的」默认开 + 筛完是空要有话说 ─────────────────────────────
+  /** 只数**排版角色**那张表的正文行（面板里还有字体集那张表，不能一起数）。 */
+  const typeRowCount = (sel) => {
+    const walk = (n, acc = []) => {
+      if (Array.isArray(n)) { n.forEach((x) => walk(x, acc)); return acc; }
+      if (!n || typeof n !== 'object') return acc;
+      if (n.type === 'tr') acc.push(n);
+      if (Array.isArray(n.children)) n.children.forEach((x) => walk(x, acc));
+      return acc;
+    };
+    const hasTd = (n) => {
+      if (Array.isArray(n)) return n.some(hasTd);
+      if (!n || typeof n !== 'object') return false;
+      if (n.type === 'td') return true;
+      return Array.isArray(n.children) && n.children.some(hasTd);
+    };
+    const table = panelTables(sel).find((tb) => treeText(tb).includes('角色'));
+    return table ? walk(table, []).filter(hasTd).length : -1;
+  };
+  check('「只看改过的」默认值是**开**（defaults-only 键，改默认值就是全部改动）',
+    schema.DEFAULTS.themeTypeOnly === true && schema.DEFAULTS_ONLY.includes('themeTypeOnly'));
+  // DEFAULTS_ONLY 的键**不在持久化白名单里** ⇒ `readPersisted()` 与本地缓存都不提供它们。
+  // 少了 `panelDefaults()` 这一层，默认值就是 `undefined`：默认 false 的键靠"undefined 也假"侥幸正确，
+  // **默认 true 的键会静默失效**（`themeTypeOnly` 就这样失效过一次）。
+  check('DEFAULTS_ONLY 的每个键都有默认值来源，且客户端初始化里铺了这一层',
+    schema.DEFAULTS_ONLY.every((k) => Object.prototype.hasOwnProperty.call(schema.panelDefaults(), k))
+    && /\.\.\.panelDefaults\(\)/.test(clientSrc),
+    schema.DEFAULTS_ONLY.length + ' 个键');
+  check('默认开 + 一行都没改过 ⇒ 表是空的，但**有专门一行提示**（不是让人以为表坏了）',
+    panelText(panelSel({ themeTypeOnly: true })).includes('没有改过的角色')
+    && typeRowCount(panelSel({ themeTypeOnly: true })) === 0,
+    'rows=' + typeRowCount(panelSel({ themeTypeOnly: true })));
+  check('负对照：关掉「只看改过的」⇒ 全表回来、提示消失（判据不是恒真）',
+    !panelText(panelSel({ themeTypeOnly: false })).includes('没有改过的角色')
+    && typeRowCount(panelSel({ themeTypeOnly: false })) >= 10,
+    typeRowCount(panelSel({ themeTypeOnly: false })) + ' 行');
+
+  // ── 语义：「恢复默认」不动「只看改过的」 ──────────────────────────────────────
+  // 那是**视图**状态：重置清的是字体值，不该顺手把用户选的筛选也翻掉。
+  check('「恢复默认」的函数体里不出现 themeTypeOnly（视图状态不归它管）',
+    (() => {
+      const body = (/const onFontResetAll = \(\) => \{([\s\S]*?)\n  \};/.exec(clientSrc) || [])[1] || '';
+      const negControl = 'selection.themeTypeOnly = false;\n' + body;
+      return body.length > 0 && !/themeTypeOnly/.test(body)
+        && /themeTypeOnly/.test(negControl); // 负对照：同一判据对"改前那版"会判红
+    })(), '判据非空转（拿改动前那份函数体试过）');
 }
 
 // ── ⑨ 字体集编辑器（面板驱动）────────────────────────────────────────────────
@@ -991,7 +1088,7 @@ section('⑨ 字体集编辑器（面板可驱动：意图映射 / confirm 门�
   const editorMod = await import(pathToFileURL(join(root, 'src', 'fontset-editor.js')).href);
   const R = {
     Fragment: 'Fragment', useState: (i) => [i, () => {}], useEffect: () => {}, useRef: (v) => ({ current: v }),
-    createElement: (t, p, ...c) => (typeof t === 'function' ? t(p || {}) : { type: t, props: p || null, children: c }),
+    createElement: (t, p, ...c) => { assertChildren(c); return typeof t === 'function' ? t(p || {}, ...c) : { type: t, props: p || null, children: c }; },
   };
   globalThis.React = R;
   // ctlText 要**看得见文案**（本段要断来源标记）⇒ 别用 ⑧ 那份 noop。
@@ -1016,7 +1113,7 @@ section('⑨ 字体集编辑器（面板可驱动：意图映射 / confirm 门�
   const render = (over) => {
     const calls = [];
     const ctx = Object.assign({
-      fontSets: FONTSET_ROWS, activeId: 'compact', loading: false, error: '',
+      fontSets: FONTSET_ROWS, activeId: 'compact', inUseId: 'compact', loading: false, error: '',
       editingId: '', draftName: '', armedId: '',
       exportUrl: (id) => '/wallpaper-engine/fontsets/' + id + '/export',
       onActivate: (id) => calls.push(['activate', id]),
@@ -1055,6 +1152,22 @@ section('⑨ 字体集编辑器（面板可驱动：意图映射 / confirm 门�
         && hasBadge(['我的']) === true;
     })());
   check('活动行标「（使用中）」', allText(t).includes('（使用中）'));
+  // 「使用中」的判据是**值仍然一致**（`inUseId`），不是"宿主指针指着它"：手动改过字体值 ⇒
+  // 标记换成「（已改）」（凭空消失会让人以为出错）。`activeId` 仍按指针给能力判定。
+  check('值被改过 ⇒ 不再是「使用中」，同一行换成「（已改）」',
+    (() => {
+      const drifted = render({ inUseId: '' }).tree;
+      return !allText(drifted).includes('（使用中）') && allText(drifted).includes('（已改）');
+    })());
+  check('指针与标记分开：漂移时活动集那一行**仍然删不掉**（能力判定只认指针）',
+    (() => {
+      // 用户层的活动集（'mine'）：漂移与否都不该出删除按钮 —— 宿主会拒"删活动集"，界面不摆这种按钮。
+      const tree = render({ activeId: 'mine', inUseId: '' }).tree;
+      const mineRow = nodes(tree).filter((n) => n.type === 'tr' && nodes(n).some((c) => c.type === 'td'))
+        .find((r) => allText(r).includes('我的集'));
+      return Boolean(mineRow) && !buttons(mineRow).some((b) => textOf(b) === '删除')
+        && allText(tree).includes('（已改）');
+    })());
   // 本段的**牙齿**：能力判定没被一起删掉 —— `origin` / `overrides` 仍在用来决定
   // "能不能删、删下去是什么语义"，只是这些话不再显示来源。
   check('被改过的那一行删除按钮 =「恢复原样」（只说效果：改动没了、回到原本的样子）',

@@ -1,4 +1,4 @@
-﻿# 重构与设计落实账本（**活文档**）
+# 重构与设计落实账本（**活文档**）
 
 > **本文只回答三件事**：现在要不要重构（§1–§4）· 按什么顺序改（§5）· 每步怎么算改完（§5 的验收判据）。
 >
@@ -46,12 +46,12 @@
 
 | 指标 | 当前值 |
 |---|---|
-| 浏览器正文 `src/client.js` | **4022 行**（重构起点 10,119 行） |
+| 浏览器正文 `src/client.js` | **4048 行**（重构起点 10,119 行） |
 | 构建期内联模块 | **19 个**（18 个来自 `src/` + 共享内核 `lib/settings-schema.js`） |
-| `lib/**`（`verify-reachability` 打印的「lib 扫描面」：`lib/**.{js,mjs}` **全量**，vendored 与生成物都在内） | **25 文件 / 28146 行** |
+| `lib/**`（`verify-reachability` 打印的「lib 扫描面」：`lib/**.{js,mjs}` **全量**，vendored 与生成物都在内） | **25 文件 / 28245 行** |
 | 其中**运行时不可达** | **0 文件 / 0 行**（P2-12 第一半已删净；此前 48 文件 / 9,618 行曾在 `files` 里、真的发给用户） |
 | 生成物 `lib/client.js` | 12,710 行 / 1.28 MiB（提交；判据是"重建后 `git status` 干净"） |
-| 守卫 + 冒烟 | **29 个 `verify-*`（14673 行）+ 6 个 smoke（2517 行）**，均在 `test/` |
+| 守卫 + 冒烟 | **29 个 `verify-*`（14673 行）+ 6 个 smoke（2761 行）**，均在 `test/` |
 | vendored | `webwallgl/` + `vendor/` 共 **12 文件 / 6,950 行** |
 
 > 逐阶段的增量对照表（P0 后 / P1 后 / F1 后 / F2 后）已删除：那些数字只在当时有意义，现值以上表为准。
@@ -213,7 +213,7 @@
 | F0 | `theme` 服务的真机确认（主路径成立 + 两处旧结论被推翻）→ 结论并入 §9.1 的 V1–V10；记录保留在 F0 清单 | ✅ |
 | F1 | 颜色角色令牌层 `src/font/color-roles.js` + 设置 `themeColors` / `themeDarkSeparate`（首期只做颜色，5 个角色） | ✅ |
 | F2 | 排版角色 `src/font/typography.js` + 设置 `themeType`（只追加偏移、不重写 DSH 表达式、不碰字重字族） | ✅ |
-| F3 | **字体集文件化**（**已完成**，四项需求全部落地）：**随包预设** —— `lib/fontsets/` 随包发布、**两层存储**（同 id 用户层胜、写时复制：改发布物那份会自动存成用户层的一份））· **导入导出** —— 宿主响应头导出 + `/fontsets/import` 导入，客户端三道本地预检各给可判定文案 · **人工切换** —— `activate` 是唯一改指针的写原语（将来的条件自动切换是**策略层**、必须调它）。三条决策：D1 字体值退出 settings blob（`config.json` 只留 `{ fontSetId, fontCustom }`）· D2 导出走宿主响应头 · D3 写时复制。过程记录见 [`archive/audits/F3-PLAN.md`](../archive/audits/F3-PLAN.md)；机制与不变量在 `lib/routes/fontsets.js` / `src/fontset-store.js` / `src/fontset-editor.js` / `lib/settings-schema.js` 的文件头；判据在 `verify-fontset`（125 条）+ `fontset-load-smoke`。⚠️ 真机确认仍在根 `TODO`（字号/字重/字族是否分别生效等 Node 守卫覆盖不到的行为）| ✅ |
+| F3 | **字体集文件化**（**已完成**，四项需求全部落地）：**随包预设** —— `lib/fontsets/` 随包发布、**两层存储**（同 id 用户层胜、写时复制：改发布物那份会自动存成用户层的一份））· **导入导出** —— 宿主响应头导出 + `/fontsets/import` 导入，客户端三道本地预检各给可判定文案 · **人工切换** —— `activate` 是唯一改指针的写原语（将来的条件自动切换是**策略层**、必须调它；**激活必须把那份值读回来采用、并把清单一起更新**（`loadFontSet` 同时承担这两件事 —— 少了清单那一句，新建/切换后界面会留着旧列表，要刷新才好） —— 只挪指针界面不会变）。**语义（真机反馈后定）**：字体集是「字体自定义」的**附属**（总开关关掉即整块收起）· 「使用中」= **值仍与采纳时一致**（手动改过 ⇒ 换标「已改」），`activeId`（指针）只做能力判定 · 「只看改过的」**默认开**且"恢复默认"不动它（视图状态不归重置管）。三条决策：D1 字体值退出 settings blob（`config.json` 只留 `{ fontSetId, fontCustom }`）· D2 导出走宿主响应头 · D3 写时复制。过程记录见 [`archive/audits/F3-PLAN.md`](../archive/audits/F3-PLAN.md)；机制与不变量在 `lib/routes/fontsets.js` / `src/fontset-store.js` / `src/fontset-editor.js` / `lib/settings-schema.js` 的文件头；判据在 `verify-fontset`（125 条）+ `fontset-load-smoke`。⚠️ 真机确认仍在根 `TODO`（字号/字重/字族是否分别生效等 Node 守卫覆盖不到的行为）| ✅ |
 | G1 | 删掉 legacy「字体颜色」通路（四条 `!important` 折叠 + 全局墨色覆盖 + schema 键），改为写进 5 个角色 | ✅ |
 | G2 | 面板显示 DSH **官方默认值**（单一真源在角色表；"初始值 = 官方值、清空即回官方"） | ✅ |
 | G3 | 官方 `--dsl-*` 组件钩子通道，作用域 = **钩子在样式表里的定义点**（不按模块名） | ✅ |
@@ -368,3 +368,4 @@ presenter 把快照写进 `body` 内联样式 ⇒ 内联胜过主题样式表 �
 | [`docs/archive/static-frame/*`](../archive/static-frame/) | 静态帧线的历史与逆向记录（**不反映现行实现**）；§6 是它的终点决策 |
 | `HOW-IT-WORKS.md` / `TROUBLESHOOTING.md` / `UPGRADING.md` | 已随 P2-12 阶段 4 收口：正文不再宣传已删除的链（改写为"出图来源"） |
 | 本机临时待办（不入库） | 只装本机流程债与本机配方；**写作纪律不在这里**（见 [`docs/README.md`](../README.md) §写作纪律） |
+

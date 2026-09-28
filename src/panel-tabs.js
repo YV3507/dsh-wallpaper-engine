@@ -484,6 +484,14 @@
 
   function renderAppearanceTab(ctx) {
     const { setSetting, officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onToggleFontCustom, fontSet, sel } = ctx;
+    // 「排版角色」表要按「只看改过的」筛，而**筛完是空**时要单独给一行提示 ⇒ 先算出来再渲染表。
+    // ⚠️ 必须在 `React.createElement(...)` **之前**算（写成参数位置上的赋值表达式 ——
+    //    赋值表达式的值是那个**数组本身**，于是它被当成一个子节点 ⇒ React #31「对象不能作为子节点」；
+    //    空数组时看不出来，一旦有筛出来的角色就整块面板崩掉）。
+    const typeRoles = THEME_TYPE_ROLES.filter((role) => !sel.themeTypeOnly
+      || sel.themeSize[role.id] !== undefined
+      || sel.themeWeight[role.id] !== undefined
+      || sel.themeFamily[role.id] !== undefined);
     return React.createElement(React.Fragment, null,
       // ── 主题：配色（accent）+ 玻璃基底（颜色/透明度）──
       React.createElement("div", { className: "we-picker__section" },
@@ -589,6 +597,12 @@
           }),
           // 表格化：表头放「字号 / 字重 / 字体」，一行一个角色 —— 三项在固定列上对齐，
           // 比每行重复三个无标签控件好扫读（颜色角色那张形状不同，仍用行式）。
+          // 「只看改过的」**默认开** ⇒ 一行都没改过时表是空的：那种"空表"必须有话说，
+          // 否则看着像坏了（这也是把默认值翻成开之后必须同时补的一件事）。
+          typeRoles.length === 0
+            ? React.createElement("div", { className: "we-picker__hint" },
+              "没有改过的角色 —— 「只看改过的」正开着（共 " + THEME_TYPE_ROLES.length + " 个角色）。关掉它就能看到全部。")
+            : null,
           React.createElement("table", { className: "we-picker__font-table" },
             React.createElement("thead", null,
               React.createElement("tr", null,
@@ -599,12 +613,7 @@
               ),
             ),
             React.createElement("tbody", null,
-          THEME_TYPE_ROLES
-            // 「只看改过的」= 字号 / 字重 / 字族**任一**有设置（早前只判了字号，是漏判）。
-            .filter((role) => !sel.themeTypeOnly
-              || sel.themeSize[role.id] !== undefined
-              || sel.themeWeight[role.id] !== undefined
-              || sel.themeFamily[role.id] !== undefined)
+          typeRoles
             .map((role) => {
               const size = sel.themeSize[role.id];
               return React.createElement("tr", { key: role.id },
@@ -719,20 +728,14 @@
           // 全局字体族已移除：字族改按角色（「排版角色」每行的字族下拉）
           // 与按组件（「高级字体设置」里每项的下拉）设置 —— 全局字族只经 body 继承，
           // 既压平 DSH 的字体栈层次，又够不到用 `font:` 简写的标题/表格/代码。
+          // ── 字体集（**「字体自定义」的附属**）：总开关管"要不要自定义"，这里管"用哪一整套"。
+          //    放在 `sel.fontCustom` 这一支**里面** —— 关掉自定义就整块收起（那时这一整套并不
+          //    生效，摆出来只会让人以为它在起作用）。
+          switchRow("字体集预设", fontSet.open, (e) => fontSet.onOpen(e.target.checked), {
+            tooltip: "预设 = 一整套字体外观；改动只落到当前这一套，随时可以恢复原样",
+          }),
+          fontSet.open && renderFontSetEditor(fontSet),
         ),
-      ),
-      // ── 字体集（F3 阶段 3）：整套字体外观的「预设」──────────────────────────
-      // 与上面那条「字体自定义」互补：那条改的是**当前这套**，这里管的是**有哪些套**。
-      // 子分支形态与「高级字体设置」同款（一行开关 + 条件渲染）；编辑器本体是**纯渲染**
-      // （src/fontset-editor.js），所有网络调用与状态由 client 侧经 `fontSet` 这一份显式 ctx 给。
-      React.createElement("div", { className: "we-picker__section" },
-        React.createElement("div", { className: "we-picker__section-head" },
-          React.createElement("span", { className: "we-picker__section-label" }, "字体集"),
-        ),
-        switchRow("字体集预设", fontSet.open, (e) => fontSet.onOpen(e.target.checked), {
-          tooltip: "预设 = 一整套字体外观；改动只落到当前这一套，随时可以恢复原样",
-        }),
-        fontSet.open && renderFontSetEditor(fontSet),
       ),
       // ── 输入光标（#83）：光标色与壁纸相近时会隐形，这里给它一个独立于字体
       //    自定义的颜色项。「自动」= 不注入任何规则，跟随 dsh 原生表现。──

@@ -149,6 +149,10 @@ function sanitizeSettings(o) {
 
 // ── Shared selection store (React + DOM layer share it) ────────────────────
 const selection = {
+  // ① 视图态默认值（`DEFAULTS_ONLY`）：它们**不在持久化白名单里** ⇒ `readPersisted()` 与本地缓存都
+  //    不会提供，不显式铺这一层就是 `undefined`。默认 false 的键侥幸无事，**默认 true 的会静默失效**
+  //    （`themeTypeOnly` 就这样失效过：代码声称默认开、界面上却是关的）。
+  ...panelDefaults(),
   ...readPersisted(),
   // 字体值（F3 阶段 2）走**另一条**通道：真源是 `fontsets/<活动 id>.json`。
   // ⚠️ 顺序是承重的，两行都不能少：
@@ -2550,6 +2554,9 @@ function fontSetCtx() {
     },
     fontSets: selection.fontSets,
     activeId: selection.fontSetActive,
+    // 「使用中」的判据是**值仍然一致**，不是"宿主指针指着它"：手动改过字体值 ⇒ 标记让位给「已改」。
+    // 注意 `activeId` 仍按指针给 —— 能力判定（活动集不可删、先切走）必须与宿主一致，不能受漂移影响。
+    inUseId: fontSetDrifted() ? "" : selection.fontSetActive,
     loading: selection.fontSetLoading === true,
     error: selection.fontSetError,
     editingId: selection.fontSetEditing,
@@ -2774,7 +2781,8 @@ const officialColorOf = (tokens) => {
     selection.themeFamily = {};
     selection.componentFonts = {};
     selection.themeDarkSeparate = false;
-    selection.themeTypeOnly = false;
+    // 「只看改过的」是**视图**状态，不归"恢复默认"管：它清的是字体值，不该顺手把用户选的筛选
+    // 也翻掉（那会让"恢复默认"改掉界面的看法）。判据钉住这一点。
     persistFontSet();
     setSetting("fontAdvanced", false); applyEffects(); emit();
   };
@@ -3788,6 +3796,22 @@ function apply(ctx) {
           ocListeners.push(t);
         }
       }
+      // 客户端 JS 异常的**留痕**：这台机器打不开 DevTools ⇒ 没有这一条，一次渲染期异常就只剩
+      // "UI 崩了"这句转述（实测过：面板白屏时诊断缓冲里什么也没有）。只**记录**、不改行为；
+      // 与其它监听器一样随 fiber 注销（HMR 重挂不会叠）。
+      const onClientError = (ev) => {
+        try {
+          const err = ev && (ev.error || ev.reason);
+          const type = (ev && ev.type) ? ev.type : "error";
+          const msg = String((err && err.message) || (ev && ev.message) || err || ev || "").slice(0, 240);
+          const where = (err && err.stack) ? " @ " + String(err.stack).split("\n").slice(0, 3).join(" <- ") : "";
+          liveLog("client-error", type + ": " + msg + where);
+        } catch { /* 连记录都失败就放弃，绝不在错误处理里再抛 */ }
+      };
+      if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+        window.addEventListener("error", onClientError);
+        window.addEventListener("unhandledrejection", onClientError);
+      }
       // 遮挡判定**不能只靠事件**：原生模态（`window.confirm` / `alert`）会把焦点交给自己的窗口，
       // 而**回来时的 focus 事件不保证送达** —— 判定就会一直停在「窗口失焦」，壁纸从此不恢复
       // （真机形态：删除确认弹窗之后壁纸停住、输入框也收不到键，只剩重载能救）。
@@ -3850,6 +3874,8 @@ function apply(ctx) {
         if (ocWatch) { try { clearInterval(ocWatch); } catch { /* ignore */ } ocWatch = 0; }
         if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
           for (const t of ocListeners) window.removeEventListener(t, onOcclusionChange);
+          window.removeEventListener("error", onClientError);
+          window.removeEventListener("unhandledrejection", onClientError);
           if (pageHideBound) window.removeEventListener("pagehide", onPageHideFlush);
           if (fontPageHideBound) window.removeEventListener("pagehide", onPageHideFlushFontSet);
         }

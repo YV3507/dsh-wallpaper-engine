@@ -26,5 +26,13 @@
    或命名的正则常量 —— 正判据与负对照都调它。两种写法不算数：
    - ① **只断言某个常量 / 数组不含 X**：判据根本没被执行，判据空转时它照样绿；
    - ② **在对照里另抄一份判据**（复制正则、复制 `.every(...)`）：生产侧改了它也不会红。
+6. **假 React 必须像 React 一样校验子节点**（每个替身的 `createElement` 都插了同一段 `assertChildren`）：
+   对象不能作为子节点（React #31）。替身若默默收下，这类错**只能在真机上炸** —— 实测踩过：
+   在 `React.createElement(...)` 的参数位置上写赋值表达式，表达式的值（角色对象数组）会变成
+   一个子节点；表为空时看不出来，一旦筛出角色整块面板就崩，而当时所有判据全绿。
+   加了这段校验之后，同一形状会让 ⑧ 的"渲染得出"当场判红，报的就是真机那条错误。
+7. **`test/**` 里不要写 BOM**：`verify-fontset.mjs` 带 shebang，BOM 会让 `node` 在 `#!` 那行报
+   `Invalid or unexpected token`。Windows PowerShell 的 `Set-Content -Encoding UTF8` 默认**带**
+   BOM ⇒ 批量改写用 `[System.IO.File]::WriteAllText($p, $t, (New-Object System.Text.UTF8Encoding($false)))`。
    验证方式（本仓实测用法）：把判据**中和**成"永远说没问题"，对应的负对照**必须变红** ——
    而此时正判据会照过（空转），所以负对照是唯一能抓这类失效的那条。

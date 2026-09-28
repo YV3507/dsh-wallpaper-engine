@@ -1,4 +1,18 @@
-// Rotation prepare/commit smoke for the WebWallGL live staging path.
+// React #31 校验：**对象不能作为子节点**。替身若默默吞掉，这类错就只能在真机上炸
+// （实测：参数位置上的赋值表达式把"角色对象数组"当成了子节点，空表时看不出、
+// 一旦筛出角色整块面板就崩）。替身必须和 React 一样**抛**。
+function badChild(c) {
+  if (c === null || c === undefined || typeof c === 'boolean' || typeof c === 'string' || typeof c === 'number') return null;
+  if (Array.isArray(c)) { for (const x of c) { const b = badChild(x); if (b) return b; } return null; }
+  if (typeof c === 'object' && c.type) return null;
+  return c;
+}
+function assertChildren(children) {
+  for (const c of children) {
+    const bad = badChild(c);
+    if (bad) throw new Error('React #31：无效子节点（对象不能作为子节点）: ' + JSON.stringify(Object.keys(bad)).slice(0, 80));
+  }
+}// Rotation prepare/commit smoke for the WebWallGL live staging path.
 // 场景壁纸走「live 渲染页 staged 预载 → 首帧确认 → 领养进新层」通道：
 // mock iframe 自带 __wpStats 心跳读数（running && fps>0 = 首帧已出），
 // 断言 staged iframe 被新层领养（不重建）、we-live-on 立即点亮、staging
@@ -8,7 +22,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 const React = { Fragment:'Fragment', useState:(i)=>[i,()=>{}], useEffect:()=>{}, useRef:(v)=>({current:v}),
-  createElement:(t,p,...c)=>typeof t==='function'?t(p||{}):({type:t,props:p||null,children:c}) };
+  createElement:(t,p,...c)=>{ assertChildren(c); return typeof t==='function'?t(p||{}):({type:t,props:p||null,children:c}); } };
 
 let byId = {};
 const timers = [];
@@ -120,6 +134,8 @@ const cap = { handoff:null };
 class RecordingImage { set src(v) { diagPosts.push(String(v)); } }
 // setInterval 也要登记：遮挡判定的**低频复核**（OCCLUSION_RECHECK_MS）靠它自愈。
 const intervals = [];
+const winListeners = {};
+const fireWin = (ev, payload) => (winListeners[ev] || []).slice().forEach((f) => f(payload));
 const sandbox = {
   window: {
     __ModuleLoader__: { load:(h)=>{ cap.handoff=h; } },
@@ -127,7 +143,7 @@ const sandbox = {
     clearTimeout:(t)=>{ if(t)t.cleared=true; },
     setInterval:(fn,ms)=>{ const t={fn,ms,cleared:false}; intervals.push(t); return t; },
     clearInterval:(t)=>{ if(t)t.cleared=true; },
-    addEventListener(){}, innerWidth:1920, innerHeight:1080, devicePixelRatio:1,
+    addEventListener(ev,fn){ (winListeners[ev] ||= []).push(fn); }, removeEventListener(ev,fn){ const l=winListeners[ev]; if(l){const i=l.indexOf(fn); if(i>=0)l.splice(i,1);} }, innerWidth:1920, innerHeight:1080, devicePixelRatio:1,
   },
   document, localStorage, fetch, React, Image: RecordingImage,
   location: { origin: 'http://localhost' },
@@ -268,6 +284,23 @@ setTimeout(async () => {
     check('负对照：判定没变时复核什么都不做（零 churn）',
       diagPosts.length === diagBefore3 && (live.__plays || 0) === playsBefore3,
       '新增日志 ' + (diagPosts.length - diagBefore3) + ' 条');
+  }
+
+  // ── 客户端异常留痕（这台机器打不开 DevTools，"崩了"必须能落到诊断缓冲里）──────────
+  {
+    const before = diagPosts.length;
+    fireWin('error', { type: 'error', message: 'boom from render', error: new Error('boom from render') });
+    check('window error ⇒ 诊断里落一行 client-error（含消息）',
+      diagText(before).includes('client-error') && diagText(before).includes('boom from render'),
+      diagText(before).slice(0, 96));
+    const before2 = diagPosts.length;
+    fireWin('unhandledrejection', { type: 'unhandledrejection', reason: new Error('promise blew up') });
+    check('unhandledrejection 同样落痕（异步路径的异常不丢）',
+      diagText(before2).includes('unhandledrejection') && diagText(before2).includes('promise blew up'),
+      diagText(before2).slice(0, 96));
+    check('两种监听器都挂上了',
+      (winListeners.error || []).length > 0 && (winListeners.unhandledrejection || []).length > 0,
+      Object.keys(winListeners).join(','));
   }
 
   console.log('');

@@ -28,13 +28,16 @@
  *   · **来源不在界面上露出**：随包 / 用户层是**实现细节**，用户面对的只是"一份份字体集"。
  *     `origin` / `overrides` 仍然照读，但只用于**能力**判定（能不能删、删下去是什么语义），
  *     一个字都不显示。
+ *   · **「使用中」= 值仍然一致**（`inUseId`，不是"宿主指针"）：用户手动改过字体值之后，那一行
+ *     换成「（已改）」—— 标记凭空消失会让人以为出了错。`activeId`（指针）只用于**能力判定**
+ *     （活动集不可删、要先切走），与标记分开，免得漂移把"不可删"这条规则也带偏。
  *   · **发布物删不掉**：`origin === 'builtin'` 且未被覆盖时**不渲染删除按钮**（宿主也会拒）；
  *     **活动集**那一行也不出删除（要先切走 —— 界面上不摆必然报错的按钮）。
  *   · **被改过的那一份，删除按钮的语义是「恢复原样」**（同一个动作、按语义换标签：只说效果 ——
  *     删掉改动之后这一份回到它原本的样子 —— 不说来源）。
  *   · **读不懂的行不能用**：`broken` 的行禁用「使用」与「重命名」，但**保留删除**
  *     （删掉覆盖/坏文件是唯一的出路），并显示**可判定的原因**。
- *   · **删除必须过 confirm**：先答 false ⇒ 一个字节都不发。
+ *   · **删除要两下、且不用原生模态**：第一下只"待确认"，第二下「确认」才发请求。
  *   · 载入中与失败态各自可见：失败时给的是**原因**，不是"什么都没发生"。
  */
 
@@ -51,7 +54,7 @@ function deleteLabel(row) {
 
 function renderFontSetEditor(ctx) {
   const {
-    fontSets, activeId, loading, error, editingId, draftName, armedId,
+    fontSets, activeId, inUseId, loading, error, editingId, draftName, armedId,
     onActivate, onRefresh, onDelete, onArm, onDisarm, exportUrl, onImport,
     onEdit, onDraftName, onRenameCommit, onCancelEdit, onCreate,
   } = ctx;
@@ -110,7 +113,13 @@ function renderFontSetEditor(ctx) {
     cells.push(React.createElement("tr", { key: row.id, className: "we-picker__fontset-row" },
       React.createElement("td", null,
         React.createElement("span", { className: "we-picker__fontset-name" }, row.name || row.id),
-        isActive ? React.createElement("span", { className: "we-picker__hint" }, "（使用中）") : null,
+        // 「使用中」= **值仍然一致**（指针指着它 + 自采纳以来没被手动改过）；被改过就换成「已改」，
+        // 让人知道"当前这套是在它的基础上动过的"，而不是让标记凭空消失。
+        row.id === inUseId
+          ? React.createElement("span", { className: "we-picker__hint" }, "（使用中）")
+          : (row.id === activeId
+            ? React.createElement("span", { className: "we-picker__hint", title: "当前外观在这套的基础上被手动改过；点「使用」把它整份读回来" }, "（已改）")
+            : null),
         broken ? React.createElement("span", { className: "we-picker__hint" }, "无法读取：" + broken) : null,
       ),
       React.createElement("td", null,
