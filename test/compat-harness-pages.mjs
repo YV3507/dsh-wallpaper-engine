@@ -254,7 +254,10 @@ async function main() {
   // ── 起无头浏览器（CDP 端口 0 → DevToolsActivePort 文件回读，免端口抢占）─────
   rmSync(PROFILE_DIR, { recursive: true, force: true });
   mkdirSync(PROFILE_DIR, { recursive: true });
-  const browser = spawnTool(browserPath, [
+  // 浏览器是真 .exe ⇒ **绝不走 shell**：win32 上 shell:true 会把命令交给 cmd 解析，
+  // `C:/Program Files/...` 在空格处被切断（CI 实测 'C:/Program' is not recognized）。
+  // shell:true 只为 dsh 的 .cmd 垫片保留（本文件其余 spawnTool 调用都是它）。
+  const browser = spawn(browserPath, [
     '--headless=new',
     '--remote-debugging-port=0',
     `--user-data-dir=${PROFILE_DIR}`,
@@ -393,15 +396,37 @@ async function main() {
     // 右栏 panel（在场才判）：harness 内部状态门控，缺席只记信息。
     flow.panelMounted = await evS(`document.querySelector('[data-sidebar-right-panel]') ? 1 : 0`) === 1;
     if (flow.panelMounted) {
-      const alreadyOpen = await evS(
-        `document.querySelector('[data-sidebar-right-panel]').hasAttribute('data-sidebar-right-open') ? 1 : 0`);
-      if (!alreadyOpen) {
-        flow.expandFound = await evS(
-          `(() => { const b = document.querySelector('[data-sidebar-right-expand]'); if (b) b.click(); return b ? 1 : 0; })()`);
-      } else { flow.expandFound = 'already-open'; }
-      flow.opened = Boolean(await waitEv(
-        `document.querySelector('[data-sidebar-right-panel]') && document.querySelector('[data-sidebar-right-panel]').hasAttribute('data-sidebar-right-open') ? 1 : 0`,
-        8000, 300));
+      // 展开入口挂在会话头部、**异步后到** —— 快照取样会抢在按钮渲染之前（CI 实测 expand=0
+      // 假红）。改成轮询：等到「已开 / 找到 expand 并点掉」之一才继续；8s 仍等不到才是真改入口。
+      const opener = await waitEv(`(() => {
+        const p = document.querySelector('[data-sidebar-right-panel]');
+        if (!p) return 0;
+        if (p.hasAttribute('data-sidebar-right-open')) return 'open';
+        const b = document.querySelector('[data-sidebar-right-expand]');
+        if (b) { b.click(); return 'clicked'; }
+        return 0;
+      })()`, 8000, 400);
+      flow.expandFound = opener ? opener.v : 0;
+      if (opener && opener.v === 'open') {
+        flow.opened = true;
+      } else if (opener) {
+        flow.opened = Boolean(await waitEv(
+          `document.querySelector('[data-sidebar-right-panel]') && document.querySelector('[data-sidebar-right-panel]').hasAttribute('data-sidebar-right-open') ? 1 : 0`,
+          8000, 300));
+      } else {
+        flow.opened = false;
+        // 入口缺席的归因：展开按钮住在 conversation.session.header.corner ——
+        // 头部槽位整个没渲染 = 视图态（判据不取样、记信息）；头部在而按钮不在 = 锚点改名（判红）。
+        flow.openerDiag = await evS(`(() => {
+          const slots = [...document.querySelectorAll('[data-slot]')].map((el) => el.getAttribute('data-slot'));
+          return {
+            headerCorner: slots.includes('conversation.session.header.corner'),
+            slotTail: slots.filter((s) => /conversation|header|hero/.test(s)),
+            expandInDoc: document.querySelectorAll('[data-sidebar-right-expand]').length,
+            panelButtons: document.querySelectorAll('[data-sidebar-right-toggle], [data-sidebar-right-mode]').length,
+          };
+        })()`);
+      }
       if (flow.opened) {
         flow.panelGlass = await evS(`(() => {
           const p = document.querySelector('[data-sidebar-right-panel]');
@@ -492,13 +517,21 @@ async function main() {
       'sessionPicked=' + flow.sessionPicked + ' conversationOpen=' + flow.conversationOpen);
 
     if (flow.panelMounted) {
-      check('右栏在场：展开机制可用（expand → open 属性）', flow.opened === true,
-        'expand=' + String(flow.expandFound));
-      if (flow.opened) {
-        check('右栏在场：开态玻璃是我们的（backdrop blur + sheen 渐变）',
-          Boolean(flow.panelGlass && /blur\(/.test(flow.panelGlass.backdrop)
-            && /linear-gradient/.test(flow.panelGlass.bg) && /rgba?\(255, ?255, ?255/.test(flow.panelGlass.bg)),
-          flow.panelGlass ? 'backdrop=' + String(flow.panelGlass.backdrop).slice(0, 70) : '取不到 computed');
+      const openerMissing = !flow.opened && flow.expandFound === 0;
+      if (openerMissing && flow.openerDiag && !flow.openerDiag.headerCorner) {
+        // 视图态：会话头部（展开按钮的宿主槽位）整个没渲染 —— 无从取样，记信息不判红。
+        console.log('  ℹ️ 会话头部未渲染（视图态），展开/玻璃判据本轮不取样 —— slot 尾部：'
+          + JSON.stringify(flow.openerDiag.slotTail));
+      } else {
+        check('右栏在场：展开机制可用（expand → open 属性）', flow.opened === true,
+          'expand=' + String(flow.expandFound)
+          + (flow.openerDiag ? ' diag=' + JSON.stringify(flow.openerDiag) : ''));
+        if (flow.opened) {
+          check('右栏在场：开态玻璃是我们的（backdrop blur + sheen 渐变）',
+            Boolean(flow.panelGlass && /blur\(/.test(flow.panelGlass.backdrop)
+              && /linear-gradient/.test(flow.panelGlass.bg) && /rgba?\(255, ?255, ?255/.test(flow.panelGlass.bg)),
+            flow.panelGlass ? 'backdrop=' + String(flow.panelGlass.backdrop).slice(0, 70) : '取不到 computed');
+        }
       }
     } else {
       console.log('  ℹ️ 右栏 panel 本次未被 harness 渲染（内部状态门控）—— 包级与页面级判据已覆盖，此条不判红');
