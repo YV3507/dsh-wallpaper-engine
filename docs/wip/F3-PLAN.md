@@ -1,6 +1,6 @@
 # F3 计划：字体集文件化（`fontsets/<id>.json`）
 
-> **状态：阶段 0 已交付（前置网入链），阶段 1–4 未开工。** 本文只回答三件事：开工前的事实核对、先决断言清单、按什么顺序改与每步怎么算改完。
+> **状态：阶段 0–1 已交付（前置网 + 宿主侧通道），阶段 2–4 未开工。** 本文只回答三件事：开工前的事实核对、先决断言清单、按什么顺序改与每步怎么算改完。
 > **它与 P3-11-PLAN 同形**（那也是先有工作底稿、做完再归档）：**结论不复述，判据不降级**——
 > 做不出来的判据如实记成差额，不许变成 `console.log`。
 >
@@ -44,17 +44,19 @@
 （`verify-component-fonts.mjs:65-77` / `228-289` / `308-323`）、schema 一致性（`:331-350`）、
 "模块在位 + 已内联 + 正文没有"三件套（`:360-376`）。
 
-**零覆盖（阶段 0 的清单；前两条已由 `test/verify-fontset.mjs` 交付 ✅）**：
+**零覆盖清单（阶段 0 的清单；前四条已交付 ✅）**：
 
 - **字体键的持久化往返** ✅：真 `PUT /settings` → `config.json` → 读回、逐键相等（同一判据函数）。
 - **"不在 `KINDS` 的键会被静默丢弃"** ✅：已配成对负对照 —— "移出 `KINDS` ⇒ 两端都丢"与
   "复原后合法往返必须成功"（否则前者是恒真的空转）。它正是 `fontSetId` 的护栏，
   也是本项最可能"改完看起来对、实际什么都没存"的地方。
-- **迁移等价** ⬜：老 `config.json`（6 个键内联）→ 默认字体集，渲染结果必须逐字不变（golden 已在阶段 0 (ii) 录好）。
-- **`fontsets/` 的路径安全** ⬜：id 白名单与目录包含性（先例是 `resolveUploadFile` `lib/index.js:2150`，
-  含 `:2164` 的 `relative(root, abs)` 包含性检查，与自定义画面 id 白名单 `lib/routes/scene-frame.js:228`），
-  **新代码没有网**。
-- **导入导出的往返** ⬜：导出字节 → 导入读回（导出通道尚未存在）。
+- **迁移等价** ✅：老 `config.json`（6 个键内联）→ 默认字体集，外观必须逐字不变
+  （直接接阶段 0 (ii) 的 golden，配"改一个值 ⇒ 立刻红"的配对项）。
+- **`fontsets/` 的路径安全** ✅：id 单段白名单（19 个非法 id 逐条）+ 目录包含性
+  （`lib/routes/fontsets.js` 的 `insideDir`，口径同 `resolveUploadFile` `lib/index.js:2150`）
+  + 18 个非法请求断言"**没落盘**"，并配"合法 id 必须成功"。
+- **导入导出的往返** ✅（路由与往返判据已就位；客户端的导入入口属阶段 4）：
+  导出字节 → 导入读回同一份值，且分配新 id 不与既有集撞名。
 
 ## 3. 顺序与策略
 
@@ -100,29 +102,50 @@
   客户端只放一个普通链接/导航（**复用宿主文件通道，不碰 blob**）。
   *被否的备选*：客户端 `Blob` + `createObjectURL` —— 那要给两个挂载台新增 mock 面，且是本仓第一次引入该 API。
 
-### 阶段 1：共享内核 + 宿主通道（先做宿主侧，风险最低且判据最硬）
+### 阶段 1 ✅：共享内核 + 宿主通道（先做宿主侧，风险最低且判据最硬）
 
-- **键集与消毒复用既有共享内核**：`lib/settings-schema.js` 增 `FONTSET_KEYS`（= 那 6 个键）与
-  `sanitizeFontset(raw)`（复用 `readOne` 的逐 kind 分支，`lib/settings-schema.js:496-521`）+
-  `FONTSET_SCHEMA_VERSION`。**不新建 `lib/**` 共享模块** ⇒ 白名单不动。
-- **新 `lib/routes/fontsets.js`**（`registerFontsetsRoutes(webServer, c)`）：list / get / put / delete /
-  import / export。**必须第一天就是族模块**：账本 §7-6 的触发线是"族 ≥3 条路由即拆"，6 条路由
-  要是先写进 `lib/index.js`，就是一边还 P2-11 的账、一边亲手记新债。
-  id 白名单（参照 `^[A-Za-z0-9_-]{1,64}$`，`lib/routes/scene-frame.js:228`）+ 目录包含性
-  （参照 `resolveUploadFile` `lib/index.js:2150`，含 `:2164` 的 `relative(root, abs)` 检查）；
-  目录走 `pluginDataDir()`（见 §1 第 3 条）。
-- **写 config.json 只经既有串行化**：`enqueueConfigWrite`（`lib/index.js:642-647`）的消费者
-  已有先例（`writeSettings` `:655-662`）⇒ fontset 的 `fontSetId` 写入**必须**走同一条队列，不许自己 `writeFileSync`。
-- **一次性迁移**：读到"老形状"（6 个键内联、无 `fontSetId`）⇒ 生成一份默认集并写回 id，
-  再按 D1 决定是否从 `config.json` 摘掉那 6 个键。
+- ✅ **键集与消毒复用既有共享内核**：`lib/settings-schema.js` 增 `FONTSET_KEYS`（= 那 6 个键）与
+  `sanitizeFontset(raw)`（复用 `readOne` 的逐 kind 分支）+ `FONTSET_SCHEMA_VERSION` /
+  `FONTSET_SCHEMA_TAG` + `isFontSetId`（单段白名单 + 保留段）。**没有新建 `lib/**` 共享模块** ⇒ 白名单不动。
+- ✅ **新 `lib/routes/fontsets.js`**（`registerFontsetsRoutes(webServer, c)`）：list / get / put / delete /
+  activate / import / export **七个端点**（`activate` 是落地时补的：`fontSetId` 既然在根字段上，
+  `PUT /settings` 就带不动它，切换活动集必须有自己的一条 —— 且它只肯切到读得懂的文件）。
+  落地时的一个形态决定：它们是**一个 `prefix` 注册下的子路径分派**
+  （与 `scene-serve` 同形），因此 ROUTE-INDEX 只多**一行**（31 → 32 条路由）—— "族"是按端点算的，
+  不是按注册条数算的（账本 §7-6 已补这句口径）。
+  id 白名单 `^[A-Za-z0-9_-]{1,64}$` + 保留段（`import` / `export` 不许当 id —— 它们是子资源路径）
+  + 目录包含性（分隔符无关的 `relative`，口径同 `resolveUploadFile`）；目录走 `pluginDataDir()`（见 §1 第 3 条）。
+- ✅ **写 config.json 只经既有串行化**：`fontSetId` 是 `config.json` 的**根字段**（不在 settings 键集里，
+  因此 `PUT /settings` 碰不到它），读写都在 `lib/index.js`（`readFontSetId` / `setFontSetId`），
+  写走 `enqueueConfigWrite` —— 与 settings / uploadDir 同一条队列。
+- ✅ **一次性迁移**：读到"老形状"（6 个键内联、无 `fontSetId`）⇒ 生成 `fontsets/default.json` 并
+  把活动 id 写回 config。**落地时改成了惰性迁移**（原计划暗示在启动期做）：`apply()` 会被**没有**
+  `DSH_WE_DATA_DIR` 隔离的守卫调用（`verify-scene.mjs` 就是），那时 `pluginDataDir()` 指向用户真目录
+  ⇒ 启动期写盘会污染真机。惰性版只在**第一次真的用到字体集**时写，由"`fontSetId` 是否为空"决定，
+  天然幂等；判据里有一条**"`apply()` 一个字节都不写"**的断言把这条钉住。
+  六个内联键**这一刀不摘**（客户端还没迁过来）—— 摘掉是阶段 2 的事，见下。
 
-**验收/棘轮**：① 往返逐键相等；② 路径穿越负对照**逐条**（`../x` / `..\\x` / 绝对路径 / 含 `:` / 超长 id
-⇒ 拒绝且**不落盘**）+ "合法 id 必须成功"（否则判据恒真）；③ 迁移等价（= 阶段 0 (ii) 的 golden）；
-④ `docs/ROUTE-INDEX.md` 重生成（`node test/tools/host-route-index.mjs --write`）+ `verify-route-index` 绿。
+**验收（已全部满足）**：① 字体集文件的写-读往返逐键相等（含导出字节 → 导入读回）；
+② 路径穿越负对照**逐条**（19 个非法 id 单元级 + 18 个非法请求行为级，后者断言**目录内容一个字节都没变**）
++ "合法 id 必须成功"（否则判据恒真）；③ 迁移等价 = 阶段 0 (ii) 的 golden（**直接接同一份**：
+迁移后的值算出的外观必须与 golden 逐锚点相同，配"改一个值 ⇒ 立刻红"的配对项）；
+④ `docs/ROUTE-INDEX.md` 重生成（31 → 32）+ `verify-route-index` 绿 + `lib/types/index.d.ts` 的路由条数同交。
+守卫共 52 条判据全绿。
 
-### 阶段 2：客户端消费（`fontSetId` 进 schema 是**承重**的一步）
+**这一刀有意留下的窗口（阶段 2 必须收口）**：此刻 `settings` 里的六个内联键与 `fontsets/default.json`
+**同时存在**（前者仍是活路径的真源，后者是迁移快照）。阶段 2 把客户端改成读字体集时，必须：
+① 把六个键移出 `KINDS`（**阶段 0 的 ① 判据会因此变红 —— 那是设计中的信号**）；
+② 处理窗口期的分叉（用户若在这两刀之间改过字体，内联键比文件新 ⇒ 以**内联键**为准重写文件，
+   再摘键）；③ `test/fixtures/settings-sanitize-golden.json` 与 `verify-client.mjs:1610-1654` 同交。
 
-- `fontSetId` 进 `KINDS`（否则两端静默丢弃 —— 由阶段 0 的负对照①钉住：把它删掉必须有一条判据变红）。
+### 阶段 2：客户端消费（**六个字体键移出 `KINDS`** 是承重的一步）
+
+- **`fontSetId` 不进 `KINDS`**：它是 `config.json` 的根字段（阶段 1 已定），客户端从
+  `GET /fontsets` 的 `active` 拿活动 id、用 `POST /fontsets/<id>/activate` 切换 ——
+  设置 blob 里不该有"指针"这种东西（它经 `PUT /settings` 走，会被白名单和撤销语义搅在一起）。
+  承重的一步改为：**六个字体键移出 `KINDS`**（阶段 0 的 ① 判据会因此变红 —— 设计中的信号），
+  同时处理阶段 1 留下的窗口分叉（用户若在两刀之间改过字体，内联键比文件新 ⇒ 以**内联键**为准
+  重写文件，再摘键）。
 - 启动链：`loadPersisted()` 落定后载入活动集正文 → 灌进 `selection` → `applyEffects()`。
   **载入失败不许半套用**：要么整套生效、要么整套保留现状并显式报错（原子性）。
 - 编辑落盘：拖动滑块时写**活动集文件**（复用 `persistence.js` 的 debounce + 脏标记 + 重试形状，

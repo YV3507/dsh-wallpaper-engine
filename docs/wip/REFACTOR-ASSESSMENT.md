@@ -48,10 +48,10 @@
 |---|---|
 | 浏览器正文 `src/client.js` | **3,882 行**（重构起点 10,119 行） |
 | 构建期内联模块 | **17 个**（16 个来自 `src/` + 共享内核 `lib/settings-schema.js`） |
-| `lib/**`（`verify-reachability` 打印的「lib 扫描面」：`lib/**.{js,mjs}` **全量**，vendored 与生成物都在内） | **24 文件 / 26,800 行** |
+| `lib/**`（`verify-reachability` 打印的「lib 扫描面」：`lib/**.{js,mjs}` **全量**，vendored 与生成物都在内） | **25 文件 / 27,163 行** |
 | 其中**运行时不可达** | **0 文件 / 0 行**（P2-12 第一半已删净；此前 48 文件 / 9,618 行曾在 `files` 里、真的发给用户） |
 | 生成物 `lib/client.js` | 12,044 行 / 1.24 MiB（提交；判据是"重建后 `git status` 干净"） |
-| 守卫 + 冒烟 | **29 个 `verify-*`（13,749 行）+ 5 个 smoke（2,070 行）**，均在 `test/` |
+| 守卫 + 冒烟 | **29 个 `verify-*`（13,949 行）+ 5 个 smoke（2,070 行）**，均在 `test/` |
 | vendored | `webwallgl/` + `vendor/` 共 **12 文件 / 6,950 行** |
 
 > 逐阶段的增量对照表（P0 后 / P1 后 / F1 后 / F2 后）已删除：那些数字只在当时有意义，现值以上表为准。
@@ -65,7 +65,7 @@
 | 巨石 | 体量 | 锚点 |
 |---|---|---|
 | `WallpaperPicker` 组件 | **722 行**（P3-11 前 1,033 / 原估 1,051 行，分支代理 202 = 当时的 `src/client.js` 的 25%）；模型 / 模态框 / 属性面板已抽到 `src/picker-*.js` | `src/client.js`；六个页签渲染器在 `src/panel-tabs.js`，仍有约 100 处瞬态直写 |
-| `apply(ctx)` 宿主函数 | **1,191 行 = `lib/index.js` 的 34%**，分支代理 219，31 条路由（**5 族 / 17 条已拆出**到 `lib/routes/`） | `lib/index.js`；内含 4 个巨石 `buildInventory`(137) / `handleSceneFiles`(65) / `serveFile`(49) / `ensureMediaOrigin`(42) |
+| `apply(ctx)` 宿主函数 | **1,199 行 = `lib/index.js` 的 34%**，分支代理 219，32 条路由（**6 族 / 18 条已拆出**到 `lib/routes/`） | `lib/index.js`；内含 4 个巨石 `buildInventory`(137) / `handleSceneFiles`(65) / `serveFile`(49) / `ensureMediaOrigin`(42) |
 
 ⚠️ **复杂度的分布比总量更值得注意**：`lib/media/` 分层清楚（`lib/we-renderer/` 曾也是一棵干净的树，已随 P2-12 删除）。
 **烂的是两个门面文件，不是整个仓库** —— 这决定了 P2 是"拆门面"而非"重写内核"。
@@ -213,7 +213,7 @@
 | F0 | `theme` 服务的真机确认（主路径成立 + 两处旧结论被推翻）→ 结论并入 §9.1 的 V1–V10；记录保留在 F0 清单 | ✅ |
 | F1 | 颜色角色令牌层 `src/font/color-roles.js` + 设置 `themeColors` / `themeDarkSeparate`（首期只做颜色，5 个角色） | ✅ |
 | F2 | 排版角色 `src/font/typography.js` + 设置 `themeType`（只追加偏移、不重写 DSH 表达式、不碰字重字族） | ✅ |
-| F3 | **字体集文件化**：`~/.dsh-wallpaper-engine/fontsets/<id>.json` + 导入导出 + 独立编辑器面板（依赖 P2-9 + P2-10，已兑现）。**两条决策已拍板**（见计划 §3 阶段 0）：D1 按 §9.5 **字面**执行 —— 6 个字体键退出 `KINDS`，`config.json` 只留 `{ fontSetId, fontCustom }`；D2 导出走宿主响应头（`Content-Disposition: attachment`，不引入 blob）。**阶段 0 ✅**：前置网 `test/verify-fontset.mjs` 入链 —— 字体键的持久化往返（真 `PUT /settings` → `config.json` → 读回，两条负对照："移出 `KINDS` ⇒ 两端静默丢弃"与"复原后合法往返必须成功"）+ 迁移前外观 golden（四个纯计算载荷、绝对锚点逐条比对、含"只挪一层"与"改一位 ⇒ 立刻红"的探针）。**阶段 1–4 未开工**；计划（含锚点复算依据）见 [`F3-PLAN.md`](F3-PLAN.md) | 🟡 |
+| F3 | **字体集文件化**：`~/.dsh-wallpaper-engine/fontsets/<id>.json` + 导入导出 + 独立编辑器面板（依赖 P2-9 + P2-10，已兑现）。**两条决策已拍板**（见计划 §3 阶段 0）：D1 按 §9.5 **字面**执行 —— 6 个字体键退出 `KINDS`，`config.json` 只留 `{ fontSetId, fontCustom }`；D2 导出走宿主响应头（`Content-Disposition: attachment`，不引入 blob）。**阶段 0 ✅**：前置网 `test/verify-fontset.mjs` 入链 —— 字体键的持久化往返（真 `PUT /settings` → `config.json` → 读回，两条负对照："移出 `KINDS` ⇒ 两端静默丢弃"与"复原后合法往返必须成功"）+ 迁移前外观 golden（四个纯计算载荷、绝对锚点逐条比对、含"只挪一层"与"改一位 ⇒ 立刻红"的探针）。**阶段 1 ✅**（宿主侧，产品面零变化）：共享内核增 `FONTSET_KEYS` / `sanitizeFontset` / `isFontSetId`（复用 `readOne`，**不新建 `lib/**` 共享模块**）；新族 `lib/routes/fontsets.js` —— 一个 `prefix` 注册覆盖七个端点（list / get / put / delete / activate / import / export），id 单段白名单 + 目录包含性，`fontSetId` 作 `config.json` **根字段**且经 `enqueueConfigWrite` 写入；**一次性迁移是惰性的**（`apply()` 零写盘 —— 未隔离 `DSH_WE_DATA_DIR` 的守卫不会被污染），迁移等价由 golden 钉住。守卫同交扩到 52 条判据（含 19 个非法 id 逐条 + 18 个非法请求"不落盘"）。**阶段 2–4 未开工**；计划（含锚点复算依据）见 [`F3-PLAN.md`](F3-PLAN.md) | 🟡 |
 | G1 | 删掉 legacy「字体颜色」通路（四条 `!important` 折叠 + 全局墨色覆盖 + schema 键），改为写进 5 个角色 | ✅ |
 | G2 | 面板显示 DSH **官方默认值**（单一真源在角色表；"初始值 = 官方值、清空即回官方"） | ✅ |
 | G3 | 官方 `--dsl-*` 组件钩子通道，作用域 = **钩子在样式表里的定义点**（不按模块名） | ✅ |
@@ -270,6 +270,7 @@
 5. **出现一次无法定位原因的生产级回归** —— 说明守卫的覆盖结构已失效，先补覆盖再谈结构。
 6. **宿主某个路由族长到 ≥3 条路由**，或**一次改动要同时动 ≥3 条共享可变状态的路由** ⇒ 按族单独拆（先做 §3.5 的三条前置）。
    判定：`node test/tools/analyze-host-apply.mjs` 的第 ② 组数。✅ **已对 `diag` 族成立**（4 条路由）⇒ P2-11 的第一刀就是这么做的；下一个满足它的是 `now-playing`（2 条，**未达线**）。
+   ⚠️ 判定看的是**注册条数**，而"族"的另一种形态是**一个 `prefix` 注册下挂多个端点**（`scene-serve` 3 条 / `fontsets` 1 条注册 = 6 个端点）⇒ 新族**一律直接写成模块**，别先塞进 `apply` 等它"长到 3 条"。
 7. **出现一次跨路由状态的"隔空故障"** ⇒ 说明 22 个共享可变闭包状态已从"读起来长"变成"真的会坏"，此时 P2-11 升级为**立即做**。
    ⚠️ 拆 `media` 族前先记住匹配语义（`exact` 与 `prefix` 是两张表，prefix 表**最长前缀胜出**且必须落在路径边界上）⇒ 族内与族间的相对注册顺序都不影响匹配。
 

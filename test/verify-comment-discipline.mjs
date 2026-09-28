@@ -225,6 +225,8 @@ check('negative control: 带日期的注释会被判不合格',
     'lib/pkg-extract.js': 0,
     // P2-11 拆出去的路由族：新模块从 0 起钉（拆一个补一个，别让新文件落在棘轮之外）。
     'lib/routes/diag.js': 0,
+    // F3 阶段 1：字体集族（list/get/put/delete/activate/import/export），从 0 起钉。
+    'lib/routes/fontsets.js': 0,
     'lib/routes/now-playing.js': 0,
     'lib/routes/upload.js': 0,
     'lib/routes/scene-frame.js': 0,
