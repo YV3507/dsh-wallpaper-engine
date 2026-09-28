@@ -1,4 +1,4 @@
-/**
+﻿/**
  * fontset-store.js — 字体集的**客户端通道**（F3 阶段 2）：活动集的值住宿主文件，
  * 与设置（src/persistence.js）**平行但另一条**通道。
  *
@@ -15,6 +15,11 @@
  *   hostFailureReason              ← src/client.js（"失败到底哪一步不对"的唯一一句文案）
  *   applyEffects                   ← src/effects.js
  *   emit                           ← 单向重渲染
+ * 本文件自己的两条内部约定（不导出、别处不该有）：
+ *   fsFetch / fsJson               通道内**所有**请求都走它们 ⇒ 一律 `parse: 'always'`
+ *                                  （非 2xx 的 `{ error }` 正是要给用户看的原因）
+ *   fontSetFailureReason(res)      失败文案的唯一出口：宿主给了 `{ error }` 就用它的原话；
+ *                                  **裸状态码**（404/405 且无信封）翻译成"宿主还是没有这条路由"
  * 提供的入口：
  *   readCachedFontSetValues()      同步读本地缓存（**client.js 的 store 初始化要用**）
  *   loadFontSet()                  启动加载：活动 id + 正文 → 原子灌进 selection → 必要时重应用
@@ -37,6 +42,32 @@
 
 /** 活动集正文的本地缓存键（与设置缓存分开：两者真源不同，混在一起会互相顶掉）。 */
 const FONTSET_CACHE_KEY = "we-fontset-active";
+
+/**
+ * 通道内的请求：**一律** `parse: 'always'`。
+ * 为什么要专门包一层：`api-client` 默认只在 2xx 解析体，于是非 2xx 的 `{ error }` 读不到 ——
+ * 而"失败到底哪一步不对"全靠它（默认那条路只剩一个状态码，等于什么都没说）。
+ */
+const fsFetch = (path, options) => apiFetch(path, Object.assign({ parse: "always" }, options || {}));
+const fsJson = (path, options) => fsFetch(path, Object.assign({ method: "GET" }, options || {}));
+
+/**
+ * 字体集通道的失败文案。
+ *
+ * **裸状态码 = 请求没到本族**。本族的每个非 2xx 都由 `sendJson` 发 `{ error }` 信封
+ * （`not found` / `method not allowed` / `invalid fontset id` …），所以一个**没有信封**的
+ * 404/405 只可能来自别的层（SPA 兜底 / 静态层）。实测语义只有一个：**宿主里没有这条路由**。
+ * 最常见的原因是**宿主没重挂**：宿主模块只在启动时 load 一次，而浏览器里的 bundle 是
+ * 每次刷新重新取的；于是"刷新页面只换前端、宿主那份还是启动时那份"，表现就是这两个裸状态码。
+ * 这种话必须说出来：用户看到"宿主返回 404"只能一脸茫然，看到这句就知道去重启 DSH。
+ */
+function fontSetFailureReason(res) {
+  const bare = !res || !res.data || typeof res.data !== "object" || !res.data.error;
+  if (bare && (res.status === 404 || res.status === 405)) {
+    return "宿主里没有字体集路由：重启 DSH 后再试（改过宿主代码要重挂，刷新页面不够）";
+  }
+  return hostFailureReason(res);
+}
 
 function fontSetsUrl() { return BASE + "/fontsets"; }
 function fontSetUrl(id) { return fontSetsUrl() + "/" + encodeURIComponent(id); }
@@ -97,7 +128,7 @@ async function pushFontSet() {
   const id = activeFontSetId || FONTSET_MIGRATED_ID;
   const values = pickFontValues();
   try {
-    const res = await apiFetch(fontSetUrl(id), {
+    const res = await fsFetch(fontSetUrl(id), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ values }),
@@ -109,7 +140,7 @@ async function pushFontSet() {
       writeFontSetCache(id, values);
       selection.fontSetError = "";
     } else {
-      selection.fontSetError = hostFailureReason(res);
+      selection.fontSetError = fontSetFailureReason(res);
     }
   } catch {
     fontSetDirty = true;
@@ -170,19 +201,19 @@ async function loadFontSet() {
   let id = "";
   let why = "";
   try {
-    const listRes = await apiJson(fontSetsUrl());
+    const listRes = await fsJson(fontSetsUrl());
     const active = listRes.ok && !listRes.error && listRes.data ? listRes.data.active : null;
     if (!listRes.ok || listRes.error) {
-      why = hostFailureReason(listRes);
+      why = fontSetFailureReason(listRes);
     } else if (!isFontSetId(active)) {
       why = "宿主没有活动字体集";
     } else {
       id = active;
-      const oneRes = await apiJson(fontSetUrl(active));
+      const oneRes = await fsJson(fontSetUrl(active));
       if (oneRes.ok && !oneRes.error && oneRes.data && oneRes.data.values) {
         values = sanitizeFontset(oneRes.data.values);
       } else {
-        why = hostFailureReason(oneRes);
+        why = fontSetFailureReason(oneRes);
       }
     }
   } catch {
@@ -213,9 +244,9 @@ async function loadFontSet() {
  */
 async function refreshFontSets() {
   try {
-    const res = await apiJson(fontSetsUrl());
+    const res = await fsJson(fontSetsUrl());
     if (!res.ok || res.error) {
-      selection.fontSetError = hostFailureReason(res);
+      selection.fontSetError = fontSetFailureReason(res);
       return false;
     }
     const data = res.data || {};
@@ -234,8 +265,8 @@ async function refreshFontSets() {
 async function activateFontSet(id) {
   if (!isFontSetId(id)) return false;
   try {
-    const res = await apiFetch(fontSetUrl(id) + "/activate", { method: "POST" });
-    if (!res.ok) { selection.fontSetError = hostFailureReason(res); return false; }
+    const res = await fsFetch(fontSetUrl(id) + "/activate", { method: "POST" });
+    if (!res.ok) { selection.fontSetError = fontSetFailureReason(res); return false; }
     activeFontSetId = id;
     selection.fontSetActive = id;
     selection.fontSetError = "";
@@ -261,12 +292,12 @@ async function createFontSet(name) {
   const id = newFontSetId();
   const values = pickFontValues();
   try {
-    const res = await apiFetch(fontSetUrl(id), {
+    const res = await fsFetch(fontSetUrl(id), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: typeof name === "string" && name.trim() ? name.trim() : id, values }),
     });
-    if (!res.ok) { selection.fontSetError = hostFailureReason(res); return ""; }
+    if (!res.ok) { selection.fontSetError = fontSetFailureReason(res); return ""; }
     await activateFontSet(id);
     await refreshFontSets();
     return id;
@@ -280,14 +311,14 @@ async function createFontSet(name) {
 async function renameFontSet(id, name) {
   if (!isFontSetId(id) || typeof name !== "string" || !name.trim()) return false;
   try {
-    const one = await apiJson(fontSetUrl(id));
-    if (!one.ok || !one.data) { selection.fontSetError = hostFailureReason(one); return false; }
-    const res = await apiFetch(fontSetUrl(id), {
+    const one = await fsJson(fontSetUrl(id));
+    if (!one.ok || !one.data) { selection.fontSetError = fontSetFailureReason(one); return false; }
+    const res = await fsFetch(fontSetUrl(id), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: name.trim(), values: one.data.values }),
     });
-    if (!res.ok) { selection.fontSetError = hostFailureReason(res); return false; }
+    if (!res.ok) { selection.fontSetError = fontSetFailureReason(res); return false; }
     selection.fontSetError = "";
     await refreshFontSets();
     return true;
@@ -305,8 +336,8 @@ async function renameFontSet(id, name) {
 async function deleteFontSet(id) {
   if (!isFontSetId(id)) return false;
   try {
-    const res = await apiFetch(fontSetUrl(id), { method: "DELETE" });
-    if (!res.ok) { selection.fontSetError = hostFailureReason(res); return false; }
+    const res = await fsFetch(fontSetUrl(id), { method: "DELETE" });
+    if (!res.ok) { selection.fontSetError = fontSetFailureReason(res); return false; }
     selection.fontSetError = "";
     await refreshFontSets();
     return true;
@@ -319,6 +350,75 @@ async function deleteFontSet(id) {
 /** 导出入口：**普通链接**（宿主带 `Content-Disposition: attachment` 应答）—— 不引入 blob。 */
 function exportFontSetUrl(id) {
   return isFontSetId(id) ? fontSetUrl(id) + "/export" : "";
+}
+
+/**
+ * 读一个 File 的文本。`file.text()` 是 Blob 的标准方法（Chromium/Electron 都有）；
+ * 旧的 / 替身形态退回到 FileReader —— 两条都失败才报错（失败要**可判定**，不许静默）。
+ */
+function readFileText(file) {
+  if (file && typeof file.text === "function") return Promise.resolve(file.text());
+  return new Promise((resolve, reject) => {
+    try {
+      const fr = new FileReader();
+      fr.onload = () => resolve(String(fr.result == null ? "" : fr.result));
+      fr.onerror = () => reject(new Error("read-failed"));
+      fr.readAsText(file);
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+/**
+ * 导入一份字体集文件（阶段 4）。三道**本地**预检各给一句可判定文案，再交给宿主做权威校验
+ * （宿主那边还会查 `$schema` 与形状，并按占用情况分配新 id）：
+ *   ① 文件读不出来 ⇒ "读不出这个文件"；② 不是 JSON ⇒ 点明；③ `$schema` 不对 ⇒ 点明**要哪个标记**
+ *   （这条最关键：用户可能拖进来任意 .json，笼统说"导入失败"等于什么都没说）。
+ * 成功 = 回读清单（新那一行就是反馈）；**不自动切换**（"导入"不等于"立刻用"）。
+ * @returns 新的 id（失败给空串）
+ */
+async function importFontSet(file) {
+  selection.fontSetError = "";
+  let text = "";
+  try {
+    text = await readFileText(file);
+  } catch {
+    selection.fontSetError = "读不出这个文件（换一个 .json 再试）";
+    return "";
+  }
+  let doc = null;
+  try {
+    doc = JSON.parse(text);
+  } catch {
+    selection.fontSetError = "这不是 JSON 文件（字体集是导出出来的 .json）";
+    return "";
+  }
+  if (!doc || typeof doc !== "object" || Array.isArray(doc) || doc.$schema !== FONTSET_SCHEMA_TAG) {
+    selection.fontSetError = "这不是字体集文件（需要 " + FONTSET_SCHEMA_TAG
+      + " 标记 —— 只有从「导出」拿到的文件才有）";
+    return "";
+  }
+  try {
+    const res = await fsFetch(fontSetsUrl() + "/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: text,
+      // `parse: 'always'`：非 2xx 时也要读到宿主给的原因（否则只能报一个状态码）。
+      parse: "always",
+    });
+    if (!res.ok) {
+      selection.fontSetError = fontSetFailureReason(res);
+      return "";
+    }
+    const data = res.data || {};
+    selection.fontSetError = "";
+    await refreshFontSets();
+    return typeof data.id === "string" ? data.id : "";
+  } catch {
+    selection.fontSetError = "宿主不可达（请求未完成）";
+    return "";
+  }
 }
 
 /** 撤销挂起的写（面板里"新建/切换"之前先把当前值落地，免得新集拿到旧值）。 */
@@ -346,5 +446,5 @@ export {
   fontValueDefaults, readCachedFontSetValues, loadFontSet, setFontValues, persistFontSet,
   flushFontSet, onPageHideFlushFontSet, onVisibilityResyncFontSet, cancelPendingFontSet,
   refreshFontSets, activateFontSet, createFontSet, renameFontSet, deleteFontSet,
-  exportFontSetUrl, flushFontSetNow,
+  exportFontSetUrl, importFontSet, flushFontSetNow,
 };

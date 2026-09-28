@@ -57,8 +57,7 @@
 
 | 文档 | 内容 |
 |---|---|
-| [REFACTOR-ASSESSMENT.md](./wip/REFACTOR-ASSESSMENT.md) | **重构与设计落实账本（活文档）** —— 只留**决策、顺序、验收判据**：现状基线、风险归口、P0/P1/P2/P3 计划（**§5 的状态列是唯一进度真源**，由 `verify-ledger` 机器核对）。未闭合项：P2-11（**未过触发线**）· F3（见其状态列）。**该线全部收口后整份移入 `archive/`** |
-| [F3-PLAN.md](./wip/F3-PLAN.md) | **字体集文件化（草案 · 未开工）** —— `fontsets/<id>.json` 的设计落实计划：开工前的事实核对、零覆盖清单、先决断言与阶段顺序；**§3 阶段 0 的两条待拍板决策不先定就不动手**。进度真源是账本 §5 的 `F3` 行 |
+| [REFACTOR-ASSESSMENT.md](./wip/REFACTOR-ASSESSMENT.md) | **重构与设计落实账本（活文档）** —— 只留**决策、顺序、验收判据**：现状基线、风险归口、P0/P1/P2/P3 计划（**§5 的状态列是唯一进度真源**，由 `verify-ledger` 机器核对）。未闭合项：P2-11（**未过触发线**）。**该线全部收口后整份移入 `archive/`** |
 
 ## 已归档（`archive/`，只作记录）
 
@@ -88,6 +87,7 @@
 | [audits/F0-THEME-SERVICE-CHECKLIST.md](./archive/audits/F0-THEME-SERVICE-CHECKLIST.md) | F0 真机确认（已关闭）—— 结论（`V1–V10` 约束）在账本 §9.1；原始证据在本地未跟踪目录 |
 | [audits/P3-11-PLAN.md](./archive/audits/P3-11-PLAN.md) | `WallpaperPicker` 拆分的过程记录（**已完成**：模型 / 模态框 / 属性面板三块都搬走）—— 开工前的事实核对、先决断言清单与收口时的牙齿证明；结论在账本 §5 的 `P3-11` 行，判据在守卫本身 |
 | [audits/LOGGING-PLAN.md](./archive/audits/LOGGING-PLAN.md) | 日志分级与提示通道的过程记录（**已完成**：G0 + P1–P5）—— 三档 `error` / `warn` / `info`（默认 `warn`）+ 一条独立的成功提示通道；含 G0 两项前置实测的结果、`ctx.logger` 等级语义实测与守卫耦合清单。**机制与不变量已留在 `lib/log.js` / `lib/notice.js` / `lib/routes/diag.js` 的文件头**，判据在 `test/verify-logging.mjs` |
+| [audits/F3-PLAN.md](./archive/audits/F3-PLAN.md) | 字体集文件化的过程记录（**已完成**：阶段 0–4）—— 随包预设 · 两层存储（同 id 用户层胜 + 写时复制、「恢复随包原样」）· 人工切换 · 导入导出；含三条决策（D1 真源归属 / D2 导出通道 / D3 写时复制）、一次真机崩溃的根因与修法、各阶段"如实记下的差额"。**机制与不变量已留在 `lib/routes/fontsets.js` / `src/fontset-store.js` / `src/fontset-editor.js` / `lib/settings-schema.js` 的文件头**，判据在 `test/verify-fontset.mjs` + `test/fontset-load-smoke.mjs` |
 
 ## 其它
 

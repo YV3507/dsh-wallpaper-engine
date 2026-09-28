@@ -859,6 +859,30 @@ section('⑦ 客户端通道（静态契约：字体值不再经 settings 出去
     && !/dsh-wallpaper-engine:selection/.test(storeSrc));
   check('通道：绝不碰 settings 那条路由（两条通道不交叉）',
     !/\/settings/.test(strip(storeSrc)));
+
+  // 7f. 失败文案：**裸状态码 = 请求没到本族**（2026-09-28 真机实测的形态 —— 页面刷新后
+  // 前端是新的、宿主还是旧的，请求落到 SPA 兜底，GET 裸 404 / 非 GET 裸 405、都没有信封）。
+  // 两条约定缺一不可：① 请求一律 `parse:'always'`（否则读不到宿主的 `{ error }`）；
+  // ② 失败一律经 `fontSetFailureReason`（否则用户只看到"宿主返回 404"）。
+  const storeCode = strip(storeSrc);
+  check('通道：**所有**请求走 fsFetch/fsJson（⇒ 一律 parse:\'always\'，读得到宿主的 { error }）',
+    /const fsFetch = \(path, options\) => apiFetch\(path, Object\.assign\(\{ parse: "always" \}/.test(storeSrc)
+    && !/\bapiFetch\(/.test(storeCode.replace(/const fsFetch[\s\S]{0,120}?\n/, ''))
+    && !/\bapiJson\(/.test(storeCode.replace(/const fsJson[\s\S]{0,140}?\n/, '')),
+    '通道内裸 apiFetch/apiJson 应为零');
+  check('通道：失败文案只走 fontSetFailureReason（裸 404/405 必须被翻译成可判定的话）',
+    /function fontSetFailureReason\(res\)/.test(storeSrc)
+    && !/=\s*hostFailureReason\(/.test(storeCode)
+    && (storeCode.match(/=\s*fontSetFailureReason\(/g) || []).length >= 7,
+    (storeCode.match(/=\s*fontSetFailureReason\(/g) || []).length + ' 处');
+  check('负对照：裸状态码的判据本身有牙（有信封 ⇒ 不翻译；无信封 ⇒ 翻译）',
+    (() => {
+      const bare = { status: 404, data: null };
+      const wrapped = { status: 404, data: { error: 'not found' } };
+      const isBare = (res) => (!res || !res.data || typeof res.data !== 'object' || !res.data.error)
+        && (res.status === 404 || res.status === 405);
+      return isBare(bare) === true && isBare(wrapped) === false && isBare({ status: 500, data: null }) === false;
+    })());
 }
 
 /**
@@ -993,28 +1017,50 @@ section('⑨ 字体集编辑器（面板可驱动：意图映射 / confirm 门�
     const calls = [];
     const ctx = Object.assign({
       fontSets: FONTSET_ROWS, activeId: 'compact', loading: false, error: '',
-      editingId: '', draftName: '', newName: '',
+      editingId: '', draftName: '', armedId: '',
       exportUrl: (id) => '/wallpaper-engine/fontsets/' + id + '/export',
       onActivate: (id) => calls.push(['activate', id]),
       onRefresh: () => calls.push(['refresh']),
       onDelete: (id) => calls.push(['delete', id]),
+      onArm: (id) => calls.push(['arm', id]),
+      onDisarm: () => calls.push(['disarm']),
       onEdit: (id) => calls.push(['edit', id]),
       onDraftName: (v) => calls.push(['draft', v]),
       onRenameCommit: (id) => calls.push(['rename', id]),
       onCancelEdit: () => calls.push(['cancel']),
-      onNewName: (v) => calls.push(['newname', v]),
       onCreate: () => calls.push(['create']),
+      onImport: (f) => calls.push(['import', f]),
     }, over || {});
     return { tree: editorMod.renderFontSetEditor(ctx), calls };
   };
 
   const t = render().tree;
-  check('来源三态都看得见（随包 / 我的 / 已修改随包的「X」）',
-    allText(t).includes('随包') && allText(t).includes('我的（已修改随包的「紧凑」）'));
+  // 「来源」不再露出（真机反馈）：随包 / 用户层是**实现细节**，用户面对的只是"一份份字体集"。
+  // 判据是**结构性**的（整整少了一列），不是"文案里别出现某个词"那种容易绕过的写法。
+  const ths = nodes(t).filter((n) => n.type === 'th');
+  const bodyRows = nodes(t).filter((n) => n.type === 'tr' && nodes(n).some((c) => c.type === 'td'));
+  // 用**节点文本**而不是"格子文本"：徽标是一枚 span，直接读格子的字符串子节点会读成空 ⇒ 判据空转。
+  const nodeTexts = nodes(t).map(textOf).filter(Boolean);
+  check('界面上不露来源：表头 2 列、每行 2 格，且没有任何一枚节点是「随包」/「我的」/「已修改」',
+    ths.length === 2 && bodyRows.length === FONTSET_ROWS.length
+    && bodyRows.every((r) => nodes(r).filter((c) => c.type === 'td').length === 2)
+    && !nodeTexts.includes('随包') && !nodeTexts.includes('我的')
+    && !/随包|已修改|来源/.test(allText(t)),
+    '表头 ' + ths.length + ' 列 / 正文 ' + bodyRows.length + ' 行 / 节点文本 ' + nodeTexts.length + ' 条');
+  check('负对照：这条判据抓得到"还留着一枚来源徽标"，且不会把名字里的「我的」误判成徽标',
+    (() => {
+      const hasBadge = (texts) => texts.includes('随包') || texts.includes('我的');
+      return hasBadge(['紧凑', '随包']) === true
+        && hasBadge(['紧凑', '我的字体集']) === false
+        && hasBadge(['我的']) === true;
+    })());
   check('活动行标「（使用中）」', allText(t).includes('（使用中）'));
-  check('覆盖随包那一行的删除按钮标签 =「恢复随包原样」（同一动作、按来源换标签）',
-    Boolean(buttonWith(t, '恢复随包原样')));
-  check('活动行与纯随包行都不出删除（先切走 / 发布物删不掉）',
+  // 本段的**牙齿**：能力判定没被一起删掉 —— `origin` / `overrides` 仍在用来决定
+  // "能不能删、删下去是什么语义"，只是这些话不再显示来源。
+  check('被改过的那一行删除按钮 =「恢复原样」（只说效果：改动没了、回到原本的样子）',
+    Boolean(buttonWith(t, '恢复原样'))
+    && !/随包/.test(allText(rowOf(t, '紧凑'))));
+  check('未改过的用户层那两行仍然是「删除」（标签仍按语义分叉，不是一刀切）',
     buttons(t).filter((b) => textOf(b) === '删除').length === 2,
     buttons(t).map(textOf).join(','));
   const badRow = rowOf(t, '坏掉的一份');
@@ -1026,6 +1072,29 @@ section('⑨ 字体集编辑器（面板可驱动：意图映射 / confirm 门�
   const link = nodes(t).filter((n) => n.type === 'a').find((a) => String(a.props.href).includes('/fontsets/compact/export'));
   check('导出是普通链接、指向宿主导出路由（带 attachment 头那条），不是 blob',
     Boolean(link) && link.props.download === 'compact.json', link ? String(link.props.href) : '没有导出链接');
+  // 「重命名」是 <button>、「导出」是 <a>：两者**必须同一枚类名**，而且那枚类名必须把两种元素的
+  // 盒子都说全 —— 否则 <a> 默认 inline（**行内盒忽略 height**）、content-box、不继承字体、
+  // 还带下划线 ⇒ 两枚按钮大小不一（真机反馈过）。
+  const btnClass = String((buttonWith(t, '重命名') || {}).props ? buttonWith(t, '重命名').props.className : '');
+  const linkClass = String((link || {}).props ? link.props.className : '');
+  check('「重命名」与「导出」挂的是同一枚类名（样式没有第二条来源）',
+    btnClass !== '' && btnClass === linkClass && btnClass.includes('we-picker__btn'),
+    btnClass + ' vs ' + linkClass);
+  const btnRule = (/\.we-picker__btn\s*\{([\s\S]*?)\}/.exec(readFileSync(join(root, 'src', 'styles.js'), 'utf8')) || [])[1] || '';
+  const boxDecl = (txt) => ({
+    'display:inline-flex': /display:\s*inline-flex/.test(txt),
+    'box-sizing:border-box': /box-sizing:\s*border-box/.test(txt),
+    'font:inherit': /font:\s*inherit/.test(txt),
+    'line-height:1': /line-height:\s*1\s*[;}]/.test(txt),
+    'text-decoration:none': /text-decoration:\s*none/.test(txt),
+  });
+  check('该类名把两种元素的盒子都说全（display / box-sizing / font / line-height / text-decoration）',
+    Object.values(boxDecl(btnRule)).every(Boolean),
+    JSON.stringify(Object.entries(boxDecl(btnRule)).filter(([, ok]) => !ok).map(([k]) => k)) || '全在');
+  check('负对照：同一判据对改动前那条规则会判红（证明它不是恒真）',
+    !Object.values(boxDecl('.we-picker__btn { cursor: pointer; height: var(--we-ui-h, 30px);'
+      + ' line-height: calc(var(--we-ui-h, 30px) - 2px); padding: 0 12px; white-space: nowrap; }')).every(Boolean),
+    '旧规则缺 display / box-sizing / font / text-decoration');
 
   check('「使用」把该行 id 交给 onActivate（逐行）',
     (() => {
@@ -1039,14 +1108,27 @@ section('⑨ 字体集编辑器（面板可驱动：意图映射 / confirm 门�
       buttons(r.tree).filter((b) => textOf(b) === '使用').forEach((b) => b.props.onClick());
       return JSON.stringify(r.calls) === JSON.stringify([['activate', 'zzz']]);
     })());
-  check('「新建（以当前外观）」交给 onCreate；名字输入框交给 onNewName',
+  check('「新建（以当前外观）」交给 onCreate（**不带名字** —— 名字由客户端生成、随时可重命名）',
     (() => {
       const r = render();
-      const input = nodes(r.tree).filter((n) => n.type === 'input').pop();
-      if (input) input.props.onChange({ target: { value: '夜间' } });
       const createBtn = buttonWith(r.tree, '新建（以当前外观）');
       if (createBtn) createBtn.props.onClick();
-      return JSON.stringify(r.calls) === JSON.stringify([['newname', '夜间'], ['create']]);
+      return JSON.stringify(r.calls) === JSON.stringify([['create']]);
+    })(), '面板不再先问一句名字');
+  check('面板里**没有**"新字体集名称"输入框：非编辑态零个文本输入；编辑态恰好一个（重命名用）',
+    (() => {
+      const textInputs = (sel) => nodes(sel).filter((n) => n.type === 'input'
+        && String((n.props || {}).type || '') === 'text').length;
+      const idle = textInputs(render().tree);
+      const editing = textInputs(render({ editingId: 'mine', draftName: '旧名' }).tree);
+      // 后半句是**牙齿**：同一判据必须看得见编辑态那个输入框（否则"零个"是空转）
+      return idle === 0 && editing === 1;
+    })());
+  check('负对照：名字生成是确定性的（同样的清单给同样的名字，且避开已占用的）',
+    (() => {
+      const src = readFileSync(join(root, 'src', 'client.js'), 'utf8');
+      return /function nextFontSetName\(\)/.test(src) && /taken\.has\(base\)/.test(src)
+        && /createFontSet\(nextFontSetName\(\)\)/.test(src);
     })());
   check('「重命名」逐行进入编辑态；编辑态下出输入框（带草稿名）+ 保存/取消，且该行不再出「重命名」',
     (() => {
@@ -1059,22 +1141,136 @@ section('⑨ 字体集编辑器（面板可驱动：意图映射 / confirm 门�
         && !buttons(mineRow).some((b) => textOf(b) === '重命名')
         && nodes(edited).some((n) => n.type === 'input' && n.props.value === '旧名');
     })(), '顺序 = 非坏的那三行');
-  check('删除（恢复原样）必须过 confirm —— 答 false 一个字节都不发，答 true 才发且 id 正确',
+  // 删除是**两下**，而且**不用原生模态**：`window.confirm` 会把焦点交给它自己的窗口 ——
+  // 本插件在同一个渲染页里跑，后果是壁纸按 pauseOnBlur 停住 + 渲染线程被同步阻塞（输入框
+  // 收不到键）+ 回来时的 focus 事件不保证送达（只剩重载能救）。真机报过，故改成面板内确认。
+  check('删除要两下：第一下只"待确认"（不发请求），第二下「确认」才发且 id 正确',
     (() => {
-      globalThis.window = { confirm: () => false };
-      const no = render();
-      buttonWith(no.tree, '恢复随包原样').props.onClick();
-      globalThis.window = { confirm: () => true };
-      const yes = render();
-      buttonWith(yes.tree, '恢复随包原样').props.onClick();
-      globalThis.window = {};
-      return no.calls.length === 0 && JSON.stringify(yes.calls) === JSON.stringify([['delete', 'over']]);
-    })(), '门控判据的成对项');
+      const one = render();
+      buttonWith(one.tree, '恢复原样').props.onClick();
+      const two = render({ armedId: 'over' });
+      buttonWith(two.tree, '确认').props.onClick();
+      const armedTree = render({ armedId: 'over' }).tree;
+      return JSON.stringify(one.calls) === JSON.stringify([['arm', 'over']])
+        && JSON.stringify(two.calls) === JSON.stringify([['delete', 'over']])
+        && allText(armedTree).includes('你在这份上的改动会丢掉');
+    })(), '待确认那一行要把后果写在行内');
+  check('「取消」撤回待确认 —— 一个字节都不发',
+    (() => {
+      const r = render({ armedId: 'over' });
+      buttonWith(r.tree, '取消').props.onClick();
+      return JSON.stringify(r.calls) === JSON.stringify([['disarm']]);
+    })());
+  // 待确认**独占一行**：塞进操作格里会把整行往右推（真机反馈"不美观"），也让"哪一行在问"含糊。
+  // 同时**原按钮不隐藏、不换位**（置灰即可）—— 藏起来会让整行缩一下，宽度就不是恒定的了。
+  check('待确认独占一行（跨 2 列、紧跟它自己那行），问句不在操作格里；原按钮**仍在原位但置灰**',
+    (() => {
+      const tree = render({ armedId: 'over' }).tree;
+      const allRows = nodes(tree).filter((n) => n.type === 'tr'
+        && nodes(n).some((c) => c.type === 'td'));
+      const twoCell = allRows.filter((r) => nodes(r).filter((c) => c.type === 'td').length === 2);
+      const askRow = allRows.find((r) => nodes(r).some((c) => c.type === 'td' && c.props && c.props.colSpan === 2));
+      // 行名不可靠（覆盖行的名字与被覆盖的那份**同名**）⇒ 按**结构**定位：问句那行的上一行。
+      const above = askRow ? twoCell.filter((r) => allRows.indexOf(r) < allRows.indexOf(askRow)).pop() : null;
+      const kept = above ? buttons(above).find((b) => textOf(b) === '恢复原样') : null;
+      return allRows.length === FONTSET_ROWS.length + 1
+        && Boolean(askRow) && allText(askRow).includes('你在这份上的改动会丢掉')
+        && Boolean(above) && !allText(above).includes('你在这份上的改动会丢掉')
+        // 按钮**还在**（不隐藏）、而且被禁用 ⇒ 宽度恒定、也不会被误点第二下
+        && Boolean(kept) && kept.props.disabled === true;
+    })(), '行数 4 → 5；问句在下、按钮留在原位');
+  check('置灰的那个按钮点了也不会再发生什么（既不重复待确认，更不会直接删）',
+    (() => {
+      const r = render({ armedId: 'over' });
+      const allRows = nodes(r.tree).filter((n) => n.type === 'tr' && nodes(n).some((c) => c.type === 'td'));
+      const twoCell = allRows.filter((x) => nodes(x).filter((c) => c.type === 'td').length === 2);
+      const askRow = allRows.find((x) => nodes(x).some((c) => c.type === 'td' && c.props && c.props.colSpan === 2));
+      const above = twoCell.filter((x) => allRows.indexOf(x) < allRows.indexOf(askRow)).pop();
+      const kept = buttons(above).find((b) => textOf(b) === '恢复原样');
+      kept.props.onClick();   // 浏览器里禁用按钮不会派发 click；这里直接调，验证**处理器自己也拦**
+      return r.calls.length === 0;
+    })());
+  check('未待确认的行只有"待确认"入口（不会一下就把集删了）',
+    (() => {
+      const r = render();
+      buttonWith(r.tree, '删除').props.onClick();
+      return JSON.stringify(r.calls) === JSON.stringify([['arm', 'mine']]);
+    })());
   check('载入中与失败态各自可见（失败给的是**原因**，不是"什么都没发生"）',
     allText(render({ loading: true }).tree).includes('正在读取字体集')
     && allText(render({ error: '宿主不可达（请求未完成）' }).tree).includes('宿主不可达（请求未完成）'));
   check('负对照：清空 error ⇒ 失败文案消失（该判据不是恒真）',
     !allText(render({ error: '' }).tree).includes('字体集不可用'));
+
+  // ── ⑩ 导入入口（阶段 4）────────────────────────────────────────────────────
+  // 面板只做"选文件"：隐藏 input + 一个按钮去 click()（与自定义画面的导入同形）。
+  // 读文件 / 校验 / 上传都在 src/fontset-store.js（那里有各自的判据），这一段只管**接线**。
+  section('⑩ 导入入口（隐藏 file input + 按钮触发；读/校验/上传在通道里）');
+  {
+    let clicked = 0;
+    const baseReact = globalThis.React;
+    const storeSrc = readFileSync(join(root, 'src', 'fontset-store.js'), 'utf8');
+    const editorSrc = readFileSync(join(root, 'src', 'fontset-editor.js'), 'utf8');
+    // 让假 React 也调 ref 回调：`importInput` 是模块级 ref，面板靠它去 click()。
+    globalThis.React = Object.assign({}, baseReact, {
+      createElement: (t, p, ...c) => {
+        if (p && typeof p.ref === 'function') { try { p.ref({ click: () => { clicked++; } }); } catch { /* ignore */ } }
+        return baseReact.createElement(t, p, ...c);
+      },
+    });
+    try {
+      const r = render();
+      const fileInput = nodes(r.tree).find((n) => n.type === 'input'
+        && String((n.props || {}).accept || '').includes('.json'));
+      check('有且只有一个 .json 文件选择框，且是隐藏的（选文件靠按钮触发）',
+        Boolean(fileInput) && fileInput.props.style.display === 'none'
+        && nodes(r.tree).filter((n) => n.type === 'input' && String((n.props || {}).accept || '').includes('.json')).length === 1);
+      check('accept 只提示 .json（不把图片/音视频也列进对话框）',
+        /\.json/.test(String(fileInput.props.accept)) && !/image\/|video\/|audio\//.test(String(fileInput.props.accept)),
+        String(fileInput.props.accept));
+      check('负对照：同一判据对"accept 里混进 image/*"有牙',
+        /image\//.test('image/png,image/jpeg,.json'));
+      // 选中文件 ⇒ 交给 onImport（并把 input 清空：同一个文件能再选一次）
+      const before = r.calls.length;
+      const file = { name: '我的字体集.json' };
+      const evt = { target: { files: [file], value: 'C:\\fakepath\\x.json' } };
+      fileInput.props.onChange(evt);
+      check('选中文件 ⇒ 交给 onImport（同一份文件可重复选：input 值被清空）',
+        r.calls.length === before + 1 && r.calls[before][0] === 'import' && r.calls[before][1] === file
+        && evt.target.value === '', JSON.stringify(r.calls.slice(before)));
+      check('负对照：没有选中文件时不触发（取消对话框不该报错、也不该发请求）',
+        (() => {
+          const r2 = render();
+          const input = nodes(r2.tree).find((n) => n.type === 'input' && String((n.props || {}).accept || '').includes('.json'));
+          const n0 = r2.calls.length;
+          input.props.onChange({ target: { files: [], value: '' } });
+          return r2.calls.length === n0;
+        })());
+      // 按钮 ⇒ click() 隐藏 input（这是真机上唯一能打开文件对话框的路）
+      clicked = 0;
+      const importBtn = buttonWith(r.tree, '导入字体集…');
+      check('「导入字体集…」按钮存在且触发隐藏 input 的 click()',
+        Boolean(importBtn) && (importBtn.props.onClick(), clicked === 1), 'clicked=' + clicked);
+      // D2 的机制不被偷换：导出是**普通链接**（宿主响应头 + Electron 默认下载 = 系统「另存为」），
+      // 不是 blob、也不是自己造一套保存通道。与 DSH 自己的 session-log-export 同形。
+      check('导出不引入 blob 通道（D2：宿主响应头 + 普通链接）',
+        !/createObjectURL|new Blob|showSaveFilePicker/.test(storeSrc + editorSrc));
+      // 原生模态陷阱是**全仓**的，不只是这一处：它抢的是 document 焦点，谁用谁中招。
+      // 棘轮：只许减少（基线 4 —— 轮播列表 / 隐藏壁纸 / 移除自定义画面 / 恢复已隐藏）。
+      const confirmFiles = ['src/client.js', 'src/panel-tabs.js', 'src/picker-modal.js',
+        'src/picker-props-panel.js', 'src/media-prep.js', 'src/fontset-editor.js', 'src/fontset-store.js'];
+      const confirmSites = confirmFiles.reduce(
+        (n, f) => n + ((readFileSync(join(root, f), 'utf8').match(/window\.confirm\(/g) || []).length), 0);
+      // 只看**代码**：注释里可以提 window.confirm（说明为什么禁用），代码里不许出现。
+      const codeOnly = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+      check('编辑器里没有原生模态（**代码**里 window.confirm 零命中；注释里可以提它）',
+        !/window\.confirm/.test(codeOnly(editorSrc)));
+      check('棘轮：src/** 的 window.confirm 只许减少（基线 4，新代码不许再加）',
+        confirmSites <= 4, confirmSites + ' 处');
+    } finally {
+      globalThis.React = baseReact;
+    }
+  }
 }
 
 // ── teardown ────────────────────────────────────────────────────────────────

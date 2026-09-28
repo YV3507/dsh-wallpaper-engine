@@ -1,4 +1,4 @@
-// fontset-load-smoke.mjs — F3 阶段 2：客户端**从活动字体集载入**这条通道的节点级冒烟。
+﻿// fontset-load-smoke.mjs — F3 阶段 2：客户端**从活动字体集载入**这条通道的节点级冒烟。
 //
 // 为什么值得单独一条：`src/fontset-store.js` 是"字体值到底存哪"的另一半答案，而它的失败形态
 // 与设置不同 —— 设置丢一次只是回退，字体集读不出来必须**整套不采用**（半套用会让外观说不清）。
@@ -150,13 +150,14 @@ function collectTree(root, out = []) {
 }
 
 /** 一个"正常的宿主"：/settings + /fontsets（活动集是 compact）+ /inventory。settings 可参数化。 */
-const hostWith = (settings) => (url) => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(
-  url.includes('/fontsets/') ? { ok: true, id: 'compact', name: '紧凑', values: HOST_VALUES }
-    : url.includes('/fontsets') ? { fontsets: [{ id: 'compact', name: '紧凑', origin: 'builtin', active: true }], active: 'compact', migrated: false, adopted: false }
-      : url.includes('/settings') ? { ok: true, betterSidebar: false, settings }
-        : { installDir: 'D:/we', total: 1, portableCount: 1, playlists: [], wallpapers: [
-          { id: 'v', title: 'V', type: 'video', playable: true, media: '/wallpaper-engine/media/vvv', preview: null, contentrating: 'Everyone' },
-        ] }) });
+const hostWith = (settings) => (url, init) => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(
+  String(url).includes('/fontsets/import') ? { ok: true, id: 'imported-1', name: '导入的那份' }
+    : url.includes('/fontsets/') ? { ok: true, id: 'compact', name: '紧凑', values: HOST_VALUES }
+      : url.includes('/fontsets') ? { fontsets: [{ id: 'compact', name: '紧凑', origin: 'builtin', active: true }], active: 'compact', migrated: false, adopted: false }
+        : url.includes('/settings') ? { ok: true, betterSidebar: false, settings }
+          : { installDir: 'D:/we', total: 1, portableCount: 1, playlists: [], wallpapers: [
+            { id: 'v', title: 'V', type: 'video', playable: true, media: '/wallpaper-engine/media/vvv', preview: null, contentrating: 'Everyone' },
+          ] }) });
 const goodHost = hostWith({ id: 'v', blur: 7 });
 
 /** 一个"字体集**本体**读不出来"的宿主：清单正常（活动集是 compact），那一份是 422。 */
@@ -263,6 +264,132 @@ const waitBoot = () => new Promise((r) => setTimeout(r, 50));
     String(fontPuts[0] && fontPuts[0].body).slice(0, 96));
   check('同期**完全没有**写 /settings（字体值不走那条通道）',
     settingsPuts.length === 0, settingsPuts.map((r) => r.url).join(' | ') || '零次');
+
+  // ── 场景 E：导入（阶段 4）—— 往返 + 三种失败态都要"说得出为什么" ───────────────
+  // 驱动器是**真面板**：先点开「字体集预设」子分支（fire 那个 checkbox 的 onChange），
+  // 再把文件喂给隐藏的 .json input —— 与用户操作是同一串。
+  /** 点开「字体集预设」子分支：面板里那个 checkbox 的 aria-label 就是行标签。 */
+  const openFontSetEditor = (d) => {
+    const box = d.renderPanel().flatMap((t) => collectTree(t))
+      .find((n) => n.type === 'input' && n.props && n.props['aria-label'] === '字体集预设');
+    if (box) box.props.onChange({ target: { checked: true } });
+    return Boolean(box);
+  };
+  /** 面板整棵树的文案（失败态就长在这里）。 */
+  const panelText = (d) => d.renderPanel().flatMap((t) => collectTree(t))
+    .map((n) => (Array.isArray(n.children) ? n.children.filter((c) => typeof c === 'string').join('') : '')).join(' | ');
+  console.log('E. 导入：导出字节 ⇒ 读回同一份；三种坏文件各自给可判定文案');
+  const eStore = {
+    'dsh-wallpaper-engine:selection': JSON.stringify({ id: 'v', fontCustom: true }),
+    'dsh-wallpaper-engine:picker-tab': 'appearance',
+  };
+  const e = mount({ fetchImpl: hostWith({ id: 'v', fontCustom: true }), store: eStore });
+  await waitBoot();
+  /** 编辑器（含导入 input）在不在树上；顺带把整棵树的文案拼出来看失败态。 */
+  const editorTree = () => {
+    const all = e.renderPanel().flatMap((t) => collectTree(t));
+    return {
+      all,
+      text: panelText(e),
+      fileInput: all.find((n) => n.type === 'input' && String((n.props || {}).accept || '').includes('.json')),
+    };
+  };
+  check('「字体集预设」开关可驱动（面板上真的有这个 checkbox）', openFontSetEditor(e));
+  await new Promise((r) => setTimeout(r, 20)); // 打开会拉一次清单
+  const opened = editorTree();
+  check('点开后编辑器与导入入口都出现', Boolean(opened.fileInput) && opened.text.includes('导入字体集…'));
+
+  const EXPORTED = JSON.stringify({
+    $schema: 'dsh-we/fontset@1', id: 'compact', name: '紧凑', values: HOST_VALUES,
+  }, null, 2) + '\n';
+  /** 喂一个文件给导入入口；返回这一轮的请求增量与之后的文案。 */
+  const feed = async (file) => {
+    const at = e.requests.length;
+    const input = editorTree().fileInput;
+    if (input) input.props.onChange({ target: { files: [file], value: 'x.json' } });
+    await new Promise((r) => setTimeout(r, 20));
+    return { posted: e.requests.slice(at), text: editorTree().text };
+  };
+
+  const good = await feed({ name: 'compact.json', text: () => Promise.resolve(EXPORTED) });
+  const importPosts = good.posted.filter((r) => r.method === 'POST' && r.url.includes('/fontsets/import'));
+  check('导入成功 ⇒ POST 到 /fontsets/import，且体就是**导出的那份字节**（客户端这一半的往返闭合）',
+    importPosts.length === 1 && importPosts[0].body === EXPORTED,
+    importPosts.length ? ('body 长度 ' + String(importPosts[0].body).length) : '(没有 POST)');
+  check('往返：宿主收到的体解析回来与导出前逐键相同（不比对时间戳这类不稳定字段）',
+    importPosts.length === 1
+    && JSON.stringify(JSON.parse(String(importPosts[0].body)).values) === JSON.stringify(HOST_VALUES));
+  check('导入成功后清单被回读一次（新那一行就是反馈）',
+    good.posted.some((r) => r.method === 'GET' && r.url.endsWith('/fontsets'))
+    && !good.text.includes('字体集不可用'));
+
+  const noRead = await feed({ name: 'x.json', text: () => Promise.reject(new Error('boom')) });
+  check('文件读不出来 ⇒ 文案点明"读不出这个文件"，且**不发请求**',
+    noRead.posted.length === 0 && noRead.text.includes('读不出这个文件'), noRead.text.slice(0, 60));
+  const badJson = await feed({ name: 'x.json', text: () => Promise.resolve('这不是 JSON') });
+  check('不是 JSON ⇒ 文案点明，且不发请求',
+    badJson.posted.length === 0 && badJson.text.includes('这不是 JSON 文件'));
+  const badTag = await feed({ name: 'x.json', text: () => Promise.resolve('{"$schema":"dsh-we/fontset@99","values":{}}') });
+  check('版本不符 ⇒ 文案点明**要哪个标记**，且不发请求（笼统的"导入失败"等于什么都没说）',
+    badTag.posted.length === 0 && badTag.text.includes('这不是字体集文件')
+    && badTag.text.includes('dsh-we/fontset@1'), badTag.text.slice(0, 80));
+
+  // ── 场景 F：新建（面板不再问名字，名字由客户端生成）──────────────────────────
+  console.log('F. 新建：不问名字，客户端生成并立刻切过去');
+  {
+    const at = e.requests.length;
+    const createBtn = editorTree().all.find((n) => n.type === 'button'
+      && Array.isArray(n.children) && n.children.join('') === '新建（以当前外观）');
+    check('「新建（以当前外观）」按钮在（面板上点得到）', Boolean(createBtn));
+    if (createBtn) createBtn.props.onClick();
+    await new Promise((r) => setTimeout(r, 30));
+    const round = e.requests.slice(at);
+    const created = round.filter((r) => r.method === 'PUT' && /\/fontsets\/set-/.test(r.url));
+    check('新建 ⇒ PUT 一份新 id 的集，且名字是客户端生成的（面板没问过）',
+      created.length === 1 && /"name":"我的字体集/.test(String(created[0].body)),
+      created.length ? String(created[0].url).split('/').pop() + ' body 名字=' + (/"name":"([^"]*)"/.exec(String(created[0].body)) || [])[1] : '(没有 PUT)');
+    const newId = created.length ? String(created[0].url).split('/').pop() : '';
+    check('建完立刻切过去（activate 指向那个新 id）—— 用户的下一步一定是调它',
+      Boolean(newId) && round.some((r) => r.method === 'POST' && r.url.endsWith('/fontsets/' + newId + '/activate')),
+      'id=' + newId);
+  }
+
+  // ── 场景 G：宿主没重挂（真机实测的形态）───────────────────────────────────────
+  // 真机形态：页面刷新后**前端是新的、宿主还是旧的**（宿主模块只在启动时 load 一次，
+  // bundle 却每次刷新重取）⇒ 请求落到 SPA 兜底：GET 裸 404、非 GET 裸 405，都没有 `{ error }` 信封。
+  // 这一段把"文案必须自己说出来"钉住，并且用**成对**的宿主证明判据不是恒真。
+  console.log('G. 宿主没有这条路由（裸 404）⇒ 文案自己说出去重启 DSH');
+  {
+    // 只有字体集那条路 404（别的一律正常，否则面板停在"未检测到 Wallpaper Engine"，
+    // 根本走不到外观页签 —— 那测的就不是本段要测的东西了）。
+    const bareFontsets = (body) => (url, init) => (String(url).includes('/fontsets')
+      ? Promise.resolve({ ok: false, status: 404, json: body })
+      : hostWith({ id: 'v' })(url, init));
+    const staleHost = bareFontsets(() => Promise.reject(new Error('empty body')));
+    const g = mount({ fetchImpl: staleHost, store: {
+      'dsh-wallpaper-engine:selection': JSON.stringify({ id: 'v' }),
+      'dsh-wallpaper-engine:picker-tab': 'appearance',
+    } });
+    await waitBoot();
+    openFontSetEditor(g);
+    await new Promise((r) => setTimeout(r, 20));
+    const staleText = panelText(g);
+    check('裸 404（无 { error } 信封）⇒ 文案说"宿主里没有字体集路由：重启 DSH 后再试"',
+      staleText.includes('重启 DSH 后再试') && staleText.includes('重启 DSH'), staleText.slice(0, 70));
+
+    // 配对项：同一个 404，但**带信封**（= 请求确实到了本族）⇒ 原话照搬，不许混进"宿主没重挂"的猜测。
+    const enveloppedHost = bareFontsets(() => Promise.resolve({ error: 'not found' }));
+    const h = mount({ fetchImpl: enveloppedHost, store: {
+      'dsh-wallpaper-engine:selection': JSON.stringify({ id: 'v' }),
+      'dsh-wallpaper-engine:picker-tab': 'appearance',
+    } });
+    await waitBoot();
+    openFontSetEditor(h);
+    await new Promise((r) => setTimeout(r, 20));
+    const envText = panelText(h);
+    check('成对项：带 `{ error }` 的 404 ⇒ 原话照搬（"not found"），**不**出现"重启 DSH"那句',
+      envText.includes('not found') && !envText.includes('重启 DSH 后再试'), envText.slice(0, 70));
+  }
 
   console.log('');
   if (failures) { console.log('FONTSET LOAD SMOKE FAILED — ' + failures + ' failed'); process.exit(1); }

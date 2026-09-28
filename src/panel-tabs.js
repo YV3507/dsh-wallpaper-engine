@@ -730,7 +730,7 @@
           React.createElement("span", { className: "we-picker__section-label" }, "字体集"),
         ),
         switchRow("字体集预设", fontSet.open, (e) => fontSet.onOpen(e.target.checked), {
-          tooltip: "预设 = 一整套字体外观；随包的集直接可用，改动会自动存成你的一份",
+          tooltip: "预设 = 一整套字体外观；改动只落到当前这一套，随时可以恢复原样",
         }),
         fontSet.open && renderFontSetEditor(fontSet),
       ),

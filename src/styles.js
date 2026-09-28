@@ -808,6 +808,13 @@ const CSS = `
     padding: 2px 4px;
     vertical-align: middle;
   }
+  /* 删除的"待确认"独占一行（跨两列）：问句在左、按钮在右，且**不改变上面那一行的宽度**。 */
+  .we-picker__font-table .we-picker__fontset-confirm td {
+    padding: 0 4px 6px;
+  }
+  .we-picker__font-table .we-picker__fontset-confirm .we-picker__hint {
+    margin-right: 8px;
+  }
   /* 数字框按内容收纳：面板基础样式给 input 的左右内边距在这里制造了明显的空占位。 */
   .we-picker__font-table input[type="number"] {
     padding-left: 3px;
@@ -840,11 +847,21 @@ const CSS = `
      native chrome and PIN the height so no control's intrinsic size can move
      a row. */
   .we-picker__btn {
-    cursor: pointer; height: var(--we-ui-h, 30px); line-height: calc(var(--we-ui-h, 30px) - 2px); padding: 0 12px;
+    /* 这枚类同时挂在 <button> 与 <a> 上（导出是普通链接，D2）。两种元素的 UA 默认不同，
+       只写 height/padding 会让它们长得不一样 —— 四处差异逐条钉住：
+         · display：<a> 默认 inline，而**行内盒忽略 height** ⇒ 那句 30px 对它无效；
+           <button> 默认 inline-block。⇒ 两者都显式 inline-flex，居中也不再靠 line-height 猜。
+         · box-sizing：<button> 默认 border-box、<a> 默认 content-box（同高差 2px 边框）。
+         · font：<button> **不继承**字体（用 UA 自己那套），<a> 继承 ⇒ 同字号不同字体、宽度也不同。
+         · text-decoration：<a> 默认带下划线。
+       （本文件是模板字符串：注释里不能出现反引号 —— 会截断 CSS。） */
+    display: inline-flex; align-items: center; justify-content: center; vertical-align: middle;
+    box-sizing: border-box; height: var(--we-ui-h, 30px); padding: 0 12px;
     border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
     border-radius: var(--we-ui-radius, 8px); background: transparent;
-    color: var(--we-ink, inherit); font-size: 0.82em;
-    white-space: nowrap;
+    color: var(--we-ink, inherit); font: inherit; font-size: 0.82em; line-height: 1;
+    text-decoration: none; white-space: nowrap; cursor: pointer;
+  }
   }
   .we-picker__btn:hover { background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.12)); }
   .we-picker__btn:disabled { opacity: 0.45; cursor: default; }

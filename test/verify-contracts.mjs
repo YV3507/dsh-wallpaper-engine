@@ -151,6 +151,35 @@ const tabsSrc = read('src/panel-tabs.js');
     !sameSet(['image/png', 'image/jpeg'], ['image/jpeg', 'image/png', 'image/webp']));
 }
 
+{
+  // F3 阶段 4：字体集文件的"能读什么"由**同一个 `$schema`** 定义 —— 客户端拿它做本地预检
+  // （给一句可判定文案），宿主拿它做权威校验。两边必须引用**同一个常量**，谁也不许手抄字面量
+  // （手抄就会漂：客户端放行、宿主拒收，反之亦然 —— 那是最难查的一类"看起来没反应"）。
+  const kernel = read('lib/settings-schema.js');
+  const storeSrc = read('src/fontset-store.js');
+  const editorSrc = read('src/fontset-editor.js');
+  const routeSrc = read('lib/routes/fontsets.js');
+  const tag = /const\s+FONTSET_SCHEMA_TAG\s*=\s*'([^']+)'\s*\+\s*FONTSET_SCHEMA_VERSION/.exec(kernel);
+  check('版本标记 = 前缀 + 版本常量，且定义在共享内核（判据非空转）',
+    Boolean(tag) && /const\s+FONTSET_SCHEMA_VERSION\s*=\s*\d+/.test(kernel), tag ? tag[1] + 'N' : '(没解析到)');
+  // 字面量只许出现在共享内核：其余会 import 的两半都只能写常量名。
+  const literalSites = ['lib/index.js', 'lib/routes/fontsets.js', 'src/fontset-store.js',
+    'src/fontset-editor.js', 'src/client.js', 'src/api-client.js']
+    .filter((f) => /dsh-we\/fontset@/.test(read(f)));
+  check('字体集的版本字面量只出现在共享内核（两半都引用常量名，不手抄）',
+    literalSites.length === 0, literalSites.join(',') || '零处手抄');
+  check('客户端预检与宿主校验用的是同一个常量名',
+    /FONTSET_SCHEMA_TAG/.test(storeSrc) && /FONTSET_SCHEMA_TAG/.test(routeSrc));
+  check('导入走宿主那条路由（客户端 POST 到 /fontsets/import）',
+    /fontSetsUrl\(\)\s*\+\s*"\/import"/.test(storeSrc),
+    '客户端侧路由拼接');
+  check('导入入口的 accept 只提示 .json（真正的门是 $schema，不是扩展名）',
+    /accept:\s*"\.json,application\/json"/.test(editorSrc) && /\.json/.test(editorSrc));
+  // 负对照：同一判据对"某处手抄了版本字面量"有牙
+  check('negative control: 手抄的版本字面量会被判出',
+    /dsh-we\/fontset@/.test("const X = 'dsh-we/fontset@1';") && !/dsh-we\/fontset@/.test('const X = FONTSET_SCHEMA_TAG;'));
+}
+
 console.log('');
 if (failed) { console.log('CONTRACT CHECKS FAILED — ' + failed + ' failed'); process.exit(1); }
 console.log('ALL CONTRACT CHECKS PASSED');

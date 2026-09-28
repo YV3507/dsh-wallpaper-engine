@@ -34,8 +34,8 @@
 | 18 | `/now-playing` | lib/routes/now-playing.js:98 | 箭头 | disposers base | 3 |
 | 19 | `/now-playing/artwork` | lib/routes/now-playing.js:112 | 箭头 | disposers base serveFile | 1 |
 | 20 | `/client-diag` | lib/routes/diag.js:66 | 箭头 | disposers appendDiagLine notice base | 2 |
-| 21 | `/diag` | lib/routes/diag.js:132 | 箭头 | disposers | 8 |
-| 22 | `/diag` | lib/routes/diag.js:133 | 箭头 | disposers base | 8 |
+| 21 | `/diag` | lib/routes/diag.js:132 | 箭头 | disposers | 9 |
+| 22 | `/diag` | lib/routes/diag.js:133 | 箭头 | disposers base | 9 |
 | 23 | `/diag-log` | lib/routes/diag.js:134 | 箭头 | disposers log base | 1 |
 | 24 | `/api/local-assets` | lib/index.js:3273 | async 箭头 | webServer disposers serveFile | 1 |
 | 25 | `/we-assets-dir` | lib/index.js:3323 | 箭头 | webServer disposers | 2 |
@@ -44,7 +44,7 @@
 | 28 | `/upload` | lib/routes/upload.js:55 | 箭头 | disposers base tokenFor UPLOAD_EXT UPLOAD_MAX_BYTES ensureUploadDir …(+6) | 4 |
 | 29 | `/remove` | lib/routes/upload.js:203 | 箭头 | disposers base ensureUploadDir removeUploadMeta resolveUploadFile armBodyIdleTimeout | 1 |
 | 30 | `/upload-dir` | lib/routes/upload.js:247 | 箭头 | disposers base setUploadDir normalizeUserDir | 2 |
-| 31 | `/fontsets` | lib/routes/fontsets.js:245 | async 箭头 | disposers base readFontSetId | 4 |
+| 31 | `/fontsets` | lib/routes/fontsets.js:245 | async 箭头 | disposers base readFontSetId | 6 |
 | 32 | `/settings` | lib/index.js:3516 | 箭头 | webServer disposers SETTINGS_MAX_BYTES | 15 |
 
 **零提及（拆分前必须先补守卫）**：（无）

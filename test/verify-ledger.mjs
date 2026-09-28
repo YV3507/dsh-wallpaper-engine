@@ -43,6 +43,55 @@ const stripComments = (src) => src
 
 /** 证据判据：每条返回 true 表示"这件事在仓库里已经成立"。 */
 const EVIDENCE = {
+  'F3': [
+    // ① 键集与版本标记只有共享内核一处真源；两半都引用常量名（手抄就会漂成"客户端放行、宿主拒收"）
+    ['字体集键集/版本在共享内核、两半都引用常量名', () => {
+      const k = read('lib/settings-schema.js');
+      return k.includes('const FONTSET_KEYS = [') && k.includes('const FONTSET_SCHEMA_TAG =')
+        && read('src/fontset-store.js').includes('FONTSET_SCHEMA_TAG')
+        && read('lib/routes/fontsets.js').includes('FONTSET_SCHEMA_TAG')
+        && !/dsh-we\/fontset@/.test(read('src/fontset-store.js'))
+        && !/dsh-we\/fontset@/.test(read('lib/routes/fontsets.js'));
+    }],
+    // ② D1：六个字体键退出 settings 持久化白名单，但 kind 元数据与默认值仍在（sanitizeFontset 用）
+    ['六个字体键不在持久化白名单、kind 元数据与默认值仍在', () => {
+      const s = read('lib/settings-schema.js');
+      return /FONTSET_KEYS\.includes\(key\)\) continue;/.test(s)
+        && s.includes('function sanitizeFontset(') && s.includes('const FONTSET_MIGRATED_ID =');
+    }],
+    // ③ 两层存储：随包层随包发布（files 覆盖）+ 只读写时复制（restored 语义）+ 惰性迁移 + 迁移前护栏
+    ['两层存储（写时复制 + 惰性迁移 + 迁移前护栏）在位', () => {
+      const r = read('lib/routes/fontsets.js');
+      const h = read('lib/index.js');
+      const files = JSON.parse(read('package.json')).files.join('|');
+      return has('lib/fontsets/compact.json') && files.includes('lib/fontsets')
+        && r.includes('fontSetsBuiltinDir') && r.includes("restored: 'builtin'")
+        && h.includes('function withLegacyFontValues(') && h.includes('function commitFontSetMigration(')
+        && !h.slice(h.indexOf('function apply(')).includes('migrateLegacyFontSet(');
+    }],
+    // ④ 客户端：另一条通道 + 纯渲染编辑器，两者都进了构建期内联清单
+    ['客户端通道与编辑器面板在位且已内联', () => {
+      const b = read('scripts/build-client.mjs');
+      return b.includes("file: 'src/fontset-store.js'") && b.includes("file: 'src/fontset-editor.js'")
+        && read('src/fontset-store.js').includes('function fontValueDefaults(');
+    }],
+    // ⑤ 导入导出闭环：宿主两侧 + 客户端两侧
+    ['导入导出闭环（宿主 export/import + 客户端两者）', () => {
+      const r = read('lib/routes/fontsets.js');
+      const s = read('src/fontset-store.js');
+      return r.includes("second === 'export'") && r.includes("first === 'import'")
+        && r.includes('Content-Disposition') && s.includes('function importFontSet(')
+        && s.includes('function exportFontSetUrl(');
+    }],
+    // ⑥ 判据在两条链上
+    ['字体集的守卫与冒烟都在链上', () => {
+      const pkg = JSON.parse(read('package.json'));
+      return pkg.scripts.verify.includes('verify-fontset.mjs')
+        && pkg.scripts.smoke.includes('fontset-load-smoke.mjs');
+    }],
+    // ⑦ 过程记录已归档（收口动作本身也是可核的）
+    ['过程记录已归档', () => has('docs/archive/audits/F3-PLAN.md') && !has('docs/wip/F3-PLAN.md')],
+  ],
   'P0-1': [
     ['CI 工作流在位', () => has('.github/workflows/verify.yml')],
     ['CI 里确实跑 verify + 产物同步检查', () => {

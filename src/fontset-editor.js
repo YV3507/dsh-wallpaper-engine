@@ -12,41 +12,48 @@
  *   · `loading` / `error`  载入中 / 可判定的失败文案（空串 = 没问题）
  *   · `editingId` / `draftName` / `newName`  三个**瞬态**字段（改名与新建的输入框状态；
  *     它们住在 `selection` 里、由 client 侧 setTransient 维护 —— 与 `selection.editing` 同一手法）
- *   · `onActivate(id)` / `onRefresh()` / `onDelete(id)` / `exportUrl(id)`
+ *   · `onActivate(id)` / `onRefresh()` / `onDelete(id)` / `exportUrl(id)` / `onImport(file)`
  *   · `onEdit(id)` / `onDraftName(v)` / `onRenameCommit(id)` / `onCancelEdit()`
- *   · `onNewName(v)` / `onCreate()`
+ *   · `onCreate()` —— **不带名字**：新集的名字由客户端生成（面板不再先问一句），
+ *     用户随时可以用「重命名」改；两个按钮做同一件事的形态见下。
  * 对外提供：`renderFontSetEditor`（唯一的导出）。
  *
+ * 导出为什么是**普通链接**（`<a download>`，不是 blob、也不是自己弹框）：这正是 DSH 自己的做法 ——
+ * `@deepseek-ai/dsh-session-log-export` 的客户端把宿主下载路由交给浏览器下载管理器
+ * （`document.createElement("a")` + `download` + `click()`）。在 DSH Desktop（Electron）里，
+ * 应用会话**没有任何** `will-download` 拦截（唯一那处在登录会话上，而且是 `preventDefault`），
+ * 于是走 Electron 默认下载流程 = **系统「另存为」对话框**。自己造一套保存通道只会与平台分叉。
+ *
  * 不变量（都有守卫）：
- *   · **来源必须看得见**：随包 / 我的 / 「已修改（随包 X）」三态各有明确标记 —— 用户要能分辨
- *     "我改的是哪一份"（D3 写时复制的 UX 落点）。
- *   · **随包预设删不掉**：`origin === 'builtin'` 且未被覆盖时**不渲染删除按钮**（宿主也会拒）；
+ *   · **来源不在界面上露出**：随包 / 用户层是**实现细节**，用户面对的只是"一份份字体集"。
+ *     `origin` / `overrides` 仍然照读，但只用于**能力**判定（能不能删、删下去是什么语义），
+ *     一个字都不显示。
+ *   · **发布物删不掉**：`origin === 'builtin'` 且未被覆盖时**不渲染删除按钮**（宿主也会拒）；
  *     **活动集**那一行也不出删除（要先切走 —— 界面上不摆必然报错的按钮）。
- *   · **覆盖的那一行，删除按钮的语义就是「恢复随包原样」**（同一个动作、按来源换标签）。
+ *   · **被改过的那一份，删除按钮的语义是「恢复原样」**（同一个动作、按语义换标签：只说效果 ——
+ *     删掉改动之后这一份回到它原本的样子 —— 不说来源）。
  *   · **读不懂的行不能用**：`broken` 的行禁用「使用」与「重命名」，但**保留删除**
  *     （删掉覆盖/坏文件是唯一的出路），并显示**可判定的原因**。
  *   · **删除必须过 confirm**：先答 false ⇒ 一个字节都不发。
  *   · 载入中与失败态各自可见：失败时给的是**原因**，不是"什么都没发生"。
  */
 
-const ORIGIN_LABEL = { builtin: "随包", user: "我的" };
+/**
+ * 导入用的隐藏 file input（与自定义画面的导入同形：模块级 ref + 一个按钮去 `.click()`）。
+ * 只做"选文件"，读文件与校验在 `importFontSet`（src/fontset-store.js）里。
+ */
+let importInput = null;
 
-/** 一行的来源文案：用户层覆盖了随包那份时必须**两件事都说**（这是我的，且基于随包 X）。 */
-function originText(row) {
-  const base = ORIGIN_LABEL[row.origin] || row.id;
-  return row.overrides ? base + "（已修改随包的「" + row.name + "」）" : base;
-}
-
-/** 删除按钮的标签：覆盖随包那份时，这个动作的语义是"恢复随包原样"。 */
+/** 删除按钮的标签：被改过的那一份，这个动作的语义是"恢复原样"（只说效果，不说来源）。 */
 function deleteLabel(row) {
-  return row.overrides ? "恢复随包原样" : "删除";
+  return row.overrides ? "恢复原样" : "删除";
 }
 
 function renderFontSetEditor(ctx) {
   const {
-    fontSets, activeId, loading, error, editingId, draftName, newName,
-    onActivate, onRefresh, onDelete, exportUrl,
-    onEdit, onDraftName, onRenameCommit, onCancelEdit, onNewName, onCreate,
+    fontSets, activeId, loading, error, editingId, draftName, armedId,
+    onActivate, onRefresh, onDelete, onArm, onDisarm, exportUrl, onImport,
+    onEdit, onDraftName, onRenameCommit, onCancelEdit, onCreate,
   } = ctx;
   const rows = Array.isArray(fontSets) ? fontSets : [];
   const btn = (key, label, onClick, extra) => React.createElement("button",
@@ -57,23 +64,26 @@ function renderFontSetEditor(ctx) {
     title: "下载这个字体集（可分享 / 可再导入）",
   }, "导出");
   /**
-   * 删除必须过 confirm（与轮换列表、移除自定义壁纸同形：**面板**是问这一句的地方）。
-   * 先答 false ⇒ 一个字节都不发。覆盖随包那一行的问法不同（那是"恢复原样"，不是"删除"）。
+   * 破坏性动作要**再确认一次**，但**不能用原生对话框**（`window.confirm`）。
+   *
+   * 为什么不许原生模态（真机形态，也有守卫钉住）：原生 `confirm` 会把焦点交给它自己的窗口，
+   * 而本插件是**同一个渲染页**里跑的 —— 后果是三重的：
+   *   ① `blur` 立刻命中「窗口失焦时暂停」（`pauseOnBlur`，用户可开）⇒ 壁纸停住；
+   *   ② 模态在时渲染线程**被同步阻塞** ⇒ 输入框收不到键，壁纸即便焦点回来也恢复不了；
+   *   ③ 关闭时**回来那个 `focus` 事件不保证送达** ⇒ 判定卡在"窗口失焦"，只剩重载能救。
+   * 所以确认做成**面板内**的一段状态（`armedId`）：点一次"待确认"，再点"确认"才发请求。
+   * 与行内「重命名」同形；cancel/换行/关闭子分支都要把这段状态清掉。
    */
-  const confirmDelete = (row) => {
-    if (typeof window === "undefined" || typeof window.confirm !== "function") return true;
-    const what = row.overrides === true
-      ? "删掉对随包预设「" + (row.name || row.id) + "」的修改，恢复随包原样？"
-      : "删除字体集「" + (row.name || row.id) + "」？此操作不可恢复。";
-    return window.confirm(what);
-  };
+  const answerText = (row) => (row.overrides === true
+    ? "把「" + (row.name || row.id) + "」恢复成它原本的样子？你在这份上的改动会丢掉。"
+    : "删除「" + (row.name || row.id) + "」？此操作不可恢复。");
 
   const cells = [];
   for (const row of rows) {
     const isActive = row.id === activeId || row.active === true;
     const broken = typeof row.broken === "string" && row.broken;
     const overrides = row.overrides === true;
-    // 纯随包那份删不掉（宿主也拒）；**活动集**同样不出删除（宿主的规则：先切走 ——
+    // 发布物那份删不掉（宿主也拒）；**活动集**同样不出删除（宿主的规则：先切走 ——
     // "正在用的那份被删掉"没有可判定的结果，界面上也不该摆一个必然报错的按钮）。
     const canDelete = row.origin === "user" && !isActive;
     const actions = [];
@@ -84,9 +94,17 @@ function renderFontSetEditor(ctx) {
         actions.push(btn("ren", "重命名", () => onEdit(row.id)));
       }
     }
-    if (canDelete) actions.push(btn("del", deleteLabel(row),
-      () => { if (confirmDelete(row)) onDelete(row.id); },
-      { title: overrides ? "删掉你的覆盖，回到随包那份" : "删除这个字体集" }));
+    if (canDelete) {
+      // 待确认时**按钮不隐藏**（也**不换位置**）：它仍占着那一格，宽度就完全不变 —— 藏起来会让
+      // 整行缩一下、看起来像"点完少了个东西"。改成置灰 + 不可点，并向用户指路（问句在下面那行）。
+      const armed = armedId === row.id;
+      actions.push(btn("del", deleteLabel(row), () => { if (!armed) onArm(row.id); }, {
+        disabled: armed,
+        title: armed
+          ? "已经问过你了 —— 在下面那一行选「确认」或「取消」"
+          : (overrides ? "删掉你在这份上的改动，恢复它原本的样子" : "删除这个字体集（会再问一次）"),
+      }));
+    }
     actions.push(exportLink(row.id));
 
     cells.push(React.createElement("tr", { key: row.id, className: "we-picker__fontset-row" },
@@ -95,7 +113,6 @@ function renderFontSetEditor(ctx) {
         isActive ? React.createElement("span", { className: "we-picker__hint" }, "（使用中）") : null,
         broken ? React.createElement("span", { className: "we-picker__hint" }, "无法读取：" + broken) : null,
       ),
-      React.createElement("td", null, ctlText(originText(row))),
       React.createElement("td", null,
         editingId === row.id
           ? React.createElement(React.Fragment, null,
@@ -113,12 +130,23 @@ function renderFontSetEditor(ctx) {
           : actions,
       ),
     ));
+    // 待确认**独占一行**（跨两列）：塞进操作格里会把整行往右推，既不美观也让"哪一行在问"
+    // 变得含糊。这一行紧跟它自己那一行，问句在左、两枚按钮在右。
+    if (canDelete && armedId === row.id) {
+      cells.push(React.createElement("tr", { key: row.id + "-ask", className: "we-picker__fontset-confirm" },
+        React.createElement("td", { colSpan: 2 },
+          React.createElement("span", { className: "we-picker__hint" }, answerText(row)),
+          btn("yes", "确认", () => onDelete(row.id), { title: "就这么办" }),
+          btn("no", "取消", () => onDisarm(), { title: "算了" }),
+        ),
+      ));
+    }
   }
 
   return React.createElement(React.Fragment, null,
     React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
       ctlText("字体集", "一份集 = 整套字体外观（颜色角色 / 排版 / 字重 / 字族 / 组件）。"
-        + "「随包」的集直接可用、改它会自动存成你的一份；导入导出按整份文件走。"),
+        + "改动只落到当前这一份、随时可以恢复原样；导入导出按整份文件走。"),
     ),
     loading ? React.createElement("div", { className: "we-picker__hint" }, "正在读取字体集…") : null,
     error ? React.createElement("div", { className: "we-picker__hint" }, "字体集不可用：" + error) : null,
@@ -130,7 +158,6 @@ function renderFontSetEditor(ctx) {
         React.createElement("thead", null,
           React.createElement("tr", null,
             React.createElement("th", null, "字体集"),
-            React.createElement("th", null, "来源"),
             React.createElement("th", null, "操作"),
           ),
         ),
@@ -140,14 +167,25 @@ function renderFontSetEditor(ctx) {
     React.createElement("div", { className: "we-picker__ctl" },
       React.createElement("input", {
         className: "we-picker__file",
-        type: "text",
-        value: newName,
-        placeholder: "新字体集名称",
-        onChange: (e) => onNewName(e.target.value),
-        onKeyDown: (e) => { if (e && e.key === "Enter") onCreate(); },
+        type: "file",
+        // 只做文件对话框的提示（真正的门是 `$schema`，宿主权威校验）；
+        // 与自定义画面的导入同形：隐藏 input + 一个按钮去 click()。
+        accept: ".json,application/json",
+        style: { display: "none" },
+        ref: (el) => { importInput = el; },
+        onChange: (e) => {
+          const f = e.target.files && e.target.files[0];
+          try { e.target.value = ""; } catch { /* ignore */ }
+          if (f) onImport(f);
+        },
       }),
+      btn("import", "导入字体集…", () => {
+        if (importInput && typeof importInput.click === "function") importInput.click();
+      }, { title: "从「导出」得到的 .json 导入一份字体集" }),
+      // 「新建」不再先问名字：名字由客户端生成（「我的字体集」/「我的字体集 2」…），
+      // 建完立刻切过去 —— 用户的下一步一定是调它；想改名随时用行内的「重命名」。
       btn("new", "新建（以当前外观）", () => onCreate(),
-        { title: "把当前这套字体外观存成一份新的集，并切换过去" }),
+        { title: "把当前这套字体外观存成一份新的集，并切换过去（名字之后可以改）" }),
       btn("refresh", "刷新", () => onRefresh()),
     ),
   );

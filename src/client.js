@@ -179,7 +179,9 @@ const selection = {
   fontSetLoading: false,
   fontSetEditing: "",
   fontSetDraftName: "",
-  fontSetNewName: "",
+  // 待确认删除的那一行（**面板内确认**，不用原生模态 —— 后者会抢焦点、阻塞渲染线程，
+  // 详见 src/fontset-editor.js 里 `answerText` 上方的注释）。
+  fontSetDeleteArmed: "",
   url: null,
   type: null,
   previewUrl: null,
@@ -1824,6 +1826,12 @@ function occlusionReason() {
 function occlusionActive() {
   return occlusionReason() !== "";
 }
+/**
+ * 遮挡判定的**复核周期**（毫秒）。事件之外还得自己看一遍：原生模态会抢焦点，而回来时的
+ * `focus` 事件不保证送达 —— 只靠事件的话判定会永久卡在「窗口失焦」。3s 是"用户感觉不到、
+ * 又不至于让省电白做"的折中（复核只在判定变化时 emit）。
+ */
+const OCCLUSION_RECHECK_MS = 3000;
 // 「live 渲染页为什么没在出帧」的一句话原因：用户暂停与遮挡都算 —— 两者都会让
 // applyLiveControls 把渲染页 pause() 掉，而暂停中的渲染页 __wpStats.frame()
 // 恒为 {fps:0, running:false}（渲染器实现：paused → running:false）。
@@ -2509,7 +2517,23 @@ function WallpaperPicker(props) {
     deleteGroup(group.id);
   };
 
-  // ── 字体集编辑器的一屏（F3 阶段 3）：**显式 ctx**，面板完全不碰 selection ──────
+  /**
+ * 新集的**默认名字**（面板不再让用户先取名 —— 名字之后随时能用「重命名」改）：
+ * 「我的字体集」/「我的字体集 2」… 取第一个没被占用的后缀。**确定性**（同样的清单给同样的名字），
+ * 因此可以当判据断言；碰撞只可能发生在 999 个同名前缀之后，那时退回时间戳。
+ */
+function nextFontSetName() {
+  const base = "我的字体集";
+  const taken = new Set((selection.fontSets || []).map((r) => r && r.name).filter(Boolean));
+  if (!taken.has(base)) return base;
+  for (let i = 2; i <= 999; i++) {
+    const name = base + " " + i;
+    if (!taken.has(name)) return name;
+  }
+  return base + " " + Date.now().toString(36);
+}
+
+// ── 字体集编辑器的一屏（F3 阶段 3）：**显式 ctx**，面板完全不碰 selection ──────
 // 各字段的含义见 src/fontset-editor.js 的文件头。这里只做三件事：状态从 selection 取、
 // 动作用 fontset-store 发、完事 emit()。（删除的 confirm 门控在**面板**里 —— 问那一句的地方
 // 就是按钮那儿，与轮换列表 / 移除自定义壁纸同形。）
@@ -2522,7 +2546,7 @@ function fontSetCtx() {
     onOpen: (v) => {
       selection.fontSetOpen = v === true;
       if (selection.fontSetOpen) busy(refreshFontSets()); // 打开就拉一次清单（来源永远是宿主）
-      else emit();
+      else { selection.fontSetDeleteArmed = ""; emit(); } // 收起子分支 ⇒ 待确认状态一起清掉
     },
     fontSets: selection.fontSets,
     activeId: selection.fontSetActive,
@@ -2530,11 +2554,15 @@ function fontSetCtx() {
     error: selection.fontSetError,
     editingId: selection.fontSetEditing,
     draftName: selection.fontSetDraftName,
-    newName: selection.fontSetNewName,
+    armedId: selection.fontSetDeleteArmed,
     exportUrl: (id) => exportFontSetUrl(id),
+    onImport: (file) => busy(importFontSet(file)),
     onActivate: (id) => busy(activateFontSet(id)),
     onRefresh: () => busy(refreshFontSets()),
-    onDelete: (id) => busy(deleteFontSet(id)),
+    onDelete: (id) => { selection.fontSetDeleteArmed = ""; busy(deleteFontSet(id)); },
+    // 删除的**面板内确认**（不用原生模态）：第一下只"待确认"，第二下才发请求。
+    onArm: (id) => { selection.fontSetDeleteArmed = id; emit(); },
+    onDisarm: () => { selection.fontSetDeleteArmed = ""; emit(); },
     onEdit: (id) => {
       selection.fontSetEditing = id;
       selection.fontSetDraftName = rowOf(id).name || "";
@@ -2545,11 +2573,11 @@ function fontSetCtx() {
       if (ok) { selection.fontSetEditing = ""; selection.fontSetDraftName = ""; }
     })),
     onCancelEdit: () => { selection.fontSetEditing = ""; selection.fontSetDraftName = ""; emit(); },
-    onNewName: (v) => { selection.fontSetNewName = String(v == null ? "" : v); emit(); },
     // 先把挂起的编辑落地（否则新集可能拿到旧值），再以**当前外观**建一份并切过去。
+    // 名字由 `nextFontSetName()` 生成（面板不问；行内「重命名」随时可改）。
     onCreate: () => busy(flushFontSetNow()
-      .then(() => createFontSet(selection.fontSetNewName))
-      .then((id) => { if (id) selection.fontSetNewName = ""; })),
+      .then(() => createFontSet(nextFontSetName()))
+      .then(() => { emit(); })),
   };
 }
 
@@ -3760,6 +3788,22 @@ function apply(ctx) {
           ocListeners.push(t);
         }
       }
+      // 遮挡判定**不能只靠事件**：原生模态（`window.confirm` / `alert`）会把焦点交给自己的窗口，
+      // 而**回来时的 focus 事件不保证送达** —— 判定就会一直停在「窗口失焦」，壁纸从此不恢复
+      // （真机形态：删除确认弹窗之后壁纸停住、输入框也收不到键，只剩重载能救）。
+      // 事件之外再**低频复核**一次，且只在判定**变了**时 emit ⇒ 常态零代价、不 churn。
+      let lastOcclusion = occlusionReason();
+      let ocWatch = 0;
+      if (typeof setInterval === "function") {
+        ocWatch = setInterval(() => {
+          const now = occlusionReason();
+          if (now === lastOcclusion) return;
+          lastOcclusion = now;
+          // 留痕：这条日志是"事件丢了、靠复核补上"的唯一事后证据（真机排查时缺的就是它）。
+          try { liveLog("play-state", liveStateBrief("occlusion-recheck")); } catch { /* ignore */ }
+          emit();
+        }, OCCLUSION_RECHECK_MS);
+      }
       // 持久化监听器: pagehide → 立即 flush 未落盘的设置; visibilitychange →
       // 页面回到前台时重试失败过的 PUT。注册在这里 (而不是模块作用域) 才能随
       // fiber 注销 — 否则每次插件重载/HMR 都会在同一页面再叠一对, 永不释放。
@@ -3803,6 +3847,7 @@ function apply(ctx) {
         disposed = true;
         unsub();
         unsubEffects();
+        if (ocWatch) { try { clearInterval(ocWatch); } catch { /* ignore */ } ocWatch = 0; }
         if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
           for (const t of ocListeners) window.removeEventListener(t, onOcclusionChange);
           if (pageHideBound) window.removeEventListener("pagehide", onPageHideFlush);
