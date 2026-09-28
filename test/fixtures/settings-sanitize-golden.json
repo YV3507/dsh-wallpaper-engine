@@ -1,5 +1,5 @@
 {
-  "note": "由 P1-5 前的旧实现（vm 内跑源码文本）生成；新实现必须逐字节复现 host 输出。 F1 起补入 themeColors / themeDarkSeparate 两键（新增键按\"引入时行为\"记录；F2 起含 themeType）。",
+  "note": "由 P1-5 前的旧实现（vm 内跑源码文本）生成；新实现必须逐字节复现 host 输出。 F1 起补入 themeColors / themeDarkSeparate 两键（新增键按\"引入时行为\"记录；F2 起含 themeType）。 F3 阶段 2 起这六个字体键**不再进 settings blob**（值住 fontsets/<id>.json）⇒ 从两侧期望里摘掉； 字体值自身的往返由 test/verify-fontset.mjs 判。",
   "generatedFrom": {
     "client": "src/client.js sanitizeSettings",
     "host": "lib/index.js sanitizeSettings"
@@ -64,13 +64,7 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": "",
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "caretColor": ""
       },
       "host": {
         "id": "",
@@ -126,13 +120,7 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": "",
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "caretColor": ""
       }
     },
     {
@@ -196,13 +184,7 @@
         "customFrames": {},
         "caretColor": "",
         "videoVolume": 0,
-        "videoAudioEnabled": true,
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "videoAudioEnabled": true
       },
       "host": "__null__"
     },
@@ -267,13 +249,7 @@
         "customFrames": {},
         "caretColor": "",
         "videoVolume": 0,
-        "videoAudioEnabled": true,
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "videoAudioEnabled": true
       },
       "host": "__null__"
     },
@@ -338,13 +314,7 @@
         "customFrames": {},
         "caretColor": "",
         "videoVolume": 0,
-        "videoAudioEnabled": true,
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "videoAudioEnabled": true
       },
       "host": "__null__"
     },
@@ -411,13 +381,7 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": "",
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "caretColor": ""
       },
       "host": {
         "id": "",
@@ -473,13 +437,7 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": "",
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "caretColor": ""
       }
     },
     {
@@ -602,13 +560,7 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": "",
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "caretColor": ""
       },
       "host": {
         "id": "",
@@ -664,13 +616,7 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": "",
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "caretColor": ""
       }
     },
     {
@@ -838,13 +784,7 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": "",
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "caretColor": ""
       },
       "host": {
         "id": "",
@@ -900,13 +840,7 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": "",
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "caretColor": ""
       }
     },
     {
@@ -973,13 +907,7 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": "",
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "caretColor": ""
       },
       "host": {
         "id": "",
@@ -1035,13 +963,7 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": "",
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "caretColor": ""
       }
     },
     {
@@ -1122,13 +1044,7 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": "",
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "caretColor": ""
       },
       "host": {
         "id": "",
@@ -1184,13 +1100,7 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": "",
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "caretColor": ""
       }
     },
     {
@@ -1271,13 +1181,7 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": "",
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "caretColor": ""
       },
       "host": {
         "id": "",
@@ -1333,13 +1237,7 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": "",
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "caretColor": ""
       }
     },
     {
@@ -1407,13 +1305,7 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": "",
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "caretColor": ""
       },
       "host": {
         "id": "",
@@ -1469,13 +1361,7 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": "",
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "caretColor": ""
       }
     },
     {
@@ -1548,13 +1434,7 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": "",
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "caretColor": ""
       },
       "host": {
         "id": "",
@@ -1610,13 +1490,7 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": "",
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "caretColor": ""
       }
     },
     {
@@ -1686,13 +1560,7 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": "",
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "caretColor": ""
       },
       "host": {
         "id": "",
@@ -1748,13 +1616,7 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": "",
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "caretColor": ""
       }
     },
     {
@@ -1831,13 +1693,7 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": "",
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "caretColor": ""
       },
       "host": {
         "id": "",
@@ -1893,13 +1749,7 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": "",
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "caretColor": ""
       }
     },
     {
@@ -2045,13 +1895,7 @@
         "customFrames": {
           "y": true
         },
-        "caretColor": "",
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "caretColor": ""
       },
       "host": {
         "id": "",
@@ -2131,13 +1975,7 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": "",
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "caretColor": ""
       }
     },
     {
@@ -2203,13 +2041,7 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": "",
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "caretColor": ""
       },
       "host": {
         "id": "",
@@ -2265,13 +2097,7 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": "",
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "caretColor": ""
       }
     },
     {
@@ -2337,13 +2163,7 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": "",
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "caretColor": ""
       },
       "host": {
         "id": "wallpaper-42",
@@ -2399,13 +2219,7 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": "",
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "caretColor": ""
       }
     },
     {
@@ -2472,13 +2286,7 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": "",
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "caretColor": ""
       },
       "host": {
         "id": "",
@@ -2534,13 +2342,7 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": "",
-        "themeColors": {},
-        "themeDarkSeparate": false,
-        "componentFonts": {},
-        "themeWeight": {},
-        "themeFamily": {},
-        "themeSize": {}
+        "caretColor": ""
       }
     }
   ]

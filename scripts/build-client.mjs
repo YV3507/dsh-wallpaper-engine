@@ -91,6 +91,12 @@ const INLINE_MODULES = [
       'function schedulePersist()', 'async function loadPersisted()', 'function cancelPendingPersist()'],
   },
   {
+    file: 'src/fontset-store.js',
+    why: '字体集通道（F3 阶段 2）：活动集正文的加载 / 原子采用 / debounce 落盘 / 本地缓存（与设置平行但另一条真源）',
+    markers: ['const FONTSET_CACHE_KEY = ', 'function readCachedFontSet()', 'function setFontValues(patch)',
+      'async function loadFontSet()', 'function scheduleFontSet()', 'function cancelPendingFontSet()'],
+  },
+  {
     file: 'src/panel-tabs.js',
     why: '面板六个页签的渲染器（wallpaper/appearance/audio/mascot/effects/advanced）—— 显式 ctx 取外界',
     markers: ['function renderWallpaperTab(ctx)', 'function renderAppearanceTab(ctx)',

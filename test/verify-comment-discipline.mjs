@@ -219,6 +219,8 @@ check('negative control: 带日期的注释会被判不合格',
     // P3-11 阶段 3：「壁纸属性」面板的渲染器拆出去，从 0 起钉。
     'src/picker-props-panel.js': 0,
     'src/persistence.js': 0,
+    // F3 阶段 2：字体集通道（新文件从 0 起钉）。
+    'src/fontset-store.js': 0,
     'lib/media/supervisor.js': 1,
     'lib/media/legacy.js': 1,
     'lib/media/provision.js': 0,
@@ -299,6 +301,8 @@ check('negative control: 带日期的注释会被判不合格',
     'test/rotation-prepared-leak-smoke.mjs': 3,
     'test/live-frame-backfill-smoke.mjs': 3,
     'test/live-frame-async-identity-smoke.mjs': 3,
+    // F3 阶段 2：客户端字体集载入通道的冒烟（新文件从 0 起钉）。
+    'test/fontset-load-smoke.mjs': 0,
   };
   const measure = (s) => (s.match(/曾经|旧实现|以前|原先|旧版|教训|踩到|踩坑/g) || []).length;
 

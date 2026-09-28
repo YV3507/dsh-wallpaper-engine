@@ -1627,6 +1627,16 @@ setTimeout(async () => {
       assert.ok(clientSan.includes('id') && hostSan.includes('id') && !('id' in DEFAULTS),
         'id 必须在两侧白名单里但不在 DEFAULTS 里（它是选中项，不是设置项）');
 
+      // ①b F3 阶段 2：六个字体键**不在** settings 的持久化白名单里 —— 它们的值住
+      //    `fontsets/<id>.json`（客户端通道见 src/fontset-store.js，宿主侧见 lib/routes/fontsets.js）。
+      //    与下面的 golden 夹具互为印证：这些键一旦回到白名单，宿主输出就会多出它们、夹具当场漂移。
+      //    kind 元数据与默认值**仍须在册**：`sanitizeFontset` 按 `KINDS` 的 kind 消毒、按 `DEFAULTS` 兜底。
+      const FONT_KEYS = ['themeColors', 'themeDarkSeparate', 'themeSize', 'themeWeight', 'themeFamily', 'componentFonts'];
+      assert.deepEqual(FONT_KEYS.filter((k) => persisted.includes(k) || hostSan.includes(k)), [],
+        '字体值自 F3 起住字体集文件，不得回到 settings 白名单');
+      assert.ok(FONT_KEYS.every((k) => k in KINDS && k in DEFAULTS),
+        '字体键的 kind 元数据与默认值仍须在 schema 里（sanitizeFontset 用）');
+
       // ② 结构：两侧都必须**委托**给 schema，宿主不得再有手写逐键白名单。
       //    ⚠️ `serializeSelection` 已随持久化层抽到 src/persistence.js（P2-9 后半）⇒ 那一条按
       //    文件归属分源；`sanitizeSettings` 仍在 client.js，不动。

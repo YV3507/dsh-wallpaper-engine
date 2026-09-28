@@ -334,20 +334,23 @@ section('⑦ schema 设置键与模块一致');
   check('负对照：多塞一个键会被判出',
     JSON.stringify([...modIds, 'ghost']) !== JSON.stringify(schema.COMPONENT_FONT_KEYS));
   // 键名与模块名**解耦**的收益：模块名改了（table → tableScroll）老设置照旧有效
+  // ⚠️ F3 阶段 2 起 `componentFonts` 是**字体集正文**的键：消毒入口是 `sanitizeFontset`，
+  //    不再是 settings 的 `sanitizeFromSchema`（那条路已经不收它了，见下面最后一条）。
   check('模块名改而设置键不变 ⇒ 老设置零迁移',
-    schema.sanitizeFromSchema({ componentFonts: { table: { size: 13 } } }, 'client').componentFonts.table.size === 13
+    schema.sanitizeFontset({ componentFonts: { table: { size: 13 } } }).componentFonts.table.size === 13
     && COMPONENT_FONT_TARGETS.find((t) => t.id === 'table').prefix === 'tableScroll');
   check('已退役的 sidebar 设置被丢弃（模块里根本没有可命中的前缀）',
-    JSON.stringify(schema.sanitizeFromSchema({ componentFonts: { sidebar: { size: 12 } } }, 'client').componentFonts) === '{}');
+    JSON.stringify(schema.sanitizeFontset({ componentFonts: { sidebar: { size: 12 } } }).componentFonts) === '{}');
   // 值必须能安全进 CSS：字族消毒（防设置文件里的字符串变成任意 CSS）
-  const dirty = schema.sanitizeFromSchema(
-    { componentFonts: { markdown: { size: 15, weight: 600, family: 'KaiTi; } body { display:none' } } }, 'client');
+  const dirty = schema.sanitizeFontset(
+    { componentFonts: { markdown: { size: 15, weight: 600, family: 'KaiTi; } body { display:none' } } });
   check('字族消毒：分号/花括号被剔除',
     !/[;{}]/.test(dirty.componentFonts.markdown.family), JSON.stringify(dirty.componentFonts.markdown.family));
-  const bad = schema.sanitizeFromSchema(
-    { componentFonts: { markdown: { size: 999, weight: 42 }, nope: { size: 12 } } }, 'client');
+  const bad = schema.sanitizeFontset(
+    { componentFonts: { markdown: { size: 999, weight: 42 }, nope: { size: 12 } } });
   check('越界值与未知组件被丢弃', JSON.stringify(bad.componentFonts) === '{}', JSON.stringify(bad.componentFonts));
-  check('宿主侧也有该键（白名单自动派生）', 'componentFonts' in schema.sanitizeFromSchema({}, 'host'));
+  check('该键已不在 settings 白名单里、而在字体集正文里（F3 阶段 2 的单一真源）',
+    !('componentFonts' in schema.sanitizeFromSchema({}, 'host')) && 'componentFonts' in schema.sanitizeFontset({}));
 }
 
 // ── ⑧ 落地点已独立成模块（P1-7 手法：在位 + 已内联 + 不在正文）──────────────

@@ -46,12 +46,12 @@
 
 | 指标 | 当前值 |
 |---|---|
-| 浏览器正文 `src/client.js` | **3,882 行**（重构起点 10,119 行） |
-| 构建期内联模块 | **17 个**（16 个来自 `src/` + 共享内核 `lib/settings-schema.js`） |
-| `lib/**`（`verify-reachability` 打印的「lib 扫描面」：`lib/**.{js,mjs}` **全量**，vendored 与生成物都在内） | **25 文件 / 27,248 行** |
+| 浏览器正文 `src/client.js` | **3,919 行**（重构起点 10,119 行） |
+| 构建期内联模块 | **18 个**（17 个来自 `src/` + 共享内核 `lib/settings-schema.js`） |
+| `lib/**`（`verify-reachability` 打印的「lib 扫描面」：`lib/**.{js,mjs}` **全量**，vendored 与生成物都在内） | **25 文件 / 27,590 行** |
 | 其中**运行时不可达** | **0 文件 / 0 行**（P2-12 第一半已删净；此前 48 文件 / 9,618 行曾在 `files` 里、真的发给用户） |
-| 生成物 `lib/client.js` | 12,044 行 / 1.24 MiB（提交；判据是"重建后 `git status` 干净"） |
-| 守卫 + 冒烟 | **29 个 `verify-*`（14,112 行）+ 5 个 smoke（2,070 行）**，均在 `test/` |
+| 生成物 `lib/client.js` | 12,356 行 / 1.26 MiB（提交；判据是"重建后 `git status` 干净"） |
+| 守卫 + 冒烟 | **29 个 `verify-*`（14,337 行）+ 6 个 smoke（2,274 行）**，均在 `test/` |
 | vendored | `webwallgl/` + `vendor/` 共 **12 文件 / 6,950 行** |
 
 > 逐阶段的增量对照表（P0 后 / P1 后 / F1 后 / F2 后）已删除：那些数字只在当时有意义，现值以上表为准。
@@ -65,7 +65,7 @@
 | 巨石 | 体量 | 锚点 |
 |---|---|---|
 | `WallpaperPicker` 组件 | **722 行**（P3-11 前 1,033 / 原估 1,051 行，分支代理 202 = 当时的 `src/client.js` 的 25%）；模型 / 模态框 / 属性面板已抽到 `src/picker-*.js` | `src/client.js`；六个页签渲染器在 `src/panel-tabs.js`，仍有约 100 处瞬态直写 |
-| `apply(ctx)` 宿主函数 | **1,199 行 = `lib/index.js` 的 34%**，分支代理 219，32 条路由（**6 族 / 18 条已拆出**到 `lib/routes/`） | `lib/index.js`；内含 4 个巨石 `buildInventory`(137) / `handleSceneFiles`(65) / `serveFile`(49) / `ensureMediaOrigin`(42) |
+| `apply(ctx)` 宿主函数 | **1,203 行 = `lib/index.js` 的 34%**，分支代理 219，32 条路由（**6 族 / 18 条已拆出**到 `lib/routes/`） | `lib/index.js`；内含 4 个巨石 `buildInventory`(137) / `handleSceneFiles`(65) / `serveFile`(49) / `ensureMediaOrigin`(42) |
 
 ⚠️ **复杂度的分布比总量更值得注意**：`lib/media/` 分层清楚（`lib/we-renderer/` 曾也是一棵干净的树，已随 P2-12 删除）。
 **烂的是两个门面文件，不是整个仓库** —— 这决定了 P2 是"拆门面"而非"重写内核"。
@@ -213,7 +213,7 @@
 | F0 | `theme` 服务的真机确认（主路径成立 + 两处旧结论被推翻）→ 结论并入 §9.1 的 V1–V10；记录保留在 F0 清单 | ✅ |
 | F1 | 颜色角色令牌层 `src/font/color-roles.js` + 设置 `themeColors` / `themeDarkSeparate`（首期只做颜色，5 个角色） | ✅ |
 | F2 | 排版角色 `src/font/typography.js` + 设置 `themeType`（只追加偏移、不重写 DSH 表达式、不碰字重字族） | ✅ |
-| F3 | **字体集文件化**：`~/.dsh-wallpaper-engine/fontsets/<id>.json` + 导入导出 + 独立编辑器面板（依赖 P2-9 + P2-10，已兑现）。**两条决策已拍板**（见计划 §3 阶段 0）：D1 按 §9.5 **字面**执行 —— 6 个字体键退出 `KINDS`，`config.json` 只留 `{ fontSetId, fontCustom }`；D2 导出走宿主响应头（`Content-Disposition: attachment`，不引入 blob）。**阶段 0 ✅**：前置网 `test/verify-fontset.mjs` 入链 —— 字体键的持久化往返（真 `PUT /settings` → `config.json` → 读回，两条负对照："移出 `KINDS` ⇒ 两端静默丢弃"与"复原后合法往返必须成功"）+ 迁移前外观 golden（四个纯计算载荷、绝对锚点逐条比对、含"只挪一层"与"改一位 ⇒ 立刻红"的探针）。**阶段 1 ✅**（宿主侧，产品面零变化）：共享内核增 `FONTSET_KEYS` / `sanitizeFontset` / `isFontSetId`（复用 `readOne`，**不新建 `lib/**` 共享模块**）；新族 `lib/routes/fontsets.js` —— 一个 `prefix` 注册覆盖七个端点（list / get / put / delete / activate / import / export），id 单段白名单 + 目录包含性，`fontSetId` 作 `config.json` **根字段**且经 `enqueueConfigWrite` 写入；**一次性迁移是惰性的**（`apply()` 零写盘 —— 未隔离 `DSH_WE_DATA_DIR` 的守卫不会被污染），迁移等价由 golden 钉住。**阶段 1b ✅**（需求变更后插入的一刀）：**两层存储** —— 随包层 `lib/fontsets/<id>.json`（发布物、**只读**，先落 1 份 `compact`）+ 用户层；同 id **用户层胜**，写**只落用户层**（D3 = **写时复制**：改随包预设 ⇒ 生成同名覆盖，删掉覆盖 = **恢复随包原样**，随包层删不掉）。切换仍只做人工，但 `activate` 定为**唯一改指针的写原语** ⇒ 将来的条件自动切换是**策略层**、必须调它（指针单一真源）。守卫同交扩到 71 条判据（含 19 个非法 id 逐条 + 18 个非法请求"不落盘" + 随包预设逐份有效 + **包内目录跑完全程逐字节不变**）。**阶段 2–4 未开工**；计划（含锚点复算依据）见 [`F3-PLAN.md`](F3-PLAN.md) | 🟡 |
+| F3 | **字体集文件化**：`~/.dsh-wallpaper-engine/fontsets/<id>.json` + 导入导出 + 独立编辑器面板（依赖 P2-9 + P2-10，已兑现）。**三条决策已拍板**：D1 按 §9.5 **字面**（字体值不进 settings blob）、D2 导出走宿主响应头（不引入 blob）、D3 **写时复制**（改随包预设 ⇒ 生成同名用户层覆盖，删覆盖 = 恢复随包原样）。**阶段 0 ✅** 前置网：往返 + 两条负对照 + 迁移前外观 golden（绝对锚点逐条 + "只挪一层"/"改一位"探针）。**阶段 1 ✅** 宿主通道：共享内核 `FONTSET_KEYS` / `sanitizeFontset` / `isFontSetId`（**不新建 `lib/**` 共享模块**）；新族 `lib/routes/fontsets.js`（一个 `prefix` 注册、七个端点），id 单段白名单 + 目录包含性，`fontSetId` 作 `config.json` **根字段**且经 `enqueueConfigWrite`；迁移**惰性**（`apply()` 零写盘）。**阶段 1b ✅** 两层存储：随包层 `lib/fontsets/`（只读，先落 1 份 `compact`）+ 用户层，同 id **用户层胜**，写只落用户层；`activate` 定为唯一改指针的写原语（将来的条件自动切换是**策略层**，必须调它）。**阶段 2 ✅** 客户端消费：六个字体键退出 settings 的持久化白名单（kind 元数据留在 `KINDS` 供 `sanitizeFontset` 用 ⇒ 一条消毒路径）；宿主加**迁移前护栏**（未迁移时任何 settings 写入都不得抹掉磁盘上的老字体值 —— 源是磁盘不是 body），迁移**一次 config 写入**同时记 id 并摘掉内联键（D1 终态），且**不覆盖**已有的用户 `default`（`adopted`）；客户端新通道 `src/fontset-store.js`（`loadPersisted → loadFontSet → loadInventory`，宿主那份**一次 `Object.assign` 整套采用**、失败整套不动并留可判定文案、独立缓存键 `we-fontset-active`、debounce + 脏标记 + 在途 GET 竞态守卫与设置同形）；七处字体写入改走 `setFontValues`（**唯一入口**）。**验收后修复**（真机反馈：点「字体自定义」白屏）：键离开 settings blob 后，唯一供应商是**异步**的 `loadFontSet()`，而面板配色区是 `fontCustom` 门控的**同步**读（`sel.themeColors[role.id]`）⇒ 打开开关那一刻首次求值就是 `undefined['primary']` ⇒ React 渲染期抛、整块面板崩（已实测复现）。修法：`fontValueDefaults()`（全函数）+ 初始化顺序 `readPersisted → 兜底 → 缓存` + 令牌层 getter/订阅回调各一道边界防护；判据 ⑦ 钉初始化顺序（删掉兜底那一行 ⇒ 恰好一条变红）、判据 ⑧ 直接渲染外观页签（用客户端那份兜底必须渲染得出，配对项证明它不是恒真）。守卫 96 条判据 + 新冒烟 `test/fontset-load-smoke.mjs`（启动链顺序 / 整套采用 / 读失败不写回不编造）。**阶段 3–4 未开工**（编辑器面板 / 客户端导入入口；写路径的**行为级**判据也留到阶段 3 —— 那时才有可驱动的 UI，见计划阶段 2 末尾的差额记录）| 🟡 |
 | G1 | 删掉 legacy「字体颜色」通路（四条 `!important` 折叠 + 全局墨色覆盖 + schema 键），改为写进 5 个角色 | ✅ |
 | G2 | 面板显示 DSH **官方默认值**（单一真源在角色表；"初始值 = 官方值、清空即回官方"） | ✅ |
 | G3 | 官方 `--dsl-*` 组件钩子通道，作用域 = **钩子在样式表里的定义点**（不按模块名） | ✅ |
@@ -334,6 +334,8 @@ presenter 把快照写进 `body` 内联样式 ⇒ 内联胜过主题样式表 �
 | `lib/fontsets/<id>.json` | **随包层**（发布物，**只读**）：开箱就有的少量预设 + 可分享的正文格式；用户改它 ⇒ 写时复制到下一行 |
 | `~/.dsh-wallpaper-engine/fontsets/<id>.json` | **用户层**（可写）：导入、覆盖、一次性迁移的产物 |
 | `~/.dsh-wallpaper-engine/config.json` | **只记** `{ fontSetId, fontCustom }`（`fontSetId` 是根字段） |
+
+**客户端侧**：字体值走**另一条**通道 `src/fontset-store.js`（与 `src/persistence.js` 同形但真源不同）—— 启动链 `loadPersisted → loadFontSet → loadInventory`；宿主那份**一次 `Object.assign` 整套采用**，读不出来时**整套不动**（保留本地缓存那份）并留可判定文案；本地缓存键 `we-fontset-active`（与设置缓存分开）。
 
 **两层优先级**：同一 id **用户层胜**；`activate` 是唯一改指针的写原语（将来按条件自动选预设是**策略层**，必须调同一个原语 —— 指针保持单一真源）。随包层删不掉（可覆盖），删掉覆盖 = **恢复随包原样**。
 

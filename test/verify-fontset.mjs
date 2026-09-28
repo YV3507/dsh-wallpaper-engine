@@ -43,6 +43,9 @@ const ISO = join(root, '.test-cache', 'fontset');
 const DATA_DIR = join(ISO, 'data');
 const FONTSETS_DIR = join(DATA_DIR, 'fontsets');
 const ISO_HOME = join(ISO, 'home');
+// 先清干净：上一次跑**中途崩掉**（进程没走到 teardown）会留下 fontsets/，
+// 而本节有一条"apply() 零写盘"的判据 —— 残留会让它假红（"启动期写盘"与"上次没清"分不开）。
+rmSync(ISO, { recursive: true, force: true });
 mkdirSync(ISO_HOME, { recursive: true });
 mkdirSync(join(ISO, 'steam'), { recursive: true });
 process.env.DSH_WE_DATA_DIR = DATA_DIR;
@@ -343,29 +346,42 @@ const settingsRoute = routes.find((r) => r.path === SETTINGS_URL);
 const fontsetsRoute = routes.find((r) => r.path === FONTSETS_URL);
 
 // ── ① 字体键集（承重）───────────────────────────────────────────────────────
-section('① 字体键集（承重：把某个键移出 KINDS 时本判据必须变红）');
+section('① 字体键集（承重：这六个键的归属一变，本判据必须变红）');
 const persistedKeys = Object.keys(schema.serializeSettings({}));
-check('六个字体键都在持久化白名单 KINDS 里',
-  FONT_KEYS.every((k) => k in schema.KINDS),
-  '缺失=[' + FONT_KEYS.filter((k) => !(k in schema.KINDS)).join(',') + ']');
-check('六个字体键都不在 CLIENT_ONLY 里（宿主必须收得下）',
-  FONT_KEYS.every((k) => !schema.CLIENT_ONLY.includes(k)),
-  'CLIENT_ONLY 里: ' + FONT_KEYS.filter((k) => schema.CLIENT_ONLY.includes(k)).join(','));
-check('六个字体键都进序列化白名单（客户端 PUT 的体由它派生）',
-  FONT_KEYS.every((k) => persistedKeys.includes(k)),
-  '缺失: ' + FONT_KEYS.filter((k) => !persistedKeys.includes(k)).join(','));
-check('字体键都不在 DEFAULTS_ONLY 里（那不是持久化字段）',
-  FONT_KEYS.every((k) => !schema.DEFAULTS_ONLY.includes(k)),
-  'DEFAULTS_ONLY 里: ' + FONT_KEYS.filter((k) => schema.DEFAULTS_ONLY.includes(k)).join(','));
-check('负对照：键集判据对"漏登记的键"有牙（fontSetId 不是字体集正文的键 ⇒ 被判出）',
-  [...FONT_KEYS, 'fontSetId'].filter((k) => !(k in schema.KINDS)).join() === 'fontSetId');
+const clientKeys = Object.keys(schema.sanitizeFromSchema({}, 'client'));
+const hostKeys = Object.keys(schema.sanitizeFromSchema({}, 'host'));
+// **阶段 2 的承重事实**：字体值自 F3 起住字体集文件，**不在** settings 的持久化白名单里。
+// 三个入口逐一断（客户端的序列化 / 客户端消毒 / 宿主消毒）—— 漏一个就等于还有一条路能把它们
+// 写回 settings blob，那时"单一真源"只是散文。
+check('六个字体键都不在持久化白名单里（客户端序列化 / 两侧消毒三处逐一）',
+  FONT_KEYS.every((k) => !persistedKeys.includes(k) && !clientKeys.includes(k) && !hostKeys.includes(k)),
+  '泄漏: ' + FONT_KEYS.filter((k) => persistedKeys.includes(k) || clientKeys.includes(k) || hostKeys.includes(k)).join(','));
+check('配对项：非字体键仍在白名单里（否则上面那条对"白名单整体坏掉"也成立）',
+  ['blur', 'scrim', 'videoVolume'].every((k) => persistedKeys.includes(k) && hostKeys.includes(k)));
+check('总开关 fontCustom 仍留在 settings 里（D1 的另一半：只把**值**搬走）',
+  persistedKeys.includes('fontCustom') && hostKeys.includes('fontCustom')
+  && !schema.FONTSET_KEYS.includes('fontCustom'));
+check('负对照：同一判据能把"白名单里混进字体键"点出来（不是恒真的空转）',
+  (() => {
+    const leaks = (keys) => FONT_KEYS.some((k) => keys.includes(k));
+    return leaks([...persistedKeys, 'themeSize']) === true && leaks(persistedKeys) === false;
+  })());
+// kind 元数据**必须留在 KINDS 里** —— `sanitizeFontset` 要按同一份 kind 消毒。
+// （这条把"退出 settings ≠ 从 KINDS 里删掉"钉死：真删了的话下面的消毒会直接抛。）
+check('六个字体键的 kind 元数据仍在 KINDS 里（sanitizeFontset 按它消毒 ⇒ 一条消毒路径）',
+  FONT_KEYS.every((k) => k in schema.KINDS && schema.KINDS[k] && typeof schema.KINDS[k].kind === 'string'));
+check('六个字体键仍在 DEFAULTS 里（字体集的默认值来源）',
+  FONT_KEYS.every((k) => k in schema.DEFAULTS));
 check('共享内核的 FONTSET_KEYS 与本文件列出的键集逐字一致（单一真源，不是两份清单）',
   JSON.stringify(schema.FONTSET_KEYS) === JSON.stringify(FONT_KEYS),
   'kernel=' + schema.FONTSET_KEYS.join(','));
-check('FONTSET_KEYS 的每个键都在 KINDS 里（sanitizeFontset 要按它的 kind 消毒）',
-  schema.FONTSET_KEYS.every((k) => k in schema.KINDS));
-check('字体集正文不含总开关 fontCustom（它留在 settings 里）',
-  !schema.FONTSET_KEYS.includes('fontCustom') && 'fontCustom' in schema.KINDS);
+check('负对照：键集判据对"多一个键"也有牙（fontSetId 不是正文的键）',
+  !schema.FONTSET_KEYS.includes('fontSetId') && !FONT_KEYS.includes('fontSetId'));
+check('sanitizeFontset 的宽严与 settings 口径一致（脏值照样丢、合法值照样留）',
+  canon(schema.sanitizeFontset({ themeSize: { 'markdown-h1': 24, 'markdown-h2': 4, nope: 10 } }).themeSize)
+    === canon({ 'markdown-h1': 24 })
+  && canon(schema.sanitizeFontset({ themeColors: { primary: { light: '#112233', dark: 'BAD' } } }).themeColors) === canon({})
+  && canon(schema.sanitizeFontset({ themeFamily: { 'markdown-h1': 'SimSun' } }).themeFamily) === canon({ 'markdown-h1': 'SimSun' }));
 
 // ── ② 迁移前外观 golden ─────────────────────────────────────────────────────
 section('② 迁移前外观 golden（绝对锚点逐条比对）');
@@ -397,14 +413,32 @@ section('② 迁移前外观 golden（绝对锚点逐条比对）');
     oneCharOff.join() !== GOLDEN_LINES.join() && diffLines(now, oneCharOff).length > 0);
 }
 
-// ── ③ 一次性迁移（惰性）────────────────────────────────────────────────────
-section('③ 一次性迁移（老 config.json → fontsets/default.json，判据 = ② 的 golden）');
-check('settings 路由已注册（否则 ④ 的往返是空转）', Boolean(settingsRoute), settingsRoute ? settingsRoute.kind : 'missing');
-check('字体集路由族已注册（一个 prefix 覆盖六个端点）', Boolean(fontsetsRoute), fontsetsRoute ? fontsetsRoute.kind : 'missing');
+// ── ③ 迁移前护栏 + 一次性迁移（惰性）─────────────────────────────────────────
+section('③ 迁移前护栏 + 一次性迁移（老 config.json → fontsets/default.json，判据 = ② 的 golden）');
+check('settings 路由已注册（否则本节的护栏无从谈起）', Boolean(settingsRoute), settingsRoute ? settingsRoute.kind : 'missing');
+check('字体集路由族已注册（一个 prefix 覆盖七个端点）', Boolean(fontsetsRoute), fontsetsRoute ? fontsetsRoute.kind : 'missing');
 check('apply() 本身一个字节都不写字体集（启动期零写盘 ⇒ 未隔离 DSH_WE_DATA_DIR 的守卫不会被污染）',
   !existsSync(FONTSETS_DIR), existsSync(FONTSETS_DIR) ? 'fontsets/ 已存在' : '');
 
-if (fontsetsRoute) {
+const readCfg = () => JSON.parse(readFileSync(join(DATA_DIR, 'config.json'), 'utf8'));
+const writeCfg = (cfg) => writeFileSync(join(DATA_DIR, 'config.json'), JSON.stringify(cfg, null, 2));
+
+if (settingsRoute && fontsetsRoute) {
+  // 3a. **迁移前护栏**：字体值还没有自己的家时，任何 settings 写入都不得抹掉它们 ——
+  //     否则用户随便改个别的设置（拖一下模糊）就会静默带走自定义的字体外观。
+  //     判据的关键在"来源"：body 必须**不带**字体键（新客户端就是这样），
+  //     护栏只能取自磁盘；从 body 取等于没护栏。
+  check('前置：老形状的 config.json 里确有六个内联键（否则下面的判据是空转）',
+    FONT_KEYS.every((k) => k in (readCfg().settings || {})));
+  const putNoFonts = await callRoute(settingsRoute,
+    fakeReqBody(SETTINGS_URL, 'PUT', schema.serializeSettings({ id: 'guard-probe', blur: 7 })));
+  const afterPut = readCfg().settings || {};
+  check('迁移前：body 不带字体键的 PUT /settings 仍保住磁盘上那六个老值（不静默丢外观）',
+    putNoFonts.__state.status === 200 && FONT_KEYS.every((k) => k in afterPut),
+    '丢: ' + FONT_KEYS.filter((k) => !(k in afterPut)).join(','));
+  check('同期：这次 PUT 的其它字段照常落盘（护栏不是"整份不写"）', afterPut.blur === 7);
+
+  // 3b. 惰性迁移。
   const listRes = await callRoute(fontsetsRoute, fakeReq(FONTSETS_URL));
   const listed = bodyJson(listRes);
   check('GET /fontsets 触发惰性迁移，并把 default 记为活动集',
@@ -429,56 +463,75 @@ if (fontsetsRoute) {
   check('负对照：改掉迁移产物的一个值 ⇒ 等价判据立刻红',
     diffLines(flatten(buildAppearance(appearanceInputs(tampered))), GOLDEN_LINES).length > 0);
 
-  // 阶段 1 的窗口：客户端还没迁到字体集，六个内联键必须原样留在 config.json 里。
-  const cfgNow = JSON.parse(readFileSync(join(DATA_DIR, 'config.json'), 'utf8'));
-  check('窗口不变量：迁移后 config.json 仍保留那六个内联键（键退出 KINDS 是阶段 2 的事）',
-    FONT_KEYS.every((k) => k in (cfgNow.settings || {})),
-    '缺: ' + FONT_KEYS.filter((k) => !(k in (cfgNow.settings || {}))).join(','));
+  // 3c. D1 的终态：迁移**一次写完**"记 id + 摘掉内联键"⇒ config.json 只剩 { fontSetId, fontCustom }。
+  const cfgMigrated = readCfg();
+  check('迁移后 config.json 的 settings 里不再有六个内联键（D1 终态：值只住字体集）',
+    cfgMigrated.fontSetId === 'default' && FONT_KEYS.every((k) => !(k in (cfgMigrated.settings || {}))),
+    '仍在: ' + FONT_KEYS.filter((k) => k in (cfgMigrated.settings || {})).join(','));
   check('活动 id 记在 config.json 的**根字段**（不是 settings 的键集里）',
-    cfgNow.fontSetId === 'default' && !FONT_KEYS.includes('fontSetId'));
+    cfgMigrated.fontSetId === 'default' && !FONT_KEYS.includes('fontSetId'));
+  // 护栏必须**自己终止**：迁移后再 PUT 一次，内联键不许被带回来。
+  await callRoute(settingsRoute, fakeReqBody(SETTINGS_URL, 'PUT', { blur: 9 }));
+  check('迁移后 PUT /settings 也带不回内联字体键（护栏随迁移终止，不留常驻双写）',
+    FONT_KEYS.every((k) => !(k in (readCfg().settings || {}))));
+
+  // 3d. 迁移**不许覆盖**已有的用户 default：客户端在迁移落定前若已改过字体，它会先 PUT 出
+  //     一份用户 default；迁移若照写一遍就等于把用户刚做的编辑抹掉（还看起来"迁移成功"）。
+  const editedValues = Object.assign({}, schema.sanitizeFontset(LEGACY_SETTINGS),
+    { themeWeight: { 'markdown-h1': 900 } });
+  await callRoute(fontsetsRoute, fakeReqBody(FONTSETS_URL + '/default', 'PUT', { values: editedValues }));
+  const cfgUnmigrated = readCfg();
+  delete cfgUnmigrated.fontSetId; // 模拟"用户已编辑、但迁移还没落定"
+  writeCfg(cfgUnmigrated);
+  const relist = bodyJson(await callRoute(fontsetsRoute, fakeReq(FONTSETS_URL)));
+  const afterAdopt = bodyJson(await callRoute(fontsetsRoute, fakeReq(FONTSETS_URL + '/default')));
+  check('迁移遇到已有的用户 default ⇒ 采纳（adopted）而不是覆盖：用户的编辑不被抹掉',
+    relist && relist.migrated === true && relist.adopted === true
+    && afterAdopt && canon(afterAdopt.values.themeWeight) === canon({ 'markdown-h1': 900 }),
+    'migrated=' + (relist && relist.migrated) + ' adopted=' + (relist && relist.adopted)
+    + ' weight=' + JSON.stringify(afterAdopt && afterAdopt.values && afterAdopt.values.themeWeight));
 }
 
-// ── ④ 持久化往返（真 PUT → config.json → 读回）──────────────────────────────
-section('④ 字体键的持久化往返（PUT /settings → config.json → 读回）');
+// ── ④ 设置通道仍照常（字体键除外，配对项）───────────────────────────────────
+section('④ 设置通道：非字体键照常往返，字体键进不去（D1 的另一半）');
 if (settingsRoute) {
-  // 客户端 PUT 的体就是 serializeSettings(selection)（P2-9 之后唯一出入口）—— 这里照抄那条形态。
-  const body = schema.serializeSettings(Object.assign({ id: 'roundtrip-probe' }, FONT_VALUES));
-  const res = await callRoute(settingsRoute, fakeReqBody(SETTINGS_URL, 'PUT', body));
-  const accepted = res.__state.status === 200;
-  check('PUT /settings 接受这份体（200）', accepted, 'status=' + res.__state.status);
-
   const cfgPath = join(DATA_DIR, 'config.json');
+  // 客户端 PUT 的体就是 serializeSettings(selection) —— 字体键**在序列化时就已不在体里**。
+  const body = schema.serializeSettings({ id: 'roundtrip-probe', blur: 11, themeSize: { 'markdown-h1': 30 } });
+  check('序列化阶段字体键就已经不在体里（客户端根本不会把它们发给 settings）',
+    !('themeSize' in body) && body.blur === 11, Object.keys(body).filter((k) => FONT_KEYS.includes(k)).join(','));
+
+  // 就算有人手工把字体键塞进 PUT body，宿主消毒也不收（白名单之外）。
+  const raw = {
+    blur: 13,
+    themeColors: { primary: { light: '#010203', dark: '#040506' } },
+    themeSize: { 'markdown-h1': 30 },
+  };
+  const res = await callRoute(settingsRoute, fakeReqBody(SETTINGS_URL, 'PUT', raw));
   let back = null;
-  let cfgErr = '';
-  try { back = JSON.parse(readFileSync(cfgPath, 'utf8')).settings; } catch (e) { cfgErr = String(e.message || e); }
-  check('config.json 里读得到 settings（落盘位置由 DSH_WE_DATA_DIR 决定）',
-    Boolean(back), cfgErr || cfgPath);
+  try { back = JSON.parse(readFileSync(cfgPath, 'utf8')).settings; } catch { /* 断言会报 */ }
+  check('PUT /settings 仍返回 200（通道本身没坏）', res.__state.status === 200, 'status=' + res.__state.status);
+  check('手工塞进 body 的字体键也进不了 config.json（白名单是硬边界）',
+    Boolean(back) && FONT_KEYS.every((k) => !(k in back)),
+    '进: ' + FONT_KEYS.filter((k) => back && k in back).join(','));
+  check('同期非字体键逐键往返不变（配对项：不是"整份丢弃"）', back && back.blur === 13,
+    'blur=' + (back && back.blur));
 
-  const notKept = fontKeysNotRoundTripped(back);
-  check('六个字体键经往返后逐键取值不变（同一个判据函数）', notKept.length === 0, notKept.join(' '));
-
-  // 负对照①：把一个字体键从 KINDS 摘掉。键**不在 KINDS 里就在两端都被静默丢弃**
-  //（不报错、不进日志）—— 这正是 fontSetId 漏登记时会走的形状。
+  // 负对照：kind 元数据是 `sanitizeFontset` 的地基 —— 少了它必须**当场抛**，
+  // 而不是静默给出一份半成品（那种失败会以"设置看起来没生效"的形态漂到用户那里）。
   const savedMeta = schema.KINDS.themeSize;
   try {
     delete schema.KINDS.themeSize;
-    const mutatedBody = schema.serializeSettings(Object.assign({ id: 'roundtrip-probe' }, FONT_VALUES));
-    const mutatedHost = schema.sanitizeFromSchema(mutatedBody, 'host');
-    check('负对照：键移出 KINDS 后，客户端序列化不再带它', !('themeSize' in mutatedBody));
-    check('负对照：同一份输入经宿主消毒后也不再有它（静默丢弃，不报错）', !('themeSize' in mutatedHost));
-    check('负对照：往返判据对这次丢弃必须失败（否则正判据是空转）',
-      fontKeysNotRoundTripped(mutatedHost).includes('themeSize:missing'),
-      fontKeysNotRoundTripped(mutatedHost).join(' '));
+    let threw = false;
+    try { schema.sanitizeFontset({ themeSize: { 'markdown-h1': 24 } }); } catch { threw = true; }
+    check('负对照：kind 元数据被删掉 ⇒ sanitizeFontset 当场抛（不静默给半份）', threw);
   } finally {
     schema.KINDS.themeSize = savedMeta;
   }
-  check('负对照收尾：KINDS 已复原（后续判据不跑在被污染的模块上）',
-    schema.KINDS.themeSize === savedMeta && 'themeSize' in schema.serializeSettings({}));
-  // 负对照②（正判据那一半）：复原后同一份往返必须重新成立。
-  check('负对照配对：复原后合法往返必须成功',
-    schema.KINDS.themeSize === savedMeta
-    && fontKeysNotRoundTripped(schema.sanitizeFromSchema(
-      schema.serializeSettings(Object.assign({ id: 'roundtrip-probe' }, FONT_VALUES)), 'host')).length === 0);
+  check('负对照收尾：KINDS 的 kind 元数据已复原（后续判据不跑在被污染的模块上）',
+    schema.KINDS.themeSize === savedMeta && schema.KINDS.themeSize.kind === 'typeSizes');
+  check('负对照配对：复原后同一份字体集消毒重新成立',
+    canon(schema.sanitizeFontset({ themeSize: { 'markdown-h1': 24 } }).themeSize) === canon({ 'markdown-h1': 24 }));
 }
 
 // ── ⑤ 字体集的路径安全与往返 ────────────────────────────────────────────────
@@ -535,9 +588,9 @@ if (fontsetsRoute) {
 
   const getRes = await callRoute(fontsetsRoute, fakeReq(FONTSETS_URL + '/' + probeId));
   const gotProbe = bodyJson(getRes);
-  check('写进去的值能逐键读回（canon 相等）',
-    getRes.__state.status === 200 && gotProbe && canon(gotProbe.values) === canon(FONT_VALUES),
-    gotProbe ? '' : 'status=' + getRes.__state.status);
+  check('写进去的值能逐键读回（与 settings 往返共用同一个判据函数）',
+    getRes.__state.status === 200 && gotProbe && fontKeysNotRoundTripped(gotProbe.values).length === 0,
+    gotProbe ? fontKeysNotRoundTripped(gotProbe.values).join(' ') : 'status=' + getRes.__state.status);
 
   // 导出的字节必须能再导入读回同一份值（导出正文由读到的值重建）。
   const expRes = await callRoute(fontsetsRoute, fakeReq(FONTSETS_URL + '/' + probeId + '/export'));
@@ -726,6 +779,161 @@ if (fontsetsRoute) {
   check('整个守卫跑完后包内目录逐字节不变（包内只读不是口号）',
     dirDigest(BUILTIN_DIR) === BUILTIN_DIGEST_AT_START,
     'start=' + BUILTIN_DIGEST_AT_START + ' now=' + dirDigest(BUILTIN_DIR));
+}
+
+// ── ⑦ 客户端通道（静态契约）────────────────────────────────────────────────
+section('⑦ 客户端通道（静态契约：字体值不再经 settings 出去，也不再从 settings 进来）');
+{
+  const clientSrc = readFileSync(join(root, 'src', 'client.js'), 'utf8');
+  const storeSrc = readFileSync(join(root, 'src', 'fontset-store.js'), 'utf8');
+  const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+  const clientCode = strip(clientSrc);
+
+  // 7a. **承重**：这六个键**不许**再经 setSetting 出去 —— 那条通道的白名单已经不带它们，
+  //     写了就是静默丢（"拖了滑块没反应"的形态，而且没有任何东西会红）。
+  const viaSetting = FONT_KEYS.filter((k) => new RegExp('setSetting\\(\\s*["\']' + k + '["\']').test(clientCode));
+  check('六个字体键都不再经 setSetting 落盘（写了就是静默丢）',
+    viaSetting.length === 0, viaSetting.join(',') || '零处');
+  check('负对照：同一判据对合成的一行有牙',
+    FONT_KEYS.some((k) => new RegExp('setSetting\\(\\s*["\']' + k + '["\']').test('setSetting("' + k + '", next);')));
+  const writeSites = (clientCode.match(/setFontValues\(/g) || []).length;
+  check('字体写入走新入口 setFontValues / persistFontSet（唯一入口）',
+    writeSites >= 6 && /persistFontSet\(\)/.test(clientCode), 'setFontValues 调用点=' + writeSites);
+
+  // 7b. **启动链顺序**就是"迁移前不丢老值"的客户端那一半：先设置、再字体集、最后库存。
+  //     反过来的话，第一次 settings 写入发生在字体集建立之前 —— 那时宿主靠护栏兜着，
+  //     但客户端没必要把自己放到需要护栏的位置上。
+  check('启动链顺序 = loadPersisted → loadFontSet → loadInventory',
+    /loadPersisted\(\)\s*\.then\(loadFontSet\)\s*\.then\(loadInventory\)/.test(clientCode));
+  check('负对照：少了 loadFontSet 的启动链会被同一判据点名',
+    !/loadPersisted\(\)\s*\.then\(loadFontSet\)\s*\.then\(loadInventory\)/.test('loadPersisted().then(loadInventory);'));
+  check('selection 初始化合并了本地缓存那份（首帧即用户字体，不出现默认值→用户值跳变）',
+    /\.\.\.readCachedFontSetValues\(\),/.test(clientCode));
+
+  // 7c. 生命周期：这条通道有自己的挂起写，同样要 pagehide 落盘、回前台重试、卸载取消。
+  check('字体集通道的 pagehide / visibilitychange / 卸载清理都接了（且随 fiber 注销）',
+    /addEventListener\("pagehide", onPageHideFlushFontSet\)/.test(clientCode)
+    && /removeEventListener\("pagehide", onPageHideFlushFontSet\)/.test(clientCode)
+    && /addEventListener\("visibilitychange", onVisibilityResyncFontSet\)/.test(clientCode)
+    && /removeEventListener\("visibilitychange", onVisibilityResyncFontSet\)/.test(clientCode)
+    && /cancelPendingFontSet\(\)/.test(clientCode));
+
+  // 7d2. **崩溃修复（点「字体自定义」白屏）的判据链**。根因：那六个键已不在 settings 白名单里
+  //      ⇒ `readPersisted()` 不再提供它们，而字体集是异步载入、还可能失败 ⇒ `selection` 里
+  //      **根本没有** themeColors 等键；面板那份 `fontCustom` 门控的配色区（`sel.themeColors[role.id]`）
+  //      恰好在打开开关那一刻首次求值 ⇒ React 渲染期抛 TypeError ⇒ 整个面板崩掉。
+  //      三样一起钉：① 初始化必须有兜底且在缓存之前；② 兜底是"全函数"；③ 边界处还有第二道。
+  check('selection 初始化带六个键的兜底，且排在缓存之前（缺了就是"点开关白屏"）',
+    /\.\.\.fontValueDefaults\(\),\s*\n\s*\.\.\.readCachedFontSetValues\(\),/.test(clientCode));
+  check('负对照：同一判据对"只有缓存、没有兜底"的初始化有牙',
+    !/\.\.\.fontValueDefaults\(\),\s*\n\s*\.\.\.readCachedFontSetValues\(\),/
+      .test('  ...readPersisted(),\n  ...readCachedFontSetValues(),'));
+  check('兜底是**全函数**：空输入也必须给出六个键、且形状可读（面板直接下标不抛）',
+    (() => {
+      const d = schema.sanitizeFontset({});
+      return FONT_KEYS.every((k) => k in d)
+        && typeof d.themeColors === 'object' && typeof d.themeSize === 'object'
+        && typeof d.themeWeight === 'object' && typeof d.themeFamily === 'object'
+        && typeof d.componentFonts === 'object' && typeof d.themeDarkSeparate === 'boolean';
+    })());
+  check('测试夹具与 settings 同口径：脏值照样丢、合法值照样留',
+    canon(schema.sanitizeFontset({ themeSize: { 'markdown-h1': 24, 'markdown-h2': 4 } }).themeSize)
+      === canon({ 'markdown-h1': 24 }));
+  check('令牌层边界也有第二道防护（getter 取值 + 订阅回调各自收异常）',
+    /\(selection\.themeColors \|\| \{\}\)/.test(clientCode)
+    && /\(selection\.themeSize \|\| \{\}\)/.test(clientCode)
+    && /\(selection\.themeWeight \|\| \{\}\)/.test(clientCode)
+    && /\(selection\.themeFamily \|\| \{\}\)/.test(clientCode)
+    && /try \{ if \(layer\) layer\.sync\(\); if \(typeLayer\) typeLayer\.sync\(\); \} catch/.test(clientCode));
+
+  // 7e. 通道自身的三条结构契约（与宿主端 ⑤ 的行为判据配对）。
+  check('通道：载入用**一次** Object.assign 整套采用（不是逐键赋值）',
+    /Object\.assign\(selection, values\)/.test(storeSrc));
+  check('通道：脏标记重试与在途 GET 竞态守卫都在（与设置同形）',
+    /fontSetDirty = !res\.ok/.test(storeSrc) && /fontSetWrites === writesAtStart/.test(storeSrc));
+  check('通道：写目标 = 活动 id，未知时退回迁移产物 id（两端同一个字面量，来自共享内核）',
+    /activeFontSetId \|\| FONTSET_MIGRATED_ID/.test(storeSrc)
+    && schema.FONTSET_MIGRATED_ID === 'default');
+  check('通道：缓存键与设置缓存分开（两条真源不互相顶掉）',
+    /FONTSET_CACHE_KEY = "we-fontset-active"/.test(storeSrc)
+    && !/dsh-wallpaper-engine:selection/.test(storeSrc));
+  check('通道：绝不碰 settings 那条路由（两条通道不交叉）',
+    !/\/settings/.test(strip(storeSrc)));
+}
+
+// ── ⑧ 面板渲染回归（"点『字体自定义』白屏"）──────────────────────────────────
+// 崩溃形状（已实测复现）：`renderAppearanceTab` 里配色区**只在总开关打开时渲染**，
+// 而它读 `sel.themeColors[role.id]` —— 那六个键已不在 settings 白名单里，若 selection 初始化
+// 没给兜底、字体集又还没载入，这个下标就是 `undefined['primary']` ⇒ React 渲染期抛 ⇒ 整个面板崩。
+// 本段直接渲染那个页签（面板模块 + 真角色表 + client.js 的助手 stub），把"渲染得出"钉成判据。
+section('⑧ 面板渲染回归（配色区在总开关打开时必须渲染得出）');
+{
+  const clientSrc = readFileSync(join(root, 'src', 'client.js'), 'utf8');
+  const panelMod = await import(pathToFileURL(join(root, 'src', 'panel-tabs.js')).href);
+  const ReactStub = {
+    Fragment: 'Fragment', useState: (i) => [i, () => {}], useEffect: () => {}, useRef: (v) => ({ current: v }),
+    createElement: (t, p, ...c) => (typeof t === 'function' ? t(p || {}) : { type: t, props: p || null, children: c }),
+  };
+  const noop = () => null;
+  const same = (g, k, v) => { if (!(k in g)) g[k] = v; };
+  // 面板求值参数时会调到的 prelude 助手：从 client.js 的顶层声明自动补（新加一个助手也不会让本段假红）。
+  for (const m of clientSrc.matchAll(/^function ([a-zA-Z_$][\w$]*)\(/gm)) same(globalThis, m[1], noop);
+  for (const m of clientSrc.matchAll(/^const ([A-Za-z_$][\w$]*) = ([^\n]+)$/gm)) {
+    if (m[1] in globalThis) continue;
+    try { globalThis[m[1]] = (0, eval)('(' + m[2].replace(/;$/, '') + ')'); } catch { /* 非字面量：留给下面兜 */ }
+  }
+  for (const m of clientSrc.matchAll(/\b([A-Z][A-Z0-9_]{3,})\b/g)) same(globalThis, m[1], []);
+  same(globalThis, 'React', ReactStub);
+  same(globalThis, 'document', {
+    getElementById: () => null, querySelector: () => null, head: { appendChild() {} },
+    createElement: () => ({ style: {} }), body: { style: {} }, documentElement: { style: {} },
+  });
+  same(globalThis, 'window', {});
+  same(globalThis, 'localStorage', { getItem: () => null, setItem() {}, removeItem() {} });
+  // ⚠️ 角色/族表必须是**真的**：给空数组会把要复现的那一行 map 掉（那样两条判据都会"不抛"）。
+  // 做法：把面板会用到的那几个 prelude 模块的**全部导出**映成全局 —— 逐个列举常量会漏
+  // （漏一个就是 "X is not defined" 的假红，而不是被判据抓到）。
+  const colorRoles = await import(pathToFileURL(join(root, 'src', 'font', 'color-roles.js')).href);
+  const preludeMods = [
+    colorRoles,
+    await import(pathToFileURL(join(root, 'src', 'font', 'typography.js')).href),
+    await import(pathToFileURL(join(root, 'src', 'font', 'components.js')).href),
+    await import(pathToFileURL(join(root, 'src', 'font', 'apply.js')).href),
+    await import(pathToFileURL(join(root, 'src', 'we-cond.js')).href),
+    schema,
+  ];
+  for (const mod of preludeMods) for (const [k, v] of Object.entries(mod)) globalThis[k] = v;
+  check('前置：夹具不是空转的（角色表非空，且配色区确实按角色遍历）',
+    colorRoles.THEME_COLOR_ROLES.length >= 5
+    && /THEME_COLOR_ROLES\.map/.test(readFileSync(join(root, 'src', 'panel-tabs.js'), 'utf8')),
+    colorRoles.THEME_COLOR_ROLES.length + ' 个角色');
+
+  /** 面板 ctx：只求"渲染得出"，处理器全 noop。`over.sel` 换夹具（负对照用）。 */
+  const panelSel = (over) => Object.assign({
+    ...schema.sanitizeFontset({}), // ← 正是 client.js 初始化展开的那份兜底
+    fontCustom: true, fontAdvanced: false, themeTypeOnly: false,
+    wallpaperBlur: 0, blur: 0, scrim: 0, border: 0, accent: '', caretColor: '',
+    glassAlpha: 0, glassColor: '', glassWindow: true, sidebarGlass: true, sidebarBlur: 0,
+    sidebarAlpha: 0, sidebarColor: '', sidebarContentAlpha: 0, sidebarContentColor: '',
+    sidebarPresent: false, id: 'v', type: 'video',
+  }, over || {});
+  const panelCtx = (sel) => {
+    const c = { setSetting: noop, setTransient: noop, sel };
+    for (const k of ['officialColorOf', 'onAccent', 'onBlur', 'onBorder', 'onCaretColor', 'onComponentFamily',
+      'onComponentFont', 'onFontAdvanced', 'onFontResetAll', 'onGlassAlpha', 'onGlassColor', 'onSidebarAlpha',
+      'onSidebarBlur', 'onSidebarColor', 'onSidebarContentAlpha', 'onSidebarContentColor', 'onThemeColor',
+      'onThemeColorClear', 'onThemeDarkSeparate', 'onThemeFamily', 'onThemeSize', 'onThemeTypeOnly',
+      'onThemeWeight', 'onToggleFontCustom']) c[k] = noop;
+    return c;
+  };
+  const renderThrew = (sel) => {
+    try { panelMod.renderAppearanceTab(panelCtx(sel)); return ''; } catch (e) { return String((e && e.message) || e); }
+  };
+  check('总开关打开 + 客户端那份兜底值 ⇒ 外观页签渲染得出（修复前这里是崩溃点）',
+    renderThrew(panelSel()) === '', renderThrew(panelSel()) || 'ok');
+  const missing = renderThrew(panelSel({ themeColors: undefined }));
+  check('配对项：缺 themeColors 时**确实会抛**（证明上一条不是恒真）',
+    missing !== '', missing || '没抛 —— 夹具可能把那一行空转了，本段必须重写');
 }
 
 // ── teardown ────────────────────────────────────────────────────────────────

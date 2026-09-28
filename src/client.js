@@ -150,10 +150,22 @@ function sanitizeSettings(o) {
 // ── Shared selection store (React + DOM layer share it) ────────────────────
 const selection = {
   ...readPersisted(),
+  // 字体值（F3 阶段 2）走**另一条**通道：真源是 `fontsets/<活动 id>.json`。
+  // ⚠️ 顺序是承重的，两行都不能少：
+  //   ① `fontValueDefaults()` —— 那六个键已不在 settings 白名单里，`readPersisted()` **不再提供**它们，
+  //      而字体集是异步载入、还可能失败。缺这份兜底 ⇒ selection 里根本没有 themeColors 等键，
+  //      面板「字体自定义」门控的配色区会在打开开关那一刻抛 TypeError（整个面板崩掉）。
+  //   ② `readCachedFontSetValues()` —— 有缓存就用缓存那份（首帧即用户字体，不出现默认值→用户值跳变）；
+  //      没有时它返回的就是①那份兜底。宿主回了真值再由 loadFontSet() 覆盖。
+  ...fontValueDefaults(),
+  ...readCachedFontSetValues(),
   // Transient: becomes true once loadPersisted() has applied the host-side
   // settings (the port-independent source of truth). The one-time notice waits
   // for it so it never flashes before the persisted noticeSeen is known.
   hostLoaded: false,
+  // Transient: 活动字体集那一次加载的结果（面板据此显示可判定文案；空串 = 没问题）。
+  fontSetLoaded: false,
+  fontSetError: "",
   url: null,
   type: null,
   previewUrl: null,
@@ -284,13 +296,15 @@ function useStore() {
   return selection;
 }
 
-// ── 改 store 的两个入口（P2-10 后半）────────────────────────────────────────
+// ── 改 store 的三个入口（P2-10 后半 + F3 阶段 2）────────────────────────────
 // "赋值 + persistSelection()" 这两件事此前被手抄了 56 次 —— 漏掉 persist 就是
-// "改了不生效 / 刷新后回退"，而且没有任何判据会红。收成两个入口后：
+// "改了不生效 / 刷新后回退"，而且没有任何判据会红。收成三个入口后：
 //   · setSetting(field, value)   改**设置**并落盘（唯一入口）
+//   · setFontValues(patch)       改**字体值**并落盘（唯一入口；真源是 fontsets/<id>.json，
+//     见 src/fontset-store.js —— 这六个键已退出 settings 的持久化白名单）
 //   · setTransient(field, value) 改**瞬态**字段（上传中/编辑中/加载中…），不落盘 ——
 //     它们不在 schema 白名单里，落盘只会白跑一次 debounce。
-// 页签（src/panel-tabs.js）通过 ctx 拿到这两个入口，因此**完全不碰** `selection`。
+// 页签（src/panel-tabs.js）通过 ctx 拿到前两个入口，因此**完全不碰** `selection`。
 function setSetting(field, value) {
   selection[field] = value;
   persistSelection();
@@ -305,6 +319,8 @@ function setTransient(field, value) {
 // 这一族的实现已抽到 **src/persistence.js**（194 行）。构建期内联回本作用域，
 // 调用点（persistSelection / flushPersist / onPageHideFlush / …）无需改动。
 // 契约：8 个出向依赖的清单、入口与不变量 —— 见该文件头。
+// ⚠️ **字体值不走这条通道**：那六个键自 F3 起住 `fontsets/<活动 id>.json`，通道在
+// **src/fontset-store.js**（同形的 debounce + 脏标记 + 重试，但真源、键集与失败语义都不同）。
 
 // Concurrency guard: 刷新 / 上传完成 / 移除 / 改目录 all call loadInventory(),
 // and two overlapping requests used to resolve in arbitrary order — an older,
@@ -2571,7 +2587,7 @@ const onThemeFamily = (role, key) => {
   const next = Object.assign({}, selection.themeFamily);
   if (!key) delete next[role];
   else next[role] = key;
-  setSetting("themeFamily", next); applyEffects(); emit();
+  setFontValues({ themeFamily: next }); applyEffects(); emit();
 };
 
 // F2/G4 字号（角色级，**绝对值**）：空 = 用 DSH 官方值（角色表的 defaultPx 即面板显示的默认）。
@@ -2580,7 +2596,7 @@ const onThemeSize = (role, raw) => {
   const num = raw === "" ? NaN : Number(raw);
   if (!Number.isFinite(num)) delete next[role];
   else next[role] = Math.round(num);
-  setSetting("themeSize", next); applyEffects(); emit();
+  setFontValues({ themeSize: next }); applyEffects(); emit();
 };
 
 // G4 字重（角色级）：空/0 = 回官方字重（组合式里的字面量前缀）。
@@ -2589,7 +2605,7 @@ const onThemeWeight = (role, raw) => {
   const num = raw === "" ? NaN : Number(raw);
   if (!Number.isFinite(num)) delete next[role];
   else next[role] = Math.round(num);
-  setSetting("themeWeight", next); applyEffects(); emit();
+  setFontValues({ themeWeight: next }); applyEffects(); emit();
 };
 
 // G3/G4：组件级字体。空/删键 = 回官方值（**官方值作初始值**）。
@@ -2601,7 +2617,7 @@ const onComponentFont = (prefix, prop, raw) => {
   else one[prop] = Math.round(num);
   if (Object.keys(one).length) next[prefix] = one;
   else delete next[prefix];
-  setSetting("componentFonts", next); applyEffects(); emit();
+  setFontValues({ componentFonts: next }); applyEffects(); emit();
 };
 
 const onThemeColor = (role, mode, hex, separate) => {
@@ -2609,12 +2625,12 @@ const onThemeColor = (role, mode, hex, separate) => {
   const next = { light: cur.light || "", dark: cur.dark || "" };
   if (separate) next[mode] = hex;
   else { next.light = hex; next.dark = hex; }
-  setSetting("themeColors", Object.assign({}, selection.themeColors, { [role]: next })); applyEffects(); emit();
+  setFontValues({ themeColors: Object.assign({}, selection.themeColors, { [role]: next }) }); applyEffects(); emit();
 };
 const onThemeColorClear = (role) => {
   const next = Object.assign({}, selection.themeColors);
   delete next[role];
-  setSetting("themeColors", next); applyEffects(); emit();
+  setFontValues({ themeColors: next }); applyEffects(); emit();
 };
 // 视图开关（defaults-only，不持久化）：只列调过的角色，便于收尾核对。
 const onThemeTypeOnly = (v) => {
@@ -2623,7 +2639,7 @@ const onThemeTypeOnly = (v) => {
 };
 
 const onThemeDarkSeparate = (v) => {
-  setSetting("themeDarkSeparate", v); applyEffects(); emit();
+  setFontValues({ themeDarkSeparate: v }); applyEffects(); emit();
 };
   // 全局字重与全局字体族都已移除：字重/字族都按角色与按组件细化（见 src/font/）。
   // 「高级字体设置」视图开关（defaults-only，不持久化）。
@@ -2639,7 +2655,7 @@ const onThemeDarkSeparate = (v) => {
     else one.family = fontFamilyStack(key);
     if (Object.keys(one).length) next[prefix] = one;
     else delete next[prefix];
-    setSetting("componentFonts", next); applyEffects(); emit();
+    setFontValues({ componentFonts: next }); applyEffects(); emit();
   };
   // 颜色角色的「当前 DSH 默认值」：宿主墨色快照（snapshotHostFontDefaults 写在 documentElement
 // 上）转为 #rrggbb 供 <input type="color"> 用。取不到就返回空串 —— 面板会退回显示"跟随"，
@@ -2664,6 +2680,8 @@ const officialColorOf = (tokens) => {
 };
 
 // 「恢复默认」：所有字体自定义项清回 DSH 默认值（空 = 不覆盖；字体族回 inherit）。
+// 这五个容器 + themeDarkSeparate 是**字体集正文**的键 ⇒ 整批赋值后走 persistFontSet()
+//（它们已不在 settings 白名单里，`setSetting` 那条通道不会把它们写出去）。
   const onFontResetAll = () => {
     selection.themeColors = {};
     selection.themeSize = {};
@@ -2672,6 +2690,7 @@ const officialColorOf = (tokens) => {
     selection.componentFonts = {};
     selection.themeDarkSeparate = false;
     selection.themeTypeOnly = false;
+    persistFontSet();
     setSetting("fontAdvanced", false); applyEffects(); emit();
   };
   // 出图来源：当前场景壁纸在「自动 ⇄ 自定义画面」之间切换（按壁纸记忆）。
@@ -3686,14 +3705,20 @@ function apply(ctx) {
       // 持久化监听器: pagehide → 立即 flush 未落盘的设置; visibilitychange →
       // 页面回到前台时重试失败过的 PUT。注册在这里 (而不是模块作用域) 才能随
       // fiber 注销 — 否则每次插件重载/HMR 都会在同一页面再叠一对, 永不释放。
+      // 字体集是**另一条**通道（src/fontset-store.js），同形但各自记自己的脏标记 ⇒ 各自注册。
       let pageHideBound = false, visBound = false;
+      let fontPageHideBound = false, fontVisBound = false;
       if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
         window.addEventListener("pagehide", onPageHideFlush);
         pageHideBound = true;
+        window.addEventListener("pagehide", onPageHideFlushFontSet);
+        fontPageHideBound = true;
       }
       if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
         document.addEventListener("visibilitychange", onVisibilityResyncPersist);
         visBound = true;
+        document.addEventListener("visibilitychange", onVisibilityResyncFontSet);
+        fontVisBound = true;
       }
       // 样式标签也按 fiber 生命周期注入 (dispose 会移除, 见下方 cleanup)
       ensurePluginCss();
@@ -3723,9 +3748,13 @@ function apply(ctx) {
         if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
           for (const t of ocListeners) window.removeEventListener(t, onOcclusionChange);
           if (pageHideBound) window.removeEventListener("pagehide", onPageHideFlush);
+          if (fontPageHideBound) window.removeEventListener("pagehide", onPageHideFlushFontSet);
         }
         if (visBound && typeof document !== "undefined" && typeof document.removeEventListener === "function") {
           document.removeEventListener("visibilitychange", onVisibilityResyncPersist);
+        }
+        if (fontVisBound && typeof document !== "undefined" && typeof document.removeEventListener === "function") {
+          document.removeEventListener("visibilitychange", onVisibilityResyncFontSet);
         }
         if (batteryCleanup) { batteryCleanup(); batteryCleanup = null; }
         weBattery = null;
@@ -3753,6 +3782,7 @@ function apply(ctx) {
         cancelLiveMount("unload"); // 延迟期那个正在预热的渲染页也要终止（否则卸载后仍在后台跑）
         abortTranscodeUpgrade(); // 含 clearUpgradePoll + AbortController.abort（否则卸载后 500ms 轮询永久泄漏）
         cancelPendingPersist(); // 模块级 persistTimer 不属于 fiber：不取消则 200ms 后仍会写一次
+        cancelPendingFontSet(); // 字体集那条通道的 timer 同理（各自一个模块级 timer）
         // media-info 探测的 AbortController 也要断开 (token 可能永远不再变化)
         abortMediaInfoProbe();
         // sceneVideo 时序补拉: 卸载后不该再拉 inventory (也不该钉住本次求值的闭包)
@@ -3806,7 +3836,10 @@ function apply(ctx) {
             layer = createThemeLayer({
               theme,
               // 绑在「字体自定义」总开关下：关闭 = 连颜色一起恢复原生（与面板文案一致）。
-              getColors: () => (selection.fontCustom ? selection.themeColors : {}),
+              // `|| {}` 是第二道：这几个 getter 会在**订阅回调**里被调到，而订阅回调不在 try 里 ——
+              // 数据侧已有兜底（selection 初始化必带六个键），这里再挡一次，免得"某个键缺失"
+              // 升级成"改一下设置整块面板崩"。
+              getColors: () => (selection.fontCustom ? (selection.themeColors || {}) : {}),
               isAvailable: hasToken,
               onBeforeFirstWrite: () => { try { snapshotHostFontDefaults(); } catch { /* 基线失败不阻断上色 */ } },
             });
@@ -3814,15 +3847,18 @@ function apply(ctx) {
               theme,
               source: THEME_TYPE_SOURCE,
               buildPayload: () => buildTypePayload(
-                selection.fontCustom ? selection.themeSize : {},
+                selection.fontCustom ? (selection.themeSize || {}) : {},
                 hasToken,
-                selection.fontCustom ? selection.themeWeight : {},
-                selection.fontCustom ? selection.themeFamily : {},
+                selection.fontCustom ? (selection.themeWeight || {}) : {},
+                selection.fontCustom ? (selection.themeFamily || {}) : {},
                 fontFamilyStack),
             });
             layer.sync();
             typeLayer.sync();
-            unsub = subscribe(() => { if (layer) layer.sync(); if (typeLayer) typeLayer.sync(); });
+            // 订阅回调必须自己收异常：它跑在 emit() 里，抛出去就是"改一下设置整个面板崩"。
+            unsub = subscribe(() => {
+              try { if (layer) layer.sync(); if (typeLayer) typeLayer.sync(); } catch { /* 令牌层是增强 */ }
+            });
           } catch { /* 主题层是增强：任何异常都不该影响壁纸主路径 */ }
         },
       });
@@ -3871,10 +3907,11 @@ function apply(ctx) {
     });
   }
 
-  // Settings first (host file, port-independent), then inventory — so the
-  // selection restore inside loadInventory()'s revalidateSelection() sees the
-  // persisted id and can resolve its media URL.
-  loadPersisted().then(loadInventory);
+  // Settings first (host file, port-independent), then the ACTIVE FONTSET (its values live in
+  // fontsets/<id>.json — a different store on the same host), then inventory — so the
+  // selection restore inside loadInventory()'s revalidateSelection() sees the persisted id
+  // and can resolve its media URL, and the first paint already has the user's fonts.
+  loadPersisted().then(loadFontSet).then(loadInventory);
 }
 
 exports.apply = apply;
