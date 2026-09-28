@@ -579,6 +579,81 @@ const EVIDENCE = {
       return g.includes('或连接被主动掐断') && g.includes('恰好 limit+1（超限块即最后一块）仍收到 413');
     }],
   ],
+  'P3-24': [
+    // 判据盯**口径**（轮询/触发面 + 第三方排除 + 基线落点），不盯实现细节：
+    // 工作流与脚本怎么重构都行，"跑什么、不跑什么、基线何时写"这三件事不能变。
+    ['适配工作流口径：轮询 latest + push main、跑 verify:all、不跑 verify:bridge、基线落点在册', () => {
+      const y = read('.github/workflows/harness-compat.yml');
+      return y.includes('npm view @deepseek-ai/dsh dist-tags.latest')
+        && y.includes('branches: [main]')
+        && y.includes('npm run verify:all')
+        && !y.includes('npm run verify:bridge')
+        && y.includes('.github/harness-baseline.json');
+    }],
+    ['真 harness 探活脚本在位（隔离 HOME + 媒体桥禁用 + 落盘/日志判据）', () => {
+      const g = read('test/compat-harness-live.mjs');
+      return g.includes('DSH_WE_MEDIA_LEGACY') && g.includes('USERPROFILE')
+        && g.includes('plugin tree failed to load') && g.includes('diag-log');
+    }],
+    ['基线读写脚本两子命令在位（check 判跳过 / record 只在全绿后被调用）', () => {
+      const s = read('scripts/harness-compat-baseline.mjs');
+      return s.includes("cmd === 'check'") && s.includes("cmd === 'record'")
+        && s.includes('should_run');
+    }],
+    ['适配 CI 的新文件都进了注释棘轮表（新文件必须进表的那条判据的实证）', () => {
+      const g = read('test/verify-comment-discipline.mjs');
+      return g.includes("'scripts/harness-compat-baseline.mjs': 0")
+        && g.includes("'test/compat-harness-live.mjs': 0");
+    }],
+  ],
+  'P3-25': [
+    // 判据盯「机制在位」：枚举差集 + 真源码锚点 + 工作流接线。清单内容的对错由
+    // compat CI 对着真 harness 实跑裁定，这里只钉结构与关键项。
+    ['UI 面清单棘轮在位（枚举 dsh-client-ui-* 差集 + 缺前置默认红）', () => {
+      const g = read('test/compat-harness-surfaces.mjs');
+      return g.includes('没有未登记的新 UI 表面') && g.includes('DSH_WE_HARNESS_ROOT')
+        && g.includes('默认红');
+    }],
+    ['清单 fixture 在位且按 latest 播种（sidebar-right = covered，其余带合法 verdict）', () => {
+      const f = JSON.parse(read('test/fixtures/harness-ui-surfaces.json'));
+      const names = Object.keys(f.known);
+      return names.length >= 41 && String(f.meta.seededFrom).includes('0.1.7')
+        && f.known['dsh-client-ui-sidebar-right'] && f.known['dsh-client-ui-sidebar-right'].verdict === 'covered'
+        && Object.values(f.known).every((v) => ['covered', 'native', 'exempt'].includes(v.verdict));
+    }],
+    ['sidebar 活判据核真源码：两个属性锚点 + 隐藏机制 allowlist', () => {
+      const g = read('test/compat-harness-surfaces.mjs');
+      return g.includes('data-sidebar-right-panel') && g.includes('data-sidebar-right-open')
+        && g.includes('translate(100%)') && g.includes('visibility:hidden');
+    }],
+    ['工作流在装好 harness 后跑棘轮，且该文件已进注释棘轮表', () => {
+      const y = read('.github/workflows/harness-compat.yml');
+      const c = read('test/verify-comment-discipline.mjs');
+      return y.includes('compat-harness-surfaces.mjs')
+        && c.includes("'test/compat-harness-surfaces.mjs': 0");
+    }],
+  ],
+  'P3-26': [
+    // 判据盯「探针在位 + 接线」：页面断言的牙齿由页面脚本自己的变异实证给出
+    //（锚点改名 ⇒ 玻璃三条变红），这里只钉结构。
+    ['页面断言脚本在位（零依赖 CDP + 设置玻璃计算样式探针 + 分区走查）', () => {
+      const g = read('test/compat-harness-pages.mjs');
+      return g.includes('new WebSocket(') && g.includes('Runtime.evaluate')
+        && g.includes('settings.section') && g.includes('Wallpaper Engine')
+        && g.includes('--lang=zh-CN');
+    }],
+    ['启动弹窗结构化消法与会话页判据在册（slot 锚点，不靠视觉元素）', () => {
+      const g = read('test/compat-harness-pages.mjs');
+      return g.includes('we-update-notice__btn') && g.includes('main.conversation')
+        && g.includes('稍后配置');
+    }],
+    ['工作流接入页面断言，且该文件已进注释棘轮表', () => {
+      const y = read('.github/workflows/harness-compat.yml');
+      const c = read('test/verify-comment-discipline.mjs');
+      return y.includes('compat-harness-pages.mjs')
+        && c.includes("'test/compat-harness-pages.mjs': 0");
+    }],
+  ],
 };
 
 /**

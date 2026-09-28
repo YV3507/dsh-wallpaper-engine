@@ -130,6 +130,52 @@ npm run verify:all  # = build + verify + smoke
 > 整条链对 registry 与 peer 解析完全免疫 —— 这条不变量由 `test/verify-package-files.mjs`
 > 的 P5 断言钉住。本地开发仍需 `npm ci` 取工具链。
 
+### Harness compatibility CI / harness 适配 CI（基线制）
+
+- `.github/workflows/harness-compat.yml`：每小时轮询 npm 上 `@deepseek-ai/dsh` 的 `latest`
+  通道，外加 push `main` 与手动触发。目标对（harness 版本 × 插件 commit）**已被基线覆盖则秒过**；
+  否则安装该 harness → link 本插件进**隔离 profile** → 启动 `dsh --profile web` 探活
+  （宿主路由 / 落盘诊断 / 日志判据，见 `test/compat-harness-live.mjs`）→ `npm run verify:all`。
+- **全绿才入基线**：`.github/harness-baseline.json` 只由该工作流在全绿后自动提交；
+  任何一步失败 ⇒ 工作流红、基线保持上一个全绿对，且未入基线的目标会在下轮轮询持续重试报错。
+- **第三方边界**：该工作流不跑 `verify:bridge` / `verify:e2e`；探活期间 `DSH_WE_MEDIA_LEGACY=1`
+  且只打 diag 族路由 ⇒ 媒体桥 / ffmpeg 全程不被拉起（媒体桥端到端仍由 `verify.yml` 覆盖）。
+- **UI 面清单棘轮**（`test/compat-harness-surfaces.mjs`）：已装 harness 的 `dsh-client-ui-*`
+  表面与提交清单 `test/fixtures/harness-ui-surfaces.json` 做差，**新表面未登记即红** ——
+  盖不盖由人裁定、裁定必须落盘；另对 `dsh-client-ui-sidebar-right` 真源码断言属性锚点与
+  隐藏机制 allowlist（#107 型回归的活判据）。
+- **逐页 DOM/样式断言**（`test/compat-harness-pages.mjs`，档位 2）：零依赖 CDP 驱动无头
+  浏览器进真 harness 走首页 → 会话页 → 设置页，对**计算样式**下判据（设置窗口玻璃的
+  backdrop / sheen 渐变 / token 接管 + 五分区逐页走查 + 零插件错误）；`--dump` 是探查模式。
+- 本地复跑：`node test/compat-harness-live.mjs`（需要 PATH 上有 `dsh` CLI 与网络；
+  profile 与插件数据都落在隔离目录，不碰真实 `~/.dsh`，可与 DSH Desktop 并存）。
+
+- `.github/workflows/harness-compat.yml` polls the npm `latest` dist-tag of `@deepseek-ai/dsh`
+  hourly (plus push to `main` and manual dispatch). A target pair (harness version × plugin commit)
+  already in the baseline skips in seconds; otherwise it installs that harness, links this plugin into
+  an isolated profile, boots `dsh --profile web` and probes it (`test/compat-harness-live.mjs`), then
+  runs `npm run verify:all`.
+- **Only a fully green run becomes the baseline**: `.github/harness-baseline.json` is written solely by
+  that workflow after everything passes. Any failure turns the run red, leaves the previous green pair
+  as the baseline, and the not-yet-baselined target keeps retrying red on every poll.
+- **Third-party boundary**: the workflow never runs `verify:bridge` / `verify:e2e`; the live probe sets
+  `DSH_WE_MEDIA_LEGACY=1` and only touches diag-family routes, so the media bridge / ffmpeg are never
+  started (bridge end-to-end stays covered by `verify.yml`).
+- **UI surface inventory ratchet** (`test/compat-harness-surfaces.mjs`): the installed harness's
+  `dsh-client-ui-*` surfaces are diffed against the committed inventory
+  `test/fixtures/harness-ui-surfaces.json` — **an unregistered new surface turns the run red** (whether
+  to cover it is a human adjudication, and the adjudication must land in that file); it also asserts the
+  attribute anchors and hide-mechanism allowlist against the *installed* `dsh-client-ui-sidebar-right`
+  source (the live form of the #107-class check).
+- **Per-page DOM/style assertions** (`test/compat-harness-pages.mjs`, tier 2): a zero-dependency CDP
+  client drives a headless browser through home → conversation → settings and asserts on **computed
+  styles** (the settings-window glass: backdrop, sheen gradient, token takeover; plus a five-section
+  walk with plugin styles present and zero plugin errors). `--dump` is the exploration mode.
+- Reproduce locally with `node test/compat-harness-live.mjs` (needs the `dsh` CLI on PATH and network;
+  profile and plugin data go to an isolated directory, so your real `~/.dsh` stays untouched and it can
+  coexist with DSH Desktop).
+
+
 For UI changes, also describe the real DSH surface you tested, including browser or DSH Desktop mode. For platform-specific changes, call out the source layout used in the test—for example Wallpaper Engine, WSL, WaifuX, or loose media.
 
 UI 改动还应说明实际测试过的 DSH 界面、浏览器或 DSH Desktop 模式。平台专属改动请注明测试数据来源，例如 Wallpaper Engine、WSL、WaifuX 或松散媒体文件。

@@ -1,0 +1,173 @@
+{
+  "meta": {
+    "seededFrom": "@deepseek-ai/dsh@0.1.7-rc.2 (npm dist-tag latest)；0.2.0-rc.1 (next) 新面经裁定并入",
+    "surfaces": 53,
+    "verdicts": "covered=有针对性美化适配；native=harness 自带面，美化经全局机制（玻璃/主题令牌）生效、无逐面适配；exempt=明确不适用",
+    "rule": "compat CI 枚举已装 harness 的 dsh-client-ui-*，凡不在此表的新表面一律判红 —— 盖不盖由人裁定，裁定必须落进本文件"
+  },
+  "known": {
+    "dsh-client-ui-agent-preset": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-approval": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-attachment": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-brand-official": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-chat": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-commands": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-conversation": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-cordis": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-deliverables": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-directory-picker-browse": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-directory-picker-native": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-goal": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-input-trigger": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-jobs": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-layout": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-message-feedback": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-model-selection": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-open-in-app": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-permission-presets": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-plan": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-plugin-manager": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-primitives": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-reference": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-renderer": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-schedule": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-session": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-settings": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-settings-account": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-settings-agent-loop": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-settings-general": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-settings-models": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-settings-plugin-inventory": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-settings-plugins": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-settings-session-log": {
+      "verdict": "native",
+      "note": "0.2.0-rc.1（next 通道）新增的设置分区；全局玻璃/主题令牌机制覆盖，无逐面适配"
+    },
+    "dsh-client-ui-settings-shell": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-settings-subagent": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-settings-web-search": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-shortcuts": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-sidebar": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-sidebar-browser": {
+      "verdict": "native",
+      "note": "宿入右侧栏的页签，玻璃随 sidebar-right 容器生效"
+    },
+    "dsh-client-ui-sidebar-documentpreview": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-sidebar-files": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-sidebar-right": {
+      "verdict": "covered",
+      "note": "covered —— styles.js 25 处选择器钉 data-sidebar-right-panel/-open；机制由 compat-harness-surfaces 活判据核"
+    },
+    "dsh-client-ui-sidebar-terminal": {
+      "verdict": "native",
+      "note": "宿入右侧栏的页签，玻璃随 sidebar-right 容器生效"
+    },
+    "dsh-client-ui-skill": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-slots": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-subagent": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-theme": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-tool": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-trajectory": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-user-questions": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-workflow-run": {
+      "verdict": "native"
+    },
+    "dsh-client-ui-workspace": {
+      "verdict": "native"
+    }
+  }
+}
