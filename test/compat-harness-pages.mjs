@@ -53,6 +53,9 @@ const argOf = (name, dflt) => {
   return i >= 0 && argv[i + 1] ? argv[i + 1] : dflt;
 };
 const PORT = Number(argOf('--port', process.env.DSH_WE_COMPAT_PAGES_PORT || 5200));
+// 玻璃回退模式演练钮：on/off → 给页面追加 ?we-glassfallback=on|off（产品自带的手动覆盖，
+// 见 src/client.js detectSoftwareRender）；不设 = 按运行环境自动探测（CI 无 GPU 即回退态）。
+const GLASS_FALLBACK = (process.env.DSH_WE_COMPAT_GLASS_FALLBACK || '').trim();
 
 const childEnv = {
   ...process.env,
@@ -349,6 +352,15 @@ async function main() {
     if (!check('应用页面加载完成（readyState=complete）', Boolean(ready), '30s 超时\n' + tail(hout))) return;
     await sleep(2500); // SPA 挂载与插件 effect 挂载的沉降
 
+    // 强制回退演练：token URL 的查询串会被 303 交换丢掉（Location: /），参数落不到页面上
+    // —— 会话 Cookie 已在手，带参数二次导航到 / 才是产品覆盖开关的真正入口。
+    if (GLASS_FALLBACK === 'on' || GLASS_FALLBACK === 'off') {
+      await cdp.send('Page.navigate',
+        { url: `http://127.0.0.1:${tokenHit[1]}/?we-glassfallback=${GLASS_FALLBACK}` }, sessionId);
+      await waitEv('location.protocol === "http:" && document.readyState === "complete" ? 1 : 0', 30000, 500);
+      await sleep(2500);
+    }
+
     // ── 首页原始观测 ────────────────────────────────────────────────────────
     const observed = await ev(`(() => {
       const body = document.body;
@@ -373,6 +385,11 @@ async function main() {
     })()`);
     if (observed.error) console.log('观测表达式出错：' + observed.error);
     const o = (observed && observed.value) || {};
+    // 玻璃渲染模式：软件光栅器（CI 无 GPU / SwiftShader）下产品主动进回退态 ——
+    // 回退规则**故意** backdrop-filter:none + 近不透明平板底，属正确行为，
+    // 判据必须按模式取期望值（把正确回退判成红 = 假红）。
+    const glassFb = Array.isArray(o.bodyAttrs)
+      && o.bodyAttrs.some((a) => a.startsWith('data-we-glass-fallback'));
 
     // ── 交互链 A：消启动弹窗 → 选会话 → 会话页（换页后样式/错误仍成立）────────
     const flow = {};
@@ -432,7 +449,11 @@ async function main() {
           const p = document.querySelector('[data-sidebar-right-panel]');
           if (!p) return null;
           const cs = getComputedStyle(p);
-          return { backdrop: cs.backdropFilter || cs.webkitBackdropFilter || '', bg: (cs.backgroundImage || '').slice(0, 300) };
+          return {
+            backdrop: cs.backdropFilter || cs.webkitBackdropFilter || '',
+            bg: (cs.backgroundImage || '').slice(0, 300),
+            bgColor: cs.backgroundColor,
+          };
         })()`);
       }
     }
@@ -527,10 +548,20 @@ async function main() {
           'expand=' + String(flow.expandFound)
           + (flow.openerDiag ? ' diag=' + JSON.stringify(flow.openerDiag) : ''));
         if (flow.opened) {
-          check('右栏在场：开态玻璃是我们的（backdrop blur + sheen 渐变）',
-            Boolean(flow.panelGlass && /blur\(/.test(flow.panelGlass.backdrop)
-              && /linear-gradient/.test(flow.panelGlass.bg) && /rgba?\(255, ?255, ?255/.test(flow.panelGlass.bg)),
-            flow.panelGlass ? 'backdrop=' + String(flow.panelGlass.backdrop).slice(0, 70) : '取不到 computed');
+          const pg = flow.panelGlass;
+          check('右栏开态玻璃·backdrop 按渲染模式成立（正常=blur / 回退=显式 none）',
+            Boolean(pg) && (glassFb
+              ? String(pg.backdrop).trim() === 'none'
+              : /blur\(/.test(String(pg.backdrop))),
+            pg ? 'fallback=' + (glassFb ? 1 : 0) + ' backdrop=' + String(pg.backdrop).slice(0, 70) : '取不到 computed');
+          check('右栏开态玻璃·sheen 渐变在场', Boolean(pg)
+            && /linear-gradient/.test(pg.bg) && /rgba?\(255, ?255, ?255/.test(pg.bg),
+            pg ? 'bg=' + String(pg.bg).slice(0, 90) : '取不到 computed');
+          if (glassFb) {
+            check('回退态·右栏平板底在场（背景非全透明 —— 无 blur 时由它兜底）',
+              Boolean(pg) && pg.bgColor && pg.bgColor !== 'rgba(0, 0, 0, 0)',
+              pg ? 'bgColor=' + String(pg.bgColor).slice(0, 60) : '取不到 computed');
+          }
         }
       }
     } else {
@@ -542,9 +573,12 @@ async function main() {
       'opened=' + flow.settingsOpened + ' dialog=' + flow.settingsDialog);
 
     if (flow.settingsDialog) {
-      check('设置窗口玻璃·计算样式是我们的（backdrop blur 在场）',
-        Boolean(settingsGlass && /blur\(/.test(settingsGlass.backdrop)),
-        settingsGlass ? 'backdrop=' + String(settingsGlass.backdrop).slice(0, 90) : '取不到 computed');
+      check('设置窗口玻璃·backdrop 按渲染模式成立（正常=blur / 回退=显式 none）',
+        Boolean(settingsGlass) && (glassFb
+          ? String(settingsGlass.backdrop).trim() === 'none'
+          : /blur\(/.test(String(settingsGlass.backdrop))),
+        settingsGlass ? 'fallback=' + (glassFb ? 1 : 0)
+          + ' backdrop=' + String(settingsGlass.backdrop).slice(0, 90) : '取不到 computed');
       // sheen 渐变两档（0.1 = 浅色规则 / 0.07 = 深色规则）都是我们 styles.js 里的层，
       // 断言按「白色起步 + 38% 中间停」认族，主题无关。
       check('设置窗口玻璃·独有 sheen 渐变在场（白色三层渐变、38% 中间停）',
