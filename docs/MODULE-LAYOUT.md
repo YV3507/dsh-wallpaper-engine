@@ -69,6 +69,7 @@
    这就是 `lib/settings-schema.js` 的形态（P1-5 设置键单一真源），因此它同时受 §3 全部约束（浏览器安全）。**这是唯一被允许的共享形态**，第二个共享内核要显式登记（§7 最后一行）。
 3. **是宿主自己的实现吗？**
    → `lib/<语义名>.js` **并加进 `files`**。按职责分子目录（现状：`lib/media/`、`lib/routes/`）。门面 `lib/index.js` 只做注册与协议聚合，**不装新逻辑**（P2-11 的目标形态）。
+   → **随包的数据文件**（不是代码，但要跟包走）也放 `lib/<语义名>/`，**同样加进 `files`**：现状 `lib/fontsets/`（随包预设，只读；用户的编辑按写时复制落 `pluginDataDir()`）。`verify-package-files` P1 要求 `files` 覆盖 `lib/` 下**每一个**文件 —— 漏一条这里就红，这是 `lib/` 数据目录的登记处。
 4. **是第三方副本 / 类型声明吗？**
    → vendored 放 `lib/vendor/`（内联副本）或 `lib/webwallgl/`（按文本注入的 shim），**不许改**，同步走 `test/tools/sync-webwallgl.mjs`；
    → 类型放 `lib/types/*.d.ts`，**必须与代码一致**。

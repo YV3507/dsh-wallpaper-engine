@@ -41,6 +41,7 @@
     "lib/log.js",
     "lib/notice.js",
     "lib/routes/",
+    "lib/fontsets/",
     "lib/client.js",
     "lib/pkg-extract.js",
     "lib/pkg-read.js",

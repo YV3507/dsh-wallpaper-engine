@@ -14,21 +14,21 @@
 
 | # | 路径 | 来源 | 形态 | 依赖（闭包状态 / `c` 字段） | 守卫提及 |
 |---|---|---|---|---|---|
-| 1 | `/inventory` | lib/index.js:2618 | async 箭头 | webServer buildInventory disposers | 11 |
-| 2 | `/media-info` | lib/index.js:2720 | 箭头 | webServer mediaMap disposers | 7 |
-| 3 | `/transcode-progress` | lib/index.js:2746 | 箭头 | webServer mediaMap disposers | 1 |
-| 4 | `/transcoded` | lib/index.js:2799 | 箭头 | webServer mediaMap disposers serveFile | 1 |
-| 5 | `/media` | lib/index.js:2855 | 箭头 | webServer mediaMap disposers serveFile | 15 |
-| 6 | `/preview` | lib/index.js:2855 | 箭头 | webServer mediaMap disposers serveFile | 8 |
-| 7 | `/video-preview` | lib/index.js:2879 | 箭头 | webServer mediaMap disposers serveFile | 1 |
+| 1 | `/inventory` | lib/index.js:2624 | async 箭头 | webServer buildInventory disposers | 11 |
+| 2 | `/media-info` | lib/index.js:2726 | 箭头 | webServer mediaMap disposers | 7 |
+| 3 | `/transcode-progress` | lib/index.js:2752 | 箭头 | webServer mediaMap disposers | 1 |
+| 4 | `/transcoded` | lib/index.js:2805 | 箭头 | webServer mediaMap disposers serveFile | 1 |
+| 5 | `/media` | lib/index.js:2861 | 箭头 | webServer mediaMap disposers serveFile | 15 |
+| 6 | `/preview` | lib/index.js:2861 | 箭头 | webServer mediaMap disposers serveFile | 8 |
+| 7 | `/video-preview` | lib/index.js:2885 | 箭头 | webServer mediaMap disposers serveFile | 1 |
 | 8 | `/scene-frame` | lib/routes/scene-frame.js:57 | 箭头 | disposers base mediaMap trackStream customFramePath customIdFromAbs …(+3) | 11 |
 | 9 | `/scene-frame-cache` | lib/routes/scene-frame.js:134 | 箭头 | disposers base mediaMap GPU_FRAME_MAX_BYTES GPU_WRITE_INFLIGHT armBodyIdleTimeout …(+4) | 4 |
 | 10 | `/custom-frame` | lib/routes/scene-frame.js:221 | 箭头 | disposers base serveFile CUSTOM_FRAME_EXT CUSTOM_FRAME_MAX_BYTES armBodyIdleTimeout …(+3) | 1 |
 | 11 | `/scene-live` | lib/routes/scene-serve.js:50 | 箭头 | disposers base WEBWALLGL_DIR appendDiagLine traceRequests serveFile …(+1) | 7 |
 | 12 | `/scene-files` | lib/routes/scene-serve.js:84 | 箭头 | disposers base handleSceneFiles | 4 |
 | 13 | `/media-origin` | lib/routes/scene-serve.js:92 | 箭头 | disposers base mediaOriginInfo | 1 |
-| 14 | `/props` | lib/index.js:3105 | 箭头 | webServer mediaMap disposers | 4 |
-| 15 | `/live-frame` | lib/index.js:3151 | 箭头 | webServer mediaMap disposers serveFile | 1 |
+| 14 | `/props` | lib/index.js:3111 | 箭头 | webServer mediaMap disposers | 4 |
+| 15 | `/live-frame` | lib/index.js:3157 | 箭头 | webServer mediaMap disposers serveFile | 1 |
 | 16 | `/media-status` | lib/routes/now-playing.js:69 | 箭头 | disposers base | 2 |
 | 17 | `/audio-spectrum` | lib/routes/now-playing.js:79 | 箭头 | disposers base | 2 |
 | 18 | `/now-playing` | lib/routes/now-playing.js:98 | 箭头 | disposers base | 3 |
@@ -37,15 +37,15 @@
 | 21 | `/diag` | lib/routes/diag.js:132 | 箭头 | disposers | 8 |
 | 22 | `/diag` | lib/routes/diag.js:133 | 箭头 | disposers base | 8 |
 | 23 | `/diag-log` | lib/routes/diag.js:134 | 箭头 | disposers log base | 1 |
-| 24 | `/api/local-assets` | lib/index.js:3230 | async 箭头 | webServer disposers serveFile | 1 |
-| 25 | `/we-assets-dir` | lib/index.js:3280 | 箭头 | webServer disposers | 2 |
-| 26 | `/scene-video` | lib/index.js:3333 | 箭头 | webServer mediaMap disposers serveFile SCENE_VIDEO_INFLIGHT | 2 |
-| 27 | `/scene-audio` | lib/index.js:3416 | 箭头 | webServer mediaMap disposers serveFile | 3 |
+| 24 | `/api/local-assets` | lib/index.js:3236 | async 箭头 | webServer disposers serveFile | 1 |
+| 25 | `/we-assets-dir` | lib/index.js:3286 | 箭头 | webServer disposers | 2 |
+| 26 | `/scene-video` | lib/index.js:3339 | 箭头 | webServer mediaMap disposers serveFile SCENE_VIDEO_INFLIGHT | 2 |
+| 27 | `/scene-audio` | lib/index.js:3422 | 箭头 | webServer mediaMap disposers serveFile | 3 |
 | 28 | `/upload` | lib/routes/upload.js:55 | 箭头 | disposers base tokenFor UPLOAD_EXT UPLOAD_MAX_BYTES ensureUploadDir …(+6) | 4 |
 | 29 | `/remove` | lib/routes/upload.js:203 | 箭头 | disposers base ensureUploadDir removeUploadMeta resolveUploadFile armBodyIdleTimeout | 1 |
 | 30 | `/upload-dir` | lib/routes/upload.js:247 | 箭头 | disposers base setUploadDir normalizeUserDir | 2 |
-| 31 | `/fontsets` | lib/routes/fontsets.js:177 | async 箭头 | disposers base readFontSetId | 2 |
-| 32 | `/settings` | lib/index.js:3472 | 箭头 | webServer disposers SETTINGS_MAX_BYTES | 14 |
+| 31 | `/fontsets` | lib/routes/fontsets.js:240 | async 箭头 | disposers base readFontSetId | 2 |
+| 32 | `/settings` | lib/index.js:3479 | 箭头 | webServer disposers SETTINGS_MAX_BYTES | 14 |
 
 **零提及（拆分前必须先补守卫）**：（无）
 

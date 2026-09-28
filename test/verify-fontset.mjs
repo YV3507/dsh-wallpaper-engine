@@ -29,6 +29,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Readable, Writable } from 'node:stream';
@@ -304,6 +305,24 @@ const bodyJson = (res) => {
 const dirSnapshot = (dir) => {
   try { return readdirSync(dir).sort().join(','); } catch { return ''; }
 };
+/**
+ * 目录**内容**摘要（名字 + 每个文件内容的短哈希）：用来钉住"包内目录只读" ——
+ * 只看名字会漏掉"就地改了一份随包预设"，那正是写时复制要防的事。
+ */
+const dirDigest = (dir) => {
+  let names = [];
+  try { names = readdirSync(dir).filter((n) => n.endsWith('.json')).sort(); } catch { return null; }
+  return names.map((n) => {
+    const h = createHash('sha256').update(readFileSync(join(dir, n))).digest('hex').slice(0, 16);
+    return n + ':' + h;
+  }).join(',');
+};
+/** 随包预设目录（包内 `lib/fontsets/`，发布物 ⇒ 只读）。 */
+const BUILTIN_DIR = join(root, 'lib', 'fontsets');
+const builtinIds = (() => {
+  try { return readdirSync(BUILTIN_DIR).filter((n) => n.endsWith('.json')).map((n) => n.slice(0, -5)).sort(); } catch { return []; }
+})();
+const BUILTIN_DIGEST_AT_START = dirDigest(BUILTIN_DIR);
 
 /**
  * 往返后**没保住**的字体键（空数组 = 全部保住）。
@@ -589,6 +608,124 @@ if (fontsetsRoute) {
   check('当前活动集仍不可删 ⇒ 400 且文件仍在（同一条规则在另一个集上同样成立）',
     delCurrent.__state.status === 400 && existsSync(join(FONTSETS_DIR, probeId + '.json')),
     'status=' + delCurrent.__state.status);
+}
+
+// ── ⑥ 随包预设（两层存储）──────────────────────────────────────────────────
+section('⑥ 随包预设（两层存储：用户层胜 / 写时复制 / 包内只读）');
+if (fontsetsRoute) {
+  // 6a. 随包预设**是我们自己写的数据** —— 一个 typo 会让所有用户的那份预设不可用，
+  //     所以"逐份有效"是发布前的硬闸（`sanitizeFontset` 会**静默丢掉**它不认识的值）。
+  const badBuiltin = [];
+  for (const id of builtinIds) {
+    let raw = null;
+    try { raw = JSON.parse(readFileSync(join(BUILTIN_DIR, id + '.json'), 'utf8')); } catch { badBuiltin.push(id + ':unreadable'); continue; }
+    if (!raw || raw.$schema !== schema.FONTSET_SCHEMA_TAG) { badBuiltin.push(id + ':schema'); continue; }
+    if (raw.id !== id) { badBuiltin.push(id + ':id-mismatch'); continue; }
+    if (!schema.isFontSetId(id)) { badBuiltin.push(id + ':bad-id'); continue; }
+    for (const [k, v] of Object.entries(raw.values || {})) {
+      if (canon(schema.sanitizeFontset({ [k]: v })[k]) !== canon(v)) badBuiltin.push(id + '.' + k);
+    }
+  }
+  check('随包目录存在且**非空**（"开箱就有能用的预设"是需求本身，不是可选装饰）',
+    builtinIds.length > 0, BUILTIN_DIR + ' → ' + (builtinIds.join(',') || '(空)'));
+  check('随包预设逐份有效（版本 / id 与文件名一致 / id 合法 / 没有值被消毒悄悄丢掉）',
+    badBuiltin.length === 0, badBuiltin.join(' ') || builtinIds.length + ' 份都过');
+  check('负对照：作者写了一个会被消毒丢掉的值 ⇒ 同一判据必须点名它（否则上面那条是空转）',
+    canon(schema.sanitizeFontset({ themeSize: { 'markdown-h1': 4 } }).themeSize['markdown-h1']) !== canon(4));
+  check('随包预设不含 `default`（否则迁移出来的用户集会把那份随包预设永久遮住）',
+    !builtinIds.includes('default'), 'ids=' + builtinIds.join(','));
+  // 6a-2. 随包预设必须**真的改变外观**：`values` 全空的预设 = 用户切换了却没反应，
+  //       而且这种"发布物是空壳"没有任何别的机制会发现。
+  {
+    const blank = flatten(buildAppearance(appearanceInputs({
+      themeColors: {}, themeSize: {}, themeWeight: {}, themeFamily: {}, componentFonts: {},
+    }))).join();
+    const isEmptyPreset = (values) => flatten(buildAppearance(appearanceInputs(values))).join() === blank;
+    const readValues = (id) => {
+      try { return JSON.parse(readFileSync(join(BUILTIN_DIR, id + '.json'), 'utf8')).values; } catch { return null; }
+    };
+    const noop = builtinIds.filter((id) => {
+      const v = readValues(id);
+      return v === null || isEmptyPreset(v);
+    });
+    check('随包预设必须真的改变外观（空壳预设 = 用户切换了却没反应）',
+      builtinIds.length > 0 && noop.length === 0, noop.join(' ') || builtinIds.length + ' 份都有实际取值');
+    check('负对照：values 全空会被同一条判据点名（判据有牙，不是恒真）',
+      isEmptyPreset({ themeColors: {}, themeSize: {}, themeWeight: {}, themeFamily: {}, componentFonts: {} }) === true
+      && builtinIds.every((id) => isEmptyPreset(readValues(id) || {}) === false));
+  }
+  // 快照函数自身的可达性探针：内容改一位 ⇒ 摘要必须变（否则"字节不变"是恒真）。
+  {
+    const probeDir = join(ISO, 'digest-probe');
+    mkdirSync(probeDir, { recursive: true });
+    writeFileSync(join(probeDir, 'a.json'), '{"x":1}');
+    const d1 = dirDigest(probeDir);
+    writeFileSync(join(probeDir, 'a.json'), '{"x":2}');
+    check('可达性探针：内容快照函数真的读内容（改一位 ⇒ 摘要变）',
+      Boolean(d1) && d1 !== dirDigest(probeDir));
+  }
+
+  const target = builtinIds[0];
+  const listB = bodyJson(await callRoute(fontsetsRoute, fakeReq(FONTSETS_URL)));
+  const builtinRows = (listB && listB.fontsets || []).filter((f) => builtinIds.includes(f.id));
+  check('列表把随包预设标成 origin=builtin（不是"看起来像用户的"）',
+    builtinRows.length === builtinIds.length && builtinRows.every((f) => f.origin === 'builtin'),
+    JSON.stringify(builtinRows));
+
+  // 6b. 人工切换对随包预设同样适用；随包那份可直接读、直接导出（分享不必先复制）。
+  const actB = bodyJson(await callRoute(fontsetsRoute, fakeReq(FONTSETS_URL + '/' + target + '/activate', 'POST')));
+  check('激活随包预设 ⇒ 200 且 origin=builtin',
+    actB && actB.active === target && actB.origin === 'builtin', JSON.stringify(actB));
+  const gotB = bodyJson(await callRoute(fontsetsRoute, fakeReq(FONTSETS_URL + '/' + target)));
+  const expB = bodyJson(await callRoute(fontsetsRoute, fakeReq(FONTSETS_URL + '/' + target + '/export')));
+  check('随包预设可读、可导出，且两者值一致',
+    gotB && gotB.origin === 'builtin' && expB && expB.$schema === schema.FONTSET_SCHEMA_TAG
+    && canon(expB.values) === canon(gotB.values),
+    'origin=' + (gotB && gotB.origin));
+
+  // 6c. 写时复制（D3）：改随包预设 ⇒ 落一份**用户层**覆盖，包内字节不动。
+  const beforeCopy = dirDigest(BUILTIN_DIR);
+  const copyValues = Object.assign({}, expB.values, { themeWeight: { 'markdown-h1': 900 } });
+  const covRes = bodyJson(await callRoute(fontsetsRoute,
+    fakeReqBody(FONTSETS_URL + '/' + target, 'PUT', { values: copyValues })));
+  check('PUT 随包 id ⇒ 响应标 overrides + origin=user（写时复制，不是就地改）',
+    covRes && covRes.overrides === true && covRes.origin === 'user',
+    JSON.stringify(covRes && { origin: covRes.origin, overrides: covRes.overrides }));
+  check('覆盖落在**用户层**（同名文件出现在 pluginDataDir/fontsets/）',
+    existsSync(join(FONTSETS_DIR, target + '.json')));
+  check('覆盖期间包内字节**逐字节不变**（这条就是"包内只读"）',
+    dirDigest(BUILTIN_DIR) === beforeCopy);
+  const listC = bodyJson(await callRoute(fontsetsRoute, fakeReq(FONTSETS_URL)));
+  const rowC = (listC && listC.fontsets || []).find((f) => f.id === target);
+  check('列表该行标成用户层覆盖（origin=user + overrides）',
+    rowC && rowC.origin === 'user' && rowC.overrides === true, JSON.stringify(rowC));
+  const gotC = bodyJson(await callRoute(fontsetsRoute, fakeReq(FONTSETS_URL + '/' + target)));
+  check('用户层胜：读到的是覆盖后的值，不是随包那份',
+    gotC && canon(gotC.values.themeWeight) === canon({ 'markdown-h1': 900 }),
+    JSON.stringify(gotC && gotC.values.themeWeight));
+
+  // 6d. 恢复随包原样 = 删掉覆盖（删活动集要 400，所以先切走）。
+  await callRoute(fontsetsRoute, fakeReq(FONTSETS_URL + '/probe-set_1/activate', 'POST'));
+  const delCov = bodyJson(await callRoute(fontsetsRoute, fakeReq(FONTSETS_URL + '/' + target, 'DELETE')));
+  check('删掉覆盖 ⇒ 200 + restored=builtin（这就是「恢复随包原样」）',
+    delCov && delCov.removed === target && delCov.restored === 'builtin', JSON.stringify(delCov));
+  const gotD = bodyJson(await callRoute(fontsetsRoute, fakeReq(FONTSETS_URL + '/' + target)));
+  check('恢复后读到随包原值、origin 回到 builtin',
+    gotD && gotD.origin === 'builtin' && canon(gotD.values) === canon(expB.values),
+    'origin=' + (gotD && gotD.origin));
+
+  // 6e. 未覆盖的随包预设删不掉（发布物不是用户数据）。
+  const delBuiltinRes = await callRoute(fontsetsRoute, fakeReq(FONTSETS_URL + '/' + target, 'DELETE'));
+  const delBuiltin = bodyJson(delBuiltinRes);
+  check('未覆盖的随包预设 ⇒ 400 + 说明（可覆盖，不可删）',
+    delBuiltinRes.__state.status === 400 && delBuiltin && delBuiltin.origin === 'builtin'
+    && existsSync(join(BUILTIN_DIR, target + '.json')),
+    'status=' + delBuiltinRes.__state.status);
+
+  // 6f. 收口：整个守卫跑完，包内目录与开跑前逐字节相同。
+  check('整个守卫跑完后包内目录逐字节不变（包内只读不是口号）',
+    dirDigest(BUILTIN_DIR) === BUILTIN_DIGEST_AT_START,
+    'start=' + BUILTIN_DIGEST_AT_START + ' now=' + dirDigest(BUILTIN_DIR));
 }
 
 // ── teardown ────────────────────────────────────────────────────────────────

@@ -48,10 +48,10 @@
 |---|---|
 | 浏览器正文 `src/client.js` | **3,882 行**（重构起点 10,119 行） |
 | 构建期内联模块 | **17 个**（16 个来自 `src/` + 共享内核 `lib/settings-schema.js`） |
-| `lib/**`（`verify-reachability` 打印的「lib 扫描面」：`lib/**.{js,mjs}` **全量**，vendored 与生成物都在内） | **25 文件 / 27,163 行** |
+| `lib/**`（`verify-reachability` 打印的「lib 扫描面」：`lib/**.{js,mjs}` **全量**，vendored 与生成物都在内） | **25 文件 / 27,248 行** |
 | 其中**运行时不可达** | **0 文件 / 0 行**（P2-12 第一半已删净；此前 48 文件 / 9,618 行曾在 `files` 里、真的发给用户） |
 | 生成物 `lib/client.js` | 12,044 行 / 1.24 MiB（提交；判据是"重建后 `git status` 干净"） |
-| 守卫 + 冒烟 | **29 个 `verify-*`（13,949 行）+ 5 个 smoke（2,070 行）**，均在 `test/` |
+| 守卫 + 冒烟 | **29 个 `verify-*`（14,112 行）+ 5 个 smoke（2,070 行）**，均在 `test/` |
 | vendored | `webwallgl/` + `vendor/` 共 **12 文件 / 6,950 行** |
 
 > 逐阶段的增量对照表（P0 后 / P1 后 / F1 后 / F2 后）已删除：那些数字只在当时有意义，现值以上表为准。
@@ -213,7 +213,7 @@
 | F0 | `theme` 服务的真机确认（主路径成立 + 两处旧结论被推翻）→ 结论并入 §9.1 的 V1–V10；记录保留在 F0 清单 | ✅ |
 | F1 | 颜色角色令牌层 `src/font/color-roles.js` + 设置 `themeColors` / `themeDarkSeparate`（首期只做颜色，5 个角色） | ✅ |
 | F2 | 排版角色 `src/font/typography.js` + 设置 `themeType`（只追加偏移、不重写 DSH 表达式、不碰字重字族） | ✅ |
-| F3 | **字体集文件化**：`~/.dsh-wallpaper-engine/fontsets/<id>.json` + 导入导出 + 独立编辑器面板（依赖 P2-9 + P2-10，已兑现）。**两条决策已拍板**（见计划 §3 阶段 0）：D1 按 §9.5 **字面**执行 —— 6 个字体键退出 `KINDS`，`config.json` 只留 `{ fontSetId, fontCustom }`；D2 导出走宿主响应头（`Content-Disposition: attachment`，不引入 blob）。**阶段 0 ✅**：前置网 `test/verify-fontset.mjs` 入链 —— 字体键的持久化往返（真 `PUT /settings` → `config.json` → 读回，两条负对照："移出 `KINDS` ⇒ 两端静默丢弃"与"复原后合法往返必须成功"）+ 迁移前外观 golden（四个纯计算载荷、绝对锚点逐条比对、含"只挪一层"与"改一位 ⇒ 立刻红"的探针）。**阶段 1 ✅**（宿主侧，产品面零变化）：共享内核增 `FONTSET_KEYS` / `sanitizeFontset` / `isFontSetId`（复用 `readOne`，**不新建 `lib/**` 共享模块**）；新族 `lib/routes/fontsets.js` —— 一个 `prefix` 注册覆盖七个端点（list / get / put / delete / activate / import / export），id 单段白名单 + 目录包含性，`fontSetId` 作 `config.json` **根字段**且经 `enqueueConfigWrite` 写入；**一次性迁移是惰性的**（`apply()` 零写盘 —— 未隔离 `DSH_WE_DATA_DIR` 的守卫不会被污染），迁移等价由 golden 钉住。守卫同交扩到 52 条判据（含 19 个非法 id 逐条 + 18 个非法请求"不落盘"）。**阶段 2–4 未开工**；计划（含锚点复算依据）见 [`F3-PLAN.md`](F3-PLAN.md) | 🟡 |
+| F3 | **字体集文件化**：`~/.dsh-wallpaper-engine/fontsets/<id>.json` + 导入导出 + 独立编辑器面板（依赖 P2-9 + P2-10，已兑现）。**两条决策已拍板**（见计划 §3 阶段 0）：D1 按 §9.5 **字面**执行 —— 6 个字体键退出 `KINDS`，`config.json` 只留 `{ fontSetId, fontCustom }`；D2 导出走宿主响应头（`Content-Disposition: attachment`，不引入 blob）。**阶段 0 ✅**：前置网 `test/verify-fontset.mjs` 入链 —— 字体键的持久化往返（真 `PUT /settings` → `config.json` → 读回，两条负对照："移出 `KINDS` ⇒ 两端静默丢弃"与"复原后合法往返必须成功"）+ 迁移前外观 golden（四个纯计算载荷、绝对锚点逐条比对、含"只挪一层"与"改一位 ⇒ 立刻红"的探针）。**阶段 1 ✅**（宿主侧，产品面零变化）：共享内核增 `FONTSET_KEYS` / `sanitizeFontset` / `isFontSetId`（复用 `readOne`，**不新建 `lib/**` 共享模块**）；新族 `lib/routes/fontsets.js` —— 一个 `prefix` 注册覆盖七个端点（list / get / put / delete / activate / import / export），id 单段白名单 + 目录包含性，`fontSetId` 作 `config.json` **根字段**且经 `enqueueConfigWrite` 写入；**一次性迁移是惰性的**（`apply()` 零写盘 —— 未隔离 `DSH_WE_DATA_DIR` 的守卫不会被污染），迁移等价由 golden 钉住。**阶段 1b ✅**（需求变更后插入的一刀）：**两层存储** —— 随包层 `lib/fontsets/<id>.json`（发布物、**只读**，先落 1 份 `compact`）+ 用户层；同 id **用户层胜**，写**只落用户层**（D3 = **写时复制**：改随包预设 ⇒ 生成同名覆盖，删掉覆盖 = **恢复随包原样**，随包层删不掉）。切换仍只做人工，但 `activate` 定为**唯一改指针的写原语** ⇒ 将来的条件自动切换是**策略层**、必须调它（指针单一真源）。守卫同交扩到 71 条判据（含 19 个非法 id 逐条 + 18 个非法请求"不落盘" + 随包预设逐份有效 + **包内目录跑完全程逐字节不变**）。**阶段 2–4 未开工**；计划（含锚点复算依据）见 [`F3-PLAN.md`](F3-PLAN.md) | 🟡 |
 | G1 | 删掉 legacy「字体颜色」通路（四条 `!important` 折叠 + 全局墨色覆盖 + schema 键），改为写进 5 个角色 | ✅ |
 | G2 | 面板显示 DSH **官方默认值**（单一真源在角色表；"初始值 = 官方值、清空即回官方"） | ✅ |
 | G3 | 官方 `--dsl-*` 组件钩子通道，作用域 = **钩子在样式表里的定义点**（不按模块名） | ✅ |
@@ -331,8 +331,11 @@ presenter 把快照写进 `body` 内联样式 ⇒ 内联胜过主题样式表 �
 
 | 落点 | 内容 |
 |---|---|
-| `~/.dsh-wallpaper-engine/fontsets/<id>.json` | 字体集本体（可分享；带 `$schema` 版本，加载时按版本迁移） |
-| `~/.dsh-wallpaper-engine/config.json` | **只记** `{ fontSetId, fontCustom }` |
+| `lib/fontsets/<id>.json` | **随包层**（发布物，**只读**）：开箱就有的少量预设 + 可分享的正文格式；用户改它 ⇒ 写时复制到下一行 |
+| `~/.dsh-wallpaper-engine/fontsets/<id>.json` | **用户层**（可写）：导入、覆盖、一次性迁移的产物 |
+| `~/.dsh-wallpaper-engine/config.json` | **只记** `{ fontSetId, fontCustom }`（`fontSetId` 是根字段） |
+
+**两层优先级**：同一 id **用户层胜**；`activate` 是唯一改指针的写原语（将来按条件自动选预设是**策略层**，必须调同一个原语 —— 指针保持单一真源）。随包层删不掉（可覆盖），删掉覆盖 = **恢复随包原样**。
 
 **理由**：localStorage 只有 5MB；宿主白名单漏键会**静默丢弃**（= R4）；滑杆每次回调都同步写 settings 太重。
 导入导出复用 `/upload` + 数据目录 + 文件选择器的现有基建（F3 因此依赖 P2-9）。
