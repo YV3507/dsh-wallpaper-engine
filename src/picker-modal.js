@@ -35,7 +35,7 @@
  */
 
   function renderPickerModal(ctx) {
-    const { sel, isRepoPanelCopy, closePicker, current, playbackLive, playableList, hiddenList, hiddenPageView, normalPage, cdMode, pagerRow, query, basePlayable, ratingCounts, typeCounts, onClear, onRatingFilterChange, onTypeFilterChange, onShowNormalView, onShowHiddenView, onHiddenPagePrev, onHiddenPageNext, onToggleBatchMode, onBatchHide, onBatchCancel, onSearchInput, onPickCard, onNormalPagePrev, onNormalPageNext } = ctx;
+    const { sel, isRepoPanelCopy, closePicker, current, playbackLive, playableList, hiddenList, hiddenPageView, normalPage, cdMode, pagerRow, query, basePlayable, ratingCounts, typeCounts, armedConfirm, onArmConfirm, onDisarmConfirm, onClear, onRatingFilterChange, onTypeFilterChange, onShowNormalView, onShowHiddenView, onHiddenPagePrev, onHiddenPageNext, onToggleBatchMode, onArmBatchHide, onBatchHide, onBatchCancel, onSearchInput, onPickCard, onNormalPagePrev, onNormalPageNext } = ctx;
   return ReactDOM.createPortal(
       // repoPanel path: the picker opens as its own right-quarter liquid-glass
       // window (same recipe as the repo panel), NOT the centred dark dialog that
@@ -91,12 +91,18 @@
                           "已隐藏 " + hiddenList.length + " 张（仅从列表隐藏，不删除源文件）"),
                         React.createElement("button", {
                           className: "we-picker__btn", type: "button",
-                          onClick: () => {
-                            if (!window.confirm("恢复全部 " + hiddenList.length + " 张已隐藏壁纸？")) return;
-                            restoreWallpapers(hiddenList.map((w) => w.id));
-                          },
+                          // 第一下只置令牌；落地在问句行的「确认」里（`restoreWallpapers` 是
+                          // 模块级工具 ⇒ 与隐藏卡片的「恢复」同口径，可以在问句行里直呼）。
+                          onClick: () => onArmConfirm("restoreAll"),
+                          disabled: armedConfirm === "restoreAll",
+                          title: armedConfirm === "restoreAll"
+                            ? "已经问过你了 —— 在下面那一行选「确认」或「取消」"
+                            : "把已隐藏的全部恢复（会再问一次）",
                         }, "全部恢复"),
                       ),
+                      renderConfirmRow(armedConfirm, "restoreAll",
+                        "恢复全部 " + hiddenList.length + " 张已隐藏壁纸？",
+                        () => restoreWallpapers(hiddenList.map((w) => w.id)), onDisarmConfirm),
                       (cdMode ? hiddenList : hiddenPageView.items).map((w) => React.createElement("div", {
                         key: w.id,
                         className: "we-picker__card we-picker__card--hidden",
@@ -149,14 +155,24 @@
                   React.createElement("span", { className: "we-picker__hint" }, "已选 " + sel.batchSelected.length + " 张"),
                   React.createElement("button", {
                     className: "we-picker__btn", type: "button",
-                    disabled: sel.batchSelected.length === 0,
-                    onClick: onBatchHide,
+                    // 第一下只置令牌（`onArmBatchHide`）；落地在下面那行问句的「确认」里。
+                    // 待确认时置灰但**不隐藏**：位置与宽度都不变，并指路到问句行。
+                    onClick: onArmBatchHide,
+                    disabled: sel.batchSelected.length === 0 || armedConfirm === "batchHide",
+                    title: armedConfirm === "batchHide"
+                      ? "已经问过你了 —— 在下面那一行选「确认」或「取消」"
+                      : "隐藏选中的这些壁纸（会再问一次）",
                   }, "批量隐藏"),
                   React.createElement("button", {
                     className: "we-picker__btn", type: "button",
                     onClick: onBatchCancel,
                   }, "取消"),
                 ),
+                // 问句行是**同级**（不是包一层）：包 Fragment 会把批量条整棵子树推深一层，
+                // 那会让 116 个按层级绑定的选择器与「标记等价」golden 当场漂。
+                renderConfirmRow(armedConfirm, "batchHide",
+                  "隐藏选中的 " + sel.batchSelected.length + " 张壁纸？可在「已隐藏」中随时恢复。",
+                  onBatchHide, onDisarmConfirm),
                 React.createElement("div", { className: "we-picker__row we-picker__filter-row" },
                   // 标题搜索：几百上千张壁纸时最快的定位方式。输入即过滤
                   // （重置到第 1 页），与分级/类型过滤叠加。

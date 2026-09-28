@@ -544,6 +544,39 @@ const waitBoot = () => new Promise((r) => setTimeout(r, 50));
       after.includes('（使用中）') && !after.includes('（已改）')
       && rowText('宽敞').includes('（使用中）') && !rowText('紧凑').includes('（使用中）'),
       '宽敞=' + rowText('宽敞').slice(0, 40) + ' | 紧凑=' + rowText('紧凑').slice(0, 40));
+
+    // ── I. 删除字体集走**共用令牌**：钉的是"组件的接线"，不是渲染器契约 ─────────────
+    // verify-fontset 那几条删除判据显式传 `armedId`（驱动**渲染器**）⇒ 它钉住的是渲染器契约。
+    // 接线本身错了是**静默**的：`fontSetCtx` 的令牌前缀写错 ⇒ 面板永远不出现问句行，用户点
+    // 「删除」看起来毫无反应，而渲染器那几条判据照样全绿。所以这里用**真面板**再走一遍：
+    // 第一下只待确认（零请求），问句行的「确认」才发 DELETE。
+    {
+      // 前置：此刻活动集是 `wide`（H 段切过去了）⇒ 先切回 builtin 那份，让 `wide` 重新可删
+      //（宿主的规则：活动集不出删除）。
+      const back = h.renderPanel().flatMap((t) => collectTree(t))
+        .find((n) => n.type === 'button' && Array.isArray(n.children) && n.children.join('') === '使用');
+      check('I 前置：可切回「紧凑」，让「宽敞」重新变成可删的一行', Boolean(back));
+      if (back) back.props.onClick();
+      await new Promise((r) => setTimeout(r, 30));
+      const btnByText = (label) => h.renderPanel().flatMap((t) => collectTree(t))
+        .find((n) => n.type === 'button' && Array.isArray(n.children) && n.children.join('') === label);
+      const delBtn = btnByText('删除');
+      check('I 前置：非活动那一行点得到「删除」', Boolean(delBtn));
+      const at = h.requests.length;
+      if (delBtn) delBtn.props.onClick();
+      await new Promise((r) => setTimeout(r, 20));
+      const asked = panelText(h).includes('删除「宽敞」？');
+      check('I 第一下只置令牌：出现问句行，且**一个字节都不发**',
+        asked && h.requests.length === at,
+        'requests=' + (h.requests.length - at) + ' · 问句在=' + asked);
+      const yes = btnByText('确认');
+      check('I 问句行的「确认」在场（正路可达，不是死按钮）', Boolean(yes));
+      if (yes) yes.props.onClick();
+      await new Promise((r) => setTimeout(r, 30));
+      const del = h.requests.slice(at).filter((r) => r.method === 'DELETE');
+      check('I 「确认」⇒ DELETE 落在**正确的那一份**', del.some((r) => r.url.endsWith('/fontsets/wide')),
+        h.requests.slice(at).map((r) => r.method + ' ' + r.url.split('/').pop()).join(' | ') || '(无请求)');
+    }
   }
 
   console.log('');

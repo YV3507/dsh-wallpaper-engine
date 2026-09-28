@@ -22,9 +22,12 @@
  */
 
   function renderWallpaperTab(ctx) {
-    const { setSetting, setTransient, INTERVALS, cdMode, current, editing, editorPageView, group, groups, isLiveScene, onClear, onDeleteGroup, onGroupChange, onGroupInterval, onRefresh, onSwitchTransition, onSwitchTransitionDir, onSwitchTransitionSpeed, onToggleAudio, onTogglePlay, onToggleRotation, pagerRow, playableCount, playableList, playbackLive, renderUserPropsPanel, sel, uploadedList } = ctx;
+    const { setSetting, setTransient, INTERVALS, armedConfirm, cdMode, current, editing, editorPageView, group, groups, isLiveScene, onArmConfirm, onArmDeleteGroup, onClear, onDeleteGroup, onDisarmConfirm, onGroupChange, onGroupInterval, onRefresh, onSwitchTransition, onSwitchTransitionDir, onSwitchTransitionSpeed, onToggleAudio, onTogglePlay, onToggleRotation, pagerRow, playableCount, playableList, playbackLive, renderUserPropsPanel, sel, uploadedList } = ctx;
     // 当前过场（类型 + 方向 + 实测算出的毫秒）：一次算好给三行控件用。
     const switchTr = switchTransitionOf(sel);
+    // 待确认令牌按**当前对象**现算（不是常量缓存）：换列表 / 换壁纸后老问句自然不再匹配。
+    const groupToken = group ? "group:" + group.id : "";
+    const uploadToken = (w) => "upload:" + w.id;
     return React.createElement(React.Fragment, null,
       // ── 当前壁纸: vinyl record beside the selection, in both card styles. ──
       React.createElement("div", { className: "we-picker__section" },
@@ -202,10 +205,19 @@
         }, "编辑"),
         React.createElement("button", {
           className: "we-picker__btn", type: "button",
-          onClick: onDeleteGroup,
-          disabled: !sel.rotationGroupId,
+          // 第一下只置令牌（`onArmDeleteGroup`）；落地在下面那行问句的「确认」里。
+          // 待确认时**置灰**（不隐藏、不换位置）：按钮仍占着那一格，宽度就完全不变，
+          // 而且它指路到问句行 —— 留着可点会让"再点一下是不是就删了"变成猜测。
+          onClick: onArmDeleteGroup,
+          disabled: !sel.rotationGroupId || armedConfirm === groupToken,
+          title: armedConfirm === groupToken
+            ? "已经问过你了 —— 在下面那一行选「确认」或「取消」"
+            : "删除这个轮播列表（会再问一次）",
         }, "删除"),
       ),
+      renderConfirmRow(armedConfirm, groupToken,
+        "删除轮播列表「" + ((group && group.name) || "") + "」？此操作不可恢复。",
+        onDeleteGroup, onDisarmConfirm),
       editing && React.createElement("div", { className: "we-picker__editor" },
         React.createElement("div", { className: "we-picker__row" },
           React.createElement("span", { className: "we-picker__hint we-picker__label" }, "名称"),
@@ -456,17 +468,24 @@
           React.createElement("span", { className: "we-picker__hint" }, "支持 JPG / PNG / MP4，及含 project.json 的 WE 壁纸目录"),
         ),
         uploadedList.length > 0 && React.createElement("div", { className: "we-picker__uploads-list" },
-          uploadedList.map((w) => React.createElement("div", { key: w.id, className: "we-picker__uploads-item" },
+          uploadedList.map((w) => React.createElement(React.Fragment, { key: w.id },
+            React.createElement("div", { className: "we-picker__uploads-item" },
             React.createElement("span", { className: "we-picker__uploads-name", title: w.title }, w.title),
             React.createElement("span", { className: "we-picker__hint" }, w.type === "video" ? "MP4" : "图片"),
             React.createElement("button", {
               className: "we-picker__btn", type: "button",
-              disabled: sel.uploading,
-              onClick: () => {
-                if (!window.confirm("移除自定义壁纸「" + w.title + "」？此操作会删除本地文件，且不可恢复。")) return;
-                removeUploadWallpaper(w.id);
-              },
+              // **会删本地文件** ⇒ 这一处最需要两下：第一下只置令牌。
+              onClick: () => onArmConfirm(uploadToken(w)),
+              disabled: sel.uploading || armedConfirm === uploadToken(w),
+              title: armedConfirm === uploadToken(w)
+                ? "已经问过你了 —— 在下面那一行选「确认」或「取消」"
+                : "移除这个自定义壁纸（会再问一次，且会删除本地文件）",
             }, "移除"),
+            ),
+            // 问句行紧跟它自己那一项（挂在同一个 `key` 下，位置不会串到别的壁纸那里）。
+            renderConfirmRow(armedConfirm, uploadToken(w),
+              "移除自定义壁纸「" + w.title + "」？此操作会删除本地文件，且不可恢复。",
+              () => removeUploadWallpaper(w.id), onDisarmConfirm),
           )),
         ),
         ),

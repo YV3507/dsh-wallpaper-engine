@@ -891,6 +891,16 @@ setTimeout(async () => {
       if (c.split(/\s+/).includes(cls)) { hit = n; return; }
       if (Array.isArray(n.children)) n.children.forEach(walk);
     })(root); return hit; };
+    // 按**按钮文字**找 `.we-picker__btn`。放在助手区（而不是某个用例中间）：0b 段之后有十几个
+    // 用例要用它，声明在中间会让"谁在用它"取决于阅读顺序。
+    const findBtnByText = (root, label) => { let hit = null; (function walk(n) {
+      if (hit) return;
+      if (Array.isArray(n)) { n.forEach(walk); return; }
+      if (!n || typeof n !== 'object') return;
+      const c = typeof n.props?.className === 'string' ? n.props.className : '';
+      if (c.split(/\s+/).includes('we-picker__btn') && textOf(n) === label && typeof n.props.onClick === 'function') { hit = n; return; }
+      if (Array.isArray(n.children)) n.children.forEach(walk);
+    })(root); return hit; };
     const textOf = (root) => { let out = ''; (function walk(n) {
       if (typeof n === 'string') { out += n; return; }
       if (Array.isArray(n)) { n.forEach(walk); return; }
@@ -1160,13 +1170,19 @@ setTimeout(async () => {
     closeBtn.props.ref(fakeButton());
     assert.equal(document.activeElement, elsewhere, 'ref 只消费一次（第二次不得把焦点抢回来）');
 
-    // ── 0b：轮换列表编辑器（选项文案 / 改间隔 / 删除组，confirm 门控）────────
-    // 挂载台没有 `window.confirm`，而客户端写的是 `window.confirm(...)`（属性访问）⇒ 直接给
-    // 沙箱的 window 挂一个**可切换答案**的实现即可（无需改挂载台），顺带解锁批量隐藏与
-    // 「全部恢复」这两条 confirm 门控路径。
-    let confirmAnswer = true;
-    const confirmCalls = [];
-    sandbox.window.confirm = (msg) => { confirmCalls.push(String(msg)); return confirmAnswer; };
+    // ── 0b：轮换列表编辑器（选项文案 / 改间隔 / 删除组，**面板内确认**）────────
+    // 破坏性动作一律走面板内确认（`armConfirm` + `renderConfirmRow`），所以这里挂的是**探针**
+    // 而不是替身：真出现原生 `window.confirm` 就记一笔、并答 false（答 false ⇒ 动作不落地，
+    // 下面那些"确认之后真的变了"的判据会当场变红）。计数在 0b 段末断言为 0。
+    // 挂载台本来就没有 `window.confirm`，探针必须挂在**沙箱的 window** 上才拦得住。
+    let nativeModalCalls = 0;
+    sandbox.window.confirm = () => { nativeModalCalls++; return false; };
+    // 问句行里那两枚按钮：**只在行内找**，避免与页面上其它「取消」（批量条退出批量、编辑器
+    // 放弃改动）撞名 —— 撞名会让判据点错按钮，那正是"看着绿、其实没测到"。
+    const confirmRowBtn = (t, label) => {
+      const row = findByClass(t, 'we-picker__confirm-row');
+      return row ? findBtnByText(row, label) : null;
+    };
     const groupSel = findByProp(tree, 'aria-label', '轮播列表');
     assert.ok(groupSel && typeof groupSel.props.onChange === 'function', '轮播列表下拉必须存在');
     const groupOptionText = (sel) => sel.children.filter((o) => o && o.props && o.props.value !== undefined)
@@ -1182,29 +1198,36 @@ setTimeout(async () => {
     const activeGroup = () => persisted().rotationGroups.find((x) => x.id === persisted().rotationGroupId);
     assert.equal(activeGroup().interval, 30, '改间隔 ⇒ 写进活动列表（并落盘）');
     assert.equal(findByProp(tree, 'aria-label', '轮转间隔').props.value, '30', '下拉回读新间隔');
-    // 删除列表：confirm 门控 —— 先答 false（不删），再答 true（真删，且不留悬空 id）
-    const findBtnByText = (root, label) => { let hit = null; (function walk(n) {
-      if (hit) return;
-      if (Array.isArray(n)) { n.forEach(walk); return; }
-      if (!n || typeof n !== 'object') return;
-      const c = typeof n.props?.className === 'string' ? n.props.className : '';
-      if (c.split(/\s+/).includes('we-picker__btn') && textOf(n) === label && typeof n.props.onClick === 'function') { hit = n; return; }
-      if (Array.isArray(n.children)) n.children.forEach(walk);
-    })(root); return hit; };
+    // 删除列表：**面板内两下**。第一下只置令牌（不删、且出现问句行），问句行的「确认」才删；
+    // 「取消」把令牌清掉。三步都读**渲染出的**证据。
     const groupsBefore = persisted().rotationGroups.length;
     // 判据读**渲染出的**状态，不读 localStorage：`deleteGroup` 直接改内存（splice）而不落盘，
     // 拿 localStorage 比会得到一条恒真的空转判据（取消也"通过"）。
     const groupOptionCount = (t) => findByProp(t, 'aria-label', '轮播列表').children
       .filter((o) => o && o.props && o.props.value).length;
-    confirmAnswer = false;
-    findBtnByText(tree, '删除').props.onClick();
+    const delBtn = () => findBtnByText(tree, '删除');
+    delBtn().props.onClick(); // 第一下
     tree = renderPicker();
-    assert.equal(confirmCalls.length, 1, '删除前必须先问一次（confirm）');
-    assert.equal(groupOptionCount(tree), groupsBefore, 'confirm=false ⇒ 不删（取消就是取消）');
-    confirmAnswer = true;
-    findBtnByText(tree, '删除').props.onClick();
+    assert.ok(findByClass(tree, 'we-picker__confirm-row'), '第一下必须出现问句行（面板内确认）');
+    assert.ok(textOf(findByClass(tree, 'we-picker__confirm-row')).includes('My list'),
+      '问句点明是哪一个列表：' + textOf(findByClass(tree, 'we-picker__confirm-row')));
+    assert.equal(groupOptionCount(tree), groupsBefore, '第一下只待确认 ⇒ 不删（令牌不是动作）');
+    assert.equal(delBtn().props.disabled, true,
+      '待确认时原「删除」按钮置灰（指路到问句行，不留"再点一下是不是就删了"的猜测）');
+    // 负对照：**取消** ⇒ 不删、问句行收起、原按钮恢复可点
+    confirmRowBtn(tree, '取消').props.onClick();
     tree = renderPicker();
-    assert.equal(groupOptionCount(tree), groupsBefore - 1, 'confirm=true ⇒ 真删（下拉里少一个列表）');
+    assert.equal(groupOptionCount(tree), groupsBefore, '取消 ⇒ 不删（取消就是取消）');
+    assert.equal(findByClass(tree, 'we-picker__confirm-row'), null, '取消 ⇒ 问句行收起（令牌已清）');
+    assert.equal(delBtn().props.disabled, false, '取消 ⇒ 原按钮恢复可点');
+    // 正路：第一下 → 问句行的「确认」⇒ 真删，且不留悬空 id
+    delBtn().props.onClick();
+    tree = renderPicker();
+    assert.ok(confirmRowBtn(tree, '确认'), '第二下之前问句行的「确认」必须在场（否则正路不可达）');
+    confirmRowBtn(tree, '确认').props.onClick();
+    tree = renderPicker();
+    assert.equal(groupOptionCount(tree), groupsBefore - 1, '确认 ⇒ 真删（下拉里少一个列表）');
+    assert.equal(findByClass(tree, 'we-picker__confirm-row'), null, '落地后问句行收起（令牌已清）');
     assert.equal(findByProp(tree, 'aria-label', '轮播列表').props.value, '', '删掉活动列表 ⇒ 选择回落为空（不留悬空 id）');
     assert.ok(textOf(findByProp(tree, 'aria-label', '轮播列表')).includes('暂无轮播列表'),
       '删光之后下拉显示「暂无轮播列表」（而不是一个空下拉）');
@@ -1255,25 +1278,30 @@ setTimeout(async () => {
     assert.equal(findByProp(tree, 'aria-label', '轮播列表').props.value, other,
       'onGroupChange ⇒ 活动列表真的切过去了（下拉值跟着变）');
 
-    // ── 0b：批量隐藏（confirm 门控）+ 隐藏页「全部恢复」──────────────────────
-    // 先答 false（不隐藏、且不退批量），再答 true（隐藏并从网格消失、自动退批量），最后用
-    // 隐藏页的「全部恢复」把状态收回去 —— 三步都读**渲染出的**证据。
-    // （放在轮换块之后：`confirmAnswer` 与 `findBtnByText` 都在那里声明。）
+    // ── 0b：批量隐藏（**面板内确认**）+ 隐藏页「全部恢复」────────────────────
+    // 每一步都是"第一下只待确认、问句行的按钮才落地"：先「取消」（不隐藏、且不退批量），
+    // 再「确认」（隐藏并从网格消失、自动退批量），最后用隐藏页的「全部恢复」把状态收回去。
+    // 三步都读**渲染出的**证据。
     assert.ok(clickPager(tree, '批量'), '批量按钮必须存在');
     tree = renderPicker();
     const batchPick = collectCards(tree).find((c) => JSON.stringify(c).includes('Wall 0'));
     assert.ok(batchPick && typeof batchPick.props.onClick === 'function', '批量模式下卡片可点');
     batchPick.props.onClick();
     tree = renderPicker();
-    confirmAnswer = false;
     findBtnByText(tree, '批量隐藏').props.onClick();
     tree = renderPicker();
-    assert.ok(wallpaperCardTexts(tree).some((s) => s.includes('"Wall 0"')), 'confirm=false ⇒ 不隐藏（取消就是取消）');
-    assert.ok(findByClass(tree, 'we-picker__batch-bar'), 'confirm=false ⇒ 仍留在批量模式（选择没被清掉）');
-    confirmAnswer = true;
+    assert.ok(findByClass(tree, 'we-picker__confirm-row'), '「批量隐藏」第一下必须出现问句行');
+    assert.ok(textOf(findByClass(tree, 'we-picker__confirm-row')).includes('1 张'),
+      '问句按**当前**选中数现算（不是缓存下来的常量）：' + textOf(findByClass(tree, 'we-picker__confirm-row')));
+    confirmRowBtn(tree, '取消').props.onClick();
+    tree = renderPicker();
+    assert.ok(wallpaperCardTexts(tree).some((s) => s.includes('"Wall 0"')), '取消 ⇒ 不隐藏（取消就是取消）');
+    assert.ok(findByClass(tree, 'we-picker__batch-bar'), '取消 ⇒ 仍留在批量模式（选择没被清掉）');
     findBtnByText(tree, '批量隐藏').props.onClick();
     tree = renderPicker();
-    assert.ok(!wallpaperCardTexts(tree).some((s) => s.includes('"Wall 0"')), 'confirm=true ⇒ 被隐藏的壁纸退出网格');
+    confirmRowBtn(tree, '确认').props.onClick();
+    tree = renderPicker();
+    assert.ok(!wallpaperCardTexts(tree).some((s) => s.includes('"Wall 0"')), '确认 ⇒ 被隐藏的壁纸退出网格');
     assert.equal(findByClass(tree, 'we-picker__batch-bar'), null, '隐藏成功后自动退出批量模式');
     findHiddenTab(tree).props.onClick();
     tree = renderPicker();
@@ -1282,10 +1310,18 @@ setTimeout(async () => {
     assert.ok(findBtnByText(tree, '全部恢复'), '隐藏页必须有「全部恢复」');
     findBtnByText(tree, '全部恢复').props.onClick();
     tree = renderPicker();
-    assert.ok(textOf(findHiddenTab(tree)).includes('已隐藏（' + beforeHidden + '）'), '全部恢复 ⇒ 计数回到零基');
+    assert.ok(findByClass(tree, 'we-picker__confirm-row'), '「全部恢复」第一下必须出现问句行');
+    assert.ok(textOf(findHiddenTab(tree)).includes('已隐藏（' + (beforeHidden + 1) + '）'),
+      '待确认期间**没有恢复任何东西**（第一下只置令牌，计数不动）');
+    confirmRowBtn(tree, '确认').props.onClick();
+    tree = renderPicker();
+    assert.ok(textOf(findHiddenTab(tree)).includes('已隐藏（' + beforeHidden + '）'), '确认 ⇒ 计数回到零基');
     findByClass(tree, 'we-picker__tab').props.onClick();
     tree = renderPicker();
-    assert.ok(wallpaperCardTexts(tree).some((s) => s.includes('"Wall 0"')), '全部恢复 ⇒ 那张壁纸回到网格');
+    assert.ok(wallpaperCardTexts(tree).some((s) => s.includes('"Wall 0"')), '确认 ⇒ 那张壁纸回到网格');
+    // 0b 段的收口断言：**全程零原生模态**。探针答 false ⇒ 真出现原生 confirm 时上面那些
+    // "确认之后真的变了"的判据会全部变红，这里再把"一次都没发生"直接钉住。
+    assert.equal(nativeModalCalls, 0, '全程零原生 window.confirm（破坏性动作一律走面板内确认）');
 
     // ── 0b：库存加载失败的错误态 + 「重试」恢复（WallpaperPicker 的两条早退分支）──
     // 进错误态的唯一入口是"重载库存失败"⇒ 先用页签里的「刷新」把它打失败（真实路径，不是注入状态）。

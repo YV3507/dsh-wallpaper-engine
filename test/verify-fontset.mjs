@@ -1369,7 +1369,9 @@ section('⑨ 字体集编辑器（面板可驱动：意图映射 / confirm 门�
       check('导出不引入 blob 通道（D2：宿主响应头 + 普通链接）',
         !/createObjectURL|new Blob|showSaveFilePicker/.test(storeSrc + editorSrc));
       // 原生模态陷阱是**全仓**的，不只是这一处：它抢的是 document 焦点，谁用谁中招。
-      // 棘轮：只许减少（基线 4 —— 轮播列表 / 隐藏壁纸 / 移除自定义画面 / 恢复已隐藏）。
+      // 棘轮已收到 **0**：五处破坏性动作（轮播列表 / 批量隐藏 / 移除自定义画面 / 恢复已隐藏 /
+      // 删字体集）全部走同一套面板内令牌（`armConfirm` + `renderConfirmRow`，见 src/client.js）。
+      // 判据写成**等号**：0 是终态，回增必须红（`<= 0` 与 `=== 0` 等价，但等号才读得出这一点）。
       const confirmFiles = ['src/client.js', 'src/panel-tabs.js', 'src/picker-modal.js',
         'src/picker-props-panel.js', 'src/media-prep.js', 'src/fontset-editor.js', 'src/fontset-store.js'];
       const confirmSites = confirmFiles.reduce(
@@ -1378,8 +1380,8 @@ section('⑨ 字体集编辑器（面板可驱动：意图映射 / confirm 门�
       const codeOnly = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
       check('编辑器里没有原生模态（**代码**里 window.confirm 零命中；注释里可以提它）',
         !/window\.confirm/.test(codeOnly(editorSrc)));
-      check('棘轮：src/** 的 window.confirm 只许减少（基线 4，新代码不许再加）',
-        confirmSites <= 4, confirmSites + ' 处');
+      check('棘轮（终态）：破坏性动作族的 window.confirm 代码命中数 == 0',
+        confirmSites === 0, confirmSites + ' 处');
     } finally {
       globalThis.React = baseReact;
     }
