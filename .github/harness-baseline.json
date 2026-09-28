@@ -1,0 +1,16 @@
+{
+  "harness": {
+    "package": "@deepseek-ai/dsh",
+    "distTag": "latest",
+    "version": "0.1.7-rc.2"
+  },
+  "plugin": {
+    "commit": "8e5dd886cda64e647645b8522d1ef39ef2639afa",
+    "version": "1.0.1"
+  },
+  "node": "v22.23.2",
+  "runner": "Windows",
+  "runId": "36456751955",
+  "status": "pass",
+  "passedAt": "2026-09-28T17:23:35Z"
+}
