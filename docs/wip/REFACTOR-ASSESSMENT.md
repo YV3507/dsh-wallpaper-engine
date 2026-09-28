@@ -46,12 +46,12 @@
 
 | 指标 | 当前值 |
 |---|---|
-| 浏览器正文 `src/client.js` | **3,919 行**（重构起点 10,119 行） |
-| 构建期内联模块 | **18 个**（17 个来自 `src/` + 共享内核 `lib/settings-schema.js`） |
-| `lib/**`（`verify-reachability` 打印的「lib 扫描面」：`lib/**.{js,mjs}` **全量**，vendored 与生成物都在内） | **25 文件 / 27,590 行** |
+| 浏览器正文 `src/client.js` | **3,977 行**（重构起点 10,119 行） |
+| 构建期内联模块 | **19 个**（18 个来自 `src/` + 共享内核 `lib/settings-schema.js`） |
+| `lib/**`（`verify-reachability` 打印的「lib 扫描面」：`lib/**.{js,mjs}` **全量**，vendored 与生成物都在内） | **25 文件 / 27,946 行** |
 | 其中**运行时不可达** | **0 文件 / 0 行**（P2-12 第一半已删净；此前 48 文件 / 9,618 行曾在 `files` 里、真的发给用户） |
-| 生成物 `lib/client.js` | 12,356 行 / 1.26 MiB（提交；判据是"重建后 `git status` 干净"） |
-| 守卫 + 冒烟 | **29 个 `verify-*`（14,337 行）+ 6 个 smoke（2,274 行）**，均在 `test/` |
+| 生成物 `lib/client.js` | 12,710 行 / 1.28 MiB（提交；判据是"重建后 `git status` 干净"） |
+| 守卫 + 冒烟 | **29 个 `verify-*`（14,480 行）+ 6 个 smoke（2,340 行）**，均在 `test/` |
 | vendored | `webwallgl/` + `vendor/` 共 **12 文件 / 6,950 行** |
 
 > 逐阶段的增量对照表（P0 后 / P1 后 / F1 后 / F2 后）已删除：那些数字只在当时有意义，现值以上表为准。
@@ -213,7 +213,7 @@
 | F0 | `theme` 服务的真机确认（主路径成立 + 两处旧结论被推翻）→ 结论并入 §9.1 的 V1–V10；记录保留在 F0 清单 | ✅ |
 | F1 | 颜色角色令牌层 `src/font/color-roles.js` + 设置 `themeColors` / `themeDarkSeparate`（首期只做颜色，5 个角色） | ✅ |
 | F2 | 排版角色 `src/font/typography.js` + 设置 `themeType`（只追加偏移、不重写 DSH 表达式、不碰字重字族） | ✅ |
-| F3 | **字体集文件化**：`~/.dsh-wallpaper-engine/fontsets/<id>.json` + 导入导出 + 独立编辑器面板（依赖 P2-9 + P2-10，已兑现）。**三条决策已拍板**：D1 按 §9.5 **字面**（字体值不进 settings blob）、D2 导出走宿主响应头（不引入 blob）、D3 **写时复制**（改随包预设 ⇒ 生成同名用户层覆盖，删覆盖 = 恢复随包原样）。**阶段 0 ✅** 前置网：往返 + 两条负对照 + 迁移前外观 golden（绝对锚点逐条 + "只挪一层"/"改一位"探针）。**阶段 1 ✅** 宿主通道：共享内核 `FONTSET_KEYS` / `sanitizeFontset` / `isFontSetId`（**不新建 `lib/**` 共享模块**）；新族 `lib/routes/fontsets.js`（一个 `prefix` 注册、七个端点），id 单段白名单 + 目录包含性，`fontSetId` 作 `config.json` **根字段**且经 `enqueueConfigWrite`；迁移**惰性**（`apply()` 零写盘）。**阶段 1b ✅** 两层存储：随包层 `lib/fontsets/`（只读，先落 1 份 `compact`）+ 用户层，同 id **用户层胜**，写只落用户层；`activate` 定为唯一改指针的写原语（将来的条件自动切换是**策略层**，必须调它）。**阶段 2 ✅** 客户端消费：六个字体键退出 settings 的持久化白名单（kind 元数据留在 `KINDS` 供 `sanitizeFontset` 用 ⇒ 一条消毒路径）；宿主加**迁移前护栏**（未迁移时任何 settings 写入都不得抹掉磁盘上的老字体值 —— 源是磁盘不是 body），迁移**一次 config 写入**同时记 id 并摘掉内联键（D1 终态），且**不覆盖**已有的用户 `default`（`adopted`）；客户端新通道 `src/fontset-store.js`（`loadPersisted → loadFontSet → loadInventory`，宿主那份**一次 `Object.assign` 整套采用**、失败整套不动并留可判定文案、独立缓存键 `we-fontset-active`、debounce + 脏标记 + 在途 GET 竞态守卫与设置同形）；七处字体写入改走 `setFontValues`（**唯一入口**）。**验收后修复**（真机反馈：点「字体自定义」白屏）：键离开 settings blob 后，唯一供应商是**异步**的 `loadFontSet()`，而面板配色区是 `fontCustom` 门控的**同步**读（`sel.themeColors[role.id]`）⇒ 打开开关那一刻首次求值就是 `undefined['primary']` ⇒ React 渲染期抛、整块面板崩（已实测复现）。修法：`fontValueDefaults()`（全函数）+ 初始化顺序 `readPersisted → 兜底 → 缓存` + 令牌层 getter/订阅回调各一道边界防护；判据 ⑦ 钉初始化顺序（删掉兜底那一行 ⇒ 恰好一条变红）、判据 ⑧ 直接渲染外观页签（用客户端那份兜底必须渲染得出，配对项证明它不是恒真）。守卫 96 条判据 + 新冒烟 `test/fontset-load-smoke.mjs`（启动链顺序 / 整套采用 / 读失败不写回不编造）。**阶段 3–4 未开工**（编辑器面板 / 客户端导入入口；写路径的**行为级**判据也留到阶段 3 —— 那时才有可驱动的 UI，见计划阶段 2 末尾的差额记录）| 🟡 |
+| F3 | **字体集文件化**：`~/.dsh-wallpaper-engine/fontsets/<id>.json` + 导入导出 + 独立编辑器面板（依赖 P2-9 + P2-10，已兑现）。**三条决策已拍板**：D1 按 §9.5 **字面**（字体值不进 settings blob）、D2 导出走宿主响应头（不引入 blob）、D3 **写时复制**（改随包预设 ⇒ 生成同名用户层覆盖，删覆盖 = 恢复随包原样）。**阶段 0 ✅** 前置网：往返 + 两条负对照 + 迁移前外观 golden（绝对锚点逐条 + "只挪一层"/"改一位"探针）。**阶段 1 ✅** 宿主通道：共享内核 `FONTSET_KEYS` / `sanitizeFontset` / `isFontSetId`（**不新建 `lib/**` 共享模块**）；新族 `lib/routes/fontsets.js`（一个 `prefix` 注册、七个端点），id 单段白名单 + 目录包含性，`fontSetId` 作 `config.json` **根字段**且经 `enqueueConfigWrite`；迁移**惰性**（`apply()` 零写盘）。**阶段 1b ✅** 两层存储：随包层 `lib/fontsets/`（只读，先落 1 份 `compact`）+ 用户层，同 id **用户层胜**，写只落用户层；`activate` 定为唯一改指针的写原语（将来的条件自动切换是**策略层**，必须调它）。**阶段 2 ✅** 客户端消费：六个字体键退出 settings 的持久化白名单（kind 元数据留在 `KINDS` 供 `sanitizeFontset` 用 ⇒ 一条消毒路径）；宿主加**迁移前护栏**（未迁移时任何 settings 写入都不得抹掉磁盘上的老字体值 —— 源是磁盘不是 body），迁移**一次 config 写入**同时记 id 并摘掉内联键（D1 终态），且**不覆盖**已有的用户 `default`（`adopted`）；客户端新通道 `src/fontset-store.js`（`loadPersisted → loadFontSet → loadInventory`，宿主那份**一次 `Object.assign` 整套采用**、失败整套不动并留可判定文案、独立缓存键 `we-fontset-active`、debounce + 脏标记 + 在途 GET 竞态守卫与设置同形）；七处字体写入改走 `setFontValues`（**唯一入口**）。**验收后修复**（真机反馈：点「字体自定义」白屏）：键离开 settings blob 后，唯一供应商是**异步**的 `loadFontSet()`，而面板配色区是 `fontCustom` 门控的**同步**读（`sel.themeColors[role.id]`）⇒ 打开开关那一刻首次求值就是 `undefined['primary']` ⇒ React 渲染期抛、整块面板崩（已实测复现）。修法：`fontValueDefaults()`（全函数）+ 初始化顺序 `readPersisted → 兜底 → 缓存` + 令牌层 getter/订阅回调各一道边界防护；判据 ⑦ 钉初始化顺序（删掉兜底那一行 ⇒ 恰好一条变红）、判据 ⑧ 直接渲染外观页签（用客户端那份兜底必须渲染得出，配对项证明它不是恒真）。**阶段 3 ✅** 编辑器面板：新模块 `src/fontset-editor.js`（**纯渲染 + 意图回调**，为的是"可被判据驱动"）+ `renderAppearanceTab` 里的「字体集预设」子分支（视图键 `fontSetOpen` 走 `DEFAULTS_ONLY`）—— 切换 / 新建（以当前外观，与"另存为"合为一件事）/ 重命名 / 删除（**confirm 门控**）/ 导出（**普通链接**，宿主 attachment 头）/ 「恢复随包原样」/ 来源三态徽标 / 坏行给原因并禁掉使用与重命名但保留删除；纯随包行与活动行都不出删除。**阶段 2 的写路径差额已关闭**：面板的初始页签取自 `localStorage[PICKER_TAB_KEY]` ⇒ 挂载台能直接渲染「外观」页签、点真实滑块、跑 debounce，断言 **PUT 落 `/fontsets/<活动 id>`、体里带新值、期间零 `/settings` 写**。守卫 109 条判据 + 冒烟 4 场景。**阶段 4 未开工**（客户端导入入口 + 跨半边 MIME 白名单；导出的宿主侧与「导出」链接已就位）| 🟡 |
 | G1 | 删掉 legacy「字体颜色」通路（四条 `!important` 折叠 + 全局墨色覆盖 + schema 键），改为写进 5 个角色 | ✅ |
 | G2 | 面板显示 DSH **官方默认值**（单一真源在角色表；"初始值 = 官方值、清空即回官方"） | ✅ |
 | G3 | 官方 `--dsl-*` 组件钩子通道，作用域 = **钩子在样式表里的定义点**（不按模块名） | ✅ |

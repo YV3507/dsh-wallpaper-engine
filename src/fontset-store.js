@@ -207,6 +207,131 @@ async function loadFontSet() {
 }
 
 /**
+ * 读宿主那边的**字体集清单**（面板的"有哪些集、哪个是活动的、谁覆盖了随包那份"全靠它）。
+ * 结果落进 `selection.fontSets`（瞬态：不落盘，来源永远是宿主）。
+ * 失败写 `selection.fontSetError`（可判定文案），清单保持上一次的 —— 不静默清空。
+ */
+async function refreshFontSets() {
+  try {
+    const res = await apiJson(fontSetsUrl());
+    if (!res.ok || res.error) {
+      selection.fontSetError = hostFailureReason(res);
+      return false;
+    }
+    const data = res.data || {};
+    selection.fontSets = Array.isArray(data.fontsets) ? data.fontsets : [];
+    if (isFontSetId(data.active)) activeFontSetId = data.active;
+    selection.fontSetActive = isFontSetId(data.active) ? data.active : "";
+    selection.fontSetError = "";
+    return true;
+  } catch {
+    selection.fontSetError = "宿主不可达（请求未完成）";
+    return false;
+  }
+}
+
+/** 切换活动集（人工切换的**唯一**写原语；宿主那边也只认这一条）。 */
+async function activateFontSet(id) {
+  if (!isFontSetId(id)) return false;
+  try {
+    const res = await apiFetch(fontSetUrl(id) + "/activate", { method: "POST" });
+    if (!res.ok) { selection.fontSetError = hostFailureReason(res); return false; }
+    activeFontSetId = id;
+    selection.fontSetActive = id;
+    selection.fontSetError = "";
+    await refreshFontSets();
+    return true;
+  } catch {
+    selection.fontSetError = "宿主不可达（请求未完成）";
+    return false;
+  }
+}
+
+/** 新集 id：单段白名单内、按时间戳递增（宿主那边只做形状校验，唯一性由这里保证）。 */
+function newFontSetId() {
+  return "set-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
+}
+
+/**
+ * 以**当前字体值**新建一份集（面板的「新建」与「另存为」是同一件事：
+ * 差异只在措辞 —— 两个按钮做同一个动作会让"改哪个才生效"再次变成要读两处的问题）。
+ * 新建后**切过去**：用户的下一步一定是调它。
+ */
+async function createFontSet(name) {
+  const id = newFontSetId();
+  const values = pickFontValues();
+  try {
+    const res = await apiFetch(fontSetUrl(id), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: typeof name === "string" && name.trim() ? name.trim() : id, values }),
+    });
+    if (!res.ok) { selection.fontSetError = hostFailureReason(res); return ""; }
+    await activateFontSet(id);
+    await refreshFontSets();
+    return id;
+  } catch {
+    selection.fontSetError = "宿主不可达（请求未完成）";
+    return "";
+  }
+}
+
+/** 重命名：先读回那一份的**值**（非活动集的值不在本地），再整份写回新名字。 */
+async function renameFontSet(id, name) {
+  if (!isFontSetId(id) || typeof name !== "string" || !name.trim()) return false;
+  try {
+    const one = await apiJson(fontSetUrl(id));
+    if (!one.ok || !one.data) { selection.fontSetError = hostFailureReason(one); return false; }
+    const res = await apiFetch(fontSetUrl(id), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name.trim(), values: one.data.values }),
+    });
+    if (!res.ok) { selection.fontSetError = hostFailureReason(res); return false; }
+    selection.fontSetError = "";
+    await refreshFontSets();
+    return true;
+  } catch {
+    selection.fontSetError = "宿主不可达（请求未完成）";
+    return false;
+  }
+}
+
+/**
+ * 删掉**用户层**的那一份。对"覆盖了随包预设"的行，这个动作的语义就是**「恢复随包原样」**
+ * （宿主删掉覆盖后随包那份重新可见）—— 所以只有一个入口，标签由面板按 `origin`/`overrides` 决定。
+ * 活动集宿主会拒（400）：先切走。
+ */
+async function deleteFontSet(id) {
+  if (!isFontSetId(id)) return false;
+  try {
+    const res = await apiFetch(fontSetUrl(id), { method: "DELETE" });
+    if (!res.ok) { selection.fontSetError = hostFailureReason(res); return false; }
+    selection.fontSetError = "";
+    await refreshFontSets();
+    return true;
+  } catch {
+    selection.fontSetError = "宿主不可达（请求未完成）";
+    return false;
+  }
+}
+
+/** 导出入口：**普通链接**（宿主带 `Content-Disposition: attachment` 应答）—— 不引入 blob。 */
+function exportFontSetUrl(id) {
+  return isFontSetId(id) ? fontSetUrl(id) + "/export" : "";
+}
+
+/** 撤销挂起的写（面板里"新建/切换"之前先把当前值落地，免得新集拿到旧值）。 */
+async function flushFontSetNow() {
+  if (fontSetTimer && typeof window !== "undefined" && typeof window.clearTimeout === "function") {
+    window.clearTimeout(fontSetTimer);
+  }
+  fontSetTimer = null;
+  cacheFontValues();
+  await pushFontSet();
+}
+
+/**
  * 取消挂起的 debounce 写入（卸载路径调用）。与 `cancelPendingPersist` 同理：
  * 模块级 timer 不属于 fiber，不清掉的话 200ms 后仍会对已卸载的插件写一次。
  */
@@ -220,4 +345,6 @@ function cancelPendingFontSet() {
 export {
   fontValueDefaults, readCachedFontSetValues, loadFontSet, setFontValues, persistFontSet,
   flushFontSet, onPageHideFlushFontSet, onVisibilityResyncFontSet, cancelPendingFontSet,
+  refreshFontSets, activateFontSet, createFontSet, renameFontSet, deleteFontSet,
+  exportFontSetUrl, flushFontSetNow,
 };

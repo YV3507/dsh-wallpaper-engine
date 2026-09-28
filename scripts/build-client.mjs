@@ -97,6 +97,11 @@ const INLINE_MODULES = [
       'async function loadFontSet()', 'function scheduleFontSet()', 'function cancelPendingFontSet()'],
   },
   {
+    file: 'src/fontset-editor.js',
+    why: '字体集编辑器面板（F3 阶段 3）：纯渲染 + 意图回调（网络与状态由 client 侧经显式 ctx 给）',
+    markers: ['function originText(row)', 'function deleteLabel(row)', 'function renderFontSetEditor(ctx)'],
+  },
+  {
     file: 'src/panel-tabs.js',
     why: '面板六个页签的渲染器（wallpaper/appearance/audio/mascot/effects/advanced）—— 显式 ctx 取外界',
     markers: ['function renderWallpaperTab(ctx)', 'function renderAppearanceTab(ctx)',

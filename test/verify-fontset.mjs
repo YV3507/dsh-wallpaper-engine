@@ -861,13 +861,23 @@ section('⑦ 客户端通道（静态契约：字体值不再经 settings 出去
     !/\/settings/.test(strip(storeSrc)));
 }
 
+/**
+ * 字体集清单夹具（⑧ 的面板渲染与 ⑨ 的编辑器驱动共用）。四行刚好覆盖四种形态：
+ * 随包（活动）· 我的 · 我的（覆盖了随包）· 我的（读不懂）。负对照靠换掉其中一行。
+ */
+const FONTSET_ROWS = [
+  { id: 'compact', name: '紧凑', origin: 'builtin', active: true },
+  { id: 'mine', name: '我的集', origin: 'user', active: false },
+  { id: 'over', name: '紧凑', origin: 'user', active: false, overrides: true },
+  { id: 'bad', name: '坏掉的一份', origin: 'user', active: false, broken: 'bad-version' },
+];
+
 // ── ⑧ 面板渲染回归（"点『字体自定义』白屏"）──────────────────────────────────
 // 崩溃形状（已实测复现）：`renderAppearanceTab` 里配色区**只在总开关打开时渲染**，
 // 而它读 `sel.themeColors[role.id]` —— 那六个键已不在 settings 白名单里，若 selection 初始化
 // 没给兜底、字体集又还没载入，这个下标就是 `undefined['primary']` ⇒ React 渲染期抛 ⇒ 整个面板崩。
 // 本段直接渲染那个页签（面板模块 + 真角色表 + client.js 的助手 stub），把"渲染得出"钉成判据。
-section('⑧ 面板渲染回归（配色区在总开关打开时必须渲染得出）');
-{
+section('⑧ 面板渲染回归（配色区在总开关打开时必须渲染得出）');{
   const clientSrc = readFileSync(join(root, 'src', 'client.js'), 'utf8');
   const panelMod = await import(pathToFileURL(join(root, 'src', 'panel-tabs.js')).href);
   const ReactStub = {
@@ -900,6 +910,9 @@ section('⑧ 面板渲染回归（配色区在总开关打开时必须渲染得�
     await import(pathToFileURL(join(root, 'src', 'font', 'components.js')).href),
     await import(pathToFileURL(join(root, 'src', 'font', 'apply.js')).href),
     await import(pathToFileURL(join(root, 'src', 'we-cond.js')).href),
+    // 面板会调 `renderFontSetEditor(...)`（在 bundle 里是同作用域的内联模块；独立 import 时
+    // 得把它映成全局，否则 ⑧ 会以 "is not defined" 的形式假红）。
+    await import(pathToFileURL(join(root, 'src', 'fontset-editor.js')).href),
     schema,
   ];
   for (const mod of preludeMods) for (const [k, v] of Object.entries(mod)) globalThis[k] = v;
@@ -918,7 +931,17 @@ section('⑧ 面板渲染回归（配色区在总开关打开时必须渲染得�
     sidebarPresent: false, id: 'v', type: 'video',
   }, over || {});
   const panelCtx = (sel) => {
-    const c = { setSetting: noop, setTransient: noop, sel };
+    // `fontSet` 是 F3 阶段 3 的子分支 ctx：面板会**求值** `fontSet.open`（switchRow 的参数）
+    // ⇒ 少了它照样抛。这里给一份"打开着"的最小 ctx，顺带让编辑器一并渲染（覆盖更宽）。
+    const c = {
+      setSetting: noop, setTransient: noop, sel,
+      fontSet: {
+        open: true, fontSets: FONTSET_ROWS, activeId: 'compact', loading: false, error: '',
+        editingId: '', draftName: '', newName: '', exportUrl: (id) => '/wallpaper-engine/fontsets/' + id + '/export',
+        onOpen: noop, onActivate: noop, onRefresh: noop, onDelete: noop, onEdit: noop, onDraftName: noop,
+        onRenameCommit: noop, onCancelEdit: noop, onNewName: noop, onCreate: noop,
+      },
+    };
     for (const k of ['officialColorOf', 'onAccent', 'onBlur', 'onBorder', 'onCaretColor', 'onComponentFamily',
       'onComponentFont', 'onFontAdvanced', 'onFontResetAll', 'onGlassAlpha', 'onGlassColor', 'onSidebarAlpha',
       'onSidebarBlur', 'onSidebarColor', 'onSidebarContentAlpha', 'onSidebarContentColor', 'onThemeColor',
@@ -934,6 +957,124 @@ section('⑧ 面板渲染回归（配色区在总开关打开时必须渲染得�
   const missing = renderThrew(panelSel({ themeColors: undefined }));
   check('配对项：缺 themeColors 时**确实会抛**（证明上一条不是恒真）',
     missing !== '', missing || '没抛 —— 夹具可能把那一行空转了，本段必须重写');
+}
+
+// ── ⑨ 字体集编辑器（面板驱动）────────────────────────────────────────────────
+// 面板是**纯渲染**（src/fontset-editor.js）⇒ 挂载台给一组记录用的回调，就能把
+// "哪个按钮对应哪个意图""删除有没有过 confirm"钉成行为判据（同 verify-picker-props 的手法）。
+section('⑨ 字体集编辑器（面板可驱动：意图映射 / confirm 门控 / 来源与用法规则）');
+{
+  const editorMod = await import(pathToFileURL(join(root, 'src', 'fontset-editor.js')).href);
+  const R = {
+    Fragment: 'Fragment', useState: (i) => [i, () => {}], useEffect: () => {}, useRef: (v) => ({ current: v }),
+    createElement: (t, p, ...c) => (typeof t === 'function' ? t(p || {}) : { type: t, props: p || null, children: c }),
+  };
+  globalThis.React = R;
+  // ctlText 要**看得见文案**（本段要断来源标记）⇒ 别用 ⑧ 那份 noop。
+  globalThis.ctlText = (label, hint) => ({
+    type: 'span', props: { className: 'we-picker__ctl-text', title: hint || '' }, children: [label],
+  });
+  const nodes = (root) => {
+    const out = [];
+    (function walk(n) {
+      if (Array.isArray(n)) { n.forEach(walk); return; }
+      if (!n || typeof n !== 'object') return;
+      if (n.type) out.push(n);
+      if (Array.isArray(n.children)) n.children.forEach(walk);
+    })(root);
+    return out;
+  };
+  const textOf = (n) => (Array.isArray(n.children) ? n.children.filter((c) => typeof c === 'string').join('') : '');
+  const allText = (tree) => nodes(tree).map(textOf).join(' | ');
+  const buttons = (tree) => nodes(tree).filter((n) => n.type === 'button');
+  const buttonWith = (tree, label) => buttons(tree).find((n) => textOf(n) === label);
+  const rowOf = (tree, text) => nodes(tree).filter((n) => n.type === 'tr').find((r) => allText(r).includes(text));
+  const render = (over) => {
+    const calls = [];
+    const ctx = Object.assign({
+      fontSets: FONTSET_ROWS, activeId: 'compact', loading: false, error: '',
+      editingId: '', draftName: '', newName: '',
+      exportUrl: (id) => '/wallpaper-engine/fontsets/' + id + '/export',
+      onActivate: (id) => calls.push(['activate', id]),
+      onRefresh: () => calls.push(['refresh']),
+      onDelete: (id) => calls.push(['delete', id]),
+      onEdit: (id) => calls.push(['edit', id]),
+      onDraftName: (v) => calls.push(['draft', v]),
+      onRenameCommit: (id) => calls.push(['rename', id]),
+      onCancelEdit: () => calls.push(['cancel']),
+      onNewName: (v) => calls.push(['newname', v]),
+      onCreate: () => calls.push(['create']),
+    }, over || {});
+    return { tree: editorMod.renderFontSetEditor(ctx), calls };
+  };
+
+  const t = render().tree;
+  check('来源三态都看得见（随包 / 我的 / 已修改随包的「X」）',
+    allText(t).includes('随包') && allText(t).includes('我的（已修改随包的「紧凑」）'));
+  check('活动行标「（使用中）」', allText(t).includes('（使用中）'));
+  check('覆盖随包那一行的删除按钮标签 =「恢复随包原样」（同一动作、按来源换标签）',
+    Boolean(buttonWith(t, '恢复随包原样')));
+  check('活动行与纯随包行都不出删除（先切走 / 发布物删不掉）',
+    buttons(t).filter((b) => textOf(b) === '删除').length === 2,
+    buttons(t).map(textOf).join(','));
+  const badRow = rowOf(t, '坏掉的一份');
+  check('读不懂的行：给可判定原因、禁掉「使用」与「重命名」，但**保留删除**（唯一的出路）',
+    Boolean(badRow) && allText(badRow).includes('无法读取：bad-version')
+    && !buttons(badRow).some((b) => textOf(b) === '使用')
+    && !buttons(badRow).some((b) => textOf(b) === '重命名')
+    && buttons(badRow).some((b) => textOf(b) === '删除'));
+  const link = nodes(t).filter((n) => n.type === 'a').find((a) => String(a.props.href).includes('/fontsets/compact/export'));
+  check('导出是普通链接、指向宿主导出路由（带 attachment 头那条），不是 blob',
+    Boolean(link) && link.props.download === 'compact.json', link ? String(link.props.href) : '没有导出链接');
+
+  check('「使用」把该行 id 交给 onActivate（逐行）',
+    (() => {
+      const r = render();
+      buttons(r.tree).filter((b) => textOf(b) === '使用').forEach((b) => b.props.onClick());
+      return JSON.stringify(r.calls) === JSON.stringify([['activate', 'mine'], ['activate', 'over']]);
+    })(), '（顺序 = 非活动且非坏的那两行）');
+  check('负对照：换掉夹具里的 id ⇒ 收到的就是新 id（判据不是恒真）',
+    (() => {
+      const r = render({ fontSets: [{ id: 'zzz', name: '别的', origin: 'user', active: false }] });
+      buttons(r.tree).filter((b) => textOf(b) === '使用').forEach((b) => b.props.onClick());
+      return JSON.stringify(r.calls) === JSON.stringify([['activate', 'zzz']]);
+    })());
+  check('「新建（以当前外观）」交给 onCreate；名字输入框交给 onNewName',
+    (() => {
+      const r = render();
+      const input = nodes(r.tree).filter((n) => n.type === 'input').pop();
+      if (input) input.props.onChange({ target: { value: '夜间' } });
+      const createBtn = buttonWith(r.tree, '新建（以当前外观）');
+      if (createBtn) createBtn.props.onClick();
+      return JSON.stringify(r.calls) === JSON.stringify([['newname', '夜间'], ['create']]);
+    })());
+  check('「重命名」逐行进入编辑态；编辑态下出输入框（带草稿名）+ 保存/取消，且该行不再出「重命名」',
+    (() => {
+      const r = render();
+      buttons(r.tree).filter((b) => textOf(b) === '重命名').forEach((b) => b.props.onClick());
+      const edited = render({ editingId: 'mine', draftName: '旧名' }).tree;
+      const mineRow = rowOf(edited, '我的集');
+      return JSON.stringify(r.calls) === JSON.stringify([['edit', 'compact'], ['edit', 'mine'], ['edit', 'over']])
+        && Boolean(buttonWith(edited, '保存')) && Boolean(buttonWith(edited, '取消'))
+        && !buttons(mineRow).some((b) => textOf(b) === '重命名')
+        && nodes(edited).some((n) => n.type === 'input' && n.props.value === '旧名');
+    })(), '顺序 = 非坏的那三行');
+  check('删除（恢复原样）必须过 confirm —— 答 false 一个字节都不发，答 true 才发且 id 正确',
+    (() => {
+      globalThis.window = { confirm: () => false };
+      const no = render();
+      buttonWith(no.tree, '恢复随包原样').props.onClick();
+      globalThis.window = { confirm: () => true };
+      const yes = render();
+      buttonWith(yes.tree, '恢复随包原样').props.onClick();
+      globalThis.window = {};
+      return no.calls.length === 0 && JSON.stringify(yes.calls) === JSON.stringify([['delete', 'over']]);
+    })(), '门控判据的成对项');
+  check('载入中与失败态各自可见（失败给的是**原因**，不是"什么都没发生"）',
+    allText(render({ loading: true }).tree).includes('正在读取字体集')
+    && allText(render({ error: '宿主不可达（请求未完成）' }).tree).includes('宿主不可达（请求未完成）'));
+  check('负对照：清空 error ⇒ 失败文案消失（该判据不是恒真）',
+    !allText(render({ error: '' }).tree).includes('字体集不可用'));
 }
 
 // ── teardown ────────────────────────────────────────────────────────────────

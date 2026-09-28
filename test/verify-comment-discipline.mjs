@@ -221,6 +221,8 @@ check('negative control: 带日期的注释会被判不合格',
     'src/persistence.js': 0,
     // F3 阶段 2：字体集通道（新文件从 0 起钉）。
     'src/fontset-store.js': 0,
+    // F3 阶段 3：字体集编辑器面板（新文件从 0 起钉）。
+    'src/fontset-editor.js': 0,
     'lib/media/supervisor.js': 1,
     'lib/media/legacy.js': 1,
     'lib/media/provision.js': 0,

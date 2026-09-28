@@ -483,7 +483,7 @@
 
 
   function renderAppearanceTab(ctx) {
-    const { setSetting, officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onToggleFontCustom, sel } = ctx;
+    const { setSetting, officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onToggleFontCustom, fontSet, sel } = ctx;
     return React.createElement(React.Fragment, null,
       // ── 主题：配色（accent）+ 玻璃基底（颜色/透明度）──
       React.createElement("div", { className: "we-picker__section" },
@@ -720,6 +720,19 @@
           // 与按组件（「高级字体设置」里每项的下拉）设置 —— 全局字族只经 body 继承，
           // 既压平 DSH 的字体栈层次，又够不到用 `font:` 简写的标题/表格/代码。
         ),
+      ),
+      // ── 字体集（F3 阶段 3）：整套字体外观的「预设」──────────────────────────
+      // 与上面那条「字体自定义」互补：那条改的是**当前这套**，这里管的是**有哪些套**。
+      // 子分支形态与「高级字体设置」同款（一行开关 + 条件渲染）；编辑器本体是**纯渲染**
+      // （src/fontset-editor.js），所有网络调用与状态由 client 侧经 `fontSet` 这一份显式 ctx 给。
+      React.createElement("div", { className: "we-picker__section" },
+        React.createElement("div", { className: "we-picker__section-head" },
+          React.createElement("span", { className: "we-picker__section-label" }, "字体集"),
+        ),
+        switchRow("字体集预设", fontSet.open, (e) => fontSet.onOpen(e.target.checked), {
+          tooltip: "预设 = 一整套字体外观；随包的集直接可用，改动会自动存成你的一份",
+        }),
+        fontSet.open && renderFontSetEditor(fontSet),
       ),
       // ── 输入光标（#83）：光标色与壁纸相近时会隐形，这里给它一个独立于字体
       //    自定义的颜色项。「自动」= 不注入任何规则，跟随 dsh 原生表现。──

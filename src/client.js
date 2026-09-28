@@ -166,6 +166,20 @@ const selection = {
   // Transient: 活动字体集那一次加载的结果（面板据此显示可判定文案；空串 = 没问题）。
   fontSetLoaded: false,
   fontSetError: "",
+  // Transient（F3 阶段 3「字体集」编辑器）：
+  //   fontSetOpen  子分支开关（视图态，defaults-only；这里显式给一份，缓存路径下也确定）
+  //   fontSets     宿主清单（来源永远是宿主 ⇒ 只做瞬态，不落盘）
+  //   fontSetActive 活动集 id（宿主的 `active`）
+  //   fontSetLoading 清单在途
+  //   fontSetEditing/fontSetDraftName  正在改名的那一行 + 输入框内容
+  //   fontSetNewName 新建输入框内容
+  fontSetOpen: false,
+  fontSets: [],
+  fontSetActive: "",
+  fontSetLoading: false,
+  fontSetEditing: "",
+  fontSetDraftName: "",
+  fontSetNewName: "",
   url: null,
   type: null,
   previewUrl: null,
@@ -2495,8 +2509,51 @@ function WallpaperPicker(props) {
     deleteGroup(group.id);
   };
 
-  // Slider callbacks: keep the stored value in its canonical unit, then emit —
-  // applyEffects is a subscribed listener (see apply()), so emit() applies the
+  // ── 字体集编辑器的一屏（F3 阶段 3）：**显式 ctx**，面板完全不碰 selection ──────
+// 各字段的含义见 src/fontset-editor.js 的文件头。这里只做三件事：状态从 selection 取、
+// 动作用 fontset-store 发、完事 emit()。（删除的 confirm 门控在**面板**里 —— 问那一句的地方
+// 就是按钮那儿，与轮换列表 / 移除自定义壁纸同形。）
+function fontSetCtx() {
+  const rowOf = (id) => (selection.fontSets || []).find((r) => r && r.id === id) || { id };
+  const done = () => { selection.fontSetLoading = false; emit(); };
+  const busy = (promise) => { selection.fontSetLoading = true; emit(); promise.then(done, done); };
+  return {
+    open: selection.fontSetOpen === true,
+    onOpen: (v) => {
+      selection.fontSetOpen = v === true;
+      if (selection.fontSetOpen) busy(refreshFontSets()); // 打开就拉一次清单（来源永远是宿主）
+      else emit();
+    },
+    fontSets: selection.fontSets,
+    activeId: selection.fontSetActive,
+    loading: selection.fontSetLoading === true,
+    error: selection.fontSetError,
+    editingId: selection.fontSetEditing,
+    draftName: selection.fontSetDraftName,
+    newName: selection.fontSetNewName,
+    exportUrl: (id) => exportFontSetUrl(id),
+    onActivate: (id) => busy(activateFontSet(id)),
+    onRefresh: () => busy(refreshFontSets()),
+    onDelete: (id) => busy(deleteFontSet(id)),
+    onEdit: (id) => {
+      selection.fontSetEditing = id;
+      selection.fontSetDraftName = rowOf(id).name || "";
+      emit();
+    },
+    onDraftName: (v) => { selection.fontSetDraftName = String(v == null ? "" : v); emit(); },
+    onRenameCommit: (id) => busy(renameFontSet(id, selection.fontSetDraftName).then((ok) => {
+      if (ok) { selection.fontSetEditing = ""; selection.fontSetDraftName = ""; }
+    })),
+    onCancelEdit: () => { selection.fontSetEditing = ""; selection.fontSetDraftName = ""; emit(); },
+    onNewName: (v) => { selection.fontSetNewName = String(v == null ? "" : v); emit(); },
+    // 先把挂起的编辑落地（否则新集可能拿到旧值），再以**当前外观**建一份并切过去。
+    onCreate: () => busy(flushFontSetNow()
+      .then(() => createFontSet(selection.fontSetNewName))
+      .then((id) => { if (id) selection.fontSetNewName = ""; })),
+  };
+}
+
+// Slider callbacks: keep the stored value in its canonical unit, then emit —  // applyEffects is a subscribed listener (see apply()), so emit() applies the
   // CSS vars synchronously AND re-renders the numeric readouts in one pass.
   // (Calling applyEffects directly here too used to double-apply every tick.)
   const onScrim = (pct) => { setSetting("scrim", pct / 100); emit(); };
@@ -2973,6 +3030,7 @@ const officialColorOf = (tokens) => {
   const renderActiveTab = () => {
     if (activeTab === "appearance") return renderAppearanceTab({
       setSetting, setTransient,
+      fontSet: fontSetCtx(),
       officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onToggleFontCustom, sel,
     });
     if (activeTab === "mascot") return renderMascotTab({

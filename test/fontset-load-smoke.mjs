@@ -23,7 +23,10 @@ const check = (label, cond, detail = '') => {
   else { failures++; console.log('  ✗ ' + label + (detail ? ' — ' + detail : '')); }
 };
 
-const React = { Fragment: 'Fragment', useState: (i) => [i, () => {}], useEffect: () => {}, useRef: (v) => ({ current: v }),
+// `useState` 必须支持**惰性初始化**（`useState(readSavedPickerTab)` 传的是函数）：
+// 假 React 直接把它当值返回的话，页签永远是默认的「壁纸」——面板内容就驱动不到。
+const React = { Fragment: 'Fragment', useState: (init) => [typeof init === 'function' ? init() : init, () => {}],
+  useEffect: () => {}, useRef: (v) => ({ current: v }),
   createElement: (t, p, ...c) => (typeof t === 'function' ? t(p || {}) : { type: t, props: p || null, children: c }) };
 
 /** 宿主那份活动集（六个键齐全 —— 宿主永远给全）。 */
@@ -99,34 +102,62 @@ function mount({ fetchImpl, store }) {
   };
   const code = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8');
   const cap = { handoff: null };
+  // 定时器登记表 + 面板渲染器：写路径的判据要"重渲一次面板（= 真机里 emit() 做的事）
+  // → 点滑块 → 跑 200ms debounce → 看发了什么请求"。
+  const timers = [];
+  const renderers = [];
+  const fireTimers = (ms) => timers.filter((t) => !t.cleared && t.ms === ms).forEach((t) => { t.cleared = true; t.fn(); });
+  const stubTimeout = (fn, ms) => { const t = { fn, ms, cleared: false }; timers.push(t); return t; };
   const sandbox = {
     window: {
       __ModuleLoader__: { load: (h) => { cap.handoff = h; } },
-      setTimeout: (fn, ms) => ({ fn, ms, cleared: false }),
-      clearTimeout: () => {},
+      setTimeout: stubTimeout,
+      clearTimeout: (t) => { if (t) t.cleared = true; },
       addEventListener() {}, removeEventListener() {},
       innerWidth: 1920, innerHeight: 1080, devicePixelRatio: 1,
     },
     document, localStorage, fetch, React,
     location: { origin: 'http://localhost' },
-    setTimeout: (fn, ms) => ({ fn, ms, cleared: false }),
-    clearTimeout: () => {},
+    setTimeout: stubTimeout,
+    clearTimeout: (t) => { if (t) t.cleared = true; },
   };
   vm.createContext(sandbox);
   new vm.Script(code, { filename: 'client.js' }).runInContext(sandbox);
   const exportsObj = cap.handoff.factory((spec) => (spec === 'react' ? React : { createPortal: (n) => n }));
-  exportsObj.apply({ slots: { inject: (k, cb) => cb(), register: () => {} }, effect(fn) { fn(); return fn; } });
-  return { requests, store: localStorage._store };
+  exportsObj.apply({
+    // 面板由 `slots.inject(名称, () => slots.register(meta, render))` 装配；产出元素树的是
+    // **register 的第二个参数**。`apply()` 期就把首次渲染跑一遍（真机也这样），但那时库存还没到
+    // （面板停在「扫描…」）⇒ 把 renderer 留下，**启动完成后重渲一次**（= 真机 emit() 触发的那次）。
+    slots: {
+      inject: (k, cb) => { try { cb(); } catch { /* 首帧渲染失败不影响后续重渲 */ } },
+      register: (meta, render) => { if (typeof render === 'function') renderers.push(render); return null; },
+    },
+    effect(fn) { fn(); return fn; },
+  });
+  return {
+    requests, store: localStorage._store, timers, fireTimers,
+    renderPanel: () => renderers.map((r) => r()),
+  };
 }
 
-/** 一个"正常的宿主"：/settings + /fontsets（活动集是 compact）+ /inventory。 */
-const goodHost = (url) => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(
+/** 展平渲染树里的宿主节点（假 React 已把函数组件展开）。 */
+function collectTree(root, out = []) {
+  if (Array.isArray(root)) { root.forEach((n) => collectTree(n, out)); return out; }
+  if (!root || typeof root !== 'object') return out;
+  if (root.type) out.push(root);
+  if (Array.isArray(root.children)) root.children.forEach((n) => collectTree(n, out));
+  return out;
+}
+
+/** 一个"正常的宿主"：/settings + /fontsets（活动集是 compact）+ /inventory。settings 可参数化。 */
+const hostWith = (settings) => (url) => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(
   url.includes('/fontsets/') ? { ok: true, id: 'compact', name: '紧凑', values: HOST_VALUES }
     : url.includes('/fontsets') ? { fontsets: [{ id: 'compact', name: '紧凑', origin: 'builtin', active: true }], active: 'compact', migrated: false, adopted: false }
-      : url.includes('/settings') ? { ok: true, betterSidebar: false, settings: { id: 'v', blur: 7 } }
+      : url.includes('/settings') ? { ok: true, betterSidebar: false, settings }
         : { installDir: 'D:/we', total: 1, portableCount: 1, playlists: [], wallpapers: [
           { id: 'v', title: 'V', type: 'video', playable: true, media: '/wallpaper-engine/media/vvv', preview: null, contentrating: 'Everyone' },
         ] }) });
+const goodHost = hostWith({ id: 'v', blur: 7 });
 
 /** 一个"字体集**本体**读不出来"的宿主：清单正常（活动集是 compact），那一份是 422。 */
 const brokenFontSetHost = (url) => Promise.resolve(
@@ -197,6 +228,41 @@ const waitBoot = () => new Promise((r) => setTimeout(r, 50));
     fresh[CACHE_KEY] === undefined, String(fresh[CACHE_KEY]));
   check('挂载/启动不抛（六个键的兜底在位 ⇒ 面板与令牌层的取值路径拿到的都是对象）',
     mountThrew === '', mountThrew || 'fontCustom=true + 无字体集缓存 + 宿主读不出来');
+
+  // ── 场景 D：写路径（阶段 2 记下的差额，在这里补上）────────────────────────────
+  // 面板的初始页签取自 localStorage（`PICKER_TAB_KEY`）⇒ 挂载台可以**直接渲染「外观」页签**，
+  // 于是"点一下字号滑块 ⇒ 写活动集、不写 /settings"第一次成为**行为**判据。
+  console.log('D. 写路径：改字号 ⇒ PUT 到活动集，且完全不碰 /settings');
+  const dStore = {
+    'dsh-wallpaper-engine:selection': JSON.stringify({ id: 'v', fontCustom: true }),
+    'dsh-wallpaper-engine:picker-tab': 'appearance',
+  };
+  const d = mount({ fetchImpl: hostWith({ id: 'v', fontCustom: true }), store: dStore });
+  await waitBoot();
+  // 启动完成后再渲一次面板（= 真机里 emit() 触发的那次重渲）：此时库存与设置都已到位。
+  const sizeInputs = d.renderPanel()
+    .flatMap((tree) => collectTree(tree))
+    .filter((n) => n.type === 'input' && /字号 px/.test(String((n.props || {}).title || '')));
+  check('「外观」页签里找得到排版角色的字号输入（写路径的前置：UI 可达）',
+    sizeInputs.length > 0, sizeInputs.length + ' 个字号输入');
+  // 先把**启动期**挂起的写放掉（真机里 200ms 后自然落的那次）：否则它会被下面这次
+  // `fireTimers(200)` 一起释放，混进"改字号之后发了什么"的窗口里（判据就说不清了）。
+  d.fireTimers(200);
+  await new Promise((r) => setTimeout(r, 10));
+  const before = d.requests.length;
+  if (sizeInputs.length) sizeInputs[0].props.onChange({ target: { value: '26' } });
+  d.fireTimers(200); // 200ms debounce 到点 ⇒ flushFontSet ⇒ PUT
+  await new Promise((r) => setTimeout(r, 10));
+  const written = d.requests.slice(before);  const fontPuts = written.filter((r) => r.method === 'PUT' && r.url.includes('/fontsets/'));
+  const settingsPuts = written.filter((r) => r.method === 'PUT' && r.url.includes('/settings'));
+  check('改字号 ⇒ PUT 落到**活动集**（/fontsets/compact）',
+    fontPuts.length === 1 && fontPuts[0].url.endsWith('/fontsets/compact'),
+    fontPuts.map((r) => r.url.replace('http://localhost', '')).join(' | ') || '(没有 PUT)');
+  check('该 PUT 的体里带着刚改的值（markdown-h1 = 26）',
+    fontPuts.length === 1 && /"markdown-h1":26/.test(String(fontPuts[0].body || '')),
+    String(fontPuts[0] && fontPuts[0].body).slice(0, 96));
+  check('同期**完全没有**写 /settings（字体值不走那条通道）',
+    settingsPuts.length === 0, settingsPuts.map((r) => r.url).join(' | ') || '零次');
 
   console.log('');
   if (failures) { console.log('FONTSET LOAD SMOKE FAILED — ' + failures + ' failed'); process.exit(1); }
