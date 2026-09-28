@@ -810,9 +810,39 @@ section('⑦ 客户端通道（静态契约：字体值不再经 settings 出去
     viaSetting.length === 0, viaSetting.join(',') || '零处');
   check('负对照：同一判据对合成的一行有牙',
     FONT_KEYS.some((k) => new RegExp('setSetting\\(\\s*["\']' + k + '["\']').test('setSetting("' + k + '", next);')));
-  const writeSites = (clientCode.match(/setFontValues\(/g) || []).length;
-  check('字体写入走新入口 setFontValues / persistFontSet（唯一入口）',
-    writeSites >= 6 && /persistFontSet\(\)/.test(clientCode), 'setFontValues 调用点=' + writeSites);
+  // 7a′ **"唯一入口"必须真的唯一**：只数 `setFontValues(` 的调用点是不够的 —— 直写的**另一条路**
+  //     照样能把"改了不生效 / 刷新后回退"带回来（那正是 P2-10 为设置消掉的东西：手抄 50 → 0），
+  //     而那种写法**不会**让"调用点 ≥6"这条判据变红。
+  //     实测那六个键共三条写路径，其中两条**不以字面赋值出现**、且都是刻意的：
+  //       · `setFontValues(patch)`      —— `for (const key of FONTSET_KEYS) … selection[key] = …`（唯一落盘入口）
+  //       · `loadFontSet` 的整套采用     —— 一次 `Object.assign(selection, values)`，**刻意不落盘**（写的就是宿主那份）
+  //       · `onFontResetAll` 的整批重置 —— 6 个字面赋值 + 紧跟 `persistFontSet()`（逐键走 setFontValues 会发 6 次 PUT）
+  //     所以判据钉的是"**字面直写**只许出现在整批重置那一处，且那一处**真的**跟了 persistFontSet"。
+  /** 判据：字面直写的处数 / 其中落在整批重置里的处数 / 整批重置是否跟了落盘（正负对照共用它）。 */
+  const literalFontWrites = (text) => {
+    const count = (t) => FONT_KEYS.reduce((a, k) =>
+      a + ((t.match(new RegExp('selection\\.' + k + '\\s*=[^=]', 'g')) || []).length), 0);
+    // 整批重置的函数体：`onFontResetAll` 起，到下一个同级 `};` 止（该函数体内没有缩进 0 的声明）。
+    const body = (text.match(/const onFontResetAll = \(\) => \{[\s\S]*?\n  \};/) || [''])[0];
+    return { total: count(text), inBody: body ? count(body) : 0, paired: /persistFontSet\(\)/.test(body) };
+  };
+  {
+    const w = literalFontWrites(clientCode);
+    check('六个键的字面直写**只**出现在「恢复默认」的整批重置里',
+      w.total === FONT_KEYS.length && w.inBody === FONT_KEYS.length,
+      '总计=' + w.total + ' / 其中在整批重置里=' + w.inBody + '（期望 ' + FONT_KEYS.length + '/' + FONT_KEYS.length + '）');
+    check('整批重置**写必成对**：赋值之后跟了 persistFontSet()（否则"恢复默认"改了不生效）',
+      w.paired, w.paired ? '成对' : '缺 persistFontSet()');
+    // 负对照 1：在整批重置**之外**多一处字面直写 ⇒ 判据必须给"坏"的裁决。
+    const stray = literalFontWrites(clientCode + '\nfunction stray(){ selection.themeSize = 1; }\n');
+    check('负对照：整批重置之外多一处字面直写会被判出',
+      stray.total !== FONT_KEYS.length && stray.total === w.total + 1,
+      '总计=' + w.total + ' → ' + stray.total);
+    // 负对照 2：把落盘摘掉 ⇒ "写必成对"必须给"坏"的裁决。
+    const unpaired = literalFontWrites(clientCode.replace(/persistFontSet\(\);/, ''));
+    check('负对照：整批重置后面的 persistFontSet() 被摘掉会被判出',
+      w.paired === true && unpaired.paired === false, 'paired ' + w.paired + ' → ' + unpaired.paired);
+  }
 
   // 7b. **启动链顺序**就是"迁移前不丢老值"的客户端那一半：先设置、再字体集、最后库存。
   //     反过来的话，第一次 settings 写入发生在字体集建立之前 —— 那时宿主靠护栏兜着，

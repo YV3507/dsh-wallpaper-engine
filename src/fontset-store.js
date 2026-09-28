@@ -23,13 +23,17 @@
  * 提供的入口：
  *   readCachedFontSetValues()      同步读本地缓存（**client.js 的 store 初始化要用**）
  *   loadFontSet()                  启动加载：活动 id + 正文 → 原子灌进 selection → 必要时重应用
- *   setFontValues(patch)           改字体值并落盘（**唯一入口**，与 setSetting 同形）
- *   persistFontSet()               单独安排一次落盘（"恢复默认"那种整批赋值用）
+ *   setFontValues(patch)           改字体值并落盘（**改值的唯一入口**，与 setSetting 同形）
+ *   persistFontSet()               单独安排一次落盘（"恢复默认"那种整批赋值用；见不变量"写必成对"）
  *   flushFontSet() / onPageHideFlushFontSet() / onVisibilityResyncFontSet() / cancelPendingFontSet()
  *
  * 不变量：
  *   · **整套采用或整套不动**：只有拿到宿主那份完整正文（`sanitizeFontset` 出来的六个键）才写进
  *     selection，且是**一次** `Object.assign`。失败时保留现状（本地缓存那份）——绝不"改了一半"。
+ *   · **改值只有一条路，且写必成对**：那六个键的**字面直写**只许出现在 client.js 的 `onFontResetAll`
+ *     整批重置里，紧跟一次 `persistFontSet()`（逐键走 `setFontValues` 会发 6 次 PUT）；其余改值
+ *     一律经 `setFontValues`。⚠️ 上面那条"整套采用"是**刻意的例外**：它写的就是宿主那份，**不落盘**
+ *     （落盘会立刻把宿主的副本再 PUT 回去）。判据：`verify-fontset` ⑦ 的字面直写棘轮（正/负对照）。
  *   · **localStorage 只是缓存**：启动时先同步读它（首帧就用上次的值，避免默认值→用户值跳变），
  *     宿主回了真值再覆盖。
  *   · **在途 GET 不许覆盖用户的新写**：`fontSetWrites` 计数器是这条的判据（与设置同形）。

@@ -2836,6 +2836,8 @@ const officialColorOf = (tokens) => {
 // 「恢复默认」：所有字体自定义项清回 DSH 默认值（空 = 不覆盖；字体族回 inherit）。
 // 这五个容器 + themeDarkSeparate 是**字体集正文**的键 ⇒ 整批赋值后走 persistFontSet()
 //（它们已不在 settings 白名单里，`setSetting` 那条通道不会把它们写出去）。
+// ⚠️ 这是那六个键**唯一**允许出现字面直写的地方（逐键走 `setFontValues` 会发 6 次 PUT）；
+//    判据：`verify-fontset` ⑦ 的字面直写棘轮 —— 别处的直写会让它变红。
   const onFontResetAll = () => {
     selection.themeColors = {};
     selection.themeSize = {};
