@@ -268,6 +268,8 @@ check('negative control: 带日期的注释会被判不合格',
     'test/verify-comment-discipline.mjs': 32,
     // 日志分级守卫：从 0 起钉（新文件；它的散文只讲判据，不讲编年史）。
     'test/verify-logging.mjs': 0,
+    // F3 字体集守卫（阶段 0 的前置网）：从 0 起钉。
+    'test/verify-fontset.mjs': 0,
     'test/verify-component-fonts.mjs': 2,
     'test/verify-contracts.mjs': 1,
     'test/verify-glass-compositing.mjs': 0,

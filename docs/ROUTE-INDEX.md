@@ -44,7 +44,7 @@
 | 28 | `/upload` | lib/routes/upload.js:55 | 箭头 | disposers base tokenFor UPLOAD_EXT UPLOAD_MAX_BYTES ensureUploadDir …(+6) | 4 |
 | 29 | `/remove` | lib/routes/upload.js:203 | 箭头 | disposers base ensureUploadDir removeUploadMeta resolveUploadFile armBodyIdleTimeout | 1 |
 | 30 | `/upload-dir` | lib/routes/upload.js:247 | 箭头 | disposers base setUploadDir normalizeUserDir | 2 |
-| 31 | `/settings` | lib/index.js:3436 | 箭头 | webServer disposers SETTINGS_MAX_BYTES | 13 |
+| 31 | `/settings` | lib/index.js:3436 | 箭头 | webServer disposers SETTINGS_MAX_BYTES | 14 |
 
 **零提及（拆分前必须先补守卫）**：（无）
 
