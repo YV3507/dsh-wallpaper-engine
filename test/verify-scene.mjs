@@ -18,7 +18,6 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, rmSync, readdirSync, chmodSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { inflateSync, deflateSync } from 'node:zlib';
 import { Writable, Readable } from 'node:stream';
 import { EventEmitter } from 'node:events';
 
@@ -58,77 +57,6 @@ function platformSkip(name, why) {
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
-function pngInfo(bytes) {
-  const b = Buffer.from(bytes);
-  return {
-    isPng: b.length > 24 && b[0] === 0x89 && b.toString('ascii', 1, 4) === 'PNG',
-    width: b.readUInt32BE(16),
-    height: b.readUInt32BE(20),
-  };
-}
-
-function jpegInfo(bytes) {
-  const b = Buffer.from(bytes);
-  let p = 2;
-  let dims = null;
-  while (p + 9 < b.length) {
-    if (b[p] !== 0xff) { p++; continue; }
-    const marker = b[p + 1];
-    if (marker === 0xd8) { p += 2; continue; }
-    if (marker === 0xd9 || marker === 0xda) break;
-    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
-      dims = { width: ((b[p + 7] << 8) | b[p + 8]) & 0xffff, height: ((b[p + 5] << 8) | b[p + 6]) & 0xffff };
-      break;
-    }
-    const segLen = ((b[p + 2] << 8) | b[p + 3]) & 0xffff;
-    if (segLen < 2) break;
-    p += 2 + segLen;
-  }
-  return { isJpeg: b.length > 2 && b[0] === 0xff && b[1] === 0xd8 && b[b.length - 2] === 0xff && b[b.length - 1] === 0xd9, ...(dims || {}) };
-}
-
-/** Very small PNG decoder (filter types 0-4) returning {width,height,rgba}. */
-function pngToRgba(bytes) {
-  const b = Buffer.from(bytes);
-  if (!(b[0] === 0x89 && b.toString('ascii', 1, 4) === 'PNG')) return null;
-  const width = b.readUInt32BE(16);
-  const height = b.readUInt32BE(20);
-  const bpp = 4;
-  const stride = width * bpp + 1;
-  // WE embedded PNGs are split into many IDAT chunks — collect them all.
-  const idats = [];
-  let iend = -1;
-  let p = 8;
-  while (p < b.length) {
-    if (p + 12 > b.length) return null;
-    const len = b.readUInt32BE(p);
-    const type = b.toString('ascii', p + 4, p + 8);
-    if (p + 12 + len > b.length) return null;
-    if (type === 'IDAT') idats.push(b.subarray(p + 8, p + 8 + len));
-    if (type === 'IEND') { iend = p; break; }
-    p += 12 + len;
-  }
-  if (!idats.length || iend < 0) return null;
-  const raw = Buffer.from(inflateSync(Buffer.concat(idats)));
-  if (raw.length < stride * height) return null;
-  const out = Buffer.alloc(width * height * bpp);
-  for (let y = 0; y < height; y++) {
-    const f = raw[y * stride];
-    const line = raw.subarray(y * stride + 1, (y + 1) * stride);
-    for (let x = 0; x < width * bpp; x++) {
-      const a = x >= bpp ? out[y * width * bpp + x - bpp] : 0;
-      const pr = y > 0 ? out[(y - 1) * width * bpp + x] : 0;
-      const pc = y > 0 && x >= bpp ? out[(y - 1) * width * bpp + x - bpp] : 0;
-      let v = line[x];
-      if (f === 1) v = (v + a) & 255;
-      else if (f === 2) v = (v + pr) & 255;
-      else if (f === 3) v = (v + ((a + pr) >> 1)) & 255;
-      else if (f === 4) { const p = a + pr - pc, pa = Math.abs(p - a), pb = Math.abs(p - pr), pcv = Math.abs(p - pc); v = (v + (pa <= pb && pa <= pcv ? a : pb <= pcv ? pr : pc)) & 255; }
-      out[y * width * bpp + x] = v;
-    }
-  }
-  return { width, height, rgba: out };
-}
 
 /** Minimal PNG chunk writer for synthetic embedded-PNG tests. */
 function pngChunk(type, data) {

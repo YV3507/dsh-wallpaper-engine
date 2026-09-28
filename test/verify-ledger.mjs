@@ -11,6 +11,11 @@
  *   · 行状态 ⬜/🚧/🟡 ⇒ 证据必须**不全部**成立（否则就是"做完了没翻状态"）。
  *   · `EVIDENCE` 的**每一个键**都必须真的在 §5 里被查到 —— ID 一改名，证据就静默变成
  *     死代码，而摘要仍按 `EVIDENCE` 的键数报"可核 N 类"。被查集合必须有下限。
+ *   · **进度标记只许住在 §0 的状态图例与 §5 的状态列** —— "未完成"的声明出现在别的节里，就是
+ *     第二份、无人核对的进度真源（其余判据都只解析 §5，发现不了它）。`✅` 不在此列：§4 的归口
+ *     列与 §7 的守卫表用它作**闭合标记**，那是追踪信息，不是对某一步进度的复述。
+ *   · 负对照的**评估**必须排在所有 `controls.push` 之后 —— 判据块会继续往 `controls` 里推，
+ *     排序写错就会让后推的对照"构造了、推了、没人看"。
  *   没有写证据的条目（还没有可核产物）会被列出并在输出里标注 —— 宁可显式承认"未覆盖"，
  *   也不做一条恒真的假断言。
  *
@@ -667,12 +672,8 @@ if (openRow) {
   const mutated = ledgerText.replace(openRow.line, flipStatus(openRow.line, '✅'));
   controls.push([`把未完成的 ${openRow.id} 谎报成 ✅`, mutated !== ledgerText && audit(mutated).problems.length > 0]);
 }
-let controlFailed = 0;
-for (const [what, ok] of controls) {
-  console.log(`  ${ok ? '✓' : '✗'} 负对照：${what} 会被判据抓到`);
-  if (!ok) controlFailed++;
-}
-if (!controls.length) { console.log('  ⚠️ 负对照无法构造（账本里没有既带证据又状态可翻转的条目）'); controlFailed++; }
+// ⚠️ 负对照的**评估**排在文件末（所有 `controls.push` 之后）：下面的判据块还会往里推对照，
+//    评估循环若排在这里，那些对照就是"构造了、推了、没人看" —— 等于没有对照。
 
 // ── 账本里的"条路由"是**现状断言**：必须与生成的索引一致（数字只许复算）──────────────
 // 本次时效性审计实测：账本 §3 写着"宿主 31 条路由"，而同文件 §3.1 已经写 32 —— 一份文档里
@@ -700,6 +701,46 @@ if (!controls.length) { console.log('  ⚠️ 负对照无法构造（账本里�
   const mutatedRow = /\*\*([\d,]+) 行 = `lib\/index\.js` 的 \d+%\*\*，分支代理 \d+，(\d+) 条路由（/.exec(mutated);
   controls.push(['账本里的路由条数被改坏', Boolean(mutatedRow) && Number(mutatedRow[2]) !== idxCount]);
 }
+
+// ── 进度标记只许住在状态列：别的节里的 ⬜/🟡 是**第二份、无人核对的进度真源** ──────────────
+// 实测：§1 还写着 `F3 ⬜`、§3.2 把早已合并的 PKG/TEX 重复列为"仍在办"、§9.7 写着"F3 是唯一未做
+// 的部分" —— 而 §5 的状态列早已 ✅。其余判据都只解析 §5，**发现不了这类漂移**，而它误导的正是
+// "还要不要做、能不能提交"这个判断本身。
+// 规则：`⬜` / `🟡`（= 未完成标记）只许出现在两处 —— §0 的状态取值图例、§5 的状态列。
+// ⚠️ **不连 `✅` 一起禁**：§4 的归口列（`P0-1 ✅`）与 §7 的守卫表都用它作**闭合标记**，
+//    那是"这条风险归到哪、那条规则谁在钉"的追踪信息，不是对某一步进度的复述。
+{
+  /** §0 与 §5 之外的正文（判据与负对照共用同一个函数）。 */
+  const outsideStatusSections = (text) => text.split(/^## /m)
+    .filter((sec) => !/^0\./.test(sec) && !/^5\./.test(sec)).join('\n');
+  const strayMarkers = (text) => outsideStatusSections(text).match(/⬜|🟡/g) || [];
+  const stray = strayMarkers(ledgerText);
+  console.log('  ' + (stray.length ? '✗' : '✓') + ' §0/§5 之外零进度标记（⬜/🟡）'
+    + (stray.length ? ' — 命中 ' + stray.length + ' 处' : ''));
+  if (stray.length) {
+    problems.push('§0/§5 之外出现进度标记 ' + stray.length + ' 处（进度只许住在 §5 的状态列）');
+  }
+  // 防空转：§0 的图例与 §5 的状态列里**确实**有这两种标记 —— 否则"零命中"可能只是全文压根没
+  // 有标记（判据退化成恒真）。这一条与下面的负对照一起，把"判据真的在读真文本"钉住。
+  if (!/⬜/.test(ledgerText) || !/🟡/.test(ledgerText)) {
+    problems.push('账本里读不到 ⬜/🟡：§0 图例或 §5 状态列被改写了 ⇒ 本条判据会退化成恒真');
+  }
+  // 负对照（只测**判据**本身，且判**增量**）：塞进一行"还没做" ⇒ 命中数必须恰好 +2。
+  // 判增量而不是判绝对值：真文本一旦脏了，绝对值对照会跟着失败 ⇒ 同一个根因同时报"不一致"
+  // 与"对照失效"，归因变糊。
+  const injected = '\n**注**：这一条 ⬜ 还没做，另有 🟡 一条在做。\n';
+  controls.push(['§5 之外的正文里塞进进度标记',
+    strayMarkers(ledgerText + injected).length === stray.length + 2]);
+}
+
+// ── 负对照的评估（**必须**在所有 `controls.push` 之后：本文件有四处 push，分布在三个判据块里）──
+// 把评估循环排在中间 ⇒ 后推的两个对照（路由条数、§5 之外的进度标记）从没被判过 —— **排序即判据**。
+let controlFailed = 0;
+for (const [what, ok] of controls) {
+  console.log(`  ${ok ? '✓' : '✗'} 负对照：${what} 会被判据抓到`);
+  if (!ok) controlFailed++;
+}
+if (!controls.length) { console.log('  ⚠️ 负对照无法构造（账本里没有既带证据又状态可翻转的条目）'); controlFailed++; }
 
 if (problems.length || controlFailed) {
   for (const p of problems) console.log('  ✗ ' + p);

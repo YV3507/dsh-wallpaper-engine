@@ -305,6 +305,10 @@ check('negative control: 带日期的注释会被判不合格',
     'test/live-frame-async-identity-smoke.mjs': 3,
     // F3 阶段 2：客户端字体集载入通道的冒烟（新文件从 0 起钉）。
     'test/fontset-load-smoke.mjs': 0,
+    // 手动审计工具（P3-23 的立场：只给候选、不下判决）也在这个棘轮域里（新文件从 0 起钉）。
+    'test/tools/audit-guard-teeth.mjs': 0,
+    // 守卫自身卫生：守卫面的"声明孤儿"判据（P2-12 遗留死助手的去处，新文件从 0 起钉）。
+    'test/verify-dead-declarations.mjs': 0,
   };
   const measure = (s) => (s.match(/曾经|旧实现|以前|原先|旧版|教训|踩到|踩坑/g) || []).length;
 
