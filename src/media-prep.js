@@ -19,6 +19,7 @@
  *   媒体与探测        adoptProbe · releaseProbeMedia · consumePreparedMedia · disposePreparedMedia ·
  *                     frameUrlWithVariant · weApplyAudio · syncSceneAudio · weStartDraw · weDrawFrame
  *   live 挂载         createLiveFrame · scheduleLiveMount · cancelLiveMount（后者用于「换壁纸即终止预热页」）
+ *   live 诊断         liveLog(tag, detail, level?, verboseOnly?) —— 上报只有这一个出口
  *   prelude/client    emit · persistSelection · reportClientDiag · apiHead/apiFetch（prelude）
  * 提供的入口：
  *   applySelection(id, opts)               选中项落地（**唯一**入口：解析 → 门禁 → 持久化 → 层同步 → emit）
@@ -260,10 +261,11 @@ function notePrepareLiveTimeout(wid) {
   const n = (prepareLiveTimeouts.get(key) || 0) + 1;
   prepareLiveTimeouts.set(key, n);
   if (n === PREPARE_LIVE_TIMEOUT_LIMIT) {
+    // 降级（本会话对该壁纸不再尝试 live）⇒ `warn`；经 liveLog 走同一条诊断通道
+    //（浏览器控制台 + 宿主 /diag 环形缓冲），不再自打一行裸 console。
     try {
-      if (typeof console !== "undefined" && console.info) {
-        console.info("[wallpaper-engine] 轮换准备期 live 首帧连续 " + n + " 次超时 → 本会话对该壁纸改用 sceneVideo/静态帧", key);
-      }
+      liveLog("prep-live-timeout",
+        "wid=" + key + " 连续 " + n + " 次超时 → 本会话对该壁纸改用 sceneVideo/静态帧", "warn");
     } catch { /* ignore */ }
   }
 }

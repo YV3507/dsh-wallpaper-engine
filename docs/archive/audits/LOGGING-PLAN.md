@@ -1,8 +1,22 @@
 # 日志分级与提示通道（计划）
 
-> **状态：进行中（未开工）。** 完成即整体移入 `docs/archive/`，不要就地改写成常青文档。
+> **状态：已收口（G0 + P1–P5 全部交付），本文只作过程记录，不复述结论。**
+> 它是开工前后的**决策与顺序**（含 G0 的两项前置实测），不是现行实现的说明。
+>
+> **权威来源**：机制与不变量在代码里 —— `lib/log.js`（三档 + 终端镜像 + `DSH_WE_LOG_LEVEL`）、
+> `lib/notice.js`（成功提示通道 + `DSH_WE_NOTICE` 三态闸门）、`lib/routes/diag.js`（失败模式表与
+> `/client-diag` 分流）的文件头；机器判据在 `test/verify-logging.mjs`（N1–N7 与 R1–R5，每条带可失败对照）。
+>
+> **落地时相对本文的三处偏差（均在代码旁写明，此处只作索引）**：
+> ① 提示行按用户要求与日志行统一成 `[wallpaper-engine] <文案> ✔`（本文 §3.1 写的是 `✔ <文案>`）；
+> ② 失败模式表的两处收紧 —— `失败` 后紧跟计数 `0` 不算、`ERR` 要词首（否则
+> `bake: 后台补烘完成 0 张（失败 0，…）` 这类纯统计行会被误升级成问题，而"默认终端只报问题"会被它自己破坏）；
+> ③ 本文 §1.1 把渲染页上报当作"只能靠文案猜"的前提**不成立**：上游其实已算好级别（只是没随请求发出），
+> 于是补丁把它打到产物里（`test/tools/sync-webwallgl.mjs` 的 `applyDiagLevelPatch`）—— 渲染页现在也
+> **明文声明** `&lvl=`，模式表退化为纯兜底（旧产物 / 其它写入者）。判据 N7 核对补丁用的正则与宿主模式表**同源**。
+>
 > 本文只写**决策、顺序、验收判据、证据锚点**；机制与不变量写进对应文件头（见 §4）。
-> 锚定口径同账本：**以符号名 / 目录名锚定，不写行号、不写编年史**。写作纪律见 [`../README.md`](../README.md) §写作纪律。
+> 锚定口径同账本：**以符号名 / 目录名锚定，不写行号、不写编年史**。写作纪律见 [`../../README.md`](../../README.md) §写作纪律。
 
 ---
 
@@ -209,6 +223,17 @@
 |---|---|---|
 | G1 | 在 `pnpm dsh web` 下打印一次 `process.stdout.isTTY` | 决定 §3.2 的闸门是否可用；为假则依赖 `DSH_WE_NOTICE=1` |
 | G2 | 在 Desktop 的运行日志里打一条 `.info` 与一条 `.warn` | 决定是否需要在 `inject` 里抬 `logger.level` 到 2（§1.4 结论 2）。**若 `.warn` 本来就能落地，就不动 `inject`** |
+
+**实测结果（两条都按"读源码 + 读现场档案"取证，未改任何代码）：**
+
+- **G1 = 假**：DSH Desktop 的宿主由 Electron 以 `utilityProcess.fork(..., { stdio: "pipe" })`
+  fork（`dsh-plugin-desktop` 的 `startIsolatedDesktopHost`）⇒ 宿主进程里的
+  `process.stdout.isTTY` 为假。⇒ §3.2 的闸门**照原样实现**，桌面端默认安静，
+  `DSH_WE_NOTICE=1` 是显式 opt-in（写在 `lib/notice.js` 的文件头与 `TROUBLESHOOTING.md`）。
+- **G2 = `.warn` 本来就能落地**：同一宿主把 `FileExporter` 挂在 `ctx.logger` 上，它自带
+  `levels = { default: 3 }`（⇒ 平台侧阈值判定对 `warn` 放行）且自身 threshold 为 `info`；
+  现场档案里也确实有 `[W]` 行（`%APPDATA%\DSH Desktop\logs\host\dsh-<日期>.error.log`）。
+  ⇒ **不动 `inject`**，`lib/types/index.d.ts` 的 `inject: string[]` 无需同步。
 
 ### P1 · 日志模块 + 收口单点（**终端噪音归零**）
 

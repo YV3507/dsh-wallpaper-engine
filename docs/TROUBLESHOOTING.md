@@ -73,6 +73,46 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 | 右栏关闭后，对话区右侧出现一块中灰 / 浅色板 | harness 0.1.7 上 0.7.5 的已知缺陷（上游 [#107](https://github.com/elysia395/dsh-wallpaper-engine/issues/107)）：0.1.7 把右栏容器改成"保留宽度、只隐藏子元素"，而插件给该容器刷的玻璃底在关闭态也生效。**下一版已修**；临时办法：关掉「侧栏液态玻璃」总开关，或把该会话的右栏宽度拖到 0 |
 | 设置改完重启又变回去 | 先分清是哪一类：① **画面档位（「出图来源」/「自定义画面」）** —— 0.7.5 有缺陷，档位与自定义画面标记在下一次加载时会丢，**下一版已修**，升级即可；② **有损路线 / GPU 渲染加速 / 空闲预热 / 预热整个库** —— 这四个开关在 0.7.5 上从未真正保存过（宿主永远读到默认值），**下一版已修**；③ 其它设置：v0.4.0 起存宿主端文件，确认 `~/.dsh-wallpaper-engine/config.json` 可写、且未回滚到旧版本。另：宿主日志里出现「settings PUT 丢弃了白名单外的键」说明客户端与宿主的字段清单不一致，请附上该行反馈  ⚠️（其②所列四个开关当前分支均不存在，见页首世系标注） |
 
+### 终端输出：默认只报问题
+
+宿主输出分三档，档位名就是日志方法名：
+
+| 档 | 判据 | 终端默认 |
+|---|---|---|
+| `error` | 会导致**插件 / DSH / 系统**出问题（核心能力起不来、数据或进程被破坏、需要用户处理） | ✅ |
+| `warn` | **影响显示效果**的非正常表现（降级、回退、围栏拒绝、首帧超时、重试、被拒的请求） | ✅ |
+| `info` | 其余全部（诊断细节、逐帧统计、运行信息、成功事实的日志侧留痕） | ❌ |
+
+**终端默认只有前两档** —— 所以「壁纸黑屏」这类问题在终端上是安静的，档案照常记录。要看细节
+（逐张贴图、心跳、autosize gate、准备期探测…）：
+
+```powershell
+# Windows PowerShell（只影响本次启动）
+$env:DSH_WE_LOG_LEVEL = "info"; dsh web
+```
+
+```sh
+# macOS / Linux
+DSH_WE_LOG_LEVEL=info dsh web
+```
+
+取值 `error` / `warn` / `info`（默认 `warn`，非法值按默认走）。
+
+排障仍首选**档案**通道（不受终端闸门影响、也不随终端关闭而消失）：
+
+- `~/.dsh-wallpaper-engine/diag/http.jsonl` —— 请求记录、路径围栏、渲染页与客户端上报；写到
+  8 MiB 时轮转为 `http.jsonl.1`（只留一代，目录占用有硬上界）；
+- `GET http://127.0.0.1:<端口>/wallpaper-engine/diag-log` —— 最近 80 条渲染页 / 客户端上报。
+
+成功提示（「壁纸媒体源已监听」「场景壁纸已就绪」）走**另一条通道**：终端上的一行
+`[wallpaper-engine] … ✔`（**与日志行同前缀**，`✔` 只标记"这是成功提示、不是问题"），不经日志、
+不带级别、不落档。它只在 **stdout 是终端**时出现 —— DSH 桌面端的宿主由 Electron 以管道启动，
+`isTTY` 为假 ⇒ 桌面端默认安静。桌面端要看提示就显式开：
+
+```powershell
+$env:DSH_WE_NOTICE = "1"   # 启动 DSH 前设置；设成 0 则永久静默（连提示投递失败的 warn 也不报）
+```
+
 ---
 
 ## English
@@ -139,3 +179,47 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 | The frame-rate cap does nothing | It needs ffmpeg (the encoder prefers NVENC, falling back to libx264 software encoding without an NVIDIA GPU); with no ffmpeg at all the feature disables itself (see 「Limitations」 in `../README.en.md`) |
 | A mid-grey / light slab appears to the right of the conversation area once the right sidebar is closed | Known defect of 0.7.5 on harness 0.1.7 (upstream [#107](https://github.com/elysia395/dsh-wallpaper-engine/issues/107)): 0.1.7 keeps the right-panel container's width and only hides its children, while the plugin's frosted background was applied to that container in every state. **Fixed in the next version**; workaround: turn off the 「侧栏液态玻璃」 master switch, or drag that session's right-sidebar width to 0 |
 | Settings revert after a restart | First work out which kind: ① **frame source (「出图来源」 / 「自定义画面」)** — 0.7.5 has a defect where the chosen tier and the custom-frame flag are dropped on the next load; **fixed in the next version**, just update; ② **lossy route / GPU acceleration / idle prewarm / prewarm whole library** — those four switches were never actually saved on 0.7.5 (the host always read the default); **fixed in the next version**; ③ anything else: since v0.4.0 settings live in a host file — check `~/.dsh-wallpaper-engine/config.json` is writable and that you did not roll back to an older version. Also: a host log line reading 「settings PUT 丢弃了白名单外的键」 means the client's and host's field lists have drifted — please report that line |
+
+### Terminal output: problems only by default
+
+Host output has three levels whose names are the logger method names:
+
+| Level | Criterion | Shown on the terminal by default |
+|---|---|---|
+| `error` | breaks the **plugin / DSH / system** (a core capability fails to start, data or processes are damaged, the user must act) | ✅ |
+| `warn` | an abnormal condition that **affects what you see** (degradation, fallback, a fence rejection, first-frame timeout, retry, rejected request) | ✅ |
+| `info` | everything else (diagnostic detail, per-frame stats, runtime information, the log-side trace of a success) | ❌ |
+
+**Only the first two levels are shown by default** — so "the wallpaper goes black" is silent on the
+terminal, while the on-disk record keeps being written. To see the detail (per-texture lines,
+heartbeats, the autosize gate, preparation probes…):
+
+```powershell
+# Windows PowerShell (this launch only)
+$env:DSH_WE_LOG_LEVEL = "info"; dsh web
+```
+
+```sh
+# macOS / Linux
+DSH_WE_LOG_LEVEL=info dsh web
+```
+
+Accepted values are `error` / `warn` / `info` (default `warn`; anything else falls back to it).
+
+The **on-disk** channel is still the first place to look (it is unaffected by the terminal gate and
+survives the terminal closing):
+
+- `~/.dsh-wallpaper-engine/diag/http.jsonl` — request records, path fences, renderer and client
+  reports; at 8 MiB it rotates to `http.jsonl.1` (one generation only, so the directory has a hard cap);
+- `GET http://127.0.0.1:<port>/wallpaper-engine/diag-log` — the last 80 renderer / client reports.
+
+Success notices ("wallpaper media origin listening", "scene wallpaper ready") travel on a **separate
+channel**: one terminal line, `[wallpaper-engine] … ✔` — the **same prefix as the log lines**, with the
+`✔` merely marking "this is a success, not a problem". Not through the logger, without a level, and not
+written to disk. It only appears when **stdout is a terminal** — the DSH Desktop host is started by
+Electron over a pipe, so `isTTY` is false and Desktop stays quiet by default. To see notices on Desktop,
+opt in:
+
+```powershell
+$env:DSH_WE_NOTICE = "1"   # set before launching DSH; "0" silences it permanently (including the warn for a failed delivery)
+```

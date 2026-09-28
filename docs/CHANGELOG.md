@@ -24,6 +24,14 @@
 - 过场动画选项改为**下拉菜单**，删去两行冗余面板提示。
 - **「启动延迟」改名「启动最长等待时间」，语义改为上限**：延迟期照常预加载（首帧先热起来），**首帧一就绪就换上**、到上限仍未出帧也换上；选项写成 `立即 / ≤3s / ≤5s / ≤10s`。
 
+**日志与提示**
+
+- **终端默认只报问题**：宿主输出收敛成三档（档位名就是日志方法名）—— `error`（会导致插件 / DSH / 系统出问题）、`warn`（降级 / 回退 / 围栏拒绝 / 首帧超时等**影响显示效果**的非正常表现）、`info`（其余全部：逐张贴图、心跳、autosize gate、准备期探测、成功事实的日志侧留痕）。**终端默认只镜像 `error` + `warn`**，`info` 只在 `DSH_WE_LOG_LEVEL=info` 时可见（取值 `error` / `warn` / `info`，默认 `warn`）。此前每一行渲染器上报与心跳都直接打到终端（实测约 18 行/分钟）。
+- **成功提示改走独立通道**：终端上的一行 `[wallpaper-engine] … ✔`（「壁纸媒体源已监听」「场景壁纸已就绪」，**与日志行同前缀**，`✔` 只标记"这是成功提示、不是问题"），**每条每会话至多一条**（HMR 重挂不重发）；不经日志、不带级别、不落档。它只在 stdout 是终端时出现 —— DSH 桌面端的宿主由 Electron 以管道启动（`isTTY` 为假）⇒ 桌面端默认安静，`DSH_WE_NOTICE=1` 可显式打开、`=0` 永久静默；**投递失败**才产生一条 `warn`。
+- **每个上报端点都自己声明级别**：客户端 `[we-live]` 的诊断行随同源像素请求带上 `&lvl=`（宿主对未知 / 缺失一律落 `info`）；**渲染页**（随包的 WebWallGL 产物）原先只把级别喂给浏览器控制台、请求里丢掉，现在由本地补丁按**与宿主同一张失败模式表**算出并随请求发出 —— 宿主的"文案关键字"判定因此退化为兜底。轮换准备期的首帧连续超时从裸 `console.info` 并入同一条通道并标 `warn`。
+- **诊断档案加上限**：`~/.dsh-wallpaper-engine/diag/http.jsonl` 写到 8 MiB 时轮转为 `http.jsonl.1`（只留一代）；`/diag-log` 与每行 JSON 的形状不变。
+- 详情与开闸命令见 [`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md) 的「终端输出：默认只报问题」。
+
 **修复**
 
 - **启动等待期切下一张会卡**：延迟期那个未上屏的 iframe 是**正在跑的渲染页**（不是普通元素），换壁纸时无人终止 ⇒ 它留在后台继续拉 pkg / 解码纹理 / 上传，与新壁纸的启动叠在同一主线程上。现在 `applySelection` 与卸载都会清定时器并把它 `src=about:blank` **中止**；挂载处另补一次心跳武装（`load` 回调只在已挂载时武装，而延迟路径的文档可能在挂载前就 load 完 ⇒ `we-live-on` 会永远不加上）。护栏 `rotation-prepared-leak-smoke` 的 Q1 / Q2 / Q3（各带可失败对照）。
@@ -180,6 +188,33 @@
 - **The live-frame row** is no longer gated by the live-rendering switch (you can re-capture at any time) and shows a **thumbnail of the current wallpaper's live frame**.
 - The transition options moved into a **dropdown**, and two redundant panel hints were removed.
 - **「启动延迟」 renamed to 「启动最长等待时间」, and the value is now a cap**: the delay period still preloads (so the first frame warms up), the live picture is swapped in **the moment the first frame is ready**, and at the cap it is swapped in regardless; the options read `立即 / ≤3s / ≤5s / ≤10s`.
+
+**Logging & notices**
+
+- **The terminal reports problems only by default**: host output is folded into three levels (the level
+  name *is* the logger method name) — `error` (breaks the plugin / DSH / system), `warn` (degradation,
+  fallback, a fence rejection, a first-frame timeout — anything that **affects what you see**) and
+  `info` (everything else: per-texture lines, heartbeats, the autosize gate, preparation probes, the
+  log-side trace of a success). **Only `error` + `warn` are mirrored to the terminal**; `info` appears
+  only with `DSH_WE_LOG_LEVEL=info` (values `error` / `warn` / `info`, default `warn`). Before this,
+  every renderer report and heartbeat went straight to the terminal (measured at ~18 lines/minute).
+- **Success notices moved to their own channel**: one terminal line, `[wallpaper-engine] … ✔` ("wallpaper
+  media origin listening", "scene wallpaper ready") — the **same prefix as the log lines**, with the `✔`
+  merely marking "this is a success, not a problem". **At most once per kind per session** (an HMR remount
+  does not resend it); not through the logger, without a level, not written to disk. It only appears when
+  stdout is a terminal — the DSH Desktop host is started by Electron over a pipe (`isTTY` is false), so
+  Desktop is quiet by default; `DSH_WE_NOTICE=1` turns it on, `=0` silences it permanently, and only a
+  **failed delivery** produces one `warn`.
+- **Every reporting endpoint now declares its own level**: client `[we-live]` diagnostic lines carry
+  `&lvl=` on the same-origin pixel request (an unknown or missing value falls back to `info`); the
+  **renderer page** (the shipped WebWallGL artifact) used to feed its level to the browser console only
+  and drop it from the request — a local patch now computes it from the **same failure table the host
+  uses** and sends it, so the host's keyword matching is demoted to a fallback. The rotation-prep
+  first-frame timeout moved from a bare `console.info` onto the same channel and is tagged `warn`.
+- **The diagnostics file has a cap**: `~/.dsh-wallpaper-engine/diag/http.jsonl` rotates to
+  `http.jsonl.1` at 8 MiB (one generation only); `/diag-log` and the per-line JSON shape are unchanged.
+- Details and the gate commands are in [`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md), "Terminal output:
+  problems only by default".
 
 **Fixes**
 

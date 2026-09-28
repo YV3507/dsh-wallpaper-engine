@@ -58,7 +58,6 @@
 | 文档 | 内容 |
 |---|---|
 | [REFACTOR-ASSESSMENT.md](./wip/REFACTOR-ASSESSMENT.md) | **重构与设计落实账本（活文档）** —— 只留**决策、顺序、验收判据**：现状基线、风险归口、P0/P1/P2/P3 计划（**§5 的状态列是唯一进度真源**，由 `verify-ledger` 机器核对）。未闭合项：P2-11（**未过触发线**）· F3（见其状态列）。**该线全部收口后整份移入 `archive/`** |
-| [LOGGING-PLAN.md](./wip/LOGGING-PLAN.md) | **日志分级与提示通道（未开工）** —— 三档 `error` / `warn` / `info`（默认 `warn`）+ 一条独立的成功提示通道；含现状取证、`ctx.logger` 等级语义实测、守卫耦合清单与机器可验的收口判据。**开工前先做 §5 的 G0 两项实测** |
 | [F3-PLAN.md](./wip/F3-PLAN.md) | **字体集文件化（草案 · 未开工）** —— `fontsets/<id>.json` 的设计落实计划：开工前的事实核对、零覆盖清单、先决断言与阶段顺序；**§3 阶段 0 的两条待拍板决策不先定就不动手**。进度真源是账本 §5 的 `F3` 行 |
 
 ## 已归档（`archive/`，只作记录）
@@ -88,6 +87,7 @@
 | [audits/ROBUSTNESS-AUDIT.md](./archive/audits/ROBUSTNESS-AUDIT.md) | 健壮性审计（已收口）—— 结论已归口为账本 §5 的 P3-1 … P3-22 |
 | [audits/F0-THEME-SERVICE-CHECKLIST.md](./archive/audits/F0-THEME-SERVICE-CHECKLIST.md) | F0 真机确认（已关闭）—— 结论（`V1–V10` 约束）在账本 §9.1；原始证据在本地未跟踪目录 |
 | [audits/P3-11-PLAN.md](./archive/audits/P3-11-PLAN.md) | `WallpaperPicker` 拆分的过程记录（**已完成**：模型 / 模态框 / 属性面板三块都搬走）—— 开工前的事实核对、先决断言清单与收口时的牙齿证明；结论在账本 §5 的 `P3-11` 行，判据在守卫本身 |
+| [audits/LOGGING-PLAN.md](./archive/audits/LOGGING-PLAN.md) | 日志分级与提示通道的过程记录（**已完成**：G0 + P1–P5）—— 三档 `error` / `warn` / `info`（默认 `warn`）+ 一条独立的成功提示通道；含 G0 两项前置实测的结果、`ctx.logger` 等级语义实测与守卫耦合清单。**机制与不变量已留在 `lib/log.js` / `lib/notice.js` / `lib/routes/diag.js` 的文件头**，判据在 `test/verify-logging.mjs` |
 
 ## 其它
 

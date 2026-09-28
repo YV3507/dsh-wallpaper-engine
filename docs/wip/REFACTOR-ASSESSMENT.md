@@ -48,10 +48,10 @@
 |---|---|
 | 浏览器正文 `src/client.js` | **3,882 行**（重构起点 10,119 行） |
 | 构建期内联模块 | **17 个**（16 个来自 `src/` + 共享内核 `lib/settings-schema.js`） |
-| `lib/**`（`verify-reachability` 打印的「lib 扫描面」：`lib/**.{js,mjs}` **全量**，vendored 与生成物都在内） | **22 文件 / 26,475 行** |
+| `lib/**`（`verify-reachability` 打印的「lib 扫描面」：`lib/**.{js,mjs}` **全量**，vendored 与生成物都在内） | **24 文件 / 26,800 行** |
 | 其中**运行时不可达** | **0 文件 / 0 行**（P2-12 第一半已删净；此前 48 文件 / 9,618 行曾在 `files` 里、真的发给用户） |
-| 生成物 `lib/client.js` | 12,030 行 / 1.24 MiB（提交；判据是"重建后 `git status` 干净"） |
-| 守卫 + 冒烟 | **27 个 `verify-*`（12,525 行）+ 5 个 smoke（2,070 行）**，均在 `test/` |
+| 生成物 `lib/client.js` | 12,044 行 / 1.24 MiB（提交；判据是"重建后 `git status` 干净"） |
+| 守卫 + 冒烟 | **28 个 `verify-*`（13,093 行）+ 5 个 smoke（2,075 行）**，均在 `test/` |
 | vendored | `webwallgl/` + `vendor/` 共 **12 文件 / 6,950 行** |
 
 > 逐阶段的增量对照表（P0 后 / P1 后 / F1 后 / F2 后）已删除：那些数字只在当时有意义，现值以上表为准。
@@ -65,7 +65,7 @@
 | 巨石 | 体量 | 锚点 |
 |---|---|---|
 | `WallpaperPicker` 组件 | **722 行**（P3-11 前 1,033 / 原估 1,051 行，分支代理 202 = 当时的 `src/client.js` 的 25%）；模型 / 模态框 / 属性面板已抽到 `src/picker-*.js` | `src/client.js`；六个页签渲染器在 `src/panel-tabs.js`，仍有约 100 处瞬态直写 |
-| `apply(ctx)` 宿主函数 | **1,171 行 = `lib/index.js` 的 34%**，分支代理 219，31 条路由（**5 族 / 17 条已拆出**到 `lib/routes/`） | `lib/index.js`；内含 4 个巨石 `buildInventory`(137) / `handleSceneFiles`(65) / `serveFile`(49) / `ensureMediaOrigin`(42) |
+| `apply(ctx)` 宿主函数 | **1,191 行 = `lib/index.js` 的 34%**，分支代理 219，31 条路由（**5 族 / 17 条已拆出**到 `lib/routes/`） | `lib/index.js`；内含 4 个巨石 `buildInventory`(137) / `handleSceneFiles`(65) / `serveFile`(49) / `ensureMediaOrigin`(42) |
 
 ⚠️ **复杂度的分布比总量更值得注意**：`lib/media/` 分层清楚（`lib/we-renderer/` 曾也是一棵干净的树，已随 P2-12 删除）。
 **烂的是两个门面文件，不是整个仓库** —— 这决定了 P2 是"拆门面"而非"重写内核"。

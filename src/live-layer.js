@@ -37,6 +37,11 @@
  *     LIVE_FIRST_FRAME_MS · bootRestore
  *
  * 不变量：
+ *   · `liveLog(tag, detail?, level?, verboseOnly?)` 是**客户端上报的唯一出口**：三档
+ *     `error` / `warn` / `info`（与宿主 `lib/log.js` 同集合，见 `LIVE_LEVELS`），缺省与未知
+ *     一律 `info`；`verboseOnly` 的调用点在 `weLiveDebug` 关闭时**连字符串都不构造**。
+ *   · 档位随同源像素请求以 `&lvl=` 上行（宿主对未知 / 缺失落 `info`）；**判据**：影响显示
+ *     效果的非正常表现才是 `warn`（判失败、stall 自救、准备期超时降级），其余全 `info`。
  *   · **live 看护只有一条时间线**：`liveWatch` 是唯一的活动看护记录，start/stop 必须成对
  *     （startLiveWatch 自己会停掉上一个；stopLiveWatch 清 timer）。判失败与首帧确认都写它。
  *   · **抓帧回填不得覆盖新壁纸**：scheduleLiveFrameBackfill 的落地回调必须重校验 token/wid
@@ -154,7 +159,7 @@ const LIVE_DIAG_KEY = "weLiveDebug";
 // 诊断代码版本 + 页面实例 id：日志里带着它们，事后能回答两个必问的问题 ——
 // 「这一行是哪个 bundle 打的」（刷新是否真的生效）和「是哪个页面/窗口在跑引擎」
 // （同时开两个 DSH 视图时，两个客户端会各自轮换、互相覆盖设置）。
-const LIVE_DIAG_BUILD = "d6";   // d4→d6：GPU 静帧几何校验（存帧视比不符 → 清除按当前视口重抓）
+const LIVE_DIAG_BUILD = "d7";   // d7：上报自带级别（`&lvl=`，宿主按它分档；未知 / 缺失落 info）
 const LIVE_PAGE_ID = (function () { try { return Math.random().toString(36).slice(2, 7); } catch { return "?"; } })();
 // 面板开关（本会话有效、不落盘）：给「打不开 DevTools」的环境留的入口 ——
 // DSH web 的根路径鉴权是 303 跳到干净的 `/`，URL 上的查询参数到不了客户端，
@@ -164,18 +169,25 @@ function liveDiagVerbose() {
   if (liveDiagOn) return true;
   try { return typeof localStorage !== "undefined" && localStorage.getItem(LIVE_DIAG_KEY) === "1"; } catch { return false; }
 }
-function liveLog(tag, detail, verboseOnly) {
+// 三个档位名与宿主侧同集合（`lib/log.js` 的 LEVELS）。两侧**不共享内核**：共享内核会触发
+// 构建清单与共享内核白名单的变更，成本高于收益。不一致也是安全的 —— 宿主对未知 / 缺失的
+// `lvl` 一律落 `info`，客户端多一个档位名最多让那批消息变安静。防漂由守卫 N6 兜住。
+const LIVE_LEVELS = ["error", "warn", "info"];
+function liveLog(tag, detail, level, verboseOnly) {
   if (verboseOnly && !liveDiagVerbose()) return;
   // detail 支持传函数：热路径（每秒 tick）在开关关闭时不构造那串注定被丢弃的字符。
   const text = typeof detail === "function" ? detail() : detail;
+  // 档位：`error` / `warn` / `info`，缺省与未知一律 `info`（宿主侧的判据同此）。
+  const lvl = LIVE_LEVELS.indexOf(level) >= 0 ? level : "info";
   const line = "[we-live " + LIVE_DIAG_BUILD + "\u00b7p" + LIVE_PAGE_ID + "] " + tag + (text ? " · " + text : "");
   try { if (typeof console !== "undefined" && console.info) console.info(line); } catch { /* ignore */ }
-  // 同源像素请求 → host /diag 环形缓冲（与渲染页 reportDiag 同一条通路；
-  // 无 host（单测 sandbox）时 Image 不存在，静默跳过）。
+  // 同源像素请求 → host /diag 环形缓冲（与渲染页 reportDiag 同一条通路；`lvl` 让宿主
+  // 不必靠文案猜档位，字节前缀仍是 `/diag?msg=`；无 host（单测 sandbox）时 Image
+  // 不存在，静默跳过）。
   try {
     if (typeof Image === "function") {
       const img = new Image();
-      img.src = "/diag?msg=" + encodeURIComponent(line);
+      img.src = "/diag?msg=" + encodeURIComponent(line) + "&lvl=" + lvl;
     }
   } catch { /* ignore */ }
 }
@@ -373,7 +385,7 @@ function startLiveWatch(frame, wid) {
   const watch = { frame, wid: String(wid || ""), timer: 0, startedAt: Date.now(), firstFrame: false, stall: 0, resumed: false, heldPaused: 0 };
   liveLog("watch-start", "wid=" + watch.wid + " " + liveStateBrief());
   watch.timer = setInterval(() => {
-    if (!frame.isConnected) { liveLog("watch-stop", "iframe 已从文档移除", true); stopLiveWatch(); return; }
+    if (!frame.isConnected) { liveLog("watch-stop", "iframe 已从文档移除", "info", true); stopLiveWatch(); return; }
     // 先读统计、后下发控制：虽然 applyLiveControls 已去重（只在变化时
     // resume/pause），保持这个顺序让读数不受任何控制调用的副作用影响。
     const stats = liveStats(frame);
@@ -393,7 +405,7 @@ function startLiveWatch(frame, wid) {
     }
     liveLog("tick", () => liveStateBrief("fps=" + (stats ? Math.round(stats.fps * 10) / 10 : "null")
       + " running=" + (stats ? stats.running : "null") + " alive=" + alive
-      + " first=" + watch.firstFrame + " stall=" + watch.stall + " held=" + watch.heldPaused), true);
+      + " first=" + watch.firstFrame + " stall=" + watch.stall + " held=" + watch.heldPaused), "info", true);
     if (!watch.firstFrame) {
       if (alive) {
         watch.firstFrame = true;
@@ -473,7 +485,7 @@ function startLiveWatch(frame, wid) {
     if (watch.stall === LIVE_STALL_TICKS && !watch.resumed) {
       // 单次自救：contextlost 恢复后渲染器可能停摆但未上报，先推一把。
       watch.resumed = true;
-      liveLog("stall-rescue", "wid=" + watch.wid + " 连续 " + watch.stall + "s 无帧 → 试 resume()");
+      liveLog("stall-rescue", "wid=" + watch.wid + " 连续 " + watch.stall + "s 无帧 → 试 resume()", "warn");
       try {
         const wp = frame.contentWindow && frame.contentWindow.__wp;
         if (wp) wp.resume();
@@ -509,7 +521,7 @@ function liveFail(reason) {
     + " 暂停期跳过tick=" + (watched ? watched.heldPaused : 0)
     + " " + liveStateBrief()
     + " prepare超时计数=" + (prepareLiveTimeouts.get(String(wid)) || 0)
-    + " 帧率档=" + selection.sceneLiveFps);
+    + " 帧率档=" + selection.sceneLiveFps, "warn");
   stopLiveWatch();
   if (!wid) return;
   const map = Object.assign({}, selection.sceneLiveFailures || {});
@@ -641,7 +653,7 @@ function scheduleLiveFrameBackfill(frame, opts) {
       // 已有 GPU 帧且几何相符（含并发窗口里被别人写入）：无需抓帧，保留 token 免重复。
       if (hasGpu && !stale) {
         // 未知几何的保留要留痕：这是「没有头也没重抓」的唯一解释。
-        if (arStored <= 0) liveLog("gpu-frame-keep-unknown", "wid=" + backfillWid + " 存帧视比未知 → 保留", true);
+        if (arStored <= 0) liveLog("gpu-frame-keep-unknown", "wid=" + backfillWid + " 存帧视比未知 → 保留", "info", true);
         return true;
       }
       if (stale) {
