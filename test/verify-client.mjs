@@ -1673,6 +1673,32 @@ setTimeout(async () => {
       assert.ok(FONT_KEYS.every((k) => k in KINDS && k in DEFAULTS),
         '字体键的 kind 元数据与默认值仍须在 schema 里（sanitizeFontset 用）');
 
+      // ①c `DEFAULTS_ONLY` 键**不得经落盘通道写**。三条入口的分工是：`setSetting` / `setFontValues`
+      //    = 改设置**并落盘**，`setTransient` = 改瞬态字段、不落盘。一个不在持久化白名单里的键走
+      //    `setSetting` ⇒ 白跑一次 debounce + 一次多余的宿主 PUT，而且**读起来像它会持久化**
+      //    （实测一处：`onFontResetAll` 里写 `fontAdvanced`）。
+      //    ⚠️ 判据**只禁落盘通道**，不禁裸直写：`media-prep.js` 的 `applySelection` 是**整批直写后
+      //    一次 persist**（`type` / `blockedNote` / `sceneVideo` … 同型），禁裸写会逼出任意豁免。
+      //    扫描面 = **产物**（= 全部内联模块的正文 ⇒ 不可能漏调用方，也不需要维护"可能是调用方的
+      //    文件"清单 —— 清单漏一个文件，判据在那个文件上就恒真）。键集从 `DEFAULTS_ONLY` 派生。
+      //    注释先剥掉：`setTransient` 那条契约注释里正好点名了这些键。
+      const persistingWritesOf = (text) => {
+        const t = text.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+        return DEFAULTS_ONLY.filter((k) =>
+          new RegExp('setSetting\\(\\s*[\'"]' + k + '[\'"]').test(t)
+          || new RegExp('setFontValues\\(\\s*\\{[^}]*\\b' + k + '\\s*:').test(t));
+      };
+      assert.deepEqual(persistingWritesOf(code), [],
+        'DEFAULTS_ONLY 键不得经落盘通道（setSetting / setFontValues）写：'
+        + persistingWritesOf(code).join(', '));
+      assert.deepEqual(persistingWritesOf('setSetting("fontAdvanced", false);'), ['fontAdvanced'],
+        'negative control: 经落盘通道写仅默认值键会被判出');
+      assert.deepEqual(persistingWritesOf('setFontValues({ themeTypeOnly: 1 });'), ['themeTypeOnly'],
+        'negative control: 字体值入口写仅默认值键同样会被判出');
+      assert.deepEqual(persistingWritesOf(
+        'setTransient("fontAdvanced", false);\n// setSetting("fontAdvanced", x)\n/* setSetting("themeTypeOnly", y) */'),
+      [], 'positive control: setTransient 本身、以及注释里的写法都不算（判据不是恒真）');
+
       // ② 结构：两侧都必须**委托**给 schema，宿主不得再有手写逐键白名单。
       //    ⚠️ `serializeSelection` 已随持久化层抽到 src/persistence.js（P2-9 后半）⇒ 那一条按
       //    文件归属分源；`sanitizeSettings` 仍在 client.js，不动。

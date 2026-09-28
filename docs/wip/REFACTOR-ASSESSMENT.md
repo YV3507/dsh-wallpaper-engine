@@ -46,11 +46,11 @@
 
 | 指标 | 当前值 |
 |---|---|
-| 浏览器正文 `src/client.js` | **4116 行**（重构起点 10,119 行） |
+| 浏览器正文 `src/client.js` | **4119 行**（重构起点 10,119 行） |
 | 构建期内联模块 | **19 个**（18 个来自 `src/` + 共享内核 `lib/settings-schema.js`） |
-| `lib/**`（`verify-reachability` 打印的「lib 扫描面」：`lib/**.{js,mjs}` **全量**，vendored 与生成物都在内） | **25 文件 / 28348 行** |
+| `lib/**`（`verify-reachability` 打印的「lib 扫描面」：`lib/**.{js,mjs}` **全量**，vendored 与生成物都在内） | **25 文件 / 28351 行** |
 | 其中**运行时不可达** | **0 文件 / 0 行**（P2-12 第一半已删净；此前 48 文件 / 9,618 行曾在 `files` 里、真的发给用户） |
-| 生成物 `lib/client.js` | 13098 行 / 1.31 MiB（提交；判据是"重建后 `git status` 干净"） |
+| 生成物 `lib/client.js` | 13101 行 / 1.31 MiB（提交；判据是"重建后 `git status` 干净"） |
 | 守卫 + 冒烟 | **29 个 `verify-*`（14673 行）+ 6 个 smoke（2761 行）**，均在 `test/` |
 | vendored | `webwallgl/` + `vendor/` 共 **12 文件 / 6,950 行** |
 
