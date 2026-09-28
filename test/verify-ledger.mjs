@@ -30,6 +30,9 @@
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// P2-11 触发线判据的路由枚举**同源**于索引工具（与 analyze / verify-route-index 一个口径，
+// 不在这里手抄第二份注册扫描）。
+import { buildIndex } from './tools/host-route-index.mjs';
 
 const root = resolve0();
 function resolve0() {
@@ -266,6 +269,32 @@ const EVIDENCE = {
     // 判据与 `test/verify-route-index.mjs` ② 同一形态。
     ['所有路由族都已拆出 lib/routes/（lib/index.js 内零注册）',
       () => !read('lib/index.js').includes('webServer.register({')],
+    // §7-6 触发线的机器化：剩余面 = `lib/index.js` 的注册行，按**首段**归组（口径 =
+    // analyze ② 组）。这条为**假** = 某个首段族 ≥3 = 触发线已过、该拆下一族。
+    // 全部拆完时空集取 max=0 仍为真 —— 完成时它必须真，否则状态列永远翻不了 ✅。
+    ['触发线（§7-6）：剩余面首段族全部 <3（lib/index.js 注册行按首段归组的最大值）',
+      () => {
+        const { routes } = buildIndex();
+        const own = routes.filter((r) => r.src === 'lib/index.js');
+        const groups = new Map();
+        for (const r of own) {
+          const seg = r.path.split('/')[1] || '';
+          groups.set(seg, (groups.get(seg) || 0) + 1);
+        }
+        return Math.max(0, ...groups.values()) < 3;
+      }],
+    // 拆分进度的正向清单：族模块增长不改判（每落一族仍为真）；文件在、apply 没接 =
+    // 孤儿族 ⇒ 这条假 → 状态翻不了 ✅。fn 名按文件名 PascalCase 推导，与 §3.5 命名一致。
+    ['每个 lib/routes/*.js 族模块都已接进 apply（register<族>Routes( 调用在位，≥6 个族）',
+      () => {
+        const files = readdirSync(join(root, 'lib', 'routes')).filter((f) => f.endsWith('.js'));
+        const host = read('lib/index.js');
+        return files.length >= 6 && files.every((f) => {
+          const pascal = f.replace(/\.js$/, '').split('-')
+            .map((s) => s[0].toUpperCase() + s.slice(1)).join('');
+          return host.includes(`register${pascal}Routes(`);
+        });
+      }],
   ],
   'P2-12': [
     // 注意方向：这是"**做完**才成立"的证据。未完成时它们**必须不成立** ——

@@ -133,7 +133,7 @@
 | # | 风险 | 归口 |
 |---|---|---|
 | R1 | ~~零 CI：守卫只在本机跑~~ | P0-1 ✅ |
-| R2 | ~~9,618 行死码在发布面里~~ **已消除**（P2-12 第一半删净，可达性 0/0）；残留的是**文档面**：README / HOW-IT-WORKS 仍宣传该链为兜底 | P2-12 第二半 + 阶段 4 |
+| R2 | ~~9,618 行死码在发布面里~~ **已消除**（P2-12 第一半删净，可达性 0/0）；~~残留的文档面（README / HOW-IT-WORKS 宣传该链为兜底）~~ **也已消除 —— 现行文档写的是「为什么没有 CPU 兜底出图」（P2-12 阶段 4 收口时改的）** | P2-12 第二半 + 阶段 4 ✅ |
 | R3 | **vendored 同步链两处**：① 补丁锚点**早已是签名**（不是压缩名）—— 1.4.2 → 2.0.0 大版本跳变一次命中，原描述已失效；② 真·"本机不可复现" = `sync-webwallgl.mjs` 的两次 `spawnSync('pnpm'\|'npx')`，而本机 pnpm 是 DSH 注入的 `.cmd` 垫片、npx 是 `.ps1`，Node ≥18 拒绝在 `shell:false` 下启 `.cmd` ⇒ 该工具在本机**必然**失败（与沙箱无关） | 工具侧待修（改 spawn 解析或换入口）；补丁本体待提 `webwallgl#9` |
 | R4 | ~~设置键四处镜像~~ | P1-5 ✅ |
 | R5 | ~~缓存键两处构造~~ | P1-6 ✅ |
@@ -175,7 +175,7 @@
 |---|---|---|
 | P2-9 | `src/api-client.js` 成为宿主 API **唯一出入口**；客户端 13 个模块**零裸 `fetch`**（棘轮 26 → 0）；持久化层抽出为 `src/persistence.js` | ✅ |
 | P2-10 | 六个页签抽出到 `src/panel-tabs.js`（**显式 ctx**）；store 写入收敛到 `setSetting` / `setTransient`（"赋值 + 落盘"手抄 50 → 0，页签零 `selection` 引用） | ✅ |
-| P2-11 | 宿主 `apply(ctx)` **按路由族拆分**：第一族 `diag` 已落地 → `lib/routes/diag.js`（4 条注册）。**验收判据**：`lib/index.js` 内零 `webServer.register({`、索引逐字节一致、运行时注册条数 == 索引行数。剩余族按 §3.5 的固定动作推进，触发条件见 §7 第 6、7 条。**§7-6 实测（已复评）**：`analyze-host-apply.mjs` 的 ② 组显示 `lib/index.js` 内 13 条路由**首段各不相同**（`/inventory` `/media-info` `/transcode-progress` `/transcoded` `/media` `/preview` `/video-preview` `/props` `/live-frame` `/we-assets-dir` `/scene-video` `/scene-audio` `/settings`）⇒ **没有任何族达到 ≥3 条**，按账本自己的规则**不拆**（待过线，或 §7-7 的跨路由隔空故障把优先级提上来） | 🟡 5 族已落地；剩余族**未过触发线**（有实测，非未做） |
+| P2-11 | 宿主 `apply(ctx)` **按路由族拆分**：第一族 `diag` 已落地 → `lib/routes/diag.js`（4 条注册）。**验收判据**：`lib/index.js` 内零 `webServer.register({`、索引逐字节一致、运行时注册条数 == 索引行数。剩余族按 §3.5 的固定动作推进，触发条件见 §7 第 6、7 条。**§7-6 实测（已复评）**：`analyze-host-apply.mjs` 的 ② 组显示 `lib/index.js` 内 14 条注册行（13 字面量 + 循环展开 1）**首段各不相同**（`/inventory` `/media-info` `/transcode-progress` `/transcoded` `/media` `/preview` `/video-preview` `/props` `/live-frame` `/api/local-assets` `/we-assets-dir` `/scene-video` `/scene-audio` `/settings`）⇒ **没有任何族达到 ≥3 条**，按账本自己的规则**不拆**（待过线，或 §7-7 的跨路由隔空故障把优先级提上来）；触发线已入 `verify-ledger` 的 EVIDENCE **机器判**（首段族 <3 / 每个族模块都接进 apply） | 🟡 6 族已落地（diag / now-playing / scene-frame / scene-serve / upload / fontsets —— fontsets 由 F3 按 §7-6 的⚠️直接写成模块）；剩余 14 行**未过触发线**（有实测，非未做） |
 | P2-12 | **静态帧线整体移除（5 阶段）**：删死树 48 文件 / 9,618 行 + 提取链 + 预热，键改名 `lf1`，客户端值域收缩为 `{0,4}`，术语收口。**可达性 0 / 0**。契约与仍在生效的裁定见 §6 | ✅ |
 
 ### P3 —— 未归口 / 未声明的需求（与 P2 并列，互不阻塞）
