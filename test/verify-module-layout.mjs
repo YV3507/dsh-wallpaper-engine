@@ -1,7 +1,8 @@
 /**
- * verify-module-layout.mjs — `lib/` 与 `src/` 的分工守卫（docs/MODULE-LAYOUT.md §7 的三条缺口）。
+ * verify-module-layout.mjs — `lib/` 与 `src/` 的分工守卫（docs/MODULE-LAYOUT.md §7 在册的规则）。
  *
- * 三条规则各回答一个"边界画在哪"的问题，且都机器可判定：
+ * 各条规则各回答一个"边界画在哪"的问题，且都机器可判定（编号 = 正文里的段落号；
+ * ④ 与 ⑤ 是后加的两组判据，见各自段落的注释）：
  *
  *   ① `src/` 无孤儿 —— 除 `src/client.js`（正文，由构建脚本直接读入）外，`src/` 下每个
  *      `.js` 都必须登记进 `scripts/build-client.mjs` 的 `INLINE_MODULES`。
@@ -25,9 +26,17 @@
  *      共享内核必须显式改它，于是"多一个共享模块"永远会留下一次可见的改动。
  *      不变量：登记表中非 `src/` 的项 == 白名单；白名单每一项都真的在册（不许空转）。
  *
+ *   ⑥ `src/` 子目录的**准入条件** —— 成员 ≥3，且被一份常青文档的一级标题点名。
+ *      为什么：`src/` 模块之间没有 `import`、构建期被拍平 ⇒ 目录在这一侧**不承载机器含义**，
+ *      唯一用处是"让人一眼看出这几块是一伙的"。1–2 个文件的目录做不到这件事（只多一层路径
+ *      与一次搬动），而没有"自己的权威文档"的目录会让新读者不知道该先读哪份文档。
+ *      准入条件写在 MODULE-LAYOUT §4 第 1 条；样本只有 `src/font/`（H1 在 FONT-SYSTEM.md）。
+ *      不变量：thin == 0 且 unnamed == 0。
+ *
  * 每条规则都配**负对照**：把合成输入喂给**同一个判据函数**，断言它给出"坏"的裁决。
  * 只断言"今天干净"是不够的 —— 解析器一旦静默返回空表，正断言会恒绿。
- * 覆盖面断言（`src` 树 ≥13 个 `.js`、登记表 ≥10 条、`lib` ≥20 个模块且 ≥10 条依赖边）正是为此存在。
+ * 覆盖面断言（`src` 树 ≥13 个 `.js`、登记表 ≥10 条、`lib` ≥20 个模块且 ≥10 条依赖边、
+ * `src` 子目录与常青面文档都非空）正是为此存在。
  *
  * Usage:  node test/verify-module-layout.mjs
  */
@@ -63,6 +72,23 @@ function findUnlistedSharedKernels(registeredFiles, whitelist) {
 /** 规则 ③ 的反向判据：白名单里登记表却没收的项（防白名单变成僵尸清单）。 */
 function findStaleWhitelistEntries(registeredFiles, whitelist) {
   return whitelist.filter((rel) => !registeredFiles.includes(rel)).sort();
+}
+
+/**
+ * 规则 ⑤ 的判据 (a)：成员不足 3 个的 `src/` 子目录。
+ * 入参形如 `{ font: 4 }`（目录名 → 该目录下 `.js` 计数）。
+ */
+function thinSrcDirs(counts) {
+  return Object.entries(counts).filter(([, n]) => n < 3).map(([dir]) => dir).sort();
+}
+
+/**
+ * 规则 ⑤ 的判据 (b)：没有被任何常青文档的**一级标题**点名的 `src/` 子目录。
+ * `headings` 是各常青文档的 H1 原文（如 `# src/font/ —— 字体系统（F / G 轨道）`）；
+ * 比的是字面 `src/<dir>/`，所以"正文里提过一句"不算 —— 门槛是"那份文档以它为标题"。
+ */
+function unnamedSrcDirs(dirs, headings) {
+  return dirs.filter((dir) => !headings.some((h) => h.includes('src/' + dir + '/'))).sort();
 }
 
 /**
@@ -462,6 +488,54 @@ console.log('\n④ MODULE-LAYOUT 的内联计数与构建清单一致');
       const m = /其余\s*(\d+)\s*个内联模块/.exec(bad);
       return Boolean(m) && Number(m[1]) !== n - 1;
     })());
+}
+
+console.log('');
+
+// ═══ ⑥ `src/` 子目录的准入条件（成员 ≥3 + 被常青文档一级标题点名）══════════════
+// 为什么需要：`src/` 模块之间没有 `import`，构建期被拍平进同一个工厂作用域 ⇒ 目录在这一侧
+// **不承载机器含义**，它唯一的用处是"让人一眼看出这几块是一伙的"。于是两种烂法都没人拦：
+// ① 2 个文件就分一层（多一层路径、多一次搬动，却看不出任何结构）；② 建了目录却没有"自己的
+// 权威文档"（新读者不知道该读哪份文档才能理解这一簇）。
+// 判据两条都从**磁盘**现算：成员数扫描目录，H1 读常青面（`docs/*.md` 顶层 —— `docs/archive/`
+// 与 `docs/wip/` 是过程记录，不算）。
+console.log('⑥ `src/` 子目录成员数 ≥3 且被常青文档一级标题点名');
+{
+  const srcDirs = readdirSync(join(ROOT, 'src'), { withFileTypes: true })
+    .filter((e) => e.isDirectory()).map((e) => e.name).sort();
+  const counts = {};
+  for (const dir of srcDirs) {
+    counts[dir] = walkFiles(join(ROOT, 'src', dir)).filter((rel) => rel.endsWith('.js')).length;
+  }
+  const headings = readdirSync(join(ROOT, 'docs'), { withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.endsWith('.md'))
+    .map((e) => readFileSync(join(ROOT, 'docs', e.name), 'utf8')
+      .split('\n').find((l) => /^#\s/.test(l)) || '')
+    .filter(Boolean);
+
+  const thin = thinSrcDirs(counts);
+  const unnamed = unnamedSrcDirs(srcDirs, headings);
+  // 覆盖面：两条判据都可能"因为扫描面为空而恒真"（没有子目录 ⇒ 无违规；没有文档 ⇒ 全违规，
+  // 那种反而会红）。这里显式断言两边都非空。
+  check('覆盖面：既有 `src/` 子目录、也有常青面文档（防两条判据空转）',
+    srcDirs.length >= 1 && headings.length >= 8,
+    srcDirs.length + ' 个目录（' + srcDirs.join(',') + '）/ ' + headings.length + ' 份文档');
+  check('`src/` 子目录成员 ≥3（不足 3 个就别分目录，见 MODULE-LAYOUT §4 第 1 条）',
+    thin.length === 0,
+    thin.length ? '不足：' + thin.map((d) => d + '(' + counts[d] + ')').join(' ')
+      : srcDirs.map((d) => d + '(' + counts[d] + ')').join(' '));
+  check('`src/` 子目录被一份常青文档的一级标题点名（否则它没有"自己的权威文档"）',
+    unnamed.length === 0, unnamed.length ? '未被点名：' + unnamed.join(' ') : '全部被点名');
+
+  // 负对照：把合成输入喂给**同一个判据函数**，断言它给出"坏"的裁决。
+  check('负对照：成员 2 个的合成目录会被判出',
+    thinSrcDirs({ 'src/two': 2, 'src/three': 3 }).join() === 'src/two',
+    '报出=[' + thinSrcDirs({ 'src/two': 2, 'src/three': 3 }).join(',') + ']');
+  check('负对照：没被任何一级标题点名的合成目录会被判出',
+    unnamedSrcDirs(['font'], ['# lib/ 与 src/ 的分工', '# 别的文档']).join() === 'font',
+    '报出=[' + unnamedSrcDirs(['font'], ['# 别的文档']).join(',') + ']');
+  check('正对照：被一级标题点名就不报（判据不是恒真）',
+    unnamedSrcDirs(['font'], ['# src/font/ —— 字体系统']).length === 0);
 }
 
 console.log('');
