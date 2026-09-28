@@ -408,10 +408,9 @@ const EVIDENCE = {
       const g = read('test/verify-media-bridge.mjs');
       return g.includes('function blockedBy(') && g.includes("process.argv.includes('--allow-skip')");
     }],
-    // 残留项：CI 没给这条通道加 `--provision` ⇒ 端到端那一段在 CI 里仍然不跑。
-    // 这条当前**必须为假**（它就是"未完成"的定义）；CI 接上后它会变真，届时账本守卫
-    // 会以"证据全成立 ⇒ 状态列该翻了"逼着把这一行翻正。
-    ['CI 已给 media-bridge 端到端接上 --provision（残留项）',
+    // 残留项（已接上）：CI 另起一步 `npm run verify:bridge`（带 `--provision`）。本机证明不了
+    // 这条通道（下载被挡 / 沙箱里 spawn 是 EPERM）⇒ 覆盖只能由 CI 提供。
+    ['CI 已给 media-bridge 端到端接上 --provision',
       () => read('.github/workflows/verify.yml').includes('verify:bridge')],
   ],
   'P3-14': [

@@ -112,7 +112,14 @@ let cccClearUnlinkFails = false;
 // 同款：测试里翻它，然后走**真实**的重载路径（页签的「刷新」按钮 → onRefresh → loadInventory）。
 let inventoryFails = false;
 const inventoryCalls = []; // /inventory 请求次数（sceneVideo 时序补拉断言用）
-const fetch = (url, opts) => {
+// 首载期截取渲染（P3-11 尾账）：`!sel.loaded` 那条「扫描 Wallpaper Engine…」只在**库存应答
+// 落定之前**可见，而本夹具的启动链是 await 过的 ⇒ 它在默认夹具里结构上不可达（当时如实记在
+// 归档计划里，没有降级成打印）。这里给 `/inventory` 的**应答投递**加一个闸门：先挂住 →
+// 渲染一次拿到首载态 → 放行 → 再渲染证明那个窗口真的关上了（只断言"看见了提示"可能只是
+// 渲染函数恒返回同一棵树 ⇒ 三条断言一起空转）。
+let releaseInventoryHold = null;
+const inventoryHold = new Promise((resolve) => { releaseInventoryHold = resolve; });
+const fetchNow = (url, opts) => {
   const u = String(url);
   const method = (opts && opts.method) || 'GET';
   if (u.includes('/wallpaper-engine/inventory')) {
@@ -187,6 +194,12 @@ const fetch = (url, opts) => {
     ],
   }),
   });
+};
+
+// 闸门只挡**投递**（fetchNow 已经同步跑完 ⇒ `inventoryCalls` 照样记下这次请求），不挡请求发出。
+const fetch = (url, opts) => {
+  const res = fetchNow(url, opts);
+  return String(url).includes('/wallpaper-engine/inventory') ? inventoryHold.then(() => res) : res;
 };
 
 // 变异测试钩子：默认读构建产物，DSH_MUT_LIB 指向变异副本时读它。
@@ -309,6 +322,53 @@ setTimeout(async () => {
   console.log('--we-glass-alpha:', JSON.stringify(p['--we-glass-alpha']));
   console.log('--we-glass-color:', JSON.stringify(p['--we-glass-color']));
   console.log('body[data-we-glass-window] (default on):', JSON.stringify(bodyEl.attributes['data-we-glass-window']));
+
+  // ── P3-11 尾账：首载期「扫描 Wallpaper Engine…」的截取渲染 ────────────────────
+  // 判据只定义一次，正/负对照共用（形态规则见 docs/TEST-LAYOUT.md §约定 5）。
+  const startupState = (root) => {
+    const out = { hints: [], cards: 0, hasPickTrigger: false, errors: [] };
+    (function walk(node) {
+      if (Array.isArray(node)) { node.forEach(walk); return; }
+      if (!node || typeof node !== 'object') return;
+      const cls = typeof node.props?.className === 'string' ? node.props.className.split(/\s+/).filter(Boolean) : [];
+      if (cls.includes('we-picker__card')) out.cards++;
+      if (cls.includes('we-picker__error')) out.errors.push(String((node.children || [])[0] || ''));
+      if (Array.isArray(node.children)) {
+        if (cls.includes('we-picker__hint')) out.hints = out.hints.concat(node.children.filter((c) => typeof c === 'string'));
+        if (node.children.includes('选择壁纸')) out.hasPickTrigger = true;
+        node.children.forEach(walk);
+      }
+    })(root);
+    return out;
+  };
+  const atStartup = startupState(pickerRenders[0]());
+  assert.ok(atStartup.hints.includes('扫描 Wallpaper Engine…'),
+    '库存应答落定之前必须渲染首载提示（当前 ' + JSON.stringify(atStartup.hints) + '）');
+  assert.equal(atStartup.cards, 0, '首载期不得渲染壁纸卡片（当前 ' + atStartup.cards + ' 张）');
+  assert.equal(atStartup.errors.length, 0, '首载期不得显示错误态（当前 ' + JSON.stringify(atStartup.errors) + '）');
+  assert.equal(atStartup.hasPickTrigger, false, '首载期不得出现「选择壁纸」入口（出现即说明库存已经算完）');
+  console.log('  ✓ 首载态：库存应答挂起时只渲染扫描提示');
+  // 窗口真的关上：放行应答后**同一条判据**必须给出不同的答案 —— 否则"看见了首载态"可能只是
+  // 渲染函数恒返回同一棵树（上面四条一起空转）。
+  releaseInventoryHold();
+  await new Promise((r) => setTimeout(r, 80));
+  const afterBoot = startupState(pickerRenders[0]());
+  // 只判**那句文案**：`we-picker__hint` 落定后在别处还有 9 个（页签提示等），
+  // 拿"hint 总数为 0"当判据会把它们一起算进来 ⇒ 判据与首载态就不是同一件事了。
+  assert.ok(!afterBoot.hints.includes('扫描 Wallpaper Engine…'), '库存落定后首载提示必须消失');
+  assert.ok(afterBoot.hasPickTrigger, '库存落定后必须出现「选择壁纸」入口（这是窗口关上的证据）');
+  console.log('  ✓ 首载态：应答放行后提示消失、入口出现');
+  // 负对照：把**变异输入**喂进同一条判据
+  const synthStartup = (classes, text) => ({ props: { className: classes }, children: [text] });
+  assert.equal(startupState(synthStartup('we-picker__hint', '扫描 Wallpaper Engine…')).hints.length, 1,
+    '负对照：判据必须认得首载提示');
+  assert.equal(startupState(synthStartup('we-picker__card', 'x')).cards, 1,
+    '负对照：判据必须数得出卡片');
+  assert.equal(startupState(synthStartup('we-picker__error', '未检测到 Wallpaper Engine：x')).errors.length, 1,
+    '负对照：判据必须认得错误态');
+  assert.equal(startupState({ props: { className: 'we-picker' }, children: ['选择壁纸'] }).hasPickTrigger, true,
+    '负对照：判据必须认得「选择壁纸」入口');
+
   // ── 轮换「就绪后切换 + 渐变」断言 ─────────────────────────────────
   // mock 环境无 addEventListener/Image → 准备管线特性探测失败即同步直通提交。
   // 按 5 分钟（300000ms）定位真正的轮换定时器，绕开 persist 防抖的 200ms

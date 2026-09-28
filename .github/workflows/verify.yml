@@ -37,6 +37,15 @@ jobs:
       - name: verify —— 结构性守卫（含正/负对照）
         run: npm run verify
 
+      # media-bridge 的端到端那一段（P3-13 的残留项）：`verify` 链里那一步带 `--allow-skip`
+      # ——缺前置时**显式**接受不跑（不是静默跳过），所以它在本机与 CI 都可能是"没跑"。
+      # 这一条用 `--provision` 先把产物下载到自检缓存再**真跑**（中间件自带 `--provider mock`，
+      # 不碰真播放器与系统音频权限，因此可 CI 化）；下载或断言失败即红，**不做
+      # continue-on-error** —— "CI 覆盖了这条通道"的定义就是这一步会失败。
+      # 本机给不出这条覆盖：--provision 的下载被挡、沙箱里 spawn 是 EPERM。
+      - name: verify:bridge —— media-bridge 端到端（带 --provision）
+        run: npm run verify:bridge
+
       - name: smoke —— 节点级冒烟
         run: npm run smoke
 
