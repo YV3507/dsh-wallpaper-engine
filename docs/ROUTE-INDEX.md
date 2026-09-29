@@ -28,7 +28,7 @@
 | 12 | `/scene-files` | lib/routes/scene-serve.js:84 | 箭头 | disposers base handleSceneFiles | 5 |
 | 13 | `/media-origin` | lib/routes/scene-serve.js:92 | 箭头 | disposers base mediaOriginInfo | 1 |
 | 14 | `/props` | lib/index.js:3197 | 箭头 | webServer mediaMap disposers | 5 |
-| 15 | `/live-frame` | lib/index.js:3243 | 箭头 | webServer mediaMap disposers serveFile | 1 |
+| 15 | `/live-frame` | lib/index.js:3243 | 箭头 | webServer mediaMap disposers serveFile | 2 |
 | 16 | `/media-status` | lib/routes/now-playing.js:69 | 箭头 | disposers base | 2 |
 | 17 | `/audio-spectrum` | lib/routes/now-playing.js:79 | 箭头 | disposers base | 2 |
 | 18 | `/now-playing` | lib/routes/now-playing.js:98 | 箭头 | disposers base | 3 |

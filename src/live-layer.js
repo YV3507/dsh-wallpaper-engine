@@ -820,8 +820,8 @@ function liveFrameEl() {
 //
 // **必须有界**（FRAME_BYTES_MAX）：一条 object URL 背后是一整帧的字节。不留上限的话，用户每看过
 // 一张壁纸就多留一份，一整个会话下来就是"看过的张数 × 单帧体积"的常驻内存 —— 越用越多，且没有任何
-// 一处在回收它。超上限即按插入顺序淘汰最久未用的那一条，并 URL.revokeObjectURL 释放字节（只删记账
-// 不撤 object URL，那部分字节在页面关闭前都收不回来）。命中会把该条移到表尾，所以留下的是最近在用的。
+// 一处在回收它。超上限即淘汰表头那一条（插入序最早的 = 最久没被用到的，见 paintFrame 的搬尾），
+// 并 URL.revokeObjectURL 释放字节（只删记账不撤 object URL，那部分字节在页面关闭前都收不回来）。
 //
 // **只在真帧 URL 上留**（frameRank === 0 验收）：预览图不能进这张表 —— 它一旦进来，命中分支就会把
 // 作者预览图当成"帧"直接上屏，把"帧可用时不得出现缩略图那一帧"那条契约从背面绕过去。
@@ -894,6 +894,11 @@ function releaseFrameBytes(token) {
 function paintFrame(poster, src) {
   const entry = liveFrameBytes.get(src);
   if (!entry) return false;
+  // 命中 = 这一条**刚被用到**：把它移到表尾，淘汰侧（retainFrameBytes 的 while）才有
+  // 「最早出表的是最久没被画过的那一条」这条语义。只读 `get` 不搬尾的话，淘汰顺序退化成
+  // 插入顺序，常用的老条目会在"来回切少数几张 + 偶尔来一张新的"下被先淘汰掉。
+  liveFrameBytes.delete(src);
+  liveFrameBytes.set(src, entry);
   if (entry.objectUrl) {
     poster.dataset.weFrameSrc = src; // 诊断口径不变：记**屏上**那一级
     poster.style.backgroundImage = "url(" + entry.objectUrl + ")";

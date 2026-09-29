@@ -927,7 +927,11 @@ function releaseProbeMedia(prep) {
 // 就绪的探测元素：只摘事件监听，元素连同其已加载/已播放状态完整保留 ——
 // commit 时由 buildMedia 直接领养进新层（就绪态随元素走，杜绝"探测就绪了
 // 但层里另建空白元素重新加载"的黑屏闪烁）。
-function adoptProbe(prep) {
+// `opts.ready` = 调用点**确实观测到了**这个元素的就绪事件（img onload / video canplay /
+// 渲染页首帧）。只有这一档能打 `__weReady`：切层内容闸门（见 src/live-layer.js）把这条
+// 标记读成"这个元素有画面"，于是"探测该收尾了"（超时兜底提交）与"像素已经到手"必须分开 ——
+// 两者在就绪事件领养时重合、在超时领养时分叉，混用等于让闸门相信一个还没有像素的元素。
+function adoptProbe(prep, opts) {
   const m = prep && prep.probeMedia;
   if (!m) return;
   prep.probeMedia = null;
@@ -942,7 +946,7 @@ function adoptProbe(prep) {
   // 「这个元素已经是就绪画面」这件事必须随元素走：切层内容闸门（见 src/live-layer.js）
   // 判的就是"新层有没有画面"，而领养来的元素早已过了它的就绪事件 —— 不标出来就得
   // 再等一次永远不会重放的事件，图层会白白守着一层旧壁纸。
-  try { m.__weReady = true; } catch { /* ignore */ }
+  if (opts && opts.ready) { try { m.__weReady = true; } catch { /* ignore */ } }
   prep.readyEl = m;
 }
 
