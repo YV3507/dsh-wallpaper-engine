@@ -112,12 +112,19 @@ const closure = [...seen].map(rel).sort();
 
 /** 判据：某条声明依赖是否被**可达闭包**加载（正判据与负对照都走它；`list` 可注入）。 */
 function usedByClosure(dep, list = bare) {
-  return list.some((s) => s === dep || s.startsWith(dep + '/'));
+  // `bare` 是 Set、对照注入的却是数组 ⇒ **先摊开再判**：`Set` 上没有 `.some`，
+  // 早先直接 `list.some(...)` 的写法一旦声明了任何依赖就会 `TypeError`
+  // （当时 `dependencies` 为空，这条路径从不执行 ⇒ 恒绿而看不出来）。
+  return [...list].some((s) => s === dep || s.startsWith(dep + '/'));
 }
 const uncovered = closure.filter((r) => !publishSet(r));
 check('可达闭包里的每个文件都被 `files` 覆盖', uncovered.length === 0,
   uncovered.length ? '未覆盖：' + uncovered.join(', ') : closure.length + ' 个文件');
 check('负对照：覆盖判据对包外路径有牙', !publishSet('src/client.js') && publishSet('lib/index.js'));
+check('负对照：依赖判据在 Set 与数组两种形态下都成立（防 `.some` 崩）',
+  usedByClosure('some-dep', new Set(['some-dep'])) === true
+  && usedByClosure('some-dep', ['some-dep/sub']) === true
+  && usedByClosure('nope', new Set(['some-dep'])) === false);
 
 // ── ② 不该进的进了 ──────────────────────────────────────────────────────────
 section('② 发布集里没有开发目录');
@@ -208,29 +215,42 @@ check('负对照：语法网对坏产物有牙', (() => {
 })());
 
 // ── ⑦ 安装期脚本不得引用未随包发布的文件（否则每个用户"装完就炸"）──────────────
-// npm 只为**依赖**运行 `preinstall` / `install` / `postinstall`；`prepare` / `prepublishOnly`
-// 等是**开发期**脚本，消费者装包时不会跑。于是"引用 scripts/ 的安装期脚本"= 发布出去之后
-// 每个用户 install 直接失败 —— 而 `files` 里根本没有 `scripts/`。
+// **判据按钩子的时机分叉，不靠"放行名单"** —— 名单的毛病是把"装完就炸"与正常开发期脚本一并
+// 放行（`prepare` 到底在哪一侧跑，取决于包管理器与安装来源）。安装期钩子在**用户机器上的包
+// 目录**里执行：目录依赖（npm 跑 `prepare`）与 git 来源（npm 跑 `prepare`、pnpm 的 git 来源走
+// `prepare` 闸门）都会跑到它，而 `files` 里没有 `scripts/` ⇒ 命令引用的入口不在包内 = 装完
+// 直接失败。发布期钩子（`prepack` / `postpack` / `prepublishOnly`）只在 `npm pack` /
+// `npm publish` 的**源码检出**里跑，构建输入就在手边，因此它们引用 `scripts/` 是正常形态。
 section('⑦ 安装期脚本不得引用未随包发布的文件');
 {
-  const INSTALL_HOOKS = ['preinstall', 'install', 'postinstall'];
-  const DEV_ONLY = ['prepare', 'prepublishOnly', 'prepack', 'postpack', 'prepublish',
-    'build', 'verify', 'verify:all', 'verify:bridge', 'verify:e2e', 'smoke'];
+  const INSTALL_HOOKS = ['preinstall', 'install', 'postinstall', 'prepare', 'prepublish'];
+  const PUBLISH_HOOKS = ['prepack', 'postpack', 'prepublishOnly'];
   const unshippedRefs = (cmd) => [...String(cmd)
     .matchAll(/(?:^|\s)((?:scripts|src|test|docs|\.test-cache)\/[\w./-]+)/g)]
     .map((m) => m[1]).filter((p) => !publishSet(p));
+  /** 判据（正判据与负对照喂的是**这一条**）：安装期钩子 + 引用包外文件 ⇒ 违规。 */
+  const installHookNeedsUnshipped = (name, cmd) => INSTALL_HOOKS.includes(name)
+    && unshippedRefs(cmd).length > 0;
   const offending = Object.entries(pkg.scripts || {})
-    .filter(([name, cmd]) => unshippedRefs(cmd).length > 0 && !DEV_ONLY.includes(name));
-  check('引用未随包发布文件的脚本只能是开发期脚本', offending.length === 0,
+    .filter(([name, cmd]) => installHookNeedsUnshipped(name, cmd));
+  check('声明的安装期钩子都不引用未随包发布的文件', offending.length === 0,
     offending.map(([n, c]) => n + ' → ' + unshippedRefs(c).join(',')).join('; ')
-    || Object.keys(pkg.scripts || {}).length + ' 个脚本全部合规');
-  check('负对照：安装期脚本引用 scripts/ 会被判出',
-    unshippedRefs('node scripts/thing.mjs').length === 1
-    && unshippedRefs('node lib/index.js').length === 0
-    && unshippedRefs('node myscripts/thing.mjs').length === 0); // 近失：前缀必须落在路径边界上
-  // 安装期钩子是**用户侧**会跑的：谁把它塞进 DEV_ONLY（为了让上面那条闭嘴）就等于放行"装完就炸"
-  check('负对照：安装期钩子不得被 DEV_ONLY 放行',
-    INSTALL_HOOKS.every((h) => !DEV_ONLY.includes(h)), INSTALL_HOOKS.join(' '));
+    || '安装期钩子：' + (INSTALL_HOOKS.filter((h) => h in (pkg.scripts || {})).join(', ') || '（无）')
+      + '；' + Object.keys(pkg.scripts || {}).length + ' 个脚本全部合规');
+  // 负对照必须调**同一条判据**（不是另写一份正则、也不比常量字符串），否则它证明不了上面那条会 FAIL：
+  // 三个安装期钩子 + 引用未发布入口 ⇒ 红；发布期钩子、包内入口、非生命周期脚本（build/verify）⇒ 不红。
+  check('负对照：把安装期钩子装回去会被同一条判据判出',
+    installHookNeedsUnshipped('prepare', 'node scripts/prepare.mjs')
+    && installHookNeedsUnshipped('postinstall', 'node scripts/thing.mjs')
+    && installHookNeedsUnshipped('preinstall', 'node scripts/thing.mjs')
+    && !installHookNeedsUnshipped('prepack', 'node scripts/prepare.mjs')
+    && !installHookNeedsUnshipped('postpack', 'node scripts/thing.mjs')
+    && !installHookNeedsUnshipped('prepare', 'node lib/index.js')
+    && !installHookNeedsUnshipped('prepare', 'node myscripts/thing.mjs') // 近失：前缀必须落在路径边界上
+    && !installHookNeedsUnshipped('build', 'node scripts/build-client.mjs'));
+  // 两个时机集合必须互斥：同一个键既算安装期又算发布期，等于把这条判据让回给名单。
+  check('安装期与发布期钩子集合互斥', INSTALL_HOOKS.every((h) => !PUBLISH_HOOKS.includes(h)),
+    '安装期 ' + INSTALL_HOOKS.join('/') + ' · 发布期 ' + PUBLISH_HOOKS.join('/'));
 }
 
 console.log('');

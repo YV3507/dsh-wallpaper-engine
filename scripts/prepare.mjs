@@ -1,11 +1,14 @@
 /**
- * prepare.mjs — npm `prepare` hook.
+ * prepare.mjs — npm `prepack` hook (runs before `npm pack` / `npm publish`).
  *
- * Runs the client build when the source is present (a git checkout / local
- * link), and is a silent no-op otherwise (a published tarball, where `src/` is
- * excluded from `files` and `lib/client.js` is pre-built). This keeps
- * `npm install` working in both contexts without shipping the build inputs in
- * the published package.
+ * Rebuilds `lib/client.js` from `src/` so the packed artifact always matches the
+ * sources it is packed from; the published `files` set carries that built
+ * artifact, never the build inputs. It is deliberately **not** an install-time
+ * hook: consumers install a pre-built `lib/client.js`, so nothing may have to
+ * run a build — and a command naming `scripts/` would not even resolve inside
+ * the tarball, since `scripts/` is not packed. The source check below **fails
+ * loudly** when the build inputs are absent: a silent skip would cheerfully pack
+ * a missing or stale `lib/client.js`, which is worse than refusing to pack.
  */
 
 import { existsSync } from 'node:fs';
@@ -23,4 +26,5 @@ if (hasSource) {
   });
   process.exit(r.status ?? 1);
 }
-console.log('prepare: no client source present (published package) — skipped build');
+console.error('prepack: client sources are absent — refusing to pack; `lib/client.js` would be missing or stale');
+process.exit(1);
