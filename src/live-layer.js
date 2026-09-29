@@ -23,6 +23,8 @@
  *                     clearGpuFrameSlot · refreshStaticFrameNodes · prepareSceneLiveStage ·
  *                     prepareSceneStaticStage · prepareLiveTimeouts · clearPrepareLiveTimeout ·
  *                     disposePreparedMedia · disposeMediaEl · buildMedia
+ *   主题随壁纸        themeFollowOnFrameCanvas · themeFollowOnFrameImage（src/theme-follow.js）：抓到的
+ *                     真实画面比作者预览图更能代表这张壁纸，用它重判一次全局深/浅（排名更高）
  *   播放与音频        applyVideoPlayback · isEffectivelyPlaying · weAudioVolume · startMediaSync ·
  *                     stopMediaSync · mediaTimer · weStartDraw · weStopDraw · weDrawCtx ·
  *                     applyEffects/clearEffects（prelude）· reportClientDiag · emit ·
@@ -677,6 +679,10 @@ function scheduleLiveFrameBackfill(frame, opts) {
         if (force) forceFail("抓到的画面还没有内容（全黑/纯色）→ 已保留原来那张");
         return false;
       }
+      // 真实渲染帧比作者预览图更能代表这张壁纸 ⇒ 顺手给「主题随壁纸」重判一次
+      //（排名 2 会盖过预览图那一档；作者配色在场时它自己会让路）。取色复用同一档
+      // 64×64 采样，代价可以忽略。
+      themeFollowOnFrameCanvas(canvas);
       // 清旧帧放在抓帧+门禁**之后**：先清后抓一旦抓帧失败（画面没出来/网络断）就
       // 只剩空槽 → 退回自定义画面/空态，比留一张旧构图的帧更糟（旧的至少是同一张壁纸）。
       if (stale) {
@@ -946,6 +952,9 @@ function maybeCaptureLiveFrame(frame, sel) {
       dataUrl = wp && typeof wp.capture === "function" ? wp.capture(1920) : null;
     } catch { return; }
     if (!dataUrl || dataUrl.indexOf("data:image/") !== 0) return;
+    // 网页壁纸的真实帧同样是比作者预览图更好的证据：交给「主题随壁纸」重判一次
+    //（排名 2；作者配色在场时它自己会让路）。
+    themeFollowOnFrameImage(dataUrl);
     // 两跳都走统一出入口：`data:` URL 是**本地字节转换**（apiUrl 原样放行），POST 才是宿主 API。
     apiFetch(dataUrl).then((r) => r.response.blob()).then((blob) => apiFetch(sel.liveFrame, {
       method: "POST",

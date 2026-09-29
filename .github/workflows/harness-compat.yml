@@ -102,17 +102,31 @@ jobs:
           TARGET: ${{ steps.target.outputs.target }}
           SHA: ${{ github.sha }}
         run: |
-          node scripts/harness-compat-baseline.mjs record --harness "$TARGET" --sha "$SHA" \
-            --node "$(node -v)" --runner "$RUNNER_OS"
-          if [ -n "$(git status --porcelain .github/harness-baseline.json)" ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # 基线提交是一轮"读-改-写"：本 run 的 checkout 之后，别的 run（同一 workflow 的
+          # 另一条触发路径，例如 workflow_dispatch 指定版本 + push main 同时来）可能已经推过
+          # 它自己的基线 —— 此时直接 push 会被拒，而 **rebase 会在这份 JSON 上撞内容冲突**
+          #（实测），于是"已经全绿的适配测试"被这一步判红。改法：每一轮都重新取远端、在最新
+          # 基线上重新 record 再提交推送；被拒就整轮重来（至多三次，最后仍失败才红）。
+          # reset --hard 只回滚受版本控制的文件；测试产物在 .test-cache（未跟踪）里，不受影响。
+          for attempt in 1 2 3; do
+            git fetch origin main --quiet
+            git reset --hard origin/main
+            node scripts/harness-compat-baseline.mjs record --harness "$TARGET" --sha "$SHA" \
+              --node "$(node -v)" --runner "$RUNNER_OS"
+            if [ -z "$(git status --porcelain .github/harness-baseline.json)" ]; then
+              echo "基线无变化，不提交"
+              exit 0
+            fi
             git add .github/harness-baseline.json
             git commit -m "ci(baseline): harness $TARGET × ${SHA:0:7} 全绿入基线 [skip ci]"
-            git push
-          else
-            echo "基线无变化，不提交"
-          fi
+            if git push; then echo "基线已推送（第 $attempt 次尝试）"; exit 0; fi
+            echo "推送被拒（远端又前进）⇒ 重取远端后重试"
+            sleep 5
+          done
+          echo "基线推送失败三次"
+          exit 1
 
       - name: 上传 harness 运行日志与落盘诊断
         if: always() && steps.target.outputs.should_run == 'true'

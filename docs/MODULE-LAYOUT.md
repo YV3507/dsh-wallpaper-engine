@@ -108,7 +108,7 @@
 | 1 | ~~**死码在发布面里**：`font-render.js` / `scene-scripts.js` / `scene-script-apis.js` / `scene-renderer.js` / `scene-render-worker.mjs` 与 `we-renderer/` 构成一个自相引用、但整体只从一个**零调用点**的函数进门的簇，而它们**全在 `files` 里 ⇒ 真的发给用户**~~ **已收敛**：P2-12 第一半把 48 文件 / 9,618 行整棵死树删净（连带 `files` 白名单与 `@shaderfrog/glsl-parser` 死依赖），可达性棘轮收到 **0 文件 / 0 行** | **口径与实测值以 `node test/verify-reachability.mjs` 的输出为准**（当前 `A) as-is` 与 `B) pruned` 都是 0） | **P2-12 第二半**（提取链 / 预热）· **P3-3/P3-4 ✅** |
 | 2 | ~~**`src/` 孤儿**：`src/api-client.js` 既不在 `INLINE_MODULES` 也不被任何文件 import ⇒ **不进产物**~~ **已收敛**：已登记进 `INLINE_MODULES`（P2-9 第一批调用点改写同时落地），并由 `verify-api-client.mjs` ⑥ 断言「已登记 + 已在产物里 + 产物里只有一份」——**它曾经是孤儿**这件事本身说明"漏登记不报错"是真陷阱 | `verify-api-client.mjs` ⑥（含负对照） | ✅ |
 | 3 | ~~`lib/types/index.d.ts` 与代码矛盾（称"暴露三条路由"、把 `webServer` 当可选；`WallpaperDescriptor` 缺 10 个字段、`Inventory` 缺 3 个、`client.d.ts` 零值导出）~~ **已收敛** | 类型面与代码一致，由 `test/verify-types.mjs` 从**实现**派生键集断言 | P3-1 ✅ |
-| 4 | ~~账本 §2 基线表仍写 `lib/client.js` 与 `src/client.js` **逐字节一致**~~ **已收敛** —— 产物是加载器包装 + 20 个内联模块，二者不可能逐字节一致 | 该指标现在的正确表述是"重建后 `git status` 干净"，由 CI 的 `git diff --exit-code` 钉住 | P3-2 ✅ |
+| 4 | ~~账本 §2 基线表仍写 `lib/client.js` 与 `src/client.js` **逐字节一致**~~ **已收敛** —— 产物是加载器包装 + 21 个内联模块，二者不可能逐字节一致 | 该指标现在的正确表述是"重建后 `git status` 干净"，由 CI 的 `git diff --exit-code` 钉住 | P3-2 ✅ |
 
 > **可达性分析的两个已知例外**（写守卫时必须特判，否则会把活代码判成死码）：`lib/webwallgl/web-shim.js` 是**按文本注入**（`fs.readFile` + 塞进 HTML），`lib/vendor/**` 与部分产物是**按字符串 require**。账本 §8 已把这条记为度量方法的一部分。
 
@@ -140,7 +140,7 @@
 | `lib/client.js` 与 `src/` 同步 | ✅ CI（重建后 `git diff --exit-code`） | — |
 | **`src/` 无孤儿**：除 `src/client.js` 外每个文件都必须在 `INLINE_MODULES` 里 | ✅ `test/verify-module-layout.mjs` ①（全量扫描 + 负对照） | — |
 | **依赖方向单向**：`lib/**` 不得 import `src/**` | ✅ 同守卫 ②（零容忍，不需要棘轮） | — |
-| **共享内核白名单**：允许被内联进浏览器的 `lib/**` 文件只许来自一张显式清单（当前**恰好 1 条**：`lib/settings-schema.js`；其余 19 个内联模块都是 `src/`） | ✅ 同守卫 ③（再加一条必须改清单 ⇒ 共享是**决策**而不是顺手） | — |
+| **共享内核白名单**：允许被内联进浏览器的 `lib/**` 文件只许来自一张显式清单（当前**恰好 1 条**：`lib/settings-schema.js`；其余 20 个内联模块都是 `src/`） | ✅ 同守卫 ③（再加一条必须改清单 ⇒ 共享是**决策**而不是顺手） | — |
 | **`src/` 子目录准入**：成员 ≥3，且被一份常青文档的一级标题点名（§4 第 1 条的两条门槛） | ✅ 同守卫 ⑥『`src/` 子目录准入』（两条判据各带负对照 + 正对照） | — |
 | **相对说明符必须解析到真实文件**：搬动代码后相对路径按新位置重解析（动态 `import()` 的失败是运行期、且常被吞成业务错误 ⇒ 必须静态判定） | ✅ 同守卫 ④『相对说明符必须解析到真实文件』（Node 式解析 + 负对照） | — |
 | **本文散文里的数字必须现算**：内联模块计数 == 构建清单条数（数字手抄就会漂，且**改写句子会让判据静默失效**） | ✅ 同守卫 ④『MODULE-LAYOUT 的内联计数』（判据找得到那两句 = 一条独立断言） | — |

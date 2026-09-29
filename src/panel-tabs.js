@@ -517,6 +517,12 @@
         React.createElement("div", { className: "we-picker__section-head" },
           React.createElement("span", { className: "we-picker__section-label" }, "主题"),
         ),
+        // 主题随壁纸：**没有控件**，行为即自动（换壁纸按壁纸决定全局深/浅）。这一行
+        // 说明规则与让位条件，并把**最近一次判决**摊开（"为什么判成浅色"要能当场答）。
+        // 见 src/theme-follow.js。
+        React.createElement("div", { className: "we-picker__hint", key: "theme-follow" },
+          "深浅主题按当前壁纸自动切换（作者配色 → 画面主色，两条腿不一致时取深色）；在 DSH 设置里手动改过主题后，本张壁纸不再自动"
+          + (sel.themeFollowLine ? " · 当前：" + sel.themeFollowLine : "")),
         swatchRow("配色", ACCENT_PRESETS, sel.accent, onAccent, { key: "accent" }),
         // 玻璃颜色: the settings-window glass BASE tint. Defaults keep the stock
         // look (white light / deep navy dark); picking any preset or a custom

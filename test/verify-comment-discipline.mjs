@@ -243,6 +243,8 @@ check('negative control: 带日期的注释会被判不合格',
     'src/we-cond.js': 0,
     // 适配器模式：宿主形态判定与能力矩阵（新文件从 0 起钉）。
     'src/adapter.js': 0,
+    // 主题随壁纸：取色 + 亮度判决 + 写入去重与让位（新文件从 0 起钉）。
+    'src/theme-follow.js': 0,
     'src/font/apply.js': 0,
     'src/font/color-roles.js': 0,
     'src/font/components.js': 0,
@@ -322,6 +324,8 @@ check('negative control: 带日期的注释会被判不合格',
     'test/verify-dead-declarations.mjs': 0,
     // 适配器模式的判定表与四处行为落点（新文件从 0 起钉）。
     'test/verify-adapter.mjs': 0,
+    // 主题随壁纸的取色/判决/让位判据（新文件从 0 起钉）。
+    'test/verify-theme-follow.mjs': 0,
   };
   const measure = (s) => (s.match(/曾经|旧实现|以前|原先|旧版|教训|踩到|踩坑/g) || []).length;
 

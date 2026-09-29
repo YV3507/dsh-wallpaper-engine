@@ -137,6 +137,9 @@ Mac / Linux：`~/.dsh-wallpaper-engine/config.json`）—— 重启、换端口�
 **8. 它会把我电脑里的文件传到网上吗？**
 - **不会。** 壁纸文件全是从你本机的 Wallpaper Engine 目录读取的，自定义上传的也只存在你电脑上，不往任何服务器发送。
 
+**9. 界面怎么自己从深色变浅色了？**
+- 这是**主题随壁纸**：换壁纸后插件会按壁纸的配色自动切全局深 / 浅（作者的配色 → 画面主色；作者没填、或填的是纯黑时用画面主色；都取不到就不动）。不想让它管这张壁纸，就在 DSH 设置里手动选一次深色 / 浅色 —— **这张壁纸它就不再插手**，等你换下一张壁纸才会恢复自动。想让某张壁纸固定在某一侧，也可以直接在「壁纸属性」里把它的**配色**调深或调浅。
+
 ### Mac 用户
 
 macOS 没有 Wallpaper Engine 客户端，所以本插件的 Windows 版用不了。不过社区维护者 **Jerry** 做了一个 macOS 专用版本（支持 WaifuX 和散装媒体）：
@@ -303,6 +306,9 @@ macOS / Linux: `~/.dsh-wallpaper-engine/config.json`) — restarts, port changes
 
 **8. Will it upload files from my computer?**
 - **No.** Wallpapers are read from your local Wallpaper Engine directory, and your own uploads stay on your machine — nothing is sent to any server.
+
+**9. Why did the UI switch from dark to light on its own?**
+- That is **theme follows the wallpaper**: after a switch the plugin picks the global dark/light from the wallpaper's colours (author's scheme colour → the picture's main colour; an unfilled or pure-black author value falls through to the picture; if neither is available it leaves the theme alone). To stop it for one wallpaper, just pick dark or light by hand in DSH — **that wallpaper is left alone** until you switch to another one, at which point the automatic behaviour resumes. You can also pin a wallpaper to one side by adjusting its **配色 (scheme colour)** in the 壁纸属性 panel.
 
 ### macOS users
 

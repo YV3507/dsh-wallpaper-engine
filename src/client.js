@@ -4041,7 +4041,7 @@ function apply(ctx) {
       const cancelPoll = pollThemeService(ctx, {
         intervalMs: 250,
         timeoutMs: 6000,
-        onReady: (theme) => {
+        onReady: (theme) => { themeFollowAttach(theme, ctx);   // 主题随壁纸：同一个服务句柄，接上即补评一次（无开关，行为即自动）
           try {
             const available = scanThemeTokens(document);
             // 样式表扫描是清单的权威来源（active.tokens 为空、exportInspectTokens 只有 14 条）；

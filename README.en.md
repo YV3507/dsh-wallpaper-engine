@@ -156,7 +156,7 @@ The **帧率上限 (fps cap)** control in the **效果** tab (unlimited / 60 / 4
 
 The **效果** tab (available while a wallpaper is active) and the **细节** group of the **外观** tab offer eight sliders: **壁纸模糊** · **亮度 / 对比度 / 饱和度** (wallpaper media filter) · **壁纸透明度** (fades the whole layer toward the page base colour, complementing **暗化**) · **暗化** (scrim between wallpaper and text) · **边框** (border / divider contrast) · **雾化** (glass-panel blur radius). All apply instantly and persist — **no page refresh needed**; every control shows its own range and default.
 
-> **No single theme fits every wallpaper** — switch DSH between light and dark to find the one that suits the current wallpaper; if text or hairlines become hard to read on a bright or busy wallpaper, raise **暗化 / 边框** (plus a little **壁纸模糊**), and if the wallpaper is too loud, raise **壁纸透明度**. No slider extreme can push body text below legibility — text-bearing surfaces keep a **readability floor** (see above).
+> **The wallpaper decides light or dark** — after a switch the plugin moves the global theme to the side that matches it (colour order: the author's `schemecolor` → the picture's most-occupied colour (the author's preview and a **real rendered frame** each vote; a disagreement resolves to dark) → nothing changes when neither is available; only **clearly bright** colours get the light theme. An author value of exactly `0 0 0` counts as unfilled and falls through to the picture). You can still set the theme by hand in DSH at any time — once you do, **this wallpaper stops being automatic** and the next switch resumes it. If text or hairlines become hard to read on a bright or busy wallpaper, raise **暗化 / 边框** (plus a little **壁纸模糊**), and if the wallpaper is too loud, raise **壁纸透明度**. No slider extreme can push body text below legibility — text-bearing surfaces keep a **readability floor** (see above).
 
 ### Live rendering & wallpaper properties
 
@@ -183,6 +183,7 @@ The **外观** tab controls the look of the **entire native DSH settings window*
 | **玻璃透明度** | Opacity of the glass surfaces (settings window, composer, bubbles, sidebar panels); higher = more transparent | 12 % |
 | **雾化** | Glass blur radius — **the same adjustment** drives the settings window and the composer / bubbles | 16 px |
 | **Text-surface readability floor** | Every text-bearing surface composites a theme base layer under the glass tint (body text stays ≥4.5:1); **on by default, no switch** | on |
+| **Theme follows the wallpaper** | After a switch the global light/dark theme is picked from the wallpaper (author scheme colour → the picture's most-occupied colour (preview and real frame vote; disagreement ⇒ dark) → leave it alone; an author value of exactly `0 0 0` counts as unfilled; light theme only for clearly bright colours — the 外观 → 主题 row shows the last verdict's source and luminance); changing the theme by hand in DSH stops it for that wallpaper and the next switch resumes. **No switch — the behaviour is the feature** | automatic |
 
 Everything applies instantly and persists; browsers without `backdrop-filter` fall back to a high-opacity solid so text stays readable.
 

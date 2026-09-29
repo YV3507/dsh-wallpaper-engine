@@ -163,6 +163,32 @@ HTML 里注入 WE API shim（`lib/webwallgl/web-shim.js`）与 `project.json` �
 > `src/**` 里还剩 4 处 `window.confirm`（轮播列表 / 隐藏壁纸 / 移除自定义画面 / 恢复已隐藏），
 > 它们同样会抢焦点 —— `verify-fontset` 里有一条棘轮只许它们减少。
 
+### 主题随壁纸：取色链与让位规则
+
+换壁纸后插件决定全局深 / 浅（`src/theme-follow.js`，**没有开关**）。取色按优先级：
+
+1. **壁纸自己声明的配色** —— `project.json` 的 `general.properties.schemecolor.value`（0–1 浮点三元组；
+   WE 编辑器里它的 `text` 就是 `ui_browse_properties_scheme_color`）。宿主 inventory 已把它转成
+   `rgb()` 发过来（`schemeColor`）；你在「壁纸属性」面板里改过的**覆盖值优先**于作者值。实测本机库里
+   360/368 张壁纸都带这条属性 ⇒ 绝大多数壁纸根本不需要图像处理。**恰好 `0 0 0` 的作者值视作"没填"**
+   （WE 新建工程的默认值，占本机 124/360）⇒ 退回 ②；面板里显式填的纯黑照用。
+2. **画面占比最大色** —— 仅在 ① 缺席时跑：把画面缩到 64×64，按 **4 bit/通道**量化后取众数桶（同一条下采样先例见 `liveFrameLooksUsable`）。
+   **两个来源合议**：作者 的 `preview` 与真实渲染帧（场景在实时渲染抓帧那一刻顺手取色，
+   复用同一次 64×64 采样；网页用 `__wp.capture` 的那张）各判一次，**不一致时取深色**，
+   只有两条腿都说是浅色才用浅色（抓帧可能落在画面还没稳定的时刻）。两者都不参与 ①。画面若有绝对 URL 则用 `crossOrigin="anonymous"`（媒体源自带
+   `Access-Control-Allow-Origin: *`），画进 canvas 不会被污染。
+3. **两条都拿不到 ⇒ 保持当前主题**，不切也不抖。
+
+判定：WCAG 相对亮度（与 `test/verify-readability.mjs` 同一套系数），阈值 **0.40** —— 语义是
+"**明显偏亮**才配浅色界面"（不取中灰 0.2159：本机库作者配色的亮度中位数就是 0.214，阈值切在
+分布最密处会让饱和中间调被判浅，而人眼看它是深的）。
+
+写入走宿主的客户端 Cordis 服务 `theme`（`setTheme('dark' | 'light')`，官方端与社区端同一套 API），
+且与我们的令牌层用的是**同一个句柄**（都来自那次 `ctx.get('theme')` 轮询；刻意不声明 `inject`，
+理由见 src/client.js 主题层那段）。三条自我约束写在模块头：**结论与当前偏好相同就不写**
+（`setTheme` 会把偏好落进 profile 的 `cordis.patch.yml`）、**你手动改过就让位**（同一张壁纸重复评估
+也不抢回来，换下一张恢复）、**宿主没有主题服务则整体不生效**。
+
 ### 客户端异常也留痕（`client-error`）
 
 面板是 React 渲染的，一次渲染期异常会让整块界面白掉，而**这台机器打不开 DevTools** ⇒ 诊断缓冲里
@@ -331,6 +357,37 @@ with the reason shown inline), and **「清除 GPU 帧」** (equivalent to
 > off and back on. By the same argument **「自定义画面」 is always shown** (an imported screenshot and live
 > rendering do not interfere). Only **「出图来源」** (switching capture tiers) is hidden while live
 > rendering is effective — changing tiers has no effect then, so showing it would only mislead.
+
+### Theme follows the wallpaper: colour chain and the yield rule
+
+After a switch the plugin decides the global light/dark theme (`src/theme-follow.js`, **no switch**). Colour order:
+
+1. **The wallpaper's own scheme colour** — `general.properties.schemecolor.value` in `project.json`
+   (a 0–1 float triple; in the WE editor its `text` is `ui_browse_properties_scheme_color`). The host's
+   inventory already converts it to `rgb()` (`schemeColor`); an override you set in the **壁纸属性** panel
+   wins over the author's value. On this machine 360 of 368 wallpapers carry the property ⇒ almost none of
+   them need any image work. An author value of exactly `0 0 0` counts as **unfilled** (the WE editor's default for new
+   projects; 124 of those 360) and falls through to ②; a pure black picked by hand in the panel is still honoured.
+2. **The most-occupied colour of the picture** — only when ① is missing: downsample the picture to 64×64 and take the modal bucket after **4 bits/channel** quantisation (same
+   downsample precedent as `liveFrameLooksUsable`). Two sources **vote**: the author's `preview` and a real rendered frame (scene wallpapers sample the frame the
+   live renderer just captured, reusing that same 64×64 read; web wallpapers use their `__wp.capture` result),
+   and **a disagreement resolves to dark** — light only when both agree (a capture may land on a frame that has
+   not settled yet). Neither ever overrides ①. Absolute URLs use `crossOrigin="anonymous"` (the media origin sends
+   `Access-Control-Allow-Origin: *`), so the canvas is never tainted.
+3. **Neither available ⇒ leave the theme alone** — no switch, no thrashing.
+
+Verdict: WCAG relative luminance (the same coefficients as `test/verify-readability.mjs`) with a threshold of
+**0.40** — "only clearly bright colours get a light UI" (not mid grey 0.2159: the author colours in this
+library have a median luminance of 0.214, so that threshold cuts through the densest part of the distribution
+and calls saturated mid-tones light while the eye reads them as dark).
+
+The write goes through the host's client Cordis service `theme` (`setTheme('dark' | 'light')`, same API on the
+official and community clients) and uses **the same handle** as our token layer (both come from that one
+`ctx.get('theme')` poll; deliberately no `inject` declaration, see the token-layer block in src/client.js).
+Three self-imposed rules live in the module header: **nothing is written when the verdict already matches**
+(`setTheme` persists the preference into the profile's `cordis.patch.yml`), **a manual change makes it yield**
+(re-evaluating the same wallpaper will not take it back; the next switch resumes), and **no theme service ⇒
+the whole feature stays inert**.
 
 ### Tests
 

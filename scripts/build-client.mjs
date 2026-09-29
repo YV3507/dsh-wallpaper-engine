@@ -69,6 +69,12 @@ const INLINE_MODULES = [
       'function resolveAdapterTarget(', 'function adapterCaps('],
   },
   {
+    file: 'src/theme-follow.js',
+    why: '主题随壁纸：作者配色 → 画面主色 → 不动，按相对亮度自动切全局深/浅',
+    markers: ['const THEME_FOLLOW_LIGHT_ABOVE = ', 'function themeFollowParseColor(',
+      'function themeFollowModeColorOf(', 'function themeFollowAttach('],
+  },
+  {
     file: 'src/we-cond.js',
     why: 'WE 条件求值器（纯计算、零外界依赖，独立可测，见 P1-7）',
     markers: ['const WE_COND_OPS = [', 'function weEvalCondition(', 'function weCondTokenize('],
