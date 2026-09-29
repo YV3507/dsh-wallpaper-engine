@@ -109,7 +109,16 @@ jobs:
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add .github/harness-baseline.json
             git commit -m "ci(baseline): harness $TARGET × ${SHA:0:7} 全绿入基线 [skip ci]"
-            git push
+            # 基线提交是一次"读-改-写"：本 run 的 checkout 之后，别的 run（另一条触发路径，
+            # 例如 workflow_dispatch 指定版本 + push 同时来）可能已经推过它自己的基线 ——
+            # 直接 push 会被拒（fetch first）而让整轮**已经全绿的适配测试**判红。
+            # 先 rebase 到远端再推，并给一次重试（rebase 期间又有人推是极小概率）。
+            for attempt in 1 2; do
+              git pull --rebase --autostash origin main && git push && break
+              if [ "$attempt" = "2" ]; then echo "基线推送失败两次"; exit 1; fi
+              echo "推送被拒（远端有新提交）⇒ 同步后重试"
+              sleep 5
+            done
           else
             echo "基线无变化，不提交"
           fi
