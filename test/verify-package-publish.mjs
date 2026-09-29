@@ -130,7 +130,10 @@ const closure = [...seen].map(rel).sort();
 
 /** 判据：某条声明依赖是否被**可达闭包**加载（正判据与负对照都走它；`list` 可注入）。 */
 function usedByClosure(dep, list = bare) {
-  return list.some((s) => s === dep || s.startsWith(dep + '/'));
+  // `bare` 是 Set、对照注入的却是数组 ⇒ **先摊开再判**：`Set` 上没有 `.some`，
+  // 早先直接 `list.some(...)` 的写法一旦声明了任何依赖就会 `TypeError`
+  // （当时 `dependencies` 为空，这条路径从不执行 ⇒ 恒绿而看不出来）。
+  return [...list].some((s) => s === dep || s.startsWith(dep + '/'));
 }
 const uncovered = closure.filter((r) => !publishSet(r));
 check('可达闭包里的每个文件都被 `files` 覆盖', uncovered.length === 0,
@@ -144,6 +147,12 @@ check('负对照：目标解析判据对缺文件返回 null、对在位与省�
   && resolveRelative(join(ROOT, 'lib', 'index.js'), './__absent__') === null
   && resolveRelative(join(ROOT, 'lib', 'index.js'), './pkg-extract') === join(ROOT, 'lib', 'pkg-extract.js')
   && resolveRelative(join(ROOT, 'lib', 'index.js'), './index.js') === join(ROOT, 'lib', 'index.js'));
+// 本 fork 保留：`usedByClosure` 的 `Set` 形态崩溃修复（上游与本仓库基线都仍是 `list.some`）。
+// 它与分包模型无关，且上游那份同样有崩溃点 ⇒ 保留修法 + 保留这条对照。
+check('负对照：依赖判据在 Set 与数组两种形态下都成立（防 `.some` 崩）',
+  usedByClosure('some-dep', new Set(['some-dep'])) === true
+  && usedByClosure('some-dep', ['some-dep/sub']) === true
+  && usedByClosure('nope', new Set(['some-dep'])) === false);
 
 // ── ② 不该进的进了 ──────────────────────────────────────────────────────────
 section('② 发布集里没有开发目录');

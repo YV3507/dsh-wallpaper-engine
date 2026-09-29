@@ -158,6 +158,12 @@ setTimeout(async () => {
   check('层内 video 指向新壁纸且不带 preview 海报（选中即播）',
     String(probe.attributes.src || probe.src).includes('/wallpaper-engine/media/bbb') && !probe.poster,
     'src=' + (probe.attributes.src || probe.src) + ' poster=' + probe.poster);
+  // 新层的**内容闸门**（见 src/live-layer.js 的切层内容闸门）：新 `<video>` 在没有任何
+  // 可解码帧之前不参与绘制，过场与退役计时都从"有画面"那一刻才起。这里按浏览器事实把它
+  // 推到位（canplay 的 spec 含义 = readyState ≥ HAVE_FUTURE_DATA(3)），下面量的才是
+  // "这一次切换真的开始之后"的语义。
+  probe.readyState = 3;
+  try { probe.__fire('canplay'); } catch(e){ console.log('EXCEPTION on canplay 1:', e && e.stack || e); failures++; }
   const layer = byId['dsh-wallpaper-engine-layer'];
   check('提交后新层带过场类（交叉淡化）', !!layer && String(layer.className).includes('we-layer--switch'),
     layer ? String(layer.className) : 'no layer');

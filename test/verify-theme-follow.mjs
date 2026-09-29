@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 /**
- * verify-theme-follow.mjs — 主题随壁纸：取色优先级、亮度判决、写入去重与让位规则。
+ * verify-theme-follow.mjs — 主题随壁纸：开关、取色优先级、亮度判决、写入去重与让位规则。
  *
- * 为什么要有这一层：这个功能**没有开关**（行为即自动），所以它的每一条自我约束都只能
- * 靠守卫看着 —— 取色顺序错了会在部分壁纸上给出反向主题；亮度阈值漂了会让"深色壁纸配浅色
- * 界面"这种错误变成常态；写入不去重会在轮换列表里每次切换都改一次 profile 文件
- *（`setTheme` 会把偏好落进 `cordis.patch.yml`）；不认"用户已经手动改过主题"会跟用户抢
- * 控制权。四条都在这里钉住。
+ * 为什么要有这一层：自动切换默认**关**（`selection.themeFollow`，真源见 lib/settings-schema.js）——
+ * 关着时这个功能整体不生效：不判决、不写主题、不留痕；开着时才恢复上游那套自动行为。两侧都要
+ * 钉住，因为开着的每一条自我约束都只能靠守卫看着 —— 取色顺序错了会在部分壁纸上给出反向主题；
+ * 亮度阈值漂了会让"深色壁纸配浅色界面"这种错误变成常态；写入不去重会在轮换列表里每次切换都改
+ * 一次 profile 文件（`setTheme` 会把偏好落进 `cordis.patch.yml`）；不认"用户已经手动改过主题"
+ * 会跟用户抢控制权。四条都在这里钉住。
  *
  * 分节：
  *   ① 颜色解析与 WCAG 亮度：三种来源写法（宿主 rgb() / CSS hex / WE 0–1 浮点三元组）、
@@ -14,8 +15,11 @@
  *   ② 画面主色（纯函数）：量化到 4 bit/通道后取众数桶、透明像素不参与、空输入返回 null
  *   ③ 行为：作者配色 → 判决；覆盖值优先；同判决不重复写；外来改动即让位、换壁纸恢复；
  *      服务缺席不抛
- *   ④ 接线（源码形态）：attach 挂在主题层 onReady 上、applySelection 里落 schemeColor
- *      并触发评估、面板有一行说明、模块已登记进内联清单
+ *   ④ ⑤ 取色链与两条腿的合议（作者纯黑视作"没填"、不一致取深色）
+ *   ⑥ 开关：默认为关（设置模型 + 面板两面）· 关时深/浅两向都不改主题且清掉让位痕迹 ·
+ *      开时上游行为仍在 · 键经唯一落盘入口且序列化→重建往返仍是该值
+ *   ⑦ 接线（源码形态）：attach 挂在主题层 onReady 上、applySelection 里落 schemeColor
+ *      并触发评估、面板开关经落盘入口、模块已登记进内联清单
  *
  * 本模块与 src/adapter.js 一样，按构建期契约以**同作用域**内联（`selection` /
  * `propTokenOf` / `storedUserPropsOf` 都是外部作用域的自由变量）⇒ 这里把这三个名字挂到
@@ -27,6 +31,8 @@
 import { readFileSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+// 源码形态判据一律先剥注释（共享的字符串感知实现）：注释里写着同一个名字不算"接线在位"。
+import { stripComments } from './tools/js-text.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (rel) => readFileSync(join(root, rel), 'utf8');
@@ -41,13 +47,17 @@ globalThis.ADAPTER_TARGET_VALUES = [];   // 与本次无关，但保证同作用
 let diagTraces = [];                     // 本模块的决策留痕（每次 freshThemeFollow 清空）
 let transientWrites = {};                // 状态行落到的瞬态字段（面板从 sel 上读）
 let importSeq = 0;
-/** 重新 import 该模块（模块内的判定状态是模块级的，跨用例会互相污染）。 */
-async function freshThemeFollow({ selection: sel, props = {} } = {}) {
+/**
+ * 重新 import 该模块（模块内的判定状态是模块级的，跨用例会互相污染）。
+ * `themeFollow` = 这个功能的总开关（**默认关**，见 lib/settings-schema.js）：上游行为用例
+ * 显式传 `true`（开着才有那套自动行为），关的用例传 `false`。
+ */
+async function freshThemeFollow({ selection: sel, props = {}, themeFollow = true } = {}) {
   diagTraces = [];
   globalThis.reportClientDiag = (ev, detail) => { diagTraces.push(ev + ':' + String(detail)); };
   transientWrites = {};
   globalThis.setTransient = (field, value) => { transientWrites[field] = value; };
-  globalThis.selection = sel || { id: "", schemeColor: null, previewUrl: "" };
+  globalThis.selection = Object.assign({ themeFollow }, sel || { id: "", schemeColor: null, previewUrl: "" });
   globalThis.propTokenOf = (s) => (s && s.propsUrl ? String(s.propsUrl).split("/").pop() : "");
   globalThis.storedUserPropsOf = (token) => (props[token] ? { ...props[token] } : {});
   return import(pathToFileURL(join(root, 'src', 'theme-follow.js')).href + '?case=' + (++importSeq));
@@ -361,8 +371,86 @@ console.log('\n⑤ 两条腿合议：真实帧与预览图不一致时取深色�
     String(transientWrites.themeFollowLine || '(无)'));
 }
 
-// ═══ ⑥ 接线（源码形态）════════════════════════════════════════════════════════
-console.log('\n⑥ 接线：服务句柄 / 切换评估 / 面板说明 / 内联登记');
+// ═══ ⑥ 开关「主题随壁纸」：默认关 · 关时主题不变 · 开时上游行为 · 持久化 ═══════
+// 判据只量**结果**：主题服务收到几次写入、偏好最后是什么、面板状态行有没有留痕 —— 不看模块
+// 内部走了哪条支（"关"的语义就是"这个功能不存在"）。下面 ②/③ 两条共用同一个判据函数
+//（`themeMovesUnderSwitch`），只是喂进去的开关值不同：这正是正/负对照。
+console.log('\n⑥ 开关「主题随壁纸」：默认关 · 关时主题不变 · 开时上游行为 · 键经落盘入口');
+{
+  const schema = await import(pathToFileURL(join(root, 'lib', 'settings-schema.js')).href);
+  const tabsCode = stripComments(read('src/panel-tabs.js'));
+  const clientCode = stripComments(read('src/client.js'));
+  const switchAt = tabsCode.indexOf('switchRow("主题随壁纸"');
+  const swatchAt = tabsCode.indexOf('swatchRow("配色"');
+
+  check('开关存在且默认为关（设置模型 DEFAULTS.themeFollow === false，kind = boolFalse）',
+    schema.DEFAULTS.themeFollow === false && schema.KINDS.themeFollow
+    && schema.KINDS.themeFollow.kind === 'boolFalse',
+    'DEFAULTS=' + String(schema.DEFAULTS.themeFollow) + ' kind=' + String((schema.KINDS.themeFollow || {}).kind));
+
+  check('面板「主题」段有这个开关，且文案说明「关 = 不按壁纸自动改深浅主题」（面板面可见）',
+    switchAt >= 0 && swatchAt > switchAt && tabsCode.includes('不按壁纸自动改深浅主题'),
+    '开关下标=' + switchAt + ' / 配色行下标=' + swatchAt);
+
+  /**
+   * 判据本体（正/负对照**共用这一个函数**）：给定开关值与当前偏好，喂一张壁纸。
+   * 返回主题服务收到的写入、最终偏好与面板状态行 —— 结果型：只看"主题有没有被改动"。
+   */
+  async function themeMovesUnderSwitch(themeFollow, sel, preference) {
+    const m = await freshThemeFollow({ themeFollow });
+    const f = makeFake(preference);
+    m.themeFollowAttach(f.svc, f.ctx);
+    onWallpaper(m, sel);
+    return { calls: f.calls.slice(), preference: f.svc.preference, line: String(transientWrites.themeFollowLine || '') };
+  }
+
+  // ② 关：深、浅两个方向都不许改主题（哪怕壁纸会让主题变深/变浅），也不留判决痕迹。
+  //    「让位痕迹」是本张壁纸的跨评估状态：关掉时必须清掉，否则"关了再开"在同一张壁纸上
+  //    会静默不生效（`themeFollowYield` 还压着写入）。做法：开着写下让位标记 → 关 → 再开回
+  //    同一张，必须重新判决。
+  const offDark = await themeMovesUnderSwitch(false, wallpaper('w1', 'rgb(4, 6, 10)'), 'light');
+  const offLight = await themeMovesUnderSwitch(false, wallpaper('w2', 'rgb(240, 244, 250)'), 'dark');
+  const mOff = await freshThemeFollow({ themeFollow: true });
+  const fOff = makeFake('light');
+  mOff.themeFollowAttach(fOff.svc, fOff.ctx);
+  onWallpaper(mOff, wallpaper('w3', 'rgb(4, 6, 10)'));
+  const wroteWhileOn = fOff.calls.length;
+  fOff.svc.preference = 'light';                       // 外部改主题 ⇒ 本张壁纸让位
+  for (const [ev, cb] of fOff.handlers) if (ev === 'theme/change') cb();
+  globalThis.selection.themeFollow = false;            // 关
+  mOff.themeFollowOnWallpaper(globalThis.selection);
+  globalThis.selection.themeFollow = true;             // 再开
+  mOff.themeFollowOnWallpaper(globalThis.selection);
+  check('关时：深/浅两向都不改主题（0 次写入、偏好原样、面板不留痕），且清掉让位痕迹（再开即重新判决）',
+    offDark.calls.length === 0 && offDark.preference === 'light' && offDark.line === ''
+    && offLight.calls.length === 0 && offLight.preference === 'dark' && offLight.line === ''
+    && wroteWhileOn === 1 && fOff.calls.length === wroteWhileOn + 1,
+    '关(深壁纸)=' + JSON.stringify(offDark.calls) + '/' + offDark.preference
+    + ' 关(浅壁纸)=' + JSON.stringify(offLight.calls) + '/' + offLight.preference
+    + ' 关→开写入 ' + wroteWhileOn + '→' + fOff.calls.length);
+
+  // ③ 开：上游行为仍在 —— 与 ② 同一判据函数，只换开关值（正对照）。
+  const onDark = await themeMovesUnderSwitch(true, wallpaper('w1', 'rgb(4, 6, 10)'), 'light');
+  const onLight = await themeMovesUnderSwitch(true, wallpaper('w2', 'rgb(240, 244, 250)'), 'dark');
+  check('开时：上游行为仍在（深色壁纸写 dark、浅色写 light，并留下状态行）',
+    JSON.stringify(onDark.calls) === JSON.stringify(['dark'])
+    && JSON.stringify(onLight.calls) === JSON.stringify(['light']) && onDark.line !== '',
+    JSON.stringify(onDark.calls) + ' / ' + JSON.stringify(onLight.calls));
+
+  // ④ 持久化：键**不在**只做默认值的豁免名单里，经唯一落盘入口 setSetting 写，且
+  //    序列化 → 重建往返后客户端与宿主读到的都仍是该值（刷新/重启不丢）。
+  const saved = schema.serializeSettings({ id: 'x', themeFollow: true });
+  const rebuilt = (side) => schema.sanitizeFromSchema(JSON.parse(JSON.stringify(saved)), side).themeFollow;
+  check('持久化：不在 DEFAULTS_ONLY、经 setSetting 落盘，且序列化→重建往返两侧都仍是该值',
+    !schema.DEFAULTS_ONLY.includes('themeFollow') && 'themeFollow' in schema.serializeSettings({})
+    && /setSetting\("themeFollow"/.test(clientCode)
+    && saved.themeFollow === true && rebuilt('client') === true && rebuilt('host') === true,
+    'setSetting=' + /setSetting\("themeFollow"/.test(clientCode)
+    + ' 往返 client/host=' + rebuilt('client') + '/' + rebuilt('host'));
+}
+
+// ═══ ⑦ 接线（源码形态）════════════════════════════════════════════════════════
+console.log('\n⑦ 接线：服务句柄 / 切换评估 / 面板开关 / 内联登记');
 {
   const clientSrc = read('src/client.js');
   const prepSrc = read('src/media-prep.js');
@@ -376,8 +464,8 @@ console.log('\n⑥ 接线：服务句柄 / 切换评估 / 面板说明 / 内联�
   check('applySelection 触发评估', prepSrc.includes('themeFollowOnWallpaper(selection);'));
   check('清空/被过滤两条早退分支也把配色清掉（不留上一张的残值）',
     prepSrc.split('selection.schemeColor = null;').length - 1 >= 2);
-  check('面板有一行说明（没有控件，只说明规则与让位条件）',
-    tabsSrc.includes('深浅主题按当前壁纸自动切换'));
+  check('面板开关有文案说明规则与让位条件（关 = 不自动跟随）',
+    tabsSrc.includes('主题随壁纸') && tabsSrc.includes('不按壁纸自动改深浅主题'));
   check('模块已登记进内联清单（否则永远不进产物）',
     buildSrc.includes("file: 'src/theme-follow.js'"));
   check('产物里确实带上了判定常量（构建期内联生效）',

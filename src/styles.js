@@ -64,7 +64,10 @@ const CSS = `
      fit/transform 的相互作用；层自身垫一层**原生底色**
      （--we-wallpaper-fade-bg，浅色纯白 / 深色纯黑）保持不透明合成（透明
      backdrop 会让玻璃 backdrop-filter 静默失效）。变量缺省 1。 */
-  .we-layer { position: fixed; inset: 0; z-index: -2; overflow: hidden; pointer-events: none; opacity: 1; background-color: var(--we-wallpaper-fade-bg, transparent); }
+  /* 垫底画面（.we-layer .we-live-poster，见 src/live-layer.js 的 buildLivePoster）用
+     --dsw-alias-bg-layer-1 打底，且垫底必须是「一层安静的颜色」、不能透明；壁纸激活时
+     该别名已被改写成玻璃配方 ⇒ 在壁纸层根上钉回插件自己的面板色，垫底语义不变。 */
+  .we-layer { position: fixed; inset: 0; z-index: -2; overflow: hidden; pointer-events: none; opacity: 1; background-color: var(--we-wallpaper-fade-bg, transparent); --dsw-alias-bg-layer-1: var(--we-panel-color, #101418); }
   /* Blurring via CSS filter darkens/thins the edges, so the layer is scaled up
      (--we-wallpaper-scale tracks blur) to hide the transparent fringe the blur
      would otherwise reveal at the viewport edges. */
@@ -141,6 +144,10 @@ const CSS = `
        才会加这个类 —— 其余过场旧层保持不透明静止，垫在新层之下（玻璃
        backdrop-filter 依赖这层不透明背景，所以没有任何过场让中间态透明）。 */
   .we-layer--staging { opacity: 0; }
+  /* 切层内容闸门：新层还没有画面时先不参与绘制（见 src/live-layer.js 的切层内容闸门），
+     屏上留给旧层的像素。画面到位后这一类被摘掉（过场那条路由 startLayerTransition
+     重写 className 完成同一件事）。与 --staging 的区别是"已经在文档里、只是先不画"。 */
+  .we-layer--pending { opacity: 0; }
   .we-layer--switch {
     transition:
       transform var(--we-switch-ms, 700ms) var(--we-switch-ease, cubic-bezier(0.22, 0.61, 0.36, 1)),
@@ -168,6 +175,31 @@ const CSS = `
   body[data-we-wallpaper] {
     --dsw-alias-bg-base: transparent;
     --dsw-specific-sidebar-fill: transparent;
+    /* ── 表面令牌（#80）——在**令牌源头**接管，不逐面补选择器 ────────────────────
+       宿主的对话框 / 面板 / 抬高按钮面读的都是别名层：--dsw-alias-bg-layer-1/2/3 是
+       面板梯度（浅色三层同为白；深色 bluish-875/850/800 逐层抬亮），
+       --dsw-alias-button-elevated-fill 是「抬高按钮」的实色（侧栏「新建会话」、
+       工作区重命名输入框 —— 上游 #71 报的那类没玻璃的按钮）。它们保持宿主实色时，
+       壁纸既透不出来、也没有自己的模糊，只有设置窗口那三档被接管过。
+       这里套用**与设置窗口同一张配方表**：主题底色压可读性下限 + --we-glass-color
+       按 --we-glass-alpha 混合，三档沿用 0.9 / 1.0 / 1.1 的层权重，抬高按钮再高半档
+       （深色主题下必须比 layer-3 更亮，否则按钮与容器压平成同一块玻璃）。于是
+       玻璃透明度 / 玻璃颜色 对 harness 自带的面同样生效，无需知道任何 CSS 模块哈希。
+       ⚠️ 刻意**不**接管 --dsw-alias-markdown-code-block(-banner)：代码块底是 shiki
+       固定配色的画布，透出壁纸会让注释/字符串掉到不可读的对比（与下面 .cm-editor /
+       .xterm 需要近不透明底板是同一条理由），裁定见 harness-ui-surfaces.json。 */
+    --dsw-alias-bg-layer-1: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-glass-color, #ffffff) calc(var(--we-glass-alpha, 0.5) * 0.9 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+    --dsw-alias-bg-layer-2: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-glass-color, #ffffff) calc(var(--we-glass-alpha, 0.5) * 1.0 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+    --dsw-alias-bg-layer-3: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-glass-color, #ffffff) calc(var(--we-glass-alpha, 0.5) * 1.1 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+    --dsw-alias-button-elevated-fill: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-glass-color, #ffffff) calc(var(--we-glass-alpha, 0.5) * 1.15 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
     /* Border emphasis: neutral gray so it reads on both light and dark themes;
        alpha is driven by the "边框" slider through --we-border-alpha. */
     --dsw-alias-border-l1: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
@@ -185,6 +217,20 @@ const CSS = `
   body[data-ds-dark-theme][data-we-wallpaper] {
     --dsw-alias-bg-base: transparent;
     --dsw-specific-sidebar-fill: transparent;
+    /* 与设置窗口的深色那套逐条同形（同一张配方表、同一组层权重），只有玻璃色的
+       **缺省值**不同：深色玻璃底色是深海军蓝。 */
+    --dsw-alias-bg-layer-1: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-glass-color, #0d1524) calc(var(--we-glass-alpha, 0.5) * 0.9 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+    --dsw-alias-bg-layer-2: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-glass-color, #0d1524) calc(var(--we-glass-alpha, 0.5) * 1.0 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+    --dsw-alias-bg-layer-3: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-glass-color, #0d1524) calc(var(--we-glass-alpha, 0.5) * 1.1 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+    --dsw-alias-button-elevated-fill: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-glass-color, #0d1524) calc(var(--we-glass-alpha, 0.5) * 1.15 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
     --dsw-alias-border-l1: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
     --dsw-alias-border-l2: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
     --dsw-alias-border-l2-darkmode-thin: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
@@ -204,7 +250,7 @@ const CSS = `
      事，原生浏览器形态（body[data-we-adapter="browser"]）不参与匹配。 */
   body[data-we-adapter^="desktop-"][data-we-mica="off"][data-we-wallpaper] .dshDesktopSidebarSurface {
     --dsw-specific-sidebar-fill: transparent !important;
-    background-color: color-mix(in srgb, var(--we-content-surface-color, var(--dsw-alias-bg-layer-1, #1e1f26)) max(calc(var(--we-readability-floor) * 100%), var(--we-content-surface-alpha, 88%)), transparent) !important;
+    background-color: color-mix(in srgb, var(--we-content-surface-color, var(--we-panel-color, #1e1f26)) max(calc(var(--we-readability-floor) * 100%), var(--we-content-surface-alpha, 88%)), transparent) !important;
   }
 
   /* ── Light-scheme text contrast boost ──────────────────────────────────────
@@ -235,13 +281,21 @@ const CSS = `
      固定不动 —— 下限因此不可能被滑杆削弱；floor 之上仍是原来的玻璃配方，
      只是压了一层主题底色（壁纸在亮/暗极端像素处不再吃掉文字）。
      --we-wallpaper-opacity 不参与本层：壁纸透明度仍只作用于 .we-layer。 */
+  /* 插件自己的「不透明面板色」(solid panel colour)：宿主别名 --dsw-alias-bg-layer-*
+     在壁纸激活时会被**改写成玻璃配方**（见下面 body[data-we-wallpaper] 的令牌映射），
+     但有几块面必须保持近不透明才对 —— 编辑器/终端的固定语法与 ANSI 配色、没有
+     backdrop-filter 的插件模态框、壁纸层的垫底画面（垫底不能透明，见 buildLivePoster）。
+     它们改读这个令牌，从而与别名映射解耦。取值直接取宿主静态调色板里**别名本身的来源**
+     （浅色 neutral-bluish-00 / 深色 neutral-bluish-875），静态令牌缺席时退回字面量。 */
   body {
     --we-readability-floor: ${READABILITY_FLOOR};
     --we-readability-base: #ffffff;
+    --we-panel-color: var(--dsw-static-neutral-bluish-00, #ffffff);
   }
   body[data-ds-dark-theme] {
     --we-readability-floor: ${READABILITY_FLOOR_DARK};
     --we-readability-base: #0d1524;
+    --we-panel-color: var(--dsw-static-neutral-bluish-875, #1e1f26);
   }
 
   /* ── iOS liquid glass ──────────────────────────────────────────────────────
@@ -508,7 +562,9 @@ const CSS = `
      截断它，让所有"提取样式表"的护栏读到空串（verify-readability F1b 会报 css chars=0）。
      行内提到标识符时一律裸写或用「」，不要用 markdown 反引号。 */
   body[data-we-wallpaper] [data-sidebar-right-panel][data-sidebar-right-open] {
-    background-color: var(--dsw-alias-bg-layer-1, #1e1f26);
+    /* 侧栏玻璃总开关关闭时的兜底：面板必须**不透明**（否则文字直接压在壁纸上）。
+       --dsw-alias-bg-layer-* 在壁纸下已被改写成玻璃配方 ⇒ 这里读插件自己的面板色。 */
+    background-color: var(--we-panel-color, #1e1f26);
   }
   body[data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open] {
     background-color: color-mix(in srgb,
@@ -574,7 +630,7 @@ const CSS = `
   body[data-we-sidebar-glass] [data-dsh-better-sidebar] .xterm,
   body[data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open] .cm-editor,
   body[data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open] .xterm {
-    background-color: color-mix(in srgb, var(--we-content-surface-color, var(--dsw-alias-bg-layer-1, #1e1f26)) max(calc(var(--we-readability-floor) * 100%), var(--we-content-surface-alpha, 88%)), transparent) !important;
+    background-color: color-mix(in srgb, var(--we-content-surface-color, var(--we-panel-color, #1e1f26)) max(calc(var(--we-readability-floor) * 100%), var(--we-content-surface-alpha, 88%)), transparent) !important;
   }
 
   /* Picker chrome. */
@@ -701,6 +757,16 @@ const CSS = `
       --dsw-alias-bg-layer-1: var(--we-glass-color, #0d1524);
       --dsw-alias-bg-layer-2: var(--we-glass-color, #0d1524);
       --dsw-alias-bg-layer-3: var(--we-glass-color, #0d1524);
+    }
+    /* 同一个「无 backdrop-filter ⇒ 近不透明」政策也要覆盖**整窗**那层表面令牌：
+       玻璃配方在没有模糊的内核上等于「半透明 + 无霜」，文字会直接落在壁纸上。
+       浅色选择器写成与映射规则同特异度（0,1,1），深色那条 (0,2,1) 顶掉深色映射。 */
+    body[data-we-wallpaper],
+    body[data-ds-dark-theme][data-we-wallpaper] {
+      --dsw-alias-bg-layer-1: var(--we-panel-color, #ffffff);
+      --dsw-alias-bg-layer-2: var(--we-panel-color, #ffffff);
+      --dsw-alias-bg-layer-3: var(--we-panel-color, #ffffff);
+      --dsw-alias-button-elevated-fill: var(--we-panel-color, #ffffff);
     }
   }
 
@@ -1515,7 +1581,10 @@ const CSS = `
     width: min(760px, 92vw); max-height: 86vh;
     display: flex; flex-direction: column; gap: 10px;
     padding: 16px; border-radius: 14px;
-    background: var(--dsw-alias-bg-layer-1, #202127);
+    /* 居中式选择器模态：承载整棵选择器子树、**没有** backdrop-filter（模糊只有
+       右四分之一那版 .we-picker__modal--panel 才有）。壁纸下别名层已被改写成玻璃配方，
+       而半透明 + 无模糊会让整棵面板压在壁纸上 ⇒ 这里读插件自己的不透明面板色。 */
+    background: var(--we-panel-color, #202127);
     border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
     box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.25);
     /* 入场：轻微上浮 + 缩放 settle，expo-out；reduced-motion 由上面的
@@ -1878,7 +1947,7 @@ const CSS = `
   body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] .xterm,
   body[data-we-glass-fallback][data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open] .cm-editor,
   body[data-we-glass-fallback][data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open] .xterm {
-    background-color: color-mix(in srgb, var(--we-content-surface-color, var(--dsw-alias-bg-layer-1, #1e1f26)) max(calc(var(--we-readability-floor) * 100%), var(--we-content-surface-alpha, 88%)), transparent) !important;
+    background-color: color-mix(in srgb, var(--we-content-surface-color, var(--we-panel-color, #1e1f26)) max(calc(var(--we-readability-floor) * 100%), var(--we-content-surface-alpha, 88%)), transparent) !important;
   }
   /* 设置窗口：把三层面板 token 钉回实色（@supports 回退里的同一条 token 覆写），
      并显式关掉不会生效的 backdrop-filter。 */
@@ -1893,6 +1962,18 @@ const CSS = `
     --dsw-alias-bg-layer-1: var(--we-glass-color, #0d1524);
     --dsw-alias-bg-layer-2: var(--we-glass-color, #0d1524);
     --dsw-alias-bg-layer-3: var(--we-glass-color, #0d1524);
+  }
+  /* 软件光栅器（data-we-glass-fallback）下同样把**整窗**的表面令牌钉回实色：
+     玻璃配方在这一档等于「半透明 + 无霜」（模糊被下面的回退规则关掉），
+     宿主的面板/对话框/按钮面必须回到不透明面板色，否则文字压在壁纸上。
+     深色那条选择器多一层 (0,3,1)，才能顶掉 body[data-ds-dark-theme][data-we-wallpaper]
+     上的玻璃映射。 */
+  body[data-we-glass-fallback][data-we-wallpaper],
+  body[data-ds-dark-theme][data-we-glass-fallback][data-we-wallpaper] {
+    --dsw-alias-bg-layer-1: var(--we-panel-color, #ffffff);
+    --dsw-alias-bg-layer-2: var(--we-panel-color, #ffffff);
+    --dsw-alias-bg-layer-3: var(--we-panel-color, #ffffff);
+    --dsw-alias-button-elevated-fill: var(--we-panel-color, #ffffff);
   }
   /* 输入框卡片（issue #95 报「过透」的那块界面）：上游 #94 已把模糊从卡片本体搬到
      [data-composer-card]::before 载体（卡片上的 backdrop-filter 会成为 fixed 后代的

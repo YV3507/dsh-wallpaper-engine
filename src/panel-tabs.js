@@ -502,7 +502,7 @@
 
 
   function renderAppearanceTab(ctx) {
-    const { setSetting, officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onToggleFontCustom, fontSet, sel } = ctx;
+    const { setSetting, officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onToggleFontCustom, onToggleThemeFollow, fontSet, sel } = ctx;
     // 「排版角色」表要按「只看改过的」筛，而**筛完是空**时要单独给一行提示 ⇒ 先算出来再渲染表。
     // ⚠️ 必须在 `React.createElement(...)` **之前**算（写成参数位置上的赋值表达式 ——
     //    赋值表达式的值是那个**数组本身**，于是它被当成一个子节点 ⇒ React #31「对象不能作为子节点」；
@@ -517,12 +517,19 @@
         React.createElement("div", { className: "we-picker__section-head" },
           React.createElement("span", { className: "we-picker__section-label" }, "主题"),
         ),
-        // 主题随壁纸：**没有控件**，行为即自动（换壁纸按壁纸决定全局深/浅）。这一行
-        // 说明规则与让位条件，并把**最近一次判决**摊开（"为什么判成浅色"要能当场答）。
+        // 主题随壁纸：总开关（**默认关** = 不按壁纸自动改深浅主题）。开着时才取色判决，
+        // 并把**最近一次结论**摊开（"为什么判成浅色"要能当场答）；关着时这个功能整体不生效。
         // 见 src/theme-follow.js。
-        React.createElement("div", { className: "we-picker__hint", key: "theme-follow" },
-          "深浅主题按当前壁纸自动切换（作者配色 → 画面主色，两条腿不一致时取深色）；在 DSH 设置里手动改过主题后，本张壁纸不再自动"
-          + (sel.themeFollowLine ? " · 当前：" + sel.themeFollowLine : "")),
+        switchRow("主题随壁纸", sel.themeFollow === true, (e) => onToggleThemeFollow(e.target.checked), {
+          key: "theme-follow",
+          hint: "关 = 不按壁纸自动改深浅主题（默认关）",
+          tooltip: "开着时按当前壁纸自动切全局深/浅：作者配色 → 画面主色，两条腿不一致时取深色；"
+            + "在 DSH 设置里手动改过主题后，本张壁纸不再自动。关（默认）时这个功能整体不生效："
+            + "不取色、不判决、不改主题；切换开关立刻生效。",
+        }),
+        sel.themeFollow === true && sel.themeFollowLine
+          && React.createElement("div", { className: "we-picker__hint", key: "theme-follow-line" },
+            "当前：" + sel.themeFollowLine),
         swatchRow("配色", ACCENT_PRESETS, sel.accent, onAccent, { key: "accent" }),
         // 玻璃颜色: the settings-window glass BASE tint. Defaults keep the stock
         // look (white light / deep navy dark); picking any preset or a custom

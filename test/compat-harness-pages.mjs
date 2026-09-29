@@ -19,6 +19,12 @@
  *      仍开、我们的样式仍在场、不新增指向本插件的运行期错误；
  *   ⑤ 右栏 panel：由 harness 内部状态门控（会话态下占据者仍可能不渲染），**在场才判**
  *      （展开 → open 属性 → 开态玻璃），缺席只记信息不判红 —— 包级/页面级两条线已覆盖它。
+ *   ⑥ 表面令牌探针（#80 / #71）：compat 跑在空数据目录上（没有已选壁纸）⇒ 探针在**同一次
+ *      求值**里临时盖上插件自己的玻璃锚点 body[data-we-wallpaper]，读 `--dsw-alias-bg-layer-1/2/3`
+ *      与 `--dsw-alias-button-elevated-fill` 在锚点两侧的**计算样式**（再在 finally 里摘掉），
+ *      并读侧栏「新建会话」按钮的实际 background-color。判据 = 「锚点在 ⇒ harness 的面拿到玻璃」；
+ *      日志、刻意不接管的 markdown 代码块底各一条。回退档（软件光栅器）按模式取相反的期望值
+ *      （令牌被钉回不透明面板色）。
  *
  * 鉴权：dsh web 是 token → 303 + Set-Cookie；浏览器自带 cookie 处理，直接导航 token URL。
  * 弹窗：启动期挡路 dialog 用**结构化消法**（单按钮 dialog 直接点；多按钮按跳过型白名单
@@ -568,6 +574,75 @@ async function main() {
       console.log('  ℹ️ 右栏 panel 本次未被 harness 渲染（内部状态门控）—— 包级与页面级判据已覆盖，此条不判红');
     }
 
+    // ── 表面令牌探针（#80 / #71）─────────────────────────────────────────────
+    // 本脚本跑在**隔离的空数据目录**上 ⇒ 没有已选壁纸、body 上没有 data-we-wallpaper，
+    // 直接读只会拿到 harness 原生实色，判不出"美化是否生效"。所以探针在**同一次求值**里
+    // 临时盖上插件自己的玻璃锚点（真实壁纸激活时插件写的就是这个属性），读锚点两侧的
+    // **计算样式**、在 finally 里摘掉 —— 判据挂在「锚点在 ⇒ harness 的面拿到玻璃」这个
+    // 语义上，不挂任何选择器/实现细节：把 body[data-we-wallpaper] 上的令牌映射去掉，
+    // after 侧就退回原生实色 ⇒ 本条变红。
+    // 玻璃配方以 color-mix(...) 认族：harness 原生值是静态调色板的实色（解析成 #hex/rgb）。
+    // 回退档（软件光栅器）下期望**相反**且有意义的另一件事：这些令牌被钉回不透明面板色
+    // （半透明 + 无霜等于文字压在壁纸上）—— 与设置窗口那三条按模式取期望值同口径。
+    const surfaceProbe = await evS(`(() => {
+      // 抬高按钮面的宿主：优先按**语义类名**认（CSS 模块哈希会变，但 xUkysG_newSession 这类
+      // 语义段是源码里写死的），再退到既有会话链用的 aria-label / 文案判据。
+      const findRaised = () => {
+        const btns = [...document.querySelectorAll('button')];
+        return btns.find((x) => /newSession/.test(String(x.className)))
+          || btns.find((x) => (x.getAttribute('aria-label') || '').includes('新建会话'))
+          || btns.find((x) => (x.textContent || '').trim() === '新建会话');
+      };
+      const snap = () => {
+        const cs = getComputedStyle(document.body);
+        const g = (t) => String(cs.getPropertyValue(t) || '').trim();
+        const btn = findRaised();
+        return {
+          layer1: g('--dsw-alias-bg-layer-1'),
+          layer2: g('--dsw-alias-bg-layer-2'),
+          layer3: g('--dsw-alias-bg-layer-3'),
+          elevated: g('--dsw-alias-button-elevated-fill'),
+          codeBlock: g('--dsw-alias-markdown-code-block'),
+          raisedBg: btn ? getComputedStyle(btn).backgroundColor : null,
+        };
+      };
+      const before = snap();
+      let after = null;
+      document.body.setAttribute('data-we-wallpaper', '');
+      try { after = snap(); } finally { document.body.removeAttribute('data-we-wallpaper'); }
+      return { before, after };
+    })()`);
+
+    const sp = (surfaceProbe && surfaceProbe.value) || null;
+    // 两侧快照都在场才判（探针抛错时 evS 给 null ⇒ 这里的每条都落在"取不到 = 红"上）。
+    const spOk = Boolean(sp && sp.before && sp.after);
+    const SURFACE_TOKENS = ['layer1', 'layer2', 'layer3', 'elevated'];
+    const tokenSide = (side) => SURFACE_TOKENS
+      .map((k) => k + '=' + String((sp && sp[side] && sp[side][k]) || '（取不到）').slice(0, 26)).join(' ');
+    check('表面令牌：锚点在时 harness 的面板层与抬高按钮面被接管为玻璃（--dsw-alias-bg-layer-1/2/3 + button-elevated-fill，#80/#71）',
+      spOk && SURFACE_TOKENS.every((k) => (glassFb
+        // 回退档：钉回不透明面板色 —— 两侧都不该是玻璃配方。
+        ? !isGlassMix(sp.before[k]) && !isGlassMix(sp.after[k])
+        // 正常档：锚点关闭时是 harness 原生实色，锚点在时必须变成玻璃配方。
+        : isGlassMix(sp.after[k]) && !isGlassMix(sp.before[k]))),
+      'fallback=' + (glassFb ? 1 : 0) + ' · before[' + tokenSide('before') + '] · after[' + tokenSide('after') + ']');
+
+    check('刻意不接管的令牌不因锚点改变（markdown 代码块底：固定语法配色需要不透明底）',
+      spOk && sp.after.codeBlock === sp.before.codeBlock,
+      'codeBlock before=' + String((sp && sp.before && sp.before.codeBlock) || '（取不到）').slice(0, 40)
+        + ' after=' + String((sp && sp.after && sp.after.codeBlock) || '（取不到）').slice(0, 40));
+
+    if (spOk && sp.after.raisedBg) {
+      const beforeAlpha = alphaOf(sp.before.raisedBg);
+      const afterAlpha = alphaOf(sp.after.raisedBg);
+      check('侧栏「新建会话」按钮面在锚点下变成半透明玻璃（#71；回退档则保持不透明）',
+        glassFb ? afterAlpha === 1 : (beforeAlpha === 1 && afterAlpha !== null && afterAlpha < 1),
+        'fallback=' + (glassFb ? 1 : 0) + ' bg before=' + String(sp.before.raisedBg).slice(0, 40)
+          + ' after=' + String(sp.after.raisedBg).slice(0, 40));
+    } else {
+      console.log('  ℹ️ 侧栏「新建会话」按钮本次未渲染 —— 同一条令牌已由上面的令牌面判据覆盖，本条不判红');
+    }
+
     check('设置页打开且锚点在场（:has([data-slot="settings.section"]) 选得到 dialog）',
       flow.settingsOpened === 1 && flow.settingsDialog === true,
       'opened=' + flow.settingsOpened + ' dialog=' + flow.settingsDialog);
@@ -616,6 +691,17 @@ function countOurErrors(list) {
 function oursErrorDetail(list) {
   return list.filter((e) => /wallpaper-engine|dsh-wallpaper-engine|we-picker|we-rope|data-we-/.test(e))
     .slice(0, 2).join(' | ').slice(0, 300);
+}
+/** 是不是「玻璃配方」：我们的映射写成 color-mix(...)，harness 原生值是实色。 */
+function isGlassMix(value) {
+  return /color-mix\(/.test(String(value || ''));
+}
+/** `rgb(r, g, b)` / `rgba(r, g, b, a)` 的 alpha（无 alpha 分量 = 1；认不出 = null）。 */
+function alphaOf(color) {
+  const m = /rgba?\(([^)]+)\)/.exec(String(color || ''));
+  if (!m) return null;
+  const parts = m[1].split(',').map((x) => Number(x.trim()));
+  return parts.length === 4 ? parts[3] : 1;
 }
 
 main().then(() => {

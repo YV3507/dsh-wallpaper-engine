@@ -202,6 +202,18 @@ function main() {
     ['settings window layer 1 (dark)', '--dsw-alias-bg-layer-1', 'body[data-ds-dark-theme][data-we-glass-window]'],
     ['settings window layer 2 (dark)', '--dsw-alias-bg-layer-2', 'body[data-ds-dark-theme][data-we-glass-window]'],
     ['settings window layer 3 (dark)', '--dsw-alias-bg-layer-3', 'body[data-ds-dark-theme][data-we-glass-window]'],
+    // #80：壁纸激活时**整窗**的表面令牌也要过下限。它们原本保持宿主实色（因此谈不上
+    // 玻璃、也谈不上"玻璃下的可读性"）；一旦按 #80 在 body[data-we-wallpaper] 上映射成
+    // 玻璃配方，它们立刻变成文字面（宿主对话框 / 面板 / 抬高按钮都读这些令牌），
+    // 于是必须与设置窗口那三档同一条下限 —— 否则这次修复会把文字直接放到壁纸上。
+    ['app surface layer 1 (light)', '--dsw-alias-bg-layer-1', 'body[data-we-wallpaper]'],
+    ['app surface layer 2 (light)', '--dsw-alias-bg-layer-2', 'body[data-we-wallpaper]'],
+    ['app surface layer 3 (light)', '--dsw-alias-bg-layer-3', 'body[data-we-wallpaper]'],
+    ['app raised button face (light)', '--dsw-alias-button-elevated-fill', 'body[data-we-wallpaper]'],
+    ['app surface layer 1 (dark)', '--dsw-alias-bg-layer-1', 'body[data-ds-dark-theme][data-we-wallpaper]'],
+    ['app surface layer 2 (dark)', '--dsw-alias-bg-layer-2', 'body[data-ds-dark-theme][data-we-wallpaper]'],
+    ['app surface layer 3 (dark)', '--dsw-alias-bg-layer-3', 'body[data-ds-dark-theme][data-we-wallpaper]'],
+    ['app raised button face (dark)', '--dsw-alias-button-elevated-fill', 'body[data-ds-dark-theme][data-we-wallpaper]'],
     ['sidebar panel (light)', 'background-color', 'body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_panel"]'],
     ['sidebar chrome group (light)', 'background-color', 'body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_terminalWrap"]'],
     ['sidebar panel (dark)', 'background-color', 'body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_panel"]'],
@@ -222,6 +234,19 @@ function main() {
     veilMisses.length === 0,
     surfaceSpecs.length + ' surface(s) checked · missing/broken=' + veilMisses.length
       + (veilMisses.length ? ' · ' + JSON.stringify(veilMisses) : ''));
+
+  // 负对照（TEST-LAYOUT 约定 5：变异输入必须喂进**同一条判据**）：把一条真实声明改坏
+  // （把下限那一项换成玻璃色）后，`hasVeil` 必须判不合格 —— 否则 F2a 可能是空转的
+  // （选择器一改名，spec 全落空也没人发现）。
+  {
+    const rule = ruleFor('--dsw-alias-bg-layer-1', 'body[data-we-wallpaper]');
+    const real = rule ? declValue(rule.body, '--dsw-alias-bg-layer-1') : null;
+    const mutated = String(real).replace('var(--we-readability-base)', 'var(--we-glass-color, #ffffff)');
+    check('negative control: 同一条下限判据对"被改坏的声明"有牙',
+      real !== null && mutated !== real
+      && hasVeil(real, 'real').ok === true && hasVeil(mutated, 'mutated').ok === false,
+      'real=' + String(real).slice(0, 64) + ' · mutated=' + mutated.slice(0, 64));
+  }
 
   const darkComposer = ruleFor('--dsw-specific-input-major', 'body[data-ds-dark-theme][data-we-wallpaper]');
   const DARK_FACTOR = darkComposer

@@ -383,7 +383,10 @@ function main() {
           + JSON.stringify(recipes.filter((r) => !shared.includes(r)))));
 
     const contentToken = 'var(--we-content-surface-alpha, 88%)';
-    const contentColor = 'var(--we-content-surface-color, var(--dsw-alias-bg-layer-1, #1e1f26))';
+    // 内容面底色的来源是**插件自己的不透明面板色**：宿主别名 --dsw-alias-bg-layer-1 在
+    // 壁纸激活时已被映射成玻璃配方（#80），近不透明底板再读它就会自我稀释 —— 编辑器 /
+    // 终端的固定语法配色要求这块面保持不透明，故改读 --we-panel-color。
+    const contentColor = 'var(--we-content-surface-color, var(--we-panel-color, #1e1f26))';
     const fbContentRules = fbRules.filter((r) => r.header.includes('.cm-editor') || r.header.includes('.xterm'));
     const contentReuse = fbContentRules.length > 0
       && fbContentRules.every((r) => r.body.includes(contentToken) && r.body.includes(contentColor));

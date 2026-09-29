@@ -510,9 +510,6 @@ function applySelection(id, opts) {
   // 底色兜底（buildLivePoster），也是「主题随壁纸」的第一优先级取色。此前宿主发了
   // 这条字段但没人接 —— 垫底图因此永远走 CSS 变量兜底。
   selection.schemeColor = w.schemeColor || null;
-  // 主题随壁纸（无开关）：本张壁纸的判决在这里落一次；作者配色缺席时它会自己去
-  // 采样预览图（异步、带代次校验），取不到就保持当前主题不动。
-  themeFollowOnWallpaper(selection);
   selection.transcodeState = "idle";
   // The previous wallpaper's media info must not leak into the new one: a stale
   // fps would make the sync "源帧率 ≤ 上限" check wrongly skip the transcode
@@ -522,6 +519,15 @@ function applySelection(id, opts) {
   refreshMediaInfo();
   syncRotationTimer();
   emit();
+  // 主题随壁纸（无开关）：本张壁纸的判决在**媒体层已经建好之后**才落一次（作者配色缺席时
+  // 它会自己去采样预览图：异步、带代次校验，取不到就保持当前主题不动）。
+  // 为什么必须落在 emit() 之后：写作入口在宿主侧是同步的一整轮 —— 重写全量别名令牌 +
+  // 翻 color-scheme / body 主题属性 + 一次强制样式读取（dsh-client-ui-layout 的
+  // ThemePresenter）。放在 emit() 之前，这一轮就正好落在「新壁纸的媒体节点还没被创建、
+  // 请求还没发出」的空窗里，换壁纸的建层/起播/过渡全部排在它后面；实测同一条切换路径上
+  // 主题真的写入时 apply→建层的中位耗时是 25ms，未写入时是 3ms。异步取色那条腿本来就在
+  // 建层之后（要等图解码），这里只是让作者配色那条腿与它同序。
+  themeFollowOnWallpaper(selection);
 }
 function buildMedia(sel) {
   // 壁纸播放形态优先级:

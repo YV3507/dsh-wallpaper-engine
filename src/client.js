@@ -939,6 +939,10 @@ function adoptProbe(prep) {
       m.removeEventListener("load", m.__weLoad);
     }
   } catch { /* ignore */ }
+  // 「这个元素已经是就绪画面」这件事必须随元素走：切层内容闸门（见 src/live-layer.js）
+  // 判的就是"新层有没有画面"，而领养来的元素早已过了它的就绪事件 —— 不标出来就得
+  // 再等一次永远不会重放的事件，图层会白白守着一层旧壁纸。
+  try { m.__weReady = true; } catch { /* ignore */ }
   prep.readyEl = m;
 }
 
@@ -1356,6 +1360,10 @@ function weDrawFrame() {
   }
   // "fill" stretches the full source over the full canvas (defaults above).
   g.drawImage(video, sx, sy, sw, sh, dx, dy, dw, dh);
+  // 这一笔落下之前画布底是写死的 #000（见 buildMedia 的 Edge 镜像分支）：切层内容闸门
+  // 据此判"新层有画面了"（见 src/live-layer.js 的 layerContentReady / noteLayerContent）。
+  canvas.dataset.weDrawn = "1";
+  noteLayerContent(canvas);
 }
 function weDrawTick() {
   weDrawFrame();
@@ -2743,6 +2751,11 @@ function fontSetCtx() {
   const onToggleFontCustom = (v) => {
     setSetting("fontCustom", !!v); applyEffects(); emit();
   };
+  // 主题随壁纸（**默认关**）：开关本身只写设置；**打开时**立刻按当前壁纸补判一次，
+  // 不等下一次换壁纸（补判走与换壁纸同一条入口；关时那条入口整体空转，不写主题）。
+  const onToggleThemeFollow = (v) => {
+    setSetting("themeFollow", !!v); themeFollowOnWallpaper(selection); emit();
+  };
   // F1：角色色。默认「单色」—— 一个色同时写进 light/dark 两套（内部始终存两套，
 // 因为令牌服务的值必须是 {light,dark} 对，缺一套在另一套配色下会不可读）。
 // G4 字族（角色级）：空 = 回官方字族。存**族键**（CSS 栈由 fontFamilyStack 在模块侧解析）。
@@ -3152,7 +3165,7 @@ const officialColorOf = (tokens) => {
     if (activeTab === "appearance") return renderAppearanceTab({
       setSetting, setTransient,
       fontSet: fontSetCtx(),
-      officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onToggleFontCustom, sel,
+      officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onToggleFontCustom, onToggleThemeFollow, sel,
     });
     if (activeTab === "mascot") return renderMascotTab({
       onRopeFormChange, onRopeScaleChange, onRopeVisibilityChange, sel,
@@ -4041,7 +4054,7 @@ function apply(ctx) {
       const cancelPoll = pollThemeService(ctx, {
         intervalMs: 250,
         timeoutMs: 6000,
-        onReady: (theme) => { themeFollowAttach(theme, ctx);   // 主题随壁纸：同一个服务句柄，接上即补评一次（无开关，行为即自动）
+        onReady: (theme) => { themeFollowAttach(theme, ctx);   // 主题随壁纸：同一个服务句柄，接上即补评一次（开关默认关，关着时这次补评整体空转）
           try {
             const available = scanThemeTokens(document);
             // 样式表扫描是清单的权威来源（active.tokens 为空、exportInspectTokens 只有 14 条）；
