@@ -13,8 +13,9 @@
  *   N5 **热路径零提示**：逐请求 / 逐帧的代码段里不许出现 `notice(` —— 提示只许在里程碑位置。
  *   N6 **两侧档位名同集合**：宿主与客户端各自声明三个档位名，集合必须一致（两侧不共享内核，
  *      所以"一致"这件事本身需要判据）。
- *   N7 **渲染页明文级别与宿主模式表同源**：本地补丁把 `FAIL_REPORT_RE` 打进 vendored 渲染页，
- *      让它自己按同一张表给 `/diag` 带 `&lvl=`（补丁在位 / 逐字相同 / 真随 URL 上行，三件都要）。
+ *   N7 **渲染页自带级别声明**：`/diag` 分档的主路径是发送端自带的 `&lvl=`，由上游 WebWallGL
+ *      自己声明（issue #13）—— 产物里真有 `lvl=` 上报与三档字面量，且本地补丁（曾是把级别
+ *      打进产物的手段）已清干净。只删补丁不建上游，渲染页就退回"宿主靠文案猜"。
  *
  * N1–N6 是**静态**判据（代码长什么样）；R1–R4 是**运行期**判据（真的跑一遍两个宿主模块）——
  * 闸门三态、幂等与"投递失败才 warn"这三件事在源码上看不出来，只能跑：
@@ -225,37 +226,49 @@ function noticeSuccessSilent(src) {
     && levelNamesIn("const X = { 'error': 1, 'warn': 1, 'info': 1 };").length === LEVEL_NAMES.length);
 }
 
-// ── N7 渲染页的"明文级别"与宿主模式表**同源**（本地补丁的产物侧牙齿）────────────
-// `test/tools/sync-webwallgl.mjs` 把 FAIL_REPORT_RE 打进 vendored 渲染页，让它自己按同一张表
-// 给 `/diag` 上报带 `&lvl=`。这条判据核对三件事：补丁**在位**、正则源与宿主**逐字相同**、
-// 级别真的**随 URL 上行**。少任何一件，渲染页就退回"宿主靠文案猜"。
-const URL_TAIL = '`)}&lvl=${__weLvl}`';
-function rendererLevelPatchOk(src, hostRe) {
-  const m = src.match(/const __weLvl=\/(.+?)\/\.test\(n\)\?"warn":"info"/);
-  return Boolean(m) && m[1] === hostRe && src.includes(URL_TAIL);
+// ── N7 渲染页的级别由**上游产物自己**声明（宿主不再需要本地补丁）──────────────
+// `/diag` 分档的主路径是发送端自带的 `&lvl=`：上游 WebWallGL 的 `diag-level.ts` 负责声明
+// （issue #13），宿主 `lib/routes/diag.js` 只读不猜 —— 三档优先、未知 / 缺失才回落模式表
+// （那条回落由 R5 用真请求钉住）。本判据把两件事同时钉住：「产物自带级别」与「补丁已清干净」：
+// 少了上游实现，渲染页就退回"宿主靠文案猜"；而产物一旦被本地改过，`/scene-live` 的 immutable
+// 缓存会让同一 URL 继续发旧字节 —— 两种坏法都只有在这里能当场看见。
+/** 产物自带级别：`/diag` 上报模板带 `lvl=`，且三档字面量齐（宿主按这三个值认档）。 */
+function rendererDeclaresLevel(src) {
+  return src.includes('/diag?msg=') && /&lvl=\$\{[A-Za-z_$][\w$]*\}/.test(src)
+    && LEVEL_NAMES.every((l) => src.includes('"' + l + '"'));
+}
+/** 本地补丁残留：产物里的补丁标记 / 补丁后缀名，以及同步脚本里的补丁函数与开关。 */
+function localPatchResidue(assets, syncSrc) {
+  const out = [];
+  for (const f of assets) {
+    if (read(f).includes('__weLvl')) out.push(f + ' 带补丁标记');
+    if (/-welvl\d*\.js$/.test(f)) out.push(f + ' 带补丁后缀');
+  }
+  const code = stripComments(syncSrc);
+  for (const mark of ['applyLocalPatches', 'applyDiagLevelPatch', 'PATCH_SUFFIX', 'patches-only']) {
+    if (code.includes(mark)) out.push('sync-webwallgl.mjs 仍有 ' + mark);
+  }
+  return out;
 }
 {
-  const hostRe = (read('lib/routes/diag.js').match(/export const FAIL_REPORT_RE = \/(.+?)\/;/) || [])[1];
   const assets = LIB_FILES.filter((f) => /^lib\/webwallgl\/assets\/.*\.js$/.test(f));
-  const hit = assets.filter((f) => rendererLevelPatchOk(read(f), hostRe));
-  const html = read('lib/webwallgl/index.html');
-  // 补丁改了内容就必须换 URL：`/scene-live` 给哈希资源发 immutable（一年），
-  // 原地改同名文件等于让老访客一直拿旧产物 ⇒ 产物名带后缀、且 index.html 指向它。
-  const renamed = hit.length === 1 && hit[0].endsWith('-welvl1.js')
-    && html.includes('/assets/' + hit[0].split('/').pop())
-    && !assets.some((f) => f !== hit[0] && /renderer-.*\.js$/.test(f) && !f.endsWith('-welvl1.js'));
-  check('N7 渲染页带明文级别：补丁在位、正则与宿主模式表逐字相同、级别随 `/diag` 上行',
-    Boolean(hostRe) && hostRe.length > 0 && hit.length === 1 && assets.length >= 1,
-    '宿主正则=' + JSON.stringify(hostRe) + ' 补丁命中=' + hit.length + '/' + assets.length);
-  check('N7 换名与引用一致：产物名带补丁后缀、index.html 指向它、旧名不留存（immutable 缓存不失效）',
-    renamed, '产物=' + (hit[0] || '(无)') + ' index.html=' + (hit.length === 1 && html.includes('/assets/' + hit[0].split('/').pop())));
-  check('N7 negative control: 少斜杠 / 换一张表 / 不带 lvl / 留着旧名 四种坏补丁都会被判出',
-    rendererLevelPatchOk('const __weLvl=' + hostRe + '.test(n)?"warn":"info";' + URL_TAIL, hostRe) === false
-    && rendererLevelPatchOk('const __weLvl=/onlythis/.test(n)?"warn":"info";' + URL_TAIL, hostRe) === false
-    && rendererLevelPatchOk('const __weLvl=/' + hostRe + '/.test(n)?"warn":"info";', hostRe) === false
-    && rendererLevelPatchOk('const __weLvl=/' + hostRe + '/.test(n)?"warn":"info";' + URL_TAIL, hostRe) === true
-    && ['lib/webwallgl/assets/renderer-AAAA.js', 'lib/webwallgl/assets/renderer-AAAA-welvl1.js']
-      .filter((f) => /renderer-.*\.js$/.test(f) && !f.endsWith('-welvl1.js')).length === 1);
+  const declared = assets.filter((f) => rendererDeclaresLevel(read(f)));
+  const residue = localPatchResidue(assets, read('test/tools/sync-webwallgl.mjs'));
+  check('N7 渲染页产物自带级别声明：`/diag` 上报带 `lvl=`，且 error/warn/info 三档字面量齐',
+    assets.length >= 1 && declared.length === 1,
+    '命中=' + declared.length + '/' + assets.length + '（' + (declared[0] || '无') + '）');
+  check('N7 本地补丁已清干净：产物无 `__weLvl` / `-welvl1` 后缀，同步脚本无补丁函数与 `--patches-only`',
+    residue.length === 0, residue.length ? residue.join(' | ') : '产物 ' + assets.length + ' 个 + 同步脚本干净');
+  // 合成输入用的三档字面量 + 两种上报 URL（带 / 不带 `lvl=`）—— 同一个判据函数。
+  const THREE = ' "error" "warn" "info"';
+  const HAS_LVL = 'return `${t}/diag?msg=${x}&lvl=${lv}`}';
+  check('N7 negative control: 缺 `lvl=` / 缺档位字面量 / 带补丁残留 三种坏形态都会被判出',
+    rendererDeclaresLevel('/diag?msg=x' + THREE) === false
+    && rendererDeclaresLevel(HAS_LVL + THREE.slice(0, THREE.lastIndexOf(' "info"'))) === false
+    && rendererDeclaresLevel(HAS_LVL + THREE) === true
+    && localPatchResidue([], 'function applyDiagLevelPatch() {}').length === 1
+    && localPatchResidue([], '// applyDiagLevelPatch 曾是补丁\nconst x = 1;').length === 0
+    && localPatchResidue([], "const PATCHES_ONLY = process.argv.includes('--patches-only');").length === 1);
 }
 
 // ── 接线在位：两个宿主模块必须真的被入口 import（否则上面六条可以在死代码上全绿）──

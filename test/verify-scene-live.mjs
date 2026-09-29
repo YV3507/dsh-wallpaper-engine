@@ -167,9 +167,48 @@ if (existsSync(upstreamPath)) {
 // vendor 产物里：升级上游后若忘记重新 vendor，断言会直接指出。
 const vendoredShim = existsSync(join(vendorDir, 'web-shim.js'))
   ? readFileSync(join(vendorDir, 'web-shim.js'), 'utf8') : '';
+/** `installRafThrottle` 的函数体（大括号配对）—— 节流实现只在这段里算数。 */
+function shimThrottleBody(src) {
+  const at = src.indexOf('function installRafThrottle');
+  if (at < 0) return null;
+  const open = src.indexOf('{', at);
+  if (open < 0) return null;
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    if (src[i] === '{') depth++;
+    else if (src[i] === '}' && --depth === 0) return src.slice(open, i + 1);
+  }
+  return null;
+}
+/**
+ * 节流判据：**每帧都挂原生 rAF（保 vsync 相位），交付只看经过的时间**。
+ * 三种坏形态都判红：
+ *   · 定时器节流（`setTimeout(1000/fps)` 后再 rAF）—— 定时器落在刷新的任意相位上，
+ *     30fps 上限产出 17/33/50ms 抖动，观感是「限了 30 反而更卡」；
+ *   · 按**回调次数**跳帧（旧 `slot % n`）—— 长任务后浏览器一个 vsync 只补发一个回调，
+ *     间隔被放大成「饿死时长 + 最多 (n-1)×vsync」，尾部呈目标间隔的整数倍；
+ *   · 只在链首判相位（相位基准挂在链内）—— 作者回调普遍自递归登记下一帧，每次交付都换
+ *     新链，饿死恰好落在链首时链内什么都看不到。
+ * 判据作用在**剥掉注释**的代码上：这段的注释里就写着 `setTimeout(1000/fps)`。
+ * 上游在 b11e839 把判据从「数回调次数」改成「比时间戳」（#8），本条随之更新。
+ */
+function shimThrottleOk(body) {
+  if (typeof body !== 'string') return false;
+  const code = body.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+  return code.includes('origRaf(step)')            // 每帧都挂原生 rAF（与 vsync 同相位）
+    && /nowMs\s*-\s*lastDeliverNow/.test(code)     // 交付按**经过的时间**判，不看回调次数
+    && /target\s*-\s*slack/.test(code)             // 目标间隔 1000/fps + 测量噪声容差
+    && !/\bsetTimeout\s*\(/.test(code);            // 定时器节流 = 抖动
+}
+const shimBody = shimThrottleBody(vendoredShim);
 check('vendored shim throttles by vsync frame-skip (not setTimeout)',
-  /Math\.ceil\(1000 \/ fps \/ nativeMs/.test(vendoredShim),
-  '跳过帧的节流（旧实现 setTimeout 会产出 17/33/50ms 抖动）');
+  shimThrottleOk(shimBody),
+  '每帧挂原生 rAF + 按时间戳交付（旧的 setTimeout 节流与数回调次数两种实现都判红）');
+check('vendored shim throttle negative control: 定时器 / 数回调次数 / 链内相位 三种坏实现都被判出',
+  shimThrottleOk('{ rafMap[id] = { kind: "native", id: origRaf(step) }; setTimeout(function () { cb(now); }, 1000 / fps); }') === false
+  && shimThrottleOk('{ slot++; if (slot % n !== 0) { rafMap[id] = { kind: "native", id: origRaf(step) }; return; } cb(now); }') === false
+  && shimThrottleOk('{ var lastNow = 0; var nowMs = now; var target = 1000 / fps; var slack = 0; if (nowMs - lastNow < target - slack) return; rafMap[id] = { kind: "native", id: origRaf(step) }; }') === false
+  && shimThrottleOk('{ var nowMs = 1; var target = 2; var slack = 0; if (nowMs - lastDeliverNow < target - slack) {} rafMap[id] = { kind: "native", id: origRaf(step) }; }') === true);
 check('vendored shim installs only once (idempotent guard)',
   /__weShimInstalled/.test(vendoredShim),
   '双 shim 会让 rAF 节流叠加：15fps 上限实测变成 7.5fps');
