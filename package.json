@@ -1,8 +1,11 @@
 {
   "name": "dsh-plugin-wallpaper-engine",
   "version": "1.0.1",
-  "description": "Wallpaper Engine backgrounds for the DSH web GUI: render your local Wallpaper Engine Video/Web wallpapers behind the chat, Scene wallpapers as extracted static frames, with iOS-style liquid glass, adjustable scrim/border/blur, and a customizable accent color + glass transparency for the whole settings window. Prerequisites (update BOTH first): latest DeepSeek Harness (0.1.5-rc.1+ / DSH Desktop >= 2.0.7) and dsh-better-sidebar >= 0.19.0.",
+  "description": "Wallpaper Engine backgrounds for the DSH web GUI: render your local Wallpaper Engine wallpapers behind the chat — Scene and Web in real time through the bundled WebWallGL engine, Video played directly — with iOS-style liquid glass, adjustable blur/scrim/border/opacity, custom typography and caret, and a liquid-glass makeover of the whole settings window. Prerequisites (update BOTH first): latest DeepSeek Harness (0.1.5-rc.1+ / DSH Desktop >= 2.0.7) and dsh-better-sidebar >= 0.19.0.",
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
   "repository": {
@@ -35,16 +38,15 @@
   },
   "files": [
     "lib/index.js",
+    "lib/log.js",
+    "lib/notice.js",
+    "lib/routes/",
+    "lib/fontsets/",
     "lib/client.js",
     "lib/pkg-extract.js",
-    "lib/scene-renderer.js",
-    "lib/scene-render-worker.mjs",
-    "lib/we-renderer/",
-    "lib/font-render.js",
-    "lib/scene-scripts.js",
-    "lib/scene-script-apis.js",
+    "lib/pkg-read.js",
     "lib/scene-manifest.js",
-    "lib/scene-player.js",
+    "lib/settings-schema.js",
     "lib/media/",
     "lib/webwallgl/",
     "lib/we-props.js",
@@ -72,10 +74,10 @@
   "license": "MIT",
   "scripts": {
     "build": "node scripts/build-client.mjs",
-    "verify": "node scripts/verify-client.mjs && node scripts/verify-transcode-state.mjs && node scripts/verify-playback-controls.mjs && node scripts/verify-scene.mjs && node scripts/verify-scene-live.mjs && node scripts/verify-media-bridge.mjs && node scripts/verify-softrender.mjs && node scripts/verify-readability.mjs && node scripts/verify-package-files.mjs",
-    "verify:bridge": "node scripts/verify-media-bridge.mjs --provision",
-    "verify:e2e": "node scripts/e2e-web-media-origin.mjs",
-    "smoke": "node test/rotation-smoke.mjs && node test/rotation-live-smoke.mjs && node test/rotation-prepared-leak-smoke.mjs && node test/live-frame-backfill-smoke.mjs && node test/live-frame-async-identity-smoke.mjs",
+    "verify": "node test/verify-client-sync.mjs && node test/verify-client.mjs && node test/verify-transcode-state.mjs && node test/verify-playback-controls.mjs && node test/verify-scene.mjs && node test/verify-scene-live.mjs && node test/verify-comment-discipline.mjs && node test/verify-logging.mjs && node test/verify-media-bridge.mjs --allow-skip && node test/verify-softrender.mjs && node test/verify-readability.mjs && node test/verify-glass-compositing.mjs && node test/verify-package-files.mjs && node test/verify-package-publish.mjs && node test/verify-contracts.mjs && node test/verify-module-layout.mjs && node test/verify-reachability.mjs && node test/verify-types.mjs && node test/verify-host-paint-scope.mjs && node test/verify-retired-lines.mjs && node test/verify-ledger.mjs && node test/verify-route-index.mjs && node test/verify-theme-layer.mjs && node test/verify-api-client.mjs && node test/verify-component-fonts.mjs && node test/verify-fontset.mjs && node test/verify-picker-upload.mjs && node test/verify-picker-model.mjs && node test/verify-picker-props.mjs && node test/verify-dead-declarations.mjs",
+    "verify:bridge": "node test/verify-media-bridge.mjs --provision",
+    "verify:e2e": "node test/e2e-web-media-origin.mjs",
+    "smoke": "node test/rotation-smoke.mjs && node test/rotation-live-smoke.mjs && node test/rotation-prepared-leak-smoke.mjs && node test/live-frame-backfill-smoke.mjs && node test/live-frame-async-identity-smoke.mjs && node test/fontset-load-smoke.mjs",
     "verify:all": "npm run build && npm run verify && npm run smoke",
     "prepare": "node scripts/prepare.mjs"
   },
@@ -91,10 +93,7 @@
       "optional": true
     }
   },
-  "dependencies": {
-    "jpeg-js": "^0.4.4",
-    "@shaderfrog/glsl-parser": "^7.0.1"
-  },
+  "dependencies": {},
   "overrides": {
     "js-yaml": "4.3.2"
   }

@@ -1,4 +1,18 @@
-// Live GPU 抓帧回填冒烟（真失败通道：任何断言失败 → 非零退出）。
+// React #31 校验：**对象不能作为子节点**。替身若默默吞掉，这类错就只能在真机上炸
+// （实测：参数位置上的赋值表达式把"角色对象数组"当成了子节点，空表时看不出、
+// 一旦筛出角色整块面板就崩）。替身必须和 React 一样**抛**。
+function badChild(c) {
+  if (c === null || c === undefined || typeof c === 'boolean' || typeof c === 'string' || typeof c === 'number') return null;
+  if (Array.isArray(c)) { for (const x of c) { const b = badChild(x); if (b) return b; } return null; }
+  if (typeof c === 'object' && c.type) return null;
+  return c;
+}
+function assertChildren(children) {
+  for (const c of children) {
+    const bad = badChild(c);
+    if (bad) throw new Error('React #31：无效子节点（对象不能作为子节点）: ' + JSON.stringify(Object.keys(bad)).slice(0, 80));
+  }
+}// Live GPU 抓帧回填冒烟（真失败通道：任何断言失败 → 非零退出）。
 //
 // 链路：live 首帧确认 → 2.5s 后 HEAD 探测槽位 → 抓渲染页 canvas → 内容/体积
 // 门禁 → PUT /scene-frame-cache/<token>。
@@ -23,7 +37,7 @@ import vm from 'node:vm';
 
 const CODE = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8');
 const React = { Fragment:'Fragment', useState:(i)=>[i,()=>{}], useEffect:()=>{}, useRef:(v)=>({current:v}),
-  createElement:(t,p,...c)=>typeof t==='function'?t(p||{}):({type:t,props:p||null,children:c}) };
+  createElement:(t,p,...c)=>{ assertChildren(c); return typeof t==='function'?t(p||{}):({type:t,props:p||null,children:c}); } };
 
 let failures = 0;
 const check = (label, cond, detail = '') => {

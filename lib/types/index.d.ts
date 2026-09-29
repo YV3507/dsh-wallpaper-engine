@@ -2,33 +2,59 @@
  * dsh-wallpaper-engine — host half type surface.
  *
  * The host plugin contributes no public Cordis services and registers no model
- * tool. It exposes three same-origin HTTP routes through `ctx.webServer` (see
- * README) and unwinds them on unload. It treats `webServer` as optional, so the
- * bundle also composes into a headless/TUI profile (where it is a no-op).
+ * tool. It serves 32 same-origin HTTP routes through `ctx.webServer` and unwinds
+ * them on unload; `docs/ROUTE-INDEX.md` is the generated table of those routes
+ * and stays authoritative for their paths and handlers.
+ *
+ * `webServer` is a HARD dependency, declared by `inject` below: the Loader waits
+ * for the HTTP server to mount before running this plugin, and a profile with no
+ * HTTP server does not load the bundle at all. `ctx.webServer` is read directly
+ * at mount time; it is never reached through `ctx.get`.
  */
 
 import type { Context } from '@deepseek-ai/cordis';
 
-/** A normalized Wallpaper Engine project as served in the inventory. */
+/** One normalized Wallpaper Engine project (or upload) as served in the inventory. */
 export interface WallpaperDescriptor {
-  /** Project directory basename (Workshop id or project folder name). */
+  /** Entry id: Workshop id, project folder name, or `up-*` / `up-dir-*` for uploads. */
   id: string;
-  /** Wallpaper title from project.json. */
+  /** Display title: project.json title, uploads/.meta.json title, or the id as fallback. */
   title: string;
-  /** Wallpaper kind: 'video' | 'web' | 'scene' | 'application'. */
+  /** Kind assigned by the enumerator: 'scene' | 'video' | 'web' | 'application',
+   *  plus 'image' for a single-file upload. */
   type: string;
-  /** Whether the wallpaper can be rendered by the browser (video/web). */
+  /** Wallpaper Engine content rating from project.json (or uploads/.meta.json), or null. */
+  contentrating: string | null;
+  /** Whether the entry has playable media (video/web, or any single-file upload). */
   playable: boolean;
   /** Served media URL (`/wallpaper-engine/media/<token>`), or null. */
   media: string | null;
-  /** Served preview URL (`/wallpaper-engine/preview/<token>`), or null. */
+  /** Served preview URL (`/wallpaper-engine/preview/<token>`; uploads without a
+   *  preview image fall back to `/wallpaper-engine/video-preview/<token>`), or null. */
   preview: string | null;
   /** Scene static-frame URL (`/wallpaper-engine/scene-frame/<token>`), or null. */
   frameUrl: string | null;
-  /** Live WebGL scene player URL (`/wallpaper-engine/scene-runtime/<token>`), or null. */
-  sceneUrl?: string | null;
-  /** Scene embedded-animation MP4 URL (`/wallpaper-engine/scene-video/<token>`), or null. */
-  sceneVideo?: string | null;
+  /** Load-time placeholder colour derived from WE's schemecolor (`rgb(r, g, b)`), or null. */
+  schemeColor: string | null;
+  /** Whether WebWallGL can live-render this scene (a packed pkg, not a loose scene.json). */
+  sceneLive: boolean;
+  /** Scene main-file token for the live renderer (`sceneLive` only), or null. */
+  sceneLiveSrc: string | null;
+  /** Scene embedded-animation MP4 URL (`/wallpaper-engine/scene-video/<token>`); null
+   *  until the probe confirms the pkg really carries an MP4. */
+  sceneVideo: string | null;
+  /** Scene packaged-audio URL (`/wallpaper-engine/scene-audio/<token>`), or null. */
+  sceneAudio: string | null;
+  /** Whether a user-supplied static frame replaces the extracted one. */
+  hasCustomFrame: boolean;
+  /** Whether the web live render applies to this entry (entry HTML present). */
+  webLive: boolean;
+  /** Full entry URL the web renderer loads (`/wallpaper-engine/scene-files/<token>/<name>`), or null. */
+  webLiveSrc: string | null;
+  /** Served project.json URL for the properties panel (`/wallpaper-engine/props/<token>`), or null. */
+  propsUrl: string | null;
+  /** Automatic web first-frame cache URL (`/wallpaper-engine/live-frame/<token>`), or null. */
+  liveFrame: string | null;
 }
 
 /** A Wallpaper Engine playlist read from `config.json`. */
@@ -55,11 +81,17 @@ export interface PlaylistDescriptor {
 export interface Inventory {
   /** Absolute Wallpaper Engine install dir, or null when not found. */
   installDir: string | null;
-  /** Total installed wallpapers. */
+  /** Absolute upload directory (env → config.json → default); always a path. */
+  uploadDir: string;
+  /** Absolute WE official-assets directory (env / config.json), or null when unset. */
+  weAssetsDir: string | null;
+  /** Whether `weAssetsDir` currently holds a usable `materials/` tree. */
+  weAssetsAvailable: boolean;
+  /** Total entries: installed WE wallpapers plus custom uploads. */
   total: number;
-  /** Number of portable (video/web) wallpapers. */
+  /** Number of entries with playable media. */
   portableCount: number;
-  /** All installed wallpapers. */
+  /** All installed entries. */
   wallpapers: WallpaperDescriptor[];
   /** Saved Wallpaper Engine playlists available for scoped rotation. */
   playlists: PlaylistDescriptor[];
@@ -68,4 +100,9 @@ export interface Inventory {
 /** The host plugin hard-depends on the webserver service (`webServer`). */
 export declare const inject: string[];
 
+/** Registers every route on `ctx.webServer`; the returned disposer unwinds them on unload. */
 export declare function apply(ctx: Context): () => void;
+
+/** The plugin object form of the same two exports (`export default { inject, apply }`). */
+declare const plugin: { inject: string[]; apply: typeof apply };
+export default plugin;

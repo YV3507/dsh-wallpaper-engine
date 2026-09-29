@@ -37,7 +37,7 @@ Get-ChildItem <dir> -Recurse -Filter *.json | ForEach-Object {
 - **bundle patch 含配置/表达式行**（config / expression rows）**不支持热挂载**——修改后必须
   **重启 DSH**，由 bundle 层在启动时重新组合生效。
 - 对 dsh-wallpaper-engine 的意义：
-  - host 侧改动（`lib/index.js`、`lib/scene-renderer.js`、`lib/scene-render-worker.mjs`）都是
+  - host 侧改动（`lib/index.js`、`lib/routes/*.js`）都是
     启动时加载的代码，**任何修改都要重启 DSH Desktop 才生效**；运行中的实例不会热更新 host 代码。
   - 客户端（`lib/client.js`）改动在 dev 模式下可热挂载（纯 insert），生产同样以重启为准。
 
@@ -47,5 +47,5 @@ Get-ChildItem <dir> -Recurse -Filter *.json | ForEach-Object {
 - 插件安装恢复状态：`C:\Users\Kai\AppData\Roaming\DSH Desktop\plugin-install-recovery\state.json`
   （CLI 在应用运行期间安装 → `startup-unconfirmed` 自动回滚；正确流程：应用完全关闭 →
   执行 `dsh plugin --profile desktop add link:<path>` → 重启应用确认 `verified`）
-- 场景帧缓存：`C:\Users\Kai\.dsh-wallpaper-engine\cache\frames\`（缓存键前缀 sf3/sf4/sf5
+- 场景帧缓存：`C:\Users\Kai\.dsh-wallpaper-engine\cache\frames\`（缓存键前缀 `lf1` / `sv1_` / `sa1_`
   标识渲染逻辑版本；改动渲染器后必须 bump 前缀，否则旧坏帧被复用）

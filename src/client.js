@@ -23,10 +23,12 @@
  *   4. Automatic rotation over USER-DEFINED carousel lists (轮播列表): the user
  *      can create any number of lists, pick wallpapers into each from the
  *      inventory, and give each list its own switch interval and order. Lists
- *      are persisted client-side (localStorage), so rotation never depends on
- *      Wallpaper Engine's own config.json playlist paths. A playable WE
- *      playlist is imported as the first list on first run so the feature
- *      starts working out of the box.
+ *      are persisted with the rest of the settings (schema key `rotationGroups`
+ *      → the host's own ~/.dsh-wallpaper-engine/config.json; localStorage is
+ *      only the client-side cache), so rotation never depends on Wallpaper
+ *      Engine's own config.json playlist paths — WE playlists are an import
+ *      source only. A playable WE playlist is imported as the first list on
+ *      first run so the feature starts working out of the box.
  */
 
 const React = require("react");
@@ -60,207 +62,17 @@ const ROPE_POS_KEY = "dsh-wallpaper-engine:rope-pos";
 // scrim default is intentionally LOW now: iOS liquid glass needs the wallpaper
 // colour to pass through the glass, so we no longer crush it behind a near-black
 // scrim. Users can raise it back via the 暗化 slider for busy wallpapers.
-const DEFAULTS = {
-  scrim: 0.25,
-  border: 0.35,
-  blur: 16,
-  wallpaperBlur: 0,
-  // Background knobs (%, 100 = untouched): brightness / contrast / saturate of
-  // the wallpaper media filter. Ranges mirror the readability lab.
-  backgroundBrightness: 100,
-  backgroundContrast: 100,
-  backgroundSaturate: 100,
-  // 壁纸透明度（#82，0–90%，0 = 不动）：媒体叶子的 element opacity，越大越透
-  // （与本插件其他「透明度」滑块同语义）。淡出时壁纸融向**原生外观**（浅色纯白 /
-  // 深色纯黑）—— IDEA 背景图式「看得见但不喧宾夺主」。作用在 .we-layer 的媒体
-  // 叶子（视频/图片/网页/画布统一生效），层本身垫这层原生底色以保住玻璃模糊；
-  // 暗化（scrim）叠在壁纸之上，建议先降到 0 再调本滑块。
-  wallpaperOpacity: 0,
-  rotationEnabled: false,
-  rotationInterval: 30,
-  // ── 切换过场（手动点选与自动轮播共用）────────────────────────────────
-  // 默认 **硬切**：先上零成本、零风险的切换，等把「最帅的」讨论定下来再改默认
-  // （改默认只需要动这一个值 + 一条断言）。可选：交叉淡化 / 推移 / 擦除 / 光圈 /
-  // 缩放 / 条带。allTransitions 见 SWITCH_TRANSITIONS。
-  switchTransition: "cut",
-  // 方向（只对方向型转场有意义：推移 / 擦除 / 条带）。left = 画面整体向左移动，
-  // 亦即新画面从右侧进入。
-  switchTransitionDir: "left",
-  // 时长档：每类型自带基准毫秒 × 本乘子（SWITCH_SPEEDS）。默认 normal。
-  switchTransitionSpeed: "normal",
-  rotationGroupId: "",
-  rotationGroups: [],
-  rotationSeeded: false,
-  // Soft-delete: ids of wallpapers the user hid (localStorage only, no file
-  // changes). Hidden wallpapers leave the normal list + rotation candidates
-  // but keep playing if already active; they reappear on restore.
-  hiddenIds: [],
-  // Video playback speed (0.5x–2x, applied via native playbackRate).
-  playbackRate: 1,
-  // 解码帧率上限（fps；0 = 无限制）：对源帧率高于上限的视频壁纸，host 一次性
-  // ffmpeg 重编码为上限帧率的"抽帧版"（4K120→4K60，时间线保持 1.0x 正常速度，
-  // 解码占用随帧率线性下降）。与倍速完全解耦 —— 倍速照常叠加在抽帧版上。
-  // 无 ffmpeg 或转码失败时自动回退原片（transcodeState: "fallback"）。
-  fpsCap: 0,
-  // Scene 壁纸的静态帧 URL（供页面刷新 / 档位切换时重挂静态帧）。
-  sceneFrameUrl: null,
-  // 场景实时渲染（WebWallGL live WebGL）：scene.pkg 壁纸由 vendored WebWallGL
-  // 渲染页实时渲染（粒子/脚本/视差/包内音频），默认开启；加载失败或运行
-  // 失联时按壁纸记忆失败并自动降级回 sceneVideo → 静态帧链（见
-  // sceneLiveFailures / startLiveWatch）。帧率上限是渲染 fps，与视频壁纸的
-  // 抽帧转码（解码 fps）互不相干。
-  sceneLive: true,
-  sceneLiveFps: 30,
-  // 实时渲染的启动延迟（秒）：只在「重启恢复上次壁纸」时生效（用户手动切换不延迟）
-  // —— 期间显示占位图（自动首帧 / 静态帧 / 主题色），避免大场景包与 DSH 首屏抢主线程。
-  liveBootDelay: 3,
-  // 系统音频反应（频谱来源）：auto = 宿主有采集能力就用（macOS 走 CoreAudio
-  // Process Tap，首次需一次性「音频录制」授权；Linux/Windows 走 ffmpeg +
-  // monitor/虚拟设备），off = 关闭（渲染页回落内置模拟源）。缺失/未授权时自动回落。
-  audioSource: "auto",
-  // 媒体集成（Now Playing）：把系统正在播放的歌名/歌手/专辑/封面/进度推给壁纸的
-  // wallpaperMediaIntegration 监听器。数据由宿主侧的媒体后端提供（首选
-  // media-bridge 中间件：macOS MediaRemote / Windows GSMTC / Linux MPRIS，
-  // 三平台都内置；取不到时宿主自动回落到内置实现）。
-  mediaIntegration: true,
-  // 在线歌词：本地（音频同目录 .lrc / 已缓存）找不到时向 lrclib.net 查询一次。
-  // 默认**关**：那是一次外发请求（带曲名/歌手/专辑），与插件「不上传任何服务器」
-  // 的口径一致才默认关；本地歌词不受影响。
-  mediaLyricsOnline: false,
-  // 用户改过的壁纸属性（「壁纸属性」面板）：{ [token]: { [属性名]: 值 } }。
-  // token = base64(入口文件绝对路径)，与 host 侧 /props 同一套键。
-  userProps: {},
-  // 遮挡暂停（借鉴 Wallpaper Engine 的「被遮挡时暂停」——桌面端大部分时间
-  // GPU≈0 主因就是它）：
-  // - pauseOnHidden：页面隐藏（窗口最小化 / 切到其它标签页）时暂停视频。
-  //   浏览器对后台页的节流并不保证解码停止，显式 pause 让解码引擎直接归零。
-  // - pauseOnBlur：窗口失焦（切到其它应用，壁纸很可能被遮挡）时暂停。
-  //   浏览器无法直接探测"被窗口遮挡"，失焦是最接近的代理信号。
-  // 恢复可见 / 聚焦后，若用户未手动暂停则自动继续（同步 effective 播放态）。
-  pauseOnHidden: true,
-  pauseOnBlur: false,
-  // 使用电池供电时暂停（类似 WE 的电池优化）：navigator.getBattery 判定
-  // 是否在电池上（!charging），不支持的浏览器自动无操作。
-  pauseOnBattery: false,
-  // Horizontal mirror (CSS scaleX(-1)) — pure compositor, no main-thread cost.
-  flip: false,
-  // Fit mode for CUSTOM-uploaded wallpapers only (WE wallpapers keep cover):
-  // 覆盖=cover · 填充=contain · 居中=center · 拉伸=fill (one object-fit var).
-  objectFit: "cover",
-  // Content-rating filter, reproducing Wallpaper Engine's own rating taxonomy
-  // (project.json `contentrating`: "Everyone" / "PG13" / "Mature" — WE's
-  // workshop tags G / PG13 / R; projects without the field are "unrated").
-  // "everyone" is the default, matching WE's conservative first-run stance.
-  contentRatingFilter: "everyone",
-  // Wallpaper-type filter (all / video / web / image / scene). "all" disables it.
-  typeFilter: "all",
-  // Thumbnail-card style: "classic" (WE's original aspect-ratio 16/9 cards —
-  // the CD-like look the author liked; can overlap in older browsers) or
-  // "fixed" (rewritten fixed-height cards that never overlap). The vinyl
-  // record next to the selection is shown in BOTH styles (here + modal head).
-  pickerLayout: "fixed",
-  // Edge 兼容渲染：Edge（且仅 Edge）会在任何"可见的 <video>"上绘制浏览器
-  // 自带的「下载 / 投屏」悬浮工具栏且无官方开关，故默认在 Edge 中把视频壁纸
-  // 改为 canvas 渲染（见 IS_EDGE / weStartDraw）；关闭后所有浏览器一律使用
-  // 原生 <video>（Edge 上悬浮栏会重新出现，属预期）。
-  edgeCompat: true,
-  // Settings-page liquid-glass theming:
-  // - accent: the plugin's own accent color (#rrggbb), written to --we-accent
-  //   and consumed by buttons/sliders/selected cards/badges/glass highlights —
-  //   independent of the shell's theme brand token.
-  // - glassAlpha: glass-surface transparency in % (0–60, step 5), written to
-  //   --we-glass-alpha and used by the settings window, settings card, composer
-  //   card, bubbles and sidebar panels. Higher = MORE transparent (clearer
-  //   wallpaper shows through), lower = closer to solid.
-  // - glassColor: the GLASS BASE COLOR of the settings window (#rrggbb),
-  //   written to --we-glass-color. Defaults keep the stock look (white glass
-  //   in light mode, deep navy in dark); once the user picks a color BOTH
-  //   themes use it, so the window glass can be tinted to taste.
-  // - glassWindow: master switch for the WHOLE native settings window — when
-  //   on, the dialog (nav + every native section: General/Models/Plugins/…)
-  //   becomes liquid glass with the accent + transparency above; off restores
-  //   the shell's stock look.
-  accent: "#4f8cff",
-  glassAlpha: 12,
-  glassColor: "#ffffff",
-  glassWindow: true,
-  // dsh-better-sidebar 液态玻璃：与设置窗口玻璃同级的一套「细节自由」控制，
-  // 独立于会话玻璃（玻璃 / 玻璃透明度）——侧栏想多透 / 多糊 / 换个底色都行：
-  // - sidebarGlass：总开关，关闭后侧栏恢复原生外观（不再透明 / 不再模糊）；
-  // - sidebarBlur：侧栏专用 backdrop 模糊半径（px，0 = 关闭毛玻璃）；
-  // - sidebarAlpha：侧栏玻璃透明度（%），语义与玻璃透明度一致（越大越透）。
-  //   默认 120（映射后白罩 ≈16.3%；旧默认 12 ≈35.9%，面板明显发亮 — #56 实测）：
-  //   已存配置经 sanitize 只钳范围不覆盖，故仅影响新用户开箱观感；编辑器/终端
-  //   内容面有独立近不透明底色兜底，文字可读性不受影响。
-  // - sidebarColor：侧栏玻璃基底色调（#rrggbb），默认白色，双主题统一生效。
-  sidebarGlass: true,
-  sidebarBlur: 16,
-  sidebarAlpha: 120,
-  sidebarColor: "#ffffff",
-  // 内容面（编辑器/终端）近不透明玻璃底的细调——既有固定调色板（语法高亮/
-  // ANSI）为不透明底设计，全透明毛玻璃下注释灰不可读，全不透明又失去玻璃感：
-  // - sidebarContentAlpha：内容面透明度（%），越大越透（映射到底色不透明度
-  //   100%→20%；默认 30 → 70% 不透明，亮/暗主题实测显示均合理，玻璃感与
-  //   注释可读性平衡）；
-  // - sidebarContentColor：内容面底色（#rrggbb），空 = 跟随主题面板色
-  //   (--dsw-alias-bg-layer-1)，选定后双主题统一使用该色。
-  sidebarContentAlpha: 30,
-  sidebarContentColor: "",
-  // Persisted: show the chat-interface mascot pull-cord (rope dock).
-  ropeShown: true,
-  // Persisted: which mascot artwork + how big. ropeForm ∈ {maid, whale};
-  // ropeScale multiplies the form's base box (0.5×–2.5×).
-  ropeForm: "maid",
-  ropeScale: 1,
-  // Persisted "what's new" notice: the last version the user dismissed. Stored
-  // with the other settings (host file, port-independent) so it survives DSH
-  // Desktop's random --port restarts and never re-shows after being closed.
-  noticeSeen: "",
-  // ── 字体自定义（#57 精简回归版）：仅字体颜色 / 字重 / 字体族 ──
-  // - fontCustom：总开关。关闭 = 全部恢复 dsh 原生字体外观（清空注入的变量与
-  //   样式表，即「恢复默认」）；开启后下方三项才生效。默认关闭——PR #57 全局
-  //   染色的开箱观感不佳，本次重做默认不给用户任何覆盖。
-  // - fontColor / fontWeight / fontFamily：应用范围与报错红字保护见
-  //   applyFontStyles()（<style id="we-font-patch">）。
-  fontCustom: false,
-  fontColor: "#000000",
-  fontWeight: 400,
-  fontFamily: "inherit",
-  // 场景壁纸静态帧生成档位记忆：{ [wallpaperId]: 0..4 }（壁纸画面刷新）。
-  // 档位进入 scene-frame 请求的 ?v= 参数与宿主缓存键，各档互不覆盖。
-  frameVariants: {},
-  // 场景实时渲染失败记忆：{ [wallpaperId]: true }。心跳判定失败（首帧超时/
-  // 运行期失联）后写入，该壁纸此后走旧播放链；「场景实时渲染」开关重开时
-  // 清空全部（显式重试入口）。
-  sceneLiveFailures: {},
-  // 自定义画面（截屏导入）状态记忆：{ [wallpaperId]: true }。
-  customFrames: {},
-  // 输入光标颜色（#83，空 = 跟随 dsh 原生）：壁纸透过玻璃输入框直贴光标，
-  // 光标色与壁纸相近时会「隐形」。caret-color 经独立 <style id="we-caret-patch">
-  // 以 !important 注入 textarea / input / contenteditable，与字体自定义
-  // （fontCustom）互不依赖 —— 只想要光标可见时无需打开全局字体染色。
-  caretColor: "",
-  // ── 壁纸音轨（壁纸引擎视频自带的声音）────────────────────────────────
-  // 音量 0–1，0 = 静音。原版把视频壁纸一律 muted，这里把静音变成「音量 0」
-  // 这一特例，并补上一个可记忆的总开关。
-  videoVolume: 0,
-  // 音轨总开关：false = 静音但保留 videoVolume 数值（关掉再打开能恢复原音量）。
-  videoAudioEnabled: true,
-};
+// 默认值来自**唯一真源** `lib/settings-schema.js`：构建期由 scripts/build-client.mjs
+// 把该文件内联进本 bundle 的工厂作用域（缺标记即构建失败），所以 `DEFAULTS` / `KINDS` /
+// 各枚举白名单在这里**直接可用、且不得重复声明**（重复即 SyntaxError，构建脚本会拦）。
+// 每个键的语义注释也随默认值一起迁到了 schema。
 
-// Selectable values for the two filters. Declared up top because
-// readPersisted() validates against them at module load (const TDZ).
-const RATING_VALUES = ["all", "everyone", "pg13", "mature", "unrated"];
-const TYPE_VALUES = ["all", "video", "web", "image", "scene"];
-// 吉祥物（拉绳）可选形态：maid = 默认小女仆，whale = 鲸御姐；以及可调大小
-// （scale 0.5–2.5，默认 1）。形态/大小常量必须在此声明（同理于 RATING_VALUES）：
-// readPersisted() 会在模块加载时用它们校验持久化值（const TDZ）。
-const ROPE_FORM_VALUES = ["maid", "whale"];
-const ROPE_SCALE_MIN = 0.5, ROPE_SCALE_MAX = 2.5, ROPE_SCALE_STEP = 0.05;
-// 字体族白名单（字体自定义三件套之一）。inherit = 跟随 dsh 原生字体栈。
-// 必须在此声明：readPersisted() 在模块加载时用它校验持久化值（const TDZ）。
-const FONT_FAMILY_VALUES = ["inherit", "Microsoft YaHei", "KaiTi", "SimSun", "SimHei", "STXingkai", "monospace"];
-// 字体族按钮数据：label 显示名 + stack 应用/预览字体栈。stack 里保留中文
+// 白名单常量（过滤器取值 / 形态 / 帧率档 / 转场 / 字体族 / scale 上下限）由 schema 预置：
+// 它们随 lib/settings-schema.js 在构建期内联到本作用域，本文件不再声明（重复即构建失败）。
+// 吉祥物（拉绳）形态：maid = 默认小女仆 / whale = 鲸御姐；大小步进见下。
+const ROPE_SCALE_STEP = 0.05;
+// 字体族按钮数据（白名单 FONT_FAMILY_VALUES 在 schema 里；inherit = 跟随 dsh 原生字体栈）：
+// label 显示名 + stack 应用/预览字体栈。stack 里保留中文
 // fallback 链（行楷缺字体时退楷体、等宽用系统等宽栈），预览与应用同源，
 // 用户在按钮上看到的就是应用后的效果。
 // 华文行楷 STXingkai 随 Office 安装，缺失时退 KaiTi；macOS 走 "Xingkai SC"。
@@ -287,9 +99,7 @@ function fontFamilyStack(v) {
   return FONT_FAMILY_STACKS[v] || "inherit";
 }
 // 帧率上限 options (fps); 0 = 无限制. Mirror of the host whitelist.
-const FPS_CAP_VALUES = [0, 60, 48, 30, 24];
 // 场景实时渲染（WebWallGL）帧率上限档位。Mirror of lib/index.js.
-const SCENE_LIVE_FPS_VALUES = [15, 30, 60];
 
 // 配色 presets for the settings-page liquid-glass theme. The accent drives
 // buttons/sliders/selected cards/badges and the glass sheen via --we-accent;
@@ -327,144 +137,59 @@ const CARET_COLOR_PRESETS = [
 ];
 
 // ── Persisted selection ─────────────────────────────────────────────────────
-function clampNum(v, lo, hi, fallback) {
-  return typeof v === "number" && v >= lo && v <= hi ? v : fallback;
-}
 
-// Rotation groups are user-defined carousel lists: each holds a set of
-// wallpaper ids picked from the inventory, its own switch interval (minutes),
-// and its own playback order. They are fully client-side (localStorage), so
-// rotation never depends on Wallpaper Engine's own config.json paths.
-function readRotationGroups(raw) {
-  if (!Array.isArray(raw)) return [];
-  const groups = [];
-  for (const g of raw) {
-    if (!g || typeof g !== "object") continue;
-    const id = typeof g.id === "string" && g.id ? g.id : "";
-    if (!id) continue;
-    groups.push({
-      id,
-      name: typeof g.name === "string" && g.name.trim() ? g.name.trim() : "轮播列表",
-      interval: clampNum(g.interval, 1, 1440, DEFAULTS.rotationInterval),
-      order: g.order === "random" ? "random" : "sequence",
-      wallpaperIds: Array.isArray(g.wallpaperIds)
-        ? g.wallpaperIds.filter((x) => typeof x === "string" && x)
-        : [],
-    });
-  }
-  return groups;
-}
 
-// Shared settings sanitizer: used by readPersisted() (localStorage cache) and
-// by loadPersisted() (host /wallpaper-engine/settings). The host half keeps a
-// mirror (lib/index.js sanitizeSettings) — keep the two in sync.
+// 设置规范化：白名单与每个键的校验规则**全部**来自 lib/settings-schema.js（唯一真源）。
+// 宿主侧调用同一个函数（side='host'，不收 CLIENT_ONLY 的键），因此两侧不可能再漂。
 function sanitizeSettings(o) {
-  if (!o || typeof o !== "object") return { id: "", ...DEFAULTS };
-  return {
-    id: typeof o.id === "string" ? o.id : "",
-    scrim: clampNum(o.scrim, 0, 1, DEFAULTS.scrim),
-    border: clampNum(o.border, 0, 1, DEFAULTS.border),
-    blur: clampNum(o.blur, 0, 60, DEFAULTS.blur),
-    wallpaperBlur: clampNum(o.wallpaperBlur, 0, 60, DEFAULTS.wallpaperBlur),
-    backgroundBrightness: clampNum(o.backgroundBrightness, 40, 160, DEFAULTS.backgroundBrightness),
-    backgroundContrast: clampNum(o.backgroundContrast, 40, 200, DEFAULTS.backgroundContrast),
-    backgroundSaturate: clampNum(o.backgroundSaturate, 0, 200, DEFAULTS.backgroundSaturate),
-    wallpaperOpacity: clampNum(o.wallpaperOpacity, 0, 90, DEFAULTS.wallpaperOpacity),
-    // 切换过场：类型 / 方向 / 速度档都走白名单（未知值回落默认）。
-    switchTransition: SWITCH_TRANSITION_VALUES.includes(o.switchTransition)
-      ? o.switchTransition : DEFAULTS.switchTransition,
-    switchTransitionDir: SWITCH_DIRS.includes(o.switchTransitionDir)
-      ? o.switchTransitionDir : DEFAULTS.switchTransitionDir,
-    switchTransitionSpeed: SWITCH_SPEED_VALUES.includes(o.switchTransitionSpeed)
-      ? o.switchTransitionSpeed : DEFAULTS.switchTransitionSpeed,
-    rotationEnabled: o.rotationEnabled === true,
-    rotationGroupId: typeof o.rotationGroupId === "string" ? o.rotationGroupId : "",
-    rotationGroups: readRotationGroups(o.rotationGroups),
-    rotationSeeded: o.rotationSeeded === true,
-    hiddenIds: Array.isArray(o.hiddenIds)
-      ? o.hiddenIds.filter((x) => typeof x === "string" && x)
-      : [],
-    playbackRate: clampNum(o.playbackRate, 0.5, 2, DEFAULTS.playbackRate),
-    videoVolume: clampNum(o.videoVolume, 0, 1, DEFAULTS.videoVolume),
-    videoAudioEnabled: o.videoAudioEnabled !== false,
-    fpsCap: FPS_CAP_VALUES.includes(o.fpsCap) ? o.fpsCap : DEFAULTS.fpsCap,
-    sceneLive: o.sceneLive !== false,
-    sceneLiveFps: SCENE_LIVE_FPS_VALUES.includes(o.sceneLiveFps) ? o.sceneLiveFps : DEFAULTS.sceneLiveFps,
-    liveBootDelay: clampNum(o.liveBootDelay, 0, 30, DEFAULTS.liveBootDelay),
-    audioSource: o.audioSource === "off" ? "off" : "auto",
-    mediaIntegration: o.mediaIntegration !== false,
-    mediaLyricsOnline: o.mediaLyricsOnline === true,
-    userProps: (o.userProps && typeof o.userProps === "object" && !Array.isArray(o.userProps)) ? o.userProps : {},
-    pauseOnHidden: o.pauseOnHidden !== false,
-    pauseOnBlur: o.pauseOnBlur === true,
-    pauseOnBattery: o.pauseOnBattery === true,
-    flip: o.flip === true,
-    objectFit: ["cover", "contain", "center", "fill"].includes(o.objectFit)
-      ? o.objectFit : DEFAULTS.objectFit,
-    contentRatingFilter: RATING_VALUES.includes(o.contentRatingFilter)
-      ? o.contentRatingFilter : DEFAULTS.contentRatingFilter,
-    typeFilter: TYPE_VALUES.includes(o.typeFilter)
-      ? o.typeFilter : DEFAULTS.typeFilter,
-    pickerLayout: o.pickerLayout === "classic" ? "classic" : "fixed",
-    edgeCompat: o.edgeCompat !== false,
-    accent: typeof o.accent === "string" && /^#[0-9a-f]{6}$/i.test(o.accent)
-      ? o.accent : DEFAULTS.accent,
-    glassAlpha: clampNum(o.glassAlpha, 0, 60, DEFAULTS.glassAlpha),
-    glassColor: typeof o.glassColor === "string" && /^#[0-9a-f]{6}$/i.test(o.glassColor)
-      ? o.glassColor : DEFAULTS.glassColor,
-    glassWindow: o.glassWindow !== false,
-    sidebarGlass: o.sidebarGlass !== false,
-    sidebarBlur: clampNum(o.sidebarBlur, 0, 200, DEFAULTS.sidebarBlur),
-    sidebarAlpha: clampNum(o.sidebarAlpha, 0, 200, DEFAULTS.sidebarAlpha),
-    sidebarColor: typeof o.sidebarColor === "string" && /^#[0-9a-f]{6}$/i.test(o.sidebarColor)
-      ? o.sidebarColor : DEFAULTS.sidebarColor,
-    sidebarContentAlpha: clampNum(o.sidebarContentAlpha, 0, 80, DEFAULTS.sidebarContentAlpha),
-    sidebarContentColor: typeof o.sidebarContentColor === "string" && /^#[0-9a-f]{6}$/i.test(o.sidebarContentColor)
-      ? o.sidebarContentColor : DEFAULTS.sidebarContentColor,
-    ropeShown: o.ropeShown !== false,
-    ropeForm: ROPE_FORM_VALUES.includes(o.ropeForm) ? o.ropeForm : DEFAULTS.ropeForm,
-    ropeScale: clampNum(o.ropeScale, ROPE_SCALE_MIN, ROPE_SCALE_MAX, DEFAULTS.ropeScale),
-    noticeSeen: typeof o.noticeSeen === "string" ? o.noticeSeen : "",
-    // 字体自定义（#57 精简回归版）：只钳范围不覆盖已存配置
-    fontCustom: o.fontCustom === true,
-    fontColor: typeof o.fontColor === "string" && /^#[0-9a-f]{6}$/i.test(o.fontColor)
-      ? o.fontColor : DEFAULTS.fontColor,
-    fontWeight: clampNum(o.fontWeight, 100, 900, DEFAULTS.fontWeight),
-    fontFamily: FONT_FAMILY_VALUES.includes(o.fontFamily) ? o.fontFamily : DEFAULTS.fontFamily,
-    frameVariants: (o.frameVariants && typeof o.frameVariants === "object" && !Array.isArray(o.frameVariants))
-      ? Object.assign({}, o.frameVariants) : {},
-    sceneLiveFailures: (o.sceneLiveFailures && typeof o.sceneLiveFailures === "object" && !Array.isArray(o.sceneLiveFailures))
-      ? Object.assign({}, o.sceneLiveFailures) : {},
-    customFrames: (o.customFrames && typeof o.customFrames === "object" && !Array.isArray(o.customFrames))
-      ? Object.assign({}, o.customFrames) : {},
-    caretColor: typeof o.caretColor === "string" && /^#[0-9a-f]{6}$/i.test(o.caretColor)
-      ? o.caretColor : DEFAULTS.caretColor,
-  };
+  return sanitizeFromSchema(o, "client");
 }
 
-function readPersisted() {
-  try {
-    const raw = localStorage.getItem(SETTINGS_KEY);
-    if (!raw) return { id: "", ...DEFAULTS };
-    return sanitizeSettings(JSON.parse(raw));
-  } catch {
-    return { id: "", ...DEFAULTS };
-  }
-}
+// `readPersisted()` 已随持久化层抽到 src/persistence.js（store 初始化仍在下面调用它）。
 
 // ── Shared selection store (React + DOM layer share it) ────────────────────
 const selection = {
+  // ① 视图态默认值（`DEFAULTS_ONLY`）：它们**不在持久化白名单里** ⇒ `readPersisted()` 与本地缓存都
+  //    不会提供，不显式铺这一层就是 `undefined`。默认 false 的键侥幸无事，**默认 true 的会静默失效**
+  //    （`themeTypeOnly` 就这样失效过：代码声称默认开、界面上却是关的）。
+  ...panelDefaults(),
   ...readPersisted(),
+  // 字体值（F3 阶段 2）走**另一条**通道：真源是 `fontsets/<活动 id>.json`。
+  // ⚠️ 顺序是承重的，两行都不能少：
+  //   ① `fontValueDefaults()` —— 那六个键已不在 settings 白名单里，`readPersisted()` **不再提供**它们，
+  //      而字体集是异步载入、还可能失败。缺这份兜底 ⇒ selection 里根本没有 themeColors 等键，
+  //      面板「字体自定义」门控的配色区会在打开开关那一刻抛 TypeError（整个面板崩掉）。
+  //   ② `readCachedFontSetValues()` —— 有缓存就用缓存那份（首帧即用户字体，不出现默认值→用户值跳变）；
+  //      没有时它返回的就是①那份兜底。宿主回了真值再由 loadFontSet() 覆盖。
+  ...fontValueDefaults(),
+  ...readCachedFontSetValues(),
   // Transient: becomes true once loadPersisted() has applied the host-side
   // settings (the port-independent source of truth). The one-time notice waits
   // for it so it never flashes before the persisted noticeSeen is known.
   hostLoaded: false,
+  // Transient: 活动字体集那一次加载的结果（面板据此显示可判定文案；空串 = 没问题）。
+  fontSetLoaded: false,
+  fontSetError: "",
+  // Transient（F3 阶段 3「字体集」编辑器）：
+  //   fontSetOpen  子分支开关（视图态，defaults-only；这里显式给一份，缓存路径下也确定）
+  //   fontSets     宿主清单（来源永远是宿主 ⇒ 只做瞬态，不落盘）
+  //   fontSetActive 活动集 id（宿主的 `active`）
+  //   fontSetLoading 清单在途
+  //   fontSetEditing/fontSetDraftName  正在改名的那一行 + 输入框内容
+  //   fontSetNewName 新建输入框内容
+  fontSetOpen: false,
+  fontSets: [],
+  fontSetActive: "",
+  fontSetLoading: false,
+  fontSetEditing: "",
+  fontSetDraftName: "",
   url: null,
   type: null,
   previewUrl: null,
   // Transient: scene wallpaper animation MP4 URL (host /scene-video route).
   // When present the scene plays as a hardware-decoded <video>; on load error
-  // it is nulled and the layer rebuilds as the extracted static frame.
+  // it is nulled and the layer rebuilds as a still image (the frame URL:
+  // live-backfilled GPU frame / user-imported custom frame / empty state).
   sceneVideo: null,
   // Transient: WebWallGL 实时渲染 token（host /scene-files 路由的 src 参数）。
   // 场景取 sceneLiveSrc（pkg 主文件），网页取 webLiveSrc（入口 HTML）；
@@ -529,6 +254,11 @@ const selection = {
   modalView: "normal",
   // Transient: picker-modal title search (not persisted).
   search: "",
+  // 破坏性动作的「面板内确认」令牌 —— **所有族共用这一个真源**（`""` = 没有动作待确认）。
+  // 形态 `<族>:<id>`（族内带 id 的动作）或 `<族>`（整块动作）。机制与三条不变量见
+  // `armConfirm` 那一段（本文件，"破坏性动作的面板内确认"）。**不是** picker 私有字段：
+  // 轮播列表 / 移除自定义壁纸 / 批量隐藏 / 全部恢复 / 删字体集 五处共用它。
+  armedConfirm: "",
   // Custom-upload UI state (transient): in-flight flag + last error message.
   uploading: false,
   uploadError: "",
@@ -549,14 +279,16 @@ const listeners = new Set();
 function emit() { for (const fn of [...listeners]) fn(); }
 function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 
-// ── 壁纸画面刷新：场景壁纸静态帧生成逻辑档位（beta 渲染不参与）─────────
-// 每张壁纸独立记忆所选档位；档位以 ?v= 进入 scene-frame 请求，宿主缓存键
-// 带 _vN 后缀 —— 不同档帧互不覆盖，档 0 沿用既有 sf33_ 键（现状不变）。
+// ── 出图来源：场景壁纸「这张画面从哪来」（beta 渲染不参与）───────────────
+// 值域与宿主 /scene-frame **逐字一致**（真源：lib/routes/scene-frame.js 的
+// `const variant = vRaw === 4 ? 4 : 0;`），只剩两档：
+//   0 = 自动（求链头：实时抓帧 → 自定义画面 → 空态）
+//   4 = 强制自定义画面（用户导入的截屏）
+// ⚠️ 1/2/3（合成 / 主纹理 / 作者原画 / 预览图）已随 P2-12 退役。宿主会把它们
+// clamp 到 0，所以 UI **不能再给出这些档** —— 否则用户点了按钮却"没反应"。
+// ⚠️ 表里存的是**档位值**（进 ?v=），不是下标；值域有洞（0 与 4）⇒ 推进不能用取模。
 const FRAME_VARIANTS = [
-  { id: 0, label: "合成（分层）" },
-  { id: 1, label: "主纹理（单张大图）" },
-  { id: 2, label: "作者原画（嵌入 JPEG/PNG）" },
-  { id: 3, label: "预览图" },
+  { id: 0, label: "实时画面" },
   { id: 4, label: "自定义画面" },
 ];
 // 卡片类型徽标（卡片左上角）：与「类型」筛选的四类一一对应。
@@ -564,14 +296,14 @@ const CARD_TYPE_LABELS = { video: "视频", web: "网页", image: "图片", scen
 // 开启「壁纸音轨」时，音量若为 0 自动提升到的默认可听值（0–1）。
 // 默认音量是 0（静音起步），而音轨开关只翻总开关不动音量 —— 不自动提音量的话，
 // 用户点「音乐开」开关状态变了却依然无声，看起来就是「音量开/关都不生效」
-//（2026-09-22 实测到的误读，见 onToggleAudio）。
+//（注意勿误读：语义见 onToggleAudio）。
 const DEFAULT_AUDIO_VOLUME = 0.5;
-// 当前壁纸可用档位数：未导入自定义画面时不轮入第 5 档。
+// 当前壁纸可用档位数：未导入自定义画面时只剩「自动」一档（切过去会被宿主 422）。
 function frameVariantCount(selLike, wid) {
   const cf = selLike.customFrames || {};
   const inv = (selLike.inventory && selLike.inventory.wallpapers) || [];
   const wp = inv.find((w) => String(w.id) === wid);
-  return (cf[wid] === true || (wp && wp.hasCustomFrame)) ? FRAME_VARIANTS.length : FRAME_VARIANTS.length - 1;
+  return (cf[wid] === true || (wp && wp.hasCustomFrame)) ? FRAME_VARIANTS.length : 1;
 }
 function frameUrlWithVariant(frameUrl, v) {
   if (!frameUrl) return frameUrl;
@@ -586,198 +318,99 @@ function useStore() {
   return selection;
 }
 
-// Whitelist serialization of the persisted settings (the ONLY fields the host
-// file and the localStorage cache carry).
-function serializeSelection() {
-  return {
-    id: selection.id,
-    frameVariants: selection.frameVariants,
-    sceneLiveFailures: selection.sceneLiveFailures,
-    customFrames: selection.customFrames,
-    scrim: selection.scrim,
-    border: selection.border,
-    blur: selection.blur,
-    wallpaperBlur: selection.wallpaperBlur,
-    backgroundBrightness: selection.backgroundBrightness,
-    backgroundContrast: selection.backgroundContrast,
-    backgroundSaturate: selection.backgroundSaturate,
-    wallpaperOpacity: selection.wallpaperOpacity,
-    switchTransition: selection.switchTransition,
-    switchTransitionDir: selection.switchTransitionDir,
-    switchTransitionSpeed: selection.switchTransitionSpeed,
-    rotationEnabled: selection.rotationEnabled,
-    rotationGroupId: selection.rotationGroupId,
-    rotationGroups: selection.rotationGroups,
-    rotationSeeded: selection.rotationSeeded,
-    hiddenIds: selection.hiddenIds,
-    playbackRate: selection.playbackRate,
-    videoVolume: selection.videoVolume,
-    videoAudioEnabled: selection.videoAudioEnabled,
-    fpsCap: selection.fpsCap,
-    sceneLive: selection.sceneLive,
-    sceneLiveFps: selection.sceneLiveFps,
-    liveBootDelay: selection.liveBootDelay,
-    audioSource: selection.audioSource,
-    mediaIntegration: selection.mediaIntegration,
-    mediaLyricsOnline: selection.mediaLyricsOnline,
-    userProps: selection.userProps,
-    pauseOnHidden: selection.pauseOnHidden,
-    pauseOnBlur: selection.pauseOnBlur,
-    pauseOnBattery: selection.pauseOnBattery,
-    flip: selection.flip,
-    objectFit: selection.objectFit,
-    contentRatingFilter: selection.contentRatingFilter,
-    typeFilter: selection.typeFilter,
-    pickerLayout: selection.pickerLayout,
-    edgeCompat: selection.edgeCompat,
-    accent: selection.accent,
-    glassAlpha: selection.glassAlpha,
-    glassColor: selection.glassColor,
-    glassWindow: selection.glassWindow,
-    sidebarGlass: selection.sidebarGlass,
-    sidebarBlur: selection.sidebarBlur,
-    sidebarAlpha: selection.sidebarAlpha,
-    sidebarColor: selection.sidebarColor,
-    sidebarContentAlpha: selection.sidebarContentAlpha,
-    sidebarContentColor: selection.sidebarContentColor,
-    ropeShown: selection.ropeShown,
-    ropeForm: selection.ropeForm,
-    ropeScale: selection.ropeScale,
-    noticeSeen: selection.noticeSeen,
-    fontCustom: selection.fontCustom,
-    fontColor: selection.fontColor,
-    fontWeight: selection.fontWeight,
-    fontFamily: selection.fontFamily,
-    caretColor: selection.caretColor,
-  };
+// ── 改 store 的三个入口（P2-10 后半 + F3 阶段 2）────────────────────────────
+// "赋值 + persistSelection()" 这两件事此前被手抄了 56 次 —— 漏掉 persist 就是
+// "改了不生效 / 刷新后回退"，而且没有任何判据会红。收成三个入口后：
+//   · setSetting(field, value)   改**设置**并落盘（唯一入口）
+//   · setFontValues(patch)       改**字体值**并落盘（唯一入口；真源是 fontsets/<id>.json，
+//     见 src/fontset-store.js —— 这六个键已退出 settings 的持久化白名单）
+//   · setTransient(field, value) 改**瞬态**字段（上传中/编辑中/加载中…），不落盘 ——
+//     它们不在 schema 白名单里，落盘只会白跑一次 debounce。
+// 页签（src/panel-tabs.js）通过 ctx 拿到前两个入口，因此**完全不碰** `selection`。
+function setSetting(field, value) {
+  selection[field] = value;
+  persistSelection();
+  return value;
+}
+function setTransient(field, value) {
+  selection[field] = value;
+  return value;
 }
 
-// Host persistence: debounced PUT to /wallpaper-engine/settings (same origin;
-// the host writes ~/.dsh-wallpaper-engine/config.json — port-independent).
-// localStorage stays a synchronous-read cache + migration source + rollback,
-// never the source of truth — and its WRITE is debounced together with the
-// PUT: slider drags used to trigger a full JSON.stringify + synchronous
-// localStorage write on every input tick (dozens per drag). Timers go through
-// window.* (guarded) like the rotation timer below, so headless verify
-// environments without a timer facility fall back to an immediate write.
-let persistTimer = null;
-// Dirty flag: a failed/非-2xx PUT must not be silently dropped — the host file
-// would go stale and the NEXT load (host = source of truth) would roll the
-// user's settings back. Retried on the next persistSelection or when the page
-// becomes visible again.
-let persistDirty = false;
-// Write counter: loadPersisted() snapshots it before its GET and skips the
-// host→selection merge when the user edited settings while the GET was in
-// flight (the user's pending PUT is newer than the host's answer).
-let persistWrites = 0;
-function writeLocalCache() {
-  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(serializeSelection())); } catch { /* ignore */ }
-}
-async function pushPersisted() {
-  try {
-    const res = await fetch(SETTINGS_URL, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(serializeSelection()),
-      keepalive: true, // let a pending flush survive pagehide/close
-    });
-    persistDirty = !res.ok;
-  } catch {
-    // Host unreachable: the localStorage cache remains the fallback.
-    persistDirty = true;
-  }
-}
-function flushPersist() {
-  persistTimer = null;
-  writeLocalCache();
-  pushPersisted();
-}
-function schedulePersist() {
-  if (persistTimer) return;
-  if (typeof window === "undefined" || typeof window.setTimeout !== "function") {
-    flushPersist();
-    return;
-  }
-  persistTimer = window.setTimeout(flushPersist, 200);
-}
-
-// Flush a pending write when the page goes away (tab close / navigate), and
-// retry a failed PUT when the page becomes visible again.
-// 监听器改为具名函数, 由 apply 的 ctx.effect 注册/注销: 模块作用域注册的监听器
-// 每次 client-plugin 重载/HMR 重新求值 bundle 都会再叠一对, 且永远无法移除。
-function onPageHideFlush() {
-  if (persistTimer && typeof window.clearTimeout === "function") {
-    window.clearTimeout(persistTimer);
-    flushPersist();
-  }
-}
-function onVisibilityResyncPersist() {
-  if (!document.hidden && persistDirty && !persistTimer) schedulePersist();
+// ── 破坏性动作的「面板内确认」（**唯一机制**，五个动作共用）─────────────────────
+// 为什么禁用原生模态（`window.confirm` / `alert`）：本插件跑在**同一个渲染页**里，原生
+// 对话框会把焦点交给它自己的窗口，后果三重的 ——
+//   ① `blur` 立刻命中「窗口失焦时暂停」（`pauseOnBlur`，用户可开）⇒ 壁纸停住；
+//   ② 模态在时渲染线程**被同步阻塞** ⇒ 输入框收不到键，壁纸即便焦点回来也恢复不了；
+//   ③ 关闭时回来那个 `focus` 事件**不保证送达** ⇒ 遮挡判定卡在"窗口失焦"，只剩重载能救。
+// 客户端另有 3s 低频复核（`OCCLUSION_RECHECK_MS`）把③自愈，但那是**兜底**：≤3s 的停摆
+// 仍会发生，且②在原生模态下无解 ⇒ 本族一个 `window.confirm` 都不许有（守卫按 0 钉住）。
+//
+// 三条不变量：
+//   1. **唯一令牌**：同一时刻最多一个动作待确认（`selection.armedConfirm` 是单值）⇒ 结构上
+//      不可能同时挂着两个问句，也不可能"确认"到用户没看见的那个对象上。
+//   2. **破坏性动作只由「确认」发起**：第一下点击只置令牌；真正的写操作是问句行里那枚
+//      「确认」的回调 —— 不是"按钮里套一个 if"。置令牌与落地因此可以被分别断言。
+//   3. **瞬态 + 上下文切换必清**：令牌不落盘；关模态框 / 换模态视图 / 退批量 / 换轮播列表 /
+//      切页签都必须 `disarmConfirm()` —— 留着它会让问句跨上下文残留（用户在新上下文里看到
+//      一个针对旧对象的问句）。
+const armConfirm = (token) => { setTransient("armedConfirm", token); emit(); };
+const disarmConfirm = () => { if (!selection.armedConfirm) return; setTransient("armedConfirm", ""); emit(); };
+/** 该族当前待确认项的 id（没有 = `""`）。令牌形态 `<族>:<id>`；整块动作不带 id。 */
+const armedIdOf = (family) => {
+  const t = typeof selection.armedConfirm === "string" ? selection.armedConfirm : "";
+  return t.indexOf(family + ":") === 0 ? t.slice(family.length + 1) : "";
+};
+/**
+ * 「待确认」那一行：问句在左、两枚按钮（`确认` / `取消`）在右。不匹配令牌 ⇒ 返回 `null`。
+ *
+ * `armed` 是**读值**，`onConfirm` / `onDisarm` 是**回调** —— 由组件经 ctx 交给渲染器，
+ * 渲染器自己不写 `selection`（两个渲染器的文件头契约）。问句文本由**调用点**现算（"选中的
+ * N 张"这类计数跟着当前状态走），所以渲染器不许把它当常量缓存。
+ * 4 处使用点（src/panel-tabs.js 两处 / src/picker-modal.js 两处）共用这一份标记：抄四份会让
+ * "两字的按钮等宽""置灰不塌位"这类形态约束各走各的。
+ *
+ * ⚠️ `!token` 这一支是**必须的**，不是防御性编程：令牌由当前对象现算，对象没了就退化成 `""`
+ * —— 那与"没有动作待确认"的 `""` **相等**，于是刚删掉的那个列表会留下一个指向空对象的问句行
+ *（实测：删光列表后问句行不收起）。空令牌的语义是"这一处没有可确认的对象"，永不渲染。
+ */
+function renderConfirmRow(armed, token, question, onConfirm, onDisarm) {
+  if (!token || armed !== token) return null;
+  return React.createElement("div", { className: "we-picker__row we-picker__confirm-row" },
+    React.createElement("span", { className: "we-picker__hint we-picker__confirm-ask" }, question),
+    React.createElement("button", {
+      className: "we-picker__btn", type: "button", onClick: onConfirm,
+      title: "就这么办（不可撤销）",
+    }, "确认"),
+    React.createElement("button", {
+      className: "we-picker__btn", type: "button", onClick: onDisarm,
+      title: "算了",
+    }, "取消"),
+  );
 }
 
-function persistSelection() {
-  persistWrites++;
-  schedulePersist();
-}
-
-// ── Host-sourced settings (load once at startup) ────────────────────────────
-// GET /wallpaper-engine/settings: the host file is the source of truth (it
-// survives DSH Desktop's random --port 0 restarts and browser data clears;
-// localStorage is origin-scoped). Migration: when the host has nothing yet but
-// localStorage does, upload it once so the host becomes the truth. On any host
-// failure fall back to localStorage so a plain web load keeps working.
-async function loadPersisted() {
-  let hostSettings = null;
-  let hostOk = false;
-  // Race guard: if the user edits settings while this GET is in flight, the
-  // response is STALE (their pending PUT is newer) and must not overwrite the
-  // live selection.
-  const writesAtStart = persistWrites;
-  try {
-    const res = await fetch(SETTINGS_URL, { cache: "no-store" });
-    if (res.ok) {
-      const data = await res.json();
-      hostSettings = data && data.settings;
-      // 侧栏玻璃控制组只在 dsh-better-sidebar 已安装且启用时显示（host 检测）。
-      selection.sidebarPresent = !!(data && data.betterSidebar);
-      hostOk = true;
-    }
-  } catch { /* host unreachable */ }
-
-  const stale = persistWrites !== writesAtStart;
-  if (hostOk && hostSettings && typeof hostSettings === "object") {
-    // Host is the truth: apply it and refresh the local cache copy — unless the
-    // user edited settings during the fetch (their write wins).
-    if (!stale) {
-      Object.assign(selection, sanitizeSettings(hostSettings));
-      writeLocalCache();
-    }
-  } else if (hostOk) {
-    // Host has nothing saved yet: migrate any existing localStorage data once.
-    // JSON.parse MUST be guarded here: a corrupted localStorage payload used to
-    // reject loadPersisted(), which broke the loadPersisted().then(loadInventory)
-    // boot chain and left the picker stuck on "扫描 Wallpaper Engine…" forever.
-    const local = localStorage.getItem(SETTINGS_KEY);
-    let parsedLocal = null;
-    try { parsedLocal = local ? JSON.parse(local) : null; } catch { /* corrupted cache: treat as absent */ }
-    if (!stale) Object.assign(selection, parsedLocal ? sanitizeSettings(parsedLocal) : { id: "", ...DEFAULTS });
-    if (parsedLocal) pushPersisted();
-  } else {
-    // Host unreachable (route missing / static load): localStorage fallback.
-    if (!stale) Object.assign(selection, readPersisted());
-  }
-
-  // Settings applied (host or fallback). Mark loaded so gated UI — the one-time
-  // notice — knows the persisted noticeSeen is final before it renders.
-  selection.hostLoaded = true;
-  applyEffects();
-  emit();
-}
+// ── 设置持久化（debounce / 迁移 / 重试 / 启动加载）────────────────────────────
+// 这一族的实现已抽到 **src/persistence.js**（194 行）。构建期内联回本作用域，
+// 调用点（persistSelection / flushPersist / onPageHideFlush / …）无需改动。
+// 契约：8 个出向依赖的清单、入口与不变量 —— 见该文件头。
+// ⚠️ **字体值不走这条通道**：那六个键自 F3 起住 `fontsets/<活动 id>.json`，通道在
+// **src/fontset-store.js**（同形的 debounce + 脏标记 + 重试，但真源、键集与失败语义都不同）。
 
 // Concurrency guard: 刷新 / 上传完成 / 移除 / 改目录 all call loadInventory(),
 // and two overlapping requests used to resolve in arbitrary order — an older,
 // slower response could clobber a newer inventory. The last caller wins;
 // superseded requests drop their result entirely.
+/**
+ * 把"请求失败"的两种情形翻成**同一句可读原因**（P2-9 的显式语义，**唯一一处**）：
+ *   · `status === 0` ⇒ 请求没完成（宿主不可达）—— 不是"宿主返回了 0"；
+ *   · 其余 ⇒ 宿主有响应但非 2xx，优先用宿主给的原因（`{ error }`，需 `parse: "always"`）。
+ * 面板与错误行都靠这句话告诉用户"到底哪一步不对"，所以不许各自手写。
+ */
+function hostFailureReason(res) {
+  if (!res || !res.status) return "宿主不可达（请求未完成）";
+  const data = res.data;
+  return (data && data.error) || ("宿主返回 " + res.status);
+}
 let inventorySeq = 0;
 async function loadInventory() {
   const seq = ++inventorySeq;
@@ -785,9 +418,10 @@ async function loadInventory() {
   emit();
   let next;
   try {
-    const res = await fetch(INVENTORY_URL, { cache: "no-store" });
-    if (!res.ok) throw new Error("inventory HTTP " + res.status);
-    const data = await res.json();
+    const res = await apiJson(INVENTORY_URL);
+    // 两种失败（宿主不可达 / 非 2xx）由 hostFailureReason 统一翻译，面板那一行据此显示。
+    if (!res.ok) throw new Error(hostFailureReason(res));
+    const data = res.data || {};
     next = {
       installDir: data.installDir,
       uploadDir: data.uploadDir || null,
@@ -839,8 +473,7 @@ async function loadInventory() {
     persistSelection();
   }
   if (selection.rotationGroupId && !activeRotationGroup()) {
-    selection.rotationGroupId = "";
-    persistSelection();
+    setSetting("rotationGroupId", "");
   }
   if (selection.rotationEnabled) {
     if (!selection.rotationGroupId) {
@@ -891,56 +524,11 @@ function scheduleSceneVideoResync() {
 }
 
 // ── Content-rating + type filters ───────────────────────────────────────────
-// Reproduces Wallpaper Engine's own content categories (project.json
-// `contentrating`): "Everyone" (G) / "PG13" (parental guidance) / "Mature" (R);
-// projects without the field are "unrated". A separate type filter narrows the
-// playable types (video / web / image / scene static frame). Both are enforced
-// at the single choke point below, so the grid, the rotation editor, the
-// rotation candidates and the auto-selection all stay consistent. Matching is
-// case-insensitive and accepts common spellings so other local copies behave
-// the same.
-const ADULT_RATING_PATTERN = /^(mature|adult|adultonly|18\+|r18)$/i;
-const PG13_RATING_PATTERN = /^(pg13|pg-13|pg ?13|questionable)$/i;
-
-function ratingOf(w) {
-  const rating = typeof w.contentrating === "string" ? w.contentrating.trim() : "";
-  // 自上传壁纸没有标注分级时按 Everyone 处理（#84）。用户自己的文件不该被
-  // 默认的「Everyone」过滤挡在门外 —— uploads/.meta.json 从不写 contentrating，
-  // 旧行为把它算成「未分级」，于是默认过滤下所有自上传壁纸既不出现在网格里，
-  // 也无法被选中：上传接口自动应用新 id 时 applySelection 直接拒绝，壁纸层
-  // 空白、播放按钮因 !sel.url 变灰 —— 表现就是「视频壁纸不能播放，也没有
-  // 继续按钮」。显式写了 G / PG13 / R 的照读（#77），成人内容依然会被过滤。
-  if (!rating) return isUploadedWallpaper(w) ? "everyone" : "unrated";
-  if (/^(everyone|general|g)$/i.test(rating)) return "everyone";
-  if (PG13_RATING_PATTERN.test(rating)) return "pg13";
-  if (ADULT_RATING_PATTERN.test(rating)) return "mature";
-  return "unrated";
-}
-
-function matchesRatingFilter(w) {
-  const filter = selection.contentRatingFilter;
-  if (filter === "all") return true;
-  return ratingOf(w) === filter;
-}
-
-function matchesTypeFilter(w) {
-  const filter = selection.typeFilter;
-  if (filter === "all") return true;
-  return w.type === filter;
-}
-
-function isPlayableType(w) {
-  // "image" = user-uploaded still image (custom uploads, id prefix "up-").
-  // "scene" = WE scene wallpaper — usable as a static frame when the host
-  // served a frameUrl (extracted from its main texture).
-  if (!w) return false;
-  if (w.playable && (w.type === "video" || w.type === "web" || w.type === "image")) return true;
-  return w.type === "scene" && Boolean(w.frameUrl);
-}
-
-function isRotatableWallpaper(w) {
-  return isPlayableType(w) && matchesRatingFilter(w) && matchesTypeFilter(w);
-}
+// 判定本身（`ratingOf` / `matchesRatingFilter` / `matchesTypeFilter` /
+// `isPlayableType` / `isRotatableWallpaper` / `isHiddenWallpaper`）与它们的分级正则已抽到
+// **src/picker-model.js** —— 网格、轮换编辑器、轮换候选、自动选择与两个下拉的计数共用
+// 同一份判定，判定留在本文件就会长出第二个真源。这里是**调用点**：两个过滤档从
+// `selection` 显式传入，模型自己不读任何模块级状态。
 
 // 选择被拒 / 被丢弃时的可读原因（#84）。过去这条路径是「静默空白」：壁纸层
 // 不渲染、播放按钮因 !sel.url 变灰，用户只看到一片空白，既不知道原因也没有
@@ -949,14 +537,14 @@ function isRotatableWallpaper(w) {
 function selectionBlockedNote(w) {
   if (!w) return "当前壁纸已不在列表里（可能已被移除或隐藏）";
   if (!isPlayableType(w)) return "这张壁纸没有可播放的媒体文件";
-  if (!matchesRatingFilter(w)) return "这张壁纸被「内容分级」过滤排除了 —— 把内容分级切回「全部」即可播放";
-  if (!matchesTypeFilter(w)) return "这张壁纸被「类型」过滤排除了 —— 把类型切回「全部」即可播放";
+  if (!matchesRatingFilter(w, selection.contentRatingFilter)) return "这张壁纸被「内容分级」过滤排除了 —— 把内容分级切回「全部」即可播放";
+  if (!matchesTypeFilter(w, selection.typeFilter)) return "这张壁纸被「类型」过滤排除了 —— 把类型切回「全部」即可播放";
   return "";
 }
 
 function playableInventory() {
-  return selection.inventory.wallpapers.filter(
-    (w) => isRotatableWallpaper(w) && !isHiddenWallpaper(w.id),
+  return playableWallpapers(
+    selection.inventory.wallpapers, selection.contentRatingFilter, selection.typeFilter, selection.hiddenIds,
   );
 }
 
@@ -969,15 +557,14 @@ function revalidateSelection() {
   // 被过滤条件丢弃的选择要留下原因（#84）：先取下来，applySelection("") 会清掉
   // blockedNote，故在其之后写回 —— 否则用户改一次过滤条件，壁纸就无声变空白。
   let droppedNote = "";
-  if (selection.id && !selection.inventory.wallpapers.some((w) => w.id === selection.id && isRotatableWallpaper(w))) {
+  if (selection.id && !selection.inventory.wallpapers.some((w) => w.id === selection.id
+    && isRotatableWallpaper(w, selection.contentRatingFilter, selection.typeFilter))) {
     droppedNote = selectionBlockedNote(selection.inventory.wallpapers.find((w) => w.id === selection.id));
-    selection.id = "";
-    persistSelection();
+    setSetting("id", "");
   }
   if (selection.rotationEnabled && selection.id && !rotationCandidates().some((w) => w.id === selection.id)) {
     const first = rotationCandidates()[0];
-    selection.id = first ? first.id : "";
-    persistSelection();
+    setSetting("id", first ? first.id : "");
   }
   if (!selection.id && selection.rotationEnabled) {
     const first = rotationCandidates()[0];
@@ -1014,7 +601,9 @@ function groupWallpapers(group) {
   const byId = wallpaperById();
   return group.wallpaperIds
     .map((id) => byId.get(id))
-    .filter((w) => w && isRotatableWallpaper(w) && !isHiddenWallpaper(w.id));
+    .filter((w) => w
+      && isRotatableWallpaper(w, selection.contentRatingFilter, selection.typeFilter)
+      && !isHiddenWallpaper(w.id, selection.hiddenIds));
 }
 
 function rotationCandidates() {
@@ -1118,7 +707,7 @@ function syncRotationTimer() {
     selection.rotationTimer = null;
     if (!selection.rotationEnabled || !selection.id) return;
     // 就绪后切换：不再到点即 applySelection —— 先在后台把下一张壁纸准备到
-    // 完全 ready（live 渲染页首帧 / 静态帧提取完成 / 视频可播放 / 图片解码
+    // 完全 ready（live 渲染页首帧 / 实时抓帧就绪 / 视频可播放 / 图片解码
     // 完成），就绪才落实切换并做交叉淡化。准备期间旧壁纸原样保持。
     beginRotationPrepare(new Set());
   }, delayMs);
@@ -1133,7 +722,7 @@ let rotationPrep = null; // { id, fromId, excluded, cancelled, settled, timers, 
 let pendingRotationFade = false; // commit 置位，syncLayers 消费后清零
 let fadingLayerNode = null;      // 正在淡出的旧壁纸层（渐变结束移除）
 // iframe 类媒体（live 渲染页 / 旧链网页壁纸）的「节点级领养」通道：同源 iframe
-// 在同文档内 reparent 会重载文档（实测 Chromium：appendChild 移动 iframe =
+// 在同文档内 reparent 会重载文档（Chromium 实测：appendChild 移动 iframe =
 // 浏览上下文销毁重建，首帧 15s 预算重启，大包必超时）—— 所以 live/web 探测
 // 的 staging 容器在 commit 时【整体转为新层】，iframe 全程不移动，渲染状态
 // 零扰动。img/video 无此问题，仍走元素级领养（preparedMediaEl）。
@@ -1162,14 +751,11 @@ const SWITCH_TRANSITIONS = [
   { id: "zoom", label: "缩放", ms: 900 },
   { id: "bars", label: "条带", ms: 800 },
 ];
-const SWITCH_TRANSITION_VALUES = SWITCH_TRANSITIONS.map((t) => t.id);
 const SWITCH_SPEEDS = [
   { id: "fast", label: "快", factor: 0.6 },
   { id: "normal", label: "标准", factor: 1 },
   { id: "slow", label: "慢", factor: 1.6 },
 ];
-const SWITCH_SPEED_VALUES = SWITCH_SPEEDS.map((s) => s.id);
-const SWITCH_DIRS = ["left", "right", "up", "down"];
 const SWITCH_DIR_LABELS = { left: "左", right: "右", up: "上", down: "下" };
 // 只有方向型过场听 switchTransitionDir（条带用它决定竖条 / 横条）。
 const SWITCH_DIRECTIONAL = ["push", "wipe", "bars"];
@@ -1301,7 +887,7 @@ function cancelRotationPrepare() {
 }
 
 // 媒体元素完整释放（video 是解码器根：pause + 清 src 才真释放，
-// releaseLayerMedia 同款教训；iframe 是文档根：导航到空白页才销毁里面的
+// releaseLayerMedia 同款处理；iframe 是文档根：导航到空白页才销毁里面的
 // 渲染页 —— 仅从 DOM 摘除的 iframe 在 GC 前会继续跑 rAF/WebGL）。
 function disposeMediaEl(m) {
   if (!m) return;
@@ -1403,360 +989,11 @@ try {
   }
 } catch { /* ignore */ }
 
-function beginRotationPrepare(excluded) {
-  cancelRotationPrepare();
-  // 隐藏中：连 staging 都不建（cancelRotationPrepare 已释放上一轮的驻留）。
-  if (typeof document !== "undefined" && document.hidden) { deferRotationWhileHidden("rotation-defer"); return; }
-  const next = rotationNextCandidate(excluded);
-  liveLog("rotation-fire", "当前 " + (selection.id || "-") + " → 候选 " + (next ? next.id : "无")
-    + " 候选池 " + rotationCandidates().length + " " + liveStateBrief());
-  // 静默停摆修复语义保留：候选在 armed 期间被隐藏到不足时 re-arm（候选仍 <2
-  // 时 syncRotationTimer 自身不会 arm；恢复 ≥2 由 hide/restore 的补 arm 接管）。
-  if (!next) { syncRotationTimer(); return; }
-  const prep = {
-    id: next.id, fromId: selection.id, excluded,
-    cancelled: false, settled: false, timers: [], staged: null, probeMedia: null,
-  };
-  rotationPrep = prep;
-  const onReady = () => {
-    if (prep.cancelled || prep.settled || rotationPrep !== prep) return;
-    prep.settled = true;
-    commitRotationSwitch(prep);
-  };
-  const onFail = () => {
-    if (prep.cancelled || prep.settled || rotationPrep !== prep) return;
-    prep.settled = true;
-    // 跳过坏壁纸：清理本次准备（staged 在失败点已自清理）后链式尝试下一个。
-    rotationPrep = null;
-    prep.cancelled = true;
-    for (const t of prep.timers) { try { clearTimeout(t); } catch { /* ignore */ } }
-    prep.timers = [];
-    releaseProbeMedia(prep);
-    excluded.add(next.id);
-    beginRotationPrepare(excluded);
-  };
-  prepareWallpaper(next, prep, onReady, onFail);
-}
+// ── 媒体准备（预准备 / 构建 / 选中项落地）────────────────────────────────────
+// 这一族的实现已抽到 **src/media-prep.js**（642 行，跨三个不相邻区段：预准备与轮换预挂载、
+// applySelection、buildMedia）。构建期内联回本作用域，调用点无需改动。
+// 契约：出向依赖清单 / 入口 / 不变量 —— 见该文件头（清单只在那里维护，此处不复述数量）。
 
-// 单阶段超时兜底：宁肯兜底提交/降级也绝不让轮换静默卡死。返回 timer handle。
-function prepTimeout(prep, fn, ms) {
-  if (typeof window === "undefined" || typeof window.setTimeout !== "function") return null;
-  const t = window.setTimeout(() => {
-    if (prep.cancelled || prep.settled || rotationPrep !== prep) return;
-    fn();
-  }, ms || ROTATION_PREP_TIMEOUT_MS);
-  prep.timers.push(t);
-  return t;
-}
-
-function prepareWallpaper(w, prep, onReady, onFail) {
-  if (!w) { onFail(); return; }
-  if (w.type === "image") {
-    prep.kind = "image";
-    // headless 验证环境无 Image → 同步直通（验收脚本同步断言切换结果）。
-    if (typeof Image !== "function") { onReady(); return; }
-    const img = new Image();
-    prep.probeMedia = img;
-    img.onload = () => { adoptProbe(prep); onReady(); };
-    img.onerror = () => { releaseProbeMedia(prep); onFail(); };
-    prepTimeout(prep, () => { adoptProbe(prep); onReady(); }); // 慢图兜底提交（元素在新层继续加载）
-    img.alt = "";
-    img.draggable = false;
-    img.className = "we-media we-media--fit";
-    img.src = w.media;
-    return;
-  }
-  if (w.type === "video") {
-    prep.kind = "video";
-    // 视频类壁纸不跑「就绪后切换」的准备链：0.7.5 的行为是选中即播。
-    // 准备链会另起一个 video 元素在后台 load() + play() 做预热领养 —— 对视频
-    // 壁纸这意味着双解码（4K 下可见画面卡顿），而且预热元素带着 poster 进层，
-    // 观感就是「GIF→静态图→正片」的整套加载流程。轮换到视频时直接提交，加载
-    // 窗口由交叉渐变盖住。
-    onReady();
-    return;
-  }
-  if (w.type === "scene") {
-    // 优先级不变量（与 buildMedia 一致）：live > sceneVideo > 静态帧。
-    // live 探测失败回退 sceneVideo（host 对每个 scene 都 mint
-    // sceneVideo URL，是否有内嵌视频只有请求后才知道），404/解码失败再降
-    // 静态帧；静态帧提取失败 → preview → onFail 跳过。
-    const liveSel = {
-      type: "scene", id: w.id,
-      sceneLiveSrc: w.sceneLiveSrc || null,
-      objectFit: selection.objectFit,
-      sceneLiveFps: selection.sceneLiveFps,
-      sceneLive: selection.sceneLive,
-      sceneLiveFailures: selection.sceneLiveFailures,
-    };
-    if (liveRenderEnabled(liveSel) && !prepareLiveExhausted(w.id)) {
-      prepareSceneLiveStage(w, prep, onReady, () => {
-        if (w.sceneVideo) {
-          prep.kind = "sceneVideo";
-          prepareVideoProbe(w.sceneVideo, w.frameUrl || w.preview, prep, onReady,
-            () => prepareSceneStaticStage(w, prep, onReady, onFail));
-          return;
-        }
-        prepareSceneStaticStage(w, prep, onReady, onFail);
-      });
-      return;
-    }
-    if (w.sceneVideo) {
-      prep.kind = "sceneVideo";
-      prepareVideoProbe(w.sceneVideo, w.frameUrl || w.preview, prep, onReady,
-        () => prepareSceneStaticStage(w, prep, onReady, onFail));
-      return;
-    }
-    prepareSceneStaticStage(w, prep, onReady, onFail);
-    return;
-  }
-  // web (iframe)：live 渲染页探测优先（webLiveSrc），失败回退旧链裸 iframe
-  // load 探测（慢页超时兜底提交）。
-  const webLiveSel = {
-    type: "web", id: w.id,
-    webLiveSrc: w.webLiveSrc || null,
-    objectFit: selection.objectFit,
-    sceneLiveFps: selection.sceneLiveFps,
-    sceneLive: selection.sceneLive,
-    sceneLiveFailures: selection.sceneLiveFailures,
-  };
-  if (liveRenderEnabled(webLiveSel) && !prepareLiveExhausted(w.id)) {
-    prepareSceneLiveStage(w, prep, onReady, () => prepareWebProbe(w, prep, onReady));
-    return;
-  }
-  prep.kind = "web";
-  prepareWebProbe(w, prep, onReady);
-}
-
-// detached <video> 预载 + 预播：canplay = 可播放就绪，元素本身（含已解码画面）
-// 在 commit 时移入新层 —— 上屏即是活画面，无重新加载黑窗。error = 硬失败
-// （跳过/回退），超时 = 兜底提交（poster 覆盖空窗）。
-function prepareVideoProbe(url, posterUrl, prep, onReady, onFail) {
-  if (!url || typeof document === "undefined" || typeof document.createElement !== "function") { onReady(); return; }
-  const v = document.createElement("video");
-  // headless mock 元素无事件设施 → 同步直通。
-  if (!v || typeof v.addEventListener !== "function") { onReady(); return; }
-  prep.probeMedia = v;
-  const onCanplay = () => { adoptProbe(prep); onReady(); };
-  const onErr = () => { releaseProbeMedia(prep); onFail(); };
-  v.__weCanplay = onCanplay;
-  v.__weError = onErr;
-  v.addEventListener("canplay", onCanplay, { once: true });
-  v.addEventListener("error", onErr, { once: true });
-  prepTimeout(prep, () => { adoptProbe(prep); onReady(); }); // 慢网络兜底提交
-  try {
-    v.muted = true;
-    v.loop = true;
-    v.autoplay = true;
-    v.preload = "auto";
-    v.setAttribute("playsinline", "");
-    if (posterUrl) v.poster = posterUrl;
-    v.className = "we-media we-media--fit";
-    v.src = url;
-    v.load();
-    // detached 也先播起来：移入新层时正在播放的画面无缝续播。
-    const p = typeof v.play === "function" ? v.play() : null;
-    if (p && typeof p.catch === "function") p.catch(() => { /* 可见后 syncLayers 补 play */ });
-  } catch { adoptProbe(prep); onReady(); }
-}
-
-// detached <iframe> 预载：load 事件（跨域也在元素上触发）后即随元素移入新层。
-// 与 live 同款 staging 容器承载 —— iframe 在同文档内 reparent 会重载文档，
-// commit 时容器整体转为新层（节点级领养），iframe 全程不移动。
-function prepareWebProbe(w, prep, onReady) {
-  if (!w.media || typeof document === "undefined" || typeof document.createElement !== "function") { onReady(); return; }
-  const f = document.createElement("iframe");
-  if (!f || typeof f.addEventListener !== "function") { onReady(); return; }
-  prep.probeMedia = f;
-  const onLoad = () => { adoptProbe(prep); onReady(); };
-  f.__weLoad = onLoad;
-  f.addEventListener("load", onLoad, { once: true });
-  prepTimeout(prep, () => { adoptProbe(prep); onReady(); }); // 慢页兜底提交（元素继续加载）
-  try {
-    f.setAttribute("frameborder", "0");
-    f.setAttribute("scrolling", "no");
-    // 安全隔离：WE web 壁纸是 workshop 第三方 HTML/JS，与宿主同源 —— 不
-    // sandbox 的话壁纸脚本可以宿主 origin 身份调宿主 API。allow-scripts 保留
-    // 动态壁纸能力，opaque origin 阻断身份冒用。
-    f.setAttribute("sandbox", "allow-scripts");
-    f.className = "we-media we-iframe";
-    const div = document.createElement("div");
-    div.className = "we-layer we-layer--staging";
-    prep.staged = { div };
-    div.appendChild(f);
-    document.body.appendChild(div);
-    f.src = w.media;
-  } catch { adoptProbe(prep); onReady(); }
-}
-
-// live 渲染页预载：staging 层（opacity:0 但 in-DOM 且几何满视口 → 渲染页按
-// 全分辨率正常初始化）里加载 WebWallGL 渲染页，首帧判定与 startLiveWatch
-// 同口径（__wpStats running && fps>0）→ 就绪后 staging 容器在 commit 时整体
-// 转为新层（节点级领养，iframe 不移动 —— 同文档 reparent 会重载文档）。
-// 超时/失败回退 sceneVideo/静态帧阶段；刻意不簿记 sceneLiveFailures ——
-// 探测放弃不等于渲染失败，切换后的正式心跳仍有自己的首帧看护兜底。
-// 准备期 live 首帧连续超时的候选：本会话不再对它尝试 live 准备，直接走
-// sceneVideo/静态帧。理由：超时候选本来也进不了 live，而每次尝试都要重新完整
-// 拉一次 scene.pkg（host 对 /scene-files 响应 no-store，没有 HTTP 缓存）+ 满
-// 视口渲染最多 LIVE_FIRST_FRAME_MS，并且准备失败刻意不簿记 sceneLiveFailures
-// （探测放弃 ≠ 渲染失败）→ 不设闸就是每轮轮换重来一次。手动选择壁纸走的是建层
-// 路径、不经过准备链，不受此闸影响；准备期真的出首帧即清零，下轮恢复正常尝试。
-const PREPARE_LIVE_TIMEOUT_LIMIT = 2;
-// 准备期中途被隐藏（人切走了）最多等多久：短时间离开就等着 —— 回来能看到本轮
-// 立刻完成切换；超过上限则释放 staging 渲染页（pkg 堆 ~10MB + 数十 MB 显存），
-// 转为「可见时补做」，且不记超时计数（隐藏 ≠ 这张壁纸 live 走不通）。60s 与轮换
-// 间隔同量级：离开超过一轮就没必要替用户先切好，回来再切更贴近直觉，也省掉
-// 「隐藏数小时 = 每 4 分钟加载一次 pkg」的反复冷启动。
-const PREPARE_LIVE_HIDDEN_HOLD_MAX_MS = 60000;
-// 隐藏期探测间隔（显式拉长）：隐藏页定时器本来就被 Chromium 钳到 ≥1s、5 分钟后
-// 1/min，写 2s 是为了让「这里不需要高频探测」这层意图留在代码里。
-const PREPARE_LIVE_HIDDEN_POLL_MS = 2000;
-const prepareLiveTimeouts = new Map(); // wallpaper id -> 连续超时次数
-function prepareLiveExhausted(wid) {
-  return (prepareLiveTimeouts.get(String(wid || "")) || 0) >= PREPARE_LIVE_TIMEOUT_LIMIT;
-}
-function notePrepareLiveTimeout(wid) {
-  const key = String(wid || "");
-  if (!key) return;
-  const n = (prepareLiveTimeouts.get(key) || 0) + 1;
-  prepareLiveTimeouts.set(key, n);
-  if (n === PREPARE_LIVE_TIMEOUT_LIMIT) {
-    try {
-      if (typeof console !== "undefined" && console.info) {
-        console.info("[wallpaper-engine] 轮换准备期 live 首帧连续 " + n + " 次超时 → 本会话对该壁纸改用 sceneVideo/静态帧", key);
-      }
-    } catch { /* ignore */ }
-  }
-}
-function clearPrepareLiveTimeout(wid) {
-  const key = String(wid || "");
-  if (key) prepareLiveTimeouts.delete(key);
-}
-
-function prepareSceneLiveStage(w, prep, onReady, onFail) {
-  prep.kind = "live";
-  if (typeof document === "undefined" || typeof document.createElement !== "function"
-    || typeof window === "undefined" || typeof window.setTimeout !== "function") { onFail(); return; }
-  const f = document.createElement("iframe");
-  // headless mock 元素无事件设施 → 同步直通（验收脚本同步断言切换结果）。
-  if (!f || typeof f.addEventListener !== "function") { onReady(); return; }
-  const probeSel = {
-    type: w.type, id: w.id,
-    sceneLiveSrc: w.sceneLiveSrc || null,
-    webLiveSrc: w.webLiveSrc || null,
-    objectFit: selection.objectFit,
-    sceneLiveFps: selection.sceneLiveFps,
-    sceneLive: selection.sceneLive,
-    sceneLiveFailures: selection.sceneLiveFailures,
-  };
-  if (!liveRenderEnabled(probeSel)) { onFail(); return; }
-  const div = document.createElement("div");
-  div.className = "we-layer we-layer--staging";
-  f.setAttribute("frameborder", "0");
-  f.setAttribute("scrolling", "no");
-  f.setAttribute("allow", "autoplay");
-  f.className = "we-media we-iframe we-live-iframe";
-  f.src = liveRenderUrl(probeSel);
-  prep.staged = { div };
-  prep.probeMedia = f;
-  div.appendChild(f);
-  document.body.appendChild(div);
-  let startedAt = Date.now();
-  let heldHidden = (typeof document !== "undefined" && document.hidden); // 准备开始时就已隐藏
-  const bail = (noStrike) => {
-    if (prep.staged && prep.staged.div) { try { prep.staged.div.remove(); } catch { /* ignore */ } }
-    prep.staged = null;
-    releaseProbeMedia(prep);
-    // 连续超时到限 → 本会话不再对它走 live 准备。标签页隐藏期间的放弃不算：
-    // 那不是「这张壁纸 live 走不通」的证据（隐藏页面根本不可能出帧）。
-    if (!noStrike) notePrepareLiveTimeout(w.id);
-    onFail();
-  };
-  const poll = () => {
-    const st = liveStats(f);
-    if (st && st.running && st.fps > 0) {
-      clearPrepareLiveTimeout(w.id); // 真的出首帧 → 清掉超时计数
-      liveLog("prep-live-ready", "wid=" + w.id + " 用时 " + (Date.now() - startedAt) + "ms");
-      adoptProbe(prep); // readyEl = iframe，监听摘除，元素随 commit 进新层
-      onReady();
-      return;
-    }
-    // 标签页隐藏：渲染页的 rAF 被 Chromium 完全停摆（不是「渲染慢」），出帧物理
-    // 不可能 —— 这里必须冻结首帧预算，否则隐藏期间的每次轮换都白等 15s 并退化成
-    // sceneVideo/静态帧，连续两次还会给这张壁纸盖上「本会话不再尝试 live」
-    // （prepareLiveExhausted）：用户切回来看到的是一张回不到 live 的静态壁纸。
-    // 隐藏持续过久（超上限）才放弃，且不记超时计数（见 bail 的 noStrike）。
-    if (typeof document !== "undefined" && document.hidden) {
-      const now = Date.now();
-      heldHidden = true;
-      const hiddenFor = pageHiddenSince ? (now - pageHiddenSince) : 0;
-      if (hiddenFor > PREPARE_LIVE_HIDDEN_HOLD_MAX_MS) {
-        liveLog("prep-live-bail-hidden", "wid=" + w.id + " 隐藏已持续 " + hiddenFor + "ms → 释放 staging，转为可见时补做（不计超时）");
-        deferRotationWhileHidden("rotation-defer");
-        // 不走 bail()/onFail()：隐藏超时 ≠ 这张壁纸 live 走不通，回退链会把它提交成
-        // 静态帧/内嵌 MP4 —— 人回到窗口看到的会是静态壁纸。直接取消本轮准备（释放
-        // staging、停掉本链、不记 strike），可见时重新准备。
-        cancelRotationPrepare();
-        return;
-      }
-      startedAt = now; // 隐藏期间不计时：恢复可见后重新给满预算
-      prepTimeout(prep, poll, PREPARE_LIVE_HIDDEN_POLL_MS);
-      return;
-    }
-    if (heldHidden) { heldHidden = false; startedAt = Date.now(); } // 恢复可见：重新给满首帧预算
-    if (Date.now() - startedAt > LIVE_FIRST_FRAME_MS) {
-      liveLog("prep-live-bail", "wid=" + w.id + " 超时 " + (Date.now() - startedAt) + "ms，回退下一阶段");
-      bail();
-      return;
-    }
-    prepTimeout(prep, poll, 500);
-  };
-  prepTimeout(prep, poll, 300); // 首拍稍早：小 pkg 可能一帧内就绪
-}
-
-// 静态帧阶段：GET frameUrl 由 host 按需触发提取（in-flight 去重），img onload
-// = 提取+解码完成，元素随 commit 移入新层。提取失败（422）→ preview 探测；
-// preview 也失败 → onFail 跳过。
-function prepareSceneStaticStage(w, prep, onReady, onFail) {
-  prep.kind = "static";
-  if (typeof Image !== "function") { onReady(); return; }
-  const tryPreview = () => {
-    if (!w.preview) { onFail(); return; }
-    const p = new Image();
-    prep.probeMedia = p;
-    p.onload = () => { adoptProbe(prep); onReady(); };
-    p.onerror = () => { releaseProbeMedia(prep); onFail(); };
-    p.alt = "";
-    p.draggable = false;
-    p.className = "we-media we-media--fit";
-    p.src = w.preview;
-  };
-  if (!w.frameUrl) { tryPreview(); return; }
-  // 探针必须加载**提交后真正会显示的那个 URL**：提交时 selection.url 会带上该
-  // 壁纸记住的画面档位（frameUrlWithVariant）。若这里用无档位的 frameUrl，档位
-  // 1–3 的元素会在收编时被 URL 校验判为不符 → 释放重建：预载白做、新层仍从零
-  // 加载（机制本意消除的加载窗口又回来了），还多一次全分辨率帧下载（host 对
-  // 静态帧响应 no-store，浏览器缓存不复用；v0 槽没访问过时 host 还会白跑一次
-  // CPU 提取）。档位在准备与提交之间被改（理论上只有用户手动刷新）时 URL 仍会
-  // 不符，校验照旧兜住重建。
-  const savedVariant = Number(selection.frameVariants && selection.frameVariants[String(w.id)]) || 0;
-  const frameSrc = frameUrlWithVariant(w.frameUrl, savedVariant);
-  const img = new Image();
-  prep.probeMedia = img;
-  img.onload = () => { adoptProbe(prep); onReady(); };
-  img.onerror = () => { releaseProbeMedia(prep); tryPreview(); };
-  prepTimeout(prep, () => { adoptProbe(prep); onReady(); }); // 慢提取兜底提交
-  img.alt = "";
-  img.draggable = false;
-  img.className = "we-media we-media--fit";
-  img.src = frameSrc;
-}
-
-// 就绪 → 落实切换：提交前再校验（准备期间用户可能手动切换/隐藏候选/关闭轮换），
-// 通过则置渐变标记并 applySelection（fromRotation 带 kind 实测结果）。iframe 类
-// 媒体走节点级领养（staging 容器整体转为新层，iframe 不移动）；img/video 走
-// 元素级领养（buildMedia 收编）。staging 容器的收尾在 applySelection 返回后 ——
-// 节点级领养时它已变成新层，元素级领养时它已完成使命移除。
 function commitRotationSwitch(prep) {
   rotationPrep = null;
   for (const t of prep.timers) { try { clearTimeout(t); } catch { /* ignore */ } }
@@ -1766,7 +1003,8 @@ function commitRotationSwitch(prep) {
   prep.staged = null;
   const w = wallpaperById().get(prep.id);
   const valid = selection.rotationEnabled && selection.id === prep.fromId
-    && w && isRotatableWallpaper(w) && !isHiddenWallpaper(w.id);
+    && w && isRotatableWallpaper(w, selection.contentRatingFilter, selection.typeFilter)
+    && !isHiddenWallpaper(w.id, selection.hiddenIds);
   liveLog("rotation-commit", "wid=" + prep.id + " from=" + prep.fromId + " kind=" + (prep.kind || "-")
     + " valid=" + valid + " " + liveStateBrief());
   if (!valid) {
@@ -1869,8 +1107,7 @@ function deleteGroup(id) {
       else selection.rotationEnabled = false;
     }
   }
-  if (selection.editing && selection.editing.id === id) selection.editing = null;
-  persistSelection();
+  if (selection.editing && selection.editing.id === id) setSetting("editing", null);
   syncRotationTimer();
   emit();
 }
@@ -1881,130 +1118,14 @@ function importPlaylistIntoDraft(playlist) {
   emit();
 }
 
-function applySelection(id, opts) {
-  reportClientDiag("apply", "id=" + String(id || "").slice(0, 40));
-  // 手动切换/清除/revalidate：取消进行中的轮换准备（staged/探测元素全部
-  // 释放），并丢弃任何滞留的就绪元素。轮换提交（fromRotation）例外 ——
-  // 就绪元素正是本次调用要带进新层的资产。
-  if (!opts || !opts.fromRotation) { cancelRotationPrepare(); disposePreparedMedia(); }
-  // GPU 抓帧回填的目标壁纸随切换作废（新壁纸的 live 首帧会重新调度）。
-  cancelLiveFrameBackfill();
-  // 手动切换不走渐变 → 立即放行轮换音频闸（轮换提交由旧层退场放行）。
-  if (!opts || !opts.fromRotation) releaseRotationAudioGate();
-  selection.id = id || "";
-  persistSelection();
-  if (!selection.id) {
-    selection.blockedNote = "";
-    selection.url = null;
-    selection.type = null;
-    selection.previewUrl = null;
-    selection.sceneVideo = null;
-    selection.sceneLiveSrc = null;
-    selection.webLiveSrc = null;
-    selection.propsUrl = null;
-    selection.sceneLiveActive = false;
-    selection.sceneAudioUrl = null;
-    selection.sceneHasAudio = false;
-    selection.mediaInfo = null;
-    selection.transcodeState = "idle";
-    mediaInfoToken = "";
-    abortTranscodeUpgrade();
-    syncSceneAudio(selection);
-    syncRotationTimer();
-    emit();
-    return;
-  }
-  const w = selection.inventory.wallpapers.find((x) => x.id === selection.id);
-  if (!w || !isRotatableWallpaper(w)) {
-    // 被过滤条件排除 / 条目消失时必须留下可读原因（#84），见 selectionBlockedNote。
-    selection.blockedNote = selectionBlockedNote(w);
-    selection.url = null;
-    selection.type = null;
-    selection.previewUrl = null;
-    selection.sceneVideo = null;
-    selection.sceneLiveSrc = null;
-    selection.webLiveSrc = null;
-    selection.propsUrl = null;
-    selection.sceneLiveActive = false;
-    selection.sceneAudioUrl = null;
-    selection.sceneHasAudio = false;
-    selection.mediaInfo = null;
-    selection.transcodeState = "idle";
-    mediaInfoToken = "";
-    abortTranscodeUpgrade();
-    syncSceneAudio(selection);
-    syncRotationTimer();
-    emit();
-    return;
-  }
-  const savedVariant = Number(selection.frameVariants && selection.frameVariants[String(w.id)]) || 0;
-  selection.url = w.type === "scene" ? frameUrlWithVariant(w.frameUrl, savedVariant) : w.media;
-  // 宿主 inventory 权威标记：已有自定义画面时同步进本地记忆（换机/清配置后恢复）。
-  if (w.hasCustomFrame) {
-    const cf = Object.assign({}, selection.customFrames || {});
-    cf[String(w.id)] = true;
-    selection.customFrames = cf;
-  }
-  selection.type = w.type;
-  selection.blockedNote = "";
-  // 静态帧 URL (frameUrl, 立即上屏)：供页面刷新 / 档位切换时重挂。
-  selection.sceneFrameUrl = w.type === "scene" ? (w.frameUrl || null) : null;
-  // Scene wallpapers with an embedded animation (host-extracted MP4) play it
-  // as a hardware-decoded <video>; scenes without one stay on the static frame.
-  selection.sceneVideo = w.type === "scene" ? (w.sceneVideo || null) : null;
-  // 轮换提交以准备期【实测】为准：sceneVideo 探测已 404/解码失败（kind 落到
-  // static）时不得按 inventory 原样复活它 —— 否则新层 <video> 必然再次
-  // error，已就绪的静态帧被硬重建 = 一次切换两段闪烁（实测闪烁主链）。
-  if (opts && opts.fromRotation && w.type === "scene" && opts.kind === "static") {
-    selection.sceneVideo = null;
-  }
-  // WebWallGL 实时渲染 token：host inventory 只对 pkg 壁纸给出（loose
-  // scene.json 目录没有 scene.pkg 可供 httpSource 拉取，直接走旧链）。
-  selection.sceneLiveSrc = w.type === "scene" && w.sceneLive && w.sceneLiveSrc ? w.sceneLiveSrc : null;
-  // 网页壁纸的 live 入口（host inventory 的 webLive/webLiveSrc）。
-  selection.webLiveSrc = w.type === "web" && w.webLive && w.webLiveSrc ? w.webLiveSrc : null;
-  // 「壁纸属性」面板：只有场景/网页壁纸的项目目录才有 project.json 用户属性。
-  selection.propsUrl = (w.type === "scene" || w.type === "web") && w.propsUrl ? w.propsUrl : null;
-  selection.sceneLiveActive = false;
-  // 场景包内独立音频（无内嵌 MP4 时播放；内嵌 MP4 场景由视频自带音轨，
-  // syncSceneAudio 内部按 sceneVideo 互斥）。sceneHasAudio 经 HEAD 探测得出，
-  // 供卡片音乐按钮显示。
-  selection.sceneAudioUrl = w.type === "scene" && w.sceneAudio ? w.sceneAudio : null;
-  selection.sceneHasAudio = false;
-  if (selection.sceneAudioUrl) {
-    const probeUrl = selection.sceneAudioUrl;
-    fetch(probeUrl, { method: "HEAD", cache: "no-store" }).then((r) => {
-      if (r.ok && selection.sceneAudioUrl === probeUrl) {
-        selection.sceneHasAudio = true;
-        try { emit(); } catch { /* ignore */ }
-      }
-    }).catch(() => { /* 无音频/探测失败：按钮保持隐藏 */ });
-  }
-  // Keep the preview around so a failed static frame can fall back to it.
-  selection.previewUrl = w.preview || null;
-  selection.transcodeState = "idle";
-  // The previous wallpaper's media info must not leak into the new one: a stale
-  // fps would make the sync "源帧率 ≤ 上限" check wrongly skip the transcode
-  // (and the UI would keep claiming 无需抽帧 for a 120fps source).
-  selection.mediaInfo = null;
-  abortTranscodeUpgrade();
-  refreshMediaInfo();
-  syncRotationTimer();
-  emit();
-}
 
 // ── Hidden wallpapers (soft delete / restore, localStorage only) ───────────
 // Hiding is a pure status flag: no source file is touched, and a hidden
 // wallpaper that is currently playing keeps playing (it only leaves the
 // lists). Rotation candidates exclude hidden ids via groupWallpapers(), so a
-// hidden wallpaper can never be auto-selected by the carousel.
-function isHiddenWallpaper(id) {
-  return Boolean(id) && selection.hiddenIds.includes(id);
-}
-
-function hiddenInventoryList() {
-  return selection.inventory.wallpapers.filter((w) => isHiddenWallpaper(w.id));
-}
+// hidden wallpaper can never be auto-selected by the carousel. The membership
+// test itself lives in **src/picker-model.js**（`isHiddenWallpaper(id, hiddenIds)`）——
+// 隐藏集合从调用点显式传入。
 
 function hideWallpapers(ids) {
   const added = ids.filter((id) => id && !selection.hiddenIds.includes(id));
@@ -2035,17 +1156,8 @@ const UPLOAD_URL = "/wallpaper-engine/upload";
 const REMOVE_URL = "/wallpaper-engine/remove";
 const UPLOAD_TYPES = ["image/jpeg", "image/png", "video/mp4"];
 
-function isUploadedWallpaper(w) {
-  return Boolean(w && w.id && w.id.indexOf("up-") === 0);
-}
-
-// 存储位置里的 WE 项目目录（project.json + scene.pkg/…，id 前缀 up-dir-）。
-// 与单文件上传同属「用户自己的内容」（ratingOf 的宽松分级、隐藏/轮转都适用），
-// 但不是「上传」、也没有可移除的文件（/remove 只解析 up-*.ext）——上传管理
-// 列表与计数须把它们排除，否则会出现点「移除」却删不掉的幽灵条目。
-function isDirWallpaper(w) {
-  return Boolean(w && w.id && w.id.indexOf("up-dir-") === 0);
-}
+// `isUploadedWallpaper(w)` / `isDirWallpaper(w)`（id 前缀判定）现在住在
+// **src/picker-model.js** —— ratingOf 的宽松分级与上传管理列表共用同一对判定。
 
 async function uploadWallpaperFile(file) {
   const ctype = (file.type || "").toLowerCase();
@@ -2065,13 +1177,14 @@ async function uploadWallpaperFile(file) {
   emit();
   try {
     const title = file.name.replace(/\.[^.]+$/, "").slice(0, 80);
-    const res = await fetch(UPLOAD_URL + "?title=" + encodeURIComponent(title), {
+    const res = await apiFetch(UPLOAD_URL + "?title=" + encodeURIComponent(title), {
       method: "POST",
       headers: { "Content-Type": ctype },
       body: file,
+      parse: "always", // 失败时也要读宿主给的原因（4xx/5xx 的 {error}）
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+    const data = res.data || {};
+    if (!res.ok) throw new Error(hostFailureReason(res));
     // Host dedup: uploading the same file again returns the existing entry
     // (data.duplicate) instead of storing a second copy.
     if (data.duplicate) {
@@ -2092,13 +1205,8 @@ async function removeUploadWallpaper(id) {
   selection.uploadError = "";
   emit();
   try {
-    const res = await fetch(REMOVE_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+    const res = await apiPostJson(REMOVE_URL, { id }, { parse: "always" });
+    if (!res.ok) throw new Error(hostFailureReason(res));
     if (selection.id === id) applySelection("");
     await loadInventory();
   } catch (err) {
@@ -2123,13 +1231,9 @@ async function changeUploadDir(dir, migrate) {
   selection.uploadError = "";
   emit();
   try {
-    const res = await fetch(UPLOAD_DIR_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ dir: String(dir).trim(), migrate: migrate !== false }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+    const res = await apiPostJson(UPLOAD_DIR_URL,
+      { dir: String(dir).trim(), migrate: migrate !== false }, { parse: "always" });
+    if (!res.ok) throw new Error(hostFailureReason(res));
     selection.editingUploadDir = false;
     selection.uploadDirDraft = "";
     await loadInventory();
@@ -2151,13 +1255,9 @@ async function changeWeAssetsDir(dir) {
   selection.weAssetsError = "";
   emit();
   try {
-    const res = await fetch(WE_ASSETS_DIR_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ dir: String(dir || "").trim() }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+    const res = await apiPostJson(WE_ASSETS_DIR_URL,
+      { dir: String(dir || "").trim() }, { parse: "always" });
+    if (!res.ok) throw new Error(hostFailureReason(res));
     selection.editingWeAssetsDir = false;
     selection.weAssetsDirDraft = "";
     await loadInventory();
@@ -2208,7 +1308,7 @@ function releaseLayerMedia(node) {
   if (v) {
     try { v.pause(); v.removeAttribute("src"); v.load(); } catch { /* ignore */ }
   }
-  // live / web 层的 <iframe> 才是大头：Chromium 实测「从 DOM 摘除的 iframe 其 JS
+  // live / web 层的 <iframe> 才是大头：Chromium 实测：「从 DOM 摘除的 iframe 其 JS
   // 世界仍在跑」（contentWindow 已 null 而 setInterval 照跳）—— 只 remove() 等于把它
   // 交给 GC，回收时序不可控，每个渐变周期都可能多留一个活着的渲染页（评审 P2-I）。
   // 显式导航到 about:blank 终止它（与 disposeMediaEl 的 iframe 分支同一手法）。
@@ -2282,8 +1382,8 @@ function weStartDraw(canvas, video, customFit) {
   weResizeObs.observe(canvas);
 }
 
-// 「有 GPU 抓帧就优先于 CPU 生成的画面」的判据（用户决策）：探测该壁纸静态帧
-// 槽位是否有 _gpu.png —— HEAD 是纯磁盘探测，不触发 CPU 提取。带 TTL 与 in-flight
+// 「有抓帧就优先于其它来源的画面」的判据（用户决策）：探测该壁纸出图
+// 槽位是否有 _gpu.png —— HEAD 是纯磁盘探测，绝不触发任何生成。带 TTL 与 in-flight
 // 去重（同一壁纸反复进出只探一次）；探测失败/无 token 按「无 GPU 帧」处理：
 // 显示侧本来就会优先服务 GPU 帧，这里失败放开只影响一次多余探测，不该让判定
 // 因一次网络抖动而反转。
@@ -2297,13 +1397,16 @@ function probeGpuFramePin(token, force) {
   if (!force && hit && Date.now() - hit.at < GPU_FRAME_PIN_TTL_MS) return Promise.resolve(hit.pinned);
   const flying = gpuFramePinInflight.get(key);
   if (flying && !force) return flying;
-  const req = fetch("/wallpaper-engine/scene-frame/" + encodeURIComponent(key), { method: "HEAD", cache: "no-store" })
-    .then((r) => {
-      const pinned = Boolean(r && r.ok && r.headers && typeof r.headers.get === "function"
-        && r.headers.get("x-we-gpu") === "1");
+  const req = apiHead("/scene-frame/" + encodeURIComponent(key))
+    .then((res) => {
+      // HEAD 探测：`res.response` 才是原始 Response —— 判 X-WE-GPU 要读它的头。
+      const h = res.response;
+      const pinned = Boolean(res.ok && h && h.headers && typeof h.headers.get === "function"
+        && h.headers.get("x-we-gpu") === "1");
       gpuFramePins.set(key, { pinned, at: Date.now() });
       return pinned;
     })
+    // 保留兜底：上面 `.then` 体里若抛（例如 map 操作），不能让 inflight 记录悬着。
     .catch(() => false)
     .then((pinned) => { if (gpuFramePinInflight.get(key) === req) gpuFramePinInflight.delete(key); return pinned; });
   gpuFramePinInflight.set(key, req);
@@ -2321,7 +1424,7 @@ function markGpuFramePin(token, pinned) {
 
 // ── 场景实时渲染（WebWallGL live WebGL）─────────────────────────────────────
 // scene.pkg 壁纸的实时播放形态：同源 iframe 加载 vendored WebWallGL 渲染页
-//（/scene-live，构建同步见 scripts/sync-webwallgl.mjs），由它 fetch
+//（/scene-live，构建同步见 test/tools/sync-webwallgl.mjs），由它 fetch
 // /scene-files/<token>/scene.pkg 自行解析渲染（LZ4/TEX/DXT 解码、HLSL→GLSL、
 // 粒子/脚本/音频全在渲染页内）。父页面经 contentWindow 直接调用渲染页的
 // window.__wp 控制面（pause/resume/setVolume/setFit/pushPointer），并轮询
@@ -2329,447 +1432,19 @@ function markGpuFramePin(token, pinned) {
 // sceneVideo → 静态帧链（buildMedia 优先级自动重排）。
 // 同源且不加 sandbox：sandbox 会产生 opaque origin，contentWindow.__wp 将
 // 无法访问；场景作者脚本隔离在渲染页自己的 SceneScript 沙箱内，与 DSH 宿主
-// API 无缘，安全边界与旧 /scene-runtime 播放器一致。同源还保住了父页面
+// API 无缘，安全边界只由同源 + 渲染页自有沙箱提供。同源还保住了父页面
 // backdrop-filter（液态玻璃）对 iframe 合成结果的采样。
 // 实时渲染形态的适用判定：场景（scene.pkg 走 WebWallGL 场景管线）与
 // 网页（入口 HTML 走 WebWallGL 的 web 挂载 + 注入 WE shim）共用同一开关
 // （sceneLive，默认开）、同一失败记忆与同一套心跳看护。
-function liveRenderEnabled(selLike) {
-  return Boolean(selLike && selLike.sceneLive !== false
-    // 失败记忆的值是失败原因（'timeout' / 'stall'）；兼容旧的 true。
-    && !(selLike.sceneLiveFailures && selLike.sceneLiveFailures[String(selLike.id)])
-    && ((selLike.type === "scene" && selLike.sceneLiveSrc)
-      || (selLike.type === "web" && selLike.webLiveSrc)));
-}
-// 失败原因 → 可读文案（设置面板展示，便于用户反馈「为什么黑」）。
-const LIVE_FAIL_LABELS = {
-  timeout: "首帧超时（15 秒内无画面）",
-  stall: "运行中断（20 秒无帧）",
-  load: "壁纸加载失败",
-};
-function liveFailReasonOf(selLike) {
-  const m = selLike && selLike.sceneLiveFailures;
-  const v = m ? m[String(selLike && selLike.id)] : null;
-  if (!v) return "";
-  return LIVE_FAIL_LABELS[v] || "渲染失败";
-}
-// objectFit（object-fit 语义）→ WebWallGL fit 值。center 无精确对应
-//（渲染器的 contain 即完整显示居中，视觉最近似）；fill（拉伸变形）→ stretch。
-const SCENE_LIVE_FIT = { cover: "cover", contain: "contain", center: "contain", fill: "stretch" };
-function liveRenderUrl(selLike) {
-  const isWeb = selLike.type === "web";
-  // scene：src 是 mediaBase 下的 token（渲染页用它拼 httpSource）。
-  // web：src 必须是**完整入口 URL**（渲染页的 web 形态直接 iframe 加载它，
-  // 并从同目录取 project.json）—— 传 token 会被当成相对 URL 而 404。
-  //
-  // host 给的 webLiveSrc 正常情况下已是**绝对 URL**：网页壁纸的整个载荷
-  //（入口 HTML + 全部子资源）由 host 自己的壁纸媒体源（独立 loopback 端口）
-  // 提供。原因见 host 的 ensureMediaOrigin：DSH Desktop 给每个插件路由套了
-  // 能力头（x-dsh-desktop-renderer）栅栏，而该头只注入给同源 frame 的请求；
-  // 严格沙箱 iframe 是不透明源，永远拿不到 —— 于是入口 HTML 一律 403，表现
-  // 就是「预览图正常、随后整块黑」。只有旧 host / 媒体源启动失败时才回落成
-  // 应用源相对路径（浏览器形态照常可用）。
-  const webEntry = String(selLike.webLiveSrc || "");
-  const src = isWeb
-    ? (/^https?:\/\//i.test(webEntry) ? webEntry : location.origin + webEntry)
-    : selLike.sceneLiveSrc;
-  const fit = SCENE_LIVE_FIT[selLike.objectFit] || "cover";
-  const fps = SCENE_LIVE_FPS_VALUES.includes(selLike.sceneLiveFps) ? selLike.sceneLiveFps : 30;
-  const muted = weAudioVolume() > 0 ? "false" : "true";
-  return "/wallpaper-engine/scene-live/index.html?type=" + (isWeb ? "web" : "scene")
-    // 网页壁纸必须严格沙箱：第三方 workshop HTML 不得继承 DSH 的 origin
-    //（否则可冒用宿主身份调宿主 API / 读宿主存储）——只给 allow-scripts，
-    // 控制经渲染页的 postMessage 通道下发，shim 由宿主注入 HTML 响应。
-    + (isWeb ? "&webSandbox=strict" : "")
-    + "&fit=" + fit + "&sceneFps=" + fps + "&muted=" + muted
-    // WE 官方素材（local-assets）：host 报告素材目录可用时才打开渲染页的
-    // 本地素材通路（探测 /api/local-assets，按名取官方像素）；否则渲染页
-    // 静默走程序化复刻，连探测请求都不发。
-    + (selection.inventory && selection.inventory.weAssetsAvailable ? "&localAssets=1" : "")
-    + "&src=" + encodeURIComponent(src)
-    + "&mediaBase=" + encodeURIComponent(location.origin + "/wallpaper-engine/scene-files");
-}
-// 向 live iframe 的 __wp 控制面收敛播放态/音量/fit。每次 emit 驱动的
-// syncLayers 与每秒心跳 tick 都会调用，但**只在目标值变化时真正下发**：
-// 渲染页的 resume() 会重置帧计量器（resetFrameMeter），若每秒无条件 resume，
-// 紧随其后的心跳读数永远是 fps=0 → 首帧判定永不通过 → 15s 误降级（实测踩
-// 坑，2026-09-22）。setVolume/setFit 同理省掉每秒无谓的跨文档调用。
-const liveApplied = { frame: null, playing: null, volume: null, fit: null };
-function applyLiveControls(frame) {
-  if (!frame) return;
-  let wp = null;
-  try { wp = frame.contentWindow && frame.contentWindow.__wp; } catch { return; }
-  if (!wp) return; // 渲染页未就绪：心跳 tick 每秒重试
-  // 新 iframe（或渲染页刚就绪）→ 强制全量同步一次。
-  if (liveApplied.frame !== frame) {
-    liveApplied.frame = frame;
-    liveApplied.playing = null;
-    liveApplied.volume = null;
-    liveApplied.fit = null;
-  }
-  try {
-    const playing = isEffectivelyPlaying();
-    if (liveApplied.playing !== playing) {
-      if (playing) wp.resume(); else wp.pause();
-      liveApplied.playing = playing;
-    }
-    // 闸内（正在淡入的新层）目标音量为 0：等旧层退场后再由
-    // releaseRotationAudioGateFor 恢复。
-    const volume = rotationAudioHoldActive() ? 0 : weAudioVolume();
-    if (liveApplied.volume !== volume && typeof wp.setVolume === "function") {
-      wp.setVolume(volume);
-      liveApplied.volume = volume;
-    }
-    const fit = SCENE_LIVE_FIT[selection.objectFit] || "cover";
-    if (liveApplied.fit !== fit && typeof wp.setFit === "function") {
-      wp.setFit(fit);
-      liveApplied.fit = fit;
-    }
-  } catch { /* 渲染页内部异常：下一 tick 重试 */ }
-}
+// ── 实时渲染管线（live 看护 / 抓帧回填 / 壁纸层构建与过场）──────────────────
+// 这一族的实现已抽到 **src/live-layer.js**（1,204 行，原先跨多个不相邻区段：live 渲染
+// URL 与控制、诊断日志、看护心跳、判失败、帧可用性、抓帧回填、指针转发、poster/挂载/抓首帧，
+// 以及 syncLayers 与层过渡）。构建期内联回本作用域，调用点无需改动。
+// **故意留在本文件的**（别的域，别处找）：媒体集成（下方「媒体后端」段）、GPU 帧槽助手
+// （clearGpuFrameSlot / refreshStaticFrameNodes / liveViewportAspect 等）、用户属性、diag 上报。
+// 契约：出向依赖清单 / 入口 / 不变量 —— 见该文件头（清单只在那里维护，此处不复述数量）。
 
-// ── live 诊断日志 ───────────────────────────────────────────────────────────
-// live 这条路以前完全没有痕迹：判失败只写 sceneLiveFailures + 面板一行文案，
-// 事后无法回答「为什么 15 秒没出帧」。渲染页内部的问题由它自己的 reportDiag
-// 送到 host 的诊断环形缓冲（host 的 /diag 路由 → GET /wallpaper-engine/diag-log），
-// 这里把**客户端**事件送到同一个缓冲，两条时间线于是可以对齐着看：
-//   curl -s 127.0.0.1:<port>/wallpaper-engine/diag-log
-// 逐秒心跳 tick 只在 localStorage.weLiveDebug === "1" 时打（默认关：一秒一条
-// 会刷屏，也会给环形缓冲刷出无用的像素请求）。
-const LIVE_DIAG_KEY = "weLiveDebug";
-// 诊断代码版本 + 页面实例 id：日志里带着它们，事后能回答两个必问的问题 ——
-// 「这一行是哪个 bundle 打的」（刷新是否真的生效）和「是哪个页面/窗口在跑引擎」
-// （同时开两个 DSH 视图时，两个客户端会各自轮换、互相覆盖设置）。
-const LIVE_DIAG_BUILD = "d6";   // d4→d6：GPU 静帧几何校验（存帧视比不符 → 清除按当前视口重抓）
-const LIVE_PAGE_ID = (function () { try { return Math.random().toString(36).slice(2, 7); } catch { return "?"; } })();
-// 面板开关（本会话有效、不落盘）：给「打不开 DevTools」的环境留的入口 ——
-// DSH web 的根路径鉴权是 303 跳到干净的 `/`，URL 上的查询参数到不了客户端，
-// 所以不能靠 ?weLiveDebug=1 传参。
-let liveDiagOn = false;
-function liveDiagVerbose() {
-  if (liveDiagOn) return true;
-  try { return typeof localStorage !== "undefined" && localStorage.getItem(LIVE_DIAG_KEY) === "1"; } catch { return false; }
-}
-function liveLog(tag, detail, verboseOnly) {
-  if (verboseOnly && !liveDiagVerbose()) return;
-  // detail 支持传函数：热路径（每秒 tick）在开关关闭时不构造那串注定被丢弃的字符。
-  const text = typeof detail === "function" ? detail() : detail;
-  const line = "[we-live " + LIVE_DIAG_BUILD + "\u00b7p" + LIVE_PAGE_ID + "] " + tag + (text ? " · " + text : "");
-  try { if (typeof console !== "undefined" && console.info) console.info(line); } catch { /* ignore */ }
-  // 同源像素请求 → host /diag 环形缓冲（与渲染页 reportDiag 同一条通路；
-  // 无 host（单测 sandbox）时 Image 不存在，静默跳过）。
-  try {
-    if (typeof Image === "function") {
-      const img = new Image();
-      img.src = "/diag?msg=" + encodeURIComponent(line);
-    }
-  } catch { /* ignore */ }
-}
-// 一句话状态尾巴：出帧判定 + 暂停原因 + 首帧/运行期计数。
-function liveStateBrief(extra) {
-  const hold = livePauseReason();
-  return "playing=" + isEffectivelyPlaying() + (hold ? " hold=" + hold : "")
-    + " hidden=" + (typeof document !== "undefined" && document.hidden ? 1 : 0)
-    + " focus=" + (typeof document !== "undefined" && typeof document.hasFocus === "function" && document.hasFocus() ? 1 : 0)
-    + (extra ? " " + extra : "");
-}
-// 加载即留痕：确认「哪次刷新、哪个 bundle、哪个页面」真的生效了（用户这台机器
-// 打不开 DevTools，唯一取证通道是宿主诊断缓冲）。
-try { if (typeof document !== "undefined") liveLog("client-boot", "build=" + LIVE_DIAG_BUILD + " page=p" + LIVE_PAGE_ID
-    + " mode=" + desktopWindowMode() + " extSwap=" + (useExtendedFrameSwap() ? 1 : 0)
-    + " " + liveStateBrief()); } catch { /* ignore */ }
-// 失焦/隐藏是「首帧看护为什么不计时」的直接证据 —— 事件级留痕（只在变化时触发）。
-try {
-  if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
-    window.addEventListener("focus", function () { liveLog("play-state", liveStateBrief("window-focus")); });
-    window.addEventListener("blur", function () { liveLog("play-state", liveStateBrief("window-blur")); });
-  }
-  if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
-    document.addEventListener("visibilitychange", function () {
-      liveLog("play-state", liveStateBrief(document.hidden ? "tab-hidden" : "tab-visible"));
-    });
-  }
-} catch { /* ignore */ }
-// 心跳留痕（60s 一条，常开）：任何时候事后回看，都能知道「页面在跑吗 / 哪张壁纸 /
-// 什么播放态 / 看护进行到哪一步」，不必依赖复现时机。
-try {
-  if (typeof window !== "undefined" && typeof window.setInterval === "function") {
-    window.setInterval(function () {
-      const w = liveWatch;
-      liveLog("beat", liveStateBrief("id=" + (selection.id || "-")
-        + " liveOn=" + (selection.sceneLiveActive ? 1 : 0)
-        + (w ? " watch=" + w.wid + " first=" + (w.firstFrame ? 1 : 0) + " held=" + w.heldPaused + " stall=" + w.stall : " watch=-")
-        + " fails=" + Object.keys(selection.sceneLiveFailures || {}).length));
-    }, 60000);
-  }
-} catch { /* ignore */ }
-
-// ── live 心跳 ───────────────────────────────────────────────────────────────
-// 1s tick 读渲染页 __wpStats.frame()（{fps, running}，最近 500ms 实测窗口）：
-// - 首帧：running 且 fps>0 → 记 sceneLiveActive、iframe 淡入（we-live-on）、
-//   音频互斥切换（停外置 <audio>）；
-// - 首帧超时（15s：大 pkg 下载 + 纹理解码 + shader 编译的合理上限）→ 失败；
-// - 运行期：期望播放却连续 20s 无帧（先单次 resume 自救）或页面失联 → 失败。
-const LIVE_FIRST_FRAME_MS = 15000;
-const LIVE_STALL_TICKS = 20;
-let liveWatch = null; // { frame, wid, timer, startedAt, firstFrame, stall, resumed }
-function liveStats(frame) {
-  try {
-    const st = frame.contentWindow && frame.contentWindow.__wpStats;
-    if (!st || typeof st.frame !== "function") return null;
-    return st.frame();
-  } catch { return null; }
-}
-
-// 渲染页运行时状态（新渲染页提供 __wp.getState）：网页壁纸很多没有 rAF 帧打点
-// （setTimeout 主循环 / 纯静态页），fps 恒为 0 —— 「iframe 已 load」才是可靠的
-// 「壁纸就绪」信号。旧渲染页没有该方法时返回 null（退化为「可达即就绪」）。
-function liveStateOf(frame) {
-  try {
-    const wp = frame.contentWindow && frame.contentWindow.__wp;
-    if (!wp || typeof wp.getState !== "function") return null;
-    return wp.getState();
-  } catch { return null; }
-}
-// 「整页卡不卡」与「壁纸自己卡不卡」是两回事：网页壁纸跑在跨源沙箱 iframe
-//（独立渲染进程），它内部掉帧＝壁纸自己的开销；整页同时掉帧＝合成/模糊这类
-// 全页代价（例如液态玻璃的 backdrop-filter 每帧重采样壁纸）。判读「限了 30
-// 还是卡」必须先分清是哪一种，所以这里用一条**只做计数**的 rAF 链量 UI 帧率，
-// 与渲染页上报的壁纸自身帧率（getState().webFps）一起写进诊断。
-let uiFpsFrames = 0;
-let uiFpsRaf = 0;
-let uiFpsSince = 0;
-// 计时全局按环境取：UI fps 是诊断探针，不该因为宿主没有 performance / rAF
-// 就抛异常、打断实时渲染链（真浏览器恒有这两者，测试宿主可能只给部分 DOM）。
-const uiNow = () => (typeof performance !== "undefined" && performance && typeof performance.now === "function")
-  ? performance.now() : 0;
-function startUiFpsProbe() {
-  if (uiFpsRaf || typeof requestAnimationFrame !== "function") return;
-  uiFpsFrames = 0;
-  uiFpsSince = uiNow();
-  const tick = () => { uiFpsFrames += 1; uiFpsRaf = requestAnimationFrame(tick); };
-  uiFpsRaf = requestAnimationFrame(tick);
-}
-function stopUiFpsProbe() {
-  if (uiFpsRaf) { try { cancelAnimationFrame(uiFpsRaf); } catch { /* ignore */ } }
-  uiFpsRaf = 0;
-  uiFpsFrames = 0;
-  uiFpsSince = 0;
-}
-function takeUiFps() {
-  const now = uiNow();
-  const seconds = uiFpsSince > 0 ? (now - uiFpsSince) / 1000 : 0;
-  const frames = uiFpsFrames;
-  uiFpsFrames = 0;
-  uiFpsSince = now;
-  return seconds > 0.2 ? Math.round(frames / seconds) : -1;
-}
-
-// 运行时帧率上报：每 5 秒一条，落进 host 的 diag 文件（DSH Desktop 拿不到
-// console，只能靠这条通道）。`cap` 是当前上限设置，`web` 是壁纸自身帧率
-//（-1 = 渲染页没给，例如纯 CSS 动画的壁纸不靠 rAF），`rnd` 是渲染页线程帧率。
-function reportLiveFps(watch, frame, stats, wstate) {
-  const secs = Math.max(1, Math.round((Date.now() - (watch.fpsAt || watch.startedAt)) / 1000));
-  watch.fpsAt = Date.now();
-  const ui = takeUiFps();
-  const web = wstate && typeof wstate.webFps === "number" ? wstate.webFps : -1;
-  const rnd = stats && typeof stats.fps === "number" ? Math.round(stats.fps) : -1;
-  reportClientDiag("live-fps",
-    `ui=${ui} web=${web} rnd=${rnd} cap=${selection.sceneLiveFps || "-"}`
-    + ` win=${secs}s playing=${isEffectivelyPlaying() ? 1 : 0}`);
-}
-
-// 宿主窗口模式（页面 URL 的 dsh-desktop-mode 参数；兼容模式为缺省值）。
-function desktopWindowMode() {
-  try {
-    const m = new URLSearchParams(window.location.search).get("dsh-desktop-mode");
-    return m === "extended" || m === "advanced" ? m : "compatibility";
-  } catch { return "compatibility"; }
-}
-
-// A/B 逃生舱：extended 模式的「首帧后延迟换元」自救开关（与 dsh-desktop-mica /
-// we-saturate 同风格，只解析一次并缓存）。
-//   ?we-ext-swap=1 → 恢复换元（用于复验"启动期子框架合成层坏死"那个老问题）
-//   缺省 / 垃圾值 → **不换元**（现行默认）
-// 为什么默认关掉：换元后的新元素为防白闪被刻意摘掉 `we-live-on`（见 rebuildLiveFrame），
-// 层随即回落垫底图（场景=静态帧、网页=作者预览图），而渲染页仍照旧出声。实机表现
-// 「场景/网页壁纸都正常几秒后失效成静态、只有扩展模式、网页退成预览图」与 8000ms
-// 定时器 + first-frame-ok 后正好 +8s 的 live-frame-rebuilt 日志逐条吻合 —— 前提
-//（"启动期 iframe 永不上屏"）在当前 2.0.14 上已不成立，换元只剩破坏。
-let extendedFrameSwap; // undefined = 未解析 · true = 换元 · false = 不换元
-function useExtendedFrameSwap() {
-  if (extendedFrameSwap !== undefined) return extendedFrameSwap;
-  extendedFrameSwap = false;
-  try {
-    if (typeof location !== "undefined" && location && typeof location.search === "string") {
-      let rawFlag = "";
-      if (typeof URLSearchParams === "function") {
-        rawFlag = new URLSearchParams(location.search).get("we-ext-swap") || "";
-      } else {
-        const m = /[?&]we-ext-swap=([^&]*)/.exec(location.search);
-        rawFlag = m ? decodeURIComponent(m[1]) : "";
-      }
-      extendedFrameSwap = String(rawFlag).toLowerCase() === "1";
-    }
-  } catch { /* 解析异常：保持不换元（现行默认），绝不抛出 */ }
-  return extendedFrameSwap;
-}
-
-// extended 模式下，启动期创建的 live iframe 合成层坏死（元素级红底都上不了
-// 屏、文档 reload 与 reparent 均无效，实测 2.0.14；见 first-frame-ok 处的
-// 注释）。唯一有效的自救是换一个全新元素：同 src 新帧由宿主在窗口稳定后重新
-// 分配，合成恢复。只做一次（dataset 标记）。
-// 两个硬约束（首轮实现漏掉后踩出的坑）：
-// ① 只在 extended 触发——advanced 的帧合成正常，重建纯属误伤（切壁纸白闪 +
-//    指针/音频接线全断）；
-// ② 新元素不得拷贝 we-live-on：先隐藏装载，等它自己的 first-frame-ok 由首帧
-//    门点亮（走标准淡入），否则加载中的空白 iframe 直接可见 = 闪白。
-// 换元后同步改道三条接线：livePointerFrame（窗口 mousemove → pushPointer 的
-// 目标）、startMediaSync（模块级 mediaTimer 闭包锁帧，不重发音频就永远断）、
-// watch 状态（firstFrame/stall/startedAt 重走首帧门）。
-let liveFrameRebuildTimer = 0;
-function rebuildLiveFrame(frame, watch) {
-  if (desktopWindowMode() !== "extended") return false;
-  try {
-    if (!frame || frame.dataset.weRebuilt === "1") return false;
-    frame.dataset.weRebuilt = "1";
-    const fresh = document.createElement("iframe");
-    for (const a of frame.attributes) {
-      try { fresh.setAttribute(a.name, a.value); } catch { /* ignore */ }
-    }
-    fresh.classList.remove("we-live-on"); // 场景活着再由首帧门点亮，杜绝白闪
-    fresh.dataset.weRebuilt = "1";
-    if (frame.parentNode) frame.parentNode.replaceChild(fresh, frame);
-    else if (frame.isConnected) frame.replaceWith(fresh);
-    else return false;
-    watch.frame = fresh;
-    watch.firstFrame = false; // 新帧重走首帧门：alive 分支会补齐媒体接线/回放/回填
-    watch.stall = 0;
-    watch.startedAt = Date.now();
-    ensureLivePointer(fresh); // livePointerFrame 闭包还指着被移除的旧元素
-    startMediaSync(fresh);    // mediaTimer 闭包锁的是旧帧，音频/Now Playing 断供
-    liveLog("live-frame-rebuilt", "wid=" + watch.wid + " mode=extended"
-      + " 启动期子框架合成层坏死 → 换新元素重挂同 src（指针/音频已改道）");
-    return true;
-  } catch { return false; }
-}
-
-function startLiveWatch(frame, wid) {
-  stopLiveWatch();
-  const watch = { frame, wid: String(wid || ""), timer: 0, startedAt: Date.now(), firstFrame: false, stall: 0, resumed: false, heldPaused: 0 };
-  liveLog("watch-start", "wid=" + watch.wid + " " + liveStateBrief());
-  watch.timer = setInterval(() => {
-    if (!frame.isConnected) { liveLog("watch-stop", "iframe 已从文档移除", true); stopLiveWatch(); return; }
-    // 先读统计、后下发控制：虽然 applyLiveControls 已去重（只在变化时
-    // resume/pause），保持这个顺序让读数不受任何控制调用的副作用影响。
-    const stats = liveStats(frame);
-    applyLiveControls(frame);
-    const isWeb = selection.type === "web";
-    const wstate = isWeb ? liveStateOf(frame) : null;
-    // 就绪判定分类型：场景每帧都有 GL 提交 → 要求真出帧；网页壁纸很多没有 rAF
-    // 打点（setTimeout 主循环 / 纯静态），只要渲染页可达（或 iframe 已 load）即算
-    // 就绪 —— 按 fps 判定会把它们误判失败并降级（实测：一直停在占位图，15 秒后黑屏）。
-    const alive = isWeb
-      ? (wstate ? wstate.iframeLoaded === true : Boolean(stats))
-      : Boolean(stats && stats.running && stats.fps > 0);
-    // 渲染页明确记录了 iframe 加载错误 → 立即降级，不必等 15 秒超时。
-    if (isWeb && wstate && wstate.iframeLoaded === false && wstate.webError) {
-      liveFail("load");
-      return;
-    }
-    liveLog("tick", () => liveStateBrief("fps=" + (stats ? Math.round(stats.fps * 10) / 10 : "null")
-      + " running=" + (stats ? stats.running : "null") + " alive=" + alive
-      + " first=" + watch.firstFrame + " stall=" + watch.stall + " held=" + watch.heldPaused), true);
-    if (!watch.firstFrame) {
-      if (alive) {
-        watch.firstFrame = true;
-        selection.sceneLiveActive = true;
-        frame.classList.add("we-live-on");
-        startUiFpsProbe();
-        // live 真的出首帧 → 清掉准备期超时冷却。手动选择壁纸走的是建层路径、不经过
-        // 准备链，所以不在这里清的话，一张「准备期超时过、实际跑得动 live」的壁纸会被
-        // 轮换降级成 sceneVideo/静态帧直到页面关闭，而用户手动点开它却是活的。
-        clearPrepareLiveTimeout(watch.wid);
-        liveLog("first-frame-ok", "wid=" + watch.wid + " 用时 " + (Date.now() - watch.startedAt) + "ms"
-          + (watch.heldPaused ? "（其中暂停期跳过 " + watch.heldPaused + " tick 未计时）" : ""));
-        try { syncSceneAudio(selection); emit(); } catch { /* ignore */ }
-        // 网页壁纸：首帧稳定后抽一帧存到 host（下次加载/重启用它当占位图）。
-        maybeCaptureLiveFrame(frame, selection);
-        // 「壁纸属性」面板改过的值：网页壁纸随 HTML 种子到达（host 侧合并），
-        // 场景壁纸没有种子通道 —— 就绪后在这里回放一次。
-        applyStoredUserProps(selection);
-        // 媒体桥接线：频谱（拉模式）与 Now Playing 转发。
-        startMediaSync(frame);
-        // GPU 抓帧回填静态帧缓存（best-effort，见 scheduleLiveFrameBackfill）。
-        scheduleLiveFrameBackfill(frame);
-        reportClientDiag("live-ready", "firstFrame ok");
-        // ── extended 窗口模式：启动期子框架合成层坏死 workaround ──
-        // 实测（2.0.14 / 内核 0.1.7-rc.1）：仅 extended 模式下，随页面启动创建的
-        // live iframe 无论内容是否在画（toDataURL 有完整帧、GL 无报错），其合成层
-        // 永远到不了屏幕——连元素级红底都不显示；而同 URL 的全新 iframe（哪怕含
-        // WebGL 子画布）完全正常。兼容/advanced 模式无此问题（advanced 误触发
-        // 重建会白闪 + 指针/音频接线全断，用户实测）。场景链路本身已由
-        // first-frame-ok 证明可用，此处把元素整个换成携带同一 src 的新元素：新帧
-        // 由渲染进程新 allocations 承载，合成恢复。换元后重置首帧门，让下方
-        // alive 分支对新元素再走一遍完整的同步链（媒体接线/属性回放/抓帧回填）。
-        // dataset 标记保证只换一次。
-        // 重建不在首帧瞬间执行：宿主窗口的合成环境在启动后数秒内仍未稳定
-        // （首帧即换，4s 新帧照样坏死，实测），因此先起一次性定时器延后换元。
-        // ⚠️ 该前提在当前 2.0.14 上已不成立：live 首帧能正常上屏，而换元把 `we-live-on`
-        // 摘掉后层只剩下垫底图（正是"正常几秒后失效"的成因）⇒ **改为 opt-in**，缺省
-        // 不换元（见 useExtendedFrameSwap）。
-        if (desktopWindowMode() === "extended" && !liveFrameRebuildTimer && useExtendedFrameSwap()) {
-          const cursed = frame;
-          liveFrameRebuildTimer = setTimeout(() => {
-            liveFrameRebuildTimer = 0;
-            try {
-              if (cursed.isConnected && watch.frame === cursed) rebuildLiveFrame(cursed, watch);
-            } catch { /* ignore */ }
-          }, 8000);
-        }
-      } else if (!isEffectivelyPlaying()) {
-        // 主动暂停（失焦/隐藏/用户暂停）→ 是我们自己 applyLiveControls 把渲染页
-        // pause() 掉的，而暂停中的渲染页 __wpStats.frame() 恒为 {fps:0,running:false}
-        // —— 「无帧」是预期行为，不是失败信号：暂停期间不计时（每 tick 重新起算），
-        // 恢复播放后再给满一个预算窗口。缺这条守卫时，轮换的**节点级领养**路径
-        // （syncLayers 领养分支在同一个任务里就 applyLiveControls → pause）只要碰上
-        // 失焦/隐藏/暂停，15s 后就会把这张壁纸持久记成「首帧超时」并降级回
-        // sceneVideo/静态帧（要手动重开开关才能恢复）—— 而渲染页其实是好好的。
-        // 运行期 stall 规则早就有同款守卫（见下），这里补齐对称性。
-        watch.heldPaused += 1;
-        watch.startedAt = Date.now();
-      } else if (Date.now() - watch.startedAt > LIVE_FIRST_FRAME_MS) {
-        liveFail("timeout");
-      }
-      return;
-    }
-    // 运行期：场景要求持续出帧；网页只要求渲染页可达（能读到 getState / stats，
-    // 静止画面本身是正常状态，不是失联）。
-    const responsive = isWeb ? Boolean(wstate || stats) : alive;
-    if (responsive || !isEffectivelyPlaying()) {
-      watch.stall = 0;
-      watch.resumed = false;
-      // 帧率取证：每 5 秒一条（只上报，不做任何控制）——「限了 30 还卡」时
-      // 这条能立刻分清是壁纸自身帧率低还是整页一起掉。
-      watch.fpsTick = (watch.fpsTick || 0) + 1;
-      if (watch.fpsTick % 5 === 0) reportLiveFps(watch, frame, stats, wstate);
-      return;
-    }
-    watch.stall += 1;
-    if (watch.stall === LIVE_STALL_TICKS && !watch.resumed) {
-      // 单次自救：contextlost 恢复后渲染器可能停摆但未上报，先推一把。
-      watch.resumed = true;
-      liveLog("stall-rescue", "wid=" + watch.wid + " 连续 " + watch.stall + "s 无帧 → 试 resume()");
-      try {
-        const wp = frame.contentWindow && frame.contentWindow.__wp;
-        if (wp) wp.resume();
-      } catch { /* ignore */ }
-      return;
-    }
-    if (watch.stall >= LIVE_STALL_TICKS * 2) liveFail("stall");
-  }, 1000);
-  liveWatch = watch;
-}
 // ── 媒体后端（宿主侧的系统音频频谱 / Now Playing → 渲染页）─────────────────────
 // 频谱：宿主侧采集（media-bridge 中间件按 50ms 推 64 段）→ 渲染页经
 // __wp.setAudioBridge(fn) 每帧「拉」（拉模式是上游设计：避免每帧跨层推 128 个浮点）。
@@ -2796,9 +1471,10 @@ const MEDIA_ART_MAX_TRIES = 4;
 
 /** 取封面并按 MEDIA_THUMB_MAX 降采样成 JPEG data URL（失败返回空串）。 */
 async function fetchArtworkDataUrl(url) {
-  const r = await fetch(url, { cache: "no-store" });
+  // 封面 URL 由宿主给（`/now-playing/artwork`），走统一出入口；体是二进制，只要原始 Response。
+  const r = await apiFetch(url);
   if (!r.ok) return "";
-  const blob = await r.blob();
+  const blob = await r.response.blob();
   if (!/^image\//.test(blob.type || "")) return "";
   const bitmap = await createImageBitmap(blob).catch(() => null);
   if (!bitmap) return "";
@@ -2910,9 +1586,9 @@ function startMediaSync(frame) {
     if (!frame.isConnected || !selection.sceneLiveActive) return;
     if (wantSpectrum && !mediaFetchBusy) {
       mediaFetchBusy = true;
-      fetch("/wallpaper-engine/audio-spectrum", { cache: "no-store" })
-        .then((r) => r.json())
-        .then((d) => {
+      apiJson("/audio-spectrum")
+        .then((res) => {
+          const d = res.data;
           if (!d || !d.ok) return;
           if (Array.isArray(d.bands) && d.bands.length) {
             const arr = new Float32Array(d.bands.length);
@@ -2926,9 +1602,9 @@ function startMediaSync(frame) {
         .finally(() => { mediaFetchBusy = false; });
     }
     if (wantNp && ++mediaNpTick % 20 === 0) {
-      fetch("/wallpaper-engine/now-playing", { cache: "no-store" })
-        .then((r) => r.json())
-        .then((d) => {
+      apiJson("/now-playing")
+        .then((res) => {
+          const d = res.data;
           if (!d || !d.ok) return;
           const m = d.media || null;
           // key 里带歌词版本：歌词是异步到齐的（本地 .lrc → 缓存 → 在线），
@@ -2956,101 +1632,13 @@ function startMediaSync(frame) {
   }, 50);
 }
 
-function stopLiveWatch() {
-  if (!liveWatch) return;
-  try { clearInterval(liveWatch.timer); } catch { /* ignore */ }
-  stopUiFpsProbe();
-  stopMediaSync(liveWatch.frame);
-  liveWatch = null;
-  // 只重置标志；音频互斥由调用方收敛 —— 重建（fps 切换）时若在这里拉起
-  // 外置 <audio>，新一帧 live 又要立刻把它停掉，中间会闪一下双声道。
-  selection.sceneLiveActive = false;
-}
-// 判定失败：按壁纸写入持久失败记忆 → syncLayers key 变化重建为旧播放链
-//（sceneVideo / 静态帧）→ 恢复外置音频互斥。本会话不再对该壁纸尝试 live，
-// 直到用户重开「场景实时渲染」开关（显式重试入口，清空全部记忆）。
-function liveFail(reason) {
-  const wid = liveWatch ? liveWatch.wid : String(selection.id || "");
-  // 失败前抓一份现场：这是「为什么黑/为什么降级」唯一的事后证据（host 侧
-  // /wallpaper-engine/diag-log 与渲染页自己的 reportDiag 对齐时间线）。
-  const watched = liveWatch;
-  liveLog("liveFail", "reason=" + reason + " wid=" + wid
-    + " 运行时长=" + (watched ? Date.now() - watched.startedAt : 0) + "ms"
-    + " stats=" + JSON.stringify(watched ? liveStats(watched.frame) : null)
-    + " 已确认首帧=" + Boolean(watched && watched.firstFrame)
-    + " 暂停期跳过tick=" + (watched ? watched.heldPaused : 0)
-    + " " + liveStateBrief()
-    + " prepare超时计数=" + (prepareLiveTimeouts.get(String(wid)) || 0)
-    + " 帧率档=" + selection.sceneLiveFps);
-  stopLiveWatch();
-  if (!wid) return;
-  const map = Object.assign({}, selection.sceneLiveFailures || {});
-  // 记原因而不是 true：设置面板会把它显示出来（用户能反馈「为什么黑」）
-  map[wid] = reason === "stall" ? "stall" : "timeout";
-  reportClientDiag("live-fail", "reason=" + reason);
-  selection.sceneLiveFailures = map;
-  try { persistSelection(); } catch { /* ignore */ }
-  try { syncLayers(); } catch { /* ignore */ }
-  try { syncSceneAudio(selection); } catch { /* ignore */ }
-  try { emit(); } catch { /* ignore */ }
-}
-
-// ── live GPU 抓帧回填静态帧缓存 ─────────────────────────────────────────────
-// 渲染页的显示 canvas 在 DOM 内（data-webwallgl-gl 标记）且 WebGL2 上下文带
-// preserveDrawingBuffer:true —— 父页面同源即可随时 toBlob 抓当前帧，无需渲染
-// 页/上游配合。首帧确认后 2.5s（实时画面进稳态）HEAD 探测静态帧槽位：
-// - 已有 GPU 帧（X-WE-GPU=1）→ 不动；
-// - 空槽（404）或 CPU 提取/预览帧（204+0）→ 抓帧 PUT 回填：GPU 帧升级覆盖
-//   CPU 提取的残破帧（host 每壁纸只接受一次，见 /scene-frame-cache）。
-// 失败路径会清 token，于是下一次 live 首帧（通常来自重新挂载）可以重试；
-// 成功/已被别人写入则保留 token，避免同一壁纸反复抓帧。
-const LIVE_FRAME_BACKFILL_DELAY_MS = 2500;
-const LIVE_FRAME_BACKFILL_MIN_BYTES = 4096;
-// 空帧门禁（内容判定）：体积不可靠 —— headless Chrome 实测全黑 PNG：
-// 960×540=12KB / 1080p=44KB / 4K=165KB，全都远超任何固定的字节阈值。改为把
-// canvas 降采样到 64×64 看亮度分布：近全黑或几乎无对比度 → 判为「还没渲染
-// 出画面」，放弃回填（宁可继续用 CPU 帧，也不要写一张坏帧被 409 永久固化）。
-const LIVE_FRAME_SAMPLE = 64;
-const LIVE_FRAME_LIT_RATIO = 0.02;   // 亮于阈值(12/255)的像素占比下限
-const LIVE_FRAME_MIN_VARIANCE = 4;   // 亮度方差下限（纯色帧≈0）
-const LIVE_FRAME_BYTES_PER_PX = 0.02; // 黑帧实测约 0.021 B/px，取作体积地板
-function liveFrameLooksUsable(canvas, blob) {
-  try {
-    const w = Number(canvas.width) || 0;
-    const h = Number(canvas.height) || 0;
-    // 分辨率相关的体积地板：比固定 4KB 有意义（真实画面远高于此）。
-    if (w > 0 && h > 0 && blob.size < Math.max(LIVE_FRAME_BACKFILL_MIN_BYTES, w * h * LIVE_FRAME_BYTES_PER_PX)) {
-      return false;
-    }
-    if (!w || !h) return true; // 尺寸未知：退回调用方的基础体积闸
-    const probe = document.createElement("canvas");
-    probe.width = LIVE_FRAME_SAMPLE;
-    probe.height = LIVE_FRAME_SAMPLE;
-    const ctx = probe.getContext && probe.getContext("2d");
-    if (!ctx || typeof ctx.drawImage !== "function" || typeof ctx.getImageData !== "function") return true;
-    ctx.drawImage(canvas, 0, 0, LIVE_FRAME_SAMPLE, LIVE_FRAME_SAMPLE);
-    const px = ctx.getImageData(0, 0, LIVE_FRAME_SAMPLE, LIVE_FRAME_SAMPLE).data;
-    let lit = 0, sum = 0, sumSq = 0, n = 0;
-    for (let i = 0; i + 3 < px.length; i += 4) {
-      const lum = (px[i] * 299 + px[i + 1] * 587 + px[i + 2] * 114) / 1000;
-      sum += lum; sumSq += lum * lum; n++;
-      if (lum > 12) lit++;
-    }
-    if (!n) return true;
-    const mean = sum / n;
-    const variance = sumSq / n - mean * mean;
-    return lit / n >= LIVE_FRAME_LIT_RATIO && variance >= LIVE_FRAME_MIN_VARIANCE;
-  } catch {
-    return true; // 采样失败不阻断（基础体积闸已过）
-  }
-}
 // ── 存帧几何校验（视口宽高比）────────────────────────────────────────────────
 // _gpu.png 是**抓帧那一刻渲染页视口的构图**，不是「这张壁纸该有的画面」：渲染器
 // 按画布比取景（WebWallGL fit：与设计比 2% 内 → 整张设计上屏；否则按画布比
 // cover 裁切），而静态帧上屏时还要再经 CSS object-fit: cover。两个比例一叠加，
 // 「在 3:2 窗口抓的帧」拿到 16:9 窗口上屏就是被再裁一次 —— 构图明显放大：
-// 实测 1440x960 的抓帧在 2488x1376 视口里只显示设计宽度的 84.5%（对 CPU 帧做
-// 最佳匹配拟合得到），人物比 live 大约 19% 且四周被切。抓帧回填以前只问
+// 实测 1440x960 的抓帧在 2488x1376 视口里只显示设计宽度的 84.5%（按设计比做
+// 最佳匹配拟合得到），人物比 live 大约 19% 且四周被切。抓帧回填原先只问
 // 「槽位有没有 GPU 帧」，不问「这张帧配不配当前视口」，于是别的窗口/别的会话
 // 留下的帧会永久上屏（宿主的唯一性闸让 PUT 只写一次，没人再动它）。
 // 判据：存帧视比与当前视口比的相对差 > 2%（与渲染页自己的 fit 容差同口径 ——
@@ -3080,20 +1668,22 @@ function liveViewportAspect(frame) {
 }
 // 清除槽位（同面板「清除 GPU 帧」的语义：宿主 200 + removed:false 也算没删掉，
 // 见其在 P2-L 的处理 —— 假成功会让画面纹丝不动而没有任何反馈）。
+/**
+ * 宿主回 200 也可能没删掉（unlink 失败时 `removed:false`，评审 P2-L）：只判 HTTP 状态
+ * 会把「假成功」当清除 —— 面板行消失、提示已清除，而画面没变、也没有任何错误提示。
+ * 旧宿主无该字段 ⇒ 按 HTTP 状态判（`removed !== false` 即为真）。
+ *
+ * 「清除」有两处调用点（内部逻辑只要布尔值、面板还要区分失败原因），语义必须一致 ⇒ 收在这里。
+ */
+function removedFromResponse(res) {
+  return !(res && res.data && res.data.removed === false);
+}
 function clearGpuFrameSlot(token) {
-  return fetch("/wallpaper-engine/scene-frame-cache/" + encodeURIComponent(token), { method: "DELETE" })
-    .then(async (r) => {
-      let declaredRemoved = true;
-      try {
-        const body = await r.json();
-        if (body && body.removed === false) declaredRemoved = false;
-      } catch { /* 无 body：按 HTTP 状态判 */ }
-      return Boolean(r && r.ok && declaredRemoved);
-    })
-    .catch(() => false);
+  return apiDelete("/scene-frame-cache/" + encodeURIComponent(token), { parse: true })
+    .then((res) => Boolean(res.ok && removedFromResponse(res)));
 }
 // 重抓落地后，当前层若正显示这张静帧（静态帧 img / live 垫底 poster），就地重挂
-// 一次：scene-frame 响应带 no-store，换个 query 即重新取图（同「画面刷新」的既有
+// 一次：scene-frame 响应带 no-store，换个 query 即重新取图（同「切换出图来源」的既有
 // 做法）。否则用户要等下一次切换才看到修正后的构图。
 function refreshStaticFrameNodes(token) {
   try {
@@ -3109,216 +1699,6 @@ function refreshStaticFrameNodes(token) {
     }
   } catch { /* ignore */ }
 }
-let liveFrameBackfill = { token: "", timer: 0 };
-function cancelLiveFrameBackfill() {
-  if (liveFrameBackfill.timer && typeof window !== "undefined" && typeof window.clearTimeout === "function") {
-    try { window.clearTimeout(liveFrameBackfill.timer); } catch { /* ignore */ }
-  }
-  liveFrameBackfill = { token: "", timer: 0 };
-}
-// 抓一张实时画面回填 <key>_gpu.png。
-// opts.force = 用户在面板上点了「重新截」：即使缓存里已有 GPU 帧也重抓一张，
-// 且失败原因要**告诉用户**（后台自动回填是静默的）。仍然遵守原有的安全顺序：
-// 先抓帧 + 过内容门禁，**成功之后**才清旧帧 —— 抓不到就原样保留，绝不留空槽。
-function scheduleLiveFrameBackfill(frame, opts) {
-  const force = Boolean(opts && opts.force);
-  const src = selection.sceneFrameUrl || "";
-  if (!src || src.indexOf("/scene-frame/") === -1 || !frame) {
-    if (force) { gpuFrameUi.recapturing = false; gpuFrameUi.error = "拿不到实时画面（这个壁纸没有实时渲染）"; try { emit(); } catch { /* ignore */ } }
-    return;
-  }
-  if (typeof window === "undefined" || typeof window.setTimeout !== "function") return;
-  const token = String(src.split("/scene-frame/").pop() || "").split("?")[0];
-  // force 要能打断「同一 token 已排队/在途」的去重（否则用户点了没反应）。
-  if (!token || (!force && liveFrameBackfill.token === token)) return;
-  cancelLiveFrameBackfill();
-  liveFrameBackfill.token = token;
-  const backfillWid = String(selection.id || "");
-  // 本次是否因「存帧几何不符」而重抓（落地后据此刷新屏上静帧 + 留诊断痕迹）。
-  let recaptured = false;
-  let recaptureSize = "";
-  // 手动重抓的失败原因要落到面板上（后台自动回填失败是静默的，只在 liveLog 留痕）。
-  const forceFail = (msg) => {
-    if (!force) return;
-    liveLog("gpu-frame-recapture-fail", "wid=" + backfillWid + " " + msg);
-    gpuFrameUi.recapturing = false;
-    gpuFrameUi.error = msg;
-    try { emit(); } catch { /* ignore */ }
-  };
-  liveFrameBackfill.timer = window.setTimeout(() => {
-    liveFrameBackfill.timer = 0;
-    (async () => {
-      const head = await fetch(src, { method: "HEAD", cache: "no-store" });
-      const hasGpu = Boolean(head && head.ok && head.headers
-        && typeof head.headers.get === "function" && head.headers.get("x-we-gpu") === "1");
-      const win = frame.contentWindow;
-      const doc = win && win.document;
-      const canvas = doc && typeof doc.querySelector === "function"
-        ? doc.querySelector("canvas[data-webwallgl-gl]") : null;
-      // 「当前几何」的基准取**抓帧用的那个 canvas**（存帧的 IHDR 就是它的尺寸）：
-      // 渲染器若把画布尺寸夹到某个比例（画布比 ≠ iframe 盒比），拿盒比去对照会
-      // 永远判「不符」→ 每次挂载都清写一遍。canvas 读不到时退回 iframe 盒比。
-      const canvasW = canvas ? Number(canvas.width) || 0 : 0;
-      const canvasH = canvas ? Number(canvas.height) || 0 : 0;
-      const arRef = canvasW > 0 && canvasH > 0 ? canvasW / canvasH : liveViewportAspect(frame);
-      // 存帧几何：宿主从 PNG 的 IHDR 读（X-WE-GPU-AR）；旧宿主没有这个头时退回
-      // 本会话抓帧时记下的比例，两者都没有 = 未知。
-      let arStored = 0;
-      if (hasGpu) {
-        const raw = Number(head.headers.get("x-we-gpu-ar"));
-        arStored = Number.isFinite(raw) && raw > 0 ? raw : (gpuFrameAspectKnown.get(token) || 0);
-      }
-      // 未知（旧宿主 + 本会话没抓过）→ 按「可能不符」处理：重抓一次必然正确，
-      // 留一张别处视口的帧则会让用户一直看到放大且被裁的构图。判不了当前几何
-      // （arRef=0，如无头/极简环境）时反过来保守保留，避免无休止清写。
-      // 用户手点「重新截」（force）时一律按需要重抓处理 —— 他就是要换一张。
-      const stale = force || (hasGpu && arRef > 0
-        && (arStored <= 0 || Math.abs(arStored - arRef) > GPU_FRAME_ASPECT_TOL * arRef));
-      // 已有 GPU 帧且几何相符（含并发窗口里被别人写入）：无需抓帧，保留 token 免重复。
-      if (hasGpu && !stale) {
-        // 未知几何的保留要留痕：这是「没有头也没重抓」的唯一解释。
-        if (arStored <= 0) liveLog("gpu-frame-keep-unknown", "wid=" + backfillWid + " 存帧视比未知 → 保留", true);
-        return true;
-      }
-      if (stale) {
-        liveLog("gpu-frame-stale", "wid=" + backfillWid + " 存帧视比 "
-          + (arStored > 0 ? arStored.toFixed(4) : "未知") + " ≠ 当前视口 " + arRef.toFixed(4)
-          + " → 清掉按当前视口重抓");
-      }
-      if (!canvas || typeof canvas.toBlob !== "function") {
-        if (force) forceFail("拿不到实时画面（实时渲染没在运行，或渲染页还没画布）");
-        return false;
-      }
-      const blob = await new Promise((resolveBlob) => {
-        try { canvas.toBlob(resolveBlob, "image/png"); } catch { resolveBlob(null); }
-      });
-      if (!blob || blob.size < LIVE_FRAME_BACKFILL_MIN_BYTES) {
-        if (force) forceFail("抓到的画面是空的（实时渲染还在启动中？稍等一两秒再试）");
-        return false;
-      }
-      // 内容门禁：黑帧/纯色帧判为未渲染 → 放弃（保留 CPU 帧）。
-      if (!liveFrameLooksUsable(canvas, blob)) {
-        if (force) forceFail("抓到的画面还没有内容（全黑/纯色）→ 已保留原来那张");
-        return false;
-      }
-      // 清旧帧放在抓帧+门禁**之后**：先清后抓一旦抓帧失败（画面没出来/网络断）就
-      // 只剩空槽 → 退回 CPU 帧，比留一张旧构图的帧更糟（旧的至少是同一张壁纸）。
-      if (stale) {
-        const cleared = await clearGpuFrameSlot(token);
-        if (!cleared) {
-          // 没删掉（权限/占用/宿主报错）→ PUT 也会 409，本帧没换成；清 token 让下
-          // 次挂载重试，并留痕（否则用户只看到构图依旧是旧的，没有任何线索）。
-          liveLog("gpu-frame-stale-blocked", "wid=" + backfillWid + " 旧帧未删除 → 本轮放弃，下次挂载重试");
-          if (force) forceFail("旧实时帧删不掉（被占用或宿主报错）→ 没有改动它，可稍后重试");
-          return false;
-        }
-        recaptured = true;
-        recaptureSize = canvasW + "x" + canvasH;
-      }
-      const put = await fetch("/wallpaper-engine/scene-frame-cache/" + encodeURIComponent(token), {
-        method: "PUT",
-        headers: { "Content-Type": "image/png" },
-        body: blob,
-      });
-      // 200 写入成功 / 409 已被写入：两种都算「已定局」，不必重试。
-      const ok = Boolean(put && (put.ok || put.status === 409));
-      if (!ok && force) forceFail("写入失败（宿主返回 " + (put && put.status) + "）");
-      if (ok && arRef > 0) gpuFrameAspectKnown.set(token, arRef);
-      return ok;
-    })().then((settled) => {
-      // 抓帧 + 上传是异步的（多 MB PNG 要 0.1–1s），期间用户可能已经切走：
-      // 状态更新只对发起时那张壁纸有效 —— 否则会给**当前**壁纸打上「已有 GPU 帧」
-      // 的假标记（面板提示错、CPU 渲染门禁在 30s 内误判为 pinned）。host 侧写入
-      // 仍落在 token 自己的槽位，下次回到这张壁纸时面板探测自然会读到。
-      if (settled && force) {
-        gpuFrameUi.recapturing = false;
-        gpuFrameUi.error = "";
-        try { emit(); } catch { /* ignore */ }
-      }
-      if (String(selection.id || "") !== backfillWid) return;
-      if (settled) {
-        // 缓存里已有（或刚写入）GPU 帧 → 面板提示「优先于全部档位」。
-        markGpuFrameProbed(backfillWid, true);
-        markGpuFramePin(token, true); // 该 token 槽位刚写入 GPU 帧：探测缓存同步生效，无需再探
-        if (recaptured) {
-          liveLog("gpu-frame-recaptured", "wid=" + backfillWid + " 已按当前视口重抓（" + recaptureSize + "）");
-          // 屏上若正显示这张静帧（静态帧壁纸 / live 垫底 poster）→ 就地重挂取回新图。
-          refreshStaticFrameNodes(token);
-        }
-        try { emit(); } catch { /* ignore */ }
-        return;
-      }
-      // 未定局（拿不到画面、门禁判定未渲染、网络失败）→ 清 token 允许下次重试。
-      if (liveFrameBackfill.token === token) liveFrameBackfill.token = "";
-      if (force) forceFail("这次没抓成（拿不到画面或写入失败）→ 原来那张没动");
-    }).catch(() => {
-      if (liveFrameBackfill.token === token) liveFrameBackfill.token = "";
-      forceFail("抓帧过程出错 → 原来那张没动");
-    });
-  }, LIVE_FRAME_BACKFILL_DELAY_MS);
-}
-
-// ── live 指针注入（视差/click 交互场景）────────────────────────────────────
-// 壁纸层 pointer-events:none，鼠标事件由 DSH UI 消费；window 级 capture 监听
-// 仍能收到全部 mousemove/mousedown/mouseup（capture 阶段先于任何元素），归一
-// 化后经 __wp.pushPointer 注入渲染页 —— 视差 / cursor 脚本 / 粒子锁点等
-// 指针消费方全部激活。协议同 webwallgl docs/INTEGRATION.md §4：u,v ∈ [0,1]、
-// Y 朝下勿翻（shader 内自翻）、buttons bit0=左键、按下态保持 ≥16ms（渲染器
-// 按帧检测边缘，同帧内 down+up 会丢 click）。事件只在 DSH 窗口内可得 —— 与
-// WallpaperEM 的系统级轮询不同，窗口外不推（pointerLeave 语义由 blur 承担）。
-let livePointerFrame = null;
-let livePointerPending = null; // { u, v, buttons }
-let livePointerRaf = 0;
-let livePointerDownAt = 0;
-function livePointerFlush() {
-  livePointerRaf = 0;
-  const p = livePointerPending;
-  const frame = livePointerFrame;
-  if (!p || !frame || !frame.isConnected || !selection.sceneLiveActive) return;
-  try {
-    const wp = frame.contentWindow && frame.contentWindow.__wp;
-    if (wp && typeof wp.pushPointer === "function") wp.pushPointer(p.u, p.v, p.buttons);
-  } catch { /* ignore */ }
-}
-function livePointerSample(e, buttons) {
-  if (!livePointerFrame || !selection.sceneLiveActive) return;
-  const iw = window.innerWidth || 1;
-  const ih = window.innerHeight || 1;
-  livePointerPending = {
-    u: Math.max(0, Math.min(1, e.clientX / iw)),
-    v: Math.max(0, Math.min(1, e.clientY / ih)), // Y 朝下，归一化即协议值
-    buttons: buttons,
-  };
-  if (!livePointerRaf) livePointerRaf = requestAnimationFrame(livePointerFlush);
-}
-function ensureLivePointer(frame) {
-  livePointerFrame = frame;
-  if (ensureLivePointer.attached) return;
-  ensureLivePointer.attached = true;
-  const opts = { capture: true, passive: true };
-  window.addEventListener("mousemove", (e) => {
-    // e.buttons 实时位掩码；只取 bit0（渲染器也只消费左键语义）。
-    livePointerSample(e, e.buttons & 1);
-  }, opts);
-  window.addEventListener("mousedown", (e) => {
-    livePointerDownAt = Date.now();
-    livePointerSample(e, 1);
-  }, opts);
-  window.addEventListener("mouseup", (e) => {
-    // 快速点击边缘保持：down→up < 16ms 时延后一拍再抬，保住一次完整
-    // down→up 边缘（否则按帧采样会整段漏掉这次点击）。
-    if (Date.now() - livePointerDownAt < 16) setTimeout(() => livePointerSample(e, 0), 20);
-    else livePointerSample(e, 0);
-  }, opts);
-  window.addEventListener("blur", () => {
-    const f = livePointerFrame;
-    if (!f || !f.isConnected || !selection.sceneLiveActive) return;
-    try {
-      const wp = f.contentWindow && f.contentWindow.__wp;
-      if (wp && typeof wp.pointerLeave === "function") wp.pointerLeave();
-    } catch { /* ignore */ }
-  }, opts);
-}
 
 // ── 加载期占位图（div + background 双层）─────────────────────────────────────
 // 先铺主题色（WE 的 schemecolor），有图再叠：网页 = 自动首帧（host 缓存的
@@ -3329,18 +1709,15 @@ function ensureLivePointer(frame) {
 // 失败静默，绝不打断渲染。
 function reportClientDiag(event, detail) {
   try {
-    fetch("/wallpaper-engine/client-diag", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        event,
-        type: selection.type || "",
-        id: selection.id || "",
-        detail: String(detail == null ? "" : detail).slice(0, 300),
-        src: String(selection.url || selection.sceneLiveSrc || selection.webLiveSrc || "").slice(0, 200),
-      }),
-      keepalive: true,
-    }).catch(() => { /* 忽略 */ });
+    // `keepalive` 必须留下：页面卸载走 pagehide 时靠它把最后一条上报送出去
+    //（api-client 的契约里显式透传该字段）。
+    apiPostJson("/client-diag", {
+      event,
+      type: selection.type || "",
+      id: selection.id || "",
+      detail: String(detail == null ? "" : detail).slice(0, 300),
+      src: String(selection.url || selection.sceneLiveSrc || selection.webLiveSrc || "").slice(0, 200),
+    }, { keepalive: true }).catch(() => { /* 忽略 */ });
   } catch { /* 忽略 */ }
 }
 
@@ -3350,179 +1727,14 @@ function reportClientDiag(event, detail) {
 // 正在跑的壁纸，并写进设置（`userProps`，按 token 存）—— 刷新/重启后网页壁纸由
 // host 并进 HTML 种子、场景壁纸由 applyStoredUserProps 在就绪后回放。
 //
-// 条件求值器（condition）是上游 bench/we-condition.ts 的移植：真实壁纸里 86% 的
-// 属性带 condition，不求值就会把一堆无关项摊在面板上。受限语法、不用 eval、
-// **失败即显示**（fail open）——真实数据里有用 JS 三元/赋值写 condition 的壁纸，
-// 误判隐藏远比分多显示一项糟糕。编译结果按表达式缓存（拖动滑块时每帧重算数百个）。
-const WE_COND_OPS = ["===", "!==", "&&", "||", "==", "!=", ">=", "<=", ">", "<", "!", "(", ")", ".", "-"];
-const weCondCache = new Map();
-
-function weCondTokenize(src) {
-  const out = [];
-  let i = 0;
-  while (i < src.length) {
-    const c = src[i];
-    if (c === " " || c === "\t" || c === "\n" || c === "\r") { i++; continue; }
-    if (c === "'" || c === '"') {
-      const end = src.indexOf(c, i + 1);
-      if (end < 0) throw new Error("unterminated string");
-      out.push({ k: "str", v: src.slice(i + 1, end) });
-      i = end + 1;
-      continue;
-    }
-    if (c >= "0" && c <= "9") {
-      let j = i;
-      while (j < src.length && /[0-9.]/.test(src[j])) j++;
-      out.push({ k: "num", v: src.slice(i, j) });
-      i = j;
-      continue;
-    }
-    if (/[A-Za-z_$]/.test(c)) {
-      let j = i;
-      while (j < src.length && /[A-Za-z0-9_$]/.test(src[j])) j++;
-      out.push({ k: "id", v: src.slice(i, j) });
-      i = j;
-      continue;
-    }
-    const op = WE_COND_OPS.find((o) => src.startsWith(o, i));
-    if (!op) throw new Error("bad char " + c);
-    out.push({ k: "op", v: op });
-    i += op.length;
-  }
-  return out;
-}
-
-/** 宽松相等：值经 project.json → 宿主 wire → JSON → JS 传递，"1" 与 1 混用是常态 */
-function weCondLooseEq(a, b) {
-  if (a === b) return true;
-  if (a === undefined || a === null || b === undefined || b === null) {
-    return (a === undefined || a === null) && (b === undefined || b === null);
-  }
-  if (typeof a === typeof b) return false;
-  const na = Number(a);
-  const nb = Number(b);
-  return !Number.isNaN(na) && !Number.isNaN(nb) && na === nb;
-}
-
-function weCondNumCmp(a, b, op) {
-  const x = Number(a);
-  const y = Number(b);
-  if (Number.isNaN(x) || Number.isNaN(y)) return false;
-  if (op === ">") return x > y;
-  if (op === "<") return x < y;
-  if (op === ">=") return x >= y;
-  return x <= y;
-}
-
-/** 受限表达式语法 → 闭包（无副作用；不支持的语法抛错 → 调用方 fail open） */
-function weCondParse(tokens) {
-  let pos = 0;
-  const peek = () => tokens[pos];
-  const eat = (v) => {
-    const t = peek();
-    if (!t || t.k !== "op" || t.v !== v) throw new Error("expect " + v);
-    pos++;
-  };
-  function or() {
-    let left = and();
-    while (peek() && peek().k === "op" && peek().v === "||") {
-      pos++;
-      const right = and();
-      const l = left;
-      left = (v) => Boolean(l(v)) || Boolean(right(v));
-    }
-    return left;
-  }
-  function and() {
-    let left = cmp();
-    while (peek() && peek().k === "op" && peek().v === "&&") {
-      pos++;
-      const right = cmp();
-      const l = left;
-      left = (v) => Boolean(l(v)) && Boolean(right(v));
-    }
-    return left;
-  }
-  function cmp() {
-    const left = unary();
-    const t = peek();
-    if (t && t.k === "op" && ["==", "!=", "===", "!==", ">", "<", ">=", "<="].includes(t.v)) {
-      pos++;
-      const right = unary();
-      const op = t.v;
-      if (op === "==" || op === "===") return (v) => weCondLooseEq(left(v), right(v));
-      if (op === "!=" || op === "!==") return (v) => !weCondLooseEq(left(v), right(v));
-      return (v) => weCondNumCmp(left(v), right(v), op);
-    }
-    return left;
-  }
-  function unary() {
-    const t = peek();
-    if (t && t.k === "op" && t.v === "!") { pos++; const inner = unary(); return (v) => !inner(v); }
-    if (t && t.k === "op" && t.v === "-") { pos++; const inner = unary(); return (v) => -Number(inner(v)); }
-    return primary();
-  }
-  function primary() {
-    const t = peek();
-    if (!t) throw new Error("unexpected end");
-    if (t.k === "op" && t.v === "(") { pos++; const inner = or(); eat(")"); return inner; }
-    if (t.k === "num") { pos++; const n = Number(t.v); if (Number.isNaN(n)) throw new Error("bad num"); return () => n; }
-    if (t.k === "str") { pos++; const s = t.v; return () => s; }
-    if (t.k === "id") {
-      pos++;
-      if (t.v === "true") return () => true;
-      if (t.v === "false") return () => false;
-      const name = t.v;
-      // 只认 `ident` 与 `ident.value`；`.text`（赋值语句里的成员）落到 fail open
-      if (peek() && peek().k === "op" && peek().v === ".") {
-        pos++;
-        const m = peek();
-        if (!m || m.k !== "id" || m.v !== "value") throw new Error("only .value");
-        pos++;
-      }
-      return (v) => v[name];
-    }
-    throw new Error("unexpected token");
-  }
-  const root = or();
-  if (pos !== tokens.length) throw new Error("trailing tokens");
-  return root;
-}
-
-/** 属性显隐条件：无条件 / 空条件 / 语法不支持 → 一律可见 */
-function weEvalCondition(expr, values) {
-  if (!expr || !String(expr).trim()) return true;
-  let fn = weCondCache.get(expr);
-  if (fn === undefined) {
-    try {
-      const node = weCondParse(weCondTokenize(String(expr)));
-      fn = (v) => Boolean(node(v));
-    } catch {
-      fn = null; // 不支持的语法 → 恒显示
-    }
-    weCondCache.set(expr, fn);
-  }
-  if (!fn) return true;
-  try {
-    return fn(values);
-  } catch {
-    return true;
-  }
-}
+// 条件求值器已抽到 src/we-cond.js（纯计算、零外界依赖；构建期由 build-client.mjs
+// 内联回本作用域，因此下面的 weEvalCondition(...) 调用点无需改动，见该文件头的契约）。
 
 // 面板状态：token 变了就重新拉一次（换壁纸/换目录）。
 let propsPanelOpen = false;
 let propsState = { token: "", loading: false, error: "", props: [], remote: false };
 
 /** 当前 live 渲染 iframe（属性热更新与心跳读的是同一个）。 */
-function liveFrameEl() {
-  try {
-    const layer = document.getElementById(LAYER_ID);
-    return layer ? layer.querySelector("iframe.we-live-iframe") : null;
-  } catch {
-    return null;
-  }
-}
 
 /** token（propsUrl 末段；同时是设置里 userProps 的键）。 */
 function propTokenOf(selLike) {
@@ -3546,8 +1758,7 @@ function saveUserProp(token, name, value, isDefault) {
   else cur[name] = value;
   if (Object.keys(cur).length) all[token] = cur;
   else delete all[token];
-  selection.userProps = all;
-  persistSelection();
+  setSetting("userProps", all);
 }
 
 /** 热更新到正在跑的壁纸（渲染页 __wp.updateWebProps → 场景对象脚本 / 网页 shim）。 */
@@ -3569,9 +1780,9 @@ function loadUserPropDefs(token, force) {
   if (!force && (propsState.token === token && (propsState.props.length || propsState.loading))) return;
   const url = PROPS_URL + "/" + encodeURIComponent(token);
   propsState = { token, loading: true, error: "", props: propsState.token === token ? propsState.props : [], remote: true };
-  fetch(url, { cache: "no-store" })
-    .then((r) => r.json())
-    .then((d) => {
+  apiJson(url)
+    .then((res) => {
+      const d = res.data;
       if (!d || !d.ok) throw new Error((d && d.error) || "读取失败");
       if (propsState.token !== token) return; // 期间换了壁纸：丢弃
       // 值以渲染页的实时表为准（场景壁纸的默认值在 scene.json 快照里，可能和
@@ -3624,8 +1835,7 @@ function resetUserProps() {
   applyUserProps(wire);
   const all = { ...(selection.userProps || {}) };
   delete all[token];
-  selection.userProps = all;
-  persistSelection();
+  setSetting("userProps", all);
   emit();
 }
 
@@ -3661,237 +1871,6 @@ function weHexToColor(hex) {
   return [r, g, b].map((n) => Math.round(n * 1000) / 1000).join(" ");
 }
 
-function buildLivePoster(sel) {
-  const poster = document.createElement("div");
-  poster.className = "we-media we-live-poster";
-  // 底色兜底：壁纸没写 schemecolor 时用主题面板色打底 —— 无抽帧图、无主题色时
-  // 加载期也必须是「一层安静的颜色」，不能是纯黑或透明。
-  poster.style.backgroundColor = sel.schemeColor || "var(--dsw-alias-bg-layer-1, #101418)";
-  // 网页壁纸优先用 live 抽帧（真实渲染画面，见 maybeCaptureLiveFrame），还没抽到
-  // 时退回项目预览图；场景壁纸用静态帧 URL（含 ?v= 档位）。都没有 → 只留主题色。
-  const src = sel.type === "web" ? (sel.liveFrame || sel.previewUrl || null) : sel.url;
-  if (src) {
-    poster.dataset.weFrameSrc = src;
-    // 与 prepareSceneStaticStage 同一约定：无 Image 的环境（headless 验收 /
-    // 只给部分 DOM 的测试宿主）跳过预载，保留主题色兜底 —— 否则建 live 层时
-    // 会直接抛 ReferenceError。
-    if (typeof Image !== "function") return poster;
-    const probe = new Image();
-    probe.onload = () => {
-      if (poster.isConnected) poster.style.backgroundImage = "url(" + src + ")";
-    };
-    probe.src = src; // 失败静默：保留主题色
-  }
-  return poster;
-}
-
-// 页面加载后是否仍处于「重启恢复」阶段：true 期间首次挂载 live 会延迟（见
-// buildMedia 的 liveBootDelay）；用户一旦有交互（点击/按键）立即置 false ——
-// 手动切换壁纸必须即时反馈，不延迟。
-let bootRestore = true;
-if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
-  for (const ev of ["pointerdown", "keydown"]) {
-    window.addEventListener(ev, () => { bootRestore = false; }, { capture: true, passive: true, once: true });
-  }
-}
-let liveMountTimer = 0;
-// 延迟挂载：计时到点 + 首屏空闲后再把渲染 iframe 插进图层（期间显示占位图）。
-// 到点时校验壁纸没被换掉、live 仍启用、层还在 —— 任一不满足就放弃（syncLayers
-// 会负责当前状态的正确渲染）。
-function scheduleLiveMount(sel, frame, delayMs) {
-  if (liveMountTimer) { try { clearTimeout(liveMountTimer); } catch { /* ignore */ } liveMountTimer = 0; }
-  liveMountTimer = setTimeout(() => {
-    liveMountTimer = 0;
-    const mount = () => {
-      if (selection.id !== sel.id || !liveRenderEnabled(selection)) return;
-      const layer = document.getElementById(LAYER_ID);
-      if (!layer || frame.isConnected) return;
-      layer.appendChild(frame);
-    };
-    if (typeof window.requestIdleCallback === "function") {
-      window.requestIdleCallback(mount, { timeout: 2000 });
-    } else {
-      setTimeout(mount, 300);
-    }
-  }, delayMs);
-}
-
-function createLiveFrame(sel) {
-  const frame = document.createElement("iframe");
-  frame.src = liveRenderUrl(sel);
-  frame.setAttribute("frameborder", "0");
-  frame.setAttribute("scrolling", "no");
-  // iframe 内音频（HTMLAudioElement / 网页壁纸的媒体）的自动播放授权。
-  frame.setAttribute("allow", "autoplay");
-  frame.className = "we-media we-iframe we-live-iframe";
-  frame.addEventListener("load", () => {
-    // onload 只说明文档加载完成（模块还在执行 / pkg 未拉取），真正「活」
-    // 由心跳判定；文档若已被重建移除则直接放弃。
-    if (frame.isConnected) startLiveWatch(frame, sel.id);
-  });
-  return frame;
-}
-
-// 网页壁纸：live 就绪 3 秒后抽一帧（等动画进入稳定画面）存到 host，
-// 之后每次加载/重启先用它占位。抽帧失败静默（占位逻辑不受影响）。
-let liveFrameCapturedFor = "";
-function maybeCaptureLiveFrame(frame, sel) {
-  if (sel.type !== "web" || !sel.liveFrame) return;
-  if (liveFrameCapturedFor === String(sel.id)) return;
-  liveFrameCapturedFor = String(sel.id);
-  setTimeout(() => {
-    if (!frame.isConnected || selection.id !== sel.id) return;
-    let dataUrl = null;
-    try {
-      const wp = frame.contentWindow && frame.contentWindow.__wp;
-      dataUrl = wp && typeof wp.capture === "function" ? wp.capture(1920) : null;
-    } catch { return; }
-    if (!dataUrl || dataUrl.indexOf("data:image/") !== 0) return;
-    fetch(dataUrl).then((r) => r.blob()).then((blob) => fetch(sel.liveFrame, {
-      method: "POST",
-      headers: { "Content-Type": "image/jpeg" },
-      body: blob,
-    })).then(() => {
-      // 就地换上刚抽的帧（当前会话立刻可见；下次加载由 host 缓存直接提供）
-      const layer = document.getElementById(LAYER_ID);
-      const poster = layer && layer.querySelector(".we-live-poster");
-      if (poster && poster.style && !poster.dataset.weFrameApplied) {
-        poster.dataset.weFrameApplied = "1";
-        poster.style.backgroundImage = "url(" + sel.liveFrame + "?t=" + Date.now() + ")";
-      }
-      reportClientDiag("live-capture", "uploaded");
-    }).catch((e) => { reportClientDiag("live-capture-fail", String(e && e.message || e)); });
-  }, 3000);
-}
-
-function buildMedia(sel) {
-  // 壁纸播放形态优先级:
-  //   1. live — WebWallGL 实时 iframe（scene.pkg 走场景管线；web 壁纸走它的
-  //      web 挂载 + 宿主注入的 WE shim，严格沙箱隔离）。心跳判定失败后自动
-  //      降级，见 startLiveWatch/liveFail。
-  //   2. sceneVideo — 场景内嵌 MP4 (作者主分支, 硬件解码 <video>, poster=静态帧)
-  //   3. 静态帧 img (frameUrl) / 网页壁纸的裸 iframe 兼容路径
-  const isLive = (sel.type === "scene" || sel.type === "web") && liveRenderEnabled(sel);
-  const isSceneVideo = sel.type === "scene" && Boolean(sel.sceneVideo) && !isLive;
-  const isStill = sel.type === "image" || (sel.type === "scene" && !isLive && !isSceneVideo);
-  if (isLive) {
-    reportClientDiag("live-build", "type=" + sel.type + " delay=" + sel.liveBootDelay + " boot=" + bootRestore);
-    // 轮换提交不走这里：live 的领养是节点级（staging 容器整体转为新层，
-    // 见 syncLayers 的 pendingStagedLayerNode 分支），iframe 绝不移动。
-    liveLog("build-live", "wid=" + sel.id + " 冷启动渲染页（重新加载） " + liveStateBrief());
-    const poster = buildLivePoster(sel);
-    const frame = createLiveFrame(sel);
-    // 启动延迟：仅「重启恢复上次壁纸」阶段（bootRestore）生效 —— 期间只显示占位图，
-    // 避免大场景包的解码/纹理上传与 DSH 首屏抢主线程（用户实测「重启变慢」）。
-    // 用户一开始交互 bootRestore 即为 false（见其声明处），手动切换壁纸 → 立即挂载。
-    const delaySecs = clampNum(sel.liveBootDelay, 0, 30, 3);
-    const delayMs = bootRestore && delaySecs > 0 ? delaySecs * 1000 : 0;
-    if (delayMs <= 0) return [poster, frame];
-    reportClientDiag("live-delayed", "ms=" + delayMs);
-    scheduleLiveMount(sel, frame, delayMs);
-    return poster;
-  }
-  // The user-chosen fit mode (覆盖/填充/居中/拉伸) applies to every wallpaper
-  // type — WE media included (the 适配 control used to be uploads-only).
-  // iframes (web wallpapers) don't read object-fit, so they skip the class.
-  const fitClass = " we-media--fit";
-  let media;
-  if (sel.type === "video") {
-    // 轮换领养：就绪元素（已 canplay/预播中）直接进层，绝不重赋 src（重赋
-    // 即使同值也会触发 resource selection 重新加载 = 黑屏闪烁源）。
-    const prepared = consumePreparedMedia("VIDEO", sel.url);
-    media = prepared || document.createElement("video");
-    if (!prepared) {
-      media.src = sel.url;
-      // poster=预览图：覆盖初始加载与抽帧转码 swap 的空窗（原黑屏闪烁点）。
-      // 视频类壁纸不设 —— WE 视频壁纸的预览常是动图（preview.gif），当 poster
-      // 会先播一段预览、再停在视频首帧、最后才进正片，用户看到的是「跑完整
-      // 加载流程」；0.7.5 是选中即播（加载期黑帧，由交叉渐变盖住）。场景内嵌
-      // MP4 的 poster 是静态帧，是「先静帧后动态」的既有设计，保留。
-      if (sel.previewUrl && sel.type !== "video") media.poster = sel.previewUrl;
-    }
-    media.autoplay = true;
-    media.loop = true;
-    // 音轨按用户设置应用（见 weApplyAudio）：默认 0 音量 → 行为与原来的
-    // muted 一致；调高音量后才有声音。
-    media.setAttribute("playsinline", "");
-    // Native playbackRate — hardware-decoded, instant, no reload.
-    try { media.playbackRate = sel.playbackRate; } catch { /* ignore */ }
-    if (IS_EDGE && sel.edgeCompat !== false) {
-      // Edge: keep the decoder element out of sight (its floating 下载/投屏
-      // toolbar attaches to any VISIBLE <video>), render via <canvas> instead
-      // (see weStartDraw / weDrawFrame). Attributes are belt-and-suspenders.
-      media.setAttribute("disablepictureinpicture", "");
-      media.setAttribute("disableremoteplayback", "");
-      media.style.cssText = "position:absolute;left:-100000px;top:0;width:320px;height:180px;opacity:0.01;pointer-events:none;";
-      const canvas = document.createElement("canvas");
-      canvas.className = "we-media we-media--canvas" + fitClass;
-      canvas.style.background = "#000";
-      return [media, canvas];
-    }
-    media.className = "we-media" + fitClass;
-  } else if (isSceneVideo) {
-    // Scene animation as <video>: autoplay/loop/muted, poster = the extracted
-    // static frame (shown while the video loads). Hardware-decoded → smooth,
-    // no WebGL context → no freeze.
-    const prepared = consumePreparedMedia("VIDEO", sel.sceneVideo);
-    media = prepared || document.createElement("video");
-    if (!prepared) {
-      media.src = sel.sceneVideo;
-      media.poster = sel.url;   // frameUrl as poster
-    }
-    media.autoplay = true;
-    media.loop = true;
-    media.setAttribute("playsinline", "");
-    media.className = "we-media" + fitClass;
-    // No embedded video (404) or codec failure → degrade to the static frame.
-    media.addEventListener("error", () => {
-      if (selection.sceneVideo) {
-        selection.sceneVideo = null;
-        try { syncLayers(); syncSceneAudio(selection); emit(); } catch { /* ignore */ }
-      }
-    });
-  } else if (isStill) {
-    const prepared = consumePreparedMedia("IMG", sel.url);
-    media = prepared || document.createElement("img");
-    if (!prepared) media.src = sel.url;
-    media.alt = "";
-    media.draggable = false;
-    media.className = "we-media" + fitClass;
-    // Scene frames are generated on demand; a failed extraction (e.g. an
-    // unsupported texture format) falls back to the project preview image.
-    if (sel.type === "scene" && sel.previewUrl) {
-      media.onerror = () => {
-        if (media.src !== sel.previewUrl) media.src = sel.previewUrl;
-      };
-    }
-  } else {
-    // web 旧链不走元素级领养（iframe reparent 重载）：轮换的 web 提交是
-    // 节点级领养（staging 容器整体转为新层），此处只会是手动选择路径。
-    media = document.createElement("iframe");
-    media.src = sel.url;
-    media.setAttribute("frameborder", "0");
-    media.setAttribute("scrolling", "no");
-    // 安全隔离：WE web 壁纸是 workshop 第三方 HTML/JS，而 media 路由与宿主
-    // 同源 —— 不 sandbox 的话壁纸脚本可以 DSH 宿主 origin 身份调用宿主全部
-    // API。allow-scripts 保留动态壁纸能力，但拿到 opaque origin（无
-    // allow-same-origin），无法再冒用宿主身份。
-    media.setAttribute("sandbox", "allow-scripts");
-    media.className = "we-media we-iframe";
-  }
-  return media;
-}
-
-// ── Occlusion pause (遮挡暂停, WE-style) ────────────────────────────────────
-// Desktop Wallpaper Engine pauses rendering whenever the wallpaper is covered
-// — the main reason its GPU load is ~0 most of the time. Browsers cannot
-// detect window occlusion directly, so we use the two closest proxies:
-// document.hidden (minimized / tab switched away) and window focus loss
-// (another app took the foreground; the wallpaper is likely covered). Pausing
-// the <video> stops decode entirely (rVFC stops → decode engine → 0); on
-// restore, the effective playing state resumes automatically unless the user
-// manually paused. Web/iframe wallpapers cannot be paused from outside — they
-// are only throttled by the browser while the page is hidden.
 let weBattery = null; // BatteryManager from navigator.getBattery (if available)
 // 遮挡原因（可读文案；空串 = 没被遮挡）。occlusionActive 由它派生，保证「是谁把
 // 渲染页停掉的」只有一个判定源 —— 诊断日志直接引用这句话。
@@ -3905,6 +1884,12 @@ function occlusionReason() {
 function occlusionActive() {
   return occlusionReason() !== "";
 }
+/**
+ * 遮挡判定的**复核周期**（毫秒）。事件之外还得自己看一遍：原生模态会抢焦点，而回来时的
+ * `focus` 事件不保证送达 —— 只靠事件的话判定会永久卡在「窗口失焦」。3s 是"用户感觉不到、
+ * 又不至于让省电白做"的折中（复核只在判定变化时 emit）。
+ */
+const OCCLUSION_RECHECK_MS = 3000;
 // 「live 渲染页为什么没在出帧」的一句话原因：用户暂停与遮挡都算 —— 两者都会让
 // applyLiveControls 把渲染页 pause() 掉，而暂停中的渲染页 __wpStats.frame()
 // 恒为 {fps:0, running:false}（渲染器实现：paused → running:false）。
@@ -4086,7 +2071,7 @@ function releaseRotationAudioGate() {
 
 // ── 场景包内独立音频（scene-audio）────────────────────────────────────────
 // 长安雪等场景把 BGM/音效以独立音频文件（mp3/ogg…）放在 scene.pkg 里，由 WE
-// 运行时的音频组件播放；静态帧管线没有播放器，此前完全无声。这里用独立
+// 运行时的音频组件播放；静帧路径没有播放器，此前完全无声。这里用独立
 // <audio> 元素补上：宿主 /scene-audio 路由抽出音频（最大者当 BGM），音量与
 // 总开关复用视频壁纸同一套设置（默认 0 = 静音，行为与旧版一致）。
 // 与 sceneVideo 互斥：有内嵌 MP4 时视频自带音轨，避免双声道叠加。
@@ -4168,291 +2153,10 @@ function applyVideoPlayback(video) {
   );
 }
 
-// ── Source metadata + frame-skip transcode (抽帧转码) ────────────────────────
-// The decode-side fps cap (帧率上限) is implemented as a HOST re-encode, NOT as
-// playbackRate: playbackRate is a speed multiplier, so capping decode through
-// it would slow the motion. The host transcodes the wallpaper once to the cap
-// fps (4K120 → 4K60, timeline 1.0x, AV1 via NVENC) and caches it; here we play
-// the ORIGINAL immediately (instant first paint) and, while the host runs the
-// one-time transcode, swap to the capped-fps file when it is ready — normal
-// speed + halved decode. 倍速 (playbackRate) keeps working on top of either.
-let mediaInfoToken = "";
-// In-flight marker: while the /media-info probe for this token is pending,
-// maybeUpgradeToTranscoded must NOT fire a transcode request — the probe may
-// come back with fps ≤ cap (no transcode needed). Without this guard every
-// wallpaper selection used to trigger a throwaway host-side ffmpeg run.
-let mediaInfoInFlight = "";
-// 在途探测的 AbortController: token 变更或强制刷新时终止上一次 fetch — 否则被
-// 取代的探测会一直跑 (结果只靠 mediaInfoToken 检查丢弃), fiber 卸载时也要 abort。
-let mediaInfoAbort = null;
-async function refreshMediaInfo(force) {
-  const token = selection.type === "video" && selection.url
-    ? selection.url.split("/").pop()
-    : null;
-  if (!token || (!force && token === mediaInfoToken)) return;
-  // 旧探测的结果一定没用了 (token 变了, 或被 force 重刷取代) → 立刻断开
-  if (mediaInfoAbort) { try { mediaInfoAbort.abort(); } catch { /* ignore */ } mediaInfoAbort = null; }
-  // AbortController 可能不存在 (无计时器/无 fetch 设施的验证环境): 为 null 时退化为旧行为
-  const ctrl = typeof AbortController === "function" ? new AbortController() : null;
-  mediaInfoAbort = ctrl;
-  mediaInfoToken = token;
-  mediaInfoInFlight = token;
-  try {
-    const init = { cache: "no-store" };
-    if (ctrl) init.signal = ctrl.signal;
-    const res = await fetch("/wallpaper-engine/media-info/" + encodeURIComponent(token), init);
-    const data = await res.json().catch(() => ({}));
-    if (mediaInfoToken === token) {
-      selection.mediaInfo = (data && data.info) || null;
-      // Source fps ≤ cap → no transcode needed; cancel an in-flight upgrade.
-      const mi = selection.mediaInfo;
-      if (mi && mi.fps && mi.fps > 0 && selection.fpsCap > 0 && mi.fps <= selection.fpsCap) {
-        abortTranscodeUpgrade();
-        // Also drop a swapped transcode from a previous LOWER cap, so the
-        // "无需抽帧" hint matches what is actually playing (the original).
-        const layer = document.getElementById(LAYER_ID);
-        const video = layer && layer.querySelector("video");
-        if (video && video.dataset.weTranscoded) revertTranscodedVideo(video);
-        selection.transcodeState = "skipped";
-      }
-    }
-  } catch {
-    // abort 掉的探测不写状态 (它已被更新的探测取代)
-    if (!(ctrl && ctrl.signal.aborted) && mediaInfoToken === token) selection.mediaInfo = null;
-  }
-  const ownsAbort = mediaInfoAbort === ctrl; // 仍是本次探测 (没被更新的探测取代)
-  if (ownsAbort) mediaInfoAbort = null;
-  if (ownsAbort && mediaInfoInFlight === token) mediaInfoInFlight = "";
-  // Settle → single re-emit so a deferred transcode decision (see
-  // mediaInfoInFlight) runs against the final mediaInfo, success or failure.
-  if (mediaInfoToken === token) emit();
-}
-
-let upgradeAbort = null;
-let upgradeToken = "";
-// The fps cap the in-flight upgrade request targets (0 = none). The in-flight
-// latch is keyed by token ONLY in the old code, so switching 24→48 while the
-// 24fps transcode was still running was treated as "already working on it" —
-// the stale 24fps request then completed and swapped the video to a 24fps
-// re-encode while the picker advertised the new cap ("已切换至 48fps 抽帧版").
-// Tracking the cap lets a cap change abort the stale request and start fresh.
-let upgradeFps = 0;
-let upgradePollTimer = null; // progress poller while the transcode fetch pends
-function clearUpgradePoll() {
-  if (upgradePollTimer) { clearInterval(upgradePollTimer); upgradePollTimer = null; }
-}
-// 15s metadata 兜底 timer (见 maybeUpgradeToTranscoded): 必须挂到升级状态上,
-// abortTranscodeUpgrade 才能清掉它 — 否则被取代的请求超时后回调仍会跑在已
-// detach 的 <video> 上 (重新赋 src, 元素再也释放不掉)。
-let upgradeMetaTimer = null;
-function clearUpgradeMeta() {
-  if (upgradeMetaTimer && typeof window !== "undefined" && typeof window.clearTimeout === "function") {
-    window.clearTimeout(upgradeMetaTimer);
-  }
-  upgradeMetaTimer = null;
-}
-function abortTranscodeUpgrade() {
-  clearUpgradePoll();
-  clearUpgradeMeta();
-  if (upgradeAbort) { upgradeAbort.abort(); upgradeAbort = null; }
-  upgradeToken = "";
-  upgradeFps = 0;
-  selection.transcodeProgress = null;
-}
-// Revert a video that was swapped to a capped-fps transcode back to the source.
-// NOTE: no emit() here — this runs inside syncLayers (already inside an emit
-// cycle); emitting synchronously from a subscriber re-enters the listener chain
-// and recurses until the stack overflows. UI updates ride the outer emit.
-function revertTranscodedVideo(video) {
-  if (!video || !video.dataset.weTranscoded) return;
-  delete video.dataset.weTranscoded;
-  try { video.src = selection.url; video.load(); } catch { /* ignore */ }
-}
-function maybeUpgradeToTranscoded(video, token) {
-  if (!video || !video.isConnected) return;
-  const cap = selection.fpsCap;
-  // Cap off / lowered to 0: revert any swapped video back to the original.
-  if (!cap || cap <= 0) {
-    abortTranscodeUpgrade();
-    if (video.dataset.weTranscoded) {
-      revertTranscodedVideo(video);
-      selection.transcodeState = "idle";
-    }
-    return;
-  }
-  const mi = selection.mediaInfo;
-  if (mi && mi.fps && mi.fps > 0 && mi.fps <= cap) {
-    // Source already at/below the cap — no transcode needed; drop any previously
-    // swapped (lower-cap) version. No in-flight reservation is made, so raising
-    // the cap later can still start one.
-    if (video.dataset.weTranscoded) revertTranscodedVideo(video);
-    selection.transcodeState = "skipped";
-    return;
-  }
-  // mediaInfo probe still in flight for THIS token: defer the decision — the
-  // probe may come back with fps ≤ cap (transcode unnecessary). The settle
-  // emit in refreshMediaInfo re-runs syncLayers and brings us back here.
-  if (!mi && mediaInfoInFlight === token) return;
-  if (video.dataset.weTranscoded === String(cap)) return; // already on this cap
-  // Only an in-flight request for THIS cap counts as "working on it": a request
-  // for a different cap would complete and swap in a stale-fps re-encode while
-  // the picker advertises the current cap (24→48 direct switch bug). The guard
-  // is deliberately NOT conditioned on weTranscoded: the progress poller emits
-  // (→ syncLayers → this function), and with the video already on a transcode
-  // that emit used to abort + re-start the request forever (page freeze).
-  if (upgradeToken === token && upgradeAbort && upgradeFps === cap) return; // already working on this cap
-  abortTranscodeUpgrade();
-  upgradeToken = token;
-  upgradeFps = cap;
-  const ctrl = new AbortController();
-  upgradeAbort = ctrl;
-  selection.transcodeState = "working";
-  selection.transcodeProgress = null;
-  // Progress poller: 500ms interval reading /transcode-progress (download %,
-  // then frame-based transcode % + ETA). Cleared on settle/abort. The timer is
-  // ALSO kept in this closure so THIS request's completion only ever clears its
-  // OWN timer — a stale request must not kill the newer request's poller.
-  let pollPending = false; // 上一 tick 未返回 → 跳过本次 (宿主高负载时避免 fetch 堆积)
-  const pollProgress = () => {
-    if (ctrl.signal.aborted) return;
-    if (pollPending) return;
-    pollPending = true;
-    fetch("/wallpaper-engine/transcode-progress/" + encodeURIComponent(token) + "?fps=" + cap, { cache: "no-store" })
-      .then((r) => r.json().catch(() => ({})))
-      .then((d) => {
-        if (ctrl.signal.aborted) return;
-        if (d && d.phase) {
-          const changed = !selection.transcodeProgress
-            || selection.transcodeProgress.phase !== d.phase
-            || selection.transcodeProgress.percent !== d.percent
-            || selection.transcodeProgress.eta !== d.eta;
-          if (changed) {
-            selection.transcodeProgress = {
-              phase: d.phase, percent: d.percent || 0, source: d.source || "",
-              finalizing: d.finalizing === true, eta: typeof d.eta === "number" ? d.eta : null,
-            };
-            emit();
-          }
-        }
-      })
-      .catch(() => { /* transient poll failure: ignore */ })
-      .then(() => { pollPending = false; }); // 成功/失败都释放 in-flight 标记
-  };
-  clearUpgradePoll();
-  const pollTimer = setInterval(pollProgress, 500);
-  upgradePollTimer = pollTimer;
-  pollProgress();
-  const transcodedUrl = "/wallpaper-engine/transcoded/" + encodeURIComponent(token) + "?fps=" + cap;
-  // Trigger + completion probe: a tiny Range request that blocks until the host
-  // has the transcode cached, then answers 206 with one byte (discarded). The
-  // <video> then streams the SAME url via range requests — no full-file blob is
-  // ever held in memory and playback starts as soon as the first bytes arrive.
-  fetch(transcodedUrl, { signal: ctrl.signal, headers: { Range: "bytes=0-0" } })
-    .then(async (res) => {
-      if (ctrl.signal.aborted) return; // superseded by a newer request
-      if (pollTimer) clearInterval(pollTimer); // only ever this request's own timer
-      if (!res.ok) { transcodeUpgradeFailed(video, token); return; }
-      try { await res.arrayBuffer(); } catch { /* 1-byte body; discard */ }
-      if (ctrl.signal.aborted) return;
-      if (selection.fpsCap !== cap || !video.isConnected) {
-        // The user changed the cap (or the wallpaper) while this request was in
-        // flight: its output is stale. NEVER swap a stale-fps re-encode in —
-        // drop the request state and re-decide for the CURRENT cap instead.
-        abortTranscodeUpgrade();
-        if (video.isConnected && selection.url && token === selection.url.split("/").pop()) {
-          const cur = selection.fpsCap;
-          if (cur > 0 && video.dataset.weTranscoded === String(cur)) {
-            // Already playing exactly the requested cap (the user switched back
-            // while this request was in flight): just settle as ready.
-            selection.transcodeState = "ready";
-            selection.transcodeProgress = null;
-            emit();
-          } else {
-            maybeUpgradeToTranscoded(video, token);
-          }
-        } else {
-          // The layer/video was rebuilt while this request was in flight (e.g.
-          // Edge 兼容 render-mode toggle, or a wallpaper switch that raced the
-          // abort): re-run syncLayers so the CURRENT video gets its own fresh
-          // upgrade decision — otherwise it would sit on the original (full
-          // decode) until some unrelated emit happened to re-trigger it.
-          emit();
-        }
-        return;
-      }
-      if (selection.url && token === selection.url.split("/").pop()) {
-        video.dataset.weTranscoded = String(cap);
-        const t = video.currentTime;
-        const wasPlaying = isEffectivelyPlaying();
-        // 兜底超时：转码文件损坏 / 元数据异常时 loadedmetadata 可能永远不来，
-        // UI 会永停「转码中」——15s 未就绪按失败回退原片。定时器走 window.*
-        //（headless 验证环境无计时器设施时直接跳过超时兜底）。
-        let metaTimer = null;
-        const clearMetaTimer = () => {
-          if (metaTimer && typeof window !== "undefined" && typeof window.clearTimeout === "function") {
-            window.clearTimeout(metaTimer);
-          }
-          // 同步清掉升级状态上的引用 (只清自己的, 否则会抹掉更新请求的 timer)
-          if (upgradeMetaTimer === metaTimer) upgradeMetaTimer = null;
-          metaTimer = null;
-        };
-        const onErr = () => {
-          clearMetaTimer();
-          if (video.dataset.weTranscoded) {
-            delete video.dataset.weTranscoded;
-            try { video.src = selection.url; video.load(); } catch { /* ignore */ }
-            selection.transcodeState = "fallback";
-            emit();
-          }
-        };
-        video.addEventListener("error", onErr, { once: true });
-        video.src = transcodedUrl;
-        video.load();
-        const onMeta = () => {
-          clearMetaTimer();
-          try { if (t > 0 && t < video.duration) video.currentTime = t; } catch { /* ignore */ }
-          if (wasPlaying) { try { video.play().catch(() => {}); } catch { /* ignore */ } }
-          // Edge canvas：转码 swap 复用同一 <video>，weLoadedOnce 已置位，
-          // 暂停态下补一帧避免画布停在旧画面。
-          weDrawFrame();
-          selection.transcodeState = "ready";
-          selection.transcodeProgress = null;
-          emit(); // syncLayers re-arms the Edge canvas + re-applies rate/play
-        };
-        video.addEventListener("loadedmetadata", onMeta, { once: true });
-        if (typeof window !== "undefined" && typeof window.setTimeout === "function") {
-          metaTimer = window.setTimeout(() => {
-            video.removeEventListener("loadedmetadata", onMeta);
-            onErr();
-          }, 15000);
-          upgradeMetaTimer = metaTimer; // 挂到升级状态: abortTranscodeUpgrade 也要能清
-        }
-      }
-    })
-    .catch(() => {
-      if (ctrl.signal.aborted) return;
-      if (pollTimer) clearInterval(pollTimer); // only ever this request's own timer
-      transcodeUpgradeFailed(video, token);
-    });
-}
-
-// A transcode request for the CURRENT cap failed (502 / network / encode
-// error): the documented fallback is to play the ORIGINAL, so revert any
-// swapped transcode (a request only ever runs when the video is on a DIFFERENT
-// cap's transcode or the original, so this restores the honest "原片" state).
-// The in-flight latch (upgradeToken/upgradeAbort/upgradeFps) is deliberately
-// LEFT set: it is what stops the emit-driven syncLayers re-entry from
-// auto-restarting a request that just failed, while a cap change / 无限制
-// switch still clears it and allows a retry.
-function transcodeUpgradeFailed(video, token) {
-  if (video && video.isConnected && video.dataset.weTranscoded) {
-    revertTranscodedVideo(video);
-  }
-  selection.transcodeState = "fallback";
-  selection.transcodeProgress = null;
-  emit();
-}
-
+// ── 源元数据 + 抽帧转码（抽帧转码 / 帧率上限）────────────────────────────────
+// 这一族的实现已抽到 **src/transcode.js**（345 行：探测 → 决策 → 进度轮询 → 落地/回退；
+// 构建期内联回本作用域，调用点无需改动）。它拥有 selection.mediaInfo / transcodeState /
+// transcodeProgress 三个字段的写入权；依赖清点、入口与不变量见该文件头。
 function codecLabel(codec) {
   return { avc1: "H.264", hvc1: "H.265", hev1: "H.265", av01: "AV1", vp09: "VP9", mp4v: "MPEG-4" }[codec] || codec;
 }
@@ -4473,761 +2177,14 @@ function layerKeyDiff(oldKey, nextKey) {
   return out.join(" | ") || "(同 key)";
 }
 
-function syncLayers() {
-  // 轮换渐变标记在入口消费：commitRotationSwitch 置位后首个 syncLayers 即
-  // applySelection 的 emit；无旧层可淡（首壁纸/已清除）时自然作废，绝不
-  // 滞留到下一次无关重建。
-  const rotationFade = pendingRotationFade;
-  pendingRotationFade = false;
-  // 1. Wallpaper element.
-  const existing = document.getElementById(LAYER_ID);
-  if (selection.url) {
-    // live 是否生效只需算一次：它同时决定「media 种类看不看 sceneVideo」与 live 段本身。
-    const layerLive = (selection.type === "scene" || selection.type === "web") && liveRenderEnabled(selection);
-    // 本次切换用的过场（类型 + 方向 + 毫秒）也只算一次：startFade 判定与两处调用点共用。
-    const switchTr = switchTransitionOf(selection);
-    const wantKey = selection.type + "\u0000" + selection.url + "\u0000"
-      + (IS_EDGE && selection.edgeCompat !== false ? "canvas" : "video")
-      // Scene wallpapers: the media kind depends on sceneVideo (MP4 <video> vs
-      // static-frame <img>), and the 404 fallback nulls sceneVideo — the key
-      // must reflect it so the fallback rebuilds the layer.
-      // ⚠️ live 生效期间不算它：buildMedia 的 isSceneVideo 已被 isLive 短路，此时
-      // sceneVideo 只影响「live 失败后的回退」，进 key 只会白白冷启动渲染页 ——
-      // 「sceneVideo 诚实化」的时序补拉（scheduleSceneVideoResync）落地时正好会
-      // 触发这种无意义重建。live 一失效，下面的 live 段就变化 → 仍会重建，且那一次
-      // 会用上当时的 sceneVideo 值（回退路径因此照旧正确）。
-      + "\u0000" + (layerLive ? "" : (selection.sceneVideo || ""))
-      + "\u0000" + (selection.sceneAudioUrl || "")
-      // Scene live render: entering/leaving live（开关切换、按壁纸失败记忆、
-      // 帧率档变更 → iframe query 变化）都必须重建层；fit/音量不进 key ——
-      // 它们经 __wp.setFit/setVolume 热切，无需重载渲染页。
-      + "\u0000" + ((selection.type === "scene" || selection.type === "web")
-        ? (layerLive
-          // weAssetsAvailable 进 key：素材目录开关切换时 live iframe URL 的
-          // localAssets 参数变化，必须重建渲染页才生效。
-          ? "live\u0000" + (selection.sceneLiveSrc || selection.webLiveSrc) + "\u0000" + selection.sceneLiveFps
-            + "\u0000" + (selection.inventory && selection.inventory.weAssetsAvailable ? "la1" : "")
-          : "nolive")
-        : "");
-    const gotKey = existing && existing.dataset.weKey;
-    let startFade = false;
-    if (existing && gotKey !== wantKey) {
-      liveLog("layer-rebuild", layerKeyDiff(gotKey, wantKey) + " " + liveStateBrief());
-      // 交叉淡化判定：**换壁纸**（手动点选/轮换提交，层上 weWid ≠ 当前选择 id）
-      // 一律淡出 —— 旧层保留被新层盖过去（真交叉淡化）；**同一张壁纸的内部重建**
-      // （live 降级/fps 档/画面刷新/live 开关，weWid 相同）保持硬切：重建前后是
-      // 同一条 BGM，淡出 + 音频闸会让它断 ~2s，反而更糟。rotationFade（轮换
-      // commit 的显式标记）作为兜底保留 —— 覆盖 weWid 缺失或轮换同 wid 极端角落。
-      const widChanged = String(existing.dataset.weWid || "") !== String(selection.id || "");
-      // 过场类型为「硬切」时根本不进过渡路径：直接拆旧层（下车的 else 分支），
-      // 音频闸也不开 —— 这正是硬切该有的零延迟表现。（switchTr 在本函数上部算好。）
-      startFade = (rotationFade || widChanged) && switchTr.id !== "cut";
-      if (startFade) {
-        // 交叉淡化：旧层不立即拆除 —— 标记淡出保留（旧视频/旧 live 渲染页
-        // 继续播放，真交叉淡化），新层淡入结束后由定时器移除。任何时刻
-        // 最多 2 层：上一份 fading 层先即时退役。音频闸（下方
-        // openRotationAudioGate）对新层静音到旧层退场 —— 换壁纸的两条 BGM
-        // 不在渐变期重叠（轮换与手动切换同一套闸）。
-        retireFadingLayer();
-        existing.dataset.weFading = "1";
-        try { existing.id = ""; } catch { /* ignore */ }
-        fadingLayerNode = existing;
-        // 旧 live 心跳退役（iframe 本身保活续播）；新层的 watch 由 buildMedia
-        // （fresh load 或领养路径）重启。
-        stopLiveWatch();
-      } else {
-        stopLiveWatch();
-        releaseLayerMedia(existing);
-        existing.remove();
-        // Release the previous draw loop: without this, switching from an Edge
-        // canvas video to a non-canvas wallpaper (image/web/scene, or Edge 兼容
-        // turned off) would keep the old hidden <video> referenced and playing
-        // forever — CPU/GPU/battery + memory leak per switch (rotation mixes
-        // types). weStartDraw() re-initialises when a canvas exists again.
-        weStopDraw();
-      }
-    }
-    let node = document.getElementById(LAYER_ID);
-    // 渐变路径旧层已让出 LAYER_ID；mock 环境的 stale byId 命中按 weFading 排除。
-    if (node && node.dataset && node.dataset.weFading === "1") node = null;
-    if (!node && pendingStagedLayerNode) {
-      // live/web 轮换的节点级领养：staging 容器整体转为新层 —— iframe 全程不
-      // 移动（同文档 reparent 会重载文档），渲染/加载状态零扰动。
-      node = pendingStagedLayerNode;
-      pendingStagedLayerNode = null;
-      node.id = LAYER_ID;
-      node.dataset.weKey = wantKey;
-      node.dataset.weWid = String(selection.id || "");
-      node.className = "we-layer";
-      const adoptedLive = node.querySelector && node.querySelector("iframe.we-live-iframe");
-      if (adoptedLive) {
-        // 首帧已在准备期确认：立即点亮 + 心跳续跑运行期看护。
-        try { adoptedLive.classList.add("we-live-on"); } catch { /* ignore */ }
-        // 领养路径的渲染页是**已经在出帧**的热页：紧接着的 applyLiveControls
-        // （本函数末尾）若判定「非有效播放」会把它 pause 掉，而暂停中的渲染页
-        // __wpStats.frame() 恒为 {fps:0,running:false} —— 首帧看护必须据此暂停
-        // 计时（见 startLiveWatch），否则 15s 后误判首帧超时并永久降级。
-        liveLog("adopt-live", "wid=" + selection.id + " 节点级领养（渲染页不重载）");
-        try { startLiveWatch(adoptedLive, selection.id); } catch { /* ignore */ }
-      }
-      if (startFade && fadingLayerNode) {
-        startLayerTransition(node, fadingLayerNode, switchTr);
-      }
-    }
-    if (!node) {
-      node = document.createElement("div");
-      node.id = LAYER_ID;
-      node.className = "we-layer";
-      node.dataset.weKey = wantKey;
-      node.dataset.weWid = String(selection.id || "");
-      const built = buildMedia(selection);
-      if (Array.isArray(built)) for (const el of built) node.appendChild(el);
-      else node.appendChild(built);
-      document.body.appendChild(node);
-      if (startFade && fadingLayerNode === existing) {
-        // 过场：新层在旧层之上入场（旧层保持不透明垫着，玻璃 backdrop-filter
-        // 依赖不透明背景）；旧层退场 / 音频放行 / 收尾清理都在
-        // startLayerTransition 里统一处理。
-        startLayerTransition(node, existing, switchTr);
-      }
-    }
-    const canvas = node.querySelector("canvas.we-media--canvas");
-    const video = node.querySelector("video");
-    // Scene live render: 播放态/音量/fit 向渲染页 __wp 收敛（每次 emit 幂等；
-    // __wp 未就绪时由心跳 tick 每秒兜底），并挂上指针注入（capture 监听一次
-    // 注册，此后只更新目标 frame 引用）。
-    const liveFrame = node.querySelector("iframe.we-live-iframe");
-    if (liveFrame) {
-      applyLiveControls(liveFrame);
-      ensureLivePointer(liveFrame);
-    }
-    // Edge-only: drive the canvas mirror from the hidden decoder video.
-    // Incremental guard: every emit (including the 500ms transcode poll) used
-    // to run a FULL weStopDraw + weStartDraw — rebuilding the ResizeObserver,
-    // re-registering rVFC and forcing a getComputedStyle read each time.
-    // Same canvas + same video → the draw loop is already running; skip it.
-    // (自定义壁纸的 objectFit 变更由「适配」按钮直接写 weDrawCtx.fit。)
-    if (canvas && video) {
-      const sameDraw = weDrawCtx && weDrawCtx.canvas === canvas && weDrawCtx.video === video;
-      if (!sameDraw) weStartDraw(canvas, video, canvas.className.indexOf("we-media--fit") !== -1);
-    }
-    if (video) {
-      // 播放态收敛（#84）：意图 → 元素真实状态，失败时回写 store 让「播放」
-      // 按钮回来（见 applyVideoPlayback）。
-      applyVideoPlayback(video);
-      // Keep the rate in sync on every layer sync (covers rate changes while
-      // the same wallpaper keeps playing — instant, no media reload).
-      try { if (video.playbackRate !== selection.playbackRate) video.playbackRate = selection.playbackRate; } catch { /* ignore */ }
-      // Frame-skip transcode (帧率上限): play the original now, swap to the
-      // capped-fps re-encode when the host finishes it (no-op when cap is 0).
-      if (selection.type === "video" && selection.url) {
-        maybeUpgradeToTranscoded(video, selection.url.split("/").pop());
-      }
-    } else if (selection.videoPlaying === false || selection.videoError) {
-      // 没有 <video>（图片 / 网页 / 静态帧壁纸）: 上一个视频留下的失败态必须
-      // 清掉，否则卡片会继续显示属于上一张壁纸的错误。这里不 emit —— 本次
-      // syncLayers 正是由 emit 驱动的，当前渲染会读到清空后的值。
-      selection.videoPlaying = true;
-      selection.videoError = "";
-    }
-  } else if (existing) {
-    weStopDraw();
-    stopLiveWatch();
-    releaseLayerMedia(existing);
-    existing.remove();
-  }
-  if (!selection.url) {
-    disposePreparedMedia(); // 层未建（选择已清除）：滞留就绪元素立即释放
-    if (pendingStagedLayerNode) {
-      const div = pendingStagedLayerNode;
-      pendingStagedLayerNode = null;
-      try {
-        const f = div.querySelector && div.querySelector("iframe");
-        if (f) disposeMediaEl(f);
-      } catch { /* ignore */ }
-      try { div.remove(); } catch { /* ignore */ }
-    }
-  }
-
-  // 2. Scrim element (always present while a wallpaper is active).
-  const scrim = document.getElementById(SCRIM_ID);
-  if (selection.url) {
-    if (!scrim) {
-      const s = document.createElement("div");
-      s.id = SCRIM_ID;
-      s.className = "we-scrim";
-      document.body.appendChild(s);
-    }
-    document.body.setAttribute(ACTIVE_ATTR, "on");
-  } else {
-    if (scrim) scrim.remove();
-    document.body.removeAttribute(ACTIVE_ATTR);
-  }
-
-  // 3. GPU 抓帧缓存状态（面板提示 + 清除入口）：场景壁纸才可能被抓帧。
-  // 带 TTL 去重，syncLayers 调用频繁也不会打爆 HEAD。
-  if (selection.type === "scene" && selection.sceneFrameUrl) {
-    try { probeGpuFrameState(selection.sceneFrameUrl, false); } catch { /* ignore */ }
-  }
-
-  // 4. 元素级领养槽位收尾不变量：槽位寿命 = 一次建层。
-  // buildMedia 只在 video / sceneVideo / 静态帧 img 三条分支里收编它，而：
-  // ① live 分支自建 iframe（`return frame` / `return [poster, frame]`）——
-  //    准备期 live 首帧探测超时会回退出视频/静态帧探针并写进槽位（见
-  //    prepareSceneLiveStage 注释：探测放弃刻意不簿记 sceneLiveFailures，因此
-  //    随后 buildMedia 的 isLive 仍为 true），两者不一致时槽里那个元素既不上
-  //    屏、也没有任何路径能释放它：detached 的 <video> 是解码器根，失去句柄后
-  //    仍满速解码到页面关闭（实测 4K ≈35% 单核/个，gc() 收不走），且它属于
-  //    **上一张壁纸** —— 之后的非提交重建（liveFail / fps 档位切换等）会按 tag
-  //    命中并把它领养进当前层 → 画面串味；
-  // ② 节点级领养（pendingStagedLayerNode）整条绕过 buildMedia，同样不收编。
-  // 放在函数收尾（本函数无提前 return）：无论走哪条建层/领养路径、无论
-  // buildMedia 是否被调用，退出时槽位必空。空槽位调用是 no-op。
-  disposePreparedMedia();
-}
-
-// ── 轮换渐变：旧层退役 ───────────────────────────────────────────────────────
-// retireFadingLayer: 快速连切时上一份 fading 层即时退役（任何时刻最多 2 层）。
-// scheduleFadingLayerRemoval: 渐变宽限期后移除旧层并释放其媒体。
-function retireFadingLayer() {
-  const node = fadingLayerNode;
-  if (!node) return;
-  fadingLayerNode = null;
-  releaseLayerMedia(node);
-  try { node.remove(); } catch { /* ignore */ }
-  // 旧层已退场 → 放行这次渐变的新层音频（不匹配则说明闸属于另一次渐变）。
-  releaseRotationAudioGateFor(node);
-}
-function scheduleFadingLayerRemoval(node, ms) {
-  const hold = (typeof ms === "number" && ms > 0 ? ms : ROTATION_FADE_MS) + 100;
-  if (typeof window === "undefined" || typeof window.setTimeout !== "function") {
-    retireFadingLayer();
-    return;
-  }
-  window.setTimeout(() => {
-    if (fadingLayerNode !== node) return; // 已被快速连切即时退役
-    fadingLayerNode = null;
-    releaseLayerMedia(node);
-    try { node.remove(); } catch { /* ignore */ }
-    // 渐变结束、旧层退场 → 新层 BGM 此刻才起播。
-    releaseRotationAudioGateFor(node);
-    // Edge canvas：只有绘制上下文仍属于旧层时才停（新层已 weStartDraw 接管）。
-    if (weDrawCtx && weDrawCtx.canvas && typeof node.contains === "function"
-      && node.contains(weDrawCtx.canvas)) weStopDraw();
-  }, hold);
-}
-
-// ── 切换过场：把「新层入场 + 旧层退场」交给选定的过场动画 ────────────────────
-// 只走内联样式 + 一个通用 transition 规则（.we-layer--switch），不写死每种过场的
-// ·-on 类，好处是新增过场只需在 switchFrames 里加一条。
-// cut 不会走到这里：调用方已把 startFade 置假、走「立即拆旧层」的硬切路径。
-function applyInlineStyle(node, style) {
-  if (!node || !node.style) return;
-  for (const k in style) {
-    try { node.style[k] = style[k]; } catch { /* ignore */ }
-  }
-}
-// 过场收尾：新层必须回到「干净」状态 —— 留着内联 transform / clip-path /
-// will-change 会让满屏视频永久占一个合成层（applyEffects 特意避免这种开销）。
-function resetLayerSwitchStyles(node) {
-  if (!node) return;
-  try { node.className = "we-layer"; } catch { /* ignore */ }
-  try {
-    node.style.transform = "";
-    node.style.opacity = "";
-    node.style.clipPath = "";
-    node.style.removeProperty("--we-switch-ms");
-  } catch { /* ignore */ }
-}
-function startLayerTransition(node, outgoing, tr) {
-  // 音频闸先开：新层静音，等旧层这次过场结束后才出声（见 openRotationAudioGate）。
-  openRotationAudioGate(node, outgoing);
-  // 两者默认都是 z-index:-2，谁在上面靠 DOM 顺序（live 的 staging 容器是**提前**
-  // 挂到 body 的，顺序不保证）—— 过场期间显式把旧层压到新层之下。两者都仍在
-  // scrim(-1) 之下，所以不会盖到界面上。
-  try { outgoing.style.zIndex = "-3"; } catch { /* ignore */ }
-  const frames = switchFrames(tr.id, tr.dir);
-  applyInlineStyle(node, frames.inFrom);
-  try { node.style.setProperty("--we-switch-ms", tr.ms + "ms"); } catch { /* ignore */ }
-  node.className = "we-layer we-layer--switch";   // 顺带脱掉 we-layer--staging
-  // 只有需要旧层同时动起来的过场（推移 / 缩放）才给它挂 switch 类；其余过场旧层
-  // 保持不透明静止垫着（玻璃 backdrop-filter 依赖这层不透明背景）。
-  if (tr.id !== "fade") outgoing.className = "we-layer we-layer--switch we-layer--switch-out";
-  void node.offsetWidth;                          // 强制 reflow：让初态成为 transition 起点
-  applyInlineStyle(node, frames.inTo);
-  applyInlineStyle(outgoing, frames.outTo);
-  scheduleFadingLayerRemoval(outgoing, tr.ms);
-  if (typeof window !== "undefined" && typeof window.setTimeout === "function") {
-    window.setTimeout(() => resetLayerSwitchStyles(node), tr.ms + 60);
-  }
-}
 
 // ── Effect application: push the knobs into CSS variables ───────────────────
-// Scrim immediacy tracking: the inline-write + forced reflow below only runs
-// when the scrim value ACTUALLY changed. It used to run unconditionally on
-// every emit — i.e. twice per slider tick (handler + subscribed applyEffects)
-// and on every 500ms transcode poll — a forced synchronous layout storm.
-let lastScrimCss = "";
-// ── 字体自定义样式注入 ──────────────────────────────────────────────────────
-// <style id="we-font-patch"> 应用「字体自定义」三项（#91 修复，方案A升级版）：
-// 旧实现 body * { color/weight/family !important } 会 ① 强制覆盖其它插件
-// 自带的文字颜色（白字白底"字消失"，#91）；② 压平全页加粗（DSH 标题的
-// 700 也被抹成设置值）；③ 失效范围遍布整棵 DOM。新语义是「改默认墨色 +
-// 主题文本令牌」，不再碰任何自带声明：
-// - body 级只设继承默认 —— 自己声明过 color/font-weight 的元素（第三方
-//   挂件、DSH 标题加粗）保持自己的声明；
-// - 颜色经 --dsw-alias-label-* 中性白名单映射为用户字体色（DSH 核心约 90%
-//   的文字颜色走这几个令牌，含聊天正文 label-primary），核心 UI 覆盖不缩水；
-//   state-* 与 link 令牌刻意排除 → 报错红字/链接色天然保住（替代旧规则 2 的
-//   revert —— 实测 revert 回滚整个 author 源，会把宿主自己的错误色声明一并
-//   取消，见 #91 讨论）；
-// - 注入前把宿主原值快照进 --we-host-*（只取一次，防自我污染），供
-//   [data-we-font-ignore] 子树契约「还原宿主原值」使用：自定义属性可被子树
-//   遮蔽，第三方一行属性即可声明「这块我自管颜色」（#91 建议 2）；
-// - 聊天 markdown 容器用 font: var(--dsw-font-markdown-base) 简写同时声明
-//   font-family/weight，body 级继承压不过它 —— 需要定向接管族与字重，
-//   否则用户的字族/字重在对话区"看起来没生效"；
-// - 面板铬字（原规则 3）改读快照值 —— 令牌已被映射，不能直接读。
-// 总开关 fontCustom 关闭时注入整体清空（含快照），页面回到 dsh 原生字体外观。
-// 白闪回归红线（v0.6.4 教训）：不要引入 :has() 或祖先相关选择器——祖先失效集
-// 会把点击/输入的样式重算扩大到整棵 DOM，是 kiosk 窗口整屏刷白的点火条件。
-const WE_HOST_TOKENS = [
-  "--dsw-alias-label-primary",
-  "--dsw-alias-label-secondary",
-  "--dsw-alias-label-tertiary",
-  "--dsw-alias-label-dimmed",
-];
-
-function snapshotHostFontDefaults() {
-  // applyFontStyles 每次滑杆回调都会执行：若已快照则跳过，否则会把上一轮
-  // 注入后的自家映射值当成宿主原值写进快照（自我污染）。removeFontStyles
-  // 会清空快照，重新开启时再取一次（期间若宿主切了主题，取到的就是新主题
-  // 的墨色 —— 快照在开启期间不跟随主题切换，属已知边界）。
-  // 读取范围是 body 而不是 :root —— 宿主把 --dsw-alias-* 定义在 body 层
-  // （body / body[data-ds-dark-theme]），:root 上算出来是空串。
-  // 防污染关键：若 patch 样式已存在（上次注入留下的），先清空其内容再读。
-  // 否则「首次快照时宿主 CSS 未就绪 → 令牌读空跳过 → 下次重试时自家映射
-  // 已生效 → 读回 #ffffff 自我污染」这条链必然发生（getComputedStyle 是
-  // 惰性的，清空后同步读会强制按干净级联重算）。调用方随后会重写
-  // st.textContent，中间不会发生绘制。
-  try {
-    const es = document.documentElement.style;
-    let need = !es.getPropertyValue("--we-host-body-color");
-    for (const t of WE_HOST_TOKENS) {
-      if (!es.getPropertyValue("--we-host-" + t.slice(2))) { need = true; break; }
-    }
-    if (!need) return;
-    const st = document.getElementById("we-font-patch");
-    const prevCss = st ? st.textContent : null;
-    if (st) st.textContent = "";
-    const bodyCs = getComputedStyle(document.body);
-    for (const t of WE_HOST_TOKENS) {
-      const v = bodyCs.getPropertyValue(t).trim();
-      if (v) es.setProperty("--we-host-" + t.slice(2), v);
-    }
-    es.setProperty("--we-host-body-color", bodyCs.color);
-    es.setProperty("--we-host-body-weight", bodyCs.fontWeight);
-    es.setProperty("--we-host-body-family", bodyCs.fontFamily);
-    if (st) st.textContent = prevCss;
-  } catch { /* ignore */ }
-}
-
-function applyFontStyles() {
-  try {
-    snapshotHostFontDefaults();
-    let st = document.getElementById("we-font-patch");
-    if (!st) {
-      st = document.createElement("style");
-      st.id = "we-font-patch";
-      (document.head || document.documentElement).appendChild(st);
-    }
-    st.textContent = [
-      /* 1) 默认墨色/字重/字族：只设 body 继承默认（声明 > 继承，所以任何
-            自带声明的元素——包括第三方挂件与 DSH 标题——都不再被碰）。 */
-      'body {',
-      '  color:var(--we-font-color, #000) !important;',
-      '  font-weight:var(--we-font-weight, 400) !important;',
-      '  font-family:var(--we-font-family, inherit) !important;',
-      // 伪粗描边跟随字重滑条（见 applyEffects 的映射）；宿主从不声明
-      // text-stroke，这里作为继承默认即可，不用 !important。
-      '  -webkit-text-stroke-width:var(--we-font-stroke, 0px);',
-      '}',
-      /* 1b) 聊天正文定向映射：DSH 的 markdown 容器用 font: var(--dsw-font-
-            markdown-base) 简写同时声明 font-family/weight，body 级继承压不过
-            它 —— 用户选的字族/字重在对话区会"看起来没生效"（颜色经令牌映射
-            已生效，但暗色主题下白字与主题墨色接近，更看不出差别）。对宿主
-            自己的聊天文本面定向接管族与字重（font 简写里的字号/行高不碰），
-            仍是单属性声明级覆盖，不是 body * 全局强制（#91 边界不变）。 */
-      'body :is([class*="_markdown_"], [class*="markdownPayload"], [class*="markdownPreview"]) {',
-      '  font-family:var(--we-font-family, inherit) !important;',
-      '  font-weight:var(--we-font-weight, 400) !important;',
-      '}',
-      /* 2) 主题文本令牌白名单映射：中性 label 层级跟用户字体色走（覆盖核心
-            UI 与聊天正文）；state-* 与 link 令牌不在白名单（报错红字/链接色保
-            留主题设计）。声明在 body 而非 :root —— 宿主令牌就定义在 body 层
-            （body / body[data-ds-dark-theme] 特异性更高），且 --we-font-* 变量
-            也挂在 body 上（:root 读不到子元素变量会 invalid）。!important 压过
-            宿主的同名正常声明；第三方/插件面板在自己子树重新声明同名令牌即可
-            遮蔽（自定义属性按元素级联，body 的 !important 不影响子树自身声明）。 */
-      'body {',
-      '  --dsw-alias-label-primary:var(--we-font-color) !important;',
-      '  --dsw-alias-label-secondary:var(--we-font-color) !important;',
-      '  --dsw-alias-label-tertiary:var(--we-font-color) !important;',
-      '  --dsw-alias-label-dimmed:var(--we-font-color) !important;',
-      '}',
-      /* 3) 退出契约（#91 建议 2）：data-we-font-ignore 子树还原宿主原值。
-            :where() 零特异性 —— 还原声明足以压过 body 继承（声明 > 继承），
-            但子树内自带的任何颜色/字重声明仍按正常级联压过还原值（即"我自管"
-            的部分照常生效）。不用 revert：revert 回滚整个 author 源，会把
-            子树自己的声明一并取消（Chrome 实测）。 */
-      ':where([data-we-font-ignore]) {',
-      '  color:var(--we-host-body-color, inherit);',
-      '  font-weight:var(--we-host-body-weight, 400);',
-      '  font-family:var(--we-host-body-family, inherit);',
-      '  -webkit-text-stroke-width:0;',
-      '  --dsw-alias-label-primary:var(--we-host-dsw-alias-label-primary, inherit);',
-      '  --dsw-alias-label-secondary:var(--we-host-dsw-alias-label-secondary, inherit);',
-      '  --dsw-alias-label-tertiary:var(--we-host-dsw-alias-label-tertiary, inherit);',
-      '  --dsw-alias-label-dimmed:var(--we-host-dsw-alias-label-dimmed, inherit);',
-      '}',
-      /* 4) 插件面板铬字：调节面板（设置页 / 壁纸仓库抽屉 / 选择弹窗）是控件
-            而非内容 —— 标签/读数/页签保持主题墨色（可读性优先），用户的字体
-            「颜色」只作用于聊天内容。容器级令牌还原（普通声明压过 body 的继
-            承值，且容器内任何 --we-ink 消费者一并回到宿主原值）+ 下方两条对
-            显式铬字类名的直接染色（读宿主快照，令牌此时已被规则 2 映射）。 */
-      'body :is(.we-picker, .we-picker__modal, .we-repo-panel) {',
-      '  --dsw-alias-label-primary:var(--we-host-dsw-alias-label-primary, inherit);',
-      '  --dsw-alias-label-secondary:var(--we-host-dsw-alias-label-secondary, inherit);',
-      '  --dsw-alias-label-tertiary:var(--we-host-dsw-alias-label-tertiary, inherit);',
-      '  --dsw-alias-label-dimmed:var(--we-host-dsw-alias-label-dimmed, inherit);',
-      '}',
-      'body :is(.we-picker, .we-picker__modal, .we-repo-panel) '
-        + ':is(.we-picker__ctl-label,.we-picker__card-name,.we-picker__current-title,'
-        + '.we-picker__btn,.we-picker select,.we-picker__text,.we-tabs__tab,'
-        + '.we-repo-panel__title,.we-picker__mascot-name,.we-picker__empty-title) {',
-      '  color: var(--we-host-dsw-alias-label-primary, inherit) !important;',
-      '}',
-      'body :is(.we-picker, .we-picker__modal, .we-repo-panel) '
-        + ':is(.we-picker__hint,.we-picker__ctl-hint,.we-picker__value,'
-        + '.we-picker__section-label,.we-picker__card-desc,.we-picker__card-badge,'
-        + '.we-picker__current-meta,.we-picker__uploads-name,.we-picker__uploads-path) {',
-      '  color: var(--we-host-dsw-alias-label-tertiary, rgba(128, 128, 128, 0.75)) !important;',
-      '}',
-    ].join('\n');
-  } catch { /* ignore */ }
-}
-
-function removeFontStyles() {
-  const st = document.getElementById("we-font-patch");
-  if (st) st.remove();
-  // 宿主原值快照随开关一起清掉：下次开启重新取（可能已切主题）。
-  try {
-    const es = document.documentElement.style;
-    for (const t of WE_HOST_TOKENS) es.removeProperty("--we-host-" + t.slice(2));
-    es.removeProperty("--we-host-body-color");
-    es.removeProperty("--we-host-body-weight");
-    es.removeProperty("--we-host-body-family");
-  } catch { /* ignore */ }
-}
-
-// ── 输入光标颜色注入（#83）──────────────────────────────────────────────────
-// <style id="we-caret-patch"> 把 body 上的 --we-caret-color 应用到所有文本
-// 输入位（textarea / input / contenteditable）。caret-color 可继承，覆盖到
-// contenteditable 的子节点无需逐个枚举；!important 压过宿主可能存在的显式
-// caret-color 声明。只在用户选了颜色时注入 —— 未设置时连规则都不进 DOM，
-// 光标保持 dsh 原生表现（auto 会随主题自动调整，是最不碍事的默认）。
-// 与字体自定义（fontCustom）互不依赖：字体染色关闭时本样式照常生效，反之
-// 字体开启而光标未设置时也不注入（fontCustom 的 color 不写 caret-color，
-// 两者不冲突）。
-function applyCaretStyles() {
-  try {
-    let st = document.getElementById("we-caret-patch");
-    if (!st) {
-      st = document.createElement("style");
-      st.id = "we-caret-patch";
-      (document.head || document.documentElement).appendChild(st);
-    }
-    st.textContent = [
-      'body textarea,',
-      'body input,',
-      'body [contenteditable="true"],',
-      'body [contenteditable="plaintext-only"],',
-      'body [contenteditable=""] {',
-      '  caret-color: var(--we-caret-color) !important;',
-      '}',
-    ].join('\n');
-  } catch { /* ignore */ }
-}
-
-function removeCaretStyles() {
-  const st = document.getElementById("we-caret-patch");
-  if (st) st.remove();
-}
-
-// 壁纸淡出底色 = **原生外观**（浅色纯白 / 深色纯黑）。这是「壁纸透明度」拉高时
-// 应该露出来的那一层：垫在 .we-layer 上让透明化壁纸的合成像素保持不透明（见
-// applyEffects 内 --we-wallpaper-opacity 注释：透明 backdrop 会让 backdrop-filter
-// 失效）。
-// ⚠️ 刻意**不**用 --dsw-alias-bg-layer-1：那是面板底色（深色下是深蓝灰），淡出后
-// 会留下一块与原生外观不符的主题色（用户实测反馈：期望露出纯黑 / 纯白）。
-// 外壳自己的「页面基色」token 若可用就尊重它（没有壁纸时页面本来就是这个颜色）；
-// 插件在壁纸激活时把它置为 transparent，因此正常路径就是下面的纯黑 / 纯白。
-function resolveWallpaperFadeBg() {
-  try {
-    const t = getComputedStyle(document.body).getPropertyValue("--dsw-alias-bg-base").trim();
-    if (t && t !== "transparent" && t !== "rgba(0, 0, 0, 0)" && t !== "#00000000") return t;
-  } catch { /* ignore */ }
-  try {
-    return document.body.hasAttribute("data-ds-dark-theme") ? "#000000" : "#ffffff";
-  } catch { return "#000000"; }
-}
-
-function applyEffects() {
-  const s = document.body.style;
-  s.setProperty("--we-scrim-color", "rgba(0,0,0," + selection.scrim + ")");
-  // Border emphasis: the border tokens are low-alpha hairlines; raise their
-  // alpha via a neutral gray so both light and dark themes stay legible.
-  s.setProperty("--we-border-alpha", String(selection.border));
-  // Glass blur strength in px (0 disables the frosted-glass effect).
-  s.setProperty("--we-blur", selection.blur + "px");
-  // iOS liquid glass: the backdrop "colour melt" (saturation) is a CONSTANT
-  // material property, DECOUPLED from the blur radius — the 玻璃 slider now
-  // drives ONE thing (frost depth, --we-blur) instead of two semantically
-  // unrelated ones. Rationale: --we-saturate amplifies whatever chroma the
-  // backdrop still carries, and blur is what smears the residual wallpaper text
-  // into that chroma. The old coupled ramp therefore magnified exactly the
-  // signal the owner reads as 荧光/彩色鬼影 (a fluorescent colour ghost) instead
-  // of a neutral haze, worst at the top of the slider where the amplification
-  // met the most smearing. A flat value kills the runaway at high radii while
-  // keeping the "wet glass" chroma lift at every radius. GLASS_SATURATE is
-  // deliberately BELOW the stylesheet's own 1.8 fallback (what applies before
-  // this variable is first written), so the steady-state glass is milder than
-  // the pre-write default rather than stronger.
-  //   blur px:     0      15     30     45     60
-  //   old:       1.15   1.57   1.99   2.41   2.83   (1.15 + blur*0.028)
-  //   new:       1.30   1.30   1.30   1.30   1.30   (constant; 6.1x less chroma
-  //                                                  amplification at 60px)
-  // ?we-saturate=legacy restores the old coupled ramp byte-for-byte (A/B
-  // escape hatch, see useLegacySaturateCoupling).
-  s.setProperty("--we-saturate", useLegacySaturateCoupling()
-    ? String(1.15 + selection.blur * 0.028)
-    : String(GLASS_SATURATE));
-  s.setProperty("--we-glass-brightness", "1.04");
-  // Wallpaper blur strength in px (blurs the wallpaper itself).
-  s.setProperty("--we-wallpaper-blur", selection.wallpaperBlur + "px");
-  // Background media filter: blur() plus the brightness/contrast/saturate
-  // knobs, omitting untouched terms. Kept "none" while every knob is at its
-  // default (see .we-media above) so no offscreen filter layer is forced on
-  // the wallpaper video/canvas.
-  const filterTerms = [];
-  if (selection.wallpaperBlur > 0) filterTerms.push("blur(" + selection.wallpaperBlur + "px)");
-  if (selection.backgroundBrightness !== 100) filterTerms.push("brightness(" + selection.backgroundBrightness + "%)");
-  if (selection.backgroundContrast !== 100) filterTerms.push("contrast(" + selection.backgroundContrast + "%)");
-  if (selection.backgroundSaturate !== 100) filterTerms.push("saturate(" + selection.backgroundSaturate + "%)");
-  s.setProperty("--we-media-filter", filterTerms.length ? filterTerms.join(" ") : "none");
-  // Compensate for the fringe the blur reveals by scaling the layer up.
-  const scale = (1 + selection.wallpaperBlur * 0.006).toFixed(4);
-  s.setProperty("--we-wallpaper-scale", scale);
-  // Horizontal mirror: composed with the blur-compensation scale on the same
-  // transform (scaleX(-1) is a pure compositor operation).
-  s.setProperty("--we-wallpaper-flip", selection.flip ? "-1" : "1");
-  // Single transform var, "none" when identity (no blur, no flip): an identity
-  // scale(1) scaleX(1) still forces the full-screen wallpaper <video> onto a
-  // transform compositing layer at default — one less always-on layer for the
-  // kiosk window to glitch on (the previous anti-flicker pass left this).
-  s.setProperty("--we-wallpaper-transform",
-    (selection.wallpaperBlur > 0 || selection.flip)
-      ? ("scale(" + scale + ") scaleX(" + (selection.flip ? "-1" : "1") + ")")
-      : "none");
-  // Fit mode for the current wallpaper (consumed by .we-media--fit).
-  s.setProperty("--we-object-fit", selection.objectFit);
-  // 壁纸透明度（#82）：越大越透 —— 0% 时不设变量，保持 identity opacity
-  // （Blink 对 opacity:1 不建合成层，设置了反而给 kiosk 窗口多一层常驻合成）。
-  // 渲染引擎约束（2026-09-20 实测）：DSH 页面底色是透明的，壁纸层一旦整体
-  // 半透明，玻璃表面 backdrop-filter 的取样背景出现大面积透明像素，本
-  // Electron 合成器在该背景上不再有效模糊 —— 玻璃后文字透出（composer 区
-  // 高频能量 +90%）。修复：透明生效时给 .we-layer 垫主题实色（--we-wallpaper-
-  // fade-bg），opacity 移到 .we-media 叶子 —— layer 合成像素保持不透明
-  // （壁纸向页面底色淡出，语义不变），玻璃模糊恢复（实测锐度回到基线）。
-  // 暗化（scrim）叠在壁纸之上：淡出壁纸时它会同时压暗页面底色。
-  if (selection.wallpaperOpacity > 0) {
-    s.setProperty("--we-wallpaper-opacity", String((100 - selection.wallpaperOpacity) / 100));
-    s.setProperty("--we-wallpaper-fade-bg", resolveWallpaperFadeBg());
-  } else {
-    s.removeProperty("--we-wallpaper-opacity");
-    s.removeProperty("--we-wallpaper-fade-bg");
-  }
-
-  // Settings-page liquid-glass theming:
-  // - --we-accent: plugin-owned accent color; every fallback below that used
-  //   the shell's brand token (var(--dsw-alias-brand-primary, #4f8cff)) now
-  //   reads --we-accent first, so the 配色 control restyles the whole picker
-  //   and glass highlights without touching the shell theme.
-  s.setProperty("--we-accent", selection.accent);
-  // - --we-glass-alpha: white-overlay alpha of the glass surfaces. The 玻璃透明
-  //   度 slider semantics: higher = MORE transparent (clearer wallpaper shows
-  //   through), lower = closer to solid. 0% → ~0.25 (frosted, solid-ish),
-  //   60% → ~0.03 (nearly invisible glass). The 12% default ≈ the previous
-  //   hardcoded look (~0.15–0.2 white overlay).
-  const glassAlpha = Math.max(0.03, 0.25 - (selection.glassAlpha / 60) * 0.22);
-  s.setProperty("--we-glass-alpha", String(glassAlpha));
-  // - --we-glass-color: glass base tint of the settings window. The stock
-  //   defaults live in CSS (white glass light / deep navy dark); once the user
-  //   picks a color (玻璃颜色), both themes use it.
-  s.setProperty("--we-glass-color", selection.glassColor);
-  // - Master switch for the WHOLE native settings window: when on, the dialog
-  //   (nav + every native section) becomes liquid glass with the accent +
-  //   transparency above. Toggled instantly via a body attribute the scoped
-  //   CSS below keys on; off restores the shell's stock look.
-  if (selection.glassWindow) document.body.setAttribute("data-we-glass-window", "on");
-  else document.body.removeAttribute("data-we-glass-window");
-
-  // dsh-better-sidebar 液态玻璃：一套独立于会话玻璃的细粒度控制（侧栏模糊 /
-  // 侧栏透明度 / 侧栏玻璃颜色 + 总开关）。变量只作用于 [data-dsh-better-sidebar]
-  // 子树（CSS 见下），关闭总开关时侧栏恢复原生外观。
-  s.setProperty("--we-sidebar-blur", selection.sidebarBlur + "px");
-  s.setProperty("--we-sidebar-saturate", String(1.15 + Math.min(selection.sidebarBlur, 60) * 0.028));
-  // 透明度语义：越大越透。0 → alpha 0.32（最实/最密），200 → alpha 0.015（最透）。
-  const sidebarAlpha = Math.max(0.015, 0.32 - (selection.sidebarAlpha / 200) * 0.305);
-  s.setProperty("--we-sidebar-alpha", String(sidebarAlpha));
-  s.setProperty("--we-sidebar-sheen", String(Math.min(1, sidebarAlpha / 0.2236)));
-  s.setProperty("--we-sidebar-color", selection.sidebarColor);
-  // 侧栏玻璃颜色的混入强度（%）：独立于 alpha 的可见性曲线。alpha 在高透档
-  // 趋近 0，若混色跟着 alpha 走，颜色滑杆在最高档等于失效（0.4%–1% 不可感知，
-  // v0.7.2 首版 6%–8% 下限仍被反馈"非常不明显"）。改为随透明度滑杆线性映射
-  // 20%–48%：最透档也有可感知色染，往实调颜色越来越浓。
-  const sidebarTint = 20 + (200 - Math.min(Math.max(selection.sidebarAlpha, 0), 200)) / 200 * 28;
-  s.setProperty("--we-sidebar-tint", sidebarTint.toFixed(1) + "%");
-  if (selection.sidebarGlass) document.body.setAttribute("data-we-sidebar-glass", "on");
-  else document.body.removeAttribute("data-we-sidebar-glass");
-  // 内容面（编辑器/终端）近不透明玻璃底：透明度滑块 0–80 → 不透明度 100%–20%
-  // （越大越透，与玻璃透明度同语义；低于 ~40% 不透明度注释可读性会再次变差，
-  // 留给用户自行权衡）；底色空 = 跟随主题面板色，选定后自定义。
-  // 注意 color-mix 的百分比槽位要求带单位的 token —— 变量值必须含 "%"，
-  // 否则整个 color-mix 失效、底色规则被丢弃（编辑器回退到纯透明毛玻璃）。
-  s.setProperty("--we-content-surface-alpha", Math.max(20, 100 - selection.sidebarContentAlpha) + "%");
-  if (selection.sidebarContentColor) s.setProperty("--we-content-surface-color", selection.sidebarContentColor);
-  else s.removeProperty("--we-content-surface-color");
-
-  // 左侧工作区（增强模式）的 Mica 能力钩子（#73，见 detectMicaSupport）：Windows
-  // 上无 Mica（Win10 / build < 22621 / 探测不到）时挂 data-we-mica="off"，CSS 用
-  // 插件自己的近不透明玻璃面接管 .dshDesktopSidebarSurface，替代对系统材质的依赖；
-  // 支持或不适用（非 Windows）时移除，保持原生。探测结果缓存，这里只做同步读写。
-  if (detectMicaSupport() === false) document.body.setAttribute("data-we-mica", "off");
-  else document.body.removeAttribute("data-we-mica");
-
-  // 软件渲染钩子（#95，见 detectSoftwareRender）：@supports 只做语法检查，软件
-  // 合成下 backdrop-filter 被静默忽略时它依然为真，所以近不透明回退必须靠运行时
-  // 探测来挂载。命中时 CSS（body[data-we-glass-fallback]）让面板/侧栏/内容面/
-  // 弹层改用与 @supports 回退完全相同的配方，并显式 backdrop-filter: none。
-  if (detectSoftwareRender()) document.body.setAttribute("data-we-glass-fallback", "1");
-  else document.body.removeAttribute("data-we-glass-fallback");
-
-  // 字体自定义（#57 精简回归版）：开关关闭 → 清空变量与样式表，恢复原生外观。
-  if (selection.fontCustom) {
-    s.setProperty("--we-font-color", selection.fontColor);
-    s.setProperty("--we-font-weight", String(selection.fontWeight));
-    // 字重滑条的伪粗描边：中文系统字体（黑体/宋体/楷体等）大多只有单一字面，
-    // Chrome 字体匹配对 <600 一律落回常规面、≥600 一律合成粗体 —— 滑条在
-    // 视觉上塌成两档。按超出 400 的比例线性映射 -webkit-text-stroke-width
-    // （继承属性，覆盖路径与 font-family 一致：正文 + 聊天区），让每一档都有
-    // 可感知的粗细差。低于 400 无法把单字面变细，描边为 0；多字重/可变字体
-    // 则由真实字面与少量描边叠加生效。900 档 0.045em 在 15px 正文约 0.68px。
-    const strokeEm = selection.fontWeight > 400
-      ? ((selection.fontWeight - 400) / 500) * 0.045 : 0;
-    s.setProperty("--we-font-stroke", strokeEm.toFixed(4) + "em");
-    s.setProperty("--we-font-family", fontFamilyStack(selection.fontFamily));
-    applyFontStyles();
-  } else {
-    s.removeProperty("--we-font-color");
-    s.removeProperty("--we-font-weight");
-    s.removeProperty("--we-font-stroke");
-    s.removeProperty("--we-font-family");
-    removeFontStyles();
-  }
-
-  // 输入光标颜色（#83）：空 = 跟随 dsh 原生（清空变量 + 不注入样式表）；
-  // 选定颜色后经 we-caret-patch 以 !important 覆盖所有文本输入位。与壁纸
-  // 是否启用无关 —— 这是独立的可读性设置，壁纸关掉后依然生效。
-  if (selection.caretColor) {
-    s.setProperty("--we-caret-color", selection.caretColor);
-    applyCaretStyles();
-  } else {
-    s.removeProperty("--we-caret-color");
-    removeCaretStyles();
-  }
-  // 壁纸音轨随设置变化即时生效（音量滑块/总开关），场景包内音频同理。
-  syncSceneAudio(selection);
-
-  // Scrim immediacy: some composited/kiosk environments do not repaint a
-  // z-index:-1 layer promptly when only an inherited CSS variable changes.
-  // Write the resolved color DIRECTLY onto the scrim element's inline style and
-  // then force a synchronous layout — but ONLY when the value changed (see
-  // lastScrimCss above).
-  const scrimCss = "rgba(0,0,0," + selection.scrim + ")";
-  if (scrimCss !== lastScrimCss) {
-    lastScrimCss = scrimCss;
-    const scrim = document.getElementById(SCRIM_ID);
-    if (scrim) {
-      scrim.style.background = scrimCss;
-    }
-    // Force reflow so a stalled compositor picks up the new value immediately.
-    if (document.body) {
-      void document.body.offsetHeight;
-    }
-  }
-}
-
-function clearEffects() {
-  const s = document.body.style;
-  s.removeProperty("--we-scrim-color");
-  s.removeProperty("--we-border-alpha");
-  s.removeProperty("--we-blur");
-  s.removeProperty("--we-saturate");
-  s.removeProperty("--we-glass-brightness");
-  s.removeProperty("--we-wallpaper-blur");
-  s.removeProperty("--we-media-filter");
-  s.removeProperty("--we-wallpaper-scale");
-  s.removeProperty("--we-wallpaper-flip");
-  s.removeProperty("--we-object-fit");
-  s.removeProperty("--we-wallpaper-opacity");
-  s.removeProperty("--we-wallpaper-fade-bg");
-  s.removeProperty("--we-accent");
-  s.removeProperty("--we-glass-alpha");
-  s.removeProperty("--we-glass-color");
-  document.body.removeAttribute("data-we-glass-window");
-  s.removeProperty("--we-sidebar-blur");
-  s.removeProperty("--we-sidebar-saturate");
-  s.removeProperty("--we-sidebar-alpha");
-  s.removeProperty("--we-sidebar-sheen");
-  s.removeProperty("--we-sidebar-color");
-  s.removeProperty("--we-sidebar-tint");
-  document.body.removeAttribute("data-we-sidebar-glass");
-  document.body.removeAttribute("data-we-mica"); // #73 Mica 能力钩子随 fiber 注销
-  document.body.removeAttribute("data-we-glass-fallback"); // #95 软件渲染回退钩子同上
-  s.removeProperty("--we-content-surface-alpha");
-  s.removeProperty("--we-content-surface-color");
-  s.removeProperty("--we-font-color");
-  s.removeProperty("--we-font-weight");
-  s.removeProperty("--we-font-stroke");
-  s.removeProperty("--we-font-family");
-  removeFontStyles();
-  s.removeProperty("--we-caret-color");
-  removeCaretStyles();
-  selection.sceneAudioUrl = null;
-  selection.sceneHasAudio = false;
-  syncSceneAudio(selection);
-  const scrim = document.getElementById(SCRIM_ID);
-  if (scrim) scrim.style.background = "";
-  lastScrimCss = "";
-  // 插件卸载（禁用 / HMR）后不该留下上一张壁纸的播放错误 / 被过滤提示（#84）。
-  selection.videoPlaying = true;
-  selection.videoError = "";
-  selection.blockedNote = "";
-}
+// 效果应用层（设置 → DOM）已抽到 src/effects.js：applyEffects / clearEffects 及其字体、
+// 光标、壁纸淡出底色助手都在那里；构建期由 build-client.mjs 内联回本作用域，
+// 因此下面这些 applyEffects() / clearEffects() 调用点无需改动（契约见该文件头）。
 
 // ── Picker tabs ─────────────────────────────────────────────────────────────
-// 调节面板的信息架构：六个域互斥页签，每页只留相关控件 —— 替代旧版三十个
+// 调节面板的信息架构：六个页签互斥展示，每页只留相关控件 —— 替代旧版三十个
 // 控件的单列长滚动。最后停留的页签记在 localStorage（仅 UI 状态，不进
 // config.json，也不需要 sanitize / serialize）。
 const PICKER_TAB_KEY = "dsh-wallpaper-engine:picker-tab";
@@ -5394,7 +2351,7 @@ let pickerOpener = null;
 let customFrameInput = null;
 let pickerFocusPending = false;
 // GPU 抓帧缓存状态（面板展示用）：wid 对应当前面板壁纸，pinned=缓存里已有
-// <key>_gpu.png。GPU 帧优先于「壁纸画面刷新」全部档位（按用户决策），因此
+// <key>_gpu.png。GPU 帧优先于「出图来源」的自动档（按用户决策），因此
 // 想切档位/换回 CPU 生成的画面必须先清掉它 —— 面板据此给出提示与清除入口。
 const gpuFrameUi = {
   wid: "", pinned: false, busy: false, probedAt: 0, error: "",
@@ -5422,7 +2379,7 @@ function framePreviewSrc(selLike) {
   if (!base) return "";
   return base + (base.indexOf("?") === -1 ? "?" : "&") + "we-prev=" + (gpuFrameUi.probedAt || 0);
 }
-// 探测当前壁纸的静态帧槽位状态（HEAD，纯磁盘探测，不触发 CPU 提取）。带 TTL
+// 探测当前壁纸的抓帧槽位状态（HEAD，纯磁盘探测，绝不触发任何生成）。带 TTL
 // 去重：syncLayers 调用频繁，同一壁纸 30s 内只探一次；force 用于清除后复检。
 function probeGpuFrameState(frameUrl, force) {
   const wid = String(selection.id || "");
@@ -5433,15 +2390,16 @@ function probeGpuFrameState(frameUrl, force) {
   gpuFrameUi.wid = wid;
   gpuFrameUi.probedAt = at;
   const wasPinned = gpuFrameUi.pinned;
-  fetch("/wallpaper-engine/scene-frame/" + encodeURIComponent(token), { method: "HEAD", cache: "no-store" })
-    .then((r) => {
+  apiHead("/scene-frame/" + encodeURIComponent(token))
+    .then((res) => {
       if (gpuFrameUi.wid !== wid || gpuFrameUi.probedAt !== at) return; // 期间切了壁纸
-      const pinned = Boolean(r && r.ok && r.headers && typeof r.headers.get === "function"
-        && r.headers.get("x-we-gpu") === "1");
+      const rh = res.response;
+      const pinned = Boolean(res.ok && rh && rh.headers && typeof rh.headers.get === "function"
+        && rh.headers.get("x-we-gpu") === "1");
       gpuFrameUi.pinned = pinned;
       // 存帧像素尺寸（预览窗口展示用；旧宿主没有这两个头 → 保持 0，预览只显示图）。
-      const gw = pinned ? Number(r.headers.get("x-we-gpu-w")) : 0;
-      const gh = pinned ? Number(r.headers.get("x-we-gpu-h")) : 0;
+      const gw = pinned ? Number(rh.headers.get("x-we-gpu-w")) : 0;
+      const gh = pinned ? Number(rh.headers.get("x-we-gpu-h")) : 0;
       gpuFrameUi.w = Number.isFinite(gw) && gw > 0 ? gw : 0;
       gpuFrameUi.h = Number.isFinite(gh) && gh > 0 ? gh : 0;
       gpuFrameUi.busy = false;
@@ -5485,7 +2443,7 @@ function WallpaperPicker(props) {
   // 「真实播放态」的概念。实时渲染（live iframe）形态必须排除在外：它没有
   // <video> 元素可回写真实状态，且 sceneVideo 在 live 形态下非空（降级备用），
   // 沿用视频类判定会让 playbackLive 恒为 videoPlaying=true —— 「暂停」后按钮
-  // 永不变「播放」（2026-09-22 实测）。
+  // 永不变「播放」（实测）。
   const isLiveScene = (sel.type === "scene" || sel.type === "web") && liveRenderEnabled(sel);
   const isVideoLike = !isLiveScene && (sel.type === "video"
     || (sel.type === "scene" && Boolean(sel.sceneVideo)));
@@ -5547,29 +2505,27 @@ function WallpaperPicker(props) {
   // Filter changes: persist + re-validate so wallpapers outside the selected
   // categories drop out of the grid/rotation immediately.
   const onRatingFilterChange = (e) => {
-    selection.contentRatingFilter = e.target.value;
-    persistSelection();
+    setSetting("contentRatingFilter", e.target.value);
     revalidateSelection();
   };
   const onTypeFilterChange = (e) => {
-    selection.typeFilter = e.target.value;
-    persistSelection();
+    setSetting("typeFilter", e.target.value);
     revalidateSelection();
   };
   // Card style: classic (CD-rack) vs fixed (overlap-proof).
   const onLayoutChange = (value) => {
-    selection.pickerLayout = value;
-    persistSelection();
+    setSetting("pickerLayout", value);
     emit();
   };
   // Edge 兼容渲染开关：关闭后任何浏览器都走原生 <video>。改的是渲染模式，
   // syncLayers 的 wantKey 已并入模式，emit 会重建壁纸层并立即按新路径生效。
   const onEdgeCompatChange = (checked) => {
-    selection.edgeCompat = checked;
-    persistSelection();
+    setSetting("edgeCompat", checked);
     emit();
   };
   const onGroupChange = (e) => {
+    // 换列表 ⇒ 清掉待确认（不变量 3）：否则"删除「A」？"会跟着新选中的 B 一起显示。
+    disarmConfirm();
     selection.rotationGroupId = e.target.value;
     if (selection.rotationEnabled) {
       const first = rotationCandidates()[0];
@@ -5612,100 +2568,158 @@ function WallpaperPicker(props) {
     syncRotationTimer();
     emit();
   };
+  // 「删除」按钮**只置令牌**；真正的删除在问句行的「确认」里（不变量 2）。两件事分开的
+  // 好处：守卫可以分别断言"第一下不删"与"确认才删"，而不是只验一个 if。
+  const onArmDeleteGroup = () => {
+    const group = activeRotationGroup();
+    if (!group) return;
+    armConfirm("group:" + group.id);
+  };
   const onDeleteGroup = () => {
     const group = activeRotationGroup();
     if (!group) return;
-    if (typeof window !== "undefined" && typeof window.confirm === "function") {
-      if (!window.confirm("删除轮播列表「" + group.name + "」？")) return;
-    }
+    disarmConfirm();
     deleteGroup(group.id);
   };
 
-  // Slider callbacks: keep the stored value in its canonical unit, then emit —
-  // applyEffects is a subscribed listener (see apply()), so emit() applies the
+  /**
+ * 新集的**默认名字**（面板不再让用户先取名 —— 名字之后随时能用「重命名」改）：
+ * 「我的字体集」/「我的字体集 2」… 取第一个没被占用的后缀。**确定性**（同样的清单给同样的名字），
+ * 因此可以当判据断言；碰撞只可能发生在 999 个同名前缀之后，那时退回时间戳。
+ */
+function nextFontSetName() {
+  const base = "我的字体集";
+  const taken = new Set((selection.fontSets || []).map((r) => r && r.name).filter(Boolean));
+  if (!taken.has(base)) return base;
+  for (let i = 2; i <= 999; i++) {
+    const name = base + " " + i;
+    if (!taken.has(name)) return name;
+  }
+  return base + " " + Date.now().toString(36);
+}
+
+// ── 字体集编辑器的一屏（F3 阶段 3）：**显式 ctx**，面板完全不碰 selection ──────
+// 各字段的含义见 src/fontset-editor.js 的文件头。这里只做三件事：状态从 selection 取、
+// 动作用 fontset-store 发、完事 emit()。（删除的 confirm 门控在**面板**里 —— 问那一句的地方
+// 就是按钮那儿，与轮换列表 / 移除自定义壁纸同形。）
+function fontSetCtx() {
+  const rowOf = (id) => (selection.fontSets || []).find((r) => r && r.id === id) || { id };
+  const done = () => { selection.fontSetLoading = false; emit(); };
+  const busy = (promise) => { selection.fontSetLoading = true; emit(); promise.then(done, done); };
+  return {
+    open: selection.fontSetOpen === true,
+    onOpen: (v) => {
+      selection.fontSetOpen = v === true;
+      if (selection.fontSetOpen) busy(refreshFontSets()); // 打开就拉一次清单（来源永远是宿主）
+      else disarmConfirm(); // 收起子分支 ⇒ 待确认状态一起清掉（不变量 3）
+    },
+    fontSets: selection.fontSets,
+    activeId: selection.fontSetActive,
+    // 「使用中」的判据是**值仍然一致**，不是"宿主指针指着它"：手动改过字体值 ⇒ 标记让位给「已改」。
+    // 注意 `activeId` 仍按指针给 —— 能力判定（活动集不可删、先切走）必须与宿主一致，不能受漂移影响。
+    inUseId: fontSetDrifted() ? "" : selection.fontSetActive,
+    loading: selection.fontSetLoading === true,
+    error: selection.fontSetError,
+    editingId: selection.fontSetEditing,
+    draftName: selection.fontSetDraftName,
+    armedId: armedIdOf("fontset"),
+    exportUrl: (id) => exportFontSetUrl(id),
+    onImport: (file) => busy(importFontSet(file)),
+    onActivate: (id) => busy(activateFontSet(id)),
+    onRefresh: () => busy(refreshFontSets()),
+    onDelete: (id) => { disarmConfirm(); busy(deleteFontSet(id)); },
+    // 删除的**面板内确认**：走与轮播列表 / 移除自定义画面同一套令牌（`armConfirm`）。
+    // 第一下只"待确认"，点问句行里的「确认」才发请求。
+    onArm: (id) => armConfirm("fontset:" + id),
+    onDisarm: () => disarmConfirm(),
+    onEdit: (id) => {
+      selection.fontSetEditing = id;
+      selection.fontSetDraftName = rowOf(id).name || "";
+      emit();
+    },
+    onDraftName: (v) => { selection.fontSetDraftName = String(v == null ? "" : v); emit(); },
+    onRenameCommit: (id) => busy(renameFontSet(id, selection.fontSetDraftName).then((ok) => {
+      if (ok) { selection.fontSetEditing = ""; selection.fontSetDraftName = ""; }
+    })),
+    onCancelEdit: () => { selection.fontSetEditing = ""; selection.fontSetDraftName = ""; emit(); },
+    // 先把挂起的编辑落地（否则新集可能拿到旧值），再以**当前外观**建一份并切过去。
+    // 名字由 `nextFontSetName()` 生成（面板不问；行内「重命名」随时可改）。
+    onCreate: () => busy(flushFontSetNow()
+      .then(() => createFontSet(nextFontSetName()))
+      .then(() => { emit(); })),
+  };
+}
+
+// Slider callbacks: keep the stored value in its canonical unit, then emit —  // applyEffects is a subscribed listener (see apply()), so emit() applies the
   // CSS vars synchronously AND re-renders the numeric readouts in one pass.
   // (Calling applyEffects directly here too used to double-apply every tick.)
-  const onScrim = (pct) => { selection.scrim = pct / 100; persistSelection(); emit(); };
+  const onScrim = (pct) => { setSetting("scrim", pct / 100); emit(); };
   // 壁纸透明度（#82）：存 %（0–90），applyEffects 换算成 element opacity。
   const onWallpaperOpacity = (pct) => {
-    selection.wallpaperOpacity = clampNum(pct, 0, 90, DEFAULTS.wallpaperOpacity);
-    persistSelection(); emit();
+    setSetting("wallpaperOpacity", clampNum(pct, 0, 90, DEFAULTS.wallpaperOpacity)); emit();
   };
-  const onBorder = (pct) => { selection.border = pct / 100; persistSelection(); emit(); };
-  const onBlur = (px) => { selection.blur = px; persistSelection(); emit(); };
+  const onBorder = (pct) => { setSetting("border", pct / 100); emit(); };
+  const onBlur = (px) => { setSetting("blur", px); emit(); };
   // 切换过场（类型 / 方向 / 速度）：只写选择 —— 下一次换壁纸（手动点选或轮换提交）
   // 生效，不需要重建当前层。
   const onSwitchTransition = (id) => {
     if (!SWITCH_TRANSITION_VALUES.includes(id)) return;
-    selection.switchTransition = id;
-    persistSelection(); emit();
+    setSetting("switchTransition", id); emit();
   };
   const onSwitchTransitionDir = (dir) => {
     if (!SWITCH_DIRS.includes(dir)) return;
-    selection.switchTransitionDir = dir;
-    persistSelection(); emit();
+    setSetting("switchTransitionDir", dir); emit();
   };
   const onSwitchTransitionSpeed = (id) => {
     if (!SWITCH_SPEED_VALUES.includes(id)) return;
-    selection.switchTransitionSpeed = id;
-    persistSelection(); emit();
+    setSetting("switchTransitionSpeed", id); emit();
   };
-  const onWallpaperBlur = (px) => { selection.wallpaperBlur = px; persistSelection(); emit(); };
-  const onBackgroundBrightness = (pct) => { selection.backgroundBrightness = pct; persistSelection(); emit(); };
-  const onBackgroundContrast = (pct) => { selection.backgroundContrast = pct; persistSelection(); emit(); };
-  const onBackgroundSaturate = (pct) => { selection.backgroundSaturate = pct; persistSelection(); emit(); };
+  const onWallpaperBlur = (px) => { setSetting("wallpaperBlur", px); emit(); };
+  const onBackgroundBrightness = (pct) => { setSetting("backgroundBrightness", pct); emit(); };
+  const onBackgroundContrast = (pct) => { setSetting("backgroundContrast", pct); emit(); };
+  const onBackgroundSaturate = (pct) => { setSetting("backgroundSaturate", pct); emit(); };
   // 配色 (accent color) + 玻璃透明度 (glass transparency) + 玻璃颜色 (glass base
   // tint): applied instantly through applyEffects() (--we-accent /
   // --we-glass-alpha / --we-glass-color), persisted so the settings page keeps
   // its custom look across reloads.
   const onAccent = (hex) => {
     if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-    selection.accent = hex;
-    persistSelection(); emit();
+    setSetting("accent", hex); emit();
   };
   const onGlassColor = (hex) => {
     if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-    selection.glassColor = hex;
-    persistSelection(); emit();
+    setSetting("glassColor", hex); emit();
   };
   const onGlassAlpha = (pct) => {
-    selection.glassAlpha = clampNum(pct, 0, 60, DEFAULTS.glassAlpha);
-    persistSelection(); emit();
+    setSetting("glassAlpha", clampNum(pct, 0, 60, DEFAULTS.glassAlpha)); emit();
   };
   // 侧栏玻璃（dsh-better-sidebar）：独立于会话玻璃的一套细粒度控制，各自立即
   // 生效并持久化（--we-sidebar-blur / --we-sidebar-alpha / --we-sidebar-color）。
   const onSidebarBlur = (px) => {
-    selection.sidebarBlur = clampNum(px, 0, 200, DEFAULTS.sidebarBlur);
-    persistSelection(); emit();
+    setSetting("sidebarBlur", clampNum(px, 0, 200, DEFAULTS.sidebarBlur)); emit();
   };
   const onSidebarAlpha = (pct) => {
-    selection.sidebarAlpha = clampNum(pct, 0, 200, DEFAULTS.sidebarAlpha);
-    persistSelection(); emit();
+    setSetting("sidebarAlpha", clampNum(pct, 0, 200, DEFAULTS.sidebarAlpha)); emit();
   };
   const onSidebarColor = (hex) => {
     if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-    selection.sidebarColor = hex;
-    persistSelection(); emit();
+    setSetting("sidebarColor", hex); emit();
   };
   // Mascot pull-cord show/hide, persisted with the other toggles.
   const onRopeVisibilityChange = (e) => {
-    selection.ropeShown = e.target.checked;
-    persistSelection(); emit();
+    setSetting("ropeShown", e.target.checked); emit();
   };
   // Mascot form (maid / whale) + scale, persisted with the other rope settings.
   const onRopeFormChange = (form) => {
     if (!ROPE_FORM_VALUES.includes(form)) return;
-    selection.ropeForm = form;
-    persistSelection(); emit();
+    setSetting("ropeForm", form); emit();
   };
   const onRopeScaleChange = (scale) => {
-    selection.ropeScale = clampNum(scale, ROPE_SCALE_MIN, ROPE_SCALE_MAX, DEFAULTS.ropeScale);
-    persistSelection(); emit();
+    setSetting("ropeScale", clampNum(scale, ROPE_SCALE_MIN, ROPE_SCALE_MAX, DEFAULTS.ropeScale)); emit();
   };
   // 内容面（编辑器/终端）近不透明玻璃底：透明度滑块 + 底色（空 = 跟随主题）。
   const onSidebarContentAlpha = (pct) => {
-    selection.sidebarContentAlpha = clampNum(pct, 0, 80, DEFAULTS.sidebarContentAlpha);
-    persistSelection(); applyEffects(); emit();
+    setSetting("sidebarContentAlpha", clampNum(pct, 0, 80, DEFAULTS.sidebarContentAlpha)); applyEffects(); emit();
   };
   const onSidebarContentColor = (hex) => {
     if (hex === "") {
@@ -5714,42 +2728,147 @@ function WallpaperPicker(props) {
       return;
     }
     if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-    selection.sidebarContentColor = hex;
-    persistSelection(); applyEffects(); emit();
+    setSetting("sidebarContentColor", hex); applyEffects(); emit();
   };
   // 字体自定义（#57 精简回归版）：总开关 + 颜色/字重/字体族，各项立即生效并持久化。
   const onToggleFontCustom = (v) => {
-    selection.fontCustom = !!v;
-    persistSelection(); applyEffects(); emit();
+    setSetting("fontCustom", !!v); applyEffects(); emit();
   };
-  const onFontColor = (hex) => {
-    if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-    selection.fontColor = hex;
-    persistSelection(); applyEffects(); emit();
+  // F1：角色色。默认「单色」—— 一个色同时写进 light/dark 两套（内部始终存两套，
+// 因为令牌服务的值必须是 {light,dark} 对，缺一套在另一套配色下会不可读）。
+// G4 字族（角色级）：空 = 回官方字族。存**族键**（CSS 栈由 fontFamilyStack 在模块侧解析）。
+const onThemeFamily = (role, key) => {
+  const next = Object.assign({}, selection.themeFamily);
+  if (!key) delete next[role];
+  else next[role] = key;
+  setFontValues({ themeFamily: next }); applyEffects(); emit();
+};
+
+// F2/G4 字号（角色级，**绝对值**）：空 = 用 DSH 官方值（角色表的 defaultPx 即面板显示的默认）。
+const onThemeSize = (role, raw) => {
+  const next = Object.assign({}, selection.themeSize);
+  const num = raw === "" ? NaN : Number(raw);
+  if (!Number.isFinite(num)) delete next[role];
+  else next[role] = Math.round(num);
+  setFontValues({ themeSize: next }); applyEffects(); emit();
+};
+
+// G4 字重（角色级）：空/0 = 回官方字重（组合式里的字面量前缀）。
+const onThemeWeight = (role, raw) => {
+  const next = Object.assign({}, selection.themeWeight);
+  const num = raw === "" ? NaN : Number(raw);
+  if (!Number.isFinite(num)) delete next[role];
+  else next[role] = Math.round(num);
+  setFontValues({ themeWeight: next }); applyEffects(); emit();
+};
+
+// G3/G4：组件级字体。空/删键 = 回官方值（**官方值作初始值**）。
+const onComponentFont = (prefix, prop, raw) => {
+  const next = Object.assign({}, selection.componentFonts);
+  const one = Object.assign({}, next[prefix]);
+  const num = raw === "" ? NaN : Number(raw);
+  if (!Number.isFinite(num)) delete one[prop];
+  else one[prop] = Math.round(num);
+  if (Object.keys(one).length) next[prefix] = one;
+  else delete next[prefix];
+  setFontValues({ componentFonts: next }); applyEffects(); emit();
+};
+
+const onThemeColor = (role, mode, hex, separate) => {
+  const cur = selection.themeColors[role] || { light: "", dark: "" };
+  const next = { light: cur.light || "", dark: cur.dark || "" };
+  if (separate) next[mode] = hex;
+  else { next.light = hex; next.dark = hex; }
+  setFontValues({ themeColors: Object.assign({}, selection.themeColors, { [role]: next }) }); applyEffects(); emit();
+};
+const onThemeColorClear = (role) => {
+  const next = Object.assign({}, selection.themeColors);
+  delete next[role];
+  setFontValues({ themeColors: next }); applyEffects(); emit();
+};
+// 视图开关（defaults-only，不持久化）：只列调过的角色，便于收尾核对。
+const onThemeTypeOnly = (v) => {
+  selection.themeTypeOnly = v;
+  emit();
+};
+
+const onThemeDarkSeparate = (v) => {
+  setFontValues({ themeDarkSeparate: v }); applyEffects(); emit();
+};
+  // 全局字重与全局字体族都已移除：字重/字族都按角色与按组件细化（见 src/font/）。
+  // 「高级字体设置」视图开关（defaults-only，不持久化）。
+  const onFontAdvanced = (v) => {
+    selection.fontAdvanced = v;
+    emit();
   };
-  const onFontWeight = (v) => {
-    selection.fontWeight = clampNum(v, 100, 900, DEFAULTS.fontWeight);
-    persistSelection(); applyEffects(); emit();
+  // 组件字体族：存 **CSS 栈**（模块把它直接写进 font-family），不是族键。
+  const onComponentFamily = (prefix, key) => {
+    const next = Object.assign({}, selection.componentFonts);
+    const one = Object.assign({}, next[prefix]);
+    if (!key) delete one.family;
+    else one.family = fontFamilyStack(key);
+    if (Object.keys(one).length) next[prefix] = one;
+    else delete next[prefix];
+    setFontValues({ componentFonts: next }); applyEffects(); emit();
   };
-  const onFontFamily = (family) => {
-    if (!FONT_FAMILY_VALUES.includes(family)) return;
-    selection.fontFamily = family;
-    persistSelection(); applyEffects(); emit();
+  // 颜色角色的「当前 DSH 默认值」：宿主墨色快照（snapshotHostFontDefaults 写在 documentElement
+// 上）转为 #rrggbb 供 <input type="color"> 用。取不到就返回空串 —— 面板会退回显示"跟随"，
+// 不影响覆盖能力。这样色块本身显示的就是当前实际生效的颜色，而不是占位字样。
+const toHexColor = (v) => {
+  const s = String(v || "").trim();
+  if (/^#[0-9a-f]{6}$/i.test(s)) return s;
+  const m = s.match(/^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/i);
+  if (!m) return "";
+  const h = (n) => Number(n).toString(16).padStart(2, "0");
+  return "#" + h(m[1]) + h(m[2]) + h(m[3]);
+};
+const officialColorOf = (tokens) => {
+  try {
+    const es = document.documentElement.style;
+    for (const t of tokens || []) {
+      const hex = toHexColor(es.getPropertyValue("--we-host-" + t.slice(2)));
+      if (hex) return hex;
+    }
+  } catch { /* ignore */ }
+  return "";
+};
+
+// 「恢复默认」：所有字体自定义项清回 DSH 默认值（空 = 不覆盖；字体族回 inherit）。
+// 这五个容器 + themeDarkSeparate 是**字体集正文**的键 ⇒ 整批赋值后走 persistFontSet()
+//（它们已不在 settings 白名单里，`setSetting` 那条通道不会把它们写出去）。
+// ⚠️ 这是那六个键**唯一**允许出现字面直写的地方（逐键走 `setFontValues` 会发 6 次 PUT）；
+//    判据：`verify-fontset` ⑦ 的字面直写棘轮 —— 别处的直写会让它变红。
+  const onFontResetAll = () => {
+    selection.themeColors = {};
+    selection.themeSize = {};
+    selection.themeWeight = {};
+    selection.themeFamily = {};
+    selection.componentFonts = {};
+    selection.themeDarkSeparate = false;
+    // 「只看改过的」是**视图**状态，不归"恢复默认"管：它清的是字体值，不该顺手把用户选的筛选
+    // 也翻掉（那会让"恢复默认"改掉界面的看法）。判据钉住这一点。
+    persistFontSet();
+    // `fontAdvanced` 是**仅默认值**键（不在持久化白名单里）⇒ 走**瞬态**入口。走 `setSetting` 会顺手
+    // `persistSelection()`，把一个永远不会被写出去的键送进 debounce 队列 —— 白跑一次宿主 PUT。
+    // 判据：`verify-client` ⑤d ①c（DEFAULTS_ONLY 键不得经落盘通道写，键集从 schema 派生）。
+    setTransient("fontAdvanced", false); applyEffects(); emit();
   };
-  // 壁纸画面刷新：当前场景壁纸循环切换静态帧生成档位（按壁纸记忆）。
-  // 档位数=4；已导入自定义画面时为 5（第 5 档=用户截屏）。
+  // 出图来源：当前场景壁纸在「自动 ⇄ 自定义画面」之间切换（按壁纸记忆）。
+  // 只有一档可切（没导入自定义画面）时**不动** —— 避免"点了没反应"。
   const onRefreshFrame = () => {
     if (sel.type !== "scene" || !sel.sceneFrameUrl) return;
     const wid = String(sel.id);
     const total = frameVariantCount(sel, wid);
-    const cur = (Number(sel.frameVariants && sel.frameVariants[wid]) || 0) % total;
-    const next = (cur + 1) % total;
+    if (total < 2) return;
+    // 推进**下标**、存**档位值**：值域有洞（0 与 4），取模会造出 1/2/3 这种退役档位。
+    const cur = Number(sel.frameVariants && sel.frameVariants[wid]) || 0;
+    const idx = Math.max(0, FRAME_VARIANTS.findIndex((f) => f.id === cur));
+    const next = FRAME_VARIANTS[(idx + 1) % total].id;
     const map = Object.assign({}, selection.frameVariants || {});
     map[wid] = next;
     selection.frameVariants = map;
-    // 刷新作用于静态帧：把层切回当前档位的静态帧。
-    selection.url = frameUrlWithVariant(sel.sceneFrameUrl, next);
-    persistSelection(); syncLayers(); emit();
+    // 切换作用于出图来源：把层切到该档的画面。
+    setSetting("url", frameUrlWithVariant(sel.sceneFrameUrl, next)); syncLayers(); emit();
   };
   // 清除 GPU 抓帧缓存（<key>_gpu.png）：按用户决策 GPU 帧优先于全部档位，
   // 所以「切档位 / 换回 CPU 生成画面」的前置动作就是先删掉它。删除后立刻按
@@ -5762,16 +2881,10 @@ function WallpaperPicker(props) {
     gpuFrameUi.wid = wid;
     gpuFrameUi.busy = true;
     emit();
-    fetch("/wallpaper-engine/scene-frame-cache/" + encodeURIComponent(token), { method: "DELETE" })
-      .then(async (r) => {
-        // 宿主回 200 也可能没删掉（unlink 失败时 removed:false，评审 P2-L）：只判
-        // r.ok 会把「假成功」当清除 —— 面板行消失、提示已清除，而画面没变、也没
-        // 任何错误提示。这里把 removed:false 一并当失败（旧宿主无该字段 → 按 HTTP 判）。
-        let declaredRemoved = true;
-        try {
-          const body = await r.json();
-          if (body && body.removed === false) declaredRemoved = false;
-        } catch { /* 无 body：按 HTTP 状态判 */ }
+    apiDelete("/scene-frame-cache/" + encodeURIComponent(token), { parse: true })
+      .then((r) => {
+        // 宿主回 200 也可能没删掉（`removed:false`）⇒ 语义统一走 removedFromResponse。
+        const declaredRemoved = removedFromResponse(r);
         if (!r.ok || !declaredRemoved) {
           gpuFrameUi.busy = false;
           gpuFrameUi.error = !r.ok ? ("清除失败：宿主返回 " + r.status) : "清除失败：缓存文件未删除（权限或占用）";
@@ -5788,8 +2901,7 @@ function WallpaperPicker(props) {
         if (String(selection.id || "") !== wid) { gpuFrameUi.busy = false; emit(); return; }
         gpuFrameUi.busy = false;
         const variant = Number(selection.frameVariants && selection.frameVariants[wid]) || 0;
-        selection.url = frameUrlWithVariant(sel.sceneFrameUrl, variant);
-        persistSelection(); syncLayers(); emit();
+        setSetting("url", frameUrlWithVariant(sel.sceneFrameUrl, variant)); syncLayers(); emit();
       })
       .catch(() => {
         gpuFrameUi.busy = false;
@@ -5829,7 +2941,8 @@ function WallpaperPicker(props) {
     // force：即使槽里已有 GPU 帧也重抓一张（用户显式要求换一张）。
     scheduleLiveFrameBackfill(live, { force: true });
   };
-  // 自定义画面（截屏导入）：从 WE 等处截图后导入，成为该壁纸第 5 档显示源。
+  // 自定义画面（截屏导入）：从 WE 等处截图后导入，成为该壁纸的「自定义画面」档
+  // （?v=4）显示源。
   const setCustomFrameLocal = (wid, on) => {
     const m = Object.assign({}, selection.customFrames || {});
     if (on) m[wid] = true; else delete m[wid];
@@ -5842,12 +2955,12 @@ function WallpaperPicker(props) {
     const wid = String(sel.id);
     const ctype = (file.type === "image/jpeg" || file.type === "image/png" || file.type === "image/webp")
       ? file.type : "image/png";
-    fetch("/wallpaper-engine/custom-frame/" + encodeURIComponent(wid), {
+    apiFetch("/custom-frame/" + encodeURIComponent(wid), {
       method: "POST",
       headers: { "Content-Type": ctype },
       body: file,
     }).then((r) => {
-      if (!r.ok) throw new Error("HTTP " + r.status);
+      if (!r.ok) throw new Error("宿主返回 " + r.status);
       setCustomFrameLocal(wid, true);
       const map = Object.assign({}, selection.frameVariants || {});
       map[wid] = 4;
@@ -5855,16 +2968,15 @@ function WallpaperPicker(props) {
       // 上传可能花掉秒级（截屏多 MB）：期间用户切走就只记账到发起时那张壁纸，
       // 不改当前壁纸的 URL（否则当前壁纸会被套上旧壁纸的档位 4，评审 P2）。
       if (String(selection.id || "") !== wid) { persistSelection(); emit(); return; }
-      if (sel.sceneFrameUrl) selection.url = frameUrlWithVariant(sel.sceneFrameUrl, 4);
-      persistSelection(); syncLayers(); emit();
+      if (sel.sceneFrameUrl) setSetting("url", frameUrlWithVariant(sel.sceneFrameUrl, 4)); syncLayers(); emit();
     }).catch(() => { /* 导入失败保持现状 */ });
   };
   const onClearCustomFrame = () => {
     if (!sel.id) return;
     const wid = String(sel.id);
-    fetch("/wallpaper-engine/custom-frame/" + encodeURIComponent(wid), { method: "DELETE" })
+    apiDelete("/custom-frame/" + encodeURIComponent(wid))
       .then((r) => {
-        if (!r.ok) throw new Error("HTTP " + r.status);
+        if (!r.ok) throw new Error("宿主返回 " + r.status);
         setCustomFrameLocal(wid, false);
         const map = Object.assign({}, selection.frameVariants || {});
         const cur = Number(map[wid]) || 0;
@@ -5881,17 +2993,17 @@ function WallpaperPicker(props) {
   // 输入光标颜色（#83）："" = 跟随 dsh 原生（自动档），hex = 立即注入并持久化。
   const onCaretColor = (hex) => {
     if (hex === "") {
-      selection.caretColor = "";
-      persistSelection(); applyEffects(); emit();
+      setSetting("caretColor", ""); applyEffects(); emit();
       return;
     }
     if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-    selection.caretColor = hex;
-    persistSelection(); applyEffects(); emit();
+    setSetting("caretColor", hex); applyEffects(); emit();
   };
 
   // Close the picker modal (ESC / backdrop / close buttons share this path).
   const closePicker = () => {
+    // 关模态框 ⇒ 清掉待确认（不变量 3）：否则重新打开时会看到一个针对上次那个对象的问句。
+    disarmConfirm();
     selection.pickerOpen = false;
     selection.batchMode = false;
     selection.batchSelected = [];
@@ -5926,12 +3038,14 @@ function WallpaperPicker(props) {
     return () => { document.body.style.overflow = prev; };
   }, [sel.pickerOpen]);
 
-  // ── 页签状态：调节面板分六个域（壁纸/外观/字体/吉祥物/效果/高级），每份
+  // ── 页签状态：调节面板分六个页签（壁纸/外观/吉祥物/效果/声音/高级），每份
   //    实例独立记忆（设置页与仓库抽屉互不影响）；只存 localStorage，不进
   //    config.json。useState 必须在下方早退分支之前调用（Rules of Hooks）。 ──
   const [activeTab, setActiveTab] = React.useState(readSavedPickerTab);
   const switchTab = (id) => {
     if (!PICKER_TABS.some((t) => t.id === id) || id === activeTab) return;
+    // 切页签 ⇒ 清掉待确认（不变量 3）：问句行随页签一起离屏，不能留着它等回来。
+    disarmConfirm();
     setActiveTab(id);
     try { localStorage.setItem(PICKER_TAB_KEY, id); } catch { /* ignore */ }
   };
@@ -5950,31 +3064,25 @@ function WallpaperPicker(props) {
   }
 
   const list = sel.inventory.wallpapers;
-  // Title search (picker modal): narrows the playable grid on top of the
-  // rating/type filters. Case-insensitive substring match.
-  const query = (sel.search || "").trim().toLowerCase();
-  // Only playable Video/Web/Image wallpapers are shown — Scene/Application
-  // cannot be embedded in the web UI, so hiding them keeps the grid useful.
-  // Hidden (soft-deleted) wallpapers leave this list and move to the 已隐藏
-  // section. The rating/type filters further narrow playableList.
-  const playableList = list.filter((w) =>
-    isRotatableWallpaper(w) && !isHiddenWallpaper(w.id)
-    && (!query || String(w.title || "").toLowerCase().indexOf(query) !== -1));
-  // Per-category counts for the two filter dropdowns (playable, non-hidden):
-  // they reflect what is actually available, independent of the active filters.
-  const basePlayable = list.filter((w) => isPlayableType(w) && !isHiddenWallpaper(w.id));
-  // Single-pass aggregation — used to be 10 separate O(n) filters per render
-  // (5 rating options + 5 type options, each a full basePlayable scan).
-  const ratingCounts = { everyone: 0, pg13: 0, mature: 0, unrated: 0 };
-  const typeCounts = { video: 0, web: 0, image: 0, scene: 0 };
-  for (const w of basePlayable) {
-    const r = ratingOf(w);
-    ratingCounts[r] = (ratingCounts[r] || 0) + 1;
-    typeCounts[w.type] = (typeCounts[w.type] || 0) + 1;
-  }
+  // 派生数据 + 分页全部由 **src/picker-model.js** 算（`pickerModel`）：可播放网格、两个
+  // 过滤下拉的分档计数、隐藏列表，以及三个列表各自的当页切片。搜索是大小写不敏感的
+  // 标题子串匹配（空查询 = 不过滤），每页 24 张，页号越界自动 clamp。这里只把状态喂
+  // 进去、把结果取出来 —— 组件体不再就地算这些（分级/类型/隐藏的判定也在那边）。
+  const {
+    query, playableList, basePlayable, ratingCounts, typeCounts, hiddenList,
+    normalPage, hiddenPageView, editorPageView,
+  } = pickerModel({
+    wallpapers: list,
+    hiddenIds: selection.hiddenIds,
+    search: sel.search,
+    ratingFilter: sel.contentRatingFilter,
+    typeFilter: sel.typeFilter,
+    page: sel.page,
+    hiddenPage: sel.hiddenPage,
+    editorPage: sel.editorPage,
+  });
   // CD-rack mode: compact one-page grid (no pagination) + stronger overlap.
   const cdMode = sel.pickerLayout === "classic";
-  const hiddenList = hiddenInventoryList();
   const current = list.find((w) => w.id === sel.id) || null;
   const uploadedList = list.filter((w) => isUploadedWallpaper(w) && !isDirWallpaper(w));
   const groups = sel.rotationGroups;
@@ -5984,19 +3092,9 @@ function WallpaperPicker(props) {
   const editing = sel.editing;
   const INTERVALS = [1, 5, 10, 30, 60, 120];
 
-  // ── Pagination: big libraries must not render every card at once (hundreds
-  //    of thumbnails per emit make the picker lag). Each list slices to one
-  //    page of PAGE_SIZE cards; the page number clamps automatically when the
-  //    list shrinks (hide/restore/refresh). ──
-  const PAGE_SIZE = 24;
-  function pageSlice(list, page) {
-    const pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
-    const p = Math.min(Math.max(0, page | 0), pages - 1);
-    return { items: list.slice(p * PAGE_SIZE, (p + 1) * PAGE_SIZE), page: p, pages };
-  }
-  const normalPage = pageSlice(playableList, sel.page);
-  const hiddenPageView = pageSlice(hiddenList, sel.hiddenPage);
-  const editorPageView = pageSlice(playableInventory(), sel.editorPage);
+  // ── Pagination row: big libraries must not render every card at once (hundreds
+  //    of thumbnails per emit make the picker lag). The slicing itself is the
+  //    model's (`pageSlice` in src/picker-model.js); 这里只画「上一页 / 下一页」。──
   const pagerRow = (count, page, pages, onPrev, onNext) =>
     React.createElement("div", { className: "we-picker__pager" },
       React.createElement("span", { className: "we-picker__hint" },
@@ -6013,1185 +3111,90 @@ function WallpaperPicker(props) {
       }, "下一页 ›"),
     );
 
-  // ── 壁纸属性面板（渲染）──────────────────────────────────────────────────
-  // 按 ptype 出控件；拖动类（slider/color）在 input 时就热更新但**不重渲染**
-  //（拖动中每帧 emit 整个选择器很浪费），change 时才 emit 刷新数值回显。
-  function renderUserPropRow(p) {
-    if (p.ptype === "text" || p.ptype === "group") {
-      return React.createElement("div", {
-        key: p.name, className: "we-picker__props-section",
-      }, p.text);
-    }
-    const label = React.createElement("span", { className: "we-picker__props-label", title: p.name },
-      p.text,
-      p.overridden && React.createElement("span", { className: "we-picker__props-dot", title: "已改（点「恢复默认」还原）" }, "•"),
-    );
-    let control = null;
-    if (p.ptype === "bool") {
-      control = React.createElement("input", {
-        type: "checkbox", className: "we-picker__props-check",
-        checked: p.value === true,
-        onChange: (e) => onUserPropInput(p, e.target.checked, false),
-      });
-    } else if (p.ptype === "color") {
-      control = React.createElement("input", {
-        type: "color", className: "we-picker__props-color",
-        value: weColorToHex(p.value),
-        onInput: (e) => onUserPropInput(p, weHexToColor(e.target.value), true),
-        onChange: (e) => onUserPropInput(p, weHexToColor(e.target.value), false),
-      });
-    } else if (p.ptype === "slider") {
-      const min = typeof p.min === "number" ? p.min : 0;
-      const max = typeof p.max === "number" ? p.max : 1;
-      const step = typeof p.step === "number" && p.step > 0 ? p.step : (max - min) / 100;
-      const digits = typeof p.precision === "number" ? Math.max(0, Math.min(6, p.precision)) : 2;
-      const shown = typeof p.value === "number" ? p.value.toFixed(digits) : String(p.value === null ? "" : p.value);
-      control = React.createElement(React.Fragment, null,
-        React.createElement("input", {
-          type: "range", className: "we-picker__slider",
-          min, max, step,
-          value: typeof p.value === "number" ? p.value : min,
-          onInput: (e) => onUserPropInput(p, Number(e.target.value), true),
-          onChange: (e) => onUserPropInput(p, Number(e.target.value), false),
-        }),
-        React.createElement("span", { className: "we-picker__props-value" }, shown),
-      );
-    } else if (p.ptype === "combo" && Array.isArray(p.options)) {
-      // 选项值可能是数字/字符串/布尔混用：用**下标**做 select 的值，回写时取回
-      // 声明类型（字符串化会让壁纸里的 === / switch 失配）。
-      const idx = Math.max(0, p.options.findIndex((o) => sameUserPropValue(o.value, p.value)));
-      control = React.createElement("select", {
-        className: "we-picker__props-select",
-        value: String(idx),
-        onChange: (e) => {
-          const opt = p.options[Number(e.target.value)];
-          if (opt) onUserPropInput(p, opt.value, false);
-        },
-      }, p.options.map((o, i) => React.createElement("option", {
-        key: i, value: String(i),
-      }, o.label)));
-    } else if ((p.ptype === "file" || p.ptype === "directory") && Array.isArray(p.files)) {
-      const cur = typeof p.value === "string" ? p.value : "";
-      const list = p.files.includes(cur) || !cur ? p.files : [cur].concat(p.files);
-      control = React.createElement("select", {
-        className: "we-picker__props-select",
-        value: cur,
-        onChange: (e) => onUserPropInput(p, e.target.value, false),
-      }, [{ label: "（默认）", value: "" }].concat(list.map((f) => ({ label: f, value: f })))
-        .map((o, i) => React.createElement("option", { key: i, value: o.value }, o.label)));
-    } else {
-      control = React.createElement("input", {
-        type: "text", className: "we-picker__props-text",
-        defaultValue: typeof p.value === "string" ? p.value : "",
-        // 文本类不做逐键热更新（每敲一下都跑一遍壁纸的属性处理太重），失焦/回车生效
-        onChange: (e) => onUserPropInput(p, e.target.value, false),
-      });
-    }
-    return React.createElement("div", { key: p.name, className: "we-picker__props-row" }, label, control);
-  }
-
+  // ── 壁纸属性面板的接线（P3-11 阶段 3）────────────────────────────────────
+  // 面板标记搬去了 `src/picker-props-panel.js`（构建期内联回本作用域）。这里只做**组装**：
+  // 面板状态（开关 / token / 加载态 / 错误 / 属性表 / 实时渲染是否接管）与三个动作
+  // （该重拉时重拉、改一个属性、恢复默认）都留在本文件 —— 状态与处理器是 ctx 的**供给方**，
+  // 渲染器只拿值 + 回调（同模态框那条契约）。`ensureDefs` 里的判定就是原来内联的那一句：
+  // token 变了且不在加载中才重拉。
   function renderUserPropsPanel() {
-    if (!propsPanelOpen) return null;
-    const token = propTokenOf(sel);
-    if (!token) return null;
-    // 面板开着换了壁纸：拉当前这张的属性
-    if (propsState.token !== token && !propsState.loading) loadUserPropDefs(token, true);
-    const values = {};
-    for (const p of propsState.props) {
-      if (p.ptype !== "text" && p.ptype !== "group") values[p.name] = p.value;
-    }
-    const rows = propsState.props
-      .filter((p) => !p.condition || weEvalCondition(p.condition, values))
-      .map((p) => renderUserPropRow(p));
-    const note = propsState.loading
-      ? "读取中…"
-      : propsState.error
-        ? propsState.error
-        : rows.length
-          ? ""
-          : propsState.props.length
-            ? "当前条件下没有可调项"
-            : "这张壁纸没有用户属性（project.json 的 general.properties）";
-    return React.createElement("div", { className: "we-picker__props" },
-      React.createElement("div", { className: "we-picker__props-head" },
-        React.createElement("span", { className: "we-picker__props-title" }, "壁纸属性"),
-        React.createElement("span", { className: "we-picker__props-note" }, note),
-        React.createElement("button", {
-          className: "we-picker__btn we-picker__btn--mini", type: "button",
-          onClick: resetUserProps,
-          disabled: !propsState.props.some((p) => p.overridden),
-        }, "恢复默认"),
-      ),
-      // 实时渲染没接管时改动不会立刻可见 —— 明说，免得以为面板坏了
-      !sel.sceneLiveActive && React.createElement("div", { className: "we-picker__props-hint" },
-        "实时渲染当前未接管（静态帧 / 兼容模式），改动会在下次实时渲染时生效。"),
-      rows,
-    );
+    return renderPickerPropsPanel({
+      open: propsPanelOpen,
+      token: propTokenOf(sel),
+      loading: propsState.loading,
+      error: propsState.error,
+      props: propsState.props,
+      sceneLiveActive: sel.sceneLiveActive,
+      ensureDefs: (token) => {
+        if (propsState.token !== token && !propsState.loading) loadUserPropDefs(token, true);
+      },
+      onPropInput: onUserPropInput,
+      onReset: resetUserProps,
+    });
   }
 
   // ── 页签面板内容（函数声明提升，renderActiveTab 在 return 里先调用）──────
-  function renderWallpaperTab() {
-    // 当前过场（类型 + 方向 + 实测算出的毫秒）：一次算好给三行控件用。
-    const switchTr = switchTransitionOf(sel);
-    return React.createElement(React.Fragment, null,
-      // ── 当前壁纸: vinyl record beside the selection, in both card styles. ──
-      React.createElement("div", { className: "we-picker__section" },
-        React.createElement("div", { className: "we-picker__section-head" },
-          React.createElement("span", { className: "we-picker__section-label" }, "当前壁纸"),
-        ),
-        React.createElement("div", { className: "we-picker__current" },
-          React.createElement(VinylRecord, {
-            cover: current && current.preview, title: current ? current.title : "",
-            playing: playbackLive && Boolean(sel.url) && vinylSpinVisible(),
-          }),
-          React.createElement("div", { className: "we-picker__current-info" },
-            React.createElement("div", { className: "we-picker__current-title", title: current ? current.title : "" },
-              sel.id && current ? current.title : "未选择壁纸",
-              // 类型 + 播放态：宽卡片里另起一行；抽屉（窄容器）里由 CSS 改成
-              // 「名称（类型 · 播放中）」同一行，整行超出省略（见 .we-repo-panel 规则）。
-              React.createElement("span", { className: "we-picker__current-meta" },
-                current
-                  ? ({ video: "视频壁纸", web: "网页壁纸", image: "图片壁纸", scene: isLiveScene ? "场景壁纸（实时渲染）" : "场景壁纸（静态帧）" }[current.type] || "壁纸") + (playbackLive ? " · 播放中" : " · 已暂停")
-                  : "尚未选择壁纸")),
-            // 失败/被过滤的原因说明包一层：抽屉里该层用 display:contents 展开成
-            // grid 项（标题已独走第一行），靠这个包裹层保证「一行一项」。
-            React.createElement("div", { className: "we-picker__current-sub" },
-            // 播放失败原因（#84）: 浏览器解不了的编码 / 解码失败等，过去是
-            // 「静默空白」，现在给出可读原因，配合下面的「播放」按钮重试。
-            sel.videoError && React.createElement("div", { className: "we-picker__current-error" }, sel.videoError),
-            // 选择被过滤条件排除（#84）: 过去壁纸层直接空白、按钮变灰且无任何
-            // 说明，现在明确指出是哪一项过滤挡住了、怎么恢复。
-            sel.blockedNote && React.createElement("div", { className: "we-picker__current-error" }, sel.blockedNote),
-            // 实时渲染失败原因（自动回退到旧链时显示）：让「为什么黑」可见 ——
-            // 用户反馈时能直接说明，也提示了重试入口（重开「实时渲染」开关）。
-            liveFailReasonOf(sel) && React.createElement("div", { className: "we-picker__current-error" },
-              "实时渲染失败（" + liveFailReasonOf(sel) + "），已自动回退；重新打开「实时渲染」开关可重试",)
-            ),
-          ),
-          // 主操作区：壁纸属性（仅场景/网页壁纸）+ 选择壁纸。抽屉里两个按钮上下
-          // 排列（8px 间距），宽卡片里并排 —— 见 .we-picker__current-actions 的 CSS。
-          React.createElement("div", { className: "we-picker__current-actions" },
-            (current && (current.type === "scene" || current.type === "web") && sel.propsUrl)
-              && React.createElement("button", {
-                className: "we-picker__btn we-picker__btn--props" + (propsPanelOpen ? " is-on" : ""),
-                type: "button",
-                title: "壁纸作者提供的可调属性（改动立即生效）",
-                onClick: () => {
-                  propsPanelOpen = !propsPanelOpen;
-                  if (propsPanelOpen) loadUserPropDefs(propTokenOf(sel), true);
-                  emit();
-                },
-              }, "壁纸属性"),
-            React.createElement("button", {
-              className: "we-picker__btn we-picker__btn--primary", type: "button",
-              ref: (el) => { pickerOpener = el; },
-              onClick: () => {
-                selection.pickerOpen = true;
-                selection.modalView = "normal";
-                pickerFocusPending = true; // 打开后焦点落入模态框（见 modalInitialFocus）
-                emit();
-              },
-            }, "选择壁纸"),
-          ),
-        ),
-        // 属性面板紧贴卡片下方（同一节里），抽屉/弹窗两种形态都可见。
-        renderUserPropsPanel(),
-        // Playback controls (wallpaper-independent; the thumbnail grid lives in
-        // the modal above, so these stay within reach).
-        React.createElement("div", { className: "we-picker__row" },
-          React.createElement("button", {
-            className: "we-picker__btn", type: "button",
-            onClick: onTogglePlay, disabled: !sel.url,
-            // 按钮显示真实状态（#84）: 播放失败时回到「播放」，就是用户要的「继续」。
-          }, playbackLive ? "暂停" : "播放"),
-          // 音乐开关：与「播放」同级的一键切换。只影响音轨，不动播放态 ——
-          // 关掉后画面继续播放。仅对含音轨的壁纸类型显示（视频 / 场景内嵌 MP4）。
-          (sel.type === "video" || (sel.type === "scene" && (sel.sceneVideo || sel.sceneHasAudio)))
-            && React.createElement("button", {
-              className: "we-picker__btn" + (weAudioVolume() > 0 || selection.videoAudioEnabled === false ? "" : " is-on"),
-              type: "button",
-              onClick: onToggleAudio,
-              disabled: !sel.url,
-              title: selection.videoAudioEnabled === false
-                ? "开启壁纸音轨（音量为 0 时自动设为 50%）"
-                : "关闭壁纸音轨（画面继续播放）",
-            }, selection.videoAudioEnabled === false ? "🔇 音乐关" : "🔊 音乐开"),
-          React.createElement("button", {
-            className: "we-picker__btn", type: "button",
-            onClick: onClear, disabled: !sel.id,
-          }, "关闭"),
-          React.createElement("button", {
-            className: "we-picker__btn", type: "button",
-            onClick: onRefresh, disabled: sel.loading,
-          }, sel.loading ? "刷新中…" : "刷新"),
-        ),
-      ),
-      // ── 切换过场（手动点选与自动轮播共用）：类型 / 方向 / 速度 ──
-      // 默认「硬切」（零成本、零风险）；等「最帅的」讨论定下来，改 DEFAULTS 一处
-      // 即可换默认。每种过场只动 transform / opacity / clip-path（见 switchFrames）。
-      React.createElement("div", { className: "we-picker__section" },
-        React.createElement("div", { className: "we-picker__section-head" },
-          React.createElement("span", { className: "we-picker__section-label" }, "切换过场"),
-        ),
-        // 过场动画：**下拉菜单**（不用水平平铺）—— 过场会持续增加，平铺一排按钮
-        // 迟早挤成两行、还会把「方向 / 时长」挤下去；下拉天然可扩展。
-        React.createElement("div", { className: "we-picker__ctl" },
-          ctlText("过场动画", "换壁纸时的转场"),
-          React.createElement("select", {
-            className: "we-picker__select",
-            value: sel.switchTransition,
-            onChange: (e) => onSwitchTransition(e.target.value),
-            "aria-label": "过场动画",
-          },
-            ...SWITCH_TRANSITIONS.map((t) =>
-              React.createElement("option", { key: t.id, value: t.id }, t.label)),
-          ),
-        ),
-        // 方向：只有方向型过场（推移 / 擦除 / 条带）听它；条带用它决定竖条 / 横条。
-        switchTr.directional && React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
-          ctlText("方向", "新画面从哪边进"),
-          React.createElement("div", { className: "we-picker__seg" },
-            SWITCH_DIRS.map((d) =>
-              React.createElement("button", {
-                key: d,
-                className: "we-picker__btn we-picker__rate" + (sel.switchTransitionDir === d ? " we-picker__rate--active" : ""),
-                type: "button",
-                onClick: () => onSwitchTransitionDir(d),
-                "aria-pressed": sel.switchTransitionDir === d ? "true" : "false",
-                "aria-label": "过场方向 " + SWITCH_DIR_LABELS[d],
-              }, SWITCH_DIR_LABELS[d]),
-            ),
-          ),
-        ),
-        // 时长档：只影响速度乘子，基准时长写在各过场里（见 SWITCH_TRANSITIONS）。
-        switchTr.ms > 0 && React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
-          ctlText("时长", "当前约 " + switchTr.ms + " ms"),
-          React.createElement("div", { className: "we-picker__seg" },
-            SWITCH_SPEEDS.map((s) =>
-              React.createElement("button", {
-                key: s.id,
-                className: "we-picker__btn we-picker__rate" + (sel.switchTransitionSpeed === s.id ? " we-picker__rate--active" : ""),
-                type: "button",
-                onClick: () => onSwitchTransitionSpeed(s.id),
-                "aria-pressed": sel.switchTransitionSpeed === s.id ? "true" : "false",
-                "aria-label": "过场速度 " + s.label,
-              }, s.label),
-            ),
-          ),
-        ),
-      ),
-      // ── 自动轮播（原「轮播列表」）: user-defined carousel lists, each with
-      //    its own wallpaper set, interval and order. Fully client-side. ──
-      React.createElement("div", { className: "we-picker__section" },
-        React.createElement("div", { className: "we-picker__section-head" },
-          React.createElement("span", { className: "we-picker__section-label" }, "自动轮播"),
-        ),
-        React.createElement("div", { className: "we-picker__row we-picker__playlist-row" },
-        React.createElement("select", {
-          className: "we-picker__playlist-select",
-          value: sel.rotationGroupId,
-          onChange: onGroupChange,
-          disabled: groups.length === 0,
-          "aria-label": "轮播列表",
-        },
-        React.createElement("option", { value: "" }, groups.length ? "— 选择轮播列表 —" : "— 暂无轮播列表 —"),
-        ...groups.map((g) => React.createElement("option", {
-          key: g.id, value: g.id,
-        }, g.name + "（" + groupWallpapers(g).length + " 可播放 · " + g.interval + " 分钟）")),
-        ),
-        React.createElement("button", {
-          className: "we-picker__btn", type: "button",
-          onClick: startCreateGroup,
-        }, "新建"),
-        React.createElement("button", {
-          className: "we-picker__btn", type: "button",
-          onClick: () => startEditGroup(sel.rotationGroupId),
-          disabled: !sel.rotationGroupId,
-        }, "编辑"),
-        React.createElement("button", {
-          className: "we-picker__btn", type: "button",
-          onClick: onDeleteGroup,
-          disabled: !sel.rotationGroupId,
-        }, "删除"),
-      ),
-      editing && React.createElement("div", { className: "we-picker__editor" },
-        React.createElement("div", { className: "we-picker__row" },
-          React.createElement("span", { className: "we-picker__hint we-picker__label" }, "名称"),
-          React.createElement("input", {
-            className: "we-picker__text", type: "text",
-            value: editing.name,
-            "aria-label": "轮播列表名称",
-            onInput: (e) => { editing.name = e.target.value; emit(); },
-          }),
-        ),
-        React.createElement("div", { className: "we-picker__row" },
-          React.createElement("span", { className: "we-picker__hint we-picker__label" }, "间隔"),
-          React.createElement("select", {
-            className: "we-picker__rotation-interval",
-            value: String(editing.interval),
-            onChange: (e) => { editing.interval = clampNum(Number(e.target.value), 1, 1440, DEFAULTS.rotationInterval); emit(); },
-            "aria-label": "轮播间隔",
-          },
-          ...INTERVALS.map((minutes) =>
-            React.createElement("option", { key: minutes, value: String(minutes) }, minutes + " 分钟"),
-          )),
-          React.createElement("span", { className: "we-picker__hint we-picker__label" }, "顺序"),
-          React.createElement("select", {
-            className: "we-picker__playlist-select",
-            value: editing.order,
-            onChange: (e) => { editing.order = e.target.value; emit(); },
-            "aria-label": "轮播顺序",
-          },
-          React.createElement("option", { value: "sequence" }, "顺序"),
-          React.createElement("option", { value: "random" }, "随机"),
-          ),
-        ),
-        React.createElement("div", { className: "we-picker__editor-grid" },
-          playableInventory().length === 0
-            ? React.createElement("span", { className: "we-picker__hint" }, "没有可播放的壁纸")
-            : (cdMode ? playableInventory() : editorPageView.items).map((w) => {
-                const checked = editing.wallpaperIds.indexOf(w.id) >= 0;
-                return React.createElement("button", {
-                  key: w.id,
-                  className: "we-picker__editor-card" + (checked ? " we-picker__editor-card--checked" : ""),
-                  type: "button",
-                  title: w.title,
-                  "aria-pressed": checked,
-                  "aria-label": w.title,
-                  onClick: () => {
-                    const i = editing.wallpaperIds.indexOf(w.id);
-                    if (i >= 0) editing.wallpaperIds.splice(i, 1);
-                    else editing.wallpaperIds.push(w.id);
-                    emit();
-                  },
-                },
-                w.preview
-                  ? React.createElement("img", {
-                      src: w.preview, alt: w.title, loading: "lazy",
-                      onError: (e) => { e.target.style.display = "none"; },
-                              onLoad: (e) => { e.target.style.opacity = "1"; },
-                    })
-                  : React.createElement("span", { className: "we-picker__card-placeholder" }, "无预览"),
-                checked && React.createElement("span", { className: "we-picker__editor-check" }, "✓"),
-                );
-              }),
-        ),
-        !cdMode && editorPageView.pages > 1 && pagerRow(
-          playableInventory().length, editorPageView.page, editorPageView.pages,
-          () => { selection.editorPage--; emit(); },
-          () => { selection.editorPage++; emit(); },
-        ),
-        React.createElement("div", { className: "we-picker__row" },
-          React.createElement("span", { className: "we-picker__hint" }, "已选 " + editing.wallpaperIds.length + " 个"),
-          sel.inventory.playlists.length > 0 && React.createElement("select", {
-            className: "we-picker__playlist-select",
-            value: "",
-            onChange: (e) => {
-              const p = sel.inventory.playlists.find((pl) => pl.id === e.target.value);
-              if (p) importPlaylistIntoDraft(p);
-            },
-          },
-          React.createElement("option", { value: "" }, "从 WE 播放列表导入…"),
-          ...sel.inventory.playlists.map((p) => React.createElement("option", {
-            key: p.id, value: p.id,
-          }, p.name + "（" + (p.portableCount || 0) + " 可播放）")),
-          ),
-        ),
-        React.createElement("div", { className: "we-picker__row" },
-          React.createElement("button", {
-            className: "we-picker__btn", type: "button",
-            onClick: saveEditingGroup,
-          }, "保存"),
-          React.createElement("button", {
-            className: "we-picker__btn", type: "button",
-            onClick: cancelEditGroup,
-          }, "取消"),
-        ),
-      ),
-      React.createElement("div", { className: "we-picker__ctl" },
-        ctlText("自动轮转",
-          !sel.rotationGroupId
-            ? "请先选择或新建一个轮播列表"
-            : playableCount < 2
-              ? "当前列表至少需要 2 个可播放壁纸"
-              : "每 " + (group ? group.interval : DEFAULTS.rotationInterval) + " 分钟切换一次"),
-        React.createElement("div", { className: "we-picker__ctl-side" },
-          React.createElement("select", {
-            className: "we-picker__rotation-interval",
-            value: String(group ? group.interval : DEFAULTS.rotationInterval),
-            onChange: onGroupInterval,
-            disabled: !sel.rotationEnabled || !sel.rotationGroupId || playableCount < 2,
-            "aria-label": "轮转间隔",
-          },
-          ...INTERVALS.map((minutes) =>
-            React.createElement("option", { key: minutes, value: String(minutes) }, minutes + " 分钟"),
-          )),
-          Toggle({
-            checked: sel.rotationEnabled,
-            onChange: onToggleRotation,
-            label: "自动轮转",
-            disabled: !sel.rotationGroupId || playableCount < 2,
-            title: "按列表顺序/随机自动切换壁纸",
-          }),
-        ),
-      ),
-      ),
-      // ── 自定义壁纸: local JPG/PNG/MP4 as wallpapers. Files are written by the
-      //    host into its plugin-managed directory and served through the same
-      //    media/preview routes (read-A storage: survives restarts, no quota
-      //    limits). Uploads merge into the inventory on the host side. ──
-      React.createElement("div", { className: "we-picker__section" },
-        React.createElement("div", { className: "we-picker__section-head" },
-          React.createElement("span", { className: "we-picker__section-label" }, "自定义壁纸"),
-        ),
-        React.createElement("div", { className: "we-picker__uploads" },
-        // Storage location — users can point uploads at a non-system drive
-        // (most people don't want wallpaper files piling up on C:). The host
-        // persists the choice and migrates existing files on change.
-        React.createElement("div", { className: "we-picker__row" },
-          React.createElement("span", { className: "we-picker__hint we-picker__label" }, "存储位置"),
-          React.createElement("span", {
-            className: "we-picker__uploads-path",
-          }, sel.inventory.uploadDir || "—"),
-          React.createElement("button", {
-            className: "we-picker__btn", type: "button",
-            disabled: sel.uploading,
-            onClick: () => {
-              selection.editingUploadDir = true;
-              selection.uploadDirDraft = sel.inventory.uploadDir || "";
-              emit();
-            },
-          }, "更改"),
-        ),
-        sel.editingUploadDir && React.createElement("div", { className: "we-picker__row" },
-          React.createElement("input", {
-            className: "we-picker__text", type: "text",
-            value: selection.uploadDirDraft,
-            placeholder: "绝对路径，如 D:\\MyWallpapers",
-            onInput: (e) => { selection.uploadDirDraft = e.target.value; emit(); },
-            onKeyDown: (e) => {
-              if (e.key === "Enter") changeUploadDir(selection.uploadDirDraft, true);
-              if (e.key === "Escape") { selection.editingUploadDir = false; emit(); }
-            },
-          }),
-          React.createElement("button", {
-            className: "we-picker__btn", type: "button",
-            disabled: sel.uploading,
-            onClick: () => changeUploadDir(selection.uploadDirDraft, true),
-          }, "保存"),
-          React.createElement("button", {
-            className: "we-picker__btn", type: "button",
-            onClick: () => { selection.editingUploadDir = false; emit(); },
-          }, "取消"),
-        ),
-        React.createElement("div", { className: "we-picker__row" },
-          React.createElement("span", { className: "we-picker__hint" },
-            "已有文件会迁移到新位置"),
-          React.createElement("span", { className: "we-picker__hint" },
-            "支持 ~ 表示用户主目录"),
-        ),
-        // ── 官方资源路径（local-assets）：场景实时渲染的 util、particle、
-        // gradient 贴图默认是程序化复刻（观感近似）；指向本机 WE 安装目录的
-        // assets 树后按名取官方像素，与官方引擎逐像素对齐。素材属 WE 版权
-        // 内容，只从本机路径只读取用，不会被复制/上传。路径不硬编码 ——
-        // 持久化在宿主 config.json（weAssetsDir），经 we-assets-dir 端点读写。
-        React.createElement("div", { className: "we-picker__row" },
-          React.createElement("span", { className: "we-picker__hint we-picker__label" }, "官方资源路径"),
-          React.createElement("span", {
-            className: "we-picker__uploads-path",
-          }, sel.inventory.weAssetsDir || "—"),
-          React.createElement("button", {
-            className: "we-picker__btn", type: "button",
-            onClick: () => {
-              selection.editingWeAssetsDir = true;
-              selection.weAssetsDirDraft = sel.inventory.weAssetsDir || "";
-              selection.weAssetsError = "";
-              emit();
-            },
-          }, sel.inventory.weAssetsDir ? "更改" : "设置"),
-        ),
-        sel.editingWeAssetsDir && React.createElement("div", { className: "we-picker__row" },
-          React.createElement("input", {
-            className: "we-picker__text", type: "text",
-            value: selection.weAssetsDirDraft,
-            placeholder: "WE assets 绝对路径，留空保存=清除",
-            onInput: (e) => { selection.weAssetsDirDraft = e.target.value; emit(); },
-            onKeyDown: (e) => {
-              if (e.key === "Enter") changeWeAssetsDir(selection.weAssetsDirDraft);
-              if (e.key === "Escape") { selection.editingWeAssetsDir = false; selection.weAssetsError = ""; emit(); }
-            },
-          }),
-          React.createElement("button", {
-            className: "we-picker__btn", type: "button",
-            onClick: () => changeWeAssetsDir(selection.weAssetsDirDraft),
-          }, "保存"),
-          React.createElement("button", {
-            className: "we-picker__btn", type: "button",
-            onClick: () => { selection.editingWeAssetsDir = false; selection.weAssetsError = ""; emit(); },
-          }, "取消"),
-        ),
-        React.createElement("div", { className: "we-picker__row" },
-          React.createElement("span", { className: "we-picker__hint" },
-            sel.inventory.weAssetsAvailable
-              ? "已启用 · 场景实时渲染取官方像素"
-              : (sel.inventory.weAssetsDir
-                ? "目录不可用（缺 materials/），场景实时渲染走程序化复刻"
-                : "未配置 · 场景实时渲染贴图走程序化复刻")),
-          React.createElement("span", { className: "we-picker__hint" },
-            "指向 Wallpaper Engine 安装目录的 assets（或其拷贝）"),
-        ),
-        sel.weAssetsError && React.createElement("div", { className: "we-picker__error" },
-          sel.weAssetsError,
-        ),
-        React.createElement("div", { className: "we-picker__row" },
-          React.createElement("span", { className: "we-picker__hint we-picker__label" }, "自定义"),
-          React.createElement("input", {
-            className: "we-picker__file", type: "file",
-            accept: ".jpg,.jpeg,.png,.mp4",
-            disabled: sel.uploading,
-            onChange: (e) => {
-              const f = e.target.files && e.target.files[0];
-              if (f) uploadWallpaperFile(f);
-              e.target.value = "";
-            },
-          }),
-          sel.uploading && React.createElement("span", { className: "we-picker__hint" }, "上传中…"),
-        ),
-        sel.uploadError && React.createElement("div", { className: "we-picker__error" }, sel.uploadError),
-        sel.uploadNote && React.createElement("div", { className: "we-picker__note" }, sel.uploadNote),
-        React.createElement("div", { className: "we-picker__row" },
-          React.createElement("span", { className: "we-picker__hint" }, "已上传 " + uploadedList.length + " 个"),
-          React.createElement("span", { className: "we-picker__hint" }, "支持 JPG / PNG / MP4，及含 project.json 的 WE 壁纸目录"),
-        ),
-        uploadedList.length > 0 && React.createElement("div", { className: "we-picker__uploads-list" },
-          uploadedList.map((w) => React.createElement("div", { key: w.id, className: "we-picker__uploads-item" },
-            React.createElement("span", { className: "we-picker__uploads-name", title: w.title }, w.title),
-            React.createElement("span", { className: "we-picker__hint" }, w.type === "video" ? "MP4" : "图片"),
-            React.createElement("button", {
-              className: "we-picker__btn", type: "button",
-              disabled: sel.uploading,
-              onClick: () => {
-                if (!window.confirm("移除自定义壁纸「" + w.title + "」？此操作会删除本地文件，且不可恢复。")) return;
-                removeUploadWallpaper(w.id);
-              },
-            }, "移除"),
-          )),
-        ),
-        ),
-      ),
-      React.createElement("div", { className: "we-picker__row" },
-        React.createElement("span", { className: "we-picker__hint" },
-          (group
-            ? "列表「" + group.name + "」：" + group.wallpaperIds.length + " 项 · " + playableCount + " 可播放 · 每 " + group.interval + " 分钟 · " + (group.order === "random" ? "随机" : "顺序")
-            : playableList.length + " 个可播放壁纸") +
-          (sel.rotationEnabled ? " · 自动轮转中" : "")),
-      ),
-    );
-  }
-
-  function renderAppearanceTab() {
-    return React.createElement(React.Fragment, null,
-      // ── 主题：配色（accent）+ 玻璃基底（颜色/透明度）──
-      React.createElement("div", { className: "we-picker__section" },
-        React.createElement("div", { className: "we-picker__section-head" },
-          React.createElement("span", { className: "we-picker__section-label" }, "主题"),
-        ),
-        swatchRow("配色", ACCENT_PRESETS, sel.accent, onAccent, { key: "accent" }),
-        // 玻璃颜色: the settings-window glass BASE tint. Defaults keep the stock
-        // look (white light / deep navy dark); picking any preset or a custom
-        // color tints the whole window glass in BOTH themes.
-        swatchRow("玻璃颜色", GLASS_COLOR_PRESETS, sel.glassColor, onGlassColor, { key: "glass-color" }),
-        SliderRow("玻璃透明度", 0, 60, 5, sel.glassAlpha, onGlassAlpha, sel.glassAlpha + "%"),
-      ),
-      // ── 细节：玻璃雾化深度 + 边框强调（原「效果」页签的两个材质细调项，
-      //    与「主题」同属全局外观，故并入本页签）。──
-      React.createElement("div", { className: "we-picker__section" },
-        React.createElement("div", { className: "we-picker__section-head" },
-          React.createElement("span", { className: "we-picker__section-label" }, "细节"),
-        ),
-        // 「雾化」= 原「玻璃」滑块：控制的只有模糊半径（雾面深度），饱和度是解耦
-        // 的常量材料属性（见 GLASS_SATURATE）。改名是为了不与同组的「玻璃颜色 /
-        // 玻璃透明度」字面撞车。
-        SliderRow("雾化", 0, 60, 1, sel.blur, onBlur, sel.blur + "px", "glass-frost", {
-          tooltip: "玻璃面板（设置窗口、输入栏、气泡、侧栏）的模糊半径 —— 越大越像磨砂玻璃；色彩饱和度不随本滑块变化",
-        }),
-        SliderRow("边框", 0, 90, 5, Math.round(sel.border * 100), onBorder, Math.round(sel.border * 100) + "%", "border-emphasis", {
-          tooltip: "提高边框 / 分割线的对比度（浅色与深色主题通用）",
-        }),
-      ),
-      // ── 字体 (custom typography)：原「字体」页签并入「外观」——总开关（关 =
-      //    恢复 dsh 原生字体）+ 颜色 / 字重 / 字体族，开启时才渲染细节控件。
-      //    #57 精简回归版。 ──
-      React.createElement("div", { className: "we-picker__section" },
-        React.createElement("div", { className: "we-picker__section-head" },
-          React.createElement("span", { className: "we-picker__section-label" }, "全局字体"),
-        ),
-        switchRow("字体自定义", sel.fontCustom, (e) => onToggleFontCustom(e.target.checked), {
-          tooltip: "关闭后恢复 dsh 默认字体外观；开启后可调颜色/字重/字体族",
-        }),
-        sel.fontCustom && React.createElement(React.Fragment, null,
-          React.createElement("div", { className: "we-picker__ctl" },
-            ctlText("字体颜色"),
-            React.createElement("label", { className: "we-picker__swatch-custom" },
-              React.createElement("input", {
-                type: "color",
-                value: sel.fontColor,
-                onInput: (e) => onFontColor(e.target.value),
-                onChange: (e) => onFontColor(e.target.value),
-                title: "自定义字体颜色",
-              }),
-              React.createElement("span", { className: "we-picker__hint we-picker__value" }, sel.fontColor),
-            ),
-          ),
-          SliderRow("字重", 100, 900, 50, sel.fontWeight, onFontWeight, String(sel.fontWeight), "font-weight", {
-            tooltip: "每 50 一档，插件按数值连续补粗细（描边渐变），不再只有常规/粗体两档"
-              + "。单字面中文字体（黑体/宋体等）低于 400 无更细字面；600 起系统合成粗体会再叠一层",
-          }),
-          // 字体族选择：专用胶囊按钮（.we-picker__font-chip），每个选项用它
-          // 自己的字体渲染预览 —— 按钮上看到的字样即应用后的效果。
-          React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
-            ctlText("字体", "按钮以自身字体预览"),
-            React.createElement("div", { className: "we-picker__chips" },
-              FONT_FAMILY_LABELS.map((f) =>
-                React.createElement("button", {
-                  key: f.v,
-                  type: "button",
-                  className: "we-picker__font-chip" + (sel.fontFamily === f.v ? " we-picker__font-chip--active" : ""),
-                  style: { fontFamily: fontFamilyStack(f.v) },
-                  title: f.v === "inherit" ? "跟随 dsh 原生字体栈" : FONT_FAMILY_STACKS[f.v],
-                  onClick: () => onFontFamily(f.v),
-                  "aria-pressed": sel.fontFamily === f.v ? "true" : "false",
-                  "aria-label": "字体 " + f.label,
-                }, f.label),
-              ),
-            ),
-          ),
-        ),
-      ),
-      // ── 输入光标（#83）：光标色与壁纸相近时会隐形，这里给它一个独立于字体
-      //    自定义的颜色项。「自动」= 不注入任何规则，跟随 dsh 原生表现。──
-      React.createElement("div", { className: "we-picker__section" },
-        React.createElement("div", { className: "we-picker__section-head" },
-          React.createElement("span", { className: "we-picker__section-label" }, "输入光标"),
-        ),
-        swatchRow("光标颜色", CARET_COLOR_PRESETS, sel.caretColor, onCaretColor, {
-          key: "caret-color",
-          hint: "输入框光标看不清时换个颜色",
-          auto: React.createElement("button", {
-            key: "auto",
-            className: "we-picker__swatch we-picker__swatch--auto" + (sel.caretColor === "" ? " we-picker__swatch--active" : ""),
-            type: "button",
-            title: "跟随 dsh 原生光标颜色",
-            onClick: () => onCaretColor(""),
-            "aria-label": "光标颜色 自动",
-          }, "自动"),
-          colorValue: sel.caretColor || "#4f8cff",
-        }),
-      ),
-      // ── 窗口与侧栏：两套液态玻璃总开关，细节控件缩进一级并随开关显隐 ──
-      React.createElement("div", { className: "we-picker__section" },
-        React.createElement("div", { className: "we-picker__section-head" },
-          React.createElement("span", { className: "we-picker__section-label" }, "窗口与侧栏"),
-        ),
-        // 设置窗口液态玻璃 master switch: turns the WHOLE native settings window
-        // (nav + every native section, not just this page) into liquid glass with
-        // the accent + transparency above; off restores the stock shell look.
-        switchRow("设置窗口液态玻璃", sel.glassWindow, (e) => {
-          selection.glassWindow = e.target.checked;
-          persistSelection();
-          emit();
-        }, {
-          key: "window-glass",
-          hint: "整个设置窗口跟随配色与透明度",
-          tooltip: "整个设置窗口（含 General / 模型 / 插件等全部原生分区）跟随配色与透明度；关闭则恢复原生样式",
-        }),
-        // 侧栏玻璃（dsh-better-sidebar 适配）：与设置窗口玻璃同级的一套独立细粒度
-        // 控制 —— 总开关 + 专用模糊 + 专用透明度 + 玻璃基底色调，全部只作用于
-        // dsh-better-sidebar 子树，不动会话玻璃（玻璃 / 玻璃透明度）的设置。
-        // 仅在 host 检测到 dsh-better-sidebar 已安装且启用时显示（sidebarPresent）。
-        // 开关本体 + 一句话说明始终显示；细节滑块以「侧栏液态玻璃」开关为前提
-        // —— 关闭时隐藏，开启后随 emit 重渲染实时出现。
-        sel.sidebarPresent && switchRow("侧栏液态玻璃", sel.sidebarGlass, (e) => {
-          selection.sidebarGlass = e.target.checked;
-          persistSelection();
-          emit();
-        }, {
-          key: "sidebar-glass-toggle",
-          hint: "dsh-better-sidebar 侧栏毛玻璃适配",
-          tooltip: "dsh-better-sidebar 侧栏（文件 / 终端 / Git 等面板）的毛玻璃适配；关闭则恢复其原生外观",
-        }),
-        sel.sidebarPresent && sel.sidebarGlass && [
-        SliderRow("侧栏模糊", 0, 200, 1, sel.sidebarBlur, onSidebarBlur, sel.sidebarBlur + "px", "sb-blur"),
-        SliderRow("侧栏透明度", 0, 200, 1, sel.sidebarAlpha, onSidebarAlpha, sel.sidebarAlpha + "%", "sb-alpha"),
-        swatchRow("侧栏玻璃颜色", GLASS_COLOR_PRESETS, sel.sidebarColor, onSidebarColor, { key: "sb-color" }),
-        // 内容面（编辑器 / 终端）近不透明玻璃底：透明度 + 底色。固定调色板
-        // （语法高亮 / ANSI）为不透明底设计，全透毛玻璃下注释灰不可读；这里
-        // 在"玻璃感"与"可读性"之间取平衡——透明度越大越透，底色空 = 跟随主题。
-        SliderRow("内容面透明度", 0, 80, 5, sel.sidebarContentAlpha, onSidebarContentAlpha, sel.sidebarContentAlpha + "%", "content-alpha"),
-        swatchRow("内容面底色", GLASS_COLOR_PRESETS, sel.sidebarContentColor, onSidebarContentColor, {
-          key: "content-color",
-          auto: React.createElement("button", {
-            key: "auto",
-            className: "we-picker__swatch we-picker__swatch--auto" + (sel.sidebarContentColor === "" ? " we-picker__swatch--active" : ""),
-            type: "button",
-            title: "跟随主题面板色",
-            onClick: () => onSidebarContentColor(""),
-            "aria-label": "内容面底色 跟随主题",
-          }, "主题"),
-          colorValue: sel.sidebarContentColor || "#1e1f26",
-        }),
-        ],
-      ),
-    );
-  }
-
-  function renderAudioTab() {
-    // 声音（原「效果」页签里的一段，独立成页签与「效果」平级）：壁纸音轨
-    // （视频 / 场景内嵌 MP4 / 场景包内音频共用一套设置）+ 系统音频 / 媒体集成。
-    return React.createElement(React.Fragment, null,
-      React.createElement("div", { className: "we-picker__section" },
-        React.createElement("div", { className: "we-picker__section-head" },
-          React.createElement("span", { className: "we-picker__section-label" }, "声音"),
-        ),
-        SliderRow("音量", 0, 100, 5,
-          Math.round((Number(sel.videoVolume) || 0) * 100), onVideoVolume,
-          Math.round((Number(sel.videoVolume) || 0) * 100) + "%"),
-        switchRow("壁纸音轨", sel.videoAudioEnabled !== false, () => onToggleAudio(), {
-          hint: "关闭=静音（保留音量数值）· 开启时音量 0 自动 50%",
-          tooltip: "视频壁纸与场景壁纸（内嵌 MP4 音轨 / 包内独立音频）共用；默认静音，开启时若音量为 0 会自动提到 50%",
-        }),
-      ),
-      React.createElement("div", { className: "we-picker__section" },
-        React.createElement("div", { className: "we-picker__section-head" },
-          React.createElement("span", { className: "we-picker__section-label" }, "系统声音与媒体"),
-        ),
-        switchRow("系统音频反应", sel.audioSource !== "off", (e) => {
-          selection.audioSource = e.target.checked ? "auto" : "off";
-          persistSelection();
-          emit();
-        }, {
-          hint: "壁纸随系统声音律动 · 拿不到音频时回落模拟",
-          tooltip: "把系统正在播放的声音频谱喂给壁纸的音频可视化（采集系统输出/loopback，不是麦克风）。三平台都内置：macOS 走 CoreAudio、Windows 走 WASAPI 回环、Linux 走 PulseAudio/PipeWire —— 不需要额外安装，也不再需要「立体声混音」之类虚拟声卡；仅 macOS 首次使用会要一次「音频录制」授权。拿不到音频时自动回落壁纸内置的模拟频谱",
-        }),
-        switchRow("媒体信息", sel.mediaIntegration !== false, (e) => {
-          selection.mediaIntegration = e.target.checked;
-          persistSelection();
-          emit();
-        }, {
-          hint: "歌名 / 歌手 / 专辑 / 封面 / 进度 → 壁纸的媒体监听器",
-          tooltip: "把系统正在播放的歌曲信息推给壁纸（wallpaperMediaIntegration）：macOS 走 MediaRemote、Windows 走系统媒体会话（GSMTC）、Linux 走 MPRIS —— 三平台都内置，不需要安装 media-control / playerctl。没有正在播放的媒体时壁纸保持自身静态态",
-        }),
-        sel.mediaIntegration !== false && switchRow("在线歌词", sel.mediaLyricsOnline === true, (e) => {
-          selection.mediaLyricsOnline = e.target.checked;
-          persistSelection();
-          emit();
-        }, {
-          key: "media-lyrics-online",
-          hint: "本地找不到时联网查一次（lrclib.net）",
-          tooltip: "歌词优先取本地的（音频同目录的 .lrc、以及已经缓存过的歌词）；开启后，本地没有才会向 lrclib.net 查一次 —— 那次请求会把歌名/歌手/专辑发出去，所以默认关闭。本地歌词不受这个开关影响",
-        }),
-      ),
-    );
-  }
-
-  function renderMascotTab() {
-    return React.createElement(React.Fragment, null,
-      // ── 吉祥物：形态卡片即实时预览（随「吉祥物大小」滑块缩放），开关总控 ──
-      React.createElement("div", { className: "we-picker__section" },
-        React.createElement("div", { className: "we-picker__section-head" },
-          React.createElement("span", { className: "we-picker__section-label" }, "聊天吉祥物"),
-        ),
-        switchRow("显示吉祥物", sel.ropeShown !== false, onRopeVisibilityChange, {
-          key: "rope-shown",
-          hint: "关闭后隐藏吉祥物与壁纸仓库抽屉",
-          tooltip: "关闭后隐藏吉祥物与壁纸仓库抽屉；可随时在本页重新开启",
-        }),
-        // 吉祥物形态（maid = 默认小女仆 / whale = 鲸御姐）：卡片直接渲染形态
-        // 立绘并按当前 ropeScale 缩放 —— 选形态与看大小两件事在同一处完成，
-        // 调整下方滑块时卡片实时跟着变。关闭时仍可先设定，重新开启即生效。
-        React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
-          ctlText("吉祥物形态", "卡片按当前大小实时预览"),
-          React.createElement("div", { className: "we-picker__mascot-row", role: "group", "aria-label": "吉祥物形态" },
-            ROPE_FORM_VALUES.map((k) => {
-              const form = ROPE_FORMS[k];
-              return React.createElement("button", {
-                key: k,
-                type: "button",
-                className: "we-picker__mascot-card" + (sel.ropeForm === k ? " we-picker__mascot-card--active" : ""),
-                "aria-pressed": sel.ropeForm === k ? "true" : "false",
-                title: form.label,
-                onClick: () => onRopeFormChange(k),
-              },
-                React.createElement("span", {
-                  className: "we-picker__mascot-art",
-                  style: { width: Math.round(form.w * sel.ropeScale) + "px", height: Math.round(form.h * sel.ropeScale) + "px" },
-                },
-                  React.createElement("img", { src: form.img, alt: form.label, draggable: false })),
-                React.createElement("span", { className: "we-picker__mascot-name" }, form.label),
-              );
-            }),
-          ),
-        ),
-        SliderRow("吉祥物大小", ROPE_SCALE_MIN, ROPE_SCALE_MAX, ROPE_SCALE_STEP,
-          sel.ropeScale, onRopeScaleChange, Math.round(sel.ropeScale * 100) + "%", "rope-scale"),
-      ),
-    );
-  }
-
-  function renderEffectsTab() {
-    // 效果页签的空态：没有启用壁纸时不摆一列无效滑块，改为引导去选壁纸。
-    if (!sel.id) {
-      return React.createElement("div", { className: "we-picker__empty" },
-        React.createElement("span", { className: "we-picker__empty-title" }, "还没有启用壁纸"),
-        React.createElement("span", { className: "we-picker__hint" },
-          "选择一款壁纸后，可在这里调整模糊、亮度、适配、倍速等效果"),
-        React.createElement("button", {
-          className: "we-picker__btn we-picker__btn--primary", type: "button",
-          ref: (el) => { pickerOpener = el; },
-          onClick: () => {
-            selection.pickerOpen = true;
-            selection.modalView = "normal";
-            pickerFocusPending = true;
-            emit();
-          },
-        }, "选择壁纸"),
-      );
-    }
-    // 画面来源相关的判定算一次给下面几行用：
-    // - sceneWithFrame：有静态帧可换/可抓的场景壁纸；
-    // - gpuPinnedHere：当前面板这张壁纸的槽里确实有实时帧（探测带 TTL，见
-    //   probeGpuFrameState）—— 跨壁纸的 pinned 状态不能拿来显示。
-    const sceneWithFrame = sel.type === "scene" && Boolean(sel.sceneFrameUrl);
-    const gpuPinnedHere = gpuFrameUi.wid === String(sel.id) && gpuFrameUi.pinned;
-    return React.createElement(React.Fragment, null,
-      // ── 画面：壁纸层滤镜与边框细调 ──
-      React.createElement("div", { className: "we-picker__section" },
-        React.createElement("div", { className: "we-picker__section-head" },
-          React.createElement("span", { className: "we-picker__section-label" }, "画面"),
-        ),
-        SliderRow("壁纸模糊", 0, 60, 1, sel.wallpaperBlur, onWallpaperBlur, sel.wallpaperBlur + "px"),
-        SliderRow("亮度", 40, 160, 5, sel.backgroundBrightness, onBackgroundBrightness, sel.backgroundBrightness + "%"),
-        SliderRow("对比度", 40, 200, 5, sel.backgroundContrast, onBackgroundContrast, sel.backgroundContrast + "%"),
-        SliderRow("饱和度", 0, 200, 5, sel.backgroundSaturate, onBackgroundSaturate, sel.backgroundSaturate + "%"),
-        // 壁纸透明度（#82）：越大越透，淡出后壁纸融向**原生外观**（浅色纯白 /
-        // 深色纯黑，IDEA 背景图式）。与暗化互补 —— 一个减淡壁纸本身，一个压暗
-        // 整体画面；上限 90% 避免调到「壁纸完全不可见但暗化还在」的诡异状态
-        // （想关壁纸直接关掉即可）。
-        SliderRow("壁纸透明度", 0, 90, 5, sel.wallpaperOpacity, onWallpaperOpacity, sel.wallpaperOpacity + "%", "wallpaper-opacity", {
-          tooltip: "壁纸向原生底色淡出（浅色纯白 / 深色纯黑）；透明生效时壁纸层会垫这层原生底色，以保证玻璃模糊不被透明背景破坏。场景壁纸的垫底静态帧会在实时画面出场后退场，不会在淡出时透出来",
-        }),
-        SliderRow("暗化", 0, 90, 5, Math.round(sel.scrim * 100), onScrim, Math.round(sel.scrim * 100) + "%"),
-        // ── 场景实时渲染（WebWallGL）：scene.pkg 壁纸的实时 WebGL 形态，默认
-        // 开启。失败（首帧超时/运行失联）按壁纸记忆并自动降级回内嵌 MP4 →
-        // 静态帧；重开本开关清空全部失败记忆（显式重试入口）。
-        (sel.type === "scene" || sel.type === "web") && switchRow(
-          sel.type === "web" ? "网页实时渲染" : "场景实时渲染",
-          sel.sceneLive !== false, (e) => {
-          selection.sceneLive = e.target.checked;
-          selection.sceneLiveFailures = {};
-          prepareLiveTimeouts.clear(); // 显式重试：准备期 live 超时冷却一并清零（评审 P1）
-          persistSelection();
-          syncLayers();               // key 的 live 段变化 → 层重建（升级/降级）
-          syncSceneAudio(selection);  // 音频互斥状态随形态切换
-          emit();
-        }, {
-          key: "scene-live",
-          hint: "WebGL 实时渲染 · 失败自动降级",
-          tooltip: sel.type === "web"
-            ? "网页壁纸由 WebWallGL 加载并注入 WE API（音频/属性监听等），严格沙箱隔离（不继承宿主权限）；加载失败或运行失联时自动退回兼容 iframe。重新开启会重试此前失败的壁纸"
-            : "场景壁纸由 WebWallGL 实时渲染（粒子/脚本/视差/包内音频）；加载失败或运行失联时自动退回内嵌视频/静态帧。重新开启会重试此前失败的壁纸",
-        }),
-        (sel.type === "scene" || sel.type === "web") && sel.sceneLive !== false
-          && React.createElement("div", { className: "we-picker__ctl", key: "live-boot-delay" },
-          ctlText("启动延迟", "重启恢复壁纸时先显示占位图"),
-          React.createElement("div", { className: "we-picker__seg" },
-            [0, 3, 5, 10].map((secs) =>
-              React.createElement("button", {
-                key: secs,
-                className: "we-picker__btn we-picker__rate" + (Number(sel.liveBootDelay) === secs ? " we-picker__rate--active" : ""),
-                type: "button",
-                onClick: () => { selection.liveBootDelay = secs; persistSelection(); emit(); },
-              }, secs === 0 ? "立即" : secs + "s"),
-            ),
-          ),
-        ),
-        (sel.type === "scene" || sel.type === "web") && sel.sceneLive !== false
-          && (sel.sceneLiveSrc || sel.webLiveSrc)
-          && React.createElement("div", { className: "we-picker__ctl", key: "scene-live-fps" },
-          ctlText("实时渲染帧率", "渲染 fps · 越低越省电"),
-          React.createElement("div", { className: "we-picker__seg" },
-            SCENE_LIVE_FPS_VALUES.map((f) =>
-              React.createElement("button", {
-                key: f,
-                className: "we-picker__btn we-picker__rate" + (sel.sceneLiveFps === f ? " we-picker__rate--active" : ""),
-                type: "button",
-                // 帧率进 iframe query（sceneFps）→ syncLayers key 变化重建层
-                onClick: () => { selection.sceneLiveFps = f; persistSelection(); syncLayers(); emit(); },
-              }, f + "fps"),
-            ),
-          ),
-        ),
-        // ── 壁纸画面刷新：**只在实时渲染未生效时**出现 —— 它换的是 CPU 生成的静态帧，
-        //    实时画面在跑时它没有任何作用（换实时帧用下面的「重新截」）。──
-        sel.type === "scene" && sel.sceneFrameUrl && !liveRenderEnabled(sel)
-          && React.createElement("div", { className: "we-picker__ctl" },
-          ctlText("壁纸画面刷新", "显示异常时换一种生成逻辑",
-            "场景壁纸静态帧生成逻辑：合成 / 主纹理 / 作者原画 / 预览图（+导入后的自定义画面）。每点一次换一种，选择记忆在当前壁纸上；可反复刷新直到满意。实时渲染生效时本行不显示（那时画面来自实时渲染，换档位不会生效）"),
-          React.createElement("button", {
-            className: "we-picker__btn", type: "button",
-            onClick: onRefreshFrame,
-            "aria-label": "刷新壁纸画面生成逻辑",
-          }, "刷新"),
-          React.createElement("span", { className: "we-picker__hint we-picker__value" },
-            "第 " + ((Number(sel.frameVariants && sel.frameVariants[String(sel.id)]) || 0) + 1)
-              + "/" + frameVariantCount(sel, String(sel.id)) + " 秡 · "
-              + FRAME_VARIANTS[Number(sel.frameVariants && sel.frameVariants[String(sel.id)]) || 0].label
-              + " · 共 " + frameVariantCount(sel, String(sel.id)) + " 种"),
-        ),
-        // ── GPU 实时帧（抓帧缓存 + 重新截 + 微缩预览）：**实时渲染开着时同样显示**。
-        //    它是切换途中 / live 首帧之前给用户看的那张静帧 —— 构图不对（黑帧、旧视口、
-        //    切走瞬间抓的）时用户必须能立刻重抓，而不是先关掉实时渲染再回来。
-        //    预览窗口指向的就是**层上正在用的那个 URL**（同一档位 + 缓存破坏参数），
-        //    所以「预览看到什么，切换途中就是什么」。──
-        sceneWithFrame && (gpuPinnedHere || liveRenderEnabled(sel))
-          && React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
-          ctlText("实时帧",
-            gpuPinnedHere
-              ? "已抓帧 · 优先于全部画面档位"
-              : "实时渲染中 · 可随时抓一张",
-            "实时渲染成功后会自动抓帧缓存这一帧（<key>_gpu.png），它优先于「壁纸画面刷新」的全部档位；切换壁纸途中、以及 live 首帧出来之前，屏幕上显示的就是它。「重新截」会按**当前**画面重抓一张（已存在的缓存会被替换，抓不到则原样保留）；「清除 GPU 帧」删掉缓存、回到 CPU 生成的静态帧。"),
-          // 微缩预览：只有槽里真有实时帧时才显示（否则这里会显示成 CPU 档位帧，误导）。
-          gpuPinnedHere && React.createElement("img", {
-            className: "we-picker__frame-shot",
-            src: framePreviewSrc(sel),
-            alt: "当前壁纸实时帧预览",
-            title: "当前壁纸的实时帧（就是切换途中 / live 首帧前显示的那张静帧）"
-              + (gpuFrameUi.w > 0 && gpuFrameUi.h > 0 ? " · " + gpuFrameUi.w + "×" + gpuFrameUi.h : ""),
-          }),
-          React.createElement("button", {
-            className: "we-picker__btn", type: "button",
-            onClick: onRecaptureGpuFrame,
-            disabled: gpuFrameUi.recapturing,
-            "aria-label": "重新截取当前壁纸实时帧",
-          }, gpuFrameUi.recapturing ? "抓帧中…" : "重新截"),
-          gpuPinnedHere && React.createElement("button", {
-            className: "we-picker__btn", type: "button",
-            onClick: onClearGpuFrame,
-            "aria-label": "清除 GPU 实时帧缓存",
-          }, gpuFrameUi.busy ? "清除中…" : "清除 GPU 帧"),
-          gpuPinnedHere && gpuFrameUi.w > 0
-            && React.createElement("span", { className: "we-picker__hint we-picker__value" },
-              gpuFrameUi.w + "×" + gpuFrameUi.h),
-          gpuFrameUi.error
-            && React.createElement("div", { className: "we-picker__hint" }, gpuFrameUi.error),
-        ),
-        // ── 自定义画面（截屏导入）：无法静态生成的壁纸（骨骼拼装场景，预览 gif 仅
-        //    160px）由用户从 WE 截图导入，画质=截图分辨率；作为第 5 档。
-        //    同样**不受实时渲染开关影响**（导入/清除与 live 互不干扰）。──
-        sel.type === "scene" && React.createElement("div", { className: "we-picker__ctl" },
-          ctlText("自定义画面",
-            "手动给电脑桌面截图，导入截图解决错误壁纸",
-            "手动对电脑桌面截图（壁纸显示效果的分辨率即最终展示画质），再回来点「导入画面…」选中该截图；导入后自动切换为该图，可随刷新档位切回其他生成逻辑。实时渲染生效时它仍会作为「壁纸画面刷新」的第 5 档、以及降级回退时的静态帧"),
-          React.createElement("button", {
-            className: "we-picker__btn", type: "button",
-            onClick: () => { if (customFrameInput) customFrameInput.click(); },
-          }, frameVariantCount(sel, String(sel.id)) === FRAME_VARIANTS.length ? "替换图片…" : "导入画面…"),
-          frameVariantCount(sel, String(sel.id)) === FRAME_VARIANTS.length && React.createElement("button", {
-            className: "we-picker__btn", type: "button",
-            onClick: onClearCustomFrame,
-          }, "清除"),
-          React.createElement("input", {
-            type: "file",
-            accept: "image/png,image/jpeg,image/webp",
-            style: { display: "none" },
-            ref: (el) => { customFrameInput = el; },
-            onChange: onCustomFrameFile,
-          }),
-        ),
-        // Playback speed — native playbackRate, instant, no media reload. Video
-        // wallpapers only (web/iframe and scene wallpapers have no playbackRate).
-        sel.type === "video"
-          && React.createElement("div", { className: "we-picker__ctl", key: "rate" },
-          ctlText("倍速"),
-          React.createElement("div", { className: "we-picker__seg" },
-            [0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) =>
-              React.createElement("button", {
-                key: rate,
-                className: "we-picker__btn we-picker__rate" + (sel.playbackRate === rate ? " we-picker__rate--active" : ""),
-                type: "button",
-                onClick: () => { selection.playbackRate = rate; persistSelection(); emit(); },
-              }, String(rate).replace(/\.?0+$/, "") + "x"),
-            ),
-          ),
-        ),
-        // 解码帧率上限（抽帧转码）：host 一次性把源视频重编码为上限帧率（时间线
-        // 1.0x 正常速度，解码占用随帧率线性下降），与倍速解耦。首次转码需等待，
-        // 播放中原片、转好自动切换；无 ffmpeg 自动回退原片。
-        sel.type === "video"
-          && React.createElement("div", { className: "we-picker__ctl", key: "fps" },
-          ctlText("帧率上限", "抽帧转码 · 降低解码占用"),
-          React.createElement("div", { className: "we-picker__seg" },
-            FPS_CAP_VALUES.map((cap) =>
-              React.createElement("button", {
-                key: cap,
-                className: "we-picker__btn we-picker__rate" + (sel.fpsCap === cap ? " we-picker__rate--active" : ""),
-                type: "button",
-                onClick: () => {
-                  selection.fpsCap = cap; persistSelection(); refreshMediaInfo(true); emit();
-                },
-              }, cap === 0 ? "无限制" : cap + "fps"),
-            ),
-          ),
-        ),
-        // Source metadata + transcode status (host moov probe / transcode lifecycle).
-        sel.type === "video" && sel.mediaInfo && React.createElement("span", { className: "we-picker__hint", key: "media-info" },
-          "源 " + sel.mediaInfo.width + "×" + sel.mediaInfo.height
-            + (sel.mediaInfo.fps ? " · " + sel.mediaInfo.fps + "fps" : "")
-            + (sel.mediaInfo.codec ? " · " + codecLabel(sel.mediaInfo.codec) : "")
-            + (sel.transcodeState === "working" ? " · 抽帧准备中…"
-              : sel.transcodeState === "ready" ? " · 已切换至 " + sel.fpsCap + "fps 抽帧版（正常速度，解码占用约减半）"
-              : sel.transcodeState === "fallback" ? " · 转码不可用，已回退原片"
-              : sel.transcodeState === "skipped" ? " · 源帧率 ≤ 上限，无需抽帧"
-              : ""),
-        ),
-        // Download / transcode progress bar (polled from /transcode-progress).
-        sel.type === "video" && sel.transcodeState === "working" && sel.transcodeProgress
-          && React.createElement("div", { className: "we-picker__row we-picker__prog", key: "transcode-prog" },
-            React.createElement("div", {
-              className: "we-picker__prog-track",
-              role: "progressbar",
-              "aria-label": "转码进度",
-              "aria-valuemin": 0,
-              "aria-valuemax": 100,
-              "aria-valuenow": Math.max(0, Math.min(100, sel.transcodeProgress.percent || 0)),
-            },
-              React.createElement("div", {
-                className: "we-picker__prog-bar",
-                style: { width: Math.max(2, Math.min(100, sel.transcodeProgress.percent || 0)) + "%" },
-              }),
-            ),
-            React.createElement("span", { className: "we-picker__hint" },
-              sel.transcodeProgress.phase === "download"
-                ? "下载 ffmpeg " + (sel.transcodeProgress.percent || 0) + "%"
-                : sel.transcodeProgress.phase === "transcode" && sel.transcodeProgress.finalizing ? "收尾中…"
-                : sel.transcodeProgress.phase === "transcode"
-                  ? "转码中 " + (sel.transcodeProgress.percent || 0) + "%"
-                    + (sel.transcodeProgress.eta ? " · 约剩 " + sel.transcodeProgress.eta + " 秒" : "")
-                : sel.transcodeProgress.phase === "done" ? "即将完成…"
-                : "准备中…",
-            ),
-          ),
-        // Fit mode — applies to the CURRENT wallpaper whatever its type (WE
-        // video/scene image and custom uploads alike; web/iframe wallpapers
-        // have no object-fit). 覆盖=cover 填充=contain 居中=center 拉伸=fill
-        React.createElement("div", { className: "we-picker__ctl", key: "fit" },
-          ctlText("适配"),
-          React.createElement("div", { className: "we-picker__seg" },
-            ["cover", "contain", "center", "fill"].map((mode) => {
-              const label = { cover: "覆盖", contain: "填充", center: "居中", fill: "拉伸" }[mode];
-              return React.createElement("button", {
-                key: mode,
-                className: "we-picker__btn we-picker__rate" + (sel.objectFit === mode ? " we-picker__rate--active" : ""),
-                type: "button",
-                title: mode,
-                onClick: () => {
-                  selection.objectFit = mode;
-                  persistSelection();
-                  emit();
-                  // Edge canvas 渲染路径的 fit 存在 weDrawCtx 上（syncLayers 的
-                  // same-canvas 守卫不会重建 draw loop），直接更新并重绘。
-                  if (weDrawCtx) {
-                    weDrawCtx.fit = mode;
-                    weDrawFrame();
-                  }
-                },
-              }, label);
-            }),
-          ),
-        ),
-        // Horizontal mirror — scaleX(-1), compositor-only; works for video,
-        // web (iframe) and (later) uploaded image wallpapers alike.
-        switchRow("水平翻转", sel.flip, (e) => { selection.flip = e.target.checked; persistSelection(); emit(); }, { key: "flip" }),
-      ),
-    );
-  }
-
-  function renderAdvancedTab() {
-    return React.createElement(React.Fragment, null,
-      // ── 浏览方式：紧凑 CD 架 vs 常规分页网格 ──
-      React.createElement("div", { className: "we-picker__section" },
-        React.createElement("div", { className: "we-picker__section-head" },
-          React.createElement("span", { className: "we-picker__section-label" }, "浏览方式"),
-        ),
-        // Card style: classic (WE's original aspect-ratio 16/9 cards — the CD-like
-        // look) vs the rewritten fixed-height cards that never overlap.
-        switchRow("紧凑布局", sel.pickerLayout === "classic", (e) => onLayoutChange(e.target.checked ? "classic" : "fixed"), {
-          hint: sel.pickerLayout === "classic" ? "CD 架：层叠 + 一页到底" : "常规网格 · 分页",
-          tooltip: "紧凑 CD 架：层叠 + 一页到底",
-        }),
-      ),
-      // ── 兼容性 ──
-      React.createElement("div", { className: "we-picker__section" },
-        React.createElement("div", { className: "we-picker__section-head" },
-          React.createElement("span", { className: "we-picker__section-label" }, "兼容性"),
-        ),
-        // Edge 兼容渲染开关：仅在 Edge 中生效（canvas 渲染，避免浏览器自带的
-        // 「下载 / 投屏」悬浮工具栏）。
-        switchRow("Edge 兼容", sel.edgeCompat !== false, (e) => onEdgeCompatChange(e.target.checked), {
-          hint: "Edge 下视频壁纸走 canvas 渲染",
-          tooltip: "Edge 兼容：视频壁纸改用 canvas 渲染，避免浏览器自带的「下载 / 投屏」悬浮工具栏；关闭则始终使用原生 <video>",
-        }),
-      ),
-      // ── 省电：遮挡暂停（借鉴 Wallpaper Engine 的「被遮挡时暂停」）──
-      React.createElement("div", { className: "we-picker__section" },
-        React.createElement("div", { className: "we-picker__section-head" },
-          React.createElement("span", {
-            className: "we-picker__section-label",
-            title: "类似 WE 的遮挡暂停：最小化、切到其它应用或使用电池供电时视频暂停、GPU 解码归零；回到界面 / 接通电源自动继续（网页壁纸仅随页面隐藏被浏览器节流）",
-          }, "省电"),
-        ),
-        switchRow("最小化/切页时暂停", sel.pauseOnHidden, (e) => { selection.pauseOnHidden = e.target.checked; persistSelection(); emit(); }, { key: "pause-hidden" }),
-        switchRow("窗口失焦时暂停", sel.pauseOnBlur, (e) => { selection.pauseOnBlur = e.target.checked; persistSelection(); emit(); }, { key: "pause-blur" }),
-        switchRow("使用电池时暂停", sel.pauseOnBattery, (e) => { selection.pauseOnBattery = e.target.checked; persistSelection(); emit(); }, { key: "pause-battery" }),
-      ),
-      // ── 实时渲染诊断（本会话有效，不落盘；从「效果」页签移来）：只对**能走实时
-      //    渲染**的壁纸（场景 / 网页）显示 —— 视频、图片壁纸没有渲染页，摆出来是空的。──
-      (sel.type === "scene" || sel.type === "web") && sel.sceneLive !== false
-        && React.createElement("div", { className: "we-picker__section" },
-          React.createElement("div", { className: "we-picker__section-head" },
-            React.createElement("span", { className: "we-picker__section-label" }, "实时渲染诊断"),
-          ),
-          // live 诊断日志（本会话有效，不落盘）：默认只记关键事件（准备就绪/领养/
-          // 首帧确认/判失败，每轮轮换 2–3 条，写在控制台与宿主诊断缓冲
-          // `/wallpaper-engine/diag-log`）；这里开的是**逐秒心跳读数**（fps/running/
-          // 暂停原因），排查「为什么没出帧」时用。
-          switchRow(
-            "live 诊断日志", liveDiagVerbose(), () => {
-              liveDiagOn = !liveDiagVerbose();
-              // 开关本身也要留痕（强制档：不受本开关影响），否则事后无法判断当时是否在记
-              liveLog("diag-" + (liveDiagOn ? "on" : "off"),
-                liveDiagOn ? "逐秒心跳日志已开启（本会话有效，刷新后失效）" : "逐秒心跳日志已关闭");
-              emit();
-            }, {
-              key: "scene-live-diag",
-              hint: "本会话有效 · 逐秒心跳读数",
-              tooltip: "开启后每秒记录一次渲染页心跳读数（fps / running / 暂停原因）与准备、领养、判失败事件；"
-                + "同时写入浏览器控制台和宿主诊断缓冲（GET /wallpaper-engine/diag-log）。排查 live 掉帧/降级时用，平时关着。",
-            }),
-        ),
-    );
-  }
-
   const renderActiveTab = () => {
-    if (activeTab === "appearance") return renderAppearanceTab();
-    if (activeTab === "mascot") return renderMascotTab();
-    if (activeTab === "effects") return renderEffectsTab();
-    if (activeTab === "audio") return renderAudioTab();
-    if (activeTab === "advanced") return renderAdvancedTab();
-    return renderWallpaperTab();
+    if (activeTab === "appearance") return renderAppearanceTab({
+      setSetting, setTransient,
+      fontSet: fontSetCtx(),
+      officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onToggleFontCustom, sel,
+    });
+    if (activeTab === "mascot") return renderMascotTab({
+      onRopeFormChange, onRopeScaleChange, onRopeVisibilityChange, sel,
+    });
+    if (activeTab === "effects") return renderEffectsTab({
+      setSetting, setTransient,
+      onBackgroundBrightness, onBackgroundContrast, onBackgroundSaturate, onClearCustomFrame, onClearGpuFrame, onCustomFrameFile, onRecaptureGpuFrame, onRefreshFrame, onScrim, onWallpaperBlur, onWallpaperOpacity, sel,
+    });
+    if (activeTab === "audio") return renderAudioTab({
+      setSetting, setTransient,
+      onToggleAudio, onVideoVolume, sel,
+    });
+    if (activeTab === "advanced") return renderAdvancedTab({
+      setSetting, setTransient,
+      onEdgeCompatChange, onLayoutChange, sel,
+    });
+    return renderWallpaperTab({
+      setSetting, setTransient,
+      INTERVALS, armedConfirm: sel.armedConfirm, cdMode, current, editing, editorPageView, group, groups, isLiveScene, onArmConfirm: armConfirm, onArmDeleteGroup, onClear, onDeleteGroup, onDisarmConfirm: disarmConfirm, onGroupChange, onGroupInterval, onRefresh, onSwitchTransition, onSwitchTransitionDir, onSwitchTransitionSpeed, onToggleAudio, onTogglePlay, onToggleRotation, pagerRow, playableCount, playableList, playbackLive, renderUserPropsPanel, sel, uploadedList,
+    });
   };
   const tabIdx = Math.max(0, PICKER_TABS.findIndex((t) => t.id === activeTab));
 
+  // ── 模态框交互的接线（P3-11 阶段 2）─────────────────────────────────────────
+  // 模态框标记里原本有 11 处**内联箭头**直接写 `selection.*`（页签切换 ×2、分页 ×4、批量 ×3、
+  // 搜索 ×1、卡片点击 ×1）。契约要求渲染器（src/picker-modal.js）不写 selection、不自己发通知
+  // ⇒ 这些「改状态 + 发通知」的动作**留在组件里**（处理器区那 53 个 on* 一个没动），经 ctx 交给
+  // 渲染器；标记里只剩 `onClick: onShowNormalView` 这样的引用。
+  const onShowNormalView = () => { disarmConfirm(); selection.modalView = "normal"; emit(); };
+  const onShowHiddenView = () => { disarmConfirm(); selection.modalView = "hidden"; selection.batchMode = false; selection.batchSelected = []; emit(); };
+  const onHiddenPagePrev = () => { selection.hiddenPage--; emit(); };
+  const onHiddenPageNext = () => { selection.hiddenPage++; emit(); };
+  const onToggleBatchMode = () => { disarmConfirm(); selection.batchMode = !selection.batchMode; selection.batchSelected = []; emit(); };
+  // 「批量隐藏」按钮只置令牌；落地在问句行的「确认」（不变量 2）。
+  const onArmBatchHide = () => armConfirm("batchHide");
+  const onBatchHide = () => {
+    disarmConfirm();
+    hideWallpapers(selection.batchSelected.slice());
+    selection.batchMode = false;
+    selection.batchSelected = [];
+    emit();
+  };
+  const onBatchCancel = () => { disarmConfirm(); selection.batchMode = false; selection.batchSelected = []; emit(); };
+  const onSearchInput = (e) => { selection.search = e.target.value; selection.page = 0; emit(); };
+  const onPickCard = (w) => {
+    if (selection.batchMode) {
+      const i = selection.batchSelected.indexOf(w.id);
+      if (i >= 0) selection.batchSelected.splice(i, 1);
+      else selection.batchSelected.push(w.id);
+      emit();
+    } else {
+      applySelection(w.id);
+    }
+  };
+  const onNormalPagePrev = () => { selection.page--; emit(); };
+  const onNormalPageNext = () => { selection.page++; emit(); };
   return React.createElement("div", { className: "we-picker", "data-we-cards": sel.pickerLayout },
     // ── Card header (mirrors the skin-center's pluginCard header): plugin
     //    name + live wallpaper count badge + description. ──
@@ -7200,7 +3203,7 @@ function WallpaperPicker(props) {
       React.createElement("span", { className: "we-picker__card-badge" }, String(playableList.length)),
       React.createElement("span", { className: "we-picker__card-desc" }, "本地 Wallpaper Engine 壁纸 · 液态玻璃主题"),
     ),
-    // ── 页签栏（分段式）：六个域互斥展示，替代旧版三十控件的单列长滚动。
+    // ── 页签栏（分段式）：六个页签互斥展示，替代旧版三十控件的单列长滚动。
     //    指示胶囊随 activeTab 平移（transform 合成器属性，不引发布局）。 ──
     React.createElement("div", { className: "we-tabs", role: "tablist", "aria-label": "Wallpaper Engine 设置分区" },
       React.createElement("span", {
@@ -7225,253 +3228,15 @@ function WallpaperPicker(props) {
     //    immune to ancestor transforms/backdrop-filters (the shell's own glass
     //    effects would otherwise trap it), and z-index 1000 sits above the
     //    shell overlays. Close: ESC, backdrop click, or the close buttons. ──
-    sel.pickerOpen && (isRepoPanelCopy || !repoPanelOwnsModal) && ReactDOM.createPortal(
-      // repoPanel path: the picker opens as its own right-quarter liquid-glass
-      // window (same recipe as the repo panel), NOT the centred dark dialog that
-      // the settings copy uses. The scrim is a transparent full-screen click
-      // catcher (no dark dim/blur) so picking stays visually continuous.
-      React.createElement("div", { className: isRepoPanelCopy ? "we-repo-panel__modal-scrim" : "we-picker__modal-overlay", onClick: closePicker },
-        React.createElement("div", {
-          className: isRepoPanelCopy ? "we-picker__modal we-picker__modal--panel" : "we-picker__modal",
-          "data-we-cards": sel.pickerLayout,
-          role: "dialog",
-          "aria-modal": "true",
-          "aria-label": "选择壁纸",
-          onClick: (e) => e.stopPropagation(),
-          onKeyDown: trapModalTab,
-        },
-          React.createElement("div", { className: "we-picker__modal-head" },
-            React.createElement("div", { className: "we-picker__modal-head-left" },
-              React.createElement(VinylRecord, {
-                cover: current && current.preview, title: current ? current.title : "",
-                playing: playbackLive && Boolean(sel.url) && vinylSpinVisible(), sm: true,
-              }),
-              React.createElement("span", { className: "we-picker__modal-title" }, "选择壁纸"),
-            ),
-            React.createElement("button", {
-              className: "we-picker__btn", type: "button", onClick: closePicker,
-              // 打开模态框时焦点落在这里（一次性，见 modalInitialFocus）。
-              ref: modalInitialFocus,
-            }, "关闭"),
-          ),
-          React.createElement("div", { className: "we-picker__modal-tabs", role: "tablist" },
-            React.createElement("button", {
-              className: "we-picker__btn we-picker__tab" + (sel.modalView === "hidden" ? "" : " we-picker__tab--active"),
-              type: "button",
-              role: "tab",
-              "aria-selected": sel.modalView !== "hidden",
-              onClick: () => { selection.modalView = "normal"; emit(); },
-            }, "正常列表（" + playableList.length + "）"),
-            React.createElement("button", {
-              className: "we-picker__btn we-picker__tab" + (sel.modalView === "hidden" ? " we-picker__tab--active" : ""),
-              type: "button",
-              role: "tab",
-              "aria-selected": sel.modalView === "hidden",
-              onClick: () => { selection.modalView = "hidden"; selection.batchMode = false; selection.batchSelected = []; emit(); },
-            }, "已隐藏（" + hiddenList.length + "）"),
-          ),
-          sel.modalView === "hidden"
-            ? React.createElement("div", { className: "we-picker__modal-body" },
-                hiddenList.length === 0
-                  ? React.createElement("span", { className: "we-picker__hint" }, "没有已隐藏的壁纸")
-                  : React.createElement("div", { className: "we-picker__grid" },
-                      React.createElement("div", { className: "we-picker__row" },
-                        React.createElement("span", { className: "we-picker__hint" },
-                          "已隐藏 " + hiddenList.length + " 张（仅从列表隐藏，不删除源文件）"),
-                        React.createElement("button", {
-                          className: "we-picker__btn", type: "button",
-                          onClick: () => {
-                            if (!window.confirm("恢复全部 " + hiddenList.length + " 张已隐藏壁纸？")) return;
-                            restoreWallpapers(hiddenList.map((w) => w.id));
-                          },
-                        }, "全部恢复"),
-                      ),
-                      (cdMode ? hiddenList : hiddenPageView.items).map((w) => React.createElement("div", {
-                        key: w.id,
-                        className: "we-picker__card we-picker__card--hidden",
-                        role: "button",
-                        tabIndex: 0,
-                        title: w.title,
-                        "aria-label": "恢复并应用 " + w.title,
-                        onClick: () => applySelection(w.id),
-                        // 键盘可达性：正常列表卡片一直有 Enter/Space 处理，
-                        // 已隐藏卡片漏了 —— 补上（共享 cardKeyDown）。
-                        onKeyDown: cardKeyDown,
-                      },
-                      w.preview
-                        ? React.createElement("img", {
-                            src: w.preview, alt: w.title, loading: "lazy",
-                            onError: (e) => { e.target.style.display = "none"; },
-                            onLoad: (e) => { e.target.style.opacity = "1"; },
-                          })
-                        : React.createElement("span", { className: "we-picker__card-placeholder" }, "无预览"),
-                      CARD_TYPE_LABELS[w.type]
-                        && React.createElement("span", { className: "we-picker__card-type" }, CARD_TYPE_LABELS[w.type]),
-                      React.createElement("span", { className: "we-picker__card-title" }, w.title),
-                      w.type === "scene" && React.createElement("span", { className: "we-picker__card-badge" }, w.sceneLive ? "实时渲染" : "静态帧"),
-                      w.type === "web" && React.createElement("span", { className: "we-picker__card-badge" }, w.webLive ? "实时渲染" : "兼容模式"),
-                      React.createElement("button", {
-                        className: "we-picker__card-hide", type: "button",
-                        title: "恢复此壁纸",
-                        onClick: (e) => { e.stopPropagation(); restoreWallpapers([w.id]); },
-                      }, "恢复"),
-                      )),
-                    ),
-                    !cdMode && hiddenPageView.pages > 1 && pagerRow(
-                      hiddenList.length, hiddenPageView.page, hiddenPageView.pages,
-                      () => { selection.hiddenPage--; emit(); },
-                      () => { selection.hiddenPage++; emit(); },
-                    ),
-              )
-            : React.createElement("div", { className: "we-picker__modal-body" },
-                React.createElement("div", { className: "we-picker__row" },
-                  React.createElement("span", { className: "we-picker__hint" },
-                    playableList.length + " 个可播放壁纸 · 点击卡片即应用"),
-                  React.createElement("button", {
-                    className: "we-picker__btn", type: "button",
-                    onClick: () => { selection.batchMode = !selection.batchMode; selection.batchSelected = []; emit(); },
-                    disabled: playableList.length === 0,
-                    title: "多选后批量隐藏",
-                  }, selection.batchMode ? "退出批量" : "批量"),
-                ),
-                selection.batchMode && React.createElement("div", { className: "we-picker__row we-picker__batch-bar" },
-                  React.createElement("span", { className: "we-picker__hint" }, "已选 " + selection.batchSelected.length + " 张"),
-                  React.createElement("button", {
-                    className: "we-picker__btn", type: "button",
-                    disabled: selection.batchSelected.length === 0,
-                    onClick: () => {
-                      const n = selection.batchSelected.length;
-                      if (!window.confirm("隐藏选中的 " + n + " 张壁纸？可在「已隐藏」中随时恢复。")) return;
-                      hideWallpapers(selection.batchSelected.slice());
-                      selection.batchMode = false;
-                      selection.batchSelected = [];
-                      emit();
-                    },
-                  }, "批量隐藏"),
-                  React.createElement("button", {
-                    className: "we-picker__btn", type: "button",
-                    onClick: () => { selection.batchMode = false; selection.batchSelected = []; emit(); },
-                  }, "取消"),
-                ),
-                React.createElement("div", { className: "we-picker__row we-picker__filter-row" },
-                  // 标题搜索：几百上千张壁纸时最快的定位方式。输入即过滤
-                  // （重置到第 1 页），与分级/类型过滤叠加。
-                  React.createElement("input", {
-                    className: "we-picker__text we-picker__search", type: "text",
-                    value: sel.search,
-                    placeholder: "搜索壁纸标题…",
-                    "aria-label": "搜索壁纸标题",
-                    onInput: (e) => { selection.search = e.target.value; selection.page = 0; emit(); },
-                  }),
-                  React.createElement("span", { className: "we-picker__hint we-picker__label" }, "内容分级"),
-                  React.createElement("select", {
-                    className: "we-picker__playlist-select",
-                    value: sel.contentRatingFilter,
-                    onChange: onRatingFilterChange,
-                    "aria-label": "内容分级",
-                    title: "对应 Wallpaper Engine 的内容分级（project.json contentrating）",
-                  },
-                  React.createElement("option", { value: "all" }, "全部（" + basePlayable.length + "）"),
-                  React.createElement("option", { value: "everyone" }, "Everyone / G（" + ratingCounts.everyone + "）"),
-                  React.createElement("option", { value: "pg13" }, "PG13（" + ratingCounts.pg13 + "）"),
-                  React.createElement("option", { value: "mature" }, "Mature / R（" + ratingCounts.mature + "）"),
-                  React.createElement("option", { value: "unrated" }, "未分级（" + ratingCounts.unrated + "）"),
-                  ),
-                  React.createElement("span", { className: "we-picker__hint we-picker__label" }, "类型"),
-                  React.createElement("select", {
-                    className: "we-picker__playlist-select",
-                    value: sel.typeFilter,
-                    onChange: onTypeFilterChange,
-                    "aria-label": "类型",
-                    title: "按壁纸类型过滤",
-                  },
-                  React.createElement("option", { value: "all" }, "全部（" + basePlayable.length + "）"),
-                  React.createElement("option", { value: "video" }, "视频（" + (typeCounts.video || 0) + "）"),
-                  React.createElement("option", { value: "web" }, "网页（" + (typeCounts.web || 0) + "）"),
-                  React.createElement("option", { value: "image" }, "图片（" + (typeCounts.image || 0) + "）"),
-                  React.createElement("option", { value: "scene" }, "场景（" + (typeCounts.scene || 0) + "）"),
-                  ),
-                ),
-                React.createElement("div", { className: "we-picker__grid" },
-                  // "Close wallpaper" card — equivalent of the old first <option>.
-                  // Rendered as a <div role="button"> like every other card:
-                  // <button> ignores aspect-ratio in several browsers, which
-                  // collapses the cell and lets the "✕ 关闭" label float over
-                  // the adjacent thumbnail.
-                  React.createElement("div", {
-                    className: "we-picker__card" + (sel.id ? "" : " we-picker__card--selected"),
-                    role: "button",
-                    tabIndex: 0,
-                    onClick: onClear,
-                    title: "关闭壁纸",
-                    onKeyDown: cardKeyDown,
-                  },
-                  React.createElement("span", { className: "we-picker__card-close" }, "✕ 关闭"),
-                  ),
-                  playableList.length === 0
-                    ? React.createElement("span", { className: "we-picker__hint" },
-                        query
-                          ? "没有匹配「" + sel.search + "」的壁纸 · 试试缩短关键词或清除过滤"
-                          : "没有可播放的壁纸")
-                    : (cdMode ? playableList : normalPage.items).map((w) => React.createElement("div", {
-                        key: w.id,
-                        className: "we-picker__card" + (w.id === sel.id ? " we-picker__card--selected" : "")
-                          // 批量勾选高亮：此前勾选态只进了 batchSelected，高亮 CSS
-                          // 却挂在 --selected（=当前播放）上，勾了永远不亮。
-                          + (selection.batchMode && selection.batchSelected.indexOf(w.id) >= 0 ? " we-picker__card--checked" : ""),
-                        role: "button",
-                        tabIndex: 0,
-                        title: w.title,
-                        onClick: () => {
-                          if (selection.batchMode) {
-                            const i = selection.batchSelected.indexOf(w.id);
-                            if (i >= 0) selection.batchSelected.splice(i, 1);
-                            else selection.batchSelected.push(w.id);
-                            emit();
-                          } else {
-                            applySelection(w.id);
-                          }
-                        },
-                        onKeyDown: cardKeyDown,
-                      },
-                      w.preview
-                        ? React.createElement("img", {
-                            src: w.preview, alt: w.title, loading: "lazy",
-                            onError: (e) => { e.target.style.display = "none"; },
-                            onLoad: (e) => { e.target.style.opacity = "1"; },
-                          })
-                        : React.createElement("span", { className: "we-picker__card-placeholder" }, "无预览"),
-                      // 类型徽标（卡片左上角）：批量模式下让位给勾选框。
-                      !selection.batchMode && CARD_TYPE_LABELS[w.type]
-                        && React.createElement("span", { className: "we-picker__card-type" }, CARD_TYPE_LABELS[w.type]),
-                      React.createElement("span", { className: "we-picker__card-title" }, w.title),
-                      w.type === "scene" && React.createElement("span", { className: "we-picker__card-badge" }, w.sceneLive ? "实时渲染" : "静态帧"),
-                      w.type === "web" && React.createElement("span", { className: "we-picker__card-badge" }, w.webLive ? "实时渲染" : "兼容模式"),
-                      selection.batchMode
-                        ? React.createElement("span", { className: "we-picker__card-check" },
-                            selection.batchSelected.indexOf(w.id) >= 0 ? "✓" : "")
-                        : React.createElement("button", {
-                            className: "we-picker__card-hide", type: "button",
-                            title: "隐藏此壁纸（可在「已隐藏」中恢复）",
-                            onClick: (e) => { e.stopPropagation(); hideWallpapers([w.id]); },
-                          }, "隐藏"),
-                      )),
-                ),
-                !cdMode && normalPage.pages > 1 && pagerRow(
-                  playableList.length, normalPage.page, normalPage.pages,
-                  () => { selection.page--; emit(); },
-                  () => { selection.page++; emit(); },
-                ),
-              ),
-          // 底部只留提示：关闭按钮在顶部（modal-head，也是初始焦点落点），
-          // 底部再放一个是重复的。
-          React.createElement("div", { className: "we-picker__modal-foot" },
-            React.createElement("span", { className: "we-picker__hint" }, "ESC / 点击遮罩关闭"),
-          ),
-        ),
-      ),
-      document.body,
-    ),
+    sel.pickerOpen && (isRepoPanelCopy || !repoPanelOwnsModal) && renderPickerModal({
+      sel, isRepoPanelCopy, closePicker, current, playbackLive, playableList, hiddenList, hiddenPageView, normalPage,
+      cdMode, pagerRow, query, basePlayable, ratingCounts, typeCounts,
+      armedConfirm: sel.armedConfirm, onArmConfirm: armConfirm, onDisarmConfirm: disarmConfirm,
+      onClear, onRatingFilterChange, onTypeFilterChange,
+      onShowNormalView, onShowHiddenView, onHiddenPagePrev, onHiddenPageNext,
+      onToggleBatchMode, onArmBatchHide, onBatchHide, onBatchCancel, onSearchInput, onPickCard,
+      onNormalPagePrev, onNormalPageNext,
+    }),
   );
 }
 
@@ -7825,8 +3590,7 @@ function UpdateNotice() {
   const dismiss = () => {
     // Persist the dismissed version through the settings pipeline (localStorage
     // cache + host file). emit() re-renders this component (useStore) to hide it.
-    selection.noticeSeen = NOTICE_VERSION;
-    persistSelection();
+    setSetting("noticeSeen", NOTICE_VERSION);
     emit();
   };
   if (!show) return null;
@@ -7836,7 +3600,7 @@ function UpdateNotice() {
       React.createElement("p", { className: "we-update-notice__hint" },
         "⚠️ 效果诚实声明：视差 / 透视 / 粒子 / 频谱等效果由场景作者在壁纸内制作，本插件负责把渲染引擎完整跑起来——",
         React.createElement("strong", null, "壁纸本身没有制作对应效果的话不会凭空出现"),
-        "；个别场景渲染不动时自动回落静态帧，不会黑屏。"),
+        "；个别场景渲染不动时自动回落静帧，不会黑屏。"),
       React.createElement("p", { className: "we-update-notice__hint" },
         "💡 Tips：",
         React.createElement("strong", null, "设置面板中部分暂未生效的选项为后续版本的待更新内容"),
@@ -7847,7 +3611,7 @@ function UpdateNotice() {
         "。"),
       React.createElement("p", null,
         "① ", React.createElement("strong", null, "场景壁纸实时渲染引擎"),
-        "：接入 WebWallGL 实时渲染，场景壁纸从「一张静态图」变成「活的」——下面这些由场景作者制作的动态效果全部激活；个别渲染不动的壁纸会自动回落到静态帧管线（毫秒级出图 + 后台预热，v0.7.5 的静态帧修复全部保留，不会黑屏）。"),
+        "：接入 WebWallGL 实时渲染，场景壁纸从「一张静态图」变成「活的」——下面这些由场景作者制作的动态效果全部激活；个别渲染不动的壁纸会自动回落到实时帧（live 渲染页抓帧缓存的 `<key>_gpu.png`，或你导入的自定义画面），都没有时是干净的空态，不会黑屏）。"),
       React.createElement("p", null,
         "② ", React.createElement("strong", null, "鼠标视差"),
         "：场景层次随鼠标移动产生位移，壁纸「跟着鼠标活起来」。"),
@@ -7856,7 +3620,7 @@ function UpdateNotice() {
         "：场景透视 / 景深随鼠标位置实时变化。"),
       React.createElement("p", null,
         "④ ", React.createElement("strong", null, "动态粒子"),
-        "：粒子系统实时运行（质量档位可在效果页签调整）。"),
+        "：粒子系统实时运行（渲染帧率档位可在效果页签调整）。"),
       React.createElement("p", null,
         "⑤ ", React.createElement("strong", null, "水波纹"),
         "：水面 / 液体波纹交互效果。"),
@@ -7870,7 +3634,7 @@ function UpdateNotice() {
         "；同时带 Now Playing——曲目 / 歌手 / 封面直达壁纸。"),
       React.createElement("p", null,
         "⑧ ", React.createElement("strong", null, "帧率上限与播放态管理"),
-        "：15 / 30 / 60 fps 上限自由设定（省电与流畅自选）；窗口隐藏 / 最小化 / 失焦自动暂停；电池供电自动暂停（均可在效果页签关闭）。"),
+        "：15 / 30 / 60 fps 上限自由设定（省电与流畅自选）；窗口隐藏 / 最小化 / 失焦自动暂停；电池供电自动暂停（均可在「高级」页签关闭）。"),
       React.createElement("p", null,
         "⑨ ", React.createElement("strong", null, "dsh-desktop 2.0.14 全面适配"),
         "：修复升级 2.0.14 后的插件加载失败、右栏玻璃关闭态露灰板、增强模式左栏灰面板遮挡壁纸等问题；建议搭配 dsh-desktop 2.0.14 及以上版本使用。"),
@@ -7886,1879 +3650,6 @@ function UpdateNotice() {
   );
 }
 
-// ── Text-surface readability floor (upstream #82) ───────────────────────────
-// The wallpaper may be dimmed/blended so it "does not dominate", but TEXT MUST
-// STAY READABLE. IDEA's background-image feature has ONE knob (image opacity)
-// and still "just works" because the image always sits BEHIND the editor /
-// tool-window surfaces, which keep a background of their own
-// (https://www.jetbrains.com/help/idea/setting-background-image.html). This
-// plugin lacked exactly that structural property: every text-bearing surface
-// was painted as `glass colour @ --we-glass-alpha`, and in dark mode that alpha
-// is additionally multiplied by 0.4 — worst case 0.03 × 0.4 = 0.012, i.e. no
-// frost at all, so conversation text scrolling behind the composer read
-// straight through.
-//
-// The floor is a THEME-BASE LAYER composited OVER that glass tint at a fixed
-// weight no slider can lower: the tint's alpha only scales the other operand,
-// so the effective coverage is floor + a·(1−floor) ≥ floor. Clamping the tint
-// alpha itself with max() cannot work here — in dark mode the tint is a WHITE
-// glaze, so over the brightest plausible wallpaper pixel the surface composites
-// to white at ANY alpha and white body text keeps exactly 1.00:1 (the measured
-// before row below). In light mode such a clamp would work but would have to
-// sit at 0.44, above every alpha the slider can reach (max 0.25) — it would
-// flatten the slider completely. The theme-base layer fixes both themes and
-// keeps the slider alive above the floor.
-//
-// Both values come from measurement (scripts/verify-readability.mjs recomputes
-// the same grid): 玻璃透明度 {0,15,30,45,60} × theme {light,dark} ×
-// 壁纸透明度 {0,50,90}, theme text colour (light #000 / dark #fff) against the
-// surface composited onto the worst-case backdrop (light: darkest plausible
-// wallpaper pixel #000; dark: brightest #fff):
-//   light  exact 0.44194 → 0.45   worst case 4.63:1  (bubble @ 玻璃透明度=60)
-//   dark   exact 0.58136 → 0.59   worst case 4.63:1  (settings layer-3 @ 0)
-// The floor is independent of 壁纸透明度: it never reads --we-wallpaper-opacity,
-// which keeps affecting .we-layer only. Values are interpolated into the CSS
-// below so the stylesheet and this comment can never drift apart.
-const READABILITY_FLOOR = 0.45;
-const READABILITY_FLOOR_DARK = 0.59;
-
-// ── Styles ──────────────────────────────────────────────────────────────────
-const CSS = `
-  /* Wallpaper layer: a fixed child of <body>, sunk BELOW the app frame.
-     壁纸透明度（#82）作用在**媒体叶子**（.we-layer .we-media）上 —— 对
-     <video>/<img>/<iframe>/canvas 四类媒体统一生效，也无需逐媒体处理
-     fit/transform 的相互作用；层自身垫一层**原生底色**
-     （--we-wallpaper-fade-bg，浅色纯白 / 深色纯黑）保持不透明合成（透明
-     backdrop 会让玻璃 backdrop-filter 静默失效）。变量缺省 1。 */
-  .we-layer { position: fixed; inset: 0; z-index: -2; overflow: hidden; pointer-events: none; opacity: 1; background-color: var(--we-wallpaper-fade-bg, transparent); }
-  /* Blurring via CSS filter darkens/thins the edges, so the layer is scaled up
-     (--we-wallpaper-scale tracks blur) to hide the transparent fringe the blur
-     would otherwise reveal at the viewport edges. */
-  .we-layer .we-media {
-    width: 100%; height: 100%; object-fit: cover; display: block;
-    background: transparent; border: 0;
-    /* 壁纸透明度（#82）作用于媒体叶子而非 .we-layer 整层：layer 垫**原生底色**
-       （--we-wallpaper-fade-bg，浅色纯白 / 深色纯黑）保持不透明合成，避免透明
-       backdrop 让玻璃 backdrop-filter 失效（见 applyEffects 注释）。 */
-    opacity: var(--we-wallpaper-opacity, 1);
-    /* Blur is applied ONLY when > 0 (see --we-media-filter in applyEffects):
-       a permanent blur(0px) would still force an offscreen filter layer on
-       the wallpaper <video>/canvas every frame — a known source of periodic
-       compositing glitches (brief white flash) in Chromium. */
-    filter: var(--we-media-filter, none);
-    /* Single transform var — "none" at default so the full-screen <video> isn't
-       forced onto a transform compositing layer; the blur-compensation scale and
-       the mirror are composed in the SAME var when active. */
-    transform: var(--we-wallpaper-transform, none);
-    transform-origin: center;
-  }
-  /* The 适配 row sets the fit mode for the CURRENT wallpaper (any type);
-     only .we-media--fit reads the variable (iframes have no object-fit). */
-  .we-layer .we-media--fit { object-fit: var(--we-object-fit, cover); }
-
-  /* Scene live render (WebWallGL): static frame underlay + renderer iframe.
-     Both stack absolutely inside .we-layer; the iframe starts transparent and
-     fades in on the first heartbeat frame (.we-live-on, startLiveWatch) so the
-     load window and any live→frame degradation never flash. Fade composes with
-     the wallpaper-opacity leaf var (#82) via calc instead of overwriting it.
-     时长与 LIVE_FIRST_FADE_MS 同步（当前 1800ms）：手动切换壁纸时
-     「GPU 静帧 → 实时动态帧」的缓慢过渡走的就是这条腿。 */
-  .we-layer .we-live-poster {
-    position: absolute; inset: 0; width: 100%; height: 100%;
-    background-size: cover; background-position: center; background-repeat: no-repeat;
-  }
-  /* live 首帧点亮后，垫底静态帧必须**整块退场** —— 但必须**串行**：等 iframe
-     淡入完成后再快收，不能与 iframe 同步双淡出。同步双淡出时两个半透明层互换，
-     黑底会在过渡中点以 (1−f)(1−p)≈25% 的强度漏出来（层底是原生纯黑/纯白），
-     实测症状就是「切换完成后整屏呼吸式变暗后恢复」—— 它违反了本仓「旧画面
-     保持不透明垫底」的铁律。串行后 iframe 淡入期间的合成是
-     f·live + (1−f)·静态帧，黑底永不参与；延迟 1.8s（与 LIVE_FIRST_FADE_MS
-     同步）时 iframe 已到终态 —— a=1 时静态帧被完全不透明 iframe 盖住，0.3s
-     快收完全不可见；a<1 时残余的 a(1−a) 静态帧鬼影（本规则存在的理由，见下）
-     由这 0.3s 平滑收掉。
-     ⚠️ 它在 DOM 里是 iframe 的**下层**，而「壁纸透明度」是把上层 iframe 变半透明
-     —— 一个 0.1 的 alpha 会让静态帧以 a(1−a)≈0.09 的强度重新透出来：实测症状就是
-     「壁纸透明度高时显现静态帧」，而预期是只该看到原生底色 + 淡出的实时画面。
-     首帧确认前 / 降级回静态帧后本规则不匹配，垫底照旧负责盖住加载窗口。
-     transition 写在**这条规则里**：状态翻转时按上式延迟快收，翻回（降级）时规则
-     连同 transition 一起消失、立即恢复垫底；live 生效期间这里的 opacity 是字面量 0，
-     与「壁纸透明度」滑块无关 —— 不会拖慢滑块手感。 */
-  .we-layer:has(.we-live-iframe.we-live-on) .we-live-poster {
-    opacity: 0;
-    transition: opacity 0.3s ease 1.8s;
-  }
-  .we-layer .we-live-iframe {
-    position: absolute; inset: 0; width: 100%; height: 100%;
-    background: transparent;
-    opacity: calc(var(--we-wallpaper-opacity, 1) * var(--we-live-fade, 0));
-    transition: opacity 1.8s ease;
-  }
-  .we-layer .we-live-iframe.we-live-on { --we-live-fade: 1; }
-
-  /* 切换过场（手动点选与自动轮播共用）：
-     - staging：live 渲染页预载驻留层 —— opacity 0 但 in-DOM 且几何满视口，
-       渲染页按正常分辨率初始化出首帧，就绪后 iframe 被移动进正式层；
-     - switch：入场层的初态/终态由 startLayerTransition 用内联样式写入（每种过场
-       的初态见 switchFrames），这里只提供**一条通用 transition**：transform /
-       opacity / clip-path 都是合成器友好属性（mask/filter 在 <video> 与 live
-       <iframe> 上会掉出合成层，故不用）。时长由内联 --we-switch-ms 决定
-       （= 类型基准 × 速度档，见 SWITCH_TRANSITIONS / SWITCH_SPEEDS）。
-     - switch-out：退场层（旧壁画）；只有需要它同时动起来的过场（推移 / 缩放）
-       才会加这个类 —— 其余过场旧层保持不透明静止，垫在新层之下（玻璃
-       backdrop-filter 依赖这层不透明背景，所以没有任何过场让中间态透明）。 */
-  .we-layer--staging { opacity: 0; }
-  .we-layer--switch {
-    transition:
-      transform var(--we-switch-ms, 700ms) var(--we-switch-ease, cubic-bezier(0.22, 0.61, 0.36, 1)),
-      opacity var(--we-switch-ms, 700ms) var(--we-switch-ease, cubic-bezier(0.22, 0.61, 0.36, 1)),
-      clip-path var(--we-switch-ms, 700ms) var(--we-switch-ease, cubic-bezier(0.22, 0.61, 0.36, 1));
-    will-change: transform, opacity, clip-path;
-  }
-  /* 减少动态效果偏好：过场一律退化成即时切换（不覆盖用户选择，只是把动画关掉）。 */
-  @media (prefers-reduced-motion: reduce) {
-    .we-layer--switch { transition: none !important; }
-  }
-
-  /* Scrim: sits ABOVE the wallpaper (z-index -1 > -2, so it never depends on
-     DOM insertion order — the wallpaper element is re-appended on wallpaper
-     switch and could otherwise slide above the scrim). Below the UI. */
-  .we-scrim {
-    position: fixed; inset: 0; z-index: -1;
-    pointer-events: none;
-    background: var(--we-scrim-color, rgba(0, 0, 0, 0.25));
-  }
-
-  /* While a wallpaper is active: make the app frame AND sidebar transparent so
-     all columns share the same wallpaper+scrim background, raise border alpha
-     for visibility, and apply the frosted-glass effect to opaque surfaces. */
-  body[data-we-wallpaper] {
-    --dsw-alias-bg-base: transparent;
-    --dsw-specific-sidebar-fill: transparent;
-    /* Border emphasis: neutral gray so it reads on both light and dark themes;
-       alpha is driven by the "边框" slider through --we-border-alpha. */
-    --dsw-alias-border-l1: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
-    --dsw-alias-border-l2: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
-    --dsw-alias-border-l2-darkmode-thin: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
-  }
-  /* DSH rc.7+ injects the theme palette (design-platform.css) as a plugin-owned
-     stylesheet appended to <head> AFTER this one, so in dark mode the shell's
-     body[data-ds-dark-theme] rules (equal specificity 0,1,1, later in the
-     document) win the cascade and repaint the app frame / sidebar / borders
-     with their opaque dark colors — hiding the wallpaper behind them. Repeat
-     the transparency + border-emphasis overrides under the higher-specificity
-     dark selector (0,2,1) so the wallpaper always wins regardless of stylesheet
-     order. */
-  body[data-ds-dark-theme][data-we-wallpaper] {
-    --dsw-alias-bg-base: transparent;
-    --dsw-specific-sidebar-fill: transparent;
-    --dsw-alias-border-l1: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
-    --dsw-alias-border-l2: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
-    --dsw-alias-border-l2-darkmode-thin: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
-  }
-
-  /* #73 增强模式 + Win10（无 Mica）：桌面外壳只在系统材质可用时让左侧工作区
-     (.dshDesktopSidebarSurface) 保持透明（壁纸透出）；material 回退 off 时它改用
-     --dsw-alias-bg-layer-1 实心绘制该区域，并把内部 sidebar 的
-     --dsw-specific-sidebar-fill 也改成实心色 —— 壁纸在这里完全不生效，只剩一块与
-     系统材质绑定的死底色。detectMicaSupport() 把「无 Mica」作为稳定钩子挂到
-     body[data-we-mica="off"]，这里用插件自己的近不透明玻璃面接管该区域：配方与
-     无 backdrop-filter 的内容面回退完全一致（主题面板色 + --we-content-surface-alpha，
-     由「内容面透明度 / 内容面底色」控制，默认 70% 不透明，壁纸仍有一层微光），
-     同时放行内部 fill token，让这块面重新与壁纸 + 暗化层同步。Mica 可用时该属性
-     不存在，本规则不参与匹配，行为与今天逐字节相同。 */
-  body[data-we-mica="off"][data-we-wallpaper] .dshDesktopSidebarSurface {
-    --dsw-specific-sidebar-fill: transparent !important;
-    background-color: color-mix(in srgb, var(--we-content-surface-color, var(--dsw-alias-bg-layer-1, #1e1f26)) max(calc(var(--we-readability-floor) * 100%), var(--we-content-surface-alpha, 88%)), transparent) !important;
-  }
-
-  /* ── Light-scheme text contrast boost ──────────────────────────────────────
-     In light mode the grays (tertiary/caption/secondary) were tuned against a
-     near-white page. Over a busy wallpaper + light scrim they lose contrast, so
-     push the whole gray ramp darker while a wallpaper is active. Primary text
-     is already near-black; we still pin it to pure black for max legibility.
-     (Dark mode is untouched: its white-on-dark text already reads fine.) */
-  body[data-we-wallpaper]:not([data-ds-dark-theme]) {
-    --dsw-alias-label-primary: rgb(0, 0, 0);
-    --dsw-alias-label-primary-dimmed: rgb(10, 10, 12);
-    --dsw-alias-label-secondary: rgb(40, 42, 46);
-    --dsw-alias-label-tertiary: rgb(70, 73, 79);
-    --dsw-alias-label-caption: rgb(110, 114, 120);
-    --dsw-alias-label-dimmed: rgb(50, 52, 56);
-  }
-
-  /* ── 文字面可读性下限 (text-surface readability floor, #82) ───────────────
-     动机、IDEA 模型与 4.5:1 目标见 JS 的 READABILITY_FLOOR 注释（数值的唯一
-     来源，下面用模板插值注入，二者不会漂移）。写法：每个承载文字的面都从
-         <原玻璃色 @ 原 alpha>
-     变成
-         color-mix(in srgb, <主题底色> floor%, <原玻璃色 @ 原 alpha> (1-floor)%)
-     —— color-mix 在预乘空间按权重插值，权重会乘上操作数自身的 alpha，
-     所以这条声明恰好等于「主题底色 @floor 压在 原玻璃色 之上」：
-         effective alpha = floor + a_glass × (1 − floor) ≥ floor
-     玻璃透明度 与 暗主题的 ×0.4 只改 a_glass（另一项权重），floor 这一项
-     固定不动 —— 下限因此不可能被滑杆削弱；floor 之上仍是原来的玻璃配方，
-     只是压了一层主题底色（壁纸在亮/暗极端像素处不再吃掉文字）。
-     --we-wallpaper-opacity 不参与本层：壁纸透明度仍只作用于 .we-layer。 */
-  body {
-    --we-readability-floor: ${READABILITY_FLOOR};
-    --we-readability-base: #ffffff;
-  }
-  body[data-ds-dark-theme] {
-    --we-readability-floor: ${READABILITY_FLOOR_DARK};
-    --we-readability-base: #0d1524;
-  }
-
-  /* ── iOS liquid glass ──────────────────────────────────────────────────────
-     The opaque conversation surfaces become translucent glass. The recipe is
-     Apple-like, not a plain blur:
-       - LARGE-radius blur + a modest constant saturation + brightness/contrast
-         lift, so the wallpaper colour melts into a soft glow instead of a gray
-         smear (saturation is DECOUPLED from the blur radius — see GLASS_SATURATE
-         in applyEffects — so a big radius no longer amplifies the residual
-         wallpaper text into a colour ghost);
-       - a top-weighted specular gradient (background-image) — the sheen is
-         what makes the surface read as "wet glass", not a flat tint;
-       - a light, low-alpha base (not a dark one) so the wallpaper shows through;
-       - a 1px top refraction highlight + 0.5px hairline + soft elevation
-         shadow for "thick glass";
-       - --we-blur drives the blur radius (the 玻璃 slider's one job now) and
-         --we-saturate is a flat material constant, so composer, bubbles AND the
-         better-sidebar shell stay in one uniform liquid look at every radius.
-
-     Transparency is driven through the design tokens the surfaces already read
-     (--dsw-specific-input-major on the composer card, --dsw-specific-bubble on
-     message bubbles) rather than through class selectors: CSS-module class
-     names are build hashes and change whenever the shell frontend is rebuilt,
-     which silently kills the effect. backdrop-filter cannot be expressed as a
-     token, so the blur itself still needs an element selector — [data-composer-card]
-     is authored in the shell source and survives rebuilds. Bubbles carry no such
-     attribute, so they fall back to the module-CSS suffix convention; if that
-     ever stops matching the bubble stays translucent, just without the blur.
-     Both tokens carry text, so both go through the readability floor (the
-     composer card AND the tool popups that read --dsw-specific-input-major). */
-  body[data-we-wallpaper] {
-    --dsw-specific-input-major: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      rgba(255, 255, 255, var(--we-glass-alpha, 0.15)) calc((1 - var(--we-readability-floor)) * 100%));
-    --dsw-specific-bubble: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      rgba(255, 255, 255, calc(var(--we-glass-alpha, 0.15) * 0.8)) calc((1 - var(--we-readability-floor)) * 100%));
-  }
-  body[data-ds-dark-theme][data-we-wallpaper] {
-    /* The ×0.4 / ×0.33 factors below only scale the TINT operand; the floor
-       keeps its own weight, so the dark-theme undercut cannot happen. */
-    --dsw-specific-input-major: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      rgba(255, 255, 255, calc(var(--we-glass-alpha, 0.15) * 0.4)) calc((1 - var(--we-readability-floor)) * 100%));
-    --dsw-specific-bubble: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      rgba(255, 255, 255, calc(var(--we-glass-alpha, 0.15) * 0.33)) calc((1 - var(--we-readability-floor)) * 100%));
-  }
-  body[data-we-wallpaper] [data-composer-card],
-  body[data-we-wallpaper] [class*="_bubble"],
-  /* Interactive tool popup cards read the SAME --dsw-specific-input-major
-     token as the composer (question / plan-review / approval), so they turn
-     translucent along with it — but unlike the composer they had NO
-     backdrop-filter, so at high transparency the popup's own text sits
-     directly on the busy wallpaper → 文字重叠 (#66). Each popup renders its
-     surface as a css-module *_card child of a STABLE, source-authored
-     container attribute: [data-question-key] (ask_user_question),
-     [data-plan-review-key] (plan review / exit_plan_mode panel) and
-     [data-approval-key] (tool-permission approval card). We scope _card
-     inside those containers instead of a broad [class*="_card"] (which would
-     also blur nested *_cardBody / hovercard surfaces). */
-  body[data-we-wallpaper] [data-question-key] [class*="_card"],
-  body[data-we-wallpaper] [data-plan-review-key] [class*="_card"],
-  body[data-we-wallpaper] [data-approval-key] [class*="_card"] {
-    /* Specular sheen: a top-weighted white gradient turns a flat translucent
-       tint into "wet glass" — kept faint so the wallpaper stays 通透 (clear)
-       instead of glaring. */
-    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.05) 38%, rgba(255, 255, 255, 0.02));
-    -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
-    backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, var(--we-glass-highlight, 0.32)),
-      inset 0 -1px 0 rgba(255, 255, 255, 0.08),
-      inset 0 0 0 0.5px rgba(255, 255, 255, 0.08),
-      0 12px 40px rgba(0, 0, 0, var(--we-glass-shadow, 0.12));
-  }
-  /* ── composer card: the blur must not live on the card itself ─────────────
-     [data-composer-card] contains position:fixed descendants: @dsh-external/
-     dsh-webui mounts the "AI 浏览器" seat (.dsh-browser-seat-wrap) inside it with a
-     hard-coded position:fixed. A non-none backdrop-filter makes the element a
-     containing block for its fixed descendants, so that button stops being
-     viewport-anchored and drops ~522px below the card. The seat then carries
-     543px of phantom overflow, which becomes extra scrollable content in the
-     conversation scroller: by the time you reach the bottom the sticky travel is
-     already spent, so the composer is left stranded above it (#89).
-     Hosting the blur on ::before fixes it — a pseudo-element has no DOM
-     descendants, so it can never become a containing block. Same blur radius,
-     same --we-* tokens, same inset/radius → visually identical.
-     把模糊改由 ::before 伪元素承载：伪元素没有 DOM 后代，不会成为 fixed 后代的包含块。 */
-  body[data-we-wallpaper] [data-composer-card] {
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-  body[data-we-wallpaper] [data-composer-card]::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    pointer-events: none;
-    z-index: -1;
-    -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
-    backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
-  }
-  /* Note (anti-flicker): the composer/bubbles keep ONLY the backdrop-filter
-     glass. Extra always-on layers (transform/will-change/contain) were removed —
-     they did not stop the white flash and instead added compositing layers. The
-     flash was traced to the rope's permanent CSS filter, which is now gone. */
-
-  /* ── 原生左栏在 extended/advanced 窗口模式下的不透明底 ─────────────────────
-     harness 的壳层样式表带一条模式门控规则：mode 为 extended/advanced 且
-     material=off 时，ASIDE.dshDesktopSidebarSurface（原生左栏 surface）被刷成
-     不透明的 var(--dsw-alias-bg-layer-1)，并经继承的 --dsw-specific-sidebar-fill
-     变量传给内层（兼容模式无此规则，左栏直接透出壁纸）。壁纸激活时恢复透明，
-     让两种模式观感一致；壳层关闭壁纸时原生不透明底照旧。 */
-  body[data-we-wallpaper][data-dsh-desktop-mode="extended"] .dshDesktopSidebarSurface,
-  body[data-we-wallpaper][data-dsh-desktop-mode="advanced"] .dshDesktopSidebarSurface {
-    /* !important 必需：宿主的模式门控规则在层叠里赢过本表的非 important 声明
-       （实测 var 被压回 #232324），important 才能让 fill 变量真正翻转。 */
-    --dsw-specific-sidebar-fill: transparent !important;
-    background: transparent !important;
-  }
-
-  /* ── extended 模式的外壳画布底（dsh-desktop 2.0.14）────────────────────────
-     与上面那条同类，但这条是**扩展模式专属**。壳层样式表里有：
-       body[data-dsh-desktop-mode="extended"] .dshDesktopFrame {
-         background: var(--dsh-desktop-frame-fill);
-       }
-     兼容模式**没有**这条（.dshDesktopFrame 的基线样式是 transparent），所以只有扩展模式
-     会把壁纸整片盖住 —— 用户看到的就是「壁纸没生效 / 像没选壁纸」。机制：Windows 上 material
-     只能是 off（壳层 isWindowsMaterial 只接受 "off"）⇒ --dsh-desktop-frame-fill =
-     var(--dsw-alias-bg-layer-1)（不透明）；而 .dshDesktopFrame 是整窗 grid 容器，位于
-     #root（{ position: fixed; transform: translateZ(0) } ⇒ 自成层叠上下文）之内，于是挂在
-     body 上的 z-index:-1 壁纸层被它整片盖住。
-     ⚠️ 只清**画布**这一层、不改 --dsh-desktop-frame-fill 变量本身：标题栏
-     （.dshDesktopFrameTitlebar）读同一个变量，必须保留底色，否则标题栏文字直接压在壁纸上。
-     主内容区（.dshDesktopConversationSurface）读的是 --dsw-alias-bg-base，本表已在
-     body[data-we-wallpaper] 上把它置为 transparent（见上面那条），因此无需再写。 */
-  body[data-we-wallpaper][data-dsh-desktop-mode="extended"] .dshDesktopFrame {
-    background: transparent !important;
-  }
-
-  /* ── dsh-better-sidebar glass ──────────────────────────────────────────────
-     The sidebar shell is portalled onto <body> under a stable host attribute
-     "data-dsh-better-sidebar" (set by the plugin's own mount code), so we can
-     target the whole tree without depending on its CSS-module hashes. Its root
-     panels read the opaque --dsw-alias-bg-layer-1 token (hence the "black
-     frame") — give them the SAME clear liquid-glass recipe as the
-     composer/bubbles (faint specular sheen + gentle frosted melt).
-     Unlike the conversation surfaces, the sidebar glass is FULLY independent
-     from the active wallpaper: it can tint and frost the stock DSH surface or
-     any other background source without pretending a plugin wallpaper exists.
-     The master switch body[data-we-sidebar-glass] (侧栏液态玻璃) gates the whole
-     adaptation, and blur / saturation / transparency / base tint each have
-     their own knob (--we-sidebar-blur / --we-sidebar-saturate /
-     --we-sidebar-alpha / --we-sidebar-color, from 侧栏模糊 / 侧栏透明度 /
-     侧栏玻璃颜色), so the sidebar can be blurrier, clearer, more transparent
-     or tinted however you like without touching the 玻璃 / 玻璃透明度 sliders.
-     Inner chrome surfaces that paint the same opaque tokens get a translucent
-     base too; the blur lives on the root panels (one blur per shell). */
-  body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_boundaryError"],
-  body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_panel"] {
-    /* 侧栏面板同样承载文字 → 同一层可读性下限（--we-sidebar-tint 是这里的
-       玻璃色权重，只在另一项上生效）。 */
-    background-color: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-sidebar-color, #ffffff) var(--we-sidebar-tint, 20%), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
-    /* Specular sheen + refraction highlights follow --we-sidebar-sheen
-       (= min(1, alpha/0.2236)): at default (12%) and any MORE solid setting
-       the sheen keeps the ORIGINAL design strength (0.14/0.04/0.01,
-       0.32/0.08/0.06); only toward transparency does the white glaze fade,
-       so 100% is truly near-transparent instead of pale white. */
-    background-image: linear-gradient(180deg,
-      rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.14)),
-      rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.04)) 38%,
-      rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.01))) !important;
-    -webkit-backdrop-filter: blur(var(--we-sidebar-blur, 16px)) saturate(var(--we-sidebar-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
-    backdrop-filter: blur(var(--we-sidebar-blur, 16px)) saturate(var(--we-sidebar-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.32)),
-      inset 0 -1px 0 rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.08)),
-      inset 0 0 0 0.5px rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.06));
-  }
-  body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_pane"],
-  body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_tabBar"],
-  body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_paneCard"],
-  body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_editorHeader"],
-  body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_explorerHeader"],
-  body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_gitHeader"],
-  body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_browserBar"],
-  body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_terminalWrap"] {
-    background-color: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-sidebar-color, #ffffff) calc(var(--we-sidebar-tint, 20%) * 0.75), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
-  }
-  body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_boundaryError"],
-  body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_panel"] {
-    background-color: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-sidebar-color, #ffffff) calc(var(--we-sidebar-tint, 20%) * 0.65), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
-  }
-  body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_pane"],
-  body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_tabBar"],
-  body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_paneCard"],
-  body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_editorHeader"],
-  body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_explorerHeader"],
-  body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_gitHeader"],
-  body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_browserBar"],
-  body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_terminalWrap"] {
-    background-color: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-sidebar-color, #ffffff) calc(var(--we-sidebar-tint, 20%) * 0.5), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
-  }
-  /* No backdrop-filter support: fall back to near-opaque tinted surfaces so
-     sidebar text never sits directly on a busy wallpaper (same policy as the
-     settings-window glass). The tint still applies. */
-  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_boundaryError"],
-    body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_panel"],
-    body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_pane"],
-    body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_tabBar"],
-    body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_paneCard"],
-    body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_editorHeader"],
-    body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_explorerHeader"],
-    body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_gitHeader"],
-    body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_browserBar"],
-    body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_terminalWrap"] {
-      background-color: color-mix(in srgb, var(--we-sidebar-color, #ffffff) 92%, transparent) !important;
-      backdrop-filter: none !important;
-      -webkit-backdrop-filter: none !important;
-    }
-  }
-
-  /* ── Official right sidebar (harness 0.1.5+) ──────────────────────────────
-     0.1.5 moved the right column into the NATIVE sidebar (better-sidebar 0.19
-     registers its tabs into it and only keeps its own bottom dock). The native
-     panel paints background: var(--dsw-alias-bg-base) — the EXACT token WE
-     sets to transparent while a wallpaper is active — so without adaptation
-     the whole right column went fully see-through with no frost (v0.7.2 fix).
-     The panel is addressed via its stable data attributes
-     (data-sidebar-right-panel="push"|"fullscreen"; CSS-module hashes like
-     P3OORG_panel drift between harness builds and must not be used). The
-     侧栏液态玻璃 master switch gates the SAME frosted recipe and the SAME
-     侧栏模糊/透明度/玻璃颜色 knobs as the better-sidebar glass; with the
-     switch off, the panel falls back to the theme's opaque layer colour so
-     「关闭则恢复原生外观」keeps holding there too.
-
-     harness 0.1.7 changed the panel's collapse mechanics (#107): the
-     CONTAINER stays mounted with its full width (reserved for the slide
-     animation, pointer-events:none) and only its CHILDREN hide via
-     "visibility:hidden", gated on the "data-sidebar-right-open" attribute
-     the host writes only while expanded. The container itself has no
-     background of its own — so any plate we paint on the bare
-     "[data-sidebar-right-panel]" selector stays VISIBLE over the wallpaper
-     while the panel is closed (the 「右栏关了还是一块灰/玻璃」 report). Every
-     container-painting rule below is therefore scoped to
-     "[data-sidebar-right-open]", plus an explicit closed-state clear so a
-     stale painted background can never linger. */
-  body[data-we-wallpaper] [data-sidebar-right-panel][data-sidebar-right-open] {
-    background-color: var(--dsw-alias-bg-layer-1, #1e1f26);
-  }
-  body[data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open] {
-    background-color: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-sidebar-color, #ffffff) var(--we-sidebar-tint, 20%), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
-    background-image: linear-gradient(180deg,
-      rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.14)),
-      rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.04)) 38%,
-      rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.01))) !important;
-    -webkit-backdrop-filter: blur(var(--we-sidebar-blur, 16px)) saturate(var(--we-sidebar-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
-    backdrop-filter: blur(var(--we-sidebar-blur, 16px)) saturate(var(--we-sidebar-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.32)),
-      inset 0 -1px 0 rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.08)),
-      inset 0 0 0 0.5px rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.06));
-  }
-  body[data-ds-dark-theme][data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open] {
-    background-color: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-sidebar-color, #ffffff) calc(var(--we-sidebar-tint, 20%) * 0.65), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
-  }
-  /* Closed state: the host's own container carries no background — keep ours
-     off too, whatever the master-switch state (#107). */
-  body[data-we-wallpaper] [data-sidebar-right-panel]:not([data-sidebar-right-open]) {
-    background: none !important;
-    background-image: none !important;
-    -webkit-backdrop-filter: none !important;
-    backdrop-filter: none !important;
-    box-shadow: none !important;
-  }
-  /* No backdrop-filter support: near-opaque tinted plate, same policy as the
-     better-sidebar glass above. */
-  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    body[data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open] {
-      background-color: color-mix(in srgb, var(--we-sidebar-color, #ffffff) 92%, transparent) !important;
-      backdrop-filter: none !important;
-      -webkit-backdrop-filter: none !important;
-    }
-  }
-
-  /* ── dsh-better-sidebar CONTENT surfaces: near-opaque tinted glass ─────────
-     The editor (CodeMirror) surface is transparent by design, and the terminal
-     background reads --dsw-alias-bg-base — which we must keep transparent so
-     the wallpaper shows through. Their fixed content palettes (syntax
-     highlighting / ANSI colors) are designed for an OPAQUE backdrop (One
-     Dark/Light, xterm themes): on the fully frosted composite the mid-gray
-     comments etc. lose all contrast (实测注释灰 1.7–2.3:1，看不清).
-     Fully opaque surfaces fix readability but kill the glass look. Balance:
-     a NEAR-OPAQUE TINTED glass plate — the theme's opaque panel color
-     (--dsw-alias-bg-layer-1) at 88% keeps the wallpaper glow bleeding through
-     (still reads as glass) while the composite stays dark/light enough for the
-     the designed content palettes. Tune via the 内容面透明度 / 内容面底色 controls
-     (--we-content-surface-alpha / --we-content-surface-color; color empty =
-     follow the theme panel color). The sidebar master switch gates these
-     surfaces too, so turning it off restores the complete native sidebar even
-     when a wallpaper remains active. .cm-editor / .xterm are library-global
-     class names (stable across the sidebar's builds).
-     v0.7.2: with better-sidebar 0.19 the editor / preview tabs render inside
-     the NATIVE right sidebar ([data-sidebar-right-panel]), no longer under
-     the plugin's own shell — extend the same plate to content surfaces there,
-     or 内容面透明度 / 内容面底色 stop responding for those tabs. */
-  body[data-we-sidebar-glass] [data-dsh-better-sidebar] .cm-editor,
-  body[data-we-sidebar-glass] [data-dsh-better-sidebar] .xterm,
-  body[data-we-sidebar-glass] [data-sidebar-right-panel] .cm-editor,
-  body[data-we-sidebar-glass] [data-sidebar-right-panel] .xterm {
-    background-color: color-mix(in srgb, var(--we-content-surface-color, var(--dsw-alias-bg-layer-1, #1e1f26)) max(calc(var(--we-readability-floor) * 100%), var(--we-content-surface-alpha, 88%)), transparent) !important;
-  }
-
-  /* Picker chrome. */
-  .we-picker {
-    display: flex; flex-direction: column; gap: 14px;
-    /* ── 统一控件 token：一套高度/圆角/墨色词汇贯穿全部控件 ──
-       墨色走宿主主题 token（明暗主题都可读），强调色只用于选中态/激活态。 */
-    --we-ui-h: 30px;
-    --we-ui-radius: 8px;
-    --we-ink: var(--dsw-alias-label-primary, inherit);
-    --we-ink-2: var(--dsw-alias-label-secondary, rgba(128, 128, 128, 0.9));
-    --we-ink-3: var(--dsw-alias-label-tertiary, rgba(128, 128, 128, 0.65));
-  }
-  .we-picker__select { max-width: 100%; }
-  .we-picker__row { display: flex; gap: 8px; align-items: center; }
-  /* 抽帧转码下载/转码进度条. */
-  .we-picker__prog { gap: 8px; }
-  .we-picker__prog-track {
-    flex: 1; min-width: 0; height: 5px; border-radius: 3px;
-    background: rgba(128, 128, 128, 0.3);
-    overflow: hidden;
-  }
-  .we-picker__prog-bar {
-    height: 100%; border-radius: 3px;
-    background: var(--we-accent, #4f8cff);
-    transition: width 0.4s ease;
-  }
-  /* First-level settings section wrapper (mirrors the skin-center's
-     sectionList): the ul/li carry no default list styling. */
-  .we-picker__section-list { margin: 0; padding: 0; list-style: none; }
-
-  /* ── WHOLE native settings window → liquid glass (master switch).
-     Keyed on body[data-we-glass-window] (set by applyEffects from the
-     glassWindow preference). The settings dialog is the shell's
-     div[role="dialog"] containing the settings.section outlet anchor
-     (data-slot="settings.section" — stamped by the slot renderer, same anchor
-     the skin-center's semantic layer uses). The dialog reads inherited shell
-     tokens (panel background = --dsw-alias-bg-layer-2, nav active/hover =
-     --dsw-specific-sidebar-nav-item-*, close hover = --dsw-alias-interactive-bg-hover,
-     accents = --dsw-alias-brand-primary), so overriding those tokens ON the
-     dialog element restyles the ENTIRE window — left nav, content header and
-     every native section (General / Models / Plugins / …) — in one shot:
-     translucent glass base + backdrop blur + specular sheen + inner highlight,
-     with the accent color remapped to --we-accent (配色) and all surface alphas
-     driven by --we-glass-alpha (玻璃透明度). Off = stock shell look. ── */
-  body[data-we-glass-window] [role="dialog"]:has([data-slot="settings.section"]) {
-    /* Glass surface alphas (light scheme): the base tint is --we-glass-color
-       (玻璃颜色) mixed with transparent at the 玻璃透明度-driven alpha, so the
-       whole window glass can be tinted to any color. Default (no custom color)
-       = white glass, the stock look. 这三层同样是文字面（导航 + 原生分区），
-       所以每层都压在可读性下限的主题底色之下。 */
-    --dsw-alias-bg-layer-1: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-glass-color, #ffffff) calc(var(--we-glass-alpha, 0.5) * 0.9 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
-    --dsw-alias-bg-layer-2: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-glass-color, #ffffff) calc(var(--we-glass-alpha, 0.5) * 1.0 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
-    --dsw-alias-bg-layer-3: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-glass-color, #ffffff) calc(var(--we-glass-alpha, 0.5) * 1.1 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
-    /* Nav + interactive states tinted with the accent. */
-    --dsw-specific-sidebar-nav-item-active: color-mix(in srgb, var(--we-accent, #4f8cff) 26%, rgba(255, 255, 255, 0.08));
-    --dsw-specific-sidebar-nav-item-hover: color-mix(in srgb, var(--we-accent, #4f8cff) 13%, rgba(255, 255, 255, 0.05));
-    --dsw-alias-interactive-bg-hover: color-mix(in srgb, var(--we-accent, #4f8cff) 14%, transparent);
-    --dsw-alias-interactive-bg-hover-accent: color-mix(in srgb, var(--we-accent, #4f8cff) 18%, transparent);
-    /* Whole-dialog accent remap: every native control (links, primary buttons,
-       switches, active tabs, slider fills) follows the 配色 control. */
-    --dsw-alias-brand-primary: var(--we-accent, #4f8cff);
-    --dsw-alias-brand-text: var(--we-accent, #4f8cff);
-    --dsw-alias-button-primary-fill: var(--we-accent, #4f8cff);
-    --dsw-alias-button-primary-hover: color-mix(in srgb, var(--we-accent, #4f8cff) 88%, #fff);
-    --dsw-alias-button-primary-dimmed: color-mix(in srgb, var(--we-accent, #4f8cff) 22%, transparent);
-    --dsw-alias-state-business-primary: var(--we-accent, #4f8cff);
-    /* Frosted finish — the SAME recipe as the conversation surfaces (composer
-       card / bubbles): the blur radius, saturation melt and brightness all
-       read the 玻璃 slider (--we-blur 0–60px, --we-saturate, --we-glass-brightness),
-       so the settings window glass tracks the conversation-bar adjustment range
-       exactly. Plus a specular sheen + inner edge highlight + diffuse shadow
-       (the shell already rounds the panel at 24px). */
-    -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
-    backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
-    background-image: linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.1) 0%,
-      rgba(255, 255, 255, 0.03) 38%,
-      rgba(255, 255, 255, 0.05) 100%
-    );
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.22),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.06),
-      0 24px 80px rgba(0, 7, 18, 0.35);
-  }
-  /* Dark scheme: deep translucent base instead of white. The default glass
-     color is deep navy; a user-picked 玻璃颜色 overrides it in both themes. */
-  body[data-ds-dark-theme][data-we-glass-window] [role="dialog"]:has([data-slot="settings.section"]) {
-    /* 设置窗口的整块面板（导航 + 每个原生分区）都承载文字 → 同样过下限。 */
-    --dsw-alias-bg-layer-1: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-glass-color, #0d1524) calc(var(--we-glass-alpha, 0.5) * 0.9 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
-    --dsw-alias-bg-layer-2: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-glass-color, #0d1524) calc(var(--we-glass-alpha, 0.5) * 1.0 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
-    --dsw-alias-bg-layer-3: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-glass-color, #0d1524) calc(var(--we-glass-alpha, 0.5) * 1.1 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
-    --dsw-specific-sidebar-nav-item-active: color-mix(in srgb, var(--we-accent, #4f8cff) 30%, rgba(255, 255, 255, 0.06));
-    --dsw-specific-sidebar-nav-item-hover: color-mix(in srgb, var(--we-accent, #4f8cff) 14%, rgba(255, 255, 255, 0.04));
-    background-image: linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.07) 0%,
-      rgba(255, 255, 255, 0.02) 38%,
-      rgba(255, 255, 255, 0.03) 100%
-    );
-  }
-  /* No backdrop-filter support: fall back to near-opaque glass so text stays
-     readable (same policy as the skin's patches.css). */
-  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    body[data-we-glass-window] [role="dialog"]:has([data-slot="settings.section"]) {
-      --dsw-alias-bg-layer-1: var(--we-glass-color, #ffffff);
-      --dsw-alias-bg-layer-2: var(--we-glass-color, #ffffff);
-      --dsw-alias-bg-layer-3: var(--we-glass-color, #ffffff);
-    }
-    body[data-ds-dark-theme][data-we-glass-window] [role="dialog"]:has([data-slot="settings.section"]) {
-      --dsw-alias-bg-layer-1: var(--we-glass-color, #0d1524);
-      --dsw-alias-bg-layer-2: var(--we-glass-color, #0d1524);
-      --dsw-alias-bg-layer-3: var(--we-glass-color, #0d1524);
-    }
-  }
-
-  /* Section card (mirrors the skin-center's pluginCard): a quiet layer card —
-     translucent token background + hairline border + radius. NO own backdrop
-     blur: the whole settings window is the glass surface (see the
-     body[data-we-glass-window] dialog rules above), so a nested blur would
-     double-frost and look muddy. Without the master switch the card still
-     reads as a subtle layer over the stock panel. */
-  .we-picker__card-shell {
-    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.28));
-    border-radius: 12px;
-    background: var(--dsw-alias-bg-layer-3, rgba(128, 128, 128, 0.08));
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-    padding: 14px 16px;
-    transition: border-color 0.16s ease, background-color 0.16s ease;
-  }
-  .we-picker__card-shell:hover { border-color: var(--dsw-alias-label-dimmed, rgba(128, 128, 128, 0.5)); }
-  /* Card header: name + count badge + description (mirrors skin-center). */
-  .we-picker__card-head {
-    display: flex; align-items: baseline; gap: 8px;
-    padding-bottom: 10px; border-bottom: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.22));
-  }
-  .we-picker__card-name {
-    font-size: 15px; font-weight: 600; color: var(--dsw-alias-label-primary, inherit);
-  }
-  .we-picker__card-badge {
-    font-size: 11px; font-weight: 500; color: var(--dsw-alias-label-secondary, #6b7280);
-  }
-  .we-picker__card-desc {
-    margin-left: auto; font-size: 12px; color: var(--dsw-alias-label-tertiary, #6b7280);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  /* 配色 swatches: circular preset buttons + native color picker. The active
-     swatch gets an accent ring so the current choice is obvious at a glance. */
-  /* ── DSH harness 0.1.2-rc.1 corner-shape 兼容（Issue #74）─────────────────
-     rc.1 的主题层新增 corner-shape.css，给 * / ::before / ::after 统一加了
-     corner-shape: superellipse(1.5)（方圆形角，@supports 包裹）。任何
-     border-radius 圆形都会被渲染成圆角矩形——色板、黑胶唱片、滑杆圆点、
-     开关滑块全部中招。这里对插件画的所有正圆/胶囊控件显式重置回
-     corner-shape: round；harness 的规则是 * 选择器（特异度 0），类选择器
-     天然胜出，无需 !important。旧版 harness 不支持该属性时本声明被忽略。
-     注意：::-moz-* 是 Firefox 专用伪元素，Chromium 视为非法选择器，而选择器
-     列表中只要有一个非法项整条规则就会作废——因此 moz 伪元素必须单独成条。 */
-  .we-picker__swatch,
-  .we-picker__swatch--auto,
-  .we-picker__swatch-custom input[type="color"],
-  .we-picker__swatch-custom input[type="color"]::-webkit-color-swatch,
-  .we-vinyl,
-  .we-vinyl__cover,
-  .we-vinyl__hole,
-  .we-picker__slider::-webkit-slider-thumb,
-  .we-picker__switch-thumb,
-  .we-picker__switch-track,
-  .we-picker__font-chip,
-  .we-picker__value {
-    corner-shape: round;
-  }
-  .we-picker__slider::-moz-range-thumb { corner-shape: round; }
-  .we-picker__accent-row { flex-wrap: wrap; }
-  .we-picker__swatch {
-    width: 22px; height: 22px; padding: 0; border-radius: 50%;
-    border: 0;
-    /* 内圈发丝环让深色圆点在浅玻璃上也有边界；去外描边、留给选中态。 */
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55), 0 1px 3px rgba(0, 0, 0, 0.35);
-    cursor: pointer;
-    transition: transform var(--we-dur-fast, 120ms) var(--we-ease, ease), box-shadow var(--we-dur-fast, 120ms) var(--we-ease, ease);
-  }
-  .we-picker__swatch:hover { transform: scale(1.12); }
-  .we-picker__swatch--active {
-    /* 双环选中态：表面色间隔环 + accent 外环，比裸描边读得更清。 */
-    box-shadow:
-      inset 0 0 0 1px rgba(255, 255, 255, 0.55),
-      0 0 0 2px var(--dsw-alias-bg-layer-2, rgba(128, 128, 128, 0.2)),
-      0 0 0 4px var(--we-accent, #4f8cff);
-  }
-  /* "跟随主题" auto swatch (内容面底色): no fill, split ring showing both
-     themes so it reads as "use the theme panel color". */
-  .we-picker__swatch--auto {
-    font-size: 10px; line-height: 1; font-weight: 600;
-    color: var(--dsw-alias-label-secondary, #666);
-    background: linear-gradient(135deg, #2a2d35 0 50%, #f2f3f5 50% 100%);
-    display: inline-flex; align-items: center; justify-content: center;
-  }
-  .we-picker__swatch-custom {
-    display: inline-flex; align-items: center; gap: 4px; cursor: pointer;
-  }
-  .we-picker__swatch-custom input[type="color"] {
-    width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%;
-    background: transparent; cursor: pointer;
-  }
-  .we-picker__swatch-custom input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
-  .we-picker__swatch-custom input[type="color"]::-webkit-color-swatch { border: 1px solid rgba(255, 255, 255, 0.6); border-radius: 50%; }
-  /* 字体族选择：胶囊 chip（文字选项需要横向空间与自字体预览）。
-     容器 .we-picker__chips 见「统一设置行」区块。 */
-  .we-picker__font-chip {
-    padding: 3px 12px; border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.35);
-    background: transparent;
-    color: var(--dsw-alias-label-secondary, #666);
-    font-size: 12px; line-height: 1.5; cursor: pointer;
-    transition: border-color var(--we-dur-fast, 120ms) var(--we-ease, ease),
-      color var(--we-dur-fast, 120ms) var(--we-ease, ease),
-      box-shadow var(--we-dur-fast, 120ms) var(--we-ease, ease);
-  }
-  .we-picker__font-chip:hover {
-    color: var(--dsw-alias-text-primary, inherit);
-    border-color: rgba(255, 255, 255, 0.65);
-  }
-  .we-picker__font-chip--active,
-  .we-picker__font-chip--active:hover {
-    color: var(--we-ink, inherit);
-    border-color: var(--we-accent, #4f8cff);
-    background: color-mix(in srgb, var(--we-accent, #4f8cff) 12%, transparent);
-  }
-  /* 主开关说明已收进行内一句话 + tooltip（见 we-picker__ctl-hint）。 */
-
-  /* Pagination bar under each paged grid (normal / hidden / group editor).
-     Horizontally centered; as a direct child of the flex modal body it sinks
-     to the bottom when the grid leaves free space (margin-top: auto). */
-  .we-picker__pager {
-    display: flex; gap: 10px; align-items: center; justify-content: center;
-    margin-top: auto; padding-top: 8px; flex-wrap: wrap;
-  }
-  .we-picker__playlist-select { flex: 1; min-width: 0; }
-  .we-picker__filter-row { flex-wrap: wrap; flex-shrink: 0; }
-  .we-picker__filter-row .we-picker__playlist-select { flex: 1 1 130px; }
-  .we-picker__rotation-interval { margin-left: auto; }
-  /* Flat, uniform-height controls. Native <select> renders as a raised "3D"
-     OS widget whose height can shift a pixel on hover; inside tightly packed
-     rows that squeezes the neighbours and, with the cursor near a row edge,
-     oscillates (hover → grow → shift → unhover → shrink → …). Strip the
-     native chrome and PIN the height so no control's intrinsic size can move
-     a row. */
-  .we-picker__btn {
-    cursor: pointer; height: var(--we-ui-h, 30px); line-height: calc(var(--we-ui-h, 30px) - 2px); padding: 0 12px;
-    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
-    border-radius: var(--we-ui-radius, 8px); background: transparent;
-    color: var(--we-ink, inherit); font-size: 0.82em;
-    white-space: nowrap;
-  }
-  .we-picker__btn:hover { background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.12)); }
-  .we-picker__btn:disabled { opacity: 0.45; cursor: default; }
-  /* 音乐开关处于「开」时用 accent 色描边，一眼可辨但不抢主按钮。 */
-  .we-picker__btn.is-on {
-    border-color: var(--we-accent, var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35)));
-    color: var(--we-accent, inherit);
-  }
-  .we-picker select {
-    appearance: none; -webkit-appearance: none;
-    height: var(--we-ui-h, 30px); padding: 0 8px;
-    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
-    border-radius: var(--we-ui-radius, 8px); background: transparent;
-    color: var(--we-ink, inherit); font-size: 0.82em;
-    cursor: pointer;
-  }
-  .we-picker select:hover { background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.12)); }
-  .we-picker select:disabled { opacity: 0.45; cursor: default; }
-  .we-picker__hint { font-size: 0.8em; color: var(--we-ink-3, rgba(128, 128, 128, 0.75)); }
-  /* 「当前壁纸实时帧」微缩预览：就是切换途中 / live 首帧前显示的那张静帧。
-     固定 16:9 小图 + 细边框，居中放在控件行里（行已 --wrap，窄面板会自动折行）。 */
-  .we-picker__frame-shot {
-    display: block; width: 168px; height: 94.5px; object-fit: cover;
-    border-radius: 6px; border: 1px solid var(--dsw-alias-border-l1, rgba(128, 128, 128, 0.28));
-    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.1));
-  }
-  /* 数字读数等宽：页码 / 计数 / fps / 百分比切换时不再跳动。 */
-  .we-picker__pager .we-picker__hint, .we-picker__card-badge, .we-picker__value {
-    font-variant-numeric: tabular-nums;
-  }
-  /* 统一焦点环：accent 色、2px、外偏移（a11y + 跟随配色）。 */
-  .we-picker button:focus-visible, .we-picker select:focus-visible,
-  .we-picker input:focus-visible, .we-picker [role="button"]:focus-visible,
-  .we-picker__modal button:focus-visible, .we-picker__modal select:focus-visible,
-  .we-picker__modal input:focus-visible, .we-picker__modal [role="button"]:focus-visible {
-    outline: 2px solid var(--we-accent, #4f8cff);
-    outline-offset: 2px;
-  }
-  /* Text inputs (搜索 / 路径 / 列表名称): match the flat control style. */
-  .we-picker__text {
-    height: var(--we-ui-h, 30px); padding: 0 8px;
-    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
-    border-radius: var(--we-ui-radius, 8px); background: transparent;
-    color: var(--we-ink, inherit); font-size: 0.82em;
-  }
-  .we-picker__search { flex: 1 1 150px; min-width: 0; }
-  .we-picker__error { font-size: 0.82em; opacity: 0.9; color: #e5534b; }
-  .we-picker__note { font-size: 0.8em; opacity: 0.85; color: var(--we-accent, var(--dsw-alias-brand-primary, #4f8cff)); }
-
-  /* ── Visual grouping: sections with a hairline divider + quiet label. ── */
-  .we-picker__section { display: flex; flex-direction: column; gap: 10px; }
-  .we-picker__section + .we-picker__section {
-    border-top: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.22));
-    padding-top: 12px;
-  }
-  .we-picker__section-head { display: flex; align-items: center; }
-  .we-picker__section-label {
-    font-size: 0.72em; font-weight: 600; letter-spacing: 0.04em;
-    /* 分组标题是「找路」信息而非装饰：次级墨色保证暗玻璃上可读。 */
-    color: var(--we-ink-2, rgba(128, 128, 128, 0.9));
-  }
-
-  /* ── 页签栏（分段式）：玻璃轨道 + 滑动指示胶囊。窄抽屉里六枚等宽页签
-     恰好放下两至三字标签；指示胶囊平移走 transform（合成器属性）。 ── */
-  .we-tabs {
-    position: relative; display: flex; flex: 0 0 auto;
-    padding: 3px; border-radius: 10px;
-    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.12));
-    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.22));
-    overflow: hidden;
-  }
-  .we-tabs__pill {
-    position: absolute; top: 3px; left: 3px; bottom: 3px;
-    border-radius: 8px;
-    background: var(--dsw-alias-bg-layer-3, rgba(255, 255, 255, 0.16));
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.12);
-    transition: transform 220ms var(--we-ease, cubic-bezier(0.16, 1, 0.3, 1));
-    will-change: transform;
-  }
-  .we-tabs__tab {
-    position: relative; z-index: 1; flex: 1 1 0; min-width: 0;
-    height: 28px; padding: 0 4px; border: 0; background: transparent;
-    border-radius: 8px; cursor: pointer; white-space: nowrap;
-    font-size: 12px; line-height: 1;
-    color: var(--we-ink-2, rgba(128, 128, 128, 0.9));
-    transition: color var(--we-dur-fast, 120ms) var(--we-ease, ease);
-  }
-  .we-tabs__tab:hover { color: var(--we-ink, inherit); }
-  .we-tabs__tab--active { color: var(--we-ink, inherit); font-weight: 600; }
-  /* 页签面板：淡入 + 轻微上移落定（reduced-motion 由全局媒体查询静止）。 */
-  .we-tabpanel {
-    display: flex; flex-direction: column; gap: 12px;
-    animation: we-tab-in 180ms var(--we-ease, cubic-bezier(0.16, 1, 0.3, 1));
-  }
-  @keyframes we-tab-in {
-    from { opacity: 0; transform: translateY(4px); }
-  }
-
-  /* ── 统一设置行：左「标签(+一句话说明)」、右控件；32px 触达高度。 ── */
-  .we-picker__ctl {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 12px; min-height: 32px;
-  }
-  .we-picker__ctl--wrap { flex-wrap: wrap; row-gap: 8px; }
-  .we-picker__ctl-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-  .we-picker__ctl-label {
-    font-size: 0.88em; color: var(--we-ink, inherit);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .we-picker__ctl-hint {
-    font-size: 0.7em; color: var(--we-ink-3, rgba(128, 128, 128, 0.65));
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
-  }
-  .we-picker__ctl-side { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
-  .we-picker__swatches { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-  .we-picker__chips { display: flex; flex-wrap: wrap; gap: 6px; }
-
-  /* ── 吉祥物形态卡片：立绘即实时预览（随大小滑块缩放）。 ── */
-  .we-picker__mascot-row { display: flex; gap: 10px; flex-wrap: wrap; }
-  .we-picker__mascot-card {
-    display: flex; flex-direction: column; align-items: center; gap: 6px;
-    padding: 12px 16px 10px; min-width: 96px;
-    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.28));
-    border-radius: 12px; cursor: pointer;
-    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.08));
-    transition:
-      border-color var(--we-dur-fast, 120ms) var(--we-ease, ease),
-      background-color var(--we-dur-fast, 120ms) var(--we-ease, ease),
-      box-shadow var(--we-dur-fast, 120ms) var(--we-ease, ease),
-      transform var(--we-dur-fast, 120ms) var(--we-ease, ease);
-  }
-  .we-picker__mascot-card:hover { border-color: var(--dsw-alias-label-dimmed, rgba(128, 128, 128, 0.5)); }
-  .we-picker__mascot-card:active { transform: scale(0.97); }
-  .we-picker__mascot-card--active {
-    border-color: var(--we-accent, #4f8cff);
-    background: color-mix(in srgb, var(--we-accent, #4f8cff) 10%, transparent);
-    box-shadow: 0 0 0 1px var(--we-accent, #4f8cff);
-  }
-  .we-picker__mascot-art { display: flex; align-items: flex-end; justify-content: center; }
-  .we-picker__mascot-art img { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
-  .we-picker__mascot-name { font-size: 0.78em; color: var(--we-ink-2, rgba(128, 128, 128, 0.9)); }
-  .we-picker__mascot-card--active .we-picker__mascot-name { color: var(--we-ink, inherit); }
-
-  /* ── 效果页签空态：不摆一列无效滑块，引导去选壁纸。 ── */
-  .we-picker__empty {
-    display: flex; flex-direction: column; align-items: center; gap: 10px;
-    padding: 36px 16px; text-align: center;
-  }
-  .we-picker__empty-title { font-size: 0.95em; font-weight: 600; color: var(--we-ink, inherit); }
-
-  /* ── Vinyl record (黑胶唱片): rotating disc with the selected wallpaper's
-     cover as the label. Spins while the wallpaper is playing; pauses
-     otherwise. Shown in both settings layouts and in the modal head. ── */
-  .we-vinyl {
-    position: relative; width: 128px; height: 128px; flex: 0 0 auto;
-    border-radius: 50%;
-    background:
-      repeating-radial-gradient(circle at center, #191920 0 2px, #23232c 2px 4px);
-    box-shadow:
-      0 6px 18px rgba(0, 0, 0, 0.55),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.07);
-    animation: we-vinyl-spin 8s linear infinite;
-    animation-play-state: paused;
-  }
-  .we-vinyl--playing { animation-play-state: running; }
-  .we-vinyl--sm { width: 56px; height: 56px; }
-  .we-vinyl__cover {
-    position: absolute; inset: 24%; border-radius: 50%; overflow: hidden;
-    background: rgba(128, 128, 128, 0.25);
-    border: 2px solid rgba(0, 0, 0, 0.85);
-    box-shadow:
-      0 0 0 2px rgba(255, 255, 255, 0.1),
-      inset 0 0 8px rgba(0, 0, 0, 0.6);
-  }
-  .we-vinyl__cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .we-vinyl__empty {
-    position: absolute; inset: 0;
-    display: flex; align-items: center; justify-content: center;
-    color: rgba(255, 255, 255, 0.45); font-size: 1.3em;
-  }
-  .we-vinyl__hole {
-    position: absolute; left: 50%; top: 50%;
-    width: 12px; height: 12px; margin: -6px 0 0 -6px;
-    border-radius: 50%; background: #0b0b0e;
-    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.9);
-  }
-  .we-vinyl--sm .we-vinyl__hole { width: 6px; height: 6px; margin: -3px 0 0 -3px; }
-  @keyframes we-vinyl-spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .we-vinyl { animation: none; }
-  }
-  .we-picker__modal-head-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
-
-  /* ── Current-wallpaper card: thumbnail + title + type + primary action. ── */
-  .we-picker__current {
-    display: flex; align-items: center; gap: 10px;
-    padding: 10px; border-radius: 12px;
-    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.28));
-    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.06));
-  }
-  .we-picker__current-thumb {
-    width: 64px; height: 36px; flex: 0 0 auto;
-    object-fit: cover; border-radius: 8px;
-    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
-    background: rgba(128, 128, 128, 0.14);
-  }
-  .we-picker__current-thumb--empty {
-    display: flex; align-items: center; justify-content: center;
-    font-size: 0.85em; opacity: 0.4;
-  }
-  .we-picker__current-info { flex: 1; min-width: 0; }
-  .we-picker__current-title {
-    font-size: 0.9em; font-weight: 500;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  /* 类型 + 播放态：宽卡片里是标题下的独立一行（普通块级）。 */
-  .we-picker__current-meta { display: block; font-size: 0.75em; opacity: 0.55; margin-top: 2px; }
-  /* 播放失败 / 选择被过滤排除的原因（#84）: 紧跟在 meta 行下的一句可读说明，
-     过去这两种情况都表现为「壁纸一片空白且无从下手」，故必须可见但克制。 */
-  .we-picker__current-error { font-size: 0.75em; opacity: 0.9; margin-top: 2px; color: #e5534b; }
-
-  /* Primary action (选择壁纸): the ONE solid-accent control per view — accent
-     is reserved for primary action + selection states, never decoration. */
-  .we-picker__btn--primary {
-    color: #fff;
-    background: var(--we-accent, #4f8cff);
-    border-color: transparent;
-    font-weight: 600;
-  }
-  .we-picker__btn--primary:hover {
-    background: color-mix(in srgb, var(--we-accent, #4f8cff) 86%, #000);
-    color: #fff;
-  }
-
-  /* ── 壁纸属性（作者可调属性）─────────────────────────────────────────────
-     绿色 = 次级动作，和 accent 的「选择壁纸」明确区分：两者永远不该读成同一个控件。 */
-  .we-picker__btn--props {
-    color: #fff;
-    background: #2ea043;
-    border-color: transparent;
-    font-weight: 600;
-  }
-  .we-picker__btn--props:hover { background: #2c974b; color: #fff; }
-  .we-picker__btn--props.is-on { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6); }
-  .we-picker__btn--mini { padding: 2px 8px; font-size: 0.75em; }
-
-  /* 主操作区（壁纸属性 + 选择壁纸）：宽卡片里并排；抽屉里上下排列（间距 8px）。 */
-  .we-picker__current-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
-  .we-picker__current-sub { min-width: 0; }
-
-  /* ── 壁纸属性面板 ─────────────────────────────────────────────────────── */
-  .we-picker__props {
-    margin-top: 8px; padding: 10px; border-radius: 12px;
-    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.28));
-    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.06));
-    display: flex; flex-direction: column; gap: 6px;
-  }
-  .we-picker__props-head { display: flex; align-items: center; gap: 8px; }
-  .we-picker__props-title { font-size: 0.85em; font-weight: 600; }
-  .we-picker__props-note { flex: 1; min-width: 0; font-size: 0.75em; opacity: 0.6; }
-  .we-picker__props-hint { font-size: 0.75em; opacity: 0.85; color: #d29922; }
-  .we-picker__props-section { font-size: 0.78em; opacity: 0.6; margin-top: 6px; }
-  .we-picker__props-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
-  .we-picker__props-label {
-    flex: 1; min-width: 0; font-size: 0.8em;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .we-picker__props-dot { margin-left: 4px; color: #2ea043; font-weight: 700; }
-  .we-picker__props-value { flex: 0 0 auto; min-width: 3.2em; text-align: right; font-size: 0.75em; opacity: 0.7; }
-  .we-picker__props-check { flex: 0 0 auto; }
-  .we-picker__props-color {
-    flex: 0 0 auto; width: 46px; height: 22px; padding: 0; cursor: pointer;
-    border-radius: 6px; background: transparent;
-    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
-  }
-  .we-picker__props-select, .we-picker__props-text {
-    flex: 0 1 52%; min-width: 0; font-size: 0.8em; padding: 3px 6px; border-radius: 8px;
-    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
-    background: var(--dsw-alias-bg-layer-2, rgba(0, 0, 0, 0.18)); color: inherit;
-  }
-
-  /* 抽屉（右侧窄容器）：名称独占顶层第一行，两个按钮在右侧上下排列、间距 8px。
-     标题与副信息原本同在一个 info 块里 —— 用 display:contents 把它展开成 grid 项，
-     才能把标题提到第一行（.we-picker__current-sub 是 meta+原因说明的包裹层，
-     保证「一行一项」而不是让多行叠在同一格）。 */
-  .we-repo-panel .we-picker__current {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    grid-template-areas:
-      "title title title"
-      "vinyl info  actions";
-    align-items: center;
-    gap: 8px 10px;
-  }
-  .we-repo-panel .we-picker__current-info { display: contents; }
-  /* 抽屉里标题独占首行，文字居中（用户口径）。 */
-  .we-repo-panel .we-picker__current-title { grid-area: title; text-align: center; }
-  /* 抽屉里：类型/播放态跟在名称后面、括号包裹，整行超出用省略号（标题元素本身
-     已经是 nowrap + overflow hidden + text-overflow ellipsis，内联文本才能整体截断）。 */
-  .we-repo-panel .we-picker__current-meta {
-    display: inline; margin-top: 0; font-size: inherit; opacity: 0.6;
-  }
-  .we-repo-panel .we-picker__current-meta::before { content: "（"; }
-  .we-repo-panel .we-picker__current-meta::after { content: "）"; }
-  .we-repo-panel .we-picker__current-sub { grid-area: info; min-width: 0; }
-  .we-repo-panel .we-vinyl, .we-repo-panel .we-picker__current-thumb { grid-area: vinyl; }
-  .we-repo-panel .we-picker__current-actions {
-    grid-area: actions; flex-direction: column; align-items: stretch; gap: 8px;
-  }
-
-  /* Refined range sliders: thin track + circular brand ring thumb. */
-  .we-picker__slider {
-    -webkit-appearance: none; appearance: none;
-    flex: 1; height: 18px; background: transparent; cursor: pointer;
-  }
-  .we-picker__slider::-webkit-slider-runnable-track {
-    height: 4px; border-radius: 2px;
-    /* accent 填充段（0 → --we-fill）+ 灰色剩余段 */
-    background: linear-gradient(to right,
-      var(--we-accent, #4f8cff) var(--we-fill, 0%),
-      var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.4)) var(--we-fill, 0%));
-  }
-  .we-picker__slider::-webkit-slider-thumb {
-    -webkit-appearance: none; appearance: none;
-    width: 16px; height: 16px; margin-top: -6px; border-radius: 50%;
-    background: #fff;
-    border: 2px solid var(--we-accent, #4f8cff);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
-    transition: transform var(--we-dur-fast, 120ms) var(--we-ease, ease);
-  }
-  .we-picker__slider:hover::-webkit-slider-thumb { transform: scale(1.12); }
-  .we-picker__slider:active::-webkit-slider-thumb { transform: scale(1.2); }
-  .we-picker__slider::-moz-range-track {
-    height: 4px; border-radius: 2px;
-    background: var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.4));
-  }
-  /* Firefox 的填充段走专用伪元素（不认 webkit 的渐变轨道方案）。 */
-  .we-picker__slider::-moz-range-progress {
-    height: 4px; border-radius: 2px;
-    background: var(--we-accent, #4f8cff);
-  }
-  .we-picker__slider::-moz-range-thumb {
-    width: 16px; height: 16px; border-radius: 50%;
-    background: #fff;
-    border: 2px solid var(--we-accent, #4f8cff);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
-  }
-  /* （原生 checkbox 已全部替换为胶囊开关 .we-picker__switch。） */
-
-  /* Sliding toggle switch (紧凑布局). Track + thumb slide left/right with a
-     snappy 120ms transition; pinned accent so light themes stay readable. */
-  .we-picker__switch {
-    position: relative; display: inline-flex; cursor: pointer;
-  }
-  .we-picker__switch input {
-    position: absolute; opacity: 0; width: 0; height: 0;
-  }
-  .we-picker__switch-track {
-    position: relative; width: 36px; height: 20px; border-radius: 999px;
-    background: var(--dsw-alias-bg-layer-3, rgba(128, 128, 128, 0.4));
-    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.25));
-    box-sizing: border-box;
-    transition: background-color 180ms var(--we-ease, ease), border-color 180ms var(--we-ease, ease);
-    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.16);
-  }
-  .we-picker__switch:hover .we-picker__switch-track { border-color: var(--dsw-alias-label-dimmed, rgba(128, 128, 128, 0.5)); }
-  /* 键盘焦点环：input 视觉隐藏但可聚焦，焦点环落在 track 上。 */
-  .we-picker__switch input:focus-visible + .we-picker__switch-track {
-    outline: 2px solid var(--we-accent, #4f8cff);
-    outline-offset: 2px;
-  }
-  .we-picker__switch input:checked + .we-picker__switch-track {
-    background: var(--we-accent, #4f8cff); /* 跟随「配色」设置，不再硬编码 */
-  }
-  .we-picker__switch-thumb {
-    position: absolute; left: 2px; top: 2px;
-    width: 14px; height: 14px; border-radius: 50%;
-    background: #fff;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
-    transition: transform 180ms var(--we-ease, ease);
-  }
-  .we-picker__switch input:checked + .we-picker__switch-track .we-picker__switch-thumb {
-    transform: translateX(16px);
-  }
-
-  /* Custom chevron for the flat selects (appearance: none removed the native
-     arrow; heights stay pinned at 26px so rows can never shift). */
-  .we-picker select {
-    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M1 1l3 3 3-3' fill='none' stroke='%23888' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E");
-    background-repeat: no-repeat; background-position: right 8px center;
-    padding-right: 24px;
-  }
-
-  /* Motion tokens: one shared ease (expo-out) + two durations. Modal is
-     portalled onto <body> (outside .we-picker), so the token scope covers both
-     roots. */
-  .we-picker, .we-picker__modal, .we-picker__modal-overlay {
-    --we-ease: cubic-bezier(0.16, 1, 0.3, 1);
-    --we-dur-fast: 120ms;
-    --we-dur: 200ms;
-  }
-  /* Motion: state-only transitions (background/color/border/transform — never
-     layout), token-driven; disabled entirely under prefers-reduced-motion. */
-  .we-picker__btn, .we-picker select, .we-picker__card, .we-picker__editor-card,
-  .we-picker__tab, .we-picker__rate, .we-picker__card-hide {
-    transition:
-      background-color var(--we-dur-fast, 120ms) var(--we-ease, ease),
-      border-color var(--we-dur-fast, 120ms) var(--we-ease, ease),
-      color var(--we-dur-fast, 120ms) var(--we-ease, ease),
-      box-shadow var(--we-dur-fast, 120ms) var(--we-ease, ease),
-      transform var(--we-dur-fast, 120ms) var(--we-ease, ease);
-  }
-  /* 按压反馈：点击即缩，松手回弹（transform = 合成器属性，不引发布局）。 */
-  .we-picker__btn:active, .we-picker__rate:active, .we-picker__tab:active {
-    transform: scale(0.96);
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .we-picker *, .we-picker__modal, .we-picker__modal *, .we-picker__modal-overlay {
-      transition: none !important;
-      animation: none !important;
-    }
-  }
-  .we-picker__slider-row { display: flex; align-items: center; gap: 10px; }
-  .we-picker__label { min-width: 28px; flex: 0 0 auto; color: var(--we-ink, inherit); font-size: 0.88em; }
-  .we-picker__value {
-    min-width: 48px; text-align: right; flex: 0 0 auto;
-    padding: 2px 8px; border-radius: 999px; font-size: 0.72em;
-    background: var(--dsw-alias-bg-layer-2, rgba(128, 128, 128, 0.14));
-    color: var(--we-ink-2, rgba(128, 128, 128, 0.9));
-  }
-  .we-picker__text { flex: 1; min-width: 0; }
-  .we-picker__editor {
-    display: flex; flex-direction: column; gap: 6px;
-    padding: 8px;
-    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
-    border-radius: 8px;
-  }
-  /* Wallpaper thumbnail grid (main picker).
-     Cards use a FIXED height + absolutely-positioned filling <img>, never
-     aspect-ratio: some browsers (old Chromium/WebView) ignore aspect-ratio on
-     cards and let percentage-height images resolve to their intrinsic size,
-     which made previews bleed over the row above. inset:0 + overflow:hidden
-     pins the image inside the card in every engine. */
-  .we-picker__grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-    gap: 8px; max-height: 280px; overflow-y: auto; padding: 2px;
-    /* hover 放大（CD 架 scale 1.12）不得撑出水平滚动条：clip 裁掉溢出且不
-       产生滚动条（hidden 仍可被程序滚动，clip 才是纯裁剪），scrollbar-gutter
-       让垂直滚动条的出现/消失也不再挤压内容 —— 两者一起消除「hover 最后一列
-       → 溢出 → 滚动条 → 宽度变化 → unhover → 回缩」的震荡循环。 */
-    overflow-x: hidden; /* fallback：老旧内核不认识 clip 时的平替 */
-    overflow-x: clip;
-    scrollbar-gutter: stable;
-  }
-  .we-picker__card {
-    position: relative; height: 92px; padding: 0; cursor: pointer;
-    display: block; overflow: hidden;
-    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
-    border-radius: 8px;
-    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.15));
-  }
-  .we-picker__card img {
-    position: absolute; inset: 0; width: 100%; height: 100%;
-    object-fit: cover; display: block;
-    /* 加载淡入（onLoad 置 opacity:1）+ hover 微放大（合成器属性）。 */
-    opacity: 0;
-    transition:
-      opacity var(--we-dur, 200ms) ease,
-      transform 300ms var(--we-ease, ease);
-  }
-  /* hover 缩略图缓放大 —— 仅非 CD 架模式（CD 架是卡片整体 scale，叠加会双重放大）。 */
-  .we-picker:not([data-we-cards="classic"]) .we-picker__card:hover img,
-  .we-picker__modal:not([data-we-cards="classic"]) .we-picker__card:hover img {
-    transform: scale(1.06);
-  }
-  /* 编辑器卡片 / 黑胶封面同样加载淡入。 */
-  .we-picker__editor-card img, .we-vinyl__cover img {
-    opacity: 0;
-    transition: opacity var(--we-dur, 200ms) ease;
-  }
-  /* Classic — "CD 架" (CD-rack) card style: cards stack like CD jewel cases
-     on a rack. Each row strongly overlaps the row ABOVE it (the lower card's
-     top covers roughly half of the upper card's bottom — vertical only, never
-     horizontal), with a soft drop shadow for shelf depth. Hovering scales the
-     card up and brings it to the front. Opt-in via the 卡片样式 switch. The
-     modal is PORTALLED onto <body>, so the attribute is scoped on BOTH the
-     settings root and the modal element. The grid gets extra bottom padding
-     so the last row's overlap is not clipped. */
-  .we-picker[data-we-cards="classic"] .we-picker__grid,
-  .we-picker__modal[data-we-cards="classic"] .we-picker__grid {
-    /* Compact CD-rack columns: ~7 cards per row at modal width. 两侧留出
-       8px 让位列：最左/最右列 hover 放大 12%（≈6px/侧）时在让位区内展开，
-       不触碰溢出边界、不被 clip 裁掉。 */
-    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-    padding: 2px 8px 42px;
-  }
-  .we-picker[data-we-cards="classic"] .we-picker__editor-grid,
-  .we-picker__modal[data-we-cards="classic"] .we-picker__editor-grid {
-    grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
-  }
-  .we-picker[data-we-cards="classic"] .we-picker__card,
-  .we-picker__modal[data-we-cards="classic"] .we-picker__card {
-    position: relative; width: 100%; padding: 0; cursor: pointer;
-    height: auto; aspect-ratio: 16 / 9; display: block; overflow: hidden;
-    margin-bottom: -36px;
-    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
-    border-radius: 8px;
-    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.15));
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
-    transition: transform 120ms ease, box-shadow 120ms ease;
-  }
-  .we-picker[data-we-cards="classic"] .we-picker__card:hover,
-  .we-picker__modal[data-we-cards="classic"] .we-picker__card:hover {
-    transform: scale(1.12);
-    z-index: 10;
-    box-shadow: 0 14px 28px rgba(0, 0, 0, 0.5);
-  }
-  .we-picker[data-we-cards="classic"] .we-picker__card img,
-  .we-picker__modal[data-we-cards="classic"] .we-picker__card img {
-    position: static; width: 100%; height: 100%; object-fit: cover; display: block;
-  }
-  .we-picker[data-we-cards="classic"] .we-picker__editor-card,
-  .we-picker__modal[data-we-cards="classic"] .we-picker__editor-card {
-    position: relative; width: 100%; padding: 0; cursor: pointer;
-    height: auto; aspect-ratio: 16 / 10; display: block; overflow: hidden;
-    margin-bottom: -30px;
-    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
-    border-radius: 6px;
-    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.15));
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
-    transition: transform 120ms ease, box-shadow 120ms ease;
-  }
-  .we-picker[data-we-cards="classic"] .we-picker__editor-card:hover,
-  .we-picker__modal[data-we-cards="classic"] .we-picker__editor-card:hover {
-    transform: scale(1.1);
-    z-index: 10;
-    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.5);
-  }
-  .we-picker[data-we-cards="classic"] .we-picker__editor-card img,
-  .we-picker__modal[data-we-cards="classic"] .we-picker__editor-card img {
-    position: static; width: 100%; height: 100%; object-fit: cover; display: block;
-  }
-  .we-picker__card--selected {
-    outline: 2px solid var(--we-accent, #4f8cff);
-    outline-offset: -2px;
-    /* 选中即"发光"：accent 色柔光晕，比裸描边更读得出"当前"。 */
-    box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--we-accent, #4f8cff) 45%, transparent),
-      0 4px 16px color-mix(in srgb, var(--we-accent, #4f8cff) 30%, transparent);
-  }
-  .we-picker__card-close {
-    position: absolute; inset: 0;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 0.8em; color: var(--dsw-alias-label-secondary, #888);
-  }
-  .we-picker__card-title {
-    position: absolute; left: 0; right: 0; bottom: 0; padding: 3px 6px;
-    font-size: 0.7em; line-height: 1.2; color: #fff;
-    background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
-    text-overflow: ellipsis; white-space: nowrap; overflow: hidden;
-  }
-  /* Scene-wallpaper "静态帧" badge — top-right under the hide button. */
-  .we-picker__card-badge {
-    position: absolute; top: 4px; right: 4px; z-index: 1;
-    padding: 1px 6px; font-size: 0.62em; line-height: 1.6;
-    border-radius: 4px; color: #fff;
-    background: rgba(30, 90, 160, 0.85);
-  }
-  .we-picker__card-placeholder {
-    position: absolute; inset: 0;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 0.72em; opacity: 0.55;
-  }
-  /* Per-card wallpaper-type badge (视频 / 网页 / 图片 / 场景) — top-left
-     overlay, always visible (the type filter's own labels). In batch mode the
-     selection checkbox (.we-picker__card-check) owns the same corner, so the
-     badge is not rendered at all then. */
-  .we-picker__card-type {
-    position: absolute; top: 4px; left: 4px; z-index: 2;
-    padding: 2px 7px; font-size: 0.68em; line-height: 1.5;
-    border-radius: 4px; color: #fff;
-    background: rgba(0, 0, 0, 0.6);
-    pointer-events: none;
-  }
-  /* Per-card "hide" button (soft delete) — top-right overlay. 默认隐去，
-     hover / 键盘聚焦（focus-within）时浮现：网格不常驻一层噪声按钮。 */
-  .we-picker__card-hide {
-    position: absolute; top: 4px; right: 4px; z-index: 2;
-    padding: 2px 7px; font-size: 0.68em; line-height: 1.5;
-    border: 0; border-radius: 4px; cursor: pointer;
-    background: rgba(0, 0, 0, 0.6); color: #fff;
-    opacity: 0;
-  }
-  .we-picker__card:hover .we-picker__card-hide,
-  .we-picker__card:focus-within .we-picker__card-hide { opacity: 1; }
-  .we-picker__card-hide:hover { background: rgba(190, 50, 50, 0.9); }
-  /* Batch-mode selection check — top-left overlay. */
-  .we-picker__card-check {
-    position: absolute; top: 4px; left: 4px; z-index: 2;
-    width: 18px; height: 18px; border-radius: 4px;
-    background: rgba(0, 0, 0, 0.6); color: #fff;
-    font-size: 12px; line-height: 18px; text-align: center;
-  }
-  /* 批量勾选高亮：独立的 --checked class（勾选 ≠ 当前播放的 --selected）。 */
-  .we-picker__card--checked {
-    outline: 2px solid var(--we-accent, #4f8cff);
-    outline-offset: -2px;
-    box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--we-accent, #4f8cff) 45%, transparent),
-      0 4px 16px color-mix(in srgb, var(--we-accent, #4f8cff) 30%, transparent);
-  }
-  .we-picker__card--checked .we-picker__card-check {
-    background: var(--we-accent, #4f8cff);
-  }
-  /* Hidden wallpapers view: dimmed cards. */
-  .we-picker__card--hidden { opacity: 0.78; }
-  .we-picker__card--hidden .we-picker__card-title {
-    background: linear-gradient(transparent, rgba(0, 0, 0, 0.78));
-  }
-  /* Batch-action bar. */
-  .we-picker__batch-bar {
-    padding: 4px 6px; border-radius: 6px;
-    border: 1px dashed var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
-  }
-  /* Current-wallpaper summary (replaces the inline grid in settings). */
-  .we-picker__summary {
-    flex: 1; min-width: 0;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    font-size: 0.85em; opacity: 0.85;
-  }
-  /* ── Wallpaper picker modal (portalled onto <body>, z-index above the shell
-     overlays). Fixed positioning from a body child is immune to ancestor
-     transforms/backdrop-filters, which would otherwise trap it. ── */
-  .we-picker__modal-overlay {
-    position: fixed; inset: 0; z-index: 1000;
-    display: flex; align-items: center; justify-content: center;
-    background: rgba(0, 0, 0, 0.55);
-    -webkit-backdrop-filter: blur(3px);
-    backdrop-filter: blur(3px);
-    animation: we-overlay-in var(--we-dur, 200ms) var(--we-ease, ease-out);
-  }
-  .we-picker__modal {
-    position: relative; z-index: 1001;
-    width: min(760px, 92vw); max-height: 86vh;
-    display: flex; flex-direction: column; gap: 10px;
-    padding: 16px; border-radius: 14px;
-    background: var(--dsw-alias-bg-layer-1, #202127);
-    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
-    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.25);
-    /* 入场：轻微上浮 + 缩放 settle，expo-out；reduced-motion 由上面的
-       媒体查询统一静止为瞬现。 */
-    animation: we-modal-in 240ms var(--we-ease, ease-out);
-  }
-  @keyframes we-overlay-in { from { opacity: 0; } }
-  @keyframes we-modal-in {
-    from { opacity: 0; transform: translateY(10px) scale(0.98); }
-  }
-  .we-picker__modal-head {
-    display: flex; align-items: center; justify-content: space-between;
-    padding-bottom: 10px;
-    border-bottom: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.22));
-  }
-  .we-picker__modal-title { font-weight: 600; font-size: 0.95em; }
-  .we-picker__modal-tabs { display: flex; gap: 6px; }
-  .we-picker__tab {
-    flex: 1; padding: 0; text-align: center; font-size: 0.82em; cursor: pointer;
-    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
-    border-radius: 6px; background: transparent;
-    color: var(--dsw-alias-label-secondary, #888);
-  }
-  .we-picker__tab--active {
-    background: var(--we-accent, #4f8cff);
-    border-color: var(--we-accent, #4f8cff); color: #fff;
-  }
-  .we-picker__modal-body {
-    overflow-y: auto; min-height: 0; flex: 1;
-    display: flex; flex-direction: column; gap: 8px;
-    overscroll-behavior: contain; /* 滚轮不穿透到背后的设置页 */
-    /* modal 里 grid 的 max-height 被放开（见下），真正的滚动容器是这里 ——
-       同样的 hover 放大震荡防护也要落在这层。 */
-    overflow-x: hidden; /* fallback：老旧内核不认识 clip 时的平替 */
-    overflow-x: clip;
-    scrollbar-gutter: stable;
-  }
-  /* The modal is tall enough: let the grid fill it instead of its own 280px
-     internal scroll (the modal body scrolls as a whole). */
-  .we-picker__modal-body .we-picker__grid { max-height: none; }
-  .we-picker__modal-foot { display: flex; align-items: center; justify-content: space-between; }
-  /* Custom-upload section. */
-  .we-picker__uploads {
-    display: flex; flex-direction: column; gap: 6px;
-    padding: 10px; border-radius: 10px;
-    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.26));
-    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.05));
-  }
-  .we-picker__file { flex: 1; min-width: 0; max-width: 260px; font-size: 0.8em; }
-  .we-picker__uploads-list {
-    display: flex; flex-direction: column; gap: 4px; max-height: 150px; overflow-y: auto;
-  }
-  .we-picker__uploads-item {
-    display: flex; align-items: center; gap: 8px;
-    padding: 3px 6px; border-radius: 6px;
-    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.12));
-  }
-  .we-picker__uploads-name {
-    flex: 1; min-width: 0;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    font-size: 0.82em;
-  }
-  .we-picker__uploads-path {
-    flex: 1; min-width: 0;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    font-size: 0.8em; opacity: 0.85;
-  }
-  /* Playback-rate segmented control (video wallpapers only). Also reused as
-     the 卡片样式 two-button switch (wrapped in .we-picker__seg). */
-  .we-picker__seg { display: flex; gap: 4px; flex: 1; min-width: 0; }
-  .we-picker__rate {
-    flex: 1; height: var(--we-ui-h, 30px); padding: 0; text-align: center; font-size: 0.78em;
-    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
-    border-radius: var(--we-ui-radius, 8px); background: transparent; cursor: pointer;
-    color: var(--we-ink-2, rgba(128, 128, 128, 0.9));
-  }
-  .we-picker__rate + .we-picker__rate { margin-left: 0; }
-  .we-picker__rate--active {
-    background: var(--we-accent, #4f8cff);
-    border-color: var(--we-accent, #4f8cff);
-    color: #fff;
-  }
-  /* Rotation group editor thumbnail grid. */
-  .we-picker__editor-grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-    gap: 6px; max-height: 220px; overflow-y: auto; padding: 2px;
-    /* 同主网格：CD 架 hover 放大不得撑出水平滚动条（防震荡）。 */
-    overflow-x: hidden; /* fallback：老旧内核不认识 clip 时的平替 */
-    overflow-x: clip;
-    scrollbar-gutter: stable;
-  }
-  .we-picker__editor-card {
-    position: relative; height: 80px; padding: 0; cursor: pointer;
-    display: block; overflow: hidden;
-    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
-    border-radius: 6px;
-    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.15));
-  }
-  .we-picker__editor-card img {
-    position: absolute; inset: 0; width: 100%; height: 100%;
-    object-fit: cover; display: block;
-  }
-  .we-picker__editor-card--checked {
-    outline: 2px solid var(--we-accent, #4f8cff);
-    outline-offset: -2px;
-  }
-  .we-picker__editor-check {
-    position: absolute; top: 4px; left: 4px; width: 18px; height: 18px;
-    border-radius: 4px; background: rgba(0, 0, 0, 0.55); color: #fff;
-    font-size: 12px; line-height: 18px; text-align: center;
-  }
-
-  /* ── Rope dock: chibi pull-cord + glass repo drawer ────────────────────────
-     The rope floats over the chat (fixed, body-child → immune to ancestor
-     transforms/backdrop-filters, same policy as the picker modal). It snaps to
-     the TOP edge on release (any horizontal spot); the settle class animates
-     that snap via top/left (tiny element, release-only). Dragging removes the
-     settle class so the rope follows the pointer 1:1. Pulling it DOWN draws
-     out the repo panel, which descends from the top like a drawer. Z-order:
-     repo panel 995 < rope 996 (the rope stays grabbable/clickable as the
-     panel's handle while it is out) < repo modal scrim 1003 < repo modal 1004. ── */
-  .we-rope {
-    position: fixed;
-    z-index: 996;
-    width: 52px; height: 57px;
-    box-sizing: border-box;
-    cursor: grab;
-    touch-action: none;              /* keep the pointer stream unbroken */
-    user-select: none; -webkit-user-select: none;
-    outline-offset: 2px;
-  }
-  .we-rope:focus-visible {
-    outline: 2px solid var(--we-accent, #4f8cff);
-    border-radius: 12px;
-  }
-  .we-rope--dragging { cursor: grabbing; }
-  .we-rope--settle {
-    transition:
-      top 280ms var(--we-ease, cubic-bezier(0.16, 1, 0.3, 1)),
-      left 280ms var(--we-ease, cubic-bezier(0.16, 1, 0.3, 1));
-  }
-  /* Art box holds the chibi <img>. The PNG is transparent-backed, and
-     object-fit: contain keeps its aspect ratio (no stretch) inside the box.
-     No CSS filter here: a permanent drop-shadow on a fixed element over the
-     wallpaper forces a filter layer that Chromium re-rasterises on any repaint
-     (click/typing) and can momentarily flash white. The chibi's own outline
-     keeps it readable, so we skip the filter entirely. */
-  .we-rope__art {
-    width: 100%; height: 100%;
-    transition: transform var(--we-dur-fast, 120ms) var(--we-ease, ease);
-  }
-  .we-rope:hover .we-rope__art { transform: scale(1.06); }
-  .we-rope__art img {
-    display: block; width: 100%; height: 100%;
-    object-fit: contain;
-    pointer-events: none; /* drag/capture stays on the .we-rope box */
-  }
-
-  /* One-time update notice — a floating glass toast (bottom-center) that tells
-     immersive/kiosk-window users about the white flash and its one fix. High
-     z-index so it sits above the chat; buttons reuse the flat picker style.
-     底板跟着主题底色走（max(下限, 82%) 保住原来的 82% 衬底）：明主题白衬黑字、
-     暗主题深蓝衬白字，不再是一块写死的深色板。 */
-  .we-update-notice {
-    position: fixed; left: 50%; bottom: 26px; z-index: 1100;
-    transform: translateX(-50%);
-    width: min(600px, 92vw);
-    box-sizing: border-box;
-    display: flex; flex-direction: column; gap: 10px;
-    padding: 16px 18px; border-radius: 14px;
-    background-color: color-mix(in srgb, var(--we-glass-color, #ffffff) calc(var(--we-glass-alpha, 0.5) * 90%), var(--we-readability-base) calc(max(var(--we-readability-floor), 0.82) * 100%));
-    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.03) 40%, rgba(255, 255, 255, 0.01));
-    -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(1.2);
-    backdrop-filter: blur(var(--we-blur, 16px)) saturate(1.2);
-    border: 1px solid rgba(255, 255, 255, 0.22);
-    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.18);
-    color: inherit;
-    animation: we-notice-in 240ms var(--we-ease, cubic-bezier(0.16, 1, 0.3, 1));
-  }
-  @keyframes we-notice-in { from { opacity: 0; transform: translate(-50%, 12px); } }
-  .we-update-notice__title { font-weight: 600; font-size: 0.95em; }
-  .we-update-notice__body { font-size: 0.82em; line-height: 1.5; opacity: 0.92; }
-  .we-update-notice__body p { margin: 0 0 6px; }
-  .we-update-notice__hint { font-size: 0.78em; opacity: 0.6; }
-  .we-update-notice__btn { align-self: flex-end; }
-  @media (prefers-reduced-motion: reduce) { .we-update-notice { animation: none !important; } }
-
-  /* Glass repo side panel — docked right, locked to 1/4 of the viewport,
-     full height, inner body scrolls. Same liquid-glass recipe as the settings
-     window: reads the very same --we-blur / --we-saturate / --we-glass-alpha /
-     --we-glass-color / --we-glass-brightness knobs, so the 玻璃 sliders in
-     settings retint this panel live. Open/close = transform + opacity fade,
-     token-driven; closed keeps visibility hidden (delayed so the fade-out
-     finishes first) with pointer-events off. */
-  .we-repo-panel {
-    position: fixed; top: 0; right: 0;
-    width: 25vw; max-width: 25vw;
-    height: 100vh; height: 100dvh;
-    z-index: 995;
-    display: flex; flex-direction: column;
-    padding: 14px;
-    box-sizing: border-box;
-    transform: translateY(-102%);
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
-    transition:
-      transform 800ms cubic-bezier(0.45, 0, 0.55, 1),
-      opacity 690ms cubic-bezier(0.45, 0, 0.55, 1),
-      visibility 0s linear 800ms;
-  }
-  /* The glass (backdrop-filter + tint + shadow) lives ONLY on the open state:
-     while closed the panel is off-screen and must not allocate a full-viewport
-     backdrop-filter compositing layer (a fixed, always-present backdrop-filter
-     layer is a known Chromium white-flash-on-repaint source). */
-  .we-repo-panel--open {
-    border-left: 1px solid rgba(255, 255, 255, 0.22);
-    /* 插件自己的抽屉同样是文字面 → 同一层可读性下限。 */
-    background-color: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-glass-color, #ffffff) calc(var(--we-glass-alpha, 0.5) * 72%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
-    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.05) 38%, rgba(255, 255, 255, 0.02));
-    -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
-    backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
-    box-shadow:
-      inset 1px 0 0 rgba(255, 255, 255, var(--we-glass-highlight, 0.32)),
-      inset 0 1px 0 rgba(255, 255, 255, 0.14),
-      -18px 0 44px rgba(0, 0, 0, 0.22);
-    transform: translateY(0);
-    opacity: 1;
-    visibility: visible;
-    pointer-events: auto;
-    transition:
-      transform 800ms cubic-bezier(0.45, 0, 0.55, 1),
-      opacity 690ms cubic-bezier(0.45, 0, 0.55, 1),
-      visibility 0s;
-  }
-  .we-repo-panel__head {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 8px; flex: 0 0 auto;
-    padding-bottom: 10px;
-    border-bottom: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.22));
-  }
-  .we-repo-panel__title { font-weight: 600; font-size: 0.95em; white-space: nowrap; }
-  /* Body: THE scroll container. Content (the whole WallpaperPicker) grows
-     freely; hover-scale overflow guards mirror the modal body's. */
-  .we-repo-panel__body {
-    flex: 1; min-height: 0;
-    overflow-y: auto;
-    overscroll-behavior: contain;   /* wheel doesn't bleed into the chat behind */
-    scrollbar-gutter: stable;
-    display: flex; flex-direction: column;
-    padding-top: 10px;
-  }
-  .we-repo-panel__body > .we-picker { flex: 1 0 auto; }
-  /* Panel is tall: let grids fill instead of their own internal scroll caps —
-     same release as the modal body uses. Layout styles themselves untouched. */
-  .we-repo-panel .we-picker__grid { max-height: none; }
-  /* Enlarged CD disc inside the panel context only (~1.4×), per design. The
-     cover inset is %-based so it scales along; just resize the spindle hole.
-     The platter stays a solid black vinyl (user asked to keep it black). */
-  .we-repo-panel .we-vinyl {
-    width: 176px; height: 176px;
-    background: repeating-radial-gradient(circle at center, #191920 0 2px, #23232c 2px 4px);
-    box-shadow:
-      0 6px 18px rgba(0, 0, 0, 0.55),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.07);
-  }
-  .we-repo-panel .we-vinyl__hole { width: 16px; height: 16px; margin: -8px 0 0 -8px; }
-  /* While the drawer is closed it is hidden but the picker stays mounted, so
-     the vinyl's spin animation would keep running unseen — constant hidden
-     compositor work that can contend with chat repaints and flash white.
-     Freeze the disc until the drawer actually opens. */
-  .we-repo-panel:not(.we-repo-panel--open) .we-vinyl { animation-play-state: paused; }
-  /* Req: the CD-adjacent current-wallpaper card and the custom-wallpaper
-     partition render as transparent glass instead of the dark surface layer,
-     so the blur behind shows through. */
-  .we-repo-panel .we-picker__current,
-  .we-repo-panel .we-picker__uploads,
-  .we-repo-panel .we-picker__uploads-item { background: transparent !important; }
-  /* Repo-path picker modal → its own right-quarter liquid-glass window instead
-     of the centred dark dialog. A transparent full-screen scrim keeps "click
-     outside to close" + focus containment without dimming the page behind.
-     (z-order: repo panel 995 < rope 996 < scrim 1003 < panel modal 1004.) */
-  .we-repo-panel__modal-scrim {
-    position: fixed; inset: 0; z-index: 1003;
-    background: transparent;
-  }
-  .we-picker__modal--panel {
-    position: fixed; top: 0; right: 0; z-index: 1004;
-    box-sizing: border-box;
-    width: 25vw; max-width: 25vw;
-    height: 100dvh; max-height: 100dvh;
-    border-radius: 0;
-    border: 0; border-left: 1px solid rgba(255, 255, 255, 0.22);
-    /* 仓库抽屉的右四分之一弹窗同样是文字面 → 同一层可读性下限。 */
-    background-color: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-glass-color, #ffffff) calc(var(--we-glass-alpha, 0.5) * 80%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
-    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.05) 38%, rgba(255, 255, 255, 0.02));
-    -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
-    backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
-    box-shadow:
-      inset 1px 0 0 rgba(255, 255, 255, var(--we-glass-highlight, 0.32)),
-      inset 0 1px 0 rgba(255, 255, 255, 0.14),
-      -18px 0 44px rgba(0, 0, 0, 0.22);
-    animation: we-repo-panel-in 800ms cubic-bezier(0.45, 0, 0.55, 1);
-  }
-  @keyframes we-repo-panel-in {
-    from { transform: translateX(102%); opacity: 0; }
-  }
-
-  /* No backdrop-filter support: near-opaque tinted surface, same policy as the
-     settings-window/sidebar fallbacks, so panel text stays readable. */
-  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    .we-repo-panel {
-      background-color: color-mix(in srgb, var(--we-glass-color, #ffffff) 92%, transparent);
-      backdrop-filter: none; -webkit-backdrop-filter: none;
-    }
-    .we-picker__modal--panel {
-      background-color: color-mix(in srgb, var(--we-glass-color, #ffffff) 94%, transparent);
-      backdrop-filter: none; -webkit-backdrop-filter: none;
-    }
-  }
-
-  /* ── 软件渲染回退（upstream #95，运行时探测）───────────────────────────────
-     有些第三方桌面外壳（增强 / 扩展窗口模式，通常走软件合成）根本不执行
-     backdrop-filter，但属性语法是认的 —— 所以上面那些
-     @supports not ((backdrop-filter: blur(1px)) or (…)) 回退永远为真、永不启用，
-     玻璃面板只剩全透明（「过透」）。detectSoftwareRender() 在运行时探测软件光栅器
-     并把结果挂到 body[data-we-glass-fallback]，下面把同一批回退配方原样再挂一次：
-     相同的 --we-* token、相同的 color-mix 近不透明声明（不新增任何 token /
-     机制），只多一条显式的 backdrop-filter: none（语法检查通过时 @supports
-     做不到这件事）。选择器与上面 @supports 回退逐条对应，并保留各自的总开关
-     (data-we-sidebar-glass / data-we-glass-window)，所以关掉开关仍然是原生外观。
-     输入框卡片按上游 #94 的 ::before 载体单独覆盖（见下方规则）。
-     手动覆盖：?we-glassfallback=on|off（见 detectSoftwareRender）。 ── */
-  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_boundaryError"],
-  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_panel"],
-  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_pane"],
-  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_tabBar"],
-  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_paneCard"],
-  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_editorHeader"],
-  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_explorerHeader"],
-  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_gitHeader"],
-  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_browserBar"],
-  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_terminalWrap"] {
-    background-color: color-mix(in srgb, var(--we-sidebar-color, #ffffff) 92%, transparent) !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-  }
-  body[data-we-glass-fallback][data-we-sidebar-glass] [data-sidebar-right-panel] {
-    background-color: color-mix(in srgb, var(--we-sidebar-color, #ffffff) 92%, transparent) !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-  }
-  /* 内容面（编辑器/终端）本来就是近不透明底板（--we-content-surface-alpha，默认
-     88%），这里把同一条声明再挂一遍，让软件渲染下三块侧栏区域落在同一个规则块里。 */
-  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] .cm-editor,
-  body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] .xterm,
-  body[data-we-glass-fallback][data-we-sidebar-glass] [data-sidebar-right-panel] .cm-editor,
-  body[data-we-glass-fallback][data-we-sidebar-glass] [data-sidebar-right-panel] .xterm {
-    background-color: color-mix(in srgb, var(--we-content-surface-color, var(--dsw-alias-bg-layer-1, #1e1f26)) max(calc(var(--we-readability-floor) * 100%), var(--we-content-surface-alpha, 88%)), transparent) !important;
-  }
-  /* 设置窗口：把三层面板 token 钉回实色（@supports 回退里的同一条 token 覆写），
-     并显式关掉不会生效的 backdrop-filter。 */
-  body[data-we-glass-fallback][data-we-glass-window] [role="dialog"]:has([data-slot="settings.section"]) {
-    --dsw-alias-bg-layer-1: var(--we-glass-color, #ffffff);
-    --dsw-alias-bg-layer-2: var(--we-glass-color, #ffffff);
-    --dsw-alias-bg-layer-3: var(--we-glass-color, #ffffff);
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-  }
-  body[data-ds-dark-theme][data-we-glass-fallback][data-we-glass-window] [role="dialog"]:has([data-slot="settings.section"]) {
-    --dsw-alias-bg-layer-1: var(--we-glass-color, #0d1524);
-    --dsw-alias-bg-layer-2: var(--we-glass-color, #0d1524);
-    --dsw-alias-bg-layer-3: var(--we-glass-color, #0d1524);
-  }
-  /* 输入框卡片（issue #95 报「过透」的那块界面）：上游 #94 已把模糊从卡片本体搬到
-     [data-composer-card]::before 载体（卡片上的 backdrop-filter 会成为 fixed 后代的
-     包含块，#89）——载体上没有背景，卡片自身的底色只有 --we-glass-alpha（默认 15%），
-     所以只关掉 backdrop-filter 仍然过透。这里让 ::before 自己变成近不透明底板：
-     载体是同一块表面，模糊没了就由它兜住底色，配方与上面 .we-repo-panel 逐字相同
-     （同一个 --we-glass-color / 92%，未新增 token 或机制）。 */
-  body[data-we-glass-fallback][data-we-wallpaper] [data-composer-card]::before {
-    background-color: color-mix(in srgb, var(--we-glass-color, #ffffff) 92%, transparent);
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-  }
-  /* 仓库抽屉 / 面板弹窗：与 @supports 回退逐字相同的 92% / 94% 近不透明配方。 */
-  body[data-we-glass-fallback] .we-repo-panel {
-    background-color: color-mix(in srgb, var(--we-glass-color, #ffffff) 92%, transparent);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-  }
-  body[data-we-glass-fallback] .we-picker__modal--panel {
-    background-color: color-mix(in srgb, var(--we-glass-color, #ffffff) 94%, transparent);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-  }
-  /* 弹层遮罩 / 一次性通知：底色本身已经接近不透明（55% 黑 / 82% 深色底衬），
-     不需要换配方，只把永远不生效的 backdrop-filter 关掉。 */
-  body[data-we-glass-fallback] .we-picker__modal-overlay,
-  body[data-we-glass-fallback] .we-update-notice {
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .we-rope--settle, .we-repo-panel, .we-picker__modal--panel, .we-repo-panel__modal-scrim { transition: none !important; }
-    .we-picker__modal--panel { animation: none !important; }
-  }
-`;
 
 // Bumped v3: tabbed picker IA + unified control chrome (sliding segmented tab
 // bar, pill switches everywhere, ink-token labels, 30px control heights).
@@ -9850,7 +3741,7 @@ function detectMicaSupport() {
 }
 
 // ── 玻璃饱和度解耦（?we-saturate）─────────────────────────────────────────────
-// --we-saturate 曾经随 玻璃 滑块（模糊半径）线性上升：1.15 + blur*0.028，即
+// --we-saturate 原先随 玻璃 滑块（模糊半径）线性上升：1.15 + blur*0.028，即
 // 0px→1.15 … 60px→2.83。于是一个滑块同时改了两件语义无关的事：毛玻璃深度
 // （--we-blur）和背景「色彩融化」强度。高模糊 + 高饱和会把玻璃后残留的壁纸文字
 // 放大成 荧光/彩色鬼影，而不是中性雾面 —— 所以饱和度改为常量材料属性
@@ -9978,17 +3869,55 @@ function apply(ctx) {
           ocListeners.push(t);
         }
       }
+      // 客户端 JS 异常的**留痕**：这台机器打不开 DevTools ⇒ 没有这一条，一次渲染期异常就只剩
+      // "UI 崩了"这句转述（实测过：面板白屏时诊断缓冲里什么也没有）。只**记录**、不改行为；
+      // 与其它监听器一样随 fiber 注销（HMR 重挂不会叠）。
+      const onClientError = (ev) => {
+        try {
+          const err = ev && (ev.error || ev.reason);
+          const type = (ev && ev.type) ? ev.type : "error";
+          const msg = String((err && err.message) || (ev && ev.message) || err || ev || "").slice(0, 240);
+          const where = (err && err.stack) ? " @ " + String(err.stack).split("\n").slice(0, 3).join(" <- ") : "";
+          liveLog("client-error", type + ": " + msg + where);
+        } catch { /* 连记录都失败就放弃，绝不在错误处理里再抛 */ }
+      };
+      if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+        window.addEventListener("error", onClientError);
+        window.addEventListener("unhandledrejection", onClientError);
+      }
+      // 遮挡判定**不能只靠事件**：原生模态（`window.confirm` / `alert`）会把焦点交给自己的窗口，
+      // 而**回来时的 focus 事件不保证送达** —— 判定就会一直停在「窗口失焦」，壁纸从此不恢复
+      // （真机形态：删除确认弹窗之后壁纸停住、输入框也收不到键，只剩重载能救）。
+      // 事件之外再**低频复核**一次，且只在判定**变了**时 emit ⇒ 常态零代价、不 churn。
+      let lastOcclusion = occlusionReason();
+      let ocWatch = 0;
+      if (typeof setInterval === "function") {
+        ocWatch = setInterval(() => {
+          const now = occlusionReason();
+          if (now === lastOcclusion) return;
+          lastOcclusion = now;
+          // 留痕：这条日志是"事件丢了、靠复核补上"的唯一事后证据（真机排查时缺的就是它）。
+          try { liveLog("play-state", liveStateBrief("occlusion-recheck")); } catch { /* ignore */ }
+          emit();
+        }, OCCLUSION_RECHECK_MS);
+      }
       // 持久化监听器: pagehide → 立即 flush 未落盘的设置; visibilitychange →
       // 页面回到前台时重试失败过的 PUT。注册在这里 (而不是模块作用域) 才能随
       // fiber 注销 — 否则每次插件重载/HMR 都会在同一页面再叠一对, 永不释放。
+      // 字体集是**另一条**通道（src/fontset-store.js），同形但各自记自己的脏标记 ⇒ 各自注册。
       let pageHideBound = false, visBound = false;
+      let fontPageHideBound = false, fontVisBound = false;
       if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
         window.addEventListener("pagehide", onPageHideFlush);
         pageHideBound = true;
+        window.addEventListener("pagehide", onPageHideFlushFontSet);
+        fontPageHideBound = true;
       }
       if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
         document.addEventListener("visibilitychange", onVisibilityResyncPersist);
         visBound = true;
+        document.addEventListener("visibilitychange", onVisibilityResyncFontSet);
+        fontVisBound = true;
       }
       // 样式标签也按 fiber 生命周期注入 (dispose 会移除, 见下方 cleanup)
       ensurePluginCss();
@@ -10015,12 +3944,19 @@ function apply(ctx) {
         disposed = true;
         unsub();
         unsubEffects();
+        if (ocWatch) { try { clearInterval(ocWatch); } catch { /* ignore */ } ocWatch = 0; }
         if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
           for (const t of ocListeners) window.removeEventListener(t, onOcclusionChange);
+          window.removeEventListener("error", onClientError);
+          window.removeEventListener("unhandledrejection", onClientError);
           if (pageHideBound) window.removeEventListener("pagehide", onPageHideFlush);
+          if (fontPageHideBound) window.removeEventListener("pagehide", onPageHideFlushFontSet);
         }
         if (visBound && typeof document !== "undefined" && typeof document.removeEventListener === "function") {
           document.removeEventListener("visibilitychange", onVisibilityResyncPersist);
+        }
+        if (fontVisBound && typeof document !== "undefined" && typeof document.removeEventListener === "function") {
+          document.removeEventListener("visibilitychange", onVisibilityResyncFontSet);
         }
         if (batteryCleanup) { batteryCleanup(); batteryCleanup = null; }
         weBattery = null;
@@ -10045,15 +3981,12 @@ function apply(ctx) {
         stopSceneAudioEl();
         cancelLiveFrameBackfill(); // 卸载后不再发 HEAD/PUT（评审：此前会漏一次）
         stopLiveWatch();
+        cancelLiveMount("unload"); // 延迟期那个正在预热的渲染页也要终止（否则卸载后仍在后台跑）
         abortTranscodeUpgrade(); // 含 clearUpgradePoll + AbortController.abort（否则卸载后 500ms 轮询永久泄漏）
-        // 模块级 persistTimer 不属于 fiber: 卸载时清掉, 否则 200ms 后仍会跑一次
-        // flushPersist()（对已卸载的插件写入状态）。
-        if (persistTimer && typeof window !== "undefined" && typeof window.clearTimeout === "function") {
-          window.clearTimeout(persistTimer);
-          persistTimer = null;
-        }
+        cancelPendingPersist(); // 模块级 persistTimer 不属于 fiber：不取消则 200ms 后仍会写一次
+        cancelPendingFontSet(); // 字体集那条通道的 timer 同理（各自一个模块级 timer）
         // media-info 探测的 AbortController 也要断开 (token 可能永远不再变化)
-        if (mediaInfoAbort) { try { mediaInfoAbort.abort(); } catch { /* ignore */ } mediaInfoAbort = null; }
+        abortMediaInfoProbe();
         // sceneVideo 时序补拉: 卸载后不该再拉 inventory (也不该钉住本次求值的闭包)
         if (sceneVideoResyncTimer && typeof window !== "undefined" && typeof window.clearTimeout === "function") {
           window.clearTimeout(sceneVideoResyncTimer);
@@ -10073,6 +4006,70 @@ function apply(ctx) {
           if (cssTag && cssTag.dataset && cssTag.dataset.pluginCssGen === CSS_GEN
               && typeof cssTag.remove === "function") cssTag.remove();
         }
+      };
+    });
+  }
+
+  // 1b. F1「文字颜色角色」令牌层：后台轮询 theme 服务（启动竞态：实测 7ms 时还没有、
+  //     325ms 才有），拿到后按设置给每个角色上色；拿不到就**什么都不做** —— 全局
+  //     字体层已删，`#we-font-patch` 不再是回落通道，此时角色色就是不上色
+  //     （红线 7 的双通道只剩令牌层这一条腿）。
+  //     - 不声明 `inject: ["theme"]`：缺服务时声明式依赖会让插件 park（F0 A7）。
+  //     - 首次写入前先取宿主墨色基线，否则退出契约会把我们的颜色当宿主原值快照。
+  //     - 不监听配色变化重注册：值给的是 {light,dark} 对，配色切换由服务自己换值。
+  if (ctx.effect && typeof ctx.get === "function" && typeof document !== "undefined") {
+    ctx.effect(() => {
+      let layer = null;
+      // F2 排版层：**必须独立 source** —— 同 source 再注册会整层替换，会把颜色层顶掉。
+      // 它不碰 --dsw-alias-label-*，因此与宿主墨色基线（onBeforeFirstWrite）无关。
+      let typeLayer = null;
+      let unsub = null;
+      const cancelPoll = pollThemeService(ctx, {
+        intervalMs: 250,
+        timeoutMs: 6000,
+        onReady: (theme) => {
+          try {
+            const available = scanThemeTokens(document);
+            // 样式表扫描是清单的权威来源（active.tokens 为空、exportInspectTokens 只有 14 条）；
+            // 再叠一层 computed 存在性探测，跨源样式表读不到 cssRules 时也能判定。
+            const hasToken = (t) => available.has(t)
+              || (typeof getComputedStyle === "function"
+                && getComputedStyle(document.body).getPropertyValue(t).trim() !== "");
+            layer = createThemeLayer({
+              theme,
+              // 绑在「字体自定义」总开关下：关闭 = 连颜色一起恢复原生（与面板文案一致）。
+              // `|| {}` 是第二道：这几个 getter 会在**订阅回调**里被调到，而订阅回调不在 try 里 ——
+              // 数据侧已有兜底（selection 初始化必带六个键），这里再挡一次，免得"某个键缺失"
+              // 升级成"改一下设置整块面板崩"。
+              getColors: () => (selection.fontCustom ? (selection.themeColors || {}) : {}),
+              isAvailable: hasToken,
+              onBeforeFirstWrite: () => { try { snapshotHostFontDefaults(); } catch { /* 基线失败不阻断上色 */ } },
+            });
+            typeLayer = createThemeLayer({
+              theme,
+              source: THEME_TYPE_SOURCE,
+              buildPayload: () => buildTypePayload(
+                selection.fontCustom ? (selection.themeSize || {}) : {},
+                hasToken,
+                selection.fontCustom ? (selection.themeWeight || {}) : {},
+                selection.fontCustom ? (selection.themeFamily || {}) : {},
+                fontFamilyStack),
+            });
+            layer.sync();
+            typeLayer.sync();
+            // 订阅回调必须自己收异常：它跑在 emit() 里，抛出去就是"改一下设置整个面板崩"。
+            unsub = subscribe(() => {
+              try { if (layer) layer.sync(); if (typeLayer) typeLayer.sync(); } catch { /* 令牌层是增强 */ }
+            });
+          } catch { /* 主题层是增强：任何异常都不该影响壁纸主路径 */ }
+        },
+      });
+      return () => {
+        try { if (unsub) unsub(); } catch { /* ignore */ }
+        try { if (cancelPoll) cancelPoll(); } catch { /* ignore */ }
+        // 交给服务的 disposer 把令牌还原（F0 实测干净）；这里只保证调用一次
+        try { if (layer) layer.dispose(); } catch { /* ignore */ }
+        try { if (typeLayer) typeLayer.dispose(); } catch { /* ignore */ }
       };
     });
   }
@@ -10112,10 +4109,11 @@ function apply(ctx) {
     });
   }
 
-  // Settings first (host file, port-independent), then inventory — so the
-  // selection restore inside loadInventory()'s revalidateSelection() sees the
-  // persisted id and can resolve its media URL.
-  loadPersisted().then(loadInventory);
+  // Settings first (host file, port-independent), then the ACTIVE FONTSET (its values live in
+  // fontsets/<id>.json — a different store on the same host), then inventory — so the
+  // selection restore inside loadInventory()'s revalidateSelection() sees the persisted id
+  // and can resolve its media URL, and the first paint already has the user's fonts.
+  loadPersisted().then(loadFontSet).then(loadInventory);
 }
 
 exports.apply = apply;

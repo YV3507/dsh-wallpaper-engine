@@ -1,0 +1,22 @@
+{
+  "$schema": "dsh-we/fontset@1",
+  "id": "compact",
+  "name": "紧凑",
+  "values": {
+    "themeColors": {},
+    "themeDarkSeparate": false,
+    "themeSize": {
+      "markdown-h1": 19,
+      "markdown-h2": 17,
+      "markdown-h3": 16,
+      "markdown-small": 11,
+      "markdown-table": 12,
+      "markdown-table-head": 12,
+      "xs-13": 12,
+      "xxs-12": 11
+    },
+    "themeWeight": {},
+    "themeFamily": {},
+    "componentFonts": {}
+  }
+}

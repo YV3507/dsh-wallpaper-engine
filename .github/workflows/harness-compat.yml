@@ -1,0 +1,125 @@
+name: harness-compat
+
+# harness 适配基线：每次 harness（@deepseek-ai/dsh 的 latest 通道）更新、以及本插件
+# push main，都跑一轮「最新 harness × 本插件最新 commit」的适配测试；**全绿才入基线**
+# （.github/harness-baseline.json 由本工作流自动提交），失败即红、基线保持上一个全绿对。
+# 目标对已被基线覆盖时整轮秒过（schedule 每小时轮询的常态）。
+#
+# 第三方边界：不跑 verify:bridge（媒体桥下载）与 verify:e2e；verify 链内媒体桥那步带
+# --allow-skip，在干净 runner 上显式跳过。真 harness 探活自带 DSH_WE_MEDIA_LEGACY=1，
+# 媒体桥 / ffmpeg 全程不被拉起 —— 适配测试只覆盖 harness ↔ 本插件。
+on:
+  schedule:
+    - cron: '23 * * * *'   # 每小时轮询 latest（错峰分，避开整点拥堵）
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      harness_version:
+        description: '指定 @deepseek-ai/dsh 版本（留空 = latest 通道）'
+        required: false
+        default: ''
+      force:
+        description: '即使目标对已入基线也强制重跑'
+        type: boolean
+        default: false
+
+concurrency:
+  group: harness-compat
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # 仅用于全绿后提交基线文件
+
+jobs:
+  compat:
+    # windows-latest 与 verify.yml 同平台：部分守卫带 win32/POSIX 条件分支，
+    # 换平台会改变被断言的那一半；本插件的开发与发布平台也是 Windows。
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 解析目标 harness 版本 + 基线跳过判定
+        id: target
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.harness_version }}
+          INPUT_FORCE: ${{ inputs.force }}
+        run: |
+          FORCE=""
+          if [ "$INPUT_FORCE" = "true" ]; then FORCE="--force"; fi
+          if [ -n "$INPUT_VERSION" ]; then
+            TARGET="$INPUT_VERSION"
+            # 手动指定版本 = 显式验证意图，一律重跑（基线判定不参与）。
+            FORCE="--force"
+          else
+            # npm 查询失败即红：探测通道坏了就该报错，不许静默用旧版本。
+            TARGET="$(npm view @deepseek-ai/dsh dist-tags.latest)"
+          fi
+          echo "target=$TARGET" >> "$GITHUB_OUTPUT"
+          node scripts/harness-compat-baseline.mjs check --harness "$TARGET" --sha "${{ github.sha }}" $FORCE
+
+      - name: 安装 pnpm 与目标版本 harness（并断言装到的就是目标版本）
+        if: steps.target.outputs.should_run == 'true'
+        shell: bash
+        env:
+          TARGET: ${{ steps.target.outputs.target }}
+        run: |
+          npm install -g pnpm
+          npm install -g "@deepseek-ai/dsh@$TARGET"
+          INSTALLED="$(node -e 'const{execSync}=require("child_process");const root=execSync("npm root -g").toString().trim();process.stdout.write(require(root+"/@deepseek-ai/dsh/package.json").version)')"
+          if [ "$INSTALLED" != "$TARGET" ]; then echo "installed=$INSTALLED target=$TARGET"; exit 1; fi
+
+      - name: UI 面清单棘轮 + sidebar 源码活判据（对最新 harness 真源码）
+        if: steps.target.outputs.should_run == 'true'
+        shell: bash
+        run: node test/compat-harness-surfaces.mjs
+
+      - name: 真 harness 全链路探活（link → 启动 → 路由 / 落盘 / 日志判据）
+        if: steps.target.outputs.should_run == 'true'
+        shell: bash
+        run: node test/compat-harness-live.mjs
+
+      - name: 逐页 DOM/样式断言（无头浏览器 + CDP；计算样式探针 + 设置分区走查）
+        if: steps.target.outputs.should_run == 'true'
+        shell: bash
+        run: node test/compat-harness-pages.mjs
+
+      - name: 全套守卫（build + verify + smoke；媒体桥步 --allow-skip 显式跳过）
+        if: steps.target.outputs.should_run == 'true'
+        shell: bash
+        run: npm run verify:all
+
+      - name: 全绿入基线（失败路径到不了这里）
+        if: steps.target.outputs.should_run == 'true'
+        shell: bash
+        env:
+          TARGET: ${{ steps.target.outputs.target }}
+          SHA: ${{ github.sha }}
+        run: |
+          node scripts/harness-compat-baseline.mjs record --harness "$TARGET" --sha "$SHA" \
+            --node "$(node -v)" --runner "$RUNNER_OS"
+          if [ -n "$(git status --porcelain .github/harness-baseline.json)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add .github/harness-baseline.json
+            git commit -m "ci(baseline): harness $TARGET × ${SHA:0:7} 全绿入基线 [skip ci]"
+            git push
+          else
+            echo "基线无变化，不提交"
+          fi
+
+      - name: 上传 harness 运行日志与落盘诊断
+        if: always() && steps.target.outputs.should_run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-compat-logs
+          path: |
+            .test-cache/compat/harness.log
+            .test-cache/compat/home/.dsh-wallpaper-engine/diag/http.jsonl
+          if-no-files-found: warn

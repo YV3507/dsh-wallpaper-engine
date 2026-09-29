@@ -1,4 +1,18 @@
-// Rotation prepare/commit smoke for the WebWallGL live staging path.
+// React #31 校验：**对象不能作为子节点**。替身若默默吞掉，这类错就只能在真机上炸
+// （实测：参数位置上的赋值表达式把"角色对象数组"当成了子节点，空表时看不出、
+// 一旦筛出角色整块面板就崩）。替身必须和 React 一样**抛**。
+function badChild(c) {
+  if (c === null || c === undefined || typeof c === 'boolean' || typeof c === 'string' || typeof c === 'number') return null;
+  if (Array.isArray(c)) { for (const x of c) { const b = badChild(x); if (b) return b; } return null; }
+  if (typeof c === 'object' && c.type) return null;
+  return c;
+}
+function assertChildren(children) {
+  for (const c of children) {
+    const bad = badChild(c);
+    if (bad) throw new Error('React #31：无效子节点（对象不能作为子节点）: ' + JSON.stringify(Object.keys(bad)).slice(0, 80));
+  }
+}// Rotation prepare/commit smoke for the WebWallGL live staging path.
 // 场景壁纸走「live 渲染页 staged 预载 → 首帧确认 → 领养进新层」通道：
 // mock iframe 自带 __wpStats 心跳读数（running && fps>0 = 首帧已出），
 // 断言 staged iframe 被新层领养（不重建）、we-live-on 立即点亮、staging
@@ -8,7 +22,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 const React = { Fragment:'Fragment', useState:(i)=>[i,()=>{}], useEffect:()=>{}, useRef:(v)=>({current:v}),
-  createElement:(t,p,...c)=>typeof t==='function'?t(p||{}):({type:t,props:p||null,children:c}) };
+  createElement:(t,p,...c)=>{ assertChildren(c); return typeof t==='function'?t(p||{}):({type:t,props:p||null,children:c}); } };
 
 let byId = {};
 const timers = [];
@@ -72,6 +86,8 @@ function makeEl(tag) {
 }
 
 const bodyEl = makeEl('body');
+// 焦点可变：遮挡判定的**自愈**要在"事件丢了"的前提下判（原生模态会吞掉 focus 事件）。
+let focusOn = true;
 const document = {
   createElement: (t) => { const el = makeEl(t); if (t==='iframe') iframeEls.push(el); if (t==='video') videoEls.push(el); return el; },
   getElementById: (id) => byId[id] || null,
@@ -79,7 +95,7 @@ const document = {
   head: { appendChild: () => {} },
   body: bodyEl,
   hidden: false,
-  hasFocus: () => true,
+  hasFocus: () => focusOn,
   addEventListener(){},
   removeEventListener(){},
   documentElement: makeEl('html'),
@@ -90,36 +106,51 @@ const localStorage = {
     id:'v', rotationGroupId:'g1', rotationEnabled:true,
     // 本套测的是「轮换交叉淡化 + 音频闸」，显式选交叉淡化（默认已是硬切）。
     switchTransition: 'fade',
+    // 本次还要测遮挡自愈，显式开「窗口失焦时暂停」（默认关）。
+    pauseOnBlur: true,
     videoVolume: 0.6, videoAudioEnabled: true,
     rotationGroups:[{id:'g1',name:'L',interval:5,order:'sequence',wallpaperIds:['v','s']}],
   }), weRotationTestSec: '10' },
   getItem(k){ return this._store[k] ?? null; }, setItem(k,v){ this._store[k]=v; }, removeItem(k){ delete this._store[k]; },
 };
-const fetch = (url) => Promise.resolve({ ok:true, status:200, json:()=>Promise.resolve(
+const diagPosts = [];
+const diagText = (from) => diagPosts.slice(from).map((u) => { try { return decodeURIComponent(u); } catch { return u; } }).join(' | ');
+const fetch = (url, init) => { if (String(url).includes('diag')) diagPosts.push(String((init && init.body) || '')); return Promise.resolve({ ok:true, status:200, json:()=>Promise.resolve(
   String(url).includes('/settings') ? { ok:true, betterSidebar:false } :
   String(url).includes('/media-info') ? { info:null } :
   { installDir:'D:/we', total:2, portableCount:2, playlists:[], wallpapers:[
     { id:'v', title:'V', type:'video', playable:true, media:'/wallpaper-engine/media/vvv', preview:'/wallpaper-engine/preview/vvv', contentrating:'Everyone' },
     { id:'s', title:'S', type:'scene', playable:false, media:null, frameUrl:'/wallpaper-engine/scene-frame/sss',
       sceneLive:true, sceneLiveSrc:'tok-sss', preview:'/wallpaper-engine/preview/sss', contentrating:'Everyone' },
-  ] }) });
+  ] }) }); };
 
 const code = readFileSync(new URL('../lib/client.js', import.meta.url),'utf8');
 // 渐变退役定时器 = ROTATION_FADE_MS + 100ms 宽限：从被测源码读常量，改时长
 // 不用同步改这里的硬编码。
 const FADE_GRACE_MS = Number(code.match(/ROTATION_FADE_MS = (\d+)/)[1]) + 100;
 const cap = { handoff:null };
+// 诊断留痕：`liveLog` 走的是 `new Image().src = "/diag?msg=…"`（同源像素请求），
+// 沙箱里没有 Image 就会静默跳过 ⇒ 补一个只记录 src 的替身。
+class RecordingImage { set src(v) { diagPosts.push(String(v)); } }
+// setInterval 也要登记：遮挡判定的**低频复核**（OCCLUSION_RECHECK_MS）靠它自愈。
+const intervals = [];
+const winListeners = {};
+const fireWin = (ev, payload) => (winListeners[ev] || []).slice().forEach((f) => f(payload));
 const sandbox = {
   window: {
     __ModuleLoader__: { load:(h)=>{ cap.handoff=h; } },
     setTimeout:(fn,ms)=>{ const t={fn,ms,cleared:false}; timers.push(t); return t; },
     clearTimeout:(t)=>{ if(t)t.cleared=true; },
-    addEventListener(){}, innerWidth:1920, innerHeight:1080, devicePixelRatio:1,
+    setInterval:(fn,ms)=>{ const t={fn,ms,cleared:false}; intervals.push(t); return t; },
+    clearInterval:(t)=>{ if(t)t.cleared=true; },
+    addEventListener(ev,fn){ (winListeners[ev] ||= []).push(fn); }, removeEventListener(ev,fn){ const l=winListeners[ev]; if(l){const i=l.indexOf(fn); if(i>=0)l.splice(i,1);} }, innerWidth:1920, innerHeight:1080, devicePixelRatio:1,
   },
-  document, localStorage, fetch, React,
+  document, localStorage, fetch, React, Image: RecordingImage,
   location: { origin: 'http://localhost' },
   setTimeout:(fn,ms)=>{ const t={fn,ms,cleared:false}; timers.push(t); return t; },
   clearTimeout:(t)=>{ if(t)t.cleared=true; },
+  setInterval:(fn,ms)=>{ const t={fn,ms,cleared:false}; intervals.push(t); return t; },
+  clearInterval:(t)=>{ if(t)t.cleared=true; },
 };
 vm.createContext(sandbox);
 new vm.Script(code,{filename:'client.js'}).runInContext(sandbox);
@@ -218,6 +249,58 @@ setTimeout(async () => {
     fire(fade2);
     check('退场旧层的 live iframe 已导航到 about:blank（不得只 remove 留给 GC）',
       String(staged.src) === 'about:blank', 'src=' + String(staged.src).slice(0, 70));
+  }
+
+  // ── 遮挡判定的**自愈**（真机：删除确认弹窗之后壁纸停住、只剩重载能救）──────────────
+  // 形态：原生模态（window.confirm）把焦点交给自己的窗口 ⇒ blur ⇒ pauseOnBlur 命中；
+  // 它同时**同步阻塞渲染线程**，而回来时的 focus 事件**不保证送达** ⇒ 判定永久卡在
+  // 「窗口失焦」。所以判定不能只靠事件，要有低频复核（OCCLUSION_RECHECK_MS）。
+  // 这里直接模拟"事件丢了"：只改 hasFocus()，一个 focus/blur 事件都不发。
+  {
+    const live = videoEls.filter((v) => v.isConnected).pop() || videoEls[videoEls.length-1];
+    const watch = intervals.find((t) => !t.cleared && t.ms === 3000);
+    check('遮挡复核定时器已武装（3s；只在判定变化时 emit）', !!watch,
+      'intervals=' + JSON.stringify(intervals.filter((t) => !t.cleared).map((t) => t.ms)));
+    // 真 setInterval 是**重复**触发的：挂载台里同一个对象要能反复 fire（别标 cleared）。
+    const tick = () => { if (watch) watch.fn(); };
+    const diagBefore = diagPosts.length;
+    focusOn = false;                       // 焦点丢了，但**不派发事件**（原生模态的真实形态）
+    tick();
+    check('焦点丢了且事件没送达 ⇒ 复核把壁纸停下（pauseOnBlur 仍然生效）',
+      live.__paused === true, 'paused=' + live.__paused);
+    check('复核翻转了判定就**留痕**（事后能看出"事件丢了、复核补上"）',
+      diagText(diagBefore).includes('occlusion-recheck') && diagText(diagBefore).includes('playing=false'),
+      diagText(diagBefore).slice(0, 90));
+    const diagBefore2 = diagPosts.length;
+    focusOn = true;                        // 焦点回来了，同样**不派发事件**
+    tick();
+    check('焦点回来且事件没送达 ⇒ 复核把判定翻回"可播"（这就是"只剩重载能救"的那一档）',
+      diagText(diagBefore2).includes('occlusion-recheck') && diagText(diagBefore2).includes('playing=true'),
+      diagText(diagBefore2).slice(0, 90));
+    // 负对照：不动焦点时复核**不产生**额外动作（判据不是恒真，也不会 churn）。
+    const diagBefore3 = diagPosts.length;
+    const playsBefore3 = live.__plays || 0;
+    tick();
+    check('负对照：判定没变时复核什么都不做（零 churn）',
+      diagPosts.length === diagBefore3 && (live.__plays || 0) === playsBefore3,
+      '新增日志 ' + (diagPosts.length - diagBefore3) + ' 条');
+  }
+
+  // ── 客户端异常留痕（这台机器打不开 DevTools，"崩了"必须能落到诊断缓冲里）──────────
+  {
+    const before = diagPosts.length;
+    fireWin('error', { type: 'error', message: 'boom from render', error: new Error('boom from render') });
+    check('window error ⇒ 诊断里落一行 client-error（含消息）',
+      diagText(before).includes('client-error') && diagText(before).includes('boom from render'),
+      diagText(before).slice(0, 96));
+    const before2 = diagPosts.length;
+    fireWin('unhandledrejection', { type: 'unhandledrejection', reason: new Error('promise blew up') });
+    check('unhandledrejection 同样落痕（异步路径的异常不丢）',
+      diagText(before2).includes('unhandledrejection') && diagText(before2).includes('promise blew up'),
+      diagText(before2).slice(0, 96));
+    check('两种监听器都挂上了',
+      (winListeners.error || []).length > 0 && (winListeners.unhandledrejection || []).length > 0,
+      Object.keys(winListeners).join(','));
   }
 
   console.log('');

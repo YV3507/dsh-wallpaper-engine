@@ -1,0 +1,231 @@
+# 排障 / Troubleshooting
+
+<!-- lineage-note: branch-scope -->
+> ⚠️ **版本/世系标注**：本页部分条目写于 0.7.5 那条线，引用了一些**当前分支并不存在**的开关 ——
+> 「**空闲预热 / 预热整个库**」、「**有损路线**」、「**GPU 渲染加速**」
+> （可核对：代码中 `sceneFrameRender` / `scenePrewarmScope` / `sceneLossyRoute` / `sceneGpuAccel`
+> **均无命中**）。因此下文这些条目的"预期行为"描述**只适用于带这些开关的版本**；
+> 在当前分支请以实际面板为准（脚本会校验本标注与上述事实一致）。
+
+
+> 本文件承接原先放在 README 首页的**安装失败排查**。README 只保留一行链接。
+> 面向新手的常见问题见 [`../README.beginner.md`](../README.beginner.md) 的 FAQ；
+> 功能边界见 `../README.md` 的「已知限制」；升级顺序问题见 [`UPGRADING.md`](./UPGRADING.md)。
+
+## 中文
+
+### 安装失败：`ERR_PNPM_UNEXPECTED_VIRTUAL_STORE`
+
+`dsh plugin --profile web add ...` 会把命令转发给 **pnpm**。如果你遇到下面的错误：
+
+```text
+[ERR_PNPM_UNEXPECTED_VIRTUAL_STORE] Unexpected virtual store location
+dsh: pnpm failed in profile directory C:\Users\xxx\.dsh-desktop\profiles\web
+```
+
+**这不是插件本身的问题**（换任何一个插件安装都会失败），而是该 profile 目录的 pnpm 依赖状态失效了：
+pnpm 在 `node_modules\.modules.yaml` 里记录了安装时的虚拟存储位置（绝对路径），一旦 profile 目录被
+**移动 / 复制 / 备份恢复**过，或 pnpm 版本 / `virtual-store-dir` 配置发生变化，记录值与当前路径不一致，
+pnpm 就会拒绝继续安装任何插件。
+
+**修复（Windows PowerShell）：**
+
+```powershell
+# 1) 先退出 DSH 桌面端
+# 2) 删除该 profile 的依赖目录（只删 node_modules 即可，配置/已装插件名不会丢）
+Remove-Item "$env:USERPROFILE\.dsh-desktop\profiles\web\node_modules" -Recurse -Force
+# 3) 重新安装本插件
+dsh plugin --profile web add dsh-plugin-wallpaper-engine
+```
+
+> 只删除 `node_modules\.modules.yaml` 一个文件也能修复（pnpm 会自动重建并继续），删除整个
+> `node_modules` 更彻底。如果 `.dsh-desktop` 被 OneDrive / 云同步 / 迁移工具动过，建议把它加入同步排除，避免复发。
+
+### 安装失败：`ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`
+
+```text
+[ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED] ... The git-hosted package "dsh-plugin-wallpaper-engine@0.6.8"
+needs to execute build scripts but is not in the "allowBuilds" allowlist.
+```
+
+**说明你用了 `github:` 形式的安装命令**（例如 `dsh plugin --profile web add github:elysia395/dsh-wallpaper-engine`）。
+pnpm 11 出于供应链安全，默认拒绝从 git 安装的包执行构建脚本，而本插件的 git checkout 需要 `prepare`
+脚本构建 client，因此 `github:` 直装必然失败。请改用 **npm 包名**安装（npm 发布包已预构建，无需安装时编译）：
+
+```sh
+dsh plugin --profile web add dsh-plugin-wallpaper-engine
+```
+
+> 如果你的插件中心（dsh-plugin-hub）生成的是 `github:` 命令，请把它升级到 **v1.4.1+**——新版会自动反查
+> npm 包名并切到 npm 通道。
+
+### 症状 → 先看哪里
+
+| 症状 | 先检查 |
+|---|---|
+| 面板上出现「宿主里没有字体集路由…」或「宿主返回 404 / 405」 | 宿主是旧的：**宿主端代码只在启动时加载**，刷新页面只换前端 bundle。**重启 DSH**（`dsh web` 重开 / 桌面端退出再进）即可。自查两步：① `~/.dsh-wallpaper-engine/build-stamp.json` 的 `at` 必须晚于 `lib/index.js` 的 mtime；② `diag/http.jsonl` 里搜 `fontsets` —— **0 命中**说明请求根本没到插件（那种"裸状态码"只可能来自别的层） |
+| 设置面板突然空白 / 整块界面白掉 | 先搜客户端异常留痕：`client-error`（消息 + 栈前三行都在同一行诊断里）。已知一类是 **React #31**（对象数组被当成子节点渲染），当前分支已修；拿到 `client-error` 原文就能定位到具体行 |
+| 确认一次（删除/隐藏之类）之后壁纸停住、输入框也没反应 | 原生 `confirm` 把焦点交给它自己的窗口 ⇒ 开着「窗口失焦时暂停」时壁纸会停；模态期间渲染线程被同步阻塞，而回来时的 `focus` 事件不保证送达（旧版本上只能重载）。**当前分支**：遮挡判定每 3 s 低频复核一次并留 `occlusion-recheck` 行（丢事件也能自愈），字体集的删除也改成了面板内确认。旧版本上先点一下窗口或切走再切回 |
+| 选择壁纸弹窗是空的 | WE 是否装好并下载过壁纸；重启一次 `dsh web`（详见 [`../README.beginner.md`](../README.beginner.md) FAQ 1） |
+| 视频壁纸黑屏 / 冻在首帧 | 卡片上的播放按钮与提示文案：显示「播放」即未真正播放，点它重试；提示无法解码则换 **H.264** 编码的 MP4 |
+| 网页（Web）壁纸一片空白 / 只剩底色 | 网页壁纸默认走**实时渲染**（渲染页加载 `/scene-live/`，子资源经 `/scene-files/<token>/…` 取回）。**先刷新页面**；仍是空白就重启一次 `dsh web`（宿主端路由在插件加载时注册）。若怀疑是实时渲染路径的问题，可在「效果」页签关掉「**网页实时渲染**」验证**兼容路径**（`/wallpaper-engine/media/<token>` —— 退回普通 iframe 加载同一份入口 HTML）。两种路径下都用 DevTools 看 Network：子资源应当 200，出现 404/403 请附上该请求路径反馈 |
+| 自己上传的壁纸看不到 | 弹窗上方的**内容分级**筛选（默认 Everyone；未标注分级的自上传内容按 Everyone 处理） |
+| 场景壁纸是静止画面 | **默认不该如此** —— 场景壁纸默认由 WebWallGL **实时渲染**（粒子 / 脚本 / 视差都会动）。先看「效果」页签的「**场景实时渲染**」是否被关掉、以及开关下方是否显示失败原因（首帧超时 / 运行中断）：重开该开关会清空失败记忆并重试。只有实时渲染不可用时才会走「作者内嵌 MP4 → 实时抓帧 → 自定义画面 → 空态」这条链（首帧前先垫**作者的预览图**，不会黑屏）；松散 `scene.json` 目录（没有 `scene.pkg`）与不支持 WebGL2 的浏览器**必然**走那条链 —— 那种情况可用「出图来源」换一种出图方式，或导入「自定义画面」（见 [`HOW-IT-WORKS.md`](./HOW-IT-WORKS.md)） |
+| 场景 / 网页壁纸黑屏，约 15 秒后跳成静态帧（或只剩垫底画面） | 这是实时渲染的**看护降级**：首帧 15 秒无画面 ⇒ 记入失败记忆并自动降级。先确认能访问外网/磁盘读取正常、显卡驱动可用（需要 WebGL2）；重开「场景实时渲染」/「网页实时渲染」开关可清空记忆重试。**另有一条旧成因（0.7.x 已修）**：静态帧链与实时渲染**抢 CPU/GPU** —— 客户端曾把静态帧当 live 的垫底图（渲染一开始就要跑一次 4K 冷渲染），宿主「空闲预热」也不区分实时渲染是否在用；两者都会让首帧超时进而降级并留下失败记忆。**现行行为**：那条提取/合成链已整体删除，宿主**只在已有帧时才发图**（没有就 404 空态，**不生成、也不预热任何图**）；客户端首帧前垫的是**实时抓帧 → 作者的预览图 → 主题色**，所以**即使这张壁纸从来抓不到帧，首帧前也不是黑屏**。若仍长时间只有一块纯色，说明**连作者的预览图都没取到**（工程里没有 preview，或读取失败），请附上诊断行反馈 |
+| 帧率上限没效果 | 需要 ffmpeg（编码器优先 NVENC，无 N 卡时回落 libx264 软件编码）；拿不到 ffmpeg 时该功能自动关闭（见 `../README.md` 的「已知限制」） |
+| 右栏关闭后，对话区右侧出现一块中灰 / 浅色板 | harness 0.1.7 上 0.7.5 的已知缺陷（上游 [#107](https://github.com/elysia395/dsh-wallpaper-engine/issues/107)）：0.1.7 把右栏容器改成"保留宽度、只隐藏子元素"，而插件给该容器刷的玻璃底在关闭态也生效。**当前分支已修**（`verify-host-paint-scope` 守着）；临时办法：关掉「侧栏液态玻璃」总开关，或把该会话的右栏宽度拖到 0 |
+| 设置改完重启又变回去 | 先分清是哪一类：① **画面档位（「出图来源」/「自定义画面」）** —— 0.7.5 有缺陷，档位与自定义画面标记在下一次加载时会丢，**已修**（升级到含该修复的版本即可）；② **有损路线 / GPU 渲染加速 / 空闲预热 / 预热整个库** —— 这四个开关在 0.7.5 上从未真正保存过（宿主永远读到默认值），**已修**；③ 其它设置：v0.4.0 起存宿主端文件，确认 `~/.dsh-wallpaper-engine/config.json` 可写、且未回滚到旧版本。另：宿主日志里出现「settings PUT 丢弃了白名单外的键」说明客户端与宿主的字段清单不一致，请附上该行反馈  ⚠️（其②所列四个开关当前分支均不存在，见页首世系标注） |
+
+### 终端输出：默认只报问题
+
+宿主输出分三档，档位名就是日志方法名：
+
+| 档 | 判据 | 终端默认 |
+|---|---|---|
+| `error` | 会导致**插件 / DSH / 系统**出问题（核心能力起不来、数据或进程被破坏、需要用户处理） | ✅ |
+| `warn` | **影响显示效果**的非正常表现（降级、回退、围栏拒绝、首帧超时、重试、被拒的请求） | ✅ |
+| `info` | 其余全部（诊断细节、逐帧统计、运行信息、成功事实的日志侧留痕） | ❌ |
+
+**终端默认只有前两档** —— 所以「壁纸黑屏」这类问题在终端上是安静的，档案照常记录。要看细节
+（逐张贴图、心跳、autosize gate、准备期探测…）：
+
+```powershell
+# Windows PowerShell（只影响本次启动）
+$env:DSH_WE_LOG_LEVEL = "info"; dsh web
+```
+
+```sh
+# macOS / Linux
+DSH_WE_LOG_LEVEL=info dsh web
+```
+
+取值 `error` / `warn` / `info`（默认 `warn`，非法值按默认走）。
+
+排障仍首选**档案**通道（不受终端闸门影响、也不随终端关闭而消失）：
+
+- `~/.dsh-wallpaper-engine/diag/http.jsonl` —— 请求记录、路径围栏、渲染页与客户端上报；写到
+  8 MiB 时轮转为 `http.jsonl.1`（只留一代，目录占用有硬上界）；
+- `GET http://127.0.0.1:<端口>/wallpaper-engine/diag-log` —— 最近 80 条渲染页 / 客户端上报。
+
+成功提示（「壁纸媒体源已监听」「场景壁纸已就绪」）走**另一条通道**：终端上的一行
+`[wallpaper-engine] … ✔`（**与日志行同前缀**，`✔` 只标记"这是成功提示、不是问题"），不经日志、
+不带级别、不落档。它只在 **stdout 是终端**时出现 —— DSH 桌面端的宿主由 Electron 以管道启动，
+`isTTY` 为假 ⇒ 桌面端默认安静。桌面端要看提示就显式开：
+
+```powershell
+$env:DSH_WE_NOTICE = "1"   # 启动 DSH 前设置；设成 0 则永久静默（连提示投递失败的 warn 也不报）
+```
+
+---
+
+## English
+
+### Install failure: `ERR_PNPM_UNEXPECTED_VIRTUAL_STORE`
+
+`dsh plugin --profile web add ...` forwards the command to **pnpm**. If you see this error:
+
+```text
+[ERR_PNPM_UNEXPECTED_VIRTUAL_STORE] Unexpected virtual store location
+dsh: pnpm failed in profile directory C:\Users\xxx\.dsh-desktop\profiles\web
+```
+
+**This is not a problem with the plugin itself** (any plugin would fail the same way) — the pnpm
+dependency state of that profile directory has gone stale. pnpm stores the virtual-store path
+(an absolute path) in `node_modules\.modules.yaml`; if the profile directory was **moved / copied /
+restored from a backup**, or the pnpm version / `virtual-store-dir` config changed, the recorded path
+no longer matches, so pnpm refuses to install anything into that profile.
+
+**Fix (Windows PowerShell):**
+
+```powershell
+# 1) Quit the DSH desktop app first
+# 2) Remove the profile's dependency directory (only node_modules — config / installed plugin names are kept)
+Remove-Item "$env:USERPROFILE\.dsh-desktop\profiles\web\node_modules" -Recurse -Force
+# 3) Reinstall this plugin
+dsh plugin --profile web add dsh-plugin-wallpaper-engine
+```
+
+> Deleting just `node_modules\.modules.yaml` also works (pnpm recreates it and continues); removing
+> the whole `node_modules` is more thorough. If `.dsh-desktop` is touched by OneDrive / cloud sync /
+> migration tools, add it to the sync exclusion list to avoid a recurrence.
+
+### Install failure: `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`
+
+```text
+[ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED] ... The git-hosted package "dsh-plugin-wallpaper-engine@0.6.8"
+needs to execute build scripts but is not in the "allowBuilds" allowlist.
+```
+
+**You used a `github:` install form** (e.g. `dsh plugin --profile web add github:elysia395/dsh-wallpaper-engine`).
+pnpm 11 blocks build scripts of git-hosted packages by default for supply-chain safety, and this
+plugin's git checkout needs the `prepare` script to build the client — so `github:` direct installs
+always fail. Use the **npm package name** instead (the published npm package is pre-built, no
+compile-time build needed):
+
+```sh
+dsh plugin --profile web add dsh-plugin-wallpaper-engine
+```
+
+> If your plugin hub (dsh-plugin-hub) generated a `github:` command, upgrade it to **v1.4.1+** — the
+> new version auto-resolves the npm package name and switches to the npm channel.
+
+### Symptom → where to look first
+
+| Symptom | Check first |
+|---|---|
+| The panel shows 「宿主里没有字体集路由…」 or 「宿主返回 404 / 405」 | The host is stale: **host-side code loads once at startup**, so a page refresh only swaps the client bundle. **Restart DSH** (`dsh web` again, or quit and reopen the desktop app). Two self-checks: ① `~/.dsh-wallpaper-engine/build-stamp.json`'s `at` must be later than `lib/index.js`'s mtime; ② search `diag/http.jsonl` for `fontsets` — **zero hits** means the request never reached the plugin (a bare status code can only come from another layer) |
+| The settings panel suddenly goes blank / the whole UI whites out | Search the client-exception trace first: `client-error` (the message plus the first three stack frames, all in one diagnostics line). One known class is **React #31** (an array of objects rendered as a child); fixed on the current branch — the `client-error` text points straight at the line |
+| After confirming something (a delete / hide) the wallpaper stays paused and inputs stop responding | A native `confirm` hands focus to its own window, so with "pause on window blur" the wallpaper stops; the modal also blocks the render thread, and the `focus` event on dismissal is not guaranteed to arrive (on older builds only a reload recovered). **Current branch**: the occlusion decision is re-checked every 3 s and logs an `occlusion-recheck` line (a lost event heals itself), and deleting a font set uses an in-panel confirmation. On older builds, click the window or switch away and back |
+| The wallpaper picker is empty | Wallpaper Engine installed with at least one wallpaper; restart `dsh web` (see [`../README.beginner.md`](../README.beginner.md), FAQ 1 — Chinese) |
+| Video wallpaper is black / frozen | The card's play button and message: 「播放」 means it is not actually playing — click to retry; an "cannot decode" hint means re-export as **H.264** MP4 |
+| A Web (HTML) wallpaper shows nothing but the page background | Web wallpapers render **live** by default (the renderer page loads `/scene-live/` and pulls sub-resources via `/scene-files/<token>/…`). **Refresh the page first**; if it is still blank, restart `dsh web` once (the host route is registered when the plugin loads). To rule the live path out, turn off 「网页实时渲染」 in the effects tab and check the **compatibility path** (`/wallpaper-engine/media/<token>` — the plain-iframe fallback loading the same entry HTML). On either path, check DevTools → Network: sub-resources should be 200 — report the failing request path if you see 404/403 |
+| A custom upload is not visible | The **content rating** filter above the grid (defaults to Everyone; unrated uploads count as Everyone) |
+| Scene wallpaper shows a still image | **It should not by default** — scene wallpapers are rendered **live** by WebWallGL (particles / scripts / parallax all animate). First check whether 「场景实时渲染」 on the effects tab was turned off, and whether a failure reason (first-frame timeout / runtime stall) is shown under that switch: re-enabling it clears the failure memory and retries. Only when live rendering is unavailable does it fall back to the chain (author-embedded MP4 → live capture → custom frame → empty state; before the first frame it shows the **author's preview**, so there is no black screen); a loose `scene.json` directory (no `scene.pkg`) and browsers without WebGL2 **always** take that chain — there, use 「出图来源」 to pick another frame source or import a 「自定义画面」 (see [`HOW-IT-WORKS.md`](./HOW-IT-WORKS.md)) |
+| Scene / web wallpaper is black, and ~15 s later it falls back to a static frame (or just the poster) | That is the live renderer's **watchdog degrading**: no first frame within 15 s ⇒ the failure is remembered and it degrades automatically. Check that the file is readable and the GPU driver works (WebGL2 is required); re-enabling 「场景实时渲染」/「网页实时渲染」 clears the memory and retries. **A second, older cause (fixed in 0.7.x)**: the static-frame chain **competing for CPU/GPU** — the client used to use the static frame as live's poster (so a cold 4K render started the moment live rendering did), and the host's 「空闲预热」 ignored whether live rendering was in use; either one makes the first frame time out, which degrades and leaves failure memory behind. **Current behaviour**: that extraction/compositing chain is gone entirely — the host **only serves a frame that already exists** (otherwise an honest 404 empty state; it neither generates nor prewarms anything) — and the client's pre-first-frame poster takes **live-captured frame → the author's preview → the theme colour**, so **even a wallpaper that never captures a frame is not black before the first frame**. If you still see nothing but a flat colour for a long time, **not even the author's preview** could be read (no preview in the project, or a read failure) — please attach the diagnostics lines |
+| The frame-rate cap does nothing | It needs ffmpeg (the encoder prefers NVENC, falling back to libx264 software encoding without an NVIDIA GPU); with no ffmpeg at all the feature disables itself (see 「Limitations」 in `../README.en.md`) |
+| A mid-grey / light slab appears to the right of the conversation area once the right sidebar is closed | Known defect of 0.7.5 on harness 0.1.7 (upstream [#107](https://github.com/elysia395/dsh-wallpaper-engine/issues/107)): 0.1.7 keeps the right-panel container's width and only hides its children, while the plugin's frosted background was applied to that container in every state. **Fixed on the current branch** (guarded by `verify-host-paint-scope`); workaround: turn off the 「侧栏液态玻璃」 master switch, or drag that session's right-sidebar width to 0 |
+| Settings revert after a restart | First work out which kind: ① **frame source (「出图来源」 / 「自定义画面」)** — 0.7.5 has a defect where the chosen tier and the custom-frame flag are dropped on the next load; **fixed** (update to a build that carries the fix); ② **lossy route / GPU acceleration / idle prewarm / prewarm whole library** — those four switches were never actually saved on 0.7.5 (the host always read the default); **fixed**; ③ anything else: since v0.4.0 settings live in a host file — check `~/.dsh-wallpaper-engine/config.json` is writable and that you did not roll back to an older version. Also: a host log line reading 「settings PUT 丢弃了白名单外的键」 means the client's and host's field lists have drifted — please report that line |
+
+### Terminal output: problems only by default
+
+Host output has three levels whose names are the logger method names:
+
+| Level | Criterion | Shown on the terminal by default |
+|---|---|---|
+| `error` | breaks the **plugin / DSH / system** (a core capability fails to start, data or processes are damaged, the user must act) | ✅ |
+| `warn` | an abnormal condition that **affects what you see** (degradation, fallback, a fence rejection, first-frame timeout, retry, rejected request) | ✅ |
+| `info` | everything else (diagnostic detail, per-frame stats, runtime information, the log-side trace of a success) | ❌ |
+
+**Only the first two levels are shown by default** — so "the wallpaper goes black" is silent on the
+terminal, while the on-disk record keeps being written. To see the detail (per-texture lines,
+heartbeats, the autosize gate, preparation probes…):
+
+```powershell
+# Windows PowerShell (this launch only)
+$env:DSH_WE_LOG_LEVEL = "info"; dsh web
+```
+
+```sh
+# macOS / Linux
+DSH_WE_LOG_LEVEL=info dsh web
+```
+
+Accepted values are `error` / `warn` / `info` (default `warn`; anything else falls back to it).
+
+The **on-disk** channel is still the first place to look (it is unaffected by the terminal gate and
+survives the terminal closing):
+
+- `~/.dsh-wallpaper-engine/diag/http.jsonl` — request records, path fences, renderer and client
+  reports; at 8 MiB it rotates to `http.jsonl.1` (one generation only, so the directory has a hard cap);
+- `GET http://127.0.0.1:<port>/wallpaper-engine/diag-log` — the last 80 renderer / client reports.
+
+Success notices ("wallpaper media origin listening", "scene wallpaper ready") travel on a **separate
+channel**: one terminal line, `[wallpaper-engine] … ✔` — the **same prefix as the log lines**, with the
+`✔` merely marking "this is a success, not a problem". Not through the logger, without a level, and not
+written to disk. It only appears when **stdout is a terminal** — the DSH Desktop host is started by
+Electron over a pipe, so `isTTY` is false and Desktop stays quiet by default. To see notices on Desktop,
+opt in:
+
+```powershell
+$env:DSH_WE_NOTICE = "1"   # set before launching DSH; "0" silences it permanently (including the warn for a failed delivery)
+```
