@@ -127,12 +127,13 @@ npm run verify:all  # = build + verify + smoke
 
 ### Harness compatibility CI / harness 适配 CI（基线制）
 
-- `.github/workflows/harness-compat.yml`：每小时轮询 npm 上 `@deepseek-ai/dsh` 的 `latest`
-  通道，外加 push `main` 与手动触发。目标对（harness 版本 × 插件 commit）**已被基线覆盖则秒过**；
+- `.github/workflows/harness-compat.yml`：**只按需运行** —— 触发面只有手动派发
+  （`gh workflow run harness-compat.yml [-f harness_version=<版本>] [-f force=true]`，不挂
+  schedule / push）。目标对（harness 版本 × 插件 commit）**已被基线覆盖则秒过**；
   否则安装该 harness → link 本插件进**隔离 profile** → 启动 `dsh --profile web` 探活
   （宿主路由 / 落盘诊断 / 日志判据，见 `test/compat-harness-live.mjs`）→ `npm run verify:all`。
 - **全绿才入基线**：`.github/harness-baseline.json` 只由该工作流在全绿后自动提交；
-  任何一步失败 ⇒ 工作流红、基线保持上一个全绿对，且未入基线的目标会在下轮轮询持续重试报错。
+  任何一步失败 ⇒ 工作流红、基线保持上一个全绿对；失败的目标对**不会自动重试**，下次派发时再跑。
 - **第三方边界**：该工作流不跑 `verify:bridge` / `verify:e2e`；探活期间 `DSH_WE_MEDIA_LEGACY=1`
   且只打 diag 族路由 ⇒ 媒体桥 / ffmpeg 全程不被拉起（媒体桥端到端仍由 `verify.yml` 覆盖）。
 - **UI 面清单棘轮**（`test/compat-harness-surfaces.mjs`）：已装 harness 的 `dsh-client-ui-*`
@@ -145,14 +146,14 @@ npm run verify:all  # = build + verify + smoke
 - 本地复跑：`node test/compat-harness-live.mjs`（需要 PATH 上有 `dsh` CLI 与网络；
   profile 与插件数据都落在隔离目录，不碰真实 `~/.dsh`，可与 DSH Desktop 并存）。
 
-- `.github/workflows/harness-compat.yml` polls the npm `latest` dist-tag of `@deepseek-ai/dsh`
-  hourly (plus push to `main` and manual dispatch). A target pair (harness version × plugin commit)
-  already in the baseline skips in seconds; otherwise it installs that harness, links this plugin into
-  an isolated profile, boots `dsh --profile web` and probes it (`test/compat-harness-live.mjs`), then
-  runs `npm run verify:all`.
+- `.github/workflows/harness-compat.yml` runs **on demand only** — its sole trigger is manual
+  dispatch (`gh workflow run harness-compat.yml [-f harness_version=<ver>] [-f force=true]`; no
+  schedule or push trigger). A target pair (harness version × plugin commit) already in the baseline
+  skips in seconds; otherwise it installs that harness, links this plugin into an isolated profile,
+  boots `dsh --profile web` and probes it (`test/compat-harness-live.mjs`), then runs `npm run verify:all`.
 - **Only a fully green run becomes the baseline**: `.github/harness-baseline.json` is written solely by
-  that workflow after everything passes. Any failure turns the run red, leaves the previous green pair
-  as the baseline, and the not-yet-baselined target keeps retrying red on every poll.
+  that workflow after everything passes. Any failure turns the run red and leaves the previous green pair
+  as the baseline; a failed target is **not retried automatically** — it runs again on the next dispatch.
 - **Third-party boundary**: the workflow never runs `verify:bridge` / `verify:e2e`; the live probe sets
   `DSH_WE_MEDIA_LEGACY=1` and only touches diag-family routes, so the media bridge / ffmpeg are never
   started (bridge end-to-end stays covered by `verify.yml`).

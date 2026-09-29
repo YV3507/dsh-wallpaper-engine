@@ -8,15 +8,15 @@
  *
  * 两个子命令（都只用 node: 内置模块）：
  *   · `check   --harness <ver> --sha <sha> [--force]`
- *       目标对已全绿入基线 ⇒ 输出 `should_run=false`（轮询秒过）；否则 `should_run=true`。
+ *       目标对已全绿入基线 ⇒ 输出 `should_run=false`（派发时的秒过路径）；否则 `should_run=true`。
  *       判定结果写进 $GITHUB_OUTPUT（存在时），并打印在日志里。`check` 永远退出 0：
  *       「跳过」是结论，不是错误。
  *   · `record  --harness <ver> --sha <sha> [--dist-tag <tag>] [--node <n>] [--runner <os>]`
  *       把当前对写进基线文件；**同一对已在基线里则不改动**（幂等，避免时间戳造成空转提交）。
  *       工作流用 `git status --porcelain` 决定是否提交。
  *
- * 失败与重试的闭环：新 harness 版本测试失败 ⇒ 工作流红、基线不变 ⇒ 下一次轮询
- * `check` 仍判定 should_run=true ⇒ 持续红直到修复（"出问题就需要报错"）。
+ * 失败与重试的闭环：一轮派发的目标测试失败 ⇒ 工作流红、基线不变 ⇒ 再次派发时
+ * `check` 仍判定 should_run=true ⇒ 红到修好为止（"出问题就需要报错"；不自动重试）。
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

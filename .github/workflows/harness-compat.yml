@@ -1,18 +1,15 @@
 name: harness-compat
 
-# harness 适配基线：每次 harness（@deepseek-ai/dsh 的 latest 通道）更新、以及本插件
-# push main，都跑一轮「最新 harness × 本插件最新 commit」的适配测试；**全绿才入基线**
+# harness 适配基线：**只按需运行** —— 触发面只有 workflow_dispatch（不挂 schedule / push），
+# 派发一轮「指定版本或 latest 的 harness × 被派发 ref 的 commit」的适配测试；**全绿才入基线**
 # （.github/harness-baseline.json 由本工作流自动提交），失败即红、基线保持上一个全绿对。
-# 目标对已被基线覆盖时整轮秒过（schedule 每小时轮询的常态）。
+# 目标对已被基线覆盖时整轮秒过；要强制重跑就勾上 force，或显式给 harness_version。
+# 派发：gh workflow run harness-compat.yml [-f harness_version=<版本>] [-f force=true]
 #
 # 第三方边界：不跑 verify:bridge（媒体桥下载）与 verify:e2e；verify 链内媒体桥那步带
 # --allow-skip，在干净 runner 上显式跳过。真 harness 探活自带 DSH_WE_MEDIA_LEGACY=1，
 # 媒体桥 / ffmpeg 全程不被拉起 —— 适配测试只覆盖 harness ↔ 本插件。
 on:
-  schedule:
-    - cron: '23 * * * *'   # 每小时轮询 latest（错峰分，避开整点拥堵）
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       harness_version:
@@ -104,11 +101,11 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # 基线提交是一轮"读-改-写"：本 run 的 checkout 之后，别的 run（同一 workflow 的
-          # 另一条触发路径，例如 workflow_dispatch 指定版本 + push main 同时来）可能已经推过
-          # 它自己的基线 —— 此时直接 push 会被拒，而 **rebase 会在这份 JSON 上撞内容冲突**
-          #（实测），于是"已经全绿的适配测试"被这一步判红。改法：每一轮都重新取远端、在最新
-          # 基线上重新 record 再提交推送；被拒就整轮重来（至多三次，最后仍失败才红）。
+          # 基线提交是一轮"读-改-写"：本 run 的 checkout 之后，另一次派发（两轮派发挨着的
+          # 常见形态）可能已经推过它自己的基线 —— 此时直接 push 会被拒，而 **rebase 会在这份
+          # JSON 上撞内容冲突**（实测），于是"已经全绿的适配测试"被这一步判红。改法：每一轮都
+          # 重新取远端、在最新基线上重新 record 再提交推送；被拒就整轮重来（至多三次，最后仍
+          # 失败才红）。
           # reset --hard 只回滚受版本控制的文件；测试产物在 .test-cache（未跟踪）里，不受影响。
           for attempt in 1 2 3; do
             git fetch origin main --quiet
