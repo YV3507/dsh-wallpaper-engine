@@ -2,15 +2,15 @@
   "harness": {
     "package": "@deepseek-ai/dsh",
     "distTag": "latest",
-    "version": "0.2.0-rc.1"
+    "version": "0.1.7-rc.2"
   },
   "plugin": {
-    "commit": "1a69c929a958771eec8771ac4799451e4e86ecf5",
+    "commit": "39691d2d626a113d0850cacd0e2d63187f229cce",
     "version": "1.0.1"
   },
   "node": "v22.23.2",
   "runner": "Windows",
-  "runId": "36517821146",
+  "runId": "36519163155",
   "status": "pass",
-  "passedAt": "2026-09-29T03:46:51Z"
+  "passedAt": "2026-09-29T03:59:13Z"
 }
