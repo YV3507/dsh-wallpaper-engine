@@ -1,7 +1,14 @@
 /**
- * theme-follow.js — 主题随壁纸：**没有开关**，行为本身就是自动。
+ * theme-follow.js — 主题随壁纸：**默认关**（`selection.themeFollow`，真源见
+ * lib/settings-schema.js）；开着时每换一张壁纸就决定全局深/浅。
  *
- * 每换一张壁纸就决定全局深/浅，规则（按优先级取一个颜色，再看它的相对亮度）：
+ * 开关**关**着时本模块整体不生效：不评估、不判决、不写主题、不留痕 —— 等价于这个功能不存在。
+ * 关的那一刻还会把上一轮留下的**让位标记 / 合议排名 / 面板状态行**清掉：它们是"本张壁纸"的
+ * 跨评估状态，留着会让用户把开关关掉再打开之后，同一张壁纸静默不生效（排名挡住迟到的取色
+ * 结果、让位压住写入）。**不回滚已经写下的主题** —— 关的语义是"不再自动改"，而回滚本身就是
+ * 一次主题写入（与"关时零写入"直接冲突）。
+ *
+ * 开着时的规则（按优先级取一个颜色，再看它的相对亮度）：
  *   ① 壁纸自己声明的配色：`project.json` 的 `schemecolor.value`（宿主 inventory 的
  *      `schemeColor`，已是 `rgb(r, g, b)`）。**用户在「壁纸属性」面板改过的覆盖值优先**
  *      —— 面板改的就是"这张壁纸该用什么配色"，与作者值同源同义。
@@ -30,11 +37,12 @@
  *     park，见 src/client.js 主题层那段），拿不到服务时本模块整体不生效，绝不抛。
  *
  * 契约：
- *   · 需要的外界（都只在函数体内读）：`selection` / `propTokenOf()` /
- *     `storedUserPropsOf()` / `reportClientDiag()` / `setTransient()` ← src/client.js；`theme` 服务与 `ctx`
- *     由 attach 传入；浏览器全局（document / Image / canvas）带 typeof 守卫。
+ *   · 需要的外界（都只在函数体内读）：`selection`（含总开关 `selection.themeFollow`）/
+ *     `propTokenOf()` / `storedUserPropsOf()` / `reportClientDiag()` / `setTransient()` ← src/client.js；
+ *     `theme` 服务与 `ctx` 由 attach 传入；浏览器全局（document / Image / canvas）带 typeof 守卫。
  *   · 对外提供：`themeFollowAttach(theme, ctx)`（服务就绪时接上并补评一次）、
  *     `themeFollowOnWallpaper(sel)`（换壁纸后评估）、以及若干纯函数供守卫直测。
+ *     开关门（`themeFollowEnabled()`）在**每个**决策/写入口的最前面：关时那些入口一律空转。
  */
 
 // 浅色门槛：只有**明显偏亮**的颜色才配浅色界面。这里不取中灰（0.2159）—— 实测本机库
@@ -60,6 +68,36 @@ let themeFollowPreviewVerdict = "";  // 预览图那条腿的结论（'' = 还�
 let themeFollowFrameVerdict = "";    // 真实帧那条腿的结论（'' = 还没结果）
 let themeFollowSchemeProvided = false; // 本张壁纸有作者配色 ⇒ 图源结果一律不参与
 let themeFollowLastLine = "";          // 最近一次判决的可读描述（面板状态行与诊断共用）
+
+/**
+ * 总开关：只有 `selection.themeFollow === true` 才算开（默认关 —— 见 lib/settings-schema.js
+ * 的 DEFAULTS.themeFollow）。读不到 store（验证环境 / 启动早期）或字段缺失一律当**关**：
+ * 这个功能的默认语义就是"不发生"。
+ */
+function themeFollowEnabled() {
+  try {
+    return typeof selection !== "undefined" && !!selection && selection.themeFollow === true;
+  } catch { return false; }
+}
+
+/**
+ * 关掉开关时清掉本模块留下的状态（让位标记 / 合议排名 / 面板状态行）。
+ * 为什么要清：这些是"本张壁纸"的跨评估状态 —— 留着它们，用户把开关从关拧到开之后，同一张
+ * 壁纸上旧状态会静默挡住新的判决（排名挡住迟到的取色结果、让位压住写入），表现为"开了没反应"。
+ * 只清内存与瞬态字段，**不动已经写下的主题**（回滚会变成一次写入，与"关时零写入"冲突）。
+ */
+function themeFollowClearState() {
+  const hadLine = !!themeFollowLastLine;
+  themeFollowYield = false;
+  themeFollowRank = 0;
+  themeFollowPreviewVerdict = "";
+  themeFollowFrameVerdict = "";
+  themeFollowSchemeProvided = false;
+  themeFollowLastLine = "";
+  if (hadLine) {
+    try { setTransient("themeFollowLine", ""); } catch { /* 验证环境没有 store：只影响面板那一行 */ }
+  }
+}
 
 /** sRGB 分量 (0–255) → 线性分量。 */
 function themeFollowLinear(c) {
@@ -205,6 +243,7 @@ function themeFollowImageUrlOf(sel) {
  * 写入口。`verdict` 为空 / 与当前偏好相同 ⇒ 不写（去重，避免每次切换都改 profile 文件）。
  */
 function themeFollowApply(verdict) {
+  if (!themeFollowEnabled()) return;
   if (!verdict || !themeFollowService || themeFollowYield) return;
   const current = themeFollowCurrentPreference();
   if (current === verdict) {
@@ -235,6 +274,8 @@ function themeFollowTrace(action) {
  * 真实渲染帧的更高质量结果由 themeFollowOnFrameCanvas / themeFollowOnFrameImage 补上（排名 2）。
  */
 function themeFollowOnWallpaper(sel) {
+  // 开关关：不评估、不写主题，顺手清掉上一轮留下的状态（见 themeFollowClearState）。
+  if (!themeFollowEnabled()) return themeFollowClearState();
   if (!themeFollowService) return;
   // 让位标记与排名只随**壁纸 id 变化**复位：同一张壁纸可能被重复评估（重挂 / 重校验 /
   // 设置变动），那种情况下若也复位，就等于在用户刚手动改完主题后立刻抢回来。
@@ -285,6 +326,7 @@ function themeFollowResolveImageVerdict() {
  * 都需要浏览器全局）。
  */
 function themeFollowAcceptImageVerdict(rgb, rank) {
+  if (!themeFollowEnabled()) return;
   if (!themeFollowService || themeFollowYield) return;
   if (themeFollowSchemeProvided) return;
   if (themeFollowWallpaperId !== String((typeof selection !== "undefined" && selection && selection.id) || "")) return;
@@ -313,6 +355,7 @@ function themeFollowDescribe(source, rgb, verdict) {
  * 用作者预览图得到的结论。
  */
 function themeFollowOnFrameCanvas(canvas) {
+  if (!themeFollowEnabled()) return;   // 关时不取像素（连这份成本都不付）
   try {
     if (!canvas || typeof document === "undefined") return;
     const probe = document.createElement("canvas");
@@ -328,6 +371,7 @@ function themeFollowOnFrameCanvas(canvas) {
 
 /** 真实渲染帧（网页壁纸 `__wp.capture` 的 data URL）→ 判决。同样排名 2。 */
 function themeFollowOnFrameImage(url) {
+  if (!themeFollowEnabled()) return;   // 同上：关时不发起解码
   themeFollowDominantColorOf(url).then((rgb) => themeFollowAcceptImageVerdict(rgb, 2));
 }
 
@@ -343,6 +387,7 @@ function themeFollowAttach(theme, ctx) {
     themeFollowService = theme;
     if (!themeFollowUnsub && ctx && typeof ctx.on === "function") {
       themeFollowUnsub = ctx.on("theme/change", () => {
+        if (!themeFollowEnabled()) return;
         const now = themeFollowCurrentPreference();
         if (now && now !== themeFollowWritten) themeFollowYield = true;
       });

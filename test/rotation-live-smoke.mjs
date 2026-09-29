@@ -237,6 +237,11 @@ setTimeout(async () => {
     videoEls.filter((v) => !v.isConnected && !v.__paused).length === 0);
   check('被换下的 scene 层标记为渐变中（weFading）', layer.dataset.weFading === '1',
     'weFading=' + layer.dataset.weFading);
+  // 新层的**内容闸门**（见 src/live-layer.js 的切层内容闸门）：新 `<video>` 在没有任何
+  // 可解码帧之前不参与绘制，过场与退役计时都从"有画面"那一刻才起。按浏览器事实把它推到位
+  //（canplay 的 spec 含义 = readyState ≥ HAVE_FUTURE_DATA(3)）。
+  probe.readyState = 3;
+  try { probe.__fire('canplay'); } catch(e){ console.log('EXCEPTION on canplay 2:', e && e.stack || e); failures++; }
   flushPersist();
   check('第二轮提交持久化回绕到 v', persistedId() === 'v', 'id=' + persistedId());
   const fade2 = timers.find((t) => !t.cleared && t.ms === FADE_GRACE_MS);

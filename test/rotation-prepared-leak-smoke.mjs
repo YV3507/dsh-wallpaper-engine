@@ -54,6 +54,9 @@ class MockDate extends RealDate {
   static now() { return RealDate.now() + clock.offset; }
 }
 
+// `opts.quietConsole` = 吞掉客户端经 console 打的诊断（等价真机上没开控制台的观感）。默认放行，
+// 因为客户端里任何一处 `console.*` 在**没有 console 的 vm 上下文里会直接抛** —— 那会把整段
+// 调用链吞掉（实测：留字节那条路整条不执行）。这里必须给 console，否则测的不是产品行为。
 function runScenario(name, opts, body) {
   console.log('\n== ' + name + ' ==');
   clock.offset = 0;
@@ -64,6 +67,11 @@ function runScenario(name, opts, body) {
   const iframeEls = [];
   const cleanups = [];
   const effects = [];
+  const imageEls = [];
+  // 宿主 inventory 里当前这批壁纸（`fetch` 的 /settings 响应按它给）。
+  const loadedWallpapers = opts.wallpapers;
+  // 当前 client 的全局对象：产品把留存表挂在它上面，判据据此读出"留下的到底是哪几条"。
+  let liveWindow = null;
   // 按 token 切换首帧读数：{fps:0, running:true} =「在跑但永远没有首帧」。
   const stats = Object.assign({}, opts.stats || {});
   const setStats = (tok, st) => { stats[tok] = st; };
@@ -117,8 +125,22 @@ function runScenario(name, opts, body) {
       play(){ this.__plays = (this.__plays||0)+1; this.__paused = false; this.paused = false; return Promise.resolve(); },
       pause(){ this.__pauses = (this.__pauses||0)+1; this.__paused = true; this.paused = true; },
       load(){ this.__loads = (this.__loads||0)+1; },
+      // canvas 面：留字节那条路要把已解码的帧画进 canvas 再取回 blob（真实浏览器里这两个都在）。
+      // `noFrameBytes` 档关掉它 —— 模拟"宿主画不出字节"的形态，用来单独量只留地址那一支。
+      getContext(){ if (this.tagName !== 'CANVAS') return null; if (!this.__ctx) { const c = this; this.__ctx = { drawImage(img){ c.__src = String((img && (img.src || (img.attributes && img.attributes.src))) || ''); } }; } return this.__ctx; },
+      toBlob(cb){ if (opts.noFrameBytes || this.tagName !== 'CANVAS') { cb(null); return; } cb(makeBlob(this.__src || '')); },
     };
     if (tag === 'video') { el.__plays = 0; el.__pauses = 0; el.__loads = 0; el.__paused = false; el.__removedAttrs = []; }
+    // <video>/<img> 的 poster 是**反射属性**：真机上 `el.poster = url` 与 setAttribute 等价，
+    // 而切层内容闸门（见 src/live-layer.js 的 layerContentReady）正是按这个属性判「插入这一刻
+    // 是否已有画面」。mock 不反射的话，内嵌 MP4 那一档会被判成"没有画面"——测出来的行为与
+    // 真机分叉（同 getElementById / isConnected / play-pause 那几处的保真修法）。
+    if (tag === 'video' || tag === 'img') {
+      Object.defineProperty(el, 'poster', {
+        get: () => el.attributes.poster ?? '',
+        set: (v) => { el.attributes.poster = v || ''; },
+      });
+    }
     let _id = '';
     Object.defineProperty(el, 'id', {
       get: () => _id,
@@ -132,7 +154,9 @@ function runScenario(name, opts, body) {
     // 探测 iframe 被释放时（src='about:blank'）也可直接断言。
     Object.defineProperty(el, 'src', {
       get: () => el.attributes.src ?? '',
-      set: (v) => { el.attributes.src = v || ''; },
+      // `__srcSets` = 赋 src 的次数：视频"没有被重载"的可判定形式之一是它只被赋过一次
+      //（重赋同值也会触发 resource selection 重新加载 = 黑窗）。判据只读它，不改行为。
+      set: (v) => { el.attributes.src = v || ''; el.__srcSets = (el.__srcSets || 0) + 1; },
     });
     if (tag === 'iframe') {
       el.__volumes = [];
@@ -154,15 +178,25 @@ function runScenario(name, opts, body) {
     return el;
   }
 
-  const imageEls = [];
+  // object URL 登记表：client 把「帧字节」留成 object URL，判据要能从 `blob:…` 反查回它原本是哪个
+  // URL 的字节（否则屏上那一张的断言没法写：`background-image` 里是 blob 地址，不是帧地址）。
+  const blobSources = new Map();
+  const revokedObjectUrls = [];
+  const makeBlob = (source) => Object.assign(new Blob(['png-bytes:' + source], { type: 'image/png' }), { __source: source });
   // 静态帧准备走 new Image()（真实客户端在 headless 环境会同步直通，所以必须
   // 提供 Image 才能测档位不符的领养校验）。
+  // `toBlob` 照抄 canvas 的形态（真机上是 canvas → PNG blob）：缺了它，留存帧字节那条路在本测试里
+  // 永远不可达 —— 判据就会只覆盖"只记 URL"那一支，而那一支正是要升级掉的东西。
   class ImageMock {
-    constructor(){ this.tagName = 'IMG'; this.attributes = {}; imageEls.push(this); }
+    constructor(){ this.tagName = 'IMG'; this.attributes = {}; this.naturalWidth = 1920; this.naturalHeight = 1080; this.width = 1920; this.height = 1080; imageEls.push(this); }
     set src(v){ this.attributes.src = v || ''; }
     get src(){ return this.attributes.src || ''; }
     set className(v){ this._cls = v; } get className(){ return this._cls || ''; }
+    cloneNode(){ const c = new ImageMock(); c.src = this.src; return c; }
     set alt(v){} set draggable(v){}
+    setAttribute(k, v){ this.attributes[k] = v; }
+    getAttribute(k){ return this.attributes[k] ?? null; }
+    toBlob(cb){ cb(opts.noFrameBytes ? null : makeBlob(this.src)); }
   }
 
   const bodyEl = makeEl('body');
@@ -193,38 +227,96 @@ function runScenario(name, opts, body) {
     _store: { 'dsh-wallpaper-engine:selection': JSON.stringify(opts.selection), weRotationTestSec: '10' },
     getItem(k){ return this._store[k] ?? null; }, setItem(k,v){ this._store[k]=v; }, removeItem(k){ delete this._store[k]; },
   };
-  const fetch = (url) => Promise.resolve({ ok:true, status:200, headers:{ get: () => '0' },
+  const fetch = (url, init) => Promise.resolve({ ok:true, status:200, headers:{ get: () => '0' },
     json: () => Promise.resolve(
       String(url).includes('/settings') ? { ok:true, betterSidebar:false } :
       String(url).includes('/media-info') ? { info:null } :
-      { installDir:'D:/we', total:3, portableCount:3, playlists:[], wallpapers: opts.wallpapers }) });
+      { installDir:'D:/we', total:3, portableCount:3, playlists:[], wallpapers: loadedWallpapers }) });
+
+  // ── 主题服务替身（只在 opts.theme 的场景里挂上）───────────────────────────────
+  // 宿主侧「改主题」不是一次纯变量写：ThemeRuntime.publish → ctx.emit('theme/change')
+  // → ThemePresenter 重写整份别名令牌 + 翻 color-scheme / body 主题属性 + 一次强制样式
+  // 读取。替身只复刻**可观察的两件事** —— `setTheme` 与广播 —— 并在调用的那一刻给当时的
+  // 媒体层拍一张快照：判据量的是「主题写入落在媒体层的哪一侧」，不是毫秒（开销本身在宿主
+  // 侧，harness 里无从复现）。
+  const themeSubs = [];
+  const themeCalls = [];
+  const themeSnap = (id) => {
+    const layer = byId['dsh-wallpaper-engine-layer'];
+    const live = layer && layer.isConnected ? layer : null;
+    const video = live ? live.querySelector('video') : null;
+    const iframe = live ? live.querySelector('iframe') : null;
+    return { id, layer: live, wid: live ? String(live.dataset.weWid || '') : '',
+      video, iframe, media: video || iframe || null,
+      src: video ? mediaSrc(video) : (iframe ? String(iframe.src) : '') };
+  };
+  const themeService = {
+    preference: opts.themePreference || 'dark',
+    getTheme() { return { preference: themeService.preference, revision: 0 }; },
+    setTheme(id) {
+      if (themeService.preference === id) return;   // 同判决不写：宿主侧也是这一步先行
+      themeCalls.push(themeSnap(id));
+      themeService.preference = id;
+      for (const fn of [...themeSubs]) fn(themeService.getTheme());
+    },
+    overrideTokens() { return () => {}; },
+  };
 
   const code = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8');
-  const cap = { handoff: null };
-  const sandbox = {
-    window: {
-      __ModuleLoader__: { load:(h)=>{ cap.handoff = h; } },
+  // 一轮"宿主下发 + 客户端 init"：换一份持久化 selection 后重新初始化客户端，模块级状态随之重建。
+  // 同一条会话里连续下发几张壁纸就先只建一次 sandbox、后面逐轮只换持久化记录并重跑 init（见
+  // runScenarioSeries）—— 把 sandbox 整个换掉会把会话级状态一起换掉。
+  const init = (selection, wallpapers) => {
+    clock.offset = 0;
+    localStorage._store['dsh-wallpaper-engine:selection'] = JSON.stringify(selection);
+    const cap = { handoff: null };
+    const sandbox = {
+      window: {
+        __ModuleLoader__: { load:(h)=>{ cap.handoff = h; } },
+        setTimeout:(fn,ms)=>{ const t={fn,ms,cleared:false}; timers.push(t); return t; },
+        clearTimeout:(t)=>{ if(t)t.cleared=true; },
+        setInterval:(fn,ms)=>{ const t={fn,ms,cleared:false}; intervals.push(t); return t; },
+        clearInterval:(t)=>{ if(t)t.cleared=true; },
+        addEventListener(ev, fn){ (winListeners[ev] ||= []).push(fn); },
+        removeEventListener(ev, fn){ const a = winListeners[ev]; if (a) { const i = a.indexOf(fn); if (i >= 0) a.splice(i, 1); } },
+        innerWidth:1920, innerHeight:1080, devicePixelRatio:1,
+      },
+      document, localStorage, fetch, React, Date: MockDate, Image: ImageMock,
+      // 帧字节留存的载体（真实浏览器里都有）：client 只用 createObjectURL / revokeObjectURL，
+      // 台账统一记在 blobSources 里，判据据此把屏上的 blob 地址反查回帧 URL。
+      Blob,
+      URL: {
+        createObjectURL(blob){ const u = 'blob:mock/' + (blobSources.size + 1); blobSources.set(u, String((blob && blob.__source) || '')); return u; },
+        revokeObjectURL(u){ revokedObjectUrls.push(String(u)); blobSources.delete(String(u)); },
+      },
+      // 控制台：真机上有；不给它，客户端里任何 console.* 都会在 vm 上下文里抛
+      //（`console` 未定义 ⇒ 取属性就 TypeError）—— 而那会把整段调用链吞掉。
+      console,
+      location: { origin: 'http://localhost' },
       setTimeout:(fn,ms)=>{ const t={fn,ms,cleared:false}; timers.push(t); return t; },
       clearTimeout:(t)=>{ if(t)t.cleared=true; },
       setInterval:(fn,ms)=>{ const t={fn,ms,cleared:false}; intervals.push(t); return t; },
       clearInterval:(t)=>{ if(t)t.cleared=true; },
-      addEventListener(ev, fn){ (winListeners[ev] ||= []).push(fn); },
-      removeEventListener(ev, fn){ const a = winListeners[ev]; if (a) { const i = a.indexOf(fn); if (i >= 0) a.splice(i, 1); } },
-      innerWidth:1920, innerHeight:1080, devicePixelRatio:1,
-    },
-    document, localStorage, fetch, React, Date: MockDate, Image: ImageMock,
-    location: { origin: 'http://localhost' },
-    setTimeout:(fn,ms)=>{ const t={fn,ms,cleared:false}; timers.push(t); return t; },
-    clearTimeout:(t)=>{ if(t)t.cleared=true; },
-    setInterval:(fn,ms)=>{ const t={fn,ms,cleared:false}; intervals.push(t); return t; },
-    clearInterval:(t)=>{ if(t)t.cleared=true; },
+    };
+    liveWindow = sandbox.window;
+    vm.createContext(sandbox);
+    vm.runInContext(code, sandbox, { filename: 'client.js' });
+    const exportsObj = cap.handoff.factory((spec)=> spec==='react' ? React : { createPortal:(n)=>n });
+    const pluginCtx = { slots:{ inject:(k,cb)=>cb(), register:()=>{} },
+      // 捕获 cleanup 返回值：卸载路径断言需要它。
+      effect(fn){ effects.push(fn); const c = fn(); if (typeof c === 'function') cleanups.push(c); return fn; } };
+    // 主题服务只在 opts.theme 的场景里提供：`ctx.get('theme')` 一旦存在，产品的那段主题
+    // 接线就会真的跑起来（轮询 → themeFollowAttach → 换壁纸时判决并写入）。不给它的场景
+    // 逐字节保持既有行为，既有 40 余条判据因此不受影响。
+    if (opts.theme) {
+      pluginCtx.get = (id) => (id === 'theme' ? themeService : undefined);
+      pluginCtx.on = (ev, fn) => {
+        if (ev === 'theme/change') themeSubs.push(fn);
+        return () => { const i = themeSubs.indexOf(fn); if (i >= 0) themeSubs.splice(i, 1); };
+      };
+    }
+    exportsObj.apply(pluginCtx);
   };
-  vm.createContext(sandbox);
-  vm.runInContext(code, sandbox, { filename: 'client.js' });
-  const exportsObj = cap.handoff.factory((spec)=> spec==='react' ? React : { createPortal:(n)=>n });
-  exportsObj.apply({ slots:{ inject:(k,cb)=>cb(), register:()=>{} },
-    // 捕获 cleanup 返回值：卸载路径断言需要它。
-    effect(fn){ effects.push(fn); const c = fn(); if (typeof c === 'function') cleanups.push(c); return fn; } });
 
   const fire = (t) => { if (t && !t.cleared) { t.cleared = true; t.fn(); } };
   const fireLatest = (ms) => { const t = [...timers].reverse().find(x => !x.cleared && x.ms === ms); if (t) fire(t); return t; };
@@ -235,23 +327,27 @@ function runScenario(name, opts, body) {
   const orphans = () => mediaEls.filter(v => !v.isConnected && !v.__paused);
   const mediaSrc = (el) => String((el && el.attributes && el.attributes.src) || '');
   const persistedId = () => JSON.parse(localStorage._store['dsh-wallpaper-engine:selection']).id;
-
+  const ctx = { timers, intervals, byId, mediaEls, iframeEls, cleanups, effects, bodyEl, fire, fireLatest,
+    flushPersist, stagingDivs, layerEl, orphans, mediaSrc, persistedId, clock, setStats, setWebState, imageEls,
+    localStorage, blobSources, revokedObjectUrls, document, themeCalls, themeService, themeSnap,
+    // 留存表本体（产品挂在 window 上的只读诊断面）：用它量"留下的到底是哪几条"。
+    frameBytes: () => liveWindow && liveWindow.__weFrameBytes };
+  const api = Object.assign(ctx, {
+    // 帧字节留存面：blobSources 反查原 URL、revokedObjectUrls 看淘汰有没有真的释放字节。
+    // 整份持久化 selection（P3-23 的 A 类候选要断言的不只是 id：`rotationGroupId` 自愈等）。
+    persistedSel: () => JSON.parse(localStorage._store['dsh-wallpaper-engine:selection']),
+    // 隐藏/恢复必须同时派发 visibilitychange（真机语义）：客户端靠它补做被推迟的轮换。
+    setHidden(v){ document.hidden = !!v; fireOn(docListeners, 'visibilitychange'); },
+    // 焦点：只改读数，事件要另派（客户端把 blur/focus 挂在 window 上 ⇒ fireWin）
+    setFocus(v){ docFocus = !!v; },
+    fireDoc(ev){ fireOn(docListeners, ev); },
+    fireWin(ev){ fireOn(winListeners, ev); }, failureMemory: () => (JSON.parse(localStorage._store['dsh-wallpaper-engine:selection']).sceneLiveFailures || {}) });
   return (async () => {
+    init(opts.selection, opts.wallpapers);
     // boot 是 promise 链（loadPersisted → loadInventory → applySelection →
     // syncRotationTimer）：等它落定后再驱动轮换（同既有 smoke 的 50ms 等待）。
     await new Promise((r) => setTimeout(r, 50));
-    return body({ timers, intervals, byId, mediaEls, iframeEls, cleanups, bodyEl, fire, fireLatest,
-      flushPersist, stagingDivs, layerEl, orphans, mediaSrc, persistedId, clock, setStats, setWebState, imageEls,
-      // 整份持久化 selection（P3-23 的 A 类候选要断言的不只是 id：`rotationGroupId` 自愈等）。
-      persistedSel: () => JSON.parse(localStorage._store['dsh-wallpaper-engine:selection']),
-      // 遮挡/隐藏相关的场景需要直接改这两个（真机上是页面自身的状态）。
-      document,
-      // 隐藏/恢复必须同时派发 visibilitychange（真机语义）：客户端靠它补做被推迟的轮换。
-      setHidden(v){ document.hidden = !!v; fireOn(docListeners, 'visibilitychange'); },
-      // 焦点：只改读数，事件要另派（客户端把 blur/focus 挂在 window 上 ⇒ fireWin）
-      setFocus(v){ docFocus = !!v; },
-      fireDoc(ev){ fireOn(docListeners, ev); },
-      fireWin(ev){ fireOn(winListeners, ev); }, failureMemory: () => (JSON.parse(localStorage._store['dsh-wallpaper-engine:selection']).sceneLiveFailures || {}) });
+    return body(api);
   })();
 }
 
@@ -352,6 +448,13 @@ await runScenario('A. live 首帧超时回退：探针不得留在领养槽位�
     t.bodyEl.querySelectorAll('video').length === 1, 'bodyVideos=' + t.bodyEl.querySelectorAll('video').length);
   t.flushPersist();
   check('提交已持久化到 s1', t.persistedId() === 's1', 'id=' + t.persistedId());
+
+  // 这一跳的**画面是异步到的**（真机里是探针自己回来），所以在量下一轮之前先把它推到位：
+  // 下面第二轮要量的是「一次**已经完成**的切换之后，轮换回视频壁纸」这条路径，而切层内容
+  // 闸门（见 src/live-layer.js）会让"新层还没画面"的切换停在旧层上 —— 不推这一下，第二轮
+  // 的旧层就不是这里假设的那一层（切层闸门自己的判据在 C 组）。
+  const frameProbe = t.imageEls.filter((i) => t.mediaSrc(i) === '/wallpaper-engine/scene-frame/s1').pop() || null;
+  if (frameProbe && typeof frameProbe.onload === 'function') frameProbe.onload();
 
   // 第二轮：轮换回视频壁纸 → 正常领养路径不得被误释放。
   t.fireLatest(10000);
@@ -789,6 +892,572 @@ await runScenario('P2. 无预览图：垫底图只留主题色兜底，不猜图
     'bg=' + (poster ? String(poster.style.backgroundImage) : 'no poster'));
 });
 
+// ── P3–P7：垫底图的**存在性分级**（谁允许上屏）────────────────────────────────
+// P / P2 钉的是「来源顺序」（抓帧 → 作者预览图 → 主题色）与「不替作者猜图」。这一组钉的是
+// **上屏规则**本身，一条规则管三档：
+//   ① **缓存实时帧存在** ⇒ 直接用实时帧：P6 断言建层那一刻屏上就是它、缩略图一次都不上屏；
+//      P7 断言命中**过期**（本会话见过、盘上已没有）时第 2 级才被补发并兜住画面；
+//   ② **判失败才准降级**：第 r 级只允许在比它更权威的每一级都**已判失败**之后上屏 —— 高权威级
+//      在飞 / 已就绪时，低权威级一律不许上屏（缓存实时帧存在时，缩略图**一次都不该成为屏上那张**，
+//      哪怕它先解码完）。P3（高权威级在飞 ⇒ 缩略图不上屏）/ P4（高权威级成功 ⇒ 只有它上屏，
+//      低权威级压不回来）/ P5（高权威级判失败 ⇒ 已就绪的缩略图此刻补上）钉的就是这一支；
+//   ③ **两者都不存在** ⇒ 主题色兜底（第 0 级同步铺底；P2 钉住"不猜图"那一半）。
+// **请求与上屏解耦**：各级探针仍然**并行发出**（第 1 级慢/挂都不挡第 2 级发请求），谁上屏由上面
+// 那条存在性闸门说了算 —— 少了并行，第 1 级一慢/一挂第 2 级连请求都发不出去；少了闸门，缩略图
+// 会先成为屏上那张（用户要的正是"缓存实时帧存在时不得先出缩略图那一帧"）。
+// 判断「存在」的**同步**证据仍是上一轮那只记账（本会话观测到这个 URL 加载成功过，见
+// buildLivePoster 的 liveFrameLoadedSrcs）；没有同步证据时，**判失败**是"不存在"的唯一依据 ——
+// 所以 P3–P5 的夹具都从冷会话起步（该 URL 还没被观测到）。
+//
+// 判据一律只看**结果**：此刻垫底图屏上是哪一张（`background-image` 的值），不看内部变量、
+// 不看探针数组的顺序。正负对照喂进**同一条**判据（见 docs/TEST-LAYOUT.md 约定 5）。
+const posterOf = (t) => {
+  const layer = t.layerEl();
+  return layer && layer.querySelector('div.we-live-poster');
+};
+const posterBg = (poster) => (poster && poster.style ? String(poster.style.backgroundImage || '') : '');
+// 留存帧字节上屏有**两条通道**，同一条判据都要看得见：
+//   · object URL 写进 `background-image`（blob:…）—— 与逐级探针同一条通道，按登记表还原成原 URL；
+//   · 拿不到 object URL 的宿主退回插入那个已解码的 `<img>`（src 就是帧 URL）。
+// 两条都归约成与 `background-image` 同形的字符串（`url(…)`），于是正负对照写法不变。
+const posterBgSrc = (t, poster) => {
+  const raw = posterBg(poster);
+  const m = /url\(["']?(blob:[^"')]+)["']?\)/.exec(raw);
+  if (m) {
+    const source = String((t.blobSources && t.blobSources.get(m[1])) || m[1]);
+    if (source) return 'url(' + source + ')';
+    return raw;
+  }
+  if (raw) return raw;
+  const img = poster && poster.querySelector && poster.querySelector('img');
+  const src = img ? t.mediaSrc(img) : '';
+  return src ? 'url(' + src + ')' : '';
+};
+// src 为空串 = 判「屏上没有任何图」（= 只剩第 0 级主题色兜底）
+const posterShowsSrc = (t, poster, src) => posterBgSrc(t, poster) === (src ? 'url(' + src + ')' : '');
+const posterColor = (poster) => (poster && poster.style ? String(poster.style.backgroundColor || '') : '');
+const posterProbeFor = (t, src) => t.imageEls.filter((i) => t.mediaSrc(i) === src).pop() || null;
+const fireProbe = (probe, ev) => {
+  if (probe && typeof probe[ev] === 'function') { probe[ev](); return true; }
+  return false;
+};
+
+// ── P3：**无缓存实时帧**：第 1 级**还在飞行中**（既未成功也未失败）⇒ 缩略图不得上屏 ──
+// 真机形态：本会话还没观测到这张抓帧，而盘上它其实**存在**（4K PNG 正在读/解码；宿主对两条来源
+// 都发 no-store，每次建层都要重读重解）。缩略图只有几十 KB、往往还是卡片刚用过的同一张图，几毫秒
+// 就解码完 —— 但它**更不权威**：第 1 级没判失败之前，它一次都不该成为屏上那张。
+await runScenario('P3. 无缓存实时帧：第 1 级仍在飞行中 ⇒ 缩略图不上屏（存在性闸门）', {
+  wallpapers: [scene('s1', 'tok-s1')],
+  stats: { 'tok-s1': { fps: 0, running: true } },
+  selection: selSeed(['s1'], 's1'),
+}, (t) => {
+  const poster = posterOf(t);
+  const frameSrc = '/wallpaper-engine/scene-frame/s1';
+  const previewSrc = '/wallpaper-engine/preview/s1';
+  const probeFrame = posterProbeFor(t, frameSrc);
+  const probePreview = posterProbeFor(t, previewSrc);
+  check('① 抓帧未定（既未成功也未失败）时，两张探针**都已发出**（并行请求，不互相门控）',
+    !!probePreview && !!probeFrame,
+    'frame=' + (probeFrame ? t.mediaSrc(probeFrame) : 'none')
+      + ' preview=' + (probePreview ? t.mediaSrc(probePreview) : 'none'));
+  check('   负对照（同一条判据，喂空 src）：此刻屏上还没有任何图 —— 判据有牙，不是恒真',
+    posterShowsSrc(t, poster, ''), 'bg=' + posterBg(poster));
+  fireProbe(probePreview, 'onload');            // 几十 KB 的 JPEG 先解码完
+  check('② 抓帧仍在飞行的同一时刻，屏上**不是**作者预览图（更低权威的级不许先上屏）',
+    !posterShowsSrc(t, poster, previewSrc), 'bg=' + posterBg(poster));
+  check('   负对照（同一条判据，喂空 src）：屏上仍是"只有主题色"那个状态 —— 判据分得清两张图',
+    posterShowsSrc(t, poster, ''), 'bg=' + posterBg(poster));
+  // 闸门由「高权威级判失败」打开：这时缩略图才补上（同时钉住"闸门不会被永久关死"）。
+  fireProbe(probeFrame, 'onerror');
+  check('③ 第 1 级判失败（这一级确实不存在）⇒ 已就绪的缩略图**此刻**才上屏',
+    posterShowsSrc(t, poster, previewSrc), 'bg=' + posterBg(poster));
+});
+
+// ── P4：**无缓存实时帧**：第 1 级成功 ⇒ 上屏的就是真帧；低权威级压不回来 ──────────────
+await runScenario('P4. 无缓存实时帧：第 1 级成功 ⇒ 真帧上屏，缩略图压不回来', {
+  wallpapers: [scene('s1', 'tok-s1')],
+  stats: { 'tok-s1': { fps: 0, running: true } },
+  selection: selSeed(['s1'], 's1'),
+}, (t) => {
+  const poster = posterOf(t);
+  const frameSrc = '/wallpaper-engine/scene-frame/s1';
+  const previewSrc = '/wallpaper-engine/preview/s1';
+  const probeFrame = posterProbeFor(t, frameSrc);
+  const probePreview = posterProbeFor(t, previewSrc);
+  check('① 两张探针同场竞速（"谁允许上屏"的前提：两张都可能到）',
+    !!probeFrame && !!probePreview, 'frame=' + !!probeFrame + ' preview=' + !!probePreview);
+  fireProbe(probePreview, 'onload');            // 低权威先到
+  check('② 低权威先到也**不许**上屏（第 1 级尚未判失败）',
+    !posterShowsSrc(t, poster, previewSrc) && posterShowsSrc(t, poster, ''),
+    'bg=' + posterBg(poster));
+  fireProbe(probeFrame, 'onload');              // 高权威后到
+  check('③ 真帧到达 ⇒ 上屏的就是真帧',
+    posterShowsSrc(t, poster, frameSrc), 'bg=' + posterBg(poster));
+  // 负方向：真帧已定稿后，低权威的**迟到回调**不得把它压回去。抓帧先到、预览图后到时，
+  // 低权威那次 onload 走的正是这条路径；这里把它再放一次（同一段代码路径）。
+  fireProbe(probePreview, 'onload');
+  check('④ 负对照（同一条判据）：真帧定稿后低权威不得压回去（屏上仍是真帧）',
+    posterShowsSrc(t, poster, frameSrc) && !posterShowsSrc(t, poster, previewSrc),
+    'bg=' + posterBg(poster));
+});
+
+// ── P5：**无缓存实时帧**：第 1 级**判失败** ⇒ 已就绪的缩略图补上（不退回纯色） ──────────
+// 真机形态：首次激活 / 清帧之后抓帧必然 404。缩略图早在并行请求里就绪了，按闸门它必须等到这一级
+// **确实不存在**才上屏 —— 上屏那一刻是"补上"，语义是「这一级没有图」，不是「撤掉屏上已有的图」。
+await runScenario('P5. 无缓存实时帧：第 1 级判失败 ⇒ 已就绪的缩略图补上（不退回纯色）', {
+  wallpapers: [scene('s1', 'tok-s1')],
+  stats: { 'tok-s1': { fps: 0, running: true } },
+  selection: selSeed(['s1'], 's1'),
+}, (t) => {
+  const poster = posterOf(t);
+  const frameSrc = '/wallpaper-engine/scene-frame/s1';
+  const previewSrc = '/wallpaper-engine/preview/s1';
+  const probeFrame = posterProbeFor(t, frameSrc);
+  const probePreview = posterProbeFor(t, previewSrc);
+  const colorBefore = posterColor(poster);
+  fireProbe(probePreview, 'onload');            // 缩略图先就绪（按闸门还不能上屏）
+  check('① 前置：第 1 级尚未判失败 ⇒ 缩略图还没上屏（闸门关着）',
+    !posterShowsSrc(t, poster, previewSrc), 'bg=' + posterBg(poster));
+  fireProbe(probeFrame, 'onerror');             // 抓帧 404：这一级不存在
+  check('② 第 1 级判失败 ⇒ 已就绪的缩略图**补上**（第 2 档语义：不存在 ⇒ 缩略图兜底）',
+    posterShowsSrc(t, poster, previewSrc), 'bg=' + posterBg(poster));
+  check('   负对照（同一条判据，喂空 src）：屏上**不是**"只剩主题色"那个状态（不被纯色顶掉）',
+    !posterShowsSrc(t, poster, ''), 'bg=' + posterBg(poster));
+  check('③ 第 0 级主题色兜底始终在同一元素上垫底（失败路径不动它）',
+    colorBefore.length > 0 && posterColor(poster) === colorBefore, 'schemeColor=' + posterColor(poster));
+});
+
+// ── P6：**帧字节在手** ⇒ 建层那一刻就是实时帧，且两个级都不发请求 ─────────────
+// 这条判据测的是"命中"的新口径：命中 = **本进程里留着这张帧的字节**（见 buildLivePoster 的
+// liveFrameBytes），不是"这个地址在本会话取回来过"。所以它的形状是：先让第 1 级成功一次
+// （字节由此进留存），再为**同一个 key** 建第二次层，量新 poster 在**建层那一刻**（任何探针
+// 回调都还没被触发）屏上是什么、以及这一跳为它发了几个请求。
+//
+// 正负共用同一条判据（posterShowsSrc 一族）：冷的那一次（留存表还空着）量出"屏上不是实时帧"，
+// 热的那一次量出"是" —— 判据在两种输入下给出相反结果，不是恒真。
+// 让同一个 key 建第二次层的办法：轮换出去再轮换回来（手动切换与轮换提交都经 syncLayers →
+// buildMedia → buildLivePoster）。stats fps=0 ⇒ live 永不出首帧，屏上就是垫底图本身。
+await runScenario('P6. 缓存实时帧存在：建层那一刻就是实时帧（缩略图不上屏）', {
+  wallpapers: [wallpaperV, scene('s1', 'tok-s1')],
+  stats: { 'tok-s1': { fps: 0, running: true } },
+  selection: selSeed(['v', 's1'], 's1'),   // 启动即选中 s1：冷的那一次建层立刻发生
+}, (t) => {
+  const frameSrc = '/wallpaper-engine/scene-frame/s1';
+  const previewSrc = '/wallpaper-engine/preview/s1';
+  const frameProbes = () => t.imageEls.filter((i) => t.mediaSrc(i) === frameSrc);
+  const previewProbes = () => t.imageEls.filter((i) => t.mediaSrc(i) === previewSrc);
+
+  // 第一次建层：本会话还没加载过第 1 级（本文件自己的留存表也是空的）
+  const cold = posterOf(t);
+  check('① 冷（本会话还没见过第 1 级）⇒ 建层那一刻屏上没有任何图 —— 判据有牙，不是恒真',
+    !!cold && posterShowsSrc(t, cold, '') && !posterShowsSrc(t, cold, frameSrc),
+    'bg=' + posterBg(cold));
+  check('   负对照（同一条判据，换 src）：屏上也不是缩略图那张（这一刻谁都还没上屏）',
+    !posterShowsSrc(t, cold, previewSrc), 'bg=' + posterBg(cold));
+  // 第 1 级加载成功 ⇒ 它的**字节**留在本进程里（下一次建层据此同步上帧）
+  fireProbe(frameProbes().pop(), 'onload');
+  check('② 第 1 级就绪 ⇒ 屏上是实时帧（字节由此进留存）',
+    posterShowsSrc(t, cold, frameSrc), 'bg=' + posterBg(cold));
+
+  // 换出去（v），再换回来（s1）⇒ 同一个 key 的第二次建层
+  t.fireLatest(10000);
+  const probeV = t.mediaEls[t.mediaEls.length - 1];
+  if (probeV) probeV.__fire('canplay');
+  check('③ 前置换出：当前层已不是那张垫底图（"第二次建层"的前提，否则后面量的是同一张）',
+    !!t.layerEl() && posterOf(t) === null, 'poster=' + (posterOf(t) ? 'still there' : 'gone'));
+
+  const previewsBefore = previewProbes().length;
+  const frameProbesBefore = frameProbes().length;
+  t.fireLatest(10000);            // 准备 s1 → live 探测
+  t.fireLatest(300);              // 首拍：fps=0 → 未达标，轮询续跑
+  t.clock.offset = 16000;         // 跨过 LIVE_FIRST_FRAME_MS（墙钟比较）
+  t.fireLatest(500);              // → bail → sceneVideo 探针
+  const probeBack = t.mediaEls[t.mediaEls.length - 1];
+  if (probeBack) probeBack.__fire('canplay');   // 提交 → buildMedia → buildLivePoster（热）
+  const warm = posterOf(t);
+  check('④ 缓存命中 ⇒ 第二次建层那一刻屏上**已经是实时帧**（不是缩略图、也不是纯色）',
+    !!warm && warm !== cold && posterShowsSrc(t, warm, frameSrc),
+    'bg=' + posterBg(warm) + ' layer=' + (t.layerEl() ? String(t.layerEl().dataset.weKey).slice(0, 40) : 'none'));
+  check('   负对照（同一条判据，换 src）：缩略图从未成为屏上那张',
+    !posterShowsSrc(t, warm, previewSrc), 'bg=' + posterBg(warm));
+  check('⑤ 缓存命中 ⇒ 第 2 级连请求都不发（缩略图探针一个都没新增）',
+    previewProbes().length === previewsBefore,
+    'preview probes ' + previewsBefore + '→' + previewProbes().length);
+  // 「有帧就直接上帧」的**确定性**判据：命中时连第 1 级探针都不再建 —— 屏上那张来自本进程留住的
+  // 字节，而不是"浏览器这次来得及把那个地址取回来/解码出来"。只断言"屏上是帧"是不够的：把地址写进
+  // background-image 也能让屏上是帧，出不出帧仍取决于这一次请求与解码的时序（同一张壁纸时有时无）。
+  check('⑥ 缓存命中 ⇒ 第 1 级也不发请求（帧探针没新增：屏上那张来自留住的字节，不是重新取值）',
+    frameProbes().length === frameProbesBefore,
+    'frame probes ' + frameProbesBefore + '→' + frameProbes().length);
+});
+
+// ── P7：**拿不到 object URL**（宿主画不出字节）⇒ 命中改用插入已解码元素那条通道 ──────────
+// 上屏有两条通道：object URL 写 background-image（拿得到字节时的主路），或插入那个**已解码的
+// Image**（canvas / toBlob 不可用，画布被跨源污染时）。两条都必须"命中即同步、且不为它再发请求"，
+// 否则这一支就退回成"每次建层都要重新取值 + 解码"——那正是要修掉的随机性。
+// 用 s7（而不是 P6 的 s1）：每条会话一个 sandbox，s7 让两个场景的夹具互不借用状态，量到的就是这一支。
+await runScenario('P7. 拿不到 object URL：命中仍同步上帧（插入已解码元素那条通道）', {
+  wallpapers: [wallpaperV, scene('s7', 'tok-s7')],
+  stats: { 'tok-s7': { fps: 0, running: true } },
+  selection: selSeed(['v', 's7'], 's7'),
+  noFrameBytes: true,               // canvas.toBlob 拿不到字节这一档
+}, (t) => {
+  const frameSrc = '/wallpaper-engine/scene-frame/s7';
+  const previewSrc = '/wallpaper-engine/preview/s7';
+  // 只数**网络探针**：`new Image()` 建的那种（没有 `data-we-frame-src`）。命中时插进屏里的那个
+  // 已解码元素带这个标记 —— 它是留住的字节，不是一次新请求，两者必须分开数。
+  const frameMark = (i) => String((i && i.attributes && i.attributes['data-we-frame-src']) || '');
+  const frameProbes = () => t.imageEls.filter((i) => t.mediaSrc(i) === frameSrc && !frameMark(i));
+  const clonedFrames = () => t.imageEls.filter((i) => frameMark(i) === frameSrc);
+  const previewProbes = () => t.imageEls.filter((i) => t.mediaSrc(i) === previewSrc);
+
+  // 先建立"这张帧可用"这个事实（冷建层 → 第 1 级成功 ⇒ 字节进留存）
+  fireProbe(frameProbes().pop(), 'onload');
+  const retainedObjectUrls = t.blobSources.size;   // 拿不到 blob ⇒ 不该登记 object URL
+  check('① 前置：这一档确实没留下 object URL（判据量的就是另一条通道）',
+    retainedObjectUrls === 0, 'object urls=' + retainedObjectUrls);
+  // 换出去再换回来 ⇒ 同一个 key 的第二次建层（命中）
+  t.fireLatest(10000);
+  const probeV = t.mediaEls[t.mediaEls.length - 1];
+  if (probeV) probeV.__fire('canplay');
+  t.fireLatest(10000);
+  t.fireLatest(300);
+  t.clock.offset = 16000;         // 跨过 LIVE_FIRST_FRAME_MS（墙钟比较）
+  t.fireLatest(500);              // → bail → sceneVideo 探针
+  const probeBack = t.mediaEls[t.mediaEls.length - 1];
+  const frameProbesBefore = frameProbes().length;
+  const previewsBefore = previewProbes().length;
+  if (probeBack) probeBack.__fire('canplay');   // 提交 → 命中分支（第 2 次建层）
+  const warm = posterOf(t);
+  check('② 命中：第 2 次建层那一刻屏上已是实时帧（插入的是已解码元素，不是纯色也不是缩略图）',
+    !!warm && posterShowsSrc(t, warm, frameSrc), 'bg=' + posterBgSrc(t, warm));
+  check('③ 命中不为它再发请求：网络探针没新增（屏上那张来自留住的元素，不是重新取值）',
+    frameProbes().length === frameProbesBefore,
+    'frame probes ' + frameProbesBefore + '→' + frameProbes().length
+      + ' cloned=' + clonedFrames().length);
+  check('   前置：这一跳确实是**插入已解码元素**那条通道上的屏（不是靠新探针才有的图）',
+    clonedFrames().length > 0, 'cloned=' + clonedFrames().length);
+  check('   负对照（同一条判据，换 src）：缩略图从未成为屏上那张',
+    !posterShowsSrc(t, warm, previewSrc), 'bg=' + posterBgSrc(t, warm));
+  check('④ 命中时第 2 级连请求都不发（缩略图探针也没新增）',
+    previewProbes().length === previewsBefore,
+    'preview probes ' + previewsBefore + '→' + previewProbes().length);
+});
+
+// ── P8：留存帧字节的**替换路径**：换一份帧字节时旧的 object URL 必须被撤销 ──────────────
+// 一条 object URL 背后是一整帧的字节。留着不撤，那份字节在页面关闭前都不会回来；同一个 key 反复
+// 成功（下一次建层又把它取回来一次）时尤其明显 —— 每轮都多留一份、旧的谁都不收。
+// 判据只认**可观测**的两件事：登记过的 object URL 有没有被撤销、屏上那张是不是帧的字节。
+// ⚠️ **上限本身（FRAME_BYTES_MAX）这条判据量不到**：触发淘汰要"同一个会话里留过超过上限张数"的
+// 夹具，而本冒烟每起一个场景就重建一次客户端，模块级的留存表跟着重建（实测：每次建层后表里恒为
+// 1 条）。所以这里钉的是**替换时也必须撤地址**这条 —— 它与淘汰那条共用同一个释放函数，漏掉它
+// 就是无界增长的真身（见本报告"没能证明"一节）。
+await runScenario('P8. 留存帧字节替换：旧 object URL 被撤销（只删记账不撤地址 = 无界增长）', {
+  wallpapers: [scene('s1', 'tok-s1')],
+  stats: { 'tok-s1': { fps: 0, running: true } },
+  selection: selSeed(['s1'], 's1'),
+}, (t) => {
+  const frameSrc = '/wallpaper-engine/scene-frame/s1';
+  const probe = posterProbeFor(t, frameSrc);
+  check('① 前置：第 1 级探针在场（本轮帧字节的来源）', !!probe, 'src=' + frameSrc);
+  // 帧就绪 ⇒ 字节进留存
+  fireProbe(probe, 'onload');
+  const bytes = t.frameBytes();
+  check('② 帧就绪后留存表里就是这一条（诊断面可读出留下的是哪几张）',
+    !!bytes && bytes.size === 1 && bytes.has(frameSrc), 'size=' + (bytes ? bytes.size : 'n/a'));
+  const urlsAfterFirst = t.blobSources.size;
+  // 同一个 URL 再成功一次（真机形态：下一次建层又把它取回来了一次）⇒ 换一份字节
+  fireProbe(posterProbeFor(t, frameSrc), 'onload');
+  check('③ 同一 URL 再来一次不会越留越多：留存表仍只有这一条（每键一份）',
+    t.frameBytes() && t.frameBytes().size === 1, 'size=' + (t.frameBytes() ? t.frameBytes().size : 'n/a'));
+  check('④ 旧的 object URL 被 URL.revokeObjectURL 撤掉（不撤 = 那份字节收到页面关闭）',
+    t.revokedObjectUrls.length === 1 && t.blobSources.size === urlsAfterFirst,
+    'revoked=' + t.revokedObjectUrls.length + ' registered=' + t.blobSources.size);
+  check('⑤ 屏上始终是这张帧（换字节不撤图）', posterShowsSrc(t, posterOf(t), frameSrc),
+    'bg=' + posterBgSrc(t, posterOf(t)));
+});
+
+// ── T：切层内容闸门 —— 切换里不得出现「屏上是新层、但它还没有画面」的中间态 ──────────
+// 用户报的"几帧纯色"就是这一态：新层进文档那一刻只有第 0 级底色，画面要等**异步**的
+// 探针 onload / 第一帧；深浅主题自动切换只是把这段窗口拉长（它写主题那一轮压在同一
+// 主线程上），所以关掉那个开关也仍然看得见。闸门把这一段交给**旧层的像素**：新层有
+// 画面之前不撤旧层、也不让新层参与绘制（`we-layer--pending`，见 src/live-layer.js）。
+//
+// 判据只量**结果**：在这一跳的每一个可观测中间态里，**参与绘制的那一层**必须已经有画面。
+//   · 参与绘制 = DOM 顺序里最后一个既不是 `--pending` 也不是 `--staging` 的 `.we-layer`
+//     （这两类在设计上就不参与绘制）；
+//   · 有画面 = 按**浏览器事实**读：垫底图已铺上 `background-image` / `<img>` 已解码 /
+//     `<video>` 有 poster 或 `readyState ≥ 2`(HAVE_CURRENT_DATA) / 实时渲染页已点亮。
+// 正负对照组喂进**同一条**函数（docs/TEST-LAYOUT.md 约定 5）。
+const LAYER_PENDING_CLS = 'we-layer--pending';
+const paintedLayerOf = (t) => {
+  const shown = t.bodyEl.children.filter((c) => {
+    const cls = String(c.className || '');
+    return cls.includes('we-layer') && !cls.includes(LAYER_PENDING_CLS) && !cls.includes('we-layer--staging');
+  });
+  return shown.length ? shown[shown.length - 1] : null;
+};
+const layerShowsPicture = (layer) => {
+  if (!layer || typeof layer.querySelector !== 'function') return false;
+  const poster = layer.querySelector('div.we-live-poster');
+  if (poster && String(poster.style.backgroundImage || '')) return true;
+  const img = layer.querySelector('img');
+  if (img && Number(img.naturalWidth) > 0) return true;
+  const video = layer.querySelector('video');
+  if (video && (video.getAttribute('poster') || Number(video.readyState) >= 2)) return true;
+  const live = layer.querySelector('iframe.we-live-iframe');
+  if (live && String(live.className).includes('we-live-on')) return true;
+  return false;
+};
+// 共用判据：一次切换表示成一串可观测中间态，逐态判"参与绘制的那一层不得没有画面"。
+const noBlankFrameInSwitch = (frames) => frames.every((f) => !f.shown || f.showsPicture === true);
+const observeFrame = (t, at) => {
+  const shown = paintedLayerOf(t);
+  return { at, shown, showsPicture: layerShowsPicture(shown) };
+};
+const frameLabel = (f) => f.at + ' → ' + (f.shown ? (f.showsPicture ? '有画面' : '**无画面**') : '无层');
+
+// ── T1：切到场景 live（冷）—— 垫底图还没有图之前，旧层一直在屏上 ────────────────
+// 真机形态：轮换/手动切到一张场景壁纸，`buildMedia` 现建垫底图，它的第 1 级抓帧与第 2 级
+// 预览图都要等探针 onload。闸门之前，这一段窗口里屏上就是"新层 + 第 0 级纯色"。
+await runScenario('T1. 切层内容闸门：垫底图还没有图 ⇒ 旧层留在屏上（无"无画面"中间态）', {
+  wallpapers: [wallpaperV, scene('s1', 'tok-s1')],
+  stats: { 'tok-s1': { fps: 0, running: true } },
+  selection: selSeed(['v', 's1'], 'v'),
+}, (t) => {
+  const frameSrc = '/wallpaper-engine/scene-frame/s1';
+  const oldLayer = t.layerEl();
+  const oldVideo = oldLayer && oldLayer.querySelector('video');
+  // 旧层是**已经在出帧**的那一层：夹具按浏览器事实标它（canplay 之后 readyState ≥ 3）。
+  if (oldVideo) oldVideo.readyState = 3;
+  const beforeFrame = observeFrame(t, '切换前');
+  check('前置：切换前屏上是旧层，且它有画面（判据的分辨力前提）',
+    beforeFrame.shown === oldLayer && beforeFrame.showsPicture === true, frameLabel(beforeFrame));
+
+  // 走轮换这条唯一的换壁纸入口：live 探测超时 → 回退 sceneVideo → 提交时 buildMedia 仍
+  // 选 live 分支（探测放弃刻意不簿记失败记忆），于是这一跳**现建**垫底图与渲染页。
+  t.fireLatest(10000);
+  t.fireLatest(300);
+  t.clock.offset = 16000;       // 跨过 LIVE_FIRST_FRAME_MS（墙钟比较）
+  t.fireLatest(500);            // → bail → sceneVideo 探针
+  const probeBack = t.mediaEls[t.mediaEls.length - 1];
+  if (probeBack) probeBack.__fire('canplay');   // 提交 → 建 live 层
+
+  const newLayer = t.layerEl();
+  const pendingFrame = observeFrame(t, '提交后（垫底图还没图）');
+  check('① 当前壁纸的层已经是**新层**（LAYER_ID 在它手里）',
+    !!newLayer && newLayer !== oldLayer && !!newLayer.querySelector('div.we-live-poster'),
+    'new=' + (!!newLayer && newLayer !== oldLayer));
+  check('② 但它还没有画面：这一层被闸门挡在绘制之外（we-layer--pending）',
+    !!newLayer && String(newLayer.className).includes(LAYER_PENDING_CLS)
+      && layerShowsPicture(newLayer) === false,
+    'cls=' + (newLayer && newLayer.className) + ' picture=' + (newLayer && layerShowsPicture(newLayer)));
+  check('③ 这一刻参与绘制的是**旧层**（屏上是旧壁纸的像素，不是新层的底色）',
+    pendingFrame.shown === oldLayer, frameLabel(pendingFrame));
+
+  // 画面到了（真机里是抓帧或作者预览图的探针回来）
+  const frameProbe = t.imageEls.filter((i) => t.mediaSrc(i) === frameSrc).pop() || null;
+  check('   前置：这一跳确实发了抓帧探针（垫底图的第 1 级，冷会话里没有字节在手）', !!frameProbe);
+  if (frameProbe && typeof frameProbe.onload === 'function') frameProbe.onload();
+  const shownFrame = observeFrame(t, '画面到位后');
+  check('④ 画面到手 ⇒ 新层被放行，且**同一个元素**此刻已经有画面',
+    shownFrame.shown === newLayer && shownFrame.showsPicture === true
+      && layerShowsPicture(newLayer) === true, frameLabel(shownFrame));
+  check('⑤ 结果型判据：这一跳的每一个可观测中间态里，参与绘制的那一层都有画面',
+    noBlankFrameInSwitch([beforeFrame, pendingFrame, shownFrame]),
+    [beforeFrame, pendingFrame, shownFrame].map(frameLabel).join(' | '));
+  check('   负对照（同一条判据，喂"被绘制了但还没有画面"的合成态）：判不合格 —— 判据有牙',
+    !noBlankFrameInSwitch([{ at: '合成态', shown: newLayer, showsPicture: false }]), '合成态被拒');
+});
+
+// ── T2：切到视频壁纸 —— `<video>` 没有任何可解码帧 / poster 时不得被显示 ──────────
+// 视频类壁纸**刻意不设 poster**（作者预览常是动图，见 src/media-prep.js 的取舍），所以
+// 它进文档时必然是一块还没有任何帧的 `<video>`：浏览器把这种元素画成空/黑，肉眼看就是
+// "一块色"。判据按浏览器事实量（readyState < 2 = 手上没有帧）。
+await runScenario('T2. 切层内容闸门：<video> 无帧 / 无 poster ⇒ 旧层留在屏上', {
+  wallpapers: [
+    { id:'t1', title:'T1', type:'video', playable:true, media:'/wallpaper-engine/media/t1',
+      preview:'/wallpaper-engine/preview/t1', contentrating:'Everyone' },
+    { id:'t2', title:'T2', type:'video', playable:true, media:'/wallpaper-engine/media/t2',
+      preview:'/wallpaper-engine/preview/t2', contentrating:'Everyone' },
+  ],
+  selection: selSeed(['t1', 't2'], 't1'),
+}, (t) => {
+  const oldLayer = t.layerEl();
+  const oldVideo = oldLayer && oldLayer.querySelector('video');
+  if (oldVideo) oldVideo.readyState = 3;
+  const beforeFrame = observeFrame(t, '切换前');
+  check('前置：切换前屏上是旧层，且它有画面', beforeFrame.shown === oldLayer && beforeFrame.showsPicture,
+    frameLabel(beforeFrame));
+
+  t.fireLatest(10000);            // 轮换到 t2：视频候选不跑准备链 ⇒ 提交即建新层
+  const probe = t.mediaEls[t.mediaEls.length - 1];
+  const newLayer = t.layerEl();
+  check('   前置：新层的 <video> 是现建的，既没有帧也没有 poster',
+    !!probe && probe !== oldVideo && Number(probe.readyState || 0) < 2
+      && !probe.getAttribute('poster'),
+    'readyState=' + probe.readyState + ' poster=' + JSON.stringify(probe.getAttribute('poster')));
+  const pendingFrame = observeFrame(t, '提交后（<video> 还没有帧）');
+  check('① 无帧的 <video> 没有被显示：这一刻屏上还是旧层',
+    pendingFrame.shown === oldLayer && !!newLayer
+      && String(newLayer.className).includes(LAYER_PENDING_CLS),
+    frameLabel(pendingFrame) + ' cls=' + (newLayer && newLayer.className));
+  // canplay 的 spec 含义：readyState ≥ HAVE_FUTURE_DATA(3) —— 手上已经有一帧可解码数据。
+  probe.readyState = 3;
+  probe.__fire('canplay');
+  const shownFrame = observeFrame(t, 'canplay 之后');
+  check('② 有帧了才放行，且放行那一刻它已经有画面',
+    shownFrame.shown === newLayer && shownFrame.showsPicture === true, frameLabel(shownFrame));
+  check('③ 结果型判据（同一条函数）：每个中间态里参与绘制的那一层都有画面',
+    noBlankFrameInSwitch([beforeFrame, pendingFrame, shownFrame]),
+    [beforeFrame, pendingFrame, shownFrame].map(frameLabel).join(' | '));
+});
+
+// ── T3：正对照 —— 插入时就已有画面的那一档**不该**被闸门拦 ─────────────────────
+// 内嵌 MP4（sceneVideo）在 buildMedia 里 `media.poster = 静态帧`：插入那一刻"有画面"
+// 已经成立。闸门若不认这一条，每次切到内嵌 MP4 的场景都会白等一轮 —— 正对照证明它认。
+await runScenario('T3. 正对照：内嵌 MP4（poster=静态帧）插入即上屏，不被闸门拦', {
+  wallpapers: [wallpaperV, scene('s6', 'tok-s6')],
+  // live 开关是**全局设置**（selection.sceneLive），不是每张壁纸的字段：关掉它这一跳才
+  // 会落到「内嵌 MP4」那条腿（见 src/media-prep.js 的 prepareWallpaper 优先级）。
+  selection: Object.assign(selSeed(['v', 's6'], 'v'), { sceneLive: false }),
+}, (t) => {
+  t.fireLatest(10000);            // 准备 s6：live 关闭 ⇒ 直接走 sceneVideo 探针
+  const probe = t.mediaEls[t.mediaEls.length - 1];
+  check('   前置：sceneVideo 探针带 poster（作者静态帧，真机上与 setAttribute 等价）',
+    !!probe && String(probe.getAttribute('poster') || '').includes('/wallpaper-engine/scene-frame/s6'),
+    'poster=' + (probe && probe.getAttribute('poster')));
+  probe.__fire('canplay');        // 提交 → 元素级领养
+  const newLayer = t.layerEl();
+  check('① 新层立刻参与绘制（没有被 --pending 挡住）',
+    !!newLayer && !String(newLayer.className).includes(LAYER_PENDING_CLS)
+      && paintedLayerOf(t) === newLayer, 'cls=' + (newLayer && newLayer.className));
+  check('② 且它插入时就已有画面（poster = 静态帧）', layerShowsPicture(newLayer) === true,
+    frameLabel(observeFrame(t, '领养后')));
+});
+
+// ── T4：终点语义 —— 一张图都没有时闸门必须放行（否则旧层永远换不下去）────────────
+// 「探索不到任何画面」是一个**有限**的结论（探针会失败），不是等待：这一跳照旧停在既有的
+// 第 0 级主题色兜底上（见 P2 与 buildLivePoster 的终点语义）。这里量的是**闸门会打开**，
+// 不是"放行那一刻有画面" —— 这是本闸门唯一的诚实边界（一份画面都不存在的壁纸，屏上只能
+// 是那层安静的颜色）。
+await runScenario('T4. 终点语义：抓帧与预览图都不存在 ⇒ 闸门放行，停在主题色兜底', {
+  wallpapers: [wallpaperV, Object.assign(scene('s2', 'tok-s2'), { preview: null })],
+  stats: { 'tok-s2': { fps: 0, running: true } },
+  selection: selSeed(['v', 's2'], 'v'),
+}, (t) => {
+  const frameSrc = '/wallpaper-engine/scene-frame/s2';
+  const oldLayer = t.layerEl();
+  const oldVideo = oldLayer && oldLayer.querySelector('video');
+  if (oldVideo) oldVideo.readyState = 3;
+  t.fireLatest(10000);
+  t.fireLatest(300);
+  t.clock.offset = 16000;
+  t.fireLatest(500);              // → bail → sceneVideo 探针
+  const probeBack = t.mediaEls[t.mediaEls.length - 1];
+  if (probeBack) probeBack.__fire('canplay');   // 提交 → 建 live 层（垫底图在等图）
+  const newLayer = t.layerEl();
+  const pendingFrame = observeFrame(t, '提交后（抓帧探针在飞）');
+  check('① 抓帧还没有结论之前守在旧层上',
+    pendingFrame.shown === oldLayer && !!newLayer
+      && String(newLayer.className).includes(LAYER_PENDING_CLS), frameLabel(pendingFrame));
+  const probeFrame = t.imageEls.filter((i) => t.mediaSrc(i) === frameSrc).pop() || null;
+  check('   前置：这一档只有抓帧一级（作者没有发布预览图 ⇒ 不猜图，见 P2）',
+    !!probeFrame && !t.imageEls.some((i) => t.mediaSrc(i) === '/wallpaper-engine/preview/s2'),
+    'frame=' + !!probeFrame + ' preview=' + t.imageEls.length);
+  if (probeFrame && typeof probeFrame.onerror === 'function') probeFrame.onerror();
+  const doneFrame = observeFrame(t, '抓帧判失败后');
+  check('② 判失败 =「这一张壁纸没有画面」这个结论已确定 ⇒ 闸门放行（不会永远守着旧层）',
+    doneFrame.shown === newLayer && !String(newLayer.className).includes(LAYER_PENDING_CLS),
+    frameLabel(doneFrame));
+  const poster = newLayer && newLayer.querySelector('div.we-live-poster');
+  check('③ 此刻停在既有的第 0 级主题色兜底上（终点语义没变）',
+    layerShowsPicture(newLayer) === false
+      && !!poster && String(poster.style.backgroundColor || '').length > 0,
+    'bg=' + (poster ? poster.style.backgroundColor : 'no poster'));
+});
+
+// ── T5：默认过场（**硬切**，`DEFAULTS.switchTransition = 'cut'`）也走同一条闸门 ────────
+// 硬切那条腿原本是"先拆旧层，再建新层"：闸门之前，拆掉旧层与赋上画面之间那一帧就是
+// 一块纯色 —— 用户默认配置下看到的多半正是它。这里量硬切：画面到位之前旧层仍在屏上，
+// 到位之后旧层才**一次性退场**（body 里只剩新层）。
+await runScenario('T5. 硬切（默认过场）：旧层留到新层有画面，之后一次性退场', {
+  wallpapers: [wallpaperV, scene('s1', 'tok-s1')],
+  stats: { 'tok-s1': { fps: 0, running: true } },
+  selection: Object.assign(selSeed(['v', 's1'], 'v'), { switchTransition: 'cut' }),
+}, (t) => {
+  const frameSrc = '/wallpaper-engine/scene-frame/s1';
+  const layersNow = () => t.bodyEl.children.filter((c) => String(c.className).includes('we-layer'));
+  const oldLayer = t.layerEl();
+  const oldVideo = oldLayer && oldLayer.querySelector('video');
+  if (oldVideo) oldVideo.readyState = 3;
+  const beforeFrame = observeFrame(t, '切换前');
+  t.fireLatest(10000);
+  t.fireLatest(300);
+  t.clock.offset = 16000;
+  t.fireLatest(500);
+  const probeBack = t.mediaEls[t.mediaEls.length - 1];
+  if (probeBack) probeBack.__fire('canplay');
+  const newLayer = t.layerEl();
+  const pendingFrame = observeFrame(t, '硬切提交后（垫底图还没图）');
+  check('① 硬切也不许提前拆旧层：这一刻屏上仍是旧壁纸（两张层都在文档里）',
+    pendingFrame.shown === oldLayer && layersNow().length === 2
+      && String(newLayer.className).includes(LAYER_PENDING_CLS),
+    frameLabel(pendingFrame) + ' layers=' + layersNow().length);
+  check('② 这一刻新层还没有画面（闸门挡的就是它）', layerShowsPicture(newLayer) === false,
+    'picture=' + layerShowsPicture(newLayer));
+  const frameProbe = t.imageEls.filter((i) => t.mediaSrc(i) === frameSrc).pop() || null;
+  if (frameProbe && typeof frameProbe.onload === 'function') frameProbe.onload();
+  const shownFrame = observeFrame(t, '画面到位后');
+  check('③ 画面到位 ⇒ 旧层一次性退场（硬切语义：body 里只剩新层），新层已经有画面',
+    shownFrame.shown === newLayer && shownFrame.showsPicture === true
+      && layersNow().length === 1 && layersNow()[0] === newLayer,
+    frameLabel(shownFrame) + ' layers=' + layersNow().length);
+  check('④ 结果型判据（同一条函数）：每个中间态里参与绘制的那一层都有画面',
+    noBlankFrameInSwitch([beforeFrame, pendingFrame, shownFrame]),
+    [beforeFrame, pendingFrame, shownFrame].map(frameLabel).join(' | '));
+});
+
+// ── T6：待显影期间切回原来那张 —— 守着的旧层回到 LAYER_ID，不留空层、不建重复层 ──────
+// 这一跳覆盖闸门的**状态迁移**：新层还在等画面时用户又切回来，那个"还没有画面"的层从未
+// 上过屏，必须就地拆掉，而屏上一直没离开的那一层要重新成为当前层（LAYER_ID 回到它手上）。
+// 少了这一步的收尾，屏上会同时存在"守着的层"与"新建的同名层"（重复绘制的两个壁纸层）。
+await runScenario('T6. 待显影期间切回原壁纸：空层被拆掉，守着的层回到 LAYER_ID', {
+  wallpapers: [wallpaperV, scene('s1', 'tok-s1')],
+  stats: { 'tok-s1': { fps: 0, running: true } },
+  selection: selSeed(['v', 's1'], 'v'),
+}, (t) => {
+  const layersNow = () => t.bodyEl.children.filter((c) => String(c.className).includes('we-layer'));
+  const original = t.layerEl();
+  const oldVideo = original && original.querySelector('video');
+  if (oldVideo) oldVideo.readyState = 3;
+  // 第一跳：切到 s1，画面还没到 ⇒ 新层待显影、屏上仍是 original
+  t.fireLatest(10000);
+  t.fireLatest(300);
+  t.clock.offset = 16000;
+  t.fireLatest(500);
+  const probeBack = t.mediaEls[t.mediaEls.length - 1];
+  if (probeBack) probeBack.__fire('canplay');
+  const blank = t.layerEl();
+  check('   前置：第一跳停在待显影上（新层在文档里但没画面，旧层还在屏上）',
+    !!blank && blank !== original && String(blank.className).includes(LAYER_PENDING_CLS)
+      && layersNow().length === 2, 'layers=' + layersNow().length);
+
+  // 第二跳：画面到位之前切回 v
+  t.fireLatest(10000);
+  const back = t.layerEl();
+  check('① 屏上没离开过的那一层重新成为当前层（LAYER_ID 回到它手上）',
+    back === original, 'same=' + (back === original));
+  check('② 那个从未上屏的空层已被拆掉（不留重复的壁纸层）',
+    layersNow().length === 1 && layersNow()[0] === original && !blank.isConnected,
+    'layers=' + layersNow().length + ' blankConnected=' + blank.isConnected);
+  check('③ 它不再被当作待退役的旧层（weFading 已清）', !original.dataset.weFading,
+    'weFading=' + JSON.stringify(original.dataset.weFading));
+  check('④ 落库回到 v，且它的媒体仍是原来那个元素（没有被重建过）',
+    t.persistedId() === 'v' && back.querySelector('video') === oldVideo,
+    'id=' + t.persistedId() + ' sameVideo=' + (back.querySelector('video') === oldVideo));
+});
+
 // ── Q：启动等待（`liveBootDelay`）—— 上限前就绪即挂载 / 切走必须终止预热页 ──────
 // 这一档此前**零行为覆盖**（全部冒烟都把 liveBootDelay 钉成 0，见 selSeed 的注释），
 // 所以它的两条不变量都没被判据钉住：
@@ -980,6 +1649,108 @@ await runScenario('R6. 倍速：非默认值 1.5 真的落到 <video> 上', {
   check('playbackRate 1.5 ⇒ 视频元素 playbackRate=1.5（原生倍速，不是重载）',
     !!vid() && Number(vid().playbackRate) === 1.5,
     'playbackRate=' + (vid() && vid().playbackRate));
+});
+
+// ── S：主题随壁纸不得横跨媒体层的创建边界 ─────────────────────────────────────
+// 现象：只在「换到一张会把深浅主题翻过去的壁纸」时，屏上出现纯色图 / 视频几秒黑屏 /
+// 旧壁纸卡住后秒切。位置在**顺序**上：判决的写作入口在宿主侧是同步的一整轮（重写全量
+// 别名令牌 + 翻 color-scheme / body 主题属性 + 一次强制样式读取），落在 emit() 之前时，
+// 这一轮正好插在「新壁纸的媒体节点还没被创建、请求还没发出」的空窗里，建层/起播/过渡
+// 全排在它后面。
+//
+// 判据量**结果**，不看内部变量、不看调用栈：
+//   `themeWriteLandsOnLayer(snap, wid, srcPart)` —— 主题写入那一刻，屏上的层是不是
+//   **新壁纸**那一层（节点在位、组件的 src 已是新壁纸的媒体）。正判据喂写入那一刻的
+//   快照，负对照喂换壁纸**之前**的快照（同一条函数，见 docs/TEST-LAYOUT.md 约定 5）。
+//   `mediaLayerSurvives(snap, layer, video)` —— 一次纯主题切换跨过去之后，层与 <video>
+//   是不是**同一个节点**；负对照喂一个换了节点的合成快照，证明这条判据不是恒真。
+const videoOf = (id, scheme) => Object.assign({}, wallpaperV, {
+  id, title: id.toUpperCase(), media: '/wallpaper-engine/media/' + id,
+  preview: '/wallpaper-engine/preview/' + id, schemeColor: scheme,
+});
+const themeWriteLandsOnLayer = (snap, wantWid, wantSrcPart) =>
+  !!snap && !!snap.layer && String(snap.wid) === String(wantWid)
+  && !!snap.media && String(snap.src).includes(wantSrcPart);
+const mediaLayerSurvives = (snap, layer, video) =>
+  !!snap && !!layer && snap.layer === layer && snap.video === video;
+const videoSrcSets = (v) => (v && v.__srcSets) || 0;
+
+// S1/S2 测的是「主题随壁纸**开着**」时的自动行为 ⇒ 持久化记录里显式把这个总开关打开
+// （它默认关：关着时那个功能整体不生效，见 lib/settings-schema.js 的 DEFAULTS.themeFollow）。
+await runScenario('S1. 主题随壁纸：判决落在媒体层建好之后（不横跨建层边界）', {
+  wallpapers: [videoOf('d0', 'rgb(6, 6, 8)'), videoOf('l1', 'rgb(250, 250, 250)')],
+  selection: Object.assign(selSeed(['d0', 'l1'], 'd0'), { themeFollow: true }),
+  theme: true, themePreference: 'dark',
+}, (t) => {
+  const darkMedia = '/wallpaper-engine/media/d0';
+  const lightMedia = '/wallpaper-engine/media/l1';
+  const before = t.themeSnap('d0');
+  check('前置：启动即选中暗色壁纸、层与 <video> 在位（判据的分辨力前提）',
+    !!before.layer && before.wid === 'd0' && !!before.video && before.src === darkMedia,
+    'wid=' + before.wid + ' src=' + before.src);
+  check('前置：这一次启动没有写主题（判决与当前偏好同侧 ⇒ 不写）',
+    t.themeCalls.length === 0, 'calls=' + t.themeCalls.length);
+  t.fireLatest(10000); // 轮换到亮色壁纸（视频类准备期直接提交 ⇒ 整条切换在一次调用里走完）
+  check('① 这一跳真的写了主题（否则下面的判据空转）',
+    t.themeCalls.length === 1 && t.themeCalls[0].id === 'light',
+    'calls=' + t.themeCalls.length + ' → ' + t.themeCalls.map((c) => c.id).join(','));
+  const snap = t.themeCalls[0] || null;
+  check('② 写入那一刻屏上已经是**新壁纸**的层（不是被换掉的那一层）',
+    !!snap && String(snap.wid) === 'l1', 'wid=' + (snap && snap.wid) + ' want=l1');
+  check('③ 写入那一刻新层的媒体节点已经在位、src 已是新壁纸的媒体',
+    themeWriteLandsOnLayer(snap, 'l1', lightMedia), 'src=' + (snap && snap.src));
+  check('   负对照（同一条判据，喂换壁纸之前的快照）：那一层判不合格 —— 判据分得清两跳',
+    !themeWriteLandsOnLayer(before, 'l1', lightMedia), 'wid=' + before.wid);
+  const finalLayer = t.layerEl();
+  const finalVideo = finalLayer && finalLayer.querySelector('video');
+  check('④ 视频侧：写入那一刻的 <video> 就是切换后层里的那个元素（节点身份不变）',
+    !!snap && !!snap.video && snap.video === finalVideo,
+    'same=' + (!!snap && snap.video === finalVideo));
+  check('⑤ 主题写入不得让 <video> 重载：写入那一刻与切换后仍是同一份资源（src 只赋过一次）',
+    !!snap && !!snap.video && videoSrcSets(finalVideo) === 1
+      && videoSrcSets(snap.video) === videoSrcSets(finalVideo)
+      && (finalVideo.__loads || 0) === (snap.video.__loads || 0),
+    'srcSets=' + videoSrcSets(snap && snap.video) + '→' + videoSrcSets(finalVideo)
+      + ' loads=' + (snap && snap.video && snap.video.__loads) + '→' + (finalVideo && finalVideo.__loads));
+  check('   负对照（同一条判据，换 src）：把期望换成那一层里没有的媒体 ⇒ 判不合格',
+    !themeWriteLandsOnLayer(snap, 'l1', '/wallpaper-engine/media/nope'), 'src=' + (snap && snap.src));
+});
+
+// ── S2：一次**纯主题切换**（不换壁纸）不得重建媒体层 ────────────────────────────
+// 素材无作者配色 ⇒ 启动那段评估不会写主题（取色腿要等图解码，harness 里永不落结论），
+// 于是这一跳的主题切换只能来自外部 —— 正是「用户在 DSH 设置里改深浅 / 系统深浅变化」。
+await runScenario('S2. 纯主题切换不重建媒体层：节点身份同一个 + 不新发媒体请求', {
+  wallpapers: [videoOf('p0', null)],
+  selection: Object.assign(selSeed(['p0'], 'p0'), { themeFollow: true }),
+  theme: true, themePreference: 'dark',
+}, (t) => {
+  check('前置：启动后主题服务没有被写入过（这一跳的主题切换来自外部）',
+    t.themeCalls.length === 0, 'calls=' + t.themeCalls.length);
+  const layerBefore = t.layerEl();
+  const videoBefore = layerBefore && layerBefore.querySelector('video');
+  const imagesBefore = t.imageEls.length, mediaBefore = t.mediaEls.length;
+  const loadsBefore = videoBefore ? videoBefore.__loads : -1;
+  t.themeService.setTheme('light');       // 外部改主题（不经过换壁纸）
+  const layerAfter = t.layerEl();
+  const videoAfter = layerAfter && layerAfter.querySelector('video');
+  check('① 媒体层节点是同一个（节点身份不变，没有重建）',
+    !!layerBefore && layerAfter === layerBefore,
+    'same=' + (layerAfter === layerBefore));
+  check('② <video> 是同一个元素（换主题不该让播放进度归零）',
+    !!videoBefore && videoAfter === videoBefore, 'same=' + (videoAfter === videoBefore));
+  check('③ 主题切换不得新发媒体请求（帧探针 / 视频元素都没新增）',
+    t.imageEls.length === imagesBefore && t.mediaEls.length === mediaBefore,
+    'images=' + imagesBefore + '→' + t.imageEls.length + ' videos=' + mediaBefore + '→' + t.mediaEls.length);
+  check('④ 主题切换不得让 <video> 重载：src 没被重赋、也没有额外 load()',
+    videoSrcSets(videoBefore) === 1 && videoBefore.__loads === loadsBefore
+      && videoSrcSets(t.themeCalls[0] && t.themeCalls[0].video) === 1,
+    'srcSets=' + videoSrcSets(videoBefore) + ' loads=' + loadsBefore + '→' + (videoBefore && videoBefore.__loads));
+  check('   负对照（同一条判据，喂换了节点的合成快照）：判不合格 —— 判据有牙，不是恒真',
+    !mediaLayerSurvives({ layer: {}, video: {} }, layerBefore, videoBefore),
+    'same=1 的合成快照被拒');
+  check('   （正判据用同一条函数）写入那一刻与切换之后是同一个节点',
+    mediaLayerSurvives(t.themeCalls[0], layerAfter, videoAfter),
+    'layer=' + (t.themeCalls[0] && !!t.themeCalls[0].layer));
 });
 
 console.log('');

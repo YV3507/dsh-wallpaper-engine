@@ -144,6 +144,10 @@ const CSS = `
        才会加这个类 —— 其余过场旧层保持不透明静止，垫在新层之下（玻璃
        backdrop-filter 依赖这层不透明背景，所以没有任何过场让中间态透明）。 */
   .we-layer--staging { opacity: 0; }
+  /* 切层内容闸门：新层还没有画面时先不参与绘制（见 src/live-layer.js 的切层内容闸门），
+     屏上留给旧层的像素。画面到位后这一类被摘掉（过场那条路由 startLayerTransition
+     重写 className 完成同一件事）。与 --staging 的区别是"已经在文档里、只是先不画"。 */
+  .we-layer--pending { opacity: 0; }
   .we-layer--switch {
     transition:
       transform var(--we-switch-ms, 700ms) var(--we-switch-ease, cubic-bezier(0.22, 0.61, 0.36, 1)),

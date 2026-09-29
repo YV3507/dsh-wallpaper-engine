@@ -704,6 +704,8 @@ function scheduleLiveFrameBackfill(frame, opts) {
       });
       // 200 写入成功 / 409 已被写入：两种都算「已定局」，不必重试。
       const ok = Boolean(put && (put.ok || put.status === 409));
+      // 槽位内容刚被替换：留存里那份字节已不对应盘上这张帧，撤掉（下一次建层重新取、重新留）。
+      if (ok) releaseFrameBytes(token);
       if (!ok && force) forceFail("写入失败（宿主返回 " + (put && put.status) + "）");
       if (ok && arRef > 0) gpuFrameAspectKnown.set(token, arRef);
       return ok;
@@ -809,6 +811,110 @@ function liveFrameEl() {
     return null;
   }
 }
+// 帧**字节**的留存（URL → 一份可同步上屏的东西）。为什么不能只记 URL：把地址写进
+// `background-image`，浏览器仍要从零走一遍取值 + 解码，于是同一张壁纸同一份文件，有时第一帧就是帧、
+// 有时先是一块主题色纯色 —— 差别只在这一次浏览器来不来得及把它拿回来、解码出来。这一级记的就是
+// 那个"来不来得及"：帧加载成功时把它的字节转成一个 object URL（拿不到时留那个已解码的 Image），
+// 命中时同步写上屏 —— 画的是已经在本进程里的东西，关键路径上再没有网络与解码环节，于是同样的输入
+// 必然得到同样的第一帧。
+//
+// **必须有界**（FRAME_BYTES_MAX）：一条 object URL 背后是一整帧的字节。不留上限的话，用户每看过
+// 一张壁纸就多留一份，一整个会话下来就是"看过的张数 × 单帧体积"的常驻内存 —— 越用越多，且没有任何
+// 一处在回收它。超上限即按插入顺序淘汰最久未用的那一条，并 URL.revokeObjectURL 释放字节（只删记账
+// 不撤 object URL，那部分字节在页面关闭前都收不回来）。命中会把该条移到表尾，所以留下的是最近在用的。
+//
+// **只在真帧 URL 上留**（frameRank === 0 验收）：预览图不能进这张表 —— 它一旦进来，命中分支就会把
+// 作者预览图当成"帧"直接上屏，把"帧可用时不得出现缩略图那一帧"那条契约从背面绕过去。
+const FRAME_BYTES_MAX = 8;
+const liveFrameBytes = new Map();
+// 诊断面：留存表本体（排查"内存为什么涨"时，这是唯一能看出留存条数与当前留下哪几张的地方）。
+// 只读用途，写它不会改变行为；不挂它就得为同一件事在别处再抄一份记账。
+if (typeof window !== "undefined") {
+  try { window.__weFrameBytes = liveFrameBytes; } catch { /* ignore */ }
+}
+function revokeFrameBytes(entry) {
+  if (!entry || !entry.objectUrl) return;
+  try {
+    const api = typeof URL !== "undefined" ? URL : null;
+    if (api && typeof api.revokeObjectURL === "function") api.revokeObjectURL(entry.objectUrl);
+  } catch { /* ignore */ }
+  entry.objectUrl = "";
+}
+function retainFrameBytes(src, img) {
+  let api = null;
+  try { api = typeof URL !== "undefined" ? URL : null; } catch { /* ignore */ }
+  const existing = liveFrameBytes.get(src);
+  if (existing) { revokeFrameBytes(existing); liveFrameBytes.delete(src); }
+  const entry = { objectUrl: "", img: img || null };
+  liveFrameBytes.set(src, entry);
+  while (liveFrameBytes.size > FRAME_BYTES_MAX) {
+    const oldest = liveFrameBytes.keys().next();
+    if (oldest.done) break;
+    revokeFrameBytes(liveFrameBytes.get(oldest.value));
+    liveFrameBytes.delete(oldest.value);
+  }
+  // 字节的来源是**已经解码好的那个 Image**：画进 canvas 再取回 blob（只走本进程内存，不发新请求）。
+  // 取不回来（无 canvas / 无 toBlob / 画布被跨源污染）时不记 object URL，命中时退回逐级探针那条路。
+  if (!img || typeof document === "undefined" || typeof document.createElement !== "function") return;
+  if (!api || typeof api.createObjectURL !== "function" || typeof Blob !== "function") return;
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = img.naturalWidth || img.width || 0;
+    canvas.height = img.naturalHeight || img.height || 0;
+    if (!canvas.width || !canvas.height) return;
+    const ctx = typeof canvas.getContext === "function" ? canvas.getContext("2d") : null;
+    if (!ctx || typeof ctx.drawImage !== "function") return;
+    ctx.drawImage(img, 0, 0);
+    const toBlob = canvas.toBlob || canvas.webkitToBlob;
+    if (typeof toBlob !== "function") return;
+    toBlob.call(canvas, (blob) => {
+      if (!blob) return;
+      // 异步回来时这一条可能已被淘汰 / 已被换掉：那时不能再写进去（否则又是一条没人释放的 object URL）。
+      if (liveFrameBytes.get(src) !== entry) return;
+      let url = "";
+      try { url = api.createObjectURL(blob); } catch { return; }
+      entry.objectUrl = url;
+    }, "image/png");
+  } catch { /* ignore */ }
+}
+// 帧被删掉（用户清除 / 几何不符重抓 / 重新截图）时连同留存一起撤掉：留着就等于继续拿一份已经
+// 不存在的帧上屏，屏上是错构图，而且那份字节在页面关闭前不会自己消失。
+function releaseFrameBytes(token) {
+  const key = String(token || "");
+  if (!key) return;
+  for (const src of [...liveFrameBytes.keys()]) {
+    if (src.indexOf(key) === -1) continue;
+    revokeFrameBytes(liveFrameBytes.get(src));
+    liveFrameBytes.delete(src);
+  }
+}
+// 从留存上屏（同步）：object URL 优先（写 `background-image`，与逐级探针同一条上屏通道，
+// 定位/适应的样式一个字都不用改）；拿不到 object URL 的重宿主退回插入那个**已解码的 Image**
+// 本身（元素进 DOM 即可绘制，同样不触发新的取值与解码）。
+function paintFrame(poster, src) {
+  const entry = liveFrameBytes.get(src);
+  if (!entry) return false;
+  if (entry.objectUrl) {
+    poster.dataset.weFrameSrc = src; // 诊断口径不变：记**屏上**那一级
+    poster.style.backgroundImage = "url(" + entry.objectUrl + ")";
+    return true;
+  }
+  if (!entry.img || typeof entry.img.cloneNode !== "function") return false;
+  // 克隆而不是搬原元素：探针那个 Image 可能还挂在别处，搬走会把它从原位置抽掉。
+  const copy = entry.img.cloneNode(false);
+  if (copy.style) {
+    copy.style.position = "absolute";
+    copy.style.inset = "0";
+    copy.style.width = "100%";
+    copy.style.height = "100%";
+    copy.style.objectFit = "cover";
+  }
+  try { copy.setAttribute("data-we-frame-src", src); } catch { /* ignore */ }
+  copy.className = "we-media we-media--fit";
+  poster.appendChild(copy);
+  poster.dataset.weFrameSrc = src;
+  return true;
+}
 function buildLivePoster(sel) {
   const poster = document.createElement("div");
   poster.className = "we-media we-live-poster";
@@ -830,19 +936,70 @@ function buildLivePoster(sel) {
   // 只给部分 DOM 的测试宿主）跳过预载，保留主题色兜底 —— 否则建 live 层时
   // 会直接抛 ReferenceError。
   if (typeof Image !== "function") return poster;
-  let next = 0;
-  const probeNext = () => {
-    if (next >= candidates.length) return; // 全部失败：保留主题色兜底（不猜、也不留黑底图）
-    const src = candidates[next++];
-    poster.dataset.weFrameSrc = src; // 记录**正在试**的那一级（诊断时能看出退到哪一级）
+  // 第 1 级（实时帧）究竟是哪个候选：web 支没有 `liveFrame` 时**这一级不存在**（宿主发了这条
+  // 字段，客户端却没有它的写入点 ⇒ web 的候选表里实际只剩预览图）。那种情况下不能把
+  // `candidates[0]` 当成"实时帧已存在"记进来 —— 记下的会是缩略图，语义就假了。所以下面只认
+  // 「rank 0 且确实等于实时帧 URL」的那一个。
+  const frameSrc = sel.type === "web" ? (sel.liveFrame || "") : (sel.url || "");
+  const frameRank = frameSrc && candidates[0] === frameSrc ? 0 : -1;
+  // **图恒盖色**：`background-image` 永远画在同一元素的 `background-color` 之上，且全仓只有
+  // 上面那一处写底色 ⇒ 这里不存在"谁遮谁"，只有两件事要定：**谁允许上屏**与**什么时候发请求**。
+  // 上屏规则（**存在性闸门**，与请求解耦）：第 r 级只允许在比它更权威的每一级都**已判失败**
+  // 之后上屏 —— 高权威级在飞 / 已就绪，低权威级一律不许上屏（缓存实时帧存在时，作者预览图
+  // 一次都不该成为屏上那张，哪怕它先解码完）；高权威级判失败 ⇒ 已就绪的低权威级此刻补上
+  // （它就是"这一级不存在"的兜底）；全部判失败 ⇒ 停在主题色兜底。级号越小越权威（见 candidates）。
+  const loadedRank = candidates.map(() => ""); // 已就绪的候选（可能仍被更权威的级挡在屏外）
+  const failedRank = candidates.map(() => false); // 每一级是否已**判失败**（= 这一级不存在）
+  const noneAbove = (rank) => {
+    for (let i = 0; i < rank; i++) if (!failedRank[i]) return false; // 更权威的级未判失败 ⇒ 挡住
+    return true;
+  };
+  // 这一层「已经有画面 / 已经判定没有画面」的**元素级**记账 —— 建层方在等这个信号
+  //（见 syncLayers 的切层内容闸门）。窗口 = 探针发出 → 有图或被判无图，也就是屏上
+  // 只有第 0 级纯色的那一段。
+  const contentSettled = () => {
+    poster.dataset.weContent = "ready";
+    noteLayerContent(poster);
+  };
+  const applyRank = (rank) => {
+    const src = loadedRank[rank];
+    if (!src || !noneAbove(rank)) return;
+    poster.dataset.weFrameSrc = src; // 记录**屏上**那一级（诊断：当前用的是哪一级）
+    if (poster.isConnected) poster.style.backgroundImage = "url(" + src + ")";
+    contentSettled();
+  };
+  const probeRank = (rank) => {
+    const src = candidates[rank];
     const probe = new Image();
     probe.onload = () => {
-      if (poster.isConnected) poster.style.backgroundImage = "url(" + src + ")";
+      // 第 1 级加载成功 ⇒ 先留下可同步上屏的字节（见 liveFrameBytes），下一次建层就能同步上帧。
+      // 其它级（作者预览图）**不留**：留了命中分支就会把预览图当成"帧"直接上屏。
+      if (rank === frameRank) retainFrameBytes(src, probe);
+      loadedRank[rank] = src;
+      applyRank(rank);
     };
-    probe.onerror = probeNext; // 这一级没有 ⇒ 退下一级
+    probe.onerror = () => {
+      // 判失败 = 这一级**不存在**：低权威级的上屏闸门因此打开（已经就绪的那一级立刻补上）。
+      failedRank[rank] = true;
+      for (let i = rank + 1; i < candidates.length; i++) applyRank(i);
+      // 每一级都判失败、且一张都没上屏 ⇒「这张壁纸没有画面」这个结论已经确定，再等也不会有图：
+      // 闸门必须放行，否则守着旧层的那个等待永远等不到信号。终点语义仍是主题色兜底。
+      if (failedRank.every(Boolean) && !loadedRank.some(Boolean)) contentSettled();
+    };
     probe.src = src;
   };
-  probeNext();
+  if (frameRank === 0 && paintFrame(poster, frameSrc)) {
+    // 字节命中：帧同步上屏，**探针一个都不发** —— 连"复核这一级还在不在"都不需要：字节已经在本
+    // 进程里，此刻屏上那一张就是可用的。复核反而会把一份完好的帧撤下来退回缩略图。
+  } else {
+    // 图到手之前这一层不算「有画面」（垫底图此刻只有第 0 级底色）——先记账，出图或
+    // 被判无图时由上面两处销账。
+    poster.dataset.weContent = "pending";
+    // 没有字节在手（首次激活 / 冷启动 / 清帧之后）⇒ 逐级**并行**发请求（退级不依赖彼此的成败、
+    // 也不挡发请求），谁上屏仍由上面的存在性闸门说了算。帧这次成功了就在 onload 里留下字节，
+    // 下一次建层走上面那条。
+    for (let i = 0; i < candidates.length; i++) probeRank(i);
+  }
   return poster;
 }
 
@@ -961,6 +1118,8 @@ function maybeCaptureLiveFrame(frame, sel) {
       headers: { "Content-Type": "image/jpeg" },
       body: blob,
     })).then(() => {
+      // 帧被换掉了：留存里那份字节属于正被替换掉的那一帧，撤掉（下一次建层按新帧重新留）。
+      releaseFrameBytes(sel.liveFrame);
       // 就地换上刚抽的帧（当前会话立刻可见；下次加载由 host 缓存直接提供）
       const layer = document.getElementById(LAYER_ID);
       const poster = layer && layer.querySelector(".we-live-poster");
@@ -973,6 +1132,117 @@ function maybeCaptureLiveFrame(frame, sel) {
   }, 3000);
 }
 
+// ── 切层内容闸门 ─────────────────────────────────────────────────────────────
+// 新层一进文档就会被画出来，而它的画面都是**异步**就位的：垫底图要等帧/预览图的探针
+// onload，<video> 要等第一帧，Edge 的镜像画布要等 weDrawFrame 的第一笔。于是"切过去"
+// 之后最先上屏的其实是**只有第 0 级底色**的新层 —— 一次普通切换里那几帧纯色就是它。
+// 深浅主题自动切换只是把这段窗口拉长（它写主题时宿主会重写全量别名令牌并强制读一次
+// 样式，都压在同一主线程上，新层的画面要排到它后面），所以把那个开关关掉也仍然看得见。
+// 旧层的画面是现成的，于是这里反过来做：**新层有画面之前不撤旧层，也不让新层参与绘制**
+// （`we-layer--pending`，见 src/styles.js）。这段窗口里屏上一直是旧壁纸的像素。
+// 放行的条件都是**有限**的事件（每一级的成败、视频的 loadeddata/canplay/error、
+// 画布的第一笔都会到），不新增等待种类：一张图都没有时仍然停在既有的主题色兜底语义上。
+const LAYER_PENDING_CLASS = "we-layer--pending";
+let pendingReveal = null; // { node, outgoing, tr, fade, hooks }
+// 媒体元素报告"我有画面了"的唯一出口：垫底图的探针与 Edge 的镜像画布各自在落下
+// 那一笔时调它（见 buildLivePoster 的 contentSettled 与 weDrawFrame）。
+function noteLayerContent(el) {
+  if (el && typeof el.__weContent === "function") el.__weContent();
+}
+// 这一层现在有画面吗（同步判定）。判不了（精简 DOM，没有选择器）时不拦 —— 闸门只用
+// 来避免"显示了但没有画面"，不是给所有路径加一道等待。
+function layerContentReady(node) {
+  if (!node || typeof node.querySelector !== "function") return true;
+  // 垫底图（场景 / web 的 live 分支）是这一层里**负责盖住加载窗口**的那一层：
+  //   · 它有图 ⇒ 有内容；
+  //   · 它已定论"没有图" ⇒ 这一层的内容就是第 0 级兜底（终点语义，见 P2 与 buildLivePoster）；
+  //   · 只有"还在等图"时才算没内容 —— 例外是实时渲染页已经出帧：那一刻屏上已经有画面，
+  //     垫底图只是被它盖住的下层。
+  const poster = node.querySelector("div.we-live-poster");
+  if (poster) {
+    if (poster.style && String(poster.style.backgroundImage || "")) return true;
+    if (poster.dataset && poster.dataset.weContent === "pending") {
+      const liveNow = node.querySelector("iframe.we-live-iframe");
+      return !!(liveNow && String(liveNow.className).indexOf("we-live-on") !== -1);
+    }
+    return true;
+  }
+  const img = node.querySelector("img");
+  if (img) {
+    // 准备期已经 load 过的元素由 adoptProbe 打上标记；新块的 <img> 看解码结果
+    //（`complete` 同时覆盖加载失败，所以还要 naturalWidth —— 失败不算"有画面"）。
+    if (img.__weReady === true) return true;
+    return img.complete === true && Number(img.naturalWidth) > 0;
+  }
+  const video = node.querySelector("video");
+  if (video) {
+    // 作者静帧（poster 属性）本身就是画面。
+    if (video.getAttribute && video.getAttribute("poster")) return true;
+    if (video.__weReady === true) return true;
+    // Edge 把画面画进镜像 canvas，而画布底是写死的 #000：视频有帧还不够，要等
+    // weDrawFrame 真的画上去一笔（那一笔落下时 canvas 会来报）。
+    if (node.querySelector("canvas.we-media--canvas")) return false;
+    return Number(video.readyState) >= 2; // HAVE_CURRENT_DATA = 手上已有一帧
+  }
+  const live = node.querySelector("iframe.we-live-iframe");
+  if (live) return String(live.className).indexOf("we-live-on") !== -1;
+  // 裸 iframe（web 旧链）的画面由它自己的文档决定，外面读不到 —— 不拦。
+  // 空层没有任何可等的媒体，拦下去就永远放不出来。
+  return true;
+}
+function forgetPendingReveal() {
+  const p = pendingReveal;
+  pendingReveal = null;
+  if (!p) return p;
+  for (const el of p.hooks) { try { el.__weContent = null; } catch { /* ignore */ } }
+  return p;
+}
+function revealPendingLayer() {
+  const p = forgetPendingReveal();
+  if (!p) return;
+  try { if (p.node.classList) p.node.classList.remove(LAYER_PENDING_CLASS); } catch { /* ignore */ }
+  if (p.fade) {
+    // 画面到的这一刻才起过场：新层从透明的初态走到终态，全程都有画面。
+    startLayerTransition(p.node, p.outgoing, p.tr);
+  } else {
+    // 硬切：旧层此刻一次性退场（释放媒体 + 放行新层音频），新层已经可以直接画。
+    retireFadingLayer();
+  }
+  liveLog("layer-reveal", "wid=" + selection.id + " 新层已有画面 → 放行");
+}
+// 新层还没有画面：旧层继续留在屏上，新层先不参与绘制，画面一到就放行。
+function armLayerContentReveal(node, outgoing, tr, fade) {
+  const recheck = () => { if (layerContentReady(node)) revealPendingLayer(); };
+  // 加载失败同样是「这张壁纸没有画面」的确定结论，必须放行 —— 否则这一层永远换不下去。
+  const giveUp = () => revealPendingLayer();
+  const hooks = [];
+  const poster = node.querySelector("div.we-live-poster");
+  if (poster) hooks.push(poster);
+  const canvasEl = node.querySelector("canvas.we-media--canvas");
+  if (canvasEl) hooks.push(canvasEl);
+  for (const el of hooks) { try { el.__weContent = recheck; } catch { /* ignore */ } }
+  const img = node.querySelector("img");
+  if (img && typeof img.addEventListener === "function") {
+    img.addEventListener("load", recheck);
+    img.addEventListener("error", giveUp);
+  }
+  const video = node.querySelector("video");
+  if (video && typeof video.addEventListener === "function") {
+    // loadeddata / canplay = 浏览器手上已经有一帧（spec 的 readyState ≥ 2 / 3）；
+    // Edge 那条路由镜像画布的第一笔补最后一步（layerContentReady 会一起看）。
+    const frameReady = () => { try { video.__weReady = true; } catch { /* ignore */ } recheck(); };
+    video.addEventListener("loadeddata", frameReady);
+    video.addEventListener("canplay", frameReady);
+    video.addEventListener("error", giveUp);
+  }
+  try { if (node.classList) node.classList.add(LAYER_PENDING_CLASS); } catch { /* ignore */ }
+  // 新层上屏之前先压住它的音源：旧层还在可见期内出声，两层 BGM 不重叠。
+  openRotationAudioGate(node, outgoing);
+  pendingReveal = { node, outgoing, tr, fade, hooks };
+  liveLog("layer-hold", "wid=" + selection.id + " 新层还没有画面 → 旧层留在屏上（"
+    + (fade ? "过场" : "硬切") + "延后到有画面）");
+}
+
 function syncLayers() {
   // 轮换渐变标记在入口消费：commitRotationSwitch 置位后首个 syncLayers 即
   // applySelection 的 emit；无旧层可淡（首壁纸/已清除）时自然作废，绝不
@@ -980,7 +1250,7 @@ function syncLayers() {
   const rotationFade = pendingRotationFade;
   pendingRotationFade = false;
   // 1. Wallpaper element.
-  const existing = document.getElementById(LAYER_ID);
+  let existing = document.getElementById(LAYER_ID);
   if (selection.url) {
     // live 是否生效只需算一次：它同时决定「media 种类看不看 sceneVideo」与 live 段本身。
     const layerLive = (selection.type === "scene" || selection.type === "web") && liveRenderEnabled(selection);
@@ -1009,8 +1279,31 @@ function syncLayers() {
             + "\u0000" + (selection.inventory && selection.inventory.weAssetsAvailable ? "la1" : "")
           : "nolive")
         : "");
-    const gotKey = existing && existing.dataset.weKey;
+    let gotKey = existing && existing.dataset.weKey;
+    // 上一跳停在"等新层画面"上、而这一跳要换层：LAYER_ID 在**还没有画面**的那个层手里，
+    // 屏上其实是它守着的旧层。那个空层从未上屏，就地拆掉；这一跳的旧层取守着的那个 ——
+    // 否则连切两下会各露一次底色。（键相同则不动：那只是同一次切换的又一次 emit。）
+    if (pendingReveal && pendingReveal.node === existing && gotKey !== wantKey) {
+      const blank = existing;
+      existing = pendingReveal.outgoing || null;
+      forgetPendingReveal();
+      stopLiveWatch();                 // 空层的心跳随它一起停
+      releaseLayerMedia(blank);
+      try { blank.remove(); } catch { /* ignore */ }
+      gotKey = existing && existing.dataset.weKey;
+      if (existing) {
+        // 守着的那个层全程没有离开过屏，它就是**当前壁纸那一层**：把 LAYER_ID 还给它、
+        // 清掉待退役标记（否则下面会当它是废层，再建一个重复的层出来）。它的心跳在
+        // 上一跳里停了，按领养路径同一套规则补回。
+        try { existing.dataset.weFading = ""; } catch { /* ignore */ }
+        fadingLayerNode = null;
+        try { existing.id = LAYER_ID; } catch { /* ignore */ }
+        const heldLive = existing.querySelector("iframe.we-live-iframe");
+        if (heldLive) { try { startLiveWatch(heldLive, selection.id); } catch { /* ignore */ } }
+      }
+    }
     let startFade = false;
+    let outgoing = null;               // 这一跳的旧层（让出 LAYER_ID，留到新层有画面为止）
     if (existing && gotKey !== wantKey) {
       liveLog("layer-rebuild", layerKeyDiff(gotKey, wantKey) + " " + liveStateBrief());
       // 交叉淡化判定：**换壁纸**（手动点选/轮换提交，层上 weWid ≠ 当前选择 id）
@@ -1019,33 +1312,19 @@ function syncLayers() {
       // 同一条 BGM，淡出 + 音频闸会让它断 ~2s，反而更糟。rotationFade（轮换
       // commit 的显式标记）作为兜底保留 —— 覆盖 weWid 缺失或轮换同 wid 极端角落。
       const widChanged = String(existing.dataset.weWid || "") !== String(selection.id || "");
-      // 过场类型为「硬切」时根本不进过渡路径：直接拆旧层（下车的 else 分支），
-      // 音频闸也不开 —— 这正是硬切该有的零延迟表现。（switchTr 在本函数上部算好。）
+      // 过场类型为「硬切」时根本不进过渡路径 —— 但"不搞过场"不等于"现在就拆"：
+      // 旧层的处置统一放在新层建好之后（见下面的切层内容闸门）。
       startFade = (rotationFade || widChanged) && switchTr.id !== "cut";
-      if (startFade) {
-        // 交叉淡化：旧层不立即拆除 —— 标记淡出保留（旧视频/旧 live 渲染页
-        // 继续播放，真交叉淡化），新层淡入结束后由定时器移除。任何时刻
-        // 最多 2 层：上一份 fading 层先即时退役。音频闸（下方
-        // openRotationAudioGate）对新层静音到旧层退场 —— 换壁纸的两条 BGM
-        // 不在渐变期重叠（轮换与手动切换同一套闸）。
-        retireFadingLayer();
-        existing.dataset.weFading = "1";
-        try { existing.id = ""; } catch { /* ignore */ }
-        fadingLayerNode = existing;
-        // 旧 live 心跳退役（iframe 本身保活续播）；新层的 watch 由 buildMedia
-        // （fresh load 或领养路径）重启。
-        stopLiveWatch();
-      } else {
-        stopLiveWatch();
-        releaseLayerMedia(existing);
-        existing.remove();
-        // Release the previous draw loop: without this, switching from an Edge
-        // canvas video to a non-canvas wallpaper (image/web/scene, or Edge 兼容
-        // turned off) would keep the old hidden <video> referenced and playing
-        // forever — CPU/GPU/battery + memory leak per switch (rotation mixes
-        // types). weStartDraw() re-initialises when a canvas exists again.
-        weStopDraw();
-      }
+      outgoing = existing;
+      // 旧层让出 LAYER_ID（新层要用它）并标记为待退役；拆/淡都推迟到新层建好之后。
+      outgoing.dataset.weFading = "1";
+      try { outgoing.id = ""; } catch { /* ignore */ }
+      // 任何时刻最多 2 层：更早那一份"守层 / 淡出层"先退役（这一跳接着守的那个不算）。
+      if (fadingLayerNode && fadingLayerNode !== outgoing) retireFadingLayer();
+      fadingLayerNode = outgoing;
+      // 旧 live 心跳退役（iframe 本身保活续播）；新层的 watch 由 buildMedia
+      // （fresh load 或领养路径）重启。
+      stopLiveWatch();
     }
     let node = document.getElementById(LAYER_ID);
     // 渐变路径旧层已让出 LAYER_ID；mock 环境的 stale byId 命中按 weFading 排除。
@@ -1070,9 +1349,6 @@ function syncLayers() {
         liveLog("adopt-live", "wid=" + selection.id + " 节点级领养（渲染页不重载）");
         try { startLiveWatch(adoptedLive, selection.id); } catch { /* ignore */ }
       }
-      if (startFade && fadingLayerNode) {
-        startLayerTransition(node, fadingLayerNode, switchTr);
-      }
     }
     if (!node) {
       node = document.createElement("div");
@@ -1084,11 +1360,26 @@ function syncLayers() {
       if (Array.isArray(built)) for (const el of built) node.appendChild(el);
       else node.appendChild(built);
       document.body.appendChild(node);
-      if (startFade && fadingLayerNode === existing) {
-        // 过场：新层在旧层之上入场（旧层保持不透明垫着，玻璃 backdrop-filter
-        // 依赖不透明背景）；旧层退场 / 音频放行 / 收尾清理都在
-        // startLayerTransition 里统一处理。
-        startLayerTransition(node, existing, switchTr);
+    }
+    // ── 旧层处置：新层有画面 ⇒ 立刻按过场 / 硬切换；还没有画面 ⇒ 旧层留在屏上，
+    //    新层先不参与绘制，画面一到就放行（见本文件上方的切层内容闸门）。─────────
+    //    过场：新层在旧层之上入场（旧层保持不透明垫着，玻璃 backdrop-filter 依赖
+    //    不透明背景）；旧层退场 / 音频放行 / 收尾清理都在 startLayerTransition 里统一处理。
+    if (outgoing) {
+      if (layerContentReady(node)) {
+        if (startFade) startLayerTransition(node, outgoing, switchTr);
+        else {
+          // 硬切：旧层一次性退场（释放媒体 + 放行新层音频），再停掉旧的镜像绘制循环。
+          // Release the previous draw loop: without this, switching from an Edge
+          // canvas video to a non-canvas wallpaper (image/web/scene, or Edge 兼容
+          // turned off) would keep the old hidden <video> referenced and playing
+          // forever — CPU/GPU/battery + memory leak per switch (rotation mixes
+          // types). weStartDraw() re-initialises when a canvas exists again.
+          retireFadingLayer();
+          weStopDraw();
+        }
+      } else {
+        armLayerContentReveal(node, outgoing, switchTr, startFade);
       }
     }
     const canvas = node.querySelector("canvas.we-media--canvas");
@@ -1133,6 +1424,10 @@ function syncLayers() {
   } else if (existing) {
     weStopDraw();
     stopLiveWatch();
+    // 选择被清除：这一跳的旧层与"守着旧层的待显影层"都要一起退场 —— 壁上无壁纸时
+    // 屏上不该留着任何一层的像素。
+    forgetPendingReveal();
+    retireFadingLayer();
     releaseLayerMedia(existing);
     existing.remove();
   }
