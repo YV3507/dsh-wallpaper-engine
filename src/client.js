@@ -360,7 +360,11 @@ function setTransient(field, value) {
 //      切页签都必须 `disarmConfirm()` —— 留着它会让问句跨上下文残留（用户在新上下文里看到
 //      一个针对旧对象的问句）。
 const armConfirm = (token) => { setTransient("armedConfirm", token); emit(); };
-const disarmConfirm = () => { if (!selection.armedConfirm) return; setTransient("armedConfirm", ""); emit(); };
+// **总是通知**（没有令牌也 emit）：这两个函数经常被拿来**顶替一句 `emit()`**（"换上下文 ⇒ 顺手清令牌"），
+// 一旦这里在"本来就没有令牌"时静默返回，那条路径就**丢了重渲染** —— 视图停在上一个状态，直到用户
+// 碰了别的控件才一起兑现（实测：收起「字体集预设」子分支时开关不动、再点别的按钮才连带收起）。
+// 多一次幂等重渲比丢一次重渲便宜得多，所以这里不做"没变就不发"的优化。
+const disarmConfirm = () => { setTransient("armedConfirm", ""); emit(); };
 /** 该族当前待确认项的 id（没有 = `""`）。令牌形态 `<族>:<id>`；整块动作不带 id。 */
 const armedIdOf = (family) => {
   const t = typeof selection.armedConfirm === "string" ? selection.armedConfirm : "";

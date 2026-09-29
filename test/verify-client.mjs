@@ -1760,6 +1760,38 @@ setTimeout(async () => {
       assert.ok(crossModule.length > 0 || REMAINING_CROSS_MODULE_MAX === 0,
         '棘轮空转：上界还有余量却没有直写可收 ⇒ 该把上界下调');
 
+      // ①f **令牌动作总是通知**（`armConfirm` / `disarmConfirm` 都不得"没变就早返回"）。
+      //    为什么：这两个函数经常被拿来**顶替一句 `emit()`**（"换上下文 ⇒ 顺手清令牌"、收起子分支…）
+      //    —— 一旦"本来就没有令牌"时静默返回，那条路径就**丢了重渲染**：视图停在上一个状态，直到
+      //    用户碰了别的控件才把两次变化一起兑现（实测：收起「字体集预设」时开关不动、再点别的按钮
+      //    才连带收起）。多一次幂等重渲比丢一次重渲便宜得多 ⇒ 不做"没变就不发"的优化。
+      //    判据只看"`emit()` 之前有没有 `return`"（`emit(); return;` 这种收尾不算缺陷）。
+      const notifiesEveryTime = (text, name) => {
+        const m = stripComments(String(text)).match(new RegExp('const ' + name + ' = \\([^)]*\\) => \\{([\\s\\S]*?)\\}'));
+        if (!m) return false;
+        const at = m[1].search(/\bemit\(\)/);
+        if (at < 0) return false;
+        return !/\breturn\b/.test(m[1].slice(0, at));
+      };
+      assert.ok(notifiesEveryTime(src, 'armConfirm') && notifiesEveryTime(src, 'disarmConfirm'),
+        'armConfirm / disarmConfirm 必须每次都 emit（不得早返回）—— 它们常被用来顶替 emit()');
+      assert.ok(notifiesEveryTime('const disarmConfirm = () => { y(); emit(); };', 'disarmConfirm') === true,
+        'positive control: 总是通知的实现不算（判据不是恒真）');
+      assert.ok(notifiesEveryTime('const disarmConfirm = () => { if (!x) return; y(); emit(); };', 'disarmConfirm') === false,
+        'negative control: "没变就早返回"的令牌动作会被判出');
+      assert.ok(notifiesEveryTime('const disarmConfirm = () => { if (!x) return; };', 'disarmConfirm') === false,
+        'negative control: 早返回且不通知的令牌动作同样被判出');
+      // 配套：那条收起分支**走的是 `disarmConfirm()`**（于是继承上面的通知义务）。
+      // 窗口取 800 字符 —— 只圈住同一个处理器内部，跨处理器不会误配。
+      const closePathGoesThroughToken = (text) =>
+        /onOpen:[\s\S]{0,800}?else disarmConfirm\(\);/.test(stripComments(String(text)));
+      assert.ok(closePathGoesThroughToken(src),
+        '「字体集预设」的收起分支必须调 disarmConfirm()（否则上面那条与这条路径无关）');
+      assert.ok(closePathGoesThroughToken('onOpen: (v) => { if (v) busy(x); else disarmConfirm(); },') === true,
+        'positive control: 走令牌动作的收起分支不算（判据不是恒真）');
+      assert.ok(closePathGoesThroughToken('onOpen: (v) => { if (v) busy(x); else { /* 什么也不做 */ } },') === false,
+        'negative control: 收起分支不走令牌动作会被判出');
+
       // ② 结构：两侧都必须**委托**给 schema，宿主不得再有手写逐键白名单。
       //    ⚠️ `serializeSelection` 已随持久化层抽到 src/persistence.js（P2-9 后半）⇒ 那一条按
       //    文件归属分源；`sanitizeSettings` 仍在 client.js，不动。
