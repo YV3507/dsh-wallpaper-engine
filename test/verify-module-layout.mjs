@@ -44,6 +44,10 @@
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { dirname, join, relative, sep, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// 剥注释统一用**共享且字符串感知**的实现（规则 ⑦ 就是钉这件事的）：本文件此前那份朴素正则会被
+// "注释/字符串里的块注释起始"带跑 —— 实测本文件自己被吃掉 **L343→L437（95 行）**，规则 ④ 因此在
+// 那段代码上静默失效。
+import { stripComments } from './tools/js-text.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -173,12 +177,8 @@ function walkFiles(dir, out = []) {
   return out.sort();
 }
 
-/** 判据针对**代码**：先剥注释，否则模块头里一句 `// 见 src/x.js` 会被判成一条依赖边。 */
-function stripComments(src) {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
-}
+// 判据针对**代码**：先剥注释（`stripComments` 来自 `test/tools/js-text.mjs`，字符串感知），
+// 否则模块头里一句 `// 见 src/x.js` 会被判成一条依赖边。
 
 /** 从构建脚本里解析 `INLINE_MODULES`，并顺带数出每项的 `why` / `markers` 字段。 */
 function parseInlineModules(buildText) {
@@ -536,6 +536,67 @@ console.log('⑥ `src/` 子目录成员数 ≥3 且被常青文档一级标题�
     '报出=[' + unnamedSrcDirs(['font'], ['# 别的文档']).join(',') + ']');
   check('正对照：被一级标题点名就不报（判据不是恒真）',
     unnamedSrcDirs(['font'], ['# src/font/ —— 字体系统']).length === 0);
+}
+
+// ═══ ⑦ 剥注释必须字符串感知 —— 朴素块注释正则在 test/** 与 src/** 的代码里不得再出现 ═══════════
+// 回答的边界问题：「判据读源码时先剥注释」这一步本身可不可信。
+// 朴素写法（块注释一条正则 + 行注释一条正则，本仓曾各抄一份共 16 处）**不认字符串与行注释**：
+// 注释或字符串里出现"块注释起始"那两个字符（把 `scripts/**`、`test/**`、`docs/*.md` 写进一句
+// 注释就够了）就会开一个"块注释"，一路吃到下一个结束标记，把中间的真实代码**静默删掉**。
+// 实测全仓 9 个文件 12 处、最长一段 331 行（`test/verify-scene-live.mjs` L829→L1159）—— 那些判据
+// 照样报绿，这正是本仓最不想要的失败形态。
+// 白名单**只许缩小**：CSS 侧那三处保留自己的朴素剥法（CSS 没有行注释，套 JS 词法会误删
+// `url(//host/x)` 这类内容），另两处是"反面参照 / 检测器"本身，不是生产路径。
+{
+  const NAIVE_ALLOWED = [
+    'test/tools/js-text.mjs',             // 共享实现内含一条**反面参照**（证明缺陷真实存在）
+    'test/tools/audit-guard-teeth.mjs',    // 判据 F 的**检测器**：就是靠这个正则找可疑区间
+    'test/verify-glass-compositing.mjs',   // CSS 专用
+    'test/verify-readability.mjs',         // CSS 专用
+    'test/verify-softrender.mjs',          // CSS 专用
+  ];
+  // 朴素块注释正则的**源码文本**（就是这串字符：/ \ / \ * [ \ s \ S ] * ? \ * \ / / ）。
+  // 分两段拼：这条判据自身也在扫描面里，整串写出来会命中它自己。
+  const NEEDLE = String.raw`/\/\*[\s\S]` + String.raw`*?\*\//`;
+  const read = (rel) => readFileSync(join(ROOT, rel), 'utf8');
+  const judge = (text) => stripComments(text).includes(NEEDLE);
+
+  const scanned = [...walkFiles(join(ROOT, 'test')), ...walkFiles(join(ROOT, 'src'))]
+    .filter((rel) => rel.endsWith('.js') || rel.endsWith('.mjs'));
+  check('覆盖面：⑦ 扫到 ≥50 个 JS/MJS 文件（防扫描面为空而恒真）', scanned.length >= 50, scanned.length + ' 个');
+
+  const naive = scanned.filter((rel) => !NAIVE_ALLOWED.includes(rel) && judge(read(rel)));
+  check('代码里零"朴素块注释正则"（剥注释已统一到字符串感知的实现）', naive.length === 0,
+    naive.length ? '仍在用：' + naive.join(', ') : scanned.length + ' 个文件干净');
+
+  const staleAllowed = NAIVE_ALLOWED.filter((rel) => !existsSync(join(ROOT, rel)) || !judge(read(rel)));
+  check('白名单条目不空转（每条都真的还在用那个正则；只许缩小）', staleAllowed.length === 0,
+    staleAllowed.length ? '该删：' + staleAllowed.join(', ') : NAIVE_ALLOWED.length + ' 条都在用');
+
+  check('negative control: 朴素块注释正则会在这条判据下被判出',
+    judge('x.replace(' + NEEDLE + "g, ' ')"));
+  check('positive control: 注释里提到它不算（判据先剥注释再搜 ⇒ 不是恒真）',
+    !judge('// 见 ' + NEEDLE + 'g'));
+}
+
+// ═══ ⑧ 手动工具与适配层必须在 docs/TEST-LAYOUT.md 里点名（不许有"没人知道的工具"）══════════════
+// 回答的边界问题：「`test/tools/` 里那些没有 CI 消费者的脚本，读的人找得到吗」。
+// 实测过的形状：9 个工具里只有 1 个被文档点名 —— 其余等于只对作者可见（别人不知道该跑哪个、怎么跑）。
+// `test/compat-*.mjs` 同理：它们是 CI 调的，但人也要能手动跑（文档里写的是不带扩展名的名字）。
+{
+  const DOC = readFileSync(join(ROOT, 'docs', 'TEST-LAYOUT.md'), 'utf8');
+  const tools = readdirSync(join(ROOT, 'test', 'tools')).filter((f) => f.endsWith('.mjs')).sort();
+  const compat = readdirSync(join(ROOT, 'test')).filter((f) => /^compat-.*\.mjs$/.test(f)).sort();
+  // 按**不带扩展名的文件名**判（文档里工具写成 `x.mjs`、compat 写成 `x`，两种都算点名）
+  const judge = (doc, files) => files.filter((f) => !doc.includes(f.replace(/\.mjs$/, '')));
+  check('覆盖面：⑧ 扫到 ≥8 个工具 + ≥3 个 compat（防扫描面为空而恒真）',
+    tools.length >= 8 && compat.length >= 3, tools.length + ' 工具 / ' + compat.length + ' compat');
+  const undocumented = judge(DOC, [...tools, ...compat]);
+  check('每个 test/tools/*.mjs 与 test/compat-*.mjs 都在 TEST-LAYOUT 里点名', undocumented.length === 0,
+    undocumented.length ? '未点名：' + undocumented.join(', ') : (tools.length + compat.length) + ' 个都被点名');
+  check('negative control: 合成一个没被点名的工具会被判出',
+    judge(DOC, ['zzz-合成未点名.mjs']).join() === 'zzz-合成未点名.mjs');
+  check('positive control: 已点名的工具不算（判据不是恒真）', judge(DOC, [tools[0]]).length === 0, tools[0]);
 }
 
 console.log('');

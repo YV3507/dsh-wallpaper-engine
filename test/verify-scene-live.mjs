@@ -28,6 +28,8 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Readable, Writable } from 'node:stream';
 import { execFileSync } from 'node:child_process';
+// 剥注释：共享的字符串感知实现（`verify-module-layout` ⑦ 钉住"不许再用朴素正则"）。
+import { stripComments } from './tools/js-text.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // Keep every cache/config write inside the workspace (same stance as
@@ -194,7 +196,7 @@ function shimThrottleBody(src) {
  */
 function shimThrottleOk(body) {
   if (typeof body !== 'string') return false;
-  const code = body.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+  const code = stripComments(body);
   return code.includes('origRaf(step)')            // 每帧都挂原生 rAF（与 vsync 同相位）
     && /nowMs\s*-\s*lastDeliverNow/.test(code)     // 交付按**经过的时间**判，不看回调次数
     && /target\s*-\s*slack/.test(code)             // 目标间隔 1000/fps + 测量噪声容差

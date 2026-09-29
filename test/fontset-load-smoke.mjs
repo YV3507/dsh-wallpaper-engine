@@ -42,6 +42,9 @@ const check = (label, cond, detail = '') => {
 const React = { Fragment: 'Fragment', useState: (init) => [typeof init === 'function' ? init() : init, () => {}],
   useEffect: () => {}, useRef: (v) => ({ current: v }),
   createElement: (t, p, ...c) => { assertChildren(c); return typeof t === 'function' ? t(p || {}, ...c) : { type: t, props: p || null, children: c }; } };
+// ⚠️ 这一档**不跑 effect、setter 是空操作** ⇒ 这台子看不见"改了状态却忘了 `emit()`"的缺陷
+//（真机的重渲挂在**插件自己那个根组件**的 effect 上，而台子渲染的是 `slots.register` 的渲染器）。
+// 那个契约由 `verify-client` 的 ①f 从源码面钉住（令牌动作必须每次都通知 + 收起分支必须走它）。
 
 /** 宿主那份活动集（六个键齐全 —— 宿主永远给全）。 */
 const HOST_VALUES = {
@@ -576,6 +579,43 @@ const waitBoot = () => new Promise((r) => setTimeout(r, 50));
       const del = h.requests.slice(at).filter((r) => r.method === 'DELETE');
       check('I 「确认」⇒ DELETE 落在**正确的那一份**', del.some((r) => r.url.endsWith('/fontsets/wide')),
         h.requests.slice(at).map((r) => r.method + ' ' + r.url.split('/').pop()).join(' | ') || '(无请求)');
+    }
+  }
+
+  // ── 场景 J：收起「字体集预设」这条路径 ──────────────────────────────────────────
+  // 缺陷形态（实测）：收起分支只调 `disarmConfirm()`，而它当时在"本来就没有待确认令牌"时
+  // **提前返回、不 emit** ⇒ 开关不动、编辑器不收起；等用户碰了别的控件（那条路会 emit）才把两次
+  // 变化一起兑现 —— 观感就是"关不掉"，再点别的按钮"两个一起关"。
+  // ⚠️ 这台子**看不见"少了一次 emit"**（见假 React 上面那条注：真机的重渲挂在插件根组件的 effect
+  //    上，台子不跑 effect）⇒ 这里只钉"这条路径可达且状态与视图一致"，**通知义务那半边**由
+  //    `verify-client` 的 ①f 从源码面钉住（`disarmConfirm` 必须每次都通知 + 收起分支必须走它）。
+  console.log('J. 收起「字体集预设」：这条路径可达，且收起后视图与状态一致');
+  {
+    const j = mount({
+      fetchImpl: hostWith({ id: 'v', fontCustom: true }),
+      store: {
+        'dsh-wallpaper-engine:selection': JSON.stringify({ id: 'v', fontCustom: true }),
+        'dsh-wallpaper-engine:picker-tab': 'appearance',
+      },
+    });
+    await waitBoot();
+    const boxOf = () => j.renderPanel().flatMap((t) => collectTree(t))
+      .find((n) => n.type === 'input' && n.props && n.props['aria-label'] === '字体集预设');
+    const b0 = boxOf();
+    check('J 前置：面板上有「字体集预设」开关（驱动的是真面板，不是替身）', Boolean(b0));
+    if (b0) {
+      b0.props.onChange({ target: { checked: true } });
+      await new Promise((r) => setTimeout(r, 20));
+      check('J 打开后编辑器真的渲染出来（「重命名」在场）', /重命名/.test(panelText(j)));
+      const opened = boxOf();
+      check('J 打开后开关处于开态（checked=true 可由面板读回）',
+        Boolean(opened && opened.props.checked === true), 'checked=' + String(opened && opened.props.checked));
+      if (opened) opened.props.onChange({ target: { checked: false } });
+      await new Promise((r) => setTimeout(r, 5));
+      check('J 收起后编辑器不在面板里（视图与状态一致）', !/重命名/.test(panelText(j)));
+      const closed = boxOf();
+      check('J 收起后开关回到关态', Boolean(closed && closed.props.checked === false),
+        'checked=' + String(closed && closed.props.checked));
     }
   }
 

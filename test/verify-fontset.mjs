@@ -47,6 +47,8 @@ import { createHash } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Readable, Writable } from 'node:stream';
+// 剥注释：共享的字符串感知实现（test/tools/js-text.mjs）。
+import { stripComments } from './tools/js-text.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const RECORD = process.argv.includes('--record');
@@ -800,7 +802,8 @@ section('⑦ 客户端通道（静态契约：字体值不再经 settings 出去
 {
   const clientSrc = readFileSync(join(root, 'src', 'client.js'), 'utf8');
   const storeSrc = readFileSync(join(root, 'src', 'fontset-store.js'), 'utf8');
-  const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+  /** 静态判据只认代码：调用点沿用短名 `strip`。 */
+  const strip = stripComments;
   const clientCode = strip(clientSrc);
 
   // 7a. **承重**：这六个键**不许**再经 setSetting 出去 —— 那条通道的白名单已经不带它们，
@@ -1407,7 +1410,7 @@ section('⑨ 字体集编辑器（面板可驱动：意图映射 / confirm 门�
       const confirmSites = confirmFiles.reduce(
         (n, f) => n + ((readFileSync(join(root, f), 'utf8').match(/window\.confirm\(/g) || []).length), 0);
       // 只看**代码**：注释里可以提 window.confirm（说明为什么禁用），代码里不许出现。
-      const codeOnly = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+      const codeOnly = stripComments;
       check('编辑器里没有原生模态（**代码**里 window.confirm 零命中；注释里可以提它）',
         !/window\.confirm/.test(codeOnly(editorSrc)));
       check('棘轮（终态）：破坏性动作族的 window.confirm 代码命中数 == 0',

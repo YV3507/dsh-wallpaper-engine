@@ -31,6 +31,8 @@
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+// 剥注释：共享的字符串感知实现（test/tools/js-text.mjs）。
+import { stripComments } from './tools/js-text.mjs';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const results = [];
@@ -40,10 +42,8 @@ function check(name, ok, detail) {
 }
 
 const read = (rel) => readFileSync(ROOT + rel, 'utf8');
-/** 判据只针对**代码**：先剥注释（否则散文里举例的 `console.log` 会把守卫自己判红）。 */
-const stripComments = (src) => src
-  .replace(/\/\*[\s\S]*?\*\//g, ' ')
-  .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+/** 判据只针对**代码**：剥注释走共享实现（test/tools/js-text.mjs），
+ *  否则散文里举例的 `console.log` 会把守卫自己判红。 */
 
 /** 两个允许直接写终端的宿主模块（`lib/log.js` 的终端镜像 + `lib/notice.js` 的提示行）。 */
 const SINKS = ['lib/log.js', 'lib/notice.js'];

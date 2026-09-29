@@ -22,6 +22,8 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { join, relative, sep } from 'node:path';
 import { builtinModules } from 'node:module';
+// 剥注释：共享的字符串感知实现（test/tools/js-text.mjs）。
+import { stripComments } from './tools/js-text.mjs';
 
 const results = [];
 function check(name, ok, detail) {
@@ -42,11 +44,8 @@ const specRoot = (spec) => (spec.startsWith('@')
   ? spec.split('/').slice(0, 2).join('/')
   : spec.split('/')[0]);
 
-/** 判据只针对**代码**：先剥注释。否则散文里一句 `from '…'`（说明"夹具长什么样"的注释）
- *  会被当成真的裸包依赖，把守卫自己判红。 */
-const stripComments = (src) => src
-  .replace(/\/\*[\s\S]*?\*\//g, ' ')
-  .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+/** 判据只针对**代码**：剥注释走共享实现（test/tools/js-text.mjs）。否则散文里一句 `from '…'`
+ *  （说明"夹具长什么样"的注释）会被当成真的裸包依赖，把守卫自己判红。 */
 
 /** 源码里的**裸包** import 说明符：跳过相对路径 / 绝对路径 / 内置模块。
  *  P5 的主扫描与负对照共用这一条判据。 */

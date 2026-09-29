@@ -7,11 +7,29 @@
 
 | 层 | 内容 | 谁跑 |
 |---|---|---|
-| **`test/*.mjs`（守门）** | `verify-*.mjs` —— 结构性守卫：断言代码/文档/发布面与声明一致，**正负对照成对** | `npm run verify`（29 条链）与 CI |
+| **`test/*.mjs`（守门）** | `verify-*.mjs` —— 结构性守卫：断言代码/文档/发布面与声明一致，**正负对照成对** | `npm run verify`（**31 条链 = 31 个 `verify-*`**）与 CI |
 | **`test/*-smoke.mjs`（冒烟）** | 节点级行为冒烟：轮换、实时帧回填、身份校验 | `npm run smoke` |
 | **`test/e2e-*.mjs`（端到端）** | 真浏览器路径（需本机 Chromium 系浏览器） | `npm run verify:e2e`（不进 verify 链） |
 | **`test/compat-*.mjs`（适配）** | 真 harness 集成面，三个入口：`compat-harness-live` —— link 插件进真实 `@deepseek-ai/dsh` 并启动，断言宿主路由注册可达 / 落盘诊断出现探活标记 / 插件树无加载失败（自带 HOME 隔离与 `DSH_WE_MEDIA_LEGACY=1`，媒体桥等第三方全程不拉起）；`compat-harness-surfaces` —— UI 面清单棘轮（已装 harness 的 `dsh-client-ui-*` 与 `test/fixtures/harness-ui-surfaces.json` 做差，**新表面未登记即红**）+ sidebar 源码活判据（属性锚点 / 隐藏机制 allowlist 对真源码）；`compat-harness-pages` —— 无头浏览器**逐页 DOM/样式断言**（零依赖 CDP 走计算样式探针：首页 / 会话页 slot 锚点 / 设置窗口玻璃三条 + 五分区走查；`--dump` 为探查模式） | `.github/workflows/harness-compat.yml`（需网络、`dsh` CLI 与 Chromium 系浏览器，不进 verify 链；本地 `node test/compat-harness-live.mjs` / `…-surfaces.mjs` / `…-pages.mjs [--dump]`） |
-| **`test/tools/`（工具）** | 诊断 / 分析 / 生成 —— **没有 CI 消费者**，靠手敲；其中 `host-route-index.mjs` 同时是 `verify-route-index` 的库（生成 `docs/ROUTE-INDEX.md`） | 手动 |
+| **`test/tools/`（工具）** | 诊断 / 分析 / 生成 —— **没有 CI 消费者**，靠手敲（**逐个清单见下**） | 手动 |
+
+### `test/tools/` 清单（9 个，都没有 CI 消费者）
+
+| 工具 | 回答什么 | 怎么跑 |
+|---|---|---|
+| `analyze-host-apply.mjs` | 宿主 `apply(ctx)` 的拆分评估取证（路由数 / 按首段归组 / 巨石体量）—— 账本 §3.5、§7-6 的复算工具 | `node test/tools/analyze-host-apply.mjs` |
+| `audit-fixture-coverage.mjs` | **夹具是不是把被测行为中和掉了**（P3-23 的候选清单） | `node test/tools/audit-fixture-coverage.mjs` |
+| `audit-guard-teeth.mjs` | 守卫"牙齿"普查 A–F（对照没被评估 / log 式伪判据 / 零引用判据 / 恒真 / 无红出口 / 朴素剥注释吃代码）—— **只给候选** | `node test/tools/audit-guard-teeth.mjs` |
+| `audit-import-closure.mjs` | `lib/` 的**运行时导入闭包** vs `package.json` 的 `files`（缺文件 ⇒ registry 装上就崩） | `node test/tools/audit-import-closure.mjs` |
+| `branch-notify.mjs` | **分支级**"改了 store 却没通知"（与 `verify-client` ①i **同源**） | `node test/tools/branch-notify.mjs audit` |
+| `diagnose-web-blank.mjs` | 网页壁纸「白屏」排查台（无头真浏览器） | `node test/tools/diagnose-web-blank.mjs` |
+| `host-route-index.mjs` | 生成 / 核对**宿主路由索引**（产出 `docs/ROUTE-INDEX.md`） | `node test/tools/host-route-index.mjs` |
+| `js-text.mjs` | JS/TS 源码的**文本级**工具（字符串/正则感知的剥注释） | `node test/tools/js-text.mjs selftest` |
+| `sync-webwallgl.mjs` | 从本地 `webwallgl-github` 仓库构建 WebWallGL 渲染页（vendored 同步） | 见文件头 |
+
+> 其中 `host-route-index.mjs` / `js-text.mjs` / `branch-notify.mjs` **同时是守卫的库**（分别被
+> `verify-route-index` / 多个守卫 / `verify-client` ①i 复用）⇒ 改它们等于改判据，走 `npm run verify:all`。
+> 本清单不缺项由 `verify-module-layout` ⑧ 断言（每个 `test/tools/*.mjs` 都必须在这里出现）。
 
 ## 约定（守卫会判）
 
@@ -36,5 +54,5 @@
 7. **`test/**` 里不要写 BOM**：`verify-fontset.mjs` 带 shebang，BOM 会让 `node` 在 `#!` 那行报
    `Invalid or unexpected token`。Windows PowerShell 的 `Set-Content -Encoding UTF8` 默认**带**
    BOM ⇒ 批量改写用 `[System.IO.File]::WriteAllText($p, $t, (New-Object System.Text.UTF8Encoding($false)))`。
-   验证方式（本仓实测用法）：把判据**中和**成"永远说没问题"，对应的负对照**必须变红** ——
-   而此时正判据会照过（空转），所以负对照是唯一能抓这类失效的那条。
+8. **怎么验证"判据本身有效"**：把判据**中和**成"永远说没问题"，对应的负对照**必须变红** ——
+   此时正判据会照过（空转），所以负对照是唯一能抓这类失效的那条。

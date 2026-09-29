@@ -4,9 +4,13 @@
 // the four effect knobs (wallpaper blur/scrim/border/glass blur) push CSS
 // variables, the picker renders, and automatic rotation is scoped to a
 // user-defined rotation group (list) with its own interval.
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
+// 剥注释：共享的字符串感知实现（test/tools/js-text.mjs）。
+import { stripComments } from './tools/js-text.mjs';
+// 分支级"改了 store 却没通知"的分析与审计工具**同源**（避免两份判据分叉）。
+import { pathNotifications } from './tools/branch-notify.mjs';
 
 const React = {
   Fragment: 'Fragment',
@@ -689,7 +693,11 @@ setTimeout(async () => {
     };
     const caretWhite = findSwatch(tree, '光标颜色 #ffffff');
     const caretAuto = findSwatch(tree, '光标颜色 自动');
-    console.log('caret 白 preset + 自动 buttons present:', !!caretWhite && !!caretAuto);
+    // 前置**硬断言**（P3-13：缺前置 = 默认红，不与"通过"同形）。这里早先是
+    // `console.log('… present:', !!x && !!y)` 加一句 `if (…) { asserts }`：控制项一改名，后面的断言就
+    // **静默不跑**，而这条守卫照样绿（零覆盖与通过同形）。那行日志已删 —— 它不是判据。
+    assert.ok(caretWhite && caretAuto,
+      '光标颜色行必须同时有「#ffffff」预设与「自动」按钮（缺则后续断言零覆盖）');
     if (caretWhite && caretAuto) {
       caretWhite.props.onClick();
       tree = renderPicker();
@@ -709,7 +717,8 @@ setTimeout(async () => {
     setTab('mascot');
     tree = renderPicker();
     const ropeToggle = findCtlInput(tree, '显示吉祥物');
-    console.log('mascot rope toggle present:', !!ropeToggle);
+    // 前置硬断言（同上：探测不是判据，缺了就红）。
+    assert.ok(ropeToggle, '吉祥物页必须有「显示吉祥物」开关（缺则后续断言零覆盖）');
     if (ropeToggle) {
       assert.ok(ropeToggle.props.checked === true, 'rope toggle checked by default:');
       ropeToggle.props.onChange({ target: { checked: false } });
@@ -748,11 +757,14 @@ setTimeout(async () => {
     mascotCards = findMascotCards(tree);
     assert.ok(!!activeForm(mascotCards) && activeForm(mascotCards).props.title === '小女仆', 'form switches back to maid:');
     const ropeScaleSlider = findSliderRow(tree, '吉祥物大小');
-    console.log('mascot rope size slider present:', !!ropeScaleSlider);
+    // 前置硬断言（同光标色板那处）：改前这里是 `console.log(… present:, !!x)` + `if (x) { 断言 } else
+    // { console.log('… not found') }` —— 那个 else **只打印**，所以是**静默跳过**：滑块一改名，下面三条
+    // 断言一条都不跑，而这条守卫照样绿（零覆盖与通过同形）。同处的 min/max 判据也从 log 改成了断言。
+    assert.ok(ropeScaleSlider, '「吉祥物大小」滑块必须在场（缺则后续断言零覆盖）');
     if (ropeScaleSlider) {
       const ri = findRangeInput(ropeScaleSlider);
-      console.log('rope size slider min/max (0.5/2.5):',
-        ri && String(ri.props.min) === '0.5' && String(ri.props.max) === '2.5');
+      assert.ok(ri && String(ri.props.min) === '0.5' && String(ri.props.max) === '2.5',
+        'rope size slider min/max 必须是 0.5 / 2.5');
       assert.ok(ri && String(ri.props.value) === '1', 'rope size default scale (1):');
       if (ri) ri.props.onInput({ target: { value: '1.5' } });
       tree = renderPicker();
@@ -760,8 +772,6 @@ setTimeout(async () => {
       assert.ok(ri2 && String(ri2.props.value) === '1.5', 'rope size slider updates to 1.5:');
       if (ri2) ri2.props.onInput({ target: { value: '1' } });
       tree = renderPicker();
-    } else {
-      console.log('mascot rope size slider: false (not found)');
     }
 
     // ── 「边框」「玻璃(→雾化)」已从「效果」移到「外观」的「细节」段：
@@ -1681,9 +1691,10 @@ setTimeout(async () => {
       //    一次 persist**（`type` / `blockedNote` / `sceneVideo` … 同型），禁裸写会逼出任意豁免。
       //    扫描面 = **产物**（= 全部内联模块的正文 ⇒ 不可能漏调用方，也不需要维护"可能是调用方的
       //    文件"清单 —— 清单漏一个文件，判据在那个文件上就恒真）。键集从 `DEFAULTS_ONLY` 派生。
-      //    注释先剥掉：`setTransient` 那条契约注释里正好点名了这些键。
+      //    注释先剥掉（共享的字符串感知实现，见 test/tools/js-text.mjs）：`setTransient` 那条
+      //    契约注释里正好点名了这些键。
       const persistingWritesOf = (text) => {
-        const t = text.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+        const t = stripComments(text);
         return DEFAULTS_ONLY.filter((k) =>
           new RegExp('setSetting\\(\\s*[\'"]' + k + '[\'"]').test(t)
           || new RegExp('setFontValues\\(\\s*\\{[^}]*\\b' + k + '\\s*:').test(t));
@@ -1698,6 +1709,282 @@ setTimeout(async () => {
       assert.deepEqual(persistingWritesOf(
         'setTransient("fontAdvanced", false);\n// setSetting("fontAdvanced", x)\n/* setSetting("themeTypeOnly", y) */'),
       [], 'positive control: setTransient 本身、以及注释里的写法都不算（判据不是恒真）');
+
+      // ①d `src/client.js` 里**非持久化字段**必须经 `setTransient` 改（契约的第三条入口）。
+      //    口径由实现派生、**不维护字段清单**：持久化白名单 = `persisted`（`serializeSettings` 带的键），
+      //    再排除 `id`（由 settings blob 顶层携带）与 `FONT_KEYS`（走字体集通道）⇒ 其余字段只在内存里
+      //    活着，对它们落盘没有意义，裸直写 `selection.x = v` 等于绕过了"唯一入口"那句话。
+      //    扫描面 = `src/client.js`：它是 store 的**属主**，三个入口都在这里。其它模块手上只有
+      //    `selection`（没有入口可调）⇒ 它们的直写不在本条范围内，由 ①e 的上界棘轮盯着。
+      const transientBareWrites = (text) => {
+        const code = stripComments(text);
+        const out = [];
+        for (const m of code.matchAll(/(?<![\w.$])selection\.([\w$]+)\s*=(?!=)/g)) {
+          const k = m[1];
+          if (persisted.includes(k) || k === 'id' || FONT_KEYS.includes(k)) continue;
+          out.push(k);
+        }
+        return out;
+      };
+      assert.deepEqual(transientBareWrites(src), [],
+        'client.js 里非持久化字段必须经 setTransient 写，不得裸直写：' + transientBareWrites(src).join(', '));
+      assert.deepEqual(transientBareWrites('selection.uploading = true;'), ['uploading'],
+        'negative control: 瞬态字段裸直写会被判出');
+      assert.deepEqual(transientBareWrites('selection.videoVolume = 0.5;'), [],
+        'positive control: 持久化字段的直写不算（那条通道归 setSetting / ①c 管）');
+      assert.deepEqual(transientBareWrites('setTransient("uploading", true);'), [],
+        'positive control: 经 setTransient 写不算（判据不是恒真）');
+      assert.deepEqual(transientBareWrites('// selection.uploading = true;'), [],
+        'positive control: 注释里的写法不算（先剥注释）');
+      assert.deepEqual(transientBareWrites('wrapper.selection.uploading = true;'), [],
+        'positive control: 别的对象的同名字段不算（按 `selection.` 收口）');
+
+      // ①e 上界棘轮：**其它模块**里对"已知瞬态字段"的裸直写（它们没有入口可调）。
+      //    "已知瞬态字段" = 本仓任何 `setTransient("…")` 点过名的字段（派生，不手写清单）。
+      //    ⚠️ 这 11 处**不是"孤立瞬态写入"**：读过一遍，是三类型路径，裸写是它们的**形态**而不是疏忽 ——
+      //      · `src/media-prep.js` ×6 —— **整批应用**（`applySelection` 一族：写一批字段后一次
+      //        `persistSelection()`；同一批里还有持久化字段与 `type` / `id` 等）；
+      //      · `src/live-layer.js` ×2 —— `syncLayers` 内部，**本次渲染正由 emit 驱动**（源码注释写明
+      //        "这里不 emit：本次 syncLayers 正是由 emit 驱动的"）；
+      //      · `src/effects.js` ×3 —— **卸载清理**（禁用 / HMR 后不留上一张壁纸的播放态）。
+      //      给它们注入入口是**仪式**而不是收口（"禁裸写会逼出任意豁免"那条注记就是这个意思）⇒ 这条
+      //      棘轮的作用是**不许变多**：新增一处即红，由人判定它属于哪一类，并顺手把上界按实测下调。
+      const REMAINING_CROSS_MODULE_MAX = 11;
+      const srcModuleFiles = readdirSync(new URL('../src/', import.meta.url))
+        .filter((f) => f.endsWith('.js')).map((f) => 'src/' + f);
+      const srcTextOf = (f) => readFileSync(new URL('../' + f, import.meta.url), 'utf8');
+      const knownTransient = new Set();
+      for (const f of srcModuleFiles) {
+        const t = stripComments(srcTextOf(f));
+        for (const m of t.matchAll(/setTransient\(\s*['"]([\w$]+)['"]/g)) knownTransient.add(m[1]);
+      }
+      const crossModule = [];
+      for (const f of srcModuleFiles) {
+        if (f === 'src/client.js') continue;
+        const t = stripComments(srcTextOf(f));
+        for (const m of t.matchAll(/(?<![\w.$])selection\.([\w$]+)\s*=(?!=)/g)) {
+          if (knownTransient.has(m[1])) crossModule.push(f + ':' + m[1]);
+        }
+      }
+      assert.ok(crossModule.length <= REMAINING_CROSS_MODULE_MAX,
+        'client.js 之外对已知瞬态字段的裸直写只许下降（上界 ' + REMAINING_CROSS_MODULE_MAX + '）：'
+        + crossModule.length + ' 处 → ' + crossModule.join(', '));
+      assert.ok(crossModule.length > 0 || REMAINING_CROSS_MODULE_MAX === 0,
+        '棘轮空转：上界还有余量却没有直写可收 ⇒ 该把上界下调');
+
+      // ①f **令牌动作总是通知**（`armConfirm` / `disarmConfirm` 都不得"没变就早返回"）。
+      //    为什么：这两个函数经常被拿来**顶替一句 `emit()`**（"换上下文 ⇒ 顺手清令牌"、收起子分支…）
+      //    —— 一旦"本来就没有令牌"时静默返回，那条路径就**丢了重渲染**：视图停在上一个状态，直到
+      //    用户碰了别的控件才把两次变化一起兑现（实测：收起「字体集预设」时开关不动、再点别的按钮
+      //    才连带收起）。多一次幂等重渲比丢一次重渲便宜得多 ⇒ 不做"没变就不发"的优化。
+      //    判据只看"`emit()` 之前有没有 `return`"（`emit(); return;` 这种收尾不算缺陷）。
+      const notifiesEveryTime = (text, name) => {
+        const m = stripComments(String(text)).match(new RegExp('const ' + name + ' = \\([^)]*\\) => \\{([\\s\\S]*?)\\}'));
+        if (!m) return false;
+        const at = m[1].search(/\bemit\(\)/);
+        if (at < 0) return false;
+        return !/\breturn\b/.test(m[1].slice(0, at));
+      };
+      assert.ok(notifiesEveryTime(src, 'armConfirm') && notifiesEveryTime(src, 'disarmConfirm'),
+        'armConfirm / disarmConfirm 必须每次都 emit（不得早返回）—— 它们常被用来顶替 emit()');
+      assert.ok(notifiesEveryTime('const disarmConfirm = () => { y(); emit(); };', 'disarmConfirm') === true,
+        'positive control: 总是通知的实现不算（判据不是恒真）');
+      assert.ok(notifiesEveryTime('const disarmConfirm = () => { if (!x) return; y(); emit(); };', 'disarmConfirm') === false,
+        'negative control: "没变就早返回"的令牌动作会被判出');
+      assert.ok(notifiesEveryTime('const disarmConfirm = () => { if (!x) return; };', 'disarmConfirm') === false,
+        'negative control: 早返回且不通知的令牌动作同样被判出');
+      // 配套：那条收起分支**走的是 `disarmConfirm()`**（于是继承上面的通知义务）。
+      // 窗口取 800 字符 —— 只圈住同一个处理器内部，跨处理器不会误配。
+      const closePathGoesThroughToken = (text) =>
+        /onOpen:[\s\S]{0,800}?else disarmConfirm\(\);/.test(stripComments(String(text)));
+      assert.ok(closePathGoesThroughToken(src),
+        '「字体集预设」的收起分支必须调 disarmConfirm()（否则上面那条与这条路径无关）');
+      assert.ok(closePathGoesThroughToken('onOpen: (v) => { if (v) busy(x); else disarmConfirm(); },') === true,
+        'positive control: 走令牌动作的收起分支不算（判据不是恒真）');
+      assert.ok(closePathGoesThroughToken('onOpen: (v) => { if (v) busy(x); else { /* 什么也不做 */ } },') === false,
+        'negative control: 收起分支不走令牌动作会被判出');
+
+      // ①g **持久化字段的直写必须与落盘配对**（"改了不生效 / 刷新后回退"那一类 —— P2-10 的动机）。
+      //    口径：扫 `src/client.js` 的实现面，对每个**持久化白名单里**的字段的 `selection.x = …`
+      //    直写，要求它**所在的函数体**里有 `persistSelection()` 或 `setSetting(`（后者内部会落盘）。
+      //    ⚠️ 函数级判据看不见"调用点落盘" ⇒ 那份豁免是**显式且只许缩小**的，每条写明为什么安全，
+      //    并且判据会检查它不空转（名单里的函数必须真的还在源码里，否则该删）。
+      const PERSIST_ELSEWHERE = {
+        seedGroupsFromPlaylists: '唯一调用点在读缓存后首次播种，紧随其后就是 persistSelection()',
+        setCustomFrameLocal: '两个调用点（onCustomFrameFile / onClearCustomFrame）在各自分支里都落盘 —— '
+          + '导入那支走 setSetting("url", …)，无 sceneFrameUrl 时走 else persistSelection()',
+      };
+      /** 第 at 行（0 基）所在的函数体；找不到函数返回 null。 */
+      const fnBodyAt = (ls, at) => {
+        let owner = null;
+        for (let i = 0; i <= at && i < ls.length; i++) {
+          const m = /^(\s*)(?:function\s+([\w$]+)|const\s+([\w$]+)\s*=\s*(?:async\s*)?\()/.exec(ls[i]);
+          if (m) owner = { name: m[2] || m[3], start: i, indent: m[1].length };
+        }
+        if (!owner) return null;
+        for (let i = at + 1; i < ls.length; i++) {
+          if (/^\s*\}/.test(ls[i]) && (ls[i].match(/^\s*/)[0] || '').length === owner.indent) {
+            return { name: owner.name, body: ls.slice(owner.start, i + 1).join('\n') };
+          }
+        }
+        return { name: owner.name, body: ls.slice(owner.start).join('\n') };
+      };
+      /** 判据（正/负对照共用）：返回"没和落盘配对"的 `字段@函数:L行` 清单。 */
+      const unpairedPersistedWrites = (text, exempt = []) => {
+        const ls = stripComments(String(text)).split('\n');
+        const out = [];
+        ls.forEach((line, i) => {
+          if (/function (setSetting|setTransient)\(field, value\)/.test(line)) return;
+          for (const m of line.matchAll(/(?<![\w.$])selection\.([\w$]+)\s*=(?!=)/g)) {
+            if (!persisted.includes(m[1])) continue;
+            const hit = fnBodyAt(ls, i);
+            if (hit && exempt.includes(hit.name)) continue;
+            const paired = Boolean(hit) && (/persistSelection\(\)/.test(hit.body) || /setSetting\(/.test(hit.body));
+            if (!paired) out.push(m[1] + '@' + (hit ? hit.name : '(无函数)') + ':L' + (i + 1));
+          }
+        });
+        return out;
+      };
+      const unpaired = unpairedPersistedWrites(src, Object.keys(PERSIST_ELSEWHERE));
+      assert.deepEqual(unpaired, [],
+        '持久化字段的直写必须与落盘配对；未配对：' + unpaired.join(', '));
+      const staleExempt = Object.keys(PERSIST_ELSEWHERE)
+        .filter((n) => !new RegExp('(?:function\\s+' + n + '\\b|const\\s+' + n + '\\s*=)').test(stripComments(src)));
+      assert.deepEqual(staleExempt, [], 'PERSIST_ELSEWHERE 里已不存在的函数该删：' + staleExempt.join(', '));
+      assert.deepEqual(
+        unpairedPersistedWrites('function f() { selection.videoVolume = 1; }\n'), ['videoVolume@f:L1'],
+        'negative control: 未配对的持久化字段直写会被判出');
+      assert.deepEqual(
+        unpairedPersistedWrites('function f() { selection.videoVolume = 1; persistSelection(); }\n'), [],
+        'positive control: 同一函数里落了盘 ⇒ 不算（判据不是恒真）');
+      assert.deepEqual(
+        unpairedPersistedWrites('function f() { selection.videoVolume = 1; setSetting("x", 1); }\n'), [],
+        'positive control: `setSetting(` 同函数也算落盘（它内部会 persist）');
+      assert.deepEqual(
+        unpairedPersistedWrites('function f() { selection.uploading = true; }\n'), [],
+        'positive control: 瞬态字段不归这条判据（那是 ①d 的范围）');
+      assert.deepEqual(
+        unpairedPersistedWrites('function f() { selection.videoVolume = 1; }\n', ['f']), [],
+        'positive control: 豁免名单里的函数不算（豁免生效）');
+
+      // ①h **面板处理器不得"写了 store 却没有任何能通知的动作"**（横向排查的产物）。
+      //    判据：先把"能通知的名字"按**传递闭包**算出来（种子 = `emit` + 下面四个显式列出的助手，
+      //    再反复把"体内调用了闭包里某个名字"的本地定义并进来）；然后对每个**处理器形态**
+      //    （`onXxx:` / `onXxx =` / `setXxx` / `changeXxx` / `toggleXxx`）且**写了 store** 的定义，
+      //    要求它体内调用闭包里的任意名字。
+      //    ⚠️ 已知边界：这是**处理器级**判据 —— "同一处理器里某一支通知、另一支不通知"它看不出
+      //    （收起「字体集预设」那个缺陷正是那一形态）；那一形态由 ①f 的机制契约兜住（令牌动作总是
+      //    通知 + 收起分支必须走它）。本条的职责是拦住"**整个处理器**都不会通知"这一类。
+      //    扫描面**派生**自构建脚本的 `INLINE_MODULES`（= 真正被内联进产物的那些模块），**不硬编码
+      //    文件名**：新增一个模块（实测形状：上游带来的 `src/theme-follow.js`，它落在旧扫描面之外）
+      //    时自动进面 —— 否则"处理器必须通知"这条判据对新模块**静默失效**，正是它要防的那类失效。
+      const inlineFiles = [...readFileSync(new URL('../scripts/build-client.mjs', import.meta.url), 'utf8')
+        .matchAll(/file:\s*'([^']+)'/g)].map((m) => m[1]);
+      const panelSrcs = [...new Set(['src/client.js', ...inlineFiles])]
+        .map((f) => { try { return readFileSync(new URL('../' + f, import.meta.url), 'utf8'); } catch { return ''; } });
+      const defRe = /^(\s*)(?:function\s+([\w$]+)\s*\(|const\s+([\w$]+)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>|(on[A-Z][\w$]*)\s*:)/;
+      const defsOf = (text) => {
+        const ls = stripComments(String(text)).split('\n');
+        const out = [];
+        ls.forEach((l, i) => {
+          const m = defRe.exec(l);
+          if (!m) return;
+          const name = m[2] || m[3] || m[4];
+          // ⚠️ 单行定义（`const onX = (v) => { … };`）必须就地收尾：否则会一路吞掉**后面的处理器**，
+          //    把它们的 `emit()` 算到这个身上 —— 那是假阴性（反向探针实测过）。
+          const opens = (l.match(/\{/g) || []).length;
+          const closes = (l.match(/\}/g) || []).length;
+          if (opens === 0 || opens === closes) { out.push({ name, body: l }); return; }
+          const indent = m[1].length;
+          let end = ls.length;
+          for (let k = i + 1; k < ls.length; k++) {
+            if (ls[k].trim() === '') continue;
+            const ind = (ls[k].match(/^\s*/)[0] || '').length;
+            if (ind < indent) { end = k; break; }
+            if (/^\s*\}/.test(ls[k]) && ind === indent) { end = k + 1; break; }
+          }
+          out.push({ name, body: ls.slice(i, end).join('\n') });
+        });
+        return out;
+      };
+      const NOTIFY_HELPERS = ['busy', 'done', 'armConfirm', 'disarmConfirm'];
+      const callsAny = (body, names) => [...names].some((n) => new RegExp('(?:^|[^\\w$.])' + n + '\\s*\\(').test(body));
+      const notifyingNames = (defs) => {
+        const names = new Set(['emit', ...NOTIFY_HELPERS]);
+        for (let pass = 0; pass < 8; pass++) {
+          for (const d of defs) if (!names.has(d.name) && callsAny(d.body, names)) names.add(d.name);
+        }
+        return names;
+      };
+      // 闭包的种子要干净：显式列出的助手必须**自身**真的 emit（否则闭包被污染、判据变松）
+      const helperDefs = defsOf(src).filter((d) => NOTIFY_HELPERS.includes(d.name));
+      assert.deepEqual(
+        NOTIFY_HELPERS.filter((n) => !helperDefs.some((d) => d.name === n && /\bemit\(\)/.test(d.body))), [],
+        'NOTIFY_HELPERS 里每个名字都必须自身真的 emit');
+      const writesRe = /(setTransient\(|setSetting\(|setFontValues\(|(?<![\w.$])selection\.[\w$]+\s*=(?!=))/;
+      const silentHandlers = (text) => {
+        const defs = defsOf(text);
+        const names = notifyingNames(defs);
+        return defs.filter((d) => /^(?:on[A-Z]|set[A-Z]|change[A-Z]|toggle[A-Z])/.test(d.name)
+          && writesRe.test(d.body) && !callsAny(d.body, names)).map((d) => d.name);
+      };
+      const HANDLERS_NOTIFY_ELSEWHERE = {
+        setSetting: '它就是入口本身（写 + 落盘）：通知由调用点负责',
+        setFontValues: '它就是入口本身（写字体值 + 落盘）：通知由调用点负责',
+        setTransient: '它就是入口本身（只写内存）：通知由调用点负责',
+        setCustomFrameLocal: '两个调用点（onCustomFrameFile / onClearCustomFrame）在各自分支里都 emit',
+      };
+      const silent = panelSrcs.flatMap((t) => silentHandlers(t))
+        .filter((n) => !(n in HANDLERS_NOTIFY_ELSEWHERE));
+      assert.deepEqual(silent, [],
+        '面板处理器写 store 却不会通知（视图会静默停在旧状态）：' + silent.join(', '));
+      const staleHandlerExempt = Object.keys(HANDLERS_NOTIFY_ELSEWHERE)
+        .filter((n) => !panelSrcs.some((t) => defsOf(t).some((d) => d.name === n)));
+      assert.deepEqual(staleHandlerExempt, [],
+        'HANDLERS_NOTIFY_ELSEWHERE 里已不存在的定义该删：' + staleHandlerExempt.join(', '));
+      assert.deepEqual(silentHandlers('const onX = (v) => { setTransient("a", v); };\n'), ['onX'],
+        'negative control: 写了 store 却不会通知的处理器会被判出');
+      assert.deepEqual(silentHandlers('const onX = (v) => { setTransient("a", v); emit(); };\n'), [],
+        'positive control: 直接 emit ⇒ 不算（判据不是恒真）');
+      assert.deepEqual(silentHandlers('const onX = (v) => { setTransient("a", v); busy(p); };\n'), [],
+        'positive control: 调用会通知的助手 ⇒ 不算');
+      assert.deepEqual(silentHandlers('const onX = (v) => { helper(); };\nconst helper = () => { emit(); };\n'), [],
+        'positive control: 间接（调用了会通知的本地函数）⇒ 不算（闭包生效）');
+      assert.deepEqual(silentHandlers('const onX = (v) => { const y = v; };\n'), [],
+        'positive control: 不写 store 的处理器不归这条判据');
+
+      // ①i **分支级**：每条从处理器出口离开的路径，都必须在该路径**最后一次写 store 之后**通知过。
+      //    为什么还要这一条：①h 是**处理器级**的 —— 体内某处能通知就放过，于是"`if` 的两支里只有
+      //    一支通知"它看不见（实测缺陷正是那一形态：收起「字体集预设」时视图停在旧状态）。
+      //    判据与审计工具同源（`test/tools/branch-notify.mjs` 的 `pathNotifications`：按花括号配平
+      //    切语句、把 `if/else if/else` 展开成路径、路径数封顶）。它自己的**边界**写在那份工具头里
+      //    （缩进/单行 if 的形态、`try`/`switch`/循环体不展开、通知按名字闭包判定）。
+      const BRANCH_NOTIFY_ELSEWHERE = {
+        onRenameCommit: '通知由 `busy()` 的 `done` 在 promise 解析后才发（在写之后）—— 位置分析看不见时序',
+        setCustomFrameLocal: '函数内不通知，两个调用点在各自分支里都 `emit`（同 ①h 的豁免）',
+      };
+      const branchSilent = panelSrcs.flatMap((t) => pathNotifications(t))
+        .map((s) => s.split('@')[0]).filter((n) => !(n in BRANCH_NOTIFY_ELSEWHERE));
+      assert.deepEqual(branchSilent, [],
+        '有分支路径写了 store 却在该路径最后一次写之后没有通知：' + branchSilent.join(', '));
+      const staleBranchExempt = Object.keys(BRANCH_NOTIFY_ELSEWHERE)
+        .filter((n) => !panelSrcs.some((t) => defsOf(t).some((d) => d.name === n)));
+      assert.deepEqual(staleBranchExempt, [],
+        'BRANCH_NOTIFY_ELSEWHERE 里已不存在的定义该删：' + staleBranchExempt.join(', '));
+      // 负对照就是**历史缺陷形态**（无条件写 + `if` 只有一支通知）—— 反向探针实测过：它会被判出。
+      assert.deepEqual(
+        pathNotifications('const onX = (v) => {\n  setTransient("a", v);\n  if (v) busy(p);\n  else { /* 什么都不做 */ }\n};\n')
+          .map((s) => s.split('@')[0]),
+        ['onX'], 'negative control: 「无条件写 + 只有一支通知」会被判出');
+      assert.deepEqual(
+        pathNotifications('const onX = (v) => {\n  setTransient("a", v);\n  if (v) busy(p);\n  else emit();\n};\n'), [],
+        'positive control: 两支都通知 ⇒ 不算（判据不是恒真）');
+      assert.deepEqual(
+        pathNotifications('const onX = (v) => {\n  if (v) setTransient("a", v);\n  emit();\n};\n'), [],
+        'positive control: 条件写 + 后面兜底 emit ⇒ 不算');
+      assert.deepEqual(
+        pathNotifications('const onX = (v) => {\n  if (v) { setTransient("a", v); emit(); }\n  else { setTransient("b", v); emit(); }\n};\n'), [],
+        'positive control: 两支各自写、各自通知 ⇒ 不算');
 
       // ② 结构：两侧都必须**委托**给 schema，宿主不得再有手写逐键白名单。
       //    ⚠️ `serializeSelection` 已随持久化层抽到 src/persistence.js（P2-9 后半）⇒ 那一条按
@@ -1926,10 +2213,10 @@ setTimeout(async () => {
 // 判据只有这一处：数"越过接缝直呼"的次数 —— **按代码判**（先剥注释，否则这些文件的头注
 // 自己提到这两个词就会被误伤）。
 {
-  // 唯一判据。剥注释的口径与 scripts/build-client.mjs 的"浏览器安全"扫描一致
-  //（本仓已在同类假阳性上踩过三次）。
+  // 唯一判据。剥注释走共享的字符串感知实现（test/tools/js-text.mjs），与
+  // scripts/build-client.mjs 的"浏览器安全"扫描同口径。
   const seamCrossings = (text) => {
-    const code = text.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+    const code = stripComments(text);
     return {
       selection: (code.match(/(^|[^.\w$])selection\b/g) || []).length,
       notify: (code.match(/\bemit\s*\(/g) || []).length,
@@ -1990,6 +2277,36 @@ setTimeout(async () => {
     '负对照：log 形式的伪判据必须能被判出');
   assert.equal(fakeJudgements("  assert.equal(n, 1, 'x');").length, 0,
     '负对照：真断言不得被误伤');
+
+  // 同族的第二种形态（实测过两处：光标色板、吉祥物开关）：`console.log('… present:', !!x)` 之后紧跟
+  // `if (x) { …断言… }` —— 探测日志不判真假，而"缺失即跳过断言"让后面的判据**零覆盖仍绿**
+  // （缺前置与通过同形，见 `docs/TEST-LAYOUT.md` §约定 8 的反面）。判据只看**紧邻的非空行**是否
+  // 用同一个标识符做 `if (x)`；`if (!x) assert.fail(…)` 那种"缺了就红"的正写法**不算**。
+  const probeThenSkip = (src) => {
+    const ls = src.split('\n');
+    const out = [];
+    ls.forEach((line, i) => {
+      if (!/^console\.log\(/.test(line.trim())) return;
+      const m = /!!\s*([A-Za-z_$][\w$]*)/.exec(line);
+      if (!m) return;
+      for (let k = i + 1; k < Math.min(ls.length, i + 4); k++) {
+        const nxt = ls[k].trim();
+        if (!nxt) continue;
+        if (new RegExp('^if\\s*\\(\\s*' + m[1] + '\\b').test(nxt)) out.push({ n: i + 1 });
+        break;
+      }
+    });
+    return out;
+  };
+  const probeSkips = probeThenSkip(selfSrc);
+  assert.equal(probeSkips.length, 0,
+    '探测日志 + 紧跟的条件跳过必须为 0（缺前置不许与"通过"同形）：行 ' + probeSkips.map((x) => x.n).join(','));
+  assert.equal(probeThenSkip("  console.log('x present:', !!w);\n  if (w) { assert.ok(1); }").length, 1,
+    '负对照：探测日志 + 条件跳过必须能被判出');
+  assert.equal(probeThenSkip("  console.log('x present:', !!w);\n  assert.ok(w, 'w 必须存在');").length, 0,
+    '正对照：探测之后是硬断言 ⇒ 不算（判据不是恒真）');
+  assert.equal(probeThenSkip("  console.log('x present:', !!w);\n  if (!w) assert.fail('缺 w');").length, 0,
+    '正对照：「缺了就红」的写法不算');
   assert.equal(fakeJudgements("  catch (e) { console.log('threw:', e && e.message); }").length, 0,
     '负对照：catch 里的错误上报不得被当成判据');
 }

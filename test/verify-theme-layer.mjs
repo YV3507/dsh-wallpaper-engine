@@ -17,6 +17,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
+// 剥注释：共享的字符串感知实现（test/tools/js-text.mjs）。
+import { stripComments } from './tools/js-text.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const mod = await import(new URL('../src/font/color-roles.js', import.meta.url).href);
@@ -382,10 +384,9 @@ const fontTabsUi = readFileSync(join(root, 'src', 'panel-tabs.js'), 'utf8');
     // 用户口径的最终确认：**不存在任何全局性质的字体配置**。
     check('三个全局字体键都已不存在（fontColor / fontWeight / fontFamily）',
       !('fontColor' in schema.DEFAULTS) && !('fontWeight' in schema.DEFAULTS) && !('fontFamily' in schema.DEFAULTS));
-    // 判据针对**代码**：先剥注释 —— 头注释里为说明「已删除」正会提到这些名字（散文不是代码）。
-    const effectsCode = effectsSrc
-      .replace(/\/\*[\s\S]*?\*\//g, ' ')
-      .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+    // 判据针对**代码**：剥注释走共享的字符串感知实现（test/tools/js-text.mjs）——头注释里为说明
+    // 「已删除」正会提到这些名字（散文不是代码）。
+    const effectsCode = stripComments(effectsSrc);
     check('源码里不再有全局字体注入层（#we-font-patch / --we-font-family / --we-font-weight / 还原契约）',
       !/we-font-patch|--we-font-family|--we-font-weight|--we-font-stroke|data-we-font-ignore/.test(effectsCode),
       (effectsCode.match(/we-font-patch|--we-font-family|--we-font-weight|data-we-font-ignore/g) || []).join(' '));
@@ -421,11 +422,9 @@ const fontTabsUi = readFileSync(join(root, 'src', 'panel-tabs.js'), 'utf8');
 section('⑤ 源码不变量');
 {
   const src = readFileSync(join(root, 'src', 'font', 'color-roles.js'), 'utf8');
-  // 判据针对**代码**而非散文：先剥注释。否则"模块里不许出现 !important"会被
-  // 头注释里那句"不写 !important"自身命中（今天第二次踩这个坑：源码级不变量必须先剥注释/字符串）。
-  const code = src
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+  // 判据针对**代码**而非散文：剥注释走共享的字符串感知实现（test/tools/js-text.mjs）。否则
+  // "模块里不许出现 !important"会被头注释里那句"不写 !important"自身命中。
+  const code = stripComments(src);
   const hit = (re) => { const m = code.match(re); return m ? JSON.stringify(m[0].slice(0, 40)) : null; };
   check('模块内零 `!important`（红线 2）', !/!\s*important/.test(code), hit(/!\s*important/) || '');
   check('模块内不用 DOM 选择器 / :has()（白闪红线 1）', !/:has\(/.test(code) && !/querySelector/.test(code));
@@ -441,8 +440,7 @@ section('⑤ 源码不变量');
     const files = ['lib/settings-schema.js', 'src/font/color-roles.js', 'src/font/typography.js',
       'src/font/apply.js', 'src/effects.js', 'src/client.js'];
     const guilty = files.filter((rel) => {
-      const c = readFileSync(join(root, rel), 'utf8')
-        .replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+      const c = stripComments(readFileSync(join(root, rel), 'utf8'));
       return /--dsh-content-font-size\s*:/.test(c) || /setProperty\(\s*['\"]--dsh-content-font-size/.test(c);
     });
     check('红线 3：全仓不写 `--dsh-content-font-size`', guilty.length === 0, guilty.join(' '));
@@ -450,7 +448,7 @@ section('⑤ 源码不变量');
       /--dsh-content-font-size\s*:/.test('body{--dsh-content-font-size:14px;}'));
   }
   check('负对照：剥注释后仍能抓到真代码里的 `!important`',
-    /!\s*important/.test(src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ')
+    /!\s*important/.test(stripComments(src)
       .replace('const THEME_LAYER_SOURCE', 'color:red !important;\nconst THEME_LAYER_SOURCE')));
 }
 

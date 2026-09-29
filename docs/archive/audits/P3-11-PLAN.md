@@ -3,7 +3,7 @@
 > **状态：已收口（阶段 0b / 1 / 2 / 3 全部交付），本文只作过程记录，不复述结论。**
 > 它是开工前后的**判断与顺序**（含那些被实测推翻的账本原话），不是现行实现的说明。
 >
-> **权威来源**：完成情况看账本 [`REFACTOR-ASSESSMENT.md`](../../wip/REFACTOR-ASSESSMENT.md) §5 的
+> **权威来源**：完成情况看账本 [`REFACTOR-ASSESSMENT.md`](../../wip/OPEN-ITEMS.md) §5 的
 > `P3-11` 行（由 `test/verify-ledger.mjs` 机器核对）；行为与结构判据看守卫本身 ——
 > `test/verify-picker-props.mjs`（属性面板：可达性 + 每个 ptype 的控件分支 + 标记等价 golden）、
 > `test/verify-picker-model.mjs`（模型层 + 跨层对拍）、`test/verify-picker-upload.mjs`（上传区），

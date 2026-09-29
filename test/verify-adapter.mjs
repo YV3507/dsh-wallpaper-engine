@@ -31,6 +31,8 @@ import { readFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { Writable } from 'node:stream';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+// 剥注释：共享的字符串感知实现（test/tools/js-text.mjs）。
+import { stripComments } from './tools/js-text.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (rel) => readFileSync(join(root, rel), 'utf8');
@@ -333,13 +335,11 @@ const clientSrc = read('src/client.js');
 const persistSrc = read('src/persistence.js');
 const adapterSrc = read('src/adapter.js');
 
-/** 去掉 /* … *\/ 与 // 行注释 —— 选择器门控的判据只看真实规则行。 */
-function stripComments(s) {
-  return s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
-}
-/** 真实规则里依赖壳层属性的选择器行（门控加在最前 ⇒ 不能按行首匹配，按属性名匹配）。 */
+/** 判据只看真实规则行：注释由共享的 `stripComments`（字符串感知）剥掉。
+ *  样式表住在 `src/styles.js` 的模板字面量里，而共享实现按设计**不剥模板内容** ⇒ 先把模板
+ *  分隔符换成空格，让同一份实现也按块注释（CSS 与 JS 同形）剥这份文本；读取的仍是源文件。 */
 function shellSelectorLines(s) {
-  return stripComments(s).split('\n').filter((l) => /data-dsh-desktop-mode=|data-we-mica=/.test(l));
+  return stripComments(s.replace(/`/g, ' ')).split('\n').filter((l) => /data-dsh-desktop-mode=|data-we-mica=/.test(l));
 }
 /** 判据（唯一定义处，正/负对照都喂它）：每条壳层选择器必须带适配目标门控。 */
 const gated = (lines) => lines.length > 0 && lines.every((l) => l.includes('[data-we-adapter^="desktop-"]'));

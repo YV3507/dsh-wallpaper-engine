@@ -25,14 +25,16 @@
 import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+// 剥注释：共享的字符串感知实现（同目录 js-text.mjs）。
+import { stripComments } from './js-text.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
-/** 剥掉源码里的字符串/注释，**保住换行**（否则行号错位）。跨行模板字面量一并处理。 */
+/** 剥掉源码里的字符串/注释，**保住换行**（否则行号错位）。跨行模板字面量一并处理。
+ *  注释那两步走共享的 `stripComments`（字符串感知、等长替换）；字符串/模板这几步留在本函数里，
+ *  顺序是"先剥注释、再剥字符串"，与索引按列定位的等长要求一致。 */
 function stripSource(raw) {
-  return raw
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
-    .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ')
+  return stripComments(raw)
     .replace(/`(?:[^`\\]|\\.)*`/g, '``')
     .replace(/"(?:[^"\\\n]|\\.)*"/g, '""')
     .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")

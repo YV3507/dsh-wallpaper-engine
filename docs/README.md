@@ -57,7 +57,7 @@
 
 | 文档 | 内容 |
 |---|---|
-| [REFACTOR-ASSESSMENT.md](./wip/REFACTOR-ASSESSMENT.md) | **重构与设计落实账本（活文档）** —— 只留**决策、顺序、验收判据**：现状基线、风险归口、P0/P1/P2/P3 计划（**§5 的状态列是唯一进度真源**，由 `verify-ledger` 机器核对）。未闭合项：P2-11（**未过触发线**）。**该线全部收口后整份移入 `archive/`** |
+| [OPEN-ITEMS.md](./wip/OPEN-ITEMS.md) | **重构账本 · 未完成项与触发线（活文档）** —— `wip/` 里唯一活着的那一份：§2 现状基线（上界棘轮）、§3.1–§3.3 现状锚点、§5 状态列（**唯一进度真源**，由 `verify-ledger` 机器核对）、§7 触发线（第 6、7 条）、§9.1 令牌层约束。**本轮重构的主动部分已结项**（46 已落地 / 1 未完成）：唯一未完成项 P2-11 **未过触发线**、且**已机器化**（过线时那一行会变红逼人回来裁决）。历史半边（§1 / §3.4–§3.6 / §4 / §6 / §8 / §9.5–§9.7）已进 [archive/REFACTOR-ASSESSMENT.md](./archive/REFACTOR-ASSESSMENT.md)；**该线全部收口后本文件才整份移入 `archive/`** |
 
 ## 已归档（`archive/`，只作记录）
 
@@ -83,6 +83,7 @@
 
 | 文档 | 内容 |
 |---|---|
+| [REFACTOR-ASSESSMENT.md](./archive/REFACTOR-ASSESSMENT.md) | **重构与设计落实账本（历史半边）** —— 一次重构与设计落实的完整评估：决策（§1）、四组维护难度指标（§3）、风险清单（§4）、静态帧线移除后的形态（§6）、度量方法与复现（§8）、F 轨设计要点与 `V1–V10` 令牌层实测结论（§9）、与其它文档的关系。**不反映现行实现**；仍活着的部分（基线 / 状态列 / 触发线 / 唯一未完成项）在 [`wip/OPEN-ITEMS.md`](./wip/OPEN-ITEMS.md) |
 | [audits/ROBUSTNESS-AUDIT.md](./archive/audits/ROBUSTNESS-AUDIT.md) | 健壮性审计（已收口）—— 结论已归口为账本 §5 的 P3-1 … P3-22 |
 | [audits/F0-THEME-SERVICE-CHECKLIST.md](./archive/audits/F0-THEME-SERVICE-CHECKLIST.md) | F0 真机确认（已关闭）—— 结论（`V1–V10` 约束）在账本 §9.1；原始证据在本地未跟踪目录 |
 | [audits/P3-11-PLAN.md](./archive/audits/P3-11-PLAN.md) | `WallpaperPicker` 拆分的过程记录（**已完成**：模型 / 模态框 / 属性面板三块都搬走）—— 开工前的事实核对、先决断言清单与收口时的牙齿证明；结论在账本 §5 的 `P3-11` 行，判据在守卫本身 |
@@ -91,7 +92,7 @@
 
 ## 其它
 
-- 现状 / 进度：[`wip/REFACTOR-ASSESSMENT.md`](./wip/REFACTOR-ASSESSMENT.md)（**唯一进度真源**）；写作纪律见本文档 §写作纪律。
+- 现状 / 进度：[`wip/OPEN-ITEMS.md`](./wip/OPEN-ITEMS.md)（**唯一进度真源**：唯一未完成项 + 触发线 + 基线）；历史评估在 [`archive/REFACTOR-ASSESSMENT.md`](./archive/REFACTOR-ASSESSMENT.md)（**不反映现行实现**）；写作纪律见本文档 §写作纪律。
   **本机专用的临时待办不入库**，也不被任何入库文档引用 —— 读者打不开的东西不指向它。
 - 开发/发布：仓库根 `CONTRIBUTING.md`（含「`lib/client.js` 到底是什么」）；用户门面：`README.md` / `README.en.md` / `README.beginner.md`。
 - `images/`：README 引用的截图。
