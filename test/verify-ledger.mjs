@@ -11,6 +11,9 @@
  *   · 行状态 ⬜/🚧/🟡 ⇒ 证据必须**不全部**成立（否则就是"做完了没翻状态"）。
  *   · `EVIDENCE` 的**每一个键**都必须真的在 §5 里被查到 —— ID 一改名，证据就静默变成
  *     死代码，而摘要仍按 `EVIDENCE` 的键数报"可核 N 类"。被查集合必须有下限。
+ *   · **两条触发线判据**（P2-11）：§7-6 的「同一族 ≥3 条路由」与「每个族模块都被 `apply` 调用」
+ *     各一条 —— 过线或出现孤儿族模块时这一行会**自己翻红**，不靠人记得回来复评。两条判据的枚举
+ *     只认 `test/tools/host-route-index.mjs` 的 `buildIndex()`，且正/负对照与判据本体共用同一份函数。
  *   · **进度标记只许住在 §0 的状态图例与 §5 的状态列** —— "未完成"的声明出现在别的节里，就是
  *     第二份、无人核对的进度真源（其余判据都只解析 §5，发现不了它）。`✅` 不在此列：§4 的归口
  *     列与 §7 的守卫表用它作**闭合标记**，那是追踪信息，不是对某一步进度的复述。
@@ -32,6 +35,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 // 剥注释：共享的字符串感知实现（test/tools/js-text.mjs）。
 import { stripComments } from './tools/js-text.mjs';
+// 路由枚举：与 `analyze-host-apply.mjs` ② 组、`verify-route-index.mjs` 同一处解析器。
+import { buildIndex } from './tools/host-route-index.mjs';
 
 const root = resolve0();
 function resolve0() {
@@ -42,6 +47,64 @@ const LEDGER = join(root, 'docs', 'wip', 'REFACTOR-ASSESSMENT.md');
 
 const read = (rel) => readFileSync(join(root, rel), 'utf8');
 const has = (rel) => existsSync(join(root, rel));
+
+/** ── P2-11 的两条触发线判据（判据本体与正/负对照**共用同一份**）────────────────────
+ *  ① §7-6：`lib/index.js` 内的路由按**路径首段**归组，最大组 `< 3` ⇒ 触发线未过（维持不拆）。
+ *  ② 族接线：每个 `lib/routes/*.js` 都有 `register<族>Routes` 导出、且 `apply` 调用了它（族数 ≥ 6）。
+ *  枚举**只认** `test/tools/host-route-index.mjs` 的 `buildIndex()`（与 `analyze-host-apply.mjs`
+ *  ② 组、`verify-route-index.mjs` 同一口径）：循环注册展开成逐条路由、族模块的路由也回到索引里。
+ *  「按首段归组」在 `analyze-host-apply.mjs` ② 组里是内联打印的、**没有导出** ⇒ 按同一口径在
+ *  这里最小重写（10 行内）；路由枚举仍只认 `buildIndex()`，本文件不另写解析器。 */
+const INDEX_NOW = buildIndex();
+/** 磁盘上的族文件（裸文件名；与索引里的 rel 比对时取 basename）。 */
+const FAMILY_FILES = readdirSync(join(root, 'lib', 'routes')).filter((f) => f.endsWith('.js')).sort();
+
+/** ① 的归组：入参 = 路径数组，返回 { total, segs, max, topSeg }。 */
+function firstSegmentGroups(paths) {
+  const fam = new Map();
+  for (const p of paths) {
+    // 动态路径与 `analyze-host-apply.mjs` ② 组同口径：单列一个 `(动态)` 组，不静默丢掉。
+    const seg = p === '(动态路径)' ? '(动态)' : (String(p).split('/').filter(Boolean)[0] || '/');
+    fam.set(seg, (fam.get(seg) || 0) + 1);
+  }
+  let max = 0, topSeg = '';
+  for (const [k, n] of fam) if (n > max) { max = n; topSeg = k; }
+  return { total: paths.length, segs: fam.size, max, topSeg };
+}
+
+/** ① 的裁决。三项输入都显式传入 ⇒ 正/负对照喂合成值即可走**同一条**判据。
+ *  下限 `indexTotal > 20` 防"解析器返回空表 ⇒ 最大组 0 ⇒ 恒真"；主文件内还有注册字面量时归组
+ *  必须非空，而全部拆完之后这一条允许空集（那时"族还没到线"已无对象可判）。 */
+function triggerNotCrossed(ownPaths, indexTotal, hasRegistrations) {
+  const g = firstSegmentGroups(ownPaths);
+  return { g, ok: indexTotal > 20 && g.max < 3 && (ownPaths.length > 0 || !hasRegistrations) };
+}
+
+/** 族模块接线比对：返回"对不上"的清单（空数组 = 一一对应）。 */
+function unwiredFamilies(files, modules, orphanRels) {
+  const bad = [];
+  for (const f of files) {
+    const own = modules.filter((m) => m.rel.split('/').pop() === f);
+    const regs = own.filter((m) => /^register[A-Za-z0-9]*Routes$/.test(m.fnName));
+    if (!regs.length) { bad.push(f + '（没有 register<族>Routes 导出）'); continue; }
+    for (const m of regs) if (orphanRels.includes(m.rel)) bad.push(f + '（' + m.fnName + ' 在 lib/index.js 里没有被调用）');
+  }
+  return bad;
+}
+
+/** ② 的裁决：族数下限 + 接线一一对应。 */
+function familiesWired(files, modules, orphanRels) {
+  const unwired = unwiredFamilies(files, modules, orphanRels);
+  return { unwired, ok: files.length >= 6 && unwired.length === 0 };
+}
+
+/** 现算 ① 的三项输入（全部取自索引，不另解析源码）。 */
+function inlineRoutesNow() {
+  const own = INDEX_NOW.routes.filter((r) => r.src === 'lib/index.js');
+  // 注册**字面量**数用 `verify-route-index.mjs` ② 的同一口径：只为把"循环展开"讲清楚。
+  const literals = (read('lib/index.js').match(/webServer\.register\(\{/g) || []).length;
+  return { own, paths: own.map((r) => r.path), indexTotal: INDEX_NOW.routes.length, literals };
+}
 
 /** 计数类判据只认**代码**：剥注释走共享实现（test/tools/js-text.mjs），
  *  否则散文里的 `fetch(` 字样会造出假阳性。 */
@@ -266,6 +329,15 @@ const EVIDENCE = {
     // 判据与 `test/verify-route-index.mjs` ② 同一形态。
     ['所有路由族都已拆出 lib/routes/（lib/index.js 内零注册）',
       () => !read('lib/index.js').includes('webServer.register({')],
+    // §7-6 触发线①：`lib/index.js` 内路由按首段归组、最大组 < 3 ⇒ 触发线未过（这一行维持"不拆"）。
+    // 某族长到 3 条 ⇒ 这条判红，逼人回来重新裁决（拆族 或 改 §7-6 的线），不让它悄悄过期。
+    ['§7-6 触发线未过：lib/index.js 内路由按路径首段归组、最大组 < 3', () => {
+      const t = inlineRoutesNow();
+      return triggerNotCrossed(t.paths, t.indexTotal, t.literals > 0).ok;
+    }],
+    // 族模块与 `apply` 调用一一对应：完成态之后若出现孤儿族模块（写了却没接），这一行仍会被判红。
+    ['族模块与 apply 调用一一对应（每个 lib/routes/*.js 都有 register<族>Routes 且被调用，族数 ≥ 6）',
+      () => familiesWired(FAMILY_FILES, INDEX_NOW.modules, INDEX_NOW.orphanModules.map((m) => m.rel)).ok],
   ],
   'P2-12': [
     // 注意方向：这是"**做完**才成立"的证据。未完成时它们**必须不成立** ——
@@ -741,11 +813,11 @@ const openRow = rows.find((r) => !/✅/.test(r.status) && EVIDENCE[r.id]);
 const controls = [];
 if (doneRow) {
   const mutated = ledgerText.replace(doneRow.line, flipStatus(doneRow.line, '⬜'));
-  controls.push([`把已完成的 ${doneRow.id} 谎报成 ⬜`, mutated !== ledgerText && audit(mutated).problems.length > 0]);
+  controls.push([`负对照：把已完成的 ${doneRow.id} 谎报成 ⬜`, mutated !== ledgerText && audit(mutated).problems.length > 0]);
 }
 if (openRow) {
   const mutated = ledgerText.replace(openRow.line, flipStatus(openRow.line, '✅'));
-  controls.push([`把未完成的 ${openRow.id} 谎报成 ✅`, mutated !== ledgerText && audit(mutated).problems.length > 0]);
+  controls.push([`负对照：把未完成的 ${openRow.id} 谎报成 ✅`, mutated !== ledgerText && audit(mutated).problems.length > 0]);
 }
 // ⚠️ 负对照的**评估**排在文件末（所有 `controls.push` 之后）：下面的判据块还会往里推对照，
 //    评估循环若排在这里，那些对照就是"构造了、推了、没人看" —— 等于没有对照。
@@ -774,7 +846,47 @@ if (openRow) {
   // 负对照：喂一份被改坏的账本，同一判据必须判出不一致
   const mutated = ledger.replace(/，(\d+) 条路由（/, '，17 条路由（');
   const mutatedRow = /\*\*([\d,]+) 行 = `lib\/index\.js` 的 \d+%\*\*，分支代理 \d+，(\d+) 条路由（/.exec(mutated);
-  controls.push(['账本里的路由条数被改坏', Boolean(mutatedRow) && Number(mutatedRow[2]) !== idxCount]);
+  controls.push(['负对照：账本里的路由条数被改坏', Boolean(mutatedRow) && Number(mutatedRow[2]) !== idxCount]);
+}
+
+// ── P2-11 的两条触发线：过线 / 孤儿族模块都由机器判出，不靠人记得复评 ───────────────────
+// 判据本体与 EVIDENCE 的 `P2-11` 两条**同源**：同一份 `triggerNotCrossed` / `familiesWired`，
+// 正/负对照也走它们（喂合成输入）。
+{
+  const t = inlineRoutesNow();
+  const trigger = triggerNotCrossed(t.paths, t.indexTotal, t.literals > 0);
+  const wiring = familiesWired(FAMILY_FILES, INDEX_NOW.modules, INDEX_NOW.orphanModules.map((m) => m.rel));
+  console.log('  ' + (trigger.ok ? '✓' : '✗') + ' §7-6 触发线①：`lib/index.js` 内 ' + trigger.g.total
+    + ' 条注册 / ' + trigger.g.segs + ' 个首段 / 最大组 ' + trigger.g.max
+    + (trigger.g.max >= 3 ? '（≥3 ⇒ /' + trigger.g.topSeg + ' 族该拆，或改 §7-6 的线）' : '（< 3 ⇒ 维持不拆）')
+    + '；索引 ' + t.indexTotal + ' 条 = 内联 ' + t.own.length + ' + 族模块 ' + (t.indexTotal - t.own.length)
+    + '（' + t.literals + ' 条注册字面量，循环展开 +' + (trigger.g.total - t.literals) + '）');
+  if (!trigger.ok) problems.push('§7-6 触发线①不再成立：最大组 ' + trigger.g.max + '（首段 /' + trigger.g.topSeg + '）');
+  console.log('  ' + (wiring.ok ? '✓' : '✗') + ' 族模块与 apply 调用一一对应：' + FAMILY_FILES.length
+    + ' 个 `lib/routes/*.js` / ' + INDEX_NOW.modules.length + ' 个 `register<族>Routes` 导出'
+    + (wiring.unwired.length ? ' — 对不上：' + wiring.unwired.join('；') : '（全部有调用点；族数 ≥ 6）'));
+  if (!wiring.ok) problems.push('族模块接线对不上：' + (wiring.unwired.join('；') || '族数 ' + FAMILY_FILES.length + ' < 6'));
+  // 正对照：合法合成输入（首段各不相同 + 六个合成族都接上了）两条判据都不许报。
+  const posFiles = ['alpha.js', 'beta.js', 'gamma.js', 'delta.js', 'epsilon.js', 'zeta.js'];
+  const posModules = posFiles.map((f) => ({ rel: 'lib/routes/' + f, fnName: 'register' + f[0].toUpperCase() + f.slice(1, -3) + 'Routes' }));
+  controls.push(['正对照：两条判据对合法合成输入都不报（同一份判据）',
+    triggerNotCrossed(['/alpha', '/beta', '/gamma/one'], 32, true).ok
+    && familiesWired(posFiles, posModules, []).ok]);
+  // 负对照 1：合成"3 条同族"必须被同一个 `< 3` 判据判出（判据会翻面的实证）。
+  const sameFam = triggerNotCrossed(['/alpha', '/alpha/one', '/alpha/two'], 32, true);
+  controls.push(['§7-6：合成「3 条同族」会被判出（最大组 ' + sameFam.g.max + '）',
+    sameFam.ok === false && sameFam.g.topSeg === 'alpha']);
+  // 负对照 2：索引空转（0 条路由）不许当"没到线" ⇒ 同一判据仍必须报（防空对空）。
+  controls.push(['§7-6：索引空转（0 条路由）会被判出', triggerNotCrossed([], 0, false).ok === false]);
+  // 负对照 3：合成"孤儿族模块"（写了却没接）必须被判出。
+  controls.push(['族接线：合成「孤儿族模块」会被判出',
+    familiesWired(['orphan.js'], [{ rel: 'lib/routes/orphan.js', fnName: 'registerOrphanRoutes' }], ['lib/routes/orphan.js']).ok === false]);
+  // 负对照 4：合成"没有 register<族>Routes 导出"的族文件必须被判出。
+  controls.push(['族接线：合成「没有 register<族>Routes 导出」会被判出',
+    familiesWired(['odd.js'], [{ rel: 'lib/routes/odd.js', fnName: 'setupOdd' }], []).ok === false]);
+  // 负对照 5：合成族数不足 6 必须被判出（下限本身有牙）。
+  controls.push(['族接线：合成族数不足 6 会被判出',
+    familiesWired(['only.js'], [{ rel: 'lib/routes/only.js', fnName: 'registerOnlyRoutes' }], []).ok === false]);
 }
 
 // ── 进度标记只许住在状态列：别的节里的 ⬜/🟡 是**第二份、无人核对的进度真源** ──────────────
@@ -804,22 +916,23 @@ if (openRow) {
   // 判增量而不是判绝对值：真文本一旦脏了，绝对值对照会跟着失败 ⇒ 同一个根因同时报"不一致"
   // 与"对照失效"，归因变糊。
   const injected = '\n**注**：这一条 ⬜ 还没做，另有 🟡 一条在做。\n';
-  controls.push(['§5 之外的正文里塞进进度标记',
+  controls.push(['负对照：§5 之外的正文里塞进进度标记',
     strayMarkers(ledgerText + injected).length === stray.length + 2]);
 }
 
-// ── 负对照的评估（**必须**在所有 `controls.push` 之后：本文件有四处 push，分布在三个判据块里）──
-// 把评估循环排在中间 ⇒ 后推的两个对照（路由条数、§5 之外的进度标记）从没被判过 —— **排序即判据**。
+// ── 对照的评估（**必须**在所有 `controls.push` 之后：本文件有十处 push，分布在四个判据块里）──
+// 把评估循环排在中间 ⇒ 后推的对照（路由条数、§5 之外的进度标记、P2-11 的触发线）从没被判过
+// —— **排序即判据**。标签自带"正对照 / 负对照"，两类共用这一条出口。
 let controlFailed = 0;
 for (const [what, ok] of controls) {
-  console.log(`  ${ok ? '✓' : '✗'} 负对照：${what} 会被判据抓到`);
+  console.log(`  ${ok ? '✓' : '✗'} ${what}`);
   if (!ok) controlFailed++;
 }
-if (!controls.length) { console.log('  ⚠️ 负对照无法构造（账本里没有既带证据又状态可翻转的条目）'); controlFailed++; }
+if (!controls.length) { console.log('  ⚠️ 对照无法构造（账本里没有既带证据又状态可翻转的条目）'); controlFailed++; }
 
 if (problems.length || controlFailed) {
   for (const p of problems) console.log('  ✗ ' + p);
-  console.log(`\nLEDGER SELF-CHECK FAILED — ${problems.length} 个不一致，${controlFailed} 个负对照失效`);
+  console.log(`\nLEDGER SELF-CHECK FAILED — ${problems.length} 个不一致，${controlFailed} 个对照失效`);
   process.exit(1);
 }
 console.log('ALL LEDGER SELF-CHECKS PASSED');
