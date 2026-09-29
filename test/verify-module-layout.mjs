@@ -579,6 +579,26 @@ console.log('⑥ `src/` 子目录成员数 ≥3 且被常青文档一级标题�
     !judge('// 见 ' + NEEDLE + 'g'));
 }
 
+// ═══ ⑧ 手动工具与适配层必须在 docs/TEST-LAYOUT.md 里点名（不许有"没人知道的工具"）══════════════
+// 回答的边界问题：「`test/tools/` 里那些没有 CI 消费者的脚本，读的人找得到吗」。
+// 实测过的形状：9 个工具里只有 1 个被文档点名 —— 其余等于只对作者可见（别人不知道该跑哪个、怎么跑）。
+// `test/compat-*.mjs` 同理：它们是 CI 调的，但人也要能手动跑（文档里写的是不带扩展名的名字）。
+{
+  const DOC = readFileSync(join(ROOT, 'docs', 'TEST-LAYOUT.md'), 'utf8');
+  const tools = readdirSync(join(ROOT, 'test', 'tools')).filter((f) => f.endsWith('.mjs')).sort();
+  const compat = readdirSync(join(ROOT, 'test')).filter((f) => /^compat-.*\.mjs$/.test(f)).sort();
+  // 按**不带扩展名的文件名**判（文档里工具写成 `x.mjs`、compat 写成 `x`，两种都算点名）
+  const judge = (doc, files) => files.filter((f) => !doc.includes(f.replace(/\.mjs$/, '')));
+  check('覆盖面：⑧ 扫到 ≥8 个工具 + ≥3 个 compat（防扫描面为空而恒真）',
+    tools.length >= 8 && compat.length >= 3, tools.length + ' 工具 / ' + compat.length + ' compat');
+  const undocumented = judge(DOC, [...tools, ...compat]);
+  check('每个 test/tools/*.mjs 与 test/compat-*.mjs 都在 TEST-LAYOUT 里点名', undocumented.length === 0,
+    undocumented.length ? '未点名：' + undocumented.join(', ') : (tools.length + compat.length) + ' 个都被点名');
+  check('negative control: 合成一个没被点名的工具会被判出',
+    judge(DOC, ['zzz-合成未点名.mjs']).join() === 'zzz-合成未点名.mjs');
+  check('positive control: 已点名的工具不算（判据不是恒真）', judge(DOC, [tools[0]]).length === 0, tools[0]);
+}
+
 console.log('');
 if (failed) {
   console.log('MODULE LAYOUT CHECKS FAILED — ' + failed + ' failed');
