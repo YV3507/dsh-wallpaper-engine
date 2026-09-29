@@ -1733,10 +1733,14 @@ setTimeout(async () => {
 
       // ①e 上界棘轮：**其它模块**里对"已知瞬态字段"的裸直写（它们没有入口可调）。
       //    "已知瞬态字段" = 本仓任何 `setTransient("…")` 点过名的字段（派生，不手写清单）。
-      //    收掉这些得先把三个入口注入那些模块 —— 在那之前这条棘轮保证它**只许下降**：
-      //    实测 11 处 → `src/media-prep.js` ×6（`url`×3 · `blockedNote`×3）、`src/effects.js` ×3
-      //    （`videoPlaying` · `videoError` · `blockedNote`）、`src/live-layer.js` ×2（`videoPlaying` ·
-      //    `videoError`）。新增一处即红：要么改成经入口写，要么在提交说明里给出理由并把上界**下调**。
+      //    ⚠️ 这 11 处**不是"孤立瞬态写入"**：读过一遍，是三类型路径，裸写是它们的**形态**而不是疏忽 ——
+      //      · `src/media-prep.js` ×6 —— **整批应用**（`applySelection` 一族：写一批字段后一次
+      //        `persistSelection()`；同一批里还有持久化字段与 `type` / `id` 等）；
+      //      · `src/live-layer.js` ×2 —— `syncLayers` 内部，**本次渲染正由 emit 驱动**（源码注释写明
+      //        "这里不 emit：本次 syncLayers 正是由 emit 驱动的"）；
+      //      · `src/effects.js` ×3 —— **卸载清理**（禁用 / HMR 后不留上一张壁纸的播放态）。
+      //      给它们注入入口是**仪式**而不是收口（"禁裸写会逼出任意豁免"那条注记就是这个意思）⇒ 这条
+      //      棘轮的作用是**不许变多**：新增一处即红，由人判定它属于哪一类，并顺手把上界按实测下调。
       const REMAINING_CROSS_MODULE_MAX = 11;
       const srcModuleFiles = readdirSync(new URL('../src/', import.meta.url))
         .filter((f) => f.endsWith('.js')).map((f) => 'src/' + f);
@@ -1791,6 +1795,69 @@ setTimeout(async () => {
         'positive control: 走令牌动作的收起分支不算（判据不是恒真）');
       assert.ok(closePathGoesThroughToken('onOpen: (v) => { if (v) busy(x); else { /* 什么也不做 */ } },') === false,
         'negative control: 收起分支不走令牌动作会被判出');
+
+      // ①g **持久化字段的直写必须与落盘配对**（"改了不生效 / 刷新后回退"那一类 —— P2-10 的动机）。
+      //    口径：扫 `src/client.js` 的实现面，对每个**持久化白名单里**的字段的 `selection.x = …`
+      //    直写，要求它**所在的函数体**里有 `persistSelection()` 或 `setSetting(`（后者内部会落盘）。
+      //    ⚠️ 函数级判据看不见"调用点落盘" ⇒ 那份豁免是**显式且只许缩小**的，每条写明为什么安全，
+      //    并且判据会检查它不空转（名单里的函数必须真的还在源码里，否则该删）。
+      const PERSIST_ELSEWHERE = {
+        seedGroupsFromPlaylists: '唯一调用点在读缓存后首次播种，紧随其后就是 persistSelection()',
+        setCustomFrameLocal: '两个调用点（onCustomFrameFile / onClearCustomFrame）在各自分支里都落盘 —— '
+          + '导入那支走 setSetting("url", …)，无 sceneFrameUrl 时走 else persistSelection()',
+      };
+      /** 第 at 行（0 基）所在的函数体；找不到函数返回 null。 */
+      const fnBodyAt = (ls, at) => {
+        let owner = null;
+        for (let i = 0; i <= at && i < ls.length; i++) {
+          const m = /^(\s*)(?:function\s+([\w$]+)|const\s+([\w$]+)\s*=\s*(?:async\s*)?\()/.exec(ls[i]);
+          if (m) owner = { name: m[2] || m[3], start: i, indent: m[1].length };
+        }
+        if (!owner) return null;
+        for (let i = at + 1; i < ls.length; i++) {
+          if (/^\s*\}/.test(ls[i]) && (ls[i].match(/^\s*/)[0] || '').length === owner.indent) {
+            return { name: owner.name, body: ls.slice(owner.start, i + 1).join('\n') };
+          }
+        }
+        return { name: owner.name, body: ls.slice(owner.start).join('\n') };
+      };
+      /** 判据（正/负对照共用）：返回"没和落盘配对"的 `字段@函数:L行` 清单。 */
+      const unpairedPersistedWrites = (text, exempt = []) => {
+        const ls = stripComments(String(text)).split('\n');
+        const out = [];
+        ls.forEach((line, i) => {
+          if (/function (setSetting|setTransient)\(field, value\)/.test(line)) return;
+          for (const m of line.matchAll(/(?<![\w.$])selection\.([\w$]+)\s*=(?!=)/g)) {
+            if (!persisted.includes(m[1])) continue;
+            const hit = fnBodyAt(ls, i);
+            if (hit && exempt.includes(hit.name)) continue;
+            const paired = Boolean(hit) && (/persistSelection\(\)/.test(hit.body) || /setSetting\(/.test(hit.body));
+            if (!paired) out.push(m[1] + '@' + (hit ? hit.name : '(无函数)') + ':L' + (i + 1));
+          }
+        });
+        return out;
+      };
+      const unpaired = unpairedPersistedWrites(src, Object.keys(PERSIST_ELSEWHERE));
+      assert.deepEqual(unpaired, [],
+        '持久化字段的直写必须与落盘配对；未配对：' + unpaired.join(', '));
+      const staleExempt = Object.keys(PERSIST_ELSEWHERE)
+        .filter((n) => !new RegExp('(?:function\\s+' + n + '\\b|const\\s+' + n + '\\s*=)').test(stripComments(src)));
+      assert.deepEqual(staleExempt, [], 'PERSIST_ELSEWHERE 里已不存在的函数该删：' + staleExempt.join(', '));
+      assert.deepEqual(
+        unpairedPersistedWrites('function f() { selection.videoVolume = 1; }\n'), ['videoVolume@f:L1'],
+        'negative control: 未配对的持久化字段直写会被判出');
+      assert.deepEqual(
+        unpairedPersistedWrites('function f() { selection.videoVolume = 1; persistSelection(); }\n'), [],
+        'positive control: 同一函数里落了盘 ⇒ 不算（判据不是恒真）');
+      assert.deepEqual(
+        unpairedPersistedWrites('function f() { selection.videoVolume = 1; setSetting("x", 1); }\n'), [],
+        'positive control: `setSetting(` 同函数也算落盘（它内部会 persist）');
+      assert.deepEqual(
+        unpairedPersistedWrites('function f() { selection.uploading = true; }\n'), [],
+        'positive control: 瞬态字段不归这条判据（那是 ①d 的范围）');
+      assert.deepEqual(
+        unpairedPersistedWrites('function f() { selection.videoVolume = 1; }\n', ['f']), [],
+        'positive control: 豁免名单里的函数不算（豁免生效）');
 
       // ② 结构：两侧都必须**委托**给 schema，宿主不得再有手写逐键白名单。
       //    ⚠️ `serializeSelection` 已随持久化层抽到 src/persistence.js（P2-9 后半）⇒ 那一条按
