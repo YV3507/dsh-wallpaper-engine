@@ -1,13 +1,18 @@
 #!/usr/bin/env node
 /**
- * verify-dead-declarations.mjs — **守卫面**（`test/verify-*.mjs` + `test/*-smoke.mjs`）里
- * 不得有**零引用的顶层声明**（"声明孤儿"）。
+ * verify-dead-declarations.mjs — **独立脚本面**（`test/verify-*.mjs` + `test/*-smoke.mjs` +
+ * `test/compat-*.mjs`）里不得有**零引用的顶层声明**（"声明孤儿"）。
  *
- * 为什么只扫守卫面：这些文件是**独立脚本**（不 import 彼此的业务符号）⇒ 一个顶层声明在本文件里
+ * 为什么只扫这些文件：它们都是**独立脚本**（不 import 彼此的业务符号）⇒ 一个顶层声明在本文件里
  * 只出现一次，就真的没人用。反过来 `src/**` **不适用**：那里的模块被构建期内联进**同一个作用域**，
  * `client.js` 里只出现一次的名字（`trapModalTab` / `VinylRecord` / `renderConfirmRow` …）正由
  * `panel-tabs.js` / `picker-modal.js` 在用 —— 按"本文件只出现一次"判会得到 **44 处假阳性**（实测）。
  * `lib/client.js` 同理（它是生成物，名字与 `src/` 各模块成对出现）。
+ * `test/tools/` 也不扫：那里的模块**导出**给守卫用，跨文件引用是正常的。
+ *
+ * `test/compat-*.mjs`（harness 适配层，需网络 / 真 harness / Chromium，因此**不进 `verify` 链**）
+ * 同样满足"独立脚本"这个前提 ⇒ 一并纳进来。加这条面时要先复核这个前提：它们**只能**引用
+ * node 内置模块或彼此 import 的导出（后者在本文件里出现 ≥2 次，不会被误判）。
  *
  * 为什么需要：**死代码不会自己变红**。实测 `test/verify-scene.mjs` 在 P2-12「静态帧线整体移除」
  * 时失去了三个 PNG/JPEG 字节解析助手的调用点（`pngInfo` / `jpegInfo` / `pngToRgba`，68 行），
@@ -55,14 +60,14 @@ function deadDeclarations(src) {
   return out;
 }
 
-// 扫描面 = 守卫面（`test/tools/` 不扫：那里的模块**导出**给守卫用，跨文件引用是正常的）
+// 扫描面 = 独立脚本面（`test/tools/` 不扫：那里的模块**导出**给守卫用，跨文件引用是正常的）
 const GUARDS = readdirSync(join(ROOT, 'test'), { withFileTypes: true })
-  .filter((e) => e.isFile() && /^(verify-.*|.*-smoke)\.mjs$/.test(e.name))
+  .filter((e) => e.isFile() && /^(verify-.*|.*-smoke|compat-.*)\.mjs$/.test(e.name))
   .map((e) => 'test/' + e.name)
   .sort();
 
 // 覆盖面：判据完全可能"因为扫描面为空而恒真"（没有文件 ⇒ 没有违规）
-check('覆盖面：扫到 ≥30 个守卫脚本（防 walker 返回空表）', GUARDS.length >= 30, GUARDS.length + ' 个');
+check('覆盖面：扫到 ≥30 个独立脚本（防 walker 返回空表）', GUARDS.length >= 30, GUARDS.length + ' 个');
 
 const offenders = [];
 for (const rel of GUARDS) {
@@ -70,7 +75,7 @@ for (const rel of GUARDS) {
     offenders.push(rel + ':' + d.n + ' → ' + d.name);
   }
 }
-check('守卫面零引用顶层声明 == 0（死代码不会自己变红，所以要有判据看着）', offenders.length === 0,
+check('独立脚本面零引用顶层声明 == 0（死代码不会自己变红，所以要有判据看着）', offenders.length === 0,
   offenders.length ? offenders.join(' | ') : GUARDS.length + ' 个脚本干净');
 
 // 正/负对照：把合成输入喂给**同一个判据函数**
