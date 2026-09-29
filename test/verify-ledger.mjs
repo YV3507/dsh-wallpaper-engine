@@ -1,5 +1,5 @@
 /**
- * verify-ledger.mjs — 账本自检（P1-8）：断言 docs/wip/REFACTOR-ASSESSMENT.md §5 的
+ * verify-ledger.mjs — 账本自检（P1-8）：断言 docs/wip/OPEN-ITEMS.md §5 的
  * **状态列与仓库实际一致**，防止账本说谎（"✅ 但代码里没有" / "⬜ 但其实已经做了"）。
  *
  * 为什么需要：账本自己写着"状态列是唯一进度真源"。真源一旦能写错，后面所有基于它的
@@ -43,7 +43,7 @@ function resolve0() {
   return join(dirname(fileURLToPath(import.meta.url)), '..');
 }
 
-const LEDGER = join(root, 'docs', 'wip', 'REFACTOR-ASSESSMENT.md');
+const LEDGER = join(root, 'docs', 'wip', 'OPEN-ITEMS.md');
 
 const read = (rel) => readFileSync(join(root, rel), 'utf8');
 const has = (rel) => existsSync(join(root, rel));
@@ -220,7 +220,7 @@ const EVIDENCE = {
     ['真机清单已归档（结论并入 §9.1 的 V1–V10）',
       () => has('docs/archive/audits/F0-THEME-SERVICE-CHECKLIST.md')],
     ['账本 §9.1 的 V 表在册（首尾两行都查）', () => {
-      const l = read('docs/wip/REFACTOR-ASSESSMENT.md');
+      const l = read('docs/wip/OPEN-ITEMS.md');
       return l.includes('| V1 |') && l.includes('| V10 |');
     }],
   ],
@@ -380,26 +380,26 @@ const EVIDENCE = {
     // §2 是"当前基线"表 ⇒ 表里的派生计数必须等于**现算值**（结构变了就必须改账本）。
     ['§2 基线表：内联模块计数 == 构建清单条数', () => {
       const n = (read('scripts/build-client.mjs').match(/file:\s*['"]/g) || []).length;
-      return n >= 10 && read('docs/wip/REFACTOR-ASSESSMENT.md').includes('| 构建期内联模块 | **' + n + ' 个**');
+      return n >= 10 && read('docs/wip/OPEN-ITEMS.md').includes('| 构建期内联模块 | **' + n + ' 个**');
     }],
     ['§2 基线表：守卫计数 == verify 链条数', () => {
       const chain = JSON.parse(read('package.json')).scripts.verify;
       const n = new Set(chain.match(/verify-[a-z-]+\.mjs/g) || []).size;
-      const stated = Number((read('docs/wip/REFACTOR-ASSESSMENT.md')
+      const stated = Number((read('docs/wip/OPEN-ITEMS.md')
         .match(/\*\*(\d+) 个 `verify-\*`/) || [])[1] || 0);
       return n >= 20 && stated === n;
     }],
     ['§2 基线表：冒烟计数 == smoke 链条数', () => {
       const chain = JSON.parse(read('package.json')).scripts.smoke;
       const n = new Set(chain.match(/[a-z-]+-smoke\.mjs/g) || []).size;
-      const stated = Number((read('docs/wip/REFACTOR-ASSESSMENT.md')
+      const stated = Number((read('docs/wip/OPEN-ITEMS.md')
         .match(/\+ (\d+) 个 smoke（/) || [])[1] || 0);
       return n >= 3 && stated === n;
     }],
     // 规模类只设**上限**（棘轮）：表里的数字只许比实测大，不许比实测小 —— 重构后基线悄悄变大
     // 会被判红，而"实际比表里小"是安全的（表是上界，不是精确值）。
     ['§2 基线表：src/client.js 行数仍是上界（棘轮）', () => {
-      const stated = Number(String((read('docs/wip/REFACTOR-ASSESSMENT.md')
+      const stated = Number(String((read('docs/wip/OPEN-ITEMS.md')
         .match(/浏览器正文 `src\/client\.js` \| \*\*([\d,]+) 行\*\*/) || [])[1] || '').replace(/,/g, ''));
       const actual = read('src/client.js').replace(/\n$/, '').split('\n').length;
       return stated > 0 && actual <= stated;
@@ -418,7 +418,7 @@ const EVIDENCE = {
       };
       const files = walk(join(root, 'lib'));
       const total = files.reduce((n, f) => n + readFileSync(f, 'utf8').split('\n').length, 0);
-      const m = read('docs/wip/REFACTOR-ASSESSMENT.md')
+      const m = read('docs/wip/OPEN-ITEMS.md')
         .match(/`lib\/\*\*`（[^\n|]*）\s*\|\s*\*\*([\d,]+) 文件 \/ ([\d,]+) 行\*\*/) || [];
       const statedFiles = Number(String(m[1] || '').replace(/,/g, ''));
       const statedLines = Number(String(m[2] || '').replace(/,/g, ''));
@@ -659,7 +659,7 @@ const EVIDENCE = {
   ],
   'P3-20': [
     ['复制度结论写明了作用域（单边结论不得当全仓不变量）', () => {
-      const l = read('docs/wip/REFACTOR-ASSESSMENT.md');
+      const l = read('docs/wip/OPEN-ITEMS.md');
       return l.includes('只对浏览器半边成立') && l.includes('已限定作用域');
     }],
   ],
@@ -849,7 +849,7 @@ if (openRow) {
 // 两个数，没有任何守卫看着它们。这里只**现算**：索引条数来自生成物、族数/已拆出条数来自源码。
 {
   const idxCount = Number((/共 \*\*(\d+)\*\* 条路由/.exec(read('docs/ROUTE-INDEX.md')) || [])[1]);
-  const ledger = read('docs/wip/REFACTOR-ASSESSMENT.md');
+  const ledger = read('docs/wip/OPEN-ITEMS.md');
   const famFiles = readdirSync(join(root, 'lib', 'routes')).filter((f) => f.endsWith('.js'));
   const famRegs = famFiles.reduce((n, f) => n + ((read('lib/routes/' + f).match(/register\(/g) || []).length), 0);
   const row = /\*\*([\d,]+) 行 = `lib\/index\.js` 的 \d+%\*\*，分支代理 \d+，(\d+) 条路由（\*\*(\d+) 族 \/ (\d+) 条已拆出/.exec(ledger);
