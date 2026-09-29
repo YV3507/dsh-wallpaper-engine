@@ -426,6 +426,7 @@ function applySelection(id, opts) {
     selection.sceneLiveActive = false;
     selection.sceneAudioUrl = null;
     selection.sceneHasAudio = false;
+    selection.schemeColor = null;
     selection.mediaInfo = null;
     selection.transcodeState = "idle";
     invalidateMediaInfoProbe();
@@ -450,6 +451,7 @@ function applySelection(id, opts) {
     selection.sceneLiveActive = false;
     selection.sceneAudioUrl = null;
     selection.sceneHasAudio = false;
+    selection.schemeColor = null;
     selection.mediaInfo = null;
     selection.transcodeState = "idle";
     invalidateMediaInfoProbe();
@@ -504,6 +506,13 @@ function applySelection(id, opts) {
   }
   // Keep the preview around so a failed static frame can fall back to it.
   selection.previewUrl = w.preview || null;
+  // 作者声明的配色（project.json 的 schemecolor，宿主已转成 rgb()）：既是垫底图的
+  // 底色兜底（buildLivePoster），也是「主题随壁纸」的第一优先级取色。此前宿主发了
+  // 这条字段但没人接 —— 垫底图因此永远走 CSS 变量兜底。
+  selection.schemeColor = w.schemeColor || null;
+  // 主题随壁纸（无开关）：本张壁纸的判决在这里落一次；作者配色缺席时它会自己去
+  // 采样预览图（异步、带代次校验），取不到就保持当前主题不动。
+  themeFollowOnWallpaper(selection);
   selection.transcodeState = "idle";
   // The previous wallpaper's media info must not leak into the new one: a stale
   // fps would make the sync "源帧率 ≤ 上限" check wrongly skip the transcode

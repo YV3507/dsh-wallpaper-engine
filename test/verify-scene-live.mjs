@@ -125,6 +125,10 @@ function writeUploadsFixture() {
   writeFileSync(join(projDir, 'project.json'), JSON.stringify({
     title: 'Custom Dir Scene', type: 'scene', file: 'scene.json', preview: 'preview.jpg',
     contentrating: 'Everyone',
+    // 作者配色：这条属性既是垫底图的底色兜底，也是「主题随壁纸」的优先级①。
+    // 目录形态的上传一旦在 inventory 里把它丢掉，优先级①对这些壁纸就不生效、只能退到
+    // 画面主色 —— 实测那会把作者标了 0 0 0 的暗色壁纸判成浅色（本夹具就是那条判据）。
+    general: { properties: { schemecolor: { order: 0, text: 'ui_browse_properties_scheme_color', type: 'color', value: '0.114 0.220 0.329' } } },
   }));
   writeFileSync(join(projDir, 'preview.jpg'), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
   // A legacy single-file upload must keep working alongside directories.
@@ -569,6 +573,11 @@ console.log('Level C2 — custom storage scan (WE project dirs under uploads)');
   check('custom-storage scene marked sceneLive + sceneLiveSrc',
     Boolean(dirScene && dirScene.sceneLive === true && dirScene.sceneLiveSrc),
     dirScene ? 'src len=' + String(dirScene.sceneLiveSrc || '').length : '-');
+  // 回归：目录形态的上传必须把作者配色带进 inventory（见夹具里 schemecolor 的注释）。
+  // 值走的是与 Steam 扫描同一条 schemeToCss（0–1 浮点三元组 → rgb()）。
+  check('custom-storage scene carries the author scheme color (regression)',
+    Boolean(dirScene && dirScene.schemeColor === 'rgb(29, 56, 84)'),
+    dirScene ? String(dirScene.schemeColor) : '-');
   check('custom-storage scene has frameUrl + preview',
     Boolean(dirScene && dirScene.frameUrl && dirScene.preview),
     dirScene ? 'frameUrl=' + Boolean(dirScene.frameUrl) + ' preview=' + Boolean(dirScene.preview) : '-');
