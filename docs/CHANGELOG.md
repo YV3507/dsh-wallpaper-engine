@@ -3,8 +3,8 @@
 > 本文件承接原先堆在 README 首页的**版本公告与功能清单**。门面（`../README.md` / `../README.en.md`）
 > 只保留与版本无关的亮点；带版本号、issue 号、性能数字的内容一律记在这里。
 >
-> **当前发布版本：`v1.0.1`**（与 `package.json` 的 `version` 一致；上游最新 release 亦是 v1.0.1）。
-> 顶部 `### 未发布（下一版）` 记的是**相对 v1.0.1 的增量**（即本仓库与上游 `origin/main` 的差异）。
+> **当前开发版本：`v1.1.0`**（与 `package.json` 的 `version` 一致）；**npm 上最新发布仍是 `v1.0.1`**，v1.1.0 待发布。
+> 顶部 `### 未发布（下一版）` 记的是**相对已发布 v1.0.1 的增量**（即本仓库与上游 `origin/main` 的差异）。
 >
 > **归档说明**：本仓库从 **v0.6.8** 起才有 git tag，更早的版本没有独立标签。早于 v0.6.8 的条目
 > 按**原 README 原文的版本标注**归档；原文未标注小版本的条目放进区间桶，不臆造版本号。
@@ -60,6 +60,10 @@
 
 - 以最小形式采纳上游 PR #87 的 `js-yaml` 约束（非可达漏洞）。
 - 打包白名单回归断言（`verify-package-files`），覆盖 `lib/**` 全部运行时模块。
+- **发布面三处补强（v1.1.0）**：
+  - **`scripts/prepare.mjs` 进入 `files`**：`prepare` 在 git 直装、或把包装成**根项目**执行（解包后 `pnpm install`）时真的会跑 —— 脚本不随包就是执行即 `MODULE_NOT_FOUND`（把发布包解开当根项目跑 `pnpm install` 可稳定复现）。配套：`verify-package-publish` ⑦ 不再把 `prepare` 当开发期脚本（它的引用必须随包），② 只为这一个文件开白名单，其余 `src/` `scripts/` `test/` `docs/` 照旧一律判红。
+  - **可达闭包的相对导入目标必须在磁盘上在位**（`verify-package-publish` ① 新增断言 + 负对照）：指向不存在文件的 import 在仓库里是死路径、本地没人撞得上，装到用户机器上才炸成 `ERR_MODULE_NOT_FOUND` —— npm 上的 1.0.1 正是这么残缺的（`lib/scene-scripts.js` 引用的 `./scene-script-apis.js` 从未进过发布物）。同一口径再落到 `verify-package-files` 的新 **P7**：扫 `lib/**` 全部运行时模块（不只 `lib/index.js` 的可达闭包），相对导入目标缺失即判红。
+  - **版本 `1.0.1 → 1.1.0`**：npm 上的 1.0.1 已发布且不可覆盖，仓库与它内容不同步，只能靠新版本把当前代码带上去。
 
 **文档与仓库整理**
 
@@ -187,6 +191,7 @@
 ### Unreleased (next version)
 
 > Increment over the published **v1.0.1** (the diff against upstream `origin/main`, verifiable commit by commit).
+> Current `package.json` version: **v1.1.0** — npm still serves **v1.0.1**; v1.1.0 is pending publication.
 
 **UI**
 
@@ -264,6 +269,10 @@
 
 - Adopted upstream PR #87's `js-yaml` constraint in minimal form (a non-reachable vulnerability).
 - Packaging-whitelist regression assertions (`verify-package-files`), covering every runtime module under `lib/**`.
+- **Three publish-face strengthenings (v1.1.0)**:
+  - **`scripts/prepare.mjs` is now shipped**: `prepare` really does run when the plugin is installed from git, or when the packed artifact is executed as a *root project* (unpack, then `pnpm install`) — shipping the script without it means `MODULE_NOT_FOUND` the moment it runs (reproducible by unpacking the published package and running `pnpm install` in it). Follow-ups: `verify-package-publish` ⑦ no longer treats `prepare` as a repo-only script (its target must ship), and ② opens its dev-directory allowlist for exactly this one file — `src/` `scripts/` `test/` `docs/` are still rejected everywhere else.
+  - **Every relative import target of the reachable closure must exist on disk** (new assertion + negative control in `verify-package-publish` ①): an import pointing at a file that is not there is a dead path locally — nobody trips over it until it is installed on a user's machine and blows up as `ERR_MODULE_NOT_FOUND`. The npm **1.0.1** artifact was exactly that (`./scene-script-apis.js`, imported by `lib/scene-scripts.js`, never shipped). The same rule now also runs as **P7** in `verify-package-files`: every runtime module under `lib/**` is scanned, not just the closure reachable from `lib/index.js`.
+  - **Version `1.0.1 → 1.1.0`**: the published 1.0.1 cannot be overwritten and no longer matches this repository, so only a new version carries the current code to npm.
 
 **Docs & repo housekeeping**
 

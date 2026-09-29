@@ -20,7 +20,7 @@
 import { readFileSync, readdirSync, statSync, existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { join, relative, sep } from 'node:path';
+import { join, relative, sep, dirname, resolve } from 'node:path';
 import { builtinModules } from 'node:module';
 // 剥注释：共享的字符串感知实现（test/tools/js-text.mjs）。
 import { stripComments } from './tools/js-text.mjs';
@@ -172,6 +172,40 @@ async function main() {
     try { execFileSync(process.execPath, ['--check', tmp], { stdio: 'ignore' }); } catch { caught = true; }
     try { rmSync(tmp, { force: true }); } catch { /* ignore */ }
     check('P6 negative control: 坏模块会被 --check 判出', caught);
+  }
+
+  // ── P7: 每个 lib/ 运行时模块的**相对导入目标**都真实存在于磁盘 ─────────────────
+  // P6 只判语法：一个指向不存在文件的 import 在仓库里是**死路径** —— 没有守卫 import 它，
+  // `node --check` 也照过（语法没错），装到用户机器上才炸成 `ERR_MODULE_NOT_FOUND`。
+  // 与 `verify-package-publish` ① 同口径但面更宽：那一份从 `lib/index.js` 的可达闭包出发，
+  // 这份扫**全部**运行时模块（路由 / 媒体族多为宿主动态 import，不进那张闭包图）。
+  // 口径：剥注释后扫 `from` / 动态 `import()` / `require()` 三种形态的相对说明符。
+  {
+    /** 判据：相对说明符 → 磁盘上的目标文件；候选一个都不存在返回 null（主扫描与负对照都走它）。 */
+    const resolveRelative = (fromRel, spec) => {
+      const base = resolve(ROOT, dirname(fromRel), spec.split('?')[0]);
+      for (const cand of [base, base + '.js', base + '.mjs', base + '.cjs', join(base, 'index.js')]) {
+        if (existsSync(cand) && statSync(cand).isFile()) return cand;
+      }
+      return null;
+    };
+    const missing = [];
+    let specs = 0;
+    for (const rel of runtime) {
+      const src = stripComments(readFileSync(join(ROOT, rel), 'utf8'));
+      for (const m of src.matchAll(/(?:from\s+|import\s*\(\s*|require\s*\(\s*)['"](\.[^'"]+)['"]/g)) {
+        specs++;
+        if (resolveRelative(rel, m[1]) === null) missing.push(rel + ' -> ' + m[1]);
+      }
+    }
+    check('P7 every relative import target of every lib/ module exists on disk',
+      specs > 0 && missing.length === 0,
+      missing.length ? 'missing=[' + missing.join(', ') + ']'
+        : specs + ' specifier(s) across ' + runtime.length + ' module(s)');
+    check('P7 negative control: 目标不存在时报出、省略扩展名时解析到实体',
+      resolveRelative('lib/index.js', './definitely-absent.js') === null
+      && resolveRelative('lib/index.js', './__absent__') === null
+      && resolveRelative('lib/index.js', './pkg-extract') === join(ROOT, 'lib', 'pkg-extract.js'));
   }
 
   // ── P4: 声明的依赖必须有消费者 (防"死声明") ──────────────────────────────────
