@@ -5,12 +5,12 @@
     "version": "0.1.7-rc.2"
   },
   "plugin": {
-    "commit": "39691d2d626a113d0850cacd0e2d63187f229cce",
+    "commit": "b5c3f2f06f7f9e6f7a92c00aad68a7dddbaa09b0",
     "version": "1.0.1"
   },
   "node": "v22.23.2",
   "runner": "Windows",
-  "runId": "36519163155",
+  "runId": "36522531349",
   "status": "pass",
-  "passedAt": "2026-09-29T03:59:13Z"
+  "passedAt": "2026-09-29T04:43:54Z"
 }

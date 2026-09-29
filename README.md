@@ -83,13 +83,9 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 
 装完重启 `dsh web`，打开 **设置 → Wallpaper Engine** 就能用。
 
-> **macOS 用户**：macOS 没有 Wallpaper Engine 客户端，本插件的 macOS 版（WaifuX + 散装媒体支持）由社区维护者 Jerry 维护，发布为独立 npm 包：
+> **macOS / Linux 用户**：本插件在 Windows / macOS / Linux 上**原生可用** —— 三平台装的是**同一个包、同一条命令**（媒体链路也各自原生：GSMTC / MediaRemote / MPRIS）。
 >
-> ```sh
-> dsh plugin --profile web add dsh-plugin-wallpaper-engine-mac
-> ```
->
-> 仓库：https://github.com/ruijiaang-lab/dsh-wallpaper-engine
+> macOS 没有 Wallpaper Engine 客户端，因此扫不到 Steam 壁纸库：把「自定义壁纸」的**存储位置**指到一个装着 WE 工程目录的文件夹（`project.json` + `scene.pkg` / `index.html` / `*.mp4`），里面的场景 / 网页 / 视频壁纸会照常收录、场景同样实时渲染；也可以直接上传图片 / 视频。
 
 ### 开发者（运行你本地的一份代码）
 
