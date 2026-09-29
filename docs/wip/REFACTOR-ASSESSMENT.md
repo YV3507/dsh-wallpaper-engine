@@ -49,11 +49,11 @@
 
 | 指标 | 当前值 |
 |---|---|
-| 浏览器正文 `src/client.js` | **4121 行**（重构起点 10,119 行） |
+| 浏览器正文 `src/client.js` | **4126 行**（重构起点 10,119 行） |
 | 构建期内联模块 | **20 个**（19 个来自 `src/` + 共享内核 `lib/settings-schema.js`） |
 | `lib/**`（`verify-reachability` 打印的「lib 扫描面」：`lib/**.{js,mjs}` **全量**，vendored 与生成物都在内） | **25 文件 / 28700 行** |
 | 其中**运行时不可达** | **0 文件 / 0 行**（P2-12 第一半已删净；此前 48 文件 / 9,618 行曾在 `files` 里、真的发给用户） |
-| 生成物 `lib/client.js` | 13316 行 / 1.32 MiB（提交；判据是"重建后 `git status` 干净"） |
+| 生成物 `lib/client.js` | 13327 行 / 1.32 MiB（提交；判据是"重建后 `git status` 干净"） |
 | 守卫 + 冒烟 | **31 个 `verify-*`（15697 行）+ 6 个 smoke（2794 行）**，均在 `test/`（另有 3 个 `compat-*` 在 CI 专属的 compat 层 + 4 个 `tools/` 手动工具，都不进 `verify` 链） |
 | vendored | `webwallgl/` + `vendor/` 共 **12 文件 / 6,950 行** |
 
@@ -67,7 +67,7 @@
 
 | 巨石 | 体量 | 锚点 |
 |---|---|---|
-| `WallpaperPicker` 组件 | **722 行**（P3-11 前 1,033 / 原估 1,051 行，分支代理 202 = 当时的 `src/client.js` 的 25%）；模型 / 模态框 / 属性面板已抽到 `src/picker-*.js` | `src/client.js`；六个页签渲染器在 `src/panel-tabs.js`，仍有约 100 处瞬态直写 |
+| `WallpaperPicker` 组件 | **722 行**（P3-11 前 1,033 / 原估 1,051 行，分支代理 202 = 当时的 `src/client.js` 的 25%）；模型 / 模态框 / 属性面板已抽到 `src/picker-*.js` | `src/client.js`；六个页签渲染器在 `src/panel-tabs.js`，瞬态字段**零裸直写**（守卫 ①d 钉住：`setTransient` 是唯一入口），其余模块对已知瞬态字段的裸直写 **11 处**（守卫 ①e 上界棘轮，只许下降） |
 | `apply(ctx)` 宿主函数 | **1,203 行 = `lib/index.js` 的 34%**，分支代理 219，32 条路由（**6 族 / 18 条已拆出**到 `lib/routes/`） | `lib/index.js`；内含 4 个巨石 `buildInventory`(137) / `handleSceneFiles`(65) / `serveFile`(49) / `ensureMediaOrigin`(42) |
 
 ⚠️ **复杂度的分布比总量更值得注意**：`lib/media/` 分层清楚（`lib/we-renderer/` 曾也是一棵干净的树，已随 P2-12 删除）。

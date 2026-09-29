@@ -4,7 +4,7 @@
 // the four effect knobs (wallpaper blur/scrim/border/glass blur) push CSS
 // variables, the picker renders, and automatic rotation is scoped to a
 // user-defined rotation group (list) with its own interval.
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 // 剥注释：共享的字符串感知实现（test/tools/js-text.mjs）。
@@ -1701,6 +1701,64 @@ setTimeout(async () => {
       assert.deepEqual(persistingWritesOf(
         'setTransient("fontAdvanced", false);\n// setSetting("fontAdvanced", x)\n/* setSetting("themeTypeOnly", y) */'),
       [], 'positive control: setTransient 本身、以及注释里的写法都不算（判据不是恒真）');
+
+      // ①d `src/client.js` 里**非持久化字段**必须经 `setTransient` 改（契约的第三条入口）。
+      //    口径由实现派生、**不维护字段清单**：持久化白名单 = `persisted`（`serializeSettings` 带的键），
+      //    再排除 `id`（由 settings blob 顶层携带）与 `FONT_KEYS`（走字体集通道）⇒ 其余字段只在内存里
+      //    活着，对它们落盘没有意义，裸直写 `selection.x = v` 等于绕过了"唯一入口"那句话。
+      //    扫描面 = `src/client.js`：它是 store 的**属主**，三个入口都在这里。其它模块手上只有
+      //    `selection`（没有入口可调）⇒ 它们的直写不在本条范围内，由 ①e 的上界棘轮盯着。
+      const transientBareWrites = (text) => {
+        const code = stripComments(text);
+        const out = [];
+        for (const m of code.matchAll(/(?<![\w.$])selection\.([\w$]+)\s*=(?!=)/g)) {
+          const k = m[1];
+          if (persisted.includes(k) || k === 'id' || FONT_KEYS.includes(k)) continue;
+          out.push(k);
+        }
+        return out;
+      };
+      assert.deepEqual(transientBareWrites(src), [],
+        'client.js 里非持久化字段必须经 setTransient 写，不得裸直写：' + transientBareWrites(src).join(', '));
+      assert.deepEqual(transientBareWrites('selection.uploading = true;'), ['uploading'],
+        'negative control: 瞬态字段裸直写会被判出');
+      assert.deepEqual(transientBareWrites('selection.videoVolume = 0.5;'), [],
+        'positive control: 持久化字段的直写不算（那条通道归 setSetting / ①c 管）');
+      assert.deepEqual(transientBareWrites('setTransient("uploading", true);'), [],
+        'positive control: 经 setTransient 写不算（判据不是恒真）');
+      assert.deepEqual(transientBareWrites('// selection.uploading = true;'), [],
+        'positive control: 注释里的写法不算（先剥注释）');
+      assert.deepEqual(transientBareWrites('wrapper.selection.uploading = true;'), [],
+        'positive control: 别的对象的同名字段不算（按 `selection.` 收口）');
+
+      // ①e 上界棘轮：**其它模块**里对"已知瞬态字段"的裸直写（它们没有入口可调）。
+      //    "已知瞬态字段" = 本仓任何 `setTransient("…")` 点过名的字段（派生，不手写清单）。
+      //    收掉这些得先把三个入口注入那些模块 —— 在那之前这条棘轮保证它**只许下降**：
+      //    实测 11 处 → `src/media-prep.js` ×6（`url`×3 · `blockedNote`×3）、`src/effects.js` ×3
+      //    （`videoPlaying` · `videoError` · `blockedNote`）、`src/live-layer.js` ×2（`videoPlaying` ·
+      //    `videoError`）。新增一处即红：要么改成经入口写，要么在提交说明里给出理由并把上界**下调**。
+      const REMAINING_CROSS_MODULE_MAX = 11;
+      const srcModuleFiles = readdirSync(new URL('../src/', import.meta.url))
+        .filter((f) => f.endsWith('.js')).map((f) => 'src/' + f);
+      const srcTextOf = (f) => readFileSync(new URL('../' + f, import.meta.url), 'utf8');
+      const knownTransient = new Set();
+      for (const f of srcModuleFiles) {
+        const t = stripComments(srcTextOf(f));
+        for (const m of t.matchAll(/setTransient\(\s*['"]([\w$]+)['"]/g)) knownTransient.add(m[1]);
+      }
+      const crossModule = [];
+      for (const f of srcModuleFiles) {
+        if (f === 'src/client.js') continue;
+        const t = stripComments(srcTextOf(f));
+        for (const m of t.matchAll(/(?<![\w.$])selection\.([\w$]+)\s*=(?!=)/g)) {
+          if (knownTransient.has(m[1])) crossModule.push(f + ':' + m[1]);
+        }
+      }
+      assert.ok(crossModule.length <= REMAINING_CROSS_MODULE_MAX,
+        'client.js 之外对已知瞬态字段的裸直写只许下降（上界 ' + REMAINING_CROSS_MODULE_MAX + '）：'
+        + crossModule.length + ' 处 → ' + crossModule.join(', '));
+      assert.ok(crossModule.length > 0 || REMAINING_CROSS_MODULE_MAX === 0,
+        '棘轮空转：上界还有余量却没有直写可收 ⇒ 该把上界下调');
 
       // ② 结构：两侧都必须**委托**给 schema，宿主不得再有手写逐键白名单。
       //    ⚠️ `serializeSelection` 已随持久化层抽到 src/persistence.js（P2-9 后半）⇒ 那一条按
