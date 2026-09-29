@@ -679,12 +679,19 @@ const EVIDENCE = {
     }],
   ],
   'P3-24': [
-    // 判据盯**口径**（轮询/触发面 + 第三方排除 + 基线落点），不盯实现细节：
-    // 工作流与脚本怎么重构都行，"跑什么、不跑什么、基线何时写"这三件事不能变。
-    ['适配工作流口径：轮询 latest + push main、跑 verify:all、不跑 verify:bridge、基线落点在册', () => {
+    // 判据盯**口径**（触发面 + 第三方排除 + 基线落点），不盯实现细节：
+    // 工作流与脚本怎么重构都行，"怎么触发、跑什么、不跑什么、基线何时写"这四件事不能变。
+    ['适配工作流口径：只手动派发（无常驻触发）、跑 verify:all、不跑 verify:bridge、基线落点在册', () => {
       const y = read('.github/workflows/harness-compat.yml');
-      return y.includes('npm view @deepseek-ai/dsh dist-tags.latest')
-        && y.includes('branches: [main]')
+      // 「不自动触发」是**缺席断言**，只许对着 `on:` 块判：头部注释里那句「不挂 schedule / push」
+      // 同样是这几个字，按全文扫等于拿自己的散文当证据（写作纪律：断言缺席前先剥散文）。
+      const triggersOf = (t) => t.slice(t.indexOf('\non:'), t.indexOf('\nconcurrency:'));
+      const autoTriggered = (t) => /\n\s+(schedule|push):/.test(triggersOf(t));
+      return triggersOf(y).includes('workflow_dispatch')
+        && !autoTriggered(y)
+        // 负对照：挂了 push 的合成 `on:` 块必须被判出，否则上面那半条判据恒真。
+        && autoTriggered('\nname: x\non:\n  push:\n    branches: [main]\nconcurrency:\n  group: x\n')
+        && y.includes('npm view @deepseek-ai/dsh dist-tags.latest')
         && y.includes('npm run verify:all')
         && !y.includes('npm run verify:bridge')
         && y.includes('.github/harness-baseline.json');
