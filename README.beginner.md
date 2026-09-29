@@ -22,8 +22,8 @@
 
 ### 开始前，请确认你有
 
-- ✅ 一台 **Windows** 电脑（Mac 用户请看本页最后的「Mac 用户」一节）。
-- ✅ 已经装好并打开过一次 **Wallpaper Engine**（Steam 上的那个壁纸软件），且里面至少有一张壁纸。
+- ✅ 一台 **Windows / macOS / Linux** 电脑（三个平台都原生支持；macOS 上没有 Wallpaper Engine 客户端，请看本页最后的「Mac 用户」一节）。
+- ✅ 已经装好并打开过一次 **Wallpaper Engine**（Steam 上的那个壁纸软件），且里面至少有一张壁纸（**macOS** 装不了它，改看「Mac 用户」一节）。
 - ✅ 已经装好 **DSH**（DeepSeek Harness），并能跑起 `dsh web`。
 - ✅ 知道怎么打开「**命令提示符**」或「**PowerShell**」（在开始菜单里搜就行）。
 
@@ -142,13 +142,14 @@ Mac / Linux：`~/.dsh-wallpaper-engine/config.json`）—— 重启、换端口�
 
 ### Mac 用户
 
-macOS 没有 Wallpaper Engine 客户端，所以本插件的 Windows 版用不了。不过社区维护者 **Jerry** 做了一个 macOS 专用版本（支持 WaifuX 和散装媒体）：
+**不用另装别的包** —— 本插件在 macOS 上原生可用，安装命令与 Windows 完全一样（就是上面「第一步：安装」那一行）。
 
-```sh
-dsh plugin --profile web add dsh-plugin-wallpaper-engine-mac
-```
+macOS 上没有 **Wallpaper Engine 客户端**，所以没有 Steam 壁纸库可以扫。想让壁纸出现在 DSH 里，用下面任意一条路：
 
-仓库地址：https://github.com/ruijiaang-lab/dsh-wallpaper-engine
+1. **自己上传**：在「自定义壁纸」里直接传本机的图片（JPG / PNG）或视频（MP4）。
+2. **指一个已有的壁纸文件夹**：如果你用别的工具攒了一堆 WE 壁纸工程目录，把「自定义壁纸」的**存储位置**改成那个文件夹 —— 里面带 `project.json` 的壁纸项目会被自动收录，场景 / 网页壁纸同样走实时渲染。
+
+系统媒体（歌曲名 / 封面 / 频谱）在 macOS 上也是内置的，不需要额外安装 `brew` 之类的东西。
 
 ### 名词表
 
@@ -192,8 +193,8 @@ In one sentence: **it puts your Steam Wallpaper Engine wallpapers behind the Dee
 
 ### Before you start, make sure you have
 
-- ✅ A **Windows** PC (macOS users: see the "macOS users" section at the end).
-- ✅ **Wallpaper Engine** installed and opened at least once (the Steam wallpaper app), with at least one wallpaper in it.
+- ✅ A **Windows / macOS / Linux** PC (all three are supported natively; macOS has no Wallpaper Engine client — see the "macOS users" section at the end).
+- ✅ **Wallpaper Engine** installed and opened at least once (the Steam wallpaper app), with at least one wallpaper in it (not available on **macOS** — see the "macOS users" section instead).
 - ✅ **DSH** (DeepSeek Harness) installed, and `dsh web` working.
 - ✅ A way to open **Command Prompt** or **PowerShell** (just search for it in the Start menu).
 
@@ -312,13 +313,14 @@ macOS / Linux: `~/.dsh-wallpaper-engine/config.json`) — restarts, port changes
 
 ### macOS users
 
-macOS has no Wallpaper Engine client, so this plugin's Windows build cannot be used. The community maintainer **Jerry** publishes a macOS-specific version (WaifuX + loose-media support):
+**No separate package to install** — this plugin runs natively on macOS, with exactly the same install command as Windows (the line in "Step 1: install" above).
 
-```sh
-dsh plugin --profile web add dsh-plugin-wallpaper-engine-mac
-```
+macOS has no **Wallpaper Engine client**, so there is no Steam wallpaper library to scan. To get wallpapers into DSH, use either path:
 
-Repo: https://github.com/ruijiaang-lab/dsh-wallpaper-engine
+1. **Upload your own**: in "自定义壁纸" (custom wallpapers), upload local images (JPG / PNG) or videos (MP4).
+2. **Point at an existing wallpaper folder**: if another tool has already collected WE project directories for you, set the custom-wallpaper **storage location** to that folder — every wallpaper project with a `project.json` inside is picked up automatically, and scenes / web wallpapers render live just the same.
+
+System media (track title / artwork / spectrum) is built in on macOS too — nothing extra to install, no `brew` packages.
 
 ### Glossary
 

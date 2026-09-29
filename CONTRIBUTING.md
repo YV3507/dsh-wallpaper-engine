@@ -6,14 +6,9 @@ Thanks for helping improve `dsh-wallpaper-engine`. Please keep each pull request
 
 ## Choose the target branch / 选择目标分支
 
-| Change / 改动 | Pull request base / PR 目标分支 |
-|---|---|
-| Windows, WSL, and shared cross-platform behavior / Windows、WSL 与跨平台公共功能 | `main` |
-| macOS, WaifuX, loose-media discovery, and the macOS package / macOS、WaifuX、松散媒体扫描与 macOS 包 | `dsh-wallpaper-engine-mac` |
+All changes target `main`. The plugin is **one natively cross-platform tree** (Windows / WSL / macOS / Linux) with no platform branch — a platform-specific change must not regress the others.
 
-The macOS line is maintained by [Jerry (@ruijiaang-lab)](https://github.com/ruijiaang-lab). Keeping platform-specific work on the macOS branch lets the Windows-first `main` line and the WaifuX integration evolve without overwriting each other.
-
-macOS 版本由 [Jerry（@ruijiaang-lab）](https://github.com/ruijiaang-lab)维护。将平台专属改动提交到 macOS 分支，可以避免 Windows-first `main` 与 WaifuX 适配在同步时互相覆盖。
+所有改动都提交到 `main`。本插件是**一份原生跨平台代码**（Windows / WSL / macOS / Linux），没有平台分支 —— 平台专属改动不得让其它平台回退。
 
 ## Build from the canonical source / 从唯一源码构建
 
@@ -22,14 +17,14 @@ macOS 版本由 [Jerry（@ruijiaang-lab）](https://github.com/ruijiaang-lab)维
 - Host-side changes live directly in `lib/index.js` and the other `lib/*.js` host modules.
 - Restart DSH after host-side edits: `lib/*.js` is loaded at startup and is never hot-updated in a running instance.
 - Install a local dev build with the application **fully closed** (`dsh plugin --profile desktop add link:<path>`), then start it. Installing while the app is running leaves the plugin in `startup-unconfirmed`, which the recovery state rolls back on the next start.
-- Use the Node.js version required by the target branch and your DSH profile. The macOS package currently requires Node.js 24 or newer.
+- Use the Node.js version your DSH profile requires; this repository declares `engines.node` in `package.json`.
 
 - `src/client.js` 是浏览器端唯一源码。修改后运行 `npm run build` 重新生成 `lib/client.js`。
 - `lib/client.js` 是随包分发的构建产物，请勿手改。
 - 宿主端代码直接位于 `lib/index.js` 和其他 `lib/*.js` 模块中。
 - 改完宿主端代码需**重启 DSH**：`lib/*.js` 在启动时加载，运行中的实例不会热更新。
 - 安装本地 dev 构建请**先完全关闭应用**（`dsh plugin --profile desktop add link:<path>`）再启动；应用运行期间安装会停在 `startup-unconfirmed`，恢复状态会在下次启动时自动回滚。
-- 请使用目标分支与 DSH profile 要求的 Node.js 版本；当前 macOS 包要求 Node.js 24 或更高版本。
+- 请使用你的 DSH profile 要求的 Node.js 版本；本仓在 `package.json` 的 `engines.node` 里声明。
 
 ### What `lib/client.js` actually is / `lib/client.js` 到底是什么
 
@@ -176,9 +171,9 @@ npm run verify:all  # = build + verify + smoke
   coexist with DSH Desktop).
 
 
-For UI changes, also describe the real DSH surface you tested, including browser or DSH Desktop mode. For platform-specific changes, call out the source layout used in the test—for example Wallpaper Engine, WSL, WaifuX, or loose media.
+For UI changes, also describe the real DSH surface you tested, including browser or DSH Desktop mode. For platform-specific changes, call out the source layout used in the test—for example a Steam Wallpaper Engine library, a WSL mount, or a storage folder holding WE project directories.
 
-UI 改动还应说明实际测试过的 DSH 界面、浏览器或 DSH Desktop 模式。平台专属改动请注明测试数据来源，例如 Wallpaper Engine、WSL、WaifuX 或松散媒体文件。
+UI 改动还应说明实际测试过的 DSH 界面、浏览器或 DSH Desktop 模式。平台专属改动请注明测试数据来源，例如 Steam 的 Wallpaper Engine 库、WSL 挂载，或存储位置里的 WE 项目目录。
 
 ## Release / 发布
 
@@ -192,7 +187,7 @@ UI 改动还应说明实际测试过的 DSH 界面、浏览器或 DSH Desktop �
 
 ## Pull request checklist / PR 检查清单
 
-- The PR targets the correct branch for its platform.
+- The PR targets `main`.
 - Source and generated client output are both included when `src/client.js` changes.
 - Existing platform behavior is preserved or the intentional change is explained.
 - Build and verification commands pass.
@@ -202,7 +197,7 @@ UI 改动还应说明实际测试过的 DSH 界面、浏览器或 DSH Desktop �
   (e.g. the comment-discipline ratchet table).
 - The PR contains no credentials, local media, generated caches, or unrelated cleanup.
 
-- PR 已选择正确的平台分支。
+- PR 目标分支为 `main`。
 - 修改 `src/client.js` 时同时包含重新生成的客户端产物。
 - 现有平台行为已保留，或正文已解释有意变更。
 - 构建与验证命令全部通过。

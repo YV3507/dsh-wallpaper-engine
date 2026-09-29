@@ -84,15 +84,15 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 
 Then restart `dsh web` and open **Settings → Wallpaper Engine**.
 
-> **macOS users**: Wallpaper Engine has no macOS client. The macOS line of this
-> plugin (WaifuX + loose-media support) is maintained by Jerry and published as
-> a separate npm package:
+> **macOS / Linux users**: this plugin runs **natively** on Windows / macOS / Linux
+> — the same package and the same command on all three (the media pipeline is native
+> per platform too: GSMTC / MediaRemote / MPRIS).
 >
-> ```sh
-> dsh plugin --profile web add dsh-plugin-wallpaper-engine-mac
-> ```
->
-> Repo: https://github.com/ruijiaang-lab/dsh-wallpaper-engine
+> macOS has no Wallpaper Engine client, so there is no Steam wallpaper library to
+> scan: point the **custom-wallpaper storage location** at a folder holding WE project
+> directories (`project.json` + `scene.pkg` / `index.html` / `*.mp4`) and the scene /
+> web / video wallpapers inside are picked up, scenes rendering live as usual; you can
+> also simply upload your own images / videos.
 
 ### For developers (running your own copy)
 
