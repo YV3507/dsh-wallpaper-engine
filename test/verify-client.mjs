@@ -693,7 +693,11 @@ setTimeout(async () => {
     };
     const caretWhite = findSwatch(tree, '光标颜色 #ffffff');
     const caretAuto = findSwatch(tree, '光标颜色 自动');
-    console.log('caret 白 preset + 自动 buttons present:', !!caretWhite && !!caretAuto);
+    // 前置**硬断言**（P3-13：缺前置 = 默认红，不与"通过"同形）。这里早先是
+    // `console.log('… present:', !!x && !!y)` 加一句 `if (…) { asserts }`：控制项一改名，后面的断言就
+    // **静默不跑**，而这条守卫照样绿（零覆盖与通过同形）。那行日志已删 —— 它不是判据。
+    assert.ok(caretWhite && caretAuto,
+      '光标颜色行必须同时有「#ffffff」预设与「自动」按钮（缺则后续断言零覆盖）');
     if (caretWhite && caretAuto) {
       caretWhite.props.onClick();
       tree = renderPicker();
@@ -713,7 +717,8 @@ setTimeout(async () => {
     setTab('mascot');
     tree = renderPicker();
     const ropeToggle = findCtlInput(tree, '显示吉祥物');
-    console.log('mascot rope toggle present:', !!ropeToggle);
+    // 前置硬断言（同上：探测不是判据，缺了就红）。
+    assert.ok(ropeToggle, '吉祥物页必须有「显示吉祥物」开关（缺则后续断言零覆盖）');
     if (ropeToggle) {
       assert.ok(ropeToggle.props.checked === true, 'rope toggle checked by default:');
       ropeToggle.props.onChange({ target: { checked: false } });
@@ -752,11 +757,14 @@ setTimeout(async () => {
     mascotCards = findMascotCards(tree);
     assert.ok(!!activeForm(mascotCards) && activeForm(mascotCards).props.title === '小女仆', 'form switches back to maid:');
     const ropeScaleSlider = findSliderRow(tree, '吉祥物大小');
-    console.log('mascot rope size slider present:', !!ropeScaleSlider);
+    // 前置硬断言（同光标色板那处）：改前这里是 `console.log(… present:, !!x)` + `if (x) { 断言 } else
+    // { console.log('… not found') }` —— 那个 else **只打印**，所以是**静默跳过**：滑块一改名，下面三条
+    // 断言一条都不跑，而这条守卫照样绿（零覆盖与通过同形）。同处的 min/max 判据也从 log 改成了断言。
+    assert.ok(ropeScaleSlider, '「吉祥物大小」滑块必须在场（缺则后续断言零覆盖）');
     if (ropeScaleSlider) {
       const ri = findRangeInput(ropeScaleSlider);
-      console.log('rope size slider min/max (0.5/2.5):',
-        ri && String(ri.props.min) === '0.5' && String(ri.props.max) === '2.5');
+      assert.ok(ri && String(ri.props.min) === '0.5' && String(ri.props.max) === '2.5',
+        'rope size slider min/max 必须是 0.5 / 2.5');
       assert.ok(ri && String(ri.props.value) === '1', 'rope size default scale (1):');
       if (ri) ri.props.onInput({ target: { value: '1.5' } });
       tree = renderPicker();
@@ -764,8 +772,6 @@ setTimeout(async () => {
       assert.ok(ri2 && String(ri2.props.value) === '1.5', 'rope size slider updates to 1.5:');
       if (ri2) ri2.props.onInput({ target: { value: '1' } });
       tree = renderPicker();
-    } else {
-      console.log('mascot rope size slider: false (not found)');
     }
 
     // ── 「边框」「玻璃(→雾化)」已从「效果」移到「外观」的「细节」段：
@@ -1869,7 +1875,13 @@ setTimeout(async () => {
       //    ⚠️ 已知边界：这是**处理器级**判据 —— "同一处理器里某一支通知、另一支不通知"它看不出
       //    （收起「字体集预设」那个缺陷正是那一形态）；那一形态由 ①f 的机制契约兜住（令牌动作总是
       //    通知 + 收起分支必须走它）。本条的职责是拦住"**整个处理器**都不会通知"这一类。
-      const panelSrcs = [src, readFileSync(new URL('../src/panel-tabs.js', import.meta.url), 'utf8')];
+      //    扫描面**派生**自构建脚本的 `INLINE_MODULES`（= 真正被内联进产物的那些模块），**不硬编码
+      //    文件名**：新增一个模块（实测形状：上游带来的 `src/theme-follow.js`，它落在旧扫描面之外）
+      //    时自动进面 —— 否则"处理器必须通知"这条判据对新模块**静默失效**，正是它要防的那类失效。
+      const inlineFiles = [...readFileSync(new URL('../scripts/build-client.mjs', import.meta.url), 'utf8')
+        .matchAll(/file:\s*'([^']+)'/g)].map((m) => m[1]);
+      const panelSrcs = [...new Set(['src/client.js', ...inlineFiles])]
+        .map((f) => { try { return readFileSync(new URL('../' + f, import.meta.url), 'utf8'); } catch { return ''; } });
       const defRe = /^(\s*)(?:function\s+([\w$]+)\s*\(|const\s+([\w$]+)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>|(on[A-Z][\w$]*)\s*:)/;
       const defsOf = (text) => {
         const ls = stripComments(String(text)).split('\n');
@@ -1918,6 +1930,7 @@ setTimeout(async () => {
       };
       const HANDLERS_NOTIFY_ELSEWHERE = {
         setSetting: '它就是入口本身（写 + 落盘）：通知由调用点负责',
+        setFontValues: '它就是入口本身（写字体值 + 落盘）：通知由调用点负责',
         setTransient: '它就是入口本身（只写内存）：通知由调用点负责',
         setCustomFrameLocal: '两个调用点（onCustomFrameFile / onClearCustomFrame）在各自分支里都 emit',
       };
@@ -2264,6 +2277,36 @@ setTimeout(async () => {
     '负对照：log 形式的伪判据必须能被判出');
   assert.equal(fakeJudgements("  assert.equal(n, 1, 'x');").length, 0,
     '负对照：真断言不得被误伤');
+
+  // 同族的第二种形态（实测过两处：光标色板、吉祥物开关）：`console.log('… present:', !!x)` 之后紧跟
+  // `if (x) { …断言… }` —— 探测日志不判真假，而"缺失即跳过断言"让后面的判据**零覆盖仍绿**
+  // （缺前置与通过同形，见 `docs/TEST-LAYOUT.md` §约定 8 的反面）。判据只看**紧邻的非空行**是否
+  // 用同一个标识符做 `if (x)`；`if (!x) assert.fail(…)` 那种"缺了就红"的正写法**不算**。
+  const probeThenSkip = (src) => {
+    const ls = src.split('\n');
+    const out = [];
+    ls.forEach((line, i) => {
+      if (!/^console\.log\(/.test(line.trim())) return;
+      const m = /!!\s*([A-Za-z_$][\w$]*)/.exec(line);
+      if (!m) return;
+      for (let k = i + 1; k < Math.min(ls.length, i + 4); k++) {
+        const nxt = ls[k].trim();
+        if (!nxt) continue;
+        if (new RegExp('^if\\s*\\(\\s*' + m[1] + '\\b').test(nxt)) out.push({ n: i + 1 });
+        break;
+      }
+    });
+    return out;
+  };
+  const probeSkips = probeThenSkip(selfSrc);
+  assert.equal(probeSkips.length, 0,
+    '探测日志 + 紧跟的条件跳过必须为 0（缺前置不许与"通过"同形）：行 ' + probeSkips.map((x) => x.n).join(','));
+  assert.equal(probeThenSkip("  console.log('x present:', !!w);\n  if (w) { assert.ok(1); }").length, 1,
+    '负对照：探测日志 + 条件跳过必须能被判出');
+  assert.equal(probeThenSkip("  console.log('x present:', !!w);\n  assert.ok(w, 'w 必须存在');").length, 0,
+    '正对照：探测之后是硬断言 ⇒ 不算（判据不是恒真）');
+  assert.equal(probeThenSkip("  console.log('x present:', !!w);\n  if (!w) assert.fail('缺 w');").length, 0,
+    '正对照：「缺了就红」的写法不算');
   assert.equal(fakeJudgements("  catch (e) { console.log('threw:', e && e.message); }").length, 0,
     '负对照：catch 里的错误上报不得被当成判据');
 }

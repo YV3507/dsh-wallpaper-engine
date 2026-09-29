@@ -85,7 +85,11 @@ function staleControls(src) {
     }
   });
   const out = [];
+  // 只认**本文件里用 `const/let/var` 声明过**的名字：`children`（假 DOM 的属性）、`calls`（HTTP 替身
+  // 的记录数组）这类"同名不同物"因此直接出局。实测：加这一条之前 7 个候选全是它们。
+  const declared = (id) => new RegExp('(?:const|let|var)\\s+' + esc(id) + '\\b').test(src);
   for (const [id, decls] of idents) {
+    if (!declared(id)) continue;
     const pushAt = [];
     const evalAt = [];
     lines.forEach((line, i) => {
@@ -110,14 +114,22 @@ function staleControls(src) {
 // ── 判据 B：log 形式的伪判据（**比 verify-client 内那条棘轮更窄**）─────────────────
 // verify-client 那条还带一个 `/expect|应该|必须|不得/` 的**词**分支；在别的文件里那个分支命中的
 // 几乎全是章节标题（`console.log('\n④ 相对说明符必须解析到真实文件')`）⇒ 假阳性淹没真信号。
-// 所以本工具**要求出现比较/集合运算**。代价：`console.log('应该等于 3')` 这种不带运算符的
-// 伪判据抓不到（那要人读）。
+// 所以本工具**要求出现比较运算**（`===` `!==` `<` `>` `&&` `||`），并排除两类"不是伪判据"的行：
+//   · **汇总**：`console.log(failures === 0 ? 'PASSED' : … 'FAILED')` —— 退出码就取决于同一个计数器，
+//     它不是"写在日志里没人看"的判据；
+//   · **报告**：`console.log('扫描面：' + ALL.length + …)` —— 只有取值、没有比较。
+// 收紧前实测 25 个候选全是这两类；收紧后剩下的才是真信号：`console.log('x (expect 1):', n === 1)`。
+// 代价：`console.log('应该等于 3')` 这种不带运算符的伪判据抓不到（那要人读）。
 function fakeJudgements(src) {
   const hit = (line) => {
     const t = line.trim();
     if (!/^console\.log\(/.test(t)) return false;
     if (/catch|threw|\.message/.test(t)) return false;
-    return /(===|!==|\.includes\(|\.length|\.some\(|\.every\()/.test(t);
+    if (!/(===|!==|<=|>=|&&|\|\|)/.test(t)) return false;   // 只认真比较运算（裸 `<` `>` 会命中散文）
+    if (/(?:failures|failed|problems|stray|failedCount)(?:\.length)?\s*===\s*0/.test(t)) return false; // 汇总（可能跨行）
+    if (/===\s*0\s*\?/.test(t)) return false;            // 汇总形态：计数 == 0 ? PASS : FAIL
+    if (/'(?:ALL[^']*PASSED|[^']*FAILED|OK|PASSED)'/.test(t)) return false; // 汇总文案
+    return true;
   };
   return src.split('\n').map((line, i) => ({ n: i + 1, line: line.trim() })).filter((x) => hit(x.line));
 }

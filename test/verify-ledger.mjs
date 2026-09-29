@@ -592,6 +592,28 @@ const EVIDENCE = {
     ['形态规则写进了守卫约定的家（TEST-LAYOUT §约定）',
       () => read('docs/TEST-LAYOUT.md').includes('负对照必须把变异输入喂进「同一条判据」')],
   ],
+  'P3-27': [
+    ['剥注释已统一到字符串感知实现（规则 ⑦ 在位）', () => {
+      const g = read('test/verify-module-layout.mjs');
+      return g.includes('代码里零"朴素块注释正则"') && g.includes('白名单条目不空转')
+        && read('test/tools/js-text.mjs').includes('function stripComments');
+    }],
+    ['store 写入契约两侧都有判据（瞬态 ①d/①e · 持久化 ①g）', () => {
+      const g = read('test/verify-client.mjs');
+      return g.includes('非持久化字段必须经 setTransient 写')
+        && g.includes('持久化字段的直写必须与落盘配对');
+    }],
+    ['"改了 store 却不通知"钉到处理器级 + 分支级，且扫描面派生自 INLINE_MODULES', () => {
+      const g = read('test/verify-client.mjs');
+      return g.includes('面板处理器写 store 却不会通知') && g.includes('build-client.mjs')
+        && read('test/tools/branch-notify.mjs').includes('export function pathNotifications');
+    }],
+    ['工具清单进文档（规则 ⑧ 在位）', () => read('test/verify-module-layout.mjs').includes('都在 TEST-LAYOUT 里点名')],
+    ['harness 基线"追尾"修复在位（按内容身份判重）', () => {
+      const s = read('scripts/harness-compat-baseline.mjs');
+      return s.includes('function pluginRevision(') && s.includes('plugin.revision');
+    }],
+  ],
   'P3-23': [
     ['审计工具在位且带自检（必须抓到已知实例 `liveBootDelay`，否则非零退出）', () => {
       const t = read('test/tools/audit-fixture-coverage.mjs');
