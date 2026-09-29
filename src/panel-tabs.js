@@ -1232,6 +1232,42 @@
           tooltip: "Edge 兼容：视频壁纸改用 canvas 渲染，避免浏览器自带的「下载 / 投屏」悬浮工具栏；关闭则始终使用原生 <video>",
         }),
       ),
+      // ── 适配（适配器模式）：本页跑在哪种宿主形态里 —— 自动检测 + 可手选 ──
+      // 检测事实来源在宿主侧（能力头 / UA，见 lib/index.js 的 3c-0），客户端拿
+      // 上报值 + 本地信号兜底；手选优先于检测，是检测不准时的自救。
+      React.createElement("div", { className: "we-picker__section" },
+        React.createElement("div", { className: "we-picker__section-head" },
+          React.createElement("span", {
+            className: "we-picker__section-label",
+            title: "适配目标决定四件事：网页壁纸载荷走哪个源（有无能力头栅栏）、桌面壳材质规则是否生效、窗口失焦暂停是否适用、面板哪些行可用。默认自动检测，检测不准时可手选覆盖（手选优先）。",
+          }, "适配"),
+        ),
+        React.createElement("div", { className: "we-picker__ctl" },
+          ctlText("适配目标", "自动检测 · 手选可覆盖"),
+          React.createElement("select", {
+            className: "we-picker__select",
+            value: ADAPTER_TARGET_VALUES.includes(sel.adapterTarget) ? sel.adapterTarget : "auto",
+            onChange: (e) => { setSetting("adapterTarget", e.target.value); emit(); },
+            "aria-label": "适配目标",
+          },
+            ADAPTER_TARGET_VALUES.map((t) =>
+              React.createElement("option", { key: t, value: t }, ADAPTER_LABELS[t] || t)),
+          ),
+        ),
+        // 状态行只反映**检测**（与手选无关），且必须与宿主 mediaOriginNeeded 的
+        // 三分支逐条对齐 —— 否则文案会说错载荷到底走哪个源：栅栏 ⇒ 独立媒体源；
+        // 无栅栏的桌面形态（Electron UA）**仍然**走独立媒体源（安全默认）；只有
+        // 原生浏览器才走应用源。desktop/fence 取自 adapterCaps（最终目标 + 上报）。
+        React.createElement("div", { className: "we-picker__hint", key: "adapter-detected" },
+          "检测到：" + adapterDetectedLabel()
+          + (adapterCaps().fence
+            ? " · 有能力头栅栏（网页壁纸走独立媒体源）"
+            : adapterCaps().desktop
+              ? " · 无栅栏的桌面形态（网页壁纸仍走独立媒体源）"
+              : " · 无栅栏（网页壁纸走应用源）")),
+        adapterMismatchWarning() && React.createElement("div", { className: "we-picker__hint", key: "adapter-warn" },
+          adapterMismatchWarning()),
+      ),
       // ── 省电：遮挡暂停（借鉴 Wallpaper Engine 的「被遮挡时暂停」）──
       React.createElement("div", { className: "we-picker__section" },
         React.createElement("div", { className: "we-picker__section-head" },
@@ -1241,7 +1277,13 @@
           }, "省电"),
         ),
         switchRow("最小化/切页时暂停", sel.pauseOnHidden, (e) => { setSetting("pauseOnHidden", e.target.checked); emit(); }, { key: "pause-hidden" }),
-        switchRow("窗口失焦时暂停", sel.pauseOnBlur, (e) => { setSetting("pauseOnBlur", e.target.checked); emit(); }, { key: "pause-blur" }),
+        // 失焦档按适配目标显隐：桌面壳失焦时壁纸多半仍整块可见，暂停会定格
+        // **可见**画面 ⇒ 本目标下不提供；值不删，切到浏览器目标即重新生效。
+        adapterCaps().blurPause
+          && switchRow("窗口失焦时暂停", sel.pauseOnBlur, (e) => { setSetting("pauseOnBlur", e.target.checked); emit(); }, { key: "pause-blur" }),
+        !adapterCaps().blurPause && React.createElement("div", { className: "we-picker__hint", key: "pause-blur-note" },
+          "「窗口失焦时暂停」只在原生浏览器目标下提供 —— 桌面壳失焦时壁纸仍可见，暂停会定格可见画面"
+          + (sel.pauseOnBlur ? "（当前已开启，本目标下不生效，切到浏览器目标后恢复）" : "")),
         switchRow("使用电池时暂停", sel.pauseOnBattery, (e) => { setSetting("pauseOnBattery", e.target.checked); emit(); }, { key: "pause-battery" }),
       ),
       // ── 实时渲染诊断（本会话有效，不落盘；从「效果」页签移来）：只对**能走实时

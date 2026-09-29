@@ -190,6 +190,12 @@ const host = hostMod.default || hostMod;
 const apply = host.apply || (host.inject && host.apply);
 const dispose = apply(mockCtx);
 
+// 本脚本全程模拟**带能力头栅栏的桌面端**：社区壳（DSH Desktop.app）会给每条插件
+// 路由注入 x-dsh-desktop-renderer，观测到它宿主才把网页壁纸载荷放进独立媒体源 ——
+// 下面那条「webLiveSrc 是媒体源绝对 URL」的事故闸门正是这个形态的回归门。裸请求
+//（原生浏览器，载荷走应用源相对路径）那一档由 test/verify-adapter.mjs 另行断言。
+const FENCE_HEADERS = { 'x-dsh-desktop-renderer': '1', 'user-agent': 'Electron/33.2.0' };
+
 function fakeReq(url, headers) {
   return { url, headers: headers || {}, method: 'GET' };
 }
@@ -337,7 +343,7 @@ const filesRoute = routes.find((r) => r.path === '/wallpaper-engine/scene-files'
 check('scene-files route registered', Boolean(filesRoute), filesRoute ? 'kind=' + filesRoute.kind : 'missing');
 let fixture = null;
 if (invRoute) {
-  const res = await runHandler(invRoute, '/wallpaper-engine/inventory');
+  const res = await runHandler(invRoute, '/wallpaper-engine/inventory', FENCE_HEADERS);
   const body = JSON.parse(res.__state.body.toString('utf8'));
   fixture = (body.wallpapers || []).find((w) => w.type === 'scene' && w.title === 'Live Fixture Scene') || null;
   check('fixture scene listed in inventory', Boolean(fixture), fixture ? fixture.id : 'not found');
@@ -387,7 +393,7 @@ if (filesRoute && fixture && fixture.sceneLiveSrc) {
   // 回归闸门：道具入口必须在**场景**壁纸上也在。踩过的坑：inventory 条目先展开
   // sceneFieldsFor 再展开 webFieldsFor，两者都返回 propsUrl，后者的 null 把场景
   // 的值盖掉 —— 表现就是「场景壁纸没有壁纸属性按钮」。
-  const inv = JSON.parse((await runHandler(invRoute, '/wallpaper-engine/inventory')).__state.body.toString('utf8'));
+  const inv = JSON.parse((await runHandler(invRoute, '/wallpaper-engine/inventory', FENCE_HEADERS)).__state.body.toString('utf8'));
   const sc = (inv.wallpapers || []).find((w) => w.id === '990001') || null;
   check('场景壁纸也带 propsUrl（属性入口不被 web 分支覆盖）',
     Boolean(sc && sc.propsUrl && sc.propsUrl.indexOf('/props/') > 0),
@@ -397,7 +403,7 @@ if (filesRoute && fixture && fixture.sceneLiveSrc) {
 console.log('Level C3 — web wallpaper files (shim injection / MIME / CORS)');
 let mediaEntry = '';   // C4 复用：C3 里从 inventory 拿到的那条入口 URL
 {
-  const res = await runHandler(invRoute, '/wallpaper-engine/inventory');
+  const res = await runHandler(invRoute, '/wallpaper-engine/inventory', FENCE_HEADERS);
   const body = JSON.parse(res.__state.body.toString('utf8'));
   const web = (body.wallpapers || []).find((w) => w.id === '990003') || null;
   check('web wallpaper listed with webLive + webLiveSrc',
@@ -495,7 +501,7 @@ console.log('Level C5 — 壁纸属性解析 / 覆盖值 → HTML 种子');
   check('props 路由已注册', Boolean(propsRoute));
   let token = '';
   {
-    const inv = JSON.parse((await runHandler(invRoute, '/wallpaper-engine/inventory')).__state.body.toString('utf8'));
+    const inv = JSON.parse((await runHandler(invRoute, '/wallpaper-engine/inventory', FENCE_HEADERS)).__state.body.toString('utf8'));
     const web = (inv.wallpapers || []).find((w) => w.id === '990003') || null;
     token = String((web && web.propsUrl) || '').split('/').pop();
     check('inventory 给场景/网页壁纸带 propsUrl', Boolean(web && web.propsUrl), web ? String(web.propsUrl).slice(0, 48) : 'not found');
@@ -554,7 +560,7 @@ console.log('Level C5 — 壁纸属性解析 / 覆盖值 → HTML 种子');
 console.log('Level C2 — custom storage scan (WE project dirs under uploads)');
 {
   const sceneFrameRoute = routes.find((r) => r.path === '/wallpaper-engine/scene-frame');
-  const res = await runHandler(invRoute, '/wallpaper-engine/inventory');
+  const res = await runHandler(invRoute, '/wallpaper-engine/inventory', FENCE_HEADERS);
   const body = JSON.parse(res.__state.body.toString('utf8'));
   const dirScene = (body.wallpapers || []).find((w) => w.id === 'up-dir-my-scene-1') || null;
   check('uploads WE project dir listed as scene', Boolean(dirScene), dirScene ? dirScene.type : 'not found');
@@ -936,6 +942,28 @@ check('音频桥按宿主 running 装卸（装了桥 = 渲染页放弃自带音�
 check('「在线歌词」开关默认关（外发请求要用户点头）',
   schemaMod.DEFAULTS.mediaLyricsOnline === false && Boolean(schemaMod.KINDS.mediaLyricsOnline)
     && tabsSrc.includes('在线歌词'));
+// 场景/网页实时渲染**默认开** —— 这是用户可见的默认值，三处一起钉：DEFAULTS 的值、
+// KINDS 的类型（boolTrue = 缺键读作开）、以及面板/活层的判据形态（`!== false`，
+// truthy 判断会在缺键时静默变成"关"）。缺键必须两侧都读作开。
+{
+  const countOf = (s, needle) => s.split(needle).length - 1;
+  check('「场景实时渲染」默认开（DEFAULTS + KINDS boolTrue + 缺键两侧读作开）',
+    schemaMod.DEFAULTS.sceneLive === true && schemaMod.KINDS.sceneLive.kind === 'boolTrue'
+      && schemaMod.sanitizeFromSchema({}, 'client').sceneLive === true
+      && sanitizeHost({}).sceneLive === true,
+    'DEFAULTS.sceneLive=' + String(schemaMod.DEFAULTS.sceneLive));
+  check('面板/活层判据是 `!== false` 形态（面板 ≥4 处 + live 层 ≥1 处）',
+    countOf(tabsSrc, 'sel.sceneLive !== false') >= 4
+      && countOf(liveSrc, 'selLike.sceneLive !== false') >= 1,
+    'panel=' + countOf(tabsSrc, 'sel.sceneLive !== false') + ' live=' + countOf(liveSrc, 'selLike.sceneLive !== false'));
+  // 负对照：默认翻成关，同一条判据必须变假 —— 证明上面两条不是恒真。
+  const savedSceneLiveDefault = schemaMod.DEFAULTS.sceneLive;
+  schemaMod.DEFAULTS.sceneLive = false;
+  const flipped = schemaMod.DEFAULTS.sceneLive === true
+    && schemaMod.sanitizeFromSchema({}, 'client').sceneLive === true;
+  schemaMod.DEFAULTS.sceneLive = savedSceneLiveDefault;
+  check('负对照：默认改成关 ⇒ 同一条判据变假', flipped === false && schemaMod.DEFAULTS.sceneLive === true);
+}
 check('host builds the property seed from project.json + 覆盖值',
   /function buildSeedScript\(entryAbs, token\)/.test(hostSrc) && /parseUserPropDefs\(pj, overrides/.test(hostSrc)
     && /userPropsFor\(token\)/.test(hostSrc));

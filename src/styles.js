@@ -199,8 +199,10 @@ const CSS = `
      无 backdrop-filter 的内容面回退完全一致（主题面板色 + --we-content-surface-alpha，
      由「内容面透明度 / 内容面底色」控制，默认 70% 不透明，壁纸仍有一层微光），
      同时放行内部 fill token，让这块面重新与壁纸 + 暗化层同步。Mica 可用时该属性
-     不存在，本规则不参与匹配，行为与今天逐字节相同。 */
-  body[data-we-mica="off"][data-we-wallpaper] .dshDesktopSidebarSurface {
+     不存在，本规则不参与匹配，行为与今天逐字节相同。
+     整条规则再经 [data-we-adapter^="desktop-"] 门控：壳层材质只可能是桌面壳的
+     事，原生浏览器形态（body[data-we-adapter="browser"]）不参与匹配。 */
+  body[data-we-adapter^="desktop-"][data-we-mica="off"][data-we-wallpaper] .dshDesktopSidebarSurface {
     --dsw-specific-sidebar-fill: transparent !important;
     background-color: color-mix(in srgb, var(--we-content-surface-color, var(--dsw-alias-bg-layer-1, #1e1f26)) max(calc(var(--we-readability-floor) * 100%), var(--we-content-surface-alpha, 88%)), transparent) !important;
   }
@@ -353,9 +355,11 @@ const CSS = `
      material=off 时，ASIDE.dshDesktopSidebarSurface（原生左栏 surface）被刷成
      不透明的 var(--dsw-alias-bg-layer-1)，并经继承的 --dsw-specific-sidebar-fill
      变量传给内层（兼容模式无此规则，左栏直接透出壁纸）。壁纸激活时恢复透明，
-     让两种模式观感一致；壳层关闭壁纸时原生不透明底照旧。 */
-  body[data-we-wallpaper][data-dsh-desktop-mode="extended"] .dshDesktopSidebarSurface,
-  body[data-we-wallpaper][data-dsh-desktop-mode="advanced"] .dshDesktopSidebarSurface {
+     让两种模式观感一致；壳层关闭壁纸时原生不透明底照旧。
+     门控到 [data-we-adapter^="desktop-"]：壳层属性 + 适配目标两腿都成立才画，
+     浏览器形态即使页面带着同名属性也不吃这条。 */
+  body[data-we-adapter^="desktop-"][data-we-wallpaper][data-dsh-desktop-mode="extended"] .dshDesktopSidebarSurface,
+  body[data-we-adapter^="desktop-"][data-we-wallpaper][data-dsh-desktop-mode="advanced"] .dshDesktopSidebarSurface {
     /* !important 必需：宿主的模式门控规则在层叠里赢过本表的非 important 声明
        （实测 var 被压回 #232324），important 才能让 fill 变量真正翻转。 */
     --dsw-specific-sidebar-fill: transparent !important;
@@ -376,8 +380,9 @@ const CSS = `
      ⚠️ 只清**画布**这一层、不改 --dsh-desktop-frame-fill 变量本身：标题栏
      （.dshDesktopFrameTitlebar）读同一个变量，必须保留底色，否则标题栏文字直接压在壁纸上。
      主内容区（.dshDesktopConversationSurface）读的是 --dsw-alias-bg-base，本表已在
-     body[data-we-wallpaper] 上把它置为 transparent（见上面那条），因此无需再写。 */
-  body[data-we-wallpaper][data-dsh-desktop-mode="extended"] .dshDesktopFrame {
+     body[data-we-wallpaper] 上把它置为 transparent（见上面那条），因此无需再写。
+     同样门控到 [data-we-adapter^="desktop-"]（理由见上一条规则）。 */
+  body[data-we-adapter^="desktop-"][data-we-wallpaper][data-dsh-desktop-mode="extended"] .dshDesktopFrame {
     background: transparent !important;
   }
 

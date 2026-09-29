@@ -68,6 +68,12 @@ HTML 里注入 WE API shim（`lib/webwallgl/web-shim.js`）与 `project.json` �
 > 原因：DSH Desktop 给每条插件路由都套了能力头栅栏（`x-dsh-desktop-renderer`，只注入给同源 frame 发出的
 > 请求），而严格沙箱 iframe 是不透明源、永远拿不到这个头 —— 壁纸入口会一律 `403 Forbidden`（表现：预览图
 > 先正常、随后整块黑）。媒体源不经过该栅栏，第三方 HTML 也因此连宿主 origin 都不沾边，沙箱之外又多一层隔离。
+>
+> **这个第二监听什么时候真的起**（适配器模式，设置在「高级 → 适配」）：宿主按请求观测**能力头**与
+> **UA 里的 `Electron/`**，观测到任一即为桌面形态、照常起媒体源；两者皆无（**原生浏览器**）时没有栅栏，
+> 载荷直接走应用源的**相对路径** —— 同一段挂载处理函数服务两处，形态差异只体现在 URL 上。手选适配目标
+> 可强制任一方向（手选浏览器 = 强制应用源，手选桌面 = 强制媒体源）；`GET /wallpaper-engine/media-origin`
+> 是显式探测，按需起、不经过这条门控。
 
 > **帧率上限与「卡」的排查**：网页壁纸的 rAF 上限由 shim 按**跳帧**实现 —— 每帧都与显示器 vsync 对齐、
 > 只把第 n 帧交给壁纸（`setTimeout` 定时器式实现会产生 17/33/50ms 抖动，观感更差）。实时渲染期间每 5 秒
@@ -247,6 +253,14 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe (no 
 > carry that header — the wallpaper entry would always answer `403 Forbidden` (symptom: the preview frame
 > looks fine, then the wallpaper goes fully black). The media origin bypasses that fence, and third-party
 > HTML no longer shares the host origin at all, so the sandbox gets a second layer of isolation.
+>
+> **When that second listener is actually opened** (adapter mode, set under 「高级 → 适配」): the host observes
+> the **capability header** and **`Electron/` in the UA** per request — either one marks a desktop surface and
+> the media origin starts as before; when neither is present (**a plain web browser**) there is no fence, so the
+> payload is served from the app origin as a **relative path**. The same mount handler serves both, so the two
+> forms differ only in the URL. A manually picked adapter target forces either direction (browser ⇒ app origin,
+> desktop ⇒ media origin), and `GET /wallpaper-engine/media-origin` is an explicit probe that starts it on
+> demand without going through this gate.
 
 > **Frame cap and "it still stutters"**: the wallpaper's rAF cap is implemented by **frame skipping** —
 > every vsync is kept so the delivered frame stays phase-aligned with the display and only every n-th

@@ -272,7 +272,12 @@ writeFileSync(join(webDir, 'index.html'), [
 ].join('\n'));
 
 // ── 拿 inventory → 组出与 client 完全一致的渲染页 URL ────────────────────────
-const invRes = await fetch(`${APP}/wallpaper-engine/inventory`, { cache: 'no-store' });
+// 带能力头：本 e2e 的立意就是**有栅栏的桌面端现场**（网页壁纸载荷必须由独立媒体源
+// 提供）。裸请求（原生浏览器）走应用源那一档由 test/verify-adapter.mjs 断言。
+const invRes = await fetch(`${APP}/wallpaper-engine/inventory`, {
+  cache: 'no-store',
+  headers: { 'x-dsh-desktop-renderer': '1' },
+});
 const inv = await invRes.json();
 const web = (inv.wallpapers || []).find((w) => w.id === '990101') || null;
 check('inventory 列出网页壁纸且 webLiveSrc 是绝对 URL',

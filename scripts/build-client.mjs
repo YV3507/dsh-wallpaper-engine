@@ -62,6 +62,13 @@ const INLINE_MODULES = [
       'function serializeSettings(', 'const DEFAULTS = {'],
   },
   {
+    // 排在 settings-schema 之后：本文件的判定值域就是那里的 ADAPTER_TARGET_VALUES。
+    file: 'src/adapter.js',
+    why: '适配器模式：宿主形态判定（手选 > 宿主上报 > 本地信号）与能力矩阵',
+    markers: ['const ADAPTER_LABELS = {', 'function setAdapterFromHost(',
+      'function resolveAdapterTarget(', 'function adapterCaps('],
+  },
+  {
     file: 'src/we-cond.js',
     why: 'WE 条件求值器（纯计算、零外界依赖，独立可测，见 P1-7）',
     markers: ['const WE_COND_OPS = [', 'function weEvalCondition(', 'function weCondTokenize('],

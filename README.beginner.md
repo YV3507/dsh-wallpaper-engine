@@ -77,6 +77,7 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 | **隐藏不喜欢的壁纸** | 弹窗里卡片右上角「隐藏」 | 软删除，不碰源文件，可恢复 |
 | **自动轮换壁纸** | 「轮播列表」→ 新建列表 | 可设切换间隔和顺序 |
 | **改上传文件存哪** | 「自定义壁纸」→ 存储「更改」 | 默认存 C 盘，可改到其他盘 |
+| **插件跑在哪个壳里**（一般不用动） | 「高级」→ 适配 → 适配目标 | 默认「自动检测」并显示「检测到：…」；只有网页壁纸变黑 / 403 时才需要手选 |
 
 ### 画面滑条怎么调？
 
@@ -243,6 +244,7 @@ You will see a **liquid-glass card** holding every wallpaper-related control.
 | **Hide wallpapers you don't want** | 「隐藏」 in a card's top-right corner | A soft delete — source files are untouched and it is restorable |
 | **Rotate wallpapers automatically** | 「轮播列表」 → create a list | Per-list interval and order |
 | **Move where uploads are stored** | 「自定义壁纸」 → storage 「更改」 | Defaults to the C: drive; any drive works |
+| **Which shell the plugin runs in** (rarely needed) | 「高级」 tab → 适配 → 适配目标 | Defaults to 自动检测 and shows what it detected; only touch it when a web wallpaper goes black / answers 403 |
 
 ### How do I tune the picture sliders?
 

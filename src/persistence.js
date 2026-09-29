@@ -15,6 +15,7 @@
  *   sanitizeSettings / serializeSettings / DEFAULTS ← lib/settings-schema.js（消毒 / 白名单 / 默认值）
  *   emit             ← 单向重渲染（启动加载完成后通知一次）
  *   applyEffects     ← src/effects.js（设置落地到 DOM）
+ *   setAdapterFromHost ← src/adapter.js（宿主上报的适配目标观测值）
  *   apiJson / apiFetch ← src/api-client.js（宿主 API 唯一出入口）
  * 提供的入口：
  *   persistSelection()      改动后调用（debounce 200ms；无定时器设施时立即写）
@@ -143,6 +144,9 @@ async function loadPersisted() {
       hostSettings = data && data.settings;
       // 侧栏玻璃控制组只在 dsh-better-sidebar 已安装且启用时显示（host 检测）。
       selection.sidebarPresent = !!(data && data.betterSidebar);
+      // 适配目标的宿主观测值（能力头栅栏 + 桌面壳 UA）。缺字段时 adapter.js 保持
+      // null ⇒ 回落本地判定，不能因为响应里没有 adapter 就抛。
+      setAdapterFromHost(data && data.adapter);
       hostOk = true;
     }
   } catch { /* 宿主不可达：apiFetch 已不抛，这里兜住赋值/消毒期的异常 */ }

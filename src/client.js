@@ -1873,10 +1873,10 @@ function weHexToColor(hex) {
 
 let weBattery = null; // BatteryManager from navigator.getBattery (if available)
 // 遮挡原因（可读文案；空串 = 没被遮挡）。occlusionActive 由它派生，保证「是谁把
-// 渲染页停掉的」只有一个判定源 —— 诊断日志直接引用这句话。
+// 渲染页停掉的」只有一个判定源 —— 诊断日志直接引用；失焦档再经适配目标门控（桌面壳失焦时壁纸多半仍整块可见，按失焦暂停会定格**可见**画面，见 adapterCaps）。
 function occlusionReason() {
   if (selection.pauseOnHidden && typeof document !== "undefined" && document.hidden) return "标签页隐藏(pauseOnHidden)";
-  if (selection.pauseOnBlur && typeof document !== "undefined"
+  if (adapterCaps().blurPause && selection.pauseOnBlur && typeof document !== "undefined"
     && typeof document.hasFocus === "function" && !document.hasFocus()) return "窗口失焦(pauseOnBlur)";
   if (selection.pauseOnBattery && weBattery && !weBattery.charging) return "电池供电(pauseOnBattery)";
   return "";

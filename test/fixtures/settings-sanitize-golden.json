@@ -64,7 +64,8 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": ""
+        "caretColor": "",
+        "adapterTarget": "auto"
       },
       "host": {
         "id": "",
@@ -120,7 +121,8 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": ""
+        "caretColor": "",
+        "adapterTarget": "auto"
       }
     },
     {
@@ -184,7 +186,8 @@
         "customFrames": {},
         "caretColor": "",
         "videoVolume": 0,
-        "videoAudioEnabled": true
+        "videoAudioEnabled": true,
+        "adapterTarget": "auto"
       },
       "host": "__null__"
     },
@@ -249,7 +252,8 @@
         "customFrames": {},
         "caretColor": "",
         "videoVolume": 0,
-        "videoAudioEnabled": true
+        "videoAudioEnabled": true,
+        "adapterTarget": "auto"
       },
       "host": "__null__"
     },
@@ -314,7 +318,8 @@
         "customFrames": {},
         "caretColor": "",
         "videoVolume": 0,
-        "videoAudioEnabled": true
+        "videoAudioEnabled": true,
+        "adapterTarget": "auto"
       },
       "host": "__null__"
     },
@@ -381,7 +386,8 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": ""
+        "caretColor": "",
+        "adapterTarget": "auto"
       },
       "host": {
         "id": "",
@@ -437,7 +443,8 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": ""
+        "caretColor": "",
+        "adapterTarget": "auto"
       }
     },
     {
@@ -560,7 +567,8 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": ""
+        "caretColor": "",
+        "adapterTarget": "auto"
       },
       "host": {
         "id": "",
@@ -616,7 +624,8 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": ""
+        "caretColor": "",
+        "adapterTarget": "auto"
       }
     },
     {
@@ -784,7 +793,8 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": ""
+        "caretColor": "",
+        "adapterTarget": "auto"
       },
       "host": {
         "id": "",
@@ -840,7 +850,8 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": ""
+        "caretColor": "",
+        "adapterTarget": "auto"
       }
     },
     {
@@ -907,7 +918,8 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": ""
+        "caretColor": "",
+        "adapterTarget": "auto"
       },
       "host": {
         "id": "",
@@ -963,7 +975,8 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": ""
+        "caretColor": "",
+        "adapterTarget": "auto"
       }
     },
     {
@@ -1044,7 +1057,8 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": ""
+        "caretColor": "",
+        "adapterTarget": "auto"
       },
       "host": {
         "id": "",
@@ -1100,7 +1114,8 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": ""
+        "caretColor": "",
+        "adapterTarget": "auto"
       }
     },
     {
@@ -1181,7 +1196,8 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": ""
+        "caretColor": "",
+        "adapterTarget": "auto"
       },
       "host": {
         "id": "",
@@ -1237,7 +1253,8 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": ""
+        "caretColor": "",
+        "adapterTarget": "auto"
       }
     },
     {
@@ -1305,7 +1322,8 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": ""
+        "caretColor": "",
+        "adapterTarget": "auto"
       },
       "host": {
         "id": "",
@@ -1361,7 +1379,8 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": ""
+        "caretColor": "",
+        "adapterTarget": "auto"
       }
     },
     {
@@ -1434,7 +1453,8 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": ""
+        "caretColor": "",
+        "adapterTarget": "auto"
       },
       "host": {
         "id": "",
@@ -1490,7 +1510,8 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": ""
+        "caretColor": "",
+        "adapterTarget": "auto"
       }
     },
     {
@@ -1560,7 +1581,8 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": ""
+        "caretColor": "",
+        "adapterTarget": "auto"
       },
       "host": {
         "id": "",
@@ -1616,7 +1638,8 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": ""
+        "caretColor": "",
+        "adapterTarget": "auto"
       }
     },
     {
@@ -1693,7 +1716,8 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": ""
+        "caretColor": "",
+        "adapterTarget": "auto"
       },
       "host": {
         "id": "",
@@ -1749,7 +1773,8 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": ""
+        "caretColor": "",
+        "adapterTarget": "auto"
       }
     },
     {
@@ -1895,7 +1920,8 @@
         "customFrames": {
           "y": true
         },
-        "caretColor": ""
+        "caretColor": "",
+        "adapterTarget": "auto"
       },
       "host": {
         "id": "",
@@ -1975,7 +2001,8 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": ""
+        "caretColor": "",
+        "adapterTarget": "auto"
       }
     },
     {
@@ -2041,7 +2068,8 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": ""
+        "caretColor": "",
+        "adapterTarget": "auto"
       },
       "host": {
         "id": "",
@@ -2097,7 +2125,8 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": ""
+        "caretColor": "",
+        "adapterTarget": "auto"
       }
     },
     {
@@ -2163,7 +2192,8 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": ""
+        "caretColor": "",
+        "adapterTarget": "auto"
       },
       "host": {
         "id": "wallpaper-42",
@@ -2219,7 +2249,8 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": ""
+        "caretColor": "",
+        "adapterTarget": "auto"
       }
     },
     {
@@ -2286,7 +2317,8 @@
         "frameVariants": {},
         "sceneLiveFailures": {},
         "customFrames": {},
-        "caretColor": ""
+        "caretColor": "",
+        "adapterTarget": "auto"
       },
       "host": {
         "id": "",
@@ -2342,7 +2374,8 @@
         "switchTransition": "cut",
         "switchTransitionDir": "left",
         "switchTransitionSpeed": "normal",
-        "caretColor": ""
+        "caretColor": "",
+        "adapterTarget": "auto"
       }
     }
   ]
