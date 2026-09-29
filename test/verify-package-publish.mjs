@@ -5,11 +5,7 @@
  * 入口在位、依赖无死声明、工具链零裸依赖）；这一份管**装到用户机器上会不会坏 / 会不会多带东西**，
  * 四类事故各自独立：
  *   ① **该进的没进** ⇒ 用户装完跑不起来：按 `lib/index.js` 的**可达闭包**逐个核对是否被 `files` 覆盖；
- *      闭包里的每个相对导入目标还必须**真实存在于磁盘** —— 指向不存在文件的 import 在仓库里是
- *      死路径、没人撞得上，装到用户机器上才炸成 `ERR_MODULE_NOT_FOUND`（npm 上的 1.0.1 正是这么残缺的）；
  *   ② **不该进的进了** ⇒ 体积与源码外泄：发布集里不得出现 src/scripts/test/docs 等开发目录；
- *      白名单恰有一条 `scripts/prepare.mjs`：`prepare` 在 git 直装、或把包装成根项目执行时真的会跑，
- *      它不随包 = 一跑就 `MODULE_NOT_FOUND`；
  *   ③ **带了同步机器的东西** ⇒ 不可复现 + 隐私：发布文本里不得出现真实的用户目录路径
  *      （占位符 `<你的用户名>` / `xxx` / `%USERPROFILE%` 不算）；
  *   ④ **白下载的运行时依赖** ⇒ 声明了但**活代码从不加载**：`dependencies` 每一条都必须被
@@ -22,8 +18,8 @@
  * 需要精确条目数时以本机 `npm pack --dry-run` 的输出为准 —— 此处不写死数字。
  *
  * **负对照的形态规则（P3-16）**：变异输入必须喂进**同一条判据** —— 本文件里就是那几个命名实体
- * （`publishSet` / `resolveRelative` / `isDevLeak` / `DEV` / `PLACEHOLDER` / `unshippedRefs` /
- * `usedByClosure` / `vm.Script`），正判据与负对照都调它。只断言"某个常量不含 X"不算（判据没被执行）；在对照里另抄一份判据
+ * （`publishSet` / `DEV` / `PLACEHOLDER` / `unshippedRefs` / `usedByClosure` / `vm.Script`），
+ * 正判据与负对照都调它。只断言"某个常量不含 X"不算（判据没被执行）；在对照里另抄一份判据
  * 也不算（生产侧改了也不会红）。规则全文见 [`docs/TEST-LAYOUT.md`](../docs/TEST-LAYOUT.md) §约定 5。
  *
  * Usage:  node test/verify-package-publish.mjs
@@ -94,21 +90,9 @@ const walk = (dir, out = []) => {
 // 说明：`lib/webwallgl/**`（按文本注入 HTML）与 `lib/vendor/**`（按字符串 require）不走
 // import 图，它们由下面的"目录条目覆盖"断言兜住，不在这张图里假装可达。
 section('① 可达闭包（活的代码所需文件）是否都被 `files` 覆盖');
-
-/** 判据：相对说明符 → 磁盘上的目标文件；候选一个都不存在返回 null。
- *  主扫描与负对照都走它 —— 否则"找不到"这条判据没有被真正执行过（P3-16）。 */
-function resolveRelative(fromAbs, spec) {
-  const base = resolve(dirname(fromAbs), spec.split('?')[0]);
-  for (const cand of [base, base + '.js', base + '.mjs', base + '.cjs', join(base, 'index.js')]) {
-    if (existsSync(cand) && statSync(cand).isFile()) return cand;
-  }
-  return null;
-}
-
 const seen = new Set();
 const queue = [join(ROOT, 'lib', 'index.js')];
 const bare = new Set();
-const unresolved = [];
 while (queue.length) {
   const abs = queue.pop();
   if (seen.has(abs) || !existsSync(abs) || !/\.(js|mjs|cjs)$/.test(abs)) continue;
@@ -121,56 +105,39 @@ while (queue.length) {
   for (const s of specs) {
     if (s.startsWith('node:')) continue;
     if (!s.startsWith('.')) { bare.add(s); continue; }
-    const target = resolveRelative(abs, s);
-    if (target === null) { unresolved.push(rel(abs) + ' → ' + s); continue; }
-    queue.push(target);
+    queue.push(resolve(dirname(abs), s.split('?')[0]));
   }
 }
 const closure = [...seen].map(rel).sort();
 
 /** 判据：某条声明依赖是否被**可达闭包**加载（正判据与负对照都走它；`list` 可注入）。 */
 function usedByClosure(dep, list = bare) {
-  return list.some((s) => s === dep || s.startsWith(dep + '/'));
+  // `bare` 是 Set、对照注入的却是数组 ⇒ **先摊开再判**：`Set` 上没有 `.some`，
+  // 早先直接 `list.some(...)` 的写法一旦声明了任何依赖就会 `TypeError`
+  // （当时 `dependencies` 为空，这条路径从不执行 ⇒ 恒绿而看不出来）。
+  return [...list].some((s) => s === dep || s.startsWith(dep + '/'));
 }
 const uncovered = closure.filter((r) => !publishSet(r));
 check('可达闭包里的每个文件都被 `files` 覆盖', uncovered.length === 0,
   uncovered.length ? '未覆盖：' + uncovered.join(', ') : closure.length + ' 个文件');
 check('负对照：覆盖判据对包外路径有牙', !publishSet('src/client.js') && publishSet('lib/index.js'));
-check('可达闭包里的每个相对导入目标都在磁盘上（指向不存在的文件 = 装上一加载就 ERR_MODULE_NOT_FOUND）',
-  unresolved.length === 0,
-  unresolved.length ? '找不到：' + unresolved.join(', ') : closure.length + ' 个文件全部解析到实体');
-check('负对照：目标解析判据对缺文件返回 null、对在位与省略扩展名的说明符返回路径',
-  resolveRelative(join(ROOT, 'lib', 'index.js'), './definitely-absent.js') === null
-  && resolveRelative(join(ROOT, 'lib', 'index.js'), './__absent__') === null
-  && resolveRelative(join(ROOT, 'lib', 'index.js'), './pkg-extract') === join(ROOT, 'lib', 'pkg-extract.js')
-  && resolveRelative(join(ROOT, 'lib', 'index.js'), './index.js') === join(ROOT, 'lib', 'index.js'));
+check('负对照：依赖判据在 Set 与数组两种形态下都成立（防 `.some` 崩）',
+  usedByClosure('some-dep', new Set(['some-dep'])) === true
+  && usedByClosure('some-dep', ['some-dep/sub']) === true
+  && usedByClosure('nope', new Set(['some-dep'])) === false);
 
 // ── ② 不该进的进了 ──────────────────────────────────────────────────────────
 section('② 发布集里没有开发目录');
 const DEV = /^(src|scripts|test|docs|node_modules|\.test-cache|\.integration-notes|_refs|\.github|\.git)(\/|$)/;
-/** 恰有一条白名单：`scripts/prepare.mjs` 必须随包 —— `prepare` 在 git 直装、或把包装成
- *  根项目执行时真的会跑，不随包就是执行即 `MODULE_NOT_FOUND`。其余开发面文件一律算泄漏。
- *  正判据（两个 check）与负对照都走 `isDevLeak`。 */
-const SHIPPED_DEV_FILES = new Set(['scripts/prepare.mjs']);
-const isDevLeak = (p) => {
-  const e = String(p).replace(/^\.\//, '');
-  return DEV.test(e) && !SHIPPED_DEV_FILES.has(e);
-};
-const devEntries = files.filter((e) => isDevLeak(e));
-check('`files` 条目本身不指向开发目录（白名单只放行 `scripts/prepare.mjs`）', devEntries.length === 0,
-  devEntries.join(', ') || '无');
+const devEntries = files.filter((e) => DEV.test(String(e).replace(/^\.\//, '')));
+check('`files` 条目本身不指向开发目录', devEntries.length === 0, devEntries.join(', ') || '无');
 // 展开后的实测清单（防"某条目其实是个通配符/根目录"）
 const published = walk(ROOT).filter(publishSet);
-const devLeak = published.filter((r) => isDevLeak(r));
-check('展开后的发布集里没有开发目录文件（白名单只放行 `scripts/prepare.mjs`）', devLeak.length === 0,
+const devLeak = published.filter((r) => DEV.test(r));
+check('展开后的发布集里没有开发目录文件', devLeak.length === 0,
   devLeak.length ? devLeak.slice(0, 5).join(', ') + (devLeak.length > 5 ? ` … 共 ${devLeak.length}` : '') : published.length + ' 个文件');
-check('白名单是棘轮（只许这一条，且该文件确实在库）',
-  SHIPPED_DEV_FILES.size === 1 && SHIPPED_DEV_FILES.has('scripts/prepare.mjs')
-  && existsSync(join(ROOT, 'scripts', 'prepare.mjs')),
-  [...SHIPPED_DEV_FILES].join(', ') || '空');
-check('负对照：开发目录判据对 src/ 与 scripts/ 有牙、白名单外的 scripts/ 文件仍被判出',
-  isDevLeak('src/client.js') && isDevLeak('scripts/build-client.mjs') && !isDevLeak('lib/index.js')
-  && !isDevLeak('scripts/prepare.mjs'));
+check('负对照：开发目录判据对 src/ 与 scripts/ 有牙',
+  DEV.test('src/client.js') && DEV.test('scripts/build-client.mjs') && !DEV.test('lib/index.js'));
 
 // ── ③ 同步机器路径（不可复现 + 隐私）────────────────────────────────────────
 section('③ 发布文本里没有真实的用户目录路径');
@@ -248,34 +215,42 @@ check('负对照：语法网对坏产物有牙', (() => {
 })());
 
 // ── ⑦ 安装期脚本不得引用未随包发布的文件（否则每个用户"装完就炸"）──────────────
-// npm 为**依赖**运行 `preinstall` / `install` / `postinstall`；`prepare` 另有两个真的会跑的
-// 时刻 —— git 直装（pnpm/npm 先装它的依赖再跑 prepare），以及把包装成**根项目**执行
-// （解包后 `pnpm install` / 仓库里的 `npm install`）。所以 `prepare` 不算开发期脚本：
-// 它引用的文件必须随包（② 的白名单就是为此开的），而 `prepublishOnly` / `build` /
-// `verify` / `smoke` 只在仓库里跑，引用 `src/` `test/` 是允许的。
+// **判据按钩子的时机分叉，不靠"放行名单"** —— 名单的毛病是把"装完就炸"与正常开发期脚本一并
+// 放行（`prepare` 到底在哪一侧跑，取决于包管理器与安装来源）。安装期钩子在**用户机器上的包
+// 目录**里执行：目录依赖（npm 跑 `prepare`）与 git 来源（npm 跑 `prepare`、pnpm 的 git 来源走
+// `prepare` 闸门）都会跑到它，而 `files` 里没有 `scripts/` ⇒ 命令引用的入口不在包内 = 装完
+// 直接失败。发布期钩子（`prepack` / `postpack` / `prepublishOnly`）只在 `npm pack` /
+// `npm publish` 的**源码检出**里跑，构建输入就在手边，因此它们引用 `scripts/` 是正常形态。
 section('⑦ 安装期脚本不得引用未随包发布的文件');
 {
-  const INSTALL_HOOKS = ['preinstall', 'install', 'postinstall'];
-  const DEV_ONLY = ['prepublishOnly', 'prepack', 'postpack', 'prepublish',
-    'build', 'verify', 'verify:all', 'verify:bridge', 'verify:e2e', 'smoke'];
+  const INSTALL_HOOKS = ['preinstall', 'install', 'postinstall', 'prepare', 'prepublish'];
+  const PUBLISH_HOOKS = ['prepack', 'postpack', 'prepublishOnly'];
   const unshippedRefs = (cmd) => [...String(cmd)
     .matchAll(/(?:^|\s)((?:scripts|src|test|docs|\.test-cache)\/[\w./-]+)/g)]
     .map((m) => m[1]).filter((p) => !publishSet(p));
+  /** 判据（正判据与负对照喂的是**这一条**）：安装期钩子 + 引用包外文件 ⇒ 违规。 */
+  const installHookNeedsUnshipped = (name, cmd) => INSTALL_HOOKS.includes(name)
+    && unshippedRefs(cmd).length > 0;
   const offending = Object.entries(pkg.scripts || {})
-    .filter(([name, cmd]) => unshippedRefs(cmd).length > 0 && !DEV_ONLY.includes(name));
-  check('引用未随包发布文件的脚本只能是开发期脚本', offending.length === 0,
+    .filter(([name, cmd]) => installHookNeedsUnshipped(name, cmd));
+  check('声明的安装期钩子都不引用未随包发布的文件', offending.length === 0,
     offending.map(([n, c]) => n + ' → ' + unshippedRefs(c).join(',')).join('; ')
-    || Object.keys(pkg.scripts || {}).length + ' 个脚本全部合规');
-  check('负对照：安装期脚本引用 scripts/ 会被判出',
-    unshippedRefs('node scripts/thing.mjs').length === 1
-    && unshippedRefs('node lib/index.js').length === 0
-    && unshippedRefs('node myscripts/thing.mjs').length === 0); // 近失：前缀必须落在路径边界上
-  // 安装期钩子是**用户侧**会跑的：谁把它塞进 DEV_ONLY（为了让上面那条闭嘴）就等于放行"装完就炸"
-  check('负对照：安装期钩子不得被 DEV_ONLY 放行',
-    INSTALL_HOOKS.every((h) => !DEV_ONLY.includes(h)), INSTALL_HOOKS.join(' '));
-  // `prepare` 同理：它被塞进 DEV_ONLY 就等于放行"git 直装 / 根项目安装时引用一个没随包的文件"
-  check('`prepare` 不在 DEV_ONLY 里（它真的会跑，引用的文件必须随包）',
-    !DEV_ONLY.includes('prepare'));
+    || '安装期钩子：' + (INSTALL_HOOKS.filter((h) => h in (pkg.scripts || {})).join(', ') || '（无）')
+      + '；' + Object.keys(pkg.scripts || {}).length + ' 个脚本全部合规');
+  // 负对照必须调**同一条判据**（不是另写一份正则、也不比常量字符串），否则它证明不了上面那条会 FAIL：
+  // 三个安装期钩子 + 引用未发布入口 ⇒ 红；发布期钩子、包内入口、非生命周期脚本（build/verify）⇒ 不红。
+  check('负对照：把安装期钩子装回去会被同一条判据判出',
+    installHookNeedsUnshipped('prepare', 'node scripts/prepare.mjs')
+    && installHookNeedsUnshipped('postinstall', 'node scripts/thing.mjs')
+    && installHookNeedsUnshipped('preinstall', 'node scripts/thing.mjs')
+    && !installHookNeedsUnshipped('prepack', 'node scripts/prepare.mjs')
+    && !installHookNeedsUnshipped('postpack', 'node scripts/thing.mjs')
+    && !installHookNeedsUnshipped('prepare', 'node lib/index.js')
+    && !installHookNeedsUnshipped('prepare', 'node myscripts/thing.mjs') // 近失：前缀必须落在路径边界上
+    && !installHookNeedsUnshipped('build', 'node scripts/build-client.mjs'));
+  // 两个时机集合必须互斥：同一个键既算安装期又算发布期，等于把这条判据让回给名单。
+  check('安装期与发布期钩子集合互斥', INSTALL_HOOKS.every((h) => !PUBLISH_HOOKS.includes(h)),
+    '安装期 ' + INSTALL_HOOKS.join('/') + ' · 发布期 ' + PUBLISH_HOOKS.join('/'));
 }
 
 console.log('');

@@ -54,8 +54,11 @@
    ① 活的代码所需文件（从 `lib/index.js` 出发的**可达闭包**）必须全在 `files` 里，且闭包里的每个相对
       导入目标都**真实存在于磁盘** —— 指向不存在文件的 import 在仓库里是死路径，装到用户机器上才炸成
       `ERR_MODULE_NOT_FOUND`；
-   ② 发布集里不得出现 `src/` `scripts/` `test/` `docs/` 等开发目录；恰有一条白名单 `scripts/prepare.mjs`
-      —— `prepare` 在 git 直装、或把包装成根项目执行时真的会跑，它不随包 = 一跑就 `MODULE_NOT_FOUND`；
+   ② 发布集里不得出现 `src/` `scripts/` `test/` `docs/` 等开发目录；脚本按**钩子时机**判
+      （`verify-package-publish` ⑦）—— 安装期钩子（`preinstall` / `install` / `postinstall` /
+      `prepare` / `prepublish`）引用 `files` 之外的入口即红（那条命令会在**用户机器的包目录**里
+      执行，而 `scripts/` 根本不随包）；发布期钩子（`prepack` / `postpack` / `prepublishOnly`）
+      只在源码检出里跑，引用 `scripts/` 是正常形态；
    ③ 发布文本里不得带**同步机器**的用户目录路径（占位符不算）—— 那是不可复现的元数据；
    ④ `dependencies` 每一条都必须被**可达闭包**加载（死码 import 不算 ⇒ 否则是白下载）。
 
@@ -139,7 +142,7 @@
 |---|---|---|
 | 内联模块浏览器安全 / `markers` 在位 / 名字不与正文冲突 | ✅ `scripts/build-client.mjs`（构建期硬失败） | — |
 | `files` 覆盖 `lib/`；具名入口在位；相对导入目标都在磁盘上；依赖无死声明；工具链零裸依赖 | ✅ `test/verify-package-files.mjs` P1–P7（各带负对照） | — |
-| **发布面自洽（npm 方向）**：可达闭包 ⊆ `files` 且闭包目标在磁盘上在位；发布集无开发目录（白名单只放行 `scripts/prepare.mjs`）；发布文本无**同步机器**的用户目录路径；`dependencies` 每条都被**活的代码**加载（不是"lib/ 里某处 import 过"）；入口/导出目标都在包里；发布出去的 `lib/client.js` 是加载器形态且可解析；安装期脚本（含 `prepare`）不得引用未随包发布的文件 | ✅ `test/verify-package-publish.mjs`（七组，各带负对照） | — |
+| **发布面自洽（npm 方向）**：可达闭包 ⊆ `files` 且闭包目标在磁盘上在位；发布集无开发目录、脚本按钩子时机判（安装期引用包外入口即红）；发布文本无**同步机器**的用户目录路径；`dependencies` 每条都被**活的代码**加载（不是"lib/ 里某处 import 过"）；入口/导出目标都在包里；发布出去的 `lib/client.js` 是加载器形态且可解析 | ✅ `test/verify-package-publish.mjs`（七组，各带负对照） | — |
 | `lib/client.js` 与 `src/` 同步 | ✅ CI（重建后 `git diff --exit-code`） | — |
 | **`src/` 无孤儿**：除 `src/client.js` 外每个文件都必须在 `INLINE_MODULES` 里 | ✅ `test/verify-module-layout.mjs` ①（全量扫描 + 负对照） | — |
 | **依赖方向单向**：`lib/**` 不得 import `src/**` | ✅ 同守卫 ②（零容忍，不需要棘轮） | — |

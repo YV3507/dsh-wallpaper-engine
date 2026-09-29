@@ -3,8 +3,9 @@
 > 本文件承接原先堆在 README 首页的**版本公告与功能清单**。门面（`../README.md` / `../README.en.md`）
 > 只保留与版本无关的亮点；带版本号、issue 号、性能数字的内容一律记在这里。
 >
-> **当前开发版本：`v1.1.0`**（与 `package.json` 的 `version` 一致）；**npm 上最新发布仍是 `v1.0.1`**，v1.1.0 待发布。
-> 顶部 `### 未发布（下一版）` 记的是**相对已发布 v1.0.1 的增量**（即本仓库与上游 `origin/main` 的差异）。
+> **当前发布版本：`v1.1.0`**（与 `package.json` 的 `version` 一致；上游最新 release 仍是 v1.0.1）。
+> `### 未发布（下一版）` 记的是 **v1.1.0 之后**的增量（本仓库与上游 `origin/main` 的差异）—— 当前为空；
+> **`### v1.1.0`** 一节收拢的是 **1.0.1 之后至 1.1.0** 的全部内容（打包修复 + 本仓库相对上游的追版成果）。
 >
 > **归档说明**：本仓库从 **v0.6.8** 起才有 git tag，更早的版本没有独立标签。早于 v0.6.8 的条目
 > 按**原 README 原文的版本标注**归档；原文未标注小版本的条目放进区间桶，不臆造版本号。
@@ -14,11 +15,15 @@
 
 ### 未发布（下一版）
 
-> 相对已发布的 **v1.0.1** 的增量（与上游 `origin/main` 的差异，逐提交可查）。
+> v1.1.0 之后的增量（与上游 `origin/main` 的差异，逐提交可查）：**（无）**。
+
+### v1.1.0（1.0.1 → 1.1.0 · 2026-09-29）
+
+> 本安装包含 **1.0.1 之后至 1.1.0** 的全部内容（自 v1.0.1 `6ba2fae` 起落地的提交）。
 
 **界面**
 
-- **主题随壁纸（自动深 / 浅切换）**：换壁纸后插件按壁纸决定全局深色 / 浅色 —— 取色顺序 **① 壁纸自己声明的配色**（`project.json` 的 `schemecolor` / `ui_browse_properties_scheme_color`；你在「壁纸属性」面板里改过的覆盖值优先；**作者填的恰好 `0 0 0` 视作"没填"** —— 那是 WE 新建工程的默认值，本机实测 360 张里 124 张是它，照用会把三分之一壁纸一律钉成深色；面板里显式填的纯黑不受这条影响）**→ ② 画面占比最大色**（64×64 下采样、4 bit/通道量化后取众数桶，只在 ① 缺席时跑；**两个来源合议** —— 作者预览图与真实渲染帧（场景抓帧 / 网页 `__wp.capture`）各判一次，**不一致时取深色**，只有都说是浅色才用浅色（抓帧有落在画面未稳定时刻的风险，而"该深却给浅色"肉眼最容易看见））**→ ③ 两条都拿不到就保持不动**（不抖）；判定用 WCAG 相对亮度，阈值 **0.40**（语义是"**明显偏亮**才配浅色界面"；不取中灰 0.2159 —— 实测本机库作者配色的亮度中位数是 0.214，中灰阈值正好切在分布最密处、±0.05 内 27 张，饱和中间调会被判浅而人眼看是深的）。**没有开关，行为即自动**。三条自我约束：**结论与当前偏好相同就不写**（`setTheme` 会把偏好落进 profile 的 `cordis.patch.yml`，轮换列表混着亮暗两派时不去重就是每次切换写一次盘）；**你在 DSH 设置里手动改过主题 ⇒ 本张壁纸不再自动**（同一张被重复评估也不会抢回来），**换下一张恢复**；宿主没提供主题服务（`theme`）时整体不生效、绝不抛。顺带修好一处哑管道：宿主早就发了 `schemeColor`，客户端从没接 —— 场景 / 网页壁纸首帧的垫底图因此一直走 CSS 变量兜底，现在按作者配色打底。
+- **主题随壁纸（自动深 / 浅切换）**：换壁纸后插件按壁纸决定全局深色 / 浅色 —— 取色顺序 **① 壁纸自己声明的配色**（`project.json` 的 `schemecolor` / `ui_browse_properties_scheme_color`；你在「壁纸属性」面板里改过的覆盖值优先；**作者填的恰好 `0 0 0` 视作"没填"** —— 那是 WE 新建工程的默认值，本机实测 360 张里 124 张是它，照用会把三分之一壁纸一律钉成深色；面板里显式填的纯黑不受这条影响）**→ ② 画面占比最大色**（64×64 下采样、4 bit/通道量化后取众数桶，只在 ① 缺席时跑；**两个来源合议** —— 作者预览图与真实渲染帧（场景抓帧 / 网页 `__wp.capture`）各判一次，**不一致时取深色**，只有都说是浅色才用浅色（抓帧有落在画面未稳定时刻的风险，而"该深却给浅色"肉眼最容易看见））**→ ③ 两条都拿不到就保持不动**（不抖）；判定用 WCAG 相对亮度，阈值 **0.40**（语义是"**明显偏亮**才配浅色界面"；不取中灰 0.2159 —— 实测本机库作者配色的亮度中位数是 0.214，中灰阈值正好切在分布最密处、±0.05 内 27 张，饱和中间调会被判浅而人眼看是深的）。**默认关**（「外观 → 主题」段最上方的开关，设置键 `themeFollow`；开启后行为即自动，关闭时六个入口全空转 —— 不取色、不判决、不写主题，也不留让位痕记，并清掉它此前留下的合议排名与状态行）。三条自我约束：**结论与当前偏好相同就不写**（`setTheme` 会把偏好落进 profile 的 `cordis.patch.yml`，轮换列表混着亮暗两派时不去重就是每次切换写一次盘）；**你在 DSH 设置里手动改过主题 ⇒ 本张壁纸不再自动**（同一张被重复评估也不会抢回来），**换下一张恢复**；宿主没提供主题服务（`theme`）时整体不生效、绝不抛。顺带修好一处哑管道：宿主早就发了 `schemeColor`，客户端从没接 —— 场景 / 网页壁纸首帧的垫底图因此一直走 CSS 变量兜底，现在按作者配色打底。
 - **适配器模式（「适配目标」）**：「高级」页签新增「**适配**」段 —— 自动识别插件跑在 **原生浏览器 / 非官方桌面端 / 官方桌面端** 哪一种里，显示「检测到：… · 有 / 无能力头栅栏」，并可手选覆盖（**手选优先于检测**，是检测不准时的自救）。判定**与操作系统无关**：宿主按**请求头与 UA** 观测 —— 能力头 `x-dsh-desktop-renderer` ⇒ 非官方桌面端（实测只有社区壳 `DSH Desktop.app` 注入，官方 `DeepSeek Harness.app` 的 `app.asar` 里该字面量零命中）、UA 含 `Electron/` ⇒ 桌面壳、两者皆无 ⇒ 原生浏览器；观测用**只增不减的闩锁**，首帧前的探活请求不会把已判明的桌面端改回浏览器（错判成浏览器的代价是网页壁纸 403）。它同时决定四处行为：① **网页壁纸载荷**走独立媒体源还是应用源 —— 原生浏览器没有栅栏就不再多开一个 loopback 监听，该形态的相对路径由守卫单独断言；② **外壳材质规则**（`data-dsh-desktop-mode` / `data-we-mica`）一律经 `[data-we-adapter^="desktop-"]` 门控，浏览器形态不吃壳层材质；③ **「窗口失焦时暂停」只在浏览器目标下提供**（桌面壳失焦时壁纸多半仍整块可见，暂停会定格**可见**画面；已保存的值不删，切回浏览器目标即恢复生效）；④ **面板按目标显隐并说明原因**，手选与检测冲突时给出可执行警示（手选浏览器却观测到栅栏 ⇒ 明说网页壁纸会 403）。
 - **设置页签重组**：「字体」页签并入「**外观**」，「玻璃」改名「**雾化**」，调节项按用途归位（外观 / 效果 / 声音 / 高级）—— 页签仍是六个（壁纸 / 外观 / 吉祥物 / 效果 / 声音 / 高级）。
 - **字体集（整套字体外观的预设）**：字体自定义从此以**一整套**为单位 —— 随包自带预设，可**新建（以当前外观）/ 重命名 / 删除**；改任何字体项都只落到**当前这一套**，随时可以「恢复原样」回到它本来的样子（改过之后那一套会标注「已改」，点「使用」即整份读回来）。支持**导出 / 导入**一份 `.json`（导出走系统「另存为」对话框，导入前先校验文件里的版本标记，坏文件会给出具体原因）。界面只说"哪一套在用"，不区分随包还是自建。
@@ -32,7 +37,7 @@
 
 - **终端默认只报问题**：宿主输出收敛成三档（档位名就是日志方法名）—— `error`（会导致插件 / DSH / 系统出问题）、`warn`（降级 / 回退 / 围栏拒绝 / 首帧超时等**影响显示效果**的非正常表现）、`info`（其余全部：逐张贴图、心跳、autosize gate、准备期探测、成功事实的日志侧留痕）。**终端默认只镜像 `error` + `warn`**，`info` 只在 `DSH_WE_LOG_LEVEL=info` 时可见（取值 `error` / `warn` / `info`，默认 `warn`）。此前每一行渲染器上报与心跳都直接打到终端（实测约 18 行/分钟）。
 - **成功提示改走独立通道**：终端上的一行 `[wallpaper-engine] … ✔`（「壁纸媒体源已监听」「场景壁纸已就绪」，**与日志行同前缀**，`✔` 只标记"这是成功提示、不是问题"），**每条每会话至多一条**（HMR 重挂不重发）；不经日志、不带级别、不落档。它只在 stdout 是终端时出现 —— DSH 桌面端的宿主由 Electron 以管道启动（`isTTY` 为假）⇒ 桌面端默认安静，`DSH_WE_NOTICE=1` 可显式打开、`=0` 永久静默；**投递失败**才产生一条 `warn`。
-- **每个上报端点都自己声明级别**：客户端 `[we-live]` 的诊断行随同源像素请求带上 `&lvl=`（宿主对未知 / 缺失一律落 `info`）；**渲染页**（随包的 WebWallGL 产物）原先只把级别喂给浏览器控制台、请求里丢掉，现在由本地补丁按**与宿主同一张失败模式表**算出并随请求发出 —— 宿主的"文案关键字"判定因此退化为兜底。轮换准备期的首帧连续超时从裸 `console.info` 并入同一条通道并标 `warn`。
+- **每个上报端点都自己声明级别**：客户端 `[we-live]` 的诊断行随同源像素请求带上 `&lvl=`（宿主对未知 / 缺失一律落 `info`）；**渲染页**（随包的 WebWallGL 产物）原先只把级别喂给浏览器控制台、请求里丢掉 —— 渲染页同步到 **2.0.2 后自带 `&lvl=`**（按与宿主一致的失败模式表判定），宿主侧 `levelForReport` 一律**以发送端声明为准**、只在声明缺失时才退回那张表；期间曾用过的本地补丁已随 2.0.2 删除。轮换准备期的首帧连续超时从裸 `console.info` 并入同一条通道并标 `warn`。
 - **诊断档案加上限**：`~/.dsh-wallpaper-engine/diag/http.jsonl` 写到 8 MiB 时轮转为 `http.jsonl.1`（只留一代）；`/diag-log` 与每行 JSON 的形状不变。
 - **客户端异常也留痕**：面板的渲染期异常此前只表现为"界面白掉"——而那台机器打不开 DevTools，诊断缓冲里什么都没有。现在 `error` 与 `unhandledrejection` 会把消息与栈前三行写进同一条诊断通道（标签 `client-error`，级别 `error`），排查时先 `Select-String 'client-error'`。
 - 详情与开闸命令见 [`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md) 的「终端输出：默认只报问题」。
@@ -60,10 +65,7 @@
 
 - 以最小形式采纳上游 PR #87 的 `js-yaml` 约束（非可达漏洞）。
 - 打包白名单回归断言（`verify-package-files`），覆盖 `lib/**` 全部运行时模块。
-- **发布面三处补强（v1.1.0）**：
-  - **`scripts/prepare.mjs` 进入 `files`**：`prepare` 在 git 直装、或把包装成**根项目**执行（解包后 `pnpm install`）时真的会跑 —— 脚本不随包就是执行即 `MODULE_NOT_FOUND`（把发布包解开当根项目跑 `pnpm install` 可稳定复现）。配套：`verify-package-publish` ⑦ 不再把 `prepare` 当开发期脚本（它的引用必须随包），② 只为这一个文件开白名单，其余 `src/` `scripts/` `test/` `docs/` 照旧一律判红。
-  - **可达闭包的相对导入目标必须在磁盘上在位**（`verify-package-publish` ① 新增断言 + 负对照）：指向不存在文件的 import 在仓库里是死路径、本地没人撞得上，装到用户机器上才炸成 `ERR_MODULE_NOT_FOUND` —— npm 上的 1.0.1 正是这么残缺的（`lib/scene-scripts.js` 引用的 `./scene-script-apis.js` 从未进过发布物）。同一口径再落到 `verify-package-files` 的新 **P7**：扫 `lib/**` 全部运行时模块（不只 `lib/index.js` 的可达闭包），相对导入目标缺失即判红。
-  - **版本 `1.0.1 → 1.1.0`**：npm 上的 1.0.1 已发布且不可覆盖，仓库与它内容不同步，只能靠新版本把当前代码带上去。
+- **安装期不再跑需要源码的构建**：构建钩子由 `prepare` 改为 `prepack`（只在 `npm pack` / `npm publish` 前重建 `lib/client.js`），发布包里不再声明任何"安装期会执行、却引用包外 `scripts/`"的脚本 —— 目录依赖与 git 来源安装不再因为 `scripts/prepare.mjs` 不在包里而以退出码 1 失败。
 
 **文档与仓库整理**
 
@@ -73,7 +75,6 @@
 
 - **静态帧线整体移除**：离线场景渲染器 / 主纹理提取 / 合成器，以及「静态帧」后台预热**全部删除**（约 1 万行）。场景壁纸的**出图来源**现在只有两级 —— **实时画面**（实时抓帧，优先）与**自定义画面**（你导入的截图）；两者都没有时**诚实留空**，不再"替作者猜一张图"（那会产出一张糊图，把"这张壁纸没有可用画面"这个**可判定事实**掩盖掉）。
   配套：`?v=1/2/3` 档位退役（旧配置按"自动"处理，**无需迁移**）；帧缓存键改名升值（旧缓存自动失效重建，代价只是重抓几张实时帧）；面板上「壁纸画面刷新」改名为「**出图来源**」（两档）。
-
 
 ### v1.0.1（里程碑 · 2026-09-25）
 
@@ -104,7 +105,7 @@
 ### v0.7.5
 
 > 上游 v0.7.5 的内容（`#91` 字体重做与画面刷新档位、`#99` 视频壁纸音轨、玻璃饱和度不再随模糊上涨 `#98` 等）+ 本仓库 **0.7.4 全部内容**（见下节）。
-> ⚠️ **WebWallGL 实时渲染（`#103`）与 `lib/webwallgl/` 发布白名单不在本版内** —— 它们是上面「未发布」桶里的追版合并成果；本版发布时的管线前缀是 `sf33_`。
+> ⚠️ **WebWallGL 实时渲染（`#103`）与 `lib/webwallgl/` 发布白名单不在本版内** —— 它们是**追版合并**的成果（后来随 `v1.1.0` 一并发布）；本版发布时的管线前缀是 `sf33_`。
 
 ### v0.7.4（未发布 — 内容并入 v0.7.5）
 
@@ -190,12 +191,15 @@
 
 ### Unreleased (next version)
 
-> Increment over the published **v1.0.1** (the diff against upstream `origin/main`, verifiable commit by commit).
-> Current `package.json` version: **v1.1.0** — npm still serves **v1.0.1**; v1.1.0 is pending publication.
+> Increment after **v1.1.0** (the diff against upstream `origin/main`, verifiable commit by commit): **(none)**.
+
+### v1.1.0 (1.0.1 → 1.1.0 · 2026-09-29)
+
+> This install contains everything after **1.0.1** up to **1.1.0** (the commits landed since v1.0.1 `6ba2fae`).
 
 **UI**
 
-- **Theme follows the wallpaper (automatic light/dark)**: after a switch the plugin picks the global theme from the wallpaper — colour order **① the wallpaper's own scheme colour** (`project.json` `schemecolor` / `ui_browse_properties_scheme_color`; an override you set in the **壁纸属性** panel wins, and an author value of exactly `0 0 0` counts as **unfilled** — that is the WE editor's default for new projects and 124 of 360 wallpapers here carry it, so taking it at face value would pin a third of the library to dark; a hand-picked pure black in the panel is still honoured) **→ ② the most-occupied colour of the picture** (64×64 downsample, 4 bits/channel quantisation, modal bucket — only when ① is missing; the author preview and a **real rendered frame** (scene capture / web `__wp.capture`) each vote, and **a disagreement resolves to dark** — light only when both agree; a capture can land on a not-yet-settled frame, and "should be dark but came out light" is the error the eye notices) **→ ③ neither available ⇒ leave the theme alone** (no thrashing). The verdict is a WCAG relative-luminance threshold of **0.40** ("only clearly bright colours get a light UI"; not mid grey 0.2159 — the author colours in this library have a median luminance of 0.214, so a mid-grey threshold cuts through the densest part of the distribution (27 wallpapers within ±0.05), and saturated mid-tones end up "light" while the eye reads them as dark). **There is no switch — the behaviour *is* the feature.** Three self-imposed rules: **nothing is written when the verdict already matches the current preference** (`setTheme` persists the preference into the profile's `cordis.patch.yml`, so without de-duplication a rotation list mixing light and dark wallpapers would rewrite that file on every switch); **changing the theme by hand in DSH stops it for the current wallpaper** (re-evaluating the same wallpaper will not take it back) and **the next switch resumes it**; when the host provides no `theme` service the whole thing stays inert and never throws. Along the way a dead pipe got fixed: the host had been sending `schemeColor` all along while the client never consumed it, so the first-frame poster fell back to a CSS variable — it now uses the author's colour.
+- **Theme follows the wallpaper (automatic light/dark)**: after a switch the plugin picks the global theme from the wallpaper — colour order **① the wallpaper's own scheme colour** (`project.json` `schemecolor` / `ui_browse_properties_scheme_color`; an override you set in the **壁纸属性** panel wins, and an author value of exactly `0 0 0` counts as **unfilled** — that is the WE editor's default for new projects and 124 of 360 wallpapers here carry it, so taking it at face value would pin a third of the library to dark; a hand-picked pure black in the panel is still honoured) **→ ② the most-occupied colour of the picture** (64×64 downsample, 4 bits/channel quantisation, modal bucket — only when ① is missing; the author preview and a **real rendered frame** (scene capture / web `__wp.capture`) each vote, and **a disagreement resolves to dark** — light only when both agree; a capture can land on a not-yet-settled frame, and "should be dark but came out light" is the error the eye notices) **→ ③ neither available ⇒ leave the theme alone** (no thrashing). The verdict is a WCAG relative-luminance threshold of **0.40** ("only clearly bright colours get a light UI"; not mid grey 0.2159 — the author colours in this library have a median luminance of 0.214, so a mid-grey threshold cuts through the densest part of the distribution (27 wallpapers within ±0.05), and saturated mid-tones end up "light" while the eye reads them as dark). **Off by default** — a switch at the top of the "Appearance → Theme" section (setting key `themeFollow`); when on, the behaviour *is* the feature; when off, all six entry points idle (no colour sampling, no verdict, no theme write, no bookkeeping) and the yield marker / vote ranking / status line it had written are cleared. Three self-imposed rules: **nothing is written when the verdict already matches the current preference** (`setTheme` persists the preference into the profile's `cordis.patch.yml`, so without de-duplication a rotation list mixing light and dark wallpapers would rewrite that file on every switch); **changing the theme by hand in DSH stops it for the current wallpaper** (re-evaluating the same wallpaper will not take it back) and **the next switch resumes it**; when the host provides no `theme` service the whole thing stays inert and never throws. Along the way a dead pipe got fixed: the host had been sending `schemeColor` all along while the client never consumed it, so the first-frame poster fell back to a CSS variable — it now uses the author's colour.
 - **Adapter mode (「适配目标」)**: the **高级** tab gained an **「适配」** section that works out which of **a plain web browser / the unofficial desktop client / the official desktop client** the plugin is running in, shows 「检测到：… · capability header present / absent」, and lets you override it — **a manual pick wins over detection**. Detection is **OS-independent**: the host observes **request headers and the UA** (the `x-dsh-desktop-renderer` header ⇒ unofficial desktop client — measured to be injected only by the community shell `DSH Desktop.app`, with zero hits for that literal in the official `DeepSeek Harness.app` `app.asar`; `Electron/` in the UA ⇒ desktop shell; neither ⇒ plain browser) and latches what it sees **without ever unwinding it**, so a health probe before the first frame cannot demote a known desktop back to the browser (a wrong "browser" verdict is what makes a web wallpaper answer 403). It drives four behaviours: ① whether a **web wallpaper payload** uses the dedicated media origin or the app origin — a plain browser has no fence, so no second loopback listener is opened, and that relative-path shape is asserted by its own guard; ② **desktop-shell material rules** (`data-dsh-desktop-mode` / `data-we-mica`) are gated on `[data-we-adapter^="desktop-"]`, so a browser session never inherits them; ③ **「窗口失焦时暂停」 is only offered on the browser target** (a desktop shell that lost focus usually still shows the wallpaper, and pausing would freeze a **visible** picture; the stored value survives and resumes when you switch back); ④ **panel rows appear per target with a stated reason**, and a manual pick that contradicts detection spells out the consequence (browser picked while a header is observed ⇒ 403).
 - **Settings tabs reorganised**: the 「字体」 tab merged into 「**外观**」, 「玻璃」 was renamed to 「**雾化**」, and the adjustment controls were regrouped by purpose (appearance / effects / sound / advanced) — the six tabs stay 壁纸 / 外观 / 吉祥物 / 效果 / 声音 / 高级.
 - **Font sets (a whole typography look as one preset)**: custom typography is now organised in **sets** — a preset ships with the plugin, and you can **create (from the current look) / rename / delete**; editing any font item lands **only in the current set**, and 「restore」 puts that set back the way it was (a set you edited is marked 「已改」 and "use" reads the whole set back). **Export / import** a `.json` (export opens the system **Save as** dialog; import validates the version tag first and names the reason for a bad file). The UI only says *which* set is in use — it never reveals whether a set shipped with the plugin.
@@ -224,8 +228,10 @@
 - **Every reporting endpoint now declares its own level**: client `[we-live]` diagnostic lines carry
   `&lvl=` on the same-origin pixel request (an unknown or missing value falls back to `info`); the
   **renderer page** (the shipped WebWallGL artifact) used to feed its level to the browser console only
-  and drop it from the request — a local patch now computes it from the **same failure table the host
-  uses** and sends it, so the host's keyword matching is demoted to a fallback. The rotation-prep
+  and drop it from the request; as of the renderer 2.0.2 sync the page declares `&lvl=` itself (computed
+  from the **same failure table the host uses**), and the host's `levelForReport` always takes the
+  sender's declaration, falling back to that table only when it is missing. The local patch used in
+  between was removed with 2.0.2. The rotation-prep
   first-frame timeout moved from a bare `console.info` onto the same channel and is tagged `warn`.
 - **The diagnostics file has a cap**: `~/.dsh-wallpaper-engine/diag/http.jsonl` rotates to
   `http.jsonl.1` at 8 MiB (one generation only); `/diag-log` and the per-line JSON shape are unchanged.
@@ -269,10 +275,7 @@
 
 - Adopted upstream PR #87's `js-yaml` constraint in minimal form (a non-reachable vulnerability).
 - Packaging-whitelist regression assertions (`verify-package-files`), covering every runtime module under `lib/**`.
-- **Three publish-face strengthenings (v1.1.0)**:
-  - **`scripts/prepare.mjs` is now shipped**: `prepare` really does run when the plugin is installed from git, or when the packed artifact is executed as a *root project* (unpack, then `pnpm install`) — shipping the script without it means `MODULE_NOT_FOUND` the moment it runs (reproducible by unpacking the published package and running `pnpm install` in it). Follow-ups: `verify-package-publish` ⑦ no longer treats `prepare` as a repo-only script (its target must ship), and ② opens its dev-directory allowlist for exactly this one file — `src/` `scripts/` `test/` `docs/` are still rejected everywhere else.
-  - **Every relative import target of the reachable closure must exist on disk** (new assertion + negative control in `verify-package-publish` ①): an import pointing at a file that is not there is a dead path locally — nobody trips over it until it is installed on a user's machine and blows up as `ERR_MODULE_NOT_FOUND`. The npm **1.0.1** artifact was exactly that (`./scene-script-apis.js`, imported by `lib/scene-scripts.js`, never shipped). The same rule now also runs as **P7** in `verify-package-files`: every runtime module under `lib/**` is scanned, not just the closure reachable from `lib/index.js`.
-  - **Version `1.0.1 → 1.1.0`**: the published 1.0.1 cannot be overwritten and no longer matches this repository, so only a new version carries the current code to npm.
+- **No install-time build that needs sources**: the build hook moved from `prepare` to `prepack` (it rebuilds `lib/client.js` before `npm pack` / `npm publish` only), so the published package no longer declares an install-time script that references files outside the tarball — directory and git installs no longer fail with exit 1 because `scripts/prepare.mjs` is not packed.
 
 **Docs & repo housekeeping**
 
@@ -288,7 +291,6 @@
   Also: `?v=1/2/3` tiers are retired (old values simply mean "auto" — **no migration needed**); the frame
   cache key was renamed/bumped (old caches expire; the only cost is re-capturing a few live frames); the
   panel row "wallpaper picture refresh" became "**out-figure source**" (two tiers).
-
 
 ### v1.0.1 (milestone · 2026-09-25)
 
@@ -319,7 +321,7 @@
 ### v0.7.5
 
 > Upstream v0.7.5's content (`#91` font rework + frame-refresh tiers, `#99` video-wallpaper track volume, glass saturation no longer rising with blur `#98`, …) plus **all of this repository's 0.7.4 content** (see the next section).
-> ⚠️ **WebWallGL live rendering (`#103`) and the `lib/webwallgl/` publishing allowlist are NOT in this version** — they came in with the catch-up merge listed under "Unreleased" above; this release's pipeline prefix was `sf33_`.
+> ⚠️ **WebWallGL live rendering (`#103`) and the `lib/webwallgl/` publishing allowlist are NOT in this version** — they came in with the catch-up merge (shipped later in `v1.1.0`); this release's pipeline prefix was `sf33_`.
 
 ### v0.7.4 (unpublished — its content shipped inside v0.7.5)
 
