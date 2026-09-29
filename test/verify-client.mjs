@@ -7,6 +7,8 @@
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
+// 剥注释：共享的字符串感知实现（test/tools/js-text.mjs）。
+import { stripComments } from './tools/js-text.mjs';
 
 const React = {
   Fragment: 'Fragment',
@@ -1681,9 +1683,10 @@ setTimeout(async () => {
       //    一次 persist**（`type` / `blockedNote` / `sceneVideo` … 同型），禁裸写会逼出任意豁免。
       //    扫描面 = **产物**（= 全部内联模块的正文 ⇒ 不可能漏调用方，也不需要维护"可能是调用方的
       //    文件"清单 —— 清单漏一个文件，判据在那个文件上就恒真）。键集从 `DEFAULTS_ONLY` 派生。
-      //    注释先剥掉：`setTransient` 那条契约注释里正好点名了这些键。
+      //    注释先剥掉（共享的字符串感知实现，见 test/tools/js-text.mjs）：`setTransient` 那条
+      //    契约注释里正好点名了这些键。
       const persistingWritesOf = (text) => {
-        const t = text.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+        const t = stripComments(text);
         return DEFAULTS_ONLY.filter((k) =>
           new RegExp('setSetting\\(\\s*[\'"]' + k + '[\'"]').test(t)
           || new RegExp('setFontValues\\(\\s*\\{[^}]*\\b' + k + '\\s*:').test(t));
@@ -1926,10 +1929,10 @@ setTimeout(async () => {
 // 判据只有这一处：数"越过接缝直呼"的次数 —— **按代码判**（先剥注释，否则这些文件的头注
 // 自己提到这两个词就会被误伤）。
 {
-  // 唯一判据。剥注释的口径与 scripts/build-client.mjs 的"浏览器安全"扫描一致
-  //（本仓已在同类假阳性上踩过三次）。
+  // 唯一判据。剥注释走共享的字符串感知实现（test/tools/js-text.mjs），与
+  // scripts/build-client.mjs 的"浏览器安全"扫描同口径。
   const seamCrossings = (text) => {
-    const code = text.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+    const code = stripComments(text);
     return {
       selection: (code.match(/(^|[^.\w$])selection\b/g) || []).length,
       notify: (code.match(/\bemit\s*\(/g) || []).length,

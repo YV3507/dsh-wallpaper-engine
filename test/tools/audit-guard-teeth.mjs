@@ -11,11 +11,14 @@
  *   C. **声明了却零引用的判据/助手**：写了判据函数但没人调（形状同"414 行守卫零调用方"）。
  *   D. **恒真写法的最粗形态**：`assert.ok(true)` / `.length >= 0` / `check('…', true)`。
  *   E. **守卫没有"会红"的出口**（只会 `console.log` + `process.exit(0)` ⇒ 永远是绿的）。
- *   F. **剥注释吞掉了真实代码**："判据先剥注释再判"那条纪律的盲点 —— 块注释正则**不认字符串与
- *      行注释**：注释/字符串里出现块注释起始标记（把 `scripts/**`、`test/**`、`docs/*.md` 写进
- *      注释就够了）就会从那里启动一个"块注释"，一路吃到下一个**块注释结束标记**。实测
- *      `test/verify-module-layout.mjs` **L343→L437（95 行）**、`test/verify-scene-live.mjs`
- *      **L823→L1131（309 行）**。
+ *   F. **朴素剥注释吃掉/改动了真实代码**："判据先剥注释再判"那条纪律的盲点 —— 朴素块注释正则
+ *      **不认字符串、行注释与正则字面量**：注释、字符串或正则里出现块注释起始标记（把
+ *      `scripts/**`、`test/**`、`docs/*.md` 写进注释，或把 `[/*]` 写进一个正则，就够了）就会从
+ *      那里启动一个"块注释"，一路吃到下一个结束标记。实测 `test/verify-module-layout.mjs`
+ *      被吃 **95 行**、`test/verify-scene-live.mjs` 被吃 **331 行**。
+ *      判据是**精确比较**：同一份文本分别喂给朴素实现与共享的字符串感知实现（`test/tools/js-text.mjs`），
+ *      去掉空白后不同即为缺陷。本仓守卫面已统一到共享实现（`verify-module-layout` 规则 ⑦ 钉住）
+ *      ⇒ 本条现行含义是"换回朴素剥法会付什么代价"。
  *      影响方向：**只有"守卫 A 剥文件 B"时才挖洞** ⇒ 该看的是**被扫的那一面**。
  *      ⚠️ 本条说明自身就是证据：写这段时注释里出现了字面的结束标记，**当场把这个文件变成语法错误**。
  *
@@ -44,6 +47,8 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// 判据 F 要与共享的字符串感知实现对比（同目录 js-text.mjs）。
+import { stripComments } from './js-text.mjs';
 
 // `test/tools/` 比 `test/` 深一层 ⇒ 推仓库根要退**两层**（MODULE-LAYOUT §4.5；verify-module-layout ④ 有断言）
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -158,24 +163,23 @@ function deadDeclarations(src) {
   return decls.filter((d) => (src.match(new RegExp('\\b' + d.name + '\\b', 'g')) || []).length === 1);
 }
 
-// ── 判据 F：剥注释是否**吞掉了真实代码**（"先剥注释"这条纪律的盲点）────────────────
-// 块注释正则 `/\/\*[\s\S]*?\*\//g` **不认字符串/行注释**：注释或字符串里出现 `/*`（例如把
-// `scripts/**`、`test/**`、`docs/*.md` 写进注释）就会从那里启动一个"块注释"，一路吃到下一个 `*/`。
-// 实测 `verify-module-layout.mjs`：一个 `//` 行注释里的 `scripts/**` 造成 **L343→L437（95 行）**
-// 被删 —— 该守卫扫自己文件时静默跳过 95 行。判据：块注释区间跨 ≥3 行、且 `/*` **不在行首**
-// （行首的 `/**` 是正常文档注释）。
+// ── 判据 F：朴素剥注释是否**吃掉/改动了真实代码**（"先剥注释"这条纪律的盲点）────────────
+// 朴素块注释正则（本工具保留它是为了**检测**，见文件头）**不认字符串、行注释与正则字面量**：
+// 注释、字符串或正则里出现"块注释起始"那两个字符就会从那里启动一个"块注释"，一路吃到下一个
+// 结束标记 —— 把中间的真实代码静默删掉（把 `scripts/**`、`test/**`、`docs/*.md` 写进一句注释，
+// 或把 `[/*]` 写进一个正则，就够了）。
+// 判据是**精确比较**：同一份文本分别喂给朴素实现与共享的字符串感知实现（`test/tools/js-text.mjs`），
+// 去掉全部空白后若不同 ⇒ 朴素实现在这份文本上丢掉了真实代码。不再依赖"区间多长 / 起点在不在行首"
+// 的启发式（那会把合法地写在中段的文档注释误当成缺陷）。
+// 本仓守卫面已统一到共享实现（`test/verify-module-layout.mjs` 规则 ⑦ 钉住）⇒ 本判据现在的含义是
+// "换回朴素实现会付什么代价"，而不是"今天有几个文件是坏的"。
 function stripSwallows(src) {
-  const lines = src.split('\n');
-  const out = [];
-  for (const m of src.matchAll(/\/\*[\s\S]*?\*\//g)) {
-    const startLine = src.slice(0, m.index).split('\n').length;
-    const endLine = src.slice(0, m.index + m[0].length).split('\n').length;
-    if (endLine - startLine < 3) continue;
-    const before = lines[startLine - 1].slice(0, lines[startLine - 1].indexOf('/*'));
-    if (before.trim() === '') continue; // `/*` 在行首 ⇒ 正常文档注释
-    out.push({ n: startLine, to: endLine, text: '块注释区间 L' + startLine + '→L' + endLine + '（' + (endLine - startLine + 1) + ' 行）起点不在行首：' + lines[startLine - 1].trim().slice(0, 80) });
-  }
-  return out;
+  const naive = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+  const squeeze = (s) => s.replace(/\s+/g, '');
+  const aware = squeeze(stripComments(src));
+  const blunt = squeeze(naive);
+  if (blunt === aware) return [];
+  return [{ n: 0, to: 0, text: '若换回朴素剥法，这份文本会丢掉 ' + (aware.length - blunt.length) + ' 个非空白字符（吃掉真代码，或删改字符串/模板里的内容）' }];
 }
 // ── 判据 D：恒真写法的最粗形态 ────────────────────────────────────────────────
 const TAUTOLOGY_RES = [
@@ -220,9 +224,12 @@ const SELF = [
     cannotFail("if (failed) process.exit(1);\nconsole.log('PASSED');\n") === null],
   ['E 不误伤 process.exit(failed ? 1 : 0) 型守卫',
     cannotFail("process.exit(failed ? 1 : 0);\n") === null],
-  ['F 能抓到"字符串里的 /* 挖出多行空洞"',
+  ['F 能抓到"注释里的 /* 挖出多行空洞"（吃掉真代码）',
     stripSwallows("// 面 = `lib/**`\nconst a = 1;\nconst b = 2;\nconst c = 3;\n/** 正常文档注释 */\n").length === 1],
-  ['F 不误伤行首的文档注释', stripSwallows("/**\n * 文档\n * 注释\n */\nconst a = 1;\n").length === 0],
+  ['F 能抓到"正则字面量里的 [/*] 挖出空洞"',
+    stripSwallows("const r = /[/*]/g;\nconst a = 1;\n/* 真注释 */\nconst b = 2;\n").length === 1],
+  ['F 不误伤纯文档注释（剥了也不丢代码）', stripSwallows("/**\n * 文档\n * 注释\n */\nconst a = 1;\n").length === 0],
+  ['F 不误伤"注释只是换了空白"', stripSwallows("const a = 1; // 说明\nconst b = 2;\n").length === 0],
 ];
 let selfFailed = 0;
 console.log('自检（四个判据对合成输入都必须有牙）');
@@ -252,7 +259,7 @@ const sections = [
   ['C. 声明了却零引用的判据/助手', 'C'],
   ['D. 恒真写法的最粗形态', 'D'],
   ['E. 守卫没有"会红"的出口（永远是绿的）', 'E'],
-  ['F. 剥注释吞掉了真实代码（"先剥注释"的盲点）', 'F'],
+  ['F. 朴素剥注释在这份文本上的代价面（会丢内容：真代码 / 字符串 / 模板）', 'F'],
 ];
 let total = 0;
 for (const [title, key] of sections) {

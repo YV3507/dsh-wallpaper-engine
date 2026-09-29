@@ -20,12 +20,10 @@
 // Usage: node test/verify-picker-model.mjs
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+// 剥注释：共享的字符串感知实现（test/tools/js-text.mjs）。
+import { stripComments } from './tools/js-text.mjs';
 
 // ══ 判据（唯一一份）══════════════════════════════════════════════════════════
-
-const stripComments = (s) => s
-  .replace(/\/\*[\s\S]*?\*\//g, ' ')
-  .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
 
 /** 模型段的源码里**不许出现**的外界引用（判定只读入参，副作用归调用点）。 */
 const AMBIENT_REFERENCE = /\bselection\b|\bemit\s*\(|\bsetSetting\s*\(|\bdocument\b|\bwindow\b|\bfetch\s*\(|\brequire\s*\(|^\s*import\s/m;

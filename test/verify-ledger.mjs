@@ -30,6 +30,8 @@
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// 剥注释：共享的字符串感知实现（test/tools/js-text.mjs）。
+import { stripComments } from './tools/js-text.mjs';
 
 const root = resolve0();
 function resolve0() {
@@ -41,10 +43,8 @@ const LEDGER = join(root, 'docs', 'wip', 'REFACTOR-ASSESSMENT.md');
 const read = (rel) => readFileSync(join(root, rel), 'utf8');
 const has = (rel) => existsSync(join(root, rel));
 
-/** 计数类判据只认**代码**：先剥注释，否则散文里的 `fetch(` 字样会造出假阳性。 */
-const stripComments = (src) => src
-  .replace(/\/\*[\s\S]*?\*\//g, ' ')
-  .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+/** 计数类判据只认**代码**：剥注释走共享实现（test/tools/js-text.mjs），
+ *  否则散文里的 `fetch(` 字样会造出假阳性。 */
 
 /** 证据判据：每条返回 true 表示"这件事在仓库里已经成立"。 */
 const EVIDENCE = {

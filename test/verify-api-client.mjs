@@ -15,6 +15,8 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// 剥注释：共享的字符串感知实现（test/tools/js-text.mjs）。
+import { stripComments } from './tools/js-text.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const api = await import(new URL('../src/api-client.js', import.meta.url).href);
@@ -44,9 +46,8 @@ const check = (name, ok, detail) => {
   if (ok) console.log('  ✓ ' + name + (detail ? ' — ' + detail : ''));
   else { console.log('  ✗ ' + name + (detail ? ' — ' + detail : '')); failed++; }
 };
-const strip = (src) => src
-  .replace(/\/\*[\s\S]*?\*\//g, ' ')
-  .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+/** 棘轮只认代码：调用点沿用短名 `strip`。 */
+const strip = stripComments;
 
 // ── ① 棘轮（**终态已到**：客户端全模块零裸 fetch）────────────────────────────
 console.log('\n① 裸 fetch 棘轮（业务代码只许减少）');

@@ -20,6 +20,8 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Writable, Readable } from 'node:stream';
 import { EventEmitter } from 'node:events';
+// 剥注释：共享的字符串感知实现（test/tools/js-text.mjs）。
+import { stripComments } from './tools/js-text.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -681,7 +683,8 @@ if (token) {
 // 是 P2-11 的正常动作，判据只读一个文件会把"已搬走"误报成"少接了一条"（假红）。
 {
   const src = readHostHalf();
-  const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+  /** 判据只认代码：调用点沿用短名 `strip`。 */
+  const strip = stripComments;
   const bare = strip(src).match(/req\.destroy\(\)/g) || [];
   check('D3 全仓 req.destroy() 只允许两处收口（lingerClose / idle 兜底）', bare.length <= 2,
     '当前 ' + bare.length + ' 处');

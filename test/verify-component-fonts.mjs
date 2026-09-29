@@ -28,6 +28,8 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// 剥注释：共享的字符串感知实现（test/tools/js-text.mjs）。
+import { stripComments } from './tools/js-text.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const mod = await import(new URL('../src/font/components.js', import.meta.url).href);
@@ -39,7 +41,8 @@ const check = (name, ok, detail) => {
   else { console.log('  ✗ ' + name + (detail ? ' — ' + detail : '')); failed++; }
 };
 const section = (t) => console.log('\n' + t);
-const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+/** 判据只认代码：调用点沿用短名 `strip`。 */
+const strip = stripComments;
 
 const ALL = COMPONENT_FONT_TARGETS.map((t) => t.id);
 const MARKDOWN = 'markdown';
