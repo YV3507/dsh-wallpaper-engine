@@ -20,7 +20,7 @@
 import { readFileSync, readdirSync, statSync, existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { join, relative, sep } from 'node:path';
+import { join, relative, sep, dirname, resolve } from 'node:path';
 import { builtinModules } from 'node:module';
 // 剥注释：共享的字符串感知实现（test/tools/js-text.mjs）。
 import { stripComments } from './tools/js-text.mjs';
@@ -174,6 +174,40 @@ async function main() {
     check('P6 negative control: 坏模块会被 --check 判出', caught);
   }
 
+  // ── P7: 每个 lib/ 运行时模块的**相对导入目标**都真实存在于磁盘 ─────────────────
+  // P6 只判语法：一个指向不存在文件的 import 在仓库里是**死路径** —— 没有守卫 import 它，
+  // `node --check` 也照过（语法没错），装到用户机器上才炸成 `ERR_MODULE_NOT_FOUND`。
+  // 与 `verify-package-publish` ① 同口径但面更宽：那一份从 `lib/index.js` 的可达闭包出发，
+  // 这份扫**全部**运行时模块（路由 / 媒体族多为宿主动态 import，不进那张闭包图）。
+  // 口径：剥注释后扫 `from` / 动态 `import()` / `require()` 三种形态的相对说明符。
+  {
+    /** 判据：相对说明符 → 磁盘上的目标文件；候选一个都不存在返回 null（主扫描与负对照都走它）。 */
+    const resolveRelative = (fromRel, spec) => {
+      const base = resolve(ROOT, dirname(fromRel), spec.split('?')[0]);
+      for (const cand of [base, base + '.js', base + '.mjs', base + '.cjs', join(base, 'index.js')]) {
+        if (existsSync(cand) && statSync(cand).isFile()) return cand;
+      }
+      return null;
+    };
+    const missing = [];
+    let specs = 0;
+    for (const rel of runtime) {
+      const src = stripComments(readFileSync(join(ROOT, rel), 'utf8'));
+      for (const m of src.matchAll(/(?:from\s+|import\s*\(\s*|require\s*\(\s*)['"](\.[^'"]+)['"]/g)) {
+        specs++;
+        if (resolveRelative(rel, m[1]) === null) missing.push(rel + ' -> ' + m[1]);
+      }
+    }
+    check('P7 every relative import target of every lib/ module exists on disk',
+      specs > 0 && missing.length === 0,
+      missing.length ? 'missing=[' + missing.join(', ') + ']'
+        : specs + ' specifier(s) across ' + runtime.length + ' module(s)');
+    check('P7 negative control: 目标不存在时报出、省略扩展名时解析到实体',
+      resolveRelative('lib/index.js', './definitely-absent.js') === null
+      && resolveRelative('lib/index.js', './__absent__') === null
+      && resolveRelative('lib/index.js', './pkg-extract') === join(ROOT, 'lib', 'pkg-extract.js'));
+  }
+
   // ── P4: 声明的依赖必须有消费者 (防"死声明") ──────────────────────────────────
   // 本仓库的运行时策略是**自带副本**（lib/vendor/jpeg-js、lib/webgl…），因此
   // package.json 里每一条 `dependencies` 都必须在 lib/ 里真的被 import ——
@@ -229,9 +263,9 @@ async function main() {
   {
     // 链路外围必须钉住：四个脚本键都在，且**每个键下被引用到的脚本数**不低于实测下限 ——
     // 键被改名 / 条目被删掉时扫描集不能"静默缩小后照旧通过"（空集里没有裸依赖，也就没有
-    // offender，主判据会恒真）。下限取自本轮实测值（build 1 / verify 24 / smoke 5 / prepack 1）：
-    // 新增脚本不受限制，删或改名即判红 —— 改名时这里的键**必须同步改**，否则扫描集会缩水。
-    const CHAIN_FLOOR = { build: 1, verify: 24, smoke: 5, prepack: 1 };
+    // offender，主判据会恒真）。下限取自本轮实测值（build 1 / verify 24 / smoke 5 / prepare 1）：
+    // 新增脚本不受限制，删或改名即判红。
+    const CHAIN_FLOOR = { build: 1, verify: 24, smoke: 5, prepare: 1 };
     const chainNames = Object.keys(CHAIN_FLOOR);
     const missingKeys = chainNames.filter((n) => {
       const cmd = (pkg.scripts || {})[n];
@@ -255,7 +289,7 @@ async function main() {
       chainNames.map((n) => n + '=' + refsByKey[n].length + '/' + CHAIN_FLOOR[n]).join(' ')
         + ' · unique scripts=' + scripts.length
         + ' · missing keys=[' + missingKeys.join(', ') + '] below floor=[' + shortKeys.join(', ') + ']');
-    check('P5 build/verify/smoke/prepack chain has NO bare-package import (CI installs nothing)',
+    check('P5 build/verify/smoke/prepare chain has NO bare-package import (CI installs nothing)',
       scripts.length > 0 && offenders.length === 0,
       scripts.length + ' script(s) referenced; offenders=[' + offenders.join(', ') + ']');
     check('P5 negative control: the detector catches a bare import and ignores builtins/relative',

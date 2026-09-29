@@ -44,27 +44,18 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 ### 安装失败：`ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`
 
 ```text
-[ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED] ... The git-hosted package "dsh-plugin-wallpaper-engine@<早于 1.1.0 的版本>"
+[ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED] ... The git-hosted package "dsh-plugin-wallpaper-engine@0.6.8"
 needs to execute build scripts but is not in the "allowBuilds" allowlist.
 ```
 
-这条报错来自 `github:` 形式的安装命令（例如 `dsh plugin --profile web add github:elysia395/dsh-wallpaper-engine`）：
-pnpm 11 出于供应链安全，默认拒绝为 git 来源的包执行**安装期**构建脚本，除非在 `pnpm-workspace.yaml` 的
-`allowBuilds` 里点名批准。**闸门只在包"需要构建"时才落下** —— 本插件从 **1.1.0** 起不再落在闸门内：
-
-- 构建钩子是 **`prepack`**：只在 `npm pack` / `npm publish` 时于**源码检出**里重建 `lib/client.js`，
-  安装期（含目录依赖与 git 来源）**不跑**任何构建；
-- 发布包与 git checkout 都自带**预构建的 `lib/client.js`**，且 `main = lib/index.js` 在位 ⇒
-  pnpm 判定"无需构建"，不再要求 `allowBuilds` 批准。
-
-所以 `github:` 来源现在可以直接装（装完不必批准任何构建脚本）；**推荐用 npm 包名**——发布通道、版本号可核验：
+**说明你用了 `github:` 形式的安装命令**（例如 `dsh plugin --profile web add github:elysia395/dsh-wallpaper-engine`）。
+pnpm 11 出于供应链安全，默认拒绝从 git 安装的包执行构建脚本，而本插件的 git checkout 需要 `prepare`
+脚本构建 client，因此 `github:` 直装必然失败。请改用 **npm 包名**安装（npm 发布包已预构建，无需安装时编译）：
 
 ```sh
 dsh plugin --profile web add dsh-plugin-wallpaper-engine
 ```
 
-> 这条报错若出现在**早于 1.1.0 的版本**上：按 pnpm 的提示把该包加进 `allowBuilds` 再重跑，或改装
-> **1.1.0+**（安装期不跑构建，无需任何批准）。
 > 如果你的插件中心（dsh-plugin-hub）生成的是 `github:` 命令，请把它升级到 **v1.4.1+**——新版会自动反查
 > npm 包名并切到 npm 通道。
 
@@ -162,31 +153,22 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 ### Install failure: `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`
 
 ```text
-[ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED] ... The git-hosted package "dsh-plugin-wallpaper-engine@<version before 1.1.0>"
+[ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED] ... The git-hosted package "dsh-plugin-wallpaper-engine@0.6.8"
 needs to execute build scripts but is not in the "allowBuilds" allowlist.
 ```
 
-This error comes from the `github:` install form (e.g. `dsh plugin --profile web add github:elysia395/dsh-wallpaper-engine`):
-for supply-chain safety pnpm 11 refuses to run **install-time** build scripts of git-hosted packages unless the package
-is named in `allowBuilds` in `pnpm-workspace.yaml`. **The gate only closes when a package "needs a build"** — this
-plugin no longer falls inside it, as of **1.1.0**:
-
-- the build hook is **`prepack`** — it rebuilds `lib/client.js` inside the **source checkout** on `npm pack` /
-  `npm publish` only, and **nothing builds at install time** (directory deps and git sources included);
-- both the published package and the git checkout ship the **prebuilt `lib/client.js`**, and `main = lib/index.js`
-  is present ⇒ pnpm sees nothing to build and no longer asks for `allowBuilds` approval.
-
-So a `github:` source can be installed directly (nothing to approve afterwards); the **npm package name** is still
-recommended — it is the release channel and its version is verifiable:
+**You used a `github:` install form** (e.g. `dsh plugin --profile web add github:elysia395/dsh-wallpaper-engine`).
+pnpm 11 blocks build scripts of git-hosted packages by default for supply-chain safety, and this
+plugin's git checkout needs the `prepare` script to build the client — so `github:` direct installs
+always fail. Use the **npm package name** instead (the published npm package is pre-built, no
+compile-time build needed):
 
 ```sh
 dsh plugin --profile web add dsh-plugin-wallpaper-engine
 ```
 
-> If this error shows up on a **version before 1.1.0**: add that package to `allowBuilds` as pnpm's hint says and
-> re-run, or install **1.1.0+** (no install-time build, so nothing to approve).
-> If your plugin hub (dsh-plugin-hub) generated a `github:` command, upgrade it to **v1.4.1+** — the new version
-> auto-resolves the npm package name and switches to the npm channel.
+> If your plugin hub (dsh-plugin-hub) generated a `github:` command, upgrade it to **v1.4.1+** — the
+> new version auto-resolves the npm package name and switches to the npm channel.
 
 ### Symptom → where to look first
 
