@@ -271,6 +271,8 @@ check('negative control: 带日期的注释会被判不合格',
     'test/tools/host-route-index.mjs': 1,
     // 剥注释的共享实现（字符串/正则感知）：散文只讲"为什么不能朴素剥"，不讲编年史。
     'test/tools/js-text.mjs': 0,
+    // 分支级"改了 store 却没通知"的分析器（守卫 ①i 与它同源）：只讲不变量与已知边界。
+    'test/tools/branch-notify.mjs': 0,
     'scripts/prepare.mjs': 0,
     'test/tools/sync-webwallgl.mjs': 0,
     // harness 适配 CI 的四个新文件：从 0 起钉（散文只讲不变量与判据，不讲编年史）。

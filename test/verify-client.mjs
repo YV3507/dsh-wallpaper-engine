@@ -9,6 +9,8 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 // 剥注释：共享的字符串感知实现（test/tools/js-text.mjs）。
 import { stripComments } from './tools/js-text.mjs';
+// 分支级"改了 store 却没通知"的分析与审计工具**同源**（避免两份判据分叉）。
+import { pathNotifications } from './tools/branch-notify.mjs';
 
 const React = {
   Fragment: 'Fragment',
@@ -1858,6 +1860,118 @@ setTimeout(async () => {
       assert.deepEqual(
         unpairedPersistedWrites('function f() { selection.videoVolume = 1; }\n', ['f']), [],
         'positive control: 豁免名单里的函数不算（豁免生效）');
+
+      // ①h **面板处理器不得"写了 store 却没有任何能通知的动作"**（横向排查的产物）。
+      //    判据：先把"能通知的名字"按**传递闭包**算出来（种子 = `emit` + 下面四个显式列出的助手，
+      //    再反复把"体内调用了闭包里某个名字"的本地定义并进来）；然后对每个**处理器形态**
+      //    （`onXxx:` / `onXxx =` / `setXxx` / `changeXxx` / `toggleXxx`）且**写了 store** 的定义，
+      //    要求它体内调用闭包里的任意名字。
+      //    ⚠️ 已知边界：这是**处理器级**判据 —— "同一处理器里某一支通知、另一支不通知"它看不出
+      //    （收起「字体集预设」那个缺陷正是那一形态）；那一形态由 ①f 的机制契约兜住（令牌动作总是
+      //    通知 + 收起分支必须走它）。本条的职责是拦住"**整个处理器**都不会通知"这一类。
+      const panelSrcs = [src, readFileSync(new URL('../src/panel-tabs.js', import.meta.url), 'utf8')];
+      const defRe = /^(\s*)(?:function\s+([\w$]+)\s*\(|const\s+([\w$]+)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>|(on[A-Z][\w$]*)\s*:)/;
+      const defsOf = (text) => {
+        const ls = stripComments(String(text)).split('\n');
+        const out = [];
+        ls.forEach((l, i) => {
+          const m = defRe.exec(l);
+          if (!m) return;
+          const name = m[2] || m[3] || m[4];
+          // ⚠️ 单行定义（`const onX = (v) => { … };`）必须就地收尾：否则会一路吞掉**后面的处理器**，
+          //    把它们的 `emit()` 算到这个身上 —— 那是假阴性（反向探针实测过）。
+          const opens = (l.match(/\{/g) || []).length;
+          const closes = (l.match(/\}/g) || []).length;
+          if (opens === 0 || opens === closes) { out.push({ name, body: l }); return; }
+          const indent = m[1].length;
+          let end = ls.length;
+          for (let k = i + 1; k < ls.length; k++) {
+            if (ls[k].trim() === '') continue;
+            const ind = (ls[k].match(/^\s*/)[0] || '').length;
+            if (ind < indent) { end = k; break; }
+            if (/^\s*\}/.test(ls[k]) && ind === indent) { end = k + 1; break; }
+          }
+          out.push({ name, body: ls.slice(i, end).join('\n') });
+        });
+        return out;
+      };
+      const NOTIFY_HELPERS = ['busy', 'done', 'armConfirm', 'disarmConfirm'];
+      const callsAny = (body, names) => [...names].some((n) => new RegExp('(?:^|[^\\w$.])' + n + '\\s*\\(').test(body));
+      const notifyingNames = (defs) => {
+        const names = new Set(['emit', ...NOTIFY_HELPERS]);
+        for (let pass = 0; pass < 8; pass++) {
+          for (const d of defs) if (!names.has(d.name) && callsAny(d.body, names)) names.add(d.name);
+        }
+        return names;
+      };
+      // 闭包的种子要干净：显式列出的助手必须**自身**真的 emit（否则闭包被污染、判据变松）
+      const helperDefs = defsOf(src).filter((d) => NOTIFY_HELPERS.includes(d.name));
+      assert.deepEqual(
+        NOTIFY_HELPERS.filter((n) => !helperDefs.some((d) => d.name === n && /\bemit\(\)/.test(d.body))), [],
+        'NOTIFY_HELPERS 里每个名字都必须自身真的 emit');
+      const writesRe = /(setTransient\(|setSetting\(|setFontValues\(|(?<![\w.$])selection\.[\w$]+\s*=(?!=))/;
+      const silentHandlers = (text) => {
+        const defs = defsOf(text);
+        const names = notifyingNames(defs);
+        return defs.filter((d) => /^(?:on[A-Z]|set[A-Z]|change[A-Z]|toggle[A-Z])/.test(d.name)
+          && writesRe.test(d.body) && !callsAny(d.body, names)).map((d) => d.name);
+      };
+      const HANDLERS_NOTIFY_ELSEWHERE = {
+        setSetting: '它就是入口本身（写 + 落盘）：通知由调用点负责',
+        setTransient: '它就是入口本身（只写内存）：通知由调用点负责',
+        setCustomFrameLocal: '两个调用点（onCustomFrameFile / onClearCustomFrame）在各自分支里都 emit',
+      };
+      const silent = panelSrcs.flatMap((t) => silentHandlers(t))
+        .filter((n) => !(n in HANDLERS_NOTIFY_ELSEWHERE));
+      assert.deepEqual(silent, [],
+        '面板处理器写 store 却不会通知（视图会静默停在旧状态）：' + silent.join(', '));
+      const staleHandlerExempt = Object.keys(HANDLERS_NOTIFY_ELSEWHERE)
+        .filter((n) => !panelSrcs.some((t) => defsOf(t).some((d) => d.name === n)));
+      assert.deepEqual(staleHandlerExempt, [],
+        'HANDLERS_NOTIFY_ELSEWHERE 里已不存在的定义该删：' + staleHandlerExempt.join(', '));
+      assert.deepEqual(silentHandlers('const onX = (v) => { setTransient("a", v); };\n'), ['onX'],
+        'negative control: 写了 store 却不会通知的处理器会被判出');
+      assert.deepEqual(silentHandlers('const onX = (v) => { setTransient("a", v); emit(); };\n'), [],
+        'positive control: 直接 emit ⇒ 不算（判据不是恒真）');
+      assert.deepEqual(silentHandlers('const onX = (v) => { setTransient("a", v); busy(p); };\n'), [],
+        'positive control: 调用会通知的助手 ⇒ 不算');
+      assert.deepEqual(silentHandlers('const onX = (v) => { helper(); };\nconst helper = () => { emit(); };\n'), [],
+        'positive control: 间接（调用了会通知的本地函数）⇒ 不算（闭包生效）');
+      assert.deepEqual(silentHandlers('const onX = (v) => { const y = v; };\n'), [],
+        'positive control: 不写 store 的处理器不归这条判据');
+
+      // ①i **分支级**：每条从处理器出口离开的路径，都必须在该路径**最后一次写 store 之后**通知过。
+      //    为什么还要这一条：①h 是**处理器级**的 —— 体内某处能通知就放过，于是"`if` 的两支里只有
+      //    一支通知"它看不见（实测缺陷正是那一形态：收起「字体集预设」时视图停在旧状态）。
+      //    判据与审计工具同源（`test/tools/branch-notify.mjs` 的 `pathNotifications`：按花括号配平
+      //    切语句、把 `if/else if/else` 展开成路径、路径数封顶）。它自己的**边界**写在那份工具头里
+      //    （缩进/单行 if 的形态、`try`/`switch`/循环体不展开、通知按名字闭包判定）。
+      const BRANCH_NOTIFY_ELSEWHERE = {
+        onRenameCommit: '通知由 `busy()` 的 `done` 在 promise 解析后才发（在写之后）—— 位置分析看不见时序',
+        setCustomFrameLocal: '函数内不通知，两个调用点在各自分支里都 `emit`（同 ①h 的豁免）',
+      };
+      const branchSilent = panelSrcs.flatMap((t) => pathNotifications(t))
+        .map((s) => s.split('@')[0]).filter((n) => !(n in BRANCH_NOTIFY_ELSEWHERE));
+      assert.deepEqual(branchSilent, [],
+        '有分支路径写了 store 却在该路径最后一次写之后没有通知：' + branchSilent.join(', '));
+      const staleBranchExempt = Object.keys(BRANCH_NOTIFY_ELSEWHERE)
+        .filter((n) => !panelSrcs.some((t) => defsOf(t).some((d) => d.name === n)));
+      assert.deepEqual(staleBranchExempt, [],
+        'BRANCH_NOTIFY_ELSEWHERE 里已不存在的定义该删：' + staleBranchExempt.join(', '));
+      // 负对照就是**历史缺陷形态**（无条件写 + `if` 只有一支通知）—— 反向探针实测过：它会被判出。
+      assert.deepEqual(
+        pathNotifications('const onX = (v) => {\n  setTransient("a", v);\n  if (v) busy(p);\n  else { /* 什么都不做 */ }\n};\n')
+          .map((s) => s.split('@')[0]),
+        ['onX'], 'negative control: 「无条件写 + 只有一支通知」会被判出');
+      assert.deepEqual(
+        pathNotifications('const onX = (v) => {\n  setTransient("a", v);\n  if (v) busy(p);\n  else emit();\n};\n'), [],
+        'positive control: 两支都通知 ⇒ 不算（判据不是恒真）');
+      assert.deepEqual(
+        pathNotifications('const onX = (v) => {\n  if (v) setTransient("a", v);\n  emit();\n};\n'), [],
+        'positive control: 条件写 + 后面兜底 emit ⇒ 不算');
+      assert.deepEqual(
+        pathNotifications('const onX = (v) => {\n  if (v) { setTransient("a", v); emit(); }\n  else { setTransient("b", v); emit(); }\n};\n'), [],
+        'positive control: 两支各自写、各自通知 ⇒ 不算');
 
       // ② 结构：两侧都必须**委托**给 schema，宿主不得再有手写逐键白名单。
       //    ⚠️ `serializeSelection` 已随持久化层抽到 src/persistence.js（P2-9 后半）⇒ 那一条按
