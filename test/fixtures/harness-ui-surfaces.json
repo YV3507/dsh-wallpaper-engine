@@ -3,7 +3,22 @@
     "seededFrom": "@deepseek-ai/dsh@0.1.7-rc.2 (npm dist-tag latest)；0.2.0-rc.1 (next) 新面经裁定并入",
     "surfaces": 53,
     "verdicts": "covered=有针对性美化适配；native=harness 自带面，美化经全局机制（玻璃/主题令牌）生效、无逐面适配；exempt=明确不适用",
-    "rule": "compat CI 枚举已装 harness 的 dsh-client-ui-*，凡不在此表的新表面一律判红 —— 盖不盖由人裁定，裁定必须落进本文件"
+    "rule": "compat CI 枚举已装 harness 的 dsh-client-ui-*，凡不在此表的新表面一律判红 —— 盖不盖由人裁定，裁定必须落进本文件",
+    "tokenScope": {
+      "why": "harness 自带的面不读我们的类名（CSS 模块名是构建哈希），只读设计令牌 —— 「美化有没有生效」只能对着**令牌映射**裁定，按选择器逐面补漏补不过来。下表是裁定真源；页面级证据见 test/compat-harness-pages.mjs 的表面令牌探针。",
+      "mapped": [
+        "--dsw-alias-bg-base → transparent（app 画布/会话面底，壁纸透出）",
+        "--dsw-specific-sidebar-fill → transparent（原生左栏填充）",
+        "--dsw-alias-bg-layer-1 / -2 / -3 → 玻璃配方（主题底色压可读性下限 + --we-glass-color @ --we-glass-alpha；层权重 0.9 / 1.0 / 1.1，与设置窗口同一张表）",
+        "--dsw-alias-button-elevated-fill → 玻璃配方（权重 1.15：抬高按钮面，侧栏「新建会话」/ 工作区重命名输入框 —— 上游 #71）",
+        "--dsw-specific-input-major / --dsw-specific-bubble → 同一张表（输入卡片 / 消息气泡）"
+      ],
+      "declined": [
+        "--dsw-alias-markdown-code-block / -banner：**刻意不映射**。代码块底是 shiki 固定配色的画布，透出壁纸会让注释/字符串掉到不可读的对比（与 .cm-editor / .xterm 必须保持近不透明底板同一条理由）。因此 markdown 代码块系列（CodeBlock / CodeCard / JsonBlock / TerminalBlock / SearchBlock / WebBlock）按「明确不适用」处理，不做玻璃。"
+      ],
+      "fallback": "无 backdrop-filter（@supports not）或软件光栅器（body[data-we-glass-fallback]）下，上表 mapped 的令牌一律钉回插件自己的不透明面板色（--we-panel-color）—— 半透明 + 无霜等于文字直接压在壁纸上。",
+      "probedOn": "本机已装 @deepseek-ai/dsh@0.1.7-rc.1：上述令牌都在源码里存在且各有真实消费者（dsh-client-ui-* 的 .css / .js）"
+    }
   },
   "known": {
     "dsh-client-ui-agent-preset": {
@@ -70,7 +85,8 @@
       "verdict": "native"
     },
     "dsh-client-ui-primitives": {
-      "verdict": "native"
+      "verdict": "native",
+      "note": "对话框 / 胶囊 / 分段控件 / 标签的面读 --dsw-alias-bg-layer-2/-3，随 tokenScope 的映射一起拿到玻璃；markdown 代码块系列（CodeBlock / CodeCard / JsonBlock / TerminalBlock / SearchBlock / WebBlock）读 --dsw-alias-markdown-code-block，该令牌**刻意不映射**（固定语法配色需要不透明底）⇒ 这一族按 exempt 对待，裁定见 meta.tokenScope.declined"
     },
     "dsh-client-ui-reference": {
       "verdict": "native"
@@ -122,7 +138,8 @@
       "verdict": "native"
     },
     "dsh-client-ui-sidebar": {
-      "verdict": "native"
+      "verdict": "covered",
+      "note": "covered —— 令牌级：styles.js 在 body[data-we-wallpaper] 上把 --dsw-alias-button-elevated-fill / --dsw-alias-bg-layer-* 映射成玻璃，侧栏「新建会话」按钮面（SidebarRoot.module.css 的 newSession，上游 #71 报的那类没玻璃的按钮）与内层面板因此拿到同一张配方表；页面级判据见 compat-harness-pages 的表面令牌探针"
     },
     "dsh-client-ui-sidebar-browser": {
       "verdict": "native",
@@ -167,7 +184,8 @@
       "verdict": "native"
     },
     "dsh-client-ui-workspace": {
-      "verdict": "native"
+      "verdict": "native",
+      "note": "工作区行同样读 --dsw-alias-button-elevated-fill（重命名输入框的抬高面），随 tokenScope 的映射一起变玻璃；无逐面选择器适配"
     }
   }
 }
