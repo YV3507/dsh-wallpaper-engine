@@ -137,12 +137,21 @@ if (!binPath) {
   // 用中间件自带的假播放器：不需要真播放器、也不碰系统音频权限，断言才是确定的。
   // （这也是给用户的联调开关：DSH_WE_MEDIA_PROVIDER=mock 起插件就能看到假曲目。）
   process.env.DSH_WE_MEDIA_PROVIDER = 'mock';
+  // 引导预算：**必须与宿主（`lib/media/supervisor.js`）用的是同一个数**。`--provision`
+  // 这条路会在 CI runner 上首次执行一个刚下载的二进制 —— 实测 windows-latest 25s 拿不到
+  // `hello`（同一个产物、同一套参数，在本机 <25s 就绪），所以这条路显式放宽；本机自备
+  // 产物那条仍按宿主默认。
+  // ⚠️ 等待预算**从同一个数派生**（不是写死 200×150ms = 30s —— 那只比引导预算多 5s，
+  //    一旦放宽引导而不动它，测试会抢在握手结束前判失败，而且看起来像"中间件超时"）。
+  const bootMs = PROVISION ? 90000 : (Number(process.env.DSH_WE_MEDIA_BOOT_MS) || 25000);
+  process.env.DSH_WE_MEDIA_BOOT_MS = String(bootMs);
   const backend = createMediaBackend({ dataDir: TEST_DIR, log: (m) => console.log('    · ' + m) });
   backend.start({ audio: false, online: false });   // 不碰系统音频权限
   let ready = false;
-  // 首次执行刚下载的二进制时 macOS 会先做安全扫描（实测可慢到数秒），所以给足时间
-  for (let i = 0; i < 200 && !ready; i++) { await sleep(150); ready = backend.usingBridge(); }
-  check('中间件就绪（握手通过、子进程在跑）', ready, JSON.stringify(backend.status().fallback || ''));
+  const readyDeadline = Date.now() + bootMs + 15000;   // 引导预算 + 收尾余量
+  while (!ready && Date.now() < readyDeadline) { await sleep(150); ready = backend.usingBridge(); }
+  check('中间件就绪（握手通过、子进程在跑）', ready,
+    JSON.stringify(backend.status().fallback || '') + `（引导预算 ${bootMs}ms）`);
   if (ready) {
     const info = backend.bridgeInfo() || {};
     check('hello.protocol = 1（协议版本一致才用）', Number(info.protocol) === 1);

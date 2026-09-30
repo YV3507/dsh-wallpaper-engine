@@ -383,6 +383,24 @@ className: "we-picker__btn" + (weAudioVolume() > 0 || sel.videoAudioEnabled === 
    本仓已有的正确姿势是**从磁盘枚举**（P3-8）与**正负对照喂同一条判据**（TEST-LAYOUT 约定 5）。
 5. **"活依赖"断言可以反向钉住死码**：§6.1 —— 断言一个函数名存在，于是没人敢删那个函数。
    ⇒ 方向：存活断言要断言**调用边**（谁 import 谁），不是字符串。
+6. **没有任何判据看着"发布包被真实安装"这条路径**（2026-09 由用户回执暴露，见 §8 末条）：
+   CI 只跑 `dsh plugin add link:<ROOT>`（`test/compat-harness-live.mjs:173`），
+   而 `verify-package-publish` 只核**发布面**（`files` / 可达闭包 / `dependencies`），
+   **从不用安装器装一遍 `npm pack` 出来的产物** ⇒ 插件的 `peerDependencies` 是否真能在**安装闭包**里
+   解析出来，全仓**零断言**。**症状**：`Packages: +1`（只装了插件自己）→
+   `generation … already exists, reusing` → `generation peer validation failed:
+   @deepseek-ai/dsh-client-runtime does not resolve from the installation closure`。
+   **修法方向**（两条都还没做）：① 在 compat 层补一步"装 tarball 而不是 `link:`"的断言
+   （需真 `dsh` + 网络，属 CI 专属层，与本仓"不进 verify 链"的既有划法一致）；
+   ② 把 `peerDependencies` 里"宿主提供的包"改成不会失败的声明形态（见 §8 的 peer 口径错位那一条）。
+7. **失败行不肯说子进程说了什么**（media-bridge 的引导段）：`lib/media/supervisor.js` 的启动失败路径
+   只报 `中间件启动失败：<插件自己的错>`，把 `lastStderr` 与"进程是否还活着"**丢掉了** ⇒ CI 上
+   只剩一句 `hello 超时` 时，无法区分「起来了但不吭声」与「起来了、报了错」这两种完全不同的故障。
+   **已补**：失败行与 `media-boot-failed` diag 现在带 `budgetMs` / `alive` / `stderr`；
+   引导预算同时改成**可覆盖**（`DSH_WE_MEDIA_BOOT_MS`，现场默认仍 25s）—— 实测同一个产物
+   （`media-bridge-win32-x64.exe` v0.1.5，`--provider mock`）在 windows-latest 上 25s 拿不到 `hello`，
+   在本机 <25s 就绪。**同族教训**：测试的等待预算写死成 `200×150ms = 30s`，只比引导预算多 5s
+   ⇒ 两个数字必须从同一个源派生，否则放宽任何一个、另一个就会抢在前头判失败。
 
 ---
 
@@ -394,6 +412,38 @@ className: "we-picker__btn" + (weAudioVolume() > 0 || sel.videoAudioEnabled === 
 - **`lib/vendor/**` 在可达性扫描面之外**（`verify-reachability.mjs:44` 的 EXCLUDE）⇒ §6.1 那类
   "vendored 副本其实已经没人用"的问题结构性地看不见。
 - **"存储被拒"这条腿零覆盖**（§3.1）：挂载台的 `localStorage` 替身不会抛异常。
+- **"从 registry 装发布包"这条路径零覆盖**（§7-6）：`verify` 链不装包，compat CI 只走 `link:`。
+  同一条路径上还摊着一处**口径错位**：`peerDependencies` 里的
+  `@deepseek-ai/dsh-client-runtime: ">=0.1.0-rc.6"` 是**按那个包自己的版本线**写的，而 DSH 的插件准入
+  是拿 **`@deepseek-ai/dsh`（harness）的版本**去比**每一条** `@deepseek-ai/dsh` /
+  `@deepseek-ai/dsh-*` 范围 —— DSH 自己的插件作者文档原话：
+
+  > Before a profile imports a plugin, DSH checks its `peerDependencies` on `@deepseek-ai/dsh` and
+  > `@deepseek-ai/dsh-*` against **the single runtime version** returned by `getDshRuntimeVersion()`.
+  > Every declared range must match; **prereleases participate in range matching**.
+  > **Missing DSH peers impose no constraint**; invalid ranges are incompatible.
+
+  ⇒ 两套版本线（harness `0.1.5-rc.1` / `0.1.7-rc.2` / `0.2.0-rc.1` ↔ client 包 `0.1.0-rc.8`）
+  被同一张范围表同时约束，而**这条准入闸的开/关不看 `engines.dsh`**。附带两条实测：
+  ① 该闸以 `includePrerelease: true` 比较（所以 `>=0.1.0-rc.6` **能**匹配 `0.2.0-rc.1`，
+  这一条**不是**本次故障的原因）；② 该闸把**空字符串范围**也判为不兼容 ⇒ `""` 不是"不约束"的写法，
+  真要"不约束"只能**不声明**（文档原话：missing ⇒ no constraint）。
+  **本刀处置**：把这三个宿主提供的 `@deepseek-ai/dsh-*` peer 标成
+  `peerDependenciesMeta.*.optional = true`（`@deepseek-ai/cordis` 与 `react` 保持必填）。
+  依据：这三个包由**宿主**提供、本仓代码里**零 import**（客户端运行时靠 `dsh.client.inject`
+  声明接线），而市场的 peer 模型是「**optional 解析不到只是 warning，必填才是确认的不兼容**」
+  （`dsh-market` 的 `check.js:1021` 与 `compatibility.js:17`），市场自己也这么标它的 DSH peer。
+  ⚠️ **这不等于修好了"解析不到"**：它只把「阻止安装」降级为「警告」，让包真正到位是宿主那侧的事。
+  **同时记一条宿主侧缺陷（本机可复现）**：`~/.dsh/profiles/node_modules/@deepseek-ai/dsh-client-runtime`
+  是指向 `…\DSH Desktop\resources\app.asar.unpacked\node_modules\@deepseek-ai\…` 的 **junction，
+  而该目标根本不存在**（整层 `app.asar.unpacked` 缺失）；`~/.dsh/profiles/web/node_modules/@deepseek-ai`
+  则是**空目录**。⇒ 凡是必须从 profile 闭包解析 `@deepseek-ai/*` 的路径，在这种 host 上都会失败。
+- **"本机证明不了、只能看 CI"这句话本身就把排查方向挡在门外**（§7-6 / §7-7 的同族）：
+  media-bridge 那条 E2E 被打上"本机证明不了（下载被挡 / 沙箱里 spawn 是 EPERM）⇒ 别再试图在本机复现"，
+  而实测**下载那一半是错的** —— `lib/media/provision.js` 用 `fetch` 下得下来，还校验 sha256 + 体积下限；
+  只有"**受限沙箱**里带管道的 spawn 是 EPERM"成立。把那道边界放开后，`verify:bridge` 在本机
+  **30 通过 / 0 失败**。⇒ 本仓凡写「只有 CI 能给出这条覆盖」的地方，都要先自己验一遍：
+  它是不是**沙箱**的限制被误写成了**机器**的限制。
 
 ---
 

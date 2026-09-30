@@ -42,7 +42,12 @@ jobs:
       # 这一条用 `--provision` 先把产物下载到自检缓存再**真跑**（中间件自带 `--provider mock`，
       # 不碰真播放器与系统音频权限，因此可 CI 化）；下载或断言失败即红，**不做
       # continue-on-error** —— "CI 覆盖了这条通道"的定义就是这一步会失败。
-      # 本机给不出这条覆盖：--provision 的下载被挡、沙箱里 spawn 是 EPERM。
+      # ⚠️ 这里曾写"本机给不出这条覆盖（下载被挡 / 沙箱里 spawn 是 EPERM）"——**下载那一半是错的**：
+      # `provision.js` 用 `fetch` 下得下来且校验 sha256；只有"受限沙箱里带管道的 spawn 是 EPERM"成立。
+      # 放开那道边界后本机同样是 30 通过 / 0 失败 ⇒ 这条自检**可以本机调试**，不要只盯着 CI。
+      # 实测 CI（windows-latest）与本机的差异：同一个产物、同一套参数，本机 <25s 就拿到 `hello`，
+      # runner 上 25s 拿不到（首次执行一个刚下载的二进制）。因此 `--provision` 会把引导预算放宽到
+      # 90s（宿主侧 `DSH_WE_MEDIA_BOOT_MS` 可覆盖，**现场默认仍是 25s**），失败行也会带上子进程的 stderr。
       - name: verify:bridge —— media-bridge 端到端（带 --provision）
         run: npm run verify:bridge
 
