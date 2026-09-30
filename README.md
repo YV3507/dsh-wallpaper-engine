@@ -15,7 +15,7 @@
 ## 目录
 
 - [能做什么](#能做什么) · [更新前置条件](#更新前置条件) · [支持哪些壁纸类型](#支持哪些壁纸类型) · [工作原理](#工作原理)
-- [安装](#安装) · [使用](#使用) · [配置](#配置) · [与 dsh-better-sidebar 的兼容适配](#与-dsh-better-sidebar-的兼容适配) · [已知限制](#已知限制) · [开发 / 重建](#开发--重建)
+- [安装](#安装) · [使用](#使用) · [配置](#配置) · [与 dsh-better-sidebar 的兼容适配](#与-dsh-better-sidebar-的兼容适配) · [已知限制](#已知限制) · [开发 / 重建](#开发--重建) · [致谢](#致谢)
 - 版本号、issue 号与性能数字见 [`docs/CHANGELOG.md`](docs/CHANGELOG.md)；升级前置条件见 [`docs/UPGRADING.md`](docs/UPGRADING.md)。
 - 📦 npm 包**只带三份 README**（`docs/` 不随包发布）⇒ 上面这些 `docs/…` 链接在 npm / 插件市场里点不开，请到**源码仓库** <https://github.com/elysia395/dsh-wallpaper-engine> 的同名路径阅读。
 
@@ -280,3 +280,13 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 
 想跑本地一份代码（`link:` 安装、构建与验证、热挂载与编码铁律、以及 **`lib/client.js` 到底是什么**）见
 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
+
+## 致谢
+
+本插件是许多人贡献的成果，感谢他们：
+
+- **[oneincase](https://github.com/oneincase)** —— 内置 [WebWallGL](https://github.com/oneincase/webwallgl) 实时渲染引擎与 [media-bridge](https://github.com/oneincase/media-bridge) 媒体中间件的作者（[#103](https://github.com/elysia395/dsh-wallpaper-engine/pull/103)、[#104](https://github.com/elysia395/dsh-wallpaper-engine/pull/104)）：场景 / 网页壁纸的实时渲染与 Windows / macOS / Linux 三平台原生媒体链路都建立在它们之上。
+- **[YV3507](https://github.com/YV3507)** —— 提交量最大的贡献者：从早期场景渲染器起步，到静态帧系列修复、液态玻璃令牌体系、live 帧链路与多轮大型重构与文档 / 守卫体系，几乎每个里程碑都有他。
+- **[yuxilao](https://github.com/yuxilao)** —— scene-gl Linux 实时渲染管线（WebGL2 官方 shader 驱动 + 多轮性能优化）与轮换交接 / GPU 帧回填 / 官方资源路径（[#65](https://github.com/elysia395/dsh-wallpaper-engine/pull/65)、[#108](https://github.com/elysia395/dsh-wallpaper-engine/pull/108)）。
+- **[Jerry](https://github.com/ruijiaang-lab)** —— 在三平台原生支持落地之前，macOS 侧的适配与贡献路径由他维护（WaifuX 工坊目录扫描、黑胶缩略图兜底、上游移植与 macOS 贡献路径梳理，[#44](https://github.com/elysia395/dsh-wallpaper-engine/pull/44)、[#45](https://github.com/elysia395/dsh-wallpaper-engine/pull/45)、[#52](https://github.com/elysia395/dsh-wallpaper-engine/pull/52)、[#54](https://github.com/elysia395/dsh-wallpaper-engine/pull/54)）。
+- 还有 [SiriLee](https://github.com/SiriLee)（壁纸亮度 / 对比度 / 饱和度调节、吉祥物拉绳开关、WSL 下探测 Steam 根目录）、[libiwolve](https://github.com/libiwolve)（内容分级与类型过滤）、[0-007pro](https://github.com/0-007pro)（自动轮播）、[jujubaoj646-star](https://github.com/jujubaoj646-star)（字体与气泡样式自定义面板）、[xiahou001](https://github.com/xiahou001)（壁纸音轨音量控制）、[wilianyichen](https://github.com/wilianyichen)（MP4 按需缩略图与自上传内容分级）、[hecoococ](https://github.com/hecoococ)（侧栏玻璃与活动壁纸解耦）、[ShamSky88](https://github.com/ShamSky88)（玻璃模糊定位修复）、[Rekk0](https://github.com/Rekk0)（玻璃透明度令牌化、注册表定位 Steam）、[Y1X1n](https://github.com/Y1X1n)（小白向使用指南），以及所有通过 issue 反馈与 PR 参与改进的朋友 —— 谢谢你们！
