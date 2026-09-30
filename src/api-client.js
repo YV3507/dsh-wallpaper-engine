@@ -25,6 +25,10 @@
  *     **宿主给的原因**（4xx/5xx 的 `{ error }`）时传 `parse: 'always'` —— 这条是显式的，
  *     因为"非 2xx 也可能是结构化错误体"与"错误页不是数据"两种立场都成立，选择权在调用点。
  *     HEAD/DELETE 默认不解析（避免空体报错）。
+ *   · ⚠️ **二进制体必须 `parse: false`**：默认路径会把 body 交给 `response.json()`
+ *     —— 解析（多半）失败没关系，但**流已经被消费**，调用点随后的
+ *     `response.blob()` / `response.arrayBuffer()` 必抛「Body is unusable」。
+ *     封面（`/now-playing/artwork`）、live 帧抓帧上传、转码 Range 探测都吃过这个亏。
  *   · 默认 `cache: "no-store"`：这些接口全是"读当前状态"，缓存只会带来陈旧数据。
  *     （唯一例外由调用方显式覆盖 —— 目前无例外。）
  *   · 路径一律经 `apiUrl()` 补前缀，禁止把裸路径直接交给 fetch（棘轮守卫检查的也是这一点）。
@@ -35,7 +39,10 @@ const BASE = '/wallpaper-engine';
 /** 拼出带前缀的 URL（path 允许已含前缀 / 已含查询串 / 是绝对或 data:/blob: URL —— 后者原样返回）。 */
 function apiUrl(path) {
   const p = String(path == null ? '' : path);
-  if (/^https?:\/\//i.test(p) || p.startsWith('data:') || p.startsWith('blob:')) return p;
+  // 绝对 URL = 带 scheme 的任何地址（含 dsh-app:// 等自定义协议）——只认 http(s)
+  // 会把  在自定义协议 origin 下重新拼接成畸形路径（实测症状：
+  // 应用侧封面恒 404，而同路径 curl 200）。
+  if (/^[a-z][a-z0-9+.-]*:/i.test(p) || p.startsWith('data:') || p.startsWith('blob:')) return p;
   if (p.startsWith(BASE)) return p;
   return BASE + (p.startsWith('/') ? p : '/' + p);
 }

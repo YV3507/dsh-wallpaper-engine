@@ -32,15 +32,17 @@ const check = (name, ok, detail) => {
 /** 判据只认代码：调用点沿用短名 `strip`。 */
 const strip = stripComments;
 
+/** 客户端全模块清单（① 与 ①b 共用）。 */
+const CLIENT_MODULES = [
+  'src/client.js', 'src/panel-tabs.js', 'src/live-layer.js', 'src/media-prep.js',
+  'src/transcode.js', 'src/persistence.js', 'src/styles.js', 'src/effects.js', 'src/font/apply.js',
+  'src/font/color-roles.js', 'src/font/typography.js', 'src/we-cond.js', 'src/api-client.js',
+];
+
 // ── ① 零裸 fetch（客户端全模块）──────────────────────────────────────────────
 console.log('\n① 裸 fetch 清点（业务代码必须为 0）');
 {
   const count = (rel) => (strip(readFileSync(join(root, rel), 'utf8')).match(/\bfetch\s*\(/g) || []).length;
-  const CLIENT_MODULES = [
-    'src/client.js', 'src/panel-tabs.js', 'src/live-layer.js', 'src/media-prep.js',
-    'src/transcode.js', 'src/persistence.js', 'src/styles.js', 'src/effects.js', 'src/font/apply.js',
-    'src/font/color-roles.js', 'src/font/typography.js', 'src/we-cond.js', 'src/api-client.js',
-  ];
   const counts = CLIENT_MODULES.map((rel) => [rel, count(rel)]);
   const dirty = counts.filter(([, n]) => n > 0);
   check('客户端**全部**模块零裸 fetch（P2-9 终态）', dirty.length === 0,
@@ -58,12 +60,51 @@ console.log('\n① 裸 fetch 清点（业务代码必须为 0）');
     readFileSync(join(root, 'src/api-client.js'), 'utf8').includes('const doFetch = pickFetch(o.fetch);'));
 }
 
+// ── ①b 二进制响应消费者必须 parse: false ─────────────────────────────────────
+// 默认解析路径在 2xx 上把 body 交给 `response.json()`：**解析失败也照样消费流**，
+// 调用点随后的 `response.blob()` / `response.arrayBuffer()` 必抛「Body is unusable」。
+// 实测教训：封面（/now-playing/artwork）与 live 帧抓帧上传两条链路都因此整条静默断掉
+// （推送永远 hasThumb:false、只在 7 秒一次的封面重试链里空转）。
+console.log('\n①b 二进制响应消费者（.response.blob/arrayBuffer）必须 parse: false');
+{
+  const BIN_CONSUMER = /\.response\.(blob|arrayBuffer)\s*\(/;
+  const HAS_PARSE = /parse:\s*(false|'none'|"none")/;
+  const consumers = [];
+  const offenders = [];
+  for (const rel of CLIENT_MODULES) {
+    const lines = strip(readFileSync(join(root, rel), 'utf8')).split('\n');
+    lines.forEach((line, i) => {
+      if (!BIN_CONSUMER.test(line)) return;
+      // 同一次调用（apiFetch 与消费者的距离）都在十余行内 —— 取前 14 行做窗口。
+      const near = lines.slice(Math.max(0, i - 14), i + 1).join('\n');
+      const tag = rel + ':' + (i + 1);
+      consumers.push(tag);
+      if (!HAS_PARSE.test(near)) offenders.push(tag);
+    });
+  }
+  check('每个二进制消费者在同一调用窗内都有 parse: false', offenders.length === 0,
+    offenders.length ? '缺 parse：' + offenders.join(', ')
+      : consumers.length + ' 处全带（' + consumers.join(', ') + '）');
+  // 覆盖面：真扫到了消费者（否则上一条是空转恒真）
+  check('覆盖面：判据扫到 ≥3 处二进制消费者', consumers.length >= 3, consumers.join(', '));
+  // 负对照：喂一条缺 parse 的合成调用窗口 —— 同一条判据必须判"缺"
+  const synth = ['const r = await apiFetch(url);', 'const b = await r.response.blob();'].join('\n');
+  check('负对照：缺 parse: false 的合成窗口被判出', !HAS_PARSE.test(synth));
+  // 正对照：带上 parse: false 的窗口不被误伤
+  check('正对照：带 parse: false 的窗口不被误伤', HAS_PARSE.test('await apiFetch(url, { parse: false })\n.then((r) => r.response.blob())'));
+}
+
 // ── ② 前缀与默认值 ──────────────────────────────────────────────────────────
 console.log('\n② URL 前缀 / 默认值');
 {
   check('相对路径补前缀', apiUrl('/settings') === BASE + '/settings');
   check('不带斜杠也补', apiUrl('settings') === BASE + '/settings');
   check('已带前缀不重复补', apiUrl(BASE + '/settings') === BASE + '/settings');
+  // 应用侧 origin 是自定义协议（dsh-app://app）：绝对 URL 判定只认 http(s) 会把
+  // location.origin + path 重拼成 /wallpaper-engine/dsh-app://... 畸形路径（封面恒 404）。
+  check('绝对 URL 判定认任意 scheme（自定义协议不得被重拼）',
+    apiUrl('dsh-app://app/wallpaper-engine/now-playing/artwork') === 'dsh-app://app/wallpaper-engine/now-playing/artwork'
+      && apiUrl('blob:http://x/y') === 'blob:http://x/y');
   check('绝对 URL 原样返回', apiUrl('https://x/y') === 'https://x/y');
   check('空值不炸', apiUrl(null) === BASE + '/' && apiUrl(undefined) === BASE + '/');
 

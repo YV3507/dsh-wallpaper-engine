@@ -214,6 +214,14 @@ check('vendored shim throttle negative control: 定时器 / 数回调次数 / �
 check('vendored shim installs only once (idempotent guard)',
   /__weShimInstalled/.test(vendoredShim),
   '双 shim 会让 rAF 节流叠加：15fps 上限实测变成 7.5fps');
+// 站点根夹住（官方 WE 语义：壁纸目录是站点根，`..` 解析到根即丢弃）。插件形态是
+// <BASE>/scene-files/<token>/…，与上游 dev server 的 /web/<token>/<itemId>/ 不同 ⇒
+// 靠宿主声明 __weSiteRoot；这条钉住 vendor 产物里**两条腿都在**（声明优先 + 逃逸才改写），
+// 少了声明那条，作者按官方语义写的 `../assets/x` 会 404（spine 类整页黑屏）。
+check('vendored shim 站点根夹住：认宿主声明的 __weSiteRoot，且只改逃逸的相对 URL',
+  /__weSiteRoot/.test(vendoredShim) && /function clampUrlToSiteRoot/.test(vendoredShim)
+    && /clampUrlToSiteRoot\(inner\)/.test(vendoredShim) && /\bX\.prototype\.open\b/.test(vendoredShim),
+  '声明读取 + XHR/fetch 两个网络入口的夹住');
 const vendoredBundle = assetRefs
   .filter((r) => r.endsWith('.js'))
   .map((r) => { try { return readFileSync(join(vendorDir, r.replace('/wallpaper-engine/scene-live/', '')), 'utf8'); } catch { return ''; } })
@@ -578,6 +586,13 @@ let mediaEntry = '';   // C4 复用：C3 里从 inventory 拿到的那条入口 
       html.indexOf('data-we-seed="host"') !== -1 && html.indexOf('__weSeedProps') !== -1
         && html.indexOf('color0') !== -1,
       'seed=' + (html.indexOf('data-we-seed') !== -1));
+    // 站点根声明：必须**早于 shim**（shim 首次解析 URL 前就要读到），值是 token 目录。
+    // 不给它，spine 类壁纸（作者按官方语义写 `../assets/…`）会逃出条目目录 404 黑屏。
+    check('HTML entry 声明站点根（token 目录、早于 shim）',
+      html.indexOf('data-we-site-root="host"') !== -1
+        && html.indexOf(`window.__weSiteRoot=${JSON.stringify(baseUrl + '/')}`) !== -1
+        && html.indexOf('data-we-site-root') < html.indexOf('data-we-shim'),
+      'root=' + (html.indexOf('__weSiteRoot') !== -1) + ' 顺序=' + html.indexOf('data-we-site-root') + '<' + html.indexOf('data-we-shim'));
     check('HTML entry advertises CORS for opaque origins',
       h(htmlRes, 'Access-Control-Allow-Origin') === '*', h(htmlRes, 'Access-Control-Allow-Origin'));
     const cssRes = await runHandler(filesRoute, `${baseUrl}/style.css`);
@@ -778,6 +793,8 @@ console.log('Level D — client source wiring (src/client.js + 抽出的模块)'
 // **各自用在对应的判据上**（不图省事拼成一个字符串：那样一个文件的文本就能满足另一个文件的
 // 结构断言，判据会失去牙）。
 const src = readFileSync(join(root, 'src', 'client.js'), 'utf8');
+// 快捷播放面板源码（类型筛选等面板本地行为的断言读它）。
+const qpSrc = readFileSync(join(root, 'src', 'quick-panel.js'), 'utf8');
 const stylesSrc = readFileSync(join(root, 'src', 'styles.js'), 'utf8');
 const liveSrc = readFileSync(join(root, 'src', 'live-layer.js'), 'utf8');
 const prepSrc = readFileSync(join(root, 'src', 'media-prep.js'), 'utf8');
@@ -1022,9 +1039,11 @@ for (const [name, ok] of clientChecks) check(name, ok);
   const clientDiag = byPath('/client-diag');
   const uploadDir = byPath('/upload-dir');
   const artwork = byPath('/now-playing/artwork');
+  const mediaControl = byPath('/media-control');
   check('/client-diag 已注册（kind=exact）', Boolean(clientDiag) && clientDiag.kind === 'exact');
   check('/upload-dir 已注册（kind=exact）', Boolean(uploadDir) && uploadDir.kind === 'exact');
   check('/now-playing/artwork 已注册（kind=exact）', Boolean(artwork) && artwork.kind === 'exact');
+  check('/media-control 已注册（kind=exact）', Boolean(mediaControl) && mediaControl.kind === 'exact');
   if (clientDiag) {
     const wrongMethod = await runHandler(clientDiag, '/wallpaper-engine/client-diag', {});
     check('/client-diag 非 POST ⇒ 405（早退，不落盘）', wrongMethod.__state.status === 405,
@@ -1230,10 +1249,10 @@ check('门面把「音频已关」传给回落实现（不让回落偷偷开采�
 // ① URL 形状由**真实注册表**（mock webServer 跑一遍 apply 的结果）断言 —— 与代码住在哪个文件无关；
 // ② 该路由的实现契约在**它现在所在的文件**里断言；③ 正文侧钉住"已搬走"（零路径字面量 + 一次调用）。
 const nowPlayingSrc = readFileSync(join(root, 'lib', 'routes', 'now-playing.js'), 'utf8');
-const nowPlayingPaths = ['/media-status', '/audio-spectrum', '/now-playing', '/now-playing/artwork'];
+const nowPlayingPaths = ['/media-status', '/audio-spectrum', '/now-playing', '/now-playing/artwork', '/media-control'];
 const missingNowPlaying = nowPlayingPaths.filter((p) => !routes.some((r) => r.path === '/wallpaper-engine' + p));
 check('host 路由形状不变（客户端/渲染页无需感知后端切换）',
-  missingNowPlaying.length === 0, missingNowPlaying.join(', ') || '四条都在');
+  missingNowPlaying.length === 0, missingNowPlaying.join(', ') || '五条都在');
 check('negative control: 同一条判据能点出没注册的路径',
   ['/media-status', '/not-registered'].filter((p) => !routes.some((r) => r.path === '/wallpaper-engine' + p)).join() === '/not-registered');
 check('spectrum 路由回报 running（客户端据此决定装不装音频桥）',
@@ -1255,11 +1274,83 @@ check('client 透传歌词与 albumArtist（[[秒, 文本]] 原样给渲染页�
     && src.includes('albumArtist: m.albumArtist || ""'));
 check('client 的 push key 带歌词版本（歌词晚到也要再推一帧）',
   src.includes('const lyrRev =') && src.includes('lyrRev].join('));
-check('音频桥按宿主 running 装卸（装了桥 = 渲染页放弃自带音频源）',
-  src.includes('function syncAudioBridge(frame, running)') && src.includes('syncAudioBridge(frame, d.running === true)'));
-check('「在线歌词」开关默认关（外发请求要用户点头）',
-  schemaMod.DEFAULTS.mediaLyricsOnline === false && Boolean(schemaMod.KINDS.mediaLyricsOnline)
-    && tabsSrc.includes('在线歌词'));
+check('音频桥按宿主 running 装卸（装了桥 = 渲染页放弃自带音频源）',  src.includes('function syncAudioBridge(frame, running)') && src.includes('syncAudioBridge(frame, d.running === true)'));
+// 媒体控制面（控制反转）：场景壁纸里 Now Playing 组件的按钮由渲染页推断成动作，
+// 打到宿主注入的控制面 → POST /media-control → 中间件真控播放器。判据按**源码形态**
+// 写成谓词（于是负对照能喂合成输入），三条缺一不可：控制面装载（五个动作齐）、
+// 与显示面分离（按 window 记忆 + 卸载时才清）、动作名与宿主路由契约一致。
+{
+  const CONTROL_ACTIONS = ['play', 'pause', 'playPause', 'skipNext', 'skipPrevious'];
+  const controlWiring = (text) =>
+    text.includes('function syncMediaControl(frame)')
+    && text.includes('wp.setMediaControl(controls)')
+    && text.includes('mediaControlWin === win')
+    && text.includes('wp.setMediaControl(null)')
+    && CONTROL_ACTIONS.every((a) => text.includes('"' + a + '"'))
+    && text.includes('apiPostJson("/media-control", { action })');
+  check('client 装媒体控制面（五个动作 → 宿主 /media-control；装一次按 window 记忆、卸载时清）',
+    controlWiring(src), '控制反转的宿主半：壁纸按钮 → 真实播放器');
+  check('negative control: 卸载不清 / 不按 window 记忆 / 缺动作的三种坏形态都被判出',
+    !controlWiring('function syncMediaControl(frame) { wp.setMediaControl(controls); }')
+      && !controlWiring(src.replace('mediaControlWin === win', 'false'))
+      && !controlWiring(src.replace('apiPostJson("/media-control", { action })', 'apiJson("/now-playing")')));
+}
+check('host 侧 /media-control 只收 POST + 动作走 mediaBackend.control（不在路由里触发懒启动）',
+  nowPlayingSrc.includes('path: `${BASE}/media-control`')
+    && nowPlayingSrc.includes('mediaBackend.control(action)')
+    && !/media-control[\s\S]{0,700}ensureMedia\(\)/.test(nowPlayingSrc));
+// 「在线歌词 / 系统音频反应 / 媒体信息」三键已**退役为常开**（用户口径：默认接入，
+// 设置页与侧边栏都不再提供页面定义）。三件事一起钉：① schema 侧 kind 'const'（读取
+// 时老配置里的关闭值被默认值取代）+ 默认 on；② UI 侧两个来源（设置页签渲染器 /
+// 快捷播放面板）按**代码**（剥注释）都不得再出现这三个开关。
+{
+  const RETIRED_LABELS = ['系统音频反应', '媒体信息', '在线歌词'];
+  const leftoversIn = (text) => RETIRED_LABELS.filter((label) => text.includes(label));
+  const tabsCode = stripComments(tabsSrc);
+  const qpCode = stripComments(readFileSync(join(root, 'src', 'quick-panel.js'), 'utf8'));
+  check('三键退役为常开（schema kind const + 默认接入）',
+    schemaMod.DEFAULTS.audioSource === 'auto' && schemaMod.KINDS.audioSource.kind === 'const'
+      && schemaMod.DEFAULTS.mediaIntegration === true && schemaMod.KINDS.mediaIntegration.kind === 'const'
+      && schemaMod.DEFAULTS.mediaLyricsOnline === true && schemaMod.KINDS.mediaLyricsOnline.kind === 'const',
+    'kinds=' + schemaMod.KINDS.audioSource.kind + '/' + schemaMod.KINDS.mediaIntegration.kind
+      + '/' + schemaMod.KINDS.mediaLyricsOnline.kind
+      + ' · defaults=' + schemaMod.DEFAULTS.audioSource + '/' + schemaMod.DEFAULTS.mediaIntegration
+      + '/' + schemaMod.DEFAULTS.mediaLyricsOnline);
+  check('三个开关的页面定义已从设置页与快捷面板移除（按代码判，注释里提到不算）',
+    leftoversIn(tabsCode).length === 0 && leftoversIn(qpCode).length === 0,
+    '残留：' + ([...leftoversIn(tabsCode), ...leftoversIn(qpCode)].join(', ') || '无'));
+  // 负对照：同一条判据喂合成文本 —— 真出现开关文案必须被判出（判据不是恒真）。
+  check('negative control: 合成代码里的开关文案会被同一条判据点出',
+    leftoversIn('switchRow("在线歌词", v)').join(',') === '在线歌词'
+      && leftoversIn('switchRow("媒体信息", v) && switchRow("系统音频反应", v)').length === 2);
+
+// 用户口径：侧栏壁纸列表支持类型筛选（全部 / 场景 / 网页 / 视频）—— 面板本地、**瞬态**
+//（setTransient 不经设置落盘；设置页的「类型」过滤另有一条，筛设置页列表与轮播候选，
+// 两者互不影响、都只筛「列表」）。
+check('侧栏列表类型筛选：四档齐全 + 面板本地应用 + 不走设置落盘',
+  qpSrc.includes('const QP_TYPES = [')
+    && qpSrc.includes('{ id: "all", label: "全部" }') && qpSrc.includes('{ id: "scene", label: "场景" }')
+    && qpSrc.includes('{ id: "web", label: "网页" }') && qpSrc.includes('{ id: "video", label: "视频" }')
+    && qpSrc.includes('w.type !== typeFilter')
+    && qpSrc.includes('setTransient("qpType", e.target.value)')
+    && !qpSrc.includes('setSetting("qpType"')
+    && src.includes('qpType: "all"'));}
+
+// 用户口径：设置页切「类型」不得把**正在应用**的壁纸干掉 ⇒ 类型档只筛列表与轮播
+// 候选、不入播放闸门（keepPlayingWallpaper：分级拦播放，类型档没有入参）；轮播在场
+// 时「仅被类型档排除」也不换台（typeOnlyExcluded）。分级闸门照旧干掉并解释 —— 那
+// 一半钉在 verify-playback-controls E 段，这里钉类型档这一半。
+{
+  const gateKeepsPlaying = (clientText, prepText) =>
+    clientText.includes('const keepCurrent = keepPlayingWallpaper(cur, selection.contentRatingFilter)')
+      && clientText.includes('const typeOnlyExcluded = keepCurrent')
+      && prepText.includes('if (!w || !keepPlayingWallpaper(w, selection.contentRatingFilter))');
+  check('类型档不入播放闸门：revalidate 丢弃走 keepPlayingWallpaper + 换台豁免 typeOnlyExcluded',
+    gateKeepsPlaying(src, prepSrc));
+  // 负对照：把闸面换回「读类型档」的旧形态（变异输入），同一条判据必须判否。
+  check('negative control: 闸门改回读类型档的形态会被同一条判据点出',
+    !gateKeepsPlaying(src, 'if (!w || !isRotatableWallpaper(w, selection.contentRatingFilter, selection.typeFilter))'));
+}
 // 场景/网页实时渲染**默认开** —— 这是用户可见的默认值，三处一起钉：DEFAULTS 的值、
 // KINDS 的类型（boolTrue = 缺键读作开）、以及面板/活层的判据形态（`!== false`，
 // truthy 判断会在缺键时静默变成"关"）。缺键必须两侧都读作开。
@@ -1291,8 +1382,11 @@ check('host 侧属性解析模块（order 浮点 / combo 保类型 / 逐键本�
 check('settings 白名单保留 userProps（按 token 存标量）',
   JSON.stringify(sanitizeHost({ userProps: { tok: { c: 'x', n: 1, obj: { bad: 1 } } } }).userProps)
     === '{"tok":{"c":"x","n":1}}');
-check('「壁纸属性」按钮：仅场景/网页壁纸 + 绿色样式',
-  tabsSrc.includes('we-picker__btn--props') && tabsSrc.includes('(current.type === "scene" || current.type === "web") && sel.propsUrl'));
+check('「壁纸属性」按钮：仅场景/网页壁纸 + 常规按钮样式（并入播放控制行、排在「暂停」之前）',
+  tabsSrc.includes('(current.type === "scene" || current.type === "web") && sel.propsUrl')
+    && !tabsSrc.includes('we-picker__btn--props')
+    && tabsSrc.indexOf('"壁纸属性"') !== -1
+    && tabsSrc.indexOf('"壁纸属性"') < tabsSrc.indexOf('playbackLive ? "暂停"'));
 check('属性面板热更新走 __wp.updateWebProps',
   src.includes('function applyUserProps(') && src.includes('wp.updateWebProps(wire)'));
 check('属性面板值以渲染页实时表为准（getProperties）',
@@ -1310,27 +1404,105 @@ check('条件求值器已抽成独立模块并被内联（fail open）',
 check('场景就绪后回放覆盖值（无 HTML 种子通道）',
   // 声明留在 client.js（用户属性域），调用点在实时管线的挂载路径里（live-layer.js）。
   src.includes('function applyStoredUserProps(') && liveSrc.includes('applyStoredUserProps(selection)'));
-// 用户口径：选择壁纸页只保留**顶部**关闭按钮（底部那个是重复的）。
-// 计数口径：closePicker 的绑定 = 顶部按钮 + 点击遮罩，共 2 处。
-// P3-11 阶段 2：模态框标记已搬到 src/picker-modal.js ⇒ 这三条文本断言跟着**所属文件**走
+// 用户口径：库视图只保留**顶部**返回按钮（底部那个是重复的）。
+// 计数口径：UI 重构后选择壁纸是**页内下钻视图**（不再有遮罩/弹框）⇒ closePicker
+// 只剩顶部「返回」按钮这 1 处绑定。
+// P3-11 阶段 2：库视图标记已搬到 src/picker-modal.js ⇒ 这三条文本断言跟着**所属文件**走
 // （同下面诊断族那批"按所属文件分家"的口径）。计数口径仍覆盖**整个客户端半**
-// （client.js + picker-modal.js），所以在别处再加一个关闭按钮照样会被判出。
+// （client.js + picker-modal.js），所以在别处再加一个返回/关闭绑定照样会被判出。
 const modalSrc = readFileSync(join(root, 'src', 'picker-modal.js'), 'utf8');
 const clientHalf = src + '\n' + modalSrc;
-check('选择壁纸弹窗只留顶部关闭按钮（底部不再有）',
-  (clientHalf.match(/onClick: closePicker/g) || []).length === 2
+// 官方侧栏接入（src/sidebar-right.js）：能力门 / 两段注册 / 模式真源的断言读它。
+const sidebarSrc = readFileSync(join(root, 'src', 'sidebar-right.js'), 'utf8');
+check('库视图只留顶部返回按钮（页内下钻，无遮罩绑定）',
+  (clientHalf.match(/onClick: closePicker/g) || []).length === 1
     && modalSrc.includes('we-picker__modal-foot" },')
-    && modalSrc.includes('ESC / 点击遮罩关闭'),
+    && modalSrc.includes('ESC 返回'),
   'closePicker 绑定数=' + ((clientHalf.match(/onClick: closePicker/g) || []).length));
-check('抽屉里名称行文字居中', stylesSrc.includes('.we-repo-panel .we-picker__current-title { grid-area: title; text-align: center; }'));
-check('标题里的类型/播放态在抽屉内联并加括号（整行省略）',
-  tabsSrc.includes('className: "we-picker__current-meta" }') && stylesSrc.includes('.we-repo-panel .we-picker__current-meta {')
-    && stylesSrc.includes('.we-repo-panel .we-picker__current-meta::before { content: "（"; }')
-    && stylesSrc.includes('.we-repo-panel .we-picker__current-meta::after { content: "）"; }'));
-check('抽屉窄容器：标题独占首行 + 按钮上下排列（8px）',
-  stylesSrc.includes('.we-repo-panel .we-picker__current {') && stylesSrc.includes('grid-template-areas:')
-    && stylesSrc.includes('.we-repo-panel .we-picker__current-actions {')
-    && /grid-area: actions; flex-direction: column; align-items: stretch; gap: 8px;/.test(stylesSrc));
+// ── UI 重构：抽屉从「顶部下落、装整份设置页」改为「右侧左滑、装快捷播放面板」──
+// 钉三件事：滑动方向与宽度（不再 translateY）、内容与官方侧栏同源（QuickPanel，
+// 不再有 WallpaperPicker 副本）、旧弹框所有权机制退役（repoPanelOwnsModal 不复存在）。
+check('抽屉右侧左滑（360px、translateX；不再是顶部下落的 25vw/translateY）',
+  stylesSrc.includes('width: 360px; max-width: 92vw;')
+    && /we-repo-panel\s*\{[^}]*transform: translateX\(102%\)/.test(stylesSrc)
+    && !/we-repo-panel\s*\{[^}]*translateY/.test(stylesSrc));
+check('抽屉与官方侧栏共用同一份 QuickPanel（不再是 WallpaperPicker 副本）',
+  src.includes('React.createElement(QuickPanel, { dock: "drawer" })')
+    && !src.includes('repoPanel: true')
+    && !src.includes('repoPanelOwnsModal'));
+check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版本宿主不会 park）',
+  src.includes('installSidebarRight(ctx)')
+    && sidebarSrc.includes('ctx.slots.inject("sidebar.right.pane.tab"')
+    && sidebarSrc.includes('ctx.get("sidebarRightTabs")')
+    && sidebarSrc.includes('ctx.get("sidebarRight")'));
+// 用户口径：吉祥物**点一下要能关**侧栏（官方态此前只能开不能关 —— 点击恒走 openTab）。
+// 判据按真实源码形态：点击分支走统一开关（不残留只开的 openPanel）、官方态 toggle 的
+// 收起条件（展开 + 正显示本 kind）、手势的上推=关。
+{
+  const ropeActivate = (text) => /!d\.moved\) wallSidebarToggle\(\)/.test(text)
+    && /wallSidebarOpen\(\)/.test(text)
+    && /wallSidebarClose\(\)/.test(text)
+    && !/openPanel\(/.test(text);
+  check('吉祥物点击 = 开/关切换（官方态能关；下拉=开、上推=关走同一组开关）',
+    ropeActivate(src) && src.includes('wallSidebarToggle()'));
+  check('negative control: 「只开不关」的旧形态会被同一条判据判出',
+    !ropeActivate('if (!canceled && !d.moved) openPanel();'));
+  check('官方态 toggle 语义：展开且正显示「壁纸」才收起（别人的 tab 不替用户关）',
+    sidebarSrc.includes('function sidebarRightOursActive(')
+      && sidebarSrc.includes('a.kind === WE_SIDEBAR_KIND')
+      && sidebarSrc.includes('weSidebarCtrl.isExpanded()')
+      && sidebarSrc.includes('weSidebarCtrl.toggleExpanded()'));
+  check('抽屉桥：RopeDock 注册三动作、隐藏/卸载时撤销（快捷键与点击共用同一入口）',
+    src.includes('ropeDrawerControl = {') && src.includes('toggle: () => setOpen((o) => !o)')
+      && src.includes('ropeDrawerControl = null;'));
+}
+// 快捷键（官方桌面默认 Cmd/Ctrl+Alt+W）：注册进宿主 shortcuts 服务，命令可改键；
+// 无面板可开时 resolve=pass（不吞按键）；不写进 inject（缺服务的旧宿主不该 park）。
+check('壁纸侧栏快捷键：走宿主 shortcuts 服务 + 桌面三档默认 primary+alt+W + pass 兜底',
+  src.includes('installWallSidebarShortcut(ctx)')
+    && sidebarSrc.includes('function installWallSidebarShortcut(')
+    && sidebarSrc.includes('ctx.get("shortcuts")')
+    && sidebarSrc.includes('shortcuts.register({')
+    && sidebarSrc.includes('"wallpaper.sidebar.toggle"')
+    && sidebarSrc.includes('"desktop:macos": { code: "KeyW", modifiers: ["primary", "alt"] }')
+    && sidebarSrc.includes('"desktop:windows": { code: "KeyW", modifiers: ["primary", "alt"] }')
+    && sidebarSrc.includes('"desktop:linux": { code: "KeyW", modifiers: ["primary", "alt"] }')
+    && sidebarSrc.includes('{ status: "pass" }'));
+
+// 设置入口的触发钮选取（应用侧实测修复）：官方应用里带 aria-haspopup="dialog" 的按钮
+// 有十几个（TurnUsagePanel / StatsPills / ContextMeter / 插件管理器 / 任务管理器日期时间
+// 选择器…），且都在左栏「设置」之前 —— 文档序取第一个必然点错，症状就是应用里
+// 「壁纸引擎设置」无反应。判据：按可读名字（设置|Settings）挑 + 必须没有裸首个匹配回退。
+check('设置入口按可读名字选触发钮（不再取文档序第一个 dialog 按钮）',
+  sidebarSrc.includes('function findSettingsTrigger(')
+    && sidebarSrc.includes('/设置|Settings/i.test')
+    && sidebarSrc.includes('const named = dialogTriggers.filter(isSettingsLabel)')
+    && !/querySelector\('button\[aria-haspopup="dialog"\]'\)/.test(sidebarSrc)
+    && sidebarSrc.includes('findAccountMenuTrigger') && sidebarSrc.includes('findSettingsMenuItem')
+    && sidebarSrc.includes('button[aria-haspopup="menu"][data-collapsed]') // 账号菜单触发钮（AccountMenu 的确定性锚）
+    && sidebarSrc.includes('cand=[')
+    && sidebarSrc.includes('data-we-qp-entry') // 必须排除自己的「壁纸引擎设置 ›」入口（实测曾自误中递归）
+    && sidebarSrc.includes('openSettingsBusy')); // 重入锁
+
+// 应用侧诊断：入口找没找到/点的是谁/有没有落到本节（写宿主 diag 文件，跨实例可回读）。
+check('设置入口带落盘诊断（settings-entry / settings-entry-timeout）',
+  sidebarSrc.includes('reportClientDiag("settings-entry",')
+    && sidebarSrc.includes('"settings-entry-timeout"'));
+// 封面重试窗：桥出封面可能滞后换曲（抽帧/下载），4 次×0.7s 的旧窗口会让整首歌没封面。
+check('封面重试窗拉长到 12 次 + 退避（封顶 4s，覆盖 ~40s）',
+  src.includes('MEDIA_ART_MAX_TRIES = 12') && src.includes('Math.min(700 * mediaArtTries, 4000)'));
+// 失败记忆（sceneLiveFailures，持久降级）只在**用户手动选中**时清除：手动点开 =
+// 想看它 live，重试一次（真失败会自动回退并重新记账）。启动恢复 / revalidate /
+// 轮换提交都不清 —— 凡路过就清等于没记忆（smoke L2 钉住该不变量）。
+check('live 失败记忆只在用户手动选中时清除（fromManual 显式传入）',
+  src.includes('function clearLiveFailure(') && prepSrc.includes('opts && opts.fromManual')
+    && src.includes("applySelection(w.id, { fromManual: true })")
+    && src.includes('applySelection(next.id, { fromManual: true })'));
+// 封面链路的落盘诊断（media-art*）：只在应用侧复现的失败要能被回读定位。
+check('封面链路带落盘诊断（media-art*，每曲最多一条）+ 慢拍不放弃',
+  src.includes('"media-art-slow"') && src.includes('"media-art-try-fail"')
+    && src.includes('let mediaArtDiag') && src.includes('MEDIA_ART_SLOW_MS')
+    && src.includes('slow ? MEDIA_ART_SLOW_MS'));
 // ── 诊断族（P2-11 第一族）：注册已搬到 lib/routes/diag.js ⇒ 文本断言按**所属文件**分家 ──
 // 行为断言（上面的 Level E 405/413）走 mock webServer，搬去哪个文件都照样有效；这里钉的是
 // "这一族只在那个文件里注册"—— 两边各留一份会让同一路径被重复挂载，而卸载只放掉一份。

@@ -147,9 +147,13 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe (no 
   3. registers same-origin HTTP routes on the DSH webserver so the browser half can fetch data and stream media directly. They are grouped by responsibility — **assets** · **transcode** · **live rendering** · **out-figure & capture** · **settings & system**.
      **The authoritative list (each route's source line, registration shape and context contract) is [`ROUTE-INDEX.md`](../ROUTE-INDEX.md)** — this file no longer hand-writes the path table *or a route count* (hand-writing always rots: that table long listed `/scene-runtime`, `/scene-manifest` and `/scene-resource`, **all three deleted**, while missing most of the routes that existed; the count drifted the same way).
 - **Client half** (`lib/client.js`): a browser module that fetches the inventory and renders the selected
-  wallpaper into a fixed layer *behind* the app columns, plus a **first-level settings page**
-  "Wallpaper Engine" (liquid-glass card, picker modal, hide/restore, playback speed / flip, accent color +
-  glass transparency, and custom-upload management).
+  wallpaper into a fixed layer *behind* the app columns; it registers the first-level settings page
+  **「壁纸引擎」** (Wallpaper Engine) with four tabs (library / appearance / playback / system), where
+  picking wallpapers is an in-panel drill-in view (no modals) alongside hide/restore, transitions /
+  playback speed / flip, accent color + glass transparency, the font system, and custom-upload management.
+  A separate **quick playback panel** (current wallpaper / rotation / fast list switching / sound, with
+  list and card views) merges into the official right sidebar's tab on harness ≥0.1.5, and falls back to a
+  right-slide drawer pulled out by the mascot on older hosts.
 - **Custom-upload storage**: uploaded files are written to a plugin-managed local directory (default
   `~/.dsh-wallpaper-engine/uploads`, changeable from the settings UI) and served through the same
   `/media` + `/preview` routes as WE media — identical pipeline, survives restarts, no browser quota limits.

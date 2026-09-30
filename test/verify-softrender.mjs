@@ -367,10 +367,10 @@ function main() {
 
     // The recipes below are quoted VERBATIM from the @supports fallbacks; each
     // one must also appear inside a data-we-glass-fallback rule.
+    //（UI 重构：仓库抽屉的右四分之一弹窗已退役，94% 那条配方随之从两处同时删除。）
     const recipes = [
       'color-mix(in srgb, var(--we-sidebar-color, #ffffff) 92%, transparent)',
       'color-mix(in srgb, var(--we-glass-color, #ffffff) 92%, transparent)',
-      'color-mix(in srgb, var(--we-glass-color, #ffffff) 94%, transparent)',
       '--dsw-alias-bg-layer-1: var(--we-glass-color, #ffffff)',
       '--dsw-alias-bg-layer-1: var(--we-glass-color, #0d1524)',
     ];

@@ -109,7 +109,7 @@ graph TB
 graph LR
     IDX["lib/index.js<br/>（门面：apply + 共享闭包）"]
     IDX --> R1["lib/routes/diag.js<br/>诊断"]
-    IDX --> R2["lib/routes/now-playing.js<br/>系统音频 / 歌曲信息"]
+    IDX --> R2["lib/routes/now-playing.js<br/>系统音频 / 歌曲信息 / 反向控制"]
     IDX --> R3["lib/routes/scene-frame.js<br/>抓帧与自定义画面"]
     IDX --> R4["lib/routes/scene-serve.js<br/>渲染页 / 壁纸文件 / 媒体源诊断"]
     IDX --> R5["lib/routes/fontsets.js<br/>字体集"]

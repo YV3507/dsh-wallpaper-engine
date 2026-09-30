@@ -27,7 +27,7 @@
 //       stylesheet copy matches the JS constant (no drift).
 //   F2  every text-bearing surface the plugin drives carries the floor in BOTH
 //       themes: composer/bubble tokens, settings-window layers 1/2/3, sidebar
-//       panels + native right panel, the plugin's own drawer / panel modal, and
+//       panels + native right panel, the plugin's own drawer, and
 //       the update toast (max() form).
 //   F3  the content-surface plate uses a literal max() clamp on its own alpha.
 //   F4  the software-render fallback plate still clears the floor (the #95
@@ -221,7 +221,6 @@ function main() {
     ['native right panel (light)', 'background-color', 'body[data-we-sidebar-glass] [data-sidebar-right-panel]'],
     ['native right panel (dark)', 'background-color', 'body[data-ds-dark-theme][data-we-sidebar-glass] [data-sidebar-right-panel]'],
     ['plugin repo drawer', 'background-color', '.we-repo-panel--open'],
-    ['plugin panel modal', 'background-color', '.we-picker__modal--panel'],
   ];
   const veilMisses = [];
   for (const [label, prop, selector] of surfaceSpecs) {

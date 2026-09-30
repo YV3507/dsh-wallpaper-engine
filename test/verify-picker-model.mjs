@@ -43,8 +43,9 @@ const callsTo = (fn, args, want) => fn(...args) === want;
 
 /** 判据：模型 API 是否齐全（防切出来的段落是空的 ⇒ 下面每条都在空跑）。 */
 const hasModelApi = (M) => ['ratingOf', 'matchesRatingFilter', 'matchesTypeFilter',
-  'isPlayableType', 'isRotatableWallpaper', 'isHiddenWallpaper', 'isUploadedWallpaper',
-  'isDirWallpaper', 'playableWallpapers', 'hiddenWallpapers', 'pageSlice', 'pickerModel']
+  'isPlayableType', 'isRotatableWallpaper', 'keepPlayingWallpaper', 'isHiddenWallpaper',
+  'isUploadedWallpaper', 'isDirWallpaper', 'playableWallpapers', 'hiddenWallpapers',
+  'pageSlice', 'pickerModel']
   .every((k) => typeof M[k] === 'function') && typeof M.PICKER_PAGE_SIZE === 'number';
 
 /** 判据：`pageSlice` 的形状（张数 / 页号 / 页数）。 */
@@ -129,8 +130,9 @@ function inlinedSection(bundle, file) {
 const code = readFileSync(process.env.DSH_MUT_LIB || new URL('../lib/client.js', import.meta.url), 'utf8');
 
 const MODEL_API_NAMES = '{ ratingOf, matchesRatingFilter, matchesTypeFilter, isPlayableType,'
-  + ' isRotatableWallpaper, isHiddenWallpaper, isUploadedWallpaper, isDirWallpaper,'
-  + ' playableWallpapers, hiddenWallpapers, pageSlice, pickerModel, PICKER_PAGE_SIZE }';
+  + ' isRotatableWallpaper, keepPlayingWallpaper, isHiddenWallpaper, isUploadedWallpaper,'
+  + ' isDirWallpaper, playableWallpapers, hiddenWallpapers, pageSlice, pickerModel,'
+  + ' PICKER_PAGE_SIZE }';
 
 /** 把切出来的段落包进一个函数作用域求值 —— 返回模型 API（纯函数，无需宿主环境）。 */
 function evaluateModelSection(section) {
@@ -483,6 +485,14 @@ console.log('\n2. 直调判定：六个谓词 + 两个过滤助手（负对照�
   check('matchesTypeFilter：类型一致 ⇒ true', callsTo(M.matchesTypeFilter, [W[0], 'video'], true));
   check('负对照：换成别的类型档 ⇒ 不是 true',
     !callsTo(M.matchesTypeFilter, [W[0], 'web'], true));
+  // 「正在应用的壁纸」判据（keepPlayingWallpaper）：**没有类型档入参**就是语义本身 ——
+  // 类型档只筛列表与轮播候选，切过滤档不得把当前壁纸干掉（用户口径）。
+  check('keepPlayingWallpaper：可播 + 分级放行 ⇒ true（类型档不参与播放闸门）',
+    callsTo(M.keepPlayingWallpaper, [W[0], 'all'], true));
+  check('负对照：分级闸门仍在 —— mature 档下同一张被拒',
+    !callsTo(M.keepPlayingWallpaper, [W[0], 'mature'], true));
+  check('keepPlayingWallpaper：不可播放的条目照旧拒（v4 playable:false）',
+    !callsTo(M.keepPlayingWallpaper, [W[7], 'all'], true));
   check('pageSlice：30 张 / 每页 24 ⇒ 第 1 页 24 张、共 2 页',
     slicesTo(M, EXTRA, 0, [24, 0, 2]));
   check('负对照：翻到第 2 页后同一条判据不再给出第 1 页的形状',

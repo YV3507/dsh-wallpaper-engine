@@ -423,7 +423,10 @@ await runScenario('H. 卸载停掉场景 BGM 并拆掉 <audio>（不起播）', 
     'audios=' + audios().length + (el ? ' volume=' + el.volume + ' paused=' + el.__paused : ''));
   check('卸载前捕获到 cleanup', t.cleanups.length > 0, 'cleanups=' + t.cleanups.length);
   const playsBefore = el ? (el.__plays || 0) : 0;
-  t.cleanups[t.cleanups.length-1](); // 模拟「禁用插件 / 热重挂」
+  // 模拟卸载：cordis 的卸载语义是跑**全部** fiber disposer —— 只跑最后一个
+  // 曾是"主拆卸恰好注册在最尾"的隐式假设；官方侧栏接入（2c）的 cleanup 注册
+  // 更靠后，该假设即破；逐个跑才是真实路径。
+  t.cleanups.forEach((c) => c()); // 模拟「禁用插件 / 热重挂」
   // 核心：卸载**不是**渐变结束 —— 走放行（restoreNodeAudio）会连带 syncSceneAudio
   // 把刚压住的 BGM 恢复起播（禁用插件反而响一下），所以判据是「play 次数不增加」。
   check('卸载过程中不得起播场景 BGM（放行会 restore → syncSceneAudio → play）',
@@ -677,7 +680,10 @@ await runScenario('F. 渐变窗口内卸载：旧层随 cleanup 退役（不留�
     'layers=' + layerCount());
   check('渐变退役定时器已武装（ROTATION_FADE_MS + 100ms）', !!t.timers.find(x=>!x.cleared && x.ms===FADE_GRACE_MS));
   check('卸载前捕获到 cleanup', t.cleanups.length > 0, 'cleanups=' + t.cleanups.length);
-  t.cleanups[t.cleanups.length-1](); // 模拟「禁用插件 / HMR 重挂」
+  // 模拟卸载：cordis 的卸载语义是跑**全部** fiber disposer —— 只跑最后一个
+  // 曾是"主拆卸恰好注册在最尾"的隐式假设；官方侧栏接入（2c）的 cleanup 注册
+  // 更靠后，该假设即破；逐个跑才是真实路径。
+  t.cleanups.forEach((c) => c()); // 模拟「禁用插件 / HMR 重挂」
   check('卸载后 body 里不再有 we-layer（旧层随 cleanup 退役，而不是等退役定时器）',
     layerCount() === 0, 'layers=' + layerCount());
 });

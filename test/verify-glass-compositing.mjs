@@ -304,8 +304,11 @@ function main() {
   const missing = REQUIRED.filter((req) => ![...carriers.values()]
     .some((c) => c.tokens.some((t) => t === req.token)));
   const panelCount = [...carriers.keys()].filter((k) => /^\.we-/.test(k)).length;
+  // 插件自己的玻璃面现存 2 块：仓库抽屉（.we-repo-panel--open）与更新通知
+  //（.we-update-notice）—— 第三块（仓库弹窗 .we-picker__modal--panel）已随 UI
+  // 重构退役（选择壁纸改为页内下钻，不再有玻璃弹窗），地板相应收为 ≥2。
   check('G1 every non-none backdrop-filter rule names a glass carrier, incl. the required composer/bubble/panel carriers',
-    missing.length === 0 && panelCount >= 3,
+    missing.length === 0 && panelCount >= 2,
     carriers.size + ' carriers (' + panelCount + ' plugin panels)'
       + (missing.length ? ' · MISSING: ' + missing.map((m) => m.label).join(', ') : ''));
 

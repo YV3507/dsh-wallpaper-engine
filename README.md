@@ -217,6 +217,8 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 - **媒体信息** —— 把系统 **Now Playing**（歌名 / 歌手 / 专辑 / 播放态 / 进度 / 时长 / **封面**）交给壁纸：依赖 WE 官方 `wallpaperRegisterMediaPropertiesListener` / `…ThumbnailListener` / `…PlaybackListener`（以及 `…TimelineListener`），识别这些 API 的工坊网页壁纸会自动显示歌曲信息与封面。
 - **在线歌词** —— 优先取本地的（音频同目录的 `.lrc` 与已缓存歌词）；开启后本地没有才向 [lrclib.net](https://lrclib.net) 查一次 —— 那次请求会把歌名 / 歌手 / 专辑发出去，所以**默认关闭**。
 
+**反向控制（随「媒体信息」生效）**：场景壁纸里 Now Playing 组件自带的 **▶ / ⏸ / ⏮ / ⏭** 按钮，点击会控制**系统真实播放器**（播放 / 暂停 / 上下曲）—— 只对带该组件按钮的壁纸生效（全库同组件共三张）；控制面与数据面同源：中间件不可用时按钮落到渲染器自己的模拟源，内置实现（纯读取）不提供控制。
+
 > 这些数据由宿主侧自带的 Rust 中间件 [media-bridge](https://github.com/oneincase/media-bridge) 子进程提供（随插件按需下载、校验 sha256 后执行，缓存在 `~/.dsh-wallpaper-engine/bin/`）：macOS 用 MediaRemote、Windows 用系统媒体会话（GSMTC）、Linux 用 MPRIS over D-Bus。因此**不再需要** `brew install media-control`、`playerctl` 或 VB-Cable，macOS 也不再需要 Xcode Command Line Tools；中间件取不到或起不来时自动回落到内置实现，原因写在 `GET /wallpaper-engine/media-status` 的 `fallback` 字段里。
 
 ## 配置

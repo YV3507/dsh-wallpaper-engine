@@ -15,7 +15,7 @@
  *                     prepareLiveTimeouts（本文件声明）
  *   轮换              beginRotationPrepare（本文件）· cancelRotationPrepare · commitRotationSwitch ·
  *                     deferRotationWhileHidden · ROTATION_PREP_TIMEOUT_MS · syncRotationTimer ·
- *                     releaseRotationAudioGate · isRotatableWallpaper · groupWallpapers
+ *                     releaseRotationAudioGate · keepPlayingWallpaper · groupWallpapers
  *   媒体与探测        adoptProbe · releaseProbeMedia · consumePreparedMedia · disposePreparedMedia ·
  *                     frameUrlWithVariant · weApplyAudio · syncSceneAudio · weStartDraw · weDrawFrame
  *   live 挂载         createLiveFrame · scheduleLiveMount · cancelLiveMount（后者用于「换壁纸即终止预热页」）
@@ -408,6 +408,10 @@ function applySelection(id, opts) {
   // 释放），并丢弃任何滞留的就绪元素。轮换提交（fromRotation）例外 ——
   // 就绪元素正是本次调用要带进新层的资产。
   if (!opts || !opts.fromRotation) { cancelRotationPrepare(); disposePreparedMedia(); }
+  // 只有**用户点击**（fromManual）才清失败记忆：手动点开 = 想看它 live，重试一次实时渲染
+  //（真失败会自动回退并重新记账）。启动恢复 / revalidate / 轮换提交都不清 —— 记忆的
+  // 语义是「这张 live 走不通」，凡路过就清等于没记忆（smoke L2 钉住这条）。
+  if (opts && opts.fromManual) clearLiveFailure(id);
   // GPU 抓帧回填的目标壁纸随切换作废（新壁纸的 live 首帧会重新调度）。
   cancelLiveFrameBackfill();
   // 延迟期那个**正在预热**的渲染页也随切换作废：它是「正在跑的渲染页」而不是普通元素，
@@ -443,7 +447,8 @@ function applySelection(id, opts) {
   }
   const w = selection.inventory.wallpapers.find((x) => x.id === selection.id);
   // 判定来自 src/picker-model.js：过滤档与隐藏集合从调用点显式传入（模型不读 selection）。
-  if (!w || !isRotatableWallpaper(w, selection.contentRatingFilter, selection.typeFilter)) {
+  // 闸门是 keepPlayingWallpaper（分级拦播放；类型档只筛列表/轮播候选，不碰正在应用的壁纸）。
+  if (!w || !keepPlayingWallpaper(w, selection.contentRatingFilter)) {
     // 被过滤条件排除 / 条目消失时必须留下可读原因（#84），见 selectionBlockedNote。
     selection.blockedNote = selectionBlockedNote(w);
     selection.url = null;

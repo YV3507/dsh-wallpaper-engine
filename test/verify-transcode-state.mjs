@@ -263,6 +263,8 @@ async function main() {
   assert(card && typeof card.props.onClick === 'function', 'wallpaper card found');
   card.props.onClick(); // applySelection('w1')
   await new Promise((r) => setTimeout(r, 20)); // media-info probe resolves
+  // 页内下钻后库视图与页签内容互斥：选完经「返回」退出，帧率上限控件才渲染（真实路径）。
+  findButton(renderTree(), 'we-picker__btn', '返回').props.onClick();
 
   const layer = document.getElementById('dsh-wallpaper-engine-layer');
   assert(layer, 'wallpaper layer mounted');

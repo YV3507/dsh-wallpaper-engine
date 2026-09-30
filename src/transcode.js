@@ -214,7 +214,9 @@ function maybeUpgradeToTranscoded(video, token) {
   // has the transcode cached, then answers 206 with one byte (discarded). The
   // <video> then streams the SAME url via range requests — no full-file blob is
   // ever held in memory and playback starts as soon as the first bytes arrive.
-  apiFetch(transcodedUrl, { signal: ctrl.signal, headers: { Range: "bytes=0-0" } })
+  // 探测响应是 1 字节二进制体 ⇒ `parse: false`（默认路径会先 json() 吃掉 body，
+  // 显式的 arrayBuffer() 只能靠 catch 兜住；这里直接不走解析）。
+  apiFetch(transcodedUrl, { signal: ctrl.signal, headers: { Range: "bytes=0-0" }, parse: false })
     .then(async (res) => {
       if (ctrl.signal.aborted) return; // superseded by a newer request
       if (pollTimer) clearInterval(pollTimer); // only ever this request's own timer

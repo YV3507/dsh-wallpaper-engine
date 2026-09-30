@@ -1464,7 +1464,9 @@ function maybeCaptureLiveFrame(frame, sel) {
     //（排名 2；作者配色在场时它自己会让路）。
     themeFollowOnFrameImage(dataUrl);
     // 两跳都走统一出入口：`data:` URL 是**本地字节转换**（apiUrl 原样放行），POST 才是宿主 API。
-    apiFetch(dataUrl).then((r) => r.response.blob()).then((blob) => apiFetch(sel.liveFrame, {
+    // ⚠️ 第一跳必须 `parse: false`：默认路径在 2xx 上 `response.json()` 会先吃掉 body 流，
+    // 随后的 `response.blob()` 必抛 —— 帧上传链路会整条静默断掉（同封面那条）。
+    apiFetch(dataUrl, { parse: false }).then((r) => r.response.blob()).then((blob) => apiFetch(sel.liveFrame, {
       method: "POST",
       headers: { "Content-Type": "image/jpeg" },
       body: blob,

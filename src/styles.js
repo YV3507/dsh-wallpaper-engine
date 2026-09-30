@@ -781,21 +781,11 @@ const CSS = `
     }
   }
 
-  /* Section card (mirrors the skin-center's pluginCard): a quiet layer card —
-     translucent token background + hairline border + radius. NO own backdrop
-     blur: the whole settings window is the glass surface (see the
-     body[data-we-glass-window] dialog rules above), so a nested blur would
-     double-frost and look muddy. Without the master switch the card still
-     reads as a subtle layer over the stock panel. */
-  .we-picker__card-shell {
-    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.28));
-    border-radius: 12px;
-    background: var(--dsw-alias-bg-layer-3, rgba(128, 128, 128, 0.08));
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-    padding: 14px 16px;
-    transition: border-color 0.16s ease, background-color 0.16s ease;
-  }
-  .we-picker__card-shell:hover { border-color: var(--dsw-alias-label-dimmed, rgba(128, 128, 128, 0.5)); }
+  /* Section wrapper（旧外壳卡拍平后的形态）：UI 重构后拍平 —— 融合官方
+     设置页（官方分区没有外壳卡），内容直接落在设置对话框的面层上。 */
+  /* Card shell: UI 重构后**不再是卡** —— 融合官方设置页（官方分区没有外壳卡），
+     内容直接落在设置对话框的面层上。选择器与 DOM 结构保留（守卫按结构断言）。 */
+  .we-picker__card-shell { display: block; }
   /* Card header: name + count badge + description (mirrors skin-center). */
   .we-picker__card-head {
     display: flex; align-items: baseline; gap: 8px;
@@ -1180,19 +1170,11 @@ const CSS = `
     color: #fff;
   }
 
-  /* ── 壁纸属性（作者可调属性）─────────────────────────────────────────────
-     绿色 = 次级动作，和 accent 的「选择壁纸」明确区分：两者永远不该读成同一个控件。 */
-  .we-picker__btn--props {
-    color: #fff;
-    background: #2ea043;
-    border-color: transparent;
-    font-weight: 600;
-  }
-  .we-picker__btn--props:hover { background: #2c974b; color: #fff; }
-  .we-picker__btn--props.is-on { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6); }
+  /* 壁纸属性入口已并入播放控制行（普通 .we-picker__btn，开着时 is-on）——
+     专门的 --props 绿色次级按钮样式随之退役。 */
   .we-picker__btn--mini { padding: 2px 8px; font-size: 0.75em; }
 
-  /* 主操作区（壁纸属性 + 选择壁纸）：宽卡片里并排；抽屉里上下排列（间距 8px）。 */
+  /* 主操作区（选择壁纸）：宽卡片里并排；抽屉里上下排列（间距 8px）。 */
   .we-picker__current-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
   .we-picker__current-sub { min-width: 0; }
 
@@ -1225,35 +1207,6 @@ const CSS = `
     flex: 0 1 52%; min-width: 0; font-size: 0.8em; padding: 3px 6px; border-radius: 8px;
     border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
     background: var(--dsw-alias-bg-layer-2, rgba(0, 0, 0, 0.18)); color: inherit;
-  }
-
-  /* 抽屉（右侧窄容器）：名称独占顶层第一行，两个按钮在右侧上下排列、间距 8px。
-     标题与副信息原本同在一个 info 块里 —— 用 display:contents 把它展开成 grid 项，
-     才能把标题提到第一行（.we-picker__current-sub 是 meta+原因说明的包裹层，
-     保证「一行一项」而不是让多行叠在同一格）。 */
-  .we-repo-panel .we-picker__current {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    grid-template-areas:
-      "title title title"
-      "vinyl info  actions";
-    align-items: center;
-    gap: 8px 10px;
-  }
-  .we-repo-panel .we-picker__current-info { display: contents; }
-  /* 抽屉里标题独占首行，文字居中（用户口径）。 */
-  .we-repo-panel .we-picker__current-title { grid-area: title; text-align: center; }
-  /* 抽屉里：类型/播放态跟在名称后面、括号包裹，整行超出用省略号（标题元素本身
-     已经是 nowrap + overflow hidden + text-overflow ellipsis，内联文本才能整体截断）。 */
-  .we-repo-panel .we-picker__current-meta {
-    display: inline; margin-top: 0; font-size: inherit; opacity: 0.6;
-  }
-  .we-repo-panel .we-picker__current-meta::before { content: "（"; }
-  .we-repo-panel .we-picker__current-meta::after { content: "）"; }
-  .we-repo-panel .we-picker__current-sub { grid-area: info; min-width: 0; }
-  .we-repo-panel .we-vinyl, .we-repo-panel .we-picker__current-thumb { grid-area: vinyl; }
-  .we-repo-panel .we-picker__current-actions {
-    grid-area: actions; flex-direction: column; align-items: stretch; gap: 8px;
   }
 
   /* Refined range sliders: thin track + circular brand ring thumb. */
@@ -1339,10 +1292,8 @@ const CSS = `
     padding-right: 24px;
   }
 
-  /* Motion tokens: one shared ease (expo-out) + two durations. Modal is
-     portalled onto <body> (outside .we-picker), so the token scope covers both
-     roots. */
-  .we-picker, .we-picker__modal, .we-picker__modal-overlay {
+  /* Motion tokens: one shared ease (expo-out) + two durations. */
+  .we-picker, .we-picker__modal {
     --we-ease: cubic-bezier(0.16, 1, 0.3, 1);
     --we-dur-fast: 120ms;
     --we-dur: 200ms;
@@ -1363,7 +1314,7 @@ const CSS = `
     transform: scale(0.96);
   }
   @media (prefers-reduced-motion: reduce) {
-    .we-picker *, .we-picker__modal, .we-picker__modal *, .we-picker__modal-overlay {
+    .we-picker *, .we-picker__modal, .we-picker__modal * {
       transition: none !important;
       animation: none !important;
     }
@@ -1507,8 +1458,10 @@ const CSS = `
     background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
     text-overflow: ellipsis; white-space: nowrap; overflow: hidden;
   }
-  /* Scene-wallpaper "实时帧" badge — top-right under the hide button. */
-  .we-picker__card-badge {
+  /* Scene-wallpaper "实时帧" badge — top-right under the hide button.
+     作用域钉在**缩略图卡片**里：卡头的可播放计数徽标（.we-picker__card-head 下）
+     同名，不能被这条 absolute 角标规则盖掉（行内计数，走上面 786 行那条）。 */
+  .we-picker__card .we-picker__card-badge {
     position: absolute; top: 4px; right: 4px; z-index: 1;
     padding: 1px 6px; font-size: 0.62em; line-height: 1.6;
     border-radius: 4px; color: #fff;
@@ -1576,35 +1529,14 @@ const CSS = `
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     font-size: 0.85em; opacity: 0.85;
   }
-  /* ── Wallpaper picker modal (portalled onto <body>, z-index above the shell
-     overlays). Fixed positioning from a body child is immune to ancestor
-     transforms/backdrop-filters, which would otherwise trap it. ── */
-  .we-picker__modal-overlay {
-    position: fixed; inset: 0; z-index: 1000;
-    display: flex; align-items: center; justify-content: center;
-    background: rgba(0, 0, 0, 0.55);
-    -webkit-backdrop-filter: blur(3px);
-    backdrop-filter: blur(3px);
-    animation: we-overlay-in var(--we-dur, 200ms) var(--we-ease, ease-out);
-  }
+  /* ── 壁纸库下钻视图（旧形态是 body 传送门里的居中弹框）──────────────────────
+     类名沿用旧系：116 个按层级/相邻关系绑定的 .we-picker__* 选择器不许漂，「modal」
+     只剩类名。视觉上就是页签面板的就地内容：无自身边框/底色/阴影/滚动 —— 整页
+     由设置对话框的内容列滚动。 */
   .we-picker__modal {
-    position: relative; z-index: 1001;
-    width: min(760px, 92vw); max-height: 86vh;
     display: flex; flex-direction: column; gap: 10px;
-    padding: 16px; border-radius: 14px;
-    /* 居中式选择器模态：承载整棵选择器子树、**没有** backdrop-filter（模糊只有
-       右四分之一那版 .we-picker__modal--panel 才有）。壁纸下别名层已被改写成玻璃配方，
-       而半透明 + 无模糊会让整棵面板压在壁纸上 ⇒ 这里读插件自己的不透明面板色。 */
-    background: var(--we-panel-color, #202127);
-    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
-    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.25);
-    /* 入场：轻微上浮 + 缩放 settle，expo-out；reduced-motion 由上面的
-       媒体查询统一静止为瞬现。 */
-    animation: we-modal-in 240ms var(--we-ease, ease-out);
-  }
-  @keyframes we-overlay-in { from { opacity: 0; } }
-  @keyframes we-modal-in {
-    from { opacity: 0; transform: translateY(10px) scale(0.98); }
+    /* 换入动画与页签一致（该节点在 pickerOpen 翻转时新挂载，动画自然会跑）。 */
+    animation: we-tab-in 180ms var(--we-ease, cubic-bezier(0.16, 1, 0.3, 1));
   }
   .we-picker__modal-head {
     display: flex; align-items: center; justify-content: space-between;
@@ -1624,17 +1556,13 @@ const CSS = `
     border-color: var(--we-accent, #4f8cff); color: #fff;
   }
   .we-picker__modal-body {
-    overflow-y: auto; min-height: 0; flex: 1;
     display: flex; flex-direction: column; gap: 8px;
-    overscroll-behavior: contain; /* 滚轮不穿透到背后的设置页 */
-    /* modal 里 grid 的 max-height 被放开（见下），真正的滚动容器是这里 ——
-       同样的 hover 放大震荡防护也要落在这层。 */
+    /* 卡片 hover 放大的横向溢出裁切（沿用弹框时代的防护）；纵向滚动交给
+       设置页内容列，本层不再是滚动容器。 */
     overflow-x: hidden; /* fallback：老旧内核不认识 clip 时的平替 */
     overflow-x: clip;
-    scrollbar-gutter: stable;
   }
-  /* The modal is tall enough: let the grid fill it instead of its own 280px
-     internal scroll (the modal body scrolls as a whole). */
+  /* 网格高度放开（沿用弹框时代的规则：不设内部 280px 滚动，随内容生长）。 */
   .we-picker__modal-body .we-picker__grid { max-height: none; }
   .we-picker__modal-foot { display: flex; align-items: center; justify-content: space-between; }
   /* Custom-upload section. */
@@ -1783,29 +1711,30 @@ const CSS = `
   .we-update-notice__btn { align-self: flex-end; }
   @media (prefers-reduced-motion: reduce) { .we-update-notice { animation: none !important; } }
 
-  /* Glass repo side panel — docked right, locked to 1/4 of the viewport,
-     full height, inner body scrolls. Same liquid-glass recipe as the settings
-     window: reads the very same --we-blur / --we-saturate / --we-glass-alpha /
-     --we-glass-color / --we-glass-brightness knobs, so the 玻璃 sliders in
-     settings retint this panel live. Open/close = transform + opacity fade,
-     token-driven; closed keeps visibility hidden (delayed so the fade-out
-     finishes first) with pointer-events off. */
+  /* Glass library side drawer — docked right, 360px (capped at 92vw), full
+     height, slides in from the right edge, inner body scrolls. Same liquid-glass
+     recipe as the settings window: reads the very same --we-blur / --we-saturate /
+     --we-glass-alpha / --we-glass-color / --we-glass-brightness knobs, so the
+     玻璃 sliders in settings retint this panel live. Open/close = transform +
+     opacity fade, token-driven; closed keeps visibility hidden (delayed so the
+     fade-out finishes first) with pointer-events off. 只在低版本宿主使用 ——
+     harness ≥0.1.5 上同一份内容融进官方右侧栏（见 src/sidebar-right.js）。 */
   .we-repo-panel {
     position: fixed; top: 0; right: 0;
-    width: 25vw; max-width: 25vw;
+    width: 360px; max-width: 92vw;
     height: 100vh; height: 100dvh;
     z-index: 995;
     display: flex; flex-direction: column;
     padding: 14px;
     box-sizing: border-box;
-    transform: translateY(-102%);
+    transform: translateX(102%);
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
     transition:
-      transform 800ms cubic-bezier(0.45, 0, 0.55, 1),
-      opacity 690ms cubic-bezier(0.45, 0, 0.55, 1),
-      visibility 0s linear 800ms;
+      transform 640ms cubic-bezier(0.32, 0.72, 0.24, 1),
+      opacity 480ms ease,
+      visibility 0s linear 640ms;
   }
   /* The glass (backdrop-filter + tint + shadow) lives ONLY on the open state:
      while closed the panel is off-screen and must not allocate a full-viewport
@@ -1824,13 +1753,13 @@ const CSS = `
       inset 1px 0 0 rgba(255, 255, 255, var(--we-glass-highlight, 0.32)),
       inset 0 1px 0 rgba(255, 255, 255, 0.14),
       -18px 0 44px rgba(0, 0, 0, 0.22);
-    transform: translateY(0);
+    transform: translateX(0);
     opacity: 1;
     visibility: visible;
     pointer-events: auto;
     transition:
-      transform 800ms cubic-bezier(0.45, 0, 0.55, 1),
-      opacity 690ms cubic-bezier(0.45, 0, 0.55, 1),
+      transform 640ms cubic-bezier(0.32, 0.72, 0.24, 1),
+      opacity 480ms ease,
       visibility 0s;
   }
   .we-repo-panel__head {
@@ -1840,8 +1769,7 @@ const CSS = `
     border-bottom: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.22));
   }
   .we-repo-panel__title { font-weight: 600; font-size: 0.95em; white-space: nowrap; }
-  /* Body: THE scroll container. Content (the whole WallpaperPicker) grows
-     freely; hover-scale overflow guards mirror the modal body's. */
+  /* Body: THE scroll container（内容 = QuickPanel 快捷播放面板，不再是设置页副本）。 */
   .we-repo-panel__body {
     flex: 1; min-height: 0;
     overflow-y: auto;
@@ -1850,73 +1778,153 @@ const CSS = `
     display: flex; flex-direction: column;
     padding-top: 10px;
   }
-  .we-repo-panel__body > .we-picker { flex: 1 0 auto; }
-  /* Panel is tall: let grids fill instead of their own internal scroll caps —
-     same release as the modal body uses. Layout styles themselves untouched. */
-  .we-repo-panel .we-picker__grid { max-height: none; }
-  /* Enlarged CD disc inside the panel context only (~1.4×), per design. The
-     cover inset is %-based so it scales along; just resize the spindle hole.
-     The platter stays a solid black vinyl (user asked to keep it black). */
-  .we-repo-panel .we-vinyl {
-    width: 176px; height: 176px;
-    background: repeating-radial-gradient(circle at center, #191920 0 2px, #23232c 2px 4px);
-    box-shadow:
-      0 6px 18px rgba(0, 0, 0, 0.55),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.07);
-  }
-  .we-repo-panel .we-vinyl__hole { width: 16px; height: 16px; margin: -8px 0 0 -8px; }
-  /* While the drawer is closed it is hidden but the picker stays mounted, so
-     the vinyl's spin animation would keep running unseen — constant hidden
-     compositor work that can contend with chat repaints and flash white.
-     Freeze the disc until the drawer actually opens. */
-  .we-repo-panel:not(.we-repo-panel--open) .we-vinyl { animation-play-state: paused; }
-  /* Req: the CD-adjacent current-wallpaper card and the custom-wallpaper
-     partition render as transparent glass instead of the dark surface layer,
-     so the blur behind shows through. */
-  .we-repo-panel .we-picker__current,
-  .we-repo-panel .we-picker__uploads,
-  .we-repo-panel .we-picker__uploads-item { background: transparent !important; }
-  /* Repo-path picker modal → its own right-quarter liquid-glass window instead
-     of the centred dark dialog. A transparent full-screen scrim keeps "click
-     outside to close" + focus containment without dimming the page behind.
-     (z-order: repo panel 995 < rope 996 < scrim 1003 < panel modal 1004.) */
-  .we-repo-panel__modal-scrim {
-    position: fixed; inset: 0; z-index: 1003;
-    background: transparent;
-  }
-  .we-picker__modal--panel {
-    position: fixed; top: 0; right: 0; z-index: 1004;
-    box-sizing: border-box;
-    width: 25vw; max-width: 25vw;
-    height: 100dvh; max-height: 100dvh;
-    border-radius: 0;
-    border: 0; border-left: 1px solid rgba(255, 255, 255, 0.22);
-    /* 仓库抽屉的右四分之一弹窗同样是文字面 → 同一层可读性下限。 */
-    background-color: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-glass-color, #ffffff) calc(var(--we-glass-alpha, 0.5) * 80%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
-    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.05) 38%, rgba(255, 255, 255, 0.02));
-    -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
-    backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
-    box-shadow:
-      inset 1px 0 0 rgba(255, 255, 255, var(--we-glass-highlight, 0.32)),
-      inset 0 1px 0 rgba(255, 255, 255, 0.14),
-      -18px 0 44px rgba(0, 0, 0, 0.22);
-    animation: we-repo-panel-in 800ms cubic-bezier(0.45, 0, 0.55, 1);
-  }
-  @keyframes we-repo-panel-in {
-    from { transform: translateX(102%); opacity: 0; }
-  }
 
+  /* ── 快捷播放面板（QuickPanel）：官方右侧栏 tab 与低版本抽屉共用同一份 ──
+     控件全部复用 .we-picker__*（btn/select/switch/slider/ctl），这里只补布局与
+     面板特有的零件；控件 token（高度/圆角/墨色）与设置面板同一份。 */
+  .we-qp {
+    --we-ui-h: 30px;
+    --we-ui-radius: 8px;
+    --we-ink: var(--dsw-alias-label-primary, inherit);
+    --we-ink-2: var(--dsw-alias-label-secondary, rgba(128, 128, 128, 0.9));
+    --we-ink-3: var(--dsw-alias-label-tertiary, rgba(128, 128, 128, 0.65));
+    --we-ease: cubic-bezier(0.16, 1, 0.3, 1);
+    --we-dur-fast: 120ms;
+    display: flex; flex-direction: column; gap: 12px;
+    font-size: 13px; color: var(--we-ink, inherit);
+  }
+  .we-qp--official { box-sizing: border-box; padding: 12px; }
+  /* 官方侧栏的 tab 身体（P3OORG_tabBody）是固定高 + overflow:hidden —— 内容超高
+     会被裁掉且任何祖先都不滚（宿主契约：每类 tab 自己管内部滚动）。所以：
+     ① 面板限高 100% 自己兜底滚；② 列表区单独成滚动容器，让 当前壁纸 / 轮播 /
+     声音 / 底栏常驻可见 —— 快捷面板滚 100 行列表去够音量是不可用的。 */
+  .we-qp--official { height: 100%; overflow-y: auto; overscroll-behavior: contain; }
+  .we-qp--official .we-qp__current,
+  .we-qp--official .we-qp__section,
+  .we-qp--official .we-qp__foot { flex: 0 0 auto; }
+  .we-qp--official .we-qp__library { flex: 1 1 auto; min-height: 140px; }
+  .we-qp--official .we-qp__list {
+    flex: 1 1 auto; min-height: 0;
+    overflow-y: auto; overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+  .we-qp__section {
+    display: flex; flex-direction: column; gap: 8px;
+    padding-top: 10px;
+    border-top: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.22));
+  }
+  .we-qp__current { display: flex; align-items: center; gap: 10px; }
+  .we-qp__thumb {
+    flex: none; width: 56px; height: 40px; border-radius: 6px; overflow: hidden;
+    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.12));
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.22));
+  }
+  .we-qp__thumb img, .we-qp__item-thumb img {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+    opacity: 0; transition: opacity 0.2s ease;
+  }
+  .we-qp__current-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .we-qp__title {
+    font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .we-qp__meta {
+    font-size: 0.82em; color: var(--we-ink-2, rgba(128, 128, 128, 0.9));
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .we-qp__current-actions { flex: none; display: flex; gap: 6px; }
+  .we-qp__row { display: flex; align-items: center; gap: 8px; }
+  .we-qp__group { flex: 1; min-width: 0; }
+  .we-qp__search { width: 100%; box-sizing: border-box; }
+  .we-qp__list { display: flex; flex-direction: column; gap: 2px; }
+  /* 视图切换：搜索行 + 类型筛选 + 列表/卡片段控（段控复用 .we-picker__seg/.we-picker__rate）。
+     窄面板允许换行：搜索框收缩到极限后，类型/段控自然折到第二行。 */
+  .we-qp__viewbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .we-qp__viewbar .we-qp__search { flex: 1 1 auto; min-width: 0; width: auto; }
+  .we-qp__viewbar .we-qp__type { flex: none; max-width: 84px; }
+  .we-qp__viewbar .we-picker__seg { flex: none; }
+  /* 卡片网格：**最窄两列、向后自动加列**（auto-fill 铺最小 130px 的列轨，画满一行
+     再换行）。130 的取法：两个「最窄形态」都必须恰为 2 列 —— 官方右栏最小 300px
+     （宿主 clampWidth(rightbar, 300, …)，内容 276 ∈ (2×130+8, 3×130+16]）、抽屉固定
+     360（内容 336 同样恰好 2 列）；再宽自动 3/4/5 列（约 430 → 3、570 → 4）。
+     选中项 accent 描边 + 「当前」徽标。 */
+  .we-qp__list--cards {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 8px; align-content: start;
+  }
+  .we-qp__list--cards .we-picker__hint { grid-column: 1 / -1; }
+  .we-qp__card {
+    position: relative; overflow: hidden; cursor: pointer;
+    /* 固定卡高：网格轨道 sizing 对 aspect-ratio / 百分比 padding 都会塌成内容高
+      （Chromium 实测：行轨道拿不到传递尺寸，卡片互相叠成细条），px 是唯一可靠形态；
+      宽度随列自适应，画面 object-fit: cover 裁切。 */
+    height: 92px; border-radius: 8px;
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.22));
+    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.12));
+  }
+  .we-qp__card img {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; display: block;
+    opacity: 0; transition: opacity 0.2s ease;
+  }
+  .we-qp__card--current {
+    border-color: color-mix(in srgb, var(--we-accent, #4f8cff) 60%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--we-accent, #4f8cff) 60%, transparent);
+  }
+  .we-qp__card-title {
+    position: absolute; left: 0; right: 0; bottom: 0; padding: 14px 6px 4px;
+    font-size: 0.78em; line-height: 1.2; color: #fff;
+    background: linear-gradient(transparent, rgba(0, 0, 0, 0.72));
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .we-qp__card-type {
+    position: absolute; top: 4px; left: 4px; padding: 1px 5px;
+    font-size: 0.7em; line-height: 1.5; border-radius: 4px;
+    color: #fff; background: rgba(0, 0, 0, 0.55);
+  }
+  .we-qp__card-badge {
+    position: absolute; top: 4px; right: 4px; padding: 1px 5px;
+    font-size: 0.7em; line-height: 1.5; border-radius: 4px; font-weight: 600;
+    color: #fff; background: color-mix(in srgb, var(--we-accent, #4f8cff) 88%, transparent);
+  }
+  .we-qp__card-empty {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 0.75em; color: var(--we-ink-3, rgba(128, 128, 128, 0.65));
+  }
+  .we-qp__item {
+    display: flex; align-items: center; gap: 8px;
+    min-height: 34px; padding: 2px 6px; border-radius: 8px; cursor: pointer;
+    border: 1px solid transparent;
+    transition: background-color var(--we-dur-fast, 120ms) var(--we-ease, ease);
+  }
+  .we-qp__item:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, 0.12)); }
+  .we-qp__item--current {
+    border-color: color-mix(in srgb, var(--we-accent, #4f8cff) 45%, transparent);
+    background: color-mix(in srgb, var(--we-accent, #4f8cff) 10%, transparent);
+  }
+  .we-qp__item-thumb {
+    flex: none; width: 40px; height: 24px; border-radius: 4px; overflow: hidden;
+    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.12));
+  }
+  .we-qp__item-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .we-qp__item-badge { flex: none; font-size: 0.78em; font-weight: 600; color: var(--we-accent, #4f8cff); }
+  .we-qp__item-type { flex: none; font-size: 0.78em; color: var(--we-ink-3, rgba(128, 128, 128, 0.65)); }
+  .we-qp__more { font-size: 0.78em; }
+  .we-qp__foot {
+    display: flex; padding-top: 10px;
+    border-top: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.22));
+  }
+  .we-qp__settings { flex: 1; }
+  /* 焦点环与 .we-picker 同规格（accent 2px + 外偏移）。 */
+  .we-qp button:focus-visible, .we-qp select:focus-visible,
+  .we-qp input:focus-visible, .we-qp [role="option"]:focus-visible {
+    outline: 2px solid var(--we-accent, #4f8cff);
+    outline-offset: 2px;
+  }
   /* No backdrop-filter support: near-opaque tinted surface, same policy as the
      settings-window/sidebar fallbacks, so panel text stays readable. */
   @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
     .we-repo-panel {
       background-color: color-mix(in srgb, var(--we-glass-color, #ffffff) 92%, transparent);
-      backdrop-filter: none; -webkit-backdrop-filter: none;
-    }
-    .we-picker__modal--panel {
-      background-color: color-mix(in srgb, var(--we-glass-color, #ffffff) 94%, transparent);
       backdrop-filter: none; -webkit-backdrop-filter: none;
     }
   }
@@ -1997,27 +2005,20 @@ const CSS = `
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }
-  /* 仓库抽屉 / 面板弹窗：与 @supports 回退逐字相同的 92% / 94% 近不透明配方。 */
+  /* 仓库抽屉：与 @supports 回退逐字相同的 92% 近不透明配方。 */
   body[data-we-glass-fallback] .we-repo-panel {
     background-color: color-mix(in srgb, var(--we-glass-color, #ffffff) 92%, transparent);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
-  body[data-we-glass-fallback] .we-picker__modal--panel {
-    background-color: color-mix(in srgb, var(--we-glass-color, #ffffff) 94%, transparent);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-  }
-  /* 弹层遮罩 / 一次性通知：底色本身已经接近不透明（55% 黑 / 82% 深色底衬），
-     不需要换配方，只把永远不生效的 backdrop-filter 关掉。 */
-  body[data-we-glass-fallback] .we-picker__modal-overlay,
+  /* 一次性通知：底色本身已经接近不透明（82% 深色底衬），不需要换配方，
+     只把永远不生效的 backdrop-filter 关掉。 */
   body[data-we-glass-fallback] .we-update-notice {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }
   @media (prefers-reduced-motion: reduce) {
-    .we-rope--settle, .we-repo-panel, .we-picker__modal--panel, .we-repo-panel__modal-scrim { transition: none !important; }
-    .we-picker__modal--panel { animation: none !important; }
+    .we-rope--settle, .we-repo-panel { transition: none !important; }
   }
 `;
 

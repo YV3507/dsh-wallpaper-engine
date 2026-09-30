@@ -1,29 +1,39 @@
 /**
- * picker-modal.js — 壁纸选择器**模态框**的渲染器（整棵模态框子树 + 它的 portal 包裹）。
+ * picker-modal.js — 壁纸选择器**库视图**的渲染器（整棵 `we-picker__modal` 子树）。
+ *
+ * 历史：它此前是 body 传送门里的居中弹框（遮罩 + 对话框语义）。UI 重构后改为
+ * **页内下钻视图**：调用点（src/client.js 的 WallpaperPicker）在 `pickerOpen` 时
+ * 把它整棵嵌进页签面板，ESC / 顶部「返回」/ 切页签退出。类名沿用旧系（`we-picker__modal*`
+ * —— 116 个 `.we-picker__*` 选择器按层级/相邻关系绑定这棵树，改一个类名就静默失效），
+ * 「modal」只剩名字，语义就是"壁纸库浏览视图"。
+ *
+ * 两套模式（渲染开关 `sel.pickerDraft`）：普通 = 点卡片即应用当前壁纸；草稿 = 轮播
+ * 编辑器的下钻，点卡片加入/移出列表草稿（隐藏页 / 批量 / 关闭卡收起，顶部显已选数）。
+ * **草稿=false 时逐字走普通分支**（标记等价 golden 只录普通形态）。
  *
  * 为什么单独一个文件：这是选择器里**层级契约最重**的一块标记 —— src/styles.js 里
  * `.we-picker__*` 共出现 256 次 / 116 个不同类名，其中**跨层绑定两个 picker 类**的选择器
- * 有 9 条，落在这棵模态框子树里的就有 5 条（`.we-picker__modal-body .we-picker__grid`、
+ * 有 9 条，落在这棵子树里的就有 5 条（`.we-picker__modal-body .we-picker__grid`、
  * `.we-picker__card--checked .we-picker__card-check`、`.we-picker__card--hidden
  * .we-picker__card-title`、`.we-picker__filter-row .we-picker__playlist-select`、
  * `.we-picker__pager .we-picker__hint`）—— 标记挪一层、少一个类名，这些规则就**静默**失效。
  * 它此前住在 `WallpaperPicker` 那条 281 行的 return 表达式里，与 53 个处理器挤在同一屏；
- * 搬出后组件体只剩「状态 + 处理器 + 装配」，模态框怎么画看这里。
+ * 搬出后组件体只剩「状态 + 处理器 + 装配」，库视图怎么画看这里。
  *
  * 契约（构建期由 scripts/build-client.mjs 内联进 bundle 的工厂作用域，"外部作用域" =
  * 同一 prelude / src/client.js 的顶层）：
  *   · 渲染器**只从一个参数取外界**：`(ctx)`。标记**逐字搬入** —— 唯一改动是开头那段解构、
  *     以及 11 处「内联箭头直接写 `selection.*`」换成 ctx 里的具名回调（见下）。
  *   · ctx 由 `WallpaperPicker` 在**调用点**就地组装（见 src/client.js 里那次
- *     `renderPickerModal({...})`）：状态读值 + 派生列表 + 模态框那几个「改状态 + 发通知」的
+ *     `renderPickerModal({...})`）：状态读值 + 派生列表 + 库视图那几个「改状态 + 发通知」的
  *     过渡回调。**多传字段无害，漏传会当场 ReferenceError**（守卫会抓住）—— 刻意选的
  *     失败方式：响亮且可定位。
  *   · 本渲染器**不写 `selection`、不自己发通知**：改状态是处理器的职责（它们仍住在面板组件
- *     里，一行没搬）。模态框里 11 处原本内联改状态的箭头 —— 页签切换 ×2、分页 ×4、批量 ×3、
+ *     里，一行没搬）。库视图里 11 处原本内联改状态的箭头 —— 页签切换 ×2、分页 ×4、批量 ×3、
  *     搜索 ×1、卡片点击 ×1 —— 现在都是 ctx 里的回调名；「全部恢复」与隐藏卡片的「恢复」
  *     仍直接调模块级函数（`restoreWallpapers` / `applySelection`），这与 src/panel-tabs.js
  *     直接调 `syncLayers()` 是同一口径：模块级工具可以直呼，组件状态只能经 ctx。
- *   · 模块级依赖（React / ReactDOM / VinylRecord / cardKeyDown / trapModalTab /
+ *   · 模块级依赖（React / VinylRecord / cardKeyDown /
  *     modalInitialFocus / CARD_TYPE_LABELS / vinylSpinVisible / restoreWallpapers /
  *     hideWallpapers / applySelection）直接读，不经过 ctx —— 它们是常量、纯组件与模块级工具。
  *   · 本文件必须保持浏览器安全（无 import / require / Node API），且**不得有顶层可执行语句**
@@ -35,21 +45,18 @@
  */
 
   function renderPickerModal(ctx) {
-    const { sel, isRepoPanelCopy, closePicker, current, playbackLive, playableList, hiddenList, hiddenPageView, normalPage, cdMode, pagerRow, query, basePlayable, ratingCounts, typeCounts, armedConfirm, onArmConfirm, onDisarmConfirm, onClear, onRatingFilterChange, onTypeFilterChange, onShowNormalView, onShowHiddenView, onHiddenPagePrev, onHiddenPageNext, onToggleBatchMode, onArmBatchHide, onBatchHide, onBatchCancel, onSearchInput, onPickCard, onNormalPagePrev, onNormalPageNext } = ctx;
-  return ReactDOM.createPortal(
-      // repoPanel path: the picker opens as its own right-quarter liquid-glass
-      // window (same recipe as the repo panel), NOT the centred dark dialog that
-      // the settings copy uses. The scrim is a transparent full-screen click
-      // catcher (no dark dim/blur) so picking stays visually continuous.
-      React.createElement("div", { className: isRepoPanelCopy ? "we-repo-panel__modal-scrim" : "we-picker__modal-overlay", onClick: closePicker },
-        React.createElement("div", {
-          className: isRepoPanelCopy ? "we-picker__modal we-picker__modal--panel" : "we-picker__modal",
+    const { sel, closePicker, current, playbackLive, playableList, hiddenList, hiddenPageView, normalPage, cdMode, pagerRow, query, basePlayable, ratingCounts, typeCounts, armedConfirm, onArmConfirm, onDisarmConfirm, onClear, onRatingFilterChange, onTypeFilterChange, onShowNormalView, onShowHiddenView, onHiddenPagePrev, onHiddenPageNext, onToggleBatchMode, onArmBatchHide, onBatchHide, onBatchCancel, onSearchInput, onPickCard, onNormalPagePrev, onNormalPageNext } = ctx;
+  // 草稿模式（轮播编辑器的「选择壁纸」下钻，pickerDraft）：点卡片 = 加入/移出
+  // 草稿（onPickCard 在组件侧路由），本形态下隐藏页 / 批量 / 关闭卡都无意义、整体收起，
+  // 顶部换成已选计数提示。draft=false（普通下钻）时每一处都走原分支，逐字不受影响。
+  const draft = sel.pickerDraft === true;
+  const draftIdSet = new Set((sel.editing && sel.editing.wallpaperIds) || []);
+  // 页内下钻视图：不再 portal 到 body、不再有遮罩与对话框语义 —— 整棵子树原样
+  // 嵌进页签面板，挂载时机由调用点（WallpaperPicker 的 pickerOpen 分支）决定。
+  return React.createElement("div", {
+          className: "we-picker__modal",
           "data-we-cards": sel.pickerLayout,
-          role: "dialog",
-          "aria-modal": "true",
           "aria-label": "选择壁纸",
-          onClick: (e) => e.stopPropagation(),
-          onKeyDown: trapModalTab,
         },
           React.createElement("div", { className: "we-picker__modal-head" },
             React.createElement("div", { className: "we-picker__modal-head-left" },
@@ -61,11 +68,11 @@
             ),
             React.createElement("button", {
               className: "we-picker__btn", type: "button", onClick: closePicker,
-              // 打开模态框时焦点落在这里（一次性，见 modalInitialFocus）。
+              // 打开库视图时焦点落在这里（一次性，见 modalInitialFocus）。
               ref: modalInitialFocus,
-            }, "关闭"),
+            }, "返回"),
           ),
-          React.createElement("div", { className: "we-picker__modal-tabs", role: "tablist" },
+          !draft && React.createElement("div", { className: "we-picker__modal-tabs", role: "tablist" },
             React.createElement("button", {
               className: "we-picker__btn we-picker__tab" + (sel.modalView === "hidden" ? "" : " we-picker__tab--active"),
               type: "button",
@@ -81,7 +88,7 @@
               onClick: onShowHiddenView,
             }, "已隐藏（" + hiddenList.length + "）"),
           ),
-          sel.modalView === "hidden"
+          sel.modalView === "hidden" && !draft
             ? React.createElement("div", { className: "we-picker__modal-body" },
                 hiddenList.length === 0
                   ? React.createElement("span", { className: "we-picker__hint" }, "没有已隐藏的壁纸")
@@ -141,16 +148,21 @@
                     ),
               )
             : React.createElement("div", { className: "we-picker__modal-body" },
-                React.createElement("div", { className: "we-picker__row" },
-                  React.createElement("span", { className: "we-picker__hint" },
-                    playableList.length + " 个可播放壁纸 · 点击卡片即应用"),
-                  React.createElement("button", {
-                    className: "we-picker__btn", type: "button",
-                    onClick: onToggleBatchMode,
-                    disabled: playableList.length === 0,
-                    title: "多选后批量隐藏",
-                  }, sel.batchMode ? "退出批量" : "批量"),
-                ),
+                draft
+                  ? React.createElement("div", { className: "we-picker__row" },
+                      React.createElement("span", { className: "we-picker__hint" },
+                        "已选 " + draftIdSet.size + " 个 · 点卡片加入 / 移出"),
+                    )
+                  : React.createElement("div", { className: "we-picker__row" },
+                    React.createElement("span", { className: "we-picker__hint" },
+                      playableList.length + " 个可播放壁纸 · 点击卡片即应用"),
+                    React.createElement("button", {
+                      className: "we-picker__btn", type: "button",
+                      onClick: onToggleBatchMode,
+                      disabled: playableList.length === 0,
+                      title: "多选后批量隐藏",
+                    }, sel.batchMode ? "退出批量" : "批量"),
+                  ),
                 sel.batchMode && React.createElement("div", { className: "we-picker__row we-picker__batch-bar" },
                   React.createElement("span", { className: "we-picker__hint" }, "已选 " + sel.batchSelected.length + " 张"),
                   React.createElement("button", {
@@ -203,7 +215,7 @@
                     value: sel.typeFilter,
                     onChange: onTypeFilterChange,
                     "aria-label": "类型",
-                    title: "按壁纸类型过滤",
+                    title: "按壁纸类型过滤（只筛列表与轮播候选，不打断正在应用的壁纸）",
                   },
                   React.createElement("option", { value: "all" }, "全部（" + basePlayable.length + "）"),
                   React.createElement("option", { value: "video" }, "视频（" + (typeCounts.video || 0) + "）"),
@@ -218,7 +230,8 @@
                   // <button> ignores aspect-ratio in several browsers, which
                   // collapses the cell and lets the "✕ 关闭" label float over
                   // the adjacent thumbnail.
-                  React.createElement("div", {
+                  // 草稿模式下不渲染：该形态挑的是"进哪个列表"，与当前播放无关。
+                  !draft && React.createElement("div", {
                     className: "we-picker__card" + (sel.id ? "" : " we-picker__card--selected"),
                     role: "button",
                     tabIndex: 0,
@@ -236,9 +249,10 @@
                     : (cdMode ? playableList : normalPage.items).map((w) => React.createElement("div", {
                         key: w.id,
                         className: "we-picker__card" + (w.id === sel.id ? " we-picker__card--selected" : "")
-                          // 批量勾选高亮：此前勾选态只进了 batchSelected，高亮 CSS
-                          // 却挂在 --selected（=当前播放）上，勾了永远不亮。
-                          + (sel.batchMode && sel.batchSelected.indexOf(w.id) >= 0 ? " we-picker__card--checked" : ""),
+                          // 勾选高亮：草稿模式 = 成员集合；批量模式 = batchSelected
+                          //（此前勾选态只进了 batchSelected，高亮 CSS 却挂在 --selected
+                          //（=当前播放）上，勾了永远不亮 —— 同一条规则沿用）。
+                          + ((draft ? draftIdSet.has(w.id) : sel.batchMode && sel.batchSelected.indexOf(w.id) >= 0) ? " we-picker__card--checked" : ""),
                         role: "button",
                         tabIndex: 0,
                         title: w.title,
@@ -252,15 +266,15 @@
                             onLoad: (e) => { e.target.style.opacity = "1"; },
                           })
                         : React.createElement("span", { className: "we-picker__card-placeholder" }, "无预览"),
-                      // 类型徽标（卡片左上角）：批量模式下让位给勾选框。
-                      !sel.batchMode && CARD_TYPE_LABELS[w.type]
+                      // 类型徽标（卡片左上角）：勾选态（草稿 / 批量）下让位给勾选框。
+                      !sel.batchMode && !draft && CARD_TYPE_LABELS[w.type]
                         && React.createElement("span", { className: "we-picker__card-type" }, CARD_TYPE_LABELS[w.type]),
                       React.createElement("span", { className: "we-picker__card-title" }, w.title),
                       w.type === "scene" && React.createElement("span", { className: "we-picker__card-badge" }, w.sceneLive ? "实时渲染" : "静态帧"),
                       w.type === "web" && React.createElement("span", { className: "we-picker__card-badge" }, w.webLive ? "实时渲染" : "兼容模式"),
-                      sel.batchMode
+                      (draft || sel.batchMode)
                         ? React.createElement("span", { className: "we-picker__card-check" },
-                            sel.batchSelected.indexOf(w.id) >= 0 ? "✓" : "")
+                            (draft ? draftIdSet.has(w.id) : sel.batchSelected.indexOf(w.id) >= 0) ? "✓" : "")
                         : React.createElement("button", {
                             className: "we-picker__card-hide", type: "button",
                             title: "隐藏此壁纸（可在「已隐藏」中恢复）",
@@ -274,14 +288,12 @@
                   onNormalPageNext,
                 ),
               ),
-          // 底部只留提示：关闭按钮在顶部（modal-head，也是初始焦点落点），
+          // 底部只留提示：返回按钮在顶部（modal-head，也是初始焦点落点），
           // 底部再放一个是重复的。
           React.createElement("div", { className: "we-picker__modal-foot" },
-            React.createElement("span", { className: "we-picker__hint" }, "ESC / 点击遮罩关闭"),
+            React.createElement("span", { className: "we-picker__hint" },
+              draft ? "点卡片加入 / 移出 · ESC 返回" : "ESC 返回 · 点击卡片即应用"),
           ),
-        ),
-      ),
-      document.body,
     );
 }
 

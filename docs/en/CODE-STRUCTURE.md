@@ -122,7 +122,7 @@ the feature set grew, whole families were extracted into modules:
 graph LR
     IDX["lib/index.js<br/>(facade: apply + shared closures)"]
     IDX --> R1["lib/routes/diag.js<br/>diagnostics"]
-    IDX --> R2["lib/routes/now-playing.js<br/>system audio / now playing"]
+    IDX --> R2["lib/routes/now-playing.js<br/>system audio / now playing / reverse control"]
     IDX --> R3["lib/routes/scene-frame.js<br/>captured and custom frames"]
     IDX --> R4["lib/routes/scene-serve.js<br/>render page / wallpaper files / media-origin probe"]
     IDX --> R5["lib/routes/fontsets.js<br/>font sets"]

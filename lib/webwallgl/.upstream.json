@@ -1,14 +1,14 @@
 {
   "name": "webwallgl",
   "version": "2.0.2",
-  "commit": "22721fded19116eaf05e88b98f9cb8f76f9fe02a",
+  "commit": "cd56f80131cc40832c6f1084e62bf4a79d81bd45",
   "dirty": false,
   "base": "/wallpaper-engine/scene-live",
-  "syncedAt": "2026-09-29T03:47:52.683Z",
+  "syncedAt": "2026-09-30T18:32:39.826Z",
   "files": [
     "index.html",
     "web-shim.js",
-    "assets/renderer-bi5LN_mC.js",
+    "assets/renderer-DTLW1Gf0.js",
     "assets/modulepreload-polyfill-B5Qt9EMX.js"
   ]
 }

@@ -1,5 +1,6 @@
 /**
- * panel-tabs.js — 面板六个页签的**渲染器**（壁纸 / 外观 / 吉祥物 / 效果 / 声音 / 高级）。
+ * panel-tabs.js — 面板页签的**渲染器**（六个域：壁纸 / 外观 / 吉祥物 / 效果 / 声音 / 高级，
+ * 组合成四页签 壁纸库 / 外观 / 播放 / 系统，装配点见 src/client.js 的 renderActiveTab）。
  *
  * 为什么单独一个文件：这六个渲染器共 **1,240 行**，此前是 `WallpaperPicker` 内部的六个闭包
  * （夹在 2,400 行的组件体里）。它们**读**面板状态、**调**面板处理器，但自己不持有状态 ——
@@ -63,27 +64,17 @@
               "实时渲染失败（" + liveFailReasonOf(sel) + "），已自动回退；重新打开「实时渲染」开关可重试",)
             ),
           ),
-          // 主操作区：壁纸属性（仅场景/网页壁纸）+ 选择壁纸。抽屉里两个按钮上下
-          // 排列（8px 间距），宽卡片里并排 —— 见 .we-picker__current-actions 的 CSS。
+          // 主操作区：选择壁纸（下钻库视图）。壁纸属性入口移到下面那排播放控制里、
+          // 排在「暂停」之前（同排同级、同款式），见下方的控件行。
           React.createElement("div", { className: "we-picker__current-actions" },
-            (current && (current.type === "scene" || current.type === "web") && sel.propsUrl)
-              && React.createElement("button", {
-                className: "we-picker__btn we-picker__btn--props" + (propsPanelOpen ? " is-on" : ""),
-                type: "button",
-                title: "壁纸作者提供的可调属性（改动立即生效）",
-                onClick: () => {
-                  propsPanelOpen = !propsPanelOpen;
-                  if (propsPanelOpen) loadUserPropDefs(propTokenOf(sel), true);
-                  emit();
-                },
-              }, "壁纸属性"),
             React.createElement("button", {
               className: "we-picker__btn we-picker__btn--primary", type: "button",
               ref: (el) => { pickerOpener = el; },
               onClick: () => {
                 setTransient("pickerOpen", true);
+                setTransient("pickerDraft", false); // 普通下钻（点卡片即应用）
                 setTransient("modalView", "normal");
-                pickerFocusPending = true; // 打开后焦点落入模态框（见 modalInitialFocus）
+                pickerFocusPending = true; // 打开后焦点落入下钻视图（见 modalInitialFocus）
                 emit();
               },
             }, "选择壁纸"),
@@ -94,6 +85,19 @@
         // Playback controls (wallpaper-independent; the thumbnail grid lives in
         // the modal above, so these stay within reach).
         React.createElement("div", { className: "we-picker__row" },
+          // 壁纸属性（仅场景/网页壁纸 + 有 propsUrl）：与播放控制同排、同款式
+          //（普通 .we-picker__btn；面板开着时 is-on 高亮）——入口与播放控制同级更顺手。
+          (current && (current.type === "scene" || current.type === "web") && sel.propsUrl)
+            && React.createElement("button", {
+              className: "we-picker__btn" + (propsPanelOpen ? " is-on" : ""),
+              type: "button",
+              title: "壁纸作者提供的可调属性（改动立即生效）",
+              onClick: () => {
+                propsPanelOpen = !propsPanelOpen;
+                if (propsPanelOpen) loadUserPropDefs(propTokenOf(sel), true);
+                emit();
+              },
+            }, "壁纸属性"),
           React.createElement("button", {
             className: "we-picker__btn", type: "button",
             onClick: onTogglePlay, disabled: !sel.url,
@@ -114,7 +118,8 @@
           React.createElement("button", {
             className: "we-picker__btn", type: "button",
             onClick: onClear, disabled: !sel.id,
-          }, "关闭"),
+            title: "清除当前壁纸（停止播放，回到无壁纸状态）",
+          }, "清除"),
           React.createElement("button", {
             className: "we-picker__btn", type: "button",
             onClick: onRefresh, disabled: sel.loading,
@@ -250,40 +255,23 @@
           React.createElement("option", { value: "random" }, "随机"),
           ),
         ),
-        React.createElement("div", { className: "we-picker__editor-grid" },
-          playableInventory().length === 0
-            ? React.createElement("span", { className: "we-picker__hint" }, "没有可播放的壁纸")
-            : (cdMode ? playableInventory() : editorPageView.items).map((w) => {
-                const checked = editing.wallpaperIds.indexOf(w.id) >= 0;
-                return React.createElement("button", {
-                  key: w.id,
-                  className: "we-picker__editor-card" + (checked ? " we-picker__editor-card--checked" : ""),
-                  type: "button",
-                  title: w.title,
-                  "aria-pressed": checked,
-                  "aria-label": w.title,
-                  onClick: () => {
-                    const i = editing.wallpaperIds.indexOf(w.id);
-                    if (i >= 0) editing.wallpaperIds.splice(i, 1);
-                    else editing.wallpaperIds.push(w.id);
-                    emit();
-                  },
-                },
-                w.preview
-                  ? React.createElement("img", {
-                      src: w.preview, alt: w.title, loading: "lazy",
-                      onError: (e) => { e.target.style.display = "none"; },
-                              onLoad: (e) => { e.target.style.opacity = "1"; },
-                    })
-                  : React.createElement("span", { className: "we-picker__card-placeholder" }, "无预览"),
-                checked && React.createElement("span", { className: "we-picker__editor-check" }, "✓"),
-                );
-              }),
-        ),
-        !cdMode && editorPageView.pages > 1 && pagerRow(
-          playableInventory().length, editorPageView.page, editorPageView.pages,
-          () => { setTransient("editorPage", sel.editorPage - 1); emit(); },
-          () => { setTransient("editorPage", sel.editorPage + 1); emit(); },
+        // 选片走**页内下钻**（与「选择壁纸」同一套库视图）：点按钮进库浏览，
+        // 卡片点击 = 加入/移出草稿（pickerDraft），顶部提示已选数；「返回」回编辑器。
+        // 编辑器的内联多选网格（editor-grid + 分页）已退役 —— 大库在 24px 缩略图里
+        // 翻页选片不可用，全尺寸浏览 + 搜索/过滤才是选片的正确形态。
+        React.createElement("div", { className: "we-picker__row" },
+          React.createElement("button", {
+            className: "we-picker__btn we-picker__btn--primary", type: "button",
+            onClick: () => {
+              setTransient("pickerOpen", true);
+              setTransient("pickerDraft", true);
+              setTransient("modalView", "normal");
+              pickerFocusPending = true;
+              emit();
+            },
+          }, "选择壁纸"),
+          React.createElement("span", { className: "we-picker__hint" },
+            "下钻进库挑选 · 点卡片加入 / 移出"),
         ),
         React.createElement("div", { className: "we-picker__row" },
           React.createElement("span", { className: "we-picker__hint" }, "已选 " + editing.wallpaperIds.length + " 个"),
@@ -517,13 +505,13 @@
         React.createElement("div", { className: "we-picker__section-head" },
           React.createElement("span", { className: "we-picker__section-label" }, "主题"),
         ),
-        // 主题随壁纸：总开关（**默认关** = 不按壁纸自动改深浅主题）。开着时才取色判决，
-        // 并把**最近一次结论**摊开（"为什么判成浅色"要能当场答）；关着时这个功能整体不生效。
-        // 见 src/theme-follow.js。
+        // 主题随壁纸：总开关（**默认关** = 不按壁纸自动改深浅主题；**试验性功能**，行内已标注）。
+        // 开着时才取色判决，并把**最近一次结论**摊开（"为什么判成浅色"要能当场答）；
+        // 关着时这个功能整体不生效。见 src/theme-follow.js。
         switchRow("主题随壁纸", sel.themeFollow === true, (e) => onToggleThemeFollow(e.target.checked), {
           key: "theme-follow",
-          hint: "关 = 不按壁纸自动改深浅主题（默认关）",
-          tooltip: "开着时按当前壁纸自动切全局深/浅：作者配色 → 画面主色，两条腿不一致时取深色；"
+          hint: "试验性功能 · 关 = 不按壁纸自动改深浅主题（默认关）",
+          tooltip: "试验性功能：开着时按当前壁纸自动切全局深/浅：作者配色 → 画面主色，两条腿不一致时取深色；"
             + "在 DSH 设置里手动改过主题后，本张壁纸不再自动。关（默认）时这个功能整体不生效："
             + "不取色、不判决、不改主题；切换开关立刻生效。",
         }),
@@ -846,9 +834,10 @@
 
 
   function renderAudioTab(ctx) {
-    const { setSetting, onToggleAudio, onVideoVolume, sel } = ctx;
-    // 声音（原「效果」页签里的一段，独立成页签与「效果」平级）：壁纸音轨
-    // （视频 / 场景内嵌 MP4 / 场景包内音频共用一套设置）+ 系统音频 / 媒体集成。
+    const { onToggleAudio, onVideoVolume, sel } = ctx;
+    // 声音：壁纸音轨（视频 / 场景内嵌 MP4 / 场景包内音频共用一套设置）。
+    // 系统音频反应 / 媒体信息 / 在线歌词三键已**退役为常开**（schema kind 'const'）：
+    // 面板不再提供页面定义，运行时两侧一律按默认接入读值。
     return React.createElement(React.Fragment, null,
       React.createElement("div", { className: "we-picker__section" },
         React.createElement("div", { className: "we-picker__section-head" },
@@ -860,33 +849,6 @@
         switchRow("壁纸音轨", sel.videoAudioEnabled !== false, () => onToggleAudio(), {
           hint: "关闭=静音（保留音量数值）· 开启时音量 0 自动 50%",
           tooltip: "视频壁纸与场景壁纸（内嵌 MP4 音轨 / 包内独立音频）共用；默认静音，开启时若音量为 0 会自动提到 50%",
-        }),
-      ),
-      React.createElement("div", { className: "we-picker__section" },
-        React.createElement("div", { className: "we-picker__section-head" },
-          React.createElement("span", { className: "we-picker__section-label" }, "系统声音与媒体"),
-        ),
-        switchRow("系统音频反应", sel.audioSource !== "off", (e) => {
-          setSetting("audioSource", e.target.checked ? "auto" : "off");
-          emit();
-        }, {
-          hint: "壁纸随系统声音律动 · 拿不到音频时回落模拟",
-          tooltip: "把系统正在播放的声音频谱喂给壁纸的音频可视化（采集系统输出/loopback，不是麦克风）。三平台都内置：macOS 走 CoreAudio、Windows 走 WASAPI 回环、Linux 走 PulseAudio/PipeWire —— 不需要额外安装，也不再需要「立体声混音」之类虚拟声卡；仅 macOS 首次使用会要一次「音频录制」授权。拿不到音频时自动回落壁纸内置的模拟频谱",
-        }),
-        switchRow("媒体信息", sel.mediaIntegration !== false, (e) => {
-          setSetting("mediaIntegration", e.target.checked);
-          emit();
-        }, {
-          hint: "歌名 / 歌手 / 专辑 / 封面 / 进度 → 壁纸的媒体监听器",
-          tooltip: "把系统正在播放的歌曲信息推给壁纸（wallpaperMediaIntegration）：macOS 走 MediaRemote、Windows 走系统媒体会话（GSMTC）、Linux 走 MPRIS —— 三平台都内置，不需要安装 media-control / playerctl。没有正在播放的媒体时壁纸保持自身静态态",
-        }),
-        sel.mediaIntegration !== false && switchRow("在线歌词", sel.mediaLyricsOnline === true, (e) => {
-          setSetting("mediaLyricsOnline", e.target.checked);
-          emit();
-        }, {
-          key: "media-lyrics-online",
-          hint: "本地找不到时联网查一次（lrclib.net）",
-          tooltip: "歌词优先取本地的（音频同目录的 .lrc、以及已经缓存过的歌词）；开启后，本地没有才会向 lrclib.net 查一次 —— 那次请求会把歌名/歌手/专辑发出去，所以默认关闭。本地歌词不受这个开关影响",
         }),
       ),
     );
@@ -952,6 +914,7 @@
           ref: (el) => { pickerOpener = el; },
           onClick: () => {
             setTransient("pickerOpen", true);
+            setTransient("pickerDraft", false); // 普通下钻（点卡片即应用）
             setTransient("modalView", "normal");
             pickerFocusPending = true;
             emit();

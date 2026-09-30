@@ -339,7 +339,6 @@ wrapperHtml = `<!doctype html><html><head><meta charset="utf-8"><title>e2e host<
   + `<div class="we-picker__current-sub"></div>`
   + `</div>`
   + `<div class="we-picker__current-actions">`
-  + `<button class="we-picker__btn we-picker__btn--props">壁纸属性</button>`
   + `<button class="we-picker__btn we-picker__btn--primary">选择壁纸</button>`
   + `</div></div></div></div>`
   + `<div id="e2e-wide" style="position:fixed;left:0;top:0;width:720px">`
@@ -350,7 +349,6 @@ wrapperHtml = `<!doctype html><html><head><meta charset="utf-8"><title>e2e host<
   + `<div class="we-picker__current-sub"></div>`
   + `</div>`
   + `<div class="we-picker__current-actions">`
-  + `<button class="we-picker__btn we-picker__btn--props">壁纸属性</button>`
   + `<button class="we-picker__btn we-picker__btn--primary">选择壁纸</button>`
   + `</div></div></div></div>`
   + `<script>`
@@ -362,14 +360,13 @@ wrapperHtml = `<!doctype html><html><head><meta charset="utf-8"><title>e2e host<
   + `var t=tl.getBoundingClientRect();`
   + `var v=card.querySelector('.we-vinyl').getBoundingClientRect();`
   + `var bs=card.querySelectorAll('.we-picker__current-actions .we-picker__btn');`
-  + `var a=bs[0].getBoundingClientRect(),b=bs[1].getBoundingClientRect();`
+  + `var a=bs[0].getBoundingClientRect();`
   + `var m=card.querySelector('.we-picker__current-meta');`
   + `var ms=getComputedStyle(m), ts=getComputedStyle(tl);`
   + `var parens=(String(ms.content).indexOf('（')>=0||String(getComputedStyle(m,'::before').content).indexOf('（')>=0)?1:0;`
   + `var oneLine=tl.getBoundingClientRect().height<=parseFloat(ts.fontSize)*2.0?1:0;`
   + `var clipped=tl.scrollWidth>tl.clientWidth+1?1:0;`
-  + `return {stacked:(Math.abs(a.left-b.left)<1.5&&b.top>a.bottom-1)?1:0,gap:Math.round(b.top-a.bottom),`
-  + `row:(Math.abs(a.top-b.top)<1.5&&b.left>a.right-1)?1:0,rowGap:Math.round(b.left-a.right),titleAbove:t.top<v.top?1:0,`
+  + `return {acs:(bs.length===1)?1:0,titleAbove:t.top<v.top?1:0,`
   + `metaDisplay:ms.display,parens:parens,oneLine:oneLine,clipped:clipped,wideMeta:getComputedStyle(wm).display,`
   + `titleAlign:ts.textAlign};`
   + `}`
@@ -377,7 +374,7 @@ wrapperHtml = `<!doctype html><html><head><meta charset="utf-8"><title>e2e host<
   + `var d=measureCard(document.getElementById('e2e-drawer'));`
   + `var w=measureCard(document.getElementById('e2e-wide'));`
   + `var img=new Image();`
-  + `img.src='${APP}/wallpaper-engine/diag?msg='+encodeURIComponent('${MARKER} LAYOUT drawerStacked='+d.stacked+' drawerGap='+d.gap+' drawerTitleAbove='+d.titleAbove+' wideRow='+w.row+' wideRowGap='+w.rowGap`
+  + `img.src='${APP}/wallpaper-engine/diag?msg='+encodeURIComponent('${MARKER} LAYOUT drawerTitleAbove='+d.titleAbove+' acSingle='+d.acs`
   + `+' metaInline='+(d.metaDisplay==='inline'?1:0)+' parens='+d.parens+' oneLine='+d.oneLine+' clipped='+d.clipped+' wideMetaBlock='+(w.wideMeta==='block'?1:0)`
   + `+' titleCenter='+(d.titleAlign==='center'?1:0)+' wideTitleAlign='+w.titleAlign);`
   + `},1500);`
@@ -469,6 +466,9 @@ const child = spawn(browser, [
   '--enable-unsafe-swiftshader',   // 无头下要软件 WebGL2，渲染页才能起来
   '--disable-extensions', '--no-first-run', '--no-default-browser-check',
   '--disable-features=Translate,MediaRouter',
+  // macOS 上给无头浏览器一个**假钥匙串**：不给它，Chromium 系（实测 Edge）会去碰
+  // 真钥匙串并弹「找不到…钥匙串」对话框打断跑测的人。其他平台该开关无害。
+  '--use-mock-keychain',
   `--user-data-dir=${profileDir}`,
   '--window-size=1280,720',
   NAV_URL,
@@ -620,11 +620,8 @@ const layoutLine = (() => {
 })();
 const lg = (k) => (new RegExp('(?:^|\\s)' + k + '=([^\\s]+)').exec(layoutLine) || [])[1] || '';
 check('抽屉里名称独占顶层第一行', lg('drawerTitleAbove') === '1', layoutLine || '未测到');
-check('抽屉里两个按钮上下排列、间距 8px',
-  lg('drawerStacked') === '1' && lg('drawerGap') === '8',
-  `stacked=${lg('drawerStacked')} gap=${lg('drawerGap')}`);
-check('宽容器里两个按钮并排（间距 8px）',
-  lg('wideRow') === '1' && lg('wideRowGap') === '8', `row=${lg('wideRow')} gapX=${lg('wideRowGap')}`);
+check('主操作区只剩「选择壁纸」一个按钮（壁纸属性已并入播放控制行）',
+  lg('acSingle') === '1', 'acs=' + (lg('acSingle') || '?'));
 // 用户口径：抽屉里「类型 · 播放中」跟在名称后面、括号包起来、超出一行用省略号
 check('抽屉里类型/播放态内联加括号、整行不换行且在超长时省略',
   lg('metaInline') === '1' && lg('parens') === '1' && lg('oneLine') === '1' && lg('clipped') === '1',

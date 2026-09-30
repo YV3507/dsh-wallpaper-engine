@@ -80,8 +80,10 @@ function textUnder(node) {
 }
 const treeText = (root) => JSON.stringify(root);
 
-/** 「壁纸属性」入口按钮（类型不对 / 没有 propsUrl / 面板所在的页签没渲染 → null）。 */
-const propsEntry = (root) => findByClass(root, 'we-picker__btn--props');
+/** 「壁纸属性」入口按钮（类型不对 / 没有 propsUrl / 面板所在的页签没渲染 → null）。
+ *  定位按**按钮类 + 文案**：入口已并入播放控制行（排在「暂停」之前），不再有专属
+ *  `--props` 类；文案仍是唯一锚（面板本体里没有同名按钮）。 */
+const propsEntry = (root) => findNode(root, (n) => hasClass(n, 'we-picker__btn') && textUnder(n) === '壁纸属性');
 
 /** 面板根（没打开 / 没有 token → null）。 */
 const propsPanel = (root) => findByClass(root, 'we-picker__props');
@@ -456,11 +458,18 @@ const flushPersist = () => {
 const persisted = () => JSON.parse(localStorage._store[SELECTION_KEY] || '{}');
 const persistedUserProps = () => persisted().userProps || {};
 
-/** 打开模态框（「选择壁纸」入口）。 */
+/** 打开库视图（「选择壁纸」入口）。 */
 function openModal(root) {
   const btn = findNode(root, (n) => hasClass(n, 'we-picker__btn')
     && Array.isArray(n.children) && n.children.length === 1 && n.children[0] === '选择壁纸');
   if (!btn) throw new Error('harness: 找不到「选择壁纸」入口');
+  btn.props.onClick();
+}
+/** 退出库视图（「返回」入口；页内下钻后页签内容要经它才回来）。 */
+function closeModal(root) {
+  const btn = findNode(root, (n) => hasClass(n, 'we-picker__btn')
+    && Array.isArray(n.children) && n.children.length === 1 && n.children[0] === '返回');
+  if (!btn) throw new Error('harness: 找不到库视图的「返回」入口');
   btn.props.onClick();
 }
 /** 在模态框网格里点一张卡（按标题定位）。 */
@@ -485,21 +494,33 @@ let tree = render();
 {
   check('网页壁纸（有 propsUrl）⇒ 出「壁纸属性」按钮',
     !!propsEntry(tree) && textUnder(propsEntry(tree)) === '壁纸属性');
-  // 同一条判据的另外两种输入：图片壁纸（类型不对）与场景壁纸（类型对但没 propsUrl）
+  // 同一条判据的另外两种输入：图片壁纸（类型不对）与场景壁纸（类型对但没 propsUrl）。
+  // 页内下钻后「壁纸属性」入口住在页签内容里 ⇒ 每次选完先经「返回」退出库视图再判。
   openModal(tree);
   tree = render();
   pickCard(tree, '图片壁纸一');
   tree = render();
+  closeModal(tree);
+  tree = render();
   check('图片壁纸 ⇒ 不出（同一条判据，换输入）', propsEntry(tree) === null);
+  openModal(tree);
+  tree = render();
   pickCard(tree, '场景壁纸一');
   tree = render();
+  closeModal(tree);
+  tree = render();
   check('场景壁纸（无 propsUrl）⇒ 不出（类型对也拦得住）', propsEntry(tree) === null);
+  openModal(tree);
+  tree = render();
   pickCard(tree, '网页壁纸 A');
   tree = render();
+  closeModal(tree);
+  tree = render();
   check('切回网页壁纸 ⇒ 按钮回来（判据对输入敏感，不是恒假）', propsEntry(tree) !== null);
-  // 负对照：把变异输入（删掉那个节点的渲染树）喂进同一条判据
-  check('负对照：从渲染树里删掉入口节点后，同一条判据判为"不出"',
-    propsEntry(withoutClass(tree, 'we-picker__btn--props')) === null);
+  // 负对照：把两种变异输入（文案不符 / 类不符）喂进同一条判据 —— 各判"不出"
+  check('负对照：文案不符或类不符的按钮树，同一条判据判为"不出"',
+    propsEntry({ props: { className: 'we-picker__btn' }, children: ['别的按钮'] }) === null
+      && propsEntry({ props: { className: 'we-picker__card' }, children: ['壁纸属性'] }) === null);
 }
 
 console.log('\n2. 面板本体：在途 → 落地（先证明它真的渲染出来了）');

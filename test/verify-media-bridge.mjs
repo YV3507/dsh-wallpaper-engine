@@ -8,8 +8,10 @@
  *   2. 门面默认走中间件：握手 protocol=1、快照字段映射、封面路径与 MIME、状态形状
  *   3. 位置外推：两次读取之间进度在走（且不超过 duration）
  *   4. 歌词换算：lines{tMs} + offsetMs → 渲染页要的 [[秒, 文本], …]
- *   5. 回落：产物不可用时门面切回内置实现，且原因进 status.fallback
- *   6. 生命周期：stop() 之后子进程真的没了（不留孤儿）
+ *   5. 反向控制：动作白名单（五个渲染页动作）+ 未就绪时如实拒绝且不触发懒启动 +
+ *      打真中间件（mock）：pause/play 后回读到新状态
+ *   6. 回落：产物不可用时门面切回内置实现，且原因进 status.fallback
+ *   7. 生命周期：stop() 之后子进程真的没了（不留孤儿）
  *
  * 产物从哪来：DSH_WE_MEDIA_BRIDGE（显式路径）→ 插件目录 bin/ → 自检缓存 →
  * 真实数据目录的下载缓存。都没有时**端到端那一段不会执行**，而"没执行"必须与"通过"区分开：
@@ -44,7 +46,7 @@ import {
   MEDIA_BRIDGE_TAG, MEDIA_BRIDGE_ASSETS, MEDIA_BRIDGE_SHA256, MEDIA_BRIDGE_FALLBACKS,
   mediaBridgeAssetFor, mediaBridgeCachePath, binaryMagicOk, provisionMediaBridge,
 } from '../lib/media/provision.js';
-import { lyricsToTuples, bridgeServeArgs } from '../lib/media/supervisor.js';
+import { lyricsToTuples, bridgeServeArgs, MEDIA_CONTROL_ACTIONS, createBridgeSupervisor } from '../lib/media/supervisor.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const TEST_DIR = join(root, '.test-cache', 'verify-media-bridge');
@@ -204,6 +206,37 @@ check('空歌词返回 null（渲染页退回「没有歌词」）',
   && lyricsToTuples({ lines: [{ tMs: 100 }] }) !== null);
 check('时间轴不会被 offset 推成负数', lyricsToTuples({ offsetMs: -90000, lines: [{ tMs: 100, text: 'x' }] })[0][0] === 0);
 
+// ── 2c. 反向控制的门面契约（离线，不需要产物）──────────────────────────────
+// 动作白名单是**闸门**：`/media-control` 是开放的 HTTP 入口，动作名不得直达中间件
+//（协议里还有 seek / set-loop / toggle-shuffle 这类本插件不暴露的动作）。
+console.log('· 反向控制（动作白名单 + 未就绪时的诚实拒绝）');
+check('五个渲染页动作各有映射，不多不少',
+  MEDIA_CONTROL_ACTIONS.play === 'play' && MEDIA_CONTROL_ACTIONS.pause === 'pause'
+  && MEDIA_CONTROL_ACTIONS.playPause === 'play-pause'
+  && MEDIA_CONTROL_ACTIONS.skipNext === 'next' && MEDIA_CONTROL_ACTIONS.skipPrevious === 'previous'
+  && Object.keys(MEDIA_CONTROL_ACTIONS).length === 5);
+{
+  // 门面未启动时：控制必须如实回不可用，**且不得触发懒启动**（控制是用户点一下的
+  // 交互，不该顺带把产物下载与子进程拉起来；启动仍由取数那四条路由决定）。
+  const idle = createMediaBackend({ dataDir: join(TEST_DIR, 'control-idle'), log: () => {} });
+  const r = await idle.control('play');
+  check('未就绪时 control 回不可用（不抛、不造成功）',
+    r && r.ok === false && typeof r.error === 'string' && r.error.length > 0, JSON.stringify(r));
+  check('未就绪时 control 不触发懒启动', idle.usingBridge() === false);
+  idle.stop();
+  // 白名单闸门在守护层（门面还没就绪时它先回 not-ready，白名单在那里不可观测）：
+  // 构造一个**从未 start 过**的守护 —— 未知动作当场拒绝、已知动作也只是"中间件未运行"，
+  // 两种都不许真的去 spawn（这就是"控制不自带启动"的第二条腿）。
+  const sup = createBridgeSupervisor({ binPath: join(TEST_DIR, 'not-a-binary'), cacheDir: TEST_DIR, log: () => {} });
+  const unknown = await sup.control('seek');
+  check('未知动作被白名单挡在守护层（不落到中间件）',
+    unknown && unknown.ok === false && unknown.error === 'unknown-action', JSON.stringify(unknown));
+  const notUp = await sup.control('play');
+  check('守护未启动时已知动作回 not-running（不 spawn）',
+    notUp && notUp.ok === false && /中间件未运行/.test(String(notUp.error)), JSON.stringify(notUp));
+  sup.stop();
+}
+
 // ── 2b. 环境探针的判定（纯函数 + 四分支负对照）──────────────────────────────
 // 这条逻辑决定"握手失败"是红还是环境跳过 ⇒ 它自己必须有判据：四个分支各喂一个合成输入，
 // 并显式断言**"说了别的话 / 提前退出"必须落到 regression**（写反了就等于给真回归开后门）。
@@ -299,6 +332,20 @@ if (!binPath) {
     check('位置随真实时间外推（不是卡在上报值）',
       Boolean(after) && after.position > before,
       `${before.toFixed(1)}s → ${after ? after.position.toFixed(1) : '?'}s`);
+
+    // ── 反向控制（端到端，mock 播放器）：壁纸里的播放/暂停按钮落到的就是这条链 ──
+    // 判据按**回读的状态**（不是只看 {ok:true}）：中间件发完命令会开突发窗口重轮询，
+    // 守护侧再把响应里的快照写进缓存 —— 宿主面板与壁纸图标靠的就是这一步即时性。
+    const ctlPause = await backend.control('pause');
+    check('control(pause) 打到中间件且回读到暂停',
+      ctlPause && ctlPause.ok === true && (backend.nowPlaying() || {}).state === 2,
+      JSON.stringify(ctlPause) + ' state=' + String((backend.nowPlaying() || {}).state));
+    const ctlPlay = await backend.control('play');
+    check('control(play) 恢复播放并回读到播放态',
+      ctlPlay && ctlPlay.ok === true && (backend.nowPlaying() || {}).state === 1,
+      JSON.stringify(ctlPlay) + ' state=' + String((backend.nowPlaying() || {}).state));
+    const ctlNext = await backend.control('skipNext');
+    check('control(skipNext) 映射到中间件的 next', ctlNext && ctlNext.ok === true, JSON.stringify(ctlNext));
 
     // 状态形状：与内置实现同名同形（调用点不必分支），外加 backend/回落说明
     const st = backend.status();

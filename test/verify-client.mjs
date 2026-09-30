@@ -588,19 +588,19 @@ setTimeout(async () => {
       (Array.isArray(row?.children) ? row.children : [])
         .find((c) => c && typeof c === 'object' && c.type === 'input');
 
-    // ── 壁纸 tab (default): card head + tab bar + wallpaper controls. ──
+    // ── 壁纸库 tab (default): card head + tab bar + wallpaper controls. ──
     localStorage.removeItem(TAB_KEY);
     let tree = renderPicker();
     let treeText = JSON.stringify(tree);
-    assert.ok(countMatches(tree, /"role":"tab"/g) === 6, 'tab bar renders (6 tabs):');
-    assert.ok(treeText.includes('"we-tabs__tab we-tabs__tab--active"') && treeText.includes('自动轮播'), 'default tab is 壁纸:');
-    assert.ok(treeText.includes('"选择壁纸"'), 'wallpaper tab has 选择壁纸:');
-    assert.ok(treeText.includes('自定义壁纸'), 'wallpaper tab has 自定义壁纸:');
+    assert.ok(countMatches(tree, /"role":"tab"/g) === 4, 'tab bar renders (4 tabs):');
+    assert.ok(treeText.includes('"we-tabs__tab we-tabs__tab--active"') && treeText.includes('自动轮播'), 'default tab is 壁纸库:');
+    assert.ok(treeText.includes('"选择壁纸"'), 'library tab has 选择壁纸:');
+    assert.ok(treeText.includes('自定义壁纸'), 'library tab has 自定义壁纸:');
     console.log('other tabs keep their controls out of the tree:',
       !treeText.includes('玻璃透明度') && !treeText.includes('字体自定义') && !treeText.includes('吉祥物大小'));
 
-    // ── 设置页签重组：六个页签 = 壁纸 / 外观 / 吉祥物 / 效果 / 声音 / 高级 ──
-    //    「字体」并入「外观」；「声音」从「效果」里独立出来与「效果」平级。
+    // ── 设置页签重组（UI 重构）：四个页签 = 壁纸库 / 外观 / 播放 / 系统 ──
+    //    原六页签合并：壁纸 → 壁纸库；效果+声音 → 播放；吉祥物+高级 → 系统；外观原样。
     {
       const tabButtons = [];
       (function walk(node) {
@@ -610,8 +610,8 @@ setTimeout(async () => {
         if (Array.isArray(node.children)) node.children.forEach(walk);
       })(tree);
       const labels = tabButtons.map((b) => String((b.children || [])[0] || ''));
-      assert.deepEqual(labels, ['壁纸', '外观', '吉祥物', '效果', '声音', '高级'],
-        'tab bar must render exactly 壁纸/外观/吉祥物/效果/声音/高级');
+      assert.deepEqual(labels, ['壁纸库', '外观', '播放', '系统'],
+        'tab bar must render exactly 壁纸库/外观/播放/系统');
     }
 
     // ── 外观 tab: swatches / sliders / sidebar-glass group. ──
@@ -1143,42 +1143,34 @@ setTimeout(async () => {
     findByClass(tree, 'we-picker__tab').props.onClick();
     tree = renderPicker();
 
-    // ── 0b：模态框键盘可达性（Tab 陷阱 + 初始焦点）──────────────────────────
+    // ── 0b：库视图初始焦点（页内下钻后不再有 Tab 陷阱 —— 它不是对话框了）──────
     const fakeButton = () => { const el = makeEl('button'); el.disabled = false; el.tabIndex = 0; el.getClientRects = () => [1]; return el; };
     const modalNode = findByClass(tree, 'we-picker__modal');
-    assert.ok(modalNode && typeof modalNode.props.onKeyDown === 'function', '模态框必须挂着 onKeyDown（Tab 陷阱）');
-    // 判据只在**一处**：跑一次 Tab/Shift+Tab，回"是否拦下 + 焦点落到第几个"（正负共用）
-    const tabTrap = (shift, activeIndex, count) => {
-      const els = Array.from({ length: count }, fakeButton);
-      if (count) els[activeIndex].focus();
-      let prevented = false;
-      modalNode.props.onKeyDown({
-        key: 'Tab', shiftKey: shift, preventDefault: () => { prevented = true; },
-        currentTarget: { querySelectorAll: () => els },
-      });
-      return { prevented, active: els.findIndex((el) => document.activeElement === el) };
-    };
-    assert.deepEqual(tabTrap(false, 2, 3), { prevented: true, active: 0 }, 'Tab 在最后一个 ⇒ 拦下并绕回第一个');
-    assert.deepEqual(tabTrap(true, 0, 3), { prevented: true, active: 2 }, 'Shift+Tab 在第一个 ⇒ 拦下并绕回最后一个');
-    assert.deepEqual(tabTrap(false, 1, 3), { prevented: false, active: 1 }, 'Tab 在中间 ⇒ 不拦（否则焦点被锁死）');
-    assert.deepEqual(tabTrap(false, 0, 0), { prevented: false, active: -1 }, '没有可聚焦元素 ⇒ 不拦也不炸（负对照）');
-    // 初始焦点：面板在打开 picker 时置 `pickerFocusPending`，模态框关闭按钮的 ref 消费它（一次性）
+    assert.ok(modalNode, '库视图必须渲染（we-picker__modal 类名沿用）');
+    assert.equal(modalNode.props.role, undefined, '下钻视图不得再是对话框（role=dialog 已移除）');
+    // 初始焦点：面板在打开 picker 时置 `pickerFocusPending`，库视图返回按钮的 ref 消费它（一次性）
     const findCloseBtn = (root) => { let hit = null; (function walk(n) {
       if (hit) return;
       if (Array.isArray(n)) { n.forEach(walk); return; }
       if (!n || typeof n !== 'object') return;
       const c = typeof n.props?.className === 'string' ? n.props.className : '';
-      if (c.split(/\s+/).includes('we-picker__btn') && textOf(n) === '关闭' && typeof n.props.ref === 'function') { hit = n; return; }
+      if (c.split(/\s+/).includes('we-picker__btn') && textOf(n) === '返回' && typeof n.props.ref === 'function') { hit = n; return; }
       if (Array.isArray(n.children)) n.children.forEach(walk);
     })(root); return hit; };
     const closeBtn = findCloseBtn(tree);
-    assert.ok(closeBtn, '模态框的关闭按钮必须挂 ref（初始焦点落点）');
+    assert.ok(closeBtn, '库视图的返回按钮必须挂 ref（初始焦点落点）');
     const fakeClose = fakeButton();
     closeBtn.props.ref(fakeClose);
-    assert.equal(document.activeElement, fakeClose, '打开模态框后初始焦点落在关闭按钮上');
+    assert.equal(document.activeElement, fakeClose, '打开库视图后初始焦点落在返回按钮上');
     const elsewhere = fakeButton(); elsewhere.focus();
     closeBtn.props.ref(fakeButton());
     assert.equal(document.activeElement, elsewhere, 'ref 只消费一次（第二次不得把焦点抢回来）');
+
+    // 页内下钻后：库视图**替换**页签内容（不再是并存的两棵树）—— 后续用例要操作
+    // 页签里的控件（轮播列表下拉等），先经「返回」按钮退出库视图（真实路径，不是注入状态）。
+    closeBtn.props.onClick();
+    tree = renderPicker();
+    assert.ok(!findByClass(tree, 'we-picker__modal'), '「返回」⇒ 库视图退出，页签内容回来');
 
     // ── 0b：轮换列表编辑器（选项文案 / 改间隔 / 删除组，**面板内确认**）────────
     // 破坏性动作一律走面板内确认（`armConfirm` + `renderConfirmRow`），所以这里挂的是**探针**
@@ -1250,11 +1242,25 @@ setTimeout(async () => {
     assert.ok(nameInput && typeof nameInput.props.onInput === 'function', '新建 ⇒ 打开编辑页（名称输入框）');
     assert.ok(findByProp(tree, 'aria-label', '轮播间隔'), '编辑页要有间隔档');
     assert.ok(findByProp(tree, 'aria-label', '轮播顺序'), '编辑页要有顺序档');
-    const editorCard = findByClass(tree, 'we-picker__editor-card');
-    assert.ok(editorCard && typeof editorCard.props.onClick === 'function', '编辑页要列出候选壁纸');
-    editorCard.props.onClick();
+    // 选片走页内下钻（编辑器不再有内联网格）：点编辑器里的「选择壁纸」进库视图，
+    // 草稿态点卡片 = 加入/移出，「返回」回编辑器继续保存。
+    const editorPane = findByClass(tree, 'we-picker__editor');
+    assert.ok(editorPane, '新建 ⇒ 编辑器必须在场');
+    const draftOpen = findBtnByText(editorPane, '选择壁纸');
+    assert.ok(draftOpen && typeof draftOpen.props.onClick === 'function', '编辑页要给「选择壁纸」下钻入口');
+    draftOpen.props.onClick();
     tree = renderPicker();
-    assert.ok(textOf(tree).includes('已选 1 个'), '点候选 ⇒ 草稿里已选 1 个');
+    assert.ok(findByClass(tree, 'we-picker__modal'), '点选择壁纸 ⇒ 下钻库视图打开');
+    assert.ok(!textOf(tree).includes('✕ 关闭'), '草稿态不渲染「关闭壁纸」卡（挑列表与当前播放无关）');
+    const draftCard = findByClass(tree, 'we-picker__card');
+    assert.ok(draftCard && typeof draftCard.props.onClick === 'function', '下钻视图要列出壁纸卡（首张即壁纸）');
+    draftCard.props.onClick();
+    tree = renderPicker();
+    assert.ok(textOf(tree).includes('已选 1 个'), '点卡片 ⇒ 草稿已选 1 个（下钻顶部计数）');
+    findBtnByText(tree, '返回').props.onClick();
+    tree = renderPicker();
+    assert.ok(findByProp(tree, 'aria-label', '轮播列表名称'), '返回 ⇒ 回到编辑器（名称输入在场）');
+    assert.ok(textOf(tree).includes('已选 1 个'), '返回后编辑器仍显示已选 1 个');
     nameInput.props.onInput({ target: { value: '新列表' } });
     tree = renderPicker();
     assert.equal(findByProp(tree, 'aria-label', '轮播列表名称').props.value, '新列表', '名称输入回写草稿');
@@ -1276,7 +1282,12 @@ setTimeout(async () => {
     tree = renderPicker();
     findByProp(tree, 'aria-label', '轮播列表名称').props.onInput({ target: { value: '第二个' } });
     tree = renderPicker();
-    findByClass(tree, 'we-picker__editor-card').props.onClick();
+    // 第二个列表同样走下钻选片（编辑器内联网格已退役）。
+    findBtnByText(findByClass(tree, 'we-picker__editor'), '选择壁纸').props.onClick();
+    tree = renderPicker();
+    findByClass(tree, 'we-picker__card').props.onClick();
+    tree = renderPicker();
+    findBtnByText(tree, '返回').props.onClick();
     tree = renderPicker();
     findBtnByText(tree, '保存').props.onClick();
     tree = renderPicker();
@@ -1292,6 +1303,9 @@ setTimeout(async () => {
     // 每一步都是"第一下只待确认、问句行的按钮才落地"：先「取消」（不隐藏、且不退批量），
     // 再「确认」（隐藏并从网格消失、自动退批量），最后用隐藏页的「全部恢复」把状态收回去。
     // 三步都读**渲染出的**证据。
+    // 批量操作住在库视图里：上面的页签用例已把库视图退出 ⇒ 重新打开（真实路径）。
+    findBtnByText(tree, '选择壁纸').props.onClick();
+    tree = renderPicker();
     assert.ok(clickPager(tree, '批量'), '批量按钮必须存在');
     tree = renderPicker();
     const batchPick = collectCards(tree).find((c) => JSON.stringify(c).includes('Wall 0'));
@@ -1335,6 +1349,9 @@ setTimeout(async () => {
 
     // ── 0b：库存加载失败的错误态 + 「重试」恢复（WallpaperPicker 的两条早退分支）──
     // 进错误态的唯一入口是"重载库存失败"⇒ 先用页签里的「刷新」把它打失败（真实路径，不是注入状态）。
+    // 「刷新」住在页签内容里，而库视图此时开着 ⇒ 先经「返回」退出（页内下钻两棵树互斥）。
+    findBtnByText(tree, '返回').props.onClick();
+    tree = renderPicker();
     const showsInventoryError = (t) => textOf(t).includes('未检测到 Wallpaper Engine：');
     inventoryFails = true;
     findBtnByText(tree, '刷新').props.onClick();
@@ -1352,7 +1369,7 @@ setTimeout(async () => {
     await new Promise((r) => setTimeout(r, 80));
     tree = renderPicker();
     assert.ok(!showsInventoryError(tree), '重试成功 ⇒ 错误态消失');
-    assert.ok(findByProp(tree, 'aria-label', '类型'), '恢复后回到正常面板（类型筛选下拉回来了）');
+    assert.ok(findBtnByText(tree, '选择壁纸'), '恢复后回到正常面板（页签内容回来了；类型筛选在库视图里，下钻打开即有）');
 
     // ── 0b：ESC 关闭 picker（处理器住在 useEffect 里 ⇒ 必须让 effect 跑一次才可达）──────
     // 做法：**临时**把 mock 的 `useEffect` 换成收集器 ⇒ 渲染一次拿到注册函数 ⇒ 立刻还原 ⇒
@@ -1481,10 +1498,10 @@ setTimeout(async () => {
     const manualPreLayer = document.getElementById('dsh-wallpaper-engine-layer');
     sceneCard.props.onClick(); // 选中场景壁纸 → syncLayers → HEAD 探测
     await new Promise((r) => setTimeout(r, 20)); // 等 HEAD 探测的 promise 回来
-    // 「画面」section（含 GPU 提示行）在 tab 面板里，模态框只渲染网格 →
-    // 选中后关掉模态框再断言（模态框关闭按钮文案恰为「关闭」）。
-    const modalClose = findBtn(renderPicker(), '关闭');
-    assert.ok(modalClose, '模态框应有「关闭」按钮');
+    // 「画面」section（含 GPU 提示行）在页签内容里，库视图只渲染网格且与页签内容
+    // 互斥（页内下钻）→ 选中后退出库视图再断言（退出按钮文案恰为「返回」）。
+    const modalClose = findBtn(renderPicker(), '返回');
+    assert.ok(modalClose, '库视图应有「返回」按钮');
     modalClose.props.onClick();
     assert.ok(sceneFrameHeadCalls.some((u) => u.includes('/scene-frame/ccc')),
       '选中场景壁纸后必须 HEAD 探测 GPU 帧状态（面板据此提示）');
@@ -2225,8 +2242,8 @@ setTimeout(async () => {
   };
   // 每条都带一个**非空转锚点**：那串必须在文件里真的存在，否则"零次越界"只是扫了个空文件。
   const RENDERERS = [
-    { file: '../src/picker-modal.js', user: '模态框',
-      anchor: ['function renderPickerModal(ctx)', 'we-picker__modal-overlay'] },
+    { file: '../src/picker-modal.js', user: '库视图',
+      anchor: ['function renderPickerModal(ctx)', 'we-picker__modal-head'] },
     { file: '../src/picker-props-panel.js', user: '属性面板',
       anchor: ['function renderPickerPropsPanel(ctx)', 'we-picker__props-row'] },
   ];

@@ -50,6 +50,18 @@ const INLINE_MODULES = [
     markers: ['const READABILITY_FLOOR = ', 'const READABILITY_FLOOR_DARK = ', 'const CSS = '],
   },
   {
+    file: 'src/nav-icon.js',
+    why: '「壁纸引擎」SVG 图标（几何唯一真源）+ 设置导航图标 DOM 补丁（官方 nav 硬编码兜底齿轮）',
+    markers: ['const WE_ICON_PARTS = [', 'function renderWeIcon(',
+      'function weIconSvgString(', 'function installWeNavIcon('],
+  },
+  {
+    file: 'src/sidebar-right.js',
+    why: '官方右侧栏接入（能力门 + 两段注册）+ 侧边栏触达模式真源 + 「壁纸引擎设置」DOM 入口',
+    markers: ['function sidebarRightMode(', 'function sidebarRightOpen(',
+      'function installSidebarRight(', 'function openSettingsSection('],
+  },
+  {
     file: 'src/font/components.js',
     why: 'G3/G4 组件级字体：模块前缀白名单 + 启动自探测 + 官方 --dsl-* 钩子生成',
     markers: ['const COMPONENT_FONT_TARGETS = [', 'function probeComponentTargets(',
@@ -131,9 +143,9 @@ const INLINE_MODULES = [
   },
   {
     file: 'src/picker-modal.js',
-    why: '选择器模态框的渲染器（整棵 we-picker__modal 子树 + portal 包裹）—— 显式 ctx 取外界，标记逐字搬',
+    why: '选择器库视图的渲染器（整棵 we-picker__modal 子树；页内下钻，不再是弹框）—— 显式 ctx 取外界，标记逐字搬',
     markers: ['function renderPickerModal(ctx)',
-      'className: isRepoPanelCopy ? "we-picker__modal we-picker__modal--panel" : "we-picker__modal"',
+      'className: "we-picker__modal"',
       'className: "we-picker__modal-head"', 'className: "we-picker__grid"'],
   },
   {
@@ -142,6 +154,11 @@ const INLINE_MODULES = [
     markers: ['function renderPickerPropsPanel(ctx)', 'function renderUserPropRow(p, onPropInput)',
       'className: "we-picker__props"', 'className: "we-picker__props-row"',
       'className: "we-picker__props-section"'],
+  },
+  {
+    file: 'src/quick-panel.js',
+    why: '快捷播放面板（官方侧栏 tab 与低版本抽屉共用同一份内容）：当前壁纸 + 轮播 + 列表快切 + 声音 + 设置入口',
+    markers: ['const QP_LIST_MAX = ', 'function qpTypeLabel(', 'function QuickPanel(props)'],
   },
   {
     file: 'src/media-prep.js',

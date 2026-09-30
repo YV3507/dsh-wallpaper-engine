@@ -251,9 +251,16 @@ const selection = {
   editorPage: 0,
   hiddenOpen: false,
   pickerOpen: false,
+  // Transient: 库视图的用途开关 —— true = 轮播编辑器的「选择壁纸」下钻
+  //（点卡片 = 加入/移出草稿，不切当前壁纸）；false = 普通下钻（点卡片即应用）。
+  pickerDraft: false,
   modalView: "normal",
   // Transient: picker-modal title search (not persisted).
   search: "",
+  // Transient: 快捷播放面板自己的搜索词与类型筛选（与库视图互不影响；不落盘）。
+  qpSearch: "",
+  // "all" | "scene" | "web" | "video"（只收这三类 + 全部；面板是快切，不是全集浏览）
+  qpType: "all",
   // 破坏性动作的「面板内确认」令牌 —— **所有族共用这一个真源**（`""` = 没有动作待确认）。
   // 形态 `<族>:<id>`（族内带 id 的动作）或 `<族>`（整块动作）。机制与三条不变量见
   // `armConfirm` 那一段（本文件，"破坏性动作的面板内确认"）。**不是** picker 私有字段：
@@ -545,12 +552,12 @@ function scheduleSceneVideoResync() {
 // 选择被拒 / 被丢弃时的可读原因（#84）。过去这条路径是「静默空白」：壁纸层
 // 不渲染、播放按钮因 !sel.url 变灰，用户只看到一片空白，既不知道原因也没有
 // 可点的控制（自上传壁纸被默认的内容分级过滤掉时正是如此）。返回 "" 表示
-// 没有可解释的原因（正常应用）。
+// 没有可解释的原因（正常应用）。类型档不在原因表里：它只筛列表与轮播候选、
+// 不拦播放（keepPlayingWallpaper）。
 function selectionBlockedNote(w) {
   if (!w) return "当前壁纸已不在列表里（可能已被移除或隐藏）";
   if (!isPlayableType(w)) return "这张壁纸没有可播放的媒体文件";
   if (!matchesRatingFilter(w, selection.contentRatingFilter)) return "这张壁纸被「内容分级」过滤排除了 —— 把内容分级切回「全部」即可播放";
-  if (!matchesTypeFilter(w, selection.typeFilter)) return "这张壁纸被「类型」过滤排除了 —— 把类型切回「全部」即可播放";
   return "";
 }
 
@@ -561,20 +568,28 @@ function playableInventory() {
 }
 
 // Re-validate the active selection against the current inventory + filters.
-// Called after a refresh AND after changing the rating/type filter: drop a
-// selection that vanished, is no longer playable, or no longer matches the
-// selected categories; when rotation is on and nothing matches, pick the next
-// candidate instead of stopping playback.
+// Called after a refresh AND after changing the rating/type filter. 丢弃闸门是
+// keepPlayingWallpaper：分级是内容闸门（拦播放），类型档只筛列表与轮播候选 ——
+// 切类型档不得把正在应用的壁纸干掉。轮播在场时拿不到候选就换下一张，但「仅被
+// 类型档排除」这一档不换台。
 function revalidateSelection() {
   // 被过滤条件丢弃的选择要留下原因（#84）：先取下来，applySelection("") 会清掉
   // blockedNote，故在其之后写回 —— 否则用户改一次过滤条件，壁纸就无声变空白。
   let droppedNote = "";
-  if (selection.id && !selection.inventory.wallpapers.some((w) => w.id === selection.id
-    && isRotatableWallpaper(w, selection.contentRatingFilter, selection.typeFilter))) {
-    droppedNote = selectionBlockedNote(selection.inventory.wallpapers.find((w) => w.id === selection.id));
+  const cur = selection.id ? selection.inventory.wallpapers.find((w) => w.id === selection.id) : null;
+  const keepCurrent = keepPlayingWallpaper(cur, selection.contentRatingFilter);
+  if (selection.id && !keepCurrent) {
+    droppedNote = selectionBlockedNote(cur);
     setSetting("id", "");
   }
-  if (selection.rotationEnabled && selection.id && !rotationCandidates().some((w) => w.id === selection.id)) {
+  // 「仅被类型档排除」= 还能播、没被隐藏、确实属于当前轮播列表，只是候选表按类型
+  // 筛掉了它。这一档不换台（下一次轮换 tick 自然按候选走）；隐藏 / 不在列表 / 被
+  // 分级拦这些真原因照旧换台。
+  const typeOnlyExcluded = keepCurrent && Boolean(selection.id)
+    && !isHiddenWallpaper(selection.id, selection.hiddenIds)
+    && Boolean(activeRotationGroup()) && activeRotationGroup().wallpaperIds.indexOf(selection.id) >= 0;
+  if (selection.rotationEnabled && selection.id && !typeOnlyExcluded
+    && !rotationCandidates().some((w) => w.id === selection.id)) {
     const first = rotationCandidates()[0];
     setSetting("id", first ? first.id : "");
   }
@@ -1475,6 +1490,8 @@ function markGpuFramePin(token, pinned) {
 // 这里 client 按 50ms 从 host 拉到本地缓存，fn 直接返回同一数组引用（零拷贝）。
 // 媒体：1s 一次的 Now Playing 轮询（宿主侧也是 1s），变化时 __wp.setMedia(wire)
 // —— 封面经宿主代理 URL（同源）。壁纸没有监听器时两者都无副作用。
+// 控制：同一族还有**反向**一路 —— 壁纸里的播放按钮经 __wp.setMediaControl 回到
+// 宿主 POST /media-control（见 syncMediaControl）；它随数据面一起装、一起卸。
 let mediaTimer = 0;
 let mediaSpectrum = null;
 let mediaAudioInstalled = false;   // 音频桥当前是否已装进渲染页
@@ -1491,16 +1508,33 @@ let mediaArtData = "";      // 当前曲目的封面 data URL（降采样后）
 let mediaArtKey = "";       // 这份封面属于哪首（title\u0000artist\u0000album）
 let mediaArtTimer = 0;      // 重试计时器（宿主下载封面是异步的，换曲瞬间可能还没有）
 let mediaArtTries = 0;
-const MEDIA_ART_MAX_TRIES = 4;
+// 已上报过终态诊断的曲目 key（media-art* 诊断每曲最多一条，见 scheduleArtworkFetch）。
+// 封面诊断的每曲一次性标记（{fail, slow, ok} 各最多一条）。
+let mediaArtDiag = { fail: "", slow: "", ok: "" };
+// 封面就绪可能滞后换曲（桥要抽帧/下载封面）：4 次×0.7s 的旧窗口会在「桥还没出封面」
+// 时放弃整整一首歌。改为 12 次 + 退避（0.7s×次数，封顶 4s）—— 覆盖 ~40s，足够等到
+// 桥把封面备好；仍旧「换曲即重置」，放弃后到下一曲为止不再空转。
+const MEDIA_ART_MAX_TRIES = 12;
 
 /** 取封面并按 MEDIA_THUMB_MAX 降采样成 JPEG data URL（失败返回空串）。 */
+let mediaArtLastErr = ""; // 最后一次失败的原因（进 media-art* 诊断；成功时清空）。
 async function fetchArtworkDataUrl(url) {
-  // 封面 URL 由宿主给（`/now-playing/artwork`），走统一出入口；体是二进制，只要原始 Response。
-  const r = await apiFetch(url);
-  if (!r.ok) return "";
-  const blob = await r.response.blob();
-  if (!/^image\//.test(blob.type || "")) return "";
-  const bitmap = await createImageBitmap(blob).catch(() => null);
+  // 封面 URL 由宿主给（`/now-playing/artwork`），走统一出入口；体是二进制，只要原始
+  // Response。⚠️ 必须 `parse: false`：默认路径会在 2xx 上 `response.json()`，**先把 body
+  // 流吃掉**，随后的 `response.blob()` 必抛（Body is unusable）—— 封面于是永远为空、
+  // 只在重试链里空转（实测症状：推送永远 hasThumb:false）。
+  const r = await apiFetch(url, { parse: false });
+  if (!r.ok) { mediaArtLastErr = "http=" + r.status + (r.error ? "/" + r.error : ""); return ""; }
+  const blob = await r.response.blob().catch((e) => {
+    mediaArtLastErr = "blob:" + String((e && e.name) || e); return null;
+  });
+  if (!blob) return "";
+  if (!/^image\//.test(blob.type || "")) {
+    mediaArtLastErr = "ctype=" + (blob.type || "?") + " size=" + blob.size; return "";
+  }
+  const bitmap = await createImageBitmap(blob).catch((e) => {
+    mediaArtLastErr = "bitmap:" + String((e && e.name) || e); return null;
+  });
   if (!bitmap) return "";
   try {
     const scale = Math.min(1, MEDIA_THUMB_MAX / Math.max(bitmap.width || 1, bitmap.height || 1));
@@ -1510,8 +1544,9 @@ async function fetchArtworkDataUrl(url) {
     c.width = w;
     c.height = h;
     const ctx = c.getContext("2d");
-    if (!ctx) return "";
+    if (!ctx) { mediaArtLastErr = "no-2d-ctx"; return ""; }
     ctx.drawImage(bitmap, 0, 0, w, h);
+    mediaArtLastErr = "";
     return c.toDataURL("image/jpeg", 0.88);
   } finally {
     try { bitmap.close(); } catch { /* ignore */ }
@@ -1565,33 +1600,104 @@ function syncAudioBridge(frame, running) {
   } catch { /* ignore */ }
 }
 
-/** 封面重试：宿主「换曲 → 下载封面」是异步的，晚几百毫秒才出现，故按曲目重试几次。 */
-function scheduleArtworkFetch(frame, m, artKey) {
-  if (mediaArtTimer) return;
-  if (mediaArtTries >= MEDIA_ART_MAX_TRIES || !m.thumbnail) return;
-  mediaArtTries += 1;
+/**
+ * 媒体控制面（控制反转）：场景壁纸里 Now Playing 组件的「播放/暂停/上下曲」按钮，
+ * 渲染页把它们推断成动作后打到宿主注入的控制面上（`__wp.setMediaControl`）。
+ *
+ * **数据面与控制面分开装**：`setMedia(null)`（没在播）之后控制面仍在位 —— 空播时
+ * 点「播放」要能唤醒真实播放器，而不是掉到渲染页的模拟源去切模拟曲目。这也是
+ * 上游把 `pickControlDriver` 与显示源选择分开的原因（同一份语义，两端各一半）。
+ *
+ * 五个动作与宿主 `POST /media-control` 的动作名一一对应；失败只记诊断（按钮点了
+ * 没反应不该打断渲染页，也不该把 `{ok:false}` 伪装成成功）。
+ */
+const MEDIA_CONTROL_ACTIONS = ["play", "pause", "playPause", "skipNext", "skipPrevious"];
+let mediaControlInstalled = false;    // 控制面当前是否已装进渲染页
+let mediaControlWin = null;           // 装进了哪个 window（渲染页重载后要重装）
+let mediaControlFails = 0;            // 连续失败数（诊断用；成功即清零）
+function hostMediaControl(action) {
+  return apiPostJson("/media-control", { action }).then((res) => {
+    const d = res && res.data;
+    if (d && d.ok === true) { mediaControlFails = 0; return d; }
+    mediaControlFails += 1;
+    // 只在第一次失败时报一条：用户在壁纸上连点按钮不该刷屏诊断环。
+    if (mediaControlFails === 1) {
+      reportClientDiag("media-control-fail", action + " err=" + ((d && d.error) || res.error || ("http=" + res.status)));
+    }
+    return null;
+  }).catch(() => null);
+}
+function syncMediaControl(frame) {
+  try {
+    const win = frame.contentWindow;
+    if (!win || (mediaControlInstalled && mediaControlWin === win)) return;
+    const wp = win.__wp;
+    if (!wp || typeof wp.setMediaControl !== "function") return;
+    const controls = {};
+    for (const name of MEDIA_CONTROL_ACTIONS) controls[name] = () => hostMediaControl(name);
+    wp.setMediaControl(controls);
+    mediaControlWin = win;
+    mediaControlInstalled = true;
+  } catch { /* ignore */ }
+}
+
+/** 封面重试：宿主「换曲 → 下载封面」是异步的，且**应用重启后桥要重新热身**（实测
+ *  应用侧 12×404 全灭、片刻后同一路径 200）—— 所以快拍用尽**不放弃**：转 45s 慢拍
+ *  直到拿到或换曲（`hasArt` = /now-playing 的 hasArtwork，false 时直接走慢拍）。
+ *  每曲最多各报一条：首次失败 / 转慢拍 / 成功。 */
+const MEDIA_ART_SLOW_MS = 45000;
+// 在途 timer 是否为慢拍（hasArtwork 翻真时据此抢占：作废慢拍、立即快拍）。
+let mediaArtTimerSlow = false;
+function scheduleArtworkFetch(frame, m, artKey, hasArt) {
+  if (!m || !m.thumbnail) return;
+  if (mediaArtTimer) {
+    // 慢拍在途、而 /now-playing 的 hasArtwork 已翻真（桥备好了）→ 抢占重排；
+    // 同曲同状态则不重复排。
+    if (!(mediaArtTimerSlow && hasArt !== false)) return;
+    try { clearTimeout(mediaArtTimer); } catch { /* ignore */ }
+    mediaArtTimer = 0;
+    mediaArtTries = 0;
+  }
+  const diagOnce = (tag, event, detail) => {
+    if (mediaArtDiag[tag] === artKey) return;
+    mediaArtDiag[tag] = artKey;
+    reportClientDiag(event, detail);
+  };
+  const slow = hasArt === false || mediaArtTries >= MEDIA_ART_MAX_TRIES;
+  if (slow) diagOnce("slow", "media-art-slow", "tries=" + mediaArtTries + " thumb=true");
+  else mediaArtTries += 1;
+  mediaArtTimerSlow = slow;
   mediaArtTimer = setTimeout(() => {
     mediaArtTimer = 0;
+    mediaArtTimerSlow = false;
     if (!frame.isConnected || !selection.sceneLiveActive || mediaArtKey !== artKey) return;
     fetchArtworkDataUrl(location.origin + m.thumbnail).then((d) => {
       if (mediaArtKey !== artKey) return;
       if (d) {
         mediaArtData = d;
         pushMediaSnapshot(frame, m);
+        diagOnce("ok", "media-art", "ok len=" + d.length + " tries=" + mediaArtTries);
       } else {
-        scheduleArtworkFetch(frame, m, artKey);
+        diagOnce("fail", "media-art-try-fail",
+          "attempt=" + mediaArtTries + (slow ? "/slow" : "") + " err=" + (mediaArtLastErr || "?"));
+        scheduleArtworkFetch(frame, m, artKey, hasArt);
       }
-    }).catch(() => { scheduleArtworkFetch(frame, m, artKey); });
-  }, 700);
+    }).catch(() => { scheduleArtworkFetch(frame, m, artKey, hasArt); });
+  }, slow ? MEDIA_ART_SLOW_MS : Math.min(700 * mediaArtTries, 4000));
 }
 function stopMediaSync(frame) {
   if (mediaTimer) { try { clearInterval(mediaTimer); } catch { /* ignore */ } mediaTimer = 0; }
   if (mediaArtTimer) { try { clearTimeout(mediaArtTimer); } catch { /* ignore */ } mediaArtTimer = 0; }
+  mediaArtTimerSlow = false;
   mediaNpKey = "";
   mediaArtKey = "";
   mediaArtData = "";
   mediaArtTries = 0;
+  mediaArtDiag = { fail: "", slow: "", ok: "" };
   mediaAudioInstalled = false;
+  mediaControlInstalled = false;
+  mediaControlWin = null;
+  mediaControlFails = 0;
   const f = frame || (liveWatch && liveWatch.frame);
   if (!f || !f.isConnected) return;
   try {
@@ -1599,6 +1705,7 @@ function stopMediaSync(frame) {
     if (!wp) return;
     if (typeof wp.setAudioBridge === "function") wp.setAudioBridge(null);
     if (typeof wp.setMedia === "function") wp.setMedia(null);
+    if (typeof wp.setMediaControl === "function") wp.setMediaControl(null);
   } catch { /* ignore */ }
 }
 function startMediaSync(frame) {
@@ -1608,6 +1715,9 @@ function startMediaSync(frame) {
   const wantNp = selection.mediaIntegration !== false;
   mediaTimer = setInterval(() => {
     if (!frame.isConnected || !selection.sceneLiveActive) return;
+    // 控制面与「有没有在播」无关（见 syncMediaControl），但和数据面同一道设置闸：
+    // 关掉「媒体信息」= 不接系统媒体，壁纸按钮便回落渲染页自己的模拟源。
+    if (wantNp) syncMediaControl(frame);
     if (wantSpectrum && !mediaFetchBusy) {
       mediaFetchBusy = true;
       apiJson("/audio-spectrum")
@@ -1649,7 +1759,7 @@ function startMediaSync(frame) {
           }
           // 先推一版（可能还没封面，壁纸至少能立刻更新歌名/歌手），封面到位后再推一次。
           pushMediaSnapshot(frame, m);
-          if (m && m.playing && !mediaArtData) scheduleArtworkFetch(frame, m, artKey);
+          if (m && m.playing && !mediaArtData) scheduleArtworkFetch(frame, m, artKey, d.hasArtwork !== false);
         })
         .catch(() => { /* 静默 */ });
     }
@@ -2208,26 +2318,29 @@ function layerKeyDiff(oldKey, nextKey) {
 // 因此下面这些 applyEffects() / clearEffects() 调用点无需改动（契约见该文件头）。
 
 // ── Picker tabs ─────────────────────────────────────────────────────────────
-// 调节面板的信息架构：六个页签互斥展示，每页只留相关控件（不用单列长滚动
-// 堆三十个控件）。最后停留的页签记在 localStorage（仅 UI 状态，不进
+// 调节面板的信息架构：四个页签互斥展示（壁纸库 / 外观 / 播放 / 系统）—— 由原六个
+// 页签（壁纸/外观/吉祥物/效果/声音/高级）合并而来：效果+声音 → 播放、吉祥物+高级 →
+// 系统、壁纸 → 壁纸库。最后停留的页签记在 localStorage（仅 UI 状态，不进
 // config.json，也不需要 sanitize / serialize）。
 const PICKER_TAB_KEY = "dsh-wallpaper-engine:picker-tab";
 const PICKER_TABS = [
-  { id: "wallpaper", label: "壁纸" },
+  { id: "library", label: "壁纸库" },
   { id: "appearance", label: "外观" },
-  { id: "mascot", label: "吉祥物" },
-  { id: "effects", label: "效果" },
-  { id: "audio", label: "声音" },
-  { id: "advanced", label: "高级" },
+  { id: "playback", label: "播放" },
+  { id: "system", label: "系统" },
 ];
+// 旧页签 id → 新 id 的迁移（「字体」更早并入了「外观」）：别把老用户甩回第一页。
+const PICKER_TAB_LEGACY = {
+  wallpaper: "library", font: "appearance", effects: "playback",
+  audio: "playback", mascot: "system", advanced: "system",
+};
 function readSavedPickerTab() {
   try {
-    const v = localStorage.getItem(PICKER_TAB_KEY);
-    // 「字体」页签已并入「外观」（设置页签重组）：老值迁移过去，别把用户甩回「壁纸」。
-    if (v === "font") return "appearance";
+    let v = localStorage.getItem(PICKER_TAB_KEY);
+    if (v && PICKER_TAB_LEGACY[v]) v = PICKER_TAB_LEGACY[v];
     if (v && PICKER_TABS.some((t) => t.id === v)) return v;
   } catch { /* ignore */ }
-  return "wallpaper";
+  return "library";
 }
 
 // ── Settings picker ─────────────────────────────────────────────────────────
@@ -2367,10 +2480,10 @@ function VinylRecord(props) {
   );
 }
 
-// ── Modal a11y helpers ─────────────────────────────────────────────────────
-// pickerOpener: the「选择壁纸」button — focus returns here when the modal
-// closes. pickerFocusPending: one-shot flag so the modal's initial focus lands
-// exactly once on open (an inline ref callback would re-fire every render).
+// ── Library-view a11y helpers ────────────────────────────────────────────────
+// pickerOpener: the「选择壁纸」button — focus returns here when the library
+// view closes. pickerFocusPending: one-shot flag so the view's initial focus
+// lands exactly once on open (an inline ref callback would re-fire every render).
 let pickerOpener = null;
 let customFrameInput = null;
 let pickerFocusPending = false;
@@ -2437,31 +2550,133 @@ function modalInitialFocus(el) {
     try { el.focus(); } catch { /* ignore */ }
   }
 }
-// Minimal Tab trap for the picker modal: wraps focus at both ends. Attached as
-// the modal's onKeyDown; ESC is handled separately (capture-phase, global).
-const FOCUSABLE_SEL = "button, select, input, [tabindex]";
-function trapModalTab(e) {
-  if (e.key !== "Tab") return;
-  const nodes = e.currentTarget.querySelectorAll(FOCUSABLE_SEL);
-  const list = Array.prototype.filter.call(nodes, (n) =>
-    !n.disabled && n.tabIndex >= 0 && n.getClientRects().length > 0);
-  if (!list.length) return;
-  const first = list[0];
-  const last = list[list.length - 1];
-  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-}
 // Keyboard activation for the div[role="button"] wallpaper cards
 // (Enter / Space → click), shared by the normal / hidden / close cards.
 function cardKeyDown(e) {
   if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.currentTarget.click(); }
 }
 
-function WallpaperPicker(props) {
-  // repoPanel: this copy lives inside the rope-dock side panel. While the dock
-  // exists it owns the picker modal portal (repoPanelOwnsModal); the settings
-  // copy suppresses its own so two identical modals never stack.
-  const isRepoPanelCopy = Boolean(props && props.repoPanel);
+// ── 播放控制处理器（模块级）─────────────────────────────────────────────────
+// 这些原本是 WallpaperPicker 的组件闭包；快捷播放面板（quick-panel.js，官方侧栏
+// tab 与低版本抽屉共用）不在那棵组件树里，改的也是同一批设置键 —— 提升到模块级
+// 后**设置页与快捷面板调用的是同一份实现**（语义唯一真源，不是两份手抄）。
+function playbackIsVideoLike(selLike) {
+  const isLiveScene = (selLike.type === "scene" || selLike.type === "web") && liveRenderEnabled(selLike);
+  return !isLiveScene && (selLike.type === "video"
+    || (selLike.type === "scene" && Boolean(selLike.sceneVideo)));
+}
+// 播放/暂停（#84）: 意图 =「播放」但元素并没有真的在播时（被拒 / 解码失败 /
+// 被浏览器暂停），点击必须【重试播放】而不是把意图翻成 false —— 否则这个
+// 按钮在冻住状态下等于没反应，用户没有可用的「继续」。
+function onTogglePlay() {
+  if (selection.playing && playbackIsVideoLike(selection) && !selection.videoPlaying) {
+    const layer = document.getElementById(LAYER_ID);
+    const v = layer && layer.querySelector("video");
+    if (v && v.dataset) delete v.dataset.wePlayRefused; // 清掉拒绝标记才能重试
+    setTransient("videoError", "");
+    emit(); // syncLayers → applyVideoPlayback 会重新 play()
+    return;
+  }
+  setTransient("playing", !selection.playing);
+  emit();
+}
+// 音乐开关：只翻总开关，不动 videoVolume —— 关掉再打开能恢复原音量。
+// 例外：**开启时若音量为 0**（默认值），自动提到默认可听音量 —— 否则开关
+// 打开了却依然无声，用户把这条读作「音量开/关都不生效」（实测）。
+function onToggleAudio() {
+  const enabling = selection.videoAudioEnabled === false;
+  selection.videoAudioEnabled = enabling;
+  if (enabling && clampNum(selection.videoVolume, 0, 1, 0) <= 0) {
+    selection.videoVolume = DEFAULT_AUDIO_VOLUME;
+  }
+  const layer = document.getElementById(LAYER_ID);
+  const v = layer && layer.querySelector("video");
+  if (v) weApplyAudio(v);
+  syncSceneAudio(selection);
+  if (sceneAudioEl && selection.videoAudioEnabled !== false && weAudioVolume() > 0) {
+    const p = sceneAudioEl.play();
+    if (p && typeof p.catch === "function") p.catch(() => { /* ignore */ });
+  }
+  persistSelection();
+  emit();
+}
+// 音量滑块（0–100%）：视频 / 场景内嵌 MP4 / 场景包内音频共用同一 videoVolume。
+function onVideoVolume(pct) {
+  selection.videoVolume = clampNum(Number(pct) / 100, 0, 1, 0);
+  const layer = document.getElementById(LAYER_ID);
+  const vid = layer && layer.querySelector("video");
+  if (vid) weApplyAudio(vid);
+  syncSceneAudio(selection);
+  if (sceneAudioEl && selection.videoAudioEnabled !== false && weAudioVolume() > 0) {
+    const p = sceneAudioEl.play();
+    if (p && typeof p.catch === "function") p.catch(() => { /* ignore */ });
+  }
+  persistSelection();
+  emit();
+}
+function onClear() {
+  applySelection("");
+}
+// 手动点开一张壁纸 = 明确想看它：作废它的 live 失败记忆（sceneLiveFailures，持久
+// 降级），让实时渲染重试一次（真失败会自动回退并重新记账）。没有这条路时，一张
+// 「某次首帧超时」的壁纸会被**永久**降级到无音频桥形态 —— 音频驱动的壁纸（如
+// 音域回响）就此黑屏且用户无路可走（实测）。只清手动路径：轮换提交不清。
+function clearLiveFailure(id) {
+  const k = String(id || "");
+  const m = selection.sceneLiveFailures;
+  if (!k || !m || !m[k]) return;
+  const next = Object.assign({}, m);
+  delete next[k];
+  setSetting("sceneLiveFailures", next);
+}
+function onGroupChange(e) {
+  // 换列表 ⇒ 清掉待确认（不变量 3）：否则"删除「A」？"会跟着新选中的 B 一起显示。
+  disarmConfirm();
+  selection.rotationGroupId = e.target.value;
+  if (selection.rotationEnabled) {
+    const first = rotationCandidates()[0];
+    if (first) applySelection(first.id);
+    else applySelection("");
+    return;
+  }
+  persistSelection();
+  syncRotationTimer();
+  emit();
+}
+function onToggleRotation() {
+  selection.rotationEnabled = !selection.rotationEnabled;
+  // 关闭轮换：进行中的准备（staging/探测元素）一并取消，不再落实切换。
+  if (!selection.rotationEnabled) cancelRotationPrepare();
+  if (selection.rotationEnabled) {
+    if (!selection.rotationGroupId) {
+      const usable = firstUsableGroup();
+      if (usable) selection.rotationGroupId = usable.id;
+    }
+    if (!rotationCandidates().some((w) => w.id === selection.id)) {
+      const first = rotationCandidates()[0];
+      if (first) {
+        applySelection(first.id);
+        return;
+      }
+    }
+  }
+  persistSelection();
+  syncRotationTimer();
+  emit();
+}
+// 「下一张」（快捷面板）：轮播开着按活动列表推进、关着按可播放网格推进；
+// 锚点是【实际显示】的那张（与轮换同一锚点判定，避免 A→B→A 乒乓）。
+function onNextWallpaper() {
+  const list = selection.rotationEnabled ? rotationCandidates() : playableInventory();
+  if (list.length < 2) return;
+  const anchor = rotationAnchorWallpaper();
+  const anchorId = anchor ? anchor.id : selection.id;
+  const cur = list.findIndex((w) => w.id === anchorId);
+  const next = list[(cur + 1 + list.length) % list.length];
+  if (next && next.id !== anchorId) applySelection(next.id, { fromManual: true });
+}
+
+function WallpaperPicker() {
   const sel = useStore();
   // 视频类壁纸（原生视频 + 内嵌 MP4 场景）: 只有它们有
   // 「真实播放态」的概念。实时渲染（live iframe）形态必须排除在外：它没有
@@ -2475,56 +2690,8 @@ function WallpaperPicker(props) {
   // 意图为「播放」但元素被拒/解码失败时，面板必须说「已暂停」并把按钮显示成
   // 「播放」，否则用户面对一张冻住的壁纸却只有「暂停」可点 —— 没有「继续」。
   const playbackLive = isVideoLike ? sel.videoPlaying : sel.playing;
-  // 播放/暂停（#84）: 意图 =「播放」但元素并没有真的在播时（被拒 / 解码失败 /
-  // 被浏览器暂停），点击必须【重试播放】而不是把意图翻成 false —— 否则这个
-  // 按钮在冻住状态下等于没反应，用户没有可用的「继续」。
-  const onTogglePlay = () => {
-    if (selection.playing && isVideoLike && !selection.videoPlaying) {
-      const layer = document.getElementById(LAYER_ID);
-      const v = layer && layer.querySelector("video");
-      if (v && v.dataset) delete v.dataset.wePlayRefused; // 清掉拒绝标记才能重试
-      setTransient("videoError", "");
-      emit(); // syncLayers → applyVideoPlayback 会重新 play()
-      return;
-    }
-    setTransient("playing", !selection.playing);
-    emit();
-  };
-  // 音乐开关：只翻总开关，不动 videoVolume —— 关掉再打开能恢复原音量。
-  // 例外：**开启时若音量为 0**（默认值），自动提到默认可听音量 —— 否则开关
-  // 打开了却依然无声，用户把这条读作「音量开/关都不生效」（实测）。
-  const onToggleAudio = () => {
-    const enabling = selection.videoAudioEnabled === false;
-    selection.videoAudioEnabled = enabling;
-    if (enabling && clampNum(selection.videoVolume, 0, 1, 0) <= 0) {
-      selection.videoVolume = DEFAULT_AUDIO_VOLUME;
-    }
-    const layer = document.getElementById(LAYER_ID);
-    const v = layer && layer.querySelector("video");
-    if (v) weApplyAudio(v);
-    syncSceneAudio(selection);
-    if (sceneAudioEl && selection.videoAudioEnabled !== false && weAudioVolume() > 0) {
-      const p = sceneAudioEl.play();
-      if (p && typeof p.catch === "function") p.catch(() => { /* ignore */ });
-    }
-    persistSelection();
-    emit();
-  };
-  // 音量滑块（0–100%）：视频 / 场景内嵌 MP4 / 场景包内音频共用同一 videoVolume。
-  const onVideoVolume = (pct) => {
-    selection.videoVolume = clampNum(Number(pct) / 100, 0, 1, 0);
-    const layer = document.getElementById(LAYER_ID);
-    const vid = layer && layer.querySelector("video");
-    if (vid) weApplyAudio(vid);
-    syncSceneAudio(selection);
-    if (sceneAudioEl && selection.videoAudioEnabled !== false && weAudioVolume() > 0) {
-      const p = sceneAudioEl.play();
-      if (p && typeof p.catch === "function") p.catch(() => { /* ignore */ });
-    }
-    persistSelection();
-    emit();
-  };
-  const onClear = () => applySelection("");
+  // 播放/暂停 / 音轨 / 音量 / 关闭 / 轮播切换 / 换列表：处理器已提升到模块级
+  //（快捷播放面板共用同一份实现，见 cardKeyDown 上方「播放控制处理器」段）。
   const onRefresh = () => loadInventory();
   // Filter changes: persist + re-validate so wallpapers outside the selected
   // categories drop out of the grid/rotation immediately.
@@ -2545,41 +2712,6 @@ function WallpaperPicker(props) {
   // syncLayers 的 wantKey 已并入模式，emit 会重建壁纸层并立即按新路径生效。
   const onEdgeCompatChange = (checked) => {
     setSetting("edgeCompat", checked);
-    emit();
-  };
-  const onGroupChange = (e) => {
-    // 换列表 ⇒ 清掉待确认（不变量 3）：否则"删除「A」？"会跟着新选中的 B 一起显示。
-    disarmConfirm();
-    selection.rotationGroupId = e.target.value;
-    if (selection.rotationEnabled) {
-      const first = rotationCandidates()[0];
-      if (first) applySelection(first.id);
-      else applySelection("");
-      return;
-    }
-    persistSelection();
-    syncRotationTimer();
-    emit();
-  };
-  const onToggleRotation = () => {
-    selection.rotationEnabled = !selection.rotationEnabled;
-    // 关闭轮换：进行中的准备（staging/探测元素）一并取消，不再落实切换。
-    if (!selection.rotationEnabled) cancelRotationPrepare();
-    if (selection.rotationEnabled) {
-      if (!selection.rotationGroupId) {
-        const usable = firstUsableGroup();
-        if (usable) selection.rotationGroupId = usable.id;
-      }
-      if (!rotationCandidates().some((w) => w.id === selection.id)) {
-        const first = rotationCandidates()[0];
-        if (first) {
-          applySelection(first.id);
-          return;
-        }
-      }
-    }
-    persistSelection();
-    syncRotationTimer();
     emit();
   };
   // Per-group interval: writes straight into the active group so each rotation
@@ -3034,23 +3166,24 @@ const officialColorOf = (tokens) => {
     setSetting("caretColor", hex); applyEffects(); emit();
   };
 
-  // Close the picker modal (ESC / backdrop / close buttons share this path).
+  // Close the picker library view (ESC / 返回 button share this path).
   const closePicker = () => {
-    // 关模态框 ⇒ 清掉待确认（不变量 3）：否则重新打开时会看到一个针对上次那个对象的问句。
+    // 关库视图 ⇒ 清掉待确认（不变量 3）：否则重新打开时会看到一个针对上次那个对象的问句。
     disarmConfirm();
     setTransient("pickerOpen", false);
+    setTransient("pickerDraft", false);
     setTransient("batchMode", false);
     setTransient("batchSelected", []);
     emit();
     // Focus restore: return focus to the「选择壁纸」button that opened the
-    // modal (WCAG focus management for dialogs).
+    // view (WCAG focus management).
     if (pickerOpener && pickerOpener.isConnected) {
       try { pickerOpener.focus(); } catch { /* ignore */ }
     }
   };
-  // ESC anywhere closes the modal. Capture phase + stopPropagation so the
+  // ESC anywhere closes the library view. Capture phase + stopPropagation so the
   // shell's own ESC handling (which may close the whole settings panel) never
-  // sees the key while our modal is open.
+  // sees the key while the view is open.
   React.useEffect(() => {
     const onKey = (e) => {
       if (e.key === "Escape" && selection.pickerOpen) {
@@ -3063,16 +3196,8 @@ const officialColorOf = (tokens) => {
       return () => { window.removeEventListener("keydown", onKey, true); };
     }
   }, []);
-  // Scroll lock: while the modal is open the settings page behind it must not
-  // scroll (wheel over the modal would otherwise move the background).
-  React.useEffect(() => {
-    if (!sel.pickerOpen || typeof document === "undefined") return undefined;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = prev; };
-  }, [sel.pickerOpen]);
 
-  // ── 页签状态：调节面板分六个页签（壁纸/外观/吉祥物/效果/声音/高级），每份
+  // ── 页签状态：调节面板分四个页签（壁纸库/外观/播放/系统 —— 由原六域合并），每份
   //    实例独立记忆（设置页与仓库抽屉互不影响）；只存 localStorage，不进
   //    config.json。useState 必须在下方早退分支之前调用（Rules of Hooks）。 ──
   const [activeTab, setActiveTab] = React.useState(readSavedPickerTab);
@@ -3080,6 +3205,9 @@ const officialColorOf = (tokens) => {
     if (!PICKER_TABS.some((t) => t.id === id) || id === activeTab) return;
     // 切页签 ⇒ 清掉待确认（不变量 3）：问句行随页签一起离屏，不能留着它等回来。
     disarmConfirm();
+    // 下钻的库视图也随页签一起退出：否则切走再切回来，看到的还是库而不是该页内容。
+    if (selection.pickerOpen) setTransient("pickerOpen", false);
+    setTransient("pickerDraft", false);
     setActiveTab(id);
     try { localStorage.setItem(PICKER_TAB_KEY, id); } catch { /* ignore */ }
   };
@@ -3168,27 +3296,32 @@ const officialColorOf = (tokens) => {
   }
 
   // ── 页签面板内容（函数声明提升，renderActiveTab 在 return 里先调用）──────
+  // 四页签 = 两个单渲染器 + 两个合并渲染器（「播放」= 效果 + 声音，「系统」= 吉祥物 + 高级）。
   const renderActiveTab = () => {
     if (activeTab === "appearance") return renderAppearanceTab({
       setSetting, setTransient,
       fontSet: fontSetCtx(),
       officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onToggleFontCustom, onToggleThemeFollow, sel,
     });
-    if (activeTab === "mascot") return renderMascotTab({
-      onRopeFormChange, onRopeScaleChange, onRopeVisibilityChange, sel,
-    });
-    if (activeTab === "effects") return renderEffectsTab({
-      setSetting, setTransient,
-      onBackgroundBrightness, onBackgroundContrast, onBackgroundSaturate, onClearCustomFrame, onClearGpuFrame, onCustomFrameFile, onRecaptureGpuFrame, onRefreshFrame, onScrim, onWallpaperBlur, onWallpaperOpacity, sel,
-    });
-    if (activeTab === "audio") return renderAudioTab({
-      setSetting, setTransient,
-      onToggleAudio, onVideoVolume, sel,
-    });
-    if (activeTab === "advanced") return renderAdvancedTab({
-      setSetting, setTransient,
-      onEdgeCompatChange, onLayoutChange, sel,
-    });
+    if (activeTab === "playback") return React.createElement(React.Fragment, null,
+      renderEffectsTab({
+        setSetting, setTransient,
+        onBackgroundBrightness, onBackgroundContrast, onBackgroundSaturate, onClearCustomFrame, onClearGpuFrame, onCustomFrameFile, onRecaptureGpuFrame, onRefreshFrame, onScrim, onWallpaperBlur, onWallpaperOpacity, sel,
+      }),
+      renderAudioTab({
+        setSetting, setTransient,
+        onToggleAudio, onVideoVolume, sel,
+      }),
+    );
+    if (activeTab === "system") return React.createElement(React.Fragment, null,
+      renderMascotTab({
+        onRopeFormChange, onRopeScaleChange, onRopeVisibilityChange, sel,
+      }),
+      renderAdvancedTab({
+        setSetting, setTransient,
+        onEdgeCompatChange, onLayoutChange, sel,
+      }),
+    );
     return renderWallpaperTab({
       setSetting, setTransient,
       INTERVALS, armedConfirm: sel.armedConfirm, cdMode, current, editing, editorPageView, group, groups, isLiveScene, onArmConfirm: armConfirm, onArmDeleteGroup, onClear, onDeleteGroup, onDisarmConfirm: disarmConfirm, onGroupChange, onGroupInterval, onRefresh, onSwitchTransition, onSwitchTransitionDir, onSwitchTransitionSpeed, onToggleAudio, onTogglePlay, onToggleRotation, pagerRow, playableCount, playableList, playbackLive, renderUserPropsPanel, sel, uploadedList,
@@ -3218,13 +3351,24 @@ const officialColorOf = (tokens) => {
   const onBatchCancel = () => { disarmConfirm(); setTransient("batchMode", false); setTransient("batchSelected", []); emit(); };
   const onSearchInput = (e) => { setTransient("search", e.target.value); setTransient("page", 0); emit(); };
   const onPickCard = (w) => {
+    // 轮播编辑器的下钻（pickerDraft）：点卡片 = 加入/移出**草稿**，不切当前壁纸；
+    // 草稿对象被就地增删（与 importPlaylistIntoDraft / 面板编辑器同一口径），
+    // 「保存」时才由 saveEditingGroup 落盘。
+    if (selection.pickerDraft && selection.editing) {
+      const ids = selection.editing.wallpaperIds;
+      const i = ids.indexOf(w.id);
+      if (i >= 0) ids.splice(i, 1);
+      else ids.push(w.id);
+      emit();
+      return;
+    }
     if (selection.batchMode) {
       const i = selection.batchSelected.indexOf(w.id);
       if (i >= 0) selection.batchSelected.splice(i, 1);
       else selection.batchSelected.push(w.id);
       emit();
     } else {
-      applySelection(w.id);
+      applySelection(w.id, { fromManual: true });
     }
   };
   const onNormalPagePrev = () => { setTransient("page", selection.page - 1); emit(); };
@@ -3233,13 +3377,13 @@ const officialColorOf = (tokens) => {
     // ── Card header (mirrors the skin-center's pluginCard header): plugin
     //    name + live wallpaper count badge + description. ──
     React.createElement("div", { className: "we-picker__card-head" },
-      React.createElement("span", { className: "we-picker__card-name" }, "Wallpaper Engine"),
+      React.createElement("span", { className: "we-picker__card-name" }, "壁纸引擎"),
       React.createElement("span", { className: "we-picker__card-badge" }, String(playableList.length)),
       React.createElement("span", { className: "we-picker__card-desc" }, "本地 Wallpaper Engine 壁纸 · 液态玻璃主题"),
     ),
-    // ── 页签栏（分段式）：六个页签互斥展示，每个页签只留相关控件。 ──
+    // ── 页签栏（分段式）：四个页签互斥展示，替代三十控件的单列长滚动。
     //    指示胶囊随 activeTab 平移（transform 合成器属性，不引发布局）。 ──
-    React.createElement("div", { className: "we-tabs", role: "tablist", "aria-label": "Wallpaper Engine 设置分区" },
+    React.createElement("div", { className: "we-tabs", role: "tablist", "aria-label": "壁纸引擎设置分区" },
       React.createElement("span", {
         className: "we-tabs__pill",
         "aria-hidden": "true",
@@ -3257,20 +3401,18 @@ const officialColorOf = (tokens) => {
         onClick: () => switchTab(t.id),
       }, t.label)),
     ),
-    React.createElement("div", { className: "we-tabpanel", role: "tabpanel" }, renderActiveTab()),
-    // ── Wallpaper picker modal. Portalled onto <body>: fixed positioning is
-    //    immune to ancestor transforms/backdrop-filters (the shell's own glass
-    //    effects would otherwise trap it), and z-index 1000 sits above the
-    //    shell overlays. Close: ESC, backdrop click, or the close buttons. ──
-    sel.pickerOpen && (isRepoPanelCopy || !repoPanelOwnsModal) && renderPickerModal({
-      sel, isRepoPanelCopy, closePicker, current, playbackLive, playableList, hiddenList, hiddenPageView, normalPage,
-      cdMode, pagerRow, query, basePlayable, ratingCounts, typeCounts,
-      armedConfirm: sel.armedConfirm, onArmConfirm: armConfirm, onDisarmConfirm: disarmConfirm,
-      onClear, onRatingFilterChange, onTypeFilterChange,
-      onShowNormalView, onShowHiddenView, onHiddenPagePrev, onHiddenPageNext,
-      onToggleBatchMode, onArmBatchHide, onBatchHide, onBatchCancel, onSearchInput, onPickCard,
-      onNormalPagePrev, onNormalPageNext,
-    }),
+    React.createElement("div", { className: "we-tabpanel", role: "tabpanel" },
+      // 库视图是**页内下钻**（不再是传送门弹框）：pickerOpen 时页签面板整区切换成
+      // 壁纸网格，ESC / 顶部「返回」退出，切页签也会退出（见 switchTab）。
+      sel.pickerOpen ? renderPickerModal({
+        sel, closePicker, current, playbackLive, playableList, hiddenList, hiddenPageView, normalPage,
+        cdMode, pagerRow, query, basePlayable, ratingCounts, typeCounts,
+        armedConfirm: sel.armedConfirm, onArmConfirm: armConfirm, onDisarmConfirm: disarmConfirm,
+        onClear, onRatingFilterChange, onTypeFilterChange,
+        onShowNormalView, onShowHiddenView, onHiddenPagePrev, onHiddenPageNext,
+        onToggleBatchMode, onArmBatchHide, onBatchHide, onBatchCancel, onSearchInput, onPickCard,
+        onNormalPagePrev, onNormalPageNext,
+      }) : renderActiveTab()),
   );
 }
 
@@ -3290,21 +3432,13 @@ function WallpaperPickerSection() {
 // ── Chat-interface rope dock ────────────────────────────────────────────────
 // A chibi ship-whale maid grips a pull-cord and floats over the chat. Drag it
 // along the top to reposition; on release it snaps back to the TOP edge (and is
-// clamped so it can never be dragged out of view). Drag it DOWNWARD past the
-// threshold to pull the glass wallpaper-repo DRAWER out — it descends from the
-// top of the viewport like a drawer, with a live, finger-following preview
-// while dragging. While open, drag UP / press ESC / click the rope or 收起 to
-// close. The panel hosts <WallpaperPicker/> untouched, so every repo
-// interaction (filters, rotation, uploads, hidden list, classic/fixed card
-// layouts) behaves exactly as in the settings page — zero business logic
-// rewritten.
-//
-// Modal ownership: with both the settings copy and the panel copy mounted,
-// two identical picker modals would stack. The panel copy therefore OWNS the
-// modal whenever the dock exists (repoPanelOwnsModal), and the settings copy
-// suppresses its own portal while the flag is up. Flipping the flag triggers
-// emit() so the settings copy re-renders immediately.
-let repoPanelOwnsModal = false;
+// clamped so it can never be dragged out of view). What it opens depends on the
+// host (src/sidebar-right.js 是唯一模式真源):
+//   · harness ≥0.1.5（有官方右侧栏）：点击/下拉 → openTab 展开右侧栏的「壁纸」
+//     tab（快捷播放面板融进官方侧栏，抽屉不启动）；
+//   · 低版本宿主：点击/下拉 → 右滑抽屉（玻璃面板自右向左划出，内容同一份
+//     QuickPanel），上推 / ESC / 收起 关闭。拖拽全程有跟手预览（合成器属性
+//     直写 DOM，不进 React 渲染路径）。
 
 // ── Rope artwork ────────────────────────────────────────────────────────────
 // The pull-cord is the coloured ship-whale maid gripping a rope with both
@@ -3389,10 +3523,9 @@ function RopeDock() {
     return ropeClamp(y, ROPE_EDGE_INSET, Math.max(ROPE_EDGE_INSET, h - ropeSize().h - ROPE_VIEW_MARGIN));
   };
   // Live drag preview on the panel: p ∈ [0,1], 1 = fully open. The panel is a
-  // top drawer — it DESCENDS from the top edge (translateY) as it opens.
+  // right-edge drawer — it slides in from the RIGHT (translateX) as it opens.
   // Written as inline styles (compositor-only props) straight to the DOM —
-  // bypassing React state keeps WallpaperPicker out of the per-pointermove
-  // render path.
+  // bypassing React state keeps QuickPanel out of the per-pointermove render path.
   const applyPreview = (p) => {
     const el = panelRef.current;
     if (!el) return;
@@ -3404,7 +3537,7 @@ function RopeDock() {
     el.style.transition = "transform 440ms cubic-bezier(0.25, 0.8, 0.25, 1), opacity 320ms ease";
     el.style.visibility = "visible";
     el.style.opacity = String(q);
-    el.style.transform = "translateY(" + (-(1 - q) * 102).toFixed(2) + "%)";
+    el.style.transform = "translateX(" + ((1 - q) * 102).toFixed(2) + "%)";
   };
   const clearPreview = () => {
     const el = panelRef.current;
@@ -3443,6 +3576,8 @@ function RopeDock() {
     const el = ropeRef.current;
     if (el) { el.style.left = d.lastX + "px"; el.style.top = d.lastY + "px"; }
     // Follow-hand preview: pull down opens (when closed), push up closes (when open).
+    // 官方态没有抽屉可预览（面板在右侧栏里）—— 只跟手移动吉祥物，不出抽屉影子。
+    if (sidebarRightMode() === "official") { clearPreview(); return; }
     if (!open && dy > ROPE_PREVIEW_START) {
       applyPreview((dy - ROPE_PREVIEW_START) / (ROPE_OPEN_THRESHOLD - ROPE_PREVIEW_START));
     } else if (open && dy < -ROPE_PREVIEW_START) {
@@ -3451,6 +3586,9 @@ function RopeDock() {
       clearPreview();
     }
   };
+  // 吉祥物触发的统一入口（click / 手势 / 快捷键共用一组模块级开关，见
+  // src/sidebar-right.js 的 wallSidebarToggle/Open/Close）：官方态 → 控制器切换
+  // 右侧栏（展开且正显示「壁纸」⇒ 收起；否则展开并聚焦本 tab）；抽屉态 → 开关抽屉。
   const finishDrag = (clientX, clientY, canceled) => {
     const d = dragRef.current;
     const el = ropeRef.current;
@@ -3460,9 +3598,10 @@ function RopeDock() {
     el.classList.add("we-rope--settle");
     if (d) {
       const dy = clientY - d.startY;
-      if (!canceled && !d.moved) setOpen((o) => !o);            // plain click toggles
-      else if (!canceled && !open && dy >= ROPE_OPEN_THRESHOLD) setOpen(true);
-      else if (!canceled && open && dy <= -ROPE_OPEN_THRESHOLD) setOpen(false);
+      // 点击 = 开/关切换；下拉 ≥ 阈值 = 开；上推 ≥ 阈值 = 关（官方态收起同样由此统一）。
+      if (!canceled && !d.moved) wallSidebarToggle();
+      else if (!canceled && dy >= ROPE_OPEN_THRESHOLD) wallSidebarOpen();
+      else if (!canceled && dy <= -ROPE_OPEN_THRESHOLD) wallSidebarClose();
     }
     clearPreview(); // committed class transitions continue smoothly from the inline value
     // Snap to the TOP edge; Y resets to the top inset while X stays wherever
@@ -3478,7 +3617,7 @@ function RopeDock() {
     try { localStorage.setItem(ROPE_POS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
   };
   const onRopeKeyDown = (e) => {
-    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen((o) => !o); }
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); wallSidebarToggle(); }
   };
 
   // ESC anywhere closes the panel — unless the picker modal is open. The
@@ -3519,17 +3658,23 @@ function RopeDock() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [box.w, box.h]);
 
-  // Claim modal ownership ONLY while the panel is open AND the rope is visible
-  // (its picker is mounted). When closed or hidden the picker is unmounted, so
-  // the settings copy must own the modal again — otherwise 选择壁纸 from settings
-  // would open nothing. emit() keeps the settings copy in sync; hiding while
-  // open also closes the drawer, so ownership never sticks to an invisible panel.
+  // Hidden ⇒ 抽屉必须关上（吉祥物没了，它的面板入口也没了）。
   React.useEffect(() => {
     if (hidden) setOpen(false);
-    repoPanelOwnsModal = open && !hidden;
-    emit();
-    return () => { repoPanelOwnsModal = false; emit(); };
   }, [open, hidden]);
+
+  // 模块桥（src/sidebar-right.js 的 ropeDrawerControl）：抽屉的三个动作注册给
+  // 快捷键与统一开关使用 —— 组件 state 只能由组件自己改。吉祥物隐藏时撤销注册
+  // （此时抽屉开不出来，快捷键 resolve 走 pass 不吞键）；卸载时同样撤销。
+  React.useEffect(() => {
+    if (hidden) { ropeDrawerControl = null; return undefined; }
+    ropeDrawerControl = {
+      toggle: () => setOpen((o) => !o),
+      open: () => setOpen(true),
+      close: () => setOpen(false),
+    };
+    return () => { ropeDrawerControl = null; };
+  }, [hidden]);
 
   // Hidden: render nothing (rope + drawer), but keep the one-time update
   // notice — it is independent of the mascot and must still surface.
@@ -3557,8 +3702,8 @@ function RopeDock() {
       style: ropeStyle,
       role: "button",
       tabIndex: 0,
-      "aria-label": "壁纸仓库拉绳：沿顶部拖动移动位置，向下拉打开壁纸仓库面板",
-      title: "壁纸仓库 · 沿顶部拖动 / 向下拉打开",
+      "aria-label": "壁纸库拉绳：沿顶部拖动移动位置，向下拉打开壁纸库面板",
+      title: "壁纸库 · 沿顶部拖动 / 向下拉打开",
       onPointerDown: onRopePointerDown,
       onPointerMove: onRopePointerMove,
       onPointerUp: (e) => finishDrag(e.clientX, e.clientY, false),
@@ -3573,12 +3718,12 @@ function RopeDock() {
       ref: panelRef,
       className: "we-repo-panel" + (open ? " we-repo-panel--open" : ""),
       "aria-hidden": String(!open),
-      "aria-label": "壁纸仓库面板",
+      "aria-label": "壁纸库面板",
       // Closed panel must not expose focusable descendants to Tab / AT.
       inert: open ? undefined : "",
     },
       React.createElement("header", { className: "we-repo-panel__head" },
-        React.createElement("span", { className: "we-repo-panel__title" }, "壁纸仓库"),
+        React.createElement("span", { className: "we-repo-panel__title" }, "壁纸库"),
         React.createElement("button", {
           type: "button",
           tabIndex: open ? 0 : -1,
@@ -3587,11 +3732,11 @@ function RopeDock() {
         }, "收起"),
       ),
       React.createElement("div", { className: "we-repo-panel__body" },
-        // Lazy-mount the picker only while the drawer is open: keeping the
-        // whole WallpaperPicker (spinning vinyl etc.) mounted behind a hidden
-        // full-viewport fixed panel was the biggest new compositing footprint
-        // the rope update added — a driver of the kiosk-window white flash.
-        open ? React.createElement(WallpaperPicker, { repoPanel: true }) : null,
+        // Lazy-mount the panel only while the drawer is open: keeping it mounted
+        // behind a hidden full-viewport fixed panel was the biggest compositing
+        // footprint of the rope dock — a driver of the kiosk-window white flash.
+        // 内容与官方侧栏 tab 同一份（QuickPanel），壳只有这一个抽屉。
+        open ? React.createElement(QuickPanel, { dock: "drawer" }) : null,
       ),
     ),
     React.createElement(UpdateNotice, null),
@@ -4118,10 +4263,30 @@ function apply(ctx) {
   if (ctx.slots) {
     ctx.slots.inject("settings.section", () =>
       ctx.slots.register(
-        { name: "settings.section", id: "wallpaper-engine", order: 500, label: "Wallpaper Engine" },
+        { name: "settings.section", id: "wallpaper-engine", order: 500, label: "壁纸引擎" },
         () => React.createElement(WallpaperPickerSection),
       ),
     );
+  }
+
+  // 2b. 设置导航图标：官方 nav 的图标是 shell 里 navIcon(id) 的硬编码映射，第三方
+  //     section 一律拿兜底齿轮 —— 用 DOM 补丁把「壁纸引擎」那格换成自绘 SVG
+  //    （src/nav-icon.js；补丁失败 = 保留齿轮，不抛、不重试）。
+  if (ctx.effect && typeof document !== "undefined") {
+    ctx.effect(() => installWeNavIcon() || undefined);
+  }
+
+  // 2c. 官方右侧栏接入（harness ≥0.1.5）：能力门在 src/sidebar-right.js —— 座位
+  //     声明则面板融进右侧栏 tab，未声明则保持抽屉态。低版本宿主上回调永远不跑，
+  //     插件也不会 park（可选服务全靠 ctx.get，不写进 inject）。
+  if (ctx.effect && typeof document !== "undefined") {
+    ctx.effect(() => installSidebarRight(ctx) || undefined);
+  }
+
+  // 2d. 壁纸侧栏快捷键（官方桌面默认 Cmd/Ctrl+Alt+W）：注册进宿主的 shortcuts 服务
+  //     （可选服务 + 短轮询，缺服务安静跳过），命令在宿主快捷键编辑器里可改键。
+  if (ctx.effect && typeof document !== "undefined") {
+    ctx.effect(() => installWallSidebarShortcut(ctx) || undefined);
   }
 
   // 3. Chat-interface rope dock: the draggable pull-cord + glass repo side
