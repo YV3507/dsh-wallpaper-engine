@@ -3,7 +3,7 @@
 - **Date**: 2026-09-30
 - **Status**: Accepted
 - **Deciders**: YV3507
-- **Amends**: 浏览器侧模块组织的实现约定（见 `docs/MODULE-LAYOUT.md`）
+- **Amends**: 浏览器侧模块组织的实现约定（见 `docs/CODE-STRUCTURE.md`）
 
 > 机制细节在 `scripts/build-client.mjs` 与各 `src/**` 模块的文件头；本文只记取舍。
 
@@ -54,7 +54,7 @@ import './panel-tabs.js'   // ← 运行时根本不成立
   **契约**（需要什么外界、对外提供什么）而不是显式依赖。
 - **D8 —— `src/` 目录不承载机器含义**：因为没有解析器、没有守卫能验证"层次"，
   建子目录的唯一收益是"让人一眼看出这几块是一伙的"。因此准入条件刻意定得很高
-  （见 `docs/MODULE-LAYOUT.md`），且默认平铺。
+  （见 `docs/CODE-STRUCTURE.md`），且默认平铺。
 
 ## Consequences
 
@@ -87,6 +87,6 @@ import './panel-tabs.js'   // ← 运行时根本不成立
 ## 参考
 
 - 内联清单与构建期断言：`scripts/build-client.mjs`
-- 两侧分工与 `src/` 目录准入：`docs/MODULE-LAYOUT.md`
+- 两侧分工与 `src/` 目录准入：`docs/CODE-STRUCTURE.md`
 - 产物到底是什么（构成 / 铁律 / 陷阱）：`CONTRIBUTING.md`
 - 设置真源这个唯一的共享内核：`docs/adr/0002-settings-schema-single-source.md`

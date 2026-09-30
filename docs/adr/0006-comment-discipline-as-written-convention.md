@@ -94,7 +94,7 @@
 ## 参考
 
 - 纪律条文：`docs/README.md` §写作纪律
-- 分档与两档清单：`docs/TEST-LAYOUT.md`
+- 分档与两档清单：`docs/DEV-GUIDE.md` §4.2
 - 被本 ADR 部分修订的前置决定：`docs/adr/0004-two-tier-guard-verification.md`
 - ADR 自身的不写数值约定：`docs/adr/README.md`
 - 设置的唯一真源：`lib/settings-schema.js`；路由生成物：`docs/ROUTE-INDEX.md`

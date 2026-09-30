@@ -328,7 +328,7 @@ setTimeout(async () => {
   console.log('body[data-we-glass-window] (default on):', JSON.stringify(bodyEl.attributes['data-we-glass-window']));
 
   // ── P3-11 尾账：首载期「扫描 Wallpaper Engine…」的截取渲染 ────────────────────
-  // 判据只定义一次，正/负对照共用（形态规则见 docs/TEST-LAYOUT.md §约定 5）。
+  // 判据只定义一次，正/负对照共用（形态规则见 docs/DEV-GUIDE.md §4.7 约定 5）。
   const startupState = (root) => {
     const out = { hints: [], cards: 0, hasPickTrigger: false, errors: [] };
     (function walk(node) {
@@ -850,7 +850,7 @@ setTimeout(async () => {
     };
     // Page 1: 33 playable wallpapers → 2 pages @ 24; grid = close card + 24.
     // 判据必须**真断言**：整块 `console.log` 只在日志里像断言、不判真假（形态规则见
-    // docs/TEST-LAYOUT.md §约定 5）—— 分页器这条路径此前就是这么被漏掉的。
+    // docs/DEV-GUIDE.md §4.7 约定 5）—— 分页器这条路径此前就是这么被漏掉的。
     let cards = collectCards(tree);
     rotCheck('分页：第 1 页 25 张卡（关闭卡 + 24）', cards.length === 25);
     rotCheck('分页：页数 > 1 时渲染分页器', JSON.stringify(tree).includes('we-picker__pager'));
@@ -878,7 +878,7 @@ setTimeout(async () => {
       !page1Text.includes('Wall 29') && page2Text.includes('Wall 29'));
 
     // ── 0b：搜索 / 类型筛选 / 批量 / 隐藏页 / 卡片头计数（这些区域此前零判据）──
-    // 判据只在**一处**定义，正判据与负对照都调它（形态规则见 docs/TEST-LAYOUT.md §约定 5）。
+    // 判据只在**一处**定义，正判据与负对照都调它（形态规则见 docs/DEV-GUIDE.md §4.7 约定 5）。
     const cardTexts = (root) => collectCards(root).map((c) => JSON.stringify(c));
     // 关闭卡也是 `we-picker__card`（分页计数里它一直算一张）⇒ 判"只剩匹配项"时必须先摘掉它。
     const wallpaperCardTexts = (root) => cardTexts(root).filter((s) => !s.includes('✕ 关闭'));
@@ -955,7 +955,7 @@ setTimeout(async () => {
       })(modal, 0);
       return out;
     };
-    // 判据只有这一处：正判据与全部负对照都调它（形态规则见 docs/TEST-LAYOUT.md §约定 5）。
+    // 判据只有这一处：正判据与全部负对照都调它（形态规则见 docs/DEV-GUIDE.md §4.7 约定 5）。
     const classSequenceMatches = (seq, golden) =>
       seq.length === golden.length && seq.every((t, i) => t === golden[i]);
     // 只把**第一个**壁纸卡的深度 +1：序列长度不变，只有层级变 —— 用来证明逐项比较真在比内容。
@@ -2259,7 +2259,7 @@ setTimeout(async () => {
   const selfSrc = readFileSync(new URL(import.meta.url), 'utf8');
   // 判据只认**以 `console.log(` 开头的语句**：伪判据都是这种形态，而本段自己的负对照行以
   // `assert.equal(` 开头（它的字符串字面量里正是带着 `console.log(… === …)` 样本）——
-  // 不收紧就会被自己的对照绊倒（同 `docs/TEST-LAYOUT.md` §约定 3 那条陷阱）。
+  // 不收紧就会被自己的对照绊倒（同 `docs/DEV-GUIDE.md` §4.7 约定 3 那条陷阱）。
   const isFakeJudgement = (line) => {
     const t = line.trim();
     if (!/^console\.log\(/.test(t)) return false;      // 不是 log 语句
@@ -2280,7 +2280,7 @@ setTimeout(async () => {
 
   // 同族的第二种形态（实测过两处：光标色板、吉祥物开关）：`console.log('… present:', !!x)` 之后紧跟
   // `if (x) { …断言… }` —— 探测日志不判真假，而"缺失即跳过断言"让后面的判据**零覆盖仍绿**
-  // （缺前置与通过同形，见 `docs/TEST-LAYOUT.md` §约定 8 的反面）。判据只看**紧邻的非空行**是否
+  // （缺前置与通过同形，见 `docs/DEV-GUIDE.md` §4.7 约定 8 的反面）。判据只看**紧邻的非空行**是否
   // 用同一个标识符做 `if (x)`；`if (!x) assert.fail(…)` 那种"缺了就红"的正写法**不算**。
   const probeThenSkip = (src) => {
     const ls = src.split('\n');

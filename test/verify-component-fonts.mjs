@@ -20,7 +20,7 @@
  * **负对照的形态规则（P3-16）**：变异输入必须喂进**同一条判据**（同一个命名函数 / 同一个正则
  * 常量）。两种写法不算数：① 只断言"某个常量 / 数组不含 X" —— 判据根本没被执行；
  * ② 在对照里另抄一份判据 —— 生产侧（这里是 `src/font/components.js`）改了它也不会红。
- * 规则全文与其余守卫约定见 [`docs/TEST-LAYOUT.md`](../docs/TEST-LAYOUT.md) §约定。
+ * 规则全文与其余守卫约定见 [`docs/DEV-GUIDE.md`](../docs/DEV-GUIDE.md) §4.7。
  *
  * Usage:  node test/verify-component-fonts.mjs
  */

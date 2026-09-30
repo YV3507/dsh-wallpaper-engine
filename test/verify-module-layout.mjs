@@ -1,5 +1,5 @@
 /**
- * verify-module-layout.mjs — `lib/` 与 `src/` 的分工守卫（docs/MODULE-LAYOUT.md §7 在册的规则）。
+ * verify-module-layout.mjs — `lib/` 与 `src/` 的分工守卫（docs/CODE-STRUCTURE.md §6 在册的规则）。
  *
  * 各条规则各回答一个"边界画在哪"的问题，且都机器可判定（编号 = 正文里的段落号；
  * ④ 与 ⑤ 是后加的两组判据，见各自段落的注释）：
@@ -30,7 +30,7 @@
  *      为什么：`src/` 模块之间没有 `import`、构建期被拍平 ⇒ 目录在这一侧**不承载机器含义**，
  *      唯一用处是"让人一眼看出这几块是一伙的"。1–2 个文件的目录做不到这件事（只多一层路径
  *      与一次搬动），而没有"自己的权威文档"的目录会让新读者不知道该先读哪份文档。
- *      准入条件写在 MODULE-LAYOUT §4 第 1 条；样本只有 `src/font/`（H1 在 FONT-SYSTEM.md）。
+ *      准入条件写在 CODE-STRUCTURE §4 第 1 条；样本只有 `src/font/`（H1 在 FONT-SYSTEM.md）。
  *      不变量：thin == 0 且 unnamed == 0。
  *
  * 每条规则都配**负对照**：把合成输入喂给**同一个判据函数**，断言它给出"坏"的裁决。
@@ -81,7 +81,7 @@ function findStaleWhitelistEntries(registeredFiles, whitelist) {
 /**
  * `src/` 子目录准入的**成员数门槛**。
  *
- * 这里是该数值的**唯一真源**：`docs/MODULE-LAYOUT.md` §4 只写"达到 `SRC_DIR_MIN_MEMBERS`"，
+ * 这里是该数值的**唯一真源**：`docs/CODE-STRUCTURE.md` §4 只写"达到 `SRC_DIR_MIN_MEMBERS`"，
  * 不抄写数字（本仓纪律：文档不写会漂的数值，见 `docs/README.md` §写作纪律）。
  * 判定逻辑在 `thinSrcDirs()`，正/负对照都走同一个函数。
  */
@@ -476,8 +476,9 @@ console.log('\n⑤ 路由模块必须自己 import 用到的库函数（不得�
     '报出=[' + synthStale.join(',') + ']');
 }
 
-// ═══ ④（已撤除：MODULE-LAYOUT 的内联计数 == 构建清单）══════════════════════════
-// 这里此前有一条**读文档散文**的判据：把 `docs/MODULE-LAYOUT.md` 里"共 N 个内联模块"那句
+// ═══ ④（已撤除：CODE-STRUCTURE 的内联计数 == 构建清单）══════════════════════════
+// 这里此前有一条**读文档散文**的判据：把文档（当时的 `docs/MODULE-LAYOUT.md`，现并入
+// `docs/CODE-STRUCTURE.md`）里"共 N 个内联模块"那句
 // 用正则找出来，与构建清单比对，并要求"改写句子就变红"。
 //
 // 它按 [`docs/adr/0006`](../docs/adr/0006-comment-discipline-as-written-convention.md) **撤除**了：
@@ -518,7 +519,7 @@ console.log('⑥ `src/` 子目录成员数 ≥3 且被常青文档一级标题�
   check('覆盖面：既有 `src/` 子目录、也有常青面文档（防两条判据空转）',
     srcDirs.length >= 1 && headings.length >= 8,
     srcDirs.length + ' 个目录（' + srcDirs.join(',') + '）/ ' + headings.length + ' 份文档');
-  check('`src/` 子目录成员数达门槛（不足就别分目录，见 MODULE-LAYOUT §4 第 1 条；门槛 = SRC_DIR_MIN_MEMBERS = ' + SRC_DIR_MIN_MEMBERS + '）',
+  check('`src/` 子目录成员数达门槛（不足就别分目录，见 CODE-STRUCTURE §4 第 1 条；门槛 = SRC_DIR_MIN_MEMBERS = ' + SRC_DIR_MIN_MEMBERS + '）',
     thin.length === 0,
     thin.length ? '不足：' + thin.map((d) => d + '(' + counts[d] + ')').join(' ')
       : srcDirs.map((d) => d + '(' + counts[d] + ')').join(' '));
@@ -577,12 +578,12 @@ console.log('⑥ `src/` 子目录成员数 ≥3 且被常青文档一级标题�
     !judge('// 见 ' + NEEDLE + 'g'));
 }
 
-// ═══ ⑧ 手动工具与适配层必须在 docs/TEST-LAYOUT.md 里点名（不许有"没人知道的工具"）══════════════
+// ═══ ⑧ 手动工具与适配层必须在 docs/DEV-GUIDE.md 里点名（不许有"没人知道的工具"）══════════════
 // 回答的边界问题：「`test/tools/` 里那些没有 CI 消费者的脚本，读的人找得到吗」。
 // 实测过的形状：9 个工具里只有 1 个被文档点名 —— 其余等于只对作者可见（别人不知道该跑哪个、怎么跑）。
 // `test/compat-*.mjs` 同理：它们是 CI 调的，但人也要能手动跑（文档里写的是不带扩展名的名字）。
 {
-  const DOC = readFileSync(join(ROOT, 'docs', 'TEST-LAYOUT.md'), 'utf8');
+  const DOC = readFileSync(join(ROOT, 'docs', 'DEV-GUIDE.md'), 'utf8');
   const tools = readdirSync(join(ROOT, 'test', 'tools')).filter((f) => f.endsWith('.mjs')).sort();
   const compat = readdirSync(join(ROOT, 'test')).filter((f) => /^compat-.*\.mjs$/.test(f)).sort();
   // 按**不带扩展名的文件名**判（文档里工具写成 `x.mjs`、compat 写成 `x`，两种都算点名）
@@ -590,7 +591,7 @@ console.log('⑥ `src/` 子目录成员数 ≥3 且被常青文档一级标题�
   check('覆盖面：⑧ 扫到 ≥8 个工具 + ≥3 个 compat（防扫描面为空而恒真）',
     tools.length >= 8 && compat.length >= 3, tools.length + ' 工具 / ' + compat.length + ' compat');
   const undocumented = judge(DOC, [...tools, ...compat]);
-  check('每个 test/tools/*.mjs 与 test/compat-*.mjs 都在 TEST-LAYOUT 里点名', undocumented.length === 0,
+  check('每个 test/tools/*.mjs 与 test/compat-*.mjs 都在 DEV-GUIDE 里点名', undocumented.length === 0,
     undocumented.length ? '未点名：' + undocumented.join(', ') : (tools.length + compat.length) + ' 个都被点名');
   check('negative control: 合成一个没被点名的工具会被判出',
     judge(DOC, ['zzz-合成未点名.mjs']).join() === 'zzz-合成未点名.mjs');

@@ -28,7 +28,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Readable, Writable } from 'node:stream';
 import { execFileSync } from 'node:child_process';
-// 剥注释：共享的字符串感知实现（`verify-module-layout` ⑦ 钉住"不许再用朴素正则"）。
+// 剥注释：共享的字符串感知实现（`verify-module-layout` 的『剥注释必须字符串感知』一节钉住"不许再用朴素正则"）。
 import { stripComments } from './tools/js-text.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');

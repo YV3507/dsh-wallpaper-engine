@@ -192,7 +192,7 @@
 
 | 文档 | 关系 |
 |---|---|
-| [`docs/MODULE-LAYOUT.md`](../MODULE-LAYOUT.md) | `lib/` 与 `src/` 的分工规范（新文件放哪、什么算越界）；本文不重复它，它不重复本文的进度 |
+| `docs/CODE-STRUCTURE.md`（当时名为 `docs/MODULE-LAYOUT.md`，后与 `ARCHITECTURE.md` 合并） | `lib/` 与 `src/` 的分工规范（新文件放哪、什么算越界）；本文不重复它，它不重复本文的进度 |
 | [`docs/ROUTE-INDEX.md`](../ROUTE-INDEX.md) | 路由 → 处理器 → 依赖 → 守卫覆盖的索引，由守卫重算比对（**不可手改**） |
 | [`docs/archive/audits/F0-THEME-SERVICE-CHECKLIST.md`](audits/F0-THEME-SERVICE-CHECKLIST.md) | F0 真机记录（已关闭，保留）；结论已并入 §9.1 的 V1–V10 |
 | [`docs/archive/static-frame/*`](static-frame/) | 静态帧线的历史与逆向记录（**不反映现行实现**）；§6 是它的终点决策 |

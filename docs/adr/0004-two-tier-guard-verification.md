@@ -5,7 +5,7 @@
 - **Deciders**: YV3507
 - **Amended by**: [ADR-0006](./0006-comment-discipline-as-written-convention.md)（软档内的**文档类**守卫后续被撤除）
 
-> 分档判据与两档清单的现状在 `docs/TEST-LAYOUT.md`；本文只记**为什么分档**。
+> 分档判据与两档清单的现状在 `docs/DEV-GUIDE.md` §4.2；本文只记**为什么分档**。
 
 ## Context
 
@@ -65,6 +65,6 @@
 
 ## 参考
 
-- 分档判据、两档清单与"明确不做的事"：`docs/TEST-LAYOUT.md`
+- 分档判据、两档清单与"明确不做的事"：`docs/DEV-GUIDE.md` §4.2
 - 入口包装：`test/warn-only.mjs`
 - 文档类软档守卫的撤除决定：`docs/adr/0006-comment-discipline-as-written-convention.md`

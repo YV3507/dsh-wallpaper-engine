@@ -164,7 +164,7 @@ id 白名单、`$schema` 版本语义、导入导出形状全部照旧；变的�
   与"随包预设必须真的改变外观"（空壳预设 = 用户切换了却没反应，配"全空 ⇒ 判它不改变外观"的配对项）。
 
 **同交**：`package.json` 的 `files` 加 `lib/fontsets/`（`verify-package-files` P1 要求 `files` 覆盖
-`lib/` 下**每一个**文件）；`docs/MODULE-LAYOUT.md` 登记"随包数据目录"这一形态。
+`lib/` 下**每一个**文件）；`docs/CODE-STRUCTURE.md`（当时名 `docs/MODULE-LAYOUT.md`）登记"随包数据目录"这一形态。
 
 ### 阶段 2 ✅：客户端消费（**六个字体键退出 settings 持久化白名单**是承重的一步）
 
@@ -333,7 +333,7 @@ confirm 成对门控 / 载入与失败态可见），每条都配了变异输入
 
 ## 4. 顺带记下的小账（不属本项，别夹带）
 
-- [`docs/MODULE-LAYOUT.md:128`](../../MODULE-LAYOUT.md) 的散文写着"其余 **13** 个内联模块都是 `src/`"，
+- `docs/CODE-STRUCTURE.md`（审计当时名为 `docs/MODULE-LAYOUT.md`；其中那句散文与行号早已失效）的散文写着"其余 **13** 个内联模块都是 `src/`"，
   而实测是 **16**（`INLINE_MODULES` 共 17 条 = 16 个 `src/` + 1 个共享 `lib/settings-schema.js`，
   与账本 §2 的 17 一致）⇒ **常青文档里一处无人钉住的过期数字**。本项**不动它**（另一把刀），
   但阶段 1 会碰 `INLINE_MODULES`，届时别把它一起改进来。

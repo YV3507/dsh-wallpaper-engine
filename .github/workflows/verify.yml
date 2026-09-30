@@ -61,7 +61,7 @@ jobs:
         run: npm run smoke
 
       # 软档（仓库内务 / 账本自洽 / 一次性清理的验收判据）：照跑、照打印 ✓/✗，但 **不拦 PR** ——
-      # 详见 docs/TEST-LAYOUT.md §两档。`continue-on-error` 是这一档的定义本身，不是权宜：
+      # 详见 docs/DEV-GUIDE.md §4.2。`continue-on-error` 是这一档的定义本身，不是权宜：
       # 硬档的门槛是"能说出用户侧后果"，说不出后果的判据不该决定别人的改动能不会被合。
       # `verify:docs` 内部已经用 `test/warn-only.mjs` 把每条守卫的退出码降级并打印原码；
       # 这里再加一层是**双保险**（CI 上若有人改坏了那层包装，这步仍不会变红）。

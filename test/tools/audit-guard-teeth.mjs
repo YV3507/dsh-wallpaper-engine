@@ -24,7 +24,7 @@
  *      ⚠️ 本条说明自身就是证据：写这段时注释里出现了字面的结束标记，**当场把这个文件变成语法错误**。
  *
  * **它不是判据，是候选清单** —— 与 `audit-fixture-coverage.mjs`（P3-23）同一立场：结论要人读。
- * 所以它**不进 `npm run verify`**（MODULE-LAYOUT §4.5：无 CI 消费者的手动工具住 `test/tools/`）。
+ * 所以它**不进 `npm run verify`**（CODE-STRUCTURE §4 第 5 条：无 CI 消费者的手动工具住 `test/tools/`）。
  *
  * 已知局限（照 P3-23 的规矩写在工具头，别让读者以为它是穷尽的）：
  *   ① A 的判据是"**最后一次 push 晚于最后一次评估**"。成对交错（评估、push、评估、push…）里
@@ -51,7 +51,7 @@ import { fileURLToPath } from 'node:url';
 // 判据 F 要与共享的字符串感知实现对比（同目录 js-text.mjs）。
 import { stripComments } from './js-text.mjs';
 
-// `test/tools/` 比 `test/` 深一层 ⇒ 推仓库根要退**两层**（MODULE-LAYOUT §4.5；verify-module-layout ④ 有断言）
+// `test/tools/` 比 `test/` 深一层 ⇒ 推仓库根要退**两层**（CODE-STRUCTURE §4 第 5 条；verify-module-layout ④ 有断言）
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 // 扫描面 = 守卫面（verify-* 结构守卫 + *-smoke 节点级冒烟）。手动工具自己不算守卫，不扫。

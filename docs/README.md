@@ -1,7 +1,19 @@
 # docs — 决策与用户文档
 
-本项目采用**「代码即真相」**文档模式：渲染 / 逆向 / 根因知识直接内联在对应实现文件的代码注释里。
-`docs/` 只保留**决策**（含验收判据）、**规范**与**用户文档**；实现机制不在这里。
+> **English**: [`en/README.md`](./en/README.md) —— 英文版索引（**只覆盖常青文档**：`CHANGELOG.md` 与
+> `adr/` **有意不译**，见该文件开头的说明）。
+>
+> 本项目采用**「代码即真相」**文档模式：渲染 / 逆向 / 根因知识直接内联在对应实现文件的代码注释里。
+> `docs/` 只保留**决策**（含验收判据）、**规范**与**用户文档**；实现机制不在这里。
+
+## 语言结构（新增文档前先读这一节）
+
+- **中文在 `docs/` 根，英文在 `docs/en/`，basename 相同** —— 这样"某文档有没有英文版"是**目录级可枚举事实**，
+  改一份时对应文件一眼可见（后缀式命名要靠逐个文件猜，也容易漂成 `X-en-v2.md` 这类形态）。
+- **每份同名文档顶部都有语言切换链接**；改任一侧请**同步另一侧**（文档头已写明）。
+- **例外（有意不译）**：`CHANGELOG.md`（账本，逐版本记录，翻译成本高而收益低）、`adr/`（决策记录，
+  中文为权威版本）、`ROUTE-INDEX.md`（生成物）、`archive/` 与 `wip/`（历史与过程记录 ——
+  原先单独列出的 `dev-notes-bom-and-dsh-boot.md` 与 `awesome-dsh-plugin-pr-guide.md` 现已归入 `archive/`）。
 
 ## 目录的寿命规则（新增文档前先读这一节）
 
@@ -16,8 +28,8 @@
 > 本仓的成文纪律只有这几条 —— 它们的**家在这里**（入库），不借住在任何本机专用的文件里。
 >
 > **纪律靠约定，不靠守卫。** 这里此前挂着一批"机器判定"的文档类守卫，已按
-> [`adr/0006`](./adr/0006-comment-discipline-as-written-convention.md) 决定撤除（**决策已生效；
-> 守卫文件的下线仍待执行** —— 在那之前它们照旧在 `npm run verify:docs` 里跑，其判据不算数）：
+> [`adr/0006`](./adr/0006-comment-discipline-as-written-convention.md) **撤除并已下线**
+> （决策与执行都已落地 —— 那两条守散文的守卫不再在链上跑）：
 > 写作纪律判断的是「读者会不会被误导」，把它降级成正则匹配只会让作者去躲词表，
 > 而且守卫自身会腐化与自相矛盾。
 > 因此下表第三列**只写"由什么兜住"**，且**没有就是没有** —— 不许用一条恒真的判据冒充覆盖。
@@ -29,10 +41,10 @@
 |---|---|---|
 | 1 | **注释写不变量，不写编年史** —— 日期、「曾经 / 旧实现」框定、实测症状与踩坑记录一律不进代码注释 | 无守卫（写作约定）。历史价值的内容进 `CHANGELOG.md` 或 git 历史 |
 | 2 | **「实测 X ≈ Y」是出处，不是编年史** —— 给经验值与浏览器行为标出处的句子必须留，否则读者分不清「测出来的」与「猜的」 | 无守卫（写作约定）。出处**留在被实测的那个代码位置附近**，不搬进常青文档散文 |
-| 3 | **能写在代码旁的规则不单写文档** —— 机制 / 不变量 / 契约写在**文件头**；文档只留决策、顺序、验收判据与证据锚点 | 无守卫（写作约定）；落点规范见 [`MODULE-LAYOUT.md`](./MODULE-LAYOUT.md) |
+| 3 | **能写在代码旁的规则不单写文档** —— 机制 / 不变量 / 契约写在**文件头**；文档只留决策、顺序、验收判据与证据锚点 | 无守卫（写作约定）；落点规范见 [`CODE-STRUCTURE.md`](./CODE-STRUCTURE.md) |
 | 4 | **常青文档不写会漂的数值** —— 默认值 / 范围 / 枚举清单 / 条数 / 行数 / 体积 / 耗时阈值一律改为**符号引用**或**复算命令**。真源：设置 → `lib/settings-schema.js`，路由 → [`ROUTE-INDEX.md`](./ROUTE-INDEX.md) | 无守卫（写作约定，见 ADR-0006）。**例外**：`CHANGELOG.md` 与 `docs/archive/**` 是账本，其中数值**保持原样**，改了就是伪造记录 |
 | 5 | **退役线只许缩小** —— 反向探针先于删除；基线只许收紧，删完清空即为「零残留」 | `test/verify-retired-lines.mjs` |
-| 6 | **守卫判据只针对代码，不针对散文** —— 断言「源码里不再有 X」之前先剥注释 | [`TEST-LAYOUT.md`](./TEST-LAYOUT.md) §约定 |
+| 6 | **守卫判据只针对代码，不针对散文** —— 断言「源码里不再有 X」之前先剥注释 | [`DEV-GUIDE.md`](./DEV-GUIDE.md) §4.7 |
 | 7 | **跳过不得与通过同形** —— 缺前置要么红，要么要求显式 `--allow-skip`；静默跳过等于悄悄失去覆盖 | `test/verify-media-bridge.mjs`（`--provision` / `--allow-skip`） |
 | 8 | **决策进 ADR，机制进文件头** —— 有备选方案、有人付了代价的取舍写成 [`adr/`](./adr/)；"怎么实现的"写在对应实现文件的头注释 | 无守卫（写作约定）；格式见 [`adr/README.md`](./adr/README.md) |
 
@@ -56,14 +68,14 @@
 
 | 文档 | 内容 |
 |---|---|
-| [ARCHITECTURE.md](./ARCHITECTURE.md) | **架构总览** —— 两个半边（宿主插件 / 浏览器插件）、分层与路由族、构建期内联、启动与卸载生命周期、一次壁纸的数据流、**状态真源清单**、扩展点落点、边界表。只画结构，不写机制与数值 |
-| [MODULE-LAYOUT.md](./MODULE-LAYOUT.md) | `lib/` 与 `src/` 的分工规范、目录约定、开发面（`test/` / `scripts/`）的职责与深度陷阱 |
-| [DEV-GUIDE.md](./DEV-GUIDE.md) | **二次开发指南** —— "怎么加一个 X"的配方：加路由 / 加设置项 / 加浏览器端代码 / 加守卫，每节给落点、必须同步改的地方、以及**改错了会怎样** |
-| [TEST-LAYOUT.md](./TEST-LAYOUT.md) | 测试目录说明：守卫 / 冒烟 / 工具各自放哪、为什么 `test/tools/` 要多数一层 `..` |
+| [CODE-STRUCTURE.md](./CODE-STRUCTURE.md) | **代码结构与边界** —— 两份文档合并而成（原 `MODULE-LAYOUT.md` ⊕ `ARCHITECTURE.md`）：`lib/` 与 `src/` 的分工规范、目录约定与准入门槛、两个半边与路由族、构建期内联、启停生命周期、数据流、**状态真源清单**、层间边界表、在册守卫 |
+| [DEV-GUIDE.md](./DEV-GUIDE.md) | **二次开发指南** —— "怎么加一个 X"的配方（加路由 / 加设置项 / 加浏览器端代码）；**§4 是验证与测试**（原 `TEST-LAYOUT.md` 并入）：三层结构、两档判据、运行矩阵、覆盖范围、`test/tools/` 清单、写判据的八条约定 |
 | [FONT-SYSTEM.md](./FONT-SYSTEM.md) | 字体系统的通道分工、不变量、扩展步骤、进浏览器包的约束 |
 | [ROUTE-INDEX.md](./ROUTE-INDEX.md) | 宿主路由的**生成索引**（由 `test/tools/host-route-index.mjs` 重算并逐字节比对 —— 手写必烂） |
-| [dev-notes-bom-and-dsh-boot.md](./dev-notes-bom-and-dsh-boot.md) | BOM 与 DSH 启动的两个坑（结论已进 `CONTRIBUTING.md`） |
-| [awesome-dsh-plugin-pr-guide.md](./awesome-dsh-plugin-pr-guide.md) | 向 awesome-dsh-plugin 收录目录提交的一次性发布指南（应作者要求保留原版，勿改） |
+
+> 原先列在这里的两份已移入 `archive/`（见下文「已完成的审计…」之后的**其它归档**一节）：
+> `dev-notes-bom-and-dsh-boot.md`（一次本机排查的过程记录，含当时的绝对路径）与
+> `awesome-dsh-plugin-pr-guide.md`（一次性发布指南，当时的提交快照）。**两者都不描述现行实现。**
 
 ## 决策记录（`adr/`）
 
@@ -119,6 +131,13 @@
 | [audits/P3-11-PLAN.md](./archive/audits/P3-11-PLAN.md) | `WallpaperPicker` 拆分的过程记录（**已完成**：模型 / 模态框 / 属性面板三块都搬走）—— 开工前的事实核对、先决断言清单与收口时的牙齿证明；结论在账本 §5 的 `P3-11` 行，判据在守卫本身 |
 | [audits/LOGGING-PLAN.md](./archive/audits/LOGGING-PLAN.md) | 日志分级与提示通道的过程记录（**已完成**：G0 + P1–P5）—— 三档 `error` / `warn` / `info`（默认 `warn`）+ 一条独立的成功提示通道；含 G0 两项前置实测的结果、`ctx.logger` 等级语义实测与守卫耦合清单。**机制与不变量已留在 `lib/log.js` / `lib/notice.js` / `lib/routes/diag.js` 的文件头**，判据在 `test/verify-logging.mjs` |
 | [audits/F3-PLAN.md](./archive/audits/F3-PLAN.md) | 字体集文件化的过程记录（**已完成**：阶段 0–4）—— 随包预设 · 两层存储（同 id 用户层胜 + 写时复制、「恢复随包原样」）· 人工切换 · 导入导出；含三条决策（D1 真源归属 / D2 导出通道 / D3 写时复制）、一次真机崩溃的根因与修法、各阶段"如实记下的差额"。**机制与不变量已留在 `lib/routes/fontsets.js` / `src/fontset-store.js` / `src/fontset-editor.js` / `lib/settings-schema.js` 的文件头**，判据在 `test/verify-fontset.mjs` + `test/fontset-load-smoke.mjs` |
+
+### 其它归档
+
+| 文档 | 内容 |
+|---|---|
+| [dev-notes-bom-and-dsh-boot.md](./archive/dev-notes-bom-and-dsh-boot.md) | **BOM 与 DSH 热挂载的一次本机排查记录**（顶部有 `status-banner`）—— 含**当时那台机器的绝对路径**（读者打不开，仅作取证线索）。两条仍然生效的结论**已离开本文**：BOM 由 `verify-package-files` 的 P8 与 `DEV-GUIDE` §4.7 约定 7 承接；热挂载 / 重启语义在 `CONTRIBUTING.md` 与 `CODE-STRUCTURE.md` §1.1 |
+| [awesome-dsh-plugin-pr-guide.md](./archive/awesome-dsh-plugin-pr-guide.md) | 向 awesome-dsh-plugin 收录目录提交的**一次性发布指南**（当时的提交快照，含当时的 commit 数与仓库状态）。按作者要求**保留原版、勿改** |
 
 ## 其它
 

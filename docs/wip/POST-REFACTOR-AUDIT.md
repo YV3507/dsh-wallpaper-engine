@@ -13,6 +13,11 @@
 > [`adr/0006`](../adr/0006-comment-discipline-as-written-convention.md) 下线。那些引用是**审计当时的
 > 事实**（它确实曾把死函数钉成"活依赖"），保留原样、不入链接，请按历史记录读。
 >
+> ⚠️ **同理，正文里引用 `docs/MODULE-LAYOUT.md` 的地方指向的是当时那个文件名** —— 它已与
+> `ARCHITECTURE.md` 合并为 [`docs/CODE-STRUCTURE.md`](../CODE-STRUCTURE.md)；引用 `docs/TEST-LAYOUT.md`
+> 的地方也已并入 [`docs/DEV-GUIDE.md`](../DEV-GUIDE.md) §4。审计当时那些结论（哪些文档的数字对了、
+> 哪些错了）**仍然成立**，只是文件名变了。
+>
 > ⚠️ **正文里的 `文件:行号` 锚点都属 1ff0887 那一版**，之后被动过的文件（尤其 `lib/index.js`、
 > `src/client.js`）行号已漂。要按行号复算请先 `git checkout 1ff0887`，否则请**按内容**定位。
 >
@@ -278,12 +283,12 @@ className: "we-picker__btn" + (weAudioVolume() > 0 || sel.videoAudioEnabled === 
 | 5.1.4 | [`docs/HOW-IT-WORKS.md:168`](../HOW-IT-WORKS.md#L168) / `:363` | 「（`src/theme-follow.js`，**没有开关**）」 | 同上（这条最重：它把"没有开关"写成了设计事实） |
 | 5.1.5 | [`docs/HOW-IT-WORKS.md:163`](../HOW-IT-WORKS.md#L163) | 「`src/**` 里**还剩 4 处** `window.confirm`…`verify-fontset` 里有条棘轮**只许它们减少**」 | 代码命中 **0**（4 处全是注释）；棘轮是**终态 `== 0`**（`verify-fontset.mjs:1416`、`verify-client.mjs:1334`）⇒ **两句都错** |
 | 5.1.6 | [`docs/HOW-IT-WORKS.md:93`](../HOW-IT-WORKS.md#L93) / `:310` | 「**共 31 条**路由」 | [`docs/ROUTE-INDEX.md:13`](../ROUTE-INDEX.md#L13) = **32**；同页 `:99` 还声明"权威清单见 ROUTE-INDEX"，`:115` 刚讲完 `fontsets` 族（恰是漏掉的那条）。**这类漂移在账本里被修过一次并加了守卫**（`verify-ledger.mjs:855` 的注释记着），只是没扩到这份文档。**已修**：31 → 32 |
-| 5.1.7 | [`docs/HOW-IT-WORKS.md:201`](../HOW-IT-WORKS.md#L201) / `:394`、[`docs/UPGRADING.md:59`](../UPGRADING.md#L59)、[`docs/TEST-LAYOUT.md:10`](../TEST-LAYOUT.md#L10) | 「**24 条链**」/「**五套**冒烟」/「**31 条链** = 31 个 `verify-*`」 | **32** 条 verify、**6** 套 smoke（`package.json:78` / `:81`；漏了 `fontset-load-smoke`）。账本的同一数字**有守卫**（`verify-ledger` 的"守卫计数 == verify 链条数"），这三份没有 |
+| 5.1.7 | [`docs/HOW-IT-WORKS.md:201`](../HOW-IT-WORKS.md#L201) / `:394`、[`docs/UPGRADING.md:59`](../UPGRADING.md#L59)、`docs/DEV-GUIDE.md §4`（审计当时为 `docs/TEST-LAYOUT.md:10`） | 「**24 条链**」/「**五套**冒烟」/「**31 条链** = 31 个 `verify-*`」 | **32** 条 verify、**6** 套 smoke（`package.json` 的 scripts；漏了 `fontset-load-smoke`）。账本的同一数字**有守卫**（`verify-ledger` 的"守卫计数 == verify 链条数"），这三份没有 |
 | 5.1.8 | [`CONTRIBUTING.md:31`](../../CONTRIBUTING.md#L31) / `:40` | 「`lib/client.js` = 正文 + `INLINE_MODULES` 里那 **14 个**模块」 | **21**（`docs/MODULE-LAYOUT.md`、账本都对）⇒ 教"产物到底是什么"的那份文档错了三分之一 |
 | 5.1.9 | [`docs/HOW-IT-WORKS.md:121`](../HOW-IT-WORKS.md#L121)、[`docs/FONT-SYSTEM.md:56`](../FONT-SYSTEM.md#L56) | 「决策见**账本 §9.5**」 | 活账本**没有 §9.5**（已归档到 `docs/archive/REFACTOR-ASSESSMENT.md`；账本 `:224-228` 与 FONT-SYSTEM 自己的头部 `:10-12` 都这么说） |
 | 5.1.10 | [`docs/CHANGELOG.md:31`](../CHANGELOG.md#L31) | 「换壁纸过场动画（**7 种可选**）：…条带 / **百叶窗**」 | `SWITCH_TRANSITIONS` 是 7 条**含默认的硬切**；`bars` 只有一项、标签就是「条带」，"百叶窗"是它的描述 ⇒ 同一项数了两次（README 是对的） |
 | 5.1.11 | [`docs/CHANGELOG.md:7`](../CHANGELOG.md#L7) / `:18` | 「未发布 = 与上游 `origin/main` 的差异 —— **（无）**」 | `git rev-list --count origin/main..HEAD` = **2**（含 `6d557b8` 那条真实修复）；同一句还给了"v1.1.0 之后"第二种定义，**两种定义互相矛盾**。**已修**：该节现在列的是实际条目 |
-| 5.1.12 | [`docs/TEST-LAYOUT.md:11`](../TEST-LAYOUT.md#L11) | 冒烟层覆盖「轮换、实时帧回填、身份校验」 | 第 6 套 `fontset-load-smoke` 不在任何一句里（未声明条数，属摘要缺口） |
+| 5.1.12 | `docs/DEV-GUIDE.md §4`（审计当时为 `docs/TEST-LAYOUT.md:11`） | 冒烟层覆盖「轮换、实时帧回填、身份校验」 | 第 6 套 `fontset-load-smoke` 不在任何一句里（未声明条数，属摘要缺口） |
 
 ### 5.2 账本自身的数字（`docs/wip/OPEN-ITEMS.md`）
 
@@ -303,7 +308,7 @@ className: "we-picker__btn" + (weAudioVolume() > 0 || sel.videoAudioEnabled === 
 **另**：后续那次改动给 `lib/index.js` / `src/client.js` 加了行 ⇒ §5.2.1（verify / smoke 行数）与
 §5.2.3（`apply` 行数 / 分支代理）写的数字**又**偏小了一截。
 这两行正是 P2-a「改成工具现算」的对象；在那之前，**不要**把它们当成可引用的现状。
-同理 [`docs/TEST-LAYOUT.md:10`](../TEST-LAYOUT.md#L10) 的「31 条链 = 31 个 `verify-*`」（实际 **32**）
+同理 `docs/DEV-GUIDE.md §4`（审计当时为 `docs/TEST-LAYOUT.md:10`）的「31 条链 = 31 个 `verify-*`」（实际 **32**）
 是**既存**漂移，属 §5.1.7 那一组。
 账本 §2 里**被守卫看着**的两行（`src/client.js` 行数、`lib/**` 文件数/行数）已同步到实测值。
 
@@ -465,7 +470,7 @@ git log --name-only --format=C:%h                    # §5.2.7 的均值复算
 ```
 
 **本机未跟踪的一次性探针**（住在 `.test-cache/`，**不入库**；要入库得先按
-[`docs/TEST-LAYOUT.md`](../TEST-LAYOUT.md) 的规则收编进 `test/tools/` 并进注释棘轮表）：
+`docs/DEV-GUIDE.md §4`（审计当时为 `docs/TEST-LAYOUT.md`）的规则收编进 `test/tools/` 并进注释棘轮表）：
 
 | 探针 | 支撑的条目 |
 |---|---|

@@ -76,4 +76,4 @@ DSH 升级后**重取角色表**的命令写在 [`typography.js`](../src/font/ty
 > ⚠️ **漏登记 `INLINE_MODULES` 不会报错**，只是那个文件永远不进产物（本仓真发生过：
 > `src/api-client.js` 一度是孤儿）。`verify-component-fonts.mjs` 有一节就是按
 > 「模块在位 + 已内联 + **不在**正文」三件套断言 `apply.js` 的 —— 抽模块时照抄这个形状。
-> 目录语义与准入门槛见 [`MODULE-LAYOUT.md`](./MODULE-LAYOUT.md) §4。
+> 目录语义与准入门槛见 [`CODE-STRUCTURE.md`](./CODE-STRUCTURE.md) §4。

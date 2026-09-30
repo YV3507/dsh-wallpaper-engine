@@ -2,7 +2,7 @@
 /**
  * compat-harness-surfaces.mjs —— harness UI 面清单棘轮 + sidebar 源码活判据
  *（compat 层：需要已安装的 `@deepseek-ai/dsh`；由 `.github/workflows/harness-compat.yml`
- *   在装好目标版本 harness 后调用，本地可手动跑，见 docs/TEST-LAYOUT.md。）
+ *   在装好目标版本 harness 后调用，本地可手动跑，见 docs/DEV-GUIDE.md。）
  *
  * 回答的问题：**harness 新增了页面/表面，我们的美化没覆盖** —— 插件自指断言查不出这类
  * 回归，必须把 harness 侧事实拉进判据：

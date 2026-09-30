@@ -61,7 +61,7 @@
 
 ## 重新考虑的触发线
 
-- 出现**第二个**必须被两侧共用的内核（当前共享内核是显式白名单，见 `docs/MODULE-LAYOUT.md`）：
+- 出现**第二个**必须被两侧共用的内核（当前共享内核是显式白名单，见 `docs/CODE-STRUCTURE.md`）：
   届时应先决定"共享是不是常态"，而不是顺手再加一个。
 - 设置规模增长到单文件难以导航时：应拆**目录**而不是拆成两侧各一份。
 
@@ -70,4 +70,4 @@
 - 真源与逐键语义：`lib/settings-schema.js`
 - 共用的校验入口：`lib/index.js`（宿主）、`src/persistence.js`（客户端）
 - 构建期内联机制：`docs/adr/0003-build-time-module-inlining.md`
-- 共享内核白名单与发布面：`docs/MODULE-LAYOUT.md`
+- 共享内核白名单与发布面：`docs/CODE-STRUCTURE.md`

@@ -985,7 +985,7 @@ await runScenario('P2. 无预览图：垫底图只留主题色兜底，不猜图
 // 所以 P3–P5 的夹具都从冷会话起步（该 URL 还没被观测到）。
 //
 // 判据一律只看**结果**：此刻垫底图屏上是哪一张（`background-image` 的值），不看内部变量、
-// 不看探针数组的顺序。正负对照喂进**同一条**判据（见 docs/TEST-LAYOUT.md 约定 5）。
+// 不看探针数组的顺序。正负对照喂进**同一条**判据（见 docs/DEV-GUIDE.md §4.7 约定 5）。
 const posterOf = (t) => {
   const layer = t.layerEl();
   return layer && layer.querySelector('div.we-live-poster');
@@ -1402,7 +1402,7 @@ await runScenario('P9. 留存表 LRU：命中搬到表尾 ⇒ 超上限淘汰的
 //     （这两类在设计上就不参与绘制）；
 //   · 有画面 = 按**浏览器事实**读：垫底图已铺上 `background-image` / `<img>` 已解码 /
 //     `<video>` 有 poster 或 `readyState ≥ 2`(HAVE_CURRENT_DATA) / 实时渲染页已点亮。
-// 正负对照组喂进**同一条**函数（docs/TEST-LAYOUT.md 约定 5）。
+// 正负对照组喂进**同一条**函数（docs/DEV-GUIDE.md §4.7 约定 5）。
 const LAYER_PENDING_CLS = 'we-layer--pending';
 const paintedLayerOf = (t) => {
   const shown = t.bodyEl.children.filter((c) => {
@@ -1939,7 +1939,7 @@ await runScenario('R6. 倍速：非默认值 1.5 真的落到 <video> 上', {
 // 判据量**结果**，不看内部变量、不看调用栈：
 //   `themeWriteLandsOnLayer(snap, wid, srcPart)` —— 主题写入那一刻，屏上的层是不是
 //   **新壁纸**那一层（节点在位、组件的 src 已是新壁纸的媒体）。正判据喂写入那一刻的
-//   快照，负对照喂换壁纸**之前**的快照（同一条函数，见 docs/TEST-LAYOUT.md 约定 5）。
+//   快照，负对照喂换壁纸**之前**的快照（同一条函数，见 docs/DEV-GUIDE.md §4.7 约定 5）。
 //   `mediaLayerSurvives(snap, layer, video)` —— 一次纯主题切换跨过去之后，层与 <video>
 //   是不是**同一个节点**；负对照喂一个换了节点的合成快照，证明这条判据不是恒真。
 const videoOf = (id, scheme) => Object.assign({}, wallpaperV, {

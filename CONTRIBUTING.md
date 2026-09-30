@@ -121,7 +121,7 @@ npm run verify:all  # = build + verify（硬档）+ verify:docs（软档）+ smo
 软档（`npm run verify:docs`：仓库内务 —— 模块布局 / 可达性 / 退役线 / 声明孤儿）
 **照跑、照打印结论，但不拦 PR** —— 判据一字未改，退出码由 `test/warn-only.mjs` 降级为警告
 （原码打在 `[warn-only] 软档守卫原退出码 = N` 行上）。
-> **两档各含哪些守卫、分档判据是什么，只在 [`docs/TEST-LAYOUT.md`](docs/TEST-LAYOUT.md) §两档定义一处**
+> **两档各含哪些守卫、分档判据是什么，只在 [`docs/DEV-GUIDE.md`](docs/DEV-GUIDE.md) §4.2 定义一处**
 > —— 这里刻意不列清单（此前抄过一份，删掉两条守卫后就过时了，正说明为什么不该抄）。
 
 `.github/workflows/verify.yml` 在每次 push / PR 上跑同一套，并额外断言两件事：`lib/client.js` 与 `src/client.js` 同步（**本地链里也有这一条**：`test/verify-client-sync.mjs`），
@@ -200,8 +200,8 @@ UI 改动还应说明实际测试过的 DSH 界面、浏览器或 DSH Desktop �
 - Build and verification commands pass.
 - New dev-face files go where the layout says: guards and smoke tests in `test/`, manual
   diagnostics/analysis/generators in `test/tools/`, build- and publish-time scripts in `scripts/`
-  (see `docs/MODULE-LAYOUT.md` §4). A new guard must also be registered where the rules require it
-  (e.g. the comment-discipline ratchet table).
+  (see `docs/CODE-STRUCTURE.md` §4). A new guard also has to sit in the right chain
+  (`npm run verify` vs `npm run verify:docs`) — see `docs/DEV-GUIDE.md`.
 - The PR contains no credentials, local media, generated caches, or unrelated cleanup.
 
 - PR 目标分支为 `main`。
@@ -209,6 +209,6 @@ UI 改动还应说明实际测试过的 DSH 界面、浏览器或 DSH Desktop �
 - 现有平台行为已保留，或正文已解释有意变更。
 - 构建与验证命令全部通过。
 - 新增的开发面文件放在**约定位置**：守门与冒烟在 `test/`，手动诊断/分析/生成工具在 `test/tools/`，
-  构建与发布期脚本在 `scripts/`（见 `docs/MODULE-LAYOUT.md` §4）；新守卫还要按规则登记
-  （例如注释纪律的棘轮表）。
+  构建与发布期脚本在 `scripts/`（见 `docs/CODE-STRUCTURE.md` §4）；新守卫还要挂对链
+  （硬档 `npm run verify` vs 软档 `npm run verify:docs`，见 `docs/DEV-GUIDE.md`）。
 - PR 不含凭据、本地媒体、生成缓存或无关清理。
