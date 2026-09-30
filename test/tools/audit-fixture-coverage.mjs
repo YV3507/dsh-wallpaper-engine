@@ -28,7 +28,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-// 本文件在 test/tools/ 下 ⇒ 仓库根退**两层**（退一层会把根解析成 test/；verify-module-layout ④ 有断言）。
+// 本文件在 test/tools/ 下 ⇒ 仓库根退**两层**（退一层会把根解析成 test/；`verify-module-layout` 的『相对说明符必须解析到真实文件』有断言）。
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const { DEFAULTS } = await import(pathToFileURL(join(ROOT, 'lib', 'settings-schema.js')).href);
 /** `--all`：把 C/D 两族也逐条列出（默认只给计数与样例）。 */
@@ -48,7 +48,7 @@ const data = walk(testDir).filter((abs) => abs.endsWith('.json'));
 
 const LITERAL = String.raw`(?:-?\d+(?:\.\d+)?|'[^']*'|"[^"]*"|true|false|null)`;
 // ⚠️ 只认**对象字面量里的属性**（前一个非空字符是 `{` 或 `,`）。更宽松的写法会把**散文**当成设置：
-// `check('… scrim: ' + x)` 里的 `scrim: '` 会被匹配成一个空字符串取值（与 TEST-LAYOUT §3 同一条陷阱）。
+// `check('… scrim: ' + x)` 里的 `scrim: '` 会被匹配成一个空字符串取值（与 DEV-GUIDE §4.7 约定 3 同一条陷阱）。
 const hitsOf = (text, key) => [
   ...[...text.matchAll(new RegExp(`[{,]\\s*"?${key}"?\\s*:\\s*(${LITERAL})`, 'g'))].map((m) => m[1]),
 ];

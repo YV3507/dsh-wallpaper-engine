@@ -16,11 +16,11 @@
  * 上游更新渲染器后重跑本脚本即可；手动改 lib/webwallgl/ 会被下次同步
  * 覆盖 —— 需要的改动应做在上游。
  *
- * 溯源（两个本地补丁的去处，2026-09-29 同步 2.0.2 时删除 —— 上游都修好了）：
+ * 溯源（两处本地补丁的**职责归属**：上游都已按契约实现，本地不再各留一份）：
  *   · [diag 级别] 渲染页给 `/diag` 上报时自带 `&lvl=`，级别由发送方声明、
  *     宿主不再靠文案关键字分档。上游 `renderer/src/diag-level.ts` 已按契约
  *     实现（issue #13，878ec88），宿主 `lib/routes/diag.js` 读的就是这个值。
- *   · [xray 精灵] 曾把 `makeTextureMip` 的 MIN_FILTER 从 `LINEAR_MIPMAP_LINEAR`
+ *   · [xray 精灵] 本地曾把 `makeTextureMip` 的 MIN_FILTER 从 `LINEAR_MIPMAP_LINEAR`
  *     改成 `LINEAR`（极小化采样退化 → x-ray 范围扩到整张壁纸）。上游是从语义
  *     侧修的（7480a37 exponent 语义 / 0d1d5c1 halo_6 环绕 CLAMP / 5cec4f6 素材
  *     重建），**不是**过滤器：在真 GPU 无头浏览器上跑上游 `bench/xray-shot.html`

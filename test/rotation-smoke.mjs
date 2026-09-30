@@ -110,7 +110,7 @@ const fetch = (url) => Promise.resolve({ ok:true, status:200, json:()=>Promise.r
 
 const code = readFileSync(new URL('../lib/client.js', import.meta.url),'utf8');
 // 渐变退役定时器 = ROTATION_FADE_MS + 100ms 宽限：从被测源码读常量，改时长
-// 不用同步改这里的硬编码（教训：1.2s→1.8s 时三处 1300 全部漂移）。
+// 不用同步改这里的硬编码（写死的话，改时长会让多处数字一起漂移）。
 const FADE_GRACE_MS = Number(code.match(/ROTATION_FADE_MS = (\d+)/)[1]) + 100;
 const cap = { handoff:null };
 const sandbox = {

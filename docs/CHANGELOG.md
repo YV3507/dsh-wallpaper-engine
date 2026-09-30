@@ -4,8 +4,8 @@
 > 只保留与版本无关的亮点；带版本号、issue 号、性能数字的内容一律记在这里。
 >
 > **当前发布版本：`v1.1.0`**（与 `package.json` 的 `version` 一致；上游最新 release 仍是 v1.0.1）。
-> `### 未发布（下一版）` 记的是 **v1.1.0 之后**的增量（本仓库与上游 `origin/main` 的差异）—— 当前为空；
-> **`### v1.1.0`** 一节收拢的是 **1.0.1 之后至 1.1.0** 的全部内容（打包修复 + 本仓库相对上游的追版成果）。
+> `### 未发布（下一版）` 记的是 **v1.1.0 之后**的增量（本仓库与上游 `origin/main` 的差异）—— 已有条目，
+> 见下；**`### v1.1.0`** 一节收拢的是 **1.0.1 之后至 1.1.0** 的全部内容（打包修复 + 本仓库相对上游的追版成果）。
 >
 > **归档说明**：本仓库从 **v0.6.8** 起才有 git tag，更早的版本没有独立标签。早于 v0.6.8 的条目
 > 按**原 README 原文的版本标注**归档；原文未标注小版本的条目放进区间桶，不臆造版本号。
@@ -15,7 +15,16 @@
 
 ### 未发布（下一版）
 
-> v1.1.0 之后的增量（与上游 `origin/main` 的差异，逐提交可查）：**（无）**。
+> v1.1.0 之后的增量（与上游 `origin/main` 的差异，逐提交可查）：
+
+- **`verify:bridge` 的「环境跳过」（CI 修红）**：windows-latest 上这条端到端会出现「产物 sha256 正确、进程活着、`hello` 不回、两条流都空」——它与"中间件/协议回归"表现**完全一样**，处置却相反（前者是环境差异，后者必须红），而把引导预算从 25s 抬到 90s 已被实测证伪（runner 上 90s 也拿不到）。现在自检在握手失败时先跑一条**主动探针**（对同一份产物发一次平凡调用，看它是否响应）并**校验产物可信度**（sha256 是否就是发布产物）：只有「探针也说这个环境执行不了它 **且** 产物可信」才记**环境跳过**，并在日志末尾点名"这条通道本次没有断言覆盖"（不冒充通过）；探针说执行得了、或产物不可信，照旧判红 —— 于是"环境跑不了"不再挡住无关 PR，而真回归跑不掉。宿主侧的失败行同时补上**子进程 stdout 的首行非协议输出**与**实际用到的 spawn 姿势**（失败行的两路输出此前只带 stderr 与一句"hello 超时"，而那种现场里 stdout 才是唯一还可能说话的一条流）。
+- **失败记忆带「管线身份」（旧断言不再跨管线复用）**：`sceneLiveFailures` 说的是"这张壁纸在**当时那条管线**上出不了帧"，而它偏偏是面板那行「实时渲染失败（…）已自动回退」的**唯一**来源。换了 bundle、或宿主终于把场景媒体源端出来（`sceneMediaBase` 从空串变成 loopback origin）之后，旧断言就该作废一次 —— 现在客户端把管线身份（`LIVE_DIAG_BUILD` + 有无媒体源）记在 `localStorage.weLivePipeline`，启动时**在设置落地之后**核对，不一致就清空那批记忆并重建回 live（不必再手动重开「场景实时渲染」开关）。判据**单向**：只有"bundle 变了 / 媒体源从无到有"才清，反向不清（源一抖动就把真实失败记忆抹掉更糟）。**实测动机**：宿主半没重载时留下的 `timeout` 会让"客户端已更新、宿主是旧的"看起来像是修复完全无效。
+- **大场景壁纸的「首帧超时」误判修掉（可用性 · 本机实测驱动）**：现场诊断显示 `scene.pkg` 实测到 **336MB**（不是文档假设的 70–90MB），而**首帧必须等整包到齐** —— 三个客户端实例同时挂载同一份包时传输互相饿死，可见那个实例 15s 后 `stats={"fps":0,"running":false}`（一帧都没出）就被判「首帧超时」，并写进**所有窗口共用**的失败记忆。五处修正：① 首帧预算改成 `15s + 包大小 ÷ 8MB/s`（封顶 90s，包大小由 `/inventory` 的新字段 `scenePkgBytes` 给）；② 宿主加一本**载荷传输账本**（新路由 `GET /wallpaper-engine/scene-payload-progress?token=…`），客户端每拍问一次，**字节还在涨就不计超时**（账本未知/旧宿主一律退回墙钟）；③ **隐藏 / 未播放的实例根本不拉载荷**（建层时延迟赋 `src`、切到后台把 `src` 摘成 `about:blank` 中止在飞请求、可见时补回；层键不含这个状态 ⇒ 不重建、垫底图全程在位）；④ **失败分因**：账本说"传过但没传完"⇒ 只记**会话内**软失败（不落盘）+ 冷却 45s 自动重试（至多 2 次），只有渲染页真的不出帧 / 运行期失联才写共享记忆；⑤ **`scene.pkg` 可重验证缓存**（`ETag`(size+mtime) + `Last-Modified`，命中即 304 无体；入口 HTML 仍 no-store）—— 几百 MB 的包每次重建 live 层都重读一遍盘，靠这一条消掉。
+- **场景载荷不再按适配器形态门控（性能修正）**：`mediaOriginNeeded()` 门控的是**网页壁纸的能力头栅栏**，而场景要独立源的理由是**带宽** —— 于是原生浏览器形态下 `sceneMediaBase` 曾恒为空串、大包必然走那条会饿死的应用源（本机日志：同一份 336MB 包在媒体源上 0.6s 到齐，应用源上出现过 15–74s 与永不返回）。现在场景载荷无条件懒起媒体源（起不来才回落应用源），客户端层键带上这一格 ⇒ 宿主把它端出来之后会重建一次渲染页；传输类软失败重试前还会刷一次库存，专治"本实例的 inventory 粘在媒体源起来之前"。
+- **诊断补的两处硬伤**：`client-boot`（唯一带页 id / 窗口模式、能回答"同一时刻有几个客户端实例在跑"的那一行）**从来没有落过盘** —— 它在 bundle 顶部调 `liveStateBrief()` → `selection`（`const`，还在 TDZ），异常被外层 `catch{}` 静默吞掉（实测两份诊断文件 2495 行里 0 次）；现改成延迟一拍上报。`liveFail` 的现场也补齐了**载荷账本读数 / 媒体源 origin / 首帧预算 / 传输中 tick 数**，下次再有这类问题不必靠推理。
+- **大场景壁纸的载荷改走宿主自建媒体源（性能）**：**场景载荷（`scene.pkg`，常 70–90MB）也走宿主自建的独立 loopback 媒体源**（网页壁纸早就走它）。`/inventory` 新增 `sceneMediaBase`（按"库里**真有**可实时渲染的场景"门控、媒体源不可用时落空串），客户端 `liveRenderUrl` 消费它而**不再自己拼 `location.origin`**。**两点别读错**：① 渲染页自身仍在应用源上（它**必须同源** —— 父页要 `frame.contentWindow.__wp` 直接驱动它），所以提速有上限；② 这是**传输路径的改善，不是安全修复**。
+- **媒体源接住根路径 `/diag`（可观测性）**：渲染页的诊断信标打的是 `{mediaBase origin}/diag` —— `mediaBase` 一改指向，这个根路径若不在媒体源上也有落点，"场景首帧超时"时渲染页的告警会以 404 **静默丢掉**。诊断族因此把 `handleDiag` 经出参交给媒体源，两边共用**同一份**环形缓冲（`/diag-log` 读到的是一份）。
+- **`/scene-files` 目录围栏补第二层（安全加固）**：目标文件的**真实路径**必须仍落在壁纸目录内 —— `lstatSync` 拒链接 + **`realpathSync.native`** 包含性比对，且该层 **fail-closed**（除"不存在"外一律围栏）。实测确认 **JS 版 `realpathSync` 在 Windows 上不解析 junction**（`.native` 才解析），故这一层必须用 `.native`。（**残留**：`lib/scene-manifest.js` 的 `dirSceneAccess` 仍是 junction 盲的，属另一条路由族，本次未动。）
 
 ### v1.1.0（1.0.1 → 1.1.0 · 2026-09-29）
 
@@ -194,7 +203,11 @@
 
 ### Unreleased (next version)
 
-> Increment after **v1.1.0** (the diff against upstream `origin/main`, verifiable commit by commit): **(none)**.
+> Increment after **v1.1.0** (the diff against upstream `origin/main`, verifiable commit by commit):
+
+- **Large scene wallpapers now take the host's own media origin (performance)**: **Scene payloads (`scene.pkg`, often 70–90 MB) now use the host's own dedicated loopback media origin too** (web wallpapers already did). `/inventory` gained `sceneMediaBase` (gated on "the library really holds a live-renderable scene"; an empty string when the media origin is unavailable), and the client's `liveRenderUrl` consumes it instead of **hard-coding `location.origin`**. **Two things not to misread**: ① the renderer page itself stays on the app origin (it **must** be same-origin — the parent drives it through `frame.contentWindow.__wp`), so the speed-up has a ceiling; ② this is a **transport-path improvement, not a security fix**.
+- **The media origin now answers the root `/diag` (observability)**: the renderer's diagnostic beacon posts to `{mediaBase origin}/diag` — once `mediaBase` points elsewhere, that root path must exist on the media origin too, otherwise a first-frame-timeout report loses the renderer's warnings to a silent 404. The diag family therefore hands `handleDiag` to the media origin through an out-parameter, so both mounts share **one** ring buffer (there is a single `/diag-log`).
+- **`/scene-files` gained a second fence layer (security hardening)**: the target file's **real path** must now still be inside the wallpaper directory — `lstatSync` rejects links plus a **`realpathSync.native`** containment check, and that layer is **fail-closed** (anything other than "does not exist" is fenced). Measurement confirmed that **JS `realpathSync` does not resolve junctions on Windows** (`.native` does), which is why this layer must use `.native`. (**Residual**: `dirSceneAccess` in `lib/scene-manifest.js` is still junction-blind; it belongs to a different route family and was left alone.)
 
 ### v1.1.0 (1.0.1 → 1.1.0 · 2026-09-29)
 

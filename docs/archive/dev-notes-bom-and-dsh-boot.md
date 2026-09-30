@@ -1,5 +1,14 @@
 # 开发备忘：BOM 事故与 DSH 插件生效机制
 
+<!-- status-banner: code-is-truth -->
+> **状态：历史记录（不反映现行实现）。** 这是 2026-08-23 一次本机排查的过程记录，其中的**绝对路径
+> 属于当时的同步机器**（读者打不开），仅作取证线索保留。
+> **仍然生效的两条结论已经离开本文**：
+> · BOM —— 发布面与 `test/**` 都不得带 BOM，由 `test/verify-package-files.mjs` 的 **P8** 按扩展名全扫
+>   （判据在守卫里，不在本文）；写文件的正确姿势写在 `docs/DEV-GUIDE.md` §4.7 约定 7。
+> · 热挂载 / 重启语义 —— 写在 `CONTRIBUTING.md` 与 `docs/CODE-STRUCTURE.md` §1.1。
+> 写作纪律见 [`../README.md`](../README.md) §写作纪律。
+
 > 记录于 2026-08-23 排查 DSH Desktop 启动失败后。
 
 ## 1. UTF-8 BOM 事故（已发生，勿重犯）

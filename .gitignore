@@ -48,5 +48,10 @@ scene-layers-out/
 
 # 临时预览/诊断脚本 (本地 QA 用, 不入库)
 /scripts/.tmp-*
+
+# 本地移交/取证笔记 (集成期间的报告、守卫实测、scratch 脚本; 属本机过程记录, 不入库)
+# 此前只写在 .git/info/exclude 里 —— 那是**每个 clone 各写一份**的本地配置,
+# 于是每个新工作区都会把 400+ 个笔记文件当未跟踪改动报出来。
+/.integration-notes/
 .DS_Store
 **/.DS_Store

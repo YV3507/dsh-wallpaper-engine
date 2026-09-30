@@ -53,30 +53,47 @@ const after = readFileSync(ARTIFACT);
 // 立刻还原：守卫的职责是"判定"，不是"修好"（留下的 diff 会让使用者分不清是谁改的）。
 if (!after.equals(before)) writeFileSync(ARTIFACT, before);
 
+/**
+ * 判定基准是**提交形态**，不是工作树的字节。构建脚本按 LF 写产物（`output.join('\n')`
+ * 且逐模块 `replace(/\r\n/g, '\n')`），而本仓的检出侧开了 `core.autocrlf=true`
+ * ⇒ 同一个内容在盘上是 CRLF、入索引时被规范化回 LF。直接比字节会把「检出侧的行尾」
+ * 判成「产物过期」——**本机实测**：干净工作树跑本守卫必红（第 1 行差异），而
+ * `git diff` 同时说没改。CI 不红是因为它检出的就是 LF。
+ * 所以两侧都折成 LF 再判：这仍能抓住"src 改了没重建"（那是**内容**差异），
+ * 只是不再把行尾风格当内容差异。
+ */
+const lf = (buf) => Buffer.from(buf.toString('utf8').replace(/\r\n/g, '\n'), 'utf8');
+
 check('重建命令成功退出（markers 齐全、产物可解析）', buildCode === 0,
   buildCode === 0 ? 'exit 0' : 'exit ' + buildCode + (buildErr ? ' · ' + buildErr.split('\n')[0] : ''));
 
 /** 首个不同的行号（1-based）—— 只为了让报错能直接指路。 */
 const firstDiffLine = (a, b) => {
-  const la = a.toString('utf8').split('\n');
-  const lb = b.toString('utf8').split('\n');
+  const la = lf(a).toString('utf8').split('\n');
+  const lb = lf(b).toString('utf8').split('\n');
   for (let i = 0; i < Math.max(la.length, lb.length); i++) if (la[i] !== lb[i]) return i + 1;
   return 0;
 };
 
-const agree = before.equals(after);
-check('提交物与重建结果逐字节一致', agree,
-  agree ? sha(before) + ' · ' + before.length + ' B'
-    : '产物 ' + sha(before) + ' ≠ 重建 ' + sha(after) + '；首处差异在第 ' + firstDiffLine(before, after)
+const a0 = lf(after);
+const b0 = lf(before);
+const agree = a0.equals(b0);
+const eolOnly = !after.equals(before) && agree;
+check('提交物与重建结果一致（按提交形态 LF 比较）', agree,
+  agree ? sha(b0) + ' · ' + b0.length + ' B' + (eolOnly ? '（盘上仅行尾风格不同：检出侧 CRLF，属正常）' : '')
+    : '产物 ' + sha(b0) + ' ≠ 重建 ' + sha(a0) + '；首处差异在第 ' + firstDiffLine(before, after)
       + ' 行 ⇒ 跑 `npm run build` 并把 lib/client.js 与 src/** 一起提交');
 
-// 负对照：同一个判据对"被改过一个字节"的缓冲必须判红，否则上面那条可能是恒真式。
+// 负对照：同一个判据对"被改过一个字节"的**内容**必须判红，否则上面那条可能是恒真式。
 {
-  const tampered = Buffer.from(before);
+  const tampered = Buffer.from(b0);
   tampered[tampered.length - 2] = tampered[tampered.length - 2] ^ 0x01;
-  check('negative control: 差一个字节会被判出', !tampered.equals(before) && firstDiffLine(tampered, before) > 0,
+  check('negative control: 内容差一个字节会被判出', !tampered.equals(b0) && firstDiffLine(tampered, b0) > 0,
     'len=' + tampered.length);
 }
+// 正对照：行尾风格不算内容差异 —— 否则本机（CRLF 检出）恒红。
+check('positive control: 只有 CRLF/LF 之差不算产物过期',
+  lf(Buffer.from('a\r\nb\r\n')).equals(lf(Buffer.from('a\nb\n'))));
 
 console.log('\n' + (failed ? 'CLIENT SYNC CHECKS FAILED — ' + failed + ' failed' : 'CLIENT SYNC CHECKS PASSED')
   + ' (' + (passed + failed) + ')');

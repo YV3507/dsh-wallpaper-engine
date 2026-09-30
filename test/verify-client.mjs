@@ -328,7 +328,7 @@ setTimeout(async () => {
   console.log('body[data-we-glass-window] (default on):', JSON.stringify(bodyEl.attributes['data-we-glass-window']));
 
   // ── P3-11 尾账：首载期「扫描 Wallpaper Engine…」的截取渲染 ────────────────────
-  // 判据只定义一次，正/负对照共用（形态规则见 docs/TEST-LAYOUT.md §约定 5）。
+  // 判据只定义一次，正/负对照共用（形态规则见 docs/DEV-GUIDE.md §4.7 约定 5）。
   const startupState = (root) => {
     const out = { hints: [], cards: 0, hasPickTrigger: false, errors: [] };
     (function walk(node) {
@@ -850,7 +850,7 @@ setTimeout(async () => {
     };
     // Page 1: 33 playable wallpapers → 2 pages @ 24; grid = close card + 24.
     // 判据必须**真断言**：整块 `console.log` 只在日志里像断言、不判真假（形态规则见
-    // docs/TEST-LAYOUT.md §约定 5）—— 分页器这条路径此前就是这么被漏掉的。
+    // docs/DEV-GUIDE.md §4.7 约定 5）—— 分页器这条路径此前就是这么被漏掉的。
     let cards = collectCards(tree);
     rotCheck('分页：第 1 页 25 张卡（关闭卡 + 24）', cards.length === 25);
     rotCheck('分页：页数 > 1 时渲染分页器', JSON.stringify(tree).includes('we-picker__pager'));
@@ -878,7 +878,7 @@ setTimeout(async () => {
       !page1Text.includes('Wall 29') && page2Text.includes('Wall 29'));
 
     // ── 0b：搜索 / 类型筛选 / 批量 / 隐藏页 / 卡片头计数（这些区域此前零判据）──
-    // 判据只在**一处**定义，正判据与负对照都调它（形态规则见 docs/TEST-LAYOUT.md §约定 5）。
+    // 判据只在**一处**定义，正判据与负对照都调它（形态规则见 docs/DEV-GUIDE.md §4.7 约定 5）。
     const cardTexts = (root) => collectCards(root).map((c) => JSON.stringify(c));
     // 关闭卡也是 `we-picker__card`（分页计数里它一直算一张）⇒ 判"只剩匹配项"时必须先摘掉它。
     const wallpaperCardTexts = (root) => cardTexts(root).filter((s) => !s.includes('✕ 关闭'));
@@ -955,7 +955,7 @@ setTimeout(async () => {
       })(modal, 0);
       return out;
     };
-    // 判据只有这一处：正判据与全部负对照都调它（形态规则见 docs/TEST-LAYOUT.md §约定 5）。
+    // 判据只有这一处：正判据与全部负对照都调它（形态规则见 docs/DEV-GUIDE.md §4.7 约定 5）。
     const classSequenceMatches = (seq, golden) =>
       seq.length === golden.length && seq.every((t, i) => t === golden[i]);
     // 只把**第一个**壁纸卡的深度 +1：序列长度不变，只有层级变 —— 用来证明逐项比较真在比内容。
@@ -1503,7 +1503,7 @@ setTimeout(async () => {
     assert.ok(manualPostLayer.dataset.weWid === 'c',
       '新层必须记录 weWid（后续重建按它判定是否换壁纸）');
     tree3 = renderPicker(); // 模态框已关：此时渲染的是 tab 面板（含「画面」section）
-    // 画面来源三行的门禁（2026-09-26 按用户反馈调整）：
+    // 画面来源三行的门禁：
     // 「出图来源」换的是 CPU 静态帧 → 只在 live 未生效时出现；「实时帧」（GPU 抓帧
     // 的重新截 / 清除 / 微缩预览）与「自定义画面」**不受实时渲染开关影响** —— 那张静帧
     // 正是切换途中与 live 首帧前给用户看的画面，构图不对时必须能立刻重抓。
@@ -1594,9 +1594,9 @@ setTimeout(async () => {
     // ── CPU 动画渲染路线已删除：这里改为**钉死删除** ──────────────────────
     // 目标形态：场景动画只保留 WebWallGL live 一条路线，回退链是
     // MP4 → 静态帧 → 单张大图 → 内嵌图；**没有 CPU 动画渲染**（scene-anim / APNG，
-    // 分钟级 CPU 渲染且会把 live 抓帧的静帧覆盖掉）。原先这一段逐条断言「点帧率档位
-    // 会启动 CPU 重渲染、产物上屏、有 GPU 帧时被门禁挡住」，那些能力连同 /scene-anim
-    // 路由一起删了 —— 现在反过来把这些入口钉死，删掉的东西不得悄悄复活。
+    // 分钟级 CPU 渲染且会把 live 抓帧的静帧覆盖掉）。那些能力（点帧率档位启动 CPU 重渲染、
+    // 产物上屏、有 GPU 帧时被门禁挡住）连同 /scene-anim 路由一起删了 —— 这一段反过来把
+    // 那些入口钉死：删掉的东西不得悄悄复活。
     for (const [what, needle] of [
       ['queueSceneAnimUpgrade', 'queueSceneAnimUpgrade'],
       ['maybeQueueSceneAnimUpgrade', 'maybeQueueSceneAnimUpgrade'],
@@ -1643,7 +1643,7 @@ setTimeout(async () => {
       '「交叉淡化」的基准必须直接引用 ROTATION_FADE_MS（不写死 1800）');
 
     // ⑤d 设置键**两端一致**（#106 那类「宿主白名单漏键 → 客户端设置被静默丢弃」的漂移）。
-    // 旧实现是"从两边源码文本里抠键名"对账。P1-5 起两侧都改为**派生**（唯一真源
+    // "从两边源码文本里抠键名"对账已不可行：P1-5 起两侧都改为**派生**（唯一真源
     // lib/settings-schema.js），源码里已无手写键列表可抠，而且抠名字也证明不了
     // "宿主真的会接受"。现在改成 ①键集派生 ②结构上必须委托 ③**行为**与重构前逐键一致。
     {
@@ -1997,7 +1997,7 @@ setTimeout(async () => {
       assert.equal(handWritten, 0,
         '宿主不得再手写逐键白名单（发现 ' + handWritten + ' 处）—— 手抄正是漂移的来源');
 
-      // ③ golden：P1-5 之前从**旧实现**采下来的行为快照。夹具体积小、人可读，
+      // ③ golden：P1-5 之前的**行为快照**（从当时的实现采下来）。夹具体积小、人可读，
       //    任何"顺手改了某个范围/默认值"的改动都会在这里现形；确属有意修改时，
       //    连同夹具一起更新（更新动作本身就是一次评审点）。
       const golden = JSON.parse(readFileSync(
@@ -2088,8 +2088,8 @@ setTimeout(async () => {
 
     // ⑥ 行为级不变量：整条流程（选中 → HEAD 探测 → 抓帧回填 → 清除 → 后续重建）
     // 里 animProbeSrcs 必须恒为 0 —— 一帧 CPU 动画渲染都不许启动（回退走静态帧链）。
-    // 这条替代了原先「点帧率档位会启动 CPU 重渲染 / 关 beta场景动画按档位回退」的
-    // 用例：那些开关与整条 CPU 渲染路线一起删了，留下的不变量是「不再有 CPU 渲染」。
+    // 这条覆盖的是「点帧率档位会启动 CPU 重渲染 / 关 beta场景动画按档位回退」那两条用例
+    // 留下的不变量：那些开关与整条 CPU 渲染路线一起删了，剩下的是「不再有 CPU 渲染」。
     tree3 = renderPicker();
     assert.equal(animProbeSrcs.length, 0,
       'CPU 动画渲染已删除：全流程不得出现任何 /scene-anim 请求');
@@ -2259,7 +2259,7 @@ setTimeout(async () => {
   const selfSrc = readFileSync(new URL(import.meta.url), 'utf8');
   // 判据只认**以 `console.log(` 开头的语句**：伪判据都是这种形态，而本段自己的负对照行以
   // `assert.equal(` 开头（它的字符串字面量里正是带着 `console.log(… === …)` 样本）——
-  // 不收紧就会被自己的对照绊倒（同 `docs/TEST-LAYOUT.md` §约定 3 那条陷阱）。
+  // 不收紧就会被自己的对照绊倒（同 `docs/DEV-GUIDE.md` §4.7 约定 3 那条陷阱）。
   const isFakeJudgement = (line) => {
     const t = line.trim();
     if (!/^console\.log\(/.test(t)) return false;      // 不是 log 语句
@@ -2280,7 +2280,7 @@ setTimeout(async () => {
 
   // 同族的第二种形态（实测过两处：光标色板、吉祥物开关）：`console.log('… present:', !!x)` 之后紧跟
   // `if (x) { …断言… }` —— 探测日志不判真假，而"缺失即跳过断言"让后面的判据**零覆盖仍绿**
-  // （缺前置与通过同形，见 `docs/TEST-LAYOUT.md` §约定 8 的反面）。判据只看**紧邻的非空行**是否
+  // （缺前置与通过同形，见 `docs/DEV-GUIDE.md` §4.7 约定 8 的反面）。判据只看**紧邻的非空行**是否
   // 用同一个标识符做 `if (x)`；`if (!x) assert.fail(…)` 那种"缺了就红"的正写法**不算**。
   const probeThenSkip = (src) => {
     const ls = src.split('\n');

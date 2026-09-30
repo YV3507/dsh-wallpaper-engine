@@ -235,7 +235,7 @@ function main() {
     surfaceSpecs.length + ' surface(s) checked · missing/broken=' + veilMisses.length
       + (veilMisses.length ? ' · ' + JSON.stringify(veilMisses) : ''));
 
-  // 负对照（TEST-LAYOUT 约定 5：变异输入必须喂进**同一条判据**）：把一条真实声明改坏
+  // 负对照（DEV-GUIDE §4.7 约定 5：变异输入必须喂进**同一条判据**）：把一条真实声明改坏
   // （把下限那一项换成玻璃色）后，`hasVeil` 必须判不合格 —— 否则 F2a 可能是空转的
   // （选择器一改名，spec 全落空也没人发现）。
   {

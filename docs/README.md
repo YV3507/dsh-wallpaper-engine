@@ -1,7 +1,19 @@
 # docs — 决策与用户文档
 
-本项目采用**「代码即真相」**文档模式：渲染 / 逆向 / 根因知识直接内联在对应实现文件的代码注释里。
-`docs/` 只保留**决策**（含验收判据）、**规范**与**用户文档**；实现机制不在这里。
+> **English**: [`en/README.md`](./en/README.md) —— 英文版索引（**只覆盖常青文档**：`CHANGELOG.md` 与
+> `adr/` **有意不译**，见该文件开头的说明）。
+>
+> 本项目采用**「代码即真相」**文档模式：渲染 / 逆向 / 根因知识直接内联在对应实现文件的代码注释里。
+> `docs/` 只保留**决策**（含验收判据）、**规范**与**用户文档**；实现机制不在这里。
+
+## 语言结构（新增文档前先读这一节）
+
+- **中文在 `docs/` 根，英文在 `docs/en/`，basename 相同** —— 这样"某文档有没有英文版"是**目录级可枚举事实**，
+  改一份时对应文件一眼可见（后缀式命名要靠逐个文件猜，也容易漂成 `X-en-v2.md` 这类形态）。
+- **每份同名文档顶部都有语言切换链接**；改任一侧请**同步另一侧**（文档头已写明）。
+- **例外（有意不译）**：`CHANGELOG.md`（账本，逐版本记录，翻译成本高而收益低）、`adr/`（决策记录，
+  中文为权威版本）、`ROUTE-INDEX.md`（生成物）、`archive/` 与 `wip/`（历史与过程记录 ——
+  原先单独列出的 `dev-notes-bom-and-dsh-boot.md` 与 `awesome-dsh-plugin-pr-guide.md` 现已归入 `archive/`）。
 
 ## 目录的寿命规则（新增文档前先读这一节）
 
@@ -13,21 +25,31 @@
 
 ## 写作纪律（**注释 / 守卫 / 文档**三处的共同底线）
 
-> 本仓的成文纪律只有这 6 条 —— 它们的**家在这里**（入库），不借住在任何本机专用的文件里。
-> 每条尽量挂在能机器判定的地方（第三列）；还没挂上的**明写"无守卫"**，不含糊过去。
+> 本仓的成文纪律只有这几条 —— 它们的**家在这里**（入库），不借住在任何本机专用的文件里。
+>
+> **纪律靠约定，不靠守卫。** 这里此前挂着一批"机器判定"的文档类守卫，已按
+> [`adr/0006`](./adr/0006-comment-discipline-as-written-convention.md) **撤除并已下线**
+> （决策与执行都已落地 —— 那两条守散文的守卫不再在链上跑）：
+> 写作纪律判断的是「读者会不会被误导」，把它降级成正则匹配只会让作者去躲词表，
+> 而且守卫自身会腐化与自相矛盾。
+> 因此下表第三列**只写"由什么兜住"**，且**没有就是没有** —— 不许用一条恒真的判据冒充覆盖。
+>
+> 撤除的**只**是文档 / 注释 / 账本散文类；守**代码**问题的守卫（可达性、退役线、声明孤儿、
+> 模块布局）**保留**，且不因本次撤除而放松。
 
-| # | 规则 | 判据 / 机制 |
+| # | 规则 | 由什么兜住 |
 |---|---|---|
-| 1 | **注释写不变量，不写编年史** —— 日期、「曾经 / 旧实现」框定、实测症状与踩坑记录一律不进代码注释 | `test/verify-comment-discipline.mjs`（棘轮，只许下调） |
-| 2 | **「实测 X ≈ Y」是出处，不是编年史** —— 给经验值与浏览器行为标出处的句子必须留，否则读者分不清「测出来的」与「猜的」 | 同上（棘轮**不数**「实测」） |
-| 3 | **能写在代码旁的规则不单写文档** —— 机制 / 不变量 / 契约写在**文件头**；文档只留决策、顺序、验收判据与证据锚点 | 无守卫（写作约定）；落点规范见 [`MODULE-LAYOUT.md`](./MODULE-LAYOUT.md) |
-| 4 | **退役线只许缩小** —— 反向探针先于删除；基线只许收紧，删完清空即为「零残留」 | `test/verify-retired-lines.mjs` |
-| 5 | **守卫判据只针对代码，不针对散文** —— 断言「源码里不再有 X」之前先剥注释 | [`TEST-LAYOUT.md`](./TEST-LAYOUT.md) §约定 |
-| 6 | **跳过不得与通过同形** —— 缺前置要么红，要么要求显式 `--allow-skip`；静默跳过等于悄悄失去覆盖 | `test/verify-media-bridge.mjs`（`--provision` / `--allow-skip`） |
+| 1 | **注释写不变量，不写编年史** —— 日期、「曾经 / 旧实现」框定、实测症状与踩坑记录一律不进代码注释 | 无守卫（写作约定）。历史价值的内容进 `CHANGELOG.md` 或 git 历史 |
+| 2 | **「实测 X ≈ Y」是出处，不是编年史** —— 给经验值与浏览器行为标出处的句子必须留，否则读者分不清「测出来的」与「猜的」 | 无守卫（写作约定）。出处**留在被实测的那个代码位置附近**，不搬进常青文档散文 |
+| 3 | **能写在代码旁的规则不单写文档** —— 机制 / 不变量 / 契约写在**文件头**；文档只留决策、顺序、验收判据与证据锚点 | 无守卫（写作约定）；落点规范见 [`CODE-STRUCTURE.md`](./CODE-STRUCTURE.md) |
+| 4 | **常青文档不写会漂的数值** —— 默认值 / 范围 / 枚举清单 / 条数 / 行数 / 体积 / 耗时阈值一律改为**符号引用**或**复算命令**。真源：设置 → `lib/settings-schema.js`，路由 → [`ROUTE-INDEX.md`](./ROUTE-INDEX.md) | 无守卫（写作约定，见 ADR-0006）。**例外**：`CHANGELOG.md` 与 `docs/archive/**` 是账本，其中数值**保持原样**，改了就是伪造记录 |
+| 5 | **退役线只许缩小** —— 反向探针先于删除；基线只许收紧，删完清空即为「零残留」 | `test/verify-retired-lines.mjs` |
+| 6 | **守卫判据只针对代码，不针对散文** —— 断言「源码里不再有 X」之前先剥注释 | [`DEV-GUIDE.md`](./DEV-GUIDE.md) §4.7 |
+| 7 | **跳过不得与通过同形** —— 缺前置要么红，要么要求显式 `--allow-skip`；静默跳过等于悄悄失去覆盖 | `test/verify-media-bridge.mjs`（`--provision` / `--allow-skip`） |
+| 8 | **决策进 ADR，机制进文件头** —— 有备选方案、有人付了代价的取舍写成 [`adr/`](./adr/)；"怎么实现的"写在对应实现文件的头注释 | 无守卫（写作约定）；格式见 [`adr/README.md`](./adr/README.md) |
 
 **入库文档不得引用本机专用的未跟踪路径** —— 读者打不开的东西不要指向它。唯一豁免是 `docs/archive/`
-（历史记录，顶部已声明不反映现行实现）与其取证线索；判据在 `test/verify-comment-discipline.mjs`，
-豁免是否仍然有据也由它核对。
+（历史记录，顶部已声明不反映现行实现）与其取证线索。
 
 ## 用户文档（中英双语，中文在前）
 
@@ -40,24 +62,44 @@
 
 **分层约定**：门面 `README.md` / `README.en.md` 只放**不随版本变化、且新访客决策必需**的事实；
 任何**带版本号 / issue 号 / 性能数字 / 排障步骤 / 实现细节**的内容一律进上表或 `CHANGELOG.md`
-（起因：首页曾有 7 处 `localStorage` 陈述在 v0.4.0 后集体失真）。
+（起因：首页曾有一批 `localStorage` 陈述在某次持久化改造后**集体失真** —— 这正是本文 §写作纪律 4 的由来）。
 
 ## 规范与参考（常青）
 
 | 文档 | 内容 |
 |---|---|
-| [MODULE-LAYOUT.md](./MODULE-LAYOUT.md) | `lib/` 与 `src/` 的分工规范、目录约定、开发面（`test/` / `scripts/`）的职责与深度陷阱 |
-| [TEST-LAYOUT.md](./TEST-LAYOUT.md) | 测试目录说明：守卫 / 冒烟 / 工具各自放哪、为什么 `test/tools/` 要多数一层 `..` |
-| [FONT-SYSTEM.md](./FONT-SYSTEM.md) | 字体系统的通道分工、9 条不变量、扩展步骤、进浏览器包的约束 |
+| [CODE-STRUCTURE.md](./CODE-STRUCTURE.md) | **代码结构与边界** —— 两份文档合并而成（原 `MODULE-LAYOUT.md` ⊕ `ARCHITECTURE.md`）：`lib/` 与 `src/` 的分工规范、目录约定与准入门槛、两个半边与路由族、构建期内联、启停生命周期、数据流、**状态真源清单**、层间边界表、在册守卫 |
+| [DEV-GUIDE.md](./DEV-GUIDE.md) | **二次开发指南** —— "怎么加一个 X"的配方（加路由 / 加设置项 / 加浏览器端代码）；**§4 是验证与测试**（原 `TEST-LAYOUT.md` 并入）：三层结构、两档判据、运行矩阵、覆盖范围、`test/tools/` 清单、写判据的八条约定 |
+| [FONT-SYSTEM.md](./FONT-SYSTEM.md) | 字体系统的通道分工、不变量、扩展步骤、进浏览器包的约束 |
 | [ROUTE-INDEX.md](./ROUTE-INDEX.md) | 宿主路由的**生成索引**（由 `test/tools/host-route-index.mjs` 重算并逐字节比对 —— 手写必烂） |
-| [dev-notes-bom-and-dsh-boot.md](./dev-notes-bom-and-dsh-boot.md) | BOM 与 DSH 启动的两个坑（结论已进 `CONTRIBUTING.md`） |
-| [awesome-dsh-plugin-pr-guide.md](./awesome-dsh-plugin-pr-guide.md) | 向 awesome-dsh-plugin 收录目录提交的一次性发布指南（应作者要求保留原版，勿改） |
+
+> 原先列在这里的两份已移入 `archive/`（见下文「已完成的审计…」之后的**其它归档**一节）：
+> `dev-notes-bom-and-dsh-boot.md`（一次本机排查的过程记录，含当时的绝对路径）与
+> `awesome-dsh-plugin-pr-guide.md`（一次性发布指南，当时的提交快照）。**两者都不描述现行实现。**
+
+## 决策记录（`adr/`）
+
+**只记取舍**：有备选方案、有人付了代价、后人可能想推翻的那个决定。机制与不变量**不进这里** ——
+它们住在对应实现文件的头注释里（本仓的成文纪律：能写在代码旁的规则不单写文档）。
+
+写新 ADR 前先读 [`adr/README.md`](./adr/README.md)：那里有该写什么 / 不该写什么、
+头部格式、以及**为什么不写会漂的数值**（与本文 §写作纪律 同口径）。
+
+| ADR | 决定 |
+|---|---|
+| [0001](./adr/0001-webwallgl-in-tree-live-renderer.md) | 场景壁纸用内嵌 WebWallGL **实时渲染**，而不是离线成帧 / 转码 / 依赖 WE 常驻 |
+| [0002](./adr/0002-settings-schema-single-source.md) | 设置的**唯一真源**收进一个共享文件，宿主与客户端都从它派生 |
+| [0003](./adr/0003-build-time-module-inlining.md) | 浏览器半边靠**构建期内联**拆分，不用运行时模块 |
+| [0004](./adr/0004-two-tier-guard-verification.md) | 守卫按**失败的含义**分硬 / 软两档 |
+| [0005](./adr/0005-media-loopback-origin.md) | 壁纸媒体由宿主自建的**独立 loopback 源**提供 |
+| [0006](./adr/0006-comment-discipline-as-written-convention.md) | 注释与文档纪律改为**纯写作约定**，撤除文档类机器守卫 |
 
 ## 进行中（`wip/`）
 
 | 文档 | 内容 |
 |---|---|
-| [OPEN-ITEMS.md](./wip/OPEN-ITEMS.md) | **重构账本 · 未完成项与触发线（活文档）** —— `wip/` 里唯一活着的那一份：§2 现状基线（上界棘轮）、§3.1–§3.3 现状锚点、§5 状态列（**唯一进度真源**，由 `verify-ledger` 机器核对）、§7 触发线（第 6、7 条）、§9.1 令牌层约束。**本轮重构的主动部分已结项**（46 已落地 / 1 未完成）：唯一未完成项 P2-11 **未过触发线**、且**已机器化**（过线时那一行会变红逼人回来裁决）。历史半边（§1 / §3.4–§3.6 / §4 / §6 / §8 / §9.5–§9.7）已进 [archive/REFACTOR-ASSESSMENT.md](./archive/REFACTOR-ASSESSMENT.md)；**该线全部收口后本文件才整份移入 `archive/`** |
+| [POST-REFACTOR-AUDIT.md](./wip/POST-REFACTOR-AUDIT.md) | **收官后审计（过程记录，不含进度列）** —— 2026-09-29 重构结项后的只读复核，**只收工程债**：宿主的请求体上限 / 编码正确性 / 无界状态 / 中断泄漏 / 并发删产物、客户端启动链与状态拆除、注释与文档失真、残留的重构价值，以及**判据缺口**（为什么 32 条守卫全绿却漏掉这些）。每条只写现象 / 证据 / 影响 / 修法方向；**状态一律记在 `OPEN-ITEMS.md` §5**，条目收口后整体移入 `archive/` |
+| [OPEN-ITEMS.md](./wip/OPEN-ITEMS.md) | **重构账本 · 未完成项与触发线** —— §2 现状基线（上界棘轮）、§3.1–§3.3 现状锚点、§5 状态列、§7 触发线（第 6、7 条）、§9.1 令牌层约束。**本轮重构的主动部分已结项**（46 已落地 / 1 未完成）：唯一未完成项 P2-11 **未过触发线**（"等触发条件"，不是在做）。⚠️ **状态列不再有机器兜底** —— 逐行核对的账本守卫已随 [`adr/0006`](./adr/0006-comment-discipline-as-written-convention.md) 下线，读它请按"未经核对的记录"对待。历史半边（§1 / §3.4–§3.6 / §4 / §6 / §8 / §9.5–§9.7）已进 [archive/REFACTOR-ASSESSMENT.md](./archive/REFACTOR-ASSESSMENT.md) |
 
 ## 已归档（`archive/`，只作记录）
 
@@ -90,9 +132,16 @@
 | [audits/LOGGING-PLAN.md](./archive/audits/LOGGING-PLAN.md) | 日志分级与提示通道的过程记录（**已完成**：G0 + P1–P5）—— 三档 `error` / `warn` / `info`（默认 `warn`）+ 一条独立的成功提示通道；含 G0 两项前置实测的结果、`ctx.logger` 等级语义实测与守卫耦合清单。**机制与不变量已留在 `lib/log.js` / `lib/notice.js` / `lib/routes/diag.js` 的文件头**，判据在 `test/verify-logging.mjs` |
 | [audits/F3-PLAN.md](./archive/audits/F3-PLAN.md) | 字体集文件化的过程记录（**已完成**：阶段 0–4）—— 随包预设 · 两层存储（同 id 用户层胜 + 写时复制、「恢复随包原样」）· 人工切换 · 导入导出；含三条决策（D1 真源归属 / D2 导出通道 / D3 写时复制）、一次真机崩溃的根因与修法、各阶段"如实记下的差额"。**机制与不变量已留在 `lib/routes/fontsets.js` / `src/fontset-store.js` / `src/fontset-editor.js` / `lib/settings-schema.js` 的文件头**，判据在 `test/verify-fontset.mjs` + `test/fontset-load-smoke.mjs` |
 
+### 其它归档
+
+| 文档 | 内容 |
+|---|---|
+| [dev-notes-bom-and-dsh-boot.md](./archive/dev-notes-bom-and-dsh-boot.md) | **BOM 与 DSH 热挂载的一次本机排查记录**（顶部有 `status-banner`）—— 含**当时那台机器的绝对路径**（读者打不开，仅作取证线索）。两条仍然生效的结论**已离开本文**：BOM 由 `verify-package-files` 的 P8 与 `DEV-GUIDE` §4.7 约定 7 承接；热挂载 / 重启语义在 `CONTRIBUTING.md` 与 `CODE-STRUCTURE.md` §1.1 |
+| [awesome-dsh-plugin-pr-guide.md](./archive/awesome-dsh-plugin-pr-guide.md) | 向 awesome-dsh-plugin 收录目录提交的**一次性发布指南**（当时的提交快照，含当时的 commit 数与仓库状态）。按作者要求**保留原版、勿改** |
+
 ## 其它
 
-- 现状 / 进度：[`wip/OPEN-ITEMS.md`](./wip/OPEN-ITEMS.md)（**唯一进度真源**：唯一未完成项 + 触发线 + 基线）；历史评估在 [`archive/REFACTOR-ASSESSMENT.md`](./archive/REFACTOR-ASSESSMENT.md)（**不反映现行实现**）；写作纪律见本文档 §写作纪律。
+- 现状 / 进度：[`wip/OPEN-ITEMS.md`](./wip/OPEN-ITEMS.md)（未完成项 + 触发线 + 基线；⚠️ **状态列已无机器核对**）；历史评估在 [`archive/REFACTOR-ASSESSMENT.md`](./archive/REFACTOR-ASSESSMENT.md)（**不反映现行实现**）；写作纪律见本文档 §写作纪律。
   **本机专用的临时待办不入库**，也不被任何入库文档引用 —— 读者打不开的东西不指向它。
 - 开发/发布：仓库根 `CONTRIBUTING.md`（含「`lib/client.js` 到底是什么」）；用户门面：`README.md` / `README.en.md` / `README.beginner.md`。
 - `images/`：README 引用的截图。

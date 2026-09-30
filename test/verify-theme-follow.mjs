@@ -461,6 +461,15 @@ console.log('\n⑦ 接线：服务句柄 / 切换评估 / 面板开关 / 内联�
   check('applySelection 落 schemeColor（垫底图的底色兜底因此不再永远为空）',
     prepSrc.includes('selection.schemeColor = w.schemeColor || null;')
     && read('src/live-layer.js').includes('sel.schemeColor ||'));
+  // 同一形态的接线判据：宿主发的字段（inventory 的 liveFrame）必须在 applySelection 里落地，
+  // 否则 web 支的"实时帧"这一级在客户端不存在（候选表、抽帧定时器、真实帧取色那条腿全断）
+  // —— 行为面由 rotation-prepared-leak-smoke 的 X1/X2 正负对照钉住。
+  const liveAssign = prepSrc.includes('selection.liveFrame = w.type === "web" && w.liveFrame ? w.liveFrame : null;');
+  const liveRead = read('src/live-layer.js').includes('sel.liveFrame ||');
+  check('applySelection 落 liveFrame（web 支的实时帧候选因此才有入口）',
+    liveAssign && liveRead, 'assign=' + liveAssign + ' read=' + liveRead);
+  check('清空/被过滤两条早退分支也把实时帧清掉（不留上一张的残值）',
+    prepSrc.split('selection.liveFrame = null;').length - 1 >= 2);
   check('applySelection 触发评估', prepSrc.includes('themeFollowOnWallpaper(selection);'));
   check('清空/被过滤两条早退分支也把配色清掉（不留上一张的残值）',
     prepSrc.split('selection.schemeColor = null;').length - 1 >= 2);

@@ -83,7 +83,7 @@
 | R4 | ~~设置键四处镜像~~ | P1-5 ✅ |
 | R5 | ~~缓存键两处构造~~ | P1-6 ✅ |
 | R6 | ~~打包漂移（死依赖 / lock 不一致 / 根目录杂物）~~ | P0-2 ✅ |
-| R7 | **门面巨石**使单次理解与改动成本持续上升 | P2-9/10/11（P2-11 的剩余族有机器看守的触发线：[`test/verify-ledger.mjs`](../../test/verify-ledger.mjs) 的 `P2-11` 两条证据） |
+| R7 | **门面巨石**使单次理解与改动成本持续上升 | P2-9/10/11（P2-11 的剩余族有机器看守的触发线：`test/verify-ledger.mjs` 的 `P2-11` 两条证据 —— ⚠️ 该守卫已随 ADR-0006 下线，此处为历史记录） |
 | R8 | **守卫的文本判据脆弱**（补丁让旧判据假失败） | P1-5 / P1-7 已换掉数条 |
 | R9 | **字体系统换机制**的三类风险：API 可注入性、令牌名漂移、撞白闪红线 | F0 / F1 ✅ |
 | R10 | ~~字体集持久化走新通道⇒两套"键 → 落盘"规则~~ | F1 排在 P1-5 之后 ✅ |
@@ -192,7 +192,7 @@
 
 | 文档 | 关系 |
 |---|---|
-| [`docs/MODULE-LAYOUT.md`](../MODULE-LAYOUT.md) | `lib/` 与 `src/` 的分工规范（新文件放哪、什么算越界）；本文不重复它，它不重复本文的进度 |
+| `docs/CODE-STRUCTURE.md`（当时名为 `docs/MODULE-LAYOUT.md`，后与 `ARCHITECTURE.md` 合并） | `lib/` 与 `src/` 的分工规范（新文件放哪、什么算越界）；本文不重复它，它不重复本文的进度 |
 | [`docs/ROUTE-INDEX.md`](../ROUTE-INDEX.md) | 路由 → 处理器 → 依赖 → 守卫覆盖的索引，由守卫重算比对（**不可手改**） |
 | [`docs/archive/audits/F0-THEME-SERVICE-CHECKLIST.md`](audits/F0-THEME-SERVICE-CHECKLIST.md) | F0 真机记录（已关闭，保留）；结论已并入 §9.1 的 V1–V10 |
 | [`docs/archive/static-frame/*`](static-frame/) | 静态帧线的历史与逆向记录（**不反映现行实现**）；§6 是它的终点决策 |

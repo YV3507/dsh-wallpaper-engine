@@ -50,7 +50,10 @@ const read = (rel) => readFileSync(ROOT + rel, 'utf8');
 // 删净 ⇒ 这条 needle 不再需要"登记遗留（DECLARED_RESIDUE）"那个中间态，直接并入零残留断言。
 // 名单只许缩小：检验者 = 必须点名该 needle 才能断言"它没了"的守卫。
 const LEGACY_RESOURCE_URL = '/wallpaper-engine/scene-resource/';
-const RESIDUE_INSPECTORS = ['test/verify-ledger.mjs'];
+// **空名单 = 最后一个检验者也没了**（`verify-ledger` 随 ADR-0006 下线）：产品侧早已零残留，
+// 于是这条 URL 现在连"为了断言它不在"而点名它的地方都不需要 —— 这正是清单缩小到尽头的形态。
+// 断言本身**不因此变弱**：它照样对全部文件断言零残留，只是不再豁免任何人。
+const RESIDUE_INSPECTORS = [];
 
 const LEGACY_FORBIDDEN = [
   'WE_SCENE_PLAYER_HTML',
@@ -81,12 +84,17 @@ const LEGACY_FORBIDDEN = [
     residueSpread.length === 0,
     residue.length ? '仅出现在 ' + residue.join(', ') : '干净（连检验者也不再提它）');
 
-  // 负对照：把"名单外的文件"喂给**同一个**判据，必须被判为扩散
+  // 负对照：把"某个文件"喂给**同一个**判据，必须被判为扩散。
+  // ⚠️ 名单为空之后，这条对照更要紧：豁免面消失后，"零残留"有可能退化成**恒真断言**
+  //    （例如某天这条 needle 的常量被删掉，扫描就再也找不到任何东西而永远绿）。
+  //    因此额外钉住"被扫的 needle 确实是有内容的字面量、且本文件确实在点名它"。
   {
     const probe = (files) => files.filter((f) => !RESIDUE_INSPECTORS.includes(f));
-    check('negative control: 登记遗留扩散到名单外会被判不合格',
-      probe([...RESIDUE_INSPECTORS, 'lib/elsewhere.js']).length === 1
+    check('negative control: 名单外文件被判为扩散（豁免面为空时仍然有牙）',
+      probe(['lib/elsewhere.js']).length === 1
       && probe(RESIDUE_INSPECTORS).length === 0);
+    check('needle 非空且本文件确实点名它（防"零残留"退化成恒真）',
+      LEGACY_RESOURCE_URL.length > 0 && read('test/verify-retired-lines.mjs').includes(LEGACY_RESOURCE_URL));
   }
 
   {
@@ -98,8 +106,8 @@ const LEGACY_FORBIDDEN = [
 }
 
 // ── ② 静态帧渲染线：不蔓延（BASELINE 只许缩小）───────────────────────────────
-// 冻结于 P0-4（2026-09-26）。名单里现在只剩检验它们的守卫（产品侧已删净）；
-// **任何不在名单里的文件出现退役词 = 有人开始把这条线接回主线**，必须失败。
+// 名单里现在只剩检验它们的守卫（产品侧已删净）；**任何不在名单里的文件出现退役词 =
+// 有人开始把这条线接回主线**，必须失败。
 const SF_VOCAB = [
   'renderSceneFrameInWorker', 'scene-render-worker', 'extractSceneMainImage',
   'collectImageObjectTextures', 'FORMAT_PENALTY', 'tryCompositeSceneLayers',
@@ -107,14 +115,10 @@ const SF_VOCAB = [
   'SceneRenderer', 'scene-renderer', 'we-renderer', 'font-render',
   'scene-scripts', 'scene-script-apis',
 ];
-// 冻结于 P0-4。P2-12 阶段 2 已删净死树与提取链 ⇒ 名单**只剩一个检验者**
-//（它必须点名标识符才能断言"它没了"）。删除过的文件不要再留
-//（本节 INFO 会提示可收紧项）。
-const SF_BASELINE = [
-  // 产品侧已零残留（P2-12 阶段 2 删净死树 + 提取链 + `scene-manifest` 的 2,000 行无引用声明）。
-  // 只剩**检验者**：账本守卫必须点名这条线的标识符，才能断言"它没了"。
-  'test/verify-ledger.mjs',
-];
+// 冻结于 P0-4。P2-12 阶段 2 已删净死树与提取链；此后**最后一个检验者**（账本守卫）
+// 随 ADR-0006 下线 ⇒ 名单现在为空：产品侧与检验侧都零残留，这条线只会被"接回来"违反。
+// 删除过的文件不要再留（本节 INFO 会提示可收紧项）。
+const SF_BASELINE = [];
 {
   const found = new Map(); // file -> 命中的退役词
   for (const f of FILES) {
@@ -123,10 +127,11 @@ const SF_BASELINE = [
     if (hit.length) found.set(f, hit);
   }
   const spread = [...found.keys()].filter((f) => !SF_BASELINE.includes(f));
-  check('静态帧线未蔓延：退役词只出现在冻结基线内', spread.length === 0,
+  check('静态帧线未蔓延：退役词零残留（基线已空）', spread.length === 0,
     spread.length ? '越界文件 ' + spread.length + '：' + spread.slice(0, 4).join(', ')
-      : '基线内 ' + found.size + '/' + SF_BASELINE.length + ' 个文件命中（共 ' +
-        [...found.values()].reduce((a, b) => a + b.length, 0) + ' 处）');
+      : found.size === 0 ? '零残留（' + SF_VOCAB.length + ' 个退役词 × ' + FILES.length + ' 个文件）'
+        : '基线内 ' + found.size + ' 个文件命中（共 ' +
+          [...found.values()].reduce((a, b) => a + b.length, 0) + ' 处）');
 
   const shrunk = SF_BASELINE.filter((f) => existsSync(ROOT + f) && !found.has(f));
   if (shrunk.length) console.log('  INFO 基线可缩小（已不含退役词）：' + shrunk.join(', '));
@@ -137,9 +142,14 @@ const SF_BASELINE = [
   const simulated = new Map([...found, ['src/client.js', ['extractSceneMainImage']]]);
   check('negative control: 基线外文件出现退役词会被判不合格',
     [...simulated.keys()].some((f) => !SF_BASELINE.includes(f)));
-  // 正对照：基线内的命中不该被判为蔓延
+  // 正对照：基线内的命中不该被判为蔓延。
+  // ⚠️ 基线已空 ⇒ 断言分两支，否则这条对照会**恒假**（空 Map 里不存在"基线内命中"）：
+  //    有基线文件时按原义验；基线为空时验"同一个判据对基线内文件确实放行"。
   check('positive control: 基线内的命中不算蔓延',
-    [...found.keys()].every((f) => SF_BASELINE.includes(f)) && found.size > 0);
+    [...found.keys()].every((f) => SF_BASELINE.includes(f))
+    && (SF_BASELINE.length === 0
+      ? [...new Map([['test/implied.js', ['x']]]).keys()].every((f) => !SF_BASELINE.includes(f))
+      : found.size > 0));
 }
 
 // ── ③ UI 笔误「秡」已修（P0-4）──────────────────────────────────────────────

@@ -24,7 +24,7 @@
  * **负对照的形态规则（P3-16）**：变异输入必须喂进**同一条判据** —— 本文件里就是那几个命名实体
  * （`publishSet` / `resolveRelative` / `isDevLeak` / `DEV` / `PLACEHOLDER` / `unshippedRefs` /
  * `usedByClosure` / `vm.Script`），正判据与负对照都调它。只断言"某个常量不含 X"不算（判据没被执行）；在对照里另抄一份判据
- * 也不算（生产侧改了也不会红）。规则全文见 [`docs/TEST-LAYOUT.md`](../docs/TEST-LAYOUT.md) §约定 5。
+ * 也不算（生产侧改了也不会红）。规则全文见 [`docs/DEV-GUIDE.md`](../docs/DEV-GUIDE.md) §约定 5。
  *
  * Usage:  node test/verify-package-publish.mjs
  */
@@ -266,7 +266,7 @@ section('⑦ 安装期脚本不得引用未随包发布的文件');
 {
   const INSTALL_HOOKS = ['preinstall', 'install', 'postinstall'];
   const DEV_ONLY = ['prepublishOnly', 'prepack', 'postpack', 'prepublish',
-    'build', 'verify', 'verify:all', 'verify:bridge', 'verify:e2e', 'smoke'];
+    'build', 'verify', 'verify:docs', 'verify:all', 'verify:bridge', 'verify:e2e', 'smoke'];
   const unshippedRefs = (cmd) => [...String(cmd)
     .matchAll(/(?:^|\s)((?:scripts|src|test|docs|\.test-cache)\/[\w./-]+)/g)]
     .map((m) => m[1]).filter((p) => !publishSet(p));

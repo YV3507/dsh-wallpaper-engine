@@ -35,6 +35,10 @@
  *     **不得**改 selection、不得插入 DOM；真正的落地只在 commitRotationSwitch / applySelection。
  *   · **探测元素必须释放**：adoptProbe / releaseProbeMedia / disposePreparedMedia 成对 ——
  *     探测用的 Image/Video 不释放会一直占着解码器与网络连接。
+ *   · **"已就绪"只许由就绪事件打**：adoptProbe 的 `{ ready: true }` 只给真的观测到
+ *     onload / canplay / 渲染页首帧的调用点。超时兜底提交只是"这次探测该收尾了"，
+ *     元素的像素还没到 —— 那一档**不得**带 `__weReady`，因为切层内容闸门把它读成
+ *     "这一层有画面"（标错 = 放一块还没有像素的层上屏）。
  *   · **超时记账只许清零或自增**：prepareLiveTimeouts 记"连续超时次数"，达到上限后
  *     prepareLiveExhausted 为真 ⇒ 不再预挂载（否则每轮都白等满超时）；成功路径必须清零。
  *   · **applySelection 是唯一的"选中项落地"入口**：直接改 selection.id 会漏掉持久化、
@@ -97,7 +101,7 @@ function prepareWallpaper(w, prep, onReady, onFail) {
     if (typeof Image !== "function") { onReady(); return; }
     const img = new Image();
     prep.probeMedia = img;
-    img.onload = () => { adoptProbe(prep); onReady(); };
+    img.onload = () => { adoptProbe(prep, { ready: true }); onReady(); };
     img.onerror = () => { releaseProbeMedia(prep); onFail(); };
     prepTimeout(prep, () => { adoptProbe(prep); onReady(); }); // 慢图兜底提交（元素在新层继续加载）
     img.alt = "";
@@ -177,7 +181,7 @@ function prepareVideoProbe(url, posterUrl, prep, onReady, onFail) {
   // headless mock 元素无事件设施 → 同步直通。
   if (!v || typeof v.addEventListener !== "function") { onReady(); return; }
   prep.probeMedia = v;
-  const onCanplay = () => { adoptProbe(prep); onReady(); };
+  const onCanplay = () => { adoptProbe(prep, { ready: true }); onReady(); };
   const onErr = () => { releaseProbeMedia(prep); onFail(); };
   v.__weCanplay = onCanplay;
   v.__weError = onErr;
@@ -208,7 +212,7 @@ function prepareWebProbe(w, prep, onReady) {
   const f = document.createElement("iframe");
   if (!f || typeof f.addEventListener !== "function") { onReady(); return; }
   prep.probeMedia = f;
-  const onLoad = () => { adoptProbe(prep); onReady(); };
+  const onLoad = () => { adoptProbe(prep, { ready: true }); onReady(); };
   f.__weLoad = onLoad;
   f.addEventListener("load", onLoad, { once: true });
   prepTimeout(prep, () => { adoptProbe(prep); onReady(); }); // 慢页兜底提交（元素继续加载）
@@ -318,7 +322,7 @@ function prepareSceneLiveStage(w, prep, onReady, onFail) {
     if (st && st.running && st.fps > 0) {
       clearPrepareLiveTimeout(w.id); // 真的出首帧 → 清掉超时计数
       liveLog("prep-live-ready", "wid=" + w.id + " 用时 " + (Date.now() - startedAt) + "ms");
-      adoptProbe(prep); // readyEl = iframe，监听摘除，元素随 commit 进新层
+      adoptProbe(prep, { ready: true }); // readyEl = iframe，监听摘除，元素随 commit 进新层
       onReady();
       return;
     }
@@ -365,7 +369,7 @@ function prepareSceneStaticStage(w, prep, onReady, onFail) {
     if (!w.preview) { onFail(); return; }
     const p = new Image();
     prep.probeMedia = p;
-    p.onload = () => { adoptProbe(prep); onReady(); };
+    p.onload = () => { adoptProbe(prep, { ready: true }); onReady(); };
     p.onerror = () => { releaseProbeMedia(prep); onFail(); };
     p.alt = "";
     p.draggable = false;
@@ -384,7 +388,7 @@ function prepareSceneStaticStage(w, prep, onReady, onFail) {
   const frameSrc = frameUrlWithVariant(w.frameUrl, savedVariant);
   const img = new Image();
   prep.probeMedia = img;
-  img.onload = () => { adoptProbe(prep); onReady(); };
+  img.onload = () => { adoptProbe(prep, { ready: true }); onReady(); };
   img.onerror = () => { releaseProbeMedia(prep); tryPreview(); };
   prepTimeout(prep, () => { adoptProbe(prep); onReady(); }); // 慢帧兜底提交
   img.alt = "";
@@ -419,6 +423,7 @@ function applySelection(id, opts) {
     selection.url = null;
     selection.type = null;
     selection.previewUrl = null;
+    selection.liveFrame = null;
     selection.sceneVideo = null;
     selection.sceneLiveSrc = null;
     selection.webLiveSrc = null;
@@ -444,6 +449,7 @@ function applySelection(id, opts) {
     selection.url = null;
     selection.type = null;
     selection.previewUrl = null;
+    selection.liveFrame = null;
     selection.sceneVideo = null;
     selection.sceneLiveSrc = null;
     selection.webLiveSrc = null;
@@ -506,6 +512,10 @@ function applySelection(id, opts) {
   }
   // Keep the preview around so a failed static frame can fall back to it.
   selection.previewUrl = w.preview || null;
+  // 网页壁纸的实时抓帧缓存（宿主 inventory 的 liveFrame = /live-frame/<token>）。web 支把它当
+  // 垫底图的**第 1 级候选**，并在 live 首帧稳定后向它回填抽帧；不落这条字段，那一整支
+  //（候选、抽帧定时器、"真实渲染帧"那条取色腿）在客户端就没有入口。与 previewUrl 同址。
+  selection.liveFrame = w.type === "web" && w.liveFrame ? w.liveFrame : null;
   // 作者声明的配色（project.json 的 schemecolor，宿主已转成 rgb()）：既是垫底图的
   // 底色兜底（buildLivePoster），也是「主题随壁纸」的第一优先级取色。此前宿主发了
   // 这条字段但没人接 —— 垫底图因此永远走 CSS 变量兜底。

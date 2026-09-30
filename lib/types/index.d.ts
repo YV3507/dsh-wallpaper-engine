@@ -2,7 +2,7 @@
  * dsh-wallpaper-engine — host half type surface.
  *
  * The host plugin contributes no public Cordis services and registers no model
- * tool. It serves 32 same-origin HTTP routes through `ctx.webServer` and unwinds
+ * tool. It serves 33 same-origin HTTP routes through `ctx.webServer` and unwinds
  * them on unload; `docs/ROUTE-INDEX.md` is the generated table of those routes
  * and stays authoritative for their paths and handlers.
  *
@@ -40,6 +40,10 @@ export interface WallpaperDescriptor {
   sceneLive: boolean;
   /** Scene main-file token for the live renderer (`sceneLive` only), or null. */
   sceneLiveSrc: string | null;
+  /** `scene.pkg` size in bytes (0 when it cannot be measured). The client scales its
+   *  first-frame watchdog budget by it — the first frame cannot exist before the whole
+   *  package has arrived, and measured packages reach 336 MB. */
+  scenePkgBytes: number;
   /** Scene embedded-animation MP4 URL (`/wallpaper-engine/scene-video/<token>`); null
    *  until the probe confirms the pkg really carries an MP4. */
   sceneVideo: string | null;
@@ -87,6 +91,13 @@ export interface Inventory {
   weAssetsDir: string | null;
   /** Whether `weAssetsDir` currently holds a usable `materials/` tree. */
   weAssetsAvailable: boolean;
+  /**
+   * Origin (scheme://host:port) of the plugin's own wallpaper media source, for the
+   * live renderer's `mediaBase` when rendering a Scene. Empty string means "use the
+   * application origin" — native browsers need no second listener, and a failed media
+   * source must degrade rather than blank the wallpaper.
+   */
+  sceneMediaBase: string;
   /** Total entries: installed WE wallpapers plus custom uploads. */
   total: number;
   /** Number of entries with playable media. */

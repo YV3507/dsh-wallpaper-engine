@@ -3,8 +3,9 @@
  *
  * 为什么需要：守卫失效有两种，第二种不会变红 —— **守卫悄悄失去牙齿**：
  *   A. **对照构造了却没被评估**：`controls` 的评估循环排在某个 `controls.push(...)` **之前** ⇒
- *      后推的对照"推了、没人看"。实测形状见 `test/verify-ledger.mjs`（修复前：输出里只有 2 条
- *      对照，另 2 条从不被评估）。
+ *      后推的对照"推了、没人看"。本工具正是为这个形状写的（曾在一份账本守卫上实测到：
+ *      输出里只评估了 2 条对照，另 2 条从不被评估）；那份守卫已随 ADR-0006 下线，
+ *      但**形状本身仍会复发**，所以这条扫描面保留。
  *   B. **log 形式的伪判据**：`console.log('x (expect 1):', n === 1)` 在日志里**像**断言，实际不判
  *      真假 —— 产品改坏了它照样 exit 0。`verify-client.mjs` 对本文件有归零棘轮（39 处已清零），
  *      **其余守卫没有** ⇒ 这正是本工具的扫描面。
@@ -23,7 +24,7 @@
  *      ⚠️ 本条说明自身就是证据：写这段时注释里出现了字面的结束标记，**当场把这个文件变成语法错误**。
  *
  * **它不是判据，是候选清单** —— 与 `audit-fixture-coverage.mjs`（P3-23）同一立场：结论要人读。
- * 所以它**不进 `npm run verify`**（MODULE-LAYOUT §4.5：无 CI 消费者的手动工具住 `test/tools/`）。
+ * 所以它**不进 `npm run verify`**（CODE-STRUCTURE §4 第 5 条：无 CI 消费者的手动工具住 `test/tools/`）。
  *
  * 已知局限（照 P3-23 的规矩写在工具头，别让读者以为它是穷尽的）：
  *   ① A 的判据是"**最后一次 push 晚于最后一次评估**"。成对交错（评估、push、评估、push…）里
@@ -50,7 +51,7 @@ import { fileURLToPath } from 'node:url';
 // 判据 F 要与共享的字符串感知实现对比（同目录 js-text.mjs）。
 import { stripComments } from './js-text.mjs';
 
-// `test/tools/` 比 `test/` 深一层 ⇒ 推仓库根要退**两层**（MODULE-LAYOUT §4.5；verify-module-layout ④ 有断言）
+// `test/tools/` 比 `test/` 深一层 ⇒ 推仓库根要退**两层**（CODE-STRUCTURE §4 第 5 条；verify-module-layout ④ 有断言）
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 // 扫描面 = 守卫面（verify-* 结构守卫 + *-smoke 节点级冒烟）。手动工具自己不算守卫，不扫。

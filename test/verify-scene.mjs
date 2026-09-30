@@ -534,7 +534,7 @@ if (token) {
       res.on('close', () => { seen.push('close:' + res.statusCode); done(res.statusCode, 'res-close'); });
       res.on('aborted', () => seen.push('aborted'));
     });
-    // 连接被对端掐断（旧实现的症状）→ 状态记 0，便于断言区分。
+    // 连接被对端掐断 → 状态记 0，便于断言区分。
     req.on('error', (e) => { seen.push('error:' + (e && e.code)); done(0, 'req-error:' + (e && e.code)); });
     if (body) req.write(body);
     req.end();

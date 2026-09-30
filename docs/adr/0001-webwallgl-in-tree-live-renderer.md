@@ -1,0 +1,89 @@
+# ADR-0001: 场景壁纸用内嵌 WebWallGL 实时渲染（In-tree WebWallGL live rendering for Scene wallpapers）
+
+- **Date**: 2026-09-30
+- **Status**: Accepted
+- **Deciders**: YV3507
+- **Supersedes**: `docs/archive/static-frame/` 所记录的离线静态帧路线（该线已整体移除并迁往独立仓库）
+
+> 本 ADR 记录**渲染路线的取舍**。实现机制（抓帧几何校验、空帧门禁、载荷账本、遮挡暂停）
+> 住在 `lib/routes/scene-frame.js`、`lib/routes/scene-serve.js`、`src/live-layer.js` 的文件头注释里；
+> 用户可见行为在 `docs/HOW-IT-WORKS.md`。本文不复述它们。
+
+## Context
+
+Wallpaper Engine 的三类壁纸里，**Scene（场景）**是最难移植的一类：它由 WE 自带的 3D 引擎驱动 ——
+粒子系统、puppet 骨骼模型、SceneScript 脚本、鼠标视差与点击交互、包内音频。它**不是**一段视频，
+也不是一个网页，而是一份需要引擎解释的 `scene.pkg` 描述。
+
+交付场景壁纸，本仓评估过三条路线（可行性取证见 `docs/archive/static-frame/RENDERER-FEASIBILITY.md`
+与 `docs/archive/static-frame/WE-REVERSE.md`，均为**历史记录**）：
+
+1. **离线渲染成静态帧**：用一套离线渲染器把场景渲染成 PNG，当作图片壁纸交付。
+   - 优点：交付面最简单，浏览器只需显示一张图。
+   - 代价：**没有动画**。而 WE 场景壁纸的核心价值恰恰是动画与交互；等价于把"活的"降级成"一张截图"。
+   - 附加代价：离线渲染要求把 WE 的渲染语义（着色器、材质、粒子时序）复刻到可接受精度 ——
+     `DEFAULT-SCENE-RENDER-AUDIT.md` 记录的「无损渲染」纯数学取证表明这是一条**长尾无底**的线。
+2. **转码成视频**：宿主预先用 ffmpeg 把场景渲染成 MP4，前端当视频播。
+   - 优点：复用已有的视频管线。
+   - 代价：同样**丢掉交互**（视差、点击、音频反应），且需要一份能出帧的渲染器才能转 ——
+     即把路线 1 的成本前置，只是产物换了个容器。
+3. **依赖 WE 在后台运行**：让 Wallpaper Engine 进程自己渲染，本插件只做窗口嵌入或抓屏。
+   - 优点：保真度最高。
+   - 代价：**要求用户购买并常驻 Wallpaper Engine**，且跨平台（WSL / Linux / macOS）不可行；
+     本插件其余能力都不需要 WE 常驻，唯独这条会引入一个硬前置。
+
+同时，本仓已有一份**浏览器端实时渲染器**（`lib/webwallgl/`，源自独立仓库
+[webwallgl](https://github.com/YV3507/webwallgl)），它本来就是为在浏览器里解释场景而写的。
+
+## Decision
+
+**采用路线"内嵌实时渲染"**：把 WebWallGL 渲染器作为 vendored 副本随包发布
+（`lib/webwallgl/`），由宿主以 `/scene-live` 提供渲染页，浏览器端在壁纸图层里真实渲染场景。
+
+配套的几条决定：
+
+- **D1 —— 渲染器随包 vendored，不从 CDN 取**：用户装完即可用，不引入运行期外网依赖。
+  同步走 `test/tools/sync-webwallgl.mjs`，**vendored 副本不许就地改**。
+- **D2 —— 网页壁纸复用同一条渲染器挂载路径**：Scene 与 Web 走同一套渲染页骨架，
+  网页壁纸额外注入 WE 网页 API 的兼容 shim（`lib/webwallgl/web-shim.js`）。
+- **D3 —— 渲染失败不许留黑屏**：出图降级链（实时 → 内嵌 MP4 → 实时抓帧 → 自定义画面 → 空态）
+  是这条决定的**必要配套**。没有它，"内嵌实时渲染"在低端机 / 无 WebGL 环境下就是一张黑屏。
+- **D4 —— 不做 Application（应用）类壁纸**：它要宿主直接运行第三方可执行程序，
+  与本插件"不替用户跑外部程序"的边界冲突。这是本 ADR 的**有意排除项**，不是未实现。
+
+## Consequences
+
+**收益**
+
+- Scene 壁纸**保持动画、脚本、视差、点击与音频反应** —— 这是用户能直接感知的保真度。
+- **不需要 Wallpaper Engine 常驻**，也不需要用户购买之外的任何前置；跨平台一致。
+- 与 Video / Web 共用同一套图层、遮挡暂停、帧率上限与出图降级管线。
+
+**代价（我们放弃了什么）**
+
+- **包体积**：渲染器与 shim 随包发布，即使用户一张 Scene 壁纸都没有也要下载。
+- **保真度不是 100%**：WebWallGL 是对 WE 引擎语义的**复刻**。抓帧几何校验、黑帧门禁、
+  以及 CPU 帧回填这些机制的存在本身就说明"渲染器给出的画面需要被怀疑和兜底"。
+- **必须维护一条降级链**：出图来源链、失败记忆、会话内重试、载荷账本 —— 这些复杂度
+  全部是"把渲染放进浏览器"换来的。
+- **vendored 上游同步成本**：渲染器与 shim 的上游演进要靠 `sync-webwallgl.mjs` 手工拉。
+
+## 重新考虑的触发线
+
+出现下列任一情况时，应回来重评本决定（而不是就地打补丁）：
+
+- WebWallGL 的复刻精度在**主流工坊场景**上出现无法兜底的系统性偏差
+  （此时路线 1 的离线渲染可能反而更诚实）。
+- 浏览器端 WebGL / WebGPU 环境在目标平台上变得不可依赖。
+- 上游 WebWallGL 停止维护，导致 vendored 副本无法跟进而工坊场景持续演进。
+- 包体积成为用户侧的首要抱怨（此时应考虑把渲染器改为**按需下载**，
+  与媒体中间件同一形态 —— 本仓已有该模式可复用）。
+
+## 参考
+
+- 出图来源链与抓帧几何：`docs/HOW-IT-WORKS.md`
+- 抓帧路由与空帧门禁：`lib/routes/scene-frame.js`
+- 渲染页与壁纸文件服务、目录围栏：`lib/routes/scene-serve.js`
+- 浏览器端图层与降级：`src/live-layer.js`
+- 网页壁纸兼容 shim 的语料依据：`lib/webwallgl/web-shim.js`
+- 已退役的离线路线取证（**不反映现行实现**）：`docs/archive/static-frame/`

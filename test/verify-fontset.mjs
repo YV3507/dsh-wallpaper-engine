@@ -907,8 +907,8 @@ section('⑦ 客户端通道（静态契约：字体值不再经 settings 出去
   check('通道：绝不碰 settings 那条路由（两条通道不交叉）',
     !/\/settings/.test(strip(storeSrc)));
 
-  // 7f. 失败文案：**裸状态码 = 请求没到本族**（2026-09-28 真机实测的形态 —— 页面刷新后
-  // 前端是新的、宿主还是旧的，请求落到 SPA 兜底，GET 裸 404 / 非 GET 裸 405、都没有信封）。
+  // 7f. 失败文案：**裸状态码 = 请求没到本族**（**实测**形态：前端是新的、宿主是旧的时，
+  // 请求落到 SPA 兜底 —— GET 裸 404 / 非 GET 裸 405、都没有信封）。
   // 两条约定缺一不可：① 请求一律 `parse:'always'`（否则读不到宿主的 `{ error }`）；
   // ② 失败一律经 `fontSetFailureReason`（否则用户只看到"宿主返回 404"）。
   const storeCode = strip(storeSrc);

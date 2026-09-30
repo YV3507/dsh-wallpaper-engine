@@ -28,8 +28,9 @@ It discovers the Wallpaper Engine install on your machine, lists your wallpapers
 **Wallpaper rendering (core)**
 
 - **Three wallpaper types, three render paths**: **Video** plays directly; **Web / HTML** runs through the built-in WebWallGL web mount (host-injected WE API + strict sandbox isolation); **Scene** is rendered by the built-in **WebWallGL** real-time WebGL engine — particle systems, puppet skeletal models, SceneScript, mouse parallax and click interaction, packaged audio and audio reactivity.
-- **Live first, graceful degradation**: the renderer page is watched by a **heartbeat watchdog**, so a first-frame timeout or a stalled runtime degrades through 「embedded MP4 → live-captured frame → custom frame → empty state」 and is remembered per wallpaper (re-toggling the switch retries). **No black screen before the first frame**: the placeholder takes 「live-captured frame → the author's own preview image (the thumbnail WE shows) → the theme colour」 — a preview is only a stand-in, never "guessing a picture on the author's behalf"; only when none of them can be read does it stay **honestly empty**.
-- **High-fps sources can shed load**: the **fps cap** transcodes a source such as 4K120 once to the capped frame rate (4K preserved + AV1) — measured GPU usage drops from ~60 % to **~15 %**; the **occlusion-pause** trio drops the decoder entirely on minimize / focus loss / battery.
+- **Live first, graceful degradation**: scene / web wallpapers are rendered **live** by the built-in engine; the renderer page is watched by a **heartbeat watchdog**, and when it genuinely cannot produce a frame the plugin walks a **degradation chain** down to a last resort — **no black screen before the first frame**, and the final step is allowed to stay **honestly empty**.
+  > The chain's **order, the watchdog criteria, how failures are remembered and where the placeholder frame comes from** are defined in exactly one place: [`docs/HOW-IT-WORKS.md`](docs/HOW-IT-WORKS.md). This page only promises "no black screen and no permanent wedge from one bad frame" and deliberately does not restate the steps (a second copy is a second thing to forget to update).
+- **High-fps sources can shed load**: the **fps cap** transcodes a source such as 4K120 once to the capped frame rate (4K preserved + AV1) — **GPU usage drops substantially**; the **occlusion-pause** trio drops the decoder entirely on minimize / focus loss / battery.
 - **What can move over, moves over**: upload local JPG / PNG / MP4 straight from the picker; user-defined rotation lists switch wallpapers on their own interval and order (only once the next one is ready — no black flash).
 
 **UI makeover (core)**
@@ -123,7 +124,7 @@ Step-by-step recovery (`ERR_PNPM_UNEXPECTED_VIRTUAL_STORE`, etc.) lives in
 
 ### The settings tabs
 
-The settings page and the wallpaper-library drawer share the same **six tabs** — **壁纸** (selection / rotation / custom) · **外观** · **吉祥物** · **效果** · **声音** · **高级** — each keeping only the controls that belong to it instead of a thirty-item single column. The pill indicator slides smoothly between tabs, and long explanations live in tooltips — each row keeps a one-line hint.
+The settings page and the wallpaper-library drawer share the same **six tabs** — **壁纸** (selection / rotation / custom) · **外观** · **吉祥物** · **效果** · **声音** · **高级** — each keeping only the controls that belong to it instead of one long scrolling column. The pill indicator slides smoothly between tabs, and long explanations live in tooltips — each row keeps a one-line hint.
 
 ### Selection & filters
 
@@ -136,7 +137,7 @@ The settings page and the wallpaper-library drawer share the same **six tabs** �
 
 - **紧凑布局 (compact layout)**, a toggle in the **高级** tab: ON gives the **CD-rack** look — cards stack vertically, hovering scales a card up and brings it to the front, and the grid shows everything on ONE page; OFF is the regular grid (default).
 - **黑胶唱片 (vinyl record)**: a rotating vinyl next to the picker uses the selected wallpaper's cover as the record label — it spins while the wallpaper plays and stops when paused; it shows in both card styles.
-- **Playback speed**: 0.5x / 0.75x / 1x / 1.25x / 1.5x / 2x for video wallpapers, driven by the browser's native `playbackRate` — instant, no reload, no black flash.
+- **Playback speed**: selectable speed steps for video wallpapers, driven by the browser's native `playbackRate` — instant, no reload, no black flash.
 - **Horizontal flip**: mirrors video, web and uploaded images / videos via CSS `scaleX(-1)` — zero main-thread cost.
 - **Switch transitions**: the animation used when the wallpaper changes (shared by manual picks and automatic rotation) — **hard cut (default)** / cross-fade / push / wipe / iris / zoom / strips, each with its own baseline duration multiplied by fast / normal / slow, plus a direction for the directional ones; under `prefers-reduced-motion` every transition degrades to a hard cut.
 
@@ -148,7 +149,7 @@ The **适配 (adapter)** section of the **高级** tab works out which of **a pl
 
 The **遮挡暂停 (occlusion pause)** trio in the **高级** tab (defaults: minimize / tab-switch **on**, focus loss **off**, on battery **off**): when a condition hits, video wallpapers **stop decoding outright** (an explicit `pause`, not browser throttling — the decoder drops to zero) and the scene live render pauses its render loop; playback resumes when you come back / plug in (a manual pause is never auto-resumed). **「窗口失焦时暂停」 is only offered when the adapter target is the plain browser** — when a desktop shell loses focus the wallpaper is usually still fully visible, and pausing would freeze a **visible** picture; the stored value is kept and takes effect again as soon as you switch back to the browser target.
 
-The **帧率上限 (fps cap)** control in the **效果** tab (unlimited / 60 / 48 / 30 / 24 fps) targets high-fps sources: the host re-encodes the source ONCE with ffmpeg to the capped frame rate (the timeline stays **1.0x normal speed**, fully decoupled from playback speed) as **4K-preserving AV1**, cached so each wallpaper pays the cost once. The original plays first and the app swaps when the transcode is ready; the settings page shows a **live progress bar**; a source already within the cap is skipped and a failed transcode falls back to the original.
+The **帧率上限 (fps cap)** control in the **效果** tab (selectable steps — see the control itself) targets high-fps sources: the host re-encodes the source ONCE with ffmpeg to the capped frame rate (the timeline stays at **normal speed**, fully decoupled from playback speed) as **4K-preserving AV1**, cached so each wallpaper pays the cost once. The original plays first and the app swaps when the transcode is ready; the settings page shows a **live progress bar**; a source already within the cap is skipped and a failed transcode falls back to the original.
 
 > ffmpeg is provisioned in three tiers: **explicit** (`DSH_WE_FFMPEG`, or an `ffmpeg/` folder inside the plugin) → **auto-download** (npmmirror vs GitHub dual-source race, cached after verification) → **system PATH**. The encoder prefers **NVENC** (`av1_nvenc` → `h264_nvenc`) and falls back to **libx264 software encoding** when there is no NVIDIA GPU (slower, but it still produces the file); only a total lack of ffmpeg auto-disables the feature, leaving the wallpaper on the original with nothing else affected.
 
@@ -168,7 +169,7 @@ When the current wallpaper is a **scene** or **web** wallpaper, the current-wall
 
 - **Custom wallpapers**: upload local **JPG / PNG / MP4** as wallpapers (validated twice — in the browser and on the host). The **storage location** defaults to `~/.dsh-wallpaper-engine/uploads` and can move to any drive (absolute path, `~` supported) with existing files migrated automatically; the **fit modes** are cover / contain / center / fill. Uploaded MP4s get an on-demand extracted thumbnail, and re-uploading an identical file is detected by content and reuses the existing entry.
 - **WE project directories**: any project folder containing `project.json` (with `scene.pkg` / `index.html` / `*.mp4`) inside the storage location is picked up as a wallpaper of the matching type — scene wallpapers render live too. These folders are **read-only**: they never appear in upload management and are never deleted.
-- **Automatic rotation**: rotation runs over **user-defined carousel lists** — create any number with **新建**, pick wallpapers into each from the inventory, give each list its own **switch interval** (1 / 5 / 10 / 30 / 60 / 120 minutes) and **order** (sequential / random), then enable **自动轮转** on the list you want active. Each list needs at least two playable wallpapers; on first run the first playable WE playlist is imported as a list, and **从 WE 播放列表导入** imports any other playlist while editing.
+- **Automatic rotation**: rotation runs over **user-defined carousel lists** — create any number with **新建**, pick wallpapers into each from the inventory, give each list its own **switch interval** (in minutes — range and default come from the control) and **order** (sequential / random), then enable **自动轮转** on the list you want active. Each list needs at least two playable wallpapers; on first run the first playable WE playlist is imported as a list, and **从 WE 播放列表导入** imports any other playlist while editing.
 - **Switch when ready**: the next wallpaper is prepared in the background to **fully ready** (live first frame / video canplay / image decoded) before the commit — the current wallpaper keeps playing meanwhile, and the two layers cross-fade at the moment of readiness, so the new picture is alive on arrival with no black flash; a candidate that fails to prepare is skipped in a bounded chain.
 
 ### Liquid-glass appearance (whole settings window + accent + transparency)
@@ -180,12 +181,14 @@ The **外观** tab controls the look of the **entire native DSH settings window*
 | **设置窗口液态玻璃** | Master switch: turns the whole settings window (dialog + left nav + every native section) into liquid glass | on |
 | **配色** | Theme color: buttons, switches, links, nav active, sliders and glass highlights inside the window all follow it (6 presets + custom picker) | classic blue `#4f8cff` |
 | **玻璃颜色** | The **base tint** of the settings-window glass (6 presets + custom picker) | white (light) / deep navy (dark) |
-| **玻璃透明度** | Opacity of the glass surfaces (settings window, composer, bubbles, sidebar panels); higher = more transparent | 12 % |
-| **雾化** | Glass blur radius — **the same adjustment** drives the settings window and the composer / bubbles | 16 px |
+| **玻璃透明度** | Opacity of the glass surfaces (settings window, composer, bubbles, sidebar panels); higher = more transparent | see the control |
+| **雾化** | Glass blur radius — **the same adjustment** drives the settings window and the composer / bubbles | see the control |
 | **Text-surface readability floor** | Every text-bearing surface composites a theme base layer under the glass tint (body text stays ≥4.5:1); **on by default, no switch** | on |
 | **Theme follows the wallpaper** | After a switch the global light/dark theme is picked from the wallpaper (author scheme colour → the picture's most-occupied colour (preview and real frame vote; disagreement ⇒ dark) → leave it alone; an author value of exactly `0 0 0` counts as unfilled; light theme only for clearly bright colours — the 外观 → 主题 row shows the last verdict's source and luminance); changing the theme by hand in DSH stops it for that wallpaper and the next switch resumes. **No switch — the behaviour is the feature** | automatic |
 
 Everything applies instantly and persists; browsers without `backdrop-filter` fall back to a high-opacity solid so text stays readable.
+
+> **Defaults and ranges come from the control itself.** The single source of truth for settings is [`lib/settings-schema.js`](lib/settings-schema.js) (`DEFAULTS` for values, `KINDS` for validation ranges, the enum tables) — both the host and the client derive from it, and the panel renders straight out of it. That is why this document and every other doc **quote none of those numbers**: a copy is one more thing that rots.
 
 ### Mascot (chat pull-cord)
 
@@ -195,7 +198,7 @@ The **吉祥物** tab controls the chat **pull-cord** — a draggable rope pinne
 |---|---|---|
 | **显示吉祥物** | Whether the pull-cord mascot and its wallpaper-library drawer render | on |
 | **吉祥物形态** | Switches artwork: **小女仆** (near-square chibi) or **鲸御姐** (portrait 2:3 full-body) | 小女仆 |
-| **吉祥物大小** | Scales the mascot (the rope box follows the ratio; drag / snap geometry adapts automatically) | 1× |
+| **吉祥物大小** | Scales the mascot (the rope box follows the ratio; drag / snap geometry adapts automatically) | see the control |
 
 ![Mascot quick-adjustment drawer](docs/images/mascot-drawer.png)
 
@@ -267,12 +270,12 @@ DSH surface or another background source. These controls target only the
 dsh-better-sidebar subtree; browsers without `backdrop-filter` fall back to a
 near-opaque fill:
 
-| Control | What it controls | Range | Default |
-|---|---|---|---|
-| **侧栏液态玻璃** | Master switch: frost the sidebar panels | On / off | On |
-| **侧栏模糊** | Blur radius of the sidebar frost | 0–200 px | 16 |
-| **侧栏透明度** | Sidebar glass density (**higher = clearer**: 0 densest / 200 clearest) | 0–200 % | 120 % |
-| **侧栏玻璃颜色** | Sidebar glass **base tint** | 6 presets + custom picker | `#ffffff` white |
+| Control | What it controls | Default |
+|---|---|---|
+| **侧栏液态玻璃** | Master switch: frost the sidebar panels | On |
+| **侧栏模糊** | Blur radius of the sidebar frost | see the control |
+| **侧栏透明度** | Sidebar glass density (**higher = clearer**) | see the control |
+| **侧栏玻璃颜色** | Sidebar glass **base tint** | `#ffffff` white |
 
 > Sidebar glass is a separate set of knobs from the settings-window glass: the
 > conversation 「玻璃」slider only drives the composer / bubbles, while the sidebar
