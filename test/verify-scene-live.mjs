@@ -23,7 +23,7 @@
  * Usage:  node test/verify-scene-live.mjs
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync, readdirSync, symlinkSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Readable, Writable } from 'node:stream';
@@ -395,6 +395,11 @@ if (invRoute) {
   check('inventory marks fixture sceneLive=true with sceneLiveSrc',
     Boolean(fixture && fixture.sceneLive === true && typeof fixture.sceneLiveSrc === 'string' && fixture.sceneLiveSrc),
     fixture ? 'src len=' + String(fixture.sceneLiveSrc || '').length : '-');
+  // 场景载荷的源由**宿主**给出（桌面形态下 = 自建媒体源的 origin）。这一条钉住"客户端
+  // 不再自己拼 location.origin"的前提：宿主必须先把它端出来，空串才是"回落应用源"的合法值。
+  check('inventory 给场景载荷端出宿主自己的源（sceneMediaBase）',
+    typeof body.sceneMediaBase === 'string' && /^http:\/\/127\.0\.0\.1:\d+$/.test(body.sceneMediaBase || ''),
+    'sceneMediaBase=' + (body.sceneMediaBase || '(空)'));
 }
 if (filesRoute && fixture && fixture.sceneLiveSrc) {
   const token = fixture.sceneLiveSrc;
@@ -424,6 +429,47 @@ if (filesRoute && fixture && fixture.sceneLiveSrc) {
 
   const unknownRes = await runHandler(filesRoute, '/wallpaper-engine/scene-files/bm90LWF0b2tlbg/scene.pkg');
   check('unknown token → 404', unknownRes.__state.status === 404, 'status=' + unknownRes.__state.status);
+
+  // ── 目录围栏的第二层：**字面围栏不认识链接** ────────────────────────────────
+  // `resolve()` + `startsWith` 只挡 `..`，而 `serveFile` 会跟随链接 ⇒ 只有第一层时
+  // 目标并没有被真正钉在壁纸目录里。上面那条 encoded-escape 测的是**第一层**（字面路径），
+  // 这里测**第二层**（`lstatSync` 拒链接 + `realpathSync.native` 包含性），两层各一条。
+  // 真实建链接：Windows 用 junction（**不需要**开发者模式 / 管理员，故这一层在 CI 的
+  // windows-latest 上真有覆盖），POSIX 用 dir 链接；file 链接两边都要权限，建不出来就
+  // **显式记为平台跳过** —— 绝不静默当成通过。
+  const dirLinkType = process.platform === 'win32' ? 'junction' : 'dir';
+  // (a) 最终组件是链接：普通文件名，字面路径完全在界内，只有链接它才越界。
+  const fileLinkName = 'escape-link.pkg';
+  let fileLinkMade = false;
+  try { symlinkSync(secretPath, join(workshopDir, fileLinkName), 'file'); fileLinkMade = true; } catch { /* 平台不允许 */ }
+  if (fileLinkMade) {
+    const linkRes = await runHandler(filesRoute, `/wallpaper-engine/scene-files/${token}/${fileLinkName}`);
+    const linkBody = linkRes.__state.body.toString('utf8');
+    check('指向界外的**文件链接** ⇒ 403（且没有读出 secret.txt）',
+      linkRes.__state.status === 403 && linkBody.indexOf('top-secret') === -1,
+      'status=' + linkRes.__state.status);
+  } else {
+    console.log('  ~ 平台跳过：本机不允许创建文件符号链接（该层在此平台零覆盖）');
+  }
+  // (b) **中间目录**是链接：字面路径全在界内（没有 `..`），只有 realpath 能判出越界 ——
+  // 这一条才是第二层的真牙齿：删掉 realpath 比对，它必然变红。
+  const dirLinkName = 'escape-dir';
+  let dirLinkMade = false;
+  try { symlinkSync(fixtureRoot, join(workshopDir, dirLinkName), dirLinkType); dirLinkMade = true; } catch { /* 平台不允许 */ }
+  if (dirLinkMade) {
+    const viaDir = await runHandler(filesRoute, `/wallpaper-engine/scene-files/${token}/${dirLinkName}/secret.txt`);
+    const viaBody = viaDir.__state.body.toString('utf8');
+    check('中间目录是**指向界外的链接** ⇒ 403（字面路径全在界内，只有 realpath 判得出）',
+      viaDir.__state.status === 403 && viaBody.indexOf('top-secret') === -1,
+      'status=' + viaDir.__state.status);
+    // 负对照（防空转）：同一目录里的**普通文件**照旧 200 ⇒ 上面两条 403 不是"一律拒绝"，
+    // 新增的这一层没有把整个 /scene-files 变成 403。
+    const plainRes = await runHandler(filesRoute, `/wallpaper-engine/scene-files/${token}/project.json`);
+    check('负对照：同目录的普通文件不受新围栏影响（200）',
+      plainRes.__state.status === 200, 'status=' + plainRes.__state.status);
+  } else {
+    console.log('  ~ 平台跳过：本机不允许创建目录链接 / junction（realpath 那层在此平台零覆盖）');
+  }
 
   const nosubRes = await runHandler(filesRoute, `/wallpaper-engine/scene-files/${token}/`);
   check('missing subpath → 404', nosubRes.__state.status === 404, 'status=' + nosubRes.__state.status);
@@ -532,6 +578,29 @@ console.log('Level C4 — 壁纸媒体源（真实 loopback 监听）');
         'status=' + fenced.status + ' body=' + fencedBody.slice(0, 32));
       const off = await fetch(base + '/wallpaper-engine/media-status', { cache: 'no-store' });
       check('媒体源只服务 /scene-files（其它路径 404）', off.status === 404, 'status=' + off.status);
+      // ── 隐藏耦合：**mediaBase 同时是诊断信标的 origin** ─────────────────────────
+      // 渲染页的 reportDiag() 打的是 `{mediaBase origin}/diag`（根路径，见 routes/diag.js
+      // 引的 Kg()）。场景壁纸的 mediaBase 改成指向本媒体源之后，这个根路径若不在媒体源上
+      // 也有落点，"大场景 pkg 首帧超时"时渲染页的告警会以 404 **静默丢掉** —— 而那正是
+      // 排查现场唯一的内窗。所以这里对**真实 socket** 打一发信标，并要求它出现在
+      // `/diag-log` 的**同一份**环形缓冲里（不是另起一份）。
+      const beaconMsg = 'verify-scene-live: media-origin diag sink';
+      const beacon = await fetch(base + '/diag?msg=' + encodeURIComponent(beaconMsg) + '&lvl=warn', { cache: 'no-store' });
+      check('媒体源根路径 /diag 可达并收下信标（204）', beacon.status === 204, 'status=' + beacon.status);
+      const logRoute = routes.find((r) => r.path === '/wallpaper-engine/diag-log');
+      if (logRoute) {
+        const logRes = await runHandler(logRoute, '/wallpaper-engine/diag-log', FENCE_HEADERS);
+        let entries = [];
+        try { entries = JSON.parse(logRes.__state.body.toString('utf8')).entries || []; } catch { /* 留空 = 判据变假 */ }
+        check('媒体源上的告警落进**同一份**诊断缓冲（/diag-log 可回读）',
+          entries.some((e) => String(e.msg || '').indexOf(beaconMsg) !== -1),
+          'entries=' + entries.length);
+        // 负对照（防空转）：没打过的信标不许被读到 ⇒ 上面那条不是"任何串都算命中"。
+        check('负对照：未上报的信标读不到（判据不是恒真）',
+          !entries.some((e) => String(e.msg || '').indexOf('never-reported-beacon') !== -1));
+      } else {
+        check('diag-log 路由已注册（否则上一条无从读取）', false, 'missing');
+      }
     }
   }
 }
@@ -871,6 +940,39 @@ check('scene-files 处理函数被双挂载（应用源 + 媒体源）',
     && hostHalfSrc.includes("handleSceneFiles(req, res, 'app')")
     && hostHalfSrc.includes('function traceMediaRequests('));
 check('媒体源只服务 /scene-files 前缀', hostSrc.includes("pathname.startsWith(`${BASE}/scene-files/`)"));
+// ── 场景载荷改走自建源：三处必须同时成立（少一处就退化成"静默回落"，或更糟：告警丢失）──
+// 背景：70–90MB 的 scene.pkg 走应用源那条路挤不过首帧 15s 预算（那里还要买纹理解码与
+// shader 编译），故场景载荷改走自建 loopback 源。三条判据把这次改动的**每个接缝**都钉住：
+//   ① 宿主端出这个源，且门控按"库里真有可实时渲染的场景"（不是无条件起监听）；
+//   ② 客户端消费宿主给的值，**不再自己拼 location.origin**（否则改动无声失效）；
+//   ③ 媒体源接住 `/diag`，且用的是诊断族**同一个** handleDiag（否则渲染页告警 404 静默丢失）。
+check('宿主端出场景载荷的源，且按 sceneLive 门控（没有场景不多起监听）',
+  /const sceneMediaBase = wallpapers\.some\(\(w\) => w\.sceneLive\) \? await mediaOriginBase\(\) : ''/.test(hostSrc)
+    && /^\s*sceneMediaBase,$/m.test(hostSrc));
+// 判据必须钉在**赋值表达式**上，而不是"文件里出现过 sceneMediaBase"：后者在"读进变量却
+// 不用它"的写法下照样为真（实测：把 mediaBase 改成无条件 location.origin 时它不变红 ⇒
+// 那是恒真式判据，属于 P3-16 点名的形态）。所以抠出 mediaBase 的赋值再断言它消费宿主值。
+const mbAssign = (liveSrc.match(/const mediaBase = [\s\S]{0,220}?;/) || [''])[0];
+check('客户端场景 mediaBase 的**赋值表达式**消费宿主给的源（不是无条件 location.origin）',
+  /hostSceneBase/.test(mbAssign) && !/const mediaBase = location\.origin/.test(mbAssign),
+  mbAssign.replace(/\s+/g, ' ').slice(0, 90));
+check('该源来自宿主载荷 inventory.sceneMediaBase',
+  /const hostSceneBase = selection\.inventory && selection\.inventory\.sceneMediaBase/.test(liveSrc));
+check('negative control: 老的硬编码写法会被上一条判出',
+  !liveSrc.includes('location.origin + "/wallpaper-engine/scene-files"'));
+check('媒体源的 /diag 走诊断族同一个 handleDiag（同一份缓冲，且先于 scene-files 分派）',
+  (() => {
+    const diagAt = hostSrc.indexOf("pathname === '/diag'");
+    const callAt = hostSrc.indexOf('mediaDiagHandler(req, res)');
+    const sceneAt = hostSrc.indexOf('pathname.startsWith(`${BASE}/scene-files/`)');
+    return diagAt > 0 && callAt > diagAt && sceneAt > diagAt
+      && hostSrc.includes('onHandleDiag: (fn) => { mediaDiagHandler = fn; }')
+      && /if \(onHandleDiag\) onHandleDiag\(handleDiag\)/.test(hostHalfSrc)
+      && /let mediaDiagHandler = null/.test(hostSrc);
+  })());
+check('negative control: 调用点保持语句形态（加赋值前缀会被路由索引判成孤儿族模块）',
+  /^\s*registerDiagRoutes\(webServer, \{$/m.test(hostSrc)
+    && !/^\s*\w+\s*=\s*registerDiagRoutes\(/m.test(hostSrc));
 
 // 封面（Now Playing artwork）：实测用户反馈「不显示歌曲封面」的根因是只问 Spotify。
 // 现在通用路径是 media-control 自带的 artworkData（系统 MediaRemote，任何播放器都有），

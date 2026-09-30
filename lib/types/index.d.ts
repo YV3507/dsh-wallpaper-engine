@@ -87,6 +87,13 @@ export interface Inventory {
   weAssetsDir: string | null;
   /** Whether `weAssetsDir` currently holds a usable `materials/` tree. */
   weAssetsAvailable: boolean;
+  /**
+   * Origin (scheme://host:port) of the plugin's own wallpaper media source, for the
+   * live renderer's `mediaBase` when rendering a Scene. Empty string means "use the
+   * application origin" — native browsers need no second listener, and a failed media
+   * source must degrade rather than blank the wallpaper.
+   */
+  sceneMediaBase: string;
   /** Total entries: installed WE wallpapers plus custom uploads. */
   total: number;
   /** Number of entries with playable media. */

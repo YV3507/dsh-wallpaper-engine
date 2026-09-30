@@ -49,11 +49,11 @@
 
 | 指标 | 当前值 |
 |---|---|
-| 浏览器正文 `src/client.js` | **4152 行**（重构起点 10,119 行） |
+| 浏览器正文 `src/client.js` | **4155 行**（重构起点 10,119 行） |
 | 构建期内联模块 | **21 个**（20 个来自 `src/` + 共享内核 `lib/settings-schema.js`） |
-| `lib/**`（`verify-reachability` 打印的「lib 扫描面」：`lib/**.{js,mjs}` **全量**，vendored 与生成物都在内） | **25 文件 / 29600 行** |
+| `lib/**`（`verify-reachability` 打印的「lib 扫描面」：`lib/**.{js,mjs}` **全量**，vendored 与生成物都在内） | **25 文件 / 29697 行** |
 | 其中**运行时不可达** | **0 文件 / 0 行**（P2-12 第一半已删净；此前 48 文件 / 9,618 行曾在 `files` 里、真的发给用户） |
-| 生成物 `lib/client.js` | 14187 行 / 1.38 MiB（提交；判据是"重建后 `git status` 干净"） |
+| 生成物 `lib/client.js` | 14202 行 / 1.38 MiB（提交；判据是"重建后 `git status` 干净"） |
 | 守卫 + 冒烟 | **32 个 `verify-*`（16770 行）+ 6 个 smoke（3616 行）**，均在 `test/`（另有 3 个 `compat-*` 在 CI 专属的 compat 层 + **9 个 `tools/` 手动工具**，都不进 `verify` 链；工具清单在 [`docs/TEST-LAYOUT.md`](../TEST-LAYOUT.md)） |
 | vendored | `webwallgl/` + `vendor/` 共 **12 文件 / 6,950 行** |
 
@@ -163,6 +163,7 @@
 
 
 | P3-27 | **本 fork 的硬化刀（10 个提交，已随"追版本"合并上游）**：① 剥注释统一到**字符串感知**实现（`test/tools/js-text.mjs`，16 处迁移）+ 规则 ⑦（禁朴素正则、白名单只许缩小）；② **store 写入契约两侧补齐** —— 瞬态字段经 `setTransient`（属主零裸写 ①d + 跨模块上界棘轮 ①e）、持久化字段必须与落盘配对（①g；并修掉"导入自定义画面在无 `sceneFrameUrl` 时不落盘"那处**真实漏洞**）；③ "改了 store 却不通知"钉到**处理器级**（①h）与**分支级**（①i，与 `test/tools/branch-notify.mjs` 同源），扫描面**派生**自 `INLINE_MODULES`（新模块自动进面）；④ 工具清单进 [`TEST-LAYOUT.md`](../TEST-LAYOUT.md) + 规则 ⑧；⑤ `harness-compat-baseline.mjs` 的**"追尾"修复**（按**内容身份** `plugin.revision` 判重 ⇒ 基线提交不再把插件 commit 推着走，与上游的"推送竞态"修法互补）。**验收判据**：见 `verify-ledger` 的 `P3-27` 五条证据 | ✅ |
+| P3-28 | **场景载荷改走自建源 + `/scene-files` 围栏补第二层**：① 场景渲染页的 `mediaBase` 由**宿主**给出（`inventory.sceneMediaBase`，按"库里真有 `sceneLive` 的场景"门控、失败落空串），客户端不再自己拼 `location.origin`；② **媒体源接住根路径 `/diag`**（渲染页信标打 `{mediaBase origin}/diag`，否则场景首帧超时时告警 404 静默丢失），走诊断族**同一个** `handleDiag`（经出参 `onHandleDiag` 交付，保持调用点的语句形态以免被判成孤儿族模块）；③ `/scene-files` 的目录围栏补第二层 —— `lstatSync` 拒链接 + **`realpathSync.native`** 包含性比对（JS 版 realpathSync 在 Windows 上不解析 junction），且该层 **fail-closed**。**验收判据**：`test/verify-scene-live.mjs` 的 4 条新判据（含 3 条负对照 / 平台跳过显式记账）转绿 + `verify:all` 全绿 | 🟡 工作区已落地并配判据、**未提交**（`verify` 已绿；提交并跑通 `verify:all` 后翻 ✅） |
 
 > 它要动的东西**正好落在重构的接缝上**：设置模型（P1-5）、效果/样式应用层（P1-7）、面板结构（P2-10）、宿主文件通道（P2-9）。
 > 设计与不变量已收口在 [`docs/FONT-SYSTEM.md`](../FONT-SYSTEM.md)（三个通道、9 条不变量、扩展步骤），本文不重复。

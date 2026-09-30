@@ -271,7 +271,7 @@ const selection = {
   editingWeAssetsDir: false,
   weAssetsDirDraft: "",
   weAssetsError: "",
-  inventory: { installDir: null, uploadDir: null, weAssetsDir: null, weAssetsAvailable: false, wallpapers: [], total: 0, portableCount: 0, playlists: [], error: null },
+  inventory: { installDir: null, uploadDir: null, weAssetsDir: null, weAssetsAvailable: false, sceneMediaBase: "", wallpapers: [], total: 0, portableCount: 0, playlists: [], error: null },
   loaded: false,
 };
 
@@ -436,6 +436,8 @@ async function loadInventory() {
       uploadDir: data.uploadDir || null,
       weAssetsDir: data.weAssetsDir || null,
       weAssetsAvailable: Boolean(data.weAssetsAvailable),
+      // 场景载荷的源（独立壁纸媒体源的 origin；空串 = 回落应用源，见 live-layer 的 liveRenderUrl）。
+      sceneMediaBase: typeof data.sceneMediaBase === "string" ? data.sceneMediaBase : "",
       wallpapers: data.wallpapers || [],
       total: data.total || 0,
       portableCount: data.portableCount || 0,
@@ -448,6 +450,7 @@ async function loadInventory() {
       uploadDir: null,
       weAssetsDir: null,
       weAssetsAvailable: false,
+      sceneMediaBase: "",
       wallpapers: [],
       total: 0,
       portableCount: 0,

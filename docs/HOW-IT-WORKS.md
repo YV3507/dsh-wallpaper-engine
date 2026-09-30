@@ -15,7 +15,8 @@
 **scene 与 web 壁纸默认走实时渲染**（设置项 `sceneLive`，UI 文案「场景实时渲染」/「网页实时渲染」，
 默认开）——渲染器是**上游 WebWallGL（版本钉在 `lib/webwallgl/.upstream.json`）的原版页面**，vendored 在 `lib/webwallgl/`，
 由宿主以 `/wallpaper-engine/scene-live/` 为 base 挂载（资源引用按该前缀解析），壁纸自身的文件
-（`scene.pkg` / 网页项目文件）经 `/wallpaper-engine/scene-files/` 供给。网页壁纸由宿主在返回的
+（`scene.pkg` / 网页项目文件）经 `/wallpaper-engine/scene-files/` 供给（**桌面壳下场景的那份由自建媒体源
+提供**，见下方「载荷来源」；路径不变，变的是 origin）。网页壁纸由宿主在返回的
 HTML 里注入 WE API shim（`lib/webwallgl/web-shim.js`）与 `project.json` 的属性 seed ——
 严格沙箱下渲染页够不到壁纸 iframe，shim 必须随文档一起到达。
 
@@ -63,15 +64,20 @@ HTML 里注入 WE API shim（`lib/webwallgl/web-shim.js`）与 `project.json` �
 拿不到 DSH 的 origin（无法冒用宿主身份调宿主 API / 读宿主存储）；跨源控制与指针注入经渲染页的
 `postMessage` 通道下发。加载失败或运行失联时按壁纸记忆并自动退回旧的兼容 iframe（裸 HTML，无 WE API）。
 
-> **载荷来源（独立媒体源）**：网页壁纸的入口 HTML 与全部子资源由宿主**自建的独立 loopback 媒体源**
-> （`127.0.0.1` 上的随机端口，见 `GET /wallpaper-engine/media-origin`）提供，**不走**插件的 HTTP 路由。
+> **载荷来源（独立媒体源）**：**网页壁纸的入口 HTML 与全部子资源**，以及**场景壁纸的 `scene.pkg`
+> （常 70–90MB）**，都由宿主**自建的独立 loopback 媒体源**（`127.0.0.1` 上的随机端口，见
+> `GET /wallpaper-engine/media-origin`）提供，**不走**插件的 HTTP 路由。
 > 原因：DSH Desktop 给每条插件路由都套了能力头栅栏（`x-dsh-desktop-renderer`，只注入给同源 frame 发出的
 > 请求），而严格沙箱 iframe 是不透明源、永远拿不到这个头 —— 壁纸入口会一律 `403 Forbidden`（表现：预览图
 > 先正常、随后整块黑）。媒体源不经过该栅栏，第三方 HTML 也因此连宿主 origin 都不沾边，沙箱之外又多一层隔离。
+> **场景壁纸走它则是为了载荷速度**：大 `scene.pkg` 走应用源那条路挤不过首帧预算（15 秒里还要买纹理解码与
+> shader 编译），故宿主把它的载荷也指向媒体源。
 >
 > **这个第二监听什么时候真的起**（适配器模式，设置在「高级 → 适配」）：宿主按请求观测**能力头**与
 > **UA 里的 `Electron/`**，观测到任一即为桌面形态、照常起媒体源；两者皆无（**原生浏览器**）时没有栅栏，
-> 载荷直接走应用源的**相对路径** —— 同一段挂载处理函数服务两处，形态差异只体现在 URL 上。手选适配目标
+> 载荷直接走应用源的**相对路径** —— 同一段挂载处理函数服务两处，形态差异只体现在 URL 上。桌面形态下它
+> 是**按需懒启动**的：库里有网页壁纸、或库里有**可实时渲染的场景**（`sceneLive`）时才起；场景那个源经
+> `inventory.sceneMediaBase` 下发给客户端（**空串 = 回落应用源**）。手选适配目标
 > 可强制任一方向（手选浏览器 = 强制应用源，手选桌面 = 强制媒体源）；`GET /wallpaper-engine/media-origin`
 > 是显式探测，按需起、不经过这条门控。
 
@@ -90,7 +96,7 @@ HTML 里注入 WE API shim（`lib/webwallgl/web-shim.js`）与 `project.json` �
 - **Host 端**（`lib/index.js` + `lib/routes/*.js`）：一个 Cordis 插件，负责
   1. 通过读取 Steam 的 `libraryfolders.vdf` 定位 Wallpaper Engine 安装位置（所以 Steam 装在非默认盘也能用）；
   2. 从 `projects/defaultprojects`、`projects/myprojects` 以及 `steamapps/workshop/content/431960/*` 枚举壁纸；
-  3. 在 DSH webserver 上注册同源 HTTP 路由，让浏览器端直接获取数据和流式加载媒体。**共 31 条**，按职责分五族：
+  3. 在 DSH webserver 上注册同源 HTTP 路由，让浏览器端直接获取数据和流式加载媒体。**共 32 条**，按职责分五族：
      **素材**（inventory / media / preview / video-preview / media-info）· **转码**（transcoded /
      transcode-progress）· **实时渲染**（scene-live / scene-files / media-origin）· **出图与抓帧**
      （scene-frame / scene-frame-cache / custom-frame / live-frame）· **设置与系统**（settings / props /
@@ -271,22 +277,29 @@ inherit the DSH origin (it cannot call host APIs or read host storage as the app
 and pointer injection go through the renderer page's `postMessage` channel. On load failure or a stalled
 runtime the wallpaper is remembered and degrades to the legacy plain iframe (no WE API).
 
-> **Payload origin (separate media origin)**: a web wallpaper's entry HTML and all of its subresources are
-> served by a **dedicated loopback media origin the host opens itself** (a random port on `127.0.0.1`,
-> reported by `GET /wallpaper-engine/media-origin`) — *not* by the plugin's HTTP routes. Why: DSH Desktop
+> **Payload origin (separate media origin)**: **a web wallpaper's entry HTML plus all of its subresources**,
+> and **a scene wallpaper's `scene.pkg` (often 70–90 MB)**, are served by a **dedicated loopback media
+> origin the host opens itself** (a random port on `127.0.0.1`, reported by
+> `GET /wallpaper-engine/media-origin`) — *not* by the plugin's HTTP routes. Why: DSH Desktop
 > wraps every plugin route in a capability-header fence (`x-dsh-desktop-renderer`, injected only into
 > requests issued by same-origin frames), and a strict-sandbox iframe is an opaque origin that can never
 > carry that header — the wallpaper entry would always answer `403 Forbidden` (symptom: the preview frame
 > looks fine, then the wallpaper goes fully black). The media origin bypasses that fence, and third-party
 > HTML no longer shares the host origin at all, so the sandbox gets a second layer of isolation.
+> **A scene wallpaper takes it for payload speed**: a large `scene.pkg` cannot fit the first-frame budget
+> on the app-origin path (15 s that must also buy texture decode and shader compile), so the host points
+> its payload at the media origin too.
 >
 > **When that second listener is actually opened** (adapter mode, set under 「高级 → 适配」): the host observes
 > the **capability header** and **`Electron/` in the UA** per request — either one marks a desktop surface and
 > the media origin starts as before; when neither is present (**a plain web browser**) there is no fence, so the
 > payload is served from the app origin as a **relative path**. The same mount handler serves both, so the two
-> forms differ only in the URL. A manually picked adapter target forces either direction (browser ⇒ app origin,
-> desktop ⇒ media origin), and `GET /wallpaper-engine/media-origin` is an explicit probe that starts it on
-> demand without going through this gate.
+> forms differ only in the URL. On a desktop surface it starts **lazily, on demand**: when the library holds a
+> web wallpaper, or when it holds a **live-renderable scene** (`sceneLive`); the scene origin reaches the client
+> as `inventory.sceneMediaBase` (**an empty string means "fall back to the app origin"**). A manually picked
+> adapter target forces either direction (browser ⇒ app origin, desktop ⇒ media origin), and
+> `GET /wallpaper-engine/media-origin` is an explicit probe that starts it on demand without going through
+> this gate.
 
 > **Frame cap and "it still stutters"**: the wallpaper's rAF cap is implemented by **frame skipping** —
 > every vsync is kept so the delivered frame stays phase-aligned with the display and only every n-th
@@ -307,7 +320,7 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe (no 
 - **Host half** (`lib/index.js` + `lib/routes/*.js`): a Cordis plugin that
   1. locates the Wallpaper Engine install by reading Steam's `libraryfolders.vdf` (so it works even when Steam is on a non-default drive),
   2. enumerates wallpapers from `projects/defaultprojects`, `projects/myprojects`, and `steamapps/workshop/content/431960/*`,
-  3. registers same-origin HTTP routes on the DSH webserver so the browser half can fetch data and stream media directly. There are **31** of them in five families: **assets** (inventory / media / preview / video-preview / media-info) · **transcode** (transcoded / transcode-progress) · **live rendering** (scene-live / scene-files / media-origin) · **out-figure & capture** (scene-frame / scene-frame-cache / custom-frame / live-frame) · **settings & system** (settings / props / upload / remove / upload-dir / the now-playing family / the diag family / scene-video / scene-audio / api/local-assets / we-assets-dir).
+  3. registers same-origin HTTP routes on the DSH webserver so the browser half can fetch data and stream media directly. There are **32** of them in five families: **assets** (inventory / media / preview / video-preview / media-info) · **transcode** (transcoded / transcode-progress) · **live rendering** (scene-live / scene-files / media-origin) · **out-figure & capture** (scene-frame / scene-frame-cache / custom-frame / live-frame) · **settings & system** (settings / props / upload / remove / upload-dir / the now-playing family / the diag family / scene-video / scene-audio / api/local-assets / we-assets-dir).
      **The authoritative list (each route's source line, registration shape and context contract) is [`ROUTE-INDEX.md`](./ROUTE-INDEX.md)** — this file no longer hand-writes the path table (hand-writing always rots: that table long listed `/scene-runtime`, `/scene-manifest` and `/scene-resource`, **all three deleted**, while missing most of the routes that existed).
 - **Client half** (`lib/client.js`): a browser module that fetches the inventory and renders the selected
   wallpaper into a fixed layer *behind* the app columns, plus a **first-level settings page**

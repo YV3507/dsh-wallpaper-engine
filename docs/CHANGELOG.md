@@ -4,8 +4,8 @@
 > 只保留与版本无关的亮点；带版本号、issue 号、性能数字的内容一律记在这里。
 >
 > **当前发布版本：`v1.1.0`**（与 `package.json` 的 `version` 一致；上游最新 release 仍是 v1.0.1）。
-> `### 未发布（下一版）` 记的是 **v1.1.0 之后**的增量（本仓库与上游 `origin/main` 的差异）—— 当前为空；
-> **`### v1.1.0`** 一节收拢的是 **1.0.1 之后至 1.1.0** 的全部内容（打包修复 + 本仓库相对上游的追版成果）。
+> `### 未发布（下一版）` 记的是 **v1.1.0 之后**的增量（本仓库与上游 `origin/main` 的差异）—— 已有条目，
+> 见下；**`### v1.1.0`** 一节收拢的是 **1.0.1 之后至 1.1.0** 的全部内容（打包修复 + 本仓库相对上游的追版成果）。
 >
 > **归档说明**：本仓库从 **v0.6.8** 起才有 git tag，更早的版本没有独立标签。早于 v0.6.8 的条目
 > 按**原 README 原文的版本标注**归档；原文未标注小版本的条目放进区间桶，不臆造版本号。
@@ -15,7 +15,11 @@
 
 ### 未发布（下一版）
 
-> v1.1.0 之后的增量（与上游 `origin/main` 的差异，逐提交可查）：**（无）**。
+> v1.1.0 之后的增量（与上游 `origin/main` 的差异，逐提交可查）：
+
+- **大场景壁纸的载荷改走宿主自建媒体源（性能）**：**场景载荷（`scene.pkg`，常 70–90MB）也走宿主自建的独立 loopback 媒体源**（网页壁纸早就走它）。`/inventory` 新增 `sceneMediaBase`（按"库里**真有**可实时渲染的场景"门控、媒体源不可用时落空串），客户端 `liveRenderUrl` 消费它而**不再自己拼 `location.origin`**。**两点别读错**：① 渲染页自身仍在应用源上（它**必须同源** —— 父页要 `frame.contentWindow.__wp` 直接驱动它），所以提速有上限；② 这是**传输路径的改善，不是安全修复**。
+- **媒体源接住根路径 `/diag`（可观测性）**：渲染页的诊断信标打的是 `{mediaBase origin}/diag` —— `mediaBase` 一改指向，这个根路径若不在媒体源上也有落点，"场景首帧超时"时渲染页的告警会以 404 **静默丢掉**。诊断族因此把 `handleDiag` 经出参交给媒体源，两边共用**同一份**环形缓冲（`/diag-log` 读到的是一份）。
+- **`/scene-files` 目录围栏补第二层（安全加固）**：目标文件的**真实路径**必须仍落在壁纸目录内 —— `lstatSync` 拒链接 + **`realpathSync.native`** 包含性比对，且该层 **fail-closed**（除"不存在"外一律围栏）。实测确认 **JS 版 `realpathSync` 在 Windows 上不解析 junction**（`.native` 才解析），故这一层必须用 `.native`。（**残留**：`lib/scene-manifest.js` 的 `dirSceneAccess` 仍是 junction 盲的，属另一条路由族，本次未动。）
 
 ### v1.1.0（1.0.1 → 1.1.0 · 2026-09-29）
 
@@ -194,7 +198,11 @@
 
 ### Unreleased (next version)
 
-> Increment after **v1.1.0** (the diff against upstream `origin/main`, verifiable commit by commit): **(none)**.
+> Increment after **v1.1.0** (the diff against upstream `origin/main`, verifiable commit by commit):
+
+- **Large scene wallpapers now take the host's own media origin (performance)**: **Scene payloads (`scene.pkg`, often 70–90 MB) now use the host's own dedicated loopback media origin too** (web wallpapers already did). `/inventory` gained `sceneMediaBase` (gated on "the library really holds a live-renderable scene"; an empty string when the media origin is unavailable), and the client's `liveRenderUrl` consumes it instead of **hard-coding `location.origin`**. **Two things not to misread**: ① the renderer page itself stays on the app origin (it **must** be same-origin — the parent drives it through `frame.contentWindow.__wp`), so the speed-up has a ceiling; ② this is a **transport-path improvement, not a security fix**.
+- **The media origin now answers the root `/diag` (observability)**: the renderer's diagnostic beacon posts to `{mediaBase origin}/diag` — once `mediaBase` points elsewhere, that root path must exist on the media origin too, otherwise a first-frame-timeout report loses the renderer's warnings to a silent 404. The diag family therefore hands `handleDiag` to the media origin through an out-parameter, so both mounts share **one** ring buffer (there is a single `/diag-log`).
+- **`/scene-files` gained a second fence layer (security hardening)**: the target file's **real path** must now still be inside the wallpaper directory — `lstatSync` rejects links plus a **`realpathSync.native`** containment check, and that layer is **fail-closed** (anything other than "does not exist" is fenced). Measurement confirmed that **JS `realpathSync` does not resolve junctions on Windows** (`.native` does), which is why this layer must use `.native`. (**Residual**: `dirSceneAccess` in `lib/scene-manifest.js` is still junction-blind; it belongs to a different route family and was left alone.)
 
 ### v1.1.0 (1.0.1 → 1.1.0 · 2026-09-29)
 

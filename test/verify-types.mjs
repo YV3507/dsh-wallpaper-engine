@@ -149,6 +149,7 @@ const INVENTORY_REQUIRED = [
   { name: 'uploadDir', why: 'UPLOAD_DIR; the settings UI moves it (buildInventory payload)' },
   { name: 'weAssetsDir', why: 'WE_ASSETS_DIR; the client derives localAssets=1 from it' },
   { name: 'weAssetsAvailable', why: 'weAssetsAvailable() probe gates the official-assets UI' },
+  { name: 'sceneMediaBase', why: 'media source origin the live renderer uses as mediaBase for Scenes (buildInventory payload)' },
   { name: 'total', why: 'entry count shown in the picker (buildInventory payload)' },
   { name: 'portableCount', why: 'playable count shown in the picker (buildInventory payload)' },
   { name: 'wallpapers', why: 'the entry list itself (payload shorthand)' },
