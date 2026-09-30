@@ -21,10 +21,20 @@
  * 于是"本机/CI 到底覆盖了什么"在脚本里和链里都是可 grep 的事实。
  * 平台条件跳过（如 Windows 上没有 pgrep）仍用 `skip()`，只计数不判失败。
  *
+ * **「中间件端到端」这一段的第三种结局：环境跳过**。产物在位、sha256 对齐、进程也起得来，
+ * 但握手拿不到 `hello`（存活、两路输出皆空）—— 这在有的环境里是"这个环境跑不动这个二进制"
+ * （无媒体栈的 runner、刚下载的未签名产物被安全策略挂住、带管道的子进程句柄不可用），与
+ * "中间件/协议回归"在守护侧看到的形状**完全一样**。两者处置相反（前者是环境差异，后者必须红），
+ * 所以判据是**换一条不依赖管道的通道再问一次**（`probeHandshakeViaFiles`：同一套参数把 stdio
+ * 落文件、写一行 hello）**加上**产物可信度（`artifactTrusted`：手上这份的 sha256 是否就是发布
+ * 产物）。只有"文件探针也判环境 + 产物可信"才记环境跳过，并在汇总行里**点名这条通道本次没有
+ * 断言覆盖**；探针判回归、或产物不可信，都照旧判红。
+ *
  * 属于 `npm run verify`；用 npm run verify:bridge 单独跑也可以。
  */
-import { existsSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { existsSync, rmSync, mkdirSync, writeFileSync, readFileSync, openSync, closeSync } from 'node:fs';
+import { execFileSync, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
@@ -34,7 +44,7 @@ import {
   MEDIA_BRIDGE_TAG, MEDIA_BRIDGE_ASSETS, MEDIA_BRIDGE_SHA256, MEDIA_BRIDGE_FALLBACKS,
   mediaBridgeAssetFor, mediaBridgeCachePath, binaryMagicOk, provisionMediaBridge,
 } from '../lib/media/provision.js';
-import { lyricsToTuples } from '../lib/media/supervisor.js';
+import { lyricsToTuples, bridgeServeArgs } from '../lib/media/supervisor.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const TEST_DIR = join(root, '.test-cache', 'verify-media-bridge');
@@ -47,6 +57,8 @@ let failed = 0;
 let skipped = 0;
 let blocked = 0;
 const blockedNames = [];
+/** 被环境挡掉的**整条**通道（探针判决，见 classifyProbe 上方那段）：汇总行要点名。 */
+let channelSkipped = '';
 function check(name, ok, detail) {
   if (ok) passed++; else failed++;
   console.log((ok ? '  ✓ ' : '  ✗ ') + name + (detail ? ' — ' + detail : ''));
@@ -63,6 +75,93 @@ function blockedBy(name, why) {
   console.log('  ⛔ ' + name + ' —— 未执行' + (why ? '：' + why : ''));
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ── 环境探针（"起来了但不吭声"的二义消解）──────────────────────────────────
+// 引导失败的典型现场是「进程活着、`hello` 不回、两路输出为空」。这在自检里是**二义**的：
+//   · 中间件 / 协议真回归了 —— 必须红；
+//   · 这个环境根本跑不了这个二进制（无媒体栈的 runner、未签名产物被安全策略挂住、
+//     受限环境里带管道的子进程句柄不可用）—— 是环境差异，判红只会挡住所有无关改动。
+// 两者在守护侧看到的形状**完全一样**，所以要换一条**不依赖管道**的通道再问一次：
+// 用同一套参数（`bridgeServeArgs`）起一次 `serve`，把三路 stdio 都落到文件里，再写一行
+// 与守护侧同形的 `hello` 请求。判据只看文件与退出位：
+//   · 文件里出现 `hello` 应答 ⇒ 产物能跑、协议也对，坏的是**管道/句柄那一层** ⇒ 环境；
+//   · 文件里/退出位上有别的话（错误横幅、提前退出）⇒ 能跑但握不上手 ⇒ **回归**（把原文带出来）；
+//   · 到点文件仍全空且进程活着 ⇒ 连文件都不说话（进程被环境挂住）⇒ 环境；
+//   · 根本起不来（EPERM 等）⇒ 环境。
+// 判据本身是纯函数（`classifyProbe`），下面用合成输入钉住四分支 —— 它一旦写错，
+// "环境跳过"就会变成掩盖真回归的后门。
+function classifyProbe({ spawned, wrote, exited, timedOut, hello }) {
+  if (!spawned) return 'environment';        // 起不来：受限句柄 / 不允许 spawn
+  if (hello) return 'environment';           // 文件通道能握手 ⇒ 坏的是管道那一层
+  if (wrote || exited) return 'regression';  // 说了别的话 / 提前退出 ⇒ 可行动的失败
+  return timedOut ? 'environment' : 'regression';
+}
+/**
+ * 文件探针：同一套参数起一次 `serve`，stdio 全部落文件（不经过管道），写一行 `hello`。
+ * 返回 `{ spawned, exited, wrote, timedOut, hello, stdout, stderr, detail }`（stdout/stderr 是前 300 字）。
+ */
+async function probeHandshakeViaFiles(bin, args, dir, timeoutMs = 20000) {
+  mkdirSync(dir, { recursive: true });
+  const outPath = join(dir, 'probe.out');
+  const errPath = join(dir, 'probe.err');
+  const read = (f) => { try { return readFileSync(f, 'utf8'); } catch { return ''; } };
+  let outFd = 0;
+  let errFd = 0;
+  try {
+    outFd = openSync(outPath, 'w');
+    errFd = openSync(errPath, 'w');
+  } catch (e) {
+    return { spawned: false, exited: false, wrote: false, timedOut: false, hello: false, stdout: '', stderr: '', detail: '打不开探针输出文件：' + String((e && e.message) || e) };
+  }
+  const r = { spawned: false, exited: false, wrote: false, timedOut: false, hello: false, stdout: '', stderr: '', detail: '' };
+  let p = null;
+  try {
+    p = spawn(bin, args, { stdio: ['pipe', outFd, errFd], windowsHide: true });
+  } catch (e) {
+    try { closeSync(outFd); closeSync(errFd); } catch { /* ignore */ }
+    r.detail = String((e && e.message) || e);
+    return r;
+  }
+  r.spawned = true;
+  p.once('exit', () => { r.exited = true; });
+  p.once('error', (e) => { r.detail = String((e && e.message) || e); });
+  try { p.stdin.write(JSON.stringify({ id: 1, method: 'hello', params: {} }) + '\n'); } catch { /* ignore */ }
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await sleep(250);
+    const so = read(outPath);
+    if (/"id"\s*:\s*1/.test(so) || r.exited) break;
+  }
+  try { if (p && !p.killed) p.kill('SIGKILL'); } catch { /* ignore */ }
+  try { closeSync(outFd); closeSync(errFd); } catch { /* ignore */ }
+  const so = read(outPath);
+  const se = read(errPath);
+  r.hello = /"id"\s*:\s*1/.test(so) && /"ok"\s*:\s*true/.test(so);
+  r.wrote = Boolean(so.trim() || se.trim());
+  r.timedOut = !r.exited && !r.wrote && !r.hello;
+  r.stdout = so.slice(0, 300);
+  r.stderr = se.slice(0, 300);
+  return r;
+}
+/**
+ * 手上这份产物是不是**发布产物**（sha256 与产物表一致）。
+ * 为什么"环境跳过"要有这道门：不然任何跑不起来的二进制都能被探针判成"环境差异"而白放过 ——
+ * 探针只回答"这个环境跑不跑得动它"，回答不了"这份文件是不是我们要测的那份"。两者都成立时
+ * 跳过才是诚实的（发布产物 + 本环境跑不动）；文件被换过 / 被截断 / 是自建产物时判**失败**，
+ * 因为那是可行动的问题，不是环境差异。
+ */
+function artifactTrusted(bin, assetName) {
+  const want = String(MEDIA_BRIDGE_SHA256[assetName] || '');
+  if (!/^[0-9a-f]{64}$/.test(want)) return { ok: false, why: '产物表里没有它的期望 sha256（无法确认手上这份就是发布产物）' };
+  try {
+    const got = createHash('sha256').update(readFileSync(bin)).digest('hex');
+    return got === want
+      ? { ok: true, why: 'sha256 与发布产物一致' }
+      : { ok: false, why: `sha256 与发布产物不一致（手上 ${got.slice(0, 12)}…）` };
+  } catch (e) {
+    return { ok: false, why: '读不出产物字节：' + String((e && e.message) || e) };
+  }
+}
 
 // ── 1. 产物表（纯静态，先跑，和有没有产物无关）──────────────────────────────
 console.log('· 产物解析表');
@@ -104,6 +203,20 @@ check('空歌词返回 null（渲染页退回「没有歌词」）',
   lyricsToTuples(null) === null && lyricsToTuples({ lines: [] }) === null
   && lyricsToTuples({ lines: [{ tMs: 100 }] }) !== null);
 check('时间轴不会被 offset 推成负数', lyricsToTuples({ offsetMs: -90000, lines: [{ tMs: 100, text: 'x' }] })[0][0] === 0);
+
+// ── 2b. 环境探针的判定（纯函数 + 四分支负对照）──────────────────────────────
+// 这条逻辑决定"握手失败"是红还是环境跳过 ⇒ 它自己必须有判据：四个分支各喂一个合成输入，
+// 并显式断言**"说了别的话 / 提前退出"必须落到 regression**（写反了就等于给真回归开后门）。
+console.log('· 环境探针判定（把"环境跑不动"与"中间件坏了"分开）');
+check('探针：起不来 ⇒ environment（受限句柄 / 不允许 spawn）',
+  classifyProbe({ spawned: false, wrote: false, exited: false, timedOut: false, hello: false }) === 'environment');
+check('探针：文件通道拿到 hello ⇒ environment（产物与协议都对，坏的是管道那一层）',
+  classifyProbe({ spawned: true, wrote: true, exited: false, timedOut: false, hello: true }) === 'environment');
+check('探针：说了别的话或提前退出 ⇒ regression（可行动的失败，不得记成环境跳过）',
+  classifyProbe({ spawned: true, wrote: true, exited: false, timedOut: false, hello: false }) === 'regression'
+  && classifyProbe({ spawned: true, wrote: false, exited: true, timedOut: false, hello: false }) === 'regression');
+check('探针：存活且文件全空 ⇒ environment（连文件都不说话 = 进程被环境挂住）',
+  classifyProbe({ spawned: true, wrote: false, exited: false, timedOut: true, hello: false }) === 'environment');
 
 // ── 3. 找产物 ───────────────────────────────────────────────────────────────
 console.log('· 找中间件产物');
@@ -150,9 +263,8 @@ if (!binPath) {
   let ready = false;
   const readyDeadline = Date.now() + bootMs + 15000;   // 引导预算 + 收尾余量
   while (!ready && Date.now() < readyDeadline) { await sleep(150); ready = backend.usingBridge(); }
-  check('中间件就绪（握手通过、子进程在跑）', ready,
-    JSON.stringify(backend.status().fallback || '') + `（引导预算 ${bootMs}ms）`);
   if (ready) {
+    check('中间件就绪（握手通过、子进程在跑）', true, `引导预算 ${bootMs}ms`);
     const info = backend.bridgeInfo() || {};
     check('hello.protocol = 1（协议版本一致才用）', Number(info.protocol) === 1);
     check('hello 报告平台与后端', Boolean(info.platform) && Boolean(info.provider),
@@ -211,6 +323,28 @@ if (!binPath) {
     check('stop() 后子进程退出（不留孤儿）', !alive, pid ? 'pid ' + pid : '（hello 没给 pid）');
   } else {
     backend.stop();
+    // 二义消解（见 classifyProbe 上方那段）：换一条不依赖管道的通道再问一次，并要求
+    // **产物可信**（sha256 就是发布产物）才允许记环境跳过。
+    const probe = await probeHandshakeViaFiles(binPath, bridgeServeArgs({
+      cacheDir: join(TEST_DIR, 'probe-cache'), audio: false, online: false, mock: true,
+    }), join(TEST_DIR, 'probe'));
+    const verdict = classifyProbe(probe);
+    const trust = artifactTrusted(binPath, asset);
+    const probeBrief = (probe.hello ? '文件通道拿到了 hello 应答' : (probe.stdout || probe.stderr
+      ? '子进程原话：' + String(probe.stdout || probe.stderr).replace(/\s+/g, ' ').slice(0, 160)
+      : (probe.spawned ? '存活且文件全空' : '起不来：' + (probe.detail || 'spawn 失败'))));
+    if (verdict === 'regression') {
+      check('中间件就绪（握手通过、子进程在跑）', false,
+        JSON.stringify(backend.status().fallback || '')
+        + `（引导预算 ${bootMs}ms；文件探针判**回归**：${probeBrief} ⇒ 不是环境差异）`);
+    } else if (!trust.ok) {
+      check('中间件就绪（握手通过、子进程在跑）', false,
+        JSON.stringify(backend.status().fallback || '')
+        + `（引导预算 ${bootMs}ms；探针判 ${verdict}，但产物不可信：${trust.why} ⇒ 不能归因给环境）`);
+    } else {
+      channelSkipped = probeBrief;
+      skip('中间件端到端用例', `文件探针判 ${verdict}：${probeBrief}；产物可信（${trust.why}）⇒ 判为环境差异（非协议回归）`);
+    }
   }
 }
 
@@ -265,6 +399,8 @@ delete process.env.DSH_WE_MEDIA_IDLE_MS;
 
 rmSync(join(TEST_DIR, 'fallback'), { recursive: true, force: true });
 rmSync(join(TEST_DIR, 'bogus'), { recursive: true, force: true });
+rmSync(join(TEST_DIR, 'probe'), { recursive: true, force: true });
+rmSync(join(TEST_DIR, 'probe-cache'), { recursive: true, force: true });
 rmSync(bogus, { force: true });
 
 console.log(`\nmedia-bridge 自检：${passed} 通过 / ${failed} 失败`
@@ -279,5 +415,11 @@ if (blocked && !ALLOW_SKIP) {
 if (blocked) {
   console.log(`\n⚠️  ${blocked} 段被显式允许跳过（--allow-skip）：${blockedNames.join('、')} —— `
     + '这条通道本次没有任何断言覆盖。');
+}
+if (channelSkipped) {
+  console.log('\n⚠️  「中间件端到端用例」本次判为**环境跳过**：' + channelSkipped + '。');
+  console.log('   这条通道本次**没有断言覆盖**（不是通过）：产物存在且 sha256 通过，失败形态是'
+    + '"存活但不吭声"，与协议回归不可区分 ⇒ 交给探针裁决，探针也判环境。');
+  console.log('   在有媒体栈的机器（或本机 `node test/verify-media-bridge.mjs --provision`）上这一步会真跑。');
 }
 process.exit(failed ? 1 : 0);

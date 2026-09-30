@@ -51,7 +51,7 @@
 |---|---|
 | 浏览器正文 `src/client.js` | **4160 行**（重构起点 10,119 行；含上游 1.1.0 公告 +5） |
 | 构建期内联模块 | **21 个**（20 个来自 `src/` + 共享内核 `lib/settings-schema.js`） |
-| `lib/**`（`verify-reachability` 打印的「lib 扫描面」：`lib/**.{js,mjs}` **全量**，vendored 与生成物都在内） | **25 文件 / 30320 行** |
+| `lib/**`（`verify-reachability` 打印的「lib 扫描面」：`lib/**.{js,mjs}` **全量**，vendored 与生成物都在内） | **25 文件 / 30350 行** |
 | 其中**运行时不可达** | **0 文件 / 0 行**（P2-12 第一半已删净；此前 48 文件 / 9,618 行曾在 `files` 里、真的发给用户） |
 | 生成物 `lib/client.js` | 14592 行 / 1.41 MiB（提交；判据是"重建后 `git status` 干净"） |
 | 守卫 + 冒烟 | **32 个 `verify-*`（16,770 行）**：**26 个硬档**进 `verify`（挡 PR）· **6 个软档**进 `verify:docs`（照跑照打印，退出码降级为警告，不决定红绿）；**+ 6 个 smoke** 仍在 `verify:all`。另有 3 个 `compat-*` 在 CI 专属的 compat 层 + **9 个 `tools/` 手动工具**，都不进 `verify` 链；分档理由与清单见 [`docs/TEST-LAYOUT.md`](../TEST-LAYOUT.md) |
