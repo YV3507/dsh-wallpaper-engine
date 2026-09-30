@@ -992,6 +992,7 @@
           setSetting("sceneLive", e.target.checked);
           setSetting("sceneLiveFailures", {});
           prepareLiveTimeouts.clear(); // 显式重试：准备期 live 超时冷却一并清零（评审 P1）
+          clearLiveSessionFailures(); // 显式重试：**会话内**的传输类软失败同样要清（它不在设置里）
           syncLayers();               // key 的 live 段变化 → 层重建（升级/降级）
           syncSceneAudio(selection);  // 音频互斥状态随形态切换
           emit();

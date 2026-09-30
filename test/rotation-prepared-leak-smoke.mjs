@@ -246,7 +246,9 @@ function runScenario(name, opts, body) {
   };
 
   const localStorage = {
-    _store: { 'dsh-wallpaper-engine:selection': JSON.stringify(opts.selection), weRotationTestSec: '10' },
+    // `opts.localStorageSeed`：给"上一轮会话留下的别的键"用（例如失败记忆的管线身份
+    // `weLivePipeline`）。缺省时 `_store` 与既有场景逐字节一致。
+    _store: Object.assign({ 'dsh-wallpaper-engine:selection': JSON.stringify(opts.selection), weRotationTestSec: '10' }, opts.localStorageSeed || {}),
     getItem(k){ return this._store[k] ?? null; }, setItem(k,v){ this._store[k]=v; }, removeItem(k){ delete this._store[k]; },
   };
   const fetch = (url, init) => Promise.resolve({ ok:true, status:200, headers:{ get: () => '0' },
@@ -372,7 +374,9 @@ function runScenario(name, opts, body) {
     // 焦点：只改读数，事件要另派（客户端把 blur/focus 挂在 window 上 ⇒ fireWin）
     setFocus(v){ docFocus = !!v; },
     fireDoc(ev){ fireOn(docListeners, ev); },
-    fireWin(ev){ fireOn(winListeners, ev); }, failureMemory: () => (JSON.parse(localStorage._store['dsh-wallpaper-engine:selection']).sceneLiveFailures || {}) });
+    fireWin(ev){ fireOn(winListeners, ev); }, failureMemory: () => (JSON.parse(localStorage._store['dsh-wallpaper-engine:selection']).sceneLiveFailures || {}),
+    // 失败记忆的**管线身份**（`weLivePipeline`）：换管线时客户端会作废旧记忆并刷新它。
+    pipelineMarker: () => localStorage._store.weLivePipeline || '' });
   return (async () => {
     init(opts.selection, opts.wallpapers);
     // boot 是 promise 链（loadPersisted → loadInventory → applySelection →
@@ -862,6 +866,46 @@ await runScenario('K. 准备中途隐藏：≤60s 继续等，超限释放 stagi
   const layer = t.layerEl();
   check('补做提交后 live 渲染页在位（未被降级成静态帧/内嵌 MP4）',
     !!layer && !!layer.querySelector('iframe.we-live-iframe'));
+});
+
+// ── L：失败记忆带**管线身份**（旧管线的 timeout 不许压住新管线）──────────────────
+// 真机事故：宿主半没重载（= 旧管线，`sceneMediaBase` 还是空串）时留下的 `timeout` 记忆，
+// 在客户端更新后仍然逐字显示成「实时渲染失败（首帧超时…）已自动回退」——用户据此判定
+// "修复完全没作用"，而实际是那句断言属于**另一条管线**。判据必须两半都有：
+//   ① 旧管线记下的记忆 ⇒ 作废（面板那行才会消失，壁纸才会重新试一次 live）；
+//   ② 当前管线自己挣来的记忆 ⇒ **保留**（否则每次刷新都白试一次，记忆就失去意义）。
+await runScenario('L. 换管线：旧管线的失败记忆作废一次（自己的那半不受影响）', {
+  wallpapers: [scene('s1', 'tok-s1')],
+  stats: { 'tok-s1': { fps: 30, running: true } },   // 这条管线其实出得了帧
+  selection: Object.assign(selSeed(['s1'], 's1'), { sceneLiveFailures: { s1: 'timeout' } }),
+  // 上一轮会话留下的管线身份：build d7 + 媒体源还没出现 ⇒ 与当前管线不可比。
+  localStorageSeed: { weLivePipeline: JSON.stringify({ build: 'd7', media: 0 }) },
+}, (t) => {
+  t.flushPersist();                                  // 迁移会 persistSelection（200ms 定时器）
+  check('旧管线的失败记忆被作废（面板那行「实时渲染失败」的唯一来源）',
+    !t.failureMemory()['s1'], JSON.stringify(t.failureMemory()));
+  const layer = t.layerEl();
+  check('作废后这一跳直接建回 live 层（不必手动重开「场景实时渲染」开关）',
+    !!layer && !!layer.querySelector('iframe.we-live-iframe'));
+  check('管线身份刷新为当前管线（build=d8）',
+    /"build":"d8"/.test(String(t.pipelineMarker())), String(t.pipelineMarker()));
+});
+
+await runScenario('L2. 同管线：记忆是自己挣来的 ⇒ 不作废（负对照）', {
+  wallpapers: [scene('s1', 'tok-s1')],
+  stats: { 'tok-s1': { fps: 30, running: true } },
+  selection: Object.assign(selSeed(['s1'], 's1'), { sceneLiveFailures: { s1: 'timeout' } }),
+  // 当前管线（build d8、媒体源同样还没出现）⇒ 这份记忆是"这条管线"挣来的。
+  localStorageSeed: { weLivePipeline: JSON.stringify({ build: 'd8', media: 0 }) },
+}, (t) => {
+  t.flushPersist();
+  check('同一管线的失败记忆保留（作废判据不是"凡有记忆就清"）',
+    t.failureMemory()['s1'] === 'timeout', JSON.stringify(t.failureMemory()));
+  const layer = t.layerEl();
+  check('记忆保留 ⇒ 层走回退链、不建 live 渲染页（记忆的语义没被破坏）',
+    !(layer && layer.querySelector('iframe.we-live-iframe')));
+  check('未发生作废 ⇒ 管线标记原样保留（没有多余的写盘）',
+    String(t.pipelineMarker()) === JSON.stringify({ build: 'd8', media: 0 }), String(t.pipelineMarker()));
 });
 
 // ── P：首帧前的垫底画面来源顺序（**实时抓帧 → 作者预览图 → 主题色**）────────────

@@ -15,15 +15,24 @@
 **scene 与 web 壁纸默认走实时渲染**（设置项 `sceneLive`，UI 文案「场景实时渲染」/「网页实时渲染」，
 默认开）——渲染器是**上游 WebWallGL（版本钉在 `lib/webwallgl/.upstream.json`）的原版页面**，vendored 在 `lib/webwallgl/`，
 由宿主以 `/wallpaper-engine/scene-live/` 为 base 挂载（资源引用按该前缀解析），壁纸自身的文件
-（`scene.pkg` / 网页项目文件）经 `/wallpaper-engine/scene-files/` 供给（**桌面壳下场景的那份由自建媒体源
-提供**，见下方「载荷来源」；路径不变，变的是 origin）。网页壁纸由宿主在返回的
+（`scene.pkg` / 网页项目文件）经 `/wallpaper-engine/scene-files/` 供给（**路径不变，变的是 origin**：
+场景那份与网页那份都由自建媒体源提供，见下方「载荷来源」）。网页壁纸由宿主在返回的
 HTML 里注入 WE API shim（`lib/webwallgl/web-shim.js`）与 `project.json` 的属性 seed ——
 严格沙箱下渲染页够不到壁纸 iframe，shim 必须随文档一起到达。
 
-- **何时不走实时渲染**：壁纸开关被关掉、该壁纸已被记入**失败记忆**（首帧 15 秒超时；或运行期连续
+- **何时不走实时渲染**：壁纸开关被关掉、该壁纸已被记入**失败记忆**（首帧超时；或运行期连续
   **约 40 秒**无帧 —— 心跳 1 秒/次，第 20 秒先自动 `resume` 自救一次），或场景是**松散 `scene.json`
   目录**（没有 `scene.pkg` 可供渲染页拉取）。此时按下面的**出图来源链**出图（允许诚实地留空）。
   重新打开开关会清空失败记忆（显式重试入口）。
+  **首帧超时不是固定的 15 秒墙钟**（2026-09 大包事故的修正）：首帧**必须等整包到齐**，所以预算是
+  `15s + 包大小 ÷ 8MB/s`、封顶 90s；而且宿主侧有一本**载荷账本**（客户端轮询
+  `GET /wallpaper-engine/scene-payload-progress?token=…`，见 [`ROUTE-INDEX.md`](./ROUTE-INDEX.md)），
+  字节还在涨就每拍重置计时 ——
+  "正在下载"不再被算成"渲染不出来"。**隐藏 / 未播放的实例根本不拉载荷**（建层时延迟赋 `src`、
+  切到后台时把 `src` 摘成 `about:blank` 中止在飞请求），因为这种实例既出不了帧（Chromium 冻结隐藏页
+  的 rAF），又会和**看得见**的那个实例抢带宽与解码器。
+  **首帧确实没出来时还要分因**：账本说"传过但没传完"⇒ 只记**会话内**软失败（不写所有窗口共用的
+  失败记忆），冷却 45s 后自动重试（每张壁纸至多 2 次）；只有渲染页真的不出帧 / 运行期失联才落盘记忆。
 - **出图来源（唯一权威顺序，代码在 `lib/routes/scene-frame.js`）**：
   ① 实时渲染 iframe → ② 场景**作者内嵌 MP4**（`sceneVideo`，硬件解码 `<video>`）→ ③ **实时抓帧**
   （`<key>_gpu.png`，live 渲染页首帧确认后由客户端回填）→ ④ **自定义画面**（用户导入的截屏）
@@ -65,20 +74,27 @@ HTML 里注入 WE API shim（`lib/webwallgl/web-shim.js`）与 `project.json` �
 `postMessage` 通道下发。加载失败或运行失联时按壁纸记忆并自动退回旧的兼容 iframe（裸 HTML，无 WE API）。
 
 > **载荷来源（独立媒体源）**：**网页壁纸的入口 HTML 与全部子资源**，以及**场景壁纸的 `scene.pkg`
-> （常 70–90MB）**，都由宿主**自建的独立 loopback 媒体源**（`127.0.0.1` 上的随机端口，见
-> `GET /wallpaper-engine/media-origin`）提供，**不走**插件的 HTTP 路由。
+> （本机实测到 **336MB**；文档早先写的"常 70–90MB"已过时）**，都由宿主**自建的独立 loopback 媒体源**
+> （`127.0.0.1` 上的随机端口，见
+> `GET /wallpaper-engine/media-origin`）提供，**不走**插件的 HTTP 路由（媒体源不可用时才回落应用源）。
 > 原因：DSH Desktop 给每条插件路由都套了能力头栅栏（`x-dsh-desktop-renderer`，只注入给同源 frame 发出的
 > 请求），而严格沙箱 iframe 是不透明源、永远拿不到这个头 —— 壁纸入口会一律 `403 Forbidden`（表现：预览图
 > 先正常、随后整块黑）。媒体源不经过该栅栏，第三方 HTML 也因此连宿主 origin 都不沾边，沙箱之外又多一层隔离。
-> **场景壁纸走它则是为了载荷速度**：大 `scene.pkg` 走应用源那条路挤不过首帧预算（15 秒里还要买纹理解码与
-> shader 编译），故宿主把它的载荷也指向媒体源。
+> **场景壁纸走它则是为了载荷速度**：大 `scene.pkg` 走应用源那条路挤不过首帧预算（还要买纹理解码与
+> shader 编译），故宿主把它的载荷**无条件**指向媒体源。
+> **`scene.pkg` 还可重验证缓存**：响应带 `ETag`（size+mtime）+ `Last-Modified`，条件请求命中即 `304` 无体 ——
+> 几百 MB 的包每次重建 live 层都重读一遍盘，靠这一条消掉（入口 HTML 仍 `no-store`：它带注入的 shim 与属性种子）。
 >
-> **这个第二监听什么时候真的起**（适配器模式，设置在「高级 → 适配」）：宿主按请求观测**能力头**与
-> **UA 里的 `Electron/`**，观测到任一即为桌面形态、照常起媒体源；两者皆无（**原生浏览器**）时没有栅栏，
-> 载荷直接走应用源的**相对路径** —— 同一段挂载处理函数服务两处，形态差异只体现在 URL 上。桌面形态下它
-> 是**按需懒启动**的：库里有网页壁纸、或库里有**可实时渲染的场景**（`sceneLive`）时才起；场景那个源经
-> `inventory.sceneMediaBase` 下发给客户端（**空串 = 回落应用源**）。手选适配目标
-> 可强制任一方向（手选浏览器 = 强制应用源，手选桌面 = 强制媒体源）；`GET /wallpaper-engine/media-origin`
+> **这个第二监听什么时候真的起**（适配器模式，设置在「高级 → 适配」）：**场景载荷与适配器形态无关** ——
+> 它要独立源的理由是**带宽**，浏览器形态同样成立，所以 `inventory.sceneMediaBase` 不再因"观测到浏览器"
+> 而落空串（旧写法在原生浏览器下恒为空 ⇒ 大包必然走那条会饿死的路，2026-09 修）。**网页壁纸**那一条
+> 仍按能力头门控（栅栏只在桌面壳里）：宿主按请求观测**能力头**与**UA 里的 `Electron/`**，观测到任一即为
+> 桌面形态、照常起媒体源；两者皆无（**原生浏览器**）时没有栅栏，网页载荷直接走应用源的**相对路径** ——
+> 同一段挂载处理函数服务两处，形态差异只体现在 URL 上。媒体源是**按需懒启动**的：库里有网页壁纸、
+> 或库里有**可实时渲染的场景**（`sceneLive`）时才起；场景那个源经
+> `inventory.sceneMediaBase` 下发给客户端（**空串 = 起不来 ⇒ 回落应用源**，见客户端层键里带这一格：
+> 宿主把它端出来之后会重建一次渲染页）。手选适配目标
+> 可强制任一方向；`GET /wallpaper-engine/media-origin`
 > 是显式探测，按需起、不经过这条门控。
 
 > **帧率上限与「卡」的排查**：网页壁纸的 rAF 上限由 shim 按**跳帧**实现 —— 每帧都与显示器 vsync 对齐、
@@ -224,9 +240,22 @@ strict sandbox the renderer page cannot reach into the wallpaper iframe, so the 
 with the document.
 
 - **When live rendering is skipped**: the wallpaper switch is off, the wallpaper is in the **failure
-  memory** (15 s without a first frame, or **~40 s** without a frame at runtime — one rescue `resume()`
+  memory** (first-frame timeout, or **~40 s** without a frame at runtime — one rescue `resume()`
   at 20 s), or the scene is a **loose `scene.json` directory**. It then falls back to the **out-figure
   chain** below (which is allowed to come up honestly empty).
+  **The first-frame timeout is not a fixed 15 s wall clock** (the 2026-09 large-package fix): the first
+  frame **cannot exist before the whole package has arrived**, so the budget is
+  `15 s + package size ÷ 8 MB/s`, capped at 90 s; and the host keeps a **payload ledger**
+  (`GET /wallpaper-engine/scene-payload-progress?token=…`, see [`ROUTE-INDEX.md`](./ROUTE-INDEX.md))
+  that resets the clock every tick while bytes are still arriving — "still downloading" is no longer
+  read as "cannot render". **Hidden / non-playing instances never pull the payload at all** (the
+  iframe gets its `src` late, and going to the background swaps it for `about:blank`, which aborts the
+  in-flight request): such an instance cannot produce frames anyway (Chromium freezes rAF of hidden
+  pages) and it would otherwise compete for bandwidth and decoders with the instance that *is* visible.
+  **When there really is no first frame, the cause decides the bookkeeping**: the ledger saying
+  "transferred but never completed" ⇒ only a **session-local** soft failure (never the shared failure
+  memory every window reads), with an automatic retry after a 45 s cooldown (at most twice); only a
+  renderer that genuinely never produces a frame, or loses its heartbeat, is persisted.
 - **Out-figure sources (the one authoritative order; code in `lib/routes/scene-frame.js`)**:
   ① live-render iframe → ② the author-embedded MP4 (`sceneVideo`) → ③ **live-captured frame**
   (`<key>_gpu.png`, PUT back by the live page once the first frame lands) → ④ **custom frame** (a
@@ -278,26 +307,38 @@ and pointer injection go through the renderer page's `postMessage` channel. On l
 runtime the wallpaper is remembered and degrades to the legacy plain iframe (no WE API).
 
 > **Payload origin (separate media origin)**: **a web wallpaper's entry HTML plus all of its subresources**,
-> and **a scene wallpaper's `scene.pkg` (often 70–90 MB)**, are served by a **dedicated loopback media
+> and **a scene wallpaper's `scene.pkg` (measured at 336 MB on the reporter's machine; the earlier
+> "often 70–90 MB" is out of date)**, are served by a **dedicated loopback media
 > origin the host opens itself** (a random port on `127.0.0.1`, reported by
-> `GET /wallpaper-engine/media-origin`) — *not* by the plugin's HTTP routes. Why: DSH Desktop
+> `GET /wallpaper-engine/media-origin`) — *not* by the plugin's HTTP routes (the app origin stays the
+> fallback for when that origin cannot start). Why: DSH Desktop
 > wraps every plugin route in a capability-header fence (`x-dsh-desktop-renderer`, injected only into
 > requests issued by same-origin frames), and a strict-sandbox iframe is an opaque origin that can never
 > carry that header — the wallpaper entry would always answer `403 Forbidden` (symptom: the preview frame
 > looks fine, then the wallpaper goes fully black). The media origin bypasses that fence, and third-party
 > HTML no longer shares the host origin at all, so the sandbox gets a second layer of isolation.
 > **A scene wallpaper takes it for payload speed**: a large `scene.pkg` cannot fit the first-frame budget
-> on the app-origin path (15 s that must also buy texture decode and shader compile), so the host points
-> its payload at the media origin too.
+> on the app-origin path (which must also buy texture decode and shader compile), so the host points its
+> payload at the media origin **unconditionally**. **`scene.pkg` is also revalidatable-cacheable**: the
+> response carries `ETag` (size+mtime) + `Last-Modified`, and a matching conditional request answers `304`
+> with no body — re-reading a few hundred MB from disk on every live-layer rebuild is exactly what this
+> removes (the entry HTML stays `no-store`: it carries the injected shim and the property seed).
 >
-> **When that second listener is actually opened** (adapter mode, set under 「高级 → 适配」): the host observes
+> **When that second listener is actually opened** (adapter mode, set under 「高级 → 适配」): **the scene
+> payload is independent of the adapter form** — its reason for a separate origin is **bandwidth**, which
+> holds in a plain browser too, so `inventory.sceneMediaBase` no longer collapses to an empty string just
+> because the surface looks like a browser (that old behaviour sent big packages down the path that
+> starves; fixed 2026-09). The **web wallpaper** half is still gated on the capability header (the fence
+> only exists on desktop shells): the host observes
 > the **capability header** and **`Electron/` in the UA** per request — either one marks a desktop surface and
 > the media origin starts as before; when neither is present (**a plain web browser**) there is no fence, so the
-> payload is served from the app origin as a **relative path**. The same mount handler serves both, so the two
-> forms differ only in the URL. On a desktop surface it starts **lazily, on demand**: when the library holds a
+> web payload is served from the app origin as a **relative path**. The same mount handler serves both, so the two
+> forms differ only in the URL. It starts **lazily, on demand**: when the library holds a
 > web wallpaper, or when it holds a **live-renderable scene** (`sceneLive`); the scene origin reaches the client
-> as `inventory.sceneMediaBase` (**an empty string means "fall back to the app origin"**). A manually picked
-> adapter target forces either direction (browser ⇒ app origin, desktop ⇒ media origin), and
+> as `inventory.sceneMediaBase` (**an empty string now means only "it could not start" ⇒ fall back to the app
+> origin**; the layer key carries this value, so the renderer page is rebuilt once the host manages to offer it).
+> A manually picked
+> adapter target forces either direction, and
 > `GET /wallpaper-engine/media-origin` is an explicit probe that starts it on demand without going through
 > this gate.
 

@@ -135,6 +135,7 @@ const WALLPAPER_REQUIRED = [
   { name: 'schemeColor', why: 'load-time placeholder colour before a frame exists (buildInventory)' },
   { name: 'sceneLive', why: 'produced by sceneFieldsFor, spread into every scene entry' },
   { name: 'sceneLiveSrc', why: 'produced by sceneFieldsFor (live-render source token)' },
+  { name: 'scenePkgBytes', why: 'produced by sceneFieldsFor: scene.pkg size, the client scales the first-frame budget by it' },
   { name: 'sceneVideo', why: 'produced by sceneFieldsFor (probe-confirmed embedded MP4)' },
   { name: 'sceneAudio', why: 'produced by sceneFieldsFor (packaged audio)' },
   { name: 'hasCustomFrame', why: 'produced by sceneFieldsFor (user frame overrides the extracted one)' },

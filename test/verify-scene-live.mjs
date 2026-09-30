@@ -420,6 +420,55 @@ if (filesRoute && fixture && fixture.sceneLiveSrc) {
       && rangeRes.__state.body.length === 100,
     'status=' + rangeRes.__state.status + ' ' + h(rangeRes, 'Content-Range'));
 
+  // ── 大包的传输代价：可重验证缓存 + 载荷账本 ────────────────────────────────
+  // 实测 `scene.pkg` 到 336MB，而每次重建 live 层都会重新拉一整遍；内容由 size+mtime
+  // 唯一确定 ⇒ 给 ETag/Last-Modified（304 无体 = 复用手上的字节）。判据必须**两半都钉**：
+  // ① 头在（缓存可用）；② 命中条件时真的 304 且零体（不是"带了头但仍然全量重传"）。
+  const pkgEtag = h(pkgRes, 'ETag');
+  const pkgCc = h(pkgRes, 'Cache-Control');
+  check('scene.pkg 可重验证缓存（ETag + Last-Modified + must-revalidate，且**不是** no-store）',
+    Boolean(pkgEtag) && Boolean(h(pkgRes, 'Last-Modified')) && /must-revalidate/.test(pkgCc) && !/no-store/.test(pkgCc),
+    'etag=' + pkgEtag + ' cc=' + pkgCc);
+  const notMod = await runHandler(filesRoute, `/wallpaper-engine/scene-files/${token}/scene.pkg`, { 'if-none-match': pkgEtag });
+  check('条件 GET 命中 ⇒ 304 + 零体（真的省掉一次几百 MB 的读盘与传输）',
+    notMod.__state.status === 304 && notMod.__state.body.length === 0,
+    'status=' + notMod.__state.status + ' ' + notMod.__state.body.length + 'B');
+  // 负对照：换一个 ETag ⇒ 必须回 200 全量（否则"凡带 if-none-match 就 304"也能过）
+  const staleEtag = await runHandler(filesRoute, `/wallpaper-engine/scene-files/${token}/scene.pkg`, { 'if-none-match': 'W/"0-0"' });
+  check('负对照：ETag 不匹配 ⇒ 200 全量（缓存判据有牙）',
+    staleEtag.__state.status === 200 && staleEtag.__state.body.equals(pkgBytes),
+    'status=' + staleEtag.__state.status + ' ' + staleEtag.__state.body.length + 'B');
+  // 只带 If-Modified-Since（没有 ETag 的客户端）同样要能 304
+  const imsRes = await runHandler(filesRoute, `/wallpaper-engine/scene-files/${token}/scene.pkg`, { 'if-modified-since': h(pkgRes, 'Last-Modified') });
+  check('只带 If-Modified-Since ⇒ 同样 304 零体',
+    imsRes.__state.status === 304 && imsRes.__state.body.length === 0,
+    'status=' + imsRes.__state.status);
+  // 目录围栏/404 这些**错误**响应仍必须 no-store（见下面 unknown token → 404 旁的判据）
+
+  // ── 载荷传输账本（客户端首帧看护的"到底还在不在下载"）──────────────────────
+  const progressRoute = routes.find((r) => r.path === '/wallpaper-engine/scene-payload-progress');
+  check('载荷进度路由已注册', Boolean(progressRoute), progressRoute ? 'kind=' + progressRoute.kind : 'missing');
+  if (progressRoute) {
+    const progRes = await runHandler(progressRoute, `/wallpaper-engine/scene-payload-progress?token=${encodeURIComponent(token)}`);
+    let prog = null;
+    try { prog = JSON.parse(progRes.__state.body.toString('utf8')); } catch { prog = null; }
+    // 上面已经真的拉过整包（200 全量 + Range）⇒ 账本必须记下"传过多少字节、走完几次"。
+    check('账本记下这次传输（served ≥ 整包字节、completed ≥ 1、active 归零）',
+      Boolean(prog) && prog.ok === true && prog.served >= pkgBytes.length && prog.completed >= 1 && prog.active === 0,
+      prog ? JSON.stringify(prog) : 'bad json');
+    check('账本带上整包体积（客户端据此把预算按包大小放大）',
+      Boolean(prog) && prog.size >= pkgBytes.length, prog ? 'size=' + prog.size : '-');
+    const unknownProg = await runHandler(progressRoute, '/wallpaper-engine/scene-payload-progress?token=bm90LWEtdG9rZW4');
+    let unknownBody = null;
+    try { unknownBody = JSON.parse(unknownProg.__state.body.toString('utf8')); } catch { unknownBody = null; }
+    check('未知 token ⇒ ok:false（"没记账" ≠ "没在动"，客户端据此回落墙钟）',
+      Boolean(unknownBody) && unknownBody.ok === false, unknownBody ? JSON.stringify(unknownBody) : 'bad json');
+    // 老宿主没有这条路由时客户端必须静默退回墙钟：这里只钉"路由缺失不是崩溃源"的判据形态
+    check('负对照：账本对"零传输"的 token 不给假进展（served=0）',
+      Boolean(unknownBody) && unknownBody.served === 0 && unknownBody.completed === 0,
+      unknownBody ? 'served=' + unknownBody.served : '-');
+  }
+
   // Fence: encoded parent hops aiming at a file OUTSIDE the wallpaper dir
   // (5 hops up from …/431960/990001 to the fixture root; literal ../ would be
   // normalised away by `new URL()` before the handler ever sees it).
@@ -429,6 +478,10 @@ if (filesRoute && fixture && fixture.sceneLiveSrc) {
 
   const unknownRes = await runHandler(filesRoute, '/wallpaper-engine/scene-files/bm90LWF0b2tlbg/scene.pkg');
   check('unknown token → 404', unknownRes.__state.status === 404, 'status=' + unknownRes.__state.status);
+  // 负对照：可重验证缓存**不得**把错误响应也放行（否则 Electron 会缓存住 404 错误页，
+  // 之后即使文件到位也一直显示旧错误文本 —— 那是这条缓存策略唯一的已知风险）。
+  check('负对照：404 仍 no-store',
+    /no-store/.test(h(unknownRes, 'Cache-Control') || ''), h(unknownRes, 'Cache-Control'));
 
   // ── 目录围栏的第二层：**字面围栏不认识链接** ────────────────────────────────
   // `resolve()` + `startsWith` 只挡 `..`，而 `serveFile` 会跟随链接 ⇒ 只有第一层时
@@ -563,6 +616,10 @@ console.log('Level C4 — 壁纸媒体源（真实 loopback 监听）');
           && opaqueHtml.indexOf('data-we-shim="host"') !== -1
           && opaqueHtml.indexOf('data-we-seed="host"') !== -1,
         'status=' + opaque.status + ' acao=' + opaque.headers.get('access-control-allow-origin'));
+      // 载荷改成可重验证缓存之后，入口 HTML 必须**仍然** no-store：它带注入的
+      // shim + 用户属性种子，缓存住 = 把旧种子喂给壁纸。
+      const htmlCc = opaque.headers.get('cache-control') || '';
+      check('入口 HTML 仍 no-store（可重验证缓存只放行载荷本身）', /no-store/.test(htmlCc), htmlCc);
       const css = await fetch(base + dirPath + '/style.css', { cache: 'no-store' });
       check('子资源经媒体源可达（text/css）',
         css.status === 200 && /text\/css/.test(css.headers.get('content-type') || ''),
@@ -824,6 +881,94 @@ for (const [name, ok] of clientChecks) check(name, ok);
   check('negative control: the ungated extended swap call site is rejected', swapIsOptIn(ungated) === false);
   check('positive control: the current client gates the extended swap', swapIsOptIn(liveSrc) === true);
 }
+// ── Level D3: 首帧看护的"按进展判超时" + 载荷延迟/暂停 + 失败分因（2026-09 大包事故）──
+// 现场（本机真实诊断日志）：320MB/94MB 的 `scene.pkg` 在**三个客户端实例**同时挂载时
+// 传输被饿死，可见那个实例 15s 后 `stats={"fps":0,"running":false}`（一帧都没出）→ 被判
+// 「首帧超时」并写进**共享**失败记忆（所有窗口一起降级），而渲染器单独跑同一份包只要 1–2s。
+// 四条修正各配一条判据 + 负对照；判据只看真实代码行（注释由共享 stripComments 剥掉）。
+{
+  const code = stripComments(liveSrc);
+  // ① 预算由包大小放大 + 有硬上限（不是固定 15s 墙钟）
+  check('首帧预算按 scenePkgBytes 放大，且封顶 LIVE_FIRST_FRAME_MAX_MS',
+    /function liveFirstFrameBudget\(/.test(code) && /scenePkgBytes/.test(code)
+      && /Math\.min\(LIVE_FIRST_FRAME_MAX_MS, scaled\)/.test(code)
+      && /const LIVE_FIRST_FRAME_MAX_MS = \d+/.test(code));
+  // ② 传输有进展 ⇒ 每拍重置计时（与"暂停期不计时"同一条纪律）
+  check('载荷有进展就不计超时（loadingTicks + startedAt 重置）',
+    /if \(livePayloadFlowing\(watch\)\) \{\s*\n\s*watch\.loadingTicks \+= 1;\s*\n\s*watch\.startedAt = Date\.now\(\);/.test(code)
+      && /function livePayloadFlowing\(watch\)/.test(code)
+      && /LIVE_PAYLOAD_STALL_MS/.test(code));
+  // ③ 账本未知（旧宿主 / 没记过账）⇒ 退回墙钟，绝不把"没记账"当"没在动"
+  check('账本未知一律退回墙钟（ok:false / 请求失败都当未知）',
+    /d\.ok !== true\) \{ watch\.payload = null; return; \}/.test(code)
+    && /\.catch\(\(\) => \{ watch\.payloadPolling = false; \}\)/.test(code)
+    && /SCENE_PAYLOAD_PROGRESS_PATH/.test(code));
+  // ④ 隐藏/不播时不拉载荷：建层延迟 + 中途摘 src + 可见时补回（三条都在）
+  check('隐藏/不播的实例不拉载荷（建层延迟 + 中途暂停 + 可见时补回）',
+    /if \(liveFrameShouldDefer\(\)\) \{\s*\n\s*frame\.dataset\.weLiveSrc = url;/.test(code)
+      && /function suspendLivePayload\(frame, watch\)/.test(code)
+      && /frame\.src = "about:blank";/.test(code)
+      && /function armDeferredLiveFrame\(frame\)/.test(code)
+      && /armDeferredLiveFrame\(liveFrame\);/.test(code));
+  // ⑤ 延迟载荷的帧不得被"空白文档的 load"武装心跳（那会白烧一个预算窗口 → 误判超时）
+  check('空白文档（载荷暂停）不武装心跳：load 与三处直接武装都过 liveFrameDeferred',
+    /if \(frame\.isConnected && !liveFrameDeferred\(frame\)\) startLiveWatch\(frame, sel\.id\);/.test(code)
+      && /if \(!liveFrameDeferred\(frame\)\) \{ try \{ startLiveWatch\(frame, sel\.id\); \} catch/.test(code)
+      && (code.match(/!liveFrameDeferred\(/g) || []).length >= 4);
+  // ⑥ 失败分因：传输未完成只进会话内软记忆 + 自动重试，**不写共享设置**
+  check('传输类失败不落盘（liveSessionFailures + 自动重试 + 冷却/上限）',
+    /function liveFailCauseOf\(watch\)/.test(code)
+      && /if \(p\.active > 0\) return "transfer";/.test(code)
+      && /if \(p\.completed <= 0\) return "transfer";/.test(code)
+      && /if \(p\.transfers <= 0\) return "";/.test(code)
+      && /liveSessionFailures\.set\(wid, "transfer"\)/.test(code)
+      && /function scheduleLiveTransferRetry\(wid, attempts\)/.test(code)
+      && /LIVE_TRANSFER_RETRY_LIMIT/.test(code)
+      && /LIVE_TRANSFER_RETRY_DELAY_MS/.test(code));
+  check('出首帧即清软失败与重试计数（否则一次抖动会永久压着这张壁纸）',
+    /liveSessionFailures\.delete\(watch\.wid\);/.test(code) && /liveTransferAttempts\.delete\(watch\.wid\);/.test(code));
+  // ⑦ 层键带 mediaBase：宿主把媒体源端出来之后必须重建（否则旧渲染页一直用陈旧的源）
+  check('层键含 sceneMediaBase（源变化 ⇒ 重建到媒体源）',
+    /selection\.inventory\.sceneMediaBase\) \|\| ""\)/.test(code));
+  // ⑧ 软失败重试前刷库存（本实例的 inventory 可能粘在"媒体源起来之前"的空串上）
+  check('软失败重试前刷库存（粘住的空串是传输饿死的常见成因）',
+    /if \(!\(selection\.inventory && selection\.inventory\.sceneMediaBase\)\) \{\s*\n\s*try \{ loadInventory\(\); \}/.test(code));
+  // ⑨ client-boot 必须延迟一拍（顶层读 selection 会撞 TDZ，实测 0 行落盘）
+  check('client-boot 延迟一拍上报（顶层读 selection 会被 TDZ 静默吞掉）',
+    /setTimeout\(function \(\) \{\s*\n\s*try \{\s*\n\s*liveLog\("client-boot"/.test(code));
+  // ⑩ 显式重试（面板重开开关）必须把会话内软失败一起清掉 —— 否则「重开开关可重试」
+  //    这条逃生门对传输类失败不成立（它不在设置里，页面上看不见却拦着 live）。
+  check('显式重试同时清会话内软失败（跨文件接线：面板 → clearLiveSessionFailures）',
+    /function clearLiveSessionFailures\(\)/.test(code)
+      && /liveSessionFailures\.clear\(\)/.test(code)
+      && /clearLiveSessionFailures\(\);/.test(tabsSrc));
+  // ⑪ 失败记忆的**管线身份**：旧管线的 timeout 断言不许跨管线复用 —— 它是面板那行
+  //    「实时渲染失败（…）」的唯一来源，实测会让"宿主半没重载 + 客户端已更新"看起来毫无作用。
+  check('失败记忆带管线身份，换管线作废一次（bundle 变 / 媒体源从无到有）',
+    /function migrateStaleLiveFailures\(\)/.test(code)
+      && /migrateStaleLiveFailures\(\);/.test(code)
+      && /function livePipelineChanged\(\)/.test(code)
+      && /String\(prev\.build \|\| ""\) !== now\.build\) return "build"/.test(code)
+      && /Number\(prev\.media\) === 0 && now\.media === 1\) return "media"/.test(code)
+      && /rememberLivePipeline\(\)/.test(code)
+      && /LIVE_DIAG_BUILD = "d8"/.test(code));
+  // 记录失败时必须**记住管线身份**，否则下次启动会把这条管线自己挣来的记忆当陌生管线清掉。
+  check('记录失败时写下管线身份（否则自己的记忆会被下一次启动清掉）',
+    /map\[wid\] = reason === "stall" \? "stall" : "timeout";[\s\S]{0,400}?rememberLivePipeline\(\);/.test(code));
+  // 负对照：把"单向"改成双向（媒体源消失也清）⇒ 同一条判据变假。
+  const oneWayPredicate = (s) => /Number\(prev\.media\) === 0 && now\.media === 1\) return "media"/.test(s)
+    && !/Number\(prev\.media\) === 1 && now\.media === 0/.test(s);
+  const twoWay = code.replace('Number(prev.media) === 0 && now.media === 1',
+    'Number(prev.media) === 1 && now.media === 0');
+  check('负对照：把单向判据改成双向（源一抖动就抹掉真实失败记忆）会被判红',
+    twoWay !== code && oneWayPredicate(twoWay) === false && oneWayPredicate(code) === true);
+  // 负对照：把"按进展重置"那两行换成旧的固定墙钟写法 ⇒ 同一条判据变假
+  const flowingOk = (s) => /if \(livePayloadFlowing\(watch\)\) \{\s*\n\s*watch\.loadingTicks \+= 1;/.test(s);
+  const degraded = code.replace(/if \(livePayloadFlowing\(watch\)\) \{\s*\n\s*watch\.loadingTicks \+= 1;\s*\n\s*watch\.startedAt = Date\.now\(\);\s*\n\s*\}/,
+    '/* 旧写法：照常计时 */');
+  check('负对照：退回固定墙钟（不看进展）会被同一条判据判红',
+    degraded !== code && flowingOk(degraded) === false && flowingOk(code) === true);
+}
 // ── Level D2: 实时管线抽模块的结构契约（抽出来之后钉住）─────────────────────
 // 契约的可核对形式：
 //   · 管线**只在 live-layer.js 里**（client.js 不得再留一份同名实现）；
@@ -940,14 +1085,36 @@ check('scene-files 处理函数被双挂载（应用源 + 媒体源）',
     && hostHalfSrc.includes('function traceMediaRequests('));
 check('媒体源只服务 /scene-files 前缀', hostSrc.includes("pathname.startsWith(`${BASE}/scene-files/`)"));
 // ── 场景载荷改走自建源：三处必须同时成立（少一处就退化成"静默回落"，或更糟：告警丢失）──
-// 背景：70–90MB 的 scene.pkg 走应用源那条路挤不过首帧 15s 预算（那里还要买纹理解码与
+// 背景：`scene.pkg` 实测到 336MB，走应用源那条路挤不过首帧预算（那里还要买纹理解码与
 // shader 编译），故场景载荷改走自建 loopback 源。三条判据把这次改动的**每个接缝**都钉住：
 //   ① 宿主端出这个源，且门控按"库里真有可实时渲染的场景"（不是无条件起监听）；
 //   ② 客户端消费宿主给的值，**不再自己拼 location.origin**（否则改动无声失效）；
 //   ③ 媒体源接住 `/diag`，且用的是诊断族**同一个** handleDiag（否则渲染页告警 404 静默丢失）。
+//
+// ⚠️ 2026-09 修正：① 的**形态门控**被拿掉了 —— `mediaOriginBase()` 在原生浏览器形态下
+// 恒返空串（它门控的是"网页壁纸的能力头栅栏"），而场景载荷要独立源的理由是**带宽**，
+// 与宿主形态无关。旧断言（`await mediaOriginBase()`）因此钉住的是一个**已知会饿死**的写法，
+// 现在改成钉 `ensureSceneMediaOrigin()`，并加负对照：退回旧写法必须被判红。
 check('宿主端出场景载荷的源，且按 sceneLive 门控（没有场景不多起监听）',
-  /const sceneMediaBase = wallpapers\.some\(\(w\) => w\.sceneLive\) \? await mediaOriginBase\(\) : ''/.test(hostSrc)
+  /const sceneMediaBase = wallpapers\.some\(\(w\) => w\.sceneLive\) \? await ensureSceneMediaOrigin\(\) : ''/.test(hostSrc)
     && /^\s*sceneMediaBase,$/m.test(hostSrc));
+{
+  // 同一判据喂"改回旧写法"的源码：必须变假（旧写法在浏览器形态下恒空串 ⇒ 大包回落应用源）。
+  const scenePinned = (s) => /const sceneMediaBase = wallpapers\.some\(\(w\) => w\.sceneLive\) \? await ensureSceneMediaOrigin\(\) : ''/.test(s)
+    && !/sceneMediaBase = wallpapers\.some\(\(w\) => w\.sceneLive\) \? await mediaOriginBase\(\) : ''/.test(s);
+  const mutated = hostSrc.replace('? await ensureSceneMediaOrigin()', '? await mediaOriginBase()');
+  check('负对照：把调用点改回 mediaOriginBase() ⇒ 同一条判据变假',
+    mutated !== hostSrc && scenePinned(mutated) === false && scenePinned(hostSrc) === true,
+    'mutated=' + (mutated !== hostSrc));
+}
+{
+  // `ensureSceneMediaOrigin` 里不得出现 mediaOriginNeeded / adapterOverride：
+  // 那就是把形态门控偷偷加回来（判据只取该函数体，取不到就显式报缺）。
+  const fn = (hostSrc.match(/function ensureSceneMediaOrigin\(\) \{[\s\S]{0,240}?\n  \}/) || [''])[0];
+  check('ensureSceneMediaOrigin 只做懒启动（不读 mediaOriginNeeded / adapterOverride）',
+    fn.includes('ensureMediaOrigin()') && !fn.includes('mediaOriginNeeded') && !fn.includes('adapterOverride'),
+    fn ? 'body=' + fn.replace(/\s+/g, ' ').slice(0, 80) : 'function 未找到');
+}
 // 判据必须钉在**赋值表达式**上，而不是"文件里出现过 sceneMediaBase"：后者在"读进变量却
 // 不用它"的写法下照样为真（实测：把 mediaBase 改成无条件 location.origin 时它不变红 ⇒
 // 那是恒真式判据，属于 P3-16 点名的形态）。所以抠出 mediaBase 的赋值再断言它消费宿主值。

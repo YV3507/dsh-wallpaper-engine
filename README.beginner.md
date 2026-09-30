@@ -118,7 +118,7 @@ Mac / Linux：`~/.dsh-wallpaper-engine/config.json`）—— 重启、换端口�
 
 **3. 场景（Scene）壁纸为什么是静止的图片？**
 - 正常情况下**它应该是动的** —— 插件内置的实时渲染引擎会在浏览器里重放场景（粒子 / 脚本 / 视差 / 包内音频）。
-- 若看到的是静止画面，说明实时渲染**降级**了（首帧超时或运行中断，按壁纸记了失败记忆）：此时显示的是**实时抓帧**；重开「场景实时渲染」开关可清空记忆重试。
+- 若看到的是静止画面，说明实时渲染**降级**了（首帧超时或运行中断）：此时显示的是**实时抓帧**；重开「场景实时渲染」开关可清空记忆重试。注意大壁纸（`scene.pkg` 上百 MB 的那种）的**首帧本来就要等整包传完**，插件按包大小放大预算、并且传输还在进字节时不算超时；只有**渲染页真不出画面**才按壁纸记失败，而"传输没传完"那种失败会自己重试（不用你手动重开开关）。
 - **第一次**打开一张场景壁纸时，实时渲染还在启动，屏幕上先垫的是**作者的预览图**（就是你在 Wallpaper Engine 里看到的那张缩略图）—— 出首帧之前不留黑屏。等你**下次再切回**这张壁纸，垫的就是上一轮抓下来的**实时帧**了。
 - 连作者预览图都没有时，插件才会**诚实地留空**并说明原因 —— 它**不再**"替作者猜一张图"（那会是一张糊图），这是 1.0 之后的有意行为。
 
@@ -289,7 +289,7 @@ macOS / Linux: `~/.dsh-wallpaper-engine/config.json`) — restarts, port changes
 
 **3. Why is my Scene wallpaper a still image?**
 - **It should be moving** — the plugin's built-in live renderer replays the scene in the browser (particles / scripts / parallax / packaged audio).
-- A still picture means live rendering **degraded** (first-frame timeout or a stalled runtime, remembered per wallpaper): what you see is the **live-captured frame**. Re-toggling 「场景实时渲染」 clears that memory and retries.
+- A still picture means live rendering **degraded** (first-frame timeout or a stalled runtime): what you see is the **live-captured frame**. Re-toggling 「场景实时渲染」 clears that memory and retries. Note that a big wallpaper (a `scene.pkg` of hundreds of MB) **has to receive the whole package before its first frame can exist** — the plugin scales its budget by the package size and does not count a transfer that is still delivering bytes as a timeout; only a renderer that really produces no picture is remembered per wallpaper, while an **unfinished transfer retries by itself** (no need to re-toggle the switch).
 - The **first** time you open a scene wallpaper, live rendering is still starting up, so what stands in is the **author's preview image** (the very thumbnail you see in Wallpaper Engine) — no black screen before the first frame. **Switch back** to that wallpaper later and the stand-in is the **live frame** captured last time.
 - Only when not even the author's preview is available does the plugin leave the area **honestly empty** and say why — it **no longer** "guesses an image on the author's behalf" (which would be a blurry one). That is deliberate behaviour since 1.0.
 
