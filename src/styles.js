@@ -67,7 +67,15 @@ const CSS = `
   /* 垫底画面（.we-layer .we-live-poster，见 src/live-layer.js 的 buildLivePoster）用
      --dsw-alias-bg-layer-1 打底，且垫底必须是「一层安静的颜色」、不能透明；壁纸激活时
      该别名已被改写成玻璃配方 ⇒ 在壁纸层根上钉回插件自己的面板色，垫底语义不变。 */
-  .we-layer { position: fixed; inset: 0; z-index: -2; overflow: hidden; pointer-events: none; opacity: 1; background-color: var(--we-wallpaper-fade-bg, transparent); --dsw-alias-bg-layer-1: var(--we-panel-color, #101418); }
+  /* ⚠️ 拖拽区（upstream #120）：本层是**整屏**且直接挂在 body 上，而宿主前端在 darwin 下有一条
+     把 body 下非 #root 直接子元素一律设成 no-drag 的规则 ⇒ Electron 会把这块矩形从窗口可拖区里
+     **几何挖除**（与绘制顺序、z-index、pointer-events 都无关）。macOS 桌面壳没有原生标题栏，可拖
+     几何全靠 Web 侧的 drag 行，于是顶栏整片失去可拖性。
+     这里必须是 initial 而**不是 none**：Chromium 把关键字 none 归进 no-drag 模式，写 none 等于
+     什么都没修（computed 仍是 no-drag）；initial 才是「不产生任何 region」。
+     !important 用来压过那条带 id 选择器的宿主规则（本选择器特异性不够）。
+     不要照抄到需要接指针的浮层（拉绳 / 选择器模态 / 仓库面板）—— 它们本来就该是 no-drag。 */
+  .we-layer { position: fixed; inset: 0; z-index: -2; overflow: hidden; pointer-events: none; opacity: 1; background-color: var(--we-wallpaper-fade-bg, transparent); --dsw-alias-bg-layer-1: var(--we-panel-color, #101418); -webkit-app-region: initial !important; }
   /* Blurring via CSS filter darkens/thins the edges, so the layer is scaled up
      (--we-wallpaper-scale tracks blur) to hide the transparent fringe the blur
      would otherwise reveal at the viewport edges. */
@@ -166,6 +174,9 @@ const CSS = `
   .we-scrim {
     position: fixed; inset: 0; z-index: -1;
     pointer-events: none;
+    /* 同 .we-layer：整屏 body 级浮层会把窗口可拖区整片挖掉（upstream #120）。
+       必须 initial（不是 none）—— 见 .we-layer 上方那段注释。 */
+    -webkit-app-region: initial !important;
     background: var(--we-scrim-color, rgba(0, 0, 0, 0.25));
   }
 

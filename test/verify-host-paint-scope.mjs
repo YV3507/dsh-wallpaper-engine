@@ -124,5 +124,56 @@ const audit = MARKERS.map((m) => {
 });
 console.log('INFO | H2 其它被上色的宿主容器（需各自核对"关闭态是否留在布局里"）: ' + audit.join(' · '));
 
+// ── H3：满屏 body 级浮层必须放行窗口拖拽（上游 #120）──────────────────────────
+// 背景：macOS 桌面壳没有原生标题栏，可拖几何**全部**来自 Web 侧的 drag 行；而宿主前端有一条
+// darwin 规则 `html[data-platform=darwin] body>:not(#root){-webkit-app-region:no-drag}`，
+// 它把 body 下每个非 #root 直接子元素当成**no-drag 矩形**。Electron 对 no-drag 的语义是
+// **几何挖除** —— 与绘制顺序、z-index、pointer-events 都无关。本插件把 `.we-layer` /
+// `.we-scrim` 这两个 `inset:0` 的整屏层直接挂在 body 上 ⇒ 整个窗口的可拖区被挖空，顶栏
+// 整片失灵（1.1.0 实测：顶栏空白点 0/6 可拖）。
+//
+// 为什么要有这条判据：它**在 Windows 上无法用行为复现**（Windows 走的是另一套标题栏规则），
+// 而其它判据也看不见它（层照常出现、样式照常解析）。没有这条，"以后再挂一个 body 级满屏层"
+// 会静默复发。
+//
+// 判据要求两条**同时**成立（缺一不可，理由各不相同）：
+//   · 值必须是 `initial` 而**不是 `none`** —— Chromium 把关键字 none 归进 no-drag 模式，
+//     写 none 等于什么都没修（computed 仍是 no-drag）；
+//   · 必须带 `!important` —— 宿主那条规则带 id 选择器（特异性 1,1,2），而我们只有 (0,1,0)，
+//     没有 !important 必输。
+{
+  const DECL = /-webkit-app-region\s*:\s*initial\s*!important/;
+  /**
+   * 取 `.cls { … }` 这条**规则本体**。
+   * ⚠️ 必须锚在 `.cls {`（带大括号）上，**不能**只锚 `.cls `（带空格）：带空格的形态在
+   *    **注释里也会出现**（例如"（.we-layer .we-media）上"这种散文），从注释处切片会一路
+   *    吃到后面那条真规则，导致"规则体"里混着注释 —— 负对照于是改到注释里的那个词上、
+   *    永远报绿（本判据第一版就是这么写的，负对照 0/1 当场把它抓了出来）。
+   */
+  const ruleOf = (cls) => {
+    const i = CSS.indexOf(cls + ' {');
+    if (i < 0) return '';
+    const open = CSS.indexOf('{', i);
+    const close = CSS.indexOf('}', open);
+    return open < 0 || close < 0 ? '' : CSS.slice(i, close + 1);
+  };
+  const LAYER = ruleOf('.we-layer');
+  const SCRIM = ruleOf('.we-scrim');
+  const isFullViewport = (r) => /inset:\s*0\b/.test(r);
+  const ok = (r) => DECL.test(r);
+
+  // 负对照走**同一个**判据函数：把值换成 none、以及去掉 !important，都必须被判出。
+  const stripImportant = (r) => r.replace(/\s*!important/, '');
+  const toNone = (r) => r.replace(/initial/, 'none');
+  const negValue = LAYER.length > 0 && ok(toNone(LAYER)) === false;
+  const negImportant = LAYER.length > 0 && ok(stripImportant(LAYER)) === false;
+
+  check('H3 满屏 body 级浮层放行窗口拖拽（initial 而非 none，且带 !important）',
+    LAYER.length > 0 && SCRIM.length > 0 && isFullViewport(LAYER) && isFullViewport(SCRIM)
+    && ok(LAYER) && ok(SCRIM) && negValue && negImportant,
+    `.we-layer ${ok(LAYER) ? '已放行' : '未放行'} · .we-scrim ${ok(SCRIM) ? '已放行' : '未放行'}` +
+    ` · 负对照 值改成 none 被抓到 ${negValue ? 1 : 0}/1 · 去掉 !important 被抓到 ${negImportant ? 1 : 0}/1`);
+}
+
 console.log(failed === 0 ? '\nverify-host-paint-scope: OK' : `\n${failed} CHECK(S) FAILED`);
 process.exit(failed === 0 ? 0 : 1);
