@@ -79,11 +79,20 @@ function findStaleWhitelistEntries(registeredFiles, whitelist) {
 }
 
 /**
- * 规则 ⑤ 的判据 (a)：成员不足 3 个的 `src/` 子目录。
+ * `src/` 子目录准入的**成员数门槛**。
+ *
+ * 这里是该数值的**唯一真源**：`docs/MODULE-LAYOUT.md` §4 只写"达到 `SRC_DIR_MIN_MEMBERS`"，
+ * 不抄写数字（本仓纪律：文档不写会漂的数值，见 `docs/README.md` §写作纪律）。
+ * 判定逻辑在 `thinSrcDirs()`，正/负对照都走同一个函数。
+ */
+const SRC_DIR_MIN_MEMBERS = 3;
+
+/**
+ * 规则 ⑤ 的判据 (a)：成员数不足 `SRC_DIR_MIN_MEMBERS` 的 `src/` 子目录。
  * 入参形如 `{ font: 4 }`（目录名 → 该目录下 `.js` 计数）。
  */
 function thinSrcDirs(counts) {
-  return Object.entries(counts).filter(([, n]) => n < 3).map(([dir]) => dir).sort();
+  return Object.entries(counts).filter(([, n]) => n < SRC_DIR_MIN_MEMBERS).map(([dir]) => dir).sort();
 }
 
 /**
@@ -467,28 +476,17 @@ console.log('\n⑤ 路由模块必须自己 import 用到的库函数（不得�
     '报出=[' + synthStale.join(',') + ']');
 }
 
-// ═══ ④ MODULE-LAYOUT 的内联计数 == 构建清单（数字只许复算）══════════════════════
-// 散文里的数字没人看着就会漂：时效性审计实测，这份文档的内联计数停在 13 / 14，而实际已是 19。
-// 数字一律**现算**（同一条清单），不手抄；句子被改写时判据要**红**，而不是静默失效。
-console.log('\n④ MODULE-LAYOUT 的内联计数与构建清单一致');
-{
-  const doc = readFileSync(join(ROOT, 'docs', 'MODULE-LAYOUT.md'), 'utf8');
-  const whitelist = /其余\s*(\d+)\s*个内联模块都是 `src\/`/.exec(doc);
-  const total = /加载器包装\s*\+\s*(\d+)\s*个内联模块/.exec(doc);
-  const n = inline.files.length;
-  check('判据找得到那两句（改写句子会红，而不是静默失效）',
-    Boolean(whitelist) && Boolean(total) && n > 0,
-    '总数=' + (total ? total[1] : '—') + ' / 其余=' + (whitelist ? whitelist[1] : '—') + ' / 实测=' + n);
-  check('总数 == 构建清单条数，且"其余 N-1 == src/"',
-    Boolean(total) && Boolean(whitelist) && Number(total[1]) === n && Number(whitelist[1]) === n - 1,
-    '文档 ' + (total ? total[1] : '—') + '/' + (whitelist ? whitelist[1] : '—') + ' vs 实测 ' + n + '/' + (n - 1));
-  check('negative control: 数字对不上会被判出',
-    (() => {
-      const bad = doc.replace(/其余\s*\d+\s*个内联模块/, '其余 13 个内联模块');
-      const m = /其余\s*(\d+)\s*个内联模块/.exec(bad);
-      return Boolean(m) && Number(m[1]) !== n - 1;
-    })());
-}
+// ═══ ④（已撤除：MODULE-LAYOUT 的内联计数 == 构建清单）══════════════════════════
+// 这里此前有一条**读文档散文**的判据：把 `docs/MODULE-LAYOUT.md` 里"共 N 个内联模块"那句
+// 用正则找出来，与构建清单比对，并要求"改写句子就变红"。
+//
+// 它按 [`docs/adr/0006`](../docs/adr/0006-comment-discipline-as-written-convention.md) **撤除**了：
+// 判据在守"作者怎么措辞"，而且它的失效方式正是它想防的那种 —— 句子一改写，判据就从
+// "复算数字"退化成"守住那两句话"，于是它开始拦的是编辑而不是腐化。
+// 边界依 ADR-0006：**读代码的守卫照留（①②③⑤⑥⑦⑧），读散文的守卫不加。**
+//
+// 数值腐化改由**符号引用**承担：文档不再写"共 N 个内联模块"，而是指向
+// `scripts/build-client.mjs` 的 `INLINE_MODULES`（唯一真源）。
 
 console.log('');
 
@@ -520,7 +518,7 @@ console.log('⑥ `src/` 子目录成员数 ≥3 且被常青文档一级标题�
   check('覆盖面：既有 `src/` 子目录、也有常青面文档（防两条判据空转）',
     srcDirs.length >= 1 && headings.length >= 8,
     srcDirs.length + ' 个目录（' + srcDirs.join(',') + '）/ ' + headings.length + ' 份文档');
-  check('`src/` 子目录成员 ≥3（不足 3 个就别分目录，见 MODULE-LAYOUT §4 第 1 条）',
+  check('`src/` 子目录成员数达门槛（不足就别分目录，见 MODULE-LAYOUT §4 第 1 条；门槛 = SRC_DIR_MIN_MEMBERS = ' + SRC_DIR_MIN_MEMBERS + '）',
     thin.length === 0,
     thin.length ? '不足：' + thin.map((d) => d + '(' + counts[d] + ')').join(' ')
       : srcDirs.map((d) => d + '(' + counts[d] + ')').join(' '));

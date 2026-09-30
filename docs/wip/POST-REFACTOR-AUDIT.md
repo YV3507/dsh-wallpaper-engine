@@ -9,6 +9,10 @@
 > 账本自检 **46 已落地 / 1 未完成** · 可达性 **0 文件 / 0 行** · 重建后 `git status` 干净 ·
 > npm 上 `latest` 仍是 `1.0.1`。⇒ **下面每一条都是现有 32 条守卫全部放过的。**
 >
+> ⚠️ **本文正文里引用 `test/verify-ledger.mjs` 的地方，那个文件已经不存在了** —— 该账本守卫已随
+> [`adr/0006`](../adr/0006-comment-discipline-as-written-convention.md) 下线。那些引用是**审计当时的
+> 事实**（它确实曾把死函数钉成"活依赖"），保留原样、不入链接，请按历史记录读。
+>
 > ⚠️ **正文里的 `文件:行号` 锚点都属 1ff0887 那一版**，之后被动过的文件（尤其 `lib/index.js`、
 > `src/client.js`）行号已漂。要按行号复算请先 `git checkout 1ff0887`，否则请**按内容**定位。
 >
@@ -258,7 +262,7 @@ className: "we-picker__btn" + (weAudioVolume() > 0 || sel.videoAudioEnabled === 
 | 4.6 | [`lib/index.js:2765`](../../lib/index.js#L2765) | 「`/media-info` 必须注册在 `/media` 之前，否则被前缀吞掉」 | 宿主匹配是**分段锚定 + 最长前缀胜出**（`dsh-host-webserver` 的 `match()`）⇒ 注册顺序不承重（`/scene-frame` ↔ `/scene-frame-cache` 同理） |
 | 4.7 | [`lib/index.js:1711`](../../lib/index.js#L1711) | 「**预热写盘**与 `/scene-frame` 必须走同一构造点」 | 预热写盘**已随 P2-12 删除**（`lib/` 里零命中）；同目录现在有三个生产者（GPU 抓帧 / `sv1_` / `sa1_`） |
 | 4.8 | [`lib/types/index.d.ts:48`](../../lib/types/index.d.ts#L48) | 「用户静态帧是否**替换了提取帧**」 | 提取线已删（`lib/routes/scene-frame.js:50-54` 自述）；该字段实义是"存在用户导入的自定义画面"（`hasCustomFrame`，`lib/index.js:2488`） |
-| 4.9 | [`lib/routes/fontsets.js`](../../lib/routes/fontsets.js) | —— | **文件带 UTF-8 BOM**（`git hash-object` == `HEAD:lib/routes/fontsets.js` ⇒ 确实入库）。Node ESM 会剥 BOM，**今天不炸**；但 BOM 判据 [`test/verify-comment-discipline.mjs:390`](../../test/verify-comment-discipline.mjs#L390) 的覆盖面是**硬编码 5 个文件**，`lib/routes/**` 天生在盲区 |
+| 4.9 | [`lib/routes/fontsets.js`](../../lib/routes/fontsets.js) | —— | **文件带 UTF-8 BOM**（`git hash-object` == `HEAD:lib/routes/fontsets.js` ⇒ 确实入库）。Node ESM 会剥 BOM，**今天不炸**；但 BOM 判据 `test/verify-comment-discipline.mjs:390` 的覆盖面是**硬编码 5 个文件**，`lib/routes/**` 天生在盲区（⚠️ 该守卫已随 ADR-0006 下线，此处是审计当时的事实）。**已处理**：BOM 已从该文件去除；覆盖面改由 `test/verify-package-files.mjs` 的 **P8** 按**扩展名**全扫（不再硬编码名单）。补一条实测修正 —— 本条原写"Node ESM 会剥 BOM"**经复测成立**，但 `JSON.parse` **不剥**（带 BOM 的文本抛 `Unexpected token`），所以 `.json` 带 BOM 是真缺陷、`.js` 是隐患 |
 
 ---
 
@@ -316,7 +320,7 @@ className: "we-picker__btn" + (weAudioVolume() > 0 || sel.videoAudioEnabled === 
 - `decodeTexToRgba`（`:633`）与 `extractTexVideoMp4`（`:524`）**零调用者**。
 - vendored `jpeg-js` 的静态 import（`:45`）只被 `decodeTexToRgba`（`:637` 的 `decodeJpeg`）使用
   ⇒ SCENE 音频 / 视频每次 `await import('./pkg-extract.js')` 都在为一个**死函数**加载整份 vendored 解码器。
-- **它为什么活到今天**：[`test/verify-ledger.mjs:362`](../../test/verify-ledger.mjs#L362) 的
+- **它为什么活到今天**：`test/verify-ledger.mjs:362` 的
   "活依赖存活"断言检查的正是字符串 `function extractTexVideoMp4(` —— **一条守卫把一个没有调用者的
   函数钉成了"活依赖"**。而 `verify-reachability` 明确排除 `lib/vendor/**`（`test/verify-reachability.mjs:44`），
   所以可达性棘轮也看不见它。
@@ -353,7 +357,7 @@ className: "we-picker__btn" + (weAudioVolume() > 0 || sel.videoAudioEnabled === 
 `hostSrc.slice(indexOf('function sceneFrameSlot('), indexOf('function sceneFrameSlotFile('))` ——
 **`sceneFrameSlotFile` 全仓不存在**（唯一命中就是这一行）⇒ `indexOf` 返回 −1 ⇒ `slice(start, -1)`
 扫的是 `lib/index.js` 余下 ~1900 行，今天只是因常量恰好声明在 1726 之前才绿。
-同源判据 [`test/verify-ledger.mjs:203`](../../test/verify-ledger.mjs#L203) 的锚法是对的
+同源判据 `test/verify-ledger.mjs:203` 的锚法是对的
 （`indexOf('\n}', at)`）。这是 P3-16 那类"判据空转"的新实例。
 
 ### 6.6 明确**不需要**做的（免得下次又讨论一遍）

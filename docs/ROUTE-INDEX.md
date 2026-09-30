@@ -18,7 +18,7 @@
 | 2 | `/media-info` | lib/index.js:2941 | 箭头 | webServer mediaMap disposers | 7 |
 | 3 | `/transcode-progress` | lib/index.js:2967 | 箭头 | webServer mediaMap disposers | 1 |
 | 4 | `/transcoded` | lib/index.js:3020 | 箭头 | webServer mediaMap disposers serveFile | 1 |
-| 5 | `/media` | lib/index.js:3076 | 箭头 | webServer mediaMap disposers serveFile | 17 |
+| 5 | `/media` | lib/index.js:3076 | 箭头 | webServer mediaMap disposers serveFile | 16 |
 | 6 | `/preview` | lib/index.js:3076 | 箭头 | webServer mediaMap disposers serveFile | 8 |
 | 7 | `/video-preview` | lib/index.js:3100 | 箭头 | webServer mediaMap disposers serveFile | 1 |
 | 8 | `/scene-frame` | lib/routes/scene-frame.js:57 | 箭头 | disposers base mediaMap trackStream customFramePath customIdFromAbs …(+3) | 10 |
@@ -35,13 +35,13 @@
 | 19 | `/now-playing` | lib/routes/now-playing.js:98 | 箭头 | disposers base | 2 |
 | 20 | `/now-playing/artwork` | lib/routes/now-playing.js:112 | 箭头 | disposers base serveFile | 1 |
 | 21 | `/client-diag` | lib/routes/diag.js:74 | 箭头 | disposers appendDiagLine notice base | 2 |
-| 22 | `/diag` | lib/routes/diag.js:140 | 箭头 | disposers | 9 |
-| 23 | `/diag` | lib/routes/diag.js:141 | 箭头 | disposers base | 9 |
+| 22 | `/diag` | lib/routes/diag.js:140 | 箭头 | disposers | 8 |
+| 23 | `/diag` | lib/routes/diag.js:141 | 箭头 | disposers base | 8 |
 | 24 | `/diag-log` | lib/routes/diag.js:142 | 箭头 | disposers log base | 2 |
 | 25 | `/api/local-assets` | lib/index.js:3575 | async 箭头 | webServer disposers serveFile | 1 |
 | 26 | `/we-assets-dir` | lib/index.js:3625 | 箭头 | webServer disposers | 2 |
-| 27 | `/scene-video` | lib/index.js:3678 | 箭头 | webServer mediaMap disposers serveFile SCENE_VIDEO_INFLIGHT | 2 |
-| 28 | `/scene-audio` | lib/index.js:3761 | 箭头 | webServer mediaMap disposers serveFile | 3 |
+| 27 | `/scene-video` | lib/index.js:3678 | 箭头 | webServer mediaMap disposers serveFile SCENE_VIDEO_INFLIGHT | 1 |
+| 28 | `/scene-audio` | lib/index.js:3761 | 箭头 | webServer mediaMap disposers serveFile | 2 |
 | 29 | `/upload` | lib/routes/upload.js:55 | 箭头 | disposers base tokenFor UPLOAD_EXT UPLOAD_MAX_BYTES ensureUploadDir …(+6) | 3 |
 | 30 | `/remove` | lib/routes/upload.js:203 | 箭头 | disposers base ensureUploadDir removeUploadMeta resolveUploadFile armBodyIdleTimeout | 1 |
 | 31 | `/upload-dir` | lib/routes/upload.js:247 | 箭头 | disposers base setUploadDir normalizeUserDir | 2 |

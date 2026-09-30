@@ -12,9 +12,10 @@
     # Host half: discovers the local Wallpaper Engine install (Steam app 431960),
     # enumerates Scene/Video/Web wallpapers from the Workshop + default projects
     # (Application wallpapers are listed but never rendered),
-    # and serves their media + a JSON inventory over 31 same-origin HTTP routes
+    # and serves their media + a JSON inventory over same-origin HTTP routes
     # the browser half fetches directly (GET /wallpaper-engine/inventory, /media,
-    # /preview, …; docs/ROUTE-INDEX.md is the authoritative table).
+    # /preview, …; docs/ROUTE-INDEX.md is the authoritative table — it is generated
+    # and machine-checked, so the route count is deliberately not repeated here).
     - id: wallpaper-engine
       name: 'dsh-plugin-wallpaper-engine'
       # webServer is a hard dependency (`inject = ['webServer']` in lib/index.js):

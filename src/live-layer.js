@@ -78,9 +78,15 @@ function liveRenderEnabled(selLike) {
       || (selLike.type === "web" && selLike.webLiveSrc)));
 }
 // 失败原因 → 可读文案（设置面板展示，便于用户反馈「为什么黑」）。
+//
+// ⚠️ 文案里的时长**从常量插值**，不写死数字：这几个数字一旦调参，写死的文案就会对用户撒谎
+//（本仓实测过：这一行曾写"20 秒"而文档写"40 秒"，两者都不等于代码）。为此这两个阈值常量
+// 的声明被**提到本常量之前** —— 顶层模板字符串引用后面声明的 `const` 会撞 TDZ。
+const LIVE_FIRST_FRAME_MS = 15000;
+const LIVE_STALL_TICKS = 20;
 const LIVE_FAIL_LABELS = {
-  timeout: "首帧超时（15 秒内无画面）",
-  stall: "运行中断（20 秒无帧）",
+  timeout: "首帧超时（" + Math.round(LIVE_FIRST_FRAME_MS / 1000) + " 秒内无画面）",
+  stall: "运行中断（" + LIVE_STALL_TICKS + " 秒无帧）",
   load: "壁纸加载失败",
   // 软失败（**不落盘**）：载荷传输没走完 —— 证据是"这张壁纸渲染不出来"以外的另一种事实
   //（同一份包在别的实例/别的源上 0.6s 就到了），所以它只进会话内记忆 + 自动重试。
@@ -305,7 +311,8 @@ try {
 //     无进展且超过预算 → 失败，并按"传输未完成"归类（软失败，见 liveFail）。
 // 实测依据：同一份 336MB 包，媒体源上 0.6s 到齐；应用源上出现过 15–74s 与永不返回，
 // 而当时 6 次 `liveFail reason=timeout` 的 `stats` 全是"一帧都没出"。
-const LIVE_FIRST_FRAME_MS = 15000;
+// ⚠️ `LIVE_FIRST_FRAME_MS` 与 `LIVE_STALL_TICKS` 的声明在文件更上方（`LIVE_FAIL_LABELS` 之前）——
+//    用户可见的失败文案从它们插值，顶层模板字符串不能引用后面声明的 `const`（TDZ）。
 // 预算放大用的吞吐下限（8MB/s）：比实测（媒体源上 ~500MB/s）低两个量级，只用来
 // 把"这份包至少得传多久"算进来，不当性能预期。取 0 或量不出体积时退回基准预算。
 const LIVE_PAYLOAD_FLOOR_BPS = 8000000;
@@ -316,7 +323,6 @@ const LIVE_PAYLOAD_STALL_MS = 10000;
 // 传输类软失败的自动重试：冷却 + 上限（都在会话内，不落盘）。
 const LIVE_TRANSFER_RETRY_DELAY_MS = 45000;
 const LIVE_TRANSFER_RETRY_LIMIT = 2;
-const LIVE_STALL_TICKS = 20;
 let liveWatch = null; // { frame, wid, timer, startedAt, hardAt, budget, firstFrame, stall, resumed, payload… }
 let liveTransferRetryTimer = 0;
 const liveTransferAttempts = new Map(); // wid -> 传输类软失败的次数（成功即清零）

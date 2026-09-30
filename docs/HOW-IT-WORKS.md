@@ -20,19 +20,22 @@
 HTML 里注入 WE API shim（`lib/webwallgl/web-shim.js`）与 `project.json` 的属性 seed ——
 严格沙箱下渲染页够不到壁纸 iframe，shim 必须随文档一起到达。
 
-- **何时不走实时渲染**：壁纸开关被关掉、该壁纸已被记入**失败记忆**（首帧超时；或运行期连续
-  **约 40 秒**无帧 —— 心跳 1 秒/次，第 20 秒先自动 `resume` 自救一次），或场景是**松散 `scene.json`
+- **何时不走实时渲染**：壁纸开关被关掉、该壁纸已被记入**失败记忆**（首帧超时；或运行期**持续无帧**——
+  心跳每秒一拍，先到 `LIVE_STALL_TICKS` 拍时自动 `resume` 自救一次，再到它的两倍仍无帧才判 `stall`），
+  或场景是**松散 `scene.json`
   目录**（没有 `scene.pkg` 可供渲染页拉取）。此时按下面的**出图来源链**出图（允许诚实地留空）。
   重新打开开关会清空失败记忆（显式重试入口）。
-  **首帧超时不是固定的 15 秒墙钟**（2026-09 大包事故的修正）：首帧**必须等整包到齐**，所以预算是
-  `15s + 包大小 ÷ 8MB/s`、封顶 90s；而且宿主侧有一本**载荷账本**（客户端轮询
+  **首帧超时不是一个固定墙钟**（大包事故的修正）：首帧**必须等整包到齐**，所以预算由
+  `liveFirstFrameBudget()`（`src/live-layer.js`）按**包大小**现算，并有上限；
+  而且宿主侧有一本**载荷账本**（客户端轮询
   `GET /wallpaper-engine/scene-payload-progress?token=…`，见 [`ROUTE-INDEX.md`](./ROUTE-INDEX.md)），
   字节还在涨就每拍重置计时 ——
   "正在下载"不再被算成"渲染不出来"。**隐藏 / 未播放的实例根本不拉载荷**（建层时延迟赋 `src`、
   切到后台时把 `src` 摘成 `about:blank` 中止在飞请求），因为这种实例既出不了帧（Chromium 冻结隐藏页
   的 rAF），又会和**看得见**的那个实例抢带宽与解码器。
   **首帧确实没出来时还要分因**：账本说"传过但没传完"⇒ 只记**会话内**软失败（不写所有窗口共用的
-  失败记忆），冷却 45s 后自动重试（每张壁纸至多 2 次）；只有渲染页真的不出帧 / 运行期失联才落盘记忆。
+  失败记忆），冷却后自动重试且次数有上限（两个值都是 `src/live-layer.js` 的常量
+  `LIVE_TRANSFER_RETRY_DELAY_MS` / `LIVE_TRANSFER_RETRY_LIMIT`）；只有渲染页真的不出帧 / 运行期失联才落盘记忆。
 - **出图来源（唯一权威顺序，代码在 `lib/routes/scene-frame.js`）**：
   ① 实时渲染 iframe → ② 场景**作者内嵌 MP4**（`sceneVideo`，硬件解码 `<video>`）→ ③ **实时抓帧**
   （`<key>_gpu.png`，live 渲染页首帧确认后由客户端回填）→ ④ **自定义画面**（用户导入的截屏）
@@ -112,15 +115,11 @@ HTML 里注入 WE API shim（`lib/webwallgl/web-shim.js`）与 `project.json` �
 - **Host 端**（`lib/index.js` + `lib/routes/*.js`）：一个 Cordis 插件，负责
   1. 通过读取 Steam 的 `libraryfolders.vdf` 定位 Wallpaper Engine 安装位置（所以 Steam 装在非默认盘也能用）；
   2. 从 `projects/defaultprojects`、`projects/myprojects` 以及 `steamapps/workshop/content/431960/*` 枚举壁纸；
-  3. 在 DSH webserver 上注册同源 HTTP 路由，让浏览器端直接获取数据和流式加载媒体。**共 32 条**，按职责分五族：
-     **素材**（inventory / media / preview / video-preview / media-info）· **转码**（transcoded /
-     transcode-progress）· **实时渲染**（scene-live / scene-files / media-origin）· **出图与抓帧**
-     （scene-frame / scene-frame-cache / custom-frame / live-frame）· **设置与系统**（settings / props /
-     upload / remove / upload-dir / now-playing 族 / diag 族 / scene-video / scene-audio /
-     api/local-assets / we-assets-dir）。
-     **权威清单（含每条路由的来源行、注册形态与 context 契约）见 [`ROUTE-INDEX.md`](./ROUTE-INDEX.md)** ——
-     本文件不再手写路径表（手写必烂：那张表曾长期列着 `/scene-runtime`、`/scene-manifest`、
-     `/scene-resource` 三条**早已删除**的路由，还漏了当时大半的路由）。
+  3. 在 DSH webserver 上注册同源 HTTP 路由，让浏览器端直接获取数据和流式加载媒体。按职责分五族：
+     **素材** · **转码** · **实时渲染** · **出图与抓帧** · **设置与系统**。
+     **权威清单（含每条路由的名称、来源行、注册形态与 context 契约）见 [`ROUTE-INDEX.md`](./ROUTE-INDEX.md)** ——
+     本文件不再手写路径表，也不写条数（手写必烂：那张表曾长期列着 `/scene-runtime`、`/scene-manifest`、
+     `/scene-resource` 三条**早已删除**的路由，还漏了当时大半的路由；条数同理，除生成物外没人复算它）。
 - **Client 端**（`lib/client.js`）：一个浏览器模块，拉取壁纸列表，把选中壁纸渲染到应用三列**后方**的固定图层，并在「设置」里注册一个**一级设置页**「Wallpaper Engine」（含液态玻璃卡片、选择弹窗、隐藏 / 恢复、倍速 / 翻转、配色 / 透明度与自定义壁纸管理）。
 - **自定义壁纸存储**：上传的文件写入插件管理的本地目录（默认 `~/.dsh-wallpaper-engine/uploads`，可在设置里改到任意盘符），经同一套 `/media`、`/preview` 路由服务（视频缩略图另走 `/video-preview`）——与 WE 媒体走完全相同的管道，天然跨重启持久、无浏览器配额限制。
 
@@ -157,8 +156,11 @@ HTML 里注入 WE API shim（`lib/webwallgl/web-shim.js`）与 `project.json` �
 ### 空帧门禁与清除通道
 
 体积阈值不可靠（headless 实测全黑 PNG：960×540≈12KB、1080p≈44KB、4K≈165KB，都远超固定字节闸），
-因此抓帧前会把 canvas 降采样到 64×64 看亮度分布 —— 近全黑或几乎无对比度判为「还没渲染出画面」，直接
-放弃回填（保留 CPU 帧），另加分辨率相关的体积地板（≈0.02 B/px）。抓到不满意的一帧时，在
+因此抓帧前会把 canvas 降采样到 `LIVE_FRAME_SAMPLE` 见方看亮度分布 —— 近全黑或几乎无对比度判为
+「还没渲染出画面」，直接放弃回填（保留 CPU 帧），另加分辨率相关的体积地板。
+**四个阈值与采样边长都由 `src/live-layer.js` 的常量给出**（`LIVE_FRAME_SAMPLE` · `LIVE_FRAME_LIT_RATIO` ·
+`LIVE_FRAME_MIN_VARIANCE` · `LIVE_FRAME_BYTES_PER_PX`），本文不抄它们的数值 —— 它们是**可调参数**，
+抄进来就会与实现脱钩。抓到不满意的一帧时，在
 **设置 → 效果 → 画面 → 「实时帧」**里有三个入口：**微缩预览**（就是切换途中 / live 首帧前显示的那张静帧，
 与层里正在用的 URL 同源 —— 附像素尺寸）、**「重新截」**（按**当前**画面重抓一张并替换缓存；抓不到就原样
 保留，原因显示在行内）、**「清除 GPU 帧」**（等价于 `DELETE /wallpaper-engine/scene-frame-cache/<token>`，
@@ -182,8 +184,9 @@ HTML 里注入 WE API shim（`lib/webwallgl/web-shim.js`）与 `project.json` �
 这件事在诊断缓冲里看得见（这是事后排查唯一能依赖的痕迹）。
 
 > 破坏性操作的确认因此**不用原生对话框**：字体集的删除走**面板内**确认（点一次"待确认"、再点"确认"）。
-> `src/**` 里还剩 4 处 `window.confirm`（轮播列表 / 隐藏壁纸 / 移除自定义画面 / 恢复已隐藏），
-> 它们同样会抢焦点 —— `verify-fontset` 里有一条棘轮只许它们减少。
+> **这条迁移已经做完**：`src/**` 的**代码**里 `window.confirm` 一处都没有，只剩解释"为什么禁用"的注释。
+> 终态由 `test/verify-fontset.mjs` 的棘轮按 **0** 钉住（它只扫破坏性动作族所在的那几个文件 ——
+> 想扩面就改那条棘轮的文件清单，别把条数写进文档）。
 
 ### 主题随壁纸：取色链与让位规则
 
@@ -191,12 +194,17 @@ HTML 里注入 WE API shim（`lib/webwallgl/web-shim.js`）与 `project.json` �
 
 1. **壁纸自己声明的配色** —— `project.json` 的 `general.properties.schemecolor.value`（0–1 浮点三元组；
    WE 编辑器里它的 `text` 就是 `ui_browse_properties_scheme_color`）。宿主 inventory 已把它转成
-   `rgb()` 发过来（`schemeColor`）；你在「壁纸属性」面板里改过的**覆盖值优先**于作者值。实测本机库里
-   360/368 张壁纸都带这条属性 ⇒ 绝大多数壁纸根本不需要图像处理。**恰好 `0 0 0` 的作者值视作"没填"**
-   （WE 新建工程的默认值，占本机 124/360）⇒ 退回 ②；面板里显式填的纯黑照用。
-2. **画面占比最大色** —— 仅在 ① 缺席时跑：把画面缩到 64×64，按 **4 bit/通道**量化后取众数桶（同一条下采样先例见 `liveFrameLooksUsable`）。
+   `rgb()` 发过来（`schemeColor`）；你在「壁纸属性」面板里改过的**覆盖值优先**于作者值。
+   **实测本机库里绝大多数壁纸都带这条属性** ⇒ 大多数壁纸根本不需要图像处理。
+   **恰好 `0 0 0` 的作者值视作"没填"**（WE 新建工程的默认值，在本机库里占相当比例）⇒ 退回 ②；
+   面板里显式填的纯黑照用。
+   > 命中比例**不写进本文**：它随"你装了哪些壁纸"变化，是**每个用户不同**的数字。
+   > 需要复算时按 `schemeColor` 字段统计即可（口径见宿主 `buildInventory`）。
+2. **画面占比最大色** —— 仅在 ① 缺席时跑：把画面缩到 `LIVE_FRAME_SAMPLE` 见方，按 **4 bit/通道**
+   量化后取众数桶（量化口径与桶数以 `src/theme-follow.js` 的取色实现为准；
+   同一条下采样先例见 `liveFrameLooksUsable`）。
    **两个来源合议**：作者 的 `preview` 与真实渲染帧（场景在实时渲染抓帧那一刻顺手取色，
-   复用同一次 64×64 采样；网页用 `__wp.capture` 的那张）各判一次，**不一致时取深色**，
+   复用同一次 `LIVE_FRAME_SAMPLE` 采样；网页用 `__wp.capture` 的那张）各判一次，**不一致时取深色**，
    只有两条腿都说是浅色才用浅色（抓帧可能落在画面还没稳定的时刻）。两者都不参与 ①。画面若有绝对 URL 则用 `crossOrigin="anonymous"`（媒体源自带
    `Access-Control-Allow-Origin: *`），画进 canvas 不会被污染。
 3. **两条都拿不到 ⇒ 保持当前主题**，不切也不抖。
@@ -220,9 +228,11 @@ HTML 里注入 WE API shim（`lib/webwallgl/web-shim.js`）与 `project.json` �
 
 ### 测试
 
-`npm run verify`（24 条链，含 client / 转码 / 播放控制 / scene / scene-live）+ `npm run smoke`
+`npm run verify`（含 client / 转码 / 播放控制 / scene / scene-live 等）+ `npm run smoke`
 （轮换、轮换-live 节点级领养、轮换准备期零驻留、GPU 回填抓帧、抓帧身份校验五套冒烟）—— 所有断言都有
-失败通道（不通过即非零退出），`npm run verify:all` = 构建 + 两套全跑。
+失败通道（不通过即非零退出），`npm run verify:all` = 构建 + 两套全跑 + 软档。
+**链上有多少条别写在这里**：真源是 `package.json` 的 `verify` / `smoke` / `verify:docs` 三个脚本，
+读它们即得（本行此前写死过一个数字，已经漂了）。
 
 ---
 
@@ -240,12 +250,14 @@ strict sandbox the renderer page cannot reach into the wallpaper iframe, so the 
 with the document.
 
 - **When live rendering is skipped**: the wallpaper switch is off, the wallpaper is in the **failure
-  memory** (first-frame timeout, or **~40 s** without a frame at runtime — one rescue `resume()`
-  at 20 s), or the scene is a **loose `scene.json` directory**. It then falls back to the **out-figure
+  memory** (first-frame timeout, or **no frames for a sustained run** at runtime — the heartbeat ticks
+  once per second, auto-`resume()`s once at `LIVE_STALL_TICKS` ticks as a self-rescue, and only declares
+  `stall` at twice that), or the scene is a **loose `scene.json` directory**. It then falls back to the **out-figure
   chain** below (which is allowed to come up honestly empty).
-  **The first-frame timeout is not a fixed 15 s wall clock** (the 2026-09 large-package fix): the first
-  frame **cannot exist before the whole package has arrived**, so the budget is
-  `15 s + package size ÷ 8 MB/s`, capped at 90 s; and the host keeps a **payload ledger**
+  **The first-frame timeout is not a fixed wall clock** (the large-package fix): the first
+  frame **cannot exist before the whole package has arrived**, so the budget is computed from the
+  **package size** by `liveFirstFrameBudget()` (`src/live-layer.js`) and carries a ceiling; and the host
+  keeps a **payload ledger**
   (`GET /wallpaper-engine/scene-payload-progress?token=…`, see [`ROUTE-INDEX.md`](./ROUTE-INDEX.md))
   that resets the clock every tick while bytes are still arriving — "still downloading" is no longer
   read as "cannot render". **Hidden / non-playing instances never pull the payload at all** (the
@@ -254,7 +266,8 @@ with the document.
   pages) and it would otherwise compete for bandwidth and decoders with the instance that *is* visible.
   **When there really is no first frame, the cause decides the bookkeeping**: the ledger saying
   "transferred but never completed" ⇒ only a **session-local** soft failure (never the shared failure
-  memory every window reads), with an automatic retry after a 45 s cooldown (at most twice); only a
+  memory every window reads), with an automatic retry after a cooldown and a bounded number of attempts
+  (both are constants in `src/live-layer.js`: `LIVE_TRANSFER_RETRY_DELAY_MS` / `LIVE_TRANSFER_RETRY_LIMIT`); only a
   renderer that genuinely never produces a frame, or loses its heartbeat, is persisted.
 - **Out-figure sources (the one authoritative order; code in `lib/routes/scene-frame.js`)**:
   ① live-render iframe → ② the author-embedded MP4 (`sceneVideo`) → ③ **live-captured frame**
@@ -395,9 +408,13 @@ mount / rotation; no manual cleanup is needed.
 
 A byte-size threshold is unreliable (measured black PNGs from a headless run: 960×540 ≈ 12 KB,
 1080p ≈ 44 KB, 4K ≈ 165 KB — all far above any fixed gate), so before storing a capture the canvas is
-downsampled to 64×64 and its brightness distribution inspected: near-black or almost no contrast means
-"nothing has been rendered yet" and the capture is abandoned (the CPU frame stays), plus a
-resolution-scaled size floor (≈0.02 B/px). When a capture is unsatisfactory there are three entries under
+downsampled to `LIVE_FRAME_SAMPLE` and its brightness distribution inspected: near-black or almost no
+contrast means "nothing has been rendered yet" and the capture is abandoned (the CPU frame stays), plus a
+resolution-scaled size floor.
+**The sampling edge and the four thresholds are constants in `src/live-layer.js`**
+(`LIVE_FRAME_SAMPLE` · `LIVE_FRAME_LIT_RATIO` · `LIVE_FRAME_MIN_VARIANCE` · `LIVE_FRAME_BYTES_PER_PX`);
+this document does not copy their values — they are **tunable parameters**, and a copy here would drift
+away from the implementation. When a capture is unsatisfactory there are three entries under
 **Settings → Effects → Picture → 「实时帧」**: the **thumbnail preview** (the very still shown during a
 switch / before the live first frame, same URL as the one in use — with its pixel dimensions),
 **「重新截」** (re-capture the **current** picture and replace the cache; if it fails the old frame stays,
@@ -419,12 +436,18 @@ After a switch the plugin decides the global light/dark theme (`src/theme-follow
 1. **The wallpaper's own scheme colour** — `general.properties.schemecolor.value` in `project.json`
    (a 0–1 float triple; in the WE editor its `text` is `ui_browse_properties_scheme_color`). The host's
    inventory already converts it to `rgb()` (`schemeColor`); an override you set in the **壁纸属性** panel
-   wins over the author's value. On this machine 360 of 368 wallpapers carry the property ⇒ almost none of
-   them need any image work. An author value of exactly `0 0 0` counts as **unfilled** (the WE editor's default for new
-   projects; 124 of those 360) and falls through to ②; a pure black picked by hand in the panel is still honoured.
-2. **The most-occupied colour of the picture** — only when ① is missing: downsample the picture to 64×64 and take the modal bucket after **4 bits/channel** quantisation (same
+   wins over the author's value. **Almost every wallpaper in a real library carries the property** ⇒ almost
+   none of them need any image work. An author value of exactly `0 0 0` counts as **unfilled** (the WE editor's
+   default for new projects, and a substantial share of a real library) and falls through to ②; a pure black
+   picked by hand in the panel is still honoured.
+   > The hit rate is **not written down here**: it varies with *which wallpapers you have installed*, i.e. it
+   > is a different number for every reader. To recompute it, tally the `schemeColor` field (the inventory
+   > builder is the reference implementation).
+2. **The most-occupied colour of the picture** — only when ① is missing: downsample the picture to
+   `LIVE_FRAME_SAMPLE` and take the modal bucket after **4 bits/channel** quantisation (the quantisation
+   rule and bucket count live in the colour-picking code in `src/theme-follow.js`; same
    downsample precedent as `liveFrameLooksUsable`). Two sources **vote**: the author's `preview` and a real rendered frame (scene wallpapers sample the frame the
-   live renderer just captured, reusing that same 64×64 read; web wallpapers use their `__wp.capture` result),
+   live renderer just captured, reusing that same read; web wallpapers use their `__wp.capture` result),
    and **a disagreement resolves to dark** — light only when both agree (a capture may land on a frame that has
    not settled yet). Neither ever overrides ①. Absolute URLs use `crossOrigin="anonymous"` (the media origin sends
    `Access-Control-Allow-Origin: *`), so the canvas is never tainted.

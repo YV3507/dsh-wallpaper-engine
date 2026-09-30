@@ -7,11 +7,57 @@
 
 | 层 | 内容 | 谁跑 |
 |---|---|---|
-| **`test/*.mjs`（守门）** | `verify-*.mjs` —— 结构性守卫：断言代码/文档/发布面与声明一致，**正负对照成对** | 见下「两档」：硬档 `npm run verify` · 软档 `npm run verify:docs` |
+| **`test/*.mjs`（守门）** | `verify-*.mjs` —— 结构性守卫：断言**代码**与声明一致，**正负对照成对**（守散文的守卫已按 ADR-0006 撤除） | 见下「两档」：硬档 `npm run verify` · 软档 `npm run verify:docs` |
 | **`test/*-smoke.mjs`（冒烟）** | 节点级行为冒烟：轮换、实时帧回填、身份校验 | `npm run smoke`（在 `verify:all` 里） |
 | **`test/e2e-*.mjs`（端到端）** | 真浏览器路径（需本机 Chromium 系浏览器） | `npm run verify:e2e`（不进 verify 链） |
 | **`test/compat-*.mjs`（适配）** | 真 harness 集成面，三个入口：`compat-harness-live` —— link 插件进真实 `@deepseek-ai/dsh` 并启动，断言宿主路由注册可达 / 落盘诊断出现探活标记 / 插件树无加载失败（自带 HOME 隔离与 `DSH_WE_MEDIA_LEGACY=1`，媒体桥等第三方全程不拉起）；`compat-harness-surfaces` —— UI 面清单棘轮（已装 harness 的 `dsh-client-ui-*` 与 `test/fixtures/harness-ui-surfaces.json` 做差，**新表面未登记即红**）+ sidebar 源码活判据（属性锚点 / 隐藏机制 allowlist 对真源码）；`compat-harness-pages` —— 无头浏览器**逐页 DOM/样式断言**（零依赖 CDP 走计算样式探针：首页 / 会话页 slot 锚点 / 设置窗口玻璃三条 + 五分区走查；`--dump` 为探查模式） | `.github/workflows/harness-compat.yml`（需网络、`dsh` CLI 与 Chromium 系浏览器，不进 verify 链；本地 `node test/compat-harness-live.mjs` / `…-surfaces.mjs` / `…-pages.mjs [--dump]`） |
 | **`test/tools/`（工具）** | 诊断 / 分析 / 生成 —— **没有 CI 消费者**，靠手敲（**逐个清单见下**） | 手动 |
+
+## 怎么跑（运行矩阵）
+
+**真源是 `package.json` 的 scripts** —— 下面是"什么时候跑哪条"，**不列条数**（会漂）。
+
+| 你的处境 | 跑什么 | 说明 |
+|---|---|---|
+| 日常改完一处，想知道有没有弄坏 | `npm run verify` | 硬档。**这是挡 PR 的那一档**，失败即用户会撞上 |
+| 改过 `src/**` | `npm run build && npm run verify` | 产物必须重建；`verify-client-sync` 会判产物与源是否同步 |
+| 改过文档 / 注释 / 结构 | `npm run verify:docs` | 软档，**只出声不拦人**。结论比"红绿"更重要的是别**变差** |
+| 提交前 | `npm run verify:all` | = build + verify + verify:docs + smoke |
+| 改了轮换 / 实时帧 / 字体集加载 | `npm run smoke` | 节点级行为冒烟，比结构守卫慢但比真机快 |
+| 排查"这一条到底怎么说" | `node test/<守卫>.mjs` | 直接跑单个守卫，看它自己的 `✓/✗` 明细 |
+| 需要真浏览器 | `npm run verify:e2e` / `node test/compat-*` | **不进 verify 链**（需 Chromium / 网络 / `dsh` CLI） |
+
+**读结果的两个约定**：
+
+- 输出里的 `PASS |` / `✓` 是判据行；**带 "negative control" 的行是在证明判据有牙**，
+  它出现 `failed=` 之类字样是**标签文本**，不是失败 —— 看结尾的 `ALL … PASSED` / `… FAILED`。
+- 软档的**原退出码**打在末尾 `[warn-only] 软档守卫原退出码 = N` 行上。想让某条软档守卫
+  真的拦下改动，直接 `node test/<守卫>.mjs` 跑它（判据一字未改，只是没被降级）。
+
+## 覆盖范围（每层各自保证什么）
+
+| 层 | 它保证的事 | 它**不**保证的事 |
+|---|---|---|
+| **硬档守卫** | 结构契约：路由索引与代码一致、发布面自洽、类型与实现同源、可读性下限、玻璃合成数学 | 真机观感、真实 GPU 行为 |
+| **冒烟** | 节点级行为：轮换状态机、实时帧回填与身份校验、字体集加载 | 浏览器渲染结果 |
+| **e2e** | 真浏览器里的端到端路径（媒体源、抓帧） | 跨平台差异（本仓是**一份跨平台代码**，跑在一台上不等于其它三台） |
+| **compat** | 真 harness 集成面：宿主路由可达、UI 表面清单棘轮、逐页计算样式 | 不在 verify 链里 ⇒ **不会替你挡 PR** |
+| **软档守卫** | 仓库内务：模块边界、可达性棘轮、退役线 | 也不挡 PR（但**允许变差**是错的，见 §约定） |
+
+⚠️ **平台覆盖是不对称的**：某些判据有 posix / win32 分支，跑在 Windows 上时 posix 那几条
+**根本没有被执行**（输出会写"这是覆盖差异，不是通过"）。改动涉及平台分支时，别只看本机绿灯。
+
+## 怎么写一条新判据（八条约定）
+
+细节与反例见本节末尾的 §约定（守卫会判）。最短路径：
+
+1. **决定放哪一层**（上表 + §约定 1）：行为 → 冒烟；真浏览器 → e2e；结构 → 守卫。
+2. **正负对照成对**，且**共用同一个判据函数**（§约定 5）——这是最常写错的一条。
+3. **先断言域非空**，否则"零残留"这类判据会在空域上恒真。
+4. **剥注释用字符串感知实现**（`test/tools/js-text.mjs`），别用朴素块注释正则。
+5. **验证判据本身有效**：把判据中和成"永远说没问题"，负对照**必须变红**（§约定 8）。
+6. 新工具 / `compat-*` 要在本文档点名（`verify-module-layout` ⑧ 会判）。
+
 
 ### 两档：硬档挡 PR，软档只出声
 
@@ -20,31 +66,42 @@
 
 | 档 | 什么时候红 | 谁跑 | 清单 |
 |---|---|---|---|
-| **硬档** | 失败意味着**用户会撞上**：真机行为、发布面、平台契约、打包面 | `npm run verify`（在 `verify:all` 与 CI 里） | `verify-client-sync` · `verify-client` · `verify-transcode-state` · `verify-playback-controls` · `verify-scene` · `verify-scene-live` · `verify-adapter` · `verify-theme-follow` · `verify-logging` · `verify-media-bridge`（经 `test/warn-only.mjs --probe-spawn`，环境起不了子进程时显式 SKIP；CI 的 `verify:bridge` 变体另有两道门 —— 平凡调用探针 + 产物 sha256 可信度 —— 都指向环境时才允许记"环境跳过"并点名）· `verify-softrender` · `verify-readability` · `verify-glass-compositing` · `verify-package-files` · `verify-package-publish` · `verify-contracts` · `verify-types` · `verify-host-paint-scope` · `verify-route-index` · `verify-theme-layer` · `verify-api-client` · `verify-component-fonts` · `verify-fontset` · `verify-picker-upload` · `verify-picker-model` · `verify-picker-props` |
-| **软档** | 失败意味着**仓库内务 / 账本自洽 / 一次性清理的验收判据**不准了 —— 要人回来看，但不该拦住别人的改动 | `npm run verify:docs`（在 `verify:all` 与 CI 的一条 `continue-on-error` 步骤里） | `verify-comment-discipline` · `verify-ledger` · `verify-module-layout` · `verify-reachability` · `verify-retired-lines` · `verify-dead-declarations` |
+| **硬档** | 失败意味着**用户会撞上**：真机行为、发布面、平台契约、打包面 | `npm run verify`（在 `verify:all` 与 CI 里） | `verify-client-sync` · `verify-client` · `verify-transcode-state` · `verify-playback-controls` · `verify-scene` · `verify-scene-live` · `verify-adapter` · `verify-theme-follow` · `verify-logging` · `verify-media-bridge`（经 `test/warn-only.mjs --probe-spawn`，环境起不了子进程时显式 SKIP；CI 的 `verify:bridge` 变体另有两道门 —— 平凡调用探针 + 产物 sha256 可信度 —— 都指向环境时才允许记"环境跳过"并点名）· `verify-softrender` · `verify-readability` · `verify-glass-compositing` · `verify-package-files`（含 **P8：发布面文件不得带 UTF-8 BOM** —— 读产物字节，属"读代码"）· `verify-package-publish` · `verify-contracts` · `verify-types` · `verify-host-paint-scope` · `verify-route-index` · `verify-theme-layer` · `verify-api-client` · `verify-component-fonts` · `verify-fontset` · `verify-picker-upload` · `verify-picker-model` · `verify-picker-props` |
+| **软档** | 失败意味着**仓库内务 / 一次性清理的验收判据**不准了 —— 要人回来看，但不该拦住别人的改动 | `npm run verify:docs`（在 `verify:all` 与 CI 的一条 `continue-on-error` 步骤里） | `verify-module-layout` · `verify-reachability` · `verify-retired-lines` · `verify-dead-declarations` |
+
+> **软档里只剩"守代码"的守卫。** 此前软档还有两条守**文档 / 注释散文**的守卫
+> （`verify-comment-discipline` · `verify-ledger`），已随
+> [`adr/0006`](./adr/0006-comment-discipline-as-written-convention.md) **整体下线**：
+> 写作纪律改由约定承担。理由是它们守的是"作者该怎么写"，而这类判断一旦降级成正则匹配，
+> 作者就会去躲词表，且守卫自身会腐化与自相矛盾（详见该 ADR 的 Context）。
+> 留下的四条都读**代码**：模块边界、可达性棘轮、退役线、声明孤儿 —— 那里的失败是客观的。
 
 软档**照跑、照打印 `✓/✗`**，只是退出码被 `test/warn-only.mjs` 这层包装降级：
 原码打在末尾的 `[warn-only] 软档守卫原退出码 = N` 行上，并写进 `DSH_WARN_ONLY_EXIT`。
-这不是"静默跳过"（跳过不得与通过同形，见 `docs/README.md` §写作纪律 6）—— 判据一字未改，
-想让它重新拦下改动，直接 `node test/verify-ledger.mjs` 跑它。
+这不是"静默跳过"（跳过不得与通过同形，见 `docs/README.md` §写作纪律）—— 判据一字未改，
+想让它重新拦下改动，直接 `node test/verify-module-layout.mjs` 跑它。
 > 为什么是"跑子进程"而不是 `node --import …`：**实测** `npm run` 会把 `--import` 参数吞掉
 > （npm 自己解析选项），于是降级没生效、链条当场断在第一条软档守卫上。转一手子进程与 npm
 > 的参数解析无关，跨 npm 版本稳定。
 
 **分档的判据**（新守卫放哪一档，按这个问）：
 1. 失败时用户会不会看到错的行为 / 拿到坏的包？会 ⇒ **硬档**。
-2. 它守的是"规则本身的形式"（账本状态列、棘轮基线、注释措辞）？是 ⇒ **软档**。
+2. 它守的是"规则本身的形式"（棘轮基线、模块边界、清理验收）？是 ⇒ **软档**。
 3. 拿不准 ⇒ **软档**：硬档的门槛是"能说出用户侧后果"，说不出的先别挡人。
 
 **明确不做的四件事**（免得下次重新讨论）：
-1. **不删守卫** —— 分档只改"谁决定红绿"，一条判据都不下线；软档照跑、照打印 `✓/✗`。
-2. **不改判据内容** —— 要改判据是另一件事（改完走 `npm run verify:all`），不搭分档的车。
+1. **不加"守散文"的守卫** —— 写作纪律（注释措辞、文档排版、账本格式）由**约定**承担，
+   不配机器判据。这条在 ADR-0006 之前是"不删守卫"，方向已反转：**该撤的已撤**，
+   以后也不许以"防止腐化"为名把措辞词表加回来。
+   判据边界：**读代码的守卫照留，读散文的守卫不加**。
+2. **不改判据内容** —— 要改判据是另一件事（改完走 `npm run verify:all`），不搭这条的车。
 3. **不动 harness-compat 工作流** —— `test/compat-*` 与 `harness-compat.yml` 保持原样：需网络与真浏览器，
    本来就不在 verify 链里，分档管不着它。
 4. **不给归档文档加新判据** —— `docs/archive/**` 只作记录、不反映现行实现，不为它新增守卫。
 
 **动机一句话**：机制根因是**所有判据共用同一种红** —— "用户会撞上"与"仓库内务失真"这两种失败长得一样，
-合规成本就被最贵的那条判据决定；分档只拆开"谁决定红绿"，判据本身一字未动。
+合规成本就被最贵的那条判据决定；分档拆开了"谁决定红绿"，而 ADR-0006 进一步把"守散文"的那几条
+**整条去掉**，而不是继续养着它们。
 
 ### `test/tools/` 清单（9 个，都没有 CI 消费者）
 
@@ -76,12 +133,11 @@
    （退一层会把根解析成 `test/`，症状是"文件没了"的 ENOENT）。`verify-module-layout` ④ 有断言。
 3. **守卫的判据先剥注释再判**：本目录里大量存在说明"夹具长什么样"的散文，而夹具本身就是
    合成的 `import … from '…'` 字符串 —— 不剥注释的判据会被自己的负对照绊倒。
-4. **新守卫只按"域"判定，没有登记动作**：注释纪律（禁日期 + 禁编年史/复盘腔）的域是
-   `src/**/*.js` + `lib/routes/*.js` + `test/**/*.mjs` + `scripts/**/*.mjs` —— **从磁盘枚举**、
-   判据是**全局零残留** ⇒ 新文件自动在域内，不必再去哪张表里补一行。
-   此前那张"按文件封顶"的棘轮表是纯粹的税：忘登记只会让该文件静默脱离判据，而它换来的
-   定位精度，命中清单本来就给。
+4. **新守卫只按"域"判定，没有登记动作**：判据的域应当**从磁盘枚举**，而不是靠一张手工维护的
+   名单 —— 名单漏一行只会让那个文件**静默脱离判据**，而它换来的定位精度，命中清单本来就给。
    ⚠️ 唯独 `test/tools/*.mjs` 与 `test/compat-*.mjs` **仍要在本文档点名**（`verify-module-layout` ⑧）。
+   > （此前这里举的例子是"注释纪律"守卫 —— 那个守卫已随
+   > [`adr/0006`](./adr/0006-comment-discipline-as-written-convention.md) 撤除，例子换成了通用规则。）
 5. **负对照必须把变异输入喂进「同一条判据」**（P3-16）：判据只在**一侧**定义 —— 命名函数、
    或命名的正则常量 —— 正判据与负对照都调它。两种写法不算数：
    - ① **只断言某个常量 / 数组不含 X**：判据根本没被执行，判据空转时它照样绿；

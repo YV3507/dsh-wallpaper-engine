@@ -308,6 +308,44 @@ async function main() {
       })());
   }
 
+  // ── P8: 发布面文件不得带 UTF-8 BOM ─────────────────────────────────────────
+  // 为什么归**发布面**管：这些文件会被发到用户机器上。实测（Node 22）两种解析器的行为**不同**，
+  // 所以不能一律说"会炸"，但其中一种是真炸：
+  //   · **Node ESM 加载器会剥 BOM** ⇒ 模块带 BOM 仍能 `import`（实测通过）；
+  //   · **`JSON.parse` 不剥** ⇒ 带 BOM 的文本抛 `Unexpected token '\uFEFF'`（实测失败）。
+  // 也就是说：`.json` 带 BOM 是**真缺陷**，`.js` 是**隐患**（换解析路径 / 工具链即可能爆，
+  // 且 `node --check` 与它无关）。两者都按"发出去的东西不该带"处理。
+  //
+  // 扫描面：`lib/` 下**会被解析**的那些扩展名。`.swift`（原生附带源码，用户自己编译）、
+  // `.md` 与无扩展名文件不参与 —— 它们没有"解析器会读首字节"这件事。
+  // vendored 子树一并扫（当前无 BOM；它们同样是随包发出的文本）。
+  //
+  // 判据边界（与 ADR-0006 一致）：它读的是**产物字节**，不是散文措辞 —— 属于"读代码的守卫"。
+  // 本条的前身是 `verify-comment-discipline` 里那段"硬编码 5 个文件"的 BOM 检查，
+  // 随该守卫撤除；那次撤除让 `lib/routes/fontsets.js` 带着 BOM 无人看管
+  //（`docs/wip/POST-REFACTOR-AUDIT.md` §4.9 早就点出那个盲区）。这里改按扩展名全扫，不再硬编码名单。
+  {
+    const BOM = [0xEF, 0xBB, 0xBF];
+    const PARSED_EXT = ['.js', '.mjs', '.cjs', '.json', '.ts', '.html'];
+    /** 首三字节是否为 UTF-8 BOM。入参是 fs 读出的原始字节（不是'utf8' 字符串）。 */
+    const hasBom = (buf) => buf.length >= 3 && buf[0] === BOM[0] && buf[1] === BOM[1] && buf[2] === BOM[2];
+    const scanned = libFiles.filter((rel) => PARSED_EXT.some((ext) => rel.toLowerCase().endsWith(ext)));
+    const offenders = scanned.filter((rel) => {
+      try { return hasBom(readFileSync(join(ROOT, rel))); } catch { return false; }
+    });
+    // 覆盖面：扫描面为空 ⇒ 判据恒真。`lib/` 下必然有 .js，所以这里同时钉住下限与"确实扫到了"。
+    check('P8 coverage: the BOM scan actually reached files', scanned.length >= 10,
+      scanned.length + ' file(s) with parsed extensions under lib/');
+    check('P8 no published file carries a UTF-8 BOM (JSON.parse does not strip it)',
+      offenders.length === 0,
+      offenders.length ? 'offenders=[' + offenders.join(', ') + ']' : 'clean (' + scanned.length + ' file(s))');
+    check('P8 negative control: a BOM-prefixed buffer is detected, a clean one is not',
+      hasBom(Buffer.from([0xEF, 0xBB, 0xBF, 0x2F])) === true
+      && hasBom(Buffer.from([0x2F, 0x2A, 0x2A])) === false
+      // 正对照：**被换行/空白开头的正常文件**不得误伤
+      && hasBom(Buffer.from('// ok\n')) === false);
+  }
+
   const failed = results.filter((r) => !r.ok);
   console.log('\n' + (failed.length === 0
     ? 'ALL PACKAGE FILE CHECKS PASSED'

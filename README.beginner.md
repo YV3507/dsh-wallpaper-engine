@@ -71,7 +71,7 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 | **调玻璃透明度** | 顶部「外观」→ 玻璃透明度滑条 | 越高越透，越低越实；文字面有可读性下限压底，调不糊 |
 | **换主题色** | 顶部「外观」→ 配色 | 6 种预设 + 自定义取色 |
 | **换玻璃底色** | 顶部「外观」→ 玻璃颜色 | 决定玻璃本身的色调 |
-| **视频调速** | 「效果」→ 倍速 | 0.5x ~ 2x |
+| **视频调速** | 「效果」→ 倍速 | 见控件本身 |
 | **镜像翻转** | 「效果」→ 水平翻转 | 视频/网页/图片都行 |
 | **上传自己的壁纸** | 「自定义壁纸」→ 上传 | 支持 JPG / PNG / MP4 |
 | **隐藏不喜欢的壁纸** | 弹窗里卡片右上角「隐藏」 | 软删除，不碰源文件，可恢复 |
@@ -81,16 +81,18 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 
 ### 画面滑条怎么调？
 
-壁纸激活后，「**效果**」页签有**六个滑条**；另有 **边框** 与 **雾化** 在「**外观**」页签的「细节」段。**它们都是即时生效的，不用刷新页面**：
+壁纸激活后，「**效果**」页签有几个画面滑条；另有 **边框** 与 **雾化** 在「**外观**」页签的「细节」段。**它们都是即时生效的，不用刷新页面**：
 
-| 滑条 | 干什么用 | 默认值 |
+| 滑条 | 干什么用 | 默认 |
 |---|---|---|
-| **壁纸模糊** | 把壁纸本身变模糊 | 0（清楚） |
-| **亮度 / 对比度 / 饱和度** | 壁纸画面的明暗与浓淡 | 都是 100% |
-| **壁纸透明度** | 把壁纸整层调淡、融进页面底色 | 0% |
-| **暗化** | 加深壁纸和文字之间的遮罩 | 25% |
-| **边框**（外观页签） | 让边框/分割线更醒目 | 35% |
-| **雾化**（外观页签） | 玻璃面板（输入栏、气泡、设置窗口）的模糊半径 | 16 px |
+| **壁纸模糊** | 把壁纸本身变模糊 | 见控件本身 |
+| **亮度 / 对比度 / 饱和度** | 壁纸画面的明暗与浓淡 | 见控件本身 |
+| **壁纸透明度** | 把壁纸整层调淡、融进页面底色 | 见控件本身 |
+| **暗化** | 加深壁纸和文字之间的遮罩 | 见控件本身 |
+| **边框**（外观页签） | 让边框/分割线更醒目 | 见控件本身 |
+| **雾化**（外观页签） | 玻璃面板（输入栏、气泡、设置窗口）的模糊半径 | 见控件本身 |
+
+> 各个滑条的确切范围与默认值**直接看控件本身**（拖动时控件上就有读数）。
 
 > 👀 **如果文字看不清**：先把「暗化」（效果页签）与「边框」（外观页签）两个滑条往右拉（调高），还不够就稍微加点「壁纸模糊」。也可以试试切换 DSH 的**浅色 / 深色**主题——不同壁纸适合的模式不一样。
 
@@ -123,7 +125,7 @@ Mac / Linux：`~/.dsh-wallpaper-engine/config.json`）—— 重启、换端口�
 - 连作者预览图都没有时，插件才会**诚实地留空**并说明原因 —— 它**不再**"替作者猜一张图"（那会是一张糊图），这是 1.0 之后的有意行为。
 
 **4. 我想让壁纸自动换，怎么做？**
-- 在「轮播列表」里点「新建」，给列表起个名，勾选你想轮换的壁纸，设置**切换间隔**（比如每 30 分钟），勾上「自动轮转」就行。每个列表至少要 2 张壁纸。
+- 在「轮播列表」里点「新建」，给列表起个名，勾选你想轮换的壁纸，设置**切换间隔**（按分钟），勾上「自动轮转」就行。每个列表至少要 2 张壁纸。
 
 **5. 上传的壁纸存在 C 盘，我想挪到 D 盘？**
 - 「自定义壁纸」区有个「更改」按钮，点它选一个新文件夹（比如 `D:\wallpapers`），已有的文件会**自动搬过去**，不用手动复制。
@@ -242,7 +244,7 @@ You will see a **liquid-glass card** holding every wallpaper-related control.
 | **Tune glass transparency** | 「外观」 tab → the glass-transparency slider | Higher = clearer, lower = more solid; text surfaces carry a readability floor, so it never becomes unreadable |
 | **Change the accent color** | 「外观」 tab → 配色 | 6 presets + a custom color picker |
 | **Change the glass base tint** | 「外观」 tab → 玻璃颜色 | Sets the glass's own tint |
-| **Change playback speed** | 「效果」 tab → 倍速 | 0.5x – 2x |
+| **Change playback speed** | 「效果」 tab → 倍速 | see the control |
 | **Mirror the picture** | 「效果」 tab → 水平翻转 | Video / web / images alike |
 | **Upload your own wallpaper** | 「自定义壁纸」 → upload | JPG / PNG / MP4 |
 | **Hide wallpapers you don't want** | 「隐藏」 in a card's top-right corner | A soft delete — source files are untouched and it is restorable |
@@ -252,16 +254,16 @@ You will see a **liquid-glass card** holding every wallpaper-related control.
 
 ### How do I tune the picture sliders?
 
-With a wallpaper active, the **「效果」 (effects)** tab has **six sliders**; **边框 (border)** and **雾化 (glass blur)** live in the **「外观」 (appearance)** tab's 「细节」 group. **All of them apply instantly — no page refresh**:
+With a wallpaper active, the **「效果」 (effects)** tab has the picture sliders; **边框 (border)** and **雾化 (glass blur)** live in the **「外观」 (appearance)** tab's 「细节」 group. **All of them apply instantly — no page refresh**:
 
 | Slider | What it does | Default |
 |---|---|---|
-| **壁纸模糊** (wallpaper blur) | Blurs the wallpaper itself | 0 (sharp) |
-| **亮度 / 对比度 / 饱和度** (brightness / contrast / saturation) | The wallpaper picture's brightness and richness | all 100% |
-| **壁纸透明度** (wallpaper opacity) | Fades the whole wallpaper layer toward the page base color | 0% |
-| **暗化** (scrim) | Darkens the overlay between wallpaper and text | 25% |
-| **边框** (border, appearance tab) | Makes borders / dividers stand out | 35% |
-| **雾化** (glass blur, appearance tab) | Blur radius of the glass panels (composer, bubbles, settings window) | 16 px |
+| **壁纸模糊** (wallpaper blur) | Blurs the wallpaper itself | see the control |
+| **亮度 / 对比度 / 饱和度** (brightness / contrast / saturation) | The wallpaper picture's brightness and richness | see the control |
+| **壁纸透明度** (wallpaper opacity) | Fades the whole wallpaper layer toward the page base color | see the control |
+| **暗化** (scrim) | Darkens the overlay between wallpaper and text | see the control |
+| **边框** (border, appearance tab) | Makes borders / dividers stand out | see the control |
+| **雾化** (glass blur, appearance tab) | Blur radius of the glass panels (composer, bubbles, settings window) | see the control |
 
 > 👀 **If text is hard to read**: raise the 「暗化」 (effects tab) and 「边框」 (appearance tab) sliders first; if that is not enough, add a little 「壁纸模糊」. You can also switch DSH between its **light / dark** themes — different wallpapers suit different modes.
 
