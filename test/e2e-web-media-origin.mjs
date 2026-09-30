@@ -76,7 +76,7 @@ const ctx = {
 const hostMod = await import(pathToFileURL(join(root, 'lib', 'index.js')).href);
 const host = hostMod.default || hostMod;
 // 期望的中间件版本从产物钉推导，不写字面量 —— 否则每次升 TAG 都要回来改断言
-// （v0.1.5 升级时就是撞在这条上：跑的是新产物、断言还钉着旧版本号）。
+// （**实测**：只改产物不改断言时，跑的是新产物、断言还钉着上一个版本号 ⇒ 假红）。
 const { MEDIA_BRIDGE_TAG } = await import(pathToFileURL(join(root, 'lib', 'media', 'provision.js')).href);
 const WANT_BRIDGE_VERSION = MEDIA_BRIDGE_TAG.replace(/^v/, '');
 const dispose = (host.apply || host.inject)(ctx);
@@ -196,7 +196,7 @@ writeFileSync(join(webDir, 'index.html'), [
   '  if (window.wallpaperRegisterMediaPropertiesListener) {',
   '    window.wallpaperRegisterMediaPropertiesListener(function (e) {',
   '      window.__e2e.mediaTitle = ((e && e.title) || "").replace(/\\s+/g, "_");',
-  // albumArtist：中间件才有的字段（旧实现不给），壁纸要能收到
+  // albumArtist：内置实现给不出这个字段，中间件才给 —— 壁纸要能收到
   '      window.__e2e.mediaAA = ((e && e.albumArtist) || "").replace(/\\s+/g, "_");',
   '    });',
   '  }',
@@ -217,8 +217,8 @@ writeFileSync(join(webDir, 'index.html'), [
   '      window.__e2e.mediaState = e && e.state;',
   '    });',
   '  }',
-  // 时间轴：进度/时长。旧实现在 Linux 上给不出这两个值（playerctl 那路没有），
-  // 换成中间件后三平台都有 —— 所以这条断言同时守着「字段真的送到了」。
+  // 时间轴：进度/时长。内置实现在 Linux 上给不出这两个值（playerctl 那路没有），
+  // 中间件三平台都有 —— 所以这条断言同时守着「字段真的送到了」。
   '  if (window.wallpaperRegisterMediaTimelineListener) {',
   '    window.wallpaperRegisterMediaTimelineListener(function (e) {',
   '      window.__e2e.mtlPos = Math.round(((e && e.position) || 0) * 10) / 10;',
@@ -552,9 +552,9 @@ check('属性种子到达作者（propsCalls≥1，含 color0）',
   'propsCalls=' + (g('propsCalls') || '?') + ' keys=' + (g('keys') || '?'));
 check('跨源控制通道活着（渲染页下发的 sceneFps=15 到达作者）', g('fps') === '15',
   'fps=' + (g('fps') || '?'));
-// 帧率上限的实现质量：sceneFps=15 → 目标间隔 66.7ms。旧实现用 setTimeout(1000/fps)
-// 之后再 rAF，回调落在刷新的任意相位上 → 间隔抖动（17/33/50ms 混排，用户观感就是
-// 「限了 30 反而更卡」）。现在是跳帧：每帧都对齐 vsync，只交付第 n 帧。
+// 帧率上限的实现质量：sceneFps=15 → 目标间隔 66.7ms。setTimeout(1000/fps) 之后再 rAF 的
+// 写法会把回调落在刷新的任意相位上 → 间隔抖动（17/33/50ms 混排，用户观感就是
+// 「限了 30 反而更卡」）。现实现是跳帧：每帧都对齐 vsync，只交付第 n 帧。
 //
 // ⚠️ **p95 不再是判据，只作记录**：n=60 时 `pct` 的 0.95 落在**第 3 大**的样本上，两帧被
 // 同机负载抢掉就能把它从 73 推到 199 —— 实测同一份代码两跑差 20 倍。尾巴呈**目标间隔整数倍**
@@ -598,7 +598,7 @@ check('播放态到达壁纸', g('mstate') === '1', 'mstate=' + (g('mstate') || 
 //（最后一条可能是模拟源的）。宿主该赢的地方是 properties/thumbnail/playback。
 check('albumArtist 到达壁纸（中间件新增字段）', g('aa') === 'E2E_AlbumArtist', 'aa=' + (g('aa') || '?'));
 // 时间轴（进度/时长）：`op:"timeline"` → wallpaperRegisterMediaTimelineListener 这条
-// 通道要通，**而且必须是宿主推的那组值**（旧实现的 Linux 路径根本给不出这两个值，
+// 通道要通，**而且必须是宿主推的那组值**（内置实现在 Linux 上根本给不出这两个值，
 // 中间件三平台都给）。
 // 这里同时守着一条修好的渲染页回归：渲染页自带「演示媒体源」（createSimulatedMedia，
 // 首曲时长 212s），此前它按秒推自己的 timeline 把宿主的进度盖掉（实测序列

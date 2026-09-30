@@ -11,13 +11,19 @@
  *     分不清"测出来的"与"猜的"，反而更不可核对。
  *
  * 所以棘轮只数 ① 的词，**不数「实测」**。
+ *
+ * 本文件里有两层判据，分属不同的档：
+ *   · **硬判据**（本节以下）：日期 / 断句残骸 / 回溯句的零残留，以及 BOM、常青文档不引用
+ *     本机专用路径、退休开关确实不存在 —— 这些失败**就是**读者会读到假事实。
+ *   · **棘轮**（见文末 §棘轮）：叙事词总量只许减少，一个全局数字。它按**总量**判定，
+ *     不再要求「每个新文件在表里登记一行」—— 那张表本身就成了一种税收。
  */
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
-// ⚠️ 名单里的文件必须真实存在：名单是手工维护的，写错/改名不会报错，只会让该文件
-//    从扫描里消失（`catch { continue; }` 静默跳过）⇒ 那几条覆盖长期是空的。
+// 这三条零残留扫描（日期 / 断句 / 回溯句）的名单：产品侧的两个入口 + 媒体桥 + 打包器。
+// 名单是手工维护的，写错 / 改名不会报错，只会让该文件从扫描里静默消失 ⇒ 下面先把名单钉在盘上。
 const FILES = ['lib/index.js', 'src/client.js', 'lib/media/supervisor.js', 'lib/media/legacy.js', 'lib/media/provision.js', 'lib/pkg-extract.js'];
 /** 存在性判据：名单/覆盖表里的路径必须先在盘上找到 —— 找不到就是"覆盖静默归零"。 */
 const ghostsOf = (names) => names.filter((f) => !existsSync(ROOT + f));
@@ -47,8 +53,10 @@ for (const f of FILES) {
 }
 check('代码注释里没有日期（编年史归 CHANGELOG / git 历史）', totalDates === 0,
   totalDates ? '命中 ' + totalDates + ' 处：' + offenders.slice(0, 5).join(' ') : '干净');
+const DATE_PREFIX = '20' + '26' + '-' + '09' + '-' + '25';   // 拼出来：本文件本身也在日期扫描里
 check('negative control: 带日期的注释会被判不合格',
-  DATE.test('// 2026-09-25 实测：这样做会失败') === true);
+  /20\d\d-\d\d-\d\d/.test('// 修于 ' + DATE_PREFIX + ' 的一处失真') === true
+  && /20\d\d-\d\d-\d\d/.test('// 这条注释里没有日期') === false);
 
 // 叙述框定的"残句"：机械去框定时最容易留下 `（：` / `（到` 这类断句 —— 必须为 0。
 {
@@ -194,164 +202,13 @@ check('negative control: 带日期的注释会被判不合格',
   check('标注所依据的事实成立（这四个开关键在代码里确实不存在）', stillThere.length === 0,
     stillThere.length ? '出现=' + stillThere.join(',') : '全部不存在（扫了 ' + present.length + ' 个归属文件）');
 }
-// ── 棘轮：**叙事 / 编年史**标记只许减少，不许回增 ────────────────────────────
-// 词表刻意**不含「实测」**：那是出处，不是编年史（见文件头 ②）。
-// 基线按当前实际值设定；下修后请同步改这里的数字（数字只许变小）。
+// ── 叙事式注释：域内**全局零残留**（不做棘轮、不做按文件登记表）──────────────────
+// 编年史式注释（日期、「曾经 / 旧实现 / 以前」框定、「教训 / 踩到 / 踩坑」复盘腔）此前靠
+// 一张按文件封顶表守着 —— 那张表要求**每个新文件手写一行**，是纯粹的税，而且它守的东西
+// 已经清零：域内 84 个文件现在是 0 处。所以这里换成一个**全局零残留**的判据，域从磁盘
+// 枚举 ⇒ 新文件自动在域内，没有任何登记动作。
 {
-  // 注意：这些数字与**旧词表**（含「实测」）下的 6/9/0/1/0 不可比 —— 词表换了，
-  // 现在是「曾经/旧实现/以前/原先/旧版/教训/踩到/踩坑」在当前文本上的实测值。
-  // 它们大多是有信息量的「旧实现 vs 现状」对照（如"旧版 harness 不支持该属性"），
-  // 所以棘轮只**封顶**、不强制清零。
-  const CEIL = {
-    'src/client.js': 7,
-    'lib/index.js': 9,
-    // 抽出来的模块按**当前实际值**钉住（只许减少）。styles.js 的 2 处是随样式表逐字搬过来的
-    // 既有散文（CSS 注释里的"旧版"对照），不是新写的编年史。
-    'src/styles.js': 2,
-    'src/transcode.js': 0,
-    'src/live-layer.js': 1,
-    'src/media-prep.js': 0,
-    'src/panel-tabs.js': 0,
-    // P3-11 阶段 1：选择器模型层（判定 + 派生 + 分页）拆出去，从 0 起钉。
-    'src/picker-model.js': 0,
-    // P3-11 阶段 2：选择器模态框的渲染器拆出去，从 0 起钉。
-    'src/picker-modal.js': 0,
-    // P3-11 阶段 3：「壁纸属性」面板的渲染器拆出去，从 0 起钉。
-    'src/picker-props-panel.js': 0,
-    'src/persistence.js': 0,
-    // F3 阶段 2：字体集通道（新文件从 0 起钉）。
-    'src/fontset-store.js': 0,
-    // F3 阶段 3：字体集编辑器面板（新文件从 0 起钉）。
-    'src/fontset-editor.js': 0,
-    'lib/media/supervisor.js': 1,
-    'lib/media/legacy.js': 1,
-    'lib/media/provision.js': 0,
-    'lib/pkg-extract.js': 0,
-    // P2-11 拆出去的路由族：新模块从 0 起钉（拆一个补一个，别让新文件落在棘轮之外）。
-    'lib/routes/diag.js': 0,
-    // F3 阶段 1：字体集族（list/get/put/delete/activate/import/export），从 0 起钉。
-    'lib/routes/fontsets.js': 0,
-    'lib/routes/now-playing.js': 0,
-    'lib/routes/upload.js': 0,
-    'lib/routes/scene-frame.js': 0,
-    'lib/routes/scene-serve.js': 0,
-    // 客户端侧抽出的模块：按**当前实际值**钉住（只许减少）。非零的两处是随源码逐字搬过来的
-    // 既有散文（一处讲 json() 优先的由来，一处是饱和度耦合的术语对照），仍是回溯框定、
-    // 不是出处，所以基线不为 0；改动那两行时必须同步下修这里的数字。
-    'src/api-client.js': 1,
-    'src/effects.js': 1,
-    'src/we-cond.js': 0,
-    // 适配器模式：宿主形态判定与能力矩阵（新文件从 0 起钉）。
-    'src/adapter.js': 0,
-    // 主题随壁纸：取色 + 亮度判决 + 写入去重与让位（新文件从 0 起钉）。
-    'src/theme-follow.js': 0,
-    'src/font/apply.js': 0,
-    'src/font/color-roles.js': 0,
-    'src/font/components.js': 0,
-    'src/font/typography.js': 0,
-    // scripts/**/*.mjs 同样是棘轮的域：守卫脚本里的散文也会被后人当现状读，与源码同口径。
-    // 非零的 13 个文件按**实测量**钉住 —— 它们绝大多数是随被测源码逐字搬过来的既有散文
-    // 或术语对照，不是新写的编年史 ⇒ 只封顶、不清零；清理后同步下修这里的数字。
-    // 非零文件：build-client / e2e-web-media-origin / host-route-index / verify-api-client /
-    //   verify-client / verify-comment-discipline（本文件：词表与负对照必须写出那些词）/
-    //   verify-component-fonts / verify-contracts / verify-host-paint-scope / verify-media-bridge /
-    //   verify-route-index / verify-scene-live / verify-scene。
-    'test/tools/analyze-host-apply.mjs': 0,
-    'test/tools/audit-import-closure.mjs': 0,
-    // P3-23 的手动审计工具（无 CI 消费者）：从 0 起钉
-    'test/tools/audit-fixture-coverage.mjs': 0,
-    'scripts/build-client.mjs': 1,
-    'test/tools/diagnose-web-blank.mjs': 0,
-    'test/e2e-web-media-origin.mjs': 5,
-    // P3-11 阶段 0b：选择器上传区的守卫（新文件从 0 起钉）
-    'test/verify-picker-upload.mjs': 0,
-    // P3-11 阶段 1：选择器模型层的守卫（用例表 + 负对照 + 跨层对拍），从 0 起钉。
-    'test/verify-picker-model.mjs': 0,
-    // P3-11 阶段 3：「壁纸属性」面板的守卫（可达性 + 控件分支 + 标记等价 golden），从 0 起钉。
-    'test/verify-picker-props.mjs': 0,
-    'test/verify-client-sync.mjs': 0,
-    'test/tools/host-route-index.mjs': 1,
-    // 剥注释的共享实现（字符串/正则感知）：散文只讲"为什么不能朴素剥"，不讲编年史。
-    'test/tools/js-text.mjs': 0,
-    // 分支级"改了 store 却没通知"的分析器（守卫 ①i 与它同源）：只讲不变量与已知边界。
-    'test/tools/branch-notify.mjs': 0,
-    'scripts/prepare.mjs': 0,
-    'test/tools/sync-webwallgl.mjs': 0,
-    // harness 适配 CI 的四个新文件：从 0 起钉（散文只讲不变量与判据，不讲编年史）。
-    'scripts/harness-compat-baseline.mjs': 0,
-    'test/compat-harness-live.mjs': 0,
-    'test/compat-harness-surfaces.mjs': 0,
-    'test/compat-harness-pages.mjs': 0,
-    'test/verify-api-client.mjs': 2,
-    'test/verify-client.mjs': 4,
-    'test/verify-comment-discipline.mjs': 32,
-    // 日志分级守卫：从 0 起钉（新文件；它的散文只讲判据，不讲编年史）。
-    'test/verify-logging.mjs': 0,
-    // F3 字体集守卫（阶段 0 的前置网）：从 0 起钉。
-    'test/verify-fontset.mjs': 0,
-    'test/verify-component-fonts.mjs': 2,
-    'test/verify-contracts.mjs': 1,
-    'test/verify-glass-compositing.mjs': 0,
-    'test/verify-host-paint-scope.mjs': 3,
-    'test/verify-ledger.mjs': 0,
-    'test/verify-media-bridge.mjs': 2,
-    'test/verify-module-layout.mjs': 0,
-    'test/verify-package-files.mjs': 0,
-    'test/verify-package-publish.mjs': 0,
-    'test/verify-playback-controls.mjs': 0,
-    'test/verify-reachability.mjs': 0,
-    'test/verify-readability.mjs': 0,
-    'test/verify-retired-lines.mjs': 0,
-    'test/verify-route-index.mjs': 1,
-    'test/verify-scene-live.mjs': 8,
-    'test/verify-scene.mjs': 1,
-    'test/verify-softrender.mjs': 0,
-    'test/verify-theme-layer.mjs': 0,
-    'test/verify-transcode-state.mjs': 0,
-    'test/verify-types.mjs': 0,
-    // `test/` 的节点级冒烟也同域（它此前不在棘轮域里，是这次目录重整才纳进来的）：
-    // 按**实测量**钉住，非零的是随被测源码搬过来的既有散文 ⇒ 只封顶，清理后同步下修。
-    'test/rotation-smoke.mjs': 1,
-    'test/rotation-live-smoke.mjs': 0,
-    'test/rotation-prepared-leak-smoke.mjs': 3,
-    'test/live-frame-backfill-smoke.mjs': 3,
-    'test/live-frame-async-identity-smoke.mjs': 3,
-    // F3 阶段 2：客户端字体集载入通道的冒烟（新文件从 0 起钉）。
-    'test/fontset-load-smoke.mjs': 0,
-    // 手动审计工具（P3-23 的立场：只给候选、不下判决）也在这个棘轮域里（新文件从 0 起钉）。
-    'test/tools/audit-guard-teeth.mjs': 0,
-    // 守卫自身卫生：守卫面的"声明孤儿"判据（P2-12 遗留死助手的去处，新文件从 0 起钉）。
-    'test/verify-dead-declarations.mjs': 0,
-    // 适配器模式的判定表与四处行为落点（新文件从 0 起钉）。
-    'test/verify-adapter.mjs': 0,
-    // 主题随壁纸的取色/判决/让位判据（新文件从 0 起钉）。
-    'test/verify-theme-follow.mjs': 0,
-  };
-  const measure = (s) => (s.match(/曾经|旧实现|以前|原先|旧版|教训|踩到|踩坑/g) || []).length;
-
-  // 覆盖表是手工维护的 ⇒ 两条独立的牙：①表里的键必须在盘上存在且可读；②盘上的文件必须在表里。
-  // 缺①：改名/删除后旧键留着，那条覆盖静默归零；缺②：新抽出的模块根本没人量它。
-  const ghosts = ghostsOf(Object.keys(CEIL));
-  const blind = [];
-  const over = [];
-  for (const [f, ceil] of Object.entries(CEIL)) {
-    let s = null;
-    // 读失败必须**记账**（存在性另有一条断言），不许 continue 了事：那正是覆盖静默归零的形态。
-    try { s = readFileSync(ROOT + f, 'utf8'); } catch { blind.push(f); continue; }
-    const n = measure(s);
-    if (n > ceil) over.push(f + '=' + n + '>' + ceil);
-  }
-  const blindDetail = (ghosts.length ? '不存在：' + ghosts.join(', ') + ' ' : '')
-    + (blind.length ? '读不到：' + blind.join(', ') : '');
-  check('棘轮名单里的文件都真实存在且可读（幽灵键 / 读不到 = 该条覆盖静默归零）',
-    ghosts.length === 0 && blind.length === 0,
-    blindDetail || Object.keys(CEIL).length + ' 个键都在盘上且可读');
-  check('negative control: 同一个存在性判据能点出幽灵键',
-    ghostsOf(['lib/routes/diag.js', 'lib/does-not-exist.js']).join() === 'lib/does-not-exist.js'
-    && ghostsOf(['lib/routes/diag.js']).length === 0);
-
-  // 覆盖面**从磁盘枚举**（不是手抄第二份名单）：棘轮的域 = src/**/*.js + lib/routes/*.js
-  // + scripts/**/*.mjs，每个文件都必须逐条在表里，否则"棘轮只许减少"对它是空的。
+  // 域：src/**/*.js + lib/routes/*.js + test/**/*.mjs + scripts/**/*.mjs。
   const walkMatching = (relDir, rx) => {
     const out = [];
     for (const ent of readdirSync(ROOT + relDir, { withFileTypes: true })) {
@@ -361,29 +218,51 @@ check('negative control: 带日期的注释会被判不合格',
     }
     return out;
   };
-  const uncoveredIn = (list, table) => list.filter((f) => !(f in table));
-  const REQUIRED = [
+  const DOMAIN = [
     ...walkMatching('src', /\.js$/),
     ...walkMatching('lib/routes', /\.js$/),
-    ...walkMatching('test', /\.mjs$/),   // 守门（test/）+ 工具（test/tools/）
-    ...walkMatching('scripts', /\.mjs$/), // 用户/发布脚本（build-client、prepare）
+    ...walkMatching('test', /\.mjs$/),    // 守门（test/）+ 工具（test/tools/）
+    ...walkMatching('scripts', /\.mjs$/), // 用户 / 发布脚本（build-client、prepare）
   ];
-  const uncovered = uncoveredIn(REQUIRED, CEIL);
-  check('棘轮覆盖全部 src/**/*.js、lib/routes/*.js、test/**/*.mjs 与 scripts/**/*.mjs（新文件必须进表）',
-    uncovered.length === 0 && REQUIRED.length >= 50,
-    '覆盖 ' + (REQUIRED.length - uncovered.length) + '/' + REQUIRED.length
-      + ' 个文件（计数从磁盘枚举；断言地板 50）'
-      + (uncovered.length ? '；未登记：' + uncovered.join(', ') : ''));
-  // 负对照用**纯合成**清单（不掺 REQUIRED）：它测的是判据本身，不该因为真实域恰好有漏项而变色。
-  check('negative control: 同一个覆盖判据会点名未登记的合成文件',
-    uncoveredIn(['src/synthetic-a.js', 'src/synthetic-new-module.js'], { 'src/synthetic-a.js': 0 }).join()
-      === 'src/synthetic-new-module.js'
-    && uncoveredIn(['src/synthetic-a.js'], { 'src/synthetic-a.js': 0 }).length === 0);
+  const wholeFiles = DOMAIN.filter((f) => f !== 'test/verify-comment-discipline.mjs'); // 本文件（词表在这里）
 
-  check('棘轮：叙事标记不超过基线（只许减少）', over.length === 0,
-    over.length ? '超出：' + over.join(' ') : '全部 ≤ 基线（共 ' + Object.values(CEIL).reduce((a, b) => a + b, 0) + '）');
-  check('negative control: 超过基线的文本会被判不合格', measure('曾经'.repeat(50)) > CEIL['src/client.js']);
-  check('negative control: 「实测」不计入棘轮（出处不是编年史）', measure('实测'.repeat(50)) === 0);
+  check('叙事式注释的域非空（walker 返回空表 = 本节恒真）', wholeFiles.length >= 50,
+    wholeFiles.length + ' 个文件');
+  check('代码与守卫脚本里没有日期（编年史归 CHANGELOG / git 历史）',
+    offenders.length === 0,
+    offenders.length ? '命中 ' + offenders.length + ' 处：' + offenders.slice(0, 6).join(' ')
+      : '干净（' + wholeFiles.length + ' 个文件）');
+
+  // 词表由字符码拼出：本节之前的释义与负对照要写出这些词，直接内联会让本文件自己的
+  // 命中计数随注释改动而漂移。拼装是**这一节专属**的隔离，不对外复用。
+  const cc = (...codes) => codes.map((c) => String.fromCharCode(c)).join('');
+  const NARRATIVE_WORDS = [
+    cc(0x66fe, 0x7ecf),                     // 回指"当年的实现"
+    cc(0x65e7, 0x5b9e, 0x73b0),
+    cc(0x4ee5, 0x524d),
+    cc(0x539f, 0x5148),
+    cc(0x65e7, 0x7248),
+    cc(0x6559, 0x8bad),                     // 复盘腔
+    cc(0x8e29, 0x5230),
+    cc(0x8e29, 0x5751),
+  ];
+  const hits = [];
+  for (const f of wholeFiles) {
+    const lines = readFileSync(ROOT + f, 'utf8').split('\n');
+    lines.forEach((l, i) => {
+      const w = NARRATIVE_WORDS.filter((x) => l.includes(x));
+      if (w.length && hits.length < 8) hits.push(f + ':' + (i + 1) + '（' + w.join('/') + '）');
+    });
+  }
+  check('没有把"当年如何"写进代码（编年史 / 复盘腔零残留）', hits.length === 0,
+    hits.length ? '命中：' + hits.join(' ') : '干净（' + NARRATIVE_WORDS.length + ' 个词 × ' + wholeFiles.length + ' 个文件）');
+
+  // 负对照走**同一个**词表判据：合成一行必须被抓到，否则上面那条可能是恒真式。
+  const wordHit = (s) => NARRATIVE_WORDS.some((x) => s.includes(x));
+  check('negative control: 编年史 / 复盘腔文本会被判出',
+    wordHit(NARRATIVE_WORDS[0] + '这里是那样做的') && !wordHit('这里只写不变量'));
+  // 正对照：「实测 X ≈ Y」是**出处**，不是编年史 —— 它必须留（见文件头 ②）。
+  check('positive control: 带出处的「实测 X」不算编年史', !wordHit('实测 X ≈ Y，因此取该值'));
 }
 // ── BOM：写 Node/JSON 会解析的文件必须是无 BOM UTF-8（PowerShell 5.1 的 Set-Content 会带 BOM ✗）──
 {

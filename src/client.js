@@ -1462,9 +1462,9 @@ function markGpuFramePin(token, pinned) {
 // 网页（入口 HTML 走 WebWallGL 的 web 挂载 + 注入 WE shim）共用同一开关
 // （sceneLive，默认开）、同一失败记忆与同一套心跳看护。
 // ── 实时渲染管线（live 看护 / 抓帧回填 / 壁纸层构建与过场）──────────────────
-// 这一族的实现已抽到 **src/live-layer.js**（1,204 行，原先跨多个不相邻区段：live 渲染
-// URL 与控制、诊断日志、看护心跳、判失败、帧可用性、抓帧回填、指针转发、poster/挂载/抓首帧，
-// 以及 syncLayers 与层过渡）。构建期内联回本作用域，调用点无需改动。
+// 这一族的实现住在 **src/live-layer.js**（1,204 行：live 渲染 URL 与控制、诊断日志、
+// 看护心跳、判失败、帧可用性、抓帧回填、指针转发、poster/挂载/抓首帧，以及 syncLayers
+// 与层过渡）。构建期内联回本作用域，调用点无需改动。
 // **故意留在本文件的**（别的域，别处找）：媒体集成（下方「媒体后端」段）、GPU 帧槽助手
 // （clearGpuFrameSlot / refreshStaticFrameNodes / liveViewportAspect 等）、用户属性、diag 上报。
 // 契约：出向依赖清单 / 入口 / 不变量 —— 见该文件头（清单只在那里维护，此处不复述数量）。
@@ -1662,9 +1662,9 @@ function startMediaSync(frame) {
 // cover 裁切），而静态帧上屏时还要再经 CSS object-fit: cover。两个比例一叠加，
 // 「在 3:2 窗口抓的帧」拿到 16:9 窗口上屏就是被再裁一次 —— 构图明显放大：
 // 实测 1440x960 的抓帧在 2488x1376 视口里只显示设计宽度的 84.5%（按设计比做
-// 最佳匹配拟合得到），人物比 live 大约 19% 且四周被切。抓帧回填原先只问
-// 「槽位有没有 GPU 帧」，不问「这张帧配不配当前视口」，于是别的窗口/别的会话
-// 留下的帧会永久上屏（宿主的唯一性闸让 PUT 只写一次，没人再动它）。
+// 最佳匹配拟合得到），人物比 live 大约 19% 且四周被切。判据不能只问
+// 「槽位有没有 GPU 帧」，还要问「这张帧配不配当前视口」：不配的帧会永久上屏
+// （宿主的唯一性闸让 PUT 只写一次，没人再动它）。
 // 判据：存帧视比与当前视口比的相对差 > 2%（与渲染页自己的 fit 容差同口径 ——
 // 2% 以内两个比例的取景/裁切差异不可见）。不符 → 清掉按当前视口重抓。
 // 两个窗口同时开引擎且窗口比不同时，双方会各按自己的比反复重抓（槽位只有一份，
@@ -2097,7 +2097,7 @@ function releaseRotationAudioGate() {
 // 长安雪等场景把 BGM/音效以独立音频文件（mp3/ogg…）放在 scene.pkg 里，由 WE
 // 运行时的音频组件播放；静帧路径没有播放器，此前完全无声。这里用独立
 // <audio> 元素补上：宿主 /scene-audio 路由抽出音频（最大者当 BGM），音量与
-// 总开关复用视频壁纸同一套设置（默认 0 = 静音，行为与旧版一致）。
+// 总开关复用视频壁纸同一套设置（默认 0 = 静音）。
 // 与 sceneVideo 互斥：有内嵌 MP4 时视频自带音轨，避免双声道叠加。
 let sceneAudioEl = null;
 // 场景包 BGM 的 <audio> 拆机（禁用插件 / 切到无音频形态 / 卸载都要走这里）。
@@ -2208,8 +2208,8 @@ function layerKeyDiff(oldKey, nextKey) {
 // 因此下面这些 applyEffects() / clearEffects() 调用点无需改动（契约见该文件头）。
 
 // ── Picker tabs ─────────────────────────────────────────────────────────────
-// 调节面板的信息架构：六个页签互斥展示，每页只留相关控件 —— 替代旧版三十个
-// 控件的单列长滚动。最后停留的页签记在 localStorage（仅 UI 状态，不进
+// 调节面板的信息架构：六个页签互斥展示，每页只留相关控件（不用单列长滚动
+// 堆三十个控件）。最后停留的页签记在 localStorage（仅 UI 状态，不进
 // config.json，也不需要 sanitize / serialize）。
 const PICKER_TAB_KEY = "dsh-wallpaper-engine:picker-tab";
 const PICKER_TABS = [
@@ -3237,7 +3237,7 @@ const officialColorOf = (tokens) => {
       React.createElement("span", { className: "we-picker__card-badge" }, String(playableList.length)),
       React.createElement("span", { className: "we-picker__card-desc" }, "本地 Wallpaper Engine 壁纸 · 液态玻璃主题"),
     ),
-    // ── 页签栏（分段式）：六个页签互斥展示，替代旧版三十控件的单列长滚动。
+    // ── 页签栏（分段式）：六个页签互斥展示，每个页签只留相关控件。 ──
     //    指示胶囊随 activeTab 平移（transform 合成器属性，不引发布局）。 ──
     React.createElement("div", { className: "we-tabs", role: "tablist", "aria-label": "Wallpaper Engine 设置分区" },
       React.createElement("span", {
@@ -3696,8 +3696,8 @@ function UpdateNotice() {
 // old stylesheet tag from a previous bundle (TAG_ID dedupes the injection; a
 // static id would leave stale CSS rules active and new rules missing).
 const TAG_ID = "dsh-wallpaper-engine/styles-v3";
-// 本次 bundle 求值的代际标记: cleanup 只移除自己这一代的 <style>, HMR 里
-// "新版已挂载、旧版才卸载"的顺序下不会误删新版仍在用的样式表。
+// 本次 bundle 求值的代际标记: cleanup 只移除自己这一代的 <style>, 于是 HMR 的
+// "新代已挂载、旧代才卸载"顺序下不会误删新代仍在用的样式表。
 const CSS_GEN = Date.now() + ":" + Math.random().toString(36).slice(2);
 // 注入抽成函数: fiber cleanup (见 apply) 会移除这个 <style>, 所以 effect 挂载时
 // 必须能再注入一次 — 否则同一页面内 disable→enable 后整个界面无样式。
@@ -3780,12 +3780,11 @@ function detectMicaSupport() {
 }
 
 // ── 玻璃饱和度解耦（?we-saturate）─────────────────────────────────────────────
-// --we-saturate 原先随 玻璃 滑块（模糊半径）线性上升：1.15 + blur*0.028，即
-// 0px→1.15 … 60px→2.83。于是一个滑块同时改了两件语义无关的事：毛玻璃深度
-// （--we-blur）和背景「色彩融化」强度。高模糊 + 高饱和会把玻璃后残留的壁纸文字
-// 放大成 荧光/彩色鬼影，而不是中性雾面 —— 所以饱和度改为常量材料属性
-// （GLASS_SATURATE，取 1.25–1.4 液态玻璃区间的低端 1.3，且低于样式表自身 1.8 的
-// 回退默认值），滑块只管模糊深度。
+// **不变量**：`--we-saturate` 是常量材料属性，不随 玻璃 滑块（模糊深度）变化。
+// 随它线性上升（1.15 + blur*0.028 ⇒ 0px→1.15 … 60px→2.83）等于让一个滑块同时改两件
+// 语义无关的事：毛玻璃深度（--we-blur）和背景「色彩融化」强度 —— 高模糊 + 高饱和会把
+// 玻璃后残留的壁纸文字放大成 荧光/彩色鬼影，而不是中性雾面。取 1.25–1.4 液态玻璃区间
+// 的低端 1.3，且低于样式表自身 1.8 的回退默认值。
 // A/B 逃生舱（与 dsh-desktop-mica 同风格）：
 //   ?we-saturate=legacy → 完全恢复旧的耦合公式（逐字节等值）
 //   其余（缺省 / 垃圾值 / 大小写混写）→ 新的常量行为

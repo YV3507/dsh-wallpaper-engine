@@ -162,10 +162,10 @@ function applyLiveControls(frame) {
 }
 
 // ── live 诊断日志 ───────────────────────────────────────────────────────────
-// live 这条路原先完全没有痕迹：判失败只写 sceneLiveFailures + 面板一行文案，
-// 事后无法回答「为什么 15 秒没出帧」。渲染页内部的问题由它自己的 reportDiag
-// 送到 host 的诊断环形缓冲（host 的 /diag 路由 → GET /wallpaper-engine/diag-log），
-// 这里把**客户端**事件送到同一个缓冲，两条时间线于是可以对齐着看：
+// **为什么要有这条路**：live 判失败只写 sceneLiveFailures + 面板一行文案，事后无法回答
+// 「为什么 15 秒没出帧」。渲染页内部的问题由它自己的 reportDiag 送到 host 的诊断环形缓冲
+// （host 的 /diag 路由 → GET /wallpaper-engine/diag-log），这里把**客户端**事件送到同一个
+// 缓冲，两条时间线于是可以对齐着看：
 //   curl -s 127.0.0.1:<port>/wallpaper-engine/diag-log
 // 逐秒心跳 tick 只在 localStorage.weLiveDebug === "1" 时打（默认关：一秒一条
 // 会刷屏，也会给环形缓冲刷出无用的像素请求）。

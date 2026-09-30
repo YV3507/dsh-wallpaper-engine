@@ -233,7 +233,7 @@ function readInlinedPrelude() {
     const abs = resolve(root, mod.file);
     const text = readFileSync(abs, 'utf8').replace(/\r\n/g, '\n');
     // 判据针对**代码**：先剥注释。否则模块头里写一句 `node -e "require('fs')…"` 的
-    // 复核命令就会被判成"含 require"（本仓已三次踩到同类假阳性）。
+    // 复核命令就会被判成"含 require"（**实测**：这类假阳性出现过多次）。
     const code = text
       .replace(/\/\*[\s\S]*?\*\//g, ' ')
       .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');

@@ -188,9 +188,9 @@ if (!binPath) {
       Boolean(after) && after.position > before,
       `${before.toFixed(1)}s → ${after ? after.position.toFixed(1) : '?'}s`);
 
-    // 状态形状：与旧实现同名同形，外加 backend/回落说明
+    // 状态形状：与内置实现同名同形（调用点不必分支），外加 backend/回落说明
     const st = backend.status();
-    check('status 形状兼容旧实现（audio/nowPlaying 两段 + 后端标记）',
+    check('status 形状与内置实现同名同形（audio/nowPlaying 两段 + 后端标记）',
       st.audio && typeof st.audio.status === 'string'
       && st.nowPlaying && typeof st.nowPlaying.status === 'string'
       && st.backend === 'bridge' && st.fallback === '',

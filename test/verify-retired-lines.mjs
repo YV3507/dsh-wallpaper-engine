@@ -98,8 +98,8 @@ const LEGACY_FORBIDDEN = [
 }
 
 // ── ② 静态帧渲染线：不蔓延（BASELINE 只许缩小）───────────────────────────────
-// 冻结于 P0-4（2026-09-26）。名单里现在只剩检验它们的守卫（产品侧已删净）；
-// **任何不在名单里的文件出现退役词 = 有人开始把这条线接回主线**，必须失败。
+// 名单里现在只剩检验它们的守卫（产品侧已删净）；**任何不在名单里的文件出现退役词 =
+// 有人开始把这条线接回主线**，必须失败。
 const SF_VOCAB = [
   'renderSceneFrameInWorker', 'scene-render-worker', 'extractSceneMainImage',
   'collectImageObjectTextures', 'FORMAT_PENALTY', 'tryCompositeSceneLayers',

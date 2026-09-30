@@ -769,7 +769,7 @@ const clientChecks = [
     fadeBgBody.includes('--dsw-alias-bg-base')
     && /"#000000" : "#ffffff"/.test(fadeBgBody)
     && !fadeBgBody.includes('--dsw-alias-bg-layer-1')],
-  // 画面来源选项的三条门禁（2026-09-26 按用户反馈调整过）：
+  // 画面来源选项的三条门禁：
   // - 「壁纸画面刷新」换的是 **CPU 静态帧**，实时画面在跑时它没有任何作用 → 只在
   //   live 未生效时渲染；
   // - 「实时帧」（GPU 抓帧：重新截 / 清除 / 微缩预览）与「自定义画面」**live 开着时
@@ -793,9 +793,8 @@ const clientChecks = [
     /function framePreviewSrc\(selLike\)[\s\S]{0,500}?frameUrlWithVariant\(selLike && selLike\.sceneFrameUrl, v\)[\s\S]{0,200}?we-prev=/.test(src)],
   ['pointer injection wired', /__wp\.pushPointer|wp\.pushPointer/.test(liveSrc) && /pointerLeave/.test(liveSrc)],
   ['fit mapping table present', /SCENE_LIVE_FIT = \{ cover: "cover"/.test(liveSrc)],
-  // 实测踩坑回归（2026-09-22）：渲染页 resume() 会 resetFrameMeter，心跳若
-  // 每秒无条件调 resume 会永远读到 fps=0 → 15s 误降级。控制必须去重下发，
-  // 且 tick 内先读统计再应用控制。
+  // **实测**：渲染页 resume() 会 resetFrameMeter，心跳若每秒无条件调 resume 会永远读到
+  // fps=0 → 15s 误降级。控制必须去重下发，且 tick 内先读统计再应用控制。
   ['controls are deduped before dispatch', /liveApplied\.playing !== playing/.test(liveSrc)],
   ['heartbeat reads stats before applying controls', /const stats = liveStats\(frame\);\s*\n\s*applyLiveControls\(frame\);/.test(liveSrc)],
   ['upload management list excludes project dirs', /isUploadedWallpaper\(w\) && !isDirWallpaper\(w\)/.test(src)],
@@ -806,7 +805,7 @@ const clientChecks = [
   // 网页壁纸的 src 直用 host 给的绝对 URL（媒体源）；相对形态仅作回落。
   ['web live src reuses the absolute media-origin URL', liveSrc.includes('const webEntry = String(selLike.webLiveSrc || "")')
     && liveSrc.includes('/^https?:\\/\\//i.test(webEntry)')],
-  // 实机回归（2026-09-25）：「场景类壁纸正常几秒就失效」「网页也是」「失效以后是静态的」
+  // **实测**症状：「场景类壁纸正常几秒就失效」「网页也是」「失效以后是静态的」
   // 「只有扩展模式」「网页类是预览图」。成因是 extended 的「首帧后延迟 8000ms 换元」自救：
   // 换元后的新元素为防白闪被摘掉 `we-live-on`，层回落垫底图（场景=静态帧、网页=预览图），
   // 而渲染页照旧出声；日志上 first-frame-ok 后**正好 +8s** 出现 live-frame-rebuilt。
@@ -867,8 +866,8 @@ for (const [name, ok] of clientChecks) check(name, ok);
     && (bundle.match(/function renderEffectsTab\(ctx\)/g) || []).length === 1);
 }
 
-// 实测踩坑回归（2026-09-22）：host 的 sanitizeSettings 是白名单，漏加
-// sceneLiveFailures 会让 PUT 上来的失败记忆被丢弃、刷新后记忆消失。
+// **实测**：host 的 sanitizeSettings 是白名单，漏加 sceneLiveFailures 会让 PUT 上来的
+// 失败记忆被丢弃、刷新后记忆消失。
 // ── Level E: 三条此前"守卫零提及"的宿主路由（P2-11 前置 2）──────────────────
 // 补守卫之前，`docs/ROUTE-INDEX.md` 把这三条标成 **0 提及**（该节现已收缩为「（无）」）⇒ 拆分
 // `apply(ctx)` 之前必须补上真实行为断言，否则动它们等于没有安全网。三条都只断言**无副作用的
@@ -927,7 +926,7 @@ check('host settings whitelist keeps sceneLiveFailures', hostKeeps('sceneLiveFai
 check('host injects the vendored shim into web HTML', /data-we-shim="host"/.test(hostSrc) && /readWebShim\(\)/.test(hostSrc));
 check('host sends CORS for opaque-origin fetches', /Access-Control-Allow-Origin', '\*'/.test(hostSrc));
 check('inventory derives webLive via webFieldsFor', /webFieldsFor\(w, hasMedia, webMediaBase\)/.test(hostSrc));
-// 2026-09-23 黑屏事故回归：Desktop 的能力头栅栏（**外部宿主** `@deepseek-ai/dsh-host-webserver`
+// 黑屏事故的**成因**：Desktop 的能力头栅栏（**外部宿主** `@deepseek-ai/dsh-host-webserver`
 // 的 decideDesktopBrowserAccess —— 本仓没有该文件）只放行同源 frame，不透明源的沙箱 iframe 永远拿不到
 // x-dsh-desktop-renderer → 插件路由一律 403。网页壁纸载荷因此必须走 host 自建的
 // 独立 loopback 源，两处挂载共用同一段处理函数。
@@ -977,10 +976,10 @@ check('negative control: 调用点保持语句形态（加赋值前缀会被路�
 // 封面（Now Playing artwork）：实测用户反馈「不显示歌曲封面」的根因是只问 Spotify。
 // 现在通用路径是 media-control 自带的 artworkData（系统 MediaRemote，任何播放器都有），
 // 且缓存后缀按 MIME 决定（PNG 存成 .jpg 会按错误类型解码）。
-// 2026-09-23：这套降级为**回落实现**（lib/media/legacy.js），首选换成 media-bridge
-// 子进程（lib/media/*）——断言因此两边都盯：旧实现的能力不能退化，新链路的接缝要在。
+// 这套现为**回落实现**（lib/media/legacy.js），首选是 media-bridge 子进程（lib/media/*）
+// —— 断言因此两边都盯：回落能力不能退化，新链路的接缝要在。
 const legacyBridgeSrc = readFileSync(join(root, 'lib', 'media', 'legacy.js'), 'utf8');
-check('旧实现已挪进 lib/media/legacy.js（回落路径还在）',
+check('回落实现住在 lib/media/legacy.js（回落路径还在）',
   existsSync(join(root, 'lib', 'media', 'legacy.js')) && !existsSync(join(root, 'lib', 'media-bridge.js')));
 check('封面走 media-control 的 artworkData（通用，不限 Spotify）',
   legacyBridgeSrc.includes('artworkData') && legacyBridgeSrc.includes('artworkMimeType')
@@ -1055,9 +1054,9 @@ for (const site of winHideSites) {
 }
 check('平台 spawn 点都带 windowsHide（GUI 宿主在 Windows 上不出黑框）',
   winHideBad.length === 0, winHideBad.join(', ') || '已覆盖中间件 / ffmpeg 转码 / 回落路径');
-check('门面：中间件优先，失败回落旧实现并留下原因',
+check('门面：中间件优先，失败回落 legacy 并留下原因',
   facadeSrc.includes('fallBackTo(') && facadeSrc.includes("backend: live ? 'bridge'"));
-check('门面支持 DSH_WE_MEDIA_LEGACY=1 强制走旧实现', facadeSrc.includes('DSH_WE_MEDIA_LEGACY'));
+check('门面支持 DSH_WE_MEDIA_LEGACY=1 强制走 legacy 回落', facadeSrc.includes('DSH_WE_MEDIA_LEGACY'));
 check('门面把「音频已关」传给回落实现（不让回落偷偷开采集）',
   facadeSrc.includes('createLegacy({ dataDir, log, audio: optsRef.audio })'));
 // 媒体状态族已搬到 lib/routes/now-playing.js（P2-11）。判据按 diag 族的同一形态翻成三条：
@@ -1170,8 +1169,8 @@ check('抽屉窄容器：标题独占首行 + 按钮上下排列（8px）',
 // "这一族只在那个文件里注册"—— 两边各留一份会让同一路径被重复挂载，而卸载只放掉一份。
 const diagSrc = readFileSync(join(root, 'lib', 'routes', 'diag.js'), 'utf8');
 check('renderer diagnostics sink registered at /diag', /path: '\/diag'/.test(diagSrc) && /diag-log/.test(diagSrc));
-// 实测踩坑（2026-09-23）：同一份渲染页产物里还有一条走 ${BASE}/diag 的告警通道，
-// 只挂根路径会让「壁纸黑屏」时最关键的渲染页告警全部 404 静默丢掉。
+// **实测**：同一份渲染页产物里还有一条走 ${BASE}/diag 的告警通道，只挂根路径会让
+// 「壁纸黑屏」时最关键的渲染页告警全部 404 静默丢掉。
 check('renderer diagnostics also accepted at ${BASE}/diag', diagSrc.includes('path: `${BASE}/diag`'));
 check('诊断族只在 lib/routes/diag.js 注册（lib/index.js 只留一次调用）',
   !/path: '\/diag'/.test(hostSrc) && !/path: `\$\{BASE\}\/diag/.test(hostSrc)

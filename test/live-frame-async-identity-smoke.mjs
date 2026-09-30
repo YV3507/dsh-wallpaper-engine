@@ -14,7 +14,7 @@ function assertChildren(children) {
   }
 }// GPU 抓帧回填的「异步落地身份校验」行为级 smoke（评审第二轮产出物，已进仓库）：
 // 回填的落地回调只对**发起时那张壁纸**记账 —— 多 MB PNG 的 HEAD+toBlob+PUT 要
-// 0.1–1.5s，期间用户可能已经切走；旧实现用「当前 selection」记账，会把「已有 GPU
+// 0.1–1.5s，期间用户可能已经切走。按「当前 selection」记账会把「已有 GPU
 // 帧」记到新壁纸头上，后果不只是面板提示错 ≤30s：回到被误标的壁纸时 CPU scene-anim
 // 渲染会被门禁整个挡掉（30s 内 pinned 缓存命中）。
 //
@@ -270,8 +270,8 @@ check('② 首次到 B 时客户端照常 HEAD 探测 B 的槽位（未被误记
 if (putResolve) putResolve();
 await sleep(40);
 
-// ④ B → A → B：回到 B 时槽位探测必须照常发生（旧实现会把 B 的 token 标成 pinned，
-//    于是 TTL 内缓存命中 → 跳过这次 HEAD 探测）
+// ④ B → A → B：回到 B 时槽位探测必须照常发生（若按「当前壁纸」记账，B 的 token 会被
+//    标成 pinned，于是 TTL 内缓存命中 → 跳过这次 HEAD 探测）
 const before = headCount('bbb');
 fireLatest(10000);          // B → A（live 准备）
 await sleep(20);
@@ -283,7 +283,7 @@ const after = headCount('bbb');
 check('④ 已再次回到 B', persistedId() === 'b', 'id=' + persistedId());
 check('上传落地不得给「当前壁纸 B」记上 GPU 帧 —— 回到 B 时槽位探测必须照常发生',
   after > before,
-  'bbb HEAD ' + before + ' → ' + after + '（旧实现因误记账命中缓存而停在 ' + before + '）');
+  'bbb HEAD ' + before + ' → ' + after + '（按当前壁纸记账时会因误命中缓存而停在 ' + before + '）');
 // 顺带钉死：整条流程里仍然一帧 CPU 动画渲染都没有（该路线已删除）。
 check('全流程零 CPU 动画渲染请求（scene-anim 已删除）', animCount('bbb') === 0,
   '/scene-anim/bbb 探针=' + animCount('bbb'));

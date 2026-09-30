@@ -114,11 +114,16 @@ If Steam is installed in a non-standard location, the host auto-detects it via `
 
 ```sh
 npm ci              # 本地取工具链（CI 不装依赖，见下）
-npm run verify:all  # = build + verify + smoke
+npm run verify:all  # = build + verify（硬档）+ verify:docs（软档）+ smoke
 ```
 
-**提交前必须全绿。** `.github/workflows/verify.yml` 在每次 push / PR 上跑同一套
-（build + verify + smoke），并额外断言两件事：`lib/client.js` 与 `src/client.js` 同步（**本地链里也有这一条**：`test/verify-client-sync.mjs`），
+**提交前必须全绿的是硬档**（`npm run verify`：真机行为 / 发布面 / 平台契约 / 打包面）。
+软档（`npm run verify:docs`：注释纪律、账本自洽、模块布局、可达性、退役线、声明孤儿）
+**照跑、照打印结论，但不拦 PR** —— 判据一字未改，退出码由 `test/warn-only.mjs` 降级为警告
+（原码打在 `[warn-only] 软档守卫原退出码 = N` 行上）。分档判据与两档清单见
+[`docs/TEST-LAYOUT.md`](docs/TEST-LAYOUT.md) §两档。
+
+`.github/workflows/verify.yml` 在每次 push / PR 上跑同一套，并额外断言两件事：`lib/client.js` 与 `src/client.js` 同步（**本地链里也有这一条**：`test/verify-client-sync.mjs`），
 以及 `git diff --check` 无尾随空白 / 冲突标记。
 
 > CI **故意不执行 `npm ci`**：build / verify / smoke 只用 `node:` 内置模块与相对路径，

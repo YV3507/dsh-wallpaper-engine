@@ -357,7 +357,7 @@ section('⑦ schema 设置键与模块一致');
 }
 
 // ── ⑧ 落地点已独立成模块（P1-7 手法：在位 + 已内联 + 不在正文）──────────────
-// 抽出去之后**最危险的漂移是"两边各留一份"**：产物里一份、正文里还留一份旧实现，
+// 抽出去之后**最危险的漂移是"两边各留一份"**：产物里一份、正文里还留一份同名实现，
 // 于是改了模块却没生效（或反之）。三件事一起断言才能防住：模块在位、产物里有、正文里没有。
 section('⑧ 字体落地点已抽成 src/font/apply.js 并内联');
 {
@@ -379,7 +379,7 @@ section('⑧ 字体落地点已抽成 src/font/apply.js 并内联');
   check('effects.js 里零字体落点（不再引用 #we-font-scope）',
     !effectsSrc.includes('we-font-scope'));
   check('负对照：搬家判据对"正文里还留一份"有牙',
-    !moved.every((m) => !('function applyComponentFonts() { /* 旧实现 */ }').includes(m)));
+    !moved.every((m) => !('function applyComponentFonts() { /* 正文副本 */ }').includes(m)));
 }
 
 console.log('');

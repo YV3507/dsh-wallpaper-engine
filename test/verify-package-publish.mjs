@@ -266,7 +266,7 @@ section('⑦ 安装期脚本不得引用未随包发布的文件');
 {
   const INSTALL_HOOKS = ['preinstall', 'install', 'postinstall'];
   const DEV_ONLY = ['prepublishOnly', 'prepack', 'postpack', 'prepublish',
-    'build', 'verify', 'verify:all', 'verify:bridge', 'verify:e2e', 'smoke'];
+    'build', 'verify', 'verify:docs', 'verify:all', 'verify:bridge', 'verify:e2e', 'smoke'];
   const unshippedRefs = (cmd) => [...String(cmd)
     .matchAll(/(?:^|\s)((?:scripts|src|test|docs|\.test-cache)\/[\w./-]+)/g)]
     .map((m) => m[1]).filter((p) => !publishSet(p));

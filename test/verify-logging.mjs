@@ -245,6 +245,8 @@ function localPatchResidue(assets, syncSrc) {
     if (/-welvl\d*\.js$/.test(f)) out.push(f + ' 带补丁后缀');
   }
   const code = stripComments(syncSrc);
+  // 本地补丁机制已整体移除（上游按契约实现）。这条是**零残留**探针：谁把补丁函数或
+  // `--patches-only` 接回来，这里就红 —— 它不读"工具里有没有这些字符串"，而是断言它们不在。
   for (const mark of ['applyLocalPatches', 'applyDiagLevelPatch', 'PATCH_SUFFIX', 'patches-only']) {
     if (code.includes(mark)) out.push('sync-webwallgl.mjs 仍有 ' + mark);
   }

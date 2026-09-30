@@ -8,10 +8,8 @@
  * 必须找到全部 26 处，而漏掉一处不会有任何提示。
  *
  * 本模块把"**怎么发请求**"收成一处；调用点只说"**要什么**"（path + method + 期望）。
- * 守卫是一条**棘轮**：业务代码里的裸 `fetch(` 只许减少（当前基线见
- * test/verify-api-client.mjs），新代码必须走本模块 —— 与 P0-4 的"反向探针防蔓延"同手法。
- * ✅ **终态已到（2026-09-27）**：26 处全部改完（26 → 20 → 16 → 13 → 8 → **0**），
- * 客户端的 **13 个模块全部零裸 fetch**；断言也从"≤ 基线"翻成了"全部模块零裸 fetch"。
+ * 不变量（由 test/verify-api-client.mjs 断言）：**业务代码零裸 `fetch(`** ——
+ * 新代码必须走本模块，没有例外名单。
  *
  * ══ 契约 ══════════════════════════════════════════════════════════════════════
  * 需要的外界：**无**（`fetch` 由调用方或全局提供，便于单测注入）。
@@ -82,10 +80,10 @@ async function apiFetch(path, options) {
   // 默认只在 2xx 解析 —— 两者都由调用点显式选择，本模块不替业务猜。
   if (o.parse === 'always' || (o.parse !== false && ok && o.parse !== 'none')) {
     try {
-      // **json() 优先**：调用点原先就是 res.json()，替身与真实 Response 都实现它；
+      // **json() 优先**：替身与真实 Response 都实现它；
       // 空体（204 / 无体 200）在真实 Response 上会抛，于是再用 text() 兜一次 ——
       // 这样"只实现 json() 的替身"与"真实 Response"两种形态都能吃。
-      // （反过来 text() 优先会让只实现 json() 的替身静默读到 null：smoke 的 fetch 替身
+      // （反过来 text() 优先会让只实现 json() 的替身**静默读到 null**：smoke 的 fetch 替身
       // 就是这么把库存读成空、轮播定时器不武装的。）
       if (typeof response.json === 'function') {
         data = await response.json();

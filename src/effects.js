@@ -16,7 +16,7 @@
  *   detectMicaSupport()          ← 惰性探针：Mica 支持
  *   detectSoftwareRender()       ← 惰性探针：软件渲染回退
  *   adapterCaps()                ← src/adapter.js（适配目标能力矩阵 → body 属性）
- *   useLegacySaturateCoupling()  ← 惰性探针：旧版饱和度耦合
+ *   useLegacySaturateCoupling()  ← 惰性探针：`?we-saturate=legacy` 那条旧耦合斜坡是否生效
  *   applyComponentFonts()        ← src/font/apply.js（字体：组件作用域）
  *   removeComponentFonts()       ← 同上
  *   snapshotHostFontDefaults()   ← 同上（宿主角色色快照）

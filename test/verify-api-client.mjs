@@ -2,9 +2,7 @@
  * verify-api-client.mjs — 宿主 API 客户端（P2-9）的守卫。
  *
  * 两件事：
- *   ① **棘轮**：`src/client.js` 里的裸 `fetch(` 只许减少。P2-9 的终态是零裸 fetch
- *      （全部走 src/api-client.js），但 26 处调用点分批改写 —— 于是先用棘轮把"只许减少"
- *      钉住（与 P0-4 的"反向探针防蔓延"同手法）：**新代码必须走本模块**。
+ *   ① **不变量**：业务代码**零裸 `fetch(`** —— 新代码必须走 src/api-client.js（单一出入口）。
  *   ② **行为**：用注入的假 fetch 测本模块自己的契约（前缀、no-store、HEAD/DELETE 不解析、
  *      非 2xx 不改判、网络中断不抛、JSON 解析失败不吞 ok、POST 序列化）。
  *      每条带负对照。
@@ -23,34 +21,19 @@ const api = await import(new URL('../src/api-client.js', import.meta.url).href);
 const { BASE, apiUrl, apiFetch, apiJson, apiHead, apiPostJson, apiDelete } = api;
 
 /**
- * 裸 fetch 的**棘轮基线**：只许减少。
- * 改写一处调用点后把这个数字改小（守卫会告诉你当前实际值）。
- * 终态 0 —— 届时本常量归零，断言变成"业务代码零裸 fetch"。
- *
- * ✅ **终态已到（2026-09-27）**：26 处全部改完 —— 客户端 13 个模块全为 0，
- * 断言已由"≤ 基线"翻成"**全部模块零裸 fetch**"（见 ① 的 `CLIENT_MODULES`）。
- * 下面这两个常量保留作**历史坐标**：`CLIENT_FETCH_BASELINE` 记 client.js 最后的值（8），
- * `MODULE_FETCH_BASELINE` 记各模块搬迁后的中间值 —— 它们解释"总数 13 是怎么构成的"，
- * 也给将来若有人回退时一个对照。
+ * ① 的不变量：**业务代码零裸 `fetch(`** —— 客户端每个模块都必须走 `src/api-client.js`。
+ * 不做"≤ 基线"的棘轮：终态就是 0，留一个基线数字只会让人以为还有余量。
  */
-const CLIENT_FETCH_BASELINE = 0;   // 终态：0（历史：26 → 20 → 16 → 13 → 8 → 0）
-const MODULE_FETCH_BASELINE = {    // 终态：全 0（历史峰值见注释）
-  'src/live-layer.js': 0,   // 曾 2
-  'src/media-prep.js': 0,   // 曾 1
-  'src/transcode.js': 0,    // 曾 2
-};
-const TOTAL_FETCH_BASELINE = 0;    // 终态：0（历史：13）
-
 let failed = 0;
 const check = (name, ok, detail) => {
   if (ok) console.log('  ✓ ' + name + (detail ? ' — ' + detail : ''));
   else { console.log('  ✗ ' + name + (detail ? ' — ' + detail : '')); failed++; }
 };
-/** 棘轮只认代码：调用点沿用短名 `strip`。 */
+/** 判据只认代码：调用点沿用短名 `strip`。 */
 const strip = stripComments;
 
-// ── ① 棘轮（**终态已到**：客户端全模块零裸 fetch）────────────────────────────
-console.log('\n① 裸 fetch 棘轮（业务代码只许减少）');
+// ── ① 零裸 fetch（客户端全模块）──────────────────────────────────────────────
+console.log('\n① 裸 fetch 清点（业务代码必须为 0）');
 {
   const count = (rel) => (strip(readFileSync(join(root, rel), 'utf8')).match(/\bfetch\s*\(/g) || []).length;
   const CLIENT_MODULES = [
@@ -189,7 +172,7 @@ console.log('\n⑤ 源码不变量');
     !/https?:\/\/[a-z0-9]/i.test(code) && !/localhost|127\.0\.0\.1/i.test(code));
 }
 
-// ── ⑥ 出入口必须真的在产物里（"孤儿模块"防线，P2-9 的教训）──────────────────
+// ── ⑥ 出入口必须真的在产物里（"孤儿模块"防线）────────────────────────────────
 // `src/api-client.js` 一度是**孤儿**：文件在、守卫在逐条测它，但它既不在 `INLINE_MODULES`
 // 里、也没有被任何文件 import ⇒ **从不进 bundle**。那时调用点一改用它就会 ReferenceError，
 // 而没有任何守卫会红 —— 浏览器半的模块只有登记进构建清单才存在。
@@ -208,10 +191,11 @@ console.log('\n⑥ 出入口已登记进构建清单、并真的进了产物');
 }
 
 // ── ⑦ Response 替身必须给出 `status`（`ok` 的唯一来源）──────────────────────
-// 教训（P2-9 第一次改写**回退的真因**）：`api-client` 的 `ok` 由 `response.status` 推出；
-// 替身若只写 `{ ok: true, json }`（没有 status），status 被读成 0 ⇒ **一律判失败**。
-// 症状却是"清单加载失败 → picker 按钮不渲染"，与网络层完全看不出关系，上次为此回退了一整批改写。
-// 所以把"替身形态"钉在这里：**同时带 `ok:` 与 `json:` 的替身对象必须带 `status:`**。
+// **不变量**：`api-client` 的 `ok` 由 `response.status` 推出；替身若只写
+// `{ ok: true, json }`（没有 status），status 被读成 0 ⇒ **一律判失败**。
+// 症状却是"清单加载失败 → picker 按钮不渲染"，与网络层完全看不出关系（**实测**：该形态
+// 曾导致一整批改写被整体回退）。所以把"替身形态"钉在这里：**同时带 `ok:` 与 `json:`
+// 的替身对象必须带 `status:`**。
 console.log('\n⑦ Response 替身必须带 status');
 {
   const walk = (dir, out = []) => {

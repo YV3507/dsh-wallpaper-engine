@@ -33,7 +33,7 @@ import vm from 'node:vm';
 
 // 渐变退役定时器 = ROTATION_FADE_MS + 100ms 宽限：从被测源码读常量，改时长
 // 不用同步改这里的硬编码。注意必须模块级定义 —— 场景 body 回调在模块作用域
-// 求值，runScenario 内部的局部常量它看不见（ReferenceError 教训）。
+// 求值，runScenario 内部的局部常量它看不见（那是 ReferenceError 的来源）。
 const FADE_GRACE_MS = Number(readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
   .match(/ROTATION_FADE_MS = (\d+)/)[1]) + 100;
 // 帧字节留存表的上限：同样**从产物读**。判据判的是"表被截到上限"，在这里抄死数字等于给
@@ -762,7 +762,7 @@ await runScenario('I. 领养后处于暂停/失焦：首帧看护必须暂停计
   t.clock.offset += 20000;
   for (let i = 0; i < 20; i++) if (tick) tick.fn();
   t.flushPersist();                             // 失败记忆只有落库后才可见（200ms 定时器）
-  check('暂停期间不得记入 sceneLiveFailures（旧实现在这里写 timeout 并永久降级）',
+  check('暂停期间不得记入 sceneLiveFailures（那一刻写 timeout 会导致永久降级）',
     !t.failureMemory()['s1'], JSON.stringify(t.failureMemory()));
   // 诊断日志默认档（无需任何开关）：关键事件直接进宿主 /diag 环形缓冲 —— 这台机器上
   // 打不开 DevTools，事后唯一的取证通道就是它，所以「默认有没有在记」必须被锁住。
@@ -805,7 +805,7 @@ await runScenario('J. 标签页隐藏：本轮轮换推迟（零驻留），可�
   check('隐藏期间不建 staging 渲染页（零驻留：不加载 pkg、不占显存）',
     t.stagingDivs().length === 0 && t.persistedId() === 'v',
     'staging=' + t.stagingDivs().length + ' id=' + t.persistedId());
-  t.clock.offset += 300000;                     // 隐藏 5 分钟（旧实现：反复加载/释放 staging）
+  t.clock.offset += 300000;                     // 隐藏 5 分钟（每一次复现都会重新加载/释放 staging）
   t.fireLatest(10000);                          // 下一个间隔又到点
   check('长时间隐藏期间始终不建 staging、不提交、不记失败',
     t.stagingDivs().length === 0 && t.persistedId() === 'v' && !t.failureMemory()['s1'],

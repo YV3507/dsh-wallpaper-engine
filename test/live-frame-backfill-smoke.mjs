@@ -23,8 +23,7 @@ function assertChildren(children) {
 // 用例：
 //   A 全黑画面（内容门禁）→ 只 HEAD、不 PUT；
 //   B 有画面 + 体积达标 → HEAD + PUT 全链走通，body 就是抓到的 blob；
-//   C 体积低于分辨率地板（1080p → 41472B）→ 不 PUT（旧实现固定 4KB 闸会放行，
-//     这条断言正是防它回归）；
+//   C 体积低于分辨率地板（1080p → 41472B）→ 不 PUT（判据是分辨率地板，不是固定字节闸）；
 //   D 槽位已有 GPU 帧且几何相符 → 连抓帧都不发生（缓存唯一性）；
 //   G 槽位已有 GPU 帧但几何不符（视比 1.5 vs 视口 1.7778）→ 先抓帧过门禁，再
 //     清槽、再 PUT（DELETE 必须早于 PUT）——「别的窗口/旧会话抓的帧」自愈；
@@ -281,7 +280,7 @@ console.log('B. 有画面 + 体积达标（正常链路）');
 console.log('C. 体积低于分辨率地板（1080p → 41472B）');
 {
   const r = await runScenario({ mode: 'varied', blobSize: 8192 });
-  check('不 PUT（旧实现的固定 4KB 闸会放行）', r.putCalls.length === 0, 'put=' + r.putCalls.length);
+  check('不 PUT（体积未过分辨率地板）', r.putCalls.length === 0, 'put=' + r.putCalls.length);
 }
 
 console.log('D. 槽位已有 GPU 帧 + 几何相符（缓存唯一性）');
@@ -349,8 +348,7 @@ console.log('F. P2-M：GPU 静帧落地后不得有任何 CPU 渲染（该路线
   const r = await runScenario({ mode: 'varied', blobSize: 120000, liveStall: true });
   // 目标形态：场景动画只保留 WebWallGL 一条路线，回退链是
   // MP4 → 静态帧 → 单张大图 → 内嵌图，**没有 CPU 动画渲染**（scene-anim / APNG 已删除）。
-  // 因此原先「降级后 CPU 渲染在跑 → 落地时必须取消它」的前提不复存在；这里断的是新的
-  // 不变量：整条流程里一帧 CPU 渲染都不许起（进度轮询/探针恒为 0）。
+  // 于是这里断的不变量是：整条流程里一帧 CPU 渲染都不许起（进度轮询/探针恒为 0）。
   check('live 失联降级后没有任何 CPU 动画渲染在跑（scene-anim 已删除）',
     r.animPollBefore === 0 && r.progBefore === 0,
     'poll=' + r.animPollBefore + ' prog=' + r.progBefore);
