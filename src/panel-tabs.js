@@ -537,6 +537,18 @@
         // color tints the whole window glass in BOTH themes.
         swatchRow(weT("玻璃颜色"), GLASS_COLOR_PRESETS, sel.glassColor, onGlassColor, { key: "glass-color" }),
         SliderRow(weT("玻璃透明度"), 0, 60, 5, sel.glassAlpha, onGlassAlpha, sel.glassAlpha + "%"),
+        // 左侧栏覆盖（默认关）：宿主原生左栏（会话列表 / 工作区那一列）在壁纸下只是
+        // 「透明的洞」—— 壁纸原样透出，本页的玻璃参数一个都到不了它。打开后这一列也
+        // 走同一张配方表（配色 / 玻璃颜色 / 玻璃透明度 / 雾化 / 边框），细节见
+        // styles.js 的「左侧栏覆盖」段；默认关 = 今天的样子，逐字节不变。
+        switchRow(weT("左侧栏覆盖"), sel.leftSidebarGlass === true, (e) => {
+          setSetting("leftSidebarGlass", e.target.checked);
+          emit();
+        }, {
+          key: "left-sidebar-glass",
+          hint: weT("左侧栏也跟随玻璃配方（配色 / 玻璃颜色 / 透明度 / 雾化 / 边框）"),
+          tooltip: weT("宿主原生左侧栏（会话列表 / 工作区那一列）默认直接透出壁纸、不吃玻璃参数。打开后它变成与其余界面同款的玻璃面板，跟随「配色 / 玻璃颜色 / 玻璃透明度 / 雾化 / 边框」；关闭即恢复原生观感。默认关。"),
+        }),
       ),
       // ── 细节：玻璃雾化深度 + 边框强调（原「效果」页签的两个材质细调项，
       //    与「主题」同属全局外观，故并入本页签）。──
