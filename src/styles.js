@@ -225,16 +225,16 @@ const CSS = `
        .xterm 需要近不透明底板是同一条理由），裁定见 harness-ui-surfaces.json。 */
     --dsw-alias-bg-layer-1: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-glass-color, #ffffff) calc(var(--we-glass-alpha, 0.5) * 0.9 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-glass-alpha, 0.5) * 0.9 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
     --dsw-alias-bg-layer-2: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-glass-color, #ffffff) calc(var(--we-glass-alpha, 0.5) * 1.0 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-glass-alpha, 0.5) * 1.0 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
     --dsw-alias-bg-layer-3: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-glass-color, #ffffff) calc(var(--we-glass-alpha, 0.5) * 1.1 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-glass-alpha, 0.5) * 1.1 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
     --dsw-alias-button-elevated-fill: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-glass-color, #ffffff) calc(var(--we-glass-alpha, 0.5) * 1.15 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-glass-alpha, 0.5) * 1.15 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
     /* Border emphasis: neutral gray so it reads on both light and dark themes;
        alpha is driven by the "边框" slider through --we-border-alpha. */
     --dsw-alias-border-l1: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
@@ -256,16 +256,16 @@ const CSS = `
        **缺省值**不同：深色玻璃底色是深海军蓝。 */
     --dsw-alias-bg-layer-1: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-glass-color, #0d1524) calc(var(--we-glass-alpha, 0.5) * 0.9 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+      color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) calc(var(--we-glass-alpha, 0.5) * 0.9 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
     --dsw-alias-bg-layer-2: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-glass-color, #0d1524) calc(var(--we-glass-alpha, 0.5) * 1.0 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+      color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) calc(var(--we-glass-alpha, 0.5) * 1.0 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
     --dsw-alias-bg-layer-3: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-glass-color, #0d1524) calc(var(--we-glass-alpha, 0.5) * 1.1 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+      color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) calc(var(--we-glass-alpha, 0.5) * 1.1 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
     --dsw-alias-button-elevated-fill: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-glass-color, #0d1524) calc(var(--we-glass-alpha, 0.5) * 1.15 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+      color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) calc(var(--we-glass-alpha, 0.5) * 1.15 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
     --dsw-alias-border-l1: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
     --dsw-alias-border-l2: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
     --dsw-alias-border-l2-darkmode-thin: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
@@ -322,14 +322,17 @@ const CSS = `
      backdrop-filter 的插件模态框、壁纸层的垫底画面（垫底不能透明，见 buildLivePoster）。
      它们改读这个令牌，从而与别名映射解耦。取值直接取宿主静态调色板里**别名本身的来源**
      （浅色 neutral-bluish-00 / 深色 neutral-bluish-875），静态令牌缺席时退回字面量。 */
+  /* 染色地板：--we-readability-base 不再是主题白/黑，而是玻璃色经亮度钳制后的
+     按主题版本（effects.js 的 weClampSurfaceColor 计算、--we-surface-tint-* 注入）
+     —— 色相跟随用户选择，亮度钳制保住 #82 的 ≥4.5:1 正文判据。缺省回落原值。 */
   body {
     --we-readability-floor: ${READABILITY_FLOOR};
-    --we-readability-base: #ffffff;
+    --we-readability-base: var(--we-surface-tint-light, #ffffff);
     --we-panel-color: var(--dsw-static-neutral-bluish-00, #ffffff);
   }
   body[data-ds-dark-theme] {
     --we-readability-floor: ${READABILITY_FLOOR_DARK};
-    --we-readability-base: #0d1524;
+    --we-readability-base: var(--we-surface-tint-dark, #0d1524);
     --we-panel-color: var(--dsw-static-neutral-bluish-875, #1e1f26);
   }
 
@@ -364,20 +367,20 @@ const CSS = `
   body[data-we-wallpaper] {
     --dsw-specific-input-major: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      rgba(255, 255, 255, var(--we-glass-alpha, 0.15)) calc((1 - var(--we-readability-floor)) * 100%));
+      rgba(var(--we-surface-tint-rgb-light, 255, 255, 255), var(--we-glass-alpha, 0.15)) calc((1 - var(--we-readability-floor)) * 100%));
     --dsw-specific-bubble: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      rgba(255, 255, 255, calc(var(--we-glass-alpha, 0.15) * 0.8)) calc((1 - var(--we-readability-floor)) * 100%));
+      rgba(var(--we-surface-tint-rgb-light, 255, 255, 255), calc(var(--we-glass-alpha, 0.15) * 0.8)) calc((1 - var(--we-readability-floor)) * 100%));
   }
   body[data-ds-dark-theme][data-we-wallpaper] {
     /* The ×0.4 / ×0.33 factors below only scale the TINT operand; the floor
        keeps its own weight, so the dark-theme undercut cannot happen. */
     --dsw-specific-input-major: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      rgba(255, 255, 255, calc(var(--we-glass-alpha, 0.15) * 0.4)) calc((1 - var(--we-readability-floor)) * 100%));
+      rgba(var(--we-surface-tint-rgb-dark, 255, 255, 255), calc(var(--we-glass-alpha, 0.15) * 0.4)) calc((1 - var(--we-readability-floor)) * 100%));
     --dsw-specific-bubble: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      rgba(255, 255, 255, calc(var(--we-glass-alpha, 0.15) * 0.33)) calc((1 - var(--we-readability-floor)) * 100%));
+      rgba(var(--we-surface-tint-rgb-dark, 255, 255, 255), calc(var(--we-glass-alpha, 0.15) * 0.33)) calc((1 - var(--we-readability-floor)) * 100%));
   }
   body[data-we-wallpaper] [data-composer-card],
   body[data-we-wallpaper] [class*="_bubble"],
@@ -721,13 +724,13 @@ const CSS = `
        所以每层都压在可读性下限的主题底色之下。 */
     --dsw-alias-bg-layer-1: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-glass-color, #ffffff) calc(var(--we-glass-alpha, 0.5) * 0.9 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-glass-alpha, 0.5) * 0.9 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
     --dsw-alias-bg-layer-2: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-glass-color, #ffffff) calc(var(--we-glass-alpha, 0.5) * 1.0 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-glass-alpha, 0.5) * 1.0 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
     --dsw-alias-bg-layer-3: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-glass-color, #ffffff) calc(var(--we-glass-alpha, 0.5) * 1.1 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-glass-alpha, 0.5) * 1.1 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
     /* Nav + interactive states tinted with the accent. */
     --dsw-specific-sidebar-nav-item-active: color-mix(in srgb, var(--we-accent, #4f8cff) 26%, rgba(255, 255, 255, 0.08));
     --dsw-specific-sidebar-nav-item-hover: color-mix(in srgb, var(--we-accent, #4f8cff) 13%, rgba(255, 255, 255, 0.05));
@@ -766,13 +769,13 @@ const CSS = `
     /* 设置窗口的整块面板（导航 + 每个原生分区）都承载文字 → 同样过下限。 */
     --dsw-alias-bg-layer-1: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-glass-color, #0d1524) calc(var(--we-glass-alpha, 0.5) * 0.9 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+      color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) calc(var(--we-glass-alpha, 0.5) * 0.9 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
     --dsw-alias-bg-layer-2: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-glass-color, #0d1524) calc(var(--we-glass-alpha, 0.5) * 1.0 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+      color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) calc(var(--we-glass-alpha, 0.5) * 1.0 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
     --dsw-alias-bg-layer-3: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-glass-color, #0d1524) calc(var(--we-glass-alpha, 0.5) * 1.1 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+      color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) calc(var(--we-glass-alpha, 0.5) * 1.1 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
     --dsw-specific-sidebar-nav-item-active: color-mix(in srgb, var(--we-accent, #4f8cff) 30%, rgba(255, 255, 255, 0.06));
     --dsw-specific-sidebar-nav-item-hover: color-mix(in srgb, var(--we-accent, #4f8cff) 14%, rgba(255, 255, 255, 0.04));
     background-image: linear-gradient(
@@ -786,14 +789,14 @@ const CSS = `
      readable (same policy as the skin's patches.css). */
   @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
     body[data-we-glass-window] [role="dialog"]:has([data-slot="settings.section"]) {
-      --dsw-alias-bg-layer-1: var(--we-glass-color, #ffffff);
-      --dsw-alias-bg-layer-2: var(--we-glass-color, #ffffff);
-      --dsw-alias-bg-layer-3: var(--we-glass-color, #ffffff);
+      --dsw-alias-bg-layer-1: var(--we-surface-tint-light, #ffffff);
+      --dsw-alias-bg-layer-2: var(--we-surface-tint-light, #ffffff);
+      --dsw-alias-bg-layer-3: var(--we-surface-tint-light, #ffffff);
     }
     body[data-ds-dark-theme][data-we-glass-window] [role="dialog"]:has([data-slot="settings.section"]) {
-      --dsw-alias-bg-layer-1: var(--we-glass-color, #0d1524);
-      --dsw-alias-bg-layer-2: var(--we-glass-color, #0d1524);
-      --dsw-alias-bg-layer-3: var(--we-glass-color, #0d1524);
+      --dsw-alias-bg-layer-1: var(--we-surface-tint-dark, #0d1524);
+      --dsw-alias-bg-layer-2: var(--we-surface-tint-dark, #0d1524);
+      --dsw-alias-bg-layer-3: var(--we-surface-tint-dark, #0d1524);
     }
     /* 同一个「无 backdrop-filter ⇒ 近不透明」政策也要覆盖**整窗**那层表面令牌：
        玻璃配方在没有模糊的内核上等于「半透明 + 无霜」，文字会直接落在壁纸上。
@@ -1720,7 +1723,7 @@ const CSS = `
     box-sizing: border-box;
     display: flex; flex-direction: column; gap: 10px;
     padding: 16px 18px; border-radius: 14px;
-    background-color: color-mix(in srgb, var(--we-glass-color, #ffffff) calc(var(--we-glass-alpha, 0.5) * 90%), var(--we-readability-base) calc(max(var(--we-readability-floor), 0.82) * 100%));
+    background-color: color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-glass-alpha, 0.5) * 90%), var(--we-readability-base) calc(max(var(--we-readability-floor), 0.82) * 100%));
     background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.03) 40%, rgba(255, 255, 255, 0.01));
     -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(1.2);
     backdrop-filter: blur(var(--we-blur, 16px)) saturate(1.2);
@@ -1771,7 +1774,7 @@ const CSS = `
     /* 插件自己的抽屉同样是文字面 → 同一层可读性下限。 */
     background-color: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-glass-color, #ffffff) calc(var(--we-glass-alpha, 0.5) * 72%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-glass-alpha, 0.5) * 72%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
     background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.05) 38%, rgba(255, 255, 255, 0.02));
     -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
     backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
@@ -1950,7 +1953,7 @@ const CSS = `
      settings-window/sidebar fallbacks, so panel text stays readable. */
   @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
     .we-repo-panel {
-      background-color: color-mix(in srgb, var(--we-glass-color, #ffffff) 92%, transparent);
+      background-color: color-mix(in srgb, var(--we-surface-tint-light, #ffffff) 92%, transparent);
       backdrop-filter: none; -webkit-backdrop-filter: none;
     }
   }
@@ -1997,16 +2000,16 @@ const CSS = `
   /* 设置窗口：把三层面板 token 钉回实色（@supports 回退里的同一条 token 覆写），
      并显式关掉不会生效的 backdrop-filter。 */
   body[data-we-glass-fallback][data-we-glass-window] [role="dialog"]:has([data-slot="settings.section"]) {
-    --dsw-alias-bg-layer-1: var(--we-glass-color, #ffffff);
-    --dsw-alias-bg-layer-2: var(--we-glass-color, #ffffff);
-    --dsw-alias-bg-layer-3: var(--we-glass-color, #ffffff);
+    --dsw-alias-bg-layer-1: var(--we-surface-tint-light, #ffffff);
+    --dsw-alias-bg-layer-2: var(--we-surface-tint-light, #ffffff);
+    --dsw-alias-bg-layer-3: var(--we-surface-tint-light, #ffffff);
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }
   body[data-ds-dark-theme][data-we-glass-fallback][data-we-glass-window] [role="dialog"]:has([data-slot="settings.section"]) {
-    --dsw-alias-bg-layer-1: var(--we-glass-color, #0d1524);
-    --dsw-alias-bg-layer-2: var(--we-glass-color, #0d1524);
-    --dsw-alias-bg-layer-3: var(--we-glass-color, #0d1524);
+    --dsw-alias-bg-layer-1: var(--we-surface-tint-dark, #0d1524);
+    --dsw-alias-bg-layer-2: var(--we-surface-tint-dark, #0d1524);
+    --dsw-alias-bg-layer-3: var(--we-surface-tint-dark, #0d1524);
   }
   /* 软件光栅器（data-we-glass-fallback）下同样把**整窗**的表面令牌钉回实色：
      玻璃配方在这一档等于「半透明 + 无霜」（模糊被下面的回退规则关掉），
@@ -2027,13 +2030,13 @@ const CSS = `
      载体是同一块表面，模糊没了就由它兜住底色，配方与上面 .we-repo-panel 逐字相同
      （同一个 --we-glass-color / 92%，未新增 token 或机制）。 */
   body[data-we-glass-fallback][data-we-wallpaper] [data-composer-card]::before {
-    background-color: color-mix(in srgb, var(--we-glass-color, #ffffff) 92%, transparent);
+    background-color: color-mix(in srgb, var(--we-surface-tint-light, #ffffff) 92%, transparent);
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }
   /* 仓库抽屉：与 @supports 回退逐字相同的 92% 近不透明配方。 */
   body[data-we-glass-fallback] .we-repo-panel {
-    background-color: color-mix(in srgb, var(--we-glass-color, #ffffff) 92%, transparent);
+    background-color: color-mix(in srgb, var(--we-surface-tint-light, #ffffff) 92%, transparent);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }

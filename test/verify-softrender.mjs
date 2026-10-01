@@ -370,9 +370,9 @@ function main() {
     //（UI 重构：仓库抽屉的右四分之一弹窗已退役，94% 那条配方随之从两处同时删除。）
     const recipes = [
       'color-mix(in srgb, var(--we-sidebar-color, #ffffff) 92%, transparent)',
-      'color-mix(in srgb, var(--we-glass-color, #ffffff) 92%, transparent)',
-      '--dsw-alias-bg-layer-1: var(--we-glass-color, #ffffff)',
-      '--dsw-alias-bg-layer-1: var(--we-glass-color, #0d1524)',
+      'color-mix(in srgb, var(--we-surface-tint-light, #ffffff) 92%, transparent)',
+      '--dsw-alias-bg-layer-1: var(--we-surface-tint-light, #ffffff)',
+      '--dsw-alias-bg-layer-1: var(--we-surface-tint-dark, #0d1524)',
     ];
     const shared = recipes.filter((r) => supportsText.includes(r) && fbText.includes(r));
     check('E2 reuse proven: every @supports fallback recipe also appears in a data-we-glass-fallback rule',
