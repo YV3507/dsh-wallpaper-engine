@@ -38,6 +38,9 @@
 // every emit — i.e. twice per slider tick (handler + subscribed applyEffects)
 // and on every 500ms transcode poll — a forced synchronous layout storm.
 let lastScrimCss = "";
+// 壁纸淡出底色的**缓存**（拖动期用；见 applyEffects 的 live 说明）。空串 = 还没算过 /
+// 已失效（壁纸透明度归零时清掉）。
+let lastFadeBg = "";
 
 // ── 输入光标颜色注入（#83）──────────────────────────────────────────────────
 // <style id="we-caret-patch"> 把 body 上的 --we-caret-color 应用到所有文本
@@ -134,7 +137,16 @@ function weClampSurfaceColor(hex, theme) {
   return toHex(rgb.map((v, j) => v * (1 - hi) + target[j] * hi));
 }
 
-function applyEffects() {
+function applyEffects(opts) {
+  // `live` = 拖动期的每一格（色板 / 滑块）。那些格子里只有"与本次改动相关的那几个样式"
+  // 需要更新，而下面几步与拖动无关却都不便宜 ⇒ 拖动期跳过、抬手那一次（无 opts）照跑：
+  //   · 字体样式表（snapshotHostFontDefaults + applyComponentFonts / removeFont*）
+  //   · 场景音频互斥（syncSceneAudio —— 音量滑块自己在处理器里同步，见 onVideoVolume）
+  //   · 壁纸淡出底色里的**强制同步样式计算**（getComputedStyle ⇒ 整页 style recalc；
+  //     拖动期沿用缓存值，它只随主题 / 宿主页面基色 / 有无壁纸变）
+  //   · scrim 的强制回流（拖动期每格都在重写，回流留给抬手那一次）
+  // 语义仍是同一个函数、同一份真源：样式变量照旧**全量**写，只是不重跑无关的重活。
+  const live = Boolean(opts && opts.live);
   const s = document.body.style;
   s.setProperty("--we-scrim-color", "rgba(0,0,0," + selection.scrim + ")");
   // Border emphasis: the border tokens are low-alpha hairlines; raise their
@@ -204,10 +216,14 @@ function applyEffects() {
   // 暗化（scrim）叠在壁纸之上：淡出壁纸时它会同时压暗页面底色。
   if (selection.wallpaperOpacity > 0) {
     s.setProperty("--we-wallpaper-opacity", String((100 - selection.wallpaperOpacity) / 100));
-    s.setProperty("--we-wallpaper-fade-bg", resolveWallpaperFadeBg());
+    // 拖动期沿用缓存（见函数头的 live 说明）：resolveWallpaperFadeBg 里那次
+    // getComputedStyle 是**强制同步样式计算**，每格一次会把拖动拖垮。
+    if (!live || !lastFadeBg) lastFadeBg = resolveWallpaperFadeBg();
+    s.setProperty("--we-wallpaper-fade-bg", lastFadeBg);
   } else {
     s.removeProperty("--we-wallpaper-opacity");
     s.removeProperty("--we-wallpaper-fade-bg");
+    lastFadeBg = "";
   }
 
   // Settings-page liquid-glass theming:
@@ -246,6 +262,13 @@ function applyEffects() {
   //   CSS below keys on; off restores the shell's stock look.
   if (selection.glassWindow) document.body.setAttribute("data-we-glass-window", "on");
   else document.body.removeAttribute("data-we-glass-window");
+
+  // 左侧栏覆盖：原生左栏（会话列表 / 工作区那一列）默认只是"透明的洞"——壁纸原样
+  // 透出，没有霜、也不吃玻璃参数。打开后 CSS 给那一列刷上与其余面板同一张配方表
+  // （配色 / 玻璃颜色 / 玻璃透明度 / 雾化 / 边框），关掉即逐字节恢复。
+  // 变量与开关节点的落点同玻璃窗口：body 属性 + 样式表规则，切换不需要重建任何东西。
+  if (selection.leftSidebarGlass) document.body.setAttribute("data-we-left-sidebar", "on");
+  else document.body.removeAttribute("data-we-left-sidebar");
 
   // dsh-better-sidebar 液态玻璃：一套独立于会话玻璃的细粒度控制（侧栏模糊 /
   // 侧栏透明度 / 侧栏玻璃颜色 + 总开关）。变量只作用于 [data-dsh-better-sidebar]
@@ -293,16 +316,18 @@ function applyEffects() {
   if (detectSoftwareRender()) document.body.setAttribute("data-we-glass-fallback", "1");
   else document.body.removeAttribute("data-we-glass-fallback");
 
-  // 字体自定义：**已无任何全局字体配置** —— 只剩「按角色」（颜色/排版/字重/字族，见
-  // src/font/color-roles.js 与 typography.js）与「按组件」（src/font/components.js）
-  // 两套作用域覆盖。这里只做两件事：取一次宿主角色色快照（面板要显示「当前默认色」）、
-  // 同步组件样式表（没配就当没有，清空样式表）。
-  if (selection.fontCustom) {
-    snapshotHostFontDefaults();
-    applyComponentFonts();
-  } else {
-    removeFontStyles();
-    removeComponentFonts();
+  if (!live) {
+    // 字体自定义：**已无任何全局字体配置** —— 只剩「按角色」（颜色/排版/字重/字族，见
+    // src/font/color-roles.js 与 typography.js）与「按组件」（src/font/components.js）
+    // 两套作用域覆盖。这里只做两件事：取一次宿主角色色快照（面板要显示「当前默认色」）、
+    // 同步组件样式表（没配就当没有，清空样式表）。
+    if (selection.fontCustom) {
+      snapshotHostFontDefaults();
+      applyComponentFonts();
+    } else {
+      removeFontStyles();
+      removeComponentFonts();
+    }
   }
 
   // 输入光标颜色（#83）：空 = 跟随 dsh 原生（清空变量 + 不注入样式表）；
@@ -315,14 +340,15 @@ function applyEffects() {
     s.removeProperty("--we-caret-color");
     removeCaretStyles();
   }
-  // 壁纸音轨随设置变化即时生效（音量滑块/总开关），场景包内音频同理。
-  syncSceneAudio(selection);
+  // 壁纸音轨随设置变化即时生效（音量滑块/总开关），场景包内音频同理。拖动期跳过：
+  // 音量滑块自己在处理器里同步（onVideoVolume），其余字段与它无关。
+  if (!live) syncSceneAudio(selection);
 
   // Scrim immediacy: some composited/kiosk environments do not repaint a
   // z-index:-1 layer promptly when only an inherited CSS variable changes.
   // Write the resolved color DIRECTLY onto the scrim element's inline style and
   // then force a synchronous layout — but ONLY when the value changed (see
-  // lastScrimCss above).
+  // lastScrimCss above), and NOT while dragging (拖动期每格都在重写，回流留给抬手)。
   const scrimCss = "rgba(0,0,0," + selection.scrim + ")";
   if (scrimCss !== lastScrimCss) {
     lastScrimCss = scrimCss;
@@ -331,7 +357,7 @@ function applyEffects() {
       scrim.style.background = scrimCss;
     }
     // Force reflow so a stalled compositor picks up the new value immediately.
-    if (document.body) {
+    if (!live && document.body) {
       void document.body.offsetHeight;
     }
   }
@@ -339,6 +365,7 @@ function applyEffects() {
 
 function clearEffects() {
   const s = document.body.style;
+  lastFadeBg = "";
   s.removeProperty("--we-scrim-color");
   s.removeProperty("--we-border-alpha");
   s.removeProperty("--we-blur");
@@ -359,6 +386,7 @@ function clearEffects() {
   s.removeProperty("--we-surface-tint-rgb-light");
   s.removeProperty("--we-surface-tint-rgb-dark");
   document.body.removeAttribute("data-we-glass-window");
+  document.body.removeAttribute("data-we-left-sidebar");
   s.removeProperty("--we-sidebar-blur");
   s.removeProperty("--we-sidebar-saturate");
   s.removeProperty("--we-sidebar-alpha");

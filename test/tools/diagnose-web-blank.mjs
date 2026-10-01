@@ -182,6 +182,9 @@ const errFd = openSync(errLog, 'w');
 const child = spawn(browser, [
   '--headless=new',
   '--enable-unsafe-swiftshader',   // 无头下要软件 WebGL2
+  // macOS：假钥匙串 —— 不给它，无头 Chromium 会去碰真钥匙串并弹「找不到…钥匙串」
+  // 对话框（本机实测复现）；其他平台无害。
+  '--use-mock-keychain',
   '--disable-gpu', '--disable-extensions', '--no-first-run', '--no-default-browser-check',
   `--user-data-dir=${profile}`,
   '--window-size=1280,720',

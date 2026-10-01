@@ -15,8 +15,9 @@
  *      锚点在场，且它身上的**计算样式是我们的** —— backdrop blur、独有 sheen 渐变、
  *      `--dsw-alias-bg-layer-1` 被我们替换成 --we-glass-color 的值。harness 改了
  *      dialog 结构 / slot 改名 ⇒ 锚点选择器落空 ⇒ 三条全红（#107 型回归的页面级抓手）；
- *   ④ 设置五个分区逐个点（通用/模型/插件/Agent 预设/Wallpaper Engine）：每页 dialog
- *      仍开、我们的样式仍在场、不新增指向本插件的运行期错误；
+ *   ④ 设置五个分区逐个点（通用/模型/插件/Agent 预设/壁纸引擎——本插件那枚在 UI 重构里
+ *      从「Wallpaper Engine」改名而来，按候选名匹配）：每页 dialog 仍开、我们的样式仍在场、
+ *      不新增指向本插件的运行期错误；
  *   ⑤ 右栏 panel：由 harness 内部状态门控（会话态下占据者仍可能不渲染），**在场才判**
  *      （展开 → open 属性 → 开态玻璃），缺席只记信息不判红 —— 包级/页面级两条线已覆盖它。
  *   ⑥ 表面令牌探针（#80 / #71）：compat 跑在空数据目录上（没有已选壁纸）⇒ 探针在**同一次
@@ -24,7 +25,11 @@
  *      与 `--dsw-alias-button-elevated-fill` 在锚点两侧的**计算样式**（再在 finally 里摘掉），
  *      并读侧栏「新建会话」按钮的实际 background-color。判据 = 「锚点在 ⇒ harness 的面拿到玻璃」；
  *      日志、刻意不接管的 markdown 代码块底各一条。回退档（软件光栅器）按模式取相反的期望值
- *      （令牌被钉回不透明面板色）。
+ *      （令牌被钉回不透明面板色）。**同一段探针**还覆盖「左侧栏覆盖」（leftSidebarGlass，
+ *      默认关）：左侧栏那一列的锚点是座位出口 [data-slot="sidebar"] 的父元素（哈希类名不可用），
+ *      取「裸页面 / 只盖壁纸锚点 / 再加开关 / 摘掉开关」四态的计算样式 —— 锚点改名或结构
+ *      变了 ⇒ 第一条就红；默认档与开关档必须一个不吃玻璃、一个拿到玻璃配方，摘掉开关
+ *      逐字段还原。
  *
  * 鉴权：dsh web 是 token → 303 + Set-Cookie；浏览器自带 cookie 处理，直接导航 token URL。
  * 弹窗：启动期挡路 dialog 用**结构化消法**（单按钮 dialog 直接点；多按钮按跳过型白名单
@@ -278,6 +283,11 @@ async function main() {
     '--disable-sync',
     '--no-ping',
     '--enable-unsafe-swiftshader',
+    // macOS 上给无头浏览器一个**假钥匙串**：不给它，Chromium 系（实测 Edge）会去碰
+    // 真钥匙串并弹「找不到用于存储…的钥匙串」对话框打断跑测的人（本机实测复现；
+    // 见 e2e-web-media-origin 同一条与 docs/DEV-GUIDE 的浏览器启动口径）。
+    // 其他平台该开关无害；win32 上 CI 无水可摸，传了是空操作。
+    '--use-mock-keychain',
     '--lang=zh-CN',
     '--window-size=1440,900',
     'about:blank',
@@ -333,7 +343,7 @@ async function main() {
         return { value: r.result.value };
       } catch (e) { return { error: String(e.message) }; }
     };
-    const evS = async (expression) => { const r = await ev(expression); return r.error === undefined ? r.value : null; };
+    const evS = async (expression) => { const r = await ev(expression); if (r.error !== undefined && process.env.DSH_WE_COMPAT_DEBUG) console.log('  [evS error] ' + String(r.error).slice(0, 400)); return r.error === undefined ? r.value : null; };
     const waitEv = (expression, timeoutMs = 10000, intervalMs = 300) =>
       waitUntil(async () => {
         const v = await evS(expression);
@@ -482,11 +492,17 @@ async function main() {
       })()`);
     }
 
-    const SECTIONS = ['通用设置', '模型', '插件', 'Agent 预设', 'Wallpaper Engine'];
+    // 五分区走查。最后一项是**本插件自己的分区**：UI 重构把它从「Wallpaper Engine」
+    // 改名成「壁纸引擎」（2026-09-30，见 docs/wip 的改版口径）⇒ 按**候选名**匹配
+    // （第一个在 DOM 里找得到的），判据盯的是「点得到 + 我们的样式仍在场」，
+    // 不盯死某个历史文案；两条候选都找不到才判红。
+    const SECTIONS = [['通用设置'], ['模型'], ['插件'], ['Agent 预设'], ['壁纸引擎', 'Wallpaper Engine']];
     const walk = [];
-    for (const sec of SECTIONS) {
+    for (const cands of SECTIONS) {
+      const sec = cands[0];
       const clicked = await evS(`(() => {
-        const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').trim() === ${JSON.stringify(sec)});
+        const names = ${JSON.stringify(cands)};
+        const b = [...document.querySelectorAll('button')].find((x) => names.includes((x.textContent || '').trim()));
         if (!b) return 0; b.click(); return 1;
       })()`);
       await sleep(600);
@@ -607,13 +623,45 @@ async function main() {
         };
       };
       const before = snap();
+      // 左侧栏覆盖（leftSidebarGlass）：那一列的锚点是座位出口 [data-slot="sidebar"]
+      // 的**父元素**（CSS 模块哈希类名不可用；出口自己 display:contents 不生成盒子）。
+      // 四个状态各取一次：裸页面 / 只盖壁纸锚点（默认关 = 不吃玻璃）/ 两个属性都盖
+      // （我们的配方）/ 再摘掉开关（必须回到"只盖壁纸锚点"那一档 ⇒ 默认关不改动）。
+      const colSnap = () => {
+        const cols = [...document.querySelectorAll('div:has(> [data-slot="sidebar"])')];
+        const col = cols[0] || null;
+        if (!col) return null;
+        const cs = getComputedStyle(col);
+        return {
+          matches: cols.length,
+          bg: cs.backgroundColor,
+          backdrop: cs.backdropFilter || cs.webkitBackdropFilter,
+          borderRight: cs.borderRightWidth + ' ' + cs.borderRightColor,
+          l3: String(cs.getPropertyValue('--dsw-alias-border-l3') || '').trim(),
+        };
+      };
+      const colBare = colSnap();
       let after = null;
+      let colWall = null;
+      let colOn = null;
+      let colOff = null;
       document.body.setAttribute('data-we-wallpaper', '');
-      try { after = snap(); } finally { document.body.removeAttribute('data-we-wallpaper'); }
-      return { before, after };
+      try {
+        after = snap();
+        colWall = colSnap();
+        document.body.setAttribute('data-we-left-sidebar', 'on');
+        colOn = colSnap();
+        document.body.removeAttribute('data-we-left-sidebar');
+        colOff = colSnap();
+      } finally { document.body.removeAttribute('data-we-wallpaper'); }
+      return { before, after, colBare, colWall, colOn, colOff };
     })()`);
 
-    const sp = (surfaceProbe && surfaceProbe.value) || null;
+    // ⚠️ `evS` 返回的是**值本身**（`ev` 才返回 {value} 包装）—— 这里曾写成
+    //     `surfaceProbe.value`，于是 sp 恒为 null、下面三条判据**恒红且看不出原因**
+    //     （bb06fc2 起一直如此：harness-compat 是派发制，没人重跑就没人发现）。
+    const sp = surfaceProbe || null;
+    if (process.env.DSH_WE_COMPAT_DEBUG) console.log('  [surfaceProbe raw] ' + JSON.stringify(surfaceProbe).slice(0, 900));
     // 两侧快照都在场才判（探针抛错时 evS 给 null ⇒ 这里的每条都落在"取不到 = 红"上）。
     const spOk = Boolean(sp && sp.before && sp.after);
     const SURFACE_TOKENS = ['layer1', 'layer2', 'layer3', 'elevated'];
@@ -641,6 +689,36 @@ async function main() {
           + ' after=' + String(sp.after.raisedBg).slice(0, 40));
     } else {
       console.log('  ℹ️ 侧栏「新建会话」按钮本次未渲染 —— 同一条令牌已由上面的令牌面判据覆盖，本条不判红');
+    }
+
+    // ── 左侧栏覆盖（leftSidebarGlass，默认关）───────────────────────────────
+    // 三件事：① 锚点（座位出口 [data-slot="sidebar"] 的父元素 = 左栏那一列）在真 harness
+    // 上唯一命中；② 默认档（只盖壁纸锚点）那一列**不吃**玻璃，开关打开才拿到我们的配方
+    // （正常档 = 玻璃色 + 雾化；回退档 = 近不透明 + 显式 none）；③ 摘掉开关即还原
+    // —— 后两条合起来保证「默认关 = 与今天逐字节相同」。
+    const col = (sp && sp.colOn) || null;
+    const colWall = (sp && sp.colWall) || null;
+    check('左侧栏覆盖·锚点唯一命中原生左栏（[data-slot="sidebar"] 的父元素）',
+      Boolean(col) && col.matches === 1,
+      col ? 'matches=' + col.matches : '没选到列元素（座位出口改名 / 结构变了 ⇒ 本条变红）');
+    if (col && colWall) {
+      // ⚠️ 这里读的是 **backgroundColor 的计算值** —— color-mix 已被浏览器解析成
+      //    color(srgb r g b / a)（不再含 color-mix 字面量）⇒ 认族要用 alpha + backdrop，
+      //    不能照抄上面按**自定义属性**取值那几条的 isGlassMix。
+      const wallAlpha = alphaOf(colWall.bg);
+      const onAlpha = alphaOf(col.bg);
+      const wallIsGlass = glassFb ? (wallAlpha !== null && wallAlpha >= 0.9) : /blur\(/.test(String(colWall.backdrop));
+      const onIsGlass = glassFb
+        ? (String(col.backdrop).trim() === 'none' && onAlpha !== null && onAlpha >= 0.9)
+        : (/blur\(/.test(String(col.backdrop)) && onAlpha !== null && onAlpha > 0 && onAlpha < 1);
+      check('左侧栏覆盖·关 = 那一列只透出壁纸（不吃玻璃）；开 = 拿到玻璃配方（回退档 = 近不透明 + 显式 none）',
+        !wallIsGlass && onIsGlass,
+        'fallback=' + (glassFb ? 1 : 0)
+          + ' · 关=' + String(colWall.bg).slice(0, 40) + '/α' + wallAlpha + '/' + String(colWall.backdrop).slice(0, 24)
+          + ' · 开=' + String(col.bg).slice(0, 40) + '/α' + onAlpha + '/' + String(col.backdrop).slice(0, 24));
+      check('左侧栏覆盖·摘掉开关即还原（打开档与默认档逐字段相同）',
+        JSON.stringify(sp.colOff) === JSON.stringify(colWall),
+        '壁纸档=' + JSON.stringify(colWall) + ' 摘开关后=' + JSON.stringify(sp.colOff));
     }
 
     check('设置页打开且锚点在场（:has([data-slot="settings.section"]) 选得到 dialog）',
@@ -697,11 +775,20 @@ function isGlassMix(value) {
   return /color-mix\(/.test(String(value || ''));
 }
 /** `rgb(r, g, b)` / `rgba(r, g, b, a)` 的 alpha（无 alpha 分量 = 1；认不出 = null）。 */
+/** `rgb(r, g, b)` / `rgba(r, g, b, a)` 的 alpha（无 alpha 分量 = 1；认不出 = null）。
+ *  color-mix 的计算值在 Chromium 里可能是 `color(srgb r g b / a)` 形式
+ *  （宽色域安全序列化，实测：`color(srgb 1 1 1 / 0.5875)`）—— 两种形态都要认，
+ *  否则玻璃配方一律判成"取不到"。 */
 function alphaOf(color) {
-  const m = /rgba?\(([^)]+)\)/.exec(String(color || ''));
-  if (!m) return null;
-  const parts = m[1].split(',').map((x) => Number(x.trim()));
-  return parts.length === 4 ? parts[3] : 1;
+  const s = String(color || '');
+  const m = /rgba?\(([^)]+)\)/.exec(s);
+  if (m) {
+    const parts = m[1].split(',').map((x) => Number(x.trim()));
+    return parts.length === 4 ? parts[3] : 1;
+  }
+  const c = /color\(\s*srgb\s+[^/)]+(?:\/\s*([\d.]+)\s*)?\)/.exec(s);
+  if (c) return c[1] === undefined ? 1 : Number(c[1]);
+  return null;
 }
 
 main().then(() => {
