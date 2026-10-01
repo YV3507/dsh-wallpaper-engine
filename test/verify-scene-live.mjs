@@ -1880,6 +1880,18 @@ check('设置入口按可读名字选触发钮（不再取文档序第一个 dia
     && sidebarSrc.includes('data-we-qp-entry') // 必须排除自己的「壁纸引擎设置 ›」入口（实测曾自误中递归）
     && sidebarSrc.includes('openSettingsBusy')); // 重入锁
 
+// 名字匹配必须**容忍宿主给标签加的修饰**：宿主左栏那颗入口实测文本是 `全局设置`（不是裸
+// `设置`），桌面壳里还有 `Global settings`。相等匹配在宿主换措辞时**静默**失效 —— 症状就是
+// 面板底栏那颗「壁纸引擎设置」点了没反应（诊断里落 `trigger=none` + 6s 后
+// `settings-entry-timeout dialog=false`）。判据钉**机制**：`isSettingsText` 走包含匹配，
+// 且候选集里带着那两条带修饰的宿主原文（照字面在册，见 verify-i18n 的 VALUE_ALLOW）。
+check('设置入口的名字匹配容忍宿主标签的修饰（包含匹配 + 长候选优先）',
+  /settingsLabelCandidates\(\)\s*\n?\s*\.slice\(\)\s*\n?\s*\.sort\(\(a, b\) => b\.length - a\.length\)/.test(sidebarSrc)
+    && /\.some\(\(c\) => t\.includes\(c\)\)/.test(sidebarSrc)
+    && !/settingsLabelCandidates\(\)\.includes\(t\)/.test(sidebarSrc)
+    && /push\("全局设置"\)/.test(sidebarSrc)
+    && /push\("Global settings"\)/.test(sidebarSrc));
+
 // 应用侧诊断：入口找没找到/点的是谁/有没有落到本节（写宿主 diag 文件，跨实例可回读）。
 check('设置入口带落盘诊断（settings-entry / settings-entry-timeout）',
   sidebarSrc.includes('reportClientDiag("settings-entry",')

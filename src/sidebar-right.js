@@ -298,9 +298,14 @@ function findAccountMenuTrigger() {
  *   不是靠改词表值能解决的 —— 改了会让那个动词按钮变成 "Settings"。
  *
  * 因此用**候选集**：把"我们这边的译文"（语言包 / 与宿主同语言时命中）与"宿主已知的原文形态"
- * 并列。后两条（`"设置"` / `"設定"`）是**宿主 DOM 的原文**、不是我们界面的文案，
- * 所以它们按字面保留、**不翻译**，并在 `test/verify-i18n.mjs` 的 `VALUE_ALLOW` 里登记了理由
- * （那两条豁免是"照字面匹配宿主"的正当例外）。任何一条命中即算。
+ * 并列。后几条（`"设置"` / `"設定"` / `"全局设置"` / `"Global settings"`）是**宿主 DOM 的原文**、
+ * 不是我们界面的文案，所以它们按字面保留、**不翻译**，并在 `test/verify-i18n.mjs` 的
+ * `VALUE_ALLOW` 里登记了理由（那几条豁免是"照字面匹配宿主"的正当例外）。任何一条命中即算。
+ *
+ * ⚠️ **匹配用「包含」而不是「相等」**：宿主的标签常带修饰（实测宿主左栏那颗是 `全局设置`，
+ * 桌面壳里还会出现 `Global settings`），而且可能再挂徽标 / 省略号；相等匹配在宿主换个措辞时
+ * 静默失效，包含匹配才容得下这些。候选串本身要足够特异 —— 本文件里用到它的两处
+ * （左栏触发钮、账号菜单项）都先排除自家入口，见 `isSettingsLabel`。
  */
 function settingsLabelCandidates() {
   const out = [];
@@ -309,12 +314,21 @@ function settingsLabelCandidates() {
   push("设置");                 // 内置中文（词表值是动词义，这里显式补名词义）
   push("Settings");             // 内置英文（同上）
   push("設定");                 // 繁体中文语言包
+  push("全局设置");             // 宿主左栏入口的措辞（实测；英文侧见下）
+  push("Global settings");      // 同上，英文
   return out;
 }
-/** 文本是否命中宿主「设置」入口的任一已知标签。 */
+/** 文本是否命中宿主「设置」入口的任一已知标签（包含匹配，见 candidates 上方说明）。 */
 function isSettingsText(text) {
   const t = String(text || "").trim();
-  return t.length > 0 && settingsLabelCandidates().includes(t);
+  if (!t) return false;
+  // **长候选先于短候选**：包含匹配下 `设置` 也能命中宿主里别的按钮（如第三方插件的
+  // 「按压泡泡设置」），只靠文档序裁决太脆。带上修饰的那几条（`全局设置` / `Global settings`）
+  // 更特异，排在前面，命中即返回。
+  return settingsLabelCandidates()
+    .slice()
+    .sort((a, b) => b.length - a.length)
+    .some((c) => t.includes(c));
 }
 /** 账号菜单弹出后的「设置」菜单项（role=menuitem）。 */
 function findSettingsMenuItem() {
