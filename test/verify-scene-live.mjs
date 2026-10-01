@@ -1655,8 +1655,16 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
         + ' crlf=' + JSON.stringify(ctxFieldsOf('renderAppearanceTab', lfSample.replace(/\n/g, '\r\n'))));
     const mentions = (text, f) => new RegExp('(^|[\\s,{])' + f + '\\s*[,:}]', 'm').test(text)
       || text.includes('"' + f + '"');
+    // ⚠️ P4-19 之后要连**节函数**一起收：拆分把字段从 `render*Tab` 搬到了 `render*Section` 里，
+    // 只读 Tab 那一层会得到空集（判据的 `>= 20` 会当场红 —— 它红得对，是口径没跟上代码）。
+    const allFieldsOf = (fn) => {
+      const domain = fn.replace(/^render/, '').replace(/Tab$/, '');
+      const secNames = [...tabsSrc.matchAll(new RegExp('function (render' + domain + '\\w*Section)\\(ctx\\)', 'g'))]
+        .map((m) => m[1]);
+      return [fn, ...secNames].flatMap((n) => ctxFieldsOf(n) || []);
+    };
     const wanted = ['renderAppearanceTab', 'renderEffectsTab', 'renderAudioTab']
-      .flatMap((fn) => ctxFieldsOf(fn) || []);
+      .flatMap((fn) => allFieldsOf(fn));
     const missing = wanted.filter((f) => !mentions(qpSrc, f));
     check('侧栏 ctx 覆盖渲染器要的全部字段（提供的字段 + setting-only 占位器），候选 ' + wanted.length + ' 个',
       wanted.length >= 20 && missing.length === 0, '缺：' + (missing.join(', ') || '无'));
@@ -1894,6 +1902,29 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
   };
   const sameSeq = (got, want) => got.length === want.length && got.every((x, i) => x === want[i]);
 
+  // ── 把"标签"从替身里**放回树里**：`SliderRow` / `switchRow` / `ctlText` 的标签本来就是
+  // 用户看得见的那一行文字，但 `noop` 把它们吞成 null ⇒ "控件标签的有序序列"就不可能成为判据。
+  // 这条细锚是 `renderEffectsTab` 需要的：它**只有一个节标签**，节顺序钉不住它的内部结构。
+  const REACT = globalThis.React;
+  const labelStub = (label) => (typeof label === 'string' && label
+    ? REACT.createElement('span', { className: 'stub-label' }, label) : null);
+  const PREV_STUBS = { SliderRow: globalThis.SliderRow, switchRow: globalThis.switchRow, ctlText: globalThis.ctlText };
+  globalThis.SliderRow = labelStub;
+  globalThis.switchRow = (label) => labelStub(label);
+  globalThis.ctlText = (label) => labelStub(label);
+  /** 树里**控件标签**的有序序列（`stub-label` = SliderRow / switchRow / ctlText 的标签）。 */
+  const labelSeq = (n, acc = []) => {
+    if (Array.isArray(n)) { n.forEach((x) => labelSeq(x, acc)); return acc; }
+    if (!n || typeof n !== 'object') return acc;
+    const cls = n.props && n.props.className;
+    if (typeof cls === 'string' && cls.includes('stub-label')) {
+      const txt = (Array.isArray(n.children) ? n.children : []).filter((c) => typeof c === 'string').join('');
+      if (txt) acc.push(txt);
+    }
+    if (Array.isArray(n.children)) n.children.forEach((x) => labelSeq(x, acc));
+    return acc;
+  };
+
   const st = Object.assign({}, schemaMod.DEFAULTS, {
     loaded: true, loading: false, id: 'w1', url: '/x', type: 'video', playing: true,
     videoPlaying: true, videoVolume: 0.5, videoAudioEnabled: false, videoError: '',
@@ -1915,6 +1946,10 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       label: '',
       mk: () => st,
       want: ['当前壁纸', '切换过场', '自动轮播', '自定义壁纸'],
+      // ⚠️ 实测：456 行的渲染器在「最小替身」下只吐出 3 个控件标签 —— 说明 `editing` / `groups` /
+      // `uploadedList` / `propsPanelOpen` 这些门关着时，四节里绝大部分内容**根本没被渲染**。
+      // 钉住现状不是认可它：门的另一侧一旦开始渲染，这条就会变红、逼人回来看（下一步就是开门）。
+      wantLabels: ['过场动画', '时长', '自动轮转'],
       ctx: (sel) => Object.assign({
         setSetting: noop, setTransient: noop, setPickerOpener: noop,
         INTERVALS: [5, 10, 30, 60], armedConfirm: '', cdMode: '', current: sel,
@@ -1935,6 +1970,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       label: '（视频壁纸：诊断节按门不画）',
       mk: () => st,
       want: ['浏览方式', '兼容性', '适配', '省电'],
+      wantLabels: ['紧凑布局', 'Edge 兼容', '适配目标', '最小化/切页时暂停', '使用电池时暂停'],
       adv: true,
     },
     {
@@ -1943,6 +1979,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       label: '（场景壁纸：诊断节出现且在最后）',
       mk: () => Object.assign({}, st, { type: 'scene', sceneLive: true, sceneLiveSrc: '/x' }),
       want: ['浏览方式', '兼容性', '适配', '省电', '实时渲染诊断'],
+      wantLabels: ['紧凑布局', 'Edge 兼容', '适配目标', '最小化/切页时暂停', '使用电池时暂停', 'live 诊断日志'],
       adv: true,
     },
   ];
@@ -1961,6 +1998,14 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     const seq = sectionSeq(tree);
     check(t.fn + t.label + ' 的节顺序与集合逐字不变', sameSeq(seq, t.want),
       'want=[' + t.want.join(' / ') + '] got=[' + seq.join(' / ') + ']');
+    if (t.wantLabels) {
+      const labels = labelSeq(tree);
+      check(t.fn + t.label + ' 的控件标签顺序与集合逐字不变', sameSeq(labels, t.wantLabels),
+        'want=[' + t.wantLabels.join(' / ') + '] got=[' + labels.join(' / ') + ']');
+    }
+    if (process.env.DSH_WE_SHOW_LABELS) {
+      console.log('    LABELS ' + t.fn + t.label + ' = ' + JSON.stringify(labelSeq(tree)));
+    }
   }
   // 负对照：同一个比较器对"顺序被换 / 少一节 / 多一节"都必须判坏（否则上面两条可能是恒真）。
   check('负对照：节顺序判据对换序 / 缺节 / 多节都有牙',
@@ -1981,11 +2026,20 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     return dm ? dm[1].split(',').map((s) => s.trim().split(':')[0].trim()).filter(Boolean) : [];
   };
   // 解构行里除少数几个"值形状"（fontSet / surface / sel）外全是处理器 ⇒ 其余一律 noop。
+  // ⚠️ 必须收**这个页签 + 它的节函数**的字段并集：P4-19 之后 `render*Tab` 自己只解构 `{ }`，
+  // 只读那一层会得到空集 ⇒ 处理器全是 undefined（此前一直没炸，只因没走到会**调用**它们的
+  // 分支 —— 字体节一打开就撞上 `officialColorOf is not a function`）。
   // ⚠️ `sel` 必须**跳过**：它不在 `known` 里，若不排除就会被 noop 覆盖 ⇒ `sel.id` 变 undefined
   // ⇒ 效果页签走上"还没有启用壁纸"的**空态提前返回**，节判据于是拿到空树而"照旧报"。
+  const allCtxFieldsOf = (fnName) => {
+    const domain = fnName.replace(/^render/, '').replace(/Tab$/, '');
+    const secs = [...tabsSrcNow.matchAll(new RegExp('function (render' + domain + '\\w*Section)\\(ctx\\)', 'g'))]
+      .map((m) => m[1]);
+    return [fnName, ...secs].flatMap((n) => ctxFieldsOf(n) || []);
+  };
   const ctxFrom = (fnName, sel, known) => {
     const c = { sel };
-    for (const n of ctxFieldsOf(fnName)) if (n !== 'sel' && !(n in known)) c[n] = noop;
+    for (const n of allCtxFieldsOf(fnName)) if (n !== 'sel' && !(n in known)) c[n] = noop;
     return Object.assign(c, known);
   };
   const FONTSET_STUB = {
@@ -1995,23 +2049,54 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
   };
   const MORE_CASES = [
     { fn: 'renderAppearanceTab', label: '（设置页：五节）', surface: 'settings',
-      want: ['主题', '细节', '全局字体', '输入光标', '窗口与侧栏'] },
+      want: ['主题', '细节', '全局字体', '输入光标', '窗口与侧栏'],
+      wantLabels: ['主题随壁纸', '玻璃透明度', '左侧栏覆盖', '雾化', '边框', '字体自定义', '设置窗口液态玻璃'] },
     // 侧栏档：被 `!sidebarSurface` 包住的三节不画 —— 这条门此前只有源码串，没有行为断言。
     { fn: 'renderAppearanceTab', label: '（侧栏档：设置页专属的三节不画）', surface: 'sidebar',
-      want: ['主题', '细节'] },
-    { fn: 'renderEffectsTab', label: '（画面 · 设置页）', surface: 'settings', want: ['画面'] },
-    { fn: 'renderEffectsTab', label: '（画面 · 侧栏档）', surface: 'sidebar', want: ['画面'] },
+      want: ['主题', '细节'],
+      wantLabels: ['主题随壁纸', '玻璃透明度', '左侧栏覆盖', '雾化', '边框'] },
+    // ⚠️ 这一条是**覆盖缺口**补上的：字体那一节的细节（颜色角色 / 排版角色 / 字体族 / 组件字体 /
+    // 字体集预设，~180 行）被 `sel.fontCustom` 挡着，而它的默认值是关 ⇒ **任何用例都没渲染过它**。
+    // 打开它才能让那些行第一次进入判据的视野（这本身是找缺陷，不只是补锚）。
+    { fn: 'renderAppearanceTab', label: '（设置页 · 字体自定义开）', surface: 'settings',
+      selOver: { fontCustom: true },
+      want: ['主题', '细节', '全局字体', '输入光标', '窗口与侧栏'],
+      wantLabels: ['主题随壁纸', '玻璃透明度', '左侧栏覆盖', '雾化', '边框', '字体自定义', '文字颜色角色', '深色单独设置', '正文', '次要文字', '弱化说明', '极小说明', '禁用 / 更弱', '排版角色', '只看改过的', '高级字体设置', '字体集预设', '设置窗口液态玻璃'] },
+    // 效果页**只有一个节标签** ⇒ 节顺序钉不住它的内部结构。这里用**控件标签的有序序列**作细锚：
+    // 它同样是行为级的（对任何重构不变），却细到能看见"某一行的位置被挪了 / 被删了"。
+    { fn: 'renderEffectsTab', label: '（画面 · 设置页）', surface: 'settings', want: ['画面'],
+      wantLabels: ['壁纸模糊', '亮度', '对比度', '饱和度', '壁纸透明度', '暗化', '倍速', '帧率上限', '适配', '水平翻转'] },
+    { fn: 'renderEffectsTab', label: '（画面 · 侧栏档）', surface: 'sidebar', want: ['画面'],
+      wantLabels: ['壁纸模糊', '亮度', '对比度', '饱和度', '壁纸透明度', '暗化', '倍速', '适配', '水平翻转'] },
   ];
   for (const t of MORE_CASES) {
     const known = { surface: t.surface, fontSet: t.surface === 'sidebar' ? undefined : FONTSET_STUB };
+    const sel = t.selOver ? Object.assign({}, st, t.selOver) : st;
     let tree = null;
     let err = '';
-    try { tree = panelMod[t.fn](ctxFrom(t.fn, st, known)); } catch (e) { err = String((e && e.message) || e); }
+    try { tree = panelMod[t.fn](ctxFrom(t.fn, sel, known)); } catch (e) { err = String((e && e.message) || e); }
     check(t.fn + t.label + ' 渲染得出', err === '', err || 'ok');
     if (err) continue;
     const seq = sectionSeq(tree);
     check(t.fn + t.label + ' 的节顺序与集合逐字不变', sameSeq(seq, t.want),
       'want=[' + t.want.join(' / ') + '] got=[' + seq.join(' / ') + ']');
+    // 细锚：**控件标签的有序序列**（`renderEffectsTab` 只有一个节标签，靠这条才钉得住内部结构）。
+    const labels = labelSeq(tree);
+    check(t.fn + t.label + ' 的控件标签顺序与集合逐字不变',
+      sameSeq(labels, t.wantLabels),
+      'want=[' + t.wantLabels.join(' / ') + '] got=[' + labels.join(' / ') + ']');
+    if (process.env.DSH_WE_SHOW_LABELS) {
+      const all = [];
+      (function walk(n) {
+        if (Array.isArray(n)) { n.forEach(walk); return; }
+        if (!n || typeof n !== 'object') return;
+        if (Array.isArray(n.children)) { for (const c of n.children) if (typeof c === 'string') all.push(c); }
+        if (Array.isArray(n.children)) n.children.forEach(walk);
+      })(tree);
+      console.log('    LABELS ' + t.fn + t.label + ' = ' + JSON.stringify(labels));
+      console.log('    STRINGS(' + all.length + ') hasFontPreset=' + all.some((s) => s.includes('字体集预设'))
+        + ' hasRole=' + all.some((s) => s.includes('角色')) + ' sample=' + JSON.stringify(all.slice(0, 14)));
+    }
   }
   // 负对照：上面这条"侧栏档少两节"必须真的来自门，而不是来自"侧栏档根本没渲染"。
   check('负对照：外观页侧栏档确实渲染出了内容（不是空树 ⇒ 上面的"少三节"才有意义）',

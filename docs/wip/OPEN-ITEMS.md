@@ -9,22 +9,31 @@
 > **下线**（写作纪律改由约定承担）。因此从那一刻起：**§5 的状态列是一份人工维护的账本，
 > 不再有机器兜底** —— 谎报状态不会变红。读它时请按"未经核对的记录"对待。
 >
+> ⚠️ **这条预言已经应验过一次，而且是它自己写的失败形态。** 本轮收口时实测到**四处失真**：
+> P3-28 记着"未提交"而工作早已入库、P2-11 记着"监视器失效"而监视器已重建、§3.1 记着
+> `panel-tabs.js` 仍是巨石而已拆完、本页原写着"46 已落地 / 1 未完成"这类会漂的数值。
+> 四处都**不会变红** —— 所以：**动过代码之后，回头核对与本次改动相关的那几行**，
+> 是这份文档唯一还生效的使用纪律（详见 CHANGELOG 的"账本真源修正"一节）。
+>
 > **还活着的部分**：§0 用法与状态图例 · §2 规模基线（上界棘轮）· §3.1–§3.3 现状锚点 ·
 > §5 状态列 · §7 触发线（第 6、7 条）· §9.1 令牌层约束（`V1–V10`）。
 >
-> **程序状态：本轮重构的主动部分已结项。** P0–P3 与 F 轨的步骤都已落地 —— §5 现为 **46 已落地 / 1 未完成**，
-> 而那一条（**P2-11**）受 §7 第 6、7 条**触发线**管辖：实测 `lib/index.js` 内的路由注册按路径首段
-> 各自成族、最大族**未达 3 条**，跨路由的"隔空故障"也未发生 ⇒ 按账本自己的规则**现在不该做**
-> （继续拆只会增加间接层）。
-> 触发线此前**已机器化**（过线时那一行会当场变红）；**随账本守卫下线，这个监视器现在失效了** ——
-> 这是本次改动的一处**真实覆盖损失**，已在
-> [`adr/0006`](../adr/0006-comment-discipline-as-written-convention.md) 的代价一节记明。
-> 需要恢复监视时，正确做法是把触发线判据搬进**代码旁**（如宿主路由族的实现注释 + 一条读代码的守卫），
-> 而不是把账本守卫装回来。
+> **程序状态：本轮重构的主动部分已结项。** P0–P3 与 F 轨的步骤都已落地；§5 里唯一**未完成**的是
+> P4-13（收 body 管道收敛成一个 `readBody()`），P2-11 与 P4-19 是"已落地但等触发条件 / 有余项"。
+> **进度条数不写在这里**（会漂，且 [ADR-0006](../adr/0006-comment-discipline-as-written-convention.md) D2 禁止）：
+> 总数 `grep -c '^| P[0-9]' docs/wip/OPEN-ITEMS.md`，未完成 `grep '^| P[0-9]' docs/wip/OPEN-ITEMS.md | grep -c '⬜'`。
+> **P2-11** 受 §7 第 6、7 条**触发线**管辖：实测路由按路径首段各自成族、最大族**未达 3 条**，
+> 跨路由的"隔空故障"也未发生 ⇒ 按账本自己的规则**现在不该做**（继续拆只会增加间接层）。
+> 触发线**现在由读代码的守卫看守**：`test/verify-route-families.mjs`（在 `npm run verify` 硬档链里，
+> 过线即红；**红 = 该回来裁决**：拆族 或 改 §7-6 的线，处置方式写在它的文件头）。它正是照本页原先
+> 指出的正确做法建的 —— 判据搬到**代码旁**，而不是把账本守卫装回来。当前读数：
+> `node test/verify-route-families.mjs` ⇒ `ROUTE-FAMILY TRIGGER NOT FIRED (below the line)`。
 >
 > **结项后这份文档怎么用**：① **不再驱动主动的结构改动**（§5 里没有"过了线却没做"的项）；
-> ② 判据**不再**由机器核对（见上）；③ **新的结构性机会另起一份账本**（本文件的顺序与验收判据是为这一轮定的）；
-> ④ 该线**全部**收口后本文才整份移入 `archive/` —— 现在那一条是"等触发条件"，不是"已收口"。
+> ② §5 的状态列**仍由人维护、不再有机器兜底**（失败形态已实测，见本页开头那条警告）；
+> **唯一机器看守的**是 P2-11 的触发线（`verify-route-families`）；③ **新的结构性机会另起一份账本**
+> （本文件的顺序与验收判据是为这一轮定的）；④ 该线**全部**收口后本文才整份移入 `archive/` ——
+> 现在那一条是"等触发条件"，不是"已收口"。
 >
 > 写作纪律（不写实现细节 / 不写编年史 / 已完成项每条一句）住在 [`docs/README.md`](../README.md) §写作纪律。
 
@@ -86,7 +95,7 @@
 
 | 巨石 | 复算 | 锚点 |
 |---|---|---|
-| `WallpaperPicker` 组件 | `(Get-Content src/client.js).Count` 配合它的起止行（`grep -n 'function WallpaperPicker'`） | `src/client.js`；模型 / 模态框 / 属性面板已抽到 `src/picker-*.js`。六个页签渲染器在 `src/panel-tabs.js` —— ⚠️ 该文件**本身**仍是"5 个巨型渲染函数装在一个文件里"（`renderWallpaperTab` / `renderAppearanceTab` / `renderEffectsTab` 各数百行），是全仓最大的理解单元 |
+| `WallpaperPicker` 组件 | `(Get-Content src/client.js).Count` 配合它的起止行（`grep -n 'function WallpaperPicker'`） | `src/client.js`；模型 / 模态框 / 属性面板已抽到 `src/picker-*.js`，七个页签渲染器在 `src/panel-tabs.js`。⚠️ **本行原写"该文件本身仍是 5 个巨型渲染函数各数百行、是全仓最大的理解单元"——P4-19 之后已不成立**：`renderWallpaperTab` / `renderAppearanceTab` / `renderAdvancedTab` 现在各自只剩一张"按顺序组装各节"的清单（十几行），真正的画法按节住在 `render*Section` 里，每个节只解构自己用到的 ctx 字段。**复算**：`node test/verify-scene-live.mjs`（节顺序判据会打印每个页签的节序列；它同时是这些子渲染器的接缝守卫）或直接扫 `^  function render\w+\(ctx\) \{` 的体量。**唯一剩下的百行级渲染器是 `renderEffectsTab`**（只有一个节标签 ⇒ 拆它要先换锚，见 P4-19 行的余项） |
 | `apply(ctx)` 宿主函数 | `node test/tools/analyze-host-apply.mjs`（打印体量 / 分支代理 / 闭包状态 / 路由族 / 族内巨石） | `lib/index.js`；已拆出 **8 个**族模块到 `lib/routes/`（`about-qr` / `diag` / `fontsets` / `github-stars` / `now-playing` / `scene-frame` / `scene-serve` / `upload`） |
 
 ⚠️ **复杂度的分布比总量更值得注意**：`lib/media/` 分层清楚。
@@ -108,8 +117,14 @@
   连那条 TEX→RGBA 解码链整体删净）·
   ~~设置键 4 处镜像~~（P1-5 ✅）· ~~缓存键两处构造~~（P1-6 ✅）。
   ⇒ **只剩"双媒体后端并存"，那是有意保留的设计选择**，不是待办。
-- **"收 body"的管道**：曾八条路由各写一份（§审计 6.2），其中**缺上限**的一类已由
-  `test/verify-body-caps.mjs` 从磁盘枚举看住（新增路由自动进面）；**收敛成一个 `readBody()` 仍未做**。
+- **"收 body"的管道**：曾八条路由各写一份（§审计 6.2）。**P4-13 已收敛**：
+  **累加 · 字节计闸 · 一次解码**这三件事现在只有一份实现 `lib/http-body.js` 的 `bodyReader()`，
+  9 个缓冲站点全部改走它；只剩**两处结构性豁免**（`/upload` 的 512MB 与 `/custom-frame`
+  —— 它们边收边写 `.tmp` + 背压，**不许**把体缓冲进内存）。判据
+  `test/verify-body-caps.mjs` 现在管四件事：内联收集器**必须**在回调体内有闸（逐站点名）·
+  内联收集器数 **≤ 2** 的棘轮 · 共享读体器调用点 **≥ 9** 的地板 · 以及
+  "调用点里被置位的标志必须在它之前声明过"（**这条补的是行为判据的盲区**：迁移时实测漏了
+  三处 `let done/tooLarge` 声明，其中 `/we-assets-dir` 一处**没有任何用例往它 POST 过体**）。
 
 ### 3.3 耦合度：**一个真接缝 + 一堆全局变量**
 
@@ -153,7 +168,7 @@
 |---|---|---|
 | P2-9 | `src/api-client.js` 成为宿主 API **唯一出入口**；客户端 13 个模块**零裸 `fetch`**（棘轮 26 → 0）；持久化层抽出为 `src/persistence.js` | ✅ |
 | P2-10 | 六个页签抽出到 `src/panel-tabs.js`（**显式 ctx**）；store 写入收敛到 `setSetting` / `setTransient`（"赋值 + 落盘"手抄 50 → 0，页签零 `selection` 引用） | ✅ |
-| P2-11 | 宿主 `apply(ctx)` **按路由族拆分**：第一族 `diag` 已落地 → `lib/routes/diag.js`（4 条注册）。**验收判据**：`lib/index.js` 内零 `webServer.register({`、索引逐字节一致、运行时注册条数 == 索引行数。剩余族按 §3.5 的固定动作推进，触发条件见 §7 第 6、7 条。**§7-6 实测（机器判据，已复评）**：`lib/index.js` 内 **13 条注册字面量展开为 14 条路由，14 个首段各不相同、最大组 1 < 3** ⇒ **没有任何族达到 ≥3 条**，按账本自己的规则**不拆**（待过线，或 §7-7 的跨路由隔空故障把优先级提上来）。**触发线原由机器看守**：`test/verify-ledger.mjs` 的 `P2-11` 证据①「§7-6 触发线未过：`lib/index.js` 内路由按路径首段归组、最大组 < 3」（某族长到 3 条它当场变红 ⇒ 回来裁决：拆族 或 改 §7-6 的线）+ 证据②「族模块与 `apply` 调用一一对应」（孤儿族模块 / 族数少于族数下限判红）。⚠️ **该守卫已随 ADR-0006 下线 ⇒ 这个监视器现在失效**，需要恢复时应把这条判据搬进读代码的守卫（见 §7 第 6 条的复算方式）。 | 🟡 6 族已落地；剩余族**未过触发线**（原为机器判据，现需人工复算） |
+| P2-11 | 宿主 `apply(ctx)` **按路由族拆分**：第一族 `diag` 已落地 → `lib/routes/diag.js`（4 条注册）。**验收判据**：`lib/index.js` 内零 `webServer.register({`、索引逐字节一致、运行时注册条数 == 索引行数。剩余族按 §3.5 的固定动作推进，触发条件见 §7 第 6、7 条。**§7-6 实测（机器判据，已复评）**：`lib/index.js` 内 **13 条注册字面量展开为 14 条路由，14 个首段各不相同、最大组 1 < 3** ⇒ **没有任何族达到 ≥3 条**，按账本自己的规则**不拆**（待过线，或 §7-7 的跨路由隔空故障把优先级提上来）。**触发线原由机器看守**：`test/verify-ledger.mjs` 的 `P2-11` 证据①「§7-6 触发线未过：`lib/index.js` 内路由按路径首段归组、最大组 < 3」（某族长到 3 条它当场变红 ⇒ 回来裁决：拆族 或 改 §7-6 的线）+ 证据②「族模块与 `apply` 调用一一对应」（孤儿族模块 / 族数少于族数下限判红）。⚠️ **该守卫已随 ADR-0006 下线 —— 但这条监视器已经按 §7 第 6 条的复算方式重建为读代码的守卫**：`test/verify-route-families.mjs`（在 `npm run verify` 硬档链里；红 = 该回来裁决，处置方式写在它的文件头）。当前复算：`node test/verify-route-families.mjs` ⇒ `ROUTE-FAMILY TRIGGER NOT FIRED (below the line)`（36 条路由 / 最大族 2 < 3） | 🟡 6 族已落地；剩余族**未过触发线**（监视器已恢复为 `verify-route-families`，读数见左） |
 | P2-12 | **静态帧线整体移除（5 阶段）**：删死树 48 文件 / 9,618 行 + 提取链 + 预热，键改名 `lf1`，客户端值域收缩为 `{0,4}`，术语收口。**可达性 0 / 0**。契约与仍在生效的裁定见 §6 | ✅ |
 
 ### P3 —— 未归口 / 未声明的需求（与 P2 并列，互不阻塞）
@@ -192,7 +207,7 @@
 
 
 | P3-27 | **本 fork 的硬化刀（10 个提交，已随"追版本"合并上游）**：① 剥注释统一到**字符串感知**实现（`test/tools/js-text.mjs`，16 处迁移）+ 规则 ⑦（禁朴素正则、白名单只许缩小）；② **store 写入契约两侧补齐** —— 瞬态字段经 `setTransient`（属主零裸写 ①d + 跨模块上界棘轮 ①e）、持久化字段必须与落盘配对（①g；并修掉"导入自定义画面在无 `sceneFrameUrl` 时不落盘"那处**真实漏洞**）；③ "改了 store 却不通知"钉到**处理器级**（①h）与**分支级**（①i，与 `test/tools/branch-notify.mjs` 同源），扫描面**派生**自 `INLINE_MODULES`（新模块自动进面）；④ 工具清单进 `docs/DEV-GUIDE.md` §4.6（当时名为 `docs/TEST-LAYOUT.md`）+ 规则 ⑧；⑤ `harness-compat-baseline.mjs` 的**"追尾"修复**（按**内容身份** `plugin.revision` 判重 ⇒ 基线提交不再把插件 commit 推着走，与上游的"推送竞态"修法互补）。**验收判据**：见 `verify-ledger` 的 `P3-27` 五条证据 | ✅ |
-| P3-28 | **场景载荷改走自建源 + `/scene-files` 围栏补第二层**：① 场景渲染页的 `mediaBase` 由**宿主**给出（`inventory.sceneMediaBase`，按"库里真有 `sceneLive` 的场景"门控、失败落空串），客户端不再自己拼 `location.origin`；② **媒体源接住根路径 `/diag`**（渲染页信标打 `{mediaBase origin}/diag`，否则场景首帧超时时告警 404 静默丢失），走诊断族**同一个** `handleDiag`（经出参 `onHandleDiag` 交付，保持调用点的语句形态以免被判成孤儿族模块）；③ `/scene-files` 的目录围栏补第二层 —— `lstatSync` 拒链接 + **`realpathSync.native`** 包含性比对（JS 版 realpathSync 在 Windows 上不解析 junction），且该层 **fail-closed**。**验收判据**：`test/verify-scene-live.mjs` 的 4 条新判据（含 3 条负对照 / 平台跳过显式记账）转绿 + `verify:all` 全绿 | 🟡 工作区已落地并配判据、**未提交**（`verify` 已绿；提交并跑通 `verify:all` 后翻 ✅） |
+| P3-28 | **场景载荷改走自建源 + `/scene-files` 围栏补第二层**：① 场景渲染页的 `mediaBase` 由**宿主**给出（`inventory.sceneMediaBase`，按"库里真有 `sceneLive` 的场景"门控、失败落空串），客户端不再自己拼 `location.origin`；② **媒体源接住根路径 `/diag`**（渲染页信标打 `{mediaBase origin}/diag`，否则场景首帧超时时告警 404 静默丢失），走诊断族**同一个** `handleDiag`（经出参 `onHandleDiag` 交付，保持调用点的语句形态以免被判成孤儿族模块）；③ `/scene-files` 的目录围栏补第二层 —— `lstatSync` 拒链接 + **`realpathSync.native`** 包含性比对（JS 版 realpathSync 在 Windows 上不解析 junction），且该层 **fail-closed**。**验收判据**：`test/verify-scene-live.mjs` 的 4 条新判据（含 3 条负对照 / 平台跳过显式记账）转绿 + `verify:all` 全绿 | ✅ **已入库并复验**（这一刀当时留在工作区，随 P4-1…P4-16 的汇总提交一起入库；`verify:all` 全绿）。**复算命令**（本行原写"未提交"，是对着工作区写的、后来失真）：`grep -n 'realpathSync.native' lib/index.js`（第二层围栏）· `grep -n 'sceneMediaBase\|onHandleDiag' lib/index.js`（宿主给媒体源 / 诊断族共用 handler）· `node test/verify-scene-live.mjs` 的「目录围栏的第二层」一节（含"同目录普通文件照旧 200"的反空转负对照与"链接建不出来就记账"的平台跳过） |
 
 ### P4 —— 上一轮**只读审计**欠账的收口（条目出自 [`POST-REFACTOR-AUDIT.md`](./POST-REFACTOR-AUDIT.md)）
 
@@ -214,14 +229,14 @@
 | P4-10 | **`verify-scene` 的悬空锚点**：`sceneFrameSlotFile` 全仓不存在 ⇒ 判据在扫全文却报绿；改为按下一个顶层函数取边界 + **缺锚即红** + 负对照 | ✅ |
 | P4-11 | **文档/注释与实现矛盾的九处**（`theme-follow` 阈值 · `effects` "只读" · 轮换间隔 · 已删除的"预热写盘"不变量 · `live-layer` 编年史注释 · `CONTRIBUTING` 的模块数 · `HOW-IT-WORKS` 的 §9.5 引用 · 死夹具 `fontSetNewName`/`newName` · `en/TROUBLESHOOTING` 缺整节）+ **账本数字按 ADR-0006 D2 退场** | ✅ |
 | P4-12 | **账本 §3.2 的复制率结论方向是反的**：那 9.6% 是生成物 `lib/client.js` 把 `src/**` 又装了一遍造成的**度量假象**；已更正并写明"必须排除生成物与 vendored + 必须写明作用域" | ✅ |
-| P4-13 | **`verify-body-caps` 的"八条路由各写一份收 body 管道"仍未收敛**成一个 `readBody()`（审计 §6.2 的修法方向）。现状：**只保证有上限**，不保证只有一份实现 —— 属有意留到下一刀 | ⬜ |
+| P4-13 | ✅ **已完成**：`verify-body-caps` 的"八条路由各写一份收 body 管道"收敛成一个共享读体器。**做法（先补判据再搬）**：① 新建 `lib/http-body.js` 的 `bodyReader(req, { maxBytes, shouldStop?, onOverflow? })` —— 它只吃**真正重复的那三件事**（累加 / 按累计字节计闸 / `Buffer.concat` 后只解码一次），应答 · 超时 · 断开收口仍留在各调用点（各站策略不同，抽象进来只会把差异藏进参数）；② 分类实测：**11 个收集器 = 9 个"缓冲"站点 + 2 个"流式落盘"站点**（`/upload` 512MB、`/custom-frame` 边收边写 + 背压）⇒ 后者是**结构性豁免**（不许把体缓冲进内存），不是待迁移项；③ 9 个站点逐个改走 `bodyReader`（`index.js` ×3 · `routes/upload.js` ×2 · `routes/scene-frame.js` ×1 · `routes/diag.js` · `routes/fontsets.js` · `routes/now-playing.js`）；④ 判据从"每个站点都要有闸"升级为**四条**：内联收集器必须有闸（逐站点名，流式那两处也在这里被点名）· 内联收集器数 **≤ 2** 的棘轮 · 共享读体器调用点 **≥ 9** 的地板 · 每个 `X.onData` 必须真的来自同文件的 `bodyReader(...)`（`foo.onData` 蒙混不过去）。**判据与实现同交**：`verify-scene` 三条"体积判定与用例一致"的 `needle` 从 `size > X` 改指 `maxBytes: X`（同一个事实、新位置，不是放宽）。⚠️ **迁移过程实测踩中一条真 bug 族**：把 `let done/tooLarge = false` 从内联回调里挪走时**漏声明三处**，`shouldStop`/`onOverflow` 是闭包 ⇒ 一收体就 ReferenceError；行为判据只抓到其中 `/client-diag` 一处，**`/we-assets-dir` 那处没有任何用例往它 POST 过体**（行为判据的盲区）⇒ 为此补了第五条判据"调用点里被置位的标志必须在它之前声明过"（只认 `NAME = true\|false\|数字` 的布尔/计数标志形态，字符串里的 `charset=utf-8` 不误判），**牙齿实证**：去掉一处声明 ⇒ 红并点名 `lib/index.js:tooLarge` | ✅ |
 | P4-14 | **`lib/pkg-extract.js` 整体退役 + vendored `jpeg-js` 删除**（审计 §6.1）。实测：从**唯一活入口** `parseTex` 出发，**430 / 645 行**不可达（`decodeTex` 及其全部解码助手 · `decodePngPayload` · `extractTexVideoMp4` · `PNG_GATE_MAX_PIXELS`）；该模块对宿主的**全部**价值只是 re-export `parsePkg` / `readPkgEntry`，而那两个的实现本来就在 `lib/pkg-read.js`。两处 `await import('./pkg-extract.js')` 改指 `./pkg-read.js`，`package.json` 的 `files` 删掉 `lib/pkg-extract.js` 与 `lib/vendor/`。⚠️ **审计那句"`decodeTex` 仍被 `scene-manifest.js` 使用 ⇒ 别误删"是错的**：那处是**注释**（`scene-manifest.js:25`），该文件从头到尾 import 的是 `./pkg-read.js` —— 把注释当调用读。当年真正钉住它的是账本守卫里一条"活依赖存活"断言（检查字符串 `function extractTexVideoMp4(` 存在），该守卫随 ADR-0006 下线后阻碍才消失。**判据**：`test/verify-retired-lines.mjs` ④（退役词在扫描面零残留 + 文件/`files`/副本三条存在性断言 + 负对照）——按"反向探针先于删除"**先加探针、让它红着列出 10 个待清点、再删** | ✅ |
 | P4-15 | **`src/panel-tabs.js` 兑现自己的模块头契约**（审计 §6.3）。实测越界不在"写 selection"（那条一直是零），而在判据**看不见**的两类：① 直接 `emit()`（4 个渲染器共 22 处）；② 改写**模块级状态**（`propsPanelOpen = !…` / `pickerFocusPending` / `pickerOpener = el`）与 **ctx 别名指向的东西**（`editing.name/interval/order =`，而 `editing` 就是 `selection.editing`）—— 后者连 `selection.` 字面量都不含，所以那条"只数字面量"的判据一直放行。**为什么审计说它是"真接缝缺口"**：同一刀拆出去的 `picker-modal.js` / `picker-props-panel.js` 早就在严口径下（`selection` 零引用 + `emit(` 零调用），只有本文件不在那张表里。**做法**：把 26 处内联"写 + 通知"抽成 `src/client.js` 的**具名处理器**（`onTogglePropsPanel` / `openPicker` / `on*EditDraft` / `onToggleSceneLive`（五件副作用一起）/ `onFpsCap` / `onObjectFit`（含 Edge canvas 重绘）/ `onToggleLiveDiag` …），经 ctx 传入；页签只剩 `onClick: onFoo`。**判据**：把 `panel-tabs.js` 加进 `verify-client` 的 `RENDERERS`（与另两个渲染器同口径），并新增一条**别名/模块状态改写**判据（赋值 + 成员赋值 + 原地变更三类形态，纯读取与注释提及不误伤）。**牙齿实证**：三类各注入一次 ⇒ 各自红且**点名**（`propsPanelOpen` / `editing` / `不得自己发通知`），还原后 `verify-client-sync` 重建**逐字节一致**。**连带**：`verify-scene-live` 三条"面板 → live"跨文件接线判据随调用点迁移而更新（**两端都钉**：处理器真的做 + 面板确实引用），侧栏 ctx 覆盖名单与真渲染挂载台同步扩面 | ✅ |
 | P4-16 | **`sceneFrameSlot` 只留唯一产物**（审计 §6.4）。删掉**零消费者**的三个路径字段 `pngPath`/`jpgPath`/`gifPath`（静态帧提取线遗留）与 `dir`，以及**从没有活调用点会传**的 `_vN` 档位后缀 ⇒ 返回收敛为 `{ key, gpuPath }`（`key` 是 PUT 的写去重锁键，仍在用）。**连带修掉那次白工**：档 4（用户 pin 的自定义封面，**豁免**抓帧）此前仍会 `sceneFrameSlot(abs, 4)` 解析一次槽位 —— 做一次 `statSync` + `ensureFrameCacheDir()`，而产出的路径**永远不会被读**（`gpuFrameFileFor` 对档 4 早就 `return null`）。现在豁免在**调用方**判定（`variant === 4 ? null : gpuFrameFileFor(sceneFrameSlot(abs))`）⇒ 档 4 连槽位都不解析；`gpuFrameFileFor` 同时去掉 `variant` 参数与那条只对 1/2/3 生效、而值域是 `{0,4}` 的死分支。**判据**（`test/verify-scene.mjs`）：死字段在 `lib/` 零残留（**先剥注释再判** —— 解释"为什么删"的注释必须能点名它们）+ **返回恰好两个字段**（按数量判，不按名字：`dir` 在本函数里合法地作为局部变量存在）+ 无档位参数/无 `_v` + 豁免点不解析槽位，四条各带对照；**牙齿实证**：重加 `dir`+`pngPath` ⇒ 红且点名，只重加 `dir` ⇒ 红报 `fields=3` | ✅ |
 | P4-17 | **发布产物被真实安装器装一遍**（审计 §7.6；这是审计 §1 里唯一"两条修法都没做"的一条）。**问题**：CI 只跑 `dsh plugin add link:<ROOT>`（软链工作区），而 `verify-package-publish` 只核发布面的**声明**（`files` / 可达闭包 / `dependencies`）⇒ "装 tarball 才会暴露"的那一类全仓零断言。**为什么软链看不见**：软链**不参与依赖解析** ⇒ `peerDependencies` 能否在**安装闭包**里解析，结构性地不在那条通道的视野里。一次用户回执实测过代价：`Packages: +1`（只装了插件自己）→ `generation … already exists, reusing` → `generation peer validation failed: @deepseek-ai/dsh-client-runtime does not resolve from the installation closure`。**做法**（审计的修法② —— 把宿主提供的三个 `@deepseek-ai/dsh-*` peer 标成 `optional` —— 早已落地）：给 `compat-harness-live.mjs` 加**第二条安装通道** `--channel tarball`（先 `npm pack` 再装 .tgz，`--fresh` 隔离 HOME），于是原有的全链路判据（路由可达 / 落盘标记 / 环形缓冲 / 进程存活 / 无插件树加载失败）**一并覆盖发布产物**；另加三条只属于该通道的判据：**通道自证**（装进去的是**真目录**而非软链 ⇒ 证明跑的确实是包装产物）与两条针对性失败串（`peer validation failed` / `does not resolve from the installation closure`）。**CI 两条通道各跑一步**。⚠️ 本机**跑不了**这条通道：沙箱禁带管道的 spawn（连第一步"HOME 隔离对子进程生效"都会以 EPERM 失败）且本机无 `dsh` —— 但**它是响亮地红的、不是静默跳过**（那正是本账本 §0 要求的失败形态）。本机可验的一半已验：`npm pack` 在**工作区本地 cache** 下成功产出唯一 tarball（1.5MB / 39 文件），因此打包步骤不依赖网络也不污染全局 cache | ✅ |
 | P4-18 | **CI 加 POSIX 腿**（审计 §8）。**问题**：两个 workflow 都只有 `windows-latest`，而守卫里有**平台条件分支** —— 最实的一条是 `verify-scene` 的 unlink 失败用例：**只有 POSIX 的 `chmod` 能阻止 unlink**（Windows 上模式位基本被忽略）⇒ POSIX 那半（500 `unlink-failed` / 帧仍在盘上 / 重试可用 …）在 win32 上**不执行**，而 win32 那半（ENOENT 幂等）在 POSIX 上不执行；另有 `verify-scene-live` 的 junction/dir 分支与 `verify-media-bridge` 的 win32 专用断言。**判据自己早就把这件事喊出来了**："来自 posix 分支的 5 条 … 在 win32 上没有任何覆盖 —— 这是覆盖差异，不是通过"。**做法**：`verify.yml` 改成 `strategy.matrix.os = [windows-latest, ubuntu-latest]` + `fail-fast: false`（一条腿红了不该把另一条腿的结论藏起来），`concurrency.group` 带上 `matrix.os`（语义唯一：新 push 取消的是**同一平台**的上一次 run）；首步打印 `process.platform` 便于读日志。**`verify:bridge` 两条腿都跑** —— `lib/media/provision.js` 早已声明 linux 资产（`media-bridge-linux-x64-musl` 等，含 sha256），因此不是"没有产物可下"；该步自带"环境跳过"的第三结局，失败即真回归。**判据**：`test/verify-contracts.mjs` 新增 ④ —— 从 workflow 源码解析它**实际会跑的 runner 集合**（同时认 `runs-on: <字面量>` 与 `runs-on: ${{ matrix.os }}` + `os: [...]` 两种形态），断言必须同时含 windows 与 ubuntu/linux；三条负对照分别覆盖字面量单平台、矩阵单平台、以及"矩阵形态必须被解析出全部平台"（否则主判据会假绿）。**牙齿实证**：把 `verify.yml` 改回 windows-only ⇒ 红并点名 `runners=windows-latest`；还原 ⇒ 绿 | ✅ |
 
-| P4-19 | **`src/panel-tabs.js` 的巨型渲染器拆分**（P4-15 的另一半）。**做了什么**：先把"节顺序"变成**行为**判据（见下），再按节把两个最大的渲染器切成"一节一个子渲染器"、父函数只剩组装清单：`renderWallpaperTab` **458 → 16 行**（四个节 102 / 61 / 149 / 162）· `renderAdvancedTab` **111 → 16 行**（五个节 18 / 18 / 44 / 25 / 25）。**为什么先做判据**：这一步是纯搬动、**没有不变量可钉**，而搬动最容易出的事是"漏一节 / 改顺序 / 复制一节"——原先**一条判据都看不见**（`renderWallpaperTab` 与 `renderAdvancedTab` 此前**零行为覆盖**，只有源码锚点）。于是先补**真渲染挂载台**：用真渲染器 + 最小替身渲染这两个页签，抽出树里 `we-picker__section-label` 的**有序**序列 ⇒ 节顺序成为对任何重构都不变的行为判据（顺带钉住"实时渲染诊断"那一节的**门**：视频壁纸不画、场景壁纸画在最后）。**同一轮抓到的两个真问题**：① `...INTERVALS.map(...)` 的**展开写法**让派生正则把它当成成员访问 ⇒ `INTERVALS` 没被解构，某个分支一执行就 ReferenceError（渲染挂载台当场抓到）；为此补了第二条**静态**判据"每个节函数用到的 ctx 字段都必须解构"（以该页签的 ctx 字段全集为词表、先剥注释、展开写法算用到、对象键不算），**牙齿实证**：把 `INTERVALS` 去掉 ⇒ 两条判据各自变红并点名。② 写这条静态判据时自己踩了 **CRLF 切片**的坑（边界串是裸 `\n`，在 CRLF 上匹配不到 ⇒ `indexOf` 回 −1 ⇒ 切片吃到文件尾、把别人的解构也算进来 ⇒ 整个词表被报成"漏解构"）；已在判据里归一成 LF 并写明为什么。**剩余（有意留下）**：`renderEffectsTab`（271）**只有一个节标签** ⇒ 按"一节一个子渲染器"拆**没有顺序可钉**，要拆得先换锚（例如钉"控件标签的有序序列"），本轮不动；`renderAppearanceFontSection`(231) / `renderWallpaperUploadsSection`(162) / `renderWallpaperRotationSection`(149) / `renderAboutTab`(123) 仍是较大的单元，可再分一层。**第二轮（同法）**：先给 `renderAppearanceTab` / `renderEffectsTab` 补**同款节顺序期望**（ctx 由渲染器**自己的解构行**驱动：除 `fontSet` / `surface` / `sel` 外全是处理器 ⇒ "要什么"仍由源码说了算），顺带把两条此前只有源码串的**门**变成行为断言（外观页侧栏档 `!sidebarSurface` 包住的三节不画；效果页 `!sel.id` 走空态提前返回），再拆 `renderAppearanceTab`：**350 → 10 行**（五节 38 / 22 / 231 / 27 / 54）。同族**第三个** bug 又在这一轮现形：注入的前导局部量**自身的依赖**没进该节解构（`const sidebarSurface = surface === "sidebar";` ⇒ `surface is not defined`），渲染挂载台当场抓到、3 处一次修好。⚠️ 这条 bug 族（"派生出的名字没带上它的输入"）到目前已出现三次（`...INTERVALS`、CRLF 切片、注入局部量的依赖）—— 三处都是**渲染挂载台**先抓到，静态判据只能覆盖其中第一类 | 🟡 |
+| P4-19 | **`src/panel-tabs.js` 的巨型渲染器拆分**（P4-15 的另一半）。**做了什么**：先把"节顺序"变成**行为**判据（见下），再按节把两个最大的渲染器切成"一节一个子渲染器"、父函数只剩组装清单：`renderWallpaperTab` **458 → 16 行**（四个节 102 / 61 / 149 / 162）· `renderAdvancedTab` **111 → 16 行**（五个节 18 / 18 / 44 / 25 / 25）。**为什么先做判据**：这一步是纯搬动、**没有不变量可钉**，而搬动最容易出的事是"漏一节 / 改顺序 / 复制一节"——原先**一条判据都看不见**（`renderWallpaperTab` 与 `renderAdvancedTab` 此前**零行为覆盖**，只有源码锚点）。于是先补**真渲染挂载台**：用真渲染器 + 最小替身渲染这两个页签，抽出树里 `we-picker__section-label` 的**有序**序列 ⇒ 节顺序成为对任何重构都不变的行为判据（顺带钉住"实时渲染诊断"那一节的**门**：视频壁纸不画、场景壁纸画在最后）。**同一轮抓到的两个真问题**：① `...INTERVALS.map(...)` 的**展开写法**让派生正则把它当成成员访问 ⇒ `INTERVALS` 没被解构，某个分支一执行就 ReferenceError（渲染挂载台当场抓到）；为此补了第二条**静态**判据"每个节函数用到的 ctx 字段都必须解构"（以该页签的 ctx 字段全集为词表、先剥注释、展开写法算用到、对象键不算），**牙齿实证**：把 `INTERVALS` 去掉 ⇒ 两条判据各自变红并点名。② 写这条静态判据时自己踩了 **CRLF 切片**的坑（边界串是裸 `\n`，在 CRLF 上匹配不到 ⇒ `indexOf` 回 −1 ⇒ 切片吃到文件尾、把别人的解构也算进来 ⇒ 整个词表被报成"漏解构"）；已在判据里归一成 LF 并写明为什么。**剩余（有意留下）**：`renderAppearanceFontSection`(231) / `renderWallpaperUploadsSection`(162) / `renderWallpaperRotationSection`(149) / `renderAboutTab`(123) 仍是较大的单元，可再分一层（它们各自的节/块已有判据可钉）。**第三轮（同法 + 换锚）**：`renderEffectsTab`（270，**只有一个节标签** ⇒ 节顺序钉不住内部结构）——先给它造**更细的锚**：把 `SliderRow`/`switchRow`/`ctlText` 的标签**从替身里放回树里**（原先 `noop` 把它们吞成 null），于是"**控件标签的有序序列**"成为可判的行为事实：效果页设置档 10 个标签、侧栏档 9 个（少了 `帧率上限`，正是那条侧栏豁免）、外观页设置档 7 个 / 侧栏档 5 个。锚立住后按块拆成五个子渲染器（12 / 42 / 80 / 78 / 21 行），父函数只留"空态提前返回 + 唯一的节外壳 + 五块组装"。**连带修正一处判据口径**：`verify-scene-live` 的"侧栏 ctx 要覆盖渲染器全部字段"原先只读 `render*Tab` 那一层的解构 —— 字段搬进 `render*Section` 后它读到空集而变红（**红得对，是口径没跟上代码**），改为连节函数一起收 | 🟡 |**第二轮（同法）**：先给 `renderAppearanceTab` / `renderEffectsTab` 补**同款节顺序期望**（ctx 由渲染器**自己的解构行**驱动：除 `fontSet` / `surface` / `sel` 外全是处理器 ⇒ "要什么"仍由源码说了算），顺带把两条此前只有源码串的**门**变成行为断言（外观页侧栏档 `!sidebarSurface` 包住的三节不画；效果页 `!sel.id` 走空态提前返回），再拆 `renderAppearanceTab`：**350 → 10 行**（五节 38 / 22 / 231 / 27 / 54）。同族**第三个** bug 又在这一轮现形：注入的前导局部量**自身的依赖**没进该节解构（`const sidebarSurface = surface === "sidebar";` ⇒ `surface is not defined`），渲染挂载台当场抓到、3 处一次修好。⚠️ 这条 bug 族（"派生出的名字没带上它的输入"）到目前已出现三次（`...INTERVALS`、CRLF 切片、注入局部量的依赖）—— 三处都是**渲染挂载台**先抓到，静态判据只能覆盖其中第一类 | 🟡 |
 
 > 它要动的东西**正好落在重构的接缝上**：设置模型（P1-5）、效果/样式应用层（P1-7）、面板结构（P2-10）、宿主文件通道（P2-9）。
 > 设计与不变量已收口在 [`docs/FONT-SYSTEM.md`](../FONT-SYSTEM.md)（三个通道、扩展步骤；不变量在 `src/font/` 各文件头），本文不重复。
