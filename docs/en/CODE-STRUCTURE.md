@@ -202,11 +202,75 @@ graph LR
 
 The trade-offs are recorded in [`adr/0003`](../adr/0003-build-time-module-inlining.md).
 
+**The most under-estimated consequence of "one scope" is names**: modules are flattened into a single
+scope once their `export` is stripped, so
+
+| The name question | What backs it |
+|---|---|
+| module names ∩ the `client.js` body | the build **machine-extracts** each module's top-level declaration names + its `export {…}` list and compares them against the body — a clash is `exit 1` |
+| collisions **between modules** | the build's **artifact syntax check** (`vm.Script`) — flattened, this is `Identifier '…' has already been declared`, and the build fails naming it |
+| a missing `markers` anchor | asserted one by one; any miss is a hard failure (so "that block is still there" is not left to the eye) |
+| every `src/` module actually gets inlined | `verify-module-layout` ① (zero orphans beyond `client.js`) |
+| relative specifiers still resolve after a move | same guard ④ (Node-style resolution — a dynamic `import()` failure is a runtime failure, so it must be decided statically) |
+| browser safety (no `import` / `require` / Node API) | asserted one by one at build time, **after stripping comments** |
+
+> ⚠️ The one thing that does **not** fail loudly is **forgetting to register in `INLINE_MODULES`** — the
+> file simply never reaches the artifact and the first call site becomes a `ReferenceError` at runtime
+> (this repo has been bitten once). It is the most dangerous failure mode of this route.
+
+### 3.1 What "the same scope" actually means (module roles and dependency direction)
+
+**This is the layer of the browser half that is easiest to misjudge**: the modules **do not import** each
+other, yet they share **one flat symbol namespace** ⇒ "where does this module get its outside world from"
+is not expressed by an import but by **which file header declares it**. (Per-module contracts and
+dependency lists live in **each file header**; this document does not copy them.)
+
+| Role | Modules | Who supplies its outside world |
+|---|---|---|
+| **State source of truth + assembly (the facade)** | `src/client.js` (the body) | holds it itself: the settings store (`selection`), persistence, `apiFetch`, the `weT` wiring, the React root, and the place where `ctx` is assembled |
+| **`ctx`-receiving render / behaviour layer** | `live-layer` · `panel-tabs` · `sidebar-right` · `picker-modal` · `picker-props-panel` · `theme-follow` · `fontset-editor` · `font/apply` · `font/color-roles` | **the facade assembles `ctx` at the call site** — this layer never reads `selection` directly |
+| **Bedrock (no `ctx`; reads the flat symbols)** | `media-prep` · `picker-model` · `transcode` · `effects` · `quick-panel` · `i18n` · `api-client` · `adapter` · `we-cond` · `persistence` · `fontset-store` | reads symbols from **the same scope**; its own symbols are in turn read by the body |
+| **Pure data / constant tables** | `styles.js` (the whole stylesheet) · `i18n-copy.js` (the dictionaries) · `about-assets.js` · `font/typography.js` · `font/components.js` | no outside world |
+| **Channels / utilities** | `nav-icon` · `persistence` · `fontset-store` | see each file header |
+
+**The dependency direction is one-way, but each side means something different**:
+
+- body → module (handing it `ctx`, or reading the module's top-level declarations) = **normal**;
+- module → body as a **top-level read** is **forbidden**: the injection point is at the **top** of the
+  bundle, earlier than the body ⇒ a TDZ (see §5 item 2);
+- conversely, "a module exports a symbol for the body to read" is **allowed** (which is why
+  `live-layer`'s `LIVE_FIRST_FRAME_MS` is exported).
+
+⇒ **Before changing a constant, first confirm which file it lives in** — changing the wrong place
+"looks like it changed but did nothing".
+
+> Why this deserves its own subsection: §1.1's two-halves diagram stops at "`src/**` is inlined into one
+> scope", and what "one scope" **actually means** (who may read whom, and where a change counts) was
+> written down nowhere — each module header states only **its own** contract, so this cross-module role
+> table could only be rebuilt by reading 20-odd headers.
+
+### 3.2 Styles and tokens: three layers, one entry point each
+
+UI styling **lives in no `.css` file** (except the vendored render page under `lib/webwallgl/`, which is
+unrelated to the plugin UI). It comes in three layers, and **each has exactly one entry point**:
+
+| Layer | Source / entry | How it takes effect | What to edit |
+|---|---|---|---|
+| **The whole stylesheet** | the single template constant in `src/styles.js` (pure data) | inlined into the bundle at build time; at runtime `ensurePluginCss()` mounts that one `<style>` into `document.head` with a `data-plugin-css` marker and a **generation** marker, refreshing it from the current bundle on a remount | `src/styles.js` → `npm run build` |
+| **Runtime tokens** (`--we-*`) | `src/effects.js`: `applyEffects()` writes the whole family of CSS variables onto **`document.body.style`** (the remaining writers are scattered across `src/live-layer.js` and `src/font/apply.js`, each owning its own few — **to count them right now, recompute**: `git grep -c 'setProperty(' -- src`) | rules in the stylesheet read `var(--we-*)`; a settings change rewrites those properties | `src/effects.js` (**not** `styles.js`) |
+| **Font customisation** | `src/font/apply.js` (host default snapshot + component-scoped stylesheet) | a separate channel — see [`FONT-SYSTEM.md`](../FONT-SYSTEM.md) | `src/font/` |
+
+> **Assertions follow the same split**: `verify-readability` **extracts** the clamping function from
+> `src/effects.js` **in the artifact** and recomputes the contrast grid (so "just tweak the stylesheet to
+> pass" does not work); `verify-host-paint-scope` takes the stylesheet from the artifact to decide
+> "full-viewport overlays let window dragging through". ⇒ **Edit whichever layer's source of truth is
+> responsible** — this is what "define it once" looks like for styling.
+
 ---
 
 ## 4. Where a new file goes (the decision procedure)
 
-Ask five questions in order; stop at the first hit:
+Ask six questions in order; stop at the first hit:
 
 1. **Does it have to run in the browser?**
    → `src/**`, **and it must be registered in `INLINE_MODULES`** in `scripts/build-client.mjs` (with its
@@ -293,10 +357,12 @@ subdirectory; guards → `test/`; tools → `test/tools/`; user scripts → `scr
 | What you are adding | Where it lands | What else must be registered |
 |---|---|---|
 | A host route | `lib/routes/<family>.js` (its own file only once the family is big enough, otherwise nearby) | the route index is recomputed by the generator |
-| A setting | `DEFAULTS` + `KINDS` in `lib/settings-schema.js` | the panel reads it — **do not write a second UI table** |
+| A setting | `DEFAULTS` + `KINDS` in `lib/settings-schema.js` | the panel reads it — **do not write a second UI table**. ⚠️ If it involves **font roles / the type-size floor and ceiling**, the browser-side copy (`src/font/color-roles.js` / `typography.js`) **must change too** (see §7 row 1) |
+| State both halves need | `lib/<semantic-name>.js` | `INLINE_MODULES` (build-time inlining; this is the **only** permitted shared form) |
 | A piece of browser UI / behaviour | `src/<semantic-name>.js` | `INLINE_MODULES` (**forgetting is silently ineffective**) |
 | Anything font-related | `src/font/` (the subdirectory has admission conditions) | see [`FONT-SYSTEM.md`](../FONT-SYSTEM.md) |
 | A data file that ships | `lib/<semantic-name>/` | `package.json`'s `files` (P1 checks it) |
+| Design source assets (raw material, not shipped) | `assets/<purpose>/` | the version actually served is a **derived artifact** ⇒ `lib/<purpose>/`, and it goes in `files`; the source-asset recipe lives in `assets/<purpose>/README.md` |
 | A guard | `test/` (guards) or `test/tools/` (manual tools) | the right chain: `verify` vs `verify:docs` |
 
 Step-by-step recipes (including "what happens if you get it wrong") are in [`DEV-GUIDE.md`](../DEV-GUIDE.md).
@@ -351,26 +417,36 @@ Step-by-step recipes (including "what happens if you get it wrong") are in [`DEV
 
 ---
 
-## 6. Guards (registered rules are machine-decided; unregistered ones hold by convention)
+## 6. Guards (the batch named after this document's structural rules; the full list lives in `package.json`)
 
-> **Only the rules in this table have machine judgement.** A rule that is not here is **not "no rule"** —
-> it holds by convention; see the preamble and
-> [`adr/0006`](../adr/0006-comment-discipline-as-written-convention.md):
+> **This table registers only the machine judgements directly tied to this document's structural rules**;
+> it is not a complete roster. **The source of truth for the full list is the `verify` / `verify:docs` /
+> `smoke` scripts in `package.json`** (read them; copying a count in here just adds a copy nobody
+> recomputes) — the two tiers, the per-item conventions and the run matrix are in
+> [`DEV-GUIDE.md`](../DEV-GUIDE.md) §4.
+>
+> So **absent from this table ≠ no machine judgement**. The chain also carries a batch of structural
+> assertions that read **code** and do not overlap §1–§5's boundaries (generated route index, i18n
+> two-way reconciliation, cross-half contracts, `/about-qr` assets being inside the package, dead
+> declarations, the reachability ratchet, retired lines, module-layout ⑤/⑦/⑧, artifact sync) — they are
+> deliberately not copied in row by row.
+> The boundary discipline itself is
+> [`adr/0006`](../adr/0006-comment-discipline-as-written-convention.md) /
+> [`adr/0007`](../adr/0007-machine-checks-target-code-not-prose.md):
 > **guards that read code stay; guards that read prose are not added.**
-> The two tiers and the per-item conventions are in [`DEV-GUIDE.md`](../DEV-GUIDE.md) §4.
 
-| Rule | Status | Gap |
+| Rule | Status (with tier: the hard tier blocks a PR / **the soft tier only speaks**) | Gap |
 |---|---|---|
 | Inlined modules are browser-safe / `markers` present / names don't collide with the body | ✅ `scripts/build-client.mjs` (hard build failure) | — |
-| `files` covers `lib/`; named entries exist; relative import targets are on disk; no dead dependency declarations; zero bare deps in the toolchain; **no BOM on the publish surface** | ✅ `test/verify-package-files.mjs` P1–P8 (each with negative controls) | — |
-| **Publish surface is self-consistent (npm direction)**: reachable closure ⊆ `files` and closure targets exist on disk; no dev directories in the published set (only `scripts/prepare.mjs` is allowlisted); published text carries no **sibling machine** home path; every `dependencies` entry is loaded by **live code**; entry/export targets are inside the package; the published `lib/client.js` is loader-shaped and parses; install-time scripts reference no file that isn't shipped | ✅ `test/verify-package-publish.mjs` (seven groups, each with negative controls) | — |
-| `lib/client.js` is in sync with `src/` | ✅ CI (after a rebuild, `git diff --exit-code`) | — |
-| **No `src/` orphans**: apart from `src/client.js`, every file must be in `INLINE_MODULES` | ✅ `test/verify-module-layout.mjs` ① (full scan + negative control) | — |
-| **One-way dependency direction**: `lib/**` must not import `src/**` | ✅ same guard ② (zero tolerance, no ratchet needed) | — |
-| **Shared-kernel allowlist**: the only `lib/**` file allowed to be inlined into the browser comes from an explicit list (see `SHARED_KERNEL_WHITELIST` in the guard) | ✅ same guard ③ (adding one requires editing the list ⇒ sharing is a **decision**, not a convenience) | — |
-| **`src/` subdirectory admission (① member count)**: the `.js` count reaches `SRC_DIR_MIN_MEMBERS` (one of the two bars in §4 item 1; ② "it has an authoritative document of its own" is **convention, with no guard**) | ✅ same guard ⑥ (with a negative control) | — |
-| **Relative specifiers must resolve to real files**: after moving code, relative paths are re-resolved from the new location (a dynamic `import()` failure happens at runtime and is often swallowed as a business error ⇒ it must be decided statically) | ✅ same guard ④『相对说明符必须解析到真实文件』(Node-style resolution + negative control) | — |
-| **The type surface and the code share one source**: `lib/types/*.d.ts` must match the implementation | ✅ `test/verify-types.mjs` (derives the key set from the implementation) | — |
+| `files` covers `lib/`; named entries exist; relative import targets are on disk; no dead dependency declarations; zero bare deps in the toolchain; **no BOM on the publish surface**; the inlined artifact parses under `node --check` | ✅ `test/verify-package-files.mjs` P1–P8 (**six of them carry negative controls**; P1/P3 reuse P2's predicate rather than adding one) | — |
+| **Publish surface is self-consistent (npm direction)**: reachable closure ⊆ `files` and closure targets exist on disk; no dev directories in the published set (only `scripts/prepare.mjs` is allowlisted); published text carries no **sibling machine** home path; every `dependencies` entry is loaded by **live code**; entry/export targets are inside the package; the published `lib/client.js` is loader-shaped and parses; install-time scripts reference no file that isn't shipped | ✅ `test/verify-package-publish.mjs` (**seven groups, six with negative controls**; the "entry and export targets" group is positive-only) | — |
+| `lib/client.js` is in sync with `src/` | ✅ `test/verify-client-sync.mjs` — the **first entry in the `verify` chain**: it really rebuilds and compares byte-for-byte after folding line endings (**it does not use git**); CI adds `git diff --exit-code` as a second leg | — |
+| **No `src/` orphans**: apart from `src/client.js`, every file must be in `INLINE_MODULES` | ✅ `test/verify-module-layout.mjs` ① (full scan + negative control) · **soft tier** | — |
+| **One-way dependency direction**: `lib/**` must not import `src/**` | ✅ same guard ② (zero tolerance, no ratchet needed) · **soft tier** | — |
+| **Shared-kernel allowlist**: the only `lib/**` file allowed to be inlined into the browser comes from an explicit list (see `SHARED_KERNEL_WHITELIST` in the guard) | ✅ same guard ③ (adding one requires editing the list ⇒ sharing is a **decision**, not a convenience) · **soft tier** | — |
+| **`src/` subdirectory admission (① member count)**: the `.js` count reaches `SRC_DIR_MIN_MEMBERS` (one of the two bars in §4 item 1; ② "it has an authoritative document of its own" is **convention, with no guard**) | ✅ same guard ⑥ (with a negative control) · **soft tier** | — |
+| **Relative specifiers must resolve to real files**: after moving code, relative paths are re-resolved from the new location (a dynamic `import()` failure happens at runtime and is often swallowed as a business error ⇒ it must be decided statically) | ✅ same guard ④『相对说明符必须解析到真实文件』(Node-style resolution + negative control) · **soft tier** | — |
+| **The type surface and the code share one source**: `lib/types/*.d.ts` must match the implementation | ✅ `test/verify-types.mjs`: the `.d.ts` **declaration set == a hand-pinned required-field set**, and every field really has a producer in the implementation | — |
 
 **Removed from this table** (each reason is recorded in its ADR):
 
@@ -378,7 +454,7 @@ Step-by-step recipes (including "what happens if you get it wrong") are in [`DEV
 |---|---|
 | **Numbers in this document's prose must be recomputed** (inline module count == build list length) | It guarded **wording**: once a sentence is rephrased, the assertion degrades from "recompute the number" to "keep those two sentences", and it starts blocking edits rather than rot. Values are now carried by **symbol references**. See [`adr/0006`](../adr/0006-comment-discipline-as-written-convention.md) |
 | **A `src/` subdirectory must be named by some evergreen document's top-level heading** (§4 item 1 bar ②) | It guarded the **wording of a heading**, and **an empty-shell document passes it anyway** ⇒ form rather than substance. Bar ② now rests on convention. See [`adr/0007`](../adr/0007-machine-checks-target-code-not-prose.md) |
-| **Wording fragments inside source** (the status line's three branch labels, hint sentences, `ESC 返回`, a four-character status fragment, and the settings entry's `/设置\|Settings/i` anchor) | Questions 1/4: the thing judged is **human wording**. The settings-entry one was worse — its failure signal demanded "keep it as it is", and "as it is" *was* the locale defect ⇒ the assertion stood against the fix. Now it judges the **mechanism** (three branches each wrapped in `weT(...)`; the candidate-set anchor exists, plus gating/exclusion/re-entrancy lock). See [`adr/0007`](../adr/0007-machine-checks-target-code-not-prose.md) |
+| **Wording fragments inside source** (the status line's three branch labels, hint sentences, `ESC 返回`, a four-character status fragment, and the settings entry's `/设置\|Settings/i` anchor) | Questions 1/4: the thing judged is **human wording**. The settings-entry one was worse — its failure signal demanded "keep it as it is", and "as it is" *was* the locale defect ⇒ the assertion stood against the fix. Now it judges the **mechanism**: three branches each wrapped in `weT(...)` (`test/verify-adapter.mjs`); the candidate-set anchor exists plus gating / excluding our own entry / nameless fallback / the re-entrancy lock (`test/verify-scene-live.mjs`). See [`adr/0007`](../adr/0007-machine-checks-target-code-not-prose.md) |
 | **Acceptance criteria for a one-off cleanup** (the retired-line check "the typo 「秡」 no longer appears") | Vacuously true once fixed; per §writing discipline 5 ("emptying the baseline *is* zero residue"), it should be retired at close-out. See [`adr/0007`](../adr/0007-machine-checks-target-code-not-prose.md) |
 
 **When this document counts as a "specification"**: when §5's hard constraints and §6's registered guards
@@ -392,16 +468,30 @@ closed) is history and lives in [`archive/REFACTOR-ASSESSMENT.md`](../archive/RE
 
 | State | Source of truth | Who reads it | Shape |
 |---|---|---|---|
-| **Every settings key** (defaults / ranges / enums) | `lib/settings-schema.js` | host **and** client | build-time-inlined into the browser (the one shared kernel) |
-| **Persisted values** | the host's `config.json` | the host writes; the client reads via the inventory / save endpoints | client `localStorage` is only a cache |
+| **Every settings key** (defaults / ranges / enums) | `lib/settings-schema.js` | host **and** client | build-time-inlined into the browser (the one shared kernel). ⚠️ **But the 5 text-colour role ids, the 12 typography role ids and the type-size floor/ceiling each have a verbatim duplicate** in `src/font/color-roles.js` / `src/font/typography.js` — because the host also `import`s the schema while `src/font/**` only ships in the browser bundle (that file's own comment at `:380`: "the two must agree") ⇒ **changing a role means changing both**, reconciled by `verify-theme-layer` / `verify-component-fonts` |
+| **Persisted values** | the host's `config.json` | the host writes; the client reads the inventory and writes through the save endpoints **plus three root-field endpoints** (`/we-assets-dir` · `/upload-dir` · `/fontsets`' `activate`) | client `localStorage` = a **cache** of settings **plus device-local fields** (`rope-pos` / `picker-tab` / `qp-view` / `weLive*` — which go into **neither** `config.json` nor the schema allowlist) |
+| **UI language + dictionaries** | the **host locale service**'s `getSnapshot().active` (not a plugin setting; defaults to `zh`, overridable with `?we-lang`) | `src/i18n.js` broadcasts to subscribers ⇒ client `weT(...)`; non-React DOM patches go through `weOnLocaleChange` | the dictionaries live in two tables in `src/i18n-copy.js` (client / host); the key sets are reconciled **both ways** by `verify-i18n` (missing translation, orphan key, and unwrapped Chinese literal each have their own assertion). Goes into **neither** `config.json` nor the schema |
+| **The active font set** | the `fontSetId` root field of `config.json` ⇒ `lib/fontsets/*.json` (shipped read-only presets) + `pluginDataDir()/fontsets` (user layer, copy-on-write) | host route `/fontsets`; client `src/fontset-store.js` | **a second source of truth parallel to settings** (the `why` text in `build-client.mjs` says so verbatim) — the six font keys are **not** in the settings allowlist; `localStorage`'s `we-fontset-active` is only a cache |
 | **The route table** | `docs/ROUTE-INDEX.md` (generated) | humans + guards | recomputed by `test/tools/host-route-index.mjs` |
 | **The build-time inline list** | `INLINE_MODULES` in `scripts/build-client.mjs` | the build + guards | carries `markers` anchors |
 | **The publish surface** | `package.json`'s `files` | guards P1–P8 | everything left in `lib/` ships |
-| **Retired lines / dead-code baseline** | `test/verify-retired-lines.mjs` · `test/verify-reachability.mjs` | guards | may only shrink |
+| **Star-count cache** (the state of the plugin's only outbound request) | `lib/routes/github-stars.js`: in-process TTL + `pluginDataDir()/star-count.json` | the client's `starCount` mirror in `src/client.js` (**with a TTL constant of its own**) | the repository address's source of truth is `package.json`'s `repository`, read **live** by the host (no second literal); a failed fetch does **not** write a timestamp |
+| **The About tab's static data** | `src/about-assets.js` (repository URL + the two route paths) | client rendering + `lib/routes/about-qr.js` serving the PNGs | the QR **source images** are in `assets/about/` (not shipped); what ships is the cropped `lib/about/*.png`; the filename allowlist has a **verbatim duplicate** on the server side (swapping a code means swapping the PNG only, no rebuild) |
+| **Retired lines / dead-code baseline** | `test/verify-retired-lines.mjs` · `test/verify-reachability.mjs` | guards (**soft tier**: they speak but do not block) | the former = "what is on the retired line **must not come back**"; the latter = the unreachable count **may only shrink** (a ratchet) |
 
 > **Documents never copy these values.** To find the current value: settings in
 > `lib/settings-schema.js`, routes in the generated index, counts in `package.json`'s scripts — a copy is
 > one more thing nobody recomputes.
+>
+> **This table and §8 use the same wording**: `localStorage` holds both "a cache of settings" and fields
+> that belong to **this device only** (row 2 above) — the latter are not an echo of any host state, so
+> "just clear the cache and rebuild" does not cover them.
+>
+> **Derived caches are deliberately not in this table**: GPU / static frames, transcode output
+> (`tc_*.mp4`, LRU by size), video previews, live frames, diagnostic directories, the inventory
+> (seconds-scale TTL), and the Steam / embedded-MP4 probes (the latter's invariant: a miss means
+> **unknown → null, never guess**). Their source of truth is the **wallpaper file itself**, and all of
+> them can be deleted and rebuilt.
 
 ---
 

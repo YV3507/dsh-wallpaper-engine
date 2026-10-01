@@ -1,7 +1,6 @@
 # docs — 决策与用户文档
 
-> **English**: [`en/README.md`](./en/README.md) —— 英文版索引（**只覆盖常青文档**：`CHANGELOG.md` 与
-> `adr/` **有意不译**，见该文件开头的说明）。
+> **English**: [`en/README.md`](./en/README.md) —— 英文版索引（`adr/` **有意不译**，见该文件开头的说明）。
 >
 > 本项目采用**「代码即真相」**文档模式：渲染 / 逆向 / 根因知识直接内联在对应实现文件的代码注释里。
 > `docs/` 只保留**决策**（含验收判据）、**规范**与**用户文档**；实现机制不在这里。
@@ -11,9 +10,10 @@
 - **中文在 `docs/` 根，英文在 `docs/en/`，basename 相同** —— 这样"某文档有没有英文版"是**目录级可枚举事实**，
   改一份时对应文件一眼可见（后缀式命名要靠逐个文件猜，也容易漂成 `X-en-v2.md` 这类形态）。
 - **每份同名文档顶部都有语言切换链接**；改任一侧请**同步另一侧**（文档头已写明）。
-- **例外（有意不译）**：`CHANGELOG.md`（账本，逐版本记录，翻译成本高而收益低）、`adr/`（决策记录，
-  中文为权威版本）、`ROUTE-INDEX.md`（生成物）、`archive/` 与 `wip/`（历史与过程记录 ——
-  原先单独列出的 `dev-notes-bom-and-dsh-boot.md` 与 `awesome-dsh-plugin-pr-guide.md` 现已归入 `archive/`）。
+- **例外（有意不译）**：`adr/`（决策记录，中文为权威版本）、`ROUTE-INDEX.md`（生成物）、
+  `archive/` 与 `wip/`（历史与过程记录 —— 原先单独列出的 `dev-notes-bom-and-dsh-boot.md` 与
+  `awesome-dsh-plugin-pr-guide.md` 现已归入 `archive/`）。
+  `CHANGELOG.md` **已经拆成中英两份**（英文在 `en/CHANGELOG.md`），不再属于例外。
 
 ## 目录的寿命规则（新增文档前先读这一节）
 
@@ -59,7 +59,7 @@
 | 文档 | 内容 |
 |---|---|
 | [UPGRADING.md](./UPGRADING.md) | **升级指南** —— 前置条件、兼容矩阵、正确更新顺序与「顺序反了怎么恢复」 |
-| [CHANGELOG.md](./CHANGELOG.md) | **变更记录** —— 逐版本功能与修复（新版在前） |
+| [CHANGELOG.md](./CHANGELOG.md) | **变更记录** —— 逐版本功能与修复（新版在前）。**英文版在 [`en/CHANGELOG.md`](./en/CHANGELOG.md)**（与其它文档同布局：basename 相同、顶部互换链接） |
 | [HOW-IT-WORKS.md](./HOW-IT-WORKS.md) | **工作原理** —— 出图来源链（实时渲染 → 内嵌 MP4 → 实时抓帧 → 自定义画面 → 空态）、宿主 / 客户端分工、**字体集通道**、遮挡暂停与客户端异常留痕、HTTP 路由表 |
 | [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) | **排障** —— 安装失败排查与「症状 → 先看哪里」速查 |
 
