@@ -47,10 +47,10 @@ const INLINE_MODULES = [
   {
     // 纯数据、零依赖 ⇒ 放最前：后面任何模块都能直接读（也不可能有 TDZ 交互）。
     file: 'src/about-assets.js',
-    why: '「关于」页签的两张联系方式二维码（内联 base64；源资产归档在 assets/about/）',
+    why: '「关于」页签的静态数据：仓库地址 + 两张二维码的路由路径（图本体是随包 PNG，见 lib/about/）',
     markers: ['const ABOUT_REPO_URL = "https://github.com/elysia395/dsh-wallpaper-engine"',
-      'const ABOUT_QR_QQ_GROUP = "data:image/png;base64,',
-      'const ABOUT_QR_DOUYIN_GROUP = "data:image/png;base64,'],
+      'const ABOUT_QR_QQ_PATH = "/about-qr/qq-group.png"',
+      'const ABOUT_QR_DOUYIN_PATH = "/about-qr/douyin-group.png"'],
   },
   {
     file: 'src/i18n-copy.js',

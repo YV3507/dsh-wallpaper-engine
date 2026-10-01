@@ -2331,7 +2331,8 @@ function layerKeyDiff(oldKey, nextKey) {
 // 调节面板的信息架构：五个页签互斥展示（壁纸库 / 外观 / 播放 / 系统 / 关于）—— 前四个
 // 由原六个页签（壁纸/外观/吉祥物/效果/声音/高级）合并而来：效果+声音 → 播放、吉祥物+
 // 高级 → 系统、壁纸 → 壁纸库；「关于」是后加的页面（简介 / 仓库与 Star / 交流群 / 致谢，
-// 不读面板状态、不写设置；唯一的外部输入是那一行 star 数，见下面的 starCount）。最后停留
+// 不读面板状态、不写设置；外部输入只有两样：那行 star 数与两张二维码 PNG，后者经
+// 宿主路由 /about-qr/<文件名> 直出，客户端只存路径）。最后停留
 // 的页签记在 localStorage（仅 UI 状态，不进 config.json，也不需要 sanitize / serialize）。
 const PICKER_TAB_KEY = "dsh-wallpaper-engine:picker-tab";
 const PICKER_TABS = [

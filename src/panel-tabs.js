@@ -1313,20 +1313,21 @@
     // star 数那一行（模块级：值 + 三态文案都在 client.js 的 starCountLabel 里；
     // 这里的"读"与 SliderRow 一类模块级助手同口径 —— 只读，不发请求）。
     const stars = starCountLabel();
-    // 两张码的参数表：图 / 图题 / 替代文本 / 一句话说明。渲染一次 map 两遍，
+    // 两张码的参数表：图（路由 URL）/ 图题 / 替代文本 / 一句话说明。渲染一次 map 两遍，
     // 免得两段几乎一样的 createElement 各自演化（改一处忘一处正是这类页面最容易烂的地方）。
     const qrCards = [
       {
         key: "qq",
         title: weT("🐧 QQ 群 · DSHWE | LLM 讨论群"),
-        src: ABOUT_QR_QQ_GROUP,
+        // 图本体是随包 PNG（lib/about/），这里只给路径 —— apiUrl 补 BASE 前缀。
+        src: apiUrl(ABOUT_QR_QQ_PATH),
         alt: weT("QQ 群二维码"),
         hint: weT("手机 QQ 扫码加入 · 群里见 👋"),
       },
       {
         key: "douyin",
         title: weT("🎵 抖音群 · dsh 交流群"),
-        src: ABOUT_QR_DOUYIN_GROUP,
+        src: apiUrl(ABOUT_QR_DOUYIN_PATH),
         alt: weT("抖音群二维码"),
         hint: weT("抖音扫码加入 · 群号 252729465001"),
       },

@@ -15,7 +15,7 @@ A DSH bundle that turns your **Wallpaper Engine** wallpapers into the **backgrou
 ## Contents
 
 - [What it does](#what-it-does) · [Prerequisites for updating](#prerequisites-for-updating) · [Which wallpaper types are supported?](#which-wallpaper-types-are-supported) · [How it works](#how-it-works)
-- [Install](#install) · [Usage](#usage) · [Configuration](#configuration) · [dsh-better-sidebar compatibility](#dsh-better-sidebar-compatibility) · [Limitations](#limitations) · [Development / rebuild](#development--rebuild) · [Acknowledgments](#acknowledgments)
+- [Install](#install) · [Usage](#usage) · [Configuration](#configuration) · [dsh-better-sidebar compatibility](#dsh-better-sidebar-compatibility) · [Limitations](#limitations) · [Development / rebuild](#development--rebuild) · [Contact](#contact) · [Acknowledgments](#acknowledgments)
 - Version numbers, issue numbers and benchmark figures live in [`docs/CHANGELOG.md`](docs/CHANGELOG.md); update prerequisites in [`docs/UPGRADING.md`](docs/UPGRADING.md).
 - 📦 The npm package ships **only the three READMEs** (`docs/` is not published) ⇒ those `docs/…` links do not resolve on npm / in the plugin market; read them in the **source repository** <https://github.com/elysia395/dsh-wallpaper-engine> at the same paths.
 
@@ -125,7 +125,7 @@ Step-by-step recovery (`ERR_PNPM_UNEXPECTED_VIRTUAL_STORE`, etc.) lives in
 
 ### The settings tabs
 
-The settings page has **five tabs** — **Library** (selection / rotation / custom uploads) · **Appearance** (colors / glass / fonts / sidebar) · **Playback** (effects + audio) · **System** (mascot + advanced) · **About** (project intro / repo & live star count / community QR codes / contributor credits) — each keeping only the controls that belong to it instead of one long scrolling column. The pill indicator slides smoothly between tabs, and long explanations live in tooltips — each row keeps a one-line hint. **About** reads no panel state and writes no settings: copy plus two inline QR codes (they render even offline), and the one external input is the **star count** — fetched by the host from the GitHub API when you open the tab (cached; if GitHub is unreachable it shows the last known value). **One-click starring is not offered**: starring requires your GitHub credentials and the plugin stores no token — the button opens the repo page, and the raw URL is right below it for copying.
+The settings page has **five tabs** — **Library** (selection / rotation / custom uploads) · **Appearance** (colors / glass / fonts / sidebar) · **Playback** (effects + audio) · **System** (mascot + advanced) · **About** (project intro / repo & live star count / community QR codes / contributor credits) — each keeping only the controls that belong to it instead of one long scrolling column. The pill indicator slides smoothly between tabs, and long explanations live in tooltips — each row keeps a one-line hint. **About** reads no panel state and writes no settings: copy plus two QR codes (bundled PNGs served by the plugin's own route — they render even offline); the only external inputs are the **star count** and those two images — fetched by the host from the GitHub API when you open the tab (cached; if GitHub is unreachable it shows the last known value). **One-click starring is not offered**: starring requires your GitHub credentials and the plugin stores no token — the button opens the repo page, and the raw URL is right below it for copying.
 
 ### Selection & filters
 
@@ -306,6 +306,17 @@ near-opaque fill:
 
 Running your own copy (`link:` install, build & verify, hot-mount and encoding rules, and **what
 `lib/client.js` actually is**) is documented in [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+## Contact
+
+Questions, feedback, or want new versions the moment they land? Join one of our groups (these are the same two codes the plugin shows under **Settings → Wallpaper Engine → About**):
+
+| 🐧 QQ group | 🎵 Douyin group |
+|---|---|
+| <img src="lib/about/qq-group.png" alt="QQ group QR code" width="260"> | <img src="lib/about/douyin-group.png" alt="Douyin group QR code" width="260"> |
+| **DSHWE \| LLM discussion** | **dsh community** (group ID 252729465001) |
+
+> The images are the shipped assets `lib/about/*.png` (the plugin serves the very same bytes from its own route); for the source screenshots and how they were derived, see [`assets/about/README.md`](assets/about/README.md).
 
 ## Acknowledgments
 

@@ -1,23 +1,28 @@
 #!/usr/bin/env node
 /**
- * verify-github-stars.mjs — 「关于」页签那行 **star 数** 的守卫。
+ * verify-about.mjs — 「关于」页签的**两样外部输入**（star 数 + 两张二维码 PNG）的守卫。
  *
- * 守的是三件事，缺一条这条链路就会以"静默"的方式坏掉：
+ * 守的是四件事，缺一条这条链路就会以"静默"的方式坏掉：
  *   ① **仓库地址只有一处真源**：`package.json` 的 `repository.url` ⇄ 客户端 `ABOUT_REPO_URL`
  *      ⇄ 宿主 `repoSlugFromPkg()` 的解析结果 —— 三边必须指着同一个 `owner/repo`。
  *      抄第二份字面量不会报错，只会让"关于页的 star 数永远停在旧仓库"。
  *   ② **路由行为**（真模块 + 替身出站，**全程不联网**）：成功回 count、解析坏形状算失败、
  *      非 2xx 算失败、**TTL 内不再出站**、**并发合并成一次**、失败后有落盘旧值就回旧值并标
  *      `stale`、无旧值才 `ok:false`、非 GET 405、仓库地址缺失时不炸。
- *   ③ **客户端那行字**：三态文案（取不到 / 正在取 / 当前值）都进词表，客户端**只读**宿主
- *      这条路由（`apiJson("/star-count")`）且**不把 star 数写进设置**（它不是用户的偏好）。
+ *   ③ **二维码资源**（`/about-qr/<文件名>`）：白名单命中才出字节（遍历 / 编码 / 未登记名字一律
+ *      404，**不做任何路径拼接**）、GET/HEAD 之外 405、`Content-Type: image/png` + ETag/304、
+ *      坏响应不带缓存；并断言 `package.json` 的 `files` 真的把 `lib/about/` 打进包（少了它
+ *      发布包里就没有图，而 checkout 里一切正常 —— 包装事故的经典形态）。
+ *   ④ **客户端那一侧**：star 数三态文案（取不到 / 正在取 / 当前值）都进词表、客户端**只读**
+ *      宿主路由（`apiJson("/star-count")`）且**不把 star 数写进设置**；两张码的 src 是**路由
+ *      URL**（经 apiUrl）而不是内联 base64 —— 2026-10-01 用户把这条从"必须内联"翻成"必须 PNG"。
  *
  * 为什么必须不联网：GitHub 未认证限流是 **60 次/小时/IP、整机共享**的 —— 守卫若真发请求，
  * CI 上跑几次就把额度用光，而且"网络不通"会让判据变成随机红。故本文件**只**用替身 fetchJson。
  *
  * Usage:  node test/verify-github-stars.mjs
  */
-import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, statSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Writable } from 'node:stream';
@@ -85,9 +90,14 @@ mkdirSync(TMP, { recursive: true });
 const CACHE = join(TMP, 'star-count.json');
 
 function fakeRes() {
-  const state = { status: 200, headers: {}, body: '', ended: false };
+  // body 按 **Buffer** 累积（PNG 是二进制：按字符串拼会被 UTF-8 解码改写，字节比对必然假红）。
+  // JSON 那几条用例照旧 —— `JSON.parse(Buffer)` 会走 toString('utf8')，没区别。
+  const state = { status: 200, headers: {}, body: Buffer.alloc(0), ended: false };
   const res = new Writable({
-    write(chunk, enc, cb) { state.body += chunk.toString(); cb(); },
+    write(chunk, enc, cb) {
+      state.body = Buffer.concat([state.body, Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, enc)]);
+      cb();
+    },
     final(cb) { state.ended = true; cb(); },
   });
   res.setHeader = (k, v) => { state.headers[k] = v; };
@@ -127,7 +137,7 @@ const run = async (route, method) => {
   const res = fakeRes();
   const done = route.handler({ method: method || 'GET', url: '/wallpaper-engine/star-count', headers: {} }, res);
   if (done && typeof done.then === 'function') await done;
-  return JSON.parse(res.__state.body || '{}');
+  return JSON.parse(String(res.__state.body || '{}'));
 };
 const runFull = async (route, method) => {
   const res = fakeRes();
@@ -241,8 +251,127 @@ async function seedCache(count) {
 check('TTL 常量在合理区间（几分钟量级，不是"永不刷新"也不是"每次刷新"）',
   STAR_TTL_MS >= 60 * 1000 && STAR_TTL_MS <= 60 * 60 * 1000, STAR_TTL_MS + 'ms');
 
-// ══ ③ 客户端那行字 ═══════════════════════════════════════════════════════════
-console.log('\n③ 客户端：三态文案 + 只读 + 不进设置');
+// ══ ③ 二维码：随包 PNG + 白名单路由 ═══════════════════════════════════════════
+console.log('\n③ /about-qr 路由行为（白名单 / 304 / 405 / 404）');
+
+const { registerAboutQrRoutes } = await import(pathToFileURL(join(ROOT, 'lib', 'routes', 'about-qr.js')).href);
+const ABOUT_DIR = join(ROOT, 'lib', 'about');
+const aboutSrc = read('lib/routes/about-qr.js');
+const pkgFiles = JSON.parse(read('package.json')).files || [];
+
+/** 装一台只含 QR 路由的 mock webServer；serveFile 用**真实现**（在 lib/index.js 里是内联函数，
+ *  这里用一个语义等价的替身：mime + ETag/304 + 字节直出 —— 判据要测的是**路由那层**的
+ *  白名单与状态码，字节出口的行为由 verify-* 的既有覆盖面负责）。 */
+function mountQr() {
+  const routes = [];
+  const seen = [];
+  const webServer = { register(route) { routes.push(route); return () => {}; } };
+  registerAboutQrRoutes(webServer, {
+    disposers: { push() {} },
+    base: '/wallpaper-engine',
+    aboutDir: ABOUT_DIR,
+    serveFile: (abs, req, res, headOnly, opts) => {
+      seen.push(abs);
+      if (!existsSync(abs)) { res.statusCode = 404; res.setHeader('Cache-Control', 'no-store'); res.end('not found'); return; }
+      const st = statSync(abs);
+      const etag = 'W/"' + st.size.toString(16) + '-' + Math.floor(st.mtimeMs).toString(16) + '"';
+      res.setHeader('Content-Type', 'image/png');
+      res.setHeader('ETag', etag);
+      if (opts && opts.revalidate && String(req.headers['if-none-match'] || '') === etag) {
+        res.statusCode = 304; res.end(); return;
+      }
+      const body = readFileSync(abs);
+      res.statusCode = 200;
+      if (headOnly) { res.end(); return; }
+      res.end(body);
+    },
+  });
+  return { route: routes[0], seen };
+}
+
+async function runQr(route, pathname, method, headers) {
+  const res = fakeRes();
+  const r = { method: method || 'GET', url: pathname, headers: headers || {} };
+  const done = route.handler(r, res);
+  if (done && typeof done.then === 'function') await done;
+  return res.__state;
+}
+
+{
+  const m = mountQr();
+  check('路由注册为 prefix + 正确路径', m.route.kind === 'prefix' && m.route.path === '/wallpaper-engine/about-qr');
+  for (const [name, file] of [['qq-group.png', 'qq-group.png'], ['douyin-group.png', 'douyin-group.png']]) {
+    const st = await runQr(m.route, '/wallpaper-engine/about-qr/' + name);
+    check('白名单命中：' + name + ' 出字节 + image/png',
+      st.status === 200 && st.headers['Content-Type'] === 'image/png' && st.body.length > 1000,
+      'status=' + st.status + ' bytes=' + st.body.length);
+    const bytes = readFileSync(join(ABOUT_DIR, file));
+    check('出的是**磁盘上那份**字节（不是别处拼的）',
+      Buffer.compare(Buffer.from(st.body), bytes) === 0, 'file ' + bytes.length + ' vs resp ' + Buffer.from(st.body).length);
+    check('带 ETag（换图后客户端能立刻拿到新的）', /^W\/"/.test(String(st.headers.ETag || '')), String(st.headers.ETag));
+  }
+  // 304：带上 ETag 再问一次
+  const first = await runQr(m.route, '/wallpaper-engine/about-qr/qq-group.png');
+  const second = await runQr(m.route, '/wallpaper-engine/about-qr/qq-group.png', 'GET', { 'if-none-match': first.headers.ETag });
+  check('条件 GET：ETag 未变 ⇒ 304 无体', second.status === 304 && second.body.length === 0, 'status=' + second.status);
+  // HEAD
+  const head = await runQr(m.route, '/wallpaper-engine/about-qr/qq-group.png', 'HEAD');
+  check('HEAD 可用且无体（浏览器/壳预检用得上）', head.status === 200 && head.body.length === 0, 'status=' + head.status);
+  // 405
+  const post = await runQr(m.route, '/wallpaper-engine/about-qr/qq-group.png', 'POST');
+  check('非 GET/HEAD ⇒ 405（本路由没有写面）', post.status === 405, 'status=' + post.status);
+  // 404：未登记 / 空 / 多段 / 目录
+  const notFound = [
+    ['未登记的名字', '/wallpaper-engine/about-qr/nope.png'],
+    ['空名字', '/wallpaper-engine/about-qr/'],
+    ['多段路径', '/wallpaper-engine/about-qr/sub/qq-group.png'],
+    ['同名前缀（qq-group.png.bak）', '/wallpaper-engine/about-qr/qq-group.png.bak'],
+    ['大小写不同（QQ-Group.png）', '/wallpaper-engine/about-qr/QQ-Group.png'],
+  ];
+  for (const [label, p] of notFound) {
+    const st = await runQr(m.route, p);
+    check('404：' + label, st.status === 404, 'status=' + st.status);
+  }
+  // 点段（`../`）由 `new URL` 在**进 handler 之前**就规范化掉了 ⇒ 归一化之后若仍落在
+  // 白名单里就是一次正常请求（这是 URL 语义，不是漏洞）；能不能"穿出去"由下一条反向探针判。
+  const dotted = await runQr(m.route, '/wallpaper-engine/about-qr/../about-qr/qq-group.png');
+  check('点段归一化后仍指向白名单内 ⇒ 正常出图（不是穿越漏洞）',
+    dotted.status === 200, 'status=' + dotted.status);
+
+  // 反向探针：**没进白名单的名字绝不许触到磁盘**
+  const touched = m.seen.length;
+  const before = touched;
+  await runQr(m.route, '/wallpaper-engine/about-qr/%2e%2e%2f%2e%2e%2fpackage.json');
+  await runQr(m.route, '/wallpaper-engine/about-qr/..%2f..%2fpackage.json');
+  check('穿越形状的名字一律 404，且**不落到磁盘**（"没进白名单就不碰路径"这条要能被数出来）',
+    m.seen.length === before, '多出 ' + (m.seen.length - before) + ' 次磁盘访问');
+  // 打包：lib/about/ 必须随包（checkout 里永远正常，只有发布包会缺）
+  check('package.json 的 files 覆盖 lib/about/（否则发布包里没有图）',
+    pkgFiles.some((f) => String(f).replace(/\/$/, '') === 'lib/about'));
+  check('lib/about/ 里的每个 PNG 都在路由白名单里（打包了却取不到 = 图白送）',
+    readdirSync(ABOUT_DIR).filter((f) => f.endsWith('.png'))
+      .every((f) => aboutSrc.includes("'" + f + "'")));
+  check('路由白名单里的每个名字都在磁盘上（白名单不许空转）',
+    ['qq-group.png', 'douyin-group.png'].every((f) => existsSync(join(ABOUT_DIR, f))));
+  check('negative control: 白名单判据对合成输入有牙',
+    !['qq-group.png'].includes('qq-group.png.bak') && ['qq-group.png'].includes('qq-group.png'));
+  // 客户端那一半：src 是路由 URL，不是 data URI
+  const clientSrc2 = read('src/panel-tabs.js');
+  check('渲染器用 apiUrl 拼路由路径（不是内联图）',
+    /src: apiUrl\(ABOUT_QR_QQ_PATH\)/.test(clientSrc2) && /src: apiUrl\(ABOUT_QR_DOUYIN_PATH\)/.test(clientSrc2));
+  // ⚠️ 不能泛判 `data:image/png;base64,iVBOR` —— 吉祥物立绘就是这种（那两张该留）。要判的是
+  // **这两张码的字节**在不在 bundle 里：拿每张图 base64 的头 64 字符做指纹（内联过就必然命中）。
+  const bundle = read('lib/client.js');
+  const fingerprints = ['qq-group.png', 'douyin-group.png']
+    .map((f) => readFileSync(join(ABOUT_DIR, f)).toString('base64').slice(0, 64));
+  check('客户端产物里不再有这两张二维码的字节（bundle 体积那条腿；吉祥物立绘不受影响）',
+    fingerprints.every((fp) => !bundle.includes(fp))
+      && bundle.includes('data:image/png;base64,iVBOR'), // 吉祥物仍在（证明这条不是把 base64 一网打尽）
+    '指纹数=' + fingerprints.length + ' bundle=' + bundle.length + 'B');
+}
+
+// ══ ④ 客户端那行字 ═══════════════════════════════════════════════════════════
+console.log('\n④ 客户端：三态文案 + 只读 + 不进设置');
 const clientSrc = read('src/client.js');
 const tabsSrc = read('src/panel-tabs.js');
 const copySrc = read('src/i18n-copy.js');
@@ -275,5 +404,5 @@ check('negative control: 渲染器判据对三种越界都有牙',
     && /setSetting\(/.test('renderAboutTab(){ setSetting("a", 1); }')
     && /\bemit\s*\(/.test('renderAboutTab(){ emit(); }'));
 
-console.log('\n' + (failed === 0 ? 'GITHUB STARS CHECKS PASSED' : 'GITHUB STARS CHECKS FAILED') + ` (${passed})`);
+console.log('\n' + (failed === 0 ? 'ABOUT (stars + QR) CHECKS PASSED' : 'ABOUT (stars + QR) CHECKS FAILED') + ` (${passed})`);
 process.exit(failed === 0 ? 0 : 1);

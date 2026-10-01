@@ -736,12 +736,17 @@ setTimeout(async () => {
       assert.ok(ordered('📖 项目简介|⭐ 开源与支持|💬 加入交流群|🙏 贡献者致谢'), 'positive control: 顺序谓词对正确顺序判真');
       assert.ok(!ordered('🙏 贡献者致谢|⭐ 开源与支持|💬 加入交流群|📖 项目简介'), 'negative control: 致谢没压尾要被判出');
       assert.ok(!ordered('📖 项目简介|⭐ 开源与支持|❓ 缺一段'), 'negative control: 段落缺失要被判出');
-      // 两张码：img 的 src 必须是内联 data URI（走宿主路由会被能力头栅栏挡住），且**两张不同**。
+      // 两张码：img 的 src 必须是**随包 PNG 的路由 URL**（经 apiUrl 拼前缀），且两张不同。
+      // 这条在 2026-10-01 翻过一次面：原先是"必须内联 data URI"，用户要求改成 PNG 引入
+      // ⇒ 现在反过来——**不许**再出现内联 base64（那会把 240KB 压回 bundle）。
       const qrImgs = collectByClass(tree, 'we-about__qr-img');
       assert.equal(qrImgs.length, 2, '关于页必须正好渲染两张二维码图');
       const qrSrcs = qrImgs.map((n) => String(n.props.src || ''));
-      assert.ok(qrSrcs.every((s) => s.startsWith('data:image/png;base64,')),
-        '二维码必须是内联 data URI（不依赖宿主路由 / 不发请求）');
+      assert.ok(qrSrcs.every((s) => s.startsWith('/wallpaper-engine/about-qr/')),
+        '二维码必须走宿主路由 /about-qr/<文件名>（图本体是随包 PNG）');
+      assert.ok(qrSrcs.every((s) => s.endsWith('.png')), '路由 URL 指向的必须是 .png');
+      assert.ok(!qrSrcs.some((s) => s.startsWith('data:')),
+        '二维码不得再内联为 data URI（用户口径：PNG 引入）');
       assert.ok(qrSrcs[0] !== qrSrcs[1], '两张二维码必须不是同一张图');
       assert.ok(qrImgs.every((n) => n.props.alt && String(n.props.alt).length > 0),
         '二维码必须带 alt（图片加载不出来时也得说得出这是哪张码）');
