@@ -14,16 +14,27 @@
  *   · ctx 由 `WallpaperPicker` 在调用点就地组装（见 src/client.js 的 `renderActiveTab`）：
  *     面板的 `sel` / 页签需要的局部视图状态 / 处理器。**多传字段无害，漏传会当场
  *     ReferenceError**（守卫会抓住）—— 这是刻意选的失败方式：响亮且可定位。
- *   · 页签**不得**写 selection / 不得 emit：写设置是处理器的职责（它们仍住在面板组件里）。
- *     页签只做"读 + 组装 React 树"。
- *   · 模块级依赖（React / SliderRow / switchRow / ctlText / FRAME_VARIANTS / 各类预设表…）
- *     仍按内联规则直接读，不经过 ctx —— 它们是常量与纯组件，与面板状态无关。
+ *   · 页签**只做"读 + 组装 React 树"**，四类越界由 `test/verify-client.mjs` 的接缝判据钉住
+ *     （与 `src/picker-modal.js` / `src/picker-props-panel.js` **同一条口径**）：
+ *       ① 不得引用 `selection`（写入经 ctx 的 `setSetting` / `setTransient` 两个入口）；
+ *       ② 不得调 `emit(`（通知归处理器）；
+ *       ③ 不得改写 **ctx 别名**指向的东西（`editing` = `selection.editing`、`sel` = store 快照…）
+ *          —— `editing.name = …` 是"渲染器成了状态的写入方"，那不是读；
+ *       ④ 不得改写**模块级状态**（`propsPanelOpen` / `pickerFocusPending` / `pickerOpener` …）。
+ *     ③④ 两类**不是风格问题**：它们不含 `selection.` 字面量，因此躲得过"只数字面量"的判据 ——
+ *     那正是本文件长期违规却一直没变红的原因（同一批搬出去的另外两个渲染器早就在严口径下）。
+ *   · **动作经具名处理器**：除写设置外还要做别的事（重建层 / 清失败记忆 / 重绘 / 刷库存…）
+ *     一律收口成 `src/client.js` 里的 `on*` 处理器，经 ctx 传进来；页签只写 `onClick: onFoo`。
+ *     于是"点了会发生什么"住在处理器里，页签只回答"画什么"。
+ *   · 模块级依赖（React / SliderRow / switchRow / ctlText / FRAME_VARIANTS / 各类预设表 /
+ *     纯函数如 `weT` / `adapterCaps` / `liveRenderEnabled`…）仍按内联规则直接读，不经过 ctx
+ *     —— 它们是常量与纯组件/纯函数，与面板状态无关。**判据只盯状态与动作，不盯这些。**
  *   · 本文件必须保持浏览器安全（无 import / require / Node API），且**不得有顶层可执行语句**
  *     读 client.js 的 const（会被内联到 bundle 顶部，撞 TDZ）。
  */
 
   function renderWallpaperTab(ctx) {
-    const { setSetting, setTransient, INTERVALS, armedConfirm, cdMode, current, editing, editorPageView, group, groups, isLiveScene, onArmConfirm, onArmDeleteGroup, onClear, onDeleteGroup, onDisarmConfirm, onGroupChange, onGroupInterval, onRefresh, onSwitchTransition, onSwitchTransitionDir, onSwitchTransitionSpeed, onToggleAudio, onTogglePlay, onToggleRotation, pagerRow, playableCount, playableList, playbackLive, renderUserPropsPanel, sel, uploadedList } = ctx;
+    const { setSetting, setTransient, INTERVALS, armedConfirm, cdMode, current, editing, editorPageView, group, groups, isLiveScene, onArmConfirm, onArmDeleteGroup, onCancelEditUploadDir, onCancelEditWeAssetsDir, onClear, onDeleteGroup, onDisarmConfirm, onEditInterval, onEditName, onEditOrder, onGroupChange, onGroupInterval, onOpenPicker, onOpenPickerDraft, onRefresh, onStartEditUploadDir, onStartEditWeAssetsDir, onSwitchTransition, onSwitchTransitionDir, onSwitchTransitionSpeed, onToggleAudio, onTogglePlay, onTogglePropsPanel, onToggleRotation, onUploadDirDraft, onWeAssetsDirDraft, pagerRow, playableCount, playableList, playbackLive, propsPanelOpen, renderUserPropsPanel, sel, setPickerOpener, uploadedList } = ctx;
     // 当前过场（类型 + 方向 + 实测算出的毫秒）：一次算好给三行控件用。
     const switchTr = switchTransitionOf(sel);
     // 待确认令牌按**当前对象**现算（不是常量缓存）：换列表 / 换壁纸后老问句自然不再匹配。
@@ -72,14 +83,8 @@
           React.createElement("div", { className: "we-picker__current-actions" },
             React.createElement("button", {
               className: "we-picker__btn we-picker__btn--primary", type: "button",
-              ref: (el) => { pickerOpener = el; },
-              onClick: () => {
-                setTransient("pickerOpen", true);
-                setTransient("pickerDraft", false); // 普通下钻（点卡片即应用）
-                setTransient("modalView", "normal");
-                pickerFocusPending = true; // 打开后焦点落入下钻视图（见 modalInitialFocus）
-                emit();
-              },
+              ref: setPickerOpener,
+              onClick: onOpenPicker,
             }, weT("选择壁纸")),
           ),
         ),
@@ -95,11 +100,7 @@
               className: "we-picker__btn" + (propsPanelOpen ? " is-on" : ""),
               type: "button",
               title: weT("壁纸作者提供的可调属性（改动立即生效）"),
-              onClick: () => {
-                propsPanelOpen = !propsPanelOpen;
-                if (propsPanelOpen) loadUserPropDefs(propTokenOf(sel), true);
-                emit();
-              },
+              onClick: onTogglePropsPanel,
             }, weT("壁纸属性")),
           React.createElement("button", {
             className: "we-picker__btn", type: "button",
@@ -108,9 +109,16 @@
           }, playbackLive ? weT("暂停") : weT("播放", null, "play")),
           // 音乐开关：与「播放」同级的一键切换。只影响音轨，不动播放态 ——
           // 关掉后画面继续播放。仅对含音轨的壁纸类型显示（视频 / 场景内嵌 MP4）。
+          //
+          // ⚠️ 高亮判据必须与**按钮自己的状态**（也就是下面文案那个判据）**逐字同一个**：
+          // 这颗按钮切的是 `videoAudioEnabled`，所以「亮」= 该开关为开。此前写的是
+          // `weAudioVolume() > 0 || disabled`（化简后 = 只有"开着且音量为 0"时才亮），于是
+          // 出厂默认（`videoVolume: 0` + `videoAudioEnabled: true`）下按钮亮着而壁纸是哑的，
+          // 用户一点（音轨关掉）高亮反而消失 —— 文案与高亮互相矛盾，且点击没有任何视觉反馈。
+          // 音量是**另一颗**控件，不参与这颗按钮的开关状态。
           (sel.type === "video" || (sel.type === "scene" && (sel.sceneVideo || sel.sceneHasAudio)))
             && React.createElement("button", {
-              className: "we-picker__btn" + (weAudioVolume() > 0 || sel.videoAudioEnabled === false ? "" : " is-on"),
+              className: "we-picker__btn" + (sel.videoAudioEnabled === false ? "" : " is-on"),
               type: "button",
               onClick: onToggleAudio,
               disabled: !sel.url,
@@ -233,7 +241,7 @@
             className: "we-picker__text", type: "text",
             value: editing.name,
             "aria-label": weT("轮播列表名称"),
-            onInput: (e) => { editing.name = e.target.value; emit(); },
+            onInput: onEditName,
           }),
         ),
         React.createElement("div", { className: "we-picker__row" },
@@ -241,7 +249,7 @@
           React.createElement("select", {
             className: "we-picker__rotation-interval",
             value: String(editing.interval),
-            onChange: (e) => { editing.interval = clampNum(Number(e.target.value), 1, 1440, DEFAULTS.rotationInterval); emit(); },
+            onChange: onEditInterval,
             "aria-label": weT("轮播间隔"),
           },
           ...INTERVALS.map((minutes) =>
@@ -251,7 +259,7 @@
           React.createElement("select", {
             className: "we-picker__playlist-select",
             value: editing.order,
-            onChange: (e) => { editing.order = e.target.value; emit(); },
+            onChange: onEditOrder,
             "aria-label": weT("轮播顺序"),
           },
           React.createElement("option", { value: "sequence" }, weT("顺序", null, "seq")),
@@ -265,13 +273,7 @@
         React.createElement("div", { className: "we-picker__row" },
           React.createElement("button", {
             className: "we-picker__btn we-picker__btn--primary", type: "button",
-            onClick: () => {
-              setTransient("pickerOpen", true);
-              setTransient("pickerDraft", true);
-              setTransient("modalView", "normal");
-              pickerFocusPending = true;
-              emit();
-            },
+            onClick: onOpenPickerDraft,
           }, weT("选择壁纸")),
           React.createElement("span", { className: "we-picker__hint" },
             weT("下钻进库挑选 · 点卡片加入 / 移出")),
@@ -351,11 +353,7 @@
           React.createElement("button", {
             className: "we-picker__btn", type: "button",
             disabled: sel.uploading,
-            onClick: () => {
-              setTransient("editingUploadDir", true);
-              setTransient("uploadDirDraft", sel.inventory.uploadDir || "");
-              emit();
-            },
+            onClick: onStartEditUploadDir,
           }, weT("更改")),
         ),
         sel.editingUploadDir && React.createElement("div", { className: "we-picker__row" },
@@ -363,10 +361,10 @@
             className: "we-picker__text", type: "text",
             value: sel.uploadDirDraft,
             placeholder: weT("绝对路径，如 D:\\MyWallpapers"),
-            onInput: (e) => { setTransient("uploadDirDraft", e.target.value); emit(); },
+            onInput: onUploadDirDraft,
             onKeyDown: (e) => {
               if (e.key === "Enter") changeUploadDir(sel.uploadDirDraft, true);
-              if (e.key === "Escape") { setTransient("editingUploadDir", false); emit(); }
+              if (e.key === "Escape") onCancelEditUploadDir();
             },
           }),
           React.createElement("button", {
@@ -376,7 +374,7 @@
           }, weT("保存")),
           React.createElement("button", {
             className: "we-picker__btn", type: "button",
-            onClick: () => { setTransient("editingUploadDir", false); emit(); },
+            onClick: onCancelEditUploadDir,
           }, weT("取消")),
         ),
         React.createElement("div", { className: "we-picker__row" },
@@ -397,12 +395,7 @@
           }, sel.inventory.weAssetsDir || "—"),
           React.createElement("button", {
             className: "we-picker__btn", type: "button",
-            onClick: () => {
-              setTransient("editingWeAssetsDir", true);
-              setTransient("weAssetsDirDraft", sel.inventory.weAssetsDir || "");
-              setTransient("weAssetsError", "");
-              emit();
-            },
+            onClick: onStartEditWeAssetsDir,
           }, sel.inventory.weAssetsDir ? weT("更改") : weT("设置")),
         ),
         sel.editingWeAssetsDir && React.createElement("div", { className: "we-picker__row" },
@@ -410,10 +403,10 @@
             className: "we-picker__text", type: "text",
             value: sel.weAssetsDirDraft,
             placeholder: weT("WE assets 绝对路径，留空保存=清除"),
-            onInput: (e) => { setTransient("weAssetsDirDraft", e.target.value); emit(); },
+            onInput: onWeAssetsDirDraft,
             onKeyDown: (e) => {
               if (e.key === "Enter") changeWeAssetsDir(sel.weAssetsDirDraft);
-              if (e.key === "Escape") { setTransient("editingWeAssetsDir", false); setTransient("weAssetsError", ""); emit(); }
+              if (e.key === "Escape") onCancelEditWeAssetsDir();
             },
           }),
           React.createElement("button", {
@@ -422,7 +415,7 @@
           }, weT("保存")),
           React.createElement("button", {
             className: "we-picker__btn", type: "button",
-            onClick: () => { setTransient("editingWeAssetsDir", false); setTransient("weAssetsError", ""); emit(); },
+            onClick: onCancelEditWeAssetsDir,
           }, weT("取消")),
         ),
         React.createElement("div", { className: "we-picker__row" },
@@ -499,7 +492,7 @@
 
 
   function renderAppearanceTab(ctx) {
-    const { setSetting, officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onToggleFontCustom, onToggleThemeFollow, fontSet, sel, surface } = ctx;
+    const { setSetting, officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onGlassWindow, onLeftSidebarGlass, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarGlass, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onToggleFontCustom, onToggleThemeFollow, fontSet, sel, surface } = ctx;
     // 侧栏档（快捷播放面板的「外观」页）：只画【主题】【细节】两节 —— 字体 / 光标 /
     // 窗口与侧栏三节属于设置页（窄列里没意义，且它们的处理器不住在模块级）。
     // 判据：`!sidebarSurface` 包住的三节在**缺省档一个节点都不少**（surface 缺省 =
@@ -540,10 +533,7 @@
         // 「透明的洞」—— 壁纸原样透出，本页的玻璃参数一个都到不了它。打开后这一列也
         // 走同一张配方表（配色 / 玻璃颜色 / 玻璃透明度 / 雾化 / 边框），细节见
         // styles.js 的「左侧栏覆盖」段；默认关 = 今天的样子，逐字节不变。
-        switchRow(weT("左侧栏覆盖"), sel.leftSidebarGlass === true, (e) => {
-          setSetting("leftSidebarGlass", e.target.checked);
-          emit();
-        }, {
+        switchRow(weT("左侧栏覆盖"), sel.leftSidebarGlass === true, onLeftSidebarGlass, {
           key: "left-sidebar-glass",
           hint: weT("左侧栏也跟随玻璃配方（配色 / 玻璃颜色 / 透明度 / 雾化 / 边框）"),
           tooltip: weT("宿主原生左侧栏（会话列表 / 工作区那一列）默认直接透出壁纸、不吃玻璃参数。打开后它变成与其余界面同款的玻璃面板，跟随「配色 / 玻璃颜色 / 玻璃透明度 / 雾化 / 边框」；关闭即恢复原生观感。默认关。"),
@@ -809,10 +799,7 @@
         // 设置窗口液态玻璃 master switch: turns the WHOLE native settings window
         // (nav + every native section, not just this page) into liquid glass with
         // the accent + transparency above; off restores the stock shell look.
-        switchRow(weT("设置窗口液态玻璃"), sel.glassWindow, (e) => {
-          setSetting("glassWindow", e.target.checked);
-          emit();
-        }, {
+        switchRow(weT("设置窗口液态玻璃"), sel.glassWindow, onGlassWindow, {
           key: "window-glass",
           hint: weT("整个设置窗口跟随配色与透明度"),
           tooltip: weT("整个设置窗口（含 General / 模型 / 插件等全部原生分区）跟随配色与透明度；关闭则恢复原生样式"),
@@ -823,10 +810,7 @@
         // 仅在 host 检测到 dsh-better-sidebar 已安装且启用时显示（sidebarPresent）。
         // 开关本体 + 一句话说明始终显示；细节滑块以「侧栏液态玻璃」开关为前提
         // —— 关闭时隐藏，开启后随 emit 重渲染实时出现。
-        sel.sidebarPresent && switchRow(weT("侧栏液态玻璃"), sel.sidebarGlass, (e) => {
-          setSetting("sidebarGlass", e.target.checked);
-          emit();
-        }, {
+        sel.sidebarPresent && switchRow(weT("侧栏液态玻璃"), sel.sidebarGlass, onSidebarGlass, {
           key: "sidebar-glass-toggle",
           hint: weT("dsh-better-sidebar 侧栏毛玻璃适配"),
           tooltip: weT("dsh-better-sidebar 侧栏（文件 / 终端 / Git 等面板）的毛玻璃适配；关闭则恢复其原生外观"),
@@ -926,7 +910,7 @@
 
 
   function renderEffectsTab(ctx) {
-    const { setSetting, onBackgroundBrightness, onBackgroundContrast, onBackgroundSaturate, onClearCustomFrame, onClearGpuFrame, onCustomFrameFile, onRecaptureGpuFrame, onRefreshFrame, onScrim, onWallpaperBlur, onWallpaperOpacity, sel, surface, onPickWallpaper } = ctx;
+    const { setSetting, onBackgroundBrightness, onBackgroundContrast, onBackgroundSaturate, onClearCustomFrame, onClearGpuFrame, onCustomFrameFile, onFlip, onFpsCap, onLiveBootDelay, onObjectFit, onOpenPicker, onPickWallpaper, onPlaybackRate, onRecaptureGpuFrame, onRefreshFrame, onSceneLiveFps, onScrim, onToggleSceneLive, onWallpaperBlur, onWallpaperOpacity, sel, setPickerOpener, surface } = ctx;
     // 侧栏档（快捷播放面板的「播放」页）：**准备与诊断**那一组行不画 —— 出图来源 /
     // 实时帧 / 自定义画面（文件选择）/ 帧率上限（抽帧转码）/ 源信息 / 转码进度，
     // 它们回答的是"这台机器怎么出图"，不是"现在看起来怎么样"；留设置页。
@@ -942,14 +926,8 @@
           weT("选择一款壁纸后，可在这里调整模糊、亮度、适配、倍速等效果")),
         React.createElement("button", {
           className: "we-picker__btn we-picker__btn--primary", type: "button",
-          ref: sidebarSurface ? undefined : (el) => { pickerOpener = el; },
-          onClick: sidebarSurface ? onPickWallpaper : () => {
-            setTransient("pickerOpen", true);
-            setTransient("pickerDraft", false); // 普通下钻（点卡片即应用）
-            setTransient("modalView", "normal");
-            pickerFocusPending = true;
-            emit();
-          },
+          ref: sidebarSurface ? undefined : setPickerOpener,
+          onClick: sidebarSurface ? onPickWallpaper : onOpenPicker,
         }, sidebarSurface ? weT("去挑一张 ›") : weT("选择壁纸")),
       );
     }
@@ -982,15 +960,7 @@
         // 静态帧；重开本开关清空全部失败记忆（显式重试入口）。
         (sel.type === "scene" || sel.type === "web") && switchRow(
           sel.type === "web" ? weT("网页实时渲染") : weT("场景实时渲染"),
-          sel.sceneLive !== false, (e) => {
-          setSetting("sceneLive", e.target.checked);
-          setSetting("sceneLiveFailures", {});
-          prepareLiveTimeouts.clear(); // 显式重试：准备期 live 超时冷却一并清零
-          clearLiveSessionFailures(); // 显式重试：**会话内**的传输类软失败同样要清（它不在设置里）
-          syncLayers();               // key 的 live 段变化 → 层重建（升级/降级）
-          syncSceneAudio(selection);  // 音频互斥状态随形态切换
-          emit();
-        }, {
+          sel.sceneLive !== false, onToggleSceneLive, {
           key: "scene-live",
           hint: weT("WebGL 实时渲染 · 失败自动降级"),
           tooltip: sel.type === "web"
@@ -1006,7 +976,7 @@
                 key: secs,
                 className: "we-picker__btn we-picker__rate" + (Number(sel.liveBootDelay) === secs ? " we-picker__rate--active" : ""),
                 type: "button",
-                onClick: () => { setSetting("liveBootDelay", secs); emit(); },
+                onClick: () => onLiveBootDelay(secs),
               }, secs === 0 ? weT("立即") : "≤" + secs + "s"),
             ),
           ),
@@ -1022,7 +992,7 @@
                 className: "we-picker__btn we-picker__rate" + (sel.sceneLiveFps === f ? " we-picker__rate--active" : ""),
                 type: "button",
                 // 帧率进 iframe query（sceneFps）→ syncLayers key 变化重建层
-                onClick: () => { setSetting("sceneLiveFps", f); syncLayers(); emit(); },
+                onClick: () => onSceneLiveFps(f),
               }, f + "fps"),
             ),
           ),
@@ -1118,7 +1088,7 @@
                 key: rate,
                 className: "we-picker__btn we-picker__rate" + (sel.playbackRate === rate ? " we-picker__rate--active" : ""),
                 type: "button",
-                onClick: () => { setSetting("playbackRate", rate); emit(); },
+                onClick: () => onPlaybackRate(rate),
               }, String(rate).replace(/\.?0+$/, "") + "x"),
             ),
           ),
@@ -1136,9 +1106,7 @@
                 key: cap,
                 className: "we-picker__btn we-picker__rate" + (sel.fpsCap === cap ? " we-picker__rate--active" : ""),
                 type: "button",
-                onClick: () => {
-                  setSetting("fpsCap", cap); refreshMediaInfo(true); emit();
-                },
+                onClick: () => onFpsCap(cap),
               }, cap === 0 ? weT("无限制") : cap + "fps"),
             ),
           ),
@@ -1200,29 +1168,20 @@
                 className: "we-picker__btn we-picker__rate" + (sel.objectFit === mode ? " we-picker__rate--active" : ""),
                 type: "button",
                 title: mode,
-                onClick: () => {
-                  setSetting("objectFit", mode);
-                  emit();
-                  // Edge canvas 渲染路径的 fit 存在 weDrawCtx 上（syncLayers 的
-                  // same-canvas 守卫不会重建 draw loop），直接更新并重绘。
-                  if (weDrawCtx) {
-                    weDrawCtx.fit = mode;
-                    weDrawFrame();
-                  }
-                },
+                onClick: () => onObjectFit(mode),
               }, label);
             }),
           ),
         ),
         // Horizontal mirror — scaleX(-1), compositor-only; works for video,
         // web (iframe) and (later) uploaded image wallpapers alike.
-        switchRow(weT("水平翻转"), sel.flip, (e) => { setSetting("flip", e.target.checked); emit(); }, { key: "flip" }),
+        switchRow(weT("水平翻转"), sel.flip, onFlip, { key: "flip" }),
       ),
     );
   }
 
   function renderAdvancedTab(ctx) {
-    const { setSetting, onEdgeCompatChange, onLayoutChange, sel } = ctx;
+    const { setSetting, onAdapterTarget, onEdgeCompatChange, onLayoutChange, onPauseOnBattery, onPauseOnBlur, onPauseOnHidden, onToggleLiveDiag, sel } = ctx;
     return React.createElement(React.Fragment, null,
       // ── 浏览方式：紧凑 CD 架 vs 常规分页网格 ──
       React.createElement("div", { className: "we-picker__section" },
@@ -1263,7 +1222,7 @@
           React.createElement("select", {
             className: "we-picker__select",
             value: ADAPTER_TARGET_VALUES.includes(sel.adapterTarget) ? sel.adapterTarget : "auto",
-            onChange: (e) => { setSetting("adapterTarget", e.target.value); emit(); },
+            onChange: onAdapterTarget,
             "aria-label": weT("适配目标"),
           },
             ADAPTER_TARGET_VALUES.map((t) =>
@@ -1294,16 +1253,16 @@
             title: weT("类似 WE 的遮挡暂停：最小化、切到其它应用或使用电池供电时视频暂停、GPU 解码归零；回到界面 / 接通电源自动继续（网页壁纸仅随页面隐藏被浏览器节流）"),
           }, weT("省电")),
         ),
-        switchRow(weT("最小化/切页时暂停"), sel.pauseOnHidden, (e) => { setSetting("pauseOnHidden", e.target.checked); emit(); }, { key: "pause-hidden" }),
+        switchRow(weT("最小化/切页时暂停"), sel.pauseOnHidden, onPauseOnHidden, { key: "pause-hidden" }),
         // 失焦档按适配目标显隐：桌面壳失焦时壁纸多半仍整块可见，暂停会定格
         // **可见**画面 ⇒ 本目标下不提供；值不删，切到浏览器目标即重新生效。
         adapterCaps().blurPause
-          && switchRow(weT("窗口失焦时暂停"), sel.pauseOnBlur, (e) => { setSetting("pauseOnBlur", e.target.checked); emit(); }, { key: "pause-blur" }),
+          && switchRow(weT("窗口失焦时暂停"), sel.pauseOnBlur, onPauseOnBlur, { key: "pause-blur" }),
         !adapterCaps().blurPause && React.createElement("div", { className: "we-picker__hint", key: "pause-blur-note" },
           weT("「窗口失焦时暂停」只在原生浏览器目标下提供 —— 桌面壳失焦时壁纸仍可见，暂停会定格可见画面{note}", {
             note: sel.pauseOnBlur ? weT("（当前已开启，本目标下不生效，切到浏览器目标后恢复）") : "",
           })),
-        switchRow(weT("使用电池时暂停"), sel.pauseOnBattery, (e) => { setSetting("pauseOnBattery", e.target.checked); emit(); }, { key: "pause-battery" }),
+        switchRow(weT("使用电池时暂停"), sel.pauseOnBattery, onPauseOnBattery, { key: "pause-battery" }),
       ),
       // ── 实时渲染诊断（本会话有效，不落盘；从「效果」页签移来）：只对**能走实时
       //    渲染**的壁纸（场景 / 网页）显示 —— 视频、图片壁纸没有渲染页，摆出来是空的。──
@@ -1317,10 +1276,7 @@
           // `/wallpaper-engine/diag-log`）；这里开的是**逐秒心跳读数**（fps/running/
           // 暂停原因），排查「为什么没出帧」时用。
           switchRow(
-            weT("live 诊断日志"), liveDiagVerbose(), () => {
-              toggleLiveDiag(); // 翻转 + 留痕（状态归 src/live-layer.js）
-              emit();
-            }, {
+            weT("live 诊断日志"), liveDiagVerbose(), onToggleLiveDiag, {
               key: "scene-live-diag",
               hint: weT("本会话有效 · 逐秒心跳读数"),
               tooltip: weT("开启后每秒记录一次渲染页心跳读数（fps / running / 暂停原因）与准备、领养、判失败事件；同时写入浏览器控制台和宿主诊断缓冲（GET /wallpaper-engine/diag-log）。排查 live 掉帧/降级时用，平时关着。"),

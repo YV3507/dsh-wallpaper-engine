@@ -824,7 +824,10 @@ const clientChecks = [
   ['sceneVideo yields to live', /Boolean\(sel\.sceneVideo\) && !isLive/.test(prepSrc)],
   ['web wallpapers force the strict sandbox', /webSandbox=strict/.test(liveSrc)],
   ['heartbeat watchdog exists', /function startLiveWatch/.test(liveSrc) && /LIVE_FIRST_FRAME_MS/.test(liveSrc)],
-  ['failure memory persists', /sceneLiveFailures/.test(tabsSrc) && /function liveFail/.test(liveSrc)],
+  // P4-15：这条接线从 panel-tabs.js 挪进了 client.js 的 `onToggleSceneLive`（渲染器只调处理器）。
+  // 两端都钉：处理器真的清了失败记忆，且面板确实引用那个处理器。
+  ['failure memory persists', /function onToggleSceneLive\(e\)[\s\S]*?setSetting\("sceneLiveFailures", \{\}\)/.test(src)
+    && /function liveFail/.test(liveSrc) && /onToggleSceneLive/.test(tabsSrc)],
   ['audio mux honours live', /!selLike\.sceneLiveActive/.test(src)],
   ['syncLayers key carries live state', /"live\\u0000" \+ \(selection\.sceneLiveSrc \|\| selection\.webLiveSrc\)/.test(liveSrc)],
   // sceneVideo 只在**非 live** 形态下进 key：live 生效时 buildMedia 已把 isSceneVideo
@@ -982,10 +985,13 @@ for (const [name, ok] of clientChecks) check(name, ok);
     /setTimeout\(function \(\) \{\s*\n\s*try \{\s*\n\s*liveLog\("client-boot"/.test(code));
   // ⑩ 显式重试（面板重开开关）必须把会话内软失败一起清掉 —— 否则「重开开关可重试」
   //    这条逃生门对传输类失败不成立（它不在设置里，页面上看不见却拦着 live）。
-  check('显式重试同时清会话内软失败（跨文件接线：面板 → clearLiveSessionFailures）',
+  check('显式重试同时清会话内软失败（跨文件接线：面板 → 处理器 → clearLiveSessionFailures）',
     /function clearLiveSessionFailures\(\)/.test(code)
       && /liveSessionFailures\.clear\(\)/.test(code)
-      && /clearLiveSessionFailures\(\);/.test(tabsSrc));
+      // P4-15：调用点从 panel-tabs.js 挪进 client.js 的 `onToggleSceneLive`。**两端都要在**
+      //（面板引用处理器 + 处理器真的清）：只钉一端就漏掉了"把另一端删掉"这种回归。
+      && /function onToggleSceneLive\(e\)[\s\S]*?clearLiveSessionFailures\(\);/.test(src)
+      && /onToggleSceneLive/.test(tabsSrc));
   // ⑪ 失败记忆的**管线身份**：旧管线的 timeout 断言不许跨管线复用 —— 它是面板那行
   //    「实时渲染失败（…）」的唯一来源，实测会让"宿主半没重载 + 客户端已更新"看起来毫无作用。
   check('失败记忆带管线身份，换管线作废一次（bundle 变 / 媒体源从无到有）',
@@ -1029,7 +1035,9 @@ for (const [name, ok] of clientChecks) check(name, ok);
     stillInClient.join(' ') || '搬走了 ' + MOVED.length + ' 个入口');
   check('client.js 对管线状态零跨模块写（liveDiagOn 必须走入口）',
     !/^\s*liveDiagOn\s*=/m.test(src) && !/^\s*liveDiagOn\s*=/m.test(tabsSrc)
-    && /toggleLiveDiag\(\)/.test(tabsSrc));
+    // P4-15：入口调用点从 panel-tabs.js 挪进 client.js 的 `onToggleLiveDiag`（渲染器只调处理器）。
+    && /function onToggleLiveDiag\(\) \{ toggleLiveDiag\(\); emit\(\); \}/.test(src)
+    && /onToggleLiveDiag/.test(tabsSrc));
   check('live-layer.js 已登记进 INLINE_MODULES 且在产物里只有一份',
     /file:\s*'src\/live-layer\.js'/.test(build)
     && (bundle.match(/function syncLayers\(\)/g) || []).length === 1);
@@ -1528,7 +1536,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       + '  React.createElement("span", { className: "we-picker__section-label" }, weT("全局字体")),', '全局字体')
       && gated(tabsSrc, '全局字体'));
   check('侧栏档空态 CTA 切回壁纸页（不是设置页的库下钻）',
-    tabsSrc.includes('sidebarSurface ? onPickWallpaper : () =>')
+    tabsSrc.includes('sidebarSurface ? onPickWallpaper : onOpenPicker')
       && tabsSrc.includes('sidebarSurface ? weT("去挑一张 ›") : weT("选择壁纸")')
       && qpSrc.includes('onPickWallpaper: () => switchQpTab("wallpaper")'));
   // ── 侧栏列表的滚动链（真机回归：列表滚不动）────────────────────────────────
@@ -1737,7 +1745,14 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     'renderAppearanceTab', 'renderEffectsTab', 'renderAudioTab',
     'onAccent', 'onBlur', 'onBorder', 'onGlassAlpha', 'onGlassColor', 'onToggleThemeFollow',
     'onScrim', 'onWallpaperBlur', 'onWallpaperOpacity',
-    'onBackgroundBrightness', 'onBackgroundContrast', 'onBackgroundSaturate'];
+    'onBackgroundBrightness', 'onBackgroundContrast', 'onBackgroundSaturate',
+    // P4-15 从 panel-tabs.js 抽出的具名处理器：侧栏档也画到它们，于是它们成了 quick-panel.js
+    // 的**自由变量** ⇒ 必须在这里当形参给（漏一个就是 ReferenceError，这正是本判据的设计）。
+    // 与 QP_CTX_SETTINGS_ONLY 的分工：**侧栏档真的会画到的**由这里给真值（替身），
+    // 设置页专属的（如 onFpsCap —— 帧率上限那行带 `!sidebarSurface` 门）才进占位器名单。
+    'onGlassWindow', 'onLeftSidebarGlass', 'onSidebarGlass',
+    'onToggleSceneLive', 'onLiveBootDelay', 'onSceneLiveFps',
+    'onPlaybackRate', 'onObjectFit', 'onFlip', 'onOpenPicker', 'setPickerOpener'];
   const selBase = Object.assign({}, schema.DEFAULTS, {
     loaded: true, loading: false, id: 'w1', url: '/x', playing: true, videoPlaying: true,
     videoVolume: 0.5, videoAudioEnabled: false, videoError: '', type: 'video',
@@ -1766,6 +1781,9 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       onAccent: noop, onBlur: noop, onBorder: noop, onGlassAlpha: noop, onGlassColor: noop,
       onToggleThemeFollow: noop, onScrim: noop, onWallpaperBlur: noop, onWallpaperOpacity: noop,
       onBackgroundBrightness: noop, onBackgroundContrast: noop, onBackgroundSaturate: noop,
+      onGlassWindow: noop, onLeftSidebarGlass: noop, onSidebarGlass: noop,
+      onToggleSceneLive: noop, onLiveBootDelay: noop, onSceneLiveFps: noop,
+      onPlaybackRate: noop, onObjectFit: noop, onFlip: noop, onOpenPicker: noop, setPickerOpener: noop,
     })[n] || noop));
   const renderTab = (tab, sel) => {
     SEL = sel || selBase;

@@ -176,7 +176,6 @@ const selection = {
   //   fontSetActive 活动集 id（宿主的 `active`）
   //   fontSetLoading 清单在途
   //   fontSetEditing/fontSetDraftName  正在改名的那一行 + 输入框内容
-  //   fontSetNewName 新建输入框内容
   fontSetOpen: false,
   fontSets: [],
   fontSetActive: "",
@@ -749,7 +748,8 @@ function syncRotationTimer() {
   const group = activeRotationGroup();
   const minutes = group ? group.interval : DEFAULTS.rotationInterval;
   // 开发/测试覆盖钩子：localStorage.weRotationTestSec（秒）可临时缩短轮换
-  // 间隔（冒烟测试与手动预览用）；未设置时按组间隔（默认 5 分钟）正常运转。
+  // 间隔（冒烟测试与手动预览用）；未设置时按组间隔正常运转（缺省值见 lib/settings-schema.js
+  // 的 rotationInterval —— 本行不复述那个数，避免与真源漂成两份）。
   let delayMs = minutes * 60 * 1000;
   try {
     const testSec = Number(localStorage.getItem("weRotationTestSec"));
@@ -2594,6 +2594,101 @@ function markGpuFrameProbed(wid, pinned) {
   gpuFrameUi.pinned = Boolean(pinned);
   gpuFrameUi.probedAt = Date.now();
 }
+
+// ── 壁纸库页签的处理器（渲染器只读值 + 调这些）────────────────────────────────
+// `src/panel-tabs.js` 的契约是「只读 + 组装 React 树」：**写设置 / 改状态 / 发通知都归这里**。
+// 下面这些此前是内联在渲染树里的箭头（`onClick: () => { setTransient(…); emit(); }`），
+// 于是渲染器同时成了"状态的写入方" —— 它甚至在写本文件模块作用域的 `propsPanelOpen` /
+// `pickerFocusPending` / `pickerOpener`（**别人的状态**）。收口到这里之后：状态与处理器是
+// ctx 的**供给方**（同模态框 / 属性面板那条契约），渲染器不再引用 `selection` / `emit`。
+// 判据：`test/verify-client.mjs` 的接缝判据（页签与那两个渲染器同一条口径）。
+function setPickerOpener(el) { pickerOpener = el; }
+function onTogglePropsPanel() {
+  propsPanelOpen = !propsPanelOpen;
+  if (propsPanelOpen) loadUserPropDefs(propTokenOf(selection), true);
+  emit();
+}
+/** 两个「选择壁纸」入口只差草稿标志：普通下钻（点卡片即应用）与轮播编辑器的草稿下钻。 */
+function openPicker(draft) {
+  setTransient("pickerOpen", true);
+  setTransient("pickerDraft", draft);
+  setTransient("modalView", "normal");
+  pickerFocusPending = true; // 打开后焦点落入下钻视图（见 modalInitialFocus）
+  emit();
+}
+function onOpenPicker() { openPicker(false); }
+function onOpenPickerDraft() { openPicker(true); }
+// 轮播列表编辑器的**草稿**（住在 selection.editing；保存才由 saveEditingGroup 落盘）。
+function onEditName(e) {
+  if (selection.editing) { selection.editing.name = e.target.value; emit(); }
+}
+function onEditInterval(e) {
+  if (!selection.editing) return;
+  selection.editing.interval = clampNum(Number(e.target.value), 1, 1440, DEFAULTS.rotationInterval);
+  emit();
+}
+function onEditOrder(e) {
+  if (selection.editing) { selection.editing.order = e.target.value; emit(); }
+}
+// 两个可编辑路径（上传目录 / 官方资源路径）的**草稿**状态 —— 都在 selection 的瞬态字段里。
+function onStartEditUploadDir() {
+  setTransient("editingUploadDir", true);
+  setTransient("uploadDirDraft", selection.inventory.uploadDir || "");
+  emit();
+}
+function onUploadDirDraft(e) { setTransient("uploadDirDraft", e.target.value); emit(); }
+function onCancelEditUploadDir() { setTransient("editingUploadDir", false); emit(); }
+function onStartEditWeAssetsDir() {
+  setTransient("editingWeAssetsDir", true);
+  setTransient("weAssetsDirDraft", selection.inventory.weAssetsDir || "");
+  setTransient("weAssetsError", "");
+  emit();
+}
+function onWeAssetsDirDraft(e) { setTransient("weAssetsDirDraft", e.target.value); emit(); }
+function onCancelEditWeAssetsDir() {
+  setTransient("editingWeAssetsDir", false);
+  setTransient("weAssetsError", "");
+  emit();
+}
+
+// ── 外观 / 播放 / 系统页签的处理器（同上一条：渲染器只读值 + 调这些）────────────
+function onLeftSidebarGlass(e) { setSetting("leftSidebarGlass", e.target.checked); emit(); }
+function onGlassWindow(e) { setSetting("glassWindow", e.target.checked); emit(); }
+function onSidebarGlass(e) { setSetting("sidebarGlass", e.target.checked); emit(); }
+// 场景 / 网页实时渲染的总开关就是**显式重试入口**：除写设置外还要清空全部失败记忆
+//（含**会话内**的传输类软失败 —— 它不在设置里），并重建层与音频互斥态。
+// 五件事必须一起发生，所以它是一个处理器，而不是渲染器里的五行。
+function onToggleSceneLive(e) {
+  setSetting("sceneLive", e.target.checked);
+  setSetting("sceneLiveFailures", {});
+  prepareLiveTimeouts.clear(); // 准备期 live 超时冷却一并清零
+  clearLiveSessionFailures();  // 会话内的传输类软失败同样要清
+  syncLayers();                // key 的 live 段变化 → 层重建（升级/降级）
+  syncSceneAudio(selection);   // 音频互斥状态随形态切换
+  emit();
+}
+function onLiveBootDelay(secs) { setSetting("liveBootDelay", secs); emit(); }
+function onSceneLiveFps(f) { setSetting("sceneLiveFps", f); syncLayers(); emit(); }
+function onPlaybackRate(rate) { setSetting("playbackRate", rate); emit(); }
+function onFpsCap(cap) { setSetting("fpsCap", cap); refreshMediaInfo(true); emit(); }
+function onFlip(e) { setSetting("flip", e.target.checked); emit(); }
+function onAdapterTarget(e) { setSetting("adapterTarget", e.target.value); emit(); }
+function onPauseOnHidden(e) { setSetting("pauseOnHidden", e.target.checked); emit(); }
+function onPauseOnBlur(e) { setSetting("pauseOnBlur", e.target.checked); emit(); }
+function onPauseOnBattery(e) { setSetting("pauseOnBattery", e.target.checked); emit(); }
+function onToggleLiveDiag() { toggleLiveDiag(); emit(); }
+/**
+ * 适配方式（覆盖 / 填充 / 居中 / 拉伸）：除写设置外，Edge 的 canvas 渲染路径把 fit 存在
+ * `weDrawCtx` 上，而 `syncLayers` 的 same-canvas 守卫不会重建 draw loop ⇒ 这里要直接更新并重绘。
+ */
+function onObjectFit(mode) {
+  setSetting("objectFit", mode);
+  emit();
+  if (weDrawCtx) {
+    weDrawCtx.fit = mode;
+    weDrawFrame();
+  }
+}
 // 面板上「当前壁纸实时帧」微缩预览的 URL：与层里正在用的那个 URL **同源**（同一
 // 画面档位；scene-frame 路由在有 _gpu.png 时优先服务它），所以预览看到什么、切换
 // 途中与 live 首帧前显示的就是什么。尾上挂一个缓存破坏参数：probedAt 一变（重抓/
@@ -3424,12 +3519,12 @@ const officialColorOf = (tokens) => {
     if (activeTab === "appearance") return renderAppearanceTab({
       setSetting, setTransient,
       fontSet: fontSetCtx(),
-      officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onToggleFontCustom, onToggleThemeFollow, sel,
+      officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onGlassWindow, onLeftSidebarGlass, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarGlass, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onToggleFontCustom, onToggleThemeFollow, sel,
     });
     if (activeTab === "playback") return React.createElement(React.Fragment, null,
       renderEffectsTab({
         setSetting, setTransient,
-        onBackgroundBrightness, onBackgroundContrast, onBackgroundSaturate, onClearCustomFrame, onClearGpuFrame, onCustomFrameFile, onRecaptureGpuFrame, onRefreshFrame, onScrim, onWallpaperBlur, onWallpaperOpacity, sel,
+        onBackgroundBrightness, onBackgroundContrast, onBackgroundSaturate, onClearCustomFrame, onClearGpuFrame, onCustomFrameFile, onFlip, onFpsCap, onLiveBootDelay, onObjectFit, onOpenPicker, onPlaybackRate, onRecaptureGpuFrame, onRefreshFrame, onSceneLiveFps, onScrim, onToggleSceneLive, onWallpaperBlur, onWallpaperOpacity, sel, setPickerOpener,
       }),
       renderAudioTab({
         setSetting, setTransient,
@@ -3442,12 +3537,12 @@ const officialColorOf = (tokens) => {
       }),
       renderAdvancedTab({
         setSetting, setTransient,
-        onEdgeCompatChange, onLayoutChange, sel,
+        onAdapterTarget, onEdgeCompatChange, onLayoutChange, onPauseOnBattery, onPauseOnBlur, onPauseOnHidden, onToggleLiveDiag, sel,
       }),
     );
     return renderWallpaperTab({
       setSetting, setTransient,
-      INTERVALS, armedConfirm: sel.armedConfirm, cdMode, current, editing, editorPageView, group, groups, isLiveScene, onArmConfirm: armConfirm, onArmDeleteGroup, onClear, onDeleteGroup, onDisarmConfirm: disarmConfirm, onGroupChange, onGroupInterval, onRefresh, onSwitchTransition, onSwitchTransitionDir, onSwitchTransitionSpeed, onToggleAudio, onTogglePlay, onToggleRotation, pagerRow, playableCount, playableList, playbackLive, renderUserPropsPanel, sel, uploadedList,
+      INTERVALS, armedConfirm: sel.armedConfirm, cdMode, current, editing, editorPageView, group, groups, isLiveScene, onArmConfirm: armConfirm, onArmDeleteGroup, onCancelEditUploadDir, onCancelEditWeAssetsDir, onClear, onDeleteGroup, onDisarmConfirm: disarmConfirm, onEditInterval, onEditName, onEditOrder, onGroupChange, onGroupInterval, onOpenPicker, onOpenPickerDraft, onRefresh, onStartEditUploadDir, onStartEditWeAssetsDir, onSwitchTransition, onSwitchTransitionDir, onSwitchTransitionSpeed, onToggleAudio, onTogglePlay, onTogglePropsPanel, onToggleRotation, onUploadDirDraft, onWeAssetsDirDraft, pagerRow, playableCount, playableList, playbackLive, propsPanelOpen, renderUserPropsPanel, sel, setPickerOpener, uploadedList,
     });
   };
   const tabIdx = Math.max(0, PICKER_TABS.findIndex((t) => t.id === activeTab));
@@ -4442,7 +4537,13 @@ function apply(ctx) {
   // fontsets/<id>.json — a different store on the same host), then inventory — so the
   // selection restore inside loadInventory()'s revalidateSelection() sees the persisted id
   // and can resolve its media URL, and the first paint already has the user's fonts.
-  loadPersisted().then(loadFontSet).then(loadInventory);
+  //
+  // ⚠️ 终止 `.catch` 是**必须**的：这条链上任何一步 reject，后面的 `loadInventory` 就永不执行 ——
+  // 选择器永久停在「扫描 Wallpaper Engine…」，一次性提示也不收敛（用户只能靠刷新或禁用插件自救）。
+  // 各步内部已各自消化可预期的失败（宿主不可达 / 存储被拒 / 坏 JSON），这一条兜的是"没预料到的那次抛"。
+  loadPersisted().then(loadFontSet).then(loadInventory).catch((err) => {
+    try { reportClientDiag("boot-chain-failed", String((err && err.message) || err)); } catch { /* 诊断本身不许再抛 */ }
+  });
 }
 
 exports.apply = apply;

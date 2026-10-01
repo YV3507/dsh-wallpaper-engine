@@ -135,7 +135,8 @@ HTML 里注入 WE API shim（`lib/webwallgl/web-shim.js`）与 `project.json` �
 - **切换只有一条写原语**：`POST …/activate` 改指针，改完客户端**必须把它那份值读回来采用**（只挪指针
   界面不会变）。"使用中"的判据是**值仍与采纳时一致**，指针另作能力判定（活动集不可删）。
 - **导入导出**：导出走宿主响应头 + 普通链接（桌面端 = 系统「另存为」），导入前按文件里的 `$schema`
-  预检并给出具体原因。决策见账本 §9.5，过程记录见 [`archive/audits/F3-PLAN.md`](./archive/audits/F3-PLAN.md)。
+  预检并给出具体原因。决策记录见 [`archive/REFACTOR-ASSESSMENT.md`](./archive/REFACTOR-ASSESSMENT.md)
+  §9.5（活账本里**没有**这一节），过程记录见 [`archive/audits/F3-PLAN.md`](./archive/audits/F3-PLAN.md)。
 
 ### 抓帧几何校验（视口宽高比）
 

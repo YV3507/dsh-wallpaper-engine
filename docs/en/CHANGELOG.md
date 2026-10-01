@@ -16,6 +16,112 @@
 
 > Increment after **v1.1.0** (the diff against upstream `origin/main`, verifiable commit by commit):
 
+- **The panel tabs finally honour their own module header: 26 inline "write + notify" arrows became named handlers** (audit §6.3, which called it a **real seam gap, not style**). The header of `src/panel-tabs.js` has always said "a tab **must not** write selection / must not emit — writing settings is the handlers' job", but the measured violations were **not** on the "writes selection" clause (that one was always zero). What was actually missed were **the two classes the judgement cannot see**: ① 22 direct `emit()` calls across 4 renderers; ② writes to **module-level state** (`propsPanelOpen = !propsPanelOpen`, `pickerFocusPending`, `pickerOpener = el`) and to **what a ctx alias points at** (`editing.name` / `editing.interval` / `editing.order = …`, where `editing` *is* `selection.editing`). Class ② contains no `selection.` literal at all, so the "count the `selection.` literals" judgement **let it through indefinitely**.
+  **Why this is a gap rather than style**: the sibling renderers split out in the same cut — `src/picker-modal.js` and `src/picker-props-panel.js` — have long been held to the **strict** standard (`selection` zero references + `emit(` zero calls); only `panel-tabs.js` was missing from that table.
+  **Fix**: those inline arrows became **named handlers** in `src/client.js`, passed into the tabs through ctx — `onTogglePropsPanel`, `openPicker` / `onOpenPicker` / `onOpenPickerDraft`, the three rotation-draft mutators (`onEditName` / `onEditInterval` / `onEditOrder`), the two editable-path draft clusters (upload dir, WE assets dir), `onToggleSceneLive` (**six things together**: write the switch + clear failure memory + clear prepare-phase cooldown + clear in-session soft failures + rebuild layers + re-sync audio), plus `onFpsCap` / `onObjectFit` (including the Edge canvas path's direct redraw) / `onToggleLiveDiag` and friends. What remains in the tabs is `onClick: onFoo`.
+  **Judgements**: ① `panel-tabs.js` joined the seam judgement table in `verify-client` (**the same wording** as the other two renderers); ② a new judgement forbids a renderer from **mutating ctx aliases / module-level state**, covering assignment, member assignment and in-place mutation, while never flagging pure reads (including `.map`) or mentions inside comments. **Three teeth proofs**: injecting one of each class goes red and **names** it (`propsPanelOpen` / `editing` / `不得自己发通知`), and after restoring, `verify-client-sync`'s rebuild is **byte-for-byte identical**. **Consequential updates**: three cross-file "panel → live render" wiring judgements in `verify-scene-live` followed the call site to its new owner (**both ends pinned**: the handler really does it + the panel really references that handler — pinning only one end misses "someone deleted the other end"), and the sidebar ctx coverage list plus the real-render harness were extended in step (11 new free variables; missing one is a ReferenceError).
+
+- **The frame-cache slot now yields only its one real artifact, and a wasted "variant 4" pass is gone** (audit §6.4). `sceneFrameSlot` used to return `pngPath` / `jpgPath` / `gifPath` / `dir` plus a `_vN` variant suffix, while **only `gpuPath` had a consumer** (alongside `key`, which is the write-dedup lock key for the GPU-frame PUT) — those three paths were leftovers of the static-frame extraction line, and the `_vN` suffix was **never reachable**: no live call site ever passed a non-zero variant. The return is now `{ key, gpuPath }`.
+  **A real piece of wasted work on that same chain went with it**: variant 4 (a user's explicitly pinned custom cover) is **exempt** from frame capture, yet it still called `sceneFrameSlot(abs, 4)` — doing a `statSync` + `ensureFrameCacheDir()` for paths that would **never be read** (`gpuFrameFileFor` already returned `null` for variant 4). The exemption is now decided **by the caller** (`variant === 4 ? null : gpuFrameFileFor(sceneFrameSlot(abs))`), so variant 4 does not resolve a slot at all. `gpuFrameFileFor` also lost its `variant` parameter and a dead branch that only covered variants 1/2/3 while the value domain is `{0,4}`.
+  **Verified**: four new assertions in `test/verify-scene.mjs`, each with a control — the dead fields have **zero residue** in `lib/` (and the scan **strips comments first**: the comment explaining *why* they were deleted must still be able to name them), the return has **exactly two fields** (counted, not name-matched — `dir` legitimately exists in that function as a local variable, so forbidding the name would be the wrong judgement), no variant parameter and no `_v` suffix, and the exemption point does not resolve a slot. **Two teeth proofs**: re-adding `dir` + `pngPath` goes red and names it; re-adding **only** `dir` goes red reporting `fields=3` (that second one specifically closes the "a name-based judgement would miss a bare `dir`" gap).
+
+- **The publish surface shrank again: the TEX-extraction module retired outright and the in-tree JPEG decoder copy went with it** (audit §6.1, which called it "the **only** structural leftover this refactor clearly failed to delete"). `lib/pkg-extract.js` was a leftover of the static-frame line: once P2-12 deleted that line wholesale, its **TEX→RGBA decode chain** (`decodeTex` and every decode helper), its **embedded-PNG payload decode** and its **embedded-MP4 extraction** had no callers left — measured from the only live entry point, `parseTex`, **430 of 645 lines were unreachable**. Two illusions kept it alive: ① the host's two `await import('./pkg-extract.js')` calls only use `parsePkg` / `readPkgEntry`, whose implementations already live in `lib/pkg-read.js` (the direction P3-17 was already consolidating), so they can import it directly; ② the only mention of it in `lib/scene-manifest.js` is **a sentence in a comment** — a read-only audit concluded from that "this one is live, **do not delete it by mistake**", which is **reading a comment as a call site** (this repo already has a "strip comments before judging" rule for *assertions*; this was the same rule failing on the *auditing* side). What really pinned it was a ledger-guard "live dependency survives" assertion (it checked that the string `function extractTexVideoMp4(` existed — **a guard pinning a call-less function as a live dependency**); that guard retired with ADR-0006, and the last obstacle to deletion went with it.
+  **Removed**: `lib/pkg-extract.js` (645 lines) · `lib/vendor/jpeg-js/` (7 files, ~100KB of in-tree copy shipped in the package) · two `package.json` `files` entries (`lib/pkg-extract.js`, `lib/vendor/`) · an unused `node:zlib` import and a zombie "PNG encoder" section comment. Container knowledge keeps its **single implementation**, `lib/pkg-read.js`.
+  **Verified**: the `lib/**` scan surface went **27 → 23 files / 34,124 → 31,756 lines**, with runtime-unreachable still at **0 / 0**; every publish-surface guard (files coverage / named entry points / `node --check` per module / relative specifiers resolvable / dead declarations / BOM) is green. **Judgement**: a new section ④ in `test/verify-retired-lines.mjs` — the retired vocabulary must have **zero residue** in the scan surface, plus three existence assertions (the file is gone, the copy is gone, `files` no longer lists them) and a negative control; and it was executed strictly per this repo's "**a reverse probe precedes the deletion**" discipline: **add the probe first, let it go red and enumerate the 10 places to clean, then clean them one by one**.
+  ⚠️ The `lib/vendor` directory name itself is deliberately **not** in the retired vocabulary — it is the **permitted** location for third-party copies per `CODE-STRUCTURE` §5; what retired is that one copy, not the directory concept.
+
+- **Four host-hardening cuts (each an independent one-thing-at-a-time change, each with a guard that pins it)**:
+  ① **Four routes gained a request-body cap** — `/remove`, `/upload-dir`, `/we-assets-dir` and `/media-control`
+  accumulated `body += chunk` while **never comparing a length**: an oversized request grows the host heap
+  without bound (it listens on loopback only by default, but the webserver allows `host: 0.0.0.0`, and all four
+  are POST). The cap comes from one shared constant, `CONTROL_JSON_MAX_BYTES` (64 KB for small control-plane JSON).
+  **This judgement gap had already been measured once**: a read-only audit recorded that "no guard requires a
+  cap on body-reading routes; the gates its siblings already had relied on people remembering to copy them",
+  and then the newly added `/media-control` **forgot to copy it** ⇒ the gap went from three routes to four.
+  So this is not "fix three more": the judgement is now **disk-enumerated over every `req.on('data')` site, red
+  when a cap is missing** (`test/verify-body-caps.mjs`, 8 positive/negative controls plus a coverage floor; a
+  callback that is a bare identifier — the idle-timer reset — is a **structural** exemption, not an allowlist).
+  ② **Per-chunk decoding ⇒ multi-byte code points became `U+FFFD`**: the second silent defect on that same chain —
+  a code point split across two TCP segments gets corrupted, and when **user-visible strings** (wallpaper ids,
+  font names, font families) are corrupted the client never finds out. Six handlers (`/settings`, `/fontsets`,
+  `/remove`, `/upload-dir`, `/we-assets-dir`, `/media-control`) now **count bytes as they arrive and decode
+  exactly once** via `Buffer.concat(...).toString('utf8')` — the shape `/live-frame`, `/scene-frame-cache` and
+  `/client-diag` already had.
+  ③ **`reqLogSeen` gained a bound**: its keys carry **request-controlled** path segments (`/scene-files`
+  sub-paths, `/live-frame` tokens, `/scene-live` pathnames) and it only ever did `get`/`set` with no reclamation
+  ⇒ distinct requests grow the heap **monotonically** (measured: 200k distinct tokens took `heapUsed` from 32.2 MB
+  to 72.4 MB and it was never released). The 10 s TTL only suppresses **writes**, it does not clean entries, so the
+  bound is now guaranteed separately (oldest-first eviction in insertion order once over the limit). When dedup and
+  the bound conflict, **the bound wins**: an evicted key may produce one duplicate diagnostic line — diagnostic dedup
+  is best-effort, bounded memory is a hard requirement.
+  ④ **`/custom-frame` gained an "abandoned mid-upload" path, plus two temp-file defects**: when the dialog is closed
+  or the network drops, `req 'end'`, `'error'` and the timeout all fail to fire and `failed` is never set ⇒ reaching
+  cleanup through `ws 'close'` alone was impossible: the write stream stayed open (an unclosed fd until GC) and up to
+  30 MB of `.tmp` was left on disk, while the read side only accepts the real extensions ⇒ **invisible** garbage that
+  only accumulates. It now mirrors `upload.js` with a `req.once('close')` (and no longer destroys the stream once
+  `completed`), plus a startup sweep that removes **only sufficiently old** `.tmp` files (orphans from a killed
+  process; age-gated so an in-flight write is never deleted).
+  **Transcode temp files also moved to `atomicTmpPath`** (`.tmp<pid><incrementing seq>`): they used the deterministic
+  name `cachePath + '.tmp' + pid`, and `cancel()` removes the `TRANSCODE_INFLIGHT` entry immediately ⇒ a new job could
+  start on the same path **before** the old job finished settling, and the old job's `unlinkSync(tmp)` in its `catch`
+  deleted **the new job's work in progress**. ⚠️ The rename also fixed the sweeper's "protect this process's in-flight
+  writes" check (it only recognised names **ending** in `.tmp<pid>`, so after the rename it would have failed silently
+  and deleted a file being written during HMR). **`uploads/.meta.json`'s read-modify-write joined `enqueueConfigWrite`**
+  (the same write queue `config.json` uses): two overlapping meta writes lose `sha256`, and `sha256` is exactly what
+  content dedup compares — lose it and the same file piles up as copies.
+- **Two client defects users run straight into**:
+  ① **The boot chain gained a terminal `.catch`, and the bare `localStorage` read moved behind a guard** — the migration
+  branch wrapped only `JSON.parse` in a try, leaving `localStorage.getItem` **outside** it: when site data is disabled
+  or the page is embedded from an opaque origin, `getItem` itself throws `SecurityError` ⇒ `loadPersisted()` rejects
+  wholesale ⇒ the boot chain (`loadPersisted → loadFontSet → loadInventory`) breaks ⇒ the picker is **permanently stuck
+  on "scanning Wallpaper Engine…"** and the one-time notice never settles (the user can only refresh or disable the
+  plugin). The whole read now goes through a guarded `readPersistedRaw()`, and the chain has a **terminal catch** that
+  leaves a `boot-chain-failed` diagnostic line. The comment right there already described this exact pitfall being fixed
+  once before — which is why the **position** of a guard matters more than remembering to wrap a try.
+  ② **The music toggle's highlight was inverted**: the predicate was `weAudioVolume() > 0 || disabled` (simplified:
+  highlighted only when the toggle is on *and* the volume is 0), while the factory default is `videoVolume: 0` +
+  `videoAudioEnabled: true` ⇒ the button was lit while the wallpaper was mute, and clicking it (turning the track off)
+  made the highlight **disappear**; the adjacent label looked only at `videoAudioEnabled` ⇒ label and highlight
+  contradicted each other. It now uses **verbatim the same predicate as the button's own state** (and as the label):
+  `videoAudioEnabled === false ? "" : " is-on"`. ⚠️ The "on *and* has volume" spelling is deliberately **not** used:
+  volume is a **separate** control, and that spelling would leave a click with **no visual feedback at all** in the
+  factory default configuration.
+- **One disabled monitor restored (as a code-reading guard) + one "assertion idling" bug fixed**:
+  ① **The route-family trigger line has a watcher again** — ledger §7-6 ("a path-first-segment family reaching ≥3 routes
+  ⇒ split it per family") used to be watched by `verify-ledger.mjs`, and that guard was retired wholesale with ADR-0006,
+  whose own "cost" section states that **the monitor is now dead** ⇒ the trigger line still lived in the docs with
+  nothing watching it. Following the remedy ADR-0006 prescribes, the judgement now lives in a code-reading guard,
+  `test/verify-route-families.mjs` (enumeration via `buildIndex()` in `host-route-index`; grouping verbatim identical to
+  group ② of `analyze-host-apply.mjs`). **It going red does not mean the code is broken — it means an adjudication is
+  due** (split the family, or move the line *and* the judgement together).
+  ② **One `verify-scene` judgement was scanning the whole file**: its end anchor was written as `sceneFrameSlotFile`
+  (**which does not exist anywhere in the repo**) ⇒ `indexOf` returned −1 ⇒ `slice(start, −1)` scanned to the end of the
+  file, degrading the judgement from "inside the function body" to "everything else in the file" while still reporting
+  green. It now bounds by the next top-level function and adds a **"missing anchor is red"** assertion plus a negative
+  control (this "anchor drifted and nobody noticed" shape is another instance of the P3-16 class).
+- **Documents and comments now describe only the current mechanism (a batch of statements that contradicted the code)**:
+  `theme-follow.js`'s header claimed the threshold was mid-grey `≈0.2159` while the implementation is `0.40` and the same
+  file says further down that it does **not** use mid-grey (header and body contradicted each other); `effects.js` claimed
+  it "only reads selection" while `clearEffects()` writes five of its fields (now states the single exception and that it
+  still writes no settings); `client.js`'s rotation-interval comment said "default 5 minutes" while the source of truth is
+  `rotationInterval: 30`; `lib/index.js`'s cache-key invariant still pointed at the "prewarm disk write" **deleted with
+  P2-12**; one `live-layer.js` comment had turned into a chronicle ("this line once said …", which ADR-0006 forbids);
+  `CONTRIBUTING.md` called `INLINE_MODULES` "the 14 modules" when it is far more than that (**per ADR-0006 D2 this became
+  "read it off the build list", no hardcoded number**); `HOW-IT-WORKS.md` still pointed at "ledger §9.5" (that section is
+  archived). One **dead fixture pipeline** was also removed: the "contract fields" `fontSetNewName` / `newName` **do not
+  exist** in the implementation (neither the store literal nor `fontSetCtx()` has them) — only the guard was still feeding
+  them. **`docs/en/TROUBLESHOOTING.md` gained the section the Chinese page had and the English one was missing entirely**:
+  "I changed the plugin and nothing happens at all — separate the client half from the host half" (with its four on-the-spot
+  checks), plus the lineage note at the top — after which this pair's section structure lines up item by item for the first
+  time (it was 7 : 5 headings before).
+- **Ledger numbers retired per ADR-0006 D2**: `docs/wip/OPEN-ITEMS.md` §2/§3/§7 had copied a dozen-plus values that drift
+  (inline-module count, the `lib/**` scan surface, `apply`'s line count and route count, `WallpaperPicker`'s line count,
+  guard counts, the co-change mean…) and **all of them had drifted** (an earlier read-only audit listed them one by one).
+  They are now **metric + recompute command only**. §3.2's "`lib/**` duplication 9.6%" conclusion had the **direction
+  backwards** (it counted the generated `lib/client.js`, which carries a copy of `src/**` again, as host-half structural
+  duplication — with the generated artifact and vendored code excluded, the hand-written surface is well under 1% at both
+  window sizes), corrected together with "the scope and exclusions must be stated".
+
 - **Four CI-assertion fixes (two permanently-red compat probes + the five-section walk after a rename + one mock keychain for every headless browser + a CRLF-tolerant verify-scene-live)**: ① `compat-harness-pages`'s surface-token probe took `.value` off `evS`'s return value (which already IS the value) ⇒ `sp` was always `null` and **three assertions had been red since bb06fc2 with no visible reason** (harness-compat is dispatch-only, so nobody noticed); now fixed and green (27/27), with a `DSH_WE_COMPAT_DEBUG` raw-value dump added. ② The five-section walk hard-coded `Wallpaper Engine`, but the UI refactor renamed that section to 「壁纸引擎」 ⇒ the last section was clicked 0 times (the same assertion's `断点=` field named it, but the reading was easy to miss); it now matches a **candidate list** (a rename can no longer fail silently; only "neither name found" goes red). ③ **Headless browser launch policy: all 6 `--headless=new` launch sites now carry `--use-mock-keychain`** — on macOS a missing flag makes Chromium (Edge measured) touch the real keychain and pop the "keychain not found" dialog, interrupting whoever is running the tests (reproduced twice on the user's machine; `compat-harness-pages` and `tools/diagnose-web-blank` were each missing it, and the second run inside `e2e-web-media-origin` too). `verify-contracts` now guards it statically (section ③, matched per **launch argument array** so new launch sites are covered automatically, with a negative control).
   ⑤ `verify-scene-live`'s "sidebar ctx covers every field the renderers need" check wrote a literal `\n` in its pattern, so on a **CRLF checkout** (CI runs on windows-latest; this repo ships no .gitattributes and Git for Windows defaults to autocrlf) it matched **zero candidates**: green locally on an LF checkout, but red in CI as `候选 0 个` with 279 passed / 1 failed (measured on this PR's first push). It now accepts `\r?\n` with a positive/negative control (the same check must find the fields in both LF and CRLF forms, and must miss on a wrong function name); the other 21 guards were re-run one by one on a `git clone -c core.autocrlf=true` checkout and are all green — this was the only CRLF-fragile assertion in the batch.
 - **Dragging a colour wheel or a slider no longer stutters (the drag path writes only what is visible)**: the field report (a user saying "picking a custom colour feels laggy") traced to every single tick of a drag through the native colour wheel running `setSetting + emit()` — `emit` re-renders the whole panel (the settings one is the heaviest: the font table, 12 colour swatches and the font-set editor), and that **full** `applyEffects` inside the emit subscribers also rebuilds the font stylesheet, re-syncs scene audio and reads `getComputedStyle` once (whenever wallpaper opacity is above 0 — which is a **forced synchronous style recalculation**, i.e. a whole-page relayout) ⇒ three expensive jobs per tick, which is what made dragging feel sticky. There are now two paths: during a drag (`input`) the handler only writes the value and calls `applyEffects({ live: true })` (skipping those jobs as unrelated to this drag, while still writing **all** the style variables) and does **not** emit — the visible readout updates in place (the slider track writes `--we-fill` straight to its style, and a native colour swatch changes on its own); on release (`change`) the full pass runs once (emit → full `applyEffects`). The volume slider follows the same split (no emit while dragging; volume itself applies immediately). Intermediate drag values are still persisted (that `setSetting` debounce of 200 ms), so closing the window mid-drag does not lose the last value. This matches the silent-drag convention already used by the wallpaper-properties panel (`onPropInput` in `src/picker-props-panel.js`).

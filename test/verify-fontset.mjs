@@ -1011,9 +1011,9 @@ section('⑧ 面板渲染回归（配色区在总开关打开时必须渲染得�
       setSetting: noop, setTransient: noop, sel,
       fontSet: {
         open: true, fontSets: FONTSET_ROWS, activeId: 'compact', loading: false, error: '',
-        editingId: '', draftName: '', newName: '', exportUrl: (id) => '/wallpaper-engine/fontsets/' + id + '/export',
+        editingId: '', draftName: '', exportUrl: (id) => '/wallpaper-engine/fontsets/' + id + '/export',
         onOpen: noop, onActivate: noop, onRefresh: noop, onDelete: noop, onEdit: noop, onDraftName: noop,
-        onRenameCommit: noop, onCancelEdit: noop, onNewName: noop, onCreate: noop,
+        onRenameCommit: noop, onCancelEdit: noop, onCreate: noop,
       },
     };
     for (const k of ['officialColorOf', 'onAccent', 'onBlur', 'onBorder', 'onCaretColor', 'onComponentFamily',

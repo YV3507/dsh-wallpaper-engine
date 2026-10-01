@@ -17,6 +17,138 @@
 
 > v1.1.0 之后的增量（与上游 `origin/main` 的差异，逐提交可查）：
 
+- **面板页签终于兑现自己的模块头契约：26 处内联"写 + 通知"收口成具名处理器**（审计 §6.3，
+  审计称之为"**真接缝缺口，不是风格**"）。`src/panel-tabs.js` 的文件头一直写着"页签**不得**写
+  selection / 不得 emit：写设置是处理器的职责"，而实测的越界**不在**"写 selection"这一条上
+  （那条一直是零）—— 真正漏掉的是**判据看不见的两类**：① 4 个渲染器里 22 处直接 `emit()`；
+  ② 改写**模块级状态**（`propsPanelOpen = !propsPanelOpen`、`pickerFocusPending`、
+  `pickerOpener = el`）与 **ctx 别名指向的东西**（`editing.name` / `editing.interval` /
+  `editing.order = …`，而 `editing` 就是 `selection.editing`）。②这一类连 `selection.` 字面量
+  都不含，所以"只数 `selection.`"的那条判据**一直放行**。
+  **为什么它是个缺口而不是风格**：同一刀拆出去的 `src/picker-modal.js` / `src/picker-props-panel.js`
+  早就在**严口径**下被守着（`selection` 零引用 + `emit(` 零调用），只有 `panel-tabs.js` 不在那张表里。
+  **改法**：把那些内联箭头抽成 `src/client.js` 里的**具名处理器**，经 ctx 传进页签 ——
+  `onTogglePropsPanel`、`openPicker` / `onOpenPicker` / `onOpenPickerDraft`、三个轮播草稿改写
+  （`onEditName` / `onEditInterval` / `onEditOrder`）、上传目录与官方资源路径两组草稿编辑、
+  `onToggleSceneLive`（**六件事一起做**：写开关 + 清失败记忆 + 清准备期冷却 + 清会话内软失败
+  + 重建层 + 同步音频），以及 `onFpsCap` / `onObjectFit`（含 Edge canvas 路径的直接重绘）/
+  `onToggleLiveDiag` 等；页签里只剩 `onClick: onFoo` 这样的引用。
+  **判据**：① 把 `panel-tabs.js` 加进 `verify-client` 的接缝判据表（与另外两个渲染器**同一条口径**）；
+  ② 新增一条"渲染器不得改写 **ctx 别名 / 模块级状态**"的判据，覆盖赋值、成员赋值与原地变更三类形态，
+  纯读取（含 `.map`）与注释里的提及都不误伤。**牙齿实证三组**：三类各注入一次 ⇒ 各自变红并**点名**
+  （`propsPanelOpen` / `editing` / `不得自己发通知`），还原后 `verify-client-sync` 的重建结果
+  **逐字节一致**。**连带更新**：`verify-scene-live` 里三条"面板 → 实时渲染"的跨文件接线判据随调用点
+  迁移而改写（**两端都钉**：处理器真的做 + 面板确实引用那个处理器 —— 只钉一端会漏掉"删掉另一端"），
+  侧栏 ctx 覆盖名单与真渲染挂载台同步扩面（新增 11 个自由变量，漏一个就是 ReferenceError）。
+
+- **帧缓存槽位只留唯一产物，并去掉一次"档 4"的白工**（审计 §6.4）。`sceneFrameSlot` 曾返回
+  `pngPath` / `jpgPath` / `gifPath` / `dir` 四个字段与一个 `_vN` 档位后缀，而**四个字段里只有
+  `gpuPath` 有人在用**（外加 `key`，它是 GPU 回填 PUT 的写去重锁键）——那三条路径是静态帧提取线
+  的遗留；`_vN` 后缀则**从来没有任何活调用点会传非 0 的档位**。返回收敛为 `{ key, gpuPath }`。
+  **顺带修掉那条链上的一次真实白工**：档 4（用户显式 pin 的自定义封面）**豁免**抓帧，而它此前
+  仍会 `sceneFrameSlot(abs, 4)` 解析一次槽位 —— 做一次 `statSync` + `ensureFrameCacheDir()`，
+  产出的路径**永远不会被读**（`gpuFrameFileFor` 对档 4 早就是 `return null`）。现在豁免在**调用方**
+  判定（`variant === 4 ? null : gpuFrameFileFor(sceneFrameSlot(abs))`）：档 4 连槽位都不解析。
+  `gpuFrameFileFor` 同时去掉 `variant` 参数，以及一条只对档位 1/2/3 生效、而值域是 `{0,4}` 的死分支。
+  **验证**：`test/verify-scene.mjs` 新增四条判据各带对照 —— 死字段在 `lib/` **零残留**（且**先剥注释
+  再判**：解释"它们为什么被删"的注释必须还能点名它们）、**返回恰好两个字段**（按数量判，不按名字 ——
+  `dir` 在本函数里合法地作为局部变量存在，按名字禁它是错的判据）、无档位参数且不拼 `_v`、
+  豁免点不解析槽位。**牙齿实证两组**：重加 `dir` + `pngPath` ⇒ 红且点名；**只**重加 `dir` ⇒
+  红并报 `fields=3`（这一组是专门用来堵住"按名字判漏掉裸 `dir`"那个缺口的）。
+
+- **发布面再瘦一圈：TEX 抽取模块整体退役 + 自带 JPEG 解码副本删除**（审计 §6.1，审计自己称它是
+  "本轮重构**唯一**明确没删干净的结构残留"）。`lib/pkg-extract.js` 是静态帧线的遗留：静态帧线在
+  P2-12 整体删除后，它的 **TEX→RGBA 解码链**（`decodeTex` 与全部解码助手）、**内嵌 PNG 载荷解码**
+  与**内嵌 MP4 抽取**就都没有调用者了 —— 实测从唯一活入口 `parseTex` 出发，**430 / 645 行不可达**。
+  它之所以还活着，是两个"看起来还在用"的假象：① 宿主那两处 `await import('./pkg-extract.js')`
+  只用 `parsePkg` / `readPkgEntry`，而那两个的实现**本来就在** `lib/pkg-read.js`（P3-17 的收口方向），
+  改成直接 import 即可；② `lib/scene-manifest.js` 对它的唯一提及是**注释里的一句话** ——
+  一次只读审计据此写下"这条是活的、**别误删**"，那是**把注释当调用读**（本仓对判据早有"先剥注释再判"
+  的纪律，这是同一条纪律在审计侧的翻版）。当年真正钉住它的是账本守卫里一条"活依赖存活"断言
+  （检查字符串 `function extractTexVideoMp4(` 存在 —— **一条守卫把一个没有调用者的函数钉成了活依赖**），
+  该守卫随 ADR-0006 下线后，删除的最后一个阻碍也随之消失。
+  **删除内容**：`lib/pkg-extract.js`（645 行）· `lib/vendor/jpeg-js/`（7 文件，随包发布的 ~100KB 自带副本）·
+  `package.json` 的 `files` 两条（`lib/pkg-extract.js`、`lib/vendor/`）· 一个已经没人用的 `node:zlib` 导入
+  与一条"PNG 编码器"的僵尸小节注释。容器知识保持**唯一实现** `lib/pkg-read.js`。
+  **验证**：`lib/**` 扫描面 **27 → 23 文件 / 34,124 → 31,756 行**，运行时不可达仍是 **0 / 0**；
+  发布面守卫（`files` 覆盖 / 具名入口 / 每个模块 `node --check` / 相对说明符可解析 / 死声明 / BOM）
+  全绿。**判据**：`test/verify-retired-lines.mjs` 新增第 ④ 节 —— 退役词在扫描面**零残留**，
+  外加三条存在性断言（文件没了、副本没了、`files` 不再收录）与负对照；并严格按本仓
+  "**反向探针先于删除**"的纪律执行：**先加探针、让它红着列出 10 个待清点、再逐条清**。
+  ⚠️ 有意**不**把 `lib/vendor` 目录名本身列为退役词 —— 那是 `CODE-STRUCTURE` §5 **约定**允许的
+  第三方副本落点，退役的是那一份副本，不是这个目录概念。
+
+- **宿主加固四刀（都是"一次只切一刀"的独立改动，各自配了能钉住它的守卫）**：
+  ① **四条路由补请求体上限** —— `/remove`、`/upload-dir`、`/we-assets-dir`、`/media-control` 此前是
+  逐块 `body += chunk` 而**从不比较长度**：异常大的请求会把宿主堆无界撑大（默认只听 loopback，
+  但 webserver 允许 `host: 0.0.0.0`，而这四条都是 POST）。上限取统一常量
+  `CONTROL_JSON_MAX_BYTES`（小控制面 JSON 64KB）。**这一条的判据缺口此前被实测过一次**：
+  一次只读审计记下"没有任何守卫要求收 body 的路由必须有上限、同族已有的闸全靠人记得抄"，
+  之后新增的 `/media-control` **又忘了抄** ⇒ 缺口从三条变四条。所以这次不是"再修三条"，
+  而是把判据做成**从磁盘枚举每个 `req.on('data')` 站点、缺上限即红**（`test/verify-body-caps.mjs`，
+  8 条正/负对照 + 覆盖面地板；"回调是裸标识符"（idle 计时器重置）走**结构性**豁免，不是白名单）。
+  ② **逐块解码 ⇒ 多字节码点被切成 `U+FFFD`**：同一条链上的第二个静默缺陷 —— 落在两个 TCP 分片
+  之间的码点会被写坏，而**用户可见字符串**（壁纸 id / 字体名 / 字体族）被写坏了客户端永远不知道。
+  六处（`/settings`、`/fontsets`、`/remove`、`/upload-dir`、`/we-assets-dir`、`/media-control`）统一
+  改成**边收边计字节、收完只 `Buffer.concat(...).toString('utf8')` 解码一次**（与 `/live-frame`、
+  `/scene-frame-cache`、`/client-diag` 本来就对的形态一致）。
+  ③ **`reqLogSeen` 加上界**：键里带**请求可控**的路径段（`/scene-files` 子路径 / `/live-frame` 的 token /
+  `/scene-live` 的 pathname），而它只有 `get`/`set`、没有回收 ⇒ 会话期内互不相同的请求让堆**单向增长**
+  （实测 20 万个不同 token 把 heapUsed 从 32.2MB 抬到 72.4MB 且不释放）。10s TTL 只抑制**写入**、
+  不清理条目，所以上界由新常量单独保证（超界按插入序淘汰最旧的）。去重与上界冲突时**上界优先**：
+  条目被淘汰后同一键可能再落一条重复诊断行 —— 诊断去重本就是尽力而为，内存有界是硬要求。
+  ④ **`/custom-frame` 补"中途放弃"收口 + 两个临时文件缺陷**：关弹窗 / 断网时 `req 'end'`、`'error'`、
+  超时都不发生、`failed` 永不置位 ⇒ 只靠 `ws 'close'` 到不了清理：写流一直开着（未关闭的 fd，直到 GC），
+  磁盘上留下最多 30MB 的 `.tmp`，而读取侧只认正式扩展名 ⇒ 那是**看不见的垃圾**，只会累积。现按
+  `upload.js` 的同一形态补 `req.once('close')`（`completed` 之后不再销毁写流），并加一条**只清够旧的
+  `.tmp`** 的启动清扫（进程被强杀留下的孤儿，按年龄设限以免误删在途写）。
+  **转码临时文件同时改用 `atomicTmpPath`**（`.tmp<pid><递增序号>`）：原先用确定性名
+  `cachePath + '.tmp' + pid`，而 `cancel()` 会立刻从 `TRANSCODE_INFLIGHT` 删条目 ⇒ 新任务能在旧任务收尾
+  **之前**用同一路径开跑，旧任务 `catch` 里那句 `unlinkSync(tmp)` 删掉的正是**新任务正在写的产物**。
+  ⚠️ 改名连带修了清扫器的"保护本进程在途写"判据（它原先只认 `.tmp<pid>` **结尾**，改名后会静默失效、
+  在 HMR 时删掉正在写的产物）。**`uploads/.meta.json` 的读-改-写同时收进 `enqueueConfigWrite`**
+  （它与 config.json 共用同一写队列）：两份 meta 互相覆盖会丢掉 `sha256`，而 `sha256` 正是内容去重的
+  依据 —— 丢了就是同一文件被反复堆成副本。
+- **两条用户直接撞得到的客户端缺陷**：
+  ① **启动链补终止 `.catch` + 把裸 `localStorage` 读收进守卫** —— 迁移分支此前只把 `JSON.parse` 包进
+  try，而 `localStorage.getItem` 留在 try **外面**：站点数据被禁 / 不透明源嵌入时连 `getItem` 本身都会抛
+  `SecurityError` ⇒ `loadPersisted()` 整体 reject ⇒ 启动链（`loadPersisted → loadFontSet → loadInventory`）
+  断掉 ⇒ 选择器**永久卡在「扫描 Wallpaper Engine…」**且一次性提示不收敛（用户只能靠刷新或禁用插件自救）。
+  现在整条读走带守卫的 `readPersistedRaw()`，并给启动链补一条**终止兜底**（失败留 `boot-chain-failed`
+  诊断行）。同一处注释此前正好写着这个坑修过一次 —— 说明**守卫的位置**比"记得包 try"更可靠。
+  ② **音乐开关的高亮是反的**：判据原为 `weAudioVolume() > 0 || disabled`（化简 = 只有"开着且音量为 0"
+  时才亮），而出厂默认是 `videoVolume: 0` + `videoAudioEnabled: true` ⇒ 按钮亮着而壁纸是哑的，
+  用户一点（音轨关掉）高亮反而**消失**；旁边文案又只看 `videoAudioEnabled` ⇒ 文案与高亮自相矛盾。
+  现改为与**按钮自己的状态**（也就是文案那个判据）逐字同一个（`videoAudioEnabled === false ? "" : " is-on"`）。
+  ⚠️ 有意**不采用**"开着且有音量才亮"那种写法：音量是**另一颗**控件，而那颗写法会让出厂默认下
+  点击**没有任何视觉反馈**（亮灭都不变）。
+- **恢复一条被撤掉的监视器（读代码的守卫）+ 修一条"判据空转"**：
+  ① **路由族触发线重新有人看守** —— 账本 §7-6「某个路径首段族长到 ≥3 条 ⇒ 按族拆」原先由
+  `verify-ledger.mjs` 看守，而该守卫随 ADR-0006 整体下线，其代价一节自己写明"**这个监视器现在失效**"
+  ⇒ 触发线还在文档里、却没有任何东西看着它。现按 ADR-0006 给的**正确做法**把判据搬进读代码的守卫
+  `test/verify-route-families.mjs`（枚举口径 = `host-route-index` 的 `buildIndex()`，归族规则与
+  `analyze-host-apply.mjs` ② 组逐字相同）。**它红不代表代码坏了，代表该回来裁决**（拆族 或 改线并同改判据）。
+  ② **`verify-scene` 里一条判据在扫全文**：它的终点锚写成 `sceneFrameSlotFile`（**全仓不存在**）⇒
+  `indexOf` 返回 −1 ⇒ `slice(start, −1)` 一路扫到文件末尾，判据从"函数体内"退化成"文件余下所有内容"
+  却照样报绿。现改为按下一个顶层函数取边界，并加**"缺锚即红"**断言 + 负对照（这类"锚点漂了没人发现"
+  是 P3-16 那类判据空转的又一实例）。
+- **文档与注释只述当前原理（清掉一批与实现互相矛盾的陈述）**：`theme-follow.js` 文件头写阈值取中灰
+  `≈0.2159` 而实现是 `0.40`、且同文件下方明写"不取中灰"（同文件头尾打架）；`effects.js` 写"只读 selection"
+  而 `clearEffects()` 就在写它 5 个字段（改为写明"唯一例外 + 它同样不写设置"）；`client.js` 的轮换间隔注释
+  写"默认 5 分钟"而真源是 `rotationInterval: 30`；`lib/index.js` 的缓存键不变量仍指着**已随 P2-12 删除**的
+  "预热写盘"；`live-layer.js` 一处注释写成了编年史（"这一行曾写…"，ADR-0006 明令注释只述当前原理）；
+  `CONTRIBUTING.md` 说 `INLINE_MODULES` 是"14 个模块"而实际远多于此（**按 ADR-0006 D2 改成"从构建清单现读"，
+  不再写死**）；`HOW-IT-WORKS.md` 仍指"账本 §9.5"（该节已归档）。另删掉一条**死夹具管线**：
+  `fontSetNewName` / `newName` 这两个"契约字段"在实现里**都不存在**（store 字面量与 `fontSetCtx()` 都没有），
+  只有守卫还在喂它们。**`docs/en/TROUBLESHOOTING.md` 补上中文版有、英文版整段缺失的**
+  「改了插件却'完全没作用'：先分清客户端半与宿主半」（含四条现场判据）与页首世系标注 —— 补完后
+  该中英对的章节结构首次逐条对齐（此前中英标题数 7 : 5）。
+- **账本数字按 ADR-0006 D2 退场**：`docs/wip/OPEN-ITEMS.md` §2/§3/§7 曾抄了十余个会漂的数值
+  （内联模块数、`lib/**` 扫描面、`apply` 行数与路由条数、`WallpaperPicker` 行数、守卫条数、共变耦合均值…），
+  **全部漂了**（一次只读审计已逐条列出）。现改为**只记指标 + 复算命令**；§3.2 那条"`lib/**` 复制率 9.6%"
+  的结论方向是**反的**（它把生成物 `lib/client.js` 又把 `src/**` 装了一遍算成了宿主半的结构重复 ——
+  排除生成物与 vendored 后手写面在两种窗口下都是不足 1% 量级），已连同"必须写明作用域与排除项"一起更正。
+
 - **外观页新增「左侧栏覆盖」（默认关，在「玻璃透明度」滑杆下面）—— 原生左栏第一次能被玻璃配方调节**：壁纸激活时宿主原生左栏（会话列表 / 工作区那一列）此前只是**透明的洞**：插件把 `--dsw-specific-sidebar-fill` 置为 `transparent`，那一列于是把壁纸**原样**透出来 —— 没有霜、没有底色，主题那套「配色 / 玻璃颜色 / 玻璃透明度 / 雾化 / 边框」一个都到不了它（其余面板都有）。打开后这一列拿到**与其余面板同一张配方表**：玻璃色（钳制后的可读性底色）@ 玻璃透明度 压在可读性下限之上 + 雾化（`--we-blur`）+ 边框（竖分割线走 `--dsw-alias-border-l3`，壁纸令牌映射只接管了 l1/l2 —— 这正是「边框」此前对左栏完全无感的原因）+ 配色（accent 映射到 `--dsw-alias-interactive-bg-hover` / `-accent` / `state-business-primary` / `brand-*`，作用于选中 / 悬停行、徽标与强调文字）。默认关 = 与今天逐字节相同（否定式：只盖开关不盖壁纸锚点也照样不吃玻璃）。无 backdrop-filter 与软件光栅器两档按既有政策钉回近不透明（92%）并显式关掉模糊。**锚点**：那一列只有 CSS 模块哈希类名（harness 的 `pI_x6G_sidebarCol` / `hHd-Xa_root`，跨版本漂移、不得使用），可钉的是**座位出口** `[data-slot="sidebar"]`（与设置窗口用的 `[data-slot="settings.section"]` 同一机制）—— 出口正是这一列的**直接子元素**，故用 `div:has(> [data-slot="sidebar"])` 反向选中父元素；⚠️ 不能把玻璃画在出口自己身上：它带 `display:contents`（座位渲染器的 ANCHOR_STYLE），**不生成盒子**，背景 / 模糊 / 边框全画不出来。
   **验证**：真 harness（隔离 HOME）无头页面**四态探针**（`compat-harness-pages`：裸页面 / 只盖壁纸锚点 / 再加开关 / 摘掉开关）—— 锚点唯一命中（`matches=1`）、默认档 `rgba(0,0,0,0)/none`、开关档 `color(srgb 1 1 1 / 0.571) + blur(16px) saturate(1.3)`、摘掉开关逐字段还原；另做**真实壁纸的像素 A/B**（合成 1920×1080 测试图 + host `PUT /settings` 真改开关）：左栏区域红绿分界的最大水平梯度 **145 → 5**、梯度 RMS **11.2 → 1.17**（≈9.6× 变糊），同帧中央对照区 **0% 变化**（这一栏没动）；`verify-readability` 的 F2a 表面表补两条（左栏是能直接看到壁纸的大块文字面，必须有下限声明），27 个表面全过。
 - **CI 判据四处修（兼容层两条"恒红" + 五分区走查跟改名 + 无头浏览器统一假钥匙串 + verify-scene-live 容忍 CRLF）**：① `compat-harness-pages` 的表面令牌探针把 `evS` 的返回值又取了一次 `.value`（`evS` 返回的就是值本身）⇒ `sp` 恒为 `null`、**三条判据自 bb06fc2 起一直红且看不出原因**（harness-compat 是派发制，没人重跑就没人发现）—— 现已修好并跑绿（27/27），同时给探针加了 `DSH_WE_COMPAT_DEBUG` 原始值落屏口子。② 五分区走查写死 `Wallpaper Engine`，而 UI 重构把那枚分区改名成「**壁纸引擎**」⇒ 最后一段点了 0 次（同一条判据里的 `断点=` 已经点了名，但读数容易被忽略）；改成**候选名匹配**（别名再变也不会静默失效，两条都找不到才红）。③ **无头浏览器的启动口径：6 处 `--headless=new` 启动点全部带 `--use-mock-keychain`** —— macOS 上缺它会去碰真钥匙串、弹「找不到用于存储"…"的钥匙串」对话框打断跑测的人（用户侧实测复现两轮；`compat-harness-pages` 与 `tools/diagnose-web-blank` 各漏一处，`e2e-web-media-origin` 的第二次运行也漏），现在由 `verify-contracts` 新增的第 ③ 节静态守住（按**启动参数数组**判，新启动点自动覆盖；配负对照）。

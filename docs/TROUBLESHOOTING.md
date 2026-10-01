@@ -48,8 +48,6 @@ Get-Process 'DeepSeek Harness','DSH Desktop' | Select-Object ProcessName,Id,Star
   场景媒体源）后客户端会**自动作废一次**（见 [`CHANGELOG.md`](./CHANGELOG.md)），旧版本的记忆则要
   重开一次「场景实时渲染」开关才清。
 
-## 中文
-
 ### 安装失败：`ERR_PNPM_UNEXPECTED_VIRTUAL_STORE`
 
 `dsh plugin --profile web add ...` 会把命令转发给 **pnpm**。如果你遇到下面的错误：

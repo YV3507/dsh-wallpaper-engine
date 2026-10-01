@@ -69,6 +69,35 @@ export function registerDiagRoutes(webServer, c) {
 | `lib/index.js` 里把依赖传进这个族的 context 对象 | 路由模块**不得继承**门面的 import（守卫 `verify-module-layout` 的『路由模块不得"继承" lib/index.js 的 import』会判） |
 | `package.json` 的 `files`（若新增了文件） | 留在 `lib/` 的一切都会被打进包；P1 会判 |
 | 文档：**不用手写路径表** | 路由索引是生成物 |
+| **收 body 的路由：上限 + 收完一次性解码** | 收 body 的路由见下面的"读请求体"一节；`verify-body-caps` 会从磁盘枚举判它 |
+
+### 读请求体（POST/PUT 路由必须照这个形态写）
+
+逐块累加却**不比较长度** ⇒ 异常大的请求把宿主堆无界撑大（默认只听 loopback，但 webserver 允许
+`host: 0.0.0.0`）。逐块 `body += chunk` 再 `toString()` ⇒ 落在两个 TCP 分片之间的多字节码点被切成
+`U+FFFD`，用户可见字符串（壁纸 id / 字体名 / 字体族）被**静默写坏**且客户端不知道。所以：
+
+```js
+const chunks = [];
+let size = 0;
+let tooLarge = false;
+req.on('data', (chunk) => {
+  if (tooLarge) return;
+  size += chunk.length;                                   // 按**字节**计
+  if (size > CONTROL_JSON_MAX_BYTES) { tooLarge = true; fail(413, { error: 'payload too large' }); return; }
+  chunks.push(chunk);
+});
+req.on('end', () => {
+  if (tooLarge) return;
+  const body = Buffer.concat(chunks).toString('utf8');    // 只解码**一次**
+  // …JSON.parse(body || '{}')…
+});
+```
+
+上限常量**从 context 取**（`c.CONTROL_JSON_MAX_BYTES`，小控制面 JSON 统一 64KB；真源在
+`lib/index.js`，不变量写在 `lib/routes/upload.js` 文件头）。大载荷（上传 / 抓帧 / 自定义画面）走
+**流式落盘**那条腿，别整个缓冲在内存里。**判据**：`test/verify-body-caps.mjs` —— 新增一条
+`req.on('data')` 会自动进扫描面，缺上限即红（"同族都有闸"不再是靠人记得抄的事）。
 
 **改错了会怎样**：
 

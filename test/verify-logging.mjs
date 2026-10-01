@@ -52,7 +52,6 @@ const SINKS = ['lib/log.js', 'lib/notice.js'];
 const NOT_OURS = [
   [/^lib\/client\.js$/, '构建产物（源在 src/**，由 build-client 内联生成）'],
   [/^lib\/webwallgl\//, '上游 vendored 渲染页（自带 WebWallGL 的 console logger）'],
-  [/^lib\/vendor\//, '第三方副本（jpeg-js）'],
 ];
 
 function walkLib(dir, out = []) {

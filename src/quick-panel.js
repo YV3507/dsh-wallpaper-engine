@@ -1,4 +1,4 @@
-﻿/**
+/**
  * quick-panel.js — 快捷播放面板（侧边栏的**唯一**内容）：当前壁纸 + 轮播 + 三档页签
  * （壁纸 / 外观 / 播放）+ 设置入口。
  *
@@ -83,6 +83,8 @@
     "onThemeColorClear", "onThemeDarkSeparate", "onThemeFamily", "onThemeSize", "onThemeTypeOnly",
     "onThemeWeight", "onClearCustomFrame", "onClearGpuFrame", "onCustomFrameFile",
     "onRecaptureGpuFrame", "onRefreshFrame",
+    // P4-15：帧率上限（抽帧转码）那行带 `!sidebarSurface` 门 ⇒ 侧栏档不画它，处理器进占位器。
+    "onFpsCap",
   ];
   // 占位器只建一次（每帧重建 25 个 Proxy 纯属浪费；它们是常量、可跨渲染共用）。
   let qpSettingsOnlyCtx = null;
@@ -309,7 +311,7 @@
         qpTab === "appearance"
           ? renderAppearanceTab(sidebarRenderCtx({
             setSetting, sel,
-            onAccent, onBlur, onBorder, onGlassAlpha, onGlassColor, onToggleThemeFollow,
+            onAccent, onBlur, onBorder, onGlassAlpha, onGlassColor, onGlassWindow, onLeftSidebarGlass, onSidebarGlass, onToggleThemeFollow,
           }))
           : qpTab === "playback"
             ? React.createElement(React.Fragment, null,
@@ -317,6 +319,10 @@
                   setSetting, sel,
                   onScrim, onWallpaperBlur, onWallpaperOpacity,
                   onBackgroundBrightness, onBackgroundContrast, onBackgroundSaturate,
+                  // 与设置页同源的那几个播放控制：实时渲染总开关 / 启动等待 / 实时帧率 /
+                  // 倍速 / 适配 / 翻转（侧栏档真的会画到它们）。
+                  onToggleSceneLive, onLiveBootDelay, onSceneLiveFps, onPlaybackRate, onObjectFit, onFlip,
+                  onOpenPicker, setPickerOpener,
                   // 侧栏档的空态 CTA：切到本面板的壁纸页（不是设置页的库下钻）。
                   onPickWallpaper: () => switchQpTab("wallpaper"),
                 })),

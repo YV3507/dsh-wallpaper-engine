@@ -75,6 +75,39 @@ export function registerDiagRoutes(webServer, c) {
 | Pass the dependency into this family's context object in `lib/index.js` | a route module **must not inherit** the facade's imports (the guard `verify-module-layout` section 『路由模块不得"继承" lib/index.js 的 import』 decides this) |
 | `package.json`'s `files` (if you added a file) | everything left in `lib/` ships; P1 decides it |
 | Documentation: **do not hand-write a path table** | the route index is generated |
+| **Body-reading routes: a cap + decode exactly once** | see "Reading a request body" below; `verify-body-caps` enumerates it from disk |
+
+### Reading a request body (every POST/PUT route must follow this shape)
+
+Accumulating chunks **without comparing a length** lets an oversized request grow the host heap without
+bound (it only listens on loopback by default, but the webserver allows `host: 0.0.0.0`). And
+`body += chunk` followed by `toString()` turns a multi-byte code point split across two TCP segments into
+`U+FFFD` — user-visible strings (wallpaper ids / font names / font families) get **silently corrupted**
+and the client never finds out. So:
+
+```js
+const chunks = [];
+let size = 0;
+let tooLarge = false;
+req.on('data', (chunk) => {
+  if (tooLarge) return;
+  size += chunk.length;                                   // count **bytes**
+  if (size > CONTROL_JSON_MAX_BYTES) { tooLarge = true; fail(413, { error: 'payload too large' }); return; }
+  chunks.push(chunk);
+});
+req.on('end', () => {
+  if (tooLarge) return;
+  const body = Buffer.concat(chunks).toString('utf8');    // decode exactly **once**
+  // …JSON.parse(body || '{}')…
+});
+```
+
+Take the cap constant **from the context** (`c.CONTROL_JSON_MAX_BYTES`; small control-plane JSON is a
+uniform 64KB, source of truth in `lib/index.js`, invariant documented in the header of
+`lib/routes/upload.js`). Large payloads (upload / frame capture / custom frame) use the
+**stream-to-disk** leg — never buffer them whole in memory. **Judgement**:
+`test/verify-body-caps.mjs` — a new `req.on('data')` automatically enters the scan surface, and a missing
+cap goes red ("the other routes in this family all have one" is no longer something you must remember to copy).
 
 **If you get it wrong**:
 

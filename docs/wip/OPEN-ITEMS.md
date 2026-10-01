@@ -51,19 +51,27 @@
 
 ---
 
-## 2. 当前基线（复现命令见 §8）
+## 2. 当前基线（**只记指标与复算命令，不记数值**）
 
-| 指标 | 当前值 |
+> [ADR-0006](../adr/0006-comment-discipline-as-written-convention.md) **D2**：常青文档不放会随代码变的
+> 数字（规模 / 条数 / 行数 / 体积 / 阈值），一律改成**符号引用或复算命令**。
+> 本节此前抄了十余个数值，**全部漂了**（逐条见 [`POST-REFACTOR-AUDIT.md`](./POST-REFACTOR-AUDIT.md) §5.2：
+> 内联模块数、`lib/**` 扫描面、`apply` 行数与路由条数、`WallpaperPicker` 行数、守卫条数、共变耦合均值…）。
+> 需要具体值时**当场跑**下面任一列；这里不再留副本。
+
+| 指标 | 复算方式（唯一真源） |
 |---|---|
-| 浏览器正文 `src/client.js` | **4340 行**（重构起点 10,119 行） |
-| 构建期内联模块 | **26 个**（25 个来自 `src/` + 共享内核 `lib/settings-schema.js`） |
-| `lib/**`（`verify-reachability` 打印的「lib 扫描面」：`lib/**.{js,mjs}` **全量**，vendored 与生成物都在内） | **25 文件 / 33085 行** |
-| 其中**运行时不可达** | **0 文件 / 0 行**（P2-12 第一半已删净；此前 48 文件 / 9,618 行曾在 `files` 里、真的发给用户） |
-| 生成物 `lib/client.js` | 16825 行 / 1.56 MiB（提交；判据是"重建后 `git status` 干净"） |
-| 守卫 + 冒烟 | **31 个 `verify-*`（16,851 行）**：**27 个硬档**进 `verify`（挡 PR）· **4 个软档**进 `verify:docs`（照跑照打印，退出码降级为警告，不决定红绿）；**+ 6 个 smoke** 仍在 `verify:all`。另有 3 个 `compat-*` 在 CI 专属的 compat 层 + **12 个 `tools/` 手动工具**，都不进 `verify` 链；分档理由与清单见 `docs/DEV-GUIDE.md` §4.2（当时名为 `docs/TEST-LAYOUT.md`） |
-| vendored | `webwallgl/` + `vendor/` 共 **12 文件 / 7,423 行** |
+| 浏览器正文行数（`src/client.js`） | `(Get-Content src/client.js).Count` —— ⚠️ PowerShell `Measure-Object -Line` **不计空行**，会少算 |
+| 构建期内联模块**条数** | `npm run build` 打印的内联清单；真源是 `scripts/build-client.mjs` 的 `INLINE_MODULES` |
+| 生成物 `lib/client.js` | 提交物（构造见 [ADR-0003](../adr/0003-build-time-module-inlining.md)）；判据 = **重建后 `git status --porcelain lib/client.js` 为空**，由 `test/verify-client-sync.mjs` 看守 |
+| `lib/**` 扫描面（文件 / 行）、其中**运行时不可达**规模 | `node test/verify-reachability.mjs`（它自己打印这两个口径）；**棘轮基线 = 0 文件 / 0 行**，只许变小（机器看守，这条是**不变量**不是观测值） |
+| 守卫 / 冒烟**条数与分档** | `package.json` 的 `scripts.verify` / `scripts["verify:docs"]` / `scripts.smoke`；分档理由见 [`docs/DEV-GUIDE.md`](../DEV-GUIDE.md) §4.2 |
+| `apply(ctx)` 体量 / 分支代理 / 闭包状态 / 路由族分布 | `node test/tools/analyze-host-apply.mjs` |
+| 路由条数与来源行 | [`docs/ROUTE-INDEX.md`](../ROUTE-INDEX.md)（**生成物**，`node test/tools/host-route-index.mjs --write` 重算） |
+| 共变耦合（每次提交动几个文件） | `git log --pretty=format:'C%h' --name-only` 后按提交计文件数取均值 |
+| 复制度 | 见 §8 的**方法**（归一化 + 滑动窗口）；⚠️ 必须写明**作用域**，且**排除生成物与 vendored**（见 §3.2） |
 
-> 逐阶段的增量对照表（P0 后 / P1 后 / F1 后 / F2 后）已删除：那些数字只在当时有意义，现值以上表为准。
+> 逐阶段的增量对照表（P0 后 / P1 后 / F1 后 / F2 后）已删除：那些数字只在当时有意义。
 
 ---
 
@@ -71,33 +79,48 @@
 
 > §3.4 更新维护难度 / §3.5 `apply(ctx)` 拆分评估 / §3.6 P3 的来源已随历史半边归档 ——
 > [`docs/archive/REFACTOR-ASSESSMENT.md`](../archive/REFACTOR-ASSESSMENT.md) §3。
-> §3.1–§3.3 留在这里：它们是**现状锚点**（规模、复制度作用域、路由条数）—— 此前账本守卫的规模判据锚的就是它们，**该守卫已下线**；数字的复算方式见各节自己的说明。
+> §3.1–§3.3 留在这里：它们是**现状锚点**（规模集中在哪里、复制度作用于哪个范围、耦合的性质）。
+> **按 ADR-0006 D2，下面的数值一律换成复算命令**；此前账本守卫锚的就是这些数，该守卫已随 ADR-0006 下线。
 
 ### 3.1 复杂度：集中在 **2 个巨石**
 
-| 巨石 | 体量 | 锚点 |
+| 巨石 | 复算 | 锚点 |
 |---|---|---|
-| `WallpaperPicker` 组件 | **722 行**（P3-11 前 1,033 / 原估 1,051 行，分支代理 202 = 当时的 `src/client.js` 的 25%）；模型 / 模态框 / 属性面板已抽到 `src/picker-*.js` | `src/client.js`；六个页签渲染器在 `src/panel-tabs.js`，瞬态字段**零裸直写**（守卫 ①d 钉住：`setTransient` 是唯一入口），其余模块对已知瞬态字段的裸直写 **11 处**（守卫 ①e 上界棘轮，只许下降） |
-| `apply(ctx)` 宿主函数 | **1,392 行 = `lib/index.js` 的 36%**，分支代理 257，33 条路由（**6 族 / 19 条已拆出**到 `lib/routes/`） | `lib/index.js`；内含 4 个巨石 `buildInventory`(148) / `handleSceneFiles`(104) / `serveFile`(69) / `ensureMediaOrigin`(56) |
+| `WallpaperPicker` 组件 | `(Get-Content src/client.js).Count` 配合它的起止行（`grep -n 'function WallpaperPicker'`） | `src/client.js`；模型 / 模态框 / 属性面板已抽到 `src/picker-*.js`。六个页签渲染器在 `src/panel-tabs.js` —— ⚠️ 该文件**本身**仍是"5 个巨型渲染函数装在一个文件里"（`renderWallpaperTab` / `renderAppearanceTab` / `renderEffectsTab` 各数百行），是全仓最大的理解单元 |
+| `apply(ctx)` 宿主函数 | `node test/tools/analyze-host-apply.mjs`（打印体量 / 分支代理 / 闭包状态 / 路由族 / 族内巨石） | `lib/index.js`；已拆出 **8 个**族模块到 `lib/routes/`（`about-qr` / `diag` / `fontsets` / `github-stars` / `now-playing` / `scene-frame` / `scene-serve` / `upload`） |
 
-⚠️ **复杂度的分布比总量更值得注意**：`lib/media/` 分层清楚（`lib/we-renderer/` 曾也是一棵干净的树，已随 P2-12 删除）。
+⚠️ **复杂度的分布比总量更值得注意**：`lib/media/` 分层清楚。
 **烂的是两个门面文件，不是整个仓库** —— 这决定了 P2 是"拆门面"而非"重写内核"。
+⚠️ **`apply` 在"拆族"期间仍在变大**：拆出族模块不等于 `apply` 缩水 —— 新增路由继续写在里面。
+判据以 `analyze-host-apply.mjs` 的现算值为准，别引用历史数字。
 
-### 3.2 冗余度：文本不重复，结构重复很重
+### 3.2 冗余度：文本重复很低，**结构重复只剩有意保留的那些**
 
-- **文本级重复**：`src/**` 8 行窗口 16 簇 / 0.8%、20 行 **0 簇**；**`lib/**` 是 103 簇 / 9.6%、20 行 28 簇**。
-  ⇒ §1 那句"代码复制率不足 1%"**只对浏览器半边成立**，已限定作用域。
-- **结构级重复**（**已全部结清**；有意保留的那条除外）：jpeg-js vendored 副本 + 死依赖（**已修**）·
+- **文本级重复**（复算方法见 §8；**作用域与排除项必须写明**）：
+  手写面（`src/**` + `lib/**` 不含生成物与 vendored）在 8 行与 20 行窗口下都是**不足 1%** 量级。
+  ⚠️ **必须排除 `lib/client.js` 与 `lib/vendor|webwallgl`**：前者是生成物（把 `src/**` 又装了一遍），
+  把两者算进去会把 `lib/**` 的重复率从"不足 1%"虚抬到十几个百分点 —— 那是**度量假象**，不是结构重复。
+  本节曾据此写出"`lib/**` 是 103 簇 / 9.6%"的结论，方向是**反的**（见 `POST-REFACTOR-AUDIT` 同族条目）。
+- **结构级重复**（**已全部结清**；有意保留的那条除外）：
   PKG/TEX 读取器两份且都在活路径上（**P3-17 已合并** —— 容器原语收口到唯一实现 `lib/pkg-read.js`，
-  取更严格的一侧：带 `MAX_DECOMPRESSED_BYTES` 上限；`pkg-extract.js` / `scene-manifest.js` 都从它 import）·
+  取更严格的一侧：带 `MAX_DECOMPRESSED_BYTES` 上限；`scene-manifest.js` 与 `lib/index.js` 都从它 import）·
+  ~~jpeg-js vendored 副本 + 死依赖~~（死依赖 P0-2 已删；**自带副本与它的唯一消费者 P4-14 一起退役**，
+  连那条 TEX→RGBA 解码链整体删净）·
   ~~设置键 4 处镜像~~（P1-5 ✅）· ~~缓存键两处构造~~（P1-6 ✅）。
   ⇒ **只剩"双媒体后端并存"，那是有意保留的设计选择**，不是待办。
+- **"收 body"的管道**：曾八条路由各写一份（§审计 6.2），其中**缺上限**的一类已由
+  `test/verify-body-caps.mjs` 从磁盘枚举看住（新增路由自动进面）；**收敛成一个 `readBody()` 仍未做**。
 
 ### 3.3 耦合度：**一个真接缝 + 一堆全局变量**
 
-**好**：跨端耦合是 **HTTP 协议**（宿主 **33** 条路由注册 ↔ 客户端所有宿主调用都经 `src/api-client.js` 一个出入口），DSH 平台耦合面很小（`inject = ['webServer']` + `ctx.loader` 1 处）。
-**坏**：客户端内部**无强制边界** —— 唯一的强制边界 `emit()` 是**全局 store 广播**，不是选择性接缝。
-**共变耦合**（能量化"改一次要动几处"）：平均每次提交动约 **7.5 个文件**（`git log --name-only` 复算）（生成物入库 + 中英双份文档 + 守卫与实现同改所致）。
+**好**：跨端耦合是 **HTTP 协议**（宿主路由 ↔ 客户端所有宿主调用都经 `src/api-client.js` 一个出入口；
+条数见 `docs/ROUTE-INDEX.md`），DSH 平台耦合面很小（`inject = ['webServer']` + `ctx.loader` 1 处）。
+**坏**：客户端内部**无强制边界** —— 因为 `src/**` 被构建期拍平进**同一个工厂作用域**（[ADR-0003](../adr/0003-build-time-module-inlining.md)），
+模块之间没有 `import`，全靠共享作用域协作：`selection` 被绝大多数模块直接读写，`emit()` 是**全局 store 广播**
+而不是选择性接缝，另有一批模块级可变 `let` 彼此可见。**这不是本仓可以靠重构消掉的东西** ——
+它由上游加载器"没有本地模块解析器"决定（ADR-0003 的重新考虑触发线①）。
+**共变耦合**（能量化"改一次要动几处"）：复算命令见 §2 表。
+
 
 ---
 
@@ -155,8 +178,8 @@
 | P3-14 | 四处"过滤集变空即恒真"的判据补下限或改成单独计数（theme-layer G2 / softrender 两个 gate / package-files P5 / scene 平台跳过） | ✅ |
 | P3-15 | 修"断言被写法或环境短路"：F 轨解析、"每个 EVIDENCE 键都必须被查到"、去掉 `\|\| typeof fetch` 逃生口、退役键扫描扩面、`apply` 抛错改硬断言 —— **五项逐条核过并各自挂了机器证据**（见 `verify-ledger` 的 `P3-15`：F 轨 ID 能被账本解析、逃生口已拆成两条无门断言、退役键扫描覆盖 5 个归属文件、`apply` 抛错是 `assert.equal`），状态由账本守卫的"证据全成立 ⇒ 该翻"逼正 | ✅ |
 | P3-16 | 替换**恒真式负对照**（名不副实）：route-index / retired-lines / theme-layer / softrender / package-files 已修；两个残留文件已**逐条审计 18 条对照** —— 实测只有 **2 条真恒真**（`verify-component-fonts` 里"只断言常量 / 数组不含 X"），另有 4 条是**判据副本**（对照里另抄一份判据 ⇒ 生产侧改了也不会红），其余本就有牙。判据已抽成命名函数 / 命名正则、正负共用；形态规则写进 `docs/DEV-GUIDE.md` §4.7（当时名为 `docs/TEST-LAYOUT.md`）约定 5。**验收判据**：把判据中和成"永远说没问题" ⇒ 对应负对照必须变红（实测两条全红，而正判据此时照过 = 空转） | ✅ |
-| P3-17 | ✅ **已合并**（P3-17 那一刀）：容器/压缩原语搬进唯一实现 `lib/pkg-read.js`（270 行），取更严格的一侧（带 `MAX_DECOMPRESSED_BYTES` 上限）；`pkg-extract` 850→644、`scene-manifest` 511→254。详见下方原判据 |
-| P3-17（原判据留档） | **同一套 PKG/TEX 读取器两份实现、且两份都在活路径上**（`lib/pkg-extract.js` ↔ `lib/scene-manifest.js`），不受信输入的分配上限**只加在副本上** ⇒ 同一 `scene.pkg` 在 `/scene-video` 被拒、在 `/scene-audio` 却能驱动 ~2GiB 分配；没有任何守卫比较两份。**验收判据**：导出点唯一 + 上限常量唯一 + 同一夹具对两条路由给出一致裁决 | ✅ |
+| P3-17 | ✅ **已合并**（P3-17 那一刀）：容器/压缩原语搬进唯一实现 `lib/pkg-read.js`（270 行），取更严格的一侧（带 `MAX_DECOMPRESSED_BYTES` 上限）；`pkg-extract` 850→644、`scene-manifest` 511→254。详见下方原判据。⚠️ **该刀只做到"原语唯一"，被合并的那份文件后来整体退役**（P4-14：它的 TEX 解码链已无调用者）⇒ 今天容器知识的唯一实现就是 `lib/pkg-read.js` |
+| P3-17（原判据留档） | **同一套 PKG/TEX 读取器两份实现、且两份都在活路径上**（当时的 `lib/pkg-extract.js` ↔ `lib/scene-manifest.js`），不受信输入的分配上限**只加在副本上** ⇒ 同一 `scene.pkg` 在 `/scene-video` 被拒、在 `/scene-audio` 却能驱动 ~2GiB 分配；没有任何守卫比较两份。**验收判据**：导出点唯一 + 上限常量唯一 + 同一夹具对两条路由给出一致裁决 | ✅ |
 | P3-18 | 删掉 `lib/index.js` 的死 `readPkg` import（不再为它新建第 3 份、语义不同的 PKG 解析器） | ✅ |
 | P3-19 | 收窄 P2-12 的机器退出条件（`lib/scene-manifest.js` 必须**存活**，它仍是 `/scene-video` 与库存视频探测的活依赖），并新增两条"活依赖存活"断言 | ✅ |
 | P3-20 | 复制度结论写明**作用域**（`src/**` 与 `lib/**` 差别极大，单边结论不得当全仓不变量） | ✅ |
@@ -170,6 +193,35 @@
 
 | P3-27 | **本 fork 的硬化刀（10 个提交，已随"追版本"合并上游）**：① 剥注释统一到**字符串感知**实现（`test/tools/js-text.mjs`，16 处迁移）+ 规则 ⑦（禁朴素正则、白名单只许缩小）；② **store 写入契约两侧补齐** —— 瞬态字段经 `setTransient`（属主零裸写 ①d + 跨模块上界棘轮 ①e）、持久化字段必须与落盘配对（①g；并修掉"导入自定义画面在无 `sceneFrameUrl` 时不落盘"那处**真实漏洞**）；③ "改了 store 却不通知"钉到**处理器级**（①h）与**分支级**（①i，与 `test/tools/branch-notify.mjs` 同源），扫描面**派生**自 `INLINE_MODULES`（新模块自动进面）；④ 工具清单进 `docs/DEV-GUIDE.md` §4.6（当时名为 `docs/TEST-LAYOUT.md`）+ 规则 ⑧；⑤ `harness-compat-baseline.mjs` 的**"追尾"修复**（按**内容身份** `plugin.revision` 判重 ⇒ 基线提交不再把插件 commit 推着走，与上游的"推送竞态"修法互补）。**验收判据**：见 `verify-ledger` 的 `P3-27` 五条证据 | ✅ |
 | P3-28 | **场景载荷改走自建源 + `/scene-files` 围栏补第二层**：① 场景渲染页的 `mediaBase` 由**宿主**给出（`inventory.sceneMediaBase`，按"库里真有 `sceneLive` 的场景"门控、失败落空串），客户端不再自己拼 `location.origin`；② **媒体源接住根路径 `/diag`**（渲染页信标打 `{mediaBase origin}/diag`，否则场景首帧超时时告警 404 静默丢失），走诊断族**同一个** `handleDiag`（经出参 `onHandleDiag` 交付，保持调用点的语句形态以免被判成孤儿族模块）；③ `/scene-files` 的目录围栏补第二层 —— `lstatSync` 拒链接 + **`realpathSync.native`** 包含性比对（JS 版 realpathSync 在 Windows 上不解析 junction），且该层 **fail-closed**。**验收判据**：`test/verify-scene-live.mjs` 的 4 条新判据（含 3 条负对照 / 平台跳过显式记账）转绿 + `verify:all` 全绿 | 🟡 工作区已落地并配判据、**未提交**（`verify` 已绿；提交并跑通 `verify:all` 后翻 ✅） |
+
+### P4 —— 上一轮**只读审计**欠账的收口（条目出自 [`POST-REFACTOR-AUDIT.md`](./POST-REFACTOR-AUDIT.md)）
+
+> 这一块**不是新计划**：审计（基线 `1ff0887`）列出的欠账，在随后 45 个提交里几乎全未修 —— 现逐条收口。
+> 每条都按本账本 §0 的「一步三交」交付（结构 / 规则写进代码旁 / 守卫）。
+> **仍未做的**留在下面并写明原因，不许读成"这类问题都没了"。
+
+| # | 动作 | 状态 |
+|---|---|---|
+| P4-1 | **收 body 必须有上限**：`/remove` `/upload-dir` `/we-assets-dir` `/media-control` 四条补上限；判据**从磁盘枚举**每个 `req.on('data')` 站点（`test/verify-body-caps.mjs`，8 条正负对照 + 覆盖面地板 + 牙齿实证）。不变量写在 `lib/routes/upload.js` 文件头；调用形与上限常量见 `docs/DEV-GUIDE.md` 的"读请求体"一节 | ✅ |
+| P4-2 | **逐块解码 ⇒ U+FFFD**：六处（`/settings` `/fontsets` `/remove` `/upload-dir` `/we-assets-dir` `/media-control`）改为边收边计字节、收完只解码一次 | ✅ |
+| P4-3 | **`reqLogSeen` 加硬上界**（`REQ_LOG_SEEN_MAX` + 插入序淘汰）；去重与上界冲突时上界优先（重复诊断行可接受，内存有界是硬要求） | ✅ |
+| P4-4 | **`/custom-frame` 中途放弃收口**（`req.once('close')` + `completed`/`tmpCleaned`）+ **只清够旧 `.tmp`** 的启动清扫 | ✅ |
+| P4-5 | **转码临时文件唯一化**（`atomicTmpPath`）修掉"删兄弟任务产物"；**连带修**清扫器的本进程保护判据（原只认 `.tmp<pid>` 结尾，改名后会静默失效） | ✅ |
+| P4-6 | **`uploads/.meta.json` 读-改-写串行化**（进 `enqueueConfigWrite`；两处调用点改为等落盘再应答，保持"响应即已持久化"） | ✅ |
+| P4-7 | **启动链终止 `.catch`** + 迁移分支的 `localStorage` 读收进守卫（`readPersistedRaw()`） | ✅ |
+| P4-8 | **音乐开关高亮反了**：改为与按钮自身状态（也就是文案判据）逐字同一个；**有意不采用**"开着且有音量才亮"（会让出厂默认下点击无任何视觉反馈） | ✅ |
+| P4-9 | **恢复路由族触发线的监视器**为读代码的守卫 `test/verify-route-families.mjs`（账本守卫下线后 §7-6 一度无人看守；处置方式写在文件头） | ✅ |
+| P4-10 | **`verify-scene` 的悬空锚点**：`sceneFrameSlotFile` 全仓不存在 ⇒ 判据在扫全文却报绿；改为按下一个顶层函数取边界 + **缺锚即红** + 负对照 | ✅ |
+| P4-11 | **文档/注释与实现矛盾的九处**（`theme-follow` 阈值 · `effects` "只读" · 轮换间隔 · 已删除的"预热写盘"不变量 · `live-layer` 编年史注释 · `CONTRIBUTING` 的模块数 · `HOW-IT-WORKS` 的 §9.5 引用 · 死夹具 `fontSetNewName`/`newName` · `en/TROUBLESHOOTING` 缺整节）+ **账本数字按 ADR-0006 D2 退场** | ✅ |
+| P4-12 | **账本 §3.2 的复制率结论方向是反的**：那 9.6% 是生成物 `lib/client.js` 把 `src/**` 又装了一遍造成的**度量假象**；已更正并写明"必须排除生成物与 vendored + 必须写明作用域" | ✅ |
+| P4-13 | **`verify-body-caps` 的"八条路由各写一份收 body 管道"仍未收敛**成一个 `readBody()`（审计 §6.2 的修法方向）。现状：**只保证有上限**，不保证只有一份实现 —— 属有意留到下一刀 | ⬜ |
+| P4-14 | **`lib/pkg-extract.js` 整体退役 + vendored `jpeg-js` 删除**（审计 §6.1）。实测：从**唯一活入口** `parseTex` 出发，**430 / 645 行**不可达（`decodeTex` 及其全部解码助手 · `decodePngPayload` · `extractTexVideoMp4` · `PNG_GATE_MAX_PIXELS`）；该模块对宿主的**全部**价值只是 re-export `parsePkg` / `readPkgEntry`，而那两个的实现本来就在 `lib/pkg-read.js`。两处 `await import('./pkg-extract.js')` 改指 `./pkg-read.js`，`package.json` 的 `files` 删掉 `lib/pkg-extract.js` 与 `lib/vendor/`。⚠️ **审计那句"`decodeTex` 仍被 `scene-manifest.js` 使用 ⇒ 别误删"是错的**：那处是**注释**（`scene-manifest.js:25`），该文件从头到尾 import 的是 `./pkg-read.js` —— 把注释当调用读。当年真正钉住它的是账本守卫里一条"活依赖存活"断言（检查字符串 `function extractTexVideoMp4(` 存在），该守卫随 ADR-0006 下线后阻碍才消失。**判据**：`test/verify-retired-lines.mjs` ④（退役词在扫描面零残留 + 文件/`files`/副本三条存在性断言 + 负对照）——按"反向探针先于删除"**先加探针、让它红着列出 10 个待清点、再删** | ✅ |
+| P4-15 | **`src/panel-tabs.js` 兑现自己的模块头契约**（审计 §6.3）。实测越界不在"写 selection"（那条一直是零），而在判据**看不见**的两类：① 直接 `emit()`（4 个渲染器共 22 处）；② 改写**模块级状态**（`propsPanelOpen = !…` / `pickerFocusPending` / `pickerOpener = el`）与 **ctx 别名指向的东西**（`editing.name/interval/order =`，而 `editing` 就是 `selection.editing`）—— 后者连 `selection.` 字面量都不含，所以那条"只数字面量"的判据一直放行。**为什么审计说它是"真接缝缺口"**：同一刀拆出去的 `picker-modal.js` / `picker-props-panel.js` 早就在严口径下（`selection` 零引用 + `emit(` 零调用），只有本文件不在那张表里。**做法**：把 26 处内联"写 + 通知"抽成 `src/client.js` 的**具名处理器**（`onTogglePropsPanel` / `openPicker` / `on*EditDraft` / `onToggleSceneLive`（五件副作用一起）/ `onFpsCap` / `onObjectFit`（含 Edge canvas 重绘）/ `onToggleLiveDiag` …），经 ctx 传入；页签只剩 `onClick: onFoo`。**判据**：把 `panel-tabs.js` 加进 `verify-client` 的 `RENDERERS`（与另两个渲染器同口径），并新增一条**别名/模块状态改写**判据（赋值 + 成员赋值 + 原地变更三类形态，纯读取与注释提及不误伤）。**牙齿实证**：三类各注入一次 ⇒ 各自红且**点名**（`propsPanelOpen` / `editing` / `不得自己发通知`），还原后 `verify-client-sync` 重建**逐字节一致**。**连带**：`verify-scene-live` 三条"面板 → live"跨文件接线判据随调用点迁移而更新（**两端都钉**：处理器真的做 + 面板确实引用），侧栏 ctx 覆盖名单与真渲染挂载台同步扩面 | ✅ |
+| P4-16 | **`sceneFrameSlot` 只留唯一产物**（审计 §6.4）。删掉**零消费者**的三个路径字段 `pngPath`/`jpgPath`/`gifPath`（静态帧提取线遗留）与 `dir`，以及**从没有活调用点会传**的 `_vN` 档位后缀 ⇒ 返回收敛为 `{ key, gpuPath }`（`key` 是 PUT 的写去重锁键，仍在用）。**连带修掉那次白工**：档 4（用户 pin 的自定义封面，**豁免**抓帧）此前仍会 `sceneFrameSlot(abs, 4)` 解析一次槽位 —— 做一次 `statSync` + `ensureFrameCacheDir()`，而产出的路径**永远不会被读**（`gpuFrameFileFor` 对档 4 早就 `return null`）。现在豁免在**调用方**判定（`variant === 4 ? null : gpuFrameFileFor(sceneFrameSlot(abs))`）⇒ 档 4 连槽位都不解析；`gpuFrameFileFor` 同时去掉 `variant` 参数与那条只对 1/2/3 生效、而值域是 `{0,4}` 的死分支。**判据**（`test/verify-scene.mjs`）：死字段在 `lib/` 零残留（**先剥注释再判** —— 解释"为什么删"的注释必须能点名它们）+ **返回恰好两个字段**（按数量判，不按名字：`dir` 在本函数里合法地作为局部变量存在）+ 无档位参数/无 `_v` + 豁免点不解析槽位，四条各带对照；**牙齿实证**：重加 `dir`+`pngPath` ⇒ 红且点名，只重加 `dir` ⇒ 红报 `fields=3` | ✅ |
+| P4-17 | **从不安装 `npm pack` 产物**（审计 §7.6）：compat 层仍只走 `link:` ⇒ `peerDependencies` 能否在安装闭包里解析全仓零断言 | ⬜ |
+| P4-18 | **CI 仍只有 `windows-latest`**（审计 §8）：verify 自报"来自 posix 分支的 5 条在 win32 上零覆盖"是真的零覆盖 | ⬜ |
+
+| P4-19 | **`src/panel-tabs.js` 的巨型渲染器拆分**（P4-15 的另一半，本轮**有意未做**）。收口处理器之后实测：`renderWallpaperTab` 458 行 · `renderAppearanceTab` 350 行 · `renderEffectsTab` 271 行 · `renderAdvancedTab` 111 行（文件 1416 行，七个渲染器）。它们是全仓最大的**理解单元**。**为什么没做**：这一半**没有不变量可钉**（纯可读性重构），而它的守卫面很重（`verify-scene-live` 的三档真渲染回归 + 逐处理器戳接线、`verify-fontset` 的 149 条面板渲染台、多条源码级判据按**字面串**定位节标题与控件），纯搬动的风险/收益比远差于这一轮做的那些"有判据可钉"的收口。**要动它时的建议顺序**：① 先给每个节标题加一条"节顺序"判据（现有多数只判"某串在场"），② 再按节把渲染器切成一节一个子渲染器（`renderWallpaperTab` → 当前壁纸 / 播放控制 / 上传与资源路径 / 轮播四节），③ 每刀独立跑三档真渲染回归 | ⬜ |
 
 > 它要动的东西**正好落在重构的接缝上**：设置模型（P1-5）、效果/样式应用层（P1-7）、面板结构（P2-10）、宿主文件通道（P2-9）。
 > 设计与不变量已收口在 [`docs/FONT-SYSTEM.md`](../FONT-SYSTEM.md)（三个通道、扩展步骤；不变量在 `src/font/` 各文件头），本文不重复。
@@ -198,16 +250,20 @@
 
 出现任一条，§1 的结论作废，改为立刻做结构性重构：
 
-1. **单次改动的文件数持续 ≥5** —— 现在**均值 7.09**，已越过该线 ⇒ 因此 P1-5（设置键单一真源）优先于任何抽取。
+1. **单次改动的文件数持续 ≥5** —— **该线已越过**（复算命令见 §2 表的"共变耦合"一行）⇒ 因此 P1-5（设置键单一真源）优先于任何抽取。
 2. **守卫因文本判据脆弱导致假失败明显增多** —— 改为结构性/行为断言。
 3. **要正式支持第二平台或第二渲染后端** —— 届时 `src/client.js` 的隐式边界会成为硬阻塞。
 4. **单次会话上下文已无法容纳读懂 `apply(ctx)` 或 `WallpaperPicker`** —— 当前已处于临界。
 5. **出现一次无法定位原因的生产级回归** —— 说明守卫的覆盖结构已失效，先补覆盖再谈结构。
 6. **宿主某个路由族长到 ≥3 条路由**，或**一次改动要同时动 ≥3 条共享可变状态的路由** ⇒ 按族单独拆（先做 §3.5 的三条前置）。
-   判定：`node test/tools/analyze-host-apply.mjs` 的第 ② 组数。✅ **已对 `diag` 族成立**（4 条路由）⇒ P2-11 的第一刀就是这么做的；下一个满足它的是 `now-playing`（2 条，**未达线**）。
-   该线的**判据**原挂在账本守卫 `P2-11` 证据①（`lib/index.js` 内路由按路径首段归组、最大组 `< 3`）—— **该守卫已随 ADR-0006 下线，此监视器现失效**。复算方式：`node test/tools/host-route-index.mjs` 看各族条数；要恢复"过线自动变红"，应把这条判据搬进**读代码**的守卫（或宿主路由族的实现注释），而不是把账本守卫装回来。
-   ⚠️ 判定看的是**注册条数**，而"族"的另一种形态是**一个 `prefix` 注册下挂多个端点**（`scene-serve` 3 条 / `fontsets` 1 条注册 = 6 个端点）⇒ 新族**一律直接写成模块**，别先塞进 `apply` 等它"长到 3 条"。
-7. **出现一次跨路由状态的"隔空故障"** ⇒ 说明 22 个共享可变闭包状态已从"读起来长"变成"真的会坏"，此时 P2-11 升级为**立即做**。
+   判定：`node test/tools/analyze-host-apply.mjs` 的第 ② 组数（它按路径首段归组并打印每族条数）。
+   ✅ **已对 `diag` 族成立过**（4 条路由）⇒ P2-11 的第一刀就是这么做的。
+   **判据入口（读代码的守卫）**：`test/verify-route-families.mjs` —— 某个首段族长到 ≥3 条即**变红**，
+   提示回来裁决"拆族 或 改这一条线"。⚠️ **不要再把账本守卫装回来**：原先那条挂在 `verify-ledger.mjs` 上，
+   已随 [ADR-0006](../adr/0006-comment-discipline-as-written-convention.md) 下线（它的代价一节记明了
+   "这个监视器失效"）；恢复监视的正确做法是把判据搬进**读代码**的守卫，而不是让账本自证。
+   ⚠️ 判定看的是**注册条数**，而"族"的另一种形态是**一个 `prefix` 注册下挂多个端点**（`scene-serve` 3 条注册 = 4 个端点 / `fontsets` 1 条注册 = 7 个端点）⇒ 新族**一律直接写成模块**，别先塞进 `apply` 等它"长到 3 条"。
+7. **出现一次跨路由状态的"隔空故障"** ⇒ 说明那批共享可变闭包状态已从"读起来长"变成"真的会坏"，此时 P2-11 升级为**立即做**（条数用 `analyze-host-apply.mjs` 现算）。
    （本线是**事件型**：出现一次才触发，机器判不了；能被机器看守的是第 6 条的"族到 ≥3 条"半边，见其判据入口。）
    ⚠️ 拆 `media` 族前先记住匹配语义（`exact` 与 `prefix` 是两张表，prefix 表**最长前缀胜出**且必须落在路径边界上）⇒ 族内与族间的相对注册顺序都不影响匹配。
 

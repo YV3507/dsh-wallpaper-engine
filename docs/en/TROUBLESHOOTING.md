@@ -2,6 +2,49 @@
 
 > **中文**: [`../TROUBLESHOOTING.md`](../TROUBLESHOOTING.md)（与本文同源：改一处请同步另一处）
 
+<!-- lineage-note: branch-scope -->
+> ⚠️ **Version / lineage note**: some entries on this page were written on the **0.7.5** line and
+> reference switches that **do not exist on the current branch** — "空闲预热 / 预热整个库"
+> (idle prewarm / prewarm the whole library), "有损路线" (lossy route) and "GPU 渲染加速"
+> (GPU render acceleration). Verify it yourself: in the code, `sceneFrameRender` /
+> `scenePrewarmScope` / `sceneLossyRoute` / `sceneGpuAccel` **all have zero hits**.
+> So those entries' "expected behaviour" describes **only versions that still have those switches**;
+> on the current branch trust the actual panel (a script checks this note against the facts above).
+
+## "I changed the plugin and nothing happens at all" — separate the **client half** from the **host half** first
+
+This one is specifically for "I changed the code, refreshed the page, and the behaviour is byte-for-byte
+the same" (measured in practice: a large-scene first-frame-timeout fix looked like it had no effect, when
+in fact the **host half had never reloaded**). The two halves load in completely different ways:
+
+| Half | Where it comes from | When it takes effect |
+|---|---|---|
+| Client half (`lib/client.js` / `src/**`) | The host serves the **built artifact** as a static asset to the page | **Refreshing the page** is enough (the `client-boot` build marker in diagnostics changes) |
+| Host half (`lib/index.js` / `lib/routes/**`) | `apply(ctx)` runs **once** when the DSH process starts, then lives in memory | You **must restart that host** (the official `DeepSeek Harness` and the community `DSH Desktop` are **two separate processes**, each loading its own copy) |
+
+Three on-the-spot checks (all on local 127.0.0.1; any one of them settles it):
+
+```powershell
+# 1) Only a new host has this route: 200 = new code running, 404 = the host is old
+curl.exe -s -o NUL -w "%{http_code}`n" "http://127.0.0.1:<GUI port>/wallpaper-engine/scene-payload-progress?token=x"
+# 2) Only a new host's inventory has scenePkgBytes (the large-package first-frame budget scales by it)
+(Invoke-WebRequest "http://127.0.0.1:<GUI port>/wallpaper-engine/inventory").Content | Select-String scenePkgBytes
+# 3) Timestamp comparison: build-stamp.at is when the CURRENT host ran apply; earlier than the source mtime => the host did not reload
+Get-Content "$env:USERPROFILE\.dsh-wallpaper-engine\build-stamp.json"
+Get-Item  D:\dsh-wallpaper-engine\lib\index.js | Select-Object LastWriteTime
+# 4) Process start time: the host process started before you edited the file => it holds the old module in memory
+Get-Process 'DeepSeek Harness','DSH Desktop' | Select-Object ProcessName,Id,StartTime
+```
+
+Two easy misreadings, while we are here:
+
+- **The plugin directory is usually a junction** (`~/.dsh/profiles/<profile>/node_modules/dsh-plugin-wallpaper-engine → the workspace`),
+  so "the file is already new" does **not** mean "memory is new" — what matters is the **load moment**, not the file contents.
+- **The panel line "live render failed (…) fell back automatically" comes from persisted failure memory**
+  (`settings.sceneLiveFailures` in `config.json`) and says nothing about whether a frame was produced *this* time.
+  After a pipeline change (new bundle / the host starting to expose a scene media origin) the client **invalidates it once**
+  (see [`CHANGELOG.md`](./CHANGELOG.md)); on older versions you must toggle "scene live render" off and on to clear it.
+
 ### Install failure: `ERR_PNPM_UNEXPECTED_VIRTUAL_STORE`
 
 `dsh plugin --profile web add ...` forwards the command to **pnpm**. If you see this error:
