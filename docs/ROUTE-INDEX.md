@@ -14,11 +14,11 @@
 
 | # | 路径 | 来源 | 形态 | 依赖（闭包状态 / `c` 字段） | 守卫提及 |
 |---|---|---|---|---|---|
-| 1 | `/inventory` | lib/index.js:2801 | async 箭头 | webServer buildInventory disposers observeAdapter | 13 |
+| 1 | `/inventory` | lib/index.js:2801 | async 箭头 | webServer buildInventory disposers observeAdapter | 14 |
 | 2 | `/media-info` | lib/index.js:2941 | 箭头 | webServer mediaMap disposers | 7 |
 | 3 | `/transcode-progress` | lib/index.js:2967 | 箭头 | webServer mediaMap disposers | 1 |
 | 4 | `/transcoded` | lib/index.js:3020 | 箭头 | webServer mediaMap disposers serveFile | 1 |
-| 5 | `/media` | lib/index.js:3076 | 箭头 | webServer mediaMap disposers serveFile | 16 |
+| 5 | `/media` | lib/index.js:3076 | 箭头 | webServer mediaMap disposers serveFile | 17 |
 | 6 | `/preview` | lib/index.js:3076 | 箭头 | webServer mediaMap disposers serveFile | 8 |
 | 7 | `/video-preview` | lib/index.js:3100 | 箭头 | webServer mediaMap disposers serveFile | 1 |
 | 8 | `/scene-frame` | lib/routes/scene-frame.js:57 | 箭头 | disposers base mediaMap trackStream customFramePath customIdFromAbs …(+3) | 10 |
@@ -35,9 +35,9 @@
 | 19 | `/now-playing` | lib/routes/now-playing.js:103 | 箭头 | disposers base | 3 |
 | 20 | `/now-playing/artwork` | lib/routes/now-playing.js:117 | 箭头 | disposers base serveFile | 2 |
 | 21 | `/media-control` | lib/routes/now-playing.js:135 | 箭头 | disposers base | 2 |
-| 22 | `/client-diag` | lib/routes/diag.js:74 | 箭头 | disposers appendDiagLine notice base | 2 |
-| 23 | `/diag` | lib/routes/diag.js:140 | 箭头 | disposers | 8 |
-| 24 | `/diag` | lib/routes/diag.js:141 | 箭头 | disposers base | 8 |
+| 22 | `/client-diag` | lib/routes/diag.js:74 | 箭头 | disposers appendDiagLine notice base | 3 |
+| 23 | `/diag` | lib/routes/diag.js:140 | 箭头 | disposers | 9 |
+| 24 | `/diag` | lib/routes/diag.js:141 | 箭头 | disposers base | 9 |
 | 25 | `/diag-log` | lib/routes/diag.js:142 | 箭头 | disposers log base | 2 |
 | 26 | `/api/local-assets` | lib/index.js:3583 | async 箭头 | webServer disposers serveFile | 1 |
 | 27 | `/we-assets-dir` | lib/index.js:3633 | 箭头 | webServer disposers | 2 |
@@ -47,7 +47,7 @@
 | 31 | `/remove` | lib/routes/upload.js:203 | 箭头 | disposers base ensureUploadDir removeUploadMeta resolveUploadFile armBodyIdleTimeout | 1 |
 | 32 | `/upload-dir` | lib/routes/upload.js:247 | 箭头 | disposers base setUploadDir normalizeUserDir | 2 |
 | 33 | `/fontsets` | lib/routes/fontsets.js:245 | async 箭头 | disposers base readFontSetId | 5 |
-| 34 | `/settings` | lib/index.js:3826 | 箭头 | webServer disposers adapterFenceSeen adapterOverride observeAdapter adapterDetectedTarget …(+1) | 16 |
+| 34 | `/settings` | lib/index.js:3826 | 箭头 | webServer disposers adapterFenceSeen adapterOverride observeAdapter adapterDetectedTarget …(+1) | 17 |
 
 **零提及（拆分前必须先补守卫）**：（无）
 

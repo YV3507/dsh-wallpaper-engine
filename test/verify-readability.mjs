@@ -32,7 +32,8 @@
 //   F3  the content-surface plate uses a literal max() clamp on its own alpha.
 //   F4  the software-render fallback plate still clears the floor (the #95
 //       fallback from 8894670/7ba5643 keeps working).
-//   F5  DSH Desktop **extended** 模式的外壳画布底必须被清掉
+//   F5  DSH Desktop 的外壳画布底必须被清掉，且插件侧**不得**钉模式名
+//       （模式名漂移免疫：漏清与"写回单一模式门控"两个方向都要红）
 //   C1  full grid 玻璃透明度 {0,15,30,45,60} × theme {light,dark} × 壁纸透明度
 //       {0,50,90}: the effective composer-surface alpha is ≥ the floor, with the
 //       computed numbers printed.
@@ -276,31 +277,69 @@ function main() {
     fbPlatePct / 100 >= Math.max(FLOOR.light, FLOOR.dark),
     'fallback plate=' + (isNaN(fbPlatePct) ? 'missing' : fbPlatePct + '%') + ' · floor=' + Math.max(FLOOR.light, FLOOR.dark));
 
-  // ── F5: DSH Desktop **extended** 模式的外壳画布底必须被清掉 ────────────────
-  // 壳层样式表里有两条扩展模式**专属**规则（兼容模式没有，所以只有扩展模式会把壁纸
+  // ── F5: DSH Desktop 的外壳画布底必须被清掉 ─────────────────────────────────
+  // 壳层样式表里有一条**模式门控**规则（兼容模式没有，所以只有那个模式会把壁纸
   // 整片盖住 → 用户看到的就是「没选壁纸」）：
   //   body[data-dsh-desktop-mode="extended"] .dshDesktopFrame            { background: var(--dsh-desktop-frame-fill) }
   //   body[data-dsh-desktop-mode="extended"] .dshDesktopConversationSurface { background: var(--dsw-alias-bg-base) }
   // Windows 上 material 只能是 off ⇒ --dsh-desktop-frame-fill = --dsw-alias-bg-layer-1（不透明）。
   // 主内容区那条读 --dsw-alias-bg-base，插件已在 body[data-we-wallpaper] 上置 transparent，
   // 所以这里只要守住**画布**那一层被清掉（且用的是 transparent，不是某个不透明色）。
+  // ⚠️ 插件侧**不得**跟着写模式门控：模式名与门控集合由壳层自己演进，钉住某一个模式名
+  // 一旦漂移就是"整片盖住壁纸"。判据因此要求选择器里**没有** data-dsh-desktop-mode ——
+  // 两个方向都有牙：漏清（无规则）红，写回单一模式门控也红。
   // ⚠️ 本仓的 CSS 规则解析器把**前置注释**也算进 header，所以判据必须先剥注释再匹配选择器
   // —— 否则我在这条规则上方写的那段说明注释本身就含 `.dshDesktopFrame`，断言会靠注释过关
-  //（"负对照空转"的老坑）。两条负对照：同形但不含 transparent / 只在注释里出现选择器。
+  //（"负对照空转"的老坑）。三条负对照：同形但不含 transparent / 只在注释里出现选择器 /
+  // 写回单一模式门控的那一版。
   const selOf = (r) => String(r.header).replace(/\/\*[\s\S]*?\*\//g, '');
   const clearsShellFrame = (r) => {
     const h = selOf(r);
-    return h.includes('[data-we-wallpaper]') && h.includes('data-dsh-desktop-mode="extended"')
-      && h.includes('.dshDesktopFrame') && /transparent/.test(r.body);
+    return h.includes('[data-we-wallpaper]') && h.includes('data-we-adapter^="desktop-"')
+      && h.includes('.dshDesktopFrame') && /transparent/.test(r.body)
+      && !h.includes('data-dsh-desktop-mode');
   };
   const shellFrameRules = rulesWithProp('background').filter(clearsShellFrame);
-  const shellDecoy = { header: 'body[data-we-wallpaper][data-dsh-desktop-mode="extended"] .dshDesktopFrame', body: 'background: var(--dsh-desktop-frame-fill) !important;' };
-  const commentDecoy = { header: '/* body[data-we-wallpaper][data-dsh-desktop-mode="extended"] .dshDesktopFrame */ body', body: 'background: transparent;' };
-  check('F5 extended 模式的外壳画布底被清掉（否则整窗盖住壁纸 = 像没选壁纸）',
-    shellFrameRules.length >= 1 && !clearsShellFrame(shellDecoy) && !clearsShellFrame(commentDecoy),
+  const shellDecoy = { header: 'body[data-we-wallpaper] .dshDesktopFrame', body: 'background: var(--dsh-desktop-frame-fill) !important;' };
+  const commentDecoy = { header: '/* body[data-we-wallpaper] .dshDesktopFrame */ body', body: 'background: transparent;' };
+  const modeGatedDecoy = { header: 'body[data-we-adapter^="desktop-"][data-we-wallpaper][data-dsh-desktop-mode="extended"] .dshDesktopFrame', body: 'background: transparent !important;' };
+  check('F5 桌面壳的外壳画布底被清掉（否则整窗盖住壁纸 = 像没选壁纸），且不钉模式名',
+    shellFrameRules.length >= 1 && !clearsShellFrame(shellDecoy) && !clearsShellFrame(commentDecoy)
+      && !clearsShellFrame(modeGatedDecoy),
     shellFrameRules.length + ' rule(s): ' + shellFrameRules.map((r) => selOf(r).slice(-64)).join(' | ')
       + ' · 负对照[不透明]=' + (clearsShellFrame(shellDecoy) ? 'FAIL' : 'ok')
-      + ' · 负对照[仅注释]=' + (clearsShellFrame(commentDecoy) ? 'FAIL' : 'ok'));
+      + ' · 负对照[仅注释]=' + (clearsShellFrame(commentDecoy) ? 'FAIL' : 'ok')
+      + ' · 负对照[钉住单一模式名]=' + (clearsShellFrame(modeGatedDecoy) ? 'FAIL' : 'ok'));
+
+  // ── F6: 画布兜底色必须落在 html 上 ─────────────────────────────────────────
+  // 「壁纸的像素没送到屏上」时的最后一道底：根元素的背景色就是**画布背景**（合成器直接
+  // 填充的纯色 quad，不依赖栅格），掉层时它还在。落在 body 上等于没写 —— 宿主有一条
+  //   html[data-platform=darwin] body { background: transparent }
+  // 在层叠上赢过 body 侧的任何声明（选择器多一层 html[data-platform]），而 darwin 正是
+  // 桌面壳的主场。判据读的是**规则体**，所以自带负对照：把承载规则原地换成 body 之后必须判不出来。
+  const underlayCarrierOf = (css) => {
+    const at = css.indexOf('background-color: var(--we-wallpaper-underlay');
+    if (at < 0) return null;
+    const open = css.lastIndexOf('{', at);
+    if (open < 0) return null;
+    const prevClose = css.lastIndexOf('}', open);
+    const header = String(css.slice(prevClose + 1, open));
+    // header 可能**从一段注释中间**开始（规则的注释写在它上方，而这一刀切在上一条规则的 } 之后）
+    // ⇒ 先砍掉尾部那段注释，再按"整段注释"兜底。
+    const cut = header.includes('*/') ? header.slice(header.lastIndexOf('*/') + 2) : header;
+    return cut.replace(/\/\*[\s\S]*?\*\//g, '').trim();
+  };
+  const carrier = underlayCarrierOf(CSS);
+  const swapped = (() => {
+    const at = CSS.indexOf('background-color: var(--we-wallpaper-underlay');
+    if (at < 0) return '';
+    const open = CSS.lastIndexOf('{', at);
+    const start = CSS.lastIndexOf('}', open) + 1;
+    return CSS.slice(0, start) + ' body ' + CSS.slice(open);
+  })();
+  check('F6 画布兜底色落在 html 元素上（body 侧会被宿主 darwin 的透明规则盖掉）',
+    carrier === 'html' && underlayCarrierOf(swapped) !== 'html',
+    'carrier=' + JSON.stringify(carrier) + ' · 负对照[换成 body]=' + (underlayCarrierOf(swapped) === 'html' ? 'FAIL' : 'ok'));
 
   // ── C1/C2: the grid — effective composer alpha ≥ floor, numbers printed ───
   check('C1a the glass-alpha mapping was derived from the source',

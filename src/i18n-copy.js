@@ -595,6 +595,8 @@ const WE_I18N_EN = {
   "无取色结果": "No color result",
   "{line}｜{action}": "{line} | {action}",
   "作者配色": "Author color scheme",
+  "画面取样": "Frame sample",
+  "换壁纸": "Wallpaper changed",
   "已生效": "Applied",
   "等待取色": "Waiting for color",
   "帧": "Frame",

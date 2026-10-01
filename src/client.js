@@ -3882,29 +3882,6 @@ ensurePluginCss();
 // ── Plugin exports ──────────────────────────────────────────────────────────
 const inject = ["slots"];
 
-// Immersive app-window (desktop shortcut → standalone / fullscreen / minimal-ui)
-// windows composite on a different path than a normal tab, and Chromium can
-// flash the WHOLE window white when a backdrop-filter surface re-rasterises
-// over the wallpaper on interaction (click/typing). Detect that mode once and
-// tag <body>; the CSS then drops the frosted blur there (translucent glass),
-// while normal tabs keep the full frosted look.
-function detectAppWindow() {
-  try {
-    if (typeof navigator !== "undefined" && navigator.standalone) return true; // iOS PWA
-    if (typeof window === "undefined") return false;
-    if (typeof window.matchMedia === "function"
-        && (window.matchMedia("(display-mode: standalone)").matches
-          || window.matchMedia("(display-mode: fullscreen)").matches
-          || window.matchMedia("(display-mode: minimal-ui)").matches)) return true;
-    // Desktop-shortcut / kiosk app window: it has NO browser chrome (tabs,
-    // address bar), so the window's outer dimensions equal the inner viewport.
-    // A normal tab's window is always larger than its viewport. This reliably
-    // catches managed/kiosk/--app windows even when display-mode misreports.
-    if (window.outerWidth === window.innerWidth && window.outerHeight === window.innerHeight) return true;
-  } catch { /* ignore */ }
-  return false;
-}
-
 // ── Mica 能力探测（#73）─────────────────────────────────────────────────────
 // 「增强模式」下 DSH 桌面外壳把左侧工作区 (.dshDesktopSidebarSurface) 交给系统
 // 材质：有 Mica 时保持透明（壁纸透出），没有 Mica 时改用 --dsw-alias-bg-layer-1
@@ -4043,14 +4020,6 @@ function detectSoftwareRender() {
 }
 
 function apply(ctx) {
-  // Mark immersive/app-window mode so the CSS can stabilise the compositor there.
-  try {
-    if (typeof document !== "undefined" && document.body) {
-      if (detectAppWindow()) document.body.setAttribute("data-we-appwindow", "on");
-      else document.body.removeAttribute("data-we-appwindow");
-    }
-  } catch { /* ignore */ }
-
   // 0. i18n：把插件文案接上宿主的 locale 服务（`ctx.get("locale")`，可选服务 + 短轮询 ——
   //    缺服务时静默停在默认语言，见 src/i18n.js）。放在最前面：界面首次渲染就要按当前
   //    语言取词；服务通常已在（dsh-web-app 的 base bundle 自带），轮询只是兜底。
@@ -4073,6 +4042,24 @@ function apply(ctx) {
           window.addEventListener(t, onOcclusionChange);
           ocListeners.push(t);
         }
+      }
+      // 可见性恢复（最小化 → 还原 / 页面从 bfcache 回来）：**只在"隐藏 → 可见"这一个方向**
+      // 做两件事 —— 一次两帧的复合成微推（见 nudgeWallpaperRepaint）与"画面真的回到屏上了吗"
+      // 的留痕（见 probeWallpaperOnScreen）。普通 focus（用户点回窗口）不做，否则每次点窗口
+      // 都要动一次层；两件事都是事件级、不进热路径。
+      const onBackVisible = () => {
+        if (typeof document !== "undefined" && document.hidden) return;   // 还在隐藏态
+        try { nudgeWallpaperRepaint(); } catch { /* ignore */ }
+        try { probeWallpaperOnScreen("back-visible"); } catch { /* ignore */ }
+      };
+      let backVisBound = false, pageShowBound = false;
+      if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+        document.addEventListener("visibilitychange", onBackVisible);
+        backVisBound = true;
+      }
+      if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+        window.addEventListener("pageshow", onBackVisible);
+        pageShowBound = true;
       }
       // 客户端 JS 异常的**留痕**：这台机器打不开 DevTools ⇒ 没有这一条，一次渲染期异常就只剩
       // "UI 崩了"这句转述（实测过：面板白屏时诊断缓冲里什么也没有）。只**记录**、不改行为；
@@ -4152,10 +4139,14 @@ function apply(ctx) {
         if (ocWatch) { try { clearInterval(ocWatch); } catch { /* ignore */ } ocWatch = 0; }
         if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
           for (const t of ocListeners) window.removeEventListener(t, onOcclusionChange);
+          if (pageShowBound) window.removeEventListener("pageshow", onBackVisible);
           window.removeEventListener("error", onClientError);
           window.removeEventListener("unhandledrejection", onClientError);
           if (pageHideBound) window.removeEventListener("pagehide", onPageHideFlush);
           if (fontPageHideBound) window.removeEventListener("pagehide", onPageHideFlushFontSet);
+        }
+        if (backVisBound && typeof document !== "undefined" && typeof document.removeEventListener === "function") {
+          document.removeEventListener("visibilitychange", onBackVisible);
         }
         if (visBound && typeof document !== "undefined" && typeof document.removeEventListener === "function") {
           document.removeEventListener("visibilitychange", onVisibilityResyncPersist);
