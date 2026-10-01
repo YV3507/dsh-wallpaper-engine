@@ -312,6 +312,9 @@ function clearEffects() {
   document.body.removeAttribute("data-we-glass-fallback"); // #95 软件渲染回退钩子同上
   s.removeProperty("--we-content-surface-alpha");
   s.removeProperty("--we-content-surface-color");
+  // 画布兜底色写在根元素上（见 src/live-layer.js 的 refreshUnderlayColor）：它不在
+  // body 的变量表里，必须显式撤掉 —— 否则禁用插件后根元素会一直带着上一张壁纸的颜色。
+  clearUnderlayColor();
   removeFontStyles();
   s.removeProperty("--we-caret-color");
   removeCaretStyles();

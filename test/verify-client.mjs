@@ -47,6 +47,19 @@ function makeEl(tag) {
     attributes: {},
     style: { _props: {}, setProperty(k, v) { this._props[k] = v; }, removeProperty(k) { delete this._props[k]; } },
     className: "",
+    // 真 DOM 语义：className 与 classList 是同一份数据的两个视图（客户端两处都用 ——
+    // 切层写过 className，复合成微推走 classList）。挂载台只实现 className 时，
+    // classList 那一路会静默空转，断言也就无从下手。
+    get classList() {
+      const self = this;
+      const parts = () => String(self.className || "").split(/\s+/).filter(Boolean);
+      const write = (list) => { self.className = list.join(" "); };
+      return {
+        add(c) { const l = parts(); if (!l.includes(c)) l.push(c); write(l); },
+        remove(c) { write(parts().filter((x) => x !== c)); },
+        contains(c) { return parts().includes(c); },
+      };
+    },
     appendChild(c) { this.children.push(c); c._parent = this; if (c.id) byId[c.id] = c; return c; },
     remove() { if (this._parent) { const i = this._parent.children.indexOf(this); if (i >= 0) this._parent.children.splice(i, 1); } if (this.id) delete byId[this.id]; },
     setAttribute(k, v) { this.attributes[k] = v; },
@@ -89,6 +102,9 @@ const document = {
   // tracked in byId and their textContent is assertable below.
   head: makeEl("head"),
   body: bodyEl,
+  // 画布兜底色写在**根元素**上（见 src/live-layer.js 的 writeUnderlayColor）——
+  // 挂载台没有它时那条路会静默空转，判据变成恒真。
+  documentElement: makeEl("html"),
 };
 
 const localStorage = {
@@ -189,8 +205,10 @@ const fetchNow = (url, opts) => {
         id: "w" + i, title: "Wall " + i, type: "video", playable: true, media: "/wallpaper-engine/media/w" + i, preview: null,
         contentrating: "Everyone",
       })),
-      { id: "a", title: "Video A", type: "video", playable: true, media: "/wallpaper-engine/media/xyz", preview: null, contentrating: "Everyone" },
-      { id: "b", title: "Video B", type: "video", playable: true, media: "/wallpaper-engine/media/def", preview: null, contentrating: "Everyone" },
+      // schemeColor = 作者配色（宿主 inventory 的同一字段）：a 有值 ⇒ 画布兜底色必须落到
+      // 根元素；b 是 WE 新建工程的默认值 0 0 0 ⇒ 视作"没填"，兜底色必须**不设**。
+      { id: "a", title: "Video A", type: "video", playable: true, media: "/wallpaper-engine/media/xyz", preview: null, contentrating: "Everyone", schemeColor: "rgb(18, 52, 86)" },
+      { id: "b", title: "Video B", type: "video", playable: true, media: "/wallpaper-engine/media/def", preview: null, contentrating: "Everyone", schemeColor: "rgb(0, 0, 0)" },
       { id: "c", title: "Scene C", type: "scene", playable: false, media: null, preview: "/wallpaper-engine/preview/ccc", frameUrl: "/wallpaper-engine/scene-frame/ccc", contentrating: "Everyone" },
       { id: "d", title: "Scene D (no frame)", type: "scene", playable: false, media: null, preview: null, frameUrl: null, contentrating: "Everyone" },
       // e is PG13 and must be excluded under the default Everyone filter.
@@ -373,6 +391,49 @@ setTimeout(async () => {
   assert.equal(startupState({ props: { className: 'we-picker' }, children: ['选择壁纸'] }).hasPickTrigger, true,
     '负对照：判据必须认得「选择壁纸」入口');
 
+  // ── 画布兜底色（--we-wallpaper-underlay）────────────────────────────────────
+  // 不变量：壁纸激活期间**根元素**带着一个不透明的壁纸代表色。它存在的理由是窗口 /
+  // 标签页状态切换（最小化 → 任务栏缩略图 → 还原）时合成器可能拿不到壁纸层的像素，
+  // 而页面自己若不画任何东西，露出的就是窗口底板 / 宿主 body 的纯白兜底。
+  // 这里判行为侧：作者配色落到根元素（正）；作者填的 0 0 0 视作"没填" ⇒ 不设（负，在
+  // 轮换一节里）。**载体必须是 html** 这条是样式表结构判据，落在 test/verify-readability.mjs 的 F6。
+  {
+    const rootProps = document.documentElement.style._props;
+    console.log('--we-wallpaper-underlay:', JSON.stringify(rootProps['--we-wallpaper-underlay']));
+    assert.equal(rootProps['--we-wallpaper-underlay'], 'rgb(18, 52, 86)',
+      '作者配色必须在壁纸激活期间落到根元素（画布兜底色）');
+  }
+
+  // ── 可见性恢复：一次性复合成微推 ────────────────────────────────────────────
+  // 只在"隐藏 → 可见"这一个方向动层：普通 focus（用户点回窗口）不得触发 —— 否则每次点
+  // 窗口都要动一次层。三条一起判：正（恢复可见 ⇒ 加上 + 下一拍撤掉）、两条负对照
+  //（隐藏态不触发 / focus 不触发）。
+  {
+    const fireDoc = (type) => { for (const fn of (docListeners[type] || [])) fn(); };
+    const fireWin = (type) => { for (const fn of (winListeners[type] || [])) fn(); };
+    const node = document.getElementById('dsh-wallpaper-engine-layer');
+    assert.ok(node, '微推断言需要屏上有一个壁纸层');
+    const repaintTimers = () => rotationTimers.filter((t) => !t.cleared && !t.fired && t.ms === 32);
+    const before = repaintTimers().length;
+    document.hidden = false;
+    fireDoc('visibilitychange');
+    assert.ok(node.classList.contains('we-layer--repaint'),
+      '恢复可见必须给壁纸层加一次性的复合成微推类');
+    const timers = repaintTimers();
+    assert.equal(timers.length, before + 1, '微推必须安排在下一拍撤掉（否则留下常驻合成层）');
+    timers[timers.length - 1].fired = true;
+    timers[timers.length - 1].fn();
+    assert.ok(!node.classList.contains('we-layer--repaint'), '下一拍必须撤掉微推类');
+    document.hidden = true;
+    fireDoc('visibilitychange');
+    assert.ok(!node.classList.contains('we-layer--repaint'), '负对照：还在隐藏态时不得触发微推');
+    document.hidden = false;
+    const idle = repaintTimers().length;
+    fireWin('focus');
+    assert.ok(!node.classList.contains('we-layer--repaint') && repaintTimers().length === idle,
+      '负对照：普通 focus（点回窗口）不得触发微推');
+  }
+
   // ── 轮换「就绪后切换 + 渐变」断言 ─────────────────────────────────
   // mock 环境无 addEventListener/Image → 准备管线特性探测失败即同步直通提交。
   // 按 5 分钟（300000ms）定位真正的轮换定时器，绕开 persist 防抖的 200ms
@@ -441,6 +502,10 @@ setTimeout(async () => {
       !!postLayer && postLayer !== preLayer && weKey1.indexOf('/wallpaper-engine/media/def') !== -1);
     rotCheck('rotation fade: old layer marked weFading', !!preLayer && preLayer.dataset.weFading === '1');
     rotCheck('rotation fade: old layer yielded LAYER_ID', !!preLayer && preLayer.id === '');
+    // 画布兜底色的负对照：换到 b（作者配色是 WE 新建工程的默认值 0 0 0 ⇒ 视作"没填"）之后，
+    // 根元素**不得**继续带着上一张壁纸的颜色 —— 否则"照用纯黑"这条会静默把一张亮壁纸钉成黑底。
+    rotCheck('画布兜底色：换到「颜色未填」的壁纸后根元素不再保留上一张的颜色',
+      document.documentElement.style._props['--we-wallpaper-underlay'] === undefined);
     rotCheck('rotation fade: new layer carries the switch classes', !!postLayer
       && postLayer.className.indexOf('we-layer--switch') !== -1);
     rotCheck('rotation fade: 交叉淡化基准 = ROTATION_FADE_MS (1800ms)', !!postLayer
