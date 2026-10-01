@@ -1532,13 +1532,15 @@ function layerContentReady(node) {
   }
   const video = node.querySelector("video");
   if (video) {
-    // 作者静帧（poster 属性）本身就是画面。
-    if (video.getAttribute && video.getAttribute("poster")) return true;
     if (video.__weReady === true) return true;
+    // 视频档的"有画面"判据**归视频通道**（见 src/video-layer.js 的文件头）：
+    //   · 海报图**已加载**（不是"属性存在" —— 属性刚设上时 <video> 还是透明，
+    //     屏上就是层底色，那正是"十几秒纯色"的成因）｜· 首帧 readyState ≥ 2。
+    // 两者都没有 ⇒ 返回 false，旧壁纸继续留屏（绝不露底色）。
     // Edge 把画面画进镜像 canvas，而画布底是写死的 #000：视频有帧还不够，要等
     // weDrawFrame 真的画上去一笔（那一笔落下时 canvas 会来报）。
     if (node.querySelector("canvas.we-media--canvas")) return false;
-    return Number(video.readyState) >= 2; // HAVE_CURRENT_DATA = 手上已有一帧
+    return videoContentReady(video);
   }
   const live = node.querySelector("iframe.we-live-iframe");
   if (live) return String(live.className).indexOf("we-live-on") !== -1;
@@ -1551,6 +1553,10 @@ function forgetPendingReveal() {
   pendingReveal = null;
   if (!p) return p;
   for (const el of p.hooks) { try { el.__weContent = null; } catch { /* ignore */ } }
+  // 海报探针与它的预算必须一起收：否则它们会在这一层已经放行之后触发（下一次切换时
+  // 误放行新层）。
+  try { if (p.stopPosterProbe) p.stopPosterProbe(); } catch { /* ignore */ }
+  try { if (p.posterGiveUp) clearTimeout(p.posterGiveUp); } catch { /* ignore */ }
   return p;
 }
 function revealPendingLayer() {
@@ -1583,6 +1589,8 @@ function armLayerContentReveal(node, outgoing, tr, fade) {
     img.addEventListener("error", giveUp);
   }
   const video = node.querySelector("video");
+  let posterGiveUp = 0;
+  let cancelPosterProbe = null;
   if (video && typeof video.addEventListener === "function") {
     // loadeddata / canplay = 浏览器手上已经有一帧（spec 的 readyState ≥ 2 / 3）；
     // Edge 那条路由镜像画布的第一笔补最后一步（layerContentReady 会一起看）。
@@ -1590,11 +1598,17 @@ function armLayerContentReveal(node, outgoing, tr, fade) {
     video.addEventListener("loadeddata", frameReady);
     video.addEventListener("canplay", frameReady);
     video.addEventListener("error", giveUp);
+    // 视频通道：海报图**加载出来**才算有画面（属性存在不算，见 video-layer.js 文件头）。
+    // 期间旧壁纸留在屏上；拿不到海报时由下面的预算兜底放行。
+    cancelPosterProbe = probeVideoPoster(video, recheck, giveUp);
+    if (typeof setTimeout === "function") {
+      posterGiveUp = setTimeout(giveUp, VIDEO_POSTER_BUDGET_MS);
+    }
   }
   try { if (node.classList) node.classList.add(LAYER_PENDING_CLASS); } catch { /* ignore */ }
   // 新层上屏之前先压住它的音源：旧层还在可见期内出声，两层 BGM 不重叠。
   openRotationAudioGate(node, outgoing);
-  pendingReveal = { node, outgoing, tr, fade, hooks };
+  pendingReveal = { node, outgoing, tr, fade, hooks, stopPosterProbe: cancelPosterProbe, posterGiveUp };
   // 过场类型是一个完整词，但**先取词再拼接**：`weT(...) + "…"` 会被 i18n 守卫判成
   // "碎片化翻译"（见 test/verify-i18n.mjs 判据 ①b），而这一行本身只是诊断留痕。
   const holdKind = weT(fade ? "过场" : "硬切");

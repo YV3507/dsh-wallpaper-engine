@@ -597,7 +597,18 @@ function buildMedia(sel) {
       // 会先播一段预览、再停在视频首帧、最后才进正片，用户看到的是「跑完整
       // 加载流程」；0.7.5 是选中即播（加载期黑帧，由交叉渐变盖住）。场景内嵌
       // MP4 的 poster 是静态帧，是「先静帧后动态」的既有设计，保留。
-      if (sel.previewUrl && sel.type !== "video") media.poster = sel.previewUrl;
+      // 视频档**只认插件自己的静态缩略图**（`/video-preview/…` 是 ffmpeg 抽的一帧 JPEG，
+      // 见宿主 videoPreviewCachePath 的 `pv_*.jpg`）。挂上它有两重收益：
+      //   ① 切层内容闸门把 `video[poster]` 直接算作"有画面" ⇒ **立即放行**，不再等首帧
+      //     （等首帧实测会把整次切换推到十几秒：源越大 / 帧率上限越高越久）；
+      //   ② 加载窗口里屏上是**真缩略图**，而不是无帧 <video> 那块空/黑 ⇒ 闸门要防的
+      //     "露出底色"照旧不发生。
+      // WE 自带的 `preview.gif` 仍然不设（作者原意：动图当 poster 会"先播预览再进正片"）；
+      // 上面那条 URL 是插件自己抽的静态帧，与该顾虑无关 —— 判据见
+      // rotation-prepared-leak-smoke.mjs 的 T2 / T2b（无静态缩略图仍必须等帧）。
+      const stillPreview = !!sel.previewUrl
+        && (sel.type !== "video" || /\/video-preview\//.test(sel.previewUrl));
+      if (stillPreview) media.poster = sel.previewUrl;
     }
     media.autoplay = true;
     media.loop = true;

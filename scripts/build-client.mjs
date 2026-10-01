@@ -181,6 +181,11 @@ const INLINE_MODULES = [
     markers: ['const QP_LIST_MAX = ', 'function qpTypeLabel(', 'function QuickPanel(props)'],
   },
   {
+    file: 'src/video-layer.js',
+    why: '视频壁纸通道：海报已加载/首帧/预算的就绪判据（实测：一律等首帧会把切换推到十几秒）',
+    markers: ['function probeVideoPoster(', 'function videoContentReady(', 'VIDEO_POSTER_BUDGET_MS'],
+  },
+  {
     file: 'src/media-prep.js',
     why: '选中项落地：预准备（预挂载 + 探测 + 超时记账）→ buildMedia → applySelection',
     markers: ['function beginRotationPrepare(', 'function prepareWallpaper(', 'const prepareLiveTimeouts = ',
