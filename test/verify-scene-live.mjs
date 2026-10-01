@@ -1053,7 +1053,24 @@ for (const [name, ok] of clientChecks) check(name, ok);
     check('视频通道必须探海报**加载**，不是只看属性存在',
       CH.includes('function probeVideoPoster(') && CH.includes('img.onload'));
     check('视频通道有兜底预算（拿不到海报也要能换下去 —— ⑥ 后它与执行器一起在通道里）',
-      CH.includes('VIDEO_POSTER_BUDGET_MS') && CH.includes('setTimeout(giveUp, VIDEO_POSTER_BUDGET_MS)'));
+      CH.includes('VIDEO_POSTER_BUDGET_MS') && CH.includes('setTimeout(stallGuard, VIDEO_POSTER_BUDGET_MS)'));
+    // 真机取证（2026-10-02）：旧行为"预算到期就放行"会在 `<video>` rs=0 时把层放上屏，
+    // 屏上只剩这一层底色（用户看到"纯色帧"，实测 1–2 秒起）。判据：预算这一路**只许在
+    // 屏上真有画面时放行**，停滞到上限就停手留旧壁纸，绝不放行空层。
+    check('兜底预算不得放行空层（停滞只留旧壁纸，不铺底色）',
+      CH.includes('const stallGuard = () => {')
+      && /videoContentReady\(video\) \|\| video\.__weReady === true/.test(CH)
+      && CH.includes('VIDEO_STALL_GIVE_UP_MS')
+      && /waited >= VIDEO_STALL_GIVE_UP_MS[\s\S]{0,400}?video-stall/.test(CH));
+    // 真机取证（2026-10-02，第二轮）：**只有设了「帧率上限」时才会再看到纯色帧** —— 抽帧就绪
+    // 那一刻在在屏元素上 `src=transcoded; load()` 会清掉当前帧。判据：自动升级不许在"已上屏"
+    // 的层上换源（推到下一次建层直接用抽帧版），只有"层还被闸门押着"或"用户刚主动改过上限"
+    // 才当场换。
+    check('抽帧升级不在已上屏的层上换源（换源＝清掉当前帧＝纯色）',
+      CH.includes('function layerStillPending(')
+      && /if \(!layerStillPending\(\) && !upgradeByUser\)[\s\S]{0,400}?selection\.transcodeReady = \{ token, fps: cap, url: transcodedUrl \}/.test(CH)
+      && /useCached \? rc\.url : sel\.url/.test(CH)
+      && /upgradeByUser = Date\.now\(\) - capChangedAt < 5000/.test(CH));
     check('实时管线的视频分支委托给通道，而不是自己下判据',
       LIVE.includes('return videoContentReady(video);'));
     // ── 视频通道的**符号围栏**（目标 ①：先造判据再搬家）──────────────────────────

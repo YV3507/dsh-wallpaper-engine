@@ -1020,6 +1020,20 @@ const fireProbe = (probe, ev) => {
   if (probe && typeof probe[ev] === 'function') { probe[ev](); return true; }
   return false;
 };
+/**
+ * 夹具：把"这个 `<video>` 已经解码好了"这件事按**浏览器事实**标出来，再发事件。
+ *
+ * 为什么需要：canplay 的 spec 含义就是 `readyState ≥ HAVE_FUTURE_DATA(3)`（手上已经有帧）。
+ * 闸门读的是**当下这一帧**（见 src/live-layer.js 的 layerContentReady / src/video-layer.js 的
+ * videoContentReady），所以夹具只发事件、不标 readyState，量到的是"元素没有画面"这个**假的**
+ * 浏览器事实 —— 会与产品判据（也见 T2：无帧不得放行）自相矛盾。
+ */
+const markVideoDecoded = (el) => {
+  if (!el) return null;
+  el.readyState = 3;
+  if (typeof el.__fire === 'function') el.__fire('canplay');
+  return el;
+};
 
 // ── P3：**无缓存实时帧**：第 1 级**还在飞行中**（既未成功也未失败）⇒ 缩略图不得上屏 ──
 // 真机形态：本会话还没观测到这张抓帧，而盘上它其实**存在**（4K PNG 正在读/解码；宿主对两条来源
@@ -1141,7 +1155,7 @@ await runScenario('P6. 缓存实时帧存在：建层那一刻就是实时帧（
   // 换出去（v），再换回来（s1）⇒ 同一个 key 的第二次建层
   t.fireLatest(10000);
   const probeV = t.mediaEls[t.mediaEls.length - 1];
-  if (probeV) probeV.__fire('canplay');
+  markVideoDecoded(probeV);
   check('③ 前置换出：当前层已不是那张垫底图（"第二次建层"的前提，否则后面量的是同一张）',
     !!t.layerEl() && posterOf(t) === null, 'poster=' + (posterOf(t) ? 'still there' : 'gone'));
 
@@ -1152,7 +1166,7 @@ await runScenario('P6. 缓存实时帧存在：建层那一刻就是实时帧（
   t.clock.offset = 16000;         // 跨过 LIVE_FIRST_FRAME_MS（墙钟比较）
   t.fireLatest(500);              // → bail → sceneVideo 探针
   const probeBack = t.mediaEls[t.mediaEls.length - 1];
-  if (probeBack) probeBack.__fire('canplay');   // 提交 → buildMedia → buildLivePoster（热）
+  markVideoDecoded(probeBack);   // 提交 → buildMedia → buildLivePoster（热）
   const warm = posterOf(t);
   check('④ 缓存命中 ⇒ 第二次建层那一刻屏上**已经是实时帧**（不是缩略图、也不是纯色）',
     !!warm && warm !== cold && posterShowsSrc(t, warm, frameSrc),
@@ -1198,7 +1212,7 @@ await runScenario('P7. 拿不到 object URL：命中仍同步上帧（插入已�
   // 换出去再换回来 ⇒ 同一个 key 的第二次建层（命中）
   t.fireLatest(10000);
   const probeV = t.mediaEls[t.mediaEls.length - 1];
-  if (probeV) probeV.__fire('canplay');
+  markVideoDecoded(probeV);
   t.fireLatest(10000);
   t.fireLatest(300);
   t.clock.offset = 16000;         // 跨过 LIVE_FIRST_FRAME_MS（墙钟比较）
@@ -1206,7 +1220,7 @@ await runScenario('P7. 拿不到 object URL：命中仍同步上帧（插入已�
   const probeBack = t.mediaEls[t.mediaEls.length - 1];
   const frameProbesBefore = frameProbes().length;
   const previewsBefore = previewProbes().length;
-  if (probeBack) probeBack.__fire('canplay');   // 提交 → 命中分支（第 2 次建层）
+  markVideoDecoded(probeBack);   // 提交 → 命中分支（第 2 次建层）
   const warm = posterOf(t);
   check('② 命中：第 2 次建层那一刻屏上已是实时帧（插入的是已解码元素，不是纯色也不是缩略图）',
     !!warm && posterShowsSrc(t, warm, frameSrc), 'bg=' + posterBgSrc(t, warm));
@@ -1552,7 +1566,7 @@ await runScenario('T3. 正对照：内嵌 MP4（poster=静态帧）插入即上�
   check('   前置：sceneVideo 探针带 poster（作者静态帧，真机上与 setAttribute 等价）',
     !!probe && String(probe.getAttribute('poster') || '').includes('/wallpaper-engine/scene-frame/s6'),
     'poster=' + (probe && probe.getAttribute('poster')));
-  probe.__fire('canplay');        // 提交 → 元素级领养
+  markVideoDecoded(probe);        // 提交 → 元素级领养
   const newLayer = t.layerEl();
   check('① 新层立刻参与绘制（没有被 --pending 挡住）',
     !!newLayer && !String(newLayer.className).includes(LAYER_PENDING_CLS)

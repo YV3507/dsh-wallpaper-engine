@@ -2254,23 +2254,32 @@ function applyVideoPlayback(video) {
   weApplyAudio(video);
   if (!isEffectivelyPlaying()) {
     try { video.pause(); } catch { /* ignore */ }
+    // 取证插桩（可删）：谁把它按住的（用户暂停 / 遮挡判定）。
+    try { videoPlayNote(video, "skip:no-intent hold=" + (occlusionReason() || "-") + " intent=" + selection.playing); } catch { /* ignore */ }
     syncVideoState(video);
     return;
   }
   if (!video.paused && !video.ended && !video.error) { syncVideoState(video); return; }
-  if (playRefusalBlocks(video)) { syncVideoState(video); return; } // 等用户显式重试
+  if (playRefusalBlocks(video)) {
+    try { videoPlayNote(video, "skip:refused"); } catch { /* ignore */ }
+    syncVideoState(video); return; // 等用户显式重试
+  }
   let p = null;
   try { p = video.play(); } catch { p = null; }
   if (!p || typeof p.then !== "function") { syncVideoState(video); return; }
+  // 取证插桩（可删）：play() 的结局（被自动播放策略拒绝就是这里）。
+  try { videoPlayNote(video, "call"); } catch { /* ignore */ }
   p.then(
     () => {
       if (video.dataset) delete video.dataset.wePlayRefused;
       weApplyAudio(video);
+      try { videoPlayNote(video, "ok"); } catch { /* ignore */ }
       syncVideoState(video);
     },
     (err) => {
       // 浏览器真的拒绝了这个 play()：如实记录性质，等用户重试（不要沉默）。
       if (video.dataset) video.dataset.wePlayRefused = (err && err.name) || "1";
+      try { videoPlayNote(video, "refused=" + ((err && err.name) || "1")); } catch { /* ignore */ }
       syncVideoState(video);
     },
   );
@@ -2618,7 +2627,13 @@ function onToggleSceneLive(e) {
 function onLiveBootDelay(secs) { setSetting("liveBootDelay", secs); emit(); }
 function onSceneLiveFps(f) { setSetting("sceneLiveFps", f); syncLayers(); emit(); }
 function onPlaybackRate(rate) { setSetting("playbackRate", rate); emit(); }
-function onFpsCap(cap) { setSetting("fpsCap", cap); refreshMediaInfo(true); emit(); }
+function onFpsCap(cap) {
+  // 用户主动改上限：这一轮抽帧升级允许当场换源（自动触发的那一轮不允许，见 upgradeByUser）。
+  try { noteFpsCapChange(); } catch { /* ignore */ }
+  setSetting("fpsCap", cap);
+  refreshMediaInfo(true);
+  emit();
+}
 function onFlip(e) { setSetting("flip", e.target.checked); emit(); }
 function onAdapterTarget(e) { setSetting("adapterTarget", e.target.value); emit(); }
 function onPauseOnHidden(e) { setSetting("pauseOnHidden", e.target.checked); emit(); }

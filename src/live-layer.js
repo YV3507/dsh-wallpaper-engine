@@ -266,6 +266,7 @@ try {
       try {
         liveLog("client-boot", "build=" + LIVE_DIAG_BUILD + " page=p" + LIVE_PAGE_ID
           + " mode=" + desktopWindowMode() + " extSwap=" + (useExtendedFrameSwap() ? 1 : 0)
+          + adapterDiagSuffix()
           + " " + liveStateBrief());
       } catch { /* ignore */ }
     }, 0);
@@ -480,6 +481,10 @@ function desktopWindowMode() {
     const m = new URLSearchParams(window.location.search).get("dsh-desktop-mode");
     return m === "extended" || m === "advanced" ? m : "compatibility";
   } catch { return "compatibility"; }
+}
+/** 取证插桩（可删）：client-boot 那行带上适配目标，好把"哪条宿主写的这条日志"分开。 */
+function adapterDiagSuffix() {
+  try { return " adapter=" + adapterCaps().target; } catch { return ""; }
 }
 
 // A/B 逃生舱：extended 模式的「首帧后延迟换元」自救开关（与 dsh-desktop-mica /
@@ -1532,7 +1537,9 @@ function layerContentReady(node) {
   }
   const video = node.querySelector("video");
   if (video) {
-    if (video.__weReady === true) return true;
+    // ⚠️ 这里**不再认 `video.__weReady`**：它只由 loadeddata/canplay 打上，而 rs≥2 是同一件
+    // 事的判据；留一个"曾经就绪过"的纪念标记，只会让"这一刻屏上没有帧"的层被放行（真机
+    // 日志：放行时 rs=0，屏上就是这一层的底色）。画面判据只认「当下这一帧」。
     // 视频档的"有画面"判据**归视频通道**（见 src/video-layer.js 的文件头）：
     //   · 海报图**已加载**（不是"属性存在" —— 属性刚设上时 <video> 还是透明，
     //     屏上就是层底色，那正是"十几秒纯色"的成因）｜· 首帧 readyState ≥ 2。
@@ -1571,6 +1578,19 @@ function revealPendingLayer() {
     retireFadingLayer();
   }
   liveLog("layer-reveal", "wid=" + selection.id + " 新层已有画面 → 放行");
+  // 取证插桩（可删）：放行为什么发生 + 这一刻元素真有什么 + **第一帧真的被呈现**要多久。
+  try {
+    const v = p.node && p.node.querySelector ? p.node.querySelector("video") : null;
+    liveLog("gate-open", "why=" + ((v && v.__weDiagWhy) || "?")
+      + " held=" + (Date.now() - (p.armedAt || Date.now())) + "ms out=" + (p.outgoing ? 1 : 0)
+      + (v ? " " + videoDiagBrief(v) : " no-video"));
+    if (v && typeof v.requestVideoFrameCallback === "function") {
+      const t0 = Date.now();
+      v.requestVideoFrameCallback(() => {
+        try { liveLog("gate-open", "first-presented +" + (Date.now() - t0) + "ms " + videoDiagBrief(v)); } catch { /* ignore */ }
+      });
+    }
+  } catch { /* ignore */ }
 }
 // 新层还没有画面：旧层继续留在屏上，新层先不参与绘制，画面一到就放行。
 function armLayerContentReveal(node, outgoing, tr, fade) {
@@ -1594,7 +1614,11 @@ function armLayerContentReveal(node, outgoing, tr, fade) {
   try { if (node.classList) node.classList.add(LAYER_PENDING_CLASS); } catch { /* ignore */ }
   // 新层上屏之前先压住它的音源：旧层还在可见期内出声，两层 BGM 不重叠。
   openRotationAudioGate(node, outgoing);
-  pendingReveal = { node, outgoing, tr, fade, hooks, stopPosterProbe: videoReveal.cancelProbe, posterGiveUp: videoReveal.budget };
+  pendingReveal = { node, outgoing, tr, fade, hooks, stopPosterProbe: videoReveal.cancelProbe, posterGiveUp: videoReveal.budget, armedAt: Date.now() };
+  // 取证插桩（可删）：闸门武装这一刻元素是什么状态（放行原因由视频通道写在元素上）。
+  try {
+    if (video) liveLog("gate-arm", "wid=" + selection.id + " out=" + (outgoing ? 1 : 0) + " " + videoDiagBrief(video));
+  } catch { /* ignore */ }
   // 过场类型是一个完整词，但**先取词再拼接**：`weT(...) + "…"` 会被 i18n 守卫判成
   // "碎片化翻译"（见 test/verify-i18n.mjs 判据 ①b），而这一行本身只是诊断留痕。
   const holdKind = weT(fade ? "过场" : "硬切");
@@ -1956,6 +1980,7 @@ function syncLayers() {
         if (!liveFrameDeferred(adoptedLive)) { try { startLiveWatch(adoptedLive, selection.id); } catch { /* ignore */ } }
       }
     }
+    let freshLayer = false;
     if (!node) {
       node = document.createElement("div");
       node.id = LAYER_ID;
@@ -1966,6 +1991,7 @@ function syncLayers() {
       if (Array.isArray(built)) for (const el of built) node.appendChild(el);
       else node.appendChild(built);
       document.body.appendChild(node);
+      freshLayer = true;
     }
     // ── 旧层处置：新层有画面 ⇒ 立刻按过场 / 硬切换；还没有画面 ⇒ 旧层留在屏上，
     //    新层先不参与绘制，画面一到就放行（见本文件上方的切层内容闸门）。─────────
@@ -1990,6 +2016,14 @@ function syncLayers() {
     }
     const canvas = node.querySelector("canvas.we-media--canvas");
     const video = node.querySelector("video");
+    // 取证插桩（可删）：**没有旧层可守 ⇒ 根本不会武装闸门**，这一跳新层直接上屏。
+    // 「首次建层 / 层被拆过之后重建」走的就是这条路，屏上只剩兜底色（=壁纸主色）。
+    if (freshLayer && !outgoing && video) {
+      try {
+        hookVideoDiag(video);
+        liveLog("gate-none", "wid=" + (selection.id || "-") + " 无旧层→无闸门 " + videoDiagBrief(video));
+      } catch { /* ignore */ }
+    }
     // 画布兜底色（见本文件上方的 refreshUnderlayColor / scheduleUnderlaySample）：
     // 幂等，同一次挂载只排一次取样；换壁纸即作废上一张的结果。
     refreshUnderlayColor();
@@ -2036,6 +2070,10 @@ function syncLayers() {
   } else if (existing) {
     weStopDraw();
     stopLiveWatch();
+    // 取证插桩（可删）：选择被清空 ⇒ 壁纸层被拆掉，屏上只剩界面自己的底色。
+    try {
+      liveLog("layer-teardown", "wid=" + ((existing.dataset && existing.dataset.weWid) || "-") + " 选择已清空 → 拆层");
+    } catch { /* ignore */ }
     // 选择被清除：这一跳的旧层与"守着旧层的待显影层"都要一起退场 —— 壁上无壁纸时
     // 屏上不该留着任何一层的像素。
     forgetPendingReveal();

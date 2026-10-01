@@ -35,6 +35,142 @@
 const VIDEO_POSTER_BUDGET_MS = 1200;
 
 /**
+ * 停滞上限：到这里仍然没有画面 ⇒ **停止等待，但也不放行空层**（不变量 ②：绝不露出这一层
+ * 的底色）。旧壁纸继续留在屏上，只留一条 warn 日志。
+ *
+ * 为什么要这条：旧行为是"预算到期就放行"，而视频档通常**没有 poster**（只认
+ * `/video-preview/`）⇒ 放行那一刻屏上只有这一层的底色（=壁纸主色）。真机日志（桌面壳）
+ * 抓到的正是这一幕：
+ *   `gate-open … held=1201ms out=1 rs=0 ns=1 vw=0x0` → `loadedmetadata +2053ms` →
+ *   `loadeddata +2095ms` → `presented +2167ms`
+ * 也就是用户盯着那块纯色 1–2 秒（源慢时更久）。文件头那条实测结论早就写过：这种"铺纯色"
+ * 的观感比"旧壁纸多留一会儿"更糟 —— 这里把它落到判据上。
+ */
+const VIDEO_STALL_GIVE_UP_MS = 15000;
+
+// ── 一次性取证插桩：视频首帧迟到（取证完可整段删除）────────────────────────────
+// 只回答一个问题：**切过去之后 `<video>` 为什么长时间没有帧**。只读元素与页面状态、
+// 只打日志，不参与任何判定（放行条件一行未改）。事件级一行 + 放行原因一行。
+function videoDiagBrief(video) {
+  const v = video || {};
+  let buf = "-";
+  try { if (v.buffered && v.buffered.length) buf = String(Math.round(v.buffered.end(v.buffered.length - 1) * 1000)); } catch { /* ignore */ }
+  let src = "";
+  try { src = String(v.currentSrc || v.src || ""); } catch { /* ignore */ }
+  const tail = src.slice(Math.max(0, src.lastIndexOf("/") + 1)).slice(-28);
+  let why = "";
+  try { why = v.__weDiagWhy || ""; } catch { /* ignore */ }
+  let c0 = null;
+  try { c0 = v.__weDiagCounts || null; } catch { /* ignore */ }
+  return "rs=" + (v.readyState === undefined ? "-" : v.readyState)
+    + " ns=" + (v.networkState === undefined ? "-" : v.networkState)
+    + " paused=" + (v.paused ? 1 : 0)
+    + " vw=" + (Number(v.videoWidth) || 0) + "x" + (Number(v.videoHeight) || 0)
+    + " ct=" + Math.round(Number(v.currentTime || 0) * 1000)
+    + " buf=" + buf
+    + " err=" + (v.error ? v.error.code : 0)
+    + " preload=" + (v.preload || "-")
+    + " muted=" + (v.muted ? 1 : 0)
+    + " vol=" + (typeof v.volume === "number" ? v.volume : "-")
+    + " src=" + (tail || "-")
+    + " hidden=" + (typeof document !== "undefined" && document.hidden ? 1 : 0)
+    + " focus=" + (typeof document !== "undefined" && typeof document.hasFocus === "function" && document.hasFocus() ? 1 : 0)
+    + " intent=" + (typeof isEffectivelyPlaying === "function" && isEffectivelyPlaying() ? 1 : 0)
+    + (c0 && c0._srcAt ? " srcAge=" + (Date.now() - c0._srcAt) + "ms" : "")
+    + videoDiagCounts(v)
+    + (why ? " why=" + why : "");
+}
+const VIDEO_DIAG_EVENTS = ["loadstart", "loadedmetadata", "loadeddata", "canplay", "playing",
+  "emptied", "suspend", "stalled", "waiting", "abort", "error"];
+/** 事件计数（取证用；`video__` 前缀的元素字段不参与任何判定）。 */
+function videoDiagCounts(video) {
+  let c = null;
+  try { c = video && video.__weDiagCounts; } catch { /* ignore */ }
+  if (!c) return "";
+  const keys = Object.keys(c).filter((k) => k.charAt(0) !== "_");
+  if (!keys.length) return "";
+  return " ev=" + keys.map((k) => k + ":" + c[k]).join(",");
+}
+/**
+ * `play()` 尝试的留痕 + 节流（同一原因最多 2 行，其余只计数）。
+ * 为什么要它：applyVideoPlayback 每次 emit 都会被调用；若它（或上层 emit 链）成环，
+ * 无节流的日志会自激，而计数能直接回答"是不是在反复 play()"。
+ */
+function videoPlayNote(video, msg) {
+  const c = (video && video.__weDiagCounts) || null;
+  if (c) c.play = (c.play || 0) + 1;
+  const seen = c ? (c.__playSeen = c.__playSeen || {}) : null;
+  if (seen) {
+    if ((seen[msg] || 0) >= 2) return;
+    seen[msg] = (seen[msg] || 0) + 1;
+  }
+  try { liveLog("video-play", msg + " " + videoDiagBrief(video)); } catch { /* ignore */ }
+}
+/** 给元素挂一次事件留痕（幂等；`__weDiag` 就是"已挂"的标记）。 */
+function hookVideoDiag(video) {
+  if (!video || typeof video.addEventListener !== "function" || video.__weDiag) return;
+  try { video.__weDiag = true; } catch { return; }
+  const t0 = Date.now();
+  const counts = {};
+  try { video.__weDiagCounts = counts; } catch { /* ignore */ }
+  // 谁在动这个元素：`src` 赋值 / `load()` 调用的**次数**（计数代替逐条日志）。
+  // 这两件事都会重启资源选择 ⇒ 也正是"rs=0 停住、suspend 连发"最可能的成因。
+  try {
+    let proto = video, desc = null;
+    while (proto && !desc) { desc = Object.getOwnPropertyDescriptor(proto, "src"); if (!desc) proto = Object.getPrototypeOf(proto); }
+    if (desc && desc.set) {
+      Object.defineProperty(video, "src", {
+        configurable: true,
+        get() { try { return desc.get.call(video); } catch { return ""; } },
+        set(v) {
+          counts.src = (counts.src || 0) + 1;
+          counts._srcAt = Date.now();
+          try { desc.set.call(video, v); } catch { /* ignore */ }
+        },
+      });
+    }
+  } catch { /* ignore */ }
+  try {
+    const origLoad = video.load;
+    if (typeof origLoad === "function") {
+      video.load = function () {
+        counts.load = (counts.load || 0) + 1;
+        counts._loadAt = Date.now();
+        return origLoad.apply(video, arguments);
+      };
+    }
+  } catch { /* ignore */ }
+  const seen = {};
+  let lastAt = 0;
+  // ⚠️ 必须节流：这条日志本身是一次网络请求（/diag 信标）。`suspend`/`waiting` 这类事件
+  // 在异常状态下会以毫秒级频率连发，无节流时**日志会自激**（实测：2 秒内数千条 suspend，
+  // 元素反而更晚才拿到数据）。所以：逐事件最多 3 行 + 两条之间至少 40ms + 全量计数进 `ev=`。
+  const note = (label) => {
+    counts[label] = (counts[label] || 0) + 1;
+    if (seen[label] >= 3) return;
+    if (Date.now() - lastAt < 40) return;
+    seen[label] = (seen[label] || 0) + 1;
+    lastAt = Date.now();
+    try { liveLog("video-diag", label + " +" + (Date.now() - t0) + "ms " + videoDiagBrief(video)); } catch { /* ignore */ }
+  };
+  for (const ev of VIDEO_DIAG_EVENTS) {
+    try { video.addEventListener(ev, () => note(ev)); } catch { /* ignore */ }
+  }
+  // 「解码好了」与「合成器真的画出来了」是两件事：这一行等的是**被呈现**。
+  if (typeof video.requestVideoFrameCallback === "function") {
+    try {
+      video.requestVideoFrameCallback(() => {
+        try { liveLog("video-diag", "presented +" + (Date.now() - t0) + "ms " + videoDiagBrief(video)); } catch { /* ignore */ }
+      });
+    } catch { /* ignore */ }
+  }
+}
+/** 记下这次"放行为什么发生"（挂在元素上，gate-open 那行读它）。 */
+function markRevealWhy(video, why) {
+  try { if (video) video.__weDiagWhy = why; } catch { /* ignore */ }
+}
+
+/**
  * 探一次海报图（`<video poster>` 的 URL）。
  *
  * 为什么要探：`poster` **属性存在**不等于**图已加载** —— 属性刚设上时 `<video>` 还是透明的，
@@ -78,6 +214,23 @@ function videoContentReady(video) {
 }
 
 /**
+ * 这一层现在是否还被"切层内容闸门"押着（`we-layer--pending`）。
+ *
+ * 为什么视频通道要知道：**换源会清掉已上屏的那一帧**。层还被押着时（旧壁纸在屏上）换源
+ * 是免费的；层已经上屏后再换，屏上就只剩这一层的底色 —— 真机形态：设了「帧率上限」时，
+ * 抽帧就绪那一刻在**在屏元素**上 `src = transcoded; load()` ⇒ 一块纯色（限制帧率才有、
+ * 设成无限制就没有，正是这条）。所以升级只允许在 pending 期间落地，否则推到下一次建层
+ * （见 buildVideoMedia 对 selection.transcodeReady 的使用）。
+ */
+function layerStillPending() {
+  try {
+    const n = document.getElementById(LAYER_ID);
+    return Boolean(n && n.classList && typeof n.classList.contains === "function"
+      && n.classList.contains("we-layer--pending"));
+  } catch { return false; }
+}
+
+/**
  * 视频档的媒体构建（③：从 src/media-prep.js 迁进视频通道）。
  *
  * 与原分支**逐行等价**，两处必要的语义改写（所以它不是"纯移动"）：
@@ -92,7 +245,17 @@ function buildVideoMedia(sel, fitClass) {
   const prepared = consumePreparedMedia("VIDEO", sel.url);
   const media = prepared || document.createElement("video");
   if (!prepared) {
-    media.src = sel.url;
+    // 已经转好的抽帧版（上一次在"已上屏"状态下就绪、刻意没换源的那一份）：
+    // **建层时就用它当 src** —— 这样整个生命周期里一次换源都不发生（换源 = 清掉当前帧 = 纯色）。
+    const tok = String(sel.url || "").split("/").pop();
+    const rc = selection.transcodeReady;
+    const useCached = Boolean(rc && rc.url && rc.fps === selection.fpsCap && rc.token === tok);
+    media.src = useCached ? rc.url : sel.url;
+    if (useCached) {
+      try { media.dataset.weTranscoded = String(rc.fps); } catch { /* ignore */ }
+      selection.transcodeState = "ready";
+      selection.transcodeProgress = null;
+    }
     // poster=预览图：覆盖初始加载与抽帧转码 swap 的空窗（原黑屏闪烁点）。
     // 视频类壁纸不设 —— WE 视频壁纸的预览常是动图（preview.gif），当 poster
     // 会先播一段预览、再停在视频首帧、最后才进正片，用户看到的是「跑完整
@@ -113,6 +276,12 @@ function buildVideoMedia(sel, fitClass) {
   }
   media.autoplay = true;
   media.loop = true;
+  // ⚠️ 必须显式 `preload="auto"`：缺省（=metadata）+ 这几张源的 moov 在文件**尾部** ⇒
+  // Chromium 取完 moov 就停，真正开始取帧要等 `play()` —— 而 play() 在**更晚的一趟**
+  // syncLayers 里才被调用（自动播放被策略拒绝时那一趟永远不会来）。真机日志（桌面壳）
+  // 里"rs=0 停 2 秒"正是这一段空窗；而元素从 loadedmetadata 到 presented 实测只要 ~110ms。
+  // auto 让元素**建层即开始取数据**（本地文件，代价可忽略）。
+  media.preload = "auto";
   // 音轨按用户设置应用（见 weApplyAudio）：默认 0 音量 → 行为与原来的
   // muted 一致；调高音量后才有声音。
   media.setAttribute("playsinline", "");
@@ -256,6 +425,16 @@ let upgradeToken = "";
 // re-encode while the picker advertised the new cap ("已切换至 48fps 抽帧版").
 // Tracking the cap lets a cap change abort the stale request and start fresh.
 let upgradeFps = 0;
+// 这一次升级是不是**用户刚主动改的上限**（而不是"切换壁纸时顺带触发"）。
+// 判据只影响一件事：换源要不要压在"(层还被闸门押着)"这个前提下。
+//   · 切换壁纸触发（本值为假）⇒ 已上屏的层一律不换源（换源会清掉当前帧 = 纯色），推到下次建层；
+//   · 用户点上限触发（本值为真）⇒ 允许当场换 —— 那是显式操作，短暂一闪是预期内的。
+let upgradeByUser = false;
+let capChangedAt = 0;
+/** 上限被用户改动（`onFpsCap`）时调用：接下来这一轮升级算"用户主动"。 */
+function noteFpsCapChange() {
+  capChangedAt = Date.now();
+}
 let upgradePollTimer = null; // progress poller while the transcode fetch pends
 function clearUpgradePoll() {
   if (upgradePollTimer) { clearInterval(upgradePollTimer); upgradePollTimer = null; }
@@ -276,6 +455,7 @@ function abortTranscodeUpgrade() {
   if (upgradeAbort) { upgradeAbort.abort(); upgradeAbort = null; }
   upgradeToken = "";
   upgradeFps = 0;
+  upgradeByUser = false;
   selection.transcodeProgress = null;
 }
 // Revert a video that was swapped to a capped-fps transcode back to the source.
@@ -285,6 +465,8 @@ function abortTranscodeUpgrade() {
 function revertTranscodedVideo(video) {
   if (!video || !video.dataset.weTranscoded) return;
   delete video.dataset.weTranscoded;
+  // 抽帧版被弃用（上限调低/关掉、或判明源无需抽帧）⇒ 那条"下次建层用它"的记录一并作废。
+  selection.transcodeReady = null;
   try { video.src = selection.url; video.load(); } catch { /* ignore */ }
 }
 /**
@@ -323,13 +505,40 @@ function armVideoChannelReveal(video, recheck, giveUp) {
   let posterGiveUp = 0;
   let cancelPosterProbe = null;
   if (video && typeof video.addEventListener === "function") {
+    hookVideoDiag(video);
     // Edge 那条路由镜像画布的第一笔补最后一步（layerContentReady 会一起看）。
-    const frameReady = () => { try { video.__weReady = true; } catch { /* ignore */ } recheck(); };
+    const frameReady = (ev) => {
+      try { video.__weReady = true; } catch { /* ignore */ }
+      markRevealWhy(video, "frame:" + ((ev && ev.type) || "?"));
+      recheck();
+    };
     video.addEventListener("loadeddata", frameReady);
     video.addEventListener("canplay", frameReady);
-    video.addEventListener("error", giveUp);
-    cancelPosterProbe = probeVideoPoster(video, recheck, giveUp);
-    if (typeof setTimeout === "function") posterGiveUp = setTimeout(giveUp, VIDEO_POSTER_BUDGET_MS);
+    video.addEventListener("error", () => { markRevealWhy(video, "error"); giveUp(); });
+    // 海报这一级：**加载出来**才放行；加载失败不再放行（那只是"这一级不存在"，画面仍要看首帧）。
+    cancelPosterProbe = probeVideoPoster(video,
+      () => { markRevealWhy(video, "poster"); recheck(); },
+      () => { markRevealWhy(video, "poster-error"); recheck(); });
+    // 兜底预算 = **停滞判据**，不是"到期放行"：每 1200ms 复查一次，只有屏上真有东西
+    //（首帧 / 海报图已加载 / __weReady）才放行；到 VIDEO_STALL_GIVE_UP_MS 仍未出画面就
+    // 停止等待并留 warn —— 旧壁纸继续留着，绝不铺这一层的底色。
+    const startedAt = Date.now();
+    const stallGuard = () => {
+      if (videoContentReady(video) || video.__weReady === true) {
+        markRevealWhy(video, "budget-ready");
+        giveUp();
+        return;
+      }
+      const waited = Date.now() - startedAt;
+      if (waited >= VIDEO_STALL_GIVE_UP_MS) {
+        markRevealWhy(video, "stall");
+        liveLog("video-stall", "wid=" + selection.id + " " + Math.round(waited / 1000)
+          + "s 仍无画面 → 继续留旧壁纸（不放行空层） " + videoDiagBrief(video), "warn");
+        return;
+      }
+      posterGiveUp = setTimeout(stallGuard, VIDEO_POSTER_BUDGET_MS);
+    };
+    if (typeof setTimeout === "function") posterGiveUp = setTimeout(stallGuard, VIDEO_POSTER_BUDGET_MS);
   }
   return { cancelProbe: cancelPosterProbe, budget: posterGiveUp };
 }
@@ -345,6 +554,7 @@ function maybeUpgradeToTranscoded(video, token) {
   // Cap off / lowered to 0: revert any swapped video back to the original.
   if (!cap || cap <= 0) {
     abortTranscodeUpgrade();
+    selection.transcodeReady = null;
     if (video.dataset.weTranscoded) {
       revertTranscodedVideo(video);
       selection.transcodeState = "idle";
@@ -356,6 +566,7 @@ function maybeUpgradeToTranscoded(video, token) {
   // 各壁纸之间等待几乎一样长 = 固定代价）。判据见 verify-scene-live 的 ② 那组。
   if (isNativelyPlayableSource(mi, selection.url)) {
     if (video.dataset.weTranscoded) revertTranscodedVideo(video);
+    selection.transcodeReady = null;
     selection.transcodeState = "skipped";
     return;
   }
@@ -364,6 +575,7 @@ function maybeUpgradeToTranscoded(video, token) {
     // swapped (lower-cap) version. No in-flight reservation is made, so raising
     // the cap later can still start one.
     if (video.dataset.weTranscoded) revertTranscodedVideo(video);
+    selection.transcodeReady = null;
     selection.transcodeState = "skipped";
     return;
   }
@@ -382,6 +594,8 @@ function maybeUpgradeToTranscoded(video, token) {
   abortTranscodeUpgrade();
   upgradeToken = token;
   upgradeFps = cap;
+  // 用户刚动过上限（5 秒内）⇒ 这一轮算主动升级，允许在在屏的层上换源（见 upgradeByUser）。
+  upgradeByUser = Date.now() - capChangedAt < 5000;
   const ctrl = new AbortController();
   upgradeAbort = ctrl;
   selection.transcodeState = "working";
@@ -461,6 +675,17 @@ function maybeUpgradeToTranscoded(video, token) {
         return;
       }
       if (selection.url && token === selection.url.split("/").pop()) {
+        // ⚠️ 只允许在"层还被闸门押着"（旧壁纸在屏上）或"用户刚主动改过上限"时落地：
+        // 换源会清掉当前帧 ⇒ 屏上只剩这一层的底色（纯色帧）。切换壁纸时自动触发的升级
+        // 一律推到下一次建层（buildVideoMedia 读 selection.transcodeReady）。
+        if (!layerStillPending() && !upgradeByUser) {
+          selection.transcodeReady = { token, fps: cap, url: transcodedUrl };
+          selection.transcodeState = "cached";
+          selection.transcodeProgress = null;
+          liveLog("transcode-cached", "wid=" + selection.id + " " + cap + "fps 版已就绪 → 留到下次建层换（不在屏上换源）");
+          emit();
+          return;
+        }
         video.dataset.weTranscoded = String(cap);
         const t = video.currentTime;
         const wasPlaying = isEffectivelyPlaying();
