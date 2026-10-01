@@ -186,7 +186,8 @@ HTML 里注入 WE API shim（`lib/webwallgl/web-shim.js`）与 `project.json` �
 
 ### 主题随壁纸：取色链与让位规则
 
-换壁纸后插件决定全局深 / 浅（`src/theme-follow.js`，**没有开关**）。取色按优先级：
+换壁纸后插件决定全局深 / 浅（`src/theme-follow.js`）—— 由**「主题随壁纸」开关**控制，
+在 `lib/settings-schema.js` 里**默认关**（关 = 本节的整条取色链都不跑）。开关打开后按优先级取色：
 
 1. **壁纸自己声明的配色** —— `project.json` 的 `general.properties.schemecolor.value`（0–1 浮点三元组；
    WE 编辑器里它的 `text` 就是 `ui_browse_properties_scheme_color`）。宿主 inventory 已把它转成

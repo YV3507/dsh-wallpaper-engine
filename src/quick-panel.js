@@ -74,7 +74,7 @@
     if (sel.inventory.error) {
       return React.createElement("div", { className: "we-qp we-qp--" + dock },
         React.createElement("div", { className: "we-picker__error" },
-          weT("未检测到 Wallpaper Engine：{error}", { error: sel.inventory.error })),
+          weT("未检测到 Wallpaper Engine：{error}", { error: weT(sel.inventory.error) })),
         React.createElement("button", {
           className: "we-picker__btn", type: "button",
           onClick: () => loadInventory(), disabled: sel.loading,

@@ -1927,7 +1927,10 @@ function loadUserPropDefs(token, force) {
   apiJson(url)
     .then((res) => {
       const d = res.data;
-      if (!d || !d.ok) throw new Error((d && d.error) || "读取失败");
+      // ⚠️ 这条 message 会被渲染进「壁纸属性」面板（见 picker-props-panel.js 的 error 分支），
+      //    所以它是**面向用户**的文案，尽管包在 Error 里。裸中文字面量会被 i18n-scan 的
+      //    Error 豁免放过 —— 用 weT 包住，改文案时才有词表口径可循。
+      if (!d || !d.ok) throw new Error((d && d.error) || weT("读取失败"));
       if (propsState.token !== token) return; // 期间换了壁纸：丢弃
       // 值以渲染页的实时表为准（场景壁纸的默认值在 scene.json 快照里，可能和
       // project.json 不同 —— 上游 getProperties 正是为此存在）；拿不到就用宿主值。

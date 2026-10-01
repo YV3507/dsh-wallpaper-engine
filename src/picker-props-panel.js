@@ -44,7 +44,7 @@
     const note = loading
       ? weT("读取中…")
       : error
-        ? error
+        ? weT(error)
         : rows.length
           ? ""
           : props.length

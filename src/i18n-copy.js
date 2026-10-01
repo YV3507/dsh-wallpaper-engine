@@ -553,6 +553,7 @@ const WE_I18N_EN = {
 
   // ── src/picker-props-panel.js ──
   "读取中…": "Loading…",
+  "读取失败": "Failed to read",
   "当前条件下没有可调项": "No adjustable items under current conditions",
   "这张壁纸没有用户属性（project.json 的 general.properties）": "This wallpaper has no user properties (general.properties in project.json)",
   "实时渲染当前未接管（静态帧 / 兼容模式），改动会在下次实时渲染时生效。": "Live rendering is not active right now (static frame / compatibility mode); changes take effect on the next live rendering.",
