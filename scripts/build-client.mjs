@@ -45,6 +45,14 @@ const id = pkg.name;
  */
 const INLINE_MODULES = [
   {
+    // 纯数据、零依赖 ⇒ 放最前：后面任何模块都能直接读（也不可能有 TDZ 交互）。
+    file: 'src/about-assets.js',
+    why: '「关于」页签的静态数据：仓库地址 + 两张二维码的路由路径（图本体是随包 PNG，见 lib/about/）',
+    markers: ['const ABOUT_REPO_URL = "https://github.com/elysia395/dsh-wallpaper-engine"',
+      'const ABOUT_QR_QQ_PATH = "/about-qr/qq-group.png"',
+      'const ABOUT_QR_DOUYIN_PATH = "/about-qr/douyin-group.png"'],
+  },
+  {
     file: 'src/i18n-copy.js',
     why: '英文词表（中文原文即键）：客户端表 + 宿主显示表（两张表的键集各由 verify-i18n 双向对账）',
     markers: ['const WE_I18N_EN = {', 'const WE_I18N_HOST_EN = {'],
@@ -139,10 +147,11 @@ const INLINE_MODULES = [
   },
   {
     file: 'src/panel-tabs.js',
-    why: '面板六个页签的渲染器（wallpaper/appearance/audio/mascot/effects/advanced）—— 显式 ctx 取外界',
+    why: '面板七个页签的渲染器（wallpaper/appearance/audio/mascot/effects/advanced/about）—— 显式 ctx 取外界',
     markers: ['function renderWallpaperTab(ctx)', 'function renderAppearanceTab(ctx)',
       'function renderAudioTab(ctx)', 'function renderMascotTab(ctx)',
-      'function renderEffectsTab(ctx)', 'function renderAdvancedTab(ctx)'],
+      'function renderEffectsTab(ctx)', 'function renderAdvancedTab(ctx)',
+      'function renderAboutTab(ctx)'],
   },
   {
     file: 'src/picker-model.js',

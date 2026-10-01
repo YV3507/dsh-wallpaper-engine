@@ -314,6 +314,7 @@ document**, it guards the editor rather than rot: rephrase the sentence and the 
 | `host-route-index.mjs` | generate / verify the **host route index** (writes `docs/ROUTE-INDEX.md`) | `node test/tools/host-route-index.mjs [--write]` |
 | `js-text.mjs` | **text-level** tooling for JS/TS source (string- and regex-aware comment stripping) | `node test/tools/js-text.mjs selftest` |
 | `sync-webwallgl.mjs` | build the WebWallGL render page from a local `webwallgl-github` checkout (vendored sync) | see the file header |
+| `underlay-pixel-rig.mjs` | real-browser pixel A/B for the **canvas underlay colour**: what the page paints itself when the wallpaper's pixels never reach the screen (dropped layer → white flash or a tone-matched solid) | `node test/tools/underlay-pixel-rig.mjs <bundle.js> [label]` |
 
 > `host-route-index.mjs` / `js-text.mjs` / `branch-notify.mjs` **are also guard libraries**
 > ⇒ changing them is changing an assertion; go through `npm run verify:all`.

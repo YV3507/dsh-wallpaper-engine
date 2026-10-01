@@ -1009,7 +1009,7 @@ for (const [name, ok] of clientChecks) check(name, ok);
   check('negative control: 未登记的模块名会被判出', !/file:\s*'src\/nope\.js'/.test(build));
   // ── 面板页签（C）：渲染器只在 panel-tabs.js，且**只从一个参数取外界** ──
   const TAB_FNS = ['renderWallpaperTab', 'renderAppearanceTab', 'renderAudioTab',
-    'renderMascotTab', 'renderEffectsTab', 'renderAdvancedTab'];
+    'renderMascotTab', 'renderEffectsTab', 'renderAdvancedTab', 'renderAboutTab'];
   check('页签渲染器只在 src/panel-tabs.js（client.js 不留第二份）',
     TAB_FNS.every((n) => !new RegExp('function ' + n + '\\s*\\(').test(src))
     && TAB_FNS.every((n) => tabsSrc.includes('function ' + n + '(ctx) {')));

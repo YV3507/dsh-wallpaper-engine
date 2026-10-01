@@ -28,6 +28,9 @@ let byId = {};
 const rotationTimers = [];
 const sceneFrameHeadCalls = [];
 const sceneFrameDeleteCalls = [];
+// 「关于」页签那行 star 数的请求计数（宿主路由 /star-count）：既判"切进去会问一次"，
+// 也判"别的页签一次都不问"（TTL 内重复切回也不重问）。
+const starCountCalls = [];
 // 已删除的 CPU 动画渲染（scene-anim / APNG）的**反向**探针：任何 <video>.src
 // 指向 /scene-anim/<token> 都说明那条路线复活了 —— 断言必须恒为空。
 const animProbeSrcs = [];
@@ -47,6 +50,19 @@ function makeEl(tag) {
     attributes: {},
     style: { _props: {}, setProperty(k, v) { this._props[k] = v; }, removeProperty(k) { delete this._props[k]; } },
     className: "",
+    // 真 DOM 语义：className 与 classList 是同一份数据的两个视图（客户端两处都用 ——
+    // 切层写过 className，复合成微推走 classList）。挂载台只实现 className 时，
+    // classList 那一路会静默空转，断言也就无从下手。
+    get classList() {
+      const self = this;
+      const parts = () => String(self.className || "").split(/\s+/).filter(Boolean);
+      const write = (list) => { self.className = list.join(" "); };
+      return {
+        add(c) { const l = parts(); if (!l.includes(c)) l.push(c); write(l); },
+        remove(c) { write(parts().filter((x) => x !== c)); },
+        contains(c) { return parts().includes(c); },
+      };
+    },
     appendChild(c) { this.children.push(c); c._parent = this; if (c.id) byId[c.id] = c; return c; },
     remove() { if (this._parent) { const i = this._parent.children.indexOf(this); if (i >= 0) this._parent.children.splice(i, 1); } if (this.id) delete byId[this.id]; },
     setAttribute(k, v) { this.attributes[k] = v; },
@@ -89,6 +105,9 @@ const document = {
   // tracked in byId and their textContent is assertable below.
   head: makeEl("head"),
   body: bodyEl,
+  // 画布兜底色写在**根元素**上（见 src/live-layer.js 的 writeUnderlayColor）——
+  // 挂载台没有它时那条路会静默空转，判据变成恒真。
+  documentElement: makeEl("html"),
 };
 
 const localStorage = {
@@ -174,6 +193,15 @@ const fetchNow = (url, opts) => {
   if (u.includes('/wallpaper-engine/settings')) {
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true, betterSidebar: true }) });
   }
+  // 「关于」页签的 star 数（宿主代取 GitHub 的那条路由）。**计数器是判据的一半**：
+  // "别的页签一次都不发"要能被数出来（见下面关于页那段）。
+  if (u.includes('/wallpaper-engine/star-count')) {
+    starCountCalls.push(u);
+    return Promise.resolve({
+      ok: true, status: 200,
+      json: () => Promise.resolve({ ok: true, count: 428, fetchedAt: 1759290000000, stale: false }),
+    });
+  }
   return Promise.resolve({
   ok: true, status: 200,
   json: () => Promise.resolve({
@@ -189,8 +217,10 @@ const fetchNow = (url, opts) => {
         id: "w" + i, title: "Wall " + i, type: "video", playable: true, media: "/wallpaper-engine/media/w" + i, preview: null,
         contentrating: "Everyone",
       })),
-      { id: "a", title: "Video A", type: "video", playable: true, media: "/wallpaper-engine/media/xyz", preview: null, contentrating: "Everyone" },
-      { id: "b", title: "Video B", type: "video", playable: true, media: "/wallpaper-engine/media/def", preview: null, contentrating: "Everyone" },
+      // schemeColor = 作者配色（宿主 inventory 的同一字段）：a 有值 ⇒ 画布兜底色必须落到
+      // 根元素；b 是 WE 新建工程的默认值 0 0 0 ⇒ 视作"没填"，兜底色必须**不设**。
+      { id: "a", title: "Video A", type: "video", playable: true, media: "/wallpaper-engine/media/xyz", preview: null, contentrating: "Everyone", schemeColor: "rgb(18, 52, 86)" },
+      { id: "b", title: "Video B", type: "video", playable: true, media: "/wallpaper-engine/media/def", preview: null, contentrating: "Everyone", schemeColor: "rgb(0, 0, 0)" },
       { id: "c", title: "Scene C", type: "scene", playable: false, media: null, preview: "/wallpaper-engine/preview/ccc", frameUrl: "/wallpaper-engine/scene-frame/ccc", contentrating: "Everyone" },
       { id: "d", title: "Scene D (no frame)", type: "scene", playable: false, media: null, preview: null, frameUrl: null, contentrating: "Everyone" },
       // e is PG13 and must be excluded under the default Everyone filter.
@@ -373,6 +403,49 @@ setTimeout(async () => {
   assert.equal(startupState({ props: { className: 'we-picker' }, children: ['选择壁纸'] }).hasPickTrigger, true,
     '负对照：判据必须认得「选择壁纸」入口');
 
+  // ── 画布兜底色（--we-wallpaper-underlay）────────────────────────────────────
+  // 不变量：壁纸激活期间**根元素**带着一个不透明的壁纸代表色。它存在的理由是窗口 /
+  // 标签页状态切换（最小化 → 任务栏缩略图 → 还原）时合成器可能拿不到壁纸层的像素，
+  // 而页面自己若不画任何东西，露出的就是窗口底板 / 宿主 body 的纯白兜底。
+  // 这里判行为侧：作者配色落到根元素（正）；作者填的 0 0 0 视作"没填" ⇒ 不设（负，在
+  // 轮换一节里）。**载体必须是 html** 这条是样式表结构判据，落在 test/verify-readability.mjs 的 F6。
+  {
+    const rootProps = document.documentElement.style._props;
+    console.log('--we-wallpaper-underlay:', JSON.stringify(rootProps['--we-wallpaper-underlay']));
+    assert.equal(rootProps['--we-wallpaper-underlay'], 'rgb(18, 52, 86)',
+      '作者配色必须在壁纸激活期间落到根元素（画布兜底色）');
+  }
+
+  // ── 可见性恢复：一次性复合成微推 ────────────────────────────────────────────
+  // 只在"隐藏 → 可见"这一个方向动层：普通 focus（用户点回窗口）不得触发 —— 否则每次点
+  // 窗口都要动一次层。三条一起判：正（恢复可见 ⇒ 加上 + 下一拍撤掉）、两条负对照
+  //（隐藏态不触发 / focus 不触发）。
+  {
+    const fireDoc = (type) => { for (const fn of (docListeners[type] || [])) fn(); };
+    const fireWin = (type) => { for (const fn of (winListeners[type] || [])) fn(); };
+    const node = document.getElementById('dsh-wallpaper-engine-layer');
+    assert.ok(node, '微推断言需要屏上有一个壁纸层');
+    const repaintTimers = () => rotationTimers.filter((t) => !t.cleared && !t.fired && t.ms === 32);
+    const before = repaintTimers().length;
+    document.hidden = false;
+    fireDoc('visibilitychange');
+    assert.ok(node.classList.contains('we-layer--repaint'),
+      '恢复可见必须给壁纸层加一次性的复合成微推类');
+    const timers = repaintTimers();
+    assert.equal(timers.length, before + 1, '微推必须安排在下一拍撤掉（否则留下常驻合成层）');
+    timers[timers.length - 1].fired = true;
+    timers[timers.length - 1].fn();
+    assert.ok(!node.classList.contains('we-layer--repaint'), '下一拍必须撤掉微推类');
+    document.hidden = true;
+    fireDoc('visibilitychange');
+    assert.ok(!node.classList.contains('we-layer--repaint'), '负对照：还在隐藏态时不得触发微推');
+    document.hidden = false;
+    const idle = repaintTimers().length;
+    fireWin('focus');
+    assert.ok(!node.classList.contains('we-layer--repaint') && repaintTimers().length === idle,
+      '负对照：普通 focus（点回窗口）不得触发微推');
+  }
+
   // ── 轮换「就绪后切换 + 渐变」断言 ─────────────────────────────────
   // mock 环境无 addEventListener/Image → 准备管线特性探测失败即同步直通提交。
   // 按 5 分钟（300000ms）定位真正的轮换定时器，绕开 persist 防抖的 200ms
@@ -441,6 +514,10 @@ setTimeout(async () => {
       !!postLayer && postLayer !== preLayer && weKey1.indexOf('/wallpaper-engine/media/def') !== -1);
     rotCheck('rotation fade: old layer marked weFading', !!preLayer && preLayer.dataset.weFading === '1');
     rotCheck('rotation fade: old layer yielded LAYER_ID', !!preLayer && preLayer.id === '');
+    // 画布兜底色的负对照：换到 b（作者配色是 WE 新建工程的默认值 0 0 0 ⇒ 视作"没填"）之后，
+    // 根元素**不得**继续带着上一张壁纸的颜色 —— 否则"照用纯黑"这条会静默把一张亮壁纸钉成黑底。
+    rotCheck('画布兜底色：换到「颜色未填」的壁纸后根元素不再保留上一张的颜色',
+      document.documentElement.style._props['--we-wallpaper-underlay'] === undefined);
     rotCheck('rotation fade: new layer carries the switch classes', !!postLayer
       && postLayer.className.indexOf('we-layer--switch') !== -1);
     rotCheck('rotation fade: 交叉淡化基准 = ROTATION_FADE_MS (1800ms)', !!postLayer
@@ -592,15 +669,16 @@ setTimeout(async () => {
     localStorage.removeItem(TAB_KEY);
     let tree = renderPicker();
     let treeText = JSON.stringify(tree);
-    assert.ok(countMatches(tree, /"role":"tab"/g) === 4, 'tab bar renders (4 tabs):');
+    assert.ok(countMatches(tree, /"role":"tab"/g) === 5, 'tab bar renders (5 tabs):');
     assert.ok(treeText.includes('"we-tabs__tab we-tabs__tab--active"') && treeText.includes('自动轮播'), 'default tab is 壁纸库:');
     assert.ok(treeText.includes('"选择壁纸"'), 'library tab has 选择壁纸:');
     assert.ok(treeText.includes('自定义壁纸'), 'library tab has 自定义壁纸:');
     console.log('other tabs keep their controls out of the tree:',
       !treeText.includes('玻璃透明度') && !treeText.includes('字体自定义') && !treeText.includes('吉祥物大小'));
 
-    // ── 设置页签重组（UI 重构）：四个页签 = 壁纸库 / 外观 / 播放 / 系统 ──
-    //    原六页签合并：壁纸 → 壁纸库；效果+声音 → 播放；吉祥物+高级 → 系统；外观原样。
+    // ── 设置页签重组（UI 重构）：五个页签 = 壁纸库 / 外观 / 播放 / 系统 / 关于 ──
+    //    原六页签合并：壁纸 → 壁纸库；效果+声音 → 播放；吉祥物+高级 → 系统；外观原样；
+    //    「关于」是后加的静态页（**排在最后**，且是唯一不读面板状态的那一个）。
     {
       const tabButtons = [];
       (function walk(node) {
@@ -610,8 +688,126 @@ setTimeout(async () => {
         if (Array.isArray(node.children)) node.children.forEach(walk);
       })(tree);
       const labels = tabButtons.map((b) => String((b.children || [])[0] || ''));
-      assert.deepEqual(labels, ['壁纸库', '外观', '播放', '系统'],
-        'tab bar must render exactly 壁纸库/外观/播放/系统');
+      assert.deepEqual(labels, ['壁纸库', '外观', '播放', '系统', '关于'],
+        'tab bar must render exactly 壁纸库/外观/播放/系统/关于');
+      // 指示胶囊的宽度按页签数现算 —— 加/减页签忘改这里会当场错位（且只在视觉上错）。
+      assert.ok(JSON.stringify(tree).includes('calc((100% - 6px) / 5)'),
+        'tab pill width must be derived from PICKER_TABS.length (5)');
+    }
+
+    // ── 「关于」页签：静态页 —— 简介 / 致谢 / 仓库与 Star / 两张交流群二维码 ──
+    //    它的价值全在"内容真的画出来了"：漏一张码、链接指到别处、或者把面板控件
+    //    混进来，都是用户一眼可见而别的判据看不见的回归。
+    {
+      setTab('about');
+      tree = renderPicker();
+      treeText = JSON.stringify(tree);
+      const collectByClass = (root, token) => {
+        const out = [];
+        (function walk(node) {
+          if (!node || typeof node !== 'object') return;
+          if (Array.isArray(node)) { node.forEach(walk); return; }
+          const cls = typeof node.props?.className === 'string' ? node.props.className : '';
+          if (cls.split(/\s+/).includes(token)) out.push(node);
+          if (Array.isArray(node.children)) node.children.forEach(walk);
+        })(root);
+        return out;
+      };
+      const tabs = collectByClass(tree, 'we-tabs__tab');
+      assert.ok(tabs.length === 5 && String(String(tabs[4].children[0])) === '关于',
+        '「关于」必须是最后一枚页签');
+      assert.ok(treeText.includes('"we-tabs__tab we-tabs__tab--active"')
+        && collectByClass(tree, 'we-tabs__tab--active').length === 1
+        && String(String(collectByClass(tree, 'we-tabs__tab--active')[0].children[0])) === '关于',
+        'about tab is active (and exactly one tab is active)');
+      // 四块内容各有一个绝对锚点：简介 / 仓库 / 交流群 / 致谢。
+      for (const anchorText of ['项目简介', '贡献者致谢', '去 GitHub 点亮 Star', '加入交流群', 'oneincase', 'YV3507']) {
+        assert.ok(treeText.includes(anchorText), '关于页必须包含「' + anchorText + '」');
+      }
+      // 段落顺序是用户的明确口径（`贡献者致谢` 压尾）：简介 → 仓库/Star → 交流群 → 致谢。
+      // 用序列化树里的**首次出现下标**比大小 —— 顺序错了必然有一个逆序。
+      const ordered = (s) => {
+        const idx = ['📖 项目简介', '⭐ 开源与支持', '💬 加入交流群', '🙏 贡献者致谢'].map((t) => s.indexOf(t));
+        return idx.every((i) => i >= 0) && idx.every((v, i) => i === 0 || idx[i - 1] < v);
+      };
+      assert.ok(ordered(treeText),
+        '关于页段落顺序必须是：项目简介 → 开源与支持 → 加入交流群 → 贡献者致谢（致谢压尾）');
+      // 正/负对照：谓词本身两个方向都有牙（否则"顺序对了"可能只是它恒真）。
+      assert.ok(ordered('📖 项目简介|⭐ 开源与支持|💬 加入交流群|🙏 贡献者致谢'), 'positive control: 顺序谓词对正确顺序判真');
+      assert.ok(!ordered('🙏 贡献者致谢|⭐ 开源与支持|💬 加入交流群|📖 项目简介'), 'negative control: 致谢没压尾要被判出');
+      assert.ok(!ordered('📖 项目简介|⭐ 开源与支持|❓ 缺一段'), 'negative control: 段落缺失要被判出');
+      // 两张码：img 的 src 必须是**随包 PNG 的路由 URL**（经 apiUrl 拼前缀），且两张不同。
+      // 这条在 2026-10-01 翻过一次面：原先是"必须内联 data URI"，用户要求改成 PNG 引入
+      // ⇒ 现在反过来——**不许**再出现内联 base64（那会把 240KB 压回 bundle）。
+      const qrImgs = collectByClass(tree, 'we-about__qr-img');
+      assert.equal(qrImgs.length, 2, '关于页必须正好渲染两张二维码图');
+      const qrSrcs = qrImgs.map((n) => String(n.props.src || ''));
+      assert.ok(qrSrcs.every((s) => s.startsWith('/wallpaper-engine/about-qr/')),
+        '二维码必须走宿主路由 /about-qr/<文件名>（图本体是随包 PNG）');
+      assert.ok(qrSrcs.every((s) => s.endsWith('.png')), '路由 URL 指向的必须是 .png');
+      assert.ok(!qrSrcs.some((s) => s.startsWith('data:')),
+        '二维码不得再内联为 data URI（用户口径：PNG 引入）');
+      assert.ok(qrSrcs[0] !== qrSrcs[1], '两张二维码必须不是同一张图');
+      assert.ok(qrImgs.every((n) => n.props.alt && String(n.props.alt).length > 0),
+        '二维码必须带 alt（图片加载不出来时也得说得出这是哪张码）');
+      // Star 按钮：真链接、新窗口、指到本仓。
+      const starLinks = collectByClass(tree, 'we-about__star');
+      assert.equal(starLinks.length, 1, '关于页必须有且只有一枚 Star 按钮');
+      assert.equal(String(starLinks[0].props.href), 'https://github.com/elysia395/dsh-wallpaper-engine',
+        'Star 按钮必须指向本仓地址');
+      assert.equal(String(starLinks[0].props.target), '_blank', 'Star 按钮必须在新窗口打开');
+      assert.ok(starLinks[0].props.rel && String(starLinks[0].props.rel).includes('noopener'),
+        '外链必须带 rel=noopener');
+      // 静态页的"负对照"：它会读面板状态就会带控件 —— 一条滑条都不许有。
+      assert.equal(collectByClass(tree, 'we-picker__slider-row').length, 0,
+        '「关于」是静态页：不得渲染任何滑条行');
+      assert.ok(!/"type":"(checkbox|range|color|select)"/.test(treeText),
+        '「关于」不得渲染任何表单控件');
+      // negative control：别的页签不得出现关于页的文案（内容真的按页签隔离）。
+      setTab('system');
+      assert.ok(!JSON.stringify(renderPicker()).includes('去 GitHub 点亮 Star'),
+        'negative control: 系统页不得混入关于页的内容');
+      localStorage.removeItem(TAB_KEY);
+    }
+
+    // ── 「关于」页签的 star 数：切进去问一次、显示出来、TTL 内不再问，别的页签不问 ──
+    //    走**真实点击路径**（tab 按钮的 onClick → switchTab → loadStarCount），不是
+    //    直接调加载器 —— 这条断言要防的正是"切页签没接上"这种接线级回归。
+    {
+      const fresh = () => new Promise((r) => setTimeout(r, 0));
+      const tabButton = (root, label) => {
+        let hit = null;
+        (function walk(node) {
+          if (hit || !node || typeof node !== 'object') return;
+          if (Array.isArray(node)) { node.forEach(walk); return; }
+          if (node.props && node.props.role === 'tab'
+            && String((node.children || [])[0] || '') === label) { hit = node; return; }
+          if (Array.isArray(node.children)) node.children.forEach(walk);
+        })(root);
+        return hit;
+      };
+      setTab('system');
+      let t = renderPicker();
+      assert.equal(starCountCalls.length, 0, '别的页签一次都不该问 star 数（系统页渲染后）');
+      const aboutBtn = tabButton(t, '关于');
+      assert.ok(aboutBtn && typeof aboutBtn.props.onClick === 'function', '找得到「关于」页签按钮（否则后面是空转）');
+      aboutBtn.props.onClick();
+      await fresh();
+      t = renderPicker();
+      const aboutText = JSON.stringify(t);
+      assert.equal(starCountCalls.length, 1, '切到「关于」页 ⇒ 恰好问一次 /star-count');
+      assert.ok(aboutText.includes('⭐ 当前 428 star'), '取到之后把那行字画出来（当前 428 star）');
+      assert.ok(!aboutText.includes('暂时取不到'), '取到值时不得同时出现失败文案');
+      // TTL 内来回切：不再问（GitHub 未认证限流是整机共享的，别把额度烧在页签上）
+      const sysBtn = tabButton(t, '系统');
+      if (sysBtn && typeof sysBtn.props.onClick === 'function') sysBtn.props.onClick();
+      const aboutBtn2 = tabButton(renderPicker(), '关于');
+      if (aboutBtn2 && typeof aboutBtn2.props.onClick === 'function') aboutBtn2.props.onClick();
+      await fresh();
+      assert.equal(starCountCalls.length, 1, 'TTL 内切回来不重复问（缓存生效）');
+      t = renderPicker();
+      assert.ok(JSON.stringify(t).includes('⭐ 当前 428 star'), '值仍在（不会闪一下就没）');
+      localStorage.removeItem(TAB_KEY);
     }
 
     // ── 外观 tab: swatches / sliders / sidebar-glass group. ──

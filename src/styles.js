@@ -75,6 +75,24 @@ const CSS = `
      什么都没修（computed 仍是 no-drag）；initial 才是「不产生任何 region」。
      !important 用来压过那条带 id 选择器的宿主规则（本选择器特异性不够）。
      不要照抄到需要接指针的浮层（拉绳 / 选择器模态 / 仓库面板）—— 它们本来就该是 no-drag。 */
+  /* ── 画布兜底色：壁纸的像素没送到屏上时，屏上还剩一层像它的颜色 ──────────────
+     壁纸层是挂在 body 上、z-index:-2 的**普通元素** ⇒ 它的像素活在根帧的栅格里；
+     整条合成链上"不依赖栅格、由合成器直接填充"的只有一样东西：**根元素的背景色**
+     （画布背景）。而窗口 / 标签页的状态切换（最小化 → 任务栏缩略图 → 还原、被别的
+     窗口遮挡、后台节流后回来）都可能让根帧拿不到那一层的已提交像素 —— 此时页面若
+     什么都不画，露出的就是**窗口底板**（Electron 的 backgroundColor 缺省是 #FFF）
+     与宿主 body 的纯白兜底，用户看到的就是「整块白」。
+     所以壁纸激活期间给 html 一个不透明的**壁纸代表色**：掉层时退化成同色底，而不是白闪。
+     取值与优先级见 src/live-layer.js 的 refreshUnderlayColor（画面占比最大色 →
+     作者 / 面板配色 → 不设 = transparent）。
+     ⚠️ 只写 html、不写 body：宿主在 darwin 下有一条
+     html[data-platform=darwin] body { background: transparent }（给窗口材质让路）
+     在层叠上赢过 body 侧的任何声明；
+     而根元素背景本来就是画布背景的唯一来源，写在这里也最不容易被别的规则盖住。
+     变量只在壁纸激活期间存在（applyEffects 写、clearEffects 删），缺省 transparent ⇒
+     非壁纸状态照旧由 body 的背景传播画底，行为不变。 */
+  html { background-color: var(--we-wallpaper-underlay, transparent); }
+
   .we-layer { position: fixed; inset: 0; z-index: -2; overflow: hidden; pointer-events: none; opacity: 1; background-color: var(--we-wallpaper-fade-bg, transparent); --dsw-alias-bg-layer-1: var(--we-panel-color, #101418); -webkit-app-region: initial !important; }
   /* Blurring via CSS filter darkens/thins the edges, so the layer is scaled up
      (--we-wallpaper-scale tracks blur) to hide the transparent fringe the blur
@@ -167,6 +185,12 @@ const CSS = `
   @media (prefers-reduced-motion: reduce) {
     .we-layer--switch { transition: none !important; }
   }
+  /* 可见性恢复后的**一次性**复合成微推（见 src/live-layer.js 的 nudgeWallpaperRepaint）：
+     只在这两帧里把壁纸层提成独立合成层，随后立刻撤掉 —— 让合成器重新提交这一层的像素，
+     又不留常驻合成层（常驻一个 always-on 合成层正是本仓刻意避开的东西）。
+     状态切换（最小化 → 还原）后屏上仍是白/旧帧时才由 JS 加上；层几何不变（整屏、fixed），
+     提升只影响提交路径。 */
+  .we-layer--repaint { will-change: transform; transform: translateZ(0); }
 
   /* Scrim: sits ABOVE the wallpaper (z-index -1 > -2, so it never depends on
      DOM insertion order — the wallpaper element is re-appended on wallpaper
@@ -431,23 +455,25 @@ const CSS = `
     background: transparent !important;
   }
 
-  /* ── extended 模式的外壳画布底（dsh-desktop 2.0.14）────────────────────────
-     与上面那条同类，但这条是**扩展模式专属**。壳层样式表里有：
+  /* ── 外壳画布底（dsh-desktop 2.0.14）───────────────────────────────────────
+     壳层样式表里有一条**模式门控**的规则：
        body[data-dsh-desktop-mode="extended"] .dshDesktopFrame {
          background: var(--dsh-desktop-frame-fill);
        }
-     兼容模式**没有**这条（.dshDesktopFrame 的基线样式是 transparent），所以只有扩展模式
-     会把壁纸整片盖住 —— 用户看到的就是「壁纸没生效 / 像没选壁纸」。机制：Windows 上 material
+     它会把壁纸整片盖住 —— 用户看到的就是「壁纸没生效 / 像没选壁纸」。机制：Windows 上 material
      只能是 off（壳层 isWindowsMaterial 只接受 "off"）⇒ --dsh-desktop-frame-fill =
      var(--dsw-alias-bg-layer-1)（不透明）；而 .dshDesktopFrame 是整窗 grid 容器，位于
      #root（{ position: fixed; transform: translateZ(0) } ⇒ 自成层叠上下文）之内，于是挂在
      body 上的 z-index:-1 壁纸层被它整片盖住。
+     ⚠️ **不加模式门控**：兼容模式的基线样式是 transparent（这条规则因此是无操作），而模式的
+     名字与门控集合由壳层自己演进 —— 只认 "extended" 的那一版在壳层给别的模式也加上底色之后
+     会整片盖住壁纸。壁纸激活时一律清底，是对模式名漂移免疫的写法。
      ⚠️ 只清**画布**这一层、不改 --dsh-desktop-frame-fill 变量本身：标题栏
      （.dshDesktopFrameTitlebar）读同一个变量，必须保留底色，否则标题栏文字直接压在壁纸上。
      主内容区（.dshDesktopConversationSurface）读的是 --dsw-alias-bg-base，本表已在
      body[data-we-wallpaper] 上把它置为 transparent（见上面那条），因此无需再写。
      同样门控到 [data-we-adapter^="desktop-"]（理由见上一条规则）。 */
-  body[data-we-adapter^="desktop-"][data-we-wallpaper][data-dsh-desktop-mode="extended"] .dshDesktopFrame {
+  body[data-we-adapter^="desktop-"][data-we-wallpaper] .dshDesktopFrame {
     background: transparent !important;
   }
 
@@ -2020,6 +2046,50 @@ const CSS = `
   @media (prefers-reduced-motion: reduce) {
     .we-rope--settle, .we-repo-panel { transition: none !important; }
   }
+
+  /* ── 「关于」页签：静态页（简介 / 致谢 / 仓库 / 交流群二维码）──
+     排版口径与设置行一致：正文走主题墨色 token（不新造颜色），只有二维码卡片
+     自带一层极薄的玻璃底衬 —— 码图本身是**不透明白底 PNG**，深色主题下若直接
+     贴在玻璃上会像一块补丁，故给它圆角 + 边框 + 一点呼吸空间。 */
+  .we-about__lead { display: flex; flex-direction: column; gap: 8px; }
+  .we-about__lead-title { font-size: 0.95em; font-weight: 600; color: var(--we-ink, inherit); }
+  .we-about__p { margin: 0; font-size: 0.82em; line-height: 1.65; color: var(--we-ink-2, rgba(128, 128, 128, 0.9)); }
+  .we-about__credits { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+  .we-about__credit { font-size: 0.8em; line-height: 1.6; color: var(--we-ink-2, rgba(128, 128, 128, 0.9)); }
+  .we-about__star-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .we-about__star { font-size: 0.85em; font-weight: 600; }
+  /* 实时 star 数（宿主代取）：跟着按钮同一行，数字用等宽数字位避免跳数时抖动。 */
+  .we-about__stars {
+    font-size: 0.85em; font-weight: 600; color: var(--we-ink, inherit);
+    font-variant-numeric: tabular-nums;
+  }
+  /* 仓库地址：可选中、可整段复制的裸文本（外链唤起与否不由插件说了算 ⇒ 留兜底）。 */
+  .we-about__url-row { display: flex; flex-direction: column; gap: 4px; }
+  .we-about__url {
+    display: block; padding: 6px 8px; border-radius: var(--we-ui-radius, 8px);
+    border: 1px dashed var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.08));
+    font-size: 0.75em; line-height: 1.4; color: var(--we-ink-2, rgba(128, 128, 128, 0.9));
+    user-select: text; word-break: break-all;
+  }
+  /* 两张二维码并排（各 240px 起），容器不够宽就换行堆叠 —— 抽屉那种窄壳里
+     一张一行，码图反而更大（扫码成功率优先于"排得整齐"）。 */
+  .we-about__qr-row { display: flex; flex-wrap: wrap; gap: 12px; }
+  .we-about__qr {
+    flex: 1 1 240px; min-width: 0; margin: 0;
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    padding: 10px 10px 8px;
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.28));
+    border-radius: 12px; background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.08));
+  }
+  .we-about__qr-title { font-size: 0.78em; color: var(--we-ink, inherit); text-align: center; }
+  .we-about__qr-img {
+    display: block; width: 100%; height: auto; max-width: 320px;
+    /* 码图自带白底：圆角 + 白底让它在深色主题里也读得出边界。 */
+    border-radius: 10px; background: #fff;
+  }
+  .we-about__qr-hint { font-size: 0.7em; color: var(--we-ink-3, rgba(128, 128, 128, 0.65)); text-align: center; }
+  .we-about__foot { text-align: center; }
 `;
 
 export { READABILITY_FLOOR, READABILITY_FLOOR_DARK, CSS };

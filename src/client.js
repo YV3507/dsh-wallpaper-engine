@@ -2331,16 +2331,19 @@ function layerKeyDiff(oldKey, nextKey) {
 // 因此下面这些 applyEffects() / clearEffects() 调用点无需改动（契约见该文件头）。
 
 // ── Picker tabs ─────────────────────────────────────────────────────────────
-// 调节面板的信息架构：四个页签互斥展示（壁纸库 / 外观 / 播放 / 系统）—— 由原六个
-// 页签（壁纸/外观/吉祥物/效果/声音/高级）合并而来：效果+声音 → 播放、吉祥物+高级 →
-// 系统、壁纸 → 壁纸库。最后停留的页签记在 localStorage（仅 UI 状态，不进
-// config.json，也不需要 sanitize / serialize）。
+// 调节面板的信息架构：五个页签互斥展示（壁纸库 / 外观 / 播放 / 系统 / 关于）—— 前四个
+// 由原六个页签（壁纸/外观/吉祥物/效果/声音/高级）合并而来：效果+声音 → 播放、吉祥物+
+// 高级 → 系统、壁纸 → 壁纸库；「关于」是后加的页面（简介 / 仓库与 Star / 交流群 / 致谢，
+// 不读面板状态、不写设置；外部输入只有两样：那行 star 数与两张二维码 PNG，后者经
+// 宿主路由 /about-qr/<文件名> 直出，客户端只存路径）。最后停留
+// 的页签记在 localStorage（仅 UI 状态，不进 config.json，也不需要 sanitize / serialize）。
 const PICKER_TAB_KEY = "dsh-wallpaper-engine:picker-tab";
 const PICKER_TABS = [
   { id: "library", get label() { return weT("壁纸库"); } },
   { id: "appearance", get label() { return weT("外观"); } },
   { id: "playback", get label() { return weT("播放"); } },
   { id: "system", get label() { return weT("系统"); } },
+  { id: "about", get label() { return weT("关于"); } },
 ];
 // 旧页签 id → 新 id 的迁移（「字体」更早并入了「外观」）：别把老用户甩回第一页。
 const PICKER_TAB_LEGACY = {
@@ -2354,6 +2357,44 @@ function readSavedPickerTab() {
     if (v && PICKER_TABS.some((t) => t.id === v)) return v;
   } catch { /* ignore */ }
   return "library";
+}
+
+// ── 仓库 star 数（「关于」页签那行「⭐ 当前 N star」）────────────────────────────
+// 数据由宿主代取（lib/routes/github-stars.js：只读一条腿、10 分钟 TTL、落盘缓存兜底、
+// 失败静默），客户端只管"什么时候问一次"与"怎么显示"。**不是设置**：不进 selection、
+// 不落盘 —— 换机器 / 清缓存都只是重新取一次，没有需要持久化的用户意图。
+// 与宿主同一量级的 TTL：避免每次重渲染、每次切页签都打一次网络（GitHub 未认证限流
+// 60 次/小时 **整机共享**）。失败不写 at ⇒ 下次切到关于页立刻重试（失败不该被冷却）。
+const STAR_COUNT_TTL = 10 * 60 * 1000;
+let starCount = { value: null, at: 0, busy: false, tried: false };
+function loadStarCount(force) {
+  if (starCount.busy) return;
+  if (!force && starCount.tried && Date.now() - starCount.at < STAR_COUNT_TTL) return;
+  starCount = { value: starCount.value, at: starCount.at, busy: true, tried: true };
+  apiJson("/star-count")
+    .then((res) => {
+      const d = res && res.data;
+      const n = d && d.ok && Number.isFinite(d.count) ? d.count : null;
+      // 冷却用**本地**时间戳（不是宿主的 fetchedAt）：宿主的缓存可能本身就是上一次的
+      // 旧值（离线兜底那条腿），拿它当年龄会让客户端每次切页签都去问一次 —— 冷却的意义
+      // 是"别重复问"，数据到底多旧由宿主那一层的 TTL 负责。
+      starCount = { value: n, at: n == null ? 0 : Date.now(), busy: false, tried: true };
+      emit();
+    })
+    .catch(() => {
+      starCount = { value: null, at: 0, busy: false, tried: true };
+      emit();
+    });
+}
+// 那行字的唯一出处（渲染器直接读它 —— 与 SliderRow 一类模块级助手同口径）。
+// 三种态各有明确文案：还没问过 ⇒ 空串（不占位）、正在问 ⇒ 说明在取、取不到 ⇒ 如实说。
+function starCountLabel() {
+  if (starCount.busy && starCount.value == null) return weT("⭐ 正在获取 star 数…");
+  if (starCount.value != null) {
+    return weT("⭐ 当前 {count} star", { count: Number(starCount.value).toLocaleString("en-US") });
+  }
+  if (starCount.tried) return weT("⭐ 暂时取不到 star 数");
+  return "";
 }
 
 // ── Settings picker ─────────────────────────────────────────────────────────
@@ -3213,9 +3254,9 @@ const officialColorOf = (tokens) => {
     }
   }, []);
 
-  // ── 页签状态：调节面板分四个页签（壁纸库/外观/播放/系统 —— 由原六域合并），每份
-  //    实例独立记忆（设置页与仓库抽屉互不影响）；只存 localStorage，不进
-  //    config.json。useState 必须在下方早退分支之前调用（Rules of Hooks）。 ──
+  // ── 页签状态：调节面板分五个页签（壁纸库/外观/播放/系统/关于 —— 前四个由原六域
+  //    合并，「关于」后加），每份实例独立记忆（设置页与仓库抽屉互不影响）；只存
+  //    localStorage，不进 config.json。useState 必须在下方早退分支之前调用（Rules of Hooks）。 ──
   const [activeTab, setActiveTab] = React.useState(readSavedPickerTab);
   const switchTab = (id) => {
     if (!PICKER_TABS.some((t) => t.id === id) || id === activeTab) return;
@@ -3224,9 +3265,14 @@ const officialColorOf = (tokens) => {
     // 下钻的库视图也随页签一起退出：否则切走再切回来，看到的还是库而不是该页内容。
     if (selection.pickerOpen) setTransient("pickerOpen", false);
     setTransient("pickerDraft", false);
+    // 「关于」页才去问 star 数（TTL 内是空操作）：别的页签一次网络都不发。
+    if (id === "about") loadStarCount(false);
     setActiveTab(id);
     try { localStorage.setItem(PICKER_TAB_KEY, id); } catch { /* ignore */ }
   };
+  // 停在「关于」页刷新页面这条路径不走 switchTab（activeTab 直接从 localStorage 读出来），
+  // 用一次订阅式 effect 补上；TTL 同日历口径，重复触发是空操作。
+  React.useEffect(() => { if (activeTab === "about") loadStarCount(false); }, [activeTab]);
 
   if (!sel.loaded) {
     return React.createElement("div", { className: "we-picker" },
@@ -3312,8 +3358,10 @@ const officialColorOf = (tokens) => {
   }
 
   // ── 页签面板内容（函数声明提升，renderActiveTab 在 return 里先调用）──────
-  // 四页签 = 两个单渲染器 + 两个合并渲染器（「播放」= 效果 + 声音，「系统」= 吉祥物 + 高级）。
+  // 五页签 = 两个单渲染器（「外观」「关于」）+ 两个合并渲染器（「播放」= 效果 + 声音，
+  // 「系统」= 吉祥物 + 高级）+ 壁纸库。「关于」不取任何 ctx 字段（静态页）。
   const renderActiveTab = () => {
+    if (activeTab === "about") return renderAboutTab({});
     if (activeTab === "appearance") return renderAppearanceTab({
       setSetting, setTransient,
       fontSet: fontSetCtx(),
@@ -3397,8 +3445,9 @@ const officialColorOf = (tokens) => {
       React.createElement("span", { className: "we-picker__card-badge" }, String(playableList.length)),
       React.createElement("span", { className: "we-picker__card-desc" }, weT("本地 Wallpaper Engine 壁纸 · 液态玻璃主题")),
     ),
-    // ── 页签栏（分段式）：四个页签互斥展示，替代三十控件的单列长滚动。
-    //    指示胶囊随 activeTab 平移（transform 合成器属性，不引发布局）。 ──
+    // ── 页签栏（分段式）：五个页签互斥展示，替代三十控件的单列长滚动。
+    //    指示胶囊随 activeTab 平移（transform 合成器属性，不引发布局）；宽度按
+    //    PICKER_TABS.length 现算 ⇒ 加页签只改那张表，这里零改动。 ──
     React.createElement("div", { className: "we-tabs", role: "tablist", "aria-label": weT("壁纸引擎设置分区") },
       React.createElement("span", {
         className: "we-tabs__pill",
@@ -3885,29 +3934,6 @@ ensurePluginCss();
 // ── Plugin exports ──────────────────────────────────────────────────────────
 const inject = ["slots"];
 
-// Immersive app-window (desktop shortcut → standalone / fullscreen / minimal-ui)
-// windows composite on a different path than a normal tab, and Chromium can
-// flash the WHOLE window white when a backdrop-filter surface re-rasterises
-// over the wallpaper on interaction (click/typing). Detect that mode once and
-// tag <body>; the CSS then drops the frosted blur there (translucent glass),
-// while normal tabs keep the full frosted look.
-function detectAppWindow() {
-  try {
-    if (typeof navigator !== "undefined" && navigator.standalone) return true; // iOS PWA
-    if (typeof window === "undefined") return false;
-    if (typeof window.matchMedia === "function"
-        && (window.matchMedia("(display-mode: standalone)").matches
-          || window.matchMedia("(display-mode: fullscreen)").matches
-          || window.matchMedia("(display-mode: minimal-ui)").matches)) return true;
-    // Desktop-shortcut / kiosk app window: it has NO browser chrome (tabs,
-    // address bar), so the window's outer dimensions equal the inner viewport.
-    // A normal tab's window is always larger than its viewport. This reliably
-    // catches managed/kiosk/--app windows even when display-mode misreports.
-    if (window.outerWidth === window.innerWidth && window.outerHeight === window.innerHeight) return true;
-  } catch { /* ignore */ }
-  return false;
-}
-
 // ── Mica 能力探测（#73）─────────────────────────────────────────────────────
 // 「增强模式」下 DSH 桌面外壳把左侧工作区 (.dshDesktopSidebarSurface) 交给系统
 // 材质：有 Mica 时保持透明（壁纸透出），没有 Mica 时改用 --dsw-alias-bg-layer-1
@@ -4046,14 +4072,6 @@ function detectSoftwareRender() {
 }
 
 function apply(ctx) {
-  // Mark immersive/app-window mode so the CSS can stabilise the compositor there.
-  try {
-    if (typeof document !== "undefined" && document.body) {
-      if (detectAppWindow()) document.body.setAttribute("data-we-appwindow", "on");
-      else document.body.removeAttribute("data-we-appwindow");
-    }
-  } catch { /* ignore */ }
-
   // 0. i18n：把插件文案接上宿主的 locale 服务（`ctx.get("locale")`，可选服务 + 短轮询 ——
   //    缺服务时静默停在默认语言，见 src/i18n.js）。放在最前面：界面首次渲染就要按当前
   //    语言取词；服务通常已在（dsh-web-app 的 base bundle 自带），轮询只是兜底。
@@ -4076,6 +4094,24 @@ function apply(ctx) {
           window.addEventListener(t, onOcclusionChange);
           ocListeners.push(t);
         }
+      }
+      // 可见性恢复（最小化 → 还原 / 页面从 bfcache 回来）：**只在"隐藏 → 可见"这一个方向**
+      // 做两件事 —— 一次两帧的复合成微推（见 nudgeWallpaperRepaint）与"画面真的回到屏上了吗"
+      // 的留痕（见 probeWallpaperOnScreen）。普通 focus（用户点回窗口）不做，否则每次点窗口
+      // 都要动一次层；两件事都是事件级、不进热路径。
+      const onBackVisible = () => {
+        if (typeof document !== "undefined" && document.hidden) return;   // 还在隐藏态
+        try { nudgeWallpaperRepaint(); } catch { /* ignore */ }
+        try { probeWallpaperOnScreen("back-visible"); } catch { /* ignore */ }
+      };
+      let backVisBound = false, pageShowBound = false;
+      if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+        document.addEventListener("visibilitychange", onBackVisible);
+        backVisBound = true;
+      }
+      if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+        window.addEventListener("pageshow", onBackVisible);
+        pageShowBound = true;
       }
       // 客户端 JS 异常的**留痕**：这台机器打不开 DevTools ⇒ 没有这一条，一次渲染期异常就只剩
       // "UI 崩了"这句转述（实测过：面板白屏时诊断缓冲里什么也没有）。只**记录**、不改行为；
@@ -4155,10 +4191,14 @@ function apply(ctx) {
         if (ocWatch) { try { clearInterval(ocWatch); } catch { /* ignore */ } ocWatch = 0; }
         if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
           for (const t of ocListeners) window.removeEventListener(t, onOcclusionChange);
+          if (pageShowBound) window.removeEventListener("pageshow", onBackVisible);
           window.removeEventListener("error", onClientError);
           window.removeEventListener("unhandledrejection", onClientError);
           if (pageHideBound) window.removeEventListener("pagehide", onPageHideFlush);
           if (fontPageHideBound) window.removeEventListener("pagehide", onPageHideFlushFontSet);
+        }
+        if (backVisBound && typeof document !== "undefined" && typeof document.removeEventListener === "function") {
+          document.removeEventListener("visibilitychange", onBackVisible);
         }
         if (visBound && typeof document !== "undefined" && typeof document.removeEventListener === "function") {
           document.removeEventListener("visibilitychange", onVisibilityResyncPersist);

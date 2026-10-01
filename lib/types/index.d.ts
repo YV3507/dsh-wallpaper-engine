@@ -2,9 +2,15 @@
  * dsh-wallpaper-engine — host half type surface.
  *
  * The host plugin contributes no public Cordis services and registers no model
- * tool. It serves 34 same-origin HTTP routes through `ctx.webServer` and unwinds
+ * tool. It serves 36 same-origin HTTP routes through `ctx.webServer` and unwinds
  * them on unload; `docs/ROUTE-INDEX.md` is the generated table of those routes
  * and stays authoritative for their paths and handlers.
+ *
+ * Exactly one of those routes leaves the machine: `GET /wallpaper-engine/star-count`
+ * fetches the repository's star count from the public GitHub API (read-only, no
+ * credentials, 10-minute cache plus an on-disk fallback). Everything else serves
+ * local data — including `GET /wallpaper-engine/about-qr/<file>`, which hands out
+ * the two contact QR codes shipped in `lib/about/` (whitelisted names only).
  *
  * `webServer` is a HARD dependency, declared by `inject` below: the Loader waits
  * for the HTTP server to mount before running this plugin, and a profile with no

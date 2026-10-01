@@ -1,10 +1,11 @@
 /**
- * panel-tabs.js — 面板页签的**渲染器**（六个域：壁纸 / 外观 / 吉祥物 / 效果 / 声音 / 高级，
- * 组合成四页签 壁纸库 / 外观 / 播放 / 系统，装配点见 src/client.js 的 renderActiveTab）。
+ * panel-tabs.js — 面板页签的**渲染器**（七个域：壁纸 / 外观 / 吉祥物 / 效果 / 声音 / 高级 / 关于，
+ * 组合成五页签 壁纸库 / 外观 / 播放 / 系统 / 关于，装配点见 src/client.js 的 renderActiveTab）。
  *
- * 为什么单独一个文件：这六个渲染器共 **1,240 行**，此前是 `WallpaperPicker` 内部的六个闭包
- * （夹在 2,400 行的组件体里）。它们**读**面板状态、**调**面板处理器，但自己不持有状态 ——
- * 正是最适合搬出去的一层。搬出后：面板组件体只剩"状态 + 处理器 + 装配"，页签怎么画看这里。
+ * 为什么单独一个文件：这些渲染器此前是 `WallpaperPicker` 内部的六个闭包（夹在 2,400 行的
+ * 组件体里）。它们**读**面板状态、**调**面板处理器，但自己不持有状态 —— 正是最适合搬出去的
+ * 一层。搬出后：面板组件体只剩"状态 + 处理器 + 装配"，页签怎么画看这里。
+ * （「关于」是后来加的第七个渲染器：它连面板状态都不读 —— 静态文案 + 两张内联二维码。）
  *
  * 契约（构建期由 scripts/build-client.mjs 内联进 bundle 的工厂作用域，"外部作用域"=
  * 同一 prelude / src/client.js 的顶层）：
@@ -1301,7 +1302,131 @@
     );
   }
 
+  // ── 「关于」页签：项目简介 / 仓库与 Star / 交流群二维码 / 贡献者致谢（压尾）──────
+  // 这是**唯一不读面板状态**的页签：内容全是静态文案 + 两张内联二维码（数据在
+  // src/about-assets.js，构建期随 prelude 内联）。但契约是**逐页签**的 ——
+  // verify-scene-live 要求每个 render*Tab 首行从 ctx 解构（"要什么"写在签名处），
+  // 所以这里显式写下空解构：别让后来人以为"这个页签不用取外界"就能绕过接缝。
+  // 四段的**顺序**是用户的明确口径（致谢压尾），判据按首次出现下标比大小钉住。
+  function renderAboutTab(ctx) {
+    const { } = ctx;
+    // star 数那一行（模块级：值 + 三态文案都在 client.js 的 starCountLabel 里；
+    // 这里的"读"与 SliderRow 一类模块级助手同口径 —— 只读，不发请求）。
+    const stars = starCountLabel();
+    // 两张码的参数表：图（路由 URL）/ 图题 / 替代文本 / 一句话说明。渲染一次 map 两遍，
+    // 免得两段几乎一样的 createElement 各自演化（改一处忘一处正是这类页面最容易烂的地方）。
+    const qrCards = [
+      {
+        key: "qq",
+        title: weT("🐧 QQ 群 · DSHWE | LLM 讨论群"),
+        // 图本体是随包 PNG（lib/about/），这里只给路径 —— apiUrl 补 BASE 前缀。
+        src: apiUrl(ABOUT_QR_QQ_PATH),
+        alt: weT("QQ 群二维码"),
+        hint: weT("手机 QQ 扫码加入 · 群里见 👋"),
+      },
+      {
+        key: "douyin",
+        title: weT("🎵 抖音群 · dsh 交流群"),
+        src: apiUrl(ABOUT_QR_DOUYIN_PATH),
+        alt: weT("抖音群二维码"),
+        hint: weT("抖音扫码加入 · 群号 252729465001"),
+      },
+    ];
+    // 贡献者致谢逐条列出（名字 / 做了什么）——「谢谢」要能落到具体的人身上，
+    // 一句笼统的"感谢所有贡献者"没有信息量。
+    const credits = [
+      weT("🧩 oneincase —— 内置 WebWallGL 实时渲染引擎与 media-bridge 媒体中间件的作者：场景 / 网页壁纸的实时渲染，以及 Windows / macOS / Linux 三平台的原生媒体链路，都建立在它们之上"),
+      weT("🛠️ YV3507 —— 提交量最大的贡献者：从早期场景渲染器起步，到静态帧系列修复、液态玻璃令牌体系、实时帧链路与多轮大型重构，几乎每个里程碑都有他"),
+      weT("🎨 yuxilao —— scene-gl 的 Linux 实时渲染管线（WebGL2 官方 shader 驱动）、轮换交接与 GPU 帧回填"),
+      weT("🍎 Jerry —— 在三平台原生支持落地之前，macOS 侧的适配与贡献路径由他维护"),
+      weT("🌟 还有 SiriLee、libiwolve、0-007pro、jujubaoj646-star、xiahou001、wilianyichen、hecoococ、ShamSky88、Rekk0、Y1X1n 等贡献者，以及所有通过 issue 反馈与 PR 参与改进的朋友 —— 谢谢你们！"),
+    ];
+    return React.createElement(React.Fragment, null,
+      // ── ① 项目简介 ──
+      React.createElement("div", { className: "we-picker__section" },
+        React.createElement("div", { className: "we-picker__section-head" },
+          React.createElement("span", { className: "we-picker__section-label" }, weT("📖 项目简介")),
+        ),
+        React.createElement("div", { className: "we-about__lead" },
+          React.createElement("div", { className: "we-about__lead-title" }, weT("🖼️ 壁纸引擎 · 让 DSH 的背后动起来")),
+          React.createElement("p", { className: "we-about__p" },
+            weT("把 Wallpaper Engine 的壁纸搬到 DSH 界面后面：视频直接播放，场景（Scene）与网页（Web）壁纸由内置的 WebWallGL 引擎实时渲染，再配上一整套液态玻璃界面改造 —— 你桌面上那张会动的画，现在就在对话背后放着。🎬✨")),
+          React.createElement("p", { className: "we-about__p" },
+            weT("壁纸全部来自你自己的机器（本机库 / WE 工程目录 / 手动上传），插件不联网也能用，更不会把它们传到任何地方。🔒")),
+        ),
+      ),
+      // ── ② 仓库与 Star ──
+      React.createElement("div", { className: "we-picker__section" },
+        React.createElement("div", { className: "we-picker__section-head" },
+          React.createElement("span", { className: "we-picker__section-label" }, weT("⭐ 开源与支持")),
+        ),
+        React.createElement("p", { className: "we-about__p" },
+          weT("项目以 MIT 协议开源、完全免费。如果它让你的 DSH 好看了一点点，去仓库点一颗 ⭐ 就是最直接的鼓励～")),
+        React.createElement("div", { className: "we-about__star-row" },
+          React.createElement("a", {
+            className: "we-picker__btn we-picker__btn--primary we-about__star",
+            href: ABOUT_REPO_URL,
+            target: "_blank",
+            rel: "noopener noreferrer",
+            title: weT("在浏览器里打开项目仓库"),
+          }, weT("⭐ 去 GitHub 点亮 Star")),
+          // 实时 star 数：宿主代取（带缓存，见 lib/routes/github-stars.js）。
+          // 取不到时**整行不消失**、改说"暂时取不到" —— 数字是点缀，按钮才是主操作。
+          stars
+            ? React.createElement("span", {
+                className: "we-about__stars",
+                title: weT("来自 GitHub API 的实时数据（带缓存；拉不到时显示上一次取到的值）"),
+              }, stars)
+            : null,
+        ),
+        React.createElement("div", { className: "we-about__url-row" },
+          React.createElement("span", { className: "we-picker__hint" }, weT("🔗 仓库地址（按钮打不开时可手动复制）：")),
+          // 可选中、可整段复制的裸地址：桌面壳里外链能否唤起浏览器不由插件说了算，
+          // 这条是给"点了没反应"的场景留的兜底（同字体集导出的"普通链接"口径）。
+          React.createElement("code", { className: "we-about__url" }, ABOUT_REPO_URL),
+        ),
+        React.createElement("p", { className: "we-about__p" },
+          weT("想要新功能、遇到问题，或者想看看接下来要做什么，都欢迎来仓库提 Issue / PR —— 一起把它做得更好 🧰")),
+      ),
+      // ── ③ 交流群（两张二维码）──
+      React.createElement("div", { className: "we-picker__section" },
+        React.createElement("div", { className: "we-picker__section-head" },
+          React.createElement("span", { className: "we-picker__section-label" }, weT("💬 加入交流群")),
+        ),
+        React.createElement("p", { className: "we-about__p" },
+          weT("卡住了、想吐槽、或者想第一时间拿到新版本，都欢迎来群里找我们 👋")),
+        React.createElement("div", { className: "we-about__qr-row" },
+          qrCards.map((c) => React.createElement("figure", { key: c.key, className: "we-about__qr" },
+            React.createElement("figcaption", { className: "we-about__qr-title" }, c.title),
+            React.createElement("img", {
+              className: "we-about__qr-img",
+              src: c.src,
+              alt: c.alt,
+              draggable: false,
+            }),
+            React.createElement("figcaption", { className: "we-about__qr-hint" }, c.hint),
+          )),
+        ),
+      ),
+      // ── ④ 贡献者致谢（**压尾**：用户口径——先讲清"这是什么、去哪支持、怎么找我们"，
+      //    最后再把功劳簿摆出来。💌 那句收尾也并进这一段，页面结束在"谢谢"上。）──
+      React.createElement("div", { className: "we-picker__section" },
+        React.createElement("div", { className: "we-picker__section-head" },
+          React.createElement("span", { className: "we-picker__section-label" }, weT("🙏 贡献者致谢")),
+        ),
+        React.createElement("p", { className: "we-about__p" }, weT("这个插件是许多人一起做出来的成果，谢谢他们：❤️")),
+        React.createElement("ul", { className: "we-about__credits" },
+          credits.map((line, i) => React.createElement("li", { key: "credit-" + i, className: "we-about__credit" }, line)),
+        ),
+        React.createElement("p", { className: "we-about__p" }, weT("也谢谢上游 Wallpaper Engine 生态与 DSH 官方插件的作者们 —— 站在你们的肩膀上。🙇")),
+        React.createElement("p", { className: "we-about__p we-about__foot" },
+          weT("💌 感谢每一位使用者 —— 换上你喜欢的那张壁纸，这个插件就没白写。")),
+      ),
+    );
+  }
+
 
 export {
   renderWallpaperTab, renderAppearanceTab, renderAudioTab, renderMascotTab, renderEffectsTab, renderAdvancedTab,
+  renderAboutTab,
 };
