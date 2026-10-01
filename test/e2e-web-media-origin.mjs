@@ -485,6 +485,9 @@ if (baseWrapperHtml) {
   const child2 = spawn(browser, [
     '--headless=new',
     '--enable-unsafe-swiftshader',
+    // 同第一次运行：macOS 上不给假钥匙串，无头 Chromium 会弹「找不到…钥匙串」打断跑测的人。
+    // 口径由 verify-contracts 守：每个 --headless=new 启动点都必须带这个开关。
+    '--use-mock-keychain',
     '--disable-extensions', '--no-first-run', '--no-default-browser-check',
     `--user-data-dir=${baseProfile}`,
     '--window-size=1280,720',

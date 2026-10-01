@@ -180,6 +180,50 @@ const tabsSrc = read('src/panel-tabs.js');
     /dsh-we\/fontset@/.test("const X = 'dsh-we/fontset@1';") && !/dsh-we\/fontset@/.test('const X = FONTSET_SCHEMA_TAG;'));
 }
 
+{
+  // ── ③ 无头浏览器启动口径：每个 `--headless=new` 启动点都必须带 `--use-mock-keychain` ──
+  // 为什么值得一条判据：macOS 上不给这个开关，Chromium 系（实测 Edge）会去**碰真钥匙串**
+  // 并弹「找不到用于存储"…"的钥匙串」对话框 —— 它打断的是**跑测的人**，对断言毫无影响，
+  // 于是会在没人看着的时候被顺手删掉（本仓实测两处漏带：compat-harness-pages 与
+  // tools/diagnose-web-blank，病根正是"没有一个判据守着每个启动点"）。
+  // 判据按**启动参数数组**判（从 `--headless=new` 到该数组的收尾方括号），不按行号/文件名单，
+  // 新加的启动点自动被覆盖。其他平台该开关无害；win32 CI 无水可摸，传了是空操作。
+  // 为什么放硬档（它不是"用户会撞上"的那一类）：漏带只打断本地跑测的人，但后果是
+  // 「真跑被系统弹窗打断」+「有人把这条红当成噪音去放宽别的判据」；修复成本是一个词，
+  // 静态判据零抖动，所以宁可拦住。它不是守散文的判据（ADR-0006 的边界：这条读的是代码）。
+  const SCAN = ['test/compat-harness-pages.mjs', 'test/e2e-web-media-origin.mjs',
+    'test/tools/diagnose-web-blank.mjs', 'test/tools/underlay-pixel-rig.mjs'];
+  /** 抠出每个 headless 启动点所在的参数数组文本（从该处到最近的 `]`）。 */
+  const launchSites = (src) => {
+    const out = [];
+    let from = 0;
+    for (;;) {
+      const at = src.indexOf('--headless=new', from);
+      if (at < 0) break;
+      from = at + 1;
+      const end = src.indexOf(']', at);
+      out.push(src.slice(at, end < 0 ? src.length : end));
+    }
+    return out;
+  };
+  const missing = [];
+  let sites = 0;
+  for (const f of SCAN) {
+    const found = launchSites(read(f));
+    sites += found.length;
+    for (const s of found) if (!s.includes('--use-mock-keychain')) missing.push(f + '(' + s.slice(0, 40).replace(/\s+/g, ' ') + '…)');
+  }
+  check('每个无头浏览器启动点都带 --use-mock-keychain（macOS 弹真钥匙串会打断跑测的人）',
+    sites > 0 && missing.length === 0,
+    sites + ' 处启动点 · 漏带=' + missing.length + (missing.length ? ' · ' + missing.join(' | ') : ''));
+  // 负对照：同一判据对"漏带"有牙（喂一段没有该开关的启动数组，必须判坏）。
+  check('negative control: 漏带开关的启动数组会被判出',
+    launchSites("spawn(b, ['--headless=new', '--enable-unsafe-swiftshader', '--no-ping']);")
+      .some((s) => !s.includes('--use-mock-keychain'))
+    && !launchSites("spawn(b, ['--headless=new', '--use-mock-keychain']);")
+      .some((s) => !s.includes('--use-mock-keychain')));
+}
+
 console.log('');
 if (failed) { console.log('CONTRACT CHECKS FAILED — ' + failed + ' failed'); process.exit(1); }
 console.log('ALL CONTRACT CHECKS PASSED');
