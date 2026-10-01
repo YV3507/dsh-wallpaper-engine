@@ -170,9 +170,9 @@ function main() {
     CSS.length > 50000 && cssError === null,
     'css chars=' + CSS.length + ' · template error=' + JSON.stringify(cssError));
 
-  const lightVars = CSS.match(/body \{\s*--we-readability-floor:\s*([\d.]+);\s*--we-readability-base:\s*(#[0-9a-fA-F]{6});/);
-  const darkVars = CSS.match(/body\[data-ds-dark-theme\] \{\s*--we-readability-floor:\s*([\d.]+);\s*--we-readability-base:\s*(#[0-9a-fA-F]{6});/);
-  check('F1c --we-readability-floor / --we-readability-base are declared for both themes',
+  const lightVars = CSS.match(/body \{\s*--we-readability-floor:\s*([\d.]+);\s*--we-readability-base:\s*var\(--we-surface-tint-light, (#[0-9a-fA-F]{6})\);/);
+  const darkVars = CSS.match(/body\[data-ds-dark-theme\] \{\s*--we-readability-floor:\s*([\d.]+);\s*--we-readability-base:\s*var\(--we-surface-tint-dark, (#[0-9a-fA-F]{6})\);/);
+  check('F1c --we-readability-floor / --we-readability-base are declared for both themes (base = 染色地板 tint)',
     lightVars !== null && darkVars !== null,
     'light=' + JSON.stringify(lightVars && [Number(lightVars[1]), lightVars[2]])
       + ' dark=' + JSON.stringify(darkVars && [Number(darkVars[1]), darkVars[2]]));
@@ -181,6 +181,40 @@ function main() {
       && Number(lightVars[1]) === FLOOR_JS.light && Number(darkVars[1]) === FLOOR_JS.dark,
     'css=' + JSON.stringify(lightVars && Number(lightVars[1])) + '/' + JSON.stringify(darkVars && Number(darkVars[1]))
       + ' js=' + FLOOR_JS.light + '/' + FLOOR_JS.dark);
+
+  // ── C0: the tint clamp (染色地板) ships as a pure function and holds its grid ──
+  // 钳制实现必须随 bundle 交付且可独立复算 —— 抽出来对三个极端输入各跑一遍。
+  // 内联产物用 tab 缩进 ⇒ 不能用 `\n}` 找函数尾，用**花括号计数**切出整个函数。
+  const clampStart = SRC.indexOf('function weClampSurfaceColor(');
+  let clampSrc = null;
+  if (clampStart >= 0) {
+    let depth = 0;
+    for (let i = clampStart; i < SRC.length; i++) {
+      const ch = SRC[i];
+      if (ch === '{') depth++;
+      else if (ch === '}') { depth--; if (depth === 0) { clampSrc = SRC.slice(clampStart, i + 1); break; } }
+    }
+  }
+  const weClampSurfaceColor = clampSrc
+    ? new Function('return (' + clampSrc + ')')()
+    : null;
+  const CLAMP_COLORS = ['#000000', '#7f7f7f', '#ffffff'];
+  const tintOf = {};
+  let clampUsable = weClampSurfaceColor !== null;
+  if (weClampSurfaceColor) {
+    try {
+      for (const theme of ['light', 'dark']) {
+        for (const gc of CLAMP_COLORS) {
+          const out = weClampSurfaceColor(gc, theme);
+          if (!/^#[0-9a-fA-F]{6}$/.test(out)) { clampUsable = false; break; }
+          tintOf[theme + ' ' + gc] = hex2rgb(out);
+        }
+      }
+    } catch { clampUsable = false; }
+  }
+  check('C0 the surface-tint clamp function ships in the bundle and clamps #000/#7f7f7f/#ffffff per theme',
+    clampUsable,
+    'extracted=' + (clampSrc !== null) + ' · tints=' + JSON.stringify(tintOf));
 
   const FLOOR = {
     light: lightVars ? Number(lightVars[1]) : NaN,
@@ -251,10 +285,10 @@ function main() {
   const darkComposer = ruleFor('--dsw-specific-input-major', 'body[data-ds-dark-theme][data-we-wallpaper]');
   const DARK_FACTOR = darkComposer
     ? Number((declValue(darkComposer.body, '--dsw-specific-input-major')
-      .match(/rgba\(255, 255, 255, calc\(var\(--we-glass-alpha, [\d.]+\) \* ([\d.]+)\)\)/) || [])[1])
+      .match(/rgba\(var\(--we-surface-tint-rgb-dark, 255, 255, 255\), calc\(var\(--we-glass-alpha, [\d.]+\) \* ([\d.]+)\)\)/) || [])[1])
     : NaN;
   check('F2b the veil keeps a fixed weight while the tint keeps its own alpha (dark ×factor preserved)',
-    /rgba\(255, 255, 255, calc\(var\(--we-glass-alpha, 0\.15\) \* 0\.4\)\)/.test(declValue(darkComposer ? darkComposer.body : '', '--dsw-specific-input-major') || '')
+    /rgba\(var\(--we-surface-tint-rgb-dark, 255, 255, 255\), calc\(var\(--we-glass-alpha, 0\.15\) \* 0\.4\)\)/.test(declValue(darkComposer ? darkComposer.body : '', '--dsw-specific-input-major') || '')
       && /calc\(var\(--we-readability-floor\) \* 100%\)/.test(declValue(darkComposer ? darkComposer.body : '', '--dsw-specific-input-major') || ''),
     'dark tint factor=' + DARK_FACTOR);
 
@@ -271,7 +305,7 @@ function main() {
   const fbRule = rulesWithProp(contentProp)
     .find((r) => r.header.includes('[data-we-glass-fallback]') && r.header.includes('[data-composer-card]::before'));
   const fbPlatePct = fbRule
-    ? Number((fbRule.body.match(/color-mix\(in srgb, var\(--we-glass-color, #ffffff\) (\d+)%, transparent\)/) || [])[1])
+    ? Number((fbRule.body.match(/color-mix\(in srgb, var\(--we-surface-tint-(?:light|dark), (#[0-9a-fA-F]{6})\) (\d+)%, transparent\)/) || [])[2])
     : NaN;
   check('F4 the software-render fallback plate (#95) still clears the floor',
     fbPlatePct / 100 >= Math.max(FLOOR.light, FLOOR.dark),
@@ -341,40 +375,51 @@ function main() {
     carrier === 'html' && underlayCarrierOf(swapped) !== 'html',
     'carrier=' + JSON.stringify(carrier) + ' · 负对照[换成 body]=' + (underlayCarrierOf(swapped) === 'html' ? 'FAIL' : 'ok'));
 
-  // ── C1/C2: the grid — effective composer alpha ≥ floor, numbers printed ───
+  // ── C1/C2: the grid — 染色地板网格：玻璃色 {黑/中灰/白} × 滑杆五档 × 主题 ──
+  // 表面 = 染色地板（base 与 frost 同为钳制后的 tint，见样式表令牌映射），
+  // alpha = F + w(1−F)（w = glassAlpha，深色再乘 0.4 层因子）。判据不变：
+  // 最坏背衬（深色白壁纸像素 / 浅色黑壁纸像素）上正文 ≥4.5:1 —— 但现在测的是
+  // **任意玻璃色**（三档极端输入覆盖钳制的全部路径），不再是白色 frost 单点。
   check('C1a the glass-alpha mapping was derived from the source',
     glassAlpha !== null, 'mapping=' + JSON.stringify(GMAP ? GMAP.slice(1) : null));
 
   const alphaTable = { light: [], dark: [] };
   const contrastTable = { light: [], dark: [] };
   let alphaOk = true, contrastOk = true;
-  for (const theme of ['light', 'dark']) {
-    const F = FLOOR[theme];
-    for (const gp of GRID_GLASS) {
-      const g = glassAlpha(gp);
-      const w = theme === 'dark' ? g * DARK_FACTOR : g;
-      const { alpha, color } = veil([255, 255, 255], w, BASE[theme], F);
-      alphaTable[theme].push(Number(alpha.toFixed(4)));
-      if (!(alpha >= F)) alphaOk = false;
-      // 壁纸透明度 only changes the BACKDROP (never the surface): worst case is
-      // the fully opaque extreme wallpaper pixel.
-      let worst = Infinity;
-      for (const wp of GRID_WP) {
-        const backdrop = over(WORST_PIXEL[theme], 1 - wp / 100, PAGE_BASE[theme]);
-        worst = Math.min(worst, contrast(TEXT[theme], over(color, alpha, backdrop)));
+  const worstAt = { light: [], dark: [] };
+  if (clampUsable) {
+    for (const theme of ['light', 'dark']) {
+      const F = FLOOR[theme];
+      for (const gp of GRID_GLASS) {
+        const g = glassAlpha(gp);
+        const w = theme === 'dark' ? g * DARK_FACTOR : g;
+        const alpha = F + w * (1 - F);
+        if (!(alpha >= F)) alphaOk = false;
+        if (theme === 'light') alphaTable.light.push(Number(alpha.toFixed(4)));
+        if (theme === 'dark') alphaTable.dark.push(Number(alpha.toFixed(4)));
+        // 壁纸透明度 only changes the BACKDROP (never the surface): worst case is
+        // the fully opaque extreme wallpaper pixel.
+        for (const gc of CLAMP_COLORS) {
+          const tint = tintOf[theme + ' ' + gc];
+          let worst = Infinity;
+          for (const wp of GRID_WP) {
+            const backdrop = over(WORST_PIXEL[theme], 1 - wp / 100, PAGE_BASE[theme]);
+            worst = Math.min(worst, contrast(TEXT[theme], over(tint, alpha, backdrop)));
+          }
+          if (!(worst >= 4.5)) contrastOk = false;
+          worstAt[theme].push(theme + ' ' + gc + ' @' + gp + ' → ' + worst.toFixed(2) + ':1');
+        }
       }
-      contrastTable[theme].push(Number(worst.toFixed(2)));
-      if (!(worst >= 4.5)) contrastOk = false;
     }
   }
   check('C1b full grid: effective composer-surface alpha ≥ floor (玻璃透明度 × 壁纸透明度 × theme)',
-    alphaOk,
+    alphaOk && clampUsable,
     'light α=' + alphaTable.light.join('/') + ' (floor ' + FLOOR.light + ') · dark α='
       + alphaTable.dark.join('/') + ' (floor ' + FLOOR.dark + ')');
-  check('C1c full grid: worst-case WCAG contrast of body text ≥ 4.5:1',
-    contrastOk,
-    'light=' + contrastTable.light.join('/') + ' · dark=' + contrastTable.dark.join('/')
-      + ' (worst backdrop: light #000, dark #fff; text light #000 / dark #fff)');
+  check('C1c full grid: worst-case WCAG contrast of body text ≥ 4.5:1 (玻璃色 黑/中灰/白 × 滑杆 × 主题 × 壁纸透明度)',
+    contrastOk && clampUsable,
+    worstAt.light.slice(0, 3).concat(worstAt.dark.slice(0, 3)).join(' · ')
+      + ' … 共 ' + worstAt.light.length + '×2 格 (worst backdrop: light #000, dark #fff)');
 
   check('C2 the floor is NOT reduced at 玻璃透明度 = 60 (most transparent end)',
     alphaTable.light[GRID_GLASS.length - 1] >= FLOOR.light
@@ -392,10 +437,11 @@ function main() {
     const g = glassAlpha(gp);
     const w = theme === 'dark' ? g * DARK_FACTOR : g;
     const backdrop = over(WORST_PIXEL[theme], 1 - wp / 100, PAGE_BASE[theme]);
-    const s = veil([255, 255, 255], w, BASE[theme], FLOOR[theme]);
+    const tint = tintOf[theme + ' #7f7f7f'];
+    const alpha = FLOOR[theme] + w * (1 - FLOOR[theme]);
     return {
-      alpha: s.alpha,
-      contrast: contrast(TEXT[theme], over(s.color, s.alpha, backdrop)),
+      alpha,
+      contrast: contrast(TEXT[theme], over(tint, alpha, backdrop)),
     };
   }
   const floorDeclRules = surfaceSpecs
@@ -441,7 +487,7 @@ function main() {
     'light ' + alphaTable.light.join(' > ') + ' · dark ' + alphaTable.dark.join(' > '));
 
   // ── C5: the dark ×0.4 factor cannot undercut the floor ───────────────────
-  const darkNoTint = veil([255, 255, 255], 0, BASE.dark, FLOOR.dark);
+  const darkNoTint = veil([255, 255, 255], 0, [0, 0, 0], FLOOR.dark);
   check('C5 the dark-theme tint factor cannot lower the veil (floor holds even at tint alpha 0)',
     Math.abs(darkNoTint.alpha - FLOOR.dark) < 1e-12 && FLOOR.dark > DARK_FACTOR,
     'veil alpha at tint 0 = ' + darkNoTint.alpha + ' · floor=' + FLOOR.dark + ' > tint factor=' + DARK_FACTOR);

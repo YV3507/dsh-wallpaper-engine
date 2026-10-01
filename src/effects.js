@@ -91,6 +91,50 @@ function resolveWallpaperFadeBg() {
   } catch { return "#000000"; }
 }
 
+// ── 染色地板：可读性底色 = 玻璃色经亮度钳制（#82 地板的色相跟随版） ──────────
+// #82 的地板原本是主题白/黑（浅 #ffffff / 深 #0d1524），它保证正文 ≥4.5:1，但代价是
+// 用户自定义的玻璃色被压得只剩 (1−floor)×0.25 ≈ 10%，对话框读起来"深色只有黑、浅色
+// 只有白"。改为**色相跟随**：地板色 = 玻璃色经亮度钳制后的版本 —— 深色主题过亮就压暗、
+// 浅色主题过暗就提亮，色相交给用户，对比度判据与 #82 同一条网格（正文 vs 表面合成到
+// 最坏背衬 ≥4.5:1）。钳制口径与 verify-readability 同款、**不含层权重**：
+//   深色最坏 = color·(F + 0.10·0.4·(1−F)) + 白·(1 − (F + 0.10·0.4·(1−F)))  （白背衬、最透档，
+//   0.4 = 深色主题的 frost 层因子 —— 与浅色不同，深色的玻璃色份额要先乘 0.4）
+//   浅色最坏 = color·(F + 0.10·(1−F))                               （黑背衬、同 alpha）
+// 其中 0.10 = 玻璃透明度滑杆拉满后的 --we-glass-alpha（见 applyEffects 的曲线），
+// 两处数字必须同步改。纯函数：verify-readability 会从 bundle 里抽出本函数复算网格。
+function weClampSurfaceColor(hex, theme) {
+  const m = /^#?([0-9a-fA-F]{6})$/.exec(String(hex || ""));
+  if (!m) return theme === "dark" ? "#0d1524" : "#ffffff";
+  const rgb = [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16));
+  const s2l = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+  const lum = (c) => 0.2126 * s2l(c[0]) + 0.7152 * s2l(c[1]) + 0.0722 * s2l(c[2]);
+  const F = theme === "dark" ? 0.59 : 0.45;
+  // 最坏 alpha：最透档（滑杆 60 → --we-glass-alpha 0.10）× 深色主题的 0.4 层因子
+  //（与样式表深色 composer 卡的 rgba(255,255,255, calc(--we-glass-alpha * 0.4)) 同源）。
+  const darkFactor = theme === "dark" ? 0.4 : 1;
+  const aMin = F + 0.10 * darkFactor * (1 - F);
+  // 钳制目标 4.6 而非 4.5：二分结果要**四舍五入回 hex**（每通道 1/255 量化），
+  // 卡着 4.5 收敛的色经量化后会掉到 4.4997 被守卫判红 —— 留 0.1 的舍入余量。
+  const passes = (c) => {
+    const comp = c.map((v) => v * aMin + (theme === "dark" ? 255 : 0) * (1 - aMin));
+    const contrast = theme === "dark"
+      ? 1.05 / (lum(comp) + 0.05)
+      : (lum(comp) + 0.05) / 0.05;
+    return contrast >= 4.6;
+  };
+  const toHex = (c) => "#" + c.map((v) => Math.round(v).toString(16).padStart(2, "0")).join("");
+  if (passes(rgb)) return toHex(rgb);
+  const target = theme === "dark" ? [0, 0, 0] : [255, 255, 255];
+  let lo = 0;  // 不合格端
+  let hi = 1;  // 合格端（纯黑/纯白必过：深色 5.79:1、浅色 4.67:1）
+  for (let i = 0; i < 12; i++) {
+    const t = (lo + hi) / 2;
+    const c = rgb.map((v, j) => v * (1 - t) + target[j] * t);
+    if (passes(c)) hi = t; else lo = t;
+  }
+  return toHex(rgb.map((v, j) => v * (1 - hi) + target[j] * hi));
+}
+
 function applyEffects() {
   const s = document.body.style;
   s.setProperty("--we-scrim-color", "rgba(0,0,0," + selection.scrim + ")");
@@ -176,14 +220,27 @@ function applyEffects() {
   // - --we-glass-alpha: white-overlay alpha of the glass surfaces. The 玻璃透明
   //   度 slider semantics: higher = MORE transparent (clearer wallpaper shows
   //   through), lower = closer to solid. 0% → ~0.25 (frosted, solid-ish),
-  //   60% → ~0.03 (nearly invisible glass). The 12% default ≈ the previous
-  //   hardcoded look (~0.15–0.2 white overlay).
-  const glassAlpha = Math.max(0.03, 0.25 - (selection.glassAlpha / 60) * 0.22);
+  //   60% → ~0.10 (轻霜 —— 染色地板下限不再让颜色在拉满端消失，旧值 0.03 会让
+  //   玻璃色份额塌到 ~1%、只剩主题底色 = 用户报的"拉满变黑/变白")。
+  const glassAlpha = Math.max(0.10, 0.25 - (selection.glassAlpha / 60) * 0.15);
   s.setProperty("--we-glass-alpha", String(glassAlpha));
   // - --we-glass-color: glass base tint of the settings window. The stock
   //   defaults live in CSS (white glass light / deep navy dark); once the user
   //   picks a color (玻璃颜色), both themes use it.
   s.setProperty("--we-glass-color", selection.glassColor);
+  // - 染色地板：按主题把玻璃色钳制进可读亮度带，供样式表的
+  //   --we-readability-base（地板层）与全部 frost 槽位消费 —— 对话框/侧栏等
+  //   宿主表面由此拿到**用户的色相**而非主题白/黑，正文对比度判据不变。
+  s.setProperty("--we-surface-tint-light", weClampSurfaceColor(selection.glassColor, "light"));
+  s.setProperty("--we-surface-tint-dark", weClampSurfaceColor(selection.glassColor, "dark"));
+  // RGB 三元组形式：给 rgba() 槽位用（消息气泡 / 输入框的白釉染色）。
+  // ⚠️ 下标 [0,2,4] —— 6 位 hex 不带 '#'，[1,3,5] 是带 '#' 时代的错位写法。
+  const toRgbTriple = (hex) => {
+    const m = /^#?([0-9a-fA-F]{6})$/.exec(String(hex || ""));
+    return m ? [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16)).join(", ") : "255, 255, 255";
+  };
+  s.setProperty("--we-surface-tint-rgb-light", toRgbTriple(weClampSurfaceColor(selection.glassColor, "light")));
+  s.setProperty("--we-surface-tint-rgb-dark", toRgbTriple(weClampSurfaceColor(selection.glassColor, "dark")));
   // - Master switch for the WHOLE native settings window: when on, the dialog
   //   (nav + every native section) becomes liquid glass with the accent +
   //   transparency above. Toggled instantly via a body attribute the scoped
@@ -299,6 +356,10 @@ function clearEffects() {
   s.removeProperty("--we-accent");
   s.removeProperty("--we-glass-alpha");
   s.removeProperty("--we-glass-color");
+  s.removeProperty("--we-surface-tint-light");
+  s.removeProperty("--we-surface-tint-dark");
+  s.removeProperty("--we-surface-tint-rgb-light");
+  s.removeProperty("--we-surface-tint-rgb-dark");
   document.body.removeAttribute("data-we-glass-window");
   s.removeProperty("--we-sidebar-blur");
   s.removeProperty("--we-sidebar-saturate");
