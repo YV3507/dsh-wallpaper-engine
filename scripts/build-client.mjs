@@ -183,7 +183,7 @@ const INLINE_MODULES = [
   {
     file: 'src/video-layer.js',
     why: '视频壁纸通道：海报已加载/首帧/预算的就绪判据（实测：一律等首帧会把切换推到十几秒）',
-    markers: ['function probeVideoPoster(', 'function videoContentReady(', 'VIDEO_POSTER_BUDGET_MS'],
+    markers: ['function probeVideoPoster(', 'function videoContentReady(', 'VIDEO_POSTER_BUDGET_MS', 'let mediaInfoToken = ', 'function clearUpgradePoll(', 'async function refreshMediaInfo(', 'function abortTranscodeUpgrade(', 'function maybeUpgradeToTranscoded(', 'function invalidateMediaInfoProbe('],
   },
   {
     file: 'src/media-prep.js',
@@ -192,17 +192,15 @@ const INLINE_MODULES = [
       'function prepareSceneLiveStage(', 'function applySelection(', 'function buildMedia('],
   },
   {
+    file: 'src/layer-core.js',
+    why: '两条通道共用的切换核心：层退役/延迟移除、过场内联样式、可见性复推（不得引用实时符号）',
+    markers: ['function retireFadingLayer(', 'function scheduleFadingLayerRemoval(', 'function nudgeWallpaperRepaint('],
+  },
+  {
     file: 'src/live-layer.js',
     why: '实时渲染管线：live 看护/判失败/抓帧回填/指针/poster 与壁纸层构建（syncLayers）与过场',
     markers: ['const LIVE_FIRST_FRAME_MS = ', 'function liveLog(', 'function startLiveWatch(',
       'function scheduleLiveFrameBackfill(', 'function syncLayers()', 'function toggleLiveDiag('],
-  },
-  {
-    file: 'src/transcode.js',
-    why: '源元数据探测 + 抽帧转码升级的完整生命周期（有状态；拥有 selection 的三个转码字段）',
-    markers: ['let mediaInfoToken = ', 'function clearUpgradePoll(', 'async function refreshMediaInfo(',
-      'function abortTranscodeUpgrade(', 'function maybeUpgradeToTranscoded(',
-      'function invalidateMediaInfoProbe('],
   },
   {
     file: 'src/api-client.js',

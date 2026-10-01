@@ -1052,15 +1052,103 @@ for (const [name, ok] of clientChecks) check(name, ok);
       && CH.includes('Number(video.readyState) >= 2'));
     check('视频通道必须探海报**加载**，不是只看属性存在',
       CH.includes('function probeVideoPoster(') && CH.includes('img.onload'));
-    check('视频通道有兜底预算（拿不到海报也要能换下去）',
-      CH.includes('VIDEO_POSTER_BUDGET_MS') && LIVE.includes('setTimeout(giveUp, VIDEO_POSTER_BUDGET_MS)'));
+    check('视频通道有兜底预算（拿不到海报也要能换下去 —— ⑥ 后它与执行器一起在通道里）',
+      CH.includes('VIDEO_POSTER_BUDGET_MS') && CH.includes('setTimeout(giveUp, VIDEO_POSTER_BUDGET_MS)'));
     check('实时管线的视频分支委托给通道，而不是自己下判据',
       LIVE.includes('return videoContentReady(video);'));
-    check('视频通道不引用实时专属符号（围栏：渲染/心跳/抓帧/垫底图/闸门）',
-      !/liveRenderEnabled|liveRenderUrl|startLiveWatch|liveFail\b|buildLivePoster|scheduleLiveMount|createLiveFrame|retainFrameBytes|armLayerContentReveal|layerContentReady/.test(CH));
-    check('negative control: 通道里塞进实时符号会被上面那条围栏判出',
-      /liveRenderUrl/.test('const u = liveRenderUrl(sel);'));
+    // ── 视频通道的**符号围栏**（目标 ①：先造判据再搬家）──────────────────────────
+    // 通道的价值就是"实时专属的东西一件都不过去"。搬家期间它是安全网：每搬一块进来，
+    // 立刻检查这块有没有把实时符号带过来。两个方向都要防：
+    //   · 围栏 —— 通道文件里不得出现清单里的任何符号；
+    //   · **反空转地板** —— 清单里的符号必须仍真实存在于实时模块（否则有人改名之后，
+    //     围栏就成了"查一堆不存在的名字"，永远绿）。
+    const CHANNEL_FILES = ['../src/video-layer.js', '../src/layer-core.js'];
+    const LIVE_ONLY = [
+      'liveRenderEnabled', 'liveRenderUrl', 'applyLiveControls', 'startLiveWatch', 'stopLiveWatch',
+      'liveFail', 'liveFrameEl', 'buildLivePoster', 'scheduleLiveMount', 'createLiveFrame',
+      'cancelLiveMount', 'retainFrameBytes', 'releaseFrameBytes', 'paintFrame',
+      'probeWallpaperOnScreen', 'layerContentReady', 'armLayerContentReveal', 'livePipelineNow',
+      'migrateStaleLiveFailures', 'scheduleLiveFrameBackfill',
+    ];
+    const srcOf = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
+    // ⚠️ **先剥注释再扫**（本仓 ADR-0006 规矩 ⑦）：⑥ 之后视频通道里会出现
+    // 「实时管线只留一次委托」这类注释，注释里提到符号名不算引用。
+    const stripComments = (src) => String(src)
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^[ \t]*\/\/.*$/gm, '');
+    const hits = (text) => LIVE_ONLY.filter((s) => new RegExp('\\b' + s + '\\b').test(stripComments(text)));
+    const offenderList = [];
+    for (const rel of CHANNEL_FILES) {
+      for (const s of hits(srcOf(rel))) offenderList.push(rel + String.fromCharCode(58) + s);
+    }
+    check('围栏：视频通道不引用任何实时专属符号（' + CHANNEL_FILES.length + ' 文件 × ' + LIVE_ONLY.length + ' 符号）',
+      offenderList.length === 0, offenderList.join(', ') || '干净');
+    check('反空转：清单里的符号仍真实存在于实时模块（改名后围栏不许退化成查空名单）',
+      hits(srcOf('../src/live-layer.js')).length === LIVE_ONLY.length,
+      '实时模块命中 ' + hits(srcOf('../src/live-layer.js')).length + '/' + LIVE_ONLY.length);
+    check('negative control: 通道里塞进任一实时符号都会被同一函数判出',
+      hits('const u = liveRenderUrl(sel); const f = () => armLayerContentReveal();').length === 2
+      && hits('const u = myOwnRenderUrl(sel);').length === 0);
+    // ⑦ 名单**显式钉住**：恰好是视频通道的两个文件（通道本体 + 共用核心），且不含 ④ 已
+    // 并入的 transcode.js —— 免得以后"扩容"成一份过期名单（那种名单会静静地不再看守）。
+    check('⑦ 围栏名单恰好覆盖视频通道（通道 + 共用核心，不含已并入的 transcode.js）',
+      CHANNEL_FILES.length === 2
+      && CHANNEL_FILES.includes('../src/video-layer.js')
+      && CHANNEL_FILES.includes('../src/layer-core.js')
+      && !CHANNEL_FILES.some((f) => f.includes('transcode')));
   }
+    // 搬移要**真的发生**：符号在核心里有定义，且原处不再有副本（否则只是复制一份、
+    // 两条通道各留一个 —— 改一边另一边不动，那比不搬更坏）。
+    const coreSrc = readFileSync(new URL('../src/layer-core.js', import.meta.url), 'utf8');
+    const liveSrc = readFileSync(new URL('../src/live-layer.js', import.meta.url), 'utf8');
+    const movedBlocks = ['nudgeWallpaperRepaint', 'onScreenBrief', 'retireFadingLayer', 'startLayerTransition', 'layerKeyDiff', 'switchTransitionOf', 'releaseLayerMedia', 'openRotationAudioGate', 'mediaFramesOf',
+      'scheduleFadingLayerRemoval', 'applyInlineStyle'];
+    const defsInFile = (text, n) => (text.match(new RegExp('^(?:function\\s+' + n + '\\s*\\(|(?:const|let|var)\\s+' + n + '\\s*=)', 'gm')) || []).length;
+    check('共用核心真的持有搬过来的块，且实时管线里不再有副本（' + movedBlocks.length + ' 个符号）',
+      movedBlocks.every((n) => defsInFile(coreSrc, n) === 1 && defsInFile(liveSrc, n) === 0),
+      movedBlocks.map((n) => n + ':' + defsInFile(coreSrc, n) + '/' + defsInFile(liveSrc, n)).join(' '));
+    // ③ 的搬移同理：视频档的媒体构建必须在**视频通道**里，media-prep 只留委托。
+    const prepSrc = readFileSync(new URL('../src/media-prep.js', import.meta.url), 'utf8');
+    const videoSrc = readFileSync(new URL('../src/video-layer.js', import.meta.url), 'utf8');
+    check('③ 视频档的媒体构建在视频通道里，media-prep 里不再有副本（只剩委托）',
+      defsInFile(videoSrc, 'buildVideoMedia') === 1
+      && defsInFile(prepSrc, 'buildVideoMedia') === 0
+      && prepSrc.includes('buildVideoMedia(sel, fitClass)'),
+      'video=' + defsInFile(videoSrc, 'buildVideoMedia') + ' prep=' + defsInFile(prepSrc, 'buildVideoMedia'));
+    // ⚠️ 实测回归：提取 buildVideoMedia 时切分器的**末端排他**把分支最后一行切掉了，
+    // 而那行正是 `.we-media` / `.we-media--fit` 类名的来源 ⇒ 视频只显示左上角、占不满屏。
+    // 这条把"两条腿都要挂类名"钉住（Edge 腿挂的是镜像 canvas，非 Edge 腿挂 <video>）。
+    const videoFn = (videoSrc.match(/function buildVideoMedia\s*\([\s\S]*?\n\}/) || [])[0] || '';
+    check('③ 视频档两条腿都挂了类名（we-media--canvas + fitClass / we-media + fitClass）',
+      videoFn.includes('canvas.className = \"we-media we-media--canvas\" + fitClass;')
+      && videoFn.includes('media.className = \"we-media\" + fitClass;'));
+    // ── ② 延迟治理：原生可解的源不因帧率上限整片重编码 ───────────────────────────
+    // 实测：各视频壁纸之间等待几乎一样长（固定代价）+「帧率上限调越高切换越慢」
+    // ⇒ 等的是后台那次**整片重编码**（4K60 上数秒，抢 CPU/磁盘）。
+    // 正对照保证功能没被关死（非原生可解仍要转）；负对照证明「一律不转」会被判出。
+    check('② 抽帧决策看「原生可解性」（原生可解 ⇒ 不因帧率上限重编码）',
+      videoSrc.includes('function isNativelyPlayableSource(')
+      && videoSrc.includes('if (isNativelyPlayableSource(mi, selection.url)) {')
+      && videoSrc.includes('selection.transcodeState = \"skipped\";'));
+    check('② 正对照：判定只认原生容器/编码（mkv 之类的非原生容器不在白名单里）',
+      videoSrc.includes('NATIVE_SRC_EXT') && videoSrc.includes('NATIVE_CODEC_RE')
+      && /mp4\|m4v\|webm/.test(videoSrc)
+      && !/NATIVE_SRC_EXT = \/[^/]*mkv/.test(videoSrc));
+    check('② 负对照：写死「一律不转」的合成实现会被上面第一条判出',
+      !/isNativelyPlayableSource/.test('if (true) { revertTranscodedVideo(video); return; }'));
+    // ── ⑤ 派发化：视频的转码触发归视频通道（syncLayers 不再直呼它）──────────────
+    // 原来这 3 行是视频档在实时管线里**唯一的类型专属逻辑**，现在它只委托。
+    check('⑤ 转码触发归视频通道（live-layer 只委托，不再直呼 maybeUpgradeToTranscoded）',
+      videoSrc.includes('function videoChannelAfterLayerBuild(')
+      && /videoChannelAfterLayerBuild\(video, selection\);/.test(liveSrc)
+      && !/maybeUpgradeToTranscoded\(video, selection\.url/.test(liveSrc));
+    // ── ⑥ 反向探针：视频档的放行**不经过实时管线的闸门机器** ──────────────────
+    const liveSrcNow = readFileSync(new URL('../src/live-layer.js', import.meta.url), 'utf8');
+    check('⑥ 视频档的放行机器归视频通道（实时管线只留一次委托）',
+      videoSrc.includes('function armVideoChannelReveal(')
+      && /armVideoChannelReveal\(video, recheck, giveUp\);/.test(liveSrcNow)
+      && !/probeVideoPoster\(video, recheck, giveUp\)/.test(liveSrcNow)
+      && !/VIDEO_POSTER_BUDGET_MS/.test(liveSrcNow));
 
   check('live-layer.js 已登记进 INLINE_MODULES 且在产物里只有一份',
     /file:\s*'src\/live-layer\.js'/.test(build)

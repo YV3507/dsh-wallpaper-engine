@@ -1537,6 +1537,7 @@ await runScenario('T2. 切层内容闸门：<video> 无帧 / 无 poster ⇒ 旧�
     [beforeFrame, pendingFrame, shownFrame].map(frameLabel).join(' | '));
 });
 
+
 // ── T3：正对照 —— 插入时就已有画面的那一档**不该**被闸门拦 ─────────────────────
 // 内嵌 MP4（sceneVideo）在 buildMedia 里 `media.poster = 静态帧`：插入那一刻"有画面"
 // 已经成立。闸门若不认这一条，每次切到内嵌 MP4 的场景都会白等一轮 —— 正对照证明它认。

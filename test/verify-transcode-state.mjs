@@ -354,14 +354,14 @@ async function main() {
 
   // ---- 结构契约：转码字段的写入权（抽模块后钉住）----
   // 契约的可核对形式：
-  //   · 三个字段的**状态机**写入必须全在 src/transcode.js；
+  //   · 三个字段的**状态机**写入必须全在 视频通道 src/video-layer.js；
   //   · src/client.js 只允许"换壁纸/切走时复位"（= null / = "idle"）；
   //   · 两个新入口必须真的被 client.js 调用（搬移后接线不能断）；
   //   · transcode.js 必须登记进 INLINE_MODULES 且**真的进了产物**（防孤儿：文件在却不进 bundle）。
   {
     const clientSrc = readFileSync(new URL('../src/client.js', import.meta.url), 'utf8');
     const prepSrc = readFileSync(new URL('../src/media-prep.js', import.meta.url), 'utf8');
-    const tcSrc = readFileSync(new URL('../src/transcode.js', import.meta.url), 'utf8');
+    const tcSrc = readFileSync(new URL('../src/video-layer.js', import.meta.url), 'utf8');
     const bundle = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8');
     const build = readFileSync(new URL('../scripts/build-client.mjs', import.meta.url), 'utf8');
     const FIELDS = ['mediaInfo', 'transcodeState', 'transcodeProgress'];
@@ -370,7 +370,7 @@ async function main() {
     const isReset = (v) => v === 'null' || v === '"idle"';
     const badInClient = [];
     for (const f of FIELDS) for (const v of writes(clientSrc, f)) if (!isReset(v)) badInClient.push(f + ' = ' + v);
-    check('client.js 对三个转码字段只做复位（状态机写入在 src/transcode.js）', badInClient.length === 0,
+    check('client.js 对三个转码字段只做复位（状态机写入在 视频通道 src/video-layer.js）', badInClient.length === 0,
       badInClient.join('; ')
       || '复位写入 ' + FIELDS.map((f) => f + '×' + writes(clientSrc, f).length).join(' '));
     // 防空转：transcode.js 里若没有状态机写入，上面那条判据就是空对空。
@@ -390,8 +390,12 @@ async function main() {
     check('client.js 不再直写探测状态（探测的 token/AbortController 只属于 transcode.js）',
       !/\bmediaInfoToken\s*=/.test(clientSrc) && !/\bmediaInfoAbort\s*=/.test(clientSrc)
       && !/\bmediaInfoToken\s*=/.test(prepSrc) && !/\bmediaInfoAbort\s*=/.test(prepSrc));
-    check('transcode.js 已登记进 INLINE_MODULES 且在产物里只有一份',
-      /file:\s*'src\/transcode\.js'/.test(build)
+    // ④ 之后：抽帧换源链路**并入视频通道**（原 `视频通道 src/video-layer.js` 已删除）⇒ 这条判据的
+    // 语义跟着搬家：从「transcode.js 已登记进 INLINE_MODULES」改成「并入视频通道、且不再是
+    // 独立项」。原判据的真实意图**原样保留**：防孤儿（登记了却进不了 bundle）+ 只有一份。
+    check('抽帧换源链路已并入视频通道（video-layer.js 已登记、transcode.js 不再是独立项）',
+      /file:\s*'src\/video-layer\.js'/.test(build)
+      && !/file:\s*'src\/transcode\.js'/.test(build)
       && (bundle.match(/async function refreshMediaInfo\(/g) || []).length === 1);
   }
 

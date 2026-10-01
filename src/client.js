@@ -822,21 +822,6 @@ const SWITCH_DIRECTIONAL = ["push", "wipe", "bars"];
 const SWITCH_BARS_TEETH = 7;
 
 /** 当前生效的过场（类型 + 方向 + 实测算出的毫秒）。cut = 不动画。 */
-function switchTransitionOf(selLike) {
-  const id = selLike && SWITCH_TRANSITION_VALUES.includes(selLike.switchTransition)
-    ? selLike.switchTransition : DEFAULTS.switchTransition;
-  const def = SWITCH_TRANSITIONS.find((t) => t.id === id) || SWITCH_TRANSITIONS[0];
-  const speed = SWITCH_SPEEDS.find((s) => s.id === (selLike && selLike.switchTransitionSpeed))
-    || SWITCH_SPEEDS[1];
-  const dir = selLike && SWITCH_DIRS.includes(selLike.switchTransitionDir)
-    ? selLike.switchTransitionDir : DEFAULTS.switchTransitionDir;
-  return {
-    id,
-    dir,
-    directional: SWITCH_DIRECTIONAL.includes(id),
-    ms: def.ms > 0 ? Math.max(60, Math.round(def.ms * speed.factor)) : 0,
-  };
-}
 
 /** 擦除的起始 inset：从新画面「进入」的那一侧长出来（left = 新画面自右进入）。 */
 function wipeInset(dir) {
@@ -1367,21 +1352,6 @@ function weStopDraw() {
 // Detach is NOT enough: a playing <video> is a GC root and keeps decoding in
 // the background after removal — every rotation switch used to accumulate one
 // more background decoder. Pause + clear src BEFORE dropping the node.
-function releaseLayerMedia(node) {
-  if (!node) return;
-  const v = node.querySelector("video");
-  if (v) {
-    try { v.pause(); v.removeAttribute("src"); v.load(); } catch { /* ignore */ }
-  }
-  // live / web 层的 <iframe> 才是大头：Chromium 实测：「从 DOM 摘除的 iframe 其 JS
-  // 世界仍在跑」（contentWindow 已 null 而 setInterval 照跳）—— 只 remove() 等于把它
-  // 交给 GC，回收时序不可控，每个渐变周期都可能多留一个活着的渲染页。
-  // 显式导航到 about:blank 终止它（与 disposeMediaEl 的 iframe 分支同一手法）。
-  if (typeof node.querySelectorAll !== "function") return; // 精简 mock：无选择器即跳过
-  for (const f of node.querySelectorAll("iframe")) {
-    try { f.src = "about:blank"; } catch { /* ignore */ }
-  }
-}
 function weDrawFrame() {
   const ctx = weDrawCtx;
   if (!ctx || !ctx.canvas.isConnected) return;
@@ -2203,20 +2173,6 @@ function restoreNodeAudio(node) {
   // 场景包 BGM 的元素挂在 body 上（不在层内），它由 hold 标记压住 → 这里放行。
   try { syncSceneAudio(selection); } catch { /* ignore */ }
 }
-function openRotationAudioGate(node, outgoing) {
-  if (!node) return;
-  rotationAudioGate = { node, outgoing: outgoing || null, released: false };
-  muteNodeAudio(node);
-  const live = liveFrameOf(node);
-  if (live) {
-    // 缓存里可能还是真实音量（同帧复用）→ 先清缓存再强制下发 0。
-    liveApplied.volume = null;
-    setLiveVolumeNow(live, 0);
-  }
-  if (sceneAudioEl) {
-    try { sceneAudioEl.volume = 0; sceneAudioEl.muted = true; sceneAudioEl.pause(); } catch { /* ignore */ }
-  }
-}
 // 这次渐变的旧层退场了 → 放行新层音频。outgoingNode 不匹配说明闸属于别的
 // 渐变（快速连切），交给对应那次。
 function releaseRotationAudioGateFor(outgoingNode) {
@@ -2334,14 +2290,6 @@ const LAYER_KEY_FIELDS = ["type", "url", "edge", "sceneVideo", "audio", "live"];
 function keySegBrief(v) {
   const t = String(v == null ? "" : v);
   return t ? (t.length > 46 ? "…" + t.slice(-44) : t) : "∅";
-}
-function layerKeyDiff(oldKey, nextKey) {
-  const a = String(oldKey || "").split("\u0000"), b = String(nextKey || "").split("\u0000");
-  const out = [];
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    if (a[i] !== b[i]) out.push((LAYER_KEY_FIELDS[i] || "seg" + i) + ":" + keySegBrief(a[i]) + "→" + keySegBrief(b[i]));
-  }
-  return out.join(" | ") || weT("(同 key)");
 }
 
 
