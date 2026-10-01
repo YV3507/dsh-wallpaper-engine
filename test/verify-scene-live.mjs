@@ -833,6 +833,29 @@ const clientChecks = [
   // 冷启动一次渲染页 —— 无意义重建，用户会看到画面重新加载。
   ['sceneVideo stays out of the layer key while live renders',
     /\(layerLive \? "" : \(selection\.sceneVideo \|\| ""\)\)/.test(liveSrc)],
+  // 同 id 的 revalidate 不得拆掉待挂载的预热页。`loadInventory() → revalidateSelection() →
+  // applySelection(selection.id)` 传进来的就是当前选中项，而那份 pending 正是**本次要用的**
+  // 那一个；无条件 `cancelLiveMount("selection")` 会把它清成 `about:blank` 并且此后没有任何人
+  // 恢复（`liveMountPending` 已空、看护器只在挂载成功路径上武装）⇒ 图层永久停在垫底图。
+  // 判据钉**机制**：那记取消必须被"新旧 id 不等"包住，且比较必须发生在 `selection.id` 赋值
+  // **之前**（赋值之后两边永远相等，守卫会失效）。
+  // ⚠️ 这是一次**时序竞态**（`SCENE_VIDEO_RESYNC_MS` 与 `liveBootDelay` 撞在同一时刻、主线程被
+  // pkg 解码占住时预热页先输），源码与合成 DOM 判据看不见它 —— 这条只钉住结构不退回，
+  // 运行期的复现证据是诊断里的 `boot-mount-cancel reason=selection` + `beat · liveOn=0 watch=-`。
+  ['a same-id revalidate does not tear down the pending live mount',
+    (() => {
+      const body = fnBody(prepSrc, 'applySelection');
+      const guard = body.indexOf('if (selection.id !== (id || "")) cancelLiveMount("selection")');
+      const assign = body.indexOf('selection.id = id || ""');
+      const bare = body.includes('\n    cancelLiveMount("selection")');
+      return guard >= 0 && assign > guard && !bare;
+    })(),
+    (() => {
+      const body = fnBody(prepSrc, 'applySelection');
+      return 'guard=' + body.indexOf('if (selection.id !== (id || "")')
+        + ' assign=' + body.indexOf('selection.id = id || ""')
+        + ' bareCall=' + body.includes('\n    cancelLiveMount("selection")');
+    })()],
   // 垫底静态帧是 iframe 的**下层**：只要 iframe 半透明（壁纸透明度一高），它就会以
   // a(1−a) 的强度透出来（实测「壁纸透明度高时显现静态帧」）。首帧点亮后必须整块退场，
   // 且必须**串行**——延迟到 iframe 淡入（1.8s）完成后再快收。若退回与 iframe 同步
