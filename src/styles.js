@@ -1964,6 +1964,21 @@ const CSS = `
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .we-qp__current-actions { flex: none; display: flex; gap: 6px; }
+  /* 壁纸属性入口：页签栏下方独占整行、文字居中、字号与页签标签一致。
+     边框显式写在这里：宿主的中性描边令牌在这套玻璃面板上近乎不可见（现场反馈看不到边框线）；
+     颜色取该主题下的文字色（--we-ink：深色主题是浅字、浅色主题是深字）再混 40% 透明，
+     于是两套主题都看得见，且始终与文字同色系而不是另一块灰。
+     不认识 color-mix 时退回宿主那条中性描边。 */
+  /* 字号 12px = .we-tabs__tab 的字号（两处要一起改）。 */
+  .we-qp__propsbtn {
+    display: flex; width: 100%; box-sizing: border-box;
+    justify-content: center; padding: 0 12px;
+    font-size: 12px;
+  }
+  /* 下钻打开时：面板直接占满内容区（**不再有返回按钮那一行** —— 用户口径：
+     那一行多余；同一枚「收起壁纸属性」就在页签下面，收起路径并没有丢）。 */
+  .we-qp__propsview { display: flex; flex-direction: column; min-width: 0; }
+  .we-qp__propsview--drill { flex: 1 1 auto; min-height: 0; }
   .we-qp__row { display: flex; align-items: center; gap: 8px; }
   .we-qp__group { flex: 1; min-width: 0; }
   .we-qp__search { width: 100%; box-sizing: border-box; }

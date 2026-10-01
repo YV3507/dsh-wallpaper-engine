@@ -18,11 +18,14 @@
  *     `onScrim` / `onGlassAlpha` / `onWallpaperOpacity` … 这批与设置页共用的
  *     「外观 / 画面处理器」）与模块级工具（applySelection / setSetting / setTransient /
  *     emit / SliderRow / switchRow / cardKeyDown / playableInventory / groupWallpapers /
- *     playbackIsVideoLike / CARD_TYPE_LABELS / openSettingsSection）。
+ *     playbackIsVideoLike / CARD_TYPE_LABELS / openSettingsSection / userPropsPanelOpen /
+ *     openUserPropsPanel / closeUserPropsPanel / renderUserPropsPanel）。
  *   · 三档页签是**视图状态**（localStorage，仅 UI，不进 config.json）；两页里的控件
  *     一律受控：值从 `sel` 读、写走上面那批处理器 —— **不得**出现 `selection.X =`
  *     字面直写（守卫 ①e 的棘轮只盯直写，本文件必须保持 0），也不许在组件里另存一份值
- *     （否则侧栏与设置页会分叉，而且不会报错）。
+ *     （否则侧栏与设置页会分叉，而且不会报错）。壁纸属性那条同理：开关与面板**都是
+ *     设置页那一份**（`userPropsPanelOpen()` / `renderUserPropsPanel()`），侧栏只决定
+ *     "在壁纸页列表下方把它画出来"（内联展开，不做整区替换）。
  *   · 本文件必须保持浏览器安全（无 import / require / Node API），且**不得有顶层可执行语句**
  *     读 client.js 的 const（会被内联到 bundle 顶部，撞 TDZ）；React 只在渲染期读。
  */
@@ -116,6 +119,11 @@
     useWeLocale();
     const sel = useStore();
     const dock = (props && props.dock) || "drawer";
+    // 「壁纸属性」面板渲染器与开关读数/动作都是**模块级**的（见 client.js 顶部）——
+    // 本文件当自由变量用。⚠️ 它绝不能是 `apply()` 里的闭包：`src/sidebar-right.js` 是
+    // **prelude**（在 `apply()` 之前求值），它注册的那个渲染回调引用不到 apply 的作用域，
+    // 一旦那样写，真机上是 `ReferenceError: renderUserPropsPanel is not defined`
+    // ⇒ React 卸载整棵树 ⇒ **整个页面空白**（实测复现，不是"这里不画"）。
     // 视图偏好（列表 / 卡片）与页签：useState 必须在早退分支之前（Rules of Hooks）。
     const [view, setView] = React.useState(readQpView);
     const [qpTab, setQpTab] = React.useState(readQpTab);
@@ -126,6 +134,8 @@
     };
     const switchQpTab = (id) => {
       if (!QP_TABS.some((t) => t.id === id) || id === qpTab) return;
+      // 属性下钻状态跟着页签走：切到别的档时**只是不画**（面板与「返回」都在壁纸档分支里），
+      // 切回壁纸档它还在原地。入口那一行三档都可见，所以不存在"找不到入口"的困惑。
       setQpTab(id);
       try { localStorage.setItem(QP_TAB_KEY, id); } catch { /* ignore */ }
     };
@@ -133,6 +143,12 @@
     const list = sel.inventory.wallpapers;
     const current = list.find((w) => w.id === sel.id) || null;
     const playbackLive = playbackIsVideoLike(sel) ? sel.videoPlaying : sel.playing;
+    // ── 壁纸属性（列表下方**内联**展开）────────────────────────────────────────
+    // 开关与设置页共用**同一份**（client.js 的 `propsPanelOpen`，经 `userPropsPanelOpen()`
+    // 读；侧栏不另存一份，否则两个壳会分叉）。面板渲染器也是设置页那一份 ——
+    // 这里只决定"在列表下方把它画出来"。
+    // 本档有没有属性可调：与设置页入口同一条判据（仅场景/网页 + 有 propsUrl）。
+    const propsAvailable = Boolean(current && (current.type === "scene" || current.type === "web") && sel.propsUrl);
     // 快切列表：与库视图同一过滤口径（分级 / 类型 / 隐藏），再叠面板自己的
     // 搜索词与**面板本地的类型筛选**（qpType：全部 / 场景 / 网页 / 视频 / 图片 ——
     // 瞬态，不影响设置页的过滤与轮播候选）。
@@ -306,11 +322,36 @@
           onClick: () => switchQpTab(t.id),
         }, t.label)),
       ),
+      // ── ③b 壁纸属性入口（页签栏**下方**、独占整行、无背景）──
+      // 用户口径：入口固定在这一行（三档都在同一位置），点开走**页内下钻**（内容区整区
+      // 换成面板）；drill 打开时这枚不画 —— 同一行的位置交给下面那枚「返回」。
+      // 入口固定在这一行、**三档都看得见**（用户口径：放在壁纸 / 外观 / 播放下面、整行、
+      // 无背景）。它不随下钻状态消失 —— 下钻开着时它就地当"收起"用（同一行、同一位置），
+      // 打开态用 is-on 高亮；面板本体只在壁纸档画（在那支分支里），所以在别的档点它时
+      // 先把档切回壁纸，否则用户会觉得"点了没反应"。
+      propsAvailable && React.createElement("button", {
+        className: "we-picker__btn we-qp__propsbtn",
+        type: "button",
+        title: weT("壁纸作者提供的可调属性（改动立即生效）"),
+        onClick: () => {
+          if (qpTab === "wallpaper") {
+            if (userPropsPanelOpen()) closeUserPropsPanel(); else openUserPropsPanel();
+            return;
+          }
+          switchQpTab("wallpaper");
+          openUserPropsPanel();
+        },
+      }, userPropsPanelOpen() ? weT("收起壁纸属性") : weT("壁纸属性")),
       // ── ④ 当前页 ──
+      // 下钻打开时内容区**直接就是面板**（没有返回按钮那一行 —— 用户口径：多余；
+      // 收起走页签下面那枚「收起壁纸属性」，路径没丢）。
       // 外观 / 播放：与设置页同名页签**同一批渲染器**（surface 档少画设置页专属分组）；
       // 壁纸：列表 + 声音（声音与播放页那份同源 —— 同一状态、同一处理器、同一份渲染器）。
+      // 属性下钻：打开时整区换成面板（先于其它分支 —— 反过来就被列表顶掉）。
       React.createElement("div", { className: tabBodyClass },
-        qpTab === "appearance"
+        qpTab === "wallpaper" && userPropsPanelOpen() && propsAvailable
+          && React.createElement("div", { className: "we-qp__propsview we-qp__propsview--drill" }, renderUserPropsPanel()),
+        !(qpTab === "wallpaper" && userPropsPanelOpen() && propsAvailable) && (qpTab === "appearance"
           ? renderAppearanceTab(sidebarRenderCtx({
             setSetting, sel,
             onAccent, onBlur, onBorder, onGlassAlpha, onGlassColor, onToggleThemeFollow,
@@ -326,7 +367,8 @@
                 })),
                 renderAudioTab(sidebarRenderCtx({ sel, onToggleAudio, onVideoVolume })),
               )
-            : React.createElement(React.Fragment, null,
+            : null),
+        !(qpTab === "wallpaper" && userPropsPanelOpen() && propsAvailable) && qpTab === "wallpaper" && React.createElement(React.Fragment, null,
                 // ── 壁纸列表（搜索 + 视图切换 + 快切）──
                 // 库还没回来 / 扫描失败：**只有这一页**给一句话 —— 外观 / 播放两页不依赖库，
                 // 照常可用（此前是整个面板被一句话替换掉，那样连外观都进不去）。
@@ -419,7 +461,7 @@
                 React.createElement("div", { className: "we-qp__section" },
                   renderAudioTab(sidebarRenderCtx({ sel, onToggleAudio, onVideoVolume })),
                 ),
-              ),
+        ),
       ),
       // ── ⑤ 底栏：设置入口（文案与落点随当前页签）──
       React.createElement("div", { className: "we-qp__foot" },

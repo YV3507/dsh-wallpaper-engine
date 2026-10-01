@@ -556,6 +556,9 @@ const WE_I18N_EN = {
 
   // ── src/picker-props-panel.js ──
   "读取中…": "Loading…",
+  "收起壁纸属性": "Collapse wallpaper properties",
+  "等待壁纸属性…（宿主尚未答复）": "Waiting for wallpaper properties… (host has not answered yet)",
+  "正在取这张壁纸的属性…": "Fetching this wallpaper's properties…",
   "读取失败": "Failed to read",
   "当前条件下没有可调项": "No adjustable items under current conditions",
   "这张壁纸没有用户属性（project.json 的 general.properties）": "This wallpaper has no user properties (general.properties in project.json)",

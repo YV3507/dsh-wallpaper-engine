@@ -798,6 +798,10 @@ console.log('Level D — client source wiring (src/client.js + 抽出的模块)'
 const src = readFileSync(join(root, 'src', 'client.js'), 'utf8');
 // 快捷播放面板源码（类型筛选等面板本地行为的断言读它）。
 const qpSrc = readFileSync(join(root, 'src', 'quick-panel.js'), 'utf8');
+// 同上，但**剥掉注释**：面板那条下钻的判据要找"最后一个 renderUserPropsPanel() 调用点"，
+// 而文件头的散文里也写着这个名字（首个匹配落在注释里 ⇒ 判据恒真）。剥注释的共享实现见
+// `test/tools/js-text.mjs`（本仓纪律：字符串感知的剥注释，不用朴素块注释正则）。
+const qpCode = stripComments(qpSrc);
 const stylesSrc = readFileSync(join(root, 'src', 'styles.js'), 'utf8');
 const liveSrc = readFileSync(join(root, 'src', 'live-layer.js'), 'utf8');
 const prepSrc = readFileSync(join(root, 'src', 'media-prep.js'), 'utf8');
@@ -1471,8 +1475,10 @@ check('抽屉右侧左滑（360px、translateX；不再是顶部下落的 25vw/t
   stylesSrc.includes('width: 360px; max-width: 92vw;')
     && /we-repo-panel\s*\{[^}]*transform: translateX\(102%\)/.test(stylesSrc)
     && !/we-repo-panel\s*\{[^}]*translateY/.test(stylesSrc));
+// 断言的是**机制**（同一个组件、壳只差 dock），不冻结 props 的字面形状 —— 面板渲染器
+// 后来以 prop 形式加进来，写死 `{ dock: "drawer" }` 会让这条正确的改动判红（ADR-0007）。
 check('抽屉与官方侧栏共用同一份 QuickPanel（不再是 WallpaperPicker 副本）',
-  src.includes('React.createElement(QuickPanel, { dock: "drawer" })')
+  /React\.createElement\(QuickPanel, \{ dock: "drawer"/.test(src)
     && !src.includes('repoPanel: true')
     && !src.includes('repoPanelOwnsModal'));
 check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版本宿主不会 park）',
@@ -1531,6 +1537,89 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     tabsSrc.includes('sidebarSurface ? onPickWallpaper : () =>')
       && tabsSrc.includes('sidebarSurface ? weT("去挑一张 ›") : weT("选择壁纸")')
       && qpSrc.includes('onPickWallpaper: () => switchQpTab("wallpaper")'));
+  // ── 侧栏壁纸档的「壁纸属性」（用户口径：属性要在侧栏里调，不要跳设置页）──────
+  // 交互口径 = **页内下钻**：点入口把壁纸页内容区整区换成属性面板（列表让位），
+  // 顶部「返回」/ 再点一次入口退出 —— 与设置页库视图那套下钻同一形态（那里是
+  // pickerOpen 顶掉 renderActiveTab）。面板本体与设置页**共用同一个开关与同一个
+  // 渲染器**（`propsPanelOpen` / `renderUserPropsPanel`），不许在侧栏另存一份。
+  {
+    // 只看页签内容区那一段：从 `tabBodyClass` 起、到**属性面板那次调用**为止（末锚点取
+    // `lastIndexOf('renderUserPropsPanel')` 并把该处含进区域）。于是"库区 → 面板"的先后
+    // 关系落在区域里可判。⚠️ 两个坑都踩过：① 用原文当锚点会落在文件头散文里的
+    // `renderUserPropsPanel()` 上，判据恒真 —— 必须用**剥注释**的那份；② 末锚点若取
+    // `we-qp__viewbar`，内联面板在它**之后**，会被 slice 切掉、判据恒假（实测）。
+    const TAB_BODY_END = 'renderUserPropsPanel()';
+    const tabBodyOf = (text) => {
+      const from = text.indexOf('const tabBodyClass');
+      const to = text.lastIndexOf(TAB_BODY_END);
+      return from === -1 || to <= from ? '' : text.slice(from, to + TAB_BODY_END.length);
+    };
+    // ① 入口在**页签栏下方**、独占整行、无背景（用户口径）。
+    {
+      // 锚点顺序：页签栏 → 入口 → **内容区**。⚠️ 内容区锚点不能用 `const tabBodyClass`
+      //（那句在组件顶部声明，索引反而比页签栏更靠前），要用它被当作 render 参数的落点。
+      const btnBelowTabs = (text) => {
+        const tabs = text.indexOf('we-tabs we-qp__tabs');
+        const btn = text.indexOf('we-qp__propsbtn');
+        const area = text.indexOf('className: tabBodyClass');
+        return tabs !== -1 && btn !== -1 && area !== -1 && tabs < btn && btn < area;
+      };
+      check('「壁纸属性」入口在页签栏下方、内容区之前（三档同一位置）', btnBelowTabs(qpCode));
+      check('negative control: 把入口挪到页签栏之上会被同一条判据判出',
+        !btnBelowTabs('we-qp__propsbtn … we-tabs we-qp__tabs … const tabBodyClass'));
+      // 入口样式：整行宽、文字居中、字号与页签标签一致（12px）。
+      // 判据只写一次（命名谓词），正判据与负对照调同一个 —— 负对照喂变异输入。
+      const entryStyled = (styles, code) => code.includes('we-picker__btn we-qp__propsbtn')
+        && /\.we-qp__propsbtn \{[^}]*width: 100%/.test(styles)
+        && /\.we-qp__propsbtn \{[^}]*justify-content: center/.test(styles)
+        && /\.we-qp__propsbtn \{[^}]*font-size: 12px/.test(styles)
+        && /\.we-tabs__tab \{[^}]*font-size: 12px/.test(styles);
+      check('入口样式：整行 + 居中 + 字号与页签标签一致',
+        entryStyled(stylesSrc, qpCode));
+      // 负对照：改**这一条规则自己的块**（`justify-content: center;` 在别处也出现，全局替换
+      // 会改到别的规则 ⇒ 变异没落在被判的对象上，负对照会假红）。
+      const btnBlock = /\.we-qp__propsbtn \{[^}]*\}/.exec(stylesSrc)[0];
+      check('negative control: 去掉居中会被同一条判据判出',
+        !entryStyled(stylesSrc.replace(btnBlock, btnBlock.replace('justify-content: center;', 'justify-content: flex-start;')), qpCode));
+      // 入口**不随下钻消失**：同一行同一位置，打开态换文案（用户口径）。
+      check('入口随下钻切换文案，且不过档位门',
+        /userPropsPanelOpen\(\) \? weT\("收起壁纸属性"\) : weT\("壁纸属性"\)/.test(qpCode)
+          && !/qpTab === "wallpaper" && propsAvailable && React\.createElement\("button"/.test(qpCode));
+      check('在别的档点入口 ⇒ 先切回壁纸档再打开（否则看不出反应）',
+        /switchQpTab\("wallpaper"\);\s*openUserPropsPanel\(\);/.test(qpCode)
+          && /if \(qpTab === "wallpaper"\) \{/.test(qpCode));
+      check('negative control: 入口写成"只在下钻关闭时画"会被同一条判据判出',
+        !/propsAvailable && !userPropsPanelOpen\(\) && React\.createElement\("button"/.test(qpCode));
+    }
+
+    // ⚠️ 血泪判据：**面板渲染器必须是模块级声明**，不能是 `apply()` 里的闭包。
+    //    `src/sidebar-right.js` 是 prelude（在 `apply()` **之前**求值），它注册的渲染回调
+    //    引用不到 apply 的作用域 ⇒ 真机上 `ReferenceError: renderUserPropsPanel is not defined`
+    //    ⇒ React 卸载整棵树 ⇒ **整个页面空白**（实测复现；不是"这里不画"那种局部问题）。
+    //    设置页那条路察觉不到：它经 ctx 显式收这个函数，所以只有侧栏会炸。
+    {
+      // 模块级 = 顶格声明（源码里 `function` 前没有缩进）。
+      const moduleLevel = /^function renderUserPropsPanel\(/m.test(src);
+      const notInApply = !/^\s+function renderUserPropsPanel\(/m.test(src);
+      check('面板渲染器是**模块级**声明（放回 apply() 闭包会让侧栏一点就整页白屏）',
+        moduleLevel && notInApply);
+      check('quick-panel 当自由变量用它（不许改成只认 prop —— 那会再掉回同一个坑）',
+        qpCode.includes('renderUserPropsPanel()') && !qpCode.includes('props.renderUserPropsPanel'));
+      check('两个挂载点都不再传它（它已不在闭包里，传了也没用）',
+        !src.includes('QuickPanel, { dock: "drawer", renderUserPropsPanel }')
+          && !sidebarSrc.includes('QuickPanel, { dock: "official", renderUserPropsPanel }'));
+      check('negative control: 缩进写进 apply()（闭包形态）会被同一条判据判红',
+        !(/^function renderUserPropsPanel\(/m.test('  function renderUserPropsPanel() {')
+          && !/^\s+function renderUserPropsPanel\(/m.test('  function renderUserPropsPanel() {')));
+    }
+    // 共用同一个开关：两个壳（设置页 / 侧栏）不许各存一份 `propsPanelOpen`。
+    // ⚠️ 同上：按**剥注释**的那份判，否则解释原理的散文里那句 `` `propsPanelOpen` `` 会被当成直读。
+    check('「壁纸属性」开关只有一份（侧栏走 accessor，不另存一份状态）',
+      (src.match(/let propsPanelOpen = /g) || []).length === 1
+        && src.includes('function userPropsPanelOpen(')
+        && qpCode.includes('userPropsPanelOpen()')
+        && !qpCode.includes('propsPanelOpen'));
+  }
   // ── 侧栏列表的滚动链（真机回归：列表滚不动）────────────────────────────────
   // 布局靠"同级权重 + 源码顺序"决胜：`.we-qp--official .we-qp__section { flex: 0 0 auto }`
   // 与 `.we-qp--official .we-qp__library { flex: 1 1 auto }` 同为两个类，后者在源码里更晚
@@ -1737,7 +1826,10 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     'renderAppearanceTab', 'renderEffectsTab', 'renderAudioTab',
     'onAccent', 'onBlur', 'onBorder', 'onGlassAlpha', 'onGlassColor', 'onToggleThemeFollow',
     'onScrim', 'onWallpaperBlur', 'onWallpaperOpacity',
-    'onBackgroundBrightness', 'onBackgroundContrast', 'onBackgroundSaturate'];
+    'onBackgroundBrightness', 'onBackgroundContrast', 'onBackgroundSaturate',
+    // 侧栏壁纸档的「壁纸属性」：开关读数 / 开关动作 / 面板渲染器**都是模块级的**
+    //（client.js 里的函数声明），本台把它们当自由变量带传进来 —— 与内联后的真实形态一致。
+    'userPropsPanelOpen', 'openUserPropsPanel', 'closeUserPropsPanel', 'renderUserPropsPanel'];
   const selBase = Object.assign({}, schema.DEFAULTS, {
     loaded: true, loading: false, id: 'w1', url: '/x', playing: true, videoPlaying: true,
     videoVolume: 0.5, videoAudioEnabled: false, videoError: '', type: 'video',
@@ -1747,7 +1839,15 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     accent: '#4f8cff', glassColor: '#ffffff', glassAlpha: 0, blur: 0, border: 0,
     themeFollow: false, themeFollowLine: '',
   });
-  let SEL = selBase;
+  // 下钻动作的记账（判据：点开真的走了处理器的打开路径，不是就地偷改状态）。
+  const OPEN_CALLS = [];
+  // 「壁纸属性」面板渲染器替身：**模块级自由变量形态**（真产物里它就是模块级的函数声明，
+  // 见 client.js；写成 `apply()` 里的闭包时真机会抛 ReferenceError，见 repro-sidebar-props.mjs）。
+  let SEL = null;
+  const propsPanelStub = () => (SEL && SEL.userPropsPanelOpen
+    ? { type: 'div', props: { className: 'we-picker__props' }, children: [] }
+    : null);
+  SEL = selBase;
   const bag = new Function(...FREE,
     qpSrc + '\nreturn { QuickPanel };')(
     ...FREE.map((n) => ({
@@ -1766,10 +1866,16 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       onAccent: noop, onBlur: noop, onBorder: noop, onGlassAlpha: noop, onGlassColor: noop,
       onToggleThemeFollow: noop, onScrim: noop, onWallpaperBlur: noop, onWallpaperOpacity: noop,
       onBackgroundBrightness: noop, onBackgroundContrast: noop, onBackgroundSaturate: noop,
+      userPropsPanelOpen: () => SEL.userPropsPanelOpen === true,
+      openUserPropsPanel: () => { OPEN_CALLS.push(1); SEL.userPropsPanelOpen = true; },
+      closeUserPropsPanel: () => { SEL.userPropsPanelOpen = false; },
+      renderUserPropsPanel: propsPanelStub,
     })[n] || noop));
   const renderTab = (tab, sel) => {
     SEL = sel || selBase;
     STATE.length = 0; STATE.push('cards', tab);
+    // 面板渲染器替身由 FREE 注入（模块级自由变量形态，见上面 FREE 表）—— 与真产物的
+    // 作用域形态一致：`apply()` 里的闭包在真机上会抛 ReferenceError（见 repro-*.mjs）。
     const tree = bag.QuickPanel({ dock: 'official' });
     return { tree, shape: shapeOf(tree).join('|'), text: textOf(tree) };
   };
@@ -1797,6 +1903,90 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       && pb.text.includes('更多播放设置 ›'));
   check('播放档的空态 CTA =「去挑一张 ›」（拿走当前壁纸再渲染一次）',
     renderTab('playback', Object.assign({}, selBase, { id: '', url: '' })).text.includes('去挑一张 ›'));
+  // ── 壁纸属性下钻（真源码渲染）：入口可达 → 整区换面板 → 返回退出 ────────────
+  // 入口判据与设置页同一条（上面那条源码判据、`verify-picker-props` ①）：仅
+  //「场景/网页 + propsUrl」才出。下面几种输入调的是**同一个**谓词函数。
+  {
+    const findBtn = (root, label) => {
+      let hit = null;
+      (function walk(n) {
+        if (hit) return;
+        if (Array.isArray(n)) { n.forEach(walk); return; }
+        if (!n || typeof n !== 'object') return;
+        const cls = String((n.props && n.props.className) || '');
+        if (n.type === 'button' && cls.split(/\s+/).includes('we-picker__btn')
+          && textOf(n).trim() === label) { hit = n; return; }
+        if (Array.isArray(n.children)) n.children.forEach(walk);
+      })(root);
+      return hit;
+    };
+    const hasPropsPanel = (t) => t.shape.includes('we-picker__props');
+    const hasLibrary = (t) => t.shape.includes('we-qp__library');
+    // 入口按**类名**找：文案随下钻在「壁纸属性 / 收起壁纸属性」之间切，按文字找会漏。
+    const hasEntry = (t) => t.shape.includes('we-qp__propsbtn');
+    // ⚠️ 入口判据里的 `current` 是**从库清单里按 id 找回来**的那一条（见 quick-panel.js）——
+    //    夹具不给条目，`current` 恒为 null，再对的实现在这里也只会是一条空转的红。
+    //    `userPropsPanelOpen` 是本台的开关读数（真源码读 `userPropsPanelOpen()`）。
+    const withCurrent = (type, id, propsUrl, propsOpen, itemPropsUrl) => Object.assign({}, selBase, {
+      type, id, url: '/x', propsUrl, userPropsPanelOpen: propsOpen === true,
+      inventory: Object.assign({}, selBase.inventory, {
+        wallpapers: [{ id, type, title: id, propsUrl: itemPropsUrl === undefined ? propsUrl : itemPropsUrl, preview: null }],
+      }),
+    });
+    const sceneSel = () => withCurrent('scene', 's1', 'http://x/props/tokS');
+    const webSel = () => withCurrent('web', 'w9', 'http://x/props/tokW');
+    const noUrlSel = () => withCurrent('scene', 's2', null);
+    const imgSel = () => withCurrent('image', 'i1', null);
+    const entryOf = (sel) => findBtn(renderTab('wallpaper', sel).tree, '壁纸属性');
+    check('侧栏壁纸档：场景 / 网页壁纸出「壁纸属性」入口（判据与设置页同一条）',
+      Boolean(entryOf(sceneSel())) && Boolean(entryOf(webSel())));
+    check('negative control: 图片壁纸 / 没有 propsUrl 的场景壁纸都不出入口',
+      !entryOf(imgSel()) && !entryOf(noUrlSel()));
+    // 点开 ⇒ 走处理器的打开路径（不是就地偷改状态），内容区整区换成「返回 + 面板」。
+    {
+      OPEN_CALLS.length = 0;
+      const target = renderTab('wallpaper', sceneSel());
+      const btn = findBtn(target.tree, '壁纸属性');
+      check('点「壁纸属性」⇒ 走 openUserPropsPanel（不是就地偷改开关）',
+        Boolean(btn) && !hasPropsPanel(target) && (btn.props.onClick(), OPEN_CALLS.length === 1));
+      const openSel = withCurrent('scene', 's1', 'http://x/props/tokS', true);
+      const opened = renderTab('wallpaper', openSel);
+      check('下钻后：列表 / 搜索栏让位，内容区**直接就是面板**（没有返回按钮那一行）',
+        hasPropsPanel(opened) && !hasLibrary(opened) && !opened.shape.includes('we-qp__viewbar')
+          && !findBtn(opened.tree, '返回'),
+        'panel=' + hasPropsPanel(opened) + ' lib=' + hasLibrary(opened));
+      check('下钻时入口仍在（同一行同一位置，文案换成「收起壁纸属性」）—— 收起路径靠它',
+        hasEntry(opened) && !findBtn(opened.tree, '壁纸属性') && Boolean(findBtn(opened.tree, '收起壁纸属性')));
+      // 收起 ⇒ 回壁纸页（列表回来、面板消失），走的是处理器的关闭路径（没有返回按钮，
+      // 所以走的是那枚「收起壁纸属性」；这条判据同时钉住"收起路径没有丢"）。
+      const collapse = findBtn(opened.tree, '收起壁纸属性');
+      const closedSel = withCurrent('scene', 's1', 'http://x/props/tokS', false);
+      const closed = renderTab('wallpaper', closedSel);
+      check('点「收起壁纸属性」⇒ 回壁纸页（列表与入口都回来、面板消失）',
+        Boolean(collapse) && (collapse.props.onClick(), hasLibrary(closed)
+          && !hasPropsPanel(closed) && hasEntry(closed) && Boolean(findBtn(closed.tree, '壁纸属性'))));
+      // 结构性判据（这一族缺陷的共同形态就是"某一档里内容区什么都没有"）：壁纸档在任何
+      // 开关 / 属性组合下，内容区都必须有**列表**或**面板**之一。
+      for (const [name, sel] of [
+        ['有属性 + 开关开（下钻）', withCurrent('scene', 's1', 'http://x/props/tokS', true)],
+        ['有属性 + 开关关（列表）', withCurrent('scene', 's1', 'http://x/props/tokS', false)],
+        ['propsUrl 被清掉 + 开关开', withCurrent('scene', 's1', '', true, null)],
+        ['开关关着', withCurrent('scene', 's1', 'http://x/props/tokS', false)],
+        ['本来就没属性（图片壁纸）', withCurrent('image', 'i1', null, true)],
+      ]) {
+        const t = renderTab('wallpaper', sel);
+        check('壁纸档内容区非空（' + name + '）—— 列表或面板必居其一',
+          hasLibrary(t) || hasPropsPanel(t), 'lib=' + hasLibrary(t) + ' panel=' + hasPropsPanel(t));
+      }
+      // 入口三档都在同一位置（页签栏下方）⇒ 切到外观 / 播放档时入口照旧在，面板不画。
+      check('入口三档都在（不随页签消失、也不随下钻消失）；面板只属壁纸档',
+        hasEntry(renderTab('wallpaper', openSel)) && hasEntry(renderTab('appearance', openSel))
+          && hasEntry(renderTab('playback', openSel))
+          && hasEntry(renderTab('wallpaper', withCurrent('scene', 's1', 'http://x/props/tokS', false)))
+          && !hasPropsPanel(renderTab('appearance', openSel))
+          && !hasPropsPanel(renderTab('playback', openSel)));
+    }
+  }
   // 接线判据：侧栏三档的树里**不许出现设置页专属的占位器**（把它戳一下会抛 [we-sidebar]）。
   // 抓的是"ctx 装错对象 / 少接一个处理器"那一类 —— 源码级判据只认名字在不在文件里，认不出
   // 它被塞进了哪一个 ctx 对象。其余抛错（例如替身里缺 weDrawCtx）不算，本判据只认那串前缀。

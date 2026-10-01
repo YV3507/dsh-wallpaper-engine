@@ -1898,6 +1898,70 @@ function reportClientDiag(event, detail) {
 let propsPanelOpen = false;
 let propsState = { token: "", loading: false, error: "", props: [], remote: false };
 
+/** 「壁纸属性」开关的**唯一**读数（两个壳共用这一份：设置页工具栏 + 侧栏壁纸档）。
+ *  侧栏经 ctx 拿到本函数后再取当前值 —— 它若直接读 `propsPanelOpen` 这个 `let`，
+ *  内联后的 `var` 提升会让它在赋值前读到 undefined（见 scripts/build-client.mjs 的
+ *  预置顺序）。开了窗再关窗也不需要 emit：两处都是受控渲染，重渲染由处理器负责。 */
+function userPropsPanelOpen() {
+  return propsPanelOpen === true;
+}
+
+/** 面板状态的**只读快照**（渲染器与守卫共用；渲染器不读模块级 `propsState`）。
+ *  `heard` = 这次求值**已经有宿主答复**（成功或失败都算）—— 空表的两条成因（宿主说
+ *  "没有属性" / 请求还在路上）在界面上必须能分辨，否则"空面板"无法自陈。 */
+function userPropsStateOf() {
+  return {
+    open: propsPanelOpen === true,
+    token: propsState.token,
+    loading: propsState.loading === true,
+    error: String(propsState.error || ""),
+    count: propsState.props.length,
+    heard: !propsState.loading && !propsState.remote,
+  };
+}
+
+/** 「壁纸属性」面板的**装配点**（两个壳共用：设置页页签 + 侧栏壁纸档）。
+ *  ⚠️ 必须住在**模块级**，不能是 `apply()` 里的闭包 —— `src/sidebar-right.js` 是 prelude
+ *  （在 `apply()` 之前求值），它注册的渲染回调引用不到 apply 的作用域：写成闭包时真机上
+ *  抛 `ReferenceError: renderUserPropsPanel is not defined`，React 随即卸载整棵树 ⇒
+ *  **整个页面空白**（实测复现；不是"这里不画"那种局部问题）。
+ *  它只读模块级的 `propsState` 与三个模块级函数，选中态从 `selection` 现取 —— 因此
+ *  提升到模块级**不需要**任何上下文搬运。 */
+function renderUserPropsPanel() {
+  const st = userPropsStateOf();
+  const sel = selection;
+  return renderPickerPropsPanel({
+    open: st.open,
+    // token 取**当前选中项**（不是 propsState 里那一个）：两者不等时（刚换壁纸）
+    // 面板应当报"这张的属性还没到"，绝不能拿上一张的属性表冒充这一张。
+    token: propTokenOf(sel),
+    loading: st.loading,
+    error: st.error,
+    props: propsState.props,
+    sceneLiveActive: sel.sceneLiveActive,
+    // 失败态自陈用的读数（token / 表长 / 有没有宿主答复）—— 见 picker-props-panel.js 的 note。
+    source: st,
+    ensureDefs: (token) => {
+      if (propsState.token !== token && !propsState.loading) loadUserPropDefs(token, true);
+    },
+    onPropInput: onUserPropInput,
+    onReset: resetUserProps,
+  });
+}
+
+/** 打开发送（侧栏下钻的入口）：先落状态再拉定义 —— 判据是"该有属性了"。 */
+function openUserPropsPanel() {
+  propsPanelOpen = true;
+  loadUserPropDefs(propTokenOf(selection), true);
+  emit();
+}
+
+/** 收起：只翻开关（定义留着，下次开不必重拉）。 */
+function closeUserPropsPanel() {
+  propsPanelOpen = false;
+  emit();
+}
+
 /** 当前 live 渲染 iframe（属性热更新与心跳读的是同一个）。 */
 
 /** token（propsUrl 末段；同时是设置里 userProps 的键）。 */
@@ -2704,6 +2768,9 @@ function onVideoVolume(pct, live) {
   if (!live) emit();
 }
 function onClear() {
+  // 清掉壁纸 = 这张的属性面板也失去对象：顺手把「壁纸属性」收起来。不收的话开关会
+  // 「挂着」，下次随便选一张带属性的壁纸时面板会**自动弹开**（用户没点过它）。
+  propsPanelOpen = false;
   applySelection("");
 }
 // 手动点开一张壁纸 = 明确想看它：作废它的 live 失败记忆（sceneLiveFailures，持久
@@ -3400,22 +3467,6 @@ const officialColorOf = (tokens) => {
   // （该重拉时重拉、改一个属性、恢复默认）都留在本文件 —— 状态与处理器是 ctx 的**供给方**，
   // 渲染器只拿值 + 回调（同模态框那条契约）。判定就一句：
   // token 变了且不在加载中才重拉。
-  function renderUserPropsPanel() {
-    return renderPickerPropsPanel({
-      open: propsPanelOpen,
-      token: propTokenOf(sel),
-      loading: propsState.loading,
-      error: propsState.error,
-      props: propsState.props,
-      sceneLiveActive: sel.sceneLiveActive,
-      ensureDefs: (token) => {
-        if (propsState.token !== token && !propsState.loading) loadUserPropDefs(token, true);
-      },
-      onPropInput: onUserPropInput,
-      onReset: resetUserProps,
-    });
-  }
-
   // ── 页签面板内容（函数声明提升，renderActiveTab 在 return 里先调用）──────
   // 五页签 = 两个单渲染器（「外观」「关于」）+ 两个合并渲染器（「播放」= 效果 + 声音，
   // 「系统」= 吉祥物 + 高级）+ 壁纸库。「关于」不取任何 ctx 字段（静态页）。

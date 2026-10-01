@@ -88,11 +88,20 @@ const propsEntry = (root) => findNode(root, (n) => hasClass(n, 'we-picker__btn')
 /** 面板根（没打开 / 没有 token → null）。 */
 const propsPanel = (root) => findByClass(root, 'we-picker__props');
 
-/** 面板头部那句状态文案（读取中… / 宿主错误 / 当前条件下没有可调项 / 没有用户属性 / ""）。 */
+/** 面板头部那句状态文案（读取中… / 宿主错误 / 当前条件下没有可调项 / 没有用户属性 / ""）。
+ *  ⚠️ 这段文案**只写给人读的成因**：排查期曾在这里追加过一段自陈读数（` · <token> · <条数>`），
+ *  问题定位后已撤除（用户口径：不要那串东西）—— `propsStamp` 因此不再是"读数"，而是
+ *  **"读数不存在"的探针**，§8 用它钉住它不被加回来。 */
 const propsNote = (root) => {
   const head = findByClass(root, 'we-picker__props-head');
   const note = head ? findByClass(head, 'we-picker__props-note') : null;
   return note ? textUnder(note) : null;
+};
+/** 排查期的自陈读数**必须不存在**：返回 null 才算对（有内容 ⇒ 有人把它加回来了）。 */
+const propsStamp = (root) => {
+  const raw = propsNote(root);
+  if (raw === null) return null;
+  return raw.indexOf('·') === -1 ? null : raw;
 };
 
 /** 属性行（`text` / `group` 是分组标题，渲染成 `we-picker__props-section`，不算行）。 */
@@ -151,8 +160,11 @@ const sequenceMatches = (seq, golden) =>
 // ══ 变异输入生成器（负对照专用；判据本身不改）═════════════════════════════════
 
 /** 深拷贝渲染树，把等于 from 的字符串叶子换成 to。 */
+/** 把渲染树里的某段文案换掉（负对照用）。
+ *  ⚠️ 按**子串**换而不是整串相等：状态说明句后面还追加着自陈读数（` · <token> · <条数>`），
+ *  说明句不再是整个字符串 —— 只在整串相等时替换的写法会静默不改，负对照随即恒假。 */
 function mutateText(node, from, to) {
-  if (typeof node === 'string') return node === from ? to : node;
+  if (typeof node === 'string') return node.includes(from) ? node.split(from).join(to) : node;
   if (Array.isArray(node)) return node.map((n) => mutateText(n, from, to));
   if (!node || typeof node !== 'object') return node;
   const copy = Object.assign({}, node);
@@ -274,6 +286,8 @@ const localStorage = {
 // ── 宿主侧 mock（负对照就是换这里的应答）──
 const PROPS_TOKEN = 'tokA';
 const PROPS_PATH = '/wallpaper-engine/props/' + PROPS_TOKEN;
+const PROPS_TOKEN_B = 'tokB';
+const PROPS_PATH_B = '/wallpaper-engine/props/' + PROPS_TOKEN_B;
 const PROPS_FAIL_REASON = 'project.json 读不出来（测试）';
 
 const WALLPAPERS = [
@@ -281,6 +295,8 @@ const WALLPAPERS = [
   { id: 'img1', title: '图片壁纸一', type: 'image', playable: true, media: '/wallpaper-engine/media/img1', preview: null, contentrating: 'Everyone' },
   { id: 'scn1', title: '场景壁纸一', type: 'scene', playable: true, media: null, frameUrl: '/wallpaper-engine/scene-frame/scn1', preview: null, contentrating: 'Everyone' },
   { id: 'webA', title: '网页壁纸 A', type: 'web', playable: true, media: '/wallpaper-engine/media/webA', preview: null, contentrating: 'Everyone', propsUrl: PROPS_PATH },
+  // 第二张带属性入口的壁纸：用来把面板开在 A 上、期间切到 B，判"上一张的属性表不得冒充这一张"。
+  { id: 'webB', title: '网页壁纸 B', type: 'web', playable: true, media: '/wallpaper-engine/media/webB', preview: null, contentrating: 'Everyone', propsUrl: PROPS_PATH_B },
 ];
 
 const inventoryCalls = [];
@@ -307,7 +323,7 @@ const PROPS_DEFS = [
   { name: 'extra', ptype: 'bool', text: '仅在发光时可见', order: 7, value: false, default: false, overridden: false,
     condition: 'glow == true' },
 ];
-const propsPayload = (props) => ({ ok: true, token: PROPS_TOKEN, props, overrides: {}, hasProject: true });
+const propsPayload = (props, token) => ({ ok: true, token: token || PROPS_TOKEN, props, overrides: {}, hasProject: true });
 
 let pendingProps = null;
 let propsStatus = 200;
@@ -746,6 +762,94 @@ console.log('\n7. 失败腿：宿主非 2xx / 2xx 但体说 not-ok ⇒ 头部给
   check('重拉成功 ⇒ 属性行回来（失败是可恢复的）', propRows(tree).length === 6,
     propRows(tree).length + ' 行');
 }
+
+console.log('\n8. 说明句按**成因**自陈（空表的三种成因必须能分辨；排查期的读数已撤除）');
+{
+  // 成功态：说明句为空，但读数必须写出来（` · tokA · 8`）。
+  // ⚠️ 读数是**宿主给的定义条数**（8），不是可见行数（6 = 8 − 1 分组标题 − 1 条件不满足）：
+  //    这两个数必须能分别读出来，否则"条件挡住"与"宿主没给"看起来一模一样。
+  check('成功态：说明句为空，且头部**没有**任何读数（排查期的 token/条数已撤除）',
+    propsNote(tree) === '' && propsStamp(tree) === null, JSON.stringify(propsNote(tree)));
+  check('负对照：把读数加回来会被同一条判据判出',
+    propsStamp({ type: 'div', props: { className: 'we-picker__props-head' }, children: [
+      { type: 'span', props: { className: 'we-picker__props-note' }, children: [' · tokA · 8'] },
+    ] }) !== null);
+
+  // 空表：宿主答了"这张没有属性" ⇒ 说明句必须点明成因（不再是一块什么都看不出来的空面板）。
+  const toggle = () => { propsEntry(tree).props.onClick(); tree = render(); };
+  propsBody = propsPayload([], PROPS_TOKEN);
+  toggle(); toggle();
+  await sleep(0);
+  tree = render();
+  check('宿主回空表 ⇒ 头部说明「这张壁纸没有用户属性…」（且没有读数）',
+    propsNote(tree) === '这张壁纸没有用户属性（project.json 的 general.properties）'
+      && propsStamp(tree) === null, String(propsNote(tree)));
+  check('负对照：空表不得被说成「当前条件下没有可调项」（两种成因分开写）',
+    propsNote(tree) !== '当前条件下没有可调项');
+  check('负对照：空表也不得显示「读取中…」', propsNote(tree) !== '读取中…');
+
+  // 条件把属性全挡住：另一种"看着像空"的成因，说法必须不同。
+  const ALL_HIDDEN = [
+    { name: 'bgcolor', ptype: 'color', text: '背景颜色', value: '0 0 0', default: '0 0 0', overridden: false, condition: 'glow == true' },
+    { name: 'glow', ptype: 'bool', text: '发光', value: false, default: false, overridden: false, condition: 'bgcolor != "0 0 0"' },
+  ];
+  propsBody = propsPayload(ALL_HIDDEN, PROPS_TOKEN);
+  toggle(); toggle();
+  await sleep(0);
+  tree = render();
+  check('属性都被 condition 挡住 ⇒ 头部说明「当前条件下没有可调项」（读数不存在）',
+    propsNote(tree) === '当前条件下没有可调项' && propsStamp(tree) === null
+      && propRows(tree).length === 0, String(propsNote(tree)));
+  check('负对照：这种成因不得被说成「这张壁纸没有用户属性」',
+    propsNote(tree) !== '这张壁纸没有用户属性（project.json 的 general.properties）');
+
+  // 换壁纸：面板开着时切到 B ⇒ A 的属性表**不得**冒充 B 的（读数与说明句都要说"正在取 B 的"）。
+  propsBody = null;
+  toggle(); toggle(); // 回到 A 的成功态（在途 -> settle）
+  settleProps(200, propsPayload(PROPS_DEFS, PROPS_TOKEN));
+  await sleep(0);
+  tree = render();
+  check('回到 A 的成功态（换壁纸判据的前置）', propRows(tree).length === 6);
+  openModal(tree); tree = render();
+  pickCard(tree, '网页壁纸 B'); // 期间 A 的表还在 propsState 里
+  tree = render();
+  closeModal(tree); tree = render();
+  check('开着的面板切到另一张壁纸：不画上一张的属性行，并明说正在取这张的',
+    propRows(tree).length === 0 && propsNote(tree) === '正在取这张壁纸的属性…',
+    String(propsNote(tree)) + ' / ' + propRows(tree).length + ' 行');
+  // 换壁纸的"不得冒充"由**行数**判（读数撤除后不能再靠它读 token）：
+  // 切换途中一行都不画，且说明句说"正在取这张的"。
+  check('换壁纸途中不画上一张的行（说明句 = 正在取这张的，且没有残留行）',
+    propRows(tree).length === 0 && propsNote(tree) === '正在取这张壁纸的属性…',
+    String(propsNote(tree)));
+  settleProps(200, propsPayload(PROPS_DEFS, PROPS_TOKEN_B));
+  await sleep(0);
+  tree = render();
+  check('B 的属性到达 ⇒ 行回来（切换不是单向门）', propRows(tree).length === 6,
+    propRows(tree).length + ' 行');
+}
+
+console.log('\n9. 清掉壁纸 ⇒ 面板收起（不留一个挂在开关上的空面板）');
+{
+  // 内联设计下的对应不变量：清掉当前壁纸后，`sel.propsUrl` 随之消失 —— 面板必须跟着
+  // 收起来，而不是"开关还是 true、面板却画不出来"（那正是侧栏那次"空白"的同源形态）。
+  // 处理器层（`onClear`）负责把开关一并关掉，这里从**真产物**上验证结果。
+  const clearBtn = () => findNode(tree, (n) => hasClass(n, 'we-picker__btn') && textUnder(n) === '清除');
+  check('前置：面板开着、且有「清除」按钮可点', !!propsPanel(tree) && !!clearBtn());
+  clearBtn().props.onClick();
+  tree = render();
+  check('清掉壁纸后：面板收起（不再画面板），头部文案与读数一并消失',
+    !propsPanel(tree) && propsNote(tree) === null && propsStamp(tree) === null,
+    '面板=' + Boolean(propsPanel(tree)));
+  // 负对照：不清开关的写法会让面板留着一个"没有 token"的空壳 —— 用合成树证明判据有牙。
+  const staleShell = { type: 'div', props: { className: 'we-picker__props' }, children: [] };
+  check('负对照：残留一个空面板壳会被同一条判据判出（判据不是"反正都没有"）',
+    !!propsPanel(staleShell) && !propsPanel(tree));
+  // 再选回一张带属性的壁纸：开关已被收起 ⇒ 面板**不会自己弹开**（用户没点过它）。
+  const entry = propsEntry(tree);
+  check('清掉壁纸后入口本身也不在了（没有可调对象）', entry === null);
+}
+
 
 console.log('');
 if (failures) {
