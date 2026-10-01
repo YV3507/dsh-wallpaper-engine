@@ -606,6 +606,42 @@ const WE_I18N_EN = {
   "深色": "Dark",
   "{label} · 来源：{source}（亮度 {lum}）": "{label} · Source: {source} (luminance {lum})",
   "{label} · 来源：{source}": "{label} · Source: {source}",
+
+  // ── src/panel-tabs.js · 「关于」页签（简介 / 致谢 / 仓库 / 交流群）──
+  //    人名与项目标识不译（oneincase / YV3507 / WebWallGL / media-bridge / scene-gl…）；
+  //    中文全角标点只出现在键里 —— 值里一律 ASCII（守卫会把全角标点当"中文"判红）。
+  "关于": "About",
+  "📖 项目简介": "📖 About the project",
+  "🖼️ 壁纸引擎 · 让 DSH 的背后动起来": "🖼️ Wallpaper Engine · bring the space behind DSH to life",
+  "把 Wallpaper Engine 的壁纸搬到 DSH 界面后面：视频直接播放，场景（Scene）与网页（Web）壁纸由内置的 WebWallGL 引擎实时渲染，再配上一整套液态玻璃界面改造 —— 你桌面上那张会动的画，现在就在对话背后放着。🎬✨": "Puts your Wallpaper Engine wallpapers behind the DSH interface: videos play directly, Scene and Web wallpapers are rendered live by the bundled WebWallGL engine, and the whole UI gets a liquid-glass makeover — the moving picture from your desktop now hangs behind the chat. 🎬✨",
+  "壁纸全部来自你自己的机器（本机库 / WE 工程目录 / 手动上传），插件不联网也能用，更不会把它们传到任何地方。🔒": "Every wallpaper comes from your own machine (local library / WE project folders / manual uploads); the plugin works offline and never sends them anywhere. 🔒",
+  "🙏 贡献者致谢": "🙏 Contributors",
+  "这个插件是许多人一起做出来的成果，谢谢他们：❤️": "This plugin is the work of many hands — thank you all: ❤️",
+  "🧩 oneincase —— 内置 WebWallGL 实时渲染引擎与 media-bridge 媒体中间件的作者：场景 / 网页壁纸的实时渲染，以及 Windows / macOS / Linux 三平台的原生媒体链路，都建立在它们之上": "🧩 oneincase — author of the bundled WebWallGL live-rendering engine and the media-bridge media middleware: live rendering for Scene / Web wallpapers and the native media pipeline on Windows / macOS / Linux are both built on them",
+  "🛠️ YV3507 —— 提交量最大的贡献者：从早期场景渲染器起步，到静态帧系列修复、液态玻璃令牌体系、实时帧链路与多轮大型重构，几乎每个里程碑都有他": "🛠️ YV3507 — the most prolific contributor: from the early scene renderer to the static-frame fixes, the liquid-glass token system, the live-frame pipeline and several large refactors — he is in almost every milestone",
+  "🎨 yuxilao —— scene-gl 的 Linux 实时渲染管线（WebGL2 官方 shader 驱动）、轮换交接与 GPU 帧回填": "🎨 yuxilao — the Linux live-rendering pipeline of scene-gl (WebGL2 driven by the official shaders), rotation hand-off and GPU frame back-fill",
+  "🍎 Jerry —— 在三平台原生支持落地之前，macOS 侧的适配与贡献路径由他维护": "🍎 Jerry — before native support landed on all three platforms, he maintained the macOS port and the macOS contribution path",
+  "🌟 还有 SiriLee、libiwolve、0-007pro、jujubaoj646-star、xiahou001、wilianyichen、hecoococ、ShamSky88、Rekk0、Y1X1n 等贡献者，以及所有通过 issue 反馈与 PR 参与改进的朋友 —— 谢谢你们！": "🌟 And SiriLee, libiwolve, 0-007pro, jujubaoj646-star, xiahou001, wilianyichen, hecoococ, ShamSky88, Rekk0, Y1X1n and many more, plus everyone who filed an issue or sent a PR — thank you!",
+  "也谢谢上游 Wallpaper Engine 生态与 DSH 官方插件的作者们 —— 站在你们的肩膀上。🙇": "Thanks as well to the Wallpaper Engine ecosystem and the authors of the official DSH plugins — we are standing on your shoulders. 🙇",
+  "⭐ 开源与支持": "⭐ Open source & support",
+  "项目以 MIT 协议开源、完全免费。如果它让你的 DSH 好看了一点点，去仓库点一颗 ⭐ 就是最直接的鼓励～": "The project is MIT-licensed and completely free. If it made your DSH look even a little nicer, a ⭐ on the repo is the most direct way to say thanks!",
+  "⭐ 去 GitHub 点亮 Star": "⭐ Star it on GitHub",
+  "在浏览器里打开项目仓库": "Open the project repository in your browser",
+  "⭐ 正在获取 star 数…": "⭐ Fetching star count…",
+  "⭐ 当前 {count} star": "⭐ {count} stars right now",
+  "⭐ 暂时取不到 star 数": "⭐ Star count unavailable right now",
+  "来自 GitHub API 的实时数据（带缓存；拉不到时显示上一次取到的值）": "Live data from the GitHub API (cached; when GitHub cannot be reached the last known value is shown)",
+  "🔗 仓库地址（按钮打不开时可手动复制）：": "🔗 Repository URL (copy it manually if the button does nothing):",
+  "想要新功能、遇到问题，或者想看看接下来要做什么，都欢迎来仓库提 Issue / PR —— 一起把它做得更好 🧰": "Want a new feature, hit a problem, or curious what is next? File an Issue / PR in the repo — let's make it better together. 🧰",
+  "💬 加入交流群": "💬 Join the community",
+  "卡住了、想吐槽、或者想第一时间拿到新版本，都欢迎来群里找我们 👋": "Stuck, want to vent, or want new versions the moment they land? Come find us in the groups. 👋",
+  "🐧 QQ 群 · DSHWE | LLM 讨论群": "🐧 QQ group · DSHWE | LLM discussion",
+  "🎵 抖音群 · dsh 交流群": "🎵 Douyin group · dsh community",
+  "QQ 群二维码": "QQ group QR code",
+  "抖音群二维码": "Douyin group QR code",
+  "手机 QQ 扫码加入 · 群里见 👋": "Scan with QQ on your phone to join · see you there 👋",
+  "抖音扫码加入 · 群号 252729465001": "Scan in Douyin to join · group ID 252729465001",
+  "💌 感谢每一位使用者 —— 换上你喜欢的那张壁纸，这个插件就没白写。": "💌 Thanks to every user — put up a wallpaper you love and this plugin has done its job.",
 };
 
 // ── 宿主文案（lib/** 里由客户端显示的那些原文）────────────────────────────────

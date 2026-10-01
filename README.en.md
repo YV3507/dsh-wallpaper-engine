@@ -117,7 +117,7 @@ Step-by-step recovery (`ERR_PNPM_UNEXPECTED_VIRTUAL_STORE`, etc.) lives in
 
 ![Settings UI overview](docs/images/settings-ui.gif)
 
-> The settings page: the liquid-glass card with six tabs (壁纸 / 外观 / 吉祥物 / 效果 / 声音 / 高级).
+> The settings page: the liquid-glass card with five tabs (Library / Appearance / Playback / System / About).
 
 ![Wallpaper picker modal](docs/images/wallpaper-library.gif)
 
@@ -125,7 +125,7 @@ Step-by-step recovery (`ERR_PNPM_UNEXPECTED_VIRTUAL_STORE`, etc.) lives in
 
 ### The settings tabs
 
-The settings page and the wallpaper-library drawer share the same **six tabs** — **壁纸** (selection / rotation / custom) · **外观** · **吉祥物** · **效果** · **声音** · **高级** — each keeping only the controls that belong to it instead of one long scrolling column. The pill indicator slides smoothly between tabs, and long explanations live in tooltips — each row keeps a one-line hint.
+The settings page has **five tabs** — **Library** (selection / rotation / custom uploads) · **Appearance** (colors / glass / fonts / sidebar) · **Playback** (effects + audio) · **System** (mascot + advanced) · **About** (project intro / repo & live star count / community QR codes / contributor credits) — each keeping only the controls that belong to it instead of one long scrolling column. The pill indicator slides smoothly between tabs, and long explanations live in tooltips — each row keeps a one-line hint. **About** reads no panel state and writes no settings: copy plus two inline QR codes (they render even offline), and the one external input is the **star count** — fetched by the host from the GitHub API when you open the tab (cached; if GitHub is unreachable it shows the last known value). **One-click starring is not offered**: starring requires your GitHub credentials and the plugin stores no token — the button opens the repo page, and the raw URL is right below it for copying.
 
 ### Selection & filters
 

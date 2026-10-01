@@ -2046,6 +2046,50 @@ const CSS = `
   @media (prefers-reduced-motion: reduce) {
     .we-rope--settle, .we-repo-panel { transition: none !important; }
   }
+
+  /* ── 「关于」页签：静态页（简介 / 致谢 / 仓库 / 交流群二维码）──
+     排版口径与设置行一致：正文走主题墨色 token（不新造颜色），只有二维码卡片
+     自带一层极薄的玻璃底衬 —— 码图本身是**不透明白底 PNG**，深色主题下若直接
+     贴在玻璃上会像一块补丁，故给它圆角 + 边框 + 一点呼吸空间。 */
+  .we-about__lead { display: flex; flex-direction: column; gap: 8px; }
+  .we-about__lead-title { font-size: 0.95em; font-weight: 600; color: var(--we-ink, inherit); }
+  .we-about__p { margin: 0; font-size: 0.82em; line-height: 1.65; color: var(--we-ink-2, rgba(128, 128, 128, 0.9)); }
+  .we-about__credits { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+  .we-about__credit { font-size: 0.8em; line-height: 1.6; color: var(--we-ink-2, rgba(128, 128, 128, 0.9)); }
+  .we-about__star-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .we-about__star { font-size: 0.85em; font-weight: 600; }
+  /* 实时 star 数（宿主代取）：跟着按钮同一行，数字用等宽数字位避免跳数时抖动。 */
+  .we-about__stars {
+    font-size: 0.85em; font-weight: 600; color: var(--we-ink, inherit);
+    font-variant-numeric: tabular-nums;
+  }
+  /* 仓库地址：可选中、可整段复制的裸文本（外链唤起与否不由插件说了算 ⇒ 留兜底）。 */
+  .we-about__url-row { display: flex; flex-direction: column; gap: 4px; }
+  .we-about__url {
+    display: block; padding: 6px 8px; border-radius: var(--we-ui-radius, 8px);
+    border: 1px dashed var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.08));
+    font-size: 0.75em; line-height: 1.4; color: var(--we-ink-2, rgba(128, 128, 128, 0.9));
+    user-select: text; word-break: break-all;
+  }
+  /* 两张二维码并排（各 240px 起），容器不够宽就换行堆叠 —— 抽屉那种窄壳里
+     一张一行，码图反而更大（扫码成功率优先于"排得整齐"）。 */
+  .we-about__qr-row { display: flex; flex-wrap: wrap; gap: 12px; }
+  .we-about__qr {
+    flex: 1 1 240px; min-width: 0; margin: 0;
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    padding: 10px 10px 8px;
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.28));
+    border-radius: 12px; background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.08));
+  }
+  .we-about__qr-title { font-size: 0.78em; color: var(--we-ink, inherit); text-align: center; }
+  .we-about__qr-img {
+    display: block; width: 100%; height: auto; max-width: 320px;
+    /* 码图自带白底：圆角 + 白底让它在深色主题里也读得出边界。 */
+    border-radius: 10px; background: #fff;
+  }
+  .we-about__qr-hint { font-size: 0.7em; color: var(--we-ink-3, rgba(128, 128, 128, 0.65)); text-align: center; }
+  .we-about__foot { text-align: center; }
 `;
 
 export { READABILITY_FLOOR, READABILITY_FLOOR_DARK, CSS };
