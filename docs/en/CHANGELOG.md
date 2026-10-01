@@ -16,6 +16,27 @@
 
 > Increment after **v1.1.0** (the diff against upstream `origin/main`, verifiable commit by commit):
 
+- **The render harness gained three kinds of anchor — and they exposed five real coverage gaps** (the coverage half of P4-19).
+  It started from a counter-example: `renderWallpaperTab` (456 lines) produced **only 3 control labels** under the harness,
+  because the gates `editing` / `groups` / `uploadedList` / `propsPanelOpen` all default to off — roughly **410 lines** of its
+  four sections had never been rendered. Two sibling gaps surfaced the same way: the appearance page's font-section details sit
+  behind `sel.fontCustom` (**~180 lines**), and the effects page's live-render group could not even pass "it renders" because the
+  harness supplied **none** of its globals.
+  ⇒ three **behavioural anchors** were added (each invariant under refactoring, each with positive/negative controls): a **label
+  anchor** (`labelSeq`, rows going through `SliderRow`/`switchRow`/`ctlText`), a **class anchor** (`classKinds`, "which widgets were
+  drawn" — the only thing that can see the wallpaper tab's raw `input`/`select` beyond its gates), and a **text anchor** (`textKinds`,
+  "which strings were rendered" — the transcode row has five branches that differ **only in wording**). Both sides of every gate are
+  pinned: `wantClasses` on the open side, `rejectClasses` on the closed side.
+  The harness went from 3 cases to **19** (wallpaper 5 / appearance 3 / effects 11), with two **coverage floors**, a `want` floor, an
+  **anchor-coverage floor** (all three anchors must actually be used) and a `wantTexts` floor. This round measured one **silent failure**:
+  a patch inserted a new case into the previous case's `ctx:` builder — **syntactically valid but never iterated** — so not a single
+  judgement was added while the suite stayed green (caught only because the pass count did not move). A **"guard of guards"** was added
+  too: a static assertion that every `sameSeq(...)` and all three anchor calls are wrapped in `if (t.<field>)` — it immediately caught
+  an unguarded `sameSeq(seq, t.want)` (**without a guard the judgement *crashes* instead of going red**, leaving no verdict at all).
+  **Real defects fixed along the way**: the harness never supplied the live-render group's globals (those dozens of lines had never run) ·
+  `FRAME_VARIANTS` was stubbed as an **empty array**, so the scene case threw on `FRAME_VARIANTS[i].label` (**an empty stand-in makes a
+  branch unreachable — the other disguise of "zero coverage"**) · the transcode row also gates on `sel.transcodeState === "working"`.
+
 - **`renderEffectsTab` split into five blocks — after building it a finer anchor** (remaining P4-19 work). It was the last hundred-line renderer, yet it has **only a single section label** ⇒ section order cannot pin its internal structure. So the labels of `SliderRow` / `switchRow` / `ctlText` were first **put back into the rendered tree** (the `noop` stubs had been swallowing them into `null`), which makes the **ordered sequence of control labels** a judgeable behavioural fact — invariant under any refactor, yet fine-grained enough to catch "a row was moved / removed": the effects page yields 10 labels in the settings variant and 9 in the sidebar variant (the missing one is exactly `帧率上限`, matching the sidebar exemption), and the appearance page yields 7 in the settings variant and 5 in the sidebar variant (the three missing ones come from the `!sidebarSurface` gate).
   Only then was the split done: `renderEffectsTab` **270 → 39 lines** (the parent is now the empty-state early return + the single section shell + five-block composition), with the content becoming five sub-renderers of 12 / 42 / 80 / 78 / 21 lines.
   **One judgement's scope was corrected along the way**: `verify-scene-live`'s "the sidebar ctx must cover every field the renderers need" used to read only the `render*Tab` layer's destructure — once the fields moved into `render*Section`, it read an empty set and went red. **It was right to go red**; the judgement's scope had not followed the code. It now collects the section functions too (candidate fields 8 → 70).
