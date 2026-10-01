@@ -1785,6 +1785,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     [wp, ap, pb].every((t) => tabsOf(t).length === 3 && tabsOf(t).filter((c) => c.includes('--active')).length === 1));
   check('壁纸档画列表、外观 / 播放档不画（列表只属于壁纸页）',
     wp.shape.includes('we-qp__library') && wp.shape.includes('we-qp__list')
+      && wp.shape.includes('we-qp__viewtabs') // 列表/卡片视图切换也只在壁纸档（标签式，非页签栏成员）
       && !ap.shape.includes('we-qp__library') && !pb.shape.includes('we-qp__library'));
   check('外观档 = 主题 + 细节两节（设置页专属的字体那节不画）',
     ap.text.includes('主题') && ap.text.includes('细节') && !ap.text.includes('全局字体'));

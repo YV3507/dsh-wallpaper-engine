@@ -363,17 +363,30 @@
                     },
                     ...qpTypes().map((t) => React.createElement("option", { key: t.id, value: t.id }, t.label)),
                     ),
-                    // 列表 / 卡片：偏好记 localStorage（QP_VIEW_KEY），两个壳共用一份。
-                    React.createElement("div", { className: "we-picker__seg", role: "group", "aria-label": weT("视图") },
+                    // 列表 / 卡片：标签式切换（滑动胶囊做激活指示、无分段底 —— 样式见
+                    // .we-qp__viewtabs），偏好记 localStorage（QP_VIEW_KEY），两个壳共用一份。
+                    // 语义仍是开关（role=group + aria-pressed），只是外观走标签形态。
+                    React.createElement("div", { className: "we-tabs we-qp__viewtabs", role: "group", "aria-label": weT("视图") },
+                      React.createElement("span", {
+                        className: "we-tabs__pill",
+                        "aria-hidden": "true",
+                        style: {
+                          width: "calc((100% - 6px) / 2)",
+                          transform: "translateX(" + (view === "cards" ? 100 : 0) + "%)",
+                        },
+                      }),
                       React.createElement("button", {
-                        className: "we-picker__btn we-picker__rate" + (view !== "cards" ? " we-picker__rate--active" : ""),
                         type: "button",
+                        // 自带挂钩类 we-qp__viewtab：把这两枚从 verify-scene-live 的
+                        // 「三档页签栏」页签计数里摘出去（那条判据按 we-tabs__tab 的
+                        // 精确类名数 3 枚，视图切换不是页签栏的一员）。
+                        className: "we-tabs__tab we-qp__viewtab" + (view !== "cards" ? " we-tabs__tab--active" : ""),
                         "aria-pressed": view !== "cards" ? "true" : "false",
                         onClick: () => switchView("list"),
                       }, weT("列表")),
                       React.createElement("button", {
-                        className: "we-picker__btn we-picker__rate" + (view === "cards" ? " we-picker__rate--active" : ""),
                         type: "button",
+                        className: "we-tabs__tab we-qp__viewtab" + (view === "cards" ? " we-tabs__tab--active" : ""),
                         "aria-pressed": view === "cards" ? "true" : "false",
                         onClick: () => switchView("cards"),
                       }, weT("卡片")),
