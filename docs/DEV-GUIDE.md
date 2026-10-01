@@ -257,6 +257,25 @@ node test/tools/host-route-index.mjs --write   # 重算并写入 docs/ROUTE-INDE
 - 软档的**原退出码**打在末尾 `[warn-only] 软档守卫原退出码 = N` 行上。想让某条软档守卫
   真的拦下改动，直接 `node test/<守卫>.mjs` 跑它（判据一字未改，只是没被降级）。
 
+#### CI 跑**两条腿**（Windows + POSIX），不是因为"多跑一遍更保险"
+
+守卫里有**平台条件分支**，而两半各在不同的平台上才有牙：
+
+| 分支 | 只在哪个平台成立 | 为什么 |
+|---|---|---|
+| `verify-scene` 的 unlink 失败用例（500 `unlink-failed` / 帧仍在盘上 / 重试可用 …） | **POSIX** | 只有 POSIX 的 `chmod` 能阻止 unlink；Windows 上模式位基本被忽略 |
+| 同一处 win32 那半（ENOENT 幂等） | Windows | 同上，反过来 |
+| `verify-scene-live` 的目录链接 | 各按平台 | win32 建 junction、POSIX 建 dir |
+| `verify-media-bridge` 的一处断言 | Windows | win32 专用 |
+
+⇒ 只跑一个平台，**另一半零覆盖**，而 `verify-scene` 自己就会把它打印成
+「来自 posix 分支的 5 条 … 在 win32 上没有任何覆盖 —— 这是覆盖差异，不是通过」。
+所以"换平台会改变被断言的那一半"不是**不换平台**的理由，恰恰是**两个都要跑**的理由。
+`verify.yml` 用 `strategy.matrix.os = [windows-latest, ubuntu-latest]` + `fail-fast: false`
+（一条腿红了不该把另一条腿的结论藏起来），`concurrency.group` 里带 `matrix.os`
+（语义唯一：一次新 push 取消的是**同一平台**的上一次 run，而不是让两条腿互相取消）。
+这条"必须两平台"由 `test/verify-contracts.mjs` ④ 静态钉住 —— 谁把矩阵改回单平台就会红。
+
 ### 4.4 覆盖范围（每层各自保证什么）
 
 | 层 | 它保证的事 | 它**不**保证的事 |

@@ -299,6 +299,27 @@ and **lists no counts** (they drift).
   `[warn-only] 软档守卫原退出码 = N` line. To make a soft guard actually block a change, run it directly
   with `node test/<guard>.mjs` (the assertions are unchanged; only the downgrade is gone).
 
+#### CI runs **two legs** (Windows + POSIX) — not because "running it twice is safer"
+
+The guards contain **platform conditionals**, and each half only has teeth on its own platform:
+
+| Branch | Only true on | Why |
+|---|---|---|
+| `verify-scene`'s unlink-failure case (500 `unlink-failed` / the frame is still on disk / retry works …) | **POSIX** | only POSIX `chmod` can block an unlink; on Windows the mode bits are essentially ignored |
+| the win32 half of that same case (ENOENT idempotence) | Windows | same reason, in reverse |
+| `verify-scene-live`'s directory link | per platform | win32 creates a junction, POSIX a dir |
+| one assertion in `verify-media-bridge` | Windows | win32-specific |
+
+⇒ Running a single platform leaves the **other half with zero coverage**, and `verify-scene` prints that
+itself: "5 of these come from the posix branch … has no coverage on win32 — this is a coverage
+difference, not a pass." So "changing the platform changes which half is asserted" is not a reason to
+*avoid* a platform — it is exactly the reason to run **both**. `verify.yml` uses
+`strategy.matrix.os = [windows-latest, ubuntu-latest]` with `fail-fast: false` (one leg going red must
+not hide the other leg's verdict), and `concurrency.group` includes `matrix.os` (so the semantics are
+unambiguous: a new push cancels the previous run *of the same platform*, rather than the two legs
+cancelling each other). "Both platforms are required" is pinned statically by
+`test/verify-contracts.mjs` ④ — anyone collapsing the matrix back to one platform goes red.
+
 ### 4.4 Coverage (what each layer does and does not guarantee)
 
 | Layer | What it guarantees | What it does **not** |

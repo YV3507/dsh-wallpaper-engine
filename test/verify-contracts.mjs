@@ -223,6 +223,53 @@ const tabsSrc = read('src/panel-tabs.js');
       .some((s) => !s.includes('--use-mock-keychain')));
 }
 
+// ── ④ CI 必须同时跑 Windows 与 POSIX 两条腿 ──────────────────────────────────
+// 为什么这是**契约**而不是配置偏好：守卫里有平台条件分支，而两半各在不同的平台上才有牙 ——
+//   · `verify-scene` 的 unlink 失败用例：**只有 POSIX 的 chmod 能阻止 unlink**（Windows 上
+//     模式位基本被忽略）⇒ POSIX 那半（500 unlink-failed / 帧仍在盘上 / 重试可用 …）在 win32
+//     上不执行，而 win32 那半（ENOENT 幂等）在 POSIX 上不执行；
+//   · `verify-scene-live` 的目录链接按平台建 junction / dir；
+//   · `verify-media-bridge` 有一处 win32 专用断言。
+// 只跑一个平台 ⇒ 另一半**零覆盖**，而 `verify-scene` 自己会把这件事打印成
+// "这是覆盖差异，不是通过"（实测：win32 上 5 条 platform-skipped）。
+// ⇒ 判据：`verify.yml` 声明的 runner 集合必须同时含 windows 与 ubuntu/linux。
+console.log('\n④ CI 平台矩阵（平台条件分支的两半都要有覆盖）');
+{
+  const workflow = read('.github/workflows/verify.yml');
+  /**
+   * 从 workflow 源码取出它**实际会跑**的 runner 集合。
+   * 两种形态都要认：`runs-on: <literal>` 与矩阵 `runs-on: ${{ matrix.os }}` + `os: [...]`
+   * —— 只认字面量会把矩阵形态误判成"没有 runner"（假红），只认矩阵则会漏掉字面量那种。
+   */
+  const runnersOf = (text) => {
+    const out = new Set();
+    for (const m of text.matchAll(/runs-on:\s*([^\n#]+)/g)) {
+      const v = m[1].trim();
+      if (!v.includes('matrix.')) out.add(v.split(/\s+/)[0]);
+    }
+    const mu = /runs-on:\s*\$\{\{\s*matrix\.([\w-]+)\s*\}\}/.exec(text);
+    if (mu) {
+      const m = new RegExp('\\b' + mu[1] + ':\\s*\\[([^\\]]*)\\]').exec(text);
+      if (m) for (const x of m[1].split(',')) if (x.trim()) out.add(x.trim().replace(/['"]/g, ''));
+    }
+    return [...out];
+  };
+  const runners = runnersOf(workflow);
+  const isWindows = (r) => /^windows/i.test(r);
+  const isPosix = (r) => /^(ubuntu|linux)/i.test(r);
+  check('覆盖断言非空转：真的解析到了 runner 清单', runners.length >= 2, 'runners=' + runners.join(', '));
+  check('verify.yml 同时跑 Windows 与 POSIX（平台条件分支的两半都有覆盖）',
+    runners.some(isWindows) && runners.some(isPosix), 'runners=' + runners.join(', '));
+  // 负对照：字面量与矩阵两种形态都必须在**同一个**判据下判坏。
+  check('negative control: 只跑 windows 的字面量 runner 会被判出',
+    (() => { const r = runnersOf('runs-on: windows-latest\n'); return r.some(isWindows) && !r.some(isPosix); })());
+  check('negative control: 只列一个平台的矩阵会被判出',
+    (() => { const r = runnersOf('runs-on: ${{ matrix.os }}\nos: [windows-latest]\n'); return r.some(isWindows) && !r.some(isPosix); })());
+  check('negative control: 矩阵形态必须被解析出全部平台（否则上面的"两平台"会假绿）',
+    JSON.stringify(runnersOf('runs-on: ${{ matrix.os }}\nos: [windows-latest, ubuntu-latest]\n').sort())
+      === JSON.stringify(['ubuntu-latest', 'windows-latest']));
+}
+
 console.log('');
 if (failed) { console.log('CONTRACT CHECKS FAILED — ' + failed + ' failed'); process.exit(1); }
 console.log('ALL CONTRACT CHECKS PASSED');

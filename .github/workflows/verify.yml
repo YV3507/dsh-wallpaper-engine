@@ -8,7 +8,11 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: verify-${{ github.ref }}
+  # ⚠️ 组里带上 `matrix.os`：两条腿同属一次 run，而 `cancel-in-progress` 的语义是
+  # "同组里更早的还在跑的就取消" —— 不带 os 时两条腿共组，容易被读成"它们会互取消"，
+  # 也让"哪条腿被 supersede"变得不可推理。带上 os 之后，一次新 push 取消的是**同一平台**
+  # 的上一次 run，语义唯一。
+  group: verify-${{ github.ref }}-${{ matrix.os }}
   cancel-in-progress: true
 
 permissions:
@@ -16,11 +20,26 @@ permissions:
 
 jobs:
   verify:
-    # Windows：本项目的开发与发布平台；部分守卫还带平台条件分支（例如 unlink 用例
-    # 在 win32 上只能断言「确实清除 + ENOENT 幂等」，POSIX 才断言 chmod 拦截），
-    # 换平台会改变被断言的那一半。
-    runs-on: windows-latest
+    # ── 为什么要**两条腿**（P4-18）────────────────────────────────────────────
+    # 守卫里有**平台条件分支**，而两半各在不同的平台上才有牙：
+    #   · `verify-scene` 的 unlink 失败用例：**只有 POSIX 的 chmod 能阻止 unlink**
+    #     （Windows 上模式位基本被忽略）⇒ 那一半（500 unlink-failed / 帧仍在盘上 /
+    #     重试可用 …）在 win32 上**不执行**，而 win32 那一半（ENOENT 幂等）在 POSIX 上不执行。
+    #   · `verify-scene-live` 的目录链接用 junction（win32）或 dir（POSIX）建。
+    #   · `verify-media-bridge` 有一处 win32 专用断言。
+    # 只跑一个平台 ⇒ 另一半**零覆盖**，而 `verify-scene` 自己就会把这件事打印成
+    # "这是覆盖差异，不是通过"（本仓实测：win32 上 5 条 platform-skipped）。
+    # 因此"换平台会改变被断言的那一半"不是**不换平台**的理由，恰恰是**两个都要跑**的理由。
+    # fail-fast: false —— 一条腿红了不该把另一条腿的结果藏起来（两条腿的结论要能分别读）。
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
+      - name: 平台（判据按平台分支，日志里要能一眼看出这条腿断言了哪一半）
+        run: node -e "console.log(process.platform + '/' + process.arch + ' @ ' + process.version)"
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4

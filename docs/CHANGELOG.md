@@ -17,6 +17,29 @@
 
 > v1.1.0 之后的增量（与上游 `origin/main` 的差异，逐提交可查）：
 
+- **CI 补上 POSIX 腿：平台条件分支的另一半第一次真的被执行**（审计 §8）。此前两个 workflow 都只有
+  `windows-latest`，而守卫里有**平台条件分支**，两半各在不同的平台上才有牙 —— 最实的一条是
+  `verify-scene` 的 unlink 失败用例：**只有 POSIX 的 `chmod` 能阻止 unlink**（Windows 上模式位基本
+  被忽略）⇒ POSIX 那半（500 `unlink-failed` / 帧仍在盘上 / 重试可用 …）在 win32 上**不执行**，
+  而 win32 那半（ENOENT 幂等）在 POSIX 上不执行；另有 `verify-scene-live` 的 junction/dir 分支与
+  `verify-media-bridge` 的 win32 专用断言。
+  **这件事判据自己早就喊出来了**：`verify-scene` 每次在 win32 上都打印
+  「来自 posix 分支的 5 条 … 在 win32 上没有任何覆盖 —— 这是覆盖差异，不是通过」。
+  所以"换平台会改变被断言的那一半"不是**不换平台**的理由，恰恰是**两个都要跑**的理由。
+  现在 `verify.yml` 是 `strategy.matrix.os = [windows-latest, ubuntu-latest]` +
+  `fail-fast: false`（一条腿红了不该把另一条腿的结论藏起来），`concurrency.group` 带上 `matrix.os`
+  （语义唯一：一次新 push 取消的是**同一平台**的上一次 run，而不是让两条腿互相取消），
+  首步打印 `process.platform` 便于读日志。**`verify:bridge` 两条腿都跑** ——
+  `lib/media/provision.js` 早已声明 linux 资产（`media-bridge-linux-x64-musl` 等，含 sha256），
+  所以不是"没有产物可下"；该步自带"环境跳过"的第三结局，失败即真回归。
+  **判据**：`test/verify-contracts.mjs` 新增第 ④ 节 —— 从 workflow 源码解析它**实际会跑的 runner
+  集合**（同时认 `runs-on: <字面量>` 与 `runs-on: ${{ matrix.os }}` + `os: [...]` 两种形态），
+  断言必须同时含 windows 与 ubuntu/linux；三条负对照覆盖字面量单平台、矩阵单平台，以及
+  "矩阵形态必须被解析出全部平台"（否则主判据会假绿）。**牙齿实证**：把 `verify.yml` 改回
+  windows-only ⇒ 红并点名 `runners=windows-latest`；还原 ⇒ 绿。
+  ⚠️ 这条腿的**首次真实运行就是它的验证** —— 本机是 Windows，POSIX 分支在这里结构性跑不了
+  （`chmod` 不影响删除），这一点无法在本机替代。
+
 - **发布产物第一次被真实安装器装一遍**（审计 §7.6）。此前的盲区是结构性的：CI 只跑
   `dsh plugin add link:<工作区>`，而发布面守卫只核**声明**（`files` / 可达闭包 / `dependencies`）
   —— 而**软链不参与依赖解析**，所以"`peerDependencies` 能否在**安装闭包**里解析出来"这一类
