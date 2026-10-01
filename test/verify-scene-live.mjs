@@ -814,9 +814,10 @@ function fnBody(source, name) {
 const effectsSrc = readFileSync(join(root, 'src', 'effects.js'), 'utf8');
 const fadeBgBody = fnBody(effectsSrc, 'resolveWallpaperFadeBg');
 check('效果应用层已抽成独立模块并被内联',
-  effectsSrc.includes('function applyEffects()') && effectsSrc.includes('function clearEffects()')
-    && readFileSync(join(root, 'lib', 'client.js'), 'utf8').includes('function applyEffects()')
-    && !src.includes('function applyEffects()'));
+  // 签名带可选 opts（拖动档 live，见 applyEffects 的文件头说明）⇒ 这里只认前缀。
+  effectsSrc.includes('function applyEffects(') && effectsSrc.includes('function clearEffects()')
+    && readFileSync(join(root, 'lib', 'client.js'), 'utf8').includes('function applyEffects(')
+    && !src.includes('function applyEffects('));
 const clientChecks = [
   // live 优先与 sceneVideo 让位都发生在 **buildMedia** 里（已抽到 media-prep.js）。
   ['live is the top priority for scenes and web', /const isLive = \(sel\.type === "scene" \|\| sel\.type === "web"\) && liveRenderEnabled\(sel\)/.test(prepSrc)],

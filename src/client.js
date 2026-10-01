@@ -357,6 +357,22 @@ function setTransient(field, value) {
   selection[field] = value;
   return value;
 }
+// ── 拖动期的「看得见的那部分」（live）──────────────────────────────────────
+// 拖动类控件（色板 / 滑块）在 input 上**每格**都发事件 —— 原生颜色轮盘一次拖动可以上百次。
+// 老口径每格都 `setSetting + emit()`：emit 让整棵面板（设置页那棵最重）重渲染，而 emit 的
+// 订阅者里那次全量 applyEffects 还会重建字体样式表、同步场景音频、并读出一次**强制同步
+// 样式计算**（壁纸透明度 > 0 时）—— 拖动因此发涩（用户实测）。现在分两档：
+//   · live（input / 拖动中）：写值 + `applyEffects({ live: true })`（跳过与本次改动无关的
+//     重活，样式变量照旧全量写），**不 emit** —— 面板不重渲染，数值回显由控件自己就地更新
+//     （SliderRow 的 --we-fill / 原生色块的自身外观）；
+//   · 抬手（change）：走完整的一次 —— `emit()`（applyEffects 是它的订阅者，全量那一次照旧）。
+// 与「壁纸属性」面板的 silent 拖动同一条口径（src/picker-props-panel.js 的 onPropInput）。
+// 拖动期的中间值**照样会落盘**（setSetting → debounce 200ms），所以中途关窗也不丢最后一次值。
+function commitLiveSetting(field, value, live) {
+  setSetting(field, value);
+  if (live) applyEffects({ live: true });
+  else emit();
+}
 
 // ── 破坏性动作的「面板内确认」（**唯一机制**，五个动作共用）─────────────────────
 // 为什么禁用原生模态（`window.confirm` / `alert`）：本插件跑在**同一个渲染页**里，原生
@@ -2403,6 +2419,16 @@ function starCountLabel() {
 // ARRAY (the sidebar-glass group) — React requires keys there.
 function SliderRow(label, min, max, step, value, onInput, suffix, key, opts) {
   opts = opts || {};
+  // 拖动期的轨道填充：就地改这一行的 --we-fill（**局部样式写，不触发 React 渲染**）。
+  // 数值文本（.we-picker__value）留给抬手那一次 emit —— 与「壁纸属性」面板同一口径
+  //（拖动中不重渲染，见 src/picker-props-panel.js 的 onPropInput）。
+  const liveFill = (el) => {
+    try {
+      const lo = Number(el.min); const hi = Number(el.max); const v = Number(el.value);
+      const pct = hi > lo ? Math.max(0, Math.min(100, ((v - lo) / (hi - lo)) * 100)) : 0;
+      el.style.setProperty("--we-fill", pct + "%");
+    } catch { /* 回显是增强，失败不影响取值 */ }
+  };
   return React.createElement("div", { className: "we-picker__row we-picker__slider-row", key: key },
     React.createElement("span", {
       className: "we-picker__hint we-picker__label",
@@ -2413,14 +2439,16 @@ function SliderRow(label, min, max, step, value, onInput, suffix, key, opts) {
       min: String(min), max: String(max), step: String(step),
       value: String(value),
       // accent 填充进度：track 左段着 accent 色（macOS/Linear 式滑块质感），
-      // --we-fill 由当前值算出，emit 重渲染时同步更新。
+      // --we-fill 由当前值算出，emit 重渲染时同步更新（拖动中由 liveFill 就地更新）。
       style: { "--we-fill": Math.max(0, Math.min(100, ((Number(value) - min) / (max - min)) * 100)) + "%" },
       // The visible label is a <span> (not a <label>), so expose it to AT.
       "aria-label": label,
-      onInput: (e) => onInput(Number(e.target.value)),
+      // 拖动档（第二个实参 live=true）：处理器只写值 + 应用样式，不 emit（见 commitLiveSetting）；
+      // 抬手那一次由 onChange 走完整路径。
+      onInput: (e) => { liveFill(e.currentTarget); onInput(Number(e.target.value), true); },
       // onChange stays as a final commit fallback (some engines only fire it
       // on release); onInput above is what makes the knob feedback instant.
-      onChange: (e) => onInput(Number(e.target.value)),
+      onChange: (e) => onInput(Number(e.target.value), false),
     }),
     React.createElement("span", { className: "we-picker__hint we-picker__value" }, suffix),
   );
@@ -2490,8 +2518,10 @@ function swatchRow(label, presets, value, onPick, opts) {
         React.createElement("input", {
           type: "color",
           value: opts.colorValue || value || "#ffffff",
-          onInput: (e) => onPick(e.target.value),
-          onChange: (e) => onPick(e.target.value),
+          // 拖动色盘：每格都发 input（原生颜色轮盘一次拖动可以上百次）⇒ 拖动档只写值 +
+          // 应用样式、**不 emit**（见 commitLiveSetting）；抬手那一次（change）走完整路径。
+          onInput: (e) => onPick(e.target.value, true),
+          onChange: (e) => onPick(e.target.value, false),
           title: weT("自定义{label}", { label: weT(label) }),
         }),
         React.createElement("span", { className: "we-picker__hint" }, weT("自定义")),
@@ -2656,7 +2686,8 @@ function onToggleAudio() {
   emit();
 }
 // 音量滑块（0–100%）：视频 / 场景内嵌 MP4 / 场景包内音频共用同一 videoVolume。
-function onVideoVolume(pct) {
+// 拖动档（live）照样即时改音量（听得见），只是不 emit —— 见 commitLiveSetting。
+function onVideoVolume(pct, live) {
   selection.videoVolume = clampNum(Number(pct) / 100, 0, 1, 0);
   const layer = document.getElementById(LAYER_ID);
   const vid = layer && layer.querySelector("video");
@@ -2667,7 +2698,7 @@ function onVideoVolume(pct) {
     if (p && typeof p.catch === "function") p.catch(() => { /* ignore */ });
   }
   persistSelection();
-  emit();
+  if (!live) emit();
 }
 function onClear() {
   applySelection("");
@@ -2735,38 +2766,36 @@ function onNextWallpaper() {
 // 与上面那批播放控制处理器同源理由：快捷播放面板的「外观」「播放」两页与设置页
 // 同名页签**共用同一批渲染器**（renderAppearanceTab / renderEffectsTab 的
 // ctx.surface 分支），而渲染器的回调必须在模块级才组得进侧栏的 ctx。
-// 这几支的取值单位与落盘路径与设置页逐字相同（照原样搬出组件闭包，一行没改）。
-// 统一的写法是「写设置 + emit()」：applyEffects 是 emit 的订阅者（见 apply()），CSS 变量
-// 与数值回读在同一趟里更新 —— 在这里额外直调 applyEffects 会让每次拖动双份应用（实测）。
+// 这几支的取值单位与落盘路径与设置页逐字相同（照原样搬出组件闭包）。统一的写法是
+// commitLiveSetting：非拖动档 = 写设置 + emit（applyEffects 是 emit 的订阅者，一趟里
+// 更新 CSS 变量与数值回读）；拖动档 = 写设置 + 只应用样式、不 emit（见该函数的说明）。
 //   · 画面组：scrim / wallpaperOpacity / wallpaperBlur / background{Brightness,Contrast,Saturate}
 //   · 外观组：accent / glassColor / glassAlpha / border / blur（雾化）
 //   · 主题随壁纸开关（打开时立刻按当前壁纸补判一次）
-const onScrim = (pct) => { setSetting("scrim", pct / 100); emit(); };
+const onScrim = (pct, live) => commitLiveSetting("scrim", pct / 100, live);
 // 壁纸透明度（#82）：存 %（0–90），applyEffects 换算成 element opacity。
-const onWallpaperOpacity = (pct) => {
-  setSetting("wallpaperOpacity", clampNum(pct, 0, 90, DEFAULTS.wallpaperOpacity)); emit();
-};
-const onBorder = (pct) => { setSetting("border", pct / 100); emit(); };
-const onBlur = (px) => { setSetting("blur", px); emit(); };
-const onWallpaperBlur = (px) => { setSetting("wallpaperBlur", px); emit(); };
-const onBackgroundBrightness = (pct) => { setSetting("backgroundBrightness", pct); emit(); };
-const onBackgroundContrast = (pct) => { setSetting("backgroundContrast", pct); emit(); };
-const onBackgroundSaturate = (pct) => { setSetting("backgroundSaturate", pct); emit(); };
+const onWallpaperOpacity = (pct, live) =>
+  commitLiveSetting("wallpaperOpacity", clampNum(pct, 0, 90, DEFAULTS.wallpaperOpacity), live);
+const onBorder = (pct, live) => commitLiveSetting("border", pct / 100, live);
+const onBlur = (px, live) => commitLiveSetting("blur", px, live);
+const onWallpaperBlur = (px, live) => commitLiveSetting("wallpaperBlur", px, live);
+const onBackgroundBrightness = (pct, live) => commitLiveSetting("backgroundBrightness", pct, live);
+const onBackgroundContrast = (pct, live) => commitLiveSetting("backgroundContrast", pct, live);
+const onBackgroundSaturate = (pct, live) => commitLiveSetting("backgroundSaturate", pct, live);
 // 配色 (accent color) + 玻璃透明度 (glass transparency) + 玻璃颜色 (glass base
 // tint): applied instantly through applyEffects() (--we-accent /
 // --we-glass-alpha / --we-glass-color), persisted so the settings page keeps
 // its custom look across reloads.
-const onAccent = (hex) => {
+const onAccent = (hex, live) => {
   if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-  setSetting("accent", hex); emit();
+  commitLiveSetting("accent", hex, live);
 };
-const onGlassColor = (hex) => {
+const onGlassColor = (hex, live) => {
   if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-  setSetting("glassColor", hex); emit();
+  commitLiveSetting("glassColor", hex, live);
 };
-const onGlassAlpha = (pct) => {
-  setSetting("glassAlpha", clampNum(pct, 0, 60, DEFAULTS.glassAlpha)); emit();
-};
+const onGlassAlpha = (pct, live) =>
+  commitLiveSetting("glassAlpha", clampNum(pct, 0, 60, DEFAULTS.glassAlpha), live);
 // 主题随壁纸（**默认关**）：开关本身只写设置；**打开时**立刻按当前壁纸补判一次，
 // 不等下一次换壁纸（补判走与换壁纸同一条入口；关时那条入口整体空转，不写主题）。
 const onToggleThemeFollow = (v) => {
@@ -2923,15 +2952,13 @@ function fontSetCtx() {
   };
   // 侧栏玻璃（dsh-better-sidebar）：独立于会话玻璃的一套细粒度控制，各自立即
   // 生效并持久化（--we-sidebar-blur / --we-sidebar-alpha / --we-sidebar-color）。
-  const onSidebarBlur = (px) => {
-    setSetting("sidebarBlur", clampNum(px, 0, 200, DEFAULTS.sidebarBlur)); emit();
-  };
-  const onSidebarAlpha = (pct) => {
-    setSetting("sidebarAlpha", clampNum(pct, 0, 200, DEFAULTS.sidebarAlpha)); emit();
-  };
-  const onSidebarColor = (hex) => {
+  const onSidebarBlur = (px, live) =>
+    commitLiveSetting("sidebarBlur", clampNum(px, 0, 200, DEFAULTS.sidebarBlur), live);
+  const onSidebarAlpha = (pct, live) =>
+    commitLiveSetting("sidebarAlpha", clampNum(pct, 0, 200, DEFAULTS.sidebarAlpha), live);
+  const onSidebarColor = (hex, live) => {
     if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-    setSetting("sidebarColor", hex); emit();
+    commitLiveSetting("sidebarColor", hex, live);
   };
   // Mascot pull-cord show/hide, persisted with the other toggles.
   const onRopeVisibilityChange = (e) => {
@@ -2946,17 +2973,18 @@ function fontSetCtx() {
     setSetting("ropeScale", clampNum(scale, ROPE_SCALE_MIN, ROPE_SCALE_MAX, DEFAULTS.ropeScale)); emit();
   };
   // 内容面（编辑器/终端）近不透明玻璃底：透明度滑块 + 底色（空 = 跟随主题）。
-  const onSidebarContentAlpha = (pct) => {
-    setSetting("sidebarContentAlpha", clampNum(pct, 0, 80, DEFAULTS.sidebarContentAlpha)); applyEffects(); emit();
-  };
-  const onSidebarContentColor = (hex) => {
+  const onSidebarContentAlpha = (pct, live) =>
+    commitLiveSetting("sidebarContentAlpha", clampNum(pct, 0, 80, DEFAULTS.sidebarContentAlpha), live);
+  const onSidebarContentColor = (hex, live) => {
     if (hex === "") {
-      selection.sidebarContentColor = ""; // 跟随主题面板色
-      persistSelection(); applyEffects(); emit();
+      // 跟随主题面板色：清键 + 落盘（拖动档不会走到这里 —— 色盘的「跟随」是按钮）。
+      selection.sidebarContentColor = "";
+      persistSelection();
+      if (live) applyEffects({ live: true }); else emit();
       return;
     }
     if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-    setSetting("sidebarContentColor", hex); applyEffects(); emit();
+    commitLiveSetting("sidebarContentColor", hex, live);
   };
   // 字体自定义（#57 精简回归版）：总开关 + 颜色/字重/字体族，各项立即生效并持久化。
   const onToggleFontCustom = (v) => {
@@ -3227,13 +3255,13 @@ const officialColorOf = (tokens) => {
       }).catch(() => { /* ignore */ });
   };
   // 输入光标颜色（#83）："" = 跟随 dsh 原生（自动档），hex = 立即注入并持久化。
-  const onCaretColor = (hex) => {
+  const onCaretColor = (hex, live) => {
     if (hex === "") {
-      setSetting("caretColor", ""); applyEffects(); emit();
+      commitLiveSetting("caretColor", "", live);
       return;
     }
     if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-    setSetting("caretColor", hex); applyEffects(); emit();
+    commitLiveSetting("caretColor", hex, live);
   };
 
   // Close the picker library view (ESC / 返回 button share this path).

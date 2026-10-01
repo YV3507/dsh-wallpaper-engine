@@ -2182,6 +2182,10 @@ setTimeout(async () => {
       const BRANCH_NOTIFY_ELSEWHERE = {
         onRenameCommit: '通知由 `busy()` 的 `done` 在 promise 解析后才发（在写之后）—— 位置分析看不见时序',
         setCustomFrameLocal: '函数内不通知，两个调用点在各自分支里都 `emit`（同 ①h 的豁免）',
+        // 拖动档（live）**有意**不通知：拖动中不重渲染（数值回显由控件就地更新 —— SliderRow 的
+        // --we-fill），抬手那一次（change）走完整路径；音量本身在拖动档已经即时生效
+        //（weApplyAudio + syncSceneAudio），不是"改了不生效"。同 commitLiveSetting 的两档口径。
+        onVideoVolume: 'live 档有意不 emit（拖动中不重渲染，回显由控件就地更新）；抬手档 emit',
       };
       const branchSilent = panelSrcs.flatMap((t) => pathNotifications(t))
         .map((s) => s.split('@')[0]).filter((n) => !(n in BRANCH_NOTIFY_ELSEWHERE));
@@ -2529,6 +2533,121 @@ setTimeout(async () => {
     '正对照：「缺了就红」的写法不算');
   assert.equal(fakeJudgements("  catch (e) { console.log('threw:', e && e.message); }").length, 0,
     '负对照：catch 里的错误上报不得被当成判据');
+}
+
+// ── 拖动期的 live 档：色板 / 滑块每格只写"看得见的那部分" ─────────────────────
+// 现场（用户实测）：在原生颜色轮盘里拖动时，**每格**都 `setSetting + emit()` —— emit 让整棵
+// 面板（设置页那棵最重：字体表 + 12 个色块 + 字体集编辑器）重渲染，而 emit 的订阅者里那次
+// **全量** applyEffects 还会重建字体样式表、同步场景音频、并读一次 `getComputedStyle`
+//（壁纸透明度 > 0 时 ⇒ **强制同步样式计算**，整页 style recalc）—— 拖动因此发涩。
+// 现在两档：`input`（拖动中）= 写值 + `applyEffects({ live: true })`（跳过与本次改动无关的
+// 重活，样式变量照旧全量写）、**不 emit**；`change`（抬手）= 完整一次（emit → 全量 applyEffects）。
+// 三层判据：① 两个行构造器把 live 传下去；② 会拖动的处理器都经 `commitLiveSetting` 收口；
+// ③ **行为**：拿真 `src/effects.js` 在带间谍的 DOM 替身上跑，live 档必须不读 getComputedStyle、
+// 不碰字体 / 场景音频，但照样写样式变量；同一份替身下无参调用必须**两样都做**（负对照）。
+{
+  const clientSrc = readFileSync(new URL('../src/client.js', import.meta.url), 'utf8');
+  const effectsText = readFileSync(new URL('../src/effects.js', import.meta.url), 'utf8');
+  const declOf = (name) => {
+    const i = clientSrc.indexOf('function ' + name + '(') >= 0
+      ? clientSrc.indexOf('function ' + name + '(') : clientSrc.indexOf('const ' + name + ' = ');
+    return i < 0 ? '' : clientSrc.slice(i, i + 700);
+  };
+  // ① 行构造器：input 传 true、change 传 false（拖动档 / 抬手档的分界就在这两处）。
+  assert.ok(clientSrc.includes('onInput: (e) => { liveFill(e.currentTarget); onInput(Number(e.target.value), true); }'),
+    'SliderRow 的 input 必须走拖动档（live=true）并就地更新 --we-fill');
+  assert.ok(clientSrc.includes('onChange: (e) => onInput(Number(e.target.value), false),'),
+    'SliderRow 的 change 必须是抬手档（live=false）');
+  assert.ok(clientSrc.includes('onInput: (e) => onPick(e.target.value, true),')
+    && clientSrc.includes('onChange: (e) => onPick(e.target.value, false),'),
+    'swatchRow 的自定义色盘必须同样分 input / change 两档');
+  // ② 会拖动的处理器都收口到同一条：写值 + （live ? 只应用样式 : emit）。
+  const DRAGGABLE = ['onScrim', 'onWallpaperOpacity', 'onBorder', 'onBlur', 'onWallpaperBlur',
+    'onBackgroundBrightness', 'onBackgroundContrast', 'onBackgroundSaturate', 'onAccent',
+    'onGlassColor', 'onGlassAlpha', 'onSidebarBlur', 'onSidebarAlpha', 'onSidebarColor',
+    'onSidebarContentAlpha', 'onSidebarContentColor', 'onCaretColor'];
+  const notRouted = DRAGGABLE.filter((n) => !declOf(n).includes('commitLiveSetting('));
+  assert.equal(notRouted.length, 0, '拖动类处理器必须经 commitLiveSetting（拖动档不 emit）：' + notRouted.join(', '));
+  assert.ok(declOf('commitLiveSetting').includes('if (live) applyEffects({ live: true });')
+    && declOf('commitLiveSetting').includes('else emit();'),
+    'commitLiveSetting 必须只有这两个分支（live ⇒ 只应用样式；抬手 ⇒ emit，全量那一次由订阅者跑）');
+  // 音量滑块不走 applyEffects（它直接改 media 元素），但同样要"拖动不 emit"。
+  assert.ok(declOf('onVideoVolume').includes('if (!live) emit();'),
+    'onVideoVolume 拖动档必须跳过 emit（音量本身照样即时生效）');
+  // ③ 行为：真 effects.js + 间谍替身。`with` + Proxy 让未知自由名自动得到记录用的替身
+  //   （不必手抄一份依赖清单；清单漏一个就会以 ReferenceError 响亮地红）。
+  const props = [];
+  const named = [];
+  const spy = { gets: 0 };
+  const noop = () => {};
+  const stubTarget = {
+    selection: {
+      scrim: 0, wallpaperOpacity: 40, accent: '#4f8cff', glassColor: '#ffffff', glassAlpha: 0,
+      blur: 0, border: 0, fontCustom: true, caretColor: '', sidebarBlur: 0, sidebarAlpha: 0,
+      sidebarColor: '#ffffff', sidebarContentAlpha: 0, sidebarContentColor: '', sidebarGlass: true,
+      glassWindow: false, wallpaperBlur: 0, backgroundBrightness: 100, backgroundContrast: 100,
+      backgroundSaturate: 100, objectFit: 'cover', flip: false,
+    },
+    document: {
+      body: {
+        style: {
+          setProperty: (k, v) => { props.push(k + '=' + v); },
+          removeProperty: (k) => { props.push('-' + k); },
+        },
+        setAttribute: noop, removeAttribute: noop, hasAttribute: () => false, offsetHeight: 1,
+      },
+      getElementById: () => null,
+    },
+    getComputedStyle: () => { spy.gets++; return { getPropertyValue: () => '' }; },
+    GLASS_SATURATE: 1.3, SCRIM_ID: 'we-scrim', LAYER_ID: 'we-layer',
+    adapterCaps: () => ({ target: 'plain-browser' }),
+    detectMicaSupport: () => true, detectSoftwareRender: () => false,
+    useLegacySaturateCoupling: () => false,
+    weClampSurfaceColor: (hex) => hex,
+    // 名字被记录下来的替身（字体样式表 / 场景音频 / 光标注入 —— 拖动档一概不该碰）
+    snapshotHostFontDefaults: () => { named.push('snapshotHostFontDefaults'); },
+    applyComponentFonts: () => { named.push('applyComponentFonts'); },
+    removeFontStyles: () => { named.push('removeFontStyles'); },
+    removeComponentFonts: () => { named.push('removeComponentFonts'); },
+    applyCaretStyles: () => { named.push('applyCaretStyles'); },
+    removeCaretStyles: () => { named.push('removeCaretStyles'); },
+    syncSceneAudio: () => { named.push('syncSceneAudio'); },
+    resolveWallpaperFadeBg: () => '#000000',
+  };
+  const scope = new Proxy(stubTarget, {
+    // 只接管"替身里有"或"全局也没有"的名字 —— 否则连 `Math` / `String` 也会被当成自由名
+    // 拿到一个记录用的替身（第一版就是这样炸的）。
+    has: (t, k) => (k in t) || !(k in globalThis),
+    get: (t, k) => (k in t ? t[k] : (...a) => { named.push(String(k)); return undefined; }),
+    set: () => true,
+  });
+  // `new Function` 不是模块环境 ⇒ 先剥掉文件末尾的 `export { … }`（构建期内联时也是这么剥的）。
+  const effectsBody = effectsText.replace(/export\s*\{[\s\S]*?\};?\s*$/, '');
+  const mod = new Function('__scope', 'with (__scope) { ' + effectsBody + '\nreturn { applyEffects, clearEffects }; }')(scope);
+  const run = (opts) => {
+    props.length = 0; named.length = 0; spy.gets = 0;
+    mod.applyEffects(opts);
+    return { props: props.slice(), named: named.slice(), gets: spy.gets };
+  };
+  // 冷启动边界：**第一次** applyEffects 就是拖动档（缓存还空着）时允许算一次 —— 之后不再算。
+  const cold = run({ live: true });
+  assert.ok(cold.gets <= 1 && cold.props.length >= 15 && cold.props.some((p) => p.startsWith('--we-accent=')),
+    '拖动档冷启动（无缓存）：最多算一次淡出底色，但样式变量照写 —— 写了 ' + cold.props.length + ' 个');
+  run(); // 抬手档：算出并缓存淡出底色
+  const live = run({ live: true });
+  assert.ok(live.props.length >= 15 && live.props.some((p) => p.startsWith('--we-accent=')),
+    '拖动档照样写样式变量（不是提前 return 的空转）—— 写了 ' + live.props.length + ' 个');
+  assert.equal(live.gets, 0,
+    '拖动档不得读 getComputedStyle（那就是每格一次强制同步样式计算，拖动发涩的主因）');
+  assert.equal(live.named.filter((n) => ['snapshotHostFontDefaults', 'applyComponentFonts', 'removeFontStyles',
+    'removeComponentFonts', 'syncSceneAudio'].includes(n)).length, 0,
+    '拖动档不得重建字体样式表 / 同步场景音频（与本次拖动无关）：' + live.named.join(', '));
+  const full = run();
+  assert.ok(full.gets >= 1, '负对照：抬手档（无参）必须走完整路 —— 该读的读（getComputedStyle 至少 1 次）');
+  assert.ok(full.named.includes('snapshotHostFontDefaults') && full.named.includes('applyComponentFonts'),
+    '负对照：抬手档必须重建字体样式表（fontCustom=true ⇒ snapshot + apply）');
+  assert.ok(full.named.includes('syncSceneAudio'), '负对照：抬手档必须同步场景音频');
+  assert.ok(full.named.includes('removeWallpaperFadeBg') === false, '（防呆：名字记录器本身工作正常）');
 }
 
 console.log('\nALL CLIENT CHECKS DONE');
