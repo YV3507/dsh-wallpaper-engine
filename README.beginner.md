@@ -5,7 +5,7 @@
 > 这是一份**给完全没用过命令行的人**看的简化说明。
 > 想看完整的功能细节和技术原理，请看上面的「中文 README（完整版）」。
 >
-> 📦 **上手需要的东西全在本页**，不需要再跳出去。本插件的 npm 包只带三份 README，`docs/` 目录**不随包发布** —— 本页若提到 `docs/…`，请到**源码仓库** <https://github.com/elysia395/dsh-wallpaper-engine> 的同名路径阅读（那是上游仓库，本插件的源码与完整文档都在那里）。
+> 📦 **上手需要的东西全在本页**，不需要再跳出去。本插件的 npm 包**不带 `docs/`**（随包的是运行期文件与三份 README）—— 本页若提到 `docs/…`，请到**源码仓库** <https://github.com/elysia395/dsh-wallpaper-engine> 的同名路径阅读（那是上游仓库，本插件的源码与完整文档都在那里）。
 
 ---
 
@@ -182,7 +182,7 @@ macOS 上没有 **Wallpaper Engine 客户端**，所以没有 Steam 壁纸库可
 > A simplified walkthrough for people who have **never used a command line**.
 > For full feature details and how it works, see the [English README](README.en.md).
 >
-> 📦 **Everything you need to get started is on this page** — no need to jump elsewhere. The npm package ships **only the three READMEs**; the `docs/` directory is **not published with it**, so if this page mentions `docs/…`, read it in the **source repository** <https://github.com/elysia395/dsh-wallpaper-engine> (the upstream repo — the plugin's source and full documentation live there).
+> 📦 **Everything you need to get started is on this page** — no need to jump elsewhere. The npm package **does not ship `docs/`** (what ships is the runtime and the three READMEs), so if this page mentions `docs/…`, read it in the **source repository** <https://github.com/elysia395/dsh-wallpaper-engine> (the upstream repo — the plugin's source and full documentation live there).
 
 ### What is this?
 

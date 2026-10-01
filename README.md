@@ -17,7 +17,7 @@
 - [能做什么](#能做什么) · [更新前置条件](#更新前置条件) · [支持哪些壁纸类型](#支持哪些壁纸类型) · [工作原理](#工作原理)
 - [安装](#安装) · [使用](#使用) · [配置](#配置) · [与 dsh-better-sidebar 的兼容适配](#与-dsh-better-sidebar-的兼容适配) · [已知限制](#已知限制) · [开发 / 重建](#开发--重建) · [联系方式](#联系方式) · [致谢](#致谢)
 - 版本号、issue 号与性能数字见 [`docs/CHANGELOG.md`](docs/CHANGELOG.md)；升级前置条件见 [`docs/UPGRADING.md`](docs/UPGRADING.md)。
-- 📦 npm 包**只带三份 README**（`docs/` 不随包发布）⇒ 上面这些 `docs/…` 链接在 npm / 插件市场里点不开，请到**源码仓库** <https://github.com/elysia395/dsh-wallpaper-engine> 的同名路径阅读。
+- 📦 npm 包**不带 `docs/`**（随包的是运行期文件：`lib/**`、`cordis.patch.yml`、`scripts/prepare.mjs` 与三份 README）⇒ 上面这些 `docs/…` 链接在 npm / 插件市场里点不开，请到**源码仓库** <https://github.com/elysia395/dsh-wallpaper-engine> 的同名路径阅读。
 
 ## 能做什么
 

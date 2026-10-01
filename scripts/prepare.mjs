@@ -23,4 +23,6 @@ if (hasSource) {
   });
   process.exit(r.status ?? 1);
 }
-console.log('prepare: no client source present (published package) — skipped build');
+// 同样的理由（见 build-client.mjs 末尾）：这条信息会被带进 `npm pack` / `npm publish` 的 stdout，
+// 而 `--json` 要求那里只有 JSON。
+console.error('prepare: no client source present (published package) — skipped build');
