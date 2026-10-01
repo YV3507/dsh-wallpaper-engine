@@ -1929,14 +1929,20 @@ const CSS = `
      与 play-state 口径，--playing 由组件按 playbackLive 挂）。中心的孔用 radial mask
      **真挖穿**而不是叠色块 —— 面板是玻璃，只有镂空才能在深浅主题下都透出底色；孔缘
      一圈细描边把"空心"衬成唱片中孔，而不是图片裁坏了。 */
+  /* ⚠️ 圆度：外缘**不再靠 border-radius + overflow**（那是"把方盒子裁圆"），改用
+     clip-path: circle(50%) —— 它对图片外接盒做整圆裁切，外缘抗锯齿明显更干净，圆也
+     更"正"（现场反馈：不够圆）。中心那个孔过去用 radial-gradient mask 挖穿，而 mask 会把
+     元素提升到一个额外光栅层、**把外缘的抗锯齿一起弄糊**；现在孔由 ::after 那枚"边框环"
+     画（不叠色块，仍是玻璃能透出底色），于是这枚圆盘不再需要 mask。 */
   .we-qp__thumb {
     position: relative; flex: none; width: 40px; height: 40px;
+    aspect-ratio: 1 / 1; box-sizing: border-box;
     border-radius: 50%; overflow: hidden;
+    clip-path: circle(50%);
     background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.12));
     border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.22));
-    -webkit-mask: radial-gradient(circle, transparent 0 3px, #000 4px);
-    mask: radial-gradient(circle, transparent 0 3px, #000 4px);
   }
+  /* 中心孔：一枚描边圆环（不是色块 —— 面板是玻璃，只有留空才能透出底色）。 */
   .we-qp__thumb::after {
     content: ""; position: absolute; left: 50%; top: 50%;
     width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px;
@@ -1969,11 +1975,23 @@ const CSS = `
      颜色取该主题下的文字色（--we-ink：深色主题是浅字、浅色主题是深字）再混 40% 透明，
      于是两套主题都看得见，且始终与文字同色系而不是另一块灰。
      不认识 color-mix 时退回宿主那条中性描边。 */
-  /* 字号 12px = .we-tabs__tab 的字号（两处要一起改）。 */
+  /* 高度：固定高 30px + 零纵向内边距会让文字贴边、整枚看着被压扁（现场反馈）——
+     这里改成由内容与 7px 上下内边距长出来，并显式解掉基类的 height。
+     字号 12px = .we-tabs__tab 的字号（两处要一起改）。 */
   .we-qp__propsbtn {
     display: flex; width: 100%; box-sizing: border-box;
-    justify-content: center; padding: 0 12px;
+    justify-content: center; padding: 7px 12px;
+    height: auto; line-height: 1.2;
     font-size: 12px;
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+  }
+  @supports (border-color: color-mix(in srgb, currentColor 40%, transparent)) {
+    .we-qp__propsbtn {
+      border-color: color-mix(in srgb, var(--we-ink, currentColor) 40%, transparent);
+    }
+  }
+  .we-qp__propsbtn.is-on {
+    border-color: color-mix(in srgb, var(--we-accent, currentColor) 55%, transparent);
   }
   /* 下钻打开时：面板直接占满内容区（**不再有返回按钮那一行** —— 用户口径：
      那一行多余；同一枚「收起壁纸属性」就在页签下面，收起路径并没有丢）。 */

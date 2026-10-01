@@ -1567,31 +1567,58 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       check('「壁纸属性」入口在页签栏下方、内容区之前（三档同一位置）', btnBelowTabs(qpCode));
       check('negative control: 把入口挪到页签栏之上会被同一条判据判出',
         !btnBelowTabs('we-qp__propsbtn … we-tabs we-qp__tabs … const tabBodyClass'));
-      // 入口样式：整行宽、文字居中、字号与页签标签一致（12px）。
+      /** `.we-qp__propsbtn` 的**任意**规则（含 is-on / @supports 各态）里声明过透明边框吗。
+       *  按"声明过没有"判，而不是"最后一条是什么"：级联里最后一条会被 is-on 那条盖住，
+       *  于是"注入透明边框"这种变异反而判不出来（负对照会假红，实测踩过）。 */
+      const declaresTransparentBorder = (styles) =>
+        /\.we-qp__propsbtn(?:[^{}]*)\{[^}]*border-color:\s*transparent/.test(styles);
+      // 用户口径（最终版）：整行、**保留边框**、文字居中、字号与页签标签一致（12px）。
       // 判据只写一次（命名谓词），正判据与负对照调同一个 —— 负对照喂变异输入。
       const entryStyled = (styles, code) => code.includes('we-picker__btn we-qp__propsbtn')
         && /\.we-qp__propsbtn \{[^}]*width: 100%/.test(styles)
         && /\.we-qp__propsbtn \{[^}]*justify-content: center/.test(styles)
         && /\.we-qp__propsbtn \{[^}]*font-size: 12px/.test(styles)
-        && /\.we-tabs__tab \{[^}]*font-size: 12px/.test(styles);
-      check('入口样式：整行 + 居中 + 字号与页签标签一致',
+        && /\.we-tabs__tab \{[^}]*font-size: 12px/.test(styles)
+        // 边框：所有 .we-qp__propsbtn 规则里**最后**声明的 border-color 不能是透明
+        //（要按级联判最后一处——`@supports` 那条就是靠"更晚"生效的）。
+        && !declaresTransparentBorder(styles);
+      check('入口样式：整行 + 有边框 + 居中 + 字号与页签标签一致',
         entryStyled(stylesSrc, qpCode));
+      // 上下内边距 + 解掉基类的固定高：固定高 + 零纵向内边距会让文字贴边、整枚看着被压扁。
+      {
+        const rule = /\.we-qp__propsbtn \{[^}]*\}/.exec(stylesSrc)[0];
+        check('入口有上下内边距、且高度不再被钉死（`padding: 7px 12px` + `height: auto`）',
+          /padding: 7px 12px/.test(rule) && /height: auto/.test(rule) && /line-height: 1\.2/.test(rule));
+        check('negative control: 退回「固定高 + 零纵向内边距」会被同一条判据判出',
+          !(/padding: 7px 12px/.test(rule.replace('padding: 7px 12px', 'padding: 0 12px'))
+            && /height: auto/.test(rule.replace('height: auto', 'height: 30px'))));
+      }
       // 负对照：改**这一条规则自己的块**（`justify-content: center;` 在别处也出现，全局替换
       // 会改到别的规则 ⇒ 变异没落在被判的对象上，负对照会假红）。
+      // 边框那条变异必须落在**真正生效**的那处 —— `@supports` 里那句（更晚、且带颜色），
+      // 往第一条规则里塞 `border-color: transparent` 是打不过它的（负对照会假红，实测）。
       const btnBlock = /\.we-qp__propsbtn \{[^}]*\}/.exec(stylesSrc)[0];
-      check('negative control: 去掉居中会被同一条判据判出',
-        !entryStyled(stylesSrc.replace(btnBlock, btnBlock.replace('justify-content: center;', 'justify-content: flex-start;')), qpCode));
-      // 入口**不随下钻消失**：同一行同一位置，打开态换文案（用户口径）。
-      check('入口随下钻切换文案，且不过档位门',
-        /userPropsPanelOpen\(\) \? weT\("收起壁纸属性"\) : weT\("壁纸属性"\)/.test(qpCode)
-          && !/qpTab === "wallpaper" && propsAvailable && React\.createElement\("button"/.test(qpCode));
-      check('在别的档点入口 ⇒ 先切回壁纸档再打开（否则看不出反应）',
-        /switchQpTab\("wallpaper"\);\s*openUserPropsPanel\(\);/.test(qpCode)
-          && /if \(qpTab === "wallpaper"\) \{/.test(qpCode));
-      check('negative control: 入口写成"只在下钻关闭时画"会被同一条判据判出',
-        !/propsAvailable && !userPropsPanelOpen\(\) && React\.createElement\("button"/.test(qpCode));
+      const mixRule = /border-color: color-mix\(in srgb, var\(--we-ink[^;]*;/.exec(stylesSrc)[0];
+      check('negative control: 去掉居中 / 让生效的边框颜色透明，都会被同一条判据判出',
+        !entryStyled(stylesSrc.replace(btnBlock, btnBlock.replace('justify-content: center;', 'justify-content: flex-start;')), qpCode)
+          && !entryStyled(stylesSrc.replace(mixRule, mixRule.replace('color-mix(in srgb, var(--we-ink, currentColor) 40%, transparent)', 'transparent')), qpCode));
+      // 边框颜色必须取自**该主题下的文字色**（`--we-ink`）：深色主题浅字、浅色主题深字，
+      // 于是两套主题都看得见（现场反馈过"无边框线"—— 宿主那条中性描边在这套玻璃上近乎不可见）。
+      // 命名谓词：正判据与负对照调同一个（负对照喂变异输入，不是另抄一份）。
+      const entryBorder = (styles) => {
+        const rule = /\.we-qp__propsbtn \{[^}]*\}/.exec(styles);
+        return !!rule && /border: 1px solid/.test(rule[0])
+          && /var\(--we-ink, currentColor\) 40%, transparent/.test(styles);
+      };
+      check('入口边框显式声明，颜色取该主题的文字色（--we-ink）+ 40% 透明（color-mix 兜底）',
+        entryBorder(stylesSrc));
+      check('negative control: 退回"只靠宿主中性描边"（自身不写 border）会被同一条判据判出',
+        (() => {
+          const rule = /\.we-qp__propsbtn \{[^}]*\}/.exec(stylesSrc)[0];
+          return !entryBorder(stylesSrc.replace(rule, rule.replace(/\s*border: 1px solid[^;]*;/, '')))
+            && entryBorder(stylesSrc);
+        })());
     }
-
     // ⚠️ 血泪判据：**面板渲染器必须是模块级声明**，不能是 `apply()` 里的闭包。
     //    `src/sidebar-right.js` 是 prelude（在 `apply()` **之前**求值），它注册的渲染回调
     //    引用不到 apply 的作用域 ⇒ 真机上 `ReferenceError: renderUserPropsPanel is not defined`
@@ -1619,6 +1646,26 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
         && src.includes('function userPropsPanelOpen(')
         && qpCode.includes('userPropsPanelOpen()')
         && !qpCode.includes('propsPanelOpen'));
+  }
+  // ── 侧栏缩略图圆盘：圆度靠整圆裁切，不靠 mask ────────────────────────────────
+  // 现场反馈"当前壁纸图片不够圆"。成因：外缘走 border-radius + overflow（把方盒子裁圆），
+  // 同时又叠了 radial-gradient mask 去挖中心孔 —— mask 会提升一层光栅、把外缘抗锯齿弄糊。
+  // 现在：外缘 = `clip-path: circle(50%)`，中心孔 = ::after 那枚描边圆环，整体不再用 mask。
+  {
+    const thumbRule = () => (/\.we-qp__thumb \{[^}]*\}/.exec(stylesSrc) || [''])[0];
+    check('缩略图圆盘：整圆裁切（clip-path: circle）+ 方形外接盒；不再用 mask',
+      /clip-path: circle\(50%\)/.test(thumbRule())
+        && /aspect-ratio: 1 \/ 1/.test(thumbRule())
+        && !/mask:/.test(thumbRule()));
+    check('negative control: 退回「只靠 border-radius 裁圆 + mask 挖孔」会被同一条判据判出',
+      !(() => {
+        const r = thumbRule();
+        return /clip-path: circle\(50%\)/.test(r.replace('clip-path: circle(50%);', ''))
+          && !/mask:/.test(r + 'mask: radial-gradient(circle, transparent 0 3px, #000 4px);');
+      })());
+    check('中心孔仍由 ::after 的描边圆环画（不是叠色块；玻璃要能透出底色）',
+      /\.we-qp__thumb::after \{[^}]*border: 1px solid/.test(stylesSrc)
+        && /\.we-qp__thumb::after \{[^}]*border-radius: 50%/.test(stylesSrc));
   }
   // ── 侧栏列表的滚动链（真机回归：列表滚不动）────────────────────────────────
   // 布局靠"同级权重 + 源码顺序"决胜：`.we-qp--official .we-qp__section { flex: 0 0 auto }`

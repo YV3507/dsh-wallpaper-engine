@@ -330,8 +330,9 @@
       // 打开态用 is-on 高亮；面板本体只在壁纸档画（在那支分支里），所以在别的档点它时
       // 先把档切回壁纸，否则用户会觉得"点了没反应"。
       propsAvailable && React.createElement("button", {
-        className: "we-picker__btn we-qp__propsbtn",
+        className: "we-picker__btn we-qp__propsbtn" + (userPropsPanelOpen() ? " is-on" : ""),
         type: "button",
+        "aria-expanded": userPropsPanelOpen() ? "true" : "false",
         title: weT("壁纸作者提供的可调属性（改动立即生效）"),
         onClick: () => {
           if (qpTab === "wallpaper") {
