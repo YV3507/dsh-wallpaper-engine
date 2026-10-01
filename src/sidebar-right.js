@@ -173,12 +173,12 @@ function installSidebarRight(ctx) {
           id: WE_SIDEBAR_ID,
           kind: WE_SIDEBAR_KIND,
           keepMounted: true,
-          title: () => "壁纸",
+          title: () => weT("壁纸"),
           guide: [{
             id: "library",
             order: 100,
-            title: () => "壁纸引擎",
-            description: () => "本地 Wallpaper Engine 壁纸库与播放控制",
+            title: () => weT("壁纸引擎"),
+            description: () => weT("本地 Wallpaper Engine 壁纸库与播放控制"),
             icon: renderWeIcon,
           }],
         });
@@ -230,8 +230,9 @@ function installWallSidebarShortcut(ctx) {
     try {
       off = shortcuts.register({
         id: "wallpaper.sidebar.toggle",
-        label: () => "壁纸侧栏（呼出 / 关闭）",
-        aliases: ["wallpaper sidebar", "toggle wallpaper panel", "壁纸侧栏", "壁纸库"],
+        label: () => weT("壁纸侧栏（呼出 / 关闭）"),
+        // 别名是**搜索关键词**（宿主快捷键编辑器里按名字找）：中英都留一份，切语言也不丢词。
+        aliases: ["wallpaper sidebar", "toggle wallpaper panel", weT("壁纸侧栏"), weT("壁纸库")],
         defaults: {
           "desktop:macos": { code: "KeyW", modifiers: ["primary", "alt"] },
           "desktop:windows": { code: "KeyW", modifiers: ["primary", "alt"] },
@@ -332,8 +333,11 @@ function openSettingsSection() {
   const clickOurNavRow = () => {
     let rows = [];
     try { rows = document.body.querySelectorAll("nav button"); } catch { return false; }
+    // 锚点是**本插件注册的 nav label** ⇒ 它随语言变（en 下是 "Wallpaper Engine"）。
+    // 每次点击现取一次译文，别把中文原文冻结成常量（冻结 = en 模式下找不到自己那一行）。
+    const want = weT("壁纸引擎");
     for (const btn of rows) {
-      if ((btn.textContent || "").trim() === "壁纸引擎") {
+      if ((btn.textContent || "").trim() === want) {
         try { btn.click(); return true; } catch { return false; }
       }
     }
@@ -398,7 +402,7 @@ function openSettingsSection() {
       // 给用户一条确定的手动路径（自动打开失手时）。
       try {
         const entry = document.querySelector('button[data-we-qp-entry]');
-        if (entry) entry.title = "自动打开未成功：请按 Cmd/Ctrl+, 或点左栏的设置入口";
+        if (entry) entry.title = weT("自动打开未成功：请按 Cmd/Ctrl+, 或点左栏的设置入口");
       } catch { /* ignore */ }
       release();
       return;

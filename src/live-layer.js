@@ -84,13 +84,15 @@ function liveRenderEnabled(selLike) {
 // 的声明被**提到本常量之前** —— 顶层模板字符串引用后面声明的 `const` 会撞 TDZ。
 const LIVE_FIRST_FRAME_MS = 15000;
 const LIVE_STALL_TICKS = 20;
+// 取值用 getter 现取（不在模块级冻结）：语言由 locale 服务在 bundle 求值之后确定，
+// 冻结的值会让 en 界面的失败行永远停在中文（见 src/i18n.js 的"模块级冻结"纪律）。
 const LIVE_FAIL_LABELS = {
-  timeout: "首帧超时（" + Math.round(LIVE_FIRST_FRAME_MS / 1000) + " 秒内无画面）",
-  stall: "运行中断（" + LIVE_STALL_TICKS + " 秒无帧）",
-  load: "壁纸加载失败",
+  get timeout() { return weT("首帧超时（{secs} 秒内无画面）", { secs: Math.round(LIVE_FIRST_FRAME_MS / 1000) }); },
+  get stall() { return weT("运行中断（{secs} 秒无帧）", { secs: LIVE_STALL_TICKS }); },
+  get load() { return weT("壁纸加载失败"); },
   // 软失败（**不落盘**）：载荷传输没走完 —— 证据是"这张壁纸渲染不出来"以外的另一种事实
   //（同一份包在别的实例/别的源上 0.6s 就到了），所以它只进会话内记忆 + 自动重试。
-  transfer: "载荷传输未完成（下载停滞）",
+  get transfer() { return weT("载荷传输未完成（下载停滞）"); },
 };
 // 会话内的**软失败**记忆（wid → 原因）：传输类失败不写共享设置。
 // 为什么必须与 sceneLiveFailures 分开：那份是宿主持久化设置（所有窗口共用），
@@ -100,9 +102,9 @@ const liveSessionFailures = new Map();
 function liveFailReasonOf(selLike) {
   const m = selLike && selLike.sceneLiveFailures;
   const v = m ? m[String(selLike && selLike.id)] : null;
-  if (v) return LIVE_FAIL_LABELS[v] || "渲染失败";
+  if (v) return LIVE_FAIL_LABELS[v] || weT("渲染失败");
   const soft = liveSessionFailures.get(String(selLike && selLike.id));
-  return soft ? (LIVE_FAIL_LABELS[soft] || "渲染失败") : "";
+  return soft ? (LIVE_FAIL_LABELS[soft] || weT("渲染失败")) : "";
 }
 // objectFit（object-fit 语义）→ WebWallGL fit 值。center 无精确对应
 //（渲染器的 contain 即完整显示居中，视觉最近似）；fill（拉伸变形）→ stretch。
@@ -599,8 +601,8 @@ function startLiveWatch(frame, wid) {
         liveTransferAttempts.delete(watch.wid);
         liveLog("first-frame-ok", "wid=" + watch.wid + " 用时 " + (Date.now() - watch.startedAt) + "ms"
           + "（总 " + (Date.now() - watch.hardAt) + "ms，预算 " + watch.budget + "ms"
-          + (watch.heldPaused ? "，暂停期跳过 " + watch.heldPaused + " tick" : "")
-          + (watch.loadingTicks ? "，传输中 " + watch.loadingTicks + " tick" : "")
+          + (watch.heldPaused ? weT("，暂停期跳过 {n} tick", { n: watch.heldPaused }) : "")
+          + (watch.loadingTicks ? weT("，传输中 {n} tick", { n: watch.loadingTicks }) : "")
           + "，整包 " + ((watch.payload && watch.payload.size) || 0) + "B 完成 " + ((watch.payload && watch.payload.completed) || 0) + " 次）");
         try { syncSceneAudio(selection); emit(); } catch { /* ignore */ }
         // 网页壁纸：首帧稳定后抽一帧存到 host（下次加载/重启用它当占位图）。
@@ -784,7 +786,7 @@ function liveFail(reason) {
     + " 暂停期跳过tick=" + (watched ? watched.heldPaused : 0)
     + " 传输中tick=" + (watched ? watched.loadingTicks : 0)
     + " 载荷=" + JSON.stringify(watched ? watched.payload : null)
-    + " 媒体源=" + ((selection.inventory && selection.inventory.sceneMediaBase) || "(应用源)")
+    + " 媒体源=" + ((selection.inventory && selection.inventory.sceneMediaBase) || weT("(应用源)"))
     + " " + liveStateBrief()
     + " prepare超时计数=" + (prepareLiveTimeouts.get(String(wid)) || 0)
     + " 帧率档=" + selection.sceneLiveFps, "warn");
@@ -796,7 +798,7 @@ function liveFail(reason) {
     liveSessionFailures.set(wid, "transfer");
     reportClientDiag("live-fail", "reason=transfer");
     liveLog("liveFail-soft", "wid=" + wid + " 载荷传输未完成（第 " + attempts + " 次）→ 只记会话内、不写全局记忆"
-      + (attempts <= LIVE_TRANSFER_RETRY_LIMIT ? "，冷却 " + Math.round(LIVE_TRANSFER_RETRY_DELAY_MS / 1000) + "s 后自动重试" : "，已达重试上限"), "warn");
+      + (attempts <= LIVE_TRANSFER_RETRY_LIMIT ? weT("，冷却 {s}s 后自动重试", { s: Math.round(LIVE_TRANSFER_RETRY_DELAY_MS / 1000) }) : weT("，已达重试上限")), "warn");
     scheduleLiveTransferRetry(wid, attempts);
   } else {
     const map = Object.assign({}, selection.sceneLiveFailures || {});
@@ -918,7 +920,7 @@ function scheduleLiveFrameBackfill(frame, opts) {
   const force = Boolean(opts && opts.force);
   const src = selection.sceneFrameUrl || "";
   if (!src || src.indexOf("/scene-frame/") === -1 || !frame) {
-    if (force) { gpuFrameUi.recapturing = false; gpuFrameUi.error = "拿不到实时画面（这个壁纸没有实时渲染）"; try { emit(); } catch { /* ignore */ } }
+    if (force) { gpuFrameUi.recapturing = false; gpuFrameUi.error = weT("拿不到实时画面（这个壁纸没有实时渲染）"); try { emit(); } catch { /* ignore */ } }
     return;
   }
   if (typeof window === "undefined" || typeof window.setTimeout !== "function") return;
@@ -977,23 +979,23 @@ function scheduleLiveFrameBackfill(frame, opts) {
       }
       if (stale) {
         liveLog("gpu-frame-stale", "wid=" + backfillWid + " 存帧视比 "
-          + (arStored > 0 ? arStored.toFixed(4) : "未知") + " ≠ 当前视口 " + arRef.toFixed(4)
+          + (arStored > 0 ? arStored.toFixed(4) : weT("未知")) + " ≠ 当前视口 " + arRef.toFixed(4)
           + " → 清掉按当前视口重抓");
       }
       if (!canvas || typeof canvas.toBlob !== "function") {
-        if (force) forceFail("拿不到实时画面（实时渲染没在运行，或渲染页还没画布）");
+        if (force) forceFail(weT("拿不到实时画面（实时渲染没在运行，或渲染页还没画布）"));
         return false;
       }
       const blob = await new Promise((resolveBlob) => {
         try { canvas.toBlob(resolveBlob, "image/png"); } catch { resolveBlob(null); }
       });
       if (!blob || blob.size < LIVE_FRAME_BACKFILL_MIN_BYTES) {
-        if (force) forceFail("抓到的画面是空的（实时渲染还在启动中？稍等一两秒再试）");
+        if (force) forceFail(weT("抓到的画面是空的（实时渲染还在启动中？稍等一两秒再试）"));
         return false;
       }
       // 内容门禁：黑帧/纯色帧判为未渲染 → 放弃（保留槽里原有的帧）。
       if (!liveFrameLooksUsable(canvas, blob)) {
-        if (force) forceFail("抓到的画面还没有内容（全黑/纯色）→ 已保留原来那张");
+        if (force) forceFail(weT("抓到的画面还没有内容（全黑/纯色）→ 已保留原来那张"));
         return false;
       }
       // 真实渲染帧比作者预览图更能代表这张壁纸 ⇒ 顺手给「主题随壁纸」重判一次
@@ -1008,7 +1010,7 @@ function scheduleLiveFrameBackfill(frame, opts) {
           // 没删掉（权限/占用/宿主报错）→ PUT 也会 409，本帧没换成；清 token 让下
           // 次挂载重试，并留痕（否则用户只看到构图依旧是旧的，没有任何线索）。
           liveLog("gpu-frame-stale-blocked", "wid=" + backfillWid + " 旧帧未删除 → 本轮放弃，下次挂载重试");
-          if (force) forceFail("旧实时帧删不掉（被占用或宿主报错）→ 没有改动它，可稍后重试");
+          if (force) forceFail(weT("旧实时帧删不掉（被占用或宿主报错）→ 没有改动它，可稍后重试"));
           return false;
         }
         recaptured = true;
@@ -1023,7 +1025,7 @@ function scheduleLiveFrameBackfill(frame, opts) {
       const ok = Boolean(put && (put.ok || put.status === 409));
       // 槽位内容刚被替换：留存里那份字节已不对应盘上这张帧，撤掉（下一次建层重新取、重新留）。
       if (ok) releaseFrameBytes(token);
-      if (!ok && force) forceFail("写入失败（宿主返回 " + (put && put.status) + "）");
+      if (!ok && force) forceFail(weT("写入失败（宿主返回 {status}）", { status: put && put.status }));
       if (ok && arRef > 0) gpuFrameAspectKnown.set(token, arRef);
       return ok;
     })().then((settled) => {
@@ -1051,10 +1053,10 @@ function scheduleLiveFrameBackfill(frame, opts) {
       }
       // 未定局（拿不到画面、门禁判定未渲染、网络失败）→ 清 token 允许下次重试。
       if (liveFrameBackfill.token === token) liveFrameBackfill.token = "";
-      if (force) forceFail("这次没抓成（拿不到画面或写入失败）→ 原来那张没动");
+      if (force) forceFail(weT("这次没抓成（拿不到画面或写入失败）→ 原来那张没动"));
     }).catch(() => {
       if (liveFrameBackfill.token === token) liveFrameBackfill.token = "";
-      forceFail("抓帧过程出错 → 原来那张没动");
+      forceFail(weT("抓帧过程出错 → 原来那张没动"));
     });
   }, LIVE_FRAME_BACKFILL_DELAY_MS);
 }
@@ -1592,8 +1594,11 @@ function armLayerContentReveal(node, outgoing, tr, fade) {
   // 新层上屏之前先压住它的音源：旧层还在可见期内出声，两层 BGM 不重叠。
   openRotationAudioGate(node, outgoing);
   pendingReveal = { node, outgoing, tr, fade, hooks };
+  // 过场类型是一个完整词，但**先取词再拼接**：`weT(...) + "…"` 会被 i18n 守卫判成
+  // "碎片化翻译"（见 test/verify-i18n.mjs 判据 ①b），而这一行本身只是诊断留痕。
+  const holdKind = weT(fade ? "过场" : "硬切");
   liveLog("layer-hold", "wid=" + selection.id + " 新层还没有画面 → 旧层留在屏上（"
-    + (fade ? "过场" : "硬切") + "延后到有画面）");
+    + holdKind + "延后到有画面）");
 }
 
 // ── 失败记忆的**管线身份**（旧断言不许跨管线复用）────────────────────────────

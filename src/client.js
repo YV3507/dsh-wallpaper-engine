@@ -86,13 +86,13 @@ const FONT_FAMILY_STACKS = {
   monospace: 'ui-monospace, Consolas, "Courier New", monospace',
 };
 const FONT_FAMILY_LABELS = [
-  { v: "inherit", label: "默认" },
-  { v: "Microsoft YaHei", label: "雅黑" },
-  { v: "KaiTi", label: "楷体" },
-  { v: "SimSun", label: "宋体" },
-  { v: "SimHei", label: "黑体" },
-  { v: "STXingkai", label: "行楷" },
-  { v: "monospace", label: "等宽" },
+  { v: "inherit", get label() { return weT("默认"); } },
+  { v: "Microsoft YaHei", get label() { return weT("雅黑"); } },
+  { v: "KaiTi", get label() { return weT("楷体"); } },
+  { v: "SimSun", get label() { return weT("宋体"); } },
+  { v: "SimHei", get label() { return weT("黑体"); } },
+  { v: "STXingkai", get label() { return weT("行楷"); } },
+  { v: "monospace", get label() { return weT("等宽"); } },
 ];
 // 依持久化值取应用字体栈（sanitize 已保证值在白名单内）。
 function fontFamilyStack(v) {
@@ -295,11 +295,16 @@ function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 // clamp 到 0，所以 UI **不能再给出这些档** —— 否则用户点了按钮却"没反应"。
 // ⚠️ 表里存的是**档位值**（进 ?v=），不是下标；值域有洞（0 与 4）⇒ 推进不能用取模。
 const FRAME_VARIANTS = [
-  { id: 0, label: "实时画面" },
-  { id: 4, label: "自定义画面" },
+  { id: 0, get label() { return weT("实时画面"); } },
+  { id: 4, get label() { return weT("自定义画面"); } },
 ];
 // 卡片类型徽标（卡片左上角）：与「类型」筛选的四类一一对应。
-const CARD_TYPE_LABELS = { video: "视频", web: "网页", image: "图片", scene: "场景" };
+const CARD_TYPE_LABELS = {
+  get video() { return weT("视频"); },
+  get web() { return weT("网页"); },
+  get image() { return weT("图片"); },
+  get scene() { return weT("场景"); },
+};
 // 开启「壁纸音轨」时，音量若为 0 自动提升到的默认可听值（0–1）。
 // 默认音量是 0（静音起步），而音轨开关只翻总开关不动音量 —— 不自动提音量的话，
 // 用户点「音乐开」开关状态变了却依然无声，看起来就是「音量开/关都不生效」
@@ -396,12 +401,12 @@ function renderConfirmRow(armed, token, question, onConfirm, onDisarm) {
     React.createElement("span", { className: "we-picker__hint we-picker__confirm-ask" }, question),
     React.createElement("button", {
       className: "we-picker__btn", type: "button", onClick: onConfirm,
-      title: "就这么办（不可撤销）",
-    }, "确认"),
+      title: weT("就这么办（不可撤销）"),
+    }, weT("确认")),
     React.createElement("button", {
       className: "we-picker__btn", type: "button", onClick: onDisarm,
-      title: "算了",
-    }, "取消"),
+      title: weT("算了"),
+    }, weT("取消")),
   );
 }
 
@@ -423,9 +428,9 @@ function renderConfirmRow(armed, token, question, onConfirm, onDisarm) {
  * 面板与错误行都靠这句话告诉用户"到底哪一步不对"，所以不许各自手写。
  */
 function hostFailureReason(res) {
-  if (!res || !res.status) return "宿主不可达（请求未完成）";
+  if (!res || !res.status) return weT("宿主不可达（请求未完成）");
   const data = res.data;
-  return (data && data.error) || ("宿主返回 " + res.status);
+  return (data && data.error) || weT("宿主返回 {status}", { status: res.status });
 }
 let inventorySeq = 0;
 async function loadInventory() {
@@ -555,9 +560,9 @@ function scheduleSceneVideoResync() {
 // 没有可解释的原因（正常应用）。类型档不在原因表里：它只筛列表与轮播候选、
 // 不拦播放（keepPlayingWallpaper）。
 function selectionBlockedNote(w) {
-  if (!w) return "当前壁纸已不在列表里（可能已被移除或隐藏）";
-  if (!isPlayableType(w)) return "这张壁纸没有可播放的媒体文件";
-  if (!matchesRatingFilter(w, selection.contentRatingFilter)) return "这张壁纸被「内容分级」过滤排除了 —— 把内容分级切回「全部」即可播放";
+  if (!w) return weT("当前壁纸已不在列表里（可能已被移除或隐藏）");
+  if (!isPlayableType(w)) return weT("这张壁纸没有可播放的媒体文件");
+  if (!matchesRatingFilter(w, selection.contentRatingFilter)) return weT("这张壁纸被「内容分级」过滤排除了 —— 把内容分级切回「全部」即可播放");
   return "";
 }
 
@@ -652,7 +657,7 @@ function seedGroupsFromPlaylists() {
   if (!ids.length) return false;
   selection.rotationGroups.push({
     id: nextGroupId(),
-    name: typeof source.name === "string" && source.name.trim() ? source.name.trim() : "轮播列表",
+    name: typeof source.name === "string" && source.name.trim() ? source.name.trim() : weT("轮播列表"),
     interval: DEFAULTS.rotationInterval,
     order: source.order === "random" ? "random" : "sequence",
     wallpaperIds: ids,
@@ -770,20 +775,25 @@ const ROTATION_FADE_MS = 1800;
 // 所以这里没有「淡到黑再淡出」那种中间态透明的方案。
 // ms = 基准毫秒 × 速度档乘子（SWITCH_SPEEDS）。基准在快档也不为 0，避免「点了没反应」。
 const SWITCH_TRANSITIONS = [
-  { id: "cut", label: "硬切", ms: 0 },
-  { id: "fade", label: "交叉淡化", ms: ROTATION_FADE_MS },
-  { id: "push", label: "推移", ms: 700 },
-  { id: "wipe", label: "擦除", ms: 700 },
-  { id: "iris", label: "光圈", ms: 800 },
-  { id: "zoom", label: "缩放", ms: 900 },
-  { id: "bars", label: "条带", ms: 800 },
+  { id: "cut", get label() { return weT("硬切"); }, ms: 0 },
+  { id: "fade", get label() { return weT("交叉淡化"); }, ms: ROTATION_FADE_MS },
+  { id: "push", get label() { return weT("推移"); }, ms: 700 },
+  { id: "wipe", get label() { return weT("擦除"); }, ms: 700 },
+  { id: "iris", get label() { return weT("光圈"); }, ms: 800 },
+  { id: "zoom", get label() { return weT("缩放"); }, ms: 900 },
+  { id: "bars", get label() { return weT("条带"); }, ms: 800 },
 ];
 const SWITCH_SPEEDS = [
-  { id: "fast", label: "快", factor: 0.6 },
-  { id: "normal", label: "标准", factor: 1 },
-  { id: "slow", label: "慢", factor: 1.6 },
+  { id: "fast", get label() { return weT("快"); }, factor: 0.6 },
+  { id: "normal", get label() { return weT("标准"); }, factor: 1 },
+  { id: "slow", get label() { return weT("慢"); }, factor: 1.6 },
 ];
-const SWITCH_DIR_LABELS = { left: "左", right: "右", up: "上", down: "下" };
+const SWITCH_DIR_LABELS = {
+  get left() { return weT("左"); },
+  get right() { return weT("右"); },
+  get up() { return weT("上"); },
+  get down() { return weT("下"); },
+};
 // 只有方向型过场听 switchTransitionDir（条带用它决定竖条 / 横条）。
 const SWITCH_DIRECTIONAL = ["push", "wipe", "bars"];
 // 条带（百叶窗）：板数。横向过场时是 N 块横板，纵向时是 N 块竖板；板数决定缝的
@@ -1086,7 +1096,7 @@ function startEditGroup(id) {
 function startCreateGroup() {
   setTransient("editing", {
     id: nextGroupId(),
-    name: "轮播列表 " + (selection.rotationGroups.length + 1),
+    name: weT("轮播列表 {index}", { index: selection.rotationGroups.length + 1 }),
     interval: DEFAULTS.rotationInterval,
     order: "sequence",
     wallpaperIds: [],
@@ -1100,7 +1110,7 @@ function saveEditingGroup() {
   const idx = selection.rotationGroups.findIndex((g) => g.id === draft.id);
   const cleaned = {
     id: draft.id,
-    name: typeof draft.name === "string" && draft.name.trim() ? draft.name.trim() : "轮播列表",
+    name: typeof draft.name === "string" && draft.name.trim() ? draft.name.trim() : weT("轮播列表"),
     interval: clampNum(draft.interval, 1, 1440, DEFAULTS.rotationInterval),
     order: draft.order === "random" ? "random" : "sequence",
     wallpaperIds: Array.isArray(draft.wallpaperIds)
@@ -1197,12 +1207,12 @@ const UPLOAD_TYPES = ["image/jpeg", "image/png", "video/mp4"];
 async function uploadWallpaperFile(file) {
   const ctype = (file.type || "").toLowerCase();
   if (!UPLOAD_TYPES.includes(ctype)) {
-    setTransient("uploadError", "仅支持 JPG / PNG 图片与 MP4 视频");
+    setTransient("uploadError", weT("仅支持 JPG / PNG 图片与 MP4 视频"));
     emit();
     return;
   }
   if (!/\.(jpe?g|png|mp4)$/i.test(file.name)) {
-    setTransient("uploadError", "文件扩展名需为 .jpg / .png / .mp4");
+    setTransient("uploadError", weT("文件扩展名需为 .jpg / .png / .mp4"));
     emit();
     return;
   }
@@ -1223,12 +1233,12 @@ async function uploadWallpaperFile(file) {
     // Host dedup: uploading the same file again returns the existing entry
     // (data.duplicate) instead of storing a second copy.
     if (data.duplicate) {
-      setTransient("uploadNote", "已存在相同内容的壁纸，已直接选择原有的那张");
+      setTransient("uploadNote", weT("已存在相同内容的壁纸，已直接选择原有的那张"));
     }
     await loadInventory();
     applySelection(data.id);
   } catch (err) {
-    setTransient("uploadError", "上传失败：" + (err && err.message ? err.message : err));
+    setTransient("uploadError", weT("上传失败：{error}", { error: weT(err && err.message ? err.message : err) }));
   }
   setTransient("uploading", false);
   emit();
@@ -1245,7 +1255,7 @@ async function removeUploadWallpaper(id) {
     if (selection.id === id) applySelection("");
     await loadInventory();
   } catch (err) {
-    setTransient("uploadError", "移除失败：" + (err && err.message ? err.message : err));
+    setTransient("uploadError", weT("移除失败：{error}", { error: weT(err && err.message ? err.message : err) }));
   }
   setTransient("uploading", false);
   emit();
@@ -1258,7 +1268,7 @@ const UPLOAD_DIR_URL = "/wallpaper-engine/upload-dir";
 // users can point uploads at a non-system drive without touching config files.
 async function changeUploadDir(dir, migrate) {
   if (!dir || !String(dir).trim()) {
-    setTransient("uploadError", "请输入存储位置路径");
+    setTransient("uploadError", weT("请输入存储位置路径"));
     emit();
     return;
   }
@@ -1273,7 +1283,7 @@ async function changeUploadDir(dir, migrate) {
     setTransient("uploadDirDraft", "");
     await loadInventory();
   } catch (err) {
-    setTransient("uploadError", "更改失败：" + (err && err.message ? err.message : err));
+    setTransient("uploadError", weT("更改失败：{error}", { error: weT(err && err.message ? err.message : err) }));
   }
   setTransient("uploading", false);
   emit();
@@ -1298,7 +1308,7 @@ async function changeWeAssetsDir(dir) {
     await loadInventory();
     syncLayers(); // 可用性变化进 key → live iframe 带/去 localAssets=1 重建
   } catch (err) {
-    setTransient("weAssetsError", "保存失败：" + (err && err.message ? err.message : err));
+    setTransient("weAssetsError", weT("保存失败：{error}", { error: weT(err && err.message ? err.message : err) }));
   }
   emit();
 }
@@ -2009,10 +2019,10 @@ let weBattery = null; // BatteryManager from navigator.getBattery (if available)
 // 遮挡原因（可读文案；空串 = 没被遮挡）。occlusionActive 由它派生，保证「是谁把
 // 渲染页停掉的」只有一个判定源 —— 诊断日志直接引用；失焦档再经适配目标门控（桌面壳失焦时壁纸多半仍整块可见，按失焦暂停会定格**可见**画面，见 adapterCaps）。
 function occlusionReason() {
-  if (selection.pauseOnHidden && typeof document !== "undefined" && document.hidden) return "标签页隐藏(pauseOnHidden)";
+  if (selection.pauseOnHidden && typeof document !== "undefined" && document.hidden) return weT("标签页隐藏(pauseOnHidden)");
   if (adapterCaps().blurPause && selection.pauseOnBlur && typeof document !== "undefined"
-    && typeof document.hasFocus === "function" && !document.hasFocus()) return "窗口失焦(pauseOnBlur)";
-  if (selection.pauseOnBattery && weBattery && !weBattery.charging) return "电池供电(pauseOnBattery)";
+    && typeof document.hasFocus === "function" && !document.hasFocus()) return weT("窗口失焦(pauseOnBlur)");
+  if (selection.pauseOnBattery && weBattery && !weBattery.charging) return weT("电池供电(pauseOnBattery)");
   return "";
 }
 function occlusionActive() {
@@ -2028,7 +2038,7 @@ const OCCLUSION_RECHECK_MS = 3000;
 // applyLiveControls 把渲染页 pause() 掉，而暂停中的渲染页 __wpStats.frame()
 // 恒为 {fps:0, running:false}（渲染器实现：paused → running:false）。
 function livePauseReason() {
-  return selection.playing ? occlusionReason() : "用户暂停";
+  return selection.playing ? occlusionReason() : weT("用户暂停");
 }
 function isEffectivelyPlaying() {
   return selection.playing && !occlusionActive();
@@ -2046,10 +2056,10 @@ function videoPlaybackError(video) {
   const err = video && video.error;
   if (!err) return "";
   // MediaError: 1 ABORTED / 2 NETWORK / 3 DECODE / 4 SRC_NOT_SUPPORTED
-  if (err.code === 4) return "浏览器无法解码这段视频（自上传建议改用 H.264 编码的 MP4）";
-  if (err.code === 3) return "视频解码失败（文件可能已损坏）";
-  if (err.code === 2) return "视频读取失败（文件可能已被移动或删除）";
-  return "视频加载失败";
+  if (err.code === 4) return weT("浏览器无法解码这段视频（自上传建议改用 H.264 编码的 MP4）");
+  if (err.code === 3) return weT("视频解码失败（文件可能已损坏）");
+  if (err.code === 2) return weT("视频读取失败（文件可能已被移动或删除）");
+  return weT("视频加载失败");
 }
 // 拒绝的性质（记在元素的 dataset 上）: AbortError = play() 被 pause() / load() /
 // 换源打断，属瞬时失败 —— 媒体就绪后重试即可自愈，不该当「真拒绝」堵住重试。
@@ -2066,7 +2076,7 @@ function syncVideoState(video) {
   // 而随后 loadedmetadata 里补的 play() 成功时标记没人清 —— 不判 playing 的话
   // 面板会同时显示「播放中」和「浏览器拒绝了播放请求」。
   const reason = videoPlaybackError(video)
-    || (!playing && playRefusalBlocks(video) ? "浏览器拒绝了播放请求" : "");
+    || (!playing && playRefusalBlocks(video) ? weT("浏览器拒绝了播放请求") : "");
   if (selection.videoPlaying === playing && selection.videoError === reason) return;
   setTransient("videoPlaying", playing);
   setTransient("videoError", reason);
@@ -2308,7 +2318,7 @@ function layerKeyDiff(oldKey, nextKey) {
   for (let i = 0; i < Math.max(a.length, b.length); i++) {
     if (a[i] !== b[i]) out.push((LAYER_KEY_FIELDS[i] || "seg" + i) + ":" + keySegBrief(a[i]) + "→" + keySegBrief(b[i]));
   }
-  return out.join(" | ") || "(同 key)";
+  return out.join(" | ") || weT("(同 key)");
 }
 
 
@@ -2324,10 +2334,10 @@ function layerKeyDiff(oldKey, nextKey) {
 // config.json，也不需要 sanitize / serialize）。
 const PICKER_TAB_KEY = "dsh-wallpaper-engine:picker-tab";
 const PICKER_TABS = [
-  { id: "library", label: "壁纸库" },
-  { id: "appearance", label: "外观" },
-  { id: "playback", label: "播放" },
-  { id: "system", label: "系统" },
+  { id: "library", get label() { return weT("壁纸库"); } },
+  { id: "appearance", get label() { return weT("外观"); } },
+  { id: "playback", get label() { return weT("播放"); } },
+  { id: "system", get label() { return weT("系统"); } },
 ];
 // 旧页签 id → 新 id 的迁移（「字体」更早并入了「外观」）：别把老用户甩回第一页。
 const PICKER_TAB_LEGACY = {
@@ -2437,9 +2447,9 @@ function swatchRow(label, presets, value, onPick, opts) {
           value: opts.colorValue || value || "#ffffff",
           onInput: (e) => onPick(e.target.value),
           onChange: (e) => onPick(e.target.value),
-          title: "自定义" + label,
+          title: weT("自定义{label}", { label: weT(label) }),
         }),
-        React.createElement("span", { className: "we-picker__hint" }, "自定义"),
+        React.createElement("span", { className: "we-picker__hint" }, weT("自定义")),
       ),
     ),
   );
@@ -2458,7 +2468,7 @@ function vinylSpinVisible() {
 }
 function VinylRecord(props) {
   const cover = props.cover;
-  const title = props.title || "未选择壁纸";
+  const title = props.title || weT("未选择壁纸");
   const playing = props.playing === true;
   const sm = props.sm === true;
   return React.createElement("div", {
@@ -2677,6 +2687,7 @@ function onNextWallpaper() {
 }
 
 function WallpaperPicker() {
+  useWeLocale(); // 设置页壁纸库：语言切换 → 整棵选择器（含 render* 渲染器）重渲染
   const sel = useStore();
   // 视频类壁纸（原生视频 + 内嵌 MP4 场景）: 只有它们有
   // 「真实播放态」的概念。实时渲染（live iframe）形态必须排除在外：它没有
@@ -2744,7 +2755,7 @@ function WallpaperPicker() {
  * 因此可以当判据断言；碰撞只可能发生在 999 个同名前缀之后，那时退回时间戳。
  */
 function nextFontSetName() {
-  const base = "我的字体集";
+  const base = weT("我的字体集");
   const taken = new Set((selection.fontSets || []).map((r) => r && r.name).filter(Boolean));
   if (!taken.has(base)) return base;
   for (let i = 2; i <= 999; i++) {
@@ -3048,7 +3059,9 @@ const officialColorOf = (tokens) => {
         const declaredRemoved = removedFromResponse(r);
         if (!r.ok || !declaredRemoved) {
           gpuFrameUi.busy = false;
-          gpuFrameUi.error = !r.ok ? ("清除失败：宿主返回 " + r.status) : "清除失败：缓存文件未删除（权限或占用）";
+          gpuFrameUi.error = !r.ok
+            ? weT("清除失败：宿主返回 {status}", { status: r.status })
+            : weT("清除失败：缓存文件未删除（权限或占用）");
           emit();
           return;
         }
@@ -3066,7 +3079,7 @@ const officialColorOf = (tokens) => {
       })
       .catch(() => {
         gpuFrameUi.busy = false;
-        gpuFrameUi.error = "清除失败：请求未完成";
+        gpuFrameUi.error = weT("清除失败：请求未完成");
         emit();
       });
   };
@@ -3092,7 +3105,7 @@ const officialColorOf = (tokens) => {
     if (sel.type !== "scene" || !sel.sceneFrameUrl || gpuFrameUi.recapturing) return;
     const live = currentLiveFrame();
     if (!live) {
-      gpuFrameUi.error = "拿不到实时画面（实时渲染没在运行）→ 想抓实时帧请先开「场景实时渲染」";
+      gpuFrameUi.error = weT("拿不到实时画面（实时渲染没在运行）→ 想抓实时帧请先开「场景实时渲染」");
       emit();
       return;
     }
@@ -3214,15 +3227,15 @@ const officialColorOf = (tokens) => {
 
   if (!sel.loaded) {
     return React.createElement("div", { className: "we-picker" },
-      React.createElement("span", { className: "we-picker__hint" }, "扫描 Wallpaper Engine…"));
+      React.createElement("span", { className: "we-picker__hint" }, weT("扫描 Wallpaper Engine…")));
   }
   if (sel.inventory.error) {
     return React.createElement("div", { className: "we-picker" },
       React.createElement("div", { className: "we-picker__error" },
-        "未检测到 Wallpaper Engine：" + sel.inventory.error),
+        weT("未检测到 Wallpaper Engine：{error}", { error: weT(sel.inventory.error) })),
       React.createElement("button", {
         className: "we-picker__btn", type: "button", onClick: onRefresh, disabled: sel.loading,
-      }, sel.loading ? "刷新中…" : "重试"));
+      }, sel.loading ? weT("刷新中…") : weT("重试")));
   }
 
   const list = sel.inventory.wallpapers;
@@ -3260,17 +3273,17 @@ const officialColorOf = (tokens) => {
   const pagerRow = (count, page, pages, onPrev, onNext) =>
     React.createElement("div", { className: "we-picker__pager" },
       React.createElement("span", { className: "we-picker__hint" },
-        "共 " + count + " 个 · 第 " + (page + 1) + " / " + pages + " 页"),
+        weT("共 {count} 个 · 第 {page} / {pages} 页", { count, page: page + 1, pages })),
       React.createElement("button", {
         className: "we-picker__btn", type: "button",
         disabled: page <= 0,
         onClick: onPrev,
-      }, "‹ 上一页"),
+      }, weT("‹ 上一页")),
       React.createElement("button", {
         className: "we-picker__btn", type: "button",
         disabled: page >= pages - 1,
         onClick: onNext,
-      }, "下一页 ›"),
+      }, weT("下一页 ›")),
     );
 
   // ── 壁纸属性面板的接线（P3-11 阶段 3）────────────────────────────────────
@@ -3377,13 +3390,13 @@ const officialColorOf = (tokens) => {
     // ── Card header (mirrors the skin-center's pluginCard header): plugin
     //    name + live wallpaper count badge + description. ──
     React.createElement("div", { className: "we-picker__card-head" },
-      React.createElement("span", { className: "we-picker__card-name" }, "壁纸引擎"),
+      React.createElement("span", { className: "we-picker__card-name" }, weT("壁纸引擎")),
       React.createElement("span", { className: "we-picker__card-badge" }, String(playableList.length)),
-      React.createElement("span", { className: "we-picker__card-desc" }, "本地 Wallpaper Engine 壁纸 · 液态玻璃主题"),
+      React.createElement("span", { className: "we-picker__card-desc" }, weT("本地 Wallpaper Engine 壁纸 · 液态玻璃主题")),
     ),
     // ── 页签栏（分段式）：四个页签互斥展示，替代三十控件的单列长滚动。
     //    指示胶囊随 activeTab 平移（transform 合成器属性，不引发布局）。 ──
-    React.createElement("div", { className: "we-tabs", role: "tablist", "aria-label": "壁纸引擎设置分区" },
+    React.createElement("div", { className: "we-tabs", role: "tablist", "aria-label": weT("壁纸引擎设置分区") },
       React.createElement("span", {
         className: "we-tabs__pill",
         "aria-hidden": "true",
@@ -3422,6 +3435,8 @@ const officialColorOf = (tokens) => {
 // as one frosted surface over the wallpaper. Owner props ({ close }) are
 // intentionally ignored — this section never leaves settings.
 function WallpaperPickerSection() {
+  // 语言切换：顶层组件订阅一次，整棵子树（含 render* 那些纯渲染器）跟着重渲染。
+  useWeLocale();
   return React.createElement("ul", { className: "we-picker__section-list" },
     React.createElement("li", { className: "we-picker__card-shell" },
       React.createElement(WallpaperPicker, null),
@@ -3458,8 +3473,8 @@ const ROPE_IMG_WHALE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAYAAAAJACA
 // scale). The box aspect mirrors the image so object-fit: contain fills it with
 // no letterboxing; the drag/clamp maths read the real rendered box at runtime.
 const ROPE_FORMS = {
-  maid:  { label: "小女仆", img: ROPE_IMG,       w: 52, h: 57 },
-  whale: { label: "鲸御姐", img: ROPE_IMG_WHALE, w: 64, h: 96 },
+  maid:  { get label() { return weT("小女仆"); }, img: ROPE_IMG,       w: 52, h: 57 },
+  whale: { get label() { return weT("鲸御姐"); }, img: ROPE_IMG_WHALE, w: 64, h: 96 },
 };
 
 const ROPE_OPEN_THRESHOLD = 96;   // px of downward/upward drag that commits open/close (less twitchy)
@@ -3496,6 +3511,7 @@ function readRopePos(size) {
 }
 
 function RopeDock() {
+  useWeLocale(); // 语言切换 → 吉祥物/抽屉里的文案跟着换（见 src/i18n.js）
   const sel = useStore();
   const hidden = !sel.ropeShown;
   const form = ROPE_FORMS[sel.ropeForm] || ROPE_FORMS.maid;
@@ -3702,8 +3718,8 @@ function RopeDock() {
       style: ropeStyle,
       role: "button",
       tabIndex: 0,
-      "aria-label": "壁纸库拉绳：沿顶部拖动移动位置，向下拉打开壁纸库面板",
-      title: "壁纸库 · 沿顶部拖动 / 向下拉打开",
+      "aria-label": weT("壁纸库拉绳：沿顶部拖动移动位置，向下拉打开壁纸库面板"),
+      title: weT("壁纸库 · 沿顶部拖动 / 向下拉打开"),
       onPointerDown: onRopePointerDown,
       onPointerMove: onRopePointerMove,
       onPointerUp: (e) => finishDrag(e.clientX, e.clientY, false),
@@ -3718,18 +3734,18 @@ function RopeDock() {
       ref: panelRef,
       className: "we-repo-panel" + (open ? " we-repo-panel--open" : ""),
       "aria-hidden": String(!open),
-      "aria-label": "壁纸库面板",
+      "aria-label": weT("壁纸库面板"),
       // Closed panel must not expose focusable descendants to Tab / AT.
       inert: open ? undefined : "",
     },
       React.createElement("header", { className: "we-repo-panel__head" },
-        React.createElement("span", { className: "we-repo-panel__title" }, "壁纸库"),
+        React.createElement("span", { className: "we-repo-panel__title" }, weT("壁纸库")),
         React.createElement("button", {
           type: "button",
           tabIndex: open ? 0 : -1,
           className: "we-picker__btn",
           onClick: () => setOpen(false),
-        }, "收起"),
+        }, weT("收起")),
       ),
       React.createElement("div", { className: "we-repo-panel__body" },
         // Lazy-mount the panel only while the drawer is open: keeping it mounted
@@ -3760,6 +3776,7 @@ function RopeDock() {
 const NOTICE_VERSION = "1.1.0";
 
 function UpdateNotice() {
+  useWeLocale(); // 更新说明是长文案，语言切换后要跟着换（同一棵 RopeDock 子树）
   const sel = useStore();
   // Only render once the host settings (source of truth) are applied, so the
   // persisted noticeSeen is final. On a fresh port/restart the localStorage
@@ -3774,63 +3791,63 @@ function UpdateNotice() {
   };
   if (!show) return null;
   return React.createElement("div", { className: "we-update-notice", role: "alert" },
-    React.createElement("div", { className: "we-update-notice__title" }, "🎉 v1.1.0 更新：全新字体自定义系统上线 —— 专门治「界面文字看不清」"),
+    React.createElement("div", { className: "we-update-notice__title" }, weT("🎉 v1.1.0 更新：全新字体自定义系统上线 —— 专门治「界面文字看不清」")),
     React.createElement("div", { className: "we-update-notice__body" },
       React.createElement("p", null,
-        "自 1.0.1 以来的全部更新："),
+        weT("自 1.0.1 以来的全部更新：")),
       React.createElement("p", null,
-        "① ", React.createElement("strong", null, "全新字体自定义系统（本次重点）"),
-        "：针对大家反馈的「界面字体看不清」，字体自定义全面重做——「外观」页签里可按",
-        React.createElement("strong", null, "角色"),
-        "（正文 / 标题 / 次要文字 / 代码 / 表格…）和",
-        React.createElement("strong", null, "组件"),
-        "（markdown 正文 / 代码块 / 终端 / 表格）分别调节",
-        React.createElement("strong", null, "字号（绝对值）/ 字重 / 字体族"),
-        "，「只看改过的」默认开启，改哪看哪。新增",
-        React.createElement("strong", null, "字体集"),
-        "：一整套字体外观存成预设（随包自带一份），可新建 / 重命名 / 删除，改任何一项只落到当前这一套、随时「恢复原样」，支持",
-        React.createElement("strong", null, "导出 / 导入 .json"),
-        "（可分享、可备份）。"),
+        "① ", React.createElement("strong", null, weT("全新字体自定义系统（本次重点）")),
+        weT("：针对大家反馈的「界面字体看不清」，字体自定义全面重做——「外观」页签里可按"),
+        React.createElement("strong", null, weT("角色")),
+        weT("（正文 / 标题 / 次要文字 / 代码 / 表格…）和"),
+        React.createElement("strong", null, weT("组件")),
+        weT("（markdown 正文 / 代码块 / 终端 / 表格）分别调节"),
+        React.createElement("strong", null, weT("字号（绝对值）/ 字重 / 字体族")),
+        weT("，「只看改过的」默认开启，改哪看哪。新增"),
+        React.createElement("strong", null, weT("字体集")),
+        weT("：一整套字体外观存成预设（随包自带一份），可新建 / 重命名 / 删除，改任何一项只落到当前这一套、随时「恢复原样」，支持"),
+        React.createElement("strong", null, weT("导出 / 导入 .json")),
+        weT("（可分享、可备份）。")),
       React.createElement("p", null,
-        "② ", React.createElement("strong", null, "主题随壁纸（自动深 / 浅切换）"),
-        "：打开「外观 → 主题随壁纸」，换壁纸时插件自动判断壁纸亮暗、把全局界面切成深色或浅色——深壁纸上自动换深色界面，白字更清楚（默认关，想要自动化就打开）。"),
+        "② ", React.createElement("strong", null, weT("主题随壁纸（自动深 / 浅切换）")),
+        weT("：打开「外观 → 主题随壁纸」，换壁纸时插件自动判断壁纸亮暗、把全局界面切成深色或浅色——深壁纸上自动换深色界面，白字更清楚（默认关，想要自动化就打开）。")),
       React.createElement("p", null,
-        "③ ", React.createElement("strong", null, "换壁纸过场动画（7 种可选）"),
-        "：交叉淡化 / 推移 / 擦除 / 光圈 / 缩放 / 条带 / 百叶窗，类型 / 方向 / 速度自由搭配；默认仍是硬切，手动切换与自动轮播共用一套。"),
+        "③ ", React.createElement("strong", null, weT("换壁纸过场动画（7 种可选）")),
+        weT("：交叉淡化 / 推移 / 擦除 / 光圈 / 缩放 / 条带 / 百叶窗，类型 / 方向 / 速度自由搭配；默认仍是硬切，手动切换与自动轮播共用一套。")),
       React.createElement("p", null,
-        "④ ", React.createElement("strong", null, "桌面端自动适配"),
-        "：「高级」页签新增「适配」段，自动识别你跑在",
-        React.createElement("strong", null, "原生浏览器 / 非官方桌面端 / 官方桌面端（DeepSeek Harness）"),
-        "哪一种，检测不准时可手选覆盖。"),
+        "④ ", React.createElement("strong", null, weT("桌面端自动适配")),
+        weT("：「高级」页签新增「适配」段，自动识别你跑在"),
+        React.createElement("strong", null, weT("原生浏览器 / 非官方桌面端 / 官方桌面端（DeepSeek Harness）")),
+        weT("哪一种，检测不准时可手选覆盖。")),
       React.createElement("p", null,
-        "⑤ ", React.createElement("strong", null, "实时帧行增强"),
-        "：不再受「实时渲染」开关限制，随时可重新截帧，并新增当前壁纸实时帧的微缩预览。"),
+        "⑤ ", React.createElement("strong", null, weT("实时帧行增强")),
+        weT("：不再受「实时渲染」开关限制，随时可重新截帧，并新增当前壁纸实时帧的微缩预览。")),
       React.createElement("p", null,
-        "⑥ ", React.createElement("strong", null, "终端默认只报问题"),
-        "：日志收敛成三档（error / warn / info），桌面端默认安静；成功事实走独立提示通道；需要排查时再开 info 档。"),
+        "⑥ ", React.createElement("strong", null, weT("终端默认只报问题")),
+        weT("：日志收敛成三档（error / warn / info），桌面端默认安静；成功事实走独立提示通道；需要排查时再开 info 档。")),
       React.createElement("p", null,
-        "⑦ ", React.createElement("strong", null, "修复一批"),
-        "：原生确认弹窗导致壁纸停摆、首次激活场景壁纸黑屏、启动等待期切壁纸卡死、右栏关闭态露玻璃板、软件渲染下玻璃不兜底、12 项资源泄漏等；渲染内核同步上游 WebWallGL 2.0.2（引擎作者 oneincase），上游多项渲染问题一并修复。"),
+        "⑦ ", React.createElement("strong", null, weT("修复一批")),
+        weT("：原生确认弹窗导致壁纸停摆、首次激活场景壁纸黑屏、启动等待期切壁纸卡死、右栏关闭态露玻璃板、软件渲染下玻璃不兜底、12 项资源泄漏等；渲染内核同步上游 WebWallGL 2.0.2（引擎作者 oneincase），上游多项渲染问题一并修复。")),
       React.createElement("p", { className: "we-update-notice__hint" },
-        "💡 看不清文字？给你一套现成的调节方案（按省事程度排序）："),
+        weT("💡 看不清文字？给你一套现成的调节方案（按省事程度排序）：")),
       React.createElement("p", null,
-        "1. ", React.createElement("strong", null, "换系统深色模式（首选）"),
-        "——深色模式自带的白色文字在绝大多数壁纸上都更清楚；懒得手动切就打开新功能「主题随壁纸」，让插件按壁纸自动换。"),
+        "1. ", React.createElement("strong", null, weT("换系统深色模式（首选）")),
+        weT("——深色模式自带的白色文字在绝大多数壁纸上都更清楚；懒得手动切就打开新功能「主题随壁纸」，让插件按壁纸自动换。")),
       React.createElement("p", null,
-        "2. ", React.createElement("strong", null, "调壁纸透明度（最快）"),
-        "——「效果」页签 → 「壁纸透明度」往右拉，壁纸变淡、文字对比立刻上来，几秒钟见效，是日常最便捷快速的办法。"),
+        "2. ", React.createElement("strong", null, weT("调壁纸透明度（最快）")),
+        weT("——「效果」页签 → 「壁纸透明度」往右拉，壁纸变淡、文字对比立刻上来，几秒钟见效，是日常最便捷快速的办法。")),
       React.createElement("p", null,
-        "3. ", React.createElement("strong", null, "精调字体（治本）"),
-        "——「外观」页签 → 字体自定义，把看不清的角色字号调大一档、字重加重；调好后「新建字体集（以当前外观）」存成自己的预设，随时一键切换、可导出分享。"),
+        "3. ", React.createElement("strong", null, weT("精调字体（治本）")),
+        weT("——「外观」页签 → 字体自定义，把看不清的角色字号调大一档、字重加重；调好后「新建字体集（以当前外观）」存成自己的预设，随时一键切换、可导出分享。")),
       React.createElement("p", null,
-        "4. ", React.createElement("strong", null, "兜底"),
-        "——壁纸本身太亮太花时，配合「效果 → 暗化 / 壁纸模糊」与「雾化」强度；本版本还给玻璃面板上的正文加了",
-        React.createElement("strong", null, "对比度下限（≥4.5:1）"),
-        "，再透也读得清。"),
+        "4. ", React.createElement("strong", null, weT("兜底")),
+        weT("——壁纸本身太亮太花时，配合「效果 → 暗化 / 壁纸模糊」与「雾化」强度；本版本还给玻璃面板上的正文加了"),
+        React.createElement("strong", null, weT("对比度下限（≥4.5:1）")),
+        weT("，再透也读得清。")),
       React.createElement("p", { className: "we-update-notice__hint" },
-        "本提示每个新版本只出现一次，点下方按钮关闭后不再弹出。"),
+        weT("本提示每个新版本只出现一次，点下方按钮关闭后不再弹出。")),
     ),
-    React.createElement("button", { className: "we-update-notice__btn we-picker__btn", type: "button", onClick: dismiss }, "知道了"),
+    React.createElement("button", { className: "we-update-notice__btn we-picker__btn", type: "button", onClick: dismiss }, weT("知道了")),
   );
 }
 
@@ -4033,6 +4050,11 @@ function apply(ctx) {
       else document.body.removeAttribute("data-we-appwindow");
     }
   } catch { /* ignore */ }
+
+  // 0. i18n：把插件文案接上宿主的 locale 服务（`ctx.get("locale")`，可选服务 + 短轮询 ——
+  //    缺服务时静默停在默认语言，见 src/i18n.js）。放在最前面：界面首次渲染就要按当前
+  //    语言取词；服务通常已在（dsh-web-app 的 base bundle 自带），轮询只是兜底。
+  if (ctx.effect) ctx.effect(() => weI18nAttach(ctx) || undefined);
 
   // 1. Mount the behind-body wallpaper + scrim layers and keep them in sync
   //    with the selection store. ctx.effect gives fiber-lifetime cleanup.
@@ -4260,10 +4282,13 @@ function apply(ctx) {
   // 2. Settings page as a FIRST-LEVEL settings section (mirrors the skin-center
   //    in dsh-web-ui-all: its own nav entry, rendered inside the panel content
   //    column). The picker renders inside the liquid-glass card shell.
+  //    `label` 用 **thunk**（官方 SlotLabel 支持"每次读取时求值"）：语言切换后设置导航里
+  //    的那一行跟着换文字，不需要重注册座位。nav-icon.js / sidebar-right.js 的 DOM 锚点
+  //    认的就是这个词的当前译文。
   if (ctx.slots) {
     ctx.slots.inject("settings.section", () =>
       ctx.slots.register(
-        { name: "settings.section", id: "wallpaper-engine", order: 500, label: "壁纸引擎" },
+        { name: "settings.section", id: "wallpaper-engine", order: 500, label: () => weT("壁纸引擎") },
         () => React.createElement(WallpaperPickerSection),
       ),
     );

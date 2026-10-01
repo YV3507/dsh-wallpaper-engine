@@ -61,25 +61,29 @@ function weIconSvgString(size) {
 // ── 设置导航图标补丁 ─────────────────────────────────────────────────────────
 // 官方设置对话框的 nav 是 body 直接传送门（createPortal(..., document.body)），
 // nav 按钮 = [图标元素, label 文本]。补丁在 overlay 挂进 body 时找到文本恰为
-// 「壁纸引擎」的按钮，把第一个子元素（兜底齿轮）换成同 class 的我们的图标 ——
+// 本插件 nav label 的按钮，把第一个子元素（兜底齿轮）换成同 class 的我们的图标 ——
 // class 照抄是为了继承 shell 的 flex/尺寸约束（hash 类名会变，但抄的是**那个元素**
-// 当前的 class，不是写死的 hash）。label 文本是我们自己注册的，是最稳定的锚。
-const WE_NAV_LABEL = "壁纸引擎";
+// 当前的 class，不是写死的 hash）。label 文本是我们自己注册的，是最稳定的锚 ——
+// 它**随语言变**（en 下是 "Wallpaper Engine"）⇒ 匹配时现取 `weT("壁纸引擎")`；
+// 语言切换后由 weOnLocaleChange 重放一次（已是本图标则跳过，见 data-we-nav-icon）。
 function installWeNavIcon() {
   if (typeof document === "undefined" || !document.body) return null;
   if (typeof MutationObserver !== "function") return null;
-  const patched = new WeakSet();
+  let patched = new WeakSet();
   const patchIn = (root) => {
     if (!root || typeof root.querySelectorAll !== "function") return;
     let buttons = [];
     try { buttons = root.querySelectorAll("nav button"); } catch { return; }
+    const want = weT("壁纸引擎");
     for (const btn of buttons) {
       try {
         if (patched.has(btn)) continue;
-        if ((btn.textContent || "").trim() !== WE_NAV_LABEL) continue;
+        if ((btn.textContent || "").trim() !== want) continue;
         const iconEl = btn.firstElementChild;
         // 结构异常（没有独立图标子元素）= 放弃这枚按钮，保齿轮。
         if (!iconEl || iconEl === btn.lastElementChild && btn.childElementCount < 2) continue;
+        // 已经是我们的图标（语言切换触发的重放）⇒ 只登记、不重复替换。
+        try { if (iconEl.getAttribute("data-we-nav-icon") === "1") { patched.add(btn); continue; } } catch { /* ignore */ }
         const span = document.createElement("span");
         span.className = iconEl.className;
         span.setAttribute("data-we-nav-icon", "1");
@@ -100,5 +104,13 @@ function installWeNavIcon() {
     }
   });
   try { obs.observe(document.body, { childList: true }); } catch { return null; }
-  return () => { try { obs.disconnect(); } catch { /* ignore */ } };
+  // 语言切换：注册的 label 换了文字，nav 行要按新 label 重新认一次。
+  const offLocale = weOnLocaleChange(() => {
+    patched = new WeakSet();
+    patchIn(document.body);
+  });
+  return () => {
+    try { obs.disconnect(); } catch { /* ignore */ }
+    try { offLocale(); } catch { /* ignore */ }
+  };
 }

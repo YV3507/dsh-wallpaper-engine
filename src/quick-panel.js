@@ -28,12 +28,14 @@
   const QP_LIST_MAX = 100;
   // 面板本地的类型筛选档（用户口径：全部 / 场景 / 网页 / 视频 —— 面板是快切，
   // 只列三类主力类型；「图片」不单列，仍出现在「全部」里）。
-  const QP_TYPES = [
-    { id: "all", label: "全部" },
-    { id: "scene", label: "场景" },
-    { id: "web", label: "网页" },
-    { id: "video", label: "视频" },
-  ];
+  function qpTypes() {
+    return [
+      { id: "all", label: weT("全部") },
+      { id: "scene", label: weT("场景") },
+      { id: "web", label: weT("网页") },
+      { id: "video", label: weT("视频") },
+    ];
+  }
   // 列表/卡片视图的记忆键（同 picker-tab 口径：仅 UI 状态，localStorage，不进 config.json）。
   const QP_VIEW_KEY = "dsh-wallpaper-engine:qp-view";
   /** 读取面板视图偏好；缺失/非法回落**卡片**（默认形态），显式选过列表的仍读列表。 */
@@ -47,12 +49,14 @@
   function qpTypeLabel(w, sel) {
     if (!w) return "";
     const live = (w.type === "scene" || w.type === "web") && liveRenderEnabled(sel);
-    if (w.type === "scene") return live ? "场景 · 实时渲染" : "场景 · 静态帧";
-    if (w.type === "web") return live ? "网页 · 实时渲染" : "网页 · 兼容模式";
-    return CARD_TYPE_LABELS[w.type] || "壁纸";
+    if (w.type === "scene") return weT(live ? "场景 · 实时渲染" : "场景 · 静态帧");
+    if (w.type === "web") return weT(live ? "网页 · 实时渲染" : "网页 · 兼容模式");
+    return CARD_TYPE_LABELS[w.type] || weT("壁纸");
   }
 
   function QuickPanel(props) {
+    // 语言切换：面板自己订阅（它挂在两个宿主壳里，都不保证会因语言而重渲染）。
+    useWeLocale();
     const sel = useStore();
     const dock = (props && props.dock) || "drawer";
     // 视图偏好（列表 / 卡片）：useState 必须在早退分支之前（Rules of Hooks）。
@@ -65,16 +69,16 @@
     // 库还没回来 / 扫描失败：面板只给一句话，不假装有内容（与设置页同一句文案）。
     if (!sel.loaded) {
       return React.createElement("div", { className: "we-qp we-qp--" + dock },
-        React.createElement("span", { className: "we-picker__hint" }, "扫描 Wallpaper Engine…"));
+        React.createElement("span", { className: "we-picker__hint" }, weT("扫描 Wallpaper Engine…")));
     }
     if (sel.inventory.error) {
       return React.createElement("div", { className: "we-qp we-qp--" + dock },
         React.createElement("div", { className: "we-picker__error" },
-          "未检测到 Wallpaper Engine：" + sel.inventory.error),
+          weT("未检测到 Wallpaper Engine：{error}", { error: sel.inventory.error })),
         React.createElement("button", {
           className: "we-picker__btn", type: "button",
           onClick: () => loadInventory(), disabled: sel.loading,
-        }, sel.loading ? "刷新中…" : "重试"));
+        }, weT(sel.loading ? "刷新中…" : "重试")));
     }
 
     const list = sel.inventory.wallpapers;
@@ -84,7 +88,7 @@
     // 搜索词与**面板本地的类型筛选**（qpType：全部 / 场景 / 网页 / 视频 —— 瞬态，
     // 不影响设置页的过滤与轮播候选）。
     const q = String(sel.qpSearch || "").trim().toLowerCase();
-    const typeFilter = QP_TYPES.some((t) => t.id === sel.qpType) ? sel.qpType : "all";
+    const typeFilter = qpTypes().some((t) => t.id === sel.qpType) ? sel.qpType : "all";
     const playable = playableInventory();
     const filtered = playable.filter((w) => {
       if (typeFilter !== "all" && w.type !== typeFilter) return false;
@@ -115,8 +119,8 @@
           : null),
       React.createElement("span", { className: "we-qp__item-title" }, w.title),
       w.id === sel.id
-        ? React.createElement("span", { className: "we-qp__item-badge" }, "当前")
-        : React.createElement("span", { className: "we-qp__item-type" }, CARD_TYPE_LABELS[w.type] || "壁纸"),
+        ? React.createElement("span", { className: "we-qp__item-badge" }, weT("当前"))
+        : React.createElement("span", { className: "we-qp__item-type" }, CARD_TYPE_LABELS[w.type] || weT("壁纸")),
     );
 
     // ── 卡：缩略图网格形态（视图切换的「卡片」档；点击语义与列表行一致）──
@@ -136,9 +140,9 @@
             onError: (e) => { e.target.style.display = "none"; },
             onLoad: (e) => { e.target.style.opacity = "1"; },
           })
-        : React.createElement("span", { className: "we-qp__card-empty" }, "无预览"),
-      React.createElement("span", { className: "we-qp__card-type" }, CARD_TYPE_LABELS[w.type] || "壁纸"),
-      w.id === sel.id && React.createElement("span", { className: "we-qp__card-badge" }, "当前"),
+        : React.createElement("span", { className: "we-qp__card-empty" }, weT("无预览")),
+      React.createElement("span", { className: "we-qp__card-type" }, CARD_TYPE_LABELS[w.type] || weT("壁纸")),
+      w.id === sel.id && React.createElement("span", { className: "we-qp__card-badge" }, weT("当前")),
       React.createElement("span", { className: "we-qp__card-title" }, w.title),
     );
 
@@ -155,23 +159,23 @@
             : null),
         React.createElement("div", { className: "we-qp__current-info" },
           React.createElement("div", { className: "we-qp__title", title: current ? current.title : "" },
-            sel.id && current ? current.title : "未选择壁纸"),
+            sel.id && current ? current.title : weT("未选择壁纸")),
           React.createElement("div", { className: "we-qp__meta" },
             current
-              ? qpTypeLabel(current, sel) + (playbackLive ? " · 播放中" : " · 已暂停")
-              : "从下面列表挑一张"),
+              ? qpTypeLabel(current, sel) + weT(playbackLive ? " · 播放中" : " · 已暂停")
+              : weT("从下面列表挑一张")),
           sel.videoError && React.createElement("div", { className: "we-picker__current-error" }, sel.videoError),
         ),
         React.createElement("div", { className: "we-qp__current-actions" },
           React.createElement("button", {
             className: "we-picker__btn", type: "button",
             onClick: onTogglePlay, disabled: !sel.url,
-          }, playbackLive ? "暂停" : "播放"),
+          }, playbackLive ? weT("暂停") : weT("播放", null, "play")),
           React.createElement("button", {
             className: "we-picker__btn", type: "button",
             onClick: onClear, disabled: !sel.id,
-            title: "清除当前壁纸（停止播放，回到无壁纸状态）",
-          }, "清除"),
+            title: weT("清除当前壁纸（停止播放，回到无壁纸状态）"),
+          }, weT("清除")),
         ),
       ),
       // ── ② 轮播：列表 + 启停 + 下一张 ──
@@ -182,22 +186,24 @@
             value: sel.rotationGroupId,
             onChange: onGroupChange,
             disabled: groups.length === 0,
-            "aria-label": "轮播列表",
+            "aria-label": weT("轮播列表"),
           },
-            React.createElement("option", { value: "" }, groups.length ? "— 选择轮播列表 —" : "— 暂无轮播列表 —"),
+            React.createElement("option", { value: "" }, weT(groups.length ? "— 选择轮播列表 —" : "— 暂无轮播列表 —")),
             ...groups.map((g) => React.createElement("option", {
               key: g.id, value: g.id,
-            }, g.name + "（" + groupWallpapers(g).length + " 可播放 · " + g.interval + " 分钟）")),
+            }, weT("{name}（{count} 可播放 · {interval} 分钟）", {
+              name: g.name, count: groupWallpapers(g).length, interval: g.interval,
+            }))),
           ),
           React.createElement("button", {
             className: "we-picker__btn", type: "button",
             onClick: onNextWallpaper,
             disabled: (sel.rotationEnabled ? rotationCandidates() : playable).length < 2,
-            title: "切到下一张（轮播开着按活动列表、关着按可播放网格）",
-          }, "下一张"),
+            title: weT("切到下一张（轮播开着按活动列表、关着按可播放网格）"),
+          }, weT("下一张")),
         ),
-        switchRow("自动轮播", sel.rotationEnabled === true, () => onToggleRotation(), {
-          hint: groups.length ? "按所选列表定时切换" : "先到设置页新建一个轮播列表",
+        switchRow(weT("自动轮播"), sel.rotationEnabled === true, () => onToggleRotation(), {
+          hint: weT(groups.length ? "按所选列表定时切换" : "先到设置页新建一个轮播列表"),
         }),
       ),
       // ── ③ 壁纸列表（搜索 + 视图切换 + 快切）──
@@ -206,8 +212,8 @@
           React.createElement("input", {
             className: "we-picker__text we-qp__search", type: "text",
             value: sel.qpSearch || "",
-            placeholder: "搜索壁纸标题…",
-            "aria-label": "搜索壁纸标题",
+            placeholder: weT("搜索壁纸标题…"),
+            "aria-label": weT("搜索壁纸标题"),
             onInput: (e) => { setTransient("qpSearch", e.target.value); emit(); },
           }),
           // 类型筛选：面板本地（全部 / 场景 / 网页 / 视频），瞬态不落盘；
@@ -217,52 +223,52 @@
             className: "we-picker__select we-qp__type",
             value: typeFilter,
             onChange: (e) => { setTransient("qpType", e.target.value); emit(); },
-            "aria-label": "类型筛选",
-            title: "按类型筛选侧栏列表（只影响这里）",
+            "aria-label": weT("类型筛选"),
+            title: weT("按类型筛选侧栏列表（只影响这里）"),
           },
-          ...QP_TYPES.map((t) => React.createElement("option", { key: t.id, value: t.id }, t.label)),
+          ...qpTypes().map((t) => React.createElement("option", { key: t.id, value: t.id }, t.label)),
           ),
           // 列表 / 卡片：偏好记 localStorage（QP_VIEW_KEY），两个壳共用一份。
-          React.createElement("div", { className: "we-picker__seg", role: "group", "aria-label": "视图" },
+          React.createElement("div", { className: "we-picker__seg", role: "group", "aria-label": weT("视图") },
             React.createElement("button", {
               className: "we-picker__btn we-picker__rate" + (view !== "cards" ? " we-picker__rate--active" : ""),
               type: "button",
               "aria-pressed": view !== "cards" ? "true" : "false",
               onClick: () => switchView("list"),
-            }, "列表"),
+            }, weT("列表")),
             React.createElement("button", {
               className: "we-picker__btn we-picker__rate" + (view === "cards" ? " we-picker__rate--active" : ""),
               type: "button",
               "aria-pressed": view === "cards" ? "true" : "false",
               onClick: () => switchView("cards"),
-            }, "卡片"),
+            }, weT("卡片")),
           ),
         ),
         React.createElement("div", {
           className: "we-qp__list" + (view === "cards" ? " we-qp__list--cards" : ""),
-          role: "listbox", "aria-label": "壁纸列表",
+          role: "listbox", "aria-label": weT("壁纸列表"),
         },
           rows.length
             ? rows.map(view === "cards" ? renderCard : renderRow)
             : React.createElement("span", { className: "we-picker__hint" },
-                q ? "没有匹配「" + sel.qpSearch + "」的壁纸"
-                  : (typeFilter !== "all" ? "该类型下没有可播放的壁纸" : "没有可播放的壁纸")),
+                q ? weT("没有匹配「{query}」的壁纸", { query: sel.qpSearch })
+                  : weT(typeFilter !== "all" ? "该类型下没有可播放的壁纸" : "没有可播放的壁纸")),
         ),
         filtered.length > rows.length
           && React.createElement("span", { className: "we-picker__hint we-qp__more" },
-              "还有 " + (filtered.length - rows.length) + " 张未显示 · 搜索可收敛，全量浏览在设置页"),
+              weT("还有 {count} 张未显示 · 搜索可收敛，全量浏览在设置页", { count: filtered.length - rows.length })),
       ),
       // ── ④ 声音（系统音频反应 / 媒体信息 / 在线歌词已退役为常开 —— schema
       //    kind 'const'，面板不再提供开关，见 lib/settings-schema.js）──
       React.createElement("div", { className: "we-qp__section" },
         React.createElement("div", { className: "we-picker__section-head" },
-          React.createElement("span", { className: "we-picker__section-label" }, "声音"),
+          React.createElement("span", { className: "we-picker__section-label" }, weT("声音")),
         ),
-        SliderRow("音量", 0, 100, 5,
+        SliderRow(weT("音量"), 0, 100, 5,
           Math.round((Number(sel.videoVolume) || 0) * 100), onVideoVolume,
           Math.round((Number(sel.videoVolume) || 0) * 100) + "%"),
-        switchRow("壁纸音轨", sel.videoAudioEnabled !== false, () => onToggleAudio(), {
-          tooltip: "视频壁纸与场景壁纸（内嵌 MP4 音轨 / 包内独立音频）共用；默认静音，开启时若音量为 0 会自动提到 50%",
+        switchRow(weT("壁纸音轨"), sel.videoAudioEnabled !== false, () => onToggleAudio(), {
+          tooltip: weT("视频壁纸与场景壁纸（内嵌 MP4 音轨 / 包内独立音频）共用；默认静音，开启时若音量为 0 会自动提到 50%"),
         }),
       ),
       // ── ⑤ 底栏：设置入口 ──
@@ -271,8 +277,8 @@
           className: "we-picker__btn we-qp__settings", type: "button",
           "data-we-qp-entry": "1",
           onClick: openSettingsSection,
-          title: "打开设置对话框的「壁纸引擎」分区（外观 / 播放 / 系统与全部配置）",
-        }, "壁纸引擎设置 ›"),
+          title: weT("打开设置对话框的「壁纸引擎」分区（外观 / 播放 / 系统与全部配置）"),
+        }, weT("壁纸引擎设置 ›")),
       ),
     );
   }

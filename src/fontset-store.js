@@ -68,7 +68,7 @@ const fsJson = (path, options) => fsFetch(path, Object.assign({ method: "GET" },
 function fontSetFailureReason(res) {
   const bare = !res || !res.data || typeof res.data !== "object" || !res.data.error;
   if (bare && (res.status === 404 || res.status === 405)) {
-    return "宿主里没有字体集路由：重启 DSH 后再试（改过宿主代码要重挂，刷新页面不够）";
+    return weT("宿主里没有字体集路由：重启 DSH 后再试（改过宿主代码要重挂，刷新页面不够）");
   }
   return hostFailureReason(res);
 }
@@ -221,7 +221,7 @@ async function loadFontSet() {
     if (!listRes.ok || listRes.error) {
       why = fontSetFailureReason(listRes);
     } else if (!isFontSetId(active)) {
-      why = "宿主没有活动字体集";
+      why = weT("宿主没有活动字体集");
     } else {
       id = active;
       const oneRes = await fsJson(fontSetUrl(active));
@@ -232,7 +232,7 @@ async function loadFontSet() {
       }
     }
   } catch {
-    why = "宿主不可达（请求未完成）";
+    why = weT("宿主不可达（请求未完成）");
   }
 
   if (values) {
@@ -249,7 +249,7 @@ async function loadFontSet() {
   } else {
     // 只拿到指针、没拿到正文：能力判定（活动集不可删）仍要准，但**不设快照** ⇒ 不判漂移。
     if (isFontSetId(id)) { activeFontSetId = id; selection.fontSetActive = id; }
-    selection.fontSetError = why || "字体集不可用";
+    selection.fontSetError = why || weT("字体集不可用");
   }
   selection.fontSetLoaded = true;
   if (values && JSON.stringify(pickFontValues()) !== before) applyEffects();
@@ -276,7 +276,7 @@ async function refreshFontSets() {
     selection.fontSetError = "";
     return true;
   } catch {
-    selection.fontSetError = "宿主不可达（请求未完成）";
+    selection.fontSetError = weT("宿主不可达（请求未完成）");
     return false;
   }
 }
@@ -309,7 +309,7 @@ async function activateFontSet(id) {
     await loadFontSet(); // 读回这一份的值并采用（值 + 快照 + **清单** + 「使用中」标记都在它里面）
     return true;
   } catch {
-    selection.fontSetError = "宿主不可达（请求未完成）";
+    selection.fontSetError = weT("宿主不可达（请求未完成）");
     return false;
   }
 }
@@ -337,7 +337,7 @@ async function createFontSet(name) {
     await activateFontSet(id); // 里面会 loadFontSet：新集的快照 = 当前值 ⇒ 立刻是「使用中」
     return id;
   } catch {
-    selection.fontSetError = "宿主不可达（请求未完成）";
+    selection.fontSetError = weT("宿主不可达（请求未完成）");
     return "";
   }
 }
@@ -358,7 +358,7 @@ async function renameFontSet(id, name) {
     await refreshFontSets();
     return true;
   } catch {
-    selection.fontSetError = "宿主不可达（请求未完成）";
+    selection.fontSetError = weT("宿主不可达（请求未完成）");
     return false;
   }
 }
@@ -377,7 +377,7 @@ async function deleteFontSet(id) {
     await refreshFontSets();
     return true;
   } catch {
-    selection.fontSetError = "宿主不可达（请求未完成）";
+    selection.fontSetError = weT("宿主不可达（请求未完成）");
     return false;
   }
 }
@@ -419,19 +419,18 @@ async function importFontSet(file) {
   try {
     text = await readFileText(file);
   } catch {
-    selection.fontSetError = "读不出这个文件（换一个 .json 再试）";
+    selection.fontSetError = weT("读不出这个文件（换一个 .json 再试）");
     return "";
   }
   let doc = null;
   try {
     doc = JSON.parse(text);
   } catch {
-    selection.fontSetError = "这不是 JSON 文件（字体集是导出出来的 .json）";
+    selection.fontSetError = weT("这不是 JSON 文件（字体集是导出出来的 .json）");
     return "";
   }
   if (!doc || typeof doc !== "object" || Array.isArray(doc) || doc.$schema !== FONTSET_SCHEMA_TAG) {
-    selection.fontSetError = "这不是字体集文件（需要 " + FONTSET_SCHEMA_TAG
-      + " 标记 —— 只有从「导出」拿到的文件才有）";
+    selection.fontSetError = weT("这不是字体集文件（需要 {tag} 标记 —— 只有从「导出」拿到的文件才有）", { tag: FONTSET_SCHEMA_TAG });
     return "";
   }
   try {
@@ -451,7 +450,7 @@ async function importFontSet(file) {
     await refreshFontSets();
     return typeof data.id === "string" ? data.id : "";
   } catch {
-    selection.fontSetError = "宿主不可达（请求未完成）";
+    selection.fontSetError = weT("宿主不可达（请求未完成）");
     return "";
   }
 }

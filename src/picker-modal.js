@@ -56,7 +56,7 @@
   return React.createElement("div", {
           className: "we-picker__modal",
           "data-we-cards": sel.pickerLayout,
-          "aria-label": "选择壁纸",
+          "aria-label": weT("选择壁纸"),
         },
           React.createElement("div", { className: "we-picker__modal-head" },
             React.createElement("div", { className: "we-picker__modal-head-left" },
@@ -64,13 +64,13 @@
                 cover: current && current.preview, title: current ? current.title : "",
                 playing: playbackLive && Boolean(sel.url) && vinylSpinVisible(), sm: true,
               }),
-              React.createElement("span", { className: "we-picker__modal-title" }, "选择壁纸"),
+              React.createElement("span", { className: "we-picker__modal-title" }, weT("选择壁纸")),
             ),
             React.createElement("button", {
               className: "we-picker__btn", type: "button", onClick: closePicker,
               // 打开库视图时焦点落在这里（一次性，见 modalInitialFocus）。
               ref: modalInitialFocus,
-            }, "返回"),
+            }, weT("返回")),
           ),
           !draft && React.createElement("div", { className: "we-picker__modal-tabs", role: "tablist" },
             React.createElement("button", {
@@ -79,23 +79,23 @@
               role: "tab",
               "aria-selected": sel.modalView !== "hidden",
               onClick: onShowNormalView,
-            }, "正常列表（" + playableList.length + "）"),
+            }, weT("正常列表（{n}）", { n: playableList.length })),
             React.createElement("button", {
               className: "we-picker__btn we-picker__tab" + (sel.modalView === "hidden" ? " we-picker__tab--active" : ""),
               type: "button",
               role: "tab",
               "aria-selected": sel.modalView === "hidden",
               onClick: onShowHiddenView,
-            }, "已隐藏（" + hiddenList.length + "）"),
+            }, weT("已隐藏（{n}）", { n: hiddenList.length })),
           ),
           sel.modalView === "hidden" && !draft
             ? React.createElement("div", { className: "we-picker__modal-body" },
                 hiddenList.length === 0
-                  ? React.createElement("span", { className: "we-picker__hint" }, "没有已隐藏的壁纸")
+                  ? React.createElement("span", { className: "we-picker__hint" }, weT("没有已隐藏的壁纸"))
                   : React.createElement("div", { className: "we-picker__grid" },
                       React.createElement("div", { className: "we-picker__row" },
                         React.createElement("span", { className: "we-picker__hint" },
-                          "已隐藏 " + hiddenList.length + " 张（仅从列表隐藏，不删除源文件）"),
+                          weT("已隐藏 {n} 张（仅从列表隐藏，不删除源文件）", { n: hiddenList.length })),
                         React.createElement("button", {
                           className: "we-picker__btn", type: "button",
                           // 第一下只置令牌；落地在问句行的「确认」里（`restoreWallpapers` 是
@@ -103,12 +103,12 @@
                           onClick: () => onArmConfirm("restoreAll"),
                           disabled: armedConfirm === "restoreAll",
                           title: armedConfirm === "restoreAll"
-                            ? "已经问过你了 —— 在下面那一行选「确认」或「取消」"
-                            : "把已隐藏的全部恢复（会再问一次）",
-                        }, "全部恢复"),
+                            ? weT("已经问过你了 —— 在下面那一行选「确认」或「取消」")
+                            : weT("把已隐藏的全部恢复（会再问一次）"),
+                        }, weT("全部恢复")),
                       ),
                       renderConfirmRow(armedConfirm, "restoreAll",
-                        "恢复全部 " + hiddenList.length + " 张已隐藏壁纸？",
+                        weT("恢复全部 {n} 张已隐藏壁纸？", { n: hiddenList.length }),
                         () => restoreWallpapers(hiddenList.map((w) => w.id)), onDisarmConfirm),
                       (cdMode ? hiddenList : hiddenPageView.items).map((w) => React.createElement("div", {
                         key: w.id,
@@ -116,7 +116,7 @@
                         role: "button",
                         tabIndex: 0,
                         title: w.title,
-                        "aria-label": "恢复并应用 " + w.title,
+                        "aria-label": weT("恢复并应用 {name}", { name: w.title }),
                         onClick: () => applySelection(w.id),
                         // 键盘可达性：正常列表卡片一直有 Enter/Space 处理，
                         // 已隐藏卡片漏了 —— 补上（共享 cardKeyDown）。
@@ -128,17 +128,17 @@
                             onError: (e) => { e.target.style.display = "none"; },
                             onLoad: (e) => { e.target.style.opacity = "1"; },
                           })
-                        : React.createElement("span", { className: "we-picker__card-placeholder" }, "无预览"),
+                        : React.createElement("span", { className: "we-picker__card-placeholder" }, weT("无预览")),
                       CARD_TYPE_LABELS[w.type]
                         && React.createElement("span", { className: "we-picker__card-type" }, CARD_TYPE_LABELS[w.type]),
                       React.createElement("span", { className: "we-picker__card-title" }, w.title),
-                      w.type === "scene" && React.createElement("span", { className: "we-picker__card-badge" }, w.sceneLive ? "实时渲染" : "静态帧"),
-                      w.type === "web" && React.createElement("span", { className: "we-picker__card-badge" }, w.webLive ? "实时渲染" : "兼容模式"),
+                      w.type === "scene" && React.createElement("span", { className: "we-picker__card-badge" }, w.sceneLive ? weT("实时渲染") : weT("静态帧")),
+                      w.type === "web" && React.createElement("span", { className: "we-picker__card-badge" }, w.webLive ? weT("实时渲染") : weT("兼容模式")),
                       React.createElement("button", {
                         className: "we-picker__card-hide", type: "button",
-                        title: "恢复此壁纸",
+                        title: weT("恢复此壁纸"),
                         onClick: (e) => { e.stopPropagation(); restoreWallpapers([w.id]); },
-                      }, "恢复"),
+                      }, weT("恢复")),
                       )),
                     ),
                     !cdMode && hiddenPageView.pages > 1 && pagerRow(
@@ -151,20 +151,20 @@
                 draft
                   ? React.createElement("div", { className: "we-picker__row" },
                       React.createElement("span", { className: "we-picker__hint" },
-                        "已选 " + draftIdSet.size + " 个 · 点卡片加入 / 移出"),
+                        weT("已选 {n} 个 · 点卡片加入 / 移出", { n: draftIdSet.size })),
                     )
                   : React.createElement("div", { className: "we-picker__row" },
                     React.createElement("span", { className: "we-picker__hint" },
-                      playableList.length + " 个可播放壁纸 · 点击卡片即应用"),
+                      weT("{n} 个可播放壁纸 · 点击卡片即应用", { n: playableList.length })),
                     React.createElement("button", {
                       className: "we-picker__btn", type: "button",
                       onClick: onToggleBatchMode,
                       disabled: playableList.length === 0,
-                      title: "多选后批量隐藏",
-                    }, sel.batchMode ? "退出批量" : "批量"),
+                      title: weT("多选后批量隐藏"),
+                    }, sel.batchMode ? weT("退出批量") : weT("批量")),
                   ),
                 sel.batchMode && React.createElement("div", { className: "we-picker__row we-picker__batch-bar" },
-                  React.createElement("span", { className: "we-picker__hint" }, "已选 " + sel.batchSelected.length + " 张"),
+                  React.createElement("span", { className: "we-picker__hint" }, weT("已选 {n} 张", { n: sel.batchSelected.length })),
                   React.createElement("button", {
                     className: "we-picker__btn", type: "button",
                     // 第一下只置令牌（`onArmBatchHide`）；落地在下面那行问句的「确认」里。
@@ -172,18 +172,18 @@
                     onClick: onArmBatchHide,
                     disabled: sel.batchSelected.length === 0 || armedConfirm === "batchHide",
                     title: armedConfirm === "batchHide"
-                      ? "已经问过你了 —— 在下面那一行选「确认」或「取消」"
-                      : "隐藏选中的这些壁纸（会再问一次）",
-                  }, "批量隐藏"),
+                      ? weT("已经问过你了 —— 在下面那一行选「确认」或「取消」")
+                      : weT("隐藏选中的这些壁纸（会再问一次）"),
+                  }, weT("批量隐藏")),
                   React.createElement("button", {
                     className: "we-picker__btn", type: "button",
                     onClick: onBatchCancel,
-                  }, "取消"),
+                  }, weT("取消")),
                 ),
                 // 问句行是**同级**（不是包一层）：包 Fragment 会把批量条整棵子树推深一层，
                 // 那会让 116 个按层级绑定的选择器与「标记等价」golden 当场漂。
                 renderConfirmRow(armedConfirm, "batchHide",
-                  "隐藏选中的 " + sel.batchSelected.length + " 张壁纸？可在「已隐藏」中随时恢复。",
+                  weT("隐藏选中的 {n} 张壁纸？可在「已隐藏」中随时恢复。", { n: sel.batchSelected.length }),
                   onBatchHide, onDisarmConfirm),
                 React.createElement("div", { className: "we-picker__row we-picker__filter-row" },
                   // 标题搜索：几百上千张壁纸时最快的定位方式。输入即过滤
@@ -191,37 +191,37 @@
                   React.createElement("input", {
                     className: "we-picker__text we-picker__search", type: "text",
                     value: sel.search,
-                    placeholder: "搜索壁纸标题…",
-                    "aria-label": "搜索壁纸标题",
+                    placeholder: weT("搜索壁纸标题…"),
+                    "aria-label": weT("搜索壁纸标题"),
                     onInput: onSearchInput,
                   }),
-                  React.createElement("span", { className: "we-picker__hint we-picker__label" }, "内容分级"),
+                  React.createElement("span", { className: "we-picker__hint we-picker__label" }, weT("内容分级")),
                   React.createElement("select", {
                     className: "we-picker__playlist-select",
                     value: sel.contentRatingFilter,
                     onChange: onRatingFilterChange,
-                    "aria-label": "内容分级",
-                    title: "对应 Wallpaper Engine 的内容分级（project.json contentrating）",
+                    "aria-label": weT("内容分级"),
+                    title: weT("对应 Wallpaper Engine 的内容分级（project.json contentrating）"),
                   },
-                  React.createElement("option", { value: "all" }, "全部（" + basePlayable.length + "）"),
-                  React.createElement("option", { value: "everyone" }, "Everyone / G（" + ratingCounts.everyone + "）"),
-                  React.createElement("option", { value: "pg13" }, "PG13（" + ratingCounts.pg13 + "）"),
-                  React.createElement("option", { value: "mature" }, "Mature / R（" + ratingCounts.mature + "）"),
-                  React.createElement("option", { value: "unrated" }, "未分级（" + ratingCounts.unrated + "）"),
+                  React.createElement("option", { value: "all" }, weT("全部（{n}）", { n: basePlayable.length })),
+                  React.createElement("option", { value: "everyone" }, weT("Everyone / G（{n}）", { n: ratingCounts.everyone })),
+                  React.createElement("option", { value: "pg13" }, weT("PG13（{n}）", { n: ratingCounts.pg13 })),
+                  React.createElement("option", { value: "mature" }, weT("Mature / R（{n}）", { n: ratingCounts.mature })),
+                  React.createElement("option", { value: "unrated" }, weT("未分级（{n}）", { n: ratingCounts.unrated })),
                   ),
-                  React.createElement("span", { className: "we-picker__hint we-picker__label" }, "类型"),
+                  React.createElement("span", { className: "we-picker__hint we-picker__label" }, weT("类型")),
                   React.createElement("select", {
                     className: "we-picker__playlist-select",
                     value: sel.typeFilter,
                     onChange: onTypeFilterChange,
-                    "aria-label": "类型",
-                    title: "按壁纸类型过滤（只筛列表与轮播候选，不打断正在应用的壁纸）",
+                    "aria-label": weT("类型"),
+                    title: weT("按壁纸类型过滤（只筛列表与轮播候选，不打断正在应用的壁纸）"),
                   },
-                  React.createElement("option", { value: "all" }, "全部（" + basePlayable.length + "）"),
-                  React.createElement("option", { value: "video" }, "视频（" + (typeCounts.video || 0) + "）"),
-                  React.createElement("option", { value: "web" }, "网页（" + (typeCounts.web || 0) + "）"),
-                  React.createElement("option", { value: "image" }, "图片（" + (typeCounts.image || 0) + "）"),
-                  React.createElement("option", { value: "scene" }, "场景（" + (typeCounts.scene || 0) + "）"),
+                  React.createElement("option", { value: "all" }, weT("全部（{n}）", { n: basePlayable.length })),
+                  React.createElement("option", { value: "video" }, weT("视频（{n}）", { n: typeCounts.video || 0 })),
+                  React.createElement("option", { value: "web" }, weT("网页（{n}）", { n: typeCounts.web || 0 })),
+                  React.createElement("option", { value: "image" }, weT("图片（{n}）", { n: typeCounts.image || 0 })),
+                  React.createElement("option", { value: "scene" }, weT("场景（{n}）", { n: typeCounts.scene || 0 })),
                   ),
                 ),
                 React.createElement("div", { className: "we-picker__grid" },
@@ -236,16 +236,16 @@
                     role: "button",
                     tabIndex: 0,
                     onClick: onClear,
-                    title: "关闭壁纸",
+                    title: weT("关闭壁纸"),
                     onKeyDown: cardKeyDown,
                   },
-                  React.createElement("span", { className: "we-picker__card-close" }, "✕ 关闭"),
+                  React.createElement("span", { className: "we-picker__card-close" }, weT("✕ 关闭")),
                   ),
                   playableList.length === 0
                     ? React.createElement("span", { className: "we-picker__hint" },
                         query
-                          ? "没有匹配「" + sel.search + "」的壁纸 · 试试缩短关键词或清除过滤"
-                          : "没有可播放的壁纸")
+                          ? weT("没有匹配「{q}」的壁纸 · 试试缩短关键词或清除过滤", { q: sel.search })
+                          : weT("没有可播放的壁纸"))
                     : (cdMode ? playableList : normalPage.items).map((w) => React.createElement("div", {
                         key: w.id,
                         className: "we-picker__card" + (w.id === sel.id ? " we-picker__card--selected" : "")
@@ -265,21 +265,21 @@
                             onError: (e) => { e.target.style.display = "none"; },
                             onLoad: (e) => { e.target.style.opacity = "1"; },
                           })
-                        : React.createElement("span", { className: "we-picker__card-placeholder" }, "无预览"),
+                        : React.createElement("span", { className: "we-picker__card-placeholder" }, weT("无预览")),
                       // 类型徽标（卡片左上角）：勾选态（草稿 / 批量）下让位给勾选框。
                       !sel.batchMode && !draft && CARD_TYPE_LABELS[w.type]
                         && React.createElement("span", { className: "we-picker__card-type" }, CARD_TYPE_LABELS[w.type]),
                       React.createElement("span", { className: "we-picker__card-title" }, w.title),
-                      w.type === "scene" && React.createElement("span", { className: "we-picker__card-badge" }, w.sceneLive ? "实时渲染" : "静态帧"),
-                      w.type === "web" && React.createElement("span", { className: "we-picker__card-badge" }, w.webLive ? "实时渲染" : "兼容模式"),
+                      w.type === "scene" && React.createElement("span", { className: "we-picker__card-badge" }, w.sceneLive ? weT("实时渲染") : weT("静态帧")),
+                      w.type === "web" && React.createElement("span", { className: "we-picker__card-badge" }, w.webLive ? weT("实时渲染") : weT("兼容模式")),
                       (draft || sel.batchMode)
                         ? React.createElement("span", { className: "we-picker__card-check" },
                             (draft ? draftIdSet.has(w.id) : sel.batchSelected.indexOf(w.id) >= 0) ? "✓" : "")
                         : React.createElement("button", {
                             className: "we-picker__card-hide", type: "button",
-                            title: "隐藏此壁纸（可在「已隐藏」中恢复）",
+                            title: weT("隐藏此壁纸（可在「已隐藏」中恢复）"),
                             onClick: (e) => { e.stopPropagation(); hideWallpapers([w.id]); },
-                          }, "隐藏"),
+                          }, weT("隐藏")),
                       )),
                 ),
                 !cdMode && normalPage.pages > 1 && pagerRow(
@@ -292,7 +292,7 @@
           // 底部再放一个是重复的。
           React.createElement("div", { className: "we-picker__modal-foot" },
             React.createElement("span", { className: "we-picker__hint" },
-              draft ? "点卡片加入 / 移出 · ESC 返回" : "ESC 返回 · 点击卡片即应用"),
+              draft ? weT("点卡片加入 / 移出 · ESC 返回") : weT("ESC 返回 · 点击卡片即应用")),
           ),
     );
 }

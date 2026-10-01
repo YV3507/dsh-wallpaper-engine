@@ -19,6 +19,9 @@ import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 // 剥注释：共享的字符串感知实现（test/tools/js-text.mjs）。
 import { stripComments } from './tools/js-text.mjs';
+// 单独 import `src/**` 时补上 bundle 作用域的取词层（中文身份；见 test/tools/weT-shim.mjs）。
+import { installWeTShim } from './tools/weT-shim.mjs';
+installWeTShim();
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const mod = await import(new URL('../src/font/color-roles.js', import.meta.url).href);
@@ -409,7 +412,8 @@ const fontTabsUi = readFileSync(join(root, 'src', 'panel-tabs.js'), 'utf8');
       && /selection\.themeFamily = \{\};/.test(clientSrc)
       && /selection\.componentFonts = \{\};/.test(clientSrc));
     check('组件通道收在本区「高级字体设置」子分支（视图键 fontAdvanced，defaults-only）',
-      schema.DEFAULTS_ONLY.includes('fontAdvanced') && fontTabsUi.includes('switchRow("高级字体设置"'));
+      // i18n 之后行文案走 `weT("…")`（中文原文即键）—— 判据认"这个开关行仍在本区"。
+      schema.DEFAULTS_ONLY.includes('fontAdvanced') && fontTabsUi.includes('switchRow(weT("高级字体设置")'));
   }
   const bad = typo.buildTypePayload({ 'markdown-h1': 0, 'markdown-h2': 99, 'markdown-h3': 1.5, 'nope': 2, 'markdown-h4': 'x' }, all);
   check('非法偏移（0 / 越界 / 非整数 / 未知角色 / 非数）全部被拒', bad.roles.length === 0);

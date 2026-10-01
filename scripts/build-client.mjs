@@ -45,6 +45,17 @@ const id = pkg.name;
  */
 const INLINE_MODULES = [
   {
+    file: 'src/i18n-copy.js',
+    why: '英文词表（中文原文即键）：客户端表 + 宿主显示表（两张表的键集各由 verify-i18n 双向对账）',
+    markers: ['const WE_I18N_EN = {', 'const WE_I18N_HOST_EN = {'],
+  },
+  {
+    file: 'src/i18n.js',
+    why: 'i18n 运行时：跟随宿主 locale 服务的取词层（语言种类与 dsh web 同一份目录；含 ?we-lang 逃生舱）',
+    markers: ['const WE_I18N_NS = ', 'function weT(', 'function weI18nAttach(',
+      'function useWeLocale()', 'function weOnLocaleChange('],
+  },
+  {
     file: 'src/styles.js',
     why: '注入的整份样式表（纯数据，零分支；可读性下限与 CSS 必须同处一文件）',
     markers: ['const READABILITY_FLOOR = ', 'const READABILITY_FLOOR_DARK = ', 'const CSS = '],

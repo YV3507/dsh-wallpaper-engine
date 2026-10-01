@@ -57,20 +57,20 @@ const COMPONENT_FONT_PROPS = ['font-size', 'font-weight', 'font-family'];
  * `hooks`（官方 `--dsl-*` 组件钩子）/ `props`（直接写属性；当前无组件走这条）。
  */
 const COMPONENT_FONT_TARGETS = [
-  { id: 'markdown', label: '对话正文', group: 'markdown 容器', prefix: 'markdown',
+  { id: 'markdown', get label() { return weT('对话正文'); }, get group() { return weT('markdown 容器'); }, prefix: 'markdown',
     source: '@deepseek-ai/dsh-client-ui-primitives/lib/markdown/MarkdownText.module.css',
     // markdown 的字号由各元素自己的 `font: var(--dsw-font-markdown-h1)` 决定 ⇒ 直接在容器上
     // 写 font-size 会被那些简写盖掉；这里的正解是 F2 的角色令牌（已实现）。
     route: 'tokens' },
-  { id: 'codeBlock', label: '代码块', group: '代码', prefix: 'block',
+  { id: 'codeBlock', get label() { return weT('代码块'); }, get group() { return weT('代码'); }, prefix: 'block',
     source: '@deepseek-ai/dsh-client-ui-primitives/lib/markdown/CodeBlock.module.css',
     // 代码块的字号来自后代 `font: var(--dsl-code-block-content-font)`（官方钩子）。
     // 在后代上写的简写**压过**祖先继承 ⇒ 只有在组件作用域改这个钩子才有效。
     route: 'hooks', dslHooks: ['--dsl-code-block-content-font', '--dsl-code-block-banner-font'] },
-  { id: 'terminal', label: '终端块', group: '代码', prefix: 'block',
+  { id: 'terminal', get label() { return weT('终端块'); }, get group() { return weT('代码'); }, prefix: 'block',
     source: '@deepseek-ai/dsh-client-ui-primitives/lib/TerminalBlock.module.css',
     route: 'hooks', dslHooks: ['--dsl-terminal-font'] },
-  { id: 'table', label: '表格', group: '对话', prefix: 'tableScroll',
+  { id: 'table', get label() { return weT('表格'); }, get group() { return weT('对话'); }, prefix: 'tableScroll',
     source: '@deepseek-ai/dsh-client-ui-primitives/lib/markdown/MarkdownText.module.css',
     route: 'tokens' },
   // 刻意**不放开** `label` / `tab` / `input` 这类泛前缀：它们在多个模块里重名
@@ -237,9 +237,9 @@ function buildComponentCss(config, available) {
  * 这正是角色表里 `route` 字段要区分 `tokens` / `hooks` / `props` 的原因。
  */
 const DSL_FONT_HOOKS = [
-  { name: '--dsl-code-block-content-font', label: '代码块正文', role: 'markdown-code-block' },
-  { name: '--dsl-code-block-banner-font', label: '代码块标题条', role: 'markdown-code-block' },
-  { name: '--dsl-terminal-font', label: '终端', role: 'markdown-code-block' },
+  { name: '--dsl-code-block-content-font', get label() { return weT('代码块正文'); }, role: 'markdown-code-block' },
+  { name: '--dsl-code-block-banner-font', get label() { return weT('代码块标题条'); }, role: 'markdown-code-block' },
+  { name: '--dsl-terminal-font', get label() { return weT('终端'); }, role: 'markdown-code-block' },
 ];
 const DSL_HOOK_NAMES = DSL_FONT_HOOKS.map((h) => h.name);
 

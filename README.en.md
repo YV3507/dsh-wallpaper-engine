@@ -35,6 +35,7 @@ It discovers the Wallpaper Engine install on your machine, lists your wallpapers
 
 **UI makeover (core)**
 
+- **Follows the DSH interface language**: the plugin's UI joins the host language setting (Settings → General → Language) — **the same catalog dsh web ships** (`中文` / `English`, plus any language pack you install). Switching applies instantly with no page reload: settings pages, the picker, the right sidebar / drawer, the mascot, font sets and the update notice all follow.
 - **Liquid glass across the whole settings window**: the entire native DSH settings window (dialog + left nav + every native section) becomes liquid glass, with accent color, glass base tint, transparency and blur all adjustable.
 - **Text surfaces keep a floor**: every text-bearing surface composites a theme base layer underneath, worst-case body-text contrast **4.63:1** — no slider extreme can make text illegible.
 - **Typography and caret, refined**: fonts are tunable per **color role / typographic role / component** (size, weight and family each), with an independent color for the input caret. A whole look can be saved as a **font set** (a preset ships with the plugin; create / rename / delete / restore, and **export/import** it as `.json` to share).

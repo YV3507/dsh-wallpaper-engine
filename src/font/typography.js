@@ -76,19 +76,19 @@ const BODY_SIZE_2 = 'var(--dsh-content-font-size-secondary,13px)';
  */
 const THEME_TYPE_ROLES = [
   // —— 对话区 markdown（MarkdownText.module.css 消费）——
-  { id: 'markdown-h1', label: '标题 1', prefix: '700', size: `calc(21px + ${DELTA})`, lh: `calc(30px + ${DELTA})`, defaultPx: 21 },
-  { id: 'markdown-h2', label: '标题 2', prefix: '700', size: `calc(19px + ${DELTA})`, lh: `calc(28px + ${DELTA})`, defaultPx: 19 },
-  { id: 'markdown-h3', label: '标题 3', prefix: '700', size: `calc(18px + ${DELTA})`, lh: `calc(26px + ${DELTA})`, defaultPx: 18 },
-  { id: 'markdown-h4', label: '标题 4', prefix: '600', size: BODY_SIZE, lh: `calc(24px + ${DELTA})`, defaultPx: 14 },
-  { id: 'markdown-base', label: '对话正文', prefix: '', size: BODY_SIZE, lh: `calc(24px + ${DELTA})`, defaultPx: 14 },
-  { id: 'markdown-small', label: '小字说明', prefix: '', size: '12px', lh: '20px', defaultPx: 12 },
-  { id: 'markdown-code', label: '行内代码', prefix: '', size: '12px', lh: '19px', defaultPx: 12 },
-  { id: 'markdown-code-block', label: '代码块', prefix: '', size: '11px', lh: '19px', defaultPx: 11 },
-  { id: 'markdown-table', label: '表格', prefix: '', size: BODY_SIZE_2, lh: `calc(22px + ${DELTA_2})`, defaultPx: 13 },
-  { id: 'markdown-table-head', label: '表头', prefix: '500', size: BODY_SIZE_2, lh: `calc(22px + ${DELTA_2})`, defaultPx: 13 },
+  { id: 'markdown-h1', get label() { return weT('标题 1'); }, prefix: '700', size: `calc(21px + ${DELTA})`, lh: `calc(30px + ${DELTA})`, defaultPx: 21 },
+  { id: 'markdown-h2', get label() { return weT('标题 2'); }, prefix: '700', size: `calc(19px + ${DELTA})`, lh: `calc(28px + ${DELTA})`, defaultPx: 19 },
+  { id: 'markdown-h3', get label() { return weT('标题 3'); }, prefix: '700', size: `calc(18px + ${DELTA})`, lh: `calc(26px + ${DELTA})`, defaultPx: 18 },
+  { id: 'markdown-h4', get label() { return weT('标题 4'); }, prefix: '600', size: BODY_SIZE, lh: `calc(24px + ${DELTA})`, defaultPx: 14 },
+  { id: 'markdown-base', get label() { return weT('对话正文'); }, prefix: '', size: BODY_SIZE, lh: `calc(24px + ${DELTA})`, defaultPx: 14 },
+  { id: 'markdown-small', get label() { return weT('小字说明'); }, prefix: '', size: '12px', lh: '20px', defaultPx: 12 },
+  { id: 'markdown-code', get label() { return weT('行内代码'); }, prefix: '', size: '12px', lh: '19px', defaultPx: 12 },
+  { id: 'markdown-code-block', get label() { return weT('代码块'); }, prefix: '', size: '11px', lh: '19px', defaultPx: 11 },
+  { id: 'markdown-table', get label() { return weT('表格'); }, prefix: '', size: BODY_SIZE_2, lh: `calc(22px + ${DELTA_2})`, defaultPx: 13 },
+  { id: 'markdown-table-head', get label() { return weT('表头'); }, prefix: '500', size: BODY_SIZE_2, lh: `calc(22px + ${DELTA_2})`, defaultPx: 13 },
   // —— 界面通用阶梯（SearchBlock / WebBlock / TerminalBlock 消费 xs-13）——
-  { id: 'xs-13', label: '界面小字', prefix: '', size: '13px', lh: '20px', defaultPx: 13 },
-  { id: 'xxs-12', label: '界面极小字', prefix: '', size: '12px', lh: '18px', defaultPx: 12 },
+  { id: 'xs-13', get label() { return weT('界面小字'); }, prefix: '', size: '13px', lh: '20px', defaultPx: 13 },
+  { id: 'xxs-12', get label() { return weT('界面极小字'); }, prefix: '', size: '12px', lh: '18px', defaultPx: 12 },
 ];
 
 const typeTokenNames = (role) => ({

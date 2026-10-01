@@ -49,6 +49,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Readable, Writable } from 'node:stream';
 // 剥注释：共享的字符串感知实现（test/tools/js-text.mjs）。
 import { stripComments } from './tools/js-text.mjs';
+// 单独 import `src/**` 时补上 bundle 作用域的取词层（中文身份；见 test/tools/weT-shim.mjs）。
+import { installWeTShim } from './tools/weT-shim.mjs';
+installWeTShim();
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const RECORD = process.argv.includes('--record');

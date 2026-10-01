@@ -34,11 +34,11 @@ const THEME_LAYER_SOURCE = 'wallpaper-engine';
  * （原记的用量数字没有可复算的出处，已撤；需要时按 token 在 DSH 样式表里重新统计。）
  */
 const THEME_COLOR_ROLES = [
-  { id: 'primary', label: '正文', tokens: ['--dsw-alias-label-primary'] },
-  { id: 'secondary', label: '次要文字', tokens: ['--dsw-alias-label-secondary'] },
-  { id: 'tertiary', label: '弱化说明', tokens: ['--dsw-alias-label-tertiary'] },
-  { id: 'caption', label: '极小说明', tokens: ['--dsw-alias-label-caption'] },
-  { id: 'dimmed', label: '禁用 / 更弱', tokens: ['--dsw-alias-label-dimmed', '--dsw-alias-label-primary-dimmed'] },
+  { id: 'primary', get label() { return weT('正文'); }, tokens: ['--dsw-alias-label-primary'] },
+  { id: 'secondary', get label() { return weT('次要文字'); }, tokens: ['--dsw-alias-label-secondary'] },
+  { id: 'tertiary', get label() { return weT('弱化说明'); }, tokens: ['--dsw-alias-label-tertiary'] },
+  { id: 'caption', get label() { return weT('极小说明'); }, tokens: ['--dsw-alias-label-caption'] },
+  { id: 'dimmed', get label() { return weT('禁用 / 更弱'); }, tokens: ['--dsw-alias-label-dimmed', '--dsw-alias-label-primary-dimmed'] },
 ];
 
 const THEME_HEX_RE = /^#[0-9a-f]{6}$/i;

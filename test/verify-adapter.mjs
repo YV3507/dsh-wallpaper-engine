@@ -33,6 +33,9 @@ import { Writable } from 'node:stream';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 // 剥注释：共享的字符串感知实现（test/tools/js-text.mjs）。
 import { stripComments } from './tools/js-text.mjs';
+// 单独 import `src/**` 时补上 bundle 作用域的取词层（中文身份；见 test/tools/weT-shim.mjs）。
+import { installWeTShim } from './tools/weT-shim.mjs';
+installWeTShim();
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (rel) => readFileSync(join(root, rel), 'utf8');
@@ -364,7 +367,8 @@ check('状态行三分支齐全（栅栏 / 无栅栏桌面 / 浏览器），与�
   && tabsSrc.includes('无栅栏的桌面形态（网页壁纸仍走独立媒体源）')
   && tabsSrc.includes('无栅栏（网页壁纸走应用源）'));
 check('失焦档按能力矩阵显隐（面板行被 blurPause 门控）',
-  /blurPause\s*&&\s*switchRow\("窗口失焦时暂停"/.test(stripComments(tabsSrc))
+  // i18n 之后行文案走 weT（中文原文即键）—— 判据认"门控 + 该行仍在"的形态，不认裸字面量。
+  /blurPause\s*&&\s*switchRow\(\s*weT\("窗口失焦时暂停"\)/.test(stripComments(tabsSrc))
   && tabsSrc.includes('「窗口失焦时暂停」只在原生浏览器目标下提供'),
   'panel blur gate');
 check('渲染层：occlusion 的失焦档也走能力矩阵（面板隐藏 + 判定跳过两腿都在）',

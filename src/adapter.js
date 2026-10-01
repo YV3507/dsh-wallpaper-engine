@@ -26,11 +26,13 @@
  */
 
 // 选项文案。值域与 schema 的 ADAPTER_TARGET_VALUES 逐字对齐（守卫比对）。
+// 取值用 getter 现取（不在模块级冻结）：语言在 bundle 求值之后才由 locale 服务确定，
+// 冻结的值会让 en 界面永远停在中文（见 src/i18n.js 的"模块级冻结"纪律）。
 const ADAPTER_LABELS = {
-  auto: '自动检测',
-  browser: '原生浏览器',
-  'desktop-community': '非官方桌面端',
-  'desktop-official': '官方桌面端',
+  get auto() { return weT('自动检测'); },
+  get browser() { return weT('原生浏览器'); },
+  get 'desktop-community'() { return weT('非官方桌面端'); },
+  get 'desktop-official'() { return weT('官方桌面端'); },
 };
 
 // 宿主上报的落点：`GET /settings` 响应里的 `adapter` 字段（null = 还没拿到）。
@@ -136,9 +138,9 @@ function adapterMismatchWarning() {
     : adapterLocalDetect();
   if (detected === picked) return '';
   if (picked === 'browser' && adapterHostReport && adapterHostReport.fence) {
-    return '手选了原生浏览器，但宿主观测到能力头栅栏 —— 网页壁纸会 403，请改回自动检测或桌面目标';
+    return weT('手选了原生浏览器，但宿主观测到能力头栅栏 —— 网页壁纸会 403，请改回自动检测或桌面目标');
   }
-  return '手选目标与检测不一致（检测到：' + (ADAPTER_LABELS[detected] || '') + '）';
+  return weT('手选目标与检测不一致（检测到：{target}）', { target: ADAPTER_LABELS[detected] || '' });
 }
 
 export {

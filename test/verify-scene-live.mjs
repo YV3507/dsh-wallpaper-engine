@@ -1328,9 +1328,13 @@ check('host 侧 /media-control 只收 POST + 动作走 mediaBackend.control（�
 //（setTransient 不经设置落盘；设置页的「类型」过滤另有一条，筛设置页列表与轮播候选，
 // 两者互不影响、都只筛「列表」）。
 check('侧栏列表类型筛选：四档齐全 + 面板本地应用 + 不走设置落盘',
-  qpSrc.includes('const QP_TYPES = [')
-    && qpSrc.includes('{ id: "all", label: "全部" }') && qpSrc.includes('{ id: "scene", label: "场景" }')
-    && qpSrc.includes('{ id: "web", label: "网页" }') && qpSrc.includes('{ id: "video", label: "视频" }')
+  // i18n（中文原文即键）之后：容器从文件顶层常量改成 `qpTypes()`（每次渲染现建，
+  // 否则文案会冻在加载期），四档 label 各自走 `weT("…")` —— 判据只认"四档 id 仍绑着
+  // 同一句原文"，不认包装形态（认形态的判据会在下一次改写法时静默失效）。
+  qpSrc.includes('function qpTypes()')
+    && [['all', '全部'], ['scene', '场景'], ['web', '网页'], ['video', '视频']]
+      .every(([id, text]) => qpSrc.includes('id: "' + id + '"')
+        && (qpSrc.includes('label: weT("' + text + '")') || qpSrc.includes('label: weT("' + text + '", null,')))
     && qpSrc.includes('w.type !== typeFilter')
     && qpSrc.includes('setTransient("qpType", e.target.value)')
     && !qpSrc.includes('setSetting("qpType"')
@@ -1382,11 +1386,13 @@ check('host 侧属性解析模块（order 浮点 / combo 保类型 / 逐键本�
 check('settings 白名单保留 userProps（按 token 存标量）',
   JSON.stringify(sanitizeHost({ userProps: { tok: { c: 'x', n: 1, obj: { bad: 1 } } } }).userProps)
     === '{"tok":{"c":"x","n":1}}');
+// i18n 之后按钮文案走 `weT("…")`（中文原文即键）—— 判据改认带包装的形态，
+// 顺序判据仍锚在"属性入口在播放/暂停按钮之前"这个**位置关系**上。
 check('「壁纸属性」按钮：仅场景/网页壁纸 + 常规按钮样式（并入播放控制行、排在「暂停」之前）',
   tabsSrc.includes('(current.type === "scene" || current.type === "web") && sel.propsUrl')
     && !tabsSrc.includes('we-picker__btn--props')
-    && tabsSrc.indexOf('"壁纸属性"') !== -1
-    && tabsSrc.indexOf('"壁纸属性"') < tabsSrc.indexOf('playbackLive ? "暂停"'));
+    && tabsSrc.indexOf('weT("壁纸属性")') !== -1
+    && tabsSrc.indexOf('weT("壁纸属性")') < tabsSrc.indexOf('weT("暂停")'));
 check('属性面板热更新走 __wp.updateWebProps',
   src.includes('function applyUserProps(') && src.includes('wp.updateWebProps(wire)'));
 check('属性面板值以渲染页实时表为准（getProperties）',

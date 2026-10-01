@@ -1656,7 +1656,14 @@ setTimeout(async () => {
       && ['transform', 'opacity', 'clip-path'].every((pv) =>
         new RegExp(pv + '\\s+var\\(--we-switch-ms').test(switchCss[0])),
       '过场必须只动 transform / opacity / clip-path，且时长统一取 --we-switch-ms（合成器友好 + 单一真源）');
-    assert.ok(/\{ id: "fade", label: "交叉淡化", ms: ROTATION_FADE_MS \}/.test(code),
+    // i18n 之后 label 是 getter（`get label() { return weT("交叉淡化"); }`）——文案必须在
+    // **渲染期**求值，不能在模块加载时冻结。判据因此改成"**只取 fade 这一条**对账"：
+    // 它必须引用 ROTATION_FADE_MS、且**不得**出现 `ms: <数字>`（写死 1800 就会被判红）。
+    // 不能再用 `[^}]*` 切条目：getter 体里自带 `}`，会把条目切在半路（判据静默失真）。
+    const fadeFrom = code.indexOf('{ id: "fade"');
+    const fadeNext = fadeFrom < 0 ? -1 : code.indexOf('{ id: "', fadeFrom + 4);
+    const fadeEntry = fadeFrom >= 0 && fadeNext > fadeFrom ? code.slice(fadeFrom, fadeNext) : '';
+    assert.ok(fadeEntry.includes('ms: ROTATION_FADE_MS') && !/ms: \d/.test(fadeEntry),
       '「交叉淡化」的基准必须直接引用 ROTATION_FADE_MS（不写死 1800）');
 
     // ⑤d 设置键**两端一致**（#106 那类「宿主白名单漏键 → 客户端设置被静默丢弃」的漂移）。

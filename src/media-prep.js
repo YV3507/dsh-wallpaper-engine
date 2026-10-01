@@ -52,7 +52,7 @@ function beginRotationPrepare(excluded) {
   // 隐藏中：连 staging 都不建（cancelRotationPrepare 已释放上一轮的驻留）。
   if (typeof document !== "undefined" && document.hidden) { deferRotationWhileHidden("rotation-defer"); return; }
   const next = rotationNextCandidate(excluded);
-  liveLog("rotation-fire", "当前 " + (selection.id || "-") + " → 候选 " + (next ? next.id : "无")
+  liveLog("rotation-fire", "当前 " + (selection.id || "-") + " → 候选 " + (next ? next.id : weT("无"))
     + " 候选池 " + rotationCandidates().length + " " + liveStateBrief());
   // 静默停摆修复语义保留：候选在 armed 期间被隐藏到不足时 re-arm（候选仍 <2
   // 时 syncRotationTimer 自身不会 arm；恢复 ≥2 由 hide/restore 的补 arm 接管）。

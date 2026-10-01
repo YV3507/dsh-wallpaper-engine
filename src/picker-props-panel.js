@@ -42,27 +42,27 @@
       .filter((p) => !p.condition || weEvalCondition(p.condition, values))
       .map((p) => renderUserPropRow(p, onPropInput));
     const note = loading
-      ? "读取中…"
+      ? weT("读取中…")
       : error
         ? error
         : rows.length
           ? ""
           : props.length
-            ? "当前条件下没有可调项"
-            : "这张壁纸没有用户属性（project.json 的 general.properties）";
+            ? weT("当前条件下没有可调项")
+            : weT("这张壁纸没有用户属性（project.json 的 general.properties）");
     return React.createElement("div", { className: "we-picker__props" },
       React.createElement("div", { className: "we-picker__props-head" },
-        React.createElement("span", { className: "we-picker__props-title" }, "壁纸属性"),
+        React.createElement("span", { className: "we-picker__props-title" }, weT("壁纸属性")),
         React.createElement("span", { className: "we-picker__props-note" }, note),
         React.createElement("button", {
           className: "we-picker__btn we-picker__btn--mini", type: "button",
           onClick: onReset,
           disabled: !props.some((p) => p.overridden),
-        }, "恢复默认"),
+        }, weT("恢复默认")),
       ),
       // 实时渲染没接管时改动不会立刻可见 —— 明说，免得以为面板坏了
       !sceneLiveActive && React.createElement("div", { className: "we-picker__props-hint" },
-        "实时渲染当前未接管（静态帧 / 兼容模式），改动会在下次实时渲染时生效。"),
+        weT("实时渲染当前未接管（静态帧 / 兼容模式），改动会在下次实时渲染时生效。")),
       rows,
     );
   }
@@ -77,7 +77,7 @@
     }
     const label = React.createElement("span", { className: "we-picker__props-label", title: p.name },
       p.text,
-      p.overridden && React.createElement("span", { className: "we-picker__props-dot", title: "已改（点「恢复默认」还原）" }, "•"),
+      p.overridden && React.createElement("span", { className: "we-picker__props-dot", title: weT("已改（点「恢复默认」还原）") }, "•"),
     );
     let control = null;
     if (p.ptype === "bool") {
@@ -130,7 +130,7 @@
         className: "we-picker__props-select",
         value: cur,
         onChange: (e) => onPropInput(p, e.target.value, false),
-      }, [{ label: "（默认）", value: "" }].concat(list.map((f) => ({ label: f, value: f })))
+      }, [{ label: weT("（默认）"), value: "" }].concat(list.map((f) => ({ label: f, value: f })))
         .map((o, i) => React.createElement("option", { key: i, value: o.value }, o.label)));
     } else {
       control = React.createElement("input", {

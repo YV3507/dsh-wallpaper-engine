@@ -30,8 +30,14 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 // 剥注释：共享的字符串感知实现（test/tools/js-text.mjs）。
 import { stripComments } from './tools/js-text.mjs';
+// 单独 import `src/**` 时补上 bundle 作用域的取词层（中文身份；见该文件头）。
+import { installWeTShim } from './tools/weT-shim.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+// 文案层（i18n）：本模块的 label / group 是**每读现取**的 getter（`get label() { return weT("…") }`，
+// 中文原文即键）。单独 import 时 bundle 作用域里的 `weT` 不在场 ⇒ 先装共享身份 shim
+// （`test/tools/weT-shim.mjs`），判据读到的就是面板在中文下会显示的那串。
+installWeTShim();
 const mod = await import(new URL('../src/font/components.js', import.meta.url).href);
 const { COMPONENT_FONT_TARGETS, COMPONENT_FONT_PROPS, probeComponentTargets, buildComponentCss, selectorFor } = mod;
 

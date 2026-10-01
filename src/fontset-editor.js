@@ -49,7 +49,7 @@ let importInput = null;
 
 /** 删除按钮的标签：被改过的那一份，这个动作的语义是"恢复原样"（只说效果，不说来源）。 */
 function deleteLabel(row) {
-  return row.overrides ? "恢复原样" : "删除";
+  return row.overrides ? weT("恢复原样") : weT("删除");
 }
 
 function renderFontSetEditor(ctx) {
@@ -64,8 +64,8 @@ function renderFontSetEditor(ctx) {
   /** 导出 = **普通链接**（宿主带 attachment 头应答）—— 不引入 blob，也不需要 window.open。 */
   const exportLink = (id) => React.createElement("a", {
     key: "exp", className: "we-picker__btn", href: exportUrl(id), download: id + ".json",
-    title: "下载这个字体集（可分享 / 可再导入）",
-  }, "导出");
+    title: weT("下载这个字体集（可分享 / 可再导入）"),
+  }, weT("导出"));
   /**
    * 破坏性动作要**再确认一次**，且**不许用原生对话框**（`window.confirm`）。
    *
@@ -78,8 +78,8 @@ function renderFontSetEditor(ctx) {
    * `onDisarm` 落地；换行 / 收起子分支也都必须清（见 src/client.js 的 `fontSetCtx`）。
    */
   const answerText = (row) => (row.overrides === true
-    ? "把「" + (row.name || row.id) + "」恢复成它原本的样子？你在这份上的改动会丢掉。"
-    : "删除「" + (row.name || row.id) + "」？此操作不可恢复。");
+    ? weT("把「{name}」恢复成它原本的样子？你在这份上的改动会丢掉。", { name: row.name || row.id })
+    : weT("删除「{name}」？此操作不可恢复。", { name: row.name || row.id }));
 
   const cells = [];
   for (const row of rows) {
@@ -91,10 +91,10 @@ function renderFontSetEditor(ctx) {
     const canDelete = row.origin === "user" && !isActive;
     const actions = [];
     if (!broken) {
-      if (!isActive) actions.push(btn("use", "使用", () => onActivate(row.id),
-        { title: "切换到这个字体集（立即生效）" }));
+      if (!isActive) actions.push(btn("use", weT("使用"), () => onActivate(row.id),
+        { title: weT("切换到这个字体集（立即生效）") }));
       if (editingId !== row.id) {
-        actions.push(btn("ren", "重命名", () => onEdit(row.id)));
+        actions.push(btn("ren", weT("重命名"), () => onEdit(row.id)));
       }
     }
     if (canDelete) {
@@ -104,8 +104,8 @@ function renderFontSetEditor(ctx) {
       actions.push(btn("del", deleteLabel(row), () => { if (!armed) onArm(row.id); }, {
         disabled: armed,
         title: armed
-          ? "已经问过你了 —— 在下面那一行选「确认」或「取消」"
-          : (overrides ? "删掉你在这份上的改动，恢复它原本的样子" : "删除这个字体集（会再问一次）"),
+          ? weT("已经问过你了 —— 在下面那一行选「确认」或「取消」")
+          : (overrides ? weT("删掉你在这份上的改动，恢复它原本的样子") : weT("删除这个字体集（会再问一次）")),
       }));
     }
     actions.push(exportLink(row.id));
@@ -116,11 +116,11 @@ function renderFontSetEditor(ctx) {
         // 「使用中」= **值仍然一致**（指针指着它 + 自采纳以来没被手动改过）；被改过就换成「已改」，
         // 让人知道"当前这套是在它的基础上动过的"，而不是让标记凭空消失。
         row.id === inUseId
-          ? React.createElement("span", { className: "we-picker__hint" }, "（使用中）")
+          ? React.createElement("span", { className: "we-picker__hint" }, weT("（使用中）"))
           : (row.id === activeId
-            ? React.createElement("span", { className: "we-picker__hint", title: "当前外观在这套的基础上被手动改过；点「使用」把它整份读回来" }, "（已改）")
+            ? React.createElement("span", { className: "we-picker__hint", title: weT("当前外观在这套的基础上被手动改过；点「使用」把它整份读回来") }, weT("（已改）"))
             : null),
-        broken ? React.createElement("span", { className: "we-picker__hint" }, "无法读取：" + broken) : null,
+        broken ? React.createElement("span", { className: "we-picker__hint" }, weT("无法读取：{msg}", { msg: broken })) : null,
       ),
       React.createElement("td", null,
         editingId === row.id
@@ -133,8 +133,8 @@ function renderFontSetEditor(ctx) {
               onChange: (e) => onDraftName(e.target.value),
               onKeyDown: (e) => { if (e && e.key === "Enter") onRenameCommit(row.id); },
             }),
-            btn("ok", "保存", () => onRenameCommit(row.id)),
-            btn("cancel", "取消", () => onCancelEdit()),
+            btn("ok", weT("保存"), () => onRenameCommit(row.id)),
+            btn("cancel", weT("取消"), () => onCancelEdit()),
           )
           : actions,
       ),
@@ -145,8 +145,8 @@ function renderFontSetEditor(ctx) {
       cells.push(React.createElement("tr", { key: row.id + "-ask", className: "we-picker__fontset-confirm" },
         React.createElement("td", { colSpan: 2 },
           React.createElement("span", { className: "we-picker__hint" }, answerText(row)),
-          btn("yes", "确认", () => onDelete(row.id), { title: "就这么办" }),
-          btn("no", "取消", () => onDisarm(), { title: "算了" }),
+          btn("yes", weT("确认"), () => onDelete(row.id), { title: weT("就这么办") }),
+          btn("no", weT("取消"), () => onDisarm(), { title: weT("算了") }),
         ),
       ));
     }
@@ -154,20 +154,19 @@ function renderFontSetEditor(ctx) {
 
   return React.createElement(React.Fragment, null,
     React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
-      ctlText("字体集", "一份集 = 整套字体外观（颜色角色 / 排版 / 字重 / 字族 / 组件）。"
-        + "改动只落到当前这一份、随时可以恢复原样；导入导出按整份文件走。"),
+      ctlText(weT("字体集"), weT("一份集 = 整套字体外观（颜色角色 / 排版 / 字重 / 字族 / 组件）。改动只落到当前这一份、随时可以恢复原样；导入导出按整份文件走。")),
     ),
-    loading ? React.createElement("div", { className: "we-picker__hint" }, "正在读取字体集…") : null,
-    error ? React.createElement("div", { className: "we-picker__hint" }, "字体集不可用：" + error) : null,
+    loading ? React.createElement("div", { className: "we-picker__hint" }, weT("正在读取字体集…")) : null,
+    error ? React.createElement("div", { className: "we-picker__hint" }, weT("字体集不可用：{reason}", { reason: error })) : null,
     rows.length === 0 && !loading
-      ? React.createElement("div", { className: "we-picker__hint" }, "还没有任何字体集 —— 下面可以新建一份。")
+      ? React.createElement("div", { className: "we-picker__hint" }, weT("还没有任何字体集 —— 下面可以新建一份。"))
       : null,
     rows.length
       ? React.createElement("table", { className: "we-picker__font-table" },
         React.createElement("thead", null,
           React.createElement("tr", null,
-            React.createElement("th", null, "字体集"),
-            React.createElement("th", null, "操作"),
+            React.createElement("th", null, weT("字体集")),
+            React.createElement("th", null, weT("操作")),
           ),
         ),
         React.createElement("tbody", null, cells),
@@ -188,14 +187,14 @@ function renderFontSetEditor(ctx) {
           if (f) onImport(f);
         },
       }),
-      btn("import", "导入字体集…", () => {
+      btn("import", weT("导入字体集…"), () => {
         if (importInput && typeof importInput.click === "function") importInput.click();
-      }, { title: "从「导出」得到的 .json 导入一份字体集" }),
+      }, { title: weT("从「导出」得到的 .json 导入一份字体集") }),
       // 「新建」不再先问名字：名字由客户端生成（「我的字体集」/「我的字体集 2」…），
       // 建完立刻切过去 —— 用户的下一步一定是调它；想改名随时用行内的「重命名」。
-      btn("new", "新建（以当前外观）", () => onCreate(),
-        { title: "把当前这套字体外观存成一份新的集，并切换过去（名字之后可以改）" }),
-      btn("refresh", "刷新", () => onRefresh()),
+      btn("new", weT("新建（以当前外观）"), () => onCreate(),
+        { title: weT("把当前这套字体外观存成一份新的集，并切换过去（名字之后可以改）") }),
+      btn("refresh", weT("刷新"), () => onRefresh()),
     ),
   );
 }

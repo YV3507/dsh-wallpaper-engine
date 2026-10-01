@@ -33,6 +33,9 @@ import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 // 源码形态判据一律先剥注释（共享的字符串感知实现）：注释里写着同一个名字不算"接线在位"。
 import { stripComments } from './tools/js-text.mjs';
+// 单独 import `src/**`（含 fresh URL 重载）时补上 bundle 作用域的取词层（中文身份）。
+import { installWeTShim } from './tools/weT-shim.mjs';
+installWeTShim();
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (rel) => readFileSync(join(root, rel), 'utf8');
@@ -380,8 +383,10 @@ console.log('\n⑥ 开关「主题随壁纸」：默认关 · 关时主题不变
   const schema = await import(pathToFileURL(join(root, 'lib', 'settings-schema.js')).href);
   const tabsCode = stripComments(read('src/panel-tabs.js'));
   const clientCode = stripComments(read('src/client.js'));
-  const switchAt = tabsCode.indexOf('switchRow("主题随壁纸"');
-  const swatchAt = tabsCode.indexOf('swatchRow("配色"');
+  // i18n 之后行文案走 `weT("…")`（中文原文即键）—— 判据认"开关 + 配色行都还在、且顺序如此"，
+  // 不认裸字面量（认形态的判据会在下一次改包装时静默失效）。
+  const switchAt = tabsCode.indexOf('switchRow(weT("主题随壁纸")');
+  const swatchAt = tabsCode.indexOf('swatchRow(weT("配色")');
 
   check('开关存在且默认为关（设置模型 DEFAULTS.themeFollow === false，kind = boolFalse）',
     schema.DEFAULTS.themeFollow === false && schema.KINDS.themeFollow

@@ -248,23 +248,23 @@ function themeFollowApply(verdict) {
   const current = themeFollowCurrentPreference();
   if (current === verdict) {
     themeFollowWritten = verdict;
-    themeFollowTrace("保持 " + verdict + "（已是这个偏好，不重复写）");
+    themeFollowTrace(weT("保持 {verdict}（已是这个偏好，不重复写）", { verdict }));
     return;
   }
   try {
     themeFollowWritten = verdict;   // 先记再写：自己的写入不该被当成"别人改的"
     themeFollowService.setTheme(verdict);
-    themeFollowTrace("切换为 " + verdict);
+    themeFollowTrace(weT("切换为 {verdict}", { verdict }));
   } catch { /* 服务拒绝（版本漂移）：保持原样，不抛 */ }
 }
 
 /** 决策留痕：面板状态行 + 诊断通道（排查"为什么判成浅色"时先看这里）。 */
 function themeFollowTrace(action) {
-  try { reportClientDiag("theme-follow", action + "｜" + (themeFollowLastLine || "无取色结果")); }
+  try { reportClientDiag("theme-follow", action + "｜" + (themeFollowLastLine || weT("无取色结果"))); }
   catch { /* 诊断是增强：失败不影响主题 */ }
   // 状态行走**瞬态字段**（与 gpuFrameUi 一类同路）：不落盘、不需要跨模块调用，
   // 面板从 ctx 的 sel 上读。面板渲染在验证环境里也能跑（不需要本模块在场）。
-  try { setTransient("themeFollowLine", themeFollowLastLine ? themeFollowLastLine + "｜" + action : action); }
+  try { setTransient("themeFollowLine", themeFollowLastLine ? weT("{line}｜{action}", { line: themeFollowLastLine, action }) : action); }
   catch { /* 没有 store（验证环境）：只影响面板那一行 */ }
 }
 
@@ -293,9 +293,9 @@ function themeFollowOnWallpaper(sel) {
   if (scheme) {
     themeFollowSchemeProvided = true;           // 作者说了就用作者：图源结果一律不参与
     const verdict = themeFollowVerdict(scheme);
-    themeFollowLastLine = themeFollowDescribe("作者配色", scheme, verdict);
+    themeFollowLastLine = themeFollowDescribe(weT("作者配色"), scheme, verdict);
     themeFollowApply(verdict);
-    themeFollowTrace(themeFollowCurrentPreference() === verdict ? "已生效" : "等待取色");
+    themeFollowTrace(weT(themeFollowCurrentPreference() === verdict ? "已生效" : "等待取色"));
     return;
   }
   themeFollowSchemeProvided = false;
@@ -336,17 +336,19 @@ function themeFollowAcceptImageVerdict(rgb, rank) {
   if (rank >= 2) themeFollowFrameVerdict = verdict; else themeFollowPreviewVerdict = verdict;
   themeFollowRank = rank;
   const resolved = themeFollowResolveImageVerdict();
-  themeFollowLastLine = themeFollowDescribe(rank >= 2 ? "帧" : "预览", rgb, verdict)
+  themeFollowLastLine = themeFollowDescribe(weT(rank >= 2 ? "帧" : "预览"), rgb, verdict)
     + (themeFollowPreviewVerdict && themeFollowFrameVerdict && themeFollowPreviewVerdict !== themeFollowFrameVerdict
-      ? "｜两条腿不一致 ⇒ 取深色" : "");
+      ? weT("｜两条腿不一致 ⇒ 取深色") : "");
   themeFollowApply(resolved);
 }
 
 /** 一句可读的判决描述（面板状态行 + 诊断留痕共用；不参与任何判定）。 */
 function themeFollowDescribe(source, rgb, verdict) {
   const L = Array.isArray(rgb) ? themeFollowLuminance(rgb) : -1;
-  return (verdict === "light" ? "浅色" : "深色") + " · 来源：" + source
-    + (L >= 0 ? "（亮度 " + L.toFixed(3) + "）" : "");
+  const label = weT(verdict === "light" ? "浅色" : "深色");
+  return L >= 0
+    ? weT("{label} · 来源：{source}（亮度 {lum}）", { label, source, lum: L.toFixed(3) })
+    : weT("{label} · 来源：{source}", { label, source });
 }
 
 /**
