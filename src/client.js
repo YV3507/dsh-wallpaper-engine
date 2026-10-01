@@ -3809,20 +3809,12 @@ function RopeDock() {
 }
 
 // ── One-time "what's new" notice ─────────────────────────────────────────────
-// This round: v0.7.2 extends the liquid-glass adaptation to the NATIVE right
-// sidebar that harness 0.1.5 introduced (better-sidebar 0.19 registers its
-// tabs into it) and fixes the right column turning fully transparent there —
-// the native panel paints var(--dsw-alias-bg-base), the exact token WE makes
-// transparent while a wallpaper is active, and it had no frost of its own.
-// Updating to the latest plugin now has TWO PREREQUISITES, announced via this
-// notice: ① the DeepSeek Harness kernel must be the latest (DSH Desktop
-// ≥ 2.0.7 / harness 0.1.5-rc.1+), and ② dsh-better-sidebar must be the latest
-// (0.19.0+; users still on the 0.1.2-rc.1 line keep 0.18.x — no mixing). The
-// dismissal version is stored WITH the settings (host file, port-independent)
-// so it survives DSH Desktop's random --port restarts and never re-shows
-// after being closed. Bump NOTICE_VERSION next release to announce something
-// new again.
-const NOTICE_VERSION = "1.1.0";
+// 每个版本只出现一次（内容 = **本版摘要**，逐条明细在 docs/CHANGELOG.md）。
+// 触发条件是 `noticeSeen !== NOTICE_VERSION`：**升版本号即重新播报**，而"已读"
+// 走设置持久化（宿主文件，与端口无关）⇒ DSH Desktop 每次随机 --port 重启都不会重播。
+// 摘要口径（用户可直接读的那种）：只讲"用户能看见的变化"，内部重构 / 守卫 / 文档不进这里。
+// 下次发版：改 NOTICE_VERSION + 换这一屏文案（中文原文即键 ⇒ 词表那条也要跟着换）。
+const NOTICE_VERSION = "2.1.0";
 
 function UpdateNotice() {
   useWeLocale(); // 更新说明是长文案，语言切换后要跟着换（同一棵 RopeDock 子树）
@@ -3840,59 +3832,25 @@ function UpdateNotice() {
   };
   if (!show) return null;
   return React.createElement("div", { className: "we-update-notice", role: "alert" },
-    React.createElement("div", { className: "we-update-notice__title" }, weT("🎉 v1.1.0 更新：全新字体自定义系统上线 —— 专门治「界面文字看不清」")),
+    React.createElement("div", { className: "we-update-notice__title" }, weT("🎉 v2.1.0 更新：界面跟随 DSH 的语言 + 设置页多了「关于」页签")),
     React.createElement("div", { className: "we-update-notice__body" },
       React.createElement("p", null,
-        weT("自 1.0.1 以来的全部更新：")),
+        weT("这一版最值得一说的几件事：")),
       React.createElement("p", null,
-        "① ", React.createElement("strong", null, weT("全新字体自定义系统（本次重点）")),
-        weT("：针对大家反馈的「界面字体看不清」，字体自定义全面重做——「外观」页签里可按"),
-        React.createElement("strong", null, weT("角色")),
-        weT("（正文 / 标题 / 次要文字 / 代码 / 表格…）和"),
-        React.createElement("strong", null, weT("组件")),
-        weT("（markdown 正文 / 代码块 / 终端 / 表格）分别调节"),
-        React.createElement("strong", null, weT("字号（绝对值）/ 字重 / 字体族")),
-        weT("，「只看改过的」默认开启，改哪看哪。新增"),
-        React.createElement("strong", null, weT("字体集")),
-        weT("：一整套字体外观存成预设（随包自带一份），可新建 / 重命名 / 删除，改任何一项只落到当前这一套、随时「恢复原样」，支持"),
-        React.createElement("strong", null, weT("导出 / 导入 .json")),
-        weT("（可分享、可备份）。")),
+        React.createElement("strong", null, weT("🌐 界面多语言")),
+        weT("：插件界面接进「设置 → 通用 → 语言」（内置中文 / English，装了语言包也一并跟随），切换即时生效、不用重载页面。")),
       React.createElement("p", null,
-        "② ", React.createElement("strong", null, weT("主题随壁纸（自动深 / 浅切换）")),
-        weT("：打开「外观 → 主题随壁纸」，换壁纸时插件自动判断壁纸亮暗、把全局界面切成深色或浅色——深壁纸上自动换深色界面，白字更清楚（默认关，想要自动化就打开）。")),
+        React.createElement("strong", null, weT("🆕 「关于」页签")),
+        weT("：设置页最后一枚 —— 项目简介、仓库地址与实时 ⭐ 数（带缓存，取不到时显示上一次的值）、交流群二维码、贡献者致谢。")),
       React.createElement("p", null,
-        "③ ", React.createElement("strong", null, weT("换壁纸过场动画（7 种可选）")),
-        weT("：交叉淡化 / 推移 / 擦除 / 光圈 / 缩放 / 条带 / 百叶窗，类型 / 方向 / 速度自由搭配；默认仍是硬切，手动切换与自动轮播共用一套。")),
+        React.createElement("strong", null, weT("🪟 Windows 最小化 / 还原的白帧修掉")),
+        weT("：桌面端最小化动画、任务栏缩略图与还原那一瞬间的「整块白」，现在降级成壁纸同色底，不再闪白。")),
       React.createElement("p", null,
-        "④ ", React.createElement("strong", null, weT("桌面端自动适配")),
-        weT("：「高级」页签新增「适配」段，自动识别你跑在"),
-        React.createElement("strong", null, weT("原生浏览器 / 非官方桌面端 / 官方桌面端（DeepSeek Harness）")),
-        weT("哪一种，检测不准时可手选覆盖。")),
+        React.createElement("strong", null, weT("🚀 大场景壁纸更快更稳")),
+        weT("：载荷改走独立的本地媒体源、首帧预算按包大小给、隐藏与未播放的实例不再抢带宽；切过壁纸后残留的渲染引擎也修掉了。")),
       React.createElement("p", null,
-        "⑤ ", React.createElement("strong", null, weT("实时帧行增强")),
-        weT("：不再受「实时渲染」开关限制，随时可重新截帧，并新增当前壁纸实时帧的微缩预览。")),
-      React.createElement("p", null,
-        "⑥ ", React.createElement("strong", null, weT("终端默认只报问题")),
-        weT("：日志收敛成三档（error / warn / info），桌面端默认安静；成功事实走独立提示通道；需要排查时再开 info 档。")),
-      React.createElement("p", null,
-        "⑦ ", React.createElement("strong", null, weT("修复一批")),
-        weT("：原生确认弹窗导致壁纸停摆、首次激活场景壁纸黑屏、启动等待期切壁纸卡死、右栏关闭态露玻璃板、软件渲染下玻璃不兜底、12 项资源泄漏等；渲染内核同步上游 WebWallGL 2.0.2（引擎作者 oneincase），上游多项渲染问题一并修复。")),
-      React.createElement("p", { className: "we-update-notice__hint" },
-        weT("💡 看不清文字？给你一套现成的调节方案（按省事程度排序）：")),
-      React.createElement("p", null,
-        "1. ", React.createElement("strong", null, weT("换系统深色模式（首选）")),
-        weT("——深色模式自带的白色文字在绝大多数壁纸上都更清楚；懒得手动切就打开新功能「主题随壁纸」，让插件按壁纸自动换。")),
-      React.createElement("p", null,
-        "2. ", React.createElement("strong", null, weT("调壁纸透明度（最快）")),
-        weT("——「效果」页签 → 「壁纸透明度」往右拉，壁纸变淡、文字对比立刻上来，几秒钟见效，是日常最便捷快速的办法。")),
-      React.createElement("p", null,
-        "3. ", React.createElement("strong", null, weT("精调字体（治本）")),
-        weT("——「外观」页签 → 字体自定义，把看不清的角色字号调大一档、字重加重；调好后「新建字体集（以当前外观）」存成自己的预设，随时一键切换、可导出分享。")),
-      React.createElement("p", null,
-        "4. ", React.createElement("strong", null, weT("兜底")),
-        weT("——壁纸本身太亮太花时，配合「效果 → 暗化 / 壁纸模糊」与「雾化」强度；本版本还给玻璃面板上的正文加了"),
-        React.createElement("strong", null, weT("对比度下限（≥4.5:1）")),
-        weT("，再透也读得清。")),
+        React.createElement("strong", null, weT("🛡️ 一批稳定性补强")),
+        weT("：渲染失败记忆按「管线身份」作废（换了版本或修好之后不会被旧结论卡住）、素材目录围栏加固、诊断现场更全。")),
       React.createElement("p", { className: "we-update-notice__hint" },
         weT("本提示每个新版本只出现一次，点下方按钮关闭后不再弹出。")),
     ),

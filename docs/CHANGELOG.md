@@ -3,9 +3,10 @@
 > 本文件承接原先堆在 README 首页的**版本公告与功能清单**。门面（`../README.md` / `../README.en.md`）
 > 只保留与版本无关的亮点；带版本号、issue 号、性能数字的内容一律记在这里。
 >
-> **当前发布版本：`v1.1.0`**（与 `package.json` 的 `version` 一致；上游最新 release 仍是 v1.0.1）。
-> `### 未发布（下一版）` 记的是 **v1.1.0 之后**的增量（本仓库与上游 `origin/main` 的差异）—— 已有条目，
-> 见下；**`### v1.1.0`** 一节收拢的是 **1.0.1 之后至 1.1.0** 的全部内容（打包修复 + 本仓库相对上游的追版成果）。
+> **当前发布版本：`v2.1.0`**（与 `package.json` 的 `version` 一致；上游最新 release 仍是 v1.0.1）。
+> `### v2.1.0` 一节收拢的是 **v1.1.0 之后**的全部增量（本仓库与上游 `origin/main` 的差异，逐提交可查）——
+> 开头是**汇总简略版**（用户可直接读的那种），下面是逐条明细（带 issue / PR 号与实测数字）；
+> **`### v1.1.0`** 一节收拢的是 **1.0.1 之后至 1.1.0** 的全部内容（打包修复 + 本仓库相对上游的追版成果）。
 >
 > **归档说明**：本仓库从 **v0.6.8** 起才有 git tag，更早的版本没有独立标签。早于 v0.6.8 的条目
 > 按**原 README 原文的版本标注**归档；原文未标注小版本的条目放进区间桶，不臆造版本号。
@@ -13,9 +14,17 @@
 
 ## 中文
 
-### 未发布（下一版）
+### v2.1.0（2026-10-01）
 
-> v1.1.0 之后的增量（与上游 `origin/main` 的差异，逐提交可查）：
+> **汇总（简略版）—— 这一版值得一说的五件事：**
+>
+> 🌐 **界面多语言**：插件界面接进宿主「设置 → 通用 → 语言」，语言目录与 dsh web 同一份，切换**即时生效**、不用重载页面。
+> 🆕 **设置页新增「关于」页签**（第五枚，压尾）：项目简介 · 仓库地址与**实时 ⭐ 数** · 交流群二维码 · 贡献者致谢。
+> 🪟 **Windows 桌面端最小化 / 还原的白帧修掉**：掉层从「白闪」降级成**同色底**。
+> 🚀 **大场景壁纸更快更稳**：载荷走独立媒体源 · 首帧预算按包大小给 · 后台实例不抢带宽 · 切过壁纸后的引擎泄漏修掉。
+> 🛡️ **一批稳定性与可观测性补强**：失败记忆按「管线身份」作废 · 素材目录围栏加固（`realpath.native`）· 诊断现场更全。
+>
+> 下面是**逐条明细**（自上而下 = 本版全部改动）：
 
 - **设置页新增「关于」页签（第五枚，排在最后）**：四段内容**按序**为 —— ① 项目简介；② 本仓地址与「⭐ 去 GitHub 点亮 Star」（真链接、新窗口、`rel=noopener`，旁边另给一段**可选中可复制的裸地址** —— 桌面壳里外链能否唤起浏览器不由插件说了算，这条给"点了没反应"兜底）；③ 交流群的**两张二维码**（QQ 群与抖音群）；④ 贡献者致谢**压尾**（逐条列出 oneincase / YV3507 / yuxilao / Jerry 与其余贡献者做了什么，并以 💌 那句收尾）—— 顺序是用户的明确口径，判据按首次出现下标比大小钉住（错序 / 缺段都红，配正负对照）。它是唯一**不读面板状态**的页签：不写设置、不发通知、一条表单控件都没有（判据按这个语义钉住：滑条行必须为 0）。两张码是**随包 PNG**（`lib/about/qq-group.png` / `douyin-group.png`，`package.json` 的 `files` 收进去），
 由插件自己的路由 `GET /wallpaper-engine/about-qr/<文件名>` 直出（白名单 + ETag/304，换码不重建产物）——
@@ -217,9 +226,17 @@
 
 ## English
 
-### Unreleased (next version)
+### v2.1.0 (2026-10-01)
 
-> Increment after **v1.1.0** (the diff against upstream `origin/main`, verifiable commit by commit):
+> **Summary (short form) — the five things worth mentioning:**
+>
+> 🌐 **Multilingual UI**: the plugin UI is wired into the host's Settings → General → Language, sharing dsh web's language catalogue; switching applies **instantly**, with no page reload.
+> 🆕 **A new "About" tab** (fifth, last): project intro · repository URL with a **live star count** · community QR codes · contributor credits.
+> 🪟 **The white frames on minimize/restore in the Windows desktop client are fixed**: a dropped layer degrades from a white flash to a **tone-matched solid**.
+> 🚀 **Large Scene wallpapers are faster and steadier**: payloads over a dedicated media origin · first-frame budget scaled by package size · background instances stop hogging bandwidth · the renderer-engine leak after switching wallpapers is fixed.
+> 🛡️ **A batch of stability and observability work**: failure memory scoped to a pipeline identity · a hardened asset-directory fence (`realpath.native`) · diagnostics that capture more of the scene.
+>
+> Below is the **detailed log** (top to bottom = everything in this release):
 
 - **Whole-window white (near-grey) frames on minimize/restore on the Windows desktop client are fixed**: the minimize animation, the taskbar thumbnail and the instant after restoring could show a **solid white** plate (a light grey under the default dimming) instead of the wallpaper. Mechanism: the wallpaper layer is an ordinary `z-index: -2` child of `body` (its pixels live in the root frame's raster), and while a wallpaper is active the plugin turns the base token `transparent` — so any window/tab state change can reveal the **window base plate** (Electron's `backgroundColor` defaults to `#FFF`) plus the host `body`'s white fallback whenever the root frame cannot get that layer. Fix: while a wallpaper is active the **root element** carries an opaque **wallpaper representative colour** (new `--we-wallpaper-underlay`) — the canvas background is the last layer on the compositing chain that "does not depend on a raster, filled directly by the compositor". Resolution order: **the most-occupied colour of the picture** first (sampled 64×64 straight off the already-decoded video / canvas / img leaf inside the layer — no extra request, no extra decode), then the author / panel scheme colour (an author `0 0 0` counts as *unfilled*), and nothing when neither exists (back to transparent). A dropped layer therefore degrades from "white flash" to "a tone-matched solid". The same round added a **two-frame re-composite nudge** on becoming visible (only in the hidden → visible direction, never a permanent compositing layer) and an **on-screen trace** (layer geometry + leaf ready-state + frames presented + "next frame presented at +N ms", the latter via rVFC rather than a timer) for problems that only reproduce in a specific window state and that intent-level logs cannot answer. **Measured** (headless Edge, the real artifact, page structure copied rule-by-rule from the host frontend): with the media leaf not painting, the centre pixel went from `rgb(191,191,191)` before the fix (the host's white base pushed through the default dimming) to `rgb(150,30,42)` — that video's own dominant colour, i.e. the sampling leg beating the author colour; with the wallpaper on screen the two builds are pixel-identical (no side effects). **One shell-side follow-up remains upstream** (option ① of the report): the desktop shell sets a transparent base plate for darwin windows only, and its win32 `BrowserWindow` passes no `backgroundColor`, so that plate stays white and still shows when the window has literally no frame to submit.
 - **Clearing the shell's canvas base no longer pins a mode name**: it used to clear only the `data-dsh-desktop-mode="extended"` case (where the shell paints `.dshDesktopFrame` opaque and covers the wallpaper whole). Mode names and the gated set evolve with the shell, so pinning one name turns "the wallpaper is covered" into a silent regression on the next shell update — now the base is cleared whenever a wallpaper is active (a no-op in compatibility mode, whose baseline is already transparent), and the guard has teeth in both directions: a missing clear fails, and writing a single-mode gate back fails.
