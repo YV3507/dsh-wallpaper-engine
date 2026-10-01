@@ -1,8 +1,7 @@
 // Verify the PUBLISHED package's `files` allowlist actually ships every file
-// under lib/ — this packaging regression shipped TWICE (PR #61 fixed it, v0.7.2
-// lost it again): one runtime module was dropped from `files`, so the tarball
-// was missing it, another module threw on import inside the render worker, and
-// EVERY Scene wallpaper silently fell back to 回退主纹理 (upstream #86).
+// under lib/ — drop one runtime module from `files` and the tarball is missing it:
+// another module then throws on import inside the render worker, and EVERY Scene
+// wallpaper silently falls back to 回退主纹理 (upstream #86).
 //
 // The checkout always runs, so nothing in the repo notices a gap — only the
 // PUBLISHED package breaks. This guard asserts the allowlist directly:
@@ -124,8 +123,8 @@ async function main() {
   {
     const controls = [
       [coveredBy('lib/index.js', 'lib/index.js'), 'exact file'],
-      // 目录条目：用**仍存在的**目录做正对照（拿一个已删除的目录当例子，会让"无尾斜杠"
-      // 那条正对照恒假 —— 判据本身没问题，是例子过期了）。
+      // 目录条目：正对照必须挑**磁盘上仍存在**的目录 —— 例子一旦失效，那条"无尾斜杠"
+      // 正对照就恒假（判据本身没问题，是例子过期）。
       [coveredBy('lib/media/index.js', 'lib/media/'), 'dir entry (trailing slash)'],
       [coveredBy('lib/media/index.js', 'lib/media'), 'dir entry (no trailing slash)'],
       [coveredBy('lib/media/legacy.js', 'lib/media/**'), 'glob entry'],
@@ -153,9 +152,9 @@ async function main() {
   }
 
   // ── P6: 每个 lib/ 运行时模块都能被解析（语法 / 早期错误；`lib/` 里还有 .swift/LICENSE/.html，不参与）─────────────────────────
-  // 来自一次真实事故：P3-17 合并读器后 `pkg-extract.js` 少 import 了一个**再导出**的名字
-  //（`export { parsePkg }` 而 parsePkg 未定义）⇒ 模块根本加载不起来；而当时**没有任何守卫 import 它**，
-  // 于是整条链仍是绿的。这里用 `node --check`：只解析、不执行（避免 `lib/client.js` 这类在 Node 里跑起来）。
+  // 为什么要 `node --check`：`export { parsePkg }` 而 parsePkg 未定义这种**再导出**错误让
+  // 模块根本加载不起来，而没有任何守卫 import 它时整条链仍是绿的。只解析、不执行
+  //（避免 `lib/client.js` 这类在 Node 里跑起来）。
   {
     const broken = runtime.filter((rel) => {
       try { execFileSync(process.execPath, ['--check', join(ROOT, rel)], { stdio: 'ignore' }); return false; }

@@ -377,7 +377,7 @@ const fontTabsUi = readFileSync(join(root, 'src', 'panel-tabs.js'), 'utf8');
           && !!three.payload['--dsw-font-markdown-h1-font-family'];
       })());
   }
-  // 全局字重已移除（用户口径：取消字重的全局唯一值）——按角色/按组件细化。
+  // 用户口径：**不存在任何全局性质的字体配置** —— 字体按角色/按组件细化。
   {
     check('schema 里不再有全局 fontWeight 键', !('fontWeight' in schema.DEFAULTS));
     const effectsSrc = readFileSync(join(root, 'src', 'effects.js'), 'utf8');
@@ -387,8 +387,8 @@ const fontTabsUi = readFileSync(join(root, 'src', 'panel-tabs.js'), 'utf8');
     // 用户口径的最终确认：**不存在任何全局性质的字体配置**。
     check('三个全局字体键都已不存在（fontColor / fontWeight / fontFamily）',
       !('fontColor' in schema.DEFAULTS) && !('fontWeight' in schema.DEFAULTS) && !('fontFamily' in schema.DEFAULTS));
-    // 判据针对**代码**：剥注释走共享的字符串感知实现（test/tools/js-text.mjs）——头注释里为说明
-    // 「已删除」正会提到这些名字（散文不是代码）。
+    // 判据针对**代码**：剥注释走共享的字符串感知实现（test/tools/js-text.mjs）—— 头注释里
+    // 说明这些名字为什么不在时正会提到它们（散文不是代码）。
     const effectsCode = stripComments(effectsSrc);
     check('源码里不再有全局字体注入层（#we-font-patch / --we-font-family / --we-font-weight / 还原契约）',
       !/we-font-patch|--we-font-family|--we-font-weight|--we-font-stroke|data-we-font-ignore/.test(effectsCode),

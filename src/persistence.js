@@ -3,9 +3,8 @@
  *
  * 为什么单独一个文件：这一族是"用户改了设置之后到底存到哪、什么时候存、失败了怎么办"的**全部答案**
  * （194 行）：debounce 写、脏标记与重试、页面隐藏时 flush、启动时的宿主→本地迁移、以及
- * "用户在这次 GET 在途时改了设置 ⇒ 宿主的答案已过期，不许覆盖"的竞态守卫。此前它散在
- * src/client.js 的头部与中段（读 localStorage 的助手在 store 定义之前、其余在 store 之后），
- * 读的时候要跳两处；抽出来之后"设置为什么丢了"只需读一个文件。
+ * "用户在这次 GET 在途时改了设置 ⇒ 宿主的答案已过期，不许覆盖"的竞态守卫。这些助手原本
+ * 分散在 store 定义前后两处，读的时候要跳两处；集中在这里，"设置为什么丢了"只需读一个文件。
  *
  * 契约（构建期由 scripts/build-client.mjs 内联进 bundle 的工厂作用域，"外部作用域"=
  * 同一 prelude / src/client.js 的顶层。依赖见下方逐条列举，此处不写死数量）：
@@ -104,7 +103,7 @@ function schedulePersist() {
 
 // Flush a pending write when the page goes away (tab close / navigate), and
 // retry a failed PUT when the page becomes visible again.
-// 监听器改为具名函数, 由 apply 的 ctx.effect 注册/注销: 模块作用域注册的监听器
+// 监听器必须是具名函数、由 apply 的 ctx.effect 注册/注销: 模块作用域注册的监听器
 // 每次 client-plugin 重载/HMR 重新求值 bundle 都会再叠一对, 且永远无法移除。
 function onPageHideFlush() {
   if (persistTimer && typeof window.clearTimeout === "function") {

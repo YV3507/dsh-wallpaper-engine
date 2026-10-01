@@ -2,16 +2,16 @@
 /**
  * analyze-host-apply.mjs — 宿主 `apply(ctx)` 的**拆分评估取证**（账本 §3.5 / §7 的复算工具）。
  *
- * 为什么有这个脚本：账本里"P2-11 做到哪一步、还剩几族、什么条件下继续拆"的结论必须**可复算**，
+ * 为什么有这个脚本：`apply(ctx)` 还剩几族、什么条件下继续拆，这类结论必须**可复算**，
  * 否则过一段时间就只能靠印象判断。跑一次就得到三组数：
  *   ① `apply(ctx)` 的体量（行 / 分支代理 / 占 lib/index.js 比例）；
  *   ② 路由总数与**按族分布**（族内 ≥3 条 = 账本 §7 触发条件 6 的火苗）；
  *   ③ 闭包状态量（apply 自己声明的局部 = 拆分时要显式传的东西）与各路由的守卫覆盖。
  *
- * ⚠️ 路由枚举**只认 `host-route-index.mjs` 的 `buildIndex()`**：本脚本早期自己数
- * `path:` 字面量，于是同时踩了两个坑 —— 按路径去重（两条 `/diag` 折叠成一条）与丢弃参数化
- * 路径（`for (const seg of ['media','preview'])` 注册的两条全丢），报出"25 条"而索引是 31 条。
- * 度量工具与设计稿给出两个不同的路由数，比不度量更坏 —— 现在只有一处枚举。
+ * ⚠️ 路由枚举**只认 `host-route-index.mjs` 的 `buildIndex()`**：自己数 `path:` 字面量会同时
+ * 踩两个坑 —— 按路径去重（两条 `/diag` 折叠成一条）与丢弃参数化路径（`for (const seg of
+ * ['media','preview'])` 注册的两条全丢）。度量工具与索引给出两个不同的路由数，比不度量更坏
+ * —— 所以只留一处枚举。
  *
  * 用法：node test/tools/analyze-host-apply.mjs
  * 退出码恒为 0（这是度量工具，不是守卫）。
@@ -57,7 +57,7 @@ for (const [k, v] of [...fam.entries()].sort((a, b) => b[1].length - a[1].length
 console.log(`\n== ③ 闭包状态 ${stateNames.length} 个（拆分时要显式传的东西）==`);
 console.log('   ' + stateNames.join(' '));
 
-// 巨石：尺寸由索引按**配花括号**算出（早期用"到下一个同级声明的距离"量，把 293 行量成 1,795 行）
+// 巨石：尺寸由索引按**配花括号**算出（按"到下一个同级声明的距离"量会把整个嵌套体算成巨石）
 if (giants.some((g) => g.lines)) {
   console.log('\n   apply 内的巨石（索引按配花括号计）：');
   for (const g of giants) {

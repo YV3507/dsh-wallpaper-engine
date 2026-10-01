@@ -4,8 +4,8 @@
  *
  * 为什么要有这一层（verify-scene-live.mjs 覆盖不到的部分）：
  *   C4 证明媒体源在真实 socket 上服务正确，但它不证明**渲染页真的能把它挂进沙箱
- *   iframe 并跑起来**。这条链路只有真浏览器说得清，而它恰恰是「网页壁纸全黑」事故
- *   的现场：DSH Desktop 的能力头（x-dsh-desktop-renderer）栅栏只放行同源 frame，
+ *   iframe 并跑起来**。这条链路只有真浏览器说得清，而它正是「网页壁纸全黑」的现场形态：
+ *   DSH Desktop 的能力头（x-dsh-desktop-renderer）栅栏只放行同源 frame，
  *   严格沙箱 iframe 是不透明源 → 插件路由一律 403 → 载荷必须由 host 自建的独立
  *   loopback 源提供（见 lib/index.js 的 ensureMediaOrigin）。
  *
@@ -159,7 +159,8 @@ writeFileSync(join(baseDir, 'static', 'app.js'), [
 
 // 帧间隔度量（页面侧算、Node 侧判）。**同一份源码**既注入页面、也用于下面的判据自检
 // （`new Function(FPS_METRIC_JS)`）—— 度量与判据各写一份是这类测试最容易烂的地方。
-// `nSlow` 只数**迟到**的帧（超过中位 25ms），与原来 `p95 - p50` 的语义同向；`maxOf` 只记录。
+// `nSlow` 只数**迟到**的帧（超过中位 25ms），方向与 `p95 - p50` 一致但不受单个离群值支配；
+// `maxOf` 只记录。
 const FPS_METRIC_JS = [
   '  function pct(a, q) {',
   '    if (!a.length) return 0;',
@@ -485,6 +486,9 @@ if (baseWrapperHtml) {
   const child2 = spawn(browser, [
     '--headless=new',
     '--enable-unsafe-swiftshader',
+    // 同第一次运行：macOS 上不给假钥匙串，无头 Chromium 会弹「找不到…钥匙串」打断跑测的人。
+    // 口径由 verify-contracts 守：每个 --headless=new 启动点都必须带这个开关。
+    '--use-mock-keychain',
     '--disable-extensions', '--no-first-run', '--no-default-browser-check',
     `--user-data-dir=${baseProfile}`,
     '--window-size=1280,720',
@@ -556,11 +560,11 @@ check('跨源控制通道活着（渲染页下发的 sceneFps=15 到达作者）
 // 写法会把回调落在刷新的任意相位上 → 间隔抖动（17/33/50ms 混排，用户观感就是
 // 「限了 30 反而更卡」）。现实现是跳帧：每帧都对齐 vsync，只交付第 n 帧。
 //
-// ⚠️ **p95 不再是判据，只作记录**：n=60 时 `pct` 的 0.95 落在**第 3 大**的样本上，两帧被
-// 同机负载抢掉就能把它从 73 推到 199 —— 实测同一份代码两跑差 20 倍。尾巴呈**目标间隔整数倍**
-// 是 web-shim「按回调计数交付」的既有性质（该文件跨 1.4.2 → 2.0.0 逐字节未变，已单独提上游
-// issue），不是被测实现的回归。**有牙的是 p50**：旧 setTimeout 实现产出的混排小间隔会把 p50
-// 压到 45 以下、掉队帧数同时爆掉。故这里改成「紧判 p50 + 松判掉队比例」，并把 p95/max 记进输出。
+// ⚠️ **p95 不是判据，只作记录**：n=60 时 `pct` 的 0.95 落在**第 3 大**的样本上，两帧被
+// 同机负载抢掉就能把它从 73 推到 199（同一份代码两跑差 20 倍）。尾巴呈**目标间隔整数倍**
+// 是 web-shim「按回调计数交付」的既有性质（上游 issue），不是被测实现的回归。**有牙的是
+// p50**：定时器相位抖动产出的混排小间隔会把 p50 压到 45 以下、掉队帧数同时爆掉。故这里
+// 用「紧判 p50 + 松判掉队比例」，并把 p95/max 记进输出。
 const p50 = Number(g('p50') || 0);
 const p95 = Number(g('p95') || 0);
 const maxIv = Number(g('max') || 0);
@@ -575,7 +579,7 @@ check('帧间隔无系统性抖动（掉队帧 ≤20%；紧判据是上一条的
   `p50=${p50} p95=${p95} max=${maxIv} 掉队=${nSlow}/${nIv}`);
 
 // 判据自检（不需要浏览器）：用**同一份**度量源码喂两种合成序列 —— 健康序列（中位落在目标上、
-// 偶尔一次 1 vsync 迟到）必须判为合格，旧 setTimeout 的混排序列必须被判出。没有这组对照，
+// 偶尔一次 1 vsync 迟到）必须判为合格，setTimeout 相位抖动的混排序列必须被判出。没有这组对照，
 // 上面那条"掉队 ≤20%"的松判据等于没有牙。
 {
   const M = new Function(`${FPS_METRIC_JS}\nreturn { pct: pct, nSlow: nSlow, maxOf: maxOf };`)();
@@ -600,10 +604,9 @@ check('albumArtist 到达壁纸（中间件新增字段）', g('aa') === 'E2E_Al
 // 时间轴（进度/时长）：`op:"timeline"` → wallpaperRegisterMediaTimelineListener 这条
 // 通道要通，**而且必须是宿主推的那组值**（内置实现在 Linux 上根本给不出这两个值，
 // 中间件三平台都给）。
-// 这里同时守着一条修好的渲染页回归：渲染页自带「演示媒体源」（createSimulatedMedia，
-// 首曲时长 212s），此前它按秒推自己的 timeline 把宿主的进度盖掉（实测序列
-// 1,212 → 3.1,212 → 6.1,212）；WebWallGL 侧已修（宿主 wire 存档到 rt.mediaSource +
-// 与媒体泵共用 diff 记录），所以现在必须一路都是宿主的 5,100。
+// 这里同时守着一条渲染页不变量：渲染页自带「演示媒体源」（createSimulatedMedia，
+// 首曲时长 212s），它也会推 timeline —— 宿主 wire 必须存档到 rt.mediaSource 并与媒体泵
+// 共用 diff 记录，才不会被演示源按秒推的进度盖掉。所以这里必须一路都是宿主的 5,100。
 const mtlSeen = beacons
   .map((b) => (/(?:^|\s)mtl=([^\s]+)/.exec(String(b.msg || '')) || [])[1] || '')
   .filter(Boolean);

@@ -322,8 +322,8 @@ const CSS = `
      backdrop-filter 的插件模态框、壁纸层的垫底画面（垫底不能透明，见 buildLivePoster）。
      它们改读这个令牌，从而与别名映射解耦。取值直接取宿主静态调色板里**别名本身的来源**
      （浅色 neutral-bluish-00 / 深色 neutral-bluish-875），静态令牌缺席时退回字面量。 */
-  /* 染色地板：--we-readability-base 不再是主题白/黑，而是玻璃色经亮度钳制后的
-     按主题版本（effects.js 的 weClampSurfaceColor 计算、--we-surface-tint-* 注入）
+  /* 染色地板：--we-readability-base 是玻璃色经亮度钳制后的按主题版本
+     （effects.js 的 weClampSurfaceColor 计算、--we-surface-tint-* 注入）
      —— 色相跟随用户选择，亮度钳制保住 #82 的 ≥4.5:1 正文判据。缺省回落原值。 */
   body {
     --we-readability-floor: ${READABILITY_FLOOR};
@@ -478,6 +478,74 @@ const CSS = `
      同样门控到 [data-we-adapter^="desktop-"]（理由见上一条规则）。 */
   body[data-we-adapter^="desktop-"][data-we-wallpaper] .dshDesktopFrame {
     background: transparent !important;
+  }
+
+  /* ── 左侧栏覆盖（宿主原生左栏的玻璃接管，默认关）────────────────────────────
+     原生左栏（会话列表 / 工作区那一列）在壁纸下本来只是**透明的洞**：本插件把
+     --dsw-specific-sidebar-fill 置为 transparent，那一列于是直接透出原样壁纸 ——
+     没有霜、没有底色，主题那套「配色 / 玻璃颜色 / 玻璃透明度 / 雾化 / 边框」一个都
+     到不了它。开关（body[data-we-left-sidebar]，设置键 leftSidebarGlass，默认关）
+     给这一列挂上**与其余面板同一张配方表**：玻璃颜色（钳制后可读性底色）@ 玻璃
+     透明度 压在可读性下限之上 + 雾化（--we-blur）+ 边框（竖分割线）+
+     配色（选中 / 悬停行、徽标、焦点环的高亮映射）。关掉即恢复今天的样子。
+
+     锚点：这一列**只有 CSS 模块哈希类名**（harness 的 pI_x6G_sidebarCol 与
+     dsh-client-ui-sidebar 的 hHd-Xa_root —— 构建哈希，跨版本漂移，不得使用）。
+     可以钉的是**座位锚**：slot 渲染器给每个出口盖章 data-slot="<slotKey>"（同一个
+     机制就是上面设置窗口用的 [data-slot="settings.section"]），而左栏那个座位的出口
+     div[data-slot="sidebar"] 正是这一列的**直接子元素** ⇒ 用 :has() 反向选中父元素。
+     ⚠️ 不能把玻璃画在出口锚自己身上：它带 display:contents（座位渲染器的
+     ANCHOR_STYLE），**不生成盒子**，背景 / 模糊 / 边框全都画不出来。
+     ⚠️ 子选择器（>）是刻意的：写宽一档会连带匹配到"任何祖先链里有该锚点"的元素。
+     ⚠️ 本注释块不得出现反引号（模板字符串会被提前截断）。 */
+  body[data-we-wallpaper][data-we-left-sidebar] div:has(> [data-slot="sidebar"]) {
+    background-color: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-glass-alpha, 0.5) * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+    /* 顶层白光釉：与设置窗口同一道镜面渐变。它同时**顶掉**壳层 darwin 那条
+       「淡蓝渐变 + fill 混色」的左栏背景（background-image 是同一长属性）。 */
+    background-image: linear-gradient(180deg,
+      rgba(255, 255, 255, 0.10) 0%,
+      rgba(255, 255, 255, 0.03) 38%,
+      rgba(255, 255, 255, 0.05) 100%);
+    -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    /* 边框：这一列的竖分割线（以及「新建会话」按钮描边）读的是 --dsw-alias-border-l3 ——
+       壁纸令牌映射只接管了 l1/l2，这就是「边框」滑杆此前对左栏完全无感的原因。
+       darwin 上壳层把这条边置为 none（原生无分割线），这里显式补回：既然这一列已经被
+       接管成玻璃面板，一条随「边框」变浓淡的发丝线才是与其他面板一致的口径。 */
+    --dsw-alias-border-l3: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
+    border-right: 0.5px solid rgba(180, 180, 180, var(--we-border-alpha, 0.35));
+    /* 配色：与设置窗口同一组 accent 映射（选中 / 悬停行 = interactive-bg-hover，
+       业务状态点 = state-business-primary，链接与强调文字 = brand-*），
+       作用域只在这一列 —— 自定义属性沿 DOM 继承，出不去这一列的子树。 */
+    --dsw-alias-interactive-bg-hover: color-mix(in srgb, var(--we-accent, #4f8cff) 14%, transparent);
+    --dsw-alias-interactive-bg-hover-accent: color-mix(in srgb, var(--we-accent, #4f8cff) 18%, transparent);
+    --dsw-alias-state-business-primary: var(--we-accent, #4f8cff);
+    --dsw-alias-brand-primary: var(--we-accent, #4f8cff);
+    --dsw-alias-brand-text: var(--we-accent, #4f8cff);
+  }
+  /* 深色：同一张表、同一组层权重，只有玻璃色缺省与高亮mix 不同（与设置窗口深色那条同形）。 */
+  body[data-ds-dark-theme][data-we-wallpaper][data-we-left-sidebar] div:has(> [data-slot="sidebar"]) {
+    background-color: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) calc(var(--we-glass-alpha, 0.5) * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+    background-image: linear-gradient(180deg,
+      rgba(255, 255, 255, 0.07) 0%,
+      rgba(255, 255, 255, 0.02) 38%,
+      rgba(255, 255, 255, 0.03) 100%);
+    --dsw-alias-interactive-bg-hover: color-mix(in srgb, var(--we-accent, #4f8cff) 14%, rgba(255, 255, 255, 0.04));
+  }
+  /* 无 backdrop-filter：同一政策 —— 近不透明玻璃，文字绝不直接落在壁纸上
+     （模糊被关掉后，半透明 + 无霜等于把左侧栏文字放到花壁纸上）。 */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    body[data-we-wallpaper][data-we-left-sidebar] div:has(> [data-slot="sidebar"]) {
+      background-color: color-mix(in srgb, var(--we-surface-tint-light, #ffffff) 92%, transparent);
+      background-image: none;
+    }
+    body[data-ds-dark-theme][data-we-wallpaper][data-we-left-sidebar] div:has(> [data-slot="sidebar"]) {
+      background-color: color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) 92%, transparent);
+    }
   }
 
   /* ── dsh-better-sidebar glass ──────────────────────────────────────────────
@@ -810,10 +878,8 @@ const CSS = `
     }
   }
 
-  /* Section wrapper（旧外壳卡拍平后的形态）：UI 重构后拍平 —— 融合官方
-     设置页（官方分区没有外壳卡），内容直接落在设置对话框的面层上。 */
-  /* Card shell: UI 重构后**不再是卡** —— 融合官方设置页（官方分区没有外壳卡），
-     内容直接落在设置对话框的面层上。选择器与 DOM 结构保留（守卫按结构断言）。 */
+  /* Section wrapper：融合官方设置页（官方分区没有外壳卡），内容直接落在设置对话框的面层上。
+     注意类名与 DOM 结构是**契约**，守卫按结构断言 —— 拍平的是外观，不是这层壳的存在。 */
   .we-picker__card-shell { display: block; }
   /* Card header: name + count badge + description (mirrors skin-center). */
   .we-picker__card-head {
@@ -1586,8 +1652,7 @@ const CSS = `
   }
   .we-picker__modal-body {
     display: flex; flex-direction: column; gap: 8px;
-    /* 卡片 hover 放大的横向溢出裁切（沿用弹框时代的防护）；纵向滚动交给
-       设置页内容列，本层不再是滚动容器。 */
+    /* 卡片 hover 放大的横向溢出裁切；纵向滚动交给设置页内容列（本层只裁横轴）。 */
     overflow-x: hidden; /* fallback：老旧内核不认识 clip 时的平替 */
     overflow-x: clip;
   }
@@ -1714,8 +1779,7 @@ const CSS = `
   /* One-time update notice — a floating glass toast (bottom-center) that tells
      immersive/kiosk-window users about the white flash and its one fix. High
      z-index so it sits above the chat; buttons reuse the flat picker style.
-     底板跟着主题底色走（max(下限, 82%) 保住原来的 82% 衬底）：明主题白衬黑字、
-     暗主题深蓝衬白字，不再是一块写死的深色板。 */
+     底板跟着主题底色走（max(下限, 82%) 的衬底）：明主题白衬黑字、暗主题深蓝衬白字。 */
   .we-update-notice {
     position: fixed; left: 50%; bottom: 26px; z-index: 1100;
     transform: translateX(-50%);
@@ -1798,7 +1862,7 @@ const CSS = `
     border-bottom: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.22));
   }
   .we-repo-panel__title { font-weight: 600; font-size: 0.95em; white-space: nowrap; }
-  /* Body: THE scroll container（内容 = QuickPanel 快捷播放面板，不再是设置页副本）。 */
+  /* Body: THE scroll container（内容 = QuickPanel 快捷播放面板）。 */
   .we-repo-panel__body {
     flex: 1; min-height: 0;
     overflow-y: auto;
@@ -1825,12 +1889,29 @@ const CSS = `
   .we-qp--official { box-sizing: border-box; padding: 12px; }
   /* 官方侧栏的 tab 身体（P3OORG_tabBody）是固定高 + overflow:hidden —— 内容超高
      会被裁掉且任何祖先都不滚（宿主契约：每类 tab 自己管内部滚动）。所以：
-     ① 面板限高 100% 自己兜底滚；② 列表区单独成滚动容器，让 当前壁纸 / 轮播 /
-     声音 / 底栏常驻可见 —— 快捷面板滚 100 行列表去够音量是不可用的。 */
+     ① 面板限高 100% 自己兜底滚；② 常驻区（当前壁纸 / 轮播 / 页签栏 / 底栏）不滚，
+     滚动只发生在页签内容区（.we-qp__tabbody）里 —— 快捷面板滚 100 行列表去够音量、
+     或翻到播放页去够「下一张」都是不可用的。抽屉档（.we-repo-panel__body 已是滚动
+     容器）不叠第二层滚。 */
   .we-qp--official { height: 100%; overflow-y: auto; overscroll-behavior: contain; }
   .we-qp--official .we-qp__current,
   .we-qp--official .we-qp__section,
+  .we-qp--official .we-qp__tabs,
   .we-qp--official .we-qp__foot { flex: 0 0 auto; }
+  /* 页签栏：复用设置页那套 .we-tabs（分段底 + 指示胶囊），这里只补宽度约束
+     （.we-tabs 自己是 flex:0 0 auto，列向 flex 里要显式给满宽） */
+  .we-qp__tabs { width: 100%; box-sizing: border-box; }
+  /* 页签内容区：外观 / 播放两页在这里滚；壁纸页挂 --library，改由列表自己滚
+     （viewbar 与声音组常驻，与改造前的形态一致）。 */
+  .we-qp__tabbody { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  .we-qp--official .we-qp__tabbody { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  .we-qp--official .we-qp__tabbody--library { overflow: hidden; }
+  /* ⚠️ 列表那节（.we-qp__library，flex: 1 1 auto）是**唯一**的弹性子节点；它的兄弟
+     （声音组）由上面那条 .we-qp--official .we-qp__section 兜住，**不要再**在这里写
+     .we-qp__tabbody--library > .we-qp__section —— 那会多一个类、特异性压过
+     .we-qp__library（同为 0,2,0 时才靠源码顺序决胜），把列表压成内容高 ——
+     列表里的 overflow-y:auto 就永远不触发（实测：侧栏列表滚不动）。判据在
+     test/verify-scene-live.mjs「侧栏列表的滚动链」一段。 */
   .we-qp--official .we-qp__library { flex: 1 1 auto; min-height: 140px; }
   .we-qp--official .we-qp__list {
     flex: 1 1 auto; min-height: 0;
@@ -1871,6 +1952,12 @@ const CSS = `
   .we-qp__viewbar .we-qp__search { flex: 1 1 auto; min-width: 0; width: auto; }
   .we-qp__viewbar .we-qp__type { flex: none; max-width: 84px; }
   .we-qp__viewbar .we-picker__seg { flex: none; }
+  /* 但段控在这个作用域里是收缩态：基类靠父级把 flex 撑开，这里父级被钉成 flex:none，
+     加上基类本身没有最小宽度、横向内边距为 0 ⇒ 「列表 / 卡片」两个字就只剩文字宽度
+     （0.78em ≈ 12.5px × 2 + 边框 ≈ 29px），点起来过窄。只给**这一处**一个最小宽度，
+     不去动共用的基类（设置页的转场方向 / 速度 / 帧率上限 / 适配模式等七处也用它，
+     那些地方要的就是等分满宽）。56px ≈ 原来的两倍。 */
+  .we-qp__viewbar .we-picker__seg .we-picker__rate { min-width: 56px; }
   /* 卡片网格：**最窄两列、向后自动加列**（auto-fill 铺最小 130px 的列轨，画满一行
      再换行）。130 的取法：两个「最窄形态」都必须恰为 2 列 —— 官方右栏最小 300px
      （宿主 clampWidth(rightbar, 300, …)，内容 276 ∈ (2×130+8, 3×130+16]）、抽屉固定
@@ -1988,6 +2075,18 @@ const CSS = `
     background-color: color-mix(in srgb, var(--we-sidebar-color, #ffffff) 92%, transparent) !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
+  }
+  /* 左侧栏覆盖（leftSidebarGlass）：软件光栅器下模糊被静默忽略 ⇒ 与上面各条同一配方，
+     钉成 92% 近不透明玻璃并把不会生效的 backdrop-filter 显式关掉。深色那条多一层
+     [data-ds-dark-theme]，与浅色声明同特异度时后写者赢（顺序即优先级）。 */
+  body[data-we-glass-fallback][data-we-wallpaper][data-we-left-sidebar] div:has(> [data-slot="sidebar"]) {
+    background-color: color-mix(in srgb, var(--we-surface-tint-light, #ffffff) 92%, transparent) !important;
+    background-image: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  body[data-ds-dark-theme][data-we-glass-fallback][data-we-wallpaper][data-we-left-sidebar] div:has(> [data-slot="sidebar"]) {
+    background-color: color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) 92%, transparent) !important;
   }
   /* 内容面（编辑器/终端）本来就是近不透明底板（--we-content-surface-alpha，默认
      88%），这里把同一条声明再挂一遍，让软件渲染下三块侧栏区域落在同一个规则块里。 */

@@ -2,13 +2,10 @@
  * verify-scene.mjs — 场景出图来源链 + GPU 抓帧缓存的自检。
  *
  * Levels:
- *   A. （已退役）pkg-extract 的**静态帧提取**单元测试 —— 那条静态帧提取链随 P2-12 移除
- *      （`lib/pkg-extract.js` 本身仍在，仍被 `lib/index.js` 用于 TEX/容器原语）；
- *      本文件现在只覆盖**留下的活路径**。
  *   B. 宿主路由集成（mock webServer）：出图来源链头（抓帧 → 自定义画面 → 空态）、
  *      抓帧回填的槽位语义（409 唯一性 / 几何头 / 清除通道 / 并发串行）。
  *   D2/D3. 中途放弃请求的断开时机（确定性替身 + 结构棘轮）。
- *   E. 缓存键单一构造点（P1-6）。
+ *   E. 缓存键单一构造点。
  *
  * 真机夹具（Steam 工坊）只在存在时跑；合成夹具总会跑，所以没有 Steam 也能通过。
  *
@@ -27,7 +24,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
  * 宿主半的**全部注册面** = `lib/index.js` + `lib/routes/*.js`。
- * 路由族拆出 `apply(ctx)` 是 P2-11 的正常动作 ⇒ 凡断言"宿主仍实现某契约"的判据都必须覆盖
+ * 路由族拆出 `apply(ctx)` 之后 ⇒ 凡断言"宿主仍实现某契约"的判据都必须覆盖
  * 那个目录，否则"已搬走"会被误报成"契约丢了"（假红）。反之，断言"某路由**已不在正文**"的
  * 判据仍必须只读 `lib/index.js`。
  */
@@ -128,7 +125,7 @@ function buildTexRgba(width, height, rgbaBytes) {
 }
 
 // ── Offline fixture: synthetic Steam library for Level B ────────────────────
-// Level B used to depend on a real workshop scene being installed (dev boxes
+// Level B must not depend on a real workshop scene being installed (dev boxes
 // often have none → 'no scene wallpaper with frameUrl on this machine'). A
 // synthetic library wired through DSH_WE_STEAM_ROOT makes the route pipeline
 // testable anywhere: the pkg ships one 32×32 noise RGBA texture (noise keeps
@@ -232,8 +229,8 @@ let invBody = null;
 
 if (token) {
   // ── 出图来源链头（账本 §6.6/§6.7）：这个 fixture 既没有实时抓帧、也没有自定义画面 ⇒ 必须
-  //    **诚实留空**（404），而不是"替作者猜一张图" —— 提取 / 合成 / 找最大图片 / 预览图都已随
-  //    P2-12 移除（§6.4 的静默回落陷阱：合成路径还在，"找最大图片"就仍活在自动链上）。
+  //    **诚实留空**（404），而不是"替作者猜一张图" —— 猜图来源一律不许回落
+  //    （§6.4 的静默回落陷阱：合成路径还在，"找最大图片"就仍活在自动链上）。
   const beforeList = existsSync(TEST_CACHE_DIR) ? readdirSync(TEST_CACHE_DIR).slice() : [];
   const firstRes = await runHandler(sceneRoute, '/wallpaper-engine/scene-frame/' + token);
   check('无抓帧且无自定义画面 ⇒ 404 空态（不回落任何猜图来源）',
@@ -366,7 +363,7 @@ if (token) {
       'status=' + headV3.__state.status + ' gpu=' + headV3.__state.headers['X-WE-GPU']);
     const put2 = await runPut('/wallpaper-engine/scene-frame-cache/' + token, gpuPng);
     check('second PUT rejected → 409 (每壁纸一份)', put2.__state.status === 409, 'status=' + put2.__state.status);
-    // 并发写入（评审用真 socket 复现过 TOCTOU）：同 key 串行 → 恰好一 200 一 409。
+    // 并发写入（TOCTOU 的真复现装置）：同 key 串行 → 恰好一 200 一 409。
     await runClear('/wallpaper-engine/scene-frame-cache/' + token);
     const raced = await Promise.all([
       runPut('/wallpaper-engine/scene-frame-cache/' + token, makePng(4096, 1)),
@@ -470,7 +467,7 @@ if (token) {
     check('PUT unknown token → 404', putUnknown.__state.status === 404, 'status=' + putUnknown.__state.status);
     const headUnknown = await runHead('/wallpaper-engine/scene-frame/not-a-real-token');
     check('HEAD unknown token → 404', headUnknown.__state.status === 404, 'status=' + headUnknown.__state.status);
-    // HEAD 契约（评审指出的盲区）：空槽 → 404，且纯探测绝不写盘。
+    // HEAD 契约：空槽 → 404，且纯探测绝不写盘。
     await runClear('/wallpaper-engine/scene-frame-cache/' + token);
     for (const ext of ['png', 'jpg', 'gif']) { rmSync(join(cacheDir, curKey + '.' + ext), { force: true }); }
     const before = readdirSync(cacheDir).length;
@@ -497,7 +494,7 @@ check('帧上限常量可从源码解析（超限块尺寸不写死）', frameLi
 
 // D: 真 socket 端到端 —— 错误应答必须真的送到客户端。
 // mock res 无法暴露「res.end() 后立刻 req.destroy() 会丢掉写缓冲」这类问题
-//（评审实测：33MB 超限请求客户端只拿到 ECONNRESET 而不是 413），所以这里起
+//（33MB 超限请求在这种写法下客户端只拿到 ECONNRESET 而不是 413），所以这里起
 // 一个真 http server，按框架语义（最长前缀优先）分发到同一个 handler。
 if (token) {
   const http = await import('node:http');
@@ -661,8 +658,8 @@ if (token) {
     req.emit('end');
     check(`${c.label}：两条件齐了才断开（不留悬挂连接）`, req.destroyed === true,
       'destroyed=' + req.destroyed);
-    // ③ `req 'close'` 先于应答刷出 ⇒ 同样不许断。这条缝曾漏掉 —— A/B 实测（各 12 次）：
-    //    在这条路径上直接 destroy ⇒ 丢 1 次 413。
+    // ③ `req 'close'` 先于应答刷出 ⇒ 同样不许断：在这条路径上直接 destroy
+    //    会丢掉那一次 413。
     const req2 = mkOrderReq(c);
     const res2 = mkFlushableRes();
     route.handler(req2, res2);
@@ -680,7 +677,7 @@ if (token) {
 // 覆盖 Level D2 因成本/副作用跑不了的两条：/upload（上限 512MB）与 /custom-frame
 // （会在真实 overrides 目录里删同名兄弟文件）。
 // 口径 = **宿主半的全部注册面**（`lib/index.js` + `lib/routes/*.js`）：把路由族拆出 `apply`
-// 是 P2-11 的正常动作，判据只读一个文件会把"已搬走"误报成"少接了一条"（假红）。
+// 之后，判据只读一个文件会把"已搬走"误报成"少接了一条"（假红）。
 {
   const src = readHostHalf();
   /** 判据只认代码：调用点沿用短名 `strip`。 */
@@ -694,8 +691,8 @@ if (token) {
   check('负对照：裸 req.destroy() 计数判据有牙',
     (strip("try { req.destroy(); } catch { /* ignore */ }").match(/req\.destroy\(\)/g) || []).length === 1);
 }
-// ── Level E: 缓存键单一构造点（结构不变量，P1-6）────────────────────────────
-// 帧缓存键曾在 sceneFrameCacheKey 与 sceneFrameSlot 里各拼一遍字面量 ⇒ 升版本
+// ── Level E: 缓存键单一构造点（结构不变量）──────────────────────────────────
+// 帧缓存键如果每个派生点各拼一遍字面量 ⇒ 升版本
 // 只改一处就会让「写盘的产物」与「读取的路径」错位（症状：改了却没生效、
 // 缓存永不命中、白烧 CPU）。这里把「每种缓存各只有一个派生点」钉死；
 // 新增第 4 种缓存时本断言会红 —— 那是**有意的**棘轮，请连同这里一起改。

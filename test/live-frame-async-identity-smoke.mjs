@@ -12,7 +12,7 @@ function assertChildren(children) {
     const bad = badChild(c);
     if (bad) throw new Error('React #31：无效子节点（对象不能作为子节点）: ' + JSON.stringify(Object.keys(bad)).slice(0, 80));
   }
-}// GPU 抓帧回填的「异步落地身份校验」行为级 smoke（评审第二轮产出物，已进仓库）：
+}// GPU 抓帧回填的「异步落地身份校验」行为级 smoke：
 // 回填的落地回调只对**发起时那张壁纸**记账 —— 多 MB PNG 的 HEAD+toBlob+PUT 要
 // 0.1–1.5s，期间用户可能已经切走。按「当前 selection」记账会把「已有 GPU
 // 帧」记到新壁纸头上，后果不只是面板提示错 ≤30s：回到被误标的壁纸时 CPU scene-anim
@@ -230,9 +230,9 @@ exportsObj.apply({ slots: { inject: (k, cb) => cb(), register: () => {} }, effec
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const fireLatest = (ms) => { const t = timers.filter((x) => !x.cleared && x.ms === ms).pop(); if (t) { t.cleared = true; t.fn(); } return t; };
 const animCount = (tok) => animSrcs.filter((s) => s.includes('/scene-anim/' + tok)).length;
-// 「B 的槽位有没有被误记账」的新观测点：gpuFrameUi 的槽位探测是 HEAD /scene-frame/<token>，
+// 「B 的槽位有没有被误记账」的观测点：gpuFrameUi 的槽位探测是 HEAD /scene-frame/<token>，
 // 误记账会让 TTL 内的缓存命中、从而**跳过**这次探测 —— 所以「有没有探测」等价于「有没有被
-// 误记账」。（CPU 动画渲染路线已删除，旧观测点 animCount 只剩「零请求」这一用途。）
+// 误记账」。（本仓不提供 CPU 动画渲染，animCount 只剩「零请求」这一用途。）
 const headCount = (tok) => headCalls.filter((u) => String(u).includes('/scene-frame/' + tok)).length;
 // 持久化有 200ms 防抖：断言落库前先冲掉写盘定时器（同 rotation-smoke 的做法）。
 const flushPersist = () => timers.filter((t) => !t.cleared && t.ms === 200).forEach((t) => { t.cleared = true; t.fn(); });
@@ -266,7 +266,7 @@ const bHeadsAfterFirstArrival = headCount('bbb');
 check('② 首次到 B 时客户端照常 HEAD 探测 B 的槽位（未被误记账成已 pinned 而跳过）',
   bHeadsAfterFirstArrival >= 1, 'bbb HEAD=' + bHeadsAfterFirstArrival);
 
-// ③ 上传此刻落地 —— 这是被评审的窗口
+// ③ 上传此刻落地 —— 这正是并发窗口
 if (putResolve) putResolve();
 await sleep(40);
 
@@ -284,7 +284,7 @@ check('④ 已再次回到 B', persistedId() === 'b', 'id=' + persistedId());
 check('上传落地不得给「当前壁纸 B」记上 GPU 帧 —— 回到 B 时槽位探测必须照常发生',
   after > before,
   'bbb HEAD ' + before + ' → ' + after + '（按当前壁纸记账时会因误命中缓存而停在 ' + before + '）');
-// 顺带钉死：整条流程里仍然一帧 CPU 动画渲染都没有（该路线已删除）。
+// 顺带钉死：整条流程里仍然一帧 CPU 动画渲染都没有（本仓只有 GPU 抓帧一条路线）。
 check('全流程零 CPU 动画渲染请求（scene-anim 已删除）', animCount('bbb') === 0,
   '/scene-anim/bbb 探针=' + animCount('bbb'));
 

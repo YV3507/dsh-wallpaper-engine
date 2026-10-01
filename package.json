@@ -4,7 +4,8 @@
   "description": "Wallpaper Engine backgrounds for the DSH web GUI: render your local Wallpaper Engine wallpapers behind the chat — Scene and Web in real time through the bundled WebWallGL engine, Video played directly — with iOS-style liquid glass, adjustable blur/scrim/border/opacity, custom typography and caret, and a liquid-glass makeover of the whole settings window. Prerequisites (update BOTH first): latest DeepSeek Harness (0.1.5-rc.1+ / DSH Desktop >= 2.0.7) and dsh-better-sidebar >= 0.19.0.",
   "type": "module",
   "engines": {
-    "node": ">=18"
+    "node": ">=18",
+    "dsh": ">=0.1.5-rc.1"
   },
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

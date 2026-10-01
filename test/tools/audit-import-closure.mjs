@@ -41,8 +41,18 @@ const walk = (d) => {
 };
 walk(join(root, 'lib'));
 
-// 解析相对导入
-const importRe = /(?:import\s+[^'"]*?from\s*|import\s*|require\s*\(\s*|new\s+URL\s*\(\s*)['"](\.\.?\/[^'"]+)['"]/g;
+// 解析相对说明符。**两类分开**，因为它们的后果不同：
+//   · 真模块导入（`import` / `import()` / `require(`）解析不到 ⇒ `ERR_MODULE_NOT_FOUND`，
+//     包一装上就崩 ⇒ 必须被 `files` 覆盖，这是本工具的**主判据**。
+//   · 数据文件读取（`readFileSync(new URL('../x', import.meta.url))` 这类）读不到只是那个
+//     功能降级，且**数据文件本来就不该缺** —— 那由 `verify-package-files` 的 P1 管
+//     （`files` 必须覆盖 `lib/` 下每一个文件）。混进主判据会把"合法地读一个包根文件"
+//     报成缺陷（实测：`lib/index.js` 读 `../package.json` 取 owner/repo）。
+// ⚠️ 剥注释后再扫：散文里出现同样的字面量会造成假阳性（本仓踩过）。
+import { stripComments } from './js-text.mjs';
+
+const MODULE_RE = /(?:import\s+[^'"]*?from\s*|import\s*|require\s*\(\s*)['"](\.\.?\/[^'"]+)['"]/g;
+const DATA_RE = /readFileSync\s*\(\s*new\s+URL\s*\(\s*['"](\.\.?\/[^'"]+)['"]/g;
 function resolveTarget(fromFile, spec) {
   const base = dirname(fromFile);
   const abs = resolve(base, spec);
@@ -56,10 +66,10 @@ const checked = new Set();
 const libRoot = resolve(root, 'lib');
 for (const f of libFiles) {
   const rel = relative(root, f).replace(/\\/g, '/');
-  const src = readFileSync(f, 'utf8');
+  const src = stripComments(readFileSync(f, 'utf8'));
   let m;
-  importRe.lastIndex = 0;
-  while ((m = importRe.exec(src)) !== null) {
+  MODULE_RE.lastIndex = 0;
+  while ((m = MODULE_RE.exec(src)) !== null) {
     const spec = m[1];
     if (spec.startsWith('node:')) continue;
     const target = resolveTarget(f, spec);
@@ -84,6 +94,25 @@ for (const f of libFiles) {
     checked.add(trel);
   }
 }
+// ── 数据文件读取：只核对"真有这个文件"，不要求它在 lib/ 内 ─────────────────────
+// 例：`lib/index.js` 读 `../package.json`（包根，npm 永远会带）。
+// 这类路径解析不到同样是缺陷（读不到 ⇒ 功能降级），但**不是**导入闭包问题。
+{
+  let dataMissing = 0;
+  for (const f of libFiles) {
+    const rel = relative(root, f).replace(/\\/g, '/');
+    const src = stripComments(readFileSync(f, 'utf8'));
+    let m;
+    DATA_RE.lastIndex = 0;
+    while ((m = DATA_RE.exec(src)) !== null) {
+      const abs = resolve(dirname(f), m[1]);
+      if (!existsSync(abs)) { console.log(`  [DATA-MISSING] ${rel}: ${m[1]}`); dataMissing++; }
+    }
+  }
+  if (dataMissing) problems += dataMissing;
+  console.log(`\n数据文件读取核对: ${dataMissing === 0 ? '全部存在于磁盘' : dataMissing + ' 处读不到'}`);
+}
+
 // 反向: files 里的 lib 文件是否真的存在于导入图（孤儿文件，无碍但提示）
 console.log(`\nlib 文件数: ${libFiles.length}, 被导入覆盖: ${checked.size}`);
 console.log(problems === 0 ? '\n✅ 导入闭包全部被 files 覆盖' : `\n❌ ${problems} 处问题（见上）`);

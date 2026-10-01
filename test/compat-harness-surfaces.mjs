@@ -31,8 +31,8 @@ const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const INVENTORY = join(ROOT, 'test', 'fixtures', 'harness-ui-surfaces.json');
 const SURFACE_PREFIX = 'dsh-client-ui-';
 
-// 我们 CSS 依赖的 sidebar 隐藏机制标记（0.1.5：容器 visibility:hidden + translate(100%) 滑出；
-// 0.1.7 改为子元素 visibility:hidden，见上游 #107）。两条都不在 = 隐藏机制换代 ⇒ 红。
+// 我们 CSS 依赖的 sidebar 隐藏机制标记：容器 `translate(100%)` 滑出，或子元素
+// `visibility:hidden`（上游 #107）。两条都不在 = 隐藏机制换代 ⇒ 红。
 const HIDE_MARKERS = ['translate(100%)', 'visibility:hidden', 'visibility: hidden'];
 
 const results = [];

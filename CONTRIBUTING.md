@@ -187,10 +187,16 @@ UI 改动还应说明实际测试过的 DSH 界面、浏览器或 DSH Desktop �
 - **Publishing is the upstream repository's job** (`elysia395/dsh-wallpaper-engine`). This fork is a development line; it does not publish to npm, and it carries no version-bump gate.
 - What this fork *does* guard is the **publish surface**, via `test/verify-package-publish.mjs` inside `npm run verify`: the reachable closure of `lib/index.js` must be covered by `files`, no dev directories may leak into the package, published text must not carry another machine's home path, every `dependencies` entry must actually be loaded by reachable code, and no install-time script may reference a file that `files` does not ship.
 - Check the surface locally at any time with `npm pack --dry-run`（它给出的条目数会比守卫的清单多 `package.json` + `LICENSE`）。
+- **`engines.dsh` is the machine-readable copy of the host requirement.** The plugin market (and DSH's own plugin manager) reads it straight out of the published manifest — the catalog is not involved — and displays it on the plugin card, using it to flag a mismatch with the running host. It must therefore agree with the prose in the READMEs and `docs/UPGRADING.md`; changing one means changing all three. `dsh-better-sidebar` **cannot** be expressed there (it is not a `@deepseek-ai/*` peer) and lives only in that prose.
+- **Nothing in `scripts/prepare.mjs` or `scripts/build-client.mjs` may write informational text to stdout.** `prepare` runs during `npm pack` / `npm publish`, so anything it prints lands in their stdout — and `--json` requires stdout to hold nothing but JSON (measured: `built …` was enough to make `npm pack --dry-run --json` unparseable). Progress goes to stderr.
+- **Keep the READMEs' statement about what the package ships true to the tarball.** They say the npm package does not ship `docs/`, which is a real consequence for readers (those links do not resolve on npm or in the market). Stating that it ships "only the READMEs" was false — the package carries `lib/**`, `cordis.patch.yml` and `scripts/prepare.mjs` — and the market shows that text on the plugin's page. Verify against the real thing (`npm pack --dry-run`, or the published tarball), not against the `files` array by eye.
 
 - **发布是上游仓库的事**（`elysia395/dsh-wallpaper-engine`）。本 fork 是开发线：**不发布到 npm**，也不带版本号闸门。
 - 本 fork 守的是**发布面**，由 `npm run verify` 里的 `test/verify-package-publish.mjs` 负责：`lib/index.js` 的可达闭包必须被 `files` 覆盖、不得泄漏开发目录、发布文本不得带别的机器的家目录路径、`dependencies` 每条都必须被可达代码加载、安装期脚本不得引用未随包发布的文件。
 - 随时可以用 `npm pack --dry-run` 核对发布面（它的条目数会比守卫清单多 `package.json` 与 `LICENSE`）。
+- **`engines.dsh` 是宿主要求的机读副本。** 插件市场（以及 DSH 自己的插件管理 UI）是**从已发布的 manifest 直接读它**的——目录那边不参与——然后显示在插件卡片上，并用它与运行中的宿主比对、标记不匹配。所以它必须与三份 README 及 `docs/UPGRADING.md` 里的散文**同口径**：改一处就要改全部。`dsh-better-sidebar` **无法**在这里表达（它不是 `@deepseek-ai/*` peer），只能留在那段散文里。
+- **`scripts/prepare.mjs` 与 `scripts/build-client.mjs` 都不许往 stdout 写信息性文字。** `prepare` 会在 `npm pack` / `npm publish` 期间跑，它打印的东西会落进这两条命令的 stdout——而 `--json` 要求 stdout 上**只有 JSON**（实测：仅仅一行 `built …` 就让 `npm pack --dry-run --json` 无法解析）。进度信息一律走 stderr。
+- **三份 README 里"包里到底带什么"这句话必须与真实 tarball 一致。** 它们说 npm 包不带 `docs/`，这对读者是有真实后果的（那些链接在 npm 与市场里点不开）。而写成"只带三份 README"是**错的**——包里带的是 `lib/**`、`cordis.patch.yml` 与 `scripts/prepare.mjs`——且市场会把这句话展示在插件页上。核对要以真东西为准（`npm pack --dry-run`，或已发布的 tarball），不要凭眼睛看 `files` 数组。
 
 ## Pull request checklist / PR 检查清单
 
@@ -203,6 +209,9 @@ UI 改动还应说明实际测试过的 DSH 界面、浏览器或 DSH Desktop �
   (see `docs/CODE-STRUCTURE.md` §4). A new guard also has to sit in the right chain
   (`npm run verify` vs `npm run verify:docs`) — see `docs/DEV-GUIDE.md`.
 - The PR contains no credentials, local media, generated caches, or unrelated cleanup.
+- Package metadata is still true: `engines.dsh` agrees with the READMEs / `UPGRADING`, the READMEs'
+  statement about what the package ships matches the tarball, and no build/publish script writes
+  informational text to stdout (see **Release** for why each one matters).
 
 - PR 目标分支为 `main`。
 - 修改 `src/client.js` 时同时包含重新生成的客户端产物。
@@ -212,3 +221,5 @@ UI 改动还应说明实际测试过的 DSH 界面、浏览器或 DSH Desktop �
   构建与发布期脚本在 `scripts/`（见 `docs/CODE-STRUCTURE.md` §4）；新守卫还要挂对链
   （硬档 `npm run verify` vs 软档 `npm run verify:docs`，见 `docs/DEV-GUIDE.md`）。
 - PR 不含凭据、本地媒体、生成缓存或无关清理。
+- 包元数据仍然属实：`engines.dsh` 与三份 README / `UPGRADING` 同口径；README 里"包里带什么"与真实
+  tarball 一致；构建与发布期脚本没有往 stdout 写信息性文字（各自为什么重要见上面的 **发布** 节）。

@@ -15,11 +15,11 @@ documentation**; mechanisms do not live here.
   shapes like `X-en-v2.md`).
 - **Every paired document starts with a language-switch link**; when you change one side, change the other
   (each header says so).
-- **Deliberate exceptions (not translated)**: `CHANGELOG.md` (a ledger of per-version records — high
-  translation cost, low benefit), `adr/` (decision records; Chinese is the authoritative version),
-  `ROUTE-INDEX.md` (a generated artifact), `archive/` and `wip/` (history and process records —
+- **Deliberate exceptions (not translated)**: `adr/` (decision records; Chinese is the authoritative
+  version), `ROUTE-INDEX.md` (a generated artifact), `archive/` and `wip/` (history and process records —
   `dev-notes-bom-and-dsh-boot.md` and `awesome-dsh-plugin-pr-guide.md`, previously listed separately,
-  now live under `archive/`).
+  now live under `archive/`). `CHANGELOG.md` **has been split into two files** (English at
+  [`CHANGELOG.md`](./CHANGELOG.md)), so it is no longer an exception.
 
 ## Document lifecycle rules (read this before adding a document)
 
@@ -44,6 +44,10 @@ documentation**; mechanisms do not live here.
 >
 > What was removed is **only** the document / comment / ledger-prose kind; the guards that read **code**
 > (reachability, retired lines, orphan declarations, module layout) **stay** and were not relaxed by this.
+> **Before adding an assertion, run it through the four questions in
+> [`adr/0007`](../adr/0007-machine-checks-target-code-not-prose.md)** — especially question 4:
+> a user-facing copy literal inside an assertion (`includes('some sentence')`) is itself the signal to
+> change something; the way out is a translatable `weT(...)` key, or removal.
 
 | # | Rule | Backed by |
 |---|---|---|
@@ -65,7 +69,7 @@ does not reflect the current implementation) and its evidence trails.
 | Document | Contents |
 |---|---|
 | [`UPGRADING.md`](./UPGRADING.md) | **Upgrading** — prerequisites, the compatibility matrix, the correct update order, and how to recover if you did it backwards |
-| `CHANGELOG.md` (Chinese only) | **Per-version changes** — features and fixes, newest first |
+| [`CHANGELOG.md`](./CHANGELOG.md) | **Per-version changes** — features and fixes, newest first (its Chinese counterpart is [`../CHANGELOG.md`](../CHANGELOG.md), same basename) |
 | [`HOW-IT-WORKS.md`](./HOW-IT-WORKS.md) | **How it works** — the out-figure chain (live render → embedded MP4 → live capture → custom frame → empty state), the host/client split, **the font-set channels**, occlusion pause and client-error traces, the HTTP route table |
 | [`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md) | **Troubleshooting** — install-failure diagnosis and a "symptom → where to look first" quick table |
 
@@ -108,6 +112,7 @@ the header format, and **why not to write drifting numbers** (the same conventio
 | [0004](../adr/0004-two-tier-guard-verification.md) | Guards are split into hard / soft tiers by **what a failure means** |
 | [0005](../adr/0005-media-loopback-origin.md) | Wallpaper media is served from a **dedicated loopback origin** the host opens itself |
 | [0006](../adr/0006-comment-discipline-as-written-convention.md) | Comment and document discipline became a **pure writing convention**, and the document-class machine guards were removed |
+| [0007](../adr/0007-machine-checks-target-code-not-prose.md) | Machine checks target **code and disk, not prose** (a four-question test plus keep/remove lists) |
 
 ## In progress (`wip/`, Chinese)
 

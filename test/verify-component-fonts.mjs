@@ -343,8 +343,8 @@ section('⑦ schema 设置键与模块一致');
   check('负对照：多塞一个键会被判出',
     JSON.stringify([...modIds, 'ghost']) !== JSON.stringify(schema.COMPONENT_FONT_KEYS));
   // 键名与模块名**解耦**的收益：模块名改了（table → tableScroll）老设置照旧有效
-  // ⚠️ F3 阶段 2 起 `componentFonts` 是**字体集正文**的键：消毒入口是 `sanitizeFontset`，
-  //    不再是 settings 的 `sanitizeFromSchema`（那条路已经不收它了，见下面最后一条）。
+  // ⚠️ `componentFonts` 是**字体集正文**的键：消毒入口是 `sanitizeFontset`，
+  //    不是 settings 的 `sanitizeFromSchema`（后者不收它，见下面最后一条）。
   check('模块名改而设置键不变 ⇒ 老设置零迁移',
     schema.sanitizeFontset({ componentFonts: { table: { size: 13 } } }).componentFonts.table.size === 13
     && COMPONENT_FONT_TARGETS.find((t) => t.id === 'table').prefix === 'tableScroll');

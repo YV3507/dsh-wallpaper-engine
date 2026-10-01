@@ -208,7 +208,7 @@ const INLINE_MODULES = [
   {
     file: 'src/effects.js',
     why: '效果应用层（设置 → DOM；契约见文件头，见 P1-7 后半）',
-    markers: ['let lastScrimCss = "";', 'function applyEffects()', 'function clearEffects()',
+    markers: ['let lastScrimCss = "";', 'function applyEffects(', 'function clearEffects()',
       'function resolveWallpaperFadeBg()'],
   },
 ];
@@ -249,7 +249,10 @@ const target = resolve(root, 'lib', 'client.js');
 mkdirSync(dirname(target), { recursive: true });
 writeFileSync(target, output);
 const inlined = INLINE_MODULES.map((m) => m.file).join(' + ');
-console.log(`built ${target} (${Buffer.byteLength(output)} bytes; inlined: ${inlined})`);
+// 进度信息走 **stderr**，把 stdout 留给机读输出：`npm run build` 的输出会被 `prepare` 带进
+// `npm pack` / `npm publish` 的 stdout，而它们的 `--json` 要求 stdout 上**只有 JSON**
+// （实测：`npm pack --dry-run --json` 原本因这一行而无法解析）。错误本就打 stderr。
+console.error(`built ${target} (${Buffer.byteLength(output)} bytes; inlined: ${inlined})`);
 
 function indent(text) {
   return text.split('\n').map((line) => (line.trim() === '' ? '' : '\t\t' + line)).join('\n');

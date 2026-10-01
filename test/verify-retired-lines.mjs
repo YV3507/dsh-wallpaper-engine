@@ -152,21 +152,17 @@ const SF_BASELINE = [];
       : found.size > 0));
 }
 
-// ── ③ UI 笔误「秡」已修（P0-4）──────────────────────────────────────────────
-{
-  const bad = ['src/client.js', 'lib/client.js'].filter((f) => existsSync(ROOT + f) && read(f).includes('秡'));
-  check('状态行不再出现笔误「秡」（源 + 构建产物）', bad.length === 0,
-    bad.length ? '仍在：' + bad.join(', ') : '干净');
-  // 状态行现在画在抽出的面板块里（src/panel-tabs.js，壁纸页签）；源与产物两边都看。
-  check('状态行用的是「档」（源）',
-    read('src/panel-tabs.js').includes(' 档 · ') && read('lib/client.js').includes(' 档 · '));
-  {
-    // 负对照：走**同一个**判据（错别字缺席检查），两个方向都要能判
-    const typoAbsent = (s) => !s.includes('秡');
-    check('negative control: 「秡」会被判不合格',
-      typoAbsent('x 秡 y') === false && typoAbsent('x 档 y') === true);
-  }
-}
+// ── ③ **已撤除**（当时守的是 UI 笔误「秡」与状态行措辞，P0-4）────────────────────
+//
+// 这里原本有两条判据：
+//   · `状态行不再出现笔误「秡」` —— P0-4 的一次性清理，修完即**恒真**。
+//     按 `docs/README.md` §写作纪律 5（"基线只许收紧，**删完清空即为零残留**"），
+//     一次性清理的验收判据该在收口时撤掉，否则它是"已死但仍占位"的守卫。
+//   · `状态行用的是「档」` —— 断言源码里含 ` 档 · ` 这个**四字散文片段**：
+//     任何改写状态行的人都会把它判红 ⇒ 它拦的是编辑，不是腐化。
+//
+// 两条都按 [`docs/adr/0007`](../docs/adr/0007-machine-checks-target-code-not-prose.md)
+// 撤除；那篇文章里记着"为什么当时会写它"与"为什么现在不留"。
 
 const failed = results.filter((r) => !r).length;
 console.log('\n' + (failed ? 'RETIRED-LINE CHECKS FAILED — ' + failed + ' failed' : 'ALL RETIRED-LINE CHECKS PASSED') + ' (' + results.length + ')');

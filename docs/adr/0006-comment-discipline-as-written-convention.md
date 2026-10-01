@@ -3,8 +3,9 @@
 - **Date**: 2026-09-30
 - **Status**: Accepted
 - **Deciders**: YV3507
-- **Implementation**: 纪律条文与 ADR 已落地；**文档类守卫文件的物理下线待执行**
-  （在那之前它们仍在 `npm run verify:docs` 链上，其判据不构成纪律的有效性依据）
+- **Implementation**: 纪律条文与 ADR 已落地；**文档类守卫文件已物理下线**
+  （`verify-comment-discipline` / `verify-ledger` 已从 `test/` 删除、并移出 `npm run verify:docs` 链；
+  详见 [ADR-0007](./0007-machine-checks-target-code-not-prose.md) 的撤除清单）
 - **Amends**: [ADR-0004](./0004-two-tier-guard-verification.md)（软档内的**文档类**守卫被撤除；分档本身不变）
 
 > 纪律条文本身住在 `docs/README.md` §写作纪律；本文记**为什么用约定而不是守卫**。

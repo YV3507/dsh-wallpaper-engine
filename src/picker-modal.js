@@ -1,32 +1,24 @@
 /**
  * picker-modal.js — 壁纸选择器**库视图**的渲染器（整棵 `we-picker__modal` 子树）。
  *
- * 历史：它此前是 body 传送门里的居中弹框（遮罩 + 对话框语义）。UI 重构后改为
- * **页内下钻视图**：调用点（src/client.js 的 WallpaperPicker）在 `pickerOpen` 时
- * 把它整棵嵌进页签面板，ESC / 顶部「返回」/ 切页签退出。类名沿用旧系（`we-picker__modal*`
- * —— 116 个 `.we-picker__*` 选择器按层级/相邻关系绑定这棵树，改一个类名就静默失效），
- * 「modal」只剩名字，语义就是"壁纸库浏览视图"。
+ * 形态是**页内下钻视图**：调用点（src/client.js）在 `pickerOpen` 时把它整棵嵌进页签面板，
+ * ESC / 顶部「返回」/ 切页签退出。类名沿用 `we-picker__modal*` 一系 —— 那些选择器**按层级与
+ * 相邻关系**绑定这棵树（跨层绑定两个 picker 类的规则还落在本子树里），改一个类名或挪一层
+ * 就**静默**失效，所以类名是契约而不是命名。`modal` 只剩名字，语义就是"壁纸库浏览视图"。
  *
  * 两套模式（渲染开关 `sel.pickerDraft`）：普通 = 点卡片即应用当前壁纸；草稿 = 轮播
  * 编辑器的下钻，点卡片加入/移出列表草稿（隐藏页 / 批量 / 关闭卡收起，顶部显已选数）。
  * **草稿=false 时逐字走普通分支**（标记等价 golden 只录普通形态）。
  *
- * 为什么单独一个文件：这是选择器里**层级契约最重**的一块标记 —— src/styles.js 里
- * `.we-picker__*` 共出现 256 次 / 116 个不同类名，其中**跨层绑定两个 picker 类**的选择器
- * 有 9 条，落在这棵子树里的就有 5 条（`.we-picker__modal-body .we-picker__grid`、
- * `.we-picker__card--checked .we-picker__card-check`、`.we-picker__card--hidden
- * .we-picker__card-title`、`.we-picker__filter-row .we-picker__playlist-select`、
- * `.we-picker__pager .we-picker__hint`）—— 标记挪一层、少一个类名，这些规则就**静默**失效。
- * 它此前住在 `WallpaperPicker` 那条 281 行的 return 表达式里，与 53 个处理器挤在同一屏；
- * 搬出后组件体只剩「状态 + 处理器 + 装配」，库视图怎么画看这里。
+ * 为什么单独一个文件：它是选择器里**层级契约最重**的一块标记，而把它留在
+ * `WallpaperPicker` 的 return 表达式里，就等于让"库视图怎么画"混在"状态 + 处理器 + 装配"
+ * 之间；搬出后组件体只剩后者，前者看这里。
  *
  * 契约（构建期由 scripts/build-client.mjs 内联进 bundle 的工厂作用域，"外部作用域" =
  * 同一 prelude / src/client.js 的顶层）：
- *   · 渲染器**只从一个参数取外界**：`(ctx)`。标记**逐字搬入** —— 唯一改动是开头那段解构、
- *     以及 11 处「内联箭头直接写 `selection.*`」换成 ctx 里的具名回调（见下）。
- *   · ctx 由 `WallpaperPicker` 在**调用点**就地组装（见 src/client.js 里那次
- *     `renderPickerModal({...})`）：状态读值 + 派生列表 + 库视图那几个「改状态 + 发通知」的
- *     过渡回调。**多传字段无害，漏传会当场 ReferenceError**（守卫会抓住）—— 刻意选的
+ *   · 渲染器**只从一个参数取外界**：`(ctx)` —— 状态读值 + 派生列表 + 库视图那几个
+ *     「改状态 + 发通知」的过渡回调，由 `WallpaperPicker` 在**调用点**就地组装。
+ *   · **多传字段无害，漏传会当场 ReferenceError**（守卫会抓住）—— 刻意选的
  *     失败方式：响亮且可定位。
  *   · 本渲染器**不写 `selection`、不自己发通知**：改状态是处理器的职责（它们仍住在面板组件
  *     里，一行没搬）。库视图里 11 处原本内联改状态的箭头 —— 页签切换 ×2、分页 ×4、批量 ×3、
@@ -249,9 +241,9 @@
                     : (cdMode ? playableList : normalPage.items).map((w) => React.createElement("div", {
                         key: w.id,
                         className: "we-picker__card" + (w.id === sel.id ? " we-picker__card--selected" : "")
-                          // 勾选高亮：草稿模式 = 成员集合；批量模式 = batchSelected
-                          //（此前勾选态只进了 batchSelected，高亮 CSS 却挂在 --selected
-                          //（=当前播放）上，勾了永远不亮 —— 同一条规则沿用）。
+                          // 勾选高亮：草稿模式 = 成员集合；批量模式 = batchSelected。
+                          // ⚠️ 高亮类必须是 `--checked` —— CSS 挂在它上面，挂到
+                          // `--selected`（= 当前播放）上会"勾了永远不亮"。
                           + ((draft ? draftIdSet.has(w.id) : sel.batchMode && sel.batchSelected.indexOf(w.id) >= 0) ? " we-picker__card--checked" : ""),
                         role: "button",
                         tabIndex: 0,

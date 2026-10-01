@@ -190,8 +190,8 @@ is **no `import`** on this side, the contract comment is the only dependency des
 ### 4.2 Two tiers: the hard tier blocks a PR, the soft tier only speaks
 
 The number of assertions is not the problem; **every assertion sharing one and the same red** is the
-problem: a documentation-formatting change and "the publish surface is missing a file" used to fail the
-same command, so the compliance cost of a one-line change equalled that of touching the publish surface.
+problem: if a documentation-formatting change and "the publish surface is missing a file" fail the
+same command, the compliance cost of a one-line change equals that of touching the publish surface.
 They are now split by **what the failure means**:
 
 | Tier | When it goes red | Who runs it | Inventory |
@@ -312,9 +312,11 @@ document**, it guards the editor rather than rot: rephrase the sentence and the 
 | `branch-notify.mjs` | **branch-level** "the store changed but nothing was notified" | `node test/tools/branch-notify.mjs audit` |
 | `diagnose-web-blank.mjs` | a "blank page" investigation bench for web wallpapers (headless real browser) | `node test/tools/diagnose-web-blank.mjs` |
 | `host-route-index.mjs` | generate / verify the **host route index** (writes `docs/ROUTE-INDEX.md`) | `node test/tools/host-route-index.mjs [--write]` |
+| `i18n-scan.mjs` | scans source for **Chinese literals** (decides "did it get wrapped in `weT(...)`"; the migration and `verify-i18n` share this one implementation) | `node test/tools/i18n-scan.mjs [--json] [paths…]` · `selftest` |
 | `js-text.mjs` | **text-level** tooling for JS/TS source (string- and regex-aware comment stripping) | `node test/tools/js-text.mjs selftest` |
 | `sync-webwallgl.mjs` | build the WebWallGL render page from a local `webwallgl-github` checkout (vendored sync) | see the file header |
 | `underlay-pixel-rig.mjs` | real-browser pixel A/B for the **canvas underlay colour**: what the page paints itself when the wallpaper's pixels never reach the screen (dropped layer → white flash or a tone-matched solid) | `node test/tools/underlay-pixel-rig.mjs <bundle.js> [label]` |
+| `weT-shim.mjs` | installs an identity translation layer (`weT(k) === k`, byte-identical to the bundle's Chinese state) for guards that **import `src/**` directly** | `node test/tools/weT-shim.mjs` |
 
 > `host-route-index.mjs` / `js-text.mjs` / `branch-notify.mjs` **are also guard libraries**
 > ⇒ changing them is changing an assertion; go through `npm run verify:all`.

@@ -12,15 +12,16 @@
  *   ③ **二维码资源**（`/about-qr/<文件名>`）：白名单命中才出字节（遍历 / 编码 / 未登记名字一律
  *      404，**不做任何路径拼接**）、GET/HEAD 之外 405、`Content-Type: image/png` + ETag/304、
  *      坏响应不带缓存；并断言 `package.json` 的 `files` 真的把 `lib/about/` 打进包（少了它
- *      发布包里就没有图，而 checkout 里一切正常 —— 包装事故的经典形态）。
+ *      发布包里就没有图，而 checkout 里一切正常 —— 打包漏项的经典形态）。
  *   ④ **客户端那一侧**：star 数三态文案（取不到 / 正在取 / 当前值）都进词表、客户端**只读**
  *      宿主路由（`apiJson("/star-count")`）且**不把 star 数写进设置**；两张码的 src 是**路由
- *      URL**（经 apiUrl）而不是内联 base64 —— 2026-10-01 用户把这条从"必须内联"翻成"必须 PNG"。
+ *      URL**（经 apiUrl）而不是内联 base64 —— 码的字节住在 `lib/about/` 的包里，内联等于把
+ *      二进制塞进客户端产物、绕过文件白名单。
  *
  * 为什么必须不联网：GitHub 未认证限流是 **60 次/小时/IP、整机共享**的 —— 守卫若真发请求，
  * CI 上跑几次就把额度用光，而且"网络不通"会让判据变成随机红。故本文件**只**用替身 fetchJson。
  *
- * Usage:  node test/verify-github-stars.mjs
+ * Usage:  node test/verify-about.mjs
  */
 import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, statSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -117,7 +118,7 @@ function mount(opts) {
   const logs = [];
   const webServer = { register(route) { routes.push(route); return () => {}; } };
   // 默认**清掉落盘缓存**：否则上一条用例的缓存会喂给下一条，判据看起来"通过"却什么
-  // 都没测（实测踩过：解析用例全被前一条的 0 缓存接管）。要接着上一份缓存跑的用例
+  // 都没测（前一条留下的 0 缓存会把解析用例整个接管）。要接着上一份缓存跑的用例
   // 显式传 keepCache。
   if (!o.keepCache) rmSync(CACHE, { force: true });
   registerGithubStarsRoutes(webServer, {
@@ -359,9 +360,9 @@ async function runQr(route, pathname, method, headers) {
   check('negative control: 白名单判据对合成输入有牙',
     !['qq-group.png'].includes('qq-group.png.bak') && ['qq-group.png'].includes('qq-group.png'));
   // **形态判据**（分隔符那条腿只能在 Windows 上真跑出来，故这里认源码形态）：
-  // 包含性检查必须走 `relative()`。**实测（2026-10-01 CI windows-latest）**：写成
-  // `abs.startsWith(dir + '/')` 在 Windows 上必然判 null（resolve 给反斜杠、前缀给正斜杠）
-  // ⇒ 白名单命中的图也 404，而本机 macOS 全绿 —— 正是"只在 CI 上红"的那一类。
+  // 包含性检查必须走 `relative()`：`abs.startsWith(dir + '/')` 在 Windows 上必然判 null
+  // （resolve 给反斜杠、前缀给正斜杠）⇒ 白名单命中的图也 404，而 macOS 上全绿 —— 正是
+  // "只在 CI 上红"的那一类。
   const fenceOk = (src) => {
     const code = stripComments(String(src));
     return /relative\(/.test(code) && /isAbsolute\(/.test(code) && !/startsWith\(\s*(dir|prefix)/.test(code);
@@ -370,9 +371,9 @@ async function runQr(route, pathname, method, headers) {
   check('negative control: 前缀写法会被判出（windows-latest 上就是这么红的）',
     fenceOk('const prefix = dir + "/"; return abs.startsWith(prefix) ? abs : null;') === false
       && fenceOk('const rel = relative(dir, abs); return rel && !rel.startsWith("..") && !isAbsolute(rel) ? abs : null;') === true);
-  // **行为判据（本轮 CI 事故的复现装置）**：把同一条谓词放到 `path.win32` 下求值 ——
-  // 本机是 macOS，跑不了 Windows，但 `win32` 就是 Windows 上那套语义。事故现场因此可复现：
-  // 旧写法（拼正斜杠前缀）在 win32 下判 **false**（白名单命中的图也 404），新写法判 true。
+  // **行为判据**：把同一条谓词放到 `path.win32` 下求值 —— 本机是 macOS，跑不了 Windows，
+  // 但 `win32` 就是 Windows 上那套语义，于是平台差异在这里可复现：拼正斜杠前缀的写法在
+  // win32 下判 **false**（白名单命中的图也 404），走 `relative()` 的写法判 true。
   {
     const { win32 } = await import('node:path');
     const dirWin = win32.resolve('C:\\repo\\lib\\about');

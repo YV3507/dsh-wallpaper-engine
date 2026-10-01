@@ -17,6 +17,8 @@
  *      可编程面 —— 走 DOM：点宿主左栏的设置触发钮（aria-haspopup="dialog"），
  *      对话框挂上 body 后再点我们自己的 nav 行（label 是我们注册的，最稳定的锚）。
  *      任一步找不到就静默收尾（用户手动开设置也一样到）。
+ *      可选参数 `tabId` = 深链到设置页的某一页签（快捷面板底栏那两颗按钮用）：
+ *      写一个瞬态请求（`settingsTabRequest`）就走，落地在 WallpaperPicker 的 effect 里。
  *   ⑤ 调试开关 `?we-sidebar=drawer`：官方宿主上强制抽屉态（验证低版本形态用）。
  *
  * 契约（构建期由 scripts/build-client.mjs 内联进 bundle 的工厂作用域）：
@@ -281,11 +283,58 @@ function findAccountMenuTrigger() {
     ) || null;
   } catch { return null; }
 }
-/** 账号菜单弹出后的「设置」菜单项（role=menuitem，文本含设置/Settings）。 */
+/**
+ * 宿主「设置」入口的可读名锚点 —— **不能**只写中英两个字面词。
+ *
+ * 为什么不能写死"中英两个字面词"（实测过的失效形状）：
+ *   · 宿主的语言由 `locale` 服务决定，**语言包可追加**（`ctx.locale.addLanguage`，
+ *     见 `src/i18n.js` 头注释）⇒ 加到第三种语言时点入口就没反应，且**静默**；
+ *   · 宿主把这一项改成别的措辞（"偏好设置" / "Preferences"）同样失配。
+ *
+ * 为什么不直接用 `weT("设置")`：本仓词表里 `"设置"` 是**动词**义（值 `"Set"`，
+ *   唯一调用点是 `panel-tabs.js` 的"设置目录"按钮，与 `weT("更改")` 并列）
+ *   ⇒ 它在英文下返回 "Set"，**匹配不到**宿主菜单项的 "Settings"。
+ *   这是"中文原文即键"的固有歧义（同一个中文词在不同语境下是不同英文词），
+ *   不是靠改词表值能解决的 —— 改了会让那个动词按钮变成 "Settings"。
+ *
+ * 因此用**候选集**：把"我们这边的译文"（语言包 / 与宿主同语言时命中）与"宿主已知的原文形态"
+ * 并列。后几条（`"设置"` / `"設定"` / `"全局设置"` / `"Global settings"`）是**宿主 DOM 的原文**、
+ * 不是我们界面的文案，所以它们按字面保留、**不翻译**，并在 `test/verify-i18n.mjs` 的
+ * `VALUE_ALLOW` 里登记了理由（那几条豁免是"照字面匹配宿主"的正当例外）。任何一条命中即算。
+ *
+ * ⚠️ **匹配用「包含」而不是「相等」**：宿主的标签常带修饰（实测宿主左栏那颗是 `全局设置`，
+ * 桌面壳里还会出现 `Global settings`），而且可能再挂徽标 / 省略号；相等匹配在宿主换个措辞时
+ * 静默失效，包含匹配才容得下这些。候选串本身要足够特异 —— 本文件里用到它的两处
+ * （左栏触发钮、账号菜单项）都先排除自家入口，见 `isSettingsLabel`。
+ */
+function settingsLabelCandidates() {
+  const out = [];
+  const push = (s) => { const v = String(s || "").trim(); if (v && !out.includes(v)) out.push(v); };
+  push(weT("设置"));            // 语言包 / 与宿主同语言时最可能命中的一条
+  push("设置");                 // 内置中文（词表值是动词义，这里显式补名词义）
+  push("Settings");             // 内置英文（同上）
+  push("設定");                 // 繁体中文语言包
+  push("全局设置");             // 宿主左栏入口的措辞（实测；英文侧见下）
+  push("Global settings");      // 同上，英文
+  return out;
+}
+/** 文本是否命中宿主「设置」入口的任一已知标签（包含匹配，见 candidates 上方说明）。 */
+function isSettingsText(text) {
+  const t = String(text || "").trim();
+  if (!t) return false;
+  // **长候选先于短候选**：包含匹配下 `设置` 也能命中宿主里别的按钮（如第三方插件的
+  // 「按压泡泡设置」），只靠文档序裁决太脆。带上修饰的那几条（`全局设置` / `Global settings`）
+  // 更特异，排在前面，命中即返回。
+  return settingsLabelCandidates()
+    .slice()
+    .sort((a, b) => b.length - a.length)
+    .some((c) => t.includes(c));
+}
+/** 账号菜单弹出后的「设置」菜单项（role=menuitem）。 */
 function findSettingsMenuItem() {
   try {
     const items = [...document.body.querySelectorAll('[role="menuitem"], [role="menuitemcheckbox"]')];
-    return items.find((el) => /设置|Settings/i.test((el.textContent || '').trim())) || null;
+    return items.find((el) => isSettingsText(el.textContent)) || null;
   } catch { return null; }
 }
 function findSettingsTrigger() {
@@ -298,7 +347,8 @@ function findSettingsTrigger() {
     // 必须排除我们自己的「壁纸引擎设置 ›」入口：它名字里也含「设置」，不排除会
     // 把自己当成宿主触发钮（实测：点入口=再调自己，递归点 5 次、对话框开不了）。
     try { if (el.getAttribute && el.getAttribute('data-we-qp-entry') === '1') return false; } catch { /* ignore */ }
-    return /设置|Settings/i.test(labelOf(el));
+    // 标签按**候选集**判（不是中英两个字面词）：理由见 isSettingsText 上方那段注释。
+    return isSettingsText(labelOf(el));
   };
   const leftmost = (list) => list
     .slice()
@@ -325,10 +375,18 @@ function findSettingsTrigger() {
   } catch { return null; }
 }
 let openSettingsBusy = false;
-function openSettingsSection() {
+/**
+ * 打开「壁纸引擎」设置分区；给了 `tabId` 就深链到设置页的对应页签
+ * （`"appearance"` / `"playback"` —— 快捷播放面板底栏那两颗按钮用）。
+ * 深链只写一个**瞬态请求**（`settingsTabRequest`），落地在 WallpaperPicker 的一个
+ * effect 里走同一个 switchTab —— 打开对话框本身仍是下面那条 DOM 路径，一行没动。
+ * 自动打开失手（超时分支）要顺手清掉请求：否则用户几分钟后自己开设置会被旧请求劫持。
+ */
+function openSettingsSection(tabId) {
   if (typeof document === "undefined" || openSettingsBusy) return;
   openSettingsBusy = true; // 重入锁：误点自己/连点不再递归（实测曾递归自点 5 次）
   const release = () => { openSettingsBusy = false; };
+  if (tabId) setTransient("settingsTabRequest", String(tabId));
 
   const clickOurNavRow = () => {
     let rows = [];
@@ -399,6 +457,8 @@ function openSettingsSection() {
     if (clickOurNavRow()) { clickedNav = true; release(); return; }
     if (Date.now() - started > 6000) {
       reportClientDiag("settings-entry-timeout", "dialog=" + Boolean([...document.querySelectorAll('[role="dialog"]')].length));
+      // 深链请求一并清掉（见函数头）：打不开就别留着它等下一次。
+      if (tabId) setTransient("settingsTabRequest", "");
       // 给用户一条确定的手动路径（自动打开失手时）。
       try {
         const entry = document.querySelector('button[data-we-qp-entry]');

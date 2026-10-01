@@ -259,8 +259,12 @@ const selection = {
   search: "",
   // Transient: 快捷播放面板自己的搜索词与类型筛选（与库视图互不影响；不落盘）。
   qpSearch: "",
-  // "all" | "scene" | "web" | "video"（只收这三类 + 全部；面板是快切，不是全集浏览）
+  // "all" | "scene" | "web" | "video" | "image"（面板是快切，档位就这几类 + 全部）
   qpType: "all",
+  // Transient: 侧栏底栏的深链请求 —— "打开设置页后停在哪一页"（`""` = 无请求）。
+  // 由 WallpaperPicker 的一个 effect 消费一次即清（见 src/sidebar-right.js 的
+  // openSettingsSection 与 client.js 的「侧栏深链」段）。
+  settingsTabRequest: "",
   // 破坏性动作的「面板内确认」令牌 —— **所有族共用这一个真源**（`""` = 没有动作待确认）。
   // 形态 `<族>:<id>`（族内带 id 的动作）或 `<族>`（整块动作）。机制与三条不变量见
   // `armConfirm` 那一段（本文件，"破坏性动作的面板内确认"）。**不是** picker 私有字段：
@@ -331,8 +335,8 @@ function useStore() {
 }
 
 // ── 改 store 的三个入口（P2-10 后半 + F3 阶段 2）────────────────────────────
-// "赋值 + persistSelection()" 这两件事此前被手抄了 56 次 —— 漏掉 persist 就是
-// "改了不生效 / 刷新后回退"，而且没有任何判据会红。收成三个入口后：
+// "赋值 + persistSelection()" 必须成对，而手抄这份成对关系时**漏掉 persist 就是静默失效**
+// （"改了不生效 / 刷新后回退"，且没有任何判据会红）。收成三个入口后：
 //   · setSetting(field, value)   改**设置**并落盘（唯一入口）
 //   · setFontValues(patch)       改**字体值**并落盘（唯一入口；真源是 fontsets/<id>.json，
 //     见 src/fontset-store.js —— 这六个键已退出 settings 的持久化白名单）
@@ -352,6 +356,22 @@ function setSetting(field, value) {
 function setTransient(field, value) {
   selection[field] = value;
   return value;
+}
+// ── 拖动期的「看得见的那部分」（live）──────────────────────────────────────
+// 拖动类控件（色板 / 滑块）在 input 上**每格**都发事件 —— 原生颜色轮盘一次拖动可以上百次。
+// 老口径每格都 `setSetting + emit()`：emit 让整棵面板（设置页那棵最重）重渲染，而 emit 的
+// 订阅者里那次全量 applyEffects 还会重建字体样式表、同步场景音频、并读出一次**强制同步
+// 样式计算**（壁纸透明度 > 0 时）—— 拖动因此发涩（用户实测）。现在分两档：
+//   · live（input / 拖动中）：写值 + `applyEffects({ live: true })`（跳过与本次改动无关的
+//     重活，样式变量照旧全量写），**不 emit** —— 面板不重渲染，数值回显由控件自己就地更新
+//     （SliderRow 的 --we-fill / 原生色块的自身外观）；
+//   · 抬手（change）：走完整的一次 —— `emit()`（applyEffects 是它的订阅者，全量那一次照旧）。
+// 与「壁纸属性」面板的 silent 拖动同一条口径（src/picker-props-panel.js 的 onPropInput）。
+// 拖动期的中间值**照样会落盘**（setSetting → debounce 200ms），所以中途关窗也不丢最后一次值。
+function commitLiveSetting(field, value, live) {
+  setSetting(field, value);
+  if (live) applyEffects({ live: true });
+  else emit();
 }
 
 // ── 破坏性动作的「面板内确认」（**唯一机制**，五个动作共用）─────────────────────
@@ -1355,7 +1375,7 @@ function releaseLayerMedia(node) {
   }
   // live / web 层的 <iframe> 才是大头：Chromium 实测：「从 DOM 摘除的 iframe 其 JS
   // 世界仍在跑」（contentWindow 已 null 而 setInterval 照跳）—— 只 remove() 等于把它
-  // 交给 GC，回收时序不可控，每个渐变周期都可能多留一个活着的渲染页（评审 P2-I）。
+  // 交给 GC，回收时序不可控，每个渐变周期都可能多留一个活着的渲染页。
   // 显式导航到 about:blank 终止它（与 disposeMediaEl 的 iframe 分支同一手法）。
   if (typeof node.querySelectorAll !== "function") return; // 精简 mock：无选择器即跳过
   for (const f of node.querySelectorAll("iframe")) {
@@ -1509,8 +1529,8 @@ let mediaNpKey = "";
 let mediaFetchBusy = false;
 let mediaNpTick = 0;
 // 封面：宿主给的是插件路由 /now-playing/artwork，**沙箱网页壁纸取不到它** ——
-// DSH Desktop 的能力头栅栏按 frame.origin 放行，不透明源一律 403（就是这次黑屏
-// 事故的同一个栅栏）。所以由主页面（同源、有权限）取回、降采样成 **data URL**
+// DSH Desktop 的能力头栅栏按 frame.origin 放行，不透明源一律 403（同一条栅栏也挡住黑屏
+// 那条路）。所以由主页面（同源、有权限）取回、降采样成 **data URL**
 // 再交给渲染页：壁纸拿到的是一张自包含的图，不依赖任何源，也能随便画进 canvas。
 // 降采样到 512²：壁纸上的封面通常只有几百像素，顺带把几 MB 的原图压到几十 KB。
 const MEDIA_THUMB_MAX = 512;
@@ -1813,7 +1833,7 @@ function liveViewportAspect(frame) {
 // 清除槽位（同面板「清除 GPU 帧」的语义：宿主 200 + removed:false 也算没删掉，
 // 见其在 P2-L 的处理 —— 假成功会让画面纹丝不动而没有任何反馈）。
 /**
- * 宿主回 200 也可能没删掉（unlink 失败时 `removed:false`，评审 P2-L）：只判 HTTP 状态
+ * 宿主回 200 也可能没删掉（unlink 失败时 `removed:false`）：只判 HTTP 状态
  * 会把「假成功」当清除 —— 面板行消失、提示已清除，而画面没变、也没有任何错误提示。
  * 旧宿主无该字段 ⇒ 按 HTTP 状态判（`removed !== false` 即为真）。
  *
@@ -1927,7 +1947,10 @@ function loadUserPropDefs(token, force) {
   apiJson(url)
     .then((res) => {
       const d = res.data;
-      if (!d || !d.ok) throw new Error((d && d.error) || "读取失败");
+      // ⚠️ 这条 message 会被渲染进「壁纸属性」面板（见 picker-props-panel.js 的 error 分支），
+      //    所以它是**面向用户**的文案，尽管包在 Error 里。裸中文字面量会被 i18n-scan 的
+      //    Error 豁免放过 —— 用 weT 包住，改文案时才有词表口径可循。
+      if (!d || !d.ok) throw new Error((d && d.error) || weT("读取失败"));
       if (propsState.token !== token) return; // 期间换了壁纸：丢弃
       // 值以渲染页的实时表为准（场景壁纸的默认值在 scene.json 快照里，可能和
       // project.json 不同 —— 上游 getProperties 正是为此存在）；拿不到就用宿主值。
@@ -2215,7 +2238,7 @@ function releaseRotationAudioGate() {
 
 // ── 场景包内独立音频（scene-audio）────────────────────────────────────────
 // 长安雪等场景把 BGM/音效以独立音频文件（mp3/ogg…）放在 scene.pkg 里，由 WE
-// 运行时的音频组件播放；静帧路径没有播放器，此前完全无声。这里用独立
+// 运行时的音频组件播放；静帧路径**没有播放器**，不补这一步就是无声。这里用独立
 // <audio> 元素补上：宿主 /scene-audio 路由抽出音频（最大者当 BGM），音量与
 // 总开关复用视频壁纸同一套设置（默认 0 = 静音）。
 // 与 sceneVideo 互斥：有内嵌 MP4 时视频自带音轨，避免双声道叠加。
@@ -2399,6 +2422,16 @@ function starCountLabel() {
 // ARRAY (the sidebar-glass group) — React requires keys there.
 function SliderRow(label, min, max, step, value, onInput, suffix, key, opts) {
   opts = opts || {};
+  // 拖动期的轨道填充：就地改这一行的 --we-fill（**局部样式写，不触发 React 渲染**）。
+  // 数值文本（.we-picker__value）留给抬手那一次 emit —— 与「壁纸属性」面板同一口径
+  //（拖动中不重渲染，见 src/picker-props-panel.js 的 onPropInput）。
+  const liveFill = (el) => {
+    try {
+      const lo = Number(el.min); const hi = Number(el.max); const v = Number(el.value);
+      const pct = hi > lo ? Math.max(0, Math.min(100, ((v - lo) / (hi - lo)) * 100)) : 0;
+      el.style.setProperty("--we-fill", pct + "%");
+    } catch { /* 回显是增强，失败不影响取值 */ }
+  };
   return React.createElement("div", { className: "we-picker__row we-picker__slider-row", key: key },
     React.createElement("span", {
       className: "we-picker__hint we-picker__label",
@@ -2409,14 +2442,16 @@ function SliderRow(label, min, max, step, value, onInput, suffix, key, opts) {
       min: String(min), max: String(max), step: String(step),
       value: String(value),
       // accent 填充进度：track 左段着 accent 色（macOS/Linear 式滑块质感），
-      // --we-fill 由当前值算出，emit 重渲染时同步更新。
+      // --we-fill 由当前值算出，emit 重渲染时同步更新（拖动中由 liveFill 就地更新）。
       style: { "--we-fill": Math.max(0, Math.min(100, ((Number(value) - min) / (max - min)) * 100)) + "%" },
       // The visible label is a <span> (not a <label>), so expose it to AT.
       "aria-label": label,
-      onInput: (e) => onInput(Number(e.target.value)),
+      // 拖动档（第二个实参 live=true）：处理器只写值 + 应用样式，不 emit（见 commitLiveSetting）；
+      // 抬手那一次由 onChange 走完整路径。
+      onInput: (e) => { liveFill(e.currentTarget); onInput(Number(e.target.value), true); },
       // onChange stays as a final commit fallback (some engines only fire it
       // on release); onInput above is what makes the knob feedback instant.
-      onChange: (e) => onInput(Number(e.target.value)),
+      onChange: (e) => onInput(Number(e.target.value), false),
     }),
     React.createElement("span", { className: "we-picker__hint we-picker__value" }, suffix),
   );
@@ -2486,8 +2521,10 @@ function swatchRow(label, presets, value, onPick, opts) {
         React.createElement("input", {
           type: "color",
           value: opts.colorValue || value || "#ffffff",
-          onInput: (e) => onPick(e.target.value),
-          onChange: (e) => onPick(e.target.value),
+          // 拖动色盘：每格都发 input（原生颜色轮盘一次拖动可以上百次）⇒ 拖动档只写值 +
+          // 应用样式、**不 emit**（见 commitLiveSetting）；抬手那一次（change）走完整路径。
+          onInput: (e) => onPick(e.target.value, true),
+          onChange: (e) => onPick(e.target.value, false),
           title: weT("自定义{label}", { label: weT(label) }),
         }),
         React.createElement("span", { className: "we-picker__hint" }, weT("自定义")),
@@ -2652,7 +2689,8 @@ function onToggleAudio() {
   emit();
 }
 // 音量滑块（0–100%）：视频 / 场景内嵌 MP4 / 场景包内音频共用同一 videoVolume。
-function onVideoVolume(pct) {
+// 拖动档（live）照样即时改音量（听得见），只是不 emit —— 见 commitLiveSetting。
+function onVideoVolume(pct, live) {
   selection.videoVolume = clampNum(Number(pct) / 100, 0, 1, 0);
   const layer = document.getElementById(LAYER_ID);
   const vid = layer && layer.querySelector("video");
@@ -2663,7 +2701,7 @@ function onVideoVolume(pct) {
     if (p && typeof p.catch === "function") p.catch(() => { /* ignore */ });
   }
   persistSelection();
-  emit();
+  if (!live) emit();
 }
 function onClear() {
   applySelection("");
@@ -2726,6 +2764,46 @@ function onNextWallpaper() {
   const next = list[(cur + 1 + list.length) % list.length];
   if (next && next.id !== anchorId) applySelection(next.id, { fromManual: true });
 }
+
+// ── 外观 / 画面处理器（模块级）──────────────────────────────────────────────
+// 与上面那批播放控制处理器同源理由：快捷播放面板的「外观」「播放」两页与设置页
+// 同名页签**共用同一批渲染器**（renderAppearanceTab / renderEffectsTab 的
+// ctx.surface 分支），而渲染器的回调必须在模块级才组得进侧栏的 ctx。
+// 这几支的取值单位与落盘路径与设置页逐字相同（照原样搬出组件闭包）。统一的写法是
+// commitLiveSetting：非拖动档 = 写设置 + emit（applyEffects 是 emit 的订阅者，一趟里
+// 更新 CSS 变量与数值回读）；拖动档 = 写设置 + 只应用样式、不 emit（见该函数的说明）。
+//   · 画面组：scrim / wallpaperOpacity / wallpaperBlur / background{Brightness,Contrast,Saturate}
+//   · 外观组：accent / glassColor / glassAlpha / border / blur（雾化）
+//   · 主题随壁纸开关（打开时立刻按当前壁纸补判一次）
+const onScrim = (pct, live) => commitLiveSetting("scrim", pct / 100, live);
+// 壁纸透明度（#82）：存 %（0–90），applyEffects 换算成 element opacity。
+const onWallpaperOpacity = (pct, live) =>
+  commitLiveSetting("wallpaperOpacity", clampNum(pct, 0, 90, DEFAULTS.wallpaperOpacity), live);
+const onBorder = (pct, live) => commitLiveSetting("border", pct / 100, live);
+const onBlur = (px, live) => commitLiveSetting("blur", px, live);
+const onWallpaperBlur = (px, live) => commitLiveSetting("wallpaperBlur", px, live);
+const onBackgroundBrightness = (pct, live) => commitLiveSetting("backgroundBrightness", pct, live);
+const onBackgroundContrast = (pct, live) => commitLiveSetting("backgroundContrast", pct, live);
+const onBackgroundSaturate = (pct, live) => commitLiveSetting("backgroundSaturate", pct, live);
+// 配色 (accent color) + 玻璃透明度 (glass transparency) + 玻璃颜色 (glass base
+// tint): applied instantly through applyEffects() (--we-accent /
+// --we-glass-alpha / --we-glass-color), persisted so the settings page keeps
+// its custom look across reloads.
+const onAccent = (hex, live) => {
+  if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
+  commitLiveSetting("accent", hex, live);
+};
+const onGlassColor = (hex, live) => {
+  if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
+  commitLiveSetting("glassColor", hex, live);
+};
+const onGlassAlpha = (pct, live) =>
+  commitLiveSetting("glassAlpha", clampNum(pct, 0, 60, DEFAULTS.glassAlpha), live);
+// 主题随壁纸（**默认关**）：开关本身只写设置；**打开时**立刻按当前壁纸补判一次，
+// 不等下一次换壁纸（补判走与换壁纸同一条入口；关时那条入口整体空转，不写主题）。
+const onToggleThemeFollow = (v) => {
+  setSetting("themeFollow", !!v); themeFollowOnWallpaper(selection); emit();
+};
 
 function WallpaperPicker() {
   useWeLocale(); // 设置页壁纸库：语言切换 → 整棵选择器（含 render* 渲染器）重渲染
@@ -2858,16 +2936,9 @@ function fontSetCtx() {
   };
 }
 
-// Slider callbacks: keep the stored value in its canonical unit, then emit —  // applyEffects is a subscribed listener (see apply()), so emit() applies the
-  // CSS vars synchronously AND re-renders the numeric readouts in one pass.
-  // (Calling applyEffects directly here too used to double-apply every tick.)
-  const onScrim = (pct) => { setSetting("scrim", pct / 100); emit(); };
-  // 壁纸透明度（#82）：存 %（0–90），applyEffects 换算成 element opacity。
-  const onWallpaperOpacity = (pct) => {
-    setSetting("wallpaperOpacity", clampNum(pct, 0, 90, DEFAULTS.wallpaperOpacity)); emit();
-  };
-  const onBorder = (pct) => { setSetting("border", pct / 100); emit(); };
-  const onBlur = (px) => { setSetting("blur", px); emit(); };
+  // 画面滑块（暗化 / 壁纸透明度 / 壁纸模糊 / 亮度 / 对比度 / 饱和度）与外观细调
+  //（配色 / 玻璃颜色 / 玻璃透明度 / 边框 / 雾化）：处理器已提升到模块级 ——
+  // 快捷播放面板共用同一份实现，见 cardKeyDown 上方「外观 / 画面处理器」段。
   // 切换过场（类型 / 方向 / 速度）：只写选择 —— 下一次换壁纸（手动点选或轮换提交）
   // 生效，不需要重建当前层。
   const onSwitchTransition = (id) => {
@@ -2882,36 +2953,15 @@ function fontSetCtx() {
     if (!SWITCH_SPEED_VALUES.includes(id)) return;
     setSetting("switchTransitionSpeed", id); emit();
   };
-  const onWallpaperBlur = (px) => { setSetting("wallpaperBlur", px); emit(); };
-  const onBackgroundBrightness = (pct) => { setSetting("backgroundBrightness", pct); emit(); };
-  const onBackgroundContrast = (pct) => { setSetting("backgroundContrast", pct); emit(); };
-  const onBackgroundSaturate = (pct) => { setSetting("backgroundSaturate", pct); emit(); };
-  // 配色 (accent color) + 玻璃透明度 (glass transparency) + 玻璃颜色 (glass base
-  // tint): applied instantly through applyEffects() (--we-accent /
-  // --we-glass-alpha / --we-glass-color), persisted so the settings page keeps
-  // its custom look across reloads.
-  const onAccent = (hex) => {
-    if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-    setSetting("accent", hex); emit();
-  };
-  const onGlassColor = (hex) => {
-    if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-    setSetting("glassColor", hex); emit();
-  };
-  const onGlassAlpha = (pct) => {
-    setSetting("glassAlpha", clampNum(pct, 0, 60, DEFAULTS.glassAlpha)); emit();
-  };
   // 侧栏玻璃（dsh-better-sidebar）：独立于会话玻璃的一套细粒度控制，各自立即
   // 生效并持久化（--we-sidebar-blur / --we-sidebar-alpha / --we-sidebar-color）。
-  const onSidebarBlur = (px) => {
-    setSetting("sidebarBlur", clampNum(px, 0, 200, DEFAULTS.sidebarBlur)); emit();
-  };
-  const onSidebarAlpha = (pct) => {
-    setSetting("sidebarAlpha", clampNum(pct, 0, 200, DEFAULTS.sidebarAlpha)); emit();
-  };
-  const onSidebarColor = (hex) => {
+  const onSidebarBlur = (px, live) =>
+    commitLiveSetting("sidebarBlur", clampNum(px, 0, 200, DEFAULTS.sidebarBlur), live);
+  const onSidebarAlpha = (pct, live) =>
+    commitLiveSetting("sidebarAlpha", clampNum(pct, 0, 200, DEFAULTS.sidebarAlpha), live);
+  const onSidebarColor = (hex, live) => {
     if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-    setSetting("sidebarColor", hex); emit();
+    commitLiveSetting("sidebarColor", hex, live);
   };
   // Mascot pull-cord show/hide, persisted with the other toggles.
   const onRopeVisibilityChange = (e) => {
@@ -2926,27 +2976,24 @@ function fontSetCtx() {
     setSetting("ropeScale", clampNum(scale, ROPE_SCALE_MIN, ROPE_SCALE_MAX, DEFAULTS.ropeScale)); emit();
   };
   // 内容面（编辑器/终端）近不透明玻璃底：透明度滑块 + 底色（空 = 跟随主题）。
-  const onSidebarContentAlpha = (pct) => {
-    setSetting("sidebarContentAlpha", clampNum(pct, 0, 80, DEFAULTS.sidebarContentAlpha)); applyEffects(); emit();
-  };
-  const onSidebarContentColor = (hex) => {
+  const onSidebarContentAlpha = (pct, live) =>
+    commitLiveSetting("sidebarContentAlpha", clampNum(pct, 0, 80, DEFAULTS.sidebarContentAlpha), live);
+  const onSidebarContentColor = (hex, live) => {
     if (hex === "") {
-      selection.sidebarContentColor = ""; // 跟随主题面板色
-      persistSelection(); applyEffects(); emit();
+      // 跟随主题面板色：清键 + 落盘（拖动档不会走到这里 —— 色盘的「跟随」是按钮）。
+      selection.sidebarContentColor = "";
+      persistSelection();
+      if (live) applyEffects({ live: true }); else emit();
       return;
     }
     if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-    setSetting("sidebarContentColor", hex); applyEffects(); emit();
+    commitLiveSetting("sidebarContentColor", hex, live);
   };
   // 字体自定义（#57 精简回归版）：总开关 + 颜色/字重/字体族，各项立即生效并持久化。
   const onToggleFontCustom = (v) => {
     setSetting("fontCustom", !!v); applyEffects(); emit();
   };
-  // 主题随壁纸（**默认关**）：开关本身只写设置；**打开时**立刻按当前壁纸补判一次，
-  // 不等下一次换壁纸（补判走与换壁纸同一条入口；关时那条入口整体空转，不写主题）。
-  const onToggleThemeFollow = (v) => {
-    setSetting("themeFollow", !!v); themeFollowOnWallpaper(selection); emit();
-  };
+  // 主题随壁纸的开关处理器已提升到模块级（同「外观 / 画面处理器」段）。
   // F1：角色色。默认「单色」—— 一个色同时写进 light/dark 两套（内部始终存两套，
 // 因为令牌服务的值必须是 {light,dark} 对，缺一套在另一套配色下会不可读）。
 // G4 字族（角色级）：空 = 回官方字族。存**族键**（CSS 栈由 fontFamilyStack 在模块侧解析）。
@@ -3112,7 +3159,7 @@ const officialColorOf = (tokens) => {
         gpuFrameAspectKnown.delete(token); // 槽位已空：几何记忆一并作废
         // 请求期间用户可能已经切走：槽位状态属于发起时那张壁纸，URL 重写/渲染恢复
         // 只对「还是它」的情况做（同 A4 的身份校验；否则会把当前壁纸的 URL 改写成
-        // 「当前帧 URL + 旧壁纸的档位」→ 画面与面板读数不一致，评审 P2）。
+        // 「当前帧 URL + 旧壁纸的档位」→ 画面与面板读数不一致）。
         if (String(selection.id || "") !== wid) { gpuFrameUi.busy = false; emit(); return; }
         gpuFrameUi.busy = false;
         const variant = Number(selection.frameVariants && selection.frameVariants[wid]) || 0;
@@ -3181,7 +3228,7 @@ const officialColorOf = (tokens) => {
       map[wid] = 4;
       selection.frameVariants = map;
       // 上传可能花掉秒级（截屏多 MB）：期间用户切走就只记账到发起时那张壁纸，
-      // 不改当前壁纸的 URL（否则当前壁纸会被套上旧壁纸的档位 4，评审 P2）。
+      // 不改当前壁纸的 URL（否则当前壁纸会被套上旧壁纸的档位 4）。
       if (String(selection.id || "") !== wid) { persistSelection(); emit(); return; }
       // 落盘只能挂在这条分支上（不能挂在下面那个 `if` 里）：`setSetting("url", …)` 只在有
       // `sceneFrameUrl` 时才发，而上面刚写的 `customFrames` / `frameVariants` 是**客户端持久化字段**
@@ -3211,13 +3258,13 @@ const officialColorOf = (tokens) => {
       }).catch(() => { /* ignore */ });
   };
   // 输入光标颜色（#83）："" = 跟随 dsh 原生（自动档），hex = 立即注入并持久化。
-  const onCaretColor = (hex) => {
+  const onCaretColor = (hex, live) => {
     if (hex === "") {
-      setSetting("caretColor", ""); applyEffects(); emit();
+      commitLiveSetting("caretColor", "", live);
       return;
     }
     if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-    setSetting("caretColor", hex); applyEffects(); emit();
+    commitLiveSetting("caretColor", hex, live);
   };
 
   // Close the picker library view (ESC / 返回 button share this path).
@@ -3270,6 +3317,21 @@ const officialColorOf = (tokens) => {
   // 停在「关于」页刷新页面这条路径不走 switchTab（activeTab 直接从 localStorage 读出来），
   // 用一次订阅式 effect 补上；TTL 同日历口径，重复触发是空操作。
   React.useEffect(() => { if (activeTab === "about") loadStarCount(false); }, [activeTab]);
+
+  // 侧栏深链（快捷播放面板底栏的「字体与更多外观 ›」/「更多播放设置 ›」）：请求"打开
+  // 设置页后停在哪一页"。打开对话框由 src/sidebar-right.js 的 DOM 路径负责，这里只管
+  // 落地 —— 走**同一个 switchTab**（清待确认 / 退出下钻 / 写 localStorage 这些副作用
+  // 一处不落），落地后把请求清掉（一次性；否则用户几分钟后自己开设置会被旧请求劫持）。
+  // 组件没挂载时请求就先躺在 store 里，挂载后这一趟 effect 消费它 —— 两条路都覆盖。
+  React.useEffect(() => {
+    const req = selection.settingsTabRequest;
+    if (!req) return;
+    if (req === activeTab || !PICKER_TABS.some((t) => t.id === req)) {
+      setTransient("settingsTabRequest", "");
+      return;
+    }
+    switchTab(req);
+  }, [sel.settingsTabRequest, activeTab]);
 
   if (!sel.loaded) {
     return React.createElement("div", { className: "we-picker" },
@@ -3336,7 +3398,7 @@ const officialColorOf = (tokens) => {
   // 面板标记搬去了 `src/picker-props-panel.js`（构建期内联回本作用域）。这里只做**组装**：
   // 面板状态（开关 / token / 加载态 / 错误 / 属性表 / 实时渲染是否接管）与三个动作
   // （该重拉时重拉、改一个属性、恢复默认）都留在本文件 —— 状态与处理器是 ctx 的**供给方**，
-  // 渲染器只拿值 + 回调（同模态框那条契约）。`ensureDefs` 里的判定就是原来内联的那一句：
+  // 渲染器只拿值 + 回调（同模态框那条契约）。判定就一句：
   // token 变了且不在加载中才重拉。
   function renderUserPropsPanel() {
     return renderPickerPropsPanel({
@@ -3464,7 +3526,7 @@ const officialColorOf = (tokens) => {
       }, t.label)),
     ),
     React.createElement("div", { className: "we-tabpanel", role: "tabpanel" },
-      // 库视图是**页内下钻**（不再是传送门弹框）：pickerOpen 时页签面板整区切换成
+      // 库视图是**页内下钻**：pickerOpen 时页签面板整区切换成
       // 壁纸网格，ESC / 顶部「返回」退出，切页签也会退出（见 switchTab）。
       sel.pickerOpen ? renderPickerModal({
         sel, closePicker, current, playbackLive, playableList, hiddenList, hiddenPageView, normalPage,
@@ -4213,18 +4275,17 @@ function apply(ctx) {
         disposePreparedMedia();
         // 关掉音频闸并退役渐变中的旧层：禁用/重挂时旧层不能被留在屏上等退役定时器
         // （≤1.3s 的可见残留），闸也不该跨过一次重挂活着（准备链的 BGM 起播会被它
-        // 推迟到那个定时器触发为止）。评审提出的「重挂后静音卡死」在真 DOM 语义下
-        // 不成立（那是 mock 的 getElementById 返回了已 detach 的旧层所致），但这两条
-        // 收尾本身是正确性要求。
+        // 推迟到那个定时器触发为止）。这两条收尾本身是正确性要求：跨过一次重挂活着的闸
+        // 会让准备链的 BGM 起播被推迟，而留在屏上的旧层要等退役定时器（≤1.3s 可见残留）。
         // 先清闸、再退役渐变层：卸载不是「渐变结束」，走放行会 restoreNodeAudio →
-        // syncSceneAudio → play()，刚被闸压住的场景 BGM 反而在禁用时响一下（评审
-        // P3-②，已被 smoke 场景 H 锁定）。清掉闸后 retireFadingLayer 内部的
-        // releaseRotationAudioGateFor 直接早退；场景音频元素也一并拆掉（此前禁用后
-        // 正在播的 BGM 从不停止）。
+        // syncSceneAudio → play()，刚被闸压住的场景 BGM 反而在禁用时响一下（smoke 场景 H
+        // 锁定）。清掉闸后 retireFadingLayer 内部的
+        // releaseRotationAudioGateFor 直接早退；场景音频元素也一并拆掉 —— 不拆的话
+        // 禁用后正在播的 BGM 不会停止。
         rotationAudioGate = null;
         retireFadingLayer();
         stopSceneAudioEl();
-        cancelLiveFrameBackfill(); // 卸载后不再发 HEAD/PUT（评审：此前会漏一次）
+        cancelLiveFrameBackfill(); // 卸载后不得再发 HEAD/PUT（少这一步就漏一次）
         stopLiveWatch();
         cancelLiveMount("unload"); // 延迟期那个正在预热的渲染页也要终止（否则卸载后仍在后台跑）
         abortTranscodeUpgrade(); // 含 clearUpgradePoll + AbortController.abort（否则卸载后 500ms 轮询永久泄漏）
@@ -4257,8 +4318,8 @@ function apply(ctx) {
 
   // 1b. F1「文字颜色角色」令牌层：后台轮询 theme 服务（启动竞态：实测 7ms 时还没有、
   //     325ms 才有），拿到后按设置给每个角色上色；拿不到就**什么都不做** —— 全局
-  //     字体层已删，`#we-font-patch` 不再是回落通道，此时角色色就是不上色
-  //     （红线 7 的双通道只剩令牌层这一条腿）。
+  //     令牌层是**唯一**的上色通道：`#we-font-patch` 那类全局回落通道已不存在，
+  //     所以拿不到服务时角色色就是不上色，而不是换一条腿顶上。
   //     - 不声明 `inject: ["theme"]`：缺服务时声明式依赖会让插件 park（F0 A7）。
   //     - 首次写入前先取宿主墨色基线，否则退出契约会把我们的颜色当宿主原值快照。
   //     - 不监听配色变化重注册：值给的是 {light,dark} 对，配色切换由服务自己换值。

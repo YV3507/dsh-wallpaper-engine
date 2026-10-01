@@ -337,6 +337,9 @@ const WE_I18N_EN = {
   "配色": "Accent",
   "玻璃颜色": "Glass color",
   "玻璃透明度": "Glass opacity",
+  "左侧栏覆盖": "Left sidebar override",
+  "左侧栏也跟随玻璃配方（配色 / 玻璃颜色 / 透明度 / 雾化 / 边框）": "The left sidebar follows the same glass recipe too (accent / glass color / opacity / frost / border)",
+  "宿主原生左侧栏（会话列表 / 工作区那一列）默认直接透出壁纸、不吃玻璃参数。打开后它变成与其余界面同款的玻璃面板，跟随「配色 / 玻璃颜色 / 玻璃透明度 / 雾化 / 边框」；关闭即恢复原生观感。默认关。": "The host's native left sidebar (the session / workspace column) shows the raw wallpaper by default and ignores the glass parameters. When on, it becomes a glass panel like the rest of the UI and follows Accent / Glass color / Glass opacity / Frost / Border; turn it off to restore the native look. Off by default.",
   "细节": "Details",
   "雾化": "Frost",
   "玻璃面板（设置窗口、输入栏、气泡、侧栏）的模糊半径 —— 越大越像磨砂玻璃；色彩饱和度不随本滑块变化": "Blur radius of glass panels (settings window, input box, popovers, sidebar) — higher looks more frosted; color saturation does not change with this slider.",
@@ -553,6 +556,7 @@ const WE_I18N_EN = {
 
   // ── src/picker-props-panel.js ──
   "读取中…": "Loading…",
+  "读取失败": "Failed to read",
   "当前条件下没有可调项": "No adjustable items under current conditions",
   "这张壁纸没有用户属性（project.json 的 general.properties）": "This wallpaper has no user properties (general.properties in project.json)",
   "实时渲染当前未接管（静态帧 / 兼容模式），改动会在下次实时渲染时生效。": "Live rendering is not active right now (static frame / compatibility mode); changes take effect on the next live rendering.",
@@ -582,6 +586,13 @@ const WE_I18N_EN = {
   "还有 {count} 张未显示 · 搜索可收敛，全量浏览在设置页": "Plus {count} more not shown · narrow it down with search; browse all in Settings",
   "打开设置对话框的「壁纸引擎」分区（外观 / 播放 / 系统与全部配置）": "Open the Wallpaper Engine section of the settings dialog (Appearance / Playback / System and all configuration)",
   "壁纸引擎设置 ›": "Wallpaper Engine settings ›",
+  "壁纸面板分区": "Wallpaper panel sections",
+  "字体与更多外观 ›": "Fonts & more appearance ›",
+  "更多播放设置 ›": "More playback settings ›",
+  "在设置页打开「外观」页签 —— 字体 / 光标 / 窗口与侧栏在那里": "Open the Appearance tab in settings — fonts, caret and window/sidebar live there",
+  "在设置页打开「播放」页签 —— 出图来源 / 实时帧 / 帧率上限在那里": "Open the Playback tab in settings — frame source, live frame and FPS cap live there",
+  "设置页的类型档当前是「{name}」，切成「全部」才能看到": "The Settings type filter is currently \"{name}\" — switch it to \"All\" to see them",
+  "去挑一张 ›": "Pick one ›",
 
   // ── src/sidebar-right.js ──
   "本地 Wallpaper Engine 壁纸库与播放控制": "Local Wallpaper Engine library and playback controls",

@@ -1,5 +1,7 @@
-# 变更记录 / Changelog
+# 变更记录（Changelog）
 
+> **English**: [`en/CHANGELOG.md`](./en/CHANGELOG.md)（与本文同源：改一处请同步另一处）
+>
 > 本文件承接原先堆在 README 首页的**版本公告与功能清单**。门面（`../README.md` / `../README.en.md`）
 > 只保留与版本无关的亮点；带版本号、issue 号、性能数字的内容一律记在这里。
 >
@@ -11,11 +13,21 @@
 > 按**原 README 原文的版本标注**归档；原文未标注小版本的条目放进区间桶，不臆造版本号。
 > 完整逐提交历史见 GitHub Commits / Releases；升级前置条件见 [`UPGRADING.md`](./UPGRADING.md)。
 
-## 中文
-
 ### 未发布（下一版）
 
 > v1.1.0 之后的增量（与上游 `origin/main` 的差异，逐提交可查）：
+
+- **外观页新增「左侧栏覆盖」（默认关，在「玻璃透明度」滑杆下面）—— 原生左栏第一次能被玻璃配方调节**：壁纸激活时宿主原生左栏（会话列表 / 工作区那一列）此前只是**透明的洞**：插件把 `--dsw-specific-sidebar-fill` 置为 `transparent`，那一列于是把壁纸**原样**透出来 —— 没有霜、没有底色，主题那套「配色 / 玻璃颜色 / 玻璃透明度 / 雾化 / 边框」一个都到不了它（其余面板都有）。打开后这一列拿到**与其余面板同一张配方表**：玻璃色（钳制后的可读性底色）@ 玻璃透明度 压在可读性下限之上 + 雾化（`--we-blur`）+ 边框（竖分割线走 `--dsw-alias-border-l3`，壁纸令牌映射只接管了 l1/l2 —— 这正是「边框」此前对左栏完全无感的原因）+ 配色（accent 映射到 `--dsw-alias-interactive-bg-hover` / `-accent` / `state-business-primary` / `brand-*`，作用于选中 / 悬停行、徽标与强调文字）。默认关 = 与今天逐字节相同（否定式：只盖开关不盖壁纸锚点也照样不吃玻璃）。无 backdrop-filter 与软件光栅器两档按既有政策钉回近不透明（92%）并显式关掉模糊。**锚点**：那一列只有 CSS 模块哈希类名（harness 的 `pI_x6G_sidebarCol` / `hHd-Xa_root`，跨版本漂移、不得使用），可钉的是**座位出口** `[data-slot="sidebar"]`（与设置窗口用的 `[data-slot="settings.section"]` 同一机制）—— 出口正是这一列的**直接子元素**，故用 `div:has(> [data-slot="sidebar"])` 反向选中父元素；⚠️ 不能把玻璃画在出口自己身上：它带 `display:contents`（座位渲染器的 ANCHOR_STYLE），**不生成盒子**，背景 / 模糊 / 边框全画不出来。
+  **验证**：真 harness（隔离 HOME）无头页面**四态探针**（`compat-harness-pages`：裸页面 / 只盖壁纸锚点 / 再加开关 / 摘掉开关）—— 锚点唯一命中（`matches=1`）、默认档 `rgba(0,0,0,0)/none`、开关档 `color(srgb 1 1 1 / 0.571) + blur(16px) saturate(1.3)`、摘掉开关逐字段还原；另做**真实壁纸的像素 A/B**（合成 1920×1080 测试图 + host `PUT /settings` 真改开关）：左栏区域红绿分界的最大水平梯度 **145 → 5**、梯度 RMS **11.2 → 1.17**（≈9.6× 变糊），同帧中央对照区 **0% 变化**（这一栏没动）；`verify-readability` 的 F2a 表面表补两条（左栏是能直接看到壁纸的大块文字面，必须有下限声明），27 个表面全过。
+- **CI 判据四处修（兼容层两条"恒红" + 五分区走查跟改名 + 无头浏览器统一假钥匙串 + verify-scene-live 容忍 CRLF）**：① `compat-harness-pages` 的表面令牌探针把 `evS` 的返回值又取了一次 `.value`（`evS` 返回的就是值本身）⇒ `sp` 恒为 `null`、**三条判据自 bb06fc2 起一直红且看不出原因**（harness-compat 是派发制，没人重跑就没人发现）—— 现已修好并跑绿（27/27），同时给探针加了 `DSH_WE_COMPAT_DEBUG` 原始值落屏口子。② 五分区走查写死 `Wallpaper Engine`，而 UI 重构把那枚分区改名成「**壁纸引擎**」⇒ 最后一段点了 0 次（同一条判据里的 `断点=` 已经点了名，但读数容易被忽略）；改成**候选名匹配**（别名再变也不会静默失效，两条都找不到才红）。③ **无头浏览器的启动口径：6 处 `--headless=new` 启动点全部带 `--use-mock-keychain`** —— macOS 上缺它会去碰真钥匙串、弹「找不到用于存储"…"的钥匙串」对话框打断跑测的人（用户侧实测复现两轮；`compat-harness-pages` 与 `tools/diagnose-web-blank` 各漏一处，`e2e-web-media-origin` 的第二次运行也漏），现在由 `verify-contracts` 新增的第 ③ 节静态守住（按**启动参数数组**判，新启动点自动覆盖；配负对照）。
+  ⑤ `verify-scene-live` 的「侧栏 ctx 覆盖渲染器要的全部字段」把换行写成了字面量 `\n` ⇒ 在 **CRLF 检出**（CI 跑 windows-latest，本仓没有 .gitattributes、Git for Windows 默认 autocrlf）上**候选恒为 0**：本机 LF 检出全绿、CI 却是 `候选 0 个` + 279 passed / 1 failed（PR #125 首次推送实测）。改成 `\r?\n` 并补一条正/负对照（同一判据在 LF / CRLF 两种形态下都要认出字段、换个函数名要落空）；其余 21 个守卫在 `git clone -c core.autocrlf=true` 的检出上逐条复跑全绿 —— 这条是本批唯一 CRLF 脆弱的判据。
+
+- **拖动色板 / 滑块不再发涩（拖动档只写"看得见的那部分"）**：现场（用户反馈"自定义颜色色盘拾取有点卡"）——在原生颜色轮盘里拖动时**每格**都走 `setSetting + emit()`：emit 让整棵面板重渲染（设置页那棵最重：字体表 + 12 个色块 + 字体集编辑器），而 emit 的订阅者里那次**全量** `applyEffects` 还会重建字体样式表、同步场景音频、并读一次 `getComputedStyle`（壁纸透明度 > 0 时 —— 那就是**强制同步样式计算**，整页重算）⇒ 每格三样重活，拖动因此发涩。现在分两档：拖动中（`input`）只写值 + `applyEffects({ live: true })`（跳过上述与本次拖动无关的重活，样式变量照旧**全量**写）且**不 emit** —— 数值回显由控件就地更新（滑块轨道 `--we-fill` 直接写 style、原生色块自身会变），抬手（`change`）才走完整一次（emit → 全量 applyEffects）。音量滑块同理（拖动档不 emit，音量本身即时生效）。拖动中的中间值照旧落盘（`setSetting` 的 debounce 200ms），中途关窗不丢最后一次值。这条与「壁纸属性」面板的 silent 拖动是同一口径（`src/picker-props-panel.js` 的 `onPropInput`）。
+  **验证**：`verify-client` 新增三层判据 —— ① 两个行构造器必须把 live 传下去（`input`=true / `change`=false）；② 17 个会拖动的处理器必须收口到 `commitLiveSetting`（音量走自己的 `if (!live) emit()`，并在分支通知豁免表里写明"拖动档有意不通知"）；③ **行为**：拿真 `src/effects.js` 在带间谍的 DOM 替身上跑 —— 拖动档必须 0 次 `getComputedStyle`、不碰字体样式表 / 场景音频，同时照写 ≥15 个样式变量；无参（抬手档）必须把这几样都做（负对照成对，含"冷启动无缓存时允许算一次"的边界）。`verify-scene-live` 的 applyEffects 形态判据随签名更新为 `function applyEffects(`。
+  **已知未覆盖**：「颜色角色」那 12 个色块（外观页的「全局字体」节）仍是每格 emit 的老口径 —— 它的可见反馈要走 emit 里那条宿主令牌层，静默会冻住预览，要单独处理（rAF 合流那条路）。
+
+- **侧栏加「壁纸 / 外观 / 播放」三档页签 —— 设置页那两页不用离开壁纸就能调**：快捷播放面板（官方右栏 tab 与低版本右滑抽屉共用同一份）在「轮播」一节**之下**加了一条三档页签，位置与"上方内容三档都显示"都是用户点名口径：**当前壁纸与轮播在任何一档下都看得见**（调外观 / 播放参数时想换一张对照很常见），只有页签内容区滚（官方档下宿主 tab 身体是固定高 + `overflow:hidden`，滚动自管）。**「外观」「播放」两页与设置页同名页签共用同一批渲染器**（`ctx.surface === "sidebar"` 档少画设置页专属分组：外观的**字体 / 输入光标 / 窗口与侧栏**三节；播放的**准备与诊断**行 —— 出图来源 / 实时帧 / 自定义画面 / 帧率上限 / 源信息与转码进度），于是两处是同一份控件、同一份状态，改哪边另一边都跟着变；页签记忆只进 `localStorage`（不进 `config.json`）。为此把 12 个「外观 / 画面」处理器（`onAccent` / `onGlassColor` / `onGlassAlpha` / `onBlur` / `onBorder` / `onToggleThemeFollow` / `onScrim` / `onWallpaperBlur` / `onWallpaperOpacity` / `onBackground{Brightness,Contrast,Saturate}`）从 `WallpaperPicker` 组件闭包**提升到模块级**（与当年那批播放控制处理器同一条先例）；侧栏那份**手写**的声音组并回 `renderAudioTab`（此前它的提示语已与设置页不一致）。侧栏底栏那颗入口按钮**随页签换文案与落点**：壁纸页「壁纸引擎设置 ›」、外观页「字体与更多外观 ›」、播放页「更多播放设置 ›」；后两者走一条**瞬态深链请求**（`settingsTabRequest` + `openSettingsSection(tabId)`），落地在设置页的一次性 effect 里走同一个 `switchTab`（自动打开失手时清掉请求，不劫持下一次手动打开）。侧栏类型筛选**补上「图片」档**（此前只有 全部 / 场景 / 网页 / 视频）；列表是"设置页类型档先筛、侧栏这一档再筛"的两层叠加，两层都非「全部」而列表为空时，空态会把**上游那一档**点出来（否则看起来像"库里没有这类壁纸"）。侧栏不再在加载 / 扫描失败时整体只剩一句话 —— 那两态现在只占「壁纸」页，外观 / 播放两页照常可进。
+  **验证**：`verify-scene-live` 新增 18 条源码判据（五档齐全 + 少一档负对照 · 三档页签齐全与**页签栏位置**（在轮播与底栏之间）· 页签记忆不进设置 · 与设置页共用渲染器且侧栏零自写控件 · 六扇 surface 门 · 处理器提升到模块级 · **侧栏 ctx 覆盖渲染器解构的全部字段**（提供的字段 + setting-only 占位器）· 侧栏零裸写 · 深链带 tabId 与超时清理），并**在真源码上把三档各渲染一次**（React / store 用替身、渲染器用真的）：三档都渲染得出、各画各的、底栏文案随档变、「去挑一张 ›」空态，外加一条**接线判据** —— 遍历三档渲染树逐个戳处理器，树里不许出现设置页专属的占位器（负对照成对）。`verify-fontset` 的面板渲染台新增 surface 档判据：**缺省与 `"settings"` 逐字相同**（设置页形态一个节点不少）、侧栏档只少该少的分组、空态 CTA 两档不同。i18n 词表 +7 条。
 
 - **玻璃染色地板：自定义色相第一次真正进入对话框/侧栏**：#82 的可读性底色原是**主题白/黑**（浅 `#ffffff` / 深 `#0d1524`），固定占表面配方的 45%/59% 且任何滑杆都压不动 ⇒ 用户自定义的玻璃色最多只剩 ~10%（深色下"玻璃只有黑"、浅色只有白）。现在地板色改为**玻璃色经亮度钳制的按主题版本**（深色过亮压暗、浅色过暗提亮，钳制目标 4.6:1 留 hex 量化余量）—— 色相跟随用户、亮度钳制保住 #82 的 ≥4.5:1 正文判据；**输入框与消息气泡的白色釉层（`rgba(255,255,255,…)`）同批换成语义相同的染色釉** —— 对话区全部文字面第一次整族跟随自定义色相；`verify-readability` 的网格随之升级为 **玻璃色 {黑/中灰/白} × 滑杆 × 主题 × 壁纸透明度 全组合 ≥4.5:1**（旧网格只测白色 frost 单点，对深色自定义色有盲区）。
 - **玻璃透明度拉满不再"变黑白"**：滑杆换算曲线的下限从 0.03 提到 0.10 —— 旧曲线在染色地板下会把玻璃色份额抽干到 ~1%，只剩主题底色（用户报的"拉满变黑/变白"）；现在拉满仍保留一层可见磨砂，壁纸透过率依旧单调上升。
@@ -43,6 +55,11 @@
 - **媒体源接住根路径 `/diag`（可观测性）**：渲染页的诊断信标打的是 `{mediaBase origin}/diag` —— `mediaBase` 一改指向，这个根路径若不在媒体源上也有落点，"场景首帧超时"时渲染页的告警会以 404 **静默丢掉**。诊断族因此把 `handleDiag` 经出参交给媒体源，两边共用**同一份**环形缓冲（`/diag-log` 读到的是一份）。
 - **`/scene-files` 目录围栏补第二层（安全加固）**：目标文件的**真实路径**必须仍落在壁纸目录内 —— `lstatSync` 拒链接 + **`realpathSync.native`** 包含性比对，且该层 **fail-closed**（除"不存在"外一律围栏）。实测确认 **JS 版 `realpathSync` 在 Windows 上不解析 junction**（`.native` 才解析），故这一层必须用 `.native`。（**残留**：`lib/scene-manifest.js` 的 `dirSceneAccess` 仍是 junction 盲的，属另一条路由族，本次未动。）
 - **启动等待期的预热渲染页泄漏修掉（与上面 ③ 互补）**：`boot-mount-cancel`（启动等待窗口内重新选择壁纸）对**分离态** iframe 赋 `src=about:blank` **不会提交导航** —— 预热页带着整个 WebWallGL 引擎常驻到会话结束（本机实测一次泄漏 **9 个 4K 引擎**存活 1 小时，是"切了几张之后大包首帧全变慢"的放大器；③ 管的是**已挂载**层的可见性暂停，管不到这条**从未挂载**的预热页）。改为先隐身挂进文档让导航真实提交、再移除空壳；已连接（被领养）的帧照旧绝不动。
+- **宿主报错在英文界面露中文（i18n 显示点漏查表）**：宿主的 `error` 串是**运行时数据**，客户端必须在**显示处**再过一次 `weT(...)` —— 而字体集那条链路漏了：`lib/routes/fontsets.js` 回的是中文（`字体集数量已达上限` 等），经 `fontset-store` 原样存进 `fontSetError`，到 `src/fontset-editor.js` 直接塞进句子里 ⇒ 英文界面出现 `Font sets unavailable: 字体集数量已达上限`，而词表里早就为这些串备好的英文**永远不会生效**（死词条）。同一份数据的两个显示点此前**一个查表一个不查**（`src/client.js` 查、`src/quick-panel.js` 不查）。现补齐四处显示点（`fontset-editor` / `quick-panel` / `picker-props-panel` / `client.js` 那条裹在 `Error` 里、但 message 会被渲染进「壁纸属性」面板的文案）+ 一条词条；`verify-i18n` 的"零漏译"当场抓出了漏补的那条。
+- **「主题随壁纸」被文档写成"没有开关"**：它是 `lib/settings-schema.js` 里 `kind: 'boolFalse'` 的**默认关**开关（面板上就是一行 `switchRow`），而 README 与 HOW-IT-WORKS 中英四份都写着"无开关，行为即自动"，本仓 `CHANGELOG` 自己反倒记对了。已按代码真源改正（**关 = 整条取色链不跑**，与"自动切主题"是两回事）。
+- **注释与文档只述当前原理（清考古内容）**：清掉 60 余个源文件里"已经废弃的东西为什么废弃"的叙述——"旧实现…"、"此前埋在 `src/client.js`…"、`评审 P2-x`、`（2026-09 大包事故的修正）`、以及 `1,204 行`/`116 个选择器`/`手抄了 56 次` 这类**会漂的计数**，一律改写为"当前为什么不变量成立"。**保留**：用户文案（`weT` 实参 / 判据名）一字未动、实测出处（写作纪律 2）、`legacy` 这类**活代码**的说明、以及 `CHANGELOG` / `archive` / `wip` 的账本叙述。同批撤除 7 条**守散文**的判据（见下条），并顺手修掉三处真缺陷（产物同步判红、守卫 Usage 指向不存在的文件、审计工具的导入闭包假阳性）。
+- **撤除"守散文"的判据并写下判定程序（ADR-0007）**：ADR-0006 定的边界（"读代码的守卫照留，读散文的守卫不加"）此前**只写在散文里**，于是没能拦住三件实测发生的事：判据改去断言源码里的**文案片段**（`includes('有能力头栅栏…')`、`includes('ESC 返回')`、`includes(' 档 · ')`）；一条判据把自己的钉子钉在了**一个 bug 上**（`includes('/设置|Settings/i.test')` —— 而那个正则正是宿主换语言/换措辞就**静默失效**的设置入口锚点，于是"修 bug 会让守卫变红"）；以及一次性清理的收口判据**恒真**留着（笔误「秡」）。现按四问判定程序撤除，并把"判源码文案"改判**机制**（状态行"三分支且每支是 `weT(...)`"，已做变异测试证明有牙）。**同批修掉那个 locale 锚点**（改成宿主标签候选集，并登记两条"照字面匹配宿主"的精确值豁免——我们的词表里 `"设置"` 是**动词**义，直接用它当锚点反而更错）。退役线判据 13 → 10 条。
+- **`test/tools/audit-import-closure.mjs` 的假阳性修掉**：它把 `readFileSync(new URL('../package.json', …))` 这类**数据文件读取**当成模块导入，于是 `lib/index.js → package.json` 被误报为"发布包缺文件"。改为**分两类**判（真模块导入才要求 `files` 覆盖；数据读取只核对文件在磁盘上）+ 剥注释，并补了牙齿验证（注入不存在的导入 ⇒ `[UNRESOLVED]` 且非零退出）。
 
 ### v1.1.0（1.0.1 → 1.1.0 · 2026-09-29）
 
@@ -216,228 +233,3 @@
 - **自定义壁纸**：直接上传本地 JPG / PNG / MP4 当壁纸，可选存储位置（默认 `~/.dsh-wallpaper-engine/uploads`，可改到任意盘符并自动迁移已有文件）与画面适配模式（覆盖 / 填充 / 居中 / 拉伸）；上传的 MP4 自动生成抽帧缩略图。
 
 ---
-
-## English
-
-### Unreleased (next version)
-
-> Increment after **v1.1.0** (the diff against upstream `origin/main`, verifiable commit by commit):
-
-- **Whole-window white (near-grey) frames on minimize/restore on the Windows desktop client are fixed**: the minimize animation, the taskbar thumbnail and the instant after restoring could show a **solid white** plate (a light grey under the default dimming) instead of the wallpaper. Mechanism: the wallpaper layer is an ordinary `z-index: -2` child of `body` (its pixels live in the root frame's raster), and while a wallpaper is active the plugin turns the base token `transparent` — so any window/tab state change can reveal the **window base plate** (Electron's `backgroundColor` defaults to `#FFF`) plus the host `body`'s white fallback whenever the root frame cannot get that layer. Fix: while a wallpaper is active the **root element** carries an opaque **wallpaper representative colour** (new `--we-wallpaper-underlay`) — the canvas background is the last layer on the compositing chain that "does not depend on a raster, filled directly by the compositor". Resolution order: **the most-occupied colour of the picture** first (sampled 64×64 straight off the already-decoded video / canvas / img leaf inside the layer — no extra request, no extra decode), then the author / panel scheme colour (an author `0 0 0` counts as *unfilled*), and nothing when neither exists (back to transparent). A dropped layer therefore degrades from "white flash" to "a tone-matched solid". The same round added a **two-frame re-composite nudge** on becoming visible (only in the hidden → visible direction, never a permanent compositing layer) and an **on-screen trace** (layer geometry + leaf ready-state + frames presented + "next frame presented at +N ms", the latter via rVFC rather than a timer) for problems that only reproduce in a specific window state and that intent-level logs cannot answer. **Measured** (headless Edge, the real artifact, page structure copied rule-by-rule from the host frontend): with the media leaf not painting, the centre pixel went from `rgb(191,191,191)` before the fix (the host's white base pushed through the default dimming) to `rgb(150,30,42)` — that video's own dominant colour, i.e. the sampling leg beating the author colour; with the wallpaper on screen the two builds are pixel-identical (no side effects). **One shell-side follow-up remains upstream** (option ① of the report): the desktop shell sets a transparent base plate for darwin windows only, and its win32 `BrowserWindow` passes no `backgroundColor`, so that plate stays white and still shows when the window has literally no frame to submit.
-- **Clearing the shell's canvas base no longer pins a mode name**: it used to clear only the `data-dsh-desktop-mode="extended"` case (where the shell paints `.dshDesktopFrame` opaque and covers the wallpaper whole). Mode names and the gated set evolve with the shell, so pinning one name turns "the wallpaper is covered" into a silent regression on the next shell update — now the base is cleared whenever a wallpaper is active (a no-op in compatibility mode, whose baseline is already transparent), and the guard has teeth in both directions: a missing clear fails, and writing a single-mode gate back fails.
-- **The dead `data-we-appwindow` marker is gone**: it was left over from the "immersive window automatically drops the frosted blur" round (its CSS consumer was removed when full frosted glass was kept), and had been write-only since — while its test (`outerWidth === innerWidth`) is exactly what misfires on a frameless desktop-shell window. The attribute went away with its consumer, so neither the DOM nor the diagnostic surface keeps a hook nobody reads.
-
-- **Large scene wallpapers now take the host's own media origin (performance)**: **Scene payloads (`scene.pkg`, often 70–90 MB) now use the host's own dedicated loopback media origin too** (web wallpapers already did). `/inventory` gained `sceneMediaBase` (gated on "the library really holds a live-renderable scene"; an empty string when the media origin is unavailable), and the client's `liveRenderUrl` consumes it instead of **hard-coding `location.origin`**. **Two things not to misread**: ① the renderer page itself stays on the app origin (it **must** be same-origin — the parent drives it through `frame.contentWindow.__wp`), so the speed-up has a ceiling; ② this is a **transport-path improvement, not a security fix**.
-- **The media origin now answers the root `/diag` (observability)**: the renderer's diagnostic beacon posts to `{mediaBase origin}/diag` — once `mediaBase` points elsewhere, that root path must exist on the media origin too, otherwise a first-frame-timeout report loses the renderer's warnings to a silent 404. The diag family therefore hands `handleDiag` to the media origin through an out-parameter, so both mounts share **one** ring buffer (there is a single `/diag-log`).
-- **`/scene-files` gained a second fence layer (security hardening)**: the target file's **real path** must now still be inside the wallpaper directory — `lstatSync` rejects links plus a **`realpathSync.native`** containment check, and that layer is **fail-closed** (anything other than "does not exist" is fenced). Measurement confirmed that **JS `realpathSync` does not resolve junctions on Windows** (`.native` does), which is why this layer must use `.native`. (**Residual**: `dirSceneAccess` in `lib/scene-manifest.js` is still junction-blind; it belongs to a different route family and was left alone.)
-
-### v1.1.0 (1.0.1 → 1.1.0 · 2026-09-29)
-
-> This install contains everything after **1.0.1** up to **1.1.0** (the commits landed since v1.0.1 `6ba2fae`).
-
-**UI**
-
-- **Theme follows the wallpaper (automatic light/dark)**: after a switch the plugin picks the global theme from the wallpaper — colour order **① the wallpaper's own scheme colour** (`project.json` `schemecolor` / `ui_browse_properties_scheme_color`; an override you set in the **壁纸属性** panel wins, and an author value of exactly `0 0 0` counts as **unfilled** — that is the WE editor's default for new projects and 124 of 360 wallpapers here carry it, so taking it at face value would pin a third of the library to dark; a hand-picked pure black in the panel is still honoured) **→ ② the most-occupied colour of the picture** (64×64 downsample, 4 bits/channel quantisation, modal bucket — only when ① is missing; the author preview and a **real rendered frame** (scene capture / web `__wp.capture`) each vote, and **a disagreement resolves to dark** — light only when both agree; a capture can land on a not-yet-settled frame, and "should be dark but came out light" is the error the eye notices) **→ ③ neither available ⇒ leave the theme alone** (no thrashing). The verdict is a WCAG relative-luminance threshold of **0.40** ("only clearly bright colours get a light UI"; not mid grey 0.2159 — the author colours in this library have a median luminance of 0.214, so a mid-grey threshold cuts through the densest part of the distribution (27 wallpapers within ±0.05), and saturated mid-tones end up "light" while the eye reads them as dark). **Off by default** — a switch at the top of the "Appearance → Theme" section (setting key `themeFollow`); when on, the behaviour *is* the feature; when off, all six entry points idle (no colour sampling, no verdict, no theme write, no bookkeeping) and the yield marker / vote ranking / status line it had written are cleared. Three self-imposed rules: **nothing is written when the verdict already matches the current preference** (`setTheme` persists the preference into the profile's `cordis.patch.yml`, so without de-duplication a rotation list mixing light and dark wallpapers would rewrite that file on every switch); **changing the theme by hand in DSH stops it for the current wallpaper** (re-evaluating the same wallpaper will not take it back) and **the next switch resumes it**; when the host provides no `theme` service the whole thing stays inert and never throws. Along the way a dead pipe got fixed: the host had been sending `schemeColor` all along while the client never consumed it, so the first-frame poster fell back to a CSS variable — it now uses the author's colour.
-- **Adapter mode (「适配目标」)**: the **高级** tab gained an **「适配」** section that works out which of **a plain web browser / the unofficial desktop client / the official desktop client** the plugin is running in, shows 「检测到：… · capability header present / absent」, and lets you override it — **a manual pick wins over detection**. Detection is **OS-independent**: the host observes **request headers and the UA** (the `x-dsh-desktop-renderer` header ⇒ unofficial desktop client — measured to be injected only by the community shell `DSH Desktop.app`, with zero hits for that literal in the official `DeepSeek Harness.app` `app.asar`; `Electron/` in the UA ⇒ desktop shell; neither ⇒ plain browser) and latches what it sees **without ever unwinding it**, so a health probe before the first frame cannot demote a known desktop back to the browser (a wrong "browser" verdict is what makes a web wallpaper answer 403). It drives four behaviours: ① whether a **web wallpaper payload** uses the dedicated media origin or the app origin — a plain browser has no fence, so no second loopback listener is opened, and that relative-path shape is asserted by its own guard; ② **desktop-shell material rules** (`data-dsh-desktop-mode` / `data-we-mica`) are gated on `[data-we-adapter^="desktop-"]`, so a browser session never inherits them; ③ **「窗口失焦时暂停」 is only offered on the browser target** (a desktop shell that lost focus usually still shows the wallpaper, and pausing would freeze a **visible** picture; the stored value survives and resumes when you switch back); ④ **panel rows appear per target with a stated reason**, and a manual pick that contradicts detection spells out the consequence (browser picked while a header is observed ⇒ 403).
-- **Settings tabs reorganised**: the 「字体」 tab merged into 「**外观**」, 「玻璃」 was renamed to 「**雾化**」, and the adjustment controls were regrouped by purpose (appearance / effects / sound / advanced) — the six tabs stay 壁纸 / 外观 / 吉祥物 / 效果 / 声音 / 高级.
-- **Font sets (a whole typography look as one preset)**: custom typography is now organised in **sets** — a preset ships with the plugin, and you can **create (from the current look) / rename / delete**; editing any font item lands **only in the current set**, and 「restore」 puts that set back the way it was (a set you edited is marked 「已改」 and "use" reads the whole set back). **Export / import** a `.json` (export opens the system **Save as** dialog; import validates the version tag first and names the reason for a bad file). The UI only says *which* set is in use — it never reveals whether a set shipped with the plugin.
-- **「Only modified」 is on by default**: the typography-role table initially lists just the roles whose size / weight / family you changed (with an explicit line when nothing is modified yet), and the whole block is now part of "custom typography" — turning the master switch off collapses it.
-- **Wallpaper-switch transitions (7 options)**: cross-fade / push / wipe / iris / zoom / strip / blinds; **hard cut by default**, shared by manual selection and automatic rotation; type / direction / speed tier are **whitelisted** (unknown values fall back to the default). 「条带」 (strip) became a real venetian blind this round — the previous implementation was visually indistinguishable from 「擦除」 (wipe).
-- **The live-frame row** is no longer gated by the live-rendering switch (you can re-capture at any time) and shows a **thumbnail of the current wallpaper's live frame**.
-- The transition options moved into a **dropdown**, and two redundant panel hints were removed.
-- **「启动延迟」 renamed to 「启动最长等待时间」, and the value is now a cap**: the delay period still preloads (so the first frame warms up), the live picture is swapped in **the moment the first frame is ready**, and at the cap it is swapped in regardless; the options read `立即 / ≤3s / ≤5s / ≤10s`.
-
-**Logging & notices**
-
-- **The terminal reports problems only by default**: host output is folded into three levels (the level
-  name *is* the logger method name) — `error` (breaks the plugin / DSH / system), `warn` (degradation,
-  fallback, a fence rejection, a first-frame timeout — anything that **affects what you see**) and
-  `info` (everything else: per-texture lines, heartbeats, the autosize gate, preparation probes, the
-  log-side trace of a success). **Only `error` + `warn` are mirrored to the terminal**; `info` appears
-  only with `DSH_WE_LOG_LEVEL=info` (values `error` / `warn` / `info`, default `warn`). Before this,
-  every renderer report and heartbeat went straight to the terminal (measured at ~18 lines/minute).
-- **Success notices moved to their own channel**: one terminal line, `[wallpaper-engine] … ✔` ("wallpaper
-  media origin listening", "scene wallpaper ready") — the **same prefix as the log lines**, with the `✔`
-  merely marking "this is a success, not a problem". **At most once per kind per session** (an HMR remount
-  does not resend it); not through the logger, without a level, not written to disk. It only appears when
-  stdout is a terminal — the DSH Desktop host is started by Electron over a pipe (`isTTY` is false), so
-  Desktop is quiet by default; `DSH_WE_NOTICE=1` turns it on, `=0` silences it permanently, and only a
-  **failed delivery** produces one `warn`.
-- **Every reporting endpoint now declares its own level**: client `[we-live]` diagnostic lines carry
-  `&lvl=` on the same-origin pixel request (an unknown or missing value falls back to `info`); the
-  **renderer page** (the shipped WebWallGL artifact) used to feed its level to the browser console only
-  and drop it from the request; as of the renderer 2.0.2 sync the page declares `&lvl=` itself (computed
-  from the **same failure table the host uses**), and the host's `levelForReport` always takes the
-  sender's declaration, falling back to that table only when it is missing. The local patch used in
-  between was removed with 2.0.2. The rotation-prep
-  first-frame timeout moved from a bare `console.info` onto the same channel and is tagged `warn`.
-- **The diagnostics file has a cap**: `~/.dsh-wallpaper-engine/diag/http.jsonl` rotates to
-  `http.jsonl.1` at 8 MiB (one generation only); `/diag-log` and the per-line JSON shape are unchanged.
-- **Client-side exceptions are traced too**: a render-time exception in the panel used to show up only as
-  a blank UI — and on that machine DevTools cannot be opened, so the diagnostics buffer held nothing.
-  `error` and `unhandledrejection` now write the message plus the first three stack frames into the same
-  diagnostics channel (tag `client-error`, level `error`); search for `client-error` first when triaging.
-- Details and the gate commands are in [`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md), "Terminal output:
-  problems only by default".
-
-**Fixes**
-
-- **A native confirmation dialog left the wallpaper paused for good** (no upstream issue; reproduced on
-  the real machine): `window.confirm` hands focus to its own window, so with "pause on window blur"
-  (`pauseOnBlur`) enabled the wallpaper stopped the moment the dialog appeared; the modal also **blocks
-  the render thread** (an input box receives no keys), and the `focus` event on dismissal is **not
-  guaranteed to arrive** ⇒ the occlusion decision stuck on "window blurred" and only a page reload
-  recovered it. The decision is now also **re-checked on a low-frequency timer** (3 s, emitting and
-  logging one `occlusion-recheck` line only when the decision changes), and deleting a font set moved to
-  an **in-panel confirmation** (no native dialog).
-- **Buttons and links are no longer different sizes**: the class shared by 「rename」 (`<button>`) and
-  「export」 (`<a>`) used to pin only the `<button>` box — an `<a>` defaults to `inline` (an **inline box
-  ignores `height`**), `content-box`, a non-inherited font, and an underline. The class now holds for
-  both element kinds (`display` / `box-sizing` / `font` / `line-height` / `text-decoration` all spelled out).
-- **Stutter when switching away during the boot wait**: the not-yet-mounted iframe is a **running renderer page**, not a plain element — nothing terminated it on a wallpaper switch, so it kept fetching the package / decoding textures / uploading in the background, on the same main thread as the new wallpaper's own startup. `applySelection` and unload now clear its timer and **abort** it (`src=about:blank`); the mount path also arms the heartbeat once (the `load` handler only arms it when mounted, and a delayed frame's document may finish loading before that — which would leave `we-live-on` off forever). Guard: `rotation-prepared-leak-smoke` cases Q1 / Q2 / Q3 (each with a failing control).
-- **No more black screen when a scene wallpaper is activated for the first time**: on a wallpaper's **first** activation the live-captured frame does not exist yet (this live session has to backfill it), while the placeholder tried 「captured frame」 as its only source and **silently kept a near-black theme colour** on failure ⇒ a black screen until the first frame. The placeholder now takes **live-captured frame → the author's packaged preview image → the theme colour**: the preview is **only a stand-in** (never "guessing a picture on the author's behalf" — `/scene-frame`'s empty-state semantics are **unchanged**, not a byte on the host side) and is displaced the moment the live first frame lands; guard `rotation-prepared-leak-smoke` cases P / P2 (positive / negative controls paired).
-- **Fixed the "collapsed right sidebar still shows a glass plate on harness 0.1.7" bug (upstream issue #107)**: the host's right-panel container keeps its **width while collapsed** and paints no background of its own, while the plugin painted it unconditionally ⇒ a mid-grey slab across the right of the conversation area (zero console errors, easily mistaken for a theme problem). Every rule that paints that container (including the `.cm-editor` / `.xterm` content surfaces and the software-render fallback) is now scoped to `[data-sidebar-right-open]`, plus an explicit closed-state clear; guard `verify-host-paint-scope`.
-- **Removed "beta scene animation"**: the `betaSceneAnim` switch, the host `/scene-anim` and `/scene-anim-progress` routes, the client-side upgrade queue / progress polling / probe `<video>`, and the worker's multi-frame rendering and APNG output are **all deleted** (WebWallGL live rendering supersedes it); `verify-client` gained a **reverse probe** asserting that route never comes back.
-- **Resource leaks fixed (12 findings from the audit)**: scene-anim teardown, probe videos, listeners, timers, polling guards; host-side resources and cache caps too.
-- **`sceneVideo` made honest**: only emitted when the wallpaper really embeds an MP4; added a follow-up fetch for ordering, and it no longer enters the layer key while live rendering.
-- **The poster static frame showing through at high wallpaper opacity**: the fade-out backing colour is now native pure black / white.
-- **An unterminated CSS comment swallowing the `.we-layer` rule** (video wallpapers dropping to the bottom of the page / scene wallpapers covering the text layer).
-- **The wallpaper being covered by the shell canvas in extended mode**: the opaque background on `.dshDesktopFrame` is cleared.
-- **Fallback for the enhanced-mode left workspace on Win10 (no Mica)** (upstream #73).
-- **Glass did not fall back under software rendering** (upstream issue #95): a *syntax* check such as `@supports not (backdrop-filter)` stays true when the syntax is supported but rasterisation never happens ⇒ the fallback never fired and panels stayed too transparent. Added `detectSoftwareRender()` (no WebGL context ⇒ software; otherwise match `UNMASKED_RENDERER_WEBGL` / `VENDOR` against swiftshader / llvmpipe / …) and a `?we-glassfallback=on|off` manual override; the fallback now also covers the composer card's `::before` carrier.
-- **Text-surface readability floor** (#82): text-bearing surfaces get a theme base colour layered on top (`--we-readability-floor`, 0.45 light / 0.59 dark) — the wallpaper may be dimmed and faded, the body text stays at ≥4.5:1.
-- **The input-card blur moved onto `::before`** (#89 / #94), restoring viewport positioning for fixed descendants.
-- **Cross-platform fix for the ffmpeg child process cwd** plus a robustness audit.
-
-**Dependencies & guards**
-
-- Adopted upstream PR #87's `js-yaml` constraint in minimal form (a non-reachable vulnerability).
-- Packaging-whitelist regression assertions (`verify-package-files`), covering every runtime module under `lib/**`.
-- **Three publish-face strengthenings (v1.1.0)**:
-  - **`scripts/prepare.mjs` is now shipped**: `prepare` really does run when the plugin is installed from git, or when the packed artifact is executed as a *root project* (unpack, then `pnpm install`) — shipping the script without it means `MODULE_NOT_FOUND` the moment it runs (reproducible by unpacking the published package and running `pnpm install` in it). Follow-ups: `verify-package-publish` ⑦ no longer treats `prepare` as a repo-only script (its target must ship), and ② opens its dev-directory allowlist for exactly this one file — `src/` `scripts/` `test/` `docs/` are still rejected everywhere else.
-  - **Every relative import target of the reachable closure must exist on disk** (new assertion + negative control in `verify-package-publish` ①): an import pointing at a file that is not there is a dead path locally — nobody trips over it until it is installed on a user's machine and blows up as `ERR_MODULE_NOT_FOUND`. The npm **1.0.1** artifact was exactly that (`./scene-script-apis.js`, imported by `lib/scene-scripts.js`, never shipped). The same rule now also runs as **P7** in `verify-package-files`: every runtime module under `lib/**` is scanned, not just the closure reachable from `lib/index.js`.
-  - **Version `1.0.1 → 1.1.0`**: the published 1.0.1 cannot be overwritten and no longer matches this repository, so only a new version carries the current code to npm.
-
-**Docs & repo housekeeping**
-
-- Planning documents brought into the repo (`docs/`); the **static-frame rendering line is archived** under `docs/archive/static-frame/` — that line's renderer, like the beta scene-animation line's, now lives in the standalone repo [`YV3507/we-static-frame`](https://github.com/YV3507/we-static-frame) (offline scene → a single PNG, usable as a library or CLI) and **will be removed by other contributors in the next update**.
-
-**Removals / behaviour changes**
-
-- **The static-frame line is gone**: the offline scene renderer, main-texture extraction, the compositor and
-  the "static frame" prewarming job were **deleted** (~10k lines). A scene wallpaper now has only two
-  out-figure sources — **live frame** (captured from the running render, preferred) and **custom frame**
-  (a screenshot you imported); with neither, it stays **honestly empty** instead of guessing an image (a
-  guessed image is blurry and hides the decidable fact that this wallpaper has no usable picture).
-  Also: `?v=1/2/3` tiers are retired (old values simply mean "auto" — **no migration needed**); the frame
-  cache key was renamed/bumped (old caches expire; the only cost is re-capturing a few live frames); the
-  panel row "wallpaper picture refresh" became "**out-figure source**" (two tiers).
-
-### v1.0.1 (milestone · 2026-09-25)
-
-> This install contains **0.7.6 + 0.7.7 + 0.7.8 + 1.0.1**.
-
-- **"Extended mode" compatibility fix**: fixed wallpapers not showing in extended mode, and wallpapers that "work for a few seconds and then fall back to a static image / preview image" — **wallpapers and every effect now work in all three window modes** (compatible / enhanced / extended), with no need to switch modes.
-- The in-app notice was bumped to 1.0.1: the "extended mode not supported yet" warning is gone; a new Tip states that some settings-panel options not yet in effect are upcoming work that will open up as updates land.
-
-### v0.7.8 (scene-wallpaper live rendering goes fully live)
-
-- **Scene-wallpaper live rendering engine**: WebWallGL live rendering is wired in, and 90 %+ of scene effects render fully in real time; the rare wallpaper that cannot render live automatically falls back to the static-frame pipeline (millisecond output + background prewarming) — no black screen.
-- **Mouse parallax / mouse perspective**: scene layers shift as the mouse moves; perspective / depth of field change with the pointer in real time.
-- **Live particles + water ripples + click interaction**: the particle system runs live (quality tier adjustable on the effects tab); water / liquid ripples; cursor scripts, particle anchors and other click responses (left button).
-- **Audio detection (music spectrum)**: on Windows it taps system audio (WASAPI loopback + GSMTC) — **no Stereo Mix, no virtual audio device, no extra wiring**; it also brings Now Playing — track / artist / artwork straight into the wallpaper.
-- **Frame-rate cap & playback-state management**: pick 15 / 30 / 60 fps; auto-pause when the window is hidden / minimised / unfocused; auto-pause on battery (all switchable on the effects tab).
-- **Full dsh-desktop 2.0.14 adaptation**: fixes plugin load failures after the upgrade, the right-sidebar glass showing a grey plate when collapsed, and the enhanced-mode left grey panel covering the wallpaper; pairing with dsh-desktop 2.0.14 or newer is recommended.
-
-### v0.7.6 / v0.7.7
-
-- **Wallpaper properties panel**: live author-property updates + a narrow card layout inside the drawer; centred name row and other UI corrections.
-- **Rotation upgrade**: switch when ready + cross-fade (slowed to a uniform 1.8 s: rotation / GPU still frame → first-frame fade-in / manual wallpaper switches all share one recipe) + node-level adoption for live / web.
-- **Media on three platforms**: media-bridge integrated (macOS / Windows / Linux), middleware pinned at v0.1.5 (spectrum semantics corrected + capture follows the default output device); Now Playing artwork with a generic source. Online lyrics were added too: a local `.lrc` / cached copy comes first, and only a missing lyric triggers one lrclib.net query, which sends title / artist / album — hence off by default.
-- **Web wallpaper fixes**: a dedicated wallpaper media origin serves the payload (fixes an all-black Desktop), a cross-origin duplicate shim injection that capped the frame rate twice, and the renderer page synced to webwallgl 1.4.2 (including both classes of web-wallpaper white-screen fix).
-- **GPU frame capture backfill + geometry validation**: live frames backfilled into the static-frame cache, panel state / clear entry points, a strict gate for CPU rendering; a stored frame whose aspect ratio does not match the viewport is dropped and re-captured.
-- **Video wallpapers got 0.7.5's "play on selection" back** (the preview poster and the prewarm probe chain are gone); official asset path (the WE assets directory, host half + client half).
-- **Diagnostics workbench**: web-wallpaper "white screen" triage (headless real-browser screenshot + console errors); a render-path black box (client step reporting + host-side log dump).
-
-### v0.7.5
-
-> Upstream v0.7.5's content (`#91` font rework + frame-refresh tiers, `#99` video-wallpaper track volume, glass saturation no longer rising with blur `#98`, …) plus **all of this repository's 0.7.4 content** (see the next section).
-> ⚠️ **WebWallGL live rendering (`#103`) and the `lib/webwallgl/` publishing allowlist are NOT in this version** — they came in with the catch-up merge (shipped later in `v1.1.0`); this release's pipeline prefix was `sf33_`.
-
-### v0.7.4 (unpublished — its content shipped inside v0.7.5)
-
-> The 0.7.3 name on npm was already taken by an earlier set of commits and cannot be overwritten, so the version was bumped; 0.7.4 = the 0.7.3 content + #88 (scene static-frame fix series) + the two entries below. **This version number was never published to npm** (`0.7.3 → 0.7.5`); its content shipped with v0.7.5.
-
-- **Composer glass positioning fix** ([#89](https://github.com/elysia395/dsh-wallpaper-engine/issues/89), community PR [#94](https://github.com/elysia395/dsh-wallpaper-engine/pull/94)) — `[data-composer-card]` contains `position:fixed` descendants (`@dsh-external/dsh-webui` mounts the "AI browser" seat inside the card), and a `backdrop-filter` on the card becomes a **containing block** for those fixed descendants per spec — the seat stopped being viewport-anchored, gained hundreds of px of phantom overflow, and the composer was left stranded above the bottom of the scroll. The blur now lives on a `::before` pseudo-element (no DOM descendants → it can never become a containing block), keeping the same radius / `--we-*` tokens — visually identical.
-- **Honest sceneVideo field** ([#92](https://github.com/elysia395/dsh-wallpaper-engine/issues/92), community PR [#94](https://github.com/elysia395/dsh-wallpaper-engine/pull/94)) — the inventory used to pass off "static frame available" as "embedded MP4", emitting a `sceneVideo` URL for nearly every Scene wallpaper, so the client's `/scene-video` request was a guaranteed 404. The real probe is now cached by "pkg path + mtime" (bounded LRU, background fill, opportunistic backfill from real requests; unknown stays `null` and is never guessed), and the URL is emitted only when an embedded MP4 is confirmed.
-
-### v0.7.3
-
-- **Custom uploads usable + honest playback state** ([#84](https://github.com/elysia395/dsh-wallpaper-engine/issues/84)):
-  - ① `uploads/.meta.json` never recorded a `contentrating`, so uploads used to read as **unrated** while the rating filter defaults to **Everyone** — every custom upload was filtered out by default (absent from the grid, and rejected when the upload flow auto-applied it → blank wallpaper layer + a disabled 播放 button). An upload without a rating now counts as **Everyone**, so your own files work out of the box, while an explicit G / PG13 / R tag still filters normally.
-  - ② A refused `video.play()` (autoplay policy, a codec the browser cannot decode such as HEVC/10-bit, or a play() interrupted by the next src swap) used to be swallowed silently: the panel kept saying 「播放中」 and the only control was 「暂停」 — a wallpaper frozen on its first frame with no way to resume. The control now reflects the `<video>` element's REAL state, so it returns to 「播放」 (a working retry) with a readable reason, e.g. "cannot decode this video — use H.264", and it re-issues play() automatically once the media becomes ready.
-  - ③ A wallpaper dropped by a filter now says which filter excluded it instead of leaving an unexplained blank.
-- **Wallpaper opacity** ([#82](https://github.com/elysia395/dsh-wallpaper-engine/issues/82)) — a new slider in the effects tab (0–90 %, higher = more transparent, default 0 %): fades the whole wallpaper layer toward the page base colour — the IDEA background-image style of "visible but not overpowering". Complements the scrim, keeping text readable.
-- **Input caret color** ([#83](https://github.com/elysia395/dsh-wallpaper-engine/issues/83)) — a new **输入光标** section on the typography tab: when the caret is hard to see against the wallpaper, pick a high-contrast color from 6 presets or the custom picker (or **自动** to restore the native dsh caret — 自动 is the default). Applies to every text input and editable area, independent of the typography master switch.
-
-### v0.7.2
-
-- **Prerequisite bump**: targets DeepSeek Harness **0.1.5-rc.1** (DSH Desktop ≥ 2.0.7) and requires **dsh-better-sidebar ≥ 0.19.0**. Update order and rollback: see [`UPGRADING.md`](./UPGRADING.md).
-- **Fixes the "right sidebar fully transparent" regression and extends the glass to the native right sidebar**: the harness 0.1.5 native sidebar panel paints `var(--dsw-alias-bg-base)` — the exact token this plugin sets to transparent while a wallpaper is active — and the native panel ships no frosted glass of its own, so after moving to better-sidebar 0.19 the whole right column went see-through. From v0.7.2 the native right sidebar is covered by the「侧栏液态玻璃」adaptation: the same **侧栏模糊 / 透明度 / 玻璃颜色** sliders drive it, and with the master switch off it falls back to the theme's opaque panel colour (no longer transparent). The group is: **侧栏液态玻璃** (master switch, on by default) · **侧栏模糊** (0–200 px, default 16) · **侧栏透明度** (0–200 %, default 120 %, higher = clearer) · **侧栏玻璃颜色** (6 presets + custom picker, default `#ffffff`).
-- Follow-up fixes: sidebar colour controls and the content surface had no effect on the official native right sidebar; the sidebar colour mix strength is now a visibility curve independent of transparency.
-
-### v0.7.1
-
-- **Adapted to DeepSeek Harness 0.1.2-rc.1** and verified on **DSH Desktop v2.0.5**: host routes (inventory / media / scene-frame), the first-level settings section, the picker modal, video & scene wallpaper playback, the rope-dock drawer, and the liquid-glass effects all work in both Compatibility and Enhanced desktop modes. The APIs this plugin relies on (slots / webserver / theme variables) were verified unchanged on harness 0.1.5-rc.1 as well.
-- **Fixes the rc.1 "swatches / vinyl record render as rounded rectangles" regression** ([#74](https://github.com/elysia395/dsh-wallpaper-engine/issues/74)): rc.1's theme layer ships a new `corner-shape.css` that applies `corner-shape: superellipse(1.5)` (squircle-ish corners) to **every element**, so any `border-radius:50%` circle renders as a rounded rectangle. The plugin now explicitly resets `corner-shape: round` on every circle / pill control it draws (swatches, vinyl record, slider thumbs, toggle knobs, font chips, …); on older harness builds the declaration is ignored, with no side effects.
-
-### v0.6.8
-
-- A stabilization batch for the scene rendering pipeline (solid-layer white boxes / JPEG fallback alpha / clearcolor / `#86` residue / resource-leak regression guards). The `files` allowlist regression that silently dropped a runtime module is now guarded permanently by `test/verify-package-files.mjs`.
-
-### v0.6.7
-
-- **Custom typography** — a new **字体** section in settings. The master switch defaults to off (stock dsh look); once enabled you can tune **font color / weight (100–900) / family** (default · YaHei · KaiTi · SimSun · SimHei · 行楷 Xingkai · monospace, each chip previewed in its own font). Error/danger/warning text keeps its system red; toggling the switch off restores defaults in one click.
-
-### v0.6.4
-
-- **Improved: occasional full-screen white flash in immersive windows** (keeps full frosted glass). Older builds could flash the **whole window white** when you clicked the dialog or typed in an **immersive fullscreen window** opened via a **desktop shortcut** (standalone / kiosk) — under **hardware acceleration**, Chromium's compositor occasionally paints the backdrop white while it re-composites over the wallpaper. **v0.6.4 keeps reducing the compositing layers**: the repo panel is lazy-mounted when closed, the rope has no permanent filter, and the wallpaper media no longer forces a transform compositing layer by default — whilst **keeping the full frosted glass**. Normal browser tabs are unaffected and keep the full frosted glass + hardware acceleration. The plugin shows a one-time notice (once per version) about this.
-
-### Around v0.6.3
-
-- **Mascot (chat pull-cord)** — a draggable cord that snaps along the top edge; pull it down to reveal the **wallpaper library** drawer, with two character forms (maid / orca) and a 0.5×–2.5× size control.
-- **Wallpaper-effect tuning sliders** (v0.6.x) — the **壁纸效果** area gains three new sliders: **亮度 / 对比度 / 饱和度** (wallpaper media filter — **亮度 40–160 % / 对比度 40–200 % / 饱和度 0–200 %**, all defaulting to 100 %), alongside wallpaper blur / scrim etc., so any wallpaper can be blended comfortably with the UI. All apply instantly and persist.
-
-### v0.6.0
-
-- **Scene full-scene frames** — Scene wallpapers are fully replayed by a pure-JS scene renderer (object tree / textures / particles / shader effects) instead of a main-texture static frame. Implementation details: [`HOW-IT-WORKS.md`](./HOW-IT-WORKS.md).
-
-### v0.5.x
-
-- **Occlusion pause (battery-saving trio)** — like Wallpaper Engine's "pause when covered": pause the video wallpaper on minimize / tab-switch, on window focus loss, and/or on battery power, dropping the decoder engine to zero; it resumes automatically when you come back (web/iframe wallpapers are only throttled by the browser while hidden). Each toggle persists, and the trio is 「最小化/切页时暂停」 (on by default), 「窗口失焦时暂停」 (off by default) and 「使用电池时暂停」 (off by default); the scene live render pauses its render loop on the same conditions.
-- **Decode frame-rate cap (frame-skip transcode)** — high-fps sources (e.g. 4K120 H.264) are the dominant GPU cost (~60% Video Decode at 1.0x on a 4060). The host re-encodes the wallpaper ONCE with ffmpeg to the capped fps (timeline stays 1.0x normal speed, fully decoupled from 倍速) as **4K-preserving AV1**, with a **live download/transcode progress bar**; measured 4K120→24fps drops GPU from ~60% to **~15%**. ffmpeg is provisioned in three tiers: explicit path → auto-download (npmmirror + GitHub dual-source race) → system PATH. The tiers are unlimited / 60 / 48 / 30 / 24 fps, and a source already at or below the cap is skipped; the cache key is "path + mtime + cap", so rotation pays once per wallpaper; transcoding prefers **NVENC** (`av1_nvenc` → `h264_nvenc`) and falls back to **libx264 software encoding** without an NVIDIA GPU; only a missing ffmpeg auto-disables it and leaves the wallpaper on the original.
-
-### v0.4.1
-
-- **Media-stream handle fix + async scan** — media/preview/scene-frame streams now release their file handles immediately when the client disconnects (fixes handles accumulating with every wallpaper switch/refresh, and Windows locking that prevented deleting/moving a wallpaper file). The wallpaper-library scan is fully async (fs.promises thread pool), so it no longer blocks the event loop (noticeably faster startup on WSL / big libraries).
-- **WSL support** — Steam roots mounted under `/mnt/<drive>` are auto-detected, so a Harness running inside WSL can discover a Windows Wallpaper Engine install.
-
-### v0.4.0
-
-- **Settings persisted to a host file** — all settings (selected wallpaper, accent, transparency, layout, rotation, hidden, speed/flip, …) are now stored in `~/.dsh-wallpaper-engine/config.json` instead of browser localStorage, so they survive restarts, port changes (including DSH Desktop's random `--port 0` loopback port), browser-data clears and browser switches. Legacy localStorage config is migrated automatically on first launch.
-- **Edge-compatible rendering** — Edge (and only Edge) paints its built-in "download / cast" media-overlay toolbar over any *visible* `<video>` element, and there is no official switch to disable it. On Edge, video wallpapers are therefore rendered onto a `<canvas>` by default to keep that toolbar away. A new「Edge 兼容」toggle (right-aligned on the 紧凑布局 row, on by default) turns this off and falls back to the native `<video>` in every browser.
-
-### v0.3.1–v0.3.6
-
-- **Liquid-glass settings page** (v0.3.1) — the settings UI is now a **first-level settings page** (following the dsh-web-ui-all skin-center design): the whole page is a customizable liquid-glass card with **accent color** (6 presets + a custom color picker, default classic blue `#4f8cff`) and **glass transparency** (0–60 %, default 12 %). Both apply instantly and persist.
-- **Whole-settings-window liquid glass** (v0.3.2) — one click turns the **entire native DSH settings window** (dialog + left nav + ALL native sections: General / Models / Plugins / …) into liquid glass with your custom accent + transparency. Off restores the stock look.
-- **Unified glass tuning** (v0.3.3–v0.3.5) — the settings-window glass blur shares the SAME adjustment as the conversation bar: the **玻璃** (glass) slider (0–60 px) drives the blur radius of both the settings window and the composer/bubbles, with an identical saturation/brightness/contrast recipe. A new **玻璃颜色** (glass color) control lets you tint the glass BASE itself (6 presets + custom picker; defaults white in light / deep navy in dark; once picked, both themes use that color) — **配色** styles the interactive elements, **玻璃颜色** styles the glass itself.
-- **Card style & vinyl record** — the 紧凑布局 (compact CD-rack stacking) toggle and the spinning vinyl-record artwork label.
-
-### v0.2
-
-- **Modal wallpaper picker** — the thumbnail grid lives in a popup modal, so the settings page stays compact.
-- **Hide / restore (soft delete)** — hide wallpapers you don't want, restore them anytime; no source files are touched.
-- **Playback speed** — six native presets from 0.5x to 2x, instant, no media reload.
-- **Horizontal flip** — mirror the image (video / web / uploaded images).
-- **Custom uploads** — use your own local JPG / PNG / MP4 as a wallpaper, with a configurable storage location (default `~/.dsh-wallpaper-engine/uploads`, movable to any drive, existing files migrated) and fit modes (cover / contain / center / fill), plus automatic thumbnails for uploaded MP4s.

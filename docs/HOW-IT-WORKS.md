@@ -21,7 +21,7 @@ HTML 里注入 WE API shim（`lib/webwallgl/web-shim.js`）与 `project.json` �
   或场景是**松散 `scene.json`
   目录**（没有 `scene.pkg` 可供渲染页拉取）。此时按下面的**出图来源链**出图（允许诚实地留空）。
   重新打开开关会清空失败记忆（显式重试入口）。
-  **首帧超时不是一个固定墙钟**（大包事故的修正）：首帧**必须等整包到齐**，所以预算由
+  **首帧超时不是一个固定墙钟**：首帧**必须等整包到齐**，所以预算由
   `liveFirstFrameBudget()`（`src/live-layer.js`）按**包大小**现算，并有上限；
   而且宿主侧有一本**载荷账本**（客户端轮询
   `GET /wallpaper-engine/scene-payload-progress?token=…`，见 [`ROUTE-INDEX.md`](./ROUTE-INDEX.md)），
@@ -116,7 +116,7 @@ HTML 里注入 WE API shim（`lib/webwallgl/web-shim.js`）与 `project.json` �
      **权威清单（含每条路由的名称、来源行、注册形态与 context 契约）见 [`ROUTE-INDEX.md`](./ROUTE-INDEX.md)** ——
      本文件不再手写路径表，也不写条数（手写必烂：那张表曾长期列着 `/scene-runtime`、`/scene-manifest`、
      `/scene-resource` 三条**早已删除**的路由，还漏了当时大半的路由；条数同理，除生成物外没人复算它）。
-- **Client 端**（`lib/client.js`）：一个浏览器模块，拉取壁纸列表，把选中壁纸渲染到应用三列**后方**的固定图层；在「设置」里注册一级设置页「**壁纸引擎**」——五个页签（壁纸库 / 外观 / 播放 / 系统 / 关于），「选择壁纸」是页内下钻的库视图（无弹框），含隐藏 / 恢复、过场 / 倍速 / 翻转、配色 / 透明度、字体自定义与自定义壁纸管理（「关于」不读面板状态：简介 / 仓库与 Star / 交流群二维码 / 致谢，两张码是随包 PNG（`lib/about/`，经路由 `/about-qr/<文件名>` 直出），那行 star 数由宿主代取 GitHub API（`lib/routes/github-stars.js`，本插件唯一一条出站请求，带缓存））；另带**快捷播放面板**（当前壁纸 / 轮播 / 列表快切 / 声音，列表与卡片两种视图）——harness ≥0.1.5 融进官方右侧栏的「壁纸」tab，低版本宿主走吉祥物拉出的右滑抽屉。
+- **Client 端**（`lib/client.js`）：一个浏览器模块，拉取壁纸列表，把选中壁纸渲染到应用三列**后方**的固定图层；在「设置」里注册一级设置页「**壁纸引擎**」——五个页签（壁纸库 / 外观 / 播放 / 系统 / 关于），「选择壁纸」是页内下钻的库视图（无弹框），含隐藏 / 恢复、过场 / 倍速 / 翻转、配色 / 透明度、字体自定义与自定义壁纸管理（「外观」页的**「左侧栏覆盖」默认关**：关着时宿主原生左栏只是"透明的洞"—— `--dsw-specific-sidebar-fill` 被置 transparent、壁纸原样透出；打开后那一列也走同一张玻璃配方，锚点是座位出口 `[data-slot="sidebar"]` 的**父元素**（出口自己 `display:contents` 不生成盒子），见 `src/styles.js` 的「左侧栏覆盖」段）（「关于」不读面板状态：简介 / 仓库与 Star / 交流群二维码 / 致谢，两张码是随包 PNG（`lib/about/`，经路由 `/about-qr/<文件名>` 直出），那行 star 数由宿主代取 GitHub API（`lib/routes/github-stars.js`，本插件唯一一条出站请求，带缓存））；另带**快捷播放面板**：常驻区（当前壁纸 + 轮播）在三档页签下都显示，页签为**壁纸 / 外观 / 播放** —— 壁纸页是列表快切（搜索 / 类型筛选 / 列表·卡片两种视图）与声音；外观 / 播放两页与设置页同名页签**共用同一批渲染器**（侧栏档少画字体 / 光标 / 窗口与侧栏、出图来源 / 实时帧 / 帧率上限这些设置页专属分组），两处因此永远是同一份状态；底栏那颗入口按钮随页签深链到设置页的对应页签 —— harness ≥0.1.5 融进官方右侧栏的「壁纸」tab，低版本宿主走吉祥物拉出的右滑抽屉。
 - **自定义壁纸存储**：上传的文件写入插件管理的本地目录（默认 `~/.dsh-wallpaper-engine/uploads`，可在设置里改到任意盘符），经同一套 `/media`、`/preview` 路由服务（视频缩略图另走 `/video-preview`）——与 WE 媒体走完全相同的管道，天然跨重启持久、无浏览器配额限制。
 
 > 开发相关（构建产物、热挂载规则、缓存键前缀）见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。
@@ -186,7 +186,8 @@ HTML 里注入 WE API shim（`lib/webwallgl/web-shim.js`）与 `project.json` �
 
 ### 主题随壁纸：取色链与让位规则
 
-换壁纸后插件决定全局深 / 浅（`src/theme-follow.js`，**没有开关**）。取色按优先级：
+换壁纸后插件决定全局深 / 浅（`src/theme-follow.js`）—— 由**「主题随壁纸」开关**控制，
+在 `lib/settings-schema.js` 里**默认关**（关 = 本节的整条取色链都不跑）。开关打开后按优先级取色：
 
 1. **壁纸自己声明的配色** —— `project.json` 的 `general.properties.schemecolor.value`（0–1 浮点三元组；
    WE 编辑器里它的 `text` 就是 `ui_browse_properties_scheme_color`）。宿主 inventory 已把它转成
@@ -228,4 +229,4 @@ HTML 里注入 WE API shim（`lib/webwallgl/web-shim.js`）与 `project.json` �
 （轮换、轮换-live 节点级领养、轮换准备期零驻留、GPU 回填抓帧、抓帧身份校验五套冒烟）—— 所有断言都有
 失败通道（不通过即非零退出），`npm run verify:all` = 构建 + 两套全跑 + 软档。
 **链上有多少条别写在这里**：真源是 `package.json` 的 `verify` / `smoke` / `verify:docs` 三个脚本，
-读它们即得（本行此前写死过一个数字，已经漂了）。
+读它们即得 —— 写死一个数字就会漂。

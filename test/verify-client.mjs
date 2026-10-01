@@ -31,8 +31,8 @@ const sceneFrameDeleteCalls = [];
 // 「关于」页签那行 star 数的请求计数（宿主路由 /star-count）：既判"切进去会问一次"，
 // 也判"别的页签一次都不问"（TTL 内重复切回也不重问）。
 const starCountCalls = [];
-// 已删除的 CPU 动画渲染（scene-anim / APNG）的**反向**探针：任何 <video>.src
-// 指向 /scene-anim/<token> 都说明那条路线复活了 —— 断言必须恒为空。
+// CPU 动画渲染（scene-anim / APNG）的**反向**探针：本仓不提供那条路线，任何 <video>.src
+// 指向 /scene-anim/<token> 都说明它被接了回来 —— 断言必须恒为空。
 const animProbeSrcs = [];
 // 同一个 src 赋值也记录**元素**：用于区分「探测视频」与「上屏的层内视频」
 // （层内视频的 _parent 是 LAYER_ID 那个层节点）。
@@ -181,7 +181,7 @@ const fetchNow = (url, opts) => {
     if (u.includes('/scene-frame-cache/ccc')) cccGpuPinned = false;
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true, removed: true }) });
   }
-  // 已删除路线的进度端点：这里保留一个应答，用来**证明客户端从不请求它**
+  // CPU 动画渲染的进度端点：这里保留一个应答，用来**证明客户端从不请求它**
   // （真请求了就会在 animProbeSrcs 之外留下痕迹，故一并把它当作陷阱）。
   if (u.includes('/scene-anim-progress/')) {
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ percent: 100 }) });
@@ -326,7 +326,7 @@ const slots = {
 const ctx = { slots, effect(fn) { effects.push(fn); fn(); return fn; } };
 
 // apply(ctx) 在这个夹具里必须跑通：ctx 已提供 slots / effect / document / fetch，任何抛出都会
-// 让后面的注册与层断言在"什么都没挂上"的空跑上继续绿下去（此前只 console.log，throw 完仍 exit 0）。
+// 让后面的注册与层断言在"什么都没挂上"的空跑上继续绿下去（throw 只打印的话仍然 exit 0）。
 let thrown = null;
 try { exportsObj.apply(ctx); } catch (e) { thrown = (e && (e.stack || e.message)) || String(e); }
 assert.equal(thrown, null, 'apply(ctx) 不得抛（夹具已给 slots/effect/document/fetch）：' + thrown);
@@ -451,8 +451,8 @@ setTimeout(async () => {
   // 按 5 分钟（300000ms）定位真正的轮换定时器，绕开 persist 防抖的 200ms
   // 定时器；提交结果同步看新层 dataset.weKey（含 selection.url），持久化
   // 需再手动 flush 200ms 的 persist 写。
-  // 断言走 assert.ok：任何一条不成立 → 非零退出（评审指出此前全是
-  // console.log，把轮换打回元素级领养也能 exit 0）。
+  // 断言走 assert.ok：任何一条不成立 → 非零退出（只 console.log 的话，把轮换打回
+  // 元素级领养也能 exit 0）。
   const rotCheck = (label, cond) => { assert.ok(cond, label); console.log('  ✓ ' + label); };
   const flushPersistWrites = () => {
     for (const t of rotationTimers.filter((item) => !item.cleared && !item.fired && item.ms === 200)) {
@@ -737,8 +737,7 @@ setTimeout(async () => {
       assert.ok(!ordered('🙏 贡献者致谢|⭐ 开源与支持|💬 加入交流群|📖 项目简介'), 'negative control: 致谢没压尾要被判出');
       assert.ok(!ordered('📖 项目简介|⭐ 开源与支持|❓ 缺一段'), 'negative control: 段落缺失要被判出');
       // 两张码：img 的 src 必须是**随包 PNG 的路由 URL**（经 apiUrl 拼前缀），且两张不同。
-      // 这条在 2026-10-01 翻过一次面：原先是"必须内联 data URI"，用户要求改成 PNG 引入
-      // ⇒ 现在反过来——**不许**再出现内联 base64（那会把 240KB 压回 bundle）。
+      // 反过来——**不许**出现内联 base64（那会把 240KB 压回 bundle）。
       const qrImgs = collectByClass(tree, 'we-about__qr-img');
       assert.equal(qrImgs.length, 2, '关于页必须正好渲染两张二维码图');
       const qrSrcs = qrImgs.map((n) => String(n.props.src || ''));
@@ -889,9 +888,9 @@ setTimeout(async () => {
     };
     const caretWhite = findSwatch(tree, '光标颜色 #ffffff');
     const caretAuto = findSwatch(tree, '光标颜色 自动');
-    // 前置**硬断言**（P3-13：缺前置 = 默认红，不与"通过"同形）。这里早先是
-    // `console.log('… present:', !!x && !!y)` 加一句 `if (…) { asserts }`：控制项一改名，后面的断言就
-    // **静默不跑**，而这条守卫照样绿（零覆盖与通过同形）。那行日志已删 —— 它不是判据。
+    // 前置**硬断言**（缺前置 = 默认红，不与"通过"同形）：`console.log('… present:', !!x && !!y)`
+    // 加一句 `if (…) { asserts }` 的写法在控制项一改名时会让后面的断言**静默不跑**，而守卫照样绿
+    // （零覆盖与通过同形）。所以这里用 assert.ok 把前置钉死。
     assert.ok(caretWhite && caretAuto,
       '光标颜色行必须同时有「#ffffff」预设与「自动」按钮（缺则后续断言零覆盖）');
     if (caretWhite && caretAuto) {
@@ -1046,7 +1045,7 @@ setTimeout(async () => {
     };
     // Page 1: 33 playable wallpapers → 2 pages @ 24; grid = close card + 24.
     // 判据必须**真断言**：整块 `console.log` 只在日志里像断言、不判真假（形态规则见
-    // docs/DEV-GUIDE.md §4.7 约定 5）—— 分页器这条路径此前就是这么被漏掉的。
+    // docs/DEV-GUIDE.md §4.7 约定 5）。
     let cards = collectCards(tree);
     rotCheck('分页：第 1 页 25 张卡（关闭卡 + 24）', cards.length === 25);
     rotCheck('分页：页数 > 1 时渲染分页器', JSON.stringify(tree).includes('we-picker__pager'));
@@ -1073,7 +1072,7 @@ setTimeout(async () => {
     rotCheck('负对照：两页内容确实不同（否则「翻页换了内容」这条判据恒真）',
       !page1Text.includes('Wall 29') && page2Text.includes('Wall 29'));
 
-    // ── 0b：搜索 / 类型筛选 / 批量 / 隐藏页 / 卡片头计数（这些区域此前零判据）──
+    // ── 0b：搜索 / 类型筛选 / 批量 / 隐藏页 / 卡片头计数 ──────────────────
     // 判据只在**一处**定义，正判据与负对照都调它（形态规则见 docs/DEV-GUIDE.md §4.7 约定 5）。
     const cardTexts = (root) => collectCards(root).map((c) => JSON.stringify(c));
     // 关闭卡也是 `we-picker__card`（分页计数里它一直算一张）⇒ 判"只剩匹配项"时必须先摘掉它。
@@ -1130,7 +1129,7 @@ setTimeout(async () => {
     assert.equal(collectCards(tree).length, 25, '第 1 页渲染关闭卡 + 24 张（全量 33 ⇒ 分两页）');
     assert.ok(textOf(tree).includes('1 / 2'), '分页器显示 1 / 2（页数 = ceil(全量 / 24)）');
 
-    // ── P3-11 阶段 2 交付物 A：模态框**标记等价**（搬迁前后逐字未变）──────────────
+    // ── 模态框**标记等价**（搬迁前后逐字未变）────────────────────────────────
     // 模态框那棵子树被 116 个 `.we-picker__*` 选择器按**层级 / 相邻关系**选元素
     // （src/styles.js 586–1603），test/e2e-web-media-origin.mjs 里另有一份**手抄**的
     // picker DOM 镜像 —— 标记只要改一个类名、或只挪一层嵌套，CSS 与那份镜像都会**静默**漂，
@@ -1362,7 +1361,7 @@ setTimeout(async () => {
     closeBtn.props.ref(fakeButton());
     assert.equal(document.activeElement, elsewhere, 'ref 只消费一次（第二次不得把焦点抢回来）');
 
-    // 页内下钻后：库视图**替换**页签内容（不再是并存的两棵树）—— 后续用例要操作
+    // 页内下钻后：库视图**替换**页签内容（同一时刻只有一棵树在渲染）—— 后续用例要操作
     // 页签里的控件（轮播列表下拉等），先经「返回」按钮退出库视图（真实路径，不是注入状态）。
     closeBtn.props.onClick();
     tree = renderPicker();
@@ -1478,7 +1477,7 @@ setTimeout(async () => {
     tree = renderPicker();
     findByProp(tree, 'aria-label', '轮播列表名称').props.onInput({ target: { value: '第二个' } });
     tree = renderPicker();
-    // 第二个列表同样走下钻选片（编辑器内联网格已退役）。
+    // 第二个列表同样走下钻选片（选片只有一个入口：库视图）。
     findBtnByText(findByClass(tree, 'we-picker__editor'), '选择壁纸').props.onClick();
     tree = renderPicker();
     findByClass(tree, 'we-picker__card').props.onClick();
@@ -1701,10 +1700,9 @@ setTimeout(async () => {
     modalClose.props.onClick();
     assert.ok(sceneFrameHeadCalls.some((u) => u.includes('/scene-frame/ccc')),
       '选中场景壁纸后必须 HEAD 探测 GPU 帧状态（面板据此提示）');
-    // ── 手动切换（非轮换）也是交叉淡化：此前只有轮换 commit 置 pendingRotationFade
-    //    才淡，手动点选硬切 —— 旧层即拆、下一张的静态帧缓存直接上屏。改为按
-    //    weWid 判定（层上 weWid ≠ 当前选择 id → 淡出）。syncLayers 在 onClick
-    //    内同步完成，无需再等待。
+    // ── 手动切换（非轮换）也是交叉淡化：判据按 weWid 判定（层上 weWid ≠ 当前选择 id →
+    //    淡出），而不是只认轮换 commit 置的 pendingRotationFade —— 否则手动点选会硬切，
+    //    旧层即拆、下一张的静态帧缓存直接上屏。syncLayers 在 onClick 内同步完成，无需再等待。
     const manualPostLayer = document.getElementById('dsh-wallpaper-engine-layer');
     assert.ok(manualPreLayer && manualPreLayer.dataset.weFading === '1',
       '手动切换：旧壁纸层必须标记 weFading 淡出保留（不得即拆）');
@@ -1797,19 +1795,18 @@ setTimeout(async () => {
     tree3 = renderPicker();
     assert.ok(!findBtn(tree3, '清除 GPU 帧'), '清除成功后提示行必须消失');
     // 目标形态：场景动画只保留 WebWallGL live 一条路线，回退链是
-    // MP4 → 静态帧 → 单张大图 → 内嵌图；**没有 CPU 动画渲染**（scene-anim / APNG
-    // 已删除）。清除 GPU 抓帧后画面回落静态帧链即可，不得再启动分钟级的 CPU 渲染。
+    // MP4 → 静态帧 → 单张大图 → 内嵌图；**没有 CPU 动画渲染**。清除 GPU 抓帧后画面回落
+    // 静态帧链即可，不得启动分钟级的 CPU 渲染。
     assert.equal(animProbeSrcs.length, 0,
       '清除 GPU 帧后不得启动 CPU scene-anim 渲染（该路线已删除）');
     console.log('GPU 帧提示 + 清除入口链路: ok');
     console.log('GPU 帧优先于静态帧（清除后回落静态帧链，不再有 CPU 渲染）: ok');
 
-    // ── CPU 动画渲染路线已删除：这里改为**钉死删除** ──────────────────────
+    // ── CPU 动画渲染：源码里**钉死**这条路线不存在 ────────────────────────
     // 目标形态：场景动画只保留 WebWallGL live 一条路线，回退链是
-    // MP4 → 静态帧 → 单张大图 → 内嵌图；**没有 CPU 动画渲染**（scene-anim / APNG，
-    // 分钟级 CPU 渲染且会把 live 抓帧的静帧覆盖掉）。那些能力（点帧率档位启动 CPU 重渲染、
-    // 产物上屏、有 GPU 帧时被门禁挡住）连同 /scene-anim 路由一起删了 —— 这一段反过来把
-    // 那些入口钉死：删掉的东西不得悄悄复活。
+    // MP4 → 静态帧 → 单张大图 → 内嵌图；**没有 CPU 动画渲染**（那种路线是分钟级 CPU 渲染，
+    // 且会把 live 抓帧的静帧覆盖掉）。下面把它那一族入口逐个钉死：这些名字一旦回到源码，
+    // 就说明这条路线被接了回来（点帧率档位重渲染、产物上屏、被 GPU 帧门禁挡住，一并失效）。
     for (const [what, needle] of [
       ['queueSceneAnimUpgrade', 'queueSceneAnimUpgrade'],
       ['maybeQueueSceneAnimUpgrade', 'maybeQueueSceneAnimUpgrade'],
@@ -1863,9 +1860,9 @@ setTimeout(async () => {
       '「交叉淡化」的基准必须直接引用 ROTATION_FADE_MS（不写死 1800）');
 
     // ⑤d 设置键**两端一致**（#106 那类「宿主白名单漏键 → 客户端设置被静默丢弃」的漂移）。
-    // "从两边源码文本里抠键名"对账已不可行：P1-5 起两侧都改为**派生**（唯一真源
-    // lib/settings-schema.js），源码里已无手写键列表可抠，而且抠名字也证明不了
-    // "宿主真的会接受"。现在改成 ①键集派生 ②结构上必须委托 ③**行为**与重构前逐键一致。
+    // "从两边源码文本里抠键名"这条路不可行：两侧都改为**派生**（唯一真源
+    // lib/settings-schema.js），源码里没有手写键列表可抠，而且抠名字也证明不了
+    // "宿主真的会接受"。所以改判 ①键集派生 ②结构上必须委托 ③**行为**逐键与 golden 一致。
     {
       const src = readFileSync(new URL('../src/client.js', import.meta.url), 'utf8');
       const persistSrc = readFileSync(new URL('../src/persistence.js', import.meta.url), 'utf8');
@@ -2024,7 +2021,7 @@ setTimeout(async () => {
       assert.ok(closePathGoesThroughToken('onOpen: (v) => { if (v) busy(x); else { /* 什么也不做 */ } },') === false,
         'negative control: 收起分支不走令牌动作会被判出');
 
-      // ①g **持久化字段的直写必须与落盘配对**（"改了不生效 / 刷新后回退"那一类 —— P2-10 的动机）。
+      // ①g **持久化字段的直写必须与落盘配对**（"改了不生效 / 刷新后回退"那一类）。
       //    口径：扫 `src/client.js` 的实现面，对每个**持久化白名单里**的字段的 `selection.x = …`
       //    直写，要求它**所在的函数体**里有 `persistSelection()` 或 `setSetting(`（后者内部会落盘）。
       //    ⚠️ 函数级判据看不见"调用点落盘" ⇒ 那份豁免是**显式且只许缩小**的，每条写明为什么安全，
@@ -2182,6 +2179,10 @@ setTimeout(async () => {
       const BRANCH_NOTIFY_ELSEWHERE = {
         onRenameCommit: '通知由 `busy()` 的 `done` 在 promise 解析后才发（在写之后）—— 位置分析看不见时序',
         setCustomFrameLocal: '函数内不通知，两个调用点在各自分支里都 `emit`（同 ①h 的豁免）',
+        // 拖动档（live）**有意**不通知：拖动中不重渲染（数值回显由控件就地更新 —— SliderRow 的
+        // --we-fill），抬手那一次（change）走完整路径；音量本身在拖动档已经即时生效
+        //（weApplyAudio + syncSceneAudio），不是"改了不生效"。同 commitLiveSetting 的两档口径。
+        onVideoVolume: 'live 档有意不 emit（拖动中不重渲染，回显由控件就地更新）；抬手档 emit',
       };
       const branchSilent = panelSrcs.flatMap((t) => pathNotifications(t))
         .map((s) => s.split('@')[0]).filter((n) => !(n in BRANCH_NOTIFY_ELSEWHERE));
@@ -2207,8 +2208,8 @@ setTimeout(async () => {
         'positive control: 两支各自写、各自通知 ⇒ 不算');
 
       // ② 结构：两侧都必须**委托**给 schema，宿主不得再有手写逐键白名单。
-      //    ⚠️ `serializeSelection` 已随持久化层抽到 src/persistence.js（P2-9 后半）⇒ 那一条按
-      //    文件归属分源；`sanitizeSettings` 仍在 client.js，不动。
+      //    ⚠️ `serializeSelection` 住在 src/persistence.js ⇒ 那一条按文件归属分源；
+      //    `sanitizeSettings` 住在 client.js，是对同一份 schema 的另一侧入口。
       assert.ok(/sanitizeFromSchema\(o, "client"\)/.test(src), '客户端 sanitizeSettings 必须委托给 schema');
       assert.ok(/serializeSettings\(selection\)/.test(persistSrc),
         '客户端 serializeSelection 必须委托给 schema（现在住在 src/persistence.js）');
@@ -2217,9 +2218,9 @@ setTimeout(async () => {
       assert.equal(handWritten, 0,
         '宿主不得再手写逐键白名单（发现 ' + handWritten + ' 处）—— 手抄正是漂移的来源');
 
-      // ③ golden：P1-5 之前的**行为快照**（从当时的实现采下来）。夹具体积小、人可读，
+      // ③ golden：设置规范化的**行为快照**夹具（逐键固定值）。夹具体积小、人可读，
       //    任何"顺手改了某个范围/默认值"的改动都会在这里现形；确属有意修改时，
-      //    连同夹具一起更新（更新动作本身就是一次评审点）。
+      //    连同夹具一起更新。
       const golden = JSON.parse(readFileSync(
         new URL('../test/fixtures/settings-sanitize-golden.json', import.meta.url), 'utf8'));
       const canon = (o) => JSON.stringify(o && typeof o === 'object' && !Array.isArray(o)
@@ -2308,17 +2309,16 @@ setTimeout(async () => {
 
     // ⑥ 行为级不变量：整条流程（选中 → HEAD 探测 → 抓帧回填 → 清除 → 后续重建）
     // 里 animProbeSrcs 必须恒为 0 —— 一帧 CPU 动画渲染都不许启动（回退走静态帧链）。
-    // 这条覆盖的是「点帧率档位会启动 CPU 重渲染 / 关 beta场景动画按档位回退」那两条用例
-    // 留下的不变量：那些开关与整条 CPU 渲染路线一起删了，剩下的是「不再有 CPU 渲染」。
+    // 点帧率档位、关场景动画这两条路径都不得改走分钟级的 CPU 重渲染。
     tree3 = renderPicker();
     assert.equal(animProbeSrcs.length, 0,
       'CPU 动画渲染已删除：全流程不得出现任何 /scene-anim 请求');
     console.log('CPU 动画渲染路线已删除（源码钉死 + 行为级零请求）: ok');
 
     // ── sceneVideo 诚实化的时序补拉 ────────────────────────────────────────
-    // 宿主对 sceneVideo 改为「按 pkg 真探测」：未命中缓存时先给 null（不猜）并把探测
+    // 宿主对 sceneVideo 是「按 pkg 真探测」：未命中缓存时先给 null（不猜）并把探测
     // 投到后台，而客户端启动时那次 inventory 必然早于定论 ⇒ 必须有一次延迟补拉，
-    // 否则真正内嵌 MP4 的场景首屏会掉到静态帧（本机实测 3/35 个场景）。
+    // 否则真正内嵌 MP4 的场景首屏会掉到静态帧（实测 35 个场景里有 3 个）。
     {
       const before = inventoryCalls.length;
       const tick = rotationTimers.filter((t) => !t.cleared && t.ms === 3000);
@@ -2335,10 +2335,10 @@ setTimeout(async () => {
   }
   assert.ok(effects.length > 0, '效果链至少要跑过一次（effects 记录 ' + effects.length + ' 条）');
   
-// ⑦ P1-7：条件求值器已抽成独立模块（src/we-cond.js），因此可以直接 import 做**行为**测试
-// —— 这是抽模块的核心收益（此前只能对 src/client.js 做文本断言）。
-// 期望值是 P1-7 **搬移前**从实现里采下来的快照：搬移只允许"行为不动"。
-// ⚠️ 已知语义：本求值器把 `===` / `!==` 也走**宽松**比较（实现如此，P1-7 逐字搬移未改）。
+// ⑦ 条件求值器住在独立模块（src/we-cond.js），因此可以直接 import 做**行为**测试
+// —— 这是抽模块的核心收益（不必对 src/client.js 做文本断言）。
+// 期望值是**行为快照**：抽模块只允许"行为不动"。
+// ⚠️ 已知语义：本求值器把 `===` / `!==` 也走**宽松**比较（当前实现如此）。
 //    若将来要改成严格比较，必须同步本表并评估对真实壁纸 condition 的影响。
 {
   const { weEvalCondition, weCondTokenize, weCondParse } = await import(
@@ -2399,10 +2399,10 @@ setTimeout(async () => {
   assert.ok(CASES.length >= 20, '条件求值器用例表不得被清空（当前 ' + CASES.length + ' 例）');
 }
 
-// ── P2-10 后半：store 写入的单一入口 ─────────────────────────────────────────
-// "赋值 + persistSelection()" 这两件事此前被手抄 50+ 次：漏掉 persist 就是"改了不生效/
-// 刷新后回退"，而没有任何判据会红。现在收成 `setSetting(field, value)`（写 + 落盘）与
-// `setTransient(field, value)`（只写），并断言：
+// ── store 写入的单一入口 ───────────────────────────────────────────────────
+// "赋值 + persistSelection()" 是两件事：漏掉 persist 就是"改了不生效/刷新后回退"，
+// 而没有任何判据会红。收成 `setSetting(field, value)`（写 + 落盘）与
+// `setTransient(field, value)`（只写）之后，判据可以断言：
 //   · **页签**（src/panel-tabs.js）连 `selection` 都不许提 —— 只能经 ctx 的两个入口；
 //   · client.js 里"赋值 + 紧跟 persistSelection()"的手抄形态为 **0**（棘轮只许减少）；
 //   · 两个入口本身是唯一的"写 + 落盘"实现处（反查：入口体内必须有 selection[field] = 与
@@ -2473,7 +2473,7 @@ setTimeout(async () => {
 
 // ── 判据纪律：本文件不许有"log 形式的伪判据" ─────────────────────────────────
 // `console.log('x (expect 1):', n === 1)` 在日志里**像**断言，实际不判真假 —— 产品改坏了
-// 它照样 exit 0（分页器那一整块就是这么漏掉的）。棘轮**已归零**：本文件必须一处都没有；
+// 它照样 exit 0。棘轮**基线 0**：本文件必须一处都没有；
 // `catch` 里的错误上报不是判据，排除在外。
 {
   const selfSrc = readFileSync(new URL(import.meta.url), 'utf8');
@@ -2498,7 +2498,7 @@ setTimeout(async () => {
   assert.equal(fakeJudgements("  assert.equal(n, 1, 'x');").length, 0,
     '负对照：真断言不得被误伤');
 
-  // 同族的第二种形态（实测过两处：光标色板、吉祥物开关）：`console.log('… present:', !!x)` 之后紧跟
+  // 同族的第二种形态：`console.log('… present:', !!x)` 之后紧跟
   // `if (x) { …断言… }` —— 探测日志不判真假，而"缺失即跳过断言"让后面的判据**零覆盖仍绿**
   // （缺前置与通过同形，见 `docs/DEV-GUIDE.md` §4.7 约定 8 的反面）。判据只看**紧邻的非空行**是否
   // 用同一个标识符做 `if (x)`；`if (!x) assert.fail(…)` 那种"缺了就红"的正写法**不算**。
@@ -2529,6 +2529,121 @@ setTimeout(async () => {
     '正对照：「缺了就红」的写法不算');
   assert.equal(fakeJudgements("  catch (e) { console.log('threw:', e && e.message); }").length, 0,
     '负对照：catch 里的错误上报不得被当成判据');
+}
+
+// ── 拖动期的 live 档：色板 / 滑块每格只写"看得见的那部分" ─────────────────────
+// 现场（用户实测）：在原生颜色轮盘里拖动时，**每格**都 `setSetting + emit()` —— emit 让整棵
+// 面板（设置页那棵最重：字体表 + 12 个色块 + 字体集编辑器）重渲染，而 emit 的订阅者里那次
+// **全量** applyEffects 还会重建字体样式表、同步场景音频、并读一次 `getComputedStyle`
+//（壁纸透明度 > 0 时 ⇒ **强制同步样式计算**，整页 style recalc）—— 拖动因此发涩。
+// 现在两档：`input`（拖动中）= 写值 + `applyEffects({ live: true })`（跳过与本次改动无关的
+// 重活，样式变量照旧全量写）、**不 emit**；`change`（抬手）= 完整一次（emit → 全量 applyEffects）。
+// 三层判据：① 两个行构造器把 live 传下去；② 会拖动的处理器都经 `commitLiveSetting` 收口；
+// ③ **行为**：拿真 `src/effects.js` 在带间谍的 DOM 替身上跑，live 档必须不读 getComputedStyle、
+// 不碰字体 / 场景音频，但照样写样式变量；同一份替身下无参调用必须**两样都做**（负对照）。
+{
+  const clientSrc = readFileSync(new URL('../src/client.js', import.meta.url), 'utf8');
+  const effectsText = readFileSync(new URL('../src/effects.js', import.meta.url), 'utf8');
+  const declOf = (name) => {
+    const i = clientSrc.indexOf('function ' + name + '(') >= 0
+      ? clientSrc.indexOf('function ' + name + '(') : clientSrc.indexOf('const ' + name + ' = ');
+    return i < 0 ? '' : clientSrc.slice(i, i + 700);
+  };
+  // ① 行构造器：input 传 true、change 传 false（拖动档 / 抬手档的分界就在这两处）。
+  assert.ok(clientSrc.includes('onInput: (e) => { liveFill(e.currentTarget); onInput(Number(e.target.value), true); }'),
+    'SliderRow 的 input 必须走拖动档（live=true）并就地更新 --we-fill');
+  assert.ok(clientSrc.includes('onChange: (e) => onInput(Number(e.target.value), false),'),
+    'SliderRow 的 change 必须是抬手档（live=false）');
+  assert.ok(clientSrc.includes('onInput: (e) => onPick(e.target.value, true),')
+    && clientSrc.includes('onChange: (e) => onPick(e.target.value, false),'),
+    'swatchRow 的自定义色盘必须同样分 input / change 两档');
+  // ② 会拖动的处理器都收口到同一条：写值 + （live ? 只应用样式 : emit）。
+  const DRAGGABLE = ['onScrim', 'onWallpaperOpacity', 'onBorder', 'onBlur', 'onWallpaperBlur',
+    'onBackgroundBrightness', 'onBackgroundContrast', 'onBackgroundSaturate', 'onAccent',
+    'onGlassColor', 'onGlassAlpha', 'onSidebarBlur', 'onSidebarAlpha', 'onSidebarColor',
+    'onSidebarContentAlpha', 'onSidebarContentColor', 'onCaretColor'];
+  const notRouted = DRAGGABLE.filter((n) => !declOf(n).includes('commitLiveSetting('));
+  assert.equal(notRouted.length, 0, '拖动类处理器必须经 commitLiveSetting（拖动档不 emit）：' + notRouted.join(', '));
+  assert.ok(declOf('commitLiveSetting').includes('if (live) applyEffects({ live: true });')
+    && declOf('commitLiveSetting').includes('else emit();'),
+    'commitLiveSetting 必须只有这两个分支（live ⇒ 只应用样式；抬手 ⇒ emit，全量那一次由订阅者跑）');
+  // 音量滑块不走 applyEffects（它直接改 media 元素），但同样要"拖动不 emit"。
+  assert.ok(declOf('onVideoVolume').includes('if (!live) emit();'),
+    'onVideoVolume 拖动档必须跳过 emit（音量本身照样即时生效）');
+  // ③ 行为：真 effects.js + 间谍替身。`with` + Proxy 让未知自由名自动得到记录用的替身
+  //   （不必手抄一份依赖清单；清单漏一个就会以 ReferenceError 响亮地红）。
+  const props = [];
+  const named = [];
+  const spy = { gets: 0 };
+  const noop = () => {};
+  const stubTarget = {
+    selection: {
+      scrim: 0, wallpaperOpacity: 40, accent: '#4f8cff', glassColor: '#ffffff', glassAlpha: 0,
+      blur: 0, border: 0, fontCustom: true, caretColor: '', sidebarBlur: 0, sidebarAlpha: 0,
+      sidebarColor: '#ffffff', sidebarContentAlpha: 0, sidebarContentColor: '', sidebarGlass: true,
+      glassWindow: false, wallpaperBlur: 0, backgroundBrightness: 100, backgroundContrast: 100,
+      backgroundSaturate: 100, objectFit: 'cover', flip: false,
+    },
+    document: {
+      body: {
+        style: {
+          setProperty: (k, v) => { props.push(k + '=' + v); },
+          removeProperty: (k) => { props.push('-' + k); },
+        },
+        setAttribute: noop, removeAttribute: noop, hasAttribute: () => false, offsetHeight: 1,
+      },
+      getElementById: () => null,
+    },
+    getComputedStyle: () => { spy.gets++; return { getPropertyValue: () => '' }; },
+    GLASS_SATURATE: 1.3, SCRIM_ID: 'we-scrim', LAYER_ID: 'we-layer',
+    adapterCaps: () => ({ target: 'plain-browser' }),
+    detectMicaSupport: () => true, detectSoftwareRender: () => false,
+    useLegacySaturateCoupling: () => false,
+    weClampSurfaceColor: (hex) => hex,
+    // 名字被记录下来的替身（字体样式表 / 场景音频 / 光标注入 —— 拖动档一概不该碰）
+    snapshotHostFontDefaults: () => { named.push('snapshotHostFontDefaults'); },
+    applyComponentFonts: () => { named.push('applyComponentFonts'); },
+    removeFontStyles: () => { named.push('removeFontStyles'); },
+    removeComponentFonts: () => { named.push('removeComponentFonts'); },
+    applyCaretStyles: () => { named.push('applyCaretStyles'); },
+    removeCaretStyles: () => { named.push('removeCaretStyles'); },
+    syncSceneAudio: () => { named.push('syncSceneAudio'); },
+    resolveWallpaperFadeBg: () => '#000000',
+  };
+  const scope = new Proxy(stubTarget, {
+    // 只接管"替身里有"或"全局也没有"的名字 —— 否则连 `Math` / `String` 也会被当成自由名
+    // 拿到一个记录用的替身（第一版就是这样炸的）。
+    has: (t, k) => (k in t) || !(k in globalThis),
+    get: (t, k) => (k in t ? t[k] : (...a) => { named.push(String(k)); return undefined; }),
+    set: () => true,
+  });
+  // `new Function` 不是模块环境 ⇒ 先剥掉文件末尾的 `export { … }`（构建期内联时也是这么剥的）。
+  const effectsBody = effectsText.replace(/export\s*\{[\s\S]*?\};?\s*$/, '');
+  const mod = new Function('__scope', 'with (__scope) { ' + effectsBody + '\nreturn { applyEffects, clearEffects }; }')(scope);
+  const run = (opts) => {
+    props.length = 0; named.length = 0; spy.gets = 0;
+    mod.applyEffects(opts);
+    return { props: props.slice(), named: named.slice(), gets: spy.gets };
+  };
+  // 冷启动边界：**第一次** applyEffects 就是拖动档（缓存还空着）时允许算一次 —— 之后不再算。
+  const cold = run({ live: true });
+  assert.ok(cold.gets <= 1 && cold.props.length >= 15 && cold.props.some((p) => p.startsWith('--we-accent=')),
+    '拖动档冷启动（无缓存）：最多算一次淡出底色，但样式变量照写 —— 写了 ' + cold.props.length + ' 个');
+  run(); // 抬手档：算出并缓存淡出底色
+  const live = run({ live: true });
+  assert.ok(live.props.length >= 15 && live.props.some((p) => p.startsWith('--we-accent=')),
+    '拖动档照样写样式变量（不是提前 return 的空转）—— 写了 ' + live.props.length + ' 个');
+  assert.equal(live.gets, 0,
+    '拖动档不得读 getComputedStyle（那就是每格一次强制同步样式计算，拖动发涩的主因）');
+  assert.equal(live.named.filter((n) => ['snapshotHostFontDefaults', 'applyComponentFonts', 'removeFontStyles',
+    'removeComponentFonts', 'syncSceneAudio'].includes(n)).length, 0,
+    '拖动档不得重建字体样式表 / 同步场景音频（与本次拖动无关）：' + live.named.join(', '));
+  const full = run();
+  assert.ok(full.gets >= 1, '负对照：抬手档（无参）必须走完整路 —— 该读的读（getComputedStyle 至少 1 次）');
+  assert.ok(full.named.includes('snapshotHostFontDefaults') && full.named.includes('applyComponentFonts'),
+    '负对照：抬手档必须重建字体样式表（fontCustom=true ⇒ snapshot + apply）');
+  assert.ok(full.named.includes('syncSceneAudio'), '负对照：抬手档必须同步场景音频');
+  assert.ok(full.named.includes('removeWallpaperFadeBg') === false, '（防呆：名字记录器本身工作正常）');
 }
 
 console.log('\nALL CLIENT CHECKS DONE');

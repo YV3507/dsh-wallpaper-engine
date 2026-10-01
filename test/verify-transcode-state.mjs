@@ -352,7 +352,7 @@ async function main() {
   check('failed transcode → UI reports fallback',
     JSON.stringify(renderTree()).includes('转码不可用，已回退原片'));
 
-  // ---- 结构契约：转码字段的写入权（抽模块后钉住；此前这一族埋在 src/client.js 中段）----
+  // ---- 结构契约：转码字段的写入权（抽模块后钉住）----
   // 契约的可核对形式：
   //   · 三个字段的**状态机**写入必须全在 src/transcode.js；
   //   · src/client.js 只允许"换壁纸/切走时复位"（= null / = "idle"）；

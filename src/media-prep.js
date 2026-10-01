@@ -414,10 +414,17 @@ function applySelection(id, opts) {
   if (opts && opts.fromManual) clearLiveFailure(id);
   // GPU 抓帧回填的目标壁纸随切换作废（新壁纸的 live 首帧会重新调度）。
   cancelLiveFrameBackfill();
-  // 延迟期那个**正在预热**的渲染页也随切换作废：它是「正在跑的渲染页」而不是普通元素，
+  // 延迟期那个**正在预热**的渲染页随**真正的切换**作废：它是「正在跑的渲染页」而不是普通元素，
   // 不终止就会留在后台继续抢 CPU/GPU，与新壁纸的启动叠在同一主线程上（用户反馈：启动
   // 延迟期切下一张会卡）。清定时器 + 未挂载则 `src=about:blank`，见 cancelLiveMount。
-  cancelLiveMount("selection");
+  //
+  // **只在 id 真变了才拆**。同 id 的 revalidate（`loadInventory` → `revalidateSelection` →
+  // 这里）传进来的就是当前选中项，那个待挂载的预热页正是**本次要用的**那一个；无条件拆掉
+  // 会把已排定的挂载清成 `about:blank` 并且此后**没有任何人恢复**（`liveMountPending` 已空，
+  // 看护器只在挂载成功路径上武装），图层就永久停在垫底图。而 `buildLive` 自己会
+  // `scheduleLiveMount()`（它开头就 `cancelLiveMount("replaced")`），上一个 pending 不会泄漏。
+  // ⚠️ 比较必须在下面那行赋值**之前** —— 赋值之后两边永远相等，这个守卫会失效。
+  if (selection.id !== (id || "")) cancelLiveMount("selection");
   // 手动切换不走渐变 → 立即放行轮换音频闸（轮换提交由旧层退场放行）。
   if (!opts || !opts.fromRotation) releaseRotationAudioGate();
   selection.id = id || "";
@@ -522,8 +529,8 @@ function applySelection(id, opts) {
   //（候选、抽帧定时器、"真实渲染帧"那条取色腿）在客户端就没有入口。与 previewUrl 同址。
   selection.liveFrame = w.type === "web" && w.liveFrame ? w.liveFrame : null;
   // 作者声明的配色（project.json 的 schemecolor，宿主已转成 rgb()）：既是垫底图的
-  // 底色兜底（buildLivePoster），也是「主题随壁纸」的第一优先级取色。此前宿主发了
-  // 这条字段但没人接 —— 垫底图因此永远走 CSS 变量兜底。
+  // 底色兜底（buildLivePoster），也是「主题随壁纸」的第一优先级取色。
+  // 接不到就让下面各处的 CSS 变量兜底。
   selection.schemeColor = w.schemeColor || null;
   selection.transcodeState = "idle";
   // The previous wallpaper's media info must not leak into the new one: a stale

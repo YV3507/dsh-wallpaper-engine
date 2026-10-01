@@ -1,24 +1,28 @@
-/**
- * quick-panel.js — 快捷播放面板（侧边栏的**唯一**内容）：当前壁纸 + 轮播 + 列表快切
- * + 声音组 + 设置入口。
+﻿/**
+ * quick-panel.js — 快捷播放面板（侧边栏的**唯一**内容）：当前壁纸 + 轮播 + 三档页签
+ * （壁纸 / 外观 / 播放）+ 设置入口。
  *
  * 为什么单独一个文件：它是两个宿主位置的**同一份**内容 —— ① 官方右侧栏的 tab
  * （harness ≥0.1.5，`sidebar.right.pane.tab` 座位）；② 低版本宿主的右滑抽屉
- * （RopeDock 的 `.we-repo-panel`）。UI 重构后侧边栏不再是"设置页的副本"，只放
- * 日常高频操作；配置类全部留在设置页（壁纸引擎）。同一份面板画在两个壳里，
+ * （RopeDock 的 `.we-repo-panel`）。UI 重构后侧栏不再是"设置页的副本"，只放日常
+ * 高频操作；「外观」「播放」两页是**用户点名**要的例外 —— 它们与设置页同名页签
+ * **共用同一批渲染器**（`renderAppearanceTab` / `renderEffectsTab` / `renderAudioTab`，
+ * 侧栏档由 `ctx.surface === "sidebar"` 少画设置页专属的分组），于是两处永远是同一份
+ * 控件、同一份状态（改哪边另一边都跟着变，不会有第二份值）。同一份面板画在两个壳里，
  * 壳的差异只有根类修饰（`dock`）。
  *
  * 契约（构建期由 scripts/build-client.mjs 内联进 bundle 的工厂作用域，"外部作用域" =
  * 同一 prelude / src/client.js 的顶层）：
  *   · 这是一个**组件**（同 WallpaperPicker / RopeDock 一类），不是纯渲染器：直接
- *     `useStore()` 读 store，直呼模块级处理器（onTogglePlay / onToggleAudio /
- *     onVideoVolume / onClear / onToggleRotation / onGroupChange / onNextWallpaper —
- *     它们已从组件闭包提升到模块级，与设置页共用**同一份实现**）与模块级工具
- *     （applySelection / setSetting / setTransient / emit / SliderRow / switchRow /
- *     cardKeyDown / playableInventory / groupWallpapers / playbackIsVideoLike /
- *     CARD_TYPE_LABELS / openSettingsSection）。
- *   · **不得**出现 `selection.X =` 字面直写：写设置走 setSetting/setTransient/处理器
- *     （守卫 ①e 的棘轮只盯直写，本文件必须保持 0）。
+ *     `useStore()` 读 store，直呼模块级处理器（播放控制那几个，以及 `onAccent` /
+ *     `onScrim` / `onGlassAlpha` / `onWallpaperOpacity` … 这批与设置页共用的
+ *     「外观 / 画面处理器」）与模块级工具（applySelection / setSetting / setTransient /
+ *     emit / SliderRow / switchRow / cardKeyDown / playableInventory / groupWallpapers /
+ *     playbackIsVideoLike / CARD_TYPE_LABELS / openSettingsSection）。
+ *   · 三档页签是**视图状态**（localStorage，仅 UI，不进 config.json）；两页里的控件
+ *     一律受控：值从 `sel` 读、写走上面那批处理器 —— **不得**出现 `selection.X =`
+ *     字面直写（守卫 ①e 的棘轮只盯直写，本文件必须保持 0），也不许在组件里另存一份值
+ *     （否则侧栏与设置页会分叉，而且不会报错）。
  *   · 本文件必须保持浏览器安全（无 import / require / Node API），且**不得有顶层可执行语句**
  *     读 client.js 的 const（会被内联到 bundle 顶部，撞 TDZ）；React 只在渲染期读。
  */
@@ -26,15 +30,68 @@
   // 列表一次最多渲染的行数：库可以上千张，面板是"快切"不是"全集浏览" —— 超出
   // 让用户用搜索收敛（全量浏览在设置页的壁纸库下钻视图）。
   const QP_LIST_MAX = 100;
-  // 面板本地的类型筛选档（用户口径：全部 / 场景 / 网页 / 视频 —— 面板是快切，
-  // 只列三类主力类型；「图片」不单列，仍出现在「全部」里）。
+  // 面板本地的类型筛选档（全部 / 场景 / 网页 / 视频 / 图片）：瞬态，与设置页的「类型」
+  // 过滤互不影响（那一条是设置，筛设置页列表与轮播候选）。两个档位的**叠加关系**见
+  // 列表空态那段 —— 上游那一档不是「全部」时，空列表要说出是谁筛掉的。
   function qpTypes() {
     return [
       { id: "all", label: weT("全部") },
       { id: "scene", label: weT("场景") },
       { id: "web", label: weT("网页") },
       { id: "video", label: weT("视频") },
+      { id: "image", label: weT("图片") },
     ];
+  }
+  /** 类型档 id → 面板文案（上游提示用；值域与设置页的 typeFilter 是同一套 id）。 */
+  function qpTypeLabelOf(id) {
+    const hit = qpTypes().find((t) => t.id === id);
+    return hit ? hit.label : String(id || "");
+  }
+  // ── 三档页签（壁纸 / 外观 / 播放）──────────────────────────────────────────
+  // 位置在「轮播」之下：当前壁纸与轮播在三档页签下都显示（调外观 / 播放参数时想换一张
+  // 对照很常见）。与设置页的页签表（PICKER_TABS）是两件事 —— 这里只镜像用户点名要的
+  // 两页，外加壁纸页。
+  const QP_TABS = [
+    { id: "wallpaper", get label() { return weT("壁纸"); } },
+    { id: "appearance", get label() { return weT("外观"); } },
+    { id: "playback", get label() { return weT("播放"); } },
+  ];
+  // 页签记忆（同 picker-tab / qp-view 口径：仅 UI 状态，localStorage，不进 config.json）。
+  const QP_TAB_KEY = "dsh-wallpaper-engine:qp-tab";
+  /** 读页签偏好；缺失 / 非法回落「壁纸」。 */
+  function readQpTab() {
+    try {
+      const v = localStorage.getItem(QP_TAB_KEY);
+      if (v && QP_TABS.some((t) => t.id === v)) return v;
+    } catch { /* ignore */ }
+    return "wallpaper";
+  }
+
+  // ── 侧栏档的渲染 ctx（与设置页共用同一批渲染器）────────────────────────────
+  // 只放行侧栏档真的会画到的字段；设置页专属字段（字体 / 光标 / 窗口与侧栏 / 出图来源 /
+  // 实时帧 / 自定义画面 / 帧率上限）一律指向"取用即抛错"的占位器 —— 将来某次编辑把
+  // 一行挪进侧栏档，会当场炸而不是静默变成"点了没反应"（同"漏传 ctx 字段 = 当场
+  // ReferenceError"那条纪律：刻意选的失败方式，响亮且可定位）。
+  function sidebarCtxStub(name) {
+    const boom = () => { throw new Error("[we-sidebar] ctx." + name + " 属于设置页，侧栏档不提供"); };
+    return new Proxy(function () {}, { get: boom, apply: boom });
+  }
+  const QP_CTX_SETTINGS_ONLY = [
+    "officialColorOf", "fontSet", "onCaretColor", "onComponentFamily", "onComponentFont",
+    "onFontAdvanced", "onFontResetAll", "onToggleFontCustom", "onSidebarAlpha", "onSidebarBlur",
+    "onSidebarColor", "onSidebarContentAlpha", "onSidebarContentColor", "onThemeColor",
+    "onThemeColorClear", "onThemeDarkSeparate", "onThemeFamily", "onThemeSize", "onThemeTypeOnly",
+    "onThemeWeight", "onClearCustomFrame", "onClearGpuFrame", "onCustomFrameFile",
+    "onRecaptureGpuFrame", "onRefreshFrame",
+  ];
+  // 占位器只建一次（每帧重建 25 个 Proxy 纯属浪费；它们是常量、可跨渲染共用）。
+  let qpSettingsOnlyCtx = null;
+  function sidebarRenderCtx(provided) {
+    if (!qpSettingsOnlyCtx) {
+      qpSettingsOnlyCtx = {};
+      for (const k of QP_CTX_SETTINGS_ONLY) qpSettingsOnlyCtx[k] = sidebarCtxStub(k);
+    }
+    return Object.assign({ surface: "sidebar" }, qpSettingsOnlyCtx, provided);
   }
   // 列表/卡片视图的记忆键（同 picker-tab 口径：仅 UI 状态，localStorage，不进 config.json）。
   const QP_VIEW_KEY = "dsh-wallpaper-engine:qp-view";
@@ -59,36 +116,31 @@
     useWeLocale();
     const sel = useStore();
     const dock = (props && props.dock) || "drawer";
-    // 视图偏好（列表 / 卡片）：useState 必须在早退分支之前（Rules of Hooks）。
+    // 视图偏好（列表 / 卡片）与页签：useState 必须在早退分支之前（Rules of Hooks）。
     const [view, setView] = React.useState(readQpView);
+    const [qpTab, setQpTab] = React.useState(readQpTab);
     const switchView = (v) => {
       if (v === view) return;
       setView(v);
       try { localStorage.setItem(QP_VIEW_KEY, v); } catch { /* ignore */ }
     };
-    // 库还没回来 / 扫描失败：面板只给一句话，不假装有内容（与设置页同一句文案）。
-    if (!sel.loaded) {
-      return React.createElement("div", { className: "we-qp we-qp--" + dock },
-        React.createElement("span", { className: "we-picker__hint" }, weT("扫描 Wallpaper Engine…")));
-    }
-    if (sel.inventory.error) {
-      return React.createElement("div", { className: "we-qp we-qp--" + dock },
-        React.createElement("div", { className: "we-picker__error" },
-          weT("未检测到 Wallpaper Engine：{error}", { error: sel.inventory.error })),
-        React.createElement("button", {
-          className: "we-picker__btn", type: "button",
-          onClick: () => loadInventory(), disabled: sel.loading,
-        }, weT(sel.loading ? "刷新中…" : "重试")));
-    }
+    const switchQpTab = (id) => {
+      if (!QP_TABS.some((t) => t.id === id) || id === qpTab) return;
+      setQpTab(id);
+      try { localStorage.setItem(QP_TAB_KEY, id); } catch { /* ignore */ }
+    };
 
     const list = sel.inventory.wallpapers;
     const current = list.find((w) => w.id === sel.id) || null;
     const playbackLive = playbackIsVideoLike(sel) ? sel.videoPlaying : sel.playing;
     // 快切列表：与库视图同一过滤口径（分级 / 类型 / 隐藏），再叠面板自己的
-    // 搜索词与**面板本地的类型筛选**（qpType：全部 / 场景 / 网页 / 视频 —— 瞬态，
-    // 不影响设置页的过滤与轮播候选）。
+    // 搜索词与**面板本地的类型筛选**（qpType：全部 / 场景 / 网页 / 视频 / 图片 ——
+    // 瞬态，不影响设置页的过滤与轮播候选）。
     const q = String(sel.qpSearch || "").trim().toLowerCase();
     const typeFilter = qpTypes().some((t) => t.id === sel.qpType) ? sel.qpType : "all";
+    // 上游档（设置页的类型过滤，持久化）：它先筛一遍候选，侧栏这一档再筛 ——
+    // 空列表时若它不是「全部」，提示要说清是哪一层筛掉的（否则用户以为库里没有）。
+    const upstreamType = String(sel.typeFilter || "all");
     const playable = playableInventory();
     const filtered = playable.filter((w) => {
       if (typeFilter !== "all" && w.type !== typeFilter) return false;
@@ -146,8 +198,31 @@
       React.createElement("span", { className: "we-qp__card-title" }, w.title),
     );
 
+    // 页签内容区（此区独立滚动；官方档下宿主 tab 身体是固定高 + overflow:hidden，
+    // 滚动必须自管）。壁纸页另挂 --library：列表自己滚，viewbar / 声音组常驻。
+    const tabBodyClass = "we-qp__tabbody" + (qpTab === "wallpaper" ? " we-qp__tabbody--library" : "");
+    // 底栏入口随页签：壁纸页=打开设置（落在它自己记住的那页）；外观 / 播放页=深链到
+    // 设置页同名页签 —— 侧栏这两页只放"调完立刻看得见"的行，字体 / 出图来源等仍住设置页。
+    const foot = qpTab === "appearance"
+      ? {
+        label: weT("字体与更多外观 ›"),
+        target: "appearance",
+        title: weT("在设置页打开「外观」页签 —— 字体 / 光标 / 窗口与侧栏在那里"),
+      }
+      : qpTab === "playback"
+        ? {
+          label: weT("更多播放设置 ›"),
+          target: "playback",
+          title: weT("在设置页打开「播放」页签 —— 出图来源 / 实时帧 / 帧率上限在那里"),
+        }
+        : {
+          label: weT("壁纸引擎设置 ›"),
+          target: "",
+          title: weT("打开设置对话框的「壁纸引擎」分区（外观 / 播放 / 系统与全部配置）"),
+        };
+
     return React.createElement("div", { className: "we-qp we-qp--" + dock },
-      // ── ① 当前壁纸 ──
+      // ── ① 当前壁纸（常驻：三档页签都显示）──
       React.createElement("div", { className: "we-qp__current" },
         React.createElement("span", { className: "we-qp__thumb" },
           current && current.preview
@@ -178,7 +253,7 @@
           }, weT("清除")),
         ),
       ),
-      // ── ② 轮播：列表 + 启停 + 下一张 ──
+      // ── ② 轮播（常驻：列表 + 启停 + 下一张）──
       React.createElement("div", { className: "we-qp__section" },
         React.createElement("div", { className: "we-qp__row" },
           React.createElement("select", {
@@ -206,79 +281,137 @@
           hint: weT(groups.length ? "按所选列表定时切换" : "先到设置页新建一个轮播列表"),
         }),
       ),
-      // ── ③ 壁纸列表（搜索 + 视图切换 + 快切）──
-      React.createElement("div", { className: "we-qp__section we-qp__library" },
-        React.createElement("div", { className: "we-qp__viewbar" },
-          React.createElement("input", {
-            className: "we-picker__text we-qp__search", type: "text",
-            value: sel.qpSearch || "",
-            placeholder: weT("搜索壁纸标题…"),
-            "aria-label": weT("搜索壁纸标题"),
-            onInput: (e) => { setTransient("qpSearch", e.target.value); emit(); },
-          }),
-          // 类型筛选：面板本地（全部 / 场景 / 网页 / 视频），瞬态不落盘；
-          // 与设置页的「类型」过滤互不影响（那一条筛设置页列表与轮播候选），
-          // 两处都只筛「列表」，不拦正在应用的壁纸。
-          React.createElement("select", {
-            className: "we-picker__select we-qp__type",
-            value: typeFilter,
-            onChange: (e) => { setTransient("qpType", e.target.value); emit(); },
-            "aria-label": weT("类型筛选"),
-            title: weT("按类型筛选侧栏列表（只影响这里）"),
+      // ── ③ 页签栏（在「轮播」之下；当前壁纸与轮播三档都显示）──
+      React.createElement("div", {
+        className: "we-tabs we-qp__tabs", role: "tablist", "aria-label": weT("壁纸面板分区"),
+      },
+        React.createElement("span", {
+          className: "we-tabs__pill",
+          "aria-hidden": "true",
+          style: {
+            width: "calc((100% - 6px) / " + QP_TABS.length + ")",
+            transform: "translateX(" + Math.max(0, QP_TABS.findIndex((t) => t.id === qpTab)) * 100 + "%)",
           },
-          ...qpTypes().map((t) => React.createElement("option", { key: t.id, value: t.id }, t.label)),
-          ),
-          // 列表 / 卡片：偏好记 localStorage（QP_VIEW_KEY），两个壳共用一份。
-          React.createElement("div", { className: "we-picker__seg", role: "group", "aria-label": weT("视图") },
-            React.createElement("button", {
-              className: "we-picker__btn we-picker__rate" + (view !== "cards" ? " we-picker__rate--active" : ""),
-              type: "button",
-              "aria-pressed": view !== "cards" ? "true" : "false",
-              onClick: () => switchView("list"),
-            }, weT("列表")),
-            React.createElement("button", {
-              className: "we-picker__btn we-picker__rate" + (view === "cards" ? " we-picker__rate--active" : ""),
-              type: "button",
-              "aria-pressed": view === "cards" ? "true" : "false",
-              onClick: () => switchView("cards"),
-            }, weT("卡片")),
-          ),
-        ),
-        React.createElement("div", {
-          className: "we-qp__list" + (view === "cards" ? " we-qp__list--cards" : ""),
-          role: "listbox", "aria-label": weT("壁纸列表"),
-        },
-          rows.length
-            ? rows.map(view === "cards" ? renderCard : renderRow)
-            : React.createElement("span", { className: "we-picker__hint" },
-                q ? weT("没有匹配「{query}」的壁纸", { query: sel.qpSearch })
-                  : weT(typeFilter !== "all" ? "该类型下没有可播放的壁纸" : "没有可播放的壁纸")),
-        ),
-        filtered.length > rows.length
-          && React.createElement("span", { className: "we-picker__hint we-qp__more" },
-              weT("还有 {count} 张未显示 · 搜索可收敛，全量浏览在设置页", { count: filtered.length - rows.length })),
-      ),
-      // ── ④ 声音（系统音频反应 / 媒体信息 / 在线歌词已退役为常开 —— schema
-      //    kind 'const'，面板不再提供开关，见 lib/settings-schema.js）──
-      React.createElement("div", { className: "we-qp__section" },
-        React.createElement("div", { className: "we-picker__section-head" },
-          React.createElement("span", { className: "we-picker__section-label" }, weT("声音")),
-        ),
-        SliderRow(weT("音量"), 0, 100, 5,
-          Math.round((Number(sel.videoVolume) || 0) * 100), onVideoVolume,
-          Math.round((Number(sel.videoVolume) || 0) * 100) + "%"),
-        switchRow(weT("壁纸音轨"), sel.videoAudioEnabled !== false, () => onToggleAudio(), {
-          tooltip: weT("视频壁纸与场景壁纸（内嵌 MP4 音轨 / 包内独立音频）共用；默认静音，开启时若音量为 0 会自动提到 50%"),
         }),
+        QP_TABS.map((t) => React.createElement("button", {
+          key: t.id,
+          type: "button",
+          role: "tab",
+          "aria-selected": qpTab === t.id ? "true" : "false",
+          className: "we-tabs__tab" + (qpTab === t.id ? " we-tabs__tab--active" : ""),
+          onClick: () => switchQpTab(t.id),
+        }, t.label)),
       ),
-      // ── ⑤ 底栏：设置入口 ──
+      // ── ④ 当前页 ──
+      // 外观 / 播放：与设置页同名页签**同一批渲染器**（surface 档少画设置页专属分组）；
+      // 壁纸：列表 + 声音（声音与播放页那份同源 —— 同一状态、同一处理器、同一份渲染器）。
+      React.createElement("div", { className: tabBodyClass },
+        qpTab === "appearance"
+          ? renderAppearanceTab(sidebarRenderCtx({
+            setSetting, sel,
+            onAccent, onBlur, onBorder, onGlassAlpha, onGlassColor, onToggleThemeFollow,
+          }))
+          : qpTab === "playback"
+            ? React.createElement(React.Fragment, null,
+                renderEffectsTab(sidebarRenderCtx({
+                  setSetting, sel,
+                  onScrim, onWallpaperBlur, onWallpaperOpacity,
+                  onBackgroundBrightness, onBackgroundContrast, onBackgroundSaturate,
+                  // 侧栏档的空态 CTA：切到本面板的壁纸页（不是设置页的库下钻）。
+                  onPickWallpaper: () => switchQpTab("wallpaper"),
+                })),
+                renderAudioTab(sidebarRenderCtx({ sel, onToggleAudio, onVideoVolume })),
+              )
+            : React.createElement(React.Fragment, null,
+                // ── 壁纸列表（搜索 + 视图切换 + 快切）──
+                // 库还没回来 / 扫描失败：**只有这一页**给一句话 —— 外观 / 播放两页不依赖库，
+                // 照常可用（此前是整个面板被一句话替换掉，那样连外观都进不去）。
+                React.createElement("div", { className: "we-qp__section we-qp__library" },
+                  !sel.loaded
+                    ? React.createElement("span", { className: "we-picker__hint" }, weT("扫描 Wallpaper Engine…"))
+                    : sel.inventory.error
+                      ? React.createElement(React.Fragment, null,
+                          React.createElement("div", { className: "we-picker__error" },
+                            weT("未检测到 Wallpaper Engine：{error}", { error: weT(sel.inventory.error) })),
+                          React.createElement("button", {
+                            className: "we-picker__btn", type: "button",
+                            onClick: () => loadInventory(), disabled: sel.loading,
+                          }, weT(sel.loading ? "刷新中…" : "重试")),
+                        )
+                      : React.createElement(React.Fragment, null,
+                  React.createElement("div", { className: "we-qp__viewbar" },
+                    React.createElement("input", {
+                      className: "we-picker__text we-qp__search", type: "text",
+                      value: sel.qpSearch || "",
+                      placeholder: weT("搜索壁纸标题…"),
+                      "aria-label": weT("搜索壁纸标题"),
+                      onInput: (e) => { setTransient("qpSearch", e.target.value); emit(); },
+                    }),
+                    // 类型筛选：面板本地（全部 / 场景 / 网页 / 视频 / 图片），瞬态不落盘；
+                    // 与设置页的「类型」过滤互不影响（那一条筛设置页列表与轮播候选），
+                    // 两处都只筛「列表」，不拦正在应用的壁纸。上游那一档的叠加见空态提示。
+                    React.createElement("select", {
+                      className: "we-picker__select we-qp__type",
+                      value: typeFilter,
+                      onChange: (e) => { setTransient("qpType", e.target.value); emit(); },
+                      "aria-label": weT("类型筛选"),
+                      title: weT("按类型筛选侧栏列表（只影响这里）"),
+                    },
+                    ...qpTypes().map((t) => React.createElement("option", { key: t.id, value: t.id }, t.label)),
+                    ),
+                    // 列表 / 卡片：偏好记 localStorage（QP_VIEW_KEY），两个壳共用一份。
+                    React.createElement("div", { className: "we-picker__seg", role: "group", "aria-label": weT("视图") },
+                      React.createElement("button", {
+                        className: "we-picker__btn we-picker__rate" + (view !== "cards" ? " we-picker__rate--active" : ""),
+                        type: "button",
+                        "aria-pressed": view !== "cards" ? "true" : "false",
+                        onClick: () => switchView("list"),
+                      }, weT("列表")),
+                      React.createElement("button", {
+                        className: "we-picker__btn we-picker__rate" + (view === "cards" ? " we-picker__rate--active" : ""),
+                        type: "button",
+                        "aria-pressed": view === "cards" ? "true" : "false",
+                        onClick: () => switchView("cards"),
+                      }, weT("卡片")),
+                    ),
+                  ),
+                  React.createElement("div", {
+                    className: "we-qp__list" + (view === "cards" ? " we-qp__list--cards" : ""),
+                    role: "listbox", "aria-label": weT("壁纸列表"),
+                  },
+                    rows.length
+                      ? rows.map(view === "cards" ? renderCard : renderRow)
+                      : React.createElement(React.Fragment, null,
+                          React.createElement("span", { className: "we-picker__hint" },
+                            q ? weT("没有匹配「{query}」的壁纸", { query: sel.qpSearch })
+                              : weT(typeFilter !== "all" ? "该类型下没有可播放的壁纸" : "没有可播放的壁纸")),
+                          // 上游（设置页的类型档）先筛过一遍 —— 空的时候必须说清是哪一层筛的，
+                          // 否则看起来就是"两边数据不一致 / 库里没有这类壁纸"。
+                          typeFilter !== "all" && upstreamType !== "all"
+                            && React.createElement("span", { className: "we-picker__hint" },
+                                weT("设置页的类型档当前是「{name}」，切成「全部」才能看到", { name: qpTypeLabelOf(upstreamType) })),
+                        ),
+                  ),
+                  filtered.length > rows.length
+                    && React.createElement("span", { className: "we-picker__hint we-qp__more" },
+                        weT("还有 {count} 张未显示 · 搜索可收敛，全量浏览在设置页", { count: filtered.length - rows.length })),
+                      ),
+                ),
+                // 声音（与播放页那份同源：同一份渲染器、同一状态）。包一层 .we-qp__section
+                // 只为保留这一节的分隔线与间距（渲染器自己那份 section 是给设置页排版的）。
+                React.createElement("div", { className: "we-qp__section" },
+                  renderAudioTab(sidebarRenderCtx({ sel, onToggleAudio, onVideoVolume })),
+                ),
+              ),
+      ),
+      // ── ⑤ 底栏：设置入口（文案与落点随当前页签）──
       React.createElement("div", { className: "we-qp__foot" },
         React.createElement("button", {
           className: "we-picker__btn we-qp__settings", type: "button",
           "data-we-qp-entry": "1",
-          onClick: openSettingsSection,
-          title: weT("打开设置对话框的「壁纸引擎」分区（外观 / 播放 / 系统与全部配置）"),
-        }, weT("壁纸引擎设置 ›")),
+          onClick: () => openSettingsSection(foot.target),
+          title: foot.title,
+        }, foot.label),
       ),
     );
   }
