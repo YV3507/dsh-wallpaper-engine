@@ -185,6 +185,10 @@ const selection = {
   url: null,
   type: null,
   previewUrl: null,
+  // Transient: real container suffix of the media (host inventory `mediaExt`, e.g. "mp4").
+  // The media URL is token-shaped (`/media/<base64url>`) with no extension, so the
+  // "browser can play this natively" decision (see src/video-layer.js) needs this field.
+  mediaExt: null,
   // Transient: scene wallpaper animation MP4 URL (host /scene-video route).
   // When present the scene plays as a hardware-decoded <video>; on load error
   // it is nulled and the layer rebuilds as a still image (the frame URL:
@@ -2254,32 +2258,23 @@ function applyVideoPlayback(video) {
   weApplyAudio(video);
   if (!isEffectivelyPlaying()) {
     try { video.pause(); } catch { /* ignore */ }
-    // 取证插桩（可删）：谁把它按住的（用户暂停 / 遮挡判定）。
-    try { videoPlayNote(video, "skip:no-intent hold=" + (occlusionReason() || "-") + " intent=" + selection.playing); } catch { /* ignore */ }
     syncVideoState(video);
     return;
   }
   if (!video.paused && !video.ended && !video.error) { syncVideoState(video); return; }
-  if (playRefusalBlocks(video)) {
-    try { videoPlayNote(video, "skip:refused"); } catch { /* ignore */ }
-    syncVideoState(video); return; // 等用户显式重试
-  }
+  if (playRefusalBlocks(video)) { syncVideoState(video); return; } // 等用户显式重试
   let p = null;
   try { p = video.play(); } catch { p = null; }
   if (!p || typeof p.then !== "function") { syncVideoState(video); return; }
-  // 取证插桩（可删）：play() 的结局（被自动播放策略拒绝就是这里）。
-  try { videoPlayNote(video, "call"); } catch { /* ignore */ }
   p.then(
     () => {
       if (video.dataset) delete video.dataset.wePlayRefused;
       weApplyAudio(video);
-      try { videoPlayNote(video, "ok"); } catch { /* ignore */ }
       syncVideoState(video);
     },
     (err) => {
       // 浏览器真的拒绝了这个 play()：如实记录性质，等用户重试（不要沉默）。
       if (video.dataset) video.dataset.wePlayRefused = (err && err.name) || "1";
-      try { videoPlayNote(video, "refused=" + ((err && err.name) || "1")); } catch { /* ignore */ }
       syncVideoState(video);
     },
   );

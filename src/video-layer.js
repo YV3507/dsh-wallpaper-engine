@@ -48,128 +48,6 @@ const VIDEO_POSTER_BUDGET_MS = 1200;
  */
 const VIDEO_STALL_GIVE_UP_MS = 15000;
 
-// ── 一次性取证插桩：视频首帧迟到（取证完可整段删除）────────────────────────────
-// 只回答一个问题：**切过去之后 `<video>` 为什么长时间没有帧**。只读元素与页面状态、
-// 只打日志，不参与任何判定（放行条件一行未改）。事件级一行 + 放行原因一行。
-function videoDiagBrief(video) {
-  const v = video || {};
-  let buf = "-";
-  try { if (v.buffered && v.buffered.length) buf = String(Math.round(v.buffered.end(v.buffered.length - 1) * 1000)); } catch { /* ignore */ }
-  let src = "";
-  try { src = String(v.currentSrc || v.src || ""); } catch { /* ignore */ }
-  const tail = src.slice(Math.max(0, src.lastIndexOf("/") + 1)).slice(-28);
-  let why = "";
-  try { why = v.__weDiagWhy || ""; } catch { /* ignore */ }
-  let c0 = null;
-  try { c0 = v.__weDiagCounts || null; } catch { /* ignore */ }
-  return "rs=" + (v.readyState === undefined ? "-" : v.readyState)
-    + " ns=" + (v.networkState === undefined ? "-" : v.networkState)
-    + " paused=" + (v.paused ? 1 : 0)
-    + " vw=" + (Number(v.videoWidth) || 0) + "x" + (Number(v.videoHeight) || 0)
-    + " ct=" + Math.round(Number(v.currentTime || 0) * 1000)
-    + " buf=" + buf
-    + " err=" + (v.error ? v.error.code : 0)
-    + " preload=" + (v.preload || "-")
-    + " muted=" + (v.muted ? 1 : 0)
-    + " vol=" + (typeof v.volume === "number" ? v.volume : "-")
-    + " src=" + (tail || "-")
-    + " hidden=" + (typeof document !== "undefined" && document.hidden ? 1 : 0)
-    + " focus=" + (typeof document !== "undefined" && typeof document.hasFocus === "function" && document.hasFocus() ? 1 : 0)
-    + " intent=" + (typeof isEffectivelyPlaying === "function" && isEffectivelyPlaying() ? 1 : 0)
-    + (c0 && c0._srcAt ? " srcAge=" + (Date.now() - c0._srcAt) + "ms" : "")
-    + videoDiagCounts(v)
-    + (why ? " why=" + why : "");
-}
-const VIDEO_DIAG_EVENTS = ["loadstart", "loadedmetadata", "loadeddata", "canplay", "playing",
-  "emptied", "suspend", "stalled", "waiting", "abort", "error"];
-/** 事件计数（取证用；`video__` 前缀的元素字段不参与任何判定）。 */
-function videoDiagCounts(video) {
-  let c = null;
-  try { c = video && video.__weDiagCounts; } catch { /* ignore */ }
-  if (!c) return "";
-  const keys = Object.keys(c).filter((k) => k.charAt(0) !== "_");
-  if (!keys.length) return "";
-  return " ev=" + keys.map((k) => k + ":" + c[k]).join(",");
-}
-/**
- * `play()` 尝试的留痕 + 节流（同一原因最多 2 行，其余只计数）。
- * 为什么要它：applyVideoPlayback 每次 emit 都会被调用；若它（或上层 emit 链）成环，
- * 无节流的日志会自激，而计数能直接回答"是不是在反复 play()"。
- */
-function videoPlayNote(video, msg) {
-  const c = (video && video.__weDiagCounts) || null;
-  if (c) c.play = (c.play || 0) + 1;
-  const seen = c ? (c.__playSeen = c.__playSeen || {}) : null;
-  if (seen) {
-    if ((seen[msg] || 0) >= 2) return;
-    seen[msg] = (seen[msg] || 0) + 1;
-  }
-  try { liveLog("video-play", msg + " " + videoDiagBrief(video)); } catch { /* ignore */ }
-}
-/** 给元素挂一次事件留痕（幂等；`__weDiag` 就是"已挂"的标记）。 */
-function hookVideoDiag(video) {
-  if (!video || typeof video.addEventListener !== "function" || video.__weDiag) return;
-  try { video.__weDiag = true; } catch { return; }
-  const t0 = Date.now();
-  const counts = {};
-  try { video.__weDiagCounts = counts; } catch { /* ignore */ }
-  // 谁在动这个元素：`src` 赋值 / `load()` 调用的**次数**（计数代替逐条日志）。
-  // 这两件事都会重启资源选择 ⇒ 也正是"rs=0 停住、suspend 连发"最可能的成因。
-  try {
-    let proto = video, desc = null;
-    while (proto && !desc) { desc = Object.getOwnPropertyDescriptor(proto, "src"); if (!desc) proto = Object.getPrototypeOf(proto); }
-    if (desc && desc.set) {
-      Object.defineProperty(video, "src", {
-        configurable: true,
-        get() { try { return desc.get.call(video); } catch { return ""; } },
-        set(v) {
-          counts.src = (counts.src || 0) + 1;
-          counts._srcAt = Date.now();
-          try { desc.set.call(video, v); } catch { /* ignore */ }
-        },
-      });
-    }
-  } catch { /* ignore */ }
-  try {
-    const origLoad = video.load;
-    if (typeof origLoad === "function") {
-      video.load = function () {
-        counts.load = (counts.load || 0) + 1;
-        counts._loadAt = Date.now();
-        return origLoad.apply(video, arguments);
-      };
-    }
-  } catch { /* ignore */ }
-  const seen = {};
-  let lastAt = 0;
-  // ⚠️ 必须节流：这条日志本身是一次网络请求（/diag 信标）。`suspend`/`waiting` 这类事件
-  // 在异常状态下会以毫秒级频率连发，无节流时**日志会自激**（实测：2 秒内数千条 suspend，
-  // 元素反而更晚才拿到数据）。所以：逐事件最多 3 行 + 两条之间至少 40ms + 全量计数进 `ev=`。
-  const note = (label) => {
-    counts[label] = (counts[label] || 0) + 1;
-    if (seen[label] >= 3) return;
-    if (Date.now() - lastAt < 40) return;
-    seen[label] = (seen[label] || 0) + 1;
-    lastAt = Date.now();
-    try { liveLog("video-diag", label + " +" + (Date.now() - t0) + "ms " + videoDiagBrief(video)); } catch { /* ignore */ }
-  };
-  for (const ev of VIDEO_DIAG_EVENTS) {
-    try { video.addEventListener(ev, () => note(ev)); } catch { /* ignore */ }
-  }
-  // 「解码好了」与「合成器真的画出来了」是两件事：这一行等的是**被呈现**。
-  if (typeof video.requestVideoFrameCallback === "function") {
-    try {
-      video.requestVideoFrameCallback(() => {
-        try { liveLog("video-diag", "presented +" + (Date.now() - t0) + "ms " + videoDiagBrief(video)); } catch { /* ignore */ }
-      });
-    } catch { /* ignore */ }
-  }
-}
-/** 记下这次"放行为什么发生"（挂在元素上，gate-open 那行读它）。 */
-function markRevealWhy(video, why) {
-  try { if (video) video.__weDiagWhy = why; } catch { /* ignore */ }
-}
-
 /**
  * 探一次海报图（`<video poster>` 的 URL）。
  *
@@ -247,9 +125,12 @@ function buildVideoMedia(sel, fitClass) {
   if (!prepared) {
     // 已经转好的抽帧版（上一次在"已上屏"状态下就绪、刻意没换源的那一份）：
     // **建层时就用它当 src** —— 这样整个生命周期里一次换源都不发生（换源 = 清掉当前帧 = 纯色）。
+    // 但与 ② 同一条规则：原生可解的源本来就不该走抽帧（否则建层用了抽帧版、紧接着又被
+    // 判成 native 而退回原片 = 白跑一次换源）。
     const tok = String(sel.url || "").split("/").pop();
     const rc = selection.transcodeReady;
-    const useCached = Boolean(rc && rc.url && rc.fps === selection.fpsCap && rc.token === tok);
+    const useCached = Boolean(rc && rc.url && rc.fps === selection.fpsCap && rc.token === tok)
+      && !isNativelyPlayableSource(selection.mediaInfo, sel.url, sel.mediaExt);
     media.src = useCached ? rc.url : sel.url;
     if (useCached) {
       try { media.dataset.weTranscoded = String(rc.fps); } catch { /* ignore */ }
@@ -472,16 +353,23 @@ function revertTranscodedVideo(video) {
 /**
  * ② 源是否**浏览器原生可解**（直接播，不需要抽帧/换源）。
  *
- * 依据：容器（扩展名）+ 编码（mediaInfo 里有就用）。**保守**为原则 —— 编码未知时
- * 不否决（MP4/WebM + 未知编码 ⇒ 当可解），已知是 HEVC/其它时否决。
+ * 依据：容器 + 编码（mediaInfo 里有就用）。**保守**为原则 —— 编码未知时不否决
+ *（MP4/WebM + 未知编码 ⇒ 当可解），已知是 HEVC/其它时否决。
  * 为什么要它：帧率上限是"降低解码占用"的优化，代价却是**每次切换后台跑一次整片
  * 重编码**（实测 4K60 数秒、抢 CPU/磁盘 ⇒ 各壁纸之间等待几乎一样长）。原生可解的
  * 源不再因为上限触发它。
+ *
+ * ⚠️ 容器**必须**来自 `mediaExt`（宿主给的真实后缀）：媒体 URL 是 `/media/<base64url>`
+ * token 形态，路径里没有扩展名 ⇒ 只用 URL 判会恒为假，这条治理等于不存在（实测回归：
+ * 设了上限时每次切换都跑整片重编码）。URL 那条留着当兜底：夹具/旧宿主没有该字段时行为不变。
  */
 const NATIVE_SRC_EXT = /\.(mp4|m4v|webm)([?#]|$)/i;
+const NATIVE_EXT_SET = { mp4: 1, m4v: 1, webm: 1 };
 const NATIVE_CODEC_RE = /^(avc1|avc3|h264|vp8|vp09|vp9|av01|av1|theora|opus|vorbis|mp4a)/i;
-function isNativelyPlayableSource(mi, url) {
-  if (!NATIVE_SRC_EXT.test(String(url || ""))) return false;
+function isNativelyPlayableSource(mi, url, ext) {
+  const e = String(ext || "").toLowerCase();
+  const containerOk = e ? Boolean(NATIVE_EXT_SET[e]) : NATIVE_SRC_EXT.test(String(url || ""));
+  if (!containerOk) return false;
   const codec = mi && (mi.codec || mi.videoCodec || mi.video_codec || "");
   if (!codec) return true;
   return NATIVE_CODEC_RE.test(String(codec));
@@ -505,35 +393,23 @@ function armVideoChannelReveal(video, recheck, giveUp) {
   let posterGiveUp = 0;
   let cancelPosterProbe = null;
   if (video && typeof video.addEventListener === "function") {
-    hookVideoDiag(video);
     // Edge 那条路由镜像画布的第一笔补最后一步（layerContentReady 会一起看）。
-    const frameReady = (ev) => {
-      try { video.__weReady = true; } catch { /* ignore */ }
-      markRevealWhy(video, "frame:" + ((ev && ev.type) || "?"));
-      recheck();
-    };
+    const frameReady = () => { try { video.__weReady = true; } catch { /* ignore */ } recheck(); };
     video.addEventListener("loadeddata", frameReady);
     video.addEventListener("canplay", frameReady);
-    video.addEventListener("error", () => { markRevealWhy(video, "error"); giveUp(); });
+    video.addEventListener("error", giveUp);
     // 海报这一级：**加载出来**才放行；加载失败不再放行（那只是"这一级不存在"，画面仍要看首帧）。
-    cancelPosterProbe = probeVideoPoster(video,
-      () => { markRevealWhy(video, "poster"); recheck(); },
-      () => { markRevealWhy(video, "poster-error"); recheck(); });
+    cancelPosterProbe = probeVideoPoster(video, recheck, recheck);
     // 兜底预算 = **停滞判据**，不是"到期放行"：每 1200ms 复查一次，只有屏上真有东西
-    //（首帧 / 海报图已加载 / __weReady）才放行；到 VIDEO_STALL_GIVE_UP_MS 仍未出画面就
-    // 停止等待并留 warn —— 旧壁纸继续留着，绝不铺这一层的底色。
+    //（首帧 / 海报图已加载）才放行；到 VIDEO_STALL_GIVE_UP_MS 仍未出画面就停止等待并留一条
+    // warn —— 旧壁纸继续留着，绝不铺这一层的底色。
     const startedAt = Date.now();
     const stallGuard = () => {
-      if (videoContentReady(video) || video.__weReady === true) {
-        markRevealWhy(video, "budget-ready");
-        giveUp();
-        return;
-      }
+      if (videoContentReady(video) || video.__weReady === true) { giveUp(); return; }
       const waited = Date.now() - startedAt;
       if (waited >= VIDEO_STALL_GIVE_UP_MS) {
-        markRevealWhy(video, "stall");
         liveLog("video-stall", "wid=" + selection.id + " " + Math.round(waited / 1000)
-          + "s 仍无画面 → 继续留旧壁纸（不放行空层） " + videoDiagBrief(video), "warn");
+          + "s 仍无画面 → 继续留旧壁纸（不放行空层）", "warn");
         return;
       }
       posterGiveUp = setTimeout(stallGuard, VIDEO_POSTER_BUDGET_MS);
@@ -564,10 +440,12 @@ function maybeUpgradeToTranscoded(video, token) {
   const mi = selection.mediaInfo;
   // ② 延迟治理：**原生可解**的源不再因为帧率上限而整片重编码（实测代价：4K60 数秒，
   // 各壁纸之间等待几乎一样长 = 固定代价）。判据见 verify-scene-live 的 ② 那组。
-  if (isNativelyPlayableSource(mi, selection.url)) {
+  // ⚠️ 文案必须与"源帧率 ≤ 上限"分开：原生可解的源**帧率可能远高于上限**（4K120 + 上限24），
+  // 把它说成"源帧率 ≤ 上限"就是撒谎。
+  if (isNativelyPlayableSource(mi, selection.url, selection.mediaExt)) {
     if (video.dataset.weTranscoded) revertTranscodedVideo(video);
     selection.transcodeReady = null;
-    selection.transcodeState = "skipped";
+    selection.transcodeState = "native";
     return;
   }
   if (mi && mi.fps && mi.fps > 0 && mi.fps <= cap) {

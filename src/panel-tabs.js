@@ -1174,6 +1174,7 @@
           state: sel.transcodeState === "working" ? weT(" · 抽帧准备中…")
             : sel.transcodeState === "ready" ? weT(" · 已切换至 {fps}fps 抽帧版（正常速度，解码占用约减半）", { fps: sel.fpsCap })
             : sel.transcodeState === "cached" ? weT(" · 抽帧版已就绪（下次切换到这张时生效）")
+            : sel.transcodeState === "native" ? weT(" · 浏览器原生可解，无需抽帧")
             : sel.transcodeState === "fallback" ? weT(" · 转码不可用，已回退原片")
             : sel.transcodeState === "skipped" ? weT(" · 源帧率 ≤ 上限，无需抽帧")
             : "",

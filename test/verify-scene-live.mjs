@@ -1145,14 +1145,23 @@ for (const [name, ok] of clientChecks) check(name, ok);
     // 正对照保证功能没被关死（非原生可解仍要转）；负对照证明「一律不转」会被判出。
     check('② 抽帧决策看「原生可解性」（原生可解 ⇒ 不因帧率上限重编码）',
       videoSrc.includes('function isNativelyPlayableSource(')
-      && videoSrc.includes('if (isNativelyPlayableSource(mi, selection.url)) {')
-      && videoSrc.includes('selection.transcodeState = \"skipped\";'));
+      && videoSrc.includes('if (isNativelyPlayableSource(mi, selection.url, selection.mediaExt)) {')
+      && videoSrc.includes('selection.transcodeState = \"native\";'));
     check('② 正对照：判定只认原生容器/编码（mkv 之类的非原生容器不在白名单里）',
       videoSrc.includes('NATIVE_SRC_EXT') && videoSrc.includes('NATIVE_CODEC_RE')
       && /mp4\|m4v\|webm/.test(videoSrc)
       && !/NATIVE_SRC_EXT = \/[^/]*mkv/.test(videoSrc));
     check('② 负对照：写死「一律不转」的合成实现会被上面第一条判出',
       !/isNativelyPlayableSource/.test('if (true) { revertTranscodedVideo(video); return; }'));
+    // 容器**必须**能拿到真实后缀：媒体 URL 是 `/media/<base64url>`，路径里没有扩展名 ——
+    // 只靠 URL 判会**恒为假**（2026-10-02 实测回归：设了帧率上限时每次切换仍跑整片重编码）。
+    // 两端各钉一条：宿主把 mediaExt 发出来、客户端把它接进 selection 再传进判据。
+    check('② 真实容器由宿主给、客户端接（mediaExt 全链路在场）',
+      readFileSync(join(root, 'lib', 'index.js'), 'utf8').includes('mediaExt: w.fileAbs ? extOf(w.fileAbs) : null,')
+      && readFileSync(join(root, 'lib', 'index.js'), 'utf8').includes('function extOf(p)')
+      && videoSrc.includes('const e = String(ext || "").toLowerCase();')
+      && videoSrc.includes('NATIVE_EXT_SET')
+      && readFileSync(join(root, 'src', 'media-prep.js'), 'utf8').includes('selection.mediaExt = w.mediaExt || null;'));
     // ── ⑤ 派发化：视频的转码触发归视频通道（syncLayers 不再直呼它）──────────────
     // 原来这 3 行是视频档在实时管线里**唯一的类型专属逻辑**，现在它只委托。
     check('⑤ 转码触发归视频通道（live-layer 只委托，不再直呼 maybeUpgradeToTranscoded）',

@@ -434,6 +434,7 @@ function applySelection(id, opts) {
     selection.url = null;
     selection.type = null;
     selection.previewUrl = null;
+    selection.mediaExt = null;
     selection.liveFrame = null;
     selection.sceneVideo = null;
     selection.sceneLiveSrc = null;
@@ -461,6 +462,7 @@ function applySelection(id, opts) {
     selection.url = null;
     selection.type = null;
     selection.previewUrl = null;
+    selection.mediaExt = null;
     selection.liveFrame = null;
     selection.sceneVideo = null;
     selection.sceneLiveSrc = null;
@@ -488,6 +490,9 @@ function applySelection(id, opts) {
     selection.customFrames = cf;
   }
   selection.type = w.type;
+  // 真实容器后缀（宿主 inventory 的 mediaExt）：媒体 URL 是 token 形态、没有扩展名，
+  // 「浏览器原生可解」那条判据（见 src/video-layer.js 的 isNativelyPlayableSource）必须靠它。
+  selection.mediaExt = w.mediaExt || null;
   selection.blockedNote = "";
   // 静态帧 URL (frameUrl, 立即上屏)：供页面刷新 / 档位切换时重挂。
   selection.sceneFrameUrl = w.type === "scene" ? (w.frameUrl || null) : null;
