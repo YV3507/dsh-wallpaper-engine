@@ -1842,6 +1842,247 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     stubHits({ props: { onClick: () => { throw new Error('[we-sidebar] ctx.fontSet 属于设置页'); } }, children: [] })
       .filter((x) => x !== '#').length === 1);
 }
+
+// ── 设置页页签的渲染挂载台 + **节顺序**判据（P4-19 的前置）──────────────────────
+// 为什么需要它：`renderWallpaperTab`（最大，458 行）与 `renderAdvancedTab` 此前**一条行为判据
+// 都没有** —— 只有源码锚点（"函数在这儿""首行从 ctx 解构"）。而纯搬动最容易出的事
+// （**漏掉一节 / 改掉顺序 / 复制一节**）源码锚点一个都看不见。
+// 这里的挂载台用**真渲染器**（同一个 `panelMod`）+ 最小替身渲染这两个页签，并抽出树里
+// `we-picker__section-label` 的**有序**序列 —— 于是"节顺序"成了**行为**判据：它对任何重构
+// 都不变（代码搬去哪都行，只要渲染出来还是这个顺序），正是拆分这种纯搬动需要的那类判据。
+{
+  const noop = () => null;
+  // 同一个模块（前面那块已经 import 过 ⇒ 这里拿的是缓存），但 `const` 是块作用域、不能跨块用。
+  const panelMod = await import(pathToFileURL(join(root, 'src', 'panel-tabs.js')).href);
+  const schemaMod = await import(pathToFileURL(join(root, 'lib', 'settings-schema.js')).href);
+  // ⚠️ 先归一成 LF 再切片：工作树是 CRLF，而下面的边界串是 `\n  }\n`（裸 LF）——
+  // 在 CRLF 上它**匹配不到**，`indexOf` 回 -1 会让切片一路吃到文件尾（把别人的解构也当成
+  // 这一节的），于是判据会把整个词表都报成"漏解构"。这类"切错了还照旧报"正是判据要防的形状。
+  const tabsSrcNow = readFileSync(new URL('../src/panel-tabs.js', import.meta.url), 'utf8')
+    .replace(/\r\n/g, '\n');
+  // 这些名字在产物里是**内联同一作用域**的常量 / 纯组件 / 纯函数；单独 import 时按内联规则
+  // 补 globalThis 替身（`weT` 由 tools/weT-shim.mjs 装、React 等由上面那块装）。
+  Object.assign(globalThis, {
+    DEFAULTS: schemaMod.DEFAULTS,
+    ADAPTER_TARGET_VALUES: schemaMod.ADAPTER_TARGET_VALUES,
+    Toggle: noop, VinylRecord: noop,
+    SWITCH_DIRS: ['left', 'right'], SWITCH_DIR_LABELS: { left: '左', right: '右' },
+    SWITCH_SPEEDS: [{ id: 'fast', ms: 200 }, { id: 'normal', ms: 400 }],
+    SWITCH_TRANSITIONS: [{ id: 'fade' }, { id: 'wipe' }],
+    ADAPTER_LABELS: { auto: '自动检测' },
+    adapterCaps: () => ({}), adapterDetectedLabel: () => '', adapterMismatchWarning: () => '',
+    liveDiagVerbose: () => false, weAudioVolume: () => 0, vinylSpinVisible: () => false,
+    liveFailReasonOf: () => '', groupWallpapers: () => [], switchFrames: () => [],
+    switchTransitionOf: () => ({ id: 'fade', dir: 'left', speed: 'normal', ms: 400 }),
+    renderConfirmRow: noop,
+    changeUploadDir: async () => {}, changeWeAssetsDir: async () => {},
+    uploadWallpaperFile: () => {}, removeUploadWallpaper: () => {},
+    importPlaylistIntoDraft: () => {}, saveEditingGroup: () => {},
+    startEditGroup: () => {}, cancelEditGroup: () => {}, startCreateGroup: () => {},
+  });
+  /** 树上 `we-picker__section-label` 的**有序**文本序列（深度优先 = 渲染顺序）。 */
+  const sectionSeq = (n, acc = []) => {
+    if (Array.isArray(n)) { n.forEach((x) => sectionSeq(x, acc)); return acc; }
+    if (!n || typeof n !== 'object') return acc;
+    const cls = n.props && n.props.className;
+    if (typeof cls === 'string' && cls.includes('we-picker__section-label')) {
+      const txt = (Array.isArray(n.children) ? n.children : []).filter((c) => typeof c === 'string').join('');
+      if (txt) acc.push(txt);
+    }
+    if (Array.isArray(n.children)) n.children.forEach((x) => sectionSeq(x, acc));
+    return acc;
+  };
+  const sameSeq = (got, want) => got.length === want.length && got.every((x, i) => x === want[i]);
+
+  const st = Object.assign({}, schemaMod.DEFAULTS, {
+    loaded: true, loading: false, id: 'w1', url: '/x', type: 'video', playing: true,
+    videoPlaying: true, videoVolume: 0.5, videoAudioEnabled: false, videoError: '',
+    contentRatingFilter: 'all', hiddenIds: [], rotationGroups: [], rotationGroupId: '',
+    rotationEnabled: false, flip: false, objectFit: 'cover', playbackRate: 1,
+    sceneLive: true, sceneLiveFailures: {}, themeFollow: false, themeFollowLine: '',
+    adapterTarget: 'auto', pauseOnHidden: false, pauseOnBlur: false, pauseOnBattery: false,
+    editingUploadDir: false, uploadDirDraft: '', editingWeAssetsDir: false, weAssetsDirDraft: '',
+    weAssetsError: '', propsUrl: '/wallpaper-engine/props/tok',
+    inventory: {
+      wallpapers: [], error: null, installDir: '/we', uploadDir: '/up', weAssetsDir: null,
+      sceneMediaBase: '', total: 0, portableCount: 0, playlists: [],
+    },
+  });
+  const withHandlers = (names) => Object.fromEntries(names.map((n) => [n, noop]));
+  const CASES = [
+    {
+      fn: 'renderWallpaperTab',
+      label: '',
+      mk: () => st,
+      want: ['当前壁纸', '切换过场', '自动轮播', '自定义壁纸'],
+      ctx: (sel) => Object.assign({
+        setSetting: noop, setTransient: noop, setPickerOpener: noop,
+        INTERVALS: [5, 10, 30, 60], armedConfirm: '', cdMode: '', current: sel,
+        editing: null, editorPageView: '', group: null, groups: [], isLiveScene: false,
+        pagerRow: () => null, playableCount: 0, playableList: [], playbackLive: false,
+        propsPanelOpen: false, renderUserPropsPanel: () => null, sel, uploadedList: [],
+      }, withHandlers(['onArmConfirm', 'onArmDeleteGroup', 'onCancelEditUploadDir',
+        'onCancelEditWeAssetsDir', 'onClear', 'onDeleteGroup', 'onDisarmConfirm', 'onEditInterval',
+        'onEditName', 'onEditOrder', 'onGroupChange', 'onGroupInterval', 'onOpenPicker',
+        'onOpenPickerDraft', 'onRefresh', 'onStartEditUploadDir', 'onStartEditWeAssetsDir',
+        'onSwitchTransition', 'onSwitchTransitionDir', 'onSwitchTransitionSpeed', 'onToggleAudio',
+        'onTogglePlay', 'onTogglePropsPanel', 'onToggleRotation', 'onUploadDirDraft',
+        'onWeAssetsDirDraft'])),
+    },
+    {
+      // 视频壁纸：「实时渲染诊断」**按门不画**（它只对能走实时渲染的场景 / 网页显示）。
+      fn: 'renderAdvancedTab',
+      label: '（视频壁纸：诊断节按门不画）',
+      mk: () => st,
+      want: ['浏览方式', '兼容性', '适配', '省电'],
+      adv: true,
+    },
+    {
+      // 场景壁纸：诊断节出现，且**在最后**。
+      fn: 'renderAdvancedTab',
+      label: '（场景壁纸：诊断节出现且在最后）',
+      mk: () => Object.assign({}, st, { type: 'scene', sceneLive: true, sceneLiveSrc: '/x' }),
+      want: ['浏览方式', '兼容性', '适配', '省电', '实时渲染诊断'],
+      adv: true,
+    },
+  ];
+  const advCtx = (sel) => Object.assign({ setSetting: noop, setTransient: noop, sel },
+    withHandlers(['onAdapterTarget', 'onEdgeCompatChange', 'onLayoutChange', 'onPauseOnBattery',
+      'onPauseOnBlur', 'onPauseOnHidden', 'onToggleLiveDiag']));
+  for (const t of CASES) {
+    const sel = t.mk();
+    let tree = null;
+    let err = '';
+    try { tree = panelMod[t.fn](t.adv ? advCtx(sel) : t.ctx(sel)); } catch (e) { err = String((e && e.message) || e); }
+    // ① 渲染得出（缺 ctx 字段 / 缺全局替身都会在这里响亮地炸）
+    check(t.fn + t.label + ' 渲染得出（真渲染器 + 最小替身）', err === '', err || 'ok');
+    if (err) continue;
+    // ② 节**有序**且一节不多不少 —— 这是纯搬动唯一会破坏的东西
+    const seq = sectionSeq(tree);
+    check(t.fn + t.label + ' 的节顺序与集合逐字不变', sameSeq(seq, t.want),
+      'want=[' + t.want.join(' / ') + '] got=[' + seq.join(' / ') + ']');
+  }
+  // 负对照：同一个比较器对"顺序被换 / 少一节 / 多一节"都必须判坏（否则上面两条可能是恒真）。
+  check('负对照：节顺序判据对换序 / 缺节 / 多节都有牙',
+    sameSeq(['甲', '乙'], ['甲', '乙'])
+    && !sameSeq(['乙', '甲'], ['甲', '乙'])
+    && !sameSeq(['甲'], ['甲', '乙'])
+    && !sameSeq(['甲', '乙', '丙'], ['甲', '乙']));
+  check('负对照：节抽取只认 section-label 节点（旁边普通文本不得被当节）',
+    sectionSeq({ props: { className: 'we-picker__ctl' }, children: ['当前壁纸'] }).length === 0
+    && sectionSeq({ props: { className: 'we-picker__section-label' }, children: ['当前壁纸'] }).length === 1);
+
+  // ── appearance / effects：同一套挂载台（ctx 由**渲染器自己的解构行**驱动）────────
+  // 这两页签的节顺序此前也没有判据（`verify-fontset` 只判"某串在场"，`renderEffectsTab`
+  // 甚至只有一个节标签）。补上之后，它们才具备"按节拆成子渲染器"的安全网（P4-19 余项）。
+  const ctxFieldsOf = (fnName) => {
+    const at = tabsSrcNow.indexOf('function ' + fnName + '(ctx) {');
+    const dm = /const \{([^}]*)\} = ctx;/.exec(tabsSrcNow.slice(at, at + 4000));
+    return dm ? dm[1].split(',').map((s) => s.trim().split(':')[0].trim()).filter(Boolean) : [];
+  };
+  // 解构行里除少数几个"值形状"（fontSet / surface / sel）外全是处理器 ⇒ 其余一律 noop。
+  // ⚠️ `sel` 必须**跳过**：它不在 `known` 里，若不排除就会被 noop 覆盖 ⇒ `sel.id` 变 undefined
+  // ⇒ 效果页签走上"还没有启用壁纸"的**空态提前返回**，节判据于是拿到空树而"照旧报"。
+  const ctxFrom = (fnName, sel, known) => {
+    const c = { sel };
+    for (const n of ctxFieldsOf(fnName)) if (n !== 'sel' && !(n in known)) c[n] = noop;
+    return Object.assign(c, known);
+  };
+  const FONTSET_STUB = {
+    open: true, fontSets: [], activeId: '', loading: false, error: '', editingId: '', draftName: '',
+    exportUrl: () => '', onOpen: noop, onActivate: noop, onRefresh: noop, onDelete: noop, onEdit: noop,
+    onDraftName: noop, onRenameCommit: noop, onCancelEdit: noop, onCreate: noop,
+  };
+  const MORE_CASES = [
+    { fn: 'renderAppearanceTab', label: '（设置页：五节）', surface: 'settings',
+      want: ['主题', '细节', '全局字体', '输入光标', '窗口与侧栏'] },
+    // 侧栏档：被 `!sidebarSurface` 包住的三节不画 —— 这条门此前只有源码串，没有行为断言。
+    { fn: 'renderAppearanceTab', label: '（侧栏档：设置页专属的三节不画）', surface: 'sidebar',
+      want: ['主题', '细节'] },
+    { fn: 'renderEffectsTab', label: '（画面 · 设置页）', surface: 'settings', want: ['画面'] },
+    { fn: 'renderEffectsTab', label: '（画面 · 侧栏档）', surface: 'sidebar', want: ['画面'] },
+  ];
+  for (const t of MORE_CASES) {
+    const known = { surface: t.surface, fontSet: t.surface === 'sidebar' ? undefined : FONTSET_STUB };
+    let tree = null;
+    let err = '';
+    try { tree = panelMod[t.fn](ctxFrom(t.fn, st, known)); } catch (e) { err = String((e && e.message) || e); }
+    check(t.fn + t.label + ' 渲染得出', err === '', err || 'ok');
+    if (err) continue;
+    const seq = sectionSeq(tree);
+    check(t.fn + t.label + ' 的节顺序与集合逐字不变', sameSeq(seq, t.want),
+      'want=[' + t.want.join(' / ') + '] got=[' + seq.join(' / ') + ']');
+  }
+  // 负对照：上面这条"侧栏档少两节"必须真的来自门，而不是来自"侧栏档根本没渲染"。
+  check('负对照：外观页侧栏档确实渲染出了内容（不是空树 ⇒ 上面的"少三节"才有意义）',
+    (() => {
+      try { return sectionSeq(panelMod.renderAppearanceTab(ctxFrom('renderAppearanceTab', st,
+        { surface: 'sidebar', fontSet: undefined }))).length === 2; } catch { return false; }
+    })());
+
+  // ── 拆成"一节一个子渲染器"之后新增的失败模式：**节用了某个 ctx 字段却没解构它** ──
+  // 这类错误的形状是"某个分支一旦被执行就 ReferenceError"，而渲染挂载台只在**走到的分支**上
+  // 才撞得见它（本次实测正是这么抓到一处：`...INTERVALS.map(...)` 的展开写法让派生正则漏了它）。
+  // 所以再补一条**静态**判据把它按在源码层：以"这个页签的 ctx 字段全集"为词表，逐个节函数检查
+  // "用到了却没解构"。先剥注释（规则 ⑦），否则散文里的词会假报。
+  const CTX_UNIVERSE = {
+    renderWallpaperTab: ['setSetting', 'setTransient', 'INTERVALS', 'armedConfirm', 'cdMode', 'current',
+      'editing', 'editorPageView', 'group', 'groups', 'isLiveScene', 'onArmConfirm', 'onArmDeleteGroup',
+      'onCancelEditUploadDir', 'onCancelEditWeAssetsDir', 'onClear', 'onDeleteGroup', 'onDisarmConfirm',
+      'onEditInterval', 'onEditName', 'onEditOrder', 'onGroupChange', 'onGroupInterval', 'onOpenPicker',
+      'onOpenPickerDraft', 'onRefresh', 'onStartEditUploadDir', 'onStartEditWeAssetsDir',
+      'onSwitchTransition', 'onSwitchTransitionDir', 'onSwitchTransitionSpeed', 'onToggleAudio',
+      'onTogglePlay', 'onTogglePropsPanel', 'onToggleRotation', 'onUploadDirDraft', 'onWeAssetsDirDraft',
+      'pagerRow', 'playableCount', 'playableList', 'playbackLive', 'propsPanelOpen',
+      'renderUserPropsPanel', 'sel', 'setPickerOpener', 'uploadedList'],
+    renderAdvancedTab: ['setSetting', 'onAdapterTarget', 'onEdgeCompatChange', 'onLayoutChange',
+      'onPauseOnBattery', 'onPauseOnBlur', 'onPauseOnHidden', 'onToggleLiveDiag', 'sel'],
+    renderAppearanceTab: ['setSetting', 'officialColorOf', 'onAccent', 'onBlur', 'onBorder',
+      'onCaretColor', 'onComponentFamily', 'onComponentFont', 'onFontAdvanced', 'onFontResetAll',
+      'onGlassAlpha', 'onGlassColor', 'onGlassWindow', 'onLeftSidebarGlass', 'onSidebarAlpha',
+      'onSidebarBlur', 'onSidebarColor', 'onSidebarContentAlpha', 'onSidebarContentColor',
+      'onSidebarGlass', 'onThemeColor', 'onThemeColorClear', 'onThemeDarkSeparate', 'onThemeFamily',
+      'onThemeSize', 'onThemeTypeOnly', 'onThemeWeight', 'onToggleFontCustom', 'onToggleThemeFollow',
+      'fontSet', 'sel', 'surface'],
+  };
+  // ⚠️ `tabsSrcNow` 在本块顶部声明（归一成 LF）—— 这里不再重复声明。
+  /** 某页签的节函数（`render<Domain>…Section`）—— 拆分后的每一节。 */
+  const sectionFnsOf = (domain) => {
+    const out = [];
+    const re = new RegExp('^  function (render' + domain + '\\w*Section)\\(ctx\\) \\{$', 'gm');
+    for (const m of tabsSrcNow.matchAll(re)) {
+      const to = tabsSrcNow.indexOf('\n  }\n', m.index);
+      out.push({ name: m[1], body: tabsSrcNow.slice(m.index, to < 0 ? tabsSrcNow.length : to) });
+    }
+    return out;
+  };
+  const USED = (code, n) => new RegExp('(^|[^.\\w$]|\\.\\.\\.)' + n + '\\b(?!\\s*:)').test(code);
+  const missingCtx = [];
+  let sectionCount = 0;
+  for (const [tab, all] of Object.entries(CTX_UNIVERSE)) {
+    const domain = tab.replace(/^render/, '').replace(/Tab$/, '');
+    const at = tabsSrcNow.indexOf('function ' + tab + '(ctx) {');
+    const body = tabsSrcNow.slice(at, tabsSrcNow.indexOf('\n  }\n', at));
+    const fns = [{ name: tab, body }, ...sectionFnsOf(domain)];
+    for (const f of fns) {
+      if (f.name.includes('Section')) sectionCount++;
+      const code = stripComments(f.body);
+      const dm = /const \{([^}]*)\} = ctx;/.exec(code);
+      const own = dm ? dm[1].split(',').map((s) => s.trim().split(':')[0].trim()).filter(Boolean) : [];
+      for (const n of all) if (USED(code, n) && !own.includes(n)) missingCtx.push(f.name + '→' + n);
+    }
+  }
+  check('每个节函数都用到了 ctx 字段就解构它（覆盖面 ' + sectionCount + ' 个节函数）',
+    sectionCount >= 8 && missingCtx.length === 0,
+    'sections=' + sectionCount + (missingCtx.length ? ' · 漏解构=' + missingCtx.join(', ') : ''));
+  check('负对照：用了却没解构的节函数会被同一判据抓出',
+    (() => {
+      const code = stripComments('function renderXSection(ctx) {\n const { sel } = ctx;\n ...INTERVALS.map((m) => m);\n}');
+      return USED(code, 'INTERVALS') && !['sel'].includes('INTERVALS');
+    })());
+  check('负对照：对象键形态（`{ sel: … }`）不得被误报为"用到 ctx 字段"', !USED('const o = { sel: 1 };', 'sel'));
+}
+
 // 用户口径：吉祥物**点一下要能开也能关**侧栏 —— 点击必须进统一开关；
 // 恒走 openPanel/openTab 就会变成只能开不能关。
 // 判据按真实源码形态：点击分支走统一开关（不残留只开的 openPanel）、官方态 toggle 的
