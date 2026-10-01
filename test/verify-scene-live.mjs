@@ -1597,10 +1597,28 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       }) === false && PROMOTED.every((n) => src.indexOf('const ' + n + ' = ') < compStart));
   }
   {
-    const ctxFieldsOf = (fnName) => {
-      const m = tabsSrc.match(new RegExp('function ' + fnName + '\\(ctx\\) \\{\\n\\s*const \\{([^}]*)\\} = ctx;'));
+    // 渲染器解构行 → ctx 字段表。
+    // ⚠️ **必须容忍 CRLF**（`\\r?\\n`，不能写裸 `\\n`）：CI 跑在 windows-latest，检出是 CRLF
+    //    形态（本仓没有 .gitattributes，Git for Windows 默认 autocrlf），而本文件的其它判据
+    //    大多用 `\\s` 吃掉了那个 `\\r` —— 只有这条把换行写成了字面量 `\\n`，于是**候选恒为 0**：
+    //    症状是 `候选 0 个` + 279 passed / 1 failed，本机（LF 检出）却全绿。
+    //    实测复现：`git clone -c core.autocrlf=true` 的检出上 `node test/verify-scene-live.mjs`
+    //    得到与 CI 逐字相同的失败（2026-10-01，PR #125 首次推送）。
+    const CTX_DESTRUCTURE = (fnName) =>
+      new RegExp('function ' + fnName + '\\(ctx\\) \\{\\r?\\n\\s*const \\{([^}]*)\\} = ctx;');
+    const ctxFieldsOf = (fnName, text = tabsSrc) => {
+      const m = text.match(CTX_DESTRUCTURE(fnName));
       return m ? m[1].split(',').map((s) => s.trim()).filter(Boolean) : null;
     };
+    // 正/负对照成对：同一判据在两种换行形态下都要认出字段（LF 是本机形态、CRLF 是 CI 形态），
+    // 且对"换个函数名"要落空 —— 否则上面那条 ≥20 的判据可能是空转的。
+    const lfSample = 'function renderAppearanceTab(ctx) {\n  const { a, b } = ctx;';
+    check('ctx 解构判据在 LF / CRLF 两种检出形态下都认得出字段（CI 是 CRLF）',
+      JSON.stringify(ctxFieldsOf('renderAppearanceTab', lfSample)) === JSON.stringify(['a', 'b'])
+      && JSON.stringify(ctxFieldsOf('renderAppearanceTab', lfSample.replace(/\n/g, '\r\n'))) === JSON.stringify(['a', 'b'])
+      && ctxFieldsOf('renderNope', lfSample) === null,
+      'lf=' + JSON.stringify(ctxFieldsOf('renderAppearanceTab', lfSample))
+        + ' crlf=' + JSON.stringify(ctxFieldsOf('renderAppearanceTab', lfSample.replace(/\n/g, '\r\n'))));
     const mentions = (text, f) => new RegExp('(^|[\\s,{])' + f + '\\s*[,:}]', 'm').test(text)
       || text.includes('"' + f + '"');
     const wanted = ['renderAppearanceTab', 'renderEffectsTab', 'renderAudioTab']
