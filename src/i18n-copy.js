@@ -580,6 +580,7 @@ const WE_I18N_EN = {
   "没有匹配「{query}」的壁纸": "No wallpapers matching \"{query}\"",
   "该类型下没有可播放的壁纸": "No playable wallpapers of this type",
   "还有 {count} 张未显示 · 搜索可收敛，全量浏览在设置页": "Plus {count} more not shown · narrow it down with search; browse all in Settings",
+  "设置页的类型档当前是「{name}」，切成「全部」才能看到": "The Settings type filter is currently \"{name}\" — switch it to \"All\" to see them",
   "打开设置对话框的「壁纸引擎」分区（外观 / 播放 / 系统与全部配置）": "Open the Wallpaper Engine section of the settings dialog (Appearance / Playback / System and all configuration)",
   "壁纸引擎设置 ›": "Wallpaper Engine settings ›",
 

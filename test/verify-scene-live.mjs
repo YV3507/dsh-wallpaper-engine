@@ -1324,21 +1324,31 @@ check('host 侧 /media-control 只收 POST + 动作走 mediaBackend.control（�
     leftoversIn('switchRow("在线歌词", v)').join(',') === '在线歌词'
       && leftoversIn('switchRow("媒体信息", v) && switchRow("系统音频反应", v)').length === 2);
 
-// 用户口径：侧栏壁纸列表支持类型筛选（全部 / 场景 / 网页 / 视频）—— 面板本地、**瞬态**
-//（setTransient 不经设置落盘；设置页的「类型」过滤另有一条，筛设置页列表与轮播候选，
-// 两者互不影响、都只筛「列表」）。
-check('侧栏列表类型筛选：四档齐全 + 面板本地应用 + 不走设置落盘',
+// 用户口径：侧栏壁纸列表支持类型筛选（全部 / 场景 / 网页 / 视频 / 图片）—— 面板本地、
+// **瞬态**（setTransient 不经设置落盘；设置页的「类型」过滤另有一条，筛设置页列表与
+// 轮播候选，两者互不影响、都只筛「列表」）。「图片」是后补的一档（上传的单文件图片
+// 壁纸）：判据按**同一份档位表**逐档核对，再加一条负对照 —— 少一档必须被判红
+//（此前"四档齐全"写的是"这四档都在"，补一档不会红，也就没有覆盖）。
+  const QP_TYPE_ROWS = [['all', '全部'], ['scene', '场景'], ['web', '网页'], ['video', '视频'], ['image', '图片']];
+  const sideTypeFilterOk = (text) => text.includes('function qpTypes()')
+    && QP_TYPE_ROWS.every(([id, label]) => text.includes('id: "' + id + '"')
+      && (text.includes('label: weT("' + label + '")') || text.includes('label: weT("' + label + '", null,')))
+    && text.includes('w.type !== typeFilter');
+  check('侧栏列表类型筛选：五档齐全（含「图片」）+ 面板本地应用 + 不走设置落盘',
   // i18n（中文原文即键）之后：容器从文件顶层常量改成 `qpTypes()`（每次渲染现建，
-  // 否则文案会冻在加载期），四档 label 各自走 `weT("…")` —— 判据只认"四档 id 仍绑着
+  // 否则文案会冻在加载期），每档 label 各自走 `weT("…")` —— 判据只认"档位 id 仍绑着
   // 同一句原文"，不认包装形态（认形态的判据会在下一次改写法时静默失效）。
-  qpSrc.includes('function qpTypes()')
-    && [['all', '全部'], ['scene', '场景'], ['web', '网页'], ['video', '视频']]
-      .every(([id, text]) => qpSrc.includes('id: "' + id + '"')
-        && (qpSrc.includes('label: weT("' + text + '")') || qpSrc.includes('label: weT("' + text + '", null,')))
-    && qpSrc.includes('w.type !== typeFilter')
+    sideTypeFilterOk(qpSrc)
     && qpSrc.includes('setTransient("qpType", e.target.value)')
     && !qpSrc.includes('setSetting("qpType"')
-    && src.includes('qpType: "all"'));}
+    && src.includes('qpType: "all"'));
+  // 负对照：同一条判据喂"少一档"的合成文本，必须被判红（判据不是恒真）。
+  check('negative control: 少一档（缺「图片」）会被同一条判据点出',
+    !sideTypeFilterOk(qpSrc.replace('{ id: "image", label: weT("图片") },', ''))
+      && sideTypeFilterOk(qpSrc));
+  // ↑ 本段与"三键退役"共用同一个 `{ … }` 块（原先那条 check 的收尾 `}` 就在这里）——
+  //   不要再包一层 `{}`：块会多开一层，整个文件在 EOF 报 "Unexpected end of input"。
+}
 
 // 用户口径：设置页切「类型」不得把**正在应用**的壁纸干掉 ⇒ 类型档只筛列表与轮播
 // 候选、不入播放闸门（keepPlayingWallpaper：分级拦播放，类型档没有入参）；轮播在场

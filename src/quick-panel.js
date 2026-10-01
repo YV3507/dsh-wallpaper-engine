@@ -26,15 +26,22 @@
   // 列表一次最多渲染的行数：库可以上千张，面板是"快切"不是"全集浏览" —— 超出
   // 让用户用搜索收敛（全量浏览在设置页的壁纸库下钻视图）。
   const QP_LIST_MAX = 100;
-  // 面板本地的类型筛选档（用户口径：全部 / 场景 / 网页 / 视频 —— 面板是快切，
-  // 只列三类主力类型；「图片」不单列，仍出现在「全部」里）。
+  // 面板本地的类型筛选档（全部 / 场景 / 网页 / 视频 / 图片）：瞬态，与设置页的「类型」
+  // 过滤互不影响（那一条是设置，筛设置页列表与轮播候选）。两个档位的**叠加关系**见
+  // 列表空态那段 —— 上游那一档不是「全部」时，空列表要说出是谁筛掉的。
   function qpTypes() {
     return [
       { id: "all", label: weT("全部") },
       { id: "scene", label: weT("场景") },
       { id: "web", label: weT("网页") },
       { id: "video", label: weT("视频") },
+      { id: "image", label: weT("图片") },
     ];
+  }
+  /** 类型档 id → 面板文案（上游提示用；值域与设置页的 typeFilter 是同一套 id）。 */
+  function qpTypeLabelOf(id) {
+    const hit = qpTypes().find((t) => t.id === id);
+    return hit ? hit.label : String(id || "");
   }
   // 列表/卡片视图的记忆键（同 picker-tab 口径：仅 UI 状态，localStorage，不进 config.json）。
   const QP_VIEW_KEY = "dsh-wallpaper-engine:qp-view";
@@ -89,6 +96,9 @@
     // 不影响设置页的过滤与轮播候选）。
     const q = String(sel.qpSearch || "").trim().toLowerCase();
     const typeFilter = qpTypes().some((t) => t.id === sel.qpType) ? sel.qpType : "all";
+    // 上游档（设置页的类型过滤，持久化）：它先筛一遍候选，侧栏这一档再筛 ——
+    // 空列表时若它不是「全部」，提示要说清是哪一层筛掉的（否则用户以为库里没有）。
+    const upstreamType = String(sel.typeFilter || "all");
     const playable = playableInventory();
     const filtered = playable.filter((w) => {
       if (typeFilter !== "all" && w.type !== typeFilter) return false;
@@ -250,9 +260,16 @@
         },
           rows.length
             ? rows.map(view === "cards" ? renderCard : renderRow)
-            : React.createElement("span", { className: "we-picker__hint" },
-                q ? weT("没有匹配「{query}」的壁纸", { query: sel.qpSearch })
-                  : weT(typeFilter !== "all" ? "该类型下没有可播放的壁纸" : "没有可播放的壁纸")),
+            : React.createElement(React.Fragment, null,
+                React.createElement("span", { className: "we-picker__hint" },
+                  q ? weT("没有匹配「{query}」的壁纸", { query: sel.qpSearch })
+                    : weT(typeFilter !== "all" ? "该类型下没有可播放的壁纸" : "没有可播放的壁纸")),
+                // 上游（设置页的类型档）先筛过一遍 —— 空的时候必须说清是哪一层筛的，
+                // 否则看起来就是"两边数据不一致 / 库里没有这类壁纸"。
+                typeFilter !== "all" && upstreamType !== "all"
+                  && React.createElement("span", { className: "we-picker__hint" },
+                      weT("设置页的类型档当前是「{name}」，切成「全部」才能看到", { name: qpTypeLabelOf(upstreamType) })),
+              ),
         ),
         filtered.length > rows.length
           && React.createElement("span", { className: "we-picker__hint we-qp__more" },
