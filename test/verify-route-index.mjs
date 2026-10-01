@@ -39,17 +39,16 @@ check('docs/ROUTE-INDEX.md 与现算的索引一致', file === text.trimEnd(),
 // 覆盖面：解析器若静默返回空表，上面那条会变成空对空
 check('负对照：解析器确实抓到了路由（>20 条）', routes.length > 20, routes.length + ' 条');
 // 负对照：必须把改动后的文本**喂给同一条判据**再断言它判"不一致"。
-// 旧写法 `mutated !== text` 只证明"正则替换命中了"，不证明 ① 的比较能失败（属"同源比较"一类）。
+// 断言 `mutated !== text` 只证明"正则替换命中了"，不证明那条比较能失败（属"同源比较"一类）。
 const sameAsIndex = (t) => t.trimEnd() === text.trimEnd();
 const mutated = text.replace(/(\| `\/inventory` \|)/, '| `/inventory-typo` |');
 check('负对照：索引里的路径被改动会被判不一致', mutated !== text && sameAsIndex(mutated) === false);
-// 覆盖断言（替换掉原来的恒真式 `!routes.some(r => r.src === 'lib/routes/nope.js')`）：
-// 每个路由模块的路由都必须真的出现在索引里 —— 这条可以失败。
+// 覆盖断言：每个路由模块的路由都必须真的出现在索引里 —— 这条可以失败（恒真式做不到）。
 check('每个路由模块的路由都出现在索引里',
   modules.every((m) => routes.some((r) => r.src === m.rel)),
   modules.map((m) => m.rel).join(' ') || '（还没有路由模块）');
-// "零提及"行必须**与实际计算一致**：旧写法 `/零提及/.test(text)` 命中索引自己的图例行、
-// 从不看数据 ⇒ 恒真（本轮审计 F9）。
+// "零提及"行必须**与实际计算一致**：只对索引文本做 `/零提及/.test(text)` 会命中它自己的
+// 图例行、从不看数据 ⇒ 恒真。故这条判据按路由数据现算。
 const uncoveredNow = routes.filter((r) => !r.mentions).map((r) => r.path);
 const expectedZero = uncoveredNow.length ? uncoveredNow.map((p) => '`' + p + '`').join('、') : '（无）';
 const zeroLine = text.split('\n').find((l) => l.startsWith('**零提及')) || '';

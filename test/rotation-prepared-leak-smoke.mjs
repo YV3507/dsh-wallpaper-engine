@@ -402,8 +402,8 @@ const selSeed = (ids, cur) => ({ id:cur, rotationGroupId:'g1', rotationEnabled:t
 
 // ── H：静态帧形态的场景 BGM —— 卸载必须停播并拆掉 <audio>，不得反而起播 ──────
 // 渐变期闸会把 BGM 压成 volume=0 + pause；cleanup 若走「放行」（restoreNodeAudio）
-// 就会把它恢复并起播 —— 禁用插件反而开始响。而且此前 cleanup 从不停 sceneAudioEl，
-// 禁用时正在播的 BGM 会一直响。
+// 就会把它恢复并起播 —— 禁用插件反而开始响。cleanup 因此必须显式停掉 sceneAudioEl：
+// 否则禁用时正在播的 BGM 会一直响。
 await runScenario('H. 卸载停掉场景 BGM 并拆掉 <audio>（不起播）', {
   wallpapers: [wallpaperV,
     { id:'s4', title:'S4', type:'scene', playable:false, media:null,
@@ -423,9 +423,8 @@ await runScenario('H. 卸载停掉场景 BGM 并拆掉 <audio>（不起播）', 
     'audios=' + audios().length + (el ? ' volume=' + el.volume + ' paused=' + el.__paused : ''));
   check('卸载前捕获到 cleanup', t.cleanups.length > 0, 'cleanups=' + t.cleanups.length);
   const playsBefore = el ? (el.__plays || 0) : 0;
-  // 模拟卸载：cordis 的卸载语义是跑**全部** fiber disposer —— 只跑最后一个
-  // 曾是"主拆卸恰好注册在最尾"的隐式假设；官方侧栏接入（2c）的 cleanup 注册
-  // 更靠后，该假设即破；逐个跑才是真实路径。
+  // 模拟卸载：cordis 的卸载语义是跑**全部** fiber disposer —— 只跑最后一个等于假定
+  // "主拆卸恰好注册在最尾"，而 cleanup 的注册顺序不保证这一点；逐个跑才是真实路径。
   t.cleanups.forEach((c) => c()); // 模拟「禁用插件 / 热重挂」
   // 核心：卸载**不是**渐变结束 —— 走放行（restoreNodeAudio）会连带 syncSceneAudio
   // 把刚压住的 BGM 恢复起播（禁用插件反而响一下），所以判据是「play 次数不增加」。
@@ -680,9 +679,8 @@ await runScenario('F. 渐变窗口内卸载：旧层随 cleanup 退役（不留�
     'layers=' + layerCount());
   check('渐变退役定时器已武装（ROTATION_FADE_MS + 100ms）', !!t.timers.find(x=>!x.cleared && x.ms===FADE_GRACE_MS));
   check('卸载前捕获到 cleanup', t.cleanups.length > 0, 'cleanups=' + t.cleanups.length);
-  // 模拟卸载：cordis 的卸载语义是跑**全部** fiber disposer —— 只跑最后一个
-  // 曾是"主拆卸恰好注册在最尾"的隐式假设；官方侧栏接入（2c）的 cleanup 注册
-  // 更靠后，该假设即破；逐个跑才是真实路径。
+  // 模拟卸载：cordis 的卸载语义是跑**全部** fiber disposer —— 只跑最后一个等于假定
+  // "主拆卸恰好注册在最尾"，而 cleanup 的注册顺序不保证这一点；逐个跑才是真实路径。
   t.cleanups.forEach((c) => c()); // 模拟「禁用插件 / HMR 重挂」
   check('卸载后 body 里不再有 we-layer（旧层随 cleanup 退役，而不是等退役定时器）',
     layerCount() === 0, 'layers=' + layerCount());
@@ -875,9 +873,9 @@ await runScenario('K. 准备中途隐藏：≤60s 继续等，超限释放 stagi
 });
 
 // ── L：失败记忆带**管线身份**（旧管线的 timeout 不许压住新管线）──────────────────
-// 真机事故：宿主半没重载（= 旧管线，`sceneMediaBase` 还是空串）时留下的 `timeout` 记忆，
-// 在客户端更新后仍然逐字显示成「实时渲染失败（首帧超时…）已自动回退」——用户据此判定
-// "修复完全没作用"，而实际是那句断言属于**另一条管线**。判据必须两半都有：
+// 为什么记忆必须带**管线身份**：宿主半没重载（= 旧管线，`sceneMediaBase` 还是空串）时留下的
+// `timeout` 记忆，在客户端更新后仍然逐字显示成「实时渲染失败（首帧超时…）已自动回退」——
+// 而那条断言其实属于**另一条管线**，用户会据此判定"修复完全没作用"。判据必须两半都有：
 //   ① 旧管线记下的记忆 ⇒ 作废（面板那行才会消失，壁纸才会重新试一次 live）；
 //   ② 当前管线自己挣来的记忆 ⇒ **保留**（否则每次刷新都白试一次，记忆就失去意义）。
 await runScenario('L. 换管线：旧管线的失败记忆作废一次（自己的那半不受影响）', {
@@ -1743,8 +1741,8 @@ await runScenario('T8. 正对照（同一条闸门判据）：准备期真的 lo
 });
 
 // ── Q：启动等待（`liveBootDelay`）—— 上限前就绪即挂载 / 切走必须终止预热页 ──────
-// 这一档此前**零行为覆盖**（全部冒烟都把 liveBootDelay 钉成 0，见 selSeed 的注释），
-// 所以它的两条不变量都没被判据钉住：
+// 这一档必须有自己的行为覆盖（其余冒烟都把 liveBootDelay 钉成 0，见 selSeed 的注释），
+// 它的两条不变量都要被判据钉住：
 //   ① `liveBootDelay` 是**上限**不是固定等待：延迟期照常加载（这正是这一档存在的理由），
 //      但首帧一就绪就该立刻换屏 —— 否则出帧快的壁纸白等满 N 秒。
 //   ② 延迟期那个未上屏的 iframe 是**正在跑的渲染页**：换壁纸时必须显式终止
@@ -1815,8 +1813,8 @@ await runScenario('Q3. 启动等待期切走：预热页被**终止**、零孤�
     t.persistedId() === 'v' && !liveIframeOf(t), 'id=' + t.persistedId());
 });
 
-// ── R：P3-23 的 A 类候选（默认值分支此前零覆盖）──────────────────────────────
-// 这三个键的**默认值**从来没在任何行为夹具里出现过（见 `test/tools/audit-fixture-coverage.mjs`
+// ── R：默认值分支的行为覆盖 ──────────────────────────────────────────────────
+// 这三个键的**默认值**没在任何别的行为夹具里出现（见 `test/tools/audit-fixture-coverage.mjs`
 // 的 A 类清单）—— 默认值恰恰是"不写即生效"的那条路，最容易被夹具集体绕开。
 // 每个用例都断言**默认值那条分支**的行为，并配一条反向（非默认值）对照。
 await runScenario('R1. 音量映射：默认 0 ⇒ 静音；0.6 ⇒ 0.6；总开关关 ⇒ 0', {
@@ -1878,10 +1876,10 @@ await runScenario('R3b. 轮播开着但列表全不可用 ⇒ 关掉轮播（不
     sel.rotationEnabled === false, 'enabled=' + sel.rotationEnabled);
 });
 
-// ── R4：遮挡暂停里 `pauseOnBlur` 那一档（P3-23 最后一个 A 类候选）──────────────
+// ── R4：遮挡暂停里 `pauseOnBlur` 那一档 ───────────────────────────────────────
 // 为什么焦点必须**可切换**：`hasFocus` 若写死 `() => true`，判据
-// `pauseOnBlur && !document.hasFocus()` 就永远不成立、两个分支都不可达 —— P3-23 的 A 类
-// 候选正是这么漏掉的。事件走 window（客户端在 apply 里对 ["visibilitychange","blur","focus"]
+// `pauseOnBlur && !document.hasFocus()` 就永远不成立、两个分支都不可达（零覆盖仍绿）。
+// 事件走 window（客户端在 apply 里对 ["visibilitychange","blur","focus"]
 // 注册 onOcclusionChange → emit → syncLayers → applyVideoPlayback ⇒ `if (!isEffectivelyPlaying()) video.pause()`）。
 await runScenario('R4. 失焦 + pauseOnBlur=true ⇒ 暂停；夺回焦点 ⇒ 恢复', {
   wallpapers: [wallpaperV],

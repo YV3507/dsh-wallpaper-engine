@@ -44,6 +44,10 @@ documentation**; mechanisms do not live here.
 >
 > What was removed is **only** the document / comment / ledger-prose kind; the guards that read **code**
 > (reachability, retired lines, orphan declarations, module layout) **stay** and were not relaxed by this.
+> **Before adding an assertion, run it through the four questions in
+> [`adr/0007`](../adr/0007-machine-checks-target-code-not-prose.md)** — especially question 4:
+> a user-facing copy literal inside an assertion (`includes('some sentence')`) is itself the signal to
+> change something; the way out is a translatable `weT(...)` key, or removal.
 
 | # | Rule | Backed by |
 |---|---|---|
@@ -108,6 +112,7 @@ the header format, and **why not to write drifting numbers** (the same conventio
 | [0004](../adr/0004-two-tier-guard-verification.md) | Guards are split into hard / soft tiers by **what a failure means** |
 | [0005](../adr/0005-media-loopback-origin.md) | Wallpaper media is served from a **dedicated loopback origin** the host opens itself |
 | [0006](../adr/0006-comment-discipline-as-written-convention.md) | Comment and document discipline became a **pure writing convention**, and the document-class machine guards were removed |
+| [0007](../adr/0007-machine-checks-target-code-not-prose.md) | Machine checks target **code and disk, not prose** (a four-question test plus keep/remove lists) |
 
 ## In progress (`wip/`, Chinese)
 

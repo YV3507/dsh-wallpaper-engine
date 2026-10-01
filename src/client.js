@@ -331,8 +331,8 @@ function useStore() {
 }
 
 // ── 改 store 的三个入口（P2-10 后半 + F3 阶段 2）────────────────────────────
-// "赋值 + persistSelection()" 这两件事此前被手抄了 56 次 —— 漏掉 persist 就是
-// "改了不生效 / 刷新后回退"，而且没有任何判据会红。收成三个入口后：
+// "赋值 + persistSelection()" 必须成对，而手抄这份成对关系时**漏掉 persist 就是静默失效**
+// （"改了不生效 / 刷新后回退"，且没有任何判据会红）。收成三个入口后：
 //   · setSetting(field, value)   改**设置**并落盘（唯一入口）
 //   · setFontValues(patch)       改**字体值**并落盘（唯一入口；真源是 fontsets/<id>.json，
 //     见 src/fontset-store.js —— 这六个键已退出 settings 的持久化白名单）
@@ -1355,7 +1355,7 @@ function releaseLayerMedia(node) {
   }
   // live / web 层的 <iframe> 才是大头：Chromium 实测：「从 DOM 摘除的 iframe 其 JS
   // 世界仍在跑」（contentWindow 已 null 而 setInterval 照跳）—— 只 remove() 等于把它
-  // 交给 GC，回收时序不可控，每个渐变周期都可能多留一个活着的渲染页（评审 P2-I）。
+  // 交给 GC，回收时序不可控，每个渐变周期都可能多留一个活着的渲染页。
   // 显式导航到 about:blank 终止它（与 disposeMediaEl 的 iframe 分支同一手法）。
   if (typeof node.querySelectorAll !== "function") return; // 精简 mock：无选择器即跳过
   for (const f of node.querySelectorAll("iframe")) {
@@ -1509,8 +1509,8 @@ let mediaNpKey = "";
 let mediaFetchBusy = false;
 let mediaNpTick = 0;
 // 封面：宿主给的是插件路由 /now-playing/artwork，**沙箱网页壁纸取不到它** ——
-// DSH Desktop 的能力头栅栏按 frame.origin 放行，不透明源一律 403（就是这次黑屏
-// 事故的同一个栅栏）。所以由主页面（同源、有权限）取回、降采样成 **data URL**
+// DSH Desktop 的能力头栅栏按 frame.origin 放行，不透明源一律 403（同一条栅栏也挡住黑屏
+// 那条路）。所以由主页面（同源、有权限）取回、降采样成 **data URL**
 // 再交给渲染页：壁纸拿到的是一张自包含的图，不依赖任何源，也能随便画进 canvas。
 // 降采样到 512²：壁纸上的封面通常只有几百像素，顺带把几 MB 的原图压到几十 KB。
 const MEDIA_THUMB_MAX = 512;
@@ -1813,7 +1813,7 @@ function liveViewportAspect(frame) {
 // 清除槽位（同面板「清除 GPU 帧」的语义：宿主 200 + removed:false 也算没删掉，
 // 见其在 P2-L 的处理 —— 假成功会让画面纹丝不动而没有任何反馈）。
 /**
- * 宿主回 200 也可能没删掉（unlink 失败时 `removed:false`，评审 P2-L）：只判 HTTP 状态
+ * 宿主回 200 也可能没删掉（unlink 失败时 `removed:false`）：只判 HTTP 状态
  * 会把「假成功」当清除 —— 面板行消失、提示已清除，而画面没变、也没有任何错误提示。
  * 旧宿主无该字段 ⇒ 按 HTTP 状态判（`removed !== false` 即为真）。
  *
@@ -2218,7 +2218,7 @@ function releaseRotationAudioGate() {
 
 // ── 场景包内独立音频（scene-audio）────────────────────────────────────────
 // 长安雪等场景把 BGM/音效以独立音频文件（mp3/ogg…）放在 scene.pkg 里，由 WE
-// 运行时的音频组件播放；静帧路径没有播放器，此前完全无声。这里用独立
+// 运行时的音频组件播放；静帧路径**没有播放器**，不补这一步就是无声。这里用独立
 // <audio> 元素补上：宿主 /scene-audio 路由抽出音频（最大者当 BGM），音量与
 // 总开关复用视频壁纸同一套设置（默认 0 = 静音）。
 // 与 sceneVideo 互斥：有内嵌 MP4 时视频自带音轨，避免双声道叠加。
@@ -3115,7 +3115,7 @@ const officialColorOf = (tokens) => {
         gpuFrameAspectKnown.delete(token); // 槽位已空：几何记忆一并作废
         // 请求期间用户可能已经切走：槽位状态属于发起时那张壁纸，URL 重写/渲染恢复
         // 只对「还是它」的情况做（同 A4 的身份校验；否则会把当前壁纸的 URL 改写成
-        // 「当前帧 URL + 旧壁纸的档位」→ 画面与面板读数不一致，评审 P2）。
+        // 「当前帧 URL + 旧壁纸的档位」→ 画面与面板读数不一致）。
         if (String(selection.id || "") !== wid) { gpuFrameUi.busy = false; emit(); return; }
         gpuFrameUi.busy = false;
         const variant = Number(selection.frameVariants && selection.frameVariants[wid]) || 0;
@@ -3184,7 +3184,7 @@ const officialColorOf = (tokens) => {
       map[wid] = 4;
       selection.frameVariants = map;
       // 上传可能花掉秒级（截屏多 MB）：期间用户切走就只记账到发起时那张壁纸，
-      // 不改当前壁纸的 URL（否则当前壁纸会被套上旧壁纸的档位 4，评审 P2）。
+      // 不改当前壁纸的 URL（否则当前壁纸会被套上旧壁纸的档位 4）。
       if (String(selection.id || "") !== wid) { persistSelection(); emit(); return; }
       // 落盘只能挂在这条分支上（不能挂在下面那个 `if` 里）：`setSetting("url", …)` 只在有
       // `sceneFrameUrl` 时才发，而上面刚写的 `customFrames` / `frameVariants` 是**客户端持久化字段**
@@ -3339,7 +3339,7 @@ const officialColorOf = (tokens) => {
   // 面板标记搬去了 `src/picker-props-panel.js`（构建期内联回本作用域）。这里只做**组装**：
   // 面板状态（开关 / token / 加载态 / 错误 / 属性表 / 实时渲染是否接管）与三个动作
   // （该重拉时重拉、改一个属性、恢复默认）都留在本文件 —— 状态与处理器是 ctx 的**供给方**，
-  // 渲染器只拿值 + 回调（同模态框那条契约）。`ensureDefs` 里的判定就是原来内联的那一句：
+  // 渲染器只拿值 + 回调（同模态框那条契约）。判定就一句：
   // token 变了且不在加载中才重拉。
   function renderUserPropsPanel() {
     return renderPickerPropsPanel({
@@ -3467,7 +3467,7 @@ const officialColorOf = (tokens) => {
       }, t.label)),
     ),
     React.createElement("div", { className: "we-tabpanel", role: "tabpanel" },
-      // 库视图是**页内下钻**（不再是传送门弹框）：pickerOpen 时页签面板整区切换成
+      // 库视图是**页内下钻**：pickerOpen 时页签面板整区切换成
       // 壁纸网格，ESC / 顶部「返回」退出，切页签也会退出（见 switchTab）。
       sel.pickerOpen ? renderPickerModal({
         sel, closePicker, current, playbackLive, playableList, hiddenList, hiddenPageView, normalPage,
@@ -4216,18 +4216,17 @@ function apply(ctx) {
         disposePreparedMedia();
         // 关掉音频闸并退役渐变中的旧层：禁用/重挂时旧层不能被留在屏上等退役定时器
         // （≤1.3s 的可见残留），闸也不该跨过一次重挂活着（准备链的 BGM 起播会被它
-        // 推迟到那个定时器触发为止）。评审提出的「重挂后静音卡死」在真 DOM 语义下
-        // 不成立（那是 mock 的 getElementById 返回了已 detach 的旧层所致），但这两条
-        // 收尾本身是正确性要求。
+        // 推迟到那个定时器触发为止）。这两条收尾本身是正确性要求：跨过一次重挂活着的闸
+        // 会让准备链的 BGM 起播被推迟，而留在屏上的旧层要等退役定时器（≤1.3s 可见残留）。
         // 先清闸、再退役渐变层：卸载不是「渐变结束」，走放行会 restoreNodeAudio →
-        // syncSceneAudio → play()，刚被闸压住的场景 BGM 反而在禁用时响一下（评审
-        // P3-②，已被 smoke 场景 H 锁定）。清掉闸后 retireFadingLayer 内部的
-        // releaseRotationAudioGateFor 直接早退；场景音频元素也一并拆掉（此前禁用后
-        // 正在播的 BGM 从不停止）。
+        // syncSceneAudio → play()，刚被闸压住的场景 BGM 反而在禁用时响一下（smoke 场景 H
+        // 锁定）。清掉闸后 retireFadingLayer 内部的
+        // releaseRotationAudioGateFor 直接早退；场景音频元素也一并拆掉 —— 不拆的话
+        // 禁用后正在播的 BGM 不会停止。
         rotationAudioGate = null;
         retireFadingLayer();
         stopSceneAudioEl();
-        cancelLiveFrameBackfill(); // 卸载后不再发 HEAD/PUT（评审：此前会漏一次）
+        cancelLiveFrameBackfill(); // 卸载后不得再发 HEAD/PUT（少这一步就漏一次）
         stopLiveWatch();
         cancelLiveMount("unload"); // 延迟期那个正在预热的渲染页也要终止（否则卸载后仍在后台跑）
         abortTranscodeUpgrade(); // 含 clearUpgradePoll + AbortController.abort（否则卸载后 500ms 轮询永久泄漏）
@@ -4260,8 +4259,8 @@ function apply(ctx) {
 
   // 1b. F1「文字颜色角色」令牌层：后台轮询 theme 服务（启动竞态：实测 7ms 时还没有、
   //     325ms 才有），拿到后按设置给每个角色上色；拿不到就**什么都不做** —— 全局
-  //     字体层已删，`#we-font-patch` 不再是回落通道，此时角色色就是不上色
-  //     （红线 7 的双通道只剩令牌层这一条腿）。
+  //     令牌层是**唯一**的上色通道：`#we-font-patch` 那类全局回落通道已不存在，
+  //     所以拿不到服务时角色色就是不上色，而不是换一条腿顶上。
   //     - 不声明 `inject: ["theme"]`：缺服务时声明式依赖会让插件 park（F0 A7）。
   //     - 首次写入前先取宿主墨色基线，否则退出契约会把我们的颜色当宿主原值快照。
   //     - 不监听配色变化重注册：值给的是 {light,dark} 对，配色切换由服务自己换值。

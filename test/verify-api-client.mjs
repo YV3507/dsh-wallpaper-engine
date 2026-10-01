@@ -1,5 +1,5 @@
 /**
- * verify-api-client.mjs — 宿主 API 客户端（P2-9）的守卫。
+ * verify-api-client.mjs — 宿主 API 客户端的守卫。
  *
  * 两件事：
  *   ① **不变量**：业务代码**零裸 `fetch(`** —— 新代码必须走 src/api-client.js（单一出入口）。
@@ -234,9 +234,8 @@ console.log('\n⑥ 出入口已登记进构建清单、并真的进了产物');
 // ── ⑦ Response 替身必须给出 `status`（`ok` 的唯一来源）──────────────────────
 // **不变量**：`api-client` 的 `ok` 由 `response.status` 推出；替身若只写
 // `{ ok: true, json }`（没有 status），status 被读成 0 ⇒ **一律判失败**。
-// 症状却是"清单加载失败 → picker 按钮不渲染"，与网络层完全看不出关系（**实测**：该形态
-// 曾导致一整批改写被整体回退）。所以把"替身形态"钉在这里：**同时带 `ok:` 与 `json:`
-// 的替身对象必须带 `status:`**。
+// 症状却是"清单加载失败 → picker 按钮不渲染"，与网络层完全看不出关系。所以把"替身形态"
+// 钉在这里：**同时带 `ok:` 与 `json:` 的替身对象必须带 `status:`**。
 console.log('\n⑦ Response 替身必须带 status');
 {
   const walk = (dir, out = []) => {

@@ -2,16 +2,14 @@
 /**
  * 宿主容器「上色必须做状态限定」护栏 (host-container paint scope guard)
  *
- * 背景（上游 issue #107，0.1.7 回归）：宿主右栏面板容器 `[data-sidebar-right-panel]`
- * 在**关闭态**仍然占着宽度 —— 0.1.7 把隐藏方式改成"子元素 `visibility:hidden` + 沿
- * `--dsh-sidebar-width` 滑出"，容器自己**没有背景**，靠"没背景所以不显形"这个前提工作。
- * 而本插件无条件给这个容器刷了玻璃底/近不透明底 ⇒ 关闭态在对话区右侧露出一块中灰板
- * （控制台零报错，用户会误判成主题/皮肤问题）。
+ * 背景：宿主右栏面板容器 `[data-sidebar-right-panel]` 在**关闭态**仍然占着宽度 —— 宿主把
+ * 隐藏做成"子元素 `visibility:hidden` + 沿 `--dsh-sidebar-width` 滑出"，容器自己**没有
+ * 背景**，靠"没背景所以不显形"这个前提工作。而本插件无条件给这个容器刷了玻璃底/近不透明底
+ * ⇒ 关闭态在对话区右侧露出一块中灰板（控制台零报错，用户会误判成主题/皮肤问题）。
  *
- * 0.1.5 的隐藏方式不同（容器**自己** `visibility:hidden` + `translate(100%)` 完全滑出，
- * 见本机 `dsh-client-ui-sidebar-right@0.1.5-rc.2` 源码），所以当时刷底看不见 —— 这既是
- * 回归的成因，也说明**加限定是向后兼容的 no-op**：`data-sidebar-right-open` 在 0.1.5-rc.2
- * 上就已存在且语义相同（`expanded || void 0`）。
+ * 这个前提有边界：容器**自己** `visibility:hidden` + `translate(100%)` 完全滑出时，刷底
+ * 看不见 —— 所以限定必须认宿主**当前**给的那套标记，而不是"容器关着就没事"。加限定同时是
+ * 向后兼容的 no-op：`data-sidebar-right-open` 由宿主自己给出，语义就是 `expanded || void 0`。
  *
  * 本护栏把规则固化：**凡是给 `[data-sidebar-right-panel]` 上色的选择器，都必须带
  * `[data-sidebar-right-open]`**。它防的是"类"而不是这一次 —— 新增一条刷底规则忘了限定，
@@ -34,7 +32,7 @@ function check(name, ok, detail) {
 
 // 注入的样式表：与 verify-readability 同法求值（选择器本身不含插值，但保持同一来源）。
 // ⚠️ 锚点**锚在行首且容忍缩进**（产物把内联模块整段缩进过）：否则注释/散文里出现同样的
-//    声明字面量会把锚点带偏，取出的"模板"会从注释一直吃到文件尾（本仓真踩过：H0 报"裸反引号 489"）。
+//    声明字面量会把锚点带偏，取出的"模板"会从注释一直吃到文件尾。
 const CSS_BODY = (SRC.match(/^\s*const CSS = `([^`]*)`;/m) || [])[1] || '';
 const num = (re) => Number((SRC.match(re) || [])[1]);
 let CSS = '';

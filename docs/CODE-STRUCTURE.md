@@ -20,7 +20,7 @@
 | **代码放哪 / 结构 / 边界** | **本文** |
 | 某个设计为什么是这样 | [`adr/`](./adr/) |
 | 怎么加一个路由 / 设置项 / 浏览器端模块 / 守卫 | [`DEV-GUIDE.md`](./DEV-GUIDE.md) |
-| 跑测试、写测试、两档判据 | [`DEV-GUIDE.md`](./DEV-GUIDE.md) §跑与写 |
+| 跑测试、写测试、两档判据 | [`DEV-GUIDE.md`](./DEV-GUIDE.md) §4 |
 | 权限与升级 | [`UPGRADING.md`](./UPGRADING.md) · [`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md) |
 
 ---
@@ -114,6 +114,8 @@ graph LR
     IDX --> R4["lib/routes/scene-serve.js<br/>渲染页 / 壁纸文件 / 媒体源诊断"]
     IDX --> R5["lib/routes/fontsets.js<br/>字体集"]
     IDX --> R6["lib/routes/upload.js<br/>上传"]
+    IDX --> R7["lib/routes/about-qr.js<br/>「关于」页二维码（随包 PNG 直出）"]
+    IDX --> R8["lib/routes/github-stars.js<br/>仓库 star 数（带缓存；全插件唯一出站请求）"]
     IDX --> M1["lib/media/supervisor.js<br/>中间件生命周期"]
     IDX --> M2["lib/media/provision.js<br/>按需下载 + 校验"]
     IDX --> M3["lib/media/legacy.js<br/>内置回落实现"]
@@ -196,12 +198,14 @@ graph LR
      `SRC_DIR_MIN_MEMBERS`（`test/verify-module-layout.mjs`），本文不抄那个数字；
    - ② **有自己的一份权威文档**，且那份文档的**一级标题**点名这个目录 —— 唯一样本是
      `src/font/`（[`FONT-SYSTEM.md`](./FONT-SYSTEM.md) 的一级标题即 `# src/font/ —— 字体系统`）。
+     ⚠️ **这一条是纯约定，无守卫**：原先 `verify-module-layout` ⑥ 有一条"H1 点名"判据，
+     已按 [`adr/0007`](./adr/0007-machine-checks-target-code-not-prose.md) 撤除 ——
+     它守的是标题措辞，而且**空壳文档（标题对、正文空）照样通过**，守的是形式不是实质。
    **为什么门槛这么高**：`src/` 模块之间**没有 `import`**（§5 第 4 条），构建期被拍平进同一个工厂作用域
    ⇒ 目录在这一侧**不承载任何机器含义**：没有解析器、也没有守卫能验证"层次"。它唯一的作用是
    "让人一眼看出这几块是一伙的"，而只有一两个文件的目录做不到这件事，只多一层路径与一次搬动。
    反过来 `lib/` 的目录是**承重**的（Node 真解析相对说明符、`files` 逐文件登记）⇒ 两侧准入条件
-   不同，别互抄。判定：`test/verify-module-layout.mjs` ⑥『`src/` 子目录准入』（成员数 + 一级标题
-   点名，各带负对照）。
+   不同，别互抄。**① 由 `verify-module-layout` ⑥ 判（带负对照），② 靠约定。**
 2. **两侧都要用吗？**（同一份数据/规则同时被宿主与客户端消费）
    → 放 `lib/`（宿主 ES `import`）**并**登记进 `INLINE_MODULES`（客户端构建期内联）。
    这就是 `lib/settings-schema.js` 的形态（设置键单一真源），因此它同时受 §5 全部约束（浏览器安全）。
@@ -222,8 +226,17 @@ graph LR
    → **构建与发布期脚本 → `scripts/`**（只放 `build-client.mjs` / `prepare.mjs` 这类用户与发布流程真的会跑的）。
    ⚠️ `test/tools/` 比 `test/` **深一层** ⇒ 用 `import.meta.url` 推仓库根时要退**两层**
    （`verify-module-layout` 的『相对说明符必须解析到真实文件』有断言钉住）。
+6. **是设计源资产吗？**（原始素材，不进发布包）
+   → `assets/<用途>/`，与代码同仓、**不进 `files`**；运行时要用的那版是**派生物**，放
+   `lib/<用途>/` **并进 `files`**（`verify-package-files` P1 盯着）。
+   现状两处：`assets/mascot/` 与 `assets/about/`（二维码源图 → 裁码后的 `lib/about/*.png`，
+   由 `lib/routes/about-qr.js` 直出）。
+   ⚠️ 这类目录里的 `README.md` 是**该目录的自述**（替代不了文件头注释时就写在那里：派生口径、
+   替换素材的步骤、"源资产不进包"这条不变量），**与 `lib/**` 的 `README.md` 同类**；
+   它们**有意不进 `docs/` 的生命周期规则**（不是常青文档，也不随版本演进），
+   但**必须能从别处走到** —— 例如 `assets/about/README.md` 由根 `README.md` 的「联系方式」段引用。
 
-**一句话版**：*浏览器手写 → `src/` 且登记内联；两侧共用 → `lib/` 且登记内联；只有宿主 → `lib/` 且登记 `files`；第三方 → vendored 子目录；守门 → `test/`；工具 → `test/tools/`；用户脚本 → `scripts/`。*
+**一句话版**：*浏览器手写 → `src/` 且登记内联；两侧共用 → `lib/` 且登记内联；只有宿主 → `lib/` 且登记 `files`；第三方 → vendored 子目录；守门 → `test/`；工具 → `test/tools/`；用户脚本 → `scripts/`；设计源资产 → `assets/`（派生物进 `lib/`）。*
 
 **反例（不要这么做）**
 - 把"顺手拆出来的工具函数"放 `lib/`，然后又内联进浏览器 —— 边界就从这里开始烂。
@@ -282,7 +295,7 @@ graph LR
 > **只有本表在册的规则才有机器判定。** 不在表里的规则**不是"没有规则"**，而是靠约定成立 ——
 > 见前言与 [`adr/0006`](./adr/0006-comment-discipline-as-written-convention.md)：
 > **读代码的守卫照留，读文档散文的守卫不加**。
-> 两档判据与逐条约定见 [`DEV-GUIDE.md`](./DEV-GUIDE.md) §跑与写。
+> 两档判据与逐条约定见 [`DEV-GUIDE.md`](./DEV-GUIDE.md) §4。
 
 | 规则 | 现状 | 缺口 |
 |---|---|---|
@@ -293,7 +306,7 @@ graph LR
 | **`src/` 无孤儿**：除 `src/client.js` 外每个文件都必须在 `INLINE_MODULES` 里 | ✅ `test/verify-module-layout.mjs` ①（全量扫描 + 负对照） | — |
 | **依赖方向单向**：`lib/**` 不得 import `src/**` | ✅ 同守卫 ②（零容忍，不需要棘轮） | — |
 | **共享内核白名单**：允许被内联进浏览器的 `lib/**` 文件只许来自一张显式清单（现状见守卫里的 `SHARED_KERNEL_WHITELIST`） | ✅ 同守卫 ③（再加一条必须改清单 ⇒ 共享是**决策**而不是顺手） | — |
-| **`src/` 子目录准入**：成员数达门槛，且被一份常青文档的一级标题点名（§4 第 1 条的两条门槛） | ✅ 同守卫 ⑥『`src/` 子目录准入』（两条判据各带负对照 + 正对照） | — |
+| **`src/` 子目录准入（① 成员数）**：`.js` 计数达 `SRC_DIR_MIN_MEMBERS`（§4 第 1 条门槛之一；② "有自己的一份权威文档"是**约定，无守卫**） | ✅ 同守卫 ⑥（带负对照） | — |
 | **相对说明符必须解析到真实文件**：搬动代码后相对路径按新位置重解析（动态 `import()` 的失败是运行期、且常被吞成业务错误 ⇒ 必须静态判定） | ✅ 同守卫 ④『相对说明符必须解析到真实文件』（Node 式解析 + 负对照） | — |
 | **类型面与代码同源**：`lib/types/*.d.ts` 必须与实现一致 | ✅ `test/verify-types.mjs`（从实现派生键集断言类型覆盖） | — |
 
@@ -302,6 +315,9 @@ graph LR
 | 曾被守的规则 | 撤除原因 |
 |---|---|
 | **本文散文里的数字必须现算**（内联模块计数 == 构建清单条数） | 守的是**措辞**：句子一改写，判据就从"复算数字"退化成"守住那两句话"，开始拦编辑而不是拦腐化。数值改由**符号引用**承担。见 [`adr/0006`](./adr/0006-comment-discipline-as-written-convention.md) |
+| **`src/` 子目录被某份常青文档的一级标题点名**（§4 第 1 条门槛②） | 守的是**标题措辞**，且**空壳文档照样通过** ⇒ 守形式不守实质。门槛② 改由约定承担。见 [`adr/0007`](./adr/0007-machine-checks-target-code-not-prose.md) |
+| **源码里的文案片段**（状态行三分支措辞、提示语、`ESC 返回`、四字状态片段、设置入口的 `/设置\|Settings/i` 锚点） | 第 1/4 问：判定对象是**人的措辞**。其中设置入口那条更糟——它的失败信号要求"保持原样"，而原样正是那个 locale 缺陷 ⇒ 判据站在修复的对立面。改判**机制**（三分支且每支是 `weT(...)`；锚点候选集存在 + 门控/排除/重入锁在位）。见 [`adr/0007`](./adr/0007-machine-checks-target-code-not-prose.md) |
+| **一次性清理的验收判据**（退役线里的"笔误「秡」不再出现"） | 修完即**恒真**；按 §写作纪律 5「删完清空即为零残留」，收口时就该撤。见 [`adr/0007`](./adr/0007-machine-checks-target-code-not-prose.md) |
 
 **本文怎样才算"规范"**：§5 的硬约束与 §6 在册的守卫同时成立即可 —— 两者现在都成立。
 升为规范的**过程记录**（当时的四条偏离如何逐条收敛）属于历史，已归档在

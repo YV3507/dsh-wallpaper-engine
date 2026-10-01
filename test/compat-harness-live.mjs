@@ -4,8 +4,9 @@
  *
  * 与 verify 链的分工：verify 链用 mock webServer 测插件自己的契约；本脚本把插件
  * **装进真实的 @deepseek-ai/dsh 并启动它**，断言宿主路由在真实 harness 里注册可达、
- * 插件树无加载失败 —— 这条集成面此前零覆盖。它需要网络（pnpm 装 profile）与已安装的
- * harness，因此只由 `.github/workflows/harness-compat.yml` 调用；本地跑法见 docs/DEV-GUIDE.md。
+ * 插件树无加载失败 —— 这条集成面在 mock webServer 上测不出来（它要的是真 harness 的注册与加载链）。
+ * 它需要网络（pnpm 装 profile）与已安装的 harness，因此只由 `.github/workflows/harness-compat.yml`
+ * 调用；本地跑法见 docs/DEV-GUIDE.md。
  *
  * 隔离与第三方边界（两条都是硬约束）：
  *   · HOME / USERPROFILE 指向隔离目录 ⇒ 干净 profile（只装本插件），不碰机器上的真实

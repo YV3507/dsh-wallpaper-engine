@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 /**
- * verify-contracts.mjs — **声明出来的契约必须与代码一致**（本轮审计把两类"没人守的契约"归到
- * 账本 P3-12 与 P3-21）。
+ * verify-contracts.mjs — **声明出来的契约必须与代码一致**：两类"没人守的契约"归在这里。
  *
  * ① **运行时下限**：`package.json` 的 `engines.node`。宿主代码用了全局 `fetch`（Node ≥18）与
  *    `AbortSignal.timeout`（≥17.3），而这两个 API 缺失时的失败**是被吞掉的**（回落成"没有封面"，

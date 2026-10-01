@@ -2,10 +2,9 @@
  * panel-tabs.js — 面板页签的**渲染器**（七个域：壁纸 / 外观 / 吉祥物 / 效果 / 声音 / 高级 / 关于，
  * 组合成五页签 壁纸库 / 外观 / 播放 / 系统 / 关于，装配点见 src/client.js 的 renderActiveTab）。
  *
- * 为什么单独一个文件：这些渲染器此前是 `WallpaperPicker` 内部的六个闭包（夹在 2,400 行的
- * 组件体里）。它们**读**面板状态、**调**面板处理器，但自己不持有状态 —— 正是最适合搬出去的
- * 一层。搬出后：面板组件体只剩"状态 + 处理器 + 装配"，页签怎么画看这里。
- * （「关于」是后来加的第七个渲染器：它连面板状态都不读 —— 静态文案 + 两张内联二维码。）
+ * 为什么单独一个文件：这些渲染器**读**面板状态、**调**面板处理器，但自己不持有状态 ——
+ * 正是最适合独立出去的一层。这样面板组件体只剩"状态 + 处理器 + 装配"，页签怎么画看这里。
+ * （「关于」是唯一连面板状态都不读的渲染器：静态文案 + 两张随包二维码。）
  *
  * 契约（构建期由 scripts/build-client.mjs 内联进 bundle 的工厂作用域，"外部作用域"=
  * 同一 prelude / src/client.js 的顶层）：
@@ -261,8 +260,8 @@
         ),
         // 选片走**页内下钻**（与「选择壁纸」同一套库视图）：点按钮进库浏览，
         // 卡片点击 = 加入/移出草稿（pickerDraft），顶部提示已选数；「返回」回编辑器。
-        // 编辑器的内联多选网格（editor-grid + 分页）已退役 —— 大库在 24px 缩略图里
-        // 翻页选片不可用，全尺寸浏览 + 搜索/过滤才是选片的正确形态。
+        // 这里**只有一行入口按钮、没有内联网格**：大库在 24px 缩略图里翻页选片不可用，
+        // 全尺寸浏览 + 搜索/过滤才是选片的正确形态。
         React.createElement("div", { className: "we-picker__row" },
           React.createElement("button", {
             className: "we-picker__btn we-picker__btn--primary", type: "button",
@@ -962,7 +961,7 @@
           sel.sceneLive !== false, (e) => {
           setSetting("sceneLive", e.target.checked);
           setSetting("sceneLiveFailures", {});
-          prepareLiveTimeouts.clear(); // 显式重试：准备期 live 超时冷却一并清零（评审 P1）
+          prepareLiveTimeouts.clear(); // 显式重试：准备期 live 超时冷却一并清零
           clearLiveSessionFailures(); // 显式重试：**会话内**的传输类软失败同样要清（它不在设置里）
           syncLayers();               // key 的 live 段变化 → 层重建（升级/降级）
           syncSceneAudio(selection);  // 音频互斥状态随形态切换

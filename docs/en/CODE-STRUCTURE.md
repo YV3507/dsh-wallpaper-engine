@@ -127,6 +127,8 @@ graph LR
     IDX --> R4["lib/routes/scene-serve.js<br/>render page / wallpaper files / media-origin probe"]
     IDX --> R5["lib/routes/fontsets.js<br/>font sets"]
     IDX --> R6["lib/routes/upload.js<br/>uploads"]
+    IDX --> R7["lib/routes/about-qr.js<br/>the About tab's QR codes (bundled PNGs served directly)"]
+    IDX --> R8["lib/routes/github-stars.js<br/>repository star count (cached; the plugin's only outbound request)"]
     IDX --> M1["lib/media/supervisor.js<br/>middleware lifecycle"]
     IDX --> M2["lib/media/provision.js<br/>on-demand download + verification"]
     IDX --> M3["lib/media/legacy.js<br/>built-in fallback implementation"]
@@ -217,6 +219,11 @@ Ask five questions in order; stop at the first hit:
      (`test/verify-module-layout.mjs`); this document does not copy the number;
    - ② **it has an authoritative document of its own**, whose **top-level heading** names the directory —
      the only instance is `src/font/` ([`FONT-SYSTEM.md`](../FONT-SYSTEM.md)'s H1 is `# src/font/ —— 字体系统`).
+     ⚠️ **This one is a pure convention, with no guard**: `verify-module-layout` ⑥ used to carry an
+     "H1 names it" assertion, removed per
+     [`adr/0007`](../adr/0007-machine-checks-target-code-not-prose.md) — it guarded the *wording of a
+     heading*, and **an empty-shell document (right heading, empty body) passes it anyway**, so it
+     guarded form rather than substance.
    **Why the bar is this high**: `src/` modules do not `import` each other (§5 item 4) — they are
    flattened into one factory scope at build time ⇒ a directory carries **no machine meaning** on this
    side: there is no resolver and no guard that could verify "layering". Its only job is to let a reader
@@ -224,8 +231,7 @@ Ask five questions in order; stop at the first hit:
    while still costing a path segment and a move.
    On the `lib/` side directories **carry weight** (Node really resolves relative specifiers, and `files`
    registers file by file) ⇒ the admission conditions differ; do not copy one side's rules to the other.
-   Judged by: `test/verify-module-layout.mjs` section ⑥『`src/` 子目录准入』(member count + H1 naming,
-   each with a negative control).
+   **① is judged by `verify-module-layout` ⑥ (with a negative control); ② rests on convention.**
 2. **Do both sides need it?** (the same data/rules consumed by host and client)
    → put it in `lib/` (host ES `import`) **and** register it in `INLINE_MODULES` (client build-time
    inlining). This is the shape of `lib/settings-schema.js` (the single source of truth for settings
@@ -254,10 +260,23 @@ Ask five questions in order; stop at the first hit:
    ⚠️ `test/tools/` is **one level deeper** than `test/` ⇒ when deriving the repo root from
    `import.meta.url` you must go up **two** levels (pinned by `verify-module-layout`'s
    『相对说明符必须解析到真实文件』).
+6. **Is it design source material?** (raw assets, not shipped)
+   → `assets/<purpose>/`, in-repo but **not in `files`**; the version the plugin actually serves is a
+   **derived artifact** under `lib/<purpose>/`, which **does** go in `files` (P1 of
+   `verify-package-files` watches it).
+   Two today: `assets/mascot/` and `assets/about/` (QR-code sources → the code-area crop in
+   `lib/about/*.png`, served by `lib/routes/about-qr.js`).
+   ⚠️ A `README.md` in such a directory is **that directory's own account** (write it there when a
+   file header will not do: the derivation recipe, the steps for swapping the asset, and the
+   "sources are not shipped" invariant) — the **same kind of thing as a `lib/**` `README.md`**.
+   They are **deliberately outside `docs/`'s lifecycle rules** (they are not evergreen documents and
+   do not evolve with versions), but they **must be reachable from somewhere** — e.g.
+   `assets/about/README.md` is linked from the root `README.md`'s contact section.
 
 **One-liner**: *hand-written browser code → `src/` and register the inline; used by both sides → `lib/`
 and register the inline; host only → `lib/` and register in `files`; third-party → a vendored
-subdirectory; guards → `test/`; tools → `test/tools/`; user scripts → `scripts/`.*
+subdirectory; guards → `test/`; tools → `test/tools/`; user scripts → `scripts/`; design sources →
+`assets/` (with the derived artifact under `lib/`).*
 
 **Anti-patterns (don't do these)**
 - Putting a "utility function I extracted along the way" in `lib/` and then inlining it into the browser
@@ -349,7 +368,7 @@ Step-by-step recipes (including "what happens if you get it wrong") are in [`DEV
 | **No `src/` orphans**: apart from `src/client.js`, every file must be in `INLINE_MODULES` | ✅ `test/verify-module-layout.mjs` ① (full scan + negative control) | — |
 | **One-way dependency direction**: `lib/**` must not import `src/**` | ✅ same guard ② (zero tolerance, no ratchet needed) | — |
 | **Shared-kernel allowlist**: the only `lib/**` file allowed to be inlined into the browser comes from an explicit list (see `SHARED_KERNEL_WHITELIST` in the guard) | ✅ same guard ③ (adding one requires editing the list ⇒ sharing is a **decision**, not a convenience) | — |
-| **`src/` subdirectory admission**: member count reaches the threshold and an evergreen document's top-level heading names it (the two bars in §4 item 1) | ✅ same guard ⑥『`src/` 子目录准入』(both criteria with negative *and* positive controls) | — |
+| **`src/` subdirectory admission (① member count)**: the `.js` count reaches `SRC_DIR_MIN_MEMBERS` (one of the two bars in §4 item 1; ② "it has an authoritative document of its own" is **convention, with no guard**) | ✅ same guard ⑥ (with a negative control) | — |
 | **Relative specifiers must resolve to real files**: after moving code, relative paths are re-resolved from the new location (a dynamic `import()` failure happens at runtime and is often swallowed as a business error ⇒ it must be decided statically) | ✅ same guard ④『相对说明符必须解析到真实文件』(Node-style resolution + negative control) | — |
 | **The type surface and the code share one source**: `lib/types/*.d.ts` must match the implementation | ✅ `test/verify-types.mjs` (derives the key set from the implementation) | — |
 
@@ -358,6 +377,9 @@ Step-by-step recipes (including "what happens if you get it wrong") are in [`DEV
 | Rule that used to be guarded | Why it was removed |
 |---|---|
 | **Numbers in this document's prose must be recomputed** (inline module count == build list length) | It guarded **wording**: once a sentence is rephrased, the assertion degrades from "recompute the number" to "keep those two sentences", and it starts blocking edits rather than rot. Values are now carried by **symbol references**. See [`adr/0006`](../adr/0006-comment-discipline-as-written-convention.md) |
+| **A `src/` subdirectory must be named by some evergreen document's top-level heading** (§4 item 1 bar ②) | It guarded the **wording of a heading**, and **an empty-shell document passes it anyway** ⇒ form rather than substance. Bar ② now rests on convention. See [`adr/0007`](../adr/0007-machine-checks-target-code-not-prose.md) |
+| **Wording fragments inside source** (the status line's three branch labels, hint sentences, `ESC 返回`, a four-character status fragment, and the settings entry's `/设置\|Settings/i` anchor) | Questions 1/4: the thing judged is **human wording**. The settings-entry one was worse — its failure signal demanded "keep it as it is", and "as it is" *was* the locale defect ⇒ the assertion stood against the fix. Now it judges the **mechanism** (three branches each wrapped in `weT(...)`; the candidate-set anchor exists, plus gating/exclusion/re-entrancy lock). See [`adr/0007`](../adr/0007-machine-checks-target-code-not-prose.md) |
+| **Acceptance criteria for a one-off cleanup** (the retired-line check "the typo 「秡」 no longer appears") | Vacuously true once fixed; per §writing discipline 5 ("emptying the baseline *is* zero residue"), it should be retired at close-out. See [`adr/0007`](../adr/0007-machine-checks-target-code-not-prose.md) |
 
 **When this document counts as a "specification"**: when §5's hard constraints and §6's registered guards
 both hold — both do now. The **process record** of how it got there (how each of the four deviations was

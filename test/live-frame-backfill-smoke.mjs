@@ -54,7 +54,7 @@ async function runScenario({ mode = 'varied', blobSize = 120000, gpuAlreadyPinne
   const putCalls = [];
   const clearCalls = [];
   const slotOrder = []; // 槽位端点上的方法顺序：DELETE 必须早于 PUT
-  const progCalls = []; // 已删除路线的进度轮询探针：必须恒为空（P2-M/场景 F 判据）
+  const progCalls = []; // 进度轮询探针：本仓没有 CPU 动画渲染路线 ⇒ 必须恒为空（场景 F 判据）
   const blobStub = { get size() { return blobSize; } };
   const make2d = () => ({
     drawImage() {},
@@ -202,8 +202,8 @@ async function runScenario({ mode = 'varied', blobSize = 120000, gpuAlreadyPinne
   watchTick.fn(); // 首帧确认 → 调度回填
   const backfill = timers.find((t) => !t.cleared && t.ms === 2500);
   // P2-M 前置：让 live 运行期失联（连续无帧 ≥ LIVE_STALL_TICKS*2）→ 降级回静态帧。
-  // 目标形态里回退链**没有任何 CPU 动画渲染**（scene-anim / APNG 已删除），所以这里
-  // 记录的两个计数只用来断言它们恒为 0（若 1500ms 轮询重新出现，说明该路线复活了）。
+  // 目标形态里回退链**没有任何 CPU 动画渲染**（动画只走 WebWallGL 一条路线），所以这里
+  // 记录的两个计数只用来断言它们恒为 0（1500ms 轮询若出现，就是 CPU 渲染路线被接了回来）。
   let animPollBefore = 0, animPollAfter = 0, progBefore = 0;
   const tickPoll = async () => {
     const t = intervals.filter((x) => !x.cleared && x.ms === 1500).pop();
@@ -347,7 +347,7 @@ console.log('F. P2-M：GPU 静帧落地后不得有任何 CPU 渲染（该路线
 {
   const r = await runScenario({ mode: 'varied', blobSize: 120000, liveStall: true });
   // 目标形态：场景动画只保留 WebWallGL 一条路线，回退链是
-  // MP4 → 静态帧 → 单张大图 → 内嵌图，**没有 CPU 动画渲染**（scene-anim / APNG 已删除）。
+  // MP4 → 静态帧 → 单张大图 → 内嵌图，**没有 CPU 动画渲染**。
   // 于是这里断的不变量是：整条流程里一帧 CPU 渲染都不许起（进度轮询/探针恒为 0）。
   check('live 失联降级后没有任何 CPU 动画渲染在跑（scene-anim 已删除）',
     r.animPollBefore === 0 && r.progBefore === 0,

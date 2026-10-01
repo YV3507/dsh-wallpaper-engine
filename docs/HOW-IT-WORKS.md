@@ -21,7 +21,7 @@ HTML 里注入 WE API shim（`lib/webwallgl/web-shim.js`）与 `project.json` �
   或场景是**松散 `scene.json`
   目录**（没有 `scene.pkg` 可供渲染页拉取）。此时按下面的**出图来源链**出图（允许诚实地留空）。
   重新打开开关会清空失败记忆（显式重试入口）。
-  **首帧超时不是一个固定墙钟**（大包事故的修正）：首帧**必须等整包到齐**，所以预算由
+  **首帧超时不是一个固定墙钟**：首帧**必须等整包到齐**，所以预算由
   `liveFirstFrameBudget()`（`src/live-layer.js`）按**包大小**现算，并有上限；
   而且宿主侧有一本**载荷账本**（客户端轮询
   `GET /wallpaper-engine/scene-payload-progress?token=…`，见 [`ROUTE-INDEX.md`](./ROUTE-INDEX.md)），
@@ -229,4 +229,4 @@ HTML 里注入 WE API shim（`lib/webwallgl/web-shim.js`）与 `project.json` �
 （轮换、轮换-live 节点级领养、轮换准备期零驻留、GPU 回填抓帧、抓帧身份校验五套冒烟）—— 所有断言都有
 失败通道（不通过即非零退出），`npm run verify:all` = 构建 + 两套全跑 + 软档。
 **链上有多少条别写在这里**：真源是 `package.json` 的 `verify` / `smoke` / `verify:docs` 三个脚本，
-读它们即得（本行此前写死过一个数字，已经漂了）。
+读它们即得 —— 写死一个数字就会漂。

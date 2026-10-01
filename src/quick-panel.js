@@ -258,8 +258,8 @@
           && React.createElement("span", { className: "we-picker__hint we-qp__more" },
               weT("还有 {count} 张未显示 · 搜索可收敛，全量浏览在设置页", { count: filtered.length - rows.length })),
       ),
-      // ── ④ 声音（系统音频反应 / 媒体信息 / 在线歌词已退役为常开 —— schema
-      //    kind 'const'，面板不再提供开关，见 lib/settings-schema.js）──
+      // ── ④ 声音（系统音频反应 / 媒体信息 / 在线歌词是 schema 的 kind 'const'，
+      //    即常开项：面板不提供开关，见 lib/settings-schema.js）──
       React.createElement("div", { className: "we-qp__section" },
         React.createElement("div", { className: "we-picker__section-head" },
           React.createElement("span", { className: "we-picker__section-label" }, weT("声音")),

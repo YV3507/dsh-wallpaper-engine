@@ -68,8 +68,8 @@ const document = {
     if (t==='audio') audioEls.push(el);
     return el;
   },
-  // 真 DOM 语义：getElementById 不返回已脱离文档的节点（此前返回旧层会让
-  // syncLayers 复用 detach 节点，掩盖领养/闸的真实行为）。
+  // 真 DOM 语义：getElementById 不返回已脱离文档的节点 —— 返回 detach 节点会让
+  // syncLayers 复用一个已卸下的层，掩盖领养/闸的真实行为。
   getElementById: (id) => { const el = byId[id]; return el && el.isConnected ? el : null; },
   querySelector: () => null,
   head: { appendChild: () => {} },
@@ -132,8 +132,7 @@ exportsObj.apply({ slots:{inject:(k,cb)=>cb(),register:()=>{}}, effect(fn){ effe
 
 const fire = (t) => { if (t && !t.cleared) { t.cleared = true; t.fn(); } };
 
-// 真失败通道：断言失败 → 非零退出（评审指出此前全是 console.log，打断功能
-// 仍会 exit 0，"全过"不可证伪）。
+// 真失败通道：断言失败 → 非零退出 —— 只打印的话打断功能仍会 exit 0，"全过"不可证伪。
 let failures = 0;
 const check = (label, cond, detail = '') => {
   if (cond) console.log('  ✓ ' + label + (detail ? ' — ' + detail : ''));

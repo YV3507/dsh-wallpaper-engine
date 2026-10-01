@@ -807,10 +807,8 @@ const CSS = `
     }
   }
 
-  /* Section wrapper（旧外壳卡拍平后的形态）：UI 重构后拍平 —— 融合官方
-     设置页（官方分区没有外壳卡），内容直接落在设置对话框的面层上。 */
-  /* Card shell: UI 重构后**不再是卡** —— 融合官方设置页（官方分区没有外壳卡），
-     内容直接落在设置对话框的面层上。选择器与 DOM 结构保留（守卫按结构断言）。 */
+  /* Section wrapper：融合官方设置页（官方分区没有外壳卡），内容直接落在设置对话框的面层上。
+     注意类名与 DOM 结构是**契约**，守卫按结构断言 —— 拍平的是外观，不是这层壳的存在。 */
   .we-picker__card-shell { display: block; }
   /* Card header: name + count badge + description (mirrors skin-center). */
   .we-picker__card-head {
@@ -1583,8 +1581,7 @@ const CSS = `
   }
   .we-picker__modal-body {
     display: flex; flex-direction: column; gap: 8px;
-    /* 卡片 hover 放大的横向溢出裁切（沿用弹框时代的防护）；纵向滚动交给
-       设置页内容列，本层不再是滚动容器。 */
+    /* 卡片 hover 放大的横向溢出裁切；纵向滚动交给设置页内容列（本层只裁横轴）。 */
     overflow-x: hidden; /* fallback：老旧内核不认识 clip 时的平替 */
     overflow-x: clip;
   }
@@ -1711,8 +1708,7 @@ const CSS = `
   /* One-time update notice — a floating glass toast (bottom-center) that tells
      immersive/kiosk-window users about the white flash and its one fix. High
      z-index so it sits above the chat; buttons reuse the flat picker style.
-     底板跟着主题底色走（max(下限, 82%) 保住原来的 82% 衬底）：明主题白衬黑字、
-     暗主题深蓝衬白字，不再是一块写死的深色板。 */
+     底板跟着主题底色走（max(下限, 82%) 的衬底）：明主题白衬黑字、暗主题深蓝衬白字。 */
   .we-update-notice {
     position: fixed; left: 50%; bottom: 26px; z-index: 1100;
     transform: translateX(-50%);
@@ -1795,7 +1791,7 @@ const CSS = `
     border-bottom: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.22));
   }
   .we-repo-panel__title { font-weight: 600; font-size: 0.95em; white-space: nowrap; }
-  /* Body: THE scroll container（内容 = QuickPanel 快捷播放面板，不再是设置页副本）。 */
+  /* Body: THE scroll container（内容 = QuickPanel 快捷播放面板）。 */
   .we-repo-panel__body {
     flex: 1; min-height: 0;
     overflow-y: auto;

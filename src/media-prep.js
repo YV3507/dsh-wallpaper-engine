@@ -522,8 +522,8 @@ function applySelection(id, opts) {
   //（候选、抽帧定时器、"真实渲染帧"那条取色腿）在客户端就没有入口。与 previewUrl 同址。
   selection.liveFrame = w.type === "web" && w.liveFrame ? w.liveFrame : null;
   // 作者声明的配色（project.json 的 schemecolor，宿主已转成 rgb()）：既是垫底图的
-  // 底色兜底（buildLivePoster），也是「主题随壁纸」的第一优先级取色。此前宿主发了
-  // 这条字段但没人接 —— 垫底图因此永远走 CSS 变量兜底。
+  // 底色兜底（buildLivePoster），也是「主题随壁纸」的第一优先级取色。
+  // 接不到就让下面各处的 CSS 变量兜底。
   selection.schemeColor = w.schemeColor || null;
   selection.transcodeState = "idle";
   // The previous wallpaper's media info must not leak into the new one: a stale

@@ -358,18 +358,23 @@ check('负对照：去掉门控的合成选择器 ⇒ 同一条判据变假',
 check('正对照：门控齐全的真表 ⇒ 判据为真', gated(shellLines) === true);
 
 check('面板有「适配」段：下拉 + 检测行 + 不一致警示',
-  tabsSrc.includes('适配目标') && tabsSrc.includes('ADAPTER_TARGET_VALUES.map(')
+  // ⚠️ 只断言**代码面**（下拉走值表、检测行与警示都由函数现算）。
+  //    此前这里还 `includes('适配目标')` —— 那是钉**中文文案**（见 docs/adr/0007）。
+  tabsSrc.includes('ADAPTER_TARGET_VALUES.map(')
   && tabsSrc.includes('adapterDetectedLabel()') && tabsSrc.includes('adapterMismatchWarning()'));
 // 状态行的三种措辞必须与宿主 mediaOriginNeeded 的三分支一一对应（说错载荷走哪个源
 // 比不说更糟：用户会据此判断黑屏原因）。
+// ⚠️ 断言的是**机制**："检测值 + 三分支，且每支都是 `weT(...)` 可译键"；
+//    此前三条 `includes('有能力头栅栏…')` 钉的是**具体措辞**，改一句话就判红（ADR-0007）。
+//    `weT(` 这一层保证"那三句真的进了词表"，与 verify-i18n 的口径一致。
 check('状态行三分支齐全（栅栏 / 无栅栏桌面 / 浏览器），与宿主裁决对齐',
-  tabsSrc.includes('有能力头栅栏（网页壁纸走独立媒体源）')
-  && tabsSrc.includes('无栅栏的桌面形态（网页壁纸仍走独立媒体源）')
-  && tabsSrc.includes('无栅栏（网页壁纸走应用源）'));
+  /target:\s*weT\(adapterDetectedLabel\(\)\)[\s\S]{0,400}?\?[\s\S]{0,80}?weT\([\s\S]{0,200}?\?[\s\S]{0,80}?weT\([\s\S]{0,120}?:\s*weT\(/.test(stripComments(tabsSrc)),
+  'status-line ternary has 3 weT branches');
 check('失焦档按能力矩阵显隐（面板行被 blurPause 门控）',
-  // i18n 之后行文案走 weT（中文原文即键）—— 判据认"门控 + 该行仍在"的形态，不认裸字面量。
-  /blurPause\s*&&\s*switchRow\(\s*weT\("窗口失焦时暂停"\)/.test(stripComments(tabsSrc))
-  && tabsSrc.includes('「窗口失焦时暂停」只在原生浏览器目标下提供'),
+  // 行文案走 weT（中文原文即键）—— 判据认"门控 + 该行仍在"的形态，不认裸字面量。
+  // ⚠️ 此前还多一条 `includes('「窗口失焦时暂停」只在原生浏览器目标下提供')` —— 那是**提示文案**，
+  //    属被撤除的散文判定（ADR-0007）；门控本身由上面这条钉住。
+  /blurPause\s*&&\s*switchRow\(\s*weT\("窗口失焦时暂停"\)/.test(stripComments(tabsSrc)),
   'panel blur gate');
 check('渲染层：occlusion 的失焦档也走能力矩阵（面板隐藏 + 判定跳过两腿都在）',
   clientSrc.includes('adapterCaps().blurPause && selection.pauseOnBlur'));

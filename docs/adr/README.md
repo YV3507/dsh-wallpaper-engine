@@ -59,3 +59,4 @@ ADR 里**不写会随代码漂移的具体数值**（条数、行数、体积、
 | [0004](./0004-two-tier-guard-verification.md) | 守卫按"失败的含义"分硬/软两档 | Accepted |
 | [0005](./0005-media-loopback-origin.md) | 媒体由宿主自建的独立 loopback 源提供 | Accepted |
 | [0006](./0006-comment-discipline-as-written-convention.md) | 注释与文档纪律改为纯写作约定，撤掉文档类机器守卫 | Accepted |
+| [0007](./0007-machine-checks-target-code-not-prose.md) | 机器判据只针对代码与磁盘，不针对散文（给出四问判定程序 + 保留/撤除清单） | Accepted |

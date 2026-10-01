@@ -165,7 +165,7 @@ if (existsSync(upstreamPath)) {
     missing.length ? 'missing: ' + missing.join(', ') : (up.name || '') + '@' + (up.version || '?'));
 }
 
-// 网页壁纸帧率上限的实现质量与 shim 幂等性 —— 这两条都是实测踩过的坑，且都藏在
+// 网页壁纸帧率上限的实现质量与 shim 幂等性 —— 这两条都藏在
 // vendor 产物里：升级上游后若忘记重新 vendor，断言会直接指出。
 const vendoredShim = existsSync(join(vendorDir, 'web-shim.js'))
   ? readFileSync(join(vendorDir, 'web-shim.js'), 'utf8') : '';
@@ -245,7 +245,7 @@ const dispose = apply(mockCtx);
 
 // 本脚本全程模拟**带能力头栅栏的桌面端**：社区壳（DSH Desktop.app）会给每条插件
 // 路由注入 x-dsh-desktop-renderer，观测到它宿主才把网页壁纸载荷放进独立媒体源 ——
-// 下面那条「webLiveSrc 是媒体源绝对 URL」的事故闸门正是这个形态的回归门。裸请求
+// 下面那条「webLiveSrc 是媒体源绝对 URL」的闸门正是这个形态的回归门。裸请求
 //（原生浏览器，载荷走应用源相对路径）那一档由 test/verify-adapter.mjs 另行断言。
 const FENCE_HEADERS = { 'x-dsh-desktop-renderer': '1', 'user-agent': 'Electron/33.2.0' };
 
@@ -564,7 +564,7 @@ let mediaEntry = '';   // C4 复用：C3 里从 inventory 拿到的那条入口 
   // 入口 URL 必须是**媒体源绝对 URL**（host 自建的第二个 loopback 监听），
   // 而不是插件路由：Desktop 的能力头（x-dsh-desktop-renderer）栅栏拒绝不透明源
   //（严格沙箱 iframe）对插件路由的请求，网页壁纸载荷因此整体挪到我们自己的源；
-  // 这条断言就是那次「网页壁纸全黑」事故的回归闸门。
+  // 这条断言就是「网页壁纸全黑」形态的回归闸门。
   mediaEntry = String((web && web.webLiveSrc) || '');
   check('webLiveSrc 是媒体源绝对 URL（不再落回插件路由）',
     /^http:\/\/127\.0\.0\.1:\d+\/wallpaper-engine\/scene-files\//.test(mediaEntry),
@@ -898,8 +898,8 @@ for (const [name, ok] of clientChecks) check(name, ok);
   check('negative control: the ungated extended swap call site is rejected', swapIsOptIn(ungated) === false);
   check('positive control: the current client gates the extended swap', swapIsOptIn(liveSrc) === true);
 }
-// ── Level D3: 首帧看护的"按进展判超时" + 载荷延迟/暂停 + 失败分因（2026-09 大包事故）──
-// 现场（本机真实诊断日志）：320MB/94MB 的 `scene.pkg` 在**三个客户端实例**同时挂载时
+// ── Level D3: 首帧看护的"按进展判超时" + 载荷延迟/暂停 + 失败分因 ──
+// 现场：320MB/94MB 的 `scene.pkg` 在**三个客户端实例**同时挂载时
 // 传输被饿死，可见那个实例 15s 后 `stats={"fps":0,"running":false}`（一帧都没出）→ 被判
 // 「首帧超时」并写进**共享**失败记忆（所有窗口一起降级），而渲染器单独跑同一份包只要 1–2s。
 // 四条修正各配一条判据 + 负对照；判据只看真实代码行（注释由共享 stripComments 剥掉）。
@@ -1028,12 +1028,12 @@ for (const [name, ok] of clientChecks) check(name, ok);
     && (bundle.match(/function renderEffectsTab\(ctx\)/g) || []).length === 1);
 }
 
-// **实测**：host 的 sanitizeSettings 是白名单，漏加 sceneLiveFailures 会让 PUT 上来的
+// host 的 sanitizeSettings 是白名单：漏加 sceneLiveFailures 会让 PUT 上来的
 // 失败记忆被丢弃、刷新后记忆消失。
-// ── Level E: 三条此前"守卫零提及"的宿主路由（P2-11 前置 2）──────────────────
-// 补守卫之前，`docs/ROUTE-INDEX.md` 把这三条标成 **0 提及**（该节现已收缩为「（无）」）⇒ 拆分
-// `apply(ctx)` 之前必须补上真实行为断言，否则动它们等于没有安全网。三条都只断言**无副作用的
-// 失败路径**：不写宿主持久化配置、不落盘、不依赖本机是否真有封面（否则 CI 会随环境飘）。
+// ── Level E: 三条宿主路由必须各有行为断言 ───────────────────────────────────
+// 这三条在 `docs/ROUTE-INDEX.md` 的"零提及"清单里不许出现 ⇒ 拆分 `apply(ctx)` 之前必须
+// 补上真实行为断言，否则动它们等于没有安全网。三条都只断言**无副作用的失败路径**：
+// 不写宿主持久化配置、不落盘、不依赖本机是否真有封面（否则 CI 会随环境飘）。
 {
   const byPath = (p) => routes.find((r) => r.path === '/wallpaper-engine' + p);
   const clientDiag = byPath('/client-diag');
@@ -1090,7 +1090,7 @@ check('host settings whitelist keeps sceneLiveFailures', hostKeeps('sceneLiveFai
 check('host injects the vendored shim into web HTML', /data-we-shim="host"/.test(hostSrc) && /readWebShim\(\)/.test(hostSrc));
 check('host sends CORS for opaque-origin fetches', /Access-Control-Allow-Origin', '\*'/.test(hostSrc));
 check('inventory derives webLive via webFieldsFor', /webFieldsFor\(w, hasMedia, webMediaBase\)/.test(hostSrc));
-// 黑屏事故的**成因**：Desktop 的能力头栅栏（**外部宿主** `@deepseek-ai/dsh-host-webserver`
+// 黑屏的**成因**：Desktop 的能力头栅栏（**外部宿主** `@deepseek-ai/dsh-host-webserver`
 // 的 decideDesktopBrowserAccess —— 本仓没有该文件）只放行同源 frame，不透明源的沙箱 iframe 永远拿不到
 // x-dsh-desktop-renderer → 插件路由一律 403。网页壁纸载荷因此必须走 host 自建的
 // 独立 loopback 源，两处挂载共用同一段处理函数。
@@ -1213,10 +1213,9 @@ check('事件里已外推的位置不重复外推（参考时刻改写成事件�
   supSrc.includes("pb.positionSource === 'interpolated'") && supSrc.includes('pb.updatedAtMs = refMs'));
 check('歌词换算成渲染页要的 [[秒, 文本], …]（含 LRC offset）',
   supSrc.includes('export function lyricsToTuples') && supSrc.includes('offsetMs'));
-// 状态缓存兜底：中间件的 status 事件此前只在元数据源报错时发（v0.1.3），音频源
+// 状态缓存兜底：中间件的 status 事件只在元数据源报错时发时，音频源
 // idle→preparing→running 的变化不通知 —— 消费端只在启动时读一次 status，会永远停在
-// preparing（Linux 实测：频谱有数据、客户端却拿不到）。v0.1.4 补了事件，插件这层
-// 兜底刷新也保留：两层互不依赖。
+// preparing（频谱有数据、客户端却拿不到）。所以插件这层自己也兜底刷新，两层互不依赖。
 check('supervisor 兜底刷新 status（不依赖中间件的事件是否齐全）',
   /const STATUS_REFRESH_MS = /.test(supSrc) && /function refreshStatusSoon\(/.test(supSrc)
     && /refreshStatusSoon\(\);/.test(supSrc));
@@ -1422,12 +1421,16 @@ const clientHalf = src + '\n' + modalSrc;
 const sidebarSrc = readFileSync(join(root, 'src', 'sidebar-right.js'), 'utf8');
 check('库视图只留顶部返回按钮（页内下钻，无遮罩绑定）',
   (clientHalf.match(/onClick: closePicker/g) || []).length === 1
-    && modalSrc.includes('we-picker__modal-foot" },')
-    && modalSrc.includes('ESC 返回'),
+    && modalSrc.includes('we-picker__modal-foot" },'),
+  // ⚠️ 此前这里是 `&& modalSrc.includes('ESC 返回')` —— 断言**提示文案**，改一句话或换语言
+  //    就判红（ADR-0007），已撤除。ESC 本身**不改动**：它由 verify-client.mjs 的
+  //    「0b：ESC 关闭 picker」做**行为断言**（真派发 Escape + 非 Escape 负对照），
+  //    比在这里读一句静态文案强得多 —— 别再加静态复制品。
   'closePicker 绑定数=' + ((clientHalf.match(/onClick: closePicker/g) || []).length));
-// ── UI 重构：抽屉从「顶部下落、装整份设置页」改为「右侧左滑、装快捷播放面板」──
-// 钉三件事：滑动方向与宽度（不再 translateY）、内容与官方侧栏同源（QuickPanel，
-// 不再有 WallpaperPicker 副本）、旧弹框所有权机制退役（repoPanelOwnsModal 不复存在）。
+// ── 抽屉形态：右侧左滑、装快捷播放面板 ──
+// 钉三件事：滑动方向与宽度（`translateX`，不得出现 `translateY`）、内容与官方侧栏同源
+// （QuickPanel，不另建 WallpaperPicker 副本）、弹框所有权只走一套机制
+// （`repoPanelOwnsModal` 必须不存在）。
 check('抽屉右侧左滑（360px、translateX；不再是顶部下落的 25vw/translateY）',
   stylesSrc.includes('width: 360px; max-width: 92vw;')
     && /we-repo-panel\s*\{[^}]*transform: translateX\(102%\)/.test(stylesSrc)
@@ -1441,7 +1444,8 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     && sidebarSrc.includes('ctx.slots.inject("sidebar.right.pane.tab"')
     && sidebarSrc.includes('ctx.get("sidebarRightTabs")')
     && sidebarSrc.includes('ctx.get("sidebarRight")'));
-// 用户口径：吉祥物**点一下要能关**侧栏（官方态此前只能开不能关 —— 点击恒走 openTab）。
+// 用户口径：吉祥物**点一下要能开也能关**侧栏 —— 点击必须进统一开关；
+// 恒走 openPanel/openTab 就会变成只能开不能关。
 // 判据按真实源码形态：点击分支走统一开关（不残留只开的 openPanel）、官方态 toggle 的
 // 收起条件（展开 + 正显示本 kind）、手势的上推=关。
 {
@@ -1475,13 +1479,19 @@ check('壁纸侧栏快捷键：走宿主 shortcuts 服务 + 桌面三档默认 p
     && sidebarSrc.includes('"desktop:linux": { code: "KeyW", modifiers: ["primary", "alt"] }')
     && sidebarSrc.includes('{ status: "pass" }'));
 
-// 设置入口的触发钮选取（应用侧实测修复）：官方应用里带 aria-haspopup="dialog" 的按钮
+// 设置入口的触发钮选取：官方应用里带 aria-haspopup="dialog" 的按钮
 // 有十几个（TurnUsagePanel / StatsPills / ContextMeter / 插件管理器 / 任务管理器日期时间
 // 选择器…），且都在左栏「设置」之前 —— 文档序取第一个必然点错，症状就是应用里
-// 「壁纸引擎设置」无反应。判据：按可读名字（设置|Settings）挑 + 必须没有裸首个匹配回退。
+// 「壁纸引擎设置」无反应。判据：**按可读名字挑 + 必须没有裸首个匹配回退**。
+//
+// ⚠️ 本判据此前还断言了 `sidebarSrc.includes('/设置|Settings/i.test')` ——
+//    那是**把措辞钉进判据**（见 docs/adr/0007）：锚点后来改成 locale 感知的候选集
+//    （`isSettingsText` / `settingsLabelCandidates`），旧断言就开始拦正确的修复。
+//    现在只断言**机制**（有按名字过滤、有排除自家入口、有无名字兜底、有重入锁），
+//    不断言锚点怎么写 —— 怎么写属于实现，措辞与候选集由约定承担。
 check('设置入口按可读名字选触发钮（不再取文档序第一个 dialog 按钮）',
   sidebarSrc.includes('function findSettingsTrigger(')
-    && sidebarSrc.includes('/设置|Settings/i.test')
+    && sidebarSrc.includes('function isSettingsText(')
     && sidebarSrc.includes('const named = dialogTriggers.filter(isSettingsLabel)')
     && !/querySelector\('button\[aria-haspopup="dialog"\]'\)/.test(sidebarSrc)
     && sidebarSrc.includes('findAccountMenuTrigger') && sidebarSrc.includes('findSettingsMenuItem')

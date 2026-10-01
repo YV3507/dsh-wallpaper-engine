@@ -20,13 +20,12 @@
  *   · [diag 级别] 渲染页给 `/diag` 上报时自带 `&lvl=`，级别由发送方声明、
  *     宿主不再靠文案关键字分档。上游 `renderer/src/diag-level.ts` 已按契约
  *     实现（issue #13，878ec88），宿主 `lib/routes/diag.js` 读的就是这个值。
- *   · [xray 精灵] 本地曾把 `makeTextureMip` 的 MIN_FILTER 从 `LINEAR_MIPMAP_LINEAR`
- *     改成 `LINEAR`（极小化采样退化 → x-ray 范围扩到整张壁纸）。上游是从语义
- *     侧修的（7480a37 exponent 语义 / 0d1d5c1 halo_6 环绕 CLAMP / 5cec4f6 素材
- *     重建），**不是**过滤器：在真 GPU 无头浏览器上跑上游 `bench/xray-shot.html`
+ *   · [xray 精灵] 上游是从语义侧修的（7480a37 exponent 语义 / 0d1d5c1 halo_6 环绕 CLAMP /
+ *     5cec4f6 素材重建），**不是**过滤器：在真 GPU 无头浏览器上跑上游 `bench/xray-shot.html`
  *     （壁纸 3475149989，effects/xray，size=0.07，指针居中）实测两档 MIN_FILTER
- *     的像素差为 0（缺精灵贴图时差异 31%，证明该贴图确实在被采样）。保留它还
- *     会连带关掉 system/particle/pattern/封面这些纹理的 mip 采样 —— 上游别处
+ *     的像素差为 0（缺精灵贴图时差异 31%，证明该贴图确实在被采样）。所以在本地把
+ *     `makeTextureMip` 的 MIN_FILTER 从 `LINEAR_MIPMAP_LINEAR` 改成 `LINEAR` 解决不了它，
+ *     还会连带关掉 system/particle/pattern/封面这些纹理的 mip 采样 —— 上游别处
  *     （封面 mip 链重建、puppet 细线淡化）明确依赖它。
  */
 import { spawnSync } from 'node:child_process';

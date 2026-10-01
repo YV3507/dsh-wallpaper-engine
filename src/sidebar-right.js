@@ -281,11 +281,44 @@ function findAccountMenuTrigger() {
     ) || null;
   } catch { return null; }
 }
-/** 账号菜单弹出后的「设置」菜单项（role=menuitem，文本含设置/Settings）。 */
+/**
+ * 宿主「设置」入口的可读名锚点 —— **不能**只写中英两个字面词。
+ *
+ * 为什么不能写死"中英两个字面词"（实测过的失效形状）：
+ *   · 宿主的语言由 `locale` 服务决定，**语言包可追加**（`ctx.locale.addLanguage`，
+ *     见 `src/i18n.js` 头注释）⇒ 加到第三种语言时点入口就没反应，且**静默**；
+ *   · 宿主把这一项改成别的措辞（"偏好设置" / "Preferences"）同样失配。
+ *
+ * 为什么不直接用 `weT("设置")`：本仓词表里 `"设置"` 是**动词**义（值 `"Set"`，
+ *   唯一调用点是 `panel-tabs.js` 的"设置目录"按钮，与 `weT("更改")` 并列）
+ *   ⇒ 它在英文下返回 "Set"，**匹配不到**宿主菜单项的 "Settings"。
+ *   这是"中文原文即键"的固有歧义（同一个中文词在不同语境下是不同英文词），
+ *   不是靠改词表值能解决的 —— 改了会让那个动词按钮变成 "Settings"。
+ *
+ * 因此用**候选集**：把"我们这边的译文"（语言包 / 与宿主同语言时命中）与"宿主已知的原文形态"
+ * 并列。后两条（`"设置"` / `"設定"`）是**宿主 DOM 的原文**、不是我们界面的文案，
+ * 所以它们按字面保留、**不翻译**，并在 `test/verify-i18n.mjs` 的 `VALUE_ALLOW` 里登记了理由
+ * （那两条豁免是"照字面匹配宿主"的正当例外）。任何一条命中即算。
+ */
+function settingsLabelCandidates() {
+  const out = [];
+  const push = (s) => { const v = String(s || "").trim(); if (v && !out.includes(v)) out.push(v); };
+  push(weT("设置"));            // 语言包 / 与宿主同语言时最可能命中的一条
+  push("设置");                 // 内置中文（词表值是动词义，这里显式补名词义）
+  push("Settings");             // 内置英文（同上）
+  push("設定");                 // 繁体中文语言包
+  return out;
+}
+/** 文本是否命中宿主「设置」入口的任一已知标签。 */
+function isSettingsText(text) {
+  const t = String(text || "").trim();
+  return t.length > 0 && settingsLabelCandidates().includes(t);
+}
+/** 账号菜单弹出后的「设置」菜单项（role=menuitem）。 */
 function findSettingsMenuItem() {
   try {
     const items = [...document.body.querySelectorAll('[role="menuitem"], [role="menuitemcheckbox"]')];
-    return items.find((el) => /设置|Settings/i.test((el.textContent || '').trim())) || null;
+    return items.find((el) => isSettingsText(el.textContent)) || null;
   } catch { return null; }
 }
 function findSettingsTrigger() {
@@ -298,7 +331,8 @@ function findSettingsTrigger() {
     // 必须排除我们自己的「壁纸引擎设置 ›」入口：它名字里也含「设置」，不排除会
     // 把自己当成宿主触发钮（实测：点入口=再调自己，递归点 5 次、对话框开不了）。
     try { if (el.getAttribute && el.getAttribute('data-we-qp-entry') === '1') return false; } catch { /* ignore */ }
-    return /设置|Settings/i.test(labelOf(el));
+    // 标签按**候选集**判（不是中英两个字面词）：理由见 isSettingsText 上方那段注释。
+    return isSettingsText(labelOf(el));
   };
   const leftmost = (list) => list
     .slice()

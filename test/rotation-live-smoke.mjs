@@ -162,8 +162,8 @@ const fire = (t) => { if (t && !t.cleared) { t.cleared = true; t.fn(); } };
 const flushPersist = () => timers.filter(t=>!t.cleared && t.ms===200).forEach(fire);
 const stagingDivs = () => bodyEl.children.filter(c => String(c.className).includes('we-layer--staging'));
 
-// 真失败通道：断言失败 → 非零退出（评审指出此前只有打印，把节点级领养改回
-// 元素级（即 0.7.7 修掉的那个 iframe 重载 bug）也能 exit 0）。
+// 真失败通道：断言失败 → 非零退出 —— 否则把节点级领养改回元素级（iframe 重载）也能 exit 0，
+// 冒烟就退化成恒绿。
 let failures = 0;
 const check = (label, cond, detail = '') => {
   if (cond) console.log('  ✓ ' + label + (detail ? ' — ' + detail : ''));

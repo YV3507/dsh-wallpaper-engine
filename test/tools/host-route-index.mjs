@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * host-route-index.mjs — 生成/核对**宿主路由索引**（P2-11 的前置 1，账本 §3.5）。
+ * host-route-index.mjs — 生成/核对**宿主路由索引**（账本 §3.5）。
  *
  * 为什么要它：`apply(ctx)` 里近三十条 `webServer.register` 挤在同一个闭包里，"这条路由依赖
  * 哪些状态"只能靠读代码。这份索引把四件事机械地列出来：
@@ -9,18 +9,18 @@
  *   ③ 拆到 `lib/routes/*.js` 的族：**context 契约**（声明了哪些 `c` 字段、哪个声明了却没用）；
  *   ④ 哪条路由在守卫/冒烟里被提到过（提到 ≠ 有断言，但零提及 = 拆分时没有安全网）。
  *
- * 两处**必须**在解析里做对，否则索引会静默少列路由（两处都有**实测**为据）：
+ * 两处**必须**在解析里做对，否则索引会静默少列路由：
  *   · **循环注册**：`for (const seg of ['media','preview']) { … register({ path: `${BASE}/${seg}` }) }`
  *     一个注册字面量产出 **2 条**路由。只按字面量计数会少一条，而"字面量数 == 索引行数"
  *     这种自比对照永远发现不了它（两边一起错）。这里展开成每条路由一行。
  *   · **路由模块**：族搬进 `lib/routes/*.js` 后，注册字面量不再出现在 `lib/index.js` 里 ——
- *     解析器只扫主文件的话，搬走的路由就**从索引里消失**，而索引正是 P2-11 的 context 设计稿。
+ *     解析器只扫主文件的话，搬走的路由就**从索引里消失**，而索引正是拆分的 context 设计稿。
  *     这里按 `registerXxxRoutes(webServer, …)` 调用点把模块的路由展开回原位置。
  *
  * 用法：
  *   node test/tools/host-route-index.mjs            # 打印索引（守卫用它比对）
  *   node test/tools/host-route-index.mjs --write    # 写入 docs/ROUTE-INDEX.md
- *   node test/tools/host-route-index.mjs --deps     # 额外打印四个巨石的闭包状态清单（前置 3）
+ *   node test/tools/host-route-index.mjs --deps     # 额外打印四个巨石的闭包状态清单
  */
 import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';

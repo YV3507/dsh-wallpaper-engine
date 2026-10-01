@@ -817,9 +817,9 @@ section('⑦ 客户端通道（静态契约：字体值不再经 settings 出去
   check('负对照：同一判据对合成的一行有牙',
     FONT_KEYS.some((k) => new RegExp('setSetting\\(\\s*["\']' + k + '["\']').test('setSetting("' + k + '", next);')));
   // 7a′ **"唯一入口"必须真的唯一**：只数 `setFontValues(` 的调用点是不够的 —— 直写的**另一条路**
-  //     照样能把"改了不生效 / 刷新后回退"带回来（那正是 P2-10 为设置消掉的东西：手抄 50 → 0），
+  //     照样能把"改了不生效 / 刷新后回退"带回来（逐键手抄"赋值 + 落盘"正是它要消掉的东西），
   //     而那种写法**不会**让"调用点 ≥6"这条判据变红。
-  //     实测那六个键共三条写路径，其中两条**不以字面赋值出现**、且都是刻意的：
+  //     那六个键共三条写路径，其中两条**不以字面赋值出现**、且都是刻意的：
   //       · `setFontValues(patch)`      —— `for (const key of FONTSET_KEYS) … selection[key] = …`（唯一落盘入口）
   //       · `loadFontSet` 的整套采用     —— 一次 `Object.assign(selection, values)`，**刻意不落盘**（写的就是宿主那份）
   //       · `onFontResetAll` 的整批重置 —— 6 个字面赋值 + 紧跟 `persistFontSet()`（逐键走 setFontValues 会发 6 次 PUT）

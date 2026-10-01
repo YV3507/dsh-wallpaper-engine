@@ -44,9 +44,8 @@
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { dirname, join, relative, sep, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
-// 剥注释统一用**共享且字符串感知**的实现（规则 ⑦ 就是钉这件事的）：本文件此前那份朴素正则会被
-// "注释/字符串里的块注释起始"带跑 —— 实测本文件自己被吃掉 **L343→L437（95 行）**，规则 ④ 因此在
-// 那段代码上静默失效。
+// 剥注释统一用**共享且字符串感知**的实现（规则 ⑦ 就是钉这件事的）：朴素正则会被
+// "注释/字符串里的块注释起始"带跑，一路吃掉后面的真实代码，规则 ④ 在那段代码上静默失效。
 import { stripComments } from './tools/js-text.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -93,15 +92,6 @@ const SRC_DIR_MIN_MEMBERS = 3;
  */
 function thinSrcDirs(counts) {
   return Object.entries(counts).filter(([, n]) => n < SRC_DIR_MIN_MEMBERS).map(([dir]) => dir).sort();
-}
-
-/**
- * 规则 ⑤ 的判据 (b)：没有被任何常青文档的**一级标题**点名的 `src/` 子目录。
- * `headings` 是各常青文档的 H1 原文（如 `# src/font/ —— 字体系统（F / G 轨道）`）；
- * 比的是字面 `src/<dir>/`，所以"正文里提过一句"不算 —— 门槛是"那份文档以它为标题"。
- */
-function unnamedSrcDirs(dirs, headings) {
-  return dirs.filter((dir) => !headings.some((h) => h.includes('src/' + dir + '/'))).sort();
 }
 
 /**
@@ -491,14 +481,17 @@ console.log('\n⑤ 路由模块必须自己 import 用到的库函数（不得�
 
 console.log('');
 
-// ═══ ⑥ `src/` 子目录的准入条件（成员 ≥3 + 被常青文档一级标题点名）══════════════
+// ═══ ⑥ `src/` 子目录的准入条件（成员 ≥3）══════════════════════════════════════
 // 为什么需要：`src/` 模块之间没有 `import`，构建期被拍平进同一个工厂作用域 ⇒ 目录在这一侧
-// **不承载机器含义**，它唯一的用处是"让人一眼看出这几块是一伙的"。于是两种烂法都没人拦：
-// ① 2 个文件就分一层（多一层路径、多一次搬动，却看不出任何结构）；② 建了目录却没有"自己的
-// 权威文档"（新读者不知道该读哪份文档才能理解这一簇）。
-// 判据两条都从**磁盘**现算：成员数扫描目录，H1 读常青面（`docs/*.md` 顶层 —— `docs/archive/`
-// 与 `docs/wip/` 是过程记录，不算）。
-console.log('⑥ `src/` 子目录成员数 ≥3 且被常青文档一级标题点名');
+// **不承载机器含义**，它唯一的用处是"让人一眼看出这几块是一伙的"。于是"2 个文件就分一层"
+// （多一层路径、多一次搬动，却看不出任何结构）这种烂法没人拦。判据从**磁盘**现算。
+//
+// ⚠️ 本节**后半已撤除**（原文："子目录被一份常青文档的**一级标题**点名"）—— 按
+//    [`docs/adr/0007`](../docs/adr/0007-machine-checks-target-code-not-prose.md)：
+//    它守的是"某份文档的标题怎么写、放在哪里"，而且**一份空壳文档（标题对、正文空）照样
+//    通过** ⇒ 守的是形式而非实质。"建 `src/` 子目录时同时建一份以它为标题的常青文档"
+//    改由约定承担（与 `docs/README.md` §写作纪律 3「能写在代码旁的规则不单写文档」同源）。
+console.log('⑥ `src/` 子目录成员数 ≥3');
 {
   const srcDirs = readdirSync(join(ROOT, 'src'), { withFileTypes: true })
     .filter((e) => e.isDirectory()).map((e) => e.name).sort();
@@ -506,44 +499,26 @@ console.log('⑥ `src/` 子目录成员数 ≥3 且被常青文档一级标题�
   for (const dir of srcDirs) {
     counts[dir] = walkFiles(join(ROOT, 'src', dir)).filter((rel) => rel.endsWith('.js')).length;
   }
-  const headings = readdirSync(join(ROOT, 'docs'), { withFileTypes: true })
-    .filter((e) => e.isFile() && e.name.endsWith('.md'))
-    .map((e) => readFileSync(join(ROOT, 'docs', e.name), 'utf8')
-      .split('\n').find((l) => /^#\s/.test(l)) || '')
-    .filter(Boolean);
-
   const thin = thinSrcDirs(counts);
-  const unnamed = unnamedSrcDirs(srcDirs, headings);
-  // 覆盖面：两条判据都可能"因为扫描面为空而恒真"（没有子目录 ⇒ 无违规；没有文档 ⇒ 全违规，
-  // 那种反而会红）。这里显式断言两边都非空。
-  check('覆盖面：既有 `src/` 子目录、也有常青面文档（防两条判据空转）',
-    srcDirs.length >= 1 && headings.length >= 8,
-    srcDirs.length + ' 个目录（' + srcDirs.join(',') + '）/ ' + headings.length + ' 份文档');
+  check('覆盖面：存在 `src/` 子目录（防判据因扫描面为空而恒真）',
+    srcDirs.length >= 1, srcDirs.length + ' 个目录（' + srcDirs.join(',') + '）');
   check('`src/` 子目录成员数达门槛（不足就别分目录，见 CODE-STRUCTURE §4 第 1 条；门槛 = SRC_DIR_MIN_MEMBERS = ' + SRC_DIR_MIN_MEMBERS + '）',
     thin.length === 0,
     thin.length ? '不足：' + thin.map((d) => d + '(' + counts[d] + ')').join(' ')
       : srcDirs.map((d) => d + '(' + counts[d] + ')').join(' '));
-  check('`src/` 子目录被一份常青文档的一级标题点名（否则它没有"自己的权威文档"）',
-    unnamed.length === 0, unnamed.length ? '未被点名：' + unnamed.join(' ') : '全部被点名');
 
-  // 负对照：把合成输入喂给**同一个判据函数**，断言它给出"坏"的裁决。
+  // 负对照：把合成输入喂给**同一个**判据函数，断言它给出"坏"的裁决。
   check('负对照：成员 2 个的合成目录会被判出',
     thinSrcDirs({ 'src/two': 2, 'src/three': 3 }).join() === 'src/two',
     '报出=[' + thinSrcDirs({ 'src/two': 2, 'src/three': 3 }).join(',') + ']');
-  check('负对照：没被任何一级标题点名的合成目录会被判出',
-    unnamedSrcDirs(['font'], ['# lib/ 与 src/ 的分工', '# 别的文档']).join() === 'font',
-    '报出=[' + unnamedSrcDirs(['font'], ['# 别的文档']).join(',') + ']');
-  check('正对照：被一级标题点名就不报（判据不是恒真）',
-    unnamedSrcDirs(['font'], ['# src/font/ —— 字体系统']).length === 0);
 }
 
 // ═══ ⑦ 剥注释必须字符串感知 —— 朴素块注释正则在 test/** 与 src/** 的代码里不得再出现 ═══════════
 // 回答的边界问题：「判据读源码时先剥注释」这一步本身可不可信。
-// 朴素写法（块注释一条正则 + 行注释一条正则，本仓曾各抄一份共 16 处）**不认字符串与行注释**：
+// 朴素写法（块注释一条正则 + 行注释一条正则）**不认字符串与行注释**：
 // 注释或字符串里出现"块注释起始"那两个字符（把 `scripts/**`、`test/**`、`docs/*.md` 写进一句
-// 注释就够了）就会开一个"块注释"，一路吃到下一个结束标记，把中间的真实代码**静默删掉**。
-// 实测全仓 9 个文件 12 处、最长一段 331 行（`test/verify-scene-live.mjs` L829→L1159）—— 那些判据
-// 照样报绿，这正是本仓最不想要的失败形态。
+// 注释就够了）就会开一个"块注释"，一路吃到下一个结束标记，把中间的真实代码**静默删掉**，
+// 而那些判据照样报绿 —— 这正是本仓最不想要的失败形态（单文件最长一段被吃掉 331 行）。
 // 白名单**只许缩小**：CSS 侧那三处保留自己的朴素剥法（CSS 没有行注释，套 JS 词法会误删
 // `url(//host/x)` 这类内容），另两处是"反面参照 / 检测器"本身，不是生产路径。
 {
@@ -582,20 +557,31 @@ console.log('⑥ `src/` 子目录成员数 ≥3 且被常青文档一级标题�
 // 回答的边界问题：「`test/tools/` 里那些没有 CI 消费者的脚本，读的人找得到吗」。
 // 实测过的形状：9 个工具里只有 1 个被文档点名 —— 其余等于只对作者可见（别人不知道该跑哪个、怎么跑）。
 // `test/compat-*.mjs` 同理：它们是 CI 调的，但人也要能手动跑（文档里写的是不带扩展名的名字）。
+//
+// ⚠️ **中英两份都要点名**（实测过的失效形状）：本判据原来只读中文 `docs/DEV-GUIDE.md`，
+//    于是英文版的 `test/tools/` 清单少了 2 项（`i18n-scan.mjs` / `weT-shim.mjs`）而**无人发现** ——
+//    中文那份是权威版，但英文读者照着 §4.6 找不到这两个工具。两份都据同一份磁盘清单对账。
+//    这是"读文件清单"而不是"读散文"：判据对的是**枚举面完整性**，措辞仍由写作约定承担。
 {
-  const DOC = readFileSync(join(ROOT, 'docs', 'DEV-GUIDE.md'), 'utf8');
+  const docs = [
+    { label: 'zh', path: join(ROOT, 'docs', 'DEV-GUIDE.md') },
+    { label: 'en', path: join(ROOT, 'docs', 'en', 'DEV-GUIDE.md') },
+  ].map((d) => ({ ...d, text: readFileSync(d.path, 'utf8') }));
   const tools = readdirSync(join(ROOT, 'test', 'tools')).filter((f) => f.endsWith('.mjs')).sort();
   const compat = readdirSync(join(ROOT, 'test')).filter((f) => /^compat-.*\.mjs$/.test(f)).sort();
   // 按**不带扩展名的文件名**判（文档里工具写成 `x.mjs`、compat 写成 `x`，两种都算点名）
   const judge = (doc, files) => files.filter((f) => !doc.includes(f.replace(/\.mjs$/, '')));
   check('覆盖面：⑧ 扫到 ≥8 个工具 + ≥3 个 compat（防扫描面为空而恒真）',
     tools.length >= 8 && compat.length >= 3, tools.length + ' 工具 / ' + compat.length + ' compat');
-  const undocumented = judge(DOC, [...tools, ...compat]);
-  check('每个 test/tools/*.mjs 与 test/compat-*.mjs 都在 DEV-GUIDE 里点名', undocumented.length === 0,
-    undocumented.length ? '未点名：' + undocumented.join(', ') : (tools.length + compat.length) + ' 个都被点名');
+  for (const d of docs) {
+    const undocumented = judge(d.text, [...tools, ...compat]);
+    check(`每个 test/tools/*.mjs 与 test/compat-*.mjs 都在 ${d.label} 的 DEV-GUIDE 里点名`,
+      undocumented.length === 0,
+      undocumented.length ? '未点名：' + undocumented.join(', ') : (tools.length + compat.length) + ' 个都被点名');
+  }
   check('negative control: 合成一个没被点名的工具会被判出',
-    judge(DOC, ['zzz-合成未点名.mjs']).join() === 'zzz-合成未点名.mjs');
-  check('positive control: 已点名的工具不算（判据不是恒真）', judge(DOC, [tools[0]]).length === 0, tools[0]);
+    docs.every((d) => judge(d.text, ['zzz-合成未点名.mjs']).join() === 'zzz-合成未点名.mjs'));
+  check('positive control: 已点名的工具不算（判据不是恒真）', judge(docs[0].text, [tools[0]]).length === 0, tools[0]);
 }
 
 console.log('');
