@@ -259,8 +259,12 @@ const selection = {
   search: "",
   // Transient: 快捷播放面板自己的搜索词与类型筛选（与库视图互不影响；不落盘）。
   qpSearch: "",
-  // "all" | "scene" | "web" | "video"（只收这三类 + 全部；面板是快切，不是全集浏览）
+  // "all" | "scene" | "web" | "video" | "image"（面板是快切，档位就这几类 + 全部）
   qpType: "all",
+  // Transient: 侧栏底栏的深链请求 —— "打开设置页后停在哪一页"（`""` = 无请求）。
+  // 由 WallpaperPicker 的一个 effect 消费一次即清（见 src/sidebar-right.js 的
+  // openSettingsSection 与 client.js 的「侧栏深链」段）。
+  settingsTabRequest: "",
   // 破坏性动作的「面板内确认」令牌 —— **所有族共用这一个真源**（`""` = 没有动作待确认）。
   // 形态 `<族>:<id>`（族内带 id 的动作）或 `<族>`（整块动作）。机制与三条不变量见
   // `armConfirm` 那一段（本文件，"破坏性动作的面板内确认"）。**不是** picker 私有字段：
@@ -2727,6 +2731,48 @@ function onNextWallpaper() {
   if (next && next.id !== anchorId) applySelection(next.id, { fromManual: true });
 }
 
+// ── 外观 / 画面处理器（模块级）──────────────────────────────────────────────
+// 与上面那批播放控制处理器同源理由：快捷播放面板的「外观」「播放」两页与设置页
+// 同名页签**共用同一批渲染器**（renderAppearanceTab / renderEffectsTab 的
+// ctx.surface 分支），而渲染器的回调必须在模块级才组得进侧栏的 ctx。
+// 这几支的取值单位与落盘路径与设置页逐字相同（照原样搬出组件闭包，一行没改）。
+// 统一的写法是「写设置 + emit()」：applyEffects 是 emit 的订阅者（见 apply()），CSS 变量
+// 与数值回读在同一趟里更新 —— 在这里额外直调 applyEffects 会让每次拖动双份应用（实测）。
+//   · 画面组：scrim / wallpaperOpacity / wallpaperBlur / background{Brightness,Contrast,Saturate}
+//   · 外观组：accent / glassColor / glassAlpha / border / blur（雾化）
+//   · 主题随壁纸开关（打开时立刻按当前壁纸补判一次）
+const onScrim = (pct) => { setSetting("scrim", pct / 100); emit(); };
+// 壁纸透明度（#82）：存 %（0–90），applyEffects 换算成 element opacity。
+const onWallpaperOpacity = (pct) => {
+  setSetting("wallpaperOpacity", clampNum(pct, 0, 90, DEFAULTS.wallpaperOpacity)); emit();
+};
+const onBorder = (pct) => { setSetting("border", pct / 100); emit(); };
+const onBlur = (px) => { setSetting("blur", px); emit(); };
+const onWallpaperBlur = (px) => { setSetting("wallpaperBlur", px); emit(); };
+const onBackgroundBrightness = (pct) => { setSetting("backgroundBrightness", pct); emit(); };
+const onBackgroundContrast = (pct) => { setSetting("backgroundContrast", pct); emit(); };
+const onBackgroundSaturate = (pct) => { setSetting("backgroundSaturate", pct); emit(); };
+// 配色 (accent color) + 玻璃透明度 (glass transparency) + 玻璃颜色 (glass base
+// tint): applied instantly through applyEffects() (--we-accent /
+// --we-glass-alpha / --we-glass-color), persisted so the settings page keeps
+// its custom look across reloads.
+const onAccent = (hex) => {
+  if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
+  setSetting("accent", hex); emit();
+};
+const onGlassColor = (hex) => {
+  if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
+  setSetting("glassColor", hex); emit();
+};
+const onGlassAlpha = (pct) => {
+  setSetting("glassAlpha", clampNum(pct, 0, 60, DEFAULTS.glassAlpha)); emit();
+};
+// 主题随壁纸（**默认关**）：开关本身只写设置；**打开时**立刻按当前壁纸补判一次，
+// 不等下一次换壁纸（补判走与换壁纸同一条入口；关时那条入口整体空转，不写主题）。
+const onToggleThemeFollow = (v) => {
+  setSetting("themeFollow", !!v); themeFollowOnWallpaper(selection); emit();
+};
+
 function WallpaperPicker() {
   useWeLocale(); // 设置页壁纸库：语言切换 → 整棵选择器（含 render* 渲染器）重渲染
   const sel = useStore();
@@ -2858,16 +2904,9 @@ function fontSetCtx() {
   };
 }
 
-// Slider callbacks: keep the stored value in its canonical unit, then emit —  // applyEffects is a subscribed listener (see apply()), so emit() applies the
-  // CSS vars synchronously AND re-renders the numeric readouts in one pass.
-  // (Calling applyEffects directly here too used to double-apply every tick.)
-  const onScrim = (pct) => { setSetting("scrim", pct / 100); emit(); };
-  // 壁纸透明度（#82）：存 %（0–90），applyEffects 换算成 element opacity。
-  const onWallpaperOpacity = (pct) => {
-    setSetting("wallpaperOpacity", clampNum(pct, 0, 90, DEFAULTS.wallpaperOpacity)); emit();
-  };
-  const onBorder = (pct) => { setSetting("border", pct / 100); emit(); };
-  const onBlur = (px) => { setSetting("blur", px); emit(); };
+  // 画面滑块（暗化 / 壁纸透明度 / 壁纸模糊 / 亮度 / 对比度 / 饱和度）与外观细调
+  //（配色 / 玻璃颜色 / 玻璃透明度 / 边框 / 雾化）：处理器已提升到模块级 ——
+  // 快捷播放面板共用同一份实现，见 cardKeyDown 上方「外观 / 画面处理器」段。
   // 切换过场（类型 / 方向 / 速度）：只写选择 —— 下一次换壁纸（手动点选或轮换提交）
   // 生效，不需要重建当前层。
   const onSwitchTransition = (id) => {
@@ -2881,25 +2920,6 @@ function fontSetCtx() {
   const onSwitchTransitionSpeed = (id) => {
     if (!SWITCH_SPEED_VALUES.includes(id)) return;
     setSetting("switchTransitionSpeed", id); emit();
-  };
-  const onWallpaperBlur = (px) => { setSetting("wallpaperBlur", px); emit(); };
-  const onBackgroundBrightness = (pct) => { setSetting("backgroundBrightness", pct); emit(); };
-  const onBackgroundContrast = (pct) => { setSetting("backgroundContrast", pct); emit(); };
-  const onBackgroundSaturate = (pct) => { setSetting("backgroundSaturate", pct); emit(); };
-  // 配色 (accent color) + 玻璃透明度 (glass transparency) + 玻璃颜色 (glass base
-  // tint): applied instantly through applyEffects() (--we-accent /
-  // --we-glass-alpha / --we-glass-color), persisted so the settings page keeps
-  // its custom look across reloads.
-  const onAccent = (hex) => {
-    if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-    setSetting("accent", hex); emit();
-  };
-  const onGlassColor = (hex) => {
-    if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-    setSetting("glassColor", hex); emit();
-  };
-  const onGlassAlpha = (pct) => {
-    setSetting("glassAlpha", clampNum(pct, 0, 60, DEFAULTS.glassAlpha)); emit();
   };
   // 侧栏玻璃（dsh-better-sidebar）：独立于会话玻璃的一套细粒度控制，各自立即
   // 生效并持久化（--we-sidebar-blur / --we-sidebar-alpha / --we-sidebar-color）。
@@ -2942,11 +2962,7 @@ function fontSetCtx() {
   const onToggleFontCustom = (v) => {
     setSetting("fontCustom", !!v); applyEffects(); emit();
   };
-  // 主题随壁纸（**默认关**）：开关本身只写设置；**打开时**立刻按当前壁纸补判一次，
-  // 不等下一次换壁纸（补判走与换壁纸同一条入口；关时那条入口整体空转，不写主题）。
-  const onToggleThemeFollow = (v) => {
-    setSetting("themeFollow", !!v); themeFollowOnWallpaper(selection); emit();
-  };
+  // 主题随壁纸的开关处理器已提升到模块级（同「外观 / 画面处理器」段）。
   // F1：角色色。默认「单色」—— 一个色同时写进 light/dark 两套（内部始终存两套，
 // 因为令牌服务的值必须是 {light,dark} 对，缺一套在另一套配色下会不可读）。
 // G4 字族（角色级）：空 = 回官方字族。存**族键**（CSS 栈由 fontFamilyStack 在模块侧解析）。
@@ -3270,6 +3286,21 @@ const officialColorOf = (tokens) => {
   // 停在「关于」页刷新页面这条路径不走 switchTab（activeTab 直接从 localStorage 读出来），
   // 用一次订阅式 effect 补上；TTL 同日历口径，重复触发是空操作。
   React.useEffect(() => { if (activeTab === "about") loadStarCount(false); }, [activeTab]);
+
+  // 侧栏深链（快捷播放面板底栏的「字体与更多外观 ›」/「更多播放设置 ›」）：请求"打开
+  // 设置页后停在哪一页"。打开对话框由 src/sidebar-right.js 的 DOM 路径负责，这里只管
+  // 落地 —— 走**同一个 switchTab**（清待确认 / 退出下钻 / 写 localStorage 这些副作用
+  // 一处不落），落地后把请求清掉（一次性；否则用户几分钟后自己开设置会被旧请求劫持）。
+  // 组件没挂载时请求就先躺在 store 里，挂载后这一趟 effect 消费它 —— 两条路都覆盖。
+  React.useEffect(() => {
+    const req = selection.settingsTabRequest;
+    if (!req) return;
+    if (req === activeTab || !PICKER_TABS.some((t) => t.id === req)) {
+      setTransient("settingsTabRequest", "");
+      return;
+    }
+    switchTab(req);
+  }, [sel.settingsTabRequest, activeTab]);
 
   if (!sel.loaded) {
     return React.createElement("div", { className: "we-picker" },

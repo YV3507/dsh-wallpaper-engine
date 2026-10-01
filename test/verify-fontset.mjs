@@ -1114,6 +1114,62 @@ section('⑧ 面板渲染回归（配色区在总开关打开时必须渲染得�
       return body.length > 0 && !/themeTypeOnly/.test(body)
         && /themeTypeOnly/.test(negControl); // 负对照：同一判据对"改前那版"会判红
     })(), '判据非空转（拿改动前那份函数体试过）');
+
+  // ── surface 档（设置页 / 侧栏共用同一批渲染器）──────────────────────────────
+  // 快捷播放面板的「外观」页用的就是这个渲染器，靠 `ctx.surface === "sidebar"` 少画
+  // 设置页专属的三节。两件事必须同时成立：① **缺省档（设置页）一个节点不少** ——
+  // 属性打错（比如写成 `surface !== "sidebar"`）时设置页会静默少三节，源码级判据看不出来；
+  // ② 侧栏档确实少画那三节。
+  // 判据取**节标题**（那些 span 是真渲染的）：本 harness 的 switchRow / ctlText 是 noop，
+  // 行标签拿不到，拿它判会空转。
+  const pickSurface = (sel, s) => {
+    const c = panelCtx(sel);
+    if (s) c.surface = s;
+    return panelMod.renderAppearanceTab(c);
+  };
+  const shapeOf = (n, acc = []) => {
+    if (Array.isArray(n)) { n.forEach((x) => shapeOf(x, acc)); return acc; }
+    if (!n || typeof n !== 'object') { if (n !== null && n !== undefined) acc.push(String(n)); return acc; }
+    if (typeof n.type === 'string') acc.push(n.type + '.' + ((n.props && n.props.className) || ''));
+    if (Array.isArray(n.children)) n.children.forEach((x) => shapeOf(x, acc));
+    return acc;
+  };
+  check('外观页 surface 缺省与 "settings" 逐字相同（设置页形态一个节点不少）',
+    shapeOf(pickSurface(panelSel())).join('|') === shapeOf(pickSurface(panelSel(), 'settings')).join('|'));
+  const sideText = treeText(pickSurface(panelSel(), 'sidebar'));
+  const setText = treeText(pickSurface(panelSel(), 'settings'));
+  check('侧栏档只少画字体 / 光标 / 窗口与侧栏三节（主题 / 细节照旧）',
+    sideText.includes('主题') && sideText.includes('细节')
+      && !sideText.includes('全局字体') && !sideText.includes('输入光标') && !sideText.includes('窗口与侧栏'));
+  check('负对照：设置页档那三节必须在（证明上一条不是空转）',
+    setText.includes('全局字体') && setText.includes('输入光标') && setText.includes('窗口与侧栏'));
+
+  // 播放页（renderEffectsTab）同理：侧栏档少画「准备与诊断」那一组。
+  // 本 harness 里 ctlText / SliderRow / switchRow 是 noop ⇒ 只有**直接 createElement 出来的
+  // 文本**看得见（节标题、段控档位按钮、空态按钮）。所以判据取段控档位（帧率上限那串
+  // 「无限制 / 24fps…」）—— 它在设置页档有、侧栏档没有；而倍速 / 适配两边都在。
+  same(globalThis, 'gpuFrameUi', { wid: '', pinned: false, w: 0, h: 0, busy: false, recapturing: false, error: '' });
+  same(globalThis, 'FPS_CAP_VALUES', (schema.FPS_CAP_VALUES || [0, 24, 30, 60]));
+  const effectsCtx = (sel, s) => {
+    const c = { setSetting: noop, setTransient: noop, sel };
+    for (const k of ['onBackgroundBrightness', 'onBackgroundContrast', 'onBackgroundSaturate',
+      'onClearCustomFrame', 'onClearGpuFrame', 'onCustomFrameFile', 'onRecaptureGpuFrame',
+      'onRefreshFrame', 'onScrim', 'onWallpaperBlur', 'onWallpaperOpacity', 'onPickWallpaper']) c[k] = noop;
+    if (s) c.surface = s;
+    return c;
+  };
+  const fxShape = (sel, s) => shapeOf(panelMod.renderEffectsTab(effectsCtx(sel, s))).join('|');
+  const videoSel = panelSel({ type: 'video' });
+  check('播放页 surface 缺省与 "settings" 逐字相同（设置页形态一个节点不少）',
+    fxShape(videoSel) === fxShape(videoSel, 'settings'));
+  check('侧栏档少掉的正是「准备与诊断」（帧率上限档位在设置页档、不在侧栏档）',
+    fxShape(videoSel, 'settings').includes('无限制') && !fxShape(videoSel, 'sidebar').includes('无限制')
+      && fxShape(videoSel, 'sidebar').includes('2x') && fxShape(videoSel, 'sidebar').includes('覆盖'),
+    '侧栏档保留：倍速 + 适配');
+  check('侧栏档空态 CTA =「去挑一张 ›」（设置页档照旧是「选择壁纸」）',
+    fxShape(panelSel({ id: '', type: '' }), 'sidebar').includes('去挑一张 ›')
+      && fxShape(panelSel({ id: '', type: '' }), 'settings').includes('选择壁纸')
+      && !fxShape(panelSel({ id: '', type: '' }), 'sidebar').includes('选择壁纸'));
 }
 
 // ── ⑨ 字体集编辑器（面板驱动）────────────────────────────────────────────────

@@ -17,6 +17,8 @@
  *      可编程面 —— 走 DOM：点宿主左栏的设置触发钮（aria-haspopup="dialog"），
  *      对话框挂上 body 后再点我们自己的 nav 行（label 是我们注册的，最稳定的锚）。
  *      任一步找不到就静默收尾（用户手动开设置也一样到）。
+ *      可选参数 `tabId` = 深链到设置页的某一页签（快捷面板底栏那两颗按钮用）：
+ *      写一个瞬态请求（`settingsTabRequest`）就走，落地在 WallpaperPicker 的 effect 里。
  *   ⑤ 调试开关 `?we-sidebar=drawer`：官方宿主上强制抽屉态（验证低版本形态用）。
  *
  * 契约（构建期由 scripts/build-client.mjs 内联进 bundle 的工厂作用域）：
@@ -325,10 +327,18 @@ function findSettingsTrigger() {
   } catch { return null; }
 }
 let openSettingsBusy = false;
-function openSettingsSection() {
+/**
+ * 打开「壁纸引擎」设置分区；给了 `tabId` 就深链到设置页的对应页签
+ * （`"appearance"` / `"playback"` —— 快捷播放面板底栏那两颗按钮用）。
+ * 深链只写一个**瞬态请求**（`settingsTabRequest`），落地在 WallpaperPicker 的一个
+ * effect 里走同一个 switchTab —— 打开对话框本身仍是下面那条 DOM 路径，一行没动。
+ * 自动打开失手（超时分支）要顺手清掉请求：否则用户几分钟后自己开设置会被旧请求劫持。
+ */
+function openSettingsSection(tabId) {
   if (typeof document === "undefined" || openSettingsBusy) return;
   openSettingsBusy = true; // 重入锁：误点自己/连点不再递归（实测曾递归自点 5 次）
   const release = () => { openSettingsBusy = false; };
+  if (tabId) setTransient("settingsTabRequest", String(tabId));
 
   const clickOurNavRow = () => {
     let rows = [];
@@ -399,6 +409,8 @@ function openSettingsSection() {
     if (clickOurNavRow()) { clickedNav = true; release(); return; }
     if (Date.now() - started > 6000) {
       reportClientDiag("settings-entry-timeout", "dialog=" + Boolean([...document.querySelectorAll('[role="dialog"]')].length));
+      // 深链请求一并清掉（见函数头）：打不开就别留着它等下一次。
+      if (tabId) setTransient("settingsTabRequest", "");
       // 给用户一条确定的手动路径（自动打开失手时）。
       try {
         const entry = document.querySelector('button[data-we-qp-entry]');

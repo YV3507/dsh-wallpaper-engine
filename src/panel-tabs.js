@@ -500,7 +500,12 @@
 
 
   function renderAppearanceTab(ctx) {
-    const { setSetting, officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onToggleFontCustom, onToggleThemeFollow, fontSet, sel } = ctx;
+    const { setSetting, officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onToggleFontCustom, onToggleThemeFollow, fontSet, sel, surface } = ctx;
+    // 侧栏档（快捷播放面板的「外观」页）：只画【主题】【细节】两节 —— 字体 / 光标 /
+    // 窗口与侧栏三节属于设置页（窄列里没意义，且它们的处理器不住在模块级）。
+    // 判据：`!sidebarSurface` 包住的三节在**缺省档一个节点都不少**（surface 缺省 =
+    // 设置页形态，逐字不变）。
+    const sidebarSurface = surface === "sidebar";
     // 「排版角色」表要按「只看改过的」筛，而**筛完是空**时要单独给一行提示 ⇒ 先算出来再渲染表。
     // ⚠️ 必须在 `React.createElement(...)` **之前**算（写成参数位置上的赋值表达式 ——
     //    赋值表达式的值是那个**数组本身**，于是它被当成一个子节点 ⇒ React #31「对象不能作为子节点」；
@@ -552,7 +557,7 @@
       // ── 字体 (custom typography)：原「字体」页签并入「外观」——总开关（关 =
       //    恢复 dsh 原生字体）+ 颜色角色 / 排版角色 / 字体族 / 组件字体（高级），
       //    开启时才渲染细节控件。字重不设全局值：按角色与按组件细化。 ──
-      React.createElement("div", { className: "we-picker__section" },
+      !sidebarSurface && React.createElement("div", { className: "we-picker__section" },
         React.createElement("div", { className: "we-picker__section-head" },
           React.createElement("span", { className: "we-picker__section-label" }, weT("全局字体")),
         ),
@@ -767,7 +772,7 @@
       ),
       // ── 输入光标（#83）：光标色与壁纸相近时会隐形，这里给它一个独立于字体
       //    自定义的颜色项。「自动」= 不注入任何规则，跟随 dsh 原生表现。──
-      React.createElement("div", { className: "we-picker__section" },
+      !sidebarSurface && React.createElement("div", { className: "we-picker__section" },
         React.createElement("div", { className: "we-picker__section-head" },
           React.createElement("span", { className: "we-picker__section-label" }, weT("输入光标")),
         ),
@@ -786,7 +791,7 @@
         }),
       ),
       // ── 窗口与侧栏：两套液态玻璃总开关，细节控件缩进一级并随开关显隐 ──
-      React.createElement("div", { className: "we-picker__section" },
+      !sidebarSurface && React.createElement("div", { className: "we-picker__section" },
         React.createElement("div", { className: "we-picker__section-head" },
           React.createElement("span", { className: "we-picker__section-label" }, weT("窗口与侧栏")),
         ),
@@ -910,8 +915,15 @@
 
 
   function renderEffectsTab(ctx) {
-    const { setSetting, onBackgroundBrightness, onBackgroundContrast, onBackgroundSaturate, onClearCustomFrame, onClearGpuFrame, onCustomFrameFile, onRecaptureGpuFrame, onRefreshFrame, onScrim, onWallpaperBlur, onWallpaperOpacity, sel } = ctx;
+    const { setSetting, onBackgroundBrightness, onBackgroundContrast, onBackgroundSaturate, onClearCustomFrame, onClearGpuFrame, onCustomFrameFile, onRecaptureGpuFrame, onRefreshFrame, onScrim, onWallpaperBlur, onWallpaperOpacity, sel, surface, onPickWallpaper } = ctx;
+    // 侧栏档（快捷播放面板的「播放」页）：**准备与诊断**那一组行不画 —— 出图来源 /
+    // 实时帧 / 自定义画面（文件选择）/ 帧率上限（抽帧转码）/ 源信息 / 转码进度，
+    // 它们回答的是"这台机器怎么出图"，不是"现在看起来怎么样"；留设置页。
+    // 画面滑块 / 实时渲染组 / 倍速 / 适配 / 翻转照旧 —— 那些是"调完立刻看得见"的行。
+    const sidebarSurface = surface === "sidebar";
     // 效果页签的空态：没有启用壁纸时不摆一列无效滑块，改为引导去选壁纸。
+    // 侧栏档的"去选"是**切到本面板的壁纸页**（ctx.onPickWallpaper），不是设置页的
+    // 库下钻（那是 pickerOpen，侧栏点了不会有可见反应）。
     if (!sel.id) {
       return React.createElement("div", { className: "we-picker__empty" },
         React.createElement("span", { className: "we-picker__empty-title" }, weT("还没有启用壁纸")),
@@ -919,15 +931,15 @@
           weT("选择一款壁纸后，可在这里调整模糊、亮度、适配、倍速等效果")),
         React.createElement("button", {
           className: "we-picker__btn we-picker__btn--primary", type: "button",
-          ref: (el) => { pickerOpener = el; },
-          onClick: () => {
+          ref: sidebarSurface ? undefined : (el) => { pickerOpener = el; },
+          onClick: sidebarSurface ? onPickWallpaper : () => {
             setTransient("pickerOpen", true);
             setTransient("pickerDraft", false); // 普通下钻（点卡片即应用）
             setTransient("modalView", "normal");
             pickerFocusPending = true;
             emit();
           },
-        }, weT("选择壁纸")),
+        }, sidebarSurface ? weT("去挑一张 ›") : weT("选择壁纸")),
       );
     }
     // 画面来源相关的判定算一次给下面几行用：
@@ -1005,8 +1017,9 @@
           ),
         ),
         // ── 出图来源：**只在实时渲染未生效时**出现 —— 它换的是「没有实时画面时显示什么」，
-        //    实时画面在跑时它没有任何作用（换实时帧用下面的「重新截」）。──
-        sel.type === "scene" && sel.sceneFrameUrl && !liveRenderEnabled(sel)
+        //    实时画面在跑时它没有任何作用（换实时帧用下面的「重新截」）。
+        //    侧栏档不出现在这里（准备与诊断，见函数头）。──
+        !sidebarSurface && sel.type === "scene" && sel.sceneFrameUrl && !liveRenderEnabled(sel)
           && React.createElement("div", { className: "we-picker__ctl" },
           ctlText(weT("出图来源"), weT("这张画面从哪来"),
             weT("场景壁纸「这张画面从哪来」。两档：**实时画面**（有抓帧就用它，没有则留空）与**自定义画面**（手动导入的截图）。点一次切换一次，选择记忆在当前壁纸上。实时渲染生效时本行不显示（那时画面来自实时渲染，切这里不会生效）")),
@@ -1027,8 +1040,9 @@
         //    它是切换途中 / live 首帧之前给用户看的那张静帧 —— 构图不对（黑帧、旧视口、
         //    切走瞬间抓的）时用户必须能立刻重抓，而不是先关掉实时渲染再回来。
         //    预览窗口指向的就是**层上正在用的那个 URL**（同一档位 + 缓存破坏参数），
-        //    所以「预览看到什么，切换途中就是什么」。──
-        sceneWithFrame && (gpuPinnedHere || liveRenderEnabled(sel))
+        //    所以「预览看到什么，切换途中就是什么」。
+        //    侧栏档不出现在这里（准备与诊断，见函数头）。──
+        !sidebarSurface && sceneWithFrame && (gpuPinnedHere || liveRenderEnabled(sel))
           && React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
           ctlText(weT("实时帧"),
             gpuPinnedHere
@@ -1062,7 +1076,7 @@
         // ── 自定义画面（截屏导入）：出不了实时画面的壁纸（骨骼拼装场景，预览 gif 仅
         //    160px）由用户从 WE 截图导入，画质=截图分辨率；就是 ?v=4 那一档。
         //    同样**不受实时渲染开关影响**（导入/清除与 live 互不干扰）。──
-        sel.type === "scene" && React.createElement("div", { className: "we-picker__ctl" },
+        !sidebarSurface && sel.type === "scene" && React.createElement("div", { className: "we-picker__ctl" },
           ctlText(weT("自定义画面"),
             weT("手动给电脑桌面截图，导入截图解决错误壁纸"),
             weT("手动对电脑桌面截图（壁纸显示效果的分辨率即最终展示画质），再回来点「导入画面…」选中该截图；导入后自动切换为该图，可随时切回「实时画面」档。实时渲染生效时它仍会作为「出图来源」的自定义档")),
@@ -1101,7 +1115,8 @@
         // 解码帧率上限（抽帧转码）：host 一次性把源视频重编码为上限帧率（时间线
         // 1.0x 正常速度，解码占用随帧率线性下降），与倍速解耦。首次转码需等待，
         // 播放中原片、转好自动切换；无 ffmpeg 自动回退原片。
-        sel.type === "video"
+        // 侧栏档不出现在这里（准备与诊断，见函数头）。──
+        !sidebarSurface && sel.type === "video"
           && React.createElement("div", { className: "we-picker__ctl", key: "fps" },
           ctlText(weT("帧率上限"), weT("抽帧转码 · 降低解码占用")),
           React.createElement("div", { className: "we-picker__seg" },
@@ -1118,7 +1133,8 @@
           ),
         ),
         // Source metadata + transcode status (host moov probe / transcode lifecycle).
-        sel.type === "video" && sel.mediaInfo && React.createElement("span", { className: "we-picker__hint", key: "media-info" },
+        // 源信息与转码进度同样是准备/诊断行 —— 侧栏档不画（见函数头）。
+        !sidebarSurface && sel.type === "video" && sel.mediaInfo && React.createElement("span", { className: "we-picker__hint", key: "media-info" },
           weT("源 {width}×{height}{fps}{codec}{state}", {
             width: sel.mediaInfo.width,
             height: sel.mediaInfo.height,
@@ -1132,7 +1148,7 @@
           }),
         ),
         // Download / transcode progress bar (polled from /transcode-progress).
-        sel.type === "video" && sel.transcodeState === "working" && sel.transcodeProgress
+        !sidebarSurface && sel.type === "video" && sel.transcodeState === "working" && sel.transcodeProgress
           && React.createElement("div", { className: "we-picker__row we-picker__prog", key: "transcode-prog" },
             React.createElement("div", {
               className: "we-picker__prog-track",

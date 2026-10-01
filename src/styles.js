@@ -1825,12 +1825,29 @@ const CSS = `
   .we-qp--official { box-sizing: border-box; padding: 12px; }
   /* 官方侧栏的 tab 身体（P3OORG_tabBody）是固定高 + overflow:hidden —— 内容超高
      会被裁掉且任何祖先都不滚（宿主契约：每类 tab 自己管内部滚动）。所以：
-     ① 面板限高 100% 自己兜底滚；② 列表区单独成滚动容器，让 当前壁纸 / 轮播 /
-     声音 / 底栏常驻可见 —— 快捷面板滚 100 行列表去够音量是不可用的。 */
+     ① 面板限高 100% 自己兜底滚；② 常驻区（当前壁纸 / 轮播 / 页签栏 / 底栏）不滚，
+     滚动只发生在页签内容区（.we-qp__tabbody）里 —— 快捷面板滚 100 行列表去够音量、
+     或翻到播放页去够「下一张」都是不可用的。抽屉档（.we-repo-panel__body 已是滚动
+     容器）不叠第二层滚。 */
   .we-qp--official { height: 100%; overflow-y: auto; overscroll-behavior: contain; }
   .we-qp--official .we-qp__current,
   .we-qp--official .we-qp__section,
+  .we-qp--official .we-qp__tabs,
   .we-qp--official .we-qp__foot { flex: 0 0 auto; }
+  /* 页签栏：复用设置页那套 .we-tabs（分段底 + 指示胶囊），这里只补宽度约束
+     （.we-tabs 自己是 flex:0 0 auto，列向 flex 里要显式给满宽） */
+  .we-qp__tabs { width: 100%; box-sizing: border-box; }
+  /* 页签内容区：外观 / 播放两页在这里滚；壁纸页挂 --library，改由列表自己滚
+     （viewbar 与声音组常驻，与改造前的形态一致）。 */
+  .we-qp__tabbody { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  .we-qp--official .we-qp__tabbody { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  .we-qp--official .we-qp__tabbody--library { overflow: hidden; }
+  /* ⚠️ 列表那节（.we-qp__library，flex: 1 1 auto）是**唯一**的弹性子节点；它的兄弟
+     （声音组）由上面那条 .we-qp--official .we-qp__section 兜住，**不要再**在这里写
+     .we-qp__tabbody--library > .we-qp__section —— 那会多一个类、特异性压过
+     .we-qp__library（同为 0,2,0 时才靠源码顺序决胜），把列表压成内容高 ——
+     列表里的 overflow-y:auto 就永远不触发（实测：侧栏列表滚不动）。判据在
+     test/verify-scene-live.mjs「侧栏列表的滚动链」一段。 */
   .we-qp--official .we-qp__library { flex: 1 1 auto; min-height: 140px; }
   .we-qp--official .we-qp__list {
     flex: 1 1 auto; min-height: 0;

@@ -30,6 +30,9 @@ import { Readable, Writable } from 'node:stream';
 import { execFileSync } from 'node:child_process';
 // 剥注释：共享的字符串感知实现（`verify-module-layout` 的『剥注释必须字符串感知』一节钉住"不许再用朴素正则"）。
 import { stripComments } from './tools/js-text.mjs';
+// 单独 import `src/**` 时补上 bundle 作用域的取词层（面板渲染器直接用 weT；见该 shim 的文件头）。
+import { installWeTShim } from './tools/weT-shim.mjs';
+installWeTShim();
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // Keep every cache/config write inside the workspace (same stance as
@@ -1349,7 +1352,6 @@ check('host 侧 /media-control 只收 POST + 动作走 mediaBackend.control（�
   // ↑ 本段与"三键退役"共用同一个 `{ … }` 块（原先那条 check 的收尾 `}` 就在这里）——
   //   不要再包一层 `{}`：块会多开一层，整个文件在 EOF 报 "Unexpected end of input"。
 }
-
 // 用户口径：设置页切「类型」不得把**正在应用**的壁纸干掉 ⇒ 类型档只筛列表与轮播
 // 候选、不入播放闸门（keepPlayingWallpaper：分级拦播放，类型档没有入参）；轮播在场
 // 时「仅被类型档排除」也不换台（typeOnlyExcluded）。分级闸门照旧干掉并解释 —— 那
@@ -1451,6 +1453,332 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     && sidebarSrc.includes('ctx.slots.inject("sidebar.right.pane.tab"')
     && sidebarSrc.includes('ctx.get("sidebarRightTabs")')
     && sidebarSrc.includes('ctx.get("sidebarRight")'));
+// ── 侧栏三档页签（壁纸 / 外观 / 播放）──────────────────────────────────────
+// 用户口径：设置页的「外观」「播放」两页也要能在侧栏快捷调（调参数时实时看壁纸效果）。
+// 三件事各一条判据：① 页签栏的位置（在「轮播」之下 —— 当前壁纸与轮播三档都显示）；
+// ② 两页与设置页**共用同一批渲染器**（surface 档少画设置页专属分组），不许在侧栏
+// 自写一份控件；③ 页签记忆是 UI 状态（localStorage，不进 config.json）。
+{
+  const QP_TAB_ROWS = [['wallpaper', '壁纸'], ['appearance', '外观'], ['playback', '播放']];
+  // 页签栏夹在「轮播」与「底栏」之间（三个锚点都是只在对应节出现的类名）。
+  const tabBarBetween = (text) => {
+    const t = text.indexOf('we-tabs we-qp__tabs');
+    return t >= 0 && text.indexOf('we-qp__group') < t && t < text.indexOf('we-qp__foot');
+  };
+  const qpTabsOk = (text) => text.includes('const QP_TABS = [') && tabBarBetween(text)
+    && QP_TAB_ROWS.every(([id, label]) => text.includes('id: "' + id + '"')
+      && text.includes('label() { return weT("' + label + '")'));
+  check('侧栏三档页签齐全（壁纸 / 外观 / 播放）且页签栏在「轮播」之下、底栏之上', qpTabsOk(qpSrc));
+  check('negative control: 页签栏挪到「轮播」之上会被同一条判据判出',
+    !tabBarBetween('we-tabs we-qp__tabs … we-qp__group … we-qp__foot')
+      && tabBarBetween('we-qp__group … we-tabs we-qp__tabs … we-qp__foot'));
+  check('侧栏页签记忆只进 localStorage（同 qp-view / picker-tab 口径，不进 config.json）',
+    qpSrc.includes('localStorage.getItem(QP_TAB_KEY)')
+      && qpSrc.includes('localStorage.setItem(QP_TAB_KEY, id)')
+      && !qpSrc.includes('setSetting("qpTab"') && !qpSrc.includes('"qpTab"'));
+  // 两页 = 设置页同名页签的同一批渲染器；侧栏不再自写控件（此前那份手写的「声音」组
+  // 已并回渲染器 —— 它的提示语当时已经和设置页不一致了）。
+  const sharedRenderers = (text) => text.includes('renderAppearanceTab(sidebarRenderCtx(')
+    && text.includes('renderEffectsTab(sidebarRenderCtx(')
+    && (text.match(/renderAudioTab\(sidebarRenderCtx\(/g) || []).length === 2
+    && !/switchRow\(weT\("壁纸音轨"/.test(text)
+    && !/SliderRow\(weT\("音量"/.test(text);
+  check('侧栏「外观」「播放」两页与设置页共用同一批渲染器（壁纸页那份声音组也已并回）',
+    sharedRenderers(qpSrc));
+  check('negative control: 在侧栏自写一份音量行会被同一条判据判出',
+    !sharedRenderers(qpSrc + '\nswitchRow(weT("壁纸音轨"), true, () => {});\n'));
+  // 渲染器的 surface 档：侧栏档只**加门**（少画设置页专属分组），不许改行 ——
+  // 缺省（设置页）那一趟一个节点都不少（行为级 golden 在 verify-client.mjs）。
+  const gated = (text, label) => new RegExp('!sidebarSurface &&[\\s\\S]{0,240}?weT\\("' + label + '"\\)').test(text);
+  check('外观页三节（字体 / 光标 / 窗口与侧栏）只在设置页档渲染',
+    ['全局字体', '输入光标', '窗口与侧栏'].every((label) => gated(tabsSrc, label)));
+  check('播放页的准备与诊断行（出图来源 / 实时帧 / 自定义画面 / 帧率上限 / 源信息 / 转码进度）只在设置页档渲染',
+    ['出图来源', '实时帧', '自定义画面', '帧率上限'].every((label) => gated(tabsSrc, label))
+      && tabsSrc.includes('!sidebarSurface && sel.type === "video" && sel.mediaInfo')
+      && tabsSrc.includes('!sidebarSurface && sel.type === "video" && sel.transcodeState === "working"'));
+  check('negative control: 去掉一扇门（外观少画一节）会被同一条判据判出',
+    !gated('React.createElement("div", { className: "we-picker__section" },\n'
+      + '  React.createElement("span", { className: "we-picker__section-label" }, weT("全局字体")),', '全局字体')
+      && gated(tabsSrc, '全局字体'));
+  check('侧栏档空态 CTA 切回壁纸页（不是设置页的库下钻）',
+    tabsSrc.includes('sidebarSurface ? onPickWallpaper : () =>')
+      && tabsSrc.includes('sidebarSurface ? weT("去挑一张 ›") : weT("选择壁纸")')
+      && qpSrc.includes('onPickWallpaper: () => switchQpTab("wallpaper")'));
+  // ── 侧栏列表的滚动链（真机回归：列表滚不动）────────────────────────────────
+  // 布局靠"同级权重 + 源码顺序"决胜：`.we-qp--official .we-qp__section { flex: 0 0 auto }`
+  // 与 `.we-qp--official .we-qp__library { flex: 1 1 auto }` 同为两个类，后者在源码里更晚
+  // ⇒ 列表那节拿到弹性高度、它里面的 `overflow-y:auto` 才触发。**任何多一个类的写法**
+  //（如 `.we-qp__tabbody--library > .we-qp__section`）会不看顺序地压过它 —— 列表随即被压成
+  // 内容高、滚不动（用户实测到的那一版）。判据按**权重**判：给 `.we-qp__section` 设 flex
+  // 的选择器不得比同族那条更重；再加一条顺序判据。
+  {
+    // 规则来自 styles.js 的 CSS：注释里也会出现这些类名（上面那条警告就写着坏写法）⇒ 先按
+    // **CSS 词法**跳过注释与字符串再解析规则。不用"朴素块注释正则"（本仓 ⑦ 号规则：那类写法
+    // 会从注释 / 字符串里开一个块注释，把中间的真实内容**静默删掉**）；CSS 也不套 JS 词法
+    //（它没有行注释，`url(//host/x)` 会被误删）。
+    const skipCssComments = (text) => {
+      let out = '';
+      for (let i = 0; i < text.length; i++) {
+        if (text[i] === '/' && text[i + 1] === '*') {
+          const end = text.indexOf('*/', i + 2);
+          i = end === -1 ? text.length : end + 1;
+          out += ' ';
+          continue;
+        }
+        if (text[i] === '"' || text[i] === "'") {
+          const quote = text[i];
+          out += quote;
+          for (i++; i < text.length && text[i] !== quote; i++) out += text[i] === '\\' ? text[i++] + (text[i] || '') : text[i];
+          out += quote;
+          continue;
+        }
+        out += text[i];
+      }
+      return out;
+    };
+    const css = skipCssComments(stylesSrc);
+    /** 规则清单（含 @media/@keyframes 的嵌套：按花括号深度切）。 */
+    const rules = [];
+    for (let i = 0; i < css.length; i++) {
+      if (css[i] !== '{') continue;
+      const sel = css.slice(css.lastIndexOf('}', i) + 1, i);
+      let depth = 0; let k = i;
+      for (; k < css.length; k++) {
+        if (css[k] === '{') depth++;
+        else if (css[k] === '}' && --depth === 0) break;
+      }
+      rules.push({ at: i, sel, body: css.slice(i + 1, k) });
+      i = k;
+    }
+    const weightOf = (sel) => (sel.match(/\.[\w-]+/g) || []).length + (sel.match(/\[[^\]]+\]/g) || []).length;
+    const baseSel = '.we-qp--official .we-qp__section';
+    const sectionFlexRules = [];
+    for (const r of rules) {
+      if (!/(^|[;\s])flex\s*:/.test(r.body)) continue;
+      for (const part of r.sel.split(',')) {
+        const s = part.trim();
+        if (/\.we-qp__section\b/.test(s)) sectionFlexRules.push({ at: r.at, sel: s, w: weightOf(s) });
+      }
+    }
+    const libraryRule = rules.find((r) => r.sel.split(',').some((s) => s.trim() === '.we-qp--official .we-qp__library')
+      && /(^|[;\s])flex\s*:\s*1 1 auto/.test(r.body));
+    const tooHeavy = sectionFlexRules.filter((r) => r.w > weightOf(baseSel));
+    check('侧栏列表的滚动链：给 .we-qp__section 设 flex 的选择器不得比 `' + baseSel + '` 更重',
+      sectionFlexRules.length >= 1 && tooHeavy.length === 0,
+      tooHeavy.map((r) => r.sel + '(' + r.w + ')').join(' | ')
+        || sectionFlexRules.length + ' 条同权重规则（靠源码顺序决胜）');
+    check('列表那节的 `flex: 1 1 auto` 必须晚于同权重那条 `flex: 0 0 auto`（顺序即胜负）',
+      Boolean(libraryRule) && sectionFlexRules.every((r) => libraryRule.at > r.at));
+    check('negative control: `.we-qp__tabbody--library > .we-qp__section` 那条坏写法会被同一条判据判出',
+      weightOf('.we-qp--official .we-qp__tabbody--library > .we-qp__section') > weightOf(baseSel));
+  }
+  // ── 需求④（两边数据一致）：侧栏不持有第二份状态 ──
+  // ① 外观 / 画面处理器**提升到模块级**（在 WallpaperPicker 之前声明）—— 两处调的是
+  //    同一份实现，不是两份手抄；
+  // ② 渲染器解构的每个 ctx 字段，侧栏这一侧都要有交代（提供，或进 setting-only 名单
+  //    由"取用即抛错"的占位器兜住）—— 将来渲染器加字段，这里会红；
+  // ③ 侧栏两页零裸写（`selection.X =` 计数为 0）。
+  const PROMOTED = ['onScrim', 'onWallpaperOpacity', 'onBorder', 'onBlur', 'onWallpaperBlur',
+    'onBackgroundBrightness', 'onBackgroundContrast', 'onBackgroundSaturate', 'onAccent',
+    'onGlassColor', 'onGlassAlpha', 'onToggleThemeFollow'];
+  {
+    const compStart = src.indexOf('function WallpaperPicker() {');
+    const notPromoted = PROMOTED.filter((n) => {
+      const at = src.indexOf('const ' + n + ' = ');
+      return at === -1 || at > compStart;
+    });
+    check('外观 / 画面处理器已提升到模块级（设置页与侧栏共用同一份实现）',
+      notPromoted.length === 0, notPromoted.join(', ') || PROMOTED.length + ' 个都在组件之前');
+    check('negative control: 仍住在组件里的处理器会被同一条判据判出',
+      ([...PROMOTED.slice(1), 'onScrim']).some((n) => {
+        const at = src.indexOf('const ' + n + ' = ');
+        return at > compStart;
+      }) === false && PROMOTED.every((n) => src.indexOf('const ' + n + ' = ') < compStart));
+  }
+  {
+    const ctxFieldsOf = (fnName) => {
+      const m = tabsSrc.match(new RegExp('function ' + fnName + '\\(ctx\\) \\{\\n\\s*const \\{([^}]*)\\} = ctx;'));
+      return m ? m[1].split(',').map((s) => s.trim()).filter(Boolean) : null;
+    };
+    const mentions = (text, f) => new RegExp('(^|[\\s,{])' + f + '\\s*[,:}]', 'm').test(text)
+      || text.includes('"' + f + '"');
+    const wanted = ['renderAppearanceTab', 'renderEffectsTab', 'renderAudioTab']
+      .flatMap((fn) => ctxFieldsOf(fn) || []);
+    const missing = wanted.filter((f) => !mentions(qpSrc, f));
+    check('侧栏 ctx 覆盖渲染器要的全部字段（提供的字段 + setting-only 占位器），候选 ' + wanted.length + ' 个',
+      wanted.length >= 20 && missing.length === 0, '缺：' + (missing.join(', ') || '无'));
+    check('negative control: 漏掉一个 ctx 字段会被同一条判据判出',
+      !mentions('const x = 1;', 'onGlassAlpha'));
+    const bareWrites = (stripComments(qpSrc).match(/(?<![\w.$])selection\.[\w$]+\s*=(?!=)/g) || []).length;
+    check('侧栏（quick-panel.js）对 store 零裸写 —— 写一律走处理器 / setSetting / setTransient',
+      bareWrites === 0, bareWrites + ' 处裸写');
+  }
+  // 底栏深链：外观 / 播放各带自己的 tabId，落地走同一个 switchTab（一次性请求）。
+  const deepLinkOk = (clientText, sideText, qpText) => sideText.includes('function openSettingsSection(tabId)')
+    && sideText.includes('setTransient("settingsTabRequest", String(tabId))')
+    && sideText.includes('setTransient("settingsTabRequest", "")')
+    && clientText.includes('settingsTabRequest: ""')
+    && clientText.includes('const req = selection.settingsTabRequest')
+    && qpText.includes('openSettingsSection(foot.target)')
+    && qpText.includes('label: weT("字体与更多外观 ›")')
+    && qpText.includes('label: weT("更多播放设置 ›")');
+  check('底栏深链：外观 / 播放页各带自己的 tabId（瞬态请求 + 超时清理）',
+    deepLinkOk(src, sidebarSrc, qpSrc));
+  check('negative control: 不带 tabId 的旧形态会被同一条判据判出',
+    !deepLinkOk(src, 'function openSettingsSection() {', qpSrc));
+
+  // 侧栏 ctx 的 setting-only 占位器要有**牙**：调用它、或读它的属性都抛错 —— 将来某次
+  // 编辑把一行挪进侧栏档（比如把「帧率上限」放进播放页），会当场炸而不是静默变成
+  // "点了没反应"。判据拿**真源码**求值后再戳（不是照着实现抄一遍 —— 那样只会测到抄写）。
+  {
+    const factory = new Function('weT', 'React', 'localStorage',
+      qpSrc + '\nreturn { sidebarRenderCtx, QP_CTX_SETTINGS_ONLY, QP_TABS };');
+    const bag = factory((k) => k, { createElement: () => null }, { getItem: () => null, setItem() {} });
+    const ctx = bag.sidebarRenderCtx({ sel: {}, onAccent: () => 'ok' });
+    const called = (() => { try { ctx.onCaretColor(); return 'no-throw'; } catch (e) { return String(e.message); } })();
+    const read = (() => { try { return String(ctx.fontSet.open); } catch (e) { return String(e.message); } })();
+    check('侧栏 ctx 的 setting-only 占位器：调用 / 取属性都抛错（响亮且可定位）',
+      ctx.surface === 'sidebar' && ctx.onAccent() === 'ok' && bag.QP_TABS.length === 3
+        && called.includes('[we-sidebar]') && called.includes('onCaretColor')
+        && read.includes('[we-sidebar]') && read.includes('fontSet'),
+      called.slice(0, 48));
+    check('负对照：名单外的字段仍是 undefined（判据不是恒真 —— 占位器只覆盖点过名的）',
+      ctx.someFieldNeverListed === undefined && bag.QP_CTX_SETTINGS_ONLY.length >= 20);
+  }
+}
+
+// ── 渲染回归：三档页签都渲染得出，且各画各的 ────────────────────────────────
+// 源码级判据看不出的那一类（漏声明的名字、ctx 装错对象、占位器在解构时就炸）只有真渲染
+// 一次才知道。React / store 用最小替身，**渲染器用真的**（import src/panel-tabs.js）。
+{
+  const panelMod = await import(pathToFileURL(join(root, 'src', 'panel-tabs.js')).href);
+  const schema = await import(pathToFileURL(join(root, 'lib', 'settings-schema.js')).href);
+  const noop = () => null;
+  // useState 的值由队列喂（QuickPanel 的调用序：[view, qpTab]）。
+  const STATE = [];
+  const ReactStub = {
+    Fragment: 'Fragment',
+    useState: (init) => [STATE.length ? STATE.shift() : (typeof init === 'function' ? init() : init), () => {}],
+    useEffect: () => {}, useRef: (v) => ({ current: v }), createRef: () => ({ current: null }),
+    createElement: (t, p, ...c) => (typeof t === 'function' ? t(p || {}, ...c) : { type: t, props: p || null, children: c }),
+  };
+  const shapeOf = (n, acc = []) => {
+    if (Array.isArray(n)) { n.forEach((x) => shapeOf(x, acc)); return acc; }
+    if (!n || typeof n !== 'object') return acc;
+    if (n.props && n.props.className) acc.push(String(n.props.className));
+    if (Array.isArray(n.children)) n.children.forEach((x) => shapeOf(x, acc));
+    return acc;
+  };
+  const textOf = (n) => (Array.isArray(n) ? n.map(textOf).join(' ') : (!n || typeof n !== 'object' ? ''
+    : ((Array.isArray(n.children) ? n.children.filter((c) => typeof c === 'string').join(' ') : '') + ' '
+      + (Array.isArray(n.children) ? n.children.map(textOf).join(' ') : ''))));
+  // 面板渲染器（panel-tabs.js 是真模块）要的**全局**预置：求值参数时会碰到的那几个。
+  globalThis.React = ReactStub;
+  globalThis.SliderRow = noop; globalThis.switchRow = noop;
+  globalThis.ctlText = noop; globalThis.swatchRow = noop; globalThis.renderFontSetEditor = noop;
+  globalThis.ACCENT_PRESETS = []; globalThis.GLASS_COLOR_PRESETS = []; globalThis.CARET_COLOR_PRESETS = [];
+  globalThis.FRAME_VARIANTS = []; globalThis.FPS_CAP_VALUES = (schema.FPS_CAP_VALUES || [0, 24, 30, 60]);
+  // 角色表要**真的**：`renderAppearanceTab` 一进门就 `THEME_TYPE_ROLES.filter(...)`（与画不画
+  // 字体那节无关）—— 给空数组也活得下去，但真表更接近运行期（而且这几张表是纯数据）。
+  globalThis.THEME_TYPE_ROLES = (await import(pathToFileURL(join(root, 'src', 'font', 'typography.js')).href)).THEME_TYPE_ROLES || [];
+  globalThis.THEME_COLOR_ROLES = (await import(pathToFileURL(join(root, 'src', 'font', 'color-roles.js')).href)).THEME_COLOR_ROLES || [];
+  globalThis.gpuFrameUi = { wid: '', pinned: false, w: 0, h: 0, busy: false, recapturing: false, error: '' };
+  // QuickPanel 的自由变量：一律当**形参**传（真实现或替身），漏一个就是 ReferenceError。
+  const FREE = ['weT', 'React', 'localStorage',
+    'useWeLocale', 'useStore', 'liveRenderEnabled', 'CARD_TYPE_LABELS', 'applySelection', 'cardKeyDown',
+    'playbackIsVideoLike', 'playableInventory', 'groupWallpapers', 'rotationCandidates',
+    'emit', 'setTransient', 'setSetting', 'onTogglePlay', 'onClear', 'onGroupChange', 'onNextWallpaper',
+    'onToggleRotation', 'onToggleAudio', 'onVideoVolume', 'loadInventory', 'openSettingsSection',
+    'renderAppearanceTab', 'renderEffectsTab', 'renderAudioTab',
+    'onAccent', 'onBlur', 'onBorder', 'onGlassAlpha', 'onGlassColor', 'onToggleThemeFollow',
+    'onScrim', 'onWallpaperBlur', 'onWallpaperOpacity',
+    'onBackgroundBrightness', 'onBackgroundContrast', 'onBackgroundSaturate'];
+  const selBase = Object.assign({}, schema.DEFAULTS, {
+    loaded: true, loading: false, id: 'w1', url: '/x', playing: true, videoPlaying: true,
+    videoVolume: 0.5, videoAudioEnabled: false, videoError: '', type: 'video',
+    contentRatingFilter: 'all', hiddenIds: [], rotationGroups: [], rotationGroupId: '',
+    rotationEnabled: false, qpSearch: '', qpType: 'all', url2: '',
+    inventory: { wallpapers: [], error: null, installDir: '/we', uploadDir: '/up', weAssetsDir: null, sceneMediaBase: '', total: 0, portableCount: 0, playlists: [] },
+    accent: '#4f8cff', glassColor: '#ffffff', glassAlpha: 0, blur: 0, border: 0,
+    themeFollow: false, themeFollowLine: '',
+  });
+  let SEL = selBase;
+  const bag = new Function(...FREE,
+    qpSrc + '\nreturn { QuickPanel };')(
+    ...FREE.map((n) => ({
+      weT: globalThis.weT, React: ReactStub,
+      localStorage: { getItem: () => null, setItem() {} },
+      useWeLocale: noop, useStore: () => SEL,
+      liveRenderEnabled: () => false, CARD_TYPE_LABELS: { video: '视频', web: '网页', image: '图片', scene: '场景' },
+      applySelection: noop, cardKeyDown: noop, playbackIsVideoLike: () => true,
+      playableInventory: () => [], groupWallpapers: () => [], rotationCandidates: () => [],
+      emit: noop, setTransient: noop, setSetting: noop,
+      onTogglePlay: noop, onClear: noop, onGroupChange: noop, onNextWallpaper: noop,
+      onToggleRotation: noop, onToggleAudio: noop, onVideoVolume: noop,
+      loadInventory: noop, openSettingsSection: noop,
+      renderAppearanceTab: panelMod.renderAppearanceTab, renderEffectsTab: panelMod.renderEffectsTab,
+      renderAudioTab: panelMod.renderAudioTab,
+      onAccent: noop, onBlur: noop, onBorder: noop, onGlassAlpha: noop, onGlassColor: noop,
+      onToggleThemeFollow: noop, onScrim: noop, onWallpaperBlur: noop, onWallpaperOpacity: noop,
+      onBackgroundBrightness: noop, onBackgroundContrast: noop, onBackgroundSaturate: noop,
+    })[n] || noop));
+  const renderTab = (tab, sel) => {
+    SEL = sel || selBase;
+    STATE.length = 0; STATE.push('cards', tab);
+    const tree = bag.QuickPanel({ dock: 'official' });
+    return { tree, shape: shapeOf(tree).join('|'), text: textOf(tree) };
+  };
+  const threw = (tab, sel) => {
+    try { renderTab(tab, sel); return ''; } catch (e) { return String((e && e.message) || e); }
+  };
+  const bad = ['wallpaper', 'appearance', 'playback'].map((t) => t + ':' + threw(t)).filter((s) => !s.endsWith(':'));
+  check('三档页签都渲染得出（真源码 + 真渲染器）', bad.length === 0, bad.join(' | ') || '三档 ok');
+  const wp = renderTab('wallpaper'); const ap = renderTab('appearance'); const pb = renderTab('playback');
+  const tabsOf = (t) => t.shape.split('|')
+    .filter((c) => c === 'we-tabs__tab' || c === 'we-tabs__tab we-tabs__tab--active');
+  check('三档页签栏都在（每档三个页签，且只有当前档带 --active）',
+    [wp, ap, pb].every((t) => tabsOf(t).length === 3 && tabsOf(t).filter((c) => c.includes('--active')).length === 1));
+  check('壁纸档画列表、外观 / 播放档不画（列表只属于壁纸页）',
+    wp.shape.includes('we-qp__library') && wp.shape.includes('we-qp__list')
+      && !ap.shape.includes('we-qp__library') && !pb.shape.includes('we-qp__library'));
+  check('外观档 = 主题 + 细节两节（设置页专属的字体那节不画）',
+    ap.text.includes('主题') && ap.text.includes('细节') && !ap.text.includes('全局字体'));
+  check('播放档 = 画面 + 声音两组；准备与诊断（帧率上限档位）不画，倍速 / 适配照旧在',
+    pb.text.includes('画面') && pb.text.includes('声音')
+      && !pb.text.includes('无限制') && pb.text.includes('2x') && pb.text.includes('覆盖'));
+  check('底栏入口随页签换文案（壁纸 / 外观 / 播放三档各一）',
+    wp.text.includes('壁纸引擎设置 ›') && ap.text.includes('字体与更多外观 ›')
+      && pb.text.includes('更多播放设置 ›'));
+  check('播放档的空态 CTA =「去挑一张 ›」（拿走当前壁纸再渲染一次）',
+    renderTab('playback', Object.assign({}, selBase, { id: '', url: '' })).text.includes('去挑一张 ›'));
+  // 接线判据：侧栏三档的树里**不许出现设置页专属的占位器**（把它戳一下会抛 [we-sidebar]）。
+  // 抓的是"ctx 装错对象 / 少接一个处理器"那一类 —— 源码级判据只认名字在不在文件里，认不出
+  // 它被塞进了哪一个 ctx 对象。其余抛错（例如替身里缺 weDrawCtx）不算，本判据只认那串前缀。
+  const stubHits = (tree) => {
+    const hits = [];
+    (function walk(n) {
+      if (Array.isArray(n)) { n.forEach(walk); return; }
+      if (!n || typeof n !== 'object') return;
+      for (const k of Object.keys(n.props || {})) {
+        const fn = n.props[k];
+        if (typeof fn !== 'function') continue;
+        hits.push('#'); // 覆盖率计数（见下）：判据不能因为"树里根本没有处理器"而恒真
+        try { fn({ target: { value: '1', checked: true } }); }
+        catch (e) { if (String(e && e.message).includes('[we-sidebar]')) hits.push(k); }
+      }
+      if (Array.isArray(n.children)) n.children.forEach(walk);
+    })(tree);
+    return hits;
+  };
+  const wired = [wp, ap, pb].map((t) => stubHits(t.tree));
+  const handlerCount = wired.reduce((sum, h) => sum + h.filter((x) => x === '#').length, 0);
+  check('侧栏三档的控件都接在真人身上（树里没有设置页专属的占位器）—— 覆盖面 ' + handlerCount + ' 个处理器',
+    handlerCount >= 10 && wired.every((h) => h.filter((x) => x !== '#').length === 0),
+    wired.flat().filter((x) => x !== '#').join(', ') || '没有占位器上线');
+  check('负对照：把设置页专属处理器塞进树里会被同一判据抓出',
+    stubHits({ props: { onClick: () => { throw new Error('[we-sidebar] ctx.fontSet 属于设置页'); } }, children: [] })
+      .filter((x) => x !== '#').length === 1);
+}
 // 用户口径：吉祥物**点一下要能关**侧栏（官方态此前只能开不能关 —— 点击恒走 openTab）。
 // 判据按真实源码形态：点击分支走统一开关（不残留只开的 openPanel）、官方态 toggle 的
 // 收起条件（展开 + 正显示本 kind）、手势的上推=关。
