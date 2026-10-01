@@ -1952,6 +1952,12 @@ const CSS = `
   .we-qp__viewbar .we-qp__search { flex: 1 1 auto; min-width: 0; width: auto; }
   .we-qp__viewbar .we-qp__type { flex: none; max-width: 84px; }
   .we-qp__viewbar .we-picker__seg { flex: none; }
+  /* 但段控在这个作用域里是收缩态：基类靠父级把 flex 撑开，这里父级被钉成 flex:none，
+     加上基类本身没有最小宽度、横向内边距为 0 ⇒ 「列表 / 卡片」两个字就只剩文字宽度
+     （0.78em ≈ 12.5px × 2 + 边框 ≈ 29px），点起来过窄。只给**这一处**一个最小宽度，
+     不去动共用的基类（设置页的转场方向 / 速度 / 帧率上限 / 适配模式等七处也用它，
+     那些地方要的就是等分满宽）。56px ≈ 原来的两倍。 */
+  .we-qp__viewbar .we-picker__seg .we-picker__rate { min-width: 56px; }
   /* 卡片网格：**最窄两列、向后自动加列**（auto-fill 铺最小 130px 的列轨，画满一行
      再换行）。130 的取法：两个「最窄形态」都必须恰为 2 列 —— 官方右栏最小 300px
      （宿主 clampWidth(rightbar, 300, …)，内容 276 ∈ (2×130+8, 3×130+16]）、抽屉固定
