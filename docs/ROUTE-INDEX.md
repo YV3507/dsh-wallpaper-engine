@@ -48,7 +48,7 @@
 | 32 | `/upload-dir` | lib/routes/upload.js:247 | 箭头 | disposers base setUploadDir normalizeUserDir | 2 |
 | 33 | `/fontsets` | lib/routes/fontsets.js:245 | async 箭头 | disposers base readFontSetId | 5 |
 | 34 | `/star-count` | lib/routes/github-stars.js:105 | async 箭头 | disposers base repoSlug log | 2 |
-| 35 | `/about-qr` | lib/routes/about-qr.js:55 | 箭头 | disposers base aboutDir serveFile | 3 |
+| 35 | `/about-qr` | lib/routes/about-qr.js:62 | 箭头 | disposers base aboutDir serveFile | 3 |
 | 36 | `/settings` | lib/index.js:3861 | 箭头 | webServer disposers adapterFenceSeen adapterOverride observeAdapter adapterDetectedTarget …(+1) | 17 |
 
 **零提及（拆分前必须先补守卫）**：（无）

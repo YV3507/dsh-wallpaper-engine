@@ -26,6 +26,9 @@ import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, statSync, r
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Writable } from 'node:stream';
+// 剥注释：共享的字符串感知实现（形态判据必须只看**代码** —— 下面那条 fence 判据的注释里
+// 就写着"不要用 startsWith(dir + '/')"，不剥注释会被自己的说明误伤成真阳性）。
+import { stripComments } from './tools/js-text.mjs';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 let passed = 0;
@@ -355,6 +358,36 @@ async function runQr(route, pathname, method, headers) {
     ['qq-group.png', 'douyin-group.png'].every((f) => existsSync(join(ABOUT_DIR, f))));
   check('negative control: 白名单判据对合成输入有牙',
     !['qq-group.png'].includes('qq-group.png.bak') && ['qq-group.png'].includes('qq-group.png'));
+  // **形态判据**（分隔符那条腿只能在 Windows 上真跑出来，故这里认源码形态）：
+  // 包含性检查必须走 `relative()`。**实测（2026-10-01 CI windows-latest）**：写成
+  // `abs.startsWith(dir + '/')` 在 Windows 上必然判 null（resolve 给反斜杠、前缀给正斜杠）
+  // ⇒ 白名单命中的图也 404，而本机 macOS 全绿 —— 正是"只在 CI 上红"的那一类。
+  const fenceOk = (src) => {
+    const code = stripComments(String(src));
+    return /relative\(/.test(code) && /isAbsolute\(/.test(code) && !/startsWith\(\s*(dir|prefix)/.test(code);
+  };
+  check('包含性检查用分隔符无关的 relative()（不是 startsWith(dir + "/")）', fenceOk(aboutSrc));
+  check('negative control: 前缀写法会被判出（windows-latest 上就是这么红的）',
+    fenceOk('const prefix = dir + "/"; return abs.startsWith(prefix) ? abs : null;') === false
+      && fenceOk('const rel = relative(dir, abs); return rel && !rel.startsWith("..") && !isAbsolute(rel) ? abs : null;') === true);
+  // **行为判据（本轮 CI 事故的复现装置）**：把同一条谓词放到 `path.win32` 下求值 ——
+  // 本机是 macOS，跑不了 Windows，但 `win32` 就是 Windows 上那套语义。事故现场因此可复现：
+  // 旧写法（拼正斜杠前缀）在 win32 下判 **false**（白名单命中的图也 404），新写法判 true。
+  {
+    const { win32 } = await import('node:path');
+    const dirWin = win32.resolve('C:\\repo\\lib\\about');
+    const fileWin = win32.resolve(dirWin, 'qq-group.png');
+    const upWin = win32.resolve(dirWin, '..', '..', 'package.json');
+    const relWin = win32.relative(dirWin, fileWin);
+    const upRelWin = win32.relative(dirWin, upWin);
+    const winOk = (r) => Boolean(r) && !r.startsWith('..') && !win32.isAbsolute(r);
+    check('win32 语义：白名单内（qq-group.png）判**在目录内**', relWin === 'qq-group.png' && winOk(relWin) === true,
+      'rel=' + JSON.stringify(relWin));
+    check('win32 语义：目录外（..\\..\\package.json）判**在外**', winOk(upRelWin) === false, 'rel=' + JSON.stringify(upRelWin));
+    check('win32 语义 · 事故复现：旧写法（dir + "/" 前缀）在白名单命中的图上也判 false',
+      fileWin.startsWith(dirWin + '/') === false && fileWin.startsWith(dirWin + '\\') === true,
+      '这正是 2026-10-01 CI 全红而本机全绿的原因');
+  }
   // 客户端那一半：src 是路由 URL，不是 data URI
   const clientSrc2 = read('src/panel-tabs.js');
   check('渲染器用 apiUrl 拼路由路径（不是内联图）',
