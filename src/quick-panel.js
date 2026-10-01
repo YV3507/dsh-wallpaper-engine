@@ -223,7 +223,11 @@
 
     return React.createElement("div", { className: "we-qp we-qp--" + dock },
       // ── ① 当前壁纸（常驻：三档页签都显示）──
-      React.createElement("div", { className: "we-qp__current" },
+      // 缩略图是一枚旋转圆盘（styles.js 的 .we-qp__thumb）：--playing 跟播放态文字
+      // （"· 播放中 / · 已暂停"）同源同值 —— 播放时匀速自转，暂停停在原角度。
+      React.createElement("div", {
+        className: "we-qp__current" + (playbackLive ? " we-qp__current--playing" : ""),
+      },
         React.createElement("span", { className: "we-qp__thumb" },
           current && current.preview
             ? React.createElement("img", {
