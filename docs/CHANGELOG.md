@@ -17,6 +17,24 @@
 
 > v1.1.0 之后的增量（与上游 `origin/main` 的差异，逐提交可查）：
 
+- **发布产物第一次被真实安装器装一遍**（审计 §7.6）。此前的盲区是结构性的：CI 只跑
+  `dsh plugin add link:<工作区>`，而发布面守卫只核**声明**（`files` / 可达闭包 / `dependencies`）
+  —— 而**软链不参与依赖解析**，所以"`peerDependencies` 能否在**安装闭包**里解析出来"这一类
+  在那条通道里**根本不可见**。代价被一次用户回执实测出来了：`Packages: +1`（只装了插件自己）→
+  `generation … already exists, reusing` → `generation peer validation failed:
+  @deepseek-ai/dsh-client-runtime does not resolve from the installation closure`。
+  现在 `test/compat-harness-live.mjs` 有**两条安装通道**：`--channel link`（默认，软链工作区）与
+  `--channel tarball`（先 `npm pack`，再把 **.tgz** 装进去，`--fresh` 隔离 HOME）。于是原有的全链路
+  判据（宿主路由可达 / 落盘诊断出现探活标记 / 环形缓冲回读 / 进程存活 / 插件树无加载失败）
+  **一并覆盖发布产物**，另加三条只属于 tarball 通道的判据：**通道自证**（装进去的入口是**真目录**
+  而不是软链 —— 否则这条判据可能是在测另一个东西）与两条针对性的失败串断言
+  （`peer validation failed` / `does not resolve from the installation closure`）。
+  `harness-compat.yml` 里两条通道**各跑一步**；`npm pack` 的 cache / logs 指到隔离目录，
+  于是打包步骤既不依赖网络、也不污染全局 cache。
+  ⚠️ **本机跑不了这条通道**（沙箱禁带管道的 spawn —— 连第一步"HOME 隔离对子进程生效"都会 EPERM，
+  且本机没有 `dsh`），但它是**响亮地红**而不是静默跳过：判据缺前置时表现为失败，这正是本仓
+  §0 要求的失败形态。本机可验的那一半已验：打包成功产出唯一 tarball（39 文件）。
+
 - **面板页签终于兑现自己的模块头契约：26 处内联"写 + 通知"收口成具名处理器**（审计 §6.3，
   审计称之为"**真接缝缺口，不是风格**"）。`src/panel-tabs.js` 的文件头一直写着"页签**不得**写
   selection / 不得 emit：写设置是处理器的职责"，而实测的越界**不在**"写 selection"这一条上

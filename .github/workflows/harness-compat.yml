@@ -82,6 +82,15 @@ jobs:
         shell: bash
         run: node test/compat-harness-live.mjs
 
+      # P4-17：同上，但**装 `npm pack` 的产物**（而不是软链工作区）。软链不参与依赖解析，
+      # 因此 `peerDependencies` 能否在**安装闭包**里解析这一条，只有这条通道看得见 ——
+      # 一次用户回执实测过它的代价（`Packages: +1` → `generation peer validation failed:
+      # @deepseek-ai/dsh-client-runtime does not resolve from the installation closure`）。
+      - name: 真 harness 全链路探活（tarball → 发布产物被真实安装器装进去）
+        if: steps.target.outputs.should_run == 'true'
+        shell: bash
+        run: node test/compat-harness-live.mjs --channel tarball --fresh
+
       - name: 逐页 DOM/样式断言（无头浏览器 + CDP；计算样式探针 + 设置分区走查）
         if: steps.target.outputs.should_run == 'true'
         shell: bash
