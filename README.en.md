@@ -185,7 +185,7 @@ The **外观** tab controls the look of the **entire native DSH settings window*
 | **玻璃透明度** | Opacity of the glass surfaces (settings window, composer, bubbles, sidebar panels); higher = more transparent | see the control |
 | **雾化** | Glass blur radius — **the same adjustment** drives the settings window and the composer / bubbles | see the control |
 | **Text-surface readability floor** | Every text-bearing surface composites a theme base layer under the glass tint (body text stays ≥4.5:1); **on by default, no switch** | on |
-| **Theme follows the wallpaper** | After a switch the global light/dark theme is picked from the wallpaper (author scheme colour → the picture's most-occupied colour (preview and real frame vote; disagreement ⇒ dark) → leave it alone; an author value of exactly `0 0 0` counts as unfilled; light theme only for clearly bright colours — the 外观 → 主题 row shows the last verdict's source and luminance); changing the theme by hand in DSH stops it for that wallpaper and the next switch resumes. **No switch — the behaviour is the feature** | automatic |
+| **Theme follows the wallpaper** | **A switch, off by default.** With it on, a switch of wallpaper picks the global light/dark theme from the wallpaper (author scheme colour → the picture's most-occupied colour (preview and real frame vote; disagreement ⇒ dark) → leave it alone; an author value of exactly `0 0 0` counts as unfilled; light theme only for clearly bright colours — the 外观 → 主题 row shows the last verdict's source and luminance); changing the theme by hand in DSH stops it for that wallpaper and the next switch resumes | off |
 
 Everything applies instantly and persists; browsers without `backdrop-filter` fall back to a high-opacity solid so text stays readable.
 

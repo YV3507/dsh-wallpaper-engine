@@ -378,8 +378,8 @@ function main() {
   // ── C1/C2: the grid — 染色地板网格：玻璃色 {黑/中灰/白} × 滑杆五档 × 主题 ──
   // 表面 = 染色地板（base 与 frost 同为钳制后的 tint，见样式表令牌映射），
   // alpha = F + w(1−F)（w = glassAlpha，深色再乘 0.4 层因子）。判据不变：
-  // 最坏背衬（深色白壁纸像素 / 浅色黑壁纸像素）上正文 ≥4.5:1 —— 但现在测的是
-  // **任意玻璃色**（三档极端输入覆盖钳制的全部路径），不再是白色 frost 单点。
+  // 最坏背衬（深色白壁纸像素 / 浅色黑壁纸像素）上正文 ≥4.5:1 —— 测的是
+  // **任意玻璃色**（三档极端输入覆盖钳制的全部路径），不是单一白色 frost 点。
   check('C1a the glass-alpha mapping was derived from the source',
     glassAlpha !== null, 'mapping=' + JSON.stringify(GMAP ? GMAP.slice(1) : null));
 

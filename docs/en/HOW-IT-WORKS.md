@@ -244,7 +244,9 @@ interval is deliberately short so a missed resume is corrected within a beat rat
 
 ### Theme follows the wallpaper: colour chain and the yield rule
 
-After a switch the plugin decides the global light/dark theme (`src/theme-follow.js`, **no switch**). Colour order:
+After a switch the plugin decides the global light/dark theme (`src/theme-follow.js`) — driven by the
+**"Theme follows the wallpaper" switch**, which `lib/settings-schema.js` leaves **off by default**
+(off = the whole colour chain below never runs). With the switch on, colour order:
 
 1. **The wallpaper's own scheme colour** — `general.properties.schemecolor.value` in `project.json`
    (a 0–1 float triple; in the WE editor its `text` is `ui_browse_properties_scheme_color`). The host's

@@ -322,8 +322,8 @@ const CSS = `
      backdrop-filter 的插件模态框、壁纸层的垫底画面（垫底不能透明，见 buildLivePoster）。
      它们改读这个令牌，从而与别名映射解耦。取值直接取宿主静态调色板里**别名本身的来源**
      （浅色 neutral-bluish-00 / 深色 neutral-bluish-875），静态令牌缺席时退回字面量。 */
-  /* 染色地板：--we-readability-base 不再是主题白/黑，而是玻璃色经亮度钳制后的
-     按主题版本（effects.js 的 weClampSurfaceColor 计算、--we-surface-tint-* 注入）
+  /* 染色地板：--we-readability-base 是玻璃色经亮度钳制后的按主题版本
+     （effects.js 的 weClampSurfaceColor 计算、--we-surface-tint-* 注入）
      —— 色相跟随用户选择，亮度钳制保住 #82 的 ≥4.5:1 正文判据。缺省回落原值。 */
   body {
     --we-readability-floor: ${READABILITY_FLOOR};
