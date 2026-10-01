@@ -14,42 +14,42 @@
 
 | # | 路径 | 来源 | 形态 | 依赖（闭包状态 / `c` 字段） | 守卫提及 |
 |---|---|---|---|---|---|
-| 1 | `/inventory` | lib/index.js:2911 | async 箭头 | webServer buildInventory disposers observeAdapter | 14 |
-| 2 | `/media-info` | lib/index.js:3051 | 箭头 | webServer mediaMap disposers | 7 |
-| 3 | `/transcode-progress` | lib/index.js:3077 | 箭头 | webServer mediaMap disposers | 1 |
-| 4 | `/transcoded` | lib/index.js:3130 | 箭头 | webServer mediaMap disposers serveFile | 1 |
-| 5 | `/media` | lib/index.js:3186 | 箭头 | webServer mediaMap disposers serveFile | 17 |
-| 6 | `/preview` | lib/index.js:3186 | 箭头 | webServer mediaMap disposers serveFile | 8 |
-| 7 | `/video-preview` | lib/index.js:3210 | 箭头 | webServer mediaMap disposers serveFile | 1 |
-| 8 | `/scene-frame` | lib/routes/scene-frame.js:69 | 箭头 | disposers base mediaMap trackStream customFramePath customIdFromAbs …(+3) | 10 |
-| 9 | `/scene-frame-cache` | lib/routes/scene-frame.js:147 | 箭头 | disposers base mediaMap GPU_FRAME_MAX_BYTES GPU_WRITE_INFLIGHT armBodyIdleTimeout …(+4) | 4 |
-| 10 | `/custom-frame` | lib/routes/scene-frame.js:234 | 箭头 | disposers base serveFile CUSTOM_FRAME_EXT CUSTOM_FRAME_MAX_BYTES armBodyIdleTimeout …(+3) | 1 |
+| 1 | `/inventory` | lib/index.js:2913 | async 箭头 | webServer buildInventory disposers observeAdapter | 14 |
+| 2 | `/media-info` | lib/index.js:3053 | 箭头 | webServer mediaMap disposers | 7 |
+| 3 | `/transcode-progress` | lib/index.js:3079 | 箭头 | webServer mediaMap disposers | 1 |
+| 4 | `/transcoded` | lib/index.js:3132 | 箭头 | webServer mediaMap disposers serveFile | 1 |
+| 5 | `/media` | lib/index.js:3188 | 箭头 | webServer mediaMap disposers serveFile | 17 |
+| 6 | `/preview` | lib/index.js:3188 | 箭头 | webServer mediaMap disposers serveFile | 8 |
+| 7 | `/video-preview` | lib/index.js:3212 | 箭头 | webServer mediaMap disposers serveFile | 1 |
+| 8 | `/scene-frame` | lib/routes/scene-frame.js:73 | 箭头 | disposers base mediaMap trackStream customFramePath customIdFromAbs …(+3) | 10 |
+| 9 | `/scene-frame-cache` | lib/routes/scene-frame.js:151 | 箭头 | disposers base mediaMap GPU_FRAME_MAX_BYTES GPU_WRITE_INFLIGHT armBodyIdleTimeout …(+4) | 4 |
+| 10 | `/custom-frame` | lib/routes/scene-frame.js:238 | 箭头 | disposers base serveFile CUSTOM_FRAME_EXT CUSTOM_FRAME_MAX_BYTES armBodyIdleTimeout …(+3) | 2 |
 | 11 | `/scene-live` | lib/routes/scene-serve.js:53 | 箭头 | disposers base WEBWALLGL_DIR appendDiagLine traceRequests serveFile …(+1) | 7 |
 | 12 | `/scene-files` | lib/routes/scene-serve.js:87 | 箭头 | disposers base handleSceneFiles | 5 |
 | 13 | `/media-origin` | lib/routes/scene-serve.js:95 | 箭头 | disposers base mediaOriginInfo | 1 |
 | 14 | `/scene-payload-progress` | lib/routes/scene-serve.js:115 | 箭头 | disposers base payloadProgress | 1 |
-| 15 | `/props` | lib/index.js:3561 | 箭头 | webServer mediaMap disposers | 4 |
-| 16 | `/live-frame` | lib/index.js:3607 | 箭头 | webServer mediaMap disposers serveFile | 2 |
-| 17 | `/media-status` | lib/routes/now-playing.js:74 | 箭头 | disposers base | 2 |
-| 18 | `/audio-spectrum` | lib/routes/now-playing.js:84 | 箭头 | disposers base | 2 |
-| 19 | `/now-playing` | lib/routes/now-playing.js:103 | 箭头 | disposers base | 3 |
-| 20 | `/now-playing/artwork` | lib/routes/now-playing.js:117 | 箭头 | disposers base serveFile | 2 |
-| 21 | `/media-control` | lib/routes/now-playing.js:135 | 箭头 | disposers base | 3 |
-| 22 | `/client-diag` | lib/routes/diag.js:74 | 箭头 | disposers appendDiagLine notice base | 3 |
-| 23 | `/diag` | lib/routes/diag.js:140 | 箭头 | disposers | 9 |
-| 24 | `/diag` | lib/routes/diag.js:141 | 箭头 | disposers base | 9 |
-| 25 | `/diag-log` | lib/routes/diag.js:142 | 箭头 | disposers log base | 2 |
+| 15 | `/props` | lib/index.js:3563 | 箭头 | webServer mediaMap disposers | 4 |
+| 16 | `/live-frame` | lib/index.js:3609 | 箭头 | webServer mediaMap disposers serveFile | 2 |
+| 17 | `/media-status` | lib/routes/now-playing.js:76 | 箭头 | disposers base | 2 |
+| 18 | `/audio-spectrum` | lib/routes/now-playing.js:86 | 箭头 | disposers base | 2 |
+| 19 | `/now-playing` | lib/routes/now-playing.js:105 | 箭头 | disposers base | 3 |
+| 20 | `/now-playing/artwork` | lib/routes/now-playing.js:119 | 箭头 | disposers base serveFile | 2 |
+| 21 | `/media-control` | lib/routes/now-playing.js:137 | 箭头 | disposers base | 3 |
+| 22 | `/client-diag` | lib/routes/diag.js:78 | 箭头 | disposers appendDiagLine notice base | 3 |
+| 23 | `/diag` | lib/routes/diag.js:142 | 箭头 | disposers | 9 |
+| 24 | `/diag` | lib/routes/diag.js:143 | 箭头 | disposers base | 9 |
+| 25 | `/diag-log` | lib/routes/diag.js:144 | 箭头 | disposers log base | 2 |
 | 26 | `/api/local-assets` | lib/index.js:3694 | async 箭头 | webServer disposers serveFile | 1 |
-| 27 | `/we-assets-dir` | lib/index.js:3744 | 箭头 | webServer disposers | 2 |
-| 28 | `/scene-video` | lib/index.js:3816 | 箭头 | webServer mediaMap disposers serveFile SCENE_VIDEO_INFLIGHT | 1 |
-| 29 | `/scene-audio` | lib/index.js:3899 | 箭头 | webServer mediaMap disposers serveFile | 2 |
-| 30 | `/upload` | lib/routes/upload.js:65 | 箭头 | disposers base tokenFor UPLOAD_EXT UPLOAD_MAX_BYTES ensureUploadDir …(+6) | 4 |
-| 31 | `/remove` | lib/routes/upload.js:215 | 箭头 | disposers base CONTROL_JSON_MAX_BYTES ensureUploadDir removeUploadMeta resolveUploadFile …(+1) | 1 |
+| 27 | `/we-assets-dir` | lib/index.js:3744 | 箭头 | webServer disposers | 3 |
+| 28 | `/scene-video` | lib/index.js:3810 | 箭头 | webServer mediaMap disposers serveFile SCENE_VIDEO_INFLIGHT | 1 |
+| 29 | `/scene-audio` | lib/index.js:3893 | 箭头 | webServer mediaMap disposers serveFile | 2 |
+| 30 | `/upload` | lib/routes/upload.js:68 | 箭头 | disposers base tokenFor UPLOAD_EXT UPLOAD_MAX_BYTES ensureUploadDir …(+6) | 4 |
+| 31 | `/remove` | lib/routes/upload.js:218 | 箭头 | disposers base CONTROL_JSON_MAX_BYTES ensureUploadDir removeUploadMeta resolveUploadFile …(+1) | 1 |
 | 32 | `/upload-dir` | lib/routes/upload.js:275 | 箭头 | disposers base CONTROL_JSON_MAX_BYTES setUploadDir normalizeUserDir armBodyIdleTimeout | 2 |
 | 33 | `/fontsets` | lib/routes/fontsets.js:251 | async 箭头 | disposers base readFontSetId | 5 |
 | 34 | `/star-count` | lib/routes/github-stars.js:105 | async 箭头 | disposers base repoSlug log | 2 |
 | 35 | `/about-qr` | lib/routes/about-qr.js:62 | 箭头 | disposers base aboutDir serveFile | 3 |
-| 36 | `/settings` | lib/index.js:3968 | 箭头 | webServer disposers adapterFenceSeen adapterOverride observeAdapter adapterDetectedTarget …(+1) | 17 |
+| 36 | `/settings` | lib/index.js:3962 | 箭头 | webServer disposers adapterFenceSeen adapterOverride observeAdapter adapterDetectedTarget …(+1) | 17 |
 
 **零提及（拆分前必须先补守卫）**：（无）
 

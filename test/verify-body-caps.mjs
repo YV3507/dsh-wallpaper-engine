@@ -40,7 +40,7 @@
  * Usage:  node test/verify-body-caps.mjs
  */
 
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { stripComments } from './tools/js-text.mjs';
@@ -131,6 +131,14 @@ function findBodyReadSites(src) {
       sites.push({ line, kind: 'non-collector', name: bare[1], callback: '' });
       continue;
     }
+    // **共享读体器**的处理器引用：形如 `reader.onData)`。它自己**不该**在这里有闸 ——
+    // 闸住在 `lib/http-body.js` 的那一份实现里（P4-13）。是不是真的来自那实现，由下面
+    // 用「同一文件里有没有 `bodyReader(` 赋给这个标识符」来判（不让任意 `foo.onData` 蒙混）。
+    const viaReader = /^([A-Za-z_$][\w$]*)\.onData\s*\)/.exec(rest);
+    if (viaReader) {
+      sites.push({ line, kind: 'reader', name: viaReader[1], callback: '' });
+      continue;
+    }
     // 收集器：内联箭头/函数字面量 —— 取到回调体的配对 `}`。
     const braceIdx = src.indexOf('{', start);
     if (braceIdx === -1) {
@@ -200,22 +208,128 @@ for (const file of files) {
 const collectors = sites.filter((s) => s.kind === 'collector');
 const uncapped = collectors.filter((s) => !hasCap(s.callback));
 const unparsable = sites.filter((s) => s.kind === 'unparsable');
+const readers = sites.filter((s) => s.kind === 'reader');
+
+// ── P4-13：收 body 的两条形状 ────────────────────────────────────────────────
+//   · **内联收集器**（`req.on('data', (c) => {…})`）—— 闸必须在这一段回调体里（原有判据）。
+//     P4-13 之后只应剩**流式落盘**那两处：它们边收边写 `.tmp`，**不许**把体缓冲进内存
+//     （512MB 的 `/upload` 与 `/custom-frame`），是**结构性豁免**而不是漏网的副本。
+//   · **共享读体器**（`reader.onData`）—— 闸住在 `lib/http-body.js` 的唯一一份实现里；
+//     这里只判"它确实来自那实现"，不重复要求闸。
+// 两条棘轮（都只许朝收敛方向走）：内联收集器**只减**、共享读体器的调用点**只增**。
+const INLINE_CEILING = 2;   // 棘轮：内联收集器上限 = **收敛终点**（只剩两处流式豁免）
+const READER_FLOOR = 9;     // 棘轮：共享读体器的调用点下限（防"只剩一份实现"靠删调用点达成）
+const READER_MODULE = 'lib/http-body.js';
+
+/** 该文件里被 `bodyReader(` 赋值过的标识符集合（`const reader = bodyReader(req, {…})`）。 */
+const readerVarsIn = (src) => new Set(
+  [...src.matchAll(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*bodyReader\s*\(/g)].map((m) => m[1]));
+
+const readerSource = existsSync(join(ROOT, READER_MODULE)) ? readFileSync(join(ROOT, READER_MODULE), 'utf8') : '';
+const srcByFile = new Map();
+for (const file of files) srcByFile.set(relative(ROOT, file).split('\\').join('/'), readFileSync(file, 'utf8'));
+const bogusReaders = readers.filter((s) => !readerVarsIn(srcByFile.get(s.file) || '').has(s.name));
+const readerFiles = new Set(readers.map((s) => s.file));
+const notImported = [...readerFiles].filter((f) => !/from\s+['"][^'"]*http-body\.js['"]/.test(srcByFile.get(f) || ''));
 
 console.log(`\n  扫描面：lib/**/*.js（排除 ${[...EXCLUDE_DIRS].join(' / ')} 与 ${[...EXCLUDE_FILES].join(' / ')}）`
   + ` —— ${files.length} 个文件`);
-console.log(`  收 body 站点：${sites.length}（收集器 ${collectors.length} · 非收集器 ${sites.length - collectors.length - unparsable.length}）`);
+console.log(`  收 body 站点：${sites.length}（内联收集器 ${collectors.length} · 共享读体器 ${readers.length}`
+  + ` · 非收集器 ${sites.length - collectors.length - readers.length - unparsable.length}）`);
 for (const s of collectors) {
-  console.log(`    ${hasCap(s.callback) ? '✓' : '✗'} ${s.file}:${s.line}`);
+  console.log(`    ${hasCap(s.callback) ? '✓' : '✗'} ${s.file}:${s.line}（内联）`);
+}
+for (const s of readers) {
+  console.log(`    ${bogusReaders.includes(s) ? '✗' : '·'} ${s.file}:${s.line}（共享读体器 ${s.name}）`);
 }
 console.log('');
 
 // 覆盖面地板：解析器静默返回空表 / 站点被改名 ⇒ 当场红，而不是"全绿通过"。
-check('覆盖面：收集器站点数 ≥ 8（空表或解析退化即失败）', collectors.length >= 8,
-  `实测 ${collectors.length}`);
+check('覆盖面：收 body 站点总数 ≥ 8（空表或解析退化即失败）', sites.length >= 8,
+  `实测 ${sites.length}`);
 check('判据可判定：没有配对失败的站点（宁可红，不可静默跳过）', unparsable.length === 0,
   unparsable.map((s) => `${s.file}:${s.line}`).join(', ') || '无');
-check('每一个收 body 的站点都有上限', uncapped.length === 0,
+check('每一个**内联**收集器都在回调体内有上限（流式豁免那两处也在这里被逐站点名）',
+  uncapped.length === 0,
   uncapped.map((s) => `${s.file}:${s.line}`).join(', ') || '全部有闸');
+// P4-13 的两条棘轮 + 共享读体器的存在性与来路
+check('棘轮：内联收集器 ≤ ' + INLINE_CEILING + '（P4-13 的收敛方向：终点 = 2 处流式豁免）',
+  collectors.length <= INLINE_CEILING, `实测 ${collectors.length}`);
+check('棘轮：共享读体器 `' + READER_MODULE + '` 存在，且自身带字节计闸',
+  readerSource !== '' && /(?:\.length|\bsize\b|\bbytes\b)\s*>\s*maxBytes/.test(readerSource),
+  readerSource === '' ? '文件不存在'
+    : '上限语句=' + (/(?:\.length|\bsize\b|\bbytes\b)\s*>\s*maxBytes/.test(readerSource) ? '在位' : '缺失'));
+check('棘轮：共享读体器的调用点 ≥ ' + READER_FLOOR + '（只许增，防"只剩一份"靠删调用点达成）',
+  readers.length >= READER_FLOOR, `实测 ${readers.length}`);
+check('每个 `X.onData` 都真的来自同一文件里的 `bodyReader(...)`（任意 `foo.onData` 蒙混不过去）',
+  bogusReaders.length === 0,
+  bogusReaders.map((s) => `${s.file}:${s.line}(${s.name})`).join(', ') || '全部来自 bodyReader');
+check('用了共享读体器的文件都 import 了它（没 import 就是另一个同名东西）',
+  notImported.length === 0, notImported.join(', ') || '全部已 import');
+
+// ── 第三条：调用点里被**置位的标志**必须真的在那个作用域里声明过 ──────────────
+// 为什么这条值得单独钉：P4-13 的迁移把 `let done/tooLarge = false` 从内联回调里挪走了，
+// 而 `shouldStop` / `onOverflow` 是**闭包** —— 少一行声明就要等到"这条路由真的收到体"
+// 才炸 ReferenceError。本轮实测踩中**三处**，其中 `/we-assets-dir` 一处**行为判据完全没覆盖**
+// （没有任何用例往它 POST 过体）⇒ 静态判据在这里补的是行为判据的盲区。
+// 只认 `NAME = true|false|数字` 这种**布尔/计数标志**的形态（`charset=utf-8` 这类字符串内的
+// `=` 因此不会被误判），并先剥注释（规则 ⑦）。
+const FLAG_SET_RE = /(?:^|[^\w.$])([A-Za-z_$][\w$]*)\s*=\s*(?:true|false|\d+)\b/g;
+/** 只认**调用点**：`export function bodyReader(req, {…}) {` 那个定义处的花括号是形参解构，
+ *  把它当成 options 会把函数体整段扫进来（实测会把 `size = 0` / `overflowed = false` 误报）。 */
+const isDefinition = (code, at) => /function\s+$/.test(code.slice(Math.max(0, at - 12), at));
+const undeclaredFlags = [];
+for (const [rel, src] of srcByFile) {
+  const code = stripComments(src);
+  for (const m of code.matchAll(/bodyReader\s*\(/g)) {
+    if (isDefinition(code, m.index)) continue;
+    const optsStart = code.indexOf('{', m.index);
+    if (optsStart < 0) continue;
+    const optsEnd = code.indexOf('});', optsStart);
+    const opts = code.slice(optsStart, optsEnd < 0 ? code.length : optsEnd + 3);
+    const before = code.slice(0, m.index);
+    for (const f of new Set([...opts.matchAll(FLAG_SET_RE)].map((x) => x[1]))) {
+      if (!new RegExp('(?:let|const|var)\\s+' + f + '\\b').test(before)) {
+        undeclaredFlags.push(rel + ':' + f);
+      }
+    }
+  }
+}
+check('每个共享读体器调用点里被置位的标志，都在**它之前**声明过（闭包捕获不存在的名字 = 一收体就 ReferenceError）',
+  undeclaredFlags.length === 0, undeclaredFlags.join(', ') || '全部已声明');
+{
+  const ok = 'let done = false;\nconst r = bodyReader(req, {\n  shouldStop: () => done,\n  onOverflow: () => { done = true; },\n});';
+  const bad = 'const r = bodyReader(req, {\n  onOverflow: () => { done = true; },\n});';
+  const probe = (src) => {
+    const code = stripComments(src);
+    const r = [];
+    for (const m of code.matchAll(/bodyReader\s*\(/g)) {
+      const s = code.indexOf('{', m.index);
+      const e = code.indexOf('});', s);
+      for (const f of new Set([...code.slice(s, e + 3).matchAll(FLAG_SET_RE)].map((x) => x[1]))) {
+        if (!new RegExp('(?:let|const|var)\\s+' + f + '\\b').test(code.slice(0, m.index))) r.push(f);
+      }
+    }
+    return r;
+  };
+  check('negative control: 声明在位时判合格', probe(ok).length === 0);
+  check('negative control: 声明被挪走时判出来（本轮实测的那个形状）', probe(bad).join(',') === 'done');
+  check('negative control: 字符串里的 `charset=utf-8` 不得被当成标志', probe("const r = bodyReader(req, { onOverflow: () => res.setHeader('Content-Type', 'application/json; charset=utf-8') });").length === 0);
+}
+
+// 负对照：新分类与来路判定的牙
+{
+  const fromReader = 'const r = bodyReader(req, { maxBytes: 1 });\nreq.on("data", r.onData);\n';
+  const handmade = 'const r = makeReader();\nreq.on("data", r.onData);\n';
+  const bogusCount = (src) => findBodyReadSites(src)
+    .filter((s) => s.kind === 'reader' && !readerVarsIn(src).has(s.name)).length;
+  check('negative control: `reader.onData` 来自 bodyReader 时判合格',
+    bogusCount(fromReader) === 0 && findBodyReadSites(fromReader).some((s) => s.kind === 'reader'));
+  check('negative control: 自己造的 `X.onData` 被判出来（不是"长得像就放行"）', bogusCount(handmade) === 1);
+  check('negative control: 内联回调仍按"回调体内有没有闸"判（不被新分类顺带放过）',
+    findBodyReadSites("req.on('data', (c) => { chunks.push(c); });")
+      .filter((s) => s.kind === 'collector' && !hasCap(s.callback)).length === 1);
+}
 
 console.log('');
 if (failed) {

@@ -142,7 +142,7 @@ async function main() {
   // ── P3: 具名运行时入口必须在磁盘上且被收录 (防文件被删后 P1 空转通过) ────────
   {
     const required = [
-      'lib/index.js', 'lib/client.js', 'lib/pkg-read.js',
+      'lib/index.js', 'lib/client.js', 'lib/http-body.js', 'lib/pkg-read.js',
     ];
     const absent = required.filter((rel) => !libFiles.includes(rel));
     const unlisted = required.filter((rel) => libFiles.includes(rel) && !files.some((e) => coveredBy(rel, e)));

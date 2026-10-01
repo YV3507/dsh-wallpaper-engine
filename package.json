@@ -45,6 +45,7 @@
     "lib/fontsets/",
     "lib/about/",
     "lib/client.js",
+    "lib/http-body.js",
     "lib/pkg-read.js",
     "lib/scene-manifest.js",
     "lib/settings-schema.js",

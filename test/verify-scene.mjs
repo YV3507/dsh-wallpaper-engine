@@ -585,15 +585,18 @@ if (token) {
     const expr = (new RegExp('const ' + name + ' = ([^;]+);').exec(hostSrc) || [])[1] || '';
     return /^[\d\s*+()]+$/.test(expr) ? Number(new Function('return (' + expr + ')')()) : 0;
   };
+  // `needle` 钉的是"这条路由的上限**在哪**"。P4-13 把 8 条收 body 管道收敛进了
+  // `lib/http-body.js`，上限表达式随之从内联回调里的 `size > X` 变成调用点的 `maxBytes: X`
+  // —— 判据跟着**改指同一个事实**（这条路由的上限就是这个常量），不是放宽。
   const ABORT_CASES = [
     { label: 'scene-frame-cache PUT', route: '/wallpaper-engine/scene-frame-cache', method: 'PUT',
-      cap: constNum('GPU_FRAME_MAX_BYTES'), needle: 'size > GPU_FRAME_MAX_BYTES',
+      cap: constNum('GPU_FRAME_MAX_BYTES'), needle: 'maxBytes: GPU_FRAME_MAX_BYTES',
       headers: { 'content-type': 'image/png' } },
     { label: 'live-frame POST', route: '/wallpaper-engine/live-frame', method: 'POST',
-      cap: constNum('LIVE_FRAME_MAX_BYTES') || 4 * 1024 * 1024, needle: 'size > 4 * 1024 * 1024',
+      cap: constNum('LIVE_FRAME_MAX_BYTES') || 4 * 1024 * 1024, needle: 'maxBytes: 4 * 1024 * 1024',
       headers: { 'content-type': 'image/png' } },
     { label: 'settings PUT', route: '/wallpaper-engine/settings', method: 'PUT',
-      cap: constNum('SETTINGS_MAX_BYTES'), needle: 'size > SETTINGS_MAX_BYTES',
+      cap: constNum('SETTINGS_MAX_BYTES'), needle: 'maxBytes: SETTINGS_MAX_BYTES',
       headers: { 'content-type': 'application/json' } },
   ];
   // ServerResponse 的刷出语义：end() 只把 writableEnded 置真，'finish' 要等真正 flush。
