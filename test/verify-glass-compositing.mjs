@@ -390,6 +390,38 @@ function main() {
     'mutated: ' + badFlagged.length + ' on-carrier violations [' + badFlagged.map((v) => v.carrier + ':' + v.prop).join(', ') + ']'
       + ' · clean twin: ' + clean.violations.length + ' violations, ' + clean.carriers.size + ' carriers');
 
+
+  // ── S2c: 左栏的模糊必须在 ::before 上（issue #131：fixed 包含块）────────────
+  // CSS 规范：非 none 的 backdrop-filter 会让元素成为**其后代 position:fixed 元素的
+  // 包含块**。宿主在 Windows 标题栏模式下把「收起 / 展开侧边栏」按钮设成 fixed ——
+  // 模糊画在列自身上时，按钮改成相对列定位（列被标题栏 padding 推下去 + 收起时
+  // overflow:hidden 裁切）⇒ 按钮下移 / 不可见。修法：模糊只留在 ::before（无后代，
+  // 永远不会成为任何 fixed 元素的包含块），列自己拿 position:relative + z-index:0。
+  // 判据 = 三条声明形态 + 负对照（把模糊种回列自身必须判红）。谓词与主判据同源
+  // （先剥注释再找声明）—— 否则「注释里提到 backdrop-filter」会被误判，负对照失去意义。
+  // ⚠️ 本块**自足**：左栏规则的取用在本块内自己算一遍（不依赖别处同名 const ——
+  //    本块要能独立成立，便于按 issue 拆分提交与单独回归）。
+  const s2cLeftColRule = rules.find((r) => r.header.includes('div:has(> [data-slot="sidebar"])')
+    && declValue(r.body, 'background-color'));
+  const blurDeclaredOn = (body) => /(^|[;\s])backdrop-filter\s*:/.test(String(body).replace(/\/\*[\s\S]*?\*\//g, ''));
+  const leftColBlurOnSelf = s2cLeftColRule ? blurDeclaredOn(s2cLeftColRule.body) : null;
+  const leftBeforeRule = rules.find((r) => r.header.includes('div:has(> [data-slot="sidebar"])::before'));
+  const leftBeforeBlur = leftBeforeRule ? declValue(leftBeforeRule.body, 'backdrop-filter') : null;
+  const leftColPosition = s2cLeftColRule ? declValue(s2cLeftColRule.body, 'position') : null;
+  const leftColZ = s2cLeftColRule ? declValue(s2cLeftColRule.body, 'z-index') : null;
+  check('S2c 左栏的 backdrop-filter 只画在 ::before（fixed 包含块修复，issue #131）',
+    leftColBlurOnSelf === false
+      && Boolean(leftBeforeRule) && /blur\(/.test(String(leftBeforeBlur))
+      && String(leftColPosition).trim() === 'relative' && String(leftColZ).trim() === '0',
+    'self-blur=' + leftColBlurOnSelf + ' ::before=' + (leftBeforeRule ? 'present' : 'MISSING')
+      + ' position=' + String(leftColPosition) + ' z-index=' + String(leftColZ));
+  check('S2c 负对照：把 backdrop-filter 种回列自身，同一条判据必须判红（注释里的提及不算）',
+    blurDeclaredOn('background-color: red; backdrop-filter: blur(4px);') === true
+      && blurDeclaredOn('background-color: red; /* backdrop-filter: blur(4px); */') === false);
+  check('S2c2 软件光栅器回退把 ::before 的模糊也显式关掉（不留不会生效的声明）',
+    rules.some((r) => r.header.includes('[data-we-glass-fallback][data-we-wallpaper][data-we-left-sidebar]')
+      && r.header.includes('::before')
+      && /backdrop-filter:\s*none\s*!important/.test(r.body)));
   // ── D1: Task-1 contract — saturation is decoupled from the blur slider ───
   const satTernary = SRC.match(
     /setProperty\("--we-saturate",\s*useLegacySaturateCoupling\(\)\s*\?\s*String\(1\.15 \+ selection\.blur \* 0\.028\)\s*:\s*String\(GLASS_SATURATE\)\)/);

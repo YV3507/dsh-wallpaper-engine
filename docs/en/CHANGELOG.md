@@ -36,6 +36,24 @@
   Guards: verify-scene-live rewrote/added 6 checks (mediaBase decision expression, three-state
   ledger reads, in-watch evidence, stall soft failure, retry accepts any soft failure, fallback page
   vendored + sync script + cache header).
+- **Fix (issue #131): with "left sidebar override" enabled, the collapse/expand sidebar buttons
+  shift down and the collapsed-state expand button becomes invisible.** Root cause is the CSS
+  **containing-block** rule: a non-none `backdrop-filter` makes the element the containing block for
+  its `position:fixed` descendants. In Windows title-bar mode the host puts the collapse/expand
+  sidebar button and the collapsed-state "new session" button at `position:fixed` ⇒ they switch from
+  viewport-relative to column-relative: the column's top is pushed down by
+  `[data-windows-titlebar]`'s `padding-top` (every button drops by one title-bar height), and while
+  collapsed the column's grid track is 0 wide with `overflow:hidden` ⇒ the button is clipped away
+  entirely (expand button invisible). Fix: move **only the `backdrop-filter` pair** of the glass
+  recipe onto the column's `::before` (a pseudo-element has no descendants, so it can never become
+  anyone's containing block); the column itself takes `position:relative` + `z-index:0` (keeping the
+  pseudo-element's `z-index:-1` inside the column); the software-rasterizer fallback explicitly
+  disables the `::before` blur too. Base colour / sheen / border / token mappings stay on the column,
+  so the glass and text layering is unchanged. Guards: verify-glass-compositing S2c (three
+  declaration shapes + a "put the blur back on the column and it goes red" negative control) and
+  S2c2 (fallback coverage), plus a real-browser probe (after the fix the fixed button sits at
+  viewport top=20 and still hit-tests while collapsed; the pre-fix replica lands at column-top+20
+  and is clipped away).
 - **Internal: guard coverage gaps closed + a comment audit + a derived "which guard owns which module" map**
   (**no user-visible behaviour change**; `lib/client.js` only lost comments and one piece of dead state). Three things:
   **① The field-write contract**: outside `client.js` there are 126 raw `selection.<field> = …` writes, while the
