@@ -130,6 +130,7 @@ const WALLPAPER_REQUIRED = [
   { name: 'contentrating', why: 'rating filter input; readProjectP / metaEntry always produce it' },
   { name: 'playable', why: 'portableCount and rotation filter read it (buildInventory)' },
   { name: 'media', why: 'the video/web media URL the browser half plays (buildInventory)' },
+  { name: 'mediaExt', why: 'real container suffix of that media file: the token-shaped URL carries no extension, so the client\'s "browser can play it natively" decision has no other source (buildInventory)' },
   { name: 'preview', why: 'picker thumbnail (buildInventory)' },
   { name: 'frameUrl', why: 'scene static-frame source (buildInventory)' },
   { name: 'schemeColor', why: 'load-time placeholder colour before a frame exists (buildInventory)' },

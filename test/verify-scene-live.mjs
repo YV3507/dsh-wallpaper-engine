@@ -1071,6 +1071,47 @@ for (const [name, ok] of clientChecks) check(name, ok);
       && /if \(!layerStillPending\(\) && !upgradeByUser\)[\s\S]{0,400}?selection\.transcodeReady = \{ token, fps: cap, url: transcodedUrl \}/.test(CH)
       && /useCached \? rc\.url : sel\.url/.test(CH)
       && /upgradeByUser = Date\.now\(\) - capChangedAt < 5000/.test(CH));
+    // ── ① 提交前预热：把"取数"挪出切换的关键路径 ───────────────────────────────
+    // 实测：宿主+磁盘 ~4ms、loadedmetadata→presented ~110ms，其余是"还没开始取数"；
+    // 视频档此前刻意不跑准备链（怕第二个 4K 解码器）⇒ 整段启动成本压在关键路径上。
+    // 折中＝只预到 HAVE_METADATA：**绝不 play()、绝不开 autoplay**。
+    check('① 提交前预热只到元数据（不引进第二个解码器）',
+      CH.includes('const VIDEO_WARM_TTL_MS')
+      && CH.includes('el.preload = "metadata"')
+      && CH.includes('el.autoplay = false')
+      && !/el\.play\(/.test(CH)
+      && CH.includes('function consumeWarmVideo(')
+      && CH.includes('function warmVideoForPointer(')
+      // 赋 src 已经启动资源选择，**不得**再补一次 load()（同值重启 = 白跑一次取数）。
+      && !/el\.src = u;\s*\n\s*el\.load\(\);/.test(CH)
+      && CH.includes('const warmed = prepared ? null : consumeWarmVideo(sel.url);')
+      // 领养的元素**不得重赋 src**（同值重赋也会重启资源选择 = 黑屏闪烁源）：
+      // 建层那段"设 src / 挑抽帧版"只对新建元素生效。
+      && CH.includes('if (!prepared && !warmed) {'));
+    check('① 预热的触发点是卡片身份标记（按下即预热、停在卡上也预热）',
+      src.includes('warmVideoForPointer')
+      && src.includes('addEventListener("pointerdown", onWarmPointerDown, { capture: true, passive: true });')
+      && src.includes('addEventListener("pointerover", onWarmPointerOver, { capture: true, passive: true });')
+      && CH.includes('VIDEO_WARM_HOVER_MS')
+      && src.includes('disposeWarmVideo();')
+      && readFileSync(join(root, 'src', 'picker-modal.js'), 'utf8').includes('"data-we-id": String(w.id)')
+      && readFileSync(join(root, 'src', 'quick-panel.js'), 'utf8').includes('"data-we-id": String(w.id)'));
+    // faststart 变体与"字节布局不得中途改换"（真机根因 + 我在自查里发现的隐患）：
+    //   · 真机取证（当时加的临时插桩，已随本次提交删除）：播放器对 `Range: bytes=0-` 会
+    //     **顺流整读**，moov 在尾部的源于是要读到文件末尾才报元数据，耗时 ∝ 文件大小
+    //     （764MB/1761ms … 97MB/324ms）。变体把 moov 挪到头部即解 —— 但原片与变体的
+    //     **字节偏移不同**，同一次播放里绝不能前半段读原片、后半段读变体（解复用器会按旧
+    //     偏移读新布局 ⇒ 花屏/解码失败）。
+    //   · 所以 /media 的选片必须经 `pinnedFaststartVariant`（第一次请求定音），而不是直接问缓存。
+    const hostLib = readFileSync(join(root, 'lib', 'index.js'), 'utf8');
+    check('① faststart 变体：同一 token 在运行期内钉住同一份字节布局（不许播放中途换文件）',
+      hostLib.includes('function pinnedFaststartVariant(')
+      && hostLib.includes('const MEDIA_CHOICE_PIN = new Map();')
+      && /pinnedFaststartVariant\(abs, token, log\)/.test(hostLib)
+      && /serveFile\(fast \|\| abs/.test(hostLib)
+      // 生成命令必须是"只搬盒子"的复制（不得重编码），并且缓存预算有上限、命中会顶 mtime。
+      && /'-c', 'copy', '-movflags', '\+faststart'/.test(hostLib)
+      && hostLib.includes('FASTSTART_CACHE_MAX_BYTES') && hostLib.includes('touchFaststart('));
     check('实时管线的视频分支委托给通道，而不是自己下判据',
       LIVE.includes('return videoContentReady(video);'));
     // ── 视频通道的**符号围栏**（目标 ①：先造判据再搬家）──────────────────────────
@@ -1090,9 +1131,9 @@ for (const [name, ok] of clientChecks) check(name, ok);
     const srcOf = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
     // ⚠️ **先剥注释再扫**（本仓 ADR-0006 规矩 ⑦）：⑥ 之后视频通道里会出现
     // 「实时管线只留一次委托」这类注释，注释里提到符号名不算引用。
-    const stripComments = (src) => String(src)
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/^[ \t]*\/\/.*$/gm, '');
+    // 剥注释走**共享的字符串感知实现**（文件顶部的 `stripComments` 就是它）——
+    // 这里不要再写第二份朴素正则：块注释正则会把字符串里的 `/*` 也吃掉
+    //（docs 档的 verify-module-layout 专门判这一条，实测曾因这份本地副本判红）。
     const hits = (text) => LIVE_ONLY.filter((s) => new RegExp('\\b' + s + '\\b').test(stripComments(text)));
     const offenderList = [];
     for (const rel of CHANNEL_FILES) {
@@ -1139,20 +1180,30 @@ for (const [name, ok] of clientChecks) check(name, ok);
     check('③ 视频档两条腿都挂了类名（we-media--canvas + fitClass / we-media + fitClass）',
       videoFn.includes('canvas.className = \"we-media we-media--canvas\" + fitClass;')
       && videoFn.includes('media.className = \"we-media\" + fitClass;'));
-    // ── ② 延迟治理：原生可解的源不因帧率上限整片重编码 ───────────────────────────
-    // 实测：各视频壁纸之间等待几乎一样长（固定代价）+「帧率上限调越高切换越慢」
-    // ⇒ 等的是后台那次**整片重编码**（4K60 上数秒，抢 CPU/磁盘）。
-    // 正对照保证功能没被关死（非原生可解仍要转）；负对照证明「一律不转」会被判出。
-    check('② 抽帧决策看「原生可解性」（原生可解 ⇒ 不因帧率上限重编码）',
-      videoSrc.includes('function isNativelyPlayableSource(')
-      && videoSrc.includes('if (isNativelyPlayableSource(mi, selection.url, selection.mediaExt)) {')
-      && videoSrc.includes('selection.transcodeState = \"native\";'));
+    // ── ② 帧率上限的判据是「上限能不能真的降帧」─────────────────────────────────
+    // 设计口径：上限存在的唯一目的是压 GPU 解码占用（Video Decode 随帧率上升）。
+    // 所以只有"源帧率高于上限"才值得整片重编码；源帧率 ≤ 上限时转码纯属白烧。
+    // ⚠️ 曾经把"原生可解"当免转条件（2026-10-02 修）：4K120 的 H.264 既原生可解、
+    // 又远高于上限 ⇒ 帧率上限在实际在用的 mp4 上一律失效、只剩一句面板文案。
+    // 判据（三态都钉住）：帧率已知且高于上限 ⇒ 转；已知且不高于 ⇒ skip；**未知**才轮到
+    // "原生可解就别盲转"这条成本护栏。
+    check('② 抽帧决策看「上限能否真降帧」：高于上限才转、不高于则 skip、未知才用原生可解护栏',
+      videoSrc.includes('function capNeedsTranscode(')
+      && videoSrc.includes('const FPS_CAP_TOLERANCE = 1;')
+      && videoSrc.includes('return src > cap + FPS_CAP_TOLERANCE;')
+      && videoSrc.includes('if (need === false) {')
+      && videoSrc.includes('if (need === null && isNativelyPlayableSource(mi, selection.url, selection.mediaExt)) {')
+      && videoSrc.includes('selection.transcodeState = "skipped";')
+      && videoSrc.includes('selection.transcodeState = "native";')
+      // 「原生可解 ⇒ 直接不转」这条旧口径必须彻底消失（它就是上限失效的原因）。
+      && !videoSrc.includes('if (isNativelyPlayableSource(mi, selection.url, selection.mediaExt)) {\n    if (video.dataset.weTranscoded) revertTranscodedVideo(video);\n    selection.transcodeReady = null;\n    selection.transcodeState = "native";'));
     check('② 正对照：判定只认原生容器/编码（mkv 之类的非原生容器不在白名单里）',
       videoSrc.includes('NATIVE_SRC_EXT') && videoSrc.includes('NATIVE_CODEC_RE')
       && /mp4\|m4v\|webm/.test(videoSrc)
       && !/NATIVE_SRC_EXT = \/[^/]*mkv/.test(videoSrc));
-    check('② 负对照：写死「一律不转」的合成实现会被上面第一条判出',
-      !/isNativelyPlayableSource/.test('if (true) { revertTranscodedVideo(video); return; }'));
+    check('② 负对照：把"原生可解"重新写成免转条件（旧口径）会被上一条判出',
+      videoSrc.includes('function capNeedsTranscode(')
+      && /if \(isNativelyPlayableSource\(mi, selection\.url, selection\.mediaExt\)\) \{\n    if \(video\.dataset\.weTranscoded\) revertTranscodedVideo\(video\);\n    selection\.transcodeReady = null;\n    selection\.transcodeState = "native";/.test('if (isNativelyPlayableSource(mi, selection.url, selection.mediaExt)) {\n    if (video.dataset.weTranscoded) revertTranscodedVideo(video);\n    selection.transcodeReady = null;\n    selection.transcodeState = "native";'));
     // 容器**必须**能拿到真实后缀：媒体 URL 是 `/media/<base64url>`，路径里没有扩展名 ——
     // 只靠 URL 判会**恒为假**（2026-10-02 实测回归：设了帧率上限时每次切换仍跑整片重编码）。
     // 两端各钉一条：宿主把 mediaExt 发出来、客户端把它接进 selection 再传进判据。

@@ -4207,6 +4207,17 @@ function apply(ctx) {
           ocListeners.push(t);
         }
       }
+      // 视频壁纸的**提交前预热**：指针按到/停在卡片上时就把它预到元数据（见 src/video-layer.js
+      // 的 warmVideoUrl）—— 点击发生在抬手，按下→抬手、以及鼠标停在卡片上的这段时间都是白捡的
+      // 窗口（手动点选没有准备链）。capture + passive：不拦事件、不进冒泡链。
+      const onWarmPointerDown = (ev) => { try { warmVideoForPointer(ev, true); } catch { /* ignore */ } };
+      const onWarmPointerOver = (ev) => { try { warmVideoForPointer(ev, false); } catch { /* ignore */ } };
+      let warmBound = false;
+      if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+        document.addEventListener("pointerdown", onWarmPointerDown, { capture: true, passive: true });
+        document.addEventListener("pointerover", onWarmPointerOver, { capture: true, passive: true });
+        warmBound = true;
+      }
       // 可见性恢复（最小化 → 还原 / 页面从 bfcache 回来）：**只在"隐藏 → 可见"这一个方向**
       // 做两件事 —— 一次两帧的复合成微推（见 nudgeWallpaperRepaint）与"画面真的回到屏上了吗"
       // 的留痕（见 probeWallpaperOnScreen）。普通 focus（用户点回窗口）不做，否则每次点窗口
@@ -4312,6 +4323,10 @@ function apply(ctx) {
         if (backVisBound && typeof document !== "undefined" && typeof document.removeEventListener === "function") {
           document.removeEventListener("visibilitychange", onBackVisible);
         }
+        if (warmBound && typeof document !== "undefined" && typeof document.removeEventListener === "function") {
+          document.removeEventListener("pointerdown", onWarmPointerDown, { capture: true });
+          document.removeEventListener("pointerover", onWarmPointerOver, { capture: true });
+        }
         if (visBound && typeof document !== "undefined" && typeof document.removeEventListener === "function") {
           document.removeEventListener("visibilitychange", onVisibilityResyncPersist);
         }
@@ -4326,6 +4341,8 @@ function apply(ctx) {
         // 而且 prep 的兜底定时器之后仍会 commit（往已卸载的插件里建层）。
         cancelRotationPrepare();
         disposePreparedMedia();
+        // 预热槽位同一条纪律：留着就是一个没有句柄的解复用器（页面关闭前不会自己走）。
+        disposeWarmVideo();
         // 关掉音频闸并退役渐变中的旧层：禁用/重挂时旧层不能被留在屏上等退役定时器
         // （≤1.3s 的可见残留），闸也不该跨过一次重挂活着（准备链的 BGM 起播会被它
         // 推迟到那个定时器触发为止）。这两条收尾本身是正确性要求：跨过一次重挂活着的闸

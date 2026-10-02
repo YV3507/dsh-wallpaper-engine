@@ -1572,7 +1572,10 @@ function revealPendingLayer() {
     // 硬切：旧层此刻一次性退场（释放媒体 + 放行新层音频），新层已经可以直接画。
     retireFadingLayer();
   }
-  liveLog("layer-reveal", "wid=" + selection.id + " 新层已有画面 → 放行");
+  // 「这次切换等了多久」是用户直接感知的量：常态留一行（`held=`），有预热/没预热、
+  // 有抽帧/没抽帧之间就能直接对比，不必再插临时桩。
+  liveLog("layer-reveal", "wid=" + selection.id + " 新层已有画面 → 放行（held="
+    + Math.max(0, Date.now() - (p.armedAt || Date.now())) + "ms）");
 }
 // 新层还没有画面：旧层继续留在屏上，新层先不参与绘制，画面一到就放行。
 function armLayerContentReveal(node, outgoing, tr, fade) {
@@ -1596,7 +1599,7 @@ function armLayerContentReveal(node, outgoing, tr, fade) {
   try { if (node.classList) node.classList.add(LAYER_PENDING_CLASS); } catch { /* ignore */ }
   // 新层上屏之前先压住它的音源：旧层还在可见期内出声，两层 BGM 不重叠。
   openRotationAudioGate(node, outgoing);
-  pendingReveal = { node, outgoing, tr, fade, hooks, stopPosterProbe: videoReveal.cancelProbe, posterGiveUp: videoReveal.budget };
+  pendingReveal = { node, outgoing, tr, fade, hooks, stopPosterProbe: videoReveal.cancelProbe, posterGiveUp: videoReveal.budget, armedAt: Date.now() };
   // 过场类型是一个完整词，但**先取词再拼接**：`weT(...) + "…"` 会被 i18n 守卫判成
   // "碎片化翻译"（见 test/verify-i18n.mjs 判据 ①b），而这一行本身只是诊断留痕。
   const holdKind = weT(fade ? "过场" : "硬切");

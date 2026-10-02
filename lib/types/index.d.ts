@@ -35,6 +35,11 @@ export interface WallpaperDescriptor {
   playable: boolean;
   /** Served media URL (`/wallpaper-engine/media/<token>`), or null. */
   media: string | null;
+  /** Real container suffix of the media file, lower-case and without the dot (e.g. `mp4`),
+   *  or null. The media URL is token-shaped and carries no extension, so the client's
+   *  "the browser can play this natively" decision (skip the frame-rate-cap re-encode)
+   *  has no other way to know the container. */
+  mediaExt: string | null;
   /** Served preview URL (`/wallpaper-engine/preview/<token>`; uploads without a
    *  preview image fall back to `/wallpaper-engine/video-preview/<token>`), or null. */
   preview: string | null;

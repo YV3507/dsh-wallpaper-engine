@@ -48,6 +48,103 @@ const VIDEO_POSTER_BUDGET_MS = 1200;
  */
 const VIDEO_STALL_GIVE_UP_MS = 15000;
 
+
+// ── 提交前预热：把"取数"挪出切换的关键路径 ────────────────────────────────────
+// 切换那一下真正要等的是**媒体元素的启动**：资源选择 → 取 moov → 解复用器初始化 →
+// 首帧解码。本机实测：宿主+磁盘 ~4ms、`loadedmetadata → presented` ~110ms，其余时间都是
+// "还没开始取数"。视频档此前**刻意不跑准备链**（`prepareVideoProbe` 会 `play()` ⇒ 第二个
+// 4K 解码器在跑，实测双解码卡顿），于是整段启动成本都压在关键路径上。
+//
+// 这里的折中：只预热到 **HAVE_METADATA**（`preload="metadata"`、**绝不 play()**、muted）——
+// 解复用器与 moov 先就位，**一帧都不解码**；用户真的点了就把这个元素领养进层
+//（`consumeWarmVideo`），剩下的只是一帧的取数与解码。
+// 单槽位 + TTL：任何时刻最多一个预热元素，没人用就自己释放。
+const VIDEO_WARM_TTL_MS = 20000;
+// 悬停预热的静默期：鼠标扫过一排卡片时不必把经过的每一张都摸一遍（见 warmVideoForPointer）。
+const VIDEO_WARM_HOVER_MS = 120;
+let videoWarm = null; // { url, el, timer }
+let warmHoverTimer = 0; // 待发的悬停预热
+function disposeWarmVideo() {
+  const w = videoWarm;
+  videoWarm = null;
+  if (warmHoverTimer && typeof clearTimeout === "function") {
+    try { clearTimeout(warmHoverTimer); } catch { /* ignore */ }
+    warmHoverTimer = 0;
+  }
+  if (!w) return;
+  if (w.timer && typeof clearTimeout === "function") { try { clearTimeout(w.timer); } catch { /* ignore */ } }
+  try { w.el.removeAttribute("src"); w.el.load(); } catch { /* ignore */ }
+}
+/**
+ * 预热一个视频源（只到元数据）。
+ *
+ * ⚠️ 三条不变量：
+ *   · **绝不 `play()`、绝不 `autoplay`** —— 预热不得引进第二个解码器（本文件头的取舍）；
+ *   · 同一个 url 幂等（槽位里已经是它就直接返回）；
+ *   · 单槽位：换一个候选就把上一个释放掉（点选来回扫不会攒下一串解复用器）。
+ */
+function warmVideoUrl(url) {
+  const u = String(url || "");
+  if (!u || typeof document === "undefined" || typeof document.createElement !== "function") return;
+  if (videoWarm && videoWarm.url === u) return;
+  disposeWarmVideo();
+  let el;
+  try { el = document.createElement("video"); } catch { return; }
+  if (!el || typeof el.load !== "function") return;
+  try {
+    el.preload = "metadata";      // ← 只取 moov：Chromium 拿到元数据就停
+    el.muted = true;
+    el.loop = true;
+    el.autoplay = false;          // ← 预热不解码帧
+    el.setAttribute("playsinline", "");
+    el.src = u;              // 赋 src 本身就会启动资源选择；**不再调 load()** ——
+                             // 同值重启资源选择等于白跑一次取数（本文件建层那段有同类注释）。
+  } catch { return; }
+  const timer = typeof setTimeout === "function" ? setTimeout(() => {
+    if (videoWarm && videoWarm.el === el) disposeWarmVideo();
+  }, VIDEO_WARM_TTL_MS) : 0;
+  videoWarm = { url: u, el, timer };
+  liveLog("video-warm", "预热（仅元数据，不解码） " + u.slice(Math.max(0, u.lastIndexOf("/") + 1)).slice(-24));
+}
+/** 领养预热好的元素（同 url 才给）。命中即交出，槽位随之清空。 */
+function consumeWarmVideo(url) {
+  const w = videoWarm;
+  if (!w || w.url !== String(url || "")) return null;
+  videoWarm = null;
+  if (w.timer && typeof clearTimeout === "function") { try { clearTimeout(w.timer); } catch { /* ignore */ } }
+  liveLog("video-warm", "领养预热元素 " + String(w.el.readyState === undefined ? "-" : w.el.readyState) + " rs");
+  return w.el;
+}
+/**
+ * 指针落到某张壁纸卡上时预热它。
+ *
+ * 两个触发点，窗口不一样：
+ *   · `pointerdown`（immediate=true）—— 点击发生在抬手，按下到抬手就是白捡的窗口；
+ *   · `pointerover`（immediate=false）—— 鼠标**停在**卡片上通常几百毫秒到几秒，窗口更大；
+ *     扫过一排卡片时靠 120ms 的抖动静默掉（单槽位 + 幂等已经把开销压到可忽略，但没必要
+ *     扫一次就把一排源都摸一遍）。
+ * 卡片靠 `data-we-id`（见 picker-modal / quick-panel）自报身份；解析不到就静默返回。
+ */
+function warmVideoForPointer(ev, immediate) {
+  try {
+    const t = ev && ev.target;
+    const card = t && typeof t.closest === "function" ? t.closest("[data-we-id]") : null;
+    const id = card && typeof card.getAttribute === "function" ? String(card.getAttribute("data-we-id") || "") : "";
+    // 任何一次"落到某张卡上"都先撤掉待发的悬停预热：人已经离开了上一张。
+    if (warmHoverTimer && typeof clearTimeout === "function") {
+      try { clearTimeout(warmHoverTimer); } catch { /* ignore */ }
+    }
+    warmHoverTimer = 0;
+    if (!id) return;
+    const list = (selection.inventory && selection.inventory.wallpapers) || [];
+    const w = list.find((x) => x && String(x.id) === id);
+    if (!w || w.type !== "video" || !w.media) return;
+    if (immediate || typeof setTimeout !== "function") { warmVideoUrl(w.media); return; }
+    const url = w.media;
+    warmHoverTimer = setTimeout(() => { warmHoverTimer = 0; warmVideoUrl(url); }, VIDEO_WARM_HOVER_MS);
+  } catch { /* 预热是增强：任何异常都不许影响切换 */ }
+}
+
 /**
  * 探一次海报图（`<video poster>` 的 URL）。
  *
@@ -121,16 +218,18 @@ function buildVideoMedia(sel, fitClass) {
   // 轮换领养：就绪元素（已 canplay/预播中）直接进层，绝不重赋 src（重赋
   // 即使同值也会触发 resource selection 重新加载 = 黑屏闪烁源）。
   const prepared = consumePreparedMedia("VIDEO", sel.url);
-  const media = prepared || document.createElement("video");
-  if (!prepared) {
+  // 预热元素（见 VIDEO_WARM_TTL_MS 那段）：领养它 ⇒ 建层那一刻解复用器已经在位。
+  const warmed = prepared ? null : consumeWarmVideo(sel.url);
+  const media = prepared || warmed || document.createElement("video");
+  if (!prepared && !warmed) {
     // 已经转好的抽帧版（上一次在"已上屏"状态下就绪、刻意没换源的那一份）：
     // **建层时就用它当 src** —— 这样整个生命周期里一次换源都不发生（换源 = 清掉当前帧 = 纯色）。
-    // 但与 ② 同一条规则：原生可解的源本来就不该走抽帧（否则建层用了抽帧版、紧接着又被
-    // 判成 native 而退回原片 = 白跑一次换源）。
+    // 判据只看"这份抽帧版是不是当前上限的"：**不再看原生可解性** —— 帧率上限的意义就是压解码
+    // 占用，原生可解的源照样可能帧率超标（4K120 的 H.264）；曾经把原生可解当免转条件，
+    // 结果是上限在实际在用的 mp4 上完全失效（见 capNeedsTranscode 的注释）。
     const tok = String(sel.url || "").split("/").pop();
     const rc = selection.transcodeReady;
-    const useCached = Boolean(rc && rc.url && rc.fps === selection.fpsCap && rc.token === tok)
-      && !isNativelyPlayableSource(selection.mediaInfo, sel.url, sel.mediaExt);
+    const useCached = Boolean(rc && rc.url && rc.fps === selection.fpsCap && rc.token === tok);
     media.src = useCached ? rc.url : sel.url;
     if (useCached) {
       try { media.dataset.weTranscoded = String(rc.fps); } catch { /* ignore */ }
@@ -273,12 +372,12 @@ async function refreshMediaInfo(force) {
     const data = res.data || {};
     if (mediaInfoToken === token) {
       selection.mediaInfo = (data && data.info) || null;
-      // Source fps ≤ cap → no transcode needed; cancel an in-flight upgrade.
+      // 源帧率**不高于**上限 ⇒ 不需要抽帧；把在途的升级停掉。
       const mi = selection.mediaInfo;
-      if (mi && mi.fps && mi.fps > 0 && selection.fpsCap > 0 && mi.fps <= selection.fpsCap) {
+      if (capNeedsTranscode(mi, selection.fpsCap) === false) {
         abortTranscodeUpgrade();
         // Also drop a swapped transcode from a previous LOWER cap, so the
-        // "无需抽帧" hint matches what is actually playing (the original).
+        // panel hint matches what is actually playing (the original).
         const layer = document.getElementById(LAYER_ID);
         const video = layer && layer.querySelector("video");
         if (video && video.dataset.weTranscoded) revertTranscodedVideo(video);
@@ -300,11 +399,11 @@ async function refreshMediaInfo(force) {
 let upgradeAbort = null;
 let upgradeToken = "";
 // The fps cap the in-flight upgrade request targets (0 = none). The in-flight
-// latch is keyed by token ONLY in the old code, so switching 24→48 while the
-// 24fps transcode was still running was treated as "already working on it" —
-// the stale 24fps request then completed and swapped the video to a 24fps
-// re-encode while the picker advertised the new cap ("已切换至 48fps 抽帧版").
-// Tracking the cap lets a cap change abort the stale request and start fresh.
+// latch used to be keyed by token ONLY, so changing the cap while a transcode
+// for the OLD cap was still running was treated as "already working on it" —
+// the stale request then completed and swapped the video to the old cap's
+// re-encode while the picker advertised the new cap. Tracking the cap lets a
+// cap change abort the stale request and start fresh.
 let upgradeFps = 0;
 // 这一次升级是不是**用户刚主动改的上限**（而不是"切换壁纸时顺带触发"）。
 // 判据只影响一件事：换源要不要压在"(层还被闸门押着)"这个前提下。
@@ -376,6 +475,27 @@ function isNativelyPlayableSource(mi, url, ext) {
 }
 
 /**
+ * **上限是否真的能降帧** —— 抽帧转码的唯一判据。
+ *
+ * 设计口径：上限存在的目的是**压 GPU 解码占用**（Video Decode 随帧率上升）。所以只有
+ * "源帧率**高于**上限"才值得整片重编码；源帧率已经 ≤ 上限时转码纯属白烧 CPU 还把画质
+ * 再压一遍。容差 1 帧：源的 23.976/29.97 这类实际帧率对上整档上限时不该被当成"高于"。
+ *
+ * 返回三态：`true` = 该抽帧；`false` = 不必抽帧（源帧率已知且不高于上限）；
+ * `null` = **源帧率未知**（探测失败 / 还没回来）—— 这时才轮到"原生可解就别盲转"那条成本护栏。
+ *
+ * ⚠️ 曾经的错误口径（2026-10-02 修）：把"原生可解"当成"不抽帧"的充分条件。容器原生可解
+ * 不代表帧率不超上限（4K120 的 H.264 既原生可解、又比上限高得多），于是帧率上限在你实际
+ * 在用的这些 mp4 上一律失效、只剩一句面板文案 —— 而它的全部意义就是压解码占用。
+ */
+const FPS_CAP_TOLERANCE = 1;
+function capNeedsTranscode(mi, cap) {
+  const src = mi && Number(mi.fps) > 0 ? Number(mi.fps) : 0;
+  if (!src || !(cap > 0)) return null;
+  return src > cap + FPS_CAP_TOLERANCE;
+}
+
+/**
  * ⑤ 视频通道的"建层之后"入口：**转码触发归视频通道**（原来这 3 行在 live-layer 的
  * syncLayers 里，是视频档在那条实时管线里唯一的类型专属逻辑）。
  *
@@ -438,29 +558,25 @@ function maybeUpgradeToTranscoded(video, token) {
     return;
   }
   const mi = selection.mediaInfo;
-  // ② 延迟治理：**原生可解**的源不再因为帧率上限而整片重编码（实测代价：4K60 数秒，
-  // 各壁纸之间等待几乎一样长 = 固定代价）。判据见 verify-scene-live 的 ② 那组。
-  // ⚠️ 文案必须与"源帧率 ≤ 上限"分开：原生可解的源**帧率可能远高于上限**（4K120 + 上限24），
-  // 把它说成"源帧率 ≤ 上限"就是撒谎。
-  if (isNativelyPlayableSource(mi, selection.url, selection.mediaExt)) {
-    if (video.dataset.weTranscoded) revertTranscodedVideo(video);
-    selection.transcodeReady = null;
-    selection.transcodeState = "native";
-    return;
-  }
-  if (mi && mi.fps && mi.fps > 0 && mi.fps <= cap) {
-    // Source already at/below the cap — no transcode needed; drop any previously
-    // swapped (lower-cap) version. No in-flight reservation is made, so raising
-    // the cap later can still start one.
+  // mediaInfo 探测还在途（本 token）：等它回来再判 —— 它可能带回"源帧率 ≤ 上限"从而免掉
+  // 整片转码。settle 时的 emit 会再跑一遍这条路（见 refreshMediaInfo 末尾）。
+  if (!mi && mediaInfoInFlight === token) return;
+  const need = capNeedsTranscode(mi, cap);
+  // 源帧率已知且不高于上限 ⇒ 不抽帧（顺手退回可能存在的、来自更低上限的抽帧版）。
+  if (need === false) {
     if (video.dataset.weTranscoded) revertTranscodedVideo(video);
     selection.transcodeReady = null;
     selection.transcodeState = "skipped";
     return;
   }
-  // mediaInfo probe still in flight for THIS token: defer the decision — the
-  // probe may come back with fps ≤ cap (transcode unnecessary). The settle
-  // emit in refreshMediaInfo re-runs syncLayers and brings us back here.
-  if (!mi && mediaInfoInFlight === token) return;
+  // **源帧率读不到**时才用这条成本护栏：容器原生可解 ⇒ 不为一个未知的帧率整片重编码
+  //（4K 重编码是数秒级的固定代价）。帧率已知的情况在上面已经按"能不能真降帧"判完了。
+  if (need === null && isNativelyPlayableSource(mi, selection.url, selection.mediaExt)) {
+    if (video.dataset.weTranscoded) revertTranscodedVideo(video);
+    selection.transcodeReady = null;
+    selection.transcodeState = "native";
+    return;
+  }
   if (video.dataset.weTranscoded === String(cap)) return; // already on this cap
   // Only an in-flight request for THIS cap counts as "working on it": a request
   // for a different cap would complete and swap in a stale-fps re-encode while

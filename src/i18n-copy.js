@@ -462,7 +462,7 @@ const WE_I18N_EN = {
   " · 抽帧准备中…": " · Preparing frame decimation…",
   " · 已切换至 {fps}fps 抽帧版（正常速度，解码占用约减半）": " · switched to {fps}fps decimated version (normal speed, roughly half the decode load)",
   " · 抽帧版已就绪（下次切换到这张时生效）": " · decimated version ready (applies the next time this wallpaper is switched to)",
-  " · 浏览器原生可解，无需抽帧": " · the browser can already play this natively — no decimation needed",
+  " · 源帧率未知，未抽帧": " · source frame rate unknown — no decimation",
   " · 转码不可用，已回退原片": " · Transcode unavailable, fell back to the original",
   " · 源帧率 ≤ 上限，无需抽帧": " · Source frame rate ≤ cap, no decimation needed",
   "转码进度": "Transcode progress",

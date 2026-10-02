@@ -155,6 +155,8 @@
     // ── 行：一张可快切的壁纸 ──
     const renderRow = (w) => React.createElement("div", {
       key: w.id,
+      // 卡片自报身份：视频壁纸的提交前预热靠它（见 src/video-layer.js 的 warmVideoForPointer）。
+      "data-we-id": String(w.id),
       className: "we-qp__item" + (w.id === sel.id ? " we-qp__item--current" : ""),
       role: "option",
       tabIndex: 0,
@@ -180,6 +182,8 @@
     // ── 卡：缩略图网格形态（视图切换的「卡片」档；点击语义与列表行一致）──
     const renderCard = (w) => React.createElement("div", {
       key: w.id,
+      // 同 renderRow：预热身份标记。
+      "data-we-id": String(w.id),
       className: "we-qp__card" + (w.id === sel.id ? " we-qp__card--current" : ""),
       role: "option",
       tabIndex: 0,
