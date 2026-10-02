@@ -62,6 +62,9 @@
   `interactive-bg-active`、`interactive-bg-hover-solid`、`markdown-citation`、
   `markdown-placeholder`。层权重沿用那份补丁的角色分档，但**每条都包上可读性下限**
   （#82 的配方），语义状态色与 accent 系按补丁原文保持原生；亮/暗两套逐条同形。
+- **排障文档**：新增「安装失败：`generation peer validation failed`」一节（issue #116/#117 的
+  根因 = 宿主 DSH 核心 < 0.2.0-rc.1，含 `dsh --version` 自查与「桌面端版本号 ≠ 核心版本」的说明）。
+
 - **内部：契约守卫的覆盖面补齐 + 注释审计 + 「哪个守卫管哪个模块」的派生映射**（**无用户可见行为变化**；
   产物 `lib/client.js` 只少了注释与一处死状态）。三件事：
   **① 字段写入契约**：`selection.<字段> = …` 的裸直写在 `client.js` 之外共 126 处，而在册棘轮只看得见 11 处

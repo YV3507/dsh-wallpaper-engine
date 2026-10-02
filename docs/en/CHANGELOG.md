@@ -76,6 +76,10 @@
   `markdown-citation`, `markdown-placeholder`. Layer weights follow that patch's role ladder, but
   every entry is wrapped in the readability floor (#82's recipe); semantic state colours and accent
   fills stay native per the patch's own notes; light and dark entries are shape-identical.
+- **Troubleshooting**: new "Install failure: `generation peer validation failed`" section
+  (issue #116/#117's root cause = DSH core < 0.2.0-rc.1, with a `dsh --version` self-check and a
+  note that the desktop app's version number is not the core version).
+
 - **Internal: guard coverage gaps closed + a comment audit + a derived "which guard owns which module" map**
   (**no user-visible behaviour change**; `lib/client.js` only lost comments and one piece of dead state). Three things:
   **① The field-write contract**: outside `client.js` there are 126 raw `selection.<field> = …` writes, while the

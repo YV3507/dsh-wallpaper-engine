@@ -93,11 +93,43 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 > 如果你的插件中心（dsh-plugin-hub）生成的是 `github:` 命令，请把它升级到 **v1.4.1+**——新版会自动反查
 > npm 包名并切到 npm 通道。
 
+### 安装失败：`generation peer validation failed: @deepseek-ai/dsh-client-runtime does not resolve`
+
+```text
+generation-install: installed in 436ms
+generation-install: generation peer validation failed: @deepseek-ai/dsh-client-runtime does not resolve from the installation closure
+```
+
+**说明宿主（DSH 核心）太旧**。本插件声明的 peer 依赖是
+`@deepseek-ai/dsh-client-runtime >= 0.2.0-rc.1`（`package.json` 的 `peerDependencies` /
+`engines.dsh` 同一口径），而你的 DSH 是 **0.1.x**（例如 `0.1.7-rc.2`）—— 它带进安装闭包的
+runtime 不满足版本下限，pnpm 在生成依赖图时直接拒绝。这不是网络 / 镜像 / pnpm 状态问题，
+**装旧版插件也救不了**：插件确实在用 0.2.0 才有的宿主 API（能力头栅栏的适配、设置页插槽、
+快捷键服务等），降级 peer 范围只会让插件装上之后大面积不可用。
+
+**修复：先升级宿主，再装插件**（两步都要做）：
+
+```sh
+# 1) 升级 DeepSeek Harness 桌面端到 >= 0.2.0-rc.1（当前 0.2.0-rc.2；CLI 与桌面端一起升）
+#    自查：dsh --version 应 >= 0.2.0-rc.1
+dsh --version
+# 2) 重新安装
+dsh plugin --profile web add dsh-plugin-wallpaper-engine
+```
+
+> 「桌面端显示 v0.10.0」是**应用**自己的版本号，与它打包的 **DSH 核心**版本不是一回事 ——
+> 判据以 `dsh --version` 为准（issue #116 里 v0.10.0 桌面端打包的是 0.1.7-rc.2 核心，同样装不上）。
+
 ### 症状 → 先看哪里
 
 | 症状 | 先检查 |
 |---|---|
-| 面板上出现「宿主里没有字体集路由…」或「宿主返回 404 / 405」 | 宿主是旧的：**宿主端代码只在启动时加载**，刷新页面只换前端 bundle。**重启 DSH**（`dsh web` 重开 / 桌面端退出再进）即可。自查两步：① `~/.dsh-wallpaper-engine/build-stamp.json` 的 `at` 必须晚于 `lib/index.js` 的 mtime；② `diag/http.jsonl` 里搜 `fontsets` —— **0 命中**说明请求根本没到插件（那种"裸状态码"只可能来自别的层） |
+| 面板上出现「宿主里没有字体集路由…」「宿主里没有本机字体路由…」或「宿主返回 404 / 405」 | 宿主是旧的：**宿主端代码只在启动时加载**，刷新页面只换前端 bundle。**重启 DSH**（`dsh web` 重开 / 桌面端退出再进）即可。自查两步：① `~/.dsh-wallpaper-engine/build-stamp.json` 的 `at` 必须晚于 `lib/index.js` 的 mtime；② `diag/http.jsonl` 里搜 `fontsets` / `system-fonts` —— **0 命中**说明请求根本没到插件（那种"裸状态码"只可能来自别的层） |
+| 选了「默认字体 / 终端字体」里的某个本机字体，**一点变化都没有**（特殊文字照旧是口） | 先看那一行的状态说明：写着「已略过 N 个本浏览器取不到的字体名」说明有名字被筛掉了 —— **系统列出的族名不等于浏览器能匹配的族名**（实测本机 309 个里 64 个取不到：`Apple Color Emoji` / `Symbol` / `Zapf Dingbats` / `Apple Braille` 这类系统保留字体，以及 `苹方-繁` / `黑体-繁` 这种「同一字体的另一种写法」）。TC/HK 那些变体请用**规范名**选（`PingFang TC` / `Heiti TC` 都在）。若换成能匹配的名字后**个别字符**仍是口：那是**没有任何已装字体覆盖那个码位**（换字体解决不了），把具体字符贴出来即可定位（Nerd Font 图标另有一类成因：字体是 v3 码位、内容写的是 v2 码位） |
+| 侧栏那个"控制台 / 终端面板"的字体改不动（图标还是口） | 那个面板是 `dsh-ssh` 的 **xterm**，字体**只从选项来**，普通 CSS 规则改不动它 —— 我们通过它给皮肤留的 `--dsh-ssh-terminal-font` 钩子投递（「终端字体」那一行一处管两个终端：对话里的终端块 + 这个面板）。自查：① 刷新页面后**重开一次终端面板**（它在构造 / 重挂时才重新解析字体）；② 若在 `dsh-ssh` 自己的设置里填过 `terminalFontFamily`，**那个值优先级更高**，清掉它我们的钩子才生效；③ 打开 DevTools 看 `body` 上有没有 `--dsh-ssh-terminal-font`（没有说明字体自定义总开关关着，或那一行选的是「跟随」） |
+| 下拉里找不到自己认识的字体（如 `PingFang SC` / `Heiti SC` / `Songti SC`），只看到「苹方-简」这类中文名 | macOS 上**同一个字体有两个名字**：`system_profiler` 给的是本地化名，插件的第二条腿（CoreText）会给规范英文名，两者都进清单 —— 先在列表里搜英文名（原生下拉支持首字母跳转：打 `Pin` 跳到 `PingFang SC`）。若英文名确实没有，多半是 CoreText 那条腿（`osascript`）被挡或缺失，点一次「重新扫描」并把 `~/.dsh-wallpaper-engine/system-fonts.json` 里的 `source` 一起反馈（正常是 `system_profiler+coretext`，只有 `system_profiler` 说明第二条腿没通） |
+| 「默认字体 / 终端字体」的下拉里没有本机字体（只有内置那几个） | 三种成因，面板上都有话说：① 写着「正在读取本机字体…」= 第一次扫描还在跑（macOS 要遍历全部字体，**秒级到十秒级**，之后走缓存）；② 写着「本机字体读不到：…」= 按那句话查（多半是上一条"宿主没重挂"）；③ 只显示内置族键且**没有任何提示** = 系统里确实一个都没读到。装了新字体时点那一行的「重新扫描」（**跳过缓存**重扫，不必等一周 TTL） |
+| 本机字体清单写着「是按文件名推测的」 | 三条权威来源（macOS `system_profiler` / Windows PowerShell / Linux `fc-list`）都没拿到，退回**按字体文件名推**。清单能用，但名字可能带字重后缀（如「STHeiti Light」）——修好上一条那个工具的可用性后再点「重新扫描」即可拿到权威族名 |
 | 设置面板突然空白 / 整块界面白掉 | 先搜客户端异常留痕：`client-error`（消息 + 栈前三行都在同一行诊断里）。已知一类是 **React #31**（对象数组被当成子节点渲染），当前分支已修；拿到 `client-error` 原文就能定位到具体行 |
 | 确认一次（删除/隐藏之类）之后壁纸停住、输入框也没反应 | 原生 `confirm` 把焦点交给它自己的窗口 ⇒ 开着「窗口失焦时暂停」时壁纸会停；模态期间渲染线程被同步阻塞，而回来时的 `focus` 事件不保证送达（旧版本上只能重载）。**当前分支**：遮挡判定每 3 s 低频复核一次并留 `occlusion-recheck` 行（丢事件也能自愈），字体集的删除也改成了面板内确认。旧版本上先点一下窗口或切走再切回 |
 | 选择壁纸弹窗是空的 | WE 是否装好并下载过壁纸；重启一次 `dsh web`（详见 [`../README.beginner.md`](../README.beginner.md) FAQ 1） |

@@ -47,7 +47,7 @@
 | `verify-retired-lines.mjs` | `src/client.js` |  |
 | `verify-route-families.mjs` | — |  |
 | `verify-route-index.mjs` | `lib/index.js` |  |
-| `verify-scene-live.mjs` | `lib/index.js` `lib/media/index.js` `lib/media/legacy.js` `lib/media/provision.js` `lib/media/supervisor.js` `lib/routes/diag.js` `lib/routes/now-playing.js` `lib/settings-schema.js` `lib/we-props.js` `lib/webwallgl/web-shim.js` `src/client.js` `src/effects.js` `src/font/color-roles.js` `src/font/typography.js` `src/live-layer.js` `src/media-prep.js` `src/panel-tabs.js` `src/picker-modal.js` `src/quick-panel.js` `src/sidebar-right.js` `src/styles.js` `src/we-cond.js` | ✅ |
+| `verify-scene-live.mjs` | `lib/index.js` `lib/media/index.js` `lib/media/legacy.js` `lib/media/provision.js` `lib/media/supervisor.js` `lib/routes/diag.js` `lib/routes/now-playing.js` `lib/routes/scene-serve.js` `lib/settings-schema.js` `lib/we-props.js` `lib/webwallgl/web-shim.js` `src/client.js` `src/effects.js` `src/font/color-roles.js` `src/font/typography.js` `src/live-layer.js` `src/media-prep.js` `src/panel-tabs.js` `src/picker-modal.js` `src/quick-panel.js` `src/sidebar-right.js` `src/styles.js` `src/we-cond.js` | ✅ |
 | `verify-scene.mjs` | `lib/index.js` `lib/routes/scene-frame.js` | ✅ |
 | `verify-softrender.mjs` | — | ✅ |
 | `verify-theme-follow.mjs` | `lib/settings-schema.js` `src/client.js` `src/live-layer.js` `src/media-prep.js` `src/panel-tabs.js` `src/theme-follow.js` | ✅ |
@@ -75,7 +75,7 @@
 | `lib/routes/github-stars.js` | 1 | `verify-about` |
 | `lib/routes/now-playing.js` | 1 | `verify-scene-live` |
 | `lib/routes/scene-frame.js` | 1 | `verify-scene` |
-| `lib/routes/scene-serve.js` | 1 | `verify-logging` |
+| `lib/routes/scene-serve.js` | 2 | `verify-logging` `verify-scene-live` |
 | `lib/routes/upload.js` | 2 | `verify-body-caps` `verify-package-files` |
 | `lib/scene-manifest.js` | 0 | **（无）** |
 | `lib/settings-schema.js` | 8 | `verify-adapter` `verify-client` `verify-contracts` `verify-fontset` `verify-module-layout` `verify-scene-live` `verify-theme-follow` `verify-theme-layer` |
