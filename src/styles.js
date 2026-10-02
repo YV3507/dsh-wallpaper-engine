@@ -779,6 +779,9 @@ const CSS = `
   /* Picker chrome. */
   .we-picker {
     display: flex; flex-direction: column; gap: 14px;
+    /* issue #127：设置窗整窗规则把 --we-accent 掐成 initial（不泄漏给窗内第三方
+       分区）—— 我们的 picker 子树在这里从 body 的原件重新别名，消费面不变。 */
+    --we-accent: var(--we-accent-src, #4f8cff);
     /* ── 统一控件 token：一套高度/圆角/墨色词汇贯穿全部控件 ──
        墨色走宿主主题 token（明暗主题都可读），强调色只用于选中态/激活态。 */
     --we-ui-h: 30px;
@@ -835,18 +838,34 @@ const CSS = `
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
       color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-glass-alpha, 0.5) * 1.1 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
     /* Nav + interactive states tinted with the accent. */
-    --dsw-specific-sidebar-nav-item-active: color-mix(in srgb, var(--we-accent, #4f8cff) 26%, rgba(255, 255, 255, 0.08));
-    --dsw-specific-sidebar-nav-item-hover: color-mix(in srgb, var(--we-accent, #4f8cff) 13%, rgba(255, 255, 255, 0.05));
-    --dsw-alias-interactive-bg-hover: color-mix(in srgb, var(--we-accent, #4f8cff) 14%, transparent);
-    --dsw-alias-interactive-bg-hover-accent: color-mix(in srgb, var(--we-accent, #4f8cff) 18%, transparent);
+    --dsw-specific-sidebar-nav-item-active: color-mix(in srgb, var(--we-accent-src, #4f8cff) 26%, rgba(255, 255, 255, 0.08));
+    --dsw-specific-sidebar-nav-item-hover: color-mix(in srgb, var(--we-accent-src, #4f8cff) 13%, rgba(255, 255, 255, 0.05));
+    --dsw-alias-interactive-bg-hover: color-mix(in srgb, var(--we-accent-src, #4f8cff) 14%, transparent);
+    --dsw-alias-interactive-bg-hover-accent: color-mix(in srgb, var(--we-accent-src, #4f8cff) 18%, transparent);
     /* Whole-dialog accent remap: every native control (links, primary buttons,
-       switches, active tabs, slider fills) follows the 配色 control. */
-    --dsw-alias-brand-primary: var(--we-accent, #4f8cff);
-    --dsw-alias-brand-text: var(--we-accent, #4f8cff);
-    --dsw-alias-button-primary-fill: var(--we-accent, #4f8cff);
-    --dsw-alias-button-primary-hover: color-mix(in srgb, var(--we-accent, #4f8cff) 88%, #fff);
-    --dsw-alias-button-primary-dimmed: color-mix(in srgb, var(--we-accent, #4f8cff) 22%, transparent);
-    --dsw-alias-state-business-primary: var(--we-accent, #4f8cff);
+       switches, active tabs, slider fills) follows the 配色 control.
+       ⚠️ 块内消费一律读 --we-accent-src：本块末尾把 --we-accent 掐成 initial
+      （issue #127），同名 var() 在**同一元素**上会解析成 guaranteed-invalid、
+      全部塌进兜底蓝 —— src 是 body 上的原件，继承不受掐掉影响。 */
+    --dsw-alias-brand-primary: var(--we-accent-src, #4f8cff);
+    --dsw-alias-brand-text: var(--we-accent-src, #4f8cff);
+    --dsw-alias-button-primary-fill: var(--we-accent-src, #4f8cff);
+    --dsw-alias-button-primary-hover: color-mix(in srgb, var(--we-accent-src, #4f8cff) 88%, var(--we-accent-ink, #fff));
+    --dsw-alias-button-primary-dimmed: color-mix(in srgb, var(--we-accent-src, #4f8cff) 22%, transparent);
+    --dsw-alias-state-business-primary: var(--we-accent-src, #4f8cff);
+    /* issue #127（文字与背景同色）：填充一旦变成**任意亮度**的用户配色，宿主的
+       主题静态墨（label-primary-foreground：浅色主题 = 白、深色主题 = 近黑）就不再
+       保证可读 —— primitives 的 primary 按钮契约是「填充 × 反色墨」成对翻转的。
+       这里把墨一并按 accent 亮度重选（effects.js 的 weAccentInk）。
+       hover 同理：混白对亮 accent 是把底往墨的反方向推，改为往墨色混。 */
+    --dsw-alias-label-primary-foreground: var(--we-accent-ink, #fff);
+    /* issue #127 的另一半：第三方 settings 分区若拿 var(--we-accent) 当**文字色**
+       （无兜底），落在我们重映射成 accent 的填充上就是逐像素同色（黄底黄字 ——
+       实测按钮内部 8250 像素全部是同一个 #FFCF4D）。--we-accent 是本插件的名字
+       空间，不该泄漏给窗内第三方分区：在窗内把它掐掉（initial = guaranteed-invalid，
+       var() 无兜底时回落继承色 = 它们在原生外观下的颜色）；我们自己的 picker 子树
+       由 .we-picker 根重新别名（--we-accent-src），消费面不变。 */
+    --we-accent: initial;
     /* Frosted finish — the SAME recipe as the conversation surfaces (composer
        card / bubbles): the blur radius comes from the 玻璃 slider (--we-blur
        0–60px), the saturation melt is a flat material constant (--we-saturate,
@@ -879,8 +898,8 @@ const CSS = `
     --dsw-alias-bg-layer-3: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
       color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) calc(var(--we-glass-alpha, 0.5) * 1.1 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
-    --dsw-specific-sidebar-nav-item-active: color-mix(in srgb, var(--we-accent, #4f8cff) 30%, rgba(255, 255, 255, 0.06));
-    --dsw-specific-sidebar-nav-item-hover: color-mix(in srgb, var(--we-accent, #4f8cff) 14%, rgba(255, 255, 255, 0.04));
+    --dsw-specific-sidebar-nav-item-active: color-mix(in srgb, var(--we-accent-src, #4f8cff) 30%, rgba(255, 255, 255, 0.06));
+    --dsw-specific-sidebar-nav-item-hover: color-mix(in srgb, var(--we-accent-src, #4f8cff) 14%, rgba(255, 255, 255, 0.04));
     background-image: linear-gradient(
       180deg,
       rgba(255, 255, 255, 0.07) 0%,
@@ -1288,16 +1307,18 @@ const CSS = `
   .we-picker__current-error { font-size: 0.75em; opacity: 0.9; margin-top: 2px; color: #e5534b; }
 
   /* Primary action (选择壁纸): the ONE solid-accent control per view — accent
-     is reserved for primary action + selection states, never decoration. */
+     is reserved for primary action + selection states, never decoration.
+     墨色不写死 #fff：accent 可以是任意亮度（用户配色），亮 accent（黄）上的
+     白字就是 issue #127 的「文字与背景同色」—— 按 accent 亮度选墨。 */
   .we-picker__btn--primary {
-    color: #fff;
+    color: var(--we-accent-ink, #fff);
     background: var(--we-accent, #4f8cff);
     border-color: transparent;
     font-weight: 600;
   }
   .we-picker__btn--primary:hover {
-    background: color-mix(in srgb, var(--we-accent, #4f8cff) 86%, #000);
-    color: #fff;
+    background: color-mix(in srgb, var(--we-accent, #4f8cff) 86%, var(--we-accent-ink, #000));
+    color: var(--we-accent-ink, #fff);
   }
 
   /* 壁纸属性入口已并入播放控制行（普通 .we-picker__btn，开着时 is-on）——
@@ -1683,7 +1704,9 @@ const CSS = `
   }
   .we-picker__tab--active {
     background: var(--we-accent, #4f8cff);
-    border-color: var(--we-accent, #4f8cff); color: #fff;
+    border-color: var(--we-accent, #4f8cff);
+    /* 墨随 accent 亮度选（issue #127 同款：亮 accent 上写死白字不可读）。 */
+    color: var(--we-accent-ink, #fff);
   }
   .we-picker__modal-body {
     display: flex; flex-direction: column; gap: 8px;

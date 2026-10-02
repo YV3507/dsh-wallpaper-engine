@@ -54,6 +54,21 @@
   S2c2 (fallback coverage), plus a real-browser probe (after the fix the fixed button sits at
   viewport top=20 and still hit-tests while collapsed; the pre-fix replica lands at column-top+20
   and is clipped away).
+- **Fix (issue #127): text painted the same colour as its background (yellow-on-yellow /
+  white-on-yellow).** Both root causes live in the accent remap: **① the shell's primary-control
+  contract pairs a fill with `label-primary-foreground` as theme-inverted inks**
+  (dsh-client-ui-primitives/Button.module.css); once we remap the fill to a user accent of **any
+  luminance**, the theme's static ink is no longer guaranteed readable (light accent × light-theme
+  ink ≈ 1.5:1) — new `--we-accent-ink` (effects.js picks black/white by WCAG relative luminance),
+  wired into `--dsw-alias-label-primary-foreground` by the whole-dialog remap, hover now mixes
+  toward the ink instead of white; our own `.we-picker__btn--primary` / `.we-picker__tab--active`
+  switched to the ink too. **② The accent namespace leaked**: a third-party settings section that
+  reads `var(--we-accent)` as a text colour (no fallback) lands on a fill we remapped to the same
+  accent — pixel-identical colours (measured: 8250 of 8250 pixels inside the button are the exact
+  same #FFCF4D). The settings window now resets `--we-accent` to `initial` (a fallback-less var()
+  falls back to the inherited colour = the surface's native look), while `.we-picker` re-aliases
+  from the body-level `--we-accent-src`, so our own consumers are unchanged; `--we-accent-ink`
+  doubles as the **supported pairing token** for third-party sections.
 - **Internal: guard coverage gaps closed + a comment audit + a derived "which guard owns which module" map**
   (**no user-visible behaviour change**; `lib/client.js` only lost comments and one piece of dead state). Three things:
   **① The field-write contract**: outside `client.js` there are 126 raw `selection.<field> = …` writes, while the

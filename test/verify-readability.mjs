@@ -216,6 +216,40 @@ function main() {
     clampUsable,
     'extracted=' + (clampSrc !== null) + ' · tints=' + JSON.stringify(tintOf));
 
+  // ── C0b: accent 墨色（issue #127）——纯函数随 bundle 交付，且逐色过对比度闸 ─────
+  // 宿主 primary 控件的契约是「填充 × label-primary-foreground 反色墨」成对翻转；
+  // 填充被重映射成任意亮度的用户配色后，墨必须按 accent 亮度重选（否则浅色配色 ×
+  // 浅色主题墨 ≈ 1.5:1 = 报告里的「文字与背景同色」）。判据：抽函数 + 三个已知色 +
+  // 对比度下限（黄底深墨 ≥ 7:1 / 蓝底白字 ≥ 3:1）。
+  const inkStart = SRC.indexOf('function weAccentInk(');
+  let inkSrc = null;
+  if (inkStart >= 0) {
+    let depth = 0;
+    for (let i = inkStart; i < SRC.length; i++) {
+      const ch = SRC[i];
+      if (ch === '{') depth++;
+      else if (ch === '}') { depth--; if (depth === 0) { inkSrc = SRC.slice(inkStart, i + 1); break; } }
+    }
+  }
+  const weAccentInk = inkSrc ? new Function('return (' + inkSrc + ')')() : null;
+  let inkUsable = weAccentInk !== null;
+  let inkDetail = '';
+  if (weAccentInk) {
+    try {
+      const yellow = weAccentInk('#FFCF4D');
+      const blue = weAccentInk('#4f8cff');
+      const white = weAccentInk('#ffffff');
+      const black = weAccentInk('#000000');
+      const cYellow = contrast(hex2rgb('#FFCF4D'), hex2rgb(yellow));
+      const cBlue = contrast(hex2rgb('#4f8cff'), hex2rgb(blue));
+      inkUsable = yellow === '#0f1115' && blue === '#ffffff' && white === '#0f1115' && black === '#ffffff'
+        && cYellow >= 7 && cBlue >= 3;
+      inkDetail = 'yellow→' + yellow + '(' + cYellow.toFixed(1) + ':1) blue→' + blue + '(' + cBlue.toFixed(1) + ':1)';
+    } catch (e) { inkUsable = false; inkDetail = String(e && e.message); }
+  }
+  check('C0b the accent-ink function ships and picks a contrast-safe foreground per accent luminance (#127)',
+    inkUsable, 'extracted=' + (inkSrc !== null) + ' ' + inkDetail);
+
   const FLOOR = {
     light: lightVars ? Number(lightVars[1]) : NaN,
     dark: darkVars ? Number(darkVars[1]) : NaN,

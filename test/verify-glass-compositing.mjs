@@ -422,6 +422,39 @@ function main() {
     rules.some((r) => r.header.includes('[data-we-glass-fallback][data-we-wallpaper][data-we-left-sidebar]')
       && r.header.includes('::before')
       && /backdrop-filter:\s*none\s*!important/.test(r.body)));
+
+  // ── S3: accent 重映射的两条不变量（issue #127）──────────────────────────────
+  // ① 整窗规则里的填充重映射必须配「墨随 accent 亮度」：--dsw-alias-label-primary-foreground
+  //    接 --we-accent-ink（宿主 primary 契约 = 填充 × 反色墨成对翻转；任意亮度的用户配色
+  //    会让主题静态墨失去可读性 —— 黄底白字 ≈ 1.5:1）。
+  // ② 第三方 settings 分区不得看到 --we-accent（拿它当文字色 × 我们重映射的 accent 填充
+  //    = 逐像素同色）：整窗规则把它掐成 initial，块内消费改读 --we-accent-src，
+  //    我们自己的 .we-picker 根再从 src 重新别名。
+  const dialogRule = rules.find((r) => r.header.includes('[data-we-glass-window]')
+    && r.header.includes('[role="dialog"]')
+    && declValue(r.body, '--dsw-alias-button-primary-fill'));
+  const dialogFg = dialogRule ? declValue(dialogRule.body, '--dsw-alias-label-primary-foreground') : null;
+  const dialogAccent = dialogRule ? declValue(dialogRule.body, '--we-accent') : null;
+  const dialogFill = dialogRule ? declValue(dialogRule.body, '--dsw-alias-button-primary-fill') : null;
+  const dialogHover = dialogRule ? declValue(dialogRule.body, '--dsw-alias-button-primary-hover') : null;
+  const pickerRule = rules.find((r) => r.selectors.some((s) => s.trim() === '.we-picker'));
+  const pickerAlias = pickerRule ? declValue(pickerRule.body, '--we-accent') : null;
+  const primaryBtnRule = rules.find((r) => r.selectors.some((s) => s.trim() === '.we-picker__btn--primary'));
+  const primaryBtnColor = primaryBtnRule ? declValue(primaryBtnRule.body, 'color') : null;
+  check('S3 整窗填充重映射配「墨随 accent」：label-primary-foreground 接 --we-accent-ink（#127）',
+    Boolean(dialogRule) && /var\(--we-accent-ink/.test(String(dialogFg))
+      && /var\(--we-accent-ink/.test(String(dialogHover)),
+    'fg=' + String(dialogFg) + ' hover=' + String(dialogHover));
+  check('S3 整窗掐掉 --we-accent 名字空间泄漏；块内消费读 --we-accent-src（同块 initial 会塌兜底蓝）',
+    String(dialogAccent).trim().toLowerCase() === 'initial'
+      && !/var\(--we-accent[,)]/.test(String(dialogFill))
+      && /var\(--we-accent-src/.test(String(dialogFill)));
+  check('S3 我们自己的 picker 从 --we-accent-src 重新别名（自家消费面不变）',
+    /var\(--we-accent-src/.test(String(pickerAlias)), 'alias=' + String(pickerAlias));
+  check('S3 负对照：自绘实色主按钮的墨也随 accent（不许写死 #fff）',
+    /var\(--we-accent-ink/.test(String(primaryBtnColor)) && !/^#fff/i.test(String(primaryBtnColor).trim()),
+    'color=' + String(primaryBtnColor));
+
   // ── D1: Task-1 contract — saturation is decoupled from the blur slider ───
   const satTernary = SRC.match(
     /setProperty\("--we-saturate",\s*useLegacySaturateCoupling\(\)\s*\?\s*String\(1\.15 \+ selection\.blur \* 0\.028\)\s*:\s*String\(GLASS_SATURATE\)\)/);

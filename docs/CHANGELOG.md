@@ -45,6 +45,17 @@
   底色 / 釉光 / 边框 / 令牌留在列上，玻璃与文字层次不变。判据：verify-glass-compositing 的
   S2c（三态声明形态 + 「把模糊种回列自身即判红」负对照）+ S2c2（回退覆盖），另配真浏览器探针
   实测（修复后 fixed 按钮相对视口 top=20、收起态仍命中；复刻修复前 top=列顶+20、收起态被裁掉）。
+- **修复（issue #127）：文字与背景同色（黄底黄字 / 白底黄字）**。两层根因都在 accent 重映射：
+  **① 宿主 primary 控件的契约是「填充 × label-primary-foreground 反色墨」成对随主题翻转**
+  （dsh-client-ui-primitives/Button.module.css），我们把填充重映射成**任意亮度**的用户配色后，
+  主题静态墨不再保证可读（浅色配色 × 浅色主题墨 ≈ 1.5:1）—— 新增 `--we-accent-ink`
+  （effects.js 按 WCAG 相对亮度选黑/白），整窗映射把它接到 `--dsw-alias-label-primary-foreground`，
+  hover 从「往白混」改为「往墨混」；我们自己的 `.we-picker__btn--primary` / `.we-picker__tab--active`
+  同步改用墨色。**② accent 名字空间泄漏**：第三方 settings 分区若拿 `var(--we-accent)` 当
+  文字色（无兜底），落在我们重映射成 accent 的填充上就是**逐像素同色**（实测按钮内部
+  8250 像素全部是同一个 #FFCF4D）—— 设置窗内把 `--we-accent` 掐成 `initial`（无兜底的
+  var() 回落继承色 = 它们原生外观下的颜色），`.we-picker` 根从 body 的 `--we-accent-src`
+  重新别名，窗内消费面不变；`--we-accent-ink` 同时作为**受支持的配对 token** 供给第三方分区。
 - **内部：契约守卫的覆盖面补齐 + 注释审计 + 「哪个守卫管哪个模块」的派生映射**（**无用户可见行为变化**；
   产物 `lib/client.js` 只少了注释与一处死状态）。三件事：
   **① 字段写入契约**：`selection.<字段> = …` 的裸直写在 `client.js` 之外共 126 处，而在册棘轮只看得见 11 处

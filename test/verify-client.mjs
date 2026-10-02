@@ -2799,11 +2799,11 @@ setTimeout(async () => {
   };
   // 冷启动边界：**第一次** applyEffects 就是拖动档（缓存还空着）时允许算一次 —— 之后不再算。
   const cold = run({ live: true });
-  assert.ok(cold.gets <= 1 && cold.props.length >= 15 && cold.props.some((p) => p.startsWith('--we-accent=')),
+  assert.ok(cold.gets <= 1 && cold.props.length >= 15 && cold.props.some((p) => p.startsWith('--we-accent-src=')),
     '拖动档冷启动（无缓存）：最多算一次淡出底色，但样式变量照写 —— 写了 ' + cold.props.length + ' 个');
   run(); // 抬手档：算出并缓存淡出底色
   const live = run({ live: true });
-  assert.ok(live.props.length >= 15 && live.props.some((p) => p.startsWith('--we-accent=')),
+  assert.ok(live.props.length >= 15 && live.props.some((p) => p.startsWith('--we-accent-src=')),
     '拖动档照样写样式变量（不是提前 return 的空转）—— 写了 ' + live.props.length + ' 个');
   assert.equal(live.gets, 0,
     '拖动档不得读 getComputedStyle（那就是每格一次强制同步样式计算，拖动发涩的主因）');

@@ -100,6 +100,23 @@ function resolveWallpaperFadeBg() {
   } catch { return "#000000"; }
 }
 
+// ── accent 墨色：任意用户配色上的可读前景（黑/白）────────────────────────────
+// issue #127：宿主的 primary 控件契约是「填充 × label-primary-foreground 反色墨」
+//（dsh-client-ui-primitives/Button.module.css，两值都随主题翻转、永远互为反色）。
+// 我们把填充重映射成**任意亮度**的用户配色后，主题静态墨色不再保证可读 ——
+// 浅色配色（黄）× 浅色主题墨（白）≈ 1.5:1，小字号下就是「文字与背景同色」。
+// 这里按 WCAG 相对亮度选边：亮 accent 配宿主深墨（#0f1115，与主题静态值同源），
+// 暗 accent 配白。纯函数；阈值取 0.45（黑/白两臂在常用配色上都拿到 ≥3:1，
+// 深墨臂在黄上实测 ~11:1）。verify-readability 从 bundle 抽函数复算时不受影响。
+function weAccentInk(hex) {
+  const m = /^#?([0-9a-fA-F]{6})$/.exec(String(hex || ""));
+  if (!m) return "#ffffff";
+  const s2l = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+  const rgb = [0, 2, 4].map((i) => s2l(parseInt(m[1].slice(i, i + 2), 16)));
+  const lum = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+  return lum > 0.45 ? "#0f1115" : "#ffffff";
+}
+
 // ── 染色地板：可读性底色 = 玻璃色经亮度钳制（色相跟随用户） ──────────────────
 // 地板色是**玻璃色经亮度钳制后的版本** —— 深色主题过亮就压暗、浅色主题过暗就提亮，
 // 色相交给用户；对比度判据与 #82 同一条网格（正文 vs 表面合成到最坏背衬 ≥4.5:1）。
@@ -237,7 +254,19 @@ function applyEffects(opts) {
   //   the shell's brand token (var(--dsw-alias-brand-primary, #4f8cff)) now
   //   reads --we-accent first, so the 配色 control restyles the whole picker
   //   and glass highlights without touching the shell theme.
+  // - ⚠️ 设置窗内部**不吃** body 这份 --we-accent（styles.js 的整窗规则把它
+  //   `initial` 掉，见那里的 issue #127 注释）—— 第三方 settings 分区若拿
+  //   var(--we-accent) 当文字色、又恰好落在我们重映射成 accent 的填充上，
+  //   文字与底就逐像素同色（黄底黄字）。窗内消费一律改读 --we-accent-src，
+  //   由 .we-picker 根重新别名；body 这份只服务窗外的消费者（快捷面板 / 拉绳）。
   s.setProperty("--we-accent", selection.accent);
+  s.setProperty("--we-accent-src", selection.accent);
+  // - --we-accent-ink: accent 上的可读墨色（黑/白，按 WCAG 相对亮度选边）——
+  //   宿主设计系统的契约是「primary 填充 × label-primary-foreground 反色墨」
+  //   （见 dsh-client-ui-primitives Button.module.css），填充被重映射成任意
+  //   用户配色后，主题静态墨色不再保证可读（浅色配色 × 浅色主题墨 = 白底黄钮）。
+  //   .we-picker__btn--primary 与整窗映射消费它。
+  s.setProperty("--we-accent-ink", weAccentInk(selection.accent));
   // - --we-glass-alpha: white-overlay alpha of the glass surfaces. The 玻璃透明
   //   度 slider semantics: higher = MORE transparent (clearer wallpaper shows
   //   through), lower = closer to solid. 0% → ~0.25 (frosted, solid-ish),
@@ -385,6 +414,8 @@ function clearEffects() {
   s.removeProperty("--we-wallpaper-opacity");
   s.removeProperty("--we-wallpaper-fade-bg");
   s.removeProperty("--we-accent");
+  s.removeProperty("--we-accent-src");
+  s.removeProperty("--we-accent-ink");
   s.removeProperty("--we-glass-alpha");
   s.removeProperty("--we-glass-color");
   s.removeProperty("--we-surface-tint-light");
