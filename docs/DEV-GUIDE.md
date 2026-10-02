@@ -276,6 +276,12 @@ node test/tools/host-route-index.mjs --write   # 重算并写入 docs/ROUTE-INDE
 （语义唯一：一次新 push 取消的是**同一平台**的上一次 run，而不是让两条腿互相取消）。
 这条"必须两平台"由 `test/verify-contracts.mjs` ④ 静态钉住 —— 谁把矩阵改回单平台就会红。
 
+⚠️ **`concurrency` 必须挂在作业上，不能挂在工作流级**：`matrix` 只在作业上下文里存在，写在工作流级
+时 GitHub 会把整个工作流文件判为无效 —— push 后 run **0 秒失败、`jobs=[]`**，页面只说
+"This run likely failed because of a workflow file issue"（实测 2026-10-02，本地怎么跑都绿）。
+`verify-contracts.mjs` **⑤** 静态钉住这条：`jobs:` 之前那段里不许出现 `matrix` / `strategy` /
+`steps` / `needs` / `job` 这些作业作用域上下文（含负对照与反空转地板）。
+
 ### 4.4 覆盖范围（每层各自保证什么）
 
 | 层 | 它保证的事 | 它**不**保证的事 |

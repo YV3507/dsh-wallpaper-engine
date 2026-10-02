@@ -19,7 +19,7 @@
  * 每条断言都配一条负对照（把坏输入喂给**同一个**判据函数并断言它判坏），并带覆盖断言
  * （集合必须非空 —— 否则"两个空集相等"会让相等断言恒真）。退出码 0/1。
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -268,6 +268,55 @@ console.log('\n④ CI 平台矩阵（平台条件分支的两半都要有覆盖�
   check('negative control: 矩阵形态必须被解析出全部平台（否则上面的"两平台"会假绿）',
     JSON.stringify(runnersOf('runs-on: ${{ matrix.os }}\nos: [windows-latest, ubuntu-latest]\n').sort())
       === JSON.stringify(['ubuntu-latest', 'windows-latest']));
+}
+
+// ── ⑤ CI 工作流与 **GitHub 解析器**的契约：工作流级表达式不得引用作业作用域的上下文 ──
+// 这是"本地全绿、推上去 0 秒失败且**一个作业都没有**"那一类失败（页面只说
+// "This run likely failed because of a workflow file issue"）。实测（2026-10-02）：
+//   concurrency:
+//     group: verify-${{ github.ref }}-${{ matrix.os }}      ← 工作流级！
+// `matrix` 只在**作业**上下文里存在 ⇒ GitHub 在启动阶段就把整个工作流文件判为无效。
+// 判据：`jobs:` 之前那一段里不许出现 matrix / strategy / steps / needs / job 这些作业作用域上下文。
+console.log('\n⑤ CI 工作流的工作流级表达式（作业作用域上下文不得越界）');
+{
+  const wfDir = join(ROOT, '.github', 'workflows');
+  const files = readdirSync(wfDir).filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'));
+  const JOB_SCOPED = ['matrix', 'strategy', 'steps', 'needs', 'job'];
+  /** 工作流级（`jobs:` 之前）里被误用的作业作用域上下文；返回 null = 这个文件没有 `jobs:`（交给别的判据）。 */
+  const workflowScopeViolations = (text) => {
+    const lines = String(text).split(/\r?\n/);
+    const jobsAt = lines.findIndex((l) => /^jobs:\s*$/.test(l));
+    if (jobsAt < 0) return null;
+    const head = lines.slice(0, jobsAt).join('\n');
+    const bad = [];
+    for (const ctx of JOB_SCOPED) {
+      const re = new RegExp('\\$\\{\\{[^}]*\\b' + ctx + '\\.', 'g');
+      for (const _ of head.match(re) || []) bad.push(ctx);
+    }
+    return uniq(bad);
+  };
+  const offenders = [];
+  let matrixAfterJobs = 0;
+  for (const f of files) {
+    const text = readFileSync(join(wfDir, f), 'utf8');
+    const bad = workflowScopeViolations(text);
+    if (bad && bad.length) offenders.push(f + '=' + bad.join(','));
+    const lines = text.split(/\r?\n/);
+    const jobsAt = lines.findIndex((l) => /^jobs:\s*$/.test(l));
+    if (jobsAt >= 0 && /\$\{\{[^}]*\bmatrix\./.test(lines.slice(jobsAt).join('\n'))) matrixAfterJobs++;
+  }
+  check('工作流级表达式不引用作业作用域上下文（matrix / strategy / steps / needs / job）',
+    files.length >= 1 && offenders.length === 0,
+    offenders.length ? '命中：' + offenders.join(' ')
+      : files.length + ' 个工作流干净（扫描面 = .github/workflows/*.yml）');
+  // 反空转地板：判据必须真的在看有内容的文件 —— 至少有一个工作流在 `jobs:` 之后用了 matrix.
+  check('覆盖断言非空转：至少一个工作流在 `jobs:` 之后真的用了 matrix.',
+    matrixAfterJobs >= 1, 'jobs: 之后出现 matrix. 的工作流数 = ' + matrixAfterJobs);
+  // 负对照：同一个判据下，"工作流级写 matrix" 判坏、"作业级写 matrix" 判好。
+  check('negative control: 工作流级写 matrix.os 会被判出，写在 jobs: 之后不会',
+    (workflowScopeViolations('concurrency:\n  group: x-${{ matrix.os }}\njobs:\n  a:\n    runs-on: ubuntu-latest\n') || []).join(',') === 'matrix'
+      && (workflowScopeViolations('jobs:\n  a:\n    concurrency:\n      group: x-${{ matrix.os }}\n') || []).length === 0
+      && workflowScopeViolations('on:\n  push:\n') === null);
 }
 
 console.log('');

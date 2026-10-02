@@ -108,6 +108,16 @@
     本人，双语只是双份维护成本；面向用户的 `README` / `UPGRADING` / `HOW-IT-WORKS` / `TROUBLESHOOTING` /
     `CHANGELOG` 仍中英成对（先例：`en/UPGRADING.md` 早就写过 "CHANGELOG (Chinese only)"）。
 
+- **修掉一处"本地全绿、推上去 0 秒失败"的 CI 故障，并补上钉住它的判据**：`verify.yml` 的
+  `concurrency` 原先挂在**工作流级**、组里带 `${{ matrix.os }}` —— 而 `matrix` 只在**作业**上下文里
+  存在 ⇒ GitHub 在启动阶段就把整个工作流文件判为无效：push 后 run **0 秒失败、`jobs=[]`**，页面只说
+  "This run likely failed because of a workflow file issue"。**实测形态**：本次 CI 检查里 `46a1d2a` 与
+  `7515c7f` 两次推送都是这个形态（0s / failure / 无作业），而更早的推送是 50s 正常跑完的。
+  改成挂在**作业**上，语义不变（一次新 push 取消的是**同一平台**的上一次 run）。
+  判据：`test/verify-contracts.mjs` 新增 **⑤** —— `jobs:` 之前那一段里不许出现 `matrix` / `strategy` /
+  `steps` / `needs` / `job`（含负对照与"至少一个工作流在 `jobs:` 之后真的用了 `matrix.`"的反空转地板）；
+  `docs/DEV-GUIDE.md` §4.3 同步写明这条坑。
+
 - **修掉上游 v1.2.0 带进来的一处不可运行测试**：`test/repro-sidebar-props.mjs`（侧栏「壁纸属性」的
   真产物复现台）把仓库根**写死成作者机器的绝对路径** `/Users/oneincase/Documents/workspace/
   dsh-wallpaper-engine` ⇒ 在任何非 mac 机器上 `readFileSync` 直接 `ENOENT`（Windows 上还会被解析成

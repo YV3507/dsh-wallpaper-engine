@@ -128,6 +128,17 @@
     `HOW-IT-WORKS` / `TROUBLESHOOTING` / `CHANGELOG` stay paired (precedent: `en/UPGRADING.md` already said
     "CHANGELOG (Chinese only)").
 
+- **Fixed a CI failure that was "green locally, dead in 0 s on push", and added the check that pins it down**:
+  `verify.yml` had its `concurrency` at the **workflow** level with `${{ matrix.os }}` in the group — and
+  `matrix` only exists in the **job** context ⇒ GitHub declares the whole workflow file invalid at startup:
+  the run **fails in 0 s with `jobs=[]`**, and the page only says "This run likely failed because of a workflow
+  file issue". **Observed shape**: in this very CI check, both `46a1d2a` and `7515c7f` pushes looked exactly like
+  that (0 s / failure / no jobs), while earlier pushes completed normally in 50 s. It now hangs off the **job**,
+  with unchanged semantics (a new push cancels the previous run **on the same platform**).
+  Check: `test/verify-contracts.mjs` gained **⑤** — the region before `jobs:` may not contain `matrix` /
+  `strategy` / `steps` / `needs` / `job` (with a negative control and an anti-vacuity floor requiring at least
+  one workflow to really use `matrix.` after `jobs:`); `docs/DEV-GUIDE.md` §4.3 documents the pitfall.
+
 - **Fixed an unrunnable test that upstream v1.2.0 brought in**: `test/repro-sidebar-props.mjs` (the real-artifact
   repro harness for the sidebar "wallpaper properties" panel) hard-coded the repo root to the author's machine,
   `/Users/oneincase/Documents/workspace/dsh-wallpaper-engine` ⇒ on any non-Mac machine `readFileSync` fails with

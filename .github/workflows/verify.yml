@@ -7,19 +7,21 @@ on:
   pull_request:
   workflow_dispatch:
 
-concurrency:
-  # ⚠️ 组里带上 `matrix.os`：两条腿同属一次 run，而 `cancel-in-progress` 的语义是
-  # "同组里更早的还在跑的就取消" —— 不带 os 时两条腿共组，容易被读成"它们会互取消"，
-  # 也让"哪条腿被 supersede"变得不可推理。带上 os 之后，一次新 push 取消的是**同一平台**
-  # 的上一次 run，语义唯一。
-  group: verify-${{ github.ref }}-${{ matrix.os }}
-  cancel-in-progress: true
-
 permissions:
   contents: read
 
 jobs:
   verify:
+    # ⚠️ `concurrency` 必须挂在**作业**上：`matrix` 只在作业上下文里存在。写在**工作流级**时
+    # GitHub 会把整个工作流文件判为无效 —— push 后 run **0 秒失败、jobs=[]**，页面只说
+    # "This run likely failed because of a workflow file issue"（实测 2026-10-02）。
+    # 组里带上 `matrix.os`：两条腿同属一次 run，而 `cancel-in-progress` 的语义是"同组里更早的
+    # 还在跑的就取消" —— 不带 os 时两条腿共组，容易被读成"它们会互取消"，也让"哪条腿被
+    # supersede"变得不可推理。带上 os 之后，一次新 push 取消的是**同一平台**的上一次 run。
+    # 判据：`test/verify-contracts.mjs` ⑤（工作流级表达式不得引用作业作用域上下文）。
+    concurrency:
+      group: verify-${{ github.ref }}-${{ matrix.os }}
+      cancel-in-progress: true
     # ── 为什么要**两条腿**（P4-18）────────────────────────────────────────────
     # 守卫里有**平台条件分支**，而两半各在不同的平台上才有牙：
     #   · `verify-scene` 的 unlink 失败用例：**只有 POSIX 的 chmod 能阻止 unlink**
