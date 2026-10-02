@@ -444,12 +444,17 @@
                       : React.createElement(React.Fragment, null,
                           React.createElement("span", { className: "we-picker__hint" },
                             q ? weT("没有匹配「{query}」的壁纸", { query: sel.qpSearch })
-                              : weT(typeFilter !== "all" ? "该类型下没有可播放的壁纸" : "没有可播放的壁纸")),
-                          // 上游（设置页的类型档）先筛过一遍 —— 空的时候必须说清是哪一层筛的，
-                          // 否则看起来就是"两边数据不一致 / 库里没有这类壁纸"。
-                          typeFilter !== "all" && upstreamType !== "all"
+                              : (typeFilter !== "all" && upstreamType !== "all" && upstreamType !== typeFilter)
+                                ? weT("「{local}」与设置页的类型档「{upstream}」没有交集 —— 两层筛选都放行的壁纸才会出现在这里",
+                                    { local: qpTypeLabelOf(typeFilter), upstream: qpTypeLabelOf(upstreamType) })
+                                : weT(typeFilter !== "all" ? "「{name}」类型下没有可播放的壁纸" : "没有可播放的壁纸",
+                                    { name: qpTypeLabelOf(typeFilter) })),
+                          // 两层交集为空时，光说「被上游筛掉了」不够 —— 把从面板到设置页
+                          // 类型档的完整点击链写出来，用户不用猜「设置页的类型档」在哪。
+                          // 两档相同时不写链路：切成「全部」也变不出该类型的壁纸。
+                          typeFilter !== "all" && upstreamType !== "all" && upstreamType !== typeFilter
                             && React.createElement("span", { className: "we-picker__hint" },
-                                weT("设置页的类型档当前是「{name}」，切成「全部」才能看到", { name: qpTypeLabelOf(upstreamType) })),
+                                weT("完整操作链：设置 → 壁纸引擎 → 壁纸库 → 「选择壁纸」→ 顶部「类型」切成「全部」")),
                         ),
                   ),
                   filtered.length > rows.length

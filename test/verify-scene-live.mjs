@@ -1625,9 +1625,11 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     //    ⇒ React 卸载整棵树 ⇒ **整个页面空白**（实测复现；不是"这里不画"那种局部问题）。
     //    设置页那条路察觉不到：它经 ctx 显式收这个函数，所以只有侧栏会炸。
     {
-      // 模块级 = 顶格声明（源码里 `function` 前没有缩进）。
+      // 模块级 = 顶格声明（源码里 `function` 前没有缩进）。缩进只认 `[ \t]`：
+      // `\s` 会跨行吞掉换行，CRLF 检出下 `^` 落在 `\r` 后、`\s+` 吃掉 `\n`，
+      // 顶格声明前面是注释行就会被误判成"缩进形态"（LF 检出测不出来）。
       const moduleLevel = /^function renderUserPropsPanel\(/m.test(src);
-      const notInApply = !/^\s+function renderUserPropsPanel\(/m.test(src);
+      const notInApply = !/^[ \t]+function renderUserPropsPanel\(/m.test(src);
       check('面板渲染器是**模块级**声明（放回 apply() 闭包会让侧栏一点就整页白屏）',
         moduleLevel && notInApply);
       check('quick-panel 当自由变量用它（不许改成只认 prop —— 那会再掉回同一个坑）',
@@ -1637,7 +1639,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
           && !sidebarSrc.includes('QuickPanel, { dock: "official", renderUserPropsPanel }'));
       check('negative control: 缩进写进 apply()（闭包形态）会被同一条判据判红',
         !(/^function renderUserPropsPanel\(/m.test('  function renderUserPropsPanel() {')
-          && !/^\s+function renderUserPropsPanel\(/m.test('  function renderUserPropsPanel() {')));
+          && !/^[ \t]+function renderUserPropsPanel\(/m.test('  function renderUserPropsPanel() {')));
     }
     // 共用同一个开关：两个壳（设置页 / 侧栏）不许各存一份 `propsPanelOpen`。
     // ⚠️ 同上：按**剥注释**的那份判，否则解释原理的散文里那句 `` `propsPanelOpen` `` 会被当成直读。

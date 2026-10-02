@@ -7,6 +7,18 @@
 > 各版本修了什么见 [`CHANGELOG.md`](./CHANGELOG.md)；安装失败报错见 [`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md)。
 
 
+### ⚠️ v1.2.0 起的前置条件：官方桌面端（DeepSeek Harness）≥ 0.2.0-rc.1
+
+**v1.2.0 的适配基线切换到官方桌面端线**：插件 manifest 声明 `engines.dsh: ">=0.2.0-rc.1"` —— 旧
+**DSH Desktop 2.0.x**（内核 0.1.7-rc.1）**装不上 v1.2.0**（插件市场会红标并拒绝安装）。已装 1.1.0 的
+旧桌面用户可继续使用 1.1.0，升级前请先换官方桌面端。dsh-better-sidebar 的前置不变（≥ 0.19.0）——
+官方桌面端上实际安装到的 latest（0.24+）自身就要求 0.2.0-rc.1 线。
+
+| 组件 | v1.2.0+ 要求 |
+|---|---|
+| DeepSeek Harness 桌面端（官方） | ≥ 0.2.0-rc.1 |
+| dsh-better-sidebar | ≥ 0.19.0 |
+
 ### ⚠️ 更新前置条件：① DSH 内核最新 ② better-sidebar 最新
 
 **两个前置条件都满足之前，请勿更新本插件。** v0.7.2 适配 DeepSeek Harness **0.1.5-rc.1**
