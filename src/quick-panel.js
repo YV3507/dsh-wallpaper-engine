@@ -25,7 +25,8 @@
  *     字面直写（守卫 ①e 的棘轮只盯直写，本文件必须保持 0），也不许在组件里另存一份值
  *     （否则侧栏与设置页会分叉，而且不会报错）。壁纸属性那条同理：开关与面板**都是
  *     设置页那一份**（`userPropsPanelOpen()` / `renderUserPropsPanel()`），侧栏只决定
- *     "在壁纸页列表下方把它画出来"（内联展开，不做整区替换）。
+ *     "什么时候把它画出来"（**页内下钻**：打开时内容区整区换成面板、列表让位，
+ *     与设置页库视图那套下钻同一形态；不是内联在列表下方）。
  *   · 本文件必须保持浏览器安全（无 import / require / Node API），且**不得有顶层可执行语句**
  *     读 client.js 的 const（会被内联到 bundle 顶部，撞 TDZ）；React 只在渲染期读。
  */
@@ -86,7 +87,7 @@
     "onThemeColorClear", "onThemeDarkSeparate", "onThemeFamily", "onThemeSize", "onThemeTypeOnly",
     "onThemeWeight", "onClearCustomFrame", "onClearGpuFrame", "onCustomFrameFile",
     "onRecaptureGpuFrame", "onRefreshFrame",
-    // P4-15：帧率上限（抽帧转码）那行带 `!sidebarSurface` 门 ⇒ 侧栏档不画它，处理器进占位器。
+    // 帧率上限（抽帧转码）那行带 `!sidebarSurface` 门 ⇒ 侧栏档不画它，处理器进占位器。
     "onFpsCap",
   ];
   // 占位器只建一次（每帧重建 25 个 Proxy 纯属浪费；它们是常量、可跨渲染共用）。
@@ -145,10 +146,10 @@
     const list = sel.inventory.wallpapers;
     const current = list.find((w) => w.id === sel.id) || null;
     const playbackLive = playbackIsVideoLike(sel) ? sel.videoPlaying : sel.playing;
-    // ── 壁纸属性（列表下方**内联**展开）────────────────────────────────────────
+    // ── 壁纸属性（**页内下钻**：内容区整区换成面板）──────────────────────────────
     // 开关与设置页共用**同一份**（client.js 的 `propsPanelOpen`，经 `userPropsPanelOpen()`
     // 读；侧栏不另存一份，否则两个壳会分叉）。面板渲染器也是设置页那一份 ——
-    // 这里只决定"在列表下方把它画出来"。
+    // 这里只决定"什么时候画它"（见下面内容区那三个分支：打开时列表/搜索栏让位）。
     // 本档有没有属性可调：与设置页入口同一条判据（仅场景/网页 + 有 propsUrl）。
     const propsAvailable = Boolean(current && (current.type === "scene" || current.type === "web") && sel.propsUrl);
     // 快切列表：与库视图同一过滤口径（分级 / 类型 / 隐藏），再叠面板自己的
@@ -490,3 +491,14 @@
       ),
     );
   }
+
+  export {
+    QP_LIST_MAX,
+    qpTypes,
+    QP_TABS,
+    QP_TAB_KEY,
+    QP_CTX_SETTINGS_ONLY,
+    sidebarRenderCtx,
+    qpTypeLabel,
+    QuickPanel,
+  };

@@ -1,10 +1,10 @@
 /**
- * fontset-editor.js — 「字体集」编辑器面板（F3 阶段 3）：**纯渲染 + 意图回调**。
+ * fontset-editor.js — 「字体集」编辑器面板：**纯渲染 + 意图回调**。
  *
  * 为什么单独一个模块、而且只做渲染：面板要能被判据**驱动**（点「切换」是否真的调切换、
  * 点「删除」是否先过 confirm）—— 渲染与副作用分开之后，挂载台给一组记录用的回调就能把
  * "哪个按钮对应哪个意图"钉死；真正的网络调用住在 `src/fontset-store.js`。
- * 这与 `src/picker-props-panel.js` 的分工同形（P3-11 的做法）。
+ * 这与 `src/picker-props-panel.js` 的分工同形（渲染 + 意图回调，副作用住调用点）。
  *
  * 契约：`renderFontSetEditor(ctx)`；`ctx` 里是**这一屏用到的一切**：
  *   · `fontSets`        宿主清单 `[{ id, name, origin, active, overrides?, broken? }]`

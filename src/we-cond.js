@@ -1,5 +1,5 @@
 /**
- * we-cond.js — Wallpaper Engine 属性显隐条件求值器（从 src/client.js 抽出，P1-7）。
+ * we-cond.js — Wallpaper Engine 属性显隐条件求值器。
  *
  * 为什么单独一个文件：真实壁纸里 **86% 的属性带 condition**，不求值就会把一堆无关项
  * 摊在面板上；而它是纯计算（词法 → 递归下降 → 缓存编译结果），与 DOM、设置、宿主都无关。

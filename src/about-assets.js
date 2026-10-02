@@ -20,3 +20,9 @@ const ABOUT_REPO_URL = "https://github.com/elysia395/dsh-wallpaper-engine";
 // 文件名与 lib/routes/about-qr.js 的白名单**逐字相同**（守卫两边对账）。
 const ABOUT_QR_QQ_PATH = "/about-qr/qq-group.png";
 const ABOUT_QR_DOUYIN_PATH = "/about-qr/douyin-group.png";
+
+export {
+  ABOUT_REPO_URL,
+  ABOUT_QR_QQ_PATH,
+  ABOUT_QR_DOUYIN_PATH,
+};

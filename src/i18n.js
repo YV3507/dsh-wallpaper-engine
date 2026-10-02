@@ -276,3 +276,15 @@ function useWeLocale() {
   }
   return 0;
 }
+
+export {
+  WE_I18N_NS,
+  WE_LANG_PARAM,
+  weLocaleId,
+  weLocaleRevisionValue,
+  weLocaleSubscribe,
+  weOnLocaleChange,
+  weT,
+  weI18nAttach,
+  useWeLocale,
+};

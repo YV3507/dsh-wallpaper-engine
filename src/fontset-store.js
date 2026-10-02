@@ -1,11 +1,11 @@
 /**
- * fontset-store.js — 字体集的**客户端通道**（F3 阶段 2）：活动集的值住宿主文件，
+ * fontset-store.js — 字体集的**客户端通道**：活动集的值住宿主文件，
  * 与设置（src/persistence.js）**平行但另一条**通道。
  *
  * 为什么另立一条而不是并进 persistence.js：两者的**真源不同**（settings blob ↔
  * `fontsets/<id>.json`）、**键集不同**（那六个字体键已退出 settings 的持久化白名单）、
  * **失败语义也不同**（设置丢一次是回退，字体集读不出来必须"整套不采用"）。
- * 合成一条会让"这个值到底存哪"再次变成要通读两处才能回答的问题 —— 那正是 P2-10 拆掉的东西。
+ * 合成一条会让"这个值到底存哪"再次变成要通读两处才能回答的问题。
  *
  * 契约（构建期由 scripts/build-client.mjs 内联进 bundle 的工厂作用域，"外部作用域" =
  * 同一 prelude / src/client.js 的顶层）：
@@ -251,7 +251,6 @@ async function loadFontSet() {
     if (isFontSetId(id)) { activeFontSetId = id; selection.fontSetActive = id; }
     selection.fontSetError = why || weT("字体集不可用");
   }
-  selection.fontSetLoaded = true;
   if (values && JSON.stringify(pickFontValues()) !== before) applyEffects();
   emit();
   return Boolean(values);
@@ -406,7 +405,7 @@ function readFileText(file) {
 }
 
 /**
- * 导入一份字体集文件（阶段 4）。三道**本地**预检各给一句可判定文案，再交给宿主做权威校验
+ * 导入一份字体集文件。三道**本地**预检各给一句可判定文案，再交给宿主做权威校验
  * （宿主那边还会查 `$schema` 与形状，并按占用情况分配新 id）：
  *   ① 文件读不出来 ⇒ "读不出这个文件"；② 不是 JSON ⇒ 点明；③ `$schema` 不对 ⇒ 点明**要哪个标记**
  *   （这条最关键：用户可能拖进来任意 .json，笼统说"导入失败"等于什么都没说）。

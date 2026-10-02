@@ -125,7 +125,7 @@ const GLASS_COLOR_PRESETS = [
   "#F1717F", // 珊瑚红
 ];
 
-// 输入光标颜色 presets（#83）：光标要在壁纸/玻璃底上「跳出来」，高对比的
+// 输入光标颜色 presets：光标要在壁纸/玻璃底上「跳出来」，高对比的
 // 黑白最常用，其余给想让光标带主题色的用户；任意色可用后面的自定义取色器。
 const CARET_COLOR_PRESETS = [
   "#ffffff", // 白（深色/深色壁纸）
@@ -154,7 +154,7 @@ const selection = {
   //    （`themeTypeOnly` 就这样失效过：代码声称默认开、界面上却是关的）。
   ...panelDefaults(),
   ...readPersisted(),
-  // 字体值（F3 阶段 2）走**另一条**通道：真源是 `fontsets/<活动 id>.json`。
+  // 字体值走**另一条**通道：真源是 `fontsets/<活动 id>.json`。
   // ⚠️ 顺序是承重的，两行都不能少：
   //   ① `fontValueDefaults()` —— 那六个键已不在 settings 白名单里，`readPersisted()` **不再提供**它们，
   //      而字体集是异步载入、还可能失败。缺这份兜底 ⇒ selection 里根本没有 themeColors 等键，
@@ -167,10 +167,9 @@ const selection = {
   // settings (the port-independent source of truth). The one-time notice waits
   // for it so it never flashes before the persisted noticeSeen is known.
   hostLoaded: false,
-  // Transient: 活动字体集那一次加载的结果（面板据此显示可判定文案；空串 = 没问题）。
-  fontSetLoaded: false,
+  // Transient: 活动字体集那一次加载的失败原因（面板据此显示可判定文案；空串 = 没问题）。
   fontSetError: "",
-  // Transient（F3 阶段 3「字体集」编辑器）：
+  // Transient（字体集编辑器）：
   //   fontSetOpen  子分支开关（视图态，defaults-only；这里显式给一份，缓存路径下也确定）
   //   fontSets     宿主清单（来源永远是宿主 ⇒ 只做瞬态，不落盘）
   //   fontSetActive 活动集 id（宿主的 `active`）
@@ -225,16 +224,16 @@ const selection = {
   // polled from /transcode-progress while "working" (progress bar).
   transcodeProgress: null,
   playing: true,
-  // 真实播放态（#84，transient）: `playing` 是「用户意图」，这里是 <video>
+  // 真实播放态（transient）: `playing` 是「用户意图」，这里是 <video>
   // 元素的真实状态。play() 可能被拒（自动播放策略 / 浏览器解不了自上传视频的
   // 编码 / 被紧接着的 src 切换打断），只信意图的话面板会一直写「播放中」、
   // 卡片上唯一的按钮是「暂停」—— 壁纸冻在首帧（看上去就是空白）而用户找不到
   // 「继续」。见 syncVideoState / applyVideoPlayback。
   videoPlaying: true,
-  // 播放失败原因（#84，transient，"" = 正常）。非空时当前壁纸卡片显示一句
+    // 播放失败原因（transient，"" = 正常）。非空时当前壁纸卡片显示一句
   // 可读原因，提示用户重试或换编码。
   videoError: "",
-  // 选择被拒原因（#84，transient）: applySelection 没能应用该 id（被内容分级 /
+  // 选择被拒原因（transient）: applySelection 没能应用该 id（被内容分级 /
   // 类型过滤排除，或文件已消失）。过去是「静默空白」——壁纸层直接消失、播放
   // 按钮变灰，用户完全不知为何；现在卡片上给出一句可操作的说明。
   blockedNote: "",
@@ -294,12 +293,11 @@ function emit() { for (const fn of [...listeners]) fn(); }
 function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 
 // ── 出图来源：场景壁纸「这张画面从哪来」（beta 渲染不参与）───────────────
-// 值域与宿主 /scene-frame **逐字一致**（真源：lib/routes/scene-frame.js 的
-// `const variant = vRaw === 4 ? 4 : 0;`），只剩两档：
+// 值域的**真源**在宿主侧 `lib/routes/scene-frame.js`（它把非法值 clamp 掉）——本表要与它一致，
+// 只剩两档：
 //   0 = 自动（求链头：实时抓帧 → 自定义画面 → 空态）
 //   4 = 强制自定义画面（用户导入的截屏）
-// ⚠️ 1/2/3（合成 / 主纹理 / 作者原画 / 预览图）已随 P2-12 退役。宿主会把它们
-// clamp 到 0，所以 UI **不能再给出这些档** —— 否则用户点了按钮却"没反应"。
+// ⚠️ UI **只能给出上面这两档**：别的值到了宿主一律被 clamp 成 0，点了等于"没反应"。
 // ⚠️ 表里存的是**档位值**（进 ?v=），不是下标；值域有洞（0 与 4）⇒ 推进不能用取模。
 const FRAME_VARIANTS = [
   { id: 0, get label() { return weT("实时画面"); } },
@@ -337,7 +335,7 @@ function useStore() {
   return selection;
 }
 
-// ── 改 store 的三个入口（P2-10 后半 + F3 阶段 2）────────────────────────────
+// ── 改 store 的三个入口────────────────────────────
 // "赋值 + persistSelection()" 必须成对，而手抄这份成对关系时**漏掉 persist 就是静默失效**
 // （"改了不生效 / 刷新后回退"，且没有任何判据会红）。收成三个入口后：
 //   · setSetting(field, value)   改**设置**并落盘（唯一入口）
@@ -445,7 +443,7 @@ function renderConfirmRow(armed, token, question, onConfirm, onDisarm) {
 // slower response could clobber a newer inventory. The last caller wins;
 // superseded requests drop their result entirely.
 /**
- * 把"请求失败"的两种情形翻成**同一句可读原因**（P2-9 的显式语义，**唯一一处**）：
+ * 把"请求失败"的两种情形翻成**同一句可读原因**（**唯一一处**）：
  *   · `status === 0` ⇒ 请求没完成（宿主不可达）—— 不是"宿主返回了 0"；
  *   · 其余 ⇒ 宿主有响应但非 2xx，优先用宿主给的原因（`{ error }`，需 `parse: "always"`）。
  * 面板与错误行都靠这句话告诉用户"到底哪一步不对"，所以不许各自手写。
@@ -577,7 +575,7 @@ function scheduleSceneVideoResync() {
 // 同一份判定，判定留在本文件就会长出第二个真源。这里是**调用点**：两个过滤档从
 // `selection` 显式传入，模型自己不读任何模块级状态。
 
-// 选择被拒 / 被丢弃时的可读原因（#84）。过去这条路径是「静默空白」：壁纸层
+// 选择被拒 / 被丢弃时的可读原因。过去这条路径是「静默空白」：壁纸层
 // 不渲染、播放按钮因 !sel.url 变灰，用户只看到一片空白，既不知道原因也没有
 // 可点的控制（自上传壁纸被默认的内容分级过滤掉时正是如此）。返回 "" 表示
 // 没有可解释的原因（正常应用）。类型档不在原因表里：它只筛列表与轮播候选、
@@ -601,7 +599,7 @@ function playableInventory() {
 // 切类型档不得把正在应用的壁纸干掉。轮播在场时拿不到候选就换下一张，但「仅被
 // 类型档排除」这一档不换台。
 function revalidateSelection() {
-  // 被过滤条件丢弃的选择要留下原因（#84）：先取下来，applySelection("") 会清掉
+  // 被过滤条件丢弃的选择要留下原因：先取下来，applySelection("") 会清掉
   // blockedNote，故在其之后写回 —— 否则用户改一次过滤条件，壁纸就无声变空白。
   let droppedNote = "";
   const cur = selection.id ? selection.inventory.wallpapers.find((w) => w.id === selection.id) : null;
@@ -2105,7 +2103,7 @@ function isEffectivelyPlaying() {
   return selection.playing && !occlusionActive();
 }
 
-// ── 真实播放态回写（#84）────────────────────────────────────────────────────
+// ── 真实播放态回写────────────────────────────────────────────────────
 // `selection.playing` 是用户意图；<video> 是否真的在播是另一回事 —— 自动播放
 // 策略可能拒绝、浏览器可能解不了自上传视频的编码（HEVC / 10-bit 等）、play()
 // 也可能被紧接着的 src 切换打断（AbortError）。旧代码把 play() 的 rejection
@@ -2345,9 +2343,9 @@ function applyVideoPlayback(video) {
 }
 
 // ── 源元数据 + 抽帧转码（抽帧转码 / 帧率上限）────────────────────────────────
-// 这一族的实现已抽到 **src/transcode.js**（345 行：探测 → 决策 → 进度轮询 → 落地/回退；
-// 构建期内联回本作用域，调用点无需改动）。它拥有 selection.mediaInfo / transcodeState /
-// transcodeProgress 三个字段的写入权；依赖清点、入口与不变量见该文件头。
+// 这一族的实现住在 **`src/video-layer.js`**（探测 → 决策 → 进度轮询 → 落地/回退；
+// 构建期内联回本作用域，调用点无需改动）。它拥有 `selection.mediaInfo` / `transcodeState` /
+// `transcodeProgress` 三个字段的写入权；依赖清点、入口与不变量见该文件头。
 function codecLabel(codec) {
   return { avc1: "H.264", hvc1: "H.265", hev1: "H.265", av01: "AV1", vp09: "VP9", mp4v: "MPEG-4" }[codec] || codec;
 }
@@ -2770,7 +2768,7 @@ function playbackIsVideoLike(selLike) {
   return !isLiveScene && (selLike.type === "video"
     || (selLike.type === "scene" && Boolean(selLike.sceneVideo)));
 }
-// 播放/暂停（#84）: 意图 =「播放」但元素并没有真的在播时（被拒 / 解码失败 /
+// 播放/暂停: 意图 =「播放」但元素并没有真的在播时（被拒 / 解码失败 /
 // 被浏览器暂停），点击必须【重试播放】而不是把意图翻成 false —— 否则这个
 // 按钮在冻住状态下等于没反应，用户没有可用的「继续」。
 function onTogglePlay() {
@@ -2896,7 +2894,7 @@ function onNextWallpaper() {
 //   · 外观组：accent / glassColor / glassAlpha / border / blur（雾化）
 //   · 主题随壁纸开关（打开时立刻按当前壁纸补判一次）
 const onScrim = (pct, live) => commitLiveSetting("scrim", pct / 100, live);
-// 壁纸透明度（#82）：存 %（0–90），applyEffects 换算成 element opacity。
+  // 壁纸透明度：存 %，applyEffects 换算成 element opacity（可拖范围见 clampNum 的实参，真源是 lib/settings-schema.js 的 KINDS）。
 const onWallpaperOpacity = (pct, live) =>
   commitLiveSetting("wallpaperOpacity", clampNum(pct, 0, 90, DEFAULTS.wallpaperOpacity), live);
 const onBorder = (pct, live) => commitLiveSetting("border", pct / 100, live);
@@ -2936,7 +2934,7 @@ function WallpaperPicker() {
   const isLiveScene = (sel.type === "scene" || sel.type === "web") && liveRenderEnabled(sel);
   const isVideoLike = !isLiveScene && (sel.type === "video"
     || (sel.type === "scene" && Boolean(sel.sceneVideo)));
-  // 卡片上显示/按钮用的播放态（#84）: 视频类壁纸以 <video> 元素的真实状态为准。
+  // 卡片上显示/按钮用的播放态: 视频类壁纸以 <video> 元素的真实状态为准。
   // 意图为「播放」但元素被拒/解码失败时，面板必须说「已暂停」并把按钮显示成
   // 「播放」，否则用户面对一张冻住的壁纸却只有「暂停」可点 —— 没有「继续」。
   const playbackLive = isVideoLike ? sel.videoPlaying : sel.playing;
@@ -3004,7 +3002,7 @@ function nextFontSetName() {
   return base + " " + Date.now().toString(36);
 }
 
-// ── 字体集编辑器的一屏（F3 阶段 3）：**显式 ctx**，面板完全不碰 selection ──────
+// ── 字体集编辑器的一屏：**显式 ctx**，面板完全不碰 selection ──────
 // 各字段的含义见 src/fontset-editor.js 的文件头。这里只做三件事：状态从 selection 取、
 // 动作用 fontset-store 发、完事 emit()。（删除的 confirm 门控在**面板**里 —— 问那一句的地方
 // 就是按钮那儿，与轮换列表 / 移除自定义壁纸同形。）
@@ -3109,7 +3107,7 @@ function fontSetCtx() {
     if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
     commitLiveSetting("sidebarContentColor", hex, live);
   };
-  // 字体自定义（#57 精简回归版）：总开关 + 颜色/字重/字体族，各项立即生效并持久化。
+  // 字体自定义：总开关 + 颜色/字重/字体族，各项立即生效并持久化。
   const onToggleFontCustom = (v) => {
     setSetting("fontCustom", !!v); applyEffects(); emit();
   };
@@ -3377,7 +3375,7 @@ const officialColorOf = (tokens) => {
         persistSelection(); emit();
       }).catch(() => { /* ignore */ });
   };
-  // 输入光标颜色（#83）："" = 跟随 dsh 原生（自动档），hex = 立即注入并持久化。
+  // 输入光标颜色："" = 跟随 dsh 原生（自动档），hex = 立即注入并持久化。
   const onCaretColor = (hex, live) => {
     if (hex === "") {
       commitLiveSetting("caretColor", "", live);
@@ -3514,7 +3512,7 @@ const officialColorOf = (tokens) => {
       }, weT("下一页 ›")),
     );
 
-  // ── 壁纸属性面板的接线（P3-11 阶段 3）────────────────────────────────────
+  // ── 壁纸属性面板的接线────────────────────────────────────
   // 面板标记搬去了 `src/picker-props-panel.js`（构建期内联回本作用域）。这里只做**组装**：
   // 面板状态（开关 / token / 加载态 / 错误 / 属性表 / 实时渲染是否接管）与三个动作
   // （该重拉时重拉、改一个属性、恢复默认）都留在本文件 —— 状态与处理器是 ctx 的**供给方**，
@@ -3556,11 +3554,10 @@ const officialColorOf = (tokens) => {
   };
   const tabIdx = Math.max(0, PICKER_TABS.findIndex((t) => t.id === activeTab));
 
-  // ── 模态框交互的接线（P3-11 阶段 2）─────────────────────────────────────────
-  // 模态框标记里原本有 11 处**内联箭头**直接写 `selection.*`（页签切换 ×2、分页 ×4、批量 ×3、
-  // 搜索 ×1、卡片点击 ×1）。契约要求渲染器（src/picker-modal.js）不写 selection、不自己发通知
-  // ⇒ 这些「改状态 + 发通知」的动作**留在组件里**（处理器区那 53 个 on* 一个没动），经 ctx 交给
-  // 渲染器；标记里只剩 `onClick: onShowNormalView` 这样的引用。
+  // ── 模态框交互的接线 ───────────────────────────────────────────────────────
+  // 契约：渲染器（`src/picker-modal.js`）**不写 `selection`、不自己发通知** ⇒
+  // 「改状态 + 发通知」的动作一律留在组件里，经 `ctx` 交给渲染器；标记里只剩
+  // `onClick: onShowNormalView` 这样的引用。判据是接缝那几条（同 `panel-tabs` / 属性面板口径）。
   const onShowNormalView = () => { disarmConfirm(); setTransient("modalView", "normal"); emit(); };
   const onShowHiddenView = () => { disarmConfirm(); setTransient("modalView", "hidden"); setTransient("batchMode", false); setTransient("batchSelected", []); emit(); };
   const onHiddenPagePrev = () => { setTransient("hiddenPage", selection.hiddenPage - 1); emit(); };
@@ -4089,7 +4086,7 @@ ensurePluginCss();
 // ── Plugin exports ──────────────────────────────────────────────────────────
 const inject = ["slots"];
 
-// ── Mica 能力探测（#73）─────────────────────────────────────────────────────
+// ── Mica 能力探测 ──────────────────────────────────────────────────────────
 // 「增强模式」下 DSH 桌面外壳把左侧工作区 (.dshDesktopSidebarSurface) 交给系统
 // 材质：有 Mica 时保持透明（壁纸透出），没有 Mica 时改用 --dsw-alias-bg-layer-1
 // 实心绘制，左侧工作区的背景因此与壁纸无关。Mica 只在 Windows build ≥ 22621
@@ -4158,7 +4155,7 @@ function useLegacySaturateCoupling() {
   return legacySaturateCoupling;
 }
 
-// ── 软件光栅化探测（upstream #95）───────────────────────────────────────────
+// ── 软件光栅化探测 ─────────────────────────────────────────────────────────
 // 某些第三方桌面外壳（增强 / 扩展窗口模式，通常是软件合成）里 `backdrop-filter`
 // 被静默忽略：属性语法仍然被接受，所以 `@supports not (backdrop-filter: …)`
 // 永远为真 —— 那条回退根本不会启用，玻璃面板就变成「过透」（全透）。这里改为

@@ -567,16 +567,22 @@ console.log('⑥ `src/` 子目录成员数 ≥3');
 //    中文那份是权威版，但英文读者照着 §4.6 找不到这两个工具。两份都据同一份磁盘清单对账。
 //    这是"读文件清单"而不是"读散文"：判据对的是**枚举面完整性**，措辞仍由写作约定承担。
 {
+  // ⚠️ 只对账**磁盘上真实存在**的那几份：`docs/en/DEV-GUIDE.md` 已按
+  //    `docs/README.md` §语言结构「维护者向文档只留中文」撤除。硬读一个已删的路径
+  //    会让本守卫**整条崩掉**（ENOENT ⇒ 后面所有规则都不再被判定）—— 实测过一次。
+  //    中文那份是**权威版**，必须在册（下面的覆盖面断言钉住这点）。
   const docs = [
     { label: 'zh', path: join(ROOT, 'docs', 'DEV-GUIDE.md') },
     { label: 'en', path: join(ROOT, 'docs', 'en', 'DEV-GUIDE.md') },
-  ].map((d) => ({ ...d, text: readFileSync(d.path, 'utf8') }));
+  ].filter((d) => existsSync(d.path)).map((d) => ({ ...d, text: readFileSync(d.path, 'utf8') }));
   const tools = readdirSync(join(ROOT, 'test', 'tools')).filter((f) => f.endsWith('.mjs')).sort();
   const compat = readdirSync(join(ROOT, 'test')).filter((f) => /^compat-.*\.mjs$/.test(f)).sort();
   // 按**不带扩展名的文件名**判（文档里工具写成 `x.mjs`、compat 写成 `x`，两种都算点名）
   const judge = (doc, files) => files.filter((f) => !doc.includes(f.replace(/\.mjs$/, '')));
   check('覆盖面：⑧ 扫到 ≥8 个工具 + ≥3 个 compat（防扫描面为空而恒真）',
     tools.length >= 8 && compat.length >= 3, tools.length + ' 工具 / ' + compat.length + ' compat');
+  check('覆盖面：⑧ 在册文档非空且含权威版 zh（防"文件被删 ⇒ 判据静默空转"）',
+    docs.length >= 1 && docs.some((d) => d.label === 'zh'), docs.map((d) => d.label).join(',') || '（一份都没有）');
   for (const d of docs) {
     const undocumented = judge(d.text, [...tools, ...compat]);
     check(`每个 test/tools/*.mjs 与 test/compat-*.mjs 都在 ${d.label} 的 DEV-GUIDE 里点名`,

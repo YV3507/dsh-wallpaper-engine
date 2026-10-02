@@ -114,3 +114,10 @@ function installWeNavIcon() {
     try { offLocale(); } catch { /* ignore */ }
   };
 }
+
+export {
+  WE_ICON_PARTS,
+  renderWeIcon,
+  weIconSvgString,
+  installWeNavIcon,
+};

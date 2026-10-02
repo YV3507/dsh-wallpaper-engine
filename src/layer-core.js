@@ -163,3 +163,17 @@ function openRotationAudioGate(node, outgoing) {
     try { sceneAudioEl.volume = 0; sceneAudioEl.muted = true; sceneAudioEl.pause(); } catch { /* ignore */ }
   }
 }
+
+export {
+  nudgeWallpaperRepaint,
+  onScreenBrief,
+  retireFadingLayer,
+  scheduleFadingLayerRemoval,
+  applyInlineStyle,
+  startLayerTransition,
+  mediaFramesOf,
+  layerKeyDiff,
+  switchTransitionOf,
+  releaseLayerMedia,
+  openRotationAudioGate,
+};

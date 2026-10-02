@@ -102,6 +102,42 @@ function stripComments(src) {
   return out.join('');
 }
 
+/**
+ * 把 `src/**` 模块的**正文**从它的 `export` 语法里剥出来 —— 供 `new Function` / `vm.Script`
+ * 这类**非模块环境**求值时使用（构建期内联时也是这么剥的，见 `scripts/build-client.mjs`）。
+ *
+ * 为什么需要：`src/` 模块用 `export { … }` 列出对外名字（那份清单同时是**守卫的接口**，
+ * 见 `CODE-STRUCTURE.md` §5 第 5 条）。可一旦守卫把**原始源码**喂给 `new Function` / `vm.Script`，
+ * `export` 就是语法错误 —— 实测三处踩过：`verify-scene-live`（quick-panel 复现台）、
+ * `verify-i18n`（i18n 运行时沙箱）、`verify-client`（effects 段）。
+ * 与其在每个调用点各抄一份正则，收在这里一处。
+ *
+ * `src/client.js` 是**正文**、本来没有导出块 ⇒ 传进来等于空操作（本函数对它恒等）。
+ * @param {string} text 模块源码
+ * @returns {string} 去掉 `export { … }` 块与 `export ` 关键字后的正文
+ */
+function stripExportBlocks(text) {
+  return String(text).replace(/^\s*export\s*\{[\s\S]*?\};?\s*$/m, '').replace(/^\s*export\s+/gm, '');
+}
+
+/**
+ * 工具：把文本切成"行"（**同时切掉行尾的 `\r`**），再用给定的行尾拼回去。
+ *
+ * 为什么值得单独一个函数：本仓是**一份跨平台代码**，检出侧常是 CRLF，而构建脚本会
+ * **硬失败**在"孤立回车"上（`\r\r\n` ⇒ 产物变成平台相关、另一条 CI 腿的产物同步判据会红）。
+ * 实测踩过：改 `src/client.js` 注释的脚本按 `\n` 切行、再用 `join('\r\n')` 还原，
+ * 把整份文件弄成**每行 `\r\r\n`（4568 处）** —— 是构建守卫当场拦住的，不是人看出来的。
+ * 正确姿势：先按 `\r\n|\r|\n` 切（`\r` 一起切掉），再按**原文件的行尾**拼回去。
+ *
+ * @param {string} text 原文
+ * @returns {{ lines: string[], eol: 'CRLF'|'LF', join: (ls: string[]) => string }}
+ */
+function splitLinesSafe(text) {
+  const eol = String(text).includes('\r\n') ? 'CRLF' : 'LF';
+  const lines = String(text).split(/\r\n|\r|\n/);
+  return { lines, eol, join: (ls) => ls.join(eol === 'CRLF' ? '\r\n' : '\n') };
+}
+
 /** 自检：正/负对照成对；并含一条"朴素实现会吃掉真代码"的**反面参照**。 */
 function selftest() {
   const results = [];
@@ -161,6 +197,35 @@ function selftest() {
   ok('负对照：除号不会被当成正则（`a / b / c` 原样保留）',
     stripComments('const x = a / b / c;\nconst y = 1;\n').includes('a / b / c;'));
 
+  // ⑥ 剥导出块（供 new Function / vm.Script 这类非模块环境求值用）
+  ok('正判据：多行 `export { … }` 块被剥掉、正文保留',
+    (() => {
+      const out = stripExportBlocks('const a = 1;\nexport {\n  a,\n};\n');
+      return out.includes('const a = 1;') && !/^\s*export\b/m.test(out);
+    })());
+  ok('正判据：缩进的导出块同样被剥掉（本仓 picker-modal / quick-panel 那三个文件的形态）',
+    !/^\s*export\b/m.test(stripExportBlocks('  function f() {}\n  export {\n    f,\n  };\n')));
+  ok('负对照：`export const` 行内形态也能剥',
+    !/^\s*export\b/m.test(stripExportBlocks('export const A = 1;\nexport function g() {}\n')));
+  ok('负对照：没有导出块的正文逐字不变（client.js 是正文，传进来必须是恒等）',
+    stripExportBlocks('const a = 1;\n') === 'const a = 1;\n');
+  ok('负对照：正文里的 `wrapper.export` 之类的词不受影响',
+    stripExportBlocks('const x = obj.export;\n').includes('obj.export'));
+
+  // ⑦ 行尾安全的切行（改注释的脚本必用；见 splitLinesSafe 的注释里那次实测）
+  ok('正判据：CRLF 原文切行后行尾不带 `\\r`，拼回去仍是 CRLF',
+    (() => {
+      const s = splitLinesSafe('a\r\nb\r\n');
+      return s.eol === 'CRLF' && s.lines.join('|') === 'a|b|' && s.join(s.lines) === 'a\r\nb\r\n';
+    })());
+  ok('正判据：LF 原文拼回去仍是 LF（不把 LF 升成 CRLF）',
+    (() => {
+      const s = splitLinesSafe('a\nb\n');
+      return s.eol === 'LF' && s.join(s.lines) === 'a\nb\n';
+    })());
+  ok('negative control: 朴素的 `split("\\n")` + `join("\\r\\n")` 会造出 `\\r\\r\\n`（这就是那次事故）',
+    'a\r\n'.split('\n').join('\r\n') === 'a\r\r\n');
+
   let failed = 0;
   for (const r of results) {
     console.log((r.cond ? '✓ ' : '✗ ') + r.name + (r.detail ? ' — ' + r.detail : ''));
@@ -174,7 +239,7 @@ function selftest() {
   console.log(`js-text selftest PASSED (${results.length})`);
 }
 
-export { stripComments, selftest };
+export { stripComments, stripExportBlocks, splitLinesSafe, selftest };
 
 // 作为脚本直接跑时才执行自检（被 `import` 时**不得**有副作用 —— 守卫要 import 这个模块）
 const invokedDirectly = Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]).href;

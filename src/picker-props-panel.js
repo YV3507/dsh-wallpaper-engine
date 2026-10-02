@@ -155,3 +155,8 @@
     }
     return React.createElement("div", { key: p.name, className: "we-picker__props-row" }, label, control);
   }
+
+  export {
+    renderPickerPropsPanel,
+    renderUserPropRow,
+  };
