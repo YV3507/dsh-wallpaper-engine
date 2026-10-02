@@ -69,6 +69,13 @@
   falls back to the inherited colour = the surface's native look), while `.we-picker` re-aliases
   from the body-level `--we-accent-src`, so our own consumers are unchanged; `--we-accent-ink`
   doubles as the **supported pairing token** for third-party sections.
+- **Glass coverage, batch two (folding issue #71's glass-patch.css)**: the remaining alias tokens
+  that can paint opaque surfaces now join the same glass — `bg-overlay` (popovers),
+  `bg-module-platform`, `bg-multi-select`, `button-floating-fill`, `button-ghost-active-fill`,
+  `button-tool-bar-fill`, `interactive-bg-active`, `interactive-bg-hover-solid`,
+  `markdown-citation`, `markdown-placeholder`. Layer weights follow that patch's role ladder, but
+  every entry is wrapped in the readability floor (#82's recipe); semantic state colours and accent
+  fills stay native per the patch's own notes; light and dark entries are shape-identical.
 - **Internal: guard coverage gaps closed + a comment audit + a derived "which guard owns which module" map**
   (**no user-visible behaviour change**; `lib/client.js` only lost comments and one piece of dead state). Three things:
   **① The field-write contract**: outside `client.js` there are 126 raw `selection.<field> = …` writes, while the

@@ -56,6 +56,12 @@
   8250 像素全部是同一个 #FFCF4D）—— 设置窗内把 `--we-accent` 掐成 `initial`（无兜底的
   var() 回落继承色 = 它们原生外观下的颜色），`.we-picker` 根从 body 的 `--we-accent-src`
   重新别名，窗内消费面不变；`--we-accent-ink` 同时作为**受支持的配对 token** 供给第三方分区。
+- **玻璃覆盖面第二批（issue #71 附带的 glass-patch.css 收编）**：把壳层其余能画出实色面的
+  别名 token 折进同一张玻璃 —— `bg-overlay`（弹层）、`bg-module-platform`、`bg-multi-select`、
+  `button-floating-fill`、`button-ghost-active-fill`、`button-tool-bar-fill`、
+  `interactive-bg-active`、`interactive-bg-hover-solid`、`markdown-citation`、
+  `markdown-placeholder`。层权重沿用那份补丁的角色分档，但**每条都包上可读性下限**
+  （#82 的配方），语义状态色与 accent 系按补丁原文保持原生；亮/暗两套逐条同形。
 - **内部：契约守卫的覆盖面补齐 + 注释审计 + 「哪个守卫管哪个模块」的派生映射**（**无用户可见行为变化**；
   产物 `lib/client.js` 只少了注释与一处死状态）。三件事：
   **① 字段写入契约**：`selection.<字段> = …` 的裸直写在 `client.js` 之外共 126 处，而在册棘轮只看得见 11 处
