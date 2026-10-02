@@ -157,3 +157,44 @@ opt in:
 $env:DSH_WE_NOTICE = "1"   # set before launching DSH; "0" silences it permanently (including the warn for a failed delivery)
 ```
 
+---
+
+## Known behaviour boundaries (**not bugs**, but very easy to report as bugs)
+
+All three are the unavoidable price of one trade-off: **keep the old picture rather than show the base
+colour.** They are listed here so that a "looks stuck / flashed for a moment" symptom has an explanation.
+Criteria and readings for all three are in `docs/CHANGELOG.md` (the unreleased section).
+
+### After switching to a wallpaper: "nothing happened" and the old wallpaper stays
+
+The layer content gate only reveals when the new layer **really has a picture**, or when that level reports a
+failure. If the media request **hangs** (neither succeeds nor fails), the new layer keeps waiting and the old
+wallpaper stays on screen — what the user sees is "I clicked and nothing happened, and the settings show a
+different wallpaper than the screen".
+
+**Current state**: the video channel has a **bounded** fallback — it re-checks every `VIDEO_POSTER_BUDGET_MS`
+(see `src/video-layer.js`) and only reveals when something is really on screen; at `VIDEO_STALL_GIVE_UP_MS`
+with still no picture it **keeps the old wallpaper** and writes one `video-stall` warn to the diagnostic
+archive. **"Release to the theme colour / base colour on timeout" was explicitly rejected** — that is exactly
+the shape of the solid-colour bug (the gate releasing while `readyState = 0` ⇒ the user stares at a full block
+of base colour for a second or two).
+
+### The first wallpaper after a page load shows a short stretch of base colour
+
+There is **no old layer to hold** at that moment, so the gate is not armed at all ⇒ the base colour is on
+screen until the first frame arrives. Measured (one-off; readings and conditions in the unreleased section of
+`docs/CHANGELOG.md`): for the same 729 MB 4K120 source, `loadedmetadata` on that "first wallpaper" path takes
+only a bit over a hundred milliseconds.
+
+**Current state (not done)**: the fix is to give video wallpapers a **real still frame** as their face
+(reusing the existing frame-extraction path) instead of waiting for the `<video>`'s first frame.
+
+### Switching to a "web wallpaper (legacy link)" shows a short white / empty stretch
+
+The gate recognises `iframe.we-live-iframe` via `we-live-on`; a bare `iframe.we-iframe` falls into the
+"don't gate" bucket.
+
+**Current state (not done)**: this one **can be covered** — the iframe element's own `load` / `error` fire
+even cross-origin (the same code already uses them in `prepareWebProbe`); all that is missing is wiring those
+two signals into the gate's signal table.
+

@@ -240,7 +240,7 @@ This plugin exposes no model-visible tools or prompt text — **zero token cost*
 |---|---|
 | `DSH_WE_FFMPEG` | explicit ffmpeg executable path (highest priority in the resolution chain) |
 | `DSH_WE_FFMPEG_URL` | replaces the auto-download source (self-hosted mirror / proxy) |
-| `DSH_WE_CACHE_DIR` | overrides the cache root (transcode cache / live-frame cache) |
+| `DSH_WE_CACHE_DIR` | overrides the cache root (transcode cache / faststart-variant cache / live-frame cache) |
 | `DSH_WE_STEAM_ROOT` | explicit Steam root(s) (comma/semicolon separated, Windows or /mnt paths; fallback when registry/auto-detection misses) |
 | `DSH_WE_MEDIA_BRIDGE` | explicit media-middleware executable (dev/self-built artifact; highest priority) |
 | `DSH_WE_MEDIA_BRIDGE_URL` | replaces the middleware download source (`{tag}` / `{asset}` placeholders supported) |

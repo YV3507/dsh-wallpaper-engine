@@ -323,7 +323,7 @@ async function main() {
   // 判据边界（与 ADR-0006 一致）：它读的是**产物字节**，不是散文措辞 —— 属于"读代码的守卫"。
   // 本条的前身是 `verify-comment-discipline` 里那段"硬编码 5 个文件"的 BOM 检查，
   // 随该守卫撤除；那次撤除让 `lib/routes/fontsets.js` 带着 BOM 无人看管
-  //（`docs/wip/POST-REFACTOR-AUDIT.md` §4.9 早就点出那个盲区）。这里改按扩展名全扫，不再硬编码名单。
+  //（`docs/archive/wip/POST-REFACTOR-AUDIT.md` §4.9 早就点出那个盲区）。这里改按扩展名全扫，不再硬编码名单。
   {
     const BOM = [0xEF, 0xBB, 0xBF];
     const PARSED_EXT = ['.js', '.mjs', '.cjs', '.json', '.ts', '.html'];

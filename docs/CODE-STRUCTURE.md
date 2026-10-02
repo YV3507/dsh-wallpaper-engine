@@ -1,6 +1,6 @@
 # 代码结构与边界（Code structure）
 
-> **English**: [`en/CODE-STRUCTURE.md`](./en/CODE-STRUCTURE.md)（与本文同源：改一处请同步另一处）
+> **English**: `en/CODE-STRUCTURE.md`（**已随 2026-10 文档瘦身撤除**：维护者向文档只留中文，见 [`README.md`](./README.md) §语言结构）
 >
 > **本文回答三件事**：**代码放哪**（新文件落点）、**结构长什么样**（谁调用谁、数据往哪流）、**边界在哪**（什么算越界）。
 > **为什么这么选**写在 [`adr/`](./adr/)；**机制与不变量**写在对应文件的头注释里（本仓纪律：能写在代码旁的规则不单写文档）；**怎么加一个东西**见 [`DEV-GUIDE.md`](./DEV-GUIDE.md)。
@@ -121,6 +121,7 @@ graph LR
     IDX --> M1["lib/media/supervisor.js<br/>中间件生命周期"]
     IDX --> M2["lib/media/provision.js<br/>按需下载 + 校验"]
     IDX --> M3["lib/media/legacy.js<br/>内置回落实现"]
+    IDX --> H1["lib/http-body.js<br/>请求体管道（唯一实现；路由模块共用）"]
 ```
 
 **族的形态有明文规定**（§4 第 1 条）：路由模块从 `apply(ctx)` 拿一个**显式 context 对象**
@@ -171,7 +172,7 @@ graph LR
         C["src/client.js<br/>正文"]
         A["src/styles.js<br/>纯数据：整份样式表"]
         B["src/panel-tabs.js · src/picker-*.js<br/>UI 面"]
-        D["src/live-layer.js · src/media-prep.js · src/transcode.js<br/>行为面"]
+        D["src/live-layer.js · src/video-layer.js · src/layer-core.js · src/media-prep.js<br/>行为面"]
         E["src/font/*<br/>字体系统"]
         F["lib/settings-schema.js<br/>唯一共享内核"]
     end
@@ -210,9 +211,9 @@ graph LR
 |---|---|---|
 | **状态真源 + 装配（门面）** | `src/client.js`（正文） | 自己持有：设置 store（`selection`）、持久化、`apiFetch`、`weT` 接线、React 根、`ctx` 的组装点 |
 | **接收 `ctx` 的渲染 / 行为层** | `live-layer` · `panel-tabs` · `sidebar-right` · `picker-modal` · `picker-props-panel` · `theme-follow` · `fontset-editor` · `font/apply` · `font/color-roles` | **门面在调用点组装 `ctx` 传进来** —— 这一层里**不**直接读 `selection` |
-| **基座（无 `ctx`，读扁平符号）** | `media-prep` · `picker-model` · `transcode` · `effects` · `quick-panel` · `i18n` · `api-client` · `adapter` · `we-cond` · `persistence` · `fontset-store` | 直接读**同作用域**的符号；自己的符号反过来被正文读 |
+| **基座（无 `ctx`，读扁平符号）** | `media-prep` · `picker-model` · `video-layer` · `effects` · `quick-panel` · `i18n` · `api-client` · `adapter` · `we-cond` · `persistence` · `fontset-store` | 直接读**同作用域**的符号；自己的符号反过来被正文读 |
 | **纯数据 / 常量表** | `styles.js`（整份样式表）· `i18n-copy.js`（词表）· `about-assets.js` · `font/typography.js` · `font/components.js` | 无外界 |
-| **通道 / 工具** | `nav-icon` · `persistence` · `fontset-store` | 见各自文件头 |
+| **通道 / 工具** | `layer-core`（两条通道共用的切换核心） · `nav-icon` · `persistence` · `fontset-store` | 见各自文件头 |
 
 **依赖方向单向，但两侧含义不同**：
 
@@ -389,7 +390,8 @@ graph LR
 
 **本文怎样才算"规范"**：§5 的硬约束与 §6 在册的守卫同时成立即可 —— 两者现在都成立。
 升为规范的**过程记录**（当时的四条偏离如何逐条收敛）属于历史，已归档在
-[`archive/REFACTOR-ASSESSMENT.md`](./archive/REFACTOR-ASSESSMENT.md) 与 `wip/OPEN-ITEMS.md`，本文不重复。
+[`archive/REFACTOR-ASSESSMENT.md`](./archive/REFACTOR-ASSESSMENT.md) 与
+[`archive/wip/OPEN-ITEMS.md`](./archive/wip/OPEN-ITEMS.md)，本文不重复。
 
 ---
 
@@ -415,7 +417,9 @@ graph LR
 > **本表与 §8 用同一口径**：`localStorage` 里既有"设置的缓存"，也有**只属于这台设备**的字段
 > （见上表第 2 行）—— 后者不是任何宿主状态的回声，因此**不能**被"清缓存即可重建"这句话覆盖。
 >
-> **派生缓存不在此表**：GPU 帧 / 静态帧、转码产物（`tc_*.mp4`，按大小 LRU）、视频预览、
+> **派生缓存不在此表**：GPU 帧 / 静态帧、转码产物（`tc_*.mp4`，按大小 LRU）、**faststart 变体
+> （`fs_*.mp4`，另一条 8GB LRU；成因与口径见 `lib/index.js` 的 `faststartVariant` 注释与
+> CHANGELOG 的未发布段）**、视频预览、
 > live 帧、诊断目录、inventory（秒级 TTL）、Steam / 内嵌 MP4 探测（后者未命中一律
 > **未知 → null，绝不猜**）。它们的真源都是**壁纸源文件本身**，全部可删、可重建。
 

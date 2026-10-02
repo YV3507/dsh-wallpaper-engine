@@ -13,7 +13,133 @@
 
 ### Unreleased (next version)
 
-> Increment after **v1.2.0** (none yet):
+> Increment after **v1.2.0** (local, unreleased; per-commit):
+
+- **Video wallpapers got their own channel — and "no picture means no reveal"**. Video used to run through the
+  real-time pipeline designed for WebGL scenes (content gate / backing plate / heartbeat / payload / GPU frame
+  capture, only part of which means anything for video). Measured consequences: ① the gate's video criterion was
+  "a frame is already in hand" (`readyState ≥ 2`), while video wallpapers deliberately carry **no poster** (WE's
+  `preview.gif` as a poster plays the preview first, then the real thing) ⇒ the whole switch (transition included)
+  waited for the first decodable frame — longer for bigger sources and higher caps, degrading from seconds to tens
+  of seconds; ② the gate **released on budget expiry**, so the "no picture yet" instant was painted straight to
+  screen — a full block of **solid colour** (real-machine log: `gate-arm … budget` → `gate-open why=budget rs=0`
+  → `loadeddata` 1–2 s later).
+  Change: `src/video-layer.js` (the video channel: readiness criterion + reveal policy + transcode trigger) and
+  `src/layer-core.js` (the switch core both channels share: layer retirement, inline transition styles, visibility
+  re-push) were extracted out of the live pipeline, which now keeps a single delegation; the reveal now trusts
+  **only the present frame** (poster **loaded** — the attribute existing does not count — or `readyState ≥ 2`), and
+  budget expiry became a **stall criterion** (re-check every 1200 ms; reveal only if something is really on screen;
+  after 15 s with no picture, **keep the old wallpaper** and log one warn — never paint the base colour); a
+  transcode source swap only lands while the layer is still held by the gate, or right after the user changed the
+  cap themselves (swapping `src` on an on-screen layer clears the current frame = solid colour). The fence check
+  `CHANNEL_FILES × LIVE_ONLY` keeps the channel free of **any live-only symbol**, with an anti-vacuity floor (the
+  listed symbols must still genuinely exist in the live module, or the fence degenerates into checking an empty list).
+
+- **Root cause of the 0.5–2 s switch delay: the source's moov sits at the end of the file, and the player streams
+  the whole file** (fixed by a faststart variant). Real-machine fetch forensics (the temporary instrumentation
+  removed in this same change): the player's first `/media` request is `Range: bytes=0-`, and it then **reads the
+  entire file** before reporting `loadedmetadata` — 764,688,296B/1761 ms · 501,752,315B/1250 ms ·
+  155,604,213B/357 ms · 101,749,329B/324 ms (≈430 MB/s). These sources keep their moov **at the end of the file**
+  (`moovStart≈EOF`) ⇒ metadata time ∝ file size, and the content gate held the old wallpaper that long
+  (`held=1668/2860/3340 ms`, matching the file sizes); the very same iris2 (729 MB) needs only 149–233 ms on the
+  "first wallpaper right after a page load" path. The same forensics also ruled out four candidates, each with
+  readings: `document.hidden` was 0 throughout (not occlusion throttling) · Range answers 206 with a proper
+  `Content-Range` (not a stripped Range) · the `load()/src=` call stacks were empty (the plugin is not restarting
+  the element) · `loadedmetadata` medians are identical whether the previous wallpaper was a video or not (578 vs
+  586 ms — not decoder contention).
+  Change: for mp4/m4v/mov whose moov is not near the head (>1 MB) the host builds a one-off `ffmpeg -c copy
+  -movflags +faststart` variant (**no re-encode**; measured 729 MB/0.92 s), cached by "source path + size + mtime"
+  (`fs_*.mp4`, 8 GB LRU, mtime bumped on hit and written at most once per 5 minutes), and `/media` serves the
+  variant the moment it exists ⇒ the player gets the moov in its first chunk, independent of file size
+  (end-to-end measured: `Range: bytes=0-511` returns `ftyp@4 moov@36`, where the original had moov at
+  764,643,145); **a token is pinned to one byte layout for the lifetime of a host run** (the original and the
+  variant have different byte offsets — one playback must never switch files halfway); variants are warmed
+  **serially**, rotation list first and then the rest of the library, under a 6 GB source-byte budget. On the
+  client side, **pre-commit warm-up** was added: pointer-down / hovering a card warms it to metadata only
+  (`preload=metadata`, **never `play()`**, single slot, 20 s TTL) and the click adopts that element ⇒ the demuxer
+  is already in place the moment the layer is built (without introducing a second 4K decoder).
+  Checks: `verify-scene-live`'s "byte layout pinned / copy-only remux (`-c copy -movflags +faststart`) / cache
+  ceiling / mtime bump", plus the four ① checks (metadata only · no play · an adopted element is never re-assigned
+  `src` · the trigger is the card identity marker `data-we-id`).
+
+- **The frame-rate cap's criterion is back to "can the cap really drop frames", the tiers were trimmed, and a
+  host-killing crash was fixed.**
+  Background: the previous version treated "natively playable" as sufficient reason not to decimate — but "the
+  container plays natively" and "the source frame rate is above the cap" are two different things: 4K120 H.264 is
+  both natively playable and far above any cap ⇒ the cap became a **complete no-op on the very mp4 files in use**,
+  leaving nothing but a panel string, when its entire purpose is to cut GPU decode load (Video Decode rises with
+  frame rate and is the biggest block for wallpapers; the v1.1.0 section records ~60% → ~15% after 4K120→24 fps on
+  a 4060).
+  Change: the criterion is now `capNeedsTranscode()` — **decimate only when the source frame rate is above the cap
+  (+1 frame tolerance)**, regardless of native playability; "natively playable" survives only as a cost guard for
+  the case where the **source frame rate cannot be read** (never re-encode a whole file for an unknown frame rate);
+  the "use the cached decimated version when building the layer" criterion dropped its native-playability condition
+  too (otherwise the layer starts on the decimated file and is immediately reverted to the original — a wasted
+  source swap); the panel string became " · source frame rate unknown — no decimation" (zh/en in sync). Tiers were
+  trimmed to **unlimited / 60 / 30** (60 halves 120 fps sources, 30 halves 60/50 fps ones; 48 and 24 retired), and
+  stored 48/24 values are **clamped back to the default 0 (unlimited)** by the enum domain — no migration code
+  (measured `sanitizeFromSchema({fpsCap:24})` → 0).
+  Crash: the new faststart helper is a **module-level** function, and its failure branch referenced `log`, which
+  only exists inside `apply()` ⇒ a `ReferenceError` thrown inside the catch ⇒ that async task rejected with nobody
+  handling it ⇒ Node 24 killed the host process on the **unhandled rejection** (crash log verbatim:
+  `dsh: fatal load failure: ReferenceError: log is not defined at lib/index.js:1235`) ⇒ DSH restarted the host over
+  and over and wallpapers never appeared (what the user saw: a solid-colour opening frame, then DSH crashing and
+  restarting after a few switches). Fix: all logging goes through an injected `say` (optional, and a logging
+  failure can never affect the flow), plus a catch-all `job.catch`.
+  Checks: `verify-logging` gained **N8** (with `apply`'s body cut out, module-level source may not contain
+  `log.<level>(`, with a failing control — a synthetic module-level `log.warn` goes red immediately);
+  `verify-transcode-state`'s fixture became **natively playable mp4/avc1** (it used to say `hvc1`, i.e. it travelled
+  the "non-native must transcode" path — the regression above was **invisible in the fixture**, which is one reason
+  the previous version was not caught), and it gained a behavioural check "natively playable + 120 fps source +
+  30 fps cap ⇒ still decimates"; a mutation test confirmed the check goes red (5 FAILs) when the old criterion is
+  put back. `verify-scene-live`'s ② group was rewritten to the three-state criterion (above ⇒ transcode / not above
+  ⇒ skip / unknown ⇒ native guard) with a negative control (writing "natively playable" back as a no-transcode
+  condition is caught); after the tier retirement the fixture's 24/48 buttons and assertions all moved to 30/60.
+
+- **Two temporary forensics hooks were removed**: the client `video-tl` timeline probe (it wrapped `load()`,
+  defined an instance `src` accessor and installed 200 ms/3 s/15 s timers) and the host `media-req` fetch trace —
+  they existed only to localise the two issues above and are now closed out; their readings live on as evidence in
+  the checks and in the entries above.
+
+- **Documentation slim-down: the living ledger retired, `wip/` emptied, the archive branch that moved to its own
+  repository deleted, and three English mirrors dropped** (**50 → 41 files / 11,178 → 6,625 lines, −41%**; the
+  directory rules were updated in [`docs/README.md`](../README.md)):
+  · **The refactor ledger retired**: `docs/wip/OPEN-ITEMS.md` (277 lines, **71 ✅ against 1 ❌ / 1 pending**) moved
+    wholesale into `docs/archive/wip/` under this repo's own lifecycle rule ("describes **unfinished** work…
+    **on completion, move the whole thing into `docs/archive/`**"), with the status banner the policy requires.
+    What was still alive moved to better homes: **behaviour gaps** (old layer kept while a request hangs / the
+    first-paint base-colour window / bare iframes) → the new "**Known behaviour boundaries**" section of
+    [`TROUBLESHOOTING.md`](../TROUBLESHOOTING.md); the **token-layer constraints (§9.1's `V1–V10`)** → enforced by
+    guards (`verify-readability` / `verify-glass-compositing`), and `FONT-SYSTEM.md` now points at those guards.
+    The machine half of §2's baseline and §7's trigger lines was already carried by the ratchets and
+    `verify-route-families.mjs`. Its claim to be "the only living ledger / the status column is the only source of
+    progress truth" had already lapsed: the row-by-row ledger guard went away with
+    [`adr/0006`](../adr/0006-comment-discipline-as-written-convention.md), and `git grep` shows **zero** code or
+    test references — anything worth watching becomes a guard; a ledger drifts, and drifting turns nothing red.
+  · **`docs/wip/` retired**: the other two (`POST-REFACTOR-AUDIT.md`, whose P4 items have all been closed out, and
+    `SIDEBAR-TABS-DESIGN.md`, shipped in v1.1.0 → v1.2.0) moved into `docs/archive/wip/` with status banners.
+    `docs/` now has a single invariant: **evergreen + ADR + user-facing en + archive**.
+  · **The static-frame archive branch deleted**: `docs/archive/static-frame/**` (15 files / 4,347 lines / ~370 KB) —
+    the v1.1.0 section already recorded that this line, once migrated to
+    [`YV3507/we-static-frame`](https://github.com/YV3507/we-static-frame), "will be removed by another contributor
+    in the next update"; this executes that. The long tail belongs to git history.
+  · **English maintainer mirrors dropped**: `docs/en/{CODE-STRUCTURE,DEV-GUIDE,FONT-SYSTEM}.md` (890 lines) — their
+    reader is the maintainer, and bilanguage was double maintenance; user-facing `README` / `UPGRADING` /
+    `HOW-IT-WORKS` / `TROUBLESHOOTING` / `CHANGELOG` stay paired (precedent: `en/UPGRADING.md` already said
+    "CHANGELOG (Chinese only)").
+
+- **Fixed an unrunnable test that upstream v1.2.0 brought in**: `test/repro-sidebar-props.mjs` (the real-artifact
+  repro harness for the sidebar "wallpaper properties" panel) hard-coded the repo root to the author's machine,
+  `/Users/oneincase/Documents/workspace/dsh-wallpaper-engine` ⇒ on any non-Mac machine `readFileSync` fails with
+  `ENOENT` (on Windows it is even resolved as `D:\Users\oneincase\...`). It now derives the root the way every other
+  test does: from this file's own location (`new URL('../', import.meta.url)`).
+  **Suggestion for upstream**: wire this repro harness into the `verify` chain — it exercises exactly the *scope*
+  error the stub harness cannot see (`renderUserPropsPanel is not defined` ⇒ React unmounts the whole tree ⇒ blank
+  page), and because it is in no chain, CI never runs it, which is also how a hard-coded path could slip through.
+  Also noted: the `tabBodyOf` finding from `verify-dead-declarations` (a standalone script referencing a top-level
+  declaration) is **upstream's own** warn-only item — it is red on a pristine `origin/main` worktree too, not
+  something this repo introduced.
+
 
 - **The render harness gained three kinds of anchor — and they exposed five real coverage gaps** (the coverage half of P4-19).
   It started from a counter-example: `renderWallpaperTab` (456 lines) produced **only 3 control labels** under the harness,

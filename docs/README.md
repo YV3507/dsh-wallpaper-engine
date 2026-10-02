@@ -11,17 +11,26 @@
   改一份时对应文件一眼可见（后缀式命名要靠逐个文件猜，也容易漂成 `X-en-v2.md` 这类形态）。
 - **每份同名文档顶部都有语言切换链接**；改任一侧请**同步另一侧**（文档头已写明）。
 - **例外（有意不译）**：`adr/`（决策记录，中文为权威版本）、`ROUTE-INDEX.md`（生成物）、
-  `archive/` 与 `wip/`（历史与过程记录 —— 原先单独列出的 `dev-notes-bom-and-dsh-boot.md` 与
+  `archive/`（历史记录 —— 原先单独列出的 `dev-notes-bom-and-dsh-boot.md` 与
   `awesome-dsh-plugin-pr-guide.md` 现已归入 `archive/`）。
   `CHANGELOG.md` **已经拆成中英两份**（英文在 `en/CHANGELOG.md`），不再属于例外。
+- **维护者向文档只留中文**（2026-10 文档瘦身）：`CODE-STRUCTURE.md` / `DEV-GUIDE.md` /
+  `FONT-SYSTEM.md` 的英文镜像已撤除 —— 读者是维护者本人，双语只是双份维护成本；
+  面向用户的 `README` / `UPGRADING` / `HOW-IT-WORKS` / `TROUBLESHOOTING` / `CHANGELOG` 仍中英成对。
+  （先例：`en/UPGRADING.md` 早就写过"CHANGELOG (Chinese only)"。）
 
 ## 目录的寿命规则（新增文档前先读这一节）
 
 | 类别 | 放哪 | 判据 |
 |---|---|---|
 | **常青** —— 用户文档 / 规范 / 参考 | `docs/` 根 | 描述**当前**行为或长期约定，随版本更新而不是随工作项结束 |
-| **进行中** —— 某项工作的过程记录 | `docs/wip/` | 描述**尚未完成**的工作，或作为它唯一的进度真源。**完成即整体移入 `docs/archive/`**，不要就地改写成常青文档 |
 | **历史** —— 已退役 / 已完成 | `docs/archive/` | 只作为记录存在，**不反映现行实现**；顶部必须有状态横幅 |
+
+**`docs/wip/` 已撤除**（2026-10，文档瘦身）：它的门槛是"描述**尚未完成**的工作"，而唯一还挂着的
+三份（重构账本 / 收官审计 / 侧栏页签设计）都已完结 ⇒ 按上表**整体移入 `docs/archive/wip/`**。
+**今后**：过程记录仍可临时放 `docs/wip/`，但**完成即整体移入归档**，并且**不要再出现"唯一的进度真源"
+这类台账** —— 需要看守的东西一律写成守卫（见 §写作纪律 与 [`adr/0007`](./adr/0007-machine-checks-target-code-not-prose.md)），
+账本自己会漂、且漂了不会变红。
 
 ## 写作纪律（**注释 / 守卫 / 文档**三处的共同底线）
 
@@ -67,7 +76,7 @@
 任何**带版本号 / issue 号 / 性能数字 / 排障步骤 / 实现细节**的内容一律进上表或 `CHANGELOG.md`
 （起因：首页曾有一批 `localStorage` 陈述在某次持久化改造后**集体失真** —— 这正是本文 §写作纪律 4 的由来）。
 
-## 规范与参考（常青）
+## 规范与参考（常青，中文）
 
 | 文档 | 内容 |
 |---|---|
@@ -75,6 +84,8 @@
 | [DEV-GUIDE.md](./DEV-GUIDE.md) | **二次开发指南** —— "怎么加一个 X"的配方（加路由 / 加设置项 / 加浏览器端代码）；**§4 是验证与测试**（原 `TEST-LAYOUT.md` 并入）：三层结构、两档判据、运行矩阵、覆盖范围、`test/tools/` 清单、写判据的八条约定 |
 | [FONT-SYSTEM.md](./FONT-SYSTEM.md) | 字体系统的通道分工、不变量、扩展步骤、进浏览器包的约束 |
 | [ROUTE-INDEX.md](./ROUTE-INDEX.md) | 宿主路由的**生成索引**（由 `test/tools/host-route-index.mjs` 重算并逐字节比对 —— 手写必烂） |
+
+> **这三份英文镜像已撤除**（维护者向文档只留中文，理由见 §语言结构）；用户向文档仍中英成对。
 
 > 原先列在这里的两份已移入 `archive/`（见下文「已完成的审计…」之后的**其它归档**一节）：
 > `dev-notes-bom-and-dsh-boot.md`（一次本机排查的过程记录，含当时的绝对路径）与
@@ -98,43 +109,38 @@
 | [0006](./adr/0006-comment-discipline-as-written-convention.md) | 注释与文档纪律改为**纯写作约定**，撤除文档类机器守卫 |
 | [0007](./adr/0007-machine-checks-target-code-not-prose.md) | 机器判据**只针对代码与磁盘，不针对散文**（四问判定程序 + 保留 / 撤除清单） |
 
-## 进行中（`wip/`）
-
-| 文档 | 内容 |
-|---|---|
-| [POST-REFACTOR-AUDIT.md](./wip/POST-REFACTOR-AUDIT.md) | **收官后审计（过程记录，不含进度列）** —— 2026-09-29 重构结项后的只读复核，**只收工程债**：宿主的请求体上限 / 编码正确性 / 无界状态 / 中断泄漏 / 并发删产物、客户端启动链与状态拆除、注释与文档失真、残留的重构价值，以及**判据缺口**（为什么 32 条守卫全绿却漏掉这些）。每条只写现象 / 证据 / 影响 / 修法方向；**状态一律记在 `OPEN-ITEMS.md` §5**，条目收口后整体移入 `archive/` |
-| [OPEN-ITEMS.md](./wip/OPEN-ITEMS.md) | **重构账本 · 未完成项与触发线** —— §2 现状基线（上界棘轮）、§3.1–§3.3 现状锚点、§5 状态列、§7 触发线（第 6、7 条）、§9.1 令牌层约束。**本轮重构的主动部分已结项**（46 已落地 / 1 未完成）：唯一未完成项 P2-11 **未过触发线**（"等触发条件"，不是在做）。⚠️ **状态列不再有机器兜底** —— 逐行核对的账本守卫已随 [`adr/0006`](./adr/0006-comment-discipline-as-written-convention.md) 下线，读它请按"未经核对的记录"对待。历史半边（§1 / §3.4–§3.6 / §4 / §6 / §8 / §9.5–§9.7）已进 [archive/REFACTOR-ASSESSMENT.md](./archive/REFACTOR-ASSESSMENT.md) |
-
 ## 已归档（`archive/`，只作记录）
 
 ### 已退役的渲染路线
 
-**为什么归档**：这些路线的实现已在**独立仓库**维护 ——
-[`YV3507/we-static-frame`](https://github.com/YV3507/we-static-frame)（离线渲染成 PNG）与
-[`YV3507/webwallgl`](https://github.com/YV3507/webwallgl)（浏览器端实时渲染器）。
+**为什么归档**：这条**早期废弃**的路线（把场景离线渲染成 PNG）的实现已在独立仓库维护 ——
+[`YV3507/we-static-frame`](https://github.com/YV3507/we-static-frame)。
 本仓库**只保留历史记录**：下列文档**不反映现行实现**，也不再维护。
+（归档的静态帧一支（`archive/static-frame/**`，含 evidence 脚本）**已按 v1.1.0 一节的预定整体删除** ——
+该线迁往独立仓库后，长尾记录交给 git 历史。）
+
+> ⚠️ **别把这条和现行实现混起来**：场景 / 网页壁纸走的是本仓**内置且在用**的 **WebWallGL** 实时渲染器
+> （`lib/webwallgl/`，源自 [`oneincase/webwallgl`](https://github.com/oneincase/webwallgl)）。
+> 它不是归档物：分工与边界见 [`CODE-STRUCTURE.md`](./CODE-STRUCTURE.md)，行为见
+> [`HOW-IT-WORKS.md`](./HOW-IT-WORKS.md)。
 
 | 文档 | 内容 |
 |---|---|
-| [static-frame/SCENE-FRAME-PERF.md](./archive/static-frame/SCENE-FRAME-PERF.md) | 静态帧冷渲染成本实测 + 渲染器优化记录（**该线已随 P2-12 整体移除**） |
-| [static-frame/DEFAULT-SCENE-RENDER-AUDIT.md](./archive/static-frame/DEFAULT-SCENE-RENDER-AUDIT.md) | 官方默认壁纸渲染审计 —— 「无损渲染」的纯数学取证 |
-| [static-frame/RENDERER-FEASIBILITY.md](./archive/static-frame/RENDERER-FEASIBILITY.md) | 渲染器三路线可行性 + 方向决策（终点即迁往独立仓库） |
-| [static-frame/NATIVE-SCENE-EVIDENCE.md](./archive/static-frame/NATIVE-SCENE-EVIDENCE.md) | 原生场景引擎取证（WE 2.8.42）—— 几何依据与合成器缺陷 D-1/D-2/D-3 |
-| [static-frame/WE-REVERSE.md](./archive/static-frame/WE-REVERSE.md) | 官方引擎逆向的技术细节（以官方引擎为事实基准的复刻取证） |
-| [static-frame/TODO.md](./archive/static-frame/TODO.md) | 渲染引擎现状与 TODO（迁出前） |
-| [static-frame/evidence/](./archive/static-frame/evidence/) | 上述文档的实测证据脚本（跑法 `node docs/archive/static-frame/evidence/<name>.mjs`） |
 | [scene-animation/SCENE-ANIMATION-HANDOFF.md](./archive/scene-animation/SCENE-ANIMATION-HANDOFF.md) | 场景动画交接手记（`/scene-anim` 已整体移除） |
 
 ### 已完成的审计、真机记录与工作项计划
 
 | 文档 | 内容 |
 |---|---|
-| [REFACTOR-ASSESSMENT.md](./archive/REFACTOR-ASSESSMENT.md) | **重构与设计落实账本（历史半边）** —— 一次重构与设计落实的完整评估：决策（§1）、四组维护难度指标（§3）、风险清单（§4）、静态帧线移除后的形态（§6）、度量方法与复现（§8）、F 轨设计要点与 `V1–V10` 令牌层实测结论（§9）、与其它文档的关系。**不反映现行实现**；仍活着的部分（基线 / 状态列 / 触发线 / 唯一未完成项）在 [`wip/OPEN-ITEMS.md`](./wip/OPEN-ITEMS.md) |
-| [audits/ROBUSTNESS-AUDIT.md](./archive/audits/ROBUSTNESS-AUDIT.md) | 健壮性审计（已收口）—— 结论已归口为账本 §5 的 P3-1 … P3-22 |
+| [wip/OPEN-ITEMS.md](./archive/wip/OPEN-ITEMS.md) | **重构账本（主动部分已结项，整体归档）** —— §2 现状基线（上界棘轮）、§3.1–§3.3 现状锚点、§5 状态列、§7 触发线、§9.1 令牌层约束。归档时活着的内容已挪走：**行为缺口 → [`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md)**，**令牌层约束 → 守卫**（`verify-readability` / `verify-glass-compositing`）。⚠️ **状态列从来没有机器兜底**（账本守卫随 [`adr/0006`](./adr/0006-comment-discipline-as-written-convention.md) 下线），读它按"未经核对的记录"对待 |
+| [wip/POST-REFACTOR-AUDIT.md](./archive/wip/POST-REFACTOR-AUDIT.md) | **收官后审计（过程记录）** —— 2026-09-29 重构结项后的只读复核，**只收工程债**：宿主请求体上限 / 编码正确性 / 无界状态 / 中断泄漏 / 并发删产物、客户端启动链与状态拆除、注释与文档失真，以及**判据缺口**（为什么当时全绿却漏掉这些）。它开出的条目（账本的 P4 系列）**已全部收口** |
+| [wip/SIDEBAR-TABS-DESIGN.md](./archive/wip/SIDEBAR-TABS-DESIGN.md) | **侧栏页签 + 类型筛选补「图片」的 UI 设计方案** —— 已随 v1.1.0 → v1.2.0 发布（v1.2.0 又加了「壁纸属性」入口与页内下钻）。含需求口径、实现取舍与文末的落地判据 |
+| [REFACTOR-ASSESSMENT.md](./archive/REFACTOR-ASSESSMENT.md) | **重构与设计落实账本（历史半边）** —— 一次重构与设计落实的完整评估：决策（§1）、四组维护难度指标（§3）、风险清单（§4）、静态帧线移除后的形态（§6）、度量方法与复现（§8）、F 轨设计要点与 `V1–V10` 令牌层实测结论（§9）。**不反映现行实现** |
+| [audits/ROBUSTNESS-AUDIT.md](./archive/audits/ROBUSTNESS-AUDIT.md) | 健壮性审计（已收口）—— 结论已归口为账本的 P3-1 … P3-22 |
 | [audits/F0-THEME-SERVICE-CHECKLIST.md](./archive/audits/F0-THEME-SERVICE-CHECKLIST.md) | F0 真机确认（已关闭）—— 结论（`V1–V10` 约束）在账本 §9.1；原始证据在本地未跟踪目录 |
-| [audits/P3-11-PLAN.md](./archive/audits/P3-11-PLAN.md) | `WallpaperPicker` 拆分的过程记录（**已完成**：模型 / 模态框 / 属性面板三块都搬走）—— 开工前的事实核对、先决断言清单与收口时的牙齿证明；结论在账本 §5 的 `P3-11` 行，判据在守卫本身 |
-| [audits/LOGGING-PLAN.md](./archive/audits/LOGGING-PLAN.md) | 日志分级与提示通道的过程记录（**已完成**：G0 + P1–P5）—— 三档 `error` / `warn` / `info`（默认 `warn`）+ 一条独立的成功提示通道；含 G0 两项前置实测的结果、`ctx.logger` 等级语义实测与守卫耦合清单。**机制与不变量已留在 `lib/log.js` / `lib/notice.js` / `lib/routes/diag.js` 的文件头**，判据在 `test/verify-logging.mjs` |
-| [audits/F3-PLAN.md](./archive/audits/F3-PLAN.md) | 字体集文件化的过程记录（**已完成**：阶段 0–4）—— 随包预设 · 两层存储（同 id 用户层胜 + 写时复制、「恢复随包原样」）· 人工切换 · 导入导出；含三条决策（D1 真源归属 / D2 导出通道 / D3 写时复制）、一次真机崩溃的根因与修法、各阶段"如实记下的差额"。**机制与不变量已留在 `lib/routes/fontsets.js` / `src/fontset-store.js` / `src/fontset-editor.js` / `lib/settings-schema.js` 的文件头**，判据在 `test/verify-fontset.mjs` + `test/fontset-load-smoke.mjs` |
+| [audits/P3-11-PLAN.md](./archive/audits/P3-11-PLAN.md) | `WallpaperPicker` 拆分的过程记录（**已完成**：模型 / 模态框 / 属性面板三块都搬走）—— 开工前的事实核对、先决断言清单与收口时的牙齿证明；结论在账本的 `P3-11` 行，判据在守卫本身 |
+| [audits/LOGGING-PLAN.md](./archive/audits/LOGGING-PLAN.md) | 日志分级与提示通道的过程记录（**已完成**：G0 + P1–P5）—— 三档 `error` / `warn` / `info`（默认 `warn`）+ 一条独立的成功提示通道。**机制与不变量已留在 `lib/log.js` / `lib/notice.js` / `lib/routes/diag.js` 的文件头**，判据在 `test/verify-logging.mjs` |
+| [audits/F3-PLAN.md](./archive/audits/F3-PLAN.md) | 字体集文件化的过程记录（**已完成**：阶段 0–4）—— 随包预设 · 两层存储 · 人工切换 · 导入导出。**机制与不变量已留在 `lib/routes/fontsets.js` / `src/fontset-store.js` / `src/fontset-editor.js` / `lib/settings-schema.js` 的文件头**，判据在 `test/verify-fontset.mjs` + `test/fontset-load-smoke.mjs` |
 
 ### 其它归档
 
@@ -145,7 +151,10 @@
 
 ## 其它
 
-- 现状 / 进度：[`wip/OPEN-ITEMS.md`](./wip/OPEN-ITEMS.md)（未完成项 + 触发线 + 基线；⚠️ **状态列已无机器核对**）；历史评估在 [`archive/REFACTOR-ASSESSMENT.md`](./archive/REFACTOR-ASSESSMENT.md)（**不反映现行实现**）；写作纪律见本文档 §写作纪律。
+- 现状 / 进度：**没有活账本**（2026-10 瘦身：`docs/wip/` 撤除、重构账本整体归档）—— 需要看守的东西一律是守卫
+  （入口 [`DEV-GUIDE.md`](./DEV-GUIDE.md) §4 与本文档 §写作纪律），历史评估在
+  [`archive/REFACTOR-ASSESSMENT.md`](./archive/REFACTOR-ASSESSMENT.md) 与
+  [`archive/wip/OPEN-ITEMS.md`](./archive/wip/OPEN-ITEMS.md)（**都不反映现行实现**）。
   **本机专用的临时待办不入库**，也不被任何入库文档引用 —— 读者打不开的东西不指向它。
 - 开发/发布：仓库根 `CONTRIBUTING.md`（含「`lib/client.js` 到底是什么」）；用户门面：`README.md` / `README.en.md` / `README.beginner.md`。
 - `images/`：README 引用的截图。

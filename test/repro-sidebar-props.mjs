@@ -13,10 +13,15 @@
  * 用法：`node scripts/../test/repro-sidebar-props.mjs`（要求 `lib/client.js` 是当前构建）。
  */
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import { installWeTShim } from './tools/weT-shim.mjs';
 installWeTShim();
-const ROOT = '/Users/oneincase/Documents/workspace/dsh-wallpaper-engine';
+// ⚠️ 仓库根必须**从本文件位置推**，不能写死绝对路径：上游这版原本写的是作者机器的
+// `/Users/oneincase/Documents/workspace/dsh-wallpaper-engine`，在 Windows 上会被解析成
+// `D:\Users\oneincase\...` ⇒ `ENOENT` 直接崩（真机实测：合并上游 v1.2.0 后本台跑不起来）。
+// 与其余测试同一条口径（`new URL('../', import.meta.url)`）。
+const ROOT = fileURLToPath(new URL('../', import.meta.url)).replace(/[/\\]+$/, '');
 
 const React = {
   Fragment: 'Fragment',

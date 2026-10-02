@@ -1,6 +1,6 @@
 # 二次开发指南（Dev guide）
 
-> **English**: [`en/DEV-GUIDE.md`](./en/DEV-GUIDE.md)（与本文同源：改一处请同步另一处）
+> **English**: `en/DEV-GUIDE.md`（**已随 2026-10 文档瘦身撤除**：维护者向文档只留中文，见 [`README.md`](./README.md) §语言结构）
 >
 > **本文是"怎么加一个 X"的配方**：每节给**落点、必须同步改的地方、以及改错了会怎样**。
 > 结构性规则（新文件放哪、边界在哪、结构长什么样）在 [`CODE-STRUCTURE.md`](./CODE-STRUCTURE.md) —— 本文不重复，只引用。

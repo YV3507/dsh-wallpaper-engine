@@ -3,7 +3,7 @@
 - **Date**: 2026-09-30
 - **Status**: Accepted
 - **Deciders**: YV3507
-- **Supersedes**: `docs/archive/static-frame/` 所记录的离线静态帧路线（该线已整体移除并迁往独立仓库）
+- **Supersedes**: 离线静态帧路线（该线已整体移除并迁往独立仓库；其归档记录与证据脚本已按 v1.1.0 一节的预定删除，见 git 历史）
 
 > 本 ADR 记录**渲染路线的取舍**。实现机制（抓帧几何校验、空帧门禁、载荷账本、遮挡暂停）
 > 住在 `lib/routes/scene-frame.js`、`lib/routes/scene-serve.js`、`src/live-layer.js` 的文件头注释里；
@@ -15,8 +15,8 @@ Wallpaper Engine 的三类壁纸里，**Scene（场景）**是最难移植的一
 粒子系统、puppet 骨骼模型、SceneScript 脚本、鼠标视差与点击交互、包内音频。它**不是**一段视频，
 也不是一个网页，而是一份需要引擎解释的 `scene.pkg` 描述。
 
-交付场景壁纸，本仓评估过三条路线（可行性取证见 `docs/archive/static-frame/RENDERER-FEASIBILITY.md`
-与 `docs/archive/static-frame/WE-REVERSE.md`，均为**历史记录**）：
+交付场景壁纸，本仓评估过三条路线（可行性取证在已删除的静态帧归档线里 —— `RENDERER-FEASIBILITY.md`
+与 `WE-REVERSE.md`，均为**历史记录**，现存 git 历史）：
 
 1. **离线渲染成静态帧**：用一套离线渲染器把场景渲染成 PNG，当作图片壁纸交付。
    - 优点：交付面最简单，浏览器只需显示一张图。
@@ -33,7 +33,7 @@ Wallpaper Engine 的三类壁纸里，**Scene（场景）**是最难移植的一
      本插件其余能力都不需要 WE 常驻，唯独这条会引入一个硬前置。
 
 同时，本仓已有一份**浏览器端实时渲染器**（`lib/webwallgl/`，源自独立仓库
-[webwallgl](https://github.com/YV3507/webwallgl)），它本来就是为在浏览器里解释场景而写的。
+[webwallgl](https://github.com/oneincase/webwallgl)），它本来就是为在浏览器里解释场景而写的。
 
 ## Decision
 
@@ -86,4 +86,4 @@ Wallpaper Engine 的三类壁纸里，**Scene（场景）**是最难移植的一
 - 渲染页与壁纸文件服务、目录围栏：`lib/routes/scene-serve.js`
 - 浏览器端图层与降级：`src/live-layer.js`
 - 网页壁纸兼容 shim 的语料依据：`lib/webwallgl/web-shim.js`
-- 已退役的离线路线取证（**不反映现行实现**）：`docs/archive/static-frame/`
+- 已退役的离线路线取证（**不反映现行实现**）：原 `docs/archive/static-frame/` 一支已删除，见 git 历史
