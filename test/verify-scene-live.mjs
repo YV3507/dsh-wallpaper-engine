@@ -167,6 +167,15 @@ if (existsSync(upstreamPath)) {
   check('.upstream.json files all exist on disk', missing.length === 0,
     missing.length ? 'missing: ' + missing.join(', ') : (up.name || '') + '@' + (up.version || '?'));
 }
+// 兜底页（issue #129 证据 4）：渲染页在场景解析失败时把 iframe 指到
+// `<BASE>/default-wallpaper/index.html` —— 缺了它，「静默超时」没有可见落点
+//（该文件上游在 public/ 下、不在构建产物里，必须由 sync-webwallgl 单独拷）。
+check('fallback page vendored: default-wallpaper/index.html exists',
+  existsSync(join(vendorDir, 'default-wallpaper', 'index.html')));
+check('sync script copies the fallback page（否则下次同步删掉它）',
+  /public['"], 'default-wallpaper'/.test(readFileSync(join(root, 'test', 'tools', 'sync-webwallgl.mjs'), 'utf8').replace(/"/g, "'")));
+check('scene-serve serves default-wallpaper without immutable cache',
+  /rest === 'default-wallpaper\/index.html'/.test(readFileSync(join(root, 'lib', 'routes', 'scene-serve.js'), 'utf8')));
 
 // 网页壁纸帧率上限的实现质量与 shim 幂等性 —— 这两条都藏在
 // vendor 产物里：升级上游后若忘记重新 vendor，断言会直接指出。
@@ -954,9 +963,12 @@ for (const [name, ok] of clientChecks) check(name, ok);
     /if \(livePayloadFlowing\(watch\)\) \{\s*\n\s*watch\.loadingTicks \+= 1;\s*\n\s*watch\.startedAt = Date\.now\(\);/.test(code)
       && /function livePayloadFlowing\(watch\)/.test(code)
       && /LIVE_PAYLOAD_STALL_MS/.test(code));
-  // ③ 账本未知（旧宿主 / 没记过账）⇒ 退回墙钟，绝不把"没记账"当"没在动"
-  check('账本未知一律退回墙钟（ok:false / 请求失败都当未知）',
-    /d\.ok !== true\) \{ watch\.payload = null; return; \}/.test(code)
+  // ③ 账本读数三态分离（issue #129）：HTTP 200 + ok:false = 账本**明确**没见过这个 token
+  //    （本实例的取包根本没到宿主）→ 标 payloadUnseen，归因时按传输侧；请求失败（旧宿主
+  //    404 / 断网）⇒ payload=null 且不标 unseen → 归因退回墙钟原语义。
+  check('账本读数三态：ok:false 标 payloadUnseen；请求失败仍是未知（退回墙钟）',
+    /if \(!d \|\| d\.ok !== true\) \{/.test(code)
+    && /if \(d && d\.ok === false\) watch\.payloadUnseen = true;/.test(code)
     && /\.catch\(\(\) => \{ watch\.payloadPolling = false; \}\)/.test(code)
     && /SCENE_PAYLOAD_PROGRESS_PATH/.test(code));
   // ④ 隐藏/不播时不拉载荷：建层延迟 + 中途摘 src + 可见时补回（三条都在）
@@ -971,16 +983,23 @@ for (const [name, ok] of clientChecks) check(name, ok);
     /if \(frame\.isConnected && !liveFrameDeferred\(frame\)\) startLiveWatch\(frame, sel\.id\);/.test(code)
       && /if \(!liveFrameDeferred\(frame\)\) \{ try \{ startLiveWatch\(frame, sel\.id\); \} catch/.test(code)
       && (code.match(/!liveFrameDeferred\(/g) || []).length >= 4);
-  // ⑥ 失败分因：传输未完成只进会话内软记忆 + 自动重试，**不写共享设置**
-  check('传输类失败不落盘（liveSessionFailures + 自动重试 + 冷却/上限）',
+  // ⑥ 失败分因（issue #129 收紧后）：归"渲染侧"（落盘）必须先有**本看护窗口内**的整包
+  //    完成证据 —— 账本跨实例累积，completed>0 可能只是别的窗口很久以前传完的；
+  //    没有窗口内证据（含账本明确 unseen）一律按传输侧软失败。stall 同级：失焦/被遮挡
+  //    窗口的"无帧"不是"渲染不出来"的证据，同样只进会话内。
+  check('失败分因：落盘要有窗口内整包证据；unseen/stall 都走会话内软失败',
     /function liveFailCauseOf\(watch\)/.test(code)
+      && /if \(!p\) return watch && watch\.payloadUnseen \? "transfer" : "";/.test(code)
       && /if \(p\.active > 0\) return "transfer";/.test(code)
-      && /if \(p\.completed <= 0\) return "transfer";/.test(code)
-      && /if \(p\.transfers <= 0\) return "";/.test(code)
-      && /liveSessionFailures\.set\(wid, "transfer"\)/.test(code)
+      && /if \(p\.completed - s\.completed <= 0\) \{/.test(code)
+      && /watch\.payloadStart = \{ served, completed: watch\.payload\.completed \};/.test(code)
+      && /cause === "transfer" \|\| reason === "stall"/.test(code)
+      && /liveSessionFailures\.set\(wid, softReason\)/.test(code)
       && /function scheduleLiveTransferRetry\(wid, attempts\)/.test(code)
       && /LIVE_TRANSFER_RETRY_LIMIT/.test(code)
       && /LIVE_TRANSFER_RETRY_DELAY_MS/.test(code));
+  check('软失败自动重试认一切会话内软失败（stall 也走重试，不只 transfer）',
+    /if \(!liveSessionFailures\.has\(String\(wid\)\)\) return;/.test(code));
   check('出首帧即清软失败与重试计数（否则一次抖动会永久压着这张壁纸）',
     /liveSessionFailures\.delete\(watch\.wid\);/.test(code) && /liveTransferAttempts\.delete\(watch\.wid\);/.test(code));
   // ⑦ 层键带 mediaBase：宿主把媒体源端出来之后必须重建（否则旧渲染页一直用陈旧的源）
@@ -1379,13 +1398,21 @@ check('宿主端出场景载荷的源，且按 sceneLive 门控（没有场景�
 }
 // 判据必须钉在**赋值表达式**上，而不是"文件里出现过 sceneMediaBase"：后者在"读进变量却
 // 不用它"的写法下照样为真（实测：把 mediaBase 改成无条件 location.origin 时它不变红 ⇒
-// 那是恒真式判据，属于 P3-16 点名的形态）。所以抠出 mediaBase 的赋值再断言它消费宿主值。
+// 那是恒真式判据，属于 P3-16 点名的形态）。所以抠出 mediaBase 的赋值再断言它消费宿主值
+// —— 场景路径消费 resolveSceneMediaBase()（issue #129：那里同时决定远程页面回落自身
+// origin；宿主源是 127.0.0.1 loopback，远程客户端打它等于打自己）。
 const mbAssign = (liveSrc.match(/const mediaBase = [\s\S]{0,220}?;/) || [''])[0];
-check('客户端场景 mediaBase 的**赋值表达式**消费宿主给的源（不是无条件 location.origin）',
-  /hostSceneBase/.test(mbAssign) && !/const mediaBase = location\.origin/.test(mbAssign),
+check('客户端场景 mediaBase 的**赋值表达式**消费宿主给的源（经 resolveSceneMediaBase）',
+  /isWeb \? /.test(mbAssign) && /resolveSceneMediaBase\(\)/.test(mbAssign)
+    && !/const mediaBase = location\.origin/.test(mbAssign),
   mbAssign.replace(/\s+/g, ' ').slice(0, 90));
 check('该源来自宿主载荷 inventory.sceneMediaBase',
   /const hostSceneBase = selection\.inventory && selection\.inventory\.sceneMediaBase/.test(liveSrc));
+check('远程 http(s) 页面回落自身 origin；本机/自定义 scheme 维持宿主媒体源（issue #129）',
+  /function originIsRemoteHttp\(origin\)/.test(liveSrc)
+    && /u\.protocol !== "http:" && u\.protocol !== "https:"/.test(liveSrc)
+    && /!\(h === "127\.0\.0\.1" \|\| h === "localhost"/.test(liveSrc)
+    && /!originIsRemoteHttp\(typeof location !== "undefined" \? location\.origin : ""\)/.test(liveSrc));
 check('negative control: 老的硬编码写法会被上一条判出',
   !liveSrc.includes('location.origin + "/wallpaper-engine/scene-files"'));
 check('媒体源的 /diag 走诊断族同一个 handleDiag（同一份缓冲，且先于 scene-files 分派）',

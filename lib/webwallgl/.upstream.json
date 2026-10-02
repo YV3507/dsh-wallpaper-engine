@@ -9,6 +9,7 @@
     "index.html",
     "web-shim.js",
     "assets/renderer-DTLW1Gf0.js",
-    "assets/modulepreload-polyfill-B5Qt9EMX.js"
+    "assets/modulepreload-polyfill-B5Qt9EMX.js",
+    "default-wallpaper/index.html"
   ]
 }

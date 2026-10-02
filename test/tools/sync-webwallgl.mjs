@@ -117,6 +117,15 @@ function loadUpstream() {
     process.exit(1);
   }
   copyFileSync(shimSrc, join(OUT_DIR, 'web-shim.js'));
+  // 兜底页：渲染页在场景解析失败时把一个 iframe 指到
+  // `<BASE>/default-wallpaper/index.html`（上游 public/ 下的静态文件，不在构建
+  // 产物里）。缺了它，「静默 N 秒超时」没有可见落点 —— 该有兜底页的一次可见
+  // 404 都没有（issue #129 证据 4）。上游没有这个文件时不报错（老版本同步兼容）。
+  const fallbackSrc = join(repo, 'public', 'default-wallpaper', 'index.html');
+  if (existsSync(fallbackSrc)) {
+    mkdirSync(join(OUT_DIR, 'default-wallpaper'), { recursive: true });
+    copyFileSync(fallbackSrc, join(OUT_DIR, 'default-wallpaper', 'index.html'));
+  }
   return { repo, pkg, assets };
 }
 
@@ -124,7 +133,11 @@ function loadUpstream() {
 const { repo, pkg, assets } = loadUpstream();
 
 /** `.upstream.json` 的 `files` 列：盘上真实存在的名字。 */
-const fileList = () => ['index.html', 'web-shim.js', ...assets.map((a) => relPosix(a.out))];
+const fileList = () => [
+  'index.html', 'web-shim.js',
+  ...assets.map((a) => relPosix(a.out)),
+  ...(existsSync(join(OUT_DIR, 'default-wallpaper', 'index.html')) ? ['default-wallpaper/index.html'] : []),
+];
 
 // 4. 溯源信息。
 //    ⚠️ **不写本机的仓库路径**：这个文件随包发布（`files` 含 `lib/webwallgl/`），
@@ -146,4 +159,4 @@ writeFileSync(join(OUT_DIR, '.upstream.json'), JSON.stringify({
 
 console.log(`[sync-webwallgl] 完成：webwallgl@${pkg.version} → lib/webwallgl/`);
 for (const a of assets) console.log(`  + ${a.out.slice(ROOT.length + 1)}`);
-console.log('  + index.html / web-shim.js / .upstream.json');
+console.log('  + index.html / web-shim.js / default-wallpaper/index.html（上游有才拷）/ .upstream.json');

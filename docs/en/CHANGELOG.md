@@ -15,6 +15,27 @@
 
 > Increment after **v1.2.0** (local, unreleased; per-commit):
 
+- **Fix (issue #129): the scene payload origin is unreachable for any non-local client, and that
+  failure then blacklists the host too.** 1.2.0 switched the scene payload origin to the host's
+  dedicated loopback media server (`inventory.sceneMediaBase`, `http://127.0.0.1:<port>`) — for any
+  client **not running on that machine** (remote desktop / proxied devices) `127.0.0.1` points at the
+  client itself, so the `scene.pkg` fetch always fails; the renderer's diagnostic beacon targets the
+  same origin, closing the only investigation window; and failure attribution reads the host ledger,
+  which is **cumulative across instances** (`completed > 0` is permanently true), so the failure is
+  mis-attributed to the render side and written into the **failure memory shared by every window** —
+  the local machine then sits on the static poster too. Three fixes: **① `mediaBase` follows page
+  reachability** (`resolveSceneMediaBase`: fall back to the page's own origin when the page itself
+  runs on a non-local http(s) origin — the 1.1.0 behaviour; local pages / in-shell custom schemes
+  keep the media server); **② render-side attribution now requires in-watch full-transfer evidence**
+  (ledger never saw the token, or `completed`/`served` did not grow by a full package during this
+  watch ⇒ transfer-class soft failure, not persisted); **③ `stall` (no frames while running) is also
+  demoted to a session-soft failure** (an unfocused/occluded window's "no frames" is not evidence
+  that the wallpaper cannot render) — session memory + 45 s auto-retry, same as transfer. Also
+  vendored the missing `default-wallpaper/index.html` fallback page (the renderer's visible landing
+  spot when scene parsing fails; upstream ships it under public/, sync-webwallgl now copies it).
+  Guards: verify-scene-live rewrote/added 6 checks (mediaBase decision expression, three-state
+  ledger reads, in-watch evidence, stall soft failure, retry accepts any soft failure, fallback page
+  vendored + sync script + cache header).
 - **Internal: guard coverage gaps closed + a comment audit + a derived "which guard owns which module" map**
   (**no user-visible behaviour change**; `lib/client.js` only lost comments and one piece of dead state). Three things:
   **① The field-write contract**: outside `client.js` there are 126 raw `selection.<field> = …` writes, while the

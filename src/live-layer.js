@@ -115,6 +115,33 @@ const SCENE_LIVE_FIT = { cover: "cover", contain: "contain", center: "contain", 
 const SCENE_FILES_PATH = "/wallpaper-engine/scene-files";
 // 宿主载荷账本（首帧看护判"传输还在动吗"的唯一真源，见 livePayloadFlowing）。
 const SCENE_PAYLOAD_PROGRESS_PATH = "/scene-payload-progress";
+/**
+ * 页面是不是跑在**非本机**的 http(s) 源上（远程桌面 / 代理进来的客户端）。
+ * 只有 http(s) 才谈得上"远程"：dsh-app:// 这类壳内自定义 scheme 的页面必然在本机；
+ * 判不出（URL 解析失败）也按本机算 —— 误判成远程的代价是大包挤应用源那条慢路，
+ * 误判成本机的代价是整条 live 链路在远程端全灭（issue #129），后者贵得多。
+ */
+function originIsRemoteHttp(origin) {
+  try {
+    const u = new URL(String(origin || ""));
+    if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+    const h = u.hostname;
+    return !(h === "127.0.0.1" || h === "localhost" || h === "[::1]" || h === "::1" || h === "0.0.0.0");
+  } catch { return false; }
+}
+/**
+ * 场景载荷该从哪个 origin 取（不含路径；网页壁纸不问这个，见 liveRenderUrl）。
+ * 宿主媒体源只有本机可达 ⇒ 页面自己就是远程的（location.origin 是代理 origin）时
+ * 必须回落页面自身 origin —— 载荷与渲染页诊断信标（{mediaBase origin}/diag）都经
+ * 代理转发才能活。本机页面维持宿主媒体源（带宽主路径，见 ensureSceneMediaOrigin）。
+ */
+function resolveSceneMediaBase() {
+  const hostSceneBase = selection.inventory && selection.inventory.sceneMediaBase;
+  if (typeof hostSceneBase === "string" && hostSceneBase && !originIsRemoteHttp(typeof location !== "undefined" ? location.origin : "")) {
+    return hostSceneBase;
+  }
+  return typeof location !== "undefined" && location.origin ? location.origin : "";
+}
 function liveRenderUrl(selLike) {
   const isWeb = selLike.type === "web";
   // scene：src 是 mediaBase 下的 token（渲染页用它拼 httpSource）。
@@ -135,14 +162,14 @@ function liveRenderUrl(selLike) {
   const fit = SCENE_LIVE_FIT[selLike.objectFit] || "cover";
   const fps = SCENE_LIVE_FPS_VALUES.includes(selLike.sceneLiveFps) ? selLike.sceneLiveFps : 30;
   const muted = weAudioVolume() > 0 ? "false" : "true";
-  // 场景载荷的源：**宿主说了算**（inventory.sceneMediaBase = 独立壁纸媒体源的 origin）。
+  // 场景载荷的源：默认**宿主说了算**（inventory.sceneMediaBase = 独立壁纸媒体源的 origin，
+  // 见 resolveSceneMediaBase —— 那里同时决定远程页面回落自身 origin 的口径）。
   // 宿主给空串（原生浏览器 / 媒体源不可用 / 库里没有可实时渲染的场景）⇒ 回落应用源，
   // 即改动前的行为。**客户端不再自己拼 location.origin**：70–90MB 的 scene.pkg 走应用源
   // 那条路挤不过首帧 LIVE_FIRST_FRAME_MS 预算（那里还要买纹理解码与 shader 编译）。
   // 网页壁纸**不走**这个源：它的入口是绝对 URL（webLiveSrc），mediaBase 对它只剩
   //「诊断信标打哪个 origin」一个用途，保持原样以免多动一条已经通的链。
-  const hostSceneBase = selection.inventory && selection.inventory.sceneMediaBase;
-  const mediaBase = (isWeb || typeof hostSceneBase !== "string" || !hostSceneBase ? location.origin : hostSceneBase)
+  const mediaBase = (isWeb ? (typeof location !== "undefined" && location.origin ? location.origin : "") : resolveSceneMediaBase())
     + SCENE_FILES_PATH;
   return "/wallpaper-engine/scene-live/index.html?type=" + (isWeb ? "web" : "scene")
     // 网页壁纸必须严格沙箱：第三方 workshop HTML 不得继承 DSH 的 origin
@@ -373,7 +400,15 @@ function pollLivePayload(watch) {
     watch.payloadPolling = false;
     if (!watch || liveWatch !== watch) return; // 看护已换/已停：读数作废
     const d = res && res.ok && res.data && typeof res.data === "object" ? res.data : null;
-    if (!d || d.ok !== true) { watch.payload = null; return; }
+    if (!d || d.ok !== true) {
+      // 账本**明确**说"从没见过这个 token"（HTTP 200 + ok:false）= 本实例的取包请求
+      // 根本没到过宿主 —— 这是失败归因的重要证据（见 liveFailCauseOf），要跟
+      // "请求根本没问成"（旧宿主 404 / 断网，res.ok=false）区分开。
+      if (d && d.ok === false) watch.payloadUnseen = true;
+      watch.payload = null;
+      return;
+    }
+    watch.payloadUnseen = false;
     const served = Number(d.served) || 0;
     watch.payload = {
       served,
@@ -386,6 +421,9 @@ function pollLivePayload(watch) {
     // "涨过"必须拿**上一次采样**比：同一拍里既采样又判活会把结论抹平。
     watch.payloadGrew = served > (watch.payloadPrev || 0);
     watch.payloadPrev = served;
+    // 本看护窗口的**第一次**成功采样留底（served/completed 是跨实例只增的累积量，
+    // 归因时要的是"这个窗口期间涨了多少"，见 liveFailCauseOf）。
+    if (!watch.payloadStart) watch.payloadStart = { served, completed: watch.payload.completed };
   }).catch(() => { watch.payloadPolling = false; });
 }
 /** 传输还在动吗（无帧时唯一能免除超时的证据）。未知一律 false。 */
@@ -399,20 +437,35 @@ function livePayloadFlowing(watch) {
   return false;
 }
 /**
- * 失败时归因：'transfer' = 传输开始了但从没走完（≠ 这张壁纸渲染不出来）。
+ * 失败时归因：'transfer' = 传输没走完 / 没到过宿主（≠ 这张壁纸渲染不出来）。
  *
- * 判据只看**服务端账本**，三种情形分清：
- *   · 一次传输都没发生过（`transfers=0`）⇒ 不是传输的锅（渲染页压根没来取包）；
- *   · 现在还有没走完的传输（`active>0`）⇒ 就是它 —— 哪怕一个字节都还没进；
- *   · 这个 token 从来没有一次**走完**（`completed=0`）⇒ 每次尝试都断在半路。
- * 走完过整包（`completed>0`）而仍无首帧 ⇒ 问题在渲染侧，按原语义落盘。
+ * ⚠️ 账本按 token 记账、**跨实例跨时间累积**（`served`/`completed` 只增）—— 它答不了
+ * "**我这个实例**的传输走完了吗"。而失败记忆（sceneLiveFailures）是所有窗口共用的
+ * 持久设置：把"别的窗口很久以前传完过"当成"传输没问题"，一次远程取包失败就会
+ * 被归成渲染侧、落盘、把本机一起拉黑（issue #129 的完整链条）。所以归"渲染侧"
+ * （落盘）之前，必须先有**本看护窗口内**的整包完成证据：
+ *   · 账本明确说没见过这个 token（`payloadUnseen`）⇒ 本实例的取包根本没到宿主 ⇒ 传输侧；
+ *   · 账本有记录但看护窗口内 `completed` 没涨、`served` 也没涨够一个整包 ⇒ 传输侧；
+ *   · 窗口内确有整包完成（completed 涨过，或 served 涨了 ≥ size）⇒ 渲染侧，维持原语义落盘；
+ *   · 窗口开始前就已完成的传输（第一次采样时就 `completed>0` 且此后无增长）⇒ 无法
+ *     区分"是我自己的快传输"还是"别的窗口的旧传输"，**维持原语义**（渲染侧）——
+ *     本机媒体源上整包 0.6s 就到齐，多半落在第一次采样之前；把它错判成传输侧会让
+ *     真正坏掉的渲染永远得不到持久降级。
+ *   · 账本真的未知（旧宿主 404 / 断网，`payload=null` 且没见过 ok:false）⇒ 不归因，
+ *     维持原语义 —— "没问成"不是"传输没到"的证据。
  */
 function liveFailCauseOf(watch) {
   const p = watch && watch.payload;
-  if (!p) return "";               // 账本未知（旧宿主 / 没问过）：不归因，按原语义判
-  if (p.transfers <= 0) return "";
+  if (!p) return watch && watch.payloadUnseen ? "transfer" : "";
+  if (p.transfers <= 0) return "transfer";
   if (p.active > 0) return "transfer";
-  if (p.completed <= 0) return "transfer";
+  const s = watch.payloadStart;
+  if (s) {
+    if (p.completed - s.completed <= 0) {
+      const size = p.size > 0 ? p.size : 0;
+      if (!(size > 0 && p.served - s.served >= size)) return "transfer";
+    }
+  }
   return "";
 }
 
@@ -558,6 +611,8 @@ function startLiveWatch(frame, wid) {
     budget: liveFirstFrameBudget(wid),
     payloadToken: String((selection.type === "scene" ? selection.sceneLiveSrc : selection.webLiveSrc) || ""),
     payload: null,              // 宿主账本最近一次读数（null = 未知）
+    payloadUnseen: null,        // true = 账本明确说没见过这个 token（取包没到过宿主）
+    payloadStart: null,         // 本看护窗口第一次成功采样的留底 {served, completed}
     payloadPrev: 0, payloadGrew: false, payloadPolling: false,
     loadingTicks: 0,
     firstFrame: false, stall: 0, resumed: false, heldPaused: 0,
@@ -767,11 +822,15 @@ function suspendLivePayload(frame, watch) {
 //（sceneVideo / 静态帧）→ 恢复外置音频互斥。本会话不再对该壁纸尝试 live，
 // 直到用户重开「场景实时渲染」开关（显式重试入口，清空全部记忆）。
 //
-// **两类失败分开处理**：
-//   · 传输类（`reason=timeout` 且账本说"传过但没传完"）＝ 这张壁纸渲染不出来的
+// **失败分级**（哪些进"所有窗口共用"的持久记忆、哪些只进本会话）：
+//   · 传输类（`reason=timeout` 且归因是传输，见 liveFailCauseOf）＝ 这张壁纸渲染不出来的
 //     **反证**（同一份包在别的实例 1–2s 就出帧了）⇒ 只进**会话内**软失败，
 //     冷却后自动重试一次；绝不写共享设置（那会让一次饿死变成所有窗口的永久降级）。
-//   · 其余（渲染页真的不出帧 / 运行期失联 / 加载错误）⇒ 维持原语义：落盘记忆。
+//   · `stall`（运行期连续无帧）⇒ 同样只进会话内：失焦/被遮挡的窗口（Chromium 对
+//     遮挡页冻结 rAF）也会"看起来"在无帧运行，而它跟传输停滞一样不是"这张壁纸
+//     渲染不出来"的证据 —— 落盘就会把本机的其它窗口一起拉黑（issue #129 实测：
+//     focus=0 的窗口 stall 落盘后，正常窗口也变静态）。本会话内软失败 + 冷却重试。
+//   · 其余（首帧超时且确有本窗口的整包完成证据 / 渲染页加载错误）⇒ 维持原语义：落盘记忆。
 function liveFail(reason) {
   const wid = liveWatch ? liveWatch.wid : String(selection.id || "");
   // 失败前抓一份现场：这是「为什么黑/为什么降级」唯一的事后证据（host 侧
@@ -787,18 +846,20 @@ function liveFail(reason) {
     + " 暂停期跳过tick=" + (watched ? watched.heldPaused : 0)
     + " 传输中tick=" + (watched ? watched.loadingTicks : 0)
     + " 载荷=" + JSON.stringify(watched ? watched.payload : null)
-    + " 媒体源=" + ((selection.inventory && selection.inventory.sceneMediaBase) || weT("(应用源)"))
+    + " 媒体源=" + (resolveSceneMediaBase() || weT("(应用源)"))
     + " " + liveStateBrief()
     + " prepare超时计数=" + (prepareLiveTimeouts.get(String(wid)) || 0)
     + " 帧率档=" + selection.sceneLiveFps, "warn");
   stopLiveWatch();
   if (!wid) return;
-  if (cause === "transfer") {
+  if (cause === "transfer" || reason === "stall") {
     const attempts = (liveTransferAttempts.get(wid) || 0) + 1;
     liveTransferAttempts.set(wid, attempts);
-    liveSessionFailures.set(wid, "transfer");
-    reportClientDiag("live-fail", "reason=transfer");
-    liveLog("liveFail-soft", "wid=" + wid + " 载荷传输未完成（第 " + attempts + " 次）→ 只记会话内、不写全局记忆"
+    const softReason = cause === "transfer" ? "transfer" : "stall";
+    liveSessionFailures.set(wid, softReason);
+    reportClientDiag("live-fail", cause === "transfer" ? "reason=transfer" : "reason=stall-soft");
+    liveLog("liveFail-soft", "wid=" + wid + " " + (LIVE_FAIL_LABELS[softReason] || softReason)
+      + " → 只记会话内、不写全局记忆"
       + (attempts <= LIVE_TRANSFER_RETRY_LIMIT ? weT("，冷却 {s}s 后自动重试", { s: Math.round(LIVE_TRANSFER_RETRY_DELAY_MS / 1000) }) : weT("，已达重试上限")), "warn");
     scheduleLiveTransferRetry(wid, attempts);
   } else {
@@ -846,7 +907,7 @@ function scheduleLiveTransferRetry(wid, attempts) {
   liveTransferRetryTimer = setTimeout(() => {
     liveTransferRetryTimer = 0;
     if (String(selection.id || "") !== String(wid)) return;
-    if (liveSessionFailures.get(String(wid)) !== "transfer") return;
+    if (!liveSessionFailures.has(String(wid))) return;
     if (!(selection.inventory && selection.inventory.sceneMediaBase)) {
       try { loadInventory(); } catch { /* ignore */ }
     }
