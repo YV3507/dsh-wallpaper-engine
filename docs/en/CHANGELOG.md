@@ -139,6 +139,19 @@
   `strategy` / `steps` / `needs` / `job` (with a negative control and an anti-vacuity floor requiring at least
   one workflow to really use `matrix.` after `jobs:`); `docs/DEV-GUIDE.md` §4.3 documents the pitfall.
 
+- **Fixed the root cause of the "artifact differs across platforms" failure** (the second thing the ubuntu leg
+  caught): `src/i18n-copy.js` had historically been committed **with CRLF** (every other committed file is
+  stored LF) and **28 of its lines were `\r\r\n` (a doubled CR)**. The build only normalizes `\r\n → \n`, so a
+  Windows checkout (`core.autocrlf=true` inflates the pair back to `\r\r\n`) leaves **one stray CR** behind,
+  while a Linux checkout has a plain `\r\n` that gets normalized away ⇒ **the same source produces a different
+  `lib/client.js` on each platform**: whichever bytes you commit, the other leg's "artifact matches source"
+  step (`git diff --exit-code -- lib/client.js`) goes red — observed as ubuntu red / win32 green, and
+  **invisible no matter how much you run locally**.
+  Change: ① that file (doubled CRs included) is now normalized to **LF on disk**, matching every other file;
+  ② `scripts/build-client.mjs` reads its inputs through `readNormalized()`, which **asserts no stray CR
+  survives** and names the offending file, failing the build (better a local red than a platform-dependent
+  artifact). The locally rebuilt artifact is now **byte-identical** to the committed one (CR = 0).
+
 - **Fixed an unrunnable test that upstream v1.2.0 brought in**: `test/repro-sidebar-props.mjs` (the real-artifact
   repro harness for the sidebar "wallpaper properties" panel) hard-coded the repo root to the author's machine,
   `/Users/oneincase/Documents/workspace/dsh-wallpaper-engine` ⇒ on any non-Mac machine `readFileSync` fails with

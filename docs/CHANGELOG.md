@@ -118,6 +118,16 @@
   `steps` / `needs` / `job`（含负对照与"至少一个工作流在 `jobs:` 之后真的用了 `matrix.`"的反空转地板）；
   `docs/DEV-GUIDE.md` §4.3 同步写明这条坑。
 
+- **修掉"产物跨平台不一致"的根因**（ubuntu 腿查出来的第二处）：`src/i18n-copy.js` 历史上以 **CRLF 入库**
+  （其余入库文件都是 LF 入库）且其中 **28 行是 `\r\r\n` 双 CR**。构建只做 `\r\n → \n` 归一化 ⇒
+  Windows 检出（`core.autocrlf=true` 把双 CR 放大成 `\r\r\n`）会**残留一个孤立 CR**，而 Linux 检出是
+  `\r\n`（被归一化掉）⇒ **同一份源码在两个平台产出不同字节的 `lib/client.js`**：commit 哪一份，另一条腿
+  的「产物与源码同步」（`git diff --exit-code -- lib/client.js`）都会红 —— 实测 ubuntu 腿红、win32 腿绿，
+  且**本机怎么跑都看不出来**。
+  改动：① 该文件连同异常行一并归一化成 **LF 入库**（与其余文件同口径）；② `scripts/build-client.mjs`
+  的构建输入改走 `readNormalized()` —— 归一化后**断言不再有孤立 CR**，有就点名文件并让构建失败
+  （宁可红在本地，也不要产出一份平台相关的产物）。现在本机重建的产物与已入库那份**逐字节相同**（CR=0）。
+
 - **修掉上游 v1.2.0 带进来的一处不可运行测试**：`test/repro-sidebar-props.mjs`（侧栏「壁纸属性」的
   真产物复现台）把仓库根**写死成作者机器的绝对路径** `/Users/oneincase/Documents/workspace/
   dsh-wallpaper-engine` ⇒ 在任何非 mac 机器上 `readFileSync` 直接 `ENOENT`（Windows 上还会被解析成
