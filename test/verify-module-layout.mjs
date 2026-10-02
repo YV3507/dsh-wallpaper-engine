@@ -566,10 +566,10 @@ console.log('⑥ `src/` 子目录成员数 ≥3');
 //    于是英文版的 `test/tools/` 清单少了 2 项（`i18n-scan.mjs` / `weT-shim.mjs`）而**无人发现** ——
 //    中文那份是权威版，但英文读者照着 §4.6 找不到这两个工具。两份都据同一份磁盘清单对账。
 //    这是"读文件清单"而不是"读散文"：判据对的是**枚举面完整性**，措辞仍由写作约定承担。
+//    英文维护者镜像已随 2026-10-02 文档瘦身撤除（PR #128），对账回归中文权威版单份。
 {
   const docs = [
     { label: 'zh', path: join(ROOT, 'docs', 'DEV-GUIDE.md') },
-    { label: 'en', path: join(ROOT, 'docs', 'en', 'DEV-GUIDE.md') },
   ].map((d) => ({ ...d, text: readFileSync(d.path, 'utf8') }));
   const tools = readdirSync(join(ROOT, 'test', 'tools')).filter((f) => f.endsWith('.mjs')).sort();
   const compat = readdirSync(join(ROOT, 'test')).filter((f) => /^compat-.*\.mjs$/.test(f)).sort();

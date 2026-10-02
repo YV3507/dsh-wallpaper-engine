@@ -507,11 +507,19 @@ function capNeedsTranscode(mi, cap) {
  * 这段原来散在实时管线的 armLayerContentReveal 里，却靠本通道的两个符号工作
  * （probeVideoPoster / VIDEO_POSTER_BUDGET_MS）⇒ 现在把它整段收进来，实时管线只留
  * 一次委托。放行条件与原处逐字一致：海报图**加载出来** / 首帧（loadeddata·canplay）/
- * 出错放行 / 预算到期。返回两个句柄供调用点随待放行状态一起收。
+ * 出错放行 / 停滞到上限留旧壁纸。返回两个句柄供调用点随待放行状态一起收。
  */
 function armVideoChannelReveal(video, recheck, giveUp) {
-  let posterGiveUp = 0;
   let cancelPosterProbe = null;
+  // 停滞自续期链的取消句柄必须**读得到最新的定时器 id**：返回首跳 id 快照的话（2026-10-02
+  // 审计），forgetPendingReveal 清的是早已触发过的旧 id，链会在本层已放行/已被替换后继续走
+  // —— 连切时遗留 tick 会把下一层的空层推上屏（纯色帧回归）。dead 标记让链条在任何收口
+  // 路径上一次性终结。
+  const stall = { id: 0, dead: false };
+  const cancelStall = () => {
+    stall.dead = true;
+    if (stall.id) { clearTimeout(stall.id); stall.id = 0; }
+  };
   if (video && typeof video.addEventListener === "function") {
     // Edge 那条路由镜像画布的第一笔补最后一步（layerContentReady 会一起看）。
     const frameReady = () => { try { video.__weReady = true; } catch { /* ignore */ } recheck(); };
@@ -522,21 +530,30 @@ function armVideoChannelReveal(video, recheck, giveUp) {
     cancelPosterProbe = probeVideoPoster(video, recheck, recheck);
     // 兜底预算 = **停滞判据**，不是"到期放行"：每 1200ms 复查一次，只有屏上真有东西
     //（首帧 / 海报图已加载）才放行；到 VIDEO_STALL_GIVE_UP_MS 仍未出画面就停止等待并留一条
-    // warn —— 旧壁纸继续留着，绝不铺这一层的底色。
+    // warn —— 旧壁纸继续留着，绝不铺这一层的底色。放行走 **recheck**：video 有画面 ≠ 层有
+    // 画面（Edge 的 canvas 路由还要等画布第一笔），layerContentReady 判上了才真放行；没判上
+    // 就继续轮询，预算上限仍是停表的终点。
     const startedAt = Date.now();
     const stallGuard = () => {
-      if (videoContentReady(video) || video.__weReady === true) { giveUp(); return; }
+      if (stall.dead) return;
+      if (videoContentReady(video) || video.__weReady === true) {
+        recheck();
+        if (!stall.dead && Date.now() - startedAt < VIDEO_STALL_GIVE_UP_MS) {
+          stall.id = setTimeout(stallGuard, VIDEO_POSTER_BUDGET_MS);
+        }
+        return;
+      }
       const waited = Date.now() - startedAt;
       if (waited >= VIDEO_STALL_GIVE_UP_MS) {
         liveLog("video-stall", "wid=" + selection.id + " " + Math.round(waited / 1000)
           + "s 仍无画面 → 继续留旧壁纸（不放行空层）", "warn");
         return;
       }
-      posterGiveUp = setTimeout(stallGuard, VIDEO_POSTER_BUDGET_MS);
+      stall.id = setTimeout(stallGuard, VIDEO_POSTER_BUDGET_MS);
     };
-    if (typeof setTimeout === "function") posterGiveUp = setTimeout(stallGuard, VIDEO_POSTER_BUDGET_MS);
+    if (typeof setTimeout === "function") stall.id = setTimeout(stallGuard, VIDEO_POSTER_BUDGET_MS);
   }
-  return { cancelProbe: cancelPosterProbe, budget: posterGiveUp };
+  return { cancelProbe: cancelPosterProbe, cancelStall };
 }
 
 function videoChannelAfterLayerBuild(video, sel) {

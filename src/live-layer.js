@@ -1556,9 +1556,10 @@ function forgetPendingReveal() {
   if (!p) return p;
   for (const el of p.hooks) { try { el.__weContent = null; } catch { /* ignore */ } }
   // 海报探针与它的预算必须一起收：否则它们会在这一层已经放行之后触发（下一次切换时
-  // 误放行新层）。
+  // 误放行新层）。停滞链每次续期都换新 id，清"快照 id"清不掉在途的下一跳 —— 通道返回的
+  // cancelStall 闭包（读最新 id + dead 标记）才是完整收口（2026-10-02 审计）。
   try { if (p.stopPosterProbe) p.stopPosterProbe(); } catch { /* ignore */ }
-  try { if (p.posterGiveUp) clearTimeout(p.posterGiveUp); } catch { /* ignore */ }
+  try { if (p.cancelStall) p.cancelStall(); } catch { /* ignore */ }
   return p;
 }
 function revealPendingLayer() {
@@ -1599,7 +1600,7 @@ function armLayerContentReveal(node, outgoing, tr, fade) {
   try { if (node.classList) node.classList.add(LAYER_PENDING_CLASS); } catch { /* ignore */ }
   // 新层上屏之前先压住它的音源：旧层还在可见期内出声，两层 BGM 不重叠。
   openRotationAudioGate(node, outgoing);
-  pendingReveal = { node, outgoing, tr, fade, hooks, stopPosterProbe: videoReveal.cancelProbe, posterGiveUp: videoReveal.budget, armedAt: Date.now() };
+  pendingReveal = { node, outgoing, tr, fade, hooks, stopPosterProbe: videoReveal.cancelProbe, cancelStall: videoReveal.cancelStall, armedAt: Date.now() };
   // 过场类型是一个完整词，但**先取词再拼接**：`weT(...) + "…"` 会被 i18n 守卫判成
   // "碎片化翻译"（见 test/verify-i18n.mjs 判据 ①b），而这一行本身只是诊断留痕。
   const holdKind = weT(fade ? "过场" : "硬切");

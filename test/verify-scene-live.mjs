@@ -1061,11 +1061,18 @@ for (const [name, ok] of clientChecks) check(name, ok);
     // 真机取证（2026-10-02）：旧行为"预算到期就放行"会在 `<video>` rs=0 时把层放上屏，
     // 屏上只剩这一层底色（用户看到"纯色帧"，实测 1–2 秒起）。判据：预算这一路**只许在
     // 屏上真有画面时放行**，停滞到上限就停手留旧壁纸，绝不放行空层。
+    // 审计收口（2026-10-02，合并 PR #128 后）：自续期链的取消句柄必须是读最新 id 的
+    // cancelStall 闭包 —— 快照 id 清不掉在途下一跳，连切时遗留 tick 会把下一层的空层推上屏；
+    // 且链上放行只许经 recheck（video 有画面 ≠ 层有画面，Edge canvas 还要等第一笔）。
     check('兜底预算不得放行空层（停滞只留旧壁纸，不铺底色）',
       CH.includes('const stallGuard = () => {')
       && /videoContentReady\(video\) \|\| video\.__weReady === true/.test(CH)
       && CH.includes('VIDEO_STALL_GIVE_UP_MS')
-      && /waited >= VIDEO_STALL_GIVE_UP_MS[\s\S]{0,400}?video-stall/.test(CH));
+      && /waited >= VIDEO_STALL_GIVE_UP_MS[\s\S]{0,400}?video-stall/.test(CH)
+      && CH.includes('cancelStall')
+      && LIVE.includes('p.cancelStall')
+      && !CH.includes('budget: posterGiveUp')
+      && !LIVE.includes('clearTimeout(p.posterGiveUp)'));
     // 真机取证（2026-10-02，第二轮）：**只有设了「帧率上限」时才会再看到纯色帧** —— 抽帧就绪
     // 那一刻在在屏元素上 `src=transcoded; load()` 会清掉当前帧。判据：自动升级不许在"已上屏"
     // 的层上换源（推到下一次建层直接用抽帧版），只有"层还被闸门押着"或"用户刚主动改过上限"
@@ -1113,6 +1120,9 @@ for (const [name, ok] of clientChecks) check(name, ok);
       && hostLib.includes('const MEDIA_CHOICE_PIN = new Map();')
       && /pinnedFaststartVariant\(abs, token, log\)/.test(hostLib)
       && /serveFile\(fast \|\| abs/.test(hostLib)
+      // 钉子命中必须**续期**（审计 2026-10-02）：循环壁纸一次播放远超 TTL，固定窗口会在
+      // 会话中途（seek/重缓冲触发新 Range 请求时）换字节布局。
+      && hostLib.includes('pin.at = now;')
       // 生成命令必须是"只搬盒子"的复制（不得重编码），并且缓存预算有上限、命中会顶 mtime。
       && /'-c', 'copy', '-movflags', '\+faststart'/.test(hostLib)
       && hostLib.includes('FASTSTART_CACHE_MAX_BYTES') && hostLib.includes('touchFaststart('));
