@@ -14,21 +14,21 @@
 
 | # | 路径 | 来源 | 形态 | 依赖（闭包状态 / `c` 字段） | 守卫提及 |
 |---|---|---|---|---|---|
-| 1 | `/inventory` | lib/index.js:3120 | async 箭头 | webServer buildInventory disposers observeAdapter | 14 |
+| 1 | `/inventory` | lib/index.js:3120 | async 箭头 | webServer buildInventory disposers observeAdapter | 15 |
 | 2 | `/media-info` | lib/index.js:3260 | 箭头 | webServer log mediaMap disposers | 7 |
 | 3 | `/transcode-progress` | lib/index.js:3290 | 箭头 | webServer mediaMap disposers | 1 |
 | 4 | `/transcoded` | lib/index.js:3343 | 箭头 | webServer mediaMap disposers serveFile | 1 |
 | 5 | `/media` | lib/index.js:3399 | 箭头 | webServer log mediaMap disposers serveFile | 17 |
 | 6 | `/preview` | lib/index.js:3399 | 箭头 | webServer log mediaMap disposers serveFile | 8 |
 | 7 | `/video-preview` | lib/index.js:3428 | 箭头 | webServer mediaMap disposers serveFile | 1 |
-| 8 | `/scene-frame` | lib/routes/scene-frame.js:73 | 箭头 | disposers base mediaMap trackStream customFramePath customIdFromAbs …(+3) | 10 |
+| 8 | `/scene-frame` | lib/routes/scene-frame.js:73 | 箭头 | disposers base mediaMap trackStream customFramePath customIdFromAbs …(+3) | 11 |
 | 9 | `/scene-frame-cache` | lib/routes/scene-frame.js:151 | 箭头 | disposers base mediaMap GPU_FRAME_MAX_BYTES GPU_WRITE_INFLIGHT armBodyIdleTimeout …(+4) | 4 |
 | 10 | `/custom-frame` | lib/routes/scene-frame.js:238 | 箭头 | disposers base serveFile CUSTOM_FRAME_EXT CUSTOM_FRAME_MAX_BYTES armBodyIdleTimeout …(+3) | 2 |
 | 11 | `/scene-live` | lib/routes/scene-serve.js:53 | 箭头 | disposers base WEBWALLGL_DIR appendDiagLine traceRequests serveFile …(+1) | 7 |
 | 12 | `/scene-files` | lib/routes/scene-serve.js:87 | 箭头 | disposers base handleSceneFiles | 5 |
 | 13 | `/media-origin` | lib/routes/scene-serve.js:95 | 箭头 | disposers base mediaOriginInfo | 1 |
 | 14 | `/scene-payload-progress` | lib/routes/scene-serve.js:115 | 箭头 | disposers base payloadProgress | 1 |
-| 15 | `/props` | lib/index.js:3779 | 箭头 | webServer mediaMap disposers | 4 |
+| 15 | `/props` | lib/index.js:3779 | 箭头 | webServer mediaMap disposers | 5 |
 | 16 | `/live-frame` | lib/index.js:3825 | 箭头 | webServer mediaMap disposers serveFile | 2 |
 | 17 | `/media-status` | lib/routes/now-playing.js:76 | 箭头 | disposers base | 2 |
 | 18 | `/audio-spectrum` | lib/routes/now-playing.js:86 | 箭头 | disposers base | 2 |

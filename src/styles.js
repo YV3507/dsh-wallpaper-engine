@@ -1924,14 +1924,42 @@ const CSS = `
     border-top: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.22));
   }
   .we-qp__current { display: flex; align-items: center; gap: 10px; }
+  /* 当前壁纸缩略图 = 一枚旋转圆盘（用户口径：圆形图片旋转、中心空心小圆）：预览图
+     裁成整圆，播放时匀速自转、暂停停在原角度（复用设置页黑胶的 we-vinyl-spin 关键帧
+     与 play-state 口径，--playing 由组件按 playbackLive 挂）。中心的孔用 radial mask
+     **真挖穿**而不是叠色块 —— 面板是玻璃，只有镂空才能在深浅主题下都透出底色；孔缘
+     一圈细描边把"空心"衬成唱片中孔，而不是图片裁坏了。 */
+  /* ⚠️ 圆度：外缘**不再靠 border-radius + overflow**（那是"把方盒子裁圆"），改用
+     clip-path: circle(50%) —— 它对图片外接盒做整圆裁切，外缘抗锯齿明显更干净，圆也
+     更"正"（现场反馈：不够圆）。中心那个孔过去用 radial-gradient mask 挖穿，而 mask 会把
+     元素提升到一个额外光栅层、**把外缘的抗锯齿一起弄糊**；现在孔由 ::after 那枚"边框环"
+     画（不叠色块，仍是玻璃能透出底色），于是这枚圆盘不再需要 mask。 */
   .we-qp__thumb {
-    flex: none; width: 56px; height: 40px; border-radius: 6px; overflow: hidden;
+    position: relative; flex: none; width: 40px; height: 40px;
+    aspect-ratio: 1 / 1; box-sizing: border-box;
+    border-radius: 50%; overflow: hidden;
+    clip-path: circle(50%);
     background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.12));
     border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.22));
+  }
+  /* 中心孔：一枚描边圆环（不是色块 —— 面板是玻璃，只有留空才能透出底色）。 */
+  .we-qp__thumb::after {
+    content: ""; position: absolute; left: 50%; top: 50%;
+    width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px;
+    border-radius: 50%;
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.45));
   }
   .we-qp__thumb img, .we-qp__item-thumb img {
     width: 100%; height: 100%; object-fit: cover; display: block;
     opacity: 0; transition: opacity 0.2s ease;
+  }
+  .we-qp__thumb img {
+    animation: we-vinyl-spin 14s linear infinite;
+    animation-play-state: paused;
+  }
+  .we-qp__current--playing .we-qp__thumb img { animation-play-state: running; }
+  @media (prefers-reduced-motion: reduce) {
+    .we-qp__thumb img { animation: none; }
   }
   .we-qp__current-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .we-qp__title {
@@ -1942,22 +1970,49 @@ const CSS = `
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .we-qp__current-actions { flex: none; display: flex; gap: 6px; }
+  /* 壁纸属性入口：页签栏下方独占整行、文字居中、字号与页签标签一致。
+     边框显式写在这里：宿主的中性描边令牌在这套玻璃面板上近乎不可见（现场反馈看不到边框线）；
+     颜色取该主题下的文字色（--we-ink：深色主题是浅字、浅色主题是深字）再混 40% 透明，
+     于是两套主题都看得见，且始终与文字同色系而不是另一块灰。
+     不认识 color-mix 时退回宿主那条中性描边。 */
+  /* 高度：固定高 30px + 零纵向内边距会让文字贴边、整枚看着被压扁（现场反馈）——
+     这里改成由内容与 7px 上下内边距长出来，并显式解掉基类的 height。
+     字号 12px = .we-tabs__tab 的字号（两处要一起改）。 */
+  .we-qp__propsbtn {
+    display: flex; width: 100%; box-sizing: border-box;
+    justify-content: center; padding: 7px 12px;
+    height: auto; line-height: 1.2;
+    font-size: 12px;
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+  }
+  @supports (border-color: color-mix(in srgb, currentColor 40%, transparent)) {
+    .we-qp__propsbtn {
+      border-color: color-mix(in srgb, var(--we-ink, currentColor) 40%, transparent);
+    }
+  }
+  .we-qp__propsbtn.is-on {
+    border-color: color-mix(in srgb, var(--we-accent, currentColor) 55%, transparent);
+  }
+  /* 下钻打开时：面板直接占满内容区（**不再有返回按钮那一行** —— 用户口径：
+     那一行多余；同一枚「收起壁纸属性」就在页签下面，收起路径并没有丢）。 */
+  .we-qp__propsview { display: flex; flex-direction: column; min-width: 0; }
+  .we-qp__propsview--drill { flex: 1 1 auto; min-height: 0; }
   .we-qp__row { display: flex; align-items: center; gap: 8px; }
   .we-qp__group { flex: 1; min-width: 0; }
   .we-qp__search { width: 100%; box-sizing: border-box; }
   .we-qp__list { display: flex; flex-direction: column; gap: 2px; }
-  /* 视图切换：搜索行 + 类型筛选 + 列表/卡片段控（段控复用 .we-picker__seg/.we-picker__rate）。
-     窄面板允许换行：搜索框收缩到极限后，类型/段控自然折到第二行。 */
-  .we-qp__viewbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .we-qp__viewbar .we-qp__search { flex: 1 1 auto; min-width: 0; width: auto; }
+  /* 视图切换：搜索 + 类型筛选 + 列表/卡片，**一行排下、最小宽度也不折行**（用户口径）。
+     搜索框 flex-basis 必须钉 0 而不是 auto：换行决策看的是假想主尺寸，auto 基 = 输入框
+     固有宽（~180px），正是它把行撑爆、把后面的控件挤去第二行；基 0 + min-width 0 之后
+     搜索框收缩到"剩余全给"，最窄面板（官方右栏 300 - padding = 276）也稳稳一行。 */
+  .we-qp__viewbar { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
+  .we-qp__viewbar .we-qp__search { flex: 1 1 0; min-width: 0; width: auto; }
   .we-qp__viewbar .we-qp__type { flex: none; max-width: 84px; }
-  .we-qp__viewbar .we-picker__seg { flex: none; }
-  /* 但段控在这个作用域里是收缩态：基类靠父级把 flex 撑开，这里父级被钉成 flex:none，
-     加上基类本身没有最小宽度、横向内边距为 0 ⇒ 「列表 / 卡片」两个字就只剩文字宽度
-     （0.78em ≈ 12.5px × 2 + 边框 ≈ 29px），点起来过窄。只给**这一处**一个最小宽度，
-     不去动共用的基类（设置页的转场方向 / 速度 / 帧率上限 / 适配模式等七处也用它，
-     那些地方要的就是等分满宽）。56px ≈ 原来的两倍。 */
-  .we-qp__viewbar .we-picker__seg .we-picker__rate { min-width: 56px; }
+  /* 列表 / 卡片：标签式切换 —— 复用 .we-tabs 的滑动胶囊做激活指示，但去掉分段底与
+     描边（用户口径：不要默认背景）；页签收成内容宽（两枚都是两字，等宽成立，
+     胶囊 (100%-6px)/2 的等分算式与 3px 内衬原样沿用）。 */
+  .we-qp__viewtabs { flex: none; width: auto; background: transparent; border: 0; }
+  .we-qp__viewtabs .we-tabs__tab { flex: 0 0 auto; padding: 0 10px; }
   /* 卡片网格：**最窄两列、向后自动加列**（auto-fill 铺最小 130px 的列轨，画满一行
      再换行）。130 的取法：两个「最窄形态」都必须恰为 2 列 —— 官方右栏最小 300px
      （宿主 clampWidth(rightbar, 300, …)，内容 276 ∈ (2×130+8, 3×130+16]）、抽屉固定

@@ -3,6 +3,20 @@
 > **中文**: [`../UPGRADING.md`](../UPGRADING.md)（与本文同源：改一处请同步另一处）
 
 
+### ⚠️ Prerequisites from v1.2.0: the official desktop (DeepSeek Harness) ≥ 0.2.0-rc.1
+
+**The adaptation baseline moves to the official desktop line in v1.2.0**: the plugin manifest declares
+`engines.dsh: ">=0.2.0-rc.1"` — the old **DSH Desktop 2.0.x** (kernel 0.1.7-rc.1) **cannot install
+v1.2.0** (the plugin market flags it red and refuses the install). If you already run 1.1.0 on the old
+desktop it keeps working; switch to the official desktop before updating. The dsh-better-sidebar
+prerequisite is unchanged (≥ 0.19.0) — the latest release the market installs on the official desktop
+(0.24+) itself targets the 0.2.0-rc.1 line.
+
+| Component | Required by v1.2.0+ |
+|---|---|
+| DeepSeek Harness desktop (official) | ≥ 0.2.0-rc.1 |
+| dsh-better-sidebar | ≥ 0.19.0 |
+
 ### ⚠️ Prerequisites for updating: ① latest DSH kernel ② latest better-sidebar
 
 **Do NOT update this plugin until BOTH prerequisites are met.** v0.7.2 targets DeepSeek Harness

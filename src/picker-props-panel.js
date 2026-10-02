@@ -29,8 +29,11 @@
  */
 
   function renderPickerPropsPanel(ctx) {
-    const { open, token, loading, error, props, sceneLiveActive, ensureDefs, onPropInput, onReset } = ctx;
+    const { open, token, loading, error, props, sceneLiveActive, source, ensureDefs, onPropInput, onReset } = ctx;
     if (!open) return null;
+    // 没有 token ⇒ 不画。两个壳都不存在"开关开着却没有 token"的常态：侧栏那支由调用点的
+    // 门保证（`userPropsPanelOpen() && propsAvailable`），而清掉壁纸时 `onClear` 会把开关
+    // 一并收起（否则下次选一张带属性的壁纸，面板会自己弹开）。
     if (!token) return null;
     // 面板开着换了壁纸：拉当前这张的属性（判定与调用留在处理器层）
     ensureDefs(token);
@@ -38,18 +41,28 @@
     for (const p of props) {
       if (p.ptype !== "text" && p.ptype !== "group") values[p.name] = p.value;
     }
-    const rows = props
+    // `props` 是**上一次求值留下的那张表**（宿主是异步的）：token 与当前选中项不一致时
+    // 它属于上一张壁纸 —— 那种情况下不许画出来（否则改的是这张、看到的是上一张的值）。
+    const stale = Boolean(source && source.token && source.token !== token);
+    const defs = stale ? [] : props;
+    const rows = defs
       .filter((p) => !p.condition || weEvalCondition(p.condition, values))
       .map((p) => renderUserPropRow(p, onPropInput));
-    const note = loading
-      ? weT("读取中…")
-      : error
-        ? weT(error)
-        : rows.length
-          ? ""
-          : props.length
-            ? weT("当前条件下没有可调项")
-            : weT("这张壁纸没有用户属性（project.json 的 general.properties）");
+    // 说明句按**成因**分开写：宿主说"没有属性"、请求还在路上、宿主答了失败、上一张的表
+    // 还没换、条件全挡住 —— 这五种在界面上必须能分辨（"空面板"最容易被误读成面板坏了）。
+    const note = stale
+      ? weT("正在取这张壁纸的属性…")
+      : loading
+        ? weT("读取中…")
+        : error
+          ? weT(error)
+          : !source || source.heard
+            ? rows.length
+              ? ""
+              : defs.length
+                ? weT("当前条件下没有可调项")
+                : weT("这张壁纸没有用户属性（project.json 的 general.properties）")
+            : weT("等待壁纸属性…（宿主尚未答复）");
     return React.createElement("div", { className: "we-picker__props" },
       React.createElement("div", { className: "we-picker__props-head" },
         React.createElement("span", { className: "we-picker__props-title" }, weT("壁纸属性")),

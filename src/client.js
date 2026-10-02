@@ -1872,6 +1872,70 @@ function reportClientDiag(event, detail) {
 let propsPanelOpen = false;
 let propsState = { token: "", loading: false, error: "", props: [], remote: false };
 
+/** 「壁纸属性」开关的**唯一**读数（两个壳共用这一份：设置页工具栏 + 侧栏壁纸档）。
+ *  侧栏经 ctx 拿到本函数后再取当前值 —— 它若直接读 `propsPanelOpen` 这个 `let`，
+ *  内联后的 `var` 提升会让它在赋值前读到 undefined（见 scripts/build-client.mjs 的
+ *  预置顺序）。开了窗再关窗也不需要 emit：两处都是受控渲染，重渲染由处理器负责。 */
+function userPropsPanelOpen() {
+  return propsPanelOpen === true;
+}
+
+/** 面板状态的**只读快照**（渲染器与守卫共用；渲染器不读模块级 `propsState`）。
+ *  `heard` = 这次求值**已经有宿主答复**（成功或失败都算）—— 空表的两条成因（宿主说
+ *  "没有属性" / 请求还在路上）在界面上必须能分辨，否则"空面板"无法自陈。 */
+function userPropsStateOf() {
+  return {
+    open: propsPanelOpen === true,
+    token: propsState.token,
+    loading: propsState.loading === true,
+    error: String(propsState.error || ""),
+    count: propsState.props.length,
+    heard: !propsState.loading && !propsState.remote,
+  };
+}
+
+/** 「壁纸属性」面板的**装配点**（两个壳共用：设置页页签 + 侧栏壁纸档）。
+ *  ⚠️ 必须住在**模块级**，不能是 `apply()` 里的闭包 —— `src/sidebar-right.js` 是 prelude
+ *  （在 `apply()` 之前求值），它注册的渲染回调引用不到 apply 的作用域：写成闭包时真机上
+ *  抛 `ReferenceError: renderUserPropsPanel is not defined`，React 随即卸载整棵树 ⇒
+ *  **整个页面空白**（实测复现；不是"这里不画"那种局部问题）。
+ *  它只读模块级的 `propsState` 与三个模块级函数，选中态从 `selection` 现取 —— 因此
+ *  提升到模块级**不需要**任何上下文搬运。 */
+function renderUserPropsPanel() {
+  const st = userPropsStateOf();
+  const sel = selection;
+  return renderPickerPropsPanel({
+    open: st.open,
+    // token 取**当前选中项**（不是 propsState 里那一个）：两者不等时（刚换壁纸）
+    // 面板应当报"这张的属性还没到"，绝不能拿上一张的属性表冒充这一张。
+    token: propTokenOf(sel),
+    loading: st.loading,
+    error: st.error,
+    props: propsState.props,
+    sceneLiveActive: sel.sceneLiveActive,
+    // 失败态自陈用的读数（token / 表长 / 有没有宿主答复）—— 见 picker-props-panel.js 的 note。
+    source: st,
+    ensureDefs: (token) => {
+      if (propsState.token !== token && !propsState.loading) loadUserPropDefs(token, true);
+    },
+    onPropInput: onUserPropInput,
+    onReset: resetUserProps,
+  });
+}
+
+/** 打开发送（侧栏下钻的入口）：先落状态再拉定义 —— 判据是"该有属性了"。 */
+function openUserPropsPanel() {
+  propsPanelOpen = true;
+  loadUserPropDefs(propTokenOf(selection), true);
+  emit();
+}
+
+/** 收起：只翻开关（定义留着，下次开不必重拉）。 */
+function closeUserPropsPanel() {
+  propsPanelOpen = false;
+  emit();
+}
+
 /** 当前 live 渲染 iframe（属性热更新与心跳读的是同一个）。 */
 
 /** token（propsUrl 末段；同时是设置里 userProps 的键）。 */
@@ -2757,6 +2821,9 @@ function onVideoVolume(pct, live) {
   if (!live) emit();
 }
 function onClear() {
+  // 清掉壁纸 = 这张的属性面板也失去对象：顺手把「壁纸属性」收起来。不收的话开关会
+  // 「挂着」，下次随便选一张带属性的壁纸时面板会**自动弹开**（用户没点过它）。
+  propsPanelOpen = false;
   applySelection("");
 }
 // 手动点开一张壁纸 = 明确想看它：作废它的 live 失败记忆（sceneLiveFailures，持久
@@ -3453,22 +3520,6 @@ const officialColorOf = (tokens) => {
   // （该重拉时重拉、改一个属性、恢复默认）都留在本文件 —— 状态与处理器是 ctx 的**供给方**，
   // 渲染器只拿值 + 回调（同模态框那条契约）。判定就一句：
   // token 变了且不在加载中才重拉。
-  function renderUserPropsPanel() {
-    return renderPickerPropsPanel({
-      open: propsPanelOpen,
-      token: propTokenOf(sel),
-      loading: propsState.loading,
-      error: propsState.error,
-      props: propsState.props,
-      sceneLiveActive: sel.sceneLiveActive,
-      ensureDefs: (token) => {
-        if (propsState.token !== token && !propsState.loading) loadUserPropDefs(token, true);
-      },
-      onPropInput: onUserPropInput,
-      onReset: resetUserProps,
-    });
-  }
-
   // ── 页签面板内容（函数声明提升，renderActiveTab 在 return 里先调用）──────
   // 五页签 = 两个单渲染器（「外观」「关于」）+ 两个合并渲染器（「播放」= 效果 + 声音，
   // 「系统」= 吉祥物 + 高级）+ 壁纸库。「关于」不取任何 ctx 字段（静态页）。
@@ -3937,7 +3988,7 @@ function RopeDock() {
 // so it survives DSH Desktop's random --port restarts and never re-shows
 // after being closed. Bump NOTICE_VERSION next release to announce something
 // new again.
-const NOTICE_VERSION = "1.1.0";
+const NOTICE_VERSION = "1.2.0";
 
 function UpdateNotice() {
   useWeLocale(); // 更新说明是长文案，语言切换后要跟着换（同一棵 RopeDock 子树）
@@ -3955,59 +4006,51 @@ function UpdateNotice() {
   };
   if (!show) return null;
   return React.createElement("div", { className: "we-update-notice", role: "alert" },
-    React.createElement("div", { className: "we-update-notice__title" }, weT("🎉 v1.1.0 更新：全新字体自定义系统上线 —— 专门治「界面文字看不清」")),
+    React.createElement("div", { className: "we-update-notice__title" }, weT("🎉 v1.2.0 更新：全新侧栏 UI —— 壁纸调节嵌入官方侧边栏")),
     React.createElement("div", { className: "we-update-notice__body" },
       React.createElement("p", null,
-        weT("自 1.0.1 以来的全部更新：")),
+        weT("自 1.1.0 以来的全部更新：")),
       React.createElement("p", null,
-        "① ", React.createElement("strong", null, weT("全新字体自定义系统（本次重点）")),
-        weT("：针对大家反馈的「界面字体看不清」，字体自定义全面重做——「外观」页签里可按"),
-        React.createElement("strong", null, weT("角色")),
-        weT("（正文 / 标题 / 次要文字 / 代码 / 表格…）和"),
-        React.createElement("strong", null, weT("组件")),
-        weT("（markdown 正文 / 代码块 / 终端 / 表格）分别调节"),
-        React.createElement("strong", null, weT("字号（绝对值）/ 字重 / 字体族")),
-        weT("，「只看改过的」默认开启，改哪看哪。新增"),
-        React.createElement("strong", null, weT("字体集")),
-        weT("：一整套字体外观存成预设（随包自带一份），可新建 / 重命名 / 删除，改任何一项只落到当前这一套、随时「恢复原样」，支持"),
-        React.createElement("strong", null, weT("导出 / 导入 .json")),
-        weT("（可分享、可备份）。")),
+        "⚠️ ", React.createElement("strong", null, weT("先说重要的：前置条件变更")),
+        weT("：本版起要求"),
+        React.createElement("strong", null, weT("DeepSeek Harness 桌面端（官方桌面端）≥ 0.2.0-rc.1")),
+        weT("；旧 DSH Desktop 2.0.x 内核"),
+        React.createElement("strong", null, weT("装不上本版本")),
+        weT("（插件市场会红标并拒绝安装）。已装 1.1.0 的旧桌面用户可继续使用，升级前请先换官方桌面端。")),
       React.createElement("p", null,
-        "② ", React.createElement("strong", null, weT("主题随壁纸（自动深 / 浅切换）")),
-        weT("：打开「外观 → 主题随壁纸」，换壁纸时插件自动判断壁纸亮暗、把全局界面切成深色或浅色——深壁纸上自动换深色界面，白字更清楚（默认关，想要自动化就打开）。")),
+        "① ", React.createElement("strong", null, weT("全新 UI：壁纸调节嵌入官方侧边栏")),
+        weT("：壁纸调节的额外窗口没有了——侧栏内三档页签（壁纸 / 外观 / 播放）+ 新增「壁纸属性」入口，与设置页"),
+        React.createElement("strong", null, weT("共用同一批渲染器和同一份状态")),
+        weT("，调什么两边即时一致；底栏入口随当前页签深链到设置页对应位置。")),
       React.createElement("p", null,
-        "③ ", React.createElement("strong", null, weT("换壁纸过场动画（7 种可选）")),
-        weT("：交叉淡化 / 推移 / 擦除 / 光圈 / 缩放 / 条带 / 百叶窗，类型 / 方向 / 速度自由搭配；默认仍是硬切，手动切换与自动轮播共用一套。")),
+        "② ", React.createElement("strong", null, weT("玻璃 UI 颜色可自定义")),
+        weT("：玻璃界面颜色随心调；新增"),
+        React.createElement("strong", null, weT("「左侧栏覆盖」开关（默认关）")),
+        weT("——打开后宿主原生左栏也套上同一套玻璃效果。所有玻璃配色经亮度钳制，正文对比度始终 ≥ 4.5:1。")),
       React.createElement("p", null,
-        "④ ", React.createElement("strong", null, weT("桌面端自动适配")),
-        weT("：「高级」页签新增「适配」段，自动识别你跑在"),
-        React.createElement("strong", null, weT("原生浏览器 / 非官方桌面端 / 官方桌面端（DeepSeek Harness）")),
-        weT("哪一种，检测不准时可手选覆盖。")),
+        "③ ", React.createElement("strong", null, weT("渲染内核更新")),
+        weT("：同步上游 WebWallGL 2.0.2 最新提交（引擎作者 oneincase）——修复音频检测识别不到专辑封面的问题；壁纸切换动画更加丝滑。")),
       React.createElement("p", null,
-        "⑤ ", React.createElement("strong", null, weT("实时帧行增强")),
-        weT("：不再受「实时渲染」开关限制，随时可重新截帧，并新增当前壁纸实时帧的微缩预览。")),
+        "④ ", React.createElement("strong", null, weT("修复一批")),
+        weT("：「壁纸引擎设置」入口点了没反应（宿主入口改名）、启动时停在静态垫底图、英文界面下宿主报错露中文、侧栏列表滚不动、拖色板 / 滑块发涩等。")),
       React.createElement("p", null,
-        "⑥ ", React.createElement("strong", null, weT("终端默认只报问题")),
-        weT("：日志收敛成三档（error / warn / info），桌面端默认安静；成功事实走独立提示通道；需要排查时再开 info 档。")),
+        React.createElement("strong", null, weT("💡 使用提示："))),
       React.createElement("p", null,
-        "⑦ ", React.createElement("strong", null, weT("修复一批")),
-        weT("：原生确认弹窗导致壁纸停摆、首次激活场景壁纸黑屏、启动等待期切壁纸卡死、右栏关闭态露玻璃板、软件渲染下玻璃不兜底、12 项资源泄漏等；渲染内核同步上游 WebWallGL 2.0.2（引擎作者 oneincase），上游多项渲染问题一并修复。")),
-      React.createElement("p", { className: "we-update-notice__hint" },
-        weT("💡 看不清文字？给你一套现成的调节方案（按省事程度排序）：")),
+        "❗❗❗ ", React.createElement("strong", null, weT("记得看看 设置 → 壁纸引擎 → 关于")),
+        weT("：仓库、交流群、致谢都在那里。")),
       React.createElement("p", null,
-        "1. ", React.createElement("strong", null, weT("换系统深色模式（首选）")),
-        weT("——深色模式自带的白色文字在绝大多数壁纸上都更清楚；懒得手动切就打开新功能「主题随壁纸」，让插件按壁纸自动换。")),
+        weT("官方 DSH 桌面端的窗口顶部有一条很宽的上边框——吉祥物不要缩得太小，缩得太小会导致点击无效。")),
       React.createElement("p", null,
-        "2. ", React.createElement("strong", null, weT("调壁纸透明度（最快）")),
-        weT("——「效果」页签 → 「壁纸透明度」往右拉，壁纸变淡、文字对比立刻上来，几秒钟见效，是日常最便捷快速的办法。")),
+        React.createElement("strong", null, weT("❗❗❗ 看不清字？按这个顺序调，立竿见影："))),
       React.createElement("p", null,
-        "3. ", React.createElement("strong", null, weT("精调字体（治本）")),
-        weT("——「外观」页签 → 字体自定义，把看不清的角色字号调大一档、字重加重；调好后「新建字体集（以当前外观）」存成自己的预设，随时一键切换、可导出分享。")),
+        "❗❗❗ ", React.createElement("strong", null, weT("第一步：先把系统设置切换到深色模式")),
+        weT("——深色模式自带白色文字，在绝大多数壁纸上立刻清楚一截。")),
       React.createElement("p", null,
-        "4. ", React.createElement("strong", null, weT("兜底")),
-        weT("——壁纸本身太亮太花时，配合「效果 → 暗化 / 壁纸模糊」与「雾化」强度；本版本还给玻璃面板上的正文加了"),
-        React.createElement("strong", null, weT("对比度下限（≥4.5:1）")),
-        weT("，再透也读得清。")),
+        "❗❗ ", React.createElement("strong", null, weT("第二步：调低壁纸「透明度」、加「暗化」")),
+        weT("——效果最直接，几秒钟见效。")),
+      React.createElement("p", null,
+        weT("第三步："), React.createElement("strong", null, weT("用「字体自定义」系统细调")),
+        weT("——按角色调字号 / 字重 / 字体族，可存成预设随时切换。")),
       React.createElement("p", { className: "we-update-notice__hint" },
         weT("本提示每个新版本只出现一次，点下方按钮关闭后不再弹出。")),
     ),
