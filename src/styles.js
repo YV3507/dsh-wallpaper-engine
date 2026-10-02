@@ -448,14 +448,21 @@ const CSS = `
      （浅色 neutral-bluish-00 / 深色 neutral-bluish-875），静态令牌缺席时退回字面量。 */
   /* 染色地板：--we-readability-base 是玻璃色经亮度钳制后的按主题版本
      （effects.js 的 weClampSurfaceColor 计算、--we-surface-tint-* 注入）
-     —— 色相跟随用户选择，亮度钳制保住 #82 的 ≥4.5:1 正文判据。缺省回落原值。 */
+     —— 色相跟随用户选择，亮度钳制保住 #82 的 ≥4.5:1 正文判据。缺省回落原值。
+     玻璃保真度（glassFidelity，默认 100）：--we-readability-floor = floor 常量
+     × --we-glass-fidelity（effects.js 注入 0–1，缺省 1 = 现状、任何旧设置文件
+     无此键时也不变）。拉低保真度 = 地板覆盖度同比例减薄 + 釉色向用户原色回退
+     （回退在 effects.js 的 weClampSurfaceColor 第三参），颜色更贴用户原色、
+     正文可读性让位 —— 这是唯一的权衡旋钮。 */
   body {
-    --we-readability-floor: ${READABILITY_FLOOR};
+    --we-readability-floor-base: ${READABILITY_FLOOR};
+    --we-readability-floor: calc(var(--we-readability-floor-base) * var(--we-glass-fidelity, 1));
     --we-readability-base: var(--we-surface-tint-light, #ffffff);
     --we-panel-color: var(--dsw-static-neutral-bluish-00, #ffffff);
   }
   body[data-ds-dark-theme] {
-    --we-readability-floor: ${READABILITY_FLOOR_DARK};
+    --we-readability-floor-base: ${READABILITY_FLOOR_DARK};
+    --we-readability-floor: calc(var(--we-readability-floor-base) * var(--we-glass-fidelity, 1));
     --we-readability-base: var(--we-surface-tint-dark, #0d1524);
     --we-panel-color: var(--dsw-static-neutral-bluish-875, #1e1f26);
   }

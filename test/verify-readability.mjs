@@ -170,9 +170,13 @@ function main() {
     CSS.length > 50000 && cssError === null,
     'css chars=' + CSS.length + ' · template error=' + JSON.stringify(cssError));
 
-  const lightVars = CSS.match(/body \{\s*--we-readability-floor:\s*([\d.]+);\s*--we-readability-base:\s*var\(--we-surface-tint-light, (#[0-9a-fA-F]{6})\);/);
-  const darkVars = CSS.match(/body\[data-ds-dark-theme\] \{\s*--we-readability-floor:\s*([\d.]+);\s*--we-readability-base:\s*var\(--we-surface-tint-dark, (#[0-9a-fA-F]{6})\);/);
-  check('F1c --we-readability-floor / --we-readability-base are declared for both themes (base = 染色地板 tint)',
+  // 玻璃保真度（glassFidelity）落地后 floor 是组合声明：常量进 --we-readability-floor-base，
+  // --we-readability-floor = base × var(--we-glass-fidelity, 1)。缺省回退 1 ⇒ 默认行为
+  // 与旧逐位声明完全一致；F1d 仍然锚定**常量**本体（无漂移判据不变）。
+  const FLOOR_COMPOSED = '--we-readability-floor: calc(var(--we-readability-floor-base) * var(--we-glass-fidelity, 1));';
+  const lightVars = CSS.match(/body \{\s*--we-readability-floor-base:\s*([\d.]+);\s*--we-readability-floor:\s*calc\(var\(--we-readability-floor-base\) \* var\(--we-glass-fidelity, 1\)\);\s*--we-readability-base:\s*var\(--we-surface-tint-light, (#[0-9a-fA-F]{6})\);/);
+  const darkVars = CSS.match(/body\[data-ds-dark-theme\] \{\s*--we-readability-floor-base:\s*([\d.]+);\s*--we-readability-floor:\s*calc\(var\(--we-readability-floor-base\) \* var\(--we-glass-fidelity, 1\)\);\s*--we-readability-base:\s*var\(--we-surface-tint-dark, (#[0-9a-fA-F]{6})\);/);
+  check('F1c --we-readability-floor(-base) / --we-readability-base are declared for both themes (base = 染色地板 tint)',
     lightVars !== null && darkVars !== null,
     'light=' + JSON.stringify(lightVars && [Number(lightVars[1]), lightVars[2]])
       + ' dark=' + JSON.stringify(darkVars && [Number(darkVars[1]), darkVars[2]]));
@@ -181,6 +185,9 @@ function main() {
       && Number(lightVars[1]) === FLOOR_JS.light && Number(darkVars[1]) === FLOOR_JS.dark,
     'css=' + JSON.stringify(lightVars && Number(lightVars[1])) + '/' + JSON.stringify(darkVars && Number(darkVars[1]))
       + ' js=' + FLOOR_JS.light + '/' + FLOOR_JS.dark);
+  check('F1e both theme blocks compose the floor with --we-glass-fidelity (default 1 = 逐位现状)',
+    CSS.split(FLOOR_COMPOSED).length === 3,
+    'composed declarations=' + (CSS.split(FLOOR_COMPOSED).length - 1) + ' (expect 2: light + dark)');
 
   // ── C0: the tint clamp (染色地板) ships as a pure function and holds its grid ──
   // 钳制实现必须随 bundle 交付且可独立复算 —— 抽出来对三个极端输入各跑一遍。
@@ -215,6 +222,34 @@ function main() {
   check('C0 the surface-tint clamp function ships in the bundle and clamps #000/#7f7f7f/#ffffff per theme',
     clampUsable,
     'extracted=' + (clampSrc !== null) + ' · tints=' + JSON.stringify(tintOf));
+
+  // ── C0f: 玻璃保真度分档（weClampSurfaceColor 第三参 fidelity，0–1）────────────
+  // 语义 = 两段式：先用满档地板跑完整红线的钳制（现状），再把结果向用户原色线性
+  // 回退。判据四条：缺省/1 = 与旧口径逐位一致（C 网格与现有玻璃判据因此不受扰动）；
+  // 0 = 原色直出；到原色的通道距离随 f **单调**下降（线性回退 ⇒ 无「中间档反而更
+  // 极端」的悬崖）；f=0.5 每通道**夹逼**在原色与完整钳制色之间（不塌端点纯色）。
+  let fidelityUsable = weClampSurfaceColor !== null;
+  let fidelityDetail = '';
+  if (weClampSurfaceColor) {
+    try {
+      const probe = '#00ccff';
+      const raw = hex2rgb(probe);
+      const dist = (hexOut) => hex2rgb(hexOut).reduce((s, v, i) => s + Math.abs(v - raw[i]), 0);
+      const defaultIsFull = ['light', 'dark'].every((t) => weClampSurfaceColor(probe, t) === weClampSurfaceColor(probe, t, 1));
+      const zeroPassesThrough = ['light', 'dark'].every((t) => weClampSurfaceColor(probe, t, 0) === probe);
+      const dists = [0, 0.25, 0.5, 0.75, 1].map((f) => dist(weClampSurfaceColor(probe, 'dark', f)));
+      const monotone = dists.every((d, i) => i === 0 || d >= dists[i - 1]);
+      const fullL = hex2rgb(weClampSurfaceColor(probe, 'light', 1));
+      const midL = hex2rgb(weClampSurfaceColor(probe, 'light', 0.5));
+      const sandwiched = midL.every((v, i) => v >= Math.min(fullL[i], raw[i]) && v <= Math.max(fullL[i], raw[i]));
+      fidelityUsable = defaultIsFull && zeroPassesThrough && monotone && sandwiched;
+      fidelityDetail = 'default==f1:' + defaultIsFull + ' · f0原色直出:' + zeroPassesThrough
+        + ' · 单调回退:' + monotone + ' (dark dists=' + dists.join('/') + ')'
+        + ' · f0.5夹逼:' + sandwiched;
+    } catch (e) { fidelityUsable = false; fidelityDetail = String(e && e.message); }
+  }
+  check('C0f the fidelity tier: default byte-identical, 0 passes the raw color, the lerp toward raw is monotone and sandwiched',
+    fidelityUsable, fidelityDetail);
 
   // ── C0b: accent 墨色（issue #127）——纯函数随 bundle 交付，且逐色过对比度闸 ─────
   // 宿主 primary 控件的契约是「填充 × label-primary-foreground 反色墨」成对翻转；

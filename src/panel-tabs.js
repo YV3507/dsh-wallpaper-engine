@@ -519,7 +519,7 @@
 
 
   function renderAppearanceThemeSection(ctx) {
-    const { onAccent, onGlassAlpha, onGlassColor, onLeftSidebarGlass, onToggleThemeFollow, sel } = ctx;
+    const { onAccent, onGlassAlpha, onGlassColor, onGlassFidelity, onLeftSidebarGlass, onToggleThemeFollow, sel } = ctx;
     return React.createElement(React.Fragment, null,
     // ── 主题：配色（accent）+ 玻璃基底（颜色/透明度）──
     React.createElement("div", { className: "we-picker__section" },
@@ -543,6 +543,14 @@
       // color tints the whole window glass in BOTH themes.
       swatchRow(weT("玻璃颜色"), GLASS_COLOR_PRESETS, sel.glassColor, onGlassColor, { key: "glass-color" }),
       SliderRow(weT("玻璃透明度"), 0, 60, 5, sel.glassAlpha, onGlassAlpha, sel.glassAlpha + "%"),
+      // 玻璃保真度（默认 100 = 完整可读性红线）：唯一的「颜色 vs 可读」权衡旋钮。
+      // 100 = 玻璃色经亮度钳制保正文 ≥4.5:1（深色压暗 / 浅色提亮的现状）；拉低 =
+      // 釉色向用户原色线性回退（单调，中间档不会更黑/更白）+ 地板层覆盖度同比例
+      // 减薄，正文在极端壁纸上可读性让位；0 = 原色直出不钳制。数学入口
+      // weClampSurfaceColor 第三参 + --we-glass-fidelity。
+      SliderRow(weT("玻璃保真度"), 0, 100, 5, sel.glassFidelity, onGlassFidelity, sel.glassFidelity + "%", "glass-fidelity", {
+        tooltip: weT("100 = 完整可读性红线（默认）：自定义玻璃色经亮度钳制，正文对比度始终 ≥4.5:1 —— 深色主题下颜色被压暗、浅色主题下被提亮。拉低后颜色更贴你选的原色，但正文在极端明暗的壁纸上可能看不清；看不清字时把本项拉回 100，或按「看不清字三步」调节。"),
+      }),
       // 左侧栏覆盖（默认关）：宿主原生左栏（会话列表 / 工作区那一列）在壁纸下只是
       // 「透明的洞」—— 壁纸原样透出，本页的玻璃参数一个都到不了它。打开后这一列也
       // 走同一张配方表（配色 / 玻璃颜色 / 玻璃透明度 / 雾化 / 边框），细节见

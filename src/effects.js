@@ -127,12 +127,26 @@ function weAccentInk(hex) {
 //   浅色最坏 = color·(F + 0.10·(1−F))                               （黑背衬、同 alpha）
 // 其中 0.10 = 玻璃透明度滑杆拉满后的 --we-glass-alpha（见 applyEffects 的曲线），
 // 两处数字必须同步改。纯函数：verify-readability 会从 bundle 里抽出本函数复算网格。
-function weClampSurfaceColor(hex, theme) {
+//
+// 第三参 fidelity（0–1，缺省 1 = 完整红线）：玻璃保真度滑杆（glassFidelity）
+// 的数学入口。语义是**两段式**：先用满档地板跑一遍完整红线的钳制（= f=1 的现状，
+// 逐位），再把结果向用户原色线性回退 —— f=1 逐位现状、f=0 原色直出，中间档单调，
+// 不存在「降保真度反而更黑/更白」的悬崖。地板层覆盖度的减薄在 styles.js
+//（--we-readability-floor = 常量 × --we-glass-fidelity），两处同一滑杆、各管一半：
+// 这里管釉色本身的回退，那里管地板覆盖度。两处的组合效果（合成对比度随保真度
+// 单调下降）由 verify-readability C0f 钉住。
+function weClampSurfaceColor(hex, theme, fidelity) {
   const m = /^#?([0-9a-fA-F]{6})$/.exec(String(hex || ""));
   if (!m) return theme === "dark" ? "#0d1524" : "#ffffff";
+  const fidNum = Number(fidelity);
+  const f = (fidelity === undefined || fidelity === null) ? 1
+    : (Number.isFinite(fidNum) ? Math.min(1, Math.max(0, fidNum)) : 1);
   const rgb = [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16));
   const s2l = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
   const lum = (c) => 0.2126 * s2l(c[0]) + 0.7152 * s2l(c[1]) + 0.0722 * s2l(c[2]);
+  // ── 第一段：完整红线的钳制 ────────────────────────────────────────────────
+  // 地板权重用**满档常量**（不是减薄后的值）：这一步回答的是「这个颜色在完整
+  // 地板下能不能直出」，与保真度无关 —— 保真度只影响下一步的回退幅度。
   const F = theme === "dark" ? 0.59 : 0.45;
   // 最坏 alpha：最透档（滑杆 60 → --we-glass-alpha 0.10）× 深色主题的 0.4 层因子
   //（与样式表深色 composer 卡的 rgba(255,255,255, calc(--we-glass-alpha * 0.4)) 同源）。
@@ -148,16 +162,23 @@ function weClampSurfaceColor(hex, theme) {
     return contrast >= 4.6;
   };
   const toHex = (c) => "#" + c.map((v) => Math.round(v).toString(16).padStart(2, "0")).join("");
-  if (passes(rgb)) return toHex(rgb);
-  const target = theme === "dark" ? [0, 0, 0] : [255, 255, 255];
-  let lo = 0;  // 不合格端
-  let hi = 1;  // 合格端（纯黑/纯白必过：深色 5.79:1、浅色 4.67:1）
-  for (let i = 0; i < 12; i++) {
-    const t = (lo + hi) / 2;
-    const c = rgb.map((v, j) => v * (1 - t) + target[j] * t);
-    if (passes(c)) hi = t; else lo = t;
+  let clamped = rgb;
+  if (!passes(rgb)) {
+    const target = theme === "dark" ? [0, 0, 0] : [255, 255, 255];
+    let lo = 0;  // 不合格端
+    let hi = 1;  // 合格端（纯黑/纯白必过：深色 5.79:1、浅色 4.67:1）
+    for (let i = 0; i < 12; i++) {
+      const t = (lo + hi) / 2;
+      const c = rgb.map((v, j) => v * (1 - t) + target[j] * t);
+      if (passes(c)) hi = t; else lo = t;
+    }
+    clamped = rgb.map((v, j) => v * (1 - hi) + target[j] * hi);
   }
-  return toHex(rgb.map((v, j) => v * (1 - hi) + target[j] * hi));
+  // ── 第二段：向用户原色线性回退 ────────────────────────────────────────────
+  // f=1 → 完整钳制色（现状逐位）；f=0 → 原色。逐通道线性 ⇒ 色相保真随档位单调
+  // 改善，中间档严格夹在两端之间（verify-readability C0f 钉死单调性与夹逼）。
+  if (f >= 1) return toHex(clamped);
+  return toHex(clamped.map((v, j) => v * f + rgb[j] * (1 - f)));
 }
 
 function applyEffects(opts) {
@@ -281,16 +302,23 @@ function applyEffects(opts) {
   // - 染色地板：按主题把玻璃色钳制进可读亮度带，供样式表的
   //   --we-readability-base（地板层）与全部 frost 槽位消费 —— 对话框/侧栏等
   //   宿主表面由此拿到**用户的色相**而非主题白/黑，正文对比度判据不变。
-  s.setProperty("--we-surface-tint-light", weClampSurfaceColor(selection.glassColor, "light"));
-  s.setProperty("--we-surface-tint-dark", weClampSurfaceColor(selection.glassColor, "dark"));
+  //   保真度 < 100 时釉色向原色线性回退（见 weClampSurfaceColor 第三参）。
+  // - 玻璃保真度（0–100，默认 100 = 完整红线）：同一标量喂两处消费 —— styles.js
+  //   的 --we-readability-floor（地板覆盖度）与 weClampSurfaceColor（釉色向原色
+  //   的回退幅度）。两处必须同源，滑杆才是一个旋钮。
+  const fidNum = Number(selection.glassFidelity);
+  const glassFidelity = Number.isFinite(fidNum) ? Math.min(1, Math.max(0, fidNum / 100)) : 1;
+  s.setProperty("--we-glass-fidelity", String(glassFidelity));
+  s.setProperty("--we-surface-tint-light", weClampSurfaceColor(selection.glassColor, "light", glassFidelity));
+  s.setProperty("--we-surface-tint-dark", weClampSurfaceColor(selection.glassColor, "dark", glassFidelity));
   // RGB 三元组形式：给 rgba() 槽位用（消息气泡 / 输入框的白釉染色）。
   // ⚠️ 下标 [0,2,4] —— 6 位 hex 不带 '#'，[1,3,5] 是带 '#' 时代的错位写法。
   const toRgbTriple = (hex) => {
     const m = /^#?([0-9a-fA-F]{6})$/.exec(String(hex || ""));
     return m ? [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16)).join(", ") : "255, 255, 255";
   };
-  s.setProperty("--we-surface-tint-rgb-light", toRgbTriple(weClampSurfaceColor(selection.glassColor, "light")));
-  s.setProperty("--we-surface-tint-rgb-dark", toRgbTriple(weClampSurfaceColor(selection.glassColor, "dark")));
+  s.setProperty("--we-surface-tint-rgb-light", toRgbTriple(weClampSurfaceColor(selection.glassColor, "light", glassFidelity)));
+  s.setProperty("--we-surface-tint-rgb-dark", toRgbTriple(weClampSurfaceColor(selection.glassColor, "dark", glassFidelity)));
   // - Master switch for the WHOLE native settings window: when on, the dialog
   //   (nav + every native section) becomes liquid glass with the accent +
   //   transparency above. Toggled instantly via a body attribute the scoped
