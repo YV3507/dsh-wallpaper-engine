@@ -330,12 +330,12 @@ console.log('\n③ 共享内核白名单：INLINE_MODULES 里非 src/ 的项只�
 // 为什么需要：把一段代码从 `lib/index.js` 搬进 `lib/routes/` 时，块里的相对说明符会**按新位置
 // 重新解析**。静态 import 走这一步会在加载期直接抛（响亮、易查），而**动态 `import()` 的拒绝是
 // 运行期、且常被 try/catch 吞成业务错误** —— 实测：scene 帧提取的那句
-// `await import('./pkg-extract.js')` 搬进 `lib/routes/` 后指向一个不存在的文件，最终表现是
+// `await import('./pkg-read.js')` 搬进 `lib/routes/` 后指向一个不存在的文件，最终表现是
 // 《无可用纹理》的 422，看起来像数据问题而不是路径问题。所以判据按"说明符必须解析到真实文件"。
 console.log('\n④ 相对说明符必须解析到真实文件');
 {
   // Node 式解析：说明符可以省略扩展名（`require('./lib/encoder')` ⇒ `./lib/encoder.js`），
-  // 也可以落在一个目录的 index 上。只做"存在性"是错的判据 —— vendored 的 jpeg-js 正是这种写法。
+  // 也可以落在一个目录的 index 上。只做"存在性"是错的判据。
   const resolves = (rel) => {
     const abs = join(ROOT, rel);
     try { if (existsSync(abs) && statSync(abs).isFile()) return true; } catch { /* 继续探测 */ }
@@ -382,10 +382,10 @@ console.log('\n④ 相对说明符必须解析到真实文件');
     .filter((r) => r && !resolves(r));
   check('负对照：指向不存在文件的相对 import 会被判出',
     probe.length === 1 && probe[0] === 'lib/routes/does-not-exist.js', 'probe=' + probe.join(','));
-  // 负对照 2：省略扩展名的合法说明符**不得**被判缺失（vendored 的 jpeg-js 就是这种写法）
+  // 负对照 2：省略扩展名的合法说明符**不得**被判缺失
   check('负对照：省略扩展名的真实文件会被正确解析',
-    resolves('lib/vendor/jpeg-js/lib/encoder') && resolves('lib/routes/no-such-module') === false,
-    'encoder=' + resolves('lib/vendor/jpeg-js/lib/encoder') + ' 不存在的=' + resolves('lib/routes/no-such-module'));
+    resolves('lib/pkg-read') && resolves('lib/routes/no-such-module') === false,
+    'pkg-read=' + resolves('lib/pkg-read') + ' 不存在的=' + resolves('lib/routes/no-such-module'));
   // 负对照 3：合成夹具字符串**不得**被当成真说明符（否则这条判据在开发面必然假红）
   check('负对照：守卫负对照里的合成 import 字符串不会被误判',
     devSpecifiers('    "import a from \'../../src/a.js\';",').length === 0

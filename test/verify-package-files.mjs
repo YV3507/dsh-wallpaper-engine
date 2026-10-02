@@ -142,7 +142,7 @@ async function main() {
   // ── P3: 具名运行时入口必须在磁盘上且被收录 (防文件被删后 P1 空转通过) ────────
   {
     const required = [
-      'lib/index.js', 'lib/client.js', 'lib/pkg-extract.js',
+      'lib/index.js', 'lib/client.js', 'lib/http-body.js', 'lib/pkg-read.js',
     ];
     const absent = required.filter((rel) => !libFiles.includes(rel));
     const unlisted = required.filter((rel) => libFiles.includes(rel) && !files.some((e) => coveredBy(rel, e)));
@@ -204,14 +204,15 @@ async function main() {
     check('P7 negative control: 目标不存在时报出、省略扩展名时解析到实体',
       resolveRelative('lib/index.js', './definitely-absent.js') === null
       && resolveRelative('lib/index.js', './__absent__') === null
-      && resolveRelative('lib/index.js', './pkg-extract') === join(ROOT, 'lib', 'pkg-extract.js'));
+      && resolveRelative('lib/index.js', './pkg-read') === join(ROOT, 'lib', 'pkg-read.js'));
   }
 
   // ── P4: 声明的依赖必须有消费者 (防"死声明") ──────────────────────────────────
-  // 本仓库的运行时策略是**自带副本**（lib/vendor/jpeg-js、lib/webgl…），因此
+  // 本仓库的运行时策略是**自带副本**（`lib/webwallgl/` 这类 vendored 目录），因此
   // package.json 里每一条 `dependencies` 都必须在 lib/ 里真的被 import ——
-  // 否则它只是给用户装了一个永远不会被 require 的包（jpeg-js 就是这样的一种情况：
-  // 代码只 import './vendor/jpeg-js/index.js'，裸包名在 link: 安装下根本解析不到）。
+  // 否则它只是给用户装了一个永远不会被 require 的包。历史上这里真有这么一条：
+  // 代码只 import 一份相对路径的自带副本，裸包名在 link: 安装下根本解析不到；
+  // 那份副本与它的唯一消费者已一并退役（见 `test/verify-retired-lines.mjs` ④）。
   // 注意口径：这里只断言"声明有消费者"，**不断言可达**（可达性属 P2-12 的活）。
   {
     const deps = Object.keys(pkg.dependencies || {});
@@ -221,7 +222,7 @@ async function main() {
       .join('\n');
     // 消费者判据（与 P5 的裸依赖扫描同一口径）：源码里的 from / 动态 import() / require()
     // 三种形态各接一个引号包裹的依赖名，且名字后紧跟斜杠或收尾引号 —— 前缀相近的名字
-    // （jpeg-js-extra）不算消费者。声明名本身是内置模块或相对路径时不算：那种声明在 Node
+    // （`foo-extra` 与 `foo` 不是同一个包）不算消费者。声明名本身是内置模块或相对路径时不算：那种声明在 Node
     // 解析下拿不到包（内置模块名命中的是内置模块，不是装进来的包）。
     const consumerRe = (dep) => new RegExp(
       '(?:from\\s+|import\\s*\\(\\s*|require\\s*\\(\\s*)[\'"]'
@@ -322,7 +323,7 @@ async function main() {
   // 判据边界（与 ADR-0006 一致）：它读的是**产物字节**，不是散文措辞 —— 属于"读代码的守卫"。
   // 本条的前身是 `verify-comment-discipline` 里那段"硬编码 5 个文件"的 BOM 检查，
   // 随该守卫撤除；那次撤除让 `lib/routes/fontsets.js` 带着 BOM 无人看管
-  //（`docs/wip/POST-REFACTOR-AUDIT.md` §4.9 早就点出那个盲区）。这里改按扩展名全扫，不再硬编码名单。
+  //（`docs/archive/wip/POST-REFACTOR-AUDIT.md` §4.9 早就点出那个盲区）。这里改按扩展名全扫，不再硬编码名单。
   {
     const BOM = [0xEF, 0xBB, 0xBF];
     const PARSED_EXT = ['.js', '.mjs', '.cjs', '.json', '.ts', '.html'];

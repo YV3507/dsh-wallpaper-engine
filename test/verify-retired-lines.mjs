@@ -152,6 +152,64 @@ const SF_BASELINE = [];
       : found.size > 0));
 }
 
+// ── ④ TEX 抽取线：`lib/pkg-extract.js` 整体退役（零残留）──────────────────────
+//
+// P2-12 删掉静态帧线之后，那个模块的 TEX→RGBA 解码链（`decodeTex` 及其全部解码助手）、
+// 内嵌 PNG 载荷解码与内嵌 MP4 抽取**都没有调用者**了。它为什么活了那么久，值得记一笔：
+//   · 宿主唯一的两处 `await import('./pkg-extract.js')` 只用 `parsePkg` / `readPkgEntry` ——
+//     而那两个本来就是 `lib/pkg-read.js` re-export 出来的 ⇒ 改指 pkg-read 即可；
+//   · `lib/scene-manifest.js` 从头到尾 import 的是 `./pkg-read.js`，它对 pkg-extract 的
+//     唯一提及是**注释里的一句话**。一次只读审计据此把它判成"仍被使用、**别误删**" ——
+//     那是**把注释当调用读**（本仓"判据只针对代码、先剥注释"的同一条教训在**读代码**上的翻版）。
+//   · 当年真正钉住它的是账本守卫里一条"活依赖存活"断言（检查字符串
+//     `function extractTexVideoMp4(` 存在）—— **一条守卫把一个没有调用者的函数钉成了活依赖**；
+//     该守卫随 ADR-0006 下线后，删除的唯一阻碍也就没了。
+// ⇒ 模块整体删除，容器原语保持**唯一实现** `lib/pkg-read.js`（P3-17 的收口方向不变）。
+//
+// 判据：下列名字在**扫描面**（lib/ src/ scripts/ test/）零残留。名单只许缩小；
+// 基线为空 ⇒ 没有任何豁免（连"为了断言它不在"而点名它的检验者也不需要 —— 本文件自己
+// 在扫描面之外，见 FILES 的过滤）。
+// ⚠️ `lib/vendor` **不在**名单里：那是**约定**允许的第三方副本落点（CODE-STRUCTURE §5），
+//    退役的是 vendored 的**那一份 jpeg-js**，不是这个目录概念。
+const TEX_EXTRACT_VOCAB = [
+  'pkg-extract',        // 模块名（import 说明符 / package.json 的 files 条目 / 任何再引用）
+  'decodeTex',          // 前缀相同 ⇒ 一并覆盖 decodeTexToRgba
+  'extractTexVideoMp4',
+  'decodePngPayload',
+  'PNG_GATE_MAX_PIXELS',
+  'jpegJs',             // vendored 解码器的唯一消费者随该链一起走
+  'jpeg-js',
+];
+{
+  const found = new Map(); // file -> 命中的退役词
+  for (const f of FILES) {
+    const s = read(f);
+    const hit = TEX_EXTRACT_VOCAB.filter((v) => s.includes(v));
+    if (hit.length) found.set(f, hit);
+  }
+  check('TEX 抽取线零残留（lib/pkg-extract.js 与其 vendored jpeg-js 已整体删除）',
+    found.size === 0,
+    found.size ? '命中 ' + found.size + ' 个文件：'
+      + [...found.entries()].slice(0, 4).map(([f, v]) => f + '[' + v.join('|') + ']').join(', ')
+      : '零残留（' + TEX_EXTRACT_VOCAB.length + ' 个退役词 × ' + FILES.length + ' 个文件）');
+
+  check('lib/pkg-extract.js 已删除', !existsSync(ROOT + 'lib/pkg-extract.js'));
+  check('vendored jpeg-js 副本已删除', !existsSync(ROOT + 'lib/vendor/jpeg-js'));
+  const pkg = JSON.parse(read('package.json'));
+  check('package.json `files` 不再收录 pkg-extract.js / vendor 副本',
+    !(pkg.files || []).includes('lib/pkg-extract.js')
+    && !(pkg.files || []).some((f) => f.includes('vendor')));
+
+  // 负对照：走**同一个** needle 判据（不是断言"常量包含它自己"）。
+  const texHit = (s) => TEX_EXTRACT_VOCAB.filter((n) => s.includes(n));
+  check('negative control: 退役词会被同一判据判出',
+    texHit("const x = extractTexVideoMp4(y)").length === 1
+    && texHit("import { a } from './pkg-read.js'").length === 0);
+  check('needle 非空且本文件确实点名它们（防"零残留"退化成恒真）',
+    TEX_EXTRACT_VOCAB.length >= 5
+    && TEX_EXTRACT_VOCAB.every((v) => read('test/verify-retired-lines.mjs').includes(v)));
+}
+
 // ── ③ **已撤除**（当时守的是 UI 笔误「秡」与状态行措辞，P0-4）────────────────────
 //
 // 这里原本有两条判据：

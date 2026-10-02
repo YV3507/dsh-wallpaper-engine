@@ -585,15 +585,18 @@ if (token) {
     const expr = (new RegExp('const ' + name + ' = ([^;]+);').exec(hostSrc) || [])[1] || '';
     return /^[\d\s*+()]+$/.test(expr) ? Number(new Function('return (' + expr + ')')()) : 0;
   };
+  // `needle` 钉的是"这条路由的上限**在哪**"。P4-13 把 8 条收 body 管道收敛进了
+  // `lib/http-body.js`，上限表达式随之从内联回调里的 `size > X` 变成调用点的 `maxBytes: X`
+  // —— 判据跟着**改指同一个事实**（这条路由的上限就是这个常量），不是放宽。
   const ABORT_CASES = [
     { label: 'scene-frame-cache PUT', route: '/wallpaper-engine/scene-frame-cache', method: 'PUT',
-      cap: constNum('GPU_FRAME_MAX_BYTES'), needle: 'size > GPU_FRAME_MAX_BYTES',
+      cap: constNum('GPU_FRAME_MAX_BYTES'), needle: 'maxBytes: GPU_FRAME_MAX_BYTES',
       headers: { 'content-type': 'image/png' } },
     { label: 'live-frame POST', route: '/wallpaper-engine/live-frame', method: 'POST',
-      cap: constNum('LIVE_FRAME_MAX_BYTES') || 4 * 1024 * 1024, needle: 'size > 4 * 1024 * 1024',
+      cap: constNum('LIVE_FRAME_MAX_BYTES') || 4 * 1024 * 1024, needle: 'maxBytes: 4 * 1024 * 1024',
       headers: { 'content-type': 'image/png' } },
     { label: 'settings PUT', route: '/wallpaper-engine/settings', method: 'PUT',
-      cap: constNum('SETTINGS_MAX_BYTES'), needle: 'body.length > SETTINGS_MAX_BYTES',
+      cap: constNum('SETTINGS_MAX_BYTES'), needle: 'maxBytes: SETTINGS_MAX_BYTES',
       headers: { 'content-type': 'application/json' } },
   ];
   // ServerResponse 的刷出语义：end() 只把 writableEnded 置真，'finish' 要等真正 flush。
@@ -699,15 +702,106 @@ if (token) {
 {
   const hostSrc = readFileSync(join(root, 'lib', 'index.js'), 'utf8');
   const derivations = hostSrc.match(/Buffer\.from\(abs, 'utf8'\)\.toString\('base64url'\)/g) || [];
-  const slotBody = hostSrc.slice(hostSrc.indexOf('function sceneFrameSlot('), hostSrc.indexOf('function sceneFrameSlotFile('));
+  /**
+   * 取一个顶层函数的函数体：起点锚 `function <name>(`，终点锚 `function <nextName>(`。
+   * ⚠️ 终点锚**必须真实存在，且缺锚要判红**（返回 null）：此处此前把终点写成
+   * `sceneFrameSlotFile`（全仓不存在）⇒ `indexOf` 返回 −1 ⇒ `slice(start, −1)` 一直扫到
+   * 文件末尾 —— 判据从"函数体内"退化成"文件余下所有内容"，却照样报绿。
+   * 这正是 P3-16 那类"判据空转"的又一实例：**锚点漂了没人发现**。
+   */
+  const fnBody = (srcText, name, nextName) => {
+    const start = srcText.indexOf('function ' + name + '(');
+    const end = srcText.indexOf('function ' + nextName + '(');
+    if (start === -1 || end === -1 || end <= start) return null;
+    return srcText.slice(start, end);
+  };
+  const slotBody = fnBody(hostSrc, 'sceneFrameSlot', 'gpuFrameFileFor');
+  check('判据锚点在位：sceneFrameSlot 的函数体取到了边界（缺锚即红，不许退化成扫全文）',
+    slotBody !== null,
+    slotBody ? 'len=' + slotBody.length : '锚点缺失（sceneFrameSlot / gpuFrameFileFor 改名了？）');
+  check('负对照：终点锚缺失时 fnBody 返回 null（判据有牙，不会静默扫全文）',
+    fnBody('function a() {}\n', 'a', 'doesNotExist') === null);
   check('P1-6 每种缓存各只有一个键派生点（当前 3 种：帧 / 场景音频 / 场景视频）',
     derivations.length === 3,
     '派生点 ' + derivations.length + ' 处');
   check('P1-6 sceneFrameSlot 复用 sceneFrameCacheKey 且不再自带版本前缀',
-    slotBody.includes('sceneFrameCacheKey(abs, mtime)') && !slotBody.includes('LIVE_FRAME_KEY_VERSION'),
-    'reuse=' + slotBody.includes('sceneFrameCacheKey(abs, mtime)') + ' versionInSlot=' + slotBody.includes('LIVE_FRAME_KEY_VERSION'));
+    slotBody !== null && slotBody.includes('sceneFrameCacheKey(abs, mtime)') && !slotBody.includes('LIVE_FRAME_KEY_VERSION'),
+    'reuse=' + (slotBody !== null && slotBody.includes('sceneFrameCacheKey(abs, mtime)')) + ' versionInSlot=' + (slotBody !== null && slotBody.includes('LIVE_FRAME_KEY_VERSION')));
   check('P1-6 negative control: 再写一份派生会被数出来',
     (hostSrc + "\nconst x = Buffer.from(abs, 'utf8').toString('base64url');").match(/Buffer\.from\(abs, 'utf8'\)\.toString\('base64url'\)/g).length === derivations.length + 1);
+
+  // ── 槽位只给唯一产物（反向探针：删掉的死字段不许爬回来）─────────────────────
+  // `sceneFrameSlot` 曾返回 `pngPath` / `jpgPath` / `gifPath` / `dir` 与一个 `_vN` 档位后缀，
+  // 而那些**都没有消费者**（静态帧提取线的遗留）；档位后缀还让"档 4"那次调用白做一次
+  // `statSync` + `ensureFrameCacheDir()`。这条判据钉住"只有一个产物 + 档位语义不在槽位里"。
+  const DEAD_SLOT_FIELDS = ['pngPath', 'jpgPath', 'gifPath', 'slot.dir'];
+  const slotDeadHits = (srcText) => DEAD_SLOT_FIELDS.filter((f) => srcText.includes(f));
+  // 扫描面 = lib/**（死字段若从别处爬回来同样要红）。
+  // ⚠️ **先剥注释再判**（规则 ⑦，用共享的字符串感知实现）：解释"这些字段为什么被删"的注释
+  // 必须能点名它们 —— 否则守卫会逼着后来人删掉那条解释，把"为什么"从代码里抹掉。
+  const libSources = (() => {
+    const out = [];
+    (function walk(dir) {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, e.name);
+        if (e.isDirectory()) {
+          if (/vendor|webwallgl/.test(e.name)) continue; // 第三方副本不归我们管
+          walk(p);
+        } else if (/\.(js|mjs)$/.test(e.name) && e.name !== 'client.js') {
+          out.push(stripComments(readFileSync(p, 'utf8')));
+        }
+      }
+    })(join(root, 'lib'));
+    return out;
+  })();
+  check('P4-16 槽位的死字段（pngPath / jpgPath / gifPath / dir）在 lib/ 里零残留',
+    slotDeadHits(libSources.join('\n')).length === 0,
+    slotDeadHits(libSources.join('\n')).join(', ') || '零残留');
+  check('P4-16 negative control: 死字段判据有牙',
+    slotDeadHits('return { key, pngPath: join(dir, key + ".png") };').length === 1
+    && slotDeadHits('return { key, gpuPath: join(dir, key + "_gpu.png") };').length === 0);
+  /**
+   * 取 `return { … }` 的对象字面量（花括号配对）；数它**顶层**的字段数。
+   * 为什么要数而不是按名字判：`dir` 这种名字在本函数里**合法地**作为局部变量出现
+   *（`const dir = ensureFrameCacheDir()`），所以"按名字禁 `dir`"是错的判据；
+   * 而"返回里多了个字段"用**数量**判既准确又稳定（加一个就红）。
+   */
+  const returnLiteral = (body) => {
+    if (!body) return null;
+    const at = body.indexOf('return {');
+    if (at === -1) return null;
+    const open = body.indexOf('{', at);
+    let depth = 0;
+    for (let i = open; i < body.length; i++) {
+      if (body[i] === '{') depth++;
+      else if (body[i] === '}') { depth--; if (depth === 0) return body.slice(open, i + 1); }
+    }
+    return null;
+  };
+  const fieldCount = (lit) => {
+    if (!lit) return -1;
+    let depth = 0, n = 1, sawContent = false;
+    for (let i = 1; i < lit.length - 1; i++) {
+      const ch = lit[i];
+      if (ch === '{' || ch === '(' || ch === '[') depth++;
+      else if (ch === '}' || ch === ')' || ch === ']') depth--;
+      else if (ch === ',' && depth === 0) n++;
+      else if (!/\s/.test(ch)) sawContent = true;
+    }
+    return sawContent ? n : 0;
+  };
+  const slotRet = returnLiteral(slotBody);
+  check('P4-16 槽位返回**恰好两个字段**（key + gpuPath；加一个就红）',
+    fieldCount(slotRet) === 2,
+    slotRet ? 'fields=' + fieldCount(slotRet) + ' → ' + slotRet.replace(/\s+/g, ' ') : '取不到 return { … }');
+  check('P4-16 negative control: 字段计数判据有牙',
+    fieldCount('{ key, dir, gpuPath: 1 }') === 3 && fieldCount('{ key, gpuPath: 1 }') === 2
+    && fieldCount('{ key, gpuPath: join(dir, key + "_gpu.png") }') === 2);
+  check('P4-16 sceneFrameSlot 不带档位参数、也不拼 `_v` 后缀（档位语义归调用方）',
+    slotBody !== null && /function sceneFrameSlot\(\s*abs\s*\)/.test(slotBody) && !slotBody.includes("'_v'"),
+    slotBody === null ? '锚点缺失' : 'arity-ok=' + /function sceneFrameSlot\(\s*abs\s*\)/.test(slotBody));
+  check('P4-16 档 4 豁免抓帧时**不解析槽位**（不留那次白做的 statSync + ensureFrameCacheDir）',
+    /variant === 4 \? null : gpuFrameFileFor\(sceneFrameSlot\(abs\)\)/.test(readFileSync(join(root, 'lib', 'routes', 'scene-frame.js'), 'utf8')));
 }
 
 if (typeof dispose === 'function') dispose();

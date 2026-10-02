@@ -2410,9 +2410,18 @@ setTimeout(async () => {
 {
   const tabsSrc2 = readFileSync(new URL('../src/panel-tabs.js', import.meta.url), 'utf8');
   const storeSrc = readFileSync(new URL('../src/client.js', import.meta.url), 'utf8');
-  const tabRefs = (tabsSrc2.match(/(^|[^.\w$])selection\.|persistSelection/g) || []).length;
+  // ⚠️ **先剥注释再判**（规则 ⑦）：本文件头的契约注释必须能点名 `selection.` / `editing` 才能把
+  // "为什么不许写"讲清楚 —— 不剥注释的判据会逼着后来人删掉那条解释（把"为什么"从代码里抹掉）。
+  // 这一条与下面 `seamCrossings` 的口径现在一致（那里本来就剥）：判据只针对**代码**。
+  const tabRefs = (stripComments(tabsSrc2).match(/(^|[^.\w$])selection\.|persistSelection/g) || []).length;
   assert.equal(tabRefs, 0,
     '页签不得直接读写 selection / persistSelection（必须走 ctx 的 setSetting / setTransient）');
+  assert.equal((stripComments(tabsSrc2).match(/(^|[^.\w$])selection\./g) || []).length, 0,
+    '负对照：剥注释后页签仍不得出现 `selection.`（同一判据对代码有牙）');
+  assert.equal((stripComments('// selection.x = 1;\nconst a = 1;\n').match(/(^|[^.\w$])selection\./g) || []).length, 0,
+    '负对照：注释里的 `selection.` 不得被算作违规');
+  assert.equal((stripComments('selection.x = 1;').match(/(^|[^.\w$])selection\./g) || []).length, 1,
+    '负对照：代码里的 `selection.` 必须被算作违规');
   const pairs = (storeSrc.match(/selection\.[A-Za-z_$][\w$]*\s*=[^=][^\n]*persistSelection\(\);/g) || []).length;
   assert.equal(pairs, 0, 'client.js 里不许再有手抄的"赋值 + persistSelection()"（当前 ' + pairs + ' 处）');
   assert.ok(/function setSetting\(field, value\) \{\s*\n\s*selection\[field\] = value;\s*\n\s*persistSelection\(\);/.test(storeSrc),
@@ -2449,6 +2458,13 @@ setTimeout(async () => {
       anchor: ['function renderPickerModal(ctx)', 'we-picker__modal-head'] },
     { file: '../src/picker-props-panel.js', user: '属性面板',
       anchor: ['function renderPickerPropsPanel(ctx)', 'we-picker__props-row'] },
+    // P4-15：`panel-tabs.js` 此前**不在**这张表里 —— 它用的是上面那条更弱的判据（只数
+    // `selection.` 字面量），于是三类越界全都漏过去了：直接 `emit()`、写模块状态
+    //（`propsPanelOpen = !propsPanelOpen`）、改 ctx 别名的子对象（`editing.name = …`）。
+    // 同一批"搬出去的渲染器"必须**同一条口径**，否则接缝纪律只对其中两个文件成立。
+    { file: '../src/panel-tabs.js', user: '页签',
+      anchor: ['function renderWallpaperTab(ctx)', 'function renderAppearanceTab(ctx)',
+        'function renderEffectsTab(ctx)', 'function renderAdvancedTab(ctx)'] },
   ];
   for (const r of RENDERERS) {
     const src = readFileSync(new URL(r.file, import.meta.url), 'utf8');
@@ -2469,6 +2485,47 @@ setTimeout(async () => {
     '正对照：从 ctx 解构的文本必须被认出来');
   assert.equal(seamCrossings('function f() { const { sel } = ctx; return sel; }').readsCtx, true,
     '正对照：解构本身被判据认作"经 ctx 取外界"（判据盯的是解构形态）');
+
+  // ── P4-15：渲染器不得**改写**经 ctx 拿到的东西 / 模块级状态 ──────────────────
+  // 这一类 `seamCrossings` **看不见**：它数的是 `selection` 与 `emit(`，而实测的越界形态是
+  //   · `propsPanelOpen = !propsPanelOpen` —— 裸标识符的**模块级**状态（连 `selection` 都不含）；
+  //   · `editing.name = …` —— `editing` 是 `selection.editing` 的 **ctx 别名**（同样不含 `selection.`）。
+  // 两条都躲过了旧判据，却正是"渲染器成了状态的写入方"这件事本身。
+  const MUTABLE_ALIASES = ['editing', 'sel', 'current', 'group', 'groups', 'fontSet',
+    'propsPanelOpen', 'pickerFocusPending', 'pickerOpener', 'selection'];
+  const MUTATORS = ['push', 'pop', 'splice', 'shift', 'unshift', 'sort', 'reverse'];
+  /** 返回被**改写**的别名名单（只认赋值与原地变更，不认读取 —— 读取是渲染器的本分）。 */
+  const aliasMutations = (text) => {
+    const code = stripComments(text);
+    const hits = [];
+    for (const a of MUTABLE_ALIASES) {
+      const head = '(^|[^.\\w$])' + a;
+      const forms = [
+        head + '\\s*(?:=[^=]|\\+=|-=|\\+\\+|--)',                                  // a = … / a += … / a++
+        head + '(?:\\.\\w+)+\\s*=[^=]',                                            // a.b = …
+        head + '(?:\\.\\w+)*\\.(?:' + MUTATORS.join('|') + ')\\s*\\(',             // a.push( / a.b.splice(
+      ];
+      if (forms.some((f) => new RegExp(f, 'm').test(code))) hits.push(a);
+    }
+    return hits;
+  };
+  for (const r of RENDERERS) {
+    const src = readFileSync(new URL(r.file, import.meta.url), 'utf8');
+    const muts = aliasMutations(src);
+    assert.equal(muts.length, 0,
+      r.user + '渲染器不得改写 ctx 别名 / 模块状态（命中 ' + muts.join(', ') + '）');
+  }
+  // 负对照：三类真实越界各一例必须被判出；纯读取与注释提及不得被误伤。
+  assert.deepEqual(aliasMutations('const f = (ctx) => { propsPanelOpen = !propsPanelOpen; };'), ['propsPanelOpen'],
+    '负对照：写模块级状态必须被判出');
+  assert.deepEqual(aliasMutations('const f = (ctx) => { editing.name = e.target.value; };'), ['editing'],
+    '负对照：改 ctx 别名的子对象必须被判出');
+  assert.deepEqual(aliasMutations('const f = (ctx) => { group.wallpaperIds.push(id); };'), ['group'],
+    '负对照：原地变更数组必须被判出');
+  assert.deepEqual(aliasMutations('const f = (ctx) => { return sel.flip ? groups.map(g => g.name) : editing.name; };'), [],
+    '负对照：纯读取（含成员访问与 map）不得被误伤');
+  assert.deepEqual(aliasMutations('// propsPanelOpen = x; editing.name = y;\nconst a = 1;'), [],
+    '负对照：注释里提到这些形态不得被误伤（注释先剥掉）');
 }
 
 // ── 判据纪律：本文件不许有"log 形式的伪判据" ─────────────────────────────────

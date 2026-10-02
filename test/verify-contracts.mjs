@@ -19,7 +19,7 @@
  * 每条断言都配一条负对照（把坏输入喂给**同一个**判据函数并断言它判坏），并带覆盖断言
  * （集合必须非空 —— 否则"两个空集相等"会让相等断言恒真）。退出码 0/1。
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -221,6 +221,102 @@ const tabsSrc = read('src/panel-tabs.js');
       .some((s) => !s.includes('--use-mock-keychain'))
     && !launchSites("spawn(b, ['--headless=new', '--use-mock-keychain']);")
       .some((s) => !s.includes('--use-mock-keychain')));
+}
+
+// ── ④ CI 必须同时跑 Windows 与 POSIX 两条腿 ──────────────────────────────────
+// 为什么这是**契约**而不是配置偏好：守卫里有平台条件分支，而两半各在不同的平台上才有牙 ——
+//   · `verify-scene` 的 unlink 失败用例：**只有 POSIX 的 chmod 能阻止 unlink**（Windows 上
+//     模式位基本被忽略）⇒ POSIX 那半（500 unlink-failed / 帧仍在盘上 / 重试可用 …）在 win32
+//     上不执行，而 win32 那半（ENOENT 幂等）在 POSIX 上不执行；
+//   · `verify-scene-live` 的目录链接按平台建 junction / dir；
+//   · `verify-media-bridge` 有一处 win32 专用断言。
+// 只跑一个平台 ⇒ 另一半**零覆盖**，而 `verify-scene` 自己会把这件事打印成
+// "这是覆盖差异，不是通过"（实测：win32 上 5 条 platform-skipped）。
+// ⇒ 判据：`verify.yml` 声明的 runner 集合必须同时含 windows 与 ubuntu/linux。
+console.log('\n④ CI 平台矩阵（平台条件分支的两半都要有覆盖）');
+{
+  const workflow = read('.github/workflows/verify.yml');
+  /**
+   * 从 workflow 源码取出它**实际会跑**的 runner 集合。
+   * 两种形态都要认：`runs-on: <literal>` 与矩阵 `runs-on: ${{ matrix.os }}` + `os: [...]`
+   * —— 只认字面量会把矩阵形态误判成"没有 runner"（假红），只认矩阵则会漏掉字面量那种。
+   */
+  const runnersOf = (text) => {
+    const out = new Set();
+    for (const m of text.matchAll(/runs-on:\s*([^\n#]+)/g)) {
+      const v = m[1].trim();
+      if (!v.includes('matrix.')) out.add(v.split(/\s+/)[0]);
+    }
+    const mu = /runs-on:\s*\$\{\{\s*matrix\.([\w-]+)\s*\}\}/.exec(text);
+    if (mu) {
+      const m = new RegExp('\\b' + mu[1] + ':\\s*\\[([^\\]]*)\\]').exec(text);
+      if (m) for (const x of m[1].split(',')) if (x.trim()) out.add(x.trim().replace(/['"]/g, ''));
+    }
+    return [...out];
+  };
+  const runners = runnersOf(workflow);
+  const isWindows = (r) => /^windows/i.test(r);
+  const isPosix = (r) => /^(ubuntu|linux)/i.test(r);
+  check('覆盖断言非空转：真的解析到了 runner 清单', runners.length >= 2, 'runners=' + runners.join(', '));
+  check('verify.yml 同时跑 Windows 与 POSIX（平台条件分支的两半都有覆盖）',
+    runners.some(isWindows) && runners.some(isPosix), 'runners=' + runners.join(', '));
+  // 负对照：字面量与矩阵两种形态都必须在**同一个**判据下判坏。
+  check('negative control: 只跑 windows 的字面量 runner 会被判出',
+    (() => { const r = runnersOf('runs-on: windows-latest\n'); return r.some(isWindows) && !r.some(isPosix); })());
+  check('negative control: 只列一个平台的矩阵会被判出',
+    (() => { const r = runnersOf('runs-on: ${{ matrix.os }}\nos: [windows-latest]\n'); return r.some(isWindows) && !r.some(isPosix); })());
+  check('negative control: 矩阵形态必须被解析出全部平台（否则上面的"两平台"会假绿）',
+    JSON.stringify(runnersOf('runs-on: ${{ matrix.os }}\nos: [windows-latest, ubuntu-latest]\n').sort())
+      === JSON.stringify(['ubuntu-latest', 'windows-latest']));
+}
+
+// ── ⑤ CI 工作流与 **GitHub 解析器**的契约：工作流级表达式不得引用作业作用域的上下文 ──
+// 这是"本地全绿、推上去 0 秒失败且**一个作业都没有**"那一类失败（页面只说
+// "This run likely failed because of a workflow file issue"）。实测（2026-10-02）：
+//   concurrency:
+//     group: verify-${{ github.ref }}-${{ matrix.os }}      ← 工作流级！
+// `matrix` 只在**作业**上下文里存在 ⇒ GitHub 在启动阶段就把整个工作流文件判为无效。
+// 判据：`jobs:` 之前那一段里不许出现 matrix / strategy / steps / needs / job 这些作业作用域上下文。
+console.log('\n⑤ CI 工作流的工作流级表达式（作业作用域上下文不得越界）');
+{
+  const wfDir = join(ROOT, '.github', 'workflows');
+  const files = readdirSync(wfDir).filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'));
+  const JOB_SCOPED = ['matrix', 'strategy', 'steps', 'needs', 'job'];
+  /** 工作流级（`jobs:` 之前）里被误用的作业作用域上下文；返回 null = 这个文件没有 `jobs:`（交给别的判据）。 */
+  const workflowScopeViolations = (text) => {
+    const lines = String(text).split(/\r?\n/);
+    const jobsAt = lines.findIndex((l) => /^jobs:\s*$/.test(l));
+    if (jobsAt < 0) return null;
+    const head = lines.slice(0, jobsAt).join('\n');
+    const bad = [];
+    for (const ctx of JOB_SCOPED) {
+      const re = new RegExp('\\$\\{\\{[^}]*\\b' + ctx + '\\.', 'g');
+      for (const _ of head.match(re) || []) bad.push(ctx);
+    }
+    return uniq(bad);
+  };
+  const offenders = [];
+  let matrixAfterJobs = 0;
+  for (const f of files) {
+    const text = readFileSync(join(wfDir, f), 'utf8');
+    const bad = workflowScopeViolations(text);
+    if (bad && bad.length) offenders.push(f + '=' + bad.join(','));
+    const lines = text.split(/\r?\n/);
+    const jobsAt = lines.findIndex((l) => /^jobs:\s*$/.test(l));
+    if (jobsAt >= 0 && /\$\{\{[^}]*\bmatrix\./.test(lines.slice(jobsAt).join('\n'))) matrixAfterJobs++;
+  }
+  check('工作流级表达式不引用作业作用域上下文（matrix / strategy / steps / needs / job）',
+    files.length >= 1 && offenders.length === 0,
+    offenders.length ? '命中：' + offenders.join(' ')
+      : files.length + ' 个工作流干净（扫描面 = .github/workflows/*.yml）');
+  // 反空转地板：判据必须真的在看有内容的文件 —— 至少有一个工作流在 `jobs:` 之后用了 matrix.
+  check('覆盖断言非空转：至少一个工作流在 `jobs:` 之后真的用了 matrix.',
+    matrixAfterJobs >= 1, 'jobs: 之后出现 matrix. 的工作流数 = ' + matrixAfterJobs);
+  // 负对照：同一个判据下，"工作流级写 matrix" 判坏、"作业级写 matrix" 判好。
+  check('negative control: 工作流级写 matrix.os 会被判出，写在 jobs: 之后不会',
+    (workflowScopeViolations('concurrency:\n  group: x-${{ matrix.os }}\njobs:\n  a:\n    runs-on: ubuntu-latest\n') || []).join(',') === 'matrix'
+      && (workflowScopeViolations('jobs:\n  a:\n    concurrency:\n      group: x-${{ matrix.os }}\n') || []).length === 0
+      && workflowScopeViolations('on:\n  push:\n') === null);
 }
 
 console.log('');

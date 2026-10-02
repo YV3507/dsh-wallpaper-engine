@@ -45,6 +45,26 @@ function readPersisted() {
     return { id: "", ...DEFAULTS };
   }
 }
+/**
+ * 读 localStorage 里的**原始**存档（未消毒），没有/坏掉都返回 null。
+ *
+ * 与 `readPersisted()` 的区别只有一点：它保留"**本地到底有没有东西**"这个事实 ——
+ * 迁移分支要靠它决定是否把本地副本 PUT 上去（见 `loadPersisted`）。
+ *
+ * ⚠️ 不变量：**`localStorage` 的每一次访问都必须在 try 里**。站点数据被禁 / 不透明源嵌入时，
+ * 连 `getItem` 本身都会抛 `SecurityError`（不只是 `JSON.parse` 会抛坏数据）。迁移分支此前把
+ * `JSON.parse` 包进了 try，却把 `getItem` 留在 try **外面** ⇒ 一次被拒的存储让 `loadPersisted()`
+ * 整体 reject，启动链（loadPersisted → loadFontSet → loadInventory）随之断掉，选择器永久卡在
+ * 「扫描 Wallpaper Engine…」且一次性提示不收敛。这里与 `readPersisted()` 同口径。
+ */
+function readPersistedRaw() {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
 // 持久化白名单（宿主文件 + localStorage 缓存携带的字段）：同样派生自 schema。
 // id 放在最前，保持既有形状；键集由 schema 决定，两端一致。
 function serializeSelection() {
@@ -160,12 +180,10 @@ async function loadPersisted() {
     }
   } else if (hostOk) {
     // Host has nothing saved yet: migrate any existing localStorage data once.
-    // JSON.parse MUST be guarded here: a corrupted localStorage payload used to
-    // reject loadPersisted(), which broke the loadPersisted().then(loadInventory)
-    // boot chain and left the picker stuck on "扫描 Wallpaper Engine…" forever.
-    const local = localStorage.getItem(SETTINGS_KEY);
-    let parsedLocal = null;
-    try { parsedLocal = local ? JSON.parse(local) : null; } catch { /* corrupted cache: treat as absent */ }
+    // ⚠️ 整条读（含 `getItem` 本身）必须走带守卫的实现：站点数据被禁 / 不透明源嵌入时
+    // `getItem` 会抛 SecurityError，裸露它会让 loadPersisted() 整体 reject、启动链断掉
+    //（选择器永久卡在「扫描 Wallpaper Engine…」）。判据见 readPersistedRaw() 的注释。
+    const parsedLocal = readPersistedRaw();
     if (!stale) Object.assign(selection, parsedLocal ? sanitizeSettings(parsedLocal) : { id: "", ...DEFAULTS });
     if (parsedLocal) pushPersisted();
   } else {

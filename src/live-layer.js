@@ -81,9 +81,8 @@ function liveRenderEnabled(selLike) {
 }
 // 失败原因 → 可读文案（设置面板展示，便于用户反馈「为什么黑」）。
 //
-// ⚠️ 文案里的时长**从常量插值**，不写死数字：这几个数字一旦调参，写死的文案就会对用户撒谎
-//（本仓实测过：这一行曾写"20 秒"而文档写"40 秒"，两者都不等于代码）。为此这两个阈值常量
-// 的声明被**提到本常量之前** —— 顶层模板字符串引用后面声明的 `const` 会撞 TDZ。
+// ⚠️ 文案里的时长**从常量插值**，不写死数字：这几个阈值一旦调参，写死的文案就会对用户撒谎。
+// 为此这两个阈值常量的声明被**提到本常量之前** —— 顶层模板字符串引用后面声明的 `const` 会撞 TDZ。
 const LIVE_FIRST_FRAME_MS = 15000;
 const LIVE_STALL_TICKS = 20;
 // 取值用 getter 现取（不在模块级冻结）：语言由 locale 服务在 bundle 求值之后确定，
@@ -1533,13 +1532,17 @@ function layerContentReady(node) {
   }
   const video = node.querySelector("video");
   if (video) {
-    // 作者静帧（poster 属性）本身就是画面。
-    if (video.getAttribute && video.getAttribute("poster")) return true;
-    if (video.__weReady === true) return true;
+    // ⚠️ 这里**不再认 `video.__weReady`**：它只由 loadeddata/canplay 打上，而 rs≥2 是同一件
+    // 事的判据；留一个"曾经就绪过"的纪念标记，只会让"这一刻屏上没有帧"的层被放行（真机
+    // 日志：放行时 rs=0，屏上就是这一层的底色）。画面判据只认「当下这一帧」。
+    // 视频档的"有画面"判据**归视频通道**（见 src/video-layer.js 的文件头）：
+    //   · 海报图**已加载**（不是"属性存在" —— 属性刚设上时 <video> 还是透明，
+    //     屏上就是层底色，那正是"十几秒纯色"的成因）｜· 首帧 readyState ≥ 2。
+    // 两者都没有 ⇒ 返回 false，旧壁纸继续留屏（绝不露底色）。
     // Edge 把画面画进镜像 canvas，而画布底是写死的 #000：视频有帧还不够，要等
     // weDrawFrame 真的画上去一笔（那一笔落下时 canvas 会来报）。
     if (node.querySelector("canvas.we-media--canvas")) return false;
-    return Number(video.readyState) >= 2; // HAVE_CURRENT_DATA = 手上已有一帧
+    return videoContentReady(video);
   }
   const live = node.querySelector("iframe.we-live-iframe");
   if (live) return String(live.className).indexOf("we-live-on") !== -1;
@@ -1552,6 +1555,10 @@ function forgetPendingReveal() {
   pendingReveal = null;
   if (!p) return p;
   for (const el of p.hooks) { try { el.__weContent = null; } catch { /* ignore */ } }
+  // 海报探针与它的预算必须一起收：否则它们会在这一层已经放行之后触发（下一次切换时
+  // 误放行新层）。
+  try { if (p.stopPosterProbe) p.stopPosterProbe(); } catch { /* ignore */ }
+  try { if (p.posterGiveUp) clearTimeout(p.posterGiveUp); } catch { /* ignore */ }
   return p;
 }
 function revealPendingLayer() {
@@ -1565,7 +1572,10 @@ function revealPendingLayer() {
     // 硬切：旧层此刻一次性退场（释放媒体 + 放行新层音频），新层已经可以直接画。
     retireFadingLayer();
   }
-  liveLog("layer-reveal", "wid=" + selection.id + " 新层已有画面 → 放行");
+  // 「这次切换等了多久」是用户直接感知的量：常态留一行（`held=`），有预热/没预热、
+  // 有抽帧/没抽帧之间就能直接对比，不必再插临时桩。
+  liveLog("layer-reveal", "wid=" + selection.id + " 新层已有画面 → 放行（held="
+    + Math.max(0, Date.now() - (p.armedAt || Date.now())) + "ms）");
 }
 // 新层还没有画面：旧层继续留在屏上，新层先不参与绘制，画面一到就放行。
 function armLayerContentReveal(node, outgoing, tr, fade) {
@@ -1583,19 +1593,13 @@ function armLayerContentReveal(node, outgoing, tr, fade) {
     img.addEventListener("load", recheck);
     img.addEventListener("error", giveUp);
   }
+  // ⑥：视频档的放行机器归**视频通道**（探海报 / 首帧 / 出错 / 预算都在那边）。
   const video = node.querySelector("video");
-  if (video && typeof video.addEventListener === "function") {
-    // loadeddata / canplay = 浏览器手上已经有一帧（spec 的 readyState ≥ 2 / 3）；
-    // Edge 那条路由镜像画布的第一笔补最后一步（layerContentReady 会一起看）。
-    const frameReady = () => { try { video.__weReady = true; } catch { /* ignore */ } recheck(); };
-    video.addEventListener("loadeddata", frameReady);
-    video.addEventListener("canplay", frameReady);
-    video.addEventListener("error", giveUp);
-  }
+  const videoReveal = armVideoChannelReveal(video, recheck, giveUp);
   try { if (node.classList) node.classList.add(LAYER_PENDING_CLASS); } catch { /* ignore */ }
   // 新层上屏之前先压住它的音源：旧层还在可见期内出声，两层 BGM 不重叠。
   openRotationAudioGate(node, outgoing);
-  pendingReveal = { node, outgoing, tr, fade, hooks };
+  pendingReveal = { node, outgoing, tr, fade, hooks, stopPosterProbe: videoReveal.cancelProbe, posterGiveUp: videoReveal.budget, armedAt: Date.now() };
   // 过场类型是一个完整词，但**先取词再拼接**：`weT(...) + "…"` 会被 i18n 守卫判成
   // "碎片化翻译"（见 test/verify-i18n.mjs 判据 ①b），而这一行本身只是诊断留痕。
   const holdKind = weT(fade ? "过场" : "硬切");
@@ -1811,53 +1815,10 @@ function scheduleUnderlaySample(node) {
 // 整屏的负 z-index 普通元素，而本仓刻意不给它常驻合成层（见 --we-wallpaper-transform 的
 // 注释）—— 于是"回来时它没被重新提交"没有第二条自愈路径。这里只做**一次两帧**的提升：
 // 让合成器重新提交这一层的像素，随后立刻撤掉，不留常驻层。
-function nudgeWallpaperRepaint() {
-  try {
-    if (typeof document === "undefined" || !document) return;
-    const node = document.getElementById(LAYER_ID);
-    if (!node || !node.classList) return;
-    node.classList.add("we-layer--repaint");
-    const drop = () => { try { node.classList.remove("we-layer--repaint"); } catch { /* ignore */ } };
-    if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => requestAnimationFrame(drop));
-    else if (typeof window !== "undefined" && window.setTimeout) window.setTimeout(drop, 32);
-  } catch { /* ignore */ }
-}
 
 /** 层的一句话在屏状态：几何 + 叶子就绪态 + 已呈现帧数（video 才有）。 */
-function onScreenBrief(node) {
-  const n = node || (typeof document !== "undefined" && document ? document.getElementById(LAYER_ID) : null);
-  if (!n) return "layer=-";
-  let rect = "-";
-  try {
-    const r = n.getBoundingClientRect();
-    rect = Math.round(r.width) + "x" + Math.round(r.height) + "@" + Math.round(r.left) + "," + Math.round(r.top);
-  } catch { /* ignore */ }
-  let leaf = "leaf=-";
-  try {
-    const el = n.querySelector("video.we-media") || n.querySelector("img.we-media")
-      || n.querySelector("canvas.we-media--canvas") || n.querySelector("iframe.we-live-iframe");
-    if (el) {
-      const kind = String(el.tagName || "").toUpperCase();
-      const dim = (w, h) => (Number(w) > 0 && Number(h) > 0 ? Math.round(w) + "x" + Math.round(h) : "-");
-      const px = kind === "VIDEO" ? dim(el.videoWidth, el.videoHeight)
-        : kind === "IMG" ? dim(el.naturalWidth, el.naturalHeight)
-          : dim(el.clientWidth, el.clientHeight);
-      leaf = "leaf=" + kind + " " + px + " rs=" + (el.readyState === undefined ? "-" : el.readyState)
-        + " paused=" + (el.paused === undefined ? "-" : (el.paused ? 1 : 0));
-    }
-  } catch { /* ignore */ }
-  return "rect=" + rect + " " + leaf + " mediaFrames=" + mediaFramesOf(n);
-}
 
 /** 已呈现（解码输出）的帧数；拿不到返回 -1（判据是"它在不在涨"，不是绝对值）。 */
-function mediaFramesOf(node) {
-  try {
-    const v = node && node.querySelector ? node.querySelector("video.we-media") : null;
-    if (!v || typeof v.getVideoPlaybackQuality !== "function") return -1;
-    const q = v.getVideoPlaybackQuality();
-    return q && typeof q.totalVideoFrames === "number" ? q.totalVideoFrames : -1;
-  } catch { return -1; }
-}
 
 /**
  * 可见性恢复后的留痕（事件级，绝不进热路径）：意图态（playing / hidden / focus）答不了
@@ -2068,9 +2029,8 @@ function syncLayers() {
       try { if (video.playbackRate !== selection.playbackRate) video.playbackRate = selection.playbackRate; } catch { /* ignore */ }
       // Frame-skip transcode (帧率上限): play the original now, swap to the
       // capped-fps re-encode when the host finishes it (no-op when cap is 0).
-      if (selection.type === "video" && selection.url) {
-        maybeUpgradeToTranscoded(video, selection.url.split("/").pop());
-      }
+      // ⑤：触发归**视频通道**（这条类型专属逻辑不再留在实时管线里）。
+      videoChannelAfterLayerBuild(video, selection);
     } else if (selection.videoPlaying === false || selection.videoError) {
       // 没有 <video>（图片 / 网页 / 静态帧壁纸）: 上一个视频留下的失败态必须
       // 清掉，否则卡片会继续显示属于上一张壁纸的错误。这里不 emit —— 本次
@@ -2143,44 +2103,11 @@ function syncLayers() {
 // ── 轮换渐变：旧层退役 ───────────────────────────────────────────────────────
 // retireFadingLayer: 快速连切时上一份 fading 层即时退役（任何时刻最多 2 层）。
 // scheduleFadingLayerRemoval: 渐变宽限期后移除旧层并释放其媒体。
-function retireFadingLayer() {
-  const node = fadingLayerNode;
-  if (!node) return;
-  fadingLayerNode = null;
-  releaseLayerMedia(node);
-  try { node.remove(); } catch { /* ignore */ }
-  // 旧层已退场 → 放行这次渐变的新层音频（不匹配则说明闸属于另一次渐变）。
-  releaseRotationAudioGateFor(node);
-}
-function scheduleFadingLayerRemoval(node, ms) {
-  const hold = (typeof ms === "number" && ms > 0 ? ms : ROTATION_FADE_MS) + 100;
-  if (typeof window === "undefined" || typeof window.setTimeout !== "function") {
-    retireFadingLayer();
-    return;
-  }
-  window.setTimeout(() => {
-    if (fadingLayerNode !== node) return; // 已被快速连切即时退役
-    fadingLayerNode = null;
-    releaseLayerMedia(node);
-    try { node.remove(); } catch { /* ignore */ }
-    // 渐变结束、旧层退场 → 新层 BGM 此刻才起播。
-    releaseRotationAudioGateFor(node);
-    // Edge canvas：只有绘制上下文仍属于旧层时才停（新层已 weStartDraw 接管）。
-    if (weDrawCtx && weDrawCtx.canvas && typeof node.contains === "function"
-      && node.contains(weDrawCtx.canvas)) weStopDraw();
-  }, hold);
-}
 
 // ── 切换过场：把「新层入场 + 旧层退场」交给选定的过场动画 ────────────────────
 // 只走内联样式 + 一个通用 transition 规则（.we-layer--switch），不写死每种过场的
 // ·-on 类，好处是新增过场只需在 switchFrames 里加一条。
 // cut 不会走到这里：调用方已把 startFade 置假、走「立即拆旧层」的硬切路径。
-function applyInlineStyle(node, style) {
-  if (!node || !node.style) return;
-  for (const k in style) {
-    try { node.style[k] = style[k]; } catch { /* ignore */ }
-  }
-}
 // 过场收尾：新层必须回到「干净」状态 —— 留着内联 transform / clip-path /
 // will-change 会让满屏视频永久占一个合成层（applyEffects 特意避免这种开销）。
 function resetLayerSwitchStyles(node) {
@@ -2192,28 +2119,6 @@ function resetLayerSwitchStyles(node) {
     node.style.clipPath = "";
     node.style.removeProperty("--we-switch-ms");
   } catch { /* ignore */ }
-}
-function startLayerTransition(node, outgoing, tr) {
-  // 音频闸先开：新层静音，等旧层这次过场结束后才出声（见 openRotationAudioGate）。
-  openRotationAudioGate(node, outgoing);
-  // 两者默认都是 z-index:-2，谁在上面靠 DOM 顺序（live 的 staging 容器是**提前**
-  // 挂到 body 的，顺序不保证）—— 过场期间显式把旧层压到新层之下。两者都仍在
-  // scrim(-1) 之下，所以不会盖到界面上。
-  try { outgoing.style.zIndex = "-3"; } catch { /* ignore */ }
-  const frames = switchFrames(tr.id, tr.dir);
-  applyInlineStyle(node, frames.inFrom);
-  try { node.style.setProperty("--we-switch-ms", tr.ms + "ms"); } catch { /* ignore */ }
-  node.className = "we-layer we-layer--switch";   // 顺带脱掉 we-layer--staging
-  // 只有需要旧层同时动起来的过场（推移 / 缩放）才给它挂 switch 类；其余过场旧层
-  // 保持不透明静止垫着（玻璃 backdrop-filter 依赖这层不透明背景）。
-  if (tr.id !== "fade") outgoing.className = "we-layer we-layer--switch we-layer--switch-out";
-  void node.offsetWidth;                          // 强制 reflow：让初态成为 transition 起点
-  applyInlineStyle(node, frames.inTo);
-  applyInlineStyle(outgoing, frames.outTo);
-  scheduleFadingLayerRemoval(outgoing, tr.ms);
-  if (typeof window !== "undefined" && typeof window.setTimeout === "function") {
-    window.setTimeout(() => resetLayerSwitchStyles(node), tr.ms + 60);
-  }
 }
 
 /**

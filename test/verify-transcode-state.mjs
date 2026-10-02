@@ -1,20 +1,20 @@
 // Verify the frame-skip transcode (抽帧转码) state machine against the emitted
 // client bundle, focusing on the fps-cap switching bug:
 //
-//   switching 24→48 DIRECTLY while the 24fps transcode is still in flight used
-//   to be treated as "already working on it" — the stale 24fps request then
-//   completed, swapped the video to a 24fps re-encode and marked the state
-//   "ready" while the picker advertised the NEW cap ("已切换至 48fps 抽帧版").
+//   switching 30→60 DIRECTLY while the 30fps transcode is still in flight used
+//   to be treated as "already working on it" — the stale 30fps request then
+//   completed, swapped the video to a 30fps re-encode and marked the state
+//   "ready" while the picker advertised the NEW cap ("已切换至 60fps 抽帧版").
 //   Only a round-trip through 无限制 (cap 0) cleared the latch, which is why
 //   that workaround "fixed" it.
 //
 // This drives the REAL bundle through apply() + the picker's onClick handlers
 // with a controllable fetch mock and asserts:
-//   1. clicking 48fps while the 24fps request is in flight ABORTS the 24fps
-//      request and starts a fresh 48fps one (no stale swap ever happens);
-//   2. the completed 48fps request swaps the video in and reports ready with
+//   1. clicking 60fps while the 30fps request is in flight ABORTS the 30fps
+//      request and starts a fresh 60fps one (no stale swap ever happens);
+//   2. the completed 60fps request swaps the video in and reports ready with
 //      the CORRECT cap;
-//   3. switching back to 24fps after the swap starts + completes a 24fps
+//   3. switching back to 30fps after the swap starts + completes a 30fps
 //      request and the state/UI stay truthful.
 //
 // Usage: node test/verify-transcode-state.mjs
@@ -119,7 +119,12 @@ const localStorage = {
 // abort wiring lets us assert the stale request actually got cancelled.
 const transcodePending = []; // { fps, url, controller, resolve, reject }
 let transcodeResolved = []; // snapshots of completed requests (fps, aborted)
-const mediaInfo = { width: 3840, height: 2160, codec: 'hvc1', fps: 120 };
+// 夹具**故意用原生可解的容器/编码**（mp4 里的 avc1 = H.264，浏览器直接能播）：这正是
+// 帧率上限必须仍然生效的那一类源。2026-10-02 的回归就是"原生可解 ⇒ 不抽帧"，而夹具当时写的是
+// `hvc1`（不在原生白名单里）⇒ 走的是"非原生必须转"那条路，回归**在夹具里看不见**。
+// 口径：上限的判据是"源帧率是否高于上限"，与容器能不能原生播无关（见 src/video-layer.js
+// 的 capNeedsTranscode）。所以夹具必须站在"原生可解 + 高帧率"这一侧。
+const mediaInfo = { width: 3840, height: 2160, codec: 'avc1', fps: 120 };
 
 function wireAbort(signal, resolve, reject) {
   if (!signal) return () => {};
@@ -154,7 +159,7 @@ const fetchMock = (url, opts) => {
       json: () => Promise.resolve({
         installDir: 'D:/we', total: 1, portableCount: 1, playlists: [],
         wallpapers: [
-          { id: 'w1', title: 'Video W1', type: 'video', playable: true, media: '/wallpaper-engine/media/w1', preview: null, contentrating: 'Everyone' },
+          { id: 'w1', title: 'Video W1', type: 'video', playable: true, media: '/wallpaper-engine/media/w1', mediaExt: 'mp4', preview: null, contentrating: 'Everyone' },
         ],
       }),
     });
@@ -275,64 +280,68 @@ async function main() {
 
   // The 帧率上限 controls live on the 效果 tab in the tabbed picker.
   localStorage.setItem('dsh-wallpaper-engine:picker-tab', 'effects');
-  // ---- 24fps: request starts, pending ----
+  // ---- 30fps: request starts, pending ----
   tree = renderTree();
-  const b24 = findButton(tree, 'we-picker__rate', '24fps');
-  assert(b24 && typeof b24.props.onClick === 'function', '24fps button found');
-  b24.props.onClick();
+  const b30 = findButton(tree, 'we-picker__rate', '30fps');
+  assert(b30 && typeof b30.props.onClick === 'function', '30fps button found');
+  b30.props.onClick();
   await new Promise((r) => setTimeout(r, 10));
-  check('click 24fps starts a transcode request', transcodePending.length === 1 && transcodePending[0].fps === 24);
+  check('click 30fps starts a transcode request', transcodePending.length === 1 && transcodePending[0].fps === 30);
+  // 回归判据（行为层，不只是文本层）：源是**原生可解的 mp4/avc1** 且帧率 120 > 上限 30 ⇒
+  // 必须真的起抽帧 —— 旧口径（原生可解即免转）在这里会停在 "native"、一个请求都不发。
+  check('原生可解（mp4/avc1）+ 源 120fps + 上限 30 ⇒ 仍然抽帧（上限的意义是压解码占用）',
+    transcodePending.length === 1 && transcodePending[0].fps === 30);
   const statusWorking = JSON.stringify(renderTree()).includes('抽帧准备中');
-  check('UI shows 抽帧准备中 while 24fps transcode runs', statusWorking);
+  check('UI shows 抽帧准备中 while 30fps transcode runs', statusWorking);
 
-  // ---- 24 → 48 DIRECT while the 24fps request is in flight ----
+  // ---- 24 → 48 DIRECT while the 30fps request is in flight ----
   tree = renderTree();
-  const b48 = findButton(tree, 'we-picker__rate', '48fps');
-  assert(b48 && typeof b48.props.onClick === 'function', '48fps button found');
-  b48.props.onClick();
+  const b60 = findButton(tree, 'we-picker__rate', '60fps');
+  assert(b60 && typeof b60.props.onClick === 'function', '60fps button found');
+  b60.props.onClick();
   await new Promise((r) => setTimeout(r, 10));
-  // The stale 24fps request must have been ABORTED, and a fresh 48fps one started.
-  const stale24 = transcodePending.find((p) => p.fps === 24);
-  check('24→48 direct: stale 24fps request is aborted (not left to swap in)',
-    transcodeResolved.length === 0 && stale24 && stale24.signal && stale24.signal.aborted === true);
-  const activeAfter48 = activePending();
-  check('24→48 direct: a fresh 48fps request starts',
-    activeAfter48.length === 1 && activeAfter48[0].fps === 48 && !activeAfter48[0].signal.aborted);
-  check('24→48 direct: video still on the ORIGINAL mid-flight', video.src === '/wallpaper-engine/media/w1' && !video.dataset.weTranscoded);
+  // The stale 30fps request must have been ABORTED, and a fresh 60fps one started.
+  const stale30 = transcodePending.find((p) => p.fps === 30);
+  check('30→60 direct: stale 30fps request is aborted (not left to swap in)',
+    transcodeResolved.length === 0 && stale30 && stale30.signal && stale30.signal.aborted === true);
+  const activeAfter60 = activePending();
+  check('30→60 direct: a fresh 60fps request starts',
+    activeAfter60.length === 1 && activeAfter60[0].fps === 60 && !activeAfter60[0].signal.aborted);
+  check('30→60 direct: video still on the ORIGINAL mid-flight', video.src === '/wallpaper-engine/media/w1' && !video.dataset.weTranscoded);
 
-  // ---- Complete the 48fps request → swap + ready with the CORRECT cap ----
-  const req48 = activeAfter48[0];
-  completeTranscode(req48, true);
+  // ---- Complete the 60fps request → swap + ready with the CORRECT cap ----
+  const req60 = activeAfter60[0];
+  completeTranscode(req60, true);
   await new Promise((r) => setTimeout(r, 20));
   // loadedmetadata fires only after src swap; the mock fires it manually:
   assert(video._handlers.loadedmetadata, 'loadedmetadata handler registered after swap');
   video._handlers.loadedmetadata();
   await new Promise((r) => setTimeout(r, 10));
-  check('48fps completes → video swapped to the 48fps re-encode',
-    video.dataset.weTranscoded === '48' && video.src.includes('fps=48'));
-  check('48fps completes → UI reports ready at 48fps',
-    JSON.stringify(renderTree()).includes('已切换至 48fps 抽帧版'));
+  check('60fps completes → video swapped to the 60fps re-encode',
+    video.dataset.weTranscoded === '60' && video.src.includes('fps=60'));
+  check('60fps completes → UI reports ready at 60fps',
+    JSON.stringify(renderTree()).includes('已切换至 60fps 抽帧版'));
 
-  // ---- Back to 24fps after the swap: fresh request + truthful swap ----
+  // ---- Back to 30fps after the swap: fresh request + truthful swap ----
   // (Regression: with the video already on a transcode, the progress poller's
   // emit used to abort + re-start the request forever — a page freeze. The
   // request must stay in flight across the poll emit.)
   tree = renderTree();
-  const b24b = findButton(tree, 'we-picker__rate', '24fps');
-  b24b.props.onClick();
+  const b30b = findButton(tree, 'we-picker__rate', '30fps');
+  b30b.props.onClick();
   await new Promise((r) => setTimeout(r, 30)); // let several poll-emit cycles run
-  const active24b = activePending();
-  check('48→24 after swap starts a fresh 24fps request',
-    active24b.length === 1 && active24b[0].fps === 24 && !active24b[0].signal.aborted);
-  completeTranscode(active24b[0], true);
+  const active30b = activePending();
+  check('60→30 after swap starts a fresh 30fps request',
+    active30b.length === 1 && active30b[0].fps === 30 && !active30b[0].signal.aborted);
+  completeTranscode(active30b[0], true);
   await new Promise((r) => setTimeout(r, 20));
   assert(video._handlers.loadedmetadata, 'loadedmetadata handler registered (24)');
   video._handlers.loadedmetadata();
   await new Promise((r) => setTimeout(r, 10));
-  check('24fps completes → video swapped to the 24fps re-encode',
-    video.dataset.weTranscoded === '24' && video.src.includes('fps=24'));
-  check('24fps completes → UI reports ready at 24fps',
-    JSON.stringify(renderTree()).includes('已切换至 24fps 抽帧版'));
+  check('30fps completes → video swapped to the 30fps re-encode',
+    video.dataset.weTranscoded === '30' && video.src.includes('fps=30'));
+  check('30fps completes → UI reports ready at 30fps',
+    JSON.stringify(renderTree()).includes('已切换至 30fps 抽帧版'));
 
   // ---- 无限制 clears everything (the historical workaround, still works) ----
   tree = renderTree();
@@ -343,7 +352,7 @@ async function main() {
   check('无限制 reverts to the original + idle', !video.dataset.weTranscoded && video.src === '/wallpaper-engine/media/w1');
 
   // ---- Failure of a NEW cap reverts to the original (truthful 已回退原片) ----
-  b24b.props.onClick();
+  b30b.props.onClick();
   await new Promise((r) => setTimeout(r, 10));
   completeTranscode(activePending()[0], false); // 502/network failure
   await new Promise((r) => setTimeout(r, 20));
@@ -354,14 +363,14 @@ async function main() {
 
   // ---- 结构契约：转码字段的写入权（抽模块后钉住）----
   // 契约的可核对形式：
-  //   · 三个字段的**状态机**写入必须全在 src/transcode.js；
+  //   · 三个字段的**状态机**写入必须全在 视频通道 src/video-layer.js；
   //   · src/client.js 只允许"换壁纸/切走时复位"（= null / = "idle"）；
   //   · 两个新入口必须真的被 client.js 调用（搬移后接线不能断）；
   //   · transcode.js 必须登记进 INLINE_MODULES 且**真的进了产物**（防孤儿：文件在却不进 bundle）。
   {
     const clientSrc = readFileSync(new URL('../src/client.js', import.meta.url), 'utf8');
     const prepSrc = readFileSync(new URL('../src/media-prep.js', import.meta.url), 'utf8');
-    const tcSrc = readFileSync(new URL('../src/transcode.js', import.meta.url), 'utf8');
+    const tcSrc = readFileSync(new URL('../src/video-layer.js', import.meta.url), 'utf8');
     const bundle = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8');
     const build = readFileSync(new URL('../scripts/build-client.mjs', import.meta.url), 'utf8');
     const FIELDS = ['mediaInfo', 'transcodeState', 'transcodeProgress'];
@@ -370,7 +379,7 @@ async function main() {
     const isReset = (v) => v === 'null' || v === '"idle"';
     const badInClient = [];
     for (const f of FIELDS) for (const v of writes(clientSrc, f)) if (!isReset(v)) badInClient.push(f + ' = ' + v);
-    check('client.js 对三个转码字段只做复位（状态机写入在 src/transcode.js）', badInClient.length === 0,
+    check('client.js 对三个转码字段只做复位（状态机写入在 视频通道 src/video-layer.js）', badInClient.length === 0,
       badInClient.join('; ')
       || '复位写入 ' + FIELDS.map((f) => f + '×' + writes(clientSrc, f).length).join(' '));
     // 防空转：transcode.js 里若没有状态机写入，上面那条判据就是空对空。
@@ -390,8 +399,12 @@ async function main() {
     check('client.js 不再直写探测状态（探测的 token/AbortController 只属于 transcode.js）',
       !/\bmediaInfoToken\s*=/.test(clientSrc) && !/\bmediaInfoAbort\s*=/.test(clientSrc)
       && !/\bmediaInfoToken\s*=/.test(prepSrc) && !/\bmediaInfoAbort\s*=/.test(prepSrc));
-    check('transcode.js 已登记进 INLINE_MODULES 且在产物里只有一份',
-      /file:\s*'src\/transcode\.js'/.test(build)
+    // ④ 之后：抽帧换源链路**并入视频通道**（原 `视频通道 src/video-layer.js` 已删除）⇒ 这条判据的
+    // 语义跟着搬家：从「transcode.js 已登记进 INLINE_MODULES」改成「并入视频通道、且不再是
+    // 独立项」。原判据的真实意图**原样保留**：防孤儿（登记了却进不了 bundle）+ 只有一份。
+    check('抽帧换源链路已并入视频通道（video-layer.js 已登记、transcode.js 不再是独立项）',
+      /file:\s*'src\/video-layer\.js'/.test(build)
+      && !/file:\s*'src\/transcode\.js'/.test(build)
       && (bundle.match(/async function refreshMediaInfo\(/g) || []).length === 1);
   }
 

@@ -1,12 +1,15 @@
 # src/font/ —— 字体系统（F / G 轨道）
 
-> **English**: [`en/FONT-SYSTEM.md`](./en/FONT-SYSTEM.md)（与本文同源：改一处请同步另一处）
+> **English**: `en/FONT-SYSTEM.md`（**已随文档瘦身撤除**：维护者向文档以中文为准，见 [`README.md`](./README.md) §语言结构）
 >
 > **本文是索引，不是机制说明。** 字体系统的实现、不变量与取值口径住在
 > [`src/font/`](../src/font/) 各文件的头注释里（本仓纪律：能写在代码旁的规则不单写文档）。
 > 本文只回答两件事：**三个通道各是什么、以及改字体要动哪几个地方**。
-> 决策与取舍见 [`adr/0002`](./adr/0002-settings-schema-single-source.md)（值的单一真源）
-> 与账本 §9.1 的 `V1–V10` 令牌层约束（[`wip/OPEN-ITEMS.md`](./wip/OPEN-ITEMS.md)）。
+> 决策与取舍见 [`adr/0002`](./adr/0002-settings-schema-single-source.md)（值的单一真源）。
+> 官方令牌层约束（原 `V1–V10`）**由守卫执行，不靠散文**：白字保护与对比度见
+> `test/verify-readability.mjs`，玻璃合成与令牌落点见 `test/verify-glass-compositing.mjs`。
+> 那条约束的实测结论（F0 真机确认）作为历史记录留在
+> [`archive/wip/OPEN-ITEMS.md`](./archive/wip/OPEN-ITEMS.md) §9.1。
 
 这个目录是**字体系统的全部实现**。之所以单独成目录：字体有三个**互不相同的作用通道**，
 如果不放在一起，改动时很容易用错通道（症状是"改了没反应"，且在真机上才看得出来）。

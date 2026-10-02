@@ -25,7 +25,13 @@
  * 助手仅本文件内部使用，导出是为了让守卫能单独取用）。
  *
  * 不变量：
- *   · **只读 selection、不写它** —— 写设置是 UI 处理器与 apply(ctx) 的事，本文件只负责呈现。
+ *   · **`applyEffects()` 只读 `selection`、不写它** —— 写设置是 UI 处理器与 apply(ctx) 的事，
+ *     本文件只负责呈现。
+ *   · **唯一例外是 `clearEffects()`**（卸载 / 清空壁纸那条路）：它把"当前壁纸的播放态"复位成
+ *     空态（`videoPlaying` / `videoError` / `blockedNote` / `sceneAudioUrl` / `sceneHasAudio`），
+ *     否则禁用插件后屏上会留着上一张壁纸的播放错误与被过滤提示（#84）。它同样**不写任何设置、
+ *     不落盘** —— 这条边界是"呈现层不拥有设置"，不是"呈现层不碰 selection"。判据只许按
+ *     "`applyEffects` 的函数体里没有对 selection 的赋值"来写，别写成"本文件不写 selection"。
  *   · 内联样式只写自己拥有的属性（`--we-*` 与少数原生属性），清理时必须成对（clearEffects）。
  *   · scrim 的"内联写 + 强制 reflow"只在值**真的变化**时跑（lastScrimCss 记忆）——
  *     每次 emit 都跑会变成 forced synchronous layout 风暴（滑块每格两次 + 500ms 转码轮询）。

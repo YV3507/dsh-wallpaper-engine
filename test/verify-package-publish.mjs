@@ -145,7 +145,7 @@ check('可达闭包里的每个相对导入目标都在磁盘上（指向不存�
 check('负对照：目标解析判据对缺文件返回 null、对在位与省略扩展名的说明符返回路径',
   resolveRelative(join(ROOT, 'lib', 'index.js'), './definitely-absent.js') === null
   && resolveRelative(join(ROOT, 'lib', 'index.js'), './__absent__') === null
-  && resolveRelative(join(ROOT, 'lib', 'index.js'), './pkg-extract') === join(ROOT, 'lib', 'pkg-extract.js')
+  && resolveRelative(join(ROOT, 'lib', 'index.js'), './pkg-read') === join(ROOT, 'lib', 'pkg-read.js')
   && resolveRelative(join(ROOT, 'lib', 'index.js'), './index.js') === join(ROOT, 'lib', 'index.js'));
 // 本 fork 保留：`usedByClosure` 的 `Set` 形态崩溃修复（上游与本仓库基线都仍是 `list.some`）。
 // 它与分包模型无关，且上游那份同样有崩溃点 ⇒ 保留修法 + 保留这条对照。

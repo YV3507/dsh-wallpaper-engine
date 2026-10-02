@@ -105,6 +105,9 @@
                       (cdMode ? hiddenList : hiddenPageView.items).map((w) => React.createElement("div", {
                         key: w.id,
                         className: "we-picker__card we-picker__card--hidden",
+                        // 卡片自报身份：视频壁纸的提交前预热靠它（指针按下 → 预到元数据，
+                        // 见 src/video-layer.js 的 warmVideoForPointer）。
+                        "data-we-id": String(w.id),
                         role: "button",
                         tabIndex: 0,
                         title: w.title,
@@ -240,6 +243,9 @@
                           : weT("没有可播放的壁纸"))
                     : (cdMode ? playableList : normalPage.items).map((w) => React.createElement("div", {
                         key: w.id,
+                        // 卡片自报身份：视频壁纸的提交前预热靠它（见 src/video-layer.js
+                        // 的 warmVideoForPointer）——按下即预热，抬手才点击。
+                        "data-we-id": String(w.id),
                         className: "we-picker__card" + (w.id === sel.id ? " we-picker__card--selected" : "")
                           // 勾选高亮：草稿模式 = 成员集合；批量模式 = batchSelected。
                           // ⚠️ 高亮类必须是 `--checked` —— CSS 挂在它上面，挂到

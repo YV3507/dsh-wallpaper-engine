@@ -828,7 +828,10 @@ const clientChecks = [
   ['sceneVideo yields to live', /Boolean\(sel\.sceneVideo\) && !isLive/.test(prepSrc)],
   ['web wallpapers force the strict sandbox', /webSandbox=strict/.test(liveSrc)],
   ['heartbeat watchdog exists', /function startLiveWatch/.test(liveSrc) && /LIVE_FIRST_FRAME_MS/.test(liveSrc)],
-  ['failure memory persists', /sceneLiveFailures/.test(tabsSrc) && /function liveFail/.test(liveSrc)],
+  // P4-15：这条接线从 panel-tabs.js 挪进了 client.js 的 `onToggleSceneLive`（渲染器只调处理器）。
+  // 两端都钉：处理器真的清了失败记忆，且面板确实引用那个处理器。
+  ['failure memory persists', /function onToggleSceneLive\(e\)[\s\S]*?setSetting\("sceneLiveFailures", \{\}\)/.test(src)
+    && /function liveFail/.test(liveSrc) && /onToggleSceneLive/.test(tabsSrc)],
   ['audio mux honours live', /!selLike\.sceneLiveActive/.test(src)],
   ['syncLayers key carries live state', /"live\\u0000" \+ \(selection\.sceneLiveSrc \|\| selection\.webLiveSrc\)/.test(liveSrc)],
   // sceneVideo 只在**非 live** 形态下进 key：live 生效时 buildMedia 已把 isSceneVideo
@@ -986,10 +989,13 @@ for (const [name, ok] of clientChecks) check(name, ok);
     /setTimeout\(function \(\) \{\s*\n\s*try \{\s*\n\s*liveLog\("client-boot"/.test(code));
   // ⑩ 显式重试（面板重开开关）必须把会话内软失败一起清掉 —— 否则「重开开关可重试」
   //    这条逃生门对传输类失败不成立（它不在设置里，页面上看不见却拦着 live）。
-  check('显式重试同时清会话内软失败（跨文件接线：面板 → clearLiveSessionFailures）',
+  check('显式重试同时清会话内软失败（跨文件接线：面板 → 处理器 → clearLiveSessionFailures）',
     /function clearLiveSessionFailures\(\)/.test(code)
       && /liveSessionFailures\.clear\(\)/.test(code)
-      && /clearLiveSessionFailures\(\);/.test(tabsSrc));
+      // P4-15：调用点从 panel-tabs.js 挪进 client.js 的 `onToggleSceneLive`。**两端都要在**
+      //（面板引用处理器 + 处理器真的清）：只钉一端就漏掉了"把另一端删掉"这种回归。
+      && /function onToggleSceneLive\(e\)[\s\S]*?clearLiveSessionFailures\(\);/.test(src)
+      && /onToggleSceneLive/.test(tabsSrc));
   // ⑪ 失败记忆的**管线身份**：旧管线的 timeout 断言不许跨管线复用 —— 它是面板那行
   //    「实时渲染失败（…）」的唯一来源，实测会让"宿主半没重载 + 客户端已更新"看起来毫无作用。
   check('失败记忆带管线身份，换管线作废一次（bundle 变 / 媒体源从无到有）',
@@ -1033,7 +1039,198 @@ for (const [name, ok] of clientChecks) check(name, ok);
     stillInClient.join(' ') || '搬走了 ' + MOVED.length + ' 个入口');
   check('client.js 对管线状态零跨模块写（liveDiagOn 必须走入口）',
     !/^\s*liveDiagOn\s*=/m.test(src) && !/^\s*liveDiagOn\s*=/m.test(tabsSrc)
-    && /toggleLiveDiag\(\)/.test(tabsSrc));
+    // P4-15：入口调用点从 panel-tabs.js 挪进 client.js 的 `onToggleLiveDiag`（渲染器只调处理器）。
+    && /function onToggleLiveDiag\(\) \{ toggleLiveDiag\(\); emit\(\); \}/.test(src)
+    && /onToggleLiveDiag/.test(tabsSrc));
+  // ── 视频壁纸走**独立通道**（`src/video-layer.js`），不走实时那条路 ──────────────────
+  // 现场（实测）：视频档此前过实时管线的切层内容闸门 ⇒ 整次切换（含过场）被推迟到首个
+  // 可解码帧（源越大 / 帧率上限越高越久，十几秒）。正解不是调阈值，而是给视频一条自己的
+  // 通道：就绪判据 = 海报**已加载** / 首帧 / 预算，且没画面时旧壁纸留屏（绝不露层底色 ——
+  // 改成"poster 属性存在即放行"时出现过"十几秒纯色"，那正是这条注释要防的）。
+  {
+    const CH = readFileSync(new URL('../src/video-layer.js', import.meta.url), 'utf8');
+    const LIVE = readFileSync(new URL('../src/live-layer.js', import.meta.url), 'utf8');
+    check('视频通道有独立的就绪判据 videoContentReady（海报已加载 / 首帧）',
+      CH.includes('function videoContentReady(video)')
+      && CH.includes('__wePosterReady === true')
+      && CH.includes('Number(video.readyState) >= 2'));
+    check('视频通道必须探海报**加载**，不是只看属性存在',
+      CH.includes('function probeVideoPoster(') && CH.includes('img.onload'));
+    check('视频通道有兜底预算（拿不到海报也要能换下去 —— ⑥ 后它与执行器一起在通道里）',
+      CH.includes('VIDEO_POSTER_BUDGET_MS') && CH.includes('setTimeout(stallGuard, VIDEO_POSTER_BUDGET_MS)'));
+    // 真机取证（2026-10-02）：旧行为"预算到期就放行"会在 `<video>` rs=0 时把层放上屏，
+    // 屏上只剩这一层底色（用户看到"纯色帧"，实测 1–2 秒起）。判据：预算这一路**只许在
+    // 屏上真有画面时放行**，停滞到上限就停手留旧壁纸，绝不放行空层。
+    check('兜底预算不得放行空层（停滞只留旧壁纸，不铺底色）',
+      CH.includes('const stallGuard = () => {')
+      && /videoContentReady\(video\) \|\| video\.__weReady === true/.test(CH)
+      && CH.includes('VIDEO_STALL_GIVE_UP_MS')
+      && /waited >= VIDEO_STALL_GIVE_UP_MS[\s\S]{0,400}?video-stall/.test(CH));
+    // 真机取证（2026-10-02，第二轮）：**只有设了「帧率上限」时才会再看到纯色帧** —— 抽帧就绪
+    // 那一刻在在屏元素上 `src=transcoded; load()` 会清掉当前帧。判据：自动升级不许在"已上屏"
+    // 的层上换源（推到下一次建层直接用抽帧版），只有"层还被闸门押着"或"用户刚主动改过上限"
+    // 才当场换。
+    check('抽帧升级不在已上屏的层上换源（换源＝清掉当前帧＝纯色）',
+      CH.includes('function layerStillPending(')
+      && /if \(!layerStillPending\(\) && !upgradeByUser\)[\s\S]{0,400}?selection\.transcodeReady = \{ token, fps: cap, url: transcodedUrl \}/.test(CH)
+      && /useCached \? rc\.url : sel\.url/.test(CH)
+      && /upgradeByUser = Date\.now\(\) - capChangedAt < 5000/.test(CH));
+    // ── ① 提交前预热：把"取数"挪出切换的关键路径 ───────────────────────────────
+    // 实测：宿主+磁盘 ~4ms、loadedmetadata→presented ~110ms，其余是"还没开始取数"；
+    // 视频档此前刻意不跑准备链（怕第二个 4K 解码器）⇒ 整段启动成本压在关键路径上。
+    // 折中＝只预到 HAVE_METADATA：**绝不 play()、绝不开 autoplay**。
+    check('① 提交前预热只到元数据（不引进第二个解码器）',
+      CH.includes('const VIDEO_WARM_TTL_MS')
+      && CH.includes('el.preload = "metadata"')
+      && CH.includes('el.autoplay = false')
+      && !/el\.play\(/.test(CH)
+      && CH.includes('function consumeWarmVideo(')
+      && CH.includes('function warmVideoForPointer(')
+      // 赋 src 已经启动资源选择，**不得**再补一次 load()（同值重启 = 白跑一次取数）。
+      && !/el\.src = u;\s*\n\s*el\.load\(\);/.test(CH)
+      && CH.includes('const warmed = prepared ? null : consumeWarmVideo(sel.url);')
+      // 领养的元素**不得重赋 src**（同值重赋也会重启资源选择 = 黑屏闪烁源）：
+      // 建层那段"设 src / 挑抽帧版"只对新建元素生效。
+      && CH.includes('if (!prepared && !warmed) {'));
+    check('① 预热的触发点是卡片身份标记（按下即预热、停在卡上也预热）',
+      src.includes('warmVideoForPointer')
+      && src.includes('addEventListener("pointerdown", onWarmPointerDown, { capture: true, passive: true });')
+      && src.includes('addEventListener("pointerover", onWarmPointerOver, { capture: true, passive: true });')
+      && CH.includes('VIDEO_WARM_HOVER_MS')
+      && src.includes('disposeWarmVideo();')
+      && readFileSync(join(root, 'src', 'picker-modal.js'), 'utf8').includes('"data-we-id": String(w.id)')
+      && readFileSync(join(root, 'src', 'quick-panel.js'), 'utf8').includes('"data-we-id": String(w.id)'));
+    // faststart 变体与"字节布局不得中途改换"（真机根因 + 我在自查里发现的隐患）：
+    //   · 真机取证（当时加的临时插桩，已随本次提交删除）：播放器对 `Range: bytes=0-` 会
+    //     **顺流整读**，moov 在尾部的源于是要读到文件末尾才报元数据，耗时 ∝ 文件大小
+    //     （764MB/1761ms … 97MB/324ms）。变体把 moov 挪到头部即解 —— 但原片与变体的
+    //     **字节偏移不同**，同一次播放里绝不能前半段读原片、后半段读变体（解复用器会按旧
+    //     偏移读新布局 ⇒ 花屏/解码失败）。
+    //   · 所以 /media 的选片必须经 `pinnedFaststartVariant`（第一次请求定音），而不是直接问缓存。
+    const hostLib = readFileSync(join(root, 'lib', 'index.js'), 'utf8');
+    check('① faststart 变体：同一 token 在运行期内钉住同一份字节布局（不许播放中途换文件）',
+      hostLib.includes('function pinnedFaststartVariant(')
+      && hostLib.includes('const MEDIA_CHOICE_PIN = new Map();')
+      && /pinnedFaststartVariant\(abs, token, log\)/.test(hostLib)
+      && /serveFile\(fast \|\| abs/.test(hostLib)
+      // 生成命令必须是"只搬盒子"的复制（不得重编码），并且缓存预算有上限、命中会顶 mtime。
+      && /'-c', 'copy', '-movflags', '\+faststart'/.test(hostLib)
+      && hostLib.includes('FASTSTART_CACHE_MAX_BYTES') && hostLib.includes('touchFaststart('));
+    check('实时管线的视频分支委托给通道，而不是自己下判据',
+      LIVE.includes('return videoContentReady(video);'));
+    // ── 视频通道的**符号围栏**（目标 ①：先造判据再搬家）──────────────────────────
+    // 通道的价值就是"实时专属的东西一件都不过去"。搬家期间它是安全网：每搬一块进来，
+    // 立刻检查这块有没有把实时符号带过来。两个方向都要防：
+    //   · 围栏 —— 通道文件里不得出现清单里的任何符号；
+    //   · **反空转地板** —— 清单里的符号必须仍真实存在于实时模块（否则有人改名之后，
+    //     围栏就成了"查一堆不存在的名字"，永远绿）。
+    const CHANNEL_FILES = ['../src/video-layer.js', '../src/layer-core.js'];
+    const LIVE_ONLY = [
+      'liveRenderEnabled', 'liveRenderUrl', 'applyLiveControls', 'startLiveWatch', 'stopLiveWatch',
+      'liveFail', 'liveFrameEl', 'buildLivePoster', 'scheduleLiveMount', 'createLiveFrame',
+      'cancelLiveMount', 'retainFrameBytes', 'releaseFrameBytes', 'paintFrame',
+      'probeWallpaperOnScreen', 'layerContentReady', 'armLayerContentReveal', 'livePipelineNow',
+      'migrateStaleLiveFailures', 'scheduleLiveFrameBackfill',
+    ];
+    const srcOf = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
+    // ⚠️ **先剥注释再扫**（本仓 ADR-0006 规矩 ⑦）：⑥ 之后视频通道里会出现
+    // 「实时管线只留一次委托」这类注释，注释里提到符号名不算引用。
+    // 剥注释走**共享的字符串感知实现**（文件顶部的 `stripComments` 就是它）——
+    // 这里不要再写第二份朴素正则：块注释正则会把字符串里的 `/*` 也吃掉
+    //（docs 档的 verify-module-layout 专门判这一条，实测曾因这份本地副本判红）。
+    const hits = (text) => LIVE_ONLY.filter((s) => new RegExp('\\b' + s + '\\b').test(stripComments(text)));
+    const offenderList = [];
+    for (const rel of CHANNEL_FILES) {
+      for (const s of hits(srcOf(rel))) offenderList.push(rel + String.fromCharCode(58) + s);
+    }
+    check('围栏：视频通道不引用任何实时专属符号（' + CHANNEL_FILES.length + ' 文件 × ' + LIVE_ONLY.length + ' 符号）',
+      offenderList.length === 0, offenderList.join(', ') || '干净');
+    check('反空转：清单里的符号仍真实存在于实时模块（改名后围栏不许退化成查空名单）',
+      hits(srcOf('../src/live-layer.js')).length === LIVE_ONLY.length,
+      '实时模块命中 ' + hits(srcOf('../src/live-layer.js')).length + '/' + LIVE_ONLY.length);
+    check('negative control: 通道里塞进任一实时符号都会被同一函数判出',
+      hits('const u = liveRenderUrl(sel); const f = () => armLayerContentReveal();').length === 2
+      && hits('const u = myOwnRenderUrl(sel);').length === 0);
+    // ⑦ 名单**显式钉住**：恰好是视频通道的两个文件（通道本体 + 共用核心），且不含 ④ 已
+    // 并入的 transcode.js —— 免得以后"扩容"成一份过期名单（那种名单会静静地不再看守）。
+    check('⑦ 围栏名单恰好覆盖视频通道（通道 + 共用核心，不含已并入的 transcode.js）',
+      CHANNEL_FILES.length === 2
+      && CHANNEL_FILES.includes('../src/video-layer.js')
+      && CHANNEL_FILES.includes('../src/layer-core.js')
+      && !CHANNEL_FILES.some((f) => f.includes('transcode')));
+  }
+    // 搬移要**真的发生**：符号在核心里有定义，且原处不再有副本（否则只是复制一份、
+    // 两条通道各留一个 —— 改一边另一边不动，那比不搬更坏）。
+    const coreSrc = readFileSync(new URL('../src/layer-core.js', import.meta.url), 'utf8');
+    const liveSrc = readFileSync(new URL('../src/live-layer.js', import.meta.url), 'utf8');
+    const movedBlocks = ['nudgeWallpaperRepaint', 'onScreenBrief', 'retireFadingLayer', 'startLayerTransition', 'layerKeyDiff', 'switchTransitionOf', 'releaseLayerMedia', 'openRotationAudioGate', 'mediaFramesOf',
+      'scheduleFadingLayerRemoval', 'applyInlineStyle'];
+    const defsInFile = (text, n) => (text.match(new RegExp('^(?:function\\s+' + n + '\\s*\\(|(?:const|let|var)\\s+' + n + '\\s*=)', 'gm')) || []).length;
+    check('共用核心真的持有搬过来的块，且实时管线里不再有副本（' + movedBlocks.length + ' 个符号）',
+      movedBlocks.every((n) => defsInFile(coreSrc, n) === 1 && defsInFile(liveSrc, n) === 0),
+      movedBlocks.map((n) => n + ':' + defsInFile(coreSrc, n) + '/' + defsInFile(liveSrc, n)).join(' '));
+    // ③ 的搬移同理：视频档的媒体构建必须在**视频通道**里，media-prep 只留委托。
+    const prepSrc = readFileSync(new URL('../src/media-prep.js', import.meta.url), 'utf8');
+    const videoSrc = readFileSync(new URL('../src/video-layer.js', import.meta.url), 'utf8');
+    check('③ 视频档的媒体构建在视频通道里，media-prep 里不再有副本（只剩委托）',
+      defsInFile(videoSrc, 'buildVideoMedia') === 1
+      && defsInFile(prepSrc, 'buildVideoMedia') === 0
+      && prepSrc.includes('buildVideoMedia(sel, fitClass)'),
+      'video=' + defsInFile(videoSrc, 'buildVideoMedia') + ' prep=' + defsInFile(prepSrc, 'buildVideoMedia'));
+    // ⚠️ 实测回归：提取 buildVideoMedia 时切分器的**末端排他**把分支最后一行切掉了，
+    // 而那行正是 `.we-media` / `.we-media--fit` 类名的来源 ⇒ 视频只显示左上角、占不满屏。
+    // 这条把"两条腿都要挂类名"钉住（Edge 腿挂的是镜像 canvas，非 Edge 腿挂 <video>）。
+    const videoFn = (videoSrc.match(/function buildVideoMedia\s*\([\s\S]*?\n\}/) || [])[0] || '';
+    check('③ 视频档两条腿都挂了类名（we-media--canvas + fitClass / we-media + fitClass）',
+      videoFn.includes('canvas.className = \"we-media we-media--canvas\" + fitClass;')
+      && videoFn.includes('media.className = \"we-media\" + fitClass;'));
+    // ── ② 帧率上限的判据是「上限能不能真的降帧」─────────────────────────────────
+    // 设计口径：上限存在的唯一目的是压 GPU 解码占用（Video Decode 随帧率上升）。
+    // 所以只有"源帧率高于上限"才值得整片重编码；源帧率 ≤ 上限时转码纯属白烧。
+    // ⚠️ 曾经把"原生可解"当免转条件（2026-10-02 修）：4K120 的 H.264 既原生可解、
+    // 又远高于上限 ⇒ 帧率上限在实际在用的 mp4 上一律失效、只剩一句面板文案。
+    // 判据（三态都钉住）：帧率已知且高于上限 ⇒ 转；已知且不高于 ⇒ skip；**未知**才轮到
+    // "原生可解就别盲转"这条成本护栏。
+    check('② 抽帧决策看「上限能否真降帧」：高于上限才转、不高于则 skip、未知才用原生可解护栏',
+      videoSrc.includes('function capNeedsTranscode(')
+      && videoSrc.includes('const FPS_CAP_TOLERANCE = 1;')
+      && videoSrc.includes('return src > cap + FPS_CAP_TOLERANCE;')
+      && videoSrc.includes('if (need === false) {')
+      && videoSrc.includes('if (need === null && isNativelyPlayableSource(mi, selection.url, selection.mediaExt)) {')
+      && videoSrc.includes('selection.transcodeState = "skipped";')
+      && videoSrc.includes('selection.transcodeState = "native";')
+      // 「原生可解 ⇒ 直接不转」这条旧口径必须彻底消失（它就是上限失效的原因）。
+      && !videoSrc.includes('if (isNativelyPlayableSource(mi, selection.url, selection.mediaExt)) {\n    if (video.dataset.weTranscoded) revertTranscodedVideo(video);\n    selection.transcodeReady = null;\n    selection.transcodeState = "native";'));
+    check('② 正对照：判定只认原生容器/编码（mkv 之类的非原生容器不在白名单里）',
+      videoSrc.includes('NATIVE_SRC_EXT') && videoSrc.includes('NATIVE_CODEC_RE')
+      && /mp4\|m4v\|webm/.test(videoSrc)
+      && !/NATIVE_SRC_EXT = \/[^/]*mkv/.test(videoSrc));
+    check('② 负对照：把"原生可解"重新写成免转条件（旧口径）会被上一条判出',
+      videoSrc.includes('function capNeedsTranscode(')
+      && /if \(isNativelyPlayableSource\(mi, selection\.url, selection\.mediaExt\)\) \{\n    if \(video\.dataset\.weTranscoded\) revertTranscodedVideo\(video\);\n    selection\.transcodeReady = null;\n    selection\.transcodeState = "native";/.test('if (isNativelyPlayableSource(mi, selection.url, selection.mediaExt)) {\n    if (video.dataset.weTranscoded) revertTranscodedVideo(video);\n    selection.transcodeReady = null;\n    selection.transcodeState = "native";'));
+    // 容器**必须**能拿到真实后缀：媒体 URL 是 `/media/<base64url>`，路径里没有扩展名 ——
+    // 只靠 URL 判会**恒为假**（2026-10-02 实测回归：设了帧率上限时每次切换仍跑整片重编码）。
+    // 两端各钉一条：宿主把 mediaExt 发出来、客户端把它接进 selection 再传进判据。
+    check('② 真实容器由宿主给、客户端接（mediaExt 全链路在场）',
+      readFileSync(join(root, 'lib', 'index.js'), 'utf8').includes('mediaExt: w.fileAbs ? extOf(w.fileAbs) : null,')
+      && readFileSync(join(root, 'lib', 'index.js'), 'utf8').includes('function extOf(p)')
+      && videoSrc.includes('const e = String(ext || "").toLowerCase();')
+      && videoSrc.includes('NATIVE_EXT_SET')
+      && readFileSync(join(root, 'src', 'media-prep.js'), 'utf8').includes('selection.mediaExt = w.mediaExt || null;'));
+    // ── ⑤ 派发化：视频的转码触发归视频通道（syncLayers 不再直呼它）──────────────
+    // 原来这 3 行是视频档在实时管线里**唯一的类型专属逻辑**，现在它只委托。
+    check('⑤ 转码触发归视频通道（live-layer 只委托，不再直呼 maybeUpgradeToTranscoded）',
+      videoSrc.includes('function videoChannelAfterLayerBuild(')
+      && /videoChannelAfterLayerBuild\(video, selection\);/.test(liveSrc)
+      && !/maybeUpgradeToTranscoded\(video, selection\.url/.test(liveSrc));
+    // ── ⑥ 反向探针：视频档的放行**不经过实时管线的闸门机器** ──────────────────
+    const liveSrcNow = readFileSync(new URL('../src/live-layer.js', import.meta.url), 'utf8');
+    check('⑥ 视频档的放行机器归视频通道（实时管线只留一次委托）',
+      videoSrc.includes('function armVideoChannelReveal(')
+      && /armVideoChannelReveal\(video, recheck, giveUp\);/.test(liveSrcNow)
+      && !/probeVideoPoster\(video, recheck, giveUp\)/.test(liveSrcNow)
+      && !/VIDEO_POSTER_BUDGET_MS/.test(liveSrcNow));
+
   check('live-layer.js 已登记进 INLINE_MODULES 且在产物里只有一份',
     /file:\s*'src\/live-layer\.js'/.test(build)
     && (bundle.match(/function syncLayers\(\)/g) || []).length === 1);
@@ -1534,7 +1731,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       + '  React.createElement("span", { className: "we-picker__section-label" }, weT("全局字体")),', '全局字体')
       && gated(tabsSrc, '全局字体'));
   check('侧栏档空态 CTA 切回壁纸页（不是设置页的库下钻）',
-    tabsSrc.includes('sidebarSurface ? onPickWallpaper : () =>')
+    tabsSrc.includes('sidebarSurface ? onPickWallpaper : onOpenPicker')
       && tabsSrc.includes('sidebarSurface ? weT("去挑一张 ›") : weT("选择壁纸")')
       && qpSrc.includes('onPickWallpaper: () => switchQpTab("wallpaper")'));
   // ── 侧栏壁纸档的「壁纸属性」（用户口径：属性要在侧栏里调，不要跳设置页）──────
@@ -1785,8 +1982,16 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
         + ' crlf=' + JSON.stringify(ctxFieldsOf('renderAppearanceTab', lfSample.replace(/\n/g, '\r\n'))));
     const mentions = (text, f) => new RegExp('(^|[\\s,{])' + f + '\\s*[,:}]', 'm').test(text)
       || text.includes('"' + f + '"');
+    // ⚠️ P4-19 之后要连**节函数**一起收：拆分把字段从 `render*Tab` 搬到了 `render*Section` 里，
+    // 只读 Tab 那一层会得到空集（判据的 `>= 20` 会当场红 —— 它红得对，是口径没跟上代码）。
+    const allFieldsOf = (fn) => {
+      const domain = fn.replace(/^render/, '').replace(/Tab$/, '');
+      const secNames = [...tabsSrc.matchAll(new RegExp('function (render' + domain + '\\w*Section)\\(ctx\\)', 'g'))]
+        .map((m) => m[1]);
+      return [fn, ...secNames].flatMap((n) => ctxFieldsOf(n) || []);
+    };
     const wanted = ['renderAppearanceTab', 'renderEffectsTab', 'renderAudioTab']
-      .flatMap((fn) => ctxFieldsOf(fn) || []);
+      .flatMap((fn) => allFieldsOf(fn));
     const missing = wanted.filter((f) => !mentions(qpSrc, f));
     check('侧栏 ctx 覆盖渲染器要的全部字段（提供的字段 + setting-only 占位器），候选 ' + wanted.length + ' 个',
       wanted.length >= 20 && missing.length === 0, '缺：' + (missing.join(', ') || '无'));
@@ -1876,6 +2081,13 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     'onAccent', 'onBlur', 'onBorder', 'onGlassAlpha', 'onGlassColor', 'onToggleThemeFollow',
     'onScrim', 'onWallpaperBlur', 'onWallpaperOpacity',
     'onBackgroundBrightness', 'onBackgroundContrast', 'onBackgroundSaturate',
+    // P4-15 从 panel-tabs.js 抽出的具名处理器：侧栏档也画到它们，于是它们成了 quick-panel.js
+    // 的**自由变量** ⇒ 必须在这里当形参给（漏一个就是 ReferenceError，这正是本判据的设计）。
+    // 与 QP_CTX_SETTINGS_ONLY 的分工：**侧栏档真的会画到的**由这里给真值（替身），
+    // 设置页专属的（如 onFpsCap —— 帧率上限那行带 `!sidebarSurface` 门）才进占位器名单。
+    'onGlassWindow', 'onLeftSidebarGlass', 'onSidebarGlass',
+    'onToggleSceneLive', 'onLiveBootDelay', 'onSceneLiveFps',
+    'onPlaybackRate', 'onObjectFit', 'onFlip', 'onOpenPicker', 'setPickerOpener',
     // 侧栏壁纸档的「壁纸属性」：开关读数 / 开关动作 / 面板渲染器**都是模块级的**
     //（client.js 里的函数声明），本台把它们当自由变量带传进来 —— 与内联后的真实形态一致。
     'userPropsPanelOpen', 'openUserPropsPanel', 'closeUserPropsPanel', 'renderUserPropsPanel'];
@@ -1915,6 +2127,9 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       onAccent: noop, onBlur: noop, onBorder: noop, onGlassAlpha: noop, onGlassColor: noop,
       onToggleThemeFollow: noop, onScrim: noop, onWallpaperBlur: noop, onWallpaperOpacity: noop,
       onBackgroundBrightness: noop, onBackgroundContrast: noop, onBackgroundSaturate: noop,
+      onGlassWindow: noop, onLeftSidebarGlass: noop, onSidebarGlass: noop,
+      onToggleSceneLive: noop, onLiveBootDelay: noop, onSceneLiveFps: noop,
+      onPlaybackRate: noop, onObjectFit: noop, onFlip: noop, onOpenPicker: noop, setPickerOpener: noop,
       userPropsPanelOpen: () => SEL.userPropsPanelOpen === true,
       openUserPropsPanel: () => { OPEN_CALLS.push(1); SEL.userPropsPanelOpen = true; },
       closeUserPropsPanel: () => { SEL.userPropsPanelOpen = false; },
@@ -2064,6 +2279,635 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     stubHits({ props: { onClick: () => { throw new Error('[we-sidebar] ctx.fontSet 属于设置页'); } }, children: [] })
       .filter((x) => x !== '#').length === 1);
 }
+
+// ── 设置页页签的渲染挂载台 + **节顺序**判据（P4-19 的前置）──────────────────────
+// 为什么需要它：`renderWallpaperTab`（最大，458 行）与 `renderAdvancedTab` 此前**一条行为判据
+// 都没有** —— 只有源码锚点（"函数在这儿""首行从 ctx 解构"）。而纯搬动最容易出的事
+// （**漏掉一节 / 改掉顺序 / 复制一节**）源码锚点一个都看不见。
+// 这里的挂载台用**真渲染器**（同一个 `panelMod`）+ 最小替身渲染这两个页签，并抽出树里
+// `we-picker__section-label` 的**有序**序列 —— 于是"节顺序"成了**行为**判据：它对任何重构
+// 都不变（代码搬去哪都行，只要渲染出来还是这个顺序），正是拆分这种纯搬动需要的那类判据。
+{
+  const noop = () => null;
+  // 同一个模块（前面那块已经 import 过 ⇒ 这里拿的是缓存），但 `const` 是块作用域、不能跨块用。
+  const panelMod = await import(pathToFileURL(join(root, 'src', 'panel-tabs.js')).href);
+  const schemaMod = await import(pathToFileURL(join(root, 'lib', 'settings-schema.js')).href);
+  // ⚠️ 先归一成 LF 再切片：工作树是 CRLF，而下面的边界串是 `\n  }\n`（裸 LF）——
+  // 在 CRLF 上它**匹配不到**，`indexOf` 回 -1 会让切片一路吃到文件尾（把别人的解构也当成
+  // 这一节的），于是判据会把整个词表都报成"漏解构"。这类"切错了还照旧报"正是判据要防的形状。
+  const tabsSrcNow = readFileSync(new URL('../src/panel-tabs.js', import.meta.url), 'utf8')
+    .replace(/\r\n/g, '\n');
+  // 这些名字在产物里是**内联同一作用域**的常量 / 纯组件 / 纯函数；单独 import 时按内联规则
+  // 补 globalThis 替身（`weT` 由 tools/weT-shim.mjs 装、React 等由上面那块装）。
+  Object.assign(globalThis, {
+    DEFAULTS: schemaMod.DEFAULTS,
+    ADAPTER_TARGET_VALUES: schemaMod.ADAPTER_TARGET_VALUES,
+    Toggle: noop, VinylRecord: noop,
+    SWITCH_DIRS: ['left', 'right'], SWITCH_DIR_LABELS: { left: '左', right: '右' },
+    SWITCH_SPEEDS: [{ id: 'fast', ms: 200 }, { id: 'normal', ms: 400 }],
+    SWITCH_TRANSITIONS: [{ id: 'fade' }, { id: 'wipe' }],
+    ADAPTER_LABELS: { auto: '自动检测' },
+    adapterCaps: () => ({}), adapterDetectedLabel: () => '', adapterMismatchWarning: () => '',
+    liveDiagVerbose: () => false, weAudioVolume: () => 0, vinylSpinVisible: () => false,
+    liveFailReasonOf: () => '', groupWallpapers: () => [], switchFrames: () => [],
+    switchTransitionOf: () => ({ id: 'fade', dir: 'left', speed: 'normal', ms: 400 }),
+    renderConfirmRow: noop,
+    changeUploadDir: async () => {}, changeWeAssetsDir: async () => {},
+    uploadWallpaperFile: () => {}, removeUploadWallpaper: () => {},
+    importPlaylistIntoDraft: () => {}, saveEditingGroup: () => {},
+    startEditGroup: () => {}, cancelEditGroup: () => {}, startCreateGroup: () => {},
+    // 效果页**实时渲染组**（`sel.type` 为场景/网页时才画）此前从没渲染过 —— 它要的这批替身
+    // 一个都没给，于是那几十行连"渲染得出"这一条都过不了。补上才能让它进入判据视野。
+    codecLabel: () => '', framePreviewSrc: () => '', frameVariantCount: () => 0,
+    probeGpuFrameState: () => ({}), syncLayers: () => {},
+    // `false` = 实时渲染未生效 ⇒ 「出图来源」那一行也画出来（覆盖更宽的那一支）。
+    liveRenderEnabled: () => false, customFrameInput: null,
+    SCENE_LIVE_FPS_VALUES: [0, 24, 30, 60],
+    // ⚠️ 挂载台原先把 `FRAME_VARIANTS` 设成**空数组** ⇒ 场景档那一行读 `FRAME_VARIANTS[i].label`
+    // 直接抛（"从没渲染过"的又一处：空替身让整条分支不可达）。给成有内容的表，分支才可达。
+    FRAME_VARIANTS: [{ id: 0, label: '默认' }, { id: 1, label: '档 1' }, { id: 2, label: '档 2' }],
+    frameVariantCount: () => 3,
+  });
+  /** 树上 `we-picker__section-label` 的**有序**文本序列（深度优先 = 渲染顺序）。 */
+  const sectionSeq = (n, acc = []) => {
+    if (Array.isArray(n)) { n.forEach((x) => sectionSeq(x, acc)); return acc; }
+    if (!n || typeof n !== 'object') return acc;
+    const cls = n.props && n.props.className;
+    if (typeof cls === 'string' && cls.includes('we-picker__section-label')) {
+      const txt = (Array.isArray(n.children) ? n.children : []).filter((c) => typeof c === 'string').join('');
+      if (txt) acc.push(txt);
+    }
+    if (Array.isArray(n.children)) n.children.forEach((x) => sectionSeq(x, acc));
+    return acc;
+  };
+  const sameSeq = (got, want) => got.length === want.length && got.every((x, i) => x === want[i]);
+
+  // ── 把"标签"从替身里**放回树里**：`SliderRow` / `switchRow` / `ctlText` 的标签本来就是
+  // 用户看得见的那一行文字，但 `noop` 把它们吞成 null ⇒ "控件标签的有序序列"就不可能成为判据。
+  // 这条细锚是 `renderEffectsTab` 需要的：它**只有一个节标签**，节顺序钉不住它的内部结构。
+  const REACT = globalThis.React;
+  const labelStub = (label) => (typeof label === 'string' && label
+    ? REACT.createElement('span', { className: 'stub-label' }, label) : null);
+  const PREV_STUBS = { SliderRow: globalThis.SliderRow, switchRow: globalThis.switchRow, ctlText: globalThis.ctlText };
+  globalThis.SliderRow = labelStub;
+  globalThis.switchRow = (label) => labelStub(label);
+  globalThis.ctlText = (label) => labelStub(label);
+  /** 树里**控件标签**的有序序列（`stub-label` = SliderRow / switchRow / ctlText 的标签）。 */
+  const labelSeq = (n, acc = []) => {
+    if (Array.isArray(n)) { n.forEach((x) => labelSeq(x, acc)); return acc; }
+    if (!n || typeof n !== 'object') return acc;
+    const cls = n.props && n.props.className;
+    if (typeof cls === 'string' && cls.includes('stub-label')) {
+      const txt = (Array.isArray(n.children) ? n.children : []).filter((c) => typeof c === 'string').join('');
+      if (txt) acc.push(txt);
+    }
+    if (Array.isArray(n.children)) n.children.forEach((x) => labelSeq(x, acc));
+    return acc;
+  };
+  /**
+   * 树里所有 `className` 的**有序**序列，以及去重排序后的"**画了哪些控件种类**"。
+   *
+   * 为什么需要这条：`labelSeq` **只看得见走 `SliderRow` / `switchRow` / `ctlText` 的标签** ——
+   * 而轮播编辑器那几十行是**裸 `<input>` / `<select>` / `<span>`** 拼的，一个标签都不产。
+   * 实测：把 `groups` / `group` / `editing` / `armedConfirm` 全打开后，`labelSeq` **仍然是原来那 3 个**
+   * ⇒ 标签锚对"裸控件"这一段是**盲的**。类名序列补的正是这个盲区（它认"画了哪些种类"，
+   * 而不是"写了哪些词"），且同样是行为级的：对任何重构不变。
+   */
+  const classSeq = (n, acc = []) => {
+    if (Array.isArray(n)) { n.forEach((x) => classSeq(x, acc)); return acc; }
+    if (!n || typeof n !== 'object') return acc;
+    const cls = n.props && n.props.className;
+    if (typeof cls === 'string' && cls) acc.push(cls);
+    if (Array.isArray(n.children)) n.children.forEach((x) => classSeq(x, acc));
+    return acc;
+  };
+  const classKinds = (tree) => [...new Set(classSeq(tree))].sort();
+  /** 树里所有字符串（去重后排序）—— **文本锚**用：有些分支只改文案（同一套构件），
+   *  类名锚看不见，标签锚也只认走 SliderRow/switchRow/ctlText 的那些。 */
+  const treeStrings = (n, acc = []) => {
+    if (Array.isArray(n)) { n.forEach((x) => treeStrings(x, acc)); return acc; }
+    if (!n || typeof n !== "object") return acc;
+    if (Array.isArray(n.children)) {
+      for (const c of n.children) { if (typeof c === "string") acc.push(c); else treeStrings(c, acc); }
+    }
+    return acc;
+  };
+  const textKinds = (tree) => [...new Set(treeStrings(tree))].sort();
+
+  const st = Object.assign({}, schemaMod.DEFAULTS, {
+    loaded: true, loading: false, id: 'w1', url: '/x', type: 'video', playing: true,
+    videoPlaying: true, videoVolume: 0.5, videoAudioEnabled: false, videoError: '',
+    contentRatingFilter: 'all', hiddenIds: [], rotationGroups: [], rotationGroupId: '',
+    rotationEnabled: false, flip: false, objectFit: 'cover', playbackRate: 1,
+    sceneLive: true, sceneLiveFailures: {}, themeFollow: false, themeFollowLine: '',
+    adapterTarget: 'auto', pauseOnHidden: false, pauseOnBlur: false, pauseOnBattery: false,
+    editingUploadDir: false, uploadDirDraft: '', editingWeAssetsDir: false, weAssetsDirDraft: '',
+    weAssetsError: '', propsUrl: '/wallpaper-engine/props/tok',
+    inventory: {
+      wallpapers: [], error: null, installDir: '/we', uploadDir: '/up', weAssetsDir: null,
+      sceneMediaBase: '', total: 0, portableCount: 0, playlists: [],
+    },
+  });
+  const withHandlers = (names) => Object.fromEntries(names.map((n) => [n, noop]));
+  const CASES = [
+    {
+      fn: 'renderWallpaperTab',
+      label: '',
+      mk: () => st,
+      want: ['当前壁纸', '切换过场', '自动轮播', '自定义壁纸'],
+      // ⚠️ 实测：456 行的渲染器在「最小替身」下只吐出 3 个控件标签 —— 说明 `editing` / `groups` /
+      // `uploadedList` / `propsPanelOpen` 这些门关着时，四节里绝大部分内容**根本没被渲染**。
+      // 钉住现状不是认可它：门的另一侧一旦开始渲染，这条就会变红、逼人回来看（下一步就是开门）。
+      wantLabels: ['过场动画', '时长', '自动轮转'],
+      // 门的**另一侧**：这几条门关着时，编辑器块 / 上传列表 / 错误与提示都不该出现 ——
+      // 与后面两条"开门"用例成对，钉住"门"本身（只钉开门侧的话，"把门拆掉、永远画编辑器"也会绿）。
+      rejectClasses: ['we-picker__editor', 'we-picker__uploads-list', 'we-picker__error', 'we-picker__note',
+        // 第 3 门（属性/实时）关着时：没有错误行、也没有 `is-on` 的属性按钮。
+        'we-picker__current-error', 'we-picker__btn is-on'],
+      ctx: (sel) => Object.assign({
+        setSetting: noop, setTransient: noop, setPickerOpener: noop,
+        INTERVALS: [5, 10, 30, 60], armedConfirm: '', cdMode: '', current: sel,
+        editing: null, editorPageView: '', group: null, groups: [], isLiveScene: false,
+        pagerRow: () => null, playableCount: 0, playableList: [], playbackLive: false,
+        propsPanelOpen: false, renderUserPropsPanel: () => null, sel, uploadedList: [],
+      }, withHandlers(['onArmConfirm', 'onArmDeleteGroup', 'onCancelEditUploadDir',
+        'onCancelEditWeAssetsDir', 'onClear', 'onDeleteGroup', 'onDisarmConfirm', 'onEditInterval',
+        'onEditName', 'onEditOrder', 'onGroupChange', 'onGroupInterval', 'onOpenPicker',
+        'onOpenPickerDraft', 'onRefresh', 'onStartEditUploadDir', 'onStartEditWeAssetsDir',
+        'onSwitchTransition', 'onSwitchTransitionDir', 'onSwitchTransitionSpeed', 'onToggleAudio',
+        'onTogglePlay', 'onTogglePropsPanel', 'onToggleRotation', 'onUploadDirDraft',
+        'onWeAssetsDirDraft'])),
+    },
+    {
+      // 第 1 门：**轮播编辑器**。此前这一档（149 行）在最小替身下只渲染出「自动转轮」一个标签 ——
+      // `groups` / `group` / `editing` / `armedConfirm` 全关着。开门才能让编辑器那几十行进入判据。
+      fn: 'renderWallpaperTab',
+      label: '（轮播编辑器打开）',
+      mk: () => st,
+      ctxOver: {
+        groups: [{ id: 'g1', name: 'A 组', wallpaperIds: ['w1'], interval: 10, order: 'sequence' }],
+        group: { id: 'g1', name: 'A 组', wallpaperIds: ['w1'], interval: 10, order: 'sequence' },
+        editing: { name: 'A 组', interval: 10, order: 'sequence', wallpaperIds: ['w1'] },
+        armedConfirm: 'group:g1',
+      },
+      want: ['当前壁纸', '切换过场', '自动轮播', '自定义壁纸'],
+      // 这一档**不设** `wantLabels`：实测标签锚对它完全盲（编辑器是裸 input/select/span 拼的，
+      // 开满四门后标签仍是那 3 个）—— 该档由下面的类名锚负责。
+      // ⚠️ 实测：`labelSeq` 对这一段是**盲的** —— 编辑器是裸 `<input>` / `<select>` / `<span>` 拼的，
+      // 把四个门全打开后标签仍是原来那 3 个。类名锚才看得见：多出 `we-picker__editor` + `we-picker__text`。
+      wantClasses: ['we-picker__editor', 'we-picker__text'],
+    },
+    {
+      // 第 2 门：**上传与资源路径编辑器**。门是 `uploadedList` 非空 + 两个编辑态 + 错误/提示两条；
+      // 全都是**裸 input/div**（不经过 SliderRow/switchRow/ctlText）⇒ 同样由类名锚负责。
+      fn: 'renderWallpaperTab',
+      label: '（上传与路径编辑器打开）',
+      mk: () => Object.assign({}, st, {
+        editingUploadDir: true, uploadDirDraft: 'D:/uploads',
+        editingWeAssetsDir: true, weAssetsDirDraft: 'E:/we',
+        weAssetsError: '该目录不可写', uploadError: '上传失败', uploadNote: '已就绪',
+      }),
+      ctxOver: { uploadedList: [{ id: 'u1', title: '上传的壁纸' }] },
+      want: ['当前壁纸', '切换过场', '自动轮播', '自定义壁纸'],
+      wantClasses: ['we-picker__uploads', 'we-picker__uploads-path', 'we-picker__uploads-list',
+        'we-picker__uploads-item', 'we-picker__uploads-name', 'we-picker__file',
+        'we-picker__error', 'we-picker__note'],
+    },
+    {
+      // 第 3 门：**当前壁纸节的属性与实时那一半**。门：`current.type = scene|web` + `sel.propsUrl`
+      // （属性按钮）· `propsPanelOpen`（按钮 `is-on` + 面板）· `sel.videoError`/`blockedNote`（错误行）。
+      fn: 'renderWallpaperTab',
+      label: '（场景壁纸 + 属性面板打开）',
+      mk: () => Object.assign({}, st, {
+        type: 'scene', videoError: '解码失败', blockedNote: '内容受限',
+      }),
+      ctxOver: {
+        current: { type: 'scene', title: '场景名' },
+        isLiveScene: true,
+        propsPanelOpen: true,
+        renderUserPropsPanel: () => REACT.createElement('div', { className: 'stub-props-panel' }, 'props'),
+      },
+      want: ['当前壁纸', '切换过场', '自动轮播', '自定义壁纸'],
+      wantClasses: ['we-picker__current', 'we-picker__current-info', 'we-picker__current-title',
+        'we-picker__current-error', 'we-picker__btn is-on', 'stub-props-panel'],
+    },
+    {
+      // 视频壁纸：「实时渲染诊断」**按门不画**（它只对能走实时渲染的场景 / 网页显示）。
+      fn: 'renderAdvancedTab',
+      label: '（视频壁纸：诊断节按门不画）',
+      mk: () => st,
+      want: ['浏览方式', '兼容性', '适配', '省电'],
+      wantLabels: ['紧凑布局', 'Edge 兼容', '适配目标', '最小化/切页时暂停', '使用电池时暂停'],
+      adv: true,
+    },
+    {
+      // 场景壁纸：诊断节出现，且**在最后**。
+      fn: 'renderAdvancedTab',
+      label: '（场景壁纸：诊断节出现且在最后）',
+      mk: () => Object.assign({}, st, { type: 'scene', sceneLive: true, sceneLiveSrc: '/x' }),
+      want: ['浏览方式', '兼容性', '适配', '省电', '实时渲染诊断'],
+      wantLabels: ['紧凑布局', 'Edge 兼容', '适配目标', '最小化/切页时暂停', '使用电池时暂停', 'live 诊断日志'],
+      adv: true,
+    },
+  ];
+  const advCtx = (sel) => Object.assign({ setSetting: noop, setTransient: noop, sel },
+    withHandlers(['onAdapterTarget', 'onEdgeCompatChange', 'onLayoutChange', 'onPauseOnBattery',
+      'onPauseOnBlur', 'onPauseOnHidden', 'onToggleLiveDiag']));
+  for (const t of CASES) {
+    const sel = t.mk();
+    let tree = null;
+    let err = '';
+    // `ctxOver` 让一个用例把门**打开**（`groups` / `editing` / `uploadedList` … 默认全关着，
+    // 于是那些分支从没被渲染过 —— 这一档就是为了让它们第一次进入判据的视野）。
+    // 只给 `ctxOver` 的用例复用**第一条**（墙纸档）的 ctx 构造器：同一批处理器，只是门开着。
+    const buildCtx = t.ctx || CASES[0].ctx;
+    try { tree = panelMod[t.fn](t.adv ? advCtx(sel) : Object.assign(buildCtx(sel), t.ctxOver || {})); } catch (e) { err = String((e && e.message) || e); }
+    // ① 渲染得出（缺 ctx 字段 / 缺全局替身都会在这里响亮地炸）
+    check(t.fn + t.label + ' 渲染得出（真渲染器 + 最小替身）', err === '', err || 'ok');
+    if (err) continue;
+    // ② 节**有序**且一节不多不少 —— 这是纯搬动唯一会破坏的东西
+    const seq = sectionSeq(tree);
+    if (t.want) {
+      check(t.fn + t.label + ' 的节顺序与集合逐字不变', sameSeq(seq, t.want),
+        'want=[' + t.want.join(' / ') + '] got=[' + seq.join(' / ') + ']');
+    }
+    if (t.wantLabels) {
+      const labels = labelSeq(tree);
+      check(t.fn + t.label + ' 的控件标签顺序与集合逐字不变', sameSeq(labels, t.wantLabels),
+        'want=[' + t.wantLabels.join(' / ') + '] got=[' + labels.join(' / ') + ']');
+    }
+    // 类名锚：`wantClasses` 是**子串**判定（构件名常带修饰类，如 `we-picker__btn --primary`）——
+    // 它认的是"这一段画出来了没有"，正是 `labelSeq` 对**裸 input/select** 的盲区。
+    if (t.wantClasses) {
+      const kinds = classKinds(tree);
+      const missing = t.wantClasses.filter((c) => !kinds.some((k) => k.includes(c)));
+      check(t.fn + t.label + ' 画出了该档应有的控件种类（类名锚）', missing.length === 0,
+        'want⊆got? 缺=[' + missing.join(', ') + '] got=' + kinds.length + ' 种');
+    }
+    // 门的**另一侧**：这一档**不该**出现的构件（如"编辑器没打开时不该有 `we-picker__editor`"）。
+    // 门的两个方向都钉住，才不是"只要画得多就算过"。
+    if (t.rejectClasses) {
+      const kinds = classKinds(tree);
+      const present = t.rejectClasses.filter((c) => kinds.some((k) => k.includes(c)));
+      check(t.fn + t.label + ' 不该出现的构件一个都没画（门的另一侧）', present.length === 0,
+        '多出=[' + present.join(', ') + ']');
+    }
+    if (process.env.DSH_WE_SHOW_LABELS) {
+      console.log('    LABELS ' + t.fn + t.label + ' = ' + JSON.stringify(labelSeq(tree)));
+      console.log('    CLASSES ' + t.fn + t.label + ' (' + classKinds(tree).length + ') = '
+        + JSON.stringify(classKinds(tree).filter((c) => /editor|playlist|rotation|text|select|hint/.test(c))));
+    }
+  }
+  // 负对照：同一个比较器对"顺序被换 / 少一节 / 多一节"都必须判坏（否则上面两条可能是恒真）。
+  // ── 守卫的守卫：判据**缺守卫时是"崩"而不是"判红"**，比判红更隐蔽 ──────────────
+  // 实测过：ctx 驱动那个循环的标签检查漏了 `if (t.wantLabels)`，而有一条用例改用类名锚、
+  // 压根没有 `wantLabels` ⇒ `sameSeq(labels, undefined)` 当场抛，整个守卫**一条结论都没留下**
+  // （比"红"更糟：红至少留下了"哪一条不成立"）。这条把"每个 `sameSeq(x, t.<field>)` 都必须被
+  // `if (t.<field>)` 包住"钉成静态事实。
+  {
+    // 只扫**本判据之前**的代码：负对照里的示例字符串也在源码里，扫全文件会把它们当代码。
+    const MARK = '每个 sameSeq 的期望值都被';
+    const src = stripComments(readFileSync(new URL(import.meta.url), "utf8"));
+    const head = src.slice(0, src.indexOf(MARK));
+    const unguarded = (text) => {
+      const ls = text.split("\n"); const out = [];
+      ls.forEach((l, i) => {
+        const m = /sameSeq\([^,]+,\s*(t\.\w+)\)/.exec(l);
+        if (!m) return;
+        const win = ls.slice(Math.max(0, i - 4), i).join(" ");
+        if (!win.includes("if (" + m[1] + ")")) out.push("L" + (i + 1) + ":" + m[1]);
+      });
+      return out;
+    };
+    const bad = unguarded(head);
+    check('每个 sameSeq 的期望值都被 `if (t.<field>)` 守卫（缺守卫 ⇒ 崩而非判红，一条结论都不留）',
+      bad.length === 0, bad.join(', ') || '全部已守卫');
+    check('negative control: 缺 if 守卫的 sameSeq 会被同一条判据判出',
+      unguarded('const a = sameSeq(x, t.wantLabels);').length === 1
+      && unguarded(['if (t.wantLabels) {', '  const a = sameSeq(x, t.wantLabels);', '}'].join(String.fromCharCode(10))).length === 0);
+    // 同一件事的**另一半**：三条锚的调用（`labelSeq` / `classKinds` / `textKinds`）也必须被
+    // `if (t.<field>)` 包住 —— 否则那条判据要么恒真、要么在缺期望时崩。
+    // （`DSH_WE_SHOW_LABELS` 那几行是**探查用 dump**，不是判据，跳过。）
+    const unguardedAnchors = (text) => {
+      const ls = text.split("\n"); const out = [];
+      ls.forEach((l, i) => {
+        if (!/=\s*(labelSeq|classKinds|textKinds)\(tree\)/.test(l)) return;
+        const win = ls.slice(Math.max(0, i - 5), i + 1).join(" ");
+        if (win.includes("DSH_WE_SHOW_LABELS")) return;
+        if (!/if \(t\./.test(win)) out.push("L" + (i + 1) + ":" + l.trim().slice(0, 44));
+      });
+      return out;
+    };
+    const badAnchors = unguardedAnchors(head);
+    check('三条锚的调用都被 `if (t.<field>)` 包住（否则判据恒真或缺期望时崩）',
+      badAnchors.length === 0, badAnchors.join(' | ') || '全部已守卫');
+    check('negative control: 未守卫的锚调用会被同一条判据判出',
+      unguardedAnchors('const labels = labelSeq(tree);').length === 1
+      && unguardedAnchors(['if (t.wantLabels) {', '  const labels = labelSeq(tree);', '}'].join(String.fromCharCode(10))).length === 0);
+  }
+
+  // ── 覆盖面地板（本轮实测的静默失败就是它要防的）─────────────────────────────
+  // 一次补丁把新用例插进了上一条的 `ctx:` 构造器里 —— **语法合法、却从没被迭代到**，于是判据一条
+  // 都没加而整个套件照旧全绿（当时靠"通过数没动"才发现）。用例没进数组 / 被改名 / 被注释掉都属于
+  // 这一类：**静默少跑**。地板把"少跑"变成红。（带标签期望的条数单独设下限：那是细锚的覆盖面。）
+  check('覆盖面：渲染用例数 ≥ 4 且其中带控件标签期望的 ≥ 3（用例静默没进数组即红）',
+    CASES.length >= 4 && CASES.filter((c) => c.wantLabels).length >= 3,
+    'cases=' + CASES.length + ' withLabels=' + CASES.filter((c) => c.wantLabels).length);
+  check('negative control: 空数组 / 缺标签期望会被同一条地板判出',
+    !([].length >= 4) && !([{ wantLabels: [] }, {}, {}, {}].filter((c) => c.wantLabels).length >= 3));
+
+  // ── 类名锚的**正/负对照**（目标 ④：新守卫必须带负对照）─────────────────────
+  // 类名锚的判定是"子串 + 子集"，两个方向都可能恒真：恒真一 = 集合里总有它；恒真二 = 子集判空。
+  // 这里对**合成树**各验一次，并补一条"空树不会让判据恒真"。
+  {
+    const kindsOf = (tree0) => classKinds(tree0);
+    const has = (kinds, c) => kinds.some((k) => k.includes(c));
+    const editorTree = [{ props: { className: 'we-picker__editor' }, children: [] }];
+    const multi = [
+      { props: { className: 'we-picker__uploads' }, children: [
+        { props: { className: 'we-picker__uploads-list' }, children: [] },
+      ] },
+    ];
+    check('正对照：类名锚认得出该有的构件（含子串判定）',
+      has(kindsOf(editorTree), 'we-picker__editor') && kindsOf(editorTree).length === 1);
+    check('正对照：嵌套树的类名也收得到（不是只看顶层）',
+      has(kindsOf(multi), 'we-picker__uploads') && has(kindsOf(multi), 'we-picker__uploads-list'));
+    check('negative control: 缺构件会被 `wantClasses` 那一条判出来',
+      ['we-picker__editor', 'we-picker__uploads-list'].filter((c) => !has(kindsOf(editorTree), c)).length === 1);
+    check('negative control: 多出不该有的构件会被 `rejectClasses` 那一条判出来',
+      ['we-picker__editor'].filter((c) => has(kindsOf(multi), c)).length === 0
+      && ['we-picker__uploads'].filter((c) => has(kindsOf(multi), c)).length === 1);
+    check('negative control: 空树 / 无 className 的树不会让两条判据恒真',
+      kindsOf([]).length === 0 && kindsOf([{ props: {}, children: [] }]).length === 0);
+  }
+
+  check('负对照：节顺序判据对换序 / 缺节 / 多节都有牙',
+    sameSeq(['甲', '乙'], ['甲', '乙'])
+    && !sameSeq(['乙', '甲'], ['甲', '乙'])
+    && !sameSeq(['甲'], ['甲', '乙'])
+    && !sameSeq(['甲', '乙', '丙'], ['甲', '乙']));
+  check('负对照：节抽取只认 section-label 节点（旁边普通文本不得被当节）',
+    sectionSeq({ props: { className: 'we-picker__ctl' }, children: ['当前壁纸'] }).length === 0
+    && sectionSeq({ props: { className: 'we-picker__section-label' }, children: ['当前壁纸'] }).length === 1);
+
+  // ── appearance / effects：同一套挂载台（ctx 由**渲染器自己的解构行**驱动）────────
+  // 这两页签的节顺序此前也没有判据（`verify-fontset` 只判"某串在场"，`renderEffectsTab`
+  // 甚至只有一个节标签）。补上之后，它们才具备"按节拆成子渲染器"的安全网（P4-19 余项）。
+  const ctxFieldsOf = (fnName) => {
+    const at = tabsSrcNow.indexOf('function ' + fnName + '(ctx) {');
+    const dm = /const \{([^}]*)\} = ctx;/.exec(tabsSrcNow.slice(at, at + 4000));
+    return dm ? dm[1].split(',').map((s) => s.trim().split(':')[0].trim()).filter(Boolean) : [];
+  };
+  // 解构行里除少数几个"值形状"（fontSet / surface / sel）外全是处理器 ⇒ 其余一律 noop。
+  // ⚠️ 必须收**这个页签 + 它的节函数**的字段并集：P4-19 之后 `render*Tab` 自己只解构 `{ }`，
+  // 只读那一层会得到空集 ⇒ 处理器全是 undefined（此前一直没炸，只因没走到会**调用**它们的
+  // 分支 —— 字体节一打开就撞上 `officialColorOf is not a function`）。
+  // ⚠️ `sel` 必须**跳过**：它不在 `known` 里，若不排除就会被 noop 覆盖 ⇒ `sel.id` 变 undefined
+  // ⇒ 效果页签走上"还没有启用壁纸"的**空态提前返回**，节判据于是拿到空树而"照旧报"。
+  const allCtxFieldsOf = (fnName) => {
+    const domain = fnName.replace(/^render/, '').replace(/Tab$/, '');
+    const secs = [...tabsSrcNow.matchAll(new RegExp('function (render' + domain + '\\w*Section)\\(ctx\\)', 'g'))]
+      .map((m) => m[1]);
+    return [fnName, ...secs].flatMap((n) => ctxFieldsOf(n) || []);
+  };
+  const ctxFrom = (fnName, sel, known) => {
+    const c = { sel };
+    for (const n of allCtxFieldsOf(fnName)) if (n !== 'sel' && !(n in known)) c[n] = noop;
+    return Object.assign(c, known);
+  };
+  const FONTSET_STUB = {
+    open: true, fontSets: [], activeId: '', loading: false, error: '', editingId: '', draftName: '',
+    exportUrl: () => '', onOpen: noop, onActivate: noop, onRefresh: noop, onDelete: noop, onEdit: noop,
+    onDraftName: noop, onRenameCommit: noop, onCancelEdit: noop, onCreate: noop,
+  };
+  const MORE_CASES = [
+    { fn: 'renderAppearanceTab', label: '（设置页：五节）', surface: 'settings',
+      want: ['主题', '细节', '全局字体', '输入光标', '窗口与侧栏'],
+      wantLabels: ['主题随壁纸', '玻璃透明度', '左侧栏覆盖', '雾化', '边框', '字体自定义', '设置窗口液态玻璃'] },
+    // 侧栏档：被 `!sidebarSurface` 包住的三节不画 —— 这条门此前只有源码串，没有行为断言。
+    { fn: 'renderAppearanceTab', label: '（侧栏档：设置页专属的三节不画）', surface: 'sidebar',
+      want: ['主题', '细节'],
+      wantLabels: ['主题随壁纸', '玻璃透明度', '左侧栏覆盖', '雾化', '边框'] },
+    // ⚠️ 这一条是**覆盖缺口**补上的：字体那一节的细节（颜色角色 / 排版角色 / 字体族 / 组件字体 /
+    // 字体集预设，~180 行）被 `sel.fontCustom` 挡着，而它的默认值是关 ⇒ **任何用例都没渲染过它**。
+    // 打开它才能让那些行第一次进入判据的视野（这本身是找缺陷，不只是补锚）。
+    { fn: 'renderAppearanceTab', label: '（设置页 · 字体自定义开）', surface: 'settings',
+      selOver: { fontCustom: true },
+      want: ['主题', '细节', '全局字体', '输入光标', '窗口与侧栏'],
+      wantLabels: ['主题随壁纸', '玻璃透明度', '左侧栏覆盖', '雾化', '边框', '字体自定义', '文字颜色角色', '深色单独设置', '正文', '次要文字', '弱化说明', '极小说明', '禁用 / 更弱', '排版角色', '只看改过的', '高级字体设置', '字体集预设', '设置窗口液态玻璃'] },
+    // 效果页**只有一个节标签** ⇒ 节顺序钉不住它的内部结构。这里用**控件标签的有序序列**作细锚：
+    // 它同样是行为级的（对任何重构不变），却细到能看见"某一行的位置被挪了 / 被删了"。
+    { fn: 'renderEffectsTab', label: '（画面 · 设置页）', surface: 'settings', want: ['画面'],
+      wantLabels: ['壁纸模糊', '亮度', '对比度', '饱和度', '壁纸透明度', '暗化', '倍速', '帧率上限', '适配', '水平翻转'] },
+    { fn: 'renderEffectsTab', label: '（画面 · 侧栏档）', surface: 'sidebar', want: ['画面'],
+      wantLabels: ['壁纸模糊', '亮度', '对比度', '饱和度', '壁纸透明度', '暗化', '倍速', '适配', '水平翻转'] },
+    // 第 4 门：**效果页的实时渲染组**（`sel.type` 为场景/网页时才画；视频档一个都不出）。
+    // 这一组的标签走 `switchRow` / `ctlText` ⇒ **标签锚这次看得见**（与墙纸档的门后裸控件不同）。
+    { fn: 'renderEffectsTab', label: '（画面 · 场景壁纸：实时渲染组出现）', surface: 'settings',
+      selOver: { type: 'scene', sceneLive: true, sceneFrameUrl: '/f.png', sceneLiveSrc: '/x' },
+      want: ['画面'],
+      // 实测：13 个标签 —— 比网页档多的两个（`出图来源` / `自定义画面`）正是**场景专属**那两行
+      // （网页壁纸没有"出图来源"这一说）。标签锚是**精确序列**判定 ⇒ 两个方向都钉住了。
+      wantLabels: ['壁纸模糊', '亮度', '对比度', '饱和度', '壁纸透明度', '暗化', '场景实时渲染',
+        '启动最长等待时间', '实时渲染帧率', '出图来源', '自定义画面', '适配', '水平翻转'] },
+    { fn: 'renderEffectsTab', label: '（画面 · 网页壁纸：实时渲染组出现）', surface: 'settings',
+      selOver: { type: 'web', webLive: true, webLiveSrc: '/x' },
+      want: ['画面'],
+      wantLabels: ['壁纸模糊', '亮度', '对比度', '饱和度', '壁纸透明度', '暗化', '网页实时渲染',
+        '启动最长等待时间', '实时渲染帧率', '适配', '水平翻转'] },
+    // 目标③ 余项 1：「实时帧」那一段（门 = gpuFrameUi.wid === sel.id && pinned —— 这一张壁纸的槽里真有帧）。
+    // 它有几行随 w/h/error/recapturing/busy 显隐的分支，全在模块级替身里，故用 globals。
+    { fn: 'renderEffectsTab', label: '（画面 · 场景壁纸 + 本壁纸已固定实时帧）', surface: 'settings',
+      selOver: { type: 'scene', sceneLive: true, sceneFrameUrl: '/f.png', sceneLiveSrc: '/x', id: 'w1' },
+      globals: { gpuFrameUi: { wid: 'w1', pinned: true, w: 1920, h: 1080, busy: false, recapturing: false, error: '' } },
+      want: ['画面'],
+      // 实测 14 个：门打开后多出 `实时帧`（正好夹在 `出图来源` 与 `自定义画面` 之间）。
+      wantLabels: ['壁纸模糊', '亮度', '对比度', '饱和度', '壁纸透明度', '暗化', '场景实时渲染',
+        '启动最长等待时间', '实时渲染帧率', '出图来源', '实时帧', '自定义画面', '适配', '水平翻转'] },
+    // 目标③ 余项 2：转码进度行的 done 态（另一态由「进行中」覆盖）。
+    { fn: 'renderEffectsTab', label: '（画面 · 转码进度 done）', surface: 'settings',
+      selOver: { type: 'video', transcodeState: 'working', transcodeProgress: { phase: 'done', percent: 100 } },
+      want: ['画面'],
+      // 进度行是**裸 div**（`we-picker__prog*`）⇒ 标签锚看不见，改由类名锚钉住（下面两档共用）。
+      wantClasses: ['we-picker__prog', 'we-picker__prog-track', 'we-picker__prog-bar'],
+      // 文本锚补的正是类名锚的盲区：这一行的**五个分支只差文案**（构件完全一样）。
+      wantTexts: ['即将完成…'], },
+    // 转码进度行的**进行中**态（`phase: "download"`）—— 与上面的 done 态**只差文案**（构件相同），
+    // 故由**文本锚**钉住（`weT` 在挂载台里是身份层、占位符照插 ⇒ 期望串就是面板上那一串）。
+    { fn: 'renderEffectsTab', label: '（画面 · 转码进度 download 42%）', surface: 'settings',
+      selOver: { type: 'video', transcodeState: 'working', transcodeProgress: { phase: 'download', percent: 42 } },
+      want: ['画面'],
+      wantClasses: ['we-picker__prog-bar'],
+      wantTexts: ['下载 ffmpeg 42%'] },
+    // 转码收尾中（`phase: "transcode"` + `finalizing`）—— 同样只差文案，由文本锚钉住。
+    { fn: 'renderEffectsTab', label: '（画面 · 转码进度 transcode 收尾中）', surface: 'settings',
+      selOver: { type: 'video', transcodeState: 'working', transcodeProgress: { phase: 'transcode', percent: 96, finalizing: true } },
+      want: ['画面'],
+      wantTexts: ['收尾中…'] },
+    // 转码进行中（不带 finalizing）：文案含 `{percent}`/`{eta}` 两个插值 ⇒ 只断言构件已画出
+    // （分支确实被走到），文案留给上面的两档钉 —— 不猜插值结果。
+    { fn: 'renderEffectsTab', label: '（画面 · 转码进度 transcode 进行中）', surface: 'settings',
+      selOver: { type: 'video', transcodeState: 'working', transcodeProgress: { phase: 'transcode', percent: 66, eta: '' } },
+      want: ['画面'],
+      wantClasses: ['we-picker__prog', 'we-picker__prog-bar'] },
+    // `gpuFrameUi` 的三态：错误提示行 + 两个按钮的进行中文案（都住在模块级替身里 ⇒ 用 globals）。
+    { fn: 'renderEffectsTab', label: '（画面 · 抓帧出错 + 两态进行中）', surface: 'settings',
+      selOver: { type: 'scene', sceneLive: true, sceneFrameUrl: '/f.png', sceneLiveSrc: '/x', id: 'w1' },
+      globals: { gpuFrameUi: { wid: 'w1', pinned: true, w: 1920, h: 1080, busy: true, recapturing: true, error: '抓帧失败：超时' } },
+      want: ['画面'],
+      wantClasses: ['we-picker__hint'],
+      wantTexts: ['抓帧失败：超时', '抓帧中…', '清除中…'] },
+  ];
+  for (const t of MORE_CASES) {
+    const known = { surface: t.surface, fontSet: t.surface === 'sidebar' ? undefined : FONTSET_STUB };
+    const sel = t.selOver ? Object.assign({}, st, t.selOver) : st;
+    // `globals`：有些门住在**模块级替身**里（如 `gpuFrameUi.pinned` 决定"实时帧"那一段画不画），
+    // 既不在 ctx 也不在 sel ⇒ 用例临时改写它，**渲染完立刻还原**（含 `continue` 那条路径，
+    // 否则会串到后面的用例上）。
+    const savedGlobals = t.globals ? Object.keys(t.globals).map((k) => [k, globalThis[k]]) : [];
+    if (t.globals) Object.assign(globalThis, t.globals);
+    let tree = null;
+    let err = '';
+    try { tree = panelMod[t.fn](ctxFrom(t.fn, sel, known)); } catch (e) { err = String((e && e.message) || e); }
+    for (const [k, v] of savedGlobals) globalThis[k] = v;
+    check(t.fn + t.label + ' 渲染得出', err === '', err || 'ok');
+    if (err) continue;
+    const seq = sectionSeq(tree);
+    if (t.want) {
+      check(t.fn + t.label + ' 的节顺序与集合逐字不变', sameSeq(seq, t.want),
+        'want=[' + t.want.join(' / ') + '] got=[' + seq.join(' / ') + ']');
+    }
+    // 细锚：**控件标签的有序序列**（`renderEffectsTab` 只有一个节标签，靠这条才钉得住内部结构）。
+    // 用类名锚的档（如转码进度：裸 div 拼的）**不设** `wantLabels` ⇒ 这条必须守卫，
+    // 否则 `sameSeq(labels, undefined)` 会当场崩，而不是判红（崩了就没有那条结论）。
+    if (t.wantLabels) {
+      const labels = labelSeq(tree);
+      check(t.fn + t.label + ' 的控件标签顺序与集合逐字不变',
+        sameSeq(labels, t.wantLabels),
+        'want=[' + t.wantLabels.join(' / ') + '] got=[' + labels.join(' / ') + ']');
+    }
+    if (t.wantTexts) {
+      const texts = textKinds(tree);
+      const missingTexts = t.wantTexts.filter((s0) => !texts.includes(s0));
+      check(t.fn + t.label + ' 渲染出了该档应有的文案（文本锚）', missingTexts.length === 0,
+        '缺=[' + missingTexts.join(' | ') + '] 共 ' + texts.length + ' 条字符串');
+    }
+    if (t.wantClasses) {
+      const kinds = classKinds(tree);
+      const missing = t.wantClasses.filter((c) => !kinds.some((k) => k.includes(c)));
+      check(t.fn + t.label + ' 画出了该档应有的控件种类（类名锚）', missing.length === 0,
+        'want⊆got? 缺=[' + missing.join(', ') + '] got=' + kinds.length + ' 种');
+    }
+    if (t.rejectClasses) {
+      const kinds = classKinds(tree);
+      const present = t.rejectClasses.filter((c) => kinds.some((k) => k.includes(c)));
+      check(t.fn + t.label + ' 不该出现的构件一个都没画（门的另一侧）', present.length === 0,
+        '多出=[' + present.join(', ') + ']');
+    }
+    if (process.env.DSH_WE_SHOW_LABELS) {
+      const all = [];
+      (function walk(n) {
+        if (Array.isArray(n)) { n.forEach(walk); return; }
+        if (!n || typeof n !== 'object') return;
+        if (Array.isArray(n.children)) { for (const c of n.children) if (typeof c === 'string') all.push(c); }
+        if (Array.isArray(n.children)) n.children.forEach(walk);
+      })(tree);
+      console.log('    LABELS ' + t.fn + t.label + ' = ' + JSON.stringify(labels));
+      console.log('    STRINGS(' + all.length + ') hasFontPreset=' + all.some((s) => s.includes('字体集预设'))
+        + ' hasRole=' + all.some((s) => s.includes('角色')) + ' sample=' + JSON.stringify(all.slice(0, 14)));
+    }
+  }
+  // 负对照：上面这条"侧栏档少两节"必须真的来自门，而不是来自"侧栏档根本没渲染"。
+  check('覆盖面：ctx 驱动的用例数 ≥ 5 且全部带控件标签期望（MORE_CASES 循环之后 —— 定义在它之前会撞 TDZ）',
+    MORE_CASES.length >= 5 && MORE_CASES.filter((c) => c.wantLabels).length >= 5,
+    'cases=' + MORE_CASES.length + ' withLabels=' + MORE_CASES.filter((c) => c.wantLabels).length);
+  check('覆盖面：每个渲染用例都必须声明 `want`（关掉上面那条守卫空转的可能）',
+    [...CASES, ...MORE_CASES].every((c) => Array.isArray(c.want) && c.want.length > 0),
+    'cases=' + (CASES.length + MORE_CASES.length));
+  // 锚体系的**覆盖面地板**：三种锚都必须被真的用上 —— 否则它们会被逐渐掏空
+  // （新用例都用最省事的那种锚，另两种慢慢没人用，而"没人用"不会自己变红）。
+  {
+    const all = [...CASES, ...MORE_CASES];
+    const nLabels = all.filter((c) => c.wantLabels).length;
+    const nClasses = all.filter((c) => c.wantClasses || c.rejectClasses).length;
+    const nTexts = all.filter((c) => c.wantTexts).length;
+    check('覆盖面：三种锚都被真的用上（标签 ≥ 6 · 类名 ≥ 4 · 文本 ≥ 2）',
+      nLabels >= 6 && nClasses >= 4 && nTexts >= 2,
+      'labels=' + nLabels + ' classes=' + nClasses + ' texts=' + nTexts + ' cases=' + all.length);
+    check('negative control: 只堆一种锚会被同一条地板判出',
+      !([{ wantLabels: [] }, { wantLabels: [] }, { wantLabels: [] }, { wantLabels: [] },
+        { wantLabels: [] }, { wantLabels: [] }].filter((c) => c.wantClasses).length >= 4));
+  }
+
+  check('负对照：外观页侧栏档确实渲染出了内容（不是空树 ⇒ 上面的"少三节"才有意义）',
+    (() => {
+      try { return sectionSeq(panelMod.renderAppearanceTab(ctxFrom('renderAppearanceTab', st,
+        { surface: 'sidebar', fontSet: undefined }))).length === 2; } catch { return false; }
+    })());
+
+  // ── 拆成"一节一个子渲染器"之后新增的失败模式：**节用了某个 ctx 字段却没解构它** ──
+  // 这类错误的形状是"某个分支一旦被执行就 ReferenceError"，而渲染挂载台只在**走到的分支**上
+  // 才撞得见它（本次实测正是这么抓到一处：`...INTERVALS.map(...)` 的展开写法让派生正则漏了它）。
+  // 所以再补一条**静态**判据把它按在源码层：以"这个页签的 ctx 字段全集"为词表，逐个节函数检查
+  // "用到了却没解构"。先剥注释（规则 ⑦），否则散文里的词会假报。
+  const CTX_UNIVERSE = {
+    renderWallpaperTab: ['setSetting', 'setTransient', 'INTERVALS', 'armedConfirm', 'cdMode', 'current',
+      'editing', 'editorPageView', 'group', 'groups', 'isLiveScene', 'onArmConfirm', 'onArmDeleteGroup',
+      'onCancelEditUploadDir', 'onCancelEditWeAssetsDir', 'onClear', 'onDeleteGroup', 'onDisarmConfirm',
+      'onEditInterval', 'onEditName', 'onEditOrder', 'onGroupChange', 'onGroupInterval', 'onOpenPicker',
+      'onOpenPickerDraft', 'onRefresh', 'onStartEditUploadDir', 'onStartEditWeAssetsDir',
+      'onSwitchTransition', 'onSwitchTransitionDir', 'onSwitchTransitionSpeed', 'onToggleAudio',
+      'onTogglePlay', 'onTogglePropsPanel', 'onToggleRotation', 'onUploadDirDraft', 'onWeAssetsDirDraft',
+      'pagerRow', 'playableCount', 'playableList', 'playbackLive', 'propsPanelOpen',
+      'renderUserPropsPanel', 'sel', 'setPickerOpener', 'uploadedList'],
+    renderAdvancedTab: ['setSetting', 'onAdapterTarget', 'onEdgeCompatChange', 'onLayoutChange',
+      'onPauseOnBattery', 'onPauseOnBlur', 'onPauseOnHidden', 'onToggleLiveDiag', 'sel'],
+    renderAppearanceTab: ['setSetting', 'officialColorOf', 'onAccent', 'onBlur', 'onBorder',
+      'onCaretColor', 'onComponentFamily', 'onComponentFont', 'onFontAdvanced', 'onFontResetAll',
+      'onGlassAlpha', 'onGlassColor', 'onGlassWindow', 'onLeftSidebarGlass', 'onSidebarAlpha',
+      'onSidebarBlur', 'onSidebarColor', 'onSidebarContentAlpha', 'onSidebarContentColor',
+      'onSidebarGlass', 'onThemeColor', 'onThemeColorClear', 'onThemeDarkSeparate', 'onThemeFamily',
+      'onThemeSize', 'onThemeTypeOnly', 'onThemeWeight', 'onToggleFontCustom', 'onToggleThemeFollow',
+      'fontSet', 'sel', 'surface'],
+  };
+  // ⚠️ `tabsSrcNow` 在本块顶部声明（归一成 LF）—— 这里不再重复声明。
+  /** 某页签的节函数（`render<Domain>…Section`）—— 拆分后的每一节。 */
+  const sectionFnsOf = (domain) => {
+    const out = [];
+    const re = new RegExp('^  function (render' + domain + '\\w*Section)\\(ctx\\) \\{$', 'gm');
+    for (const m of tabsSrcNow.matchAll(re)) {
+      const to = tabsSrcNow.indexOf('\n  }\n', m.index);
+      out.push({ name: m[1], body: tabsSrcNow.slice(m.index, to < 0 ? tabsSrcNow.length : to) });
+    }
+    return out;
+  };
+  const USED = (code, n) => new RegExp('(^|[^.\\w$]|\\.\\.\\.)' + n + '\\b(?!\\s*:)').test(code);
+  const missingCtx = [];
+  let sectionCount = 0;
+  for (const [tab, all] of Object.entries(CTX_UNIVERSE)) {
+    const domain = tab.replace(/^render/, '').replace(/Tab$/, '');
+    const at = tabsSrcNow.indexOf('function ' + tab + '(ctx) {');
+    const body = tabsSrcNow.slice(at, tabsSrcNow.indexOf('\n  }\n', at));
+    const fns = [{ name: tab, body }, ...sectionFnsOf(domain)];
+    for (const f of fns) {
+      if (f.name.includes('Section')) sectionCount++;
+      const code = stripComments(f.body);
+      const dm = /const \{([^}]*)\} = ctx;/.exec(code);
+      const own = dm ? dm[1].split(',').map((s) => s.trim().split(':')[0].trim()).filter(Boolean) : [];
+      for (const n of all) if (USED(code, n) && !own.includes(n)) missingCtx.push(f.name + '→' + n);
+    }
+  }
+  check('每个节函数都用到了 ctx 字段就解构它（覆盖面 ' + sectionCount + ' 个节函数）',
+    sectionCount >= 8 && missingCtx.length === 0,
+    'sections=' + sectionCount + (missingCtx.length ? ' · 漏解构=' + missingCtx.join(', ') : ''));
+  check('负对照：用了却没解构的节函数会被同一判据抓出',
+    (() => {
+      const code = stripComments('function renderXSection(ctx) {\n const { sel } = ctx;\n ...INTERVALS.map((m) => m);\n}');
+      return USED(code, 'INTERVALS') && !['sel'].includes('INTERVALS');
+    })());
+  check('负对照：对象键形态（`{ sel: … }`）不得被误报为"用到 ctx 字段"', !USED('const o = { sel: 1 };', 'sel'));
+}
+
 // 用户口径：吉祥物**点一下要能开也能关**侧栏 —— 点击必须进统一开关；
 // 恒走 openPanel/openTab 就会变成只能开不能关。
 // 判据按真实源码形态：点击分支走统一开关（不残留只开的 openPanel）、官方态 toggle 的

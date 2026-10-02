@@ -181,23 +181,26 @@ const INLINE_MODULES = [
     markers: ['const QP_LIST_MAX = ', 'function qpTypeLabel(', 'function QuickPanel(props)'],
   },
   {
+    file: 'src/video-layer.js',
+    why: '视频壁纸通道：海报已加载/首帧/预算的就绪判据（实测：一律等首帧会把切换推到十几秒）',
+    markers: ['function probeVideoPoster(', 'function videoContentReady(', 'VIDEO_POSTER_BUDGET_MS', 'let mediaInfoToken = ', 'function clearUpgradePoll(', 'async function refreshMediaInfo(', 'function abortTranscodeUpgrade(', 'function maybeUpgradeToTranscoded(', 'function invalidateMediaInfoProbe('],
+  },
+  {
     file: 'src/media-prep.js',
     why: '选中项落地：预准备（预挂载 + 探测 + 超时记账）→ buildMedia → applySelection',
     markers: ['function beginRotationPrepare(', 'function prepareWallpaper(', 'const prepareLiveTimeouts = ',
       'function prepareSceneLiveStage(', 'function applySelection(', 'function buildMedia('],
   },
   {
+    file: 'src/layer-core.js',
+    why: '两条通道共用的切换核心：层退役/延迟移除、过场内联样式、可见性复推（不得引用实时符号）',
+    markers: ['function retireFadingLayer(', 'function scheduleFadingLayerRemoval(', 'function nudgeWallpaperRepaint('],
+  },
+  {
     file: 'src/live-layer.js',
     why: '实时渲染管线：live 看护/判失败/抓帧回填/指针/poster 与壁纸层构建（syncLayers）与过场',
     markers: ['const LIVE_FIRST_FRAME_MS = ', 'function liveLog(', 'function startLiveWatch(',
       'function scheduleLiveFrameBackfill(', 'function syncLayers()', 'function toggleLiveDiag('],
-  },
-  {
-    file: 'src/transcode.js',
-    why: '源元数据探测 + 抽帧转码升级的完整生命周期（有状态；拥有 selection 的三个转码字段）',
-    markers: ['let mediaInfoToken = ', 'function clearUpgradePoll(', 'async function refreshMediaInfo(',
-      'function abortTranscodeUpgrade(', 'function maybeUpgradeToTranscoded(',
-      'function invalidateMediaInfoProbe('],
   },
   {
     file: 'src/api-client.js',
@@ -213,8 +216,29 @@ const INLINE_MODULES = [
   },
 ];
 
-const src = readFileSync(resolve(root, 'src', 'client.js'), 'utf8');
-const body = stripHeader(src).replace(/\r\n/g, '\n').replace(/\n+$/, '');
+/**
+ * 读取一个构建输入、归一化成 LF，**并断言不再有孤立 CR**。
+ *
+ * 为什么这条断言值得让构建**红**：源文件里若混进多余的回车（历史形态：`src/i18n-copy.js` 曾有
+ * 28 行是 `\r\r\n`），Windows 检出会把它放大成 `\r\r\n`、Linux 检出是 `\r\n`，而这里只做
+ * `\r\n → \n` 归一化 ⇒ Windows 上会**残留一个孤立 CR** ⇒ **同一份源码在两个平台产出不同字节的
+ * 产物**。于是 commit 哪一份，另一条 CI 腿的「产物与源码同步」（`git diff --exit-code --
+ * lib/client.js`）都会红 —— 实测：ubuntu 腿红、win32 腿绿（本机怎么跑都看不出来）。
+ * 宁可构建失败并点名文件，也不要产出一份平台相关的产物。
+ */
+function readNormalized(abs) {
+  const text = readFileSync(abs, 'utf8').replace(/\r\n/g, '\n');
+  if (/\r/.test(text)) {
+    console.error(`[build-client] ${abs} 含孤立回车（常见形态 \\r\\r\\n 或行内 CR）：`
+      + '产物会变成平台相关，另一条 CI 腿的「产物与源码同步」判据将变红。'
+      + '请先把该文件的行尾归一化成 LF（每行只留 \\n）。');
+    process.exit(1);
+  }
+  return text;
+}
+
+const src = readNormalized(resolve(root, 'src', 'client.js'));
+const body = stripHeader(src).replace(/\n+$/, '');
 const prelude = readInlinedPrelude();
 
 const outline = [
@@ -271,7 +295,7 @@ function readInlinedPrelude() {
   const injected = new Map(); // name -> file
   for (const mod of INLINE_MODULES) {
     const abs = resolve(root, mod.file);
-    const text = readFileSync(abs, 'utf8').replace(/\r\n/g, '\n');
+    const text = readNormalized(abs);
     // 判据针对**代码**：先剥注释。否则模块头里写一句 `node -e "require('fs')…"` 的
     // 复核命令就会被判成"含 require"（**实测**：这类假阳性出现过多次）。
     const code = text

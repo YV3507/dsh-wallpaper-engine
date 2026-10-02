@@ -434,6 +434,7 @@ function applySelection(id, opts) {
     selection.url = null;
     selection.type = null;
     selection.previewUrl = null;
+    selection.mediaExt = null;
     selection.liveFrame = null;
     selection.sceneVideo = null;
     selection.sceneLiveSrc = null;
@@ -461,6 +462,7 @@ function applySelection(id, opts) {
     selection.url = null;
     selection.type = null;
     selection.previewUrl = null;
+    selection.mediaExt = null;
     selection.liveFrame = null;
     selection.sceneVideo = null;
     selection.sceneLiveSrc = null;
@@ -488,6 +490,9 @@ function applySelection(id, opts) {
     selection.customFrames = cf;
   }
   selection.type = w.type;
+  // 真实容器后缀（宿主 inventory 的 mediaExt）：媒体 URL 是 token 形态、没有扩展名，
+  // 「浏览器原生可解」那条判据（见 src/video-layer.js 的 isNativelyPlayableSource）必须靠它。
+  selection.mediaExt = w.mediaExt || null;
   selection.blockedNote = "";
   // 静态帧 URL (frameUrl, 立即上屏)：供页面刷新 / 档位切换时重挂。
   selection.sceneFrameUrl = w.type === "scene" ? (w.frameUrl || null) : null;
@@ -586,39 +591,11 @@ function buildMedia(sel) {
   const fitClass = " we-media--fit";
   let media;
   if (sel.type === "video") {
-    // 轮换领养：就绪元素（已 canplay/预播中）直接进层，绝不重赋 src（重赋
-    // 即使同值也会触发 resource selection 重新加载 = 黑屏闪烁源）。
-    const prepared = consumePreparedMedia("VIDEO", sel.url);
-    media = prepared || document.createElement("video");
-    if (!prepared) {
-      media.src = sel.url;
-      // poster=预览图：覆盖初始加载与抽帧转码 swap 的空窗（原黑屏闪烁点）。
-      // 视频类壁纸不设 —— WE 视频壁纸的预览常是动图（preview.gif），当 poster
-      // 会先播一段预览、再停在视频首帧、最后才进正片，用户看到的是「跑完整
-      // 加载流程」；0.7.5 是选中即播（加载期黑帧，由交叉渐变盖住）。场景内嵌
-      // MP4 的 poster 是静态帧，是「先静帧后动态」的既有设计，保留。
-      if (sel.previewUrl && sel.type !== "video") media.poster = sel.previewUrl;
-    }
-    media.autoplay = true;
-    media.loop = true;
-    // 音轨按用户设置应用（见 weApplyAudio）：默认 0 音量 → 行为与原来的
-    // muted 一致；调高音量后才有声音。
-    media.setAttribute("playsinline", "");
-    // Native playbackRate — hardware-decoded, instant, no reload.
-    try { media.playbackRate = sel.playbackRate; } catch { /* ignore */ }
-    if (IS_EDGE && sel.edgeCompat !== false) {
-      // Edge: keep the decoder element out of sight (its floating 下载/投屏
-      // toolbar attaches to any VISIBLE <video>), render via <canvas> instead
-      // (see weStartDraw / weDrawFrame). Attributes are belt-and-suspenders.
-      media.setAttribute("disablepictureinpicture", "");
-      media.setAttribute("disableremoteplayback", "");
-      media.style.cssText = "position:absolute;left:-100000px;top:0;width:320px;height:180px;opacity:0.01;pointer-events:none;";
-      const canvas = document.createElement("canvas");
-      canvas.className = "we-media we-media--canvas" + fitClass;
-      canvas.style.background = "#000";
-      return [media, canvas];
-    }
-    media.className = "we-media" + fitClass;
+    // 视频档的媒体构建归**视频通道**（见 src/video-layer.js 的 buildVideoMedia）：
+    // Edge 那条腿会在通道里返回 [media, canvas]（镜像画布）⇒ 这里照原样把两条腿返回出去。
+    const builtVideo = buildVideoMedia(sel, fitClass);
+    if (Array.isArray(builtVideo)) return builtVideo;
+    media = builtVideo;
   } else if (isSceneVideo) {
     // Scene animation as <video>: autoplay/loop/muted, poster = the extracted
     // static frame (shown while the video loads). Hardware-decoded → smooth,

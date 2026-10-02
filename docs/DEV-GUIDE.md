@@ -1,6 +1,6 @@
 # 二次开发指南（Dev guide）
 
-> **English**: [`en/DEV-GUIDE.md`](./en/DEV-GUIDE.md)（与本文同源：改一处请同步另一处）
+> **English**: `en/DEV-GUIDE.md`（**已随 2026-10 文档瘦身撤除**：维护者向文档只留中文，见 [`README.md`](./README.md) §语言结构）
 >
 > **本文是"怎么加一个 X"的配方**：每节给**落点、必须同步改的地方、以及改错了会怎样**。
 > 结构性规则（新文件放哪、边界在哪、结构长什么样）在 [`CODE-STRUCTURE.md`](./CODE-STRUCTURE.md) —— 本文不重复，只引用。
@@ -69,6 +69,35 @@ export function registerDiagRoutes(webServer, c) {
 | `lib/index.js` 里把依赖传进这个族的 context 对象 | 路由模块**不得继承**门面的 import（守卫 `verify-module-layout` 的『路由模块不得"继承" lib/index.js 的 import』会判） |
 | `package.json` 的 `files`（若新增了文件） | 留在 `lib/` 的一切都会被打进包；P1 会判 |
 | 文档：**不用手写路径表** | 路由索引是生成物 |
+| **收 body 的路由：上限 + 收完一次性解码** | 收 body 的路由见下面的"读请求体"一节；`verify-body-caps` 会从磁盘枚举判它 |
+
+### 读请求体（POST/PUT 路由必须照这个形态写）
+
+逐块累加却**不比较长度** ⇒ 异常大的请求把宿主堆无界撑大（默认只听 loopback，但 webserver 允许
+`host: 0.0.0.0`）。逐块 `body += chunk` 再 `toString()` ⇒ 落在两个 TCP 分片之间的多字节码点被切成
+`U+FFFD`，用户可见字符串（壁纸 id / 字体名 / 字体族）被**静默写坏**且客户端不知道。所以：
+
+```js
+const chunks = [];
+let size = 0;
+let tooLarge = false;
+req.on('data', (chunk) => {
+  if (tooLarge) return;
+  size += chunk.length;                                   // 按**字节**计
+  if (size > CONTROL_JSON_MAX_BYTES) { tooLarge = true; fail(413, { error: 'payload too large' }); return; }
+  chunks.push(chunk);
+});
+req.on('end', () => {
+  if (tooLarge) return;
+  const body = Buffer.concat(chunks).toString('utf8');    // 只解码**一次**
+  // …JSON.parse(body || '{}')…
+});
+```
+
+上限常量**从 context 取**（`c.CONTROL_JSON_MAX_BYTES`，小控制面 JSON 统一 64KB；真源在
+`lib/index.js`，不变量写在 `lib/routes/upload.js` 文件头）。大载荷（上传 / 抓帧 / 自定义画面）走
+**流式落盘**那条腿，别整个缓冲在内存里。**判据**：`test/verify-body-caps.mjs` —— 新增一条
+`req.on('data')` 会自动进扫描面，缺上限即红（"同族都有闸"不再是靠人记得抄的事）。
 
 **改错了会怎样**：
 
@@ -162,7 +191,7 @@ node test/tools/host-route-index.mjs --write   # 重算并写入 docs/ROUTE-INDE
 | **`test/*.mjs`（守门）** | `verify-*.mjs` —— 结构性守卫：断言**代码**与声明一致，**正负对照成对**（守散文的守卫已按 ADR-0006 撤除） | 见 §4.2「两档」 |
 | **`test/*-smoke.mjs`（冒烟）** | 节点级行为冒烟：轮换、实时帧回填、身份校验 | `npm run smoke`（在 `verify:all` 里） |
 | **`test/e2e-*.mjs`（端到端）** | 真浏览器路径（需本机 Chromium 系浏览器） | `npm run verify:e2e`（不进 verify 链） |
-| **`test/compat-*.mjs`（适配）** | 真 harness 集成面，三个入口：`compat-harness-live` —— link 插件进真实 `@deepseek-ai/dsh` 并启动，断言宿主路由注册可达 / 落盘诊断出现探活标记 / 插件树无加载失败（自带 HOME 隔离与 `DSH_WE_MEDIA_LEGACY=1`，媒体桥等第三方全程不拉起）；`compat-harness-surfaces` —— UI 面清单棘轮（已装 harness 的 `dsh-client-ui-*` 与 `test/fixtures/harness-ui-surfaces.json` 做差，**新表面未登记即红**）+ sidebar 源码活判据；`compat-harness-pages` —— 无头浏览器**逐页 DOM/样式断言**（零依赖 CDP 走计算样式探针；`--dump` 为探查模式） | `.github/workflows/harness-compat.yml`（需网络、`dsh` CLI 与 Chromium 系浏览器，不进 verify 链） |
+| **`test/compat-*.mjs`（适配）** | 真 harness 集成面，三个入口：`compat-harness-live` —— 插件进真实 `@deepseek-ai/dsh` 并启动，断言宿主路由注册可达 / 落盘诊断出现探活标记 / 插件树无加载失败（自带 HOME 隔离与 `DSH_WE_MEDIA_LEGACY=1`，媒体桥等第三方全程不拉起）。**两条安装通道**：`--channel link`（默认，软链工作区）与 `--channel tarball`（先 `npm pack`、再把 **.tgz** 装进去）+ `--fresh` —— **tarball 通道是 `peerDependencies` 能否在安装闭包里解析的唯一判据**（软链不参与依赖解析，结构性地看不见这一类）；它还带"通道自证"（装进去的是真目录而非软链）与两条针对性的失败串断言（`peer validation failed` / `does not resolve from the installation closure`）。CI 里两条通道各跑一步；`compat-harness-surfaces` —— UI 面清单棘轮（已装 harness 的 `dsh-client-ui-*` 与 `test/fixtures/harness-ui-surfaces.json` 做差，**新表面未登记即红**）+ sidebar 源码活判据；`compat-harness-pages` —— 无头浏览器**逐页 DOM/样式断言**（零依赖 CDP 走计算样式探针；`--dump` 为探查模式） | `.github/workflows/harness-compat.yml`（需网络、`dsh` CLI 与 Chromium 系浏览器，不进 verify 链） |
 | **`test/tools/`（工具）** | 诊断 / 分析 / 生成 —— **没有 CI 消费者**，靠手敲（清单见 §4.6） | 手动 |
 
 ### 4.2 两档：硬档挡 PR，软档只出声
@@ -227,6 +256,31 @@ node test/tools/host-route-index.mjs --write   # 重算并写入 docs/ROUTE-INDE
   它出现 `failed=` 之类字样是**标签文本**，不是失败 —— 看结尾的 `ALL … PASSED` / `… FAILED`。
 - 软档的**原退出码**打在末尾 `[warn-only] 软档守卫原退出码 = N` 行上。想让某条软档守卫
   真的拦下改动，直接 `node test/<守卫>.mjs` 跑它（判据一字未改，只是没被降级）。
+
+#### CI 跑**两条腿**（Windows + POSIX），不是因为"多跑一遍更保险"
+
+守卫里有**平台条件分支**，而两半各在不同的平台上才有牙：
+
+| 分支 | 只在哪个平台成立 | 为什么 |
+|---|---|---|
+| `verify-scene` 的 unlink 失败用例（500 `unlink-failed` / 帧仍在盘上 / 重试可用 …） | **POSIX** | 只有 POSIX 的 `chmod` 能阻止 unlink；Windows 上模式位基本被忽略 |
+| 同一处 win32 那半（ENOENT 幂等） | Windows | 同上，反过来 |
+| `verify-scene-live` 的目录链接 | 各按平台 | win32 建 junction、POSIX 建 dir |
+| `verify-media-bridge` 的一处断言 | Windows | win32 专用 |
+
+⇒ 只跑一个平台，**另一半零覆盖**，而 `verify-scene` 自己就会把它打印成
+「来自 posix 分支的 5 条 … 在 win32 上没有任何覆盖 —— 这是覆盖差异，不是通过」。
+所以"换平台会改变被断言的那一半"不是**不换平台**的理由，恰恰是**两个都要跑**的理由。
+`verify.yml` 用 `strategy.matrix.os = [windows-latest, ubuntu-latest]` + `fail-fast: false`
+（一条腿红了不该把另一条腿的结论藏起来），`concurrency.group` 里带 `matrix.os`
+（语义唯一：一次新 push 取消的是**同一平台**的上一次 run，而不是让两条腿互相取消）。
+这条"必须两平台"由 `test/verify-contracts.mjs` ④ 静态钉住 —— 谁把矩阵改回单平台就会红。
+
+⚠️ **`concurrency` 必须挂在作业上，不能挂在工作流级**：`matrix` 只在作业上下文里存在，写在工作流级
+时 GitHub 会把整个工作流文件判为无效 —— push 后 run **0 秒失败、`jobs=[]`**，页面只说
+"This run likely failed because of a workflow file issue"（实测 2026-10-02，本地怎么跑都绿）。
+`verify-contracts.mjs` **⑤** 静态钉住这条：`jobs:` 之前那段里不许出现 `matrix` / `strategy` /
+`steps` / `needs` / `job` 这些作业作用域上下文（含负对照与反空转地板）。
 
 ### 4.4 覆盖范围（每层各自保证什么）
 

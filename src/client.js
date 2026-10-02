@@ -176,7 +176,6 @@ const selection = {
   //   fontSetActive 活动集 id（宿主的 `active`）
   //   fontSetLoading 清单在途
   //   fontSetEditing/fontSetDraftName  正在改名的那一行 + 输入框内容
-  //   fontSetNewName 新建输入框内容
   fontSetOpen: false,
   fontSets: [],
   fontSetActive: "",
@@ -186,6 +185,10 @@ const selection = {
   url: null,
   type: null,
   previewUrl: null,
+  // Transient: real container suffix of the media (host inventory `mediaExt`, e.g. "mp4").
+  // The media URL is token-shaped (`/media/<base64url>`) with no extension, so the
+  // "browser can play this natively" decision (see src/video-layer.js) needs this field.
+  mediaExt: null,
   // Transient: scene wallpaper animation MP4 URL (host /scene-video route).
   // When present the scene plays as a hardware-decoded <video>; on load error
   // it is nulled and the layer rebuilds as a still image (the frame URL:
@@ -749,7 +752,8 @@ function syncRotationTimer() {
   const group = activeRotationGroup();
   const minutes = group ? group.interval : DEFAULTS.rotationInterval;
   // 开发/测试覆盖钩子：localStorage.weRotationTestSec（秒）可临时缩短轮换
-  // 间隔（冒烟测试与手动预览用）；未设置时按组间隔（默认 5 分钟）正常运转。
+  // 间隔（冒烟测试与手动预览用）；未设置时按组间隔正常运转（缺省值见 lib/settings-schema.js
+  // 的 rotationInterval —— 本行不复述那个数，避免与真源漂成两份）。
   let delayMs = minutes * 60 * 1000;
   try {
     const testSec = Number(localStorage.getItem("weRotationTestSec"));
@@ -822,21 +826,6 @@ const SWITCH_DIRECTIONAL = ["push", "wipe", "bars"];
 const SWITCH_BARS_TEETH = 7;
 
 /** 当前生效的过场（类型 + 方向 + 实测算出的毫秒）。cut = 不动画。 */
-function switchTransitionOf(selLike) {
-  const id = selLike && SWITCH_TRANSITION_VALUES.includes(selLike.switchTransition)
-    ? selLike.switchTransition : DEFAULTS.switchTransition;
-  const def = SWITCH_TRANSITIONS.find((t) => t.id === id) || SWITCH_TRANSITIONS[0];
-  const speed = SWITCH_SPEEDS.find((s) => s.id === (selLike && selLike.switchTransitionSpeed))
-    || SWITCH_SPEEDS[1];
-  const dir = selLike && SWITCH_DIRS.includes(selLike.switchTransitionDir)
-    ? selLike.switchTransitionDir : DEFAULTS.switchTransitionDir;
-  return {
-    id,
-    dir,
-    directional: SWITCH_DIRECTIONAL.includes(id),
-    ms: def.ms > 0 ? Math.max(60, Math.round(def.ms * speed.factor)) : 0,
-  };
-}
 
 /** 擦除的起始 inset：从新画面「进入」的那一侧长出来（left = 新画面自右进入）。 */
 function wipeInset(dir) {
@@ -1367,21 +1356,6 @@ function weStopDraw() {
 // Detach is NOT enough: a playing <video> is a GC root and keeps decoding in
 // the background after removal — every rotation switch used to accumulate one
 // more background decoder. Pause + clear src BEFORE dropping the node.
-function releaseLayerMedia(node) {
-  if (!node) return;
-  const v = node.querySelector("video");
-  if (v) {
-    try { v.pause(); v.removeAttribute("src"); v.load(); } catch { /* ignore */ }
-  }
-  // live / web 层的 <iframe> 才是大头：Chromium 实测：「从 DOM 摘除的 iframe 其 JS
-  // 世界仍在跑」（contentWindow 已 null 而 setInterval 照跳）—— 只 remove() 等于把它
-  // 交给 GC，回收时序不可控，每个渐变周期都可能多留一个活着的渲染页。
-  // 显式导航到 about:blank 终止它（与 disposeMediaEl 的 iframe 分支同一手法）。
-  if (typeof node.querySelectorAll !== "function") return; // 精简 mock：无选择器即跳过
-  for (const f of node.querySelectorAll("iframe")) {
-    try { f.src = "about:blank"; } catch { /* ignore */ }
-  }
-}
 function weDrawFrame() {
   const ctx = weDrawCtx;
   if (!ctx || !ctx.canvas.isConnected) return;
@@ -2267,20 +2241,6 @@ function restoreNodeAudio(node) {
   // 场景包 BGM 的元素挂在 body 上（不在层内），它由 hold 标记压住 → 这里放行。
   try { syncSceneAudio(selection); } catch { /* ignore */ }
 }
-function openRotationAudioGate(node, outgoing) {
-  if (!node) return;
-  rotationAudioGate = { node, outgoing: outgoing || null, released: false };
-  muteNodeAudio(node);
-  const live = liveFrameOf(node);
-  if (live) {
-    // 缓存里可能还是真实音量（同帧复用）→ 先清缓存再强制下发 0。
-    liveApplied.volume = null;
-    setLiveVolumeNow(live, 0);
-  }
-  if (sceneAudioEl) {
-    try { sceneAudioEl.volume = 0; sceneAudioEl.muted = true; sceneAudioEl.pause(); } catch { /* ignore */ }
-  }
-}
 // 这次渐变的旧层退场了 → 放行新层音频。outgoingNode 不匹配说明闸属于别的
 // 渐变（快速连切），交给对应那次。
 function releaseRotationAudioGateFor(outgoingNode) {
@@ -2398,14 +2358,6 @@ const LAYER_KEY_FIELDS = ["type", "url", "edge", "sceneVideo", "audio", "live"];
 function keySegBrief(v) {
   const t = String(v == null ? "" : v);
   return t ? (t.length > 46 ? "…" + t.slice(-44) : t) : "∅";
-}
-function layerKeyDiff(oldKey, nextKey) {
-  const a = String(oldKey || "").split("\u0000"), b = String(nextKey || "").split("\u0000");
-  const out = [];
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    if (a[i] !== b[i]) out.push((LAYER_KEY_FIELDS[i] || "seg" + i) + ":" + keySegBrief(a[i]) + "→" + keySegBrief(b[i]));
-  }
-  return out.join(" | ") || weT("(同 key)");
 }
 
 
@@ -2657,6 +2609,107 @@ function markGpuFrameProbed(wid, pinned) {
   gpuFrameUi.wid = String(wid || "");
   gpuFrameUi.pinned = Boolean(pinned);
   gpuFrameUi.probedAt = Date.now();
+}
+
+// ── 壁纸库页签的处理器（渲染器只读值 + 调这些）────────────────────────────────
+// `src/panel-tabs.js` 的契约是「只读 + 组装 React 树」：**写设置 / 改状态 / 发通知都归这里**。
+// 下面这些此前是内联在渲染树里的箭头（`onClick: () => { setTransient(…); emit(); }`），
+// 于是渲染器同时成了"状态的写入方" —— 它甚至在写本文件模块作用域的 `propsPanelOpen` /
+// `pickerFocusPending` / `pickerOpener`（**别人的状态**）。收口到这里之后：状态与处理器是
+// ctx 的**供给方**（同模态框 / 属性面板那条契约），渲染器不再引用 `selection` / `emit`。
+// 判据：`test/verify-client.mjs` 的接缝判据（页签与那两个渲染器同一条口径）。
+function setPickerOpener(el) { pickerOpener = el; }
+function onTogglePropsPanel() {
+  propsPanelOpen = !propsPanelOpen;
+  if (propsPanelOpen) loadUserPropDefs(propTokenOf(selection), true);
+  emit();
+}
+/** 两个「选择壁纸」入口只差草稿标志：普通下钻（点卡片即应用）与轮播编辑器的草稿下钻。 */
+function openPicker(draft) {
+  setTransient("pickerOpen", true);
+  setTransient("pickerDraft", draft);
+  setTransient("modalView", "normal");
+  pickerFocusPending = true; // 打开后焦点落入下钻视图（见 modalInitialFocus）
+  emit();
+}
+function onOpenPicker() { openPicker(false); }
+function onOpenPickerDraft() { openPicker(true); }
+// 轮播列表编辑器的**草稿**（住在 selection.editing；保存才由 saveEditingGroup 落盘）。
+function onEditName(e) {
+  if (selection.editing) { selection.editing.name = e.target.value; emit(); }
+}
+function onEditInterval(e) {
+  if (!selection.editing) return;
+  selection.editing.interval = clampNum(Number(e.target.value), 1, 1440, DEFAULTS.rotationInterval);
+  emit();
+}
+function onEditOrder(e) {
+  if (selection.editing) { selection.editing.order = e.target.value; emit(); }
+}
+// 两个可编辑路径（上传目录 / 官方资源路径）的**草稿**状态 —— 都在 selection 的瞬态字段里。
+function onStartEditUploadDir() {
+  setTransient("editingUploadDir", true);
+  setTransient("uploadDirDraft", selection.inventory.uploadDir || "");
+  emit();
+}
+function onUploadDirDraft(e) { setTransient("uploadDirDraft", e.target.value); emit(); }
+function onCancelEditUploadDir() { setTransient("editingUploadDir", false); emit(); }
+function onStartEditWeAssetsDir() {
+  setTransient("editingWeAssetsDir", true);
+  setTransient("weAssetsDirDraft", selection.inventory.weAssetsDir || "");
+  setTransient("weAssetsError", "");
+  emit();
+}
+function onWeAssetsDirDraft(e) { setTransient("weAssetsDirDraft", e.target.value); emit(); }
+function onCancelEditWeAssetsDir() {
+  setTransient("editingWeAssetsDir", false);
+  setTransient("weAssetsError", "");
+  emit();
+}
+
+// ── 外观 / 播放 / 系统页签的处理器（同上一条：渲染器只读值 + 调这些）────────────
+function onLeftSidebarGlass(e) { setSetting("leftSidebarGlass", e.target.checked); emit(); }
+function onGlassWindow(e) { setSetting("glassWindow", e.target.checked); emit(); }
+function onSidebarGlass(e) { setSetting("sidebarGlass", e.target.checked); emit(); }
+// 场景 / 网页实时渲染的总开关就是**显式重试入口**：除写设置外还要清空全部失败记忆
+//（含**会话内**的传输类软失败 —— 它不在设置里），并重建层与音频互斥态。
+// 五件事必须一起发生，所以它是一个处理器，而不是渲染器里的五行。
+function onToggleSceneLive(e) {
+  setSetting("sceneLive", e.target.checked);
+  setSetting("sceneLiveFailures", {});
+  prepareLiveTimeouts.clear(); // 准备期 live 超时冷却一并清零
+  clearLiveSessionFailures();  // 会话内的传输类软失败同样要清
+  syncLayers();                // key 的 live 段变化 → 层重建（升级/降级）
+  syncSceneAudio(selection);   // 音频互斥状态随形态切换
+  emit();
+}
+function onLiveBootDelay(secs) { setSetting("liveBootDelay", secs); emit(); }
+function onSceneLiveFps(f) { setSetting("sceneLiveFps", f); syncLayers(); emit(); }
+function onPlaybackRate(rate) { setSetting("playbackRate", rate); emit(); }
+function onFpsCap(cap) {
+  // 用户主动改上限：这一轮抽帧升级允许当场换源（自动触发的那一轮不允许，见 upgradeByUser）。
+  try { noteFpsCapChange(); } catch { /* ignore */ }
+  setSetting("fpsCap", cap);
+  refreshMediaInfo(true);
+  emit();
+}
+function onFlip(e) { setSetting("flip", e.target.checked); emit(); }
+function onAdapterTarget(e) { setSetting("adapterTarget", e.target.value); emit(); }
+function onPauseOnHidden(e) { setSetting("pauseOnHidden", e.target.checked); emit(); }
+function onPauseOnBlur(e) { setSetting("pauseOnBlur", e.target.checked); emit(); }
+function onPauseOnBattery(e) { setSetting("pauseOnBattery", e.target.checked); emit(); }
+function onToggleLiveDiag() { toggleLiveDiag(); emit(); }
+/**
+ * 适配方式（覆盖 / 填充 / 居中 / 拉伸）：除写设置外，Edge 的 canvas 渲染路径把 fit 存在
+ * `weDrawCtx` 上，而 `syncLayers` 的 same-canvas 守卫不会重建 draw loop ⇒ 这里要直接更新并重绘。
+ */
+function onObjectFit(mode) {
+  setSetting("objectFit", mode);
+  emit();
+  if (weDrawCtx) {
+    weDrawCtx.fit = mode;
+    weDrawFrame();
+  }
 }
 // 面板上「当前壁纸实时帧」微缩预览的 URL：与层里正在用的那个 URL **同源**（同一
 // 画面档位；scene-frame 路由在有 _gpu.png 时优先服务它），所以预览看到什么、切换
@@ -3475,12 +3528,12 @@ const officialColorOf = (tokens) => {
     if (activeTab === "appearance") return renderAppearanceTab({
       setSetting, setTransient,
       fontSet: fontSetCtx(),
-      officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onToggleFontCustom, onToggleThemeFollow, sel,
+      officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onGlassWindow, onLeftSidebarGlass, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarGlass, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onToggleFontCustom, onToggleThemeFollow, sel,
     });
     if (activeTab === "playback") return React.createElement(React.Fragment, null,
       renderEffectsTab({
         setSetting, setTransient,
-        onBackgroundBrightness, onBackgroundContrast, onBackgroundSaturate, onClearCustomFrame, onClearGpuFrame, onCustomFrameFile, onRecaptureGpuFrame, onRefreshFrame, onScrim, onWallpaperBlur, onWallpaperOpacity, sel,
+        onBackgroundBrightness, onBackgroundContrast, onBackgroundSaturate, onClearCustomFrame, onClearGpuFrame, onCustomFrameFile, onFlip, onFpsCap, onLiveBootDelay, onObjectFit, onOpenPicker, onPlaybackRate, onRecaptureGpuFrame, onRefreshFrame, onSceneLiveFps, onScrim, onToggleSceneLive, onWallpaperBlur, onWallpaperOpacity, sel, setPickerOpener,
       }),
       renderAudioTab({
         setSetting, setTransient,
@@ -3493,12 +3546,12 @@ const officialColorOf = (tokens) => {
       }),
       renderAdvancedTab({
         setSetting, setTransient,
-        onEdgeCompatChange, onLayoutChange, sel,
+        onAdapterTarget, onEdgeCompatChange, onLayoutChange, onPauseOnBattery, onPauseOnBlur, onPauseOnHidden, onToggleLiveDiag, sel,
       }),
     );
     return renderWallpaperTab({
       setSetting, setTransient,
-      INTERVALS, armedConfirm: sel.armedConfirm, cdMode, current, editing, editorPageView, group, groups, isLiveScene, onArmConfirm: armConfirm, onArmDeleteGroup, onClear, onDeleteGroup, onDisarmConfirm: disarmConfirm, onGroupChange, onGroupInterval, onRefresh, onSwitchTransition, onSwitchTransitionDir, onSwitchTransitionSpeed, onToggleAudio, onTogglePlay, onToggleRotation, pagerRow, playableCount, playableList, playbackLive, renderUserPropsPanel, sel, uploadedList,
+      INTERVALS, armedConfirm: sel.armedConfirm, cdMode, current, editing, editorPageView, group, groups, isLiveScene, onArmConfirm: armConfirm, onArmDeleteGroup, onCancelEditUploadDir, onCancelEditWeAssetsDir, onClear, onDeleteGroup, onDisarmConfirm: disarmConfirm, onEditInterval, onEditName, onEditOrder, onGroupChange, onGroupInterval, onOpenPicker, onOpenPickerDraft, onRefresh, onStartEditUploadDir, onStartEditWeAssetsDir, onSwitchTransition, onSwitchTransitionDir, onSwitchTransitionSpeed, onToggleAudio, onTogglePlay, onTogglePropsPanel, onToggleRotation, onUploadDirDraft, onWeAssetsDirDraft, pagerRow, playableCount, playableList, playbackLive, propsPanelOpen, renderUserPropsPanel, sel, setPickerOpener, uploadedList,
     });
   };
   const tabIdx = Math.max(0, PICKER_TABS.findIndex((t) => t.id === activeTab));
@@ -4197,6 +4250,17 @@ function apply(ctx) {
           ocListeners.push(t);
         }
       }
+      // 视频壁纸的**提交前预热**：指针按到/停在卡片上时就把它预到元数据（见 src/video-layer.js
+      // 的 warmVideoUrl）—— 点击发生在抬手，按下→抬手、以及鼠标停在卡片上的这段时间都是白捡的
+      // 窗口（手动点选没有准备链）。capture + passive：不拦事件、不进冒泡链。
+      const onWarmPointerDown = (ev) => { try { warmVideoForPointer(ev, true); } catch { /* ignore */ } };
+      const onWarmPointerOver = (ev) => { try { warmVideoForPointer(ev, false); } catch { /* ignore */ } };
+      let warmBound = false;
+      if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+        document.addEventListener("pointerdown", onWarmPointerDown, { capture: true, passive: true });
+        document.addEventListener("pointerover", onWarmPointerOver, { capture: true, passive: true });
+        warmBound = true;
+      }
       // 可见性恢复（最小化 → 还原 / 页面从 bfcache 回来）：**只在"隐藏 → 可见"这一个方向**
       // 做两件事 —— 一次两帧的复合成微推（见 nudgeWallpaperRepaint）与"画面真的回到屏上了吗"
       // 的留痕（见 probeWallpaperOnScreen）。普通 focus（用户点回窗口）不做，否则每次点窗口
@@ -4302,6 +4366,10 @@ function apply(ctx) {
         if (backVisBound && typeof document !== "undefined" && typeof document.removeEventListener === "function") {
           document.removeEventListener("visibilitychange", onBackVisible);
         }
+        if (warmBound && typeof document !== "undefined" && typeof document.removeEventListener === "function") {
+          document.removeEventListener("pointerdown", onWarmPointerDown, { capture: true });
+          document.removeEventListener("pointerover", onWarmPointerOver, { capture: true });
+        }
         if (visBound && typeof document !== "undefined" && typeof document.removeEventListener === "function") {
           document.removeEventListener("visibilitychange", onVisibilityResyncPersist);
         }
@@ -4316,6 +4384,8 @@ function apply(ctx) {
         // 而且 prep 的兜底定时器之后仍会 commit（往已卸载的插件里建层）。
         cancelRotationPrepare();
         disposePreparedMedia();
+        // 预热槽位同一条纪律：留着就是一个没有句柄的解复用器（页面关闭前不会自己走）。
+        disposeWarmVideo();
         // 关掉音频闸并退役渐变中的旧层：禁用/重挂时旧层不能被留在屏上等退役定时器
         // （≤1.3s 的可见残留），闸也不该跨过一次重挂活着（准备链的 BGM 起播会被它
         // 推迟到那个定时器触发为止）。这两条收尾本身是正确性要求：跨过一次重挂活着的闸
@@ -4485,7 +4555,13 @@ function apply(ctx) {
   // fontsets/<id>.json — a different store on the same host), then inventory — so the
   // selection restore inside loadInventory()'s revalidateSelection() sees the persisted id
   // and can resolve its media URL, and the first paint already has the user's fonts.
-  loadPersisted().then(loadFontSet).then(loadInventory);
+  //
+  // ⚠️ 终止 `.catch` 是**必须**的：这条链上任何一步 reject，后面的 `loadInventory` 就永不执行 ——
+  // 选择器永久停在「扫描 Wallpaper Engine…」，一次性提示也不收敛（用户只能靠刷新或禁用插件自救）。
+  // 各步内部已各自消化可预期的失败（宿主不可达 / 存储被拒 / 坏 JSON），这一条兜的是"没预料到的那次抛"。
+  loadPersisted().then(loadFontSet).then(loadInventory).catch((err) => {
+    try { reportClientDiag("boot-chain-failed", String((err && err.message) || err)); } catch { /* 诊断本身不许再抛 */ }
+  });
 }
 
 exports.apply = apply;

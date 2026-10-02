@@ -1,6 +1,6 @@
 # 代码结构与边界（Code structure）
 
-> **English**: [`en/CODE-STRUCTURE.md`](./en/CODE-STRUCTURE.md)（与本文同源：改一处请同步另一处）
+> **English**: `en/CODE-STRUCTURE.md`（**已随 2026-10 文档瘦身撤除**：维护者向文档只留中文，见 [`README.md`](./README.md) §语言结构）
 >
 > **本文回答三件事**：**代码放哪**（新文件落点）、**结构长什么样**（谁调用谁、数据往哪流）、**边界在哪**（什么算越界）。
 > **为什么这么选**写在 [`adr/`](./adr/)；**机制与不变量**写在对应文件的头注释里（本仓纪律：能写在代码旁的规则不单写文档）；**怎么加一个东西**见 [`DEV-GUIDE.md`](./DEV-GUIDE.md)。
@@ -41,7 +41,7 @@
 | | **随包发布** | **不发布（开发面）** |
 |---|---|---|
 | **浏览器进程** | `lib/client.js` —— **生成物，全仓唯一一个** | `src/**` —— 浏览器侧的**唯一真源** |
-| **宿主进程**（Node / Electron main） | `lib/index.js` ＋ 它 import 的 `lib/**` 模块 ＋ `lib/vendor/`、`lib/webwallgl/`（第三方副本） ＋ `lib/types/` | **`test/`（守门：`verify-*` + `*-smoke` + `e2e-*`）· `test/tools/`（诊断/分析/生成工具）** · `scripts/`（只有 `build-client` / `prepare`，构建与发布期用）· `docs/` ＋ 本机未跟踪的研究 / 取证目录（由忽略规则覆盖，**不入库、也不被入库文档引用**） |
+| **宿主进程**（Node / Electron main） | `lib/index.js` ＋ 它 import 的 `lib/**` 模块 ＋ `lib/webwallgl/`（第三方副本；`lib/vendor/` 是**约定**允许的另一个落点，当前为空——最后一份自带副本已随其唯一消费者退役） ＋ `lib/types/` | **`test/`（守门：`verify-*` + `*-smoke` + `e2e-*`）· `test/tools/`（诊断/分析/生成工具）** · `scripts/`（只有 `build-client` / `prepare`，构建与发布期用）· `docs/` ＋ 本机未跟踪的研究 / 取证目录（由忽略规则覆盖，**不入库、也不被入库文档引用**） |
 
 ### 1.1 一份代码，两个半边（两种运行形态）
 
@@ -121,6 +121,7 @@ graph LR
     IDX --> M1["lib/media/supervisor.js<br/>中间件生命周期"]
     IDX --> M2["lib/media/provision.js<br/>按需下载 + 校验"]
     IDX --> M3["lib/media/legacy.js<br/>内置回落实现"]
+    IDX --> H1["lib/http-body.js<br/>请求体管道（唯一实现；路由模块共用）"]
 ```
 
 **族的形态有明文规定**（§4 第 1 条）：路由模块从 `apply(ctx)` 拿一个**显式 context 对象**
@@ -171,7 +172,7 @@ graph LR
         C["src/client.js<br/>正文"]
         A["src/styles.js<br/>纯数据：整份样式表"]
         B["src/panel-tabs.js · src/picker-*.js<br/>UI 面"]
-        D["src/live-layer.js · src/media-prep.js · src/transcode.js<br/>行为面"]
+        D["src/live-layer.js · src/video-layer.js · src/layer-core.js · src/media-prep.js<br/>行为面"]
         E["src/font/*<br/>字体系统"]
         F["lib/settings-schema.js<br/>唯一共享内核"]
     end
@@ -210,9 +211,9 @@ graph LR
 |---|---|---|
 | **状态真源 + 装配（门面）** | `src/client.js`（正文） | 自己持有：设置 store（`selection`）、持久化、`apiFetch`、`weT` 接线、React 根、`ctx` 的组装点 |
 | **接收 `ctx` 的渲染 / 行为层** | `live-layer` · `panel-tabs` · `sidebar-right` · `picker-modal` · `picker-props-panel` · `theme-follow` · `fontset-editor` · `font/apply` · `font/color-roles` | **门面在调用点组装 `ctx` 传进来** —— 这一层里**不**直接读 `selection` |
-| **基座（无 `ctx`，读扁平符号）** | `media-prep` · `picker-model` · `transcode` · `effects` · `quick-panel` · `i18n` · `api-client` · `adapter` · `we-cond` · `persistence` · `fontset-store` | 直接读**同作用域**的符号；自己的符号反过来被正文读 |
+| **基座（无 `ctx`，读扁平符号）** | `media-prep` · `picker-model` · `video-layer` · `effects` · `quick-panel` · `i18n` · `api-client` · `adapter` · `we-cond` · `persistence` · `fontset-store` | 直接读**同作用域**的符号；自己的符号反过来被正文读 |
 | **纯数据 / 常量表** | `styles.js`（整份样式表）· `i18n-copy.js`（词表）· `about-assets.js` · `font/typography.js` · `font/components.js` | 无外界 |
-| **通道 / 工具** | `nav-icon` · `persistence` · `fontset-store` | 见各自文件头 |
+| **通道 / 工具** | `layer-core`（两条通道共用的切换核心） · `nav-icon` · `persistence` · `fontset-store` | 见各自文件头 |
 
 **依赖方向单向，但两侧含义不同**：
 
@@ -375,6 +376,8 @@ graph LR
 | **`src/` 子目录准入（① 成员数）**：`.js` 计数达 `SRC_DIR_MIN_MEMBERS`（§4 第 1 条门槛之一；② "有自己的一份权威文档"是**约定，无守卫**） | ✅ 同守卫 ⑥（带负对照）・**软档** | — |
 | **相对说明符必须解析到真实文件**：搬动代码后相对路径按新位置重解析（动态 `import()` 的失败是运行期、且常被吞成业务错误 ⇒ 必须静态判定） | ✅ 同守卫 ④『相对说明符必须解析到真实文件』（Node 式解析 + 负对照）・**软档** | — |
 | **类型面与代码同源**：`lib/types/*.d.ts` 必须与实现一致 | ✅ `test/verify-types.mjs`：`.d.ts` 的**声明集 == 手工钉住的必需字段集**，且每个字段在实现里确有生产者 | — |
+| **收 body 的路由必须有上限，且收完只解码一次**：逐块累加而不比较长度 ⇒ 宿主堆无界增长；逐块 `toString()` ⇒ 跨 TCP 分片的多字节码点被切成 U+FFFD（用户可见字符串被静默写坏） | ✅ `test/verify-body-caps.mjs`（**从磁盘枚举**每个 `req.on('data')` 站点，8 条正/负对照 + 覆盖面地板；"裸标识符回调"是**结构性**豁免，不是名单）・**硬档** | 八条路由仍各写一份收 body 管道 ⇒ 尚未收敛成一个 `readBody()`（本行只保证"有上限"，不保证"只有一份实现"） |
+| **路由族触发线**：某个路径首段族达到 ≥3 条路由 ⇒ 回来裁决（按族拆出 `lib/routes/<族>.js`，或改账本 §7-6 那条线并同改判据） | ✅ `test/verify-route-families.mjs`（枚举口径 = `host-route-index` 的 `buildIndex()`；归族规则与 `analyze-host-apply.mjs` ② 组逐字相同；带正/负对照与覆盖面地板）・**硬档** | — |
 
 **已从本表撤除**（各自的原因写在对应 ADR 里）：
 
@@ -387,7 +390,8 @@ graph LR
 
 **本文怎样才算"规范"**：§5 的硬约束与 §6 在册的守卫同时成立即可 —— 两者现在都成立。
 升为规范的**过程记录**（当时的四条偏离如何逐条收敛）属于历史，已归档在
-[`archive/REFACTOR-ASSESSMENT.md`](./archive/REFACTOR-ASSESSMENT.md) 与 `wip/OPEN-ITEMS.md`，本文不重复。
+[`archive/REFACTOR-ASSESSMENT.md`](./archive/REFACTOR-ASSESSMENT.md) 与
+[`archive/wip/OPEN-ITEMS.md`](./archive/wip/OPEN-ITEMS.md)，本文不重复。
 
 ---
 
@@ -413,7 +417,9 @@ graph LR
 > **本表与 §8 用同一口径**：`localStorage` 里既有"设置的缓存"，也有**只属于这台设备**的字段
 > （见上表第 2 行）—— 后者不是任何宿主状态的回声，因此**不能**被"清缓存即可重建"这句话覆盖。
 >
-> **派生缓存不在此表**：GPU 帧 / 静态帧、转码产物（`tc_*.mp4`，按大小 LRU）、视频预览、
+> **派生缓存不在此表**：GPU 帧 / 静态帧、转码产物（`tc_*.mp4`，按大小 LRU）、**faststart 变体
+> （`fs_*.mp4`，另一条 8GB LRU；成因与口径见 `lib/index.js` 的 `faststartVariant` 注释与
+> CHANGELOG 的未发布段）**、视频预览、
 > live 帧、诊断目录、inventory（秒级 TTL）、Steam / 内嵌 MP4 探测（后者未命中一律
 > **未知 → null，绝不猜**）。它们的真源都是**壁纸源文件本身**，全部可删、可重建。
 

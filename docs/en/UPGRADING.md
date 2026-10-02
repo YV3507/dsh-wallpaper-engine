@@ -98,4 +98,19 @@ playback speed/flip, …) lives in a host-side file instead of browser localStor
   separate); rolling back to an older version still reads the localStorage copy, so nothing is lost.
 - **Writes**: debounced 200 ms; a corrupt file falls back to defaults and is **never overwritten**.
 
+---
+
+### The frame-rate cap tiers are now "unlimited / 60 / 30" (unreleased)
+
+**If you had the *fps cap* in the 效果 tab set to 48 or 24 fps, it will read "unlimited" after upgrading.**
+Those tiers were retired (48 has no natural audience and saves only ~20% of the decode load; 24 makes most
+wallpapers visibly choppy for little extra saving over 30), and stored values are **collapsed to the default 0
+(unlimited)** by the setting's enum domain — there is no migration step and nothing for you to change.
+
+- **To keep saving GPU**: pick **60** (halves 120 fps sources) or **30** (halves 60/50 fps sources). While a cap is
+  active, a wallpaper whose source frame rate is above it is transcoded **once** to the capped rate (the timeline
+  is not re-encoded, playback stays at normal speed; cached by "path + mtime + cap", so each wallpaper pays once;
+  the original plays first and the app swaps when it is ready, falling back to the original on failure).
+- **Unlimited is the default**: with no cap set, not a single transcode ever runs.
+
 

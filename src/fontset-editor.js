@@ -10,12 +10,13 @@
  *   · `fontSets`        宿主清单 `[{ id, name, origin, active, overrides?, broken? }]`
  *   · `activeId`        当前活动集 id（清单里的 `active` 也一致；这里显式再给一份便于渲染）
  *   · `loading` / `error`  载入中 / 可判定的失败文案（空串 = 没问题）
- *   · `editingId` / `draftName` / `newName`  三个**瞬态**字段（改名与新建的输入框状态；
+ *   · `editingId` / `draftName`  两个**瞬态**字段（改名那一行的 id 与输入框内容；
  *     它们住在 `selection` 里、由 client 侧 setTransient 维护 —— 与 `selection.editing` 同一手法）
  *   · `onActivate(id)` / `onRefresh()` / `onDelete(id)` / `exportUrl(id)` / `onImport(file)`
  *   · `onEdit(id)` / `onDraftName(v)` / `onRenameCommit(id)` / `onCancelEdit()`
  *   · `onCreate()` —— **不带名字**：新集的名字由客户端生成（面板不再先问一句），
  *     用户随时可以用「重命名」改；两个按钮做同一件事的形态见下。
+ *     ⇒ 因此**没有** `newName` / `onNewName` 这一对：新建不需要输入框，面板也不该有那条路。
  * 对外提供：`renderFontSetEditor`（唯一的导出）。
  *
  * 导出为什么是**普通链接**（`<a download>`，不是 blob、也不是自己弹框）：这正是 DSH 自己的做法 ——

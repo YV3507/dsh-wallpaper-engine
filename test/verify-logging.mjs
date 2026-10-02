@@ -52,7 +52,6 @@ const SINKS = ['lib/log.js', 'lib/notice.js'];
 const NOT_OURS = [
   [/^lib\/client\.js$/, '构建产物（源在 src/**，由 build-client 内联生成）'],
   [/^lib\/webwallgl\//, '上游 vendored 渲染页（自带 WebWallGL 的 console logger）'],
-  [/^lib\/vendor\//, '第三方副本（jpeg-js）'],
 ];
 
 function walkLib(dir, out = []) {
@@ -272,6 +271,42 @@ function localPatchResidue(assets, syncSrc) {
     && localPatchResidue([], 'function applyDiagLevelPatch() {}').length === 1
     && localPatchResidue([], '// applyDiagLevelPatch 曾是补丁\nconst x = 1;').length === 0
     && localPatchResidue([], "const PATCHES_ONLY = process.argv.includes('--patches-only');").length === 1);
+}
+
+// ── N8 模块级代码不得引用 apply 作用域的 log（真机事故：宿主被杀、DSH 反复重启）──
+// 事故形态（2026-10-02 晚·官方壳，崩溃日志原文）：
+//   `dsh: fatal load failure: ReferenceError: log is not defined at lib/index.js:1235`
+// 一个**模块级**助手在失败分支里写了 `log.warn(...)`，而 `log` 只在 `apply()` 体内存在：
+// ReferenceError 抛在 catch 里 ⇒ 那个 async 任务以 reject 收场且无人接管 ⇒ Node 24 按
+// "未处理拒绝"杀掉宿主进程 ⇒ 壁纸整段时间出不来（用户看到的是"开屏纯色帧 + 切几张后崩溃重启"）。
+// 判据：把 `apply` 的函数体**整段抠掉**，剩下的模块级源码里不许再出现 `log.<档位>(`。
+const APPLY_HEADERS = ['export function apply(', 'export async function apply(',
+  'async function apply(', 'function apply('];
+/** apply 的函数体（大括号配对）；定位不到返回 null（判据必须因此变红，而不是假装通过）。 */
+function applyBody(src) {
+  for (const h of APPLY_HEADERS) {
+    const body = functionBody(src, h);
+    if (body !== null) return body;
+  }
+  return null;
+}
+/** 模块级（apply 体之外）的 `log.<档位>(` 自由引用；null = 定位不到 apply 体。 */
+function moduleScopeLogRefs(src) {
+  const s = stripComments(src);
+  const body = applyBody(s);
+  if (body === null) return null;
+  return [...s.replace(body, '').matchAll(LOG_CALL)].map((m) => m[0]);
+}
+{
+  const refs = moduleScopeLogRefs(read('lib/index.js'));
+  check('N8 模块级代码零 `log.<档位>(` 引用（apply 里的 log 在模块级不存在 ⇒ 未处理拒绝会杀掉宿主）',
+    refs !== null && refs.length === 0,
+    refs === null ? '定位不到 apply 体（判据失效，必须修）'
+      : (refs.length ? '命中：' + refs.join(' ') : 'apply 体之外零引用'));
+  check('N8 negative control: 模块级的一条 log.warn 会被判出，apply 体之内的一条不会',
+    (moduleScopeLogRefs("function f(){ log.warn('x'); }\nexport function apply(ctx){ log.info('y'); }") || []).length === 1
+    && (moduleScopeLogRefs("export function apply(ctx){ log.info('y'); }") || []).length === 0
+    && moduleScopeLogRefs('// 没有 apply 的文件') === null);
 }
 
 // ── 接线在位：两个宿主模块必须真的被入口 import（否则上面六条可以在死代码上全绿）──
