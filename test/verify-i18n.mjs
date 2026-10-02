@@ -30,6 +30,7 @@ import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createContext, Script } from 'node:vm';
 import { scanCjkStrings, needsTranslation } from './tools/i18n-scan.mjs';
+import { stripExportBlocks } from './tools/js-text.mjs';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 
@@ -453,8 +454,10 @@ function parseCopyEntries(block) {
  * scheduleWeTimeout/clearWeTimeout）与最小 location 桩 —— i18n 层只依赖这些。
  */
 function loadI18nRuntime({ search = '', service = null } = {}) {
-  const code = readFileSync(join(ROOT, 'src', 'i18n-copy.js'), 'utf8')
-    + '\n;\n' + readFileSync(join(ROOT, 'src', 'i18n.js'), 'utf8')
+  // `vm.Script` 不是模块环境 ⇒ 先按构建期内联的同一手法剥掉各文件的 `export { … }`
+  // （共享实现：`test/tools/js-text.mjs` 的 stripExportBlocks —— 别在这里再抄一份正则）。
+  const code = stripExportBlocks(readFileSync(join(ROOT, 'src', 'i18n-copy.js'), 'utf8'))
+    + '\n;\n' + stripExportBlocks(readFileSync(join(ROOT, 'src', 'i18n.js'), 'utf8'))
     + '\n;\n({ weT, WE_I18N_EN, WE_I18N_HOST_EN, weI18nAttach, weLocaleSubscribe,'
     + ' weLocaleRevisionValue, weOnLocaleChange, weLocaleId });\n';
   const sandbox = {

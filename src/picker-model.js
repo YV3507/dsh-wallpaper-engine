@@ -174,3 +174,20 @@ function pickerModel(input) {
     editorPageView: pageSlice(editorList, input.editorPage),
   };
 }
+
+export {
+  isUploadedWallpaper,
+  isDirWallpaper,
+  ratingOf,
+  matchesRatingFilter,
+  matchesTypeFilter,
+  isPlayableType,
+  isRotatableWallpaper,
+  keepPlayingWallpaper,
+  isHiddenWallpaper,
+  PICKER_PAGE_SIZE,
+  pageSlice,
+  playableWallpapers,
+  hiddenWallpapers,
+  pickerModel,
+};

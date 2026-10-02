@@ -21,7 +21,7 @@
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 // 剥注释：共享的字符串感知实现（test/tools/js-text.mjs）。
-import { stripComments } from './tools/js-text.mjs';
+import { stripComments, stripExportBlocks } from './tools/js-text.mjs';
 
 // ══ 判据（唯一一份）══════════════════════════════════════════════════════════
 
@@ -133,6 +133,11 @@ const MODEL_API_NAMES = '{ ratingOf, matchesRatingFilter, matchesTypeFilter, isP
   + ' isRotatableWallpaper, keepPlayingWallpaper, isHiddenWallpaper, isUploadedWallpaper,'
   + ' isDirWallpaper, playableWallpapers, hiddenWallpapers, pageSlice, pickerModel,'
   + ' PICKER_PAGE_SIZE }';
+/** 该模块的完整导出清单（与 `src/picker-model.js` 末尾的 `export { … }` 逐字相同）。 */
+const MODEL_EXPORTS = ['ratingOf', 'matchesRatingFilter', 'matchesTypeFilter', 'isPlayableType',
+  'isRotatableWallpaper', 'keepPlayingWallpaper', 'isHiddenWallpaper', 'isUploadedWallpaper',
+  'isDirWallpaper', 'playableWallpapers', 'hiddenWallpapers', 'pageSlice', 'pickerModel',
+  'PICKER_PAGE_SIZE'];
 
 /** 把切出来的段落包进一个函数作用域求值 —— 返回模型 API（纯函数，无需宿主环境）。 */
 function evaluateModelSection(section) {
@@ -438,7 +443,52 @@ for (const c of CASES) {
     !projectsTo(broken, c.project, c.want), JSON.stringify(c.project(broken)));
 }
 
-console.log('\n2. 直调判定：六个谓词 + 两个过滤助手（负对照喂变异实参）');
+console.log('\n2. 直接 import 的源模块 vs 产物里那段内联副本（双通道对拍）');
+// 为什么这条值得存在：上面每一行判的都是**产物里那段**（R1：浏览器半边隔着产物）。
+// `src/picker-model.js` 原本没有 `export {}`，于是「直接 import 源模块」这条最便宜的路
+// 根本不存在 —— 全仓只有本守卫要写 `inlinedSection()` 去切字符串。加上导出块之后，
+// 这里把两条通道**对拍**：既证明内联副本 == 源模块（构建保真），也证明导出接口是活的
+// （守着导出的名字，而不是守着一份手抄的 API 清单）。
+// 直接用 `URL` 的 `href`（Windows 上 `pathToFileURL(...).pathname` 会拼出 `/D:/…` ⇒ ERR_MODULE_NOT_FOUND）
+const MODEL_PATH = new URL('../src/picker-model.js', import.meta.url);
+{
+  const srcMod = await import(MODEL_PATH.href);
+  check('src/picker-model.js 的导出接口齐全（导出清单 == 本文件钉住的 API 面）',
+    MODEL_EXPORTS.every((n) => srcMod[n] !== undefined)
+    && Object.keys(srcMod).sort().join() === MODEL_EXPORTS.slice().sort().join(),
+    '导出 ' + Object.keys(srcMod).length + ' 个：' + Object.keys(srcMod).sort().join(','));
+  check('负对照：同一个「导出接口齐全」判据对缺一项的模块判为不齐（判据不是恒真）',
+    !MODEL_EXPORTS.every((n) => ({ ...srcMod, pickerModel: undefined })[n] !== undefined));
+
+  // 产物那段 vs 源模块：**逐用例对拍**同一投影 —— 两条通道必须给同一份答案。
+  for (const c of CASES) {
+    check('对拍（' + c.name + '）：产物内联副本与直接 import 的源模块给出同一份投影',
+      projectsTo(M.pickerModel(modelInput(c.over)), c.project, c.want)
+      && projectsTo(srcMod.pickerModel(modelInput(c.over)), c.project, c.want),
+      'bundle=' + JSON.stringify(c.project(M.pickerModel(modelInput(c.over))))
+      + ' src=' + JSON.stringify(c.project(srcMod.pickerModel(modelInput(c.over)))));
+  }
+}
+
+// ══ 「判据有牙」的自足证明 ═══════════════════════════════════════════════════
+// 把源模块**真变异**一次（用同一份源码文本，不经磁盘），断言判据在变异体上会失败。
+// 这条不依赖"临时改坏源文件"那种不可留仓库的手法 —— 证明是自足、可重复的。
+{
+  const srcText = readFileSync(MODEL_PATH, 'utf8');
+  const mutated = stripExportBlocks(srcText).replace('const PICKER_PAGE_SIZE = 24', 'const PICKER_PAGE_SIZE = 25');
+  check('变异探针前置：源模块里确实有可替换的那一行（否则下面的证明是空转）',
+    mutated !== stripExportBlocks(srcText));
+  if (mutated !== stripExportBlocks(srcText)) {
+    const Mmut = evaluateModelSection(mutated);
+    check('negative control: 把「每页 24 张」变异成 25，同一条判据当场判出（直接 import 通道有牙）',
+      !slicesTo(Mmut, EXTRA, 0, [24, 0, 2]) && !callsTo(() => Mmut.PICKER_PAGE_SIZE, [], 24),
+      '变异体 PICKER_PAGE_SIZE=' + Mmut.PICKER_PAGE_SIZE);
+    check('positive control: 未变异的同一份源码在**同一条**判据下通过（不是"改了就说错"）',
+      slicesTo(evaluateModelSection(stripExportBlocks(srcText)), EXTRA, 0, [24, 0, 2]));
+  }
+}
+
+console.log('\n3. 直调判定：六个谓词 + 两个过滤助手（负对照喂变异实参）');
 {
   check('ratingOf：自上传没写分级 ⇒ everyone', callsTo(M.ratingOf, [W[8]], 'everyone'));
   check('负对照：同一条判据对「未分级的 WE 条目」判为不是 everyone',

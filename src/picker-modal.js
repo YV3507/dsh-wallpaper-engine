@@ -295,3 +295,6 @@
     );
 }
 
+  export {
+    renderPickerModal,
+  };

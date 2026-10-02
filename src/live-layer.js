@@ -302,7 +302,7 @@ try {
 // - 首帧：running 且 fps>0 → 记 sceneLiveActive、iframe 淡入（we-live-on）、
 //   音频互斥切换（停外置 <audio>）；
 // - 首帧超时 → 失败；
-// - 运行期：期望播放却连续 20s 无帧（先单次 resume 自救）或页面失联 → 失败。
+// - 运行期：期望播放却连续 `LIVE_STALL_TICKS` 拍无帧（先单次 resume 自救）或页面失联 → 失败。
 //
 // **首帧预算不是固定 15s 的墙钟**：首帧必须等**整包到齐**
 //（渲染页在 `pkg body` 之前不发任何东西），而实测 `scene.pkg` 到 336MB。于是：
@@ -870,8 +870,8 @@ const LIVE_FRAME_BACKFILL_DELAY_MS = 2500;
 const LIVE_FRAME_BACKFILL_MIN_BYTES = 4096;
 // 空帧门禁（内容判定）：体积不可靠 —— headless Chrome 实测全黑 PNG：
 // 960×540=12KB / 1080p=44KB / 4K=165KB，全都远超任何固定的字节阈值。改为把
-// canvas 降采样到 64×64 看亮度分布：近全黑或几乎无对比度 → 判为「还没渲染
-// 出画面」，放弃回填（宁可继续用自定义画面，也不要写一张坏帧被 409 永久固化）。
+// canvas 降采样到 `LIVE_FRAME_SAMPLE` 见方看亮度分布：近全黑或几乎无对比度 → 判为
+// 「还没渲染出画面」，放弃回填（宁可继续用自定义画面，也不要写一张坏帧被 409 永久固化）。
 const LIVE_FRAME_SAMPLE = 64;
 const LIVE_FRAME_LIT_RATIO = 0.02;   // 亮于阈值(12/255)的像素占比下限
 const LIVE_FRAME_MIN_VARIANCE = 4;   // 亮度方差下限（纯色帧≈0）

@@ -202,7 +202,7 @@ node test/tools/host-route-index.mjs --write   # 重算并写入 docs/ROUTE-INDE
 | 档 | 什么时候红 | 谁跑 | 清单 |
 |---|---|---|---|
 | **硬档** | 失败意味着**用户会撞上**：真机行为、发布面、平台契约、打包面 | `npm run verify`（在 `verify:all` 与 CI 里） | 真源是 `package.json` 的 `verify` 脚本 —— **不在这里列清单**（删/加守卫都会让它过时，本仓真实发生过）。其中 `verify-media-bridge` 经 `test/warn-only.mjs --probe-spawn`：环境起不了子进程时**点名式 SKIP**；CI 的 `verify:bridge` 变体另有两道门（平凡调用探针 + 产物 sha256 可信度），只有都指向环境才允许记"环境跳过"并点名 |
-| **软档** | 失败意味着**仓库内务 / 一次性清理的验收判据**不准了 —— 要人回来看，但不该拦住别人的改动 | `npm run verify:docs`（在 `verify:all` 与 CI 的一条 `continue-on-error` 步骤里） | 同样是 `package.json` 的 `verify:docs` 脚本（现为四条：模块布局 / 可达性 / 退役线 / 声明孤儿） |
+| **软档** | 失败意味着**仓库内务 / 一次性清理的验收判据**不准了 —— 要人回来看，但不该拦住别人的改动 | `npm run verify:docs`（在 `verify:all` 与 CI 的一条 `continue-on-error` 步骤里） | 同样是 `package.json` 的 `verify:docs` 脚本（**步数与清单的真源都在那里**；含模块布局 / 可达性 / 退役线 / 声明孤儿 / **守卫映射**） |
 
 > **软档里只剩"守代码"的守卫。** 此前软档还有两条守**文档 / 注释散文**的守卫
 > （`verify-comment-discipline` · `verify-ledger`），已随
@@ -321,6 +321,7 @@ node test/tools/host-route-index.mjs --write   # 重算并写入 docs/ROUTE-INDE
 | `audit-import-closure.mjs` | `lib/` 的**运行时导入闭包** vs `package.json` 的 `files`（缺文件 ⇒ registry 装上就崩） | `node test/tools/audit-import-closure.mjs` |
 | `branch-notify.mjs` | **分支级**"改了 store 却没通知" | `node test/tools/branch-notify.mjs audit` |
 | `diagnose-web-blank.mjs` | 网页壁纸「白屏」排查台（无头真浏览器） | `node test/tools/diagnose-web-blank.mjs` |
+| `guard-targets.mjs` | **「哪个守卫管哪个模块」的派生映射**（从守卫**代码**里派生，不维护清单）：`--write` 重算生成物 `docs/GUARD-MAP.md`；改了某模块后查"该跑哪几条"就看它 | `node test/tools/guard-targets.mjs [--write] [--json]` |
 | `host-route-index.mjs` | 生成 / 核对**宿主路由索引**（产出 `docs/ROUTE-INDEX.md`） | `node test/tools/host-route-index.mjs [--write]` |
 | `i18n-scan.mjs` | 源码里的**中文字面量**扫描（判"进没进 `weT(...)`"；迁移与 `verify-i18n` 共用同一实现） | `node test/tools/i18n-scan.mjs [--json] [paths…]` · `selftest` |
 | `js-text.mjs` | JS/TS 源码的**文本级**工具（字符串 / 正则感知的剥注释） | `node test/tools/js-text.mjs selftest` |

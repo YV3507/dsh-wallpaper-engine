@@ -29,7 +29,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Readable, Writable } from 'node:stream';
 import { execFileSync } from 'node:child_process';
 // 剥注释：共享的字符串感知实现（`verify-module-layout` 的『剥注释必须字符串感知』一节钉住"不许再用朴素正则"）。
-import { stripComments } from './tools/js-text.mjs';
+import { stripComments, stripExportBlocks } from './tools/js-text.mjs';
 // 单独 import `src/**` 时补上 bundle 作用域的取词层（面板渲染器直接用 weT；见该 shim 的文件头）。
 import { installWeTShim } from './tools/weT-shim.mjs';
 installWeTShim();
@@ -797,7 +797,12 @@ console.log('Level D — client source wiring (src/client.js + 抽出的模块)'
 // 结构断言，判据会失去牙）。
 const src = readFileSync(join(root, 'src', 'client.js'), 'utf8');
 // 快捷播放面板源码（类型筛选等面板本地行为的断言读它）。
-const qpSrc = readFileSync(join(root, 'src', 'quick-panel.js'), 'utf8');
+// ⚠️ 这里**在定义点**统一剥掉文件末尾的 `export { … }`：本文件有两处把它喂给 `new Function`
+// （模块级自由变量形态复现台），而 `new Function` 不是模块环境 ⇒ 不剥就是语法错误。
+// 同一手法见 `test/verify-client.mjs` 的 effects 段；构建期内联时也是这么剥的。
+const qpSrc = stripExportBlocks(readFileSync(join(root, 'src', 'quick-panel.js'), 'utf8'));
+check('前置：qpSrc 已剥掉 `export { … }`（两处 new Function 依赖这条）',
+  !/^\s*export\b/m.test(qpSrc), '残留 export ⇒ new Function 会当场语法错误');
 // 同上，但**剥掉注释**：面板那条下钻的判据要找"最后一个 renderUserPropsPanel() 调用点"，
 // 而文件头的散文里也写着这个名字（首个匹配落在注释里 ⇒ 判据恒真）。剥注释的共享实现见
 // `test/tools/js-text.mjs`（本仓纪律：字符串感知的剥注释，不用朴素块注释正则）。
@@ -1750,17 +1755,6 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
   // pickerOpen 顶掉 renderActiveTab）。面板本体与设置页**共用同一个开关与同一个
   // 渲染器**（`propsPanelOpen` / `renderUserPropsPanel`），不许在侧栏另存一份。
   {
-    // 只看页签内容区那一段：从 `tabBodyClass` 起、到**属性面板那次调用**为止（末锚点取
-    // `lastIndexOf('renderUserPropsPanel')` 并把该处含进区域）。于是"库区 → 面板"的先后
-    // 关系落在区域里可判。⚠️ 两个坑都踩过：① 用原文当锚点会落在文件头散文里的
-    // `renderUserPropsPanel()` 上，判据恒真 —— 必须用**剥注释**的那份；② 末锚点若取
-    // `we-qp__viewbar`，内联面板在它**之后**，会被 slice 切掉、判据恒假（实测）。
-    const TAB_BODY_END = 'renderUserPropsPanel()';
-    const tabBodyOf = (text) => {
-      const from = text.indexOf('const tabBodyClass');
-      const to = text.lastIndexOf(TAB_BODY_END);
-      return from === -1 || to <= from ? '' : text.slice(from, to + TAB_BODY_END.length);
-    };
     // ① 入口在**页签栏下方**、独占整行、无背景（用户口径）。
     {
       // 锚点顺序：页签栏 → 入口 → **内容区**。⚠️ 内容区锚点不能用 `const tabBodyClass`

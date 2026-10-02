@@ -685,3 +685,8 @@ const WE_I18N_HOST_EN = {
   "需要 playerctl（apt/dnf/pacman 安装后重试）": "Requires playerctl (install via apt/dnf/pacman and retry)",
   "Windows 的媒体集成在二期提供": "Windows media integration is planned for phase two",
 };
+
+export {
+  WE_I18N_EN,
+  WE_I18N_HOST_EN,
+};

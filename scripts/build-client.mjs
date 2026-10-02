@@ -321,18 +321,36 @@ function readInlinedPrelude() {
       }
     }
 
-    // 机器提取被注入的名字：声明名 + export 列表
-    for (const m of text.matchAll(/^(?:const|let|var|function)\s+([A-Za-z_$][\w$]*)/gm)) injected.set(m[1], mod.file);
-    const exp = text.match(/^export\s*\{([\s\S]*?)\};?\s*$/m);
-    if (exp) for (const n of exp[1].split(',').map((s) => s.trim()).filter(Boolean)) injected.set(n, mod.file);
+    // 机器提取被注入的名字：**顶层**声明名 + export 列表。
+    // ⚠️ 判据是"缩进 == 本文件声明的最小缩进"，不是"行首"也不是任意缩进：
+    //   · 要求行首（原实现 `^(?:const|let|var|function)`)会**静默漏掉**把顶层声明写了一层缩进的模块
+    //     （本仓真实形态：`src/picker-modal.js` / `src/picker-props-panel.js` / `src/quick-panel.js`）
+    //     ⇒ 撞名不被判出，平铺后就是运行期 SyntaxError；
+    //   · 只写 `^\s*` 又会把**嵌套**声明（函数内 const/let）全收进来 ⇒ 遍地假撞名。
+    const DECL_RE = /^([ \t]*)(?:async\s+)?(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)/gm;
+    const decls = [...text.matchAll(DECL_RE)];
+    const minIndent = decls.length ? Math.min(...decls.map((m) => m[1].length)) : 0;
+    for (const m of decls) if (m[1].length === minIndent) injected.set(m[2], mod.file);
+    const EXPORT_BLOCK = /^\s*export\s*\{[\s\S]*?\};?\s*$/m;
+    const exp = text.match(EXPORT_BLOCK);
+    if (exp) for (const n of exp[0].replace(/^\s*export\s*\{|\};?\s*$/g, '').split(',').map((s) => s.trim()).filter(Boolean)) injected.set(n, mod.file);
 
+    const stripped = text.replace(EXPORT_BLOCK, '').replace(/^\s*export\s+/gm, '');
+    if (/^\s*export\b/m.test(stripped)) {
+      console.error(`[build-client] ${mod.file} 剥除 export 后仍有残留（导出块不止一块？本仓约定每文件恰好一块）`);
+      process.exit(1);
+    }
     parts.push(
       `\t\t// ── 内联模块：${mod.file} —— ${mod.why}（构建期注入；勿手改本段）──\n` +
-      indent(text.replace(/^export\s*\{[\s\S]*?\};?\s*$/m, '').replace(/^export /gm, '').trim()) + '\n');
+      indent(stripped.trim()) + '\n');
   }
 
-  const clashes = [...injected.keys()].filter((name) =>
-    new RegExp('^(?:const|let|var|function)\\s+' + name + '\\b', 'm').test(body));
+  // 平铺后同作用域 ⇒ 与 `src/client.js` 正文撞名就是运行期 SyntaxError。判据同上去缩进口径
+  // （否则带缩进的顶层声明漏判 —— 那正是这条断言存在的理由）。
+  const bodyDecls = new Set([...body.matchAll(/^([ \t]*)(?:async\s+)?(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)/gm)]
+    .filter((m) => m[1].length === 0)
+    .map((m) => m[2]));
+  const clashes = [...injected.keys()].filter((name) => bodyDecls.has(name));
   if (clashes.length) {
     console.error('[build-client] src/client.js 重复声明了内联模块提供的常量/函数：' + clashes.join(', '));
     process.exit(1);

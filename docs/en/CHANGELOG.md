@@ -15,6 +15,33 @@
 
 > Increment after **v1.2.0** (local, unreleased; per-commit):
 
+- **Internal: guard coverage gaps closed + a comment audit + a derived "which guard owns which module" map**
+  (**no user-visible behaviour change**; `lib/client.js` only lost comments and one piece of dead state). Three things:
+  **① The field-write contract**: outside `client.js` there are 126 raw `selection.<field> = …` writes, while the
+  registered ratchet could see only 11 — its scan surface judged extensions by **directory-entry name**
+  (`filter(f => f.endsWith('.js'))`), so **the whole `src/font/` directory silently fell out**, and
+  `lib/settings-schema.js` was never scanned at all. The surface is now **derived from `INLINE_MODULES`** (the source
+  of truth), plus a coverage floor, negative controls and a regression probe; the 27 "module × field" pairs that are
+  **neither persisted nor transient** now live in an **enumerable registry** (zero unknowns / no idling entries /
+  every entry carries a written reason). Also removed the **dead state** `fontSetLoaded` (written, never read anywhere).
+  **② Ten `src/` modules gained `export {}`** (`CODE-STRUCTURE.md` §5 rule 5: the export list *is* the guards'
+  interface); the artifact is **byte-for-byte unchanged**; `verify-picker-model` therefore now **imports the source
+  module directly** for behaviour assertions, cross-checks it against the artifact (**24 cases, two channels**), and
+  carries a **self-contained mutation probe** proving the judgement has teeth.
+  **③ Guard map**: new `test/tools/guard-targets.mjs` (derives the modules a guard touches **from its own code** — no
+  maintained list) and the generated [`GUARD-MAP.md`](../GUARD-MAP.md) (guard → module and module → guard tables),
+  with a soft-tier guard `test/verify-guard-map.mjs` (enumerable zero-coverage + byte-identical artifact + coverage
+  floor). **After touching a module, look it up here to know which guards to run.**
+  **Also fixed**: `scripts/build-client.mjs`'s clash extraction required column 0, so it missed modules that indent
+  their top-level declarations ⇒ clashes went unreported (a runtime SyntaxError once flattened); export-block
+  stripping missed the same shape. Both now use "indent == the file's minimum declaration indent".
+  **Comment audit** (all 28 modules swept): only provenance pointing at **removed code / internal ledger ids** was
+  dropped (13 issue numbers · 2 retired tiers · 1 deleted file · 14 phase markers), **numbers that drift were turned
+  into symbols** (`"20s with no frame"` → `LIVE_STALL_TICKS`, etc.), and three comments contradicting the
+  implementation were **corrected** (one had it *backwards*: the properties panel has long been an in-page drill-down
+  while the comment still said "inline below the list"). Sourced measurements and "why it is this way" rationale are
+  **kept per §writing-discipline 2** (of 23 broad-match history candidates only 3 were deletable).
+
 - **Video wallpapers got their own channel — and "no picture means no reveal"**. Video used to run through the
   real-time pipeline designed for WebGL scenes (content gate / backing plate / heartbeat / payload / GPU frame
   capture, only part of which means anything for video). Measured consequences: ① the gate's video criterion was

@@ -16,7 +16,7 @@
 |---|---|---|---|---|---|
 | 1 | `/inventory` | lib/index.js:3122 | async 箭头 | webServer buildInventory disposers observeAdapter | 15 |
 | 2 | `/media-info` | lib/index.js:3262 | 箭头 | webServer log mediaMap disposers | 7 |
-| 3 | `/transcode-progress` | lib/index.js:3292 | 箭头 | webServer mediaMap disposers | 1 |
+| 3 | `/transcode-progress` | lib/index.js:3292 | 箭头 | webServer mediaMap disposers | 2 |
 | 4 | `/transcoded` | lib/index.js:3345 | 箭头 | webServer mediaMap disposers serveFile | 1 |
 | 5 | `/media` | lib/index.js:3401 | 箭头 | webServer log mediaMap disposers serveFile | 17 |
 | 6 | `/preview` | lib/index.js:3401 | 箭头 | webServer log mediaMap disposers serveFile | 8 |

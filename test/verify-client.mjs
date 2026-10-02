@@ -8,7 +8,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 // 剥注释：共享的字符串感知实现（test/tools/js-text.mjs）。
-import { stripComments } from './tools/js-text.mjs';
+import { stripComments, stripExportBlocks } from './tools/js-text.mjs';
 // 分支级"改了 store 却没通知"的分析与审计工具**同源**（避免两份判据分叉）。
 import { pathNotifications } from './tools/branch-notify.mjs';
 
@@ -1966,19 +1966,54 @@ setTimeout(async () => {
       //      · `src/effects.js` ×3 —— **卸载清理**（禁用 / HMR 后不留上一张壁纸的播放态）。
       //      给它们注入入口是**仪式**而不是收口（"禁裸写会逼出任意豁免"那条注记就是这个意思）⇒ 这条
       //      棘轮的作用是**不许变多**：新增一处即红，由人判定它属于哪一类，并顺手把上界按实测下调。
+      //
+      //    ⚠️ **扫描面必须从 `INLINE_MODULES` 派生**（原先写的是 `readdirSync('../src/')` +
+      //      `.filter(f => f.endsWith('.js'))`）：那条路径**按目录项名判扩展名**，而目录项名不以
+      //      `.js` 结尾 ⇒ **`src/font/` 整个目录隐式脱出判据**（实测），且 `lib/settings-schema.js`
+      //      这个"两侧共用内核"从来没被扫过。这正是 DEV-GUIDE §4.7 约定 4 禁止的形状 ——
+      //      手工清单漏一行，那个文件**静默失去覆盖**。所以扫描面取**真源**：构建脚本里被内联的每一个文件。
       const REMAINING_CROSS_MODULE_MAX = 11;
-      const srcModuleFiles = readdirSync(new URL('../src/', import.meta.url))
-        .filter((f) => f.endsWith('.js')).map((f) => 'src/' + f);
-      const srcTextOf = (f) => readFileSync(new URL('../' + f, import.meta.url), 'utf8');
+      const repoRoot = new URL('../', import.meta.url);
+      /** 被内联进 bundle 的每一个文件（真源 = 构建脚本的 INLINE_MODULES）。 */
+      const inlineModules = (() => {
+        const region = readFileSync(new URL('scripts/build-client.mjs', repoRoot), 'utf8')
+          .match(/const INLINE_MODULES = \[([\s\S]*?)\n\];/);
+        return region ? [...region[1].matchAll(/file:\s*['"]([^'"]+)['"]/g)].map((m) => m[1]) : [];
+      })();
+      // `src/client.js` **不在** INLINE_MODULES 里 —— 它是正文，构建脚本单独读它。
+      // 漏掉它 = 瞬态字段的域几乎为空（实测：只剩 4 个），判据当场失效。
+      const CLIENT_BODY = 'src/client.js';
+      const scannedModules = [CLIENT_BODY, ...inlineModules.filter((f) => f !== CLIENT_BODY)];
+      const moduleTextOf = (f) => readFileSync(new URL(f, repoRoot), 'utf8');
+      // 覆盖面地板：与扫描逻辑**无关**的绝对数（解析器静默返回空表 / 清单被删空时，下面每条都会空转）。
+      const SCAN_FLOOR = { modules: 20, subdirModules: 3, transient: 20 };
+      assert.ok(inlineModules.length >= SCAN_FLOOR.modules,
+        '覆盖面：INLINE_MODULES 解析出 ≥' + SCAN_FLOOR.modules + ' 项（防解析器返回空表）—— 得 ' + inlineModules.length);
+      assert.ok(scannedModules.includes(CLIENT_BODY),
+        '覆盖面：扫描面必须含正文 ' + CLIENT_BODY + '（它不在 INLINE_MODULES 里，漏掉它瞬态域会空）');
+      assert.ok(inlineModules.includes('lib/settings-schema.js'),
+        '覆盖面：扫描面必须含"两侧共用内核" lib/settings-schema.js');
+      assert.ok(scannedModules.filter((f) => /^src\/[^/]+\//.test(f)).length >= SCAN_FLOOR.subdirModules,
+        '覆盖面：扫描面含 ≥' + SCAN_FLOOR.subdirModules + ' 个 src/ **子目录**里的模块（' +
+        '原先的 readdirSync 写法在这里恒为 0，正是本判据要防的回归）');
+      assert.ok(scannedModules.every((f) => { try { return readFileSync(new URL(f, repoRoot), 'utf8').length > 0; } catch { return false; } }),
+        '登记的每个 file 都能读到');
+      // 负对照（合成输入 → 同一个判据）：合成清单里放一个 src/ 子目录模块，覆盖面断言必须认出来。
+      const subdirsOf = (list) => list.filter((f) => /^src\/[^/]+\//.test(f));
+      assert.ok(subdirsOf(['src/font/synthetic.js']).length === 1 && subdirsOf(['src/top.js']).length === 0,
+        '负对照：覆盖面地板认得出 src/ 子目录模块（不是恒真）');
       const knownTransient = new Set();
-      for (const f of srcModuleFiles) {
-        const t = stripComments(srcTextOf(f));
+      for (const f of scannedModules) {
+        const t = stripComments(moduleTextOf(f));
         for (const m of t.matchAll(/setTransient\(\s*['"]([\w$]+)['"]/g)) knownTransient.add(m[1]);
       }
+      assert.ok(knownTransient.size >= SCAN_FLOOR.transient,
+        '覆盖面：瞬态字段域 ≥' + SCAN_FLOOR.transient + ' 个（它派生自 setTransient 的调用点，' +
+        '只在 client.js 里 —— 实测漏掉正文后会缩到 4）—— 得 ' + knownTransient.size);
       const crossModule = [];
-      for (const f of srcModuleFiles) {
-        if (f === 'src/client.js') continue;
-        const t = stripComments(srcTextOf(f));
+      for (const f of scannedModules) {
+        if (f === CLIENT_BODY) continue;
+        const t = stripComments(moduleTextOf(f));
         for (const m of t.matchAll(/(?<![\w.$])selection\.([\w$]+)\s*=(?!=)/g)) {
           if (knownTransient.has(m[1])) crossModule.push(f + ':' + m[1]);
         }
@@ -1988,6 +2023,85 @@ setTimeout(async () => {
         + crossModule.length + ' 处 → ' + crossModule.join(', '));
       assert.ok(crossModule.length > 0 || REMAINING_CROSS_MODULE_MAX === 0,
         '棘轮空转：上界还有余量却没有直写可收 ⇒ 该把上界下调');
+      // 回归探针：把合成内容写进一个**真实存在的**子目录模块，同一条判据必须报出来
+      // （原先的扫描面在这个探针上会得到 0 ⇒ 探针就能证明"洞已被堵上"）。
+      const injected = { file: 'src/font/apply.js', text: 'selection.uploading = true;\n' };
+      const probeHits = [...stripComments(injected.text).matchAll(/(?<![\w.$])selection\.([\w$]+)\s*=(?!=)/g)]
+        .filter((m) => knownTransient.has(m[1]));
+      assert.equal(probeHits.length, 1,
+        '回归探针：写进 src/font/（子目录）模块的瞬态直写必须被扫描面覆盖（得 ' + probeHits.length + '）');
+
+      // ①e-2 **其余直写必须可枚举**（原先是"不可见的第三类"）。
+      //    为什么需要：瞬态字段是**派生**的（`setTransient("…")` 的点名），于是任何一个
+      //    **模块内部持有、不进设置也不进瞬态**的字段（`transcodeState` / `mediaInfo` /
+      //    `fontSetError` …）都在判据视野之外 —— 实测 111 处、23 个字段、覆盖 6 个模块，
+      //    而"这个字段归谁负责"只能靠通读代码回答。这不是"禁止直写"（那会逼出任意豁免，
+      //    见上面那条警示），而是**把看不见的第三类变成一张可枚举、可复核、只许缩小的表**。
+      //    ⚠️ 表里每一行的 `why` 是**人写下的理由**，判据只保证它非空 —— 判断仍归人。
+      const UNREGISTERED_DIRECT_WRITES = {
+        'src/effects.js': {
+          why: '卸载清理（禁用 / HMR 后不留上一张壁纸的播放态）；无 emit 是刻意的 —— 这一路径本身就是"把屏上痕迹收干净"',
+          fields: ['sceneAudioUrl', 'sceneHasAudio'],
+        },
+        'src/fontset-store.js': {
+          why: '字体集通道内部的加载态/错误文案/清单；面板经 client.js 的渲染期读取消费（不是每次改动都 emit）',
+          fields: ['fontSetActive', 'fontSetError', 'fontSets'],
+        },        'src/live-layer.js': {
+          why: '实时看护的会话内标志；`startLiveWatch` / `stopLiveWatch` 是它的两个入口',
+          fields: ['sceneLiveActive'],
+        },
+        'src/media-prep.js': {
+          why: '**整批应用**：`applySelection` 一族写一批字段后一次 `persistSelection()` / 一次 emit，逐个注入入口是仪式',
+          fields: ['liveFrame', 'mediaExt', 'mediaInfo', 'previewUrl', 'propsUrl', 'sceneAudioUrl',
+            'sceneFrameUrl', 'sceneHasAudio', 'sceneLiveActive', 'sceneLiveSrc', 'sceneVideo',
+            'schemeColor', 'transcodeState', 'type', 'webLiveSrc'],
+        },
+        'src/persistence.js': {
+          why: '启动加载期的一次性赋值（宿主→本地合并的结果），随后由调用方 emit',
+          fields: ['hostLoaded', 'sidebarPresent'],
+        },
+        'src/video-layer.js': {
+          why: '视频通道拥有这三个字段的写入权（client.js 那段注释写明）；进度由 /transcode-progress 轮询驱动，'
+            + '源码在 syncLayers 内部明确标注 "no emit() here"',
+          fields: ['mediaInfo', 'transcodeProgress', 'transcodeReady', 'transcodeState'],
+        },
+      };
+      // 判据（派生，不手写字段清单）：一个模块里"既不在持久化白名单、也不被 setTransient 点名"的字段。
+      // 正判据与负对照**调同一个函数**（§4.7 约定 5）—— 负对照喂的是合成源码文本。
+      const unregisteredFieldsIn = (srcText, persistedKeys, transientKeys) => [...new Set(
+        [...stripComments(srcText).matchAll(/(?<![\w.$])selection\.([\w$]+)\s*=(?!=)/g)]
+          .map((m) => m[1])
+          .filter((k) => !persistedKeys.has(k) && !transientKeys.has(k)),
+      )].sort();
+      const persistedSet = new Set(persisted);
+      const outside = [...new Set(scannedModules
+        .map((f) => [f, f === CLIENT_BODY ? [] : unregisteredFieldsIn(moduleTextOf(f), persistedSet, knownTransient)])
+        .flatMap(([f, ks]) => ks.map((k) => f + ':' + k)))].sort();
+      const registered = new Set(Object.entries(UNREGISTERED_DIRECT_WRITES)
+        .flatMap(([f, e]) => e.fields.map((k) => f + ':' + k)));
+      const unknown = outside.filter((x) => !registered.has(x));
+      assert.deepEqual(unknown, [],
+        '这两类之外的字段直写必须登记进 UNREGISTERED_DIRECT_WRITES（新字段 = 一次可见的改动）：'
+        + unknown.join(', '));
+      // 只许缩小：表里的每一项都必须在源码里真实命中（否则该删）
+      const stale = [...registered].filter((x) => !outside.includes(x));
+      assert.deepEqual(stale, [], '登记表不空转（这些条目已无对应直写，该删）：' + stale.join(', '));
+      // 每一条都要有书面理由（判据只保证"有人写过"，判断归人）
+      const noReason = Object.entries(UNREGISTERED_DIRECT_WRITES)
+        .filter(([, e]) => !e.why || e.why.trim().length < 10).map(([f]) => f);
+      assert.deepEqual(noReason, [], '登记表每一项都要有非空的 why（人写下的理由）：' + noReason.join(', '));
+      // 负对照：同一条判据对合成源码必须报出新字段；已登记的与两类已知字段都不许被报出
+      assert.deepEqual(
+        unregisteredFieldsIn('selection.brandNew = 1;', persistedSet, knownTransient), ['brandNew'],
+        '负对照：未登记的字段会被同一条判据报出');
+      assert.deepEqual(
+        unregisteredFieldsIn('selection.fontSetError = 1;\nselection.uploading = 2;\nselection.volume = 3;',
+          new Set(['volume']), new Set(['uploading'])), ['fontSetError'],
+        '正/负对照：持久化与瞬态两类都不算"未登记"，只有第三类算');
+      assert.deepEqual(unregisteredFieldsIn('// selection.ghost = 1;', persistedSet, knownTransient), [],
+        'positive control: 注释里的写法不算（判据先剥注释）');
+      // 覆盖面：登记表非空（否则上面的"零 unknown"会在空表上恒真）
+      assert.ok(registered.size >= 10, '覆盖面：登记表 ≥10 项（防表被清空后判据空转）—— 得 ' + registered.size);
 
       // ①f **令牌动作总是通知**（`armConfirm` / `disarmConfirm` 都不得"没变就早返回"）。
       //    为什么：这两个函数经常被拿来**顶替一句 `emit()`**（"换上下文 ⇒ 顺手清令牌"、收起子分支…）
@@ -2674,8 +2788,9 @@ setTimeout(async () => {
     get: (t, k) => (k in t ? t[k] : (...a) => { named.push(String(k)); return undefined; }),
     set: () => true,
   });
-  // `new Function` 不是模块环境 ⇒ 先剥掉文件末尾的 `export { … }`（构建期内联时也是这么剥的）。
-  const effectsBody = effectsText.replace(/export\s*\{[\s\S]*?\};?\s*$/, '');
+  // `new Function` 不是模块环境 ⇒ 先剥掉 `export { … }`（构建期内联时也是这么剥的；
+  // 共享实现见 test/tools/js-text.mjs 的 stripExportBlocks —— 别在这里再抄一份正则）。
+  const effectsBody = stripExportBlocks(effectsText);
   const mod = new Function('__scope', 'with (__scope) { ' + effectsBody + '\nreturn { applyEffects, clearEffects }; }')(scope);
   const run = (opts) => {
     props.length = 0; named.length = 0; spy.gets = 0;
