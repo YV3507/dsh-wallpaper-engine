@@ -458,12 +458,21 @@ const CSS = `
     --we-readability-floor-base: ${READABILITY_FLOOR};
     --we-readability-floor: calc(var(--we-readability-floor-base) * var(--we-glass-fidelity, 1));
     --we-readability-base: var(--we-surface-tint-light, #ffffff);
+    /* 对话栏专属的一对（独立保真度旋钮 chatGlassFidelity）：**只**被对话栏的框架
+       玻璃面消费 —— 气泡（--dsw-specific-bubble）与输入卡片（--dsw-specific-input-major，
+       含读同一 token 的工具弹卡）。正文里的 markdown 内容面（代码块 / 行内代码 /
+       标签 / 引用）**不**跟本旋钮：它们是内容渲染面，与侧边栏一起跟全局保真度
+       （用户口径：代码块不和输入框一起）。缺省 1 = 与全局完全同值。 */
+    --we-chat-readability-floor: calc(var(--we-readability-floor-base) * var(--we-chat-glass-fidelity, 1));
+    --we-chat-readability-base: var(--we-chat-surface-tint-light, #ffffff);
     --we-panel-color: var(--dsw-static-neutral-bluish-00, #ffffff);
   }
   body[data-ds-dark-theme] {
     --we-readability-floor-base: ${READABILITY_FLOOR_DARK};
     --we-readability-floor: calc(var(--we-readability-floor-base) * var(--we-glass-fidelity, 1));
     --we-readability-base: var(--we-surface-tint-dark, #0d1524);
+    --we-chat-readability-floor: calc(var(--we-readability-floor-base) * var(--we-chat-glass-fidelity, 1));
+    --we-chat-readability-base: var(--we-chat-surface-tint-dark, #0d1524);
     --we-panel-color: var(--dsw-static-neutral-bluish-875, #1e1f26);
   }
 
@@ -497,21 +506,21 @@ const CSS = `
      composer card AND the tool popups that read --dsw-specific-input-major). */
   body[data-we-wallpaper] {
     --dsw-specific-input-major: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      rgba(var(--we-surface-tint-rgb-light, 255, 255, 255), var(--we-glass-alpha, 0.15)) calc((1 - var(--we-readability-floor)) * 100%));
+      var(--we-chat-readability-base) calc(var(--we-chat-readability-floor) * 100%),
+      rgba(var(--we-chat-surface-tint-rgb-light, 255, 255, 255), var(--we-glass-alpha, 0.15)) calc((1 - var(--we-chat-readability-floor)) * 100%));
     --dsw-specific-bubble: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      rgba(var(--we-surface-tint-rgb-light, 255, 255, 255), calc(var(--we-glass-alpha, 0.15) * 0.8)) calc((1 - var(--we-readability-floor)) * 100%));
+      var(--we-chat-readability-base) calc(var(--we-chat-readability-floor) * 100%),
+      rgba(var(--we-chat-surface-tint-rgb-light, 255, 255, 255), calc(var(--we-glass-alpha, 0.15) * 0.8)) calc((1 - var(--we-chat-readability-floor)) * 100%));
   }
   body[data-ds-dark-theme][data-we-wallpaper] {
     /* The ×0.4 / ×0.33 factors below only scale the TINT operand; the floor
        keeps its own weight, so the dark-theme undercut cannot happen. */
     --dsw-specific-input-major: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      rgba(var(--we-surface-tint-rgb-dark, 255, 255, 255), calc(var(--we-glass-alpha, 0.15) * 0.4)) calc((1 - var(--we-readability-floor)) * 100%));
+      var(--we-chat-readability-base) calc(var(--we-chat-readability-floor) * 100%),
+      rgba(var(--we-chat-surface-tint-rgb-dark, 255, 255, 255), calc(var(--we-glass-alpha, 0.15) * 0.4)) calc((1 - var(--we-chat-readability-floor)) * 100%));
     --dsw-specific-bubble: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      rgba(var(--we-surface-tint-rgb-dark, 255, 255, 255), calc(var(--we-glass-alpha, 0.15) * 0.33)) calc((1 - var(--we-readability-floor)) * 100%));
+      var(--we-chat-readability-base) calc(var(--we-chat-readability-floor) * 100%),
+      rgba(var(--we-chat-surface-tint-rgb-dark, 255, 255, 255), calc(var(--we-glass-alpha, 0.15) * 0.33)) calc((1 - var(--we-chat-readability-floor)) * 100%));
   }
   body[data-we-wallpaper] [data-composer-card],
   body[data-we-wallpaper] [class*="_bubble"],

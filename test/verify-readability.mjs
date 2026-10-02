@@ -50,6 +50,10 @@
 //       4.5:1 in the worst case (the bug), the floored surface passes.
 //   M2  helpers behave (positive + negative controls on the contrast maths).
 //   C6  stylesheet integrity + the wallpaper layer can never cover the UI.
+//   C0f the glass-fidelity tier (weClampSurfaceColor 3rd param): default is
+//       byte-identical to the legacy 2-arg call, 0 passes the raw color
+//       through, and the lerp toward the raw color is monotone + sandwiched —
+//       the stylesheet composes the floor with --we-glass-fidelity (default 1).
 //
 // Usage: node test/verify-readability.mjs
 import { readFileSync } from 'node:fs';
@@ -130,8 +134,10 @@ function ruleFor(prop, selector) {
 /** Does this declaration open with the floor veil (theme base at floor weight)? */
 function hasVeil(value, label) {
   if (value === null) return { ok: false, why: label + ': declaration missing' };
-  const ok = /^color-mix\(in srgb,\s*var\(--we-readability-base\)\s+calc\(var\(--we-readability-floor\) \* 100%\),/.test(value)
-    && value.includes('calc((1 - var(--we-readability-floor)) * 100%)');
+  // 对话栏解耦后，气泡 / 输入卡片 / 对话内 markdown 家族消费 --we-chat-readability-*
+  //（独立保真度旋钮 chatGlassFidelity），其余面仍消费全局对 —— 两种形态都算「带下限」。
+  const ok = /^color-mix\(in srgb,\s*var\(--we-(?:chat-)?readability-base\)\s+calc\(var\(--we-(?:chat-)?readability-floor\) \* 100%\),/.test(value)
+    && /calc\(\(1 - var\(--we-(?:chat-)?readability-floor\)\) \* 100%\)/.test(value);
   return { ok, why: label + ': ' + JSON.stringify(value.slice(0, 120)) };
 }
 
@@ -188,6 +194,25 @@ function main() {
   check('F1e both theme blocks compose the floor with --we-glass-fidelity (default 1 = 逐位现状)',
     CSS.split(FLOOR_COMPOSED).length === 3,
     'composed declarations=' + (CSS.split(FLOOR_COMPOSED).length - 1) + ' (expect 2: light + dark)');
+  // F1f: 对话栏专属对（chatGlassFidelity 解耦）——组合形态与全局逐字同构，只换变量名。
+  const CHAT_COMPOSED = '--we-chat-readability-floor: calc(var(--we-readability-floor-base) * var(--we-chat-glass-fidelity, 1));';
+  check('F1f both theme blocks declare the chat-scoped floor/base pair (composed with --we-chat-glass-fidelity, default 1)',
+    CSS.split(CHAT_COMPOSED).length === 3
+      && (CSS.match(/--we-chat-readability-base: var\(--we-chat-surface-tint-light, #ffffff\);/g) || []).length === 1
+      && (CSS.match(/--we-chat-readability-base: var\(--we-chat-surface-tint-dark, #0d1524\);/g) || []).length === 1,
+    'chat floor declarations=' + (CSS.split(CHAT_COMPOSED).length - 1) + ' (expect 2)');
+  // F2c: 对话栏对的作用域钉子 —— 只准被气泡 / 输入卡片的 4 条声明消费（浅深 × 2 token）。
+  // 正文里的 markdown 内容面（代码块 / 行内代码 / 引用等）跟**全局**对（用户口径：
+  // 代码块不和输入框一起，与侧边栏同尺）—— chat 变量每多一处消费都会在这里现形。
+  const chatBaseUses = (CSS.match(/var\(--we-chat-readability-base\)/g) || []).length;
+  const markdownGlobal = ['markdown-code-block', 'markdown-inline-code', 'markdown-citation'].every((t) => {
+    const rule = ruleFor('--dsw-alias-' + t, 'body[data-we-wallpaper]');
+    const v = rule ? declValue(rule.body, '--dsw-alias-' + t) : '';
+    return /var\(--we-readability-base\)/.test(v) && !/var\(--we-chat-/.test(v);
+  });
+  check('F2c the chat-scoped pair is consumed ONLY by bubble/input tokens (light+dark = 4 uses); the markdown content family stays on the global pair',
+    chatBaseUses === 4 && markdownGlobal,
+    'chat base uses=' + chatBaseUses + ' (expect 4) · markdown family on global pair=' + markdownGlobal);
 
   // ── C0: the tint clamp (染色地板) ships as a pure function and holds its grid ──
   // 钳制实现必须随 bundle 交付且可独立复算 —— 抽出来对三个极端输入各跑一遍。
@@ -357,13 +382,14 @@ function main() {
   }
 
   const darkComposer = ruleFor('--dsw-specific-input-major', 'body[data-ds-dark-theme][data-we-wallpaper]');
+  // 对话栏解耦（chatGlassFidelity）后，composer/bubble 的深色档消费 --we-chat-* 变量对。
   const DARK_FACTOR = darkComposer
     ? Number((declValue(darkComposer.body, '--dsw-specific-input-major')
-      .match(/rgba\(var\(--we-surface-tint-rgb-dark, 255, 255, 255\), calc\(var\(--we-glass-alpha, [\d.]+\) \* ([\d.]+)\)\)/) || [])[1])
+      .match(/rgba\(var\(--we-chat-surface-tint-rgb-dark, 255, 255, 255\), calc\(var\(--we-glass-alpha, [\d.]+\) \* ([\d.]+)\)\)/) || [])[1])
     : NaN;
   check('F2b the veil keeps a fixed weight while the tint keeps its own alpha (dark ×factor preserved)',
-    /rgba\(var\(--we-surface-tint-rgb-dark, 255, 255, 255\), calc\(var\(--we-glass-alpha, 0\.15\) \* 0\.4\)\)/.test(declValue(darkComposer ? darkComposer.body : '', '--dsw-specific-input-major') || '')
-      && /calc\(var\(--we-readability-floor\) \* 100%\)/.test(declValue(darkComposer ? darkComposer.body : '', '--dsw-specific-input-major') || ''),
+    /rgba\(var\(--we-chat-surface-tint-rgb-dark, 255, 255, 255\), calc\(var\(--we-glass-alpha, 0\.15\) \* 0\.4\)\)/.test(declValue(darkComposer ? darkComposer.body : '', '--dsw-specific-input-major') || '')
+      && /calc\(var\(--we-chat-readability-floor\) \* 100%\)/.test(declValue(darkComposer ? darkComposer.body : '', '--dsw-specific-input-major') || ''),
     'dark tint factor=' + DARK_FACTOR);
 
   // ── F3: the content plate uses a literal max() clamp on its own alpha ──────

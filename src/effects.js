@@ -299,16 +299,16 @@ function applyEffects(opts) {
   //   defaults live in CSS (white glass light / deep navy dark); once the user
   //   picks a color (玻璃颜色), both themes use it.
   s.setProperty("--we-glass-color", selection.glassColor);
-  // - 染色地板：按主题把玻璃色钳制进可读亮度带，供样式表的
-  //   --we-readability-base（地板层）与全部 frost 槽位消费 —— 对话框/侧栏等
-  //   宿主表面由此拿到**用户的色相**而非主题白/黑，正文对比度判据不变。
-  //   保真度 < 100 时釉色向原色线性回退（见 weClampSurfaceColor 第三参）。
   // - 玻璃保真度（0–100，默认 100 = 完整红线）：同一标量喂两处消费 —— styles.js
   //   的 --we-readability-floor（地板覆盖度）与 weClampSurfaceColor（釉色向原色
   //   的回退幅度）。两处必须同源，滑杆才是一个旋钮。
   const fidNum = Number(selection.glassFidelity);
   const glassFidelity = Number.isFinite(fidNum) ? Math.min(1, Math.max(0, fidNum / 100)) : 1;
   s.setProperty("--we-glass-fidelity", String(glassFidelity));
+  // - 染色地板：按主题把玻璃色钳制进可读亮度带，供样式表的
+  //   --we-readability-base（地板层）与全部 frost 槽位消费 —— 对话框/侧栏等
+  //   宿主表面由此拿到**用户的色相**而非主题白/黑，正文对比度判据不变。
+  //   保真度 < 100 时釉色向原色线性回退（见 weClampSurfaceColor 第三参）。
   s.setProperty("--we-surface-tint-light", weClampSurfaceColor(selection.glassColor, "light", glassFidelity));
   s.setProperty("--we-surface-tint-dark", weClampSurfaceColor(selection.glassColor, "dark", glassFidelity));
   // RGB 三元组形式：给 rgba() 槽位用（消息气泡 / 输入框的白釉染色）。
@@ -319,6 +319,18 @@ function applyEffects(opts) {
   };
   s.setProperty("--we-surface-tint-rgb-light", toRgbTriple(weClampSurfaceColor(selection.glassColor, "light", glassFidelity)));
   s.setProperty("--we-surface-tint-rgb-dark", toRgbTriple(weClampSurfaceColor(selection.glassColor, "dark", glassFidelity)));
+  // - 对话栏玻璃保真度（chatGlassFidelity，默认 100）：**独立于全局保真度**的第二把
+  //   尺子，只喂对话栏的**框架**玻璃面（气泡 / 输入卡片含工具弹卡 —— styles.js 里
+  //   消费 --we-chat-readability-* 的那批声明）。正文里的 markdown 内容面（代码块 /
+  //   行内代码 / 引用等）刻意**不**跟本旋钮：内容渲染面与侧边栏一起跟全局保真度
+  //   （用户口径：代码块不和输入框一起）。tint 钳制与地板权重都按本档单独算。
+  const chatFidNum = Number(selection.chatGlassFidelity);
+  const chatGlassFidelity = Number.isFinite(chatFidNum) ? Math.min(1, Math.max(0, chatFidNum / 100)) : 1;
+  s.setProperty("--we-chat-glass-fidelity", String(chatGlassFidelity));
+  s.setProperty("--we-chat-surface-tint-light", weClampSurfaceColor(selection.glassColor, "light", chatGlassFidelity));
+  s.setProperty("--we-chat-surface-tint-dark", weClampSurfaceColor(selection.glassColor, "dark", chatGlassFidelity));
+  s.setProperty("--we-chat-surface-tint-rgb-light", toRgbTriple(weClampSurfaceColor(selection.glassColor, "light", chatGlassFidelity)));
+  s.setProperty("--we-chat-surface-tint-rgb-dark", toRgbTriple(weClampSurfaceColor(selection.glassColor, "dark", chatGlassFidelity)));
   // - Master switch for the WHOLE native settings window: when on, the dialog
   //   (nav + every native section) becomes liquid glass with the accent +
   //   transparency above. Toggled instantly via a body attribute the scoped
