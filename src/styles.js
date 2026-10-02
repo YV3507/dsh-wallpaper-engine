@@ -442,6 +442,23 @@ const CSS = `
      they did not stop the white flash and instead added compositing layers. The
      flash was traced to the rope's permanent CSS filter, which is now gone. */
 
+  /* Thinking glass (thinkingGlass, default off): host paints the turn-trigger
+     as an 8% white fog with no blur, which reads as a solid slab on wallpaper.
+     Off keeps that dark panel for reading. On clears the fill and adds frost. */
+  body[data-we-wallpaper][data-we-thinking-glass] [data-turn-trigger] {
+    background: transparent !important;
+    -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+  }
+  /* VCP reasoning has two paint layers (details + scroll body). Clear both
+     while thinking glass is on; do not stack extra blur. */
+  body[data-we-wallpaper][data-we-thinking-glass] [data-vcp-reasoning],
+  body[data-we-wallpaper][data-we-thinking-glass] [data-vcp-reasoning-body] {
+    background: transparent !important;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
   /* ── 原生左栏在 extended/advanced 窗口模式下的不透明底 ─────────────────────
      harness 的壳层样式表带一条模式门控规则：mode 为 extended/advanced 且
      material=off 时，ASIDE.dshDesktopSidebarSurface（原生左栏 surface）被刷成

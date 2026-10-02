@@ -817,6 +817,14 @@
           hint: weT("整个设置窗口跟随配色与透明度"),
           tooltip: weT("整个设置窗口（含 General / 模型 / 插件等全部原生分区）跟随配色与透明度；关闭则恢复原生样式"),
         }),
+        switchRow(weT("思考块液态玻璃"), sel.thinkingGlass === true, (e) => {
+          setSetting("thinkingGlass", e.target.checked);
+          emit();
+        }, {
+          key: "thinking-glass",
+          hint: weT("思考过程与推理条改成玻璃，默认关"),
+          tooltip: weT("默认关：思考条保持黑底，方便阅读。打开后思考过程、推理条跟会话玻璃对齐，不再一块实心黑。"),
+        }),
         // 侧栏玻璃（dsh-better-sidebar 适配）：与设置窗口玻璃同级的一套独立细粒度
         // 控制 —— 总开关 + 专用模糊 + 专用透明度 + 玻璃基底色调，全部只作用于
         // dsh-better-sidebar 子树，不动会话玻璃（玻璃 / 玻璃透明度）的设置。

@@ -270,6 +270,11 @@ function applyEffects(opts) {
   if (selection.leftSidebarGlass) document.body.setAttribute("data-we-left-sidebar", "on");
   else document.body.removeAttribute("data-we-left-sidebar");
 
+  // 思考块液态玻璃：默认关，保持宿主黑底方便阅读。打开后 CSS 清掉思考条
+  // 与推理面的实心底，切到会话同一套雾化。
+  if (selection.thinkingGlass) document.body.setAttribute("data-we-thinking-glass", "on");
+  else document.body.removeAttribute("data-we-thinking-glass");
+
   // dsh-better-sidebar 液态玻璃：一套独立于会话玻璃的细粒度控制（侧栏模糊 /
   // 侧栏透明度 / 侧栏玻璃颜色 + 总开关）。变量只作用于 [data-dsh-better-sidebar]
   // 子树（CSS 见下），关闭总开关时侧栏恢复原生外观。
