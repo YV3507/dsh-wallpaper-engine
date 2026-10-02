@@ -12,11 +12,11 @@
         "--dsw-alias-bg-layer-1 / -2 / -3 → 玻璃配方（主题底色压可读性下限 + --we-glass-color @ --we-glass-alpha；层权重 0.9 / 1.0 / 1.1，与设置窗口同一张表）",
         "--dsw-alias-button-elevated-fill → 玻璃配方（权重 1.15：抬高按钮面，侧栏「新建会话」/ 工作区重命名输入框 —— 上游 #71）",
         "--dsw-specific-input-major / --dsw-specific-bubble → 同一张表（输入卡片 / 消息气泡）",
+        "全表面玻璃第二批（#71，收编报告者 glass-patch.css 的 token 表）→ bg-overlay（1.3）/ bg-module-platform（1.15）/ bg-multi-select（1.2）/ button-floating-fill（1.1）/ button-ghost-active-fill（0.9）/ button-tool-bar-fill（1.0）/ interactive-bg-active（0.9）/ interactive-bg-hover-solid（1.0）/ markdown-citation（0.9）/ markdown-placeholder（1.1），深浅两主题逐条同形",
+        "--dsw-alias-markdown-code-block / -banner（0.8）/ -inline-code / -tag / -code-segment-unselected（1.0）/ -code-segment-selected（1.15）→ 同一张玻璃配方（**原 declined 改判**，第二批 #71 用户现场口径「代码块和重点文字背景也需要和对话框背景一样进行玻璃化覆盖」：底纳入可读性下限、shiki 前景色一个不动；深色档曾漏、后补齐）",
         "body[data-we-left-sidebar] 的原生左栏 → 选择器级玻璃（默认关；锚点 = 座位出口 [data-slot=\"sidebar\"] 的父元素，因为那一列只有 CSS 模块哈希类名）：玻璃色 @ 透明度压可读性下限 + --we-blur + --dsw-alias-border-l3 + accent 映射"
       ],
-      "declined": [
-        "--dsw-alias-markdown-code-block / -banner：**刻意不映射**。代码块底是 shiki 固定配色的画布，透出壁纸会让注释/字符串掉到不可读的对比（与 .cm-editor / .xterm 必须保持近不透明底板同一条理由）。因此 markdown 代码块系列（CodeBlock / CodeCard / JsonBlock / TerminalBlock / SearchBlock / WebBlock）按「明确不适用」处理，不做玻璃。"
-      ],
+      "declined": [],
       "fallback": "无 backdrop-filter（@supports not）或软件光栅器（body[data-we-glass-fallback]）下，上表 mapped 的令牌一律钉回插件自己的不透明面板色（--we-panel-color）—— 半透明 + 无霜等于文字直接压在壁纸上。",
       "probedOn": "本机已装 @deepseek-ai/dsh@0.1.7-rc.1：上述令牌都在源码里存在且各有真实消费者（dsh-client-ui-* 的 .css / .js）"
     }
@@ -87,7 +87,7 @@
     },
     "dsh-client-ui-primitives": {
       "verdict": "native",
-      "note": "对话框 / 胶囊 / 分段控件 / 标签的面读 --dsw-alias-bg-layer-2/-3，随 tokenScope 的映射一起拿到玻璃；markdown 代码块系列（CodeBlock / CodeCard / JsonBlock / TerminalBlock / SearchBlock / WebBlock）读 --dsw-alias-markdown-code-block，该令牌**刻意不映射**（固定语法配色需要不透明底）⇒ 这一族按 exempt 对待，裁定见 meta.tokenScope.declined"
+      "note": "对话框 / 胶囊 / 分段控件 / 标签的面读 --dsw-alias-bg-layer-2/-3，随 tokenScope 的映射一起拿到玻璃；markdown 代码块系列（CodeBlock / CodeCard / JsonBlock / TerminalBlock / SearchBlock / WebBlock）读 --dsw-alias-markdown-code-block，原按 exempt 处理，第二批（#71）已改判收进同一张玻璃配方（底纳入可读性下限、shiki 前景色不动）—— 见 meta.tokenScope.mapped"
     },
     "dsh-client-ui-reference": {
       "verdict": "native"
