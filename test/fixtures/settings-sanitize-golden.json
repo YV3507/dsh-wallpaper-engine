@@ -34,6 +34,7 @@
         "sceneLiveFps": 30,
         "liveBootDelay": 3,
         "audioSource": "auto",
+        "adapterTarget": "auto",
         "mediaIntegration": true,
         "mediaLyricsOnline": true,
         "userProps": {},
@@ -51,6 +52,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -66,7 +68,7 @@
         "sceneLiveFailures": {},
         "customFrames": {},
         "caretColor": "",
-        "adapterTarget": "auto"
+        "themeFollow": false
       },
       "host": {
         "id": "",
@@ -77,6 +79,10 @@
         "backgroundBrightness": 100,
         "backgroundContrast": 100,
         "backgroundSaturate": 100,
+        "wallpaperOpacity": 0,
+        "switchTransition": "cut",
+        "switchTransitionDir": "left",
+        "switchTransitionSpeed": "normal",
         "rotationEnabled": false,
         "rotationGroupId": "",
         "rotationGroups": [],
@@ -90,10 +96,10 @@
         "sceneLiveFps": 30,
         "liveBootDelay": 3,
         "audioSource": "auto",
+        "adapterTarget": "auto",
         "mediaIntegration": true,
         "mediaLyricsOnline": true,
         "userProps": {},
-        "sceneLiveFailures": {},
         "pauseOnHidden": true,
         "pauseOnBlur": false,
         "pauseOnBattery": false,
@@ -108,6 +114,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -119,13 +126,9 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "wallpaperOpacity": 0,
-        "switchTransition": "cut",
-        "switchTransitionDir": "left",
-        "switchTransitionSpeed": "normal",
+        "sceneLiveFailures": {},
         "caretColor": "",
-        "themeFollow": false,
-        "adapterTarget": "auto"
+        "themeFollow": false
       }
     },
     {
@@ -158,6 +161,7 @@
         "liveBootDelay": 3,
         "audioSource": "auto",
         "mediaIntegration": true,
+        "adapterTarget": "auto",
         "mediaLyricsOnline": true,
         "userProps": {},
         "pauseOnHidden": true,
@@ -174,6 +178,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -191,7 +196,16 @@
         "caretColor": "",
         "videoVolume": 0,
         "videoAudioEnabled": true,
-        "adapterTarget": "auto"
+        "themeColors": {},
+        "themeDarkSeparate": false,
+        "themeFollow": false,
+        "themeSize": {},
+        "themeWeight": {},
+        "themeFamily": {},
+        "componentFonts": {},
+        "fontAdvanced": false,
+        "fontSetOpen": false,
+        "themeTypeOnly": true
       },
       "host": "__null__"
     },
@@ -225,6 +239,7 @@
         "liveBootDelay": 3,
         "audioSource": "auto",
         "mediaIntegration": true,
+        "adapterTarget": "auto",
         "mediaLyricsOnline": true,
         "userProps": {},
         "pauseOnHidden": true,
@@ -241,6 +256,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -258,7 +274,16 @@
         "caretColor": "",
         "videoVolume": 0,
         "videoAudioEnabled": true,
-        "adapterTarget": "auto"
+        "themeColors": {},
+        "themeDarkSeparate": false,
+        "themeFollow": false,
+        "themeSize": {},
+        "themeWeight": {},
+        "themeFamily": {},
+        "componentFonts": {},
+        "fontAdvanced": false,
+        "fontSetOpen": false,
+        "themeTypeOnly": true
       },
       "host": "__null__"
     },
@@ -292,6 +317,7 @@
         "liveBootDelay": 3,
         "audioSource": "auto",
         "mediaIntegration": true,
+        "adapterTarget": "auto",
         "mediaLyricsOnline": true,
         "userProps": {},
         "pauseOnHidden": true,
@@ -308,6 +334,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -325,7 +352,16 @@
         "caretColor": "",
         "videoVolume": 0,
         "videoAudioEnabled": true,
-        "adapterTarget": "auto"
+        "themeColors": {},
+        "themeDarkSeparate": false,
+        "themeFollow": false,
+        "themeSize": {},
+        "themeWeight": {},
+        "themeFamily": {},
+        "componentFonts": {},
+        "fontAdvanced": false,
+        "fontSetOpen": false,
+        "themeTypeOnly": true
       },
       "host": "__null__"
     },
@@ -362,6 +398,7 @@
         "sceneLiveFps": 30,
         "liveBootDelay": 3,
         "audioSource": "auto",
+        "adapterTarget": "auto",
         "mediaIntegration": true,
         "mediaLyricsOnline": true,
         "userProps": {},
@@ -379,6 +416,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -394,7 +432,7 @@
         "sceneLiveFailures": {},
         "customFrames": {},
         "caretColor": "",
-        "adapterTarget": "auto"
+        "themeFollow": false
       },
       "host": {
         "id": "",
@@ -405,6 +443,10 @@
         "backgroundBrightness": 100,
         "backgroundContrast": 100,
         "backgroundSaturate": 100,
+        "wallpaperOpacity": 0,
+        "switchTransition": "cut",
+        "switchTransitionDir": "left",
+        "switchTransitionSpeed": "normal",
         "rotationEnabled": false,
         "rotationGroupId": "",
         "rotationGroups": [],
@@ -418,10 +460,10 @@
         "sceneLiveFps": 30,
         "liveBootDelay": 3,
         "audioSource": "auto",
+        "adapterTarget": "auto",
         "mediaIntegration": true,
         "mediaLyricsOnline": true,
         "userProps": {},
-        "sceneLiveFailures": {},
         "pauseOnHidden": true,
         "pauseOnBlur": false,
         "pauseOnBattery": false,
@@ -436,6 +478,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -447,13 +490,9 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "wallpaperOpacity": 0,
-        "switchTransition": "cut",
-        "switchTransitionDir": "left",
-        "switchTransitionSpeed": "normal",
+        "sceneLiveFailures": {},
         "caretColor": "",
-        "themeFollow": false,
-        "adapterTarget": "auto"
+        "themeFollow": false
       }
     },
     {
@@ -546,6 +585,7 @@
         "sceneLiveFps": 30,
         "liveBootDelay": 3,
         "audioSource": "auto",
+        "adapterTarget": "auto",
         "mediaIntegration": true,
         "mediaLyricsOnline": true,
         "userProps": {},
@@ -563,6 +603,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -578,7 +619,7 @@
         "sceneLiveFailures": {},
         "customFrames": {},
         "caretColor": "",
-        "adapterTarget": "auto"
+        "themeFollow": false
       },
       "host": {
         "id": "",
@@ -589,6 +630,10 @@
         "backgroundBrightness": 100,
         "backgroundContrast": 100,
         "backgroundSaturate": 100,
+        "wallpaperOpacity": 0,
+        "switchTransition": "cut",
+        "switchTransitionDir": "left",
+        "switchTransitionSpeed": "normal",
         "rotationEnabled": false,
         "rotationGroupId": "",
         "rotationGroups": [],
@@ -602,10 +647,10 @@
         "sceneLiveFps": 30,
         "liveBootDelay": 3,
         "audioSource": "auto",
+        "adapterTarget": "auto",
         "mediaIntegration": true,
         "mediaLyricsOnline": true,
         "userProps": {},
-        "sceneLiveFailures": {},
         "pauseOnHidden": true,
         "pauseOnBlur": false,
         "pauseOnBattery": false,
@@ -620,6 +665,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -631,13 +677,9 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "wallpaperOpacity": 0,
-        "switchTransition": "cut",
-        "switchTransitionDir": "left",
-        "switchTransitionSpeed": "normal",
+        "sceneLiveFailures": {},
         "caretColor": "",
-        "themeFollow": false,
-        "adapterTarget": "auto"
+        "themeFollow": false
       }
     },
     {
@@ -775,6 +817,7 @@
         "sceneLiveFps": 30,
         "liveBootDelay": 3,
         "audioSource": "auto",
+        "adapterTarget": "auto",
         "mediaIntegration": true,
         "mediaLyricsOnline": true,
         "userProps": {},
@@ -792,6 +835,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": false,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -807,7 +851,7 @@
         "sceneLiveFailures": {},
         "customFrames": {},
         "caretColor": "",
-        "adapterTarget": "auto"
+        "themeFollow": false
       },
       "host": {
         "id": "",
@@ -818,6 +862,10 @@
         "backgroundBrightness": 100,
         "backgroundContrast": 100,
         "backgroundSaturate": 100,
+        "wallpaperOpacity": 0,
+        "switchTransition": "cut",
+        "switchTransitionDir": "left",
+        "switchTransitionSpeed": "normal",
         "rotationEnabled": false,
         "rotationGroupId": "",
         "rotationGroups": [],
@@ -831,10 +879,10 @@
         "sceneLiveFps": 30,
         "liveBootDelay": 3,
         "audioSource": "auto",
+        "adapterTarget": "auto",
         "mediaIntegration": true,
         "mediaLyricsOnline": true,
         "userProps": {},
-        "sceneLiveFailures": {},
         "pauseOnHidden": true,
         "pauseOnBlur": false,
         "pauseOnBattery": false,
@@ -849,6 +897,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": false,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -860,13 +909,9 @@
         "ropeScale": 1,
         "noticeSeen": "nope",
         "fontCustom": false,
-        "wallpaperOpacity": 0,
-        "switchTransition": "cut",
-        "switchTransitionDir": "left",
-        "switchTransitionSpeed": "normal",
+        "sceneLiveFailures": {},
         "caretColor": "",
-        "themeFollow": false,
-        "adapterTarget": "auto"
+        "themeFollow": false
       }
     },
     {
@@ -903,6 +948,7 @@
         "sceneLiveFps": 30,
         "liveBootDelay": 3,
         "audioSource": "auto",
+        "adapterTarget": "auto",
         "mediaIntegration": true,
         "mediaLyricsOnline": true,
         "userProps": {},
@@ -920,6 +966,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -935,7 +982,7 @@
         "sceneLiveFailures": {},
         "customFrames": {},
         "caretColor": "",
-        "adapterTarget": "auto"
+        "themeFollow": false
       },
       "host": {
         "id": "",
@@ -946,6 +993,10 @@
         "backgroundBrightness": 100,
         "backgroundContrast": 100,
         "backgroundSaturate": 100,
+        "wallpaperOpacity": 0,
+        "switchTransition": "cut",
+        "switchTransitionDir": "left",
+        "switchTransitionSpeed": "normal",
         "rotationEnabled": false,
         "rotationGroupId": "",
         "rotationGroups": [],
@@ -959,10 +1010,10 @@
         "sceneLiveFps": 30,
         "liveBootDelay": 3,
         "audioSource": "auto",
+        "adapterTarget": "auto",
         "mediaIntegration": true,
         "mediaLyricsOnline": true,
         "userProps": {},
-        "sceneLiveFailures": {},
         "pauseOnHidden": true,
         "pauseOnBlur": false,
         "pauseOnBattery": false,
@@ -977,6 +1028,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -988,13 +1040,9 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "wallpaperOpacity": 0,
-        "switchTransition": "cut",
-        "switchTransitionDir": "left",
-        "switchTransitionSpeed": "normal",
+        "sceneLiveFailures": {},
         "caretColor": "",
-        "themeFollow": false,
-        "adapterTarget": "auto"
+        "themeFollow": false
       }
     },
     {
@@ -1045,6 +1093,7 @@
         "sceneLiveFps": 30,
         "liveBootDelay": 3,
         "audioSource": "auto",
+        "adapterTarget": "auto",
         "mediaIntegration": true,
         "mediaLyricsOnline": true,
         "userProps": {},
@@ -1062,6 +1111,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -1077,7 +1127,7 @@
         "sceneLiveFailures": {},
         "customFrames": {},
         "caretColor": "",
-        "adapterTarget": "auto"
+        "themeFollow": false
       },
       "host": {
         "id": "",
@@ -1088,6 +1138,10 @@
         "backgroundBrightness": 100,
         "backgroundContrast": 100,
         "backgroundSaturate": 100,
+        "wallpaperOpacity": 0,
+        "switchTransition": "cut",
+        "switchTransitionDir": "left",
+        "switchTransitionSpeed": "normal",
         "rotationEnabled": false,
         "rotationGroupId": "",
         "rotationGroups": [],
@@ -1101,10 +1155,10 @@
         "sceneLiveFps": 30,
         "liveBootDelay": 3,
         "audioSource": "auto",
+        "adapterTarget": "auto",
         "mediaIntegration": true,
         "mediaLyricsOnline": true,
         "userProps": {},
-        "sceneLiveFailures": {},
         "pauseOnHidden": true,
         "pauseOnBlur": false,
         "pauseOnBattery": false,
@@ -1119,6 +1173,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -1130,13 +1185,9 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "wallpaperOpacity": 0,
-        "switchTransition": "cut",
-        "switchTransitionDir": "left",
-        "switchTransitionSpeed": "normal",
+        "sceneLiveFailures": {},
         "caretColor": "",
-        "themeFollow": false,
-        "adapterTarget": "auto"
+        "themeFollow": false
       }
     },
     {
@@ -1187,6 +1238,7 @@
         "sceneLiveFps": 15,
         "liveBootDelay": 0,
         "audioSource": "auto",
+        "adapterTarget": "auto",
         "mediaIntegration": true,
         "mediaLyricsOnline": true,
         "userProps": {},
@@ -1204,6 +1256,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 200,
         "sidebarAlpha": 200,
@@ -1219,7 +1272,7 @@
         "sceneLiveFailures": {},
         "customFrames": {},
         "caretColor": "",
-        "adapterTarget": "auto"
+        "themeFollow": false
       },
       "host": {
         "id": "",
@@ -1230,6 +1283,10 @@
         "backgroundBrightness": 40,
         "backgroundContrast": 200,
         "backgroundSaturate": 0,
+        "wallpaperOpacity": 90,
+        "switchTransition": "cut",
+        "switchTransitionDir": "left",
+        "switchTransitionSpeed": "normal",
         "rotationEnabled": false,
         "rotationGroupId": "",
         "rotationGroups": [],
@@ -1243,10 +1300,10 @@
         "sceneLiveFps": 15,
         "liveBootDelay": 0,
         "audioSource": "auto",
+        "adapterTarget": "auto",
         "mediaIntegration": true,
         "mediaLyricsOnline": true,
         "userProps": {},
-        "sceneLiveFailures": {},
         "pauseOnHidden": true,
         "pauseOnBlur": false,
         "pauseOnBattery": false,
@@ -1261,6 +1318,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 200,
         "sidebarAlpha": 200,
@@ -1272,13 +1330,9 @@
         "ropeScale": 2.5,
         "noticeSeen": "",
         "fontCustom": false,
-        "wallpaperOpacity": 90,
-        "switchTransition": "cut",
-        "switchTransitionDir": "left",
-        "switchTransitionSpeed": "normal",
+        "sceneLiveFailures": {},
         "caretColor": "",
-        "themeFollow": false,
-        "adapterTarget": "auto"
+        "themeFollow": false
       }
     },
     {
@@ -1316,6 +1370,7 @@
         "sceneLiveFps": 30,
         "liveBootDelay": 3,
         "audioSource": "auto",
+        "adapterTarget": "auto",
         "mediaIntegration": true,
         "mediaLyricsOnline": true,
         "userProps": {},
@@ -1333,6 +1388,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -1348,7 +1404,7 @@
         "sceneLiveFailures": {},
         "customFrames": {},
         "caretColor": "",
-        "adapterTarget": "auto"
+        "themeFollow": false
       },
       "host": {
         "id": "",
@@ -1359,6 +1415,10 @@
         "backgroundBrightness": 100,
         "backgroundContrast": 100,
         "backgroundSaturate": 100,
+        "wallpaperOpacity": 0,
+        "switchTransition": "cut",
+        "switchTransitionDir": "left",
+        "switchTransitionSpeed": "normal",
         "rotationEnabled": false,
         "rotationGroupId": "",
         "rotationGroups": [],
@@ -1372,10 +1432,10 @@
         "sceneLiveFps": 30,
         "liveBootDelay": 3,
         "audioSource": "auto",
+        "adapterTarget": "auto",
         "mediaIntegration": true,
         "mediaLyricsOnline": true,
         "userProps": {},
-        "sceneLiveFailures": {},
         "pauseOnHidden": true,
         "pauseOnBlur": false,
         "pauseOnBattery": false,
@@ -1390,6 +1450,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -1401,13 +1462,9 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "wallpaperOpacity": 0,
-        "switchTransition": "cut",
-        "switchTransitionDir": "left",
-        "switchTransitionSpeed": "normal",
+        "sceneLiveFailures": {},
         "caretColor": "",
-        "themeFollow": false,
-        "adapterTarget": "auto"
+        "themeFollow": false
       }
     },
     {
@@ -1450,6 +1507,7 @@
         "sceneLiveFps": 30,
         "liveBootDelay": 3,
         "audioSource": "auto",
+        "adapterTarget": "auto",
         "mediaIntegration": true,
         "mediaLyricsOnline": true,
         "userProps": {},
@@ -1467,6 +1525,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -1482,7 +1541,7 @@
         "sceneLiveFailures": {},
         "customFrames": {},
         "caretColor": "",
-        "adapterTarget": "auto"
+        "themeFollow": false
       },
       "host": {
         "id": "",
@@ -1493,6 +1552,10 @@
         "backgroundBrightness": 100,
         "backgroundContrast": 100,
         "backgroundSaturate": 100,
+        "wallpaperOpacity": 0,
+        "switchTransition": "cut",
+        "switchTransitionDir": "left",
+        "switchTransitionSpeed": "normal",
         "rotationEnabled": false,
         "rotationGroupId": "",
         "rotationGroups": [],
@@ -1506,10 +1569,10 @@
         "sceneLiveFps": 30,
         "liveBootDelay": 3,
         "audioSource": "auto",
+        "adapterTarget": "auto",
         "mediaIntegration": true,
         "mediaLyricsOnline": true,
         "userProps": {},
-        "sceneLiveFailures": {},
         "pauseOnHidden": true,
         "pauseOnBlur": false,
         "pauseOnBattery": false,
@@ -1524,6 +1587,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -1535,13 +1599,9 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "wallpaperOpacity": 0,
-        "switchTransition": "cut",
-        "switchTransitionDir": "left",
-        "switchTransitionSpeed": "normal",
+        "sceneLiveFailures": {},
         "caretColor": "",
-        "themeFollow": false,
-        "adapterTarget": "auto"
+        "themeFollow": false
       }
     },
     {
@@ -1581,6 +1641,7 @@
         "sceneLiveFps": 30,
         "liveBootDelay": 3,
         "audioSource": "auto",
+        "adapterTarget": "auto",
         "mediaIntegration": true,
         "mediaLyricsOnline": true,
         "userProps": {},
@@ -1598,6 +1659,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -1613,7 +1675,7 @@
         "sceneLiveFailures": {},
         "customFrames": {},
         "caretColor": "",
-        "adapterTarget": "auto"
+        "themeFollow": false
       },
       "host": {
         "id": "",
@@ -1624,6 +1686,10 @@
         "backgroundBrightness": 100,
         "backgroundContrast": 100,
         "backgroundSaturate": 100,
+        "wallpaperOpacity": 0,
+        "switchTransition": "cut",
+        "switchTransitionDir": "left",
+        "switchTransitionSpeed": "normal",
         "rotationEnabled": false,
         "rotationGroupId": "",
         "rotationGroups": [],
@@ -1637,10 +1703,10 @@
         "sceneLiveFps": 30,
         "liveBootDelay": 3,
         "audioSource": "auto",
+        "adapterTarget": "auto",
         "mediaIntegration": true,
         "mediaLyricsOnline": true,
         "userProps": {},
-        "sceneLiveFailures": {},
         "pauseOnHidden": true,
         "pauseOnBlur": false,
         "pauseOnBattery": false,
@@ -1655,6 +1721,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -1666,13 +1733,9 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "wallpaperOpacity": 0,
-        "switchTransition": "cut",
-        "switchTransitionDir": "left",
-        "switchTransitionSpeed": "normal",
+        "sceneLiveFailures": {},
         "caretColor": "",
-        "themeFollow": false,
-        "adapterTarget": "auto"
+        "themeFollow": false
       }
     },
     {
@@ -1719,6 +1782,7 @@
         "sceneLiveFps": 30,
         "liveBootDelay": 3,
         "audioSource": "auto",
+        "adapterTarget": "auto",
         "mediaIntegration": true,
         "mediaLyricsOnline": true,
         "userProps": {},
@@ -1736,6 +1800,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -1751,7 +1816,7 @@
         "sceneLiveFailures": {},
         "customFrames": {},
         "caretColor": "",
-        "adapterTarget": "auto"
+        "themeFollow": false
       },
       "host": {
         "id": "",
@@ -1762,6 +1827,10 @@
         "backgroundBrightness": 100,
         "backgroundContrast": 100,
         "backgroundSaturate": 100,
+        "wallpaperOpacity": 0,
+        "switchTransition": "cut",
+        "switchTransitionDir": "left",
+        "switchTransitionSpeed": "normal",
         "rotationEnabled": false,
         "rotationGroupId": "",
         "rotationGroups": [],
@@ -1775,10 +1844,10 @@
         "sceneLiveFps": 30,
         "liveBootDelay": 3,
         "audioSource": "auto",
+        "adapterTarget": "auto",
         "mediaIntegration": true,
         "mediaLyricsOnline": true,
         "userProps": {},
-        "sceneLiveFailures": {},
         "pauseOnHidden": true,
         "pauseOnBlur": false,
         "pauseOnBattery": false,
@@ -1793,6 +1862,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -1804,13 +1874,9 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "wallpaperOpacity": 0,
-        "switchTransition": "cut",
-        "switchTransitionDir": "left",
-        "switchTransitionSpeed": "normal",
+        "sceneLiveFailures": {},
         "caretColor": "",
-        "themeFollow": false,
-        "adapterTarget": "auto"
+        "themeFollow": false
       }
     },
     {
@@ -1906,6 +1972,7 @@
         "sceneLiveFps": 30,
         "liveBootDelay": 3,
         "audioSource": "auto",
+        "adapterTarget": "auto",
         "mediaIntegration": true,
         "mediaLyricsOnline": true,
         "userProps": {
@@ -1913,10 +1980,7 @@
             "color": "#fff",
             "n": 3,
             "ok": true,
-            "obj": {
-              "bad": 1
-            },
-            "long": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            "long": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
           }
         },
         "pauseOnHidden": true,
@@ -1933,6 +1997,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -1950,15 +2015,13 @@
         "sceneLiveFailures": {
           "a": true,
           "b": "timeout",
-          "c": "stall",
-          "d": "weird",
-          "e": 1
+          "c": "stall"
         },
         "customFrames": {
           "y": true
         },
         "caretColor": "",
-        "adapterTarget": "auto"
+        "themeFollow": false
       },
       "host": {
         "id": "",
@@ -1969,6 +2032,10 @@
         "backgroundBrightness": 100,
         "backgroundContrast": 100,
         "backgroundSaturate": 100,
+        "wallpaperOpacity": 0,
+        "switchTransition": "cut",
+        "switchTransitionDir": "left",
+        "switchTransitionSpeed": "normal",
         "rotationEnabled": false,
         "rotationGroupId": "",
         "rotationGroups": [
@@ -1995,6 +2062,7 @@
         "sceneLiveFps": 30,
         "liveBootDelay": 3,
         "audioSource": "auto",
+        "adapterTarget": "auto",
         "mediaIntegration": true,
         "mediaLyricsOnline": true,
         "userProps": {
@@ -2004,11 +2072,6 @@
             "ok": true,
             "long": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
           }
-        },
-        "sceneLiveFailures": {
-          "a": true,
-          "b": "timeout",
-          "c": "stall"
         },
         "pauseOnHidden": true,
         "pauseOnBlur": false,
@@ -2024,6 +2087,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -2035,13 +2099,13 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "wallpaperOpacity": 0,
-        "switchTransition": "cut",
-        "switchTransitionDir": "left",
-        "switchTransitionSpeed": "normal",
+        "sceneLiveFailures": {
+          "a": true,
+          "b": "timeout",
+          "c": "stall"
+        },
         "caretColor": "",
-        "themeFollow": false,
-        "adapterTarget": "auto"
+        "themeFollow": false
       }
     },
     {
@@ -2077,6 +2141,7 @@
         "sceneLiveFps": 60,
         "liveBootDelay": 3,
         "audioSource": "auto",
+        "adapterTarget": "auto",
         "mediaIntegration": true,
         "mediaLyricsOnline": true,
         "userProps": {},
@@ -2094,6 +2159,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -2109,7 +2175,7 @@
         "sceneLiveFailures": {},
         "customFrames": {},
         "caretColor": "",
-        "adapterTarget": "auto"
+        "themeFollow": false
       },
       "host": {
         "id": "",
@@ -2120,6 +2186,10 @@
         "backgroundBrightness": 100,
         "backgroundContrast": 100,
         "backgroundSaturate": 100,
+        "wallpaperOpacity": 0,
+        "switchTransition": "cut",
+        "switchTransitionDir": "left",
+        "switchTransitionSpeed": "normal",
         "rotationEnabled": false,
         "rotationGroupId": "",
         "rotationGroups": [],
@@ -2133,10 +2203,10 @@
         "sceneLiveFps": 60,
         "liveBootDelay": 3,
         "audioSource": "auto",
+        "adapterTarget": "auto",
         "mediaIntegration": true,
         "mediaLyricsOnline": true,
         "userProps": {},
-        "sceneLiveFailures": {},
         "pauseOnHidden": true,
         "pauseOnBlur": false,
         "pauseOnBattery": false,
@@ -2151,6 +2221,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -2162,13 +2233,9 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "wallpaperOpacity": 0,
-        "switchTransition": "cut",
-        "switchTransitionDir": "left",
-        "switchTransitionSpeed": "normal",
+        "sceneLiveFailures": {},
         "caretColor": "",
-        "themeFollow": false,
-        "adapterTarget": "auto"
+        "themeFollow": false
       }
     },
     {
@@ -2204,6 +2271,7 @@
         "sceneLiveFps": 30,
         "liveBootDelay": 3,
         "audioSource": "auto",
+        "adapterTarget": "auto",
         "mediaIntegration": true,
         "mediaLyricsOnline": true,
         "userProps": {},
@@ -2221,6 +2289,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -2236,7 +2305,7 @@
         "sceneLiveFailures": {},
         "customFrames": {},
         "caretColor": "",
-        "adapterTarget": "auto"
+        "themeFollow": false
       },
       "host": {
         "id": "wallpaper-42",
@@ -2247,6 +2316,10 @@
         "backgroundBrightness": 100,
         "backgroundContrast": 100,
         "backgroundSaturate": 100,
+        "wallpaperOpacity": 0,
+        "switchTransition": "cut",
+        "switchTransitionDir": "left",
+        "switchTransitionSpeed": "normal",
         "rotationEnabled": false,
         "rotationGroupId": "g1",
         "rotationGroups": [],
@@ -2260,10 +2333,10 @@
         "sceneLiveFps": 30,
         "liveBootDelay": 3,
         "audioSource": "auto",
+        "adapterTarget": "auto",
         "mediaIntegration": true,
         "mediaLyricsOnline": true,
         "userProps": {},
-        "sceneLiveFailures": {},
         "pauseOnHidden": true,
         "pauseOnBlur": false,
         "pauseOnBattery": false,
@@ -2278,6 +2351,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -2289,13 +2363,9 @@
         "ropeScale": 1,
         "noticeSeen": "2026-08-13.1",
         "fontCustom": false,
-        "wallpaperOpacity": 0,
-        "switchTransition": "cut",
-        "switchTransitionDir": "left",
-        "switchTransitionSpeed": "normal",
+        "sceneLiveFailures": {},
         "caretColor": "",
-        "themeFollow": false,
-        "adapterTarget": "auto"
+        "themeFollow": false
       }
     },
     {
@@ -2332,6 +2402,7 @@
         "sceneLiveFps": 30,
         "liveBootDelay": 3,
         "audioSource": "auto",
+        "adapterTarget": "auto",
         "mediaIntegration": true,
         "mediaLyricsOnline": true,
         "userProps": {},
@@ -2349,6 +2420,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -2364,7 +2436,7 @@
         "sceneLiveFailures": {},
         "customFrames": {},
         "caretColor": "",
-        "adapterTarget": "auto"
+        "themeFollow": false
       },
       "host": {
         "id": "",
@@ -2375,6 +2447,10 @@
         "backgroundBrightness": 100,
         "backgroundContrast": 100,
         "backgroundSaturate": 100,
+        "wallpaperOpacity": 0,
+        "switchTransition": "cut",
+        "switchTransitionDir": "left",
+        "switchTransitionSpeed": "normal",
         "rotationEnabled": false,
         "rotationGroupId": "",
         "rotationGroups": [],
@@ -2388,10 +2464,10 @@
         "sceneLiveFps": 30,
         "liveBootDelay": 3,
         "audioSource": "auto",
+        "adapterTarget": "auto",
         "mediaIntegration": true,
         "mediaLyricsOnline": true,
         "userProps": {},
-        "sceneLiveFailures": {},
         "pauseOnHidden": true,
         "pauseOnBlur": false,
         "pauseOnBattery": false,
@@ -2406,6 +2482,7 @@
         "glassColor": "#ffffff",
         "glassWindow": true,
         "leftSidebarGlass": false,
+        "thinkingGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
         "sidebarAlpha": 120,
@@ -2417,13 +2494,9 @@
         "ropeScale": 1,
         "noticeSeen": "",
         "fontCustom": false,
-        "wallpaperOpacity": 0,
-        "switchTransition": "cut",
-        "switchTransitionDir": "left",
-        "switchTransitionSpeed": "normal",
+        "sceneLiveFailures": {},
         "caretColor": "",
-        "themeFollow": false,
-        "adapterTarget": "auto"
+        "themeFollow": false
       }
     }
   ]

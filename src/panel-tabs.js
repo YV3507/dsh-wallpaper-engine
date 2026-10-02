@@ -837,7 +837,7 @@
   }
 
   function renderAppearanceWindowSidebarSection(ctx) {
-    const { onGlassWindow, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarGlass, sel, surface } = ctx;
+    const { onGlassWindow, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarGlass, onThinkingGlass, sel, surface } = ctx;
     const sidebarSurface = surface === "sidebar";
     return React.createElement(React.Fragment, null,
     // ── 窗口与侧栏：两套液态玻璃总开关，细节控件缩进一级并随开关显隐 ──
@@ -852,6 +852,11 @@
         key: "window-glass",
         hint: weT("整个设置窗口跟随配色与透明度"),
         tooltip: weT("整个设置窗口（含 General / 模型 / 插件等全部原生分区）跟随配色与透明度；关闭则恢复原生样式"),
+      }),
+      switchRow(weT("思考块液态玻璃"), sel.thinkingGlass === true, onThinkingGlass, {
+        key: "thinking-glass",
+        hint: weT("思考过程与推理条改成玻璃，默认关"),
+        tooltip: weT("默认关：思考条保持黑底，方便阅读。打开后思考过程、推理条跟会话玻璃对齐，不再一块实心黑。"),
       }),
       // 侧栏玻璃（dsh-better-sidebar 适配）：与设置窗口玻璃同级的一套独立细粒度
       // 控制 —— 总开关 + 专用模糊 + 专用透明度 + 玻璃基底色调，全部只作用于

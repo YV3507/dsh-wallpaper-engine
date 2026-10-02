@@ -2714,7 +2714,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
   const MORE_CASES = [
     { fn: 'renderAppearanceTab', label: '（设置页：五节）', surface: 'settings',
       want: ['主题', '细节', '全局字体', '输入光标', '窗口与侧栏'],
-      wantLabels: ['主题随壁纸', '玻璃透明度', '左侧栏覆盖', '雾化', '边框', '字体自定义', '设置窗口液态玻璃'] },
+      wantLabels: ['主题随壁纸', '玻璃透明度', '左侧栏覆盖', '雾化', '边框', '字体自定义', '设置窗口液态玻璃', '思考块液态玻璃'] },
     // 侧栏档：被 `!sidebarSurface` 包住的三节不画 —— 这条门此前只有源码串，没有行为断言。
     { fn: 'renderAppearanceTab', label: '（侧栏档：设置页专属的三节不画）', surface: 'sidebar',
       want: ['主题', '细节'],
@@ -2725,7 +2725,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     { fn: 'renderAppearanceTab', label: '（设置页 · 字体自定义开）', surface: 'settings',
       selOver: { fontCustom: true },
       want: ['主题', '细节', '全局字体', '输入光标', '窗口与侧栏'],
-      wantLabels: ['主题随壁纸', '玻璃透明度', '左侧栏覆盖', '雾化', '边框', '字体自定义', '文字颜色角色', '深色单独设置', '正文', '次要文字', '弱化说明', '极小说明', '禁用 / 更弱', '排版角色', '只看改过的', '高级字体设置', '字体集预设', '设置窗口液态玻璃'] },
+      wantLabels: ['主题随壁纸', '玻璃透明度', '左侧栏覆盖', '雾化', '边框', '字体自定义', '文字颜色角色', '深色单独设置', '正文', '次要文字', '弱化说明', '极小说明', '禁用 / 更弱', '排版角色', '只看改过的', '高级字体设置', '字体集预设', '设置窗口液态玻璃', '思考块液态玻璃'] },
     // 效果页**只有一个节标签** ⇒ 节顺序钉不住它的内部结构。这里用**控件标签的有序序列**作细锚：
     // 它同样是行为级的（对任何重构不变），却细到能看见"某一行的位置被挪了 / 被删了"。
     { fn: 'renderEffectsTab', label: '（画面 · 设置页）', surface: 'settings', want: ['画面'],
@@ -2898,7 +2898,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       'onGlassAlpha', 'onGlassColor', 'onGlassWindow', 'onLeftSidebarGlass', 'onSidebarAlpha',
       'onSidebarBlur', 'onSidebarColor', 'onSidebarContentAlpha', 'onSidebarContentColor',
       'onSidebarGlass', 'onThemeColor', 'onThemeColorClear', 'onThemeDarkSeparate', 'onThemeFamily',
-      'onThemeSize', 'onThemeTypeOnly', 'onThemeWeight', 'onToggleFontCustom', 'onToggleThemeFollow',
+      'onThemeSize', 'onThemeTypeOnly', 'onThemeWeight', 'onThinkingGlass', 'onToggleFontCustom', 'onToggleThemeFollow',
       'fontSet', 'sel', 'surface'],
   };
   // ⚠️ `tabsSrcNow` 在本块顶部声明（归一成 LF）—— 这里不再重复声明。

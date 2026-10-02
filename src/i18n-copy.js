@@ -655,6 +655,11 @@ const WE_I18N_EN = {
   "——按角色调字号 / 字重 / 字体族，可存成预设随时切换。": " — adjust size / weight / family per role; save presets and switch anytime.",
   "：本版起要求": ": this version requires",
   "；旧 DSH Desktop 2.0.x 内核": "; the old DSH Desktop 2.0.x kernel",
+  // ── 思考块液态玻璃（PR #130）──
+  "思考块液态玻璃": "Thinking-block liquid glass",
+  "思考过程与推理条改成玻璃，默认关": "Frost the thinking row and reasoning panel; off by default",
+  "默认关：思考条保持黑底，方便阅读。打开后思考过程、推理条跟会话玻璃对齐，不再一块实心黑。": "Off by default so the thinking row stays a solid dark panel for reading. Turn on to frost the thinking row and reasoning panel so they match the chat glass instead of a solid black slab.",
+
 };
 
 // ── 宿主文案（lib/** 里由客户端显示的那些原文）────────────────────────────────
