@@ -6,6 +6,7 @@
  *      抓帧回填的槽位语义（409 唯一性 / 几何头 / 清除通道 / 并发串行）。
  *   D2/D3. 中途放弃请求的断开时机（确定性替身 + 结构棘轮）。
  *   E. 缓存键单一构造点。
+ *   F. sceneVideo 文件版探测（issue #136）：新旧路径等价 / 读量上界 / 调用点结构。
  *
  * 真机夹具（Steam 工坊）只在存在时跑；合成夹具总会跑，所以没有 Steam 也能通过。
  *
@@ -17,6 +18,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Writable, Readable } from 'node:stream';
 import { EventEmitter } from 'node:events';
+import { createHash } from 'node:crypto';
 // 剥注释：共享的字符串感知实现（test/tools/js-text.mjs）。
 import { stripComments } from './tools/js-text.mjs';
 
@@ -802,6 +804,144 @@ if (token) {
     slotBody === null ? '锚点缺失' : 'arity-ok=' + /function sceneFrameSlot\(\s*abs\s*\)/.test(slotBody));
   check('P4-16 档 4 豁免抓帧时**不解析槽位**（不留那次白做的 statSync + ensureFrameCacheDir）',
     /variant === 4 \? null : gpuFrameFileFor\(sceneFrameSlot\(abs\)\)/.test(readFileSync(join(root, 'lib', 'routes', 'scene-frame.js'), 'utf8')));
+}
+
+// ── Level F: sceneVideo 文件版探测（issue #136）──────────────────────────────
+// 启动探测曾对每个 scene.pkg 做 readFile(整包) + 全量 parsePkg（一库实测 15.86 GB
+// 读风暴；索引阶段还曾因"链形头整条拉载荷"单包读 257 MB）。修复 = 文件版路径
+//（只读 PKG 索引 + .tex 前缀）。三条腿：
+//   ① 等价：合成容器逐支（raw 命中 / 打分选优 / 伪装压缩头 / 真 LZ4 链 / 空条目 /
+//      无视频）新旧路径的布尔与提取字节一致，且 parsePkg 与 parsePkgHead 的条目表
+//      （含 flags）逐字段全等 —— 压缩判定的内存版/文件版不许分叉；
+//   ② 读量上界：链形头的大条目只读头不拉载荷（计数 readAt 下索引+前缀 < 80 KB，
+//      而文件 > 120 KB —— 负对照保证"整包读"必撞上界）；
+//   ③ 结构：宿主两处调用点必须走文件版，旧形态（readFile 整包 → extractSceneVideo）
+//      零残留。
+console.log('Level F — sceneVideo 文件版探测（issue #136）等价 / 读量上界 / 结构');
+{
+  const { extractSceneVideo, extractSceneVideoFromPkgFile, probeSceneVideoFromPkgFile } =
+    await import(pathToFileURL(join(root, 'lib/scene-manifest.js')).href);
+  const { parsePkg, parsePkgHead, readPkgEntryHeadAt } =
+    await import(pathToFileURL(join(root, 'lib/pkg-read.js')).href);
+  const sha = (b) => createHash('sha256').update(b).digest('hex');
+  const eqDir = join(root, '.test-cache', 'probe-eq');
+  rmSync(eqDir, { recursive: true, force: true });
+  mkdirSync(eqDir, { recursive: true });
+
+  /** 命中 tex：前 4 字节盒大小 + 'ftyp'（判定窗 i=4 → 偏移 0），其余填 0xAB。 */
+  const ftypTex = (n) => {
+    const b = Buffer.alloc(Math.max(n, 16), 0xab);
+    b.writeUInt32LE(n, 0);
+    b.write('ftyp', 4, 'ascii');
+    return b;
+  };
+  /** 无视频 tex：与上同形但不含 'ftyp'。 */
+  const noFtypTex = (n) => Buffer.alloc(n, 0x7e);
+  /**
+   * 真 LZ4 链条目：内容 = 8 字节周期 × 125 = 1000 字节（bytes[4..7] = 'ftyp'，
+   * 只有解压后才看得见）；单块「8 字面 + 回指 offset 8」压缩到 15 字节块，
+   * 链总长 31 < 1000 ⇒ probeCompressedEntry 的门与链走查都成立（LZ4 flag）。
+   * 手算依据：token 0x8F(lit 8 / match 15) + P(8) + offset LE 8 + match 扩展
+   * (992−4−15=973 → 255,255,255,208)；解压 op 恰好 1000。
+   */
+  const lz4TexEntry = () => {
+    const P = Buffer.from([0xe8, 0x03, 0x00, 0x00, 0x66, 0x74, 0x79, 0x70]);
+    const block = Buffer.concat([Buffer.from([0x8f]), P, Buffer.from([0x08, 0x00, 255, 255, 255, 208])]);
+    const entry = Buffer.alloc(16 + block.length);
+    entry.writeUInt32LE(1000, 0); entry.writeUInt32LE(0, 4); // int64 originalSize
+    entry.writeInt32LE(1000, 8);
+    entry.writeInt32LE(block.length, 12);
+    block.copy(entry, 16);
+    return entry;
+  };
+  /** 伪装压缩头的 raw：门（originalSize=90000 > 长度）过、链走查第一跳就失败。 */
+  const fakeSizeNoVideo = () => {
+    const b = Buffer.alloc(300, 0x5a);
+    b.writeUInt32LE(90000, 0);
+    b.writeUInt32LE(0, 4);
+    b.writeInt32LE(1, 8);
+    b.writeInt32LE(999999, 12);
+    return b;
+  };
+  const sceneJson = () => Buffer.from('{"objects":[]}');
+
+  const fixtures = {
+    'raw-hit': [{ path: 'scene.json', bytes: sceneJson() }, { path: 'main.tex', bytes: ftypTex(600) }],
+    'scoring': [{ path: 'scene.json', bytes: sceneJson() },
+      { path: 'masks/mask0.tex', bytes: ftypTex(400) },
+      { path: 'main.tex', bytes: ftypTex(500) }],
+    'lz4': [{ path: 'scene.json', bytes: sceneJson() }, { path: 'main.tex', bytes: lz4TexEntry() }],
+    'fake-size': [{ path: 'scene.json', bytes: sceneJson() }, { path: 'main.tex', bytes: fakeSizeNoVideo() }],
+    'tiny': [{ path: 'scene.json', bytes: sceneJson() },
+      { path: 'main.tex', bytes: ftypTex(300) },
+      { path: 'empty.tex', bytes: Buffer.alloc(0) },
+      { path: 'stub.tex', bytes: Buffer.from('TEXV000') }],
+    'novideo': [{ path: 'scene.json', bytes: sceneJson() }, { path: 'main.tex', bytes: noFtypTex(800) }],
+  };
+  const entryShape = (list) => JSON.stringify(
+    list.map((e) => [e.path, e.offset, e.compressedSize, e.size, e.flags]));
+  for (const [name, entries] of Object.entries(fixtures)) {
+    const pkg = buildPkg(entries);
+    const file = join(eqDir, name + '.pkg');
+    writeFileSync(file, pkg);
+    // ① 条目表（含压缩 flags）逐字段全等 —— probeCompressedEntry ≡ probeCompressedEntryAt。
+    let counted = 0;
+    const readAt = async (pos, len) => {
+      counted += len;
+      return pkg.subarray(pos, pos + Math.min(len, Math.max(pkg.length - pos, 0)));
+    };
+    const head = await parsePkgHead(readAt, pkg.length);
+    const mem = parsePkg(pkg);
+    check('F 条目表与压缩判定逐字段相等（' + name + '）', entryShape(mem) === entryShape(head),
+      entryShape(mem) === entryShape(head) ? 'entries=' + mem.length : 'mem=' + entryShape(mem) + ' head=' + entryShape(head));
+    // ② 探测布尔一致 + ③ 提取字节一致（含双方 null）。
+    const oldV = extractSceneVideo(new Uint8Array(pkg));
+    const newV = await probeSceneVideoFromPkgFile(file);
+    const oldHas = !!(oldV && oldV.length);
+    check('F 探测布尔一致（' + name + '）', newV === oldHas, 'old=' + oldHas + ' new=' + newV);
+    const newEx = await extractSceneVideoFromPkgFile(file);
+    const bothNull = (oldV == null) === (newEx == null);
+    const sameBytes = bothNull && (oldV == null || sha(oldV) === sha(newEx));
+    check('F 提取字节一致（' + name + '）', sameBytes,
+      oldHas ? sha(oldV).slice(0, 12) + ' vs ' + (newEx ? sha(newEx).slice(0, 12) : 'null') : '双方 null');
+  }
+  // ② 读量上界：120 KB 链形头 junk + 小 tex；索引+前缀的全部 readAt 计数 < 80 KB。
+  {
+    const junk = Buffer.alloc(120 * 1024, 0x5a);
+    junk.writeUInt32LE(300000, 0);
+    junk.writeUInt32LE(0, 4);       // 门形：originalSize > 长度
+    junk.writeInt32LE(1, 8);
+    junk.writeInt32LE(9999999, 12);  // 链第一跳失败 ⇒ raw（曾在这里整条拉 120 KB）
+    const big = buildPkg([
+      { path: 'scene.json', bytes: sceneJson() },
+      { path: 'junk.bin', bytes: junk },
+      { path: 'main.tex', bytes: noFtypTex(400) },
+    ]);
+    let counted = 0;
+    const readAt = async (pos, len) => {
+      counted += len;
+      return big.subarray(pos, pos + Math.min(len, Math.max(big.length - pos, 0)));
+    };
+    const entries = await parsePkgHead(readAt, big.length);
+    for (const e of entries) {
+      if (e.path.toLowerCase().endsWith('.tex')) await readPkgEntryHeadAt(readAt, big.length, e, 204);
+    }
+    check('F 读量上界：索引+前缀 < 80 KB（文件 > 120 KB）', counted < 80 * 1024 && big.length > 120 * 1024,
+      '读 ' + counted + 'B / 文件 ' + big.length + 'B');
+    check('F negative control: 整包读（=文件体积）必撞上界，判据有牙', big.length >= 80 * 1024,
+      'file=' + big.length + ' ≥ 80KB ⇒ 若整读必红');
+  }
+  // ③ 结构：宿主两处调用点必须走文件版。
+  {
+    const hostSrc = stripComments(readFileSync(join(root, 'lib', 'index.js'), 'utf8'));
+    check('F 后台探测泵走文件版', /probeSceneVideoFromPkgFile\(job\.abs\)/.test(hostSrc));
+    check('F /scene-video 走文件版提取', /await extractSceneVideoFromPkgFile\(abs\)/.test(hostSrc));
+    check('F 宿主零残留：readFile(整包) → extractSceneVideo 旧形态',
+      !/extractSceneVideo\(new Uint8Array\(/.test(hostSrc));
+    check('F negative control: 旧形态会被同一判据判出',
+      /extractSceneVideo\(new Uint8Array\(/.test('extractSceneVideo(new Uint8Array(await readFile(abs)))'));
+  }
+  rmSync(eqDir, { recursive: true, force: true });
 }
 
 if (typeof dispose === 'function') dispose();

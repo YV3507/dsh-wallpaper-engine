@@ -49,7 +49,7 @@
 | `verify-route-families.mjs` | — |  |
 | `verify-route-index.mjs` | `lib/index.js` |  |
 | `verify-scene-live.mjs` | `lib/index.js` `lib/media/index.js` `lib/media/legacy.js` `lib/media/provision.js` `lib/media/supervisor.js` `lib/metrics.js` `lib/routes/diag.js` `lib/routes/metrics.js` `lib/routes/now-playing.js` `lib/routes/scene-serve.js` `lib/settings-schema.js` `lib/we-props.js` `lib/webwallgl/web-shim.js` `src/client.js` `src/effects.js` `src/ext-fx.js` `src/ext-metrics.js` `src/ext-parallax.js` `src/font/color-roles.js` `src/font/typography.js` `src/fx-layer.js` `src/glass-panel.js` `src/layer-core.js` `src/live-layer.js` `src/media-prep.js` `src/metrics-layer.js` `src/panel-tabs.js` `src/parallax-layer.js` `src/picker-modal.js` `src/quick-panel.js` `src/sidebar-right.js` `src/styles.js` `src/system-fonts.js` `src/video-layer.js` `src/we-cond.js` | ✅ |
-| `verify-scene.mjs` | `lib/index.js` `lib/routes/scene-frame.js` | ✅ |
+| `verify-scene.mjs` | `lib/index.js` `lib/pkg-read.js` `lib/routes/scene-frame.js` `lib/scene-manifest.js` | ✅ |
 | `verify-softrender.mjs` | — | ✅ |
 | `verify-system-fonts.mjs` | `lib/routes/system-fonts.js` `lib/settings-schema.js` `src/client.js` `src/font/typography.js` `src/panel-tabs.js` `src/system-fonts.js` | ✅ |
 | `verify-theme-follow.mjs` | `lib/settings-schema.js` `src/client.js` `src/live-layer.js` `src/media-prep.js` `src/panel-tabs.js` `src/theme-follow.js` | ✅ |
@@ -72,7 +72,7 @@
 | `lib/media/supervisor.js` | 3 | `verify-contracts` `verify-media-bridge` `verify-scene-live` |
 | `lib/metrics.js` | 1 | `verify-scene-live` |
 | `lib/notice.js` | 1 | `verify-logging` |
-| `lib/pkg-read.js` | 2 | `verify-package-files` `verify-package-publish` |
+| `lib/pkg-read.js` | 3 | `verify-package-files` `verify-package-publish` `verify-scene` |
 | `lib/routes/about-qr.js` | 1 | `verify-about` |
 | `lib/routes/diag.js` | 2 | `verify-logging` `verify-scene-live` |
 | `lib/routes/fontsets.js` | 1 | `verify-contracts` |
@@ -83,7 +83,7 @@
 | `lib/routes/scene-serve.js` | 2 | `verify-logging` `verify-scene-live` |
 | `lib/routes/system-fonts.js` | 1 | `verify-system-fonts` |
 | `lib/routes/upload.js` | 2 | `verify-body-caps` `verify-package-files` |
-| `lib/scene-manifest.js` | 0 | **（无）** |
+| `lib/scene-manifest.js` | 1 | `verify-scene` |
 | `lib/settings-schema.js` | 11 | `verify-adapter` `verify-client` `verify-component-fonts` `verify-contracts` `verify-fontset` `verify-glass-surfaces` `verify-module-layout` `verify-scene-live` `verify-system-fonts` `verify-theme-follow` `verify-theme-layer` |
 | `lib/we-props.js` | 1 | `verify-scene-live` |
 | `lib/webwallgl/assets/modulepreload-polyfill-B5Qt9EMX.js` | 0 | **（无）** |
