@@ -94,9 +94,9 @@ const CSS = `
   html { background-color: var(--we-wallpaper-underlay, transparent); }
 
   .we-layer { position: fixed; inset: 0; z-index: -2; overflow: hidden; pointer-events: none; opacity: 1; background-color: var(--we-wallpaper-fade-bg, transparent); --dsw-alias-bg-layer-1: var(--we-panel-color, #101418); -webkit-app-region: initial !important; }
-  /* Blurring via CSS filter darkens/thins the edges, so the layer is scaled up
-     (--we-wallpaper-scale tracks blur) to hide the transparent fringe the blur
-     would otherwise reveal at the viewport edges. */
+/* Blurring via CSS filter darkens/thins the edges, so the layer is scaled up
+   (the scale term is folded into --we-wallpaper-transform, beside the flip) to hide
+   the transparent fringe the blur would otherwise reveal at the viewport edges. */
   .we-layer .we-media {
     width: 100%; height: 100%; object-fit: cover; display: block;
     background: transparent; border: 0;
@@ -216,7 +216,7 @@ const CSS = `
        --dsw-alias-button-elevated-fill 是「抬高按钮」的实色（侧栏「新建会话」、
        工作区重命名输入框 —— 上游 #71 报的那类没玻璃的按钮）。它们保持宿主实色时，
        壁纸既透不出来、也没有自己的模糊，只有设置窗口那三档被接管过。
-       这里套用**与设置窗口同一张配方表**：主题底色压可读性下限 + --we-glass-color
+       这里套用**与设置窗口同一张配方表**：主题底色压可读性下限 + --we-surface-tint-light/dark
        按 --we-glass-alpha 混合，三档沿用 0.9 / 1.0 / 1.1 的层权重，抬高按钮再高半档
        （深色主题下必须比 layer-3 更亮，否则按钮与容器压平成同一块玻璃）。于是
        玻璃透明度 / 玻璃颜色 对 harness 自带的面同样生效，无需知道任何 CSS 模块哈希。
@@ -522,8 +522,8 @@ const CSS = `
       var(--we-chat-readability-base) calc(var(--we-chat-readability-floor) * 100%),
       rgba(var(--we-chat-surface-tint-rgb-dark, 255, 255, 255), calc(var(--we-glass-alpha, 0.15) * 0.33)) calc((1 - var(--we-chat-readability-floor)) * 100%));
   }
-  body[data-we-wallpaper] [data-composer-card],
-  body[data-we-wallpaper] [class*="_bubble"],
+  body[data-we-glass-chat][data-we-wallpaper] [data-composer-card],
+  body[data-we-glass-chat][data-we-wallpaper] [class*="_bubble"],
   /* Interactive tool popup cards read the SAME --dsw-specific-input-major
      token as the composer (question / plan-review / approval), so they turn
      translucent along with it — but unlike the composer they had NO
@@ -535,9 +535,9 @@ const CSS = `
      [data-approval-key] (tool-permission approval card). We scope _card
      inside those containers instead of a broad [class*="_card"] (which would
      also blur nested *_cardBody / hovercard surfaces). */
-  body[data-we-wallpaper] [data-question-key] [class*="_card"],
-  body[data-we-wallpaper] [data-plan-review-key] [class*="_card"],
-  body[data-we-wallpaper] [data-approval-key] [class*="_card"] {
+  body[data-we-glass-chat][data-we-wallpaper] [data-question-key] [class*="_card"],
+  body[data-we-glass-chat][data-we-wallpaper] [data-plan-review-key] [class*="_card"],
+  body[data-we-glass-chat][data-we-wallpaper] [data-approval-key] [class*="_card"] {
     /* Specular sheen: a top-weighted white gradient turns a flat translucent
        tint into "wet glass" — kept faint so the wallpaper stays 通透 (clear)
        instead of glaring. */
@@ -563,11 +563,11 @@ const CSS = `
      descendants, so it can never become a containing block. Same blur radius,
      same --we-* tokens, same inset/radius → visually identical.
      把模糊改由 ::before 伪元素承载：伪元素没有 DOM 后代，不会成为 fixed 后代的包含块。 */
-  body[data-we-wallpaper] [data-composer-card] {
+  body[data-we-glass-chat][data-we-wallpaper] [data-composer-card] {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
-  body[data-we-wallpaper] [data-composer-card]::before {
+  body[data-we-glass-chat][data-we-wallpaper] [data-composer-card]::before {
     content: "";
     position: absolute;
     inset: 0;
@@ -680,7 +680,7 @@ const CSS = `
     z-index: 0; /* 把 ::before 的 z-index:-1 圈在这一列内部 */
     background-color: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-glass-alpha, 0.5) * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-left-sidebar-alpha) * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
     /* 顶层白光釉：与设置窗口同一道镜面渐变。它同时**顶掉**壳层 darwin 那条
        「淡蓝渐变 + fill 混色」的左栏背景（background-image 是同一长属性）。 */
     background-image: linear-gradient(180deg,
@@ -714,14 +714,14 @@ const CSS = `
     inset: 0;
     z-index: -1;
     pointer-events: none;
-    -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
-    backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    -webkit-backdrop-filter: blur(var(--we-left-sidebar-blur)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    backdrop-filter: blur(var(--we-left-sidebar-blur)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
   }
   /* 深色：同一张表、同一组层权重，只有玻璃色缺省与高亮mix 不同（与设置窗口深色那条同形）。 */
   body[data-ds-dark-theme][data-we-wallpaper][data-we-left-sidebar] div:has(> [data-slot="sidebar"]) {
     background-color: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) calc(var(--we-glass-alpha, 0.5) * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+      color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) calc(var(--we-left-sidebar-alpha) * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
     background-image: linear-gradient(180deg,
       rgba(255, 255, 255, 0.07) 0%,
       rgba(255, 255, 255, 0.02) 38%,
@@ -764,22 +764,22 @@ const CSS = `
        玻璃色权重，只在另一项上生效）。 */
     background-color: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-sidebar-color, #ffffff) var(--we-sidebar-tint, 20%), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
+      color-mix(in srgb, var(--we-sidebar-color) var(--we-sidebar-tint), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
     /* Specular sheen + refraction highlights follow --we-sidebar-sheen
        (= min(1, alpha/0.2236)): at default (12%) and any MORE solid setting
        the sheen keeps the ORIGINAL design strength (0.14/0.04/0.01,
        0.32/0.08/0.06); only toward transparency does the white glaze fade,
        so 100% is truly near-transparent instead of pale white. */
     background-image: linear-gradient(180deg,
-      rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.14)),
-      rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.04)) 38%,
-      rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.01))) !important;
-    -webkit-backdrop-filter: blur(var(--we-sidebar-blur, 16px)) saturate(var(--we-sidebar-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
-    backdrop-filter: blur(var(--we-sidebar-blur, 16px)) saturate(var(--we-sidebar-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
+      rgba(255, 255, 255, calc(var(--we-sidebar-sheen) * 0.14)),
+      rgba(255, 255, 255, calc(var(--we-sidebar-sheen) * 0.04)) 38%,
+      rgba(255, 255, 255, calc(var(--we-sidebar-sheen) * 0.01))) !important;
+    -webkit-backdrop-filter: blur(var(--we-sidebar-blur)) saturate(var(--we-sidebar-saturate)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
+    backdrop-filter: blur(var(--we-sidebar-blur)) saturate(var(--we-sidebar-saturate)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.32)),
-      inset 0 -1px 0 rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.08)),
-      inset 0 0 0 0.5px rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.06));
+      inset 0 1px 0 rgba(255, 255, 255, calc(var(--we-sidebar-sheen) * 0.32)),
+      inset 0 -1px 0 rgba(255, 255, 255, calc(var(--we-sidebar-sheen) * 0.08)),
+      inset 0 0 0 0.5px rgba(255, 255, 255, calc(var(--we-sidebar-sheen) * 0.06));
   }
   body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_pane"],
   body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_tabBar"],
@@ -791,13 +791,13 @@ const CSS = `
   body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_terminalWrap"] {
     background-color: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-sidebar-color, #ffffff) calc(var(--we-sidebar-tint, 20%) * 0.75), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
+      color-mix(in srgb, var(--we-sidebar-color) calc(var(--we-sidebar-tint) * 0.75), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
   }
   body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_boundaryError"],
   body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_panel"] {
     background-color: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-sidebar-color, #ffffff) calc(var(--we-sidebar-tint, 20%) * 0.65), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
+      color-mix(in srgb, var(--we-sidebar-color) calc(var(--we-sidebar-tint) * 0.65), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
   }
   body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_pane"],
   body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_tabBar"],
@@ -809,7 +809,7 @@ const CSS = `
   body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_terminalWrap"] {
     background-color: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-sidebar-color, #ffffff) calc(var(--we-sidebar-tint, 20%) * 0.5), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
+      color-mix(in srgb, var(--we-sidebar-color) calc(var(--we-sidebar-tint) * 0.5), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
   }
   /* No backdrop-filter support: fall back to near-opaque tinted surfaces so
      sidebar text never sits directly on a busy wallpaper (same policy as the
@@ -825,7 +825,7 @@ const CSS = `
     body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_gitHeader"],
     body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_browserBar"],
     body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_terminalWrap"] {
-      background-color: color-mix(in srgb, var(--we-sidebar-color, #ffffff) 92%, transparent) !important;
+      background-color: color-mix(in srgb, var(--we-sidebar-color) 92%, transparent) !important;
       backdrop-filter: none !important;
       -webkit-backdrop-filter: none !important;
     }
@@ -869,22 +869,22 @@ const CSS = `
   body[data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open] {
     background-color: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-sidebar-color, #ffffff) var(--we-sidebar-tint, 20%), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
+      color-mix(in srgb, var(--we-sidebar-color) var(--we-sidebar-tint), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
     background-image: linear-gradient(180deg,
-      rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.14)),
-      rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.04)) 38%,
-      rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.01))) !important;
-    -webkit-backdrop-filter: blur(var(--we-sidebar-blur, 16px)) saturate(var(--we-sidebar-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
-    backdrop-filter: blur(var(--we-sidebar-blur, 16px)) saturate(var(--we-sidebar-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
+      rgba(255, 255, 255, calc(var(--we-sidebar-sheen) * 0.14)),
+      rgba(255, 255, 255, calc(var(--we-sidebar-sheen) * 0.04)) 38%,
+      rgba(255, 255, 255, calc(var(--we-sidebar-sheen) * 0.01))) !important;
+    -webkit-backdrop-filter: blur(var(--we-sidebar-blur)) saturate(var(--we-sidebar-saturate)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
+    backdrop-filter: blur(var(--we-sidebar-blur)) saturate(var(--we-sidebar-saturate)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.32)),
-      inset 0 -1px 0 rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.08)),
-      inset 0 0 0 0.5px rgba(255, 255, 255, calc(var(--we-sidebar-sheen, 1) * 0.06));
+      inset 0 1px 0 rgba(255, 255, 255, calc(var(--we-sidebar-sheen) * 0.32)),
+      inset 0 -1px 0 rgba(255, 255, 255, calc(var(--we-sidebar-sheen) * 0.08)),
+      inset 0 0 0 0.5px rgba(255, 255, 255, calc(var(--we-sidebar-sheen) * 0.06));
   }
   body[data-ds-dark-theme][data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open] {
     background-color: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-sidebar-color, #ffffff) calc(var(--we-sidebar-tint, 20%) * 0.65), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
+      color-mix(in srgb, var(--we-sidebar-color) calc(var(--we-sidebar-tint) * 0.65), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
   }
   /* Closed state: the host's own container carries no background — keep ours
      off too, whatever the master-switch state (#107). */
@@ -899,7 +899,7 @@ const CSS = `
      better-sidebar glass above. */
   @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
     body[data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open] {
-      background-color: color-mix(in srgb, var(--we-sidebar-color, #ffffff) 92%, transparent) !important;
+      background-color: color-mix(in srgb, var(--we-sidebar-color) 92%, transparent) !important;
       backdrop-filter: none !important;
       -webkit-backdrop-filter: none !important;
     }
@@ -980,20 +980,20 @@ const CSS = `
      with the accent color remapped to --we-accent (配色) and all surface alphas
      driven by --we-glass-alpha (玻璃透明度). Off = stock shell look. ── */
   body[data-we-glass-window] [role="dialog"]:has([data-slot="settings.section"]) {
-    /* Glass surface alphas (light scheme): the base tint is --we-glass-color
+    /* Glass surface alphas (light scheme): the base tint is --we-surface-tint-light/dark
        (玻璃颜色) mixed with transparent at the 玻璃透明度-driven alpha, so the
        whole window glass can be tinted to any color. Default (no custom color)
        = white glass, the stock look. 这三层同样是文字面（导航 + 原生分区），
        所以每层都压在可读性下限的主题底色之下。 */
     --dsw-alias-bg-layer-1: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-glass-alpha, 0.5) * 0.9 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-settings-window-alpha) * 0.9 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
     --dsw-alias-bg-layer-2: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-glass-alpha, 0.5) * 1.0 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-settings-window-alpha) * 1.0 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
     --dsw-alias-bg-layer-3: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-glass-alpha, 0.5) * 1.1 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-settings-window-alpha) * 1.1 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
     /* Nav + interactive states tinted with the accent. */
     --dsw-specific-sidebar-nav-item-active: color-mix(in srgb, var(--we-accent-src, #4f8cff) 26%, rgba(255, 255, 255, 0.08));
     --dsw-specific-sidebar-nav-item-hover: color-mix(in srgb, var(--we-accent-src, #4f8cff) 13%, rgba(255, 255, 255, 0.05));
@@ -1029,8 +1029,8 @@ const CSS = `
        see the composer note above) and brightness is pinned — so the settings
        window glass tracks the conversation-bar blur range exactly. Plus a
        specular sheen + inner edge highlight + diffuse shadow (panel rounds at 24px). */
-    -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
-    backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    -webkit-backdrop-filter: blur(var(--we-settings-window-blur)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    backdrop-filter: blur(var(--we-settings-window-blur)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
     background-image: linear-gradient(
       180deg,
       rgba(255, 255, 255, 0.1) 0%,
@@ -1048,13 +1048,13 @@ const CSS = `
     /* 设置窗口的整块面板（导航 + 每个原生分区）都承载文字 → 同样过下限。 */
     --dsw-alias-bg-layer-1: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) calc(var(--we-glass-alpha, 0.5) * 0.9 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+      color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) calc(var(--we-settings-window-alpha) * 0.9 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
     --dsw-alias-bg-layer-2: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) calc(var(--we-glass-alpha, 0.5) * 1.0 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+      color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) calc(var(--we-settings-window-alpha) * 1.0 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
     --dsw-alias-bg-layer-3: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) calc(var(--we-glass-alpha, 0.5) * 1.1 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+      color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) calc(var(--we-settings-window-alpha) * 1.1 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
     --dsw-specific-sidebar-nav-item-active: color-mix(in srgb, var(--we-accent-src, #4f8cff) 30%, rgba(255, 255, 255, 0.06));
     --dsw-specific-sidebar-nav-item-hover: color-mix(in srgb, var(--we-accent-src, #4f8cff) 14%, rgba(255, 255, 255, 0.04));
     background-image: linear-gradient(
@@ -1997,17 +1997,17 @@ const CSS = `
      immersive/kiosk-window users about the white flash and its one fix. High
      z-index so it sits above the chat; buttons reuse the flat picker style.
      底板跟着主题底色走（max(下限, 82%) 的衬底）：明主题白衬黑字、暗主题深蓝衬白字。 */
-  .we-update-notice {
+body[data-we-glass-floaters] .we-update-notice {
     position: fixed; left: 50%; bottom: 26px; z-index: 1100;
     transform: translateX(-50%);
     width: min(600px, 92vw);
     box-sizing: border-box;
     display: flex; flex-direction: column; gap: 10px;
     padding: 16px 18px; border-radius: 14px;
-    background-color: color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-glass-alpha, 0.5) * 90%), var(--we-readability-base) calc(max(var(--we-readability-floor), 0.82) * 100%));
+    background-color: color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-floaters-alpha) * 90%), var(--we-readability-base) calc(max(var(--we-readability-floor), 0.82) * 100%));
     background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.03) 40%, rgba(255, 255, 255, 0.01));
-    -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(1.2);
-    backdrop-filter: blur(var(--we-blur, 16px)) saturate(1.2);
+    -webkit-backdrop-filter: blur(var(--we-floaters-blur)) saturate(1.2);
+    backdrop-filter: blur(var(--we-floaters-blur)) saturate(1.2);
     border: 1px solid rgba(255, 255, 255, 0.22);
     box-shadow: 0 18px 48px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.18);
     color: inherit;
@@ -2024,12 +2024,12 @@ const CSS = `
   /* Glass library side drawer — docked right, 360px (capped at 92vw), full
      height, slides in from the right edge, inner body scrolls. Same liquid-glass
      recipe as the settings window: reads the very same --we-blur / --we-saturate /
-     --we-glass-alpha / --we-glass-color / --we-glass-brightness knobs, so the
+     --we-glass-alpha / --we-surface-tint-light/dark / --we-glass-brightness knobs, so the
      玻璃 sliders in settings retint this panel live. Open/close = transform +
      opacity fade, token-driven; closed keeps visibility hidden (delayed so the
      fade-out finishes first) with pointer-events off. 只在低版本宿主使用 ——
      harness ≥0.1.5 上同一份内容融进官方右侧栏（见 src/sidebar-right.js）。 */
-  .we-repo-panel {
+body[data-we-glass-floaters] .we-repo-panel {
     position: fixed; top: 0; right: 0;
     width: 360px; max-width: 92vw;
     height: 100vh; height: 100dvh;
@@ -2050,15 +2050,15 @@ const CSS = `
      while closed the panel is off-screen and must not allocate a full-viewport
      backdrop-filter compositing layer (a fixed, always-present backdrop-filter
      layer is a known Chromium white-flash-on-repaint source). */
-  .we-repo-panel--open {
+body[data-we-glass-floaters] .we-repo-panel--open {
     border-left: 1px solid rgba(255, 255, 255, 0.22);
     /* 插件自己的抽屉同样是文字面 → 同一层可读性下限。 */
     background-color: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-glass-alpha, 0.5) * 72%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-floaters-alpha) * 72%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
     background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.05) 38%, rgba(255, 255, 255, 0.02));
-    -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
-    backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    -webkit-backdrop-filter: blur(var(--we-floaters-blur)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    backdrop-filter: blur(var(--we-floaters-blur)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
     box-shadow:
       inset 1px 0 0 rgba(255, 255, 255, var(--we-glass-highlight, 0.32)),
       inset 0 1px 0 rgba(255, 255, 255, 0.14),
@@ -2072,7 +2072,7 @@ const CSS = `
       opacity 480ms ease,
       visibility 0s;
   }
-  .we-repo-panel__head {
+body[data-we-glass-floaters] .we-repo-panel__head {
     display: flex; align-items: center; justify-content: space-between;
     gap: 8px; flex: 0 0 auto;
     padding-bottom: 10px;
@@ -2080,7 +2080,7 @@ const CSS = `
   }
   .we-repo-panel__title { font-weight: 600; font-size: 0.95em; white-space: nowrap; }
   /* Body: THE scroll container（内容 = QuickPanel 快捷播放面板）。 */
-  .we-repo-panel__body {
+body[data-we-glass-floaters] .we-repo-panel__body {
     flex: 1; min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;   /* wheel doesn't bleed into the chat behind */
@@ -2311,7 +2311,7 @@ const CSS = `
   /* No backdrop-filter support: near-opaque tinted surface, same policy as the
      settings-window/sidebar fallbacks, so panel text stays readable. */
   @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    .we-repo-panel {
+body[data-we-glass-floaters] .we-repo-panel {
       background-color: color-mix(in srgb, var(--we-surface-tint-light, #ffffff) 92%, transparent);
       backdrop-filter: none; -webkit-backdrop-filter: none;
     }
@@ -2339,12 +2339,12 @@ const CSS = `
   body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_gitHeader"],
   body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_browserBar"],
   body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_terminalWrap"] {
-    background-color: color-mix(in srgb, var(--we-sidebar-color, #ffffff) 92%, transparent) !important;
+    background-color: color-mix(in srgb, var(--we-sidebar-color) 92%, transparent) !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }
   body[data-we-glass-fallback][data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open] {
-    background-color: color-mix(in srgb, var(--we-sidebar-color, #ffffff) 92%, transparent) !important;
+    background-color: color-mix(in srgb, var(--we-sidebar-color) 92%, transparent) !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }
@@ -2405,7 +2405,7 @@ const CSS = `
      包含块，#89）——载体上没有背景，卡片自身的底色只有 --we-glass-alpha（默认 15%），
      所以只关掉 backdrop-filter 仍然过透。这里让 ::before 自己变成近不透明底板：
      载体是同一块表面，模糊没了就由它兜住底色，配方与上面 .we-repo-panel 逐字相同
-     （同一个 --we-glass-color / 92%，未新增 token 或机制）。 */
+     （同一个 --we-surface-tint-light/dark / 92%，未新增 token 或机制）。 */
   body[data-we-glass-fallback][data-we-wallpaper] [data-composer-card]::before {
     background-color: color-mix(in srgb, var(--we-surface-tint-light, #ffffff) 92%, transparent);
     backdrop-filter: none !important;

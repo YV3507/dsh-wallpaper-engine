@@ -89,9 +89,7 @@
     "onRecaptureGpuFrame", "onRefreshFrame",
     // 帧率上限（抽帧转码）那行带 `!sidebarSurface` 门 ⇒ 侧栏档不画它，处理器进占位器。
     "onFpsCap",
-    // 思考块液态玻璃在「窗口与侧栏」节（`!sidebarSurface` 门）⇒ 同上，侧栏档进占位器。
-    "onThinkingGlass",
-    // 思考块液态玻璃在「窗口与侧栏」节（`!sidebarSurface` 门）⇒ 同上，侧栏档进占位器。
+    // 思考块液态玻璃在「玻璃 UI」节（`!sidebarSurface` 门，原「窗口与侧栏」随 §10.25 并入）⇒ 同上，侧栏档进占位器。
     "onThinkingGlass",
   ];
   // 占位器只建一次（每帧重建 25 个 Proxy 纯属浪费；它们是常量、可跨渲染共用）。
@@ -365,8 +363,9 @@
           && React.createElement("div", { className: "we-qp__propsview we-qp__propsview--drill" }, renderUserPropsPanel()),
         !(qpTab === "wallpaper" && userPropsPanelOpen() && propsAvailable) && (qpTab === "appearance"
           ? renderAppearanceTab(sidebarRenderCtx({
-            setSetting, sel,
-            onAccent, onBlur, onBorder, onChatGlassFidelity, onGlassAlpha, onGlassColor, onGlassFidelity, onGlassWindow, onLeftSidebarGlass, onSidebarGlass, onToggleThemeFollow,
+            setSetting, setTransient, sel,
+            onAccent, onBlur, onBorder, onChatGlassFidelity, onGlassAlpha, onGlassColor, onGlassFidelity, onLeftSidebarGlass, onSidebarGlass, onToggleThemeFollow,
+            onToggleChildIndependent, onGlassChildParam, childIndependentOn,
           }))
           : qpTab === "playback"
             ? React.createElement(React.Fragment, null,
