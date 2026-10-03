@@ -31,7 +31,7 @@
 | `verify-dead-declarations.mjs` | — |  |
 | `verify-fontset.mjs` | `lib/index.js` `lib/settings-schema.js` `src/client.js` `src/font/apply.js` `src/font/color-roles.js` `src/font/components.js` `src/font/typography.js` `src/fontset-editor.js` `src/fontset-store.js` `src/glass-panel.js` `src/media-prep.js` `src/panel-tabs.js` `src/picker-modal.js` `src/picker-props-panel.js` `src/styles.js` `src/we-cond.js` | ✅ |
 | `verify-glass-compositing.mjs` | — | ✅ |
-| `verify-glass-surfaces.mjs` | `src/client.js` `src/effects.js` `src/glass.js` `src/live-layer.js` `src/styles.js` | ✅ |
+| `verify-glass-surfaces.mjs` | `src/client.js` `src/effects.js` `src/glass-panel.js` `src/glass.js` `src/live-layer.js` `src/panel-tabs.js` `src/styles.js` | ✅ |
 | `verify-host-paint-scope.mjs` | — | ✅ |
 | `verify-i18n.mjs` | `src/client.js` `src/i18n-copy.js` `src/i18n.js` `src/nav-icon.js` `src/quick-panel.js` `src/sidebar-right.js` `src/styles.js` | ✅ |
 | `verify-logging.mjs` | `lib/index.js` `lib/log.js` `lib/notice.js` `lib/routes/scene-serve.js` `src/live-layer.js` |  |
@@ -95,7 +95,7 @@
 | `src/font/typography.js` | 4 | `verify-api-client` `verify-fontset` `verify-scene-live` `verify-theme-layer` |
 | `src/fontset-editor.js` | 2 | `verify-contracts` `verify-fontset` |
 | `src/fontset-store.js` | 3 | `verify-client` `verify-contracts` `verify-fontset` |
-| `src/glass-panel.js` | 2 | `verify-fontset` `verify-scene-live` |
+| `src/glass-panel.js` | 3 | `verify-fontset` `verify-glass-surfaces` `verify-scene-live` |
 | `src/glass.js` | 1 | `verify-glass-surfaces` |
 | `src/i18n-copy.js` | 2 | `verify-about` `verify-i18n` |
 | `src/i18n.js` | 1 | `verify-i18n` |
@@ -103,7 +103,7 @@
 | `src/live-layer.js` | 6 | `verify-api-client` `verify-client` `verify-glass-surfaces` `verify-logging` `verify-scene-live` `verify-theme-follow` |
 | `src/media-prep.js` | 5 | `verify-api-client` `verify-client` `verify-fontset` `verify-scene-live` `verify-theme-follow` |
 | `src/nav-icon.js` | 1 | `verify-i18n` |
-| `src/panel-tabs.js` | 8 | `verify-about` `verify-adapter` `verify-api-client` `verify-contracts` `verify-fontset` `verify-scene-live` `verify-theme-follow` `verify-theme-layer` |
+| `src/panel-tabs.js` | 9 | `verify-about` `verify-adapter` `verify-api-client` `verify-contracts` `verify-fontset` `verify-glass-surfaces` `verify-scene-live` `verify-theme-follow` `verify-theme-layer` |
 | `src/persistence.js` | 3 | `verify-adapter` `verify-api-client` `verify-client` |
 | `src/picker-modal.js` | 2 | `verify-fontset` `verify-scene-live` |
 | `src/picker-model.js` | 1 | `verify-picker-model` |

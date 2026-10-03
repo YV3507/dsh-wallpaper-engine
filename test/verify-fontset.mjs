@@ -1141,11 +1141,12 @@ section('⑧ 面板渲染回归（配色区在总开关打开时必须渲染得�
     shapeOf(pickSurface(panelSel())).join('|') === shapeOf(pickSurface(panelSel(), 'settings')).join('|'));
   const sideText = treeText(pickSurface(panelSel(), 'sidebar'));
   const setText = treeText(pickSurface(panelSel(), 'settings'));
-  check('侧栏档只少画字体 / 光标 / 窗口与侧栏三节（主题 / 细节照旧）',
-    sideText.includes('主题') && sideText.includes('细节')
+  // ⚠️ §10.25：「窗口与侧栏」节已撤销（内容并进「玻璃 UI」，而那一节两档都画）⇒ 只剩两节。
+  check('侧栏档只少画字体 / 光标两节（主题 / 细节 / 玻璃 UI 照旧）',
+    sideText.includes('主题') && sideText.includes('细节') && sideText.includes('玻璃 UI')
       && !sideText.includes('全局字体') && !sideText.includes('输入光标') && !sideText.includes('窗口与侧栏'));
-  check('负对照：设置页档那三节必须在（证明上一条不是空转）',
-    setText.includes('全局字体') && setText.includes('输入光标') && setText.includes('窗口与侧栏'));
+  check('负对照：设置页档那两节必须在（证明上一条不是空转）',
+    setText.includes('全局字体') && setText.includes('输入光标') && !setText.includes('窗口与侧栏'));
 
   // 播放页（renderEffectsTab）同理：侧栏档少画「准备与诊断」那一组。
   // 本 harness 里 ctlText / SliderRow / switchRow 是 noop ⇒ 只有**直接 createElement 出来的

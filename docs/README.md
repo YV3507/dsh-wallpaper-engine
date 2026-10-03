@@ -131,6 +131,7 @@
 
 | 文档 | 内容 |
 |---|---|
+| [wip/GLASS-CONFIG-REFACTOR.md](./archive/wip/GLASS-CONFIG-REFACTOR.md) | **玻璃配置重构（用户口径 → 审计 → 分期实施 → 收口，整体归档）** —— 现状测绘（§4 的实测取证）· 目标架构（§10.5）· 分期 R0–R4 与三轮实测修复（§10.9–§10.24）。**机制与不变量已留在 `src/glass.js` / `src/glass-panel.js` / `lib/settings-schema.js` 的文件头**，判据在 `test/verify-glass-surfaces.mjs`（每条带负对照；**组数与条数由该守卫自己报**，文档不抄），取舍与被证伪的方案在 [`adr/0008`](./adr/0008-glass-config-two-state.md) |
 | [wip/OPEN-ITEMS.md](./archive/wip/OPEN-ITEMS.md) | **重构账本（主动部分已结项，整体归档）** —— §2 现状基线（上界棘轮）、§3.1–§3.3 现状锚点、§5 状态列、§7 触发线、§9.1 令牌层约束。归档时活着的内容已挪走：**行为缺口 → [`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md)**，**令牌层约束 → 守卫**（`verify-readability` / `verify-glass-compositing`）。⚠️ **状态列从来没有机器兜底**（账本守卫随 [`adr/0006`](./adr/0006-comment-discipline-as-written-convention.md) 下线），读它按"未经核对的记录"对待 |
 | [wip/POST-REFACTOR-AUDIT.md](./archive/wip/POST-REFACTOR-AUDIT.md) | **收官后审计（过程记录）** —— 2026-09-29 重构结项后的只读复核，**只收工程债**：宿主请求体上限 / 编码正确性 / 无界状态 / 中断泄漏 / 并发删产物、客户端启动链与状态拆除、注释与文档失真，以及**判据缺口**（为什么当时全绿却漏掉这些）。它开出的条目（账本的 P4 系列）**已全部收口** |
 | [wip/SIDEBAR-TABS-DESIGN.md](./archive/wip/SIDEBAR-TABS-DESIGN.md) | **侧栏页签 + 类型筛选补「图片」的 UI 设计方案** —— 已随 v1.1.0 → v1.2.0 发布（v1.2.0 又加了「壁纸属性」入口与页内下钻）。含需求口径、实现取舍与文末的落地判据 |
@@ -155,7 +156,10 @@
   [`archive/REFACTOR-ASSESSMENT.md`](./archive/REFACTOR-ASSESSMENT.md) 与
   [`archive/wip/OPEN-ITEMS.md`](./archive/wip/OPEN-ITEMS.md)（**都不反映现行实现**）。
   **尚在进行的工作**的计划住 `docs/wip/`（**临时**，完成即整体移入 [`archive/wip/`](./archive/wip/)，见 §目录的寿命规则）；
-  最近一次收口的是 [`archive/wip/PLAN.md`](./archive/wip/PLAN.md)（`src/` 缺陷 · 注释审计 · 目录裁决 · 守卫重构，**已成历史**）；
+  **当前 `docs/wip/` 是空的** —— 最近一次收口的是
+  [`archive/wip/GLASS-CONFIG-REFACTOR.md`](./archive/wip/GLASS-CONFIG-REFACTOR.md)
+  （玻璃配置重构：R0–R4 + 三轮实测修复 + 收口，**已成历史**，结论已按上表分头落位）；
+  再往前是 [`archive/wip/PLAN.md`](./archive/wip/PLAN.md)（`src/` 缺陷 · 注释审计 · 目录裁决 · 守卫重构）；
   **本机专用的临时待办不入库**，也不被任何入库文档引用 —— 读者打不开的东西不指向它。
 - 开发/发布：仓库根 `CONTRIBUTING.md`（含「`lib/client.js` 到底是什么」）；用户门面：`README.md` / `README.en.md` / `README.beginner.md`。
 - `images/`：README 引用的截图。

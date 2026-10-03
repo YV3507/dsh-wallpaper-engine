@@ -818,10 +818,16 @@ setTimeout(async () => {
     assert.ok(treeText.includes('type":"color"'), 'custom color input present:');
     assert.ok(treeText.includes('玻璃透明度'), 'glass transparency slider row present:');
     assert.ok(treeText.includes('侧栏液态玻璃'), 'sidebar-glass master switch present:');
-    assert.ok(treeText.includes('侧栏模糊'), 'sidebar blur slider present:');
-    assert.ok(treeText.includes('侧栏透明度'), 'sidebar alpha slider present:');
-    assert.equal((treeText.match(/"aria-label":"侧栏玻璃颜色 /g) || []).length, 6, '侧栏玻璃颜色预设应有 6 个色板');
-    assert.ok(treeText.includes('自定义侧栏玻璃颜色'), 'sidebar glass color custom input present:');
+    // ⚠️ 本批（wip §10.24）：侧栏家族与内容面的滑块挂在**各自的「独立配置」**下面 ——
+    //    登记表那四个子面一直是这个口径（参数只在独立配置打开后才出现），而这两个既有面
+    //    原先**没有开关**、滑块是**死的**；补上入口后行为与那四个统一。
+    //    判据用 `findSliderRow`（**精确标签**）而不是 `treeText.includes` —— 后者会被别处的
+    //    tooltip 文本骗过：雾化那条 tooltip 里就写着「侧栏有自己的「侧栏模糊」」，实测骗过一次。
+    assert.ok(findCtlInput(tree, '侧栏玻璃·独立配置'), 'sidebar independent-config switch present:');
+    assert.ok(findCtlInput(tree, '内容面玻璃·独立配置'), 'content independent-config switch present:');
+    assert.equal(findSliderRow(tree, '侧栏模糊'), null, '独立配置关着时不该画「侧栏模糊」');
+    assert.equal(findSliderRow(tree, '侧栏透明度'), null, '独立配置关着时不该画「侧栏透明度」');
+    assert.equal(findSliderRow(tree, '内容面透明度'), null, '内容面独立配置关着时不该画「内容面透明度」');
     // The three detail knobs (侧栏模糊 / 侧栏透明度 / 侧栏玻璃颜色) are
     // conditional on the 侧栏液态玻璃 master switch: off → hidden, on →
     // restored, in the SAME render pass (the toggle re-emits synchronously).
@@ -830,22 +836,27 @@ setTimeout(async () => {
       sidebarSwitch.props.onChange({ target: { checked: false } });
       assert.equal(bodyEl.attributes['data-we-sidebar-glass'], undefined, 'sidebar master off must restore native surfaces');
       tree = renderPicker();
-      const offText = JSON.stringify(tree);
-      console.log('switch off hides the three detail knobs:',
-        !offText.includes('侧栏模糊') && !offText.includes('侧栏透明度') && !offText.includes('侧栏玻璃颜色'));
-      assert.ok(offText.includes('侧栏液态玻璃'), 'switch itself stays visible when off:');
+      assert.ok(JSON.stringify(tree).includes('侧栏液态玻璃'), 'switch itself stays visible when off:');
+      assert.ok(!JSON.stringify(tree).includes('侧栏玻璃·独立配置'), 'master off also hides the independent switch:');
       sidebarSwitch.props.onChange({ target: { checked: true } });
       assert.equal(bodyEl.attributes['data-we-sidebar-glass'], 'on', 'sidebar master on must re-arm sidebar surfaces');
       tree = renderPicker();
-      console.log('switch back on restores the detail knobs:',
-        JSON.stringify(tree).includes('侧栏模糊') && JSON.stringify(tree).includes('侧栏透明度') && JSON.stringify(tree).includes('侧栏玻璃颜色'));
-    } else {
-      console.log('switch off hides the three detail knobs: false (switch not found)');
+      assert.ok(findCtlInput(tree, '侧栏玻璃·独立配置'), 'master on restores the independent switch:');
     }
+    // 打开「侧栏玻璃·独立配置」⇒ 它自己的三个滑块出现，且量程与 KINDS 一致。
     // R4 量纲统一（wip §10.19）：侧栏家族的量程从 0–200 收到**规范刻度**
     //（模糊 0–60 px 与全局雾化同刻度；透明度 0–100 %）。这里钉住"面板与规范刻度一致"。
+    findCtlInput(tree, '侧栏玻璃·独立配置').props.onChange({ target: { checked: true } });
+    tree = renderPicker();
     assert.equal(sliderMax(findSliderRow(tree, '侧栏模糊')), '60', '侧栏模糊上限必须是 60px（与全局雾化同刻度，R4）');
     assert.equal(sliderMax(findSliderRow(tree, '侧栏透明度')), '100', '侧栏透明度上限必须是 100（规范刻度，R4）');
+    assert.equal((JSON.stringify(tree).match(/"aria-label":"侧栏玻璃颜色 /g) || []).length, 6, '侧栏玻璃颜色预设应有 6 个色板');
+    assert.ok(JSON.stringify(tree).includes('自定义侧栏玻璃颜色'), 'sidebar glass color custom input present:');
+    // 内容面同样：它的开关打开后才画透明度 / 底色两行。
+    findCtlInput(tree, '内容面玻璃·独立配置').props.onChange({ target: { checked: true } });
+    tree = renderPicker();
+    treeText = JSON.stringify(tree);
+    assert.equal(sliderMax(findSliderRow(tree, '内容面透明度')), '100', '内容面透明度上限必须是 100（规范刻度，R4）');
     // ⚠️ 全局「玻璃透明度」的量程必须与 KINDS 一致（100）。这一条是为一个**真实事故**补的：
     //    处理器里手写的钳制漏改时，面板量程是 100 而钳制是 0–60，`clampNum` 又"越界即回落默认值"
     //    ⇒ 拖过 60 就跳回 20（用户实测"最多只能拉到 20%"）。面板量程 + 处理器取值域**两边都要钉**，

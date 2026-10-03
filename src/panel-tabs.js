@@ -543,7 +543,10 @@
   }
 
   function renderAppearanceDetailSection(ctx) {
-    const { onBorder, onGlassChildParam, onLeftSidebarGlass, onToggleChildIndependent, childIndependentOn, sel } = ctx;
+    const { onBorder, onGlassChildParam, onLeftSidebarGlass, onToggleChildIndependent, childIndependentOn, sel, surface } = ctx;
+    // ⚠️ 简化配置 vs 复杂配置（wip §10.22 的规则）：**「独立配置」层属复杂配置**
+    //    ⇒ 侧栏那一档不画它（本节其余项照旧两档都画：左侧栏覆盖本身是乙类显示开关）。
+    const sidebarSurface = surface === "sidebar";
     return React.createElement(React.Fragment, null,
     // ── 细节：边框强调 + 左侧栏覆盖（原「效果」页签的材质细调项与本页的左侧栏项）──
     // 玻璃四件套与「雾化」已归入「玻璃 UI」节；本节的「边框」是**非釉层**参数
@@ -555,42 +558,11 @@
       SliderRow(weT("边框"), 0, 90, 5, Math.round(sel.border * 100), onBorder, Math.round(sel.border * 100) + "%", "border-emphasis", {
         tooltip: weT("提高边框 / 分割线的对比度（浅色与深色主题通用）"),
       }),
-      // 左侧栏覆盖（默认关）：宿主原生左栏（会话列表 / 工作区那一列）在壁纸下只是
-      // 「透明的洞」—— 壁纸原样透出，本页的玻璃参数一个都到不了它。打开后这一列也
-      // 走同一张配方表（配色 / 玻璃颜色 / 玻璃透明度 / 雾化 / 边框），细节见
-      // styles.js 的「左侧栏覆盖」段；默认关 = 今天的样子，逐字节不变。
-      // ⚠️ 它**不是**「玻璃 UI」的子项：它的「关」是**恢复背景**（那一列回到壁纸原样），
-      //    而「玻璃 UI」子项的「关」是**恢复纯色/原生外观** —— 两者语义不同，
-      //    所以它是**乙类**，独立成项、措辞也不同（见 wip 文档 §2）。
-      switchRow(weT("左侧栏覆盖"), sel.leftSidebarGlass === true, onLeftSidebarGlass, {
-        key: "left-sidebar-glass",
-        hint: weT("左侧栏也跟随玻璃配方（配色 / 玻璃颜色 / 透明度 / 雾化 / 边框）"),
-        tooltip: weT("宿主原生左侧栏（会话列表 / 工作区那一列）默认直接透出壁纸、不吃玻璃参数。打开后它变成与其余界面同款的玻璃面板，跟随「配色 / 玻璃颜色 / 玻璃透明度 / 雾化 / 边框」；关闭即恢复原生观感。默认关。"),
-      }),
-      // ⚠️ 用户口径：「左侧栏玻璃·独立配置」**与「左侧栏覆盖」耦合** ——
-      //    覆盖关着时它不显示（覆盖都不开，左侧栏就没吃任何玻璃，谈不上"覆盖"）。
-      //    它**不放进「玻璃 UI」节**：左侧栏的"关"是**恢复背景**（那一列回到壁纸原样），
-      //    与那节"关 = 回到原生不透明纯色"是不同语义（见 wip §2 的乙类）。
-      sel.leftSidebarGlass === true && switchRow(weT("左侧栏玻璃·独立配置"),
-        !!(childIndependentOn && childIndependentOn("leftSidebar")),
-        (e) => onToggleChildIndependent("leftSidebar", e.target.checked), {
-        key: "left-sidebar-independent",
-        hint: weT("用这一项自己的釉层参数覆盖全局"),
-        tooltip: weT("打开后**紧接在本行下方**出现左侧栏自己的两项（玻璃透明度 / 雾化），**完全覆盖**「玻璃 UI」里的全局配置；关闭则回到继承全局。"),
-      }),
-      // 独立配置开着才出现它自己的两项（默认关 ⇒ 默认跟随全局）。
-      // ⚠️ R3a（wip §10.12）：这里原本是"四件套"，其中**两个是死的** ——
-      //    `leftSidebarFidelity` 连 schema 键都不存在（共享面纱面不可达保真度，见 §4.14），
-      //    `leftSidebarColor` 无人读取（本面 CSS 只读 `--we-left-sidebar-blur/-alpha`）。
-      //    现在与注册表的 `params`、与 `glassValue` 的调用点**三处逐参数一致**（守卫第 ④ 组判）。
-      sel.leftSidebarGlass === true && !!(childIndependentOn && childIndependentOn("leftSidebar")) && [
-        SliderRow(weT("左侧栏玻璃·玻璃透明度"), 0, 100, 5,
-          sel.leftSidebarTransparency, (v) => onGlassChildParam("leftSidebar", "transparency", v),
-          sel.leftSidebarTransparency + "%", "ls-alpha"),
-        SliderRow(weT("左侧栏玻璃·雾化"), 0, 60, 1,
-          sel.leftSidebarBlur, (v) => onGlassChildParam("leftSidebar", "blur", v),
-          sel.leftSidebarBlur + "px", "ls-blur"),
-      ],
+      // ── 「左侧栏覆盖」及其子项**已搬进「玻璃 UI」节**（用户口径，见 §10.25）──
+      // 为什么现在可以并进去：它当初被排除，是因为「玻璃 UI」那节里有"关 = 回原生纯色"的显示开关
+      // （乙类语义冲突）；那一层已在 §10.20 整体退役 ⇒ 冲突消失，面控件与其余玻璃配置同处更顺。
+      // 门槛照旧（`leftSidebarGlass` 前提 + `!sidebarSurface` 的复杂配置边界），见 `src/glass-panel.js`。
+      // 本节只剩「边框」——它是**非釉层**参数（边框 / 分割线对比度），不属于玻璃配方，故留在细节。
     ),
     );
   }
@@ -853,53 +825,13 @@
     );
   }
 
-  function renderAppearanceWindowSidebarSection(ctx) {
-    const { onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarGlass, sel, surface } = ctx;
-    const sidebarSurface = surface === "sidebar";
-    return React.createElement(React.Fragment, null,
-    // ── 窗口与侧栏：两套液态玻璃总开关，细节控件缩进一级并随开关显隐 ──
-    !sidebarSurface && React.createElement("div", { className: "we-picker__section" },
-      React.createElement("div", { className: "we-picker__section-head" },
-        React.createElement("span", { className: "we-picker__section-label" }, weT("窗口与侧栏")),
-      ),
-      // ── 「设置窗口液态玻璃」这个显示开关已**退役**（用户口径，见 wip §10.20）──
-      // 它的功能由「设置窗口玻璃·独立配置」接管；行为与**开启时**逐位一致
-      // （glass.js 恒挂 data-we-glass-window），所以这里不再有开关。
-      // 侧栏玻璃（dsh-better-sidebar 适配）：与设置窗口玻璃同级的一套独立细粒度
-      // 控制 —— 总开关 + 专用模糊 + 专用透明度 + 玻璃基底色调，全部只作用于
-      // dsh-better-sidebar 子树，不动会话玻璃（玻璃 / 玻璃透明度）的设置。
-      // 仅在 host 检测到 dsh-better-sidebar 已安装且启用时显示（sidebarPresent）。
-      // 开关本体 + 一句话说明始终显示；细节滑块以「侧栏液态玻璃」开关为前提
-      // —— 关闭时隐藏，开启后随 emit 重渲染实时出现。
-      sel.sidebarPresent && switchRow(weT("侧栏液态玻璃"), sel.sidebarGlass, onSidebarGlass, {
-        key: "sidebar-glass-toggle",
-        hint: weT("dsh-better-sidebar 侧栏毛玻璃适配"),
-        tooltip: weT("dsh-better-sidebar 侧栏（文件 / 终端 / Git 等面板）的毛玻璃适配；关闭则恢复其原生外观"),
-      }),
-      sel.sidebarPresent && sel.sidebarGlass && [
-      SliderRow(weT("侧栏模糊"), 0, 60, 1, sel.sidebarBlur, onSidebarBlur, sel.sidebarBlur + "px", "sb-blur"),
-      SliderRow(weT("侧栏透明度"), 0, 100, 1, sel.sidebarAlpha, onSidebarAlpha, sel.sidebarAlpha + "%", "sb-alpha"),
-      swatchRow(weT("侧栏玻璃颜色"), GLASS_COLOR_PRESETS, sel.sidebarColor, onSidebarColor, { key: "sb-color" }),
-      // 内容面（编辑器 / 终端）近不透明玻璃底：透明度 + 底色。固定调色板
-      // （语法高亮 / ANSI）为不透明底设计，全透毛玻璃下注释灰不可读；这里
-      // 在"玻璃感"与"可读性"之间取平衡——透明度越大越透，底色空 = 跟随主题。
-      SliderRow(weT("内容面透明度"), 0, 100, 5, sel.sidebarContentAlpha, onSidebarContentAlpha, sel.sidebarContentAlpha + "%", "content-alpha"),
-      swatchRow(weT("内容面底色"), GLASS_COLOR_PRESETS, sel.sidebarContentColor, onSidebarContentColor, {
-        key: "content-color",
-        auto: React.createElement("button", {
-          key: "auto",
-          className: "we-picker__swatch we-picker__swatch--auto" + (sel.sidebarContentColor === "" ? " we-picker__swatch--active" : ""),
-          type: "button",
-          title: weT("跟随主题面板色"),
-          onClick: () => onSidebarContentColor(""),
-          "aria-label": weT("内容面底色 跟随主题"),
-        }, weT("主题")),
-        colorValue: sel.sidebarContentColor || "#1e1f26",
-      }),
-      ],
-    ),
-    );
-  }
+  // ── 「窗口与侧栏」节**已撤销**（§10.25）：它的内容全部并进「玻璃 UI」节 ──
+  // 原委：那节**只在宿主上报 `sidebarPresent`（装了 dsh-better-sidebar）时才画得出内容**，
+  // 没装的机器上它就是一个**只有标题的空节**；而它同时是侧栏家族唯一的家 ⇒ 单纯删掉会让那些
+  // 控件无处可去。并进「玻璃 UI」之后：所有玻璃配置同处一节，空节消失，
+  // 且「左侧栏覆盖」终于与其余面控件放在一起（它当初被排除的理由——与那节"关即回原生纯色"
+  // 的乙类语义冲突——已随 §10.20 的退役消失）。
+  // 实现见 `src/glass-panel.js` 的 renderAppearanceGlassSection（门槛一个都没放松）。
   // ── 「玻璃 UI」节的渲染器已抽到 src/glass-panel.js（wip §10.13）：
   //    它与其余页签只共享模块级纯助手 ⇒ 抽出去不需要 ctx 样板，这里按名字调用即可。
 
@@ -913,7 +845,7 @@
       renderAppearanceGlassSection(ctx),
       renderAppearanceFontSection(ctx),
       renderAppearanceCaretSection(ctx),
-      renderAppearanceWindowSidebarSection(ctx),
+      // 「窗口与侧栏」节已撤销（内容并进「玻璃 UI」，见上面的说明与 §10.25）。
     );
   }
 

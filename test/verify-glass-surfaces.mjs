@@ -2,7 +2,7 @@
  * verify-glass-surfaces.mjs —— 「玻璃面登记表」守卫。
  *
  * 回答的边界问题：**插件到底接管了哪些玻璃面，以及每个面的参数档位是谁。**
- * 这是 [`docs/wip/GLASS-CONFIG-REFACTOR.md`](../../docs/wip/GLASS-CONFIG-REFACTOR.md)
+ * 这是 [`docs/archive/wip/GLASS-CONFIG-REFACTOR.md`](../../docs/archive/wip/GLASS-CONFIG-REFACTOR.md)
  * 的 P0：先把现状钉成机器事实，重构才有基线。
  *
  * 为什么需要它（既有五个玻璃守卫都不回答这件事）：
@@ -342,6 +342,10 @@ const EFFECTS = GLASS_SRC + '\n' + EFFECTS_SRC;
 const STYLES_TEXT = readFileSync(join(ROOT, 'src', 'styles.js'), 'utf8');
 // 「玻璃 UI」开关的读数/翻转处理器都住在 client.js（不在 effects.js）—— 第 ⑧ 组要看它。
 const CLIENT_SRC = readFileSync(join(ROOT, 'src', 'client.js'), 'utf8');
+// 「独立配置」开关的**两个落点**：登记表子项由 glass-panel 自动渲染，既有面（左侧栏 / 侧栏 /
+// 内容面）的开关手写在 panel-tabs。第 ⑧ 组的"mode 可达性"判据要同时看这两处。
+const GLASS_PANEL_SRC = readFileSync(join(ROOT, 'src', 'glass-panel.js'), 'utf8');
+const PANEL_SRC = readFileSync(join(ROOT, 'src', 'panel-tabs.js'), 'utf8');
 // schema 模块（模块级：多个判据组都要读它的 DEFAULTS / GLASS_CHILDREN）。
 const SCHEMA = await import(new URL('../lib/settings-schema.js', import.meta.url).href);
 const uncommented = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
@@ -603,7 +607,7 @@ console.log('\n③ 档位声明与私有变量组一致（private 必须真接�
 }
 
 // ═══ ⑤ 保真度「同源不变量」：一对保真度内部同源、两对之间不串线 ════════════════
-// 出处：[`docs/wip/GLASS-CONFIG-REFACTOR.md`](../../docs/wip/GLASS-CONFIG-REFACTOR.md) §3.2 ——
+// 出处：[`docs/archive/wip/GLASS-CONFIG-REFACTOR.md`](../../docs/archive/wip/GLASS-CONFIG-REFACTOR.md) §3.2 ——
 // "某个面用它自己的保真度 f_s 时，它的釉色混合系数与它的下限覆盖度必须用同一个 f_s"。
 // 否则会出现"釉色按低保真回退了、地板却按满档压着"这种自相矛盾的合成
 //（观感上就是"颜色对了但底下还是白的/黑的"）。
@@ -1003,7 +1007,7 @@ console.log('\n④ 接线 ↔ 注册表 ↔ 面名 三方对账');
 //     **逐字共享**（共享规则里插一层变量名就会让两边文本不同）。
 // 这两条正是防"判据退化成恒真"的手段，不该为了给新结构让路而放宽。
 //
-// ⇒ **结论**（同时记进 docs/wip/GLASS-CONFIG-REFACTOR.md）：按面独立只能靠
+// ⇒ **结论**（同时记进 docs/archive/wip/GLASS-CONFIG-REFACTOR.md）：按面独立只能靠
 //   **改全局变量的取值来源**（侧栏那条路：自己的变量 + 解析器），
 //   不能在共享规则里插入一层变量名。
 //
@@ -1070,6 +1074,28 @@ console.log('\n⑧ 「玻璃 UI」子项的模式语义（两态 · 一个键）
   check('覆盖面：登记的每个子项都必须有接线（开关开了才读得到自己的值）',
     childIds.length >= 4 && childWithNoWire.length === 0,
     '子项 ' + childIds.length + ' 个 · 缺接线的 ' + JSON.stringify(childWithNoWire));
+
+  // ── mode 的**可达性**：每个被读的面都必须有"能把它设成 custom"的 UI 入口 ────────────
+  // 为什么单列（wip §10.24 的真实缺口）：`glassMode` 的唯一写入方是 `onToggleChildIndependent`，
+  // 而它原先只被 `GLASS_CHILDREN` 那四项 + 左侧栏调用；`sidebar` / `sidebarContent` **不在**登记表里
+  // ⇒ 它们的 mode 永远停在 `'inherit'` ⇒ 那 5 个既有滑块（侧栏模糊/透明度/颜色、内容面透明度/底色）
+  // **全是死的**（拖了没有任何变化）。当时**没有任何判据看得见**这一类"旋钮无入口"。
+  // 口径：凡 `glassValue("面", …)` 读到的面，必须要么在 `GLASS_CHILDREN` 里（面板按登记表自动
+  // 渲染开关），要么有至少一处 `onToggleChildIndependent("面"` 的调用点。
+  const readFaces = [...wiredOverrides(EFFECTS).keys()];
+  const autoFaces = new Set((SCHEMA.GLASS_CHILDREN || []).map((c) => c.id));
+  const toggleSites = new Set([...GLASS_PANEL_SRC.concat(PANEL_SRC)
+    .matchAll(/onToggleChildIndependent\(\s*"([A-Za-z]+)"/g)].map((m) => m[1]));
+  const noEntry = readFaces.filter((f) => !autoFaces.has(f) && !toggleSites.has(f));
+  check('mode 可达性：每个被读的面都必须有开关（登记表自动渲染，或一处 onToggleChildIndependent 调用）',
+    readFaces.length >= 6 && noEntry.length === 0,
+    noEntry.length ? '没有入口的面：' + noEntry.join(', ')
+      : readFaces.length + ' 个面：登记表自动 ' + autoFaces.size + ' 个 + 手写开关 ' + toggleSites.size + ' 处');
+  // 负对照（喂**同一条**谓词）：合成一个"被读却没有开关"的面必须判出；有开关的不判出。
+  const missing = (faces, auto, sites) => faces.filter((f) => !auto.has(f) && !sites.has(f));
+  check('negative control: 被读却没有 UI 入口的面会被同一条判据判出（有入口的不判出）',
+    missing(['a', 'b'], new Set(['a']), new Set()).join() === 'b'
+      && missing(['a'], new Set(), new Set(['a'])).length === 0);
 }
 
 // ═══ ⑨ W5：各面的"关 ⇒ 回原生"是否**回退干净**（锚点门控覆盖率）═════════════════

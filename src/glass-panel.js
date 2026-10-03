@@ -35,6 +35,8 @@ function renderAppearanceGlassSection(ctx) {
   const {
     onBlur, onGlassAlpha, onGlassChildParam, onGlassColor, onGlassFidelity,
     onToggleChildIndependent, childIndependentOn, sel, surface,
+    onLeftSidebarGlass, onSidebarAlpha, onSidebarBlur, onSidebarColor,
+    onSidebarContentAlpha, onSidebarContentColor, onSidebarGlass,
   } = ctx;
   // ⚠️ **简化配置 vs 复杂配置的边界**（wip §3.4 的用户口径 + 本节 §10.22）：
   //   · **简化配置**（侧边栏那一档）= 全局四件套（颜色 / 透明度 / 雾化 / 保真度）；
@@ -162,6 +164,88 @@ function renderAppearanceGlassSection(ctx) {
     //    入口了 —— 那是两个旋钮控同一件事。现在它**只**由「对话框玻璃·独立配置」下的
     //    「对话框玻璃·玻璃保真度」提供，存储键**复用** `chatGlassFidelity`（D2：不新建
     //    平行键），所以老配置的值不会丢。
+    // ── 既有面的**显示开关**与它们的独立配置（原「窗口与侧栏」/「细节」两节并进本节，§10.25）──
+    // ⚠️ 为什么并进来：原先这些控件住在「窗口与侧栏」节，而那节**只在宿主上报
+    //    `sidebarPresent`（装了 dsh-better-sidebar）时才画得出内容** —— 没装的机器上它就是一个
+    //    **只有标题的空节**。而「左侧栏覆盖」原先被刻意排除在「玻璃 UI」之外，理由是它与那节的
+    //    "关 = 回原生纯色"（乙类语义）冲突；那一层已在 §10.20 整体退役 ⇒ **冲突消失**，
+    //    这些面控件与其余玻璃配置放在一起在语义上更顺（用户口径）。
+    // ⚠️ 门槛一个都没放松：`!sidebarSurface`（独立配置层属复杂配置）与 `sidebarPresent` /
+    //    `sidebarGlass`（宿主能力与总开关）照旧，所以**简化配置那一档的内容与合并前逐行相同**。
+    // 左侧栏覆盖（默认关）：宿主原生左栏在壁纸下只是「透明的洞」，打开后它走同一张配方表。
+    // ⚠️ 它**不是**"要不要玻璃"那一类：它的「关」是**恢复背景**（那一列回到壁纸原样）——
+    //    所以它是唯一保留的**显示开关**（乙类），与其余面"恒吃玻璃"不同。
+    switchRow(weT("左侧栏覆盖"), sel.leftSidebarGlass === true, onLeftSidebarGlass, {
+      key: "left-sidebar-glass",
+      hint: weT("左侧栏也跟随玻璃配方（配色 / 玻璃颜色 / 透明度 / 雾化 / 边框）"),
+      tooltip: weT("宿主原生左侧栏（会话列表 / 工作区那一列）默认直接透出壁纸、不吃玻璃参数。打开后它变成与其余界面同款的玻璃面板，跟随「配色 / 玻璃颜色 / 玻璃透明度 / 雾化 / 边框」；关闭即恢复原生观感。默认关。"),
+    }),
+    // ⚠️ 用户口径：「左侧栏玻璃·独立配置」**与「左侧栏覆盖」耦合** —— 覆盖关着时它不显示。
+    sel.leftSidebarGlass === true && !sidebarSurface && switchRow(weT("左侧栏玻璃·独立配置"),
+      !!(childIndependentOn && childIndependentOn("leftSidebar")),
+      (e) => onToggleChildIndependent("leftSidebar", e.target.checked), {
+      key: "left-sidebar-independent",
+      hint: weT("用这一项自己的釉层参数覆盖全局"),
+      tooltip: weT("打开后**紧接在本行下方**出现左侧栏自己的两项（玻璃透明度 / 雾化），**完全覆盖**「玻璃 UI」里的全局配置；关闭则回到继承全局。"),
+    }),
+    // 独立配置开着才出现它自己的两项（默认关 ⇒ 默认跟随全局）。
+    // ⚠️ R3a（§10.12）：这里原本是"四件套"，其中**两个是死的** —— `leftSidebarFidelity` 连 schema
+    //    键都不存在、`leftSidebarColor` 无人读取（本面 CSS 只读 `--we-left-sidebar-blur/-alpha`）。
+    sel.leftSidebarGlass === true && !sidebarSurface && !!(childIndependentOn && childIndependentOn("leftSidebar")) && [
+      SliderRow(weT("左侧栏玻璃·玻璃透明度"), 0, 100, 5,
+        sel.leftSidebarTransparency, (v) => onGlassChildParam("leftSidebar", "transparency", v),
+        sel.leftSidebarTransparency + "%", "ls-alpha"),
+      SliderRow(weT("左侧栏玻璃·雾化"), 0, 60, 1,
+        sel.leftSidebarBlur, (v) => onGlassChildParam("leftSidebar", "blur", v),
+        sel.leftSidebarBlur + "px", "ls-blur"),
+    ],
+    // 侧栏玻璃（dsh-better-sidebar 适配）：总开关 + 专用模糊 / 透明度 / 玻璃基底色调，
+    // 只作用于 dsh-better-sidebar 子树，不动会话玻璃的设置。仅在宿主检测到该插件时显示。
+    !sidebarSurface && sel.sidebarPresent && switchRow(weT("侧栏液态玻璃"), sel.sidebarGlass, onSidebarGlass, {
+      key: "sidebar-glass-toggle",
+      hint: weT("dsh-better-sidebar 侧栏毛玻璃适配"),
+      tooltip: weT("dsh-better-sidebar 侧栏（文件 / 终端 / Git 等面板）的毛玻璃适配；关闭则恢复其原生外观"),
+    }),
+    !sidebarSurface && sel.sidebarPresent && sel.sidebarGlass && [
+      // 这两个面的「独立配置」层（§10.24 补的缺口）：`glassMode` 的唯一写入方是
+      // `onToggleChildIndependent`，而 `sidebar` / `sidebarContent` 不在登记表里 ⇒ 没有这两个开关
+      // 时它们的 mode 永远停在 `'inherit'` ⇒ 下面那 5 个滑块**全是死的**。判据见第 ⑧ 组的 mode 可达性。
+      switchRow(weT("侧栏玻璃·独立配置"),
+        !!(childIndependentOn && childIndependentOn("sidebar")),
+        (e) => onToggleChildIndependent("sidebar", e.target.checked), {
+          key: "sb-independent",
+          hint: weT("用这一项自己的釉层参数覆盖全局"),
+          tooltip: weT("打开后**紧接在本行下方**出现这一项自己的独立配置，**完全覆盖**上面的全局配置；关闭则回到继承全局"),
+        }),
+      !!(childIndependentOn && childIndependentOn("sidebar")) && [
+        SliderRow(weT("侧栏模糊"), 0, 60, 1, sel.sidebarBlur, onSidebarBlur, sel.sidebarBlur + "px", "sb-blur"),
+        SliderRow(weT("侧栏透明度"), 0, 100, 1, sel.sidebarAlpha, onSidebarAlpha, sel.sidebarAlpha + "%", "sb-alpha"),
+        swatchRow(weT("侧栏玻璃颜色"), GLASS_COLOR_PRESETS, sel.sidebarColor, onSidebarColor, { key: "sb-color" }),
+      ],
+      // 内容面（编辑器 / 终端，即 dsh-better-sidebar 面板内的内容区）近不透明玻璃底。
+      switchRow(weT("内容面玻璃·独立配置"),
+        !!(childIndependentOn && childIndependentOn("sidebarContent")),
+        (e) => onToggleChildIndependent("sidebarContent", e.target.checked), {
+          key: "content-independent",
+          hint: weT("用这一项自己的釉层参数覆盖全局"),
+          tooltip: weT("打开后**紧接在本行下方**出现这一项自己的独立配置，**完全覆盖**上面的全局配置；关闭则回到继承全局"),
+        }),
+      !!(childIndependentOn && childIndependentOn("sidebarContent")) && [
+        SliderRow(weT("内容面透明度"), 0, 100, 5, sel.sidebarContentAlpha, onSidebarContentAlpha, sel.sidebarContentAlpha + "%", "content-alpha"),
+        swatchRow(weT("内容面底色"), GLASS_COLOR_PRESETS, sel.sidebarContentColor, onSidebarContentColor, {
+          key: "content-color",
+          auto: React.createElement("button", {
+            key: "auto",
+            className: "we-picker__swatch we-picker__swatch--auto" + (sel.sidebarContentColor === "" ? " we-picker__swatch--active" : ""),
+            type: "button",
+            title: weT("跟随主题面板色"),
+            onClick: () => onSidebarContentColor(""),
+            "aria-label": weT("内容面底色 跟随主题"),
+          }, weT("主题")),
+          colorValue: sel.sidebarContentColor || "#1e1f26",
+        }),
+      ],
+    ],
     // ── 子 UI 独立配置（**复杂配置专属**：侧边栏那一档不画）──
     // 这一节现在是**一层**：每个子面一个「独立配置」开关 —— 开 = 用自己那套参数覆盖全局。
     // ⚠️ 这里**没有**「要不要玻璃」的开关（那一层已退役，见上）：所有子面恒吃玻璃。
