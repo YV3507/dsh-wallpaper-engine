@@ -1170,13 +1170,16 @@ console.log('\n⑩ 默认值可达性（两态都必须真的取到值）');
       && canon(dirty.glassChildren) === canon(fresh.glassChildren),
     'mode = ' + JSON.stringify(dirty.glassMode) + ' · children = ' + JSON.stringify(dirty.glassChildren));
 
-  const off = SCHEMA.sanitizeFromSchema({ glassChildren: { conversation: false } }, 'client') || {};
   const custom = SCHEMA.sanitizeFromSchema({ glassMode: { settingsWindow: 'custom' } }, 'client') || {};
-  check('显式值存得住：「关 ⇒ 回原生」的 `false` 与「独立配置」的 `custom` 都必须能持久化',
-    off.glassChildren && off.glassChildren.conversation === false
-      && custom.glassMode && custom.glassMode.settingsWindow === 'custom',
-    'children.conversation = ' + (off.glassChildren || {}).conversation
-      + ' · mode.settingsWindow = ' + (custom.glassMode || {}).settingsWindow);
+  check('显式值存得住：「独立配置」的 `custom` 必须能持久化（"关 ⇒ 回原生"那一层已退役）',
+    custom.glassMode && custom.glassMode.settingsWindow === 'custom',
+    'mode.settingsWindow = ' + (custom.glassMode || {}).settingsWindow);
+
+  // 退役的键必须**真的消失**（与 ④ 组"已删除的键必须真的消失"同一条纪律）。
+  const retired = ['glassWindow', 'glassChildren'].filter((k) => k in SCHEMA.KINDS || k in SCHEMA.DEFAULTS);
+  check('已退役的键必须真的消失：`glassWindow`（设置窗口液态玻璃）/ `glassChildren`（要不要玻璃）',
+    retired.length === 0,
+    retired.length ? '残留：' + retired.join(', ') : '两个键均已不存在（KINDS / DEFAULTS 均无）');
 
   const illegal = SCHEMA.sanitizeFromSchema({ glassMode: { sidebar: true, sidebarContent: 'yes' } }, 'client') || {};
   check('非法取值被挡：模式只认 `inherit` / `custom`（旧布尔 `true` 这类脏值不得原样进档）',
@@ -1191,9 +1194,14 @@ console.log('\n⑩ 默认值可达性（两态都必须真的取到值）');
     for (const [k, v] of Object.entries(raw)) if (v === true) out[k] = true;
     return out;
   };
-  check('negative control: 缺陷实现（丢掉 def / 只收 true）在同一条判据下必须红',
-    canon(legacyBoolMap(undefined)) !== canon(SCHEMA.DEFAULTS.glassChildren)
-      && canon(legacyBoolMap(undefined)) !== canon(SCHEMA.DEFAULTS.glassMode)
+  // ⚠️ 这条负对照**自己也腐烂过一次**：它原先拿 `SCHEMA.DEFAULTS.glassChildren` 对照，而那个键在
+  //    "要不要玻璃"退役时被删掉了 —— `canon(undefined)` 与任何对象都不等，于是这条判据**恒真**
+  //    （从"有牙"退化成"摆设"）。教训：负对照里的**每个引用**都必须随被删的键一起改。
+  //    （同类：`canon(...).length > 2` 是"默认表确实非空"的守门，防它退化成 `{}` 之后仍然恒真。）
+  check('negative control: 缺陷实现（丢掉 def / 只收合法值）在同一条判据下必须红',
+    canon(legacyBoolMap(undefined)) !== canon(SCHEMA.DEFAULTS.glassMode)
+      && String(canon(SCHEMA.DEFAULTS.glassMode)).length > 2
+      && legacyBoolMap({ settingsWindow: 'inherit' }).settingsWindow === undefined
       && legacyBoolMap({ conversation: false }).conversation === undefined);
 }
 
@@ -1436,24 +1444,36 @@ console.log('\n⑫ 语义表（执行型 · 扰动自证：跟随全局 / 独立
     staleReg.length === 0,
     staleReg.length ? '已失效的登记：' + staleReg.join(', ') : '登记 ' + deviated.length + ' 个，全部仍在偏差');
 
-  // 「关」= 门控属性不存在（逐面；左栏与侧栏的门控键与「子 UI 玻璃」不同，所以按面给补丁）
-  const GATES = [
-    { gate: 'data-we-glass-window', on: { glassChildren: { settingsWindow: true, conversation: true, floaters: true } }, off: { glassChildren: { settingsWindow: false, conversation: true, floaters: true } }, label: '设置窗口' },
-    { gate: 'data-we-glass-chat', on: { glassChildren: { settingsWindow: true, conversation: true, floaters: true } }, off: { glassChildren: { settingsWindow: true, conversation: false, floaters: true } }, label: '对话栏' },
-    { gate: 'data-we-glass-floaters', on: { glassChildren: { settingsWindow: true, conversation: true, floaters: true } }, off: { glassChildren: { settingsWindow: true, conversation: true, floaters: false } }, label: '插件浮层' },
+  // 门控属性（wip §10.20 之后分**两类**）：
+  //   · **恒挂**（"要不要玻璃"那一层已退役）：设置窗口 / 对话栏 / 插件浮层 —— 任何输入下都必须在，
+  //     而且源码里**不许**再有摘除分支（那条路正是被删掉的）。
+  //   · **仍可切**：左侧栏覆盖 / 侧栏液态玻璃 —— 它们各有自己的总开关，开 ⇒ 挂、关 ⇒ 摘。
+  const CONST_GATES = ['data-we-glass-window', 'data-we-glass-chat', 'data-we-glass-floaters'];
+  const SWITCH_GATES = [
     { gate: 'data-we-left-sidebar', on: { leftSidebarGlass: true }, off: { leftSidebarGlass: false }, label: '左侧栏覆盖' },
     { gate: 'data-we-sidebar-glass', on: { sidebarGlass: true }, off: { sidebarGlass: false }, label: '侧栏液态玻璃' },
   ];
   const gateBad = [];
-  for (const g of GATES) {
+  // ⚠️ "不许有摘除分支"只针对**写入侧**（applyGlass）；`clearEffects` 里的 removeAttribute 是
+  //    插件停用时的清理路径，**必须**保留 —— 判据的扫描面切在 clearEffects 之前（同 ⑪ 组手法）。
+  const clearAt = effectsBody.indexOf('function clearEffects');
+  const applyPart = clearAt > 0 ? effectsBody.slice(0, clearAt) : effectsBody;
+  for (const gate of CONST_GATES) {
+    const any = run(effectsBody, Object.assign({}, mode(false), { leftSidebarGlass: false, sidebarGlass: false }));
+    if (!any.attrs.has(gate)) gateBad.push(gate + '：未挂（这一层已退役 ⇒ 必须恒挂）');
+    if (new RegExp('removeAttribute\\("' + gate + '"').test(applyPart)) gateBad.push(gate + '：写入侧仍有摘除分支');
+  }
+  for (const g of SWITCH_GATES) {
     const on = run(effectsBody, Object.assign({}, mode(false), g.on));
     const off = run(effectsBody, Object.assign({}, mode(false), g.off));
     if (!on.attrs.has(g.gate)) gateBad.push(g.label + '：开时未挂 ' + g.gate);
     if (off.attrs.has(g.gate)) gateBad.push(g.label + '：关时未摘 ' + g.gate);
   }
-  check('「关」= 门控属性不存在：' + GATES.length + ' 个门控在开/关两档下必须成对',
+  check('门控属性：' + CONST_GATES.length + ' 个已退役的**恒挂**（且无摘除分支）· '
+    + SWITCH_GATES.length + ' 个可切的成对',
     gateBad.length === 0,
-    gateBad.length ? gateBad.join(' · ') : GATES.length + ' 个门控全部成对');
+    gateBad.length ? gateBad.join(' · ')
+      : CONST_GATES.length + ' 个恒挂 + ' + SWITCH_GATES.length + ' 个成对');
 
   // ── 状态迁移无残留：**绕道**与**直达**的整张有效值表必须逐字节相同 ──────────
   // 定义同一终态的两条路：直达 = 一次调用到达；绕道 = 先全部独立 → 再全部关掉 → 再到终态。

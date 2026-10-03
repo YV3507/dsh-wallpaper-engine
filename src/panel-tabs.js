@@ -854,7 +854,7 @@
   }
 
   function renderAppearanceWindowSidebarSection(ctx) {
-    const { onGlassWindow, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarGlass, sel, surface } = ctx;
+    const { onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarGlass, sel, surface } = ctx;
     const sidebarSurface = surface === "sidebar";
     return React.createElement(React.Fragment, null,
     // ── 窗口与侧栏：两套液态玻璃总开关，细节控件缩进一级并随开关显隐 ──
@@ -862,14 +862,9 @@
       React.createElement("div", { className: "we-picker__section-head" },
         React.createElement("span", { className: "we-picker__section-label" }, weT("窗口与侧栏")),
       ),
-      // 设置窗口液态玻璃 master switch: turns the WHOLE native settings window
-      // (nav + every native section, not just this page) into liquid glass with
-      // the accent + transparency above; off restores the stock shell look.
-      switchRow(weT("设置窗口液态玻璃"), sel.glassWindow, onGlassWindow, {
-        key: "window-glass",
-        hint: weT("整个设置窗口跟随配色与透明度"),
-        tooltip: weT("整个设置窗口（含 General / 模型 / 插件等全部原生分区）跟随配色与透明度；关闭则恢复原生样式"),
-      }),
+      // ── 「设置窗口液态玻璃」这个显示开关已**退役**（用户口径，见 wip §10.20）──
+      // 它的功能由「设置窗口玻璃·独立配置」接管；行为与**开启时**逐位一致
+      // （glass.js 恒挂 data-we-glass-window），所以这里不再有开关。
       // 侧栏玻璃（dsh-better-sidebar 适配）：与设置窗口玻璃同级的一套独立细粒度
       // 控制 —— 总开关 + 专用模糊 + 专用透明度 + 玻璃基底色调，全部只作用于
       // dsh-better-sidebar 子树，不动会话玻璃（玻璃 / 玻璃透明度）的设置。

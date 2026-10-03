@@ -375,6 +375,22 @@ function commitLiveSetting(field, value, live) {
   else emit();
 }
 
+/**
+ * schema 的**取值域**（与 `readOne` 的 `num` 档同源；`min` / `max` 允许写成 `CONSTS` 的名字）。
+ *
+ * 为什么必须有它：滑块一类的处理器要自己钳一次（控件值可能来自键盘 / 粘贴），而**手写**那对
+ * 数字会与 `KINDS` 漂移。⚠️ 这不是理论风险 —— R4 把刻度改成 0–100 时改了 `KINDS` 与面板量程，
+ * 漏了这里手写的四处；后果比"钳错"更糟：`clampNum` 是**越界即回落到默认值**，于是一旦拖过旧上限，
+ * 滑块就**跳回默认值**（用户实测：「玻璃透明度」最多只能拉到 20% —— 20 正是默认值）。
+ * ⇒ 取值域只从 schema 取，不在这里出现数字。守卫 `verify-client` 对账这两者。
+ */
+const schemaRange = (key) => {
+  const m = KINDS[key] || {};
+  const lo = typeof m.min === "string" ? CONSTS[m.min] : m.min;
+  const hi = typeof m.max === "string" ? CONSTS[m.max] : m.max;
+  return [lo, hi];
+};
+
 // ── 破坏性动作的「面板内确认」（**唯一机制**，五个动作共用）─────────────────────
 // 为什么禁用原生模态（`window.confirm` / `alert`）：本插件跑在**同一个渲染页**里，原生
 // 对话框会把焦点交给它自己的窗口，后果三重的 ——
@@ -1118,7 +1134,7 @@ function saveEditingGroup() {
   const cleaned = {
     id: draft.id,
     name: typeof draft.name === "string" && draft.name.trim() ? draft.name.trim() : weT("轮播列表"),
-    interval: clampNum(draft.interval, 1, 1440, DEFAULTS.rotationInterval),
+    interval: clampNum(draft.interval, ...schemaRange("rotationInterval"), DEFAULTS.rotationInterval),
     order: draft.order === "random" ? "random" : "sequence",
     wallpaperIds: Array.isArray(draft.wallpaperIds)
       ? draft.wallpaperIds.filter((x) => typeof x === "string" && x)
@@ -2638,7 +2654,7 @@ function onEditName(e) {
 }
 function onEditInterval(e) {
   if (!selection.editing) return;
-  selection.editing.interval = clampNum(Number(e.target.value), 1, 1440, DEFAULTS.rotationInterval);
+  selection.editing.interval = clampNum(Number(e.target.value), ...schemaRange("rotationInterval"), DEFAULTS.rotationInterval);
   emit();
 }
 function onEditOrder(e) {
@@ -2667,28 +2683,8 @@ function onCancelEditWeAssetsDir() {
 
 // ── 外观 / 播放 / 系统页签的处理器（同上一条：渲染器只读值 + 调这些）────────────
 function onLeftSidebarGlass(e) { setSetting("leftSidebarGlass", e.target.checked); emit(); }
-function onGlassWindow(e) { setSetting("glassWindow", e.target.checked); emit(); }
 function onSidebarGlass(e) { setSetting("sidebarGlass", e.target.checked); emit(); }
 
-// ── 「玻璃 UI」的两态（高级配置，见 wip 文档 §5.2 / §5.3 / §10.17）────────────────
-// 分工（**两态**，各管一件事）：
-//   · glassChildren[<id>] = 这个子 UI **要不要玻璃**（也是"独立配置"的显示前提）
-//   · glassMode[<id>]     = `'inherit'`（跟随全局，**默认**）| `'custom'`（读自己那套）
-// ⚠️ `setSetting` 是**整键写**（`selection[field] = value`），所以改嵌套项必须
-//    **重建整个对象**再写回 —— 不能 `setSetting("glassMode.x", …)`。
-// ⚠️ 关闭一个子项时**同时**把它的模式复位成 `'inherit'`：否则再打开会"带着上次的独立值复活"，
-//    而 UI 上它的独立项是隐藏的（用户看不见却生效）—— 那是最难排查的一类状态。
-function onToggleGlassChild(id, on) {
-  const next = Object.assign({}, selection.glassChildren);
-  if (on) next[id] = true; else delete next[id];
-  setSetting("glassChildren", next);
-  if (!on) {
-    const mode = Object.assign({}, selection.glassMode);
-    delete mode[id];
-    setSetting("glassMode", mode);
-  }
-  emit();
-}
 // ── 「玻璃 UI」各子项的「独立配置」开关（W1；R3b-ii 起写的是**模式**）─────────────
 // ⚠️ R3b-ii 之前这里是"布尔开关 + 一张手抄的能力表"两个键；现在只有 `glassMode` 一个键：
 //    能读自己的值这件事，由"注册表 params ↔ 接线点"（守卫 ④）与"写了必须被 CSS 读到"（⑬）保证。
@@ -2931,7 +2927,7 @@ function onNextWallpaper() {
 const onScrim = (pct, live) => commitLiveSetting("scrim", pct / 100, live);
   // 壁纸透明度：存 %，applyEffects 换算成 element opacity（可拖范围见 clampNum 的实参，真源是 lib/settings-schema.js 的 KINDS）。
 const onWallpaperOpacity = (pct, live) =>
-  commitLiveSetting("wallpaperOpacity", clampNum(pct, 0, 90, DEFAULTS.wallpaperOpacity), live);
+  commitLiveSetting("wallpaperOpacity", clampNum(pct, ...schemaRange("wallpaperOpacity"), DEFAULTS.wallpaperOpacity), live);
 const onBorder = (pct, live) => commitLiveSetting("border", pct / 100, live);
 const onBlur = (px, live) => commitLiveSetting("blur", px, live);
 const onWallpaperBlur = (px, live) => commitLiveSetting("wallpaperBlur", px, live);
@@ -2951,15 +2947,15 @@ const onGlassColor = (hex, live) => {
   commitLiveSetting("glassColor", hex, live);
 };
 const onGlassAlpha = (pct, live) =>
-  commitLiveSetting("glassAlpha", clampNum(pct, 0, 60, DEFAULTS.glassAlpha), live);
+  commitLiveSetting("glassAlpha", clampNum(pct, ...schemaRange("glassAlpha"), DEFAULTS.glassAlpha), live);
 // 玻璃保真度（默认 100 = 完整可读性红线）：唯一的「颜色 vs 可读」权衡旋钮，
 // 数学入口在 effects.js 的 weClampSurfaceColor 第三参 + --we-glass-fidelity。
 const onGlassFidelity = (pct, live) =>
-  commitLiveSetting("glassFidelity", clampNum(pct, 0, 100, DEFAULTS.glassFidelity), live);
+  commitLiveSetting("glassFidelity", clampNum(pct, ...schemaRange("glassFidelity"), DEFAULTS.glassFidelity), live);
 // 对话栏玻璃保真度（默认 100）：独立于全局的第二把尺子，只作用对话栏玻璃面
 // （气泡 / 输入卡片 / 对话内 markdown 家族 —— styles.js 消费 --we-chat-readability-*）。
 const onChatGlassFidelity = (pct, live) =>
-  commitLiveSetting("chatGlassFidelity", clampNum(pct, 0, 100, DEFAULTS.chatGlassFidelity), live);
+  commitLiveSetting("chatGlassFidelity", clampNum(pct, ...schemaRange("chatGlassFidelity"), DEFAULTS.chatGlassFidelity), live);
 // 主题随壁纸（**默认关**）：开关本身只写设置；**打开时**立刻按当前壁纸补判一次，
 // 不等下一次换壁纸（补判走与换壁纸同一条入口；关时那条入口整体空转，不写主题）。
 const onToggleThemeFollow = (v) => {
@@ -3010,7 +3006,7 @@ function WallpaperPicker() {
   const onGroupInterval = (e) => {
     const group = activeRotationGroup();
     if (!group) return;
-    group.interval = clampNum(Number(e.target.value), 1, 1440, DEFAULTS.rotationInterval);
+    group.interval = clampNum(Number(e.target.value), ...schemaRange("rotationInterval"), DEFAULTS.rotationInterval);
     persistSelection();
     syncRotationTimer();
     emit();
@@ -3117,9 +3113,9 @@ function fontSetCtx() {
   // 侧栏玻璃（dsh-better-sidebar）：独立于会话玻璃的一套细粒度控制，各自立即
   // 生效并持久化（--we-sidebar-blur / --we-sidebar-alpha / --we-sidebar-color）。
   const onSidebarBlur = (px, live) =>
-    commitLiveSetting("sidebarBlur", clampNum(px, 0, 200, DEFAULTS.sidebarBlur), live);
+    commitLiveSetting("sidebarBlur", clampNum(px, ...schemaRange("sidebarBlur"), DEFAULTS.sidebarBlur), live);
   const onSidebarAlpha = (pct, live) =>
-    commitLiveSetting("sidebarAlpha", clampNum(pct, 0, 200, DEFAULTS.sidebarAlpha), live);
+    commitLiveSetting("sidebarAlpha", clampNum(pct, ...schemaRange("sidebarAlpha"), DEFAULTS.sidebarAlpha), live);
   const onSidebarColor = (hex, live) => {
     if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
     commitLiveSetting("sidebarColor", hex, live);
@@ -3138,7 +3134,7 @@ function fontSetCtx() {
   };
   // 内容面（编辑器/终端）近不透明玻璃底：透明度滑块 + 底色（空 = 跟随主题）。
   const onSidebarContentAlpha = (pct, live) =>
-    commitLiveSetting("sidebarContentAlpha", clampNum(pct, 0, 80, DEFAULTS.sidebarContentAlpha), live);
+    commitLiveSetting("sidebarContentAlpha", clampNum(pct, ...schemaRange("sidebarContentAlpha"), DEFAULTS.sidebarContentAlpha), live);
   const onSidebarContentColor = (hex, live) => {
     if (hex === "") {
       // 跟随主题面板色：清键 + 落盘（拖动档不会走到这里 —— 色盘的「跟随」是按钮）。
@@ -3569,9 +3565,9 @@ const officialColorOf = (tokens) => {
     if (activeTab === "appearance") return renderAppearanceTab({
       setSetting, setTransient,
       fontSet: fontSetCtx(),
-      officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onChatGlassFidelity, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onGlassFidelity, onGlassWindow, onLeftSidebarGlass, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarGlass, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onToggleFontCustom, onToggleThemeFollow, sel,
+      officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onChatGlassFidelity, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onGlassFidelity, onLeftSidebarGlass, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarGlass, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onToggleFontCustom, onToggleThemeFollow, sel,
       // 玻璃 UI 子项开关 + 独立配置 + 独立参数（见 onToggleChildIndependent 那段注释）
-      onToggleGlassChild, onToggleChildIndependent, onGlassChildParam, childIndependentOn,
+      onToggleChildIndependent, onGlassChildParam, childIndependentOn,
     });
     if (activeTab === "playback") return React.createElement(React.Fragment, null,
       renderEffectsTab({

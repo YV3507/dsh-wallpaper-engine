@@ -11,7 +11,7 @@
  *   ① **每档都算出值并写出**（`applyGlass` 里没有任何 `removeProperty`）——"不写"永远不等于
  *      "撤销"：CSS 的 `var(--x, 兜底)` 只在 `--x` **未定义**时取兜底，而写到 body 上的变量
  *      一直是"已定义"的（§4.26 的病根）。
- *   ② **"要不要玻璃"由门控属性管**（`data-we-glass-window/-chat/-floaters`、`data-we-left-sidebar`、
+ *   ② **门控属性恒挂**（`data-we-glass-window/-chat/-floaters` 三者在 §10.20 之后不再可关；`data-we-left-sidebar`、
  *      `data-we-sidebar-glass`），与"用谁的值"**正交**：关掉只是让那组规则整组不匹配。
  *   ③ **读谁只在这里决定**：`glassValue(面, 参数, 自己的键, 全局的键)`；UI 只翻开关，不动接线。
  *
@@ -110,34 +110,28 @@ function applyGlass(selection, s) {
   s.setProperty("--we-chat-surface-tint-dark", weClampSurfaceColor(chatColor, "dark", chatGlassFidelity));
   s.setProperty("--we-chat-surface-tint-rgb-light", toRgbTriple(weClampSurfaceColor(chatColor, "light", chatGlassFidelity)));
   s.setProperty("--we-chat-surface-tint-rgb-dark", toRgbTriple(weClampSurfaceColor(chatColor, "dark", chatGlassFidelity)));
-  // - 对话栏这一族的**"吃不吃玻璃"**（W5 推广）。它此前**没有**独立的关态：
-  //   那三条规则挂在 `data-we-wallpaper` 上（壁纸激活即生效）。现在给它们加了
-  //   `[data-we-glass-chat]` 锚点 ⇒ 属性摘掉，那三条整组不生效 ⇒ **卡片回到原生外观**。
-  //   ⚠️ 这与"写撤销样式"不同：靠的是 **CSS 层叠**（规则不匹配即不参与），
-  //      所以不需要知道原生底色是什么 —— 那正是 §4.21 学到的形态。
-  //   `glassChildren.conversation` 默认 true ⇒ 默认挂属性，与接线前逐位一致。
-  const chatGlassOn = !(selection.glassChildren && selection.glassChildren.conversation === false);
-  if (chatGlassOn) document.body.setAttribute("data-we-glass-chat", "on");
-  else document.body.removeAttribute("data-we-glass-chat");
+  // ── 「要不要玻璃」这一层已**退役**（用户口径，wip §10.20）──────────────────────
+  // 原设计：这一项关 ⇒ 摘掉门控属性 ⇒ CSS 那组规则整组不匹配 ⇒ "回到原生不透明纯色"。
+  // 实测**并没有如愿恢复原生**：这些面上还有一批**不挂门控**的令牌改写（壁纸激活即生效），
+  // 所以"关"得到的是半玻璃外观而不是原生纯色；要做到"关得像样"得连令牌层一起回退 ——
+  // 实现复杂度远超收益 ⇒ **删掉这一层**（连同面板上的开关）。
+  // ⇒ 本面**恒挂**门控属性："要不要玻璃"不再是用户可选项；每个子面留下的唯一开关是
+  //   「独立配置」（读自己 vs 跟全局）。属性本身保留，因为 CSS 侧的门控是**证书式**的
+  //   （守卫 ⑨/⑬ 靠它判断"哪些规则画玻璃"），删属性要动几十条选择器并把两条判据的前提改掉。
+  document.body.setAttribute("data-we-glass-chat", "on");
 
-  // - 设置窗口这一面的**"吃不吃玻璃"**（W5）。两个条件都满足才挂属性：
-  //   ① `glassWindow`（「设置窗口液态玻璃」开关，原有的显示开关）
-  //   ② `glassChildren.settingsWindow`（「子 UI 玻璃 → 设置窗口玻璃」，默认开）
-  // ② 是「子 UI 玻璃」那一层的总开关落点：把它关掉 ⇒ 本面**回到原生外观**
-  //（属性一摘，下面那 4 条规则整组不生效 ⇒ 原生 `--dsw-alias-bg-*` 直接生效）。
-  //
-  // ⚠️ 这就是"关 ⇒ 回到原生不透明纯色"在**本面**的实现：本面今天**没有"关"态**
-  //    （`glassWindow` 关掉就是它的原生形态），所以**不需要另写回退样式** ——
-  //    只要把"关"落到**同一个**属性上即可（探针证明：`glassWindow` 开/关的差异
-  //    **只有这一个属性**，0 个变量差异）。
-  // ⚠️ 已知语义重叠（记进 wip §4.21）：本面因此有**两个**开关能到"原生"
-  //    （「设置窗口液态玻璃」与「子 UI 玻璃 → 设置窗口玻璃」）。保留两者是因为
-  //    「子 UI 玻璃」那一层的总开关必须对**所有**子项生效；重叠的代价是
-  //    "关掉子项后表面开关仍显示开"这一处 UI 不一致 —— 已记录待裁决。
-  const settingsWindowGlassOn = !!selection.glassWindow
-    && !(selection.glassChildren && selection.glassChildren.settingsWindow === false);
-  if (settingsWindowGlassOn) document.body.setAttribute("data-we-glass-window", "on");
-  else document.body.removeAttribute("data-we-glass-window");
+  // 「设置窗口液态玻璃」这个**显示开关也已退役**（用户口径）：它的功能由
+  // 「设置窗口玻璃·独立配置」接管，行为与**开启时**逐位一致（本面恒挂门控属性）。
+  // ⇒ 本面的语义重叠（§4.21 记的那两个开关都能到"原生"）随之消失。
+  // ── 「要不要玻璃」这一层已**退役**（用户口径，wip §10.20）──────────────────────
+  // 原设计：这一项关 ⇒ 摘掉门控属性 ⇒ CSS 那组规则整组不匹配 ⇒ "回到原生不透明纯色"。
+  // 实测**并没有如愿恢复原生**：这些面上还有一批**不挂门控**的令牌改写（壁纸激活即生效），
+  // 所以"关"得到的是半玻璃外观而不是原生纯色；要做到"关得像样"得连令牌层一起回退 ——
+  // 实现复杂度远超收益 ⇒ **删掉这一层**（连同面板上的开关）。
+  // ⇒ 本面**恒挂**门控属性："要不要玻璃"不再是用户可选项；每个子面留下的唯一开关是
+  //   「独立配置」（读自己 vs 跟全局）。属性本身保留，因为 CSS 侧的门控是**证书式**的
+  //   （守卫 ⑨/⑬ 靠它判断"哪些规则画玻璃"），删属性要动几十条选择器并把两条判据的前提改掉。
+  document.body.setAttribute("data-we-glass-window", "on");
 
   // 左侧栏覆盖：原生左栏（会话列表 / 工作区那一列）默认只是"透明的洞"——壁纸原样
   // 透出，没有霜、也不吃玻璃参数。打开后 CSS 给那一列刷上与其余面板同一张配方表
@@ -214,11 +208,7 @@ function applyGlass(selection, s) {
   // ⚠️ 只写**两项**（模糊 / 透明度）：`--we-saturate` / `--we-glass-brightness` 不是可配置
   //    参数（常量）、`--we-surface-tint-*` 是 E2 配方文本、`--we-readability-*` 被判据锁定
   //    ⇒ 其余项逐面独立在"判据不变"下不可达（§4.14）。
-  // ⚠️ W5 的门控属性 `data-we-glass-floaters` = **"吃不吃玻璃"**，与"用谁的值"正交
-  //    （R1 起值那一侧无条件写，见下）。
-  const floatersGlassOn = !(selection.glassChildren && selection.glassChildren.floaters === false);
-  if (floatersGlassOn) document.body.setAttribute("data-we-glass-floaters", "on");
-  else document.body.removeAttribute("data-we-glass-floaters");
+  document.body.setAttribute("data-we-glass-floaters", "on");
   // ── R1：**无条件写入**（wip §10.10）───────────────────────────────────────────
   {
     const pct = Number(glassValue("floaters", "transparency", selection.floatersTransparency, selection.glassAlpha)) || 0;

@@ -1,5 +1,5 @@
 {
-  "note": "由 P1-5 前的旧实现（vm 内跑源码文本）生成；新实现必须逐字节复现 host 输出。 F1 起补入 themeColors / themeDarkSeparate 两键（新增键按\"引入时行为\"记录；F2 起含 themeType）。 F3 阶段 2 起这六个字体键**不再进 settings blob**（值住 fontsets/<id>.json）⇒ 从两侧期望里摘掉； 字体值自身的往返由 test/verify-fontset.mjs 判。 主题随壁纸（themeFollow，默认关）随本次引入补入 host 期望（client 期望未逐键钉值，只判与 host 共有键一致）。 左侧栏覆盖（leftSidebarGlass，默认关）随本次引入补入两侧期望 —— 默认档不改变既有键的值，故全部用例只多一个 false。 玻璃保真度（glassFidelity，默认 100、0–100）加入时按「引入时行为」补入全部对象用例（.test-cache/regen-golden-fidelity.mjs，安全阀=其余键零漂移）。 chatGlassFidelity（对话栏保真度，默认 100、0–100）加入时同批补入（同一安全阀脚本）。 ⚠️ 玻璃配置重构收尾（wip §4.25）：这三张布尔表的期望值此前被抄成了 `{}` ——那是 readOne 丢掉 `def` 造成的**缺陷输出**，不是意图（能力表恒空 ⇒ 每个\"独立配置\"旋钮天生不动）。本次按意图重生成：glassOverrides 走 const（能力表，永非空）、glassIndependent / glassChildren取各自默认值且保留显式 false。安全阀 = 除这三个键外零漂移（.test-cache/regen-golden-glass.mjs）。 ⚠️ 玻璃配置重构收尾（wip §4.25）：这三张布尔表的期望值此前被抄成了 `{}` ——那是 readOne 丢掉 `def` 造成的**缺陷输出**，不是意图（能力表恒空 ⇒ 每个\"独立配置\"旋钮天生不动）。本次按意图重生成：glassOverrides 走 const（能力表，永非空）、glassIndependent / glassChildren取各自默认值且保留显式 false。安全阀 = 除这三个键外零漂移（.test-cache/regen-golden-glass.mjs）。 ⚠️ 玻璃配置重构收尾（wip §4.25）：这三张布尔表的期望值此前被抄成了 `{}` ——那是 readOne 丢掉 `def` 造成的**缺陷输出**，不是意图（能力表恒空 ⇒ 每个\"独立配置\"旋钮天生不动）。本次按意图重生成：glassOverrides 走 const（能力表，永非空）、glassIndependent / glassChildren取各自默认值且保留显式 false。安全阀 = 除这三个键外零漂移（.test-cache/regen-golden-glass.mjs）。 ⚠️ 玻璃配置重构收尾（wip §4.25）：这三张布尔表的期望值此前被抄成了 `{}` ——那是 readOne 丢掉 `def` 造成的**缺陷输出**，不是意图（能力表恒空 ⇒ 每个\"独立配置\"旋钮天生不动）。本次按意图重生成：glassOverrides 走 const（能力表，永非空）、glassIndependent / glassChildren取各自默认值且保留显式 false。安全阀 = 除这三个键外零漂移（.test-cache/regen-golden-glass.mjs）。 ⚠️ 玻璃配置重构收尾（wip §4.25）：这三张布尔表的期望值此前被抄成了 `{}` ——那是 readOne 丢掉 `def` 造成的**缺陷输出**，不是意图（能力表恒空 ⇒ 每个\"独立配置\"旋钮天生不动）。本次按意图重生成：glassOverrides 走 const（能力表，永非空）、glassIndependent / glassChildren取各自默认值且保留显式 false。安全阀 = 除这三个键外零漂移（.test-cache/regen-golden-glass.mjs）。",
+  "note": "由 P1-5 前的旧实现（vm 内跑源码文本）生成；新实现必须逐字节复现 host 输出。 F1 起补入 themeColors / themeDarkSeparate 两键（新增键按\"引入时行为\"记录；F2 起含 themeType）。 F3 阶段 2 起这六个字体键**不再进 settings blob**（值住 fontsets/<id>.json）⇒ 从两侧期望里摘掉； 字体值自身的往返由 test/verify-fontset.mjs 判。 主题随壁纸（themeFollow，默认关）随本次引入补入 host 期望（client 期望未逐键钉值，只判与 host 共有键一致）。 左侧栏覆盖（leftSidebarGlass，默认关）随本次引入补入两侧期望 —— 默认档不改变既有键的值，故全部用例只多一个 false。 玻璃保真度（glassFidelity，默认 100、0–100）加入时按「引入时行为」补入全部对象用例（.test-cache/regen-golden-fidelity.mjs，安全阀=其余键零漂移）。 chatGlassFidelity（对话栏保真度，默认 100、0–100）加入时同批补入（同一安全阀脚本）。 ⚠️ 玻璃配置重构收尾（wip §4.25）：这三张布尔表的期望值此前被抄成了 `{}` ——那是 readOne 丢掉 `def` 造成的**缺陷输出**，不是意图（能力表恒空 ⇒ 每个\"独立配置\"旋钮天生不动）。本次按意图重生成：glassOverrides 走 const（能力表，永非空）、glassIndependent / glassChildren取各自默认值且保留显式 false。安全阀 = 除这三个键外零漂移（.test-cache/regen-golden-glass.mjs）。 ⚠️ 玻璃配置重构收尾（wip §4.25）：这三张布尔表的期望值此前被抄成了 `{}` ——那是 readOne 丢掉 `def` 造成的**缺陷输出**，不是意图（能力表恒空 ⇒ 每个\"独立配置\"旋钮天生不动）。本次按意图重生成：glassOverrides 走 const（能力表，永非空）、glassIndependent / glassChildren取各自默认值且保留显式 false。安全阀 = 除这三个键外零漂移（.test-cache/regen-golden-glass.mjs）。 ⚠️ 玻璃配置重构收尾（wip §4.25）：这三张布尔表的期望值此前被抄成了 `{}` ——那是 readOne 丢掉 `def` 造成的**缺陷输出**，不是意图（能力表恒空 ⇒ 每个\"独立配置\"旋钮天生不动）。本次按意图重生成：glassOverrides 走 const（能力表，永非空）、glassIndependent / glassChildren取各自默认值且保留显式 false。安全阀 = 除这三个键外零漂移（.test-cache/regen-golden-glass.mjs）。 ⚠️ 玻璃配置重构收尾（wip §4.25）：这三张布尔表的期望值此前被抄成了 `{}` ——那是 readOne 丢掉 `def` 造成的**缺陷输出**，不是意图（能力表恒空 ⇒ 每个\"独立配置\"旋钮天生不动）。本次按意图重生成：glassOverrides 走 const（能力表，永非空）、glassIndependent / glassChildren取各自默认值且保留显式 false。安全阀 = 除这三个键外零漂移（.test-cache/regen-golden-glass.mjs）。 ⚠️ 玻璃配置重构收尾（wip §4.25）：这三张布尔表的期望值此前被抄成了 `{}` ——那是 readOne 丢掉 `def` 造成的**缺陷输出**，不是意图（能力表恒空 ⇒ 每个\"独立配置\"旋钮天生不动）。本次按意图重生成：glassOverrides 走 const（能力表，永非空）、glassIndependent / glassChildren取各自默认值且保留显式 false。安全阀 = 除这三个键外零漂移（.test-cache/regen-golden-glass.mjs）。 ⚠️ 玻璃配置重构收尾（wip §4.25）：这三张布尔表的期望值此前被抄成了 `{}` ——那是 readOne 丢掉 `def` 造成的**缺陷输出**，不是意图（能力表恒空 ⇒ 每个\"独立配置\"旋钮天生不动）。本次按意图重生成：glassOverrides 走 const（能力表，永非空）、glassIndependent / glassChildren取各自默认值且保留显式 false。安全阀 = 除这三个键外零漂移（.test-cache/regen-golden-glass.mjs）。",
   "generatedFrom": {
     "client": "src/client.js sanitizeSettings",
     "host": "lib/index.js sanitizeSettings"
@@ -49,7 +49,6 @@
         "accent": "#4f8cff",
         "glassAlpha": 20,
         "glassColor": "#ffffff",
-        "glassWindow": true,
         "leftSidebarGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
@@ -69,11 +68,6 @@
         "adapterTarget": "auto",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
-        },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
         "conversationColor": "#ffffff",
@@ -82,7 +76,7 @@
         "themeFollow": false,
         "leftSidebarTransparency": 100,
         "leftSidebarBlur": 60,
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -135,20 +129,14 @@
         "glassColor": "#ffffff",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassWindow": true,
         "leftSidebarGlass": false,
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
           "settingsWindow": "inherit",
           "conversation": "inherit",
           "floaters": "inherit"
-        },
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
         },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
@@ -215,7 +203,6 @@
         "accent": "#4f8cff",
         "glassAlpha": 20,
         "glassColor": "#ffffff",
-        "glassWindow": true,
         "leftSidebarGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
@@ -237,11 +224,6 @@
         "adapterTarget": "auto",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
-        },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
         "conversationColor": "#ffffff",
@@ -252,7 +234,7 @@
         "leftSidebarBlur": 60,
         "rotationInterval": 30,
         "sceneFrameUrl": "",
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -305,7 +287,6 @@
         "accent": "#4f8cff",
         "glassAlpha": 20,
         "glassColor": "#ffffff",
-        "glassWindow": true,
         "leftSidebarGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
@@ -327,11 +308,6 @@
         "adapterTarget": "auto",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
-        },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
         "conversationColor": "#ffffff",
@@ -342,7 +318,7 @@
         "leftSidebarBlur": 60,
         "rotationInterval": 30,
         "sceneFrameUrl": "",
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -395,7 +371,6 @@
         "accent": "#4f8cff",
         "glassAlpha": 20,
         "glassColor": "#ffffff",
-        "glassWindow": true,
         "leftSidebarGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
@@ -417,11 +392,6 @@
         "adapterTarget": "auto",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
-        },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
         "conversationColor": "#ffffff",
@@ -432,7 +402,7 @@
         "leftSidebarBlur": 60,
         "rotationInterval": 30,
         "sceneFrameUrl": "",
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -491,7 +461,6 @@
         "accent": "#4f8cff",
         "glassAlpha": 20,
         "glassColor": "#ffffff",
-        "glassWindow": true,
         "leftSidebarGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
@@ -511,11 +480,6 @@
         "adapterTarget": "auto",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
-        },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
         "conversationColor": "#ffffff",
@@ -524,7 +488,7 @@
         "themeFollow": false,
         "leftSidebarTransparency": 100,
         "leftSidebarBlur": 60,
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -577,20 +541,14 @@
         "glassColor": "#ffffff",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassWindow": true,
         "leftSidebarGlass": false,
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
           "settingsWindow": "inherit",
           "conversation": "inherit",
           "floaters": "inherit"
-        },
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
         },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
@@ -720,7 +678,6 @@
         "accent": "#4f8cff",
         "glassAlpha": 20,
         "glassColor": "#ffffff",
-        "glassWindow": true,
         "leftSidebarGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
@@ -740,11 +697,6 @@
         "adapterTarget": "auto",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
-        },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
         "conversationColor": "#ffffff",
@@ -753,7 +705,7 @@
         "themeFollow": false,
         "leftSidebarTransparency": 100,
         "leftSidebarBlur": 60,
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -806,20 +758,14 @@
         "glassColor": "#ffffff",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassWindow": true,
         "leftSidebarGlass": false,
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
           "settingsWindow": "inherit",
           "conversation": "inherit",
           "floaters": "inherit"
-        },
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
         },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
@@ -994,7 +940,6 @@
         "accent": "#4f8cff",
         "glassAlpha": 20,
         "glassColor": "#ffffff",
-        "glassWindow": true,
         "leftSidebarGlass": false,
         "sidebarGlass": false,
         "sidebarBlur": 0,
@@ -1014,11 +959,6 @@
         "adapterTarget": "auto",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
-        },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
         "conversationColor": "#ffffff",
@@ -1027,7 +967,7 @@
         "themeFollow": false,
         "leftSidebarTransparency": 100,
         "leftSidebarBlur": 60,
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -1080,20 +1020,14 @@
         "glassColor": "#ffffff",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassWindow": true,
         "leftSidebarGlass": false,
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
           "settingsWindow": "inherit",
           "conversation": "inherit",
           "floaters": "inherit"
-        },
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
         },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
@@ -1167,7 +1101,6 @@
         "accent": "#4f8cff",
         "glassAlpha": 20,
         "glassColor": "#ffffff",
-        "glassWindow": true,
         "leftSidebarGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
@@ -1187,11 +1120,6 @@
         "adapterTarget": "auto",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
-        },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
         "conversationColor": "#ffffff",
@@ -1200,7 +1128,7 @@
         "themeFollow": false,
         "leftSidebarTransparency": 100,
         "leftSidebarBlur": 60,
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -1253,20 +1181,14 @@
         "glassColor": "#ffffff",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassWindow": true,
         "leftSidebarGlass": false,
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
           "settingsWindow": "inherit",
           "conversation": "inherit",
           "floaters": "inherit"
-        },
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
         },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
@@ -1354,7 +1276,6 @@
         "accent": "#4f8cff",
         "glassAlpha": 100,
         "glassColor": "#ffffff",
-        "glassWindow": true,
         "leftSidebarGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 60,
@@ -1374,11 +1295,6 @@
         "adapterTarget": "auto",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
-        },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
         "conversationColor": "#ffffff",
@@ -1387,7 +1303,7 @@
         "themeFollow": false,
         "leftSidebarTransparency": 100,
         "leftSidebarBlur": 60,
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -1440,20 +1356,14 @@
         "glassColor": "#ffffff",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassWindow": true,
         "leftSidebarGlass": false,
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
           "settingsWindow": "inherit",
           "conversation": "inherit",
           "floaters": "inherit"
-        },
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
         },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
@@ -1541,7 +1451,6 @@
         "accent": "#4f8cff",
         "glassAlpha": 100,
         "glassColor": "#ffffff",
-        "glassWindow": true,
         "leftSidebarGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 60,
@@ -1561,11 +1470,6 @@
         "adapterTarget": "auto",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
-        },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
         "conversationColor": "#ffffff",
@@ -1574,7 +1478,7 @@
         "themeFollow": false,
         "leftSidebarTransparency": 100,
         "leftSidebarBlur": 60,
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -1627,20 +1531,14 @@
         "glassColor": "#ffffff",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassWindow": true,
         "leftSidebarGlass": false,
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
           "settingsWindow": "inherit",
           "conversation": "inherit",
           "floaters": "inherit"
-        },
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
         },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
@@ -1715,7 +1613,6 @@
         "accent": "#4f8cff",
         "glassAlpha": 20,
         "glassColor": "#ffffff",
-        "glassWindow": true,
         "leftSidebarGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
@@ -1735,11 +1632,6 @@
         "adapterTarget": "auto",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
-        },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
         "conversationColor": "#ffffff",
@@ -1748,7 +1640,7 @@
         "themeFollow": false,
         "leftSidebarTransparency": 100,
         "leftSidebarBlur": 60,
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -1801,20 +1693,14 @@
         "glassColor": "#ffffff",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassWindow": true,
         "leftSidebarGlass": false,
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
           "settingsWindow": "inherit",
           "conversation": "inherit",
           "floaters": "inherit"
-        },
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
         },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
@@ -1894,7 +1780,6 @@
         "accent": "#4f8cff",
         "glassAlpha": 20,
         "glassColor": "#ffffff",
-        "glassWindow": true,
         "leftSidebarGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
@@ -1914,11 +1799,6 @@
         "adapterTarget": "auto",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
-        },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
         "conversationColor": "#ffffff",
@@ -1927,7 +1807,7 @@
         "themeFollow": false,
         "leftSidebarTransparency": 100,
         "leftSidebarBlur": 60,
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -1980,20 +1860,14 @@
         "glassColor": "#ffffff",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassWindow": true,
         "leftSidebarGlass": false,
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
           "settingsWindow": "inherit",
           "conversation": "inherit",
           "floaters": "inherit"
-        },
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
         },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
@@ -2070,7 +1944,6 @@
         "accent": "#4f8cff",
         "glassAlpha": 20,
         "glassColor": "#ffffff",
-        "glassWindow": true,
         "leftSidebarGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
@@ -2090,11 +1963,6 @@
         "adapterTarget": "auto",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
-        },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
         "conversationColor": "#ffffff",
@@ -2103,7 +1971,7 @@
         "themeFollow": false,
         "leftSidebarTransparency": 100,
         "leftSidebarBlur": 60,
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -2156,20 +2024,14 @@
         "glassColor": "#ffffff",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassWindow": true,
         "leftSidebarGlass": false,
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
           "settingsWindow": "inherit",
           "conversation": "inherit",
           "floaters": "inherit"
-        },
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
         },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
@@ -2253,7 +2115,6 @@
         "accent": "#4f8cff",
         "glassAlpha": 20,
         "glassColor": "#ffffff",
-        "glassWindow": true,
         "leftSidebarGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
@@ -2273,11 +2134,6 @@
         "adapterTarget": "auto",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
-        },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
         "conversationColor": "#ffffff",
@@ -2286,7 +2142,7 @@
         "themeFollow": false,
         "leftSidebarTransparency": 100,
         "leftSidebarBlur": 60,
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -2339,20 +2195,14 @@
         "glassColor": "#ffffff",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassWindow": true,
         "leftSidebarGlass": false,
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
           "settingsWindow": "inherit",
           "conversation": "inherit",
           "floaters": "inherit"
-        },
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
         },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
@@ -2495,7 +2345,6 @@
         "accent": "#4f8cff",
         "glassAlpha": 20,
         "glassColor": "#ffffff",
-        "glassWindow": true,
         "leftSidebarGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
@@ -2525,11 +2374,6 @@
         "adapterTarget": "auto",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
-        },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
         "conversationColor": "#ffffff",
@@ -2538,7 +2382,7 @@
         "themeFollow": false,
         "leftSidebarTransparency": 100,
         "leftSidebarBlur": 60,
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -2611,20 +2455,14 @@
         "glassColor": "#ffffff",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassWindow": true,
         "leftSidebarGlass": false,
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
           "settingsWindow": "inherit",
           "conversation": "inherit",
           "floaters": "inherit"
-        },
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
         },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
@@ -2701,7 +2539,6 @@
         "accent": "#4f8cff",
         "glassAlpha": 20,
         "glassColor": "#ffffff",
-        "glassWindow": true,
         "leftSidebarGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
@@ -2721,11 +2558,6 @@
         "adapterTarget": "auto",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
-        },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
         "conversationColor": "#ffffff",
@@ -2734,7 +2566,7 @@
         "themeFollow": false,
         "leftSidebarTransparency": 100,
         "leftSidebarBlur": 60,
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -2787,20 +2619,14 @@
         "glassColor": "#ffffff",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassWindow": true,
         "leftSidebarGlass": false,
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
           "settingsWindow": "inherit",
           "conversation": "inherit",
           "floaters": "inherit"
-        },
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
         },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
@@ -2873,7 +2699,6 @@
         "accent": "#4f8cff",
         "glassAlpha": 20,
         "glassColor": "#ffffff",
-        "glassWindow": true,
         "leftSidebarGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
@@ -2893,11 +2718,6 @@
         "adapterTarget": "auto",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
-        },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
         "conversationColor": "#ffffff",
@@ -2906,7 +2726,7 @@
         "themeFollow": false,
         "leftSidebarTransparency": 100,
         "leftSidebarBlur": 60,
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -2959,20 +2779,14 @@
         "glassColor": "#ffffff",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassWindow": true,
         "leftSidebarGlass": false,
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
           "settingsWindow": "inherit",
           "conversation": "inherit",
           "floaters": "inherit"
-        },
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
         },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
@@ -3046,7 +2860,6 @@
         "accent": "#4f8cff",
         "glassAlpha": 20,
         "glassColor": "#ffffff",
-        "glassWindow": true,
         "leftSidebarGlass": false,
         "sidebarGlass": true,
         "sidebarBlur": 16,
@@ -3066,11 +2879,6 @@
         "adapterTarget": "auto",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
-        },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
         "conversationColor": "#ffffff",
@@ -3079,7 +2887,7 @@
         "themeFollow": false,
         "leftSidebarTransparency": 100,
         "leftSidebarBlur": 60,
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -3132,20 +2940,14 @@
         "glassColor": "#ffffff",
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
-        "glassWindow": true,
         "leftSidebarGlass": false,
-        "settingsVersion": 4,
+        "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
           "settingsWindow": "inherit",
           "conversation": "inherit",
           "floaters": "inherit"
-        },
-        "glassChildren": {
-          "settingsWindow": true,
-          "conversation": true,
-          "floaters": true
         },
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,

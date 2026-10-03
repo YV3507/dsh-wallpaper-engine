@@ -846,8 +846,17 @@ setTimeout(async () => {
     //（模糊 0–60 px 与全局雾化同刻度；透明度 0–100 %）。这里钉住"面板与规范刻度一致"。
     assert.equal(sliderMax(findSliderRow(tree, '侧栏模糊')), '60', '侧栏模糊上限必须是 60px（与全局雾化同刻度，R4）');
     assert.equal(sliderMax(findSliderRow(tree, '侧栏透明度')), '100', '侧栏透明度上限必须是 100（规范刻度，R4）');
-    assert.ok(treeText.includes('设置窗口液态玻璃'), 'whole-window glass master switch present:');
-    assert.ok(treeText.includes('整个设置窗口'), 'window glass tooltip present:');
+    // ⚠️ 全局「玻璃透明度」的量程必须与 KINDS 一致（100）。这一条是为一个**真实事故**补的：
+    //    处理器里手写的钳制漏改时，面板量程是 100 而钳制是 0–60，`clampNum` 又"越界即回落默认值"
+    //    ⇒ 拖过 60 就跳回 20（用户实测"最多只能拉到 20%"）。面板量程 + 处理器取值域**两边都要钉**，
+    //    加上第 ⑦ 组钉住 KINDS 本身，三者同源才闭环。
+    assert.equal(sliderMax(findSliderRow(tree, '玻璃透明度')), '100', '玻璃透明度上限必须是 100（与 KINDS 同源）');
+    // 本批（wip §10.20）：「设置窗口液态玻璃」这个 master 开关**已退役** ——
+    // 它的功能由「设置窗口玻璃·独立配置」接管（行为与开启时逐位一致）。这里两头都钉：
+    // 退役的开关**不许**再出现，接管的那个独立配置**必须**在。
+    assert.ok(!treeText.includes('设置窗口液态玻璃'), 'retired「设置窗口液态玻璃」switch must be gone:');
+    assert.ok(treeText.includes('设置窗口玻璃·独立配置'), 'the child independent switch takes over:');
+    assert.ok(treeText.includes('整个设置窗口'), 'window glass hint stays (now on the child switch):');
 
     // ── 「字体」已并入「外观」：老的 localStorage 页签值必须迁移过去（不能把用户
     //    甩回「壁纸」），且字体三件套 + 输入光标都在「外观」里。 ──
@@ -2821,6 +2830,39 @@ setTimeout(async () => {
     '负对照：抬手档必须重建字体样式表（fontCustom=true ⇒ snapshot + apply）');
   assert.ok(full.named.includes('syncSceneAudio'), '负对照：抬手档必须同步场景音频');
   assert.ok(full.named.includes('removeWallpaperFadeBg') === false, '（防呆：名字记录器本身工作正常）');
+}
+
+// ── 滑块的取值域必须**同源于 schema**（为一个真实事故补的判据）────────────────────
+// 事故（用户实测）：R4 把刻度改成 0–100 时改了 `KINDS` 与面板量程，**漏了处理器里手写的四处**；
+// 而 `clampNum` 是"**越界即回落到默认值**"（不是截断）⇒ 拖过旧上限的瞬间滑块**跳回默认值**
+// —— 用户看到的就是"「玻璃透明度」最多只能拉到 20%"（20 正是 `DEFAULTS.glassAlpha`）。
+// 判据口径：凡 `clampNum(…, DEFAULTS.<键>)` 的调用，取值域必须写成 `...schemaRange("<键>")`
+// （两处都要、且键名必须与被钳的那个键一致）⇒ 以后改 `KINDS` 不会再有第二处要改。
+{
+  const src = readFileSync(new URL('../src/client.js', import.meta.url), 'utf8');
+  // ⚠️ 正则要同时认得**两种形态**：修好的 `clampNum(v, ...schemaRange("k"), DEFAULTS.k)` 源码里只有
+  //    三个实参（spread 在运行期展开成两个），而写手的旧形态是四个（`v, 0, 60, DEFAULTS.k`）。
+  //    所以按"最后一个实参是 DEFAULTS.<键>"来切，把它前面的部分整体当"取值域"。
+  const grab = (text) => [...text.matchAll(/clampNum\(\s*([^;]*?),\s*DEFAULTS\.([A-Za-z0-9_]+)\s*\)/g)]
+    .map((m) => {
+      const parts = m[1].split(',').map((s) => s.trim());
+      return { key: m[2], value: parts[0], range: parts.slice(1).join(', ') };
+    });
+  const calls = grab(src);
+  // 违规口径：取值域里出现**数字字面量**（那才会与 KINDS 漂移）。
+  // ⚠️ 具名常量（`ROPE_SCALE_MIN` / `ROPE_SCALE_MAX`）**不算违规**：schema 的 KINDS 引用的就是
+  //    这两个名字（`min: 'ROPE_SCALE_MIN'`）⇒ 改常量时两边一起改，本来就是同源。
+  const bad = calls.filter((c) => /\d/.test(c.range) && c.range !== '...schemaRange("' + c.key + '")');
+  assert.ok(calls.length >= 6, '覆盖面：至少 6 处处理器钳制带 DEFAULTS 回退（防判据空转），实测 ' + calls.length);
+  assert.equal(bad.length, 0, '取值域不许出现数字字面量（必须走 schemaRange 或具名常量，否则改 KINDS 会漏改）—— 违规：'
+    + bad.map((c) => c.key + '(' + c.range + ')').join(', '));
+  // 负对照（喂**同一个** grab）：`0, 60` 这种数字字面量必须判出；`...schemaRange(...)` 与具名常量不判出。
+  const synth = grab('clampNum(pct, 0, 60, DEFAULTS.glassAlpha)')[0];
+  const good = grab('clampNum(pct, ...schemaRange("glassAlpha"), DEFAULTS.glassAlpha)')[0];
+  const named = grab('clampNum(scale, ROPE_SCALE_MIN, ROPE_SCALE_MAX, DEFAULTS.ropeScale)')[0];
+  assert.ok(synth && /\d/.test(synth.range) && good && !/\d/.test(good.range)
+    && named && !/\d/.test(named.range),
+    'negative control: `0, 60` 判出；`...schemaRange(...)` 与具名常量不判出');
 }
 
 console.log('\nALL CLIENT CHECKS DONE');

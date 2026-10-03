@@ -362,8 +362,8 @@
         !(qpTab === "wallpaper" && userPropsPanelOpen() && propsAvailable) && (qpTab === "appearance"
           ? renderAppearanceTab(sidebarRenderCtx({
             setSetting, setTransient, sel,
-            onAccent, onBlur, onBorder, onChatGlassFidelity, onGlassAlpha, onGlassColor, onGlassFidelity, onGlassWindow, onLeftSidebarGlass, onSidebarGlass, onToggleThemeFollow,
-            onToggleGlassChild, onToggleChildIndependent, onGlassChildParam, childIndependentOn,
+            onAccent, onBlur, onBorder, onChatGlassFidelity, onGlassAlpha, onGlassColor, onGlassFidelity, onLeftSidebarGlass, onSidebarGlass, onToggleThemeFollow,
+            onToggleChildIndependent, onGlassChildParam, childIndependentOn,
           }))
           : qpTab === "playback"
             ? React.createElement(React.Fragment, null,

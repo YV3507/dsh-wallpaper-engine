@@ -16,30 +16,33 @@
  * 见 wip §10.12：四个子项曾多出 5 个没人读的键、左侧栏那节还多一行连 schema 键都不存在的滑杆）。
  */
 /**
- * 「玻璃 UI」节 —— 全局四件套 + 两级子 UI 开关（高级配置）。
+ * 「玻璃 UI」节 —— 全局四件套 + 每个子面的「独立配置」开关（高级配置）。
  *
- * 结构（见 wip 文档 §5.2 / §5.3，用户口径）：
+ * 结构（wip §10.20 之后）：
  *   玻璃 UI
- *   ├─ 全局：玻璃颜色 · 玻璃透明度 · 雾化 · 玻璃保真度 · 对话栏玻璃保真度
- *   └─ 高级（不进简化配置）
- *      ├─ [子 UI 玻璃]        每个子 UI 要不要玻璃（= 它的显示前提）
- *      └─ [子 UI 独立配置]     总开关：给"已开启玻璃"的子项逐项开独立
- *         └─ 每个已开启玻璃的子项：
- *              [独立配置]  ⇒ 打开后展开它自己的四件套
+ *   ├─ 全局：玻璃颜色 · 玻璃透明度 · 雾化 · 玻璃保真度
+ *   └─ 子 UI 独立配置（不进简化配置）
+ *      └─ 每个子面一个开关：[独立配置] ⇒ 打开后展开它自己的参数行
  *
- * ⚠️ 耦合关系（用户口径）：**「子 UI 玻璃」对应项关闭时，它的「独立配置」不显示。**
- *    两级都是开关，且前者是后者的显示前提。
+ * ⚠️ **没有"要不要玻璃"的开关**（用户口径）：原先是两级（「子 UI 玻璃」总开关 + 每项开关），
+ *    实测那个"关"并**不能**如愿恢复原生黑/白纯色（那些面上还有一批不挂门控的令牌改写），
+ *    而要做到"关得像样"得连令牌层一起回退 ⇒ 整层退役（见 `src/glass.js` 的退役说明）。
+ *    所以这里剩下的**唯一**问题就是"读自己 还是 跟全局"。
  * ⚠️ 「左侧栏覆盖」**不在**本节的子项里：它的"关"是**恢复背景**（那列回到壁纸原样），
- *    而本节的"关"是**恢复纯色/原生外观** —— 语义不同，它是乙类，独立成项留在「细节」。
+ *    语义不同 —— 它是乙类，独立成项留在「细节」，本节的 `panelOff` 过滤就是为它。
  */
 function renderAppearanceGlassSection(ctx) {
   const {
     onBlur, onGlassAlpha, onGlassChildParam, onGlassColor, onGlassFidelity,
-    onToggleChildIndependent, onToggleGlassChild, setTransient,
-    childIndependentOn, sel,
+    onToggleChildIndependent, childIndependentOn, sel, surface,
   } = ctx;
-  // 总开关往返用的快照键（瞬态字段，**不落盘**：它只是"上一次展开时是什么样"）。
-  const snapKey = "glassChildrenSnapshot";
+  // ⚠️ **简化配置 vs 复杂配置的边界**（wip §3.4 的用户口径 + 本节 §10.22）：
+  //   · **简化配置**（侧边栏那一档）= 全局四件套（颜色 / 透明度 / 雾化 / 保真度）；
+  //   · **复杂配置**（设置菜单那一档）= 上述 + **每个子面的「独立配置」层**。
+  // 判据是"这一层进不进简化配置"，不是"哪一档更好用"：独立配置是**逐面覆盖全局**的高级动作，
+  // 只有设置菜单里才该出现。实测它曾同时出现在两档（用户实测：侧边栏里也有那三个开关）——
+  // 那会让"简化配置"悄悄长出四个高级旋钮，与规划不符。
+  const sidebarSurface = surface === "sidebar";
   const children = ((typeof GLASS_CHILDREN !== "undefined" && GLASS_CHILDREN) || [])
     // ⚠️ 排除 `panelOff` 的子项：乙类（左侧栏）**不进这一层** ——
     //    它已有自己的总开关「左侧栏覆盖」，而它的"独立配置"耦合在那一项下面
@@ -50,65 +53,54 @@ function renderAppearanceGlassSection(ctx) {
   // 词条会全成孤儿、文本也进不了"裸中文"检查。所以词表每一项都直接过 weT。
   // （放在渲染函数内而非模块级：weT 依赖当前语言，必须每次渲染重取。）
   // 两侧靠 `id` 对齐；下面有兜底把"漏了哪个 id"当场画出来（比静默无标签好）。
+  // ⚠️ 只有 `hint`（子面的**身份**，挂在「独立配置」那一行上）与各参数文案 ∶
+  //    原先还有一个 `label`（子面的开关标签）—— 那个开关随"要不要玻璃"一起退役，
+  //    字段随之变成**死数据**，已删（对应的 4 条 i18n 词条也一并清掉，wip §10.23）。
   const CHILD_CN = {
     settingsWindow: {
-      label: weT("设置窗口玻璃"), hint: weT("整个设置窗口（含全部原生分区）"),
+      hint: weT("整个设置窗口（含全部原生分区）"),
       indep: weT("设置窗口玻璃·独立配置"), color: weT("设置窗口玻璃·玻璃颜色"),
       alpha: weT("设置窗口玻璃·玻璃透明度"), blur: weT("设置窗口玻璃·雾化"),
       fidelity: weT("设置窗口玻璃·玻璃保真度"),
     },
     conversation: {
-      label: weT("对话框玻璃"), hint: weT("输入卡片 / 消息气泡 / 工具弹卡"),
+      hint: weT("输入卡片 / 消息气泡 / 工具弹卡"),
       indep: weT("对话框玻璃·独立配置"), color: weT("对话框玻璃·玻璃颜色"),
       alpha: weT("对话框玻璃·玻璃透明度"), blur: weT("对话框玻璃·雾化"),
       fidelity: weT("对话框玻璃·玻璃保真度"),
     },
     leftSidebar: {
-      label: weT("左侧栏玻璃"), hint: weT("宿主原生左栏（会话列表 / 工作区那一列）"),
+      hint: weT("宿主原生左栏（会话列表 / 工作区那一列）"),
       indep: weT("左侧栏玻璃·独立配置"), color: weT("左侧栏玻璃·玻璃颜色"),
       alpha: weT("左侧栏玻璃·玻璃透明度"), blur: weT("左侧栏玻璃·雾化"),
       fidelity: weT("左侧栏玻璃·玻璃保真度"),
     },
     floaters: {
-      label: weT("浮层玻璃"), hint: weT("插件自己的更新提示 / 壁纸仓库抽屉"),
+      hint: weT("插件自己的更新提示 / 壁纸仓库抽屉"),
       indep: weT("浮层玻璃·独立配置"), color: weT("浮层玻璃·玻璃颜色"),
       alpha: weT("浮层玻璃·玻璃透明度"), blur: weT("浮层玻璃·雾化"),
       fidelity: weT("浮层玻璃·玻璃保真度"),
     },
   };
-  // ⚠️ 用户口径（两级耦合）：
-  //   · 「子 UI 玻璃」**关** ⇒ 下面所有子项开关都不显示（这一层整体收起）。
-  //   · 每个子项自己的开关关 ⇒ **只有它**的「独立配置」及四件套不显示。
-  // 所以这里不再有"总独立配置"开关：**「独立配置」直接归属它所属的那个子项开关下方**。
-  //
-  // ⚠️ 总开关的作用是**记住并恢复**各项状态，不是"把所有项都设成 true"：
-  //    · 关：全部子项置 false（= 全部回到原生不透明纯色）+ 记下关之前的状态快照
-  //    · 开：恢复快照（没有快照才全开）
-  //   若开时一律全开，用户"只关掉设置窗口"的意图会在一次总开关往返后被静默抹掉。
-  const glassOn = (id) => !!(sel.glassChildren && sel.glassChildren[id] === true);
+  // ⚠️ 用户口径（wip §10.20）：**"要不要玻璃"这一层退役了** ——
+  //   原设计里每个子面先有一个「玻璃」开关（关 = 回到原生不透明纯色），实测那个"关"
+  //   并不能如愿恢复原生（那些面上还有一批不挂门控的令牌改写，见 glass.js 的退役说明），
+  //   而两级耦合（总开关 + 子开关）本身也让这一节很难读。
+  // ⇒ 现在这一节**只剩一层**：每个子面一个「独立配置」开关 —— 它回答的是
+  //   "读自己那套参数 还是 跟全局"。要不要玻璃是恒定的（恒要），不再是用户选项。
   const childRows = [];
-  const childOnCount = children.filter((c) => glassOn(c.id)).length;
-  const masterOn = childOnCount > 0;
-  if (masterOn) for (const c of children) {
+  for (const c of children) {
     const cn = CHILD_CN[c.id];
     // 登记表与词表必须一一对应：漏一个就整项无标签（比 ReferenceError 更隐蔽）。
     if (!cn) { childRows.push(React.createElement("div", { className: "we-picker__hint", key: "gc-missing-" + c.id }, weT("内部错误：这个子界面缺少文案"))); continue; }
-    const on = glassOn(c.id);
-    // ① 每个子项的「玻璃」开关
-    childRows.push(switchRow(cn.label, on, (e) => onToggleGlassChild(c.id, e.target.checked), {
-      key: "gc-" + c.id,
-      hint: cn.hint,
-      tooltip: weT("打开后这个子界面走玻璃配方（玻璃颜色 / 透明度 / 雾化 / 保真度）；关闭则这个界面回到原生不透明纯色外观"),
-    }));
-    // ② ⚠️ 该项玻璃关 ⇒ 它的「独立配置」不显示（玻璃都不吃就无从"覆盖"）。
-    if (!on) continue;
+    // 每个子面**直接**一个「独立配置」开关（子面的名字进 `hint`，见词表的 cn.hint）。
     const indep = !!(childIndependentOn && childIndependentOn(c.id));
     childRows.push(switchRow(cn.indep, indep, (e) => onToggleChildIndependent(c.id, e.target.checked), {
       key: "gi-" + c.id,
-      hint: weT("用这一项自己的釉层参数覆盖全局"),
+      hint: cn.hint,
       tooltip: weT("打开后**紧接在本行下方**出现这一项自己的独立配置，**完全覆盖**上面的全局配置；关闭则回到继承全局"),
     }));
-    // ③ 独立配置关着 ⇒ 不显示它自己的四件套（默认就是关 ⇒ 默认跟随全局）
+    // 独立配置关着 ⇒ 不显示它自己的参数行（默认就是关 ⇒ 默认跟随全局）
     if (!indep) continue;
     const P = (param) => childGlassKey(c.id, param);
     // ⚠️ 按登记表的 `params` 渲染，**不硬编码四项** —— 不是每个子项都拿得到全部参数。
@@ -170,28 +162,12 @@ function renderAppearanceGlassSection(ctx) {
     //    入口了 —— 那是两个旋钮控同一件事。现在它**只**由「对话框玻璃·独立配置」下的
     //    「对话框玻璃·玻璃保真度」提供，存储键**复用** `chatGlassFidelity`（D2：不新建
     //    平行键），所以老配置的值不会丢。
-    // ── 高级：子 UI 玻璃总开关（不进简化配置）──
-    // 一个总开关决定"这一层要不要展开"。它**不是**"要不要玻璃"的真相来源 ——
-    // 关掉它 = 全部子项回到原生不透明纯色，同时下面整层收起；重新打开时
-    // **恢复各项原来的开关状态**（快照存在 sel 的瞬态字段里，不落盘）。
-    switchRow(weT("子 UI 玻璃"), masterOn,
-      (e) => {
-        const on = e.target.checked;
-        if (!on) {
-          // 关：先记快照再全关，这样重新打开能回到用户原来的组合。
-          setTransient(snapKey, Object.assign({}, sel.glassChildren));
-          for (const c of children) onToggleGlassChild(c.id, false);
-        } else {
-          const s = sel[snapKey];
-          for (const c of children) onToggleGlassChild(c.id, s ? s[c.id] === true : true);
-          setTransient(snapKey, null);
-        }
-      }, {
-      key: "glass-children-master",
-      hint: weT("哪些子界面走玻璃（高级 · 默认全开）"),
-      tooltip: weT("这一层是「哪些面吃玻璃」的高级清单，不进简化配置。关掉它 = 下面每个子界面都回到**原生不透明纯色**（全关即整个界面都是原生黑白纯色），同时这一层控件整体收起；重新打开时会**恢复各项原来的开关**。"),
-    }),
-    ...childRows,
+    // ── 子 UI 独立配置（**复杂配置专属**：侧边栏那一档不画）──
+    // 这一节现在是**一层**：每个子面一个「独立配置」开关 —— 开 = 用自己那套参数覆盖全局。
+    // ⚠️ 这里**没有**「要不要玻璃」的开关（那一层已退役，见上）：所有子面恒吃玻璃。
+    // ⚠️ `sidebarSurface` 的判据见函数开头：独立配置是逐面覆盖全局的高级动作，
+    //    按规划只出现在设置菜单里 ⇒ 简化配置那一档**一行都不画**（只剩全局四件套）。
+    ...(sidebarSurface ? [] : childRows),
   ),
   );
 }
