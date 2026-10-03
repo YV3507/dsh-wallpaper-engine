@@ -568,8 +568,73 @@
     );
   }
 
+  // ── 字族下拉的**选项**（一处生成，四张表共用）────────────────────────────────
+  // 两组：内置族键（FONT_FAMILY_LABELS，栈写死在 client.js）+ **本机字体**
+  // （宿主枚举出来的族名，经 systemFontKeyOf 变成 `sys:` 族键，见 src/system-fonts.js）。
+  // ⚠️ 本机那一组先过 **`filterUsableSystemFonts`**：只留**本浏览器真的能匹配**的名字 ——
+  //    系统列出的族名里有相当一部分（系统保留字体、同一字体的另一种写法）浏览器压根取不到，
+  //    摆出来就是"选了没反应"（现场缺陷："控制台切换了字体，特殊文字还是显示成口"）。
+  //    量不到时（替身 DOM / 无布局）它原样返回 ⇒ 这里不会因为"测不出来"而少给。
+  // 本机那一组可能为空（清单还在路上 / 取不到）—— 空组**不渲染** optgroup
+  //（给一个拉不动的分组比没有这个分组更让人困惑），状态由 sysFontNote 那一行说。
+  // `skipInherit`：全局字体那一行不要「默认」项（它在那里等于"不覆盖"，与「跟随 DSH」同义）。
+  // `current`：**当前值**。它即使不在清单里（换了机器 / 之前选过一个本浏览器取不到的名字）
+  //   也必须摆进去 —— 否则 `<select>` 会显示成第一项（「跟随」）而值其实还存着，界面在撒谎。
+  function familyOptions(sel, opts) {
+    const o = opts || {};
+    const builtin = o.skipInherit
+      ? FONT_FAMILY_LABELS.filter((f) => f.v !== "inherit") : FONT_FAMILY_LABELS;
+    const nodes = builtin.map((f) => React.createElement("option", { key: f.v, value: f.v }, f.label));
+    const sys = filterUsableSystemFonts(sel.systemFonts).fonts
+      .map((name) => ({ v: systemFontKeyOf(name), label: name }))
+      .filter((x) => x.v);
+    // ⚠️ 局部名不叫 `current`：那是本仓 `MUTABLE_ALIASES` 里的一员（picker 的 ctx 别名），
+    //    `verify-client` 的"渲染器不得改写别名"判据会把这个**声明**误认成赋值。
+    const curKey = typeof o.current === "string" ? o.current : "";
+    if (curKey && !builtin.some((f) => f.v === curKey) && !sys.some((x) => x.v === curKey)) {
+      const name = systemFontNameOf(curKey);
+      if (name) sys.unshift({ v: curKey, label: name });
+    }
+    if (sys.length) {
+      nodes.push(React.createElement("optgroup", { key: "__sys", label: weT("本机字体") },
+        sys.map((x) => React.createElement("option", { key: x.v, value: x.v }, x.label))));
+    }
+    return nodes;
+  }
+
+  /**
+   * 本机字体那一组的**状态行**（空串 = 没什么要说的）。
+   * 四种要说话的情形都是"用户会以为坏了"的：还在扫、取不到、**按文件名推测**出来的清单、
+   * 以及**有名字被本浏览器过滤掉** —— 最后这种必须说：否则用户找 `Apple Color Emoji` 找不到，
+   * 只会以为清单又漏了，而真相是这个名字在本浏览器里取不到。
+   */
+  function sysFontNote(sel) {
+    if (sel.systemFontsLoading) return weT("正在读取本机字体…");
+    if (sel.systemFontsError) return weT("本机字体读不到：{why}", { why: sel.systemFontsError });
+    if (sel.systemFontsApproximate && (sel.systemFonts || []).length) {
+      return weT("本机字体是按文件名推测的（没拿到系统字体清单）");
+    }
+    const probe = filterUsableSystemFonts(sel.systemFonts);
+    if (probe.skipped > 0) {
+      return weT("已略过 {count} 个本浏览器取不到的字体名（选了也不会生效）", { count: probe.skipped });
+    }
+    return "";
+  }
+
+  /** 本机字体那一组的「重新扫描」（刚装完字体时的出路；在途时禁用）。 */
+  function sysFontRefresh(sel, onRefresh) {
+    return React.createElement("button", {
+      key: "sys-font-refresh",
+      type: "button",
+      className: "we-picker__chip",
+      disabled: sel.systemFontsLoading === true,
+      onClick: () => onRefresh(),
+      title: weT("重新读取本机已安装的字体（装了新字体之后用）"),
+    }, weT("重新扫描"));
+  }
+
   function renderAppearanceFontSection(ctx) {
-    const { officialColorOf, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onToggleFontCustom, fontSet, sel, surface } = ctx;
+    const { officialColorOf, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlobalFamily, onRefreshSystemFonts, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onToggleFontCustom, fontSet, sel, surface } = ctx;
     const sidebarSurface = surface === "sidebar";
     // 「排版角色」表要按「只看改过的」筛，而**筛完是空**时要单独给一行提示 ⇒ 先算出来再渲染表。
     // ⚠️ 必须在 `React.createElement(...)` **之前**算（写成参数位置上的赋值表达式 ——
@@ -604,6 +669,41 @@
         }, weT("恢复默认")),
       ),
       sel.fontCustom && React.createElement(React.Fragment, null,
+        // ── 全局字体 / 终端字体：本机字体的两个入口 ──────────────────────────────
+        // 两行一个形状。**全局**是"默认"不是"强制"：角色表与组件表里单独设过的仍以那里为准
+        // （解析在 src/font/typography.js 的 buildTypePayload —— 角色没设才落到全局）。
+        // **终端**写的就是「高级字体设置 → 终端」那一行的同一个键
+        // （`componentFonts.terminal.family`）：两处是同一个值的两个入口，不会漂。
+        React.createElement("div", { className: "we-picker__ctl", key: "global-family" },
+          ctlText(weT("默认字体"), weT("整套界面的默认字族（全局）；角色 / 组件里单独设过的仍以那里为准")),
+          React.createElement("select", {
+            value: sanitizeFamilyKey(sel.globalFamily),
+            style: { width: "150px" },
+            onChange: (e) => onGlobalFamily(e.target.value),
+            title: weT("整套界面（含角色表覆盖不到的文字）的默认字体；任意角色 / 组件单独设了字族，那里优先"),
+          },
+            React.createElement("option", { value: "" }, weT("跟随 DSH")),
+            familyOptions(sel, { skipInherit: true, current: sanitizeFamilyKey(sel.globalFamily) }),
+          ),
+        ),
+        React.createElement("div", { className: "we-picker__ctl", key: "terminal-family" },
+          ctlText(weT("终端字体"), weT("对话里的终端块 + 侧栏终端面板（dsh-ssh）；与「高级字体设置 → 终端」同一项")),
+          React.createElement("select", {
+            value: fontFamilyKeyOf((sel.componentFonts.terminal || {}).family),
+            style: { width: "150px" },
+            onChange: (e) => onComponentFamily("terminal", e.target.value),
+            title: weT("终端字体：① 对话里的终端块（走官方 --dsl-terminal-font 钩子）② 侧栏 / SSH 终端面板（走 dsh-ssh 给皮肤留的 --dsh-ssh-terminal-font 钩子）；「跟随」= 都不覆盖，各用它们自己的默认。⚠️ 若在 dsh-ssh 的设置里填过 terminalFontFamily，那个值优先级更高"),
+          },
+            React.createElement("option", { value: "" }, weT("跟随")),
+            familyOptions(sel, { current: fontFamilyKeyOf((sel.componentFonts.terminal || {}).family) }),
+          ),
+        ),
+        // 「本机字体」那一组的状态行 + 重新扫描：在途 / 取不到 / 按文件名推测都要说出来
+        //（后两种用户会以为坏了；推测那种不说的话，用户会以为系统里真有那个族名）。
+        React.createElement("div", { className: "we-picker__row", key: "sys-font-note" },
+          React.createElement("span", { className: "we-picker__hint" }, sysFontNote(sel)),
+          sysFontRefresh(sel, onRefreshSystemFonts),
+        ),
         // F1：分角色上色。原「字体颜色」把四个角色压成同一个色（把 DSH 的四级文字层次
         // 压平）—— 那条全局折叠路径已随全局字体层删除；这里逐个角色放开，留空 = 跟随
         // 原生。经 theme 令牌层生效：body 内联、免 !important、{light,dark} 随配色自动换值。
@@ -709,8 +809,7 @@
                 title: weT("{role}：字族（跟随 = 不覆盖，用 DSH 该角色的字族）", { role: weT(role.label) }),
               },
                 React.createElement("option", { value: "" }, weT("跟随")),
-                FONT_FAMILY_LABELS.map((f) =>
-                  React.createElement("option", { key: f.v, value: f.v }, f.label)),
+                familyOptions(sel, { current: sel.themeFamily[role.id] || "" }),
               )),
             );
           }),
@@ -744,8 +843,7 @@
             // 未填时**直接显示 DSH 当前默认值**（启动自探测时顺带读回的 computed 值）。
             const d = (typeof componentFontDefaults === "function"
               ? componentFontDefaults()[target.id] : null) || {};
-            const famKey = FONT_FAMILY_LABELS.reduce(
-              (acc, f) => (acc === "" && c.family !== undefined && fontFamilyStack(f.v) === c.family ? f.v : acc), "");
+            const famKey = fontFamilyKeyOf(c.family);
             return React.createElement("tr", { key: target.id },
               React.createElement("td", null, ctlText(weT(target.label), weT("{group} · 走 {route}", { group: weT(target.group), route: target.route }))),
               React.createElement("td", null, React.createElement("input", {
@@ -776,8 +874,7 @@
                 title: weT("{target}：字体族（跟随 = 不覆盖，用 DSH 默认）", { target: weT(target.label) }),
               },
                 React.createElement("option", { value: "" }, weT("跟随")),
-                FONT_FAMILY_LABELS.map((f) =>
-                  React.createElement("option", { key: f.v, value: f.v }, f.label)),
+                familyOptions(sel, { current: famKey }),
               )),
             );
           }),

@@ -3,13 +3,13 @@
  * 与设置（src/persistence.js）**平行但另一条**通道。
  *
  * 为什么另立一条而不是并进 persistence.js：两者的**真源不同**（settings blob ↔
- * `fontsets/<id>.json`）、**键集不同**（那六个字体键已退出 settings 的持久化白名单）、
+ * `fontsets/<id>.json`）、**键集不同**（那字体键已退出 settings 的持久化白名单）、
  * **失败语义也不同**（设置丢一次是回退，字体集读不出来必须"整套不采用"）。
  * 合成一条会让"这个值到底存哪"再次变成要通读两处才能回答的问题。
  *
  * 契约（构建期由 scripts/build-client.mjs 内联进 bundle 的工厂作用域，"外部作用域" =
  * 同一 prelude / src/client.js 的顶层）：
- *   selection                      ← 共享 store（本文件**只读写那六个字体键** + 两个瞬态字段）
+ *   selection                      ← 共享 store（本文件**只读写那字体键** + 两个瞬态字段）
  *   FONTSET_KEYS / FONTSET_MIGRATED_ID / isFontSetId / sanitizeFontset ← lib/settings-schema.js
  *   BASE / apiFetch / apiJson      ← src/api-client.js（宿主 API 唯一出入口；BASE 只在调用期读）
  *   hostFailureReason              ← src/client.js（"失败到底哪一步不对"的唯一一句文案）
@@ -28,9 +28,9 @@
  *   flushFontSet() / onPageHideFlushFontSet() / onVisibilityResyncFontSet() / cancelPendingFontSet()
  *
  * 不变量：
- *   · **整套采用或整套不动**：只有拿到宿主那份完整正文（`sanitizeFontset` 出来的六个键）才写进
+ *   · **整套采用或整套不动**：只有拿到宿主那份完整正文（`sanitizeFontset` 出来的字体键）才写进
  *     selection，且是**一次** `Object.assign`。失败时保留现状（本地缓存那份）——绝不"改了一半"。
- *   · **改值只有一条路，且写必成对**：那六个键的**字面直写**只许出现在 client.js 的 `onFontResetAll`
+ *   · **改值只有一条路，且写必成对**：那些键的**字面直写**只许出现在 client.js 的 `onFontResetAll`
  *     整批重置里，紧跟一次 `persistFontSet()`（逐键走 `setFontValues` 会发 6 次 PUT）；其余改值
  *     一律经 `setFontValues`。⚠️ 上面那条"整套采用"是**刻意的例外**：它写的就是宿主那份，**不落盘**
  *     （落盘会立刻把宿主的副本再 PUT 回去）。判据：`verify-fontset` ⑦ 的字面直写棘轮（正/负对照）。
@@ -89,16 +89,16 @@ function readCachedFontSet() {
   }
 }
 /**
- * 六个键的**兜底**值（空对象 / 空 map = 不覆盖官方外观），**一定齐全、一定是对象**。
+ * 字体键的**兜底**值（空对象 / 空 map = 不覆盖官方外观），**一定齐全、一定是对象**。
  *
- * 为什么 selection 初始化必须用它：这六个键已不在 settings 白名单里 ⇒ `readPersisted()` 不再提供它们，
+ * 为什么 selection 初始化必须用它：这些键已不在 settings 白名单里 ⇒ `readPersisted()` 不再提供它们，
  * 而字体集是**异步**载入的、还可能失败。少了这份兜底，`selection` 会**根本没有这几个键**，
  * 于是面板那份 `fontCustom` 门控的「文字颜色角色」区（`sel.themeColors[role.id]`）在**打开总开关的
  * 那一刻**抛 TypeError —— React 渲染期抛 = 整个面板崩掉（症状：点「字体自定义」当场白屏）。
  * 兜底必须发生在**同步**的初始化里，且排在缓存之前（有缓存时用缓存那份）。
  */
 function fontValueDefaults() { return sanitizeFontset({}); }
-/** 启动初始化用：缓存里的六个值（没有就给兜底那份）。 */
+/** 启动初始化用：缓存里的那些值（没有就给兜底那份）。 */
 function readCachedFontSetValues() {
   const doc = readCachedFontSet();
   return doc ? doc.values : fontValueDefaults();
@@ -110,7 +110,7 @@ function writeFontSetCache(id, values) {
 // 活动集 id：宿主回的为准；未知时留空，落盘时退回 FONTSET_MIGRATED_ID。
 let activeFontSetId = "";
 /**
- * **采纳时那份值的快照**（规范化后的字符串）。「使用中」的判据是"当前这六个键 == 这份"，而**不是**
+ * **采纳时那份值的快照**（规范化后的字符串）。「使用中」的判据是"当前这些键 == 这份"，而**不是**
  * "宿主指针指着它"：用户一旦手动改过字体值（字体自定义有变更），那一行就不再是"使用中"。
  * 注意这不与写回冲突：写回把改动落进这套里，快照仍是**上次采纳时**那份 ⇒ 标记消失，直到用户重新
  * 「使用」或重载（那时读回的正是含改动的那份）⇒ 标记回来。空串 = 还没采纳过（不判漂移）。
@@ -123,7 +123,7 @@ let fontSetDirty = false;
 // 在途 GET 的竞态守卫（与 persistence.js 的 persistWrites 同形）。
 let fontSetWrites = 0;
 
-/** 当前 selection 里的六个字体值（消毒后）—— 落盘与"值有没有变"的比较共用它。 */
+/** 当前 selection 里的全部字体值（消毒后）—— 落盘与"值有没有变"的比较共用它。 */
 function pickFontValues() {
   const out = {};
   for (const key of FONTSET_KEYS) out[key] = selection[key];
@@ -240,7 +240,7 @@ async function loadFontSet() {
     selection.fontSetActive = id; // 指针（= 宿主那边正在用的那份；能力判定用它）
     // 用户在 GET 在途时改过 ⇒ 他的值更新，别覆盖（但活动 id 必须记下：写目标要对）。
     if (fontSetWrites === writesAtStart) {
-      Object.assign(selection, values); // 六个键一次写完 —— 这就是"整套采用"
+      Object.assign(selection, values); // 字体键一次写完 —— 这就是"整套采用"
       writeFontSetCache(id, values);
     }
     // 快照 = **宿主那份**（不管上面有没有覆盖 selection）：被覆盖时正好判成"已改"。

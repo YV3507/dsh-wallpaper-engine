@@ -17,11 +17,11 @@ function assertChildren(children) {
  * verify-fontset.mjs — F3「字体集文件化」的守卫（阶段 0 的前置网 + 阶段 1 的宿主侧判据）。
  *
  * 覆盖三件容易"看起来对、实际什么都没发生"的事：
- *   ① **键集（承重）**：六个字体键当前在 `KINDS` 里；共享内核的 `FONTSET_KEYS` 与本文件列出的
+ *   ① **键集（承重）**：字体键当前在 `KINDS` 里；共享内核的 `FONTSET_KEYS` 与本文件列出的
  *      键集逐字一致（单一真源，不是两份清单）。D1 把它们移出 `KINDS` 时本判据会变红
  *      ⇒ 那次改动不可能静默发生（键集变更必须与之一同改写本文件）。
  *   ② **往返**：真 `PUT /settings` → `config.json` → 读回，逐键相等。
- *   ③ **一次性迁移 + 迁移前外观 golden**：老 `config.json`（六个键内联、无 `fontSetId`）
+ *   ③ **一次性迁移 + 迁移前外观 golden**：老 `config.json`（字体键内联、无 `fontSetId`）
  *      经惰性迁移后，文件里的值必须**逐键不变**、且由它算出的外观与录下的 golden
  *      **逐锚点相同**；再叠**路径安全**的逐条负对照与"合法 id 必须成功"的配对项。
  *
@@ -34,7 +34,7 @@ function assertChildren(children) {
  * 不变量（本文件断言的对象）：
  *   · **持久化白名单 = `KINDS` 的键集**：不在其中的键在客户端序列化与宿主消毒两侧都被丢弃，
  *     不报错、不进日志（`fontSetId` 是 config.json 的根字段，故意不在键集里）。
- *   · 六个字体键经 `PUT /settings` 往返后**逐键取值不变**。
+ *   · 字体键经 `PUT /settings` 往返后**逐键取值不变**。
  *   · 负载构建是「值 → 载荷」的纯函数：同一份配置必须给出逐字相同、锚点路径相同的载荷。
  *   · 字体集 id 只认单段白名单；任何非法 id 的请求在读/写之前就被拒，目录内容不变。
  *
@@ -76,8 +76,8 @@ process.env.HOME = ISO_HOME;
 process.env.USERPROFILE = ISO_HOME;
 
 // ── 字体键集（承重判据的一部分：键集变更必须改这里）────────────────────────
-/** 六个持久化字体键。D1 若把它们移出 `KINDS`，① 与 ④ 会一起变红。 */
-const FONT_KEYS = ['themeColors', 'themeDarkSeparate', 'themeSize', 'themeWeight', 'themeFamily', 'componentFonts'];
+/** 持久化字体键。D1 若把它们移出 `KINDS`，① 与 ④ 会一起变红。 */
+const FONT_KEYS = ['themeColors', 'themeDarkSeparate', 'themeSize', 'themeWeight', 'themeFamily', 'globalFamily', 'componentFonts'];
 
 /** 往返用的取值：每一项都**非默认**，否则"丢掉了"与"存的是默认值"分不开。 */
 const FONT_VALUES = {
@@ -89,6 +89,7 @@ const FONT_VALUES = {
   themeSize: { 'markdown-h1': 24, 'markdown-small': 11 },
   themeWeight: { 'markdown-h1': 700, 'markdown-table-head': 600 },
   themeFamily: { 'markdown-h1': 'SimSun', 'markdown-base': 'monospace' },
+  globalFamily: 'sys:PingFang SC',
   componentFonts: { markdown: { size: 15, weight: 600 }, table: { family: 'Georgia' } },
 };
 
@@ -129,11 +130,15 @@ const HOOK_SCOPES = {
 const FAMILY_STACKS = {
   SimSun: '"SimSun", serif',
   monospace: 'Menlo, Consolas, monospace',
+  // 本机字体键（`sys:<族名>`）：栈 = 族名 + 宿主原字族的快照（真机由 --we-host-font-family 给）。
+  'sys:PingFang SC': '"PingFang SC", var(--we-host-font-family, system-ui, sans-serif)',
 };
 const resolveFamily = (key) => FAMILY_STACKS[key] || '';
+/** 全局字族夹具：**本机字体**键（这条路径要同时覆盖"全局"与"sys: 键"两件事）。 */
+const GLOBAL_FAMILY = 'sys:PingFang SC';
 
 /**
- * 老 `config.json` 的形状：六个字体键内联在 settings 里、没有 `fontSetId`。
+ * 老 `config.json` 的形状：字体键内联在 settings 里、没有 `fontSetId`。
  * 取值**就是** ② 的夹具 ⇒ 迁移等价可以直接拿 ② 的 golden 当判据，不必再录一份。
  */
 const LEGACY_SETTINGS = {
@@ -142,6 +147,7 @@ const LEGACY_SETTINGS = {
   themeSize: TYPE_SIZES,
   themeWeight: TYPE_WEIGHTS,
   themeFamily: TYPE_FAMILIES,
+  globalFamily: GLOBAL_FAMILY,
   componentFonts: COMPONENT_IN,
 };
 
@@ -149,7 +155,8 @@ const LEGACY_SETTINGS = {
 function buildAppearance(over = {}) {
   const colors = colorRoles.buildTokenPayload(over.colors || COLOR_IN, () => true);
   const types = typo.buildTypePayload(over.sizes || TYPE_SIZES, () => true,
-    over.weights || TYPE_WEIGHTS, over.families || TYPE_FAMILIES, resolveFamily);
+    over.weights || TYPE_WEIGHTS, over.families || TYPE_FAMILIES, resolveFamily,
+    over.global === undefined ? GLOBAL_FAMILY : over.global);
   const componentCfg = over.components || COMPONENT_IN;
   return {
     'colors.roles': colors.roles,
@@ -161,12 +168,12 @@ function buildAppearance(over = {}) {
   };
 }
 
-/** 字体集正文（6 个键）→ 外观夹具。迁移等价用它把"文件里的值"接回 ② 的 golden。 */
+/** 字体集正文（全部键）→ 外观夹具。迁移等价用它把"文件里的值"接回 ② 的 golden。 */
 function appearanceInputs(values) {
   const v = values || {};
   return {
     colors: v.themeColors, sizes: v.themeSize, weights: v.themeWeight,
-    families: v.themeFamily, components: v.componentFonts,
+    families: v.themeFamily, global: v.globalFamily, components: v.componentFonts,
   };
 }
 
@@ -223,6 +230,8 @@ const GOLDEN_LINES = [
   "type.roles[0] = \"markdown-h1\"",
   "type.roles[1] = \"markdown-base\"",
   "type.roles[2] = \"markdown-code\"",
+  "type.tokens.--dsw-font-family.dark = \"\\\"PingFang SC\\\", var(--we-host-font-family, system-ui, sans-serif)\"",
+  "type.tokens.--dsw-font-family.light = \"\\\"PingFang SC\\\", var(--we-host-font-family, system-ui, sans-serif)\"",
   "type.tokens.--dsw-font-markdown-base.dark = \"var(--dsw-font-markdown-base-font-weight) 16px / var(--dsw-font-markdown-base-line-height) var(--dsw-font-markdown-base-font-family)\"",
   "type.tokens.--dsw-font-markdown-base.light = \"var(--dsw-font-markdown-base-font-weight) 16px / var(--dsw-font-markdown-base-line-height) var(--dsw-font-markdown-base-font-family)\"",
   "type.tokens.--dsw-font-markdown-base-font-family.dark = \"Menlo, Consolas, monospace\"",
@@ -233,6 +242,8 @@ const GOLDEN_LINES = [
   "type.tokens.--dsw-font-markdown-base-font-weight.light = \"400\"",
   "type.tokens.--dsw-font-markdown-code.dark = \"13px / var(--dsw-font-markdown-code-line-height) var(--dsw-font-markdown-code-font-family)\"",
   "type.tokens.--dsw-font-markdown-code.light = \"13px / var(--dsw-font-markdown-code-line-height) var(--dsw-font-markdown-code-font-family)\"",
+  "type.tokens.--dsw-font-markdown-code-font-family.dark = \"\\\"PingFang SC\\\", var(--we-host-font-family, system-ui, sans-serif)\"",
+  "type.tokens.--dsw-font-markdown-code-font-family.light = \"\\\"PingFang SC\\\", var(--we-host-font-family, system-ui, sans-serif)\"",
   "type.tokens.--dsw-font-markdown-code-font-size.dark = \"13px\"",
   "type.tokens.--dsw-font-markdown-code-font-size.light = \"13px\"",
   "type.tokens.--dsw-font-markdown-h1.dark = \"var(--dsw-font-markdown-h1-font-weight) 24px / var(--dsw-font-markdown-h1-line-height) var(--dsw-font-markdown-h1-font-family)\"",
@@ -365,14 +376,14 @@ const settingsRoute = routes.find((r) => r.path === SETTINGS_URL);
 const fontsetsRoute = routes.find((r) => r.path === FONTSETS_URL);
 
 // ── ① 字体键集（承重）───────────────────────────────────────────────────────
-section('① 字体键集（承重：这六个键的归属一变，本判据必须变红）');
+section('① 字体键集（承重：这些键的归属一变，本判据必须变红）');
 const persistedKeys = Object.keys(schema.serializeSettings({}));
 const clientKeys = Object.keys(schema.sanitizeFromSchema({}, 'client'));
 const hostKeys = Object.keys(schema.sanitizeFromSchema({}, 'host'));
 // **阶段 2 的承重事实**：字体值自 F3 起住字体集文件，**不在** settings 的持久化白名单里。
 // 三个入口逐一断（客户端的序列化 / 客户端消毒 / 宿主消毒）—— 漏一个就等于还有一条路能把它们
 // 写回 settings blob，那时"单一真源"只是散文。
-check('六个字体键都不在持久化白名单里（客户端序列化 / 两侧消毒三处逐一）',
+check('字体键都不在持久化白名单里（客户端序列化 / 两侧消毒三处逐一）',
   FONT_KEYS.every((k) => !persistedKeys.includes(k) && !clientKeys.includes(k) && !hostKeys.includes(k)),
   '泄漏: ' + FONT_KEYS.filter((k) => persistedKeys.includes(k) || clientKeys.includes(k) || hostKeys.includes(k)).join(','));
 check('配对项：非字体键仍在白名单里（否则上面那条对"白名单整体坏掉"也成立）',
@@ -387,9 +398,9 @@ check('负对照：同一判据能把"白名单里混进字体键"点出来（�
   })());
 // kind 元数据**必须留在 KINDS 里** —— `sanitizeFontset` 要按同一份 kind 消毒。
 // （这条把"退出 settings ≠ 从 KINDS 里删掉"钉死：真删了的话下面的消毒会直接抛。）
-check('六个字体键的 kind 元数据仍在 KINDS 里（sanitizeFontset 按它消毒 ⇒ 一条消毒路径）',
+check('字体键的 kind 元数据仍在 KINDS 里（sanitizeFontset 按它消毒 ⇒ 一条消毒路径）',
   FONT_KEYS.every((k) => k in schema.KINDS && schema.KINDS[k] && typeof schema.KINDS[k].kind === 'string'));
-check('六个字体键仍在 DEFAULTS 里（字体集的默认值来源）',
+check('字体键仍在 DEFAULTS 里（字体集的默认值来源）',
   FONT_KEYS.every((k) => k in schema.DEFAULTS));
 check('共享内核的 FONTSET_KEYS 与本文件列出的键集逐字一致（单一真源，不是两份清单）',
   JSON.stringify(schema.FONTSET_KEYS) === JSON.stringify(FONT_KEYS),
@@ -447,12 +458,12 @@ if (settingsRoute && fontsetsRoute) {
   //     否则用户随便改个别的设置（拖一下模糊）就会静默带走自定义的字体外观。
   //     判据的关键在"来源"：body 必须**不带**字体键（新客户端就是这样），
   //     护栏只能取自磁盘；从 body 取等于没护栏。
-  check('前置：老形状的 config.json 里确有六个内联键（否则下面的判据是空转）',
+  check('前置：老形状的 config.json 里确有内联键（否则下面的判据是空转）',
     FONT_KEYS.every((k) => k in (readCfg().settings || {})));
   const putNoFonts = await callRoute(settingsRoute,
     fakeReqBody(SETTINGS_URL, 'PUT', schema.serializeSettings({ id: 'guard-probe', blur: 7 })));
   const afterPut = readCfg().settings || {};
-  check('迁移前：body 不带字体键的 PUT /settings 仍保住磁盘上那六个老值（不静默丢外观）',
+  check('迁移前：body 不带字体键的 PUT /settings 仍保住磁盘上那全部老值（不静默丢外观）',
     putNoFonts.__state.status === 200 && FONT_KEYS.every((k) => k in afterPut),
     '丢: ' + FONT_KEYS.filter((k) => !(k in afterPut)).join(','));
   check('同期：这次 PUT 的其它字段照常落盘（护栏不是"整份不写"）', afterPut.blur === 7);
@@ -468,7 +479,7 @@ if (settingsRoute && fontsetsRoute) {
 
   const gotRes = await callRoute(fontsetsRoute, fakeReq(FONTSETS_URL + '/default'));
   const got = bodyJson(gotRes);
-  check('迁移把老 config.json 的六个内联值原样搬进默认集（逐键 canon 相等）',
+  check('迁移把老 config.json 的内联值原样搬进默认集（逐键 canon 相等）',
     gotRes.__state.status === 200 && got && canon(got.values) === canon(schema.sanitizeFontset(LEGACY_SETTINGS)),
     got ? 'file=' + canon(got.values).slice(0, 120) : 'status=' + gotRes.__state.status);
 
@@ -484,7 +495,7 @@ if (settingsRoute && fontsetsRoute) {
 
   // 3c. D1 的终态：迁移**一次写完**"记 id + 摘掉内联键"⇒ config.json 只剩 { fontSetId, fontCustom }。
   const cfgMigrated = readCfg();
-  check('迁移后 config.json 的 settings 里不再有六个内联键（D1 终态：值只住字体集）',
+  check('迁移后 config.json 的 settings 里不再有内联键（D1 终态：值只住字体集）',
     cfgMigrated.fontSetId === 'default' && FONT_KEYS.every((k) => !(k in (cfgMigrated.settings || {}))),
     '仍在: ' + FONT_KEYS.filter((k) => k in (cfgMigrated.settings || {})).join(','));
   check('活动 id 记在 config.json 的**根字段**（不是 settings 的键集里）',
@@ -809,17 +820,17 @@ section('⑦ 客户端通道（静态契约：字体值不再经 settings 出去
   const strip = stripComments;
   const clientCode = strip(clientSrc);
 
-  // 7a. **承重**：这六个键**不许**再经 setSetting 出去 —— 那条通道的白名单已经不带它们，
+  // 7a. **承重**：这些键**不许**再经 setSetting 出去 —— 那条通道的白名单已经不带它们，
   //     写了就是静默丢（"拖了滑块没反应"的形态，而且没有任何东西会红）。
   const viaSetting = FONT_KEYS.filter((k) => new RegExp('setSetting\\(\\s*["\']' + k + '["\']').test(clientCode));
-  check('六个字体键都不再经 setSetting 落盘（写了就是静默丢）',
+  check('字体键都不再经 setSetting 落盘（写了就是静默丢）',
     viaSetting.length === 0, viaSetting.join(',') || '零处');
   check('负对照：同一判据对合成的一行有牙',
     FONT_KEYS.some((k) => new RegExp('setSetting\\(\\s*["\']' + k + '["\']').test('setSetting("' + k + '", next);')));
   // 7a′ **"唯一入口"必须真的唯一**：只数 `setFontValues(` 的调用点是不够的 —— 直写的**另一条路**
   //     照样能把"改了不生效 / 刷新后回退"带回来（逐键手抄"赋值 + 落盘"正是它要消掉的东西），
   //     而那种写法**不会**让"调用点 ≥6"这条判据变红。
-  //     那六个键共三条写路径，其中两条**不以字面赋值出现**、且都是刻意的：
+  //     那些键共三条写路径，其中两条**不以字面赋值出现**、且都是刻意的：
   //       · `setFontValues(patch)`      —— `for (const key of FONTSET_KEYS) … selection[key] = …`（唯一落盘入口）
   //       · `loadFontSet` 的整套采用     —— 一次 `Object.assign(selection, values)`，**刻意不落盘**（写的就是宿主那份）
   //       · `onFontResetAll` 的整批重置 —— 6 个字面赋值 + 紧跟 `persistFontSet()`（逐键走 setFontValues 会发 6 次 PUT）
@@ -834,7 +845,7 @@ section('⑦ 客户端通道（静态契约：字体值不再经 settings 出去
   };
   {
     const w = literalFontWrites(clientCode);
-    check('六个键的字面直写**只**出现在「恢复默认」的整批重置里',
+    check('字体键的字面直写**只**出现在「恢复默认」的整批重置里',
       w.total === FONT_KEYS.length && w.inBody === FONT_KEYS.length,
       '总计=' + w.total + ' / 其中在整批重置里=' + w.inBody + '（期望 ' + FONT_KEYS.length + '/' + FONT_KEYS.length + '）');
     check('整批重置**写必成对**：赋值之后跟了 persistFontSet()（否则"恢复默认"改了不生效）',
@@ -868,17 +879,17 @@ section('⑦ 客户端通道（静态契约：字体值不再经 settings 出去
     && /removeEventListener\("visibilitychange", onVisibilityResyncFontSet\)/.test(clientCode)
     && /cancelPendingFontSet\(\)/.test(clientCode));
 
-  // 7d2. **崩溃修复（点「字体自定义」白屏）的判据链**。根因：那六个键已不在 settings 白名单里
+  // 7d2. **崩溃修复（点「字体自定义」白屏）的判据链**。根因：那些键已不在 settings 白名单里
   //      ⇒ `readPersisted()` 不再提供它们，而字体集是异步载入、还可能失败 ⇒ `selection` 里
   //      **根本没有** themeColors 等键；面板那份 `fontCustom` 门控的配色区（`sel.themeColors[role.id]`）
   //      恰好在打开开关那一刻首次求值 ⇒ React 渲染期抛 TypeError ⇒ 整个面板崩掉。
   //      三样一起钉：① 初始化必须有兜底且在缓存之前；② 兜底是"全函数"；③ 边界处还有第二道。
-  check('selection 初始化带六个键的兜底，且排在缓存之前（缺了就是"点开关白屏"）',
+  check('selection 初始化带字体键的兜底，且排在缓存之前（缺了就是"点开关白屏"）',
     /\.\.\.fontValueDefaults\(\),\s*\n\s*\.\.\.readCachedFontSetValues\(\),/.test(clientCode));
   check('负对照：同一判据对"只有缓存、没有兜底"的初始化有牙',
     !/\.\.\.fontValueDefaults\(\),\s*\n\s*\.\.\.readCachedFontSetValues\(\),/
       .test('  ...readPersisted(),\n  ...readCachedFontSetValues(),'));
-  check('兜底是**全函数**：空输入也必须给出六个键、且形状可读（面板直接下标不抛）',
+  check('兜底是**全函数**：空输入也必须给出字体键、且形状可读（面板直接下标不抛）',
     (() => {
       const d = schema.sanitizeFontset({});
       return FONT_KEYS.every((k) => k in d)
@@ -948,7 +959,7 @@ const FONTSET_ROWS = [
 
 // ── ⑧ 面板渲染回归（"点『字体自定义』白屏"）──────────────────────────────────
 // 崩溃形状（已实测复现）：`renderAppearanceTab` 里配色区**只在总开关打开时渲染**，
-// 而它读 `sel.themeColors[role.id]` —— 那六个键已不在 settings 白名单里，若 selection 初始化
+// 而它读 `sel.themeColors[role.id]` —— 那些键已不在 settings 白名单里，若 selection 初始化
 // 没给兜底、字体集又还没载入，这个下标就是 `undefined['primary']` ⇒ React 渲染期抛 ⇒ 整个面板崩。
 // 本段直接渲染那个页签（面板模块 + 真角色表 + client.js 的助手 stub），把"渲染得出"钉成判据。
 section('⑧ 面板渲染回归（配色区在总开关打开时必须渲染得出）');{
@@ -990,6 +1001,8 @@ section('⑧ 面板渲染回归（配色区在总开关打开时必须渲染得�
     // 同理（wip §10.13）：「玻璃 UI」节的渲染器已抽到 `src/glass-panel.js`，
     // `panel-tabs.js` 里对它的调用只在**打包后**同作用域 ⇒ 这里也要映成全局。
     await import(pathToFileURL(join(root, 'src', 'glass-panel.js')).href),
+    // 面板还会调 `filterUsableSystemFonts(...)`（本机字体那道"本浏览器能否匹配"的筛，同一条理由）。
+    await import(pathToFileURL(join(root, 'src', 'system-fonts.js')).href),
     schema,
   ];
   for (const mod of preludeMods) for (const [k, v] of Object.entries(mod)) globalThis[k] = v;

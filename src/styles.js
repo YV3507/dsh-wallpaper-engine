@@ -465,6 +465,14 @@ const CSS = `
        （用户口径：代码块不和输入框一起）。缺省 1 = 与全局完全同值。 */
     --we-chat-readability-floor: calc(var(--we-readability-floor-base) * var(--we-chat-glass-fidelity, 1));
     --we-chat-readability-base: var(--we-chat-surface-tint-light, #ffffff);
+    /* ⚠️ 这两条必须排在 --we-readability-base **之后**：verify-readability 的 F1c 按
+       "floor 紧跟 base" 的正则取这两条声明（插在中间会让整条可读性网格读到 null）。
+       侧栏「跟随全局」用的玻璃色：与其余面板**同一个**按主题钳制后的染色地板值 ——
+       内联写死会盖掉"按主题"，所以由样式表给；effects 里只写 var(--we-follow-tint)。
+       侧栏的釉（镜面渐变三档）也收在这里：原生左栏与 dsh-better-sidebar 两侧栏共用同一道，
+       否则"跟随全局"之后两侧栏仍会差一层白釉。 */
+    --we-follow-tint: var(--we-surface-tint-light, #ffffff);
+    --we-panel-sheen-a: 0.10; --we-panel-sheen-b: 0.03; --we-panel-sheen-c: 0.05;
     --we-panel-color: var(--dsw-static-neutral-bluish-00, #ffffff);
   }
   body[data-ds-dark-theme] {
@@ -473,6 +481,8 @@ const CSS = `
     --we-readability-base: var(--we-surface-tint-dark, #0d1524);
     --we-chat-readability-floor: calc(var(--we-readability-floor-base) * var(--we-chat-glass-fidelity, 1));
     --we-chat-readability-base: var(--we-chat-surface-tint-dark, #0d1524);
+    --we-follow-tint: var(--we-surface-tint-dark, #0d1524);
+    --we-panel-sheen-a: 0.07; --we-panel-sheen-b: 0.02; --we-panel-sheen-c: 0.03;
     --we-panel-color: var(--dsw-static-neutral-bluish-875, #1e1f26);
   }
 
@@ -616,6 +626,37 @@ const CSS = `
   }
   body[data-we-wallpaper][data-we-thinking-glass] [data-composer-card] [class*="_add"]:hover:not(:disabled) {
     background: color-mix(in srgb, rgba(255, 255, 255, 0.24) 100%, transparent) !important;
+  }
+
+  /* ── 轨迹（trajectory）视图的内容区：补**霜** ──────────────────────────────
+     现场口径："轨迹内容区域也同样做玻璃化"。实测根因**不是**"没映射令牌"：轨迹模块的内容容器
+     读的就是 --dsw-alias-bg-layer-1（.rkta1W_split / _overviewPreview / _programPanel 都是），
+     而那条我们早就映射成玻璃配方了 —— 所以它其实**已经半透明**。真正缺的是**霜**：整个轨迹
+     模块**一条 backdrop-filter 都没有**（实测 289 条规则里零条），于是它在花壁纸上只是
+     "平涂的一层纱"，读起来就是"没玻璃化"（与侧栏面板当初那圈"黑框"同一类问题，只是这次缺霜不缺底）。
+     这里**只补霜 + 镜面釉，不再叠一层底**：父层已经拿到玻璃配方，再叠一层会让两层下限相乘、
+     越叠越不透明 —— 那正好把这次想要的那点通透又收回去。
+     选择器只用**轨迹模块独有**的类名子串（实测 _tablePane / _overviewPreview / _programPanel
+     全宿主只有轨迹模块在用；_details / _split 别的模块也有 ⇒ 不碰：宁可少盖一层，也不误伤别处）。
+     CSS 模块哈希是构建产物，稳定的是 "_<类名>" 这半边（与 [class*="_bubble"] / [class*="_panel"]
+     同一手法）。
+     ⚠️ 实测该模块里没有 position:fixed ⇒ 在这些元素上加 backdrop-filter 不会让 fixed 后代改锚
+     （#89 那类问题）；模糊挂在滚动区上与侧栏面板同一条政策。回退档不需要额外处理：那一条
+     --dsw-alias-bg-layer-1 已经被钉回不透明面板色，底下不再是壁纸。 */
+  body[data-we-wallpaper] [class*="_tablePane"],
+  body[data-we-wallpaper] [class*="_overviewPreview"],
+  body[data-we-wallpaper] [class*="_programPanel"] {
+    /* 与侧栏面板同一档镜面釉（比气泡那档再淡一点：这是大片内容区，太亮会发白）。 */
+    background-image: linear-gradient(180deg,
+      rgba(255, 255, 255, 0.14),
+      rgba(255, 255, 255, 0.04) 38%,
+      rgba(255, 255, 255, 0.01));
+    -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.32),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.08),
+      inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
   }
   /* Note (anti-flicker): the composer/bubbles keep ONLY the backdrop-filter
      glass. Extra always-on layers (transform/will-change/contain) were removed —
@@ -865,17 +906,23 @@ const CSS = `
     /* 顶层白光釉：与设置窗口同一道镜面渐变。它同时**顶掉**壳层 darwin 那条
        「淡蓝渐变 + fill 混色」的左栏背景（background-image 是同一长属性）。 */
     background-image: linear-gradient(180deg,
-      rgba(255, 255, 255, 0.10) 0%,
-      rgba(255, 255, 255, 0.03) 38%,
-      rgba(255, 255, 255, 0.05) 100%);
+      rgba(255, 255, 255, var(--we-panel-sheen-a)) 0%,
+      rgba(255, 255, 255, var(--we-panel-sheen-b)) 38%,
+      rgba(255, 255, 255, var(--we-panel-sheen-c)) 100%);
     /* 模糊不在这里：backdrop-filter 会把这列变成 fixed 后代的包含块（见上），
        已移交给本列 ::before 的那条规则。 */
-    /* 边框：这一列的竖分割线（以及「新建会话」按钮描边）读的是 --dsw-alias-border-l3 ——
-       壁纸令牌映射只接管了 l1/l2，这就是「边框」滑杆此前对左栏完全无感的原因。
-       darwin 上壳层把这条边置为 none（原生无分割线），这里显式补回：既然这一列已经被
-       接管成玻璃面板，一条随「边框」变浓淡的发丝线才是与其他面板一致的口径。 */
+    /* 边框：这一列**内部**的描边（「新建会话」按钮、焦点环等）读 --dsw-alias-border-l3 ——
+       壁纸令牌映射只接管了 l1/l2，这就是「边框」滑杆此前对左栏完全无感的原因。这一条**保留**：
+       「边框」滑杆继续管这一列里面的描边。
+       ⚠️ 而这一列**自己的竖分割线改为不画**（现场口径："左侧边栏右边框线不要显示，
+       即使全局设置了边框拉到了90%"）。此前是**刻意补**上去的（darwin 壳层把原生那条置为
+       none，补回来是为了与其余面板口径一致）；现在改成明确的 none：这一列已经是一整块玻璃，
+       再画一条竖线就把它与会话区切成两半。
+       ⚠️ 必须是**显式 none**，不能只是删掉那行声明：非 darwin 壳层自己有一条读
+       --dsw-alias-border-l3 的边框，删声明会让它在别的平台上回来。判据见
+       verify-glass-compositing 的 S2（含"种回发丝线即判红"的负对照）。 */
     --dsw-alias-border-l3: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
-    border-right: 0.5px solid rgba(180, 180, 180, var(--we-border-alpha, 0.35));
+    border-right: none;
     /* 配色：与设置窗口同一组 accent 映射（选中 / 悬停行 = interactive-bg-hover，
        业务状态点 = state-business-primary，链接与强调文字 = brand-*），
        作用域只在这一列 —— 自定义属性沿 DOM 继承，出不去这一列的子树。 */
@@ -904,9 +951,9 @@ const CSS = `
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
       color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) calc(var(--we-left-sidebar-alpha) * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
     background-image: linear-gradient(180deg,
-      rgba(255, 255, 255, 0.07) 0%,
-      rgba(255, 255, 255, 0.02) 38%,
-      rgba(255, 255, 255, 0.03) 100%);
+      rgba(255, 255, 255, var(--we-panel-sheen-a)) 0%,
+      rgba(255, 255, 255, var(--we-panel-sheen-b)) 38%,
+      rgba(255, 255, 255, var(--we-panel-sheen-c)) 100%);
     --dsw-alias-interactive-bg-hover: color-mix(in srgb, var(--we-accent, #4f8cff) 14%, rgba(255, 255, 255, 0.04));
   }
   /* 无 backdrop-filter：同一政策 —— 近不透明玻璃，文字绝不直接落在壁纸上
@@ -919,6 +966,20 @@ const CSS = `
     body[data-ds-dark-theme][data-we-wallpaper][data-we-left-sidebar] div:has(> [data-slot="sidebar"]) {
       background-color: color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) 92%, transparent);
     }
+  }
+
+  /* 侧栏的釉取哪一份：跟随全局 ⇒ 与左栏同一道（--we-panel-sheen-*）；
+     自定义 ⇒ 旧的"随透明度衰减"曲线（--we-sidebar-sheen）。两档都只定义变量，
+     面板规则本身不必分叉。 */
+  body[data-we-sidebar-follow] {
+    --we-sidebar-sheen-a: var(--we-panel-sheen-a);
+    --we-sidebar-sheen-b: var(--we-panel-sheen-b);
+    --we-sidebar-sheen-c: var(--we-panel-sheen-c);
+  }
+  body[data-we-sidebar-glass]:not([data-we-sidebar-follow]) {
+    --we-sidebar-sheen-a: calc(var(--we-sidebar-sheen) * 0.14);
+    --we-sidebar-sheen-b: calc(var(--we-sidebar-sheen) * 0.04);
+    --we-sidebar-sheen-c: calc(var(--we-sidebar-sheen) * 0.01);
   }
 
   /* ── dsh-better-sidebar glass ──────────────────────────────────────────────
@@ -952,9 +1013,9 @@ const CSS = `
        0.32/0.08/0.06); only toward transparency does the white glaze fade,
        so 100% is truly near-transparent instead of pale white. */
     background-image: linear-gradient(180deg,
-      rgba(255, 255, 255, calc(var(--we-sidebar-sheen) * 0.14)),
-      rgba(255, 255, 255, calc(var(--we-sidebar-sheen) * 0.04)) 38%,
-      rgba(255, 255, 255, calc(var(--we-sidebar-sheen) * 0.01))) !important;
+      rgba(255, 255, 255, var(--we-sidebar-sheen-a)),
+      rgba(255, 255, 255, var(--we-sidebar-sheen-b)) 38%,
+      rgba(255, 255, 255, var(--we-sidebar-sheen-c))) !important;
     -webkit-backdrop-filter: blur(var(--we-sidebar-blur)) saturate(var(--we-sidebar-saturate)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
     backdrop-filter: blur(var(--we-sidebar-blur)) saturate(var(--we-sidebar-saturate)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
     box-shadow:
@@ -1052,9 +1113,9 @@ const CSS = `
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
       color-mix(in srgb, var(--we-sidebar-color) var(--we-sidebar-tint), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
     background-image: linear-gradient(180deg,
-      rgba(255, 255, 255, calc(var(--we-sidebar-sheen) * 0.14)),
-      rgba(255, 255, 255, calc(var(--we-sidebar-sheen) * 0.04)) 38%,
-      rgba(255, 255, 255, calc(var(--we-sidebar-sheen) * 0.01))) !important;
+      rgba(255, 255, 255, var(--we-sidebar-sheen-a)),
+      rgba(255, 255, 255, var(--we-sidebar-sheen-b)) 38%,
+      rgba(255, 255, 255, var(--we-sidebar-sheen-c))) !important;
     -webkit-backdrop-filter: blur(var(--we-sidebar-blur)) saturate(var(--we-sidebar-saturate)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
     backdrop-filter: blur(var(--we-sidebar-blur)) saturate(var(--we-sidebar-saturate)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
     box-shadow:
@@ -1267,7 +1328,20 @@ const CSS = `
       --dsw-alias-bg-layer-2: var(--we-panel-color, #ffffff);
       --dsw-alias-bg-layer-3: var(--we-panel-color, #ffffff);
       --dsw-alias-button-elevated-fill: var(--we-panel-color, #ffffff);
+      /* markdown 代码块 / 行内代码也在这张回退表里：没有模糊时半透明 = 文字直接压在
+         花壁纸上，代码注释／字符串首当其冲（与上面 .cm-editor / .xterm 同一条政策）。 */
+      --dsw-alias-markdown-code-block: var(--we-panel-color, #ffffff);
+      --dsw-alias-markdown-code-block-banner: var(--we-panel-color, #ffffff);
+      --dsw-alias-markdown-inline-code: var(--we-panel-color, #ffffff);
+      --dsw-alias-markdown-tag: var(--we-panel-color, #ffffff);
+      --dsw-alias-markdown-code-segment-unselected: var(--we-panel-color, #ffffff);
+      --dsw-alias-markdown-code-segment-selected: var(--we-panel-color, #ffffff);
+    /* ⚠️ 合并 #134（审计口径修正的配套）：selector 令牌在无模糊内核上同样钉不透明，
+       但它属思考玻璃一族（主值已挂门）⇒ 这条回退行也挂门，保持"关 = 现状"。 */
+    body[data-we-wallpaper][data-we-thinking-glass],
+    body[data-ds-dark-theme][data-we-wallpaper][data-we-thinking-glass] {
       --dsw-specific-selector: var(--we-panel-color, #ffffff);
+    }
     }
   }
 

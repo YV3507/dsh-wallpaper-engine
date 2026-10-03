@@ -719,20 +719,20 @@ setTimeout(async () => {
       // 三条注册表项 ⇒ 恰好三张模块卡（漏一个模块、或把别的东西当模块画进去都会现形）。
       assert.equal((extText.match(/"we-ext__module"/g) || []).length, 3,
         '注册表里三项 ⇒ 「扩展」页签必须画出三张模块卡');
-      // 一号模块的总开关**默认开**（这一版把维护者实际调好的那套参数固化成默认值，见
-      // lib/settings-schema.js 的 metrics 段）⇒ 它那一串参数一进面板就在；另两个模块仍默认关，
-      // 关着就不该出现参数控件，否则会给人"关着也生效"的错觉（这两条同时钉住默认值没被误改成 true）。
-      assert.ok(extText.includes('荧光强度') && extText.includes('柱配色'),
-        '一号模块总开关默认开 ⇒ 它的参数控件必须直接画出来');
+      // 2026-10-04 用户口径：扩展三模块的出厂开关**全部默认关、按需开启**
+      //（一号模块此前的"默认开"是 v1 固化口径，已按用户测试结论改回）⇒ 三个模块的
+      // 参数控件默认一律不画，否则会给人"关着也生效"的错觉；三条同时钉住默认值没被误改成 true。
+      assert.ok(!extText.includes('荧光强度') && !extText.includes('柱配色'),
+        '一号模块总开关（默认关）下不得画出参数控件');
       assert.ok(!extText.includes('点击样式') && !extText.includes('拖尾光晕'),
         '二号模块总开关关闭时不得画出任何参数控件');
       assert.ok(!extText.includes('背景缓动距离') && !extText.includes('缓动平滑'),
         '三号模块总开关关闭时不得画出任何参数控件');
-      // 默认已开（上面已判）；这里再走一次它自己的 onChange 证明处理器真的接上了，
-      // 随后位置与大小 + 柱形 + 阈值 + 观感四项 + 柱形/配色 + 序列名称 + 五条序列都得在。
+      // 默认关（上面已判）；这里再走一次它自己的 onChange 证明处理器真的接上了 ——
+      // 打开后 位置与大小 + 柱形 + 阈值 + 观感四项 + 柱形/配色 + 序列名称 + 五条序列都得在。
       const metricsOn = findCtlInput(extTree, '启用资源柱状图');
       assert.ok(metricsOn, '扩展岛必须画出总开关（findCtlInput 能取到它的 onChange）');
-      assert.equal(metricsOn && metricsOn.props.checked, true, '一号模块的总开关默认必须是开的');
+      assert.equal(metricsOn && metricsOn.props.checked, false, '一号模块的总开关默认必须是关的');
       if (metricsOn) {
         metricsOn.props.onChange({ target: { checked: true } });
         flushPersistWrites();
@@ -1202,6 +1202,26 @@ setTimeout(async () => {
     assert.ok(treeText.includes('type":"color"'), 'custom color input present:');
     assert.ok(treeText.includes('玻璃透明度'), 'glass transparency slider row present:');
     assert.ok(treeText.includes('"侧栏液态玻璃"'), 'sidebar-glass master switch present:');
+    // ── 跟随全局（sidebarFollowGlobal，默认开；现场口径："我需要侧栏玻璃也跟随全局"）──
+    //    合并 #132 后旋钮住在「侧栏玻璃·独立配置」下 ⇒ 跟随开着时收起的是那个开关本身：
+    //    画出来又不生效的旋钮正是要防的（WIP 原口径）。内容面与跟随无关 ⇒ 独立配置照旧在场。
+    const followSwitch = findCtlInput(tree, '侧栏玻璃跟随全局');
+    assert.ok(followSwitch, 'follow-global switch present:');
+    assert.equal(bodyEl.attributes['data-we-sidebar-follow'], 'on', '默认跟随 ⇒ body 上有跟随属性');
+    assert.equal(findCtlInput(tree, '侧栏玻璃·独立配置'), null, '跟随开着时侧栏「独立配置」收起（不画死旋钮）');
+    assert.equal(findSliderRow(tree, '侧栏模糊'), null, '跟随开着时不得画出「侧栏模糊」（精确标签，防 tooltip 骗过）');
+    assert.equal(findSliderRow(tree, '侧栏透明度'), null, '跟随开着时不得画出「侧栏透明度」');
+    assert.equal((JSON.stringify(tree).match(/"aria-label":"侧栏玻璃颜色 /g) || []).length, 0,
+      '跟随开着时不得画出侧栏玻璃颜色色板');
+    assert.ok(findCtlInput(tree, '内容面玻璃·独立配置'), '内容面独立配置不受跟随开关影响:');
+    // 关掉跟随 ⇒ 侧栏「独立配置」出现（能力没丢），body 属性随之摘掉。
+    followSwitch.props.onChange({ target: { checked: false } });
+    assert.equal(bodyEl.attributes['data-we-sidebar-follow'], undefined,
+      '关掉跟随必须摘掉 body 属性（否则侧栏的釉仍取共享那一份）');
+    tree = renderPicker();
+    treeText = JSON.stringify(tree);
+    assert.ok(findCtlInput(tree, '侧栏玻璃·独立配置'), '关掉跟随 ⇒ 侧栏「独立配置」出现:');
+    // ⚠️ 基线交付给下面 #132 的判据主体：跟随关着 ⇒ 它的开关流/量程/退役判据照原样跑。
     // ⚠️ 本批（wip §10.24）：侧栏家族与内容面的滑块挂在**各自的「独立配置」**下面 ——
     //    登记表那四个子面一直是这个口径（参数只在独立配置打开后才出现），而这两个既有面
     //    原先**没有开关**、滑块是**死的**；补上入口后行为与那四个统一。
@@ -1252,6 +1272,13 @@ setTimeout(async () => {
     assert.ok(!treeText.includes('设置窗口液态玻璃'), 'retired「设置窗口液态玻璃」switch must be gone:');
     assert.ok(treeText.includes('设置窗口玻璃·独立配置'), 'the child independent switch takes over:');
     assert.ok(treeText.includes('整个设置窗口'), 'window glass hint stays (now on the child switch):');
+
+    // 收尾：跟随开回默认态 ⇒ 「独立配置」又收起、属性回来（完整往返双向钉住）。
+    followSwitch.props.onChange({ target: { checked: true } });
+    assert.equal(bodyEl.attributes['data-we-sidebar-follow'], 'on', '重新打开跟随 ⇒ 属性回来');
+    tree = renderPicker();
+    treeText = JSON.stringify(tree);
+    assert.equal(findCtlInput(tree, '侧栏玻璃·独立配置'), null, '重新打开跟随 ⇒ 「独立配置」又收起');
 
     // ── 「字体」已并入「外观」：老的 localStorage 页签值必须迁移过去（不能把用户
     //    甩回「壁纸」），且字体三件套 + 输入光标都在「外观」里。 ──
@@ -2303,7 +2330,7 @@ setTimeout(async () => {
       //    `fontsets/<id>.json`（客户端通道见 src/fontset-store.js，宿主侧见 lib/routes/fontsets.js）。
       //    与下面的 golden 夹具互为印证：这些键一旦回到白名单，宿主输出就会多出它们、夹具当场漂移。
       //    kind 元数据与默认值**仍须在册**：`sanitizeFontset` 按 `KINDS` 的 kind 消毒、按 `DEFAULTS` 兜底。
-      const FONT_KEYS = ['themeColors', 'themeDarkSeparate', 'themeSize', 'themeWeight', 'themeFamily', 'componentFonts'];
+      const FONT_KEYS = ['themeColors', 'themeDarkSeparate', 'themeSize', 'themeWeight', 'themeFamily', 'globalFamily', 'componentFonts'];
       assert.deepEqual(FONT_KEYS.filter((k) => persisted.includes(k) || hostSan.includes(k)), [],
         '字体值自 F3 起住字体集文件，不得回到 settings 白名单');
       assert.ok(FONT_KEYS.every((k) => k in KINDS && k in DEFAULTS),
@@ -2468,6 +2495,11 @@ setTimeout(async () => {
         'src/persistence.js': {
           why: '启动加载期的一次性赋值（宿主→本地合并的结果），随后由调用方 emit',
           fields: ['hostLoaded', 'sidebarPresent'],
+        },
+        'src/system-fonts.js': {
+          why: '本机字体清单通道的瞬态（不落盘、不进字体集）：清单 / 在途 / 失败文案 / 取得时刻'
+            + '由 ensureSystemFonts 的取数生命周期写入，面板渲染期读取（client.js selection 初始化处有同段注释）',
+          fields: ['systemFonts', 'systemFontsApproximate', 'systemFontsAt', 'systemFontsError', 'systemFontsLoading'],
         },
         'src/video-layer.js': {
           why: '视频通道拥有这三个字段的写入权（client.js 那段注释写明）；进度由 /transcode-progress 轮询驱动，'

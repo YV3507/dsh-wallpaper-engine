@@ -346,6 +346,21 @@ function main() {
     ['app surface layer 2 (dark)', '--dsw-alias-bg-layer-2', 'body[data-ds-dark-theme][data-we-wallpaper]'],
     ['app surface layer 3 (dark)', '--dsw-alias-bg-layer-3', 'body[data-ds-dark-theme][data-we-wallpaper]'],
     ['app raised button face (dark)', '--dsw-alias-button-elevated-fill', 'body[data-ds-dark-theme][data-we-wallpaper]'],
+    // markdown 代码块 / 行内代码（用户口径："代码块和重点文字背景也要和对话框一样玻璃化"）：
+    // 它们以前保持宿主实色、因此不在表内；一旦按玻璃配方映射就成了文字面（shiki 前景色
+    // 压在它上面）⇒ 必须与气泡 / 面板同一条下限，明暗两套都要。
+    ['code block token (light)', '--dsw-alias-markdown-code-block', 'body[data-we-wallpaper]'],
+    ['code block banner token (light)', '--dsw-alias-markdown-code-block-banner', 'body[data-we-wallpaper]'],
+    ['inline code token (light)', '--dsw-alias-markdown-inline-code', 'body[data-we-wallpaper]'],
+    ['markdown tag token (light)', '--dsw-alias-markdown-tag', 'body[data-we-wallpaper]'],
+    ['code segment token (light)', '--dsw-alias-markdown-code-segment-unselected', 'body[data-we-wallpaper]'],
+    ['selected code segment token (light)', '--dsw-alias-markdown-code-segment-selected', 'body[data-we-wallpaper]'],
+    ['code block token (dark)', '--dsw-alias-markdown-code-block', 'body[data-ds-dark-theme][data-we-wallpaper]'],
+    ['code block banner token (dark)', '--dsw-alias-markdown-code-block-banner', 'body[data-ds-dark-theme][data-we-wallpaper]'],
+    ['inline code token (dark)', '--dsw-alias-markdown-inline-code', 'body[data-ds-dark-theme][data-we-wallpaper]'],
+    ['markdown tag token (dark)', '--dsw-alias-markdown-tag', 'body[data-ds-dark-theme][data-we-wallpaper]'],
+    ['code segment token (dark)', '--dsw-alias-markdown-code-segment-unselected', 'body[data-ds-dark-theme][data-we-wallpaper]'],
+    ['selected code segment token (dark)', '--dsw-alias-markdown-code-segment-selected', 'body[data-ds-dark-theme][data-we-wallpaper]'],
     ['sidebar panel (light)', 'background-color', 'body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_panel"]'],
     ['sidebar chrome group (light)', 'background-color', 'body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_terminalWrap"]'],
     ['sidebar panel (dark)', 'background-color', 'body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_panel"]'],

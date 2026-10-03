@@ -61,7 +61,6 @@ const ZERO_COVERAGE_WHY = {
 const NO_MODULE_TARGET_WHY = {
   'verify-dead-declarations.mjs': '管的是**声明孤儿**（跨全部独立脚本面），不针对某个模块',
   'verify-route-families.mjs': '管的是**路由族触发线**（枚举口径经 `test/tools/host-route-index.mjs` 的 `buildIndex()` 重算）',
-  'verify-media-bridge.mjs': '媒体桥端到端自检：产物路径是**运行时算出来**的（下载/校验中间件二进制），不引用任何模块',
   'compat-harness-live.mjs': '真 harness 安装/启动探活（不读源文件）',
   'compat-harness-pages.mjs': '无头浏览器逐页 DOM 断言（不读源文件）',
   'compat-harness-surfaces.mjs': 'UI 面清单棘轮 + sidebar 源码活判据（读的是已安装的 harness 包）',

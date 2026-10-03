@@ -782,6 +782,8 @@ console.log('\n⑥ settings golden 夹具的键集快照（新增键必须逐用
     'rotationInterval', 'sceneFrameUrl',
     'componentFonts', 'fontAdvanced', 'fontSetOpen',
     'themeColors', 'themeDarkSeparate', 'themeFamily', 'themeSize', 'themeTypeOnly', 'themeWeight',
+    // WIP 的 `globalFamily`（familyKey）同属 FONTSET_KEYS ⇒ 只在 DEFAULTS_ONLY 回落里现身。
+    'globalFamily',
   ]);
 
   /** 判据：给定一个期望对象与快照，报出缺键 / 多键（忽略逐用例可变键）。纯函数。 */

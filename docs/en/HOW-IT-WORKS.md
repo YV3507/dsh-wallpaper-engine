@@ -257,6 +257,20 @@ switches all of them at once, which is what "one look" means here.
   The three font channels and their invariants live in the file headers under `src/font/` — see
   [`FONT-SYSTEM.md`](../FONT-SYSTEM.md) for the index.
 
+### The installed-font list: ask the OS, then cache it
+
+Besides the built-in family keys, the "default font (global)" and "terminal font" dropdowns offer the
+**fonts installed on this machine**. That list is **not** produced by the plugin reading font files — it
+**asks the operating system** (on macOS **two legs run in parallel**: `system_profiler` for the
+**localized** names and CoreText for the **canonical/English** ones, unioned — so both `苹方-简` and
+`PingFang SC` are selectable; Windows PowerShell's `InstalledFontCollection`; Linux `fc-list`); when none
+of those answers, names are derived from **font file names** and the result is
+**honestly marked as a guess** (the panel says so). A single scan is expensive (seconds to tens of seconds
+on macOS) ⇒ two cache layers, stale values served first with a background rescan, and a "Rescan" button in
+the panel; **nothing is scanned at startup** (the first real use triggers it). ⚠️ **The names a system lists are not necessarily names a browser can match** (64 of 309 resolve to nothing on this machine: system-reserved faces such as `Apple Color Emoji` / `Symbol` / `Zapf Dingbats`, plus alternate spellings like `苹方-繁`) — when the panel renders it probes whether each name actually works in this browser, skips the ones that do not, and **says how many were skipped**, so a dead option is never mistaken for a broken feature. The decision and its costs
+are in [ADR-0009](../adr/0009-system-fonts-from-the-os.md); the mechanism invariants live in the headers of
+`lib/routes/system-fonts.js` and `src/system-fonts.js`.
+
 ### Captured-frame geometry validation (viewport aspect ratio)
 
 A captured frame is "the composition of the renderer viewport at the moment of capture" — the renderer

@@ -195,6 +195,13 @@ const INLINE_MODULES = [
     markers: ['const PARALLAX_EXTENSION_MODULE = {', 'function renderParallaxIsland(ctx)'],
   },
   {
+    file: 'src/system-fonts.js',
+    why: '本机字体清单的客户端通道：宿主那次进程扫描的唯一读者（清单 / 缓存 / 失败文案 / 本浏览器能否匹配的探针），与字体集通道同形',
+    markers: ['const SYSTEM_FONTS_CACHE_KEY = ', 'function readCachedSystemFonts()',
+      'async function ensureSystemFonts(', 'function systemFontKeyList(',
+      'function filterUsableSystemFonts('],
+  },
+  {
     file: 'src/panel-tabs.js',
     why: '面板页签的渲染器（一个页签一个 render*Tab，其中「扩展」页签只画 extensionModules() 里登记的模块；「玻璃 UI」节已抽到 src/glass-panel.js）—— 显式 ctx 取外界',
     markers: ['function renderWallpaperTab(ctx)', 'function renderAppearanceTab(ctx)',

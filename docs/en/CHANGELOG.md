@@ -496,6 +496,95 @@
   while the comment still said "inline below the list"). Sourced measurements and "why it is this way" rationale are
   **kept per §writing-discipline 2** (of 23 broad-match history candidates only 3 were deletable).
 
+- **The native left column no longer paints its vertical divider (user brief: "左侧边栏右边框线不要显示，即使全局设置了边框拉到了90%")**.
+That hairline used to be added **on purpose** (darwin sets the native divider to none and we re-added it to match the
+other panels). It is now an explicit `border-right: none`: the column is already one slab of glass, and a vertical
+line through it cuts it off from the conversation area.
+  - ⚠️ It must be an **explicit none**, not merely a deleted declaration: on non-darwin shells the host paints its own
+    border from `--dsw-alias-border-l3`, so deleting the declaration would bring the line back on those platforms;
+  - the 边框 slider still governs the column’s **inner** outlines (the 新建会话 button, focus rings and anything else
+    reading `--dsw-alias-border-l3`); it just no longer paints the column’s own outer edge;
+  - guards: verify-glass-compositing gains S2 — the judgment is on the **declaration shape** (an explicit none, no
+    longer coupled to `--we-border-alpha`), with a negative control that planting the slider-driven hairline back turns
+    it red; S2b separately pins the inner token mapping so the slider keeps working.
+- **Sidebar glass now follows the global settings (user brief: "我需要侧栏玻璃也跟随全局")**. The two sidebars used to run
+two independent recipes; measured with the live config (dark theme): the native left column was a neutral #1c1c1c at
+**0.63** composited opacity with a **10px** blur, while dsh-better-sidebar was cyan #67DCE7 at **0.76** with a **37px**
+blur. Sliders could not reconcile them, because the difference is structural rather than numeric:
+  - **different colour pipelines**: the left column pushes the glass colour through weClampSurfaceColor (in dark mode
+    #ffffff → #1c1c1c, and even #67DCE7 clamps to #0e1f20), while the sidebar used it **raw** — so in dark mode the
+    left column can never produce the sidebar's cyan;
+  - **different tint-weight ranges**: `--we-glass-alpha` is 10%–25% on the left versus `--we-sidebar-tint` 20%–48%
+    (inverse-mapped) on the sidebar;
+  - **different blur sources**: the global 雾化 slider versus 侧栏模糊.
+Fix (new setting key `sidebarFollowGlobal`, **default on**):
+  - in follow mode the sidebar's variables **point at** the global trio (`var()` is substituted lazily, so these are
+    references rather than copies): `--we-sidebar-blur: var(--we-blur)`, `--we-sidebar-saturate: var(--we-saturate)`,
+    `--we-sidebar-tint: calc(var(--we-glass-alpha) * 100%)`, `--we-sidebar-color: var(--we-follow-tint)`;
+  - new stylesheet variable `--we-follow-tint` (the **same** per-theme clamped colour the other panels use; it cannot
+    be written inline from JS without defeating the per-theme clamp);
+  - the sidebar glaze also has two modes: follow mode takes the left column's `--we-panel-sheen-*`, custom mode keeps
+    the old transparency-fading curve ⇒ **both sidebars are identical field by field** (measured in real Chromium:
+    0.505 light and 0.631 dark on both, both blurring with `blur(10px) saturate(1.3)`);
+  - the three independent knobs (侧栏模糊 / 侧栏透明度 / 侧栏玻璃颜色) are **only rendered when following is off** (
+    showing knobs that do nothing is worse than hiding them); the two content-surface knobs (内容面透明度 / 底色) are
+    **unaffected** — they govern syntax-highlight / ANSI readability, not the glass look;
+  - guards: verify-glass-compositing gains S1 (with the follow mapping substituted, both sidebars' declarations must
+    be **literally equal** — plus a negative control proving that changing one tint weight breaks it; it also asserts
+    `--we-follow-tint` shares its source with `--we-readability-base` and that both glaze modes exist); verify-client's
+    sidebar assertions now cover both modes (knobs hidden + attribute present while following, knobs back + attribute
+    removed when off, and re-hidden on re-enable); the settings-sanitize golden records the new key per its documented
+    convention (one `true` in each of the 18 cases).
+- **The trajectory view's content area now gets frost (user brief: "轨迹内容区域也同样做玻璃化")**. The root cause was
+**not** a missing token mapping: the trajectory module's containers (`.rkta1W_split` / `_overviewPreview` /
+`_programPanel`) read `--dsw-alias-bg-layer-1`, which we mapped to the glass recipe long ago — so it was **already
+translucent**. What was missing is the **frost**: the whole module has **zero `backdrop-filter`** (measured: 0 of its
+289 rules), so over a wallpaper it is just a flat veil (high-frequency wallpaper detail shows through untouched and
+fights the text), i.e. it reads as "not glassed".
+  - fix: the three content surfaces get the **same frost step as the sidebar panels** (frost + specular sheen + inset
+    highlights), and **frost only — no second background layer**: the parent already carries the glass recipe, and
+    stacking another floor multiplies the two readability floors (0.494 → 0.744), taking back exactly the
+    transparency this change is after;
+  - selectors use only class-name substrings **unique to the trajectory module** (measured: `_tablePane` /
+    `_overviewPreview` / `_programPanel` appear nowhere else in the host); `_details` / `_split` exist in other modules
+    too ⇒ left alone (better to cover one surface less than to hit the wrong one). A CSS-module hash is a build
+    artifact; the stable half is "_<name>" (same technique as `[class*="_bubble"]` / `[class*="_panel"]`);
+  - measured: the module contains **no `position:fixed`** ⇒ adding `backdrop-filter` here cannot re-anchor fixed
+    descendants (the #89 failure mode);
+  - the fallback path needs nothing extra: that `--dsw-alias-bg-layer-1` is already pinned back to the opaque panel
+    colour, so there is no wallpaper underneath;
+  - guards: `verify-glass-compositing` now lists these three selectors in its **REQUIRED carrier inventory** (lose the
+    frost and it goes red) and adds T1 — "the trajectory frost rules add frost **only**, never a `background-color`" —
+    **with a negative control** (planting a background layer into that rule flags 3 selectors; the real CSS flags 0;
+    the control locates the rule **by selector**, because the bundle indents the inlined module and a
+    declaration-whitespace anchor would pass vacuously);
+  - ruling source synced: `dsh-client-ui-trajectory` moves from `native` to `covered` in `harness-ui-surfaces.json`
+    (it has per-surface adaptation now, not just the global token mechanism).
+- **Code blocks and "emphasis" (inline-code) backgrounds inside the conversation are now glassed too (user brief)**:
+the request was "代码块和重点文字背景也需要和对话框背景一样进行玻璃化覆盖". Those surfaces used to be
+**deliberately left alone** (the ruling sat in `test/fixtures/harness-ui-surfaces.json` → `tokenScope.declined`:
+a code block is a shiki-palette canvas and letting the wallpaper through was feared to sink comment/string
+contrast). They are now brought **under the same readability floor**:
+  - measured first: these aliases are **not** derived from the layer tokens (the host uses **static** palette
+    values such as `--dsw-static-neutral-bluish-50/900`), which is why the earlier "map `--dsw-alias-bg-layer-*`"
+    route never touched them — each has to be mapped explicitly;
+  - the mapped tokens (extracted from the host artifact, not guessed): `--dsw-alias-markdown-code-block`,
+    `-code-block-banner`, `-inline-code` (the "emphasis" chip), `-tag`, `-code-segment-unselected`,
+    `-code-segment-selected`;
+  - the recipe is **the bubble's, verbatim**: `theme base @ readability floor + glass colour @ glass alpha`.
+    **Not one shiki foreground colour changes**, so the glass arrives while the floor keeps worst-case contrast;
+    weights follow the existing layering rule — code block and banner = the bubble's step (0.8 / 0.4), inline
+    code / tag / unselected segment one step up (1.0 / 0.5, a chip must stay slightly brighter than its bed),
+    the selected segment one more (1.15, the raised-button step — selection reads as "brighter", not as solid);
+  - **fallback**: without `backdrop-filter` / under a software rasteriser all six pin back to the opaque panel
+    colour (translucent with no frost means code sitting straight on a busy wallpaper);
+  - the ruling source and the live probe were re-decided in the same commit: the `declined` entry moved into
+    `mapped`, and `compat-harness-pages`' "deliberately not taken over" assertion now asserts the new ruling
+    (glass on the normal path, opaque plate in the fallback);
+  - `verify-readability`'s surface table grew from 27 to **39** entries (these six tokens × both themes) and F2a
+    is green — i.e. "the bed became glass" did **not** put any text surface on the wallpaper. Strength still
+    follows the shared 玻璃透明度 / 玻璃颜色 sliders (no new switch).
+
 - **Video wallpapers got their own channel — and "no picture means no reveal"**. Video used to run through the
   real-time pipeline designed for WebGL scenes (content gate / backing plate / heartbeat / payload / GPU frame
   capture, only part of which means anything for video). Measured consequences: ① the gate's video criterion was
@@ -804,6 +893,77 @@
   backwards** (it counted the generated `lib/client.js`, which carries a copy of `src/**` again, as host-half structural
   duplication — with the generated artifact and vendored code excluded, the hand-written surface is well under 1% at both
   window sizes), corrected together with "the scope and exclusions must be stated".
+
+> Increment after **v1.2.0**:
+
+- **The actual root cause ("I restarted and it is the same"): that console is `dsh-ssh`'s xterm panel, not DSH's
+conversation terminal block — the two fonts are unrelated.** The previous fix did set
+`componentFonts.terminal.family` to the Nerd Font correctly (verified by reading it back:
+`{"terminal":{"family":"sys:MesloLGL Nerd Font Mono"}}`), but that key only feeds DSH's TerminalBlock (the
+official `--dsl-terminal-font`). The sidebar terminal is drawn by the third-party `@linxin666/dsh-ssh` with
+**xterm.js**, and xterm takes its font **only from constructor/options** — its own source says "xterm's DOM
+renderer takes the font only from constructor/options, so a plain stylesheet rule cannot retarget it". It
+leaves a hook for exactly this case, documented verbatim as "`--dsh-ssh-terminal-font` — dedicated hook for
+skins and user CSS (**e.g. a Nerd Font for powerline glyphs**)", with the chain ① its own `terminalFontFamily`
+setting → ② `--dsh-ssh-terminal-font` → ③ the official `--ds-font-family-code` → ④ its built-in monospace.
+**Fix**: our "Terminal font" row now writes ② as well (`body { --dsh-ssh-terminal-font: … }`, on `body` because
+that is where it reads `getComputedStyle`), so one row governs both terminals. Two details that matter:
+  - the value must be **flattened** into a concrete font list (no `var()`): it is consumed as a string and handed
+    to xterm's `fontFamily`, where `var()` is not a function and would kill the whole list. New
+    `fontFamilyStackConcrete` does that flattening;
+  - if the user set `terminalFontFamily` in dsh-ssh's own settings, that value wins (we step aside — its chain
+    says so). Verified on this machine: that setting is unset, so our hook applies; the terminal re-resolves the
+font when it is constructed and when that panel remounts (refresh the page, reopen the panel).
+  **But the first attempt still showed boxes — because of *timing*.** That plugin reads the variable **only
+  when it constructs a terminal**, and re-reads it only when **its own setting** changes (source:
+  `useEffect(…, [fontOverride])`), while our stylesheet can only be written after the async host
+  round-trip — the terminal is usually built before that and keeps the fallback font forever (this is
+  exactly "I restarted and it is unchanged"). Fix: that copy is now an **inline property on `body`**, and
+  the bundle body **runs it once at top level** from the **synchronously readable** font-set cache, beating
+  other plugins to terminal construction; the host truth re-writes it afterwards, so newly opened
+  terminals get the right font regardless of plugin mount order.
+- **Fix: a built-in family key collapsed the whole UI to serif on macOS** (found while checking the above). The
+built-in stacks are **written for Windows** (`KaiTi` / `SimSun` / `STXingkai` …), and on macOS `KaiTi` and
+`STXingkai` **both fail to match** — without a fallback tail, `--dsw-font-family: KaiTi, serif` sent **every**
+UI string to `serif` (Times), which is worse than doing nothing. Now **every non-`inherit` stack ends with
+`var(--we-host-font-family, …)`** (use your family first, then fall back to DSH's own chain snapshot), so an
+unmatched name only means "this slot does nothing" while CJK / emoji / monospace fallbacks stay intact. The
+check asserts, against the real rendered artifact, that built-in keys carry that tail too — with a negative
+control that looks for the DSH chain rather than a suffix (a suffix test is fooled by `sans-serif;`).
+- **Localisation (from the field screenshot — the half that needed no code change)**: the boxes in the user's
+screenshot are the **terminal prompt's Powerline / Nerd Font icons** (PUA codepoints: segment separators
+`U+E0B0`/`U+E0B2`, branch `U+E0A0`/`U+F126`, home `U+F015`, folder `U+F07B`, …). Measured codepoint by
+codepoint on that machine (draw it on a `canvas` and compare the pixel fingerprint with the **same font
+drawing an unassigned codepoint** `U+10FFFE`, i.e. `.notdef`):
+  - **only the Nerd Font family he installed actually provides these icons** (21 `Meslo…Nerd Font` variants);
+  - ordinary monospace faces (`Menlo` / `Monaco`) draw a **box**, and a CJK face (`PingFang SC`) draws
+    **nothing at all** — the latter is "the font claims the codepoint in its cmap but supplies a blank glyph",
+    which **blocks per-glyph fallback**;
+  - crucially, **PUA codepoints never fall back to a Nerd Font** (no other font claims them) ⇒ cycling among
+    ordinary fonts will show boxes **forever**.
+  ⇒ The answer is not "try another font" but "set the terminal font to the Nerd Font you installed". That is
+  also the real value of this feature: DSH previously had no way to give the terminal block a font at all.
+- **Fix: a batch of names in the installed-font dropdown cannot be resolved by the browser at all** (field report: "控制台切换了字体，部分特殊文字还是显示成口"). The host list comes from the operating system, and **the names a system lists are not the names a browser can match** — measured one by one in a real Chromium: **64 of 309** names on this machine resolve to nothing, and they include exactly the ones you would reach for when fixing boxes:
+  - **system-reserved faces**: `Apple Color Emoji` / `Symbol` / `Zapf Dingbats` / `Apple Braille` / `GB18030 Bitmap`, plus the Arabic / Hebrew / Devanagari families (macOS keeps them out of app font matching while `system_profiler` still lists them);
+  - **alternate spellings of the same font**: `苹方-繁` / `苹方-港` / `黑体-繁` / `系统字体` etc. (only the canonical `PingFang TC` resolves).
+  Picking one of those did **nothing at all** — which reads as "switching the font did not help". The client now probes, **while rendering the dropdown**, whether each name actually works in this browser (the same name is measured with `monospace` and with `serif` against one Latin string: if the name resolves, both measurements use it and the widths match; if not, one falls back to monospace and the other to serif, and the widths differ), offers only the working names, and **states how many were skipped** on that row. When measurement is unavailable (stub DOM / no layout) the list passes through unchanged — never dropping a user font name because it could not be measured. A currently-selected name stays visible even when filtered out (otherwise the `<select>` would show 「跟随」 while the value is still stored — the UI would be lying). The TC/HK variants are not lost; their canonical names still select them.
+- **Diagnostic finding (the half that needed no code change)**: our font chain does **not** break per-glyph
+  fallback. Rendered 18 "special" characters in a real Chromium (box drawing / braille / Nerd Font PUA icons /
+  emoji / ⚠✅→✓ / rare CJK Ext-B / mathematical letters): with a Latin-only font chosen **plus our fallback
+  chain**, there is **not a single box**. ⇒ A remaining box has only two possible causes: (1) **no font in the
+  current chain claims that codepoint** (PUA icons are exactly this case — picking a font that carries them
+  fixes it, see the localisation entry above); (2) **no font on the machine has it at all** (only installing a
+  font helps; switching fonts cannot).
+- **Installed fonts are now offered under both name forms (field fix: the list looked "incomplete")**: the report was "可选字体没有扫描出本机所有字体". What we found: **no font was missing** (the list matches this machine's CoreText family list entry for entry) — what was missing was the **spelling**. `system_profiler` reports **localized** family names: on a Chinese system `PingFang SC` comes back as `苹方-简` and `Heiti SC` as `黑体-简`, while CSS, Font Book's English UI and design apps use the **canonical (English)** names — and this plugin's built-in family keys (`STXingkai` / `KaiTi` …) are English too. So users could not find the fonts they knew. macOS now runs **two authoritative legs in parallel**: `system_profiler` (localized, ~10s) plus CoreText's `CTFontManagerCopyAvailableFontFamilyNames` (canonical, ~0.05s measured, via `osascript -l JavaScript`), and the family names are **unioned**, so either spelling selects the font (measured: `"苹方-简"` and `"PingFang SC"` render at bit-identical widths in Chromium — the same font). On this machine the selectable list went from **266 to 309** entries with the cold-scan time unchanged (the legs run in parallel).
+- **Fix: decoding child-process output per chunk injected U+FFFD when a multi-byte character straddled a chunk boundary**: in one `system_profiler` output `系统字体` became `系统\uFFFD\uFFFD\uFFFD体` while the correct spelling was there too, so the font dropdown gained an **unrecognizable family name**. Output is now collected as **bytes** and decoded once with `Buffer.concat(...).toString('utf8')`; exceeding the ceiling fails the source outright (a truncated JSON parse yields nothing, so degrading is better than serving half a list). The check spawns a real child process that splits a 3-byte character across two chunks (with a negative control: the same bytes decoded per chunk **must** really break).
+- **Fonts can now be picked from the machine's own installed fonts, with separate entry points for the "global" and "terminal" scopes** (the user's brief: "插件需要支持全局/终端 系统字体 选择切换"). Until now the family picker offered only **seven built-in family keys** (YaHei / KaiTi / SimSun / SimHei / Xingkai / monospace / default) — all Windows Chinese fonts, which left macOS with nothing to choose. Now:
+  - **The list comes from the operating system** (new route `GET /wallpaper-engine/system-fonts`): macOS uses `system_profiler SPFontsDataType -json` **plus** the CoreText leg (the two name forms unioned, see above), Windows uses PowerShell's `InstalledFontCollection` (falling back to registry value names), Linux uses `fc-list`; when no authoritative source answers, the plugin derives names from **font file names** and **honestly marks the result `approximate`** (the panel says "guessed from file names"). Why this route, rather than parsing font files in-process or enumerating from the browser, is recorded in [ADR-0009](./adr/0009-system-fonts-from-the-os.md).
+  - **One scan is expensive** (the slow leg measures seconds to tens of seconds on macOS; `-detailLevel mini` does not reduce the cost) ⇒ two layers of caching, **stale values served first** (marked `stale`) with a background rescan, and a "Rescan" button in the panel; the scan **never happens at startup** (it is triggered by the first real use).
+  - **Families are now stored as "keys" throughout**: a built-in key or `sys:<family>`; the CSS stack (quoting plus fallback chain) is assembled on the resolver side, and the installed-font chain is `"<family>", var(--we-host-font-family, <fallback>)` — `--we-host-font-family` is a snapshot of DSH's family stack **taken before our first write**, so the CJK and monospace fallbacks remain DSH's own. Historical values (component fonts used to store the resolved stack) are still understood ⇒ old font sets need no migration.
+  - **The "default font (global)" slot is a default, not a force**: it writes DSH's base token `--dsw-font-family` (everything outside the role table inherits from it) and lands **only on roles that were already taken over** (the user changed that role's size or weight) — **picking a global font never changes any role's size** (taking a role over also means moving its size and line height onto the fine-grained tokens, which is a separate act). A family set for a specific role or component still wins.
+  - **"Terminal font"**: changes only the terminal block in the conversation; it is the second entry point for the same setting as "Advanced font settings → Terminal" (`componentFonts.terminal.family`), so the two cannot drift.
+  - **Verification**: the new guard [`verify-system-fonts.mjs`](../test/verify-system-fonts.mjs) (with negative controls) — cross-platform parse fixtures, the "both names present" regression, single-leg availability, the `approximate` flag, no duplicate scan within the TTL, `?refresh=1`, serving stale values first, 405 for non-GET, empty lists never cached to disk, real-child multi-byte decoding, the client channel touching only its own transient fields, and both legs of the global family; `verify-fontset` / `verify-client` / `fontset-load-smoke` had their font key set extended to seven (they go red by design, then were synced).
+
 
 ### v1.2.0 (2026-10-02)
 

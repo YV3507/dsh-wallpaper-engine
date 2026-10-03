@@ -328,6 +328,27 @@ function applyEffects(opts) {
   if (selection.thinkingGlass) document.body.setAttribute("data-we-thinking-glass", "on");
   else document.body.removeAttribute("data-we-thinking-glass");
 
+  // dsh-better-sidebar 液态玻璃：一套独立于会话玻璃的细粒度控制（侧栏模糊 /
+  // 侧栏透明度 / 侧栏玻璃颜色 + 总开关）。变量只作用于 [data-dsh-better-sidebar]
+  // 子树（CSS 见下），关闭总开关时侧栏恢复原生外观。
+  // 跟随全局（sidebarFollowGlobal，默认开）：把侧栏那一套变量**指向**全局玻璃三件套。
+  // var() 是惰性替换 ⇒ 这里写进去的是引用而不是拷贝：改「玻璃 / 玻璃透明度」两侧栏一起变。
+  // 色相那一份走样式表里的 --we-follow-tint（按主题取钳制后的玻璃色）—— 不能在这里写死，
+  // 内联值会盖掉"按主题"这件事。
+  // ⚠️ 合并 #132 口径：跟随关着时**不覆盖** —— 按面值由 applyGlass 的 glassValue 单一
+  //    取值路径供给（inherit→全局键 / custom→「独立配置」自己的键），WIP 里的旧曲线
+  //    （/200 刻度）已随 R4 规范刻度退役，不许再回来。UI 上跟随开着时「独立配置」收起，
+  //    两套机制不会同时生效。
+  if (selection.sidebarFollowGlobal) {
+    s.setProperty("--we-sidebar-blur", "var(--we-blur)");
+    s.setProperty("--we-sidebar-saturate", "var(--we-saturate)");
+    s.setProperty("--we-sidebar-tint", "calc(var(--we-glass-alpha) * 100%)");
+    s.setProperty("--we-sidebar-color", "var(--we-follow-tint)");
+    s.setProperty("--we-sidebar-sheen", "1");
+  }
+  // 跟随态另挂一个属性：样式表用它决定"侧栏的釉"取共享那一份还是侧栏专用那一份。
+  if (selection.sidebarGlass && selection.sidebarFollowGlobal) document.body.setAttribute("data-we-sidebar-follow", "on");
+  else document.body.removeAttribute("data-we-sidebar-follow");
 
   // 适配目标钩子（src/adapter.js）：把最终目标挂到 <body>，外壳材质类选择器
   // 一律经 [data-we-adapter^="desktop-"] 门控 —— 原生浏览器形态永远不吃桌面壳
@@ -428,6 +449,7 @@ function clearEffects() {
   //    表现为"插件已卸载，但玻璃还在"。这类残留只有卸载路径才暴露，日常切换看不出来。
   document.body.removeAttribute("data-we-glass-chat");
   document.body.removeAttribute("data-we-glass-floaters");
+  document.body.removeAttribute("data-we-sidebar-follow");
   s.removeProperty("--we-sidebar-blur");
   s.removeProperty("--we-sidebar-saturate");
   s.removeProperty("--we-sidebar-sheen");

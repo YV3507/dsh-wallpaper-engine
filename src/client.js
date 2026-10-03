@@ -94,9 +94,63 @@ const FONT_FAMILY_LABELS = [
   { v: "STXingkai", get label() { return weT("行楷"); } },
   { v: "monospace", get label() { return weT("等宽"); } },
 ];
-// 依持久化值取应用字体栈（sanitize 已保证值在白名单内）。
+// 依持久化值取应用字体栈。取值域有两类**族键**（都只存键、不存栈）：
+//   · 内置键：FONT_FAMILY_STACKS 里的那些（栈写死在这里，含中文 fallback 链）；
+//   · 本机字体键 `sys:<族名>`：清单来自宿主枚举（src/system-fonts.js），栈在这里现拼。
+// 另有一类**历史值**：组件字体在 F3 之前存的是"解析后的 CSS 栈"（见 onComponentFamily 的注释）
+// —— 那种值原样可用，因此解析侧两条都认（老字体集零迁移）。
+const FONT_FAMILY_BY_STACK = Object.create(null);
+for (const [key, stack] of Object.entries(FONT_FAMILY_STACKS)) FONT_FAMILY_BY_STACK[stack] = key;
+// 本机字体栈的**最后一道**兜底链：只有 `--we-host-font-family`（宿主原字族的快照）也拿不到时
+// 才用到。之所以优先用快照：fallback 链是 DSH 的决定（中文/等宽的退路都在里面），抄一份到这里
+// 就会在下一次 DSH 调整时漏改。
+const FONT_STACK_FALLBACK = 'system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif';
+/**
+ * **每条非 `inherit` 的栈都以它收尾**：先用自己的族名，再退回 **DSH 原来那条字族链的运行时快照**。
+ *
+ * 为什么内置族键也要收尾（**现场教训**）：内置那几条栈是**给 Windows 写的**（`KaiTi` / `SimSun` /
+ * `STXingkai` …）。在 macOS 上它们**一个都不存在**（实测 `KaiTi` / `STXingkai` 都匹配不上）——
+ * 不收尾时 `--dsw-font-family: KaiTi, serif` 会把**整个界面**压到 `serif`（Times），比"没生效"更糟。
+ * 收尾之后，匹配不上的族名只是"这一档不起作用"，后面的 DSH 原链照常接管（中文 / emoji / 等宽都在）。
+ */
+const FONT_STACK_TAIL = ', var(--we-host-font-family, ' + FONT_STACK_FALLBACK + ')';
+/** `sys:` 键 → `"<族名>"`（族名一律加引号：空格、连字符、中文名都安全）。 */
+function systemFontStack(key) {
+  const name = systemFontNameOf(key);
+  return name ? '"' + name + '"' : "";
+}
+/** 族键 / 历史栈 → 可用的 CSS 栈；空、`inherit`、未知一律 `inherit`（= 不覆盖官方外观）。 */
 function fontFamilyStack(v) {
-  return FONT_FAMILY_STACKS[v] || "inherit";
+  const key = typeof v === "string" ? v.trim() : "";
+  if (!key || key === "inherit") return "inherit";
+  const base = FONT_FAMILY_STACKS[key] || (isSystemFontKey(key) ? systemFontStack(key) : (FONT_FAMILY_BY_STACK[key] || ""));
+  if (!base || base === "inherit") return "inherit";
+  return base + FONT_STACK_TAIL;
+}
+/** 反查：存下来的值（族键或历史栈）→ 下拉该选哪一项（空串 = 跟随 / 认不出的历史栈）。 */
+function fontFamilyKeyOf(v) {
+  const key = typeof v === "string" ? v.trim() : "";
+  if (!key) return "";
+  if (FONT_FAMILY_STACKS[key] || isSystemFontKey(key)) return key;
+  return FONT_FAMILY_BY_STACK[key] || "";
+}
+/**
+ * **摊平**成具体字体列表（没有 `var()`）—— 给"会被当成字体名列表**字符串**用掉"的下游。
+ *
+ * 为什么需要它：`fontFamilyStack` 给本机字体拼的是 `"<族名>", var(--we-host-font-family, …)`，
+ * 那是给**CSS 声明**用的（`var()` 由浏览器替换）。但 dsh-ssh 的终端面板是把
+ * `--dsh-ssh-terminal-font` 的值**当字符串读走再交给 xterm 的 `fontFamily` 选项**
+ * （xterm 的 DOM/画布渲染器都不认 `var()`，`ctx.font` 里它就是个字面量 ⇒ 整条字体列表失效）。
+ * 所以喂给它的那一份必须**当场摊平**：快照取不到就退回那条保底链。
+ */
+function fontFamilyStackConcrete(v) {
+  const stack = fontFamilyStack(v);
+  if (stack.indexOf("var(") < 0) return stack;
+  let snapshot = "";
+  // 读的是 documentElement 上的**内联**属性（`snapshotHostFontDefaults` 写在那儿）——
+  // 内联读不触发样式重算（不像 getComputedStyle 那样强制布局）。
+  try { snapshot = document.documentElement.style.getPropertyValue("--we-host-font-family").trim(); } catch { /* 拿不到就用保底 */ }
+  return stack.replace(/var\(--we-host-font-family,\s*([^)]*)\)/, snapshot || "$1");
 }
 // 帧率上限 options (fps); 0 = 无限制. Mirror of the host whitelist.
 // 场景实时渲染（WebWallGL）帧率上限档位。Mirror of lib/index.js.
@@ -156,17 +210,29 @@ const selection = {
   ...readPersisted(),
   // 字体值走**另一条**通道：真源是 `fontsets/<活动 id>.json`。
   // ⚠️ 顺序是承重的，两行都不能少：
-  //   ① `fontValueDefaults()` —— 那六个键已不在 settings 白名单里，`readPersisted()` **不再提供**它们，
+  //   ① `fontValueDefaults()` —— 那些键已不在 settings 白名单里，`readPersisted()` **不再提供**它们，
   //      而字体集是异步载入、还可能失败。缺这份兜底 ⇒ selection 里根本没有 themeColors 等键，
   //      面板「字体自定义」门控的配色区会在打开开关那一刻抛 TypeError（整个面板崩掉）。
   //   ② `readCachedFontSetValues()` —— 有缓存就用缓存那份（首帧即用户字体，不出现默认值→用户值跳变）；
   //      没有时它返回的就是①那份兜底。宿主回了真值再由 loadFontSet() 覆盖。
   ...fontValueDefaults(),
   ...readCachedFontSetValues(),
+  // 本机字体清单（src/system-fonts.js）：**首帧就用缓存那份** —— 否则一个已选中的本机字体
+  // 在下拉里会先显示成"跟随"，等宿主回话才跳回来。`systemFontsAt: 0` 让它照样算过期，
+  // 打开字体设置时该重扫还是会重扫（缓存只是"先有个能显示的名字"）。
+  systemFonts: readCachedSystemFonts(),
   // Transient: becomes true once loadPersisted() has applied the host-side
   // settings (the port-independent source of truth). The one-time notice waits
   // for it so it never flashes before the persisted noticeSeen is known.
   hostLoaded: false,
+  // Transient（本机字体清单）：来源永远是宿主那次进程扫描 ⇒ 不落盘、不进字体集。
+  //   systemFontsAt   上次取到的时刻（TTL 判据）
+  //   systemFontsApproximate  宿主是**按文件名推测**出来的（面板要说出来）
+  //   systemFontsLoading / systemFontsError  在途 / 可判定失败文案
+  systemFontsAt: 0,
+  systemFontsApproximate: false,
+  systemFontsLoading: false,
+  systemFontsError: "",
   // Transient: 活动字体集那一次加载的失败原因（面板据此显示可判定文案；空串 = 没问题）。
   fontSetError: "",
   // Transient（字体集编辑器）：
@@ -292,6 +358,15 @@ const listeners = new Set();
 function emit() { for (const fn of [...listeners]) fn(); }
 function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 
+// ── 「终端字体」抢跑一次（**时机问题**，不是优化）────────────────────────────
+// dsh-ssh 的终端面板**只在构造终端的那一刻**读 `--dsh-ssh-terminal-font`，之后只有它自己的设置
+// 变化才重读（见 src/font/apply.js 里 `applyTerminalHostVar` 的注释）。而我们的权威值要等宿主把
+// 设置与字体集**异步**读回来 —— 终端常常在那之前就建好了（现场症状："重启了还是口"）。
+// 这里用**同步可读**的那份缓存（localStorage 里的字体集 + 设置缓存）先把值写上，抢在别的插件
+// 构造终端之前；宿主回话后由 applyEffects → applyComponentFonts 再写一遍权威值。
+// ⚠️ 必须是正文里的**顶层语句**：内联模块被注入在正文之前，模块顶层读 selection 会撞 TDZ。
+applyTerminalHostVar();
+
 // ── 出图来源：场景壁纸「这张画面从哪来」（beta 渲染不参与）───────────────
 // 值域的**真源**在宿主侧 `lib/routes/scene-frame.js`（它把非法值 clamp 掉）——本表要与它一致，
 // 只剩两档：
@@ -340,7 +415,7 @@ function useStore() {
 // （"改了不生效 / 刷新后回退"，且没有任何判据会红）。收成三个入口后：
 //   · setSetting(field, value)   改**设置**并落盘（唯一入口）
 //   · setFontValues(patch)       改**字体值**并落盘（唯一入口；真源是 fontsets/<id>.json，
-//     见 src/fontset-store.js —— 这六个键已退出 settings 的持久化白名单）
+//     见 src/fontset-store.js —— 这些键已退出 settings 的持久化白名单）
 //   · setTransient(field, value) 改**瞬态**字段（上传中/编辑中/加载中…），不落盘 ——
 //     它们不在 schema 白名单里，落盘只会白跑一次 debounce。
 // 页签（src/panel-tabs.js）通过 ctx 拿到前两个入口，因此**完全不碰** `selection`。
@@ -451,7 +526,7 @@ function renderConfirmRow(armed, token, question, onConfirm, onDisarm) {
 // 这一族的实现已抽到 **src/persistence.js**（194 行）。构建期内联回本作用域，
 // 调用点（persistSelection / flushPersist / onPageHideFlush / …）无需改动。
 // 契约：8 个出向依赖的清单、入口与不变量 —— 见该文件头。
-// ⚠️ **字体值不走这条通道**：那六个键自 F3 起住 `fontsets/<活动 id>.json`，通道在
+// ⚠️ **字体值不走这条通道**：那些键自 F3 起住 `fontsets/<活动 id>.json`，通道在
 // **src/fontset-store.js**（同形的 debounce + 脏标记 + 重试，但真源、键集与失败语义都不同）。
 
 // Concurrency guard: 刷新 / 上传完成 / 移除 / 改目录 all call loadInventory(),
@@ -2714,6 +2789,8 @@ function onThinkingGlass(e) { setSetting("thinkingGlass", e.target.checked); emi
 // 生效并持久化（--we-sidebar-blur / --we-sidebar-alpha / --we-sidebar-color）。
 const onSidebarBlur = (px, live) =>
   commitLiveSetting("sidebarBlur", clampNum(px, ...schemaRange("sidebarBlur"), DEFAULTS.sidebarBlur), live);
+// 跟随全局：只切一个门（body 属性 + 一组变量指向），不重建任何东西。
+function onSidebarFollowGlobal(e) { setSetting("sidebarFollowGlobal", e.target.checked); emit(); }
 const onSidebarAlpha = (pct, live) =>
   commitLiveSetting("sidebarAlpha", clampNum(pct, ...schemaRange("sidebarAlpha"), DEFAULTS.sidebarAlpha), live);
 const onSidebarColor = (hex, live) => {
@@ -3248,8 +3325,11 @@ function fontSetCtx() {
     setSetting("ropeScale", clampNum(scale, ROPE_SCALE_MIN, ROPE_SCALE_MAX, DEFAULTS.ropeScale)); emit();
   };
   // 字体自定义：总开关 + 颜色/字重/字体族，各项立即生效并持久化。
+  // 打开开关时**顺手**去要一次本机字体清单（宿主那次扫描很贵，只在用户真的进这一区时才发生；
+  // 清单本身不参与字体值，拿不到也不影响任何别的功能 —— 见 src/system-fonts.js）。
   const onToggleFontCustom = (v) => {
     setSetting("fontCustom", !!v); applyEffects(); emit();
+    if (v) ensureSystemFonts(false);
   };
   // 主题随壁纸的开关处理器已提升到模块级（同「外观 / 画面处理器」段）。
   // F1：角色色。默认「单色」—— 一个色同时写进 light/dark 两套（内部始终存两套，
@@ -3261,6 +3341,18 @@ const onThemeFamily = (role, key) => {
   else next[role] = key;
   setFontValues({ themeFamily: next }); applyEffects(); emit();
 };
+
+// **全局字族**：空 = 跟随 DSH。它是**默认**而不是强制 —— 角色级（themeFamily）与组件级
+// （componentFonts）写在它上面（见 src/font/typography.js 的 buildTypePayload：
+// 「该角色自己设了就用它，否则用全局」），DSH 的字族层次不会被压平。
+// 值是族键（内置键或 `sys:` 键），消毒走共享内核 —— 与本机字体清单同一条值域。
+const onGlobalFamily = (key) => {
+  setFontValues({ globalFamily: sanitizeFamilyKey(key) });
+  applyEffects(); emit();
+};
+
+// 面板上的「重新扫描」：跳过 TTL 再要一次本机字体清单（用户刚装完字体时的出路）。
+const onRefreshSystemFonts = () => { ensureSystemFonts(true); };
 
 // F2/G4 字号（角色级，**绝对值**）：空 = 用 DSH 官方值（角色表的 defaultPx 即面板显示的默认）。
 const onThemeSize = (role, raw) => {
@@ -3319,12 +3411,17 @@ const onThemeDarkSeparate = (v) => {
     setTransient("fontAdvanced", v);
     emit();
   };
-  // 组件字体族：存 **CSS 栈**（模块把它直接写进 font-family），不是族键。
+  // 组件字体族：存 **族键**（内置键或 `sys:<本机字体>`），解析成 CSS 栈是 apply 那一侧的事
+  // （components.js 的 buildComponentCss / buildDslBlocks 经 resolveFamily 拿栈）。
+  // ⚠️ F3 之前这里存的是**解析后的栈** —— 那种历史值解析侧照样认（fontFamilyStack），
+  //    所以老字体集不必迁移；只是"选中项反查"过去会失配（带引号的栈来回一趟会被消毒掉引号），
+  //    现在两条形态都能反查（fontFamilyKeyOf）。
   const onComponentFamily = (prefix, key) => {
     const next = Object.assign({}, selection.componentFonts);
     const one = Object.assign({}, next[prefix]);
-    if (!key) delete one.family;
-    else one.family = fontFamilyStack(key);
+    const family = sanitizeFamilyValue(key);
+    if (!family) delete one.family;
+    else one.family = family;
     if (Object.keys(one).length) next[prefix] = one;
     else delete next[prefix];
     setFontValues({ componentFonts: next }); applyEffects(); emit();
@@ -3351,16 +3448,17 @@ const officialColorOf = (tokens) => {
   return "";
 };
 
-// 「恢复默认」：所有字体自定义项清回 DSH 默认值（空 = 不覆盖；字体族回 inherit）。
-// 这五个容器 + themeDarkSeparate 是**字体集正文**的键 ⇒ 整批赋值后走 persistFontSet()
-//（它们已不在 settings 白名单里，`setSetting` 那条通道不会把它们写出去）。
-// ⚠️ 这是那六个键**唯一**允许出现字面直写的地方（逐键走 `setFontValues` 会发 6 次 PUT）；
+// 「恢复默认」：所有字体自定义项清回 DSH 默认值（空 = 不覆盖；字体族回跟随）。
+// 这些容器 + themeDarkSeparate + globalFamily 是**字体集正文**的键 ⇒ 整批赋值后走
+// persistFontSet()（它们已不在 settings 白名单里，`setSetting` 那条通道不会把它们写出去）。
+// ⚠️ 这是字体键**唯一**允许出现字面直写的地方（逐键走 `setFontValues` 会发一整串 PUT）；
 //    判据：`verify-fontset` ⑦ 的字面直写棘轮 —— 别处的直写会让它变红。
   const onFontResetAll = () => {
     selection.themeColors = {};
     selection.themeSize = {};
     selection.themeWeight = {};
     selection.themeFamily = {};
+    selection.globalFamily = "";
     selection.componentFonts = {};
     selection.themeDarkSeparate = false;
     // 「只看改过的」是**视图**状态，不归"恢复默认"管：它清的是字体值，不该顺手把用户选的筛选
@@ -3567,6 +3665,12 @@ const officialColorOf = (tokens) => {
   // 用一次订阅式 effect 补上；TTL 同日历口径，重复触发是空操作。
   React.useEffect(() => { if (activeTab === "about") loadStarCount(false); }, [activeTab]);
 
+  // 本机字体清单（同上一条的形状）：停在「外观」页且用户开着「字体自定义」时才去要一次
+  // （宿主那次扫描 macOS 实测 ~10s，不能因为"打开设置页"就付）。TTL 内是空操作。
+  React.useEffect(() => {
+    if (activeTab === "appearance" && selection.fontCustom) ensureSystemFonts(false);
+  }, [activeTab]);
+
   // 侧栏深链（快捷播放面板底栏的「字体与更多外观 ›」/「更多播放设置 ›」）：请求"打开
   // 设置页后停在哪一页"。打开对话框由 src/sidebar-right.js 的 DOM 路径负责，这里只管
   // 落地 —— 走**同一个 switchTab**（清待确认 / 退出下钻 / 写 localStorage 这些副作用
@@ -3672,6 +3776,7 @@ const officialColorOf = (tokens) => {
     if (activeTab === "appearance") return renderAppearanceTab({
       setSetting, setTransient,
       fontSet: fontSetCtx(),
+      officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onChatGlassFidelity, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onGlassFidelity, onGlobalFamily, onLeftSidebarGlass, onRefreshSystemFonts, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarFollowGlobal, onSidebarGlass, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onThinkingGlass, onToggleFontCustom, onToggleThemeFollow, sel,
       officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onChatGlassFidelity, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onGlassFidelity, onLeftSidebarGlass, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarGlass, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onThinkingGlass, onToggleFontCustom, onToggleThemeFollow, sel,
       // 玻璃 UI 子项开关 + 独立配置 + 独立参数（见 onToggleChildIndependent 那段注释）
       onToggleChildIndependent, onGlassChildParam, childIndependentOn,
@@ -4631,7 +4736,7 @@ function apply(ctx) {
               theme,
               // 绑在「字体自定义」总开关下：关闭 = 连颜色一起恢复原生（与面板文案一致）。
               // `|| {}` 是第二道：这几个 getter 会在**订阅回调**里被调到，而订阅回调不在 try 里 ——
-              // 数据侧已有兜底（selection 初始化必带六个键），这里再挡一次，免得"某个键缺失"
+              // 数据侧已有兜底（selection 初始化必带字体键），这里再挡一次，免得"某个键缺失"
               // 升级成"改一下设置整块面板崩"。
               getColors: () => (selection.fontCustom ? (selection.themeColors || {}) : {}),
               isAvailable: hasToken,
@@ -4640,12 +4745,17 @@ function apply(ctx) {
             typeLayer = createThemeLayer({
               theme,
               source: THEME_TYPE_SOURCE,
+              // 全局字族也在这一层生效（作为**每个角色的默认**）。本机字体的栈里要拼
+              // `var(--we-host-font-family, …)`，那是"开写之前"的宿主快照 ⇒ 本层也挂一次
+              // onBeforeFirstWrite（它是幂等的"已快照则跳过"，与颜色层共用同一份快照）。
+              onBeforeFirstWrite: () => { try { snapshotHostFontDefaults(); } catch { /* 基线失败不阻断字体 */ } },
               buildPayload: () => buildTypePayload(
                 selection.fontCustom ? (selection.themeSize || {}) : {},
                 hasToken,
                 selection.fontCustom ? (selection.themeWeight || {}) : {},
                 selection.fontCustom ? (selection.themeFamily || {}) : {},
-                fontFamilyStack),
+                fontFamilyStack,
+                selection.fontCustom ? (selection.globalFamily || "") : ""),
             });
             layer.sync();
             typeLayer.sync();

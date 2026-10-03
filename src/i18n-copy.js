@@ -810,6 +810,27 @@ const WE_I18N_EN = {
   "内部错误：这个子界面缺少文案": "Internal error: this sub-UI has no copy",
   "打开后**紧接在本行下方**出现这一项自己的独立配置，**完全覆盖**上面的全局配置；关闭则回到继承全局": "When on, this item’s own independent config appears **directly below this row** and **fully overrides** the global config above; when off it goes back to inheriting the global one.",
   "打开后**紧接在本行下方**出现左侧栏自己的两项（玻璃透明度 / 雾化），**完全覆盖**「玻璃 UI」里的全局配置；关闭则回到继承全局。": "When on, the left sidebar’s own two controls (glass opacity / blur) appear **directly below this row** and **fully override** the global config in Glass UI; when off it goes back to inheriting the global one.",
+  // ── 本机字体（src/system-fonts.js · panel-tabs 字体节）──
+  "侧栏玻璃跟随全局": "Sidebar glass follows the global settings",
+  "模糊 / 透明度 / 底色都跟随全局玻璃": "Blur, transparency and base tint all follow the global glass",
+  "打开：侧栏玻璃跟随「玻璃 / 玻璃透明度 / 玻璃颜色」（与原生左栏同一条配方，两侧栏一致）；关闭：用下面三个旋钮单独调侧栏": "On: the sidebar glass follows Frost / Glass opacity / Glass color (the same recipe as the native left column, so both sidebars match). Off: tune the sidebar with the three knobs below.",
+  "默认字体": "Default font",
+  "整套界面的默认字族（全局）；角色 / 组件里单独设过的仍以那里为准": "The default font family for the whole interface (global); anything set per role / per component still wins",
+  "整套界面（含角色表覆盖不到的文字）的默认字体；任意角色 / 组件单独设了字族，那里优先": "The default font for the whole interface (including text the role table does not cover); any role / component with its own font family takes precedence",
+  "跟随 DSH": "Follow DSH",
+  "终端字体": "Terminal font",
+  "对话里的终端块 + 侧栏终端面板（dsh-ssh）；与「高级字体设置 → 终端」同一项": "The terminal block in the conversation + the sidebar terminal panel (dsh-ssh); the same setting as “Advanced font settings → Terminal”",
+  "终端字体：① 对话里的终端块（走官方 --dsl-terminal-font 钩子）② 侧栏 / SSH 终端面板（走 dsh-ssh 给皮肤留的 --dsh-ssh-terminal-font 钩子）；「跟随」= 都不覆盖，各用它们自己的默认。⚠️ 若在 dsh-ssh 的设置里填过 terminalFontFamily，那个值优先级更高": "Terminal font: (1) the terminal block in the conversation (via the official --dsl-terminal-font hook); (2) the sidebar / SSH terminal panel (via the --dsh-ssh-terminal-font hook dsh-ssh leaves for skins). “Inherit” = override neither, leaving each with its own default. ⚠️ If terminalFontFamily is set in dsh-ssh's own settings, that value wins.",
+  "本机字体": "Installed fonts",
+  "正在读取本机字体…": "Reading installed fonts…",
+  "本机字体读不到：{why}": "Installed fonts unavailable: {why}",
+  "已略过 {count} 个本浏览器取不到的字体名（选了也不会生效）": "Skipped {count} font names this browser cannot resolve (selecting them would do nothing)",
+  "本机字体是按文件名推测的（没拿到系统字体清单）": "Installed fonts were guessed from file names (the system font list was unavailable)",
+  "重新扫描": "Rescan",
+  "重新读取本机已安装的字体（装了新字体之后用）": "Re-read the fonts installed on this machine (use after installing a new font)",
+  "没读到本机字体清单": "No installed fonts were read",
+  "宿主里没有本机字体路由：重启 DSH 后再试（改过宿主代码要重挂，刷新页面不够）": "The host has no installed-fonts route: restart DSH and try again (host-side changes need a remount; refreshing the page is not enough)",
+
 };
 
 // ── 宿主文案（lib/** 里由客户端显示的那些原文）────────────────────────────────

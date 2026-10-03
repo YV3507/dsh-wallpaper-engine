@@ -45,8 +45,10 @@
  *    ⚠️ katex（数学排版自带度量）与 `@font-face` 不碰。
  *
  * ══ 契约 ══════════════════════════════════════════════════════════════════════════
- * 需要的外界：**无**（纯计算；令牌可用性由调用方给的判据决定）。
- * 对外提供：THEME_TYPE_ROLES / buildTypePayload / THEME_TYPE_SOURCE / 字号上下限。
+ * 需要的外界：**无**（纯计算；令牌可用性由调用方给的判据决定，族键 → CSS 栈的解析函数
+ *   也由调用方传入 —— 见 buildTypePayload 的 `resolveFamily`）。
+ * 对外提供：THEME_TYPE_ROLES / buildTypePayload / THEME_TYPE_SOURCE / GLOBAL_FAMILY_TOKEN /
+ *   字号上下限。
  *   建层与轮询复用 src/font/color-roles.js 的 createThemeLayer / pollThemeService ——
  *   **必须用不同的 source**：同 source 再注册会整层替换，会把 F1 的颜色层顶掉。
  *
@@ -60,6 +62,13 @@
  */
 
 const THEME_TYPE_SOURCE = 'wallpaper-engine-typography';
+
+/**
+ * DSH 的**基准字族令牌**：角色表之外的界面文字与"没被我们接管的角色"都从它继承。
+ * 全局字族除按角色写之外，还写这一个（否则"全局"够不到那些地方）。
+ * 它不在角色表里 ⇒ 可用性单独判（`isAvailable(GLOBAL_FAMILY_TOKEN)`）。
+ */
+const GLOBAL_FAMILY_TOKEN = '--dsw-font-family';
 
 /** 绝对字号范围（px）。用户口径：字号用**绝对值**，默认值可见（角色表的 defaultPx）。 */
 const THEME_SIZE_MIN = 8;
@@ -105,25 +114,53 @@ function isTypeSize(v) {
 }
 
 /**
- * 把「角色 → 字号绝对值(px) / 字重 / 字族」编译成 overrideTokens 载荷。
+ * 把「角色 → 字号绝对值(px) / 字重 / 字族」+「**全局字族**」编译成 overrideTokens 载荷。
+ *
+ * 全局字族是**默认**而不是强制，分两条腿落地（两条的必要性见循环里那段注释）：
+ *   · 写一次 DSH 的**基准字族令牌** `--dsw-font-family` —— 角色表之外的一切、以及"没被我们
+ *     接管的角色"（DSH 自己的组合式读的就是它）都从它继承；
+ *   · 已经被接管的角色（用户改过它的字号/字重）顺带把它的字族也落到全局 —— 那些角色的
+ *     组合式已经改读细粒度令牌了，不再经过基准令牌。
  * @param sizes 形如 `{ 'markdown-h1': 21, 'markdown-small': 12 }`（可缺键/可脏）
  * @param isAvailable `(token) => boolean` —— 四个令牌全可用才接管该角色
+ * @param weights 角色字重（可缺）
+ * @param families 角色字族**族键**（可缺）
+ * @param resolveFamily `(族键) => CSS 栈`（内置键 / `sys:` 本机字体键都经它解析）
+ * @param globalFamily 全局字族**族键**（空 = 不设全局；`inherit` 视作不设）
  * @returns {{ payload: object, roles: string[] }}
  */
-function buildTypePayload(sizes, isAvailable, weights, families, resolveFamily) {
+function buildTypePayload(sizes, isAvailable, weights, families, resolveFamily, globalFamily) {
   const szs = sizes && typeof sizes === 'object' ? sizes : {};
   const wts = weights && typeof weights === 'object' ? weights : {};
   const fams = families && typeof families === 'object' ? families : {};
   const ok = typeof isAvailable === 'function' ? isAvailable : () => true;
+  const resolve = typeof resolveFamily === 'function' ? resolveFamily : (() => '');
+  // 全局字族的栈：`inherit`（内置的「默认」项）在这里等于"不设全局"—— 写它没有意义，
+  // 而把它当成一个值会让每个角色都被接管（等于把官方外观改写一遍）。
+  // 值本身不在这里消毒：族键的值域是共享内核（`sanitizeFamilyKey`）的事，而本模块是
+  // **零外界**的纯计算（守卫直接 import 它，拿不到 bundle 作用域）⇒ 只做"空 / inherit"两判，
+  // 认不出的值由 resolveFamily 兜成 `inherit`（同样落进下面这条 useGlobal 判据）。
+  const globalKey = typeof globalFamily === 'string' ? globalFamily.trim() : '';
+  const globalStack = globalKey ? resolve(globalKey) : '';
+  const useGlobal = typeof globalStack === 'string' && globalStack.length > 0 && globalStack !== 'inherit';
   const payload = {};
   const roles = [];
+  // 基准字族：只写**我们真正有值**的那一个（令牌不在就整条不做，保持官方外观）。
+  if (useGlobal && ok(GLOBAL_FAMILY_TOKEN)) {
+    payload[GLOBAL_FAMILY_TOKEN] = { light: globalStack, dark: globalStack };
+  }
   for (const role of THEME_TYPE_ROLES) {
     const sz = szs[role.id];
     const useSize = isTypeSize(sz);
     const w = wts[role.id];
     const useWeight = typeof w === 'number' && Number.isInteger(w) && w >= 100 && w <= 900;
     const famKey = typeof fams[role.id] === 'string' && fams[role.id] ? fams[role.id] : '';
-    const famStack = famKey && typeof resolveFamily === 'function' ? resolveFamily(famKey) : '';
+    // 角色字族优先；没设才落到全局 —— 但**只在"这个角色本来就要被接管"时**才落，
+    // 这一点是承重的：接管一个角色意味着连它的字号/行高都改走细粒度令牌（组合式要凑齐四件套），
+    // 而"用户只挑了个全局字体"不该顺手改动任何角色的字号。没被接管的角色照旧用 DSH 的组合式，
+    // 那里读的就是 `--dsw-font-family`（上面刚写过）⇒ 全局字体照样到得了它。
+    const famStack = famKey ? resolve(famKey)
+      : (useGlobal && (useSize || useWeight) ? globalStack : '');
     const useFamily = typeof famStack === 'string' && famStack.length > 0;
     if (!useSize && !useWeight && !useFamily) continue;
     const t = typeTokenNames(role.id);
@@ -153,7 +190,7 @@ function buildTypePayload(sizes, isAvailable, weights, families, resolveFamily) 
 }
 
 export {
-  THEME_TYPE_SOURCE, THEME_TYPE_ROLES,
+  THEME_TYPE_SOURCE, THEME_TYPE_ROLES, GLOBAL_FAMILY_TOKEN,
   THEME_SIZE_MIN, THEME_SIZE_MAX,
   isTypeSize, typeTokenNames, buildTypePayload,
 };

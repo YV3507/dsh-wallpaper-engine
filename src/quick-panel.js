@@ -87,7 +87,8 @@
     //    panel-tabs 里那道 `!sidebarSurface` 门还挂着 ⇒ 渲染到这里之前就会被下面的占位器
     //    当场炸（解构即触发 get trap），门与占位器互为负对照）──
     "officialColorOf", "fontSet", "onComponentFamily", "onComponentFont",
-    "onFontAdvanced", "onFontResetAll", "onToggleFontCustom", "onThemeColor",
+    "onFontAdvanced", "onFontResetAll", "onGlobalFamily", "onRefreshSystemFonts",
+    "onToggleFontCustom", "onThemeColor",
     "onThemeColorClear", "onThemeDarkSeparate", "onThemeFamily", "onThemeSize", "onThemeTypeOnly",
     "onThemeWeight",
     // ── 播放/画面页专属（renderEffectsTab 的侧栏档门）──

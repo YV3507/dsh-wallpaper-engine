@@ -2172,6 +2172,28 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
   }
 }
 
+// ── 字体节的自由变量预置（本机字体 / 思考块玻璃落位后，面板引用的消毒层与清单）──
+// panel-tabs 是 bundle-inline 形态：这些符号在真产物里由 settings-schema / system-fonts
+// 的内联段供给；真模块导入形态下必须当 global 预置，缺一个就是渲染期 ReferenceError。
+{
+  const sysMod = await import(pathToFileURL(join(root, 'src', 'system-fonts.js')).href);
+  const schemaEarly = await import(pathToFileURL(join(root, 'lib', 'settings-schema.js')).href);
+  Object.assign(globalThis, {
+    sanitizeFamilyKey: schemaEarly.sanitizeFamilyKey,
+    systemFontKeyOf: schemaEarly.systemFontKeyOf,
+    systemFontNameOf: schemaEarly.systemFontNameOf,
+    filterUsableSystemFonts: sysMod.filterUsableSystemFonts,
+    // fontFamilyKeyOf 是 client.js 的反查（依赖 FONT_FAMILY_STACKS / BY_STACK，不导出）。
+    // 渲染台只需要"返回字符串"这一契约面；反查正确性归 verify-system-fonts / smoke 管。
+    fontFamilyKeyOf: (v) => (typeof v === 'string' ? v.trim() : ''),
+    FONT_FAMILY_LABELS: [
+      { v: 'inherit', label: '默认' }, { v: 'Microsoft YaHei', label: '雅黑' }, { v: 'KaiTi', label: '楷体' },
+      { v: 'SimSun', label: '宋体' }, { v: 'SimHei', label: '黑体' }, { v: 'STXingkai', label: '行楷' },
+      { v: 'monospace', label: '等宽' },
+    ],
+  });
+}
+
 // ── 渲染回归：三档页签都渲染得出，且各画各的 ────────────────────────────────
 // 源码级判据看不出的那一类（漏声明的名字、ctx 装错对象、占位器在解构时就炸）只有真渲染
 // 一次才知道。React / store 用最小替身，**渲染器用真的**（import src/panel-tabs.js）。
@@ -3458,8 +3480,8 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
   };
   const MORE_CASES = [
     { fn: 'renderAppearanceTab', label: '（设置页：五节）', surface: 'settings',
-      // 玻璃四件套 + 雾化已归入新节「玻璃 UI」；「左侧栏液态玻璃」归入「细节」，
-      // 它的「独立配置」紧挂在它下方（用户口径：两者耦合）。
+      // 玻璃四件套 + 雾化已归入新节「玻璃 UI」；「左侧栏液态玻璃」与它的子项也都在本节
+      //（§10.25 起），两档同内容（2026-10-03 口径）。
       // ⚠️ 本批（wip §10.20）起这一节**只剩一层**：「子 UI 玻璃」总开关与每个子面的
       // 「要不要玻璃」开关都已退役（那个"关"并不能如愿回到原生纯色）⇒ 每个子面**直接**
       // 一个「独立配置」。同时「设置窗口液态玻璃」退役（功能由「设置窗口玻璃·独立配置」接管）。
@@ -3468,15 +3490,15 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       // 在没装 dsh-better-sidebar 的机器上只剩空标题的原因，§10.25 因此把它并进了「玻璃 UI」）。
       selOver: { sidebarPresent: true, sidebarGlass: true },
       want: ['主题', '细节', '玻璃 UI', '全局字体', '输入光标'],
-      wantLabels: ['主题随壁纸', '边框', '玻璃透明度', '雾化', '玻璃保真度', '思考块液态玻璃', '左侧栏液态玻璃', '侧栏液态玻璃', '侧栏玻璃·独立配置', '内容面玻璃·独立配置', '设置窗口玻璃·独立配置', '对话框玻璃·独立配置', '浮层玻璃·独立配置', '字体自定义'] },
+      wantLabels: ['主题随壁纸', '边框', '玻璃透明度', '雾化', '玻璃保真度', '思考块液态玻璃', '左侧栏液态玻璃', '侧栏液态玻璃', '侧栏玻璃跟随全局', '内容面玻璃·独立配置', '设置窗口玻璃·独立配置', '对话框玻璃·独立配置', '浮层玻璃·独立配置', '字体自定义'] },
     // 侧栏档：2026-10-03 用户口径 —— 与设置页**同内容**，唯「全局字体」一节不进侧栏
     //（那道 `!sidebarSurface` 门在 panel-tabs，与 quick-panel 的字体占位器互为负对照；
     //  原 §10.22"简化配置不进侧栏"边界已被本次口径推翻）。
-    // `selOver` 与设置页用例同位 ⇒ 侧栏家族 / 内容面那几行同样画得出来。
+    // `selOver` 与设置页用例同位 ⇒ 侧栏家族 / 内容面 / 跟随全局那几行同样画得出来。
     { fn: 'renderAppearanceTab', label: '（侧栏档：与设置页同内容，唯全局字体除外）', surface: 'sidebar',
       selOver: { sidebarPresent: true, sidebarGlass: true },
       want: ['主题', '细节', '玻璃 UI', '输入光标'],
-      wantLabels: ['主题随壁纸', '边框', '玻璃透明度', '雾化', '玻璃保真度', '思考块液态玻璃', '左侧栏液态玻璃', '侧栏液态玻璃', '侧栏玻璃·独立配置', '内容面玻璃·独立配置', '设置窗口玻璃·独立配置', '对话框玻璃·独立配置', '浮层玻璃·独立配置'] },
+      wantLabels: ['主题随壁纸', '边框', '玻璃透明度', '雾化', '玻璃保真度', '思考块液态玻璃', '左侧栏液态玻璃', '侧栏液态玻璃', '侧栏玻璃跟随全局', '内容面玻璃·独立配置', '设置窗口玻璃·独立配置', '对话框玻璃·独立配置', '浮层玻璃·独立配置'] },
     // ⚠️ 这一条是**覆盖缺口**补上的：字体那一节的细节（颜色角色 / 排版角色 / 字体族 / 组件字体 /
     // 字体集预设，~180 行）被 `sel.fontCustom` 挡着，而它的默认值是关 ⇒ **任何用例都没渲染过它**。
     // 打开它才能让那些行第一次进入判据的视野（这本身是找缺陷，不只是补锚）。
@@ -3485,7 +3507,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       want: ['主题', '细节', '玻璃 UI', '全局字体', '输入光标'],
       wantLabels: ['主题随壁纸', '边框', '玻璃透明度', '雾化', '玻璃保真度', '思考块液态玻璃', '左侧栏液态玻璃',
         '设置窗口玻璃·独立配置', '对话框玻璃·独立配置', '浮层玻璃·独立配置',
-        '字体自定义', '文字颜色角色', '深色单独设置', '正文', '次要文字', '弱化说明', '极小说明', '禁用 / 更弱',
+        '字体自定义', '默认字体', '终端字体', '文字颜色角色', '深色单独设置', '正文', '次要文字', '弱化说明', '极小说明', '禁用 / 更弱',
         '排版角色', '只看改过的', '高级字体设置', '字体集预设'] },
     // 效果页**只有一个节标签** ⇒ 节顺序钉不住它的内部结构。这里用**控件标签的有序序列**作细锚：
     // 它同样是行为级的（对任何重构不变），却细到能看见"某一行的位置被挪了 / 被删了"。

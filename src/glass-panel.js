@@ -37,12 +37,13 @@ function renderAppearanceGlassSection(ctx) {
     onToggleChildIndependent, childIndependentOn, sel,
     onLeftSidebarGlass, onSidebarAlpha, onSidebarBlur, onSidebarColor,
     onSidebarContentAlpha, onSidebarContentColor, onSidebarGlass,
+    onSidebarFollowGlobal,
     onThinkingGlass,
   } = ctx;
   // ⚠️ **两档同内容**（用户口径 2026-10-03，推翻原 §10.22 的"简化配置不进侧栏"边界）：
   //   侧栏「外观」页与设置页「外观」页**完全同内容** —— 本节所有行（含每个子面的
-  //   「独立配置」层、思考块开关、侧栏族）两档都画；唯一的例外是「全局字体」节
-  //（用户口径：不进侧栏），那道门留在 panel-tabs，与 quick-panel 的字体占位器
+  //   「独立配置」层、思考块开关、侧栏族与跟随全局）两档都画；唯一的例外是「全局字体」
+  //   节（用户口径：不进侧栏），那道门留在 panel-tabs，与 quick-panel 的字体占位器
   //   互为负对照。本节仅存的 surface 差异：无（`surface` 已不再被本渲染器读取）。
   const children = ((typeof GLASS_CHILDREN !== "undefined" && GLASS_CHILDREN) || [])
     // ⚠️ 排除 `panelOff` 的子项：乙类（左侧栏）**不进这一层** ——
@@ -214,18 +215,27 @@ function renderAppearanceGlassSection(ctx) {
       hint: weT("dsh-better-sidebar 侧栏毛玻璃适配"),
       tooltip: weT("dsh-better-sidebar 侧栏（文件 / 终端 / Git 等面板）的毛玻璃适配；关闭则恢复其原生外观"),
     }),
+    // 跟随全局（sidebarFollowGlobal，默认开，现场口径："我需要侧栏玻璃也跟随全局"）：
+    // 开着 ⇒ 侧栏的釉变量直接指向全局三件套（effects 里写 var() 引用），并把下面
+    // 侧栏那一族的「独立配置」收起 —— 画出来又不生效的旋钮是要防的（WIP 原口径）。
+    // 内容面（可读性旋钮）与跟随无关 ⇒ 不受此门影响，照旧在场。
+    sel.sidebarPresent && sel.sidebarGlass && switchRow(weT("侧栏玻璃跟随全局"), sel.sidebarFollowGlobal === true, onSidebarFollowGlobal, {
+      key: "sidebar-follow-global",
+      hint: weT("模糊 / 透明度 / 底色都跟随全局玻璃"),
+      tooltip: weT("打开：侧栏玻璃跟随「玻璃 / 玻璃透明度 / 玻璃颜色」（与原生左栏同一条配方，两侧栏一致）；关闭：用下面三个旋钮单独调侧栏"),
+    }),
     sel.sidebarPresent && sel.sidebarGlass && [
       // 这两个面的「独立配置」层（§10.24 补的缺口）：`glassMode` 的唯一写入方是
       // `onToggleChildIndependent`，而 `sidebar` / `sidebarContent` 不在登记表里 ⇒ 没有这两个开关
       // 时它们的 mode 永远停在 `'inherit'` ⇒ 下面那 5 个滑块**全是死的**。判据见第 ⑧ 组的 mode 可达性。
-      switchRow(weT("侧栏玻璃·独立配置"),
+      !sel.sidebarFollowGlobal && switchRow(weT("侧栏玻璃·独立配置"),
         !!(childIndependentOn && childIndependentOn("sidebar")),
         (e) => onToggleChildIndependent("sidebar", e.target.checked), {
           key: "sb-independent",
           hint: weT("用这一项自己的釉层参数覆盖全局"),
           tooltip: weT("打开后**紧接在本行下方**出现这一项自己的独立配置，**完全覆盖**上面的全局配置；关闭则回到继承全局"),
         }),
-      !!(childIndependentOn && childIndependentOn("sidebar")) && [
+      !sel.sidebarFollowGlobal && !!(childIndependentOn && childIndependentOn("sidebar")) && [
         SliderRow(weT("侧栏模糊"), 0, 60, 1, sel.sidebarBlur, onSidebarBlur, sel.sidebarBlur + "px", "sb-blur"),
         SliderRow(weT("侧栏透明度"), 0, 100, 1, sel.sidebarAlpha, onSidebarAlpha, sel.sidebarAlpha + "%", "sb-alpha"),
         swatchRow(weT("侧栏玻璃颜色"), GLASS_COLOR_PRESETS, sel.sidebarColor, onSidebarColor, { key: "sb-color" }),

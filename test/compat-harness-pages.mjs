@@ -24,7 +24,7 @@
  *      求值**里临时盖上插件自己的玻璃锚点 body[data-we-wallpaper]，读 `--dsw-alias-bg-layer-1/2/3`
  *      与 `--dsw-alias-button-elevated-fill` 在锚点两侧的**计算样式**（再在 finally 里摘掉），
  *      并读侧栏「新建会话」按钮的实际 background-color。判据 = 「锚点在 ⇒ harness 的面拿到玻璃」；
- *      日志、刻意不接管的 markdown 代码块底各一条。回退档（软件光栅器）按模式取相反的期望值
+ *      日志、以及按新裁定接管的 markdown 代码块底各一条。回退档（软件光栅器）按模式取相反的期望值
  *      （令牌被钉回不透明面板色）。**同一段探针**还覆盖「左侧栏液态玻璃」（leftSidebarGlass，
  *      默认关）：左侧栏那一列的锚点是座位出口 [data-slot="sidebar"] 的父元素（哈希类名不可用），
  *      取「裸页面 / 只盖壁纸锚点 / 再加开关 / 摘掉开关」四态的计算样式 —— 锚点改名或结构
@@ -675,9 +675,15 @@ async function main() {
         : isGlassMix(sp.after[k]) && !isGlassMix(sp.before[k]))),
       'fallback=' + (glassFb ? 1 : 0) + ' · before[' + tokenSide('before') + '] · after[' + tokenSide('after') + ']');
 
-    check('刻意不接管的令牌不因锚点改变（markdown 代码块底：固定语法配色需要不透明底）',
-      spOk && sp.after.codeBlock === sp.before.codeBlock,
-      'codeBlock before=' + String((sp && sp.before && sp.before.codeBlock) || '（取不到）').slice(0, 40)
+    // markdown 代码块底（用户口径："代码块和重点文字背景也要和对话框一样玻璃化"）：
+    // 2026-10 起**接管**（与气泡同一张配方表：主题底色压可读性下限 + 玻璃色 @ 玻璃透明度）。
+    // 正常档：锚点在时必须变成玻璃配方；回退档（软件光栅器/无 backdrop-filter）：钉回不透明面板色。
+    check('markdown 代码块底按新裁定接管为玻璃（回退档则钉回不透明；shiki 前景色不动）',
+      spOk && (glassFb
+        ? !isGlassMix(sp.after.codeBlock)
+        : isGlassMix(sp.after.codeBlock) && !isGlassMix(sp.before.codeBlock)),
+      'fallback=' + (glassFb ? 1 : 0)
+        + ' codeBlock before=' + String((sp && sp.before && sp.before.codeBlock) || '（取不到）').slice(0, 40)
         + ' after=' + String((sp && sp.after && sp.after.codeBlock) || '（取不到）').slice(0, 40));
 
     if (spOk && sp.after.raisedBg) {

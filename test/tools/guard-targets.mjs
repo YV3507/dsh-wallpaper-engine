@@ -69,7 +69,11 @@ const SELF_REFERENTIAL = [
  * 正判据与负对照调这一个函数。
  */
 function targetsOf(srcText, modules) {
-  const code = stripComments(String(srcText));
+  // 相对说明符的 `../` 前缀先剥掉：`'../lib/routes/system-fonts.js'` 里模块路径左邻是 `/`
+  //（在下方的左边界排除类里）⇒ 直接匹配会漏（实测：verify-system-fonts 直接 import 的
+  // 路由文件被判成零覆盖）。剥前缀只影响字符串开头的点斜杠段，不会把 `assets/../src/x.js`
+  // 这类"路径中段"伪造出来（中段的 `../` 前邻仍是字符，不在 `(['"])(\.\./)+` 的射程）。
+  const code = stripComments(String(srcText)).replace(/(['"])((?:\.\.\/)+)/g, '$1');
   const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const hits = new Set();
   // A) 字面量路径。**必须按路径边界匹配**，不能 `includes` 子串：
