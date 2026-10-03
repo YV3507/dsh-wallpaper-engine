@@ -467,6 +467,42 @@ function main() {
       + ' · legacy branch (1.15 + blur*0.028) preserved=' + !!satTernary
       + ' · old ramp 0/15/30/45/60px = 1.15/1.57/1.99/2.41/2.83, new = constant');
 
+  // ── G8: 浅/深两主题的 alias 接管集合必须逐 token 同形 ─────────────────────────
+  // 全表面玻璃的映射分「浅色块 + 深色块」两处声明（深色要更高特异性才能压过宿主
+  // body[data-ds-dark-theme] 的后置同权重规则），两边各漏一条 = 某个主题下该面
+  // **悄悄回到宿主实色** —— 第二批收编代码块家族时正是漏了深色档（深色模式下
+  // 代码块整块黑底，现场截图复现）。判据对所有壁纸块（含 left-sidebar 变体）的
+  // 浅/深两侧各求并集再比集合，不依赖块与块的书写配对。
+  const aliasTokens = (wantDark) => {
+    const set = new Set();
+    let from = 0;
+    for (;;) {
+      const at = CSS.indexOf('data-we-wallpaper', from);
+      if (at < 0) break;
+      from = at + 1;
+      const open = CSS.indexOf('{', at);
+      if (open < 0) break;
+      const headerFrom = Math.max(CSS.lastIndexOf('}', open), CSS.lastIndexOf('{', open)) + 1;
+      const header = CSS.slice(headerFrom, open);
+      if (!header.includes('data-we-wallpaper')) continue; // 归属上一条规则的正文片段
+      if (header.includes('data-ds-dark-theme') !== wantDark) continue;
+      let depth = 0, end = -1;
+      for (let i = open; i < CSS.length; i++) {
+        if (CSS[i] === '{') depth++;
+        else if (CSS[i] === '}') { depth--; if (depth === 0) { end = i; break; } }
+      }
+      if (end < 0) break;
+      for (const t of CSS.slice(open + 1, end).matchAll(/--dsw-alias-[a-z0-9-]+/g)) set.add(t[0]);
+      from = end;
+    }
+    return set;
+  };
+  const lightOnly = [...aliasTokens(false)].filter((t) => !aliasTokens(true).has(t));
+  const darkOnly = [...aliasTokens(true)].filter((t) => !aliasTokens(false).has(t));
+  check('G8 alias takeover sets match across light/dark wallpaper blocks (the missed-dark-twin class of drift)',
+    lightOnly.length === 0 && darkOnly.length === 0,
+    'lightOnly=' + JSON.stringify(lightOnly) + ' · darkOnly=' + JSON.stringify(darkOnly));
+
   const failed = results.filter((r) => !r.ok);
   console.log('\n' + (failed.length === 0
     ? 'ALL GLASS COMPOSITING CHECKS PASSED'

@@ -1973,7 +1973,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
   // ③ 侧栏两页零裸写（`selection.X =` 计数为 0）。
   const PROMOTED = ['onScrim', 'onWallpaperOpacity', 'onBorder', 'onBlur', 'onWallpaperBlur',
     'onBackgroundBrightness', 'onBackgroundContrast', 'onBackgroundSaturate', 'onAccent',
-    'onGlassColor', 'onGlassAlpha', 'onToggleThemeFollow'];
+    'onGlassColor', 'onGlassAlpha', 'onGlassFidelity', 'onChatGlassFidelity', 'onToggleThemeFollow'];
   {
     const compStart = src.indexOf('function WallpaperPicker() {');
     const notPromoted = PROMOTED.filter((n) => {
@@ -2109,7 +2109,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     'emit', 'setTransient', 'setSetting', 'onTogglePlay', 'onClear', 'onGroupChange', 'onNextWallpaper',
     'onToggleRotation', 'onToggleAudio', 'onVideoVolume', 'loadInventory', 'openSettingsSection',
     'renderAppearanceTab', 'renderEffectsTab', 'renderAudioTab',
-    'onAccent', 'onBlur', 'onBorder', 'onGlassAlpha', 'onGlassColor', 'onToggleThemeFollow',
+    'onAccent', 'onBlur', 'onBorder', 'onGlassAlpha', 'onGlassColor', 'onGlassFidelity', 'onChatGlassFidelity', 'onToggleThemeFollow',
     'onScrim', 'onWallpaperBlur', 'onWallpaperOpacity',
     'onBackgroundBrightness', 'onBackgroundContrast', 'onBackgroundSaturate',
     // P4-15 从 panel-tabs.js 抽出的具名处理器：侧栏档也画到它们，于是它们成了 quick-panel.js
@@ -2155,7 +2155,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       loadInventory: noop, openSettingsSection: noop,
       renderAppearanceTab: panelMod.renderAppearanceTab, renderEffectsTab: panelMod.renderEffectsTab,
       renderAudioTab: panelMod.renderAudioTab,
-      onAccent: noop, onBlur: noop, onBorder: noop, onGlassAlpha: noop, onGlassColor: noop,
+      onAccent: noop, onBlur: noop, onBorder: noop, onGlassAlpha: noop, onGlassColor: noop, onGlassFidelity: noop, onChatGlassFidelity: noop,
       onToggleThemeFollow: noop, onScrim: noop, onWallpaperBlur: noop, onWallpaperOpacity: noop,
       onBackgroundBrightness: noop, onBackgroundContrast: noop, onBackgroundSaturate: noop,
       onGlassWindow: noop, onLeftSidebarGlass: noop, onSidebarGlass: noop,
@@ -2714,18 +2714,18 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
   const MORE_CASES = [
     { fn: 'renderAppearanceTab', label: '（设置页：五节）', surface: 'settings',
       want: ['主题', '细节', '全局字体', '输入光标', '窗口与侧栏'],
-      wantLabels: ['主题随壁纸', '玻璃透明度', '左侧栏覆盖', '雾化', '边框', '字体自定义', '设置窗口液态玻璃', '思考块液态玻璃'] },
+      wantLabels: ['主题随壁纸', '玻璃透明度', '玻璃保真度', '对话栏玻璃保真度', '左侧栏覆盖', '雾化', '边框', '字体自定义', '设置窗口液态玻璃', '思考块液态玻璃'] },
     // 侧栏档：被 `!sidebarSurface` 包住的三节不画 —— 这条门此前只有源码串，没有行为断言。
     { fn: 'renderAppearanceTab', label: '（侧栏档：设置页专属的三节不画）', surface: 'sidebar',
       want: ['主题', '细节'],
-      wantLabels: ['主题随壁纸', '玻璃透明度', '左侧栏覆盖', '雾化', '边框'] },
+      wantLabels: ['主题随壁纸', '玻璃透明度', '玻璃保真度', '对话栏玻璃保真度', '左侧栏覆盖', '雾化', '边框'] },
     // ⚠️ 这一条是**覆盖缺口**补上的：字体那一节的细节（颜色角色 / 排版角色 / 字体族 / 组件字体 /
     // 字体集预设，~180 行）被 `sel.fontCustom` 挡着，而它的默认值是关 ⇒ **任何用例都没渲染过它**。
     // 打开它才能让那些行第一次进入判据的视野（这本身是找缺陷，不只是补锚）。
     { fn: 'renderAppearanceTab', label: '（设置页 · 字体自定义开）', surface: 'settings',
       selOver: { fontCustom: true },
       want: ['主题', '细节', '全局字体', '输入光标', '窗口与侧栏'],
-      wantLabels: ['主题随壁纸', '玻璃透明度', '左侧栏覆盖', '雾化', '边框', '字体自定义', '文字颜色角色', '深色单独设置', '正文', '次要文字', '弱化说明', '极小说明', '禁用 / 更弱', '排版角色', '只看改过的', '高级字体设置', '字体集预设', '设置窗口液态玻璃', '思考块液态玻璃'] },
+      wantLabels: ['主题随壁纸', '玻璃透明度', '玻璃保真度', '对话栏玻璃保真度', '左侧栏覆盖', '雾化', '边框', '字体自定义', '文字颜色角色', '深色单独设置', '正文', '次要文字', '弱化说明', '极小说明', '禁用 / 更弱', '排版角色', '只看改过的', '高级字体设置', '字体集预设', '设置窗口液态玻璃', '思考块液态玻璃'] },
     // 效果页**只有一个节标签** ⇒ 节顺序钉不住它的内部结构。这里用**控件标签的有序序列**作细锚：
     // 它同样是行为级的（对任何重构不变），却细到能看见"某一行的位置被挪了 / 被删了"。
     { fn: 'renderEffectsTab', label: '（画面 · 设置页）', surface: 'settings', want: ['画面'],
@@ -2894,8 +2894,8 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     renderAdvancedTab: ['setSetting', 'onAdapterTarget', 'onEdgeCompatChange', 'onLayoutChange',
       'onPauseOnBattery', 'onPauseOnBlur', 'onPauseOnHidden', 'onToggleLiveDiag', 'sel'],
     renderAppearanceTab: ['setSetting', 'officialColorOf', 'onAccent', 'onBlur', 'onBorder',
-      'onCaretColor', 'onComponentFamily', 'onComponentFont', 'onFontAdvanced', 'onFontResetAll',
-      'onGlassAlpha', 'onGlassColor', 'onGlassWindow', 'onLeftSidebarGlass', 'onSidebarAlpha',
+      'onCaretColor', 'onChatGlassFidelity', 'onComponentFamily', 'onComponentFont', 'onFontAdvanced', 'onFontResetAll',
+      'onGlassAlpha', 'onGlassColor', 'onGlassFidelity', 'onGlassWindow', 'onLeftSidebarGlass', 'onSidebarAlpha',
       'onSidebarBlur', 'onSidebarColor', 'onSidebarContentAlpha', 'onSidebarContentColor',
       'onSidebarGlass', 'onThemeColor', 'onThemeColorClear', 'onThemeDarkSeparate', 'onThemeFamily',
       'onThemeSize', 'onThemeTypeOnly', 'onThemeWeight', 'onThinkingGlass', 'onToggleFontCustom', 'onToggleThemeFollow',

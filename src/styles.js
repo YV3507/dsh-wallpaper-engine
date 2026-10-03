@@ -220,9 +220,10 @@ const CSS = `
        按 --we-glass-alpha 混合，三档沿用 0.9 / 1.0 / 1.1 的层权重，抬高按钮再高半档
        （深色主题下必须比 layer-3 更亮，否则按钮与容器压平成同一块玻璃）。于是
        玻璃透明度 / 玻璃颜色 对 harness 自带的面同样生效，无需知道任何 CSS 模块哈希。
-       ⚠️ 刻意**不**接管 --dsw-alias-markdown-code-block(-banner)：代码块底是 shiki
-       固定配色的画布，透出壁纸会让注释/字符串掉到不可读的对比（与下面 .cm-editor /
-       .xterm 需要近不透明底板是同一条理由），裁定见 harness-ui-surfaces.json。 */
+       --dsw-alias-markdown-code-block(-banner) 曾在此被**刻意不接管**（shiki 固定
+       配色画布的可读性顾虑）；第二批（#71，用户现场口径）已把代码块家族连同行内
+       代码 / 标签 / 分段收进同一张配方表 —— 见下面「markdown 代码块 / 行内代码」
+       那段映射，裁定档案 harness-ui-surfaces.json 已同步改判。 */
     --dsw-alias-bg-layer-1: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
       color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-glass-alpha, 0.5) * 0.9 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
@@ -365,6 +366,30 @@ const CSS = `
     --dsw-alias-markdown-placeholder: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
       rgba(var(--we-surface-tint-rgb-dark, 13, 21, 36), calc(var(--we-glass-alpha, 0.15) * 1.1)) calc((1 - var(--we-readability-floor)) * 100%));
+    /* ── markdown 代码块家族的深色档（第二批收编时的**漏项补齐**）────────────────
+       浅色块把代码块 / 标题条 / 行内代码 / 标签 / 分段收进玻璃时（见上面「与气泡
+       同一张配方表」注释），深色档只补到了 citation / placeholder，这六条漏了 ——
+       后果是深色模式下宿主的静态黑画布按级联赢回（浅色档 0,1,1 撞不过宿主
+       body[data-ds-dark-theme] 的后置同权重规则），代码块整块黑底。逐条同形补上，
+       公式 / 层权重与浅色逐字一致，只有 tint 换 --we-surface-tint-rgb-dark。 */
+    --dsw-alias-markdown-code-block: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      rgba(var(--we-surface-tint-rgb-dark, 13, 21, 36), calc(var(--we-glass-alpha, 0.15) * 0.8)) calc((1 - var(--we-readability-floor)) * 100%));
+    --dsw-alias-markdown-code-block-banner: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      rgba(var(--we-surface-tint-rgb-dark, 13, 21, 36), calc(var(--we-glass-alpha, 0.15) * 0.8)) calc((1 - var(--we-readability-floor)) * 100%));
+    --dsw-alias-markdown-inline-code: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      rgba(var(--we-surface-tint-rgb-dark, 13, 21, 36), var(--we-glass-alpha, 0.15)) calc((1 - var(--we-readability-floor)) * 100%));
+    --dsw-alias-markdown-tag: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      rgba(var(--we-surface-tint-rgb-dark, 13, 21, 36), var(--we-glass-alpha, 0.15)) calc((1 - var(--we-readability-floor)) * 100%));
+    --dsw-alias-markdown-code-segment-unselected: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      rgba(var(--we-surface-tint-rgb-dark, 13, 21, 36), var(--we-glass-alpha, 0.15)) calc((1 - var(--we-readability-floor)) * 100%));
+    --dsw-alias-markdown-code-segment-selected: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      rgba(var(--we-surface-tint-rgb-dark, 13, 21, 36), calc(var(--we-glass-alpha, 0.15) * 1.15)) calc((1 - var(--we-readability-floor)) * 100%));
     --dsw-alias-border-l1: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
     --dsw-alias-border-l2: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
     --dsw-alias-border-l2-darkmode-thin: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
@@ -423,15 +448,31 @@ const CSS = `
      （浅色 neutral-bluish-00 / 深色 neutral-bluish-875），静态令牌缺席时退回字面量。 */
   /* 染色地板：--we-readability-base 是玻璃色经亮度钳制后的按主题版本
      （effects.js 的 weClampSurfaceColor 计算、--we-surface-tint-* 注入）
-     —— 色相跟随用户选择，亮度钳制保住 #82 的 ≥4.5:1 正文判据。缺省回落原值。 */
+     —— 色相跟随用户选择，亮度钳制保住 #82 的 ≥4.5:1 正文判据。缺省回落原值。
+     玻璃保真度（glassFidelity，默认 100）：--we-readability-floor = floor 常量
+     × --we-glass-fidelity（effects.js 注入 0–1，缺省 1 = 现状、任何旧设置文件
+     无此键时也不变）。拉低保真度 = 地板覆盖度同比例减薄 + 釉色向用户原色回退
+     （回退在 effects.js 的 weClampSurfaceColor 第三参），颜色更贴用户原色、
+     正文可读性让位 —— 这是唯一的权衡旋钮。 */
   body {
-    --we-readability-floor: ${READABILITY_FLOOR};
+    --we-readability-floor-base: ${READABILITY_FLOOR};
+    --we-readability-floor: calc(var(--we-readability-floor-base) * var(--we-glass-fidelity, 1));
     --we-readability-base: var(--we-surface-tint-light, #ffffff);
+    /* 对话栏专属的一对（独立保真度旋钮 chatGlassFidelity）：**只**被对话栏的框架
+       玻璃面消费 —— 气泡（--dsw-specific-bubble）与输入卡片（--dsw-specific-input-major，
+       含读同一 token 的工具弹卡）。正文里的 markdown 内容面（代码块 / 行内代码 /
+       标签 / 引用）**不**跟本旋钮：它们是内容渲染面，与侧边栏一起跟全局保真度
+       （用户口径：代码块不和输入框一起）。缺省 1 = 与全局完全同值。 */
+    --we-chat-readability-floor: calc(var(--we-readability-floor-base) * var(--we-chat-glass-fidelity, 1));
+    --we-chat-readability-base: var(--we-chat-surface-tint-light, #ffffff);
     --we-panel-color: var(--dsw-static-neutral-bluish-00, #ffffff);
   }
   body[data-ds-dark-theme] {
-    --we-readability-floor: ${READABILITY_FLOOR_DARK};
+    --we-readability-floor-base: ${READABILITY_FLOOR_DARK};
+    --we-readability-floor: calc(var(--we-readability-floor-base) * var(--we-glass-fidelity, 1));
     --we-readability-base: var(--we-surface-tint-dark, #0d1524);
+    --we-chat-readability-floor: calc(var(--we-readability-floor-base) * var(--we-chat-glass-fidelity, 1));
+    --we-chat-readability-base: var(--we-chat-surface-tint-dark, #0d1524);
     --we-panel-color: var(--dsw-static-neutral-bluish-875, #1e1f26);
   }
 
@@ -465,21 +506,21 @@ const CSS = `
      composer card AND the tool popups that read --dsw-specific-input-major). */
   body[data-we-wallpaper] {
     --dsw-specific-input-major: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      rgba(var(--we-surface-tint-rgb-light, 255, 255, 255), var(--we-glass-alpha, 0.15)) calc((1 - var(--we-readability-floor)) * 100%));
+      var(--we-chat-readability-base) calc(var(--we-chat-readability-floor) * 100%),
+      rgba(var(--we-chat-surface-tint-rgb-light, 255, 255, 255), var(--we-glass-alpha, 0.15)) calc((1 - var(--we-chat-readability-floor)) * 100%));
     --dsw-specific-bubble: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      rgba(var(--we-surface-tint-rgb-light, 255, 255, 255), calc(var(--we-glass-alpha, 0.15) * 0.8)) calc((1 - var(--we-readability-floor)) * 100%));
+      var(--we-chat-readability-base) calc(var(--we-chat-readability-floor) * 100%),
+      rgba(var(--we-chat-surface-tint-rgb-light, 255, 255, 255), calc(var(--we-glass-alpha, 0.15) * 0.8)) calc((1 - var(--we-chat-readability-floor)) * 100%));
   }
   body[data-ds-dark-theme][data-we-wallpaper] {
     /* The ×0.4 / ×0.33 factors below only scale the TINT operand; the floor
        keeps its own weight, so the dark-theme undercut cannot happen. */
     --dsw-specific-input-major: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      rgba(var(--we-surface-tint-rgb-dark, 255, 255, 255), calc(var(--we-glass-alpha, 0.15) * 0.4)) calc((1 - var(--we-readability-floor)) * 100%));
+      var(--we-chat-readability-base) calc(var(--we-chat-readability-floor) * 100%),
+      rgba(var(--we-chat-surface-tint-rgb-dark, 255, 255, 255), calc(var(--we-glass-alpha, 0.15) * 0.4)) calc((1 - var(--we-chat-readability-floor)) * 100%));
     --dsw-specific-bubble: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      rgba(var(--we-surface-tint-rgb-dark, 255, 255, 255), calc(var(--we-glass-alpha, 0.15) * 0.33)) calc((1 - var(--we-readability-floor)) * 100%));
+      var(--we-chat-readability-base) calc(var(--we-chat-readability-floor) * 100%),
+      rgba(var(--we-chat-surface-tint-rgb-dark, 255, 255, 255), calc(var(--we-glass-alpha, 0.15) * 0.33)) calc((1 - var(--we-chat-readability-floor)) * 100%));
   }
   body[data-we-wallpaper] [data-composer-card],
   body[data-we-wallpaper] [class*="_bubble"],
