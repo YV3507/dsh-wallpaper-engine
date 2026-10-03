@@ -259,10 +259,10 @@ const selection = {
   modalView: "normal",
   // Transient: picker-modal title search (not persisted).
   search: "",
-  // Transient: 快捷播放面板自己的搜索词与类型筛选（与库视图互不影响；不落盘）。
+  // Transient: 快捷播放面板自己的搜索词（与库视图互不影响；不落盘）。
+  // 类型筛选 2026-10-04 起与设置页共用持久化键 `typeFilter` —— 面板本地的 `qpType`
+  // 瞬态档已退役（"两处同步、不做单独的"是用户口径）。
   qpSearch: "",
-  // "all" | "scene" | "web" | "video" | "image"（面板是快切，档位就这几类 + 全部）
-  qpType: "all",
   // Transient: 侧栏底栏的深链请求 —— "打开设置页后停在哪一页"（`""` = 无请求）。
   // 由 WallpaperPicker 的一个 effect 消费一次即清（见 src/sidebar-right.js 的
   // openSettingsSection 与 client.js 的「侧栏深链」段）。

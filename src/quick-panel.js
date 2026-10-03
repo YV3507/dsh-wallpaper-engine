@@ -158,14 +158,13 @@
     // 这里只决定"什么时候画它"（见下面内容区那三个分支：打开时列表/搜索栏让位）。
     // 本档有没有属性可调：与设置页入口同一条判据（仅场景/网页 + 有 propsUrl）。
     const propsAvailable = Boolean(current && (current.type === "scene" || current.type === "web") && sel.propsUrl);
-    // 快切列表：与库视图同一过滤口径（分级 / 类型 / 隐藏），再叠面板自己的
-    // 搜索词与**面板本地的类型筛选**（qpType：全部 / 场景 / 网页 / 视频 / 图片 ——
-    // 瞬态，不影响设置页的过滤与轮播候选）。
+    // 快切列表：与库视图同一过滤口径（分级 / 类型 / 隐藏），再叠面板自己的搜索词。
+    // 类型档（全部 / 场景 / 网页 / 视频 / 图片）**与设置页是同一个键** `typeFilter`
+    //（2026-10-04 用户口径：类型变动两处同步、不做单独的档 —— 原「面板本地瞬态档 +
+    // 两层交集空态兜底」整套退役）。持久化 ⇒ 同时管设置页列表与轮播候选；两处同值，
+    // 设置页切档这边立刻跟着变，反之亦然。
     const q = String(sel.qpSearch || "").trim().toLowerCase();
-    const typeFilter = qpTypes().some((t) => t.id === sel.qpType) ? sel.qpType : "all";
-    // 上游档（设置页的类型过滤，持久化）：它先筛一遍候选，侧栏这一档再筛 ——
-    // 空列表时若它不是「全部」，提示要说清是哪一层筛掉的（否则用户以为库里没有）。
-    const upstreamType = String(sel.typeFilter || "all");
+    const typeFilter = qpTypes().some((t) => t.id === sel.typeFilter) ? sel.typeFilter : "all";
     const playable = playableInventory();
     const filtered = playable.filter((w) => {
       if (typeFilter !== "all" && w.type !== typeFilter) return false;
@@ -416,15 +415,15 @@
                       "aria-label": weT("搜索壁纸标题"),
                       onInput: (e) => { setTransient("qpSearch", e.target.value); emit(); },
                     }),
-                    // 类型筛选：面板本地（全部 / 场景 / 网页 / 视频 / 图片），瞬态不落盘；
-                    // 与设置页的「类型」过滤互不影响（那一条筛设置页列表与轮播候选），
-                    // 两处都只筛「列表」，不拦正在应用的壁纸。上游那一档的叠加见空态提示。
+                    // 类型筛选：与设置页「类型」**同一个键**（typeFilter，2026-10-04 起
+                    // 不再单独存 qpType）—— 这里改，设置页列表与轮播候选同步生效；
+                    // 设置页改，这边同步显示。两处都只筛「列表」，不拦正在应用的壁纸。
                     React.createElement("select", {
                       className: "we-picker__select we-qp__type",
                       value: typeFilter,
-                      onChange: (e) => { setTransient("qpType", e.target.value); emit(); },
+                      onChange: (e) => { setSetting("typeFilter", e.target.value); emit(); },
                       "aria-label": weT("类型筛选"),
-                      title: weT("按类型筛选侧栏列表（只影响这里）"),
+                      title: weT("按类型筛选壁纸列表（与设置页同一档）"),
                     },
                     ...qpTypes().map((t) => React.createElement("option", { key: t.id, value: t.id }, t.label)),
                     ),
@@ -466,17 +465,8 @@
                       : React.createElement(React.Fragment, null,
                           React.createElement("span", { className: "we-picker__hint" },
                             q ? weT("没有匹配「{query}」的壁纸", { query: sel.qpSearch })
-                              : (typeFilter !== "all" && upstreamType !== "all" && upstreamType !== typeFilter)
-                                ? weT("「{local}」与设置页的类型档「{upstream}」没有交集 —— 两层筛选都放行的壁纸才会出现在这里",
-                                    { local: qpTypeLabelOf(typeFilter), upstream: qpTypeLabelOf(upstreamType) })
                                 : weT(typeFilter !== "all" ? "「{name}」类型下没有可播放的壁纸" : "没有可播放的壁纸",
                                     { name: qpTypeLabelOf(typeFilter) })),
-                          // 两层交集为空时，光说「被上游筛掉了」不够 —— 把从面板到设置页
-                          // 类型档的完整点击链写出来，用户不用猜「设置页的类型档」在哪。
-                          // 两档相同时不写链路：切成「全部」也变不出该类型的壁纸。
-                          typeFilter !== "all" && upstreamType !== "all" && upstreamType !== typeFilter
-                            && React.createElement("span", { className: "we-picker__hint" },
-                                weT("完整操作链：设置 → 壁纸引擎 → 壁纸库 → 「选择壁纸」→ 顶部「类型」切成「全部」")),
                         ),
                   ),
                   filtered.length > rows.length

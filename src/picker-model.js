@@ -106,8 +106,9 @@ function isRotatableWallpaper(w, ratingFilter, typeFilter) {
 }
 
 // 「正在应用的壁纸可以继续播」判据：可播放 ∧ 分级闸门，**不过滤类型**。过滤档分两种
-// 效力 —— 分级是内容闸门（拦播放），类型档只筛列表与轮播候选（快捷面板的 qpType 同
-// 语义）；把类型档写进播放闸门就会出现「一切过滤档，正在播的壁纸被干掉」。
+// 效力 —— 分级是内容闸门（拦播放），类型档只筛列表与轮播候选（2026-10-04 起快捷面板
+// 与设置页**共用同一个 `typeFilter`**，原面板本地 qpType 已退役）；把类型档写进播放闸门
+// 就会出现「一切过滤档，正在播的壁纸被干掉」。
 function keepPlayingWallpaper(w, ratingFilter) {
   return Boolean(w) && isPlayableType(w) && matchesRatingFilter(w, ratingFilter);
 }

@@ -1593,24 +1593,27 @@ check('host 侧 /media-control 只收 POST + 动作走 mediaBackend.control（�
     leftoversIn('switchRow("在线歌词", v)').join(',') === '在线歌词'
       && leftoversIn('switchRow("媒体信息", v) && switchRow("系统音频反应", v)').length === 2);
 
-// 用户口径：侧栏壁纸列表支持类型筛选（全部 / 场景 / 网页 / 视频 / 图片）—— 面板本地、
-// **瞬态**（setTransient 不经设置落盘；设置页的「类型」过滤另有一条，筛设置页列表与
-// 轮播候选，两者互不影响、都只筛「列表」）。「图片」是后补的一档（上传的单文件图片
-// 壁纸）：判据按**同一份档位表**逐档核对，再加一条负对照 —— 少一档必须被判红
-//（此前"四档齐全"写的是"这四档都在"，补一档不会红，也就没有覆盖）。
+// 用户口径（2026-10-04 更新）：侧栏壁纸列表的类型档（全部 / 场景 / 网页 / 视频 / 图片）
+// **与设置页是同一个键 `typeFilter`** —— 类型变动两处同步、不做单独的档（原「面板本地
+// 瞬态 qpType + 两层交集空态兜底」整套退役：不再 setTransient("qpType")、不再有默认档
+// 行、空态不再有"没有交集/完整操作链"提示）。「图片」是后补的一档（上传的单文件图片
+// 壁纸）：判据按**同一份档位表**逐档核对，再加一条负对照 —— 少一档必须被判红。
   const QP_TYPE_ROWS = [['all', '全部'], ['scene', '场景'], ['web', '网页'], ['video', '视频'], ['image', '图片']];
   const sideTypeFilterOk = (text) => text.includes('function qpTypes()')
     && QP_TYPE_ROWS.every(([id, label]) => text.includes('id: "' + id + '"')
       && (text.includes('label: weT("' + label + '")') || text.includes('label: weT("' + label + '", null,')))
     && text.includes('w.type !== typeFilter');
-  check('侧栏列表类型筛选：五档齐全（含「图片」）+ 面板本地应用 + 不走设置落盘',
+  check('侧栏列表类型筛选：五档齐全（含「图片」）+ 与设置页同键同步（setSetting typeFilter，单独档已退役）',
   // i18n（中文原文即键）之后：容器从文件顶层常量改成 `qpTypes()`（每次渲染现建，
   // 否则文案会冻在加载期），每档 label 各自走 `weT("…")` —— 判据只认"档位 id 仍绑着
   // 同一句原文"，不认包装形态（认形态的判据会在下一次改写法时静默失效）。
     sideTypeFilterOk(qpSrc)
-    && qpSrc.includes('setTransient("qpType", e.target.value)')
-    && !qpSrc.includes('setSetting("qpType"')
-    && src.includes('qpType: "all"'));
+    && qpSrc.includes('setSetting("typeFilter", e.target.value)')
+    && !qpSrc.includes('setTransient("qpType"')
+    && !qpSrc.includes('sel.qpType')
+    && !src.includes('qpType: "all"')
+    && !qpSrc.includes('没有交集')
+    && !qpSrc.includes('完整操作链'));
   // 负对照：同一条判据喂"少一档"的合成文本，必须被判红（判据不是恒真）。
   check('negative control: 少一档（缺「图片」）会被同一条判据点出',
     !sideTypeFilterOk(qpSrc.replace('{ id: "image", label: weT("图片") },', ''))
