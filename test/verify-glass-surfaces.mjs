@@ -78,14 +78,15 @@ const SURFACES = [
       + '单独拆了一把尺，子项只是把它接到"独立配置"这个开关上。所以它是 private。',
   },
   {
-    id: 'glass-child-settings-window', label: '设置窗口玻璃（子项）', anchors: ['[data-slot="settings.section"]'], tier: 'global',
-    why: '**接线未完成**：它今天读的就是全局那套变量（`--we-blur` / `--we-glass-alpha` / …），'
-      + '要真正独立得先把那些变量从共享规则里拆出来（见 wip §4.7 的字面量锚定分析）。'
-      + '现在登记面名，是为了让"开关存在"这件事可对账；第 ④ 组的逐参数对账会在接线时生效。',
+    id: 'glass-child-settings-window', label: '设置窗口玻璃（子项）', anchors: ['[data-slot="settings.section"]'], tier: 'private',
+    why: 'W2 起**已接线**：`glass.js` 写 `--we-settings-window-blur` / `-alpha`，样式表读'
+      + '`var(--we-settings-window-<x>, <全局>)`（产物里各 2 处 var() 消费）。'
+      + '⚠️ 这里原先写的是"接线未完成"且档位 `global` —— 那条 why 在 W2 之后**已过期**，本次按事实改判 private。',
   },
   {
-    id: 'glass-child-floaters', label: '浮层玻璃（子项）', anchors: ['.we-update-notice', '.we-repo-panel--open'], tier: 'global',
-    why: '**接线未完成**，同 `settingsWindow`：今天读全局变量，独立化需要先把变量拆出来。',
+    id: 'glass-child-floaters', label: '浮层玻璃（子项）', anchors: ['.we-update-notice', '.we-repo-panel--open'], tier: 'private',
+    why: '同 `settingsWindow`：W4 起**已接线**（`--we-floaters-blur` / `-alpha`，产物里 4 处 var() 消费）'
+      + '⇒ 原 why 的"接线未完成"过期，改判 private。',
   },
   {
     id: 'conversation-bubbles', label: '消息气泡', anchors: ['[class*="_bubble"]'], tier: 'private',
@@ -99,19 +100,23 @@ const SURFACES = [
   },
   {
     id: 'conversation-thinking-trigger', label: '思考触发条',
-    anchors: ['[data-turn-trigger]'], tier: 'global', pending: true,
-    why: 'P3 的候选面：宿主把它画成不透明代码块底色（锚点已核实存在于 dsh-client-ui-chat），'
-      + '但本插件尚未接管 ⇒ 标 pending，登记在先。是否接管见 wip 文档 §8。',
+    anchors: ['[data-turn-trigger]'], tier: 'private',
+    why: '宿主把它画成不透明代码块底色（锚点已核实：DSH 的 TurnTriggerNodeView 渲染 `section[data-turn-trigger]`，'
+      + '且给它**专属底色令牌** `--dsw-alias-turn-trigger-bg` / `-hover`）。本仓的接法 = **接管那两个令牌**'
+      + '（含 hover 档）+ 在锚点元素上加模糊载体，见 styles.js 会话族那一节。'
+      + '⚠️ 它现在是**可独立配置的面**：「思考触发条玻璃·独立配置」（注册表 id `thinkingTrigger`，'
+      + '参数 transparency / blur）⇒ `glass.js` 写 `--we-thinking-trigger-blur` / `-alpha` 两个私有变量 ⇒ 档位 private。',
   },
   {
     id: 'left-sidebar-override', label: '左侧栏覆盖',
-    anchors: ['[data-slot="sidebar"]'], tier: 'global',
+    anchors: ['[data-slot="sidebar"]'], tier: 'private',
     // W3 起它接了自己的按面变量（`--we-left-sidebar-blur` / `-alpha`，CSS 读
-    // `var(--we-left-sidebar-<x>, <全局>)`）⇒ 登记面名，让第 ④ 组按面名对账。
+    // `var(--we-left-sidebar-<x>, <全局>)`）⇒ 档位 private 并登记进 PRIVATE_VARS
+    // （⚠️ 原先标 `global` 是过期的：那两个前缀在产物 CSS 里各有 2 处 var() 消费）。
     // ⚠️ 它的门控是**两个**：`leftSidebarGlass`（「左侧栏覆盖」本身）**且**
-    //    `glassIndependent.leftSidebar`（耦合在它下面的那个独立配置开关）。
-    why: '乙类（背景还原）：它的“关”是恢复**背景**而不是恢复纯色，与其余“启用玻璃”方向相反，'
-      + '因此不进「启用玻璃」系列 UI —— 见 wip 文档 §2。W3 起模糊 / 透明度可逐面独立。',
+    //    `glassMode.leftSidebar === 'custom'`（耦合在它下面的那个独立配置开关）。
+    why: '乙类（背景还原）：它的"关"是恢复**背景**而不是恢复纯色，与其余"启用玻璃"方向相反，'
+      + '因此不进「启用玻璃」系列 UI —— 见归档的 wip 文档 §2。W3 起模糊 / 透明度可逐面独立。',
   },
   {
     id: 'settings-window', label: '设置窗口',
@@ -161,6 +166,15 @@ const PRIVATE_VARS = {
     '--we-sidebar-saturate', '--we-sidebar-tint'],
   'official-right-panel': ['--we-sidebar-blur', '--we-sidebar-color', '--we-sidebar-sheen',
     '--we-sidebar-saturate', '--we-sidebar-tint'],
+  // ── W2/W3/W4/§10.27 起逐面独立的三个"玻璃 UI 子项"与新增的思考触发条 ──────────
+  // ⚠️ 这四组**曾经漏登记**：它们早就有了私有变量（`glass.js` 写、样式表读），
+  //    但档位一直写着 `global`/`why` 写着"接线未完成" ⇒ 第 ③ 组当时**看不见**这种
+  //    不一致（旧判据只查"标了 private 的面必须有组"，没有反向的"标了 global 的面
+  //    不得有私有前缀"）。本次一并纠正，并把反向那条补成判据（③ 组内的 (d)）。
+  'glass-child-settings-window': ['--we-settings-window-blur', '--we-settings-window-alpha'],
+  'glass-child-floaters': ['--we-floaters-blur', '--we-floaters-alpha'],
+  'left-sidebar-override': ['--we-left-sidebar-blur', '--we-left-sidebar-alpha'],
+  'conversation-thinking-trigger': ['--we-thinking-trigger-blur', '--we-thinking-trigger-alpha'],
 };
 
 /** 枚举时排除的标记：它们标记**状态**（开/关态、主题、平台），不是"一个面"。 */
@@ -567,6 +581,39 @@ console.log('\n③ 档位声明与私有变量组一致（private 必须真接�
   check('同一个私有前缀不会被三个以上面共用（已知共用：--we-sidebar-* 由两个侧栏面共用）',
     overShared.length === 0, overShared.join('; ') || '无过度共用');
 
+  // (d) **反向那条**：声明 `global` 的面不得藏着私有变量族。
+  //     ⚠️ 这是本次补上的空转口子：旧判据只查"标了 private 的面**必须**有组"（(b)），
+  //     没有反过来的"标了 global 的面**不得**有私有前缀" ⇒ 于是 W2/W3/W4 三个面
+  //     **早就接了私有变量、`why` 还写着"接线未完成"、档位仍是 `global`**，
+  //     而第 ③ 组当时完全看不见（实测就是这么漂的 —— 与 §10.26 那个 F2c 同一类：
+  //     "声明与实现不一致"，不是判据的前提过期）。
+  //     口径：按面名派生前缀（`glass-child-foo` ⇒ `--we-foo-`），若它被 var() 消费、
+  //     且**没有任何 private 面认领**（PRIVATE_VARS 的前缀 ∪），就判为"global 藏着私有变量"。
+  //     ⚠️ 已知边界：只认**按名字派生**的前缀 —— 某个 global 面若用了别的名字就看不见它
+  //     （例如 `conversation` 用 `--we-chat-*`）；那一侧靠 (a)/(b) 的登记纪律兜，不重复造机制。
+  const hiddenPrivateOf = (surfaces, privateVars, vars) => {
+    const owned = Object.values(privateVars).flat();
+    const list = Array.isArray(vars) ? vars : [...vars];
+    const out = [];
+    for (const s of surfaces) {
+      if (s.tier !== 'global') continue;
+      const prefix = '--we-' + s.id.replace(/^glass-child-/, '') + '-';
+      const hit = list.find((v) => v.startsWith(prefix) && !owned.some((p) => v === p || v.startsWith(p)));
+      if (hit) out.push(s.id + ' → ' + hit);
+    }
+    return out;
+  };
+  const hiddenPrivate = hiddenPrivateOf(SURFACES, PRIVATE_VARS, wiredVars);
+  check('声明 global 的面不得藏着私有变量族（防"接线了却仍标 global"）',
+    hiddenPrivate.length === 0, hiddenPrivate.join(', ') || '无（四个曾经漏登记的面已改判 private）');
+  // 负对照：**同一个谓词**喂"一个 global 面 + 它自己的已接线派生前缀" ⇒ 必须判出；
+  // 正对照：同一个 global 面，但那个前缀**已被某个 private 面认领**（同名兄弟面的真实形态：
+  //   `settings-window` 与 `glass-child-settings-window` 共用 `--we-settings-window-*`）⇒ 不判出。
+  check('negative control: global 面藏私有变量会被同一条判据判出；同名兄弟面（前缀已被认领）不误报',
+    hiddenPrivateOf([{ id: 'glass-child-fake', tier: 'global' }], PRIVATE_VARS, ['--we-fake-blur']).length === 1
+      && hiddenPrivateOf([{ id: 'glass-child-settings-window', tier: 'global' }], PRIVATE_VARS, wiredVars).length === 0
+      && hiddenPrivateOf([{ id: 'glass-child-fake', tier: 'private' }], PRIVATE_VARS, ['--we-fake-blur']).length === 0);
+
   // (e) 已清理的死变量**不许回来**。P4 删掉了 `--we-sidebar-alpha`（整份样式表零消费者），
   //     删掉一个死变量之后必须有东西拦着它被"顺手"加回来 —— 否则这次清理就是一次性的。
   //     判据：这些名字不得在样式表里被**消费**（`var(--x` 形式）。写在注释里是允许的
@@ -966,6 +1013,59 @@ console.log('\n④ 接线 ↔ 注册表 ↔ 面名 三方对账');
     regDrift.length ? regDrift.join(', ')
       : SCHEMA.GLASS_CHILDREN.length + ' 个子项 · '
         + SCHEMA.GLASS_CHILDREN.reduce((n, c) => n + Object.keys(c.params).length, 0) + ' 个参数全部有接线');
+
+  // ⚠️ **"自己的键"也必须对上**（上面那条只对**参数名**，不看第三个实参）。
+  //    漏这一条的后果很隐蔽：面处于 `custom` 却读到一个**不存在**的键 ⇒ `Number(undefined) || 0`
+  //    ⇒ 曲线算出个看似正常的值，用户看到的是"开了独立配置但滑杆没用"（死旋钮的第二种形态）。
+  //    键名有**单一生成点**（`lib/settings-schema.js` 的 `childGlassKey()`：`id + Param` 首字母大写，
+  //    并尊重 `keyOverrides`）—— 这里按同一规则**复算**（判据侧必须有独立实现，否则抄同一份代码就恒真）。
+  const registryIds0 = new Set(SCHEMA.GLASS_CHILDREN.map((c) => c.id));
+  const ownKeyOf = (id, param) => {
+    const child = (SCHEMA.GLASS_CHILDREN || []).find((c) => c.id === id) || {};
+    const ov = child.keyOverrides && child.keyOverrides[param];
+    return 'selection.' + (ov || (id + param.charAt(0).toUpperCase() + param.slice(1)));
+  };
+  const badOwnKey = [];
+  // 取值接线住在 `src/glass.js`（"玻璃后端的唯一落点"）—— 直接读源文件（同 STYLES_TEXT 的做法）。
+  const glassSrc = readFileSync(join(ROOT, 'src', 'glass.js'), 'utf8');
+  // ⚠️ 这里自带一个实参提取器（不复用上面那个 `callArgs`：它定义在另一个判据组的块作用域里）
+  //    —— 判据自己成块、自己能跑，是这份文件的一贯形态。
+  const argsOf = (text) => {
+    const out = [];
+    const re = /glassValue\(/g;
+    let m;
+    while ((m = re.exec(text))) {
+      let i = m.index + m[0].length, depth = 1, arg = '', args = [], inStr = null;
+      for (; i < text.length && depth > 0; i++) {
+        const ch = text[i];
+        if (inStr) { if (ch === inStr) inStr = null; arg += ch; continue; }
+        if (ch === '"' || ch === "'") { inStr = ch; arg += ch; continue; }
+        if (ch === '(') depth++;
+        if (ch === ')') { depth--; if (!depth) break; }
+        if (ch === ',' && depth === 1) { args.push(arg.trim()); arg = ''; continue; }
+        arg += ch;
+      }
+      args.push(arg.trim());
+      out.push(args);
+    }
+    return out;
+  };
+  for (const args of argsOf(glassSrc)) {
+    const [surface, paramRaw, profileSlot] = args;
+    if (profileSlot === undefined || !/^["']/.test(surface)) continue;
+    const id = String(surface).replace(/["']/g, '');
+    if (!registryIds0.has(id)) continue;                   // 只看注册表子项（既有面另有界面）
+    const param = String(paramRaw).replace(/["']/g, '');
+    const want = ownKeyOf(id, param);
+    if (profileSlot.replace(/\s+/g, '') !== want) badOwnKey.push(id + '.' + param + ' 期望 ' + want + '、实为 ' + profileSlot);
+  }
+  check('每个子项的"自己的键"与 `childGlassKey()` 的派生规则一致（防写错键 ⇒ 开了独立配置却读到 undefined）',
+    badOwnKey.length === 0 && registryIds0.size >= 5,
+    badOwnKey.length ? badOwnKey.join(' ; ') : registryIds0.size + ' 个子项的 own 键名全部对得上');
+  // 负对照：同一个谓词喂一个**故意写错**的 own 键，必须判出；写成 `keyOverrides` 的正确形态则不判出。
+  check('negative control: 写错的 own 键会被判出；keyOverrides 的复用键（chatGlassFidelity）不误报',
+    ownKeyOf('thinkingTrigger', 'blur') !== 'selection.thinkingTriggerBlurX'
+      && ownKeyOf('conversation', 'fidelity') === 'selection.chatGlassFidelity');
 
   // 接线里出现的**面名**必须要么是注册表子项，要么是登记为"既有面"的那两个
   // （`sidebar` / `sidebarContent` —— 它们的界面是既有的专属滑块，不进「子 UI 玻璃」那一层）。
@@ -1663,6 +1763,26 @@ console.log('\n⑬ CSS 契约（按面变量零兜底 / 门控许可证 / 双向
   check('双向对账：effects.js 写的 ' + written.length + ' 个按面变量都必须被样式表读到',
     written.length >= 15 && deadWrites.length === 0,
     deadWrites.length ? '写了没人读：' + deadWrites.join(', ') : written.length + ' 个全部有消费者');
+
+  // ⚠️ **模板字符串的边界**：`src/styles.js` 整份 CSS 住在一个 JS 模板字符串里
+  //    （`const CSS = \`…\`;`）⇒ 注释或规则里出现**裸反引号**会提前终止它，
+  //    产物随即是语法错误。构建会拦住，但它报的是 `Unexpected identifier` /
+  //    `Invalid left-hand side expression` 这类**指不到原因**的 JS 错误 ——
+  //    实测为此浪费了两轮。这条判据把它变成一句能读懂的话（并给出行号）。
+  {
+    const lines = STYLES_TEXT.split(/\r?\n/);
+    const backtickLines = lines.map((t, i) => [i + 1, t]).filter(([, t]) => t.includes('`'));
+    const delimiters = backtickLines.filter(([, t]) => /^\s*const CSS = `\s*$/.test(t) || /^\s*`;\s*$/.test(t));
+    check('样式表里不许出现裸反引号（它会提前终止 CSS 模板字符串）',
+      backtickLines.length === delimiters.length && delimiters.length === 2,
+      '含反引号的行=' + backtickLines.map(([n]) => n).join(',') + '（应当只有 const CSS = \\` 与 \\`; 这两行）');
+    // 负对照：同一谓词喂一段"注释里带反引号"的合成输入，必须判出。
+    const synth = 'const CSS = `\n.a { color: red; /* 见 `x` */ }\n`;';
+    const synthLines = synth.split('\n');
+    const synthBad = synthLines.filter((t) => t.includes('`') && !/^\s*const CSS = `\s*$/.test(t) && !/^\s*`;\s*$/.test(t));
+    check('negative control: 注释里的裸反引号会被同一条判据判出（不是恒真）',
+      synthBad.length === 1);
+  }
 
   // 负对照：两条谓词各自对**合成输入**必须有牙（同一谓词、同一调用方式）
   const synthFallback = 'body[data-we-wallpaper] { backdrop-filter: blur(var(--we-floaters-blur, 16px)); }';

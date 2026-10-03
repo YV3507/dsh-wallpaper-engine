@@ -110,6 +110,19 @@ function applyGlass(selection, s) {
   s.setProperty("--we-chat-surface-tint-dark", weClampSurfaceColor(chatColor, "dark", chatGlassFidelity));
   s.setProperty("--we-chat-surface-tint-rgb-light", toRgbTriple(weClampSurfaceColor(chatColor, "light", chatGlassFidelity)));
   s.setProperty("--we-chat-surface-tint-rgb-dark", toRgbTriple(weClampSurfaceColor(chatColor, "dark", chatGlassFidelity)));
+
+  // ── 思考触发条的**按面**釉层变量（新增面，见 wip §10.27）──────────────────────
+  // 该面的 CSS 读 `var(--we-thinking-trigger-<x>, <原全局表达式>)`（styles.js 里那条
+  // **接管宿主令牌**的规则）⇒ 这一组变量就是它的来源，"读全局还是读自己"由 `glassValue` 决定。
+  // ⚠️ 只写**两项**（模糊 / 透明度）：与 `settingsWindow` / `floaters` 同一口径 ——
+  //    共享面纱 ⇒ 保真度不可达（§4.14）；本面的 CSS 不消费颜色 ⇒ 不给 `color`（R3a）。
+  // ⚠️ 曲线与其余面**同形**（0–60/0–100 一把刻度，R4）：透明度是位置量，越大越透。
+  {
+    const pct = Number(glassValue("thinkingTrigger", "transparency", selection.thinkingTriggerTransparency, selection.glassAlpha)) || 0;
+    s.setProperty("--we-thinking-trigger-blur",
+      String(glassValue("thinkingTrigger", "blur", selection.thinkingTriggerBlur, selection.blur)) + "px");
+    s.setProperty("--we-thinking-trigger-alpha", String(Math.max(0.10, 0.25 - pct / 100 * 0.15)));
+  }
   // ── 「要不要玻璃」这一层已**退役**（用户口径，wip §10.20）──────────────────────
   // 原设计：这一项关 ⇒ 摘掉门控属性 ⇒ CSS 那组规则整组不匹配 ⇒ "回到原生不透明纯色"。
   // 实测**并没有如愿恢复原生**：这些面上还有一批**不挂门控**的令牌改写（壁纸激活即生效），

@@ -511,6 +511,24 @@ const CSS = `
     --dsw-specific-bubble: color-mix(in srgb,
       var(--we-chat-readability-base) calc(var(--we-chat-readability-floor) * 100%),
       rgba(var(--we-chat-surface-tint-rgb-light, 255, 255, 255), calc(var(--we-glass-alpha, 0.15) * 0.8)) calc((1 - var(--we-chat-readability-floor)) * 100%));
+    /* 思考触发条（TurnTriggerNodeView，DOM 锚点 section[data-turn-trigger]）：宿主给它一个
+       **专属底色令牌** --dsw-alias-turn-trigger-bg（回退到代码块底色）—— 我们接管它，
+       于是宿主自己那条 background: 直接解析成玻璃（**不是**去改宿主的哈希类名）。
+       ⚠️ 用**全局**那对可读性变量（--we-readability-base / -floor + --we-surface-tint-*）：
+       这一面在登记表里是 tier: 'global'（内容块一类），而对话栏那对是**专属**给气泡/输入框的
+       —— 判据 verify-readability 的 F2c 会按"消费点计数"当场判出用错（实测踩过一次）。
+       配方与上面的 --dsw-alias-bg-layer-1 同形，层权重取 0.9。
+       ⚠️ -hover 必须一起接管：宿主 :hover 会换用它（回退是 --dsw-alias-interactive-bg-hover
+       那种不透明灰）⇒ 不接管的话鼠标一悬停就盖掉玻璃。这里给它**同一配方、权重略高**
+       （1.15，仍远不到不透明）⇒ 既保住玻璃又保留"可点"的悬停反馈。
+       ⚠️ 本文件整份 CSS 是**一个 JS 模板字符串** ⇒ 注释里**不许出现反引号**（会提前终止它，
+       构建的产物语法检查会当场拦住 —— 实测踩过一次）。 */
+    --dsw-alias-turn-trigger-bg: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-thinking-trigger-alpha, var(--we-glass-alpha, 0.5)) * 0.9 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+    --dsw-alias-turn-trigger-bg-hover: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-thinking-trigger-alpha, var(--we-glass-alpha, 0.5)) * 1.15 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
   }
   body[data-ds-dark-theme][data-we-wallpaper] {
     /* The ×0.4 / ×0.33 factors below only scale the TINT operand; the floor
@@ -521,6 +539,13 @@ const CSS = `
     --dsw-specific-bubble: color-mix(in srgb,
       var(--we-chat-readability-base) calc(var(--we-chat-readability-floor) * 100%),
       rgba(var(--we-chat-surface-tint-rgb-dark, 255, 255, 255), calc(var(--we-glass-alpha, 0.15) * 0.33)) calc((1 - var(--we-chat-readability-floor)) * 100%));
+    /* 思考触发条：与浅色档同形，只是釉色改用深色那一支（--we-surface-tint-dark）。 */
+    --dsw-alias-turn-trigger-bg: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-surface-tint-dark, #000000) calc(var(--we-thinking-trigger-alpha, var(--we-glass-alpha, 0.5)) * 0.9 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+    --dsw-alias-turn-trigger-bg-hover: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-surface-tint-dark, #000000) calc(var(--we-thinking-trigger-alpha, var(--we-glass-alpha, 0.5)) * 1.15 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
   }
   body[data-we-glass-chat][data-we-wallpaper] [data-composer-card],
   body[data-we-glass-chat][data-we-wallpaper] [class*="_bubble"],
@@ -549,6 +574,16 @@ const CSS = `
       inset 0 -1px 0 rgba(255, 255, 255, 0.08),
       inset 0 0 0 0.5px rgba(255, 255, 255, 0.08),
       0 12px 40px rgba(0, 0, 0, var(--we-glass-shadow, 0.12));
+  }
+  /* ── 思考触发条（思考块的入口条）：模糊载体 ──────────────────────────────────
+     宿主组件只有 header/body 两段文字，**不含** position:fixed 后代 ⇒ 模糊可以留在元素本身
+     （与气泡 / 工具弹卡同形；不必像 [data-composer-card] 那样搬到 ::before）。
+     底色走上面接管的 --dsw-alias-turn-trigger-bg（含 hover 档），所以这里只补
+     "釉面高光 + 模糊" 两件事 —— 语法与上面那族逐字相同，读同一批 --we-* 变量。 */
+  body[data-we-glass-chat][data-we-wallpaper] [data-turn-trigger] {
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.05) 38%, rgba(255, 255, 255, 0.02));
+    -webkit-backdrop-filter: blur(var(--we-thinking-trigger-blur, var(--we-blur, 16px))) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    backdrop-filter: blur(var(--we-thinking-trigger-blur, var(--we-blur, 16px))) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
   }
   /* ── composer card: the blur must not live on the card itself ─────────────
      [data-composer-card] contains position:fixed descendants: @dsh-external/
@@ -2382,6 +2417,12 @@ body[data-we-glass-floaters] .we-repo-panel {
     --dsw-alias-bg-layer-2: var(--we-panel-color, #ffffff);
     --dsw-alias-bg-layer-3: var(--we-panel-color, #ffffff);
     --dsw-alias-button-elevated-fill: var(--we-panel-color, #ffffff);
+    /* 思考触发条：它的底色**本来就**由宿主读那个专属令牌 ⇒ 这里把令牌钉回不透明面板色
+       （--we-panel-color 是主题感知的：浅 #ffffff / 深 #1e1f26），模糊没了也不会"过透"。
+       hover 档一并钉回同色 —— 与上面三个 layer 令牌在回退档统一成同一色的口径一致
+       （降级档不保留悬停反馈，优先保可读）。 */
+    --dsw-alias-turn-trigger-bg: var(--we-panel-color, #ffffff);
+    --dsw-alias-turn-trigger-bg-hover: var(--we-panel-color, #ffffff);
   }
   /* 输入框卡片（issue #95 报「过透」的那块界面）：上游 #94 已把模糊从卡片本体搬到
      [data-composer-card]::before 载体（卡片上的 backdrop-filter 会成为 fixed 后代的
@@ -2391,6 +2432,12 @@ body[data-we-glass-floaters] .we-repo-panel {
      （同一个 --we-surface-tint-light/dark / 92%，未新增 token 或机制）。 */
   body[data-we-glass-fallback][data-we-wallpaper] [data-composer-card]::before {
     background-color: color-mix(in srgb, var(--we-surface-tint-light, #ffffff) 92%, transparent);
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  /* 思考触发条：底色已由上面的令牌钉回不透明面板色，这里只需把载体上那条模糊显式关掉
+     （与 composer 的 ::before 同一条政策：模糊不可用时不留"半透明 + 无霜"）。 */
+  body[data-we-glass-fallback][data-we-wallpaper] [data-turn-trigger] {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }

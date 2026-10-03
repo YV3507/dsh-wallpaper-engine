@@ -2269,3 +2269,92 @@ function clampNum(v, lo, hi, fallback) { return typeof v === 'number' && v >= lo
 `ALL SCENE-LIVE CHECKS PASSED (417)`。
 
 **遗留**：仍然开着的只有 §10.23 的 A（`--we-glass-color`，被浏览器 harness 阻塞）与 B（换算四舍五入）。
+
+### 10.26 新增面：思考触发条（`section[data-turn-trigger]`）
+
+**背景**：这一面从 P0 测绘起就登记在案（§4 的面表、登记表 `conversation-thinking-trigger`），
+一直标 `pending`（登记在先、实现在后）。上游 **#130** 是外部贡献者的"思考块液态玻璃开关"草案；
+本次不合并，而是按新管道把它**补成一个面**（并写明 #130 需要 rebase 到新管道）。
+
+**先取证（关键，决定了接法）**：直接在 DSH 本体的 `app.asar` 里按字节搜，拿到三条硬事实：
+1. 锚点真实存在：宿主 `TurnTriggerNodeView` 渲染 `<section data-turn-trigger>`（不是猜的）；
+2. 宿主给它**专属底色令牌** `--dsw-alias-turn-trigger-bg`（回退 `--dsw-alias-markdown-code-block`）
+   与 `-hover`（回退 `--dsw-alias-interactive-bg-hover`）⇒ 可以走本仓既有的**接管令牌**手法；
+3. 宿主的类名是**构建哈希**（`oE-XyW_root` 等）⇒ 绝不能当锚点 —— 这印证了登记表用数据属性是对的。
+
+**做法**：① 在 `body[data-we-wallpaper]` / `body[data-ds-dark-theme][data-we-wallpaper]` 两档接管
+那**两个**令牌（hover 必须一起接管，否则一悬停就被不透明灰盖掉；层权重 0.9 / hover 1.15）；
+② 在 `body[data-we-glass-chat][data-we-wallpaper] [data-turn-trigger]` 加模糊载体 —— 这一面
+**不含** `position:fixed` 后代（宿主只有 header/body 两段文字），所以模糊留在元素本身，
+不必像 composer 那样搬 `::before`；③ 软件光栅档（`data-we-glass-fallback`）把令牌钉回
+`--we-panel-color` 并显式关掉模糊；④ 登记表摘 `pending` ⇒ 第 ③ 组从"pending 豁免"转为"**锚点必须在**"。
+**不给它独立配置**：登记表里这一面"可有独立值 —"（`tier: global`，读全局那几个变量）。
+
+**两个坑（都值得记）**：
+- **反引号终止模板字符串**：CSS 注释里写了反引号 ⇒ 产物语法错误，而构建报的是
+  `Unexpected identifier` / `Invalid left-hand side expression`，**指不到原因**（为此浪费两轮；
+  真正的破绽是产物 mtime 没变）。现已加**判据**："样式表里不许出现裸反引号（只许那两行定界符）"
+  + 负对照 ⇒ 判据从 78 增至 **80**。
+- **用错可读性那一对**：照气泡写了 `--we-chat-readability-*`，但这一面是 `tier: global`
+  ⇒ `verify-readability` 的 **F2c**（按"消费点计数"）当场判出（`chat base uses=8 (expect 4)`）。
+  改用全局那对（形态照 `--dsw-alias-bg-layer-1`）。**这次是判据对、我错** —— 与 §10.23 的三种
+  腐烂形态不同，属"登记口径 ↔ 实现配方不一致"，正是登记表该管的事。
+
+**证据**：`npm run verify:all` **EXIT 0** · `verify:docs` **EXIT 0** · 玻璃守卫 **80 项** ·
+`verify-readability`（F2a 27 个文字面、F2c 回到 4 个消费点）· `verify-softrender` E2/E3 ·
+`verify-glass-compositing`（新增载体通过载体普查与 G2–G4 的隔离检查）。
+**产品可见**：`docs/CHANGELOG.md` 的「未发布」段与 `docs/UPGRADING.md` 各记了一条（含"重启 DSH 生效"）。
+
+### 10.27 从"纯 CSS 接管"升级为**可独立配置的面**（用户口径）
+
+**用户要求**：效果可行之后，「把这部分逻辑归入玻璃的独立文件，并跟进相关的独立配置项（像
+『设置窗口玻璃·独立配置』那样的高级独立配置）」。
+
+**做法（四处，全部落在既有架构上，没有新机制）**：
+1. **注册表**（`lib/settings-schema.js` 的 `GLASS_CHILDREN`）新增一条：
+   `{ id: 'thinkingTrigger', label: '思考触发条玻璃', params: { transparency: 100, blur: 60 } }`
+   ⇒ 键名由**单一生成点** `childGlassKey()` 派生成 `thinkingTriggerTransparency` /
+   `thinkingTriggerBlur`，并自动进入 DEFAULTS/KINDS/`glassMode`；面板的「独立配置」开关与两个
+   滑块**自动**渲染（这一层是登记表驱动的）。**不含 `color` / `fidelity`**，理由与
+   `settingsWindow` 同（共享面纱 ⇒ 保真度不可达；本面 CSS 不消费颜色）—— R3a 的教训：`params`
+   必须等于**真正接线**的那批，否则面板会多一个死旋钮。
+2. **取值与写变量全部进 `src/glass.js`**（"玻璃后端的唯一落点"）：新增一段，走
+   `glassValue("thinkingTrigger", 参数, 自己的键, 全局的键)` 并写 `--we-thinking-trigger-blur` /
+   `-alpha`（曲线与其余面同形）。CSS 侧改为消费这两个私有变量（**带全局兜底**的形式
+   `var(--we-thinking-trigger-alpha, var(--we-glass-alpha, 0.5))`，与 `settingsWindow` /
+   `floaters` 那张写法逐字同形）。逻辑**不在 CSS 里散落** —— 这正是"独立文件"的意义。
+3. **登记表（守卫侧）**：这一面从 `pending` → 已实现 → 现在再从 `tier: 'global'` 改判
+   `'private'`（它有了自己的私有变量族），并登记进 `PRIVATE_VARS`。
+4. **文案**：`glass-panel.js` 的 `CHILD_CN` + `i18n-copy.js`（4 条）。⚠️ 只给**真正会渲染**的那几个
+   标签（不给"参数不存在却有一份翻译"的死文案）。
+
+**顺带发现并修掉一个判据缺口（比这次功能本身更值钱）**：第 ③ 组原先只查"标了 `private` 的面**必须**
+有私有变量组"（(b)），**没有反向那条** ⇒ 三个面（`glass-child-settings-window`、
+`glass-child-floaters`、`left-sidebar-override`）**早就接了私有变量**（W2/W3/W4 做的），但档位一直
+写着 `global`、`why` 还写着"接线未完成" —— **声明与实现不一致**，而当时没有任何判据看得见。
+本次：① 四个面一并改判 `private` + 登记 `PRIVATE_VARS`（改判前先核对了前缀在产物 CSS 里确实各有
+2–4 处 `var()` 消费）；② 新增反向判据 **(d)**："声明 `global` 的面不得藏着私有变量族"（按面名派生
+前缀 + "已被 private 面认领"的排除，含正/负对照 —— 正对照正是"同名兄弟面共用前缀"这个真实形态）。
+⇒ 判据 80 → **82**。这与 §10.26 的 F2c 是**同一类**：不是"判据腐烂"，而是**声明与实现不一致**，
+登记表这一类台账最容易这样漂。
+
+**测试跟着代码改**：`verify-scene-live` 的设置档标签夹具（新增一行「思考触发条玻璃·独立配置」）、
+`verify-client` 新增该面两条量程断言（面板量程那一侧）、设置黄金夹具重生成（漂移键仅
+`glassMode` + 两个新键，**安全阀：非预期漂移 = 无**；两个键是全新键、值为 schema 默认，不涉及迁移
+⇒ `settingsVersion` 不动，理由记此）。
+
+**证据**：`npm run verify:all` **EXIT 0** · `verify:docs` **EXIT 0** · 玻璃守卫 **82 项** ·
+`ALL SCENE-LIVE CHECKS PASSED (417)` · `I18N CHECKS PASSED`（41）· 黄金夹具 18 用例逐键一致。
+
+**同批又补的一条判据（84 项）**：上面 ④ 组的逐参数对账只比**参数名**，不看
+`glassValue(面, 参数, **自己的键**, 全局的键)` 的第三个实参 —— 于是"面处于 custom 却读到一个**不存在**的键"
+（`Number(undefined) || 0` ⇒ 曲线算出个看似正常的值）不会有任何判据看得见，用户看到的是"开了独立配置但滑杆没用"
+（死旋钮的第二种形态）。新增：按 `childGlassKey()` 的派生规则（`id + Param`，尊重 `keyOverrides`）**在判据侧复算**
+并逐个比对（判据侧必须有自己的实现，抄同一份代码就会恒真），带负对照与 `keyOverrides` 的正对照
+（`conversation.fidelity → chatGlassFidelity`）。实测：5 个子项的 own 键名全部对得上 ⇒ 判据 82 → **84**。
+
+**⚠️ 仍然存在的覆盖缺口（如实记）**：**没有任何在册判据直接驱动 `applyGlass`** ——
+"custom 读自己的键、inherit 读全局键"这条**运行期**语义，目前只由"静态对账（④/⑧/⑬/⑭）+ 面板量程断言
+（`verify-client`）"间接保证；重构期真正跑过这条语义的是**未入库**的等价性探针（`.test-cache/r1-equivalence.mjs`）。
+下一次要给玻璃面加"行为级"判据，这里是入口（本仓的守卫都是静态解析式，加动态那一层要先决定
+"在哪个 mock 环境里调 applyGlass"）。

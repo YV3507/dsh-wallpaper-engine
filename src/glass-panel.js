@@ -83,6 +83,14 @@ function renderAppearanceGlassSection(ctx) {
       alpha: weT("浮层玻璃·玻璃透明度"), blur: weT("浮层玻璃·雾化"),
       fidelity: weT("浮层玻璃·玻璃保真度"),
     },
+    // ⚠️ 这一面只登记了 `transparency` / `blur` 两个参数（无 color / fidelity：共享面纱
+    //    ⇒ 保真度不可达；本面 CSS 也不消费颜色）⇒ 标签只给**真正会渲染**的那几个，
+    //    不留"参数不存在却有一份翻译"的死文案（R3a 的同一口径）。
+    thinkingTrigger: {
+      hint: weT("对话里「思考过程」那一行的入口条"),
+      indep: weT("思考触发条玻璃·独立配置"),
+      alpha: weT("思考触发条玻璃·玻璃透明度"), blur: weT("思考触发条玻璃·雾化"),
+    },
   };
   // ⚠️ 用户口径（wip §10.20）：**"要不要玻璃"这一层退役了** ——
   //   原设计里每个子面先有一个「玻璃」开关（关 = 回到原生不透明纯色），实测那个"关"

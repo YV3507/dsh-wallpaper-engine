@@ -857,6 +857,14 @@ setTimeout(async () => {
     tree = renderPicker();
     treeText = JSON.stringify(tree);
     assert.equal(sliderMax(findSliderRow(tree, '内容面透明度')), '100', '内容面透明度上限必须是 100（规范刻度，R4）');
+    // §10.27：新增的「思考触发条玻璃·独立配置」—— 打开后才画它自己的两项，量程同样钉在
+    // 规范刻度上（这正是"拖过 60 跳回 20"那次事故的两侧之一：**面板量程**那一侧）。
+    findCtlInput(tree, '思考触发条玻璃·独立配置').props.onChange({ target: { checked: true } });
+    tree = renderPicker();
+    assert.equal(sliderMax(findSliderRow(tree, '思考触发条玻璃·玻璃透明度')), '100',
+      '思考触发条透明度上限必须是 100（规范刻度）');
+    assert.equal(sliderMax(findSliderRow(tree, '思考触发条玻璃·雾化')), '60',
+      '思考触发条雾化上限必须是 60px（与全局雾化同刻度）');
     // ⚠️ 全局「玻璃透明度」的量程必须与 KINDS 一致（100）。这一条是为一个**真实事故**补的：
     //    处理器里手写的钳制漏改时，面板量程是 100 而钳制是 0–60，`clampNum` 又"越界即回落默认值"
     //    ⇒ 拖过 60 就跳回 20（用户实测"最多只能拉到 20%"）。面板量程 + 处理器取值域**两边都要钉**，
