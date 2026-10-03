@@ -1762,10 +1762,11 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
   // 渲染器的 surface 档：侧栏档只**加门**（少画设置页专属分组），不许改行 ——
   // 缺省（设置页）那一趟一个节点都不少（行为级 golden 在 verify-client.mjs）。
   const gated = (text, label) => new RegExp('!sidebarSurface &&[\\s\\S]{0,240}?weT\\("' + label + '"\\)').test(text);
-  // ⚠️ §10.25 起只剩**两节**：「窗口与侧栏」已撤销（内容并进「玻璃 UI」，而那节本身两档都画
-  //    ⇒ 不再属于"只在设置页档渲染"的集合）。
-  check('外观页两节（字体 / 光标）只在设置页档渲染',
-    ['全局字体', '输入光标'].every((label) => gated(tabsSrc, label)));
+  // ⚠️ 2026-10-03 用户口径：侧栏「外观」与设置页同内容 ⇒ 「输入光标」的门已拆，
+  //    只剩「全局字体」一节带着 `!sidebarSurface` 门（唯一例外）。两个方向都钉：
+  //    全局字体必须有门、输入光标必须没门。
+  check('外观页只有「全局字体」一节只在设置页档渲染（输入光标两档都画）',
+    gated(tabsSrc, '全局字体') && !gated(tabsSrc, '输入光标'));
   check('播放页的准备与诊断行（出图来源 / 实时帧 / 自定义画面 / 帧率上限 / 源信息 / 转码进度）只在设置页档渲染',
     ['出图来源', '实时帧', '自定义画面', '帧率上限'].every((label) => gated(tabsSrc, label))
       && tabsSrc.includes('!sidebarSurface && sel.type === "video" && sel.mediaInfo')
@@ -2056,11 +2057,11 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       qpSrc + '\nreturn { sidebarRenderCtx, QP_CTX_SETTINGS_ONLY, QP_TABS };');
     const bag = factory((k) => k, { createElement: () => null }, { getItem: () => null, setItem() {} });
     const ctx = bag.sidebarRenderCtx({ sel: {}, onAccent: () => 'ok' });
-    const called = (() => { try { ctx.onCaretColor(); return 'no-throw'; } catch (e) { return String(e.message); } })();
+    const called = (() => { try { ctx.onFontAdvanced(); return 'no-throw'; } catch (e) { return String(e.message); } })();
     const read = (() => { try { return String(ctx.fontSet.open); } catch (e) { return String(e.message); } })();
     check('侧栏 ctx 的 setting-only 占位器：调用 / 取属性都抛错（响亮且可定位）',
       ctx.surface === 'sidebar' && ctx.onAccent() === 'ok' && bag.QP_TABS.length === 3
-        && called.includes('[we-sidebar]') && called.includes('onCaretColor')
+        && called.includes('[we-sidebar]') && called.includes('onFontAdvanced')
         && read.includes('[we-sidebar]') && read.includes('fontSet'),
       called.slice(0, 48));
     check('负对照：名单外的字段仍是 undefined（判据不是恒真 —— 占位器只覆盖点过名的）',
@@ -2129,6 +2130,10 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     // 与 QP_CTX_SETTINGS_ONLY 的分工：**侧栏档真的会画到的**由这里给真值（替身），
     // 设置页专属的（如 onFpsCap —— 帧率上限那行带 `!sidebarSurface` 门）才进占位器名单。
     'onGlassWindow', 'onLeftSidebarGlass', 'onSidebarGlass',
+    // 2026-10-03：侧栏「外观」与设置页同内容（唯全局字体除外）⇒ 下列处理器由
+    // quick-panel 的 provided 真传（裸标识符 ⇒ 必须进本名单，否则 vm 求值当场 ReferenceError）。
+    'onCaretColor', 'onSidebarAlpha', 'onSidebarBlur', 'onSidebarColor',
+    'onSidebarContentAlpha', 'onSidebarContentColor', 'onSidebarFollowGlobal', 'onThinkingGlass',
     // 「玻璃 UI」节的两级子 UI 开关 + 子项独立参数：外观页签（设置页与侧栏档都会画到）。
     'onToggleGlassChild', 'onToggleGlassIndependent', 'onToggleChildIndependent',
     'onGlassChildParam', 'childIndependentOn',
@@ -2588,19 +2593,18 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       const labels = labelSeq(tree);
       check(t.fn + t.label + ' 的控件标签顺序与集合逐字不变', sameSeq(labels, t.wantLabels),
         'want=[' + t.wantLabels.join(' / ') + '] got=[' + labels.join(' / ') + ']');
-      // ── 简化配置 vs 复杂配置的**边界**（wip §3.4 / §10.22）────────────────────
-      // 规划口径：「独立配置」层是**逐面覆盖全局**的高级动作 ⇒ 只出现在设置菜单那一档；
-      // 简化配置（侧栏档）只留全局四件套。实测它曾同时出现在两档（用户看到侧边栏里
-      // 也有那三个开关）—— 夹具改对只是"碰巧对"，所以这条规则单独判一次。
+      // ── 两档同内容的**边界**（用户口径 2026-10-03，推翻原 §10.22"简化配置不进侧栏"）──
+      // 侧栏「外观」与设置页完全同内容 ⇒ 「独立配置」层两档都必须在；唯一例外是
+      // 「全局字体」节不进侧栏（由 want/wantLabels 的序列钉，这里再补一条**渲染结果**
+      // 级的负断言：侧栏档实际画出的标签里不许出现「字体自定义」）。
       // ⚠️ 只对**带「玻璃 UI」节**的页签判（其它页签本来就没有独立配置层）。
       const indep = labels.filter((l) => l.includes('独立配置'));
       if ((t.want || []).includes('玻璃 UI')) {
+        check(t.fn + t.label + ' 两档都必须有「独立配置」层（同内容口径）',
+          indep.length >= 1, indep.length + ' 个：' + indep.join(' / '));
         if (t.surface === 'sidebar') {
-          check(t.fn + ' 简化配置（侧栏档）里不许出现「独立配置」层',
-            indep.length === 0, indep.length ? '泄漏：' + indep.join(' / ') : '0 个');
-        } else {
-          check(t.fn + ' 复杂配置（设置档）里**必须**有「独立配置」层',
-            indep.length >= 1, indep.length + ' 个：' + indep.join(' / '));
+          check(t.fn + ' 侧栏档实际渲染不许出现「字体自定义」（全局字体是唯一例外）',
+            !labels.includes('字体自定义'), '泄漏：' + labels.filter((l) => l === '字体自定义').join(''));
         }
       }
     }
@@ -2761,12 +2765,14 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       selOver: { sidebarPresent: true, sidebarGlass: true },
       want: ['主题', '细节', '玻璃 UI', '全局字体', '输入光标'],
       wantLabels: ['主题随壁纸', '边框', '玻璃透明度', '雾化', '玻璃保真度', '思考块液态玻璃', '左侧栏液态玻璃', '侧栏液态玻璃', '侧栏玻璃·独立配置', '内容面玻璃·独立配置', '设置窗口玻璃·独立配置', '对话框玻璃·独立配置', '浮层玻璃·独立配置', '字体自定义'] },
-    // 侧栏档：被 `!sidebarSurface` 包住的两节不画 —— 这条门此前只有源码串，没有行为断言。
-    // ⚠️ 「独立配置」层属**复杂配置** ⇒ 侧栏档不画（见下面那条"边界"判据，§10.22）。
-    // ⚠️ §10.25：`左侧栏液态玻璃` 已从「细节」移入「玻璃 UI」⇒ 它在序列里的位置随节顺序前移。
-    { fn: 'renderAppearanceTab', label: '（侧栏档：设置页专属的两节不画）', surface: 'sidebar',
-      want: ['主题', '细节', '玻璃 UI'],
-      wantLabels: ['主题随壁纸', '边框', '玻璃透明度', '雾化', '玻璃保真度', '左侧栏液态玻璃'] },
+    // 侧栏档：2026-10-03 用户口径 —— 与设置页**同内容**，唯「全局字体」一节不进侧栏
+    //（那道 `!sidebarSurface` 门在 panel-tabs，与 quick-panel 的字体占位器互为负对照；
+    //  原 §10.22"简化配置不进侧栏"边界已被本次口径推翻）。
+    // `selOver` 与设置页用例同位 ⇒ 侧栏家族 / 内容面那几行同样画得出来。
+    { fn: 'renderAppearanceTab', label: '（侧栏档：与设置页同内容，唯全局字体除外）', surface: 'sidebar',
+      selOver: { sidebarPresent: true, sidebarGlass: true },
+      want: ['主题', '细节', '玻璃 UI', '输入光标'],
+      wantLabels: ['主题随壁纸', '边框', '玻璃透明度', '雾化', '玻璃保真度', '思考块液态玻璃', '左侧栏液态玻璃', '侧栏液态玻璃', '侧栏玻璃·独立配置', '内容面玻璃·独立配置', '设置窗口玻璃·独立配置', '对话框玻璃·独立配置', '浮层玻璃·独立配置'] },
     // ⚠️ 这一条是**覆盖缺口**补上的：字体那一节的细节（颜色角色 / 排版角色 / 字体族 / 组件字体 /
     // 字体集预设，~180 行）被 `sel.fontCustom` 挡着，而它的默认值是关 ⇒ **任何用例都没渲染过它**。
     // 打开它才能让那些行第一次进入判据的视野（这本身是找缺陷，不只是补锚）。
@@ -2923,10 +2929,11 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
 
   check('负对照：外观页侧栏档确实渲染出了内容（不是空树 ⇒ 上面的"少三节"才有意义）',
     (() => {
-      // 侧栏档画「主题 / 细节 / 玻璃 UI」三节 —— 比设置页少「全局字体 / 输入光标」。
+      // 侧栏档画「主题 / 细节 / 玻璃 UI / 输入光标」四节 —— 只比设置页少「全局字体」
+      //（2026-10-03 同内容口径，唯一例外）。
       // ⚠️ 这个数字是**随节数变化**的：新增一节就要同步（它自己就是"少几节"那条判据的负对照）。
       try { return sectionSeq(panelMod.renderAppearanceTab(ctxFrom('renderAppearanceTab', st,
-        { surface: 'sidebar', fontSet: undefined }))).length === 3; } catch { return false; }
+        { surface: 'sidebar', fontSet: undefined }))).length === 4; } catch { return false; }
     })());
 
   // ── 拆成"一节一个子渲染器"之后新增的失败模式：**节用了某个 ctx 字段却没解构它** ──

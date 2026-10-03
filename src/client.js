@@ -2684,6 +2684,49 @@ function onCancelEditWeAssetsDir() {
 // ── 外观 / 播放 / 系统页签的处理器（同上一条：渲染器只读值 + 调这些）────────────
 function onLeftSidebarGlass(e) { setSetting("leftSidebarGlass", e.target.checked); emit(); }
 function onThinkingGlass(e) { setSetting("thinkingGlass", e.target.checked); emit(); }
+
+// ── 以下处理器原在 WallpaperPicker 内（2026-10-03：侧栏「外观」与设置页同内容）
+//    提升到模块级 —— 快捷播放面板（src/quick-panel.js）与设置页共用同一批处理器，
+//    嵌套在组件里的声明它够不着。依赖（setSetting / commitLiveSetting / clampNum /
+//    schemaRange / selection / persistSelection / applyEffects / emit）全部模块级。
+// 侧栏玻璃（dsh-better-sidebar）：独立于会话玻璃的一套细粒度控制，各自立即
+// 生效并持久化（--we-sidebar-blur / --we-sidebar-alpha / --we-sidebar-color）。
+const onSidebarBlur = (px, live) =>
+  commitLiveSetting("sidebarBlur", clampNum(px, ...schemaRange("sidebarBlur"), DEFAULTS.sidebarBlur), live);
+const onSidebarAlpha = (pct, live) =>
+  commitLiveSetting("sidebarAlpha", clampNum(pct, ...schemaRange("sidebarAlpha"), DEFAULTS.sidebarAlpha), live);
+const onSidebarColor = (hex, live) => {
+  if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
+  commitLiveSetting("sidebarColor", hex, live);
+};
+
+
+// 内容面（编辑器/终端）近不透明玻璃底：透明度滑块 + 底色（空 = 跟随主题）。
+const onSidebarContentAlpha = (pct, live) =>
+  commitLiveSetting("sidebarContentAlpha", clampNum(pct, ...schemaRange("sidebarContentAlpha"), DEFAULTS.sidebarContentAlpha), live);
+const onSidebarContentColor = (hex, live) => {
+  if (hex === "") {
+    // 跟随主题面板色：清键 + 落盘（拖动档不会走到这里 —— 色盘的「跟随」是按钮）。
+    selection.sidebarContentColor = "";
+    persistSelection();
+    if (live) applyEffects({ live: true }); else emit();
+    return;
+  }
+  if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
+  commitLiveSetting("sidebarContentColor", hex, live);
+};
+
+
+// 输入光标颜色："" = 跟随 dsh 原生（自动档），hex = 立即注入并持久化。
+const onCaretColor = (hex, live) => {
+  if (hex === "") {
+    commitLiveSetting("caretColor", "", live);
+    return;
+  }
+  if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
+  commitLiveSetting("caretColor", hex, live);
+};
+
 function onSidebarGlass(e) { setSetting("sidebarGlass", e.target.checked); emit(); }
 
 // ── 「玻璃 UI」各子项的「独立配置」开关（W1；R3b-ii 起写的是**模式**）─────────────
@@ -3111,16 +3154,6 @@ function fontSetCtx() {
     if (!SWITCH_SPEED_VALUES.includes(id)) return;
     setSetting("switchTransitionSpeed", id); emit();
   };
-  // 侧栏玻璃（dsh-better-sidebar）：独立于会话玻璃的一套细粒度控制，各自立即
-  // 生效并持久化（--we-sidebar-blur / --we-sidebar-alpha / --we-sidebar-color）。
-  const onSidebarBlur = (px, live) =>
-    commitLiveSetting("sidebarBlur", clampNum(px, ...schemaRange("sidebarBlur"), DEFAULTS.sidebarBlur), live);
-  const onSidebarAlpha = (pct, live) =>
-    commitLiveSetting("sidebarAlpha", clampNum(pct, ...schemaRange("sidebarAlpha"), DEFAULTS.sidebarAlpha), live);
-  const onSidebarColor = (hex, live) => {
-    if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-    commitLiveSetting("sidebarColor", hex, live);
-  };
   // Mascot pull-cord show/hide, persisted with the other toggles.
   const onRopeVisibilityChange = (e) => {
     setSetting("ropeShown", e.target.checked); emit();
@@ -3132,20 +3165,6 @@ function fontSetCtx() {
   };
   const onRopeScaleChange = (scale) => {
     setSetting("ropeScale", clampNum(scale, ROPE_SCALE_MIN, ROPE_SCALE_MAX, DEFAULTS.ropeScale)); emit();
-  };
-  // 内容面（编辑器/终端）近不透明玻璃底：透明度滑块 + 底色（空 = 跟随主题）。
-  const onSidebarContentAlpha = (pct, live) =>
-    commitLiveSetting("sidebarContentAlpha", clampNum(pct, ...schemaRange("sidebarContentAlpha"), DEFAULTS.sidebarContentAlpha), live);
-  const onSidebarContentColor = (hex, live) => {
-    if (hex === "") {
-      // 跟随主题面板色：清键 + 落盘（拖动档不会走到这里 —— 色盘的「跟随」是按钮）。
-      selection.sidebarContentColor = "";
-      persistSelection();
-      if (live) applyEffects({ live: true }); else emit();
-      return;
-    }
-    if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-    commitLiveSetting("sidebarContentColor", hex, live);
   };
   // 字体自定义：总开关 + 颜色/字重/字体族，各项立即生效并持久化。
   const onToggleFontCustom = (v) => {
@@ -3414,15 +3433,6 @@ const officialColorOf = (tokens) => {
         }
         persistSelection(); emit();
       }).catch(() => { /* ignore */ });
-  };
-  // 输入光标颜色："" = 跟随 dsh 原生（自动档），hex = 立即注入并持久化。
-  const onCaretColor = (hex, live) => {
-    if (hex === "") {
-      commitLiveSetting("caretColor", "", live);
-      return;
-    }
-    if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-    commitLiveSetting("caretColor", hex, live);
   };
 
   // Close the picker library view (ESC / 返回 button share this path).

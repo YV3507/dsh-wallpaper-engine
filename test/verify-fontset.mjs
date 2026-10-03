@@ -1119,10 +1119,10 @@ section('⑧ 面板渲染回归（配色区在总开关打开时必须渲染得�
     })(), '判据非空转（拿改动前那份函数体试过）');
 
   // ── surface 档（设置页 / 侧栏共用同一批渲染器）──────────────────────────────
-  // 快捷播放面板的「外观」页用的就是这个渲染器，靠 `ctx.surface === "sidebar"` 少画
-  // 设置页专属的三节。两件事必须同时成立：① **缺省档（设置页）一个节点不少** ——
-  // 属性打错（比如写成 `surface !== "sidebar"`）时设置页会静默少三节，源码级判据看不出来；
-  // ② 侧栏档确实少画那三节。
+  // 快捷播放面板的「外观」页用的就是这个渲染器。2026-10-03 用户口径：侧栏档与设置页
+  // **同内容**，唯「全局字体」一节不进侧栏（面板太窄、字体是低频深配）。两件事必须
+  // 同时成立：① **缺省档（设置页）一个节点不少** —— 属性打错时设置页会静默少节，
+  // 源码级判据看不出来；② 侧栏档确实只少那一节。
   // 判据取**节标题**（那些 span 是真渲染的）：本 harness 的 switchRow / ctlText 是 noop，
   // 行标签拿不到，拿它判会空转。
   const pickSurface = (sel, s) => {
@@ -1141,11 +1141,11 @@ section('⑧ 面板渲染回归（配色区在总开关打开时必须渲染得�
     shapeOf(pickSurface(panelSel())).join('|') === shapeOf(pickSurface(panelSel(), 'settings')).join('|'));
   const sideText = treeText(pickSurface(panelSel(), 'sidebar'));
   const setText = treeText(pickSurface(panelSel(), 'settings'));
-  // ⚠️ §10.25：「窗口与侧栏」节已撤销（内容并进「玻璃 UI」，而那一节两档都画）⇒ 只剩两节。
-  check('侧栏档只少画字体 / 光标两节（主题 / 细节 / 玻璃 UI 照旧）',
+  check('侧栏档只少画「全局字体」一节（主题 / 细节 / 玻璃 UI / 输入光标照旧）',
     sideText.includes('主题') && sideText.includes('细节') && sideText.includes('玻璃 UI')
-      && !sideText.includes('全局字体') && !sideText.includes('输入光标') && !sideText.includes('窗口与侧栏'));
-  check('负对照：设置页档那两节必须在（证明上一条不是空转）',
+      && sideText.includes('输入光标')
+      && !sideText.includes('全局字体') && !sideText.includes('窗口与侧栏'));
+  check('负对照：设置页档「全局字体」必须在（证明上一条不是空转）',
     setText.includes('全局字体') && setText.includes('输入光标') && !setText.includes('窗口与侧栏'));
 
   // 播放页（renderEffectsTab）同理：侧栏档少画「准备与诊断」那一组。

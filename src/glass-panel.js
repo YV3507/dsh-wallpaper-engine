@@ -34,18 +34,16 @@
 function renderAppearanceGlassSection(ctx) {
   const {
     onBlur, onGlassAlpha, onGlassChildParam, onGlassColor, onGlassFidelity,
-    onToggleChildIndependent, childIndependentOn, sel, surface,
+    onToggleChildIndependent, childIndependentOn, sel,
     onLeftSidebarGlass, onSidebarAlpha, onSidebarBlur, onSidebarColor,
     onSidebarContentAlpha, onSidebarContentColor, onSidebarGlass,
     onThinkingGlass,
   } = ctx;
-  // ⚠️ **简化配置 vs 复杂配置的边界**（wip §3.4 的用户口径 + 本节 §10.22）：
-  //   · **简化配置**（侧边栏那一档）= 全局四件套（颜色 / 透明度 / 雾化 / 保真度）；
-  //   · **复杂配置**（设置菜单那一档）= 上述 + **每个子面的「独立配置」层**。
-  // 判据是"这一层进不进简化配置"，不是"哪一档更好用"：独立配置是**逐面覆盖全局**的高级动作，
-  // 只有设置菜单里才该出现。实测它曾同时出现在两档（用户实测：侧边栏里也有那三个开关）——
-  // 那会让"简化配置"悄悄长出四个高级旋钮，与规划不符。
-  const sidebarSurface = surface === "sidebar";
+  // ⚠️ **两档同内容**（用户口径 2026-10-03，推翻原 §10.22 的"简化配置不进侧栏"边界）：
+  //   侧栏「外观」页与设置页「外观」页**完全同内容** —— 本节所有行（含每个子面的
+  //   「独立配置」层、思考块开关、侧栏族）两档都画；唯一的例外是「全局字体」节
+  //（用户口径：不进侧栏），那道门留在 panel-tabs，与 quick-panel 的字体占位器
+  //   互为负对照。本节仅存的 surface 差异：无（`surface` 已不再被本渲染器读取）。
   const children = ((typeof GLASS_CHILDREN !== "undefined" && GLASS_CHILDREN) || [])
     // ⚠️ 排除 `panelOff` 的子项：乙类（左侧栏）**不进这一层** ——
     //    它已有自己的总开关「左侧栏液态玻璃」，而它的"独立配置"耦合在那一项下面
@@ -169,7 +167,7 @@ function renderAppearanceGlassSection(ctx) {
     // 思考条黑底方便阅读（作者口径）。它与其余面不同：**这是唯一保留的默认关玻璃面开关**，
     // 因为"关"在这里有明确价值（纯黑底可读性），不是做不到的"回原生"。
     // ⚠️ 侧栏档不画（与原节同口径：设置档专属）。
-    !sidebarSurface && switchRow(weT("思考块液态玻璃"), sel.thinkingGlass === true, onThinkingGlass, {
+    switchRow(weT("思考块液态玻璃"), sel.thinkingGlass === true, onThinkingGlass, {
       key: "thinking-glass",
       hint: weT("思考过程与推理条改成玻璃，默认关"),
       tooltip: weT("默认关：思考条保持黑底，方便阅读。打开后思考过程、推理条跟会话玻璃对齐，不再一块实心黑。"),
@@ -180,8 +178,8 @@ function renderAppearanceGlassSection(ctx) {
     //    **只有标题的空节**。而「左侧栏液态玻璃」原先被刻意排除在「玻璃 UI」之外，理由是它与那节的
     //    "关 = 回原生纯色"（乙类语义）冲突；那一层已在 §10.20 整体退役 ⇒ **冲突消失**，
     //    这些面控件与其余玻璃配置放在一起在语义上更顺（用户口径）。
-    // ⚠️ 门槛一个都没放松：`!sidebarSurface`（独立配置层属复杂配置）与 `sidebarPresent` /
-    //    `sidebarGlass`（宿主能力与总开关）照旧，所以**简化配置那一档的内容与合并前逐行相同**。
+    // ⚠️ 门槛只剩宿主能力位：`sidebarPresent` / `sidebarGlass`（装没装 dsh-better-sidebar、
+    //    总开关开没开）—— `!sidebarSurface` 已按 2026-10-03 用户口径拆除（两档同内容）。
     // 左侧栏液态玻璃（默认关）：宿主原生左栏在壁纸下只是「透明的洞」，打开后它走同一张配方表。
     // ⚠️ 它**不是**"要不要玻璃"那一类：它的「关」是**恢复背景**（那一列回到壁纸原样）——
     //    所以它是唯一保留的**显示开关**（乙类），与其余面"恒吃玻璃"不同。
@@ -191,7 +189,7 @@ function renderAppearanceGlassSection(ctx) {
       tooltip: weT("宿主原生左侧栏（会话列表 / 工作区那一列）默认直接透出壁纸、不吃玻璃参数。打开后它变成与其余界面同款的玻璃面板，跟随「配色 / 玻璃颜色 / 玻璃透明度 / 雾化 / 边框」；关闭即恢复原生观感。默认关。"),
     }),
     // ⚠️ 用户口径：「左侧栏玻璃·独立配置」**与「左侧栏液态玻璃」耦合** —— 覆盖关着时它不显示。
-    sel.leftSidebarGlass === true && !sidebarSurface && switchRow(weT("左侧栏玻璃·独立配置"),
+    sel.leftSidebarGlass === true && switchRow(weT("左侧栏玻璃·独立配置"),
       !!(childIndependentOn && childIndependentOn("leftSidebar")),
       (e) => onToggleChildIndependent("leftSidebar", e.target.checked), {
       key: "left-sidebar-independent",
@@ -201,7 +199,7 @@ function renderAppearanceGlassSection(ctx) {
     // 独立配置开着才出现它自己的两项（默认关 ⇒ 默认跟随全局）。
     // ⚠️ R3a（§10.12）：这里原本是"四件套"，其中**两个是死的** —— `leftSidebarFidelity` 连 schema
     //    键都不存在、`leftSidebarColor` 无人读取（本面 CSS 只读 `--we-left-sidebar-blur/-alpha`）。
-    sel.leftSidebarGlass === true && !sidebarSurface && !!(childIndependentOn && childIndependentOn("leftSidebar")) && [
+    sel.leftSidebarGlass === true && !!(childIndependentOn && childIndependentOn("leftSidebar")) && [
       SliderRow(weT("左侧栏玻璃·玻璃透明度"), 0, 100, 5,
         sel.leftSidebarTransparency, (v) => onGlassChildParam("leftSidebar", "transparency", v),
         sel.leftSidebarTransparency + "%", "ls-alpha"),
@@ -211,12 +209,12 @@ function renderAppearanceGlassSection(ctx) {
     ],
     // 侧栏玻璃（dsh-better-sidebar 适配）：总开关 + 专用模糊 / 透明度 / 玻璃基底色调，
     // 只作用于 dsh-better-sidebar 子树，不动会话玻璃的设置。仅在宿主检测到该插件时显示。
-    !sidebarSurface && sel.sidebarPresent && switchRow(weT("侧栏液态玻璃"), sel.sidebarGlass, onSidebarGlass, {
+    sel.sidebarPresent && switchRow(weT("侧栏液态玻璃"), sel.sidebarGlass, onSidebarGlass, {
       key: "sidebar-glass-toggle",
       hint: weT("dsh-better-sidebar 侧栏毛玻璃适配"),
       tooltip: weT("dsh-better-sidebar 侧栏（文件 / 终端 / Git 等面板）的毛玻璃适配；关闭则恢复其原生外观"),
     }),
-    !sidebarSurface && sel.sidebarPresent && sel.sidebarGlass && [
+    sel.sidebarPresent && sel.sidebarGlass && [
       // 这两个面的「独立配置」层（§10.24 补的缺口）：`glassMode` 的唯一写入方是
       // `onToggleChildIndependent`，而 `sidebar` / `sidebarContent` 不在登记表里 ⇒ 没有这两个开关
       // 时它们的 mode 永远停在 `'inherit'` ⇒ 下面那 5 个滑块**全是死的**。判据见第 ⑧ 组的 mode 可达性。
@@ -259,9 +257,8 @@ function renderAppearanceGlassSection(ctx) {
     // ── 子 UI 独立配置（**复杂配置专属**：侧边栏那一档不画）──
     // 这一节现在是**一层**：每个子面一个「独立配置」开关 —— 开 = 用自己那套参数覆盖全局。
     // ⚠️ 这里**没有**「要不要玻璃」的开关（那一层已退役，见上）：所有子面恒吃玻璃。
-    // ⚠️ `sidebarSurface` 的判据见函数开头：独立配置是逐面覆盖全局的高级动作，
-    //    按规划只出现在设置菜单里 ⇒ 简化配置那一档**一行都不画**（只剩全局四件套）。
-    ...(sidebarSurface ? [] : childRows),
+    // 两档同内容（2026-10-03 用户口径）⇒ childRows 直接展开，不再按 surface 过滤。
+    ...childRows,
   ),
   );
 }

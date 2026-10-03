@@ -72,25 +72,29 @@
   }
 
   // ── 侧栏档的渲染 ctx（与设置页共用同一批渲染器）────────────────────────────
-  // 只放行侧栏档真的会画到的字段；设置页专属字段（字体 / 光标 / 窗口与侧栏 / 出图来源 /
-  // 实时帧 / 自定义画面 / 帧率上限）一律指向"取用即抛错"的占位器 —— 将来某次编辑把
-  // 一行挪进侧栏档，会当场炸而不是静默变成"点了没反应"（同"漏传 ctx 字段 = 当场
-  // ReferenceError"那条纪律：刻意选的失败方式，响亮且可定位）。
+  // 2026-10-03 口径：侧栏「外观」与设置页**同内容**（唯全局字体除外）⇒ 外观渲染器
+  // 需要的字段全部真放行。仍指向"取用即抛错"占位器的只剩两类：全局字体节（用户口径
+  // 不进侧栏，panel-tabs 的 `!sidebarSurface` 门与其互为负对照）与播放/画面页专属
+  //（出图来源 / 实时帧 / 自定义画面 / 帧率上限）。将来某次编辑把一行挪进侧栏档，
+  // 会当场炸而不是静默变成"点了没反应"（同"漏传 ctx 字段 = 当场 ReferenceError"
+  // 那条纪律：刻意选的失败方式，响亮且可定位）。
   function sidebarCtxStub(name) {
     const boom = () => { throw new Error("[we-sidebar] ctx." + name + " 属于设置页，侧栏档不提供"); };
     return new Proxy(function () {}, { get: boom, apply: boom });
   }
   const QP_CTX_SETTINGS_ONLY = [
-    "officialColorOf", "fontSet", "onCaretColor", "onComponentFamily", "onComponentFont",
-    "onFontAdvanced", "onFontResetAll", "onToggleFontCustom", "onSidebarAlpha", "onSidebarBlur",
-    "onSidebarColor", "onSidebarContentAlpha", "onSidebarContentColor", "onThemeColor",
+    // ── 全局字体节（用户口径 2026-10-03：侧栏「外观」与设置页同内容，**唯独这一节不进侧栏**；
+    //    panel-tabs 里那道 `!sidebarSurface` 门还挂着 ⇒ 渲染到这里之前就会被下面的占位器
+    //    当场炸（解构即触发 get trap），门与占位器互为负对照）──
+    "officialColorOf", "fontSet", "onComponentFamily", "onComponentFont",
+    "onFontAdvanced", "onFontResetAll", "onToggleFontCustom", "onThemeColor",
     "onThemeColorClear", "onThemeDarkSeparate", "onThemeFamily", "onThemeSize", "onThemeTypeOnly",
-    "onThemeWeight", "onClearCustomFrame", "onClearGpuFrame", "onCustomFrameFile",
+    "onThemeWeight",
+    // ── 播放/画面页专属（renderEffectsTab 的侧栏档门）──
+    "onClearCustomFrame", "onClearGpuFrame", "onCustomFrameFile",
     "onRecaptureGpuFrame", "onRefreshFrame",
     // 帧率上限（抽帧转码）那行带 `!sidebarSurface` 门 ⇒ 侧栏档不画它，处理器进占位器。
     "onFpsCap",
-    // 思考块液态玻璃在「玻璃 UI」节（`!sidebarSurface` 门，原「窗口与侧栏」随 §10.25 并入）⇒ 同上，侧栏档进占位器。
-    "onThinkingGlass",
   ];
   // 占位器只建一次（每帧重建 25 个 Proxy 纯属浪费；它们是常量、可跨渲染共用）。
   let qpSettingsOnlyCtx = null;
@@ -366,6 +370,10 @@
             setSetting, setTransient, sel,
             onAccent, onBlur, onBorder, onChatGlassFidelity, onGlassAlpha, onGlassColor, onGlassFidelity, onLeftSidebarGlass, onSidebarGlass, onToggleThemeFollow,
             onToggleChildIndependent, onGlassChildParam, childIndependentOn,
+            // 2026-10-03 用户口径：侧栏「外观」与设置页**同内容**（唯全局字体除外）⇒
+            // 玻璃 UI 的侧栏族/独立配置、思考块开关、输入光标全部真放行（处理器已提升到模块级）。
+            onCaretColor, onSidebarAlpha, onSidebarBlur, onSidebarColor,
+            onSidebarContentAlpha, onSidebarContentColor, onSidebarFollowGlobal, onThinkingGlass,
           }))
           : qpTab === "playback"
             ? React.createElement(React.Fragment, null,

@@ -543,10 +543,9 @@
   }
 
   function renderAppearanceDetailSection(ctx) {
-    const { onBorder, onGlassChildParam, onLeftSidebarGlass, onToggleChildIndependent, childIndependentOn, sel, surface } = ctx;
-    // ⚠️ 简化配置 vs 复杂配置（wip §10.22 的规则）：**「独立配置」层属复杂配置**
-    //    ⇒ 侧栏那一档不画它（本节其余项照旧两档都画：左侧栏液态玻璃本身是乙类显示开关）。
-    const sidebarSurface = surface === "sidebar";
+    const { onBorder, onGlassChildParam, onLeftSidebarGlass, onToggleChildIndependent, childIndependentOn, sel } = ctx;
+    // （2026-10-03：原「独立配置不进侧栏」的 §10.22 边界已按用户口径推翻 —— 侧栏「外观」
+    //  与设置页同内容，唯全局字体除外；边界改由 quick-panel 的字体占位器 + 字体节的门来钉。）
     return React.createElement(React.Fragment, null,
     // ── 细节：边框强调 + 左侧栏液态玻璃（原「效果」页签的材质细调项与本页的左侧栏项）──
     // 玻璃四件套与「雾化」已归入「玻璃 UI」节；本节的「边框」是**非釉层**参数
@@ -561,7 +560,7 @@
       // ── 「左侧栏液态玻璃」及其子项**已搬进「玻璃 UI」节**（用户口径，见 §10.25）──
       // 为什么现在可以并进去：它当初被排除，是因为「玻璃 UI」那节里有"关 = 回原生纯色"的显示开关
       // （乙类语义冲突）；那一层已在 §10.20 整体退役 ⇒ 冲突消失，面控件与其余玻璃配置同处更顺。
-      // 门槛照旧（`leftSidebarGlass` 前提 + `!sidebarSurface` 的复杂配置边界），见 `src/glass-panel.js`。
+      // 门槛照旧（`leftSidebarGlass` 前提），见 `src/glass-panel.js`；两档同内容（2026-10-03）。
       // 本节只剩「边框」——它是**非釉层**参数（边框 / 分割线对比度），不属于玻璃配方，故留在细节。
     ),
     );
@@ -581,7 +580,10 @@
     return React.createElement(React.Fragment, null,
     // ── 字体 (custom typography)：原「字体」页签并入「外观」——总开关（关 =
     //    恢复 dsh 原生字体）+ 颜色角色 / 排版角色 / 字体族 / 组件字体（高级），
-    //    开启时才渲染细节控件。字重不设全局值：按角色与按组件细化。 ──
+    //    开启时才渲染细节控件。字重不设全局值：按角色与按组件细化。
+    //    ⚠️ 用户口径（2026-10-03）：侧栏「外观」与设置页同内容，**唯独这一节不进侧栏**
+    //    （面板太窄、字体是低频深配）⇒ 这道 `!sidebarSurface` 门是有意保留的唯一例外，
+    //    与 quick-panel 里的字体占位器互为负对照。 ──
     !sidebarSurface && React.createElement("div", { className: "we-picker__section" },
       React.createElement("div", { className: "we-picker__section-head" },
         React.createElement("span", { className: "we-picker__section-label" }, weT("全局字体")),
@@ -799,12 +801,12 @@
   }
 
   function renderAppearanceCaretSection(ctx) {
-    const { onCaretColor, sel, surface } = ctx;
-    const sidebarSurface = surface === "sidebar";
+    const { onCaretColor, sel } = ctx;
     return React.createElement(React.Fragment, null,
     // ── 输入光标（#83）：光标色与壁纸相近时会隐形，这里给它一个独立于字体
-    //    自定义的颜色项。「自动」= 不注入任何规则，跟随 dsh 原生表现。──
-    !sidebarSurface && React.createElement("div", { className: "we-picker__section" },
+    //    自定义的颜色项。「自动」= 不注入任何规则，跟随 dsh 原生表现。
+    //    2026-10-03 起两档都画（侧栏「外观」与设置页同内容，用户口径）。──
+    React.createElement("div", { className: "we-picker__section" },
       React.createElement("div", { className: "we-picker__section-head" },
         React.createElement("span", { className: "we-picker__section-label" }, weT("输入光标")),
       ),
