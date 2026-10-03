@@ -13,7 +13,7 @@
  *      app frame + sidebar backgrounds are made transparent so the wallpaper
  *      shows through the whole frame while the scrim keeps text readable.
  *   3. Applies four user-adjustable effects, each with its own slider:
- *      - 壁纸模糊 (wallpaper blur) → `--we-wallpaper-blur`
+ *      - 壁纸模糊 (wallpaper blur) → `--we-media-filter`（blur() 项）
  *      - 暗化 (scrim strength)      → `--we-scrim-color`
  *      - 边框 (border emphasis)     → `--dsw-alias-border-l1/l2` alpha
  *      - 玻璃 (glass blur on panels)→ `--we-blur` + frosted-glass backgrounds
@@ -113,7 +113,7 @@ const ACCENT_PRESETS = [
   "#CBE77D", // 黄绿 (success)
 ];
 
-// 玻璃颜色 presets for the settings-window glass BASE tint (--we-glass-color).
+// 玻璃颜色 presets for the settings-window glass BASE tint (--we-surface-tint-light/dark).
 // The first two are the stock-look defaults (white in light mode, deep navy in
 // dark); picking any preset (or a custom color) tints the glass in BOTH themes.
 const GLASS_COLOR_PRESETS = [
@@ -2669,6 +2669,41 @@ function onCancelEditWeAssetsDir() {
 function onLeftSidebarGlass(e) { setSetting("leftSidebarGlass", e.target.checked); emit(); }
 function onGlassWindow(e) { setSetting("glassWindow", e.target.checked); emit(); }
 function onSidebarGlass(e) { setSetting("sidebarGlass", e.target.checked); emit(); }
+
+// ── 「玻璃 UI」的两态（高级配置，见 wip 文档 §5.2 / §5.3 / §10.17）────────────────
+// 分工（**两态**，各管一件事）：
+//   · glassChildren[<id>] = 这个子 UI **要不要玻璃**（也是"独立配置"的显示前提）
+//   · glassMode[<id>]     = `'inherit'`（跟随全局，**默认**）| `'custom'`（读自己那套）
+// ⚠️ `setSetting` 是**整键写**（`selection[field] = value`），所以改嵌套项必须
+//    **重建整个对象**再写回 —— 不能 `setSetting("glassMode.x", …)`。
+// ⚠️ 关闭一个子项时**同时**把它的模式复位成 `'inherit'`：否则再打开会"带着上次的独立值复活"，
+//    而 UI 上它的独立项是隐藏的（用户看不见却生效）—— 那是最难排查的一类状态。
+function onToggleGlassChild(id, on) {
+  const next = Object.assign({}, selection.glassChildren);
+  if (on) next[id] = true; else delete next[id];
+  setSetting("glassChildren", next);
+  if (!on) {
+    const mode = Object.assign({}, selection.glassMode);
+    delete mode[id];
+    setSetting("glassMode", mode);
+  }
+  emit();
+}
+// ── 「玻璃 UI」各子项的「独立配置」开关（W1；R3b-ii 起写的是**模式**）─────────────
+// ⚠️ R3b-ii 之前这里是"布尔开关 + 一张手抄的能力表"两个键；现在只有 `glassMode` 一个键：
+//    能读自己的值这件事，由"注册表 params ↔ 接线点"（守卫 ④）与"写了必须被 CSS 读到"（⑬）保证。
+function onToggleChildIndependent(id, on) {
+  const next = Object.assign({}, selection.glassMode);
+  if (on) next[id] = "custom"; else delete next[id];
+  setSetting("glassMode", next);
+  emit();
+}
+/** 某一个子项的「独立配置」是否已开（**只看模式**）。 */
+function childIndependentOn(id) {
+  return !!(selection.glassMode && selection.glassMode[id] === "custom");
+}
+// 子 UI 独立参数：直接写它自己的键（键名由 childGlassKey 生成，与 schema 同源）。
+function onGlassChildParam(id, param, value) { setSetting(childGlassKey(id, param), value); emit(); }
 // 场景 / 网页实时渲染的总开关就是**显式重试入口**：除写设置外还要清空全部失败记忆
 //（含**会话内**的传输类软失败 —— 它不在设置里），并重建层与音频互斥态。
 // 五件事必须一起发生，所以它是一个处理器，而不是渲染器里的五行。
@@ -2905,7 +2940,7 @@ const onBackgroundContrast = (pct, live) => commitLiveSetting("backgroundContras
 const onBackgroundSaturate = (pct, live) => commitLiveSetting("backgroundSaturate", pct, live);
 // 配色 (accent color) + 玻璃透明度 (glass transparency) + 玻璃颜色 (glass base
 // tint): applied instantly through applyEffects() (--we-accent /
-// --we-glass-alpha / --we-glass-color), persisted so the settings page keeps
+// --we-glass-alpha / --we-surface-tint-light/dark), persisted so the settings page keeps
 // its custom look across reloads.
 const onAccent = (hex, live) => {
   if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
@@ -3535,6 +3570,8 @@ const officialColorOf = (tokens) => {
       setSetting, setTransient,
       fontSet: fontSetCtx(),
       officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onChatGlassFidelity, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onGlassFidelity, onGlassWindow, onLeftSidebarGlass, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarGlass, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onToggleFontCustom, onToggleThemeFollow, sel,
+      // 玻璃 UI 子项开关 + 独立配置 + 独立参数（见 onToggleChildIndependent 那段注释）
+      onToggleGlassChild, onToggleChildIndependent, onGlassChildParam, childIndependentOn,
     });
     if (activeTab === "playback") return React.createElement(React.Fragment, null,
       renderEffectsTab({

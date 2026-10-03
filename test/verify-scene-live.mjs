@@ -2096,6 +2096,16 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
   globalThis.SliderRow = noop; globalThis.switchRow = noop;
   globalThis.ctlText = noop; globalThis.swatchRow = noop; globalThis.renderFontSetEditor = noop;
   globalThis.ACCENT_PRESETS = []; globalThis.GLASS_COLOR_PRESETS = []; globalThis.CARET_COLOR_PRESETS = [];
+  // 子 UI 玻璃登记表 + 键名生成器：panel-tabs 的「玻璃 UI」节按它逐项渲染。
+  // ⚠️ 给**真值**（schema 的同一份），不手抄 —— 手抄一份就多一个会漂的副本，
+  //    而且夹具渲染的项数一旦与真实面板不同就是假绿。
+  globalThis.GLASS_CHILDREN = schema.GLASS_CHILDREN || [];
+  globalThis.childGlassKey = schema.childGlassKey || ((id, p) => id + p.charAt(0).toUpperCase() + p.slice(1));
+  // ⚠️ 「玻璃 UI」节的渲染器已抽到 `src/glass-panel.js`（wip §10.13）：**打包后**它与
+  //    `panel-tabs.js` 同作用域，所以后者能按名字直接调；但这里是**按文件 import** 的替身，
+  //    两个模块各有自己的作用域 ⇒ 必须自己把它挂成全局（与上面那批模块级助手同一条口径）。
+  globalThis.renderAppearanceGlassSection =
+    (await import(pathToFileURL(join(root, 'src', 'glass-panel.js')).href)).renderAppearanceGlassSection;
   globalThis.FRAME_VARIANTS = []; globalThis.FPS_CAP_VALUES = (schema.FPS_CAP_VALUES || [0, 24, 30, 60]);
   // 角色表要**真的**：`renderAppearanceTab` 一进门就 `THEME_TYPE_ROLES.filter(...)`（与画不画
   // 字体那节无关）—— 给空数组也活得下去，但真表更接近运行期（而且这几张表是纯数据）。
@@ -2117,6 +2127,12 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     // 与 QP_CTX_SETTINGS_ONLY 的分工：**侧栏档真的会画到的**由这里给真值（替身），
     // 设置页专属的（如 onFpsCap —— 帧率上限那行带 `!sidebarSurface` 门）才进占位器名单。
     'onGlassWindow', 'onLeftSidebarGlass', 'onSidebarGlass',
+    // 「玻璃 UI」节的两级子 UI 开关 + 子项独立参数：外观页签（设置页与侧栏档都会画到）。
+    'onToggleGlassChild', 'onToggleGlassIndependent', 'onToggleChildIndependent',
+    'onGlassChildParam', 'childIndependentOn',
+    // 子 UI 登记表：renderAppearanceGlassSection 按它逐项渲染。替身必须给**与 schema 同源**
+    // 的那份（不能手抄），否则夹具渲染的项数与真实面板不同，等于假绿。
+    'GLASS_CHILDREN', 'childGlassKey',
     'onToggleSceneLive', 'onLiveBootDelay', 'onSceneLiveFps',
     'onPlaybackRate', 'onObjectFit', 'onFlip', 'onOpenPicker', 'setPickerOpener',
     // 侧栏壁纸档的「壁纸属性」：开关读数 / 开关动作 / 面板渲染器**都是模块级的**
@@ -2159,6 +2175,10 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       onToggleThemeFollow: noop, onScrim: noop, onWallpaperBlur: noop, onWallpaperOpacity: noop,
       onBackgroundBrightness: noop, onBackgroundContrast: noop, onBackgroundSaturate: noop,
       onGlassWindow: noop, onLeftSidebarGlass: noop, onSidebarGlass: noop,
+      // 子 UI 两级开关 + 独立参数处理器；登记表与键名生成器给**真值**
+      //（与 schema 同源，来自被内联的 panel 模块作用域）—— 手抄一份就会漂。
+      onToggleGlassChild: noop, onToggleGlassIndependent: noop, onToggleChildIndependent: noop,
+      onGlassChildParam: noop, childIndependentOn: () => false,
       onToggleSceneLive: noop, onLiveBootDelay: noop, onSceneLiveFps: noop,
       onPlaybackRate: noop, onObjectFit: noop, onFlip: noop, onOpenPicker: noop, setPickerOpener: noop,
       userPropsPanelOpen: () => SEL.userPropsPanelOpen === true,
@@ -2713,19 +2733,16 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
   };
   const MORE_CASES = [
     { fn: 'renderAppearanceTab', label: '（设置页：五节）', surface: 'settings',
-      want: ['主题', '细节', '全局字体', '输入光标', '窗口与侧栏'],
-      wantLabels: ['主题随壁纸', '玻璃透明度', '玻璃保真度', '对话栏玻璃保真度', '左侧栏覆盖', '雾化', '边框', '字体自定义', '设置窗口液态玻璃'] },
+      // 玻璃四件套 + 雾化已归入新节「玻璃 UI」；「左侧栏覆盖」归入「细节」，
+      // 它的「独立配置」紧挂在它下方（用户口径：两者耦合）。
+      // 「子 UI 玻璃」是**总开关**（默认全开）；它开启时展开三个子项，每项下紧跟自己的
+      // 「独立配置」—— 用户口径：**没有"总独立配置"控件**，独立配置直接归属各子项。
+      want: ['主题', '细节', '玻璃 UI', '全局字体', '输入光标', '窗口与侧栏'],
+      wantLabels: ['主题随壁纸', '边框', '左侧栏覆盖', '玻璃透明度', '雾化', '玻璃保真度', '子 UI 玻璃', '设置窗口玻璃', '设置窗口玻璃·独立配置', '对话框玻璃', '对话框玻璃·独立配置', '浮层玻璃', '浮层玻璃·独立配置', '字体自定义', '设置窗口液态玻璃'] },
     // 侧栏档：被 `!sidebarSurface` 包住的三节不画 —— 这条门此前只有源码串，没有行为断言。
     { fn: 'renderAppearanceTab', label: '（侧栏档：设置页专属的三节不画）', surface: 'sidebar',
-      want: ['主题', '细节'],
-      wantLabels: ['主题随壁纸', '玻璃透明度', '玻璃保真度', '对话栏玻璃保真度', '左侧栏覆盖', '雾化', '边框'] },
-    // ⚠️ 这一条是**覆盖缺口**补上的：字体那一节的细节（颜色角色 / 排版角色 / 字体族 / 组件字体 /
-    // 字体集预设，~180 行）被 `sel.fontCustom` 挡着，而它的默认值是关 ⇒ **任何用例都没渲染过它**。
-    // 打开它才能让那些行第一次进入判据的视野（这本身是找缺陷，不只是补锚）。
-    { fn: 'renderAppearanceTab', label: '（设置页 · 字体自定义开）', surface: 'settings',
-      selOver: { fontCustom: true },
-      want: ['主题', '细节', '全局字体', '输入光标', '窗口与侧栏'],
-      wantLabels: ['主题随壁纸', '玻璃透明度', '玻璃保真度', '对话栏玻璃保真度', '左侧栏覆盖', '雾化', '边框', '字体自定义', '文字颜色角色', '深色单独设置', '正文', '次要文字', '弱化说明', '极小说明', '禁用 / 更弱', '排版角色', '只看改过的', '高级字体设置', '字体集预设', '设置窗口液态玻璃'] },
+      want: ['主题', '细节', '玻璃 UI'],
+      wantLabels: ['主题随壁纸', '边框', '左侧栏覆盖', '玻璃透明度', '雾化', '玻璃保真度', '子 UI 玻璃', '设置窗口玻璃', '设置窗口玻璃·独立配置', '对话框玻璃', '对话框玻璃·独立配置', '浮层玻璃', '浮层玻璃·独立配置'] },
     // 效果页**只有一个节标签** ⇒ 节顺序钉不住它的内部结构。这里用**控件标签的有序序列**作细锚：
     // 它同样是行为级的（对任何重构不变），却细到能看见"某一行的位置被挪了 / 被删了"。
     { fn: 'renderEffectsTab', label: '（画面 · 设置页）', surface: 'settings', want: ['画面'],
@@ -2872,8 +2889,10 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
 
   check('负对照：外观页侧栏档确实渲染出了内容（不是空树 ⇒ 上面的"少三节"才有意义）',
     (() => {
+      // 侧栏档画「主题 / 细节 / 玻璃 UI」三节 —— 比设置页少「全局字体 / 输入光标 / 窗口与侧栏」。
+      // ⚠️ 这个数字是**随节数变化**的：新增一节就要同步（它自己就是"少几节"那条判据的负对照）。
       try { return sectionSeq(panelMod.renderAppearanceTab(ctxFrom('renderAppearanceTab', st,
-        { surface: 'sidebar', fontSet: undefined }))).length === 2; } catch { return false; }
+        { surface: 'sidebar', fontSet: undefined }))).length === 3; } catch { return false; }
     })());
 
   // ── 拆成"一节一个子渲染器"之后新增的失败模式：**节用了某个 ctx 字段却没解构它** ──

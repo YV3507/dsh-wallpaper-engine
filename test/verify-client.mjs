@@ -348,8 +348,6 @@ setTimeout(async () => {
   console.log('--we-scrim-color:', JSON.stringify(p['--we-scrim-color']));
   console.log('--we-border-alpha:', JSON.stringify(p['--we-border-alpha']));
   console.log('--we-blur:', JSON.stringify(p['--we-blur']));
-  console.log('--we-wallpaper-blur:', JSON.stringify(p['--we-wallpaper-blur']));
-  console.log('--we-wallpaper-scale:', JSON.stringify(p['--we-wallpaper-scale']));
   console.log('--we-wallpaper-opacity (default 0% → unset):', JSON.stringify(p['--we-wallpaper-opacity']));
   assert.equal(p['--we-wallpaper-opacity'], undefined, 'wallpaper opacity must stay untouched by default (no identity-opacity compositing layer)');
   console.log('--we-accent:', JSON.stringify(p['--we-accent']));
@@ -844,8 +842,10 @@ setTimeout(async () => {
     } else {
       console.log('switch off hides the three detail knobs: false (switch not found)');
     }
-    assert.equal(sliderMax(findSliderRow(tree, '侧栏模糊')), '200', '侧栏模糊上限必须是 200px');
-    assert.equal(sliderMax(findSliderRow(tree, '侧栏透明度')), '200', '侧栏透明度上限必须是 200');
+    // R4 量纲统一（wip §10.19）：侧栏家族的量程从 0–200 收到**规范刻度**
+    //（模糊 0–60 px 与全局雾化同刻度；透明度 0–100 %）。这里钉住"面板与规范刻度一致"。
+    assert.equal(sliderMax(findSliderRow(tree, '侧栏模糊')), '60', '侧栏模糊上限必须是 60px（与全局雾化同刻度，R4）');
+    assert.equal(sliderMax(findSliderRow(tree, '侧栏透明度')), '100', '侧栏透明度上限必须是 100（规范刻度，R4）');
     assert.ok(treeText.includes('设置窗口液态玻璃'), 'whole-window glass master switch present:');
     assert.ok(treeText.includes('整个设置窗口'), 'window glass tooltip present:');
 
@@ -1608,7 +1608,12 @@ setTimeout(async () => {
     assert.equal(bodyEl.attributes['data-we-wallpaper'], undefined, 'wallpaper marker must clear');
     assert.equal(bodyEl.attributes['data-we-sidebar-glass'], 'on', 'sidebar glass must remain enabled');
     assert.equal(typeof p['--we-sidebar-color'], 'string', 'sidebar color variable must remain available');
-    assert.equal(typeof p['--we-sidebar-alpha'], 'string', 'sidebar alpha variable must remain available');
+    // 这里原本还有一条 `--we-sidebar-alpha`。它被删掉是因为该变量是**死码**：
+    // 整份样式表里精确出现 1 次、且那次在注释里，没有任何 CSS 消费者（登记表实测确认）。
+    // 断言"一个没人读的变量必须继续存在"守的是保真度的反面（adr/0007 第 4 问）。
+    // 侧栏透明度真正接线的是它的两个下游：--we-sidebar-sheen / --we-sidebar-tint。
+    assert.equal(typeof p['--we-sidebar-sheen'], 'string', 'sidebar sheen variable must remain available');
+    assert.equal(typeof p['--we-sidebar-tint'], 'string', 'sidebar tint variable must remain available');
     assert.equal(typeof p['--we-sidebar-blur'], 'string', 'sidebar blur variable must remain available');
     console.log('sidebar glass remains armed without an active wallpaper: true');
   }
