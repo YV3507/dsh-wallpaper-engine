@@ -353,6 +353,8 @@ const WE_I18N_EN = {
   "跟随 dsh 原生光标颜色": "Follow the native dsh caret color",
   "光标颜色 自动": "Caret color: Auto",
   "自动": "Auto",
+  "思考区与文件卡清底，文字胶囊与七类工具内容玻璃；默认关": "Clear thinking/file backgrounds, glass inline capsules and seven tool-result types; off by default",
+  "打开后，思考区与文件卡底栏百分百透明；文字胶囊、新会话、加载更早历史与回到底部按钮使用10%白色薄雾和8px雾化；上下文注入、运行命令、读取、搜索文件内容、工具调用、查找文件、写入的展开内容使用同款玻璃，底色覆盖度比气泡增加6个百分点。导航与轮次悬浮预览采用工具内容同款玻璃；聊天滚动条使用10%白色薄雾。代码块随玻璃透明度透出壁纸。默认关。": "Fully transparent thinking/file backgrounds. Inline capsules, new-session, load-earlier-history and scroll-to-bottom buttons use 10% white mist and 8px background blur. Expanded context injection, command, read, content search, tool call, file search and write results use the same glass with six percentage points more opacity. Navigation and turn hover previews match tool-result glass; the chat scrollbar uses 10% white mist. Code blocks follow glass opacity. Off by default.",
   "侧栏液态玻璃": "Sidebar liquid glass",
   "dsh-better-sidebar 侧栏毛玻璃适配": "Frosted-glass adaptation for the dsh-better-sidebar sidebar",
   "dsh-better-sidebar 侧栏（文件 / 终端 / Git 等面板）的毛玻璃适配；关闭则恢复其原生外观": "Frosted-glass adaptation for the dsh-better-sidebar sidebar (Files, Terminal, Git and other panels); turn off to restore its native look",
@@ -652,8 +654,6 @@ const WE_I18N_EN = {
   "；旧 DSH Desktop 2.0.x 内核": "; the old DSH Desktop 2.0.x kernel",
   // ── 思考块液态玻璃（PR #130）──
   "思考块液态玻璃": "Thinking-block liquid glass",
-  "思考过程与推理条改成玻璃，默认关": "Frost the thinking row and reasoning panel; off by default",
-  "默认关：思考条保持黑底，方便阅读。打开后思考过程、推理条跟会话玻璃对齐，不再一块实心黑。": "Off by default so the thinking row stays a solid dark panel for reading. Turn on to frost the thinking row and reasoning panel so they match the chat glass instead of a solid black slab.",
 
   "玻璃 UI": "Glass UI",
   "玻璃面板（对话栏卡片、左侧栏、设置窗口、插件浮层）的模糊半径 —— 越大越像磨砂玻璃；色彩饱和度不随本滑块变化。侧栏有自己的「侧栏模糊」，不受本项影响": "Blur radius of the glass panels (conversation cards, left sidebar, settings window, plugin popovers) — higher looks more frosted; color saturation does not change with this slider. The sidebar has its own “sidebar blur” control and is not affected by this one.",

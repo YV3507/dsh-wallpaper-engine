@@ -4466,7 +4466,7 @@ function apply(ctx) {
         const scrim = document.getElementById(SCRIM_ID);
         if (scrim) scrim.remove();
         clearEffects();
-        document.body.removeAttribute(ACTIVE_ATTR);
+        setWallpaperActive(false);
         // 主样式标签: 之前每个 bundle 求值都注入一次且从不移除 (HMR 后旧 <style>
         // 永久留在 <head>)。只移除本次求值这一代, 重挂载由 ensurePluginCss() 补回。
         if (typeof document !== "undefined" && typeof document.querySelector === "function") {

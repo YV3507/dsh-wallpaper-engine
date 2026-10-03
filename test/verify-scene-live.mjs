@@ -2958,7 +2958,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       'onPauseOnBattery', 'onPauseOnBlur', 'onPauseOnHidden', 'onToggleLiveDiag', 'sel'],
     renderAppearanceTab: ['setSetting', 'officialColorOf', 'onAccent', 'onBlur', 'onBorder',
       'onCaretColor', 'onChatGlassFidelity', 'onComponentFamily', 'onComponentFont', 'onFontAdvanced', 'onFontResetAll',
-      'onGlassAlpha', 'onGlassColor', 'onGlassFidelity', 'onGlassWindow', 'onLeftSidebarGlass', 'onSidebarAlpha',
+      'onGlassAlpha', 'onGlassColor', 'onGlassFidelity', 'onGlassWindow', 'onThinkingGlass', 'onLeftSidebarGlass', 'onSidebarAlpha',
       'onSidebarBlur', 'onSidebarColor', 'onSidebarContentAlpha', 'onSidebarContentColor',
       'onSidebarGlass', 'onThemeColor', 'onThemeColorClear', 'onThemeDarkSeparate', 'onThemeFamily',
       'onThemeSize', 'onThemeTypeOnly', 'onThemeWeight', 'onThinkingGlass', 'onToggleFontCustom', 'onToggleThemeFollow',

@@ -142,7 +142,10 @@ const SURFACES = [
   },
   {
     id: 'thinking-glass', label: '思考块液态玻璃（VCP 推理面）',
-    anchors: ['[data-vcp-reasoning]', '[data-vcp-reasoning-body]'], tier: 'global',
+    // ⚠️ 合并 #134（扩展思考玻璃）：新增一批只在 `[data-we-thinking-glass]` 下生效的宿主锚点
+    //（思考区/文件卡/工具结果/代码块/导航按钮…）—— 全部归本面认领；锚点清单取自
+    // 合并后物化 CSS 的枚举输出（认领判据会双向核对）。
+    anchors: ['[data-vcp-reasoning]', '[data-vcp-reasoning-body]', '[data-changed-files]', '[data-presented-file]', '[data-chat-flow]', '[data-chat-flow-kind="context"]', '[data-vcp-rawhtml]', '[data-code-block-banner]', '[data-context-injection-body]', '[data-diff]', '[data-dsh-navbar]', '[data-vlln-load-older]', '[data-vlln-preview]', '[data-read]', '[data-terminal]', '[data-sample="bash"]', '[data-search="matches"]', '[data-search="paths"]', '[data-slot="conversation.view"]', '[data-slot="tool.call.toolview"]', '[data-tool="glob"]', '[data-tool="grep"]', '[data-tool="read"]', '[data-tool="write"]', '[data-variant="others"]'], tier: 'global',
     // PR #130 的面：门是 `data-we-thinking-glass`（默认关），与上面 pending 的
     // conversation-thinking-trigger 共用 `data-turn-trigger` 锚点（那条已被它认领）。
     // 它没有按面私有变量 —— 直接吃全局釉层变量 ⇒ tier global，不进 ④ 组接线对账。
@@ -1132,7 +1135,10 @@ console.log('\n⑨ W5：各面的锚点门控覆盖率（防"关掉后还剩一�
     { id: 'settings-window', member: /\[data-slot="settings\.section"\]/, anchor: /data-we-glass-window/, done: true },
     { id: 'left-sidebar-override', member: /:has\(> \[data-slot="sidebar"\]\)/, anchor: /data-we-left-sidebar/, done: true },
     // W5 推广（本轮）：对话栏三条主规则已加 `[data-we-glass-chat]` 锚点。
-    { id: 'glass-child-conversation', member: /data-(composer-card|question-key|plan-review-key|approval-key)|_bubble/, anchor: /data-we-glass-fallback|data-we-glass-chat/, done: true },
+    // ⚠️ 合并 #134：思考玻璃一族在对话面新增了「+」白釉 / 气泡清底等规则，它们的门是
+    //    `data-we-thinking-glass`（默认关）—— 与 chat 门同样满足"关 ⇒ 整组不生效"，
+    //    并入本面的合法锚点集合（回退干净的性质不变）。
+    { id: 'glass-child-conversation', member: /data-(composer-card|question-key|plan-review-key|approval-key)|_bubble/, anchor: /data-we-glass-fallback|data-we-glass-chat|data-we-thinking-glass/, done: true },
     { id: 'plugin-floaters', member: /\.we-(update-notice|repo-panel)/, anchor: /data-we-glass-floaters|data-we-glass-fallback/, done: true },
   ];
 
