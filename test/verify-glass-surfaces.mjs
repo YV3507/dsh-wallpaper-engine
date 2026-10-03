@@ -104,11 +104,11 @@ const SURFACES = [
       + '但本插件尚未接管 ⇒ 标 pending，登记在先。是否接管见 wip 文档 §8。',
   },
   {
-    id: 'left-sidebar-override', label: '左侧栏覆盖',
+    id: 'left-sidebar-override', label: '左侧栏液态玻璃',
     anchors: ['[data-slot="sidebar"]'], tier: 'global',
     // W3 起它接了自己的按面变量（`--we-left-sidebar-blur` / `-alpha`，CSS 读
     // `var(--we-left-sidebar-<x>, <全局>)`）⇒ 登记面名，让第 ④ 组按面名对账。
-    // ⚠️ 它的门控是**两个**：`leftSidebarGlass`（「左侧栏覆盖」本身）**且**
+    // ⚠️ 它的门控是**两个**：`leftSidebarGlass`（「左侧栏液态玻璃」本身）**且**
     //    `glassIndependent.leftSidebar`（耦合在它下面的那个独立配置开关）。
     why: '乙类（背景还原）：它的“关”是恢复**背景**而不是恢复纯色，与其余“启用玻璃”方向相反，'
       + '因此不进「启用玻璃」系列 UI —— 见 wip 文档 §2。W3 起模糊 / 透明度可逐面独立。',
@@ -1491,10 +1491,10 @@ console.log('\n⑫ 语义表（执行型 · 扰动自证：跟随全局 / 独立
   // 门控属性（wip §10.20 之后分**两类**）：
   //   · **恒挂**（"要不要玻璃"那一层已退役）：设置窗口 / 对话栏 / 插件浮层 —— 任何输入下都必须在，
   //     而且源码里**不许**再有摘除分支（那条路正是被删掉的）。
-  //   · **仍可切**：左侧栏覆盖 / 侧栏液态玻璃 —— 它们各有自己的总开关，开 ⇒ 挂、关 ⇒ 摘。
+  //   · **仍可切**：左侧栏液态玻璃 / 侧栏液态玻璃 —— 它们各有自己的总开关，开 ⇒ 挂、关 ⇒ 摘。
   const CONST_GATES = ['data-we-glass-window', 'data-we-glass-chat', 'data-we-glass-floaters'];
   const SWITCH_GATES = [
-    { gate: 'data-we-left-sidebar', on: { leftSidebarGlass: true }, off: { leftSidebarGlass: false }, label: '左侧栏覆盖' },
+    { gate: 'data-we-left-sidebar', on: { leftSidebarGlass: true }, off: { leftSidebarGlass: false }, label: '左侧栏液态玻璃' },
     { gate: 'data-we-sidebar-glass', on: { sidebarGlass: true }, off: { sidebarGlass: false }, label: '侧栏液态玻璃' },
   ];
   const gateBad = [];

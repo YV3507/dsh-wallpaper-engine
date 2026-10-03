@@ -349,7 +349,7 @@ function main() {
     ['sidebar chrome group (dark)', 'background-color', 'body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_terminalWrap"]'],
     ['native right panel (light)', 'background-color', 'body[data-we-sidebar-glass] [data-sidebar-right-panel]'],
     ['native right panel (dark)', 'background-color', 'body[data-ds-dark-theme][data-we-sidebar-glass] [data-sidebar-right-panel]'],
-    // 左侧栏覆盖（leftSidebarGlass，默认关）：那一列同样是文字面（会话列表 / 工作区），
+    // 左侧栏液态玻璃（leftSidebarGlass，默认关）：那一列同样是文字面（会话列表 / 工作区），
     // 一旦接管成玻璃就必须过同一条下限 —— 而且它是**唯一**能直接看到壁纸的大块区域，
     // 少了这条声明就是"整列文字直接压在花壁纸上"。
     ['native left column (light)', 'background-color', 'body[data-we-wallpaper][data-we-left-sidebar] div:has(> [data-slot="sidebar"])'],

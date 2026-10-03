@@ -28,7 +28,7 @@
  *    实测那个"关"并**不能**如愿恢复原生黑/白纯色（那些面上还有一批不挂门控的令牌改写），
  *    而要做到"关得像样"得连令牌层一起回退 ⇒ 整层退役（见 `src/glass.js` 的退役说明）。
  *    所以这里剩下的**唯一**问题就是"读自己 还是 跟全局"。
- * ⚠️ 「左侧栏覆盖」**不在**本节的子项里：它的"关"是**恢复背景**（那列回到壁纸原样），
+ * ⚠️ 「左侧栏液态玻璃」**不在**本节的子项里：它的"关"是**恢复背景**（那列回到壁纸原样），
  *    语义不同 —— 它是乙类，独立成项留在「细节」，本节的 `panelOff` 过滤就是为它。
  */
 function renderAppearanceGlassSection(ctx) {
@@ -48,7 +48,7 @@ function renderAppearanceGlassSection(ctx) {
   const sidebarSurface = surface === "sidebar";
   const children = ((typeof GLASS_CHILDREN !== "undefined" && GLASS_CHILDREN) || [])
     // ⚠️ 排除 `panelOff` 的子项：乙类（左侧栏）**不进这一层** ——
-    //    它已有自己的总开关「左侧栏覆盖」，而它的"独立配置"耦合在那一项下面
+    //    它已有自己的总开关「左侧栏液态玻璃」，而它的"独立配置"耦合在那一项下面
     //    （见本文件「细节」节）。它留在登记表里只为生成 schema 键。
     .filter((c) => !c.panelOff);
   // i18n 词表：**就地包 weT(...)** —— 不能用 `weT(cn.label)` 那种属性访问。
@@ -145,7 +145,7 @@ function renderAppearanceGlassSection(ctx) {
     // 常量材料属性（见 GLASS_SATURATE）。
     // ⚠️ 覆盖面的实测口径（`.test-cache/blur-selectors.mjs` 复算，按规则头归面）：
     //    它喂的 `--we-blur` 被这些面消费 —— 对话栏一族（输入卡片 / 气泡 / 工具弹卡）、
-    //    **左侧栏覆盖**（`data-we-left-sidebar` 那列的 `::before`）、**设置窗口**、
+    //    **左侧栏液态玻璃**（`data-we-left-sidebar` 那列的 `::before`）、**设置窗口**、
     //    插件自身浮层（更新提示 / 仓库面板）。
     //    而**侧栏**（dsh-better-sidebar 与右栏面板）走的是它**自己的** `--we-sidebar-blur`
     //    （由「侧栏模糊」管）—— 那才是唯一不吃本项的面。
@@ -177,20 +177,20 @@ function renderAppearanceGlassSection(ctx) {
     // ── 既有面的**显示开关**与它们的独立配置（原「窗口与侧栏」/「细节」两节并进本节，§10.25）──
     // ⚠️ 为什么并进来：原先这些控件住在「窗口与侧栏」节，而那节**只在宿主上报
     //    `sidebarPresent`（装了 dsh-better-sidebar）时才画得出内容** —— 没装的机器上它就是一个
-    //    **只有标题的空节**。而「左侧栏覆盖」原先被刻意排除在「玻璃 UI」之外，理由是它与那节的
+    //    **只有标题的空节**。而「左侧栏液态玻璃」原先被刻意排除在「玻璃 UI」之外，理由是它与那节的
     //    "关 = 回原生纯色"（乙类语义）冲突；那一层已在 §10.20 整体退役 ⇒ **冲突消失**，
     //    这些面控件与其余玻璃配置放在一起在语义上更顺（用户口径）。
     // ⚠️ 门槛一个都没放松：`!sidebarSurface`（独立配置层属复杂配置）与 `sidebarPresent` /
     //    `sidebarGlass`（宿主能力与总开关）照旧，所以**简化配置那一档的内容与合并前逐行相同**。
-    // 左侧栏覆盖（默认关）：宿主原生左栏在壁纸下只是「透明的洞」，打开后它走同一张配方表。
+    // 左侧栏液态玻璃（默认关）：宿主原生左栏在壁纸下只是「透明的洞」，打开后它走同一张配方表。
     // ⚠️ 它**不是**"要不要玻璃"那一类：它的「关」是**恢复背景**（那一列回到壁纸原样）——
     //    所以它是唯一保留的**显示开关**（乙类），与其余面"恒吃玻璃"不同。
-    switchRow(weT("左侧栏覆盖"), sel.leftSidebarGlass === true, onLeftSidebarGlass, {
+    switchRow(weT("左侧栏液态玻璃"), sel.leftSidebarGlass === true, onLeftSidebarGlass, {
       key: "left-sidebar-glass",
       hint: weT("左侧栏也跟随玻璃配方（配色 / 玻璃颜色 / 透明度 / 雾化 / 边框）"),
       tooltip: weT("宿主原生左侧栏（会话列表 / 工作区那一列）默认直接透出壁纸、不吃玻璃参数。打开后它变成与其余界面同款的玻璃面板，跟随「配色 / 玻璃颜色 / 玻璃透明度 / 雾化 / 边框」；关闭即恢复原生观感。默认关。"),
     }),
-    // ⚠️ 用户口径：「左侧栏玻璃·独立配置」**与「左侧栏覆盖」耦合** —— 覆盖关着时它不显示。
+    // ⚠️ 用户口径：「左侧栏玻璃·独立配置」**与「左侧栏液态玻璃」耦合** —— 覆盖关着时它不显示。
     sel.leftSidebarGlass === true && !sidebarSurface && switchRow(weT("左侧栏玻璃·独立配置"),
       !!(childIndependentOn && childIndependentOn("leftSidebar")),
       (e) => onToggleChildIndependent("leftSidebar", e.target.checked), {

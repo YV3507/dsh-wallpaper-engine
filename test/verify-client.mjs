@@ -817,7 +817,7 @@ setTimeout(async () => {
     assert.ok(treeText.includes('自定义玻璃颜色'), 'glass color custom input present:');
     assert.ok(treeText.includes('type":"color"'), 'custom color input present:');
     assert.ok(treeText.includes('玻璃透明度'), 'glass transparency slider row present:');
-    assert.ok(treeText.includes('侧栏液态玻璃'), 'sidebar-glass master switch present:');
+    assert.ok(treeText.includes('"侧栏液态玻璃"'), 'sidebar-glass master switch present:');
     // ⚠️ 本批（wip §10.24）：侧栏家族与内容面的滑块挂在**各自的「独立配置」**下面 ——
     //    登记表那四个子面一直是这个口径（参数只在独立配置打开后才出现），而这两个既有面
     //    原先**没有开关**、滑块是**死的**；补上入口后行为与那四个统一。
@@ -831,12 +831,12 @@ setTimeout(async () => {
     // The three detail knobs (侧栏模糊 / 侧栏透明度 / 侧栏玻璃颜色) are
     // conditional on the 侧栏液态玻璃 master switch: off → hidden, on →
     // restored, in the SAME render pass (the toggle re-emits synchronously).
-    const sidebarSwitch = findCtlInput(tree, '侧栏液态玻璃');
+    const sidebarSwitch = findCtlInput(tree, '"侧栏液态玻璃"');  // 带引号精确匹配：新标签「左侧栏液态玻璃」是它的超串
     if (sidebarSwitch) {
       sidebarSwitch.props.onChange({ target: { checked: false } });
       assert.equal(bodyEl.attributes['data-we-sidebar-glass'], undefined, 'sidebar master off must restore native surfaces');
       tree = renderPicker();
-      assert.ok(JSON.stringify(tree).includes('侧栏液态玻璃'), 'switch itself stays visible when off:');
+      assert.ok(JSON.stringify(tree).includes('"侧栏液态玻璃"'), 'switch itself stays visible when off:');
       assert.ok(!JSON.stringify(tree).includes('侧栏玻璃·独立配置'), 'master off also hides the independent switch:');
       sidebarSwitch.props.onChange({ target: { checked: true } });
       assert.equal(bodyEl.attributes['data-we-sidebar-glass'], 'on', 'sidebar master on must re-arm sidebar surfaces');

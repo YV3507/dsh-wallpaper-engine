@@ -637,7 +637,7 @@ const CSS = `
     background: transparent !important;
   }
 
-  /* ── 左侧栏覆盖（宿主原生左栏的玻璃接管，默认关）────────────────────────────
+  /* ── 左侧栏液态玻璃（宿主原生左栏的玻璃接管，默认关）────────────────────────────
      原生左栏（会话列表 / 工作区那一列）在壁纸下本来只是**透明的洞**：本插件把
      --dsw-specific-sidebar-fill 置为 transparent，那一列于是直接透出原样壁纸 ——
      没有霜、没有底色，主题那套「配色 / 玻璃颜色 / 玻璃透明度 / 雾化 / 边框」一个都
@@ -2348,7 +2348,7 @@ body[data-we-glass-floaters] .we-repo-panel {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }
-  /* 左侧栏覆盖（leftSidebarGlass）：软件光栅器下模糊被静默忽略 ⇒ 与上面各条同一配方，
+  /* 左侧栏液态玻璃（leftSidebarGlass）：软件光栅器下模糊被静默忽略 ⇒ 与上面各条同一配方，
      钉成 92% 近不透明玻璃并把不会生效的 backdrop-filter 显式关掉。深色那条多一层
      [data-ds-dark-theme]，与浅色声明同特异度时后写者赢（顺序即优先级）。 */
   body[data-we-glass-fallback][data-we-wallpaper][data-we-left-sidebar] div:has(> [data-slot="sidebar"]) {

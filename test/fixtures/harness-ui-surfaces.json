@@ -140,7 +140,7 @@
     },
     "dsh-client-ui-sidebar": {
       "verdict": "covered",
-      "note": "covered —— 令牌级：styles.js 在 body[data-we-wallpaper] 上把 --dsw-alias-button-elevated-fill / --dsw-alias-bg-layer-* 映射成玻璃，侧栏「新建会话」按钮面（SidebarRoot.module.css 的 newSession，上游 #71 报的那类没玻璃的按钮）与内层面板因此拿到同一张配方表；页面级判据见 compat-harness-pages 的表面令牌探针；**左侧栏覆盖**（leftSidebarGlass，默认关）：这一列原先只是\"透明的洞\"（--dsw-specific-sidebar-fill 被置 transparent、壁纸原样透出），开关打开后由 styles.js 按座位出口锚点 div:has(> [data-slot=\"sidebar\"]) 给那一列刷上与其余面板同一张玻璃配方（玻璃色 / 透明度 / 雾化 / 边框 --dsw-alias-border-l3 / 配色映射），页面级判据见 compat-harness-pages 的四态探针（裸 / 只盖壁纸锚点 / 加开关 / 摘开关）"
+      "note": "covered —— 令牌级：styles.js 在 body[data-we-wallpaper] 上把 --dsw-alias-button-elevated-fill / --dsw-alias-bg-layer-* 映射成玻璃，侧栏「新建会话」按钮面（SidebarRoot.module.css 的 newSession，上游 #71 报的那类没玻璃的按钮）与内层面板因此拿到同一张配方表；页面级判据见 compat-harness-pages 的表面令牌探针；**左侧栏液态玻璃**（leftSidebarGlass，默认关）：这一列原先只是\"透明的洞\"（--dsw-specific-sidebar-fill 被置 transparent、壁纸原样透出），开关打开后由 styles.js 按座位出口锚点 div:has(> [data-slot=\"sidebar\"]) 给那一列刷上与其余面板同一张玻璃配方（玻璃色 / 透明度 / 雾化 / 边框 --dsw-alias-border-l3 / 配色映射），页面级判据见 compat-harness-pages 的四态探针（裸 / 只盖壁纸锚点 / 加开关 / 摘开关）"
     },
     "dsh-client-ui-sidebar-browser": {
       "verdict": "native",

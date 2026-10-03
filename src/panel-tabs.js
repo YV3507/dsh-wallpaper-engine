@@ -545,10 +545,10 @@
   function renderAppearanceDetailSection(ctx) {
     const { onBorder, onGlassChildParam, onLeftSidebarGlass, onToggleChildIndependent, childIndependentOn, sel, surface } = ctx;
     // ⚠️ 简化配置 vs 复杂配置（wip §10.22 的规则）：**「独立配置」层属复杂配置**
-    //    ⇒ 侧栏那一档不画它（本节其余项照旧两档都画：左侧栏覆盖本身是乙类显示开关）。
+    //    ⇒ 侧栏那一档不画它（本节其余项照旧两档都画：左侧栏液态玻璃本身是乙类显示开关）。
     const sidebarSurface = surface === "sidebar";
     return React.createElement(React.Fragment, null,
-    // ── 细节：边框强调 + 左侧栏覆盖（原「效果」页签的材质细调项与本页的左侧栏项）──
+    // ── 细节：边框强调 + 左侧栏液态玻璃（原「效果」页签的材质细调项与本页的左侧栏项）──
     // 玻璃四件套与「雾化」已归入「玻璃 UI」节；本节的「边框」是**非釉层**参数
     //（边框 / 分割线对比度），不属于玻璃配方，故留在细节。
     React.createElement("div", { className: "we-picker__section" },
@@ -558,7 +558,7 @@
       SliderRow(weT("边框"), 0, 90, 5, Math.round(sel.border * 100), onBorder, Math.round(sel.border * 100) + "%", "border-emphasis", {
         tooltip: weT("提高边框 / 分割线的对比度（浅色与深色主题通用）"),
       }),
-      // ── 「左侧栏覆盖」及其子项**已搬进「玻璃 UI」节**（用户口径，见 §10.25）──
+      // ── 「左侧栏液态玻璃」及其子项**已搬进「玻璃 UI」节**（用户口径，见 §10.25）──
       // 为什么现在可以并进去：它当初被排除，是因为「玻璃 UI」那节里有"关 = 回原生纯色"的显示开关
       // （乙类语义冲突）；那一层已在 §10.20 整体退役 ⇒ 冲突消失，面控件与其余玻璃配置同处更顺。
       // 门槛照旧（`leftSidebarGlass` 前提 + `!sidebarSurface` 的复杂配置边界），见 `src/glass-panel.js`。
@@ -829,7 +829,7 @@
   // 原委：那节**只在宿主上报 `sidebarPresent`（装了 dsh-better-sidebar）时才画得出内容**，
   // 没装的机器上它就是一个**只有标题的空节**；而它同时是侧栏家族唯一的家 ⇒ 单纯删掉会让那些
   // 控件无处可去。并进「玻璃 UI」之后：所有玻璃配置同处一节，空节消失，
-  // 且「左侧栏覆盖」终于与其余面控件放在一起（它当初被排除的理由——与那节"关即回原生纯色"
+  // 且「左侧栏液态玻璃」终于与其余面控件放在一起（它当初被排除的理由——与那节"关即回原生纯色"
   // 的乙类语义冲突——已随 §10.20 的退役消失）。
   // 实现见 `src/glass-panel.js` 的 renderAppearanceGlassSection（门槛一个都没放松）。
   // ── 「玻璃 UI」节的渲染器已抽到 src/glass-panel.js（wip §10.13）：

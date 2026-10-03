@@ -4064,7 +4064,7 @@ function UpdateNotice() {
       React.createElement("p", null,
         "② ", React.createElement("strong", null, weT("玻璃 UI 颜色可自定义")),
         weT("：玻璃界面颜色随心调；新增"),
-        React.createElement("strong", null, weT("「左侧栏覆盖」开关（默认关）")),
+        React.createElement("strong", null, weT("「左侧栏液态玻璃」开关（默认关）")),
         weT("——打开后宿主原生左栏也套上同一套玻璃效果。所有玻璃配色经亮度钳制，正文对比度始终 ≥ 4.5:1。")),
       React.createElement("p", null,
         "③ ", React.createElement("strong", null, weT("渲染内核更新")),
