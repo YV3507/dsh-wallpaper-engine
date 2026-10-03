@@ -57,6 +57,10 @@
 //       byte-identical to the legacy 2-arg call, 0 passes the raw color
 //       through, and the lerp toward the raw color is monotone + sandwiched —
 //       the stylesheet composes the floor with --we-glass-fidelity (default 1).
+//   F7  侧栏全透明（issue #137，sidebarFullClear）：放弃地板的**显式开关**链路
+//       完整且默认关 —— 默认值 false + boolFalse kind、门控属性成对挂/摘、UI 行
+//       过 weT、规则组逐条带壁纸门（无壁纸不生效）且把地板/色染/釉光归零。
+//       这是地板的**反向判据**：它证明"绕过地板"只能经这一个显式开关发生。
 //
 // Usage: node test/verify-readability.mjs
 import { readFileSync } from 'node:fs';
@@ -754,6 +758,73 @@ function main() {
       opens === closes && pos === 'fixed' && Number(z) < 0,
       'comments ' + opens + '/' + closes + ' · .we-layer position=' + JSON.stringify(pos)
         + ' z-index=' + JSON.stringify(z));
+  }
+
+  // ── F7: 侧栏全透明（issue #137）—— 放弃地板的显式开关链路（默认关）──────
+  // 与上面所有判据互为反向：F1–F5/C* 钉"地板在"，F7 钉"地板只能被这个开关
+  //（且仅在壁纸下、仅侧栏子树）拿掉"。全部从**产物**取（schema/glass/effects/
+  // panel 都内联在 lib/client.js 里），不重打字。
+  {
+    const clean = CSS.replace(/\/\*[\s\S]*?\*\//g, '');
+    const allRules = [...clean.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .map((m) => ({ header: m[1].trim().replace(/\s+/g, ' '), body: m[2] }));
+    const fcRules = allRules.filter((r) => r.header.includes('data-we-sidebar-fullclear'));
+    check('F7a 全透明规则组在位（≥3 条）且每条都带壁纸门（无壁纸时不生效）',
+      fcRules.length >= 3 && fcRules.every((r) => r.header.includes('data-we-wallpaper')),
+      fcRules.length + ' 条 · 缺壁纸门 ' + fcRules.filter((r) => !r.header.includes('data-we-wallpaper')).length);
+    // 容器覆盖：六变量归零（地板 / 色染 / 釉光三组）—— 面板 color-mix 与渐变靠它透掉。
+    const container = fcRules.find((r) => r.header.includes('[data-dsh-better-sidebar]'));
+    const ZEROS = ['--we-readability-floor: 0', '--we-sidebar-tint: 0%',
+      '--we-sidebar-color: transparent', '--we-sidebar-sheen: 0',
+      '--we-sidebar-sheen-a: 0', '--we-sidebar-sheen-b: 0', '--we-sidebar-sheen-c: 0'];
+    check('F7b 容器覆盖规则把地板/色染/釉光六个变量归零',
+      !!container && ZEROS.every((z) => container.body.includes(z)),
+      container ? ZEROS.filter((z) => !container.body.includes(z)).join(' | ') || '六项齐' : '规则缺失');
+    // 显式接管：右栏那条必须是**画底色**的规则（容器覆盖那条也含 panel 选择器但只写变量）。
+    const rp = fcRules.find((r) => r.header.includes('[data-sidebar-right-panel]')
+      && r.body.includes('background-color'));
+    check('F7c 右栏显式接管：展开态门 + 透明 !important + 釉光关掉',
+      !!rp && rp.header.includes('[data-sidebar-right-open]')
+      && rp.body.includes('background-color: transparent !important')
+      && rp.body.includes('background-image: none !important'),
+      rp ? rp.header.slice(0, 100) : '规则缺失');
+    // 左栏：一条规则两个选择器（浅 + 深）—— 按**选择器**数，不按规则条数。
+    const leftRule = fcRules.find((r) => r.header.includes('data-we-left-sidebar'));
+    const leftSels = leftRule ? leftRule.header.split(',').filter((h) => h.includes('data-we-left-sidebar')) : [];
+    check('F7d 左栏显式接管：浅深两个选择器都在（深色带 data-ds-dark-theme 提权压软件渲染兜底）',
+      leftSels.length === 2 && leftSels.some((h) => h.includes('data-ds-dark-theme'))
+      && leftRule.body.includes('background-color: transparent !important'),
+      '选择器 ' + leftSels.length + ' 个');
+    // 链路：默认关（安全不变量）+ 成对挂摘 + UI 行过 weT。
+    check('F7e 设置键默认关且 kind 为 boolFalse（默认态地板照旧兜底）',
+      /sidebarFullClear:\s*false,/.test(SRC) && /sidebarFullClear:\s*\{\s*kind:\s*'boolFalse'\s*\}/.test(SRC));
+    const sets = (SRC.match(/setAttribute\("data-we-sidebar-fullclear"/g) || []).length;
+    const rems = (SRC.match(/removeAttribute\("data-we-sidebar-fullclear"/g) || []).length;
+    const paired = SRC.includes('else document.body.removeAttribute("data-we-sidebar-fullclear")');
+    check('F7f 门控属性有挂有摘：applyGlass 成对（if/else）+ clearEffects 卸载再摘一次（rem ≥2）',
+      sets >= 1 && paired && rems >= 2, 'set=' + sets + ' rem=' + rems + ' paired=' + paired);
+    check('F7g UI 行存在且文案过 weT（新中文必须进 weT + 词表）',
+      /weT\("侧栏全透明"\)/.test(SRC) && /"侧栏全透明":\s*"/.test(SRC));
+    // 负对照：把上面几条判据各自喂坏输入，必须判出（判据不是恒真）。
+    const gateOk = (r) => r.header.includes('data-we-wallpaper');
+    check('negative control F7-1: 缺壁纸门的全透明规则会被同一条判据判出',
+      !gateOk({ header: 'body[data-we-sidebar-fullclear] [data-dsh-better-sidebar]' })
+      && fcRules.every(gateOk));
+    const defaultOk = (src) => /sidebarFullClear:\s*false,/.test(src)
+      && /sidebarFullClear:\s*\{\s*kind:\s*'boolFalse'\s*\}/.test(src);
+    check('negative control F7-2: 默认 true（地板默认被拿掉）或缺 kind 会被同一条判据判出',
+      !defaultOk('sidebarFullClear: true, sidebarFullClear: { kind: \'boolFalse\' }')
+      && !defaultOk('sidebarFullClear: false,')
+      && defaultOk(SRC));
+    const zerosOk = (body) => ZEROS.every((z) => body.includes(z));
+    check('negative control F7-3: 六变量缺一项会被同一条判据判出',
+      !zerosOk(ZEROS.slice(1).join('; ')) && zerosOk(container ? container.body : ''));
+    const unpairOk = (src) => (src.match(/setAttribute\("data-we-sidebar-fullclear"/g) || []).length >= 1
+      && src.includes('else document.body.removeAttribute("data-we-sidebar-fullclear")')
+      && (src.match(/removeAttribute\("data-we-sidebar-fullclear"/g) || []).length >= 2;
+    check('negative control F7-4: 只挂不摘（漏 clearEffects 那次）会被同一条判据判出',
+      !unpairOk('setAttribute("data-we-sidebar-fullclear","on"); else document.body.removeAttribute("data-we-sidebar-fullclear")')
+      && unpairOk(SRC));
   }
 
   const failed = results.filter((r) => !r.ok);

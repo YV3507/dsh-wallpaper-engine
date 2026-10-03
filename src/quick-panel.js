@@ -368,7 +368,7 @@
         !(qpTab === "wallpaper" && userPropsPanelOpen() && propsAvailable) && (qpTab === "appearance"
           ? renderAppearanceTab(sidebarRenderCtx({
             setSetting, setTransient, sel,
-            onAccent, onBlur, onBorder, onChatGlassFidelity, onGlassAlpha, onGlassColor, onGlassFidelity, onLeftSidebarGlass, onSidebarGlass, onToggleThemeFollow,
+            onAccent, onBlur, onBorder, onChatGlassFidelity, onGlassAlpha, onGlassColor, onGlassFidelity, onLeftSidebarGlass, onSidebarGlass, onSidebarFullClear, onToggleThemeFollow,
             onToggleChildIndependent, onGlassChildParam, childIndependentOn,
             // 2026-10-03 用户口径：侧栏「外观」与设置页**同内容**（唯全局字体除外）⇒
             // 玻璃 UI 的侧栏族/独立配置、思考块开关、输入光标全部真放行（处理器已提升到模块级）。

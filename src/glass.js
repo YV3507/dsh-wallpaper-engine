@@ -199,6 +199,12 @@ function applyGlass(selection, s) {
   s.setProperty("--we-sidebar-tint", sidebarTint.toFixed(1) + "%");
   if (selection.sidebarGlass) document.body.setAttribute("data-we-sidebar-glass", "on");
   else document.body.removeAttribute("data-we-sidebar-glass");
+  // 侧栏全透明（issue #137）：独立于「要不要玻璃」的第三态门控 —— 玻璃开着时它把
+  // 地板/色染/釉光三组变量在侧栏子树里就地归零，玻璃关着时它接管右栏那条原生
+  // 不透明兜底。与 data-we-sidebar-glass 一样是"值与门正交"的属性；配对的卸载
+  // 撤除在 effects.js 的 clearEffects（漏撤 ⇒ 插件卸载后规则组照旧生效）。
+  if (selection.sidebarFullClear) document.body.setAttribute("data-we-sidebar-fullclear", "on");
+  else document.body.removeAttribute("data-we-sidebar-fullclear");
 
   // ── 插件自身浮层的**按面**釉层变量（W4 接线）────────────────────────────────
   // 该面的 CSS 现在读 `var(--we-floaters-<x>, <原全局表达式>)`（styles.js 的

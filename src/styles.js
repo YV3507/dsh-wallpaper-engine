@@ -2824,6 +2824,42 @@ body[data-we-glass-floaters] .we-repo-panel {
   }
   .we-fx__canvas { display: block; width: 100%; height: 100%; }
 
+  /* ── 侧栏全透明（issue #137，设置键 sidebarFullClear，默认关）──────────────
+     用户口径：其他面都能调透，唯独侧栏被可读性下限锁死 —— 地板（浅 0.45 / 深 0.59）
+     以带 !important 的 color-mix 恒定掺入，侧栏透明度拉满也绕不过；0.7.5 时代侧栏
+     可以全透，之后被地板锁死。本组规则在**壁纸激活**时把插件画在侧栏上的底色层整块
+     撤掉，让用户主动放弃下限换全透：
+       · 第一条按**容器**就地归零六个变量（地板 / 色染 / 釉光三组）：面板规则里的
+         color-mix 与白釉渐变在元素上解析时取到的就是 0 ⇒ 玻璃开着时的全部侧栏上色
+         规则（深浅两色、@supports 无霜兜底、软件渲染兜底 —— 这些都读这几个变量）
+         一起透掉；**以后新增读这些变量的侧栏规则也自动被接管**。自定义属性沿 DOM
+         继承 ⇒ 生效与规则书写顺序无关。
+       · 右栏第二条与左列第三条是**显式接管**：玻璃关着时右栏兜底读插件面板色、左列
+         的浅深与兜底写死 92% 釉色（都不走上面的变量）⇒ 把这两处的底色与釉光直接画
+         透。落盘位置晚于全部既有侧栏规则 ⇒ 同特异度后写者赢（含软件渲染深色那档）。
+     保留：backdrop-filter 照旧 —— 模糊 / 饱和仍由侧栏模糊与全局雾化旋钮管（要彻底
+     清晰就把模糊调 0）；内容面（编辑器 / 终端底板）不归本开关管，仍有自己的透明度
+     旋钮。只在壁纸下生效：无壁纸时侧栏压着的是聊天界面，全透不可读。 */
+  body[data-we-wallpaper][data-we-sidebar-fullclear] [data-dsh-better-sidebar],
+  body[data-we-wallpaper][data-we-sidebar-fullclear] [data-sidebar-right-panel][data-sidebar-right-open] {
+    --we-readability-floor: 0;
+    --we-sidebar-tint: 0%;
+    --we-sidebar-color: transparent;
+    --we-sidebar-sheen: 0;
+    --we-sidebar-sheen-a: 0;
+    --we-sidebar-sheen-b: 0;
+    --we-sidebar-sheen-c: 0;
+  }
+  body[data-we-wallpaper][data-we-sidebar-fullclear] [data-sidebar-right-panel][data-sidebar-right-open] {
+    background-color: transparent !important;
+    background-image: none !important;
+  }
+  body[data-we-wallpaper][data-we-sidebar-fullclear][data-we-left-sidebar] div:has(> [data-slot="sidebar"]),
+  body[data-ds-dark-theme][data-we-wallpaper][data-we-sidebar-fullclear][data-we-left-sidebar] div:has(> [data-slot="sidebar"]) {
+    background-color: transparent !important;
+    background-image: none !important;
+  }
+
   /* ── 「扩展」三号模块：3D 效果（视差；行为层见 src/parallax-layer.js）──
      这一层与前面几层刚好相反：**它一个 DOM 节点都不建**。视差层只写自定义属性：5 个"各层要乘的
      系数"写在 body 上（只在设置变了时写一次），-x / -y 这两个"光标偏离屏幕中心的步长"写在

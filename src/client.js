@@ -2826,6 +2826,9 @@ const onCaretColor = (hex, live) => {
 };
 
 function onSidebarGlass(e) { setSetting("sidebarGlass", e.target.checked); emit(); }
+// 侧栏全透明（issue #137）：显式放弃可读性下限。与 onSidebarGlass 同形 —— 门控属性
+//（data-we-sidebar-fullclear）由 applyGlass 挂/摘，CSS 那组规则只认属性。
+function onSidebarFullClear(e) { setSetting("sidebarFullClear", e.target.checked); emit(); }
 
 // ── 「玻璃 UI」各子项的「独立配置」开关（W1；R3b-ii 起写的是**模式**）─────────────
 // ⚠️ R3b-ii 之前这里是"布尔开关 + 一张手抄的能力表"两个键；现在只有 `glassMode` 一个键：
@@ -3776,8 +3779,8 @@ const officialColorOf = (tokens) => {
     if (activeTab === "appearance") return renderAppearanceTab({
       setSetting, setTransient,
       fontSet: fontSetCtx(),
-      officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onChatGlassFidelity, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onGlassFidelity, onGlobalFamily, onLeftSidebarGlass, onRefreshSystemFonts, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarFollowGlobal, onSidebarGlass, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onThinkingGlass, onToggleFontCustom, onToggleThemeFollow, sel,
-      officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onChatGlassFidelity, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onGlassFidelity, onLeftSidebarGlass, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarGlass, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onThinkingGlass, onToggleFontCustom, onToggleThemeFollow, sel,
+      officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onChatGlassFidelity, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onGlassFidelity, onGlobalFamily, onLeftSidebarGlass, onRefreshSystemFonts, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarFollowGlobal, onSidebarGlass, onSidebarFullClear, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onThinkingGlass, onToggleFontCustom, onToggleThemeFollow, sel,
+      officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onChatGlassFidelity, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onGlassFidelity, onLeftSidebarGlass, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarGlass, onSidebarFullClear, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onThinkingGlass, onToggleFontCustom, onToggleThemeFollow, sel,
       // 玻璃 UI 子项开关 + 独立配置 + 独立参数（见 onToggleChildIndependent 那段注释）
       onToggleChildIndependent, onGlassChildParam, childIndependentOn,
     });

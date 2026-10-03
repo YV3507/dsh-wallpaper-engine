@@ -37,7 +37,7 @@ function renderAppearanceGlassSection(ctx) {
     onToggleChildIndependent, childIndependentOn, sel,
     onLeftSidebarGlass, onSidebarAlpha, onSidebarBlur, onSidebarColor,
     onSidebarContentAlpha, onSidebarContentColor, onSidebarGlass,
-    onSidebarFollowGlobal,
+    onSidebarFollowGlobal, onSidebarFullClear,
     onThinkingGlass,
   } = ctx;
   // ⚠️ **两档同内容**（用户口径 2026-10-03，推翻原 §10.22 的"简化配置不进侧栏"边界）：
@@ -214,6 +214,14 @@ function renderAppearanceGlassSection(ctx) {
       key: "sidebar-glass-toggle",
       hint: weT("dsh-better-sidebar 侧栏毛玻璃适配"),
       tooltip: weT("dsh-better-sidebar 侧栏（文件 / 终端 / Git 等面板）的毛玻璃适配；关闭则恢复其原生外观"),
+    }),
+    // 侧栏全透明（issue #137）：放弃可读性下限换全透的显式开关。刻意**不跟在
+    // 侧栏液态玻璃的门后面** —— 玻璃关着时右栏那条原生不透明兜底同样是"透不出来"
+    // 的一极，本开关在两个状态都要可达（issue 里用户正是在玻璃关着的档位打的补丁）。
+    sel.sidebarPresent && switchRow(weT("侧栏全透明"), sel.sidebarFullClear === true, onSidebarFullClear, {
+      key: "sidebar-fullclear",
+      hint: weT("壁纸下撤掉侧栏的可读性底与色染"),
+      tooltip: weT("打开：壁纸激活时侧栏的可读性下限、色染与釉光整块撤掉，壁纸原样透出（文字直接压在壁纸上）；模糊仍由侧栏模糊/全局雾化旋钮管。关闭（默认）：保留可读性下限，最坏壁纸下正文仍 ≥4.5:1"),
     }),
     // 跟随全局（sidebarFollowGlobal，默认开，现场口径："我需要侧栏玻璃也跟随全局"）：
     // 开着 ⇒ 侧栏的釉变量直接指向全局三件套（effects 里写 var() 引用），并把下面
