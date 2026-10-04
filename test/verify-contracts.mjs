@@ -191,7 +191,8 @@ const tabsSrc = read('src/panel-tabs.js');
   // 「真跑被系统弹窗打断」+「有人把这条红当成噪音去放宽别的判据」；修复成本是一个词，
   // 静态判据零抖动，所以宁可拦住。它不是守散文的判据（ADR-0006 的边界：这条读的是代码）。
   const SCAN = ['test/compat-harness-pages.mjs', 'test/e2e-web-media-origin.mjs',
-    'test/tools/diagnose-web-blank.mjs', 'test/tools/underlay-pixel-rig.mjs'];
+    'test/tools/diagnose-web-blank.mjs', 'test/tools/underlay-pixel-rig.mjs',
+    'test/tools/sidebar-props-scroll-rig.mjs'];
   /** 抠出每个 headless 启动点所在的参数数组文本（从该处到最近的 `]`）。 */
   const launchSites = (src) => {
     const out = [];

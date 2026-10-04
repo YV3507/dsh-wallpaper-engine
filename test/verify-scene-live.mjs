@@ -2070,6 +2070,29 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       Boolean(libraryRule) && sectionFlexRules.every((r) => libraryRule.at > r.at));
     check('negative control: `.we-qp__tabbody--library > .we-qp__section` 那条坏写法会被同一条判据判出',
       weightOf('.we-qp--official .we-qp__tabbody--library > .we-qp__section') > weightOf(baseSel));
+
+    // ── 属性下钻的滚动（真机回归：属性多的壁纸，面板显示不全且滚不动）──────────────
+    // 土壤与「列表滚不动」同一条：宿主页签内容区是固定高 + overflow:hidden（见 styles.js 里
+    // .we-qp--official 那段），壁纸档又挂 --library 特意不自己滚 —— 滚动交给列表。属性下钻
+    // 那一屏**没有列表** ⇒ 面板自己必须是滚动容器，否则内容被裁掉，且从它到 body 之间
+    // **没有任何"用户滚得动"的祖先**（overflow:hidden 的容器程序上也能 scrollTop，但用户
+    // 滚不动 —— 那正是这条 bug 的形态；真浏览器判定台见
+    // test/tools/sidebar-props-scroll-rig.mjs）。判据 = 面板自带滚动 + 前提（内容区裁切）
+    // + 有界高，另配负对照。
+    const ruleOfSel = (sel) => rules.find((r) => r.sel.split(',').some((s) => s.trim() === sel));
+    const userScroll = (body) => /(^|[;\s])overflow(-y)?\s*:\s*(auto|scroll)/.test(body);
+    const drillRule = ruleOfSel('.we-qp--official .we-qp__propsview--drill');
+    check('属性下钻：官方档的面板自带纵向滚动（宿主页签内容区不替它滚）',
+      Boolean(drillRule) && userScroll(drillRule.body),
+      drillRule ? drillRule.body.trim().replace(/\s+/g, ' ') : '找不到 .we-qp--official .we-qp__propsview--drill 规则');
+    check('negative control: 把 overflow-y 去掉后同一条判据判红',
+      Boolean(drillRule) && !userScroll(drillRule.body.replace(/overflow-y\s*:\s*(auto|scroll)\s*;?/, '')));
+    check('属性下钻：面板在 flex 列里有界高（flex: 1 1 auto + min-height: 0，否则滚动条永远不出现）',
+      Boolean(drillRule) && /(^|[;\s])flex\s*:\s*1 1 auto/.test(ruleOfSel('.we-qp__propsview--drill').body)
+        && /(^|[;\s])min-height\s*:\s*0/.test(ruleOfSel('.we-qp__propsview--drill').body));
+    const libTabbody = ruleOfSel('.we-qp--official .we-qp__tabbody--library');
+    check('前提（这条判据的土壤）：壁纸档的页签内容区是裁切而不是滚动',
+      Boolean(libTabbody) && /(^|[;\s])overflow(-y)?\s*:\s*hidden/.test(libTabbody.body));
   }
   // ── 需求④（两边数据一致）：侧栏不持有第二份状态 ──
   // ① 外观 / 画面处理器**提升到模块级**（在 WallpaperPicker 之前声明）—— 两处调的是

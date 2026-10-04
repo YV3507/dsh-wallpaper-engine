@@ -26,6 +26,17 @@
   大倍率下（上限 2.5×）还会把卡片撑得很大。
   **判据**：`test/verify-client.mjs` 在滑块拨到 1.5 后断言两张卡片的立绘仍为固定基础尺寸（加回乘法即判红）。
 
+- **修复：侧栏「壁纸属性」在属性多的壁纸上显示不全、滚不动**（用户报障：壁纸属性点开时，属性特别多会显示不全）。
+  **做了什么**：`src/styles.js` 在官方侧栏壳里给属性下钻容器补一条自带滚动
+  （`.we-qp--official .we-qp__propsview--drill { overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }`）。
+  **为什么**：官方侧栏的页签内容区是宿主给的「固定高 + overflow:hidden」（壁纸档还挂 `--library`，滚动特意交给
+  列表自己），而属性下钻那一屏**没有列表** —— 面板不自带滚动就被裁掉，且从它到 body 之间**没有任何"用户滚得动"
+  的祖先**（`overflow:hidden` 的容器程序上也能 `scrollTop`，但用户滚不动）。抽屉壳的滚动由 `.we-repo-panel__body`
+  承担，这条只作用在官方档，不叠第二层滚。
+  **判据**：`test/verify-scene-live.mjs` 的侧栏滚动链一段追加「面板自带纵向滚动 / 有界高 / 前提：内容区裁切」三条
+  与一条负对照（去掉 `overflow-y` 即判红）；真浏览器判定台 `test/tools/sidebar-props-scroll-rig.mjs`（真产物 + 真
+  React + 宿主几何：60 项属性的壁纸，逐候选滚动验证末行可达 —— 修复前 FAIL、修复后 PASS，壁纸列表滚动不受影响）。
+
 - **一号模块「硬件资源监控柱状图」的默认值按维护者实际调好的那套参数固化**（用户口径："将当前插件的
   『硬件资源监控柱状图』扩展中的设置设为默认配置" ⇒ 明确为"把我现在实际调好的那套值固化成默认值"）。
   **做了什么**：`lib/settings-schema.js` 的 `DEFAULTS` 里**十键改值** —— `metricsEnabled` **默认改开**，

@@ -26,6 +26,23 @@
   **Guards**: `test/verify-client.mjs` asserts, with the slider set to 1.5, that both card artworks keep
   their fixed base sizes (turning red if the multiplication ever comes back).
 
+- **Fixed: the sidebar's "Wallpaper properties" panel was cut off and unscrollable on wallpapers with many
+  properties** (user report: opening the properties panel on a wallpaper with a lot of properties shows only
+  part of them).
+  **What**: `src/styles.js` gives the drill-down container its own scroll inside the official sidebar shell
+  (`.we-qp--official .we-qp__propsview--drill { overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }`).
+  **Why**: the host gives the tab content area a fixed height with `overflow:hidden` (and the wallpaper tab
+  additionally carries `--library`, which deliberately delegates scrolling to the list) — but the properties
+  drill-down has **no list**, so without its own scroll the panel is clipped, and between it and `body` there is
+  **no ancestor the user can actually scroll** (an `overflow:hidden` box can still be `scrollTop`-ed
+  programmatically, but the user cannot scroll it). In the drawer shell the scrolling is done by
+  `.we-repo-panel__body`, so this rule only applies to the official shell and does not stack a second scroll.
+  **Guards**: the sidebar scroll-chain section of `test/verify-scene-live.mjs` gains "the panel scrolls itself /
+  it has a bounded height / the premise: the content area clips" plus a negative control (dropping `overflow-y`
+  turns it red); the real-browser rig `test/tools/sidebar-props-scroll-rig.mjs` (real bundle + real React + the
+  host geometry: a wallpaper with 60 properties, scrolling each candidate container to verify the last row is
+  reachable — FAIL before the fix, PASS after, with the wallpaper list's own scrolling unaffected).
+
 - **The first module's defaults are now the maintainer's own tuned set** (user's words: "make the settings
   currently in the hardware monitor bars extension the default configuration" ⇒ clarified as "bake the
   values I have dialled in now into the defaults").
