@@ -2138,6 +2138,11 @@ const CSS = `
   }
   /* 网格高度放开（沿用弹框时代的规则：不设内部 280px 滚动，随内容生长）。 */
   .we-picker__modal-body .we-picker__grid { max-height: none; }
+  /* 库视图虚拟滚动的占位行（picker-modal 的 renderVSpacer）：撑出未渲染部分的高度。
+     网格里必须 grid-column 全跨整行，否则会占一个卡位把可见卡片挤错行。行高常量
+     PICKER_CARD_H / PICKER_CARD_GAP 在 src/picker-modal.js 顶层，两边必须同步改。 */
+  .we-picker__vspacer { width: 100%; pointer-events: none; }
+  .we-picker__grid .we-picker__vspacer { grid-column: 1 / -1; }
   .we-picker__modal-foot { display: flex; align-items: center; justify-content: space-between; }
   /* Custom-upload section. */
   .we-picker__uploads {
@@ -2513,6 +2518,12 @@ body[data-we-glass-floaters] .we-repo-panel__body {
     gap: 8px; align-content: start;
   }
   .we-qp__list--cards .we-picker__hint { grid-column: 1 / -1; }
+  /* 虚拟滚动的占位行（quick-panel 的 renderSpacer）：撑出未渲染部分的高度。列表档是
+     flex 列里的普通块（flex:none 防被压缩），卡片档要 grid-column 全跨整行 —— 否则会
+     占一个卡位，把可见卡片整体挤错一行。行高常量在 quick-panel 的 QP_ROW_H / QP_CARD_H，
+     两边必须同步改。 */
+  .we-qp__vspacer { flex: none; width: 100%; pointer-events: none; }
+  .we-qp__list--cards .we-qp__vspacer { grid-column: 1 / -1; }
   .we-qp__card {
     position: relative; overflow: hidden; cursor: pointer;
     /* 固定卡高：网格轨道 sizing 对 aspect-ratio / 百分比 padding 都会塌成内容高
@@ -2569,7 +2580,6 @@ body[data-we-glass-floaters] .we-repo-panel__body {
   .we-qp__item-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .we-qp__item-badge { flex: none; font-size: 0.78em; font-weight: 600; color: var(--we-accent, #4f8cff); }
   .we-qp__item-type { flex: none; font-size: 0.78em; color: var(--we-ink-3, rgba(128, 128, 128, 0.65)); }
-  .we-qp__more { font-size: 0.78em; }
   .we-qp__foot {
     display: flex; padding-top: 10px;
     border-top: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.22));

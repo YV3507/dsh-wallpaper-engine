@@ -233,8 +233,8 @@ const INLINE_MODULES = [
   },
   {
     file: 'src/quick-panel.js',
-    why: '快捷播放面板（官方侧栏 tab 与低版本抽屉共用同一份内容）：当前壁纸 + 轮播 + 列表快切 + 声音 + 设置入口',
-    markers: ['const QP_LIST_MAX = ', 'function qpTypeLabel(', 'function QuickPanel(props)'],
+    why: '快捷播放面板（官方侧栏 tab 与低版本抽屉共用同一份内容）：当前壁纸 + 轮播 + 列表快切 + 声音 + 设置入口。列表虚拟滚动（spacer + 可视窗口）',
+    markers: ['function qpFindScroller(', 'function qpVirtWindow(', 'function qpTypeLabel(', 'function QuickPanel(props)'],
   },
   {
     file: 'src/video-layer.js',

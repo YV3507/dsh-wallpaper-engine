@@ -1488,34 +1488,46 @@ setTimeout(async () => {
       if (hit && typeof hit.props.onClick === 'function') { try { hit.props.onClick(); } catch (e) { console.log('pager click threw:', e && e.message); } }
       return hit;
     };
-    // Page 1: 33 playable wallpapers → 2 pages @ 24; grid = close card + 24.
+    // Virtual window（2026-10-04 用户口径：**库视图不再分页**）：本台 React 是替身 ⇒
+    // qpVirtWindow 的测量 effect 不跑，窗口恒为"未测量首窗" = 关闭卡 + 前 29 张
+    // （PICKER_VP_FIRST = 30 条目）—— 恰好把窗口计算钉成**确定性**断言；滚动出的窗口
+    // 归真浏览器（判定台/真机）。分页器从此不存在于库视图（轮换编辑器仍用它）。
     // 判据必须**真断言**：整块 `console.log` 只在日志里像断言、不判真假（形态规则见
     // docs/DEV-GUIDE.md §4.7 约定 5）。
     let cards = collectCards(tree);
-    rotCheck('分页：第 1 页 25 张卡（关闭卡 + 24）', cards.length === 25);
-    rotCheck('分页：页数 > 1 时渲染分页器', JSON.stringify(tree).includes('we-picker__pager'));
-    const page1Text = JSON.stringify(cards);
-    rotCheck('分页：第 1 页含首张（Wall 0）', page1Text.includes('Wall 0'));
-    rotCheck('分页：第 1 页不含第 2 页的项（Wall 30）', !page1Text.includes('Wall 30'));
-    rotCheck('筛选：无 frameUrl 的场景（Scene D）不进网格', !page1Text.includes('Scene D'));
-    rotCheck('筛选：默认 Everyone 下 PG13 不进网格', !page1Text.includes('PG13 E'));
-    // Flip to page 2 → 33 - 24 = 9 wallpapers + close card = 10.
-    const pagerHit = clickPager(tree, '下一页 ›');
-    rotCheck('分页：找得到「下一页」按钮（找不到时不得静默通过）', !!pagerHit);
+    rotCheck('虚拟首窗：30 张卡（关闭卡 + 29）', cards.length === 30);
+    rotCheck('虚拟首窗：库视图不再渲染分页器', !JSON.stringify(tree).includes('we-picker__pager'));
+    const winText = JSON.stringify(cards);
+    rotCheck('虚拟首窗：含首张（Wall 0）与窗尾（Wall 28）', winText.includes('Wall 0') && winText.includes('Wall 28'));
+    rotCheck('虚拟首窗：窗外条目不渲染（Wall 29 / Video A / Scene C）',
+      !winText.includes('Wall 29') && !winText.includes('Video A') && !winText.includes('Scene C'));
+    rotCheck('筛选：无 frameUrl 的场景（Scene D）不进网格', !winText.includes('Scene D'));
+    rotCheck('筛选：默认 Everyone 下 PG13 不进网格', !winText.includes('PG13 E'));
+    // 窗口外的条目必须**可达**（这是"虚拟"与"砍掉"的分界）：搜索把库收敛进首窗。
+    const findSearchBox = (root) => { let hit = null; (function walkS(n) {
+      if (hit) return;
+      if (Array.isArray(n)) { n.forEach(walkS); return; }
+      if (!n || typeof n !== 'object') return;
+      const c = typeof n.props?.className === 'string' ? n.props.className : '';
+      if (c.split(/\s+/).includes('we-picker__search')) { hit = n; return; }
+      if (Array.isArray(n.children)) n.children.forEach(walkS);
+    })(root); return hit; };
+    const searchBox = findSearchBox(tree);
+    rotCheck('虚拟首窗：搜索框在（窗外条目经它可达）', Boolean(searchBox && searchBox.props.onInput));
+    searchBox.props.onInput({ target: { value: 'Video A' } });
     tree = renderPicker();
     cards = collectCards(tree);
-    rotCheck('分页：第 2 页 10 张卡（关闭卡 + 9）', cards.length === 10);
-    const page2Text = JSON.stringify(cards);
-    rotCheck('分页：第 2 页含末张（Wall 29）', page2Text.includes('Wall 29'));
-    rotCheck('分页：翻页后不再含第 1 页的项（Wall 0）', !page2Text.includes('Wall 0'));
-    rotCheck('筛选：有 frameUrl 的场景（Scene C）进网格', page2Text.includes('Scene C'));
+    rotCheck('虚拟首窗：搜索收敛后远端条目（Video A）落进首窗', cards.length === 2
+      && JSON.stringify(cards).includes('Video A'));
+    searchBox.props.onInput({ target: { value: '' } });
+    tree = renderPicker();
     // 负对照：把**变异输入**喂进**同一条判据**，证明这两条判据真能失败
     const mutated = { props: { className: 'we-picker__card' },
       children: [{ props: { className: 'we-picker__card-wrap' }, children: [] }] };
     rotCheck('负对照：卡片判据不把近似类名算进去（多算一张就会被判出）',
       collectCards(mutated).length === 1 && collectCards({}).length === 0);
-    rotCheck('负对照：两页内容确实不同（否则「翻页换了内容」这条判据恒真）',
-      !page1Text.includes('Wall 29') && page2Text.includes('Wall 29'));
+    rotCheck('负对照：搜索收敛判据两侧都真（清空后 Video A 回到窗外）',
+      collectCards(tree).length === 30 && !JSON.stringify(collectCards(tree)).includes('Video A'));
 
     // ── 0b：搜索 / 类型筛选 / 批量 / 隐藏页 / 卡片头计数 ──────────────────
     // 判据只在**一处**定义，正判据与负对照都调它（形态规则见 docs/DEV-GUIDE.md §4.7 约定 5）。
@@ -1566,13 +1578,12 @@ setTimeout(async () => {
     };
     const persisted = () => JSON.parse(localStorage._store['dsh-wallpaper-engine:selection'] || '{}');
 
-    // 卡片头徽标 = 当前（过滤后）**全量**可播放数；网格只渲染**当页** —— 两者是"全量与分页"
-    // 的关系（上一步翻到了第 2 页，先翻回来让状态确定）。
-    clickPager(tree, '‹ 上一页');
+    // 卡片头徽标 = 当前（过滤后）**全量**可播放数；网格只渲染**虚拟首窗** —— 两者是
+    // "全量与窗口"的关系（分页已退役，这里不再需要先翻回第 1 页）。
     tree = renderPicker();
     assert.equal(badgeOf(tree), '33', '卡片头徽标显示当前可播放数（全量）');
-    assert.equal(collectCards(tree).length, 25, '第 1 页渲染关闭卡 + 24 张（全量 33 ⇒ 分两页）');
-    assert.ok(textOf(tree).includes('1 / 2'), '分页器显示 1 / 2（页数 = ceil(全量 / 24)）');
+    assert.equal(collectCards(tree).length, 30, '首窗渲染关闭卡 + 29 张（未测量首窗 = 30 条目）');
+    assert.ok(!JSON.stringify(tree).includes('we-picker__pager'), '分页器不再出现');
 
     // ── 模态框**标记等价**（搬迁前后逐字未变）────────────────────────────────
     // 模态框那棵子树被 116 个 `.we-picker__*` 选择器按**层级 / 相邻关系**选元素
@@ -1589,6 +1600,12 @@ setTimeout(async () => {
       (function walk(node, depth) {
         if (Array.isArray(node)) { node.forEach((c) => walk(c, depth)); return; }
         if (!node || typeof node !== 'object') return;
+        // Fragment 是透明容器（不产生 DOM）：不记 class、不进深度，子层原样摊平 ——
+        // 否则虚拟窗口的 Fragment 会给卡片一个幻影层级，深度不再忠实于 DOM。
+        if (node.type === 'Fragment') {
+          if (Array.isArray(node.children)) node.children.forEach((c) => walk(c, depth));
+          return;
+        }
         const cls = typeof node.props?.className === 'string' ? node.props.className : '';
         for (const token of cls.split(/\s+/).filter(Boolean)) out.push(depth + ':' + token);
         if (Array.isArray(node.children)) node.children.forEach((c) => walk(c, depth + 1));
@@ -1606,59 +1623,60 @@ setTimeout(async () => {
       return out;
     };
     const EXPECTED_NORMAL = [
-      '0:we-picker__modal 1:we-picker__modal-head 2:we-picker__modal-head-left 3:we-vinyl 3:we-vinyl--playing 3:we-vinyl--sm 4:we-vinyl__cover 5:we-vinyl__empty',
-      '4:we-vinyl__hole 3:we-picker__modal-title 2:we-picker__btn 1:we-picker__modal-tabs 2:we-picker__btn 2:we-picker__tab 2:we-picker__tab--active 2:we-picker__btn',
-      '2:we-picker__tab 1:we-picker__modal-body 2:we-picker__row 3:we-picker__hint 3:we-picker__btn 2:we-picker__row 2:we-picker__filter-row 3:we-picker__text',
-      '3:we-picker__search 3:we-picker__hint 3:we-picker__label 3:we-picker__playlist-select 3:we-picker__hint 3:we-picker__label 3:we-picker__playlist-select 2:we-picker__grid',
-      '3:we-picker__card 4:we-picker__card-close 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card',
-      '4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title',
-      '4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder',
-      '4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide',
-      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type',
-      '4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card',
-      '4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title',
-      '4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder',
-      '4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide',
-      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type',
-      '4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card',
-      '4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title',
-      '4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder',
-      '4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide',
-      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type',
-      '4:we-picker__card-title 4:we-picker__card-hide 2:we-picker__pager 3:we-picker__hint 3:we-picker__btn 3:we-picker__btn 1:we-picker__modal-foot 2:we-picker__hint',
+      '0:we-picker__modal 1:we-picker__modal-head 2:we-picker__modal-head-left 3:we-vinyl 3:we-vinyl--playing 3:we-vinyl--sm 4:we-vinyl__cover 5:we-vinyl__empty 4:we-vinyl__hole',
+      '3:we-picker__modal-title 2:we-picker__btn 1:we-picker__modal-tabs 2:we-picker__btn 2:we-picker__tab 2:we-picker__tab--active 2:we-picker__btn 2:we-picker__tab 1:we-picker__modal-body',
+      '2:we-picker__row 3:we-picker__hint 3:we-picker__btn 2:we-picker__row 2:we-picker__filter-row 3:we-picker__text 3:we-picker__search 3:we-picker__hint 3:we-picker__label',
+      '3:we-picker__playlist-select 3:we-picker__hint 3:we-picker__label 3:we-picker__playlist-select 2:we-picker__grid 3:we-picker__card 4:we-picker__card-close 3:we-picker__card 4:we-picker__card-placeholder',
+      '4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card',
+      '4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide',
+      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title',
+      '4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type',
+      '4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder',
+      '4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card',
+      '4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide',
+      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title',
+      '4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type',
+      '4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder',
+      '4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card',
+      '4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide',
+      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title',
+      '4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type',
+      '4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder',
+      '4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 1:we-picker__modal-foot',
+      '2:we-picker__hint',
     ].join(' ').split(' ');
     const EXPECTED_BATCH = [
-      '0:we-picker__modal 1:we-picker__modal-head 2:we-picker__modal-head-left 3:we-vinyl 3:we-vinyl--playing 3:we-vinyl--sm 4:we-vinyl__cover 5:we-vinyl__empty',
-      '4:we-vinyl__hole 3:we-picker__modal-title 2:we-picker__btn 1:we-picker__modal-tabs 2:we-picker__btn 2:we-picker__tab 2:we-picker__tab--active 2:we-picker__btn',
-      '2:we-picker__tab 1:we-picker__modal-body 2:we-picker__row 3:we-picker__hint 3:we-picker__btn 2:we-picker__row 2:we-picker__batch-bar 3:we-picker__hint',
-      '3:we-picker__btn 3:we-picker__btn 2:we-picker__row 2:we-picker__filter-row 3:we-picker__text 3:we-picker__search 3:we-picker__hint 3:we-picker__label',
-      '3:we-picker__playlist-select 3:we-picker__hint 3:we-picker__label 3:we-picker__playlist-select 2:we-picker__grid 3:we-picker__card 4:we-picker__card-close 3:we-picker__card',
-      '3:we-picker__card--checked 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
-      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
-      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
-      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
-      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
-      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
-      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
-      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
-      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
-      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
-      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
-      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
-      '2:we-picker__pager 3:we-picker__hint 3:we-picker__btn 3:we-picker__btn 1:we-picker__modal-foot 2:we-picker__hint',
+      '0:we-picker__modal 1:we-picker__modal-head 2:we-picker__modal-head-left 3:we-vinyl 3:we-vinyl--playing 3:we-vinyl--sm 4:we-vinyl__cover 5:we-vinyl__empty 4:we-vinyl__hole',
+      '3:we-picker__modal-title 2:we-picker__btn 1:we-picker__modal-tabs 2:we-picker__btn 2:we-picker__tab 2:we-picker__tab--active 2:we-picker__btn 2:we-picker__tab 1:we-picker__modal-body',
+      '2:we-picker__row 3:we-picker__hint 3:we-picker__btn 2:we-picker__row 2:we-picker__batch-bar 3:we-picker__hint 3:we-picker__btn 3:we-picker__btn 2:we-picker__row',
+      '2:we-picker__filter-row 3:we-picker__text 3:we-picker__search 3:we-picker__hint 3:we-picker__label 3:we-picker__playlist-select 3:we-picker__hint 3:we-picker__label 3:we-picker__playlist-select',
+      '2:we-picker__grid 3:we-picker__card 4:we-picker__card-close 3:we-picker__card 3:we-picker__card--checked 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card',
+      '4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder',
+      '4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title',
+      '4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
+      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card',
+      '4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder',
+      '4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title',
+      '4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
+      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card',
+      '4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder',
+      '4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title',
+      '4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
+      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card',
+      '4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 1:we-picker__modal-foot 2:we-picker__hint',
     ].join(' ').split(' ');
     const EXPECTED_HIDDEN = [
-      '0:we-picker__modal 1:we-picker__modal-head 2:we-picker__modal-head-left 3:we-vinyl 3:we-vinyl--playing 3:we-vinyl--sm 4:we-vinyl__cover 5:we-vinyl__empty',
-      '4:we-vinyl__hole 3:we-picker__modal-title 2:we-picker__btn 1:we-picker__modal-tabs 2:we-picker__btn 2:we-picker__tab 2:we-picker__btn 2:we-picker__tab',
-      '2:we-picker__tab--active 1:we-picker__modal-body 2:we-picker__grid 3:we-picker__row 4:we-picker__hint 4:we-picker__btn 3:we-picker__card 3:we-picker__card--hidden',
-      '4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 1:we-picker__modal-foot 2:we-picker__hint',
+      '0:we-picker__modal 1:we-picker__modal-head 2:we-picker__modal-head-left 3:we-vinyl 3:we-vinyl--playing 3:we-vinyl--sm 4:we-vinyl__cover 5:we-vinyl__empty 4:we-vinyl__hole',
+      '3:we-picker__modal-title 2:we-picker__btn 1:we-picker__modal-tabs 2:we-picker__btn 2:we-picker__tab 2:we-picker__btn 2:we-picker__tab 2:we-picker__tab--active 1:we-picker__modal-body',
+      '2:we-picker__row 3:we-picker__hint 3:we-picker__btn 2:we-picker__grid 3:we-picker__card 3:we-picker__card--hidden 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title',
+      '4:we-picker__card-hide 1:we-picker__modal-foot 2:we-picker__hint',
     ].join(' ').split(' ');
     const modalRoot = findByClass(tree, 'we-picker__modal');
     const seqNormal = modalClassSequence(tree);
     // 绝对锚点（不读 golden）：否则"两边都空"也算相等。
-    assert.equal(seqNormal.length, 160, '绝对锚点：普通视图的 class 令牌数（空序列不得算通过）');
-    assert.ok(collectCards(modalRoot).length >= 25, '绝对锚点：模态框里的卡片数 ≥ 25（关闭卡 + 当页 24 张）');
-    assert.ok(classSequenceMatches(seqNormal, EXPECTED_NORMAL), '普通视图：模态框标记序列与搬迁前逐字一致');
+    assert.equal(seqNormal.length, 181, '绝对锚点：普通视图的 class 令牌数（空序列不得算通过）');
+      assert.ok(collectCards(modalRoot).length >= 25, '绝对锚点：模态框里的卡片数 ≥ 25（关闭卡 + 首窗 29 张）');
+      assert.ok(classSequenceMatches(seqNormal, EXPECTED_NORMAL), '普通视图：模态框标记序列与下钻改版后逐字一致（golden 录自虚拟窗口形态）');
     // 负对照：把**变异输入**喂进**同一条判据**
     assert.ok(!classSequenceMatches(seqNormal.filter((_, i) => i !== 7), EXPECTED_NORMAL),
       '负对照：删掉一个类名 ⇒ 判据变假');
@@ -1702,7 +1720,7 @@ setTimeout(async () => {
     assert.equal(persisted().typeFilter, 'scene', '类型筛选是持久化设置（setSetting 落盘）');
     typeSel.props.onChange({ target: { value: 'all' } });
     tree = renderPicker();
-    assert.equal(collectCards(tree).length, 25, '类型切回全部 ⇒ 网格恢复满页');
+    assert.equal(collectCards(tree).length, 30, '类型切回全部 ⇒ 网格恢复满窗（关闭卡 + 29）');
 
     // 批量模式：进入/勾选/计数/退出不留痕
     assert.ok(clickPager(tree, '批量'), '批量按钮必须存在');
@@ -1717,7 +1735,7 @@ setTimeout(async () => {
     assert.ok(textOf(findByClass(tree, 'we-picker__batch-bar')).includes('已选 1 张'), '点一张卡 ⇒ 计数变 1');
     const seqBatch = modalClassSequence(tree);
     assert.ok(classSequenceMatches(seqBatch, EXPECTED_BATCH),
-      '批量模式：模态框标记序列与搬迁前逐字一致（多出批量条与勾选标记）');
+      '批量模式：模态框标记序列与下钻改版后逐字一致（多出批量条与勾选标记）');
     // 勾选标记是批量模式下卡片里的 `we-picker__card-check`（选中显示 ✓，未选为空字符串）
     const checkOf = (root, title) => {
       const card = collectCards(root).find((c) => JSON.stringify(c).includes(title));
@@ -1766,7 +1784,7 @@ setTimeout(async () => {
       '隐藏页标题的计数与 hiddenIds 一致（当前 ' + (beforeHidden + 1) + '）');
     const seqHidden = modalClassSequence(tree);
     assert.ok(classSequenceMatches(seqHidden, EXPECTED_HIDDEN),
-      '隐藏页：模态框标记序列与搬迁前逐字一致');
+      '隐藏页：模态框标记序列与下钻改版后逐字一致（头部行/问句行已移出网格）');
     // 负对照：把**变异输入**喂进同一条「计数一致」判据
     assert.ok(!hiddenCountMatches('已隐藏 7 张', 3) && hiddenCountMatches('已隐藏 3 张', 3),
       '负对照：计数对不上号判为假、对得上为真（判据不是恒真）');
@@ -2118,28 +2136,30 @@ setTimeout(async () => {
     };
     let tree3 = reopenPicker();
     // 前置：先点选一张视频壁纸把层建出来（上文「无活动壁纸」用例清掉了层），
-    // 否则 scene C 是首层、无旧层可淡，手动淡出的断言失去对象。Wall 0 在
-    // 第 1 页：往前翻（上一页）找，翻到首页必现。
+    // 否则 scene C 是首层、无旧层可淡，手动淡出的断言失去对象。Wall 0 在虚拟
+    // 首窗里（窗口第 1 个条目），直接可点。
     let seedCard = findCard(tree3, 'Wall 0');
-    for (let i = 0; i < 6 && !seedCard; i++) {
-      const prev = findBtn(tree3, '‹ 上一页');
-      if (!prev || prev.props.disabled) break;
-      prev.props.onClick();
-      tree3 = reopenPicker();
-      seedCard = findCard(tree3, 'Wall 0');
-    }
     assert.ok(seedCard && typeof seedCard.props.onClick === 'function', 'video card (Wall 0) must be clickable');
     seedCard.props.onClick(); // 建首层（existing=null → 本步不淡，正常）
-    // 场景 C 落在第 2 页（上文翻页后 sel.page 就停在那里）——若不在，翻页找。
+    tree3 = reopenPicker();
+    // 场景 C 在窗外（库存第 33 张）—— 分页已退役，窗外条目靠**搜索**收敛进场。
+    // 本回调自己的搜索框查找器（这里不共享外层助手作用域）。
+    const findSearch = (root) => { let hit = null; (function walkS(n) {
+      if (hit) return;
+      if (Array.isArray(n)) { n.forEach(walkS); return; }
+      if (!n || typeof n !== 'object') return;
+      const c = typeof n.props?.className === 'string' ? n.props.className : '';
+      if (c.split(/\s+/).includes('we-picker__search')) { hit = n; return; }
+      if (Array.isArray(n.children)) n.children.forEach(walkS);
+    })(root); return hit; };
+    const search3 = findSearch(tree3);
+    assert.ok(search3 && typeof search3.props.onInput === 'function', 'search box available for out-of-window cards');
+    search3.props.onInput({ target: { value: 'Scene C' } });
+    tree3 = reopenPicker();
     let sceneCard = findCard(tree3, 'Scene C');
-    for (let i = 0; i < 4 && !sceneCard; i++) {
-      const next = findBtn(tree3, '下一页 ›');
-      if (!next || next.props.disabled) break;
-      next.props.onClick();
-      tree3 = reopenPicker();
-      sceneCard = findCard(tree3, 'Scene C');
-    }
     assert.ok(sceneCard && typeof sceneCard.props.onClick === 'function', 'scene C card must be clickable');
+    findSearch(tree3).props.onInput({ target: { value: '' } });
+    tree3 = reopenPicker();
     const manualPreLayer = document.getElementById('dsh-wallpaper-engine-layer');
     sceneCard.props.onClick(); // 选中场景壁纸 → syncLayers → HEAD 探测
     await new Promise((r) => setTimeout(r, 20)); // 等 HEAD 探测的 promise 回来

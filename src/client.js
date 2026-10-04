@@ -593,8 +593,6 @@ async function loadInventory() {
   const nextIds = next.wallpapers.map((w) => w.id).join("\u0001");
   if (prevIds !== nextIds) {
     setTransient("_invIds", nextIds);
-    setTransient("page", 0);
-    setTransient("hiddenPage", 0);
     setTransient("editorPage", 0);
   }
 
@@ -3689,6 +3687,19 @@ const officialColorOf = (tokens) => {
     switchTab(req);
   }, [sel.settingsTabRequest, activeTab]);
 
+  // 库视图虚拟滚动的窗口（机制与几何见 src/picker-modal.js 顶注）：hooks 必须长在组件
+  // 里（renderPickerModal 是纯渲染器），经 ctx 传下去。classic CD 架不虚拟化 ⇒ 渲染侧
+  // 不把 gridRef 挂到网格上，测量 effect 拿不到元素就整体空转。count 给**上界**（正常 /
+  // 隐藏两个列表 + 关闭卡都 ≤ 库存 + 1；无滚动容器时窗口 = count，渲染侧按真实列表
+  // 长度钳），viewTag 戳这份窗口量自哪个形态 —— 换形态 / 开关下钻的一帧按未测量处理
+  // （首窗 + 零占位），测量 effect 随 tag 进 deps 立刻跟上。
+  const pickerGridRef = React.useRef(null);
+  const pickerViewTag = sel.pickerOpen
+    ? (sel.modalView === "hidden" ? "hidden" : (sel.pickerDraft ? "draft" : "normal"))
+    : "closed";
+  const pickerVwin = qpVirtWindow(pickerGridRef, (sel.inventory.wallpapers || []).length + 1,
+    PICKER_CARD_H, PICKER_CARD_GAP, true, pickerViewTag);
+
   if (!sel.loaded) {
     return React.createElement("div", { className: "we-picker" },
       React.createElement("span", { className: "we-picker__hint" }, weT("扫描 Wallpaper Engine…")));
@@ -3709,18 +3720,17 @@ const officialColorOf = (tokens) => {
   // 进去、把结果取出来 —— 组件体不再就地算这些（分级/类型/隐藏的判定也在那边）。
   const {
     query, playableList, basePlayable, ratingCounts, typeCounts, hiddenList,
-    normalPage, hiddenPageView, editorPageView,
+    editorPageView,
   } = pickerModel({
     wallpapers: list,
     hiddenIds: selection.hiddenIds,
     search: sel.search,
     ratingFilter: sel.contentRatingFilter,
     typeFilter: sel.typeFilter,
-    page: sel.page,
-    hiddenPage: sel.hiddenPage,
     editorPage: sel.editorPage,
   });
-  // CD-rack mode: compact one-page grid (no pagination) + stronger overlap.
+  // CD-rack mode: compact one-page grid (no pagination, no virtualization —
+  // aspect-ratio cards with overlapping rows don't fit the fixed-pitch model).
   const cdMode = sel.pickerLayout === "classic";
   const current = list.find((w) => w.id === sel.id) || null;
   const uploadedList = list.filter((w) => isUploadedWallpaper(w) && !isDirWallpaper(w));
@@ -3816,8 +3826,6 @@ const officialColorOf = (tokens) => {
   // `onClick: onShowNormalView` 这样的引用。判据是接缝那几条（同 `panel-tabs` / 属性面板口径）。
   const onShowNormalView = () => { disarmConfirm(); setTransient("modalView", "normal"); emit(); };
   const onShowHiddenView = () => { disarmConfirm(); setTransient("modalView", "hidden"); setTransient("batchMode", false); setTransient("batchSelected", []); emit(); };
-  const onHiddenPagePrev = () => { setTransient("hiddenPage", selection.hiddenPage - 1); emit(); };
-  const onHiddenPageNext = () => { setTransient("hiddenPage", selection.hiddenPage + 1); emit(); };
   const onToggleBatchMode = () => { disarmConfirm(); setTransient("batchMode", !selection.batchMode); setTransient("batchSelected", []); emit(); };
   // 「批量隐藏」按钮只置令牌；落地在问句行的「确认」（不变量 2）。
   const onArmBatchHide = () => armConfirm("batchHide");
@@ -3829,7 +3837,7 @@ const officialColorOf = (tokens) => {
     emit();
   };
   const onBatchCancel = () => { disarmConfirm(); setTransient("batchMode", false); setTransient("batchSelected", []); emit(); };
-  const onSearchInput = (e) => { setTransient("search", e.target.value); setTransient("page", 0); emit(); };
+  const onSearchInput = (e) => { setTransient("search", e.target.value); emit(); };
   const onPickCard = (w) => {
     // 轮播编辑器的下钻（pickerDraft）：点卡片 = 加入/移出**草稿**，不切当前壁纸；
     // 草稿对象被就地增删（与 importPlaylistIntoDraft / 面板编辑器同一口径），
@@ -3851,8 +3859,6 @@ const officialColorOf = (tokens) => {
       applySelection(w.id, { fromManual: true });
     }
   };
-  const onNormalPagePrev = () => { setTransient("page", selection.page - 1); emit(); };
-  const onNormalPageNext = () => { setTransient("page", selection.page + 1); emit(); };
   return React.createElement("div", { className: "we-picker", "data-we-cards": sel.pickerLayout },
     // ── Card header (mirrors the skin-center's pluginCard header): plugin
     //    name + live wallpaper count badge + description. ──
@@ -3886,13 +3892,13 @@ const officialColorOf = (tokens) => {
       // 库视图是**页内下钻**：pickerOpen 时页签面板整区切换成
       // 壁纸网格，ESC / 顶部「返回」退出，切页签也会退出（见 switchTab）。
       sel.pickerOpen ? renderPickerModal({
-        sel, closePicker, current, playbackLive, playableList, hiddenList, hiddenPageView, normalPage,
-        cdMode, pagerRow, query, basePlayable, ratingCounts, typeCounts,
+        sel, closePicker, current, playbackLive, playableList, hiddenList,
+        cdMode, query, basePlayable, ratingCounts, typeCounts,
+        gridRef: pickerGridRef, vwin: pickerVwin,
         armedConfirm: sel.armedConfirm, onArmConfirm: armConfirm, onDisarmConfirm: disarmConfirm,
         onClear, onRatingFilterChange, onTypeFilterChange,
-        onShowNormalView, onShowHiddenView, onHiddenPagePrev, onHiddenPageNext,
+        onShowNormalView, onShowHiddenView,
         onToggleBatchMode, onArmBatchHide, onBatchHide, onBatchCancel, onSearchInput, onPickCard,
-        onNormalPagePrev, onNormalPageNext,
       }) : renderActiveTab()),
   );
 }

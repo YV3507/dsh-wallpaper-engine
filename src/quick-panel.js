@@ -31,12 +31,105 @@
  *     读 client.js 的 const（会被内联到 bundle 顶部，撞 TDZ）；React 只在渲染期读。
  */
 
-  // 列表一次最多渲染的行数：库可以上千张，面板是"快切"不是"全集浏览" —— 超出
-  // 让用户用搜索收敛（全量浏览在设置页的壁纸库下钻视图）。
-  const QP_LIST_MAX = 100;
-  // 面板本地的类型筛选档（全部 / 场景 / 网页 / 视频 / 图片）：瞬态，与设置页的「类型」
-  // 过滤互不影响（那一条是设置，筛设置页列表与轮播候选）。两个档位的**叠加关系**见
-  // 列表空态那段 —— 上游那一档不是「全部」时，空列表要说出是谁筛掉的。
+  // ── 列表虚拟滚动（2026-10-04 用户口径：**全量加载、不隐藏**）────────────────
+  // 原"100 行封顶 + 还有 N 张未显示"退役：库可以上千张，改用"占位 spacer + 只画可视
+  // 窗口"兜住性能 —— scrollHeight 由 spacer 撑出全集的高度，滚动/搜索/筛选的语义与
+  // 全量 DOM 完全一致。窗口按**网格行**计（列表一行 1 张；卡片一行 = cols 张、列数
+  // 自适应必须实测），再换算成条目下标 —— 按条目直算的话，卡片档滚一行窗口只挪一张，
+  // 画出来的卡永远盖不满视口（实测踩过）。行距常量与 styles.js 一一对应（**改样式
+  // 必须同步改这里**，否则窗口算错位）：
+  const QP_ROW_H = 34;   // 列表行高：.we-qp__item 的 min-height（内容恒为单行，min 即实高）
+  const QP_ROW_GAP = 2;  // .we-qp__list 的 gap
+  const QP_CARD_H = 92;  // 卡片高：.we-qp__card 的固定 height（网格轨道不认内容高，见那边注释）
+  const QP_CARD_GAP = 8; // .we-qp__list--cards 的 gap
+  const QP_CARD_MIN = 130; // .we-qp__list--cards 的 minmax 下限（还没画出卡片时的列数兜底）
+  const QP_VP_OVERSCAN = 6; // 视口外上下各多渲染几**行**（快速滚动不露白）
+  const QP_VP_FIRST = 30;   // 首帧还没量到滚动容器 / 列数时先画的**条目数**（量完立刻收窄）
+  /** 找实际滚动容器：官方档是列表自己（`.we-qp--official .we-qp__list` overflow-y:auto），
+      抽屉档是祖先 `.we-repo-panel__body`（整个面板滚、列表不叠第二层滚）。列表自身
+      滚得动就选自己；一路都不滚返回 null（内容不足一屏，无需虚拟化）。 */
+  function qpFindScroller(el) {
+    for (let node = el; node && node !== document.body; node = node.parentElement) {
+      let oy = "";
+      try { oy = getComputedStyle(node).overflowY; } catch { /* ignore */ }
+      if ((oy === "auto" || oy === "scroll") && node.scrollHeight > node.clientHeight + 1) return node;
+    }
+    return null;
+  }
+  /** 可视窗口 {start, end, cols, cards, tag}：start/end 是条目下标 [start, end)，
+      cols = 卡片档的实测列数（列表档恒 1），cards = 测量时的视图档（渲染侧用它识别
+      "换视图瞬间的旧窗口"），tag = 调用方自定义的形态戳（同样用于识别旧窗口；不给
+      即 undefined）。两种壳同一个测量式：官方档（列表自己滚）取 scrollTop /
+      clientHeight；抽屉档（祖先滚）取「列表顶被滚出滚动容器顶多少」+ 容器可视高。
+      窗口先把 hidden→可视底这段折成网格行（行距 = 卡高 + gap），再乘 cols 摊回条目。
+      滚动事件 rAF 合并；窗口没变不触发重渲染；官方档在 deps 变化（换视图 / 条数变化）
+      时 scrollTop 归零 —— 旧行距下的位置在新几何里指向别处，还会先被临时高度钳一把，
+      不如回顶重测，语义可预期（抽屉档是祖先在滚，不动它）。meta 走 ref 进闭包，
+      滚动重测不因一次输入而重挂监听。 */
+  function qpVirtWindow(ref, count, itemH, gap, cards, tag) {
+    const [win, setWin] = React.useState(() => ({ start: 0, end: QP_VP_FIRST, cols: 0, cards: false, tag }));
+    const metaRef = React.useRef(null);
+    metaRef.current = { count, itemH, gap, cards };
+    React.useEffect(() => {
+      const el = ref.current;
+      if (!el) return undefined;
+      let raf = 0;
+      const measure = () => {
+        raf = 0;
+        const meta = metaRef.current || { count: 0, itemH: QP_ROW_H, gap: QP_ROW_GAP, cards: false };
+        const pitch = meta.itemH + meta.gap;
+        // 列数：卡片档取首张已渲染卡片的实际轨宽反推（1fr 等宽 ⇒ (W+gap)/(轨宽+gap) 恰为
+        // 列数，天然吃进滚动条 / gutter 的宽度差）；一张都没画时退回 CSS 的 minmax 公式。
+        let cols = 1;
+        if (meta.cards) {
+          const W = el.clientWidth;
+          const card = el.querySelector(".we-qp__card");
+          const cw = card ? card.offsetWidth : 0;
+          cols = cw > 0
+            ? Math.max(1, Math.round((W + meta.gap) / (cw + meta.gap)))
+            : Math.max(1, Math.floor((W + meta.gap) / (QP_CARD_MIN + meta.gap)));
+        }
+        const sc = qpFindScroller(el);
+        let hidden = 0; let view = Infinity;
+        if (sc === el) { hidden = el.scrollTop; view = el.clientHeight; }
+        else if (sc) {
+          const a = sc.getBoundingClientRect();
+          const b = el.getBoundingClientRect();
+          hidden = Math.max(0, a.top - b.top);
+          view = a.height;
+        }
+        const rowsTotal = Math.max(1, Math.ceil(meta.count / cols));
+        const r0 = Math.max(0, Math.floor(hidden / pitch) - QP_VP_OVERSCAN);
+        const r1 = view === Infinity
+          ? rowsTotal
+          : Math.min(rowsTotal, Math.ceil((hidden + view) / pitch) + QP_VP_OVERSCAN);
+        const start = r0 * cols;
+        const end = Math.min(meta.count, r1 * cols);
+        setWin((w) => (w.start === start && w.end === end && w.cols === cols && w.cards === meta.cards && w.tag === tag
+          ? w : { start, end, cols, cards: meta.cards, tag }));
+      };
+      const schedule = () => { if (!raf) raf = requestAnimationFrame(measure); };
+      el.scrollTop = 0;
+      measure();
+      const sc = qpFindScroller(el);
+      if (sc) sc.addEventListener("scroll", schedule, { passive: true });
+      // 尺寸变化（窗口缩放 / 页签换档 / 列表换视图 / 列数增减）都从 el 的尺寸兜一道；
+      // 再补 window resize 覆盖"滚动容器变高但列表没变"的形态。
+      const ro = typeof ResizeObserver === "function" ? new ResizeObserver(schedule) : null;
+      if (ro) ro.observe(el);
+      window.addEventListener("resize", schedule);
+      return () => {
+        if (raf) cancelAnimationFrame(raf);
+        if (sc) sc.removeEventListener("scroll", schedule);
+        if (ro) ro.disconnect();
+        window.removeEventListener("resize", schedule);
+      };
+    }, [ref, count, itemH, gap, cards, tag]);
+    return win;
+  }
+  // 面板的类型筛选档（全部 / 场景 / 网页 / 视频 / 图片）：**与设置页同一个键**
+  // `typeFilter`（2026-10-04 用户口径：类型变动两处同步，不做单独的档 —— 原面板本地
+  // 瞬态档 + 空态兜底那一整套已退役；持久化 ⇒ 同时管设置页列表与轮播候选）。
   function qpTypes() {
     return [
       { id: "all", label: weT("全部") },
@@ -149,6 +242,9 @@
       setQpTab(id);
       try { localStorage.setItem(QP_TAB_KEY, id); } catch { /* ignore */ }
     };
+    // 虚拟滚动的测量锚点：挂在下面列表容器上（qpVirtWindow 的 effect 只在浏览器跑，
+    // 渲染期只借 useRef 的壳）。hook 顺序必须稳定 —— 排在 view / qpTab 两个 useState 之后。
+    const listRef = React.useRef(null);
 
     const list = sel.inventory.wallpapers;
     const current = list.find((w) => w.id === sel.id) || null;
@@ -172,7 +268,28 @@
       if (q && String(w.title || "").toLowerCase().indexOf(q) === -1) return false;
       return true;
     });
-    const rows = filtered.slice(0, QP_LIST_MAX);
+    // 虚拟滚动：列表一行一张、卡片一行 cols 张（列数由测量 effect 实测回填）。搜索 /
+    // 筛选把列表收窄后旧窗口可能越界 —— 渲染期先钳一道（测量 effect 随 count 变化跟上）；
+    // 换视图瞬间旧窗口是另一档的几何（cards 标记对不上）⇒ 按未测量处理：先画顶部
+    // QP_VP_FIRST 张、无占位，量完立刻收窄到正确窗口。
+    const cardsView = view === "cards";
+    const vGap = cardsView ? QP_CARD_GAP : QP_ROW_GAP;
+    const vItemH = cardsView ? QP_CARD_H : QP_ROW_H;
+    const vwin = qpVirtWindow(listRef, filtered.length, vItemH, vGap, cardsView);
+    const vMeasured = vwin.cards === cardsView && vwin.cols > 0;
+    const vStart = vMeasured ? Math.min(vwin.start, filtered.length) : 0;
+    const vEnd = vMeasured
+      ? Math.max(vStart, Math.min(vwin.end, filtered.length))
+      : Math.min(QP_VP_FIRST, filtered.length);
+    const rows = filtered.slice(vStart, vEnd);
+    const rowsAfter = filtered.length - vStart - rows.length;
+    // 占位行高按**网格行**折算：行数 × 行距 − 一个 gap（spacer 自己与相邻行之间还各隔
+    // 一个 gap）。上占位向下取整、下占位向上取整（末行不满也占一行）—— 测量回来的窗口
+    // 本就按 cols 对齐，这里只是防御。
+    const vTopH = vMeasured && vStart > 0
+      ? Math.floor(vStart / vwin.cols) * (vItemH + vGap) - vGap : 0;
+    const vBtmH = vMeasured && rowsAfter > 0
+      ? Math.ceil(rowsAfter / vwin.cols) * (vItemH + vGap) - vGap : 0;
     const groups = sel.rotationGroups;
 
     // ── 行：一张可快切的壁纸 ──
@@ -226,6 +343,17 @@
       w.id === sel.id && React.createElement("span", { className: "we-qp__card-badge" }, weT("当前")),
       React.createElement("span", { className: "we-qp__card-title" }, w.title),
     );
+
+    // 虚拟滚动的占位行：撑出未渲染部分的高度（上 / 下各一枚，都可能缺席）。高度 =
+    // **网格行数** × 行距 − 一个 gap（spacer 自己与相邻行之间还各隔一个 gap；卡片档
+    // 一行 cols 张，行数由调用侧折好）。卡片档必须横跨整行，否则会占一个卡位把可见
+    // 卡片挤错行。
+    const renderSpacer = (key, h) => React.createElement("div", {
+      key,
+      className: "we-qp__vspacer",
+      style: { height: Math.max(0, h) + "px" },
+      "aria-hidden": "true",
+    });
 
     // 页签内容区（此区独立滚动；官方档下宿主 tab 身体是固定高 + overflow:hidden，
     // 滚动必须自管）。壁纸页另挂 --library：列表自己滚，viewbar / 声音组常驻。
@@ -458,11 +586,16 @@
                     ),
                   ),
                   React.createElement("div", {
+                    ref: listRef,
                     className: "we-qp__list" + (view === "cards" ? " we-qp__list--cards" : ""),
                     role: "listbox", "aria-label": weT("壁纸列表"),
                   },
                     rows.length
-                      ? rows.map(view === "cards" ? renderCard : renderRow)
+                      ? React.createElement(React.Fragment, null,
+                          vTopH > 0 ? renderSpacer("we-qp-vtop", vTopH) : null,
+                          rows.map(cardsView ? renderCard : renderRow),
+                          vBtmH > 0 ? renderSpacer("we-qp-vbtm", vBtmH) : null,
+                        )
                       : React.createElement(React.Fragment, null,
                           React.createElement("span", { className: "we-picker__hint" },
                             q ? weT("没有匹配「{query}」的壁纸", { query: sel.qpSearch })
@@ -470,11 +603,8 @@
                                     { name: qpTypeLabelOf(typeFilter) })),
                         ),
                   ),
-                  filtered.length > rows.length
-                    && React.createElement("span", { className: "we-picker__hint we-qp__more" },
-                        weT("还有 {count} 张未显示 · 搜索可收敛，全量浏览在设置页", { count: filtered.length - rows.length })),
-                      ),
                 ),
+              ),
                 // 声音（与播放页那份同源：同一份渲染器、同一状态）。包一层 .we-qp__section
                 // 只为保留这一节的分隔线与间距（渲染器自己那份 section 是给设置页排版的）。
                 React.createElement("div", { className: "we-qp__section" },
@@ -495,7 +625,6 @@
   }
 
   export {
-    QP_LIST_MAX,
     qpTypes,
     QP_TABS,
     QP_TAB_KEY,
