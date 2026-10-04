@@ -18,6 +18,19 @@
 
 > v1.2.0 之后的增量（本地未发布，逐提交可查）：
 
+- **修复：松散目录形态的场景壁纸无法实时渲染**（用户报障：松散类型的场景壁纸无法正常渲染）。
+  **做了什么**：`lib/index.js` 的 `sceneFieldsFor` 撤下「live render is pkg-only」旧门 —— 旧口径以为
+  WebWallGL 的 httpSource 只能拉单文件容器，入口是 `.json` 的松散目录被整体判 `sceneLive:false`、不发
+  token。WebWallGL 2.1.0 起渲染器原生支持松散形态：站点根两种形态一致（`<mediaBase>/<token>/`），
+  渲染器先拉 `project.json`、按 `file` 后缀自动判形态（`.json` 结尾 → loose，拉入口 json 与同级素材；
+  否则回退 `scene.pkg` 容器），auto 档 sceneDir 先试、scenePkg 兜底。所以 token 一律发放、形态判定交给
+  渲染器；`isPkg` 只剩 `scenePkgBytes` 一个用途（松散目录没有"整包"，首帧预算走基准）。客户端两处过时
+  注释同步（`src/media-prep.js` / `src/client.js`，逻辑本来就只认标志）。
+  **判据**：`test/verify-scene-live.mjs` 新增真松散夹具（project.json 声明 scene.json + 入口与素材散放
+  盘上、全目录零 scene.pkg）七条判据 —— inventory 给 `sceneLive:true` + token、token 解开 = 入口 json
+  绝对路径、`/scene-files` 逐件 200 + 字节一致（project.json / 入口 scene.json / 同级 main.tex）、
+  「没有 scene.pkg ⇒ 404」负对照；ROUTE-INDEX 重生成。
+
 - **侧栏与设置页壁纸库两处列表改「占位 spacer + 可视窗口」虚拟滚动，设置页库视图不再分页**（用户口径：「全量加载、不隐藏」「不要分页」）。
   **做了什么**：侧栏的「100 行封顶 + 还有 N 张未显示」与设置页库视图的分页器（normal / hidden 两组页状态、四枚翻页回调、分页器行）整套退役；两处共用同一套机制 —— `src/quick-panel.js` 的 `qpVirtWindow`：scrollHeight 由上下两枚占位行撑出**全集**高度，滚动 / 搜索 / 筛选语义与全量 DOM 完全一致；窗口按**网格行**计（列表一行 1 张、卡片一行 cols 张，列数从首张已渲染卡的轨宽实测反推），视口外上下各多渲染 6 行防快速滚动露白；换视图 / 换形态（正常 / 草稿 / 隐藏 / 开关下钻）的一帧按「未测量」处理（首窗 30 条目 + 零占位），测量 effect 立刻跟上。hooks 长在 WallpaperPicker 组件里、经 ctx（gridRef / vwin）传给纯渲染器 `renderPickerModal`；「✕ 关闭」卡是网格第 0 条目，必须算进窗口切片；隐藏页的头部行 / 问句行移出网格（语义行不是网格单元，行号折算才成立）；classic CD 架**不虚拟化**（aspect-ratio 叠盖卡的行高随列宽变，固定行距算式不成立，且该档本无分页），维持全量渲染。官方档（列表自己滚）与抽屉档（祖先滚动）两壳同一套测量式；滚动事件 rAF 合并、窗口没变不重渲染；官方档在换视图 / 条数变化时 scrollTop 归零重测。
   **为什么**：库可以上千张 —— 全量 DOM 卡顿，分页又违背「全量加载不隐藏」的口径；窗口按条目直算会盖不满视口（卡片档滚一行窗口只挪一张，实测踩过），按网格行折算才对。

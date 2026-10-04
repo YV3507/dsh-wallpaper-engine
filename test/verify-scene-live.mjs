@@ -24,7 +24,7 @@
  */
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync, readdirSync, symlinkSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Readable, Writable } from 'node:stream';
 import { execFileSync } from 'node:child_process';
@@ -401,12 +401,28 @@ writeFileSync(join(webDir, 'index.html'), [
 writeFileSync(join(webDir, 'style.css'), '#app{color:#fff}');
 writeFileSync(join(webDir, 'app.js'), 'window.__fixtureWeb=true;');
 writeFileSync(join(webDir, 'preview.jpg'), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+// A TRUE loose-directory scene fixture (WebWallGL 2.1.0 松散目录形态)：project.json
+// 声明 .json 入口，入口 json 与同级素材**散放在盘上** —— 整个目录没有任何 scene.pkg。
+// 渲染器 auto 档按 project.json.file 后缀判 loose、拉入口与同级素材；宿主必须给它
+// 发 live token（旧「live render is pkg-only」门把这些壁纸整体关死 = 用户报障形态）。
+const looseDir = join(fixtureRoot, 'steamapps', 'workshop', 'content', '431960', '990005');
+mkdirSync(looseDir, { recursive: true });
+const looseSceneJson = Buffer.from(JSON.stringify({ objects: [{ image: 'main.tex' }] }));
+const looseTexBytes = buildTexRgba(24, 24, noiseRgba(24));
+writeFileSync(join(looseDir, 'scene.json'), looseSceneJson);
+writeFileSync(join(looseDir, 'main.tex'), looseTexBytes);
+writeFileSync(join(looseDir, 'project.json'), JSON.stringify({
+  title: 'Loose Fixture Scene', type: 'scene', file: 'scene.json', preview: 'preview.jpg',
+  contentrating: 'Everyone',
+}));
+writeFileSync(join(looseDir, 'preview.jpg'), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
 process.env.DSH_WE_STEAM_ROOT = fixtureRoot;
 
 const invRoute = routes.find((r) => r.path === '/wallpaper-engine/inventory');
 const filesRoute = routes.find((r) => r.path === '/wallpaper-engine/scene-files');
 check('scene-files route registered', Boolean(filesRoute), filesRoute ? 'kind=' + filesRoute.kind : 'missing');
 let fixture = null;
+let looseFixture = null;
 if (invRoute) {
   const res = await runHandler(invRoute, '/wallpaper-engine/inventory', FENCE_HEADERS);
   const body = JSON.parse(res.__state.body.toString('utf8'));
@@ -420,6 +436,19 @@ if (invRoute) {
   check('inventory 给场景载荷端出宿主自己的源（sceneMediaBase）',
     typeof body.sceneMediaBase === 'string' && /^http:\/\/127\.0\.0\.1:\d+$/.test(body.sceneMediaBase || ''),
     'sceneMediaBase=' + (body.sceneMediaBase || '(空)'));
+  // 松散目录场景（file=scene.json，盘上没有 scene.pkg）：WebWallGL 2.1.0 起渲染器
+  // 自判形态，宿主必须照发 live token —— 这三条就是「松散场景壁纸无法实时渲染」
+  // 的回归闸门（修复前 sceneLive=false / sceneLiveSrc=null，直接判红）。
+  looseFixture = (body.wallpapers || []).find((w) => w.type === 'scene' && w.title === 'Loose Fixture Scene') || null;
+  check('松散目录场景列在 inventory', Boolean(looseFixture), looseFixture ? looseFixture.id : 'not found');
+  check('松散目录场景也标 sceneLive=true + sceneLiveSrc（pkg-only 旧门会把这两项关死）',
+    Boolean(looseFixture && looseFixture.sceneLive === true && typeof looseFixture.sceneLiveSrc === 'string' && looseFixture.sceneLiveSrc),
+    looseFixture ? 'sceneLive=' + looseFixture.sceneLive : '-');
+  check('松散 token 解开 = 入口 json 绝对路径（token 契约：站点根 = 其所在目录，渲染器据此拉 project.json）',
+    Boolean(looseFixture && looseFixture.sceneLiveSrc)
+      && Buffer.from(looseFixture.sceneLiveSrc, 'base64url').toString('utf8').endsWith(sep + 'scene.json'),
+    looseFixture && looseFixture.sceneLiveSrc
+      ? 'token→' + Buffer.from(looseFixture.sceneLiveSrc, 'base64url').toString('utf8') : '-');
 }
 if (filesRoute && fixture && fixture.sceneLiveSrc) {
   const token = fixture.sceneLiveSrc;
@@ -546,6 +575,31 @@ if (filesRoute && fixture && fixture.sceneLiveSrc) {
 
   const nosubRes = await runHandler(filesRoute, `/wallpaper-engine/scene-files/${token}/`);
   check('missing subpath → 404', nosubRes.__state.status === 404, 'status=' + nosubRes.__state.status);
+}
+
+// ── 松散目录场景的 /scene-files 供文件链（WebWallGL 2.1.0 loose 形态）────────────
+// 渲染器 auto 档先试 sceneDir：拉 <root>/project.json → file 以 .json 结尾 ⇒ loose，
+// 再拉 <root>/<file>（入口 json）与同级素材。这里逐件钉 200 + 字节一致，并钉「目录里
+// 没有 scene.pkg ⇒ 404」的负对照 —— 若 token→根 的映射坏了，auto 回退链就可能拿到
+// 假 200，渲染器会按错误口径解析而不是失败。
+if (filesRoute && looseFixture && looseFixture.sceneLiveSrc) {
+  const lt = looseFixture.sceneLiveSrc;
+  const loosePj = await runHandler(filesRoute, `/wallpaper-engine/scene-files/${lt}/project.json`);
+  let loosePjOk = false;
+  try { loosePjOk = loosePj.__state.status === 200 && JSON.parse(loosePj.__state.body.toString('utf8')).file === 'scene.json'; } catch { /* leave false */ }
+  check('松散：project.json 200 + file=scene.json（渲染器的形态判据就在这个字段上）',
+    loosePjOk, 'status=' + loosePj.__state.status);
+  const looseEntry = await runHandler(filesRoute, `/wallpaper-engine/scene-files/${lt}/scene.json`);
+  check('松散：入口 scene.json 200 + 字节一致',
+    looseEntry.__state.status === 200 && looseEntry.__state.body.equals(looseSceneJson),
+    'status=' + looseEntry.__state.status);
+  const looseAsset = await runHandler(filesRoute, `/wallpaper-engine/scene-files/${lt}/main.tex`);
+  check('松散：同级素材 main.tex 200 + 字节一致（sceneDir 的 read 就走这条）',
+    looseAsset.__state.status === 200 && looseAsset.__state.body.equals(looseTexBytes),
+    'status=' + looseAsset.__state.status);
+  const loosePkg404 = await runHandler(filesRoute, `/wallpaper-engine/scene-files/${lt}/scene.pkg`);
+  check('松散负对照：目录里没有 scene.pkg ⇒ 404（不是 200 的假容器）',
+    loosePkg404.__state.status === 404, 'status=' + loosePkg404.__state.status);
 }
 
 // ── Level C3: web wallpapers over /scene-files ──────────────────────────────

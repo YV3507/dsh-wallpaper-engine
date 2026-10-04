@@ -505,8 +505,8 @@ function applySelection(id, opts) {
   if (opts && opts.fromRotation && w.type === "scene" && opts.kind === "static") {
     selection.sceneVideo = null;
   }
-  // WebWallGL 实时渲染 token：host inventory 只对 pkg 壁纸给出（loose
-  // scene.json 目录没有 scene.pkg 可供 httpSource 拉取，直接走旧链）。
+  // WebWallGL 实时渲染 token：host inventory 对 pkg 与松散目录一律给出
+  // （WebWallGL 2.1.0 起渲染器按 project.json 的 file 后缀自判形态），客户端只认标志。
   selection.sceneLiveSrc = w.type === "scene" && w.sceneLive && w.sceneLiveSrc ? w.sceneLiveSrc : null;
   // 网页壁纸的 live 入口（host inventory 的 webLive/webLiveSrc）。
   selection.webLiveSrc = w.type === "web" && w.webLive && w.webLiveSrc ? w.webLiveSrc : null;

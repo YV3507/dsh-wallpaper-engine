@@ -15,6 +15,23 @@
 
 > Increment after **v1.2.0** (local, unreleased; per-commit):
 
+- **Fixed: loose-directory scene wallpapers could not render live** (user report: loose-form scene wallpapers would not render).
+  **What**: `lib/index.js`'s `sceneFieldsFor` drops the old "live render is pkg-only" gate — the stale
+  assumption was that WebWallGL's httpSource can only fetch a single-file container, so scene dirs whose
+  entry is a `.json` were marked `sceneLive:false` and got no token. Since WebWallGL 2.1.0 the renderer
+  natively supports the loose form: the site root is identical for both forms (`<mediaBase>/<token>/`),
+  the renderer fetches `project.json` first and judges the form by the `file` suffix (`.json` → loose:
+  fetch the entry json and sibling assets; otherwise fall back to the `scene.pkg` container), and in the
+  auto form it tries sceneDir first with scenePkg as the fallback. So the token is now issued for every
+  scene and the form judgment belongs to the renderer; `isPkg` keeps a single purpose (`scenePkgBytes` —
+  a loose directory has no "whole package", so the first-frame budget stays at baseline). Two stale client
+  comments updated (`src/media-prep.js` / `src/client.js`; the logic itself only ever read the flag).
+  **Guards**: `test/verify-scene-live.mjs` gains a true-loose fixture (project.json declaring scene.json +
+  the entry and assets loose on disk, zero scene.pkg in the directory) with seven checks — inventory marks
+  `sceneLive:true` + token, the token decodes to the entry json's absolute path, `/scene-files` serves each
+  piece 200 + byte-identical (project.json / entry scene.json / sibling main.tex), and a negative control
+  ("no scene.pkg ⇒ 404"); ROUTE-INDEX regenerated.
+
 - **Both wallpaper lists (sidebar + settings-page library) switch to "placeholder spacer + visible window" virtual scrolling, and the library view no longer pages** (user: "load everything, hide nothing" / "no pagination").
   **What**: the sidebar's 100-row cap plus the "plus N more not shown" hint, and the library view's pager (normal/hidden page state x2, page-flip callbacks x4, the pager row), are retired wholesale; both places share one mechanism — `qpVirtWindow` in `src/quick-panel.js`: scrollHeight is propped up by top/bottom spacer rows to the **full-collection** height, so scrolling / search / filter semantics are identical to the full DOM. Windows are counted in **grid rows** (list = 1 per row; cards = cols per row with the column count measured back from the first rendered card's track width) and render 6 extra rows beyond the viewport so fast scrolling never shows a gap; a view/tag change (normal / draft / hidden / drill-down) renders one "unmeasured" frame (first window of 30 items + zero spacers) and the measurement effect immediately follows. Hooks live in the WallpaperPicker component and reach the pure renderer `renderPickerModal` via ctx (gridRef / vwin); the "✕ close" card is grid item 0 and must be part of the window slice; the hidden view's header/question rows move out of the grid (semantic rows are not grid cells — only then does the row math hold); the classic CD-rack layout is **not** virtualized (aspect-ratio overlapping cards change row height with column width, so the fixed-pitch math doesn't hold, and that layout never paged) and keeps full rendering. Official shell (list scrolls itself) and drawer shell (ancestor scrolls) share one measurement formula; scroll events merge via rAF, unchanged windows don't re-render; the official shell resets scrollTop to 0 on view/count changes.
   **Why**: libraries can run into the thousands — full DOM stutters and paging contradicts the "load everything, hide nothing" requirement; a window computed per item never fills the viewport (in the card grid one scroll row shifts the window by one item — hit in testing), so it must be folded through grid rows.

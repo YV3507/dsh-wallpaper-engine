@@ -260,7 +260,7 @@ const selection = {
   // live-backfilled GPU frame / user-imported custom frame / empty state).
   sceneVideo: null,
   // Transient: WebWallGL 实时渲染 token（host /scene-files 路由的 src 参数）。
-  // 场景取 sceneLiveSrc（pkg 主文件），网页取 webLiveSrc（入口 HTML）；
+  // 场景取 sceneLiveSrc（主文件 token：pkg 容器或松散入口 json），网页取 webLiveSrc（入口 HTML）；
   // 存在且开关开启且无失败记忆时以 live iframe 形态播放
   //（buildMedia 最高优先级，见 liveRenderEnabled）。
   sceneLiveSrc: null,
