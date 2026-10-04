@@ -879,6 +879,9 @@ cannot retarget it"（普通 CSS 规则改不动它）。它给这种情况**留
   - **「默认字体（全局）」是默认不是强制**：它写 DSH 的基准令牌 `--dsw-font-family`（角色表之外的文字都从它继承），并**只**落在"本来就被接管"的角色上（用户改过该角色字号/字重）—— **挑一个全局字体不会改动任何角色的字号**（接管一个角色意味着连字号/行高都改走细粒度令牌，那是另一件事）。角色 / 组件里单独设过的字族仍然优先。
   - **「终端字体」**：只改对话里的终端块，与「高级字体设置 → 终端」是同一项（`componentFonts.terminal.family`）的两处入口，值同源所以不会漂。
   - **验证**：新守卫 [`verify-system-fonts.mjs`](../test/verify-system-fonts.mjs)（含负对照）—— 三平台解析夹具、「两种名字都在」的回归判据、单腿可用、`approximate` 标记、缓存不重复扫描、`?refresh=1`、过期先回旧值、非 GET 405、空清单不落盘、真子进程的多字节解码、客户端通道只碰自己那几个瞬态字段、全局字族那两条腿；`verify-fontset` / `verify-client` / `fontset-load-smoke` 的字体键集随之扩到七个（守卫按设计变红后同步）。
+- **渲染内核同步上游 WebWallGL 2.1.0**（`cd56f80` → `4ba71c4`，59 个上游提交；上游 release 主题「官方内置示例工程全量兼容 / 引擎加固 / 松散目录形态」）。用户可见的主要是：**场景壁纸支持松散目录形态**（按 `project.json.file` 的后缀判定、装配期按名取资源 ⇒ 源码工程不必打包成 pkg）、`applyUserProperties` **按官方字母序下发**（修 corsair_collection 白屏）、文字 `anchor:none` 不再被剪贴蒙版抹掉（3509578940 文字时钟）、点击命中门槛改按祖先可见性（隐形 Solid 点击区仍可命中），以及 F23–F50 一批渲染修复（MDL 多子网格 / 透明像素不写深度 / 引擎内置 shader 仓内实现 / 粒子 colorrandom 逐分量 / 场景相机路径 + `usershadervalues`；上游曾试过 fp16 HDR bloom 链，最终按上游作者指令**冻结 SDR 等效口径并整体 Revert**）。
+  **产物**：`lib/webwallgl/assets/renderer-AJkjEL9i.js`（原 `renderer-DTLW1Gf0.js`），`.upstream.json` 抬到 2.1.0；`web-shim.js` 随上游 +19 行（字母序下发那段）。
+  **判据**：`verify:all` 全绿；插件依赖的两条宿主通道（`__weSiteRoot` 站点根声明 / `__wp.setMediaControl`）在上游都还在，`verify-scene-live` 的 shim rAF 节流与站点根形态断言原样通过；`test/verify-guard-map.mjs` 零覆盖例外表跟着换哈希（`DTLW1Gf0` → `AJkjEL9i`）+ `docs/GUARD-MAP.md` 重生成，ROUTE-INDEX 不动（路由未变）。
 
 
 ### v1.2.0（2026-10-02）

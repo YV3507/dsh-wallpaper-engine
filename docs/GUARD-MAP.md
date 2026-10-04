@@ -87,7 +87,7 @@
 | `lib/settings-schema.js` | 11 | `verify-adapter` `verify-client` `verify-component-fonts` `verify-contracts` `verify-fontset` `verify-glass-surfaces` `verify-module-layout` `verify-scene-live` `verify-system-fonts` `verify-theme-follow` `verify-theme-layer` |
 | `lib/we-props.js` | 1 | `verify-scene-live` |
 | `lib/webwallgl/assets/modulepreload-polyfill-B5Qt9EMX.js` | 0 | **（无）** |
-| `lib/webwallgl/assets/renderer-DTLW1Gf0.js` | 0 | **（无）** |
+| `lib/webwallgl/assets/renderer-AJkjEL9i.js` | 0 | **（无）** |
 | `lib/webwallgl/web-shim.js` | 1 | `verify-scene-live` |
 | `src/about-assets.js` | 1 | `verify-about` |
 | `src/adapter.js` | 1 | `verify-adapter` |
