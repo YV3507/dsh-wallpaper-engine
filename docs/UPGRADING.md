@@ -7,14 +7,14 @@
 > 各版本修了什么见 [`CHANGELOG.md`](./CHANGELOG.md)；安装失败报错见 [`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md)。
 
 
-### ✅ v1.2.0 起的前置条件：DSH 内核 ≥ 0.1.5（0.1.5-rc.1+，实测下限）
+### ✅ v1.3.0 起的前置条件：DSH 内核 ≥ 0.1.5（0.1.5-rc.1+，实测下限）
 
-**v1.2.0 的前置回落到内核版本口径**：插件 manifest 声明 `engines.dsh: ">=0.1.5-rc.1"` ——
+**v1.3.0 的前置回落到内核版本口径（v1.2.0 的 npm 曾按 `>=0.2.0-rc.1` 发布）**：插件 manifest 声明 `engines.dsh: ">=0.1.5-rc.1"` ——
 官方桌面端（DeepSeek Harness，内核 0.2.0-rc.1+）与旧 **DSH Desktop ≥ 2.0.7**（内核 0.1.5-rc.1+）
 **都能安装本版**；更旧的内核（如 0.1.2-rc.1）仍装不上。`dsh-better-sidebar` **不再有版本要求**
 （装了的话建议更新到 latest）。
 
-| 组件 | v1.2.0+ 要求 |
+| 组件 | v1.3.0+ 要求 |
 |---|---|
 | DSH 内核（DeepSeek Harness / DSH Desktop） | ≥ 0.1.5（0.1.5-rc.1+） |
 | dsh-better-sidebar | 无版本限制（建议最新） |

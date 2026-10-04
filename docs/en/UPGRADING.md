@@ -3,15 +3,15 @@
 > **中文**: [`../UPGRADING.md`](../UPGRADING.md)（与本文同源：改一处请同步另一处）
 
 
-### ✅ Prerequisites from v1.2.0: DSH kernel ≥ 0.1.5 (0.1.5-rc.1+, tested floor)
+### ✅ Prerequisites from v1.3.0: DSH kernel ≥ 0.1.5 (0.1.5-rc.1+, tested floor)
 
-**v1.2.0 states its prerequisite in kernel terms**: the plugin manifest declares
+**v1.3.0 states its prerequisite in kernel terms (v1.2.0 shipped npm with `>=0.2.0-rc.1`)**: the plugin manifest declares
 `engines.dsh: ">=0.1.5-rc.1"` — both the official desktop (DeepSeek Harness, kernel 0.2.0-rc.1+)
 and the old **DSH Desktop ≥ 2.0.7** line (kernel 0.1.5-rc.1+) **can install this release**; older
 kernels (e.g. 0.1.2-rc.1) still cannot. **`dsh-better-sidebar` is no longer version-restricted**
 (updating it to the latest is still recommended if installed).
 
-| Component | Required by v1.2.0+ |
+| Component | Required by v1.3.0+ |
 |---|---|
 | DSH kernel (DeepSeek Harness / DSH Desktop) | ≥ 0.1.5 (0.1.5-rc.1+) |
 | dsh-better-sidebar | no version restriction (latest recommended) |
