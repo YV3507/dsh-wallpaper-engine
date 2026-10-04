@@ -15,6 +15,17 @@
 
 > Increment after **v1.2.0** (local, unreleased; per-commit):
 
+- **Fixed: the "Mascot size" slider also resized the form cards inside the settings page** (user: the mascot in
+  the settings page must not change size — the slider should only affect the mascot on the main page).
+  **What**: `src/panel-tabs.js` renders the mascot form cards at their fixed `ROPE_FORMS` base size
+  (chibi maid 52×57 / whale 64×96; the `* sel.ropeScale` multiplication is gone) and the hint now reads
+  "Fixed-size cards; the size slider only affects the mascot on the main page". The main-page `RopeDock`
+  (the pull-cord mascot itself) keeps its scaling.
+  **Why**: the slider's job is sizing the desktop mascot; the cards in the settings page are just form
+  pickers — scaling them is unnecessary, and at high factors (up to 2.5×) they grow very large.
+  **Guards**: `test/verify-client.mjs` asserts, with the slider set to 1.5, that both card artworks keep
+  their fixed base sizes (turning red if the multiplication ever comes back).
+
 - **The first module's defaults are now the maintainer's own tuned set** (user's words: "make the settings
   currently in the hardware monitor bars extension the default configuration" ⇒ clarified as "bake the
   values I have dialled in now into the defaults").

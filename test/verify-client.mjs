@@ -1396,6 +1396,20 @@ setTimeout(async () => {
       tree = renderPicker();
       const ri2 = findRangeInput(findSliderRow(tree, '吉祥物大小'));
       assert.ok(ri2 && String(ri2.props.value) === '1.5', 'rope size slider updates to 1.5:');
+      // 设置页形态卡片固定基础尺寸（2026-10-04 用户口径）：「吉祥物大小」只作用于
+      // 主页面 RopeDock，卡片不跟着缩放 —— 若有人把 `form.w * sel.ropeScale` 的
+      // 乘法加回去，1.5 倍下小女仆会是 78px、鲸御姐 144px，这里当场红。
+      const artsAtScale = [];
+      (function walkArt(n) {
+        if (!n || typeof n !== 'object') return;
+        if (Array.isArray(n)) { n.forEach(walkArt); return; }
+        const cls = typeof n.props?.className === 'string' ? n.props.className : '';
+        if (cls.includes('we-picker__mascot-art')) artsAtScale.push(n);
+        if (Array.isArray(n.children)) n.children.forEach(walkArt);
+      })(tree);
+      assert.equal(artsAtScale.length, 2, '1.5 倍下形态卡片立绘仍应有 2 个（卡片不消失）');
+      assert.equal(artsAtScale[0] && artsAtScale[0].props.style?.width, '52px', '小女仆卡片宽度固定 52px（不随滑块缩放）');
+      assert.equal(artsAtScale[1] && artsAtScale[1].props.style?.height, '96px', '鲸御姐卡片高度固定 96px（不随滑块缩放）');
       if (ri2) ri2.props.onInput({ target: { value: '1' } });
       tree = renderPicker();
     }

@@ -976,7 +976,7 @@
   function renderMascotTab(ctx) {
     const { onRopeFormChange, onRopeScaleChange, onRopeVisibilityChange, sel } = ctx;
     return React.createElement(React.Fragment, null,
-      // ── 吉祥物：形态卡片即实时预览（随「吉祥物大小」滑块缩放），开关总控 ──
+      // ── 吉祥物：形态卡片固定基础尺寸（「吉祥物大小」只作用于主页面），开关总控 ──
       React.createElement("div", { className: "we-picker__section" },
         React.createElement("div", { className: "we-picker__section-head" },
           React.createElement("span", { className: "we-picker__section-label" }, weT("聊天吉祥物")),
@@ -986,11 +986,11 @@
           hint: weT("关闭后隐藏吉祥物与壁纸仓库抽屉"),
           tooltip: weT("关闭后隐藏吉祥物与壁纸仓库抽屉；可随时在本页重新开启"),
         }),
-        // 吉祥物形态（maid = 默认小女仆 / whale = 鲸御姐）：卡片直接渲染形态
-        // 立绘并按当前 ropeScale 缩放 —— 选形态与看大小两件事在同一处完成，
-        // 调整下方滑块时卡片实时跟着变。关闭时仍可先设定，重新开启即生效。
+        // 吉祥物形态（maid = 默认小女仆 / whale = 鲸御姐）：卡片按基础尺寸固定
+        // 渲染 —— 「吉祥物大小」滑块只作用于主页面上的吉祥物（RopeDock），设置
+        // 页里的卡片不跟着缩放。关闭时仍可先设定，重新开启即生效。
         React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
-          ctlText(weT("吉祥物形态"), weT("卡片按当前大小实时预览")),
+          ctlText(weT("吉祥物形态"), weT("卡片固定大小 · 大小只作用于主页面吉祥物")),
           React.createElement("div", { className: "we-picker__mascot-row", role: "group", "aria-label": weT("吉祥物形态") },
             ROPE_FORM_VALUES.map((k) => {
               const form = ROPE_FORMS[k];
@@ -1004,7 +1004,7 @@
               },
                 React.createElement("span", {
                   className: "we-picker__mascot-art",
-                  style: { width: Math.round(form.w * sel.ropeScale) + "px", height: Math.round(form.h * sel.ropeScale) + "px" },
+                  style: { width: form.w + "px", height: form.h + "px" },
                 },
                   React.createElement("img", { src: form.img, alt: form.label, draggable: false })),
                 React.createElement("span", { className: "we-picker__mascot-name" }, form.label),

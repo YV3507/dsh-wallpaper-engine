@@ -1621,7 +1621,7 @@ const CSS = `
   .we-picker__ctl-side { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
   .we-picker__swatches { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 
-  /* ── 吉祥物形态卡片：立绘即实时预览（随大小滑块缩放）。 ── */
+  /* ── 吉祥物形态卡片：立绘按基础尺寸固定渲染，「吉祥物大小」滑块只作用于主页面吉祥物。 ── */
   .we-picker__mascot-row { display: flex; gap: 10px; flex-wrap: wrap; }
   .we-picker__mascot-card {
     display: flex; flex-direction: column; align-items: center; gap: 6px;
