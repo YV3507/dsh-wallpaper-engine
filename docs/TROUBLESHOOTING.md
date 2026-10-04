@@ -100,25 +100,27 @@ generation-install: installed in 436ms
 generation-install: generation peer validation failed: @deepseek-ai/dsh-client-runtime does not resolve from the installation closure
 ```
 
-**说明宿主（DSH 核心）太旧**。本插件声明的 peer 依赖是
-`@deepseek-ai/dsh-client-runtime >= 0.2.0-rc.1`（`package.json` 的 `peerDependencies` /
-`engines.dsh` 同一口径），而你的 DSH 是 **0.1.x**（例如 `0.1.7-rc.2`）—— 它带进安装闭包的
-runtime 不满足版本下限，pnpm 在生成依赖图时直接拒绝。这不是网络 / 镜像 / pnpm 状态问题，
-**装旧版插件也救不了**：插件确实在用 0.2.0 才有的宿主 API（能力头栅栏的适配、设置页插槽、
-快捷键服务等），降级 peer 范围只会让插件装上之后大面积不可用。
+**说明宿主（DSH 核心）早于本插件的实测下限**。本插件声明的下限是
+`engines.dsh >= 0.1.5-rc.1` 与 `@deepseek-ai/dsh-client-runtime >= 0.1.0-rc.6`
+（`package.json` 的 `engines` / `peerDependencies`，实测下限 = 内核 **0.1.5**），而你的内核比
+**0.1.5-rc.1** 还旧（例如 `0.1.2-rc.1` / DSH Desktop 2.0.5）—— 它带进安装闭包的 runtime
+不满足版本下限，pnpm 在生成依赖图时直接拒绝。这不是网络 / 镜像 / pnpm 状态问题，
+**装旧版插件也救不了**：早于 0.1.5-rc.1 的内核不在实测支持范围内，降级 peer 范围只会让
+插件装上之后大面积不可用。
 
 **修复：先升级宿主，再装插件**（两步都要做）：
 
 ```sh
-# 1) 升级 DeepSeek Harness 桌面端到 >= 0.2.0-rc.1（当前 0.2.0-rc.2；CLI 与桌面端一起升）
-#    自查：dsh --version 应 >= 0.2.0-rc.1
+# 1) 把 DSH 内核更到 >= 0.1.5-rc.1（官方桌面端更到最新即可；旧 DSH Desktop 线至少 2.0.7）
+#    自查：dsh --version 应 >= 0.1.5-rc.1
 dsh --version
 # 2) 重新安装
 dsh plugin --profile web add dsh-plugin-wallpaper-engine
 ```
 
 > 「桌面端显示 v0.10.0」是**应用**自己的版本号，与它打包的 **DSH 核心**版本不是一回事 ——
-> 判据以 `dsh --version` 为准（issue #116 里 v0.10.0 桌面端打包的是 0.1.7-rc.2 核心，同样装不上）。
+> 判据以 `dsh --version` 为准（issue #116 里 v0.10.0 桌面端打包的是 0.1.7-rc.2 核心；该内核
+> 现已满足 ≥ 0.1.5-rc.1，可以安装本插件）。
 
 ### 症状 → 先看哪里
 

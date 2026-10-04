@@ -7,21 +7,21 @@
 > 各版本修了什么见 [`CHANGELOG.md`](./CHANGELOG.md)；安装失败报错见 [`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md)。
 
 
-### ⚠️ v1.2.0 起的前置条件：官方桌面端（DeepSeek Harness）≥ 0.2.0-rc.1
+### ✅ v1.2.0 起的前置条件：DSH 内核 ≥ 0.1.5（0.1.5-rc.1+，实测下限）
 
-**v1.2.0 的适配基线切换到官方桌面端线**：插件 manifest 声明 `engines.dsh: ">=0.2.0-rc.1"` —— 旧
-**DSH Desktop 2.0.x**（内核 0.1.7-rc.1）**装不上 v1.2.0**（插件市场会红标并拒绝安装）。已装 1.1.0 的
-旧桌面用户可继续使用 1.1.0，升级前请先换官方桌面端。dsh-better-sidebar 的前置不变（≥ 0.19.0）——
-官方桌面端上实际安装到的 latest（0.24+）自身就要求 0.2.0-rc.1 线。
+**v1.2.0 的前置回落到内核版本口径**：插件 manifest 声明 `engines.dsh: ">=0.1.5-rc.1"` ——
+官方桌面端（DeepSeek Harness，内核 0.2.0-rc.1+）与旧 **DSH Desktop ≥ 2.0.7**（内核 0.1.5-rc.1+）
+**都能安装本版**；更旧的内核（如 0.1.2-rc.1）仍装不上。`dsh-better-sidebar` **不再有版本要求**
+（装了的话建议更新到 latest）。
 
 | 组件 | v1.2.0+ 要求 |
 |---|---|
-| DeepSeek Harness 桌面端（官方） | ≥ 0.2.0-rc.1 |
-| dsh-better-sidebar | ≥ 0.19.0 |
+| DSH 内核（DeepSeek Harness / DSH Desktop） | ≥ 0.1.5（0.1.5-rc.1+） |
+| dsh-better-sidebar | 无版本限制（建议最新） |
 
-### ⚠️ 更新前置条件：① DSH 内核最新 ② better-sidebar 最新
+### v0.7.2 的前置条件（历史口径）：① DSH 内核 0.1.5-rc.1+ ② better-sidebar ≥ 0.19.0
 
-**两个前置条件都满足之前，请勿更新本插件。** v0.7.2 适配 DeepSeek Harness **0.1.5-rc.1**
+**（v0.7.2–v1.1.x 时代的口径，已被上面 v1.2.0 一节取代。）** v0.7.2 适配 DeepSeek Harness **0.1.5-rc.1**
 （对应 **DSH Desktop ≥ 2.0.7**），并要求 **dsh-better-sidebar ≥ 0.19.0**（0.19 起右侧栏接入
 DSH 0.1.5 的官方原生侧栏；仍停留在 0.1.2-rc.1 旧内核的用户请保持 better-sidebar 0.18.x，**不要混搭**）。
 
@@ -32,16 +32,16 @@ DSH 0.1.5 的官方原生侧栏；仍停留在 0.1.2-rc.1 旧内核的用户请�
 
 ### 正确的更新顺序
 
-1. **先把 DeepSeek Harness / DSH Desktop 更新到最新版**：DSH Desktop 在「顶部导航栏 → 版本信息」检查更新，或到 [GitHub Releases](https://github.com/anywhere-labs/dsh-desktop/releases) 下载对应平台安装包；
-2. **再把 dsh-better-sidebar 更新到 0.19.0+**：`dsh plugin --profile web add dsh-better-sidebar@latest`；
-3. **最后更新本插件**：`dsh plugin --profile web add dsh-plugin-wallpaper-engine`（或插件市场里点更新）。
+1. **先把 DSH 内核更新到 ≥ 0.1.5**：官方桌面端（DeepSeek Harness）在「顶部导航栏 → 版本信息」检查更新，或到 [GitHub Releases](https://github.com/anywhere-labs/dsh-desktop/releases) 下载对应平台安装包；旧 DSH Desktop 用户至少更到 2.0.7；
+2. **再更新本插件**：`dsh plugin --profile web add dsh-plugin-wallpaper-engine`（或插件市场里点更新）；
+3. **dsh-better-sidebar 无版本要求**：装了的话建议顺手更到最新（`dsh plugin --profile web add dsh-better-sidebar@latest`）。
 
 > 💡 同时建议把**其它 DSH 插件也一并更新**：旧版插件在 harness 0.1.5 下可能直接加载失败
 > （实测旧版 dsh-better-sidebar 在 0.1.5 下会因 API 变更异常）。
 
-### 顺序反了怎么办
+### 更新后异常怎么办
 
-把内核与 better-sidebar 各自更新到匹配版本即可恢复；**无需回滚本插件**。
+把内核更到 ≥ 0.1.5、dsh-better-sidebar 更新到最新即可恢复；**无需回滚本插件**。
 
 ### 升级提示
 

@@ -3,23 +3,22 @@
 > **中文**: [`../UPGRADING.md`](../UPGRADING.md)（与本文同源：改一处请同步另一处）
 
 
-### ⚠️ Prerequisites from v1.2.0: the official desktop (DeepSeek Harness) ≥ 0.2.0-rc.1
+### ✅ Prerequisites from v1.2.0: DSH kernel ≥ 0.1.5 (0.1.5-rc.1+, tested floor)
 
-**The adaptation baseline moves to the official desktop line in v1.2.0**: the plugin manifest declares
-`engines.dsh: ">=0.2.0-rc.1"` — the old **DSH Desktop 2.0.x** (kernel 0.1.7-rc.1) **cannot install
-v1.2.0** (the plugin market flags it red and refuses the install). If you already run 1.1.0 on the old
-desktop it keeps working; switch to the official desktop before updating. The dsh-better-sidebar
-prerequisite is unchanged (≥ 0.19.0) — the latest release the market installs on the official desktop
-(0.24+) itself targets the 0.2.0-rc.1 line.
+**v1.2.0 states its prerequisite in kernel terms**: the plugin manifest declares
+`engines.dsh: ">=0.1.5-rc.1"` — both the official desktop (DeepSeek Harness, kernel 0.2.0-rc.1+)
+and the old **DSH Desktop ≥ 2.0.7** line (kernel 0.1.5-rc.1+) **can install this release**; older
+kernels (e.g. 0.1.2-rc.1) still cannot. **`dsh-better-sidebar` is no longer version-restricted**
+(updating it to the latest is still recommended if installed).
 
 | Component | Required by v1.2.0+ |
 |---|---|
-| DeepSeek Harness desktop (official) | ≥ 0.2.0-rc.1 |
-| dsh-better-sidebar | ≥ 0.19.0 |
+| DSH kernel (DeepSeek Harness / DSH Desktop) | ≥ 0.1.5 (0.1.5-rc.1+) |
+| dsh-better-sidebar | no version restriction (latest recommended) |
 
-### ⚠️ Prerequisites for updating: ① latest DSH kernel ② latest better-sidebar
+### v0.7.2 prerequisites (historical): ① DSH kernel 0.1.5-rc.1+ ② better-sidebar ≥ 0.19.0
 
-**Do NOT update this plugin until BOTH prerequisites are met.** v0.7.2 targets DeepSeek Harness
+**(The v0.7.2–v1.1.x wording, superseded by the v1.2.0 section above.)** v0.7.2 targets DeepSeek Harness
 **0.1.5-rc.1** (shipped in **DSH Desktop ≥ 2.0.7**) and requires **dsh-better-sidebar ≥ 0.19.0**
 (from 0.19 the right column plugs into the native right sidebar of harness 0.1.5; users still on the
 0.1.2-rc.1 line should keep better-sidebar 0.18.x — **do not mix**).
@@ -31,16 +30,16 @@ prerequisite is unchanged (≥ 0.19.0) — the latest release the market install
 
 ### The correct update order
 
-1. **Update DeepSeek Harness / DSH Desktop first**: check for updates via the desktop app's top-bar version info, or grab the installer from [GitHub Releases](https://github.com/anywhere-labs/dsh-desktop/releases);
-2. **Then update dsh-better-sidebar to 0.19.0+**: `dsh plugin --profile web add dsh-better-sidebar@latest`;
-3. **Finally update this plugin**: `dsh plugin --profile web add dsh-plugin-wallpaper-engine` (or click update in the plugin market).
+1. **Bring the DSH kernel to ≥ 0.1.5 first**: on the official desktop (DeepSeek Harness) check for updates via the top-bar version info, or grab the installer from [GitHub Releases](https://github.com/anywhere-labs/dsh-desktop/releases); old DSH Desktop users should move to ≥ 2.0.7 at least;
+2. **Then update this plugin**: `dsh plugin --profile web add dsh-plugin-wallpaper-engine` (or click update in the plugin market);
+3. **dsh-better-sidebar has no version requirement**: if installed, bringing it to the latest (`dsh plugin --profile web add dsh-better-sidebar@latest`) is still a good idea.
 
 > 💡 Also update your **other DSH plugins at the same time**: older plugins may fail to load outright on
 > harness 0.1.5 (an old dsh-better-sidebar was observed misbehaving on 0.1.5 due to API changes).
 
-### If you updated out of order
+### If anything breaks after updating
 
-Bringing the kernel and better-sidebar back to their matching latest versions restores everything —
+Bringing the kernel to ≥ 0.1.5 and dsh-better-sidebar to the latest restores everything —
 **no plugin rollback needed**.
 
 ### Update notice

@@ -49,7 +49,7 @@
 
 ## 更新前置条件
 
-> ⚠️ 更新本插件前，**先把 DSH 内核与 `dsh-better-sidebar` 更新到最新**，**顺序不能反**（先更新插件会遇到不兼容的 API）。完整的版本矩阵、三步顺序与「顺序反了怎么恢复」见 [`docs/UPGRADING.md`](docs/UPGRADING.md)。
+> ⚠️ 本插件要求 **DSH 内核 ≥ 0.1.5**（0.1.5-rc.1 起——官方桌面端线与 DSH Desktop ≥ 2.0.7 线都满足；实测下限）。`dsh-better-sidebar` **不再有版本限制**（装了的话建议顺手更新到最新）。版本矩阵与升级注意事项见 [`docs/UPGRADING.md`](docs/UPGRADING.md)。
 
 ## 支持哪些壁纸类型？
 

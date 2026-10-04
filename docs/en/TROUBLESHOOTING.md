@@ -101,19 +101,20 @@ generation-install: installed in 436ms
 generation-install: generation peer validation failed: @deepseek-ai/dsh-client-runtime does not resolve from the installation closure
 ```
 
-**Your DSH core is too old.** The plugin declares the peer dependency
-`@deepseek-ai/dsh-client-runtime >= 0.2.0-rc.1` (mirrored by `engines.dsh` in `package.json`);
-a 0.1.x host (e.g. `0.1.7-rc.2`) ships a runtime below that floor, so pnpm rejects the dependency
-graph at generation time. This is not a network / mirror / pnpm-state problem, and **installing an
-older plugin version will not help**: the plugin genuinely uses host APIs that only exist since
-0.2.0 (adapter gating for the capability-header fence, settings slots, the shortcuts service, …) —
-loosening the peer range would only produce an install that is broken at runtime.
+**Your DSH core is older than this plugin's tested floor.** The plugin declares
+`engines.dsh >= 0.1.5-rc.1` and `@deepseek-ai/dsh-client-runtime >= 0.1.0-rc.6`
+(`package.json` `engines` / `peerDependencies`; the tested floor is kernel **0.1.5**) — a kernel
+older than **0.1.5-rc.1** (e.g. `0.1.2-rc.1` / DSH Desktop 2.0.5) ships a runtime below that floor,
+so pnpm rejects the dependency graph at generation time. This is not a network / mirror /
+pnpm-state problem, and **installing an older plugin version will not help**: kernels predating
+0.1.5-rc.1 are outside the tested support range — loosening the peer range would only produce an
+install that is broken at runtime.
 
 **Fix: upgrade the host first, then install** (both steps):
 
 ```sh
-# 1) Upgrade the DeepSeek Harness desktop app to >= 0.2.0-rc.1 (current: 0.2.0-rc.2;
-#    the CLI ships with the desktop app). Self-check: `dsh --version` should be >= 0.2.0-rc.1
+# 1) Bring the DSH kernel to >= 0.1.5-rc.1 (updating the official desktop app to the latest is
+#    enough; the old DSH Desktop line needs at least 2.0.7). Self-check: `dsh --version` >= 0.1.5-rc.1
 dsh --version
 # 2) Install again
 dsh plugin --profile web add dsh-plugin-wallpaper-engine
@@ -121,7 +122,7 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 
 > "The desktop app says v0.10.0" is the **app's own** version number, not the bundled **DSH core**
 > version — the verdict comes from `dsh --version` (issue #116: a v0.10.0 desktop app bundling a
-> 0.1.7-rc.2 core fails the same way).
+> 0.1.7-rc.2 core; that kernel now satisfies ≥ 0.1.5-rc.1 and can install this plugin).
 
 ### Symptom → where to look first
 

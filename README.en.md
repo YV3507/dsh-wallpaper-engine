@@ -48,7 +48,7 @@ It discovers the Wallpaper Engine install on your machine, lists your wallpapers
 
 ## Prerequisites for updating
 
-> ⚠️ **Update the DSH kernel and `dsh-better-sidebar` first — the order cannot be reversed** (updating this plugin first hits an incompatible API). The full version matrix, the three steps and "what to do if you got the order wrong" are in [`docs/UPGRADING.md`](docs/UPGRADING.md).
+> ⚠️ This plugin requires a **DSH kernel ≥ 0.1.5** (0.1.5-rc.1+ — both the official desktop line and DSH Desktop ≥ 2.0.7 qualify; tested floor). **`dsh-better-sidebar` is no longer version-restricted** (if installed, updating it to the latest is still recommended). The version matrix and upgrade notes are in [`docs/UPGRADING.md`](docs/UPGRADING.md).
 
 ## Which wallpaper types are supported?
 
