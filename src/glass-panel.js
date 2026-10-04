@@ -31,10 +31,152 @@
  * ⚠️ 「左侧栏液态玻璃」**不在**本节的子项里：它的"关"是**恢复背景**（那列回到壁纸原样），
  *    语义不同 —— 它是乙类，独立成项留在「细节」，本节的 `panelOff` 过滤就是为它。
  */
+/**
+ * 「预设方案」块（玻璃节顶部的第一行，先于全局四件套）。
+ *
+ * 为什么放在最顶上：这一节的调节粒度太细（全局四件套 + 每面独立配置 + 侧栏族），
+ * 预设是"不想逐项调"的用户的主路 —— 进门第一眼就该是它。它与下面的旋钮**读写同一批键**：
+ * 应用 = 整快照合并（键集见 `GLASS_PRESET_KEYS`），应用完下面所有滑块跟着变（同一 selection）。
+ *
+ * 形态纪律（承 fontset-editor.js，均有守卫）：
+ *   · **出厂预设的名字走词表**（`FACTORY_PRESET_CN` 就地包 weT ⇒ 文本扫描看得见），
+ *     用户预设显示原名 —— 随包文件里的 name 是数据，扫描看不见，所以映射表必须是字面量；
+ *   · **破坏性动作两步确认**且不用原生对话框（复用 client.js 的 armConfirm / renderConfirmRow）；
+ *   · **出厂预设的删除 = 永久删除**（两步确认点明不可恢复；宿主落墓碑遮蔽，无恢复通道）；
+ *   · **读不懂的预设禁用**但保留删除（删掉坏文件是唯一出路）；
+ *   · 失败态给**可判定原因**（selection.glassPresetError，宿主原话 + weT 查英文表）。
+ * 本渲染器**只画**：网络与状态全部经 ctx（store 在 src/preset-store.js，接线在 client.js 的
+ * glassPresetCtx）。
+ */
+function renderGlassPresetsBlock(gp) {
+  const {
+    presets, loading, error, saving, draftName, armedId,
+    onApply, onOpenSave, onDraftName, onSaveCommit, onCancelSave,
+    onArmDelete, onDisarm, onDelete,
+  } = gp || {};
+  if (!presets) return null; // ctx 缺席时不画（渲染器不抛，也不画半个块）
+  const rows = Array.isArray(presets) ? presets : [];
+  // 出厂预设名字的词表：**就地包 weT**（渲染函数内，理由见本文件 CHILD_CN 同款注释 ——
+  // i18n 判据是文本扫描，只认 weT("…") 字面量；数据里的名字扫描看不见）。
+  // 两侧靠 id 对齐；漏了的出厂 id 回落显示文件里的原名（渐进式，不炸）。
+  const FACTORY_PRESET_CN = {
+    "factory-default": weT("出厂默认"),
+    "factory-clear": weT("清透速览"),
+    "factory-frosted": weT("重磨砂"),
+    "factory-night": weT("暗夜釉色"),
+    "factory-vivid": weT("原色直出"),
+    "factory-readable": weT("可读优先"),
+    "factory-author": weT("作者自用"),
+  };
+  const labelOf = (row) => (row.origin === "builtin" && FACTORY_PRESET_CN[row.id])
+    ? FACTORY_PRESET_CN[row.id]
+    : (row.name || row.id);
+  // 两行四列的圆角表格（2026-10-04 用户口径）：每格 = 预设名（点击应用，占满）
+  // + 右侧固定删除键；不足 8 个的格子画虚框空位 —— 上限 8 直接看得见。
+  // ⚠️ armedId 是 **裸 id**（armedIdOf("gpreset") 已把族前缀剥掉，与 fontset-editor
+  //    同一口径）—— 拿它和带前缀的令牌串比较永远不等 ⇒ 确认行永远不渲染
+  //    （2026-10-04 实测："点删除没反应"就是这个）。行为守卫：verify-presets ④。
+  const cells = [];
+  for (let i = 0; i < 8; i++) {
+    const row = rows[i];
+    if (!row) {
+      cells.push(React.createElement("div", {
+        key: "empty-" + i, className: "we-picker__preset-cell we-picker__preset-cell--empty",
+      }, React.createElement("span", { className: "we-picker__hint" }, weT("空预设位"))));
+      continue;
+    }
+    const broken = typeof row.broken === "string" && row.broken;
+    const isUser = row.origin === "user";
+    const armed = armedId === row.id;
+    cells.push(React.createElement("div", {
+      key: row.id,
+      className: "we-picker__preset-cell" + (armed ? " we-picker__preset-cell--armed" : ""),
+    },
+      React.createElement("button", {
+        className: "we-picker__btn", type: "button",
+        disabled: Boolean(broken) || loading === true,
+        title: broken
+          ? weT("这份预设读不出来：{reason}", { reason: broken })
+          : weT("应用「{name}」：整组玻璃观感立即生效，之后可以继续微调", { name: labelOf(row) }),
+        onClick: () => onApply(row.id),
+      }, labelOf(row)),
+      // ⚠️ 删除键对**所有格**都有（2026-10-04 用户口径：出厂预设可删，删除即永久、
+      //    不可恢复），统一固定在每格最右侧；文案按 origin 分。
+      React.createElement("button", {
+        className: "we-picker__btn we-picker__preset-del", type: "button",
+        disabled: loading === true,
+        title: armed
+          ? weT("已经问过你了 —— 在下面那一行选「确认」或「取消」")
+          : (isUser
+            ? weT("删除这个预设（会再问一次）")
+            : weT("删除这个出厂预设（不可恢复）")),
+        onClick: () => { if (!armed) onArmDelete(row.id); },
+      }, "×"),
+    ));
+  }
+  const chipRow = React.createElement("div", { className: "we-picker__preset-grid", key: "gp-grid" }, cells);
+  // 「保存当前为预设」：网格下方的独立行（不在格子里 —— 格子属于预设本身）；
+  // 满 8 个禁用并指路（删除腾位）。
+  const openSaveRow = saving
+    ? null
+    : React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap", key: "gp-save-open" },
+      React.createElement("button", {
+        className: "we-picker__btn", type: "button",
+        disabled: loading === true || rows.length >= 8,
+        title: rows.length >= 8
+          ? weT("已达预设上限（8 个）—— 删除不需要的预设后再存")
+          : weT("把当前这套玻璃观感存成一份你自己的预设（之后从预设行一键取回）"),
+        onClick: () => onOpenSave(),
+      }, weT("保存当前为预设…")));
+  // 删除的两步确认行（令牌族 "gpreset:"；`!token` 退化不渲染 —— renderConfirmRow 的不变量）。
+  const armedRow = armedId ? rows.find((r) => r.id === armedId) : null;
+  const armedQuestion = armedRow && (armedRow.origin === "user"
+    ? weT("删除预设「{name}」？此操作不可恢复。", { name: labelOf(armedRow) })
+    : weT("删除出厂预设「{name}」？此操作不可恢复。", { name: labelOf(armedRow) }));
+  const confirmRow = armedRow && !armedRow.broken
+    ? renderConfirmRow(armedId, armedId, armedQuestion, () => onDelete(armedRow.id), () => onDisarm())
+    : null;
+  // 保存输入行：名字 + 保存/取消。与 fontset 改名行同形（Enter 提交）。
+  const saveRow = saving
+    ? React.createElement("div", { className: "we-picker__ctl", key: "gp-save" },
+      React.createElement("input", {
+        className: "we-picker__file", type: "text", value: draftName || "",
+        placeholder: weT("预设名字，回车保存"),
+        onChange: (e) => onDraftName(e.target.value),
+        onKeyDown: (e) => { if (e && e.key === "Enter") onSaveCommit(); },
+      }),
+      React.createElement("button", {
+        className: "we-picker__btn", type: "button", disabled: loading === true,
+        onClick: () => onSaveCommit(),
+      }, weT("保存")),
+      React.createElement("button", {
+        className: "we-picker__btn", type: "button", onClick: () => onCancelSave(),
+      }, weT("取消")),
+    )
+    : null;
+  return React.createElement(React.Fragment, null,
+    React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
+      ctlText(weT("预设方案"), weT("一键套用一整组玻璃观感（出厂七套 + 你自己存的，上限 8 个），应用后可继续微调")),
+    ),
+    loading ? React.createElement("div", { className: "we-picker__hint" }, weT("正在处理…")) : null,
+    // ⚠️ reason 必须再过一次 weT：它可能来自宿主回包（lib/routes/presets.js 的中文 error），
+    //    原样塞进去会让英文界面露出中文 —— 与 fontset-editor 的 error 行同款纪律。
+    error ? React.createElement("div", { className: "we-picker__hint" }, weT("预设不可用：{reason}", { reason: weT(error) })) : null,
+    rows.length === 0 && !loading
+      ? React.createElement("div", { className: "we-picker__hint" }, weT("还没有任何预设 —— 出厂那几套加载失败或宿主未重挂。"))
+      : null,
+    chipRow,
+    confirmRow,
+    openSaveRow,
+    saveRow,
+  );
+}
+
 function renderAppearanceGlassSection(ctx) {
   const {
     onBlur, onGlassAlpha, onGlassChildParam, onGlassColor, onGlassFidelity,
     onToggleChildIndependent, childIndependentOn, sel,
+    onCapsuleBlur, onCapsuleColor,
     onLeftSidebarGlass, onSidebarAlpha, onSidebarBlur, onSidebarColor,
     onSidebarContentAlpha, onSidebarContentColor, onSidebarGlass,
     onSidebarFollowGlobal, onSidebarFullClear,
@@ -134,6 +276,9 @@ function renderAppearanceGlassSection(ctx) {
     React.createElement("div", { className: "we-picker__section-head" },
       React.createElement("span", { className: "we-picker__section-label" }, weT("玻璃 UI")),
     ),
+    // ── 预设方案（本节第一行，先于一切旋钮）──
+    // ctx 成员由 client.js 的 glassPresetCtx 提供（清单/错误是宿主投影；应用走 settings 通道）。
+    renderGlassPresetsBlock(ctx.glassPresets),
     // ── 全局四件套 ──
     // 玻璃颜色: the settings-window glass BASE tint. Defaults keep the stock
     // look (white light / deep navy dark); picking any preset or a custom
@@ -171,7 +316,21 @@ function renderAppearanceGlassSection(ctx) {
     switchRow(weT("思考块液态玻璃"), sel.thinkingGlass === true, onThinkingGlass, {
       key: "thinking-glass",
       hint: weT("思考区与文件卡清底，文字胶囊与七类工具内容玻璃；默认关"),
-      tooltip: weT("打开后，思考区与文件卡底栏百分百透明；文字胶囊、新会话、加载更早历史与回到底部按钮使用10%白色薄雾和8px雾化；上下文注入、运行命令、读取、搜索文件内容、工具调用、查找文件、写入的展开内容使用同款玻璃，底色覆盖度比气泡增加6个百分点。导航与轮次悬浮预览采用工具内容同款玻璃；聊天滚动条使用10%白色薄雾。代码块随玻璃透明度透出壁纸。默认关。"),
+      tooltip: weT("打开后，思考区与文件卡底栏百分百透明；文字胶囊、新会话、加载更早历史与回到底部按钮使用10%白色薄雾和胶囊雾化（默认 8px，用下方滑杆调）；上下文注入、运行命令、读取、搜索文件内容、工具调用、查找文件、写入的展开内容使用同款玻璃，底色覆盖度比气泡增加6个百分点。导航与轮次悬浮预览采用工具内容同款玻璃；聊天滚动条使用10%白色薄雾。代码块随玻璃透明度透出壁纸。默认关。"),
+    }),
+    // 胶囊雾化（capsuleBlur，默认 8px）：**只在思考玻璃开着时渲染** —— 消费它的规则
+    // 全部挂在 data-we-thinking-glass 门下，门关着时这个滑杆就是"画出来又不生效的旋钮"
+    //（本仓要防的那类死旋钮，见 glass-panel 文件头 wip §10.12）。
+    sel.thinkingGlass === true && SliderRow(weT("胶囊雾化"), 0, 60, 1,
+      sel.capsuleBlur, onCapsuleBlur, sel.capsuleBlur + "px", "capsule-blur", {
+      tooltip: weT("正文里行内代码胶囊、新会话按钮、导航按钮的模糊半径 —— 越大越像磨砂玻璃。只在这些胶囊吃玻璃（思考块液态玻璃开着）时生效；0 = 关掉雾化。"),
+    }),
+    // 胶囊釉色（capsuleColor，默认白 = 原观感）：与胶囊雾化同族同门。色板行不做
+    // 可读性钳制（10% 雾底不是正文面，理由见 schema 注释）。
+    sel.thinkingGlass === true && swatchRow(weT("胶囊颜色"), GLASS_COLOR_PRESETS,
+      sel.capsuleColor, onCapsuleColor, {
+      key: "capsule-color",
+      tooltip: weT("行内代码胶囊、新会话按钮、导航按钮与聊天滚动条拇指的雾底色相 —— 默认白（原观感）。只在这些胶囊吃玻璃（思考块液态玻璃开着）时生效；浓度档不变（10%）。"),
     }),
     // ── 既有面的**显示开关**与它们的独立配置（原「窗口与侧栏」/「细节」两节并进本节，§10.25）──
     // ⚠️ 为什么并进来：原先这些控件住在「窗口与侧栏」节，而那节**只在宿主上报

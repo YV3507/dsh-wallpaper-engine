@@ -2434,6 +2434,9 @@ setTimeout(async () => {
       //      · `src/live-layer.js` ×2 —— `syncLayers` 内部，**本次渲染正由 emit 驱动**（源码注释写明
       //        "这里不 emit：本次 syncLayers 正是由 emit 驱动的"）；
       //      · `src/effects.js` ×3 —— **卸载清理**（禁用 / HMR 后不留上一张壁纸的播放态）。
+      //      · `src/preset-store.js` ×1 —— 通道失败文案的唯一写点（`setPresetError` 助手：
+      //        清单 / 应用 / 保存 / 删除四条路的失败与清空都汇到它，写点收口是一处 ——
+      //        2026-10-04 引入玻璃预设时按本棘轮要求归的类）。
       //      给它们注入入口是**仪式**而不是收口（"禁裸写会逼出任意豁免"那条注记就是这个意思）⇒ 这条
       //      棘轮的作用是**不许变多**：新增一处即红，由人判定它属于哪一类，并顺手把上界按实测下调。
       //
@@ -2442,7 +2445,7 @@ setTimeout(async () => {
       //      `.js` 结尾 ⇒ **`src/font/` 整个目录隐式脱出判据**（实测），且 `lib/settings-schema.js`
       //      这个"两侧共用内核"从来没被扫过。这正是 DEV-GUIDE §4.7 约定 4 禁止的形状 ——
       //      手工清单漏一行，那个文件**静默失去覆盖**。所以扫描面取**真源**：构建脚本里被内联的每一个文件。
-      const REMAINING_CROSS_MODULE_MAX = 11;
+      const REMAINING_CROSS_MODULE_MAX = 12;
       const repoRoot = new URL('../', import.meta.url);
       /** 被内联进 bundle 的每一个文件（真源 = 构建脚本的 INLINE_MODULES）。 */
       const inlineModules = (() => {
@@ -2516,6 +2519,10 @@ setTimeout(async () => {
         'src/fontset-store.js': {
           why: '字体集通道内部的加载态/错误文案/清单；面板经 client.js 的渲染期读取消费（不是每次改动都 emit）',
           fields: ['fontSetActive', 'fontSetError', 'fontSets'],
+        },
+        'src/preset-store.js': {
+          why: '玻璃预设通道内部的清单投影（活跃清单；已删除的出厂不回来，无隐藏形态）；错误文案已收口到 setPresetError 单写点（verify-client ①e 棘轮）',
+          fields: ['glassPresets'],
         },        'src/live-layer.js': {
           why: '实时看护的会话内标志；`startLiveWatch` / `stopLiveWatch` 是它的两个入口',
           fields: ['sceneLiveActive'],

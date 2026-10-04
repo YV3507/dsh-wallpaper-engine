@@ -141,6 +141,12 @@ const INLINE_MODULES = [
       'async function loadFontSet()', 'function scheduleFontSet()', 'function cancelPendingFontSet()'],
   },
   {
+    file: 'src/preset-store.js',
+    why: '玻璃预设通道：清单加载 / 整快照应用（走设置通道落效）/ 保存 / 删除（重名由宿主裁决）',
+    markers: ['const gpFetch = ', 'function glassPresetFailureReason(res)', 'async function applyGlassPreset(id)',
+      'async function saveGlassPreset(name)', 'async function deleteGlassPreset(id)'],
+  },
+  {
     file: 'src/fontset-editor.js',
     why: '字体集编辑器面板（F3 阶段 3）：纯渲染 + 意图回调（网络与状态由 client 侧经显式 ctx 给）',
     markers: ['function deleteLabel(row)', 'function renderFontSetEditor(ctx)'],

@@ -536,17 +536,20 @@ const CSS = `
      Shared host tokens retain their floors for popups and other app surfaces. */
   body[data-we-wallpaper] {
     --we-chat-glass-fill: rgba(var(--we-surface-tint-rgb-light, 255, 255, 255), var(--we-glass-alpha, 0.15));
-    --we-capsule-glass-fill: rgba(255, 255, 255, var(--we-inline-code-alpha, 0.10));
+    --we-capsule-glass-fill: rgba(var(--we-capsule-tint-rgb, 255, 255, 255), var(--we-inline-code-alpha, 0.10));
     --we-tool-glass-fill: rgba(var(--we-surface-tint-rgb-light, 255, 255, 255), calc(var(--we-glass-alpha, 0.15) + 0.06));
   }
   body[data-ds-dark-theme][data-we-wallpaper] {
     --we-chat-glass-fill: rgba(var(--we-surface-tint-rgb-dark, 13, 21, 36), var(--we-glass-alpha, 0.15));
     --we-tool-glass-fill: rgba(var(--we-surface-tint-rgb-dark, 13, 21, 36), calc(var(--we-glass-alpha, 0.15) + 0.06));
   }
-  /* ⚠️ 合并 #134 的口径修正（审计 MAJOR）：这组「气泡 / 输入卡直接读 --we-chat-glass-fill」
-     是**思考玻璃功能的一部分**，PR 原稿漏挂 [data-we-thinking-glass] 门 —— 默认态会改掉
-     这两类面的底色、并绕开「对话栏玻璃保真度」的令牌契约。补门后：关 = 逐字节现状。 */
-  body[data-we-wallpaper][data-we-thinking-glass] [data-composer-card],
+  /* ⚠️ 合并 #134 的口径修正（审计 MAJOR）：这组「气泡直接读 --we-chat-glass-fill」是
+     **思考玻璃功能的一部分**，PR 原稿漏挂 [data-we-thinking-glass] 门 —— 默认态会改掉
+     气泡的底色、并绕开「对话栏玻璃保真度」的令牌契约。补门后：关 = 逐字节现状。
+     ⚠️ 2026-10-04 用户口径：**输入框（[data-composer-card]）退出思考玻璃作用域** ——
+     原稿给输入卡也铺了这层 fill 接管，实测用户不要（开关开 = 输入框必须与关着时逐位相同，
+     输入框只受基础对话栏玻璃与「对话框玻璃·独立配置」管）。守卫：verify-glass-surfaces
+     「思考玻璃门下不得出现 data-composer-card」。 */
   body[data-we-wallpaper][data-we-thinking-glass] [class*="_bubble"] {
     background-color: var(--we-chat-glass-fill) !important;
   }
@@ -605,28 +608,11 @@ const CSS = `
     -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
     backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
   }
-  /* 「+」叠在已磨砂的输入卡上。令牌哪怕改成玻璃配方，深色下限仍是 ~59% 海军蓝，
-     28px 圆看起来就是黑点。这里铺一层很淡的白釉、不加 blur，让 ::before 的霜透出来。
-     ⚠️ 合并 #134 口径修正（审计 MAJOR 第②③组）：「+」白釉与它的
-     「--dsw-specific-selector」令牌一起都是**思考玻璃**的一部分，PR 原稿把它直接写进了
-     常开令牌块 ⇒ 统一挪来这里挂 [data-we-thinking-glass] 门：关 = 逐字节现状。 */
-  body[data-we-wallpaper][data-we-thinking-glass] {
-    --dsw-specific-selector: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-glass-alpha, 0.5) * 1.15 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
-  }
-  body[data-ds-dark-theme][data-we-wallpaper][data-we-thinking-glass] {
-    --dsw-specific-selector: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) calc(var(--we-glass-alpha, 0.5) * 1.15 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
-  }
-  body[data-we-wallpaper][data-we-thinking-glass] [data-composer-card] [class*="_add"] {
-    background: color-mix(in srgb, rgba(255, 255, 255, 0.14) 100%, transparent) !important;
-    box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.22);
-  }
-  body[data-we-wallpaper][data-we-thinking-glass] [data-composer-card] [class*="_add"]:hover:not(:disabled) {
-    background: color-mix(in srgb, rgba(255, 255, 255, 0.24) 100%, transparent) !important;
-  }
+  /* ⚠️ 2026-10-04 用户口径：**输入框整族退出思考玻璃** —— 这里原本是「+」按钮的白釉
+     （铺淡白釉让霜透出来，避免深色下限下 28px 圆变黑点）与它消费的
+     「--dsw-specific-selector」令牌改写（两主题 color-mix 配方，#134 审计时统一挪来挂门）。
+     输入框退出后这组全部退役：「+」回到宿主原样（令牌不再被插件改写）。
+     守卫：verify-glass-surfaces「思考玻璃门下不得出现 data-composer-card / _add」。 */
 
   /* ── 轨迹（trajectory）视图的内容区：补**霜** ──────────────────────────────
      现场口径："轨迹内容区域也同样做玻璃化"。实测根因**不是**"没映射令牌"：轨迹模块的内容容器
@@ -773,7 +759,7 @@ const CSS = `
   /* Chromium's native scrollbar does not paint backdrop blur (stripe probe).
      Tint only this thumb, avoiding inherited tokens on nested scroll areas. */
   body[data-we-wallpaper][data-we-thinking-glass] [data-conversation-scroll]::-webkit-scrollbar-thumb {
-    background-color: rgba(255, 255, 255, var(--we-inline-code-alpha, 0.10));
+    background-color: rgba(var(--we-capsule-tint-rgb, 255, 255, 255), var(--we-inline-code-alpha, 0.10));
   }
   body[data-we-wallpaper][data-we-thinking-glass] [data-conversation-scroll]::-webkit-scrollbar-thumb:hover,
   body[data-we-wallpaper][data-we-thinking-glass] [data-conversation-scroll]::-webkit-scrollbar-thumb:active {
@@ -1336,12 +1322,6 @@ const CSS = `
       --dsw-alias-markdown-tag: var(--we-panel-color, #ffffff);
       --dsw-alias-markdown-code-segment-unselected: var(--we-panel-color, #ffffff);
       --dsw-alias-markdown-code-segment-selected: var(--we-panel-color, #ffffff);
-    /* ⚠️ 合并 #134（审计口径修正的配套）：selector 令牌在无模糊内核上同样钉不透明，
-       但它属思考玻璃一族（主值已挂门）⇒ 这条回退行也挂门，保持"关 = 现状"。 */
-    body[data-we-wallpaper][data-we-thinking-glass],
-    body[data-ds-dark-theme][data-we-wallpaper][data-we-thinking-glass] {
-      --dsw-specific-selector: var(--we-panel-color, #ffffff);
-    }
     }
   }
 
@@ -1457,6 +1437,53 @@ const CSS = `
   }
   .we-picker__font-table .we-picker__fontset-confirm .we-picker__hint {
     margin-right: 8px;
+  }
+  /* ── 预设方案：两行四列的圆角表格（2026-10-04 用户口径）──────────────────
+     容器 = 圆角描边"表格"；每格 = 预设名（点击应用，占满）+ 右侧固定删除键。
+     空位画成虚框占位 —— 上限 8（2×4）直接看得见。纯布局规则，不碰玻璃令牌。 */
+  .we-picker__preset-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+    margin-top: 4px;
+    padding: 6px;
+    border: 1px solid var(--we-host-dsw-alias-label-tertiary, rgba(128, 128, 128, 0.28));
+    border-radius: 10px;
+  }
+  .we-picker__preset-cell {
+    display: flex;
+    align-items: stretch;
+    gap: 2px;
+    min-width: 0;
+  }
+  .we-picker__preset-cell--armed {
+    outline: 1px solid var(--we-host-dsw-alias-label-tertiary, rgba(128, 128, 128, 0.45));
+    outline-offset: 1px;
+    border-radius: 6px;
+  }
+  /* ⚠️ 故意用元素选择器而不是按钮类复合选择器：verify-fontset 的按钮盒完整性
+     判据按"第一处按钮类规则"锚定，复合覆盖规则会抢到锚点（它只带布局增量、
+     没有盒子全家桶）⇒ 判据当场假红。 */
+  .we-picker__preset-cell > button {
+    flex: 1;
+    min-width: 0;
+    justify-content: flex-start;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .we-picker__preset-cell > .we-picker__preset-del {
+    flex: 0 0 auto;
+  }
+  .we-picker__preset-cell--empty {
+    align-items: center;
+    justify-content: center;
+    border: 1px dashed var(--we-host-dsw-alias-label-tertiary, rgba(128, 128, 128, 0.30));
+    border-radius: 6px;
+    min-height: 26px;
+  }
+  .we-picker__preset-cell--empty .we-picker__hint {
+    font-size: 11px;
   }
   /* 数字框按内容收纳：面板基础样式给 input 的左右内边距在这里制造了明显的空占位。 */
   .we-picker__font-table input[type="number"] {

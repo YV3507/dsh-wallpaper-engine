@@ -502,6 +502,9 @@
             // 玻璃 UI 的侧栏族/独立配置、思考块开关、输入光标全部真放行（处理器已提升到模块级）。
             onCaretColor, onSidebarAlpha, onSidebarBlur, onSidebarColor,
             onSidebarContentAlpha, onSidebarContentColor, onSidebarFollowGlobal, onThinkingGlass,
+            // 胶囊雾化（2026-10-04）：与思考块开关同族 —— 滑杆只在该开关打开时渲染；
+            // 漏接的后果实测过：侧栏档的滑杆拿到 undefined 处理器，拖动整条死（值弹回）。
+            onCapsuleBlur, onCapsuleColor,
           }))
           : qpTab === "playback"
             ? React.createElement(React.Fragment, null,

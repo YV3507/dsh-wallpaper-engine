@@ -247,6 +247,13 @@ const selection = {
   fontSetLoading: false,
   fontSetEditing: "",
   fontSetDraftName: "",
+  // Transient（玻璃预设）：清单与失败原因来自宿主（不落盘）；saving/draftName 是保存
+  // 输入行的视图态；busy 是任何在途动作（应用/保存/删除/清单）。store 见 src/preset-store.js。
+  glassPresets: [],
+  glassPresetError: "",
+  glassPresetBusy: false,
+  glassPresetSaving: false,
+  glassPresetDraftName: "",
   url: null,
   type: null,
   previewUrl: null,
@@ -2778,6 +2785,15 @@ function onCancelEditWeAssetsDir() {
 // ── 外观 / 播放 / 系统页签的处理器（同上一条：渲染器只读值 + 调这些）────────────
 function onLeftSidebarGlass(e) { setSetting("leftSidebarGlass", e.target.checked); emit(); }
 function onThinkingGlass(e) { setSetting("thinkingGlass", e.target.checked); emit(); }
+// 胶囊雾化（行内代码 / 新会话 / 导航按钮）：与 thinkingGlass 同族 —— 消费它的规则
+// 全部挂在 data-we-thinking-glass 门下，所以滑杆也只在该开关打开时渲染（glass-panel）。
+const onCapsuleBlur = (px, live) =>
+  commitLiveSetting("capsuleBlur", clampNum(px, ...schemaRange("capsuleBlur"), DEFAULTS.capsuleBlur), live);
+// 胶囊釉色：与 onSidebarColor 同形（hex 白名单校验 + live 落效）。
+const onCapsuleColor = (hex, live) => {
+  if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
+  commitLiveSetting("capsuleColor", hex, live);
+};
 
 // ── 以下处理器原在 WallpaperPicker 内（2026-10-03：侧栏「外观」与设置页同内容）
 //    提升到模块级 —— 快捷播放面板（src/quick-panel.js）与设置页共用同一批处理器，
@@ -3296,6 +3312,48 @@ function fontSetCtx() {
   };
 }
 
+// ── 玻璃预设的接线（渲染器只读 ctx、动作经 on*；store 与失败语义见 src/preset-store.js）──
+// 与 fontSetCtx 同形：清单/错误是宿主投影，busy 是在途标记，删除走 armConfirm 两步确认。
+// 应用预设会**整快照覆盖**玻璃键 ⇒ 动作前先清掉挂着的删除确认（上下文切换必清，同字体集）。
+function glassPresetCtx() {
+  const done = () => { setTransient("glassPresetBusy", false); emit(); };
+  const busy = (promise) => { setTransient("glassPresetBusy", true); emit(); promise.then(done, done); };
+  return {
+    presets: selection.glassPresets,
+    loading: selection.glassPresetBusy === true,
+    error: selection.glassPresetError,
+    saving: selection.glassPresetSaving === true,
+    draftName: selection.glassPresetDraftName,
+    armedId: armedIdOf("gpreset"),
+    onApply: (id) => {
+      disarmConfirm();
+      busy(applyGlassPreset(id));
+    },
+    onOpenSave: () => {
+      setTransient("glassPresetSaving", true);
+      setTransient("glassPresetDraftName", "");
+      setTransient("glassPresetError", "");
+      disarmConfirm();
+      emit();
+    },
+    onDraftName: (v) => { setTransient("glassPresetDraftName", String(v == null ? "" : v)); emit(); },
+    onSaveCommit: () => {
+      busy(saveGlassPreset(selection.glassPresetDraftName).then((id) => {
+        if (id) { setTransient("glassPresetSaving", false); setTransient("glassPresetDraftName", ""); }
+        emit(); // 收起输入行的分支写完 store 必须通知（渲染纪律判据）
+      }));
+    },
+    onCancelSave: () => {
+      setTransient("glassPresetSaving", false);
+      setTransient("glassPresetDraftName", "");
+      emit();
+    },
+    onArmDelete: (id) => armConfirm("gpreset:" + id),
+    onDisarm: () => disarmConfirm(),
+    onDelete: (id) => { disarmConfirm(); busy(deleteGlassPreset(id)); },
+  };
+}
+
   // 画面滑块（暗化 / 壁纸透明度 / 壁纸模糊 / 亮度 / 对比度 / 饱和度）与外观细调
   //（配色 / 玻璃颜色 / 玻璃透明度 / 边框 / 雾化）：处理器已提升到模块级 ——
   // 快捷播放面板共用同一份实现，见 cardKeyDown 上方「外观 / 画面处理器」段。
@@ -3789,8 +3847,9 @@ const officialColorOf = (tokens) => {
     if (activeTab === "appearance") return renderAppearanceTab({
       setSetting, setTransient,
       fontSet: fontSetCtx(),
-      officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onChatGlassFidelity, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onGlassFidelity, onGlobalFamily, onLeftSidebarGlass, onRefreshSystemFonts, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarFollowGlobal, onSidebarGlass, onSidebarFullClear, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onThinkingGlass, onToggleFontCustom, onToggleThemeFollow, sel,
-      officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onChatGlassFidelity, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onGlassFidelity, onLeftSidebarGlass, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarGlass, onSidebarFullClear, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onThinkingGlass, onToggleFontCustom, onToggleThemeFollow, sel,
+      glassPresets: glassPresetCtx(),
+      officialColorOf, onAccent, onCapsuleBlur, onCapsuleColor, onBlur, onBorder, onCaretColor, onChatGlassFidelity, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onGlassFidelity, onGlobalFamily, onLeftSidebarGlass, onRefreshSystemFonts, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarFollowGlobal, onSidebarGlass, onSidebarFullClear, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onThinkingGlass, onToggleFontCustom, onToggleThemeFollow, sel,
+      officialColorOf, onAccent, onCapsuleBlur, onCapsuleColor, onBlur, onBorder, onCaretColor, onChatGlassFidelity, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onGlassFidelity, onLeftSidebarGlass, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarGlass, onSidebarFullClear, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onThinkingGlass, onToggleFontCustom, onToggleThemeFollow, sel,
       // 玻璃 UI 子项开关 + 独立配置 + 独立参数（见 onToggleChildIndependent 那段注释）
       onToggleChildIndependent, onGlassChildParam, childIndependentOn,
     });
@@ -4239,10 +4298,10 @@ function RopeDock() {
 // tabs into it) and fixes the right column turning fully transparent there —
 // the native panel paints var(--dsw-alias-bg-base), the exact token WE makes
 // transparent while a wallpaper is active, and it had no frost of its own.
-// Updating to the latest plugin now has TWO PREREQUISITES, announced via this
-// notice: ① the DeepSeek Harness kernel must be the latest (DSH Desktop
-// ≥ 2.0.7 / harness 0.1.5-rc.1+), and ② dsh-better-sidebar must be the latest
-// (0.19.0+; users still on the 0.1.2-rc.1 line keep 0.18.x — no mixing). The
+// The notice also carries the prerequisite statement (final v1.2.0 wording):
+// the DSH kernel must be ≥ 0.1.5 (0.1.5-rc.1+, the tested floor — both the
+// official desktop line and DSH Desktop ≥ 2.0.7 qualify), and dsh-better-sidebar
+// is no longer version-restricted. The
 // dismissal version is stored WITH the settings (host file, port-independent)
 // so it survives DSH Desktop's random --port restarts and never re-shows
 // after being closed. Bump NOTICE_VERSION next release to announce something
@@ -4270,12 +4329,12 @@ function UpdateNotice() {
       React.createElement("p", null,
         weT("自 1.1.0 以来的全部更新：")),
       React.createElement("p", null,
-        "⚠️ ", React.createElement("strong", null, weT("先说重要的：前置条件变更")),
-        weT("：本版起要求"),
-        React.createElement("strong", null, weT("DeepSeek Harness 桌面端（官方桌面端）≥ 0.2.0-rc.1")),
-        weT("；旧 DSH Desktop 2.0.x 内核"),
-        React.createElement("strong", null, weT("装不上本版本")),
-        weT("（插件市场会红标并拒绝安装）。已装 1.1.0 的旧桌面用户可继续使用，升级前请先换官方桌面端。")),
+        "⚠️ ", React.createElement("strong", null, weT("先说重要的：前置条件口径")),
+        weT("：本版要求"),
+        React.createElement("strong", null, weT("DSH 内核 ≥ 0.1.5（0.1.5-rc.1+，实测下限）")),
+        weT("——官方桌面端与 DSH Desktop ≥ 2.0.7 都满足；"),
+        React.createElement("strong", null, weT("dsh-better-sidebar 不再有版本要求")),
+        weT("（装了的话建议更新到最新）。")),
       React.createElement("p", null,
         "① ", React.createElement("strong", null, weT("全新 UI：壁纸调节嵌入官方侧边栏")),
         weT("：壁纸调节的额外窗口没有了——侧栏内三档页签（壁纸 / 外观 / 播放）+ 新增「壁纸属性」入口，与设置页"),
@@ -4851,7 +4910,7 @@ function apply(ctx) {
   // ⚠️ 终止 `.catch` 是**必须**的：这条链上任何一步 reject，后面的 `loadInventory` 就永不执行 ——
   // 选择器永久停在「扫描 Wallpaper Engine…」，一次性提示也不收敛（用户只能靠刷新或禁用插件自救）。
   // 各步内部已各自消化可预期的失败（宿主不可达 / 存储被拒 / 坏 JSON），这一条兜的是"没预料到的那次抛"。
-  loadPersisted().then(loadFontSet).then(loadInventory).catch((err) => {
+  loadPersisted().then(loadFontSet).then(loadInventory).then(loadGlassPresets).catch((err) => {
     try { reportClientDiag("boot-chain-failed", String((err && err.message) || err)); } catch { /* 诊断本身不许再抛 */ }
   });
 }

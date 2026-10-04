@@ -2336,6 +2336,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     // quick-panel 的 provided 真传（裸标识符 ⇒ 必须进本名单，否则 vm 求值当场 ReferenceError）。
     'onCaretColor', 'onSidebarAlpha', 'onSidebarBlur', 'onSidebarColor',
     'onSidebarContentAlpha', 'onSidebarContentColor', 'onSidebarFollowGlobal', 'onThinkingGlass',
+    'onCapsuleBlur', 'onCapsuleColor',
     // 「玻璃 UI」节的两级子 UI 开关 + 子项独立参数：外观页签（设置页与侧栏档都会画到）。
     'onToggleGlassChild', 'onToggleGlassIndependent', 'onToggleChildIndependent',
     'onGlassChildParam', 'childIndependentOn',

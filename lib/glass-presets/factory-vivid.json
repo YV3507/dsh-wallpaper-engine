@@ -1,0 +1,38 @@
+{
+  "$schema": "dsh-we/glass-preset@1",
+  "id": "factory-vivid",
+  "name": "原色直出",
+  "values": {
+    "glassColor": "#67DCE7",
+    "glassAlpha": 50,
+    "blur": 18,
+    "glassFidelity": 35,
+    "glassMode": {
+      "sidebar": "inherit",
+      "sidebarContent": "inherit",
+      "settingsWindow": "inherit",
+      "conversation": "inherit",
+      "floaters": "inherit"
+    },
+    "leftSidebarGlass": false,
+    "thinkingGlass": false,
+    "capsuleBlur": 10,
+    "capsuleColor": "#67DCE7",
+    "sidebarGlass": true,
+    "sidebarFullClear": false,
+    "sidebarFollowGlobal": true,
+    "sidebarBlur": 16,
+    "sidebarAlpha": 60,
+    "sidebarColor": "#ffffff",
+    "sidebarContentAlpha": 38,
+    "sidebarContentColor": "",
+    "settingsWindowTransparency": 100,
+    "settingsWindowBlur": 60,
+    "conversationColor": "#ffffff",
+    "chatGlassFidelity": 100,
+    "floatersTransparency": 100,
+    "floatersBlur": 60,
+    "leftSidebarTransparency": 100,
+    "leftSidebarBlur": 60
+  }
+}

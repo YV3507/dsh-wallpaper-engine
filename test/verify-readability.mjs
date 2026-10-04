@@ -409,11 +409,15 @@ function main() {
       fills.length === 2 && fills.every(fill));
     check('negative control: the rejected 88% canvas fails the transparency contract',
       fills.length === 2 && !fill(fills[0].replace(/var\(--we-glass-alpha, [^)]+\)/, '0.88')));
-    const roots = ['[data-composer-card]', '[class*="_bubble"]',
+    // 2026-10-04 用户口径：输入框退出思考玻璃作用域 ⇒ fill 接管的名单只剩
+    // 气泡与两类代码围栏；输入卡在挂门规则里出现一次就算红（双向判据）。
+    const roots = ['[class*="_bubble"]',
       '[data-chat-flow] .md-code-block', ':has(> pre > code)'];
-    check('F2d composer, bubble and message fences retain their slider fill',
+    check('F2d bubble and message fences retain their slider fill; composer stays outside the thinking-glass scope',
       roots.every((anchor) => normal.some((r) => r.header.includes(anchor)
-        && /background(?:-color)?: var\(--we-chat-glass-fill\)/.test(r.body))));
+        && /background(?:-color)?: var\(--we-chat-glass-fill\)/.test(r.body)))
+      && !normal.some((r) => r.header.includes('data-we-thinking-glass')
+        && r.header.includes('[data-composer-card]')));
     const clear = (body) => /background: transparent !important/.test(body)
       && /(?:^|[;\s])backdrop-filter: none !important/.test(body)
       && /-webkit-backdrop-filter: none !important/.test(body)
@@ -429,7 +433,7 @@ function main() {
       normal.some((r) => r.header === 'body[data-we-wallpaper][data-we-thinking-glass]'
         && declValue(r.body, '--dsw-alias-markdown-inline-code') === 'var(--we-capsule-glass-fill)')
       && normal.some((r) => r.header === 'body[data-we-wallpaper]'
-        && declValue(r.body, '--we-capsule-glass-fill') === 'rgba(255, 255, 255, var(--we-inline-code-alpha, 0.10))')
+        && declValue(r.body, '--we-capsule-glass-fill') === 'rgba(var(--we-capsule-tint-rgb, 255, 255, 255), var(--we-inline-code-alpha, 0.10))')
       && !!chip && /background: var\(--dsw-alias-markdown-inline-code\) !important/.test(chip.body)
       && declValue(chip.body, 'backdrop-filter') === 'blur(var(--we-inline-code-blur, 8px)) saturate(var(--we-saturate, 1.3)) brightness(var(--we-glass-brightness, 1.04))'
       && declValue(chip.body, '-webkit-backdrop-filter') === declValue(chip.body, 'backdrop-filter')

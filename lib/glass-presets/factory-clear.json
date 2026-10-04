@@ -1,0 +1,38 @@
+{
+  "$schema": "dsh-we/glass-preset@1",
+  "id": "factory-clear",
+  "name": "清透速览",
+  "values": {
+    "glassColor": "#ffffff",
+    "glassAlpha": 70,
+    "blur": 6,
+    "glassFidelity": 90,
+    "glassMode": {
+      "sidebar": "inherit",
+      "sidebarContent": "inherit",
+      "settingsWindow": "inherit",
+      "conversation": "inherit",
+      "floaters": "inherit"
+    },
+    "leftSidebarGlass": false,
+    "thinkingGlass": false,
+    "capsuleBlur": 6,
+    "capsuleColor": "#ffffff",
+    "sidebarGlass": true,
+    "sidebarFullClear": false,
+    "sidebarFollowGlobal": true,
+    "sidebarBlur": 8,
+    "sidebarAlpha": 85,
+    "sidebarColor": "#ffffff",
+    "sidebarContentAlpha": 30,
+    "sidebarContentColor": "",
+    "settingsWindowTransparency": 90,
+    "settingsWindowBlur": 8,
+    "conversationColor": "#ffffff",
+    "chatGlassFidelity": 100,
+    "floatersTransparency": 90,
+    "floatersBlur": 8,
+    "leftSidebarTransparency": 90,
+    "leftSidebarBlur": 8
+  }
+}

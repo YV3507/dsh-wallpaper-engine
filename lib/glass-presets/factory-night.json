@@ -1,0 +1,38 @@
+{
+  "$schema": "dsh-we/glass-preset@1",
+  "id": "factory-night",
+  "name": "暗夜釉色",
+  "values": {
+    "glassColor": "#0d1524",
+    "glassAlpha": 60,
+    "blur": 22,
+    "glassFidelity": 75,
+    "glassMode": {
+      "sidebar": "inherit",
+      "sidebarContent": "inherit",
+      "settingsWindow": "inherit",
+      "conversation": "inherit",
+      "floaters": "inherit"
+    },
+    "leftSidebarGlass": false,
+    "thinkingGlass": false,
+    "capsuleBlur": 14,
+    "capsuleColor": "#0d1524",
+    "sidebarGlass": true,
+    "sidebarFullClear": false,
+    "sidebarFollowGlobal": true,
+    "sidebarBlur": 24,
+    "sidebarAlpha": 55,
+    "sidebarColor": "#0d1524",
+    "sidebarContentAlpha": 38,
+    "sidebarContentColor": "",
+    "settingsWindowTransparency": 100,
+    "settingsWindowBlur": 60,
+    "conversationColor": "#ffffff",
+    "chatGlassFidelity": 100,
+    "floatersTransparency": 100,
+    "floatersBlur": 60,
+    "leftSidebarTransparency": 100,
+    "leftSidebarBlur": 60
+  }
+}

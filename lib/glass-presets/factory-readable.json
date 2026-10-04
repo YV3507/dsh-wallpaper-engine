@@ -1,0 +1,38 @@
+{
+  "$schema": "dsh-we/glass-preset@1",
+  "id": "factory-readable",
+  "name": "可读优先",
+  "values": {
+    "glassColor": "#ffffff",
+    "glassAlpha": 40,
+    "blur": 24,
+    "glassFidelity": 100,
+    "glassMode": {
+      "sidebar": "inherit",
+      "sidebarContent": "inherit",
+      "settingsWindow": "inherit",
+      "conversation": "inherit",
+      "floaters": "inherit"
+    },
+    "leftSidebarGlass": false,
+    "thinkingGlass": false,
+    "capsuleBlur": 12,
+    "capsuleColor": "#ffffff",
+    "sidebarGlass": true,
+    "sidebarFullClear": false,
+    "sidebarFollowGlobal": true,
+    "sidebarBlur": 20,
+    "sidebarAlpha": 55,
+    "sidebarColor": "#ffffff",
+    "sidebarContentAlpha": 30,
+    "sidebarContentColor": "",
+    "settingsWindowTransparency": 100,
+    "settingsWindowBlur": 60,
+    "conversationColor": "#ffffff",
+    "chatGlassFidelity": 100,
+    "floatersTransparency": 100,
+    "floatersBlur": 60,
+    "leftSidebarTransparency": 100,
+    "leftSidebarBlur": 60
+  }
+}

@@ -1756,6 +1756,43 @@ console.log('\n⑭ 三方对账：写出的变量必须有人读（R4 死码清�
       && dead(new Set(['--we-a']), new Set(['--we-a'])).length === 0);
 }
 
+// ═══ ⑪ 思考玻璃门**不碰输入框**（2026-10-04 用户口径）══════════════════════════
+// 口径：思考块液态玻璃开关开着时，输入框（[data-composer-card] 一族，含它内部的
+// 「+」按钮 [class*="_add"]）必须与开关关着时**逐位相同** —— 输入框只受基础对话栏
+// 玻璃（data-we-glass-chat 恒挂层）与「对话框玻璃·独立配置」管。
+// 历史：#134 原稿给输入卡也铺了 fill 接管与「+」白釉（连同 --dsw-specific-selector
+// 令牌改写），审计时补了门；2026-10-04 用户实测口径 = 整族退出，规则已删。
+// 这条判据防的是"哪次改动又把输入框塞回思考玻璃门下"——选择器文本级负向棘轮。
+console.log('\n⑪ 思考玻璃门不碰输入框（用户口径 2026-10-04）');
+{
+  const stylesSrc = readFileSync(join(ROOT, 'src', 'styles.js'), 'utf8');
+  // 剥 CSS 块注释后再逐条规则解析：注释里可以提 data-we-thinking-glass / 输入框
+  //（记录口径的注释必须能写这些词），判据只看**真规则**。
+  const css = stylesSrc.replace(/\/\*[\s\S]*?\*\//g, '');
+  const ruleRe = /([^{}]*data-we-thinking-glass\][^{}]*)\{([^{}]*)\}/g;
+  const bad = [];
+  let tokenWrites = 0;
+  let rules = 0;
+  let m;
+  while ((m = ruleRe.exec(css))) {
+    rules++;
+    if (/data-composer-card|_add\b/.test(m[1])) bad.push(m[1].trim().slice(-90));
+    if (/--dsw-specific-selector\s*:/.test(m[2])) tokenWrites++;
+  }
+  check('挂门规则解析出足够的条数（判据不空转）', rules >= 8, rules + ' 条');
+  check('data-we-thinking-glass 门下的规则不出现 data-composer-card / _add',
+    bad.length === 0, bad.length ? bad.join(' | ') : '零命中');
+  check('思考玻璃门下不再改写 --dsw-specific-selector（「+」令牌回归宿主；'
+    + '无模糊回退路径的降级改写不属于本门，不受本判据管）', tokenWrites === 0,
+    tokenWrites + ' 处');
+  check('negative control: 合成一条挂门的输入卡规则会被同一条判据判出',
+    (() => {
+      const synth = 'body[data-we-wallpaper][data-we-thinking-glass] [data-composer-card] { color: red }';
+      const mm = /([^{}]*data-we-thinking-glass\][^{}]*)\{([^{}]*)\}/.exec(synth);
+      return Boolean(mm) && /data-composer-card/.test(mm[1]);
+    })());
+}
+
 console.log('');
 if (failed) {
   console.log('GLASS SURFACE CHECKS FAILED — ' + failed + ' failed');

@@ -1,0 +1,38 @@
+{
+  "$schema": "dsh-we/glass-preset@1",
+  "id": "factory-frosted",
+  "name": "重磨砂",
+  "values": {
+    "glassColor": "#ffffff",
+    "glassAlpha": 45,
+    "blur": 36,
+    "glassFidelity": 100,
+    "glassMode": {
+      "sidebar": "inherit",
+      "sidebarContent": "inherit",
+      "settingsWindow": "inherit",
+      "conversation": "inherit",
+      "floaters": "inherit"
+    },
+    "leftSidebarGlass": false,
+    "thinkingGlass": false,
+    "capsuleBlur": 16,
+    "capsuleColor": "#ffffff",
+    "sidebarGlass": true,
+    "sidebarFullClear": false,
+    "sidebarFollowGlobal": true,
+    "sidebarBlur": 30,
+    "sidebarAlpha": 50,
+    "sidebarColor": "#ffffff",
+    "sidebarContentAlpha": 42,
+    "sidebarContentColor": "",
+    "settingsWindowTransparency": 55,
+    "settingsWindowBlur": 32,
+    "conversationColor": "#ffffff",
+    "chatGlassFidelity": 100,
+    "floatersTransparency": 55,
+    "floatersBlur": 32,
+    "leftSidebarTransparency": 55,
+    "leftSidebarBlur": 28
+  }
+}

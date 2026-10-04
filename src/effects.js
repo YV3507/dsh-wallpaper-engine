@@ -327,6 +327,16 @@ function applyEffects(opts) {
   // 本门控仍在 applyEffects 就地写 —— 它不是玻璃量，不进 applyGlass 的取值管线。）
   if (selection.thinkingGlass) document.body.setAttribute("data-we-thinking-glass", "on");
   else document.body.removeAttribute("data-we-thinking-glass");
+  // 文字胶囊一族的雾化（行内代码 / 新会话 / 「加载更早历史」「回到底部」）：
+  // #134 落地时是写死的 8px CSS 兜底（--we-inline-code-blur 无生产者 ⇒ 用户实测"调不了"），
+  // 现在接成旋钮（capsuleBlur，默认 8 = 原观感）。与上面的门控属性同处声明 ——
+  // 这族变量只被 data-we-thinking-glass 门下的规则消费（styles.js ⑥ 条）。
+  const capBlurNum = Number(selection.capsuleBlur);
+  s.setProperty("--we-inline-code-blur", String(Number.isFinite(capBlurNum) ? capBlurNum : 8) + "px");
+  // 胶囊釉色：三元组形式给 rgba() 槽位（fill 令牌 + 滚动条拇指）。刻意不过
+  // weClampSurfaceColor —— 10% 雾底不是正文面，不进可读性下限（理由见 schema）。
+  s.setProperty("--we-capsule-tint-rgb", toRgbTriple(
+    /^#[0-9a-f]{6}$/i.test(String(selection.capsuleColor)) ? selection.capsuleColor : "#ffffff"));
 
   // dsh-better-sidebar 液态玻璃：一套独立于会话玻璃的细粒度控制（侧栏模糊 /
   // 侧栏透明度 / 侧栏玻璃颜色 + 总开关）。变量只作用于 [data-dsh-better-sidebar]
