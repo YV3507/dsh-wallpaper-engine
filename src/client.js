@@ -4749,7 +4749,19 @@ function RopeDock() {
 // --port restarts and never re-shows after being closed. Bump NOTICE_VERSION
 // next release to announce something new again (swap the art bytes in
 // lib/about/, the path stays put — ETag revalidation picks it up).
-const NOTICE_VERSION = "1.3.0";
+//
+// ⚠️ 公告**等配图就绪才弹**（art-gate，见 UpdateNotice）：面板 bundle 宿主每次开页
+// 都从磁盘现读，而后端路由只在 DSH 重启时换血 —— 更新后未重启的窗口期里，旧后端
+// 的 /about-qr 白名单还没有 update-notice.jpg ⇒ 图 404。若照旧立刻弹窗，用户看到
+// 裂图，而「知道了」一关整版公告永久退场，配图等于永远没人看到（v1.3.0 发布当日
+// 的真实事故）。-r2 哨兵让当时已误关公告的用户再看一次（带图版）。
+const NOTICE_VERSION = "1.3.0-r2";
+// 配图就绪探针的节奏：HEAD 轮询到新白名单在场（= 后端已重启）才弹；旧后端一直
+// 不在场超过 WAIT 则降级为**无图**弹出（文案信息完整；求星入口在「关于」页常驻，
+// 不靠弹窗这一条命）。探针打在 /about-qr 上是自清洁的：404 响应 no-store、200
+// no-cache（lib/routes/about-qr.js），怎么轮询都不会污染 Electron 缓存。
+const NOTICE_ART_WAIT_MS = 90000;
+const NOTICE_ART_POLL_MS = 1500;
 
 // ❗ 的字体强制：U+2757 在正文字体栈里落到细杆字形（实测渲染成细红竖线，用户口径
 // 是"红色感叹号"）—— 单包一层 span 强制走 Segoe UI Emoji，出来的才是胖红感叹号。
@@ -4759,11 +4771,35 @@ const noticeEx = (n) => React.createElement("span",
 function UpdateNotice() {
   useWeLocale(); // 更新说明是长文案，语言切换后要跟着换（同一棵 RopeDock 子树）
   const sel = useStore();
+  // Art-gate 探针：pending（探测中，什么都不弹）→ ready（新后端在场，带图弹）→
+  // timeout（等满 WAIT 仍 404，降级为无图弹）。用组件本地 state 而不是共享
+  // selection —— 纯视图态，进 store 会平白多一对瞬态字段要过直写棘轮。
+  const [art, setArt] = React.useState("pending");
   // Only render once the host settings (source of truth) are applied, so the
   // persisted noticeSeen is final. On a fresh port/restart the localStorage
   // origin is empty (noticeSeen == "") and would briefly flash the notice before
   // the host GET merges the real value — wait for hostLoaded to avoid that.
-  const show = sel.hostLoaded && sel.noticeSeen !== NOTICE_VERSION;
+  const eligible = sel.hostLoaded && sel.noticeSeen !== NOTICE_VERSION;
+  React.useEffect(() => {
+    // 已关过本版公告的用户一个请求都不发（每次开面板都探一遍是纯浪费）。
+    if (!eligible) return undefined;
+    let alive = true;
+    let timer = 0;
+    const startedAt = Date.now();
+    const probe = () => {
+      // apiHead 不抛（api-client 契约）：404/断网都是 ok:false —— 落到下一拍，
+      // 或者等满 WAIT 降级。
+      apiHead(NOTICE_ART_PATH).then((r) => {
+        if (!alive) return;
+        if (r.ok) { setArt("ready"); return; }
+        if (Date.now() - startedAt >= NOTICE_ART_WAIT_MS) { setArt("timeout"); return; }
+        timer = setTimeout(probe, NOTICE_ART_POLL_MS);
+      });
+    };
+    timer = setTimeout(probe, 0);
+    return () => { alive = false; clearTimeout(timer); };
+  }, [eligible]);
+  const show = eligible && (art === "ready" || art === "timeout");
   const dismiss = () => {
     // Persist the dismissed version through the settings pipeline (localStorage
     // cache + host file). emit() re-renders this component (useStore) to hide it.
@@ -4773,9 +4809,11 @@ function UpdateNotice() {
   if (!show) return null;
   return React.createElement("div", { className: "we-update-notice", role: "alert" },
     React.createElement("div", { className: "we-update-notice__title" }, weT("🎉 v1.3.0 更新：玻璃全面自定义 · 自定义吉祥物与会话头像")),
-    React.createElement("img", { className: "we-update-notice__art", src: apiUrl(NOTICE_ART_PATH), alt: weT("求个 star 喵！—— GitHub 求星插画") }),
-    React.createElement("div", { className: "we-update-notice__art-cap" },
-      React.createElement("strong", null, weT("在设置中的壁纸引擎页面中的关于中可一键直达，谢谢喵！"))),
+    // 只有 ready 才渲染配图与配图说明（timeout 降级态连说明一起藏 —— 那行字在
+    // 说"这张图"，图缺席时它就是无源之水）。
+    art === "ready" ? React.createElement("img", { className: "we-update-notice__art", src: apiUrl(NOTICE_ART_PATH), alt: weT("求个 star 喵！—— GitHub 求星插画") }) : null,
+    art === "ready" ? React.createElement("div", { className: "we-update-notice__art-cap" },
+      React.createElement("strong", null, weT("在设置中的壁纸引擎页面中的关于中可一键直达，谢谢喵！"))) : null,
     React.createElement("div", { className: "we-update-notice__body" },
       React.createElement("p", null,
         weT("自 1.2.0 以来的全部更新：")),
