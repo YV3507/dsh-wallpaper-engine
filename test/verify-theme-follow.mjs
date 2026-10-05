@@ -494,8 +494,14 @@ console.log('\n⑦ 接线：服务句柄 / 切换评估 / 面板开关 / 内联�
   // 皮肤互操作（退出清单里的主题那一条）：清空路径放回 + 复位那次走 fromSkinRestore。
   // 判据认形态（函数名 + 实参形态），负对照在 ⑧ 的行为面（剥掉就不写回）。
   const themeSrc = read('src/theme-follow.js');
+  // ⚠️ 换行一律写 `\r?\n`：CI 是 CRLF 检出（windows-latest），写死 `\n` 的形态正则在那边恒不匹配
+  //（实测：本批主题放回守卫因此红过一次 CI）。第二条把容忍性本身钉住 —— CRLF 变换不依赖 CI
+  // 环境，所以在本地就能判红"本地绿、CI 红"的复发。
+  const releaseThenEmitRe = /themeFollowRelease\(\);\r?\n\s*emit\(\);/;
   check('清空路径调用放回（themeFollowRelease）—— 用户「清除」与皮肤让路两条路都汇到那里',
-    /themeFollowRelease\(\);\n\s*emit\(\);/.test(prepSrc));
+    releaseThenEmitRe.test(prepSrc));
+  check('CRLF 容忍：同一条判据在 CRLF 检出形态上也命中（防"本地绿、CI 红"复发）',
+    releaseThenEmitRe.test(prepSrc.replace(/\n/g, "\r\n")));
   check('放回只在 applySelection 的清空路径调（被过滤的早退分支不调 —— 选择还在，主题时代没结束）',
     prepSrc.split('themeFollowRelease()').length - 1 === 1,
     'calls=' + (prepSrc.split('themeFollowRelease()').length - 1));
