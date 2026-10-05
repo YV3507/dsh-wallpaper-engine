@@ -187,6 +187,21 @@ const INLINE_MODULES = [
     markers: ['const PARALLAX_EXTENSION_MODULE = {', 'function renderParallaxIsland(ctx)'],
   },
   {
+    // 「扩展」页签**一号模块**（自定义会话头像）：与前面两份不同 —— 它的"本体"既不是画布层
+    // 也不是纯变量层，而是**会话界面上的 DOM 补丁**（给宿主的消息行补头像节点 + 一个
+    // 观察者），所以行为层是 src/avatar-layer.js。排在 panel-tabs 之前（它要在渲染时取
+    // 得到 AVATAR_EXTENSION_MODULE 与那几张默认头像的零件表）。
+    file: 'src/avatar-layer.js',
+    why: '「自定义会话头像」的装饰层：按 data-chat-flow-kind 给消息行补头像节点（观察者 + 就地更新；基座模块：只读 selection、零 ctx），并供面板预览复用同一条 URL 与同一张默认头像零件表',
+    markers: ['const AVATAR_FLOW_SIDES = ', 'const AVATAR_GLYPH_PARTS = ',
+      'function syncAvatarLayer()', 'function disposeAvatarLayer()'],
+  },
+  {
+    file: 'src/ext-avatar.js',
+    why: '「扩展」页签第一个模块的描述符（渲染该扩展岛；动作一律经 ctx 里的具名 on* 处理器）',
+    markers: ['const AVATAR_EXTENSION_MODULE = {', 'function renderAvatarIsland(ctx)'],
+  },
+  {
     file: 'src/system-fonts.js',
     why: '本机字体清单的客户端通道：宿主那次进程扫描的唯一读者（清单 / 缓存 / 失败文案 / 本浏览器能否匹配的探针），与字体集通道同形',
     markers: ['const SYSTEM_FONTS_CACHE_KEY = ', 'function readCachedSystemFonts()',

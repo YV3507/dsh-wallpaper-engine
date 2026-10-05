@@ -569,7 +569,95 @@ if (token) {
     'status=' + headOver.status + ' gpu=' + headOver.gpu);
   await new Promise((r) => server.close(r));
 }
-// ── Level D2: 中途放弃请求的断开时机（确定性；真 socket 上只能碰运气）──────
+
+
+// ── Level B2: 用户图片资产路由（会话头像 + 吉祥物立绘；真 socket + 隔离的数据目录）──
+// 这两族是用户资产的第三条腿（前两条：上传壁纸 / 自定义画面）：POST 导入（raw body，
+// MIME 白名单）/ GET·HEAD 查看 / DELETE 清除。头像按"一方一张"（user / ai），立绘**只有
+// 一张**（再导入即覆盖 —— 用户口径）。它俩在真机上踩过同一个坑：**宿主没重挂时** POST
+// 会落到 SPA 兜底、拿到一个裸 405（客户端为此把"宿主里没有这条路由"翻译成"重启 DSH"）。
+//
+// ⚠️ 两边都必须隔离：
+//   · 数据目录：`avatarDir()` = `pluginDataDir()/avatars`，而 `pluginDataDir()` 认
+//     `DSH_WE_DATA_DIR` ⇒ 指到工作区里的临时目录。**不许落到真实的 ~/.dsh-wallpaper-engine**
+//     —— 路由会清"同一方的旧文件"，指错等于把用户的头像删掉。
+//   · 清理：用例自己删掉整个临时目录（含正式文件与 .tmp）。
+{
+  const http = await import('node:http');
+  const dataDir = join(root, '.test-cache', 'avatar-route-data');
+  rmSync(dataDir, { recursive: true, force: true });
+  const PREV_DATA_DIR = process.env.DSH_WE_DATA_DIR;
+  process.env.DSH_WE_DATA_DIR = dataDir;
+  const routesForHttp = routes.filter((r) => r.path.startsWith('/wallpaper-engine/'));
+  const server = http.createServer((req, res) => {
+    const path = new URL(req.url || '/', 'http://x').pathname;
+    const hit = routesForHttp
+      .filter((r) => path === r.path || path.startsWith(r.path + '/'))
+      .sort((a, b) => b.path.length - a.path.length)[0];
+    if (!hit) { res.statusCode = 404; res.end('no route'); return; }
+    try { hit.handler(req, res); } catch (err) { res.statusCode = 500; res.end(String(err)); }
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const port = server.address().port;
+  const call = (method, path, headers, body) => new Promise((resolveFn) => {
+    const chunks = [];
+    const req = http.request({ host: '127.0.0.1', port, method, path, agent: false, headers: headers || {} }, (res) => {
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        const buf = Buffer.concat(chunks);
+        resolveFn({ status: res.statusCode, headers: res.headers, buf, body: buf.toString('utf8') });
+      });
+    });
+    req.on('error', () => resolveFn({ status: 0, headers: {}, body: '' }));
+    if (body) req.write(body);
+    req.end();
+  });
+  try {
+    const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47]), Buffer.alloc(24, 7)]);
+    const empty = await call('GET', '/wallpaper-engine/avatar/user');
+    check('头像：未导入 ⇒ GET 404（且 no-store，导入后不会再看到这个 404）',
+      empty.status === 404 && empty.headers['cache-control'] === 'no-store',
+      'status=' + empty.status + ' cc=' + empty.headers['cache-control']);
+    const badSide = await call('POST', '/wallpaper-engine/avatar/nope', { 'Content-Type': 'image/png' }, png);
+    check('头像：非法的一方 ⇒ 400（路径段当白名单查，不拼进文件名）',
+      badSide.status === 400 && /bad-side/.test(badSide.body), 'status=' + badSide.status);
+    const badType = await call('POST', '/wallpaper-engine/avatar/user', { 'Content-Type': 'text/plain' }, 'hi');
+    check('头像：非白名单 MIME ⇒ 415', badType.status === 415, 'status=' + badType.status);
+    const first = await call('POST', '/wallpaper-engine/avatar/user', { 'Content-Type': 'image/png' }, png);
+    const firstName = (/"name":"([^"]+)"/.exec(first.body) || [])[1] || '';
+    check('头像：导入 ⇒ 200 + 文件名（<side>-<stamp>.<ext>，它同时是缓存键）',
+      first.status === 200 && /^user-[a-z0-9]{4,16}\.png$/.test(firstName),
+      'status=' + first.status + ' name=' + firstName);
+    const got = await call('GET', '/wallpaper-engine/avatar/user');
+    check('头像：查看 ⇒ 200 + 字节一致 + 长缓存（由文件名担保）',
+      got.status === 200 && got.headers['content-type'] === 'image/png'
+      && got.buf.length === png.length && got.buf.equals(png)
+      && /max-age=31536000/.test(String(got.headers['cache-control'])),
+      'status=' + got.status + ' bytes=' + got.buf.length + '/' + png.length
+      + ' cc=' + got.headers['cache-control']);
+    const head = await call('HEAD', '/wallpaper-engine/avatar/user');
+    check('头像：HEAD 只探测（200，无体）', head.status === 200 && head.body === '',
+      'status=' + head.status);
+    // 换图 ⇒ 同 side 的旧文件必须清掉（读取侧按前缀取第一个命中的），且新旧字节不同。
+    const png2 = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47]), Buffer.alloc(32, 9)]);
+    const second = await call('POST', '/wallpaper-engine/avatar/user', { 'Content-Type': 'image/png' }, png2);
+    const secondName = (/"name":"([^"]+)"/.exec(second.body) || [])[1] || '';
+    const files = readdirSync(join(dataDir, 'avatars')).filter((f) => f.startsWith('user-'));
+    check('头像：换图 ⇒ 新名字 + 旧文件被清（同 side 目录里只剩一份）',
+      second.status === 200 && secondName !== firstName && files.length === 1 && files[0] === secondName,
+      'files=[' + files.join(',') + '] second=' + secondName);
+    const cleared = await call('DELETE', '/wallpaper-engine/avatar/user');
+    const afterClear = await call('GET', '/wallpaper-engine/avatar/user');
+    check('头像：清除 ⇒ 200 removed:true，随后 GET 回到 404',
+      cleared.status === 200 && /"removed":true/.test(cleared.body) && afterClear.status === 404,
+      'status=' + cleared.status + ' then ' + afterClear.status);
+
+  } finally {
+    await new Promise((r) => server.close(r));
+    if (PREV_DATA_DIR === undefined) delete process.env.DSH_WE_DATA_DIR; else process.env.DSH_WE_DATA_DIR = PREV_DATA_DIR;
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+}// ── Level D2: 中途放弃请求的断开时机（确定性；真 socket 上只能碰运气）──────
 // 真 socket 用例是**竞态**断言：断开早于应答刷出才失败，而那一刻取决于背压与
 // 事件循环负载。这里用替身把时序钉死，判据是**顺序**，对每条"收到一半就放弃"的
 // 路由都一样：

@@ -2836,6 +2836,50 @@ body[data-we-glass-floaters] .we-repo-panel {
   .we-ext__module-head { display: flex; align-items: center; gap: 8px; }
   .we-ext__module-title { font-size: 0.85em; font-weight: 600; color: var(--we-ink, inherit); }
 
+  /* ── 「扩展」页签一号模块：自定义会话头像（装饰层见 src/avatar-layer.js）──
+     这一层是**宿主会话 DOM 的补丁**：给三类消息行（data-chat-flow-kind = user / steering /
+     assistant-step）在最前面插一个 .we-avatar，行本身改横向 flex ⇒ 头像与消息并排；
+     用户行反过来（row-reverse）⇒ 先插的那个节点落在最右，于是"你的消息在右、助手在左"。
+     关掉开关时节点与属性都被装饰层撤掉 ⇒ 屏上一点痕迹都没有（下面每条规则都挂在开关属性下，
+     与思考块玻璃 / 视差同一条门控纪律）。
+     尺寸与圆角来自 body 上的两个变量（装饰层按设置写）⇒ 拖滑块只是**变量替换**，不重建节点；
+     头像是**一个圆脸**（没导入图就画内置的默认头像 SVG），宽度固定为边长 ⇒ 长消息不会被挤。
+     ⚠️ **没有自定义名字行**（早先那版已按用户口径移除）：这里不要再加名字。 */
+  body[data-we-avatar="on"] [data-we-avatar-row] { display: flex; align-items: flex-start; gap: 8px; }
+  body[data-we-avatar="on"] [data-we-avatar-row="user"] { flex-direction: row-reverse; }
+  body[data-we-avatar="on"] [data-we-avatar-row] > :not(.we-avatar) { flex: 1 1 auto; min-width: 0; }
+  .we-avatar {
+    box-sizing: border-box; flex: 0 0 auto; display: flex; align-items: center; justify-content: center;
+    width: var(--we-avatar-size, 40px); height: var(--we-avatar-size, 40px);
+    border-radius: calc(var(--we-avatar-round, 100) * 0.5%);
+    overflow: hidden;
+    color: var(--dsw-alias-label-secondary, currentColor);
+    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.16));
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.28));
+  }
+  .we-avatar__img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .we-avatar__glyph { display: flex; align-items: center; justify-content: center; }
+  .we-avatar__glyph svg { width: 62%; height: 62%; }
+  /* 面板里的预览：固定框（不随滑块长高），里头那张脸按当前大小 / 圆角现画。
+     预览用的是自己的一对类名（不是 .we-avatar）—— 那些节点由装饰层建在会话里，
+     面板这一份是 React 画的，两边共用的是"零件表与 URL"而不是 DOM 结构。 */
+  .we-avatar-preview {
+    box-sizing: border-box; flex: 0 0 auto; display: flex; align-items: center; justify-content: center;
+    border: 1px dashed var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.28));
+    border-radius: 10px;
+  }
+  .we-avatar-preview__face {
+    box-sizing: border-box; display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+    color: var(--dsw-alias-label-secondary, currentColor);
+    background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.16));
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.28));
+  }
+  .we-avatar-preview__img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .we-avatar-preview__glyph { display: flex; align-items: center; justify-content: center; }
+  .we-avatar-preview__glyph svg { width: 62%; height: 62%; }
+  .we-avatar-error { font-size: 0.82em; opacity: 0.9; color: #e5534b; }
+
   /* ── 「扩展」二号模块：点击效果与拖尾效果（画布层见 src/fx-layer.js）──
      与 .we-layer / .we-scrim 同族：body 级的整屏浮层 ⇒ 同样必须
      pointer-events: none; -webkit-app-region: initial !important（同族的硬要求，

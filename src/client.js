@@ -349,6 +349,11 @@ const selection = {
   uploading: false,
   uploadError: "",
   uploadNote: "",
+  // 自定义会话头像（「扩展」页签第一个模块）的导入态（transient）：在途的那一方
+  // （"" = 空闲，值是 'user' | 'ai'）与最后一条错误。与上面两枚同口径 —— 只活在内存里，
+  // 设置白名单没有它们（serialize 时被 schema 过滤掉）。
+  avatarBusy: "",
+  avatarError: "",
   // Upload-directory editor (transient): open state + draft path.
   editingUploadDir: false,
   uploadDirDraft: "",
@@ -2914,6 +2919,166 @@ function onParallaxEnabled(e) { setSetting("parallaxEnabled", e.target.checked);
 function onParallaxMascot(e) { setSetting("parallaxMascot", e.target.checked); emit(); }
 function onParallaxBg(v, live) { commitLiveSetting("parallaxBg", v, live); }
 function onParallaxSmooth(v, live) { commitLiveSetting("parallaxSmooth", v, live); }
+// ── 「扩展」页签（一号模块：自定义会话头像）的处理器 ────────────────────────────
+// 与上面两组同形：控件只报事件，写设置 + 重渲染都在这里。装饰层（src/avatar-layer.js）
+// 每收到一次 emit 就按当前设置重画一遍，所以：
+//   · 开关 / 导入 / 清除走完整路径（emit）；
+//   · 两个滑块走 commitLiveSetting 的 live 档，但**额外补一次 syncAvatarLayer()** ——
+//     那一层是 emit 的订阅者（不 emit 就不会被叫到），而拖动时的即时反馈正是这个模块的
+//     主要看点。live 档下不 emit：面板不重渲染（滑块数值由控件自己就地更新），
+//     会话里的头像当场变大小 / 变圆角。
+function onAvatarEnabled(e) { setSetting("avatarEnabled", e.target.checked); emit(); }
+function onAvatarSize(v, live) { commitLiveSetting("avatarSize", v, live); if (live) syncAvatarLayer(); }
+function onAvatarRadius(v, live) { commitLiveSetting("avatarRadius", v, live); if (live) syncAvatarLayer(); }
+// ── 用户图片资产导入的共用腿（会话头像 / 吉祥物立绘）─────────────────────────
+// 两族走的是同一条链：选文件 → 解码 → 按上限缩一遍 → POST 到宿主 → 把返回的文件名记账。
+// 差别只有"目标路由 / MIME 白名单口径与记账键"，所以链本身只写一份。
+//
+// 为什么**不缓存 input 元素**（custom-frame 那种模块级 ref 是为了"面板重渲染后还点得到"）：
+// 这里每次导入都是一次性的 —— 造一个、点开、用完即弃，语义经闭包带进来。
+/** 客户端缩放上限（px）：显示尺寸最多 72px（头像）/ 96px（立绘），把原图按它缩一遍 ——
+ *  直接把 8MB 的原图发上去只会让宿主目录变大、每次加载多传几倍字节。 */
+const IMAGE_IMPORT_MAX_EDGE = 512;
+function pickImageFile(onFile) {
+  if (typeof document === "undefined" || typeof document.createElement !== "function") return;
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/png,image/jpeg,image/webp";
+  input.style.display = "none";
+  try { document.body.appendChild(input); } catch { /* ignore */ }
+  const done = () => { try { input.remove(); } catch { /* ignore */ } };
+  input.addEventListener("change", () => {
+    const file = input.files && input.files[0];
+    done();
+    if (file) onFile(file);
+  });
+  // 用户在系统选择框里点「取消」：Chromium 会发 cancel（不发 change）—— 不收的话这个
+  // 隐藏 input 就永远留在 body 上（每次取消漏一个）。再补一根定时兜底，覆盖不发 cancel 的老壳。
+  input.addEventListener("cancel", done);
+  if (typeof window !== "undefined" && typeof window.setTimeout === "function") {
+    window.setTimeout(done, 60000);
+  }
+  try { input.click(); } catch { /* ignore */ }
+}
+/** 解码一张图（createImageBitmap 优先；没有就走 <img> + objectURL 的老路）。 */
+async function decodeImageFile(file) {
+  if (typeof createImageBitmap === "function") {
+    try { return await createImageBitmap(file); } catch { /* 落到下面那条腿 */ }
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    return await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error("decode failed"));
+      img.src = url;
+    });
+  } finally {
+    // 解码完成即可释放：canvas 已经把像素拷走了。
+    try { URL.revokeObjectURL(url); } catch { /* ignore */ }
+  }
+}
+/** 把用户选的图缩到 maxEdge 以内并重新编码（webp 优先，编不出来退回 png）。
+ *  返回 `{ blob, width, height }` —— 宽高是**缩放后**的像素数（立绘要用它算显示盒）。 */
+async function downscaleImageFile(file, maxEdge) {
+  const src = await decodeImageFile(file);
+  const w = Number(src.width) || 0;
+  const h = Number(src.height) || 0;
+  if (!w || !h) throw new Error("bad image");
+  const scale = Math.min(1, maxEdge / Math.max(w, h));
+  const tw = Math.max(1, Math.round(w * scale));
+  const th = Math.max(1, Math.round(h * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = tw;
+  canvas.height = th;
+  const g = canvas.getContext("2d");
+  if (!g) throw new Error("no canvas");
+  g.drawImage(src, 0, 0, tw, th);
+  const srcW = w;
+  const srcH = h;
+  if (src.close) { try { src.close(); } catch { /* ignore */ } }
+  const toBlob = (type, quality) => new Promise((resolve) => {
+    try { canvas.toBlob((b) => resolve(b), type, quality); } catch { resolve(null); }
+  });
+  const webp = await toBlob("image/webp", 0.92);
+  const blob = (webp && webp.type === "image/webp") ? webp : (await toBlob("image/png")) || file;
+  return { blob, width: srcW, height: srcH };
+}
+/**
+ * 用户资产路由的失败文案。
+ *
+ * **裸状态码 = 请求没到本族**。两族的每个非 2xx 都由路由发 `{ error }` 信封
+ * （`method not allowed` / `not-set` / `不支持的格式…`），所以一个**没有信封**的 404/405
+ * 只可能来自别的层（SPA 兜底 / 静态层）—— 实测语义只有一个：**宿主里没有这条路由**。
+ * 最常见的原因是**宿主没重挂**：宿主模块只在启动时 load 一次，而浏览器里的 bundle 每次
+ * 刷新都重新取，于是"刷新页面只换前端、宿主那份还是启动时那份"，表现就是这两个裸状态码
+ *（实测：改了宿主代码只等客户端 HMR ⇒ 导入报「宿主返回 405」）。
+ * 这句话必须说出来 —— 只说"宿主返回 405"用户只能一脸茫然（同 fontset / system-fonts 口径）。
+ */
+function assetRouteFailure(res, what) {
+  const bare = !res || !res.data || typeof res.data !== "object" || !res.data.error;
+  if (bare && (res.status === 404 || res.status === 405)) {
+    return weT("宿主里没有{what}路由：重启 DSH 后再试（改过宿主代码要重挂，刷新页面不够）",
+      { what: what });
+  }
+  return (res && res.data && res.data.error) || weT("宿主返回 {status}", { status: res ? res.status : 0 });
+}
+/** 两族共用的"POST 一张图"这条腿：返回 `{ ok, name }`（失败时 `error` 是给人看的原因）。 */
+async function postImageAsset(path, blob, what) {
+  const res = await apiFetch(path, {
+    method: "POST",
+    headers: { "Content-Type": blob.type },
+    body: blob,
+    parse: "always", // 非 2xx 的原因（含"没有这条路由"）都要读得到
+  });
+  const name = res.data && typeof res.data.name === "string" ? res.data.name : "";
+  if (!res.ok || !name) return { ok: false, error: assetRouteFailure(res, what) };
+  return { ok: true, name: name };
+}
+
+// ── 「扩展」页签（一号模块：自定义会话头像）的处理器 ────────────────────────────
+// 控件只报事件，写设置 + 重渲染都在这里。装饰层（src/avatar-layer.js）每收到一次 emit
+// 就按当前设置重画一遍，所以：开关 / 导入 / 清除走完整路径（emit）；两个滑块走
+// commitLiveSetting 的 live 档，但**额外补一次 syncAvatarLayer()** —— 那一层是 emit 的
+// 订阅者（不 emit 就不会被叫到），而拖动时的即时反馈正是这个模块的主要看点。
+function onAvatarEnabled(e) { setSetting("avatarEnabled", e.target.checked); emit(); }
+function onAvatarSize(v, live) { commitLiveSetting("avatarSize", v, live); if (live) syncAvatarLayer(); }
+function onAvatarRadius(v, live) { commitLiveSetting("avatarRadius", v, live); if (live) syncAvatarLayer(); }
+function onAvatarPick(side) { pickImageFile((file) => uploadAvatarFile(side, file)); }
+async function uploadAvatarFile(side, file) {
+  if (!file || !/^image\/(png|jpeg|webp)$/.test(String(file.type || ""))) {
+    setTransient("avatarError", weT("仅支持 JPG / PNG / WebP 图片"));
+    emit();
+    return;
+  }
+  setTransient("avatarError", "");
+  setTransient("avatarBusy", side);
+  emit();
+  try {
+    const img = await downscaleImageFile(file, IMAGE_IMPORT_MAX_EDGE);
+    const posted = await postImageAsset("/avatar/" + side, img.blob, weT("头像"));
+    if (!posted.ok) throw new Error(posted.error);
+    // 记账：文件名进设置（它同时是"设置过没有"与 `<img>` 的缓存键）。
+    setSetting(side === "ai" ? "avatarAiImage" : "avatarUserImage", posted.name);
+  } catch (err) {
+    setTransient("avatarError", weT("导入失败：{error}", { error: err && err.message ? err.message : String(err) }));
+  } finally {
+    setTransient("avatarBusy", "");
+    emit();
+  }
+}
+function onAvatarClear(side) {
+  setTransient("avatarError", "");
+  apiDelete("/avatar/" + side, { parse: "always" }).then((r) => {
+    if (!r.ok) throw new Error(assetRouteFailure(r, weT("头像")));
+    setSetting(side === "ai" ? "avatarAiImage" : "avatarUserImage", "");
+    emit();
+  }).catch((err) => {
+    setTransient("avatarError", weT("清除失败：{error}", { error: err && err.message ? err.message : String(err) }));
+    emit();
+  });
+}
+
 /**
  * 适配方式（覆盖 / 填充 / 居中 / 拉伸）：除写设置外，Edge 的 canvas 渲染路径把 fit 存在
  * `weDrawCtx` 上，而 `syncLayers` 的 same-canvas 守卫不会重建 draw loop ⇒ 这里要直接更新并重绘。
@@ -3801,6 +3966,7 @@ const officialColorOf = (tokens) => {
     onFxTrail, onFxTrailStyle, onFxTrailLength, onFxTrailWidth, onFxTrailGlow,
     onFxOpacity, onFxBlend, onFxColorMode, onFxColor,
     onParallaxEnabled, onParallaxBg, onParallaxMascot, onParallaxSmooth,
+    onAvatarEnabled, onAvatarSize, onAvatarRadius, onAvatarPick, onAvatarClear,
   });
   const renderActiveTab = () => {
     if (activeTab === "about") return renderAboutTab({});
@@ -4527,6 +4693,9 @@ function apply(ctx) {
       // 开关属性，位移由 src/styles.js 的视差段算出来。它只在"总开关开着"时才活，并且
       // **收敛驱动**——屏上剩下的位移看不出来就停 rAF，光标不动不耗帧（帧率封顶 60Hz）。
       const unsubParallax = subscribe(syncParallaxLayer);
+      // 「扩展」页签一号模块（自定义会话头像）的装饰层：接法同上。它是**唯一改宿主会话 DOM**
+      // 的一层 —— 给消息行补头像节点（观察者 + 就地更新），关掉时逐字节恢复原样。
+      const unsubAvatar = subscribe(syncAvatarLayer);
       // Occlusion pause: re-apply the effective playing state whenever the
       // page hides/shows or the window loses/gains focus (see occlusionActive).
       // Fires syncLayers → play/pause on the video; decode drops to 0 while
@@ -4641,12 +4810,14 @@ function apply(ctx) {
       applyEffects();
       syncFxLayer();
       syncParallaxLayer();
+      syncAvatarLayer();
       return () => {
         disposed = true;
         unsub();
         unsubEffects();
         unsubFx();
         unsubParallax();
+        unsubAvatar();
         if (ocWatch) { try { clearInterval(ocWatch); } catch { /* ignore */ } ocWatch = 0; }
         if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
           for (const t of ocListeners) window.removeEventListener(t, onOcclusionChange);
@@ -4685,6 +4856,9 @@ function apply(ctx) {
         // 3D 效果的视差层：它没有 DOM 节点与画布，收尾就是把监听、rAF 与 body 上的
         // 那几个 CSS 变量 / 开关属性一起摘掉（否则换过一次重挂还会残留着上一份位移）。
         disposeParallaxLayer();
+        // 会话头像层：收尾 = 摘掉注入的头像节点与行标记、断开观察者、撤掉开关属性与两个
+        // 变量（"关掉 = 逐字节回到原生"这条不变量在卸载路径上的同一个动作）。
+        disposeAvatarLayer();
         // 关掉音频闸并退役渐变中的旧层：禁用/重挂时旧层不能被留在屏上等退役定时器
         // （≤1.3s 的可见残留），闸也不该跨过一次重挂活着（准备链的 BGM 起播会被它
         // 推迟到那个定时器触发为止）。这两条收尾本身是正确性要求：跨过一次重挂活着的闸

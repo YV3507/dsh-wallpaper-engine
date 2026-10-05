@@ -143,11 +143,53 @@ const tabsSrc = read('src/panel-tabs.js');
     Boolean(hostFrame && hostFrame.length >= 3) && Boolean(match),
     'host=' + (hostFrame || []).join(',') + ' client=' + clientFrame.map((l) => l.join(',')).join(' | '));
 
+  // 自定义会话头像（「扩展」页签一号模块）同一条判据：客户端那一份 accept 列表在
+  // `src/client.js` 的 onAvatarPick 里（文件选择器是那儿造的），宿主那一份是 lib/index.js 的
+  // AVATAR_EXT —— 两处不一致的失效模式与自定义画面一样：选择器收得下、宿主判 415（静默失败）。
+  const hostAvatar = hostMimeKeys(hostSrc, 'AVATAR_EXT');
+  const avatarMatch = clientFrame.find((l) => hostAvatar && sameSet(l, hostAvatar));
+  check('会话头像 MIME：客户端有一个 accept 列表与宿主 AVATAR_EXT 键集一致',
+    Boolean(hostAvatar && hostAvatar.length >= 3) && Boolean(avatarMatch),
+    'host=' + (hostAvatar || []).join(',') + ' client=' + clientFrame.map((l) => l.join(',')).join(' | '));
+
+
   // 负对照：喂给同一个比较
   check('negative control: 上传 MIME 单边加一种类型会被判出',
     !sameSet(['image/jpeg', 'image/png', 'video/mp4', 'image/webp'], ['image/jpeg', 'image/png', 'video/mp4']));
   check('negative control: 自定义画面 accept 少一种会被判出',
     !sameSet(['image/png', 'image/jpeg'], ['image/jpeg', 'image/png', 'image/webp']));
+  check('negative control: 会话头像 accept 多一种会被判出',
+    !sameSet(['image/png', 'image/jpeg', 'image/webp', 'image/gif'], ['image/jpeg', 'image/png', 'image/webp']));
+}
+
+{
+  // 会话头像路由（lib/routes/avatar.js）的形态判据。它跟另两条收体路由的关键差别是
+  // **不走流式落盘**：上限只有 8MB（客户端导入前已按 512px 缩过一轮）⇒ 走共享读体器 +
+  // 原子落盘，内联收集器那条棘轮因此不增（见 test/verify-body-caps.mjs 的两条棘轮）。
+  const routeSrc = read('lib/routes/avatar.js');
+  const hostNow = read('lib/index.js');
+  check('头像路由：只认两个 side（路径段当白名单查，不拼进文件名）',
+    /AVATAR_SIDES\.includes\(side\)/.test(routeSrc) && /AVATAR_SIDES = \['user', 'ai'\]/.test(hostNow));
+  check('头像路由：收体走共享读体器 + 原子落盘（不是第三个流式豁免）',
+    // ⚠️ 这条判据的**字面量形状**有讲究：verify-package-files 的 P5 会扫本文件里的 import 规格，
+    // 写成一个带引号的 `from '…/http-body.js'` 会被它当成裸包名（转义后的 `\.\.` 不以点开头）
+    // ⇒ 这里用 `\s+['"]…['"]` 形态描述那条 import（探测器的 `from\s+` 匹配不到它）。
+    /import\s*\{[^}]*bodyReader[^}]*\}\s+from\s+['"]\.\.\/http-body\.js['"]/.test(routeSrc)
+    && /bodyReader\(req, \{/.test(routeSrc) && /maxBytes: AVATAR_MAX_BYTES/.test(routeSrc)
+    && /atomicWriteFileP\(join\(dir, name\), body\)/.test(routeSrc));
+  check('头像路由：换图即清兄弟（同 side 的旧文件先删，否则屏上还是旧图）',
+    /name\.slice\(0, side\.length \+ 1\) !== side \+ '-'/.test(routeSrc)
+    && /unlinkSync\(join\(dir, name\)\)/.test(routeSrc));
+  check('头像路由：文件名带时间戳 + 长缓存由文件名担保 · 未导入 404 且 no-store',
+    /avatarStamp\(\)/.test(routeSrc)
+    && /'Cache-Control', 'private, max-age=31536000, immutable'/.test(routeSrc)
+    && /json\(404, \{ error: 'not-set' \}\)/.test(routeSrc)
+    && /'Cache-Control', 'no-store'/.test(routeSrc));
+  // 头像目录与壁纸资产分家：不写 overrides（那是"某个壁纸的画面"）、不写 uploads（会污染库存）。
+  check('头像落在插件数据目录的 avatars/ 且上限 8MB（不进 overrides / uploads）',
+    /function avatarDir\(\) \{ return ensureDirOnce\(join\(pluginDataDir\(\), 'avatars'\)\); \}/.test(hostNow)
+    && /AVATAR_MAX_BYTES = 8 \* 1024 \* 1024/.test(hostNow));
+
 }
 
 {

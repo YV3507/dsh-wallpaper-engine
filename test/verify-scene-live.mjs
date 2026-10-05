@@ -1336,7 +1336,7 @@ for (const [name, ok] of clientChecks) check(name, ok);
     // 两个模块共用**一张**注册表 ⇒ 注册表本身恰好一份、两项都在。漏登记一项的失效模式
     // 是静默的：屏上就是"这个功能根本不存在"，没有报错、也没有空态提示。
     && (bundle.match(/function extensionModules\(\)/g) || []).length === 1
-    && bundle.includes('FX_EXTENSION_MODULE, PARALLAX_EXTENSION_MODULE')
+    && bundle.includes('AVATAR_EXTENSION_MODULE, FX_EXTENSION_MODULE')
     && bundle.includes('fxColorMode'));
   // ── 3D 效果（「扩展」三号模块）：与前两个模块不同 —— 行为层不建 DOM（只写 CSS 变量）──
   check('parallax-layer.js 已登记进 INLINE_MODULES 且在产物里只有一份',
@@ -1352,8 +1352,24 @@ for (const [name, ok] of clientChecks) check(name, ok);
     /file:\s*'src\/ext-parallax\.js'/.test(build)
     && (bundle.match(/function renderParallaxIsland\(ctx\)/g) || []).length === 1
     // 一张注册表、三项都在（漏一版的失效模式是静默的：功能在屏上根本不存在）。
-    && bundle.includes('FX_EXTENSION_MODULE, PARALLAX_EXTENSION_MODULE')
+    && bundle.includes('AVATAR_EXTENSION_MODULE, FX_EXTENSION_MODULE, PARALLAX_EXTENSION_MODULE')
     && bundle.includes('parallaxSmooth'));
+  // ── 自定义会话头像（「扩展」页签**第一个**模块）：装饰层 + 扩展岛同样是两条登记 ──
+  //    它跟另三个模块的关键差别是**它动宿主的会话 DOM**（给消息行补头像节点）——
+  //    所以"产物里只有一份"在这里更要紧：两份注入逻辑就是同一行补两个头像。
+  check('avatar-layer.js 已登记进 INLINE_MODULES 且在产物里只有一份',
+    /file:\s*'src\/avatar-layer\.js'/.test(build)
+    && (bundle.match(/function syncAvatarLayer\(\)/g) || []).length === 1
+    && (bundle.match(/function disposeAvatarLayer\(\)/g) || []).length === 1
+    // 补头像只有一条路径（行标记 + 节点填充都在它里），混回两份 = 一行补两个头。
+    && (bundle.match(/function avatarDecorateRow\(/g) || []).length === 1
+    && (bundle.match(/function avatarFillNode\(/g) || []).length === 1);
+  check('ext-avatar.js 已登记进 INLINE_MODULES 且在产物里只有一份',
+    /file:\s*'src\/ext-avatar\.js'/.test(build)
+    && (bundle.match(/function renderAvatarIsland\(ctx\)/g) || []).length === 1
+    // 一张注册表、三项都在，且**头像排在第一位**（用户口径：这一项作为「扩展」页签的第一项）。
+    && bundle.includes('AVATAR_EXTENSION_MODULE, FX_EXTENSION_MODULE, PARALLAX_EXTENSION_MODULE')
+    && bundle.includes('avatarRadius') && bundle.includes('avatarUserImage'));
   // ── 面板页签（C）：渲染器只在 panel-tabs.js，且**只从一个参数取外界** ──
   const TAB_FNS = ['renderWallpaperTab', 'renderAppearanceTab', 'renderAudioTab',
     'renderMascotTab', 'renderEffectsTab', 'renderAdvancedTab', 'renderExtensionsTab',
@@ -2951,6 +2967,271 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       && !extParSrc.includes('commitLiveSetting')
       && off.join('|') === wantOff.join('|') && on.join('|') === wantOn.join('|'),
       'off=' + off.length + ' on=' + on.length + ' [' + on.join('|') + ']');
+  }
+
+  // ── 自定义会话头像（「扩展」页签一号模块）的两半：装饰层 + 扩展岛 ────────────────
+  // 这一层的判据口径与视差层相反：它**要**建节点（往宿主的消息行里插），但无头沙箱里
+  // 连 `document` 都没有 ⇒ 一半靠"零抛错零副作用"（开着也不许炸），一半靠**源码口径**
+  // 把"只碰哪几类消息行 / 关掉怎么回原生 / 名字从哪来 / 观察者怎么早退"逐条钉住。
+  const avatarLayerMod = await import(pathToFileURL(join(root, 'src', 'avatar-layer.js')).href);
+  const extAvatarMod = await import(pathToFileURL(join(root, 'src', 'ext-avatar.js')).href);
+  {
+    const PREV_SEL = globalThis.selection;
+    // 单独 import 时这两枚在**构建期**是同一作用域的兄弟模块符号（src/api-client.js 的
+    // apiUrl、src/avatar-layer.js 的默认名/头像几何）⇒ 按内联规则补替身。
+    const PREV_API_URL = globalThis.apiUrl;
+    globalThis.apiUrl = (p) => '/wallpaper-engine' + String(p || '');
+    let threw = '';
+    let pure = '';
+    try {
+      // ① 开着 ⇒ 没有 document / MutationObserver，整段守卫应当直接返回
+      globalThis.selection = { avatarEnabled: true };
+      avatarLayerMod.syncAvatarLayer();
+      // ② 越界的设置值 ⇒ 钳位路径（24..72 / 0..100 之外不许算出天量尺寸或负半径）
+      globalThis.selection = { avatarEnabled: true, avatarSize: 9999, avatarRadius: -5 };
+      avatarLayerMod.syncAvatarLayer();
+      // ③ 关掉 ⇒ stop 分支；卸载幂等
+      globalThis.selection = { avatarEnabled: false };
+      avatarLayerMod.syncAvatarLayer();
+      avatarLayerMod.disposeAvatarLayer();
+      // ④ 纯函数面：没设置过图片 ⇒ 空串（面板与层共用这一条 URL 构造）；设置过 ⇒ 带 side 的路由
+      globalThis.selection = {};
+      const urlEmpty = avatarLayerMod.avatarImageUrl('user');
+      globalThis.selection = { avatarUserImage: 'user-abc12.png' };
+      const urlSet = avatarLayerMod.avatarImageUrl('user');
+      if (!(urlEmpty === '' && urlSet.includes('/avatar/user'))) {
+        pure = 'urlEmpty=' + JSON.stringify(urlEmpty) + ' urlSet=' + urlSet;
+      }
+    } catch (e) { threw = String((e && e.message) || e); } finally {
+      globalThis.selection = PREV_SEL;
+      if (PREV_API_URL === undefined) delete globalThis.apiUrl; else globalThis.apiUrl = PREV_API_URL;
+    }
+    check('avatar-layer.js 可单独 import · 导出面固定 · 无 DOM 环境零抛错零副作用 · 纯函数面（URL 构造）',
+      Object.keys(avatarLayerMod).sort().join(',')
+        === 'avatarGlyphSvgString,avatarImageUrl,disposeAvatarLayer,renderAvatarGlyph,syncAvatarLayer'.split(',').sort().join(',')
+      && typeof avatarLayerMod.syncAvatarLayer === 'function'
+      && typeof avatarLayerMod.disposeAvatarLayer === 'function'
+      && !threw && !pure, threw || pure);
+    // 源码口径：这一层的要点全是"看不见的形态"或"只准碰哪几类行"。逐条钉住，改坏了当场红。
+    const avSrc = readFileSync(join(root, 'src', 'avatar-layer.js'), 'utf8');
+    check('avatar-layer.js 只认三类消息行 + 关掉逐字节回原生 + 名字（默认取模型名）+ 观察者两级早退 + 不写设置',
+      // ① 只给 user / steering / assistant-step 补头像（工具调用、思考、压缩标记一律不碰）。
+      avSrc.includes("const AVATAR_FLOW_SIDES = { user: 'user', steering: 'user', 'assistant-step': 'ai' };")
+      && avSrc.includes(`const AVATAR_ROW_SELECTOR = '[data-chat-flow-kind="user"], [data-chat-flow-kind="steering"], [data-chat-flow-kind="assistant-step"]';`)
+      && avSrc.includes("const AVATAR_ROW_ATTR = 'data-we-avatar-row';")
+      && avSrc.includes("const AVATAR_NODE_ATTR = 'data-we-avatar-node';")
+      // ② 开关属性与两个观感变量（样式段读它们；尺寸/圆角靠变量替换 ⇒ 拖滑块不重建节点）。
+      && avSrc.includes("const AVATAR_ATTR = 'data-we-avatar';")
+      && avSrc.includes("const AVATAR_VAR_SIZE = '--we-avatar-size';")
+      && avSrc.includes("const AVATAR_VAR_ROUND = '--we-avatar-round';")
+      // ③ **昵称整体移除**（用户口径："加了昵称太丑了"）：装饰层里不得再有名字节点、
+      //    模型名读取或那套选择器 —— 加回来就是又背上一条对官方输入框的 DOM 依赖。
+      && !avSrc.includes('__name') && !avSrc.includes('avatarDisplayName')
+      && !avSrc.includes('avatarModelName') && !avSrc.includes('_triggerLabel')
+      && !avSrc.includes('conversation.input.model')
+      // ④ 关掉 = 逐字节回原生：撤开关属性与两个变量、摘掉全部注入节点与行标记、断观察者。
+      && avSrc.includes('avatarObserver.disconnect()')
+      && avSrc.includes('body.removeAttribute(AVATAR_ATTR)')
+      && avSrc.includes('body.style.removeProperty(AVATAR_VAR_SIZE)')
+      && avSrc.includes('body.style.removeProperty(AVATAR_VAR_ROUND)')
+      && avSrc.includes("nodes = document.querySelectorAll('[' + AVATAR_NODE_ATTR + ']')")
+      && avSrc.includes("rows = document.querySelectorAll('[' + AVATAR_ROW_ATTR + ']')")
+      && avSrc.includes('row.removeAttribute(AVATAR_ROW_ATTR)')
+      // ⑤ 观察者两级早退：新增元素先判"是不是消息行"，再判"是不是已经在装饰过的行里"——
+      //    流式输出每帧都在插节点，第二级把开销钉在一次 closest 上。
+      && avSrc.includes("n.closest('[' + AVATAR_ROW_ATTR + ']')")
+      && avSrc.includes("typeof MutationObserver !== 'function'")
+      // ⑥ 只读 selection：一个字节都不写（写设置只发生在 client.js 的具名处理器里）。
+      && !avSrc.includes('setSetting') && !avSrc.includes('persistSelection')
+      && !avSrc.includes('commitLiveSetting') && !avSrc.includes('emit()')
+      // ⑦ 头像插到行的最前面：助手行 row（左）、用户行 row-reverse（右），一份插入顺序同时满足两侧。
+      && avSrc.includes('row.insertBefore(node, row.firstChild)'),
+      'avatar-layer = 会话 DOM 装饰层：三类行 + 回原生 + 无昵称 + 两级早退 + 只读');
+  }
+  {
+    // 一号模块的岛：注册表项形状 + 「关着只画总开关、开着才画两方各行 + 两个滑块」这条可见行为。
+    // ⚠️ 挂载台里 SliderRow / ctlText 是标签替身 ⇒ 这里判的是**标签的有序序列**；
+    //    两个滑块的量程（24..72 / 0..100）由 verify-client 在真渲染树上判（那边有真控件）。
+    const ctxOf = (sel) => ({
+      sel,
+      onAvatarEnabled: () => {}, onAvatarSize: () => {}, onAvatarRadius: () => {},
+      onAvatarName: () => {}, onAvatarPick: () => {}, onAvatarClear: () => {},
+    });
+    const PARAMS = ['「我」的头像', '「助手」的头像', '头像大小', '圆角强度'];
+    // 岛的取值面跨了三个模块：schema 的四个常量（滑块范围 / 昵称上限）+ 头像层的三枚
+    // （URL / 默认名 / 默认头像几何）⇒ 单独 import 时补替身（同 ext-fx 那块对
+    // FX_BLEND_VALUES 的处理）。
+    const STUB_KEYS = ['AVATAR_SIZE_MIN', 'AVATAR_SIZE_MAX', 'AVATAR_RADIUS_MIN', 'AVATAR_RADIUS_MAX',
+      'avatarImageUrl', 'renderAvatarGlyph'];
+    const PREV_STUBS = {};
+    for (const k of STUB_KEYS) PREV_STUBS[k] = globalThis[k];
+    Object.assign(globalThis, {
+      AVATAR_SIZE_MIN: schemaMod.AVATAR_SIZE_MIN, AVATAR_SIZE_MAX: schemaMod.AVATAR_SIZE_MAX,
+      AVATAR_RADIUS_MIN: schemaMod.AVATAR_RADIUS_MIN, AVATAR_RADIUS_MAX: schemaMod.AVATAR_RADIUS_MAX,
+      avatarImageUrl: avatarLayerMod.avatarImageUrl,
+      renderAvatarGlyph: avatarLayerMod.renderAvatarGlyph,
+    });
+    let off = [];
+    let on = [];
+    let islandThrew = '';
+    try {
+      off = labelSeq(extAvatarMod.renderAvatarIsland(ctxOf(schemaMod.DEFAULTS)));
+      on = labelSeq(extAvatarMod.renderAvatarIsland(
+        ctxOf(Object.assign({}, schemaMod.DEFAULTS, { avatarEnabled: true }))));
+      // 坏值路径也走一遍：`NaN` / `undefined` 的尺寸必须落回**本文件里的**兜底常量，而不是
+      // 撞上一个只在产物作用域里存在的名字 —— "单文件 import 时 ReferenceError"这类缺陷
+      // 只有这样才现形（第一版就是这么栽的：兜底常量跟着改名，引用没跟上）。
+      extAvatarMod.renderAvatarIsland(ctxOf(Object.assign({}, schemaMod.DEFAULTS,
+        { avatarEnabled: true, avatarSize: NaN, avatarRadius: undefined })));
+    } catch (e) { islandThrew = String((e && e.message) || e); } finally {
+      for (const k of STUB_KEYS) {
+        if (PREV_STUBS[k] === undefined) delete globalThis[k]; else globalThis[k] = PREV_STUBS[k];
+      }
+    }
+    const mod = extAvatarMod.AVATAR_EXTENSION_MODULE;
+    const extAvSrc = readFileSync(join(root, 'src', 'ext-avatar.js'), 'utf8');
+    const wantOff = [globalThis.weT('启用自定义会话头像')];
+    const wantOn = wantOff.concat(PARAMS.map((k) => globalThis.weT(k)));
+    check('ext-avatar.js 可单独 import · 注册表项形状 · 关着只画总开关、开着才画两方各行与两个滑块',
+      Boolean(mod) && mod.id === 'avatar' && mod.render === extAvatarMod.renderAvatarIsland
+      && typeof mod.title === 'string' && mod.title === globalThis.weT('自定义会话头像')
+      && typeof mod.desc === 'string' && mod.desc.length > 0
+      // 模块自己不许写设置 / 发通知 / 持有状态：动作一律经 ctx 里的具名处理器
+      //（文件选择器那种一次性 DOM 副作用也不许在这里造 —— 归 client.js 的 onAvatarPick）。
+      && !extAvSrc.includes('setSetting') && !extAvSrc.includes('emit(')
+      && !extAvSrc.includes('commitLiveSetting') && !extAvSrc.includes('document.createElement')
+      && off.join('|') === wantOff.join('|') && on.join('|') === wantOn.join('|'),
+      islandThrew || ('off=' + off.length + ' on=' + on.length + ' [' + on.join('|') + ']'));
+    // 两个滑块的范围必须读 schema 的真源（写死数字 = 改一处忘一处）；
+    // 同时钉住"昵称已移除"：这一页不得再长出文本输入或名字行。
+    check('ext-avatar.js 两个滑块的范围取自 schema 常量（AVATAR_SIZE_* / AVATAR_RADIUS_*）· 无昵称残留',
+      /AVATAR_SIZE_MIN,\s*AVATAR_SIZE_MAX/.test(extAvSrc)
+      && /AVATAR_RADIUS_MIN,\s*AVATAR_RADIUS_MAX/.test(extAvSrc)
+      && !extAvSrc.includes('昵称') && !extAvSrc.includes('avatarName')
+      && !extAvSrc.includes('AVATAR_NAME_MAX') && !extAvSrc.includes('type: "text"'));
+    // 排布落在样式表上：那一段必须（a）整段挂在开关属性下、（b）用户行反过来（头像在右）、
+    // （c）消息内容那一格可伸缩（否则长消息会把头像挤出可视区）、（d）不得再有名字行。
+    const stylesSrcAv = readFileSync(join(root, 'src', 'styles.js'), 'utf8');
+    const avCssAt = stylesSrcAv.indexOf('「扩展」页签一号模块');
+    const avCss = avCssAt < 0 ? '' : stylesSrcAv.slice(avCssAt, stylesSrcAv.indexOf('「扩展」二号模块', avCssAt));
+    check('styles.js 头像段：开关属性下才生效 · 用户行反过来 · 消息格可伸缩 · 无昵称残留',
+      avCssAt > 0
+      && avCss.includes('body[data-we-avatar="on"] [data-we-avatar-row] { display: flex;')
+      && avCss.includes('body[data-we-avatar="on"] [data-we-avatar-row="user"] { flex-direction: row-reverse; }')
+      && avCss.includes('body[data-we-avatar="on"] [data-we-avatar-row] > :not(.we-avatar) { flex: 1 1 auto; min-width: 0; }')
+      && avCss.includes('border-radius: calc(var(--we-avatar-round, 100) * 0.5%)')
+      // 头像就是一个节点（不是"圆脸 + 名字"的两段列）：昵称整条已移除。
+      && !avCss.includes('__name') && !avCss.includes('we-avatar-col')
+      && avCss.includes('width: var(--we-avatar-size, 40px); height: var(--we-avatar-size, 40px);')
+      // 别的功能不该被这一层带上（它只动消息行的排布）。
+      && !avCss.includes('backdrop-filter'),
+      'avCss=' + avCss.length + ' 段起始=' + avCssAt);
+    // ── 装饰层的**行为**判据：用最小 DOM 替身真跑一遍「开 ⇒ 补节点 / 换设置 ⇒ 就地更新 /
+    //    关 ⇒ 逐字节回原生」。源码口径看不见"补出来的东西长什么样"，而这一层恰恰只能靠
+    //    真跑才知道（宿主 DOM 在无头环境里不存在 ⇒ 只能自己搭一个够它用的替身）。
+    {
+      const created = [];
+      let rows = [];
+      class El {
+        constructor(tag) { this.tagName = String(tag).toUpperCase(); this.children = []; this.attrs = {}; this.style = { props: {}, setProperty: (k, v) => { this.style.props[k] = v; }, removeProperty: (k) => { delete this.style.props[k]; } }; this.className = ''; this.textContent = ''; }
+        get firstChild() { return this.children[0] || null; }
+        get firstElementChild() { return this.children[0] || null; }
+        get classList() { const self = this; return { contains: (c) => String(self.className).split(/\s+/).includes(c) }; }
+        appendChild(c) { c.parent = this; this.children.push(c); return c; }
+        insertBefore(c) { c.parent = this; this.children.unshift(c); return c; }
+        remove() {
+          const p = this.parent;
+          if (p) { const i = p.children.indexOf(this); if (i >= 0) p.children.splice(i, 1); }
+          this.parent = null;
+        }
+        setAttribute(k, v) { this.attrs[k] = String(v); }
+        getAttribute(k) { return Object.prototype.hasOwnProperty.call(this.attrs, k) ? this.attrs[k] : null; }
+        removeAttribute(k) { delete this.attrs[k]; }
+        querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
+        querySelectorAll(sel) { return query(this, sel); }
+      }
+      const query = (rootEl, sel) => {
+        const out = [];
+        const want = String(sel).split(',').map((s) => s.trim());
+        const matches = (el) => want.some((s) => {
+          if (s.startsWith('.')) return String(el.className).split(/\s+/).includes(s.slice(1));
+          const m = /^\[([a-z-]+)(?:="?([^"\]]*)"?)?\]$/.exec(s);
+          if (!m) return false;
+          return m[2] === undefined
+            ? el.getAttribute(m[1]) !== null                 // [attr] = 只要求存在
+            : el.getAttribute(m[1]) === m[2];                 // [attr="v"]
+        });
+        (function walk(el) { for (const c of el.children || []) { if (matches(c)) out.push(c); walk(c); } })(rootEl);
+        return out;
+      };
+      const PREV = { document: globalThis.document, MutationObserver: globalThis.MutationObserver, selection: globalThis.selection };
+      const body = new El('body');
+      const mkRow = (kind) => { const el = new El('div'); el.setAttribute('data-chat-flow-kind', kind); rows.push(el); body.appendChild(el); return el; };
+      const userRow = mkRow('user');
+      const aiRow = mkRow('assistant-step');
+      const toolRow = mkRow('tool-call');
+      let observed = 0;
+      let disconnected = 0;
+      class MO { constructor() { observed += 0; } observe() { observed++; } disconnect() { disconnected++; } }
+      let behavior = '';
+      try {
+        globalThis.document = {
+          body,
+          createElement: (t) => { const el = new El(t); created.push(el); return el; },
+          querySelectorAll: (sel) => query(body, sel),
+          querySelector: (sel) => query(body, sel)[0] || null,
+        };
+        globalThis.MutationObserver = MO;
+        globalThis.selection = { avatarEnabled: true, avatarSize: 40, avatarRadius: 100, avatarUserName: '' };
+        avatarLayerMod.syncAvatarLayer();
+        const uNode = userRow.firstElementChild;
+        const aNode = aiRow.firstElementChild;
+        // ① 开关属性与两个变量落在 body 上；② 两类消息行各补了一个头像节点、工具行没补；
+        // ③ 节点就是一个圆脸（只有一个 .we-avatar__glyph 子节点 —— 没有名字节点）；④ 40px / 100。
+        if (body.getAttribute('data-we-avatar') !== 'on'
+          || body.style.props['--we-avatar-size'] !== '40px' || body.style.props['--we-avatar-round'] !== '100'
+          || !uNode || uNode.className.indexOf('we-avatar--user') < 0
+          || !aNode || aNode.className.indexOf('we-avatar--ai') < 0
+          || toolRow.getAttribute('data-we-avatar-row') !== null || toolRow.children.length !== 0
+          || uNode.children.length !== 1 || uNode.children[0].className !== 'we-avatar__glyph'
+          || userRow.getAttribute('data-we-avatar-row') !== 'user' || aiRow.getAttribute('data-we-avatar-row') !== 'ai') {
+          behavior = '补节点不对：' + JSON.stringify({
+            attr: body.getAttribute('data-we-avatar'),
+            vars: body.style.props,
+            u: uNode && [uNode.className, uNode.children.map((c) => c.className)],
+            tool: toolRow.getAttribute('data-we-avatar-row'),
+          });
+        }
+        // 换设置：大小与圆角 ⇒ **就地更新**（不重建节点：同一个对象还在原处）+ 变量跟着换。
+        globalThis.selection = { avatarEnabled: true, avatarSize: 56, avatarRadius: 0 };
+        avatarLayerMod.syncAvatarLayer();
+        if (userRow.firstElementChild !== uNode
+          || body.style.props['--we-avatar-size'] !== '56px' || body.style.props['--we-avatar-round'] !== '0') {
+          behavior = behavior || '就地更新不对：' + JSON.stringify({
+            same: userRow.firstElementChild === uNode,
+            vars: body.style.props,
+          });
+        }
+        // 关掉：节点摘掉、行标记抹掉、开关属性与两个变量撤掉、观察者断开。
+        globalThis.selection = { avatarEnabled: false };
+        avatarLayerMod.syncAvatarLayer();
+        if (userRow.children.length !== 0 || userRow.getAttribute('data-we-avatar-row') !== null
+          || aiRow.children.length !== 0 || body.getAttribute('data-we-avatar') !== null
+          || body.style.props['--we-avatar-size'] !== undefined || observed !== 1 || disconnected !== 1) {
+          behavior = behavior || '关掉没回原生：' + JSON.stringify({
+            userKids: userRow.children.length, rowAttr: userRow.getAttribute('data-we-avatar-row'),
+            bodyAttr: body.getAttribute('data-we-avatar'), vars: body.style.props,
+            observed, disconnected,
+          });
+        }
+      } catch (e) { behavior = behavior || ('抛错：' + String((e && e.message) || e)); } finally {
+        if (PREV.document === undefined) delete globalThis.document; else globalThis.document = PREV.document;
+        if (PREV.MutationObserver === undefined) delete globalThis.MutationObserver; else globalThis.MutationObserver = PREV.MutationObserver;
+        globalThis.selection = PREV.selection;
+      }
+      check('avatar-layer.js 行为：开 ⇒ 只给两类消息行补节点 + body 两个变量 · 换设置就地更新 · 关 ⇒ 逐字节回原生',
+        !behavior, behavior);
+    }
   }
 
   const st = Object.assign({}, schemaMod.DEFAULTS, {

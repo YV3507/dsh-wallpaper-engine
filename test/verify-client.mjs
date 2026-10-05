@@ -724,14 +724,14 @@ setTimeout(async () => {
     // ── 「扩展」页签（第六个）：一个**模块容器** —— 表里没模块时只画空态 ──
     //    它的价值在"容器还在、模块真的按注册表上架、且没跟别的页签串内容"：后续功能都只往
     //    src/panel-tabs.js 的 extensionModules() 里加一项，页签本身不该再改。
-    //    现有两项：一号 = 点击效果与拖尾效果，
-    //    二号 = 3D 效果（两张卡共用本块）。
+    //    现有三项：一号 = 自定义会话头像，二号 = 点击效果与拖尾效果，
+    //    三号 = 3D 效果（三张卡共用本块）。
     {
       setTab('extensions');
       const extTree = renderPicker();
       const extText = JSON.stringify(extTree);
-      // 容器 + 两个模块的标题与总开关都得在。
-      for (const anchorText of ['扩展模块',
+      // 容器 + 三个模块的标题与总开关都得在。
+      for (const anchorText of ['扩展模块', '自定义会话头像', '启用自定义会话头像',
         '点击效果与拖尾效果', '启用点击与拖尾效果', '3D 效果', '启用 3D 效果']) {
         assert.ok(extText.includes(anchorText), '「扩展」页签必须包含「' + anchorText + '」');
       }
@@ -740,18 +740,91 @@ setTimeout(async () => {
         '「扩展」页签必须画出模块容器 we-ext 与模块卡 we-ext__module');
       // 注册表**非空** ⇒ 空态不该再画（两者是互斥形态，留着会让用户以为没装上）。
       assert.ok(!extText.includes('还没有可用的扩展模块'), '注册表非空时不得再画空态');
-      // 两条注册表项 ⇒ 恰好两张模块卡（漏一个模块、或把别的东西当模块画进去都会现形）。
-      assert.equal((extText.match(/"we-ext__module"/g) || []).length, 2,
-        '注册表里两项 ⇒ 「扩展」页签必须画出两张模块卡');
-      // 2026-10-04 用户口径：扩展模块的出厂开关**全部默认关、按需开启** ⇒ 两个模块的
-      // 参数控件默认一律不画，否则会给人"关着也生效"的错觉；两条同时钉住默认值没被误改成 true。
+      // 三条注册表项 ⇒ 恰好三张模块卡（漏一个模块、或把别的东西当模块画进去都会现形）。
+      assert.equal((extText.match(/"we-ext__module"/g) || []).length, 3,
+        '注册表里三项 ⇒ 「扩展」页签必须画出三张模块卡');
+      // **顺序即屏上顺序**（用户口径：会话头像那一项排在**第一**）：卡标题在渲染树里的首次
+      // 出现下标必须按注册表顺序递增 —— 只判"都在"会让"新模块被排到末尾"这类回归悄悄通过。
+      {
+        const order = ['自定义会话头像', '点击效果与拖尾效果', '3D 效果']
+          .map((t) => extText.indexOf('"' + t + '"'));
+        assert.ok(order.every((i) => i >= 0) && order.every((i, k) => k === 0 || i > order[k - 1]),
+          '三张模块卡必须按注册表顺序排列（头像第一）：' + JSON.stringify(order));
+      }
+      // 2026-10-04 用户口径：扩展模块的出厂开关**全部默认关、按需开启** ⇒ 三个模块的
+      // 参数控件默认一律不画，否则会给人"关着也生效"的错觉；三条同时钉住默认值没被误改成 true。
+      assert.ok(!extText.includes('头像大小') && !extText.includes('圆角强度'),
+        '一号模块（自定义会话头像）总开关默认关 ⇒ 不得画出参数控件');
       assert.ok(!extText.includes('点击样式') && !extText.includes('拖尾光晕'),
-        '一号模块（点击效果与拖尾效果）总开关关闭时不得画出任何参数控件');
+        '二号模块（点击效果与拖尾效果）总开关关闭时不得画出任何参数控件');
       assert.ok(!extText.includes('背景缓动距离') && !extText.includes('缓动平滑'),
-        '二号模块（3D 效果）总开关关闭时不得画出任何参数控件');
-      // ── 一号模块（点击效果与拖尾效果）：默认关 ⇒ 只画总开关 + 说明；开了才长参数 ──
-      //    它与二号模块共用一个页签，判据的重点是"两张卡各自独立"：另一张卡的参数不该在
-      //    本模块的开关下长出来，反之亦然；两个子开关（点击 / 拖尾）关掉时只收起自己那一串。
+        '三号模块（3D 效果）总开关关闭时不得画出任何参数控件');
+      // ── 一号模块（自定义会话头像）：默认关 ⇒ 只画总开关 + 说明；开了才长两方各一行
+      //    （头像 + 昵称）与两个滑块 ──
+      //    装饰本体（往宿主的消息行里补头像节点）在无头环境看不见 ⇒ 岛这一侧的判据盯
+      //    "控件按开关长/收 + 两个滑块的量程是 schema 那一对 + 昵称真的接上了处理器"，
+      //    屏上那半边由 verify-scene-live 的源码/样式段判据钉住。
+      const avOn = findCtlInput(extTree, '启用自定义会话头像');
+      assert.ok(avOn, '一号模块必须画出总开关（findCtlInput 能取到它的 onChange）');
+      assert.equal(avOn && avOn.props.checked, false, '一号模块（头像）的总开关默认必须是关的');
+      if (avOn) {
+        avOn.props.onChange({ target: { checked: true } });
+        flushPersistWrites();
+        const avTree = renderPicker();
+        const avText = JSON.stringify(avTree);
+        for (const t of ['「我」的头像', '你的消息在右侧，头像跟着在右侧',
+          '「助手」的头像', '助手的消息在左侧，头像跟着在左侧',
+          '导入图片…', '头像大小', '圆角强度']) {
+          assert.ok(avText.includes(t), '打开一号模块后「扩展」页签必须有「' + t + '」');
+        }
+        // 另三个模块的参数**不得**因为头像开着而出现（四张卡各管各的）。
+        assert.ok(!avText.includes('点击样式') && !avText.includes('拖尾粗细') && !avText.includes('缓动平滑'),
+          '另两个模块关着时，一号模块开着也不该画出它们的参数');
+        // 两个滑块的量程必须与 lib/settings-schema.js 的 AVATAR_SIZE_* / AVATAR_RADIUS_* 一致。
+        assert.equal(sliderMin(findSliderRow(avTree, '头像大小')), '24', '头像大小下限必须是 24px');
+        assert.equal(sliderMax(findSliderRow(avTree, '头像大小')), '72', '头像大小上限必须是 72px');
+        assert.equal(sliderMin(findSliderRow(avTree, '圆角强度')), '0', '圆角强度下限必须是 0%');
+        assert.equal(sliderMax(findSliderRow(avTree, '圆角强度')), '100', '圆角强度上限必须是 100%');
+        // 默认回显：40px / 100%（默认正圆是用户口径的一部分 —— 改默认值即改观感）。
+        const avReadoutOf = (labelText) => {
+          const row = findSliderRow(avTree, labelText);
+          if (!row) return null;
+          const hits = (row.children || []).filter((c) =>
+            typeof c?.props?.className === 'string' && c.props.className.includes('we-picker__value'));
+          return hits.length === 1 ? String((hits[0].children || [])[0] ?? '') : null;
+        };
+        assert.equal(avReadoutOf('头像大小'), '40px', '头像大小默认必须是 40px');
+        assert.equal(avReadoutOf('圆角强度'), '100%', '圆角强度默认必须是 100%（正圆）');
+        // 两方各一个「导入图片…」（没设置过图片时不该出现「清除」按钮）。
+        assert.equal((avText.match(/导入图片…/g) || []).length, 2, '两方各一个「导入图片…」按钮');
+        assert.ok(!avText.includes('清除'), '没导入过图片时不该画「清除」按钮');
+        // ⚠️ **没有昵称**（用户口径：加了昵称太丑，整体移除）：这一页不该再出现昵称输入。
+        assert.ok(!avText.includes('昵称'), '昵称已按用户口径移除，页签里不得再出现它');
+        // 复位：总开关关掉（后续判据要的是"默认态"）。
+        // 复位：总开关关掉（后续判据要的是"默认态"），昵称也清回去。
+        const avOff = findCtlInput(renderPicker(), '启用自定义会话头像');
+        if (avOff) avOff.props.onChange({ target: { checked: false } });
+        flushPersistWrites();
+        assert.ok(!JSON.stringify(renderPicker()).includes('头像大小'),
+          '关掉一号模块总开关后它那一串参数必须收起来');
+      }
+      // 导入/清除的**失败文案**必须能把"宿主没重挂"这件事说出来（用户实测：改了宿主代码、
+      // 只等客户端 HMR ⇒ 导入报「宿主返回 405」，而那个 405 其实是 SPA 兜底对 POST 的答复）。
+      // 判据落在 `assetRouteFailure` 的裸 404/405 判别与那句文案上（与字体集/系统字体同口径，
+      // 头像与立绘共用同一条腿 —— 文案里的 `{what}` 由调用点给），并要求请求走 `parse: "always"`
+      //（否则非 2xx 的信封读不到，永远只剩裸状态码）。
+      {
+        const clientSrcForAvatar = readFileSync(new URL('../src/client.js', import.meta.url), 'utf8');
+        assert.ok(/function assetRouteFailure\(res, what\)/.test(clientSrcForAvatar)
+          && /res\.status === 404 \|\| res\.status === 405/.test(clientSrcForAvatar)
+          && clientSrcForAvatar.includes('宿主里没有{what}路由：重启 DSH 后再试')
+          && /postImageAsset\("\/avatar\/" \+ side, img\.blob, weT\("头像"\)\)/.test(clientSrcForAvatar)
+          && (clientSrcForAvatar.match(/parse: "always"/g) || []).length >= 1,
+          '用户资产路由的失败文案必须区分"宿主里没有这条路由"（裸 404/405 ⇒ 提示重启 DSH）');
+      }
+      // ── 二号模块（点击效果与拖尾效果）：默认关 ⇒ 只画总开关 + 说明；开了才长参数 ──
+      //    它与一/三号模块共用一个页签，判据的重点是"三张卡各自独立"：别的模块的参数不该
+      //    在本模块的开关下长出来，反之亦然；两个子开关（点击 / 拖尾）关掉时只收起自己那一串。
       const fxOn = findCtlInput(extTree, '启用点击与拖尾效果');
       assert.ok(fxOn, '二号模块必须画出总开关（findCtlInput 能取到它的 onChange）');
       if (fxOn) {
@@ -769,9 +842,9 @@ setTimeout(async () => {
           '效果配色', '跟随主题色', '彩虹', '自定义']) {
           assert.ok(fxText.includes(t), '打开二号模块后「扩展」页签必须有「' + t + '」');
         }
-        // 另一个模块的参数**不得**因为二号模块开着而出现（两张卡各管各的）。
-        assert.ok(!fxText.includes('背景缓动距离'),
-          '另一个模块关着时，二号模块开着也不该画出它的参数');
+        // 另两个模块的参数**不得**因为二号模块开着而出现（三张卡各管各的）。
+        assert.ok(!fxText.includes('头像大小') && !fxText.includes('背景缓动距离'),
+          '另两个模块关着时，二号模块开着也不该画出它们的参数');
         // 滑块范围必须与 lib/settings-schema.js 的 KINDS 一致（改范围要同时改两处）。
         assert.equal(sliderMin(findSliderRow(fxTree, '半径')), '40', '点击半径下限必须是 40px');
         assert.equal(sliderMax(findSliderRow(fxTree, '半径')), '400', '点击半径上限必须是 400px');
@@ -882,7 +955,7 @@ setTimeout(async () => {
         if (fxOff) fxOff.props.onChange({ target: { checked: false } });
         flushPersistWrites();
       }
-      // ── 二号模块（3D 效果）：默认关 ⇒ 只画总开关 + 说明；开了才长三个参数 ──
+      // ── 三号模块（3D 效果）：默认关 ⇒ 只画总开关 + 说明；开了才长三个参数 ──
       //    它跟另两个模块最大的不同是**它一个 DOM 节点都不建**（行为层只往 body 写 CSS
       //    变量，位移在 src/styles.js 的视差段里算）⇒ 岛这一侧的判据只盯"控件真的按开关
       //    长出来、关掉就收起"，屏上真的挪了多少像素由 verify-scene-live 的源码口径与
@@ -895,12 +968,12 @@ setTimeout(async () => {
         flushPersistWrites();
         const parTree = renderPicker();
         const parText = JSON.stringify(parTree);
-      for (const t of ['3D 效果', '光标移动时，壁纸与吉祥物沿屏幕中心的对称方向轻轻偏移：整块界面不动',
+        for (const t of ['3D 效果', '光标移动时，壁纸与吉祥物沿屏幕中心的对称方向轻轻偏移：整块界面不动',
           '背景缓动距离', '吉祥物跟随', '挂件也按「背景缓动距离」一起挪', '缓动平滑']) {
           assert.ok(parText.includes(t), '打开三号模块后「扩展」页签必须有「' + t + '」');
         }
         // 另两个模块的参数**不得**因为三号开着而出现（三张卡各管各的）。
-        assert.ok(!parText.includes('拖尾粗细'),
+        assert.ok(!parText.includes('头像大小') && !parText.includes('拖尾粗细'),
           '另两个模块关着时，三号模块开着也不该画出它们的参数');
         // 滑块范围必须与 lib/settings-schema.js 的 KINDS 一致（改范围要同时改两处）。
         assert.equal(sliderMin(findSliderRow(parTree, '背景缓动距离')), '0', '背景缓动距离下限必须是 0%');

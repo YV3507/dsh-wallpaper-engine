@@ -657,6 +657,30 @@ const WE_I18N_EN = {
   "缓动平滑": "Easing smoothness",
   "0 = 立刻跟手，越大越柔和（跟得越慢、停下后还会飘一小段才归位）": "0 = follows the cursor instantly; higher values are softer (it trails behind and keeps drifting a little after the cursor stops)",
 
+  // ── src/ext-avatar.js · 「扩展」页签**第一个**模块（自定义会话头像）──
+  //    范围/默认值不在这里写死：真源是 lib/settings-schema.js 的七个 `avatar*` 键。
+  //    与别的模块共用的键（清除那种）**不重复登记** —— 上面已经有的直接复用。
+  "自定义会话头像": "Custom session avatars",
+  "给会话双方各配一张头像，消息像好友聊天一样左右分列（默认关）": "Give both sides of the conversation an avatar, so messages line up left and right like a chat with a friend (off by default)",
+  "启用自定义会话头像": "Enable custom session avatars",
+  "给会话双方配上头像，消息像好友聊天一样左右分列": "Gives both sides an avatar, so messages line up left and right like a chat with a friend",
+  "开启后：你的消息靠右侧、带你的头像；助手的消息靠左侧、带助手的头像。图片只保存在本机（导入时会缩到 512px 以内），没导入就用内置的默认头像。关掉这个开关，会话立刻恢复原样。": "Once on: your messages sit on the right with your avatar; the assistant's messages sit on the left with its own. Images are stored on this machine only (shrunk to at most 512px on import); without one a built-in default avatar is drawn. Turn this off and the conversation goes back to exactly how it was.",
+  "「我」的头像": "Your avatar",
+  "你的消息在右侧，头像跟着在右侧": "Your messages sit on the right, so your avatar does too",
+  "「助手」的头像": "Assistant avatar",
+  "助手的消息在左侧，头像跟着在左侧": "The assistant's messages sit on the left, so its avatar does too",
+  "导入图片…": "Import image…",
+  "导入中…": "Importing…",
+  "头像大小": "Avatar size",
+  "圆角强度": "Corner roundness",
+  "100% = 正圆（默认），50% = 大圆角方块，0% = 直角方形": "100% = a full circle (default), 50% = a rounded square, 0% = sharp corners",
+
+  "仅支持 JPG / PNG / WebP 图片": "Only JPG / PNG / WebP images are supported",
+  "导入失败：{error}": "Import failed: {error}",
+  "宿主里没有{what}路由：重启 DSH 后再试（改过宿主代码要重挂，刷新页面不够）": "The host has no {what} route: restart DSH and try again (if you changed host code it must be re-mounted; refreshing the page is not enough)",
+  "头像": "avatar",
+  "清除失败：{error}": "Clear failed: {error}",
+
   // ── src/panel-tabs.js · 「关于」页签（简介 / 致谢 / 仓库 / 交流群）──
   //    人名与项目标识不译（oneincase / YV3507 / WebWallGL / media-bridge / scene-gl…）；
   //    中文全角标点只出现在键里 —— 值里一律 ASCII（守卫会把全角标点当"中文"判红）。

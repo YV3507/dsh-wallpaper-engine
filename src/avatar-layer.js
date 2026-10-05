@@ -1,0 +1,307 @@
+/**
+ * avatar-layer.js — 「扩展」页签**第一个模块**（自定义会话头像）的**会话界面装饰层**。
+ *
+ * ══ 它是什么 ══════════════════════════════════════════════════════════════════
+ * 开启后把会话里的消息**左右分列并配上头像** —— 你的消息在右、头像在右；助手的消息在左、
+ * 头像在左，像好友之间互相发消息。做法是**纯 DOM 装饰**：给宿主已经渲染出来的消息行补一个
+ * 头像节点，不改任何官方组件的代码、也不注册任何插槽。
+ *
+ * ══ 为什么是 DOM 补丁而不是插槽 ══════════════════════════════════════════════
+ * 官方聊天列表的消息渲染器是按 kind 注册的（`conversation.chat.node` 的 `user` /
+ * `assistant-step` 两个 key），注册同名 key 是**替换**官方渲染器 —— 那等于把宿主的消息卡片
+ * 整个接过来养，升级一次就崩一次。而"在旁边放一张头像"只需要两件东西：一个稳定的选择器
+ * （`data-chat-flow-kind`，官方 ChatNodeSeat 写在每个消息行上的属性）与一个观察者
+ * （消息是动态插入的）。这与 `src/nav-icon.js` 的设置导航图标补丁是同一条路子。
+ *
+ * 契约：
+ *   需要的外界：扁平设置 store `selection`（**只读**）、`apiUrl`（拼宿主路由）。
+ *   对外提供：`syncAvatarLayer()`（设置变了就调一次）、`disposeAvatarLayer()`（卸载清理）、
+ *     `avatarImageUrl(side)`（面板预览与层共用同一条 URL 构造）、
+ *     `avatarGlyphSvgString(side, size)` / `renderAvatarGlyph(side, size)`（内置默认头像的几何，
+ *     字符串版给 DOM 用、React 版给面板用 —— 同一张零件表，见下）。
+ *   设置项（`avatar*`，真源 lib/settings-schema.js）：总开关 / 大小 / 圆角强度 / 两张文件名。
+ *   ⚠️ **没有自定义名字行**：早先那条"头像上方的称呼"（含"助手取当前模型名"）已按用户口径
+ *      整体移除（"加了它太丑了"）—— 不要再把它加回来：读模型名要挂在官方输入框的选择器槽位上，
+ *      是一整条额外的 DOM 依赖，而这层装饰的职责只是"配一张脸"。
+ *
+ * 不变量：
+ *   · **只读 `selection`**：一个字节都不写（写设置只发生在 src/client.js 的具名处理器里）。
+ *   · **零顶层可执行语句**：本文件的顶层只有声明 —— 读 `selection` 的语句一律在函数里
+ *     （内联后 prelude 早于 `src/client.js` 正文求值，顶层读它必撞 TDZ）。
+ *   · **关掉 = 逐字节回到原生**：摘掉所有注入的头像节点、抹掉加在消息行上的标记属性、
+ *     断开观察者、撤掉 body 上的开关属性与两个变量。宿主 DOM 上不留任何痕迹。
+ *   · **只碰消息行**：只给 `user` / `steering` / `assistant-step` 三种 kind 补头像
+ *     （工具调用、思考过程、压缩标记、turn 尾巴一律不碰 —— 那些不是"好友发的消息"）。
+ *   · **幂等**：同一个消息行只补一次（`data-we-avatar-row` 是标记）；设置变化时**就地更新**
+ *     已补节点的图与形状，不重建 DOM（否则每改一次滑块，整屏消息的头像都要重挂一遍）。
+ *   · **观察者的开销有硬界**：流式输出时消息内部每帧都在插节点 ⇒ 回调里对**不是消息行**
+ *     的插入只做一次 `closest('[data-we-avatar-row]')` 判定（已在装饰过的行里就直接放行），
+ *     绝不逐个 `querySelectorAll` 扫子树。
+ *   · **没有 DOM 的环境连观察者都不建**（无头验证沙箱）：这一层是装饰，宁可不画。
+ *   · **默认头像是画出来的、不是资源**：两侧各一张内置 SVG（零件表在下面），
+ *     与「我 / 助手」的角色一一对应；导入的图片只是**替换**这张默认头像。
+ */
+
+/** 三种"消息行"的 kind（官方 ChatNodeSeat 的 `data-chat-flow-kind` 值）→ 头像属于哪一方。 */
+const AVATAR_FLOW_SIDES = { user: 'user', steering: 'user', 'assistant-step': 'ai' };
+/** 消息行的选择器（只扫这三种；`closest` 的早退判定用的也是它）。 */
+const AVATAR_ROW_SELECTOR = '[data-chat-flow-kind="user"], [data-chat-flow-kind="steering"], [data-chat-flow-kind="assistant-step"]';
+/** 注入标记：`data-we-avatar-row="<side>"` 加在消息行上，`we-avatar` 是注入节点（那张脸）自己的类。 */
+const AVATAR_ROW_ATTR = 'data-we-avatar-row';
+const AVATAR_NODE_CLASS = 'we-avatar';
+const AVATAR_NODE_ATTR = 'data-we-avatar-node';
+/** 开关属性与两个观感变量（styles.js 的「自定义会话头像」段读它们）。 */
+const AVATAR_ATTR = 'data-we-avatar';
+const AVATAR_VAR_SIZE = '--we-avatar-size';
+const AVATAR_VAR_ROUND = '--we-avatar-round';
+/** 两方在设置里对应的文件名键（**唯一**的 side → 设置键映射）。 */
+const AVATAR_IMAGE_KEYS = { user: 'avatarUserImage', ai: 'avatarAiImage' };
+/**
+ * 画之前的**兜底钳位**（不是设置范围的真源 —— 真源是 lib/settings-schema.js 的
+ * AVATAR_SIZE_* / AVATAR_RADIUS_*，面板那两个滑块的 min/max 读的就是它）。
+ * 这里再写一份的理由只有一条：**本文件会被单独 import**（test/verify-*.mjs 逐模块加载），
+ * 那时 schema 的常量不在作用域里 —— 直接引用会 ReferenceError。名字刻意与 schema 的不同
+ * （`AVATAR_SIZE_MIN` 那一族已经被 schema 占了，内联后同作用域 ⇒ 重名即构建失败）。
+ */
+const AVATAR_CLAMP_SIZE = { min: 24, max: 72, def: 40 };
+const AVATAR_CLAMP_RADIUS = { min: 0, max: 100, def: 100 };
+
+/**
+ * 内置默认头像的**零件表**（唯一真源）：字符串版与 React 版都由它现算，改图只动这张表。
+ * 两侧都画在 0..16 的方格上（与「壁纸引擎」图标同一个网格口径），`currentColor` 上色、
+ * `fill="none"` + 描边 —— 于是它们自动跟随主题的文字色，深浅两套都不需要第二份配色。
+ *   · `user` = 人像（头 + 肩），最不容易被误读的一张。
+ *   · `ai`  = 四角星（"助手"的中性记号；不画品牌鲸 —— 头像位是用户的，不是我们的广告位）。
+ */
+const AVATAR_GLYPH_PARTS = {
+  user: [
+    ['circle', { cx: '8', cy: '5.6', r: '2.5' }],
+    ['path', { d: 'M3.4 13.2c0-2.3 2.1-3.8 4.6-3.8s4.6 1.5 4.6 3.8' }],
+  ],
+  ai: [
+    ['path', { d: 'M8 2.2l1.35 3.9a1.6 1.6 0 0 0 1 1l3.9 1.35-3.9 1.35a1.6 1.6 0 0 0-1 1L8 14.7l-1.35-3.9a1.6 1.6 0 0 0-1-1L1.75 8.45l3.9-1.35a1.6 1.6 0 0 0 1-1z' }],
+  ],
+};
+const AVATAR_GLYPH_VIEW_BOX = '0 0 16 16';
+
+/** 消息行的观察者与开关（模块级单例：这一层只有一份）。 */
+let avatarObserver = null;
+let avatarActive = false;
+
+function avatarBody() {
+  if (typeof document === 'undefined' || !document || !document.body) return null;
+  return document.body;
+}
+function avatarClamp(v, lo, hi, fallback) {
+  const n = typeof v === 'number' && isFinite(v) ? v : Number(v);
+  if (!isFinite(n)) return fallback;
+  return Math.min(hi, Math.max(lo, n));
+}
+
+/**
+ * 头像图的 URL：`/avatar/<side>?v=<文件名>`。
+ * 文件名进查询串既是"这一方到底设置过没有"的判据，也是**缓存键** —— 换图 ⇒ 换名 ⇒
+ * URL 变（路由那边因此敢给长缓存，见 lib/routes/avatar.js 的不变量 ④）。
+ * 没设置过就返回空串（调用方画内置默认头像）。
+ */
+function avatarImageUrl(side, selLike) {
+  const sel = selLike || selection;
+  const key = AVATAR_IMAGE_KEYS[side];
+  const name = key && sel ? String(sel[key] || '') : '';
+  if (!name) return '';
+  return apiUrl('/avatar/' + side + '?v=' + encodeURIComponent(name));
+}
+
+/** 字符串版默认头像（DOM 的 innerHTML 用）。 */
+function avatarGlyphSvgString(side, size) {
+  const parts = AVATAR_GLYPH_PARTS[side] || AVATAR_GLYPH_PARTS.user;
+  const px = (Number(size) > 0 ? Number(size) : 16);
+  const attrs = 'viewBox="' + AVATAR_GLYPH_VIEW_BOX + '" width="' + px + '" height="' + px
+    + '" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"'
+    + ' stroke-linejoin="round" aria-hidden="true" focusable="false"';
+  const inner = parts.map(([tag, a]) => '<' + tag + ' '
+    + Object.keys(a).map((k) => k + '="' + a[k] + '"').join(' ') + '/>').join('');
+  return '<svg ' + attrs + '>' + inner + '</svg>';
+}
+
+/** React 版默认头像（面板预览用）：与上面同一张零件表，调用时才读 React（同 nav-icon 口径）。 */
+function renderAvatarGlyph(side, size) {
+  const parts = AVATAR_GLYPH_PARTS[side] || AVATAR_GLYPH_PARTS.user;
+  const px = (Number(size) > 0 ? Number(size) : 16);
+  return React.createElement("svg", {
+    viewBox: AVATAR_GLYPH_VIEW_BOX,
+    width: px,
+    height: px,
+    fill: "none",
+    stroke: "currentColor",
+    "stroke-width": "1.4",
+    "stroke-linecap": "round",
+    "stroke-linejoin": "round",
+    "aria-hidden": "true",
+    focusable: "false",
+  }, parts.map(([tag, a]) => React.createElement(tag, a)));
+}
+
+/**
+ * 把一个已注入的头像节点**就地更新**到当前设置：里面是一个圆脸（导入的图或内置默认头像）
+ * 加一行名字。只在"该显示什么"真的变了才动 DOM —— 滑块每格都会走到这里
+ * （size/round 只改 body 变量，与节点内容无关），所以这些早退是热路径的一部分。
+ */
+function avatarFillNode(node, side) {
+  const url = avatarImageUrl(side);
+  const want = url ? 'img' : 'glyph';
+  if (node.getAttribute('data-we-avatar-kind') === want) {
+    if (want === 'img') {
+      const img = node.firstElementChild;
+      const src = img ? img.getAttribute('src') : '';
+      if (src !== url) { try { img.setAttribute('src', url); } catch { /* ignore */ } }
+    }
+    return;
+  }
+  node.setAttribute('data-we-avatar-kind', want);
+  try { node.textContent = ''; } catch { /* ignore */ }
+  if (want === 'img') {
+    const img = document.createElement('img');
+    img.className = AVATAR_NODE_CLASS + '__img';
+    img.setAttribute('alt', '');
+    img.setAttribute('draggable', 'false');
+    img.setAttribute('src', url);
+    node.appendChild(img);
+  } else {
+    const glyph = document.createElement('span');
+    glyph.className = AVATAR_NODE_CLASS + '__glyph';
+    glyph.innerHTML = avatarGlyphSvgString(side, 16);
+    node.appendChild(glyph);
+  }
+}
+
+/** 给一条消息行补头像（已补过则只做就地更新）。返回是否动过 DOM。 */
+function avatarDecorateRow(row) {
+  if (!row || typeof row.getAttribute !== 'function') return false;
+  const side = AVATAR_FLOW_SIDES[row.getAttribute('data-chat-flow-kind')];
+  if (!side) return false;
+  const marked = row.getAttribute(AVATAR_ROW_ATTR);
+  if (marked === side) {
+    const node = row.firstElementChild;
+    if (node && node.classList && node.classList.contains(AVATAR_NODE_CLASS)) {
+      avatarFillNode(node, side);
+      return false;
+    }
+    // 标记在、节点却没了（宿主重建过这一行的子节点）⇒ 当作没补过，重补一次。
+    row.removeAttribute(AVATAR_ROW_ATTR);
+  } else if (marked) {
+    // 同一行换了另一方（kind 变了）：先摘旧的，再按新的一方补。
+    const old = row.firstElementChild;
+    if (old && old.classList && old.classList.contains(AVATAR_NODE_CLASS)) {
+      try { old.remove(); } catch { /* ignore */ }
+    }
+    row.removeAttribute(AVATAR_ROW_ATTR);
+  }
+  const node = document.createElement('div');
+  node.className = AVATAR_NODE_CLASS + ' ' + AVATAR_NODE_CLASS + '--' + side;
+  node.setAttribute(AVATAR_NODE_ATTR, side);
+  node.setAttribute('aria-hidden', 'true');
+  avatarFillNode(node, side);
+  // 插到行的**最前面**：助手行是 `flex-direction: row`（头像在最左），
+  // 用户行是 `row-reverse`（最前面的子元素落在最右）—— 一份插入顺序同时满足两侧（见 styles.js）。
+  row.setAttribute(AVATAR_ROW_ATTR, side);
+  try { row.insertBefore(node, row.firstChild); } catch { /* ignore */ }
+  return true;
+}
+
+/** 扫一遍全文档，把还没补过的消息行补上（观察者只管新插入的，这一条管"已经在了的"）。 */
+function avatarSweep() {
+  if (typeof document.querySelectorAll !== 'function') return;
+  let rows = [];
+  try { rows = document.querySelectorAll(AVATAR_ROW_SELECTOR); } catch { return; }
+  for (const row of rows) avatarDecorateRow(row);
+}
+
+/**
+ * 观察者的回调。两件事，按代价从低到高：
+ *   ① 新增的**消息行** ⇒ 补头像；
+ *   ② 其余新增元素：如果它已经在装饰过的行里就直接放行 —— 流式输出期间消息内部每帧都在
+ *      插节点，这一级早退把开销钉在"每个新增元素一次 `closest`"上，
+ *      绝不逐个 `querySelectorAll` 扫子树（那是 O(帧 × 子树) 的写法）。
+ */
+function avatarOnMutations(records) {
+  if (!avatarActive) return;
+  for (const r of records) {
+    const added = r.addedNodes;
+    if (!added || !added.length) continue;
+    for (const n of added) {
+      if (!n || n.nodeType !== 1) continue;
+      try {
+        if (n.matches && n.matches(AVATAR_ROW_SELECTOR)) { avatarDecorateRow(n); continue; }
+        if (n.closest && n.closest('[' + AVATAR_ROW_ATTR + ']')) continue; // 已在装饰过的行里
+      } catch { continue; }
+      let inner = [];
+      try { inner = n.querySelectorAll ? n.querySelectorAll(AVATAR_ROW_SELECTOR) : []; } catch { inner = []; }
+      for (const row of inner) avatarDecorateRow(row);
+    }
+  }
+}
+
+function avatarStop() {
+  avatarActive = false;
+  if (avatarObserver) {
+    try { avatarObserver.disconnect(); } catch { /* ignore */ }
+    avatarObserver = null;
+  }
+  if (typeof document === 'undefined' || !document) return;
+  const body = avatarBody();
+  if (body) {
+    body.removeAttribute(AVATAR_ATTR);
+    body.style.removeProperty(AVATAR_VAR_SIZE);
+    body.style.removeProperty(AVATAR_VAR_ROUND);
+  }
+  // 摘掉所有注入的头像节点与行标记（"关掉 = 逐字节回到原生"）。
+  if (typeof document.querySelectorAll !== 'function') return;
+  let nodes = [];
+  try { nodes = document.querySelectorAll('[' + AVATAR_NODE_ATTR + ']'); } catch { /* ignore */ }
+  for (const n of nodes) { try { n.remove(); } catch { /* ignore */ } }
+  let rows = [];
+  try { rows = document.querySelectorAll('[' + AVATAR_ROW_ATTR + ']'); } catch { /* ignore */ }
+  for (const row of rows) { try { row.removeAttribute(AVATAR_ROW_ATTR); } catch { /* ignore */ } }
+}
+
+/**
+ * 设置变了就调一次（由 `src/client.js` 的 `subscribe(syncAvatarLayer)` 驱动）。
+ *
+ * 开 → 挂开关属性与两个变量、起观察者、补一遍现况；关 → 全部收掉。
+ * **每一条写入都是幂等的**：这个函数每次 emit 都会跑（滑块每格一次），
+ * 重复 setAttribute / 重复 sweep 的代价是"一次属性写 + 一次选择器扫描"，
+ * 但换来的是"任何时刻屏上的形态都等于当前设置"这条不需要额外状态机的性质。
+ */
+function syncAvatarLayer() {
+  const on = selection.avatarEnabled === true;
+  const body = avatarBody();
+  if (!on || !body || typeof MutationObserver !== 'function') {
+    if (avatarActive || avatarObserver) avatarStop();
+    else if (body) { body.removeAttribute(AVATAR_ATTR); body.style.removeProperty(AVATAR_VAR_SIZE); body.style.removeProperty(AVATAR_VAR_ROUND); }
+    return;
+  }
+  const size = avatarClamp(selection.avatarSize, AVATAR_CLAMP_SIZE.min, AVATAR_CLAMP_SIZE.max, AVATAR_CLAMP_SIZE.def);
+  const round = avatarClamp(selection.avatarRadius, AVATAR_CLAMP_RADIUS.min, AVATAR_CLAMP_RADIUS.max, AVATAR_CLAMP_RADIUS.def);
+  body.setAttribute(AVATAR_ATTR, 'on');
+  body.style.setProperty(AVATAR_VAR_SIZE, Math.round(size) + 'px');
+  body.style.setProperty(AVATAR_VAR_ROUND, String(Math.round(round)));
+  if (!avatarObserver) {
+    try {
+      avatarObserver = new MutationObserver(avatarOnMutations);
+      avatarObserver.observe(body, { childList: true, subtree: true });
+    } catch { avatarObserver = null; }
+  }
+  avatarActive = true;
+  avatarSweep();
+}
+
+/** 卸载清理（插件禁用 / HMR 重挂）：与关掉同一条路径，额外保证观察者断开。 */
+function disposeAvatarLayer() {
+  avatarStop();
+}
+
+export {
+  syncAvatarLayer, disposeAvatarLayer,
+  avatarImageUrl, avatarGlyphSvgString, renderAvatarGlyph,
+};

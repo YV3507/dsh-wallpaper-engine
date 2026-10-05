@@ -1486,11 +1486,13 @@
   //     title + desc —— "功能还没做完"的模块可以先上架占位。
   //   · 模块**不得**自己写设置 / 发通知 / 持有状态：本文件是渲染器（契约见文件头），
   //     要动状态就把动作做成 src/client.js 的具名处理器、经 ctx 传进来。
-  // 现有两项：一号 = 点击效果与拖尾效果（src/ext-fx.js + src/fx-layer.js）、
-  // 二号 = 3D 效果（src/ext-parallax.js + src/parallax-layer.js，只有变量与事件、不建 DOM）。
-  // 加第三项照抄这两份。
+  // 现有三项：一号 = 自定义会话头像（src/ext-avatar.js + src/avatar-layer.js，会话界面上的
+  // DOM 补丁）、二号 = 点击效果与拖尾效果（src/ext-fx.js + src/fx-layer.js）、
+  // 三号 = 3D 效果（src/ext-parallax.js + src/parallax-layer.js，只有变量与事件、不建 DOM）。
+  // ⚠️ **顺序即屏上顺序**（数组第 0 项在最上面）：头像那一项是后加的、按用户口径排在**第一**。
+  // 加第四项照抄这三份。
   function extensionModules() {
-    return [FX_EXTENSION_MODULE, PARALLAX_EXTENSION_MODULE];
+    return [AVATAR_EXTENSION_MODULE, FX_EXTENSION_MODULE, PARALLAX_EXTENSION_MODULE];
   }
 
   // 这一页自己不读 ctx 的任何字段：整包（sel + 具名 on* 处理器）转交给各模块的 render。
