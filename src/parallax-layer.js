@@ -51,8 +51,10 @@
  *     才往上找；
  *     ④ 四个区域各有**自己的距离**（`parallaxUiChatDepth` / `parallaxUiComposerDepth` /
  *     `parallaxUiSidebarDepth` / `parallaxUiBubbleDepth`，用户口径 m01915-①）：每块自己就是
- *     **绝对的最大位移百分比**（用户裁决 m02697-①/③：总倍率 `parallaxUiDepth` 已退役，
- *     出厂一律 1%，**0 = 这一块完全不缓动**）；系数 = 该区域值 × `PARALLAX_UI_SIGN`。
+ *     **绝对的最大位移百分比**（用户裁决 m02697-①/③：总倍率 `parallaxUiDepth` 已退役；
+ *     出厂值 = 1.2 / 1.8 / 1.6 / 1.4，真源 lib/settings-schema.js 的 `DEFAULTS`，
+ *     用户诉求 m04159 把「原生前端」这四档固化成他实际调好的那一组；**0 = 这一块完全不缓动**）；
+ *     系数 = 该区域值 × `PARALLAX_UI_SIGN`。
  *     嵌套规矩对气泡那一档放开：气泡行本来就长在会话文本区的盒子里，两者都动、位移叠加
  *     （这正是"气泡比文本区再多走一点"的来路），其余组里套组仍只留最外侧那个。
  *     ⑤ **别的插件注册的前端元素组也参与**（用户裁决 m02697-②/③）：运行期按槽出口
@@ -81,8 +83,8 @@
  *     视口大小 ⇒ 不补边就会在边上露出底色。所以壁纸层同时放大 `1 + pct/50`
  *     （见 src/styles.js 的视差段）—— 恰好多出"最大位移 × 2"那点余量。
  *   · **各层各自的百分比**：壁纸走 `parallaxBg`；吉祥物跟着壁纸（`parallaxMascot` 可关）；
- *     界面那四组各走**自己的距离**（四个设置项，出厂一律 1% —— 用户裁决 m02848：
- *     「滑动条上限为10%，分度值0.1%，默认1%」；缺值兜底见 PARALLAX_GROUP_*）；
+ *     界面那四组各走**自己的距离**（四个设置项，出厂 1.2 / 1.8 / 1.6 / 1.4 —— 用户诉求 m04159；
+ *     滑杆域仍是 0..10% / 分度 0.1%；缺值兜底见 PARALLAX_GROUP_*）；
  *     插件组走 `parallaxPluginDepths[槽键]`（缺键 = 1% 参与，用户裁决 m02697-②），整块另由
  *     它自己的开关 `parallaxPlugin` 管（默认关、与界面整块互不依赖 —— 用户诉求 m03549）。
  *   · **点击与拖尾效果（`src/fx-layer.js` 那一层）刻意不参与**（用户口径第 3 条）：那层画的是"屏上的笔迹"，
@@ -163,14 +165,14 @@ const PARALLAX_TARGET_SELECTOR = '.we-layer, .we-rope';
  *  随版本变；这一排语义属性是宿主写在每个聊天流条目上的，稳。 */
 const PARALLAX_GROUP_SELECTOR = '[data-composer-card], [data-slot="conversation.view"], [data-slot="sidebar"], [data-chat-flow-kind="user"], [data-chat-flow-kind="steering"]';
 /** 四个区域的**出厂 / 兜底距离**（% 对角线；用户裁决 m02697-①/③：总倍率 `parallaxUiDepth`
- *  退役、每块自己就是绝对距离、0 = 这一块完全不缓动；出厂一律 1% —— 用户裁决 m02848
- *  「滑动条上限为10%，分度值0.1%，默认1%」）。真源是 lib/settings-schema.js 里那四个
- *  `parallaxUi*Depth` 键，这里的四个数只作缺值兜底、与出厂默认逐字同值。
+ *  退役、每块自己就是绝对距离、0 = 这一块完全不缓动）。真源是 lib/settings-schema.js 里那四个
+ *  `parallaxUi*Depth` 键，这里的四个数只作缺值兜底、与出厂默认逐字同值（用户诉求 m04159 把它
+ *  固化成用户实际调好的那一组：1.2 / 1.8 / 1.6 / 1.4；滑杆域仍是 0..10% / 分度 0.1%）。
  *  用户气泡那一档长在会话文本区的盒子里、两者都动 ⇒ 位移是**叠加**的（文件头 ④）。 */
-const PARALLAX_GROUP_CHAT = 1;
-const PARALLAX_GROUP_COMPOSER = 1;
-const PARALLAX_GROUP_SIDEBAR = 1;
-const PARALLAX_GROUP_BUBBLE = 1;
+const PARALLAX_GROUP_CHAT = 1.2;
+const PARALLAX_GROUP_COMPOSER = 1.8;
+const PARALLAX_GROUP_SIDEBAR = 1.6;
+const PARALLAX_GROUP_BUBBLE = 1.4;
 /** 区域距离的取值范围（与 lib/settings-schema.js 的 KINDS 同值：本文件要能被单独 import）。 */
 const PARALLAX_GROUP_DEPTH_MIN = 0;
 const PARALLAX_GROUP_DEPTH_MAX = 10;
@@ -192,7 +194,8 @@ const PARALLAX_PLUGIN_SKIP = [
 const PARALLAX_PLUGIN_SKIP_PREFIX = ['settings.', 'plugins.', 'shell.'];
 const PARALLAX_PLUGIN_SKIP_SCOPE = '[data-slot="settings.section"], [data-slot="plugins.bundle.config"]';
 /** 插件组的缺省距离（%，用户裁决 m02697-②："默认参与缓动，给一个和原生区域相近的默认距离"）
- *  —— 与四个区域的出厂值同一个数；取值范围同 PARALLAX_GROUP_DEPTH_*。
+ *  —— 它自成一份（原生那四档已按用户诉求 m04159 固化成 1.2 / 1.8 / 1.6 / 1.4，这里仍是 1，
+ *  量级上仍与原生区域相近），真源就是这个常量、别处不许再抄；取值范围同 PARALLAX_GROUP_DEPTH_*。
  *  只在 `parallaxPlugin` 开着时才会被读到（用户诉求 m03549：那个开关独立于 `parallaxUi`、默认关）。 */
 const PARALLAX_PLUGIN_DEFAULT = 1;
 /** 界面组量化的**迟滞带**（单位 = 设备像素）：位移小于 `DEAD` 一律归零；已经非零时小于

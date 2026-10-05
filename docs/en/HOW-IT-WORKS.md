@@ -189,7 +189,7 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe (no 
   included) / sidebar) are governed by a
   separate sub-switch `parallaxUi` (off by default) and the four regions **each store their own absolute
   percentage** (`parallaxUiChatDepth` / `parallaxUiComposerDepth` / `parallaxUiSidebarDepth` /
-  `parallaxUiBubbleDepth`, KINDS `num 0..10`, step 0.1, shipping at 1% each): the old **total factor**
+  `parallaxUiBubbleDepth`, KINDS `num 0..10`, step 0.1, shipping at 1.2 / 1.8 / 1.6 / 1.4 (user request m04159 pinned those four to the values he had tuned; source of truth = `lib/settings-schema.js`)): the old **total factor**
   `parallaxUiDepth` and the whole "panel x100 / stored factor" chain are retired, so the panel and the
   stored value now **share one unit** and setting a region to 0 means that region does not move at all
   (user ruling m02697-③). **Front-end element groups registered by other plugins** (user wording m02697-②)

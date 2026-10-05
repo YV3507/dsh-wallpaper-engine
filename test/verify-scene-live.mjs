@@ -2861,11 +2861,12 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       // **从锚点自身起判** ⇒ 输入卡片落到卡片本体、每条用户气泡各自成为一个位移目标）。
       && parSrc.includes('[data-composer-card], [data-slot="conversation.view"], [data-slot="sidebar"], [data-chat-flow-kind="user"], [data-chat-flow-kind="steering"]')
       // 用户裁决 m02697-①/③：四个区域**自己就是绝对距离**（不再是乘在总倍率上的系数）
-      // ⇒ 出厂一律 1%、上限 10%（"滑动条上限为10%，分度值0.1%，默认1%"）、0 = 这一块不缓动。
-      && parSrc.includes('const PARALLAX_GROUP_CHAT = 1;')
-      && parSrc.includes('const PARALLAX_GROUP_COMPOSER = 1;')
-      && parSrc.includes('const PARALLAX_GROUP_SIDEBAR = 1;')
-      && parSrc.includes('const PARALLAX_GROUP_BUBBLE = 1;')
+      // ⇒ 滑杆上限 10%、0 = 这一块不缓动；出厂值 = 用户实际调好的那一组
+      //（用户诉求 m04159 ⇒ 1.2 / 1.8 / 1.6 / 1.4，与 lib/settings-schema.js 的 DEFAULTS 逐字同值）。
+      && parSrc.includes('const PARALLAX_GROUP_CHAT = 1.2;')
+      && parSrc.includes('const PARALLAX_GROUP_COMPOSER = 1.8;')
+      && parSrc.includes('const PARALLAX_GROUP_SIDEBAR = 1.6;')
+      && parSrc.includes('const PARALLAX_GROUP_BUBBLE = 1.4;')
       && parSrc.includes('const PARALLAX_GROUP_BUBBLE_MAX = 24;')
       && parSrc.includes('const PARALLAX_GROUP_DEPTH_MIN = 0;')
       && parSrc.includes('const PARALLAX_GROUP_DEPTH_MAX = 10;')

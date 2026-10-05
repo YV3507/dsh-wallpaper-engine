@@ -98,7 +98,7 @@ function renderParallaxIsland(ctx) {
         { tooltip: weT("长回复所在的整块文本区自己的最大位移：光标贴到屏幕角时它最多挪出屏幕最长对角线的百分之几（0 = 这一组完全不跟）") }),
       ui && SliderRow(weT("输入卡片距离"), 0, 10, 0.1, sel.parallaxUiComposerDepth, onParallaxUiComposerDepth,
         "%", "parallax-ui-composer-depth",
-        { tooltip: weT("底部输入卡片自己的最大位移：比文本区大一点（出厂 1%）看着更靠前、纵深更明显（0 = 这一组完全不跟）") }),
+        { tooltip: weT("底部输入卡片自己的最大位移：默认比文本区大一点，看着更靠前、纵深更明显（0 = 这一组完全不跟）") }),
       ui && SliderRow(weT("侧栏距离"), 0, 10, 0.1, sel.parallaxUiSidebarDepth, onParallaxUiSidebarDepth,
         "%", "parallax-ui-sidebar-depth",
         { tooltip: weT("左侧栏自己的最大位移：它比文本区更靠后，想让它更沉就调小（0 = 这一组完全不跟）") }),

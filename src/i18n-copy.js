@@ -667,7 +667,7 @@ const WE_I18N_EN = {
   "会话文本区距离": "Conversation area travel",
   "长回复所在的整块文本区自己的最大位移：光标贴到屏幕角时它最多挪出屏幕最长对角线的百分之几（0 = 这一组完全不跟）": "Maximum travel of the whole text area that long replies live in, on its own: the percentage of the screen's longest diagonal it can move when the cursor reaches a screen corner (0 = this group does not move at all)",
   "输入卡片距离": "Composer travel",
-  "底部输入卡片自己的最大位移：比文本区大一点（出厂 1%）看着更靠前、纵深更明显（0 = 这一组完全不跟）": "Maximum travel of the composer at the bottom, on its own: a little larger than the text area (1% by default) reads as the nearest layer and makes the depth clearer (0 = this group does not move at all)",
+  "底部输入卡片自己的最大位移：默认比文本区大一点，看着更靠前、纵深更明显（0 = 这一组完全不跟）": "Maximum travel of the composer at the bottom, on its own: by default a little larger than the text area, which reads as the nearest layer and makes the depth clearer (0 = this group does not move at all)",
   "侧栏距离": "Sidebar travel",
   "左侧栏自己的最大位移：它比文本区更靠后，想让它更沉就调小（0 = 这一组完全不跟）": "Maximum travel of the left sidebar, on its own: it sits further back than the text area, so lower values read as more distant (0 = this group does not move at all)",
   "用户气泡距离": "User bubble travel",

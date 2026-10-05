@@ -1009,11 +1009,20 @@ setTimeout(async () => {
           flushPersistWrites();
           const uiTree = renderPicker();
           // 四个区域距离**各是绝对百分比**（用户裁决 m02697-①③）：面板与存档**同一个单位**
-          // ⇒ 滑杆域 = KINDS 域（0..10、步长 0.1）、出厂一律 1%；老口径的"总倍率 + ×100"整条退役。
-          ['会话文本区距离', '输入卡片距离', '侧栏距离', '用户气泡距离'].forEach((label) => {
+          // ⇒ 滑杆域 = KINDS 域（0..10、步长 0.1，没变）；出厂值则是用户实际调好的那一组
+          //（用户诉求 m04159：「修改原生前端在开启时的默认值」⇒ 1.2 / 1.8 / 1.6 / 1.4）。
+          // 真源在 lib/settings-schema.js 的 DEFAULTS，这里按"面板必须照它回显"逐个钉住。
+          const parNativeDefaults = {
+            '会话文本区距离': '1.2%',
+            '输入卡片距离': '1.8%',
+            '侧栏距离': '1.6%',
+            '用户气泡距离': '1.4%',
+          };
+          Object.keys(parNativeDefaults).forEach((label) => {
             assert.equal(sliderMin(findSliderRow(uiTree, label)), '0', label + ' 下限必须是 0%');
             assert.equal(sliderMax(findSliderRow(uiTree, label)), '10', label + ' 上限必须是 10%');
-            assert.equal(parReadoutOf(label, uiTree), '1%', label + ' 默认必须是 1%');
+            assert.equal(parReadoutOf(label, uiTree), parNativeDefaults[label],
+              label + ' 的默认回显必须是出厂值 ' + parNativeDefaults[label] + '（真源 = lib/settings-schema.js 的 DEFAULTS）');
           });
           assert.equal(findSliderRow(uiTree, '界面跟随距离'), null,
             '总倍率退役后不得再画出「界面跟随距离」');
