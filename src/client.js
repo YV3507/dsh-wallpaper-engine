@@ -383,10 +383,15 @@ function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 //   （`GET /api/skin-center/v2/active`）已随该契约落地整体删除 —— 纯事件、无网络。
 // 退场 = 清当前壁纸（若设过；层 / 遮罩 / `body[data-we-wallpaper]` 随 `selection.url` 一起退）
 //        + 玻璃整族门控整组不匹配（与旧「要不要玻璃 = 关」同语义；落点在 applyGlass 与
-//        effects 的两个门控点）。没设壁纸时前半条是空操作，但玻璃让路照常 —— 玻璃与壁纸
-//        正交（data-we-glass-page 恒挂），皮肤在台上时它不该盖在皮肤上。
+//        effects 的两个门控点）
+//        + **主题放回**（`themeFollowRelease`，随清空路径自动走到）：我方为这张壁纸改过主题
+//        才放回原值；别人改过（让位标记 / 现值对不上）就一个字节都不碰 —— "退干净"与
+//        "不硬覆盖回去"两条在这里合流。没设壁纸时前半条是空操作，但玻璃让路照常 —— 玻璃与
+//        壁纸正交（data-we-glass-page 恒挂），皮肤在台上时它不该盖在皮肤上。
 // 复位 = 持续不在台上（滞回，见下）才做：按记忆放回壁纸与轮播开关；用户期间手动选过壁纸
-//        就不抢（手动重选那条路会**立刻**退让路，见 src/media-prep.js 的钩子）。
+//        就不抢（手动重选那条路会**立刻**退让路，见 src/media-prep.js 的钩子）。放回壁纸时
+//        主题评估走 `fromSkinRestore`（不复位让位标记）：皮肤在台期间用户改过的主题活过这次
+//        放回，不被打回壁纸判决。
 // ⚠️ 轮播会把"空 id"当信号自动补位（`rotationEnabled && !id` ⇒ 取候选第一张），所以退场
 //    必须连轮播一起按停，否则刚清掉的壁纸会被自己补回来。
 const SKIN_YIELD_EXIT_GRACE_MS = 2600; // 复位宽限：对方 refresh 会先把标记摘掉再补回，瞬时摘不算退场
@@ -427,7 +432,11 @@ function exitSkinYield(reason, opts) {
   skinYielded = false;
   const mem = skinYieldMemory || {};
   skinYieldMemory = null;
-  if (!skipRestore && !selection.id && mem.id) applySelection(mem.id);
+  if (!skipRestore && !selection.id && mem.id) {
+    // `fromSkinRestore`：这次应用是"皮肤退场后的放回"—— 主题评估据此**不复位让位标记**，
+    // 皮肤在台期间用户改过的主题不被这次放回盖掉（"切换过主题不硬覆盖回去"）。
+    applySelection(mem.id, { fromSkinRestore: true });
+  }
   if (mem.rotationEnabled && selection.rotationEnabled !== true) setSetting("rotationEnabled", true);
   // 落盘记忆已消费（放回，或被用户新选择取代）⇒ 清掉 —— 别留给下一次启动当陈旧依据。
   setSetting("skinYieldRestoreId", "");

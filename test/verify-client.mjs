@@ -3443,8 +3443,9 @@ setTimeout(async () => {
     && /exitSkinYield\("manual-pick", \{ skipRestore: true \}\)/.test(mediaSrc),
     '让路态里的手动重选要立刻退出让路（只认 fromManual）');
   assert.ok(/function exitSkinYield\(reason, opts\)/.test(clientSrc)
-    && /if \(!skipRestore && !selection\.id && mem\.id\) applySelection\(mem\.id\)/.test(clientSrc),
-    '手动重选退出时不许用记忆里的旧 id 覆盖用户的新选择');
+    && /if \(!skipRestore && !selection\.id && mem\.id\) \{/.test(clientSrc)
+    && /applySelection\(mem\.id, \{ fromSkinRestore: true \}\)/.test(clientSrc),
+    '手动重选退出时不许用记忆里的旧 id 覆盖用户的新选择（放回那次带 fromSkinRestore）');
   // ④ 复位：按记忆放回（在 exitSkinYield 里）；轮播必须一起按停；诊断行留痕。
   assert.ok(/if \(!skinYielded\) return;/.test(clientSrc)
     && clientSrc.includes('if (selection.rotationEnabled) setSetting("rotationEnabled", false)'),
@@ -3501,6 +3502,30 @@ setTimeout(async () => {
     'const SKIN_ACTIVE_URL = "/api/skin-center/v2/active";\nconst SKIN_YIELD_EXIT_GRACE_MS');
   assert.ok(revived.includes('skin-center/v2/active'),
     'negative control: 判据能发现轮询腿被加回来（喂同一份剥注释源码）');
+  // ⑥ 主题维度（用户口径：WE 在台时主题归 WE；退场把**改过的那份**放回；任何外部主题切换
+  //    不硬覆盖回去）：清空路径放回、让路态整族不写、复位那次带 fromSkinRestore（让位标记
+  //    不复位 —— 皮肤窗口里改过的主题不被放回打回）。行为面在 test/verify-theme-follow.mjs ⑧。
+  const themeSrc = readFileSync(new URL('../src/theme-follow.js', import.meta.url), 'utf8');
+  assert.ok(mediaSrc.includes('themeFollowRelease();')
+    && /themeFollowOnWallpaper\(selection, \{ fromSkinRestore: !!\(opts && opts\.fromSkinRestore\) \}\);/.test(mediaSrc),
+    '主题维度：清空路径要放回、评估要透传"皮肤放回"标志（src/media-prep.js）');
+  assert.ok(clientSrc.includes('applySelection(mem.id, { fromSkinRestore: true });'),
+    '主题维度：皮肤退场放回壁纸时带 fromSkinRestore（src/client.js）');
+  assert.ok((themeSrc.match(/\|\| themeFollowSkinYielded\(\)\)|if \(themeFollowSkinYielded\(\)\)/g) || []).length === 5,
+    '主题维度：评估 / 写 / 图源 / 两条帧腿共 5 处写入口都要带皮肤让路门');
+  assert.ok(/function themeFollowRelease\(\)/.test(themeSrc)
+    && /if \(themeFollowYield\) return;/.test(themeSrc)
+    && /if \(current && current !== themeFollowWritten\) return;/.test(themeSrc),
+    '主题维度：放回要带"别人接管过就不碰"的两层判据（让位标记 + 现值比对）');
+  const noRelease = mediaSrc.replace('themeFollowRelease();', '/* 漏放回 */');
+  assert.ok(!/themeFollowRelease\(\);/.test(noRelease), 'negative control: 清空路径漏放回即判红');
+  const gateRe = /\|\| themeFollowSkinYielded\(\)\)|if \(themeFollowSkinYielded\(\)\)/g;
+  const noThemeGate = themeSrc.replace(gateRe, '');
+  assert.ok((noThemeGate.match(gateRe) || []).length !== 5,
+    'negative control: 摘掉主题的皮肤让路门即判红');
+  const stompBack = themeSrc.replace('if (current && current !== themeFollowWritten) return;', '/* 无脑放回 */');
+  assert.ok(!/if \(current && current !== themeFollowWritten\) return;/.test(stompBack),
+    'negative control: 放回变成无脑覆盖（不看现值）即判红');
 }
 
 console.log('\nALL CLIENT CHECKS DONE');

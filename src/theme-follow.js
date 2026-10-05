@@ -62,6 +62,10 @@ let themeFollowWritten = "";     // 我们最后写进去的偏好（'' = 没写
 let themeFollowYield = false;    // 本张壁纸让位（别人改过主题）
 let themeFollowWallpaperId = ""; // 让位标记与排名状态的归属：只有 id 真的换了才复位
 let themeFollowSeq = 0;          // 评估代次：换壁纸即作废进行中的画面取色
+// 我方**改主题之前**的偏好值（"" = 还没有改过 / 已放回）。壁纸退场（清空 / 让路给皮肤）
+// 时把它原样放回 —— "我们改的环境要退干净"这条与壁纸层 / 玻璃整族同级；而"别人改过就不碰"
+// 的判据见 themeFollowRelease（让位标记 + 现值比对双重门）。
+let themeFollowBefore = "";
 // 图源结果按来源分开记：预览图只是作者的宣传画，真实渲染帧才是"这张壁纸实际长什么样"，
 // 但抓帧可能落在画面还没稳定的时刻。两者**不一致时取深色**（见文件头 ② 的理由），
 // 只有都说是浅色才用浅色；作者配色在场时两者一律不参与。
@@ -80,6 +84,15 @@ function themeFollowEnabled() {
   try {
     return typeof selection !== "undefined" && !!selection && selection.themeFollow === true;
   } catch { return false; }
+}
+
+/**
+ * 皮肤在台上（`src/client.js` 的互操作块已让我方整族退场）：主题是退场清单的一员 ——
+ * 让路态里一个字节都不写（含画面取色那两条异步腿）。try 防 TDZ：本模块可能先于
+ * client 主体被求值。
+ */
+function themeFollowSkinYielded() {
+  try { return typeof skinYieldActive === "function" && skinYieldActive() === true; } catch { return false; }
 }
 
 /**
@@ -243,16 +256,19 @@ function themeFollowImageUrlOf(sel) {
 
 /**
  * 写入口。`verdict` 为空 / 与当前偏好相同 ⇒ 不写（去重，避免每次切换都改 profile 文件）。
+ * 皮肤让路态同样不写（`themeFollowSkinYielded`）—— 皮肤在台上时主题归皮肤。
  */
 function themeFollowApply(verdict) {
   if (!themeFollowEnabled()) return;
-  if (!verdict || !themeFollowService || themeFollowYield) return;
+  if (!verdict || !themeFollowService || themeFollowYield || themeFollowSkinYielded()) return;
   const current = themeFollowCurrentPreference();
   if (current === verdict) {
     themeFollowWritten = verdict;
     themeFollowTrace(weT("保持 {verdict}（已是这个偏好，不重复写）", { verdict }));
     return;
   }
+  // 第一次真正改动之前记下"原来的样子"：退场放回（themeFollowRelease）只放这一份。
+  if (!themeFollowBefore && current) themeFollowBefore = current;
   try {
     themeFollowWritten = verdict;   // 先记再写：自己的写入不该被当成"别人改的"
     themeFollowService.setTheme(verdict);
@@ -274,18 +290,25 @@ function themeFollowTrace(action) {
  * 换壁纸后的评估入口（src/media-prep.js 的 applySelection 调）。
  * 第一段同步走作者配色；拿不到色、且有图可采样时才进第二段异步取画面主色（排名 1）。
  * 真实渲染帧的更高质量结果由 themeFollowOnFrameCanvas / themeFollowOnFrameImage 补上（排名 2）。
+ *
+ * `opts.fromSkinRestore`：这次应用是**皮肤退场后的放回**（src/client.js 的 exitSkinYield）。
+ * 它唯一的作用是**不复位让位标记** —— 皮肤在台期间用户改过主题的话，那次切换必须活过
+ * 这次放回（"切换过主题不硬覆盖回去"）；没改过则标记本来就是 false，行为与普通换壁纸一致。
  */
-function themeFollowOnWallpaper(sel) {
+function themeFollowOnWallpaper(sel, opts) {
   // 开关关：不评估、不写主题，顺手清掉上一轮留下的状态（见 themeFollowClearState）。
   if (!themeFollowEnabled()) return themeFollowClearState();
+  if (themeFollowSkinYielded()) return;   // 皮肤在台上：主题同样让路（放回那次已先退出让路）
   if (!themeFollowService) return;
   // 让位标记与排名只随**壁纸 id 变化**复位：同一张壁纸可能被重复评估（重挂 / 重校验 /
   // 设置变动），那种情况下若也复位，就等于在用户刚手动改完主题后立刻抢回来。
   const id = String((sel && sel.id) || "");
   if (id !== themeFollowWallpaperId) {
     themeFollowWallpaperId = id;
-    themeFollowYield = false;
-    themeFollowRank = 0;
+    if (!(opts && opts.fromSkinRestore)) {
+      themeFollowYield = false;
+      themeFollowRank = 0;
+    }
   }
   const seq = ++themeFollowSeq;
   themeFollowPreviewVerdict = "";
@@ -310,6 +333,34 @@ function themeFollowOnWallpaper(sel) {
 }
 
 /**
+ * 壁纸退场（清空 / 让路给皮肤）⇒ 主题放回。两条自我约束，缺一条都算"抢"：
+ *   · **只放我方改过的那一份**：`themeFollowBefore` 为空（我们没动过主题，或已放过）⇒ 空转；
+ *     关掉开关时也空转 —— "关时零写入"是既有的对外契约（见 themeFollowClearState）。
+ *   · **别人接管过就不碰**：让位标记在场（有人改过主题），或现值已经不等于我们最后写进去的
+ *     值（改动发生在我们视野之外）⇒ 空转。放回是对**自己那次改动**的撤销，不是把主题
+ *     "翻回去" —— 用户 / 别处的切换永远优先（"切换过主题不硬覆盖回去"）。
+ * 调用点：applySelection 的清空路径（清除按钮与皮肤让路都汇到那里）。
+ */
+function themeFollowRelease() {
+  if (!themeFollowEnabled()) return;
+  if (!themeFollowService) return;
+  if (themeFollowYield) return;
+  if (!themeFollowBefore) return;
+  const current = themeFollowCurrentPreference();
+  if (current && current !== themeFollowWritten) return;
+  const back = themeFollowBefore;
+  themeFollowBefore = "";
+  // ⚠️ 与 themeFollowApply 同一条纪律：**先记再写**。放回自己也会触发一次 theme/change，
+  // 不先记账的话那次回调会把"现值 ≠ 我们写的值"读成"别人接管了"，给下一张壁纸挂上
+  // 永久的让位标记（放回把主题还了，却把自己锁死在让位态）。
+  themeFollowWritten = back;
+  try {
+    themeFollowService.setTheme(back);
+    themeFollowTrace(weT("放回 {verdict}（随壁纸退场归还）", { verdict: back }));
+  } catch { /* 服务拒绝（版本漂移）：现值保持原样，不抛 */ }
+}
+
+/**
  * 两条腿的合议：都说是浅色才用浅色；只要有一条说是深色（或只有一条有结论）就按那条走。
  * 不一致时偏向深色 —— "该深却给了浅色"是肉眼最容易看见的错，而抓帧有落在过渡态的风险。
  */
@@ -329,7 +380,7 @@ function themeFollowResolveImageVerdict() {
  */
 function themeFollowAcceptImageVerdict(rgb, rank) {
   if (!themeFollowEnabled()) return;
-  if (!themeFollowService || themeFollowYield) return;
+  if (!themeFollowService || themeFollowYield || themeFollowSkinYielded()) return;
   if (themeFollowSchemeProvided) return;
   if (themeFollowWallpaperId !== String((typeof selection !== "undefined" && selection && selection.id) || "")) return;
   if (rank <= themeFollowRank) return;
@@ -360,6 +411,7 @@ function themeFollowDescribe(source, rgb, verdict) {
  */
 function themeFollowOnFrameCanvas(canvas) {
   if (!themeFollowEnabled()) return;   // 关时不取像素（连这份成本都不付）
+  if (themeFollowSkinYielded()) return;   // 让路态：主题归皮肤，取色结果无处可去
   try {
     if (!canvas || typeof document === "undefined") return;
     const probe = document.createElement("canvas");
@@ -376,6 +428,7 @@ function themeFollowOnFrameCanvas(canvas) {
 /** 真实渲染帧（网页壁纸 `__wp.capture` 的 data URL）→ 判决。同样排名 2。 */
 function themeFollowOnFrameImage(url) {
   if (!themeFollowEnabled()) return;   // 同上：关时不发起解码
+  if (themeFollowSkinYielded()) return;   // 让路态：同 canvas 腿（连解码都不发起）
   themeFollowDominantColorOf(url).then((rgb) => themeFollowAcceptImageVerdict(rgb, 2));
 }
 
@@ -404,5 +457,5 @@ export {
   THEME_FOLLOW_LIGHT_ABOVE, THEME_FOLLOW_SAMPLE_PX,
   themeFollowParseColor, themeFollowLuminance, themeFollowVerdict, themeFollowModeColorOf,
   themeFollowIsUnfilledSchemeColor, themeFollowSchemeColorOf, themeFollowOnWallpaper, themeFollowAttach,
-  themeFollowAcceptImageVerdict, themeFollowOnFrameCanvas, themeFollowOnFrameImage,
+  themeFollowAcceptImageVerdict, themeFollowOnFrameCanvas, themeFollowOnFrameImage, themeFollowRelease,
 };

@@ -576,6 +576,7 @@ const WE_I18N_EN = {
   // ── src/theme-follow.js ──
   "保持 {verdict}（已是这个偏好，不重复写）": "Keeping {verdict} (already this preference; not written again)",
   "切换为 {verdict}": "Switching to {verdict}",
+  "放回 {verdict}（随壁纸退场归还）": "Restored {verdict} (handed back as the wallpaper bowed out)",
   "无取色结果": "No color result",
   "{line}｜{action}": "{line} | {action}",
   "作者配色": "Author color scheme",
