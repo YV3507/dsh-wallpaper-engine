@@ -11,6 +11,20 @@
 >
 > **Current released version: `v1.3.0`** (published on npm and GitHub Release, 2026-10-06); the next version is in development (`package.json`'s `version`).
 
+### v1.3.0-r2 (unreleased)
+
+> Increments after v1.3.0 (two things fixed after the GitHub Release v1.3.0 asset went out and before
+> the npm channel publish); `package.json`'s `version` moves to `1.3.0-r2` in step.
+
+- **Fix: the update-notice star art showed as a broken image for users who had updated but not yet restarted — the notice now waits until the art is ready before popping** (observed on v1.3.0 release day).
+  **Root cause**: the panel bundle is re-read from disk by the host on every page load, while the backend routes only reload when DSH restarts — inside that window the old backend's `/about-qr` whitelist does not have `update-notice.jpg` yet ⇒ the art 404s; if the notice popped as before, users saw a broken image, and one click of "Got it" retires the whole notice forever, so the art would never be seen by anyone.
+  **Fix**: before popping, the panel polls `HEAD` on the art path (every 1.5s) and only shows the notice with the art once the new whitelist is live (= the restart happened); after 90 seconds of waiting it degrades to an **art-less** notice with the full text (the star plea also lives permanently on the About tab, so the pop-up is not its only chance). Users who already dismissed send zero probe requests. **The `NOTICE_VERSION` sentinel moves to `1.3.0-r2`**: users who dismissed on release day will see the notice once more (with the art this time).
+  **Guards**: `verify-about` gains a §5 art-gate source guard (probe present / gate present / `<img>` only rendered in the ready state / negative controls).
+
+- **New: the sidebar quick panel gains a "Content rating" filter + the search box is capped at 300px**.
+  **What**: the view bar gains a content-rating dropdown (All / Everyone / PG13 / Mature / Unrated) sharing the **same key** as the settings page (`contentRatingFilter`, two-way sync — same treatment as the type filter) — the rating gate already lived in the panel list's data source (first of the two filter stages in `playableInventory`); only the control was missing, so a rating change on the settings page shrank the panel list with nothing to explain or change it back. The empty state gains a rating branch ("No playable wallpapers under the \"{name}\" rating"). The search box is capped at 300px on its own row, with the rating/type/view controls right-aligned on a second row — the narrowest official sidebar (276px) structurally cannot fit four controls on one row, so the 2026-10-04 "one row, never wraps even at minimum width" rule is rewritten for the new reality (deterministic two rows; no bare `flex-wrap`, which shreds rows at intermediate widths).
+  **Guards**: `verify-scene-live` quick-panel synthetic scope all green; i18n two-way reconciliation (**pure-ASCII copy is not wrapped in `weT`**: "PG13" contains no CJK, the call-site scanner cannot see it, and a wordlist key would be flagged as an orphan — bare literal, no wordlist entry).
+
 ### v1.3.0 (2026-10-06)
 
 > Everything from 1.2.0 through 1.3.0 (published on npm and GitHub Release):
