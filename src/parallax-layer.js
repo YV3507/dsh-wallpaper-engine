@@ -148,7 +148,8 @@ const PARALLAX_GROUP_SELECTOR = '[data-composer-card], [data-slot="conversation.
  *  `parallaxUiComposerDepth` / `parallaxUiSidebarDepth` / `parallaxUiBubbleDepth`，真源
  *  lib/settings-schema.js；这里的四个数只作缺值兜底，与出厂默认逐字同值）—— 会话文本区是
  *  基准，输入卡片最靠前、左栏最靠后；用户气泡**在会话文本区之上**再加一档（它俩都动，
- *  位移叠加）。四个数差得不多，纵深才自然。 */
+ *  位移叠加）。四个数差得不多，纵深才自然。面板按**百分比**呈现这四个倍率（×100，用户口径
+ *  m02410-②；存档仍是倍率，见 src/ext-parallax.js）。 */
 const PARALLAX_GROUP_CHAT = 1;
 const PARALLAX_GROUP_COMPOSER = 1.5;
 const PARALLAX_GROUP_SIDEBAR = 0.6;

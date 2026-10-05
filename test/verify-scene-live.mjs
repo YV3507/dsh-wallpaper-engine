@@ -2935,7 +2935,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     const stylesSrc = readFileSync(join(root, 'src', 'styles.js'), 'utf8');
     const parCssAt = stylesSrc.indexOf('「扩展」三号模块');
     const parCss = parCssAt < 0 ? '' : stylesSrc.slice(parCssAt);
-    check('styles.js 视差段：开关属性下才生效 · 只用独立属性 · 壁纸放大补边 · 特效层不参与 · 动的那几帧才提合成层',
+    check('styles.js 视差段：开关属性下才生效 · 只用独立属性 · 壁纸放大补边 · 特效层不参与 · 动的那几帧才提合成层 · 会话滚动容器不长横向滚动条',
       parCssAt > 0
       && parCss.includes('body[data-we-parallax="on"] .we-layer')
       // 位移由行为层直接写 translate ⇒ 样式表这边只剩这个**静态**补边放大（系数在设置变了时写一次）。
@@ -2943,6 +2943,11 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       // 低开销：只有"正在动的那几帧"才提合成层（类由行为层加、到位摘），且只提示 translate。
       && parCss.includes('body[data-we-parallax="on"] .we-parallax--moving { will-change: translate; }')
       && parCss.includes('will-change: translate;')
+      // 界面跟随挪的是 scroller **里面**的元素 ⇒ 位移一旦越出它的 inline-end，`overflow-y: auto`
+      // 会把横向那条 visible 当 auto 用、长出一条横向滚动条；它占掉一条滚动条高的 scrollport，
+      // sticky 的输入卡片只能跟着上移（用户口径 m02410-①："输入框底部会出现一个黑条，把输入框
+      // 顶上去"；跨中线位移换向 ⇒ 滚动条出没 ⇒ 抖）。封掉 scroller 的横轴即根治。
+      && parCss.includes('body[data-we-parallax="on"] [data-conversation-scroll] { overflow-x: hidden; }')
       // 独立属性而不是 transform：壁纸层的过场会内联写 / 清 transform（resetLayerSwitchStyles）。
       && !parCss.includes('transform:')
       // 每帧写自定义属性那条老路整条消失：-x / -y 与"吉祥物系数"都不再出现在样式表里。
@@ -3255,6 +3260,28 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       && onUi.join('|') === wantOnUi.join('|'),
       'off=' + off.length + ' on=' + on.length + ' onUi=' + onUi.length
         + ' [' + on.join('|') + '] [' + onUi.join('|') + ']');
+    // 四个区域距离的**单位口径**（用户口径 m02410-②：面板里所有缓动都以百分比为单位）：
+    // 存档是倍率（KINDS 0..3）⇒ 面板 ×100 上滑杆、单位用**裸** "%"（裸单位才有拖动期就地
+    // 回显；预格式化整串的口径拖动期数字不跟手，见 SliderRow 的 readout/preformatted），
+    // 回写那一侧在 src/client.js 里 ÷100 —— 与「暗化」「边框」同一条链。
+    const clientSrcPar = readFileSync(join(root, 'src', 'client.js'), 'utf8');
+    const pctRows = ['Chat', 'Composer', 'Sidebar', 'Bubble'].map((name) => ({
+      row: ', 0, 300, 5, Math.round(sel.parallaxUi' + name + 'Depth * 100)',
+      unit: ', "%", "parallax-ui-' + name.toLowerCase() + '-depth"',
+      old: 'sel.parallaxUi' + name + 'Depth, onParallaxUi' + name + 'Depth',
+      write: 'commitLiveSetting("parallaxUi' + name + 'Depth", v / 100, live)',
+      writeOld: 'commitLiveSetting("parallaxUi' + name + 'Depth", v, live)',
+    }));
+    check('ext-parallax.js 四个区域距离按百分比呈现（×100 + 裸 "%" 单位）· 回写 ÷100（与「暗化」「边框」同一条口径）',
+      pctRows.every((r) => extParSrc.includes(r.row) && extParSrc.includes(r.unit)
+        && clientSrcPar.includes(r.write) && !extParSrc.includes(r.old)
+        && !clientSrcPar.includes(r.writeOld))
+      // 范围也不是随手写的：滑杆域 = KINDS 域（0..3）×100，两头都钉一下。
+      && extParSrc.includes('Math.round(sel.parallaxUiComposerDepth * 100),')
+      && !extParSrc.includes('preformatted'),
+      pctRows.map((r) => (extParSrc.includes(r.row) ? '1' : '0')
+        + (extParSrc.includes(r.unit) ? '1' : '0')
+        + (clientSrcPar.includes(r.write) ? '1' : '0')).join('/'));
   }
 
   // ── 自定义会话头像（「扩展」页签一号模块）的两半：装饰层 + 扩展岛 ────────────────

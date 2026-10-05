@@ -185,7 +185,9 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe (no 
   separate sub-switch `parallaxUi` (off by default) with the **total factor** `parallaxUiDepth` as the base,
   plus one factor key per region (`parallaxUiChatDepth` / `parallaxUiComposerDepth` /
   `parallaxUiSidebarDepth` / `parallaxUiBubbleDepth`, shipping with the four coefficients that used to be
-  hard-coded), so the effective distance is total x region (user bubbles stack one more layer on top of the
+  hard-coded, and **shown as a percentage in the panel** - the slider domain is the factor x100 and the
+  write-back divides by 100, the same chain as "dim" and "border emphasis", while the stored unit stays a
+  factor, so no migration, no version bump and no host restart), so the effective distance is total x region (user bubbles stack one more layer on top of the
   text area, and only the 24 most recent ones move; `PARALLAX_UI_SIGN = 1` makes the interface move the
   **same way as** the wallpaper - the near interface travels a little further than the far wallpaper, a
   camera pan - and the displacement itself lands on the anchor itself when it owns a box, or else on the
@@ -210,8 +212,8 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe (no 
   blocks is **another sub-switch** (`parallaxUi`, off by default) whose displacement is **snapped to whole
   device pixels** (so text is never pushed onto half pixels) with **hysteresis** on that snapping (the
   easing tail lingers around zero, so an already written pixel is kept until the value leaves the hysteresis
-  band - without it the interface flips 0<->1 device pixel between frames, which is exactly what "it
-  shivers as the cursor crosses the middle" looks like) and whose `translate` is **removed entirely** once
+  band - without it the interface flips 0<->1 device pixel between frames, which on its own would already
+  read as a shiver across the middle) and whose `translate` is **removed entirely** once
   it settles (the property alone establishes a containing block, which would re-anchor fixed descendants);
   a group that contains any `position: fixed` descendant stays put, and nested groups keep only the
   outermost one (user bubbles are the deliberate exception: they live inside the conversation text area's
@@ -221,7 +223,19 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe (no 
   `position: fixed` descendant of that very column, so any `transform` on it would become the button's
   containing block and push it down by a whole titlebar height (the class of accident #131 was); relative
   positioning establishes no containing block, so the left column is both safe and exempt from the
-  `fixed`-descendant rule above.
+  `fixed`-descendant rule above. One more host fact the parallax section has to work around: the interface
+  groups move **real elements that live inside the conversation scroll container**, so that section seals
+  the container's horizontal axis (`body[data-we-parallax="on"] [data-conversation-scroll] { overflow-x:
+  hidden; }`). The host writes `overflow-y: auto` there, and per spec a non-`visible` axis makes the other
+  axis' `visible` compute to `auto`, so a horizontal displacement that crossed the container's inline-end
+  grew a **horizontal scrollbar** - it ate a scrollbar's worth of scrollport and pushed the sticky composer
+  card up (user report m02410-①: "a black bar shows up at the bottom of the composer and pushes it up").
+  That scrollbar appearing and disappearing as the displacement reversed across the screen centre was the
+  dominant part of the reported shiver, with the snapping hysteresis above only a secondary contributor.
+  `hidden` is used rather than `clip` for wider support, and sealing the axis is preferred over
+  `::-webkit-scrollbar:horizontal { display: none }`, which would switch that container to custom scrollbars
+  and change the look of the vertical one too; conversation content never scrolls sideways anyway (long
+  tokens and wide code blocks scroll inside their own boxes).
   On the settings
   page that hosts it,
   picking wallpapers is an in-panel drill-in view (no modals) alongside hide/restore, transitions /

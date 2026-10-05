@@ -18,7 +18,9 @@
  *     不出现任何设置写入 / 通知发送 / `selection` 读取，一个动作一个 `on*` 处理器。
  *   · **只从一个参数取外界**：`renderParallaxIsland(ctx)`，函数体第一行解构。
  *   · 参数的可调范围与默认值**不在这里写死**：`SliderRow` 的 min/max/step 与设置白名单的
- *     KINDS 一致（改范围要同时看 lib/settings-schema.js —— 那份是唯一真源）。
+ *     KINDS 一致（改范围要同时看 lib/settings-schema.js —— 那份是唯一真源）。**唯一例外是
+ *     四个区域距离**：它们存档是倍率（KINDS 0..3）、面板按百分比呈现 ⇒ 滑杆域 = ×100（0..300），
+ *     回写时 ÷100（与「暗化」「边框」同一条口径，见 src/panel-tabs.js 的调用点）。
  *   · 关掉总开关时只画总开关 + 一句说明（避免"关着还能拖参数"的错觉）。
  *   · 控件顺序 = 先定"整块动多远"、再定"谁跟着动"：背景缓动距离 → 吉祥物跟随 →
  *     界面元素跟随 → 界面跟随距离 → 四个区域距离 → 缓动平滑（观感）。**方向不是设置项**：壁纸与吉祥物
@@ -27,7 +29,8 @@
  *     要换向改 src/parallax-layer.js 的 `PARALLAX_DIRECTION` / `PARALLAX_UI_SIGN`。
  *   · 界面那一组的距离 = **一个总倍率 + 四个区域倍率**（用户口径 m01915-①：「各个区域的缓动
  *     距离支持单独调节」）：区域滑杆只在「界面元素跟随」打开时才画，四个值都乘在总倍率上
- *     （出厂 1 / 1.5 / 0.6 / 0.4 ⇒ 与上一个版本逐像素同观感；真源 lib/settings-schema.js）。
+ *     （出厂 100% / 150% / 60% / 40% ⇒ 与上一个版本逐像素同观感；面板按百分比显示，
+ *     存档仍是倍率，真源 lib/settings-schema.js）。
  *     它动的是真实界面，所以默认关。
  */
 
@@ -60,19 +63,21 @@ function renderParallaxIsland(ctx) {
       "parallax-ui-depth",
       { tooltip: weT("光标走完一整条对角线时，会话文本区挪动的距离占该对角线的百分比 —— 这是界面四组的总倍率，下面四个区域距离都乘在它身上") }),
     // 四个区域各自的倍率（用户口径 m01915-①：各区域的缓动距离单独调）。
-    // 0 = 这一档完全不跟；1 = 与「界面跟随距离」相同；出厂值 = 改设置项之前那份写死的倍率。
-    ui && SliderRow(weT("会话文本区距离"), 0, 3, 0.1, sel.parallaxUiChatDepth, onParallaxUiChatDepth,
-      "", "parallax-ui-chat-depth",
-      { tooltip: weT("长回复所在的整块文本区的距离倍率：1 = 与「界面跟随距离」相同") }),
-    ui && SliderRow(weT("输入卡片距离"), 0, 3, 0.1, sel.parallaxUiComposerDepth,
-      onParallaxUiComposerDepth, "", "parallax-ui-composer-depth",
-      { tooltip: weT("底部输入卡片的距离倍率：比文本区大一点（出厂 1.5）看着最靠前、纵深更明显") }),
-    ui && SliderRow(weT("侧栏距离"), 0, 3, 0.1, sel.parallaxUiSidebarDepth, onParallaxUiSidebarDepth,
-      "", "parallax-ui-sidebar-depth",
-      { tooltip: weT("左侧栏的距离倍率（出厂 0.6）：它比文本区更靠后，所以默认走得更少") }),
-    ui && SliderRow(weT("用户气泡距离"), 0, 3, 0.1, sel.parallaxUiBubbleDepth, onParallaxUiBubbleDepth,
-      "", "parallax-ui-bubble-depth",
-      { tooltip: weT("你的消息气泡在会话文本区之外再多走的倍率（出厂 0.4）：0 = 气泡只跟着文本区一起动") }),
+    // 面板按**百分比**呈现（滑杆域 = 倍率 ×100，回写时 ÷100 —— 与「暗化」「边框」同一条口径，
+    // 见 src/panel-tabs.js 的 SliderRow 调用点）：0 = 这一档完全不跟，100% = 与「界面跟随距离」
+    // 相同，出厂值就是改设置项之前那份写死的倍率。存档里仍是倍率（lib/settings-schema.js 是真源）。
+    ui && SliderRow(weT("会话文本区距离"), 0, 300, 5, Math.round(sel.parallaxUiChatDepth * 100),
+      onParallaxUiChatDepth, "%", "parallax-ui-chat-depth",
+      { tooltip: weT("长回复所在的整块文本区的距离倍率：100% = 与「界面跟随距离」相同") }),
+    ui && SliderRow(weT("输入卡片距离"), 0, 300, 5, Math.round(sel.parallaxUiComposerDepth * 100),
+      onParallaxUiComposerDepth, "%", "parallax-ui-composer-depth",
+      { tooltip: weT("底部输入卡片的距离倍率：比文本区大一点（出厂 150%）看着最靠前、纵深更明显") }),
+    ui && SliderRow(weT("侧栏距离"), 0, 300, 5, Math.round(sel.parallaxUiSidebarDepth * 100),
+      onParallaxUiSidebarDepth, "%", "parallax-ui-sidebar-depth",
+      { tooltip: weT("左侧栏的距离倍率（出厂 60%）：它比文本区更靠后，所以默认走得更少") }),
+    ui && SliderRow(weT("用户气泡距离"), 0, 300, 5, Math.round(sel.parallaxUiBubbleDepth * 100),
+      onParallaxUiBubbleDepth, "%", "parallax-ui-bubble-depth",
+      { tooltip: weT("你的消息气泡在会话文本区之外再多走的倍率（出厂 40%）：0 = 气泡只跟着文本区一起动") }),
     on && SliderRow(weT("缓动平滑"), 0, 98, 1, sel.parallaxSmooth, onParallaxSmooth, "%", "parallax-smooth",
       { tooltip: weT("0 = 立刻跟手，越大越柔和（跟得越慢、停下后还会飘一小段才归位）") }),
   );

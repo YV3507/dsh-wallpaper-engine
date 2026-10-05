@@ -193,7 +193,15 @@ asar 里带着宿主自己的插件编写文档：`@deepseek-ai/dsh-agent-preset
   `div`（后缀 `_viewArea`）> [`conversation.view` 出口（`display:contents`）] > `…_root`。
   输入卡片（`[data-composer-card]`）是 `Views` 的**兄弟**、同在 scrollBody 里
   ⇒ 动 `_viewArea` 只挪会话文字，不会连带输入卡片。`[data-conversation-scroll]` 是**宿主自己**写的标记
-  （本插件"侧栏滚动"那条 CSS 已在用它）。
+  （本插件"侧栏滚动"那条 CSS 已在用它）。`overflow-y:auto` 这一条是**双向**的坑（用户口径 m02410-①）：
+  规范规定一轴不是 `visible` 时另一轴的 `visible` 计算成 `auto` ⇒ 这个容器的 `overflow-x` 实际也是
+  `auto`。本插件界面跟随把**容器里面**的真实元素往右推出它的 inline-end（用户光标在左半边时）就会长出
+  一条**横向滚动条**；它占掉约一条滚动条高的 scrollport，sticky 的输入卡片只能跟着上移 —— 现象正是
+  "输入框底部出现一个黑条、把输入框顶上去"，而光标跨过屏幕中线、位移换向时滚动条出没 ⇒ 文本区与输入框
+  一起抖（本插件早先那条设备像素量化迟滞只是次要项）。⇒ 视差段给这个容器**封了横轴**
+  （`body[data-we-parallax="on"] [data-conversation-scroll] { overflow-x: hidden; }`）：会话内容本来就不
+  横滚（长 token / 宽代码块都在自己的框里滚）；封轴比 `::-webkit-scrollbar:horizontal { display: none }`
+  稳 —— 后者会把该元素切到自定义滚动条、连纵向滚动条的外观一起改。
 - **用户气泡的稳定锚点是 `data-chat-flow-kind`。** 每个聊天流条目的盒子同时挂着
   `data-chat-anchor-key` / `data-chat-flow-key` / `data-chat-paging-anchor` / `data-chat-node-key` /
   `data-chat-group-part` / **`data-chat-flow-kind`** / `data-chat-turn` / `data-turn-process-member` …；

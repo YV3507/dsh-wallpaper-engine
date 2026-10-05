@@ -3143,10 +3143,13 @@ function onParallaxUi(e) { setSetting("parallaxUi", e.target.checked); emit(); }
 function onParallaxBg(v, live) { commitLiveSetting("parallaxBg", v, live); }
 function onParallaxUiDepth(v, live) { commitLiveSetting("parallaxUiDepth", v, live); }
 // 四个区域倍率（用户口径 m01915-①）：与总倍率同形，各自一个具名处理器。
-function onParallaxUiChatDepth(v, live) { commitLiveSetting("parallaxUiChatDepth", v, live); }
-function onParallaxUiComposerDepth(v, live) { commitLiveSetting("parallaxUiComposerDepth", v, live); }
-function onParallaxUiSidebarDepth(v, live) { commitLiveSetting("parallaxUiSidebarDepth", v, live); }
-function onParallaxUiBubbleDepth(v, live) { commitLiveSetting("parallaxUiBubbleDepth", v, live); }
+// **单位口径**（用户口径 m02410-②：设置面板里所有缓动都以百分比呈现）：这四行是唯一
+// "面板说百分比、存档说倍率"的一组 —— 与「暗化」「边框」同一条链（面板 ×100，
+// 写设置时 ÷100，见本文件下面的 onScrim / onBorder）。面板那侧在 src/ext-parallax.js。
+function onParallaxUiChatDepth(v, live) { commitLiveSetting("parallaxUiChatDepth", v / 100, live); }
+function onParallaxUiComposerDepth(v, live) { commitLiveSetting("parallaxUiComposerDepth", v / 100, live); }
+function onParallaxUiSidebarDepth(v, live) { commitLiveSetting("parallaxUiSidebarDepth", v / 100, live); }
+function onParallaxUiBubbleDepth(v, live) { commitLiveSetting("parallaxUiBubbleDepth", v / 100, live); }
 function onParallaxSmooth(v, live) { commitLiveSetting("parallaxSmooth", v, live); }
 // ── 用户图片资产导入的共用腿（会话头像 / 吉祥物立绘）─────────────────────────
 // 两族走的是同一条链：选文件 → 解码 → 按上限缩一遍 → POST 到宿主 → 把返回的文件名记账。

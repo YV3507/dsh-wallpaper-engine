@@ -3040,6 +3040,17 @@ body[data-we-glass-floaters] .we-repo-panel {
      摘掉 —— 本仓刻意不留**常驻**合成层（见 .we-layer--repaint 的两帧微推）。
      只提示 translate：scale 是静态的，不提它就不会被冻结栅格化倍率。 */
   body[data-we-parallax="on"] .we-parallax--moving { will-change: translate; }
+  /* 界面跟随那一组挪的是会话滚动容器**里面**的真实元素（见 src/parallax-layer.js 的
+     PARALLAX_GROUP_SELECTOR），于是多出一个副作用：横向位移一旦越出 scroller 的 inline-end，
+     宿主写在它身上的 overflow-y: auto 会把这一轴的 overflow-x: visible 当 auto 用（规范：一轴
+     不是 visible 时另一轴的 visible 计算成 auto）⇒ 长出一条**横向滚动条**。它占掉约一条滚动条高的
+     scrollport——sticky 的输入卡片只能跟着上移，于是"输入框底部出现一个黑条，把输入框顶上去"；
+     光标跨过屏幕中线时位移换向 ⇒ 滚动条出没 ⇒ 输入框与文本区一起抖
+     （用户口径 m02410-①："这就是抖动的来源"）。
+     会话内容本来就不横滚（长 token / 宽代码块都在自己的框里滚）⇒ 开着视差时直接封掉这一轴：
+     滚动条连出现的机会都没有，scrollport 高度一动不动，位移照旧。
+     用 hidden 而不是 clip：两者都只裁不滚，hidden 的支持面更广（clip 是 CSS Overflow 3）。 */
+  body[data-we-parallax="on"] [data-conversation-scroll] { overflow-x: hidden; }
 `;
 
 export { READABILITY_FLOOR, READABILITY_FLOOR_DARK, CSS };
