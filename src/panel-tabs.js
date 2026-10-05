@@ -545,9 +545,11 @@
   }
 
   function renderAppearanceDetailSection(ctx) {
-    const { onBorder, onGlassChildParam, onLeftSidebarGlass, onToggleChildIndependent, childIndependentOn, sel } = ctx;
-    // （2026-10-03：原「独立配置不进侧栏」的 §10.22 边界已按用户口径推翻 —— 侧栏「外观」
-    //  与设置页同内容，唯全局字体除外；边界改由 quick-panel 的字体占位器 + 字体节的门来钉。）
+    const { onBorder, sel } = ctx;
+    // （2026-10-05：简化/高级边界按 ADR-0008 **D4** 恢复并细化 —— 全局四件套、预设方案与各面
+    //  总开关属简化配置（侧栏档也画）；「独立配置」层及其子项属高级配置，只在设置页画。
+    //  这道门住在 `src/glass-panel.js`（它按 `ctx.surface` 判定），与 quick-panel 的
+    //  setting-only 占位器互为负对照。）
     return React.createElement(React.Fragment, null,
     // ── 细节：边框强调 + 左侧栏液态玻璃（原「效果」页签的材质细调项与本页的左侧栏项）──
     // 玻璃四件套与「雾化」已归入「玻璃 UI」节；本节的「边框」是**非釉层**参数
@@ -562,7 +564,8 @@
       // ── 「左侧栏液态玻璃」及其子项**已搬进「玻璃 UI」节**（用户口径，见 §10.25）──
       // 为什么现在可以并进去：它当初被排除，是因为「玻璃 UI」那节里有"关 = 回原生纯色"的显示开关
       // （乙类语义冲突）；那一层已在 §10.20 整体退役 ⇒ 冲突消失，面控件与其余玻璃配置同处更顺。
-      // 门槛照旧（`leftSidebarGlass` 前提），见 `src/glass-panel.js`；两档同内容（2026-10-03）。
+      // 门槛照旧（`leftSidebarGlass` 前提），见 `src/glass-panel.js`；总开关两档都画，
+      // 挂在它下面的「独立配置」层只在设置页画（ADR-0008 D4，2026-10-05 口径）。
       // 本节只剩「边框」——它是**非釉层**参数（边框 / 分割线对比度），不属于玻璃配方，故留在细节。
     ),
     );
@@ -648,9 +651,10 @@
     // ── 字体 (custom typography)：原「字体」页签并入「外观」——总开关（关 =
     //    恢复 dsh 原生字体）+ 颜色角色 / 排版角色 / 字体族 / 组件字体（高级），
     //    开启时才渲染细节控件。字重不设全局值：按角色与按组件细化。
-    //    ⚠️ 用户口径（2026-10-03）：侧栏「外观」与设置页同内容，**唯独这一节不进侧栏**
-    //    （面板太窄、字体是低频深配）⇒ 这道 `!sidebarSurface` 门是有意保留的唯一例外，
-    //    与 quick-panel 里的字体占位器互为负对照。 ──
+    //    ⚠️ 分档（ADR-0008 D4，2026-10-05 口径）：侧栏档只画**简化配置**（全局四件套 + 各面
+    //    总开关）—— 这一节属**高级配置**（面板太窄、字体是低频深配），与每个面的「独立配置」层、
+    //    思考块门下的细调行、预设方案一样**只在设置页**画；它与 quick-panel 的字体占位器互为
+    //    负对照。（"只有这一节不进侧栏"是 2026-10-03 的旧口径，早已不成立。） ──
     !sidebarSurface && React.createElement("div", { className: "we-picker__section" },
       React.createElement("div", { className: "we-picker__section-head" },
         React.createElement("span", { className: "we-picker__section-label" }, weT("全局字体")),
@@ -904,7 +908,7 @@
     return React.createElement(React.Fragment, null,
     // ── 输入光标（#83）：光标色与壁纸相近时会隐形，这里给它一个独立于字体
     //    自定义的颜色项。「自动」= 不注入任何规则，跟随 dsh 原生表现。
-    //    2026-10-03 起两档都画（侧栏「外观」与设置页同内容，用户口径）。──
+    //    两档都画（属**简化配置**：它是一行色板 + 一个开关，不是"逐面覆盖全局"那类高级动作）。──
     React.createElement("div", { className: "we-picker__section" },
       React.createElement("div", { className: "we-picker__section-head" },
         React.createElement("span", { className: "we-picker__section-label" }, weT("输入光标")),

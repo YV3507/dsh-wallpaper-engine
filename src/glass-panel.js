@@ -175,18 +175,26 @@ function renderGlassPresetsBlock(gp) {
 function renderAppearanceGlassSection(ctx) {
   const {
     onBlur, onGlassAlpha, onGlassChildParam, onGlassColor, onGlassFidelity,
-    onToggleChildIndependent, childIndependentOn, sel,
+    onToggleChildIndependent, childIndependentOn, sel, surface,
     onCapsuleBlur, onCapsuleColor,
     onLeftSidebarGlass, onSidebarAlpha, onSidebarBlur, onSidebarColor,
     onSidebarContentAlpha, onSidebarContentColor, onSidebarGlass,
     onSidebarFollowGlobal, onSidebarFullClear,
     onThinkingGlass,
   } = ctx;
-  // ⚠️ **两档同内容**（用户口径 2026-10-03，推翻原 §10.22 的"简化配置不进侧栏"边界）：
-  //   侧栏「外观」页与设置页「外观」页**完全同内容** —— 本节所有行（含每个子面的
-  //   「独立配置」层、思考块开关、侧栏族与跟随全局）两档都画；唯一的例外是「全局字体」
-  //   节（用户口径：不进侧栏），那道门留在 panel-tabs，与 quick-panel 的字体占位器
-  //   互为负对照。本节仅存的 surface 差异：无（`surface` 已不再被本渲染器读取）。
+  // ── 简化配置 vs 高级配置（ADR-0008 的 **D4**，2026-10-05 用户口径细化）────────────────
+  //   · **简化配置**（侧栏档 + 设置页都画）：全局四件套（玻璃颜色 / 玻璃透明度 / 雾化 /
+  //     玻璃保真度）、预设方案、"要不要这一面吃玻璃"的**总开关**（思考块液态玻璃 /
+  //     侧栏液态玻璃 / 侧栏全透明 / 侧栏玻璃跟随全局 / 左侧栏液态玻璃）；
+  //   · **高级配置**（**只在设置页画**）：每个面的「独立配置」层**及其子项参数**，
+  //     以及挂在总开关下面的**细调行**（思考块门下的胶囊雾化 / 胶囊颜色）。
+  //   判定一律走 `ctx.surface`（quick-panel 传 "sidebar"）—— 这就是 D4 的实现口径。
+  //   ⚠️ 历史：2026-10-03 曾按当时口径把这道门整体拆掉（"两档同内容"），但 **ADR-0008 D4
+  //   没有随之修订** ⇒ 文档与实现自那天起不一致；本次按 D4 恢复，并把它细化成上面这张表。
+  //   ⚠️ 与 D4 配套的是 quick-panel 的 **setting-only 占位器**：侧栏不再画的那些处理器进了
+  //   占位器名单（取用即抛错）⇒ 将来某次编辑把高级行挪回侧栏档会**当场炸**，而不是静默
+  //   变成"点了没反应"的旋钮。判据见 verify-scene-live 的「侧栏 ctx 覆盖」与两档标签序列。
+  const sidebarSurface = surface === "sidebar";
   const children = ((typeof GLASS_CHILDREN !== "undefined" && GLASS_CHILDREN) || [])
     // ⚠️ 排除 `panelOff` 的子项：乙类（左侧栏）**不进这一层** ——
     //    它已有自己的总开关「左侧栏液态玻璃」，而它的"独立配置"耦合在那一项下面
@@ -243,7 +251,10 @@ function renderAppearanceGlassSection(ctx) {
   // ⇒ 现在这一节**只剩一层**：每个子面一个「独立配置」开关 —— 它回答的是
   //   "读自己那套参数 还是 跟全局"。要不要玻璃是恒定的（恒要），不再是用户选项。
   const childRows = [];
-  for (const c of children) {
+  // ⚠️ 高级配置（D4）：侧栏档连**构建**都不做 —— `childIndependentOn` / `onToggleChildIndependent`
+  //    在侧栏 ctx 里是"取用即抛错"的占位器，构建这些行会在渲染期当场抛错。这正是那道门该有的
+  //    失败方式：把"门被拆掉"变成响亮且可定位的错，而不是静默变成拖了没反应的死旋钮。
+  for (const c of sidebarSurface ? [] : children) {
     const cn = CHILD_CN[c.id];
     // 登记表与词表必须一一对应：漏一个就整项无标签（比 ReferenceError 更隐蔽）。
     if (!cn) { childRows.push(React.createElement("div", { className: "we-picker__hint", key: "gc-missing-" + c.id }, weT("内部错误：这个子界面缺少文案"))); continue; }
@@ -290,9 +301,17 @@ function renderAppearanceGlassSection(ctx) {
     React.createElement("div", { className: "we-picker__section-head" },
       React.createElement("span", { className: "we-picker__section-label" }, weT("玻璃 UI")),
     ),
-    // ── 预设方案（本节第一行，先于一切旋钮）──
+    // ── 预设方案（本节第一行，先于一切旋钮；**高级配置：只在设置页画**，ADR-0008 D4）──
     // ctx 成员由 client.js 的 glassPresetCtx 提供（清单/错误是宿主投影；应用走 settings 通道）。
-    renderGlassPresetsBlock(ctx.glassPresets),
+    // ⚠️ 这道门此前是**隐式**的 —— 侧栏档只是"没传 glassPresets"，靠渲染器入口守卫
+    //    `if (!presets) return null` 顺带不画 ⇒ 谁把那个字段补进侧栏 ctx，整块就会**静默**
+    //    出现在侧栏，且当时没有任何判据对着预设块判过。现在显式化：
+    //    ① 门在这里；② `glassPresets` 已进 quick-panel 的 setting-only 占位器（误补 ⇒ 当场炸）；
+    //    ③ verify-scene-live 两档都钉住预设块（标签序列 + 整树文本锚：侧栏档不许有、设置档必须有）。
+    //    分类理由：它不是"总开关"也不是"逐面覆盖"，而是**跨面批量覆盖**（一份预设 = 玻璃子系统
+    //    完整快照，应用即 Object.assign 整套覆盖、**无确认无撤销**），且出厂预设**删除即永久** ——
+    //    这类动作按 D4 的取向属高阶；侧栏是窄面板 + 随手调的场合。
+    !sidebarSurface && renderGlassPresetsBlock(ctx.glassPresets),
     // ── 全局四件套 ──
     // 玻璃颜色: the settings-window glass BASE tint. Defaults keep the stock
     // look (white light / deep navy dark); picking any preset or a custom
@@ -335,13 +354,14 @@ function renderAppearanceGlassSection(ctx) {
     // 胶囊雾化（capsuleBlur，默认 8px）：**只在思考玻璃开着时渲染** —— 消费它的规则
     // 全部挂在 data-we-thinking-glass 门下，门关着时这个滑杆就是"画出来又不生效的旋钮"
     //（本仓要防的那类死旋钮，见 glass-panel 文件头 wip §10.12）。
-    sel.thinkingGlass === true && SliderRow(weT("胶囊雾化"), 0, 60, 1,
+    // ⚠️ 它是**总开关下面的细调行** ⇒ 高级配置（侧栏档不画，见函数头的 D4 那张表）。
+    !sidebarSurface && sel.thinkingGlass === true && SliderRow(weT("胶囊雾化"), 0, 60, 1,
       sel.capsuleBlur, onCapsuleBlur, sel.capsuleBlur + "px", "capsule-blur", {
       tooltip: weT("正文里行内代码胶囊、新会话按钮、导航按钮的模糊半径 —— 越大越像磨砂玻璃。只在这些胶囊吃玻璃（思考块液态玻璃开着）时生效；0 = 关掉雾化。"),
     }),
     // 胶囊釉色（capsuleColor，默认白 = 原观感）：与胶囊雾化同族同门。色板行不做
     // 可读性钳制（10% 雾底不是正文面，理由见 schema 注释）。
-    sel.thinkingGlass === true && swatchRow(weT("胶囊颜色"), GLASS_COLOR_PRESETS,
+    !sidebarSurface && sel.thinkingGlass === true && swatchRow(weT("胶囊颜色"), GLASS_COLOR_PRESETS,
       sel.capsuleColor, onCapsuleColor, {
       key: "capsule-color",
       tooltip: weT("行内代码胶囊、新会话按钮、导航按钮与聊天滚动条拇指的雾底色相 —— 默认白（原观感）。只在这些胶囊吃玻璃（思考块液态玻璃开着）时生效；浓度档不变（10%）。"),
@@ -352,8 +372,9 @@ function renderAppearanceGlassSection(ctx) {
     //    **只有标题的空节**。而「左侧栏液态玻璃」原先被刻意排除在「玻璃 UI」之外，理由是它与那节的
     //    "关 = 回原生纯色"（乙类语义）冲突；那一层已在 §10.20 整体退役 ⇒ **冲突消失**，
     //    这些面控件与其余玻璃配置放在一起在语义上更顺（用户口径）。
-    // ⚠️ 门槛只剩宿主能力位：`sidebarPresent` / `sidebarGlass`（装没装 dsh-better-sidebar、
-    //    总开关开没开）—— `!sidebarSurface` 已按 2026-10-03 用户口径拆除（两档同内容）。
+    // ⚠️ 门槛分两层：宿主能力位（`sidebarPresent` / `sidebarGlass`：装没装 dsh-better-sidebar、
+    //    总开关开没开）**与**档位门（`!sidebarSurface`）—— 下面这一段里，**总开关**两档都画，
+    //    挂在它们下面的**独立配置层**只在设置页画（ADR-0008 D4，2026-10-05 口径）。
     // 左侧栏液态玻璃（默认关）：宿主原生左栏在壁纸下只是「透明的洞」，打开后它走同一张配方表。
     // ⚠️ 它**不是**"要不要玻璃"那一类：它的「关」是**恢复背景**（那一列回到壁纸原样）——
     //    所以它是唯一保留的**显示开关**（乙类），与其余面"恒吃玻璃"不同。
@@ -363,7 +384,8 @@ function renderAppearanceGlassSection(ctx) {
       tooltip: weT("宿主原生左侧栏（会话列表 / 工作区那一列）默认直接透出壁纸、不吃玻璃参数。打开后它变成与其余界面同款的玻璃面板，跟随「配色 / 玻璃颜色 / 玻璃透明度 / 雾化 / 边框」；关闭即恢复原生观感。默认关。"),
     }),
     // ⚠️ 用户口径：「左侧栏玻璃·独立配置」**与「左侧栏液态玻璃」耦合** —— 覆盖关着时它不显示。
-    sel.leftSidebarGlass === true && switchRow(weT("左侧栏玻璃·独立配置"),
+    //    ⚠️ 它是**独立配置层** ⇒ 高级配置（侧栏档只画上面那个总开关；D4 表见函数头）。
+    sel.leftSidebarGlass === true && !sidebarSurface && switchRow(weT("左侧栏玻璃·独立配置"),
       !!(childIndependentOn && childIndependentOn("leftSidebar")),
       (e) => onToggleChildIndependent("leftSidebar", e.target.checked), {
       key: "left-sidebar-independent",
@@ -373,7 +395,7 @@ function renderAppearanceGlassSection(ctx) {
     // 独立配置开着才出现它自己的两项（默认关 ⇒ 默认跟随全局）。
     // ⚠️ R3a（§10.12）：这里原本是"四件套"，其中**两个是死的** —— `leftSidebarFidelity` 连 schema
     //    键都不存在、`leftSidebarColor` 无人读取（本面 CSS 只读 `--we-left-sidebar-blur/-alpha`）。
-    sel.leftSidebarGlass === true && !!(childIndependentOn && childIndependentOn("leftSidebar")) && [
+    sel.leftSidebarGlass === true && !sidebarSurface && !!(childIndependentOn && childIndependentOn("leftSidebar")) && [
       SliderRow(weT("左侧栏玻璃·玻璃透明度"), 0, 100, 5,
         sel.leftSidebarTransparency, (v) => onGlassChildParam("leftSidebar", "transparency", v),
         sel.leftSidebarTransparency + "%", "ls-alpha"),
@@ -405,10 +427,11 @@ function renderAppearanceGlassSection(ctx) {
       hint: weT("模糊 / 透明度 / 底色都跟随全局玻璃"),
       tooltip: weT("打开：侧栏玻璃跟随「玻璃 / 玻璃透明度 / 玻璃颜色」（与原生左栏同一条配方，两侧栏一致）；关闭：用下面三个旋钮单独调侧栏"),
     }),
-    sel.sidebarPresent && sel.sidebarGlass && [
+    sel.sidebarPresent && sel.sidebarGlass && !sidebarSurface && [
       // 这两个面的「独立配置」层（§10.24 补的缺口）：`glassMode` 的唯一写入方是
       // `onToggleChildIndependent`，而 `sidebar` / `sidebarContent` 不在登记表里 ⇒ 没有这两个开关
       // 时它们的 mode 永远停在 `'inherit'` ⇒ 下面那 5 个滑块**全是死的**。判据见第 ⑧ 组的 mode 可达性。
+      // ⚠️ 整块是**独立配置层** ⇒ 高级配置：侧栏档不画（D4 表见函数头；侧栏那几个总开关照画）。
       !sel.sidebarFollowGlobal && switchRow(weT("侧栏玻璃·独立配置"),
         !!(childIndependentOn && childIndependentOn("sidebar")),
         (e) => onToggleChildIndependent("sidebar", e.target.checked), {
@@ -445,11 +468,11 @@ function renderAppearanceGlassSection(ctx) {
         }),
       ],
     ],
-    // ── 子 UI 独立配置（**复杂配置专属**：侧边栏那一档不画）──
+    // ── 子 UI 独立配置（**高级配置专属**：侧栏档不画 —— ADR-0008 D4）──
     // 这一节现在是**一层**：每个子面一个「独立配置」开关 —— 开 = 用自己那套参数覆盖全局。
     // ⚠️ 这里**没有**「要不要玻璃」的开关（那一层已退役，见上）：所有子面恒吃玻璃。
-    // 两档同内容（2026-10-03 用户口径）⇒ childRows 直接展开，不再按 surface 过滤。
-    ...childRows,
+    // ⚠️ 侧栏档只画到上面的总开关为止；这些行与它们展开的参数都在设置页（判定走 ctx.surface）。
+    ...(sidebarSurface ? [] : childRows),
   ),
   );
 }

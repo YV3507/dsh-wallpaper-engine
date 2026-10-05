@@ -165,18 +165,21 @@
   }
 
   // ── 侧栏档的渲染 ctx（与设置页共用同一批渲染器）────────────────────────────
-  // 2026-10-03 口径：侧栏「外观」与设置页**同内容**（唯全局字体除外）⇒ 外观渲染器
-  // 需要的字段全部真放行。仍指向"取用即抛错"占位器的只剩两类：全局字体节（用户口径
-  // 不进侧栏，panel-tabs 的 `!sidebarSurface` 门与其互为负对照）与播放/画面页专属
-  //（出图来源 / 实时帧 / 自定义画面 / 帧率上限）。将来某次编辑把一行挪进侧栏档，
+  // 2026-10-05 口径（ADR-0008 **D4** 恢复 + 细化）：侧栏「外观」只画**简化配置** ——
+  // 全局四件套、预设方案与各面的**总开关**；**「独立配置」层及其子项**（含思考块门下的
+  // 胶囊雾化 / 胶囊颜色）属**高级配置**，只在设置页画。于是外观渲染器里那些只为高级行
+  // 存在的处理器全部指向"取用即抛错"的占位器 —— 将来某次编辑把高级行挪回侧栏档，
   // 会当场炸而不是静默变成"点了没反应"（同"漏传 ctx 字段 = 当场 ReferenceError"
   // 那条纪律：刻意选的失败方式，响亮且可定位）。
+  //
+  // 仍指向占位器的还有两类：全局字体节（用户口径不进侧栏，panel-tabs 的 `!sidebarSurface`
+  // 门与其互为负对照）与播放/画面页专属（出图来源 / 实时帧 / 自定义画面 / 帧率上限）。
   function sidebarCtxStub(name) {
     const boom = () => { throw new Error("[we-sidebar] ctx." + name + " 属于设置页，侧栏档不提供"); };
     return new Proxy(function () {}, { get: boom, apply: boom });
   }
   const QP_CTX_SETTINGS_ONLY = [
-    // ── 全局字体节（用户口径 2026-10-03：侧栏「外观」与设置页同内容，**唯独这一节不进侧栏**；
+    // ── 全局字体节（用户口径 2026-10-03：**唯独这一节不进侧栏**；
     //    panel-tabs 里那道 `!sidebarSurface` 门还挂着 ⇒ 渲染到这里之前就会被下面的占位器
     //    当场炸（解构即触发 get trap），门与占位器互为负对照）──
     "officialColorOf", "fontSet", "onComponentFamily", "onComponentFont",
@@ -184,6 +187,19 @@
     "onToggleFontCustom", "onThemeColor",
     "onThemeColorClear", "onThemeDarkSeparate", "onThemeFamily", "onThemeSize", "onThemeTypeOnly",
     "onThemeWeight",
+    // ── 高级配置：各面的「独立配置」层（ADR-0008 D4）──
+    //    侧栏档只画总开关，这些行与它们展开的参数都在设置页。
+    "onToggleChildIndependent", "onGlassChildParam", "childIndependentOn",
+    "onSidebarAlpha", "onSidebarBlur", "onSidebarColor",
+    "onSidebarContentAlpha", "onSidebarContentColor",
+    //    思考块总开关下面的细调行（门开着才画，同样只在设置页）。
+    "onCapsuleBlur", "onCapsuleColor",
+    // ── 预设方案（ADR-0008 D4：高级配置，只在设置页画）──
+    //    门在 `src/glass-panel.js`（`!sidebarSurface`）。把它列进来是为了把**隐式事实**变成有牙的
+    //    事实：此前侧栏档只是"没传这个字段"、靠渲染器入口守卫 `if (!presets) return null` 顺带
+    //    不画 ⇒ 谁补上这个字段，预设块就会**静默**出现在侧栏。现在补上字段 = 渲染时**当场抛错**
+    //    （替身取用即炸），响且可定位 —— 那些"整块快照覆盖且不可撤销"的动作不该随手可达。
+    "glassPresets",
     // ── 播放/画面页专属（renderEffectsTab 的侧栏档门）──
     "onClearCustomFrame", "onClearGpuFrame", "onCustomFrameFile",
     "onRecaptureGpuFrame", "onRefreshFrame",
@@ -497,14 +513,10 @@
           ? renderAppearanceTab(sidebarRenderCtx({
             setSetting, setTransient, sel,
             onAccent, onBlur, onBorder, onChatGlassFidelity, onGlassAlpha, onGlassColor, onGlassFidelity, onLeftSidebarGlass, onSidebarGlass, onSidebarFullClear, onToggleThemeFollow,
-            onToggleChildIndependent, onGlassChildParam, childIndependentOn,
-            // 2026-10-03 用户口径：侧栏「外观」与设置页**同内容**（唯全局字体除外）⇒
-            // 玻璃 UI 的侧栏族/独立配置、思考块开关、输入光标全部真放行（处理器已提升到模块级）。
-            onCaretColor, onSidebarAlpha, onSidebarBlur, onSidebarColor,
-            onSidebarContentAlpha, onSidebarContentColor, onSidebarFollowGlobal, onThinkingGlass,
-            // 胶囊雾化（2026-10-04）：与思考块开关同族 —— 滑杆只在该开关打开时渲染；
-            // 漏接的后果实测过：侧栏档的滑杆拿到 undefined 处理器，拖动整条死（值弹回）。
-            onCapsuleBlur, onCapsuleColor,
+            // 2026-10-05 口径（ADR-0008 D4 恢复）：侧栏「外观」只画**简化配置** ⇒ 全局四件套、
+            // 预设方案与各面**总开关**真放行；**独立配置层与思考块门下的细调行**（胶囊雾化 /
+            // 胶囊颜色、侧栏 / 内容面的独立参数）一律进上面的 setting-only 占位器。
+            onCaretColor, onSidebarFollowGlobal, onThinkingGlass,
           }))
           : qpTab === "playback"
             ? React.createElement(React.Fragment, null,

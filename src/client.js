@@ -2795,10 +2795,13 @@ const onCapsuleColor = (hex, live) => {
   commitLiveSetting("capsuleColor", hex, live);
 };
 
-// ── 以下处理器原在 WallpaperPicker 内（2026-10-03：侧栏「外观」与设置页同内容）
-//    提升到模块级 —— 快捷播放面板（src/quick-panel.js）与设置页共用同一批处理器，
-//    嵌套在组件里的声明它够不着。依赖（setSetting / commitLiveSetting / clampNum /
-//    schemaRange / selection / persistSelection / applyEffects / emit）全部模块级。
+// ── 以下处理器原在 WallpaperPicker 内，2026-10-03 提升到模块级 —— 快捷播放面板
+//    （src/quick-panel.js）与设置页**共用同一批渲染器**，嵌套在组件里的声明它够不着。
+//    ⚠️ 分档（ADR-0008 D4，2026-10-05 口径）：侧栏档只画**简化配置**（全局四件套 + 各面总开关），
+//    高级行的处理器在那份 ctx 里是"取用即抛错"的占位器 —— 所以这里给的是**全量**模块级处理器，
+//    "哪一档真的用到哪些"由 quick-panel 的 provided 对象与 QP_CTX_SETTINGS_ONLY 名单决定。
+//    依赖（setSetting / commitLiveSetting / clampNum / schemaRange / selection /
+//    persistSelection / applyEffects / emit）全部模块级。
 // 侧栏玻璃（dsh-better-sidebar）：独立于会话玻璃的一套细粒度控制，各自立即
 // 生效并持久化（--we-sidebar-blur / --we-sidebar-alpha / --we-sidebar-color）。
 const onSidebarBlur = (px, live) =>

@@ -53,9 +53,9 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 
 ### 第三步：选一张壁纸
 
-1. 点卡片里的 **「选择壁纸」** 按钮，会弹出一个**缩略图网格**窗口。
-2. 窗口里列出了你 Wallpaper Engine 里的所有壁纸（带预览图）。**点一张你喜欢的**，它就会出现在聊天界面背景上。
-3. 点空白处、按 `ESC`、或点「关闭」就能收起这个窗口。
+1. 点卡片里的 **「选择壁纸」** 按钮，会在**页内**展开一个**缩略图网格**（**不是弹窗**，也没有遮罩）。
+2. 网格里列出了你 Wallpaper Engine 里的所有壁纸（带预览图）。**点一张你喜欢的**，它就会出现在聊天界面背景上。
+3. 从库视图退出（返回）就回到设置页。
 
 🎉 **搞定！** 现在你的聊天界面后面应该有壁纸了。
 
@@ -65,23 +65,23 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 
 | 想做什么 | 在哪里点 | 备注 |
 |---|---|---|
-| **换壁纸** | 选择壁纸 → 弹窗里点一张 | Video / Web / 上传的图视频都行 |
+| **换壁纸** | 选择壁纸 → 库视图里点一张 | Video / Web / 上传的图视频都行 |
 | **关掉壁纸** | 当前壁纸卡片 → 「关闭」 | 壁纸消失，但设置还在 |
 | **暂停视频** | 当前壁纸卡片 → ⏸ 按钮 | 只对视频壁纸有用 |
 | **调玻璃透明度** | 顶部「外观」→ 玻璃透明度滑条 | 越高越透，越低越实；文字面有可读性下限压底，调不糊 |
 | **换主题色** | 顶部「外观」→ 配色 | 6 种预设 + 自定义取色 |
 | **换玻璃底色** | 顶部「外观」→ 玻璃颜色 | 决定玻璃本身的色调 |
-| **视频调速** | 「效果」→ 倍速 | 见控件本身 |
-| **镜像翻转** | 「效果」→ 水平翻转 | 视频/网页/图片都行 |
+| **视频调速** | 「播放」→「效果」→ 倍速 | 见控件本身 |
+| **镜像翻转** | 「播放」→「效果」→ 水平翻转 | 视频/网页/图片都行 |
 | **上传自己的壁纸** | 「自定义壁纸」→ 上传 | 支持 JPG / PNG / MP4 |
-| **隐藏不喜欢的壁纸** | 弹窗里卡片右上角「隐藏」 | 软删除，不碰源文件，可恢复 |
+| **隐藏不喜欢的壁纸** | 库视图里卡片右上角「隐藏」 | 软删除，不碰源文件，可恢复 |
 | **自动轮换壁纸** | 「轮播列表」→ 新建列表 | 可设切换间隔和顺序 |
 | **改上传文件存哪** | 「自定义壁纸」→ 存储「更改」 | 默认存 C 盘，可改到其他盘 |
-| **插件跑在哪个壳里**（一般不用动） | 「高级」→ 适配 → 适配目标 | 默认「自动检测」并显示「检测到：…」；只有网页壁纸变黑 / 403 时才需要手选 |
+| **插件跑在哪个壳里**（一般不用动） | 「系统」→「高级」→ 适配 → 适配目标 | 默认「自动检测」并显示「检测到：…」；只有网页壁纸变黑 / 403 时才需要手选 |
 
 ### 画面滑条怎么调？
 
-壁纸激活后，「**效果**」页签有几个画面滑条；另有 **边框** 与 **雾化** 在「**外观**」页签的「细节」段。**它们都是即时生效的，不用刷新页面**：
+壁纸激活后，「**播放**」页签的「**效果**」段有几个画面滑条；另有 **边框**（「**外观**」→「细节」）与 **雾化**（「**外观**」→「玻璃 UI」）。**它们都是即时生效的，不用刷新页面**：
 
 | 滑条 | 干什么用 | 默认 |
 |---|---|---|
@@ -89,12 +89,12 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 | **亮度 / 对比度 / 饱和度** | 壁纸画面的明暗与浓淡 | 见控件本身 |
 | **壁纸透明度** | 把壁纸整层调淡、融进页面底色 | 见控件本身 |
 | **暗化** | 加深壁纸和文字之间的遮罩 | 见控件本身 |
-| **边框**（外观页签） | 让边框/分割线更醒目 | 见控件本身 |
-| **雾化**（外观页签） | 玻璃面板（对话栏卡片、左侧栏、设置窗口、插件浮层）的模糊半径（侧栏除外：它有独立的「侧栏模糊」） | 见控件本身 |
+| **边框**（「外观」→「细节」） | 让边框/分割线更醒目 | 见控件本身 |
+| **雾化**（「外观」→「玻璃 UI」） | 玻璃面板（对话栏卡片、左侧栏、设置窗口、插件浮层）的模糊半径（侧栏除外：它有独立的「侧栏模糊」） | 见控件本身 |
 
 > 各个滑条的确切范围与默认值**直接看控件本身**（拖动时控件上就有读数）。
 
-> 👀 **如果文字看不清**：先把「暗化」（效果页签）与「边框」（外观页签）两个滑条往右拉（调高），还不够就稍微加点「壁纸模糊」。也可以试试切换 DSH 的**浅色 / 深色**主题——不同壁纸适合的模式不一样。
+> 👀 **如果文字看不清**：先把「暗化」（「播放」→「效果」）与「边框」（「外观」→「细节」）两个滑条往右拉（调高），还不够就稍微加点「壁纸模糊」。也可以试试切换 DSH 的**浅色 / 深色**主题——不同壁纸适合的模式不一样。
 
 ### 我的设置存在哪？
 
@@ -116,7 +116,7 @@ Mac / Linux：`~/.dsh-wallpaper-engine/config.json`）—— 重启、换端口�
 - 现代浏览器要求视频**静音**才能自动播放——本插件的视频壁纸本来就是静音的，正常应该能播。
 - 试试换一张壁纸，或者点一下「暂停」再「播放」。
 - 「当前壁纸」卡片现在会直接写明原因（[#84](https://github.com/elysia395/dsh-wallpaper-engine/issues/84)）：如果播放按钮显示的是「播放」而不是「暂停」，说明视频并没有真的在播，点它即可重试；若提示「无法解码这段视频」，说明这个文件的编码浏览器解不了，换成 **H.264 编码的 MP4** 即可（例如重新导出一次）。
-- 自己上传的壁纸如果「看不到 / 应用后一片空白」：检查弹窗上方的**内容分级**下拉框——默认是 Everyone，未标注分级的自上传壁纸现在按 Everyone 处理，不会再被默认过滤藏起来。
+- 自己上传的壁纸如果「看不到 / 应用后一片空白」：检查库视图上方的**内容分级**下拉框——默认是 Everyone，未标注分级的自上传壁纸现在按 Everyone 处理，不会再被默认过滤藏起来。
 
 **3. 场景（Scene）壁纸为什么是静止的图片？**
 - 正常情况下**它应该是动的** —— 插件内置的实时渲染引擎会在浏览器里重放场景（粒子 / 脚本 / 视差 / 包内音频）。
@@ -238,7 +238,7 @@ You will see a **liquid-glass card** holding every wallpaper-related control.
 
 | I want to… | Where to click | Notes |
 |---|---|---|
-| **Change the wallpaper** | 选择壁纸 → click one in the modal | Video / Web / your own uploaded image or video all work |
+| **Change the wallpaper** | 选择壁纸 → click one in the library view | Video / Web / your own uploaded image or video all work |
 | **Turn the wallpaper off** | current-wallpaper card → 「关闭」 | The wallpaper disappears, the setting is kept |
 | **Pause a video** | current-wallpaper card → ⏸ | Video wallpapers only |
 | **Tune glass transparency** | 「外观」 tab → the glass-transparency slider | Higher = clearer, lower = more solid; text surfaces carry a readability floor, so it never becomes unreadable |
@@ -262,10 +262,10 @@ With a wallpaper active, the **「效果」 (effects)** tab has the picture slid
 | **亮度 / 对比度 / 饱和度** (brightness / contrast / saturation) | The wallpaper picture's brightness and richness | see the control |
 | **壁纸透明度** (wallpaper opacity) | Fades the whole wallpaper layer toward the page base color | see the control |
 | **暗化** (scrim) | Darkens the overlay between wallpaper and text | see the control |
-| **边框** (border, appearance tab) | Makes borders / dividers stand out | see the control |
-| **雾化** (conversation glass blur, appearance tab) | Blur radius of the conversation glass panels (composer, message bubbles, tool popovers). **The sidebar and the settings window have their own blur controls and are not affected by this one** | see the control |
+| **边框** (border, Appearance → Details) | Makes borders / dividers stand out | see the control |
+| **雾化** (glass blur, Appearance → glass UI) | Blur radius of the glass panels — conversation cards, the **left-sidebar glass**, the settings window and the plugin popovers. **Only the dsh-better-sidebar panel has its own blur** (「侧栏模糊」) | see the control |
 
-> 👀 **If text is hard to read**: raise the 「暗化」 (effects tab) and 「边框」 (appearance tab) sliders first; if that is not enough, add a little 「壁纸模糊」. You can also switch DSH between its **light / dark** themes — different wallpapers suit different modes.
+> 👀 **If text is hard to read**: raise the 「暗化」 (Playback → Effects) and 「边框」 (Appearance → Details) sliders first; if that is not enough, add a little 「壁纸模糊」. You can also switch DSH between its **light / dark** themes — different wallpapers suit different modes.
 
 ### Where are my settings stored?
 
@@ -332,7 +332,7 @@ System media (track title / artwork / spectrum) is built in on macOS too — not
 | **`dsh web`** | DSH's web interface — the one you chat with in a browser. |
 | **Wallpaper Engine** | The Steam wallpaper app that holds the wallpapers you bought/downloaded. |
 | **Video wallpaper** | Essentially an `.mp4` file that plays directly in the page. |
-| **Web wallpaper** | A wallpaper built from an HTML page; the plugin loads it in an iframe (or renders it live). |
+| **Web wallpaper** | A wallpaper built from an HTML page; the plugin renders it live by default and falls back to a plain iframe only if live rendering fails. |
 | **Scene wallpaper** | A wallpaper Wallpaper Engine renders with its 3D engine; the plugin replays it live in the browser with a bundled engine (it does **not** just take a screenshot). |
 | **Liquid glass** | The translucent, blurred, glossy glass look iOS uses. |
 | **Rotation** | Letting several wallpapers switch automatically on a timer. |

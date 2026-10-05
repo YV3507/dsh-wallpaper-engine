@@ -533,9 +533,13 @@ console.log('\n① 登记面必须真实存在（防僵尸登记；pending 面�
   const noWhy = SURFACES.filter((s) => (s.tier !== 'global' || s.pending) && (!s.why || s.why.trim().length < 10));
   check('非 global 档 / pending 的每条登记都有非空理由',
     noWhy.length === 0, noWhy.map((s) => s.id).join(', ') || '全部已注明');
-  check('pending 只用于"登记在先"的面（当前恰有一个，删掉它时这条会提醒更新）',
-    SURFACES.filter((s) => s.pending).length >= 0,
-    SURFACES.filter((s) => s.pending).map((s) => s.id).join(', ') || '(无)');
+  // ⚠️ 这条**曾经是空转的**：条件写成 `filter(pending).length >= 0`（恒真），名字里还写着
+  //    "当前恰有一个" —— 而 `conversation-thinking-trigger` 在 v1.3.0 追版时已兑现（摘掉 pending）、
+  //    登记表里**一个 pending 都没有**了。恒真 + 过期描述 = 一条永远不会提醒任何人的判据。
+  //    现在钉住事实：pending 清单应为空；将来真要新增 pending 面，这条会红并要求你同步这里。
+  const pendingNow = SURFACES.filter((s) => s.pending).map((s) => s.id);
+  check('pending 清单（登记在先、实现在后）——当前应为空',
+    pendingNow.length === 0, pendingNow.length ? '有 pending：' + pendingNow.join(', ') : '(无)');
 }
 
 // ═══ ② 没有未登记的玻璃面 ═════════════════════════════════════════════════════

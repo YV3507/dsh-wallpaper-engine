@@ -1919,10 +1919,11 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
   // 渲染器的 surface 档：侧栏档只**加门**（少画设置页专属分组），不许改行 ——
   // 缺省（设置页）那一趟一个节点都不少（行为级 golden 在 verify-client.mjs）。
   const gated = (text, label) => new RegExp('!sidebarSurface &&[\\s\\S]{0,240}?weT\\("' + label + '"\\)').test(text);
-  // ⚠️ 2026-10-03 用户口径：侧栏「外观」与设置页同内容 ⇒ 「输入光标」的门已拆，
-  //    只剩「全局字体」一节带着 `!sidebarSurface` 门（唯一例外）。两个方向都钉：
-  //    全局字体必须有门、输入光标必须没门。
-  check('外观页只有「全局字体」一节只在设置页档渲染（输入光标两档都画）',
+  // ⚠️ 分档（ADR-0008 D4，2026-10-05）：侧栏档与设置页共用渲染器，但**只画简化配置** ——
+  //    **节**层面只有「全局字体」不进侧栏（属高级配置），「输入光标」照旧两档都画。
+  //    （行层面的差异 —— 各面「独立配置」层 / 思考块细调行 / 预设方案 —— 由下面 MORE_CASES
+  //    的两档断言钉，不在本块。）两个方向都钉：全局字体必须有门、输入光标必须没门。
+  check('外观页只有「全局字体」这一**节**只在设置页档渲染（输入光标两档都画）',
     gated(tabsSrc, '全局字体') && !gated(tabsSrc, '输入光标'));
   check('播放页的准备与诊断行（出图来源 / 实时帧 / 自定义画面 / 帧率上限 / 源信息 / 转码进度）只在设置页档渲染',
     ['出图来源', '实时帧', '自定义画面', '帧率上限'].every((label) => gated(tabsSrc, label))
@@ -2244,6 +2245,12 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
         && called.includes('[we-sidebar]') && called.includes('onFontAdvanced')
         && read.includes('[we-sidebar]') && read.includes('fontSet'),
       called.slice(0, 48));
+    // 预设块那道门也有牙：`glassPresets` 是高级配置的 ctx 字段（ADR-0008 D4），侧栏档指向替身 ⇒
+    // 谁把 `src/glass-panel.js` 里那道 `!sidebarSurface` 门拆掉，渲染器**解构它的第一下就炸**
+    // （不是静默把预设块画进侧栏 —— 那是"整快照覆盖且不可撤销"的动作，不该随手可达）。
+    const presetTeeth = (() => { try { return String(ctx.glassPresets.presets); } catch (e) { return String(e.message); } })();
+    check('侧栏 ctx 的 `glassPresets` 也是占位器（拆掉预设块的门 ⇒ 解构即抛错）',
+      presetTeeth.includes('[we-sidebar]') && presetTeeth.includes('glassPresets'), presetTeeth.slice(0, 48));
     check('负对照：名单外的字段仍是 undefined（判据不是恒真 —— 占位器只覆盖点过名的）',
       ctx.someFieldNeverListed === undefined && bag.QP_CTX_SETTINGS_ONLY.length >= 20);
   }
@@ -2331,14 +2338,19 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     // 的**自由变量** ⇒ 必须在这里当形参给（漏一个就是 ReferenceError，这正是本判据的设计）。
     // 与 QP_CTX_SETTINGS_ONLY 的分工：**侧栏档真的会画到的**由这里给真值（替身），
     // 设置页专属的（如 onFpsCap —— 帧率上限那行带 `!sidebarSurface` 门）才进占位器名单。
-    'onGlassWindow', 'onLeftSidebarGlass', 'onSidebarGlass', 'onSidebarFullClear',
-    // 2026-10-03：侧栏「外观」与设置页同内容（唯全局字体除外）⇒ 下列处理器由
-    // quick-panel 的 provided 真传（裸标识符 ⇒ 必须进本名单，否则 vm 求值当场 ReferenceError）。
+    'onLeftSidebarGlass', 'onSidebarGlass', 'onSidebarFullClear',
+    // 2026-10-05（ADR-0008 D4）：侧栏档只画简化配置 ⇒ 高级行的处理器进 quick-panel 的
+    // QP_CTX_SETTINGS_ONLY 占位器（本名单只收**真的会**在侧栏档渲染的那些名字，
+    // 裸标识符 ⇒ 不进名单就要么进占位器名单、要么在 vm 求值当场 ReferenceError）。
     'onCaretColor', 'onSidebarAlpha', 'onSidebarBlur', 'onSidebarColor',
     'onSidebarContentAlpha', 'onSidebarContentColor', 'onSidebarFollowGlobal', 'onThinkingGlass',
     'onCapsuleBlur', 'onCapsuleColor',
-    // 「玻璃 UI」节的两级子 UI 开关 + 子项独立参数：外观页签（设置页与侧栏档都会画到）。
-    'onToggleGlassChild', 'onToggleGlassIndependent', 'onToggleChildIndependent',
+    // 「玻璃 UI」节的**子项「独立配置」**及其参数处理器。⚠️ 2026-10-05（ADR-0008 D4）后它们
+    // 只在设置页画 —— 但它们仍是**渲染器源码里的裸标识符**（glass-panel.js 里 `= ctx` 解构出来的
+    // 绑定不是自由变量，真正需要这里给的是 panel 模块作用域里的那些名字）⇒ 名单照旧保留；
+    // 两级子 UI 开关那两个名字（`onToggleGlassChild` / `onToggleGlassIndependent`）随
+    // 「要不要玻璃」整层退役，已在本次清掉（src 里零出现 = 死数据）。
+    'onToggleChildIndependent',
     'onGlassChildParam', 'childIndependentOn',
     // 子 UI 登记表：renderAppearanceGlassSection 按它逐项渲染。替身必须给**与 schema 同源**
     // 的那份（不能手抄），否则夹具渲染的项数与真实面板不同，等于假绿。
@@ -2384,10 +2396,10 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       onAccent: noop, onBlur: noop, onBorder: noop, onGlassAlpha: noop, onGlassColor: noop, onGlassFidelity: noop, onChatGlassFidelity: noop,
       onToggleThemeFollow: noop, onScrim: noop, onWallpaperBlur: noop, onWallpaperOpacity: noop,
       onBackgroundBrightness: noop, onBackgroundContrast: noop, onBackgroundSaturate: noop,
-      onGlassWindow: noop, onLeftSidebarGlass: noop, onSidebarGlass: noop,
-      // 子 UI 两级开关 + 独立参数处理器；登记表与键名生成器给**真值**
+      onLeftSidebarGlass: noop, onSidebarGlass: noop,
+      // 子项「独立配置」及其参数处理器；登记表与键名生成器给**真值**
       //（与 schema 同源，来自被内联的 panel 模块作用域）—— 手抄一份就会漂。
-      onToggleGlassChild: noop, onToggleGlassIndependent: noop, onToggleChildIndependent: noop,
+      onToggleChildIndependent: noop,
       onGlassChildParam: noop, childIndependentOn: () => false,
       onToggleSceneLive: noop, onLiveBootDelay: noop, onSceneLiveFps: noop,
       onPlaybackRate: noop, onObjectFit: noop, onFlip: noop, onOpenPicker: noop, setPickerOpener: noop,
@@ -3397,20 +3409,6 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       const labels = labelSeq(tree);
       check(t.fn + t.label + ' 的控件标签顺序与集合逐字不变', sameSeq(labels, t.wantLabels),
         'want=[' + t.wantLabels.join(' / ') + '] got=[' + labels.join(' / ') + ']');
-      // ── 两档同内容的**边界**（用户口径 2026-10-03，推翻原 §10.22"简化配置不进侧栏"）──
-      // 侧栏「外观」与设置页完全同内容 ⇒ 「独立配置」层两档都必须在；唯一例外是
-      // 「全局字体」节不进侧栏（由 want/wantLabels 的序列钉，这里再补一条**渲染结果**
-      // 级的负断言：侧栏档实际画出的标签里不许出现「字体自定义」）。
-      // ⚠️ 只对**带「玻璃 UI」节**的页签判（其它页签本来就没有独立配置层）。
-      const indep = labels.filter((l) => l.includes('独立配置'));
-      if ((t.want || []).includes('玻璃 UI')) {
-        check(t.fn + t.label + ' 两档都必须有「独立配置」层（同内容口径）',
-          indep.length >= 1, indep.length + ' 个：' + indep.join(' / '));
-        if (t.surface === 'sidebar') {
-          check(t.fn + ' 侧栏档实际渲染不许出现「字体自定义」（全局字体是唯一例外）',
-            !labels.includes('字体自定义'), '泄漏：' + labels.filter((l) => l === '字体自定义').join(''));
-        }
-      }
     }
     // 类名锚：`wantClasses` 是**子串**判定（构件名常带修饰类，如 `we-picker__btn --primary`）——
     // 它认的是"这一段画出来了没有"，正是 `labelSeq` 对**裸 input/select** 的盲区。
@@ -3559,7 +3557,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
   const MORE_CASES = [
     { fn: 'renderAppearanceTab', label: '（设置页：五节）', surface: 'settings',
       // 玻璃四件套 + 雾化已归入新节「玻璃 UI」；「左侧栏液态玻璃」与它的子项也都在本节
-      //（§10.25 起），两档同内容（2026-10-03 口径）。
+      //（§10.25 起）。⚠️ 本档是**设置页**：简化配置与高级配置都画（侧栏档的对照见下面那条用例）。
       // ⚠️ 本批（wip §10.20）起这一节**只剩一层**：「子 UI 玻璃」总开关与每个子面的
       // 「要不要玻璃」开关都已退役（那个"关"并不能如愿回到原生纯色）⇒ 每个子面**直接**
       // 一个「独立配置」。同时「设置窗口液态玻璃」退役（功能由「设置窗口玻璃·独立配置」接管）。
@@ -3567,20 +3565,22 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       // 那几行才画得出来（`sidebarPresent` 为假时它们整段不渲染 —— 这正是"窗口与侧栏"那节
       // 在没装 dsh-better-sidebar 的机器上只剩空标题的原因，§10.25 因此把它并进了「玻璃 UI」）。
       selOver: { sidebarPresent: true, sidebarGlass: true, thinkingGlass: true },
+      // 预设块的 ctx 替身：只给 `presets`（空清单）就够把它画出来 —— 空位虚框 + 保存行是
+      // 渲染期就存在的构件，其余处理器只在点击时才用（本用例不点）。
+      ctxOver: { glassPresets: { presets: [] } },
       want: ['主题', '细节', '玻璃 UI', '全局字体', '输入光标'],
       // ⚠️ 本档打开 `thinkingGlass`（上游 #134 的「思考块液态玻璃」，默认关）：本仓的
       //    「思考触发条玻璃·独立配置」是它门下的面 ⇒ 开关关着时那一行**不渲染**。要覆盖它，
       //    这一档必须把开关打开（顺带覆盖同门的「胶囊雾化」；色板行「胶囊颜色」不进本判据 ——
       //    `labelSeq` 只收开关 / 滑块标签，色板行从来不在序列里，全局「玻璃颜色」同理）。
-      wantLabels: ['主题随壁纸', '边框', '玻璃透明度', '雾化', '玻璃保真度', '思考块液态玻璃', '胶囊雾化', '左侧栏液态玻璃', '侧栏液态玻璃', '侧栏全透明', '侧栏玻璃跟随全局', '内容面玻璃·独立配置', '设置窗口玻璃·独立配置', '对话框玻璃·独立配置', '思考触发条玻璃·独立配置', '浮层玻璃·独立配置', '字体自定义'] },
-    // 侧栏档：2026-10-03 用户口径 —— 与设置页**同内容**，唯「全局字体」一节不进侧栏
-    //（那道 `!sidebarSurface` 门在 panel-tabs，与 quick-panel 的字体占位器互为负对照；
-    //  原 §10.22"简化配置不进侧栏"边界已被本次口径推翻）。
-    // `selOver` 与设置页用例同位 ⇒ 侧栏家族 / 内容面 / 跟随全局那几行同样画得出来。
-    { fn: 'renderAppearanceTab', label: '（侧栏档：与设置页同内容，唯全局字体除外）', surface: 'sidebar',
+      wantLabels: ['主题随壁纸', '边框', '预设方案', '玻璃透明度', '雾化', '玻璃保真度', '思考块液态玻璃', '胶囊雾化', '左侧栏液态玻璃', '侧栏液态玻璃', '侧栏全透明', '侧栏玻璃跟随全局', '内容面玻璃·独立配置', '设置窗口玻璃·独立配置', '对话框玻璃·独立配置', '思考触发条玻璃·独立配置', '浮层玻璃·独立配置', '字体自定义'] },
+    // 侧栏档：**简化配置**（ADR-0008 D4）—— 与设置页同内容，但只到"总开关"这一层；
+    // 「独立配置」层与思考块门下的细调行属高级配置，不在本档（下面的边界判据再判一次）。
+    //  `selOver` 与设置页用例同位 ⇒ 侧栏家族 / 跟随全局那几个**开关**同样画得出来。
+    { fn: 'renderAppearanceTab', label: '（侧栏档：简化配置 —— 总开关在，独立配置不在）', surface: 'sidebar',
       selOver: { sidebarPresent: true, sidebarGlass: true },
       want: ['主题', '细节', '玻璃 UI', '输入光标'],
-      wantLabels: ['主题随壁纸', '边框', '玻璃透明度', '雾化', '玻璃保真度', '思考块液态玻璃', '左侧栏液态玻璃', '侧栏液态玻璃', '侧栏全透明', '侧栏玻璃跟随全局', '内容面玻璃·独立配置', '设置窗口玻璃·独立配置', '对话框玻璃·独立配置', '浮层玻璃·独立配置'] },
+      wantLabels: ['主题随壁纸', '边框', '玻璃透明度', '雾化', '玻璃保真度', '思考块液态玻璃', '左侧栏液态玻璃', '侧栏液态玻璃', '侧栏全透明', '侧栏玻璃跟随全局'] },
     // ⚠️ 这一条是**覆盖缺口**补上的：字体那一节的细节（颜色角色 / 排版角色 / 字体族 / 组件字体 /
     // 字体集预设，~180 行）被 `sel.fontCustom` 挡着，而它的默认值是关 ⇒ **任何用例都没渲染过它**。
     // 打开它才能让那些行第一次进入判据的视野（这本身是找缺陷，不只是补锚）。
@@ -3655,7 +3655,10 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       wantTexts: ['抓帧失败：超时', '抓帧中…', '清除中…'] },
   ];
   for (const t of MORE_CASES) {
-    const known = { surface: t.surface, fontSet: t.surface === 'sidebar' ? undefined : FONTSET_STUB };
+    // `known` = 该档真正提供的 ctx 字段（其余由 `ctxFrom` 填 noop）。`ctxOver` 让用例补上
+    // **需要真形状**的字段 —— 例：预设块的入口守卫是 `if (!presets) return null`，喂 noop 它
+    // 整块不画，那样"设置档必须有预设块"这条断言就永远测不到东西（判据空转，本仓最忌）。
+    const known = Object.assign({ surface: t.surface, fontSet: t.surface === 'sidebar' ? undefined : FONTSET_STUB }, t.ctxOver || {});
     const sel = t.selOver ? Object.assign({}, st, t.selOver) : st;
     // `globals`：有些门住在**模块级替身**里（如 `gpuFrameUi.pinned` 决定"实时帧"那一段画不画），
     // 既不在 ctx 也不在 sel ⇒ 用例临时改写它，**渲染完立刻还原**（含 `continue` 那条路径，
@@ -3681,6 +3684,48 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       check(t.fn + t.label + ' 的控件标签顺序与集合逐字不变',
         sameSeq(labels, t.wantLabels),
         'want=[' + t.wantLabels.join(' / ') + '] got=[' + labels.join(' / ') + ']');
+      // ── 简化配置 / 高级配置的**边界**（ADR-0008 **D4**；2026-10-05 用户口径细化）──
+      //   简化配置（两档都画）= 全局四件套 + 各面**总开关**（思考块液态玻璃 / 左侧栏液态玻璃 /
+      //   侧栏那三个开关）；高级配置（**只在设置页画**）= 预设方案、每个面的「独立配置」层
+      //   **及其子项**、思考块门下的细调行（胶囊雾化 / 胶囊颜色）。
+      //   判定走 `ctx.surface`；配套的是 quick-panel 的 setting-only 占位器（高级行的处理器
+      //   与 `glassPresets` 在侧栏 ctx 里是"取用即抛错"的替身）⇒ 门被拆掉会**当场炸**，
+      //   不是静默死旋钮 / 静默出现。
+      //   两个方向都钉：侧栏档一个「独立配置」都不许有、预设块也不许有，但总开关**必须还在**
+      //   （防"一刀切藏整节"）。
+      // ⚠️ 这道判据只对**带「玻璃 UI」节**的档判（其它页签本来就没有独立配置层）；
+      //    它必须住在**跑得到外观用例的那个循环**里 —— 上一版住在旧的 `CASES` 循环、
+      //    而外观用例早已搬进 `MORE_CASES` ⇒ 那条判据当时是**空转的**（实测：改口径它不红）。
+      const indep = labels.filter((l) => l.includes('独立配置'));
+      // 预设块的标签（`预设方案`）**也进标签序列** —— 它由 `ctlText` 画成一行 `we-picker__ctl`，
+      // 与滑块 / 开关同族。所以两侧都钉得住：序列里不许有（侧栏档）/ 必须有（设置档），
+      // 再加一条整树文本锚兜住"块被画了但标签换了写法"的形态。
+      const flat = JSON.stringify(tree);
+      const PRESET_MARK = '保存当前为预设';
+      const presetLeak = [PRESET_MARK, '预设方案'].filter((s) => flat.includes(s));
+      if ((t.want || []).includes('玻璃 UI')) {
+        if (t.surface === 'sidebar') {
+          check(t.fn + t.label + ' 侧栏档不许出现任何「独立配置」层（高级配置，D4）',
+            indep.length === 0, indep.length + ' 个：' + indep.join(' / '));
+          check(t.fn + t.label + ' 侧栏档不许出现预设块（高级配置，D4）',
+            presetLeak.length === 0, presetLeak.length ? '泄漏：' + presetLeak.join(' / ') : '无泄漏');
+          for (const sw of ['思考块液态玻璃', '左侧栏液态玻璃']) {
+            check(t.fn + t.label + ' 侧栏档仍画总开关「' + sw + '」（简化配置，D4）',
+              labels.includes(sw), labels.includes(sw) ? '在' : '缺：' + sw);
+          }
+          check(t.fn + ' 侧栏档实际渲染不许出现「字体自定义」（全局字体不进侧栏）',
+            !labels.includes('字体自定义'), '泄漏：' + labels.filter((l) => l === '字体自定义').join(''));
+        } else {
+          check(t.fn + t.label + ' 设置档必须有「独立配置」层（高级配置，D4）',
+            indep.length >= 1, indep.length + ' 个：' + indep.join(' / '));
+          // 门的另一侧：能画出来的时候才判（用例给了 `presets` 替身）—— 否则这条会恒假。
+          if (t.ctxOver && t.ctxOver.glassPresets) {
+            check(t.fn + t.label + ' 设置档必须画预设块（高级配置，D4）',
+              labels.includes('预设方案') && flat.includes(PRESET_MARK),
+              labels.includes('预设方案') ? '标签与按钮都在' : '缺：预设方案 / ' + PRESET_MARK);
+          }
+        }
+      }
     }
     if (t.wantTexts) {
       const texts = textKinds(tree);
@@ -3737,8 +3782,8 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
 
   check('负对照：外观页侧栏档确实渲染出了内容（不是空树 ⇒ 上面的"少三节"才有意义）',
     (() => {
-      // 侧栏档画「主题 / 细节 / 玻璃 UI / 输入光标」四节 —— 只比设置页少「全局字体」
-      //（2026-10-03 同内容口径，唯一例外）。
+      // 侧栏档画「主题 / 细节 / 玻璃 UI / 输入光标」四节 —— **节**层面只比设置页少「全局字体」
+      //（ADR-0008 D4：行层面另少高级配置，由上面那条两档断言钉）。
       // ⚠️ 这个数字是**随节数变化**的：新增一节就要同步（它自己就是"少几节"那条判据的负对照）。
       try { return sectionSeq(panelMod.renderAppearanceTab(ctxFrom('renderAppearanceTab', st,
         { surface: 'sidebar', fontSet: undefined }))).length === 4; } catch { return false; }
@@ -3763,10 +3808,10 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       'onPauseOnBattery', 'onPauseOnBlur', 'onPauseOnHidden', 'onToggleLiveDiag', 'sel'],
     renderAppearanceTab: ['setSetting', 'officialColorOf', 'onAccent', 'onBlur', 'onBorder',
       'onCaretColor', 'onChatGlassFidelity', 'onComponentFamily', 'onComponentFont', 'onFontAdvanced', 'onFontResetAll',
-      'onGlassAlpha', 'onGlassColor', 'onGlassFidelity', 'onGlassWindow', 'onThinkingGlass', 'onLeftSidebarGlass', 'onSidebarAlpha',
+      'onGlassAlpha', 'onGlassColor', 'onGlassFidelity', 'onThinkingGlass', 'onLeftSidebarGlass', 'onSidebarAlpha',
       'onSidebarBlur', 'onSidebarColor', 'onSidebarContentAlpha', 'onSidebarContentColor',
       'onSidebarGlass', 'onThemeColor', 'onThemeColorClear', 'onThemeDarkSeparate', 'onThemeFamily',
-      'onThemeSize', 'onThemeTypeOnly', 'onThemeWeight', 'onThinkingGlass', 'onToggleFontCustom', 'onToggleThemeFollow',
+      'onThemeSize', 'onThemeTypeOnly', 'onThemeWeight', 'onToggleFontCustom', 'onToggleThemeFollow',
       'fontSet', 'sel', 'surface'],
   };
   // ⚠️ `tabsSrcNow` 在本块顶部声明（归一成 LF）—— 这里不再重复声明。

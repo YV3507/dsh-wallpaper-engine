@@ -81,7 +81,7 @@ DSH 桌面端把整份客户端 + node 宿主打进 `resources/app.asar`（Elect
 | **`dsh.client.platform` / `.immediately` / `.inject`** | 声明 `platform: "web"`、`immediately: true`、`inject: ["@deepseek-ai/dsh-client-runtime"]` | 宿主文档（`ui-plugin.md`）：`dsh.client` 段就这三项 + `./client` 导出；`practices.md` 另说 `dsh.client.inject` 条目**"only order activation"**，且 **"They change without notice"** | **明确不保证稳定**（但我们只用它排序激活 ⇒ 风险有限） |
 | `dsh.client.external` | **未使用** | 同一文档：非基线的运行时 import 要在这里声明 | 与我们无关（客户端半边没有外部 import） |
 | `exports["./client"]` | 导出 `lib/client.js` | 宿主文档：浏览器产物注册一个 **id 等于包名的 lazy factory**；React 由浏览器模块表提供 | 我们符合（有 `./client` 导出 ✓） |
-| **peer 包** | `@deepseek-ai/cordis` ^4.0.1 · `dsh-client-runtime` ≥0.2.0-rc.1 · `dsh-client-ui-slots` ≥0.2.0-rc.1 · `dsh-host-webserver` ≥0.2.0-rc.1 · `react` ^18.2.0 | 已装：cordis **4.0.4** ✓ · slots **0.2.0-rc.2** ✓ · host-webserver **0.2.0-rc.2** ✓ | 版本都满足；⚠️ `dsh-client-runtime` / `react` 在产物里**找不到同名磁盘包** ⇒ 它们是**客户端模块表里的运行时 id**（文档："React comes from the browser module table"），我们声明它是**激活排序**用途 |
+| **peer 包** | `@deepseek-ai/cordis` ^4.0.1 · `dsh-client-runtime` ≥0.1.0-rc.6 · `dsh-client-ui-slots` ≥0.1.0-rc.6 · `dsh-host-webserver` ≥0.1.0-rc.6 · `react` ^18.2.0（v1.3.0 起三个 `dsh-*` peer 回落到内核口径 ≥0.1.0-rc.6，随 `engines.dsh: >=0.1.5-rc.1` 一起放宽） | 已装：cordis **4.0.4** ✓ · slots **0.2.0-rc.2** ✓ · host-webserver **0.2.0-rc.2** ✓ | 版本都满足；⚠️ `dsh-client-runtime` / `react` 在产物里**找不到同名磁盘包** ⇒ 它们是**客户端模块表里的运行时 id**（文档："React comes from the browser module table"），我们声明它是**激活排序**用途 |
 | **cordis 服务注入** | `ctx.effect` / `ctx.on`（注册即清理，官方要求的形状）· `ctx.slots` · `ctx.webServer` · `ctx.logger` · `ctx.locale` | 宿主文档（`ui-plugin.md` / `practices.md`）："register styles, timers, listeners… inside `apply` with `ctx.effect`/`ctx.on` and return their cleanup functions" | **官方机制**，稳 |
 
 ⚠️ 统计口径的一个坑：`lib/**` 里还有 `ctx.canvas` / `ctx.drawImage` / `ctx.getImageData` / `ctx.fit` ——
@@ -111,7 +111,7 @@ DSH 桌面端把整份客户端 + node 宿主打进 `resources/app.asar`（Elect
 | 我们钉的 `data-slot` | 是否真实槽名 | 用在哪 |
 |---|---|---|
 | `settings.section` | ✅ 是 | 设置窗口玻璃（`[data-slot="settings.section"]`） |
-| `sidebar` | ✅ 是 | 左侧栏覆盖（`div:has(> [data-slot="sidebar"])`） |
+| `sidebar` | ✅ 是 | 左侧栏液态玻璃（`div:has(> [data-slot="sidebar"])`；开关键 `leftSidebarGlass` —— 该面原先叫「左侧栏覆盖」，更名后旧名只在 CHANGELOG 的历史条目里） |
 
 （顺带排除了一个猜法：**没有** `settings.sidebar` 这种名字 —— 设置窗口那一族是 `settings.*`，
 左栏那一族是 `sidebar.*`，两者不同前缀。）

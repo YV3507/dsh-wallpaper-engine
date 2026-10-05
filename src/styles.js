@@ -1240,9 +1240,10 @@ const CSS = `
      sectionList): the ul/li carry no default list styling. */
   .we-picker__section-list { margin: 0; padding: 0; list-style: none; }
 
-  /* ── WHOLE native settings window → liquid glass (master switch).
-     Keyed on body[data-we-glass-window] (set by applyEffects from the
-     glassWindow preference). The settings dialog is the shell's
+  /* ── WHOLE native settings window → liquid glass.
+     Keyed on body[data-we-glass-window] —— 该属性由 applyGlass **恒挂**（D3：原先那个
+     「设置窗口液态玻璃」总开关已在 §10.20 退役、glassWindow 键随之删除；属性本身保留，
+     因为它是 CSS 侧"这组规则画玻璃"的**证书**，守卫 ⑨/⑬ 靠它判断）。The settings dialog is the shell's
      div[role="dialog"] containing the settings.section outlet anchor
      (data-slot="settings.section" — stamped by the slot renderer, same anchor
      the skin-center's semantic layer uses). The dialog reads inherited shell

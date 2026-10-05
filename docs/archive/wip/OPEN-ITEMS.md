@@ -32,7 +32,7 @@
 > **程序状态：本轮重构的主动部分已结项。** P0–P3 与 F 轨的步骤都已落地；§5 里唯一**未完成**的是
 > P4-13（收 body 管道收敛成一个 `readBody()`），P2-11 与 P4-19 是"已落地但等触发条件 / 有余项"。
 > **进度条数不写在这里**（会漂，且 [ADR-0006](../adr/0006-comment-discipline-as-written-convention.md) D2 禁止）：
-> 总数 `grep -c '^| P[0-9]' docs/wip/OPEN-ITEMS.md`，未完成 `grep '^| P[0-9]' docs/wip/OPEN-ITEMS.md | grep -c '⬜'`。
+> 总数 `grep -c '^| P[0-9]' docs/archive/wip/OPEN-ITEMS.md`，未完成 `grep '^| P[0-9]' docs/archive/wip/OPEN-ITEMS.md | grep -c '⬜'`（本文件已随文档收敛归档 ⇒ 路径含 `archive/`）。
 > **P2-11** 受 §7 第 6、7 条**触发线**管辖：实测路由按路径首段各自成族、最大族**未达 3 条**，
 > 跨路由的"隔空故障"也未发生 ⇒ 按账本自己的规则**现在不该做**（继续拆只会增加间接层）。
 > 触发线**现在由读代码的守卫看守**：`test/verify-route-families.mjs`（在 `npm run verify` 硬档链里，
