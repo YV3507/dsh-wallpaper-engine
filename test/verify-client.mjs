@@ -3368,14 +3368,17 @@ setTimeout(async () => {
   const installBody = clientSrc.slice(clientSrc.indexOf('function installSkinInterop()'), clientSrc.indexOf('function installSkinInterop()') + 2200);
   assert.ok(!/enterSkinYield\(/.test(installBody) && /adopt · install\/dom/.test(installBody),
     '互操作：install 路径不许再调 enterSkinYield（启动不是用户动作）');
-  // ①a 启动竞态判据：皮肤标记的出现**只有在我方壁纸确实在台上时**才算 #49 的显式动作。
-  // （对方的运行时会在我们的标记之前先按持久化选择上妆；把它当动作 ⇒ 有壁纸时刷新掉壁纸。）
+  // ①a 启动竞态判据：壁纸腿要"过一拍仍在台上 + 标记在场"（对方的运行时会在我们的标记之前
+  //     先按持久化选择上妆；把它当动作 ⇒ 有壁纸时刷新掉壁纸），设置在途（!loaded）一律不算。
+  //     无壁纸腿也要进 —— 玻璃与壁纸正交（data-we-glass-page 恒挂），无壁纸用户中途试穿 /
+  //     应用皮肤也得摘玻璃（安装期的 adopt 只管启动那一拍，这条腿管中途上台）。
   assert.ok(/function scheduleSkinYieldEnter\(/.test(clientSrc)
     && /if \(!document\.documentElement\.hasAttribute\("data-dsh-skin"\)\) return;/.test(clientSrc)
-    && /if \(!\(document\.body && document\.body\.hasAttribute\("data-we-wallpaper"\)\)\) return;/.test(clientSrc)
+    && /const wallMarkerOn = !!\(document\.body && document\.body\.hasAttribute\("data-we-wallpaper"\)\);/.test(clientSrc)
+    && /if \(!wallMarkerOn && \(selection\.id \|\| !selection\.loaded\)\) return;/.test(clientSrc)
     && /enterSkinYield\(reason \+ "\/dom"\)/.test(clientSrc)
     && /SKIN_YIELD_ENTER_GRACE_MS = \d+/.test(clientSrc),
-    '互操作：退场要"过一拍仍在台上 + 我方确实在台上"才执行（对方的启动上妆是瞬时翻转，不许清壁纸）');
+    '互操作：退场要"过一拍仍在 + 我方在台上（壁纸在台，或无壁纸且设置已就位）"才执行（竞态不许清壁纸；无壁纸也要摘玻璃）');
   // ①b 跨插件读契约（dsh-skins 的首屏预判，issue #51）：对方在出文档之前同步读
   //     `<DSH_WE_DATA_DIR || ~/.dsh-wallpaper-engine>/config.json` 的 `settings.id`
   //     （非空 ⇒ 首帧不画皮肤）。路径 / 环境变量名 / 键名是**双边契约**，单方面改动会把
@@ -3437,10 +3440,16 @@ setTimeout(async () => {
     'enterSkinYield("install/dom");');
   assert.ok(!/skinYielded = true;\s*\n\s*skinYieldMemory = \{ id: "", rotationEnabled/.test(noAdopt),
     'negative control: 认领分支退回 enter 即判红');
-  const noStageGate = clientSrc.replace('if (!(document.body && document.body.hasAttribute("data-we-wallpaper"))) return; // 我方已不在台上',
+  const noStageGate = clientSrc.replace('if (!wallMarkerOn && (selection.id || !selection.loaded)) return;',
     '/* 去掉在台前提 */');
-  assert.ok(!/if \(!\(document\.body && document\.body\.hasAttribute\("data-we-wallpaper"\)\)\) return;/.test(noStageGate),
+  assert.ok(!/if \(!wallMarkerOn && \(selection\.id \|\| !selection\.loaded\)\) return;/.test(noStageGate),
     'negative control: 去掉"我方在台上"这个前提即判红');
+  // 回退负对照：单腿旧条件（只认壁纸标记 ⇒ 无壁纸用户永远进不了让路）也必须判出。
+  const oneLegRegress = clientSrc.replace(
+    'if (!wallMarkerOn && (selection.id || !selection.loaded)) return;',
+    'if (!(document.body && document.body.hasAttribute("data-we-wallpaper"))) return;');
+  assert.ok(!/if \(!wallMarkerOn && \(selection\.id \|\| !selection\.loaded\)\) return;/.test(oneLegRegress),
+    'negative control: 退回"只认壁纸标记"的单腿旧条件即判红');
   const noEnterHyst = clientSrc.replace('if (!document.documentElement.hasAttribute("data-dsh-skin")) return; // 瞬时翻转：已自纠',
     '/* 去掉瞬时翻转前提 */');
   assert.ok(!/if \(!document\.documentElement\.hasAttribute\("data-dsh-skin"\)\) return;/.test(noEnterHyst),
