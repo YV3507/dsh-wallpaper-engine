@@ -182,12 +182,14 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe (no 
   mascot each multiply their own percentage (1% for the wallpaper by default, the mascot sharing the
   wallpaper's value); the interface groups (composer / conversation text area (user bubbles inside
   included) / sidebar) are governed by a
-  separate sub-switch `parallaxUi` (off by default) with `parallaxUiDepth` as the base (conversation text
-  area 1, composer x1.5, sidebar x0.6, user bubbles stacking another x0.4 on top of the text area for the
-  24 most recent ones; `PARALLAX_UI_SIGN = 1` makes the interface move the **same way as** the
-  wallpaper - the near interface travels a little further than the far wallpaper, a camera pan - and the
-  displacement itself lands on the nearest ancestor that owns a box (`parallaxGroupBox()`, at most 3
-  levels up), because the host's slot outlets hard-code `display: contents` and generate none), the
+  separate sub-switch `parallaxUi` (off by default) with the **total factor** `parallaxUiDepth` as the base,
+  plus one factor key per region (`parallaxUiChatDepth` / `parallaxUiComposerDepth` /
+  `parallaxUiSidebarDepth` / `parallaxUiBubbleDepth`, shipping with the four coefficients that used to be
+  hard-coded), so the effective distance is total x region (user bubbles stack one more layer on top of the
+  text area, and only the 24 most recent ones move; `PARALLAX_UI_SIGN = 1` makes the interface move the
+  **same way as** the wallpaper - the near interface travels a little further than the far wallpaper, a
+  camera pan - and the displacement itself lands on the anchor itself when it owns a box, or else on the
+  nearest ancestor that does (`parallaxGroupBox()`, at most 3 levels up), because the host's slot outlets hard-code `display: contents` and generate none), the
   direction of the wallpaper leg is negated so the shift is **mirrored about the screen center**
   (cursor to the top right moves everything to the bottom left), the easing is an exponential approach per
   frame (`parallaxSmooth`, 0 = instant), and the loop stops itself as soon as the displacement left on
@@ -206,11 +208,20 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe (no 
   `resetLayerSwitchStyles` writes and clears an inline `transform`, so only the independent properties
   compose with it. The click & trail layer deliberately does not move; making the interface drift as whole
   blocks is **another sub-switch** (`parallaxUi`, off by default) whose displacement is **snapped to whole
-  device pixels** (so text is never pushed onto half pixels) and whose `translate` is **removed entirely**
-  once it settles (the property alone establishes a containing block, which would re-anchor fixed
-  descendants); a group that contains any `position: fixed` descendant stays put, and nested groups keep
-  only the outermost one (user bubbles are the deliberate exception: they live inside the conversation
-  text area's box, so their displacement stacks on top of it).
+  device pixels** (so text is never pushed onto half pixels) with **hysteresis** on that snapping (the
+  easing tail lingers around zero, so an already written pixel is kept until the value leaves the hysteresis
+  band - without it the interface flips 0<->1 device pixel between frames, which is exactly what "it
+  shivers as the cursor crosses the middle" looks like) and whose `translate` is **removed entirely** once
+  it settles (the property alone establishes a containing block, which would re-anchor fixed descendants);
+  a group that contains any `position: fixed` descendant stays put, and nested groups keep only the
+  outermost one (user bubbles are the deliberate exception: they live inside the conversation text area's
+  box, so their displacement stacks on top of it). **The left column is the one different shape**: it is
+  displaced with **relative positioning** (`position: relative` plus `left`/`top`) and **never** with
+  `translate` - in Windows titlebar mode the host renders the "collapse sidebar" button as a
+  `position: fixed` descendant of that very column, so any `transform` on it would become the button's
+  containing block and push it down by a whole titlebar height (the class of accident #131 was); relative
+  positioning establishes no containing block, so the left column is both safe and exempt from the
+  `fixed`-descendant rule above.
   On the settings
   page that hosts it,
   picking wallpapers is an in-panel drill-in view (no modals) alongside hide/restore, transitions /

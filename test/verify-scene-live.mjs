@@ -2843,15 +2843,27 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       && parSrc.includes('parallaxVarOn(el, PARALLAX_TRANSLATE, value);')
       && parSrc.includes('function parallaxTargetKind(el)')
       // 界面组（用户口径：把 3D 感扩到输入框 / 文本区 / 侧栏与其中的用户气泡，且"文字本体跟着
-      // 玻璃一起动" ⇒ 动的是容器）：四组各自的倍率、与壁纸**同向**的符号、整设备像素量化、
-      // 静止摘属性、组里有 fixed 后代就整组不动（本仓 #89 的包含块坑），以及"槽出口没盒子 ⇒
-      // 位移落到最近的有盒子的祖先"（asar 里的 `ANCHOR_STYLE = display: contents`）。
+      // 玻璃一起动" ⇒ 动的是容器）：四组的倍率**是四个设置项**（常量只作缺值兜底）、与壁纸
+      // **同向**的符号、整设备像素量化 **+ 迟滞**（m01915-② 的抖就是量化在零附近来回翻转）、
+      // 静止摘属性、组里有 fixed 后代就整组不动（本仓 #89 的包含块坑），**左栏例外**走
+      // `position: relative` + `left`/`top`（m01915-③：那一列里钉着宿主的 fixed 标题栏按钮，
+      // translate 会把它变成包含块 ⇒ 按钮整体下移一个标题栏高度），以及"槽出口没盒子 ⇒ 位移落到
+      // 最近的有盒子的祖先"（asar 里的 `ANCHOR_STYLE = display: contents`；m01915 起改成
+      // **从锚点自身起判** ⇒ 输入卡片落到卡片本体、每条用户气泡各自成为一个位移目标）。
       && parSrc.includes('[data-composer-card], [data-slot="conversation.view"], [data-slot="sidebar"], [data-chat-flow-kind="user"], [data-chat-flow-kind="steering"]')
       && parSrc.includes('const PARALLAX_GROUP_CHAT = 1;')
       && parSrc.includes('const PARALLAX_GROUP_COMPOSER = 1.5;')
       && parSrc.includes('const PARALLAX_GROUP_SIDEBAR = 0.6;')
       && parSrc.includes('const PARALLAX_GROUP_BUBBLE = 0.4;')
       && parSrc.includes('const PARALLAX_GROUP_BUBBLE_MAX = 24;')
+      && parSrc.includes('const PARALLAX_GROUP_DEPTH_MIN = 0;')
+      && parSrc.includes('const PARALLAX_GROUP_DEPTH_MAX = 3;')
+      && parSrc.includes('const PARALLAX_GROUP_DEAD_PX = 0.25;')
+      && parSrc.includes('const PARALLAX_GROUP_STICK_PX = 0.75;')
+      && parSrc.includes("const PARALLAX_OFFSET_LEFT = 'left';")
+      && parSrc.includes("const PARALLAX_OFFSET_TOP = 'top';")
+      && parSrc.includes("const PARALLAX_POSITION = 'position';")
+      && parSrc.includes("const PARALLAX_POSITION_RELATIVE = 'relative';")
       && parSrc.includes('const PARALLAX_UI_SIGN = 1;')
       && parSrc.includes('const PARALLAX_UI_DEPTH_MIN = 0;')
       && parSrc.includes('const PARALLAX_UI_DEPTH_MAX = 6;')
@@ -2860,15 +2872,32 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       && parSrc.includes('function parallaxGroupKind(el)')
       && parSrc.includes("if (flow === 'user' || flow === 'steering') return 'bubble';")
       && parSrc.includes('function parallaxGroupBox(el)')
-      && parSrc.includes('function parallaxSnap(v)')
+      && parSrc.includes('let node = el;')
+      && parSrc.includes('function parallaxSnapAxis(v, prev)')
       && parSrc.includes('function parallaxGroupBlocked(el)')
+      && parSrc.includes('function parallaxGroupNeedsRelative(el)')
+      && parSrc.includes('function parallaxGroupOffsets(kind)')
+      && parSrc.includes("return kind === 'sidebar';")
+      && parSrc.includes('function parallaxTargetIsOffset(rec)')
+      && parSrc.includes('function parallaxTargetOffset(rec, x, y)')
+      && parSrc.includes('parallaxVarOn(el, PARALLAX_POSITION, PARALLAX_POSITION_RELATIVE);')
       && parSrc.includes('function parallaxGroupCounts()')
       && parSrc.includes('function parallaxTargetUnset(rec)')
       && parSrc.includes('function parallaxTargetAdd(next, prev, el, group, inFrame, kind)')
       && parSrc.includes('parallaxTargetUnset(rec);')
-      && parSrc.includes('const x = parallaxSnap(parallaxStepX * ratio);')
-      && parSrc.includes('if (x === 0 && y === 0) { parallaxTargetUnset(rec); continue; }')
-      && parSrc.includes('rec.blocked = parallaxGroupBlocked(el);')
+      && parSrc.includes('const dx = parallaxSnapAxis(parallaxStepX * ratio, rec.dx);')
+      && parSrc.includes('if (dx === 0 && dy === 0) { parallaxTargetUnset(rec); continue; }')
+      && parSrc.includes('if (parallaxTargetIsOffset(rec)) parallaxTargetOffset(rec, x.toFixed(2), y.toFixed(2));')
+      && parSrc.includes('const offsets = isGroup && parallaxGroupOffsets(recKind);')
+      && parSrc.includes('blocked: isGroup && !offsets ? (inFrame ? true : parallaxGroupBlocked(el)) : false,')
+      && parSrc.includes('chatDepth: parallaxClamp(selection.parallaxUiChatDepth, PARALLAX_GROUP_DEPTH_MIN,')
+      && parSrc.includes('composerDepth: parallaxClamp(selection.parallaxUiComposerDepth, PARALLAX_GROUP_DEPTH_MIN,')
+      && parSrc.includes('sidebarDepth: parallaxClamp(selection.parallaxUiSidebarDepth, PARALLAX_GROUP_DEPTH_MIN,')
+      && parSrc.includes('bubbleDepth: parallaxClamp(selection.parallaxUiBubbleDepth, PARALLAX_GROUP_DEPTH_MIN,')
+      && parSrc.includes('let coef = st.chatDepth;')
+      && parSrc.includes("if (rec.kind === 'composer') coef = st.composerDepth;")
+      && parSrc.includes("else if (rec.kind === 'sidebar') coef = st.sidebarDepth;")
+      && parSrc.includes("else if (rec.kind === 'bubble') coef = st.bubbleDepth;")
       && parSrc.includes("cs.position === 'fixed'")
       && parSrc.includes('return st.uiDepth * coef * PARALLAX_UI_SIGN;')
       && parSrc.includes('parallaxTargetAdd(next, prev, parallaxGroupBox(el) || el, true, inFrame, candidates[i].kind);')
@@ -3005,6 +3034,10 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     chatGroup.outlet.contains = (other) => other === nestedGroup.outlet
       || bubbles.some((b) => b.outlet === other);
     composerGroup.box.children = [{ position: 'fixed' }];
+    // 侧栏那一列同样塞一个 fixed 后代 —— 宿主在 Windows 标题栏模式下**就是这样**把「收起侧边栏」
+    // 按钮钉在那一列里的。它走相对偏移（不建立包含块）⇒ 照样要动，而且**一个 `translate` 都不许写**
+    // （写了那一列就成包含块，按钮下移一个标题栏高度 = m01915-③）。
+    sidebarGroup.box.children = [{ position: 'fixed' }];
     const groups = [chatGroup.outlet, composerGroup.outlet, sidebarGroup.outlet, nestedGroup.outlet]
       .concat(bubbles.map((b) => b.outlet));
     const listeners = {};
@@ -3016,6 +3049,8 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     let settled = false;
     let centerCleared = false;
     let dbgOk = false;
+    let hysteresisOk = false;
+    let regionsOk = false;
     let cleared = false;
     // 自检开关走 localStorage：宿主可能把它定义成只读访问器 ⇒ 用 defineProperty 覆盖。
     const setLocalStorage = (value) => {
@@ -3074,25 +3109,38 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
         const m = /^(-?\d+\.\d\d)px (-?\d+\.\d\d)px$/.exec(String(box.props['translate'] || ''));
         return m ? [Number(m[1]), Number(m[2])] : null;
       };
+      // 左栏走的是相对偏移 ⇒ 读的是 `left` / `top` 这一对（换算回设备像素的整数量化）。
+      const offsetNum = (box) => {
+        const m = /^(-?\d+\.\d\d)px (-?\d+\.\d\d)px$/.exec(
+          String((box.props['left'] || '') + ' ' + (box.props['top'] || '')));
+        return m ? [Number(m[1]), Number(m[2])] : null;
+      };
       const layerNum = numOf(layerEl);
       const chatNum = numOf(chatGroup.box);
-      const sideNum = numOf(sidebarGroup.box);
+      const sideNum = offsetNum(sidebarGroup.box);
       const bubbleMoved = bubbles.filter((b) => 'translate' in b.box.props);
       const bubbleNum = bubbleMoved.length ? numOf(bubbleMoved[bubbleMoved.length - 1].box) : null;
-      const snapOk = [chatNum, sideNum, bubbleNum].every((n) => n
-        && n[0] === Math.round(n[0]) && n[1] === Math.round(n[1]));
+      const snapOk = [chatNum, bubbleNum].every((n) => n
+        && n[0] === Math.round(n[0]) && n[1] === Math.round(n[1]))
+        && !!sideNum && sideNum[0] === Math.round(sideNum[0]) && sideNum[1] === Math.round(sideNum[1]);
       const dirOk = !!layerNum && !!chatNum && layerNum[0] * chatNum[0] > 0
         && layerNum[1] * chatNum[1] > 0;
       const depthOk = !!chatNum && !!sideNum && !!bubbleNum
         && Math.abs(sideNum[0]) < Math.abs(chatNum[0])
         && Math.abs(bubbleNum[0]) < Math.abs(chatNum[0]);
+      // 左栏那一列**一个 `translate` 都不能留**：写了它就成了宿主的 fixed 标题栏按钮的包含块
+      // （m01915-③ 的来路）；它该留的是相对定位前缀 + `left`/`top`。
+      const sideOk = !('translate' in sidebarGroup.box.props)
+        && !('translate' in sidebarGroup.outlet.props)
+        && sidebarGroup.box.props['position'] === 'relative'
+        && !!sideNum;
       // 气泡按 DOM 顺序截尾：最新的 24 条（下标 6..29）动，最早的 6 条一动不动。
       const capOk = bubbleMoved.length === 24
         && bubbles.slice(0, 6).every((b) => !('translate' in b.box.props));
       // 出口自己**一个位移都没有**（它没有盒子）—— 这正是这一版修掉的那条 bug。
       const boxOk = !('translate' in chatGroup.outlet.props)
         && !('translate' in sidebarGroup.outlet.props);
-      groupsOk = snapOk && dirOk && depthOk && capOk && boxOk
+      groupsOk = snapOk && dirOk && depthOk && capOk && boxOk && sideOk
         && !('translate' in nestedGroup.box.props)
         && !('translate' in composerGroup.outlet.props)
         && !('translate' in composerGroup.box.props)
@@ -3107,24 +3155,48 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
         && bodyStore.props['--we-parallax-bg'] === '1';
       for (let i = 0; i < 400 && pending; i += 1) step(20);   // 一直跑到收敛
       settled = pending === null && targets.every((el) => !el.classList.contains('we-parallax--moving'));
+      // 迟滞（用户口径 m01915-②：光标从屏幕一半挪到另一半时中央文本区与输入框会抖）：量化死区
+      // 0.25 / 重新起跳 0.75 设备像素。先让它稳定在大位移那一档，再把光标挪到"本该归零"的 0.4
+      // 设备像素档 —— 不带迟滞的写法（直接 Math.round）这一下会把 `translate` 摘掉，光标在零附近
+      // 一磨就 0↔1 来回翻转 = 屏上一下一下地跳；带迟滞则**保留上一档的 1px**，直到真的落进死区。
+      if (typeof listeners.pointermove === 'function') listeners.pointermove({ clientX: 1600, clientY: 900 });
+      for (let i = 0; i < 400 && pending; i += 1) step(20);
+      const engaged = !!numOf(chatGroup.box);
+      if (typeof listeners.pointermove === 'function') listeners.pointermove({ clientX: 840, clientY: 450 });
+      for (let i = 0; i < 400 && pending; i += 1) step(20);
+      const holdNum = numOf(chatGroup.box);
+      hysteresisOk = engaged && !!holdNum && Math.abs(holdNum[0]) === 1 && holdNum[1] === 0;
+      // ① 各区域单独可调（用户口径 m01915-①）：把会话文本区那一档的倍率置 0 ⇒ 它一动不动，
+      // 而侧栏照旧拿自己的偏移 —— 四个倍率真的是各自的，不是共用同一个数。
+      globalThis.selection.parallaxUiChatDepth = 0;
+      if (typeof listeners.pointermove === 'function') listeners.pointermove({ clientX: 1600, clientY: 900 });
+      for (let i = 0; i < 400 && pending; i += 1) step(20);
+      regionsOk = !('translate' in chatGroup.box.props) && !!offsetNum(sidebarGroup.box);
+      globalThis.selection.parallaxUiChatDepth = 1;
       // 光标回到屏幕正中 ⇒ 位移归零 ⇒ 界面组那几层的 `translate` 必须**整条摘掉**
-      // （属性只要在，包含块就成立 —— 静止的界面连一个空位移都不许留）。
+      // （属性只要在，包含块就成立 —— 静止的界面连一个空位移都不许留）；左栏摘的是 `left`/`top`，
+      // 它那条 `position: relative` 留着（值与插件玻璃那一段逐字相同，摘挂反而是把锚点来回换）。
       if (typeof listeners.pointermove === 'function') listeners.pointermove({ clientX: 800, clientY: 450 });
       for (let i = 0; i < 400 && pending; i += 1) step(20);
-      centerCleared = [chatGroup, sidebarGroup, nestedGroup, composerGroup]
+      centerCleared = [chatGroup, nestedGroup, composerGroup]
         .every((g) => !('translate' in g.box.props) && !('translate' in g.outlet.props))
+        && !('left' in sidebarGroup.box.props) && !('top' in sidebarGroup.box.props)
+        && sidebarGroup.box.props['position'] === 'relative'
         && bubbles.every((b) => !('translate' in b.box.props));
       const dbg = globalThis.window.__weParallaxStats;
       // 自检里还带一份界面组清点：会话 1、侧栏 1、气泡 24（截尾后的）、被 fixed 挡下 1（输入卡片）。
       dbgOk = !!dbg && dbg.frames > 0 && dbg.writes > 0
         && typeof dbg.costMs.p50 === 'number' && typeof dbg.gapMs.max === 'number'
         && !!dbg.groups && dbg.groups.chat === 1 && dbg.groups.sidebar === 1
-        && dbg.groups.bubble === 24 && dbg.groups.blocked === 1;
+        && dbg.groups.bubble === 24 && dbg.groups.blocked === 1 && dbg.groups.offset === 1;
       globalThis.selection = { parallaxEnabled: false };
       parallaxLayerMod.syncParallaxLayer();
       cleared = targets.every((el) => !('translate' in el.props)
         && !el.classList.contains('we-parallax--moving'))
         && !('--we-parallax-bg' in bodyStore.props)
+        // 左栏那条腿连 `position` 一起还回去（记录都没了，这一列还原成 static 才算收干净）。
+        && !('position' in sidebarGroup.box.props)
+        && !('left' in sidebarGroup.box.props) && !('top' in sidebarGroup.box.props)
         && typeof listeners.pointermove === 'function';
     } catch (e) { threw = String((e && e.message) || e); } finally {
       globalThis.selection = PREV_SEL;
@@ -3135,12 +3207,15 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       globalThis.getComputedStyle = PREV_GCS;
       setLocalStorage(PREV_LS);
     }
-    check('parallax-layer.js 位移直接写在那几层自己的 translate 上 · body 只放补边系数 · 起帧提合成层到位摘 · 自检出帧统计 · 停用全收干净 · 界面组量化位移/与壁纸同向/分档/气泡截尾/静止摘属性/fixed 后代整组不动/槽出口没盒子就落父盒子',
-      !threw && movedOn && groupsOk && settled && centerCleared && dbgOk && cleared,
+    check('parallax-layer.js 位移直接写在那几层自己的 translate 上 · body 只放补边系数 · 起帧提合成层到位摘 · 自检出帧统计 · 停用全收干净 · 界面组量化位移(带迟滞)/与壁纸同向/分档(四个区域倍率各自生效)/气泡截尾/静止摘属性/fixed 后代整组不动/左栏走相对偏移不吃那条判定/槽出口没盒子就落父盒子',
+      !threw && movedOn && groupsOk && settled && centerCleared && dbgOk && hysteresisOk
+        && regionsOk && cleared,
       threw || ('movedOn=' + movedOn + ' groups=' + groupsOk + ' settled=' + settled
-        + ' center=' + centerCleared + ' dbg=' + dbgOk + ' cleared=' + cleared
+        + ' center=' + centerCleared + ' dbg=' + dbgOk + ' hysteresis=' + hysteresisOk
+        + ' regions=' + regionsOk + ' cleared=' + cleared
         + ' translate=' + layerEl.props['translate']
-        + ' chat=' + chatGroup.box.props['translate'] + ' sidebar=' + sidebarGroup.box.props['translate']
+        + ' chat=' + chatGroup.box.props['translate'] + ' sidebar=' + sidebarGroup.box.props['left']
+        + '/' + sidebarGroup.box.props['top'] + ' ' + sidebarGroup.box.props['position']
         + ' composer=' + composerGroup.box.props['translate'] + ' nested=' + nestedGroup.box.props['translate']));
   }
   {
@@ -3151,10 +3226,14 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       onParallaxEnabled: () => {}, onParallaxBg: () => {},
       onParallaxMascot: () => {}, onParallaxSmooth: () => {},
       onParallaxUi: () => {}, onParallaxUiDepth: () => {},
+      onParallaxUiChatDepth: () => {}, onParallaxUiComposerDepth: () => {},
+      onParallaxUiSidebarDepth: () => {}, onParallaxUiBubbleDepth: () => {},
     });
-    // 界面组那一行（「界面跟随距离」）只有在「界面元素跟随」开着时才长出来 ⇒ 两套期望。
+    // 界面组那五行（「界面跟随距离」= 总倍率 + 四个区域倍率）只有在「界面元素跟随」开着时
+    // 才长出来 ⇒ 两套期望（用户口径 m01915-①：各区域的缓动距离单独调）。
     const PARAMS = ['背景缓动距离', '吉祥物跟随', '界面元素跟随', '缓动平滑'];
-    const UI_PARAMS = ['背景缓动距离', '吉祥物跟随', '界面元素跟随', '界面跟随距离', '缓动平滑'];
+    const UI_PARAMS = ['背景缓动距离', '吉祥物跟随', '界面元素跟随', '界面跟随距离',
+      '会话文本区距离', '输入卡片距离', '侧栏距离', '用户气泡距离', '缓动平滑'];
     const off = labelSeq(extParallaxMod.renderParallaxIsland(ctxOf(schemaMod.DEFAULTS)));
     const on = labelSeq(extParallaxMod.renderParallaxIsland(
       ctxOf(Object.assign({}, schemaMod.DEFAULTS, { parallaxEnabled: true }))));
@@ -3165,7 +3244,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     const wantOff = [globalThis.weT('启用 3D 效果')];
     const wantOn = wantOff.concat(PARAMS.map((k) => globalThis.weT(k)));
     const wantOnUi = wantOff.concat(UI_PARAMS.map((k) => globalThis.weT(k)));
-    check('ext-parallax.js 可单独 import · 注册表项形状 · 关着只画总开关、开了才画参数（界面组那一行再等一个子开关）',
+    check('ext-parallax.js 可单独 import · 注册表项形状 · 关着只画总开关、开了才画参数（界面组那五行再等一个子开关）',
       Boolean(mod) && mod.id === 'parallax' && mod.render === extParallaxMod.renderParallaxIsland
       && typeof mod.title === 'string' && mod.title === globalThis.weT('3D 效果')
       && typeof mod.desc === 'string' && mod.desc.length > 0

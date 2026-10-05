@@ -5,7 +5,7 @@
  * 一个**模块描述符**（形状 `{ id, title, desc?, render? }`，契约写在 src/panel-tabs.js 的
  * `extensionModules()` 上方）：panel-tabs 只负责把它排在「扩展」页签里，具体的控件与文案
  * 全在本文件。视差本体在 `src/parallax-layer.js`（只有变量与事件、不建 DOM），设置项的
- * 真源在 `lib/settings-schema.js` 的 6 个 `parallax*` 键。
+ * 真源在 `lib/settings-schema.js` 的 10 个 `parallax*` 键。
  *
  * 契约：
  *   需要的外界：`ctx`（由 `src/client.js` 在 `renderExtensionsTab({...})` 的调用点组装）——
@@ -21,22 +21,25 @@
  *     KINDS 一致（改范围要同时看 lib/settings-schema.js —— 那份是唯一真源）。
  *   · 关掉总开关时只画总开关 + 一句说明（避免"关着还能拖参数"的错觉）。
  *   · 控件顺序 = 先定"整块动多远"、再定"谁跟着动"：背景缓动距离 → 吉祥物跟随 →
- *     界面元素跟随 → 界面跟随距离 → 缓动平滑（观感）。**方向不是设置项**：壁纸与吉祥物
+ *     界面元素跟随 → 界面跟随距离 → 四个区域距离 → 缓动平滑（观感）。**方向不是设置项**：壁纸与吉祥物
  *     的口径是"关于屏幕中心对称"（光标在右上 ⇒ 整块往左下）、界面整块与壁纸**同向**
  *     （用户口径 m01371："希望输入框和背景同向运动" ⇒ 像镜头横移，近处多走一点），
  *     要换向改 src/parallax-layer.js 的 `PARALLAX_DIRECTION` / `PARALLAX_UI_SIGN`。
- *   · 界面那一组的距离是**一个**设置项 + 四个固定倍率（会话文本区 ×1、输入卡片 ×1.5、
- *     左栏 ×0.6、用户气泡在会话文本区之上再加 ×0.4，真源在 src/parallax-layer.js）：
+ *   · 界面那一组的距离 = **一个总倍率 + 四个区域倍率**（用户口径 m01915-①：「各个区域的缓动
+ *     距离支持单独调节」）：区域滑杆只在「界面元素跟随」打开时才画，四个值都乘在总倍率上
+ *     （出厂 1 / 1.5 / 0.6 / 0.4 ⇒ 与上一个版本逐像素同观感；真源 lib/settings-schema.js）。
  *     它动的是真实界面，所以默认关。
  */
 
 /**
- * 扩展岛：总开关 → 背景缓动距离 → 吉祥物跟随 → 界面元素跟随 → 界面跟随距离 → 缓动平滑。
+ * 扩展岛：总开关 → 背景缓动距离 → 吉祥物跟随 → 界面元素跟随 → 界面跟随距离 → 四个区域距离
+ * → 缓动平滑。
  * @param {{sel:object}} ctx 见文件头契约
  */
 function renderParallaxIsland(ctx) {
   const { sel, onParallaxEnabled, onParallaxBg, onParallaxMascot, onParallaxUi, onParallaxUiDepth,
-    onParallaxSmooth } = ctx;
+    onParallaxUiChatDepth, onParallaxUiComposerDepth, onParallaxUiSidebarDepth,
+    onParallaxUiBubbleDepth, onParallaxSmooth } = ctx;
   const on = sel.parallaxEnabled === true;
   const ui = on && sel.parallaxUi === true;
   return React.createElement(React.Fragment, null,
@@ -50,12 +53,26 @@ function renderParallaxIsland(ctx) {
     on && switchRow(weT("吉祥物跟随"), sel.parallaxMascot !== false, onParallaxMascot,
       { key: "parallax-mascot", hint: weT("挂件也按「背景缓动距离」一起挪") }),
     // 界面整块（输入卡片 / 会话文本区 / 侧栏）：动的是真实界面 ⇒ 单独一个开关、默认关。
-    // 四组的倍率不在面板里（见 src/parallax-layer.js 的 PARALLAX_GROUP_*）。
+    // 四组的倍率就在下面四行（真源 lib/settings-schema.js；层里的 PARALLAX_GROUP_* 只作缺值兜底）。
     on && switchRow(weT("界面元素跟随"), sel.parallaxUi === true, onParallaxUi,
       { key: "parallax-ui", hint: weT("输入卡片、会话文本区（连里面的用户气泡一起）与侧栏作为整块跟着挪：文字与底下的玻璃一起动") }),
     ui && SliderRow(weT("界面跟随距离"), 0, 6, 0.5, sel.parallaxUiDepth, onParallaxUiDepth, "%",
       "parallax-ui-depth",
-      { tooltip: weT("光标走完一整条对角线时，会话文本区挪动的距离占该对角线的百分比；输入卡片挪得更远些（×1.5）、侧栏更近些（×0.6）、用户气泡在文本区之上再多走一点（+×0.4），四层之间因此有一点纵深") }),
+      { tooltip: weT("光标走完一整条对角线时，会话文本区挪动的距离占该对角线的百分比 —— 这是界面四组的总倍率，下面四个区域距离都乘在它身上") }),
+    // 四个区域各自的倍率（用户口径 m01915-①：各区域的缓动距离单独调）。
+    // 0 = 这一档完全不跟；1 = 与「界面跟随距离」相同；出厂值 = 改设置项之前那份写死的倍率。
+    ui && SliderRow(weT("会话文本区距离"), 0, 3, 0.1, sel.parallaxUiChatDepth, onParallaxUiChatDepth,
+      "", "parallax-ui-chat-depth",
+      { tooltip: weT("长回复所在的整块文本区的距离倍率：1 = 与「界面跟随距离」相同") }),
+    ui && SliderRow(weT("输入卡片距离"), 0, 3, 0.1, sel.parallaxUiComposerDepth,
+      onParallaxUiComposerDepth, "", "parallax-ui-composer-depth",
+      { tooltip: weT("底部输入卡片的距离倍率：比文本区大一点（出厂 1.5）看着最靠前、纵深更明显") }),
+    ui && SliderRow(weT("侧栏距离"), 0, 3, 0.1, sel.parallaxUiSidebarDepth, onParallaxUiSidebarDepth,
+      "", "parallax-ui-sidebar-depth",
+      { tooltip: weT("左侧栏的距离倍率（出厂 0.6）：它比文本区更靠后，所以默认走得更少") }),
+    ui && SliderRow(weT("用户气泡距离"), 0, 3, 0.1, sel.parallaxUiBubbleDepth, onParallaxUiBubbleDepth,
+      "", "parallax-ui-bubble-depth",
+      { tooltip: weT("你的消息气泡在会话文本区之外再多走的倍率（出厂 0.4）：0 = 气泡只跟着文本区一起动") }),
     on && SliderRow(weT("缓动平滑"), 0, 98, 1, sel.parallaxSmooth, onParallaxSmooth, "%", "parallax-smooth",
       { tooltip: weT("0 = 立刻跟手，越大越柔和（跟得越慢、停下后还会飘一小段才归位）") }),
   );

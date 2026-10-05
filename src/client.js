@@ -3142,6 +3142,11 @@ function onParallaxMascot(e) { setSetting("parallaxMascot", e.target.checked); e
 function onParallaxUi(e) { setSetting("parallaxUi", e.target.checked); emit(); }
 function onParallaxBg(v, live) { commitLiveSetting("parallaxBg", v, live); }
 function onParallaxUiDepth(v, live) { commitLiveSetting("parallaxUiDepth", v, live); }
+// 四个区域倍率（用户口径 m01915-①）：与总倍率同形，各自一个具名处理器。
+function onParallaxUiChatDepth(v, live) { commitLiveSetting("parallaxUiChatDepth", v, live); }
+function onParallaxUiComposerDepth(v, live) { commitLiveSetting("parallaxUiComposerDepth", v, live); }
+function onParallaxUiSidebarDepth(v, live) { commitLiveSetting("parallaxUiSidebarDepth", v, live); }
+function onParallaxUiBubbleDepth(v, live) { commitLiveSetting("parallaxUiBubbleDepth", v, live); }
 function onParallaxSmooth(v, live) { commitLiveSetting("parallaxSmooth", v, live); }
 // ── 用户图片资产导入的共用腿（会话头像 / 吉祥物立绘）─────────────────────────
 // 两族走的是同一条链：选文件 → 解码 → 按上限缩一遍 → POST 到宿主 → 把返回的文件名记账。
@@ -4229,6 +4234,7 @@ const officialColorOf = (tokens) => {
     onFxTrail, onFxTrailStyle, onFxTrailLength, onFxTrailWidth, onFxTrailGlow,
     onFxOpacity, onFxBlend, onFxColorMode, onFxColor,
     onParallaxEnabled, onParallaxBg, onParallaxMascot, onParallaxUi, onParallaxUiDepth, onParallaxSmooth,
+    onParallaxUiChatDepth, onParallaxUiComposerDepth, onParallaxUiSidebarDepth, onParallaxUiBubbleDepth,
     onAvatarEnabled, onAvatarSize, onAvatarRadius, onAvatarPick, onAvatarClear,
   });
   const renderActiveTab = () => {

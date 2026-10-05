@@ -200,9 +200,21 @@ asar 里带着宿主自己的插件编写文档：`@deepseek-ai/dsh-agent-preset
   `data-chat-flow-kind` 的值来自节点种类（`user` / `steering` / `context` / `turn-trigger` / `turn-process` /
   `assistant-text` …）⇒ **`[data-chat-flow-kind="user"]`（+ `"steering"`）就是用户气泡那一行的锚点**，
   而 `…_userRow` / `…_bubble` 这类类名是构建哈希、只能兜底。
+- **左栏那一列不能拿 `translate` 动**（"能量形态"的边界，与上面三条同批核实）。`[data-slot="sidebar"]` 出口的
+  **直接父元素**就是左侧栏那一列（本插件自己的 CSS 也这么指它：`div:has(> [data-slot="sidebar"])`，见
+  `src/styles.js` 的液态玻璃那一段），而 Windows 标题栏模式下宿主把「收起侧边栏」按钮做成 `position: fixed`
+  钉在标题栏左上角（逐字证据：`[data-windows-titlebar] ._2H3hWW_toggle{top:calc((var(--dsh-windows-titlebar-height)
+  - 28px) / 2);z-index:30;-webkit-app-region:no-drag;position:fixed;left:12px}`，出自 asar 内
+  `@deepseek-ai/dsh-desktop-host/node_modules/koffi/doc/composites.md`）—— 那个按钮就是这一列的后代
+  ⇒ 给这一列写任何 `transform` / `translate` 都会让它成为按钮的**包含块**，按钮整体下移一个标题栏高
+  （`docs/CHANGELOG.md` 里 #131 是同一类事故；本插件早先给这一列**直接**画 `backdrop-filter` 时也踩过同样的坑，
+  后来改成画 `::before`，见 `src/styles.js` 里那段注释）。
+  ⇒ 要动左栏只能走**相对定位**（`position: relative` + `left` / `top`）：它**不**建立包含块，就不会换掉任何
+  fixed 后代的锚点。本插件「3D 效果」的界面跟随正是这么做的（`parallaxGroupOffsets()` 里左栏是唯一的相对偏移档）。
 
-⚠️ 三条都属于 §2.3 说的"低稳定度那一类"：主机重建后**属性名**多半还在，但 `_viewArea` 这类后缀随时可改
-⇒ 机器判据只能证明"名字还在"（§5），语义仍要靠人复核。
+⚠️ 四条都属于 §2.3 说的"低稳定度那一类"：主机重建后**属性名**多半还在，但 `_viewArea` 这类后缀随时可改
+⇒ 机器判据只能证明"名字还在"（§5），语义仍要靠人复核。最后一条性质不同：它约束的是**我们该用哪种 CSS 形态**
+（不许 `transform`），而不是"宿主某个名字还在不在"。
 
 ## 4. 状态与待办
 
