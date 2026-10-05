@@ -403,6 +403,13 @@ function prepareSceneStaticStage(w, prep, onReady, onFail) {
 // 元素级领养（buildMedia 收编）。staging 容器的收尾在 applySelection 返回后 ——
 // 节点级领养时它已变成新层，元素级领养时它已完成使命移除。
 function applySelection(id, opts) {
+  // 让路态里用户**手动重选**壁纸（点卡片 / 快捷面板 / 「下一张」）= 最新的显式动作 ⇒
+  // 立刻退出让路：玻璃整族回来，且用用户这次的选择（skipRestore 别拿记忆里的旧 id 盖它）。
+  // 只认 fromManual —— 启动恢复 / revalidate / 轮换提交都不是"用户刚点了"。
+  if (id && opts && opts.fromManual
+      && typeof skinYieldActive === "function" && skinYieldActive()) {
+    exitSkinYield("manual-pick", { skipRestore: true });
+  }
   reportClientDiag("apply", "id=" + String(id || "").slice(0, 40));
   // 手动切换/清除/revalidate：取消进行中的轮换准备（staged/探测元素全部
   // 释放），并丢弃任何滞留的就绪元素。轮换提交（fromRotation）例外 ——

@@ -373,6 +373,179 @@ const listeners = new Set();
 function emit() { for (const fn of [...listeners]) fn(); }
 function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 
+// ── 皮肤中心（dsh-skins）互操作：皮肤在台上 ⇒ 我方整族退场 ─────────────────────
+// 对立面已由对方实现（只读 `body[data-we-wallpaper]`：壁纸应用时皮肤整体停画）；这里补
+// **反向**——皮肤试穿 / 应用时我方让路。信号只有一条腿，只读、绝不写对方任何状态：
+//   `html[data-dsh-skin]` = 对方"皮肤在台上 / 皮肤要求上台"的公开标记。dsh-skins#49 起，
+//   对方的**显式**试穿 / 应用会让这一次激活照常上台并重写该属性（同值 setAttribute 也产生
+//   mutation record ⇒「重复应用同一款」同样可见）；对方另给了那条让路信号 1500ms 上限，
+//   我们不接时它会自己退回普通停画。早先为补"应用"这条腿做的轻轮询
+//   （`GET /api/skin-center/v2/active`）已随该契约落地整体删除 —— 纯事件、无网络。
+// 退场 = 清当前壁纸（层 / 遮罩 / `body[data-we-wallpaper]` 随 `selection.url` 一起退）
+//        + 玻璃整族门控整组不匹配（与旧「要不要玻璃 = 关」同语义；落点在 applyGlass 与
+//        effects 的两个门控点）。
+// 复位 = 持续不在台上（滞回，见下）才做：按记忆放回壁纸与轮播开关；用户期间手动选过壁纸
+//        就不抢（手动重选那条路会**立刻**退让路，见 src/media-prep.js 的钩子）。
+// ⚠️ 轮播会把"空 id"当信号自动补位（`rotationEnabled && !id` ⇒ 取候选第一张），所以退场
+//    必须连轮播一起按停，否则刚清掉的壁纸会被自己补回来。
+const SKIN_YIELD_EXIT_GRACE_MS = 2600; // 复位宽限：对方 refresh 会先把标记摘掉再补回，瞬时摘不算退场
+const SKIN_YIELD_ENTER_GRACE_MS = 450; // 退场宽限：对方的**启动上妆**是瞬时翻转（随后被它自己的 refresh 自纠），
+                                       // 真实动作会持续 ≥1.5s（它的让路宽限）⇒ 只认"过一拍还在"的出现
+let skinYielded = false;
+let skinYieldMemory = null;        // { id, rotationEnabled }：退场前的用户选择
+let skinYieldExitTimer = null;     // 复位要「持续不在台上」才执行（对方 refresh 的瞬时空窗不算退场）
+let skinYieldEnterTimer = null;    // 退场要「过一拍还在台上」才执行（对方启动上妆的瞬时翻转不算动作）
+
+/** 让路态是否生效（glass / effects 的门控点读它）。try 防 TDZ：prelude 早于 client 主体执行。 */
+function skinYieldActive() {
+  try { return skinYielded === true; } catch { return false; }
+}
+
+/** 皮肤上台 ⇒ 退场（幂等）。 */
+function enterSkinYield(reason) {
+  if (skinYielded) return;
+  skinYielded = true;
+  skinYieldMemory = { id: String(selection.id || ""), rotationEnabled: selection.rotationEnabled === true };
+  if (selection.rotationEnabled) setSetting("rotationEnabled", false);
+  applySelection("");        // 清层：url=null ⇒ syncLayers 摘层 / 遮罩 / data-we-wallpaper
+  persistSelection();
+  applyEffects();            // 让路态里玻璃门控整族摘除
+  emit();
+  reportClientDiag("skin-yield", "enter · " + reason + " · restore=" + (skinYieldMemory.id || "-"));
+}
+
+/** 皮肤退场 ⇒ 复位（幂等）。`opts.skipRestore` = 调用点自带新选择（手动重选那条路）。 */
+function exitSkinYield(reason, opts) {
+  if (!skinYielded) return;
+  const skipRestore = !!(opts && opts.skipRestore);
+  skinYielded = false;
+  const mem = skinYieldMemory || {};
+  skinYieldMemory = null;
+  if (!skipRestore && !selection.id && mem.id) applySelection(mem.id);
+  if (mem.rotationEnabled && selection.rotationEnabled !== true) setSetting("rotationEnabled", true);
+  persistSelection();
+  applyEffects();
+  emit();
+  reportClientDiag("skin-yield", "exit · " + reason);
+}
+
+/**
+ * 排定一次退场：对方**启动上妆**（它的运行时在我们的标记到达前先按持久化选择上妆）会在自己的
+ * `refresh()` 里被自纠，是一次**瞬时翻转**；而用户显式动作（#49）会一直亮着（它的让路宽限 1.5s
+ * 才回收）。所以只认"过一拍还在"的出现：宽限结束时 DOM 仍带标记、且我方确实在台上 ⇒ 才是动作。
+ * ⚠️ 450ms 必须显著短于对方的 1500ms 宽限，否则真实动作会在我们确认前被它回收。
+ */
+function scheduleSkinYieldEnter(reason) {
+  if (skinYieldEnterTimer !== null || skinYielded) return;
+  const fire = () => {
+    skinYieldEnterTimer = null;
+    try {
+      if (!document.documentElement.hasAttribute("data-dsh-skin")) return; // 瞬时翻转：已自纠
+      if (!(document.body && document.body.hasAttribute("data-we-wallpaper"))) return; // 我方已不在台上
+      enterSkinYield(reason + "/dom");
+    } catch { /* ignore */ }
+  };
+  try {
+    if (typeof window === "undefined" || typeof window.setTimeout !== "function") { fire(); return; }
+    skinYieldEnterTimer = window.setTimeout(fire, SKIN_YIELD_ENTER_GRACE_MS);
+  } catch { fire(); }
+}
+
+/** 撤销已排定的退场（标记又消失了 / 卸载）。 */
+function cancelSkinYieldEnter() {
+  if (skinYieldEnterTimer === null) return;
+  try { if (typeof window !== "undefined" && typeof window.clearTimeout === "function") window.clearTimeout(skinYieldEnterTimer); } catch { /* ignore */ }
+  skinYieldEnterTimer = null;
+}
+
+/** 撤销已排定的复位（皮肤又回来了 / 卸载）。 */
+function cancelSkinYieldExit() {
+  if (skinYieldExitTimer === null) return;
+  try { if (typeof window !== "undefined" && typeof window.clearTimeout === "function") window.clearTimeout(skinYieldExitTimer); } catch { /* ignore */ }
+  skinYieldExitTimer = null;
+}
+
+/**
+ * 排定一次复位：必须**持续**不在台上才真的复位 —— 对方 refresh（withheld 翻转）会先把
+ * `html[data-dsh-skin]` 摘掉再补回，瞬时摘若直接复位，壁纸会被抢回来把皮肤顶掉。
+ * 宽限结束时再合一次数；对方那条让路信号只有 1500ms 上限，2.6s 的宽限天然晚于它。
+ */
+function scheduleSkinYieldExit(reason) {
+  if (skinYieldExitTimer !== null) return;
+  const fire = () => {
+    skinYieldExitTimer = null;
+    try {
+      if (document.documentElement.hasAttribute("data-dsh-skin")) return; // 又回来了
+      exitSkinYield(reason + "/cleared");
+    } catch { /* ignore */ }
+  };
+  try {
+    if (typeof window === "undefined" || typeof window.setTimeout !== "function") { fire(); return; }
+    skinYieldExitTimer = window.setTimeout(fire, SKIN_YIELD_EXIT_GRACE_MS);
+  } catch { fire(); }
+}
+
+/** 合议当前状态：皮肤"要求上台"且我方确实在台上 ⇒ 退场；持续不在台上则排定复位。 */
+function syncSkinYield(reason) {
+  try {
+    if (document.documentElement.hasAttribute("data-dsh-skin")) {
+      cancelSkinYieldExit();
+      // ⚠️ 只有**我方壁纸确实在台上**（标记在场）时，这次出现才算 #49 的显式动作。
+      // 启动竞态里对方运行时会先于我们的标记上妆——他们的首屏预判只管**交付文档**，管不到
+      // 运行时那次同步读（那时 `body[data-we-wallpaper]` 还没挂，因为我们的层是启动链解析完
+      // 才建的）。那不是"用户要求皮肤"：放行会把壁纸直接清掉（实测报障：有壁纸时刷新掉壁纸）。
+      // 正确的收场是：让我们的层建起来 → 标记挂上 → 对方 watcher 自行 withhold 撤掉皮肤。
+      // 不是立即退场：先排定一次"过一拍再确认"（见 scheduleSkinYieldEnter 的注释）。
+      scheduleSkinYieldEnter(reason);
+      return;
+    }
+    cancelSkinYieldEnter();
+    if (skinYielded) scheduleSkinYieldExit(reason);
+  } catch { /* 互操作是增强：任何异常都不波及壁纸主路径 */ }
+}
+
+/** 装上互操作（单腿：DOM 观察）；返回幂等 teardown。 */
+function installSkinInterop() {
+  if (typeof document === "undefined" || !document.documentElement) return () => {};
+  let observer = null;
+  try {
+    observer = new MutationObserver(() => syncSkinYield("dom"));
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-dsh-skin"] });
+  } catch { observer = null; }
+  // 启动期的「认领」：只认领现状，不当作动作（这里曾经调 syncSkinYield("install")，会把
+  // 对方的 tap 在文档里画的皮肤当成 #49 的"用户要求上台"）。认定条件：
+  //   · 皮肤在台上（文档交付时 tap 已画）+ 我方**没有**选中的壁纸 ⇒ 本来就该在让路态
+  //     （玻璃退场）——认领，不写盘、不清层；
+  //   · 皮肤在台上 + 我方有选中的壁纸 ⇒ 壁纸赢（对方的 withhold 会处理皮肤），不动。
+  // 旧写法在 install 里 enter 会清壁纸并落盘，随后启动期的设置合并又把它复活 ⇒「清 → 复活
+  // → 退」的抖动，并把用户的壁纸选择抹掉（实测：刷新时闪一下的放大器，已修）。
+  // ⚠️ 认领必须等**宿主设置到位**（`selection.loaded`）：本地缓存可能过期（本窗口缓存空、
+  //    宿主却有壁纸）——那时认领会留下"壁纸在画 + 我们却在让路态"的错位。
+  let adoptPending = true;
+  const adoptOnLoaded = () => {
+    if (!adoptPending || !selection.loaded) return;
+    adoptPending = false;
+    try {
+      if (document.documentElement.hasAttribute("data-dsh-skin") && !selection.id) {
+        skinYielded = true;
+        skinYieldMemory = { id: "", rotationEnabled: selection.rotationEnabled === true };
+        applyEffects(); // 认领即刻摘玻璃门控（首次 applyEffects 可能已经跑过）
+        reportClientDiag("skin-yield", "adopt · install/dom");
+      }
+    } catch { /* 互操作是增强：任何异常都不波及壁纸主路径 */ }
+  };
+  const unsubAdopt = subscribe(adoptOnLoaded);
+  adoptOnLoaded(); // remount / 已加载：立刻判一次
+  return () => {
+    try { if (observer) observer.disconnect(); } catch { /* ignore */ }
+    cancelSkinYieldExit();
+    cancelSkinYieldEnter();
+    try { unsubAdopt(); } catch { /* ignore */ }
+    skinYielded = false;
+    skinYieldMemory = null;
+  };
+}
+
 // ── 「终端字体」抢跑一次（**时机问题**，不是优化）────────────────────────────
 // dsh-ssh 的终端面板**只在构造终端的那一刻**读 `--dsh-ssh-terminal-font`，之后只有它自己的设置
 // 变化才重读（见 src/font/apply.js 里 `applyTerminalHostVar` 的注释）。而我们的权威值要等宿主把
@@ -5078,6 +5251,12 @@ function apply(ctx) {
   //     （可选服务 + 短轮询，缺服务安静跳过），命令在宿主快捷键编辑器里可改键。
   if (ctx.effect && typeof document !== "undefined") {
     ctx.effect(() => installWallSidebarShortcut(ctx) || undefined);
+  }
+
+  // 3b. 皮肤中心互操作（皮肤在台上 ⇒ 我方整族退场）：只读对方两条公开信号，
+  //     见文件顶部互操作块。随 fiber 注销（卸载即摘下观察器与轮询）。
+  if (ctx.effect && typeof document !== "undefined") {
+    ctx.effect(() => installSkinInterop() || undefined);
   }
 
   // 3. Chat-interface rope dock: the draggable pull-cord + glass repo side

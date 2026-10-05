@@ -325,7 +325,10 @@ function applyEffects(opts) {
   // 思考块液态玻璃：默认关，保持宿主黑底方便阅读。打开后 CSS 清掉思考条
   // 与推理面的实心底，切到会话同一套雾化。（原「窗口与侧栏」节随 §10.25 并进「玻璃 UI」，
   // 本门控仍在 applyEffects 就地写 —— 它不是玻璃量，不进 applyGlass 的取值管线。）
-  if (selection.thinkingGlass) document.body.setAttribute("data-we-thinking-glass", "on");
+  // 让路态（皮肤中心互操作，见 src/client.js）：玻璃整族退场 —— 这里与下面 sidebar-follow
+  // 是 applyGlass 之外仅剩的两处玻璃门控点，一并摘。
+  const skinYield = typeof skinYieldActive === "function" && skinYieldActive();
+  if (selection.thinkingGlass && !skinYield) document.body.setAttribute("data-we-thinking-glass", "on");
   else document.body.removeAttribute("data-we-thinking-glass");
   // 文字胶囊一族的雾化（行内代码 / 新会话 / 「加载更早历史」「回到底部」）：
   // #134 落地时是写死的 8px CSS 兜底（--we-inline-code-blur 无生产者 ⇒ 用户实测"调不了"），
@@ -357,7 +360,7 @@ function applyEffects(opts) {
     s.setProperty("--we-sidebar-sheen", "1");
   }
   // 跟随态另挂一个属性：样式表用它决定"侧栏的釉"取共享那一份还是侧栏专用那一份。
-  if (selection.sidebarGlass && selection.sidebarFollowGlobal) document.body.setAttribute("data-we-sidebar-follow", "on");
+  if (selection.sidebarGlass && selection.sidebarFollowGlobal && !skinYield) document.body.setAttribute("data-we-sidebar-follow", "on");
   else document.body.removeAttribute("data-we-sidebar-follow");
 
   // 适配目标钩子（src/adapter.js）：把最终目标挂到 <body>，外壳材质类选择器

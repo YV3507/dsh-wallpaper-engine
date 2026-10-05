@@ -31,6 +31,15 @@ const toRgbTriple = (hex) => {
 
 /** 每次 applyEffects 调用一次：把每个玻璃面的值算出来并写出，再挂/摘门控属性。 */
 function applyGlass(selection, s) {
+  // ── 「皮肤在台上」的让路态：整族门控摘掉、本函数一概不挂（互操作块见 src/client.js）──
+  // 与旧「要不要玻璃 = 关」同语义 —— 那层开关退役后，这里是唯一会整族摘门控的路径。
+  if (typeof skinYieldActive === "function" && skinYieldActive()) {
+    for (const attr of ["data-we-glass-page", "data-we-glass-chat", "data-we-glass-window",
+      "data-we-left-sidebar", "data-we-sidebar-glass", "data-we-sidebar-fullclear", "data-we-glass-floaters"]) {
+      document.body.removeAttribute(attr);
+    }
+    return;
+  }
   // ── 页面玻璃总锚点：**恒挂**（插件在跑 = 玻璃在算值 ⇒ 配方该生效）───────────────
   // styles.js 里全部"整页接管"的玻璃规则（表面令牌映射 / 对话栏 / 轨迹 / 左栏 /
   // 右栏面板 / 两档回退）都挂在这个属性下 —— 它与 `data-we-wallpaper`（壁纸层在场、

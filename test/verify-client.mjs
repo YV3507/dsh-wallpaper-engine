@@ -3341,5 +3341,120 @@ setTimeout(async () => {
     'negative control: `0, 60` 判出；`...schemaRange(...)` 与具名常量不判出');
 }
 
+// ── 皮肤中心互操作：皮肤在台上 ⇒ 我方整族退场（壁纸 + 玻璃门控）────────────────
+// 判据四件：① 单腿信号（DOM 观察；轮询腿与对方路由依赖随 dsh-skins#49 契约落定整体删除）；
+// ② 只读对方（绝不写它的标记）；③ 退场在玻璃三层门控点都生效、复位带滞回、手动重选立刻退；
+// ④ 复位按记忆且不抢用户新选择。
+{
+  const clientSrc = readFileSync(new URL('../src/client.js', import.meta.url), 'utf8');
+  const glassSrc = readFileSync(new URL('../src/glass.js', import.meta.url), 'utf8');
+  const effectsSrc = readFileSync(new URL('../src/effects.js', import.meta.url), 'utf8');
+  const mediaSrc = readFileSync(new URL('../src/media-prep.js', import.meta.url), 'utf8');
+  // ① 单腿：只观察对方的公开标记。轮询（GET /api/skin-center/v2/active）在对方的显式动作
+  //    契约（dsh-skins#49：试穿/应用/重复应用都写 html[data-dsh-skin]）落地后不该再回来。
+  //    ⚠️ 判据只看**代码**（剥注释）：文件头注释里会写这条路由的历史，字面量匹配会误伤。
+  const clientCode = stripComments(clientSrc);
+  assert.ok(/attributeFilter: \["data-dsh-skin"\]/.test(clientSrc),
+    '互操作：DOM 那条腿必须只观察对方的 data-dsh-skin');
+  assert.ok(!clientCode.includes('skin-center/v2/active') && !clientCode.includes('SKIN_ACTIVE_URL'),
+    '互操作：轮询腿与对方路由的依赖必须已删除（信号契约落地后不再需要）');
+  assert.ok(clientSrc.includes('ctx.effect(() => installSkinInterop()'),
+    '互操作：观察器必须随 fiber 挂载（卸载即摘）');
+  // 装入瞬间只认领现状、不当作动作：启动期 enter→清壁纸→设置合并复活→exit 的抖动会把用户的
+  // 壁纸选择抹掉（实测刷新闪烁的放大器）。判据钉死"认领"分支且 install 里不再有 enter。
+  assert.ok(/skinYielded = true;\s*\n\s*skinYieldMemory = \{ id: "", rotationEnabled/.test(clientSrc)
+    && /reportClientDiag\("skin-yield", "adopt · install\/dom"\)/.test(clientSrc),
+    '互操作：install 腿必须只"认领"（id 为空且皮肤在台上），不新建退场');
+  const installBody = clientSrc.slice(clientSrc.indexOf('function installSkinInterop()'), clientSrc.indexOf('function installSkinInterop()') + 2200);
+  assert.ok(!/enterSkinYield\(/.test(installBody) && /adopt · install\/dom/.test(installBody),
+    '互操作：install 路径不许再调 enterSkinYield（启动不是用户动作）');
+  // ①a 启动竞态判据：皮肤标记的出现**只有在我方壁纸确实在台上时**才算 #49 的显式动作。
+  // （对方的运行时会在我们的标记之前先按持久化选择上妆；把它当动作 ⇒ 有壁纸时刷新掉壁纸。）
+  assert.ok(/function scheduleSkinYieldEnter\(/.test(clientSrc)
+    && /if \(!document\.documentElement\.hasAttribute\("data-dsh-skin"\)\) return;/.test(clientSrc)
+    && /if \(!\(document\.body && document\.body\.hasAttribute\("data-we-wallpaper"\)\)\) return;/.test(clientSrc)
+    && /enterSkinYield\(reason \+ "\/dom"\)/.test(clientSrc)
+    && /SKIN_YIELD_ENTER_GRACE_MS = \d+/.test(clientSrc),
+    '互操作：退场要"过一拍仍在台上 + 我方确实在台上"才执行（对方的启动上妆是瞬时翻转，不许清壁纸）');
+  // ①b 跨插件读契约（dsh-skins 的首屏预判，issue #51）：对方在出文档之前同步读
+  //     `<DSH_WE_DATA_DIR || ~/.dsh-wallpaper-engine>/config.json` 的 `settings.id`
+  //     （非空 ⇒ 首帧不画皮肤）。路径 / 环境变量名 / 键名是**双边契约**，单方面改动会把
+  //     首帧预判打回"皮肤先闪一下"。
+  const hostSrc = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8');
+  assert.ok(hostSrc.includes('process.env.DSH_WE_DATA_DIR')
+    && hostSrc.includes("join(pluginDataDir(), 'config.json')"),
+    '首屏预判契约：数据目录环境变量名与 config.json 路径不能被单方面改名');
+  const schemaMod = await import(new URL('../lib/settings-schema.js', import.meta.url).href);
+  assert.ok(schemaMod.serializeSettings({ id: 'x' }).id === 'x',
+    '首屏预判契约：settings.id 必须始终被序列化进持久化文件');
+  assert.ok(schemaMod.serializeSettings({}).id === '',
+    '首屏预判契约：没有选择时 settings.id 必须是空串（对方按"非空"判定壁纸在台）');
+  // ② 只读纪律：绝不写对方的任何标记（一旦写了就会与对方的切换引擎打架）。
+  assert.ok(!/setAttribute\(\s*["']data-dsh-skin["']/.test(clientSrc)
+    && !/delete\s+document\.body\.dataset\.dshSkinCenter/.test(clientSrc),
+    '互操作只读：不许写对方的 data-dsh-skin / data-dsh-skin-center');
+  // ③ 退场在三处门控点都生效：glass 的整族摘除、effects 的两处（思考玻璃 / 侧栏跟随）。
+  assert.ok(glassSrc.includes('data-we-sidebar-fullclear') && glassSrc.includes('skinYieldActive()'),
+    '退场：glass 整族门控要有摘除路径');
+  const yieldIdx = glassSrc.indexOf('skinYieldActive()');
+  const pageGateIdx = glassSrc.indexOf('setAttribute("data-we-glass-page"');
+  assert.ok(yieldIdx >= 0 && pageGateIdx > yieldIdx, '退场必须先于本函数挂任何玻璃面');
+  assert.ok(/selection\.thinkingGlass && !skinYield/.test(effectsSrc), '退场：思考玻璃门控点要带让路守卫');
+  assert.ok(/selection\.sidebarGlass && selection\.sidebarFollowGlobal && !skinYield/.test(effectsSrc),
+    '退场：侧栏跟随门控点要带让路守卫');
+  // ③b 复位滞回：对方 refresh 会先摘标记再补回，瞬时摘不许直接复位（现场踩过 0.7s 抢回壁纸）。
+  assert.ok(/function scheduleSkinYieldExit\(/.test(clientSrc)
+    && /cancelSkinYieldExit\(\)/.test(clientSrc)
+    && /SKIN_YIELD_EXIT_GRACE_MS = \d+/.test(clientSrc)
+    && /if \(skinYielded\) scheduleSkinYieldExit\(reason\)/.test(clientSrc),
+    '复位要有滞回（schedule/cancel + 宽限常量），瞬时摘标记不许直接复位');
+  // ③c 手动重选壁纸 = 最新显式动作 ⇒ 立刻退让路，且不拿记忆里的旧 id 覆盖用户的新选择。
+  assert.ok(/opts\.fromManual\s*&&\s*typeof skinYieldActive === "function" && skinYieldActive\(\)/.test(mediaSrc)
+    && /exitSkinYield\("manual-pick", \{ skipRestore: true \}\)/.test(mediaSrc),
+    '让路态里的手动重选要立刻退出让路（只认 fromManual）');
+  assert.ok(/function exitSkinYield\(reason, opts\)/.test(clientSrc)
+    && /if \(!skipRestore && !selection\.id && mem\.id\) applySelection\(mem\.id\)/.test(clientSrc),
+    '手动重选退出时不许用记忆里的旧 id 覆盖用户的新选择');
+  // ④ 复位：按记忆放回（在 exitSkinYield 里）；轮播必须一起按停；诊断行留痕。
+  assert.ok(/if \(!skinYielded\) return;/.test(clientSrc)
+    && clientSrc.includes('if (selection.rotationEnabled) setSetting("rotationEnabled", false)'),
+    '退场：必须先按停轮播，否则空 id 会被 rotation 自动补位');
+  assert.ok(clientSrc.includes('reportClientDiag("skin-yield"'),
+    '退场 / 复位要留诊断行（skin-yield），否则现场无法回放是谁触发的');
+  // 负对照（喂**同一个**判据）：三处退化都必须判出；轮询腿被加回来也必须判出。
+  const stripped = effectsSrc.replace(/&& !skinYield/g, '');
+  assert.ok(!/selection\.thinkingGlass && !skinYield/.test(stripped)
+    && !/selection\.sidebarGlass && selection\.sidebarFollowGlobal && !skinYield/.test(stripped),
+    'negative control: 摘掉让路守卫即判红');
+  const noHyst = clientSrc.replace('if (skinYielded) scheduleSkinYieldExit(reason);', 'if (skinYielded) exitSkinYield(reason + "/cleared");');
+  assert.ok(!/if \(skinYielded\) scheduleSkinYieldExit\(reason\)/.test(noHyst),
+    'negative control: 复位退回"立即 exit"即判红');
+  const med = mediaSrc.replace('opts.fromManual', 'true');
+  assert.ok(!/opts\.fromManual\s*&&\s*typeof skinYieldActive/.test(med),
+    'negative control: 手动重选钩子改吃所有调用即判红');
+  const noAdopt = clientSrc.replace(
+    /skinYielded = true;\s*\n\s*skinYieldMemory = \{ id: "", rotationEnabled: selection\.rotationEnabled === true \};/,
+    'enterSkinYield("install/dom");');
+  assert.ok(!/skinYielded = true;\s*\n\s*skinYieldMemory = \{ id: "", rotationEnabled/.test(noAdopt),
+    'negative control: 认领分支退回 enter 即判红');
+  const noStageGate = clientSrc.replace('if (!(document.body && document.body.hasAttribute("data-we-wallpaper"))) return; // 我方已不在台上',
+    '/* 去掉在台前提 */');
+  assert.ok(!/if \(!\(document\.body && document\.body\.hasAttribute\("data-we-wallpaper"\)\)\) return;/.test(noStageGate),
+    'negative control: 去掉"我方在台上"这个前提即判红');
+  const noEnterHyst = clientSrc.replace('if (!document.documentElement.hasAttribute("data-dsh-skin")) return; // 瞬时翻转：已自纠',
+    '/* 去掉瞬时翻转前提 */');
+  assert.ok(!/if \(!document\.documentElement\.hasAttribute\("data-dsh-skin"\)\) return;/.test(noEnterHyst),
+    'negative control: 去掉"过一拍仍在台上"这个前提即判红');
+  const wrongPath = hostSrc.replace("join(pluginDataDir(), 'config.json')", "join(pluginDataDir(), 'config2.json')");
+  assert.ok(!wrongPath.includes("join(pluginDataDir(), 'config.json')"),
+    'negative control: 配置文件路径被改名即判红');
+  assert.ok(schemaMod.serializeSettings({ id: '' }).id === '',
+    'negative control: 空 id 不会被伪造成非空（对方据此判"壁纸在台"）');
+  const revived = clientCode.replace('const SKIN_YIELD_EXIT_GRACE_MS',
+    'const SKIN_ACTIVE_URL = "/api/skin-center/v2/active";\nconst SKIN_YIELD_EXIT_GRACE_MS');
+  assert.ok(revived.includes('skin-center/v2/active'),
+    'negative control: 判据能发现轮询腿被加回来（喂同一份剥注释源码）');
+}
+
 console.log('\nALL CLIENT CHECKS DONE');
 }, 50);

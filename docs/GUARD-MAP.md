@@ -25,7 +25,7 @@
 | `verify-api-client.mjs` | `src/api-client.js` `src/client.js` `src/effects.js` `src/font/apply.js` `src/font/color-roles.js` `src/font/typography.js` `src/layer-core.js` `src/live-layer.js` `src/media-prep.js` `src/panel-tabs.js` `src/persistence.js` `src/styles.js` `src/video-layer.js` `src/we-cond.js` | ✅ |
 | `verify-body-caps.mjs` | `lib/http-body.js` `lib/routes/upload.js` | ✅ |
 | `verify-client-sync.mjs` | — | ✅ |
-| `verify-client.mjs` | `lib/index.js` `lib/settings-schema.js` `src/client.js` `src/effects.js` `src/font/apply.js` `src/fontset-store.js` `src/live-layer.js` `src/media-prep.js` `src/panel-tabs.js` `src/persistence.js` `src/picker-modal.js` `src/picker-props-panel.js` `src/preset-store.js` `src/system-fonts.js` `src/video-layer.js` `src/we-cond.js` | ✅ |
+| `verify-client.mjs` | `lib/index.js` `lib/settings-schema.js` `src/client.js` `src/effects.js` `src/font/apply.js` `src/fontset-store.js` `src/glass.js` `src/live-layer.js` `src/media-prep.js` `src/panel-tabs.js` `src/persistence.js` `src/picker-modal.js` `src/picker-props-panel.js` `src/preset-store.js` `src/system-fonts.js` `src/video-layer.js` `src/we-cond.js` | ✅ |
 | `verify-component-fonts.mjs` | `lib/settings-schema.js` `src/client.js` `src/effects.js` `src/font/apply.js` `src/font/components.js` | ✅ |
 | `verify-contracts.mjs` | `lib/index.js` `lib/media/index.js` `lib/media/legacy.js` `lib/media/supervisor.js` `lib/routes/avatar.js` `lib/routes/fontsets.js` `lib/routes/mascot.js` `lib/settings-schema.js` `src/api-client.js` `src/client.js` `src/fontset-editor.js` `src/fontset-store.js` `src/panel-tabs.js` |  |
 | `verify-dead-declarations.mjs` | — |  |
@@ -108,7 +108,7 @@
 | `src/fontset-store.js` | 3 | `verify-client` `verify-contracts` `verify-fontset` |
 | `src/fx-layer.js` | 1 | `verify-scene-live` |
 | `src/glass-panel.js` | 4 | `verify-fontset` `verify-glass-surfaces` `verify-presets` `verify-scene-live` |
-| `src/glass.js` | 1 | `verify-glass-surfaces` |
+| `src/glass.js` | 2 | `verify-client` `verify-glass-surfaces` |
 | `src/i18n-copy.js` | 2 | `verify-about` `verify-i18n` |
 | `src/i18n.js` | 1 | `verify-i18n` |
 | `src/layer-core.js` | 2 | `verify-api-client` `verify-scene-live` |
