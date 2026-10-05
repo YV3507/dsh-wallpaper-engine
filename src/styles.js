@@ -2648,12 +2648,16 @@ body[data-we-glass-floaters] .we-repo-panel__body {
   .we-qp__group { flex: 1; min-width: 0; }
   .we-qp__search { width: 100%; box-sizing: border-box; }
   .we-qp__list { display: flex; flex-direction: column; gap: 2px; }
-  /* 视图切换：搜索 + 类型筛选 + 列表/卡片，**一行排下、最小宽度也不折行**（用户口径）。
-     搜索框 flex-basis 必须钉 0 而不是 auto：换行决策看的是假想主尺寸，auto 基 = 输入框
-     固有宽（~180px），正是它把行撑爆、把后面的控件挤去第二行；基 0 + min-width 0 之后
-     搜索框收缩到"剩余全给"，最窄面板（官方右栏 300 - padding = 276）也稳稳一行。 */
-  .we-qp__viewbar { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
-  .we-qp__viewbar .we-qp__search { flex: 1 1 0; min-width: 0; width: auto; }
+  /* 视图切换：搜索 + 分级筛选 + 类型筛选 + 列表/卡片，**确定性两行**。旧口径「一行
+     排下、最窄不折行」是三控件时代定的（2026-10-04）—— 最窄官方右栏 276px 里第四个
+     控件在结构上放不下（分级最短也要 ~70px，搜索框会被挤到不可用）；而依赖 flex-wrap
+     假想尺寸的折行在中间宽度会碎出"只有页签折下去"的行。故搜索框独占首行（**封顶
+     300px**：用户口径，太长的搜索框没用还占地方；basis 钉 100% 强制换行、行几何处处
+     一致），分级/类型/视图三个控件右对齐成第二行（分级 select 的 margin-left:auto
+     恰是第二行首项，把整组推到右侧）。 */
+  .we-qp__viewbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .we-qp__viewbar .we-qp__search { flex: 1 1 100%; min-width: 0; max-width: 300px; width: auto; }
+  .we-qp__viewbar .we-qp__rating { flex: none; max-width: 110px; margin-left: auto; }
   .we-qp__viewbar .we-qp__type { flex: none; max-width: 84px; }
   /* 列表 / 卡片：标签式切换 —— 复用 .we-tabs 的滑动胶囊做激活指示，但去掉分段底与
      描边（用户口径：不要默认背景）；页签收成内容宽（两枚都是两字，等宽成立，

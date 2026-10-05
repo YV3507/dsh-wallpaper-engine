@@ -144,6 +144,26 @@
     const hit = qpTypes().find((t) => t.id === id);
     return hit ? hit.label : String(id || "");
   }
+  // 面板的内容分级筛选档（**紧凑纯文字**，与类型档同一风格；值域与设置页
+  // contentRatingFilter 是同一套 id）。**与设置页同一个键** —— 分级闸门本就长在
+  // playableInventory 上（两级过滤的第一级），这里此前只是缺控件：设置页切了档，
+  // 面板列表会跟着缩、却没有任何地方能解释或改回来。
+  function qpRatings() {
+    return [
+      { id: "all", label: weT("全部") },
+      { id: "everyone", label: weT("全年龄") },
+      // PG13 是纯 ASCII：i18n 的调用点扫描器只认含 CJK 的字符串字面量，包 weT 会让
+      // 词表键变成"看不见调用点"的孤儿 —— 本就无需翻译，裸字面量是正解。
+      { id: "pg13", label: "PG13" },
+      { id: "mature", label: weT("成人") },
+      { id: "unrated", label: weT("未分级") },
+    ];
+  }
+  /** 分级档 id → 面板文案（空态提示用；值域与设置页的 contentRatingFilter 同一套 id）。 */
+  function qpRatingLabelOf(id) {
+    const hit = qpRatings().find((r) => r.id === id);
+    return hit ? hit.label : String(id || "");
+  }
   // ── 三档页签（壁纸 / 外观 / 播放）──────────────────────────────────────────
   // 位置在「轮播」之下：当前壁纸与轮播在三档页签下都显示（调外观 / 播放参数时想换一张
   // 对照很常见）。与设置页的页签表（PICKER_TABS）是两件事 —— 这里只镜像用户点名要的
@@ -278,6 +298,10 @@
     // 设置页切档这边立刻跟着变，反之亦然。
     const q = String(sel.qpSearch || "").trim().toLowerCase();
     const typeFilter = qpTypes().some((t) => t.id === sel.typeFilter) ? sel.typeFilter : "all";
+    // 分级档与 typeFilter 同一套钳制（旧档/坏值回落「全部」）；闸门在 playableInventory
+    // 里已经生效，这里钳出来的值只喂空态文案与下拉的受控 value。
+    const ratingFilter = qpRatings().some((r) => r.id === sel.contentRatingFilter)
+      ? sel.contentRatingFilter : "all";
     const playable = playableInventory();
     const filtered = playable.filter((w) => {
       if (typeFilter !== "all" && w.type !== typeFilter) return false;
@@ -559,6 +583,19 @@
                       "aria-label": weT("搜索壁纸标题"),
                       onInput: (e) => { setTransient("qpSearch", e.target.value); emit(); },
                     }),
+                    // 内容分级筛选：与设置页**同一个键**（contentRatingFilter，typeFilter
+                    // 同款治理）—— 这里改，设置页列表与轮播候选同步生效；设置页改，
+                    // 这边同步显示。分级是**内容闸门**（拦播放，不只筛列表），改档立刻
+                    // 决定哪些壁纸能点。
+                    React.createElement("select", {
+                      className: "we-picker__select we-qp__rating",
+                      value: ratingFilter,
+                      onChange: (e) => { setSetting("contentRatingFilter", e.target.value); emit(); },
+                      "aria-label": weT("内容分级"),
+                      title: weT("对应 Wallpaper Engine 的内容分级（project.json contentrating）"),
+                    },
+                    ...qpRatings().map((r) => React.createElement("option", { key: r.id, value: r.id }, r.label)),
+                    ),
                     // 类型筛选：与设置页「类型」**同一个键**（typeFilter，2026-10-04 起
                     // 不再单独存 qpType）—— 这里改，设置页列表与轮播候选同步生效；
                     // 设置页改，这边同步显示。两处都只筛「列表」，不拦正在应用的壁纸。
@@ -614,8 +651,9 @@
                       : React.createElement(React.Fragment, null,
                           React.createElement("span", { className: "we-picker__hint" },
                             q ? weT("没有匹配「{query}」的壁纸", { query: sel.qpSearch })
-                                : weT(typeFilter !== "all" ? "「{name}」类型下没有可播放的壁纸" : "没有可播放的壁纸",
-                                    { name: qpTypeLabelOf(typeFilter) })),
+                                : weT(ratingFilter !== "all" ? "「{name}」分级下没有可播放的壁纸"
+                                    : typeFilter !== "all" ? "「{name}」类型下没有可播放的壁纸" : "没有可播放的壁纸",
+                                    { name: qpRatingLabelOf(ratingFilter) })),
                         ),
                   ),
                 ),
