@@ -11,7 +11,7 @@
  *   ① **每档都算出值并写出**（`applyGlass` 里没有任何 `removeProperty`）——"不写"永远不等于
  *      "撤销"：CSS 的 `var(--x, 兜底)` 只在 `--x` **未定义**时取兜底，而写到 body 上的变量
  *      一直是"已定义"的（§4.26 的病根）。
- *   ② **门控属性恒挂**（`data-we-glass-window/-chat/-floaters` 三者在 §10.20 之后不再可关；`data-we-left-sidebar`、
+ *   ② **门控属性恒挂**（`data-we-glass-page` / `-chat` / `-window` / `-floaters` 在 §10.20 之后不再可关；`data-we-left-sidebar`、
  *      `data-we-sidebar-glass`），与"用谁的值"**正交**：关掉只是让那组规则整组不匹配。
  *   ③ **读谁只在这里决定**：`glassValue(面, 参数, 自己的键, 全局的键)`；UI 只翻开关，不动接线。
  *
@@ -31,6 +31,14 @@ const toRgbTriple = (hex) => {
 
 /** 每次 applyEffects 调用一次：把每个玻璃面的值算出来并写出，再挂/摘门控属性。 */
 function applyGlass(selection, s) {
+  // ── 页面玻璃总锚点：**恒挂**（插件在跑 = 玻璃在算值 ⇒ 配方该生效）───────────────
+  // styles.js 里全部"整页接管"的玻璃规则（表面令牌映射 / 对话栏 / 轨迹 / 左栏 /
+  // 右栏面板 / 两档回退）都挂在这个属性下 —— 它与 `data-we-wallpaper`（壁纸层在场、
+  // 页面让开）**正交**：壁纸只是玻璃的背景来源之一，不是玻璃的前提。
+  // 旧口径把这一族规则挂在壁纸门上 ⇒ 不设壁纸时玻璃参数全是死旋钮（用户报障：
+  // 「页面玻璃效果只有设置壁纸后才生效」）。卸载路径在 effects.js 的 clearEffects
+  // 成对撤除（与 -chat / -window / -floaters 同批）。
+  document.body.setAttribute("data-we-glass-page", "on");
   // ── 玻璃面 × 参数的取值解析（R3b-ii 起：**两态**，由 `glassMode` 说读谁）────────────
   //
   // 模型：每个玻璃面的每个参数只有**一个**取值来源 ——

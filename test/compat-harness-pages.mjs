@@ -20,14 +20,16 @@
  *      不新增指向本插件的运行期错误；
  *   ⑤ 右栏 panel：由 harness 内部状态门控（会话态下占据者仍可能不渲染），**在场才判**
  *      （展开 → open 属性 → 开态玻璃），缺席只记信息不判红 —— 包级/页面级两条线已覆盖它。
- *   ⑥ 表面令牌探针（#80 / #71）：compat 跑在空数据目录上（没有已选壁纸）⇒ 探针在**同一次
- *      求值**里临时盖上插件自己的玻璃锚点 body[data-we-wallpaper]，读 `--dsw-alias-bg-layer-1/2/3`
- *      与 `--dsw-alias-button-elevated-fill` 在锚点两侧的**计算样式**（再在 finally 里摘掉），
+ *   ⑥ 表面令牌探针（#80 / #71）：compat 跑在空数据目录上（没有已选壁纸），而页面玻璃锚点
+ *      body[data-we-glass-page] 由插件恒挂（玻璃与有没有壁纸无关）⇒ 探针先读**锚点在场**的
+ *      计算样式，再在**同一次求值**里临时摘掉锚点读对照侧（= 宿主原生实色），finally 里装回去；
+ *      读 `--dsw-alias-bg-layer-1/2/3`
+ *      与 `--dsw-alias-button-elevated-fill` 这两侧的**计算样式**，
  *      并读侧栏「新建会话」按钮的实际 background-color。判据 = 「锚点在 ⇒ harness 的面拿到玻璃」；
  *      日志、以及按新裁定接管的 markdown 代码块底各一条。回退档（软件光栅器）按模式取相反的期望值
  *      （令牌被钉回不透明面板色）。**同一段探针**还覆盖「左侧栏液态玻璃」（leftSidebarGlass，
  *      默认关）：左侧栏那一列的锚点是座位出口 [data-slot="sidebar"] 的父元素（哈希类名不可用），
- *      取「裸页面 / 只盖壁纸锚点 / 再加开关 / 摘掉开关」四态的计算样式 —— 锚点改名或结构
+ *      取「只有页面玻璃锚点 / 再加开关 / 摘掉开关」三态的计算样式 —— 锚点改名或结构
  *      变了 ⇒ 第一条就红；默认档与开关档必须一个不吃玻璃、一个拿到玻璃配方，摘掉开关
  *      逐字段还原。
  *
@@ -592,11 +594,11 @@ async function main() {
 
     // ── 表面令牌探针（#80 / #71）─────────────────────────────────────────────
     // 本脚本跑在**隔离的空数据目录**上 ⇒ 没有已选壁纸、body 上没有 data-we-wallpaper，
-    // 直接读只会拿到 harness 原生实色，判不出"美化是否生效"。所以探针在**同一次求值**里
-    // 临时盖上插件自己的玻璃锚点（真实壁纸激活时插件写的就是这个属性），读锚点两侧的
-    // **计算样式**、在 finally 里摘掉 —— 判据挂在「锚点在 ⇒ harness 的面拿到玻璃」这个
-    // 语义上，不挂任何选择器/实现细节：把 body[data-we-wallpaper] 上的令牌映射去掉，
-    // after 侧就退回原生实色 ⇒ 本条变红。
+    // 但**页面玻璃锚点 data-we-glass-page 是插件挂的、恒在**（玻璃与有没有壁纸无关）。
+    // 所以探针反过来取对照侧：先读**锚点在场**的计算样式（= 玻璃配方），再在**同一次求值**里
+    // 临时摘掉这个锚点、读第二侧（= 宿主原生实色），finally 里装回去 —— 判据挂在
+    // 「锚点在 ⇒ harness 的面拿到玻璃」这个语义上，不挂任何选择器/实现细节：把
+    // body[data-we-glass-page] 上的令牌映射去掉，after 侧就退回原生实色 ⇒ 本条变红。
     // 玻璃配方以 color-mix(...) 认族：harness 原生值是静态调色板的实色（解析成 #hex/rgb）。
     // 回退档（软件光栅器）下期望**相反**且有意义的另一件事：这些令牌被钉回不透明面板色
     // （半透明 + 无霜等于文字压在壁纸上）—— 与设置窗口那三条按模式取期望值同口径。
@@ -625,8 +627,8 @@ async function main() {
       const before = snap();
       // 左侧栏液态玻璃（leftSidebarGlass）：那一列的锚点是座位出口 [data-slot="sidebar"]
       // 的**父元素**（CSS 模块哈希类名不可用；出口自己 display:contents 不生成盒子）。
-      // 四个状态各取一次：裸页面 / 只盖壁纸锚点（默认关 = 不吃玻璃）/ 两个属性都盖
-      // （我们的配方）/ 再摘掉开关（必须回到"只盖壁纸锚点"那一档 ⇒ 默认关不改动）。
+      // 四个状态各取一次：锚点在场但开关关（默认档 = 不吃玻璃）/ 两个属性都在
+      // （我们的配方）/ 再摘掉开关（必须回到"只盖锚点"那一档 ⇒ 默认关不改动）。
       const colSnap = () => {
         const cols = [...document.querySelectorAll('div:has(> [data-slot="sidebar"])')];
         const col = cols[0] || null;
@@ -641,19 +643,21 @@ async function main() {
         };
       };
       const colBare = colSnap();
-      let after = null;
-      let colWall = null;
+      let before = null;
+      const after = snap();
+      const colWall = colSnap();
       let colOn = null;
       let colOff = null;
-      document.body.setAttribute('data-we-wallpaper', '');
       try {
-        after = snap();
-        colWall = colSnap();
-        document.body.setAttribute('data-we-left-sidebar', 'on');
-        colOn = colSnap();
-        document.body.removeAttribute('data-we-left-sidebar');
-        colOff = colSnap();
-      } finally { document.body.removeAttribute('data-we-wallpaper'); }
+        // 「没有锚点」那一侧对照：**临时摘掉**插件自己挂的页面玻璃锚点（真机上它恒在，
+        // 所以这一侧只在这个探针里存在）；finally 里装回去，后续状态不被污染。
+        document.body.removeAttribute('data-we-glass-page');
+        before = snap();
+      } finally { document.body.setAttribute('data-we-glass-page', 'on'); }
+      document.body.setAttribute('data-we-left-sidebar', 'on');
+      colOn = colSnap();
+      document.body.removeAttribute('data-we-left-sidebar');
+      colOff = colSnap();
       return { before, after, colBare, colWall, colOn, colOff };
     })()`);
 
@@ -699,8 +703,8 @@ async function main() {
 
     // ── 左侧栏液态玻璃（leftSidebarGlass，默认关）───────────────────────────────
     // 三件事：① 锚点（座位出口 [data-slot="sidebar"] 的父元素 = 左栏那一列）在真 harness
-    // 上唯一命中；② 默认档（只盖壁纸锚点）那一列**不吃**玻璃，开关打开才拿到我们的配方
-    // （正常档 = 玻璃色 + 雾化；回退档 = 近不透明 + 显式 none）；③ 摘掉开关即还原
+    // 上唯一命中；② 默认档（只有页面玻璃锚点、开关关）那一列**不吃**玻璃，开关打开才拿到
+    // 我们的配方（正常档 = 玻璃色 + 雾化；回退档 = 近不透明 + 显式 none）；③ 摘掉开关即还原
     // —— 后两条合起来保证「默认关 = 与今天逐字节相同」。
     const col = (sp && sp.colOn) || null;
     const colWall = (sp && sp.colWall) || null;
@@ -717,14 +721,14 @@ async function main() {
       const onIsGlass = glassFb
         ? (String(col.backdrop).trim() === 'none' && onAlpha !== null && onAlpha >= 0.9)
         : (/blur\(/.test(String(col.backdrop)) && onAlpha !== null && onAlpha > 0 && onAlpha < 1);
-      check('左侧栏液态玻璃·关 = 那一列只透出壁纸（不吃玻璃）；开 = 拿到玻璃配方（回退档 = 近不透明 + 显式 none）',
+      check('左侧栏液态玻璃·关 = 那一列不吃玻璃；开 = 拿到玻璃配方（回退档 = 近不透明 + 显式 none）',
         !wallIsGlass && onIsGlass,
         'fallback=' + (glassFb ? 1 : 0)
           + ' · 关=' + String(colWall.bg).slice(0, 40) + '/α' + wallAlpha + '/' + String(colWall.backdrop).slice(0, 24)
           + ' · 开=' + String(col.bg).slice(0, 40) + '/α' + onAlpha + '/' + String(col.backdrop).slice(0, 24));
       check('左侧栏液态玻璃·摘掉开关即还原（打开档与默认档逐字段相同）',
         JSON.stringify(sp.colOff) === JSON.stringify(colWall),
-        '壁纸档=' + JSON.stringify(colWall) + ' 摘开关后=' + JSON.stringify(sp.colOff));
+        '默认档=' + JSON.stringify(colWall) + ' 摘开关后=' + JSON.stringify(sp.colOff));
     }
 
     check('设置页打开且锚点在场（:has([data-slot="settings.section"]) 选得到 dialog）',

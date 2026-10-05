@@ -554,7 +554,7 @@ function main() {
     blurDeclaredOn('background-color: red; backdrop-filter: blur(4px);') === true
       && blurDeclaredOn('background-color: red; /* backdrop-filter: blur(4px); */') === false);
   check('S2c2 软件光栅器回退把 ::before 的模糊也显式关掉（不留不会生效的声明）',
-    rules.some((r) => r.header.includes('[data-we-glass-fallback][data-we-wallpaper][data-we-left-sidebar]')
+    rules.some((r) => r.header.includes('[data-we-glass-fallback][data-we-glass-page][data-we-left-sidebar]')
       && r.header.includes('::before')
       && /backdrop-filter:\s*none\s*!important/.test(r.body)));
 
@@ -606,21 +606,36 @@ function main() {
   // 全表面玻璃的映射分「浅色块 + 深色块」两处声明（深色要更高特异性才能压过宿主
   // body[data-ds-dark-theme] 的后置同权重规则），两边各漏一条 = 某个主题下该面
   // **悄悄回到宿主实色** —— 第二批收编代码块家族时正是漏了深色档（深色模式下
-  // 代码块整块黑底，现场截图复现）。判据对所有壁纸块（含 left-sidebar 变体）的
-  // 浅/深两侧各求并集再比集合，不依赖块与块的书写配对。
+  // 代码块整块黑底，现场截图复现）。判据对**页面玻璃块**（data-we-glass-page，含
+  // left-sidebar 变体）的浅/深两侧各求并集再比集合，不依赖块与块的书写配对。
+  // ⚠️ 扫描面钉在 data-we-glass-page 上：它才是"整页玻璃接管"的锚点（data-we-wallpaper
+  //    只管"页面让开、露出壁纸层"，那两块里已经没有 alias 映射了 —— 扫错属性会让本条
+  //    静默退化成空集对空集，所以下面另配**覆盖面地板**）。
   const aliasTokens = (wantDark) => {
     const set = new Set();
     let from = 0;
     for (;;) {
-      const at = CSS.indexOf('data-we-wallpaper', from);
+      const at = CSS.indexOf('data-we-glass-page', from);
       if (at < 0) break;
       from = at + 1;
       const open = CSS.indexOf('{', at);
       if (open < 0) break;
-      const headerFrom = Math.max(CSS.lastIndexOf('}', open), CSS.lastIndexOf('{', open)) + 1;
+      // ⚠️ 取"这条规则的块头" = 上一个 { 或 } 之后到本 { 之前。**必须从 open - 1 往左找**：
+      //    lastIndexOf('{', open) 会先命中 open 自己 ⇒ 块头恒为空串 ⇒ 判据静默空转
+      //    （这条断言此前就是这样"绿"的；新增的覆盖面地板把它抓了出来）。
+      const headerFrom = Math.max(CSS.lastIndexOf('}', open - 1), CSS.lastIndexOf('{', open - 1)) + 1;
       const header = CSS.slice(headerFrom, open);
-      if (!header.includes('data-we-wallpaper')) continue; // 归属上一条规则的正文片段
-      if (header.includes('data-ds-dark-theme') !== wantDark) continue;
+      if (!header.includes('data-we-glass-page')) continue; // 归属上一条规则的正文片段
+      // 只认 **body 级整表块**（每个逗号分支都是 body[attr]… 的形态）。逐面作用域的块
+      // （left-sidebar / thinking-glass / chat-flow …）里同样有 --dsw-alias-* 改写，但
+      // 它们的浅深不对称是**有意**的（只覆盖需要改的那些，其余继承浅色块）—— 混进来
+      // 会把"映射表必须是浅深双份"这条判据变成假红。
+      const parts = header.split(',').map((p) => p.trim()).filter(Boolean);
+      const bodyLevel = parts.length > 0 && parts.every((p) => /^body(\[[^\]]*\])+$/.test(p));
+      if (!bodyLevel) continue;
+      const hasDark = parts.some((p) => p.includes('data-ds-dark-theme'));
+      const hasLight = parts.some((p) => !p.includes('data-ds-dark-theme'));
+      if (wantDark ? !hasDark : !hasLight) continue;
       let depth = 0, end = -1;
       for (let i = open; i < CSS.length; i++) {
         if (CSS[i] === '{') depth++;
@@ -634,9 +649,12 @@ function main() {
   };
   const lightOnly = [...aliasTokens(false)].filter((t) => !aliasTokens(true).has(t));
   const darkOnly = [...aliasTokens(true)].filter((t) => !aliasTokens(false).has(t));
-  check('G8 alias takeover sets match across light/dark wallpaper blocks (the missed-dark-twin class of drift)',
-    lightOnly.length === 0 && darkOnly.length === 0,
-    'lightOnly=' + JSON.stringify(lightOnly) + ' · darkOnly=' + JSON.stringify(darkOnly));
+  // 覆盖面地板（实测浅 20 / 深 26；地板取 12）：防"扫描属性写错 ⇒ 两个空集相等 ⇒ 假绿"。
+  const aliasFloor = Math.min(aliasTokens(false).size, aliasTokens(true).size);
+  check('G8 alias takeover sets match across light/dark page-glass blocks (the missed-dark-twin class of drift)',
+    lightOnly.length === 0 && darkOnly.length === 0 && aliasFloor >= 12,
+    'lightOnly=' + JSON.stringify(lightOnly) + ' · darkOnly=' + JSON.stringify(darkOnly)
+      + ' · light=' + aliasTokens(false).size + ' dark=' + aliasTokens(true).size + ' (floor 12)');
 
   const failed = results.filter((r) => !r.ok);
   console.log('\n' + (failed.length === 0

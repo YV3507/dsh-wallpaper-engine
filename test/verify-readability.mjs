@@ -213,7 +213,7 @@ function main() {
   // 代码块不和输入框一起，与侧边栏同尺）—— chat 变量每多一处消费都会在这里现形。
   const chatBaseUses = (CSS.match(/var\(--we-chat-readability-base\)/g) || []).length;
   const markdownGlobal = ['markdown-code-block', 'markdown-inline-code', 'markdown-citation'].every((t) => {
-    const rule = ruleFor('--dsw-alias-' + t, 'body[data-we-wallpaper]');
+    const rule = ruleFor('--dsw-alias-' + t, 'body[data-we-glass-page]');
     const v = rule ? declValue(rule.body, '--dsw-alias-' + t) : '';
     return /var\(--we-readability-base\)/.test(v) && !/var\(--we-chat-/.test(v);
   });
@@ -328,10 +328,10 @@ function main() {
 
   // ── F2: every text-bearing surface carries the floor, both themes ─────────
   const surfaceSpecs = [
-    ['composer card token (light)', '--dsw-specific-input-major', 'body[data-we-wallpaper]'],
-    ['message bubble token (light)', '--dsw-specific-bubble', 'body[data-we-wallpaper]'],
-    ['composer card token (dark)', '--dsw-specific-input-major', 'body[data-ds-dark-theme][data-we-wallpaper]'],
-    ['message bubble token (dark)', '--dsw-specific-bubble', 'body[data-ds-dark-theme][data-we-wallpaper]'],
+    ['composer card token (light)', '--dsw-specific-input-major', 'body[data-we-glass-page]'],
+    ['message bubble token (light)', '--dsw-specific-bubble', 'body[data-we-glass-page]'],
+    ['composer card token (dark)', '--dsw-specific-input-major', 'body[data-ds-dark-theme][data-we-glass-page]'],
+    ['message bubble token (dark)', '--dsw-specific-bubble', 'body[data-ds-dark-theme][data-we-glass-page]'],
     ['settings window layer 1 (light)', '--dsw-alias-bg-layer-1', 'body[data-we-glass-window]'],
     ['settings window layer 2 (light)', '--dsw-alias-bg-layer-2', 'body[data-we-glass-window]'],
     ['settings window layer 3 (light)', '--dsw-alias-bg-layer-3', 'body[data-we-glass-window]'],
@@ -339,32 +339,32 @@ function main() {
     ['settings window layer 2 (dark)', '--dsw-alias-bg-layer-2', 'body[data-ds-dark-theme][data-we-glass-window]'],
     ['settings window layer 3 (dark)', '--dsw-alias-bg-layer-3', 'body[data-ds-dark-theme][data-we-glass-window]'],
     // #80：壁纸激活时**整窗**的表面令牌也要过下限。它们原本保持宿主实色（因此谈不上
-    // 玻璃、也谈不上"玻璃下的可读性"）；一旦按 #80 在 body[data-we-wallpaper] 上映射成
+    // 玻璃、也谈不上"玻璃下的可读性"）；一旦按 #80 在 body[data-we-glass-page] 上映射成
     // 玻璃配方，它们立刻变成文字面（宿主对话框 / 面板 / 抬高按钮都读这些令牌），
     // 于是必须与设置窗口那三档同一条下限 —— 否则这次修复会把文字直接放到壁纸上。
-    ['app surface layer 1 (light)', '--dsw-alias-bg-layer-1', 'body[data-we-wallpaper]'],
-    ['app surface layer 2 (light)', '--dsw-alias-bg-layer-2', 'body[data-we-wallpaper]'],
-    ['app surface layer 3 (light)', '--dsw-alias-bg-layer-3', 'body[data-we-wallpaper]'],
-    ['app raised button face (light)', '--dsw-alias-button-elevated-fill', 'body[data-we-wallpaper]'],
-    ['app surface layer 1 (dark)', '--dsw-alias-bg-layer-1', 'body[data-ds-dark-theme][data-we-wallpaper]'],
-    ['app surface layer 2 (dark)', '--dsw-alias-bg-layer-2', 'body[data-ds-dark-theme][data-we-wallpaper]'],
-    ['app surface layer 3 (dark)', '--dsw-alias-bg-layer-3', 'body[data-ds-dark-theme][data-we-wallpaper]'],
-    ['app raised button face (dark)', '--dsw-alias-button-elevated-fill', 'body[data-ds-dark-theme][data-we-wallpaper]'],
+    ['app surface layer 1 (light)', '--dsw-alias-bg-layer-1', 'body[data-we-glass-page]'],
+    ['app surface layer 2 (light)', '--dsw-alias-bg-layer-2', 'body[data-we-glass-page]'],
+    ['app surface layer 3 (light)', '--dsw-alias-bg-layer-3', 'body[data-we-glass-page]'],
+    ['app raised button face (light)', '--dsw-alias-button-elevated-fill', 'body[data-we-glass-page]'],
+    ['app surface layer 1 (dark)', '--dsw-alias-bg-layer-1', 'body[data-ds-dark-theme][data-we-glass-page]'],
+    ['app surface layer 2 (dark)', '--dsw-alias-bg-layer-2', 'body[data-ds-dark-theme][data-we-glass-page]'],
+    ['app surface layer 3 (dark)', '--dsw-alias-bg-layer-3', 'body[data-ds-dark-theme][data-we-glass-page]'],
+    ['app raised button face (dark)', '--dsw-alias-button-elevated-fill', 'body[data-ds-dark-theme][data-we-glass-page]'],
     // markdown 代码块 / 行内代码（用户口径："代码块和重点文字背景也要和对话框一样玻璃化"）：
     // 它们以前保持宿主实色、因此不在表内；一旦按玻璃配方映射就成了文字面（shiki 前景色
     // 压在它上面）⇒ 必须与气泡 / 面板同一条下限，明暗两套都要。
-    ['code block token (light)', '--dsw-alias-markdown-code-block', 'body[data-we-wallpaper]'],
-    ['code block banner token (light)', '--dsw-alias-markdown-code-block-banner', 'body[data-we-wallpaper]'],
-    ['inline code token (light)', '--dsw-alias-markdown-inline-code', 'body[data-we-wallpaper]'],
-    ['markdown tag token (light)', '--dsw-alias-markdown-tag', 'body[data-we-wallpaper]'],
-    ['code segment token (light)', '--dsw-alias-markdown-code-segment-unselected', 'body[data-we-wallpaper]'],
-    ['selected code segment token (light)', '--dsw-alias-markdown-code-segment-selected', 'body[data-we-wallpaper]'],
-    ['code block token (dark)', '--dsw-alias-markdown-code-block', 'body[data-ds-dark-theme][data-we-wallpaper]'],
-    ['code block banner token (dark)', '--dsw-alias-markdown-code-block-banner', 'body[data-ds-dark-theme][data-we-wallpaper]'],
-    ['inline code token (dark)', '--dsw-alias-markdown-inline-code', 'body[data-ds-dark-theme][data-we-wallpaper]'],
-    ['markdown tag token (dark)', '--dsw-alias-markdown-tag', 'body[data-ds-dark-theme][data-we-wallpaper]'],
-    ['code segment token (dark)', '--dsw-alias-markdown-code-segment-unselected', 'body[data-ds-dark-theme][data-we-wallpaper]'],
-    ['selected code segment token (dark)', '--dsw-alias-markdown-code-segment-selected', 'body[data-ds-dark-theme][data-we-wallpaper]'],
+    ['code block token (light)', '--dsw-alias-markdown-code-block', 'body[data-we-glass-page]'],
+    ['code block banner token (light)', '--dsw-alias-markdown-code-block-banner', 'body[data-we-glass-page]'],
+    ['inline code token (light)', '--dsw-alias-markdown-inline-code', 'body[data-we-glass-page]'],
+    ['markdown tag token (light)', '--dsw-alias-markdown-tag', 'body[data-we-glass-page]'],
+    ['code segment token (light)', '--dsw-alias-markdown-code-segment-unselected', 'body[data-we-glass-page]'],
+    ['selected code segment token (light)', '--dsw-alias-markdown-code-segment-selected', 'body[data-we-glass-page]'],
+    ['code block token (dark)', '--dsw-alias-markdown-code-block', 'body[data-ds-dark-theme][data-we-glass-page]'],
+    ['code block banner token (dark)', '--dsw-alias-markdown-code-block-banner', 'body[data-ds-dark-theme][data-we-glass-page]'],
+    ['inline code token (dark)', '--dsw-alias-markdown-inline-code', 'body[data-ds-dark-theme][data-we-glass-page]'],
+    ['markdown tag token (dark)', '--dsw-alias-markdown-tag', 'body[data-ds-dark-theme][data-we-glass-page]'],
+    ['code segment token (dark)', '--dsw-alias-markdown-code-segment-unselected', 'body[data-ds-dark-theme][data-we-glass-page]'],
+    ['selected code segment token (dark)', '--dsw-alias-markdown-code-segment-selected', 'body[data-ds-dark-theme][data-we-glass-page]'],
     ['sidebar panel (light)', 'background-color', 'body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_panel"]'],
     ['sidebar chrome group (light)', 'background-color', 'body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_terminalWrap"]'],
     ['sidebar panel (dark)', 'background-color', 'body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_panel"]'],
@@ -374,8 +374,8 @@ function main() {
     // 左侧栏液态玻璃（leftSidebarGlass，默认关）：那一列同样是文字面（会话列表 / 工作区），
     // 一旦接管成玻璃就必须过同一条下限 —— 而且它是**唯一**能直接看到壁纸的大块区域，
     // 少了这条声明就是"整列文字直接压在花壁纸上"。
-    ['native left column (light)', 'background-color', 'body[data-we-wallpaper][data-we-left-sidebar] div:has(> [data-slot="sidebar"])'],
-    ['native left column (dark)', 'background-color', 'body[data-ds-dark-theme][data-we-wallpaper][data-we-left-sidebar] div:has(> [data-slot="sidebar"])'],
+    ['native left column (light)', 'background-color', 'body[data-we-glass-page][data-we-left-sidebar] div:has(> [data-slot="sidebar"])'],
+    ['native left column (dark)', 'background-color', 'body[data-ds-dark-theme][data-we-glass-page][data-we-left-sidebar] div:has(> [data-slot="sidebar"])'],
     ['plugin repo drawer', 'background-color', '.we-repo-panel--open'],
   ];
   const veilMisses = [];
@@ -402,8 +402,8 @@ function main() {
     const fill = (value) => /rgba\(var\(--we-surface-tint-rgb-(?:light|dark),/.test(value || '')
       && /var\(--we-glass-alpha,/.test(value || '')
       && !/readability-floor|max\(/.test(value || '');
-    const fills = normal.filter((r) => r.header === 'body[data-we-wallpaper]'
-      || r.header === 'body[data-ds-dark-theme][data-we-wallpaper]')
+    const fills = normal.filter((r) => r.header === 'body[data-we-glass-page]'
+      || r.header === 'body[data-ds-dark-theme][data-we-glass-page]')
       .map((r) => declValue(r.body, '--we-chat-glass-fill')).filter(Boolean);
     check('F2c chat fill uses the slider directly in both themes, no opacity floor',
       fills.length === 2 && fills.every(fill));
@@ -430,9 +430,9 @@ function main() {
     const chip = normal.find((r) => r.header.includes('[data-chat-flow] :not(pre) > code')
       && r.header.includes('[data-vcp-rawhtml] :not(pre) > code'));
     check('F2d3 inline capsules restore ten-percent white mist and independent 8px frost',
-      normal.some((r) => r.header === 'body[data-we-wallpaper][data-we-thinking-glass]'
+      normal.some((r) => r.header === 'body[data-we-glass-page][data-we-thinking-glass]'
         && declValue(r.body, '--dsw-alias-markdown-inline-code') === 'var(--we-capsule-glass-fill)')
-      && normal.some((r) => r.header === 'body[data-we-wallpaper]'
+      && normal.some((r) => r.header === 'body[data-we-glass-page]'
         && declValue(r.body, '--we-capsule-glass-fill') === 'rgba(var(--we-capsule-tint-rgb, 255, 255, 255), var(--we-inline-code-alpha, 0.10))')
       && !!chip && /background: var\(--dsw-alias-markdown-inline-code\) !important/.test(chip.body)
       && declValue(chip.body, 'backdrop-filter') === 'blur(var(--we-inline-code-blur, 8px)) saturate(var(--we-saturate, 1.3)) brightness(var(--we-glass-brightness, 1.04))'
@@ -442,7 +442,7 @@ function main() {
       && !/(?:^|[;\s])(?:color|filter|opacity)\s*:/.test(chip.body));
     const tools = normal.find((r) => declValue(r.body, 'background-color') === 'var(--we-tool-glass-fill) !important');
     const toolScope = (header) => header.split(',').every((selector) =>
-      selector.includes('[data-we-wallpaper][data-we-thinking-glass]') && selector.includes('[data-chat-flow]')
+      selector.includes('[data-we-glass-page][data-we-thinking-glass]') && selector.includes('[data-chat-flow]')
       && (selector.includes('[data-slot="tool.call.toolview"]') || selector.includes('[data-chat-flow-kind="context"]')));
     check('F2d4 all seven tool result bodies are scoped to their chat slots and gates',
       !!tools && tools.header.split(',').length === 7 && toolScope(tools.header)
@@ -463,7 +463,7 @@ function main() {
       && declValue(tools.body, '--dsl-code-block-background') === 'transparent'
       && !/(?:^|[;\s])(?:color|filter|opacity)\s*:/.test(tools.body));
     const fences = all.filter((r) => r.header.includes('.md-code-block') || r.header.includes(':has(> pre > code)'));
-    const gated = (h) => h.split(',').every((s) => s.includes('[data-we-wallpaper]') && s.includes('[data-we-thinking-glass]'));
+    const gated = (h) => h.split(',').every((s) => s.includes('[data-we-glass-page]') && s.includes('[data-we-thinking-glass]'));
     check('F2e fence rules are opt-in and message-scoped',
       fences.length >= 5 && fences.every((r) => gated(r.header))
       && fences.every((r) => r.header.includes('[data-chat-flow]') || r.header.includes('[data-vcp-rawhtml]')));
@@ -487,7 +487,7 @@ function main() {
   // （把下限那一项换成玻璃色）后，`hasVeil` 必须判不合格 —— 否则 F2a 可能是空转的
   // （选择器一改名，spec 全落空也没人发现）。
   {
-    const rule = ruleFor('--dsw-alias-bg-layer-1', 'body[data-we-wallpaper]');
+    const rule = ruleFor('--dsw-alias-bg-layer-1', 'body[data-we-glass-page]');
     const real = rule ? declValue(rule.body, '--dsw-alias-bg-layer-1') : null;
     const mutated = String(real).replace('var(--we-readability-base)', 'var(--we-glass-color, #ffffff)');
     check('negative control: 同一条下限判据对"被改坏的声明"有牙',
@@ -496,7 +496,7 @@ function main() {
       'real=' + String(real).slice(0, 64) + ' · mutated=' + mutated.slice(0, 64));
   }
 
-  const darkComposer = ruleFor('--dsw-specific-input-major', 'body[data-ds-dark-theme][data-we-wallpaper]');
+  const darkComposer = ruleFor('--dsw-specific-input-major', 'body[data-ds-dark-theme][data-we-glass-page]');
   // 对话栏解耦（chatGlassFidelity）后，composer/bubble 的深色档消费 --we-chat-* 变量对。
   const DARK_FACTOR = darkComposer
     ? Number((declValue(darkComposer.body, '--dsw-specific-input-major')

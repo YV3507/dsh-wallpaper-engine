@@ -141,7 +141,7 @@
     },
     "dsh-client-ui-sidebar": {
       "verdict": "covered",
-      "note": "covered —— 令牌级：styles.js 在 body[data-we-wallpaper] 上把 --dsw-alias-button-elevated-fill / --dsw-alias-bg-layer-* 映射成玻璃，侧栏「新建会话」按钮面（SidebarRoot.module.css 的 newSession，上游 #71 报的那类没玻璃的按钮）与内层面板因此拿到同一张配方表；页面级判据见 compat-harness-pages 的表面令牌探针；**左侧栏液态玻璃**（leftSidebarGlass，默认关）：这一列原先只是\"透明的洞\"（--dsw-specific-sidebar-fill 被置 transparent、壁纸原样透出），开关打开后由 styles.js 按座位出口锚点 div:has(> [data-slot=\"sidebar\"]) 给那一列刷上与其余面板同一张玻璃配方（玻璃色 / 透明度 / 雾化 / 边框 --dsw-alias-border-l3 / 配色映射），页面级判据见 compat-harness-pages 的四态探针（裸 / 只盖壁纸锚点 / 加开关 / 摘开关）"
+      "note": "covered —— 令牌级：styles.js 在 body[data-we-glass-page]（页面玻璃锚点，插件恒挂、与有没有壁纸无关）上把 --dsw-alias-button-elevated-fill / --dsw-alias-bg-layer-* 映射成玻璃，侧栏「新建会话」按钮面（SidebarRoot.module.css 的 newSession，上游 #71 报的那类没玻璃的按钮）与内层面板因此拿到同一张配方表；页面级判据见 compat-harness-pages 的表面令牌探针；**左侧栏液态玻璃**（leftSidebarGlass，默认关）：这一列原先只是\"透明的洞\"（--dsw-specific-sidebar-fill 被置 transparent、壁纸原样透出），开关打开后由 styles.js 按座位出口锚点 div:has(> [data-slot=\"sidebar\"]) 给那一列刷上与其余面板同一张玻璃配方（玻璃色 / 透明度 / 雾化 / 边框 --dsw-alias-border-l3 / 配色映射），页面级判据见 compat-harness-pages 的四态探针（只有页面玻璃锚点 / 加开关 / 摘开关）"
     },
     "dsh-client-ui-sidebar-browser": {
       "verdict": "native",
@@ -178,7 +178,7 @@
     },
     "dsh-client-ui-trajectory": {
       "verdict": "covered",
-      "note": "covered —— styles.js 按**轨迹模块独有**的类名子串给内容区补霜：body[data-we-wallpaper] [class*=\"_tablePane\"|\"_overviewPreview\"|\"_programPanel\"] （+ 镜面釉 / 内高光）。根因不是令牌没映射（这些容器读的 --dsw-alias-bg-layer-1 早就映射成玻璃配方 ⇒ 已半透明），而是整个轨迹模块**零 backdrop-filter**（实测 289 条规则里没有一条）⇒ 在壁纸上只是平涂的纱。故此处只补霜、**不叠第二层底**（两层下限相乘会把通透收回）。选择器刻意避开 _details / _split（别的模块也在用）；实测该模块无 position:fixed，不会触发 #89 那类 fixed 后代改锚。"
+      "note": "covered —— styles.js 按**轨迹模块独有**的类名子串给内容区补霜：body[data-we-glass-page] [class*=\"_tablePane\"|\"_overviewPreview\"|\"_programPanel\"] （+ 镜面釉 / 内高光）。根因不是令牌没映射（这些容器读的 --dsw-alias-bg-layer-1 早就映射成玻璃配方 ⇒ 已半透明），而是整个轨迹模块**零 backdrop-filter**（实测 289 条规则里没有一条）⇒ 在壁纸上只是平涂的纱。故此处只补霜、**不叠第二层底**（两层下限相乘会把通透收回）。选择器刻意避开 _details / _split（别的模块也在用）；实测该模块无 position:fixed，不会触发 #89 那类 fixed 后代改锚。"
     },
     "dsh-client-ui-user-questions": {
       "verdict": "native"

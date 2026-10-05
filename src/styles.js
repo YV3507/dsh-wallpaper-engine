@@ -205,11 +205,24 @@ const CSS = `
   }
 
   /* While a wallpaper is active: make the app frame AND sidebar transparent so
-     all columns share the same wallpaper+scrim background, raise border alpha
-     for visibility, and apply the frosted-glass effect to opaque surfaces. */
+     all columns share the same wallpaper+scrim background. 这两条**只**属于壁纸：
+     壁纸层挂在 body 的 z-index:-1 上，页面基色 / 侧栏填充必须让开才看得见。
+     无壁纸时它们保持宿主原色 —— 页面因此始终有一层不透明基色（玻璃面压在这层之上）。 */
   body[data-we-wallpaper] {
     --dsw-alias-bg-base: transparent;
     --dsw-specific-sidebar-fill: transparent;
+  }
+
+  /* ── 页面玻璃总锚点（data-we-glass-page）——**与有没有壁纸无关** ───────────────
+     由 src/glass.js 恒挂（插件启用即挂，与 data-we-glass-chat / -window / -floaters
+     同族）。壁纸只是玻璃的**背景来源**之一，不是玻璃的前提：没有壁纸时玻璃面照旧
+     拿到地板色 / 霜 / 釉光 / 发丝边，压在宿主自己的基色与内容之上（用户口径：
+     「页面玻璃效果不设置壁纸也要生效」）。
+     ⚠️ 本锚点**不**等于 data-we-wallpaper：后者是"页面让开、露出壁纸层"，前者是
+     "玻璃配方生效"。两者正交 —— 壁纸在场时同时成立，无壁纸时只有本锚点。
+     raise border alpha for visibility, and apply the frosted-glass effect to
+     opaque surfaces. */
+  body[data-we-glass-page] {
     /* ── 表面令牌（#80）——在**令牌源头**接管，不逐面补选择器 ────────────────────
        宿主的对话框 / 面板 / 抬高按钮面读的都是别名层：--dsw-alias-bg-layer-1/2/3 是
        面板梯度（浅色三层同为白；深色 bluish-875/850/800 逐层抬亮），
@@ -321,8 +334,10 @@ const CSS = `
   body[data-ds-dark-theme][data-we-wallpaper] {
     --dsw-alias-bg-base: transparent;
     --dsw-specific-sidebar-fill: transparent;
-    /* 与设置窗口的深色那套逐条同形（同一张配方表、同一组层权重），只有玻璃色的
-       **缺省值**不同：深色玻璃底色是深海军蓝。 */
+  }
+  /* 深色档的**页面玻璃**映射：与上面那块逐条同形（同一张配方表、同一组层权重），
+     只有玻璃色的**缺省值**不同：深色玻璃底色是深海军蓝。 */
+  body[data-ds-dark-theme][data-we-glass-page] {
     --dsw-alias-bg-layer-1: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
       color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) calc(var(--we-glass-alpha, 0.5) * 0.9 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
@@ -441,7 +456,8 @@ const CSS = `
      只是压了一层主题底色（壁纸在亮/暗极端像素处不再吃掉文字）。
      --we-wallpaper-opacity 不参与本层：壁纸透明度仍只作用于 .we-layer。 */
   /* 插件自己的「不透明面板色」(solid panel colour)：宿主别名 --dsw-alias-bg-layer-*
-     在壁纸激活时会被**改写成玻璃配方**（见下面 body[data-we-wallpaper] 的令牌映射），
+     会被**改写成玻璃配方**（见上面 body[data-we-glass-page] 的令牌映射；壁纸不在场时
+     也生效），
      但有几块面必须保持近不透明才对 —— 编辑器/终端的固定语法与 ANSI 配色、没有
      backdrop-filter 的插件模态框、壁纸层的垫底画面（垫底不能透明，见 buildLivePoster）。
      它们改读这个令牌，从而与别名映射解耦。取值直接取宿主静态调色板里**别名本身的来源**
@@ -514,7 +530,7 @@ const CSS = `
      ever stops matching the bubble stays translucent, just without the blur.
      Both tokens carry text, so both go through the readability floor (the
      composer card AND the tool popups that read --dsw-specific-input-major). */
-  body[data-we-wallpaper] {
+  body[data-we-glass-page] {
     --dsw-specific-input-major: color-mix(in srgb,
       var(--we-chat-readability-base) calc(var(--we-chat-readability-floor) * 100%),
       rgba(var(--we-chat-surface-tint-rgb-light, 255, 255, 255), var(--we-glass-alpha, 0.15)) calc((1 - var(--we-chat-readability-floor)) * 100%));
@@ -522,7 +538,7 @@ const CSS = `
       var(--we-chat-readability-base) calc(var(--we-chat-readability-floor) * 100%),
       rgba(var(--we-chat-surface-tint-rgb-light, 255, 255, 255), calc(var(--we-glass-alpha, 0.15) * 0.8)) calc((1 - var(--we-chat-readability-floor)) * 100%));
   }
-  body[data-ds-dark-theme][data-we-wallpaper] {
+  body[data-ds-dark-theme][data-we-glass-page] {
     /* The ×0.4 / ×0.33 factors below only scale the TINT operand; the floor
        keeps its own weight, so the dark-theme undercut cannot happen. */
     --dsw-specific-input-major: color-mix(in srgb,
@@ -534,12 +550,12 @@ const CSS = `
   }
   /* Chat glass is explicitly transparent: use the user's tint alpha once.
      Shared host tokens retain their floors for popups and other app surfaces. */
-  body[data-we-wallpaper] {
+  body[data-we-glass-page] {
     --we-chat-glass-fill: rgba(var(--we-surface-tint-rgb-light, 255, 255, 255), var(--we-glass-alpha, 0.15));
     --we-capsule-glass-fill: rgba(var(--we-capsule-tint-rgb, 255, 255, 255), var(--we-inline-code-alpha, 0.10));
     --we-tool-glass-fill: rgba(var(--we-surface-tint-rgb-light, 255, 255, 255), calc(var(--we-glass-alpha, 0.15) + 0.06));
   }
-  body[data-ds-dark-theme][data-we-wallpaper] {
+  body[data-ds-dark-theme][data-we-glass-page] {
     --we-chat-glass-fill: rgba(var(--we-surface-tint-rgb-dark, 13, 21, 36), var(--we-glass-alpha, 0.15));
     --we-tool-glass-fill: rgba(var(--we-surface-tint-rgb-dark, 13, 21, 36), calc(var(--we-glass-alpha, 0.15) + 0.06));
   }
@@ -550,11 +566,11 @@ const CSS = `
      原稿给输入卡也铺了这层 fill 接管，实测用户不要（开关开 = 输入框必须与关着时逐位相同，
      输入框只受基础对话栏玻璃与「对话框玻璃·独立配置」管）。守卫：verify-glass-surfaces
      「思考玻璃门下不得出现 data-composer-card」。 */
-  body[data-we-wallpaper][data-we-thinking-glass] [class*="_bubble"] {
+  body[data-we-glass-page][data-we-thinking-glass] [class*="_bubble"] {
     background-color: var(--we-chat-glass-fill) !important;
   }
-  body[data-we-glass-chat][data-we-wallpaper] [data-composer-card],
-  body[data-we-glass-chat][data-we-wallpaper] [class*="_bubble"],
+  body[data-we-glass-chat][data-we-glass-page] [data-composer-card],
+  body[data-we-glass-chat][data-we-glass-page] [class*="_bubble"],
   /* Interactive tool popup cards read the SAME --dsw-specific-input-major
      token as the composer (question / plan-review / approval), so they turn
      translucent along with it — but unlike the composer they had NO
@@ -566,9 +582,9 @@ const CSS = `
      [data-approval-key] (tool-permission approval card). We scope _card
      inside those containers instead of a broad [class*="_card"] (which would
      also blur nested *_cardBody / hovercard surfaces). */
-  body[data-we-glass-chat][data-we-wallpaper] [data-question-key] [class*="_card"],
-  body[data-we-glass-chat][data-we-wallpaper] [data-plan-review-key] [class*="_card"],
-  body[data-we-glass-chat][data-we-wallpaper] [data-approval-key] [class*="_card"] {
+  body[data-we-glass-chat][data-we-glass-page] [data-question-key] [class*="_card"],
+  body[data-we-glass-chat][data-we-glass-page] [data-plan-review-key] [class*="_card"],
+  body[data-we-glass-chat][data-we-glass-page] [data-approval-key] [class*="_card"] {
     /* Specular sheen: a top-weighted white gradient turns a flat translucent
        tint into "wet glass" — kept faint so the wallpaper stays 通透 (clear)
        instead of glaring. */
@@ -594,11 +610,11 @@ const CSS = `
      descendants, so it can never become a containing block. Same blur radius,
      same --we-* tokens, same inset/radius → visually identical.
      把模糊改由 ::before 伪元素承载：伪元素没有 DOM 后代，不会成为 fixed 后代的包含块。 */
-  body[data-we-glass-chat][data-we-wallpaper] [data-composer-card] {
+  body[data-we-glass-chat][data-we-glass-page] [data-composer-card] {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
-  body[data-we-glass-chat][data-we-wallpaper] [data-composer-card]::before {
+  body[data-we-glass-chat][data-we-glass-page] [data-composer-card]::before {
     content: "";
     position: absolute;
     inset: 0;
@@ -629,9 +645,9 @@ const CSS = `
      ⚠️ 实测该模块里没有 position:fixed ⇒ 在这些元素上加 backdrop-filter 不会让 fixed 后代改锚
      （#89 那类问题）；模糊挂在滚动区上与侧栏面板同一条政策。回退档不需要额外处理：那一条
      --dsw-alias-bg-layer-1 已经被钉回不透明面板色，底下不再是壁纸。 */
-  body[data-we-wallpaper] [class*="_tablePane"],
-  body[data-we-wallpaper] [class*="_overviewPreview"],
-  body[data-we-wallpaper] [class*="_programPanel"] {
+  body[data-we-glass-page] [class*="_tablePane"],
+  body[data-we-glass-page] [class*="_overviewPreview"],
+  body[data-we-glass-page] [class*="_programPanel"] {
     /* 与侧栏面板同一档镜面釉（比气泡那档再淡一点：这是大片内容区，太亮会发白）。 */
     background-image: linear-gradient(180deg,
       rgba(255, 255, 255, 0.14),
@@ -651,32 +667,32 @@ const CSS = `
 
   /* Reasoning and file bars are fully clear; message fences and tool
      results use glass plates. Inner bodies never stack another background. */
-  body[data-we-wallpaper][data-we-thinking-glass] {
+  body[data-we-glass-page][data-we-thinking-glass] {
     --dsw-alias-markdown-inline-code: var(--we-capsule-glass-fill);
   }
-  body[data-we-wallpaper][data-we-thinking-glass] [data-turn-trigger],
-  body[data-we-wallpaper][data-we-thinking-glass] [data-vcp-reasoning],
-  body[data-we-wallpaper][data-we-thinking-glass] [data-changed-files],
-  body[data-we-wallpaper][data-we-thinking-glass] [data-presented-file] {
+  body[data-we-glass-page][data-we-thinking-glass] [data-turn-trigger],
+  body[data-we-glass-page][data-we-thinking-glass] [data-vcp-reasoning],
+  body[data-we-glass-page][data-we-thinking-glass] [data-changed-files],
+  body[data-we-glass-page][data-we-thinking-glass] [data-presented-file] {
     background: transparent !important;
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
   }
-  body[data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] .md-code-block,
-  body[data-we-wallpaper][data-we-thinking-glass] [data-vcp-rawhtml] > div > div:has(> pre > code):has(> div > button[title="复制代码"]) {
+  body[data-we-glass-page][data-we-thinking-glass] [data-chat-flow] .md-code-block,
+  body[data-we-glass-page][data-we-thinking-glass] [data-vcp-rawhtml] > div > div:has(> pre > code):has(> div > button[title="复制代码"]) {
     background: var(--we-chat-glass-fill) !important;
     -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
     backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
   }
-  body[data-we-wallpaper][data-we-thinking-glass] [data-vcp-reasoning-body] {
+  body[data-we-glass-page][data-we-thinking-glass] [data-vcp-reasoning-body] {
     background: transparent !important;
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
   }
   /* September 24 inline capsules: ten-percent white mist and independent 8px frost.
      Host padding/radius and text colour stay intact; fences are excluded. */
-  body[data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] :not(pre) > code,
-  body[data-we-wallpaper][data-we-thinking-glass] [data-vcp-rawhtml] :not(pre) > code {
+  body[data-we-glass-page][data-we-thinking-glass] [data-chat-flow] :not(pre) > code,
+  body[data-we-glass-page][data-we-thinking-glass] [data-vcp-rawhtml] :not(pre) > code {
     background: var(--dsw-alias-markdown-inline-code) !important;
     background-image: none !important;
     -webkit-backdrop-filter: blur(var(--we-inline-code-blur, 8px)) saturate(var(--we-saturate, 1.3)) brightness(var(--we-glass-brightness, 1.04));
@@ -685,8 +701,8 @@ const CSS = `
   }
   /* The two chat navigation buttons reuse capsule mist and frost.
      Local fill tokens preserve native hover/disabled states and hit areas. */
-  body[data-we-wallpaper][data-we-thinking-glass] [data-dsh-navbar] > button[data-vlln-load-older],
-  body[data-we-wallpaper][data-we-thinking-glass] [data-slot="conversation.view"] button[class*="_toBottom"] {
+  body[data-we-glass-page][data-we-thinking-glass] [data-dsh-navbar] > button[data-vlln-load-older],
+  body[data-we-glass-page][data-we-thinking-glass] [data-slot="conversation.view"] button[class*="_toBottom"] {
     --dsw-alias-bg-layer-2: var(--we-capsule-glass-fill);
     --dsw-alias-interactive-bg-hover: color-mix(in srgb, var(--we-capsule-glass-fill) 96%, white);
     --dsw-alias-button-floating-fill: var(--we-capsule-glass-fill);
@@ -696,33 +712,33 @@ const CSS = `
   }
   /* The sidebar's new-session button uses the same thin capsule glass.
      Scope the expanded button; keep its label, shortcut and collapsed state. */
-  body[data-we-wallpaper][data-we-thinking-glass] [data-slot="sidebar"] :not([class*="_collapsed"]) > button[class*="_newSession"] {
+  body[data-we-glass-page][data-we-thinking-glass] [data-slot="sidebar"] :not([class*="_collapsed"]) > button[class*="_newSession"] {
     background: var(--we-capsule-glass-fill) !important;
     border-color: rgba(255, 255, 255, 0.14) !important;
     -webkit-backdrop-filter: blur(var(--we-inline-code-blur, 8px)) saturate(var(--we-saturate, 1.3)) brightness(var(--we-glass-brightness, 1.04));
     backdrop-filter: blur(var(--we-inline-code-blur, 8px)) saturate(var(--we-saturate, 1.3)) brightness(var(--we-glass-brightness, 1.04));
   }
-  body[data-we-wallpaper][data-we-thinking-glass] [data-slot="sidebar"] :not([class*="_collapsed"]) > button[class*="_newSession"]:hover {
+  body[data-we-glass-page][data-we-thinking-glass] [data-slot="sidebar"] :not([class*="_collapsed"]) > button[class*="_newSession"]:hover {
     background: color-mix(in srgb, var(--we-capsule-glass-fill) 96%, white) !important;
   }
-  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-slot="sidebar"] :not([class*="_collapsed"]) > button[class*="_newSession"],
-  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] :not(pre) > code,
-  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-vcp-rawhtml] :not(pre) > code,
-  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-dsh-navbar] > button[data-vlln-load-older],
-  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-slot="conversation.view"] button[class*="_toBottom"] {
+  body[data-we-glass-fallback][data-we-glass-page][data-we-thinking-glass] [data-slot="sidebar"] :not([class*="_collapsed"]) > button[class*="_newSession"],
+  body[data-we-glass-fallback][data-we-glass-page][data-we-thinking-glass] [data-chat-flow] :not(pre) > code,
+  body[data-we-glass-fallback][data-we-glass-page][data-we-thinking-glass] [data-vcp-rawhtml] :not(pre) > code,
+  body[data-we-glass-fallback][data-we-glass-page][data-we-thinking-glass] [data-dsh-navbar] > button[data-vlln-load-older],
+  body[data-we-glass-fallback][data-we-glass-page][data-we-thinking-glass] [data-slot="conversation.view"] button[class*="_toBottom"] {
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
   }
   /* Seven inline tool-result bodies: one plate, six percentage points
      more coverage than a bubble. Root-local tokens clear headers/copy buttons
      without touching diff line highlights, syntax colours or sidebar tools. */
-  body[data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] [data-chat-flow-kind="context"] [data-context-injection-body],
-  body[data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"]:has([data-sample="bash"]) [data-terminal],
-  body[data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"] [data-tool="read"] [data-read],
-  body[data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"] [data-tool="grep"] [data-search="matches"],
-  body[data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"] [data-variant="others"] [class*="_ioCard"],
-  body[data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"] [data-tool="glob"] [data-search="paths"],
-  body[data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"] [data-tool="write"] [data-diff] {
+  body[data-we-glass-page][data-we-thinking-glass] [data-chat-flow] [data-chat-flow-kind="context"] [data-context-injection-body],
+  body[data-we-glass-page][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"]:has([data-sample="bash"]) [data-terminal],
+  body[data-we-glass-page][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"] [data-tool="read"] [data-read],
+  body[data-we-glass-page][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"] [data-tool="grep"] [data-search="matches"],
+  body[data-we-glass-page][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"] [data-variant="others"] [class*="_ioCard"],
+  body[data-we-glass-page][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"] [data-tool="glob"] [data-search="paths"],
+  body[data-we-glass-page][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"] [data-tool="write"] [data-diff] {
     --dsw-alias-markdown-code-block: transparent;
     --dsw-alias-markdown-code-block-banner: transparent;
     --dsl-code-block-background: transparent;
@@ -731,79 +747,79 @@ const CSS = `
     -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
     backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
   }
-  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] [data-chat-flow-kind="context"] [data-context-injection-body],
-  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"]:has([data-sample="bash"]) [data-terminal],
-  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"] [data-tool="read"] [data-read],
-  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"] [data-tool="grep"] [data-search="matches"],
-  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"] [data-variant="others"] [class*="_ioCard"],
-  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"] [data-tool="glob"] [data-search="paths"],
-  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"] [data-tool="write"] [data-diff] {
+  body[data-we-glass-fallback][data-we-glass-page][data-we-thinking-glass] [data-chat-flow] [data-chat-flow-kind="context"] [data-context-injection-body],
+  body[data-we-glass-fallback][data-we-glass-page][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"]:has([data-sample="bash"]) [data-terminal],
+  body[data-we-glass-fallback][data-we-glass-page][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"] [data-tool="read"] [data-read],
+  body[data-we-glass-fallback][data-we-glass-page][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"] [data-tool="grep"] [data-search="matches"],
+  body[data-we-glass-fallback][data-we-glass-page][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"] [data-variant="others"] [class*="_ioCard"],
+  body[data-we-glass-fallback][data-we-glass-page][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"] [data-tool="glob"] [data-search="paths"],
+  body[data-we-glass-fallback][data-we-glass-page][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"] [data-tool="write"] [data-diff] {
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
   }
 
   /* Navbar history/message tips share one portal; native turn previews have
      their own root. Both reuse the tool plate without frosting child text. */
-  body[data-we-wallpaper][data-we-thinking-glass] > [data-vlln-preview],
-  body[data-we-wallpaper][data-we-thinking-glass] [data-slot="conversation.view"] [class*="_preview"]:has(> [class*="_previewPrompt"]) {
+  body[data-we-glass-page][data-we-thinking-glass] > [data-vlln-preview],
+  body[data-we-glass-page][data-we-thinking-glass] [data-slot="conversation.view"] [class*="_preview"]:has(> [class*="_previewPrompt"]) {
     background: var(--we-tool-glass-fill) !important;
     background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.05) 38%, rgba(255, 255, 255, 0.02)) !important;
     -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
     backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
   }
-  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] > [data-vlln-preview],
-  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-slot="conversation.view"] [class*="_preview"]:has(> [class*="_previewPrompt"]) {
+  body[data-we-glass-fallback][data-we-glass-page][data-we-thinking-glass] > [data-vlln-preview],
+  body[data-we-glass-fallback][data-we-glass-page][data-we-thinking-glass] [data-slot="conversation.view"] [class*="_preview"]:has(> [class*="_previewPrompt"]) {
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
   }
   /* Chromium's native scrollbar does not paint backdrop blur (stripe probe).
      Tint only this thumb, avoiding inherited tokens on nested scroll areas. */
-  body[data-we-wallpaper][data-we-thinking-glass] [data-conversation-scroll]::-webkit-scrollbar-thumb {
+  body[data-we-glass-page][data-we-thinking-glass] [data-conversation-scroll]::-webkit-scrollbar-thumb {
     background-color: rgba(var(--we-capsule-tint-rgb, 255, 255, 255), var(--we-inline-code-alpha, 0.10));
   }
-  body[data-we-wallpaper][data-we-thinking-glass] [data-conversation-scroll]::-webkit-scrollbar-thumb:hover,
-  body[data-we-wallpaper][data-we-thinking-glass] [data-conversation-scroll]::-webkit-scrollbar-thumb:active {
+  body[data-we-glass-page][data-we-thinking-glass] [data-conversation-scroll]::-webkit-scrollbar-thumb:hover,
+  body[data-we-glass-page][data-we-thinking-glass] [data-conversation-scroll]::-webkit-scrollbar-thumb:active {
     background-color: rgba(255, 255, 255, calc(var(--we-inline-code-alpha, 0.10) + 0.04));
   }
 
   /* Native fences include assistant markdown, not just user bubbles. Keep
      Shiki token foregrounds and clear all host background painting nodes. */
-  body[data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] .md-code-block {
+  body[data-we-glass-page][data-we-thinking-glass] [data-chat-flow] .md-code-block {
     --dsl-code-block-background: transparent;
     --dsl-code-block-banner-background-color: transparent;
   }
-  body[data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] .md-code-block > :has(> [data-code-block-banner]),
-  body[data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] .md-code-block [data-code-block-banner],
-  body[data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] .md-code-block pre,
-  body[data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] .md-code-block pre > code {
+  body[data-we-glass-page][data-we-thinking-glass] [data-chat-flow] .md-code-block > :has(> [data-code-block-banner]),
+  body[data-we-glass-page][data-we-thinking-glass] [data-chat-flow] .md-code-block [data-code-block-banner],
+  body[data-we-glass-page][data-we-thinking-glass] [data-chat-flow] .md-code-block pre,
+  body[data-we-glass-page][data-we-thinking-glass] [data-chat-flow] .md-code-block pre > code {
     background: transparent !important;
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
   }
   /* A user bubble already supplies the single glass plate and frost. */
-  body[data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] [class*="_bubble"] .md-code-block {
+  body[data-we-glass-page][data-we-thinking-glass] [data-chat-flow] [class*="_bubble"] .md-code-block {
     background: transparent !important;
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
   }
   /* VCP uses inline fixed colours; its plain text follows the theme once its
      opaque canvas is removed. Native Shiki foregrounds above stay untouched. */
-  body[data-we-wallpaper][data-we-thinking-glass] [data-vcp-rawhtml] > div > div:has(> pre > code):has(> div > button[title="复制代码"]) > pre {
+  body[data-we-glass-page][data-we-thinking-glass] [data-vcp-rawhtml] > div > div:has(> pre > code):has(> div > button[title="复制代码"]) > pre {
     background: transparent !important;
     color: var(--dsw-alias-label-primary) !important;
   }
-  body[data-we-wallpaper][data-we-thinking-glass] [data-vcp-rawhtml] > div > div:has(> pre > code):has(> div > button[title="复制代码"]) > div {
+  body[data-we-glass-page][data-we-thinking-glass] [data-vcp-rawhtml] > div > div:has(> pre > code):has(> div > button[title="复制代码"]) > div {
     background: transparent !important;
     color: var(--dsw-alias-label-secondary) !important;
   }
-  body[data-we-wallpaper][data-we-thinking-glass] [data-vcp-rawhtml] > div > div:has(> pre > code):has(> div > button[title="复制代码"]) > div > button {
+  body[data-we-glass-page][data-we-thinking-glass] [data-vcp-rawhtml] > div > div:has(> pre > code):has(> div > button[title="复制代码"]) > div > button {
     color: inherit !important;
   }
-  body[data-we-wallpaper][data-we-thinking-glass] [data-changed-files] {
+  body[data-we-glass-page][data-we-thinking-glass] [data-changed-files] {
     --changes-fill: transparent;
     --changes-hover: rgba(255, 255, 255, 0.05);
   }
-  body[data-we-wallpaper][data-we-thinking-glass] [data-changed-files] > button {
+  body[data-we-glass-page][data-we-thinking-glass] [data-changed-files] > button {
     background: transparent !important;
   }
 
@@ -853,6 +869,9 @@ const CSS = `
      给这一列挂上**与其余面板同一张配方表**：玻璃颜色（钳制后可读性底色）@ 玻璃
      透明度 压在可读性下限之上 + 雾化（--we-blur）+ 边框（竖分割线）+
      配色（选中 / 悬停行、徽标、焦点环的高亮映射）。关掉即恢复今天的样子。
+     ⚠️ 它的门控是「页面玻璃锚点 + 本开关」两个：玻璃配方与有没有壁纸无关（无壁纸时
+     这一列压着的是宿主自己的基色，同一张配方表照旧算出可读的底色），壁纸在场只是
+     让那一列重新变成"透出画面"。
 
      锚点：这一列**只有 CSS 模块哈希类名**（harness 的 pI_x6G_sidebarCol 与
      dsh-client-ui-sidebar 的 hHd-Xa_root —— 构建哈希，跨版本漂移，不得使用）。
@@ -883,7 +902,7 @@ const CSS = `
      底色 / 釉光 / 边框 / 令牌留在列上：模糊作用在「底色 + 壁纸」的合成结果上，与
      「先滤壁纸再压底色」在数学上等价（模糊与滤镜都是线性算子，而这一列的底色是中性
      色），玻璃与文字的相对层次完全不变。 */
-  body[data-we-wallpaper][data-we-left-sidebar] div:has(> [data-slot="sidebar"]) {
+  body[data-we-glass-page][data-we-left-sidebar] div:has(> [data-slot="sidebar"]) {
     position: relative; /* 只为给下面 ::before 那条规则提供定位参照（不影响 fixed） */
     z-index: 0; /* 把 ::before 的 z-index:-1 圈在这一列内部 */
     background-color: color-mix(in srgb,
@@ -922,7 +941,7 @@ const CSS = `
      z-index:0 把它圈在列内），只负责 backdrop-filter。它没有后代 ⇒ 不会成为任何
      fixed 元素的包含块，宿主那两个 fixed 按钮（收起/展开侧边栏、收起态新建会话）于是
      继续相对视口定位。深浅两色共用这一条（模糊配方本身不随主题分叉）。 */
-  body[data-we-wallpaper][data-we-left-sidebar] div:has(> [data-slot="sidebar"])::before {
+  body[data-we-glass-page][data-we-left-sidebar] div:has(> [data-slot="sidebar"])::before {
     content: "";
     position: absolute;
     inset: 0;
@@ -932,7 +951,7 @@ const CSS = `
     backdrop-filter: blur(var(--we-left-sidebar-blur)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
   }
   /* 深色：同一张表、同一组层权重，只有玻璃色缺省与高亮mix 不同（与设置窗口深色那条同形）。 */
-  body[data-ds-dark-theme][data-we-wallpaper][data-we-left-sidebar] div:has(> [data-slot="sidebar"]) {
+  body[data-ds-dark-theme][data-we-glass-page][data-we-left-sidebar] div:has(> [data-slot="sidebar"]) {
     background-color: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
       color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) calc(var(--we-left-sidebar-alpha) * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
@@ -945,11 +964,11 @@ const CSS = `
   /* 无 backdrop-filter：同一政策 —— 近不透明玻璃，文字绝不直接落在壁纸上
      （模糊被关掉后，半透明 + 无霜等于把左侧栏文字放到花壁纸上）。 */
   @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    body[data-we-wallpaper][data-we-left-sidebar] div:has(> [data-slot="sidebar"]) {
+    body[data-we-glass-page][data-we-left-sidebar] div:has(> [data-slot="sidebar"]) {
       background-color: color-mix(in srgb, var(--we-surface-tint-light, #ffffff) 92%, transparent);
       background-image: none;
     }
-    body[data-ds-dark-theme][data-we-wallpaper][data-we-left-sidebar] div:has(> [data-slot="sidebar"]) {
+    body[data-ds-dark-theme][data-we-glass-page][data-we-left-sidebar] div:has(> [data-slot="sidebar"]) {
       background-color: color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) 92%, transparent);
     }
   }
@@ -1089,7 +1108,7 @@ const CSS = `
      ⚠️ **本注释块（以及整段 CSS）不得出现反引号**：它是一个模板字符串，反引号会提前
      截断它，让所有"提取样式表"的护栏读到空串（verify-readability F1b 会报 css chars=0）。
      行内提到标识符时一律裸写或用「」，不要用 markdown 反引号。 */
-  body[data-we-wallpaper] [data-sidebar-right-panel][data-sidebar-right-open] {
+  body[data-we-glass-page] [data-sidebar-right-panel][data-sidebar-right-open] {
     /* 侧栏玻璃总开关关闭时的兜底：面板必须**不透明**（否则文字直接压在壁纸上）。
        --dsw-alias-bg-layer-* 在壁纸下已被改写成玻璃配方 ⇒ 这里读插件自己的面板色。 */
     background-color: var(--we-panel-color, #1e1f26);
@@ -1116,7 +1135,7 @@ const CSS = `
   }
   /* Closed state: the host's own container carries no background — keep ours
      off too, whatever the master-switch state (#107). */
-  body[data-we-wallpaper] [data-sidebar-right-panel]:not([data-sidebar-right-open]) {
+  body[data-we-glass-page] [data-sidebar-right-panel]:not([data-sidebar-right-open]) {
     background: none !important;
     background-image: none !important;
     -webkit-backdrop-filter: none !important;
@@ -1308,8 +1327,8 @@ const CSS = `
     /* 同一个「无 backdrop-filter ⇒ 近不透明」政策也要覆盖**整窗**那层表面令牌：
        玻璃配方在没有模糊的内核上等于「半透明 + 无霜」，文字会直接落在壁纸上。
        浅色选择器写成与映射规则同特异度（0,1,1），深色那条 (0,2,1) 顶掉深色映射。 */
-    body[data-we-wallpaper],
-    body[data-ds-dark-theme][data-we-wallpaper] {
+    body[data-we-glass-page],
+    body[data-ds-dark-theme][data-we-glass-page] {
       --dsw-alias-bg-layer-1: var(--we-panel-color, #ffffff);
       --dsw-alias-bg-layer-2: var(--we-panel-color, #ffffff);
       --dsw-alias-bg-layer-3: var(--we-panel-color, #ffffff);
@@ -1326,8 +1345,8 @@ const CSS = `
   }
 
   @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    body[data-we-wallpaper],
-    body[data-ds-dark-theme][data-we-wallpaper] {
+    body[data-we-glass-page],
+    body[data-ds-dark-theme][data-we-glass-page] {
       --we-chat-glass-fill: color-mix(in srgb, var(--we-readability-base) 92%, transparent);
       --we-tool-glass-fill: var(--we-chat-glass-fill);
       --we-capsule-glass-fill: var(--we-chat-glass-fill);
@@ -2661,7 +2680,7 @@ body[data-we-glass-floaters] .we-repo-panel {
   /* 左侧栏液态玻璃（leftSidebarGlass）：软件光栅器下模糊被静默忽略 ⇒ 与上面各条同一配方，
      钉成 92% 近不透明玻璃并把不会生效的 backdrop-filter 显式关掉。深色那条多一层
      [data-ds-dark-theme]，与浅色声明同特异度时后写者赢（顺序即优先级）。 */
-  body[data-we-glass-fallback][data-we-wallpaper][data-we-left-sidebar] div:has(> [data-slot="sidebar"]) {
+  body[data-we-glass-fallback][data-we-glass-page][data-we-left-sidebar] div:has(> [data-slot="sidebar"]) {
     background-color: color-mix(in srgb, var(--we-surface-tint-light, #ffffff) 92%, transparent) !important;
     background-image: none !important;
     backdrop-filter: none !important;
@@ -2669,11 +2688,11 @@ body[data-we-glass-floaters] .we-repo-panel {
   }
   /* issue #131：模糊已搬到列自身的 ::before 上；软件光栅器下同样要显式关掉
      （同一政策：不会生效的 backdrop-filter 不留着）。一条覆盖深浅两色。 */
-  body[data-we-glass-fallback][data-we-wallpaper][data-we-left-sidebar] div:has(> [data-slot="sidebar"])::before {
+  body[data-we-glass-fallback][data-we-glass-page][data-we-left-sidebar] div:has(> [data-slot="sidebar"])::before {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }
-  body[data-ds-dark-theme][data-we-glass-fallback][data-we-wallpaper][data-we-left-sidebar] div:has(> [data-slot="sidebar"]) {
+  body[data-ds-dark-theme][data-we-glass-fallback][data-we-glass-page][data-we-left-sidebar] div:has(> [data-slot="sidebar"]) {
     background-color: color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) 92%, transparent) !important;
   }
   /* 内容面（编辑器/终端）本来就是近不透明底板（--we-content-surface-alpha，默认
@@ -2701,10 +2720,10 @@ body[data-we-glass-floaters] .we-repo-panel {
   /* 软件光栅器（data-we-glass-fallback）下同样把**整窗**的表面令牌钉回实色：
      玻璃配方在这一档等于「半透明 + 无霜」（模糊被下面的回退规则关掉），
      宿主的面板/对话框/按钮面必须回到不透明面板色，否则文字压在壁纸上。
-     深色那条选择器多一层 (0,3,1)，才能顶掉 body[data-ds-dark-theme][data-we-wallpaper]
+     深色那条选择器多一层 (0,3,1)，才能顶掉 body[data-ds-dark-theme][data-we-glass-page]
      上的玻璃映射。 */
-  body[data-we-glass-fallback][data-we-wallpaper],
-  body[data-ds-dark-theme][data-we-glass-fallback][data-we-wallpaper] {
+  body[data-we-glass-fallback][data-we-glass-page],
+  body[data-ds-dark-theme][data-we-glass-fallback][data-we-glass-page] {
     --dsw-alias-bg-layer-1: var(--we-panel-color, #ffffff);
     --dsw-alias-bg-layer-2: var(--we-panel-color, #ffffff);
     --dsw-alias-bg-layer-3: var(--we-panel-color, #ffffff);
@@ -2717,30 +2736,30 @@ body[data-we-glass-floaters] .we-repo-panel {
      所以只关掉 backdrop-filter 仍然过透。这里让 ::before 自己变成近不透明底板：
      载体是同一块表面，模糊没了就由它兜住底色，配方与上面 .we-repo-panel 逐字相同
      （同一个 --we-surface-tint-light/dark / 92%，未新增 token 或机制）。 */
-  body[data-we-glass-fallback][data-we-wallpaper] [data-composer-card]::before {
+  body[data-we-glass-fallback][data-we-glass-page] [data-composer-card]::before {
     background-color: color-mix(in srgb, var(--we-surface-tint-light, #ffffff) 92%, transparent);
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }
   /* A near-opaque canvas is only the no-frost fallback, never normal chat. */
-  body[data-we-glass-fallback][data-we-wallpaper],
-  body[data-ds-dark-theme][data-we-glass-fallback][data-we-wallpaper] {
+  body[data-we-glass-fallback][data-we-glass-page],
+  body[data-ds-dark-theme][data-we-glass-fallback][data-we-glass-page] {
     --we-chat-glass-fill: color-mix(in srgb, var(--we-readability-base) 92%, transparent);
     --we-tool-glass-fill: var(--we-chat-glass-fill);
     --we-capsule-glass-fill: var(--we-chat-glass-fill);
   }
   /* ⚠️ 合并 #134 口径修正（审计 MAJOR 第④组）：这条与上面 92% 不透明的思考玻璃填充配套，
      挂同一道门；PR 原稿漏门时，关着思考玻璃的 fallback 模式也会被摘掉气泡的 backdrop-filter。 */
-  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [class*="_bubble"] {
+  body[data-we-glass-fallback][data-we-glass-page][data-we-thinking-glass] [class*="_bubble"] {
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
   }
-  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-turn-trigger],
-  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-vcp-reasoning],
-  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-changed-files],
-  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-presented-file],
-  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] .md-code-block,
-  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-vcp-rawhtml] > div > div:has(> pre > code):has(> div > button[title="复制代码"]) {
+  body[data-we-glass-fallback][data-we-glass-page][data-we-thinking-glass] [data-turn-trigger],
+  body[data-we-glass-fallback][data-we-glass-page][data-we-thinking-glass] [data-vcp-reasoning],
+  body[data-we-glass-fallback][data-we-glass-page][data-we-thinking-glass] [data-changed-files],
+  body[data-we-glass-fallback][data-we-glass-page][data-we-thinking-glass] [data-presented-file],
+  body[data-we-glass-fallback][data-we-glass-page][data-we-thinking-glass] [data-chat-flow] .md-code-block,
+  body[data-we-glass-fallback][data-we-glass-page][data-we-thinking-glass] [data-vcp-rawhtml] > div > div:has(> pre > code):has(> div > button[title="复制代码"]) {
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
   }

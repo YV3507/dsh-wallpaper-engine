@@ -23,6 +23,13 @@
   **为什么**：① 它是插件里唯一带**宿主侧常驻采样**的模块（Windows 上还常驻一条 `typeperf` 子进程），与"美化"不是一类东西；② 资源监控是独立的监控类产品面 —— 单独做成插件才不用两头迁就（挂在壁纸插件里它只能长在壁纸上，参数还得跟玻璃 / 字体 / 主题抢位置）。
   **判据**：`test/verify-client.mjs` 的「扩展」页签判据从"四张模块卡"改成三张（锚点 / 计数 / 注册表顺序 / 三个模块默认关时都不画参数）；`test/verify-scene-live.mjs` 删掉三个整块（两个浏览器侧模块的登记与"产物里只有一份"、宿主采样器与那条只读路由的行为断言、画布层与岛的两半判据），注册表字符串期望同步为 `AVATAR_EXTENSION_MODULE, FX_EXTENSION_MODULE, PARALLAX_EXTENSION_MODULE`，视差层的源码口径换锚（选择器 `.we-layer, .we-rope`、`const pctMax = st.bg;`、body 上只剩 2 个系数），头像样式段的切片终点改挂「扩展」二号模块（原来靠被删掉的柱状图段头当边界）；设置夹具 `test/fixtures/settings-sanitize-golden.json` 从 client / host 两侧期望里整批摘掉这 30 键（其余键零漂移）；`docs/ROUTE-INDEX.md` 由 41 条路由重算为 40 条、`docs/GUARD-MAP.md` 重算（两个模块移出后零覆盖只剩两个 vendor 产物）；中英 README / HOW-IT-WORKS / CODE-STRUCTURE 同步（页签里的模块清单、视差层的两条腿、路由图与角色表）。`npm run verify:all` 全绿（scene-live 453 条）。
 
+- **修复：页面玻璃效果不再依赖「已设置壁纸」（用户报障：不设置壁纸时玻璃不生效）**。
+  **做了什么**：整页的玻璃规则原先一律挂在壁纸门 `data-we-wallpaper` 下（那条属性只在选中壁纸时才挂）⇒ 没设壁纸时「玻璃 / 玻璃透明度 / 玻璃颜色 / 玻璃保真度 / 雾化」全是死旋钮、界面维持宿主原生实色。现在拆成**两条正交的锚点**：
+  · **`data-we-glass-page`（新，页面玻璃锚点）** —— 由 `src/glass.js` 的 `applyGlass` **恒挂**（插件在跑就挂，与有没有壁纸无关；与既有的 `data-we-glass-chat` / `-window` / `-floaters` 同族）。壁纸只是玻璃的**背景来源**之一，不是玻璃的前提。`src/styles.js` 里 99 条整页接管的规则改挂它：表面令牌映射（`--dsw-alias-bg-layer-1/2/3`、抬高按钮、代码块家族、边框…）、对话框玻璃（气泡 / 输入卡片 / 工具弹卡）、轨迹内容区补霜、左侧栏液态玻璃、右栏原生面板、以及「无 backdrop-filter」与「软件光栅器」两档回退。
+  · **`data-we-wallpaper`（保持原义，只剩真·壁纸语义）**：页面**让开**（`--dsw-alias-bg-base` / `--dsw-specific-sidebar-fill` 置透明 ⇒ 壁纸层透出来）、浅色模式的文字对比提升、桌面壳画布底清底（`.dshDesktopFrame`，否则整片盖住壁纸）、柱状图 / 特效层（它们画的就是壁纸的像素）、以及 #137「侧栏全透明」既有的壁纸门口径。
+  无壁纸时页面**不会**变透明：`body` 的基色保持宿主原色（玻璃面压在这层不透明基色与内容之上），配方照旧算出可读的底色（可读性地板 + 霜 + 釉光 + 发丝边）；有壁纸时两条锚点同时在场，观感与之前逐位一致。卸载路径成对：`src/effects.js` 的 `clearEffects` 撤掉新锚点（与 -chat / -window / -floaters 同批）。
+  **判据**：`test/verify-readability.mjs` 的整表 surfaceSpecs（39 个文字面）与各条 `ruleFor` 全部改锚到 `body[data-we-glass-page]`（F2a 仍逐条带可读性下限 + 负对照，F2e 的栅栏规则谓词同步换锚）；`test/verify-glass-compositing.mjs` 的 G8 换锚点并补**覆盖面地板**（浅/深 23/23 —— 顺带修掉它的块头切片缺陷：原先 `lastIndexOf('{', open)` 会命中 `open` 自己 ⇒ 块头恒空串、这条判据一直静默空转，本次新增的地板把它抓了出来），S2c2 换锚点；`test/verify-client.mjs` 新增三条 —— 映射必须挂在 `body[data-we-glass-page]` 上、壁纸块里**不许**有玻璃映射（负对照：锚回壁纸门即红）、以及运行时一条（用真 picker 关掉壁纸后 `data-we-glass-page` 仍是 `on`，`data-we-wallpaper` 同时消失）；`test/compat-harness-pages.mjs` 的表面令牌探针改成"先读锚点在场、再临时摘掉锚点取对照侧"（原来靠临时挂壁纸锚点，现在那个锚点由插件常挂）；`test/verify-glass-surfaces.mjs` 的门控许可证注释与 `test/fixtures/harness-ui-surfaces.json` 的两条覆盖说明同步换锚。`verify:all` 全绿。
+
 - **修复：松散目录形态的场景壁纸无法实时渲染**（用户报障：松散类型的场景壁纸无法正常渲染）。
   **做了什么**：`lib/index.js` 的 `sceneFieldsFor` 撤下「live render is pkg-only」旧门 —— 旧口径以为
   WebWallGL 的 httpSource 只能拉单文件容器，入口是 `.json` 的松散目录被整体判 `sceneLive:false`、不发

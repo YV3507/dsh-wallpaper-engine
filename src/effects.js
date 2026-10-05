@@ -449,6 +449,9 @@ function clearEffects() {
   s.removeProperty("--we-surface-tint-rgb-light");
   s.removeProperty("--we-surface-tint-rgb-dark");
   document.body.removeAttribute("data-we-glass-window");
+  // 页面玻璃总锚点（src/glass.js 恒挂）：漏撤 ⇒ 插件禁用 / HMR 卸载后整页的玻璃
+  // 令牌映射与对话栏那一族规则照旧生效（"插件已卸载，玻璃还在"）。与下面三个同批。
+  document.body.removeAttribute("data-we-glass-page");
   document.body.removeAttribute("data-we-left-sidebar");
   // 思考块液态玻璃门（PR #130 引入）：同批的卸载残留口径 —— 漏撤 ⇒ 插件卸载后
   // 宿主思考条的规则组照旧生效。合并 #132 时补上（第 ⑨ 组清理对称判据的要求）。

@@ -242,12 +242,36 @@ const independentSidebarSelector = 'body[data-we-sidebar-glass] [data-dsh-better
 const wallpaperGatedSidebarSelector = 'body[data-we-sidebar-glass][data-we-wallpaper] [data-dsh-better-sidebar]';
 assert.ok(code.includes(independentSidebarSelector), 'sidebar glass must not require an active wallpaper');
 assert.ok(!code.includes(wallpaperGatedSidebarSelector), 'legacy wallpaper-gated sidebar selector must be removed');
-assert.ok(
-  code.includes('body[data-we-sidebar-glass] [data-dsh-better-sidebar] .cm-editor'),
+// ── 页面玻璃的门（用户报障：玻璃只在设了壁纸后才生效）────────────────────────────
+// 口径：整页的玻璃令牌映射挂 **data-we-glass-page**（glass.js 恒挂：插件在跑就挂，
+// 与有没有壁纸无关）；**data-we-wallpaper** 只剩"页面让开、露出壁纸层"那两条
+// （bg-base / sidebar-fill 置透明）—— 壁纸不在场时那两条必须**不**生效，否则页面基色
+// 会变透明（窗口底板透出来）。下面两条互为负对照：把映射锚回壁纸门 ⇒ 第一条红；
+// 把让开那两条挪进页面玻璃块 ⇒ 第二条红。
+const blockBodyOf = (needle) => {
+  const i = code.indexOf(needle);
+  if (i < 0) return null;
+  const open = code.indexOf('{', i);
+  const close = code.indexOf('}', open);
+  return open < 0 || close < 0 ? null : code.slice(open + 1, close);
+};
+const pageGlassBlock = blockBodyOf('body[data-we-glass-page] {');
+const wallpaperBlock = blockBodyOf('body[data-we-wallpaper] {');
+assert.ok(pageGlassBlock && pageGlassBlock.includes('--dsw-alias-bg-layer-1')
+  && pageGlassBlock.includes('--dsw-alias-markdown-code-block'),
+  'page-glass token mapping must sit on body[data-we-glass-page] (glass works without a wallpaper)');
+assert.ok(wallpaperBlock && wallpaperBlock.includes('--dsw-alias-bg-base: transparent')
+  && !wallpaperBlock.includes('--dsw-alias-bg-layer-1'),
+  'the page-let-the-wallpaper-through block stays wallpaper-only (no glass mapping inside)');
+assert.ok(/setAttribute\("data-we-glass-page", "on"\)/.test(code)
+  && /removeAttribute\("data-we-glass-page"\)/.test(code),
+  'the page-glass anchor must be mounted by glass.js and removed by clearEffects (paired)');
+assert.ok(code.includes('body[data-we-sidebar-glass] [data-dsh-better-sidebar] .cm-editor'),
   'sidebar content surfaces must follow the sidebar master switch',
 );
-assert.ok(code.includes('body[data-we-wallpaper] {'), 'non-sidebar wallpaper effects must remain wallpaper-gated');
-console.log('sidebar glass selectors are wallpaper-independent: true');
+assert.ok(code.includes('body[data-we-wallpaper] {') && code.includes('body[data-we-wallpaper]:not([data-ds-dark-theme])'),
+  'wallpaper-only effects (base let-through, light-scheme text boost) must remain wallpaper-gated');
+console.log('sidebar glass selectors are wallpaper-independent: true · page glass is anchored on data-we-glass-page: true');
 const cap = { handoff: null };
 const sandbox = {
   window: {
@@ -1908,10 +1932,14 @@ setTimeout(async () => {
     // Turn the active wallpaper off through the real picker callback. Sidebar
     // theming must remain armed because it is an independent feature; only
     // wallpaper-owned layers and the data-we-wallpaper marker disappear.
+    // 页面玻璃同理：data-we-glass-page 是"插件在跑"的锚点，**不**跟着壁纸走 ——
+    // 它一掉，整个令牌映射与对话栏玻璃就整组不匹配（用户报障：玻璃只在设了壁纸后生效）。
     const closeCard = cards.find((card) => JSON.stringify(card).includes('✕ 关闭'));
     assert.ok(closeCard && typeof closeCard.props.onClick === 'function', 'close-wallpaper card must be available');
+    assert.equal(bodyEl.attributes['data-we-glass-page'], 'on', '前置：页面玻璃锚点在壁纸在场时就是挂着的');
     closeCard.props.onClick();
     assert.equal(bodyEl.attributes['data-we-wallpaper'], undefined, 'wallpaper marker must clear');
+    assert.equal(bodyEl.attributes['data-we-glass-page'], 'on', 'page glass must stay armed without a wallpaper');
     assert.equal(bodyEl.attributes['data-we-sidebar-glass'], 'on', 'sidebar glass must remain enabled');
     assert.equal(typeof p['--we-sidebar-color'], 'string', 'sidebar color variable must remain available');
     // 这里原本还有一条 `--we-sidebar-alpha`。它被删掉是因为该变量是**死码**：

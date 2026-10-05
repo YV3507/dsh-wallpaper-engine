@@ -196,6 +196,12 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe (no 
   page that hosts it,
   picking wallpapers is an in-panel drill-in view (no modals) alongside hide/restore, transitions /
   playback speed / flip, accent color + glass transparency, the font system, and custom-upload management.
+  The page-wide glass recipe is **independent of whether a wallpaper is set**: its anchor is
+  `data-we-glass-page` on `body`, mounted unconditionally by `applyGlass` in `src/glass.js` (the plugin
+  running means the recipe applies) and removed in pairs by `clearEffects` in `src/effects.js`; a wallpaper
+  is only one possible **backdrop source**, while `data-we-wallpaper` covers just the two "the page gets
+  out of the way so the wallpaper layer shows through" declarations (page base colour / sidebar fill set
+  to transparent).
   A separate **quick playback panel** (current wallpaper / rotation / fast list switching / sound, with
   list and card views) merges into the official right sidebar's tab on harness ≥0.1.5, and falls back to a
   right-slide drawer pulled out by the mascot on older hosts.
