@@ -1032,15 +1032,42 @@ setTimeout(async () => {
             '缓动元素设置必须按 背景 / 原生前端 / 插件前端 三张分组卡排');
           assert.equal(sectionTitles[0], '扩展模块', '三张分组卡必须落在「扩展模块」容器之内');
           const uiText = JSON.stringify(uiTree);
-          // 「插件前端」这一段的两态文案（认到槽位 / 一个都没认到）—— 这个夹具里认不到任何槽位。
-          assert.ok(uiText.includes('还没认到别的插件注册的前端元素组'),
-            '一个插件槽位都没认到时，「插件前端」必须给一句说明');
           // 界面组在自己那一行上还挂着一句"整块跟着挪"的说明。
           assert.ok(uiText.includes('输入卡片、会话文本区（连里面的用户气泡一起）与侧栏作为整块跟着挪'),
             '「界面元素跟随」必须带一句说明它是整块一起挪的');
-          const uiOff = findCtlInput(renderPicker(), '输入卡片、会话文本区（连里面的用户气泡一起）与侧栏作为整块跟着挪：文字与底下的玻璃一起动');
-          if (uiOff) uiOff.props.onChange({ target: { checked: false } });
+          // 「插件前端」那一张卡**有自己的开关**（用户诉求 m03549："把插件前端也单独归类加开关"；
+          // 裁决 = 独立开关、默认关）：界面跟随开着而它关着时，这一卡**只有开关** —— 提示与槽位行
+          // 一行都不许画（"关着还能拖参数"那条不变量在子开关上也照旧）。
+          const parPluginHint = '别的插件注册进来的界面元素组（比如任务看板、市场面板）也跟着挪；默认关 —— 它动的是它们的真实界面';
+          const parPlugin = findCtlInput(uiTree, parPluginHint);
+          assert.ok(parPlugin, '「插件前端」必须画出它自己的开关「插件前端跟随」');
+          assert.equal(parPlugin && parPlugin.props.checked, false,
+            '「插件前端跟随」默认必须是关的（它动的是别的插件画出来的真实界面）');
+          assert.ok(!uiText.includes('还没认到别的插件注册的前端元素组')
+            && !uiText.includes('下面是运行期认到的'),
+            '「插件前端跟随」关着时那一卡不得画出提示或槽位行');
+          if (parPlugin) parPlugin.props.onChange({ target: { checked: true } });
           flushPersistWrites();
+          const pluginTree = renderPicker();
+          const pluginText = JSON.stringify(pluginTree);
+          // 开了插件开关、而运行期一个槽位都没认到（这个夹具没有 DOM）⇒ 空那一条文案。
+          assert.ok(pluginText.includes('还没认到别的插件注册的前端元素组'),
+            '开了「插件前端跟随」却一个槽位都没认到时，必须给一句说明');
+          // **独立于**「界面元素跟随」：把界面整块关掉，插件这一卡照旧（开关还开着、提示还在），
+          // 而原生那四行跟着界面那一块一起收起来 —— 两张卡、两个开关，谁也不牵谁。
+          const parUiOff = findCtlInput(pluginTree,
+            '输入卡片、会话文本区（连里面的用户气泡一起）与侧栏作为整块跟着挪：文字与底下的玻璃一起动');
+          if (parUiOff) parUiOff.props.onChange({ target: { checked: false } });
+          flushPersistWrites();
+          const pluginOnlyTree = renderPicker();
+          const pluginOnlyText = JSON.stringify(pluginOnlyTree);
+          const parPluginStill = findCtlInput(pluginOnlyTree, parPluginHint);
+          assert.equal(parPluginStill && parPluginStill.props.checked, true,
+            '「界面元素跟随」关掉后「插件前端跟随」必须照旧开着（两个开关互不依赖）');
+          assert.ok(pluginOnlyText.includes('还没认到别的插件注册的前端元素组'),
+            '「界面元素跟随」关掉后插件那一卡的说明必须还在');
+          assert.equal(findSliderRow(pluginOnlyTree, '用户气泡距离'), null,
+            '「界面元素跟随」关掉后原生那四行必须收起来');
         }
         // 复位：总开关关掉（后续判据要的是"默认态"）。关掉之后连同界面组那些行一起收干净。
         const parOff = findCtlInput(renderPicker(), '启用 3D 效果');

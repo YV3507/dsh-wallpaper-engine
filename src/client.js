@@ -3140,6 +3140,10 @@ function onFxOpacity(v, live) { commitLiveSetting("fxOpacity", v, live); }
 function onParallaxEnabled(e) { setSetting("parallaxEnabled", e.target.checked); emit(); }
 function onParallaxMascot(e) { setSetting("parallaxMascot", e.target.checked); emit(); }
 function onParallaxUi(e) { setSetting("parallaxUi", e.target.checked); emit(); }
+// 插件前端那一整块自己的开关（用户诉求 m03549）：**独立于「界面元素跟随」**（两件事互不牵连）、
+// 默认关（它挪的是别的插件画出来的真实界面）。关掉时层一个插件组都不认 —— 不是"系数算成 0"，
+// 而是连扫都不扫（见 src/parallax-layer.js 的 parallaxTargetsRefresh），表里的距离原样留着。
+function onParallaxPlugin(e) { setSetting("parallaxPlugin", e.target.checked); emit(); }
 function onParallaxBg(v, live) { commitLiveSetting("parallaxBg", v, live); }
 // 四个区域距离（用户口径 m02697-①③）：每行都是**那一组自己的最大位移百分比**，0 = 该组不缓动。
 // 存档与面板从此同一个单位 —— 总倍率（parallaxUiDepth）已退役，×100 / ÷100 那层换算也随之删掉
@@ -3151,7 +3155,8 @@ function onParallaxUiBubbleDepth(v, live) { commitLiveSetting("parallaxUiBubbleD
 // 别的插件注册的前端元素组（用户口径 m02697-②）：一行一个槽，值是那个槽的最大位移百分比。
 // 存档是一张 slot → 百分比 的表（lib/settings-schema.js 的 map 档，浅拷贝、不校验值），所以每次都
 // 整张克隆再改一个键 —— 就地改就等于把只读的选择对象当草稿纸，别的读者会看到半成品。
-// 0 也照存：0% = 该组不缓动，与"没这一行"（默认参与）是两件事。
+// 0 也照存：0% = 该组不缓动，与"没这一行"（缺键 ⇒ 层的 PARALLAX_PLUGIN_DEFAULT）是两件事。
+// 整张表只在 `parallaxPlugin` 开着时才算数（关着时层一个插件组都不认、面板也不画行）。
 function onParallaxPluginDepth(slot, v, live) {
   const src = selection && selection.parallaxPluginDepths;
   const base = (src && typeof src === "object" && !Array.isArray(src)) ? src : {};
@@ -4246,12 +4251,14 @@ const officialColorOf = (tokens) => {
     onFxTrail, onFxTrailStyle, onFxTrailLength, onFxTrailWidth, onFxTrailGlow,
     onFxOpacity, onFxBlend, onFxColorMode, onFxColor,
     onParallaxEnabled, onParallaxBg, onParallaxMascot, onParallaxUi, onParallaxSmooth,
+    onParallaxPlugin,
     onParallaxUiChatDepth, onParallaxUiComposerDepth, onParallaxUiSidebarDepth, onParallaxUiBubbleDepth,
     onParallaxPluginDepth,
     // 认到的插件槽位（用户口径 m02697-②）：只给**槽键字符串**（画一行一个）。发现逻辑在
-    // src/parallax-layer.js（与层自己每帧扫的是同一份名单），这里只是转交；界面那一组关着
-    // 时层也不认它们，面板就跟着空 —— 名单与"真的会动"必须同源，否则会出现点了没反应的滑杆。
-    parallaxPluginSlots: sel.parallaxUi === true ? parallaxDiscoveredGroups().sort() : [],
+    // src/parallax-layer.js（与层自己每帧扫的是同一份名单），这里只是转交；**插件前端那一块
+    // 自己的开关**（用户诉求 m03549）关着时层也不认它们，面板就跟着空 —— 名单与"真的会动"
+    // 必须同源，否则会出现点了没反应的滑杆。它与「界面元素跟随」互不依赖（不是 `ui &&`）。
+    parallaxPluginSlots: sel.parallaxPlugin === true ? parallaxDiscoveredGroups().sort() : [],
     onAvatarEnabled, onAvatarSize, onAvatarRadius, onAvatarPick, onAvatarClear,
   });
   const renderActiveTab = () => {

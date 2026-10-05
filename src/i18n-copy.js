@@ -647,7 +647,7 @@ const WE_I18N_EN = {
   "跟随主题色": "Follow theme color",
 
   // ── src/ext-parallax.js · 「扩展」页签三号模块（3D 效果）──
-  //    范围/默认值不在这里写死：真源是 lib/settings-schema.js 的 10 个 `parallax*` 键
+  //    范围/默认值不在这里写死：真源是 lib/settings-schema.js 的 11 个 `parallax*` 键
   //    （插件槽位那一档的缺省值是 src/parallax-layer.js 的 PARALLAX_PLUGIN_DEFAULT）。
   //    这一节刻意不登记 `%`（SliderRow 的单位后缀是代码里的字面量，不进词表），
   //    也没有与另两个模块共用的键 —— 文案都是这一个模块自己的。
@@ -673,6 +673,8 @@ const WE_I18N_EN = {
   "用户气泡距离": "User bubble travel",
   "你的消息气泡在会话文本区之外「再多走」的一份距离：0 = 气泡只跟着文本区一起动，调大就比周围的回复更靠前": "An extra distance your message bubbles add on top of the conversation text area: 0 = bubbles only move with the text area, and higher values put them in front of the replies around them",
   "插件前端": "Plugin interface",
+  "插件前端跟随": "Plugin interface follows",
+  "别的插件注册进来的界面元素组（比如任务看板、市场面板）也跟着挪；默认关 —— 它动的是它们的真实界面": "Front-end element groups registered by other plugins (a task board, a marketplace panel, and so on) drift along too; off by default, because it moves their real interface",
   "下面是运行期认到的、由别的插件注册进来的前端元素组（槽名就是它的身份）：一行一个，0 = 这一组完全不跟": "Below are the front-end element groups discovered at runtime that other plugins registered (the slot name is the identity): one row each, 0 = that group does not move at all",
   "还没认到别的插件注册的前端元素组：等它们的界面出现后，这里会自动多出对应的行": "No front-end element groups registered by other plugins have been discovered yet: once their interface shows up, the matching rows appear here automatically",
   "这一组自己的最大位移：光标贴到屏幕角时它最多挪出屏幕最长对角线的百分之几（0 = 这一组不缓动）": "Maximum travel of this group, on its own: the percentage of the screen's longest diagonal it can move when the cursor reaches a screen corner (0 = this group does not move)",

@@ -192,12 +192,16 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe (no 
   `parallaxUiBubbleDepth`, KINDS `num 0..10`, step 0.1, shipping at 1% each): the old **total factor**
   `parallaxUiDepth` and the whole "panel x100 / stored factor" chain are retired, so the panel and the
   stored value now **share one unit** and setting a region to 0 means that region does not move at all
-  (user ruling m02697-③). **Front-end element groups registered by other plugins join the drift** (user
-  wording m02697-②): the layer scans the host's slot outlets `[data-slot]` (an outlet itself is
-  `display: contents` and generates no box, so the displacement lands on its **element child**), skips
-  frame-wide containers / the four native groups / the settings and plugin-management subtrees, and reads
-  the distance from `parallaxPluginDepths` (slot key -> %, a `map` entry) where **a missing key means the
-  1% default (participating by default) and an explicit 0 means that group does not move**; the panel's
+  (user ruling m02697-③). **Front-end element groups registered by other plugins** (user wording m02697-②)
+have **their own switch**, `parallaxPlugin` (user request m03549: **independent of `parallaxUi`, off by
+default**, because it moves the real interface drawn by other plugins): while it is off the layer does
+**not even scan** for them (rather than computing a coefficient of 0) and that panel card shows only the
+switch; once it is on the layer scans the host's slot outlets `[data-slot]` (an outlet itself is
+`display: contents` and generates no box, so the displacement lands on its **element child**), skips
+frame-wide containers / the four native groups / the settings and plugin-management subtrees, and reads
+the distance from `parallaxPluginDepths` (slot key -> %, a `map` entry) where **a missing key means the
+1% default and an explicit 0 means that group does not move** (that table only counts while the switch is
+on); the panel's
   list comes from the layer's `parallaxDiscoveredGroups()` through `ctx` (one source of truth: one row per
   discovered group), and the panel splits it into three cards ("Background" / "Native front end" /
   "Plugin front end"). User bubbles stack one more layer on top of the

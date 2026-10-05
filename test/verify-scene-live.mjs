@@ -2880,7 +2880,8 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       && parSrc.includes('const PARALLAX_UI_SIGN = 1;')
       // 插件前端（用户裁决 m02697-②/③）：认别的插件注册的槽出口（出口自身 `display: contents`
       // ⇒ 位移落在**元素子节点**上）、跳掉整帧容器 / 原生四组 / 设置与插件管理那一整块子树；
-      // 距离住 `parallaxPluginDepths`（槽键 → %），缺键 = 缺省 1%（默认参与）、显式 0 = 这一组不缓动。
+      // 距离住 `parallaxPluginDepths`（槽键 → %），缺键 = 缺省 1%、显式 0 = 这一组不缓动；整块还由
+      // 它自己的开关 `parallaxPlugin` 看着（用户诉求 m03549：独立于 `parallaxUi`、默认关）。
       && parSrc.includes("const PARALLAX_PLUGIN_SLOT_ATTR = 'data-slot';")
       && parSrc.includes("const PARALLAX_PLUGIN_SELECTOR = '[data-slot]';")
       && parSrc.includes('const PARALLAX_PLUGIN_SKIP = [')
@@ -2927,11 +2928,23 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       && parSrc.includes("else if (rec.kind === 'sidebar') coef = st.sidebarDepth;")
       && parSrc.includes("else if (rec.kind === 'bubble') coef = st.bubbleDepth;")
       && parSrc.includes("cs.position === 'fixed'")
-      // 系数：原生四组各按自己的距离、插件组按槽键查 `parallaxPluginDepths`（缺键 = 默认参与）。
+      // 系数：原生四组各按自己的距离（等 `st.ui`）、插件组按槽键查 `parallaxPluginDepths`
+      // （缺键 = PARALLAX_PLUGIN_DEFAULT；等 `st.pluginOn`，与界面那整块互不依赖）。
       && parSrc.includes('return coef * PARALLAX_UI_SIGN;')
       && parSrc.includes("if (rec.kind === 'plugin') {")
       && parSrc.includes('return parallaxClamp(st.plugin[rec.slot], PARALLAX_GROUP_DEPTH_MIN, PARALLAX_GROUP_DEPTH_MAX,')
       && parSrc.includes('PARALLAX_PLUGIN_DEFAULT) * PARALLAX_UI_SIGN;')
+      // 插件前端那一块**有自己的开关**（用户诉求 m03549；裁决 = 独立于界面跟随、默认关）：
+      // 关着时层连扫都不扫（不是"系数算成 0"），最大距离与系数这两条路也都不看那张表。
+      && parSrc.includes('pluginOn: selection.parallaxPlugin === true,')
+      && parSrc.includes('if (parallaxSettings().pluginOn) {')
+      && parSrc.includes('if (!st.pluginOn) return 0;')
+      && parSrc.includes('if (!st.pluginOn) return max;')
+      && parSrc.includes('if (!st.ui) return 0;')
+      // 反向：插件组不再挂在「界面元素跟随」上（老写法 `parallaxSettings().ui` 认插件组、以及
+      // 只看界面开关就早退的那条最大距离算式，两处都删了）。
+      && !parSrc.includes('if (!st.ui) return max;')
+      && !parSrc.includes('parallaxSettings().ui')
       // 插件组也要带上槽键（记录的 `slot` 就是查表的键）。
       && parSrc.includes('parallaxTargetAdd(next, prev, parallaxGroupBox(el) || el, true, inFrame, candidates[i].kind,')
       && parSrc.includes('candidates[i].slot);')
@@ -3079,8 +3092,25 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     // 按钮钉在那一列里的。它走相对偏移（不建立包含块）⇒ 照样要动，而且**一个 `translate` 都不许写**
     // （写了那一列就成包含块，按钮下移一个标题栏高度 = m01915-③）。
     sidebarGroup.box.children = [{ position: 'fixed' }];
-    const groups = [chatGroup.outlet, composerGroup.outlet, sidebarGroup.outlet, nestedGroup.outlet]
-      .concat(bubbles.map((b) => b.outlet));
+    // 别的插件注册的前端元素组（用户诉求 m03549）：宿主的槽出口（`display: contents`、没有盒子）
+    // + 一个**有盒子的元素子节点** —— 位移要落在这个子节点上。插件那一整块走**它自己的开关**
+    // （独立于「界面元素跟随」、默认关），下面单独跑两条腿验它。
+    const pluginOutlet = mkTarget('we-slot');
+    pluginOutlet.display = 'contents';
+    pluginOutlet.getAttribute = (k) => (k === 'data-slot' ? 'dshmarket.panel' : null);
+    pluginOutlet.hasAttribute = (k) => k === 'data-slot';
+    pluginOutlet.closest = () => null;              // 不在设置页 / 插件管理页那块子树里
+    pluginOutlet.contains = () => false;
+    const pluginChild = mkTarget('we-plugin-card');
+    pluginChild.display = 'block';
+    pluginChild.children = [];
+    pluginChild.querySelectorAll = () => pluginChild.children;
+    pluginChild.contains = () => false;
+    pluginChild.parentElement = pluginOutlet;
+    pluginOutlet.children = [pluginChild];
+    pluginOutlet.querySelectorAll = () => pluginOutlet.children;
+    const groups = [chatGroup.outlet, composerGroup.outlet, sidebarGroup.outlet, nestedGroup.outlet,
+      pluginOutlet].concat(bubbles.map((b) => b.outlet));
     const listeners = {};
     let clock = 0;
     let pending = null;
@@ -3092,6 +3122,12 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     let dbgOk = false;
     let hysteresisOk = false;
     let regionsOk = false;
+    let pluginOk = false;
+    let pluginOffOk = false;
+    let pluginDefaultOk = false;
+    let pluginNumOut = null;
+    let chatNowOut = null;
+    let pluginAloneOut = null;
     let cleared = false;
     // 自检开关走 localStorage：宿主可能把它定义成只读访问器 ⇒ 用 defineProperty 覆盖。
     const setLocalStorage = (value) => {
@@ -3104,13 +3140,17 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     try {
       globalThis.document = {
         body: fakeBody,
-        // 按选择器分流：界面组那条选择器拿全部界面锚点（出口 + 气泡，宿主按 DOM 顺序给），
-        // 其余（壁纸 / 吉祥物）拿 targets ——"任何选择器都返回同一个数组"的老写法会把界面组
-        // 当成壁纸层。
+        // 按选择器分流：界面组那几条选择器拿全部**原生**界面锚点（出口 + 气泡，宿主按 DOM
+        // 顺序给），其余（壁纸 / 吉祥物）拿 targets ——"任何选择器都返回同一个数组"的老写法会把
+        // 界面组当成壁纸层。插件那一块扫的是**裸** `[data-slot]`（宿主的槽出口语义属性），
+        // 那时要把别的插件那个出口也给出去；而原生那几条选择器是按**槽名**写的，匹配不到它。
         querySelectorAll: (sel) => {
           const s = String(sel);
-          if (s.indexOf('data-chat-flow-kind') >= 0 || s.indexOf('data-composer-card') >= 0
-            || s.indexOf('data-slot') >= 0) return groups;
+          if (s === '[data-slot]') return groups;
+          if (s.indexOf('data-slot="conversation.view"') >= 0 || s.indexOf('data-slot="sidebar"') >= 0
+            || s.indexOf('data-composer-card') >= 0 || s.indexOf('data-chat-flow-kind') >= 0) {
+            return groups.filter((g) => g !== pluginOutlet);
+          }
           return targets;
         },
         addEventListener: (type, fn) => { listeners[type] = fn; },
@@ -3219,6 +3259,39 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       for (let i = 0; i < 400 && pending; i += 1) step(20);
       regionsOk = !('translate' in chatGroup.box.props) && !!offsetNum(sidebarGroup.box);
       globalThis.selection.parallaxUiChatDepth = 1;
+      // ② 插件前端那一整块**自己的开关**（用户诉求 m03549："把插件前端也单独归类加开关"；裁决 =
+      // 独立于界面跟随、默认关）。三条腿合起来才叫"独立"：
+      //   a) 界面跟随开着、插件开关没开 ⇒ 认到的槽位**一动不动**（层那时连扫都不扫）；
+      //   b) 只打开插件开关 ⇒ 出口的元素子节点照样拿到位移，距离就是缺省的 1%（与原生区域同距离）；
+      //   c) 再把界面整块关掉、插件开关留着 ⇒ 插件那组照动，原生四组 + 24 条气泡全停
+      //      （反向的"只开界面跟随"已经在 a) 里验过）。
+      pluginOffOk = !('translate' in pluginChild.props);
+      globalThis.selection.parallaxPlugin = true;
+      // ⚠️ 每条腿都要把指针挪到一个**新位置**：这一层到位就收工（`pending === null`），
+      // 原地只 mutate `selection` 是排不出帧的 —— 那样下面几条腿会"看着像开关没生效"。
+      // b/c 两条腿的位置差 1 设备像素，量化后目标值逐字相同 ⇒ 可以直接比"关掉界面整块前后
+      // 插件那一组走的一样远"。
+      if (typeof listeners.pointermove === 'function') listeners.pointermove({ clientX: 1560, clientY: 860 });
+      for (let i = 0; i < 400 && pending; i += 1) step(20);
+      const pluginNum = numOf(pluginChild);
+      const chatNow = numOf(chatGroup.box);
+      pluginNumOut = pluginNum; chatNowOut = chatNow;
+      pluginDefaultOk = !!pluginNum && !!chatNow
+        && pluginNum[0] === chatNow[0] && pluginNum[1] === chatNow[1];
+      globalThis.selection.parallaxUi = false;
+      if (typeof listeners.pointermove === 'function') listeners.pointermove({ clientX: 1561, clientY: 861 });
+      for (let i = 0; i < 400 && pending; i += 1) step(20);
+      const pluginAloneNum = numOf(pluginChild);
+      pluginAloneOut = pluginAloneNum;
+      pluginOk = pluginOffOk && pluginDefaultOk && !!pluginAloneNum
+        && pluginAloneNum[0] === pluginNum[0] && pluginAloneNum[1] === pluginNum[1]
+        && !('translate' in chatGroup.box.props) && !('translate' in composerGroup.box.props)
+        && !('translate' in nestedGroup.box.props) && !('left' in sidebarGroup.box.props)
+        && bubbles.every((b) => !('translate' in b.box.props));
+      // 后面的腿回到"界面跟随也开着"那一态（停止那条腿的收尾判据要看到左栏的定位前缀还在）。
+      globalThis.selection.parallaxUi = true;
+      if (typeof listeners.pointermove === 'function') listeners.pointermove({ clientX: 1600, clientY: 900 });
+      for (let i = 0; i < 400 && pending; i += 1) step(20);
       // 光标回到屏幕正中 ⇒ 位移归零 ⇒ 界面组那几层的 `translate` 必须**整条摘掉**
       // （属性只要在，包含块就成立 —— 静止的界面连一个空位移都不许留）；左栏摘的是 `left`/`top`，
       // 它那条 `position: relative` 留着（值与插件玻璃那一段逐字相同，摘挂反而是把锚点来回换）。
@@ -3228,7 +3301,9 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
         .every((g) => !('translate' in g.box.props) && !('translate' in g.outlet.props))
         && !('left' in sidebarGroup.box.props) && !('top' in sidebarGroup.box.props)
         && sidebarGroup.box.props['position'] === 'relative'
-        && bubbles.every((b) => !('translate' in b.box.props));
+        && bubbles.every((b) => !('translate' in b.box.props))
+        // 插件那一组也归零（开关还开着 ⇒ 这一条验的是"回到中心就收干净"，不是"关掉才收"）。
+        && !('translate' in pluginChild.props) && !('translate' in pluginOutlet.props);
       const dbg = globalThis.window.__weParallaxStats;
       // 自检里还带一份界面组清点：会话 1、侧栏 1、气泡 24（截尾后的）、被 fixed 挡下 1（输入卡片）。
       dbgOk = !!dbg && dbg.frames > 0 && dbg.writes > 0
@@ -3243,6 +3318,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
         // 左栏那条腿连 `position` 一起还回去（记录都没了，这一列还原成 static 才算收干净）。
         && !('position' in sidebarGroup.box.props)
         && !('left' in sidebarGroup.box.props) && !('top' in sidebarGroup.box.props)
+        && !('translate' in pluginChild.props) && !('translate' in pluginOutlet.props)
         && typeof listeners.pointermove === 'function';
     } catch (e) { threw = String((e && e.message) || e); } finally {
       globalThis.selection = PREV_SEL;
@@ -3253,16 +3329,19 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       globalThis.getComputedStyle = PREV_GCS;
       setLocalStorage(PREV_LS);
     }
-    check('parallax-layer.js 位移直接写在那几层自己的 translate 上 · body 只放补边系数 · 起帧提合成层到位摘 · 自检出帧统计 · 停用全收干净 · 界面组量化位移(带迟滞)/与壁纸同向/分档(四个区域距离各自生效)/气泡截尾/静止摘属性/fixed 后代整组不动/左栏走相对偏移不吃那条判定/槽出口没盒子就落父盒子',
+    check('parallax-layer.js 位移直接写在那几层自己的 translate 上 · body 只放补边系数 · 起帧提合成层到位摘 · 自检出帧统计 · 停用全收干净 · 界面组量化位移(带迟滞)/与壁纸同向/分档(四个区域距离各自生效)/气泡截尾/静止摘属性/fixed 后代整组不动/左栏走相对偏移不吃那条判定/槽出口没盒子就落父盒子/插件前端独立开关(默认关 · 只开它也能动)',
       !threw && movedOn && groupsOk && settled && centerCleared && dbgOk && hysteresisOk
-        && regionsOk && cleared,
+        && regionsOk && pluginOk && cleared,
       threw || ('movedOn=' + movedOn + ' groups=' + groupsOk + ' settled=' + settled
         + ' center=' + centerCleared + ' dbg=' + dbgOk + ' hysteresis=' + hysteresisOk
-        + ' regions=' + regionsOk + ' cleared=' + cleared
+        + ' regions=' + regionsOk + ' plugin=' + pluginOk + ' cleared=' + cleared
         + ' translate=' + layerEl.props['translate']
         + ' chat=' + chatGroup.box.props['translate'] + ' sidebar=' + sidebarGroup.box.props['left']
         + '/' + sidebarGroup.box.props['top'] + ' ' + sidebarGroup.box.props['position']
-        + ' composer=' + composerGroup.box.props['translate'] + ' nested=' + nestedGroup.box.props['translate']));
+        + ' composer=' + composerGroup.box.props['translate'] + ' nested=' + nestedGroup.box.props['translate']
+        + ' plugin=' + pluginChild.props['translate'] + ' outlet=' + pluginOutlet.props['translate']
+        + ' 插件腿=' + pluginOffOk + '/' + pluginDefaultOk + ' 只开插件=' + pluginAloneOut
+        + ' 与原生同距=' + pluginNumOut + ' 原生=' + chatNowOut));
   }
   {
     // 三号模块的岛：注册表项形状 + 「关着只画总开关、开着才画 3 个参数」这条可见行为。
@@ -3275,17 +3354,20 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       sel,
       onParallaxEnabled: () => {}, onParallaxBg: () => {},
       onParallaxMascot: () => {}, onParallaxSmooth: () => {},
-      onParallaxUi: () => {}, onParallaxPluginDepth: () => {},
+      onParallaxUi: () => {}, onParallaxPlugin: () => {}, onParallaxPluginDepth: () => {},
       onParallaxUiChatDepth: () => {}, onParallaxUiComposerDepth: () => {},
       onParallaxUiSidebarDepth: () => {}, onParallaxUiBubbleDepth: () => {},
       // 「插件前端」那一组画什么**完全由运行期名单决定**（src/client.js 从层里取、与层同源）。
       parallaxPluginSlots: slots,
     });
-    // 原生前端那五行（界面元素跟随 + 四个区域距离）只有在「界面元素跟随」开着时才长出来；
-    // 「插件前端」那几行再多等一个条件：运行期真的认到了别的插件的槽位（认到几个画几行）。
-    const PARAMS = ['背景缓动距离', '吉祥物跟随', '界面元素跟随', '缓动平滑'];
+    // 「插件前端」那一张卡永远有自己的开关（用户诉求 m03549），但它的**行**再多等两个条件：
+    // 那个开关开着 + 运行期真的认到了别的插件的槽位（认到几个画几行）。原生前端那五行同理，
+    // 等的是「界面元素跟随」——两张卡、两个开关，互不依赖（下面 `onPlugin` 那一腿就是反向）。
+    const PARAMS = ['背景缓动距离', '吉祥物跟随', '界面元素跟随', '插件前端跟随', '缓动平滑'];
     const UI_PARAMS = ['背景缓动距离', '吉祥物跟随', '界面元素跟随',
-      '会话文本区距离', '输入卡片距离', '侧栏距离', '用户气泡距离', '缓动平滑'];
+      '会话文本区距离', '输入卡片距离', '侧栏距离', '用户气泡距离', '插件前端跟随', '缓动平滑'];
+    // 只开插件那一块（界面跟随关着）时该长出来的：三类开关都在，插件行也在，而**四个区域距离一个都没有**。
+    const PLUGIN_PARAMS = ['背景缓动距离', '吉祥物跟随', '界面元素跟随', '插件前端跟随'];
     const SLOT_A = 'dshmarket.panel';
     const SLOT_B = '@linxin666/dsh-client-ui-task-board';
     const off = labelSeq(extParallaxMod.renderParallaxIsland(ctxOf(schemaMod.DEFAULTS)));
@@ -3293,8 +3375,13 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       ctxOf(Object.assign({}, schemaMod.DEFAULTS, { parallaxEnabled: true }))));
     const onUi = labelSeq(extParallaxMod.renderParallaxIsland(
       ctxOf(Object.assign({}, schemaMod.DEFAULTS, { parallaxEnabled: true, parallaxUi: true }))));
-    const onSlots = labelSeq(extParallaxMod.renderParallaxIsland(
+    // 界面跟随开着、插件开关关着（名单照给）⇒ 插件那几行**一个都不许出现**（层那时也不认它们）。
+    const onUiSlots = labelSeq(extParallaxMod.renderParallaxIsland(
       ctxOf(Object.assign({}, schemaMod.DEFAULTS, { parallaxEnabled: true, parallaxUi: true }),
+        [SLOT_A, SLOT_B])));
+    // 只开插件那一块 ⇒ 插件行照画（证明它不依赖「界面元素跟随」）。
+    const onPlugin = labelSeq(extParallaxMod.renderParallaxIsland(
+      ctxOf(Object.assign({}, schemaMod.DEFAULTS, { parallaxEnabled: true, parallaxPlugin: true }),
         [SLOT_A, SLOT_B])));
     const mod = extParallaxMod.PARALLAX_EXTENSION_MODULE;
     const extParSrc = readFileSync(join(root, 'src', 'ext-parallax.js'), 'utf8');
@@ -3302,9 +3389,9 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     const wantOn = wantOff.concat(PARAMS.map((k) => globalThis.weT(k)));
     const wantOnUi = wantOff.concat(UI_PARAMS.map((k) => globalThis.weT(k)));
     // 插件行用**槽名本身**当标签（那不是译文，原样画）；「缓动平滑」永远排在最后。
-    const wantOnSlots = wantOff.concat(UI_PARAMS.slice(0, UI_PARAMS.length - 1)
-      .map((k) => globalThis.weT(k))).concat([SLOT_A, SLOT_B], [globalThis.weT('缓动平滑')]);
-    check('ext-parallax.js 可单独 import · 注册表项形状 · 关着只画总开关、开了才画参数（原生前端那五行再等一个子开关、插件前端那几行等运行期名单）',
+    const wantOnPlugin = wantOff.concat(PLUGIN_PARAMS.map((k) => globalThis.weT(k)))
+      .concat([SLOT_A, SLOT_B], [globalThis.weT('缓动平滑')]);
+    check('ext-parallax.js 可单独 import · 注册表项形状 · 关着只画总开关、开了才画参数（原生前端那五行等「界面元素跟随」、插件前端那几行等它自己的开关 + 运行期名单）',
       Boolean(mod) && mod.id === 'parallax' && mod.render === extParallaxMod.renderParallaxIsland
       && typeof mod.title === 'string' && mod.title === globalThis.weT('3D 效果')
       && typeof mod.desc === 'string' && mod.desc.length > 0
@@ -3313,10 +3400,12 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       && !extParSrc.includes('commitLiveSetting')
       && off.join('|') === wantOff.join('|') && on.join('|') === wantOn.join('|')
       && onUi.join('|') === wantOnUi.join('|')
-      && onSlots.join('|') === wantOnSlots.join('|'),
+      && onUiSlots.join('|') === wantOnUi.join('|')
+      && onPlugin.join('|') === wantOnPlugin.join('|'),
       'off=' + off.length + ' on=' + on.length + ' onUi=' + onUi.length
-        + ' onSlots=' + onSlots.length
-        + ' [' + on.join('|') + '] [' + onUi.join('|') + '] [' + onSlots.join('|') + ']');
+        + ' onUiSlots=' + onUiSlots.length + ' onPlugin=' + onPlugin.length
+        + ' [' + on.join('|') + '] [' + onUi.join('|') + '] [' + onUiSlots.join('|') + '] ['
+        + onPlugin.join('|') + ']');
     // 四个区域距离的**单位口径**（用户裁决 m02697-①："最大缓动距离占屏幕对角线长度的百分比"）：
     // 存档与面板**从此同一个单位**（0..10 / 步长 0.1，真源 = lib/settings-schema.js 的 KINDS）⇒
     // 面板不再 ×100、src/client.js 那一侧也不再 ÷100（与「暗化」「边框」那条旧口径分道扬镳）；
@@ -3349,6 +3438,27 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       && extParSrc.includes('parallaxPluginSlots')
       && extParSrc.includes('onParallaxPluginDepth(slot, v, live)')
       && !extParSrc.includes('querySelectorAll'));
+    // 「插件前端」那一整块**有自己的开关**（用户诉求 m03549；裁决 = 独立开关、默认关）：
+    // 三条边都要钉住 —— ①面板那一卡先画自己的开关、行与提示只等它（不是等「界面元素跟随」）；
+    // ②动作经 ctx 的具名处理器回到 src/client.js（模块自己不写设置）；③设置真源里那个键默认 false。
+    check('ext-parallax.js / client.js / settings-schema.js 插件前端有自己的开关（独立于界面跟随 · 默认关）',
+      extParSrc.includes('const pluginOn = on && sel.parallaxPlugin === true;')
+      && extParSrc.includes('const slots = pluginOn && Array.isArray(parallaxPluginSlots) ? parallaxPluginSlots : [];')
+      && extParSrc.includes('switchRow(weT("插件前端跟随"), sel.parallaxPlugin === true, onParallaxPlugin,')
+      && extParSrc.includes('pluginOn && (slots.length')
+      && extParSrc.includes('pluginOn && slots.map(')
+      // 反向：插件那几行不再挂在「界面元素跟随」上（老写法 `ui &&`）。
+      && !extParSrc.includes('ui && (slots.length') && !extParSrc.includes('ui && slots.map(')
+      && clientSrcPar.includes('function onParallaxPlugin(e) { setSetting("parallaxPlugin", e.target.checked); emit(); }')
+      // 名单与"真的会动"同源：开关关着 ⇒ 连名单都不给（面板于是画不出行，也不会画完却一动不动）。
+      && clientSrcPar.includes('parallaxPluginSlots: sel.parallaxPlugin === true ? parallaxDiscoveredGroups().sort() : [],')
+      && schemaMod.DEFAULTS.parallaxPlugin === false
+      && schemaMod.KINDS.parallaxPlugin.kind === 'boolFalse',
+      'island=' + (extParSrc.includes('const pluginOn = on && sel.parallaxPlugin === true;') ? '1' : '0')
+        + (extParSrc.includes('switchRow(weT("插件前端跟随"), sel.parallaxPlugin === true, onParallaxPlugin,') ? '1' : '0')
+        + (extParSrc.includes('pluginOn && slots.map(') ? '1' : '0')
+        + ' client=' + (clientSrcPar.includes('function onParallaxPlugin(e)') ? '1' : '0')
+        + ' schema=' + String(schemaMod.DEFAULTS.parallaxPlugin) + '/' + schemaMod.KINDS.parallaxPlugin.kind);
     if (PREV_PLUGIN_DEFAULT === undefined) delete globalThis.PARALLAX_PLUGIN_DEFAULT;
     else globalThis.PARALLAX_PLUGIN_DEFAULT = PREV_PLUGIN_DEFAULT;
   }

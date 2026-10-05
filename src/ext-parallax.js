@@ -5,7 +5,7 @@
  * 一个**模块描述符**（形状 `{ id, title, desc?, render? }`，契约写在 src/panel-tabs.js 的
  * `extensionModules()` 上方）：panel-tabs 只负责把它排在「扩展」页签里，具体的控件与文案
  * 全在本文件。视差本体在 `src/parallax-layer.js`（只有变量与事件、不建 DOM），设置项的
- * 真源在 `lib/settings-schema.js` 的 10 个 `parallax*` 键。
+ * 真源在 `lib/settings-schema.js` 的 11 个 `parallax*` 键。
  *
  * 契约：
  *   需要的外界：`ctx`（由 `src/client.js` 在 `renderExtensionsTab({...})` 的调用点组装）——
@@ -23,11 +23,15 @@
  *     插件槽位那一档的缺省值**：它不在 KINDS 里（`parallaxPluginDepths` 是 map 档，宿主不校验
  *     值），真源是 `src/parallax-layer.js` 的 `PARALLAX_PLUGIN_DEFAULT` —— 这里直接读那个常量，
  *     不另外抄一个数（层与面板必须对"没这一行时算多少"给出同一个答案）。
- *   · 关掉总开关时只画总开关 + 一句说明（避免"关着还能拖参数"的错觉）。
+ *   · 关掉总开关时只画总开关 + 一句说明（避免"关着还能拖参数"的错觉）；同理，某一类自己的
+ *     开关关着时那一类只画它的开关（插件前端那一类关着时连槽位名单都不画 —— 层那时也确实
+ *     一个组都不认，见 src/client.js 的 `parallaxPluginSlots`）。
  *   · 控件分三类（用户口径 m02697-③）：**背景**（壁纸 + 吉祥物）→ **原生前端**（界面整块 +
  *     四个区域距离）→ **插件前端**（运行期认到的、别的插件注册进来的元素组），全局的
  *     「缓动平滑」留在最后。分类标题自己拼 `we-picker__section*` 那三件套（同 src/panel-tabs.js
- *     的分组写法）。
+ *     的分组写法）。**三类各有自己的开关**（用户诉求 m03549："把插件前端也单独归类加开关"）：
+ *     「吉祥物跟随」/「界面元素跟随」/「插件前端跟随」—— 插件那个**独立于界面跟随**（不是
+ *     `ui &&`：只开它能动、只开界面跟随它不动）、默认关，因为它挪的是别的插件画出来的真实界面。
  *   · 所有距离的单位都是**同一条**（用户口径 m02697-①）：**最大位移 = 屏幕最长对角线的百分比**
  *     —— 光标贴到屏幕角上时，该层最多挪出对角线长度的百分之几。0 = 该层完全不动（用户口径
  *     m02697-③）。存档与面板从此同一个单位，不再有"面板说百分比、存档说倍率"的换算。
@@ -56,17 +60,18 @@ function parallaxPluginPercent(v) {
 }
 
 /**
- * 扩展岛：总开关 → 背景（距离 + 吉祥物）→ 原生前端（界面元素跟随 + 四个区域距离）
- * → 插件前端（认到的槽位各一行）→ 缓动平滑。
+ * 扩展岛：总开关 → 背景（距离 + 吉祥物开关）→ 原生前端（界面元素跟随 + 四个区域距离）
+ * → 插件前端（自己的开关 + 认到的槽位各一行）→ 缓动平滑。
  * @param {{sel:object, parallaxPluginSlots?:string[]}} ctx 见文件头契约
  */
 function renderParallaxIsland(ctx) {
-  const { sel, onParallaxEnabled, onParallaxBg, onParallaxMascot, onParallaxUi,
+  const { sel, onParallaxEnabled, onParallaxBg, onParallaxMascot, onParallaxUi, onParallaxPlugin,
     onParallaxUiChatDepth, onParallaxUiComposerDepth, onParallaxUiSidebarDepth,
     onParallaxUiBubbleDepth, onParallaxPluginDepth, parallaxPluginSlots, onParallaxSmooth } = ctx;
   const on = sel.parallaxEnabled === true;
   const ui = on && sel.parallaxUi === true;
-  const slots = ui && Array.isArray(parallaxPluginSlots) ? parallaxPluginSlots : [];
+  const pluginOn = on && sel.parallaxPlugin === true;
+  const slots = pluginOn && Array.isArray(parallaxPluginSlots) ? parallaxPluginSlots : [];
   const depths = (sel.parallaxPluginDepths && typeof sel.parallaxPluginDepths === "object"
     && !Array.isArray(sel.parallaxPluginDepths)) ? sel.parallaxPluginDepths : {};
   return React.createElement(React.Fragment, null,
@@ -102,13 +107,17 @@ function renderParallaxIsland(ctx) {
         { tooltip: weT("你的消息气泡在会话文本区之外「再多走」的一份距离：0 = 气泡只跟着文本区一起动，调大就比周围的回复更靠前") }),
     ]),
     // ── 插件前端：运行期认到的、别的插件注册进来的元素组（用户口径 m02697-②）────
+    //    这一块有**自己的开关**（用户诉求 m03549：插件前端单独归类加开关）：独立于上面那个
+    //    「界面元素跟随」、默认关 ⇒ 关着时这一张卡只有它自己的开关（同"关着还能拖参数"那条不变量）。
     on && parallaxSection(weT("插件前端"), "parallax-sec-plugin", [
-      ui && (slots.length
+      switchRow(weT("插件前端跟随"), sel.parallaxPlugin === true, onParallaxPlugin,
+        { key: "parallax-plugin", hint: weT("别的插件注册进来的界面元素组（比如任务看板、市场面板）也跟着挪；默认关 —— 它动的是它们的真实界面") }),
+      pluginOn && (slots.length
         ? React.createElement("span", { className: "we-picker__hint", key: "parallax-plugin-hint" },
           weT("下面是运行期认到的、由别的插件注册进来的前端元素组（槽名就是它的身份）：一行一个，0 = 这一组完全不跟"))
         : React.createElement("span", { className: "we-picker__hint", key: "parallax-plugin-hint-empty" },
           weT("还没认到别的插件注册的前端元素组：等它们的界面出现后，这里会自动多出对应的行"))),
-      ui && slots.map((slot) => SliderRow(slot, 0, 10, 0.1, parallaxPluginPercent(depths[slot]),
+      pluginOn && slots.map((slot) => SliderRow(slot, 0, 10, 0.1, parallaxPluginPercent(depths[slot]),
         (v, live) => onParallaxPluginDepth(slot, v, live), "%", "parallax-plugin-" + slot,
         { tooltip: weT("这一组自己的最大位移：光标贴到屏幕角时它最多挪出屏幕最长对角线的百分之几（0 = 这一组不缓动）") })),
     ]),
