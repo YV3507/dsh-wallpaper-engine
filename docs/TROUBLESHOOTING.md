@@ -101,7 +101,7 @@ generation-install: generation peer validation failed: @deepseek-ai/dsh-client-r
 ```
 
 **说明宿主（DSH 核心）早于本插件的实测下限**。本插件声明的下限是
-`engines.dsh >= 0.1.5-rc.1` 与 `@deepseek-ai/dsh-client-runtime >= 0.1.0-rc.6`
+`engines.dsh >= 0.1.5-rc.1` 与 `@deepseek-ai/dsh-client-runtime >= 0.1.5-rc.1`
 （`package.json` 的 `engines` / `peerDependencies`，实测下限 = 内核 **0.1.5**），而你的内核比
 **0.1.5-rc.1** 还旧（例如 `0.1.2-rc.1` / DSH Desktop 2.0.5）—— 它带进安装闭包的 runtime
 不满足版本下限，pnpm 在生成依赖图时直接拒绝。这不是网络 / 镜像 / pnpm 状态问题，
