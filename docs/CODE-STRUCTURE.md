@@ -239,7 +239,7 @@ graph LR
 | **渲染器层** | `panel-tabs` · `picker-modal` · `picker-props-panel` · `fontset-editor` · `ext-fx` · `ext-parallax` · `ext-avatar` | **互相零读取**（只读门面与纯函数工具） | 平铺 |
 | **媒体管线** | `live-layer` · `video-layer` · `media-prep` · `layer-core` · `effects` | `live-layer` → 家族内 | 平铺 |
 | **点击与拖尾（「扩展」二号模块的两半）** | `fx-layer`（画布层：零 `ctx`、只读 `selection`、自带输入监听与内容驱动的 rAF） · `ext-fx`（扩展岛：收 `ctx`，动作走具名 `on*`） | 两者**互相零读取**（岛不读画布层的任何符号；画布层只在帧里现读 `selection`） | 平铺 |
-| **3D 纵深（「扩展」三号模块的两半）** | `parallax-layer`（行为层：零 `ctx`、只读 `selection`、**一个 DOM 节点都不建**，每帧把算完的**最终位移**直接写进**要动的那几层自己**的 CSS 独立属性 `translate` —— 每帧零自定义属性写入，body 上只剩一个"壁纸补边系数"；除壁纸与吉祥物外还能整块挪**界面三组**：`[data-composer-card]` / `[data-slot="conversation.view"]` / `[data-slot="sidebar"]`，受子开关 `parallaxUi` 管，位移量化到整设备像素、归零摘属性、组里有 fixed 后代就整组不动） · `ext-parallax`（扩展岛：收 `ctx`，动作走具名 `on*`） | 两者**互相零读取**（岛不读行为层的任何符号；行为层只在帧里现读 `selection`，百分比同样来自 `selection`） | 平铺 |
+| **3D 纵深（「扩展」三号模块的两半）** | `parallax-layer`（行为层：零 `ctx`、只读 `selection`、**一个 DOM 节点都不建**，每帧把算完的**最终位移**直接写进**要动的那几层自己**的 CSS 独立属性 `translate` —— 每帧零自定义属性写入，body 上只剩一个"壁纸补边系数"；除壁纸与吉祥物外还能整块挪**界面四类**：`[data-composer-card]` / `[data-slot="conversation.view"]` / `[data-slot="sidebar"]` / `[data-chat-flow-kind="user"|"steering"]`（用户气泡，只取 DOM 顺序里最近 24 条），受子开关 `parallaxUi` 管、方向与壁纸**同向**；宿主槽出口自己写死 `display: contents`、**不生成盒子** ⇒ 位移落在**最近的有盒子的祖先**上（`parallaxGroupBox()`，最多往上 3 层），位移量化到整设备像素、归零摘属性、组里有 fixed 后代就整组不动、嵌套组只留最外侧（**气泡是例外**：位移叠在会话文本区之上）） · `ext-parallax`（扩展岛：收 `ctx`，动作走具名 `on*`） | 两者**互相零读取**（岛不读行为层的任何符号；行为层只在帧里现读 `selection`，百分比同样来自 `selection`） | 平铺 |
 | **设置与宿主通道** | `persistence` · `fontset-store` · `adapter` · `api-client` · `i18n` | 互读少 | 平铺 |
 
 **为什么不给上表除 `src/font/` 之外任何一族建目录**（一次性裁决，别再重新讨论）：

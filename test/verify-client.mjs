@@ -971,7 +971,7 @@ setTimeout(async () => {
         const parText = JSON.stringify(parTree);
         for (const t of ['3D 效果', '光标移动时，壁纸与吉祥物沿屏幕中心的对称方向轻轻偏移；界面整块默认不动（要一起动就打开下面的「界面元素跟随」）',
           '背景缓动距离', '吉祥物跟随', '挂件也按「背景缓动距离」一起挪', '界面元素跟随',
-          '输入卡片、会话文本区与侧栏作为整块跟着挪：文字与底下的玻璃一起动', '缓动平滑']) {
+          '输入卡片、会话文本区（连里面的用户气泡一起）与侧栏作为整块跟着挪：文字与底下的玻璃一起动', '缓动平滑']) {
           assert.ok(parText.includes(t), '打开三号模块后「扩展」页签必须有「' + t + '」');
         }
         // 另两个模块的参数**不得**因为三号开着而出现（三张卡各管各的）。
@@ -999,7 +999,7 @@ setTimeout(async () => {
         assert.equal(parMascot && parMascot.props.checked, true, '「吉祥物跟随」默认必须是开的');
         // 界面组子开关默认**关**（用户口径：它动的是真实界面 —— 输入卡片、会话文本区、侧栏，
         // 连文字一起挪，绝不能不问自取）：关着时只画它自己那一行，距离滑块连文案都不出现。
-        const parUi = findCtlInput(parTree, '输入卡片、会话文本区与侧栏作为整块跟着挪：文字与底下的玻璃一起动');
+        const parUi = findCtlInput(parTree, '输入卡片、会话文本区（连里面的用户气泡一起）与侧栏作为整块跟着挪：文字与底下的玻璃一起动');
         assert.ok(parUi, '三号模块必须画出「界面元素跟随」子开关');
         assert.equal(parUi && parUi.props.checked, false, '「界面元素跟随」默认必须是关的');
         assert.ok(!JSON.stringify(parTree).includes('界面跟随距离'),
@@ -1013,9 +1013,9 @@ setTimeout(async () => {
           // 默认回显 1%：这个数是**会话文本区**的距离，输入卡片 ×1.5、侧栏 ×0.6 是行为层的常数。
           assert.equal(parReadoutOf('界面跟随距离', uiTree), '1%', '界面跟随距离默认必须是 1%');
           // 界面组在自己那一行上还挂着一句"整块跟着挪"的说明。
-          assert.ok(JSON.stringify(uiTree).includes('输入卡片、会话文本区与侧栏作为整块跟着挪'),
+          assert.ok(JSON.stringify(uiTree).includes('输入卡片、会话文本区（连里面的用户气泡一起）与侧栏作为整块跟着挪'),
             '「界面元素跟随」必须带一句说明它是整块一起挪的');
-          const uiOff = findCtlInput(renderPicker(), '输入卡片、会话文本区与侧栏作为整块跟着挪：文字与底下的玻璃一起动');
+          const uiOff = findCtlInput(renderPicker(), '输入卡片、会话文本区（连里面的用户气泡一起）与侧栏作为整块跟着挪：文字与底下的玻璃一起动');
           if (uiOff) uiOff.props.onChange({ target: { checked: false } });
           flushPersistWrites();
         }

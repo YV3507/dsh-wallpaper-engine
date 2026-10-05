@@ -180,10 +180,15 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe (no 
   `--we-parallax-bg` (written once per settings change, feeding the static
   `scale: calc(1 + multiplier / 100)` in the parallax section of `src/styles.js`). The wallpaper and the
   mascot each multiply their own percentage (1% for the wallpaper by default, the mascot sharing the
-  wallpaper's value); the interface groups (composer / conversation text area / sidebar) are governed by a
+  wallpaper's value); the interface groups (composer / conversation text area (user bubbles inside
+  included) / sidebar) are governed by a
   separate sub-switch `parallaxUi` (off by default) with `parallaxUiDepth` as the base (conversation text
-  area 1, composer x1.5, sidebar x0.6; `PARALLAX_UI_FLIP` makes the interface move **against** the
-  wallpaper, so it reads as floating in front), the direction is negated so the shift is **mirrored about the screen center**
+  area 1, composer x1.5, sidebar x0.6, user bubbles stacking another x0.4 on top of the text area for the
+  24 most recent ones; `PARALLAX_UI_SIGN = 1` makes the interface move the **same way as** the
+  wallpaper - the near interface travels a little further than the far wallpaper, a camera pan - and the
+  displacement itself lands on the nearest ancestor that owns a box (`parallaxGroupBox()`, at most 3
+  levels up), because the host's slot outlets hard-code `display: contents` and generate none), the
+  direction of the wallpaper leg is negated so the shift is **mirrored about the screen center**
   (cursor to the top right moves everything to the bottom left), the easing is an exponential approach per
   frame (`parallaxSmooth`, 0 = instant), and the loop stops itself as soon as the displacement left on
   screen no longer shows (zero frames while idle; frames now follow the display's real refresh rate, since
@@ -204,7 +209,8 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe (no 
   device pixels** (so text is never pushed onto half pixels) and whose `translate` is **removed entirely**
   once it settles (the property alone establishes a containing block, which would re-anchor fixed
   descendants); a group that contains any `position: fixed` descendant stays put, and nested groups keep
-  only the outermost one.
+  only the outermost one (user bubbles are the deliberate exception: they live inside the conversation
+  text area's box, so their displacement stacks on top of it).
   On the settings
   page that hosts it,
   picking wallpapers is an in-panel drill-in view (no modals) alongside hide/restore, transitions /

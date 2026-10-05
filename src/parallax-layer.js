@@ -21,14 +21,22 @@
  *     最贵的一笔。各层的系数（`.we-layer` 用 `parallaxBg`、`.we-rope` 用 `parallaxMascot`，
  *     关掉时为 0）在 JS 里乘完再写；壁纸补边的静态 `scale` 仍由样式表用 body 上的
  *     `--we-parallax-bg` 算（那个变量只在设置变了时写一次，不在帧里）。
- *   · **界面整块也能跟着动**（`parallaxUi`，默认关）：输入卡片 / 会话文本区 / 左栏这三组
- *     **整体**跟着光标走（方向与壁纸相反 ⇒ 界面像浮在壁纸前面），于是**文字与它底下的玻璃
- *     一起动** —— 动的是容器，不是文字节点，所以字不会被逐个重排。两条界面组独有的规矩：
+ *   · **界面整块也能跟着动**（`parallaxUi`，默认关，用户口径 m01371）：输入卡片 / 会话文本区
+ *     （连里面的**用户气泡**）/ 左栏这四组**整体**跟着光标走，于是**文字与它底下的玻璃
+ *     一起动** —— 动的是容器，不是文字节点，所以字不会被逐个重排。方向与壁纸**同向**
+ *     （用户口径："希望输入框和背景同向运动，体现层次与纵深感"）⇒ 像镜头横移：近处的界面比
+ *     远处的壁纸多走一点，纵深就出来了。三条界面组独有的规矩：
  *     ① 位移**量化到整设备像素**（文字底下就是像素网格，落在半个像素上会被重采样成糊的；
  *     壁纸/吉祥物是图像层，刻意不做这件事 —— 量化反而会让它看着一顿一顿的）；
  *     ② 位移归零时**把 `translate` 摘掉**。只要它存在（哪怕 0px），这个元素就成了 `position:
  *     fixed` 后代的**包含块** —— 那是本仓 #89 的坑（卡片里挂着第三方插件的座位，包含块一换
- *     就跑到卡片角上）；组里真有 fixed 后代时整组不动，见 parallaxGroupBlocked()。
+ *     就跑到卡片角上）；组里真有 fixed 后代时整组不动，见 parallaxGroupBlocked()；
+ *     ③ **槽出口自己没有盒子，位移要落到它的父元素上**：宿主给每个槽出口写死
+ *     `display: contents`（asar 里的 `ANCHOR_STYLE`，见 docs/DSH-UI-INTERFACES.md），
+ *     `translate` 写在出口身上屏上一点都不会动 —— "只有输入框在动"就是这个缘故（输入卡片是
+ *     有盒子的真元素）⇒ 见 parallaxGroupBox()。
+ *     嵌套规矩对气泡那一档放开：气泡行本来就长在会话文本区的盒子里，两者都动、位移叠加
+ *     （这正是"气泡比文本区再多走一点"的来路），其余组里套组仍只留最外侧那个。
  *   · **跟随真实刷新率**：不再人工封顶 60Hz（高刷屏上原来隔帧跑 —— 位移一样但看着不够连贯）。
  *     缓动本来就按真实 dt 折算，所以手感与封顶时一致。
  *   · **帧里零测量**：帧内不读 `window.innerWidth`、不 `querySelectorAll`、更不碰
@@ -45,19 +53,21 @@
  *     而 `.we-layer` 正好是视口大小 ⇒ 不补边就会在边上露出底色。所以壁纸层同时放大
  *     `1 + pct/100`（见 src/styles.js 的视差段）—— 恰好多出"最大位移 × 2"那点余量。
  *   · **各层各自的百分比**：壁纸走 `parallaxBg`；吉祥物跟着壁纸（`parallaxMascot` 可关）；
- *     界面那三组共用一个 `parallaxUiDepth`，各自再乘一个固定倍率（会话文本区 ×1、
- *     输入卡片 ×1.5、左栏 ×0.6 —— 三层之间因此有一点纵深，见 PARALLAX_GROUP_*）。
+ *     界面那四组共用一个 `parallaxUiDepth`，各自再乘一个固定倍率（会话文本区 ×1、
+ *     输入卡片 ×1.5、左栏 ×0.6、用户气泡**在会话文本区之上**再加 ×0.4 —— 四层之间因此
+ *     有一点纵深，见 PARALLAX_GROUP_*）。
  *   · **点击与拖尾效果（`src/fx-layer.js` 那一层）刻意不参与**（用户口径第 3 条）：那层画的是"屏上的笔迹"，
  *     跟着挪会让落点与光效错位。
  *   · **自检开关**：`localStorage.weParallaxDebug = '1'` ⇒ 记每帧的回调耗时、写入次数与帧间隔，
- *     一次手势收工（或停用）时打一行 p50 / p95 / max + 长帧（≥ 8ms）计数，并挂在
+ *     一次手势收工（或停用）时打一行 p50 / p95 / max + 长帧（≥ 8ms）计数，再附一份**界面组清点**
+ *     （会话 / 输入 / 侧栏 / 气泡各认到几个、有几个被 fixed 后代挡下），并挂在
  *     `window.__weParallaxStats` 上。默认关；读它本身是有成本的，所以最多每秒重读一次。
  *
  * 契约：
  *   需要的外界：`selection`（设置 store，只读）、`document.body`（写 1 个"壁纸补边系数"与一个
  *   开关属性）、还有**那几层元素自己**（`.we-layer` / `.we-rope`：写 `translate` 与
- *   临时的合成层提示）+ **接口那三个容器**（输入卡片 / 会话文本区 / 左栏：只写 `translate`，
- *   绝不加类、不加 `will-change`）。
+ *   临时的合成层提示）+ **接口那几个容器**（输入卡片 / 会话文本区 / 左栏 / 用户气泡行；槽出口
+ *   没盒子 ⇒ 位移落在它的父元素上：只写 `translate`，绝不加类、不加 `will-change`）。
  *   对外提供：`syncParallaxLayer()`（设置变了就调一次）、`disposeParallaxLayer()`（卸载清理）。
  *   设置项（`parallax*`，真源 lib/settings-schema.js）：总开关 / 背景距离 /
  *   吉祥物是否跟随 / 界面整块是否跟随 / 界面距离 / 缓动平滑。
@@ -111,22 +121,33 @@ const PARALLAX_IDLE_MS = 180;
 const PARALLAX_IDLE_VISIBLE_PX = 1;
 /** 要动的那几层（与 src/styles.js 视差段的规则一一对应）：壁纸层与吉祥物。 */
 const PARALLAX_TARGET_SELECTOR = '.we-layer, .we-rope';
-/** 跟着动的**界面整块**（开关 `parallaxUi`）—— 三组都是宿主真实锚点（见 docs/DSH-UI-INTERFACES.md
+/** 跟着动的**界面整块**（开关 `parallaxUi`）—— 四组都是宿主真实锚点（见 docs/DSH-UI-INTERFACES.md
  *  与 test/verify-glass-surfaces.mjs 的玻璃面登记表）：`[data-composer-card]` 输入卡片、
- *  `[data-slot="conversation.view"]` 会话文本区、`[data-slot="sidebar"]` 左栏。
- *  ⚠️ 动的是**容器**：文字本体跟着走靠的就是"整块一起挪"（逐字加 transform 只会糊）。 */
-const PARALLAX_GROUP_SELECTOR = '[data-composer-card], [data-slot="conversation.view"], [data-slot="sidebar"]';
+ *  `[data-slot="conversation.view"]` 会话文本区、`[data-slot="sidebar"]` 左栏，以及聊天流里
+ *  **用户消息那一行** `[data-chat-flow-kind="user"]`（`steering` 渲染的是同一个气泡组件）。
+ *  ⚠️ 动的是**容器**：文字本体跟着走靠的就是"整块一起挪"（逐字加 transform 只会糊）。
+ *  ⚠️ 气泡那一档只能按 `data-chat-*` 认：宿主的气泡类名是构建哈希（`cJsG2q_userRow` / `_bubble`），
+ *  随版本变；这一排语义属性是宿主写在每个聊天流条目上的，稳。 */
+const PARALLAX_GROUP_SELECTOR = '[data-composer-card], [data-slot="conversation.view"], [data-slot="sidebar"], [data-chat-flow-kind="user"], [data-chat-flow-kind="steering"]';
 /** 界面组的固定倍率（不是设置项：用户只调"界面跟随距离"这一个数）—— 会话文本区是基准，
- *  输入卡片最靠前、左栏最靠后；三个数差得不多，纵深才自然。 */
+ *  输入卡片最靠前、左栏最靠后；用户气泡**在会话文本区之上**再加一档（它俩都动，位移叠加）。
+ *  四个数差得不多，纵深才自然。 */
 const PARALLAX_GROUP_CHAT = 1;
 const PARALLAX_GROUP_COMPOSER = 1.5;
 const PARALLAX_GROUP_SIDEBAR = 0.6;
-/** 界面组的符号：+1 = **与壁纸反向**（壁纸往左、界面往右 ⇒ 界面浮在壁纸前面）。
- *  想让它跟壁纸同向就改成 -1。 */
-const PARALLAX_UI_FLIP = 1;
+const PARALLAX_GROUP_BUBBLE = 0.4;
+/** 会话流可能很长（每条用户消息一个盒子）⇒ 只让**最近**这么多条气泡参与：几十上百条同时写
+ *  `translate`，帧预算就全花在它们身上了，而屏外那几百条本来就没人看得见。 */
+const PARALLAX_GROUP_BUBBLE_MAX = 24;
+/** 界面组的符号：+1 = **与壁纸同向**（用户口径 m01371："希望输入框和背景同向运动，体现层次与
+ *  纵深感" ⇒ 像镜头横移，近处的界面比远处的壁纸多走一点）；想让界面与壁纸反向（界面像贴在
+ *  镜头上的窗框）就改成 -1。 */
+const PARALLAX_UI_SIGN = 1;
 /** 每个界面组最多扫这么多节点去找 `position: fixed` 后代：超过就认作"没验完"（照动）。
  *  一个几千节点的会话流上每 250ms 全量 getComputedStyle 是不行的。 */
 const PARALLAX_GROUP_SCAN_MAX = 400;
+/** 从槽出口往上找"有盒子的祖先"最多走这么多层：`display: contents` 连着套是极端情况，兜底用。 */
+const PARALLAX_GROUP_BOX_MAX_UP = 3;
 /** 帧循环在跑的这段时间加在目标上的类（样式段只在开关属性下给它 will-change）—— 收工即摘。 */
 const PARALLAX_MOVING_CLASS = 'we-parallax--moving';
 /** 目标重扫间隔：壁纸层会换节点，所以起帧路径上定期重扫一次（**不在帧里**）。 */
@@ -269,13 +290,17 @@ function parallaxTargetKind(el) {
 }
 
 /** 界面组的种类：按宿主锚点认（`parallaxTargetsRefresh` 只把组查询命中的节点交进来）。
- *  `data-slot` 优先 —— 它是宿主槽出口，比类名稳；认不出来按基准档（会话文本区）算。 */
+ *  `data-chat-flow-kind` → `data-slot` → `data-composer-card` 依次认 —— 都是宿主写的**语义**属性，
+ *  比构建哈希类名稳；认不出来按基准档（会话文本区）算。 */
 function parallaxGroupKind(el) {
   if (!el) return 'chat';
+  let flow = null;
   let slot = null;
   if (typeof el.getAttribute === 'function') {
+    try { flow = el.getAttribute('data-chat-flow-kind'); } catch (e) { flow = null; }
     try { slot = el.getAttribute('data-slot'); } catch (e) { slot = null; }
   }
+  if (flow === 'user' || flow === 'steering') return 'bubble';
   if (slot === 'sidebar') return 'sidebar';
   if (slot === 'conversation.view') return 'chat';
   if (typeof el.hasAttribute === 'function') {
@@ -284,6 +309,37 @@ function parallaxGroupKind(el) {
   const cls = ' ' + String((el && el.className) || '') + ' ';
   if (cls.indexOf(' data-composer-card ') >= 0) return 'composer';
   return 'chat';
+}
+
+/**
+ * 界面上**真正要挪的那个盒子**（`translate` 落点）。
+ * 为什么不能直接写在命中的锚点上：宿主给每个槽出口写死 `display: contents`
+ * （asar 里的 `ANCHOR_STYLE`，见 docs/DSH-UI-INTERFACES.md）—— 出口自己不生成盒子，
+ * `translate` 写在它身上屏上一点都不会动。用户看到"只有输入框在动"就是这个缘故：输入卡片是
+ * 有盒子的真元素，侧栏与会话文本区都只是出口。
+ * ⇒ 从出口的**父元素**往上找到第一个有自己盒子（`display !== 'contents'`）的祖先，位移落在它身上
+ * （会话文本区 = `.viewArea`，左栏 = 那一列的盒子；输入卡片本来就有盒子 ⇒ 原样返回）。
+ * 兜底：① 取不到 `getComputedStyle`（无头 / 测试挂载台）或一路 contents 走到头 ⇒ 退回父元素；
+ * ② 父元素是 body / documentElement ⇒ 返回 null（挪它们等于整页动，宁可不动）。
+ * 只在**重扫路径**上跑（帧里绝不碰 getComputedStyle）。
+ */
+function parallaxGroupBox(el) {
+  if (!el) return null;
+  const parent = el.parentElement || null;
+  if (!parent) return null;
+  const body = parallaxBody();
+  const root = typeof document === 'undefined' ? null : document.documentElement;
+  if (parent === body || parent === root) return null;
+  if (typeof getComputedStyle !== 'function') return parent;
+  let node = parent;
+  for (let up = 0; up < PARALLAX_GROUP_BOX_MAX_UP && node; up += 1) {
+    if (node === body || node === root) break;
+    let cs = null;
+    try { cs = getComputedStyle(node); } catch (e) { cs = null; }
+    if (!cs || cs.display !== 'contents') return node;
+    node = node.parentElement || null;
+  }
+  return parent;
 }
 
 /** 界面组的位移要落在**整设备像素**上：文字底下就是像素网格，落在半个像素上会被重采样成糊的。
@@ -318,14 +374,15 @@ function parallaxGroupBlocked(el) {
 }
 
 /** 各层这一帧的系数（**带符号**）：壁纸恒为 `parallaxBg`；吉祥物跟随（`parallaxMascot` 关掉时为 0）；
- *  界面组按 `parallaxUiDepth` × 各自倍率，符号取与壁纸相反（`PARALLAX_UI_FLIP`）。 */
+ *  界面组按 `parallaxUiDepth` × 各自倍率，符号取与壁纸**同向**（`PARALLAX_UI_SIGN`）。 */
 function parallaxTargetRatio(rec, st) {
   if (rec.group) {
     if (!st.ui) return 0;
     let coef = PARALLAX_GROUP_CHAT;
     if (rec.kind === 'composer') coef = PARALLAX_GROUP_COMPOSER;
     else if (rec.kind === 'sidebar') coef = PARALLAX_GROUP_SIDEBAR;
-    return -st.uiDepth * coef * PARALLAX_UI_FLIP;
+    else if (rec.kind === 'bubble') coef = PARALLAX_GROUP_BUBBLE;
+    return st.uiDepth * coef * PARALLAX_UI_SIGN;
   }
   if (rec.kind === 'mascot') return st.mascot ? st.bg : 0;
   return st.bg;
@@ -365,10 +422,12 @@ function parallaxTargetsClear() {
 /**
  * 把一个命中的节点并进下一批记录：**复用旧记录**（保住 `key`：值没变就不用重写样式），
  * 新来的按类型建一条。同一个元素只留一条 —— 壁纸 / 吉祥物先入列，所以它优先。
+ * 界面组的种类由调用方传进来（`kind`）：命中的是**槽出口**，而位移要落的**盒子**是它的父元素，
+ * 属性都在出口身上 —— 到这儿就认不出来了（见 parallaxGroupBox()）。
  * 界面组的"有没有 fixed 后代"这一项**只在帧外算**；帧里新冒出来的组先认作 blocked
  * （宁可不跟手，也别让一个还没验过的组去当别人的包含块），下一次帧外重扫再放行。
  */
-function parallaxTargetAdd(next, prev, el, group, inFrame) {
+function parallaxTargetAdd(next, prev, el, group, inFrame, kind) {
   for (let k = 0; k < next.length; k += 1) { if (next[k].el === el) return; }
   let rec = null;
   for (let j = 0; j < prev.length; j += 1) {
@@ -385,7 +444,7 @@ function parallaxTargetAdd(next, prev, el, group, inFrame) {
     el: el,
     key: '',
     group: group === true,
-    kind: group ? parallaxGroupKind(el) : parallaxTargetKind(el),
+    kind: group ? kind : parallaxTargetKind(el),
     blocked: group ? (inFrame ? true : parallaxGroupBlocked(el)) : false,
   });
 }
@@ -394,9 +453,12 @@ function parallaxTargetAdd(next, prev, el, group, inFrame) {
  * 重扫那几层（**不在帧里**：起帧路径每隔 PARALLAX_TARGETS_MS 一次，外加"帧里发现有节点掉出
  * 文档"那种罕见路径）。走掉的**当场**把类与位移收干净，新来的补进记录并让下一帧整批重写一遍
  * （新元素身上还没有位移）。
- * 界面组走**第二条选择器**，并且就地做两件挑选：① 组里套组只留最外侧那个（位移不做嵌套叠加
- * —— 外层一动，里层的文字本来就会跟着走）；② "有没有 fixed 后代"这个要遍历子树的判定只在
- * `inFrame !== true` 时做（帧里那次重扫沿用上一次的结论）。
+ * 界面组走**第二条选择器**，并且就地做四件挑选：① 组里套组只留最外侧那个（位移不做嵌套叠加
+ * —— 外层一动，里层的文字本来就会跟着走），**气泡除外**：气泡行长在会话文本区的盒子里，
+ * 那两个位移是**故意叠加**的；② 气泡只留**最近** PARALLAX_GROUP_BUBBLE_MAX 条（DOM 顺序即时间
+ * 顺序，尾巴上那几条才是屏上的）；③ 命中的锚点先换成**真正要挪的盒子**（槽出口没盒子，见
+ * parallaxGroupBox()）；④ "有没有 fixed 后代"这个要遍历子树的判定只在 `inFrame !== true` 时做
+ * （帧里那次重扫沿用上一次的结论）。
  */
 function parallaxTargetsRefresh(now, inFrame) {
   if (typeof document === 'undefined' || !document
@@ -408,15 +470,26 @@ function parallaxTargetsRefresh(now, inFrame) {
     parallaxTargetAdd(next, prev, found[i], false, inFrame);
   }
   const groups = document.querySelectorAll(PARALLAX_GROUP_SELECTOR);
+  const candidates = [];
+  const bubbles = [];
   for (let i = 0; i < groups.length; i += 1) {
-    const el = groups[i];
+    const kind = parallaxGroupKind(groups[i]);
+    if (kind === 'bubble') bubbles.push({ el: groups[i], kind: kind });
+    else candidates.push({ el: groups[i], kind: kind });
+  }
+  const from = bubbles.length > PARALLAX_GROUP_BUBBLE_MAX
+    ? bubbles.length - PARALLAX_GROUP_BUBBLE_MAX : 0;
+  for (let i = from; i < bubbles.length; i += 1) candidates.push(bubbles[i]);
+  for (let i = 0; i < candidates.length; i += 1) {
+    const el = candidates[i].el;
     let nested = false;
-    for (let j = 0; j < groups.length; j += 1) {
+    for (let j = 0; j < candidates.length; j += 1) {
       if (i === j) continue;
-      const outer = groups[j];
+      const outer = candidates[j].el;
       if (outer && typeof outer.contains === 'function' && outer.contains(el)) { nested = true; break; }
     }
-    if (!nested) parallaxTargetAdd(next, prev, el, true, inFrame);
+    if (nested && candidates[i].kind !== 'bubble') continue;
+    parallaxTargetAdd(next, prev, parallaxGroupBox(el) || el, true, inFrame, candidates[i].kind);
   }
   for (let j = 0; j < prev.length; j += 1) {
     if (prev[j].kept) { prev[j].kept = false; continue; }
@@ -552,6 +625,22 @@ function parallaxDebugFrame(t0, now, writes) {
   parallaxDebugLastMs = now;
 }
 
+/** 清点当前认到的界面组（自检用）：四档各几个、几个被 fixed 后代挡下。
+ *  纯读数，不碰 DOM —— 记录本来就在手边（自检那条路上一帧都不该多花）。 */
+function parallaxGroupCounts() {
+  const counts = { chat: 0, composer: 0, sidebar: 0, bubble: 0, blocked: 0 };
+  for (let i = 0; i < parallaxTargets.length; i += 1) {
+    const rec = parallaxTargets[i];
+    if (!rec.group) continue;
+    if (rec.blocked === true) counts.blocked += 1;
+    if (rec.kind === 'composer') counts.composer += 1;
+    else if (rec.kind === 'sidebar') counts.sidebar += 1;
+    else if (rec.kind === 'bubble') counts.bubble += 1;
+    else counts.chat += 1;
+  }
+  return counts;
+}
+
 /** 一次手势收工（或停用）时打一行结论，并把同一份对象挂到 `window.__weParallaxStats` 上。 */
 function parallaxDebugReport() {
   const stats = parallaxDebugStats;
@@ -560,6 +649,7 @@ function parallaxDebugReport() {
     frames: stats.frames,
     writes: stats.writes,
     longFrames: stats.long,
+    groups: parallaxGroupCounts(),
     costMs: {
       p50: parallaxPercentile(stats.costs, 0.5),
       p95: parallaxPercentile(stats.costs, 0.95),
@@ -579,11 +669,14 @@ function parallaxDebugReport() {
   } catch (e) { /* 只读宿主 */ }
   try {
     if (typeof console !== 'undefined' && console && typeof console.info === 'function') {
+      const g = report.groups;
       console.info('[we-parallax] 帧 ' + report.frames + ' · 写入 ' + report.writes
         + ' · 长帧(≥' + PARALLAX_LONG_FRAME_MS + 'ms) ' + report.longFrames
         + ' · 回调耗时 p50/p95/max ' + report.costMs.p50 + '/' + report.costMs.p95 + '/'
         + report.costMs.max + 'ms · 帧间隔 p50/p95/max ' + report.gapMs.p50 + '/'
-        + report.gapMs.p95 + '/' + report.gapMs.max + 'ms');
+        + report.gapMs.p95 + '/' + report.gapMs.max + 'ms'
+        + ' · 界面组 会话/输入/侧栏/气泡 ' + g.chat + '/' + g.composer + '/' + g.sidebar
+        + '/' + g.bubble + ' · 被 fixed 挡下 ' + g.blocked);
     }
   } catch (e) { /* 没有控制台 */ }
 }

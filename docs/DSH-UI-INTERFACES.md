@@ -52,11 +52,12 @@ DSH 桌面端把整份客户端 + node 宿主打进 `resources/app.asar`（Elect
 
 | 锚点 | DSH 里 | 归属 | 判定 |
 |---|---|---|---|
-| `data-composer-card` | ✅ | `dsh-client-ui-conversation` 等 | 源码作者写的属性（会话根），**稳**（但注意它不是"气泡"） |
+| `data-composer-card` | ✅ | `dsh-client-ui-conversation` 等 | 源码作者写的属性（会话根），**稳**（但注意它不是"气泡" —— 气泡的锚点是 `data-chat-flow-kind`，见下） |
+| `data-chat-flow-kind`（+ `data-chat-*` 一族） | ✅ | `dsh-client-ui-schedule` | 聊天流条目盒子上的**语义化**锚点；取值来自节点种类（`user` / `steering` / `context` / `turn-trigger` / `turn-process` / `assistant-text` …）⇒ `user` / `steering` 即用户气泡那一行，**稳**（类名是构建哈希，只能兜底） |
 | `data-question-key` / `data-plan-review-key` / `data-approval-key` | ✅ | `dsh-client-ui-user-questions` / `-approval` / `-conversation` | 工具弹卡的**容器**属性，稳 |
 | `data-turn-trigger` | ✅ | `dsh-client-ui-chat`（`TurnTriggerNodeView`） | 思考触发条的锚点，稳 |
 | `data-sidebar-right-panel` / `data-sidebar-right-open` | ✅ | `dsh-client-ui-sidebar-right` | **既有**右栏适配的落点，稳（上游曾改过隐藏机制，见 `test/compat-harness-surfaces.mjs` 的活判据） |
-| `data-slot`（**值由宿主槽注册表决定**） | ✅ 属性存在；`settings.section` ✅ | `dsh-client-ui-renderer` 写出口 | **这是"槽出口"，不是普通属性** —— 见 §3 |
+| `data-slot`（**值由宿主槽注册表决定**） | ✅ 属性存在；`settings.section` ✅ | `dsh-client-ui-renderer` 写出口 | **这是"槽出口"，不是普通属性** —— 见 §3；出口自己写死 `display: contents`（**不生成盒子**），**不能**拿它当位移 / 定位的落点 —— 见 §3.5 |
 | `data-dsh-desktop-mode` | ❌ 客户端产物 0 命中 | 桌面壳的 **URL 查询参数**，由本插件的 `src/adapter.js` 写到 body | **不是 DSH 客户端接口**（见 §3） |
 | `data-dsh-better-sidebar` / `.dsh-browser-seat-wrap` | ❌ 0 命中 | **第三方插件**（better-sidebar / dsh-webui） | 不在 DSH 保证范围内 |
 
@@ -173,6 +174,35 @@ asar 里带着宿主自己的插件编写文档：`@deepseek-ai/dsh-agent-preset
 而是渲染面）。`practices.md` 明确不建议"宿主提供 HTML 页 + iframe 嵌"这种做法 —— 我们这么做的理由与
 代价记在 [`adr/0005`](./adr/0005-media-loopback-origin.md)（媒体由宿主自建的独立 loopback 源提供），
 属于**有意的例外**，不是漏看了规则。
+
+### 3.5 槽出口**不生成盒子**，而会话文本区与用户气泡各有自己的盒子（同一次核查的补算）
+
+补算动机：本插件「3D 效果」的**界面跟随**最初只动输入卡片 —— 复算后才发现是"动错了元素"。三条已核实的锚点：
+
+- **槽出口没有盒子。** 宿主槽渲染器（`dsh-client-ui-settings-account/lib/client.js` 的 `SlotOutlet`）给**每个**出口
+  写死 `const ANCHOR_STYLE = { display: "contents" };`（注释原文：*`display:contents` keeps the wrapper out of
+  layout (grid/flex parents see the slot's own children), so the anchor is purely addressable surface.
+  Module-level constant — a stable reference so the wrapper never diffs its style prop.*），渲染形如
+  `jsx("div", { "data-slot": slotKey, style: ANCHOR_STYLE, … })`。
+  ⇒ 出口是**"可寻址的面"，不是"能动的盒子"**：`display: contents` 的元素不生成盒子，往它身上写
+  `transform` / `translate` 屏上**零效果**。要动，得动**最近的有盒子的祖先**（本插件落在
+  `parallaxGroupBox()` 上，最多往上 3 层）。这条同时解释了 §3.1 的"给宿主已有面换皮"为什么只能钉出口属性。
+- **会话文本区的盒子是 `.…_viewArea`。** 会话骨架（`dsh-client-ui-conversation` 一族）：
+  `div[data-conversation-content][data-conversation-region="chat"]`（类后缀 `_body`）>
+  `div[data-conversation-scroll]`（后缀 `_scrollBody`，`overflow-y:auto`）> [`conversation.session` 出口（`display:contents`）] >
+  `div`（后缀 `_viewArea`）> [`conversation.view` 出口（`display:contents`）] > `…_root`。
+  输入卡片（`[data-composer-card]`）是 `Views` 的**兄弟**、同在 scrollBody 里
+  ⇒ 动 `_viewArea` 只挪会话文字，不会连带输入卡片。`[data-conversation-scroll]` 是**宿主自己**写的标记
+  （本插件"侧栏滚动"那条 CSS 已在用它）。
+- **用户气泡的稳定锚点是 `data-chat-flow-kind`。** 每个聊天流条目的盒子同时挂着
+  `data-chat-anchor-key` / `data-chat-flow-key` / `data-chat-paging-anchor` / `data-chat-node-key` /
+  `data-chat-group-part` / **`data-chat-flow-kind`** / `data-chat-turn` / `data-turn-process-member` …；
+  `data-chat-flow-kind` 的值来自节点种类（`user` / `steering` / `context` / `turn-trigger` / `turn-process` /
+  `assistant-text` …）⇒ **`[data-chat-flow-kind="user"]`（+ `"steering"`）就是用户气泡那一行的锚点**，
+  而 `…_userRow` / `…_bubble` 这类类名是构建哈希、只能兜底。
+
+⚠️ 三条都属于 §2.3 说的"低稳定度那一类"：主机重建后**属性名**多半还在，但 `_viewArea` 这类后缀随时可改
+⇒ 机器判据只能证明"名字还在"（§5），语义仍要靠人复核。
 
 ## 4. 状态与待办
 

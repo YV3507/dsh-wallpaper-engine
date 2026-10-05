@@ -3135,8 +3135,8 @@ function onFxOpacity(v, live) { commitLiveSetting("fxOpacity", v, live); }
 // ── 「扩展」页签（三号模块：3D 效果）的处理器 ───────────────────────────────
 // 与上面同形：控件只报事件，写设置 + 重渲染都在这里。视差层没有网络往返与画布，
 // 它每帧现读设置 ⇒ 开关走 emit 的完整路径，滑块走 commitLiveSetting 的 live 档
-// （拖动时即时可见，抬手才落盘 + emit）。方向不是设置项（口径是"关于屏幕中心对称"、
-// 界面组与光标同向），要换向改 src/parallax-layer.js 的 PARALLAX_DIRECTION / PARALLAX_UI_FLIP。
+// （拖动时即时可见，抬手才落盘 + emit）。方向不是设置项（口径是"壁纸/吉祥物关于屏幕中心对称"、
+// 界面整块与壁纸同向），要换向改 src/parallax-layer.js 的 PARALLAX_DIRECTION / PARALLAX_UI_SIGN。
 function onParallaxEnabled(e) { setSetting("parallaxEnabled", e.target.checked); emit(); }
 function onParallaxMascot(e) { setSetting("parallaxMascot", e.target.checked); emit(); }
 function onParallaxUi(e) { setSetting("parallaxUi", e.target.checked); emit(); }
