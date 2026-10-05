@@ -497,11 +497,14 @@ console.log('\n⑦ 接线：服务句柄 / 切换评估 / 面板开关 / 内联�
   // ⚠️ 换行一律写 `\r?\n`：CI 是 CRLF 检出（windows-latest），写死 `\n` 的形态正则在那边恒不匹配
   //（实测：本批主题放回守卫因此红过一次 CI）。第二条把容忍性本身钉住 —— CRLF 变换不依赖 CI
   // 环境，所以在本地就能判红"本地绿、CI 红"的复发。
+  // ⚠️ 变换本身要先归一成 LF 再转 CRLF：CI 检出已是 CRLF，直接 replace(/\n/g) 会得到 `\r\r\n`
+  //（第二次实测踩到：这条检查自己在 CI 上红了 —— 先归一 = 幂等）。
   const releaseThenEmitRe = /themeFollowRelease\(\);\r?\n\s*emit\(\);/;
+  const toCrlf = (s) => s.replace(/\r\n/g, "\n").replace(/\n/g, "\r\n");
   check('清空路径调用放回（themeFollowRelease）—— 用户「清除」与皮肤让路两条路都汇到那里',
     releaseThenEmitRe.test(prepSrc));
   check('CRLF 容忍：同一条判据在 CRLF 检出形态上也命中（防"本地绿、CI 红"复发）',
-    releaseThenEmitRe.test(prepSrc.replace(/\n/g, "\r\n")));
+    releaseThenEmitRe.test(toCrlf(prepSrc)));
   check('放回只在 applySelection 的清空路径调（被过滤的早退分支不调 —— 选择还在，主题时代没结束）',
     prepSrc.split('themeFollowRelease()').length - 1 === 1,
     'calls=' + (prepSrc.split('themeFollowRelease()').length - 1));
