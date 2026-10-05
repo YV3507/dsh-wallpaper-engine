@@ -180,7 +180,10 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe (no 
   `--we-parallax-bg` (written once per settings change, feeding the static
   `scale: calc(1 + multiplier / 100)` in the parallax section of `src/styles.js`). The wallpaper and the
   mascot each multiply their own percentage (1% for the wallpaper by default, the mascot sharing the
-  wallpaper's value), the direction is negated so the shift is **mirrored about the screen center**
+  wallpaper's value); the interface groups (composer / conversation text area / sidebar) are governed by a
+  separate sub-switch `parallaxUi` (off by default) with `parallaxUiDepth` as the base (conversation text
+  area 1, composer x1.5, sidebar x0.6; `PARALLAX_UI_FLIP` makes the interface move **against** the
+  wallpaper, so it reads as floating in front), the direction is negated so the shift is **mirrored about the screen center**
   (cursor to the top right moves everything to the bottom left), the easing is an exponential approach per
   frame (`parallaxSmooth`, 0 = instant), and the loop stops itself as soon as the displacement left on
   screen no longer shows (zero frames while idle; frames now follow the display's real refresh rate, since
@@ -196,8 +199,12 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe (no 
   (`1 + pct / 100`) so no base color shows at the edges, and the displacement uses the CSS
   **independent properties `translate` / `scale`** rather than `transform` — the wallpaper transition's
   `resetLayerSwitchStyles` writes and clears an inline `transform`, so only the independent properties
-  compose with it. The click & trail layer deliberately does not move, and neither does any of the
-  interface (drawer, panels).
+  compose with it. The click & trail layer deliberately does not move; making the interface drift as whole
+  blocks is **another sub-switch** (`parallaxUi`, off by default) whose displacement is **snapped to whole
+  device pixels** (so text is never pushed onto half pixels) and whose `translate` is **removed entirely**
+  once it settles (the property alone establishes a containing block, which would re-anchor fixed
+  descendants); a group that contains any `position: fixed` descendant stays put, and nested groups keep
+  only the outermost one.
   On the settings
   page that hosts it,
   picking wallpapers is an in-panel drill-in view (no modals) alongside hide/restore, transitions /

@@ -3135,11 +3135,13 @@ function onFxOpacity(v, live) { commitLiveSetting("fxOpacity", v, live); }
 // ── 「扩展」页签（三号模块：3D 效果）的处理器 ───────────────────────────────
 // 与上面同形：控件只报事件，写设置 + 重渲染都在这里。视差层没有网络往返与画布，
 // 它每帧现读设置 ⇒ 开关走 emit 的完整路径，滑块走 commitLiveSetting 的 live 档
-// （拖动时即时可见，抬手才落盘 + emit）。方向不是设置项（口径是"关于屏幕中心对称"），
-// 要换向改 src/parallax-layer.js 的 PARALLAX_DIRECTION。
+// （拖动时即时可见，抬手才落盘 + emit）。方向不是设置项（口径是"关于屏幕中心对称"、
+// 界面组与光标同向），要换向改 src/parallax-layer.js 的 PARALLAX_DIRECTION / PARALLAX_UI_FLIP。
 function onParallaxEnabled(e) { setSetting("parallaxEnabled", e.target.checked); emit(); }
 function onParallaxMascot(e) { setSetting("parallaxMascot", e.target.checked); emit(); }
+function onParallaxUi(e) { setSetting("parallaxUi", e.target.checked); emit(); }
 function onParallaxBg(v, live) { commitLiveSetting("parallaxBg", v, live); }
+function onParallaxUiDepth(v, live) { commitLiveSetting("parallaxUiDepth", v, live); }
 function onParallaxSmooth(v, live) { commitLiveSetting("parallaxSmooth", v, live); }
 // ── 用户图片资产导入的共用腿（会话头像 / 吉祥物立绘）─────────────────────────
 // 两族走的是同一条链：选文件 → 解码 → 按上限缩一遍 → POST 到宿主 → 把返回的文件名记账。
@@ -4226,7 +4228,7 @@ const officialColorOf = (tokens) => {
     onFxEnabled, onFxClick, onFxClickStyle, onFxClickSize, onFxClickGlow,
     onFxTrail, onFxTrailStyle, onFxTrailLength, onFxTrailWidth, onFxTrailGlow,
     onFxOpacity, onFxBlend, onFxColorMode, onFxColor,
-    onParallaxEnabled, onParallaxBg, onParallaxMascot, onParallaxSmooth,
+    onParallaxEnabled, onParallaxBg, onParallaxMascot, onParallaxUi, onParallaxUiDepth, onParallaxSmooth,
     onAvatarEnabled, onAvatarSize, onAvatarRadius, onAvatarPick, onAvatarClear,
   });
   const renderActiveTab = () => {

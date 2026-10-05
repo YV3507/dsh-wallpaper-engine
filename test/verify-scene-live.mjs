@@ -2835,13 +2835,39 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       && parSrc.includes('function parallaxVarOn(el, prop, value)')
       && parSrc.includes('function parallaxReadViewport()')
       && parSrc.includes('function parallaxTargetLift(el, on)')
-      && parSrc.includes('function parallaxTargetsRefresh(now)')
+      && parSrc.includes('function parallaxTargetsRefresh(now, inFrame)')
       && parSrc.includes('function parallaxTargetsSettle()')
       && parSrc.includes("typeof document.querySelectorAll !== 'function'")
       // 每帧的位移是"算完乘完的最终值"，一次 setProperty 写下去（值没变就不写）。
       && parSrc.includes('function parallaxApply(st)')
       && parSrc.includes('parallaxVarOn(el, PARALLAX_TRANSLATE, value);')
       && parSrc.includes('function parallaxTargetKind(el)')
+      // 界面组（用户口径：把 3D 感扩到输入框 / 文本区 / 侧栏，且"文字本体跟着玻璃一起动"
+      // ⇒ 动的是容器）：三组各自的倍率、与壁纸相反的符号、整设备像素量化、静止摘属性、
+      // 组里有 fixed 后代就整组不动（本仓 #89 的包含块坑）。
+      && parSrc.includes('[data-composer-card], [data-slot="conversation.view"], [data-slot="sidebar"]')
+      && parSrc.includes('const PARALLAX_GROUP_CHAT = 1;')
+      && parSrc.includes('const PARALLAX_GROUP_COMPOSER = 1.5;')
+      && parSrc.includes('const PARALLAX_GROUP_SIDEBAR = 0.6;')
+      && parSrc.includes('const PARALLAX_UI_FLIP = 1;')
+      && parSrc.includes('const PARALLAX_UI_DEPTH_MIN = 0;')
+      && parSrc.includes('const PARALLAX_UI_DEPTH_MAX = 6;')
+      && parSrc.includes('const PARALLAX_GROUP_SCAN_MAX = 400;')
+      && parSrc.includes('function parallaxGroupKind(el)')
+      && parSrc.includes('function parallaxSnap(v)')
+      && parSrc.includes('function parallaxGroupBlocked(el)')
+      && parSrc.includes('function parallaxTargetUnset(rec)')
+      && parSrc.includes('function parallaxTargetAdd(next, prev, el, group, inFrame)')
+      && parSrc.includes('parallaxTargetUnset(rec);')
+      && parSrc.includes('const x = parallaxSnap(parallaxStepX * ratio);')
+      && parSrc.includes('if (x === 0 && y === 0) { parallaxTargetUnset(rec); continue; }')
+      && parSrc.includes('rec.blocked = parallaxGroupBlocked(el);')
+      && parSrc.includes("cs.position === 'fixed'")
+      && parSrc.includes('return -st.uiDepth * coef * PARALLAX_UI_FLIP;')
+      && parSrc.includes('if (!nested) parallaxTargetAdd(next, prev, el, true, inFrame);')
+      && parSrc.includes('parallaxTargetsRefresh(now, true);')
+      && parSrc.includes('if (rec.group) continue;')
+      && parSrc.includes('parallaxDpr = isFinite(dpr) && dpr > 0 ? dpr : 1;')
       // 重扫与视口补读**都在帧外**（起帧路径节流重扫）：帧里不碰 querySelectorAll / window.innerWidth。
       && parSrc.includes('function parallaxTargetsEnsure(now)')
       // 页面不可见就不排帧：document.hidden 直接返回 + visibilitychange 回来再接上。
@@ -2904,6 +2930,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     const PREV_RAF = globalThis.requestAnimationFrame;
     const PREV_CAF = globalThis.cancelAnimationFrame;
     const PREV_LS = globalThis.localStorage;
+    const PREV_GCS = globalThis.getComputedStyle;
     const storeOf = () => {
       const props = {};
       return {
@@ -2935,12 +2962,37 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     const layerEl = mkTarget('we-layer');
     const ropeEl = mkTarget('we-rope');
     const targets = [layerEl, ropeEl];
+    // 界面组用的假元素：比上面多三样 —— 宿主属性（data-slot / data-composer-card）、子树
+    // （用来验"组里有 fixed 后代就整组不动"）与 contains（用来验"组里套组只留最外侧那个"）。
+    const mkGroup = (slot, isComposer) => {
+      const el = mkTarget('we-group');
+      const attrs = {};
+      if (slot) attrs['data-slot'] = slot;
+      if (isComposer) attrs['data-composer-card'] = '';
+      el.children = [];
+      el.querySelectorAll = () => el.children;
+      el.contains = () => false;
+      el.getAttribute = (k) => (k in attrs ? attrs[k] : null);
+      el.hasAttribute = (k) => k in attrs;
+      return el;
+    };
+    // 三组 + 一个**嵌在会话文本区里**的组（只留最外侧那个）；输入卡片里塞一个 fixed 后代
+    // ⇒ 它必须整组不动（本仓 #89：translate 会让它成为那个 fixed 后代的包含块）。
+    const chatGroup = mkGroup('conversation.view');
+    const composerGroup = mkGroup(null, true);
+    const sidebarGroup = mkGroup('sidebar');
+    const nestedGroup = mkGroup('conversation.view');
+    chatGroup.contains = (other) => other === nestedGroup;
+    composerGroup.children = [{ position: 'fixed' }];
+    const groups = [chatGroup, composerGroup, sidebarGroup, nestedGroup];
     const listeners = {};
     let clock = 0;
     let pending = null;
     let threw = '';
     let movedOn = false;
+    let groupsOk = false;
     let settled = false;
+    let centerCleared = false;
     let dbgOk = false;
     let cleared = false;
     // 自检开关走 localStorage：宿主可能把它定义成只读访问器 ⇒ 用 defineProperty 覆盖。
@@ -2954,20 +3006,24 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     try {
       globalThis.document = {
         body: fakeBody,
-        querySelectorAll: () => targets,
+        // 按选择器分流：界面组那条选择器拿组，其余（壁纸 / 吉祥物）拿 targets ——
+        // "任何选择器都返回同一个数组"的老写法会把界面组当成壁纸层。
+        querySelectorAll: (sel) => (/data-composer-card|data-slot/.test(String(sel)) ? groups : targets),
         addEventListener: (type, fn) => { listeners[type] = fn; },
         removeEventListener: () => {},
       };
+      // 假 getComputedStyle：只回答 position（"组里有 fixed 后代"那条判据靠它）。
+      globalThis.getComputedStyle = (node) => ({ position: (node && node.position) || 'static' });
       globalThis.window = {
-        innerWidth: 1600, innerHeight: 900,
+        innerWidth: 1600, innerHeight: 900, devicePixelRatio: 1,
         addEventListener: () => {}, removeEventListener: () => {},
         performance: { now: () => clock },
       };
       globalThis.requestAnimationFrame = (fn) => { pending = fn; return 1; };
       globalThis.cancelAnimationFrame = () => { pending = null; };
       globalThis.selection = {
-        parallaxEnabled: true, parallaxBg: 1,
-        parallaxMascot: true, parallaxSmooth: 85,
+        parallaxEnabled: true, parallaxBg: 1, parallaxMascot: true,
+        parallaxSmooth: 85, parallaxUi: true, parallaxUiDepth: 1,
       };
       // 自检开关走 localStorage（宿主可能把它定义成只读访问器 ⇒ 用 defineProperty 覆盖）。
       setLocalStorage({ getItem: (k) => (k === 'weParallaxDebug' ? '1' : null) });
@@ -2977,6 +3033,28 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       for (let i = 0; i < 6; i += 1) step(20);       // 挪到右下角 ⇒ 目标 = (-8, -4.5)
       const moved = String(layerEl.props['translate'] || '');
       const same = targets.every((el) => el.props['translate'] === moved);
+      // 界面组：会话文本区为基准（×1）、输入卡片 ×1.5、侧栏 ×0.6；符号与壁纸相反；位移落在
+      // **整设备像素**上（dpr = 1 ⇒ 整数）；嵌套组一个位移都没有；被 fixed 后代挡住的组不动；
+      // 而且它们**一个都不许带 `we-parallax--moving`**（界面组不提合成层）。
+      const numOf = (el) => {
+        const m = /^(-?\d+\.\d\d)px (-?\d+\.\d\d)px$/.exec(String(el.props['translate'] || ''));
+        return m ? [Number(m[1]), Number(m[2])] : null;
+      };
+      const layerNum = numOf(layerEl);
+      const chatNum = numOf(chatGroup);
+      const sideNum = numOf(sidebarGroup);
+      const snapOk = [chatNum, sideNum].every((n) => n
+        && n[0] === Math.round(n[0]) && n[1] === Math.round(n[1]));
+      const dirOk = !!layerNum && !!chatNum && layerNum[0] * chatNum[0] < 0
+        && layerNum[1] * chatNum[1] < 0;
+      const depthOk = !!chatNum && !!sideNum
+        && Math.abs(sideNum[0]) < Math.abs(chatNum[0]);
+      groupsOk = snapOk && dirOk && depthOk
+        && !('translate' in nestedGroup.props)
+        && !('translate' in composerGroup.props)
+        && !chatGroup.classList.contains('we-parallax--moving')
+        && !composerGroup.classList.contains('we-parallax--moving')
+        && !sidebarGroup.classList.contains('we-parallax--moving');
       movedOn = same && /^-?\d+\.\d\dpx -?\d+\.\d\dpx$/.test(moved)
         && targets.every((el) => el.classList.contains('we-parallax--moving'))
         && !('--we-parallax-x' in bodyStore.props) && !('--we-parallax-y' in bodyStore.props)
@@ -2984,6 +3062,11 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
         && bodyStore.props['--we-parallax-bg'] === '1';
       for (let i = 0; i < 400 && pending; i += 1) step(20);   // 一直跑到收敛
       settled = pending === null && targets.every((el) => !el.classList.contains('we-parallax--moving'));
+      // 光标回到屏幕正中 ⇒ 位移归零 ⇒ 界面组那几层的 `translate` 必须**整条摘掉**
+      // （属性只要在，包含块就成立 —— 静止的界面连一个空位移都不许留）。
+      if (typeof listeners.pointermove === 'function') listeners.pointermove({ clientX: 800, clientY: 450 });
+      for (let i = 0; i < 400 && pending; i += 1) step(20);
+      centerCleared = [chatGroup, sidebarGroup, nestedGroup, composerGroup].every((el) => !('translate' in el.props));
       const dbg = globalThis.window.__weParallaxStats;
       dbgOk = !!dbg && dbg.frames > 0 && dbg.writes > 0
         && typeof dbg.costMs.p50 === 'number' && typeof dbg.gapMs.max === 'number';
@@ -2999,12 +3082,16 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       globalThis.window = PREV_WIN;
       globalThis.requestAnimationFrame = PREV_RAF;
       globalThis.cancelAnimationFrame = PREV_CAF;
+      globalThis.getComputedStyle = PREV_GCS;
       setLocalStorage(PREV_LS);
     }
-    check('parallax-layer.js 位移直接写在那几层自己的 translate 上 · body 只放补边系数 · 起帧提合成层到位摘 · 自检出帧统计 · 停用全收干净',
-      !threw && movedOn && settled && dbgOk && cleared,
-      threw || ('movedOn=' + movedOn + ' settled=' + settled + ' dbg=' + dbgOk
-        + ' cleared=' + cleared + ' translate=' + layerEl.props['translate']));
+    check('parallax-layer.js 位移直接写在那几层自己的 translate 上 · body 只放补边系数 · 起帧提合成层到位摘 · 自检出帧统计 · 停用全收干净 · 界面组量化位移/反向/分档/静止摘属性/fixed 后代整组不动',
+      !threw && movedOn && groupsOk && settled && centerCleared && dbgOk && cleared,
+      threw || ('movedOn=' + movedOn + ' groups=' + groupsOk + ' settled=' + settled
+        + ' center=' + centerCleared + ' dbg=' + dbgOk + ' cleared=' + cleared
+        + ' translate=' + layerEl.props['translate']
+        + ' chat=' + chatGroup.props['translate'] + ' sidebar=' + sidebarGroup.props['translate']
+        + ' composer=' + composerGroup.props['translate'] + ' nested=' + nestedGroup.props['translate']));
   }
   {
     // 三号模块的岛：注册表项形状 + 「关着只画总开关、开着才画 3 个参数」这条可见行为。
@@ -3013,24 +3100,32 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       sel,
       onParallaxEnabled: () => {}, onParallaxBg: () => {},
       onParallaxMascot: () => {}, onParallaxSmooth: () => {},
+      onParallaxUi: () => {}, onParallaxUiDepth: () => {},
     });
-    const PARAMS = ['背景缓动距离', '吉祥物跟随', '缓动平滑'];
+    // 界面组那一行（「界面跟随距离」）只有在「界面元素跟随」开着时才长出来 ⇒ 两套期望。
+    const PARAMS = ['背景缓动距离', '吉祥物跟随', '界面元素跟随', '缓动平滑'];
+    const UI_PARAMS = ['背景缓动距离', '吉祥物跟随', '界面元素跟随', '界面跟随距离', '缓动平滑'];
     const off = labelSeq(extParallaxMod.renderParallaxIsland(ctxOf(schemaMod.DEFAULTS)));
     const on = labelSeq(extParallaxMod.renderParallaxIsland(
       ctxOf(Object.assign({}, schemaMod.DEFAULTS, { parallaxEnabled: true }))));
+    const onUi = labelSeq(extParallaxMod.renderParallaxIsland(
+      ctxOf(Object.assign({}, schemaMod.DEFAULTS, { parallaxEnabled: true, parallaxUi: true }))));
     const mod = extParallaxMod.PARALLAX_EXTENSION_MODULE;
     const extParSrc = readFileSync(join(root, 'src', 'ext-parallax.js'), 'utf8');
     const wantOff = [globalThis.weT('启用 3D 效果')];
     const wantOn = wantOff.concat(PARAMS.map((k) => globalThis.weT(k)));
-    check('ext-parallax.js 可单独 import · 注册表项形状 · 关着只画总开关、开着才画 3 参数',
+    const wantOnUi = wantOff.concat(UI_PARAMS.map((k) => globalThis.weT(k)));
+    check('ext-parallax.js 可单独 import · 注册表项形状 · 关着只画总开关、开了才画参数（界面组那一行再等一个子开关）',
       Boolean(mod) && mod.id === 'parallax' && mod.render === extParallaxMod.renderParallaxIsland
       && typeof mod.title === 'string' && mod.title === globalThis.weT('3D 效果')
       && typeof mod.desc === 'string' && mod.desc.length > 0
       // 模块自己不许写设置 / 发通知 / 持有状态：动作一律经 ctx 里的具名处理器。
       && !extParSrc.includes('setSetting') && !extParSrc.includes('emit(')
       && !extParSrc.includes('commitLiveSetting')
-      && off.join('|') === wantOff.join('|') && on.join('|') === wantOn.join('|'),
-      'off=' + off.length + ' on=' + on.length + ' [' + on.join('|') + ']');
+      && off.join('|') === wantOff.join('|') && on.join('|') === wantOn.join('|')
+      && onUi.join('|') === wantOnUi.join('|'),
+      'off=' + off.length + ' on=' + on.length + ' onUi=' + onUi.length
+        + ' [' + on.join('|') + '] [' + onUi.join('|') + ']');
   }
 
   // ── 自定义会话头像（「扩展」页签一号模块）的两半：装饰层 + 扩展岛 ────────────────

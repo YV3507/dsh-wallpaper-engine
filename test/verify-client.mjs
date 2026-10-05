@@ -969,8 +969,9 @@ setTimeout(async () => {
         flushPersistWrites();
         const parTree = renderPicker();
         const parText = JSON.stringify(parTree);
-        for (const t of ['3D 效果', '光标移动时，壁纸与吉祥物沿屏幕中心的对称方向轻轻偏移：整块界面不动',
-          '背景缓动距离', '吉祥物跟随', '挂件也按「背景缓动距离」一起挪', '缓动平滑']) {
+        for (const t of ['3D 效果', '光标移动时，壁纸与吉祥物沿屏幕中心的对称方向轻轻偏移；界面整块默认不动（要一起动就打开下面的「界面元素跟随」）',
+          '背景缓动距离', '吉祥物跟随', '挂件也按「背景缓动距离」一起挪', '界面元素跟随',
+          '输入卡片、会话文本区与侧栏作为整块跟着挪：文字与底下的玻璃一起动', '缓动平滑']) {
           assert.ok(parText.includes(t), '打开三号模块后「扩展」页签必须有「' + t + '」');
         }
         // 另两个模块的参数**不得**因为三号开着而出现（三张卡各管各的）。
@@ -982,8 +983,8 @@ setTimeout(async () => {
         assert.equal(sliderMin(findSliderRow(parTree, '缓动平滑')), '0', '缓动平滑下限必须是 0%');
         assert.equal(sliderMax(findSliderRow(parTree, '缓动平滑')), '98', '缓动平滑上限必须是 98%');
         // 默认回显：背景是 1%（用户口径里写明的默认值 —— 改大了就是"一开就很晃"）。
-        const parReadoutOf = (labelText) => {
-          const row = findSliderRow(parTree, labelText);
+        const parReadoutOf = (labelText, tree) => {
+          const row = findSliderRow(tree || parTree, labelText);
           if (!row) return null;
           const hits = (row.children || []).filter((c) =>
             typeof c?.props?.className === 'string' && c.props.className.includes('we-picker__value'));
@@ -996,12 +997,36 @@ setTimeout(async () => {
         const parMascot = findCtlInput(parTree, '挂件也按「背景缓动距离」一起挪');
         assert.ok(parMascot, '三号模块必须画出「吉祥物跟随」子开关');
         assert.equal(parMascot && parMascot.props.checked, true, '「吉祥物跟随」默认必须是开的');
-        // 复位：总开关关掉（后续判据要的是"默认态"）。
+        // 界面组子开关默认**关**（用户口径：它动的是真实界面 —— 输入卡片、会话文本区、侧栏，
+        // 连文字一起挪，绝不能不问自取）：关着时只画它自己那一行，距离滑块连文案都不出现。
+        const parUi = findCtlInput(parTree, '输入卡片、会话文本区与侧栏作为整块跟着挪：文字与底下的玻璃一起动');
+        assert.ok(parUi, '三号模块必须画出「界面元素跟随」子开关');
+        assert.equal(parUi && parUi.props.checked, false, '「界面元素跟随」默认必须是关的');
+        assert.ok(!JSON.stringify(parTree).includes('界面跟随距离'),
+          '「界面元素跟随」关着时不该画出「界面跟随距离」');
+        if (parUi) {
+          parUi.props.onChange({ target: { checked: true } });
+          flushPersistWrites();
+          const uiTree = renderPicker();
+          assert.equal(sliderMin(findSliderRow(uiTree, '界面跟随距离')), '0', '界面跟随距离下限必须是 0%');
+          assert.equal(sliderMax(findSliderRow(uiTree, '界面跟随距离')), '6', '界面跟随距离上限必须是 6%');
+          // 默认回显 1%：这个数是**会话文本区**的距离，输入卡片 ×1.5、侧栏 ×0.6 是行为层的常数。
+          assert.equal(parReadoutOf('界面跟随距离', uiTree), '1%', '界面跟随距离默认必须是 1%');
+          // 界面组在自己那一行上还挂着一句"整块跟着挪"的说明。
+          assert.ok(JSON.stringify(uiTree).includes('输入卡片、会话文本区与侧栏作为整块跟着挪'),
+            '「界面元素跟随」必须带一句说明它是整块一起挪的');
+          const uiOff = findCtlInput(renderPicker(), '输入卡片、会话文本区与侧栏作为整块跟着挪：文字与底下的玻璃一起动');
+          if (uiOff) uiOff.props.onChange({ target: { checked: false } });
+          flushPersistWrites();
+        }
+        // 复位：总开关关掉（后续判据要的是"默认态"）。关掉之后连同界面组那两行一起收干净。
         const parOff = findCtlInput(renderPicker(), '启用 3D 效果');
         if (parOff) parOff.props.onChange({ target: { checked: false } });
         flushPersistWrites();
         assert.ok(!JSON.stringify(renderPicker()).includes('背景缓动距离'),
           '关掉三号模块总开关后它那一串参数必须收起来');
+        assert.ok(!JSON.stringify(renderPicker()).includes('界面跟随距离'),
+          '关掉三号模块总开关后界面组那一行也必须收起来');
       }
       // 唯一激活的页签是「扩展」：只数类名不看文案，能同时挡住"没切过去"与"两个都亮"。
       const activeTabs = [];

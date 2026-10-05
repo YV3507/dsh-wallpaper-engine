@@ -21,6 +21,14 @@
  *     最贵的一笔。各层的系数（`.we-layer` 用 `parallaxBg`、`.we-rope` 用 `parallaxMascot`，
  *     关掉时为 0）在 JS 里乘完再写；壁纸补边的静态 `scale` 仍由样式表用 body 上的
  *     `--we-parallax-bg` 算（那个变量只在设置变了时写一次，不在帧里）。
+ *   · **界面整块也能跟着动**（`parallaxUi`，默认关）：输入卡片 / 会话文本区 / 左栏这三组
+ *     **整体**跟着光标走（方向与壁纸相反 ⇒ 界面像浮在壁纸前面），于是**文字与它底下的玻璃
+ *     一起动** —— 动的是容器，不是文字节点，所以字不会被逐个重排。两条界面组独有的规矩：
+ *     ① 位移**量化到整设备像素**（文字底下就是像素网格，落在半个像素上会被重采样成糊的；
+ *     壁纸/吉祥物是图像层，刻意不做这件事 —— 量化反而会让它看着一顿一顿的）；
+ *     ② 位移归零时**把 `translate` 摘掉**。只要它存在（哪怕 0px），这个元素就成了 `position:
+ *     fixed` 后代的**包含块** —— 那是本仓 #89 的坑（卡片里挂着第三方插件的座位，包含块一换
+ *     就跑到卡片角上）；组里真有 fixed 后代时整组不动，见 parallaxGroupBlocked()。
  *   · **跟随真实刷新率**：不再人工封顶 60Hz（高刷屏上原来隔帧跑 —— 位移一样但看着不够连贯）。
  *     缓动本来就按真实 dt 折算，所以手感与封顶时一致。
  *   · **帧里零测量**：帧内不读 `window.innerWidth`、不 `querySelectorAll`、更不碰
@@ -36,7 +44,9 @@
  *   · **壁纸要补边**：位移最大为 `pct/100 × 视口宽 / 2`（横向）、`pct/100 × 视口高 / 2`（纵向），
  *     而 `.we-layer` 正好是视口大小 ⇒ 不补边就会在边上露出底色。所以壁纸层同时放大
  *     `1 + pct/100`（见 src/styles.js 的视差段）—— 恰好多出"最大位移 × 2"那点余量。
- *   · **各层各自的百分比**：壁纸走 `parallaxBg`；吉祥物跟着壁纸（`parallaxMascot` 可关）。
+ *   · **各层各自的百分比**：壁纸走 `parallaxBg`；吉祥物跟着壁纸（`parallaxMascot` 可关）；
+ *     界面那三组共用一个 `parallaxUiDepth`，各自再乘一个固定倍率（会话文本区 ×1、
+ *     输入卡片 ×1.5、左栏 ×0.6 —— 三层之间因此有一点纵深，见 PARALLAX_GROUP_*）。
  *   · **点击与拖尾效果（`src/fx-layer.js` 那一层）刻意不参与**（用户口径第 3 条）：那层画的是"屏上的笔迹"，
  *     跟着挪会让落点与光效错位。
  *   · **自检开关**：`localStorage.weParallaxDebug = '1'` ⇒ 记每帧的回调耗时、写入次数与帧间隔，
@@ -46,10 +56,11 @@
  * 契约：
  *   需要的外界：`selection`（设置 store，只读）、`document.body`（写 1 个"壁纸补边系数"与一个
  *   开关属性）、还有**那几层元素自己**（`.we-layer` / `.we-rope`：写 `translate` 与
- *   临时的合成层提示）。
+ *   临时的合成层提示）+ **接口那三个容器**（输入卡片 / 会话文本区 / 左栏：只写 `translate`，
+ *   绝不加类、不加 `will-change`）。
  *   对外提供：`syncParallaxLayer()`（设置变了就调一次）、`disposeParallaxLayer()`（卸载清理）。
  *   设置项（`parallax*`，真源 lib/settings-schema.js）：总开关 / 背景距离 /
- *   吉祥物是否跟随 / 缓动平滑。
+ *   吉祥物是否跟随 / 界面整块是否跟随 / 界面距离 / 缓动平滑。
  *
  * 不变量：
  *   · **一个 DOM 节点都不建**：屏上那几层（壁纸 / 吉祥物）本来就存在，本层只写样式 ——
@@ -82,6 +93,8 @@ const PARALLAX_DIRECTION = -1;
  *  平滑 0..98（100% 等于永远不动）。 */
 const PARALLAX_BG_MIN = 0;
 const PARALLAX_BG_MAX = 10;
+const PARALLAX_UI_DEPTH_MIN = 0;
+const PARALLAX_UI_DEPTH_MAX = 6;
 const PARALLAX_SMOOTH_MIN = 0;
 const PARALLAX_SMOOTH_MAX = 98;
 /** 位移步长的最小"到位"距离（px / 每 1%）：兜底阈值，常态用的是下面按可见位移折算的那个。 */
@@ -98,6 +111,22 @@ const PARALLAX_IDLE_MS = 180;
 const PARALLAX_IDLE_VISIBLE_PX = 1;
 /** 要动的那几层（与 src/styles.js 视差段的规则一一对应）：壁纸层与吉祥物。 */
 const PARALLAX_TARGET_SELECTOR = '.we-layer, .we-rope';
+/** 跟着动的**界面整块**（开关 `parallaxUi`）—— 三组都是宿主真实锚点（见 docs/DSH-UI-INTERFACES.md
+ *  与 test/verify-glass-surfaces.mjs 的玻璃面登记表）：`[data-composer-card]` 输入卡片、
+ *  `[data-slot="conversation.view"]` 会话文本区、`[data-slot="sidebar"]` 左栏。
+ *  ⚠️ 动的是**容器**：文字本体跟着走靠的就是"整块一起挪"（逐字加 transform 只会糊）。 */
+const PARALLAX_GROUP_SELECTOR = '[data-composer-card], [data-slot="conversation.view"], [data-slot="sidebar"]';
+/** 界面组的固定倍率（不是设置项：用户只调"界面跟随距离"这一个数）—— 会话文本区是基准，
+ *  输入卡片最靠前、左栏最靠后；三个数差得不多，纵深才自然。 */
+const PARALLAX_GROUP_CHAT = 1;
+const PARALLAX_GROUP_COMPOSER = 1.5;
+const PARALLAX_GROUP_SIDEBAR = 0.6;
+/** 界面组的符号：+1 = **与壁纸反向**（壁纸往左、界面往右 ⇒ 界面浮在壁纸前面）。
+ *  想让它跟壁纸同向就改成 -1。 */
+const PARALLAX_UI_FLIP = 1;
+/** 每个界面组最多扫这么多节点去找 `position: fixed` 后代：超过就认作"没验完"（照动）。
+ *  一个几千节点的会话流上每 250ms 全量 getComputedStyle 是不行的。 */
+const PARALLAX_GROUP_SCAN_MAX = 400;
 /** 帧循环在跑的这段时间加在目标上的类（样式段只在开关属性下给它 will-change）—— 收工即摘。 */
 const PARALLAX_MOVING_CLASS = 'we-parallax--moving';
 /** 目标重扫间隔：壁纸层会换节点，所以起帧路径上定期重扫一次（**不在帧里**）。 */
@@ -105,6 +134,7 @@ const PARALLAX_TARGETS_MS = 250;
 /** 光标在屏幕外 / 还没动过时的位移：读不到真实尺寸时的兜底中心，也是"零位移"的那一点。 */
 const PARALLAX_BG_DEFAULT = 1;
 const PARALLAX_SMOOTH_DEFAULT = 85;
+const PARALLAX_UI_DEPTH_DEFAULT = 1;
 /** 每帧写下去的那条 CSS 独立属性（不能用 transform：壁纸过场会内联写 / 清它）。 */
 const PARALLAX_TRANSLATE = 'translate';
 /** 只写一次的那个"壁纸补边系数"（与 src/styles.js 的 `scale: calc(1 + 变量 / 100)` 逐字对应）：
@@ -133,6 +163,8 @@ let parallaxRatioKey = '';
 /** 视口尺寸（只在起帧、resize 与"冷路径补读"时读一次：帧里不再问 window，省掉每帧那次布局查询）。 */
 let parallaxVw = 0;
 let parallaxVh = 0;
+/** 设备像素比（界面组的位移要量化到**整设备像素**上）：与视口一样只在帧外读。 */
+let parallaxDpr = 0;
 /** 最近一次 pointermove 的时刻（判"光标静下来了"）与要动的那几层的记录（见 parallaxTargetsRefresh）。 */
 let parallaxMoveMs = 0;
 let parallaxTargets = [];
@@ -167,6 +199,9 @@ function parallaxSettings() {
     on: selection.parallaxEnabled === true,
     bg: parallaxClamp(selection.parallaxBg, PARALLAX_BG_MIN, PARALLAX_BG_MAX, PARALLAX_BG_DEFAULT),
     mascot: selection.parallaxMascot !== false,
+    ui: selection.parallaxUi === true,
+    uiDepth: parallaxClamp(selection.parallaxUiDepth, PARALLAX_UI_DEPTH_MIN, PARALLAX_UI_DEPTH_MAX,
+      PARALLAX_UI_DEPTH_DEFAULT),
     smooth: parallaxClamp(selection.parallaxSmooth, PARALLAX_SMOOTH_MIN, PARALLAX_SMOOTH_MAX,
       PARALLAX_SMOOTH_DEFAULT),
   };
@@ -195,6 +230,8 @@ function parallaxReadViewport() {
   const h = win ? Math.round(Number(win.innerHeight)) : 0;
   parallaxVw = isFinite(w) && w > 0 ? w : 0;
   parallaxVh = isFinite(h) && h > 0 ? h : 0;
+  const dpr = win ? Number(win.devicePixelRatio) : 0;
+  parallaxDpr = isFinite(dpr) && dpr > 0 ? dpr : 1;
 }
 
 /** 页面是否不可见（后台标签页 / 最小化）：不可见时一帧都不排 —— 那点位移没人看，
@@ -231,8 +268,65 @@ function parallaxTargetKind(el) {
   return 'bg';
 }
 
-/** 各层这一帧的系数：壁纸恒为 `parallaxBg`；吉祥物跟随（`parallaxMascot` 关掉时为 0）。 */
+/** 界面组的种类：按宿主锚点认（`parallaxTargetsRefresh` 只把组查询命中的节点交进来）。
+ *  `data-slot` 优先 —— 它是宿主槽出口，比类名稳；认不出来按基准档（会话文本区）算。 */
+function parallaxGroupKind(el) {
+  if (!el) return 'chat';
+  let slot = null;
+  if (typeof el.getAttribute === 'function') {
+    try { slot = el.getAttribute('data-slot'); } catch (e) { slot = null; }
+  }
+  if (slot === 'sidebar') return 'sidebar';
+  if (slot === 'conversation.view') return 'chat';
+  if (typeof el.hasAttribute === 'function') {
+    try { if (el.hasAttribute('data-composer-card')) return 'composer'; } catch (e) { /* 只读宿主 */ }
+  }
+  const cls = ' ' + String((el && el.className) || '') + ' ';
+  if (cls.indexOf(' data-composer-card ') >= 0) return 'composer';
+  return 'chat';
+}
+
+/** 界面组的位移要落在**整设备像素**上：文字底下就是像素网格，落在半个像素上会被重采样成糊的。
+ *  壁纸 / 吉祥物是图像层、刻意不做这件事（量化反而会让它看着一顿一顿的）。 */
+function parallaxSnap(v) {
+  const dpr = parallaxDpr > 0 ? parallaxDpr : 1;
+  const snapped = Math.round(v * dpr) / dpr;
+  return snapped === 0 ? 0 : snapped;
+}
+
+/**
+ * 这个界面组里有没有 `position: fixed` 的后代 —— 有就**整组不动**。
+ * 为什么：`translate` 只要不是 none，这个元素就成了 fixed 后代的**包含块**，那些后代会从
+ * "钉在视口上"变成"钉在这个盒子上"（本仓 #89：第三方插件把座位挂在输入卡片里，包含块一换
+ * 就跑到卡片角上、还多出幽灵溢出）。
+ * 只在**重扫路径**上跑（帧里绝不碰）：先看节点数，超过 PARALLAX_GROUP_SCAN_MAX 就认作
+ * "没验完"（照动）—— 会话流动辄几千节点，每 250ms 全量 getComputedStyle 是不行的。
+ * 取不到 `getComputedStyle`（无头 / 测试挂载台）时按"没有"算。
+ */
+function parallaxGroupBlocked(el) {
+  if (!el || typeof el.querySelectorAll !== 'function') return false;
+  if (typeof getComputedStyle !== 'function') return false;
+  let nodes = null;
+  try { nodes = el.querySelectorAll('*'); } catch (e) { return false; }
+  if (!nodes || nodes.length > PARALLAX_GROUP_SCAN_MAX) return false;
+  for (let i = 0; i < nodes.length; i += 1) {
+    let cs = null;
+    try { cs = getComputedStyle(nodes[i]); } catch (e) { cs = null; }
+    if (cs && cs.position === 'fixed') return true;
+  }
+  return false;
+}
+
+/** 各层这一帧的系数（**带符号**）：壁纸恒为 `parallaxBg`；吉祥物跟随（`parallaxMascot` 关掉时为 0）；
+ *  界面组按 `parallaxUiDepth` × 各自倍率，符号取与壁纸相反（`PARALLAX_UI_FLIP`）。 */
 function parallaxTargetRatio(rec, st) {
+  if (rec.group) {
+    if (!st.ui) return 0;
+    let coef = PARALLAX_GROUP_CHAT;
+    if (rec.kind === 'composer') coef = PARALLAX_GROUP_COMPOSER;
+    else if (rec.kind === 'sidebar') coef = PARALLAX_GROUP_SIDEBAR;
+    return -st.uiDepth * coef * PARALLAX_UI_FLIP;
+  }
   if (rec.kind === 'mascot') return st.mascot ? st.bg : 0;
   return st.bg;
 }
@@ -249,6 +343,18 @@ function parallaxTargetClear(rec) {
   rec.key = '';
 }
 
+/** 把位移从元素上收掉（界面组归零时走这条）。界面组静止时**一点 `translate` 都不能留**：
+ *  属性在、值哪怕是 `0px 0px`，包含块也照样成立（见文件头 ②）。`key` 为空表示这个元素身上
+ *  本来就没有本层写的位移 ⇒ 一次样式写入都不做（光标停住之后这里彻底安静）。 */
+function parallaxTargetUnset(rec) {
+  if (!rec || !rec.key) return;
+  rec.key = '';
+  const style = rec.el && rec.el.style;
+  if (style && typeof style.removeProperty === 'function') {
+    try { style.removeProperty(PARALLAX_TRANSLATE); } catch (e) { /* 已卸载 */ }
+  }
+}
+
 function parallaxTargetsClear() {
   for (let i = 0; i < parallaxTargets.length; i += 1) parallaxTargetClear(parallaxTargets[i]);
   parallaxTargets = [];
@@ -257,24 +363,60 @@ function parallaxTargetsClear() {
 }
 
 /**
+ * 把一个命中的节点并进下一批记录：**复用旧记录**（保住 `key`：值没变就不用重写样式），
+ * 新来的按类型建一条。同一个元素只留一条 —— 壁纸 / 吉祥物先入列，所以它优先。
+ * 界面组的"有没有 fixed 后代"这一项**只在帧外算**；帧里新冒出来的组先认作 blocked
+ * （宁可不跟手，也别让一个还没验过的组去当别人的包含块），下一次帧外重扫再放行。
+ */
+function parallaxTargetAdd(next, prev, el, group, inFrame) {
+  for (let k = 0; k < next.length; k += 1) { if (next[k].el === el) return; }
+  let rec = null;
+  for (let j = 0; j < prev.length; j += 1) {
+    if (prev[j].el === el && prev[j].group === group) { rec = prev[j]; break; }
+  }
+  if (rec) {
+    rec.kept = true;
+    // 判定会随时间变（第三方座位挂上来 / 撤走、宿主换容器实现）⇒ 每次帧外重扫都重验一遍。
+    if (group && !inFrame) rec.blocked = parallaxGroupBlocked(el);
+    next.push(rec);
+    return;
+  }
+  next.push({
+    el: el,
+    key: '',
+    group: group === true,
+    kind: group ? parallaxGroupKind(el) : parallaxTargetKind(el),
+    blocked: group ? (inFrame ? true : parallaxGroupBlocked(el)) : false,
+  });
+}
+
+/**
  * 重扫那几层（**不在帧里**：起帧路径每隔 PARALLAX_TARGETS_MS 一次，外加"帧里发现有节点掉出
  * 文档"那种罕见路径）。走掉的**当场**把类与位移收干净，新来的补进记录并让下一帧整批重写一遍
  * （新元素身上还没有位移）。
+ * 界面组走**第二条选择器**，并且就地做两件挑选：① 组里套组只留最外侧那个（位移不做嵌套叠加
+ * —— 外层一动，里层的文字本来就会跟着走）；② "有没有 fixed 后代"这个要遍历子树的判定只在
+ * `inFrame !== true` 时做（帧里那次重扫沿用上一次的结论）。
  */
-function parallaxTargetsRefresh(now) {
+function parallaxTargetsRefresh(now, inFrame) {
   if (typeof document === 'undefined' || !document
     || typeof document.querySelectorAll !== 'function') return;
-  const found = document.querySelectorAll(PARALLAX_TARGET_SELECTOR);
   const prev = parallaxTargets;
   const next = [];
+  const found = document.querySelectorAll(PARALLAX_TARGET_SELECTOR);
   for (let i = 0; i < found.length; i += 1) {
-    const el = found[i];
-    let rec = null;
-    for (let j = 0; j < prev.length; j += 1) {
-      if (prev[j].el === el) { rec = prev[j]; prev[j].kept = true; break; }
+    parallaxTargetAdd(next, prev, found[i], false, inFrame);
+  }
+  const groups = document.querySelectorAll(PARALLAX_GROUP_SELECTOR);
+  for (let i = 0; i < groups.length; i += 1) {
+    const el = groups[i];
+    let nested = false;
+    for (let j = 0; j < groups.length; j += 1) {
+      if (i === j) continue;
+      const outer = groups[j];
+      if (outer && typeof outer.contains === 'function' && outer.contains(el)) { nested = true; break; }
     }
-    if (!rec) rec = { el: el, key: '', kind: parallaxTargetKind(el) };
-    next.push(rec);
+    if (!nested) parallaxTargetAdd(next, prev, el, true, inFrame);
   }
   for (let j = 0; j < prev.length; j += 1) {
     if (prev[j].kept) { prev[j].kept = false; continue; }
@@ -291,9 +433,14 @@ function parallaxTargetsEnsure(now) {
   parallaxTargetsRefresh(now);
 }
 
-/** 收工：把合成层提示摘掉（本仓刻意不留常驻合成层）；位移留着，下次 pointermove 直接续上。 */
+/** 收工：把合成层提示摘掉（本仓刻意不留常驻合成层）；位移留着，下次 pointermove 直接续上。
+ *  界面组从不提层（它连本层的类都不该有）⇒ 这里跳过它。 */
 function parallaxTargetsSettle() {
-  for (let i = 0; i < parallaxTargets.length; i += 1) parallaxTargetLift(parallaxTargets[i].el, false);
+  for (let i = 0; i < parallaxTargets.length; i += 1) {
+    const rec = parallaxTargets[i];
+    if (rec.group) continue;
+    parallaxTargetLift(rec.el, false);
+  }
 }
 
 /** 壁纸补边的系数（只在设置变了时写一次，落在 body 上）：位移由 JS 算，这条只喂
@@ -318,6 +465,7 @@ function parallaxRatioClear() {
 /**
  * 把这一帧的位移写下去（每帧一次，**只写要动的那几层自己**）：两位小数够用 —— 再细也看不出来，
  * 而"值没变就不写"这一条让静止的那些帧一次样式写入都没有。
+ * 界面组走另一条腿：量化到整设备像素、归零就摘属性、组里有 fixed 后代时不动它（见文件头）。
  * 返回写了几次；顺带记下"有节点掉出文档"（壁纸换节点），由调用方决定何时重扫。
  */
 function parallaxApply(st) {
@@ -327,7 +475,18 @@ function parallaxApply(st) {
     const rec = parallaxTargets[i];
     const el = rec.el;
     if (!el || el.isConnected === false) { parallaxStale = true; continue; }
-    const ratio = parallaxTargetRatio(rec, st);
+    const ratio = rec.group && rec.blocked === true ? 0 : parallaxTargetRatio(rec, st);
+    if (rec.group) {
+      const x = parallaxSnap(parallaxStepX * ratio);
+      const y = parallaxSnap(parallaxStepY * ratio);
+      if (x === 0 && y === 0) { parallaxTargetUnset(rec); continue; }
+      const uiValue = x.toFixed(2) + 'px ' + y.toFixed(2) + 'px';
+      if (uiValue === rec.key) continue;
+      rec.key = uiValue;
+      parallaxVarOn(el, PARALLAX_TRANSLATE, uiValue);
+      writes += 1;
+      continue;
+    }
     const value = (parallaxStepX * ratio).toFixed(2) + 'px '
       + (parallaxStepY * ratio).toFixed(2) + 'px';
     if (value === rec.key) continue;
@@ -553,9 +712,10 @@ function parallaxFrame(ms) {
   parallaxRatios(st);
   writes = parallaxApply(st);
   // 罕见路径：壁纸换了节点（写的时候发现它已经掉出文档）⇒ 重扫一次再补写，
-  // 否则这一帧的位移就落在了一个没人看的节点上。
+  // 否则这一帧的位移就落在了一个没人看的节点上。这是**帧里**的重扫 ⇒ 界面组那项子树判定沿用
+  // 上一次的结论（帧外那次已经算过），组里新冒出来的节点先按 blocked 处理。
   if (parallaxStale) {
-    parallaxTargetsRefresh(now);
+    parallaxTargetsRefresh(now, true);
     writes += parallaxApply(st);
   }
   if (!doneX || !doneY) parallaxKick();
@@ -596,6 +756,7 @@ function parallaxStop() {
   parallaxRatioKey = '';
   parallaxVw = 0;
   parallaxVh = 0;
+  parallaxDpr = 0;
   parallaxDebugReport();
   parallaxDebugOn = false;
   parallaxDebugStats = null;

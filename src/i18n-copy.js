@@ -651,13 +651,17 @@ const WE_I18N_EN = {
   //    这一节刻意不登记 `%`（SliderRow 的单位后缀是代码里的字面量，不进词表），
   //    也没有与另两个模块共用的键 —— 文案都是这一个模块自己的。
   "3D 效果": "3D effect",
-  "光标移动时，壁纸与吉祥物沿屏幕中心的对称方向轻轻偏移（视差纵深）": "Shifts the wallpaper and the mascot gently along the direction mirrored about the screen center as the cursor moves (parallax depth)",
+  "光标移动时，壁纸、吉祥物与界面整块沿屏幕中心的对称方向轻轻偏移（视差纵深）": "Shifts the wallpaper, the mascot and the whole interface gently along the direction mirrored about the screen center as the cursor moves (parallax depth)",
   "启用 3D 效果": "Enable 3D effect",
-  "光标移动时，壁纸与吉祥物沿屏幕中心的对称方向轻轻偏移：整块界面不动": "As the cursor moves, the wallpaper and the mascot drift gently in the direction mirrored about the screen center: the interface itself never moves",
+  "光标移动时，壁纸与吉祥物沿屏幕中心的对称方向轻轻偏移；界面整块默认不动（要一起动就打开下面的「界面元素跟随」）": "As the cursor moves, the wallpaper and the mascot drift gently in the direction mirrored about the screen center; the interface itself stays put unless you turn on Interface follows below",
   "背景缓动距离": "Background travel",
   "光标走完一整条对角线时，壁纸挪动的距离占该对角线的百分比（壁纸会同时放大同样多，免得边上露出底色）": "How far the wallpaper travels, as a percentage of the longest diagonal, when the cursor crosses that whole diagonal (the wallpaper is scaled up by the same amount, so no base color shows at the edges)",
   "吉祥物跟随": "Mascot follows",
   "挂件也按「背景缓动距离」一起挪": "The mascot drifts along using the background travel distance",
+  "界面元素跟随": "Interface follows",
+  "输入卡片、会话文本区与侧栏作为整块跟着挪：文字与底下的玻璃一起动": "The composer, the conversation text area and the sidebar drift as whole blocks: the text moves together with the glass underneath it",
+  "界面跟随距离": "Interface travel",
+  "光标走完一整条对角线时，会话文本区挪动的距离占该对角线的百分比；输入卡片挪得更远些（×1.5）、侧栏更近些（×0.6），三层之间因此有一点纵深": "How far the conversation text area travels, as a percentage of the longest diagonal, when the cursor crosses that whole diagonal; the composer travels further (x1.5) and the sidebar less (x0.6), so the three layers gain a little depth",
   "缓动平滑": "Easing smoothness",
   "0 = 立刻跟手，越大越柔和（跟得越慢、停下后还会飘一小段才归位）": "0 = follows the cursor instantly; higher values are softer (it trails behind and keeps drifting a little after the cursor stops)",
 
