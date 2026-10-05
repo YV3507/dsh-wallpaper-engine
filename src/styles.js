@@ -3015,28 +3015,25 @@ body[data-we-glass-floaters] .we-repo-panel {
   }
 
   /* ── 「扩展」三号模块：3D 效果（视差；行为层见 src/parallax-layer.js）──
-     这一层与前面几层刚好相反：**它一个 DOM 节点都不建**。视差层只写自定义属性：2 个"各层要乘的
-     系数"写在 body 上（只在设置变了时写一次），-x / -y 这两个"光标偏离屏幕中心的步长"写在
-     **要动的那几层自己**身上（每帧写 —— 自定义属性是继承的，写在 body 上等于每帧让整棵文档树
-     重算样式），另加一个开关属性 data-we-parallax；位移、放大倍数与"谁跟着动"全在这里用 calc 算。
+     这一层与前面几层刚好相反：**它一个 DOM 节点都不建**。位移由行为层每帧**直接写进
+     .we-layer / .we-rope 自己的** translate（CSS 独立属性）—— 每帧一个自定义属性都不写，
+     因为自定义属性是继承的，写一次就会让整棵子树重算样式（口径与前后对比见 docs/CHANGELOG.md
+     的「3D 效果动效开销」一条）。所以样式表这边只剩两件事：
+     ① body 上的一个"壁纸补边系数"（只在设置变了时写一次）算出 .we-layer 的**静态**放大 ——
+        壁纸层正好是视口大小，横向最大位移 = 系数/100 × 半屏宽，放大同样多就不会在边上露出底色；
+     ② 一个总开关属性 data-we-parallax：只有它在时上面那条补边规则才命中；关掉 ⇒ 屏上一点
+        痕迹都没有（位移由行为层 removeProperty 收干净）。
      这么写有两个好处：① 不新增节点 ⇒ 不参与 stacking、不会被别的层顺手清掉；
-     ② 关掉总开关时连属性都不在 ⇒ 屏上一点痕迹都没有（下面每条规则都挂在开关属性下）。
+     ② 关掉总开关时连属性都不在 ⇒ 补边与位移一起消失。
      硬约束：**只能用 CSS 独立属性 translate / scale，不能用 transform** —— 壁纸层的过场
      （src/live-layer.js 的 resetLayerSwitchStyles）与 .we-layer--repaint 会内联写 / 清
      transform，独立属性才与它们叠加，而不是互相覆盖。
      系数口径：光标走完一整条对角线时，该层挪"它那个系数"个百分点的对角线（推导见行为层
-     文件头）。壁纸层同时放大 1 + 系数/100 补边：横向最大位移 = 系数/100 × 半屏宽，
-     放大同样多就不会在边上露出底色。
-     兜底都是 0px / 0：变量还没写上时位移为零（例如刚开开关、第一帧还没跑）。
+     文件头）；系数由行为层乘进位移里（壁纸走 parallaxBg、吉祥物走 parallaxMascot）。
+     兜底是 0：变量还没写上时放大倍数为 1（例如刚开开关、第一帧还没跑）。
      **点击与拖尾那一层刻意不参与**（用户口径：特效不跟着偏移）。 */
   body[data-we-parallax="on"] .we-layer {
-    translate: calc(var(--we-parallax-x, 0px) * var(--we-parallax-bg, 0))
-      calc(var(--we-parallax-y, 0px) * var(--we-parallax-bg, 0));
     scale: calc(1 + var(--we-parallax-bg, 0) / 100);
-  }
-  body[data-we-parallax="on"] .we-rope {
-    translate: calc(var(--we-parallax-x, 0px) * var(--we-parallax-mascot, 0))
-      calc(var(--we-parallax-y, 0px) * var(--we-parallax-mascot, 0));
   }
   /* 只有"正在动的那几帧"才把它们提成独立合成层：提上去之后每帧只是挪现成的纹理，
      合成器直接做，不必把满屏壁纸重绘一遍。类由行为层在起帧时加上、到位收工与关掉总开关时

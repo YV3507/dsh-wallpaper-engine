@@ -2788,10 +2788,12 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     // 源码口径：这一层的要点全是"看不见的形态"（不建 DOM、只用独立属性可用量、中心对称、
     // 到位就停、系数可配、特效层不参与）。逐条钉住，改坏了当场红。
     const parSrc = readFileSync(join(root, 'src', 'parallax-layer.js'), 'utf8');
-    check('parallax-layer.js 不建 DOM + 变量与开关属性 + 中心对称(负向) + 收敛驱动 + 特效不参与 + 低开销',
+    check('parallax-layer.js 不建 DOM + 独立属性直接写位移 + 中心对称(负向) + 收敛驱动 + 特效不参与 + 帧内零测量',
       parSrc.includes("const PARALLAX_DIRECTION = -1;")
       && parSrc.includes("const PARALLAX_ATTR = 'data-we-parallax';")
-      && parSrc.includes("const PARALLAX_VAR_X = '--we-parallax-x';")
+      // 每帧写的是**位移本身**，落在 CSS 独立属性 translate 上（自定义属性一个都不写）。
+      && parSrc.includes("const PARALLAX_TRANSLATE = 'translate';")
+      && parSrc.includes("const PARALLAX_VAR_BG = '--we-parallax-bg';")
       // 系数就近钳位（范围不引 lib/settings-schema.js：单文件 import 时会 ReferenceError）。
       && parSrc.includes('const PARALLAX_BG_MIN = 0;') && parSrc.includes('const PARALLAX_BG_MAX = 10;')
       && parSrc.includes('const PARALLAX_SMOOTH_MAX = 98;')
@@ -2819,13 +2821,14 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       && parSrc.includes("window.addEventListener('resize', parallaxOnResize, { passive: true })")
       // ⑥ 点击/拖尾那一层**刻意不参与**（用户口径：特效不跟着偏移）—— 连类名都不该出现。
       && !parSrc.includes('we-fx')
-      // ⑧ **低开销**（用户口径：动效的性能开销较高）：位移步长只写在要动的那几层自己身上
-      //    （自定义属性是继承的 —— 写在 body 上等于每帧让整棵文档树重算样式），系数才落 body；
-      //    帧率封顶 60Hz（高刷屏隔帧跑）；"到位"按**看得见的位移**折算、光标静下来后放宽；
-      //    系数全 0 时一帧都不排；起帧才提合成层、收工摘掉；视口只在起帧与 resize 时读。
+      // ⑧ **低开销**（用户口径：动效的性能开销较高）：位移每帧直接写在那几层自己的 translate 上，
+      //    **一个自定义属性都不写**（自定义属性是继承的 —— 写一次就让整棵子树重算样式），
+      //    body 上只剩一个"壁纸补边系数"（设置变了才写一次）；不再人工封顶 60Hz（跟随真实刷新率）；
+      //    "到位"按**看得见的位移**折算、光标静下来后放宽；系数全 0 时一帧都不排；
+      //    帧里零测量（视口只在起帧 / resize 读，重扫挪到起帧路径）；页面不可见不排帧；
+      //    起帧才提合成层、收工摘掉。
       && parSrc.includes("const PARALLAX_TARGET_SELECTOR = '.we-layer, .we-rope';")
       && parSrc.includes("const PARALLAX_MOVING_CLASS = 'we-parallax--moving';")
-      && parSrc.includes('const PARALLAX_MIN_FRAME_MS = PARALLAX_FRAME_MS * 0.75;')
       && parSrc.includes('const PARALLAX_SETTLE_VISIBLE_PX = 0.25;')
       && parSrc.includes('const PARALLAX_IDLE_MS = 180;')
       && parSrc.includes('const PARALLAX_IDLE_VISIBLE_PX = 1;')
@@ -2835,49 +2838,72 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       && parSrc.includes('function parallaxTargetsRefresh(now)')
       && parSrc.includes('function parallaxTargetsSettle()')
       && parSrc.includes("typeof document.querySelectorAll !== 'function'")
-      && parSrc.includes('if (parallaxLastMs && now - parallaxLastMs < PARALLAX_MIN_FRAME_MS) { parallaxKick(); return; }')
+      // 每帧的位移是"算完乘完的最终值"，一次 setProperty 写下去（值没变就不写）。
+      && parSrc.includes('function parallaxApply(st)')
+      && parSrc.includes('parallaxVarOn(el, PARALLAX_TRANSLATE, value);')
+      && parSrc.includes('function parallaxTargetKind(el)')
+      // 重扫与视口补读**都在帧外**（起帧路径节流重扫）：帧里不碰 querySelectorAll / window.innerWidth。
+      && parSrc.includes('function parallaxTargetsEnsure(now)')
+      // 页面不可见就不排帧：document.hidden 直接返回 + visibilitychange 回来再接上。
+      && parSrc.includes('function parallaxHidden()')
+      && parSrc.includes("document.addEventListener('visibilitychange', parallaxOnVisibility, { passive: true })")
+      // 自检开关（localStorage.weParallaxDebug = '1'）：每帧耗时 / 写入次数 / 帧间隔 → 收工打一行。
+      && parSrc.includes("const PARALLAX_DEBUG_KEY = 'weParallaxDebug';")
+      && parSrc.includes('function parallaxDebugSync(now)')
+      && parSrc.includes('function parallaxDebugFrame(t0, now, writes)')
+      && parSrc.includes('function parallaxDebugReport()')
+      && parSrc.includes('win.__weParallaxStats = report;')
       && parSrc.includes('const pctMax = st.bg;')
       && parSrc.includes('if (pctMax <= 0) {')
       && parSrc.includes('const idle = parallaxMoveMs > 0 && now - parallaxMoveMs >= PARALLAX_IDLE_MS;')
-      && parSrc.includes('parallaxVarOn(rec.el, PARALLAX_VAR_X, x);')
-      && parSrc.includes('parallaxVarOn(rec.el, PARALLAX_VAR_Y, y);')
-      && parSrc.includes('parallaxTargetLift(rec.el, true);')
-      // 反向：步长**不再**写 body（body 上只剩 2 个系数与开关属性），旧的 body 版写入函数已删。
+      && parSrc.includes('parallaxTargetLift(el, true);')
+      // 反向：每帧写自定义属性那条老路整条消失（不再有 -x / -y，也不再有 60Hz 封顶那三行），
+      // 旧的 body 版写入函数也删了。
+      && !parSrc.includes('--we-parallax-x')
+      && !parSrc.includes('--we-parallax-y')
+      && !parSrc.includes('PARALLAX_MIN_FRAME_MS')
       && !parSrc.includes('parallaxVarOn(parallaxBody()')
       && !parSrc.includes('parallaxVar('),
-      'parallax-layer = 变量型行为层：不建 DOM + 中心对称 + 指数缓动 + 到位就停 + 特效不参与 + 低开销');
+      'parallax-layer = 独立属性行为层：不建 DOM + 中心对称 + 指数缓动 + 到位就停 + 特效不参与 + 帧内零测量');
     // 位移实际落在 CSS 上：那一段必须（a）整段挂在开关属性下、（b）只用独立属性
     // translate / scale（transform 会被壁纸过场的 resetLayerSwitchStyles 清掉）、
     // （c）壁纸同时放大补边、（d）特效层不在里面。
     const stylesSrc = readFileSync(join(root, 'src', 'styles.js'), 'utf8');
     const parCssAt = stylesSrc.indexOf('「扩展」三号模块');
     const parCss = parCssAt < 0 ? '' : stylesSrc.slice(parCssAt);
-    check('styles.js 视差段：开关属性下才生效 · 只用 translate/scale · 壁纸放大补边 · 特效层不参与 · 动的那几帧才提合成层',
+    check('styles.js 视差段：开关属性下才生效 · 只用独立属性 · 壁纸放大补边 · 特效层不参与 · 动的那几帧才提合成层',
       parCssAt > 0
       && parCss.includes('body[data-we-parallax="on"] .we-layer')
-      && parCss.includes('translate: calc(var(--we-parallax-x, 0px) * var(--we-parallax-bg, 0))')
+      // 位移由行为层直接写 translate ⇒ 样式表这边只剩这个**静态**补边放大（系数在设置变了时写一次）。
       && parCss.includes('scale: calc(1 + var(--we-parallax-bg, 0) / 100)')
-      && parCss.includes('body[data-we-parallax="on"] .we-rope')
       // 低开销：只有"正在动的那几帧"才提合成层（类由行为层加、到位摘），且只提示 translate。
       && parCss.includes('body[data-we-parallax="on"] .we-parallax--moving { will-change: translate; }')
       && parCss.includes('will-change: translate;')
       // 独立属性而不是 transform：壁纸层的过场会内联写 / 清 transform（resetLayerSwitchStyles）。
       && !parCss.includes('transform:')
+      // 每帧写自定义属性那条老路整条消失：-x / -y 与"吉祥物系数"都不再出现在样式表里。
+      && !parCss.includes('--we-parallax-x')
+      && !parCss.includes('--we-parallax-y')
+      && !parCss.includes('--we-parallax-mascot')
       // 点击 / 拖尾那一层不参与偏移。
       && !parCss.includes('.we-fx'),
       'parCss=' + parCss.length + ' 段起始=' + parCssAt);
   }
   {
-    // 低开销那几件事里唯一"看得见"的一件：位移步长到底写在谁身上。无头环境本来没有 DOM，
-    // 这里搭一副最小的假 DOM（querySelectorAll 返回两个假元素、假 rAF 由我们手动驱动），
-    // 真跑几帧验证：① 步长落在**那几个元素自己**身上，body 上只有 2 个系数；
-    // ② 起帧时给它们加了合成层提示类、到位收工摘掉（本仓刻意不留常驻合成层）；
-    // ③ 关掉总开关后元素上的变量与类、body 上的系数都收干净。
+    // Plan A 的机制换到哪儿了（用户口径：动效的性能开销较高）：位移现在**直接**落在那几个元素
+    // 自己的 CSS 独立属性 translate 上，一个自定义属性都不写。无头环境本来没有 DOM，这里搭一副
+    // 最小的假 DOM（querySelectorAll 返回两个假元素、假 rAF 由我们手动驱动），真跑几帧验证：
+    // ① 位移落在**那几个元素自己**身上、body 上只有 1 个补边系数；
+    // ② 自定义属性 -x / -y / 吉祥物系数一个都没写；
+    // ③ 起帧时给它们加了合成层提示类、到位收工摘掉（本仓刻意不留常驻合成层）；
+    // ④ 打开自检开关后收工时 window.__weParallaxStats 里有一份帧统计；
+    // ⑤ 关掉总开关后位移与类、body 上的系数都收干净。
     const PREV_SEL = globalThis.selection;
     const PREV_DOC = globalThis.document;
     const PREV_WIN = globalThis.window;
     const PREV_RAF = globalThis.requestAnimationFrame;
     const PREV_CAF = globalThis.cancelAnimationFrame;
+    const PREV_LS = globalThis.localStorage;
     const storeOf = () => {
       const props = {};
       return {
@@ -2915,7 +2941,16 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     let threw = '';
     let movedOn = false;
     let settled = false;
+    let dbgOk = false;
     let cleared = false;
+    // 自检开关走 localStorage：宿主可能把它定义成只读访问器 ⇒ 用 defineProperty 覆盖。
+    const setLocalStorage = (value) => {
+      try {
+        Object.defineProperty(globalThis, 'localStorage', {
+          value: value, configurable: true, writable: true,
+        });
+      } catch (e) { /* 只读宿主 */ }
+    };
     try {
       globalThis.document = {
         body: fakeBody,
@@ -2934,24 +2969,27 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
         parallaxEnabled: true, parallaxBg: 1,
         parallaxMascot: true, parallaxSmooth: 85,
       };
+      // 自检开关走 localStorage（宿主可能把它定义成只读访问器 ⇒ 用 defineProperty 覆盖）。
+      setLocalStorage({ getItem: (k) => (k === 'weParallaxDebug' ? '1' : null) });
       const step = (dt) => { clock += dt; const fn = pending; pending = null; if (fn) fn(clock); };
       parallaxLayerMod.syncParallaxLayer();          // 起帧（假 rAF ⇒ 只排一帧）
       if (typeof listeners.pointermove === 'function') listeners.pointermove({ clientX: 1600, clientY: 900 });
       for (let i = 0; i < 6; i += 1) step(20);       // 挪到右下角 ⇒ 目标 = (-8, -4.5)
-      const stepX = layerEl.props['--we-parallax-x'];
-      const stepY = layerEl.props['--we-parallax-y'];
-      const same = targets.every((el) => el.props['--we-parallax-x'] === stepX
-        && el.props['--we-parallax-y'] === stepY);
-      movedOn = same && /^-?\d+\.\d\dpx$/.test(String(stepX)) && /^-?\d+\.\d\dpx$/.test(String(stepY))
+      const moved = String(layerEl.props['translate'] || '');
+      const same = targets.every((el) => el.props['translate'] === moved);
+      movedOn = same && /^-?\d+\.\d\dpx -?\d+\.\d\dpx$/.test(moved)
         && targets.every((el) => el.classList.contains('we-parallax--moving'))
         && !('--we-parallax-x' in bodyStore.props) && !('--we-parallax-y' in bodyStore.props)
-        && bodyStore.props['--we-parallax-bg'] === '1'
-        && bodyStore.props['--we-parallax-mascot'] === '1';
+        && !('--we-parallax-mascot' in bodyStore.props)
+        && bodyStore.props['--we-parallax-bg'] === '1';
       for (let i = 0; i < 400 && pending; i += 1) step(20);   // 一直跑到收敛
       settled = pending === null && targets.every((el) => !el.classList.contains('we-parallax--moving'));
+      const dbg = globalThis.window.__weParallaxStats;
+      dbgOk = !!dbg && dbg.frames > 0 && dbg.writes > 0
+        && typeof dbg.costMs.p50 === 'number' && typeof dbg.gapMs.max === 'number';
       globalThis.selection = { parallaxEnabled: false };
       parallaxLayerMod.syncParallaxLayer();
-      cleared = targets.every((el) => !('--we-parallax-x' in el.props)
+      cleared = targets.every((el) => !('translate' in el.props)
         && !el.classList.contains('we-parallax--moving'))
         && !('--we-parallax-bg' in bodyStore.props)
         && typeof listeners.pointermove === 'function';
@@ -2961,11 +2999,12 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       globalThis.window = PREV_WIN;
       globalThis.requestAnimationFrame = PREV_RAF;
       globalThis.cancelAnimationFrame = PREV_CAF;
+      setLocalStorage(PREV_LS);
     }
-    check('parallax-layer.js 步长写在要动的那几层自己身上 · body 只放系数 · 起帧提合成层到位摘 · 停用全收干净',
-      !threw && movedOn && settled && cleared,
-      threw || ('movedOn=' + movedOn + ' settled=' + settled + ' cleared=' + cleared
-        + ' step=' + layerEl.props['--we-parallax-x'] + '|' + layerEl.props['--we-parallax-y']));
+    check('parallax-layer.js 位移直接写在那几层自己的 translate 上 · body 只放补边系数 · 起帧提合成层到位摘 · 自检出帧统计 · 停用全收干净',
+      !threw && movedOn && settled && dbgOk && cleared,
+      threw || ('movedOn=' + movedOn + ' settled=' + settled + ' dbg=' + dbgOk
+        + ' cleared=' + cleared + ' translate=' + layerEl.props['translate']));
   }
   {
     // 三号模块的岛：注册表项形状 + 「关着只画总开关、开着才画 3 个参数」这条可见行为。

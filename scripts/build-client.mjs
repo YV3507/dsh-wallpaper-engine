@@ -172,13 +172,14 @@ const INLINE_MODULES = [
     markers: ['const FX_EXTENSION_MODULE = {', 'function renderFxIsland(ctx)'],
   },
   {
-    // 「扩展」页签三号模块（3D 效果）：跟前两个模块不同 —— 它**不建 DOM**，行为层只写 CSS 变量
-    // （"各层系数"落在 body 上、"位移步长"落在要动的那几层自己身上）与一个开关属性，位移在
-    // src/styles.js 的视差段里算（所以这里只注入"行为层 + 描述符"两份，样式那份归 styles.js 管）。
-    // 同样排在 panel-tabs 之前。
+    // 「扩展」页签三号模块（3D 效果）：跟前两个模块不同 —— 它**不建 DOM**，行为层每帧把**最终位移**
+    // 直接写进要动的那几层自己的 CSS 独立属性 `translate`（一个自定义属性都不写：自定义属性是继承的，
+    // 每帧写一次会让整棵子树重算样式；body 上只剩一个"壁纸补边系数"，设置变了才写一次）与一个
+    // 开关属性，补边放大在 src/styles.js 的视差段里算（所以这里只注入"行为层 + 描述符"两份，
+    // 样式那份归 styles.js 管）。同样排在 panel-tabs 之前。
     file: 'src/parallax-layer.js',
-    why: '「3D 效果」的行为层：把光标位置换算成各层要乘的系数与位移步长（系数写 body、步长写要动的那几层自己）写进 CSS 变量（基座模块：只读 selection、零 ctx、不建 DOM）',
-    markers: ['const PARALLAX_DIRECTION = ', 'const PARALLAX_VAR_X = ',
+    why: '「3D 效果」的行为层：把光标位置换算成各层的最终位移，直接写进要动的那几层自己的 CSS 独立属性 translate（每帧零自定义属性写入；body 上只留一个"壁纸补边系数"）与一个开关属性（基座模块：只读 selection、零 ctx、不建 DOM）',
+    markers: ['const PARALLAX_DIRECTION = ', 'const PARALLAX_TRANSLATE = ',
       'function syncParallaxLayer()', 'function disposeParallaxLayer()'],
   },
   {

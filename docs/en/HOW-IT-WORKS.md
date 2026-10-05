@@ -171,22 +171,28 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe (no 
   over time) / custom.
   The registry also holds a **second module, 3D depth**: behaviour layer `src/parallax-layer.js` plus
   descriptor `src/ext-parallax.js` — the opposite of the one above, it **builds no DOM node at all**. It
-  only listens passively to `pointermove` on `document` and `resize` on `window`, turning the cursor's
-  offset from the screen center into a few CSS variables: the two per-layer multipliers plus a
-  `data-we-parallax` switch attribute go on the body (written once per settings change), while the
-  per-frame displacement step goes on **the layers that actually move** (custom properties inherit, so
-  writing it on the body would re-resolve styles for the whole document every frame) — the displacement,
-  the up-scaling and the multipliers themselves are computed by the parallax section of `src/styles.js`
-  with `calc()`. The wallpaper and the mascot each multiply their own
-  percentage (1% for the wallpaper by default, the mascot sharing the wallpaper's value), the direction is negated so the shift is **mirrored about
-  the screen center** (cursor to the top right moves everything to the bottom left), the easing is an
-  exponential approach per frame (`parallaxSmooth`, 0 = instant), and the loop stops itself as soon as the
-  displacement left on screen no longer shows (zero frames while idle; frames are capped at 60Hz so a
-  high-refresh display runs every other frame, "arrived" is judged from the remaining step times the
-  largest multiplier and loosened to 1px once the cursor has been still for 180ms, no frame is scheduled
-  at all when every multiplier is 0, and the moving layers are promoted to compositor layers only while
-  the loop runs, the hint being dropped the moment it settles — this repo deliberately keeps no always-on
-  compositor layer). The wallpaper layer is also scaled up by the same amount
+  only listens passively to `pointermove` on `document`, `resize` on `window` and `visibilitychange`,
+  turning the cursor's offset from the screen center into a displacement, and each frame writes the
+  **final, fully multiplied displacement** straight onto **the layers that actually move** as the CSS
+  **independent property `translate`** (two decimals; nothing is written when the value did not change) —
+  the displacement **never travels through a custom property**: custom properties inherit, so writing one
+  would re-resolve styles for a whole subtree. The body keeps a single "wallpaper bleed" multiplier
+  `--we-parallax-bg` (written once per settings change, feeding the static
+  `scale: calc(1 + multiplier / 100)` in the parallax section of `src/styles.js`). The wallpaper and the
+  mascot each multiply their own percentage (1% for the wallpaper by default, the mascot sharing the
+  wallpaper's value), the direction is negated so the shift is **mirrored about the screen center**
+  (cursor to the top right moves everything to the bottom left), the easing is an exponential approach per
+  frame (`parallaxSmooth`, 0 = instant), and the loop stops itself as soon as the displacement left on
+  screen no longer shows (zero frames while idle; frames now follow the display's real refresh rate, since
+  the old 60Hz cap is gone, "arrived" is judged from the remaining step times the largest multiplier and
+  loosened to 1px once the cursor has been still for 180ms, no frame is scheduled at all when every
+  multiplier is 0, nothing is scheduled while the page is hidden, and the moving layers are promoted to
+  compositor layers only while the loop runs, the hint being dropped the moment it settles — this repo
+  deliberately keeps no always-on compositor layer). Frames take **zero measurements** (the viewport is
+  read when the loop starts and on resize, and targets are re-scanned outside the frame as well), and
+  `localStorage.weParallaxDebug = '1'` turns on a per-frame self-check (callback cost, write count and
+  frame gap p50/p95/max plus a long-frame count, printed once the gesture settles and exposed as
+  `window.__weParallaxStats`). The wallpaper layer is also scaled up by the same amount
   (`1 + pct / 100`) so no base color shows at the edges, and the displacement uses the CSS
   **independent properties `translate` / `scale`** rather than `transform` — the wallpaper transition's
   `resetLayerSwitchStyles` writes and clears an inline `transform`, so only the independent properties
