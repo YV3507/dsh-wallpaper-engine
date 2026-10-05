@@ -423,8 +423,23 @@ function main() {
       && /-webkit-backdrop-filter: none !important/.test(body)
       && !/(?:^|[;\s])opacity\s*:/.test(body);
     check('F2d2 reasoning and both file-card roots have no tint or backdrop blur',
-      ['[data-turn-trigger]', '[data-vcp-reasoning]', '[data-changed-files]', '[data-presented-file]']
+      ['[data-vcp-reasoning]', '[data-changed-files]', '[data-presented-file]']
         .every((anchor) => normal.some((r) => r.header.includes(anchor) && clear(r.body))));
+    // ⚠️ v1.3.0 追版（本仓「思考触发条」面与上游 #134 的收敛口径）：`[data-turn-trigger]` **刻意
+    //   不在上面那一组** —— 上游原稿把思考触发条与推理面一起做成"清底 + 无霜"，本仓把它做成
+    //   "吃玻璃、可独立配置"的面（接管宿主专属令牌 `--dsw-alias-turn-trigger-bg` / `-hover`
+    //   + 在锚点元素上挂模糊载体），门与那一组**相同**（`data-we-thinking-glass`，默认关）。
+    //   两头都钉：① 它不得落进"清底 + 无霜"那组（否则我们的玻璃整组被 !important 压掉）；
+    //   ② 它必须真的接了玻璃（令牌 + 模糊），而不是"摘出清底组之后什么都不剩"。
+    check('F2d2b 思考触发条刻意不在清底组，且真的接了玻璃（令牌 + 模糊载体，门同为 thinking-glass）',
+      !normal.some((r) => r.header.includes('[data-turn-trigger]') && clear(r.body))
+      && normal.some((r) => r.header.includes('[data-we-thinking-glass]')
+        && r.header.includes('[data-turn-trigger]')
+        && /var\(--we-thinking-trigger-blur/.test(r.body)
+        && /backdrop-filter: blur\(/.test(r.body))
+      && normal.some((r) => r.header.includes('[data-we-thinking-glass]')
+        && /--dsw-alias-turn-trigger-bg:/.test(r.body)
+        && /var\(--we-thinking-trigger-alpha/.test(r.body)));
     check('negative control: a tinted reasoning/file bar is not fully transparent',
       !clear('background: rgba(28, 28, 28, 0.19) !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important;'));
     const chip = normal.find((r) => r.header.includes('[data-chat-flow] :not(pre) > code')

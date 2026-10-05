@@ -597,6 +597,50 @@ const CSS = `
       inset 0 0 0 0.5px rgba(255, 255, 255, 0.08),
       0 12px 40px rgba(0, 0, 0, var(--we-glass-shadow, 0.12));
   }
+  /* ── 思考触发条（TurnTriggerNodeView，DOM 锚点 section[data-turn-trigger]）──────────
+     ⚠️ 门 = 上游 #134 的「思考块液态玻璃」（属性 data-we-thinking-glass，默认关）：这一面是它
+     **门下的**一员 —— 开关关着时下面整组不生效（宿主令牌不被接管、模糊不挂）⇒ 「关 = 逐字节
+     现状」。这也是本次并入上游 #134 的收敛口径：上游把 [data-turn-trigger] 与推理面一起写成
+     「清底 + 无霜」（见上面那组），本面把它从那一组里**摘出来** —— 触发条不清底，而是吃玻璃
+     （用户口径：触发条要玻璃，不要纯透明），并给它自己的「独立配置」。
+     宿主给它一个**专属底色令牌** --dsw-alias-turn-trigger-bg（回退到代码块底色）—— 我们接管它，
+     于是宿主自己那条 background: 直接解析成玻璃（**不是**去改宿主的哈希类名）。
+     ⚠️ 用**全局**那对可读性变量（--we-readability-base / -floor + --we-surface-tint-*）：
+     这一面在登记表里是 tier: 'global'（内容块一类），而对话栏那对是**专属**给气泡/输入框的
+     —— 判据 verify-readability 的 F2c 会按"消费点计数"当场判出用错（实测踩过一次）。
+     配方与上面的 --dsw-alias-bg-layer-1 同形，层权重取 0.9。
+     ⚠️ -hover 必须一起接管：宿主 :hover 会换用它（回退是 --dsw-alias-interactive-bg-hover
+     那种不透明灰）⇒ 不接管的话鼠标一悬停就盖掉玻璃。这里给它**同一配方、权重略高**
+     （1.15，仍远不到不透明）⇒ 既保住玻璃又保留"可点"的悬停反馈。
+     ⚠️ 本文件整份 CSS 是**一个 JS 模板字符串** ⇒ 注释里**不许出现反引号**（会提前终止它，
+     构建的产物语法检查会当场拦住 —— 实测踩过一次）。 */
+  body[data-we-thinking-glass][data-we-glass-page] {
+    --dsw-alias-turn-trigger-bg: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-thinking-trigger-alpha, var(--we-glass-alpha, 0.5)) * 0.9 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+    --dsw-alias-turn-trigger-bg-hover: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-thinking-trigger-alpha, var(--we-glass-alpha, 0.5)) * 1.15 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+  }
+  /* 深色档同形，只是釉色改用深色那一支（--we-surface-tint-dark）。多一层属性选择器
+     （0,3,1）才顶得掉上面那条浅色定义 —— 与文件里其余「深色孪生」的做法一致。 */
+  body[data-ds-dark-theme][data-we-thinking-glass][data-we-glass-page] {
+    --dsw-alias-turn-trigger-bg: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-surface-tint-dark, #000000) calc(var(--we-thinking-trigger-alpha, var(--we-glass-alpha, 0.5)) * 0.9 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+    --dsw-alias-turn-trigger-bg-hover: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-surface-tint-dark, #000000) calc(var(--we-thinking-trigger-alpha, var(--we-glass-alpha, 0.5)) * 1.15 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+  }
+  /* 模糊载体：宿主组件只有 header/body 两段文字，**不含** position:fixed 后代 ⇒ 模糊可以留在
+     元素本身（与气泡 / 工具弹卡同形；不必像 [data-composer-card] 那样搬到 ::before）。
+     底色走上面接管的 --dsw-alias-turn-trigger-bg（含 hover 档），所以这里只补
+     "釉面高光 + 模糊" 两件事 —— 语法与上面那族逐字相同，读同一批 --we-* 变量。 */
+  body[data-we-thinking-glass][data-we-glass-page] [data-turn-trigger] {
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.05) 38%, rgba(255, 255, 255, 0.02));
+    -webkit-backdrop-filter: blur(var(--we-thinking-trigger-blur, var(--we-blur, 16px))) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    backdrop-filter: blur(var(--we-thinking-trigger-blur, var(--we-blur, 16px))) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+  }
   /* ── composer card: the blur must not live on the card itself ─────────────
      [data-composer-card] contains position:fixed descendants: @dsh-external/
      dsh-webui mounts the "AI 浏览器" seat (.dsh-browser-seat-wrap) inside it with a
@@ -670,7 +714,10 @@ const CSS = `
   body[data-we-glass-page][data-we-thinking-glass] {
     --dsw-alias-markdown-inline-code: var(--we-capsule-glass-fill);
   }
-  body[data-we-glass-page][data-we-thinking-glass] [data-turn-trigger],
+  /* ⚠️ [data-turn-trigger]（思考触发条）**不在本组**：本仓把它做成了一个吃玻璃、可独立配置的
+     面（见上面「思考触发条」那一节 —— 接管宿主专属令牌 + 模糊载体，同在 data-we-thinking-glass
+     门下）。上游 #134 原稿把这面与推理面一起清底 + 无霜；两条线在本次追版（v1.3.0）收敛为
+     "门共用、这面例外" ⇒ 推理面清底、触发条吃玻璃。 */
   body[data-we-glass-page][data-we-thinking-glass] [data-vcp-reasoning],
   body[data-we-glass-page][data-we-thinking-glass] [data-changed-files],
   body[data-we-glass-page][data-we-thinking-glass] [data-presented-file] {
@@ -1212,9 +1259,10 @@ const CSS = `
      sectionList): the ul/li carry no default list styling. */
   .we-picker__section-list { margin: 0; padding: 0; list-style: none; }
 
-  /* ── WHOLE native settings window → liquid glass (master switch).
-     Keyed on body[data-we-glass-window] (set by applyEffects from the
-     glassWindow preference). The settings dialog is the shell's
+  /* ── WHOLE native settings window → liquid glass.
+     Keyed on body[data-we-glass-window] —— 该属性由 applyGlass **恒挂**（D3：原先那个
+     「设置窗口液态玻璃」总开关已在 §10.20 退役、glassWindow 键随之删除；属性本身保留，
+     因为它是 CSS 侧"这组规则画玻璃"的**证书**，守卫 ⑨/⑬ 靠它判断）。The settings dialog is the shell's
      div[role="dialog"] containing the settings.section outlet anchor
      (data-slot="settings.section" — stamped by the slot renderer, same anchor
      the skin-center's semantic layer uses). The dialog reads inherited shell
@@ -2734,6 +2782,17 @@ body[data-we-glass-floaters] .we-repo-panel {
     --dsw-alias-bg-layer-3: var(--we-panel-color, #ffffff);
     --dsw-alias-button-elevated-fill: var(--we-panel-color, #ffffff);
     --dsw-specific-selector: var(--we-panel-color, #ffffff);
+  }
+  /* 思考触发条（本仓新增面，见上面「思考触发条」那一节）：它的底色**本来就**由宿主读那个
+     专属令牌 ⇒ 回退档把令牌钉回不透明面板色（--we-panel-color 是主题感知的：浅 #ffffff /
+     深 #1e1f26），模糊没了也不会"过透"。hover 档一并钉回同色 —— 与上面三个 layer 令牌在
+     回退档统一成同一色的口径一致（降级档不保留悬停反馈，优先保可读）。
+     ⚠️ 与主规则同门（data-we-thinking-glass）+ 多一层 fallback 属性：特异性 (0,3,1) 高于
+     主规则的 (0,2,1)（深色档 (0,4,1) 高于深色主规则 (0,3,1)）⇒ 覆盖成立。 */
+  body[data-we-glass-fallback][data-we-thinking-glass][data-we-glass-page],
+  body[data-ds-dark-theme][data-we-glass-fallback][data-we-thinking-glass][data-we-glass-page] {
+    --dsw-alias-turn-trigger-bg: var(--we-panel-color, #ffffff);
+    --dsw-alias-turn-trigger-bg-hover: var(--we-panel-color, #ffffff);
   }
   /* 输入框卡片（issue #95 报「过透」的那块界面）：上游 #94 已把模糊从卡片本体搬到
      [data-composer-card]::before 载体（卡片上的 backdrop-filter 会成为 fixed 后代的

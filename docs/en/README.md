@@ -66,10 +66,10 @@ never turns anything red.
 |---|---|---|
 | 1 | **Comments state invariants, not chronicles** — dates, "used to / the old implementation" framing, measured symptoms and war stories never go into code comments | no guard (a writing convention). Content with historical value goes into `CHANGELOG.md` or git history |
 | 2 | **"measured X ≈ Y" is provenance, not a chronicle** — a sentence that gives the provenance of an empirical value or a browser behaviour must stay, or the reader cannot tell "measured" from "guessed" | no guard (a writing convention). Keep the provenance **near where it was measured**; do not move it into evergreen prose |
-| 3 | **A rule that can sit next to the code is not written up as a document** — mechanisms / invariants / contracts go into the **file header**; documents keep only decisions, orderings, acceptance criteria and evidence anchors | no guard (a writing convention); landing-spot rules in [`CODE-STRUCTURE.md`](./CODE-STRUCTURE.md) |
+| 3 | **A rule that can sit next to the code is not written up as a document** — mechanisms / invariants / contracts go into the **file header**; documents keep only decisions, orderings, acceptance criteria and evidence anchors | no guard (a writing convention); landing-spot rules in [`CODE-STRUCTURE.md`](../CODE-STRUCTURE.md) |
 | 4 | **Evergreen documents carry no drifting numbers** — defaults / ranges / enum lists / counts / line counts / sizes / timeout thresholds become **symbol references** or **recompute commands**. Sources of truth: settings → `lib/settings-schema.js`, routes → `docs/ROUTE-INDEX.md` (Chinese only) | no guard (a writing convention, see ADR-0006). **Exception**: `CHANGELOG.md` and `docs/archive/**` are ledgers — their numbers **stay as they are**; changing them would be forging a record |
 | 5 | **A retired line may only shrink** — a reverse probe precedes any deletion; the baseline may only tighten, and emptying it out is "zero residue" | `test/verify-retired-lines.mjs` |
-| 6 | **A guard's assertion targets code, not prose** — strip comments before asserting "X no longer appears in the source" | [`DEV-GUIDE.md`](./DEV-GUIDE.md) §4.7 |
+| 6 | **A guard's assertion targets code, not prose** — strip comments before asserting "X no longer appears in the source" | [`DEV-GUIDE.md`](../DEV-GUIDE.md) §4.7 |
 | 7 | **A skip must not look like a pass** — a missing prerequisite either goes red or requires an explicit `--allow-skip`; a silent skip quietly loses coverage | `test/verify-media-bridge.mjs` (`--provision` / `--allow-skip`) |
 | 8 | **Decisions go to ADRs, mechanisms go to file headers** — a trade-off with alternatives, where someone paid a price, is written up in [`adr/`](../adr/); "how it is implemented" goes into the header comment of the implementation file | no guard (a writing convention); format in [`adr/README.md`](../adr/README.md) |
 
@@ -100,9 +100,10 @@ went false together** after a persistence rework — that is exactly where §wri
 | [`DEV-GUIDE.md`](../DEV-GUIDE.md) | **Developer guide** — "how to add an X" recipes (a route / a setting / browser-side code); **§4 is verification and testing** (the former `TEST-LAYOUT.md`, merged in): the three layers, the two tiers, the run matrix, coverage, the `test/tools/` inventory, the eight conventions for writing assertions |
 | [`FONT-SYSTEM.md`](../FONT-SYSTEM.md) | The font system's channel split, invariants, extension steps and the constraints on entering the browser bundle |
 | `ROUTE-INDEX.md` (Chinese) | The host route table — a **generated index** (recomputed and byte-compared by `test/tools/host-route-index.mjs`; hand-writing always rots) |
+| `GUARD-MAP.md` (Chinese) | The **two-way guard ↔ module map** ("which guards to run after touching module X"): guard→module and module→guard tables, derived from the guards' **own code** by `test/tools/guard-targets.mjs` (`--write` recomputes it and it is byte-compared; generated, never hand-edited) |
 
-> **The English mirrors of these three were removed** (maintainer-facing documents are Chinese-only; see
-> §Language layout above). User-facing documents are still paired.
+> **The English mirrors of the table above were removed** (maintainer-facing documents are Chinese-only; see
+> §Language layout above — `ROUTE-INDEX.md` / `GUARD-MAP.md` are generated and Chinese-only too). User-facing documents are still paired.
 
 > Two documents that used to sit here have moved into `archive/`:
 > `dev-notes-bom-and-dsh-boot.md` (a process record of one local investigation, carrying that machine's
@@ -129,11 +130,13 @@ the header format, and **why not to write drifting numbers** (the same conventio
 | [0005](../adr/0005-media-loopback-origin.md) | Wallpaper media is served from a **dedicated loopback origin** the host opens itself |
 | [0006](../adr/0006-comment-discipline-as-written-convention.md) | Comment and document discipline became a **pure writing convention**, and the document-class machine guards were removed |
 | [0007](../adr/0007-machine-checks-target-code-not-prose.md) | Machine checks target **code and disk, not prose** (a four-question test plus keep/remove lists) |
+| [0008](../adr/0008-glass-config-two-state.md) | Glass config collapses into **two states** (the whole "do we want glass?" layer is retired; one "independent configuration" per surface = `inherit` / `custom`) plus a **gating policy**: always-on attributes act as the CSS-side certificate, and the **simple vs advanced** split is decided by `ctx.surface` (D4) |
+| [0009](../adr/0009-system-fonts-from-the-os.md) | The installed-font list is **enumerated by the host asking the OS** (plus caching; the browser side is only a reader) rather than parsing font files in-process or enumerating from the browser; with no authoritative source it honestly reports `approximate` |
 
 ## In progress (`wip/`) — retired
 
 **Nothing lives here.** The three process records that used to be here had all finished, so they moved
-wholesale into [`archive/wip/`](./archive/wip/) per the lifecycle table above: the refactor ledger
+wholesale into [`archive/wip/`](../archive/wip/) per the lifecycle table above: the refactor ledger
 (`OPEN-ITEMS.md`), the closing audit (`POST-REFACTOR-AUDIT.md`) and the sidebar-tabs design
 (`SIDEBAR-TABS-DESIGN.md`). See *Finished audits…* below; the Chinese index
 ([`../README.md`](../README.md)) carries the full descriptions.

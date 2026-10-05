@@ -82,9 +82,11 @@
 | [CODE-STRUCTURE.md](./CODE-STRUCTURE.md) | **代码结构与边界** —— 两份文档合并而成（原 `MODULE-LAYOUT.md` ⊕ `ARCHITECTURE.md`）：`lib/` 与 `src/` 的分工规范、目录约定与准入门槛、两个半边与路由族、构建期内联、启停生命周期、数据流、**状态真源清单**、层间边界表、在册守卫 |
 | [DEV-GUIDE.md](./DEV-GUIDE.md) | **二次开发指南** —— "怎么加一个 X"的配方（加路由 / 加设置项 / 加浏览器端代码）；**§4 是验证与测试**（原 `TEST-LAYOUT.md` 并入）：三层结构、两档判据、运行矩阵、覆盖范围、`test/tools/` 清单、写判据的八条约定 |
 | [FONT-SYSTEM.md](./FONT-SYSTEM.md) | 字体系统的通道分工、不变量、扩展步骤、进浏览器包的约束 |
+| [DSH-UI-INTERFACES.md](./DSH-UI-INTERFACES.md) | **我们去依赖了 DSH 的哪些 UI 接口** —— 按"客户端产物 / node 宿主 / 桌面壳 / 第三方插件"四层记账：哪些是宿主刻意提供的稳定契约（设计令牌、源码作者写的数据属性）、哪些是构建哈希或第三方私有类名、哪些**与预想不同**（宿主有正式的槽系统而我们钉渲染后的 DOM；`data-dsh-desktop-mode` 其实是桌面壳的 URL 参数）。含**复算方法**（asar 直读 + 偏移→包索引），升级前照它重跑 |
 | [ROUTE-INDEX.md](./ROUTE-INDEX.md) | 宿主路由的**生成索引**（由 `test/tools/host-route-index.mjs` 重算并逐字节比对 —— 手写必烂） |
+| [GUARD-MAP.md](./GUARD-MAP.md) | **守卫 ↔ 模块的双向派生映射**（"改了某个模块该跑哪几条"）：守卫→模块、模块→守卫两张表，由 `test/tools/guard-targets.mjs` 从**守卫代码里**派生（`--write` 重算，逐字节比对；生成物，不手改） |
 
-> **这三份英文镜像已撤除**（维护者向文档只留中文，理由见 §语言结构）；用户向文档仍中英成对。
+> **上表的英文镜像已撤除**（维护者向文档只留中文，理由见 §语言结构；`ROUTE-INDEX.md` / `GUARD-MAP.md` 是生成物，同样只出中文）；用户向文档仍中英成对。
 
 > 原先列在这里的两份已移入 `archive/`（见下文「已完成的审计…」之后的**其它归档**一节）：
 > `dev-notes-bom-and-dsh-boot.md`（一次本机排查的过程记录，含当时的绝对路径）与
@@ -107,6 +109,8 @@
 | [0005](./adr/0005-media-loopback-origin.md) | 壁纸媒体由宿主自建的**独立 loopback 源**提供 |
 | [0006](./adr/0006-comment-discipline-as-written-convention.md) | 注释与文档纪律改为**纯写作约定**，撤除文档类机器守卫 |
 | [0007](./adr/0007-machine-checks-target-code-not-prose.md) | 机器判据**只针对代码与磁盘，不针对散文**（四问判定程序 + 保留 / 撤除清单） |
+| [0008](./adr/0008-glass-config-two-state.md) | 玻璃配置收成**两态**（"要不要玻璃"整层退役；每面一个「独立配置」= `inherit` / `custom`）并定下**门控策略**：恒挂属性做 CSS 侧的证书，**简化配置 / 高级配置**按 `ctx.surface` 分档（D4） |
+| [0009](./adr/0009-system-fonts-from-the-os.md) | 本机字体清单**由宿主问操作系统**（枚举 + 缓存，浏览器侧只当读者），而不是在进程内解析字体文件或从浏览器枚举；取不到权威来源就如实标 `approximate` |
 
 ## 已归档（`archive/`，只作记录）
 
@@ -155,8 +159,8 @@
   （入口 [`DEV-GUIDE.md`](./DEV-GUIDE.md) §4 与本文档 §写作纪律），历史评估在
   [`archive/REFACTOR-ASSESSMENT.md`](./archive/REFACTOR-ASSESSMENT.md) 与
   [`archive/wip/OPEN-ITEMS.md`](./archive/wip/OPEN-ITEMS.md)（**都不反映现行实现**）。
-  **尚在进行的工作**的计划住 `docs/wip/`（**临时**，完成即整体移入 [`archive/wip/`](./archive/wip/)，见 §目录的寿命规则）；
-  **当前 `docs/wip/` 是空的** —— 最近一次收口的是
+  **尚在进行的工作**的计划可临时住 `docs/wip/`（**保留目录，当前为空**；完成即整体移入 [`archive/wip/`](./archive/wip/)，见 §目录的寿命规则）；
+  最近一次收口的是
   [`archive/wip/GLASS-CONFIG-REFACTOR.md`](./archive/wip/GLASS-CONFIG-REFACTOR.md)
   （玻璃配置重构：R0–R4 + 三轮实测修复 + 收口，**已成历史**，结论已按上表分头落位）；
   再往前是 [`archive/wip/PLAN.md`](./archive/wip/PLAN.md)（`src/` 缺陷 · 注释审计 · 目录裁决 · 守卫重构）；
