@@ -2887,40 +2887,8 @@ function onPauseOnHidden(e) { setSetting("pauseOnHidden", e.target.checked); emi
 function onPauseOnBlur(e) { setSetting("pauseOnBlur", e.target.checked); emit(); }
 function onPauseOnBattery(e) { setSetting("pauseOnBattery", e.target.checked); emit(); }
 function onToggleLiveDiag() { toggleLiveDiag(); emit(); }
-// ── 「扩展」页签（一号模块：硬件资源监控柱状图）的处理器 ──────────────────────
-// 形状与上面一致：控件只报事件，写设置 + 重渲染都在这里。柱状图的**视觉参数**不受 emit
-// 影响（src/metrics-layer.js 每帧现读设置、画前比一次签名）⇒ 滑块走 commitLiveSetting 的
-// live 档即时可见，抬手时才走完整路径（含落盘与一次 emit）。
-function onMetricsEnabled(e) { setSetting("metricsEnabled", e.target.checked); emit(); }
-function onMetricsColorMode(mode) { setSetting("metricsColorMode", mode); emit(); }
-function onMetricsFill(e) { setSetting("metricsFill", e.target.checked); emit(); }
-function onMetricsLabels(e) { setSetting("metricsLabels", e.target.checked); emit(); }
-// 细白横线（每行 50% 高度一条 + 每两行之间一条，单独一层画，见 src/metrics-layer.js）。
-function onMetricsGuides(e) { setSetting("metricsGuides", e.target.checked); emit(); }
-// 混合模式走下拉（8 档，平铺会挤成一团）：与 onAdapterTarget 同一形状 —— 控件报事件、这里取值。
-function onMetricsBlend(e) { setSetting("metricsBlend", e.target.value); emit(); }
-// 五条序列的显隐开关共用一个处理器：字段名从渲染器传来的（都是 settings-schema 里的键）。
-function onMetricsSeries(key, value) { setSetting(key, value); emit(); }
-// 五条序列各自的颜色（「分色」档的取色器）：与别的视觉参数一样走 live 档，拖动取色时即时可见。
-function onMetricsColor(key, value, live) { commitLiveSetting(key, value, live); }
-function onMetricsHeight(v, live) { commitLiveSetting("metricsHeight", v, live); }
-// 位置（可负）：整块的左右 / 上下偏移，见 src/metrics-layer.js 的 metricsFrame。
-function onMetricsOffsetX(v, live) { commitLiveSetting("metricsOffsetX", v, live); }
-function onMetricsOffsetY(v, live) { commitLiveSetting("metricsOffsetY", v, live); }
-function onMetricsBarWidth(v, live) { commitLiveSetting("metricsBarWidth", v, live); }
-function onMetricsBarGap(v, live) { commitLiveSetting("metricsBarGap", v, live); }
-function onMetricsStackGap(v, live) { commitLiveSetting("metricsStackGap", v, live); }
-function onMetricsThreshold(v, live) { commitLiveSetting("metricsThreshold", v, live); }
-function onMetricsOpacity(v, live) { commitLiveSetting("metricsOpacity", v, live); }
-// 极黑档的倍率（自动档判成极黑背景时柱层再乘这个比例，默认 50%）：与其它视觉参数同一档，
-// 拖动时即时可见（见 src/metrics-layer.js 的 deepAlpha）。
-function onMetricsDeepOpacity(v, live) { commitLiveSetting("metricsDeepOpacity", v, live); }
-function onMetricsLineWidth(v, live) { commitLiveSetting("metricsLineWidth", v, live); }
-function onMetricsGlow(v, live) { commitLiveSetting("metricsGlow", v, live); }
-function onMetricsSmooth(v, live) { commitLiveSetting("metricsSmooth", v, live); }
-function onMetricsWindow(v, live) { commitLiveSetting("metricsWindow", v, live); }
-// ── 「扩展」页签（二号模块：点击效果与拖尾效果）的处理器 ──────────────────────
-// 与上面同形：控件只报事件，写设置 + 重渲染都在这里。那一层没有网络往返、"点了就有反应"是
+// ── 「扩展」页签（一号模块：点击效果与拖尾效果）的处理器 ──────────────────────
+// 形状与上面一致：控件只报事件，写设置 + 重渲染都在这里。那一层没有网络往返、"点了就有反应"是
 // 每帧现读设置 ⇒ 开关与档位走 emit 的完整路径，滑块走 commitLiveSetting 的 live 档
 // （拖动时即时可见，抬手才落盘 + emit）。
 function onFxEnabled(e) { setSetting("fxEnabled", e.target.checked); emit(); }
@@ -2938,14 +2906,13 @@ function onFxTrailWidth(v, live) { commitLiveSetting("fxTrailWidth", v, live); }
 function onFxTrailGlow(v, live) { commitLiveSetting("fxTrailGlow", v, live); }
 function onFxOpacity(v, live) { commitLiveSetting("fxOpacity", v, live); }
 // ── 「扩展」页签（三号模块：3D 效果）的处理器 ───────────────────────────────
-// 与上面两组同形：控件只报事件，写设置 + 重渲染都在这里。视差层没有网络往返与画布，
+// 与上面同形：控件只报事件，写设置 + 重渲染都在这里。视差层没有网络往返与画布，
 // 它每帧现读设置 ⇒ 开关走 emit 的完整路径，滑块走 commitLiveSetting 的 live 档
 // （拖动时即时可见，抬手才落盘 + emit）。方向不是设置项（口径是"关于屏幕中心对称"），
 // 要换向改 src/parallax-layer.js 的 PARALLAX_DIRECTION。
 function onParallaxEnabled(e) { setSetting("parallaxEnabled", e.target.checked); emit(); }
 function onParallaxMascot(e) { setSetting("parallaxMascot", e.target.checked); emit(); }
 function onParallaxBg(v, live) { commitLiveSetting("parallaxBg", v, live); }
-function onParallaxMetrics(v, live) { commitLiveSetting("parallaxMetrics", v, live); }
 function onParallaxSmooth(v, live) { commitLiveSetting("parallaxSmooth", v, live); }
 /**
  * 适配方式（覆盖 / 填充 / 居中 / 拉伸）：除写设置外，Edge 的 canvas 渲染路径把 fit 存在
@@ -3830,16 +3797,10 @@ const officialColorOf = (tokens) => {
   // 字段，但要把 ctx **整包转交**给注册表里的模块（每个模块的控件由它自己的渲染器画）。
   const extensionCtx = () => ({
     sel: selection,
-    onMetricsEnabled, onMetricsColorMode, onMetricsFill, onMetricsLabels, onMetricsSeries,
-    onMetricsGuides, onMetricsBlend, onMetricsColor,
-    onMetricsHeight, onMetricsOffsetX, onMetricsOffsetY,
-    onMetricsBarWidth, onMetricsBarGap, onMetricsStackGap, onMetricsThreshold,
-    onMetricsOpacity, onMetricsDeepOpacity, onMetricsLineWidth, onMetricsGlow,
-    onMetricsSmooth, onMetricsWindow,
     onFxEnabled, onFxClick, onFxClickStyle, onFxClickSize, onFxClickGlow,
     onFxTrail, onFxTrailStyle, onFxTrailLength, onFxTrailWidth, onFxTrailGlow,
     onFxOpacity, onFxBlend, onFxColorMode, onFxColor,
-    onParallaxEnabled, onParallaxBg, onParallaxMetrics, onParallaxMascot, onParallaxSmooth,
+    onParallaxEnabled, onParallaxBg, onParallaxMascot, onParallaxSmooth,
   });
   const renderActiveTab = () => {
     if (activeTab === "about") return renderAboutTab({});
@@ -4556,13 +4517,10 @@ function apply(ctx) {
     ctx.effect(() => {
       const unsub = subscribe(syncLayers);
       const unsubEffects = subscribe(applyEffects);
-      // 「扩展」页签一号模块（硬件资源监控柱状图）的画布层：它自己读设置、自己轮询宿主，
-      // 所以接法与壁纸层同形 —— 每次 emit 重判一次"该不该活"（启用与否 / 有没有壁纸层 /
-      // 五条序列是不是全关）。参数不在这里传：那一层每帧现读 `selection`。
-      const unsubMetrics = subscribe(syncMetricsLayer);
-      // 「扩展」页签二号模块（点击效果与拖尾效果）的画布层：接法同上。它只在"总开关开着且
-      // 点击或拖尾至少一个没关"时才活，并且**内容驱动**——没有轨迹点、没有存活的特效时
-      // 它自己停下 rAF 并清空画布，光标不动就不耗帧。
+      // 「扩展」页签二号模块（点击效果与拖尾效果）的画布层：接法与壁纸层同形 —— 每次
+      // emit 重判一次"该不该活"。它只在"总开关开着且点击或拖尾至少一个没关"时才活，
+      // 并且**内容驱动**——没有轨迹点、没有存活的特效时它自己停下 rAF 并清空画布，
+      // 光标不动就不耗帧。参数不在这里传：那一层每帧现读 `selection`。
       const unsubFx = subscribe(syncFxLayer);
       // 「扩展」页签三号模块（3D 效果）的视差层：接法同上，但它是**唯一不建 DOM 的一层** ——
       // 只写 CSS 变量（各层系数落在 body 上、每帧变的位移步长落在要动的那几层自己身上）与一个
@@ -4681,14 +4639,12 @@ function apply(ctx) {
       }
       syncLayers();
       applyEffects();
-      syncMetricsLayer();
       syncFxLayer();
       syncParallaxLayer();
       return () => {
         disposed = true;
         unsub();
         unsubEffects();
-        unsubMetrics();
         unsubFx();
         unsubParallax();
         if (ocWatch) { try { clearInterval(ocWatch); } catch { /* ignore */ } ocWatch = 0; }
@@ -4723,9 +4679,6 @@ function apply(ctx) {
         disposePreparedMedia();
         // 预热槽位同一条纪律：留着就是一个没有句柄的解复用器（页面关闭前不会自己走）。
         disposeWarmVideo();
-        // 资源柱状图的画布层：DOM 节点、1 Hz 采样与 rAF 循环都在那一层自己手里
-        // （宿主采样器会因为它不再来取数而在 30 s 后自停）。
-        disposeMetricsLayer();
         // 点击与拖尾效果的画布层：DOM 节点、指针监听与 rAF 循环同样在那一层自己手里
         // （它的 rAF 只在自己还有内容时续帧，所以这里主要是摘节点 + 解绑监听）。
         disposeFxLayer();

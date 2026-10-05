@@ -1,9 +1,9 @@
 /**
- * parallax-layer.js — 「3D 效果」的**视差层**：光标移动时把壁纸 / 吉祥物 / 柱状图挪一小段。
+ * parallax-layer.js — 「3D 效果」的**视差层**：光标移动时把壁纸 / 吉祥物挪一小段。
  *
  * ══ 为什么是这样一个角色 ══════════════════════════════════════════════════════
  * 它是**基座模块**（见 docs/CODE-STRUCTURE.md §3.1）：不吃 ctx、直接读扁平设置 store
- * `selection`，和 `video-layer` / `effects` / `metrics-layer` / `fx-layer` 同层 —— 因为它的
+ * `selection`，和 `video-layer` / `effects` / `fx-layer` 同层 —— 因为它的
  * 驱动源不是某次渲染，而是**输入事件**（pointermove）与一个 rAF 缓动循环。渲染器给它传 ctx
  * 反而要把每个设置项穿一遍，而"光标一动就有反应"这件事必须当场发生。
  *
@@ -24,23 +24,21 @@
  *   · **壁纸要补边**：位移最大为 `pct/100 × 视口宽 / 2`（横向）、`pct/100 × 视口高 / 2`（纵向），
  *     而 `.we-layer` 正好是视口大小 ⇒ 不补边就会在边上露出底色。所以壁纸层同时放大
  *     `1 + pct/100`（见 src/styles.js 的视差段）—— 恰好多出"最大位移 × 2"那点余量。
- *   · **各层各自的百分比**：壁纸走 `parallaxBg`；吉祥物跟着壁纸（`parallaxMascot` 可关）；
- *     柱状图的三层宿主以 `parallaxMetrics` 为基准 —— **柱层**用它、**名称层** +1%、
- *     **标尺层** +2%（用户口径："该扩展的其余组件以该值为基准逐加1%"）。分得越开，纵深越明显。
+ *   · **各层各自的百分比**：壁纸走 `parallaxBg`；吉祥物跟着壁纸（`parallaxMascot` 可关）。
  *   · **点击与拖尾效果（`src/fx-layer.js` 那一层）刻意不参与**（用户口径第 3 条）：那层画的是"屏上的笔迹"，
  *     跟着挪会让落点与光效错位。
  *
  * 契约：
- *   需要的外界：`selection`（设置 store，只读）、`document.body`（写 5 个"各层系数"与一个开关
- *   属性）、还有**那几层元素自己**（`.we-layer` / `.we-rope` / `.we-metrics*`：写位移步长与
+ *   需要的外界：`selection`（设置 store，只读）、`document.body`（写 2 个"各层系数"与一个开关
+ *   属性）、还有**那几层元素自己**（`.we-layer` / `.we-rope`：写位移步长与
  *   临时的合成层提示）。
  *   对外提供：`syncParallaxLayer()`（设置变了就调一次）、`disposeParallaxLayer()`（卸载清理）。
- *   设置项（`parallax*`，真源 lib/settings-schema.js）：总开关 / 背景距离 / 图表距离 /
+ *   设置项（`parallax*`，真源 lib/settings-schema.js）：总开关 / 背景距离 /
  *   吉祥物是否跟随 / 缓动平滑。
  *
  * 不变量：
- *   · **一个 DOM 节点都不建**：屏上那几层（壁纸 / 吉祥物 / 柱状图）本来就存在，本层只写 CSS
- *     变量 —— 5 个"各层系数"写在 `document.body` 上（只在设置变了时写一次），"位移步长"写在
+ *   · **一个 DOM 节点都不建**：屏上那几层（壁纸 / 吉祥物）本来就存在，本层只写 CSS
+ *     变量 —— 2 个"各层系数"写在 `document.body` 上（只在设置变了时写一次），"位移步长"写在
  *     **要动的那几层自己**身上（每帧写，但作用域只有那几个元素），另加一个开关属性
  *     `data-we-parallax`。位移与配比全在 src/styles.js 的视差段里用 `calc()` 乘出来，
  *     于是**关掉时屏上一点痕迹都没有**（属性摘掉 ⇒ 那几条规则整段不命中，壁纸层连
@@ -66,16 +64,11 @@
 /** 1 = 跟随光标，-1 = 关于屏幕中心对称（用户口径："沿中心对称方向缓动"）。改这一个数就能换向。 */
 const PARALLAX_DIRECTION = -1;
 /** 百分比是"最长对角线的百分之几"：壁纸 0..10（它同时决定补边放大的倍数 1 + pct/100）、
- *  图表 0..20（名称层 / 标尺层各再 +1 / +2 ⇒ 上限 22）、平滑 0..98（100% 等于永远不动）。 */
+ *  平滑 0..98（100% 等于永远不动）。 */
 const PARALLAX_BG_MIN = 0;
 const PARALLAX_BG_MAX = 10;
-const PARALLAX_METRICS_MIN = 0;
-const PARALLAX_METRICS_MAX = 20;
 const PARALLAX_SMOOTH_MIN = 0;
 const PARALLAX_SMOOTH_MAX = 98;
-/** 名称层 / 标尺层相对**图表层**的加量（"其余组件以该值为基准逐加1%"）。 */
-const PARALLAX_LABEL_STEP = 1;
-const PARALLAX_GUIDE_STEP = 2;
 /** 位移步长的最小"到位"距离（px / 每 1%）：兜底阈值，常态用的是下面按可见位移折算的那个。 */
 const PARALLAX_SETTLE_PX = 0.02;
 /** 缓动按 60fps 一帧折算；掉帧时最多按 64ms 补（再长就直接到位，别放大成一次跳跃）。
@@ -90,27 +83,23 @@ const PARALLAX_MIN_FRAME_MS = PARALLAX_FRAME_MS * 0.75;
 const PARALLAX_SETTLE_VISIBLE_PX = 0.25;
 const PARALLAX_IDLE_MS = 180;
 const PARALLAX_IDLE_VISIBLE_PX = 1;
-/** 要动的那几层（与 src/styles.js 视差段的规则一一对应）：柱状图三个宿主都带 .we-metrics。 */
-const PARALLAX_TARGET_SELECTOR = '.we-layer, .we-rope, .we-metrics';
+/** 要动的那几层（与 src/styles.js 视差段的规则一一对应）：壁纸层与吉祥物。 */
+const PARALLAX_TARGET_SELECTOR = '.we-layer, .we-rope';
 /** 帧循环在跑的这段时间加在目标上的类（样式段只在开关属性下给它 will-change）—— 收工即摘。 */
 const PARALLAX_MOVING_CLASS = 'we-parallax--moving';
-/** 目标重扫间隔：壁纸层会换节点、柱状图宿主随行数与采样重建，所以帧里定期重扫一次。 */
+/** 目标重扫间隔：壁纸层会换节点，所以帧里定期重扫一次。 */
 const PARALLAX_TARGETS_MS = 250;
 /** 光标在屏幕外 / 还没动过时的位移：读不到真实尺寸时的兜底中心，也是"零位移"的那一点。 */
 const PARALLAX_BG_DEFAULT = 1;
-const PARALLAX_METRICS_DEFAULT = 1;
 const PARALLAX_SMOOTH_DEFAULT = 85;
 /** 写进 body 的变量名（与 src/styles.js 的视差段逐字对应）：前两个是**每 1% 的像素步长**
  *  （写在**要动的那几层自己**身上，见 parallaxSteps —— 自定义属性是继承的，写在 body 上等于
- *  每帧让整棵文档树重算样式），其余五个是各层的百分比（只在设置变了时写一次）——
+ *  每帧让整棵文档树重算样式），其余两个是各层的百分比（只在设置变了时写一次）——
  *  真正的位移 = 步长 × 百分比，全在 CSS 的 calc() 里乘出来。 */
 const PARALLAX_VAR_X = '--we-parallax-x';
 const PARALLAX_VAR_Y = '--we-parallax-y';
 const PARALLAX_VAR_BG = '--we-parallax-bg';
 const PARALLAX_VAR_MASCOT = '--we-parallax-mascot';
-const PARALLAX_VAR_METRICS = '--we-parallax-metrics';
-const PARALLAX_VAR_LABELS = '--we-parallax-labels';
-const PARALLAX_VAR_GUIDES = '--we-parallax-guides';
 /** body 上的总开关属性：只有它在时那几条视差规则才命中（关掉 ⇒ 壁纸连 translate 都不带）。 */
 const PARALLAX_ATTR = 'data-we-parallax';
 
@@ -155,8 +144,6 @@ function parallaxSettings() {
   return {
     on: selection.parallaxEnabled === true,
     bg: parallaxClamp(selection.parallaxBg, PARALLAX_BG_MIN, PARALLAX_BG_MAX, PARALLAX_BG_DEFAULT),
-    metrics: parallaxClamp(selection.parallaxMetrics, PARALLAX_METRICS_MIN, PARALLAX_METRICS_MAX,
-      PARALLAX_METRICS_DEFAULT),
     mascot: selection.parallaxMascot !== false,
     smooth: parallaxClamp(selection.parallaxSmooth, PARALLAX_SMOOTH_MIN, PARALLAX_SMOOTH_MAX,
       PARALLAX_SMOOTH_DEFAULT),
@@ -261,24 +248,19 @@ function parallaxRatios(st) {
   const body = parallaxBody();
   if (!body) return;
   const mascot = st.mascot ? st.bg : 0;
-  const key = [st.bg, mascot, st.metrics, st.metrics + PARALLAX_LABEL_STEP,
-    st.metrics + PARALLAX_GUIDE_STEP].join('|');
+  const key = [st.bg, mascot].join('|');
   if (key === parallaxRatioKey) return;
   parallaxRatioKey = key;
   parallaxVarOn(body, PARALLAX_VAR_BG, String(st.bg));
   parallaxVarOn(body, PARALLAX_VAR_MASCOT, String(mascot));
-  parallaxVarOn(body, PARALLAX_VAR_METRICS, String(st.metrics));
-  parallaxVarOn(body, PARALLAX_VAR_LABELS, String(st.metrics + PARALLAX_LABEL_STEP));
-  parallaxVarOn(body, PARALLAX_VAR_GUIDES, String(st.metrics + PARALLAX_GUIDE_STEP));
 }
 
-/** 把 5 个系数变量从 body 上收掉（停用后 body 上不留本层的任何痕迹）。 */
+/** 把 2 个系数变量从 body 上收掉（停用后 body 上不留本层的任何痕迹）。 */
 function parallaxRatioClear() {
   const body = parallaxBody();
   const style = body && body.style;
   if (!style || typeof style.removeProperty !== 'function') return;
-  const props = [PARALLAX_VAR_BG, PARALLAX_VAR_MASCOT, PARALLAX_VAR_METRICS,
-    PARALLAX_VAR_LABELS, PARALLAX_VAR_GUIDES];
+  const props = [PARALLAX_VAR_BG, PARALLAX_VAR_MASCOT];
   for (let i = 0; i < props.length; i += 1) {
     try { style.removeProperty(props[i]); } catch (e) { /* 已卸载 */ }
   }
@@ -385,7 +367,7 @@ function parallaxFrame(ms) {
   const targetX = PARALLAX_DIRECTION * (cx - vw / 2) / 100;
   const targetY = PARALLAX_DIRECTION * (cy - vh / 2) / 100;
   // 一层都不动（系数全 0）⇒ 屏上什么都不会变：一次落位、收工，一帧都不多排。
-  const pctMax = Math.max(st.bg, st.metrics + PARALLAX_GUIDE_STEP);
+  const pctMax = st.bg;
   if (pctMax <= 0) {
     parallaxStepX = targetX;
     parallaxStepY = targetY;

@@ -18,6 +18,11 @@
 
 > v1.2.0 之后的增量（本地未发布，逐提交可查）：
 
+- **移除：「扩展」页签一号模块「硬件资源监控柱状图」整体退役**（用户口径：资源监控**不并入**本美化插件，建议做成**单独的监控类插件**；「扩展」页签与另两个模块原样保留）。
+  **做了什么**：模块的四份实现整份删除 —— 浏览器侧两半（画布层 `src/metrics-layer.js` + 扩展岛 `src/ext-metrics.js`）与宿主侧两半（采样器 `lib/metrics.js` + 只读路由 `lib/routes/metrics.js`）；`lib/settings-schema.js` 的 29 个 `metrics*` 键与 `parallaxMetrics`（共 30 键）、`src/client.js` 的 21 个 `onMetrics*` 处理器与订阅 / 卸载两处接线、`src/styles.js` 的柱状图整段样式、`src/i18n-copy.js` 的整块词条、`package.json` 的 `files` 条目（`lib/metrics.js`）一并撤掉。**「扩展」页签的容器语义一行没改**：注册表 `extensionModules()` 现在只返回三项（自定义会话头像 / 点击效果与拖尾效果 / 3D 效果）—— 当初把它做成注册表的价值就在这一刀上。三号「3D 效果」里"柱状图参与视差"的那部分（柱层 / 行名 / 白线三个系数与 `parallaxMetrics` 键）随模块退役，只剩壁纸与吉祥物两层（落在 body 上的系数从 5 个减到 2 个）。
+  **为什么**：① 它是插件里唯一带**宿主侧常驻采样**的模块（Windows 上还常驻一条 `typeperf` 子进程），与"美化"不是一类东西；② 资源监控是独立的监控类产品面 —— 单独做成插件才不用两头迁就（挂在壁纸插件里它只能长在壁纸上，参数还得跟玻璃 / 字体 / 主题抢位置）。
+  **判据**：`test/verify-client.mjs` 的「扩展」页签判据从"四张模块卡"改成三张（锚点 / 计数 / 注册表顺序 / 三个模块默认关时都不画参数）；`test/verify-scene-live.mjs` 删掉三个整块（两个浏览器侧模块的登记与"产物里只有一份"、宿主采样器与那条只读路由的行为断言、画布层与岛的两半判据），注册表字符串期望同步为 `AVATAR_EXTENSION_MODULE, FX_EXTENSION_MODULE, PARALLAX_EXTENSION_MODULE`，视差层的源码口径换锚（选择器 `.we-layer, .we-rope`、`const pctMax = st.bg;`、body 上只剩 2 个系数），头像样式段的切片终点改挂「扩展」二号模块（原来靠被删掉的柱状图段头当边界）；设置夹具 `test/fixtures/settings-sanitize-golden.json` 从 client / host 两侧期望里整批摘掉这 30 键（其余键零漂移）；`docs/ROUTE-INDEX.md` 由 41 条路由重算为 40 条、`docs/GUARD-MAP.md` 重算（两个模块移出后零覆盖只剩两个 vendor 产物）；中英 README / HOW-IT-WORKS / CODE-STRUCTURE 同步（页签里的模块清单、视差层的两条腿、路由图与角色表）。`npm run verify:all` 全绿（scene-live 453 条）。
+
 - **修复：松散目录形态的场景壁纸无法实时渲染**（用户报障：松散类型的场景壁纸无法正常渲染）。
   **做了什么**：`lib/index.js` 的 `sceneFieldsFor` 撤下「live render is pkg-only」旧门 —— 旧口径以为
   WebWallGL 的 httpSource 只能拉单文件容器，入口是 `.json` 的松散目录被整体判 `sceneLive:false`、不发

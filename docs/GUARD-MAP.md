@@ -4,7 +4,7 @@
 > **怎么用**：改了 `src/` 或 `lib/` 的某个模块，在「模块 → 守卫」那张表里查该跑哪几条。
 > 口径：只统计守卫**代码**里真正碰到的模块（先剥注释），并区分"直接读源文件"与"隔着产物 `lib/client.js`"。
 
-模块面 66 个 · 守卫 48 个
+模块面 62 个 · 守卫 48 个
 
 ## 守卫 → 模块
 
@@ -49,7 +49,7 @@
 | `verify-retired-lines.mjs` | `src/client.js` |  |
 | `verify-route-families.mjs` | — |  |
 | `verify-route-index.mjs` | `lib/index.js` |  |
-| `verify-scene-live.mjs` | `lib/index.js` `lib/media/index.js` `lib/media/legacy.js` `lib/media/provision.js` `lib/media/supervisor.js` `lib/metrics.js` `lib/routes/diag.js` `lib/routes/metrics.js` `lib/routes/now-playing.js` `lib/routes/scene-serve.js` `lib/settings-schema.js` `lib/we-props.js` `lib/webwallgl/web-shim.js` `src/client.js` `src/effects.js` `src/ext-fx.js` `src/ext-metrics.js` `src/ext-parallax.js` `src/font/color-roles.js` `src/font/typography.js` `src/fx-layer.js` `src/glass-panel.js` `src/layer-core.js` `src/live-layer.js` `src/media-prep.js` `src/metrics-layer.js` `src/panel-tabs.js` `src/parallax-layer.js` `src/picker-modal.js` `src/quick-panel.js` `src/sidebar-right.js` `src/styles.js` `src/system-fonts.js` `src/video-layer.js` `src/we-cond.js` | ✅ |
+| `verify-scene-live.mjs` | `lib/index.js` `lib/media/index.js` `lib/media/legacy.js` `lib/media/provision.js` `lib/media/supervisor.js` `lib/routes/diag.js` `lib/routes/now-playing.js` `lib/routes/scene-serve.js` `lib/settings-schema.js` `lib/we-props.js` `lib/webwallgl/web-shim.js` `src/client.js` `src/effects.js` `src/ext-fx.js` `src/ext-parallax.js` `src/font/color-roles.js` `src/font/typography.js` `src/fx-layer.js` `src/glass-panel.js` `src/layer-core.js` `src/live-layer.js` `src/media-prep.js` `src/panel-tabs.js` `src/parallax-layer.js` `src/picker-modal.js` `src/quick-panel.js` `src/sidebar-right.js` `src/styles.js` `src/system-fonts.js` `src/video-layer.js` `src/we-cond.js` | ✅ |
 | `verify-scene.mjs` | `lib/index.js` `lib/pkg-read.js` `lib/routes/scene-frame.js` `lib/scene-manifest.js` | ✅ |
 | `verify-softrender.mjs` | — | ✅ |
 | `verify-system-fonts.mjs` | `lib/routes/system-fonts.js` `lib/settings-schema.js` `src/client.js` `src/font/typography.js` `src/panel-tabs.js` `src/system-fonts.js` | ✅ |
@@ -71,14 +71,12 @@
 | `lib/media/legacy.js` | 3 | `verify-contracts` `verify-package-files` `verify-scene-live` |
 | `lib/media/provision.js` | 3 | `e2e-web-media-origin` `verify-media-bridge` `verify-scene-live` |
 | `lib/media/supervisor.js` | 3 | `verify-contracts` `verify-media-bridge` `verify-scene-live` |
-| `lib/metrics.js` | 1 | `verify-scene-live` |
 | `lib/notice.js` | 1 | `verify-logging` |
 | `lib/pkg-read.js` | 3 | `verify-package-files` `verify-package-publish` `verify-scene` |
 | `lib/routes/about-qr.js` | 1 | `verify-about` |
 | `lib/routes/diag.js` | 2 | `verify-logging` `verify-scene-live` |
 | `lib/routes/fontsets.js` | 1 | `verify-contracts` |
 | `lib/routes/github-stars.js` | 1 | `verify-about` |
-| `lib/routes/metrics.js` | 1 | `verify-scene-live` |
 | `lib/routes/now-playing.js` | 1 | `verify-scene-live` |
 | `lib/routes/presets.js` | 1 | `verify-presets` |
 | `lib/routes/scene-frame.js` | 1 | `verify-scene` |
@@ -97,7 +95,6 @@
 | `src/client.js` | 20 | `e2e-web-media-origin` `verify-about` `verify-adapter` `verify-api-client` `verify-client` `verify-component-fonts` `verify-contracts` `verify-fontset` `verify-glass-surfaces` `verify-i18n` `verify-module-layout` `verify-package-publish` `verify-presets` `verify-retired-lines` `verify-scene-live` `verify-system-fonts` `verify-theme-follow` `verify-theme-layer` `verify-transcode-state` `verify-types` |
 | `src/effects.js` | 7 | `verify-adapter` `verify-api-client` `verify-client` `verify-component-fonts` `verify-glass-surfaces` `verify-scene-live` `verify-theme-layer` |
 | `src/ext-fx.js` | 1 | `verify-scene-live` |
-| `src/ext-metrics.js` | 1 | `verify-scene-live` |
 | `src/ext-parallax.js` | 1 | `verify-scene-live` |
 | `src/font/apply.js` | 5 | `verify-api-client` `verify-client` `verify-component-fonts` `verify-fontset` `verify-theme-layer` |
 | `src/font/color-roles.js` | 4 | `verify-api-client` `verify-fontset` `verify-scene-live` `verify-theme-layer` |
@@ -113,7 +110,6 @@
 | `src/layer-core.js` | 2 | `verify-api-client` `verify-scene-live` |
 | `src/live-layer.js` | 6 | `verify-api-client` `verify-client` `verify-glass-surfaces` `verify-logging` `verify-scene-live` `verify-theme-follow` |
 | `src/media-prep.js` | 6 | `verify-api-client` `verify-client` `verify-fontset` `verify-scene-live` `verify-theme-follow` `verify-transcode-state` |
-| `src/metrics-layer.js` | 1 | `verify-scene-live` |
 | `src/nav-icon.js` | 1 | `verify-i18n` |
 | `src/panel-tabs.js` | 11 | `verify-about` `verify-adapter` `verify-api-client` `verify-client` `verify-contracts` `verify-fontset` `verify-glass-surfaces` `verify-scene-live` `verify-system-fonts` `verify-theme-follow` `verify-theme-layer` |
 | `src/parallax-layer.js` | 1 | `verify-scene-live` |

@@ -23,7 +23,7 @@
  *     三个档位表（点击样式 / 拖尾样式 / 配色）与混合模式的下拉档位直接读那份的
  *     `FX_*_VALUES`（只有中文名住在本文件）。
  *   · 关掉总开关时只画总开关 + 一句说明；关掉某一个子开关（点击 / 拖尾）时，**它自己那一
- *     串参数跟着收起来** —— "关掉了还能拖它的参数"是上一块柱状图刻意没做的错觉，这里照办。
+ *     串参数跟着收起来** —— "关掉了还能拖它的参数"是个错觉，不收就是明摆着的假控件。
  */
 
 /** 点击样式（与 lib/settings-schema.js 的 FX_CLICK_STYLE_VALUES 逐字对齐）。
@@ -63,7 +63,7 @@ const FX_BLEND_LABELS = {
 /** 自定义配色的预设圆点：一个中性蓝 + 五条"霓虹"色 + 白（白在最右，它是最亮的一档）。 */
 const FX_COLOR_PRESETS = ['#4f8cff', '#35d07f', '#ff5c8a', '#ffb020', '#a06bff', '#22c7d6', '#ffffff'];
 
-/** 一段三选一（点击样式 / 拖尾样式 / 效果配色）：与柱状图的「柱配色」同一形态（等分按钮 + 悬停说明）。 */
+/** 一段三选一（点击样式 / 拖尾样式 / 效果配色）：等分按钮 + 悬停说明。 */
 function fxSegRow(key, label, hint, items, value, onPick) {
   return React.createElement("div", { className: "we-picker__ctl", key: key },
     ctlText(label, hint),
@@ -81,7 +81,7 @@ function fxSegRow(key, label, hint, items, value, onPick) {
   );
 }
 
-/** 一档下拉（混合模式共 5 档，平铺会挤成一团）：与柱状图的「混合模式」同一形态。 */
+/** 一档下拉（混合模式共 5 档，平铺会挤成一团）：档位多了就收进下拉。 */
 function fxSelectRow(key, label, hint, values, labels, value, onChange) {
   return React.createElement("div", { className: "we-picker__ctl", key: key },
     ctlText(label, hint),

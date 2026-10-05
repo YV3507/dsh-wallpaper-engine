@@ -32,8 +32,8 @@
  *     拖动滑块时的即时反馈靠"每帧重读设置"，不靠写回。
  *   · **零顶层可执行语句**：本文件的顶层只有声明 —— 读 `selection` 的语句一律在函数里
  *     （内联后 prelude 早于 `src/client.js` 正文求值，顶层读它必撞 TDZ）。
- *   · **不读壁纸像素**：柱状图那层要靠采样壁纸判明暗（它有两套混合档），本层**刻意不做** ——
- *     一条常驻的光效层不值得每两秒 `drawImage` 一次，`fxBlend` 因此只有手选档（见 schema 注释）。
+ *   · **不读壁纸像素**：本层**刻意不**采样壁纸像素去判明暗（那要每两秒 `drawImage` 一次）——
+ *     一条常驻的光效层不值得，`fxBlend` 因此只有手选档（见 schema 注释）。
  *   · **不接管输入**：宿主是 `pointer-events: none` 的浮层，事件只被**读**（document 上的
  *     pointerdown / pointermove，passive）；点在界面控件上（`FX_UI_SELECTOR`）不产生效果 ——
  *     光效是"在壁纸上点的"，不是在设置面板上点的。
@@ -44,18 +44,19 @@
  *     没有帧时钟的地方留半截状态。
  *   · ⚠️ 帧里**不许**用"宿主还没建"当早退条件：宿主是在 `fxStart()` 里建的，而帧由
  *     `requestAnimationFrame` 回调触发 —— 写成"没有宿主就 return"会退化成死锁
- *     （柱状图那层犯过一次：`!metricsHosts.length || !metricsData` ⇒ "扩展未显示"）。
+ *     （早退条件里带上"宿主 / 数据还没就绪"犯过一次：帧循环还没轮到建宿主就被自己
+ *     return 掉 ⇒ 屏上什么都不显示）。
  *     这里帧内只调一次幂等的 `fxEnsureHost()`（`isConnected` 就直接返回），永不早退。
- *   · **画在壁纸之上、柱状图与界面之下**：宿主是 `position: fixed; z-index: -1` 的 body 级
- *     浮层，DOM 序由 `fxPlace()` 每帧核对（柱状图三族与暗化层 `.we-scrim` 同是 `-1`，
- *     同层靠文档序分上下）⇒ 恒为 壁纸 → **本层** → 暗化层 → 柱状图 → 界面。
+ *   · **画在壁纸之上、界面之下**：宿主是 `position: fixed; z-index: -1` 的 body 级
+ *     浮层，DOM 序由 `fxPlace()` 每帧核对（与暗化层 `.we-scrim` 同为 `-1`，同层靠文档序
+ *     分上下）⇒ 恒为 壁纸 → **本层** → 暗化层 → 界面。
  *     `-webkit-app-region: initial !important` 与 `pointer-events: none` 是整屏浮层的硬要求
  *     （不得挖掉窗口拖拽区，见 src/styles.js 的 .we-layer 注释与 upstream #120）。
  */
 
 const FX_HOST_ID = 'we-fx-layer';
 const FX_DPR_MAX = 2;
-/** 颜色解析失败的兜底（= 默认主题色，与柱状图那层同一个值）。 */
+/** 颜色解析失败的兜底（= 默认主题色）。 */
 const FX_FALLBACK_COLOR = '#4f8cff';
 /** 采样点的上限（一条拖尾最多记这么多点）：光标再快也不会把数组撑爆。 */
 const FX_POINT_MAX = 96;
@@ -183,26 +184,17 @@ function fxRemoveHost() {
 }
 
 /**
- * 层级：本层与柱状图三族（`.we-metrics*`）、暗化层（`.we-scrim`）都是 `z-index: -1` 的 body 级
- * 浮层 —— 同 z-index 全靠**文档序**分上下。口径恒为：壁纸 → **本层** → 暗化层 → 柱状图 → 界面
- * （柱状图是"读数"、本层是"耍帅"，读数不该被光效晃掉；而光效必须压在暗化层之上，否则亮壁纸
- * 一旦被加暗，光效也跟着糊掉）。暗化层是**壁纸激活时**才挂的 ⇒ 这件事每帧核对一次，
- * 只用 `compareDocumentPosition` 判"位序对不对"，对了一次 DOM 都不动。
+ * 层级：本层与暗化层（`.we-scrim`）都是 `z-index: -1` 的 body 级浮层 —— 同 z-index 全靠
+ * **文档序**分上下。口径恒为：壁纸 → **本层** → 暗化层 → 界面（光效必须压在暗化层之上，
+ * 否则亮壁纸一旦被加暗，光效也跟着糊掉）。暗化层是**壁纸激活时**才挂的 ⇒ 这件事每帧核对
+ * 一次，只用 `compareDocumentPosition` 判"位序对不对"，对了一次 DOM 都不动。
  */
 function fxPlace() {
   if (!fxHost || !fxHost.parentNode) return;
-  let metricsHost = null;
   let scrim = null;
   try {
-    metricsHost = document.querySelector('.we-metrics');
     scrim = document.querySelector('.we-scrim');
   } catch (e) { return; }
-  // DOM 位序掩码：2 = "另一方排在我前面"。
-  if (metricsHost) {
-    if (metricsHost.compareDocumentPosition(fxHost) & 2) return; // 已经排在柱状图之前
-    if (metricsHost.parentNode) metricsHost.parentNode.insertBefore(fxHost, metricsHost);
-    return;
-  }
   if (!scrim || !scrim.parentNode) return;
   if (fxHost.compareDocumentPosition(scrim) & 2) return; // 已经排在暗化层之后
   scrim.parentNode.insertBefore(fxHost, scrim.nextSibling);
@@ -453,7 +445,7 @@ function fxFrame() {
   const dpr = Math.min(window.devicePixelRatio || 1, FX_DPR_MAX);
   fxSizeCanvas(width, height, dpr);
   // 观感写在**宿主**上：`mix-blend-mode` 落在画布上只会跟宿主自己的 stacking context 混合
-  // （等于不生效）—— 与柱状图那层同一条教训。
+  // （等于不生效）。
   fxNodeStyle(fxHost, 'mix-blend-mode', st.blend);
   fxNodeStyle(fxHost, 'opacity', String(st.opacity / 100));
   const g = fxCanvas.getContext('2d');

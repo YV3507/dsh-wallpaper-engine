@@ -595,68 +595,9 @@ const WE_I18N_EN = {
   "还没有可用的扩展模块": "No extension modules yet",
   "后续新增的功能会以模块形式收在这里，每个模块自带它的控件": "Features added later are collected here as modules, each with its own controls",
 
-  // ── src/metrics-layer.js · 资源柱状图画布层（「扩展」一号模块的绘制侧）──
-  //    这四条是**面板开关**的名字（= METRICS_SERIES 的 label，顺带与 METRICS_SERIES 同序）；
-  //    屏上压在柱子上的那行字取的是 METRICS_SERIES 的 `tag`（CPU / RAM / GPU / NET / DISK 这类
-  //    固定英文缩写，纯 ASCII 常量）—— 它是图形的一部分，不随界面语言变，**因此不进词表**。
-  "内存": "Memory",
-  "显卡": "GPU",
-  "网络": "Network",
-  "磁盘": "Disk",
-
-  // ── src/ext-metrics.js · 「扩展」页签一号模块（硬件资源监控柱状图）──
-  //    范围/默认值不在这里写死：真源是 lib/settings-schema.js 的 29 个 `metrics*` 键。
-  "硬件资源监控柱状图": "Hardware monitor bars",
-  "屏幕底部的实时资源柱状图（CPU / 内存 / 显卡 / 网络 / 磁盘）": "Live resource bars at the bottom of the screen (CPU / memory / GPU / network / disk)",
-  "启用资源柱状图": "Enable resource bars",
-  "在屏幕下方居中叠加随时间流动的荧光柱状图：只有柱子，没有刻度、表头与坐标轴": "Centers scrolling glow bars in the lower part of the screen: bars only, with no ticks, headers or axes",
-  "高度": "Height",
-  "水平偏移": "Horizontal offset",
-  "正值向右，负值向左": "Positive moves right, negative moves left",
-  "垂直偏移": "Vertical offset",
-  "正值向上，负值向下": "Positive moves up, negative moves down",
-  "柱宽": "Bar width",
-  "柱间距": "Bar gap",
-  "指标间隔": "Row gap",
-  "阈值": "Threshold",
-  "按各指标满格的比例算，超过就标红（0 = 不标红）": "Measured as a share of each metric's full scale; anything above it turns red (0 = no red)",
-  "细白横线": "Thin white rules",
-  "每行 50% 高度一条、每两行之间一条（单独一层画，不跟随柱子的混合模式）": "One at each row's 50% height, plus one between every two rows (drawn in its own layer, not following the bars' blend mode)",
-  "不透明度": "Opacity",
-  "混合模式": "Blend mode",
-  "与壁纸的融合方式：自动会按壁纸明暗切换（亮背景用正片叠底、暗背景用叠加、极黑背景用变亮并把柱子透明度按下面的设置压低）；采不到壁纸画面时退回上一次手选的档": "How the bars fuse with the wallpaper: Auto switches by wallpaper brightness (multiply on light, overlay on dark, and Lighten on an almost black background with the bars at the opacity set just below); when the wallpaper image cannot be sampled it falls back to the last mode you picked by hand",
-  "极黑柱不透明度": "Bar opacity on black",
-  "自动档判定为极黑背景时，柱子只剩这个不透明度（100% = 不减）": "In Auto, when the background counts as almost black the bars layer keeps only this opacity (100% = no reduction)",
-  "正常": "Normal",
-  "正片叠底": "Multiply",
-  "叠加": "Overlay",
-  "滤色": "Screen",
-  "柔光": "Soft light",
-  "变暗": "Darken",
-  "变亮": "Lighten",
-  "描边宽度": "Outline width",
-  "荧光强度": "Glow strength",
-  "平滑": "Smoothing",
-  "时间窗": "Time window",
-  "实心柱": "Solid bars",
-  "关掉只画柱子的轮廓": "Off leaves just the bar outlines",
-  "柱配色": "Bar colors",
-  "柱子的取色方式": "How the bars pick their colors",
-  "跟随主题色": "Follow theme color",
-  "每根柱子都用外观里的主题色": "Every bar uses the accent color from Appearance",
-  "分色": "Distinct hues",
-  "每条序列用下面为它选的颜色": "Each series uses the color picked for it below",
-  "{label}颜色": "{label} color",
-  "单色": "Single color",
-  "同色，靠亮度区分": "One color, separated by brightness",
-  "序列名称": "Series names",
-  "在每行居中用「外观」里设置的字体画出该行名称（英文缩写，加粗、上深下浅渐变、与行等高）": "Draws each row's name (an English short tag) centered in the row, in the font set in Appearance (bold, fading from top to bottom, as tall as the row)",
-  "宿主取不到的指标不会画出来（例如没有 N 卡、或没有性能计数器权限时）": "Metrics the host cannot read are left out (for example without an NVIDIA GPU, or without permission to read the performance counters)",
-
   // ── src/ext-fx.js · 「扩展」页签二号模块（点击效果与拖尾效果）──
   //    范围/默认值不在这里写死：真源是 lib/settings-schema.js 的 14 个 `fx*` 键。
-  //    下面几条与一号模块共用（**不重复登记**）：不透明度 / 混合模式 / 滤色 / 正常 / 叠加 /
-  //    正片叠底 / 变亮 / 跟随主题色 / 自定义（后者在更上面的通用段里）。
+  //    最后那几条是**通用档位名**（混合模式与配色档），登记在本段。
   "点击效果与拖尾效果": "Click and trail effects",
   "在壁纸之上叠加随光标响应的点击与拖尾效果：整层在界面之后，不会挡到任何控件": "Overlays click and trail effects that follow the cursor on top of the wallpaper: the whole layer sits behind the interface, so it never blocks a control",
   "启用点击与拖尾效果": "Enable click and trail effects",
@@ -692,19 +633,25 @@ const WE_I18N_EN = {
   "每次效果的色相都不一样": "Every effect gets a different hue",
   "用下面选的那一个颜色": "Uses the single color picked below",
   "自定义颜色": "Custom color",
+  "不透明度": "Opacity",
+  "混合模式": "Blend mode",
+  "滤色": "Screen",
+  "正常": "Normal",
+  "叠加": "Overlay",
+  "正片叠底": "Multiply",
+  "变亮": "Lighten",
+  "跟随主题色": "Follow theme color",
 
   // ── src/ext-parallax.js · 「扩展」页签三号模块（3D 效果）──
-  //    范围/默认值不在这里写死：真源是 lib/settings-schema.js 的 5 个 `parallax*` 键。
+  //    范围/默认值不在这里写死：真源是 lib/settings-schema.js 的 4 个 `parallax*` 键。
   //    这一节刻意不登记 `%`（SliderRow 的单位后缀是代码里的字面量，不进词表），
   //    也没有与另两个模块共用的键 —— 文案都是这一个模块自己的。
   "3D 效果": "3D effect",
-  "光标移动时，壁纸、吉祥物与柱状图沿屏幕中心的对称方向轻轻偏移（视差纵深）": "Shifts the wallpaper, the mascot and the chart gently along the direction mirrored about the screen center as the cursor moves (parallax depth)",
+  "光标移动时，壁纸与吉祥物沿屏幕中心的对称方向轻轻偏移（视差纵深）": "Shifts the wallpaper and the mascot gently along the direction mirrored about the screen center as the cursor moves (parallax depth)",
   "启用 3D 效果": "Enable 3D effect",
-  "光标移动时，壁纸、吉祥物与柱状图沿屏幕中心的对称方向轻轻偏移：整块界面不动": "As the cursor moves, the wallpaper, the mascot and the chart drift gently in the direction mirrored about the screen center: the interface itself never moves",
+  "光标移动时，壁纸与吉祥物沿屏幕中心的对称方向轻轻偏移：整块界面不动": "As the cursor moves, the wallpaper and the mascot drift gently in the direction mirrored about the screen center: the interface itself never moves",
   "背景缓动距离": "Background travel",
   "光标走完一整条对角线时，壁纸挪动的距离占该对角线的百分比（壁纸会同时放大同样多，免得边上露出底色）": "How far the wallpaper travels, as a percentage of the longest diagonal, when the cursor crosses that whole diagonal (the wallpaper is scaled up by the same amount, so no base color shows at the edges)",
-  "图表缓动距离": "Chart travel",
-  "柱状图柱层的距离；行名再加 1%、细白横线再加 2%（柱状图那个扩展开着时才看得见）": "How far the chart's bar layer travels; the row labels add 1 more percent and the thin white rules 2 (only visible while the hardware monitor extension is on)",
   "吉祥物跟随": "Mascot follows",
   "挂件也按「背景缓动距离」一起挪": "The mascot drifts along using the background travel distance",
   "缓动平滑": "Easing smoothness",

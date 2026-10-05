@@ -159,23 +159,9 @@ const INLINE_MODULES = [
     markers: ['function renderAppearanceGlassSection(ctx) {', 'const CHILD_CN = {'],
   },
   {
-    // 「扩展」页签一号模块的资源柱状图：画布层（基座模块，直接读 selection）与它的
-    // **模块描述符**。两份都排在 panel-tabs 之前（数组顺序 = 注入顺序）—— 描述符是
-    // panel-tabs 的 `extensionModules()` 的返回值来源；那是个**惰性**函数，所以顺序
-    // 不再是"prelude 求值期"的硬约束，但依赖关系上仍该先注入。
-    file: 'src/metrics-layer.js',
-    why: '「硬件资源监控柱状图」的画布层：轮询 /metrics、把序列画成一行行的荧光柱（基座模块：只读 selection、零 ctx）',
-    markers: ['const METRICS_SERIES = [', 'const METRICS_HOST_ID = ',
-      'function syncMetricsLayer()', 'function disposeMetricsLayer()'],
-  },
-  {
-    file: 'src/ext-metrics.js',
-    why: '「扩展」页签一号模块的描述符（渲染该扩展岛；动作一律经 ctx 里的具名 on* 处理器）',
-    markers: ['const METRICS_EXTENSION_MODULE = {', 'function renderMetricsIsland(ctx)'],
-  },
-  {
-    // 「扩展」页签二号模块（点击效果与拖尾效果）：同样是"画布层 + 描述符"，同样排在
-    // panel-tabs 之前（见上面一号模块那条注释里关于注入顺序的说明）。
+    // 「扩展」页签二号模块（点击效果与拖尾效果）："画布层 + 描述符"两份都排在 panel-tabs
+    // 之前（数组顺序 = 注入顺序）—— 描述符是 panel-tabs 的 `extensionModules()` 的返回值
+    // 来源；那是个**惰性**函数，所以顺序不再是"prelude 求值期"的硬约束，但依赖关系上仍该先注入。
     file: 'src/fx-layer.js',
     why: '「点击效果与拖尾效果」的画布层：跟着指针画点击光效与拖尾，内容驱动地起停 rAF（基座模块：只读 selection、零 ctx）',
     markers: ['const FX_HOST_ID = ', 'function syncFxLayer()', 'function disposeFxLayer()'],

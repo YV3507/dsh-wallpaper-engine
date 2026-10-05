@@ -1478,20 +1478,19 @@
   //     **不能直接写成 `title: "…"`** —— 那在 test/verify-i18n.mjs 的判据 ① 里是
   //     "没进 weT(...) 的裸中文"；也不能写成顶层 `title: weT("…")`，那会在内联后的
   //     prelude 求值期撞 TDZ。既有写法是**getter**：
-  //       get title() { return weT("硬件资源监控柱状图"); }
+  //       get title() { return weT("点击效果与拖尾效果"); }
   //     这样 `weT(...)` 就落在字面量的最内层调用帧上，且取译文发生在渲染时（照抄
-  //     src/ext-metrics.js 的 METRICS_EXTENSION_MODULE 即可）—— 因此**本文件不再套一层
+  //     src/ext-fx.js 的 FX_EXTENSION_MODULE 即可）—— 因此**本文件不再套一层
   //     weT**（套了就成了拿译文再查一次词表）。
   //   · `render(ctx)` 可选：给了就在这个模块的位置画它自己的控件；没给就只显示
   //     title + desc —— "功能还没做完"的模块可以先上架占位。
   //   · 模块**不得**自己写设置 / 发通知 / 持有状态：本文件是渲染器（契约见文件头），
   //     要动状态就把动作做成 src/client.js 的具名处理器、经 ctx 传进来。
-  // 现有三项：一号 = 硬件资源监控柱状图（src/ext-metrics.js + src/metrics-layer.js）、
-  // 二号 = 点击效果与拖尾效果（src/ext-fx.js + src/fx-layer.js）、
-  // 三号 = 3D 效果（src/ext-parallax.js + src/parallax-layer.js，只有变量与事件、不建 DOM）。
-  // 加第四项照抄这三份。
+  // 现有两项：一号 = 点击效果与拖尾效果（src/ext-fx.js + src/fx-layer.js）、
+  // 二号 = 3D 效果（src/ext-parallax.js + src/parallax-layer.js，只有变量与事件、不建 DOM）。
+  // 加第三项照抄这两份。
   function extensionModules() {
-    return [METRICS_EXTENSION_MODULE, FX_EXTENSION_MODULE, PARALLAX_EXTENSION_MODULE];
+    return [FX_EXTENSION_MODULE, PARALLAX_EXTENSION_MODULE];
   }
 
   // 这一页自己不读 ctx 的任何字段：整包（sel + 具名 on* 处理器）转交给各模块的 render。
