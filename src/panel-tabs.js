@@ -1,10 +1,12 @@
 /**
  * panel-tabs.js — 面板页签的**渲染器**（七个域：壁纸 / 外观 / 吉祥物 / 效果 / 声音 / 高级 / 关于，
- * 组合成五页签 壁纸库 / 外观 / 播放 / 系统 / 关于，装配点见 src/client.js 的 renderActiveTab）。
+ * 再加一个**模块容器**「扩展」；组合成六页签 壁纸库 / 外观 / 播放 / 系统 / 扩展 / 关于，
+ * 装配点见 src/client.js 的 renderActiveTab）。
  *
  * 为什么单独一个文件：这些渲染器**读**面板状态、**调**面板处理器，但自己不持有状态 ——
  * 正是最适合独立出去的一层。这样面板组件体只剩"状态 + 处理器 + 装配"，页签怎么画看这里。
- * （「关于」是唯一连面板状态都不读的渲染器：静态文案 + 两张随包二维码。）
+ * （「关于」是唯一连面板状态都不读的渲染器：静态文案 + 两张随包二维码。「扩展」读得更少：
+ * 它只画 `extensionModules()` 里登记过的模块，一张都没登记就画空态。）
  *
  * 契约（构建期由 scripts/build-client.mjs 内联进 bundle 的工厂作用域，"外部作用域"=
  * 同一 prelude / src/client.js 的顶层）：
@@ -543,12 +545,11 @@
   }
 
   function renderAppearanceDetailSection(ctx) {
-    const { onBorder, onGlassChildParam, onLeftSidebarGlass, onToggleChildIndependent, childIndependentOn, sel, surface } = ctx;
-    // ⚠️ 简化配置 vs 复杂配置（wip §10.22 的规则）：**「独立配置」层属复杂配置**
-    //    ⇒ 侧栏那一档不画它（本节其余项照旧两档都画：左侧栏覆盖本身是乙类显示开关）。
-    const sidebarSurface = surface === "sidebar";
+    const { onBorder, onGlassChildParam, onLeftSidebarGlass, onToggleChildIndependent, childIndependentOn, sel } = ctx;
+    // （2026-10-03：原「独立配置不进侧栏」的 §10.22 边界已按用户口径推翻 —— 侧栏「外观」
+    //  与设置页同内容，唯全局字体除外；边界改由 quick-panel 的字体占位器 + 字体节的门来钉。）
     return React.createElement(React.Fragment, null,
-    // ── 细节：边框强调 + 左侧栏覆盖（原「效果」页签的材质细调项与本页的左侧栏项）──
+    // ── 细节：边框强调 + 左侧栏液态玻璃（原「效果」页签的材质细调项与本页的左侧栏项）──
     // 玻璃四件套与「雾化」已归入「玻璃 UI」节；本节的「边框」是**非釉层**参数
     //（边框 / 分割线对比度），不属于玻璃配方，故留在细节。
     React.createElement("div", { className: "we-picker__section" },
@@ -558,17 +559,82 @@
       SliderRow(weT("边框"), 0, 90, 5, Math.round(sel.border * 100), onBorder, Math.round(sel.border * 100) + "%", "border-emphasis", {
         tooltip: weT("提高边框 / 分割线的对比度（浅色与深色主题通用）"),
       }),
-      // ── 「左侧栏覆盖」及其子项**已搬进「玻璃 UI」节**（用户口径，见 §10.25）──
+      // ── 「左侧栏液态玻璃」及其子项**已搬进「玻璃 UI」节**（用户口径，见 §10.25）──
       // 为什么现在可以并进去：它当初被排除，是因为「玻璃 UI」那节里有"关 = 回原生纯色"的显示开关
       // （乙类语义冲突）；那一层已在 §10.20 整体退役 ⇒ 冲突消失，面控件与其余玻璃配置同处更顺。
-      // 门槛照旧（`leftSidebarGlass` 前提 + `!sidebarSurface` 的复杂配置边界），见 `src/glass-panel.js`。
+      // 门槛照旧（`leftSidebarGlass` 前提），见 `src/glass-panel.js`；两档同内容（2026-10-03）。
       // 本节只剩「边框」——它是**非釉层**参数（边框 / 分割线对比度），不属于玻璃配方，故留在细节。
     ),
     );
   }
 
+  // ── 字族下拉的**选项**（一处生成，四张表共用）────────────────────────────────
+  // 两组：内置族键（FONT_FAMILY_LABELS，栈写死在 client.js）+ **本机字体**
+  // （宿主枚举出来的族名，经 systemFontKeyOf 变成 `sys:` 族键，见 src/system-fonts.js）。
+  // ⚠️ 本机那一组先过 **`filterUsableSystemFonts`**：只留**本浏览器真的能匹配**的名字 ——
+  //    系统列出的族名里有相当一部分（系统保留字体、同一字体的另一种写法）浏览器压根取不到，
+  //    摆出来就是"选了没反应"（现场缺陷："控制台切换了字体，特殊文字还是显示成口"）。
+  //    量不到时（替身 DOM / 无布局）它原样返回 ⇒ 这里不会因为"测不出来"而少给。
+  // 本机那一组可能为空（清单还在路上 / 取不到）—— 空组**不渲染** optgroup
+  //（给一个拉不动的分组比没有这个分组更让人困惑），状态由 sysFontNote 那一行说。
+  // `skipInherit`：全局字体那一行不要「默认」项（它在那里等于"不覆盖"，与「跟随 DSH」同义）。
+  // `current`：**当前值**。它即使不在清单里（换了机器 / 之前选过一个本浏览器取不到的名字）
+  //   也必须摆进去 —— 否则 `<select>` 会显示成第一项（「跟随」）而值其实还存着，界面在撒谎。
+  function familyOptions(sel, opts) {
+    const o = opts || {};
+    const builtin = o.skipInherit
+      ? FONT_FAMILY_LABELS.filter((f) => f.v !== "inherit") : FONT_FAMILY_LABELS;
+    const nodes = builtin.map((f) => React.createElement("option", { key: f.v, value: f.v }, f.label));
+    const sys = filterUsableSystemFonts(sel.systemFonts).fonts
+      .map((name) => ({ v: systemFontKeyOf(name), label: name }))
+      .filter((x) => x.v);
+    // ⚠️ 局部名不叫 `current`：那是本仓 `MUTABLE_ALIASES` 里的一员（picker 的 ctx 别名），
+    //    `verify-client` 的"渲染器不得改写别名"判据会把这个**声明**误认成赋值。
+    const curKey = typeof o.current === "string" ? o.current : "";
+    if (curKey && !builtin.some((f) => f.v === curKey) && !sys.some((x) => x.v === curKey)) {
+      const name = systemFontNameOf(curKey);
+      if (name) sys.unshift({ v: curKey, label: name });
+    }
+    if (sys.length) {
+      nodes.push(React.createElement("optgroup", { key: "__sys", label: weT("本机字体") },
+        sys.map((x) => React.createElement("option", { key: x.v, value: x.v }, x.label))));
+    }
+    return nodes;
+  }
+
+  /**
+   * 本机字体那一组的**状态行**（空串 = 没什么要说的）。
+   * 四种要说话的情形都是"用户会以为坏了"的：还在扫、取不到、**按文件名推测**出来的清单、
+   * 以及**有名字被本浏览器过滤掉** —— 最后这种必须说：否则用户找 `Apple Color Emoji` 找不到，
+   * 只会以为清单又漏了，而真相是这个名字在本浏览器里取不到。
+   */
+  function sysFontNote(sel) {
+    if (sel.systemFontsLoading) return weT("正在读取本机字体…");
+    if (sel.systemFontsError) return weT("本机字体读不到：{why}", { why: sel.systemFontsError });
+    if (sel.systemFontsApproximate && (sel.systemFonts || []).length) {
+      return weT("本机字体是按文件名推测的（没拿到系统字体清单）");
+    }
+    const probe = filterUsableSystemFonts(sel.systemFonts);
+    if (probe.skipped > 0) {
+      return weT("已略过 {count} 个本浏览器取不到的字体名（选了也不会生效）", { count: probe.skipped });
+    }
+    return "";
+  }
+
+  /** 本机字体那一组的「重新扫描」（刚装完字体时的出路；在途时禁用）。 */
+  function sysFontRefresh(sel, onRefresh) {
+    return React.createElement("button", {
+      key: "sys-font-refresh",
+      type: "button",
+      className: "we-picker__chip",
+      disabled: sel.systemFontsLoading === true,
+      onClick: () => onRefresh(),
+      title: weT("重新读取本机已安装的字体（装了新字体之后用）"),
+    }, weT("重新扫描"));
+  }
+
   function renderAppearanceFontSection(ctx) {
-    const { officialColorOf, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onToggleFontCustom, fontSet, sel, surface } = ctx;
+    const { officialColorOf, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlobalFamily, onRefreshSystemFonts, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onToggleFontCustom, fontSet, sel, surface } = ctx;
     const sidebarSurface = surface === "sidebar";
     // 「排版角色」表要按「只看改过的」筛，而**筛完是空**时要单独给一行提示 ⇒ 先算出来再渲染表。
     // ⚠️ 必须在 `React.createElement(...)` **之前**算（写成参数位置上的赋值表达式 ——
@@ -581,7 +647,10 @@
     return React.createElement(React.Fragment, null,
     // ── 字体 (custom typography)：原「字体」页签并入「外观」——总开关（关 =
     //    恢复 dsh 原生字体）+ 颜色角色 / 排版角色 / 字体族 / 组件字体（高级），
-    //    开启时才渲染细节控件。字重不设全局值：按角色与按组件细化。 ──
+    //    开启时才渲染细节控件。字重不设全局值：按角色与按组件细化。
+    //    ⚠️ 用户口径（2026-10-03）：侧栏「外观」与设置页同内容，**唯独这一节不进侧栏**
+    //    （面板太窄、字体是低频深配）⇒ 这道 `!sidebarSurface` 门是有意保留的唯一例外，
+    //    与 quick-panel 里的字体占位器互为负对照。 ──
     !sidebarSurface && React.createElement("div", { className: "we-picker__section" },
       React.createElement("div", { className: "we-picker__section-head" },
         React.createElement("span", { className: "we-picker__section-label" }, weT("全局字体")),
@@ -600,6 +669,41 @@
         }, weT("恢复默认")),
       ),
       sel.fontCustom && React.createElement(React.Fragment, null,
+        // ── 全局字体 / 终端字体：本机字体的两个入口 ──────────────────────────────
+        // 两行一个形状。**全局**是"默认"不是"强制"：角色表与组件表里单独设过的仍以那里为准
+        // （解析在 src/font/typography.js 的 buildTypePayload —— 角色没设才落到全局）。
+        // **终端**写的就是「高级字体设置 → 终端」那一行的同一个键
+        // （`componentFonts.terminal.family`）：两处是同一个值的两个入口，不会漂。
+        React.createElement("div", { className: "we-picker__ctl", key: "global-family" },
+          ctlText(weT("默认字体"), weT("整套界面的默认字族（全局）；角色 / 组件里单独设过的仍以那里为准")),
+          React.createElement("select", {
+            value: sanitizeFamilyKey(sel.globalFamily),
+            style: { width: "150px" },
+            onChange: (e) => onGlobalFamily(e.target.value),
+            title: weT("整套界面（含角色表覆盖不到的文字）的默认字体；任意角色 / 组件单独设了字族，那里优先"),
+          },
+            React.createElement("option", { value: "" }, weT("跟随 DSH")),
+            familyOptions(sel, { skipInherit: true, current: sanitizeFamilyKey(sel.globalFamily) }),
+          ),
+        ),
+        React.createElement("div", { className: "we-picker__ctl", key: "terminal-family" },
+          ctlText(weT("终端字体"), weT("对话里的终端块 + 侧栏终端面板（dsh-ssh）；与「高级字体设置 → 终端」同一项")),
+          React.createElement("select", {
+            value: fontFamilyKeyOf((sel.componentFonts.terminal || {}).family),
+            style: { width: "150px" },
+            onChange: (e) => onComponentFamily("terminal", e.target.value),
+            title: weT("终端字体：① 对话里的终端块（走官方 --dsl-terminal-font 钩子）② 侧栏 / SSH 终端面板（走 dsh-ssh 给皮肤留的 --dsh-ssh-terminal-font 钩子）；「跟随」= 都不覆盖，各用它们自己的默认。⚠️ 若在 dsh-ssh 的设置里填过 terminalFontFamily，那个值优先级更高"),
+          },
+            React.createElement("option", { value: "" }, weT("跟随")),
+            familyOptions(sel, { current: fontFamilyKeyOf((sel.componentFonts.terminal || {}).family) }),
+          ),
+        ),
+        // 「本机字体」那一组的状态行 + 重新扫描：在途 / 取不到 / 按文件名推测都要说出来
+        //（后两种用户会以为坏了；推测那种不说的话，用户会以为系统里真有那个族名）。
+        React.createElement("div", { className: "we-picker__row", key: "sys-font-note" },
+          React.createElement("span", { className: "we-picker__hint" }, sysFontNote(sel)),
+          sysFontRefresh(sel, onRefreshSystemFonts),
+        ),
         // F1：分角色上色。原「字体颜色」把四个角色压成同一个色（把 DSH 的四级文字层次
         // 压平）—— 那条全局折叠路径已随全局字体层删除；这里逐个角色放开，留空 = 跟随
         // 原生。经 theme 令牌层生效：body 内联、免 !important、{light,dark} 随配色自动换值。
@@ -705,8 +809,7 @@
                 title: weT("{role}：字族（跟随 = 不覆盖，用 DSH 该角色的字族）", { role: weT(role.label) }),
               },
                 React.createElement("option", { value: "" }, weT("跟随")),
-                FONT_FAMILY_LABELS.map((f) =>
-                  React.createElement("option", { key: f.v, value: f.v }, f.label)),
+                familyOptions(sel, { current: sel.themeFamily[role.id] || "" }),
               )),
             );
           }),
@@ -740,8 +843,7 @@
             // 未填时**直接显示 DSH 当前默认值**（启动自探测时顺带读回的 computed 值）。
             const d = (typeof componentFontDefaults === "function"
               ? componentFontDefaults()[target.id] : null) || {};
-            const famKey = FONT_FAMILY_LABELS.reduce(
-              (acc, f) => (acc === "" && c.family !== undefined && fontFamilyStack(f.v) === c.family ? f.v : acc), "");
+            const famKey = fontFamilyKeyOf(c.family);
             return React.createElement("tr", { key: target.id },
               React.createElement("td", null, ctlText(weT(target.label), weT("{group} · 走 {route}", { group: weT(target.group), route: target.route }))),
               React.createElement("td", null, React.createElement("input", {
@@ -772,8 +874,7 @@
                 title: weT("{target}：字体族（跟随 = 不覆盖，用 DSH 默认）", { target: weT(target.label) }),
               },
                 React.createElement("option", { value: "" }, weT("跟随")),
-                FONT_FAMILY_LABELS.map((f) =>
-                  React.createElement("option", { key: f.v, value: f.v }, f.label)),
+                familyOptions(sel, { current: famKey }),
               )),
             );
           }),
@@ -799,12 +900,12 @@
   }
 
   function renderAppearanceCaretSection(ctx) {
-    const { onCaretColor, sel, surface } = ctx;
-    const sidebarSurface = surface === "sidebar";
+    const { onCaretColor, sel } = ctx;
     return React.createElement(React.Fragment, null,
     // ── 输入光标（#83）：光标色与壁纸相近时会隐形，这里给它一个独立于字体
-    //    自定义的颜色项。「自动」= 不注入任何规则，跟随 dsh 原生表现。──
-    !sidebarSurface && React.createElement("div", { className: "we-picker__section" },
+    //    自定义的颜色项。「自动」= 不注入任何规则，跟随 dsh 原生表现。
+    //    2026-10-03 起两档都画（侧栏「外观」与设置页同内容，用户口径）。──
+    React.createElement("div", { className: "we-picker__section" },
       React.createElement("div", { className: "we-picker__section-head" },
         React.createElement("span", { className: "we-picker__section-label" }, weT("输入光标")),
       ),
@@ -829,7 +930,7 @@
   // 原委：那节**只在宿主上报 `sidebarPresent`（装了 dsh-better-sidebar）时才画得出内容**，
   // 没装的机器上它就是一个**只有标题的空节**；而它同时是侧栏家族唯一的家 ⇒ 单纯删掉会让那些
   // 控件无处可去。并进「玻璃 UI」之后：所有玻璃配置同处一节，空节消失，
-  // 且「左侧栏覆盖」终于与其余面控件放在一起（它当初被排除的理由——与那节"关即回原生纯色"
+  // 且「左侧栏液态玻璃」终于与其余面控件放在一起（它当初被排除的理由——与那节"关即回原生纯色"
   // 的乙类语义冲突——已随 §10.20 的退役消失）。
   // 实现见 `src/glass-panel.js` 的 renderAppearanceGlassSection（门槛一个都没放松）。
   // ── 「玻璃 UI」节的渲染器已抽到 src/glass-panel.js（wip §10.13）：
@@ -875,7 +976,7 @@
   function renderMascotTab(ctx) {
     const { onRopeFormChange, onRopeScaleChange, onRopeVisibilityChange, sel } = ctx;
     return React.createElement(React.Fragment, null,
-      // ── 吉祥物：形态卡片即实时预览（随「吉祥物大小」滑块缩放），开关总控 ──
+      // ── 吉祥物：形态卡片固定基础尺寸（「吉祥物大小」只作用于主页面），开关总控 ──
       React.createElement("div", { className: "we-picker__section" },
         React.createElement("div", { className: "we-picker__section-head" },
           React.createElement("span", { className: "we-picker__section-label" }, weT("聊天吉祥物")),
@@ -885,11 +986,11 @@
           hint: weT("关闭后隐藏吉祥物与壁纸仓库抽屉"),
           tooltip: weT("关闭后隐藏吉祥物与壁纸仓库抽屉；可随时在本页重新开启"),
         }),
-        // 吉祥物形态（maid = 默认小女仆 / whale = 鲸御姐）：卡片直接渲染形态
-        // 立绘并按当前 ropeScale 缩放 —— 选形态与看大小两件事在同一处完成，
-        // 调整下方滑块时卡片实时跟着变。关闭时仍可先设定，重新开启即生效。
+        // 吉祥物形态（maid = 默认小女仆 / whale = 鲸御姐）：卡片按基础尺寸固定
+        // 渲染 —— 「吉祥物大小」滑块只作用于主页面上的吉祥物（RopeDock），设置
+        // 页里的卡片不跟着缩放。关闭时仍可先设定，重新开启即生效。
         React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
-          ctlText(weT("吉祥物形态"), weT("卡片按当前大小实时预览")),
+          ctlText(weT("吉祥物形态"), weT("卡片固定大小 · 大小只作用于主页面吉祥物")),
           React.createElement("div", { className: "we-picker__mascot-row", role: "group", "aria-label": weT("吉祥物形态") },
             ROPE_FORM_VALUES.map((k) => {
               const form = ROPE_FORMS[k];
@@ -903,7 +1004,7 @@
               },
                 React.createElement("span", {
                   className: "we-picker__mascot-art",
-                  style: { width: Math.round(form.w * sel.ropeScale) + "px", height: Math.round(form.h * sel.ropeScale) + "px" },
+                  style: { width: form.w + "px", height: form.h + "px" },
                 },
                   React.createElement("img", { src: form.img, alt: form.label, draggable: false })),
                 React.createElement("span", { className: "we-picker__mascot-name" }, form.label),
@@ -1357,6 +1458,75 @@
       renderAdvancedDiagSection(ctx),
     );
   }
+  // ── 「扩展」页签：后续功能的**模块容器** ─────────────────────────────────────
+  // 这一页刻意只放一张**注册表**：加一个功能 = 往 EXTENSION_MODULES 里加一项，页签本身
+  // 不用改（"接下来的功能追加都以模块形式放在该 tab 下"是用户的明确口径，见 CHANGELOG）。
+  // 注册表为空时页签照旧在、只画空态 —— 页签栏是稳定的，用户不会因为"现在还没有模块"
+  // 就找不到这一页的入口。
+  //
+  // 每一项的**描述符住在它自己的 src/<语义名>.js 里**（渲染器不膨胀）。取用一律走下面这个
+  // **惰性**函数：顶层直接写 `const EXTENSION_MODULES = [SYMBOL]` 会踩两个坑 ——
+  //   ① 内联后 prelude 求值期就要读兄弟模块的常量，模块顺序成了隐式契约；
+  //   ② test/verify-scene-live.mjs 是**单独 import 本文件**、再喂 `globalThis` 的，
+  //      顶层一引用别处的符号就当场 ReferenceError（第一版写法就是被这条判据咬住的）。
+  // 写成函数后两个坑都没了：求值发生在"画这一页"的时候，那时兄弟模块早就内联好了。
+  //
+  // 模块形状（给未来加功能的自己）：
+  //   { id, title, desc?, render? }
+  //   · `id`    React key，稳定且唯一；
+  //   · `title` / `desc` 取到的就是**译文**（描述符里写成 getter，见下）。写法上有个硬约束：
+  //     **不能直接写成 `title: "…"`** —— 那在 test/verify-i18n.mjs 的判据 ① 里是
+  //     "没进 weT(...) 的裸中文"；也不能写成顶层 `title: weT("…")`，那会在内联后的
+  //     prelude 求值期撞 TDZ。既有写法是**getter**：
+  //       get title() { return weT("硬件资源监控柱状图"); }
+  //     这样 `weT(...)` 就落在字面量的最内层调用帧上，且取译文发生在渲染时（照抄
+  //     src/ext-metrics.js 的 METRICS_EXTENSION_MODULE 即可）—— 因此**本文件不再套一层
+  //     weT**（套了就成了拿译文再查一次词表）。
+  //   · `render(ctx)` 可选：给了就在这个模块的位置画它自己的控件；没给就只显示
+  //     title + desc —— "功能还没做完"的模块可以先上架占位。
+  //   · 模块**不得**自己写设置 / 发通知 / 持有状态：本文件是渲染器（契约见文件头），
+  //     要动状态就把动作做成 src/client.js 的具名处理器、经 ctx 传进来。
+  // 现有三项：一号 = 硬件资源监控柱状图（src/ext-metrics.js + src/metrics-layer.js）、
+  // 二号 = 点击效果与拖尾效果（src/ext-fx.js + src/fx-layer.js）、
+  // 三号 = 3D 效果（src/ext-parallax.js + src/parallax-layer.js，只有变量与事件、不建 DOM）。
+  // 加第四项照抄这三份。
+  function extensionModules() {
+    return [METRICS_EXTENSION_MODULE, FX_EXTENSION_MODULE, PARALLAX_EXTENSION_MODULE];
+  }
+
+  // 这一页自己不读 ctx 的任何字段：整包（sel + 具名 on* 处理器）转交给各模块的 render。
+  // ⚠️ 判据口径：`const { … } = ctx;` 必须是函数体的**第一条语句**（前面连注释行都不许有），
+  // 所以说明文字只能写在函数外面 —— 见 test/verify-scene-live.mjs 的『每个页签首行都从 ctx 解构』。
+  function renderExtensionsTab(ctx) {
+    const { } = ctx;
+    const modules = extensionModules();
+    return React.createElement(React.Fragment, null,
+      React.createElement("div", { className: "we-picker__section" },
+        React.createElement("div", { className: "we-picker__section-head" },
+          React.createElement("span", { className: "we-picker__section-label" }, weT("扩展模块")),
+        ),
+        React.createElement("div", { className: "we-ext" },
+          modules.length === 0
+            ? React.createElement("div", { className: "we-picker__empty" },
+                React.createElement("span", { className: "we-picker__empty-title" },
+                  weT("还没有可用的扩展模块")),
+                React.createElement("span", { className: "we-picker__hint" },
+                  weT("后续新增的功能会以模块形式收在这里，每个模块自带它的控件")),
+              )
+            : modules.map((mod) => React.createElement("div", {
+                key: mod.id, className: "we-ext__module",
+              },
+                React.createElement("div", { className: "we-ext__module-head" },
+                  React.createElement("span", { className: "we-ext__module-title" }, mod.title),
+                ),
+                mod.desc ? React.createElement("span", { className: "we-picker__hint" }, mod.desc) : null,
+                mod.render ? mod.render(ctx) : null,
+              )),
+        ),
+      ),
+    );
+  }
+
   // ── 「关于」页签：项目简介 / 仓库与 Star / 交流群二维码 / 贡献者致谢（压尾）──────
   // 这是**唯一不读面板状态**的页签：内容全是静态文案 + 两张内联二维码（数据在
   // src/about-assets.js，构建期随 prelude 内联）。但契约是**逐页签**的 ——
@@ -1483,5 +1653,5 @@
 
 export {
   renderWallpaperTab, renderAppearanceTab, renderAudioTab, renderMascotTab, renderEffectsTab, renderAdvancedTab,
-  renderAboutTab,
+  renderExtensionsTab, renderAboutTab,
 };

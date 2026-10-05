@@ -6,8 +6,9 @@
 //      宽松分级 / 隐藏排除 / 分页切片与页号 clamp / 轮换编辑器列表 / 空库存与零命中。
 //   ② 跨层对拍：真挂载客户端（readFileSync(lib/client.js) + __ModuleLoader__.load 捕获
 //      handoff → factory(mockReact) → slots → ctx → apply() → 打开模态框），拿**模型算出的
-//      当页卡片数**与**真实渲染出的 `.we-picker__card` 数（减掉关闭卡）**对拍 —— 提纯不是
-//      自证：模型说的和视图画的是不是同一件事，只在这条上能看出。
+//      可播放数**与**真实渲染出的 `.we-picker__card` 数（减掉关闭卡）**对拍 —— 2026-10-04
+//      起库视图不分页、改虚拟窗口（首窗 = 关闭卡 + min(VP_FIRST, 可播放数)），对拍对象
+//      相应从"当页切片"换成"首窗"；"模型说的和视图画的是不是同一件事"照旧只在这条上能看出。
 //
 // 判据纪律（docs/DEV-GUIDE.md §4.7 约定 5）：每条判据只在这里定义一次（命名函数 / 命名常量），
 // 正判据与负对照**调同一个函数**，负对照喂的是**变异输入**（换掉用例的输入夹具 / 换掉模型的
@@ -56,7 +57,7 @@ const sliceShapeOf = (M, list, page) => {
 const slicesTo = (M, list, page, want) =>
   JSON.stringify(sliceShapeOf(M, list, page)) === JSON.stringify(want);
 
-/** 判据：当页张数 / 页数（跨层用的绝对锚点，防"空对空"）。 */
+/** 判据：模型自己的分页切片形状（模型层仍提供 pageSlice；轮换编辑器还在用）。 */
 const pageIs = (model, items, pages) =>
   model.normalPage.items.length === items && model.normalPage.pages === pages;
 
@@ -79,35 +80,14 @@ const wallpaperCards = (root) =>
   collectCards(root).filter((c) => !JSON.stringify(c).includes('✕ 关闭'));
 const renderedCardCount = (root) => wallpaperCards(root).length;
 
-/** 跨层对拍判据：模型算出的**当页**张数 == 渲染出的壁纸卡片数。 */
+/** 虚拟首窗的条目容量（与 src/picker-modal.js 顶层 PICKER_VP_FIRST 同源；改那边必须同步这里）。 */
+const PICKER_VP_FIRST = 30;
+/** 首窗的**总**卡片数 = 关闭卡 + min(首窗容量, 可播放数)。 */
+const firstWindowCards = (playableCount) => Math.min(PICKER_VP_FIRST, 1 + playableCount);
+
+/** 跨层对拍判据：渲染出的壁纸卡片数 == 首窗减掉关闭卡（模型出可播放数，视图出卡数）。 */
 const crossLayerAgrees = (root, model) =>
-  renderedCardCount(root) === model.normalPage.items.length;
-
-/** 分页器文案里的数字：`共 N 个 · 第 P / T 页` → [N, P, T]（找不到 → null）。 */
-function pagerNumbers(root) {
-  let hit = null;
-  (function walk(node) {
-    if (Array.isArray(node)) { node.forEach(walk); return; }
-    if (!node || typeof node !== 'object') return;
-    const cls = typeof (node.props && node.props.className) === 'string' ? node.props.className : '';
-    const kids = Array.isArray(node.children) ? node.children : [];
-    for (const kid of kids) {
-      if (typeof kid === 'string' && cls.includes('we-picker__hint')) {
-        const m = /^共 (\d+) 个 · 第 (\d+) \/ (\d+) 页$/.exec(kid);
-        if (m) { hit = [Number(m[1]), Number(m[2]), Number(m[3])]; return; }
-      }
-    }
-    if (Array.isArray(node.children)) node.children.forEach(walk);
-  })(root);
-  return hit;
-}
-
-/** 判据：分页器文案与模型同源（同一条判据在状态 B —— 无分页器 —— 上会判为不一致）。 */
-const pagerAgrees = (root, model) => {
-  const nums = pagerNumbers(root);
-  return nums !== null && JSON.stringify(nums)
-    === JSON.stringify([model.playableList.length, model.normalPage.page + 1, model.normalPage.pages]);
-};
+  renderedCardCount(root) === firstWindowCards(model.playableList.length) - 1;
 
 /** 判据：挂载台自身 —— picker 渲染回调已注册（否则跨层那些判据全在空跑）。 */
 const hasPickerRender = (renders) => renders.length > 0;
@@ -594,24 +574,29 @@ await sleep(80); // 等 loadPersisted → loadInventory → revalidateSelection 
   check('跨层：两个过滤下拉都在（模型入参从它们读，读不到就会静默用 null）',
     !!ratingSel && !!typeSel, '分级=' + selectValue(tree, '内容分级') + ' 类型=' + selectValue(tree, '类型'));
 
-  // ── 状态 A：未过滤的第 1 页（默认 Everyone 档、无搜索、无隐藏）──
+  // ── 状态 A：未过滤的虚拟首窗（默认 Everyone 档、无搜索、无隐藏）──
   const modelA = modelFromUi(tree);
-  check('跨层（未过滤第 1 页）：模型算出的卡片数 == 渲染出的壁纸卡片数',
+  check('跨层（未过滤首窗）：模型算出的可播放数 == 首窗渲染的壁纸卡片数',
     crossLayerAgrees(tree, modelA),
-    '模型 ' + modelA.normalPage.items.length + ' / 渲染 ' + renderedCardCount(tree));
-  check('负对照：把模型的当页切片砍掉一张（变异输入）后，同一条判据判为不一致',
+    '模型 ' + modelA.playableList.length + ' 张 / 渲染 ' + renderedCardCount(tree)
+    + '（首窗容量 ' + PICKER_VP_FIRST + ' 含关闭卡）');
+  // 变异方向有讲究：33→32 仍在钳制区（窗口容量没变，判据不会动）；必须砍到
+  // 首窗容量以下，期望卡数才会真的变。
+  check('负对照：把模型的可播放数砍到首窗以下（变异输入）后，同一条判据判为不一致',
     !crossLayerAgrees(tree, Object.assign({}, modelA,
-      { normalPage: Object.assign({}, modelA.normalPage, { items: modelA.normalPage.items.slice(1) }) })));
-  check('跨层（未过滤第 1 页）：模型的绝对锚点 = 24 张 / 2 页（防"空对空"对拍）',
+      { playableList: modelA.playableList.slice(0, 10) })));
+  check('跨层（未过滤首窗）：绝对锚点 = 渲染 29 张壁纸卡 + 关闭卡（33 张可播放 > 首窗，防"空对空"）',
+    renderedCardCount(tree) === 29 && collectCards(tree).length === 30
+    && modelA.playableList.length === 33,
+    '壁纸卡 ' + renderedCardCount(tree) + ' / 总卡 ' + collectCards(tree).length
+    + ' / 模型 ' + modelA.playableList.length);
+  check('负对照：首窗判据对"多一张"判为假（数字不是恒真）',
+    renderedCardCount(tree) !== 30);
+  check('跨层（模型层）：库模型仍提供分页切片（轮换编辑器在用），锚点 = 24 张 / 2 页',
     pageIs(modelA, 24, 2), '页数 ' + modelA.normalPage.pages);
   check('负对照：把当页切片清空后，同一条锚点判据判为假',
     !pageIs(Object.assign({}, modelA,
       { normalPage: Object.assign({}, modelA.normalPage, { items: [] }) }), 24, 2));
-  check('跨层（未过滤第 1 页）：分页器文案与模型同源（共 N 个 · 第 P / T 页）',
-    pagerAgrees(tree, modelA), JSON.stringify(pagerNumbers(tree)));
-  check('负对照：把模型的页数变异 +1 后，同一条判据判为不一致',
-    !pagerAgrees(tree, Object.assign({}, modelA,
-      { normalPage: Object.assign({}, modelA.normalPage, { pages: modelA.normalPage.pages + 1 }) })));
 
   // ── 状态 B：一个能落到单页的搜索结果 ──
   const SEARCH_TEXT = 'Wall 3';
@@ -621,15 +606,14 @@ await sleep(80); // 等 loadPersisted → loadInventory → revalidateSelection 
   searchBox.props.onInput({ target: { value: SEARCH_TEXT } });
   tree = render();
   const modelB = modelFromUi(tree);
-  check('跨层：搜索结果落到单页（模型）', modelB.normalPage.items.length === 1 && modelB.normalPage.pages === 1,
+  check('跨层（搜索结果）：模型仍给出分页形状（1 张 / 1 页）',
+    modelB.normalPage.items.length === 1 && modelB.normalPage.pages === 1,
     '命中 ' + modelB.playableList.length + ' 张 / 页数 ' + modelB.normalPage.pages);
-  check('跨层（搜索结果）：模型算出的卡片数 == 渲染出的壁纸卡片数',
+  check('跨层（搜索结果）：模型算出的可播放数 == 渲染出的壁纸卡片数（整窗只画命中项）',
     crossLayerAgrees(tree, modelB),
-    '模型 ' + modelB.normalPage.items.length + ' / 渲染 ' + renderedCardCount(tree));
+    '模型 ' + modelB.playableList.length + ' / 渲染 ' + renderedCardCount(tree));
   check('负对照：把模型的搜索词换成空串（变异输入）后，同一条判据判为不一致',
     !crossLayerAgrees(tree, modelFromUi(tree, { search: '' })));
-  check('负对照：状态 B 没有分页器 ⇒ 同一条分页器判据在它上面为假（判据能区分两个状态）',
-    !pagerAgrees(tree, modelB));
 }
 
 console.log('');

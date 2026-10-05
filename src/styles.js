@@ -465,6 +465,14 @@ const CSS = `
        （用户口径：代码块不和输入框一起）。缺省 1 = 与全局完全同值。 */
     --we-chat-readability-floor: calc(var(--we-readability-floor-base) * var(--we-chat-glass-fidelity, 1));
     --we-chat-readability-base: var(--we-chat-surface-tint-light, #ffffff);
+    /* ⚠️ 这两条必须排在 --we-readability-base **之后**：verify-readability 的 F1c 按
+       "floor 紧跟 base" 的正则取这两条声明（插在中间会让整条可读性网格读到 null）。
+       侧栏「跟随全局」用的玻璃色：与其余面板**同一个**按主题钳制后的染色地板值 ——
+       内联写死会盖掉"按主题"，所以由样式表给；effects 里只写 var(--we-follow-tint)。
+       侧栏的釉（镜面渐变三档）也收在这里：原生左栏与 dsh-better-sidebar 两侧栏共用同一道，
+       否则"跟随全局"之后两侧栏仍会差一层白釉。 */
+    --we-follow-tint: var(--we-surface-tint-light, #ffffff);
+    --we-panel-sheen-a: 0.10; --we-panel-sheen-b: 0.03; --we-panel-sheen-c: 0.05;
     --we-panel-color: var(--dsw-static-neutral-bluish-00, #ffffff);
   }
   body[data-ds-dark-theme] {
@@ -473,6 +481,8 @@ const CSS = `
     --we-readability-base: var(--we-surface-tint-dark, #0d1524);
     --we-chat-readability-floor: calc(var(--we-readability-floor-base) * var(--we-chat-glass-fidelity, 1));
     --we-chat-readability-base: var(--we-chat-surface-tint-dark, #0d1524);
+    --we-follow-tint: var(--we-surface-tint-dark, #0d1524);
+    --we-panel-sheen-a: 0.07; --we-panel-sheen-b: 0.02; --we-panel-sheen-c: 0.03;
     --we-panel-color: var(--dsw-static-neutral-bluish-875, #1e1f26);
   }
 
@@ -511,24 +521,6 @@ const CSS = `
     --dsw-specific-bubble: color-mix(in srgb,
       var(--we-chat-readability-base) calc(var(--we-chat-readability-floor) * 100%),
       rgba(var(--we-chat-surface-tint-rgb-light, 255, 255, 255), calc(var(--we-glass-alpha, 0.15) * 0.8)) calc((1 - var(--we-chat-readability-floor)) * 100%));
-    /* 思考触发条（TurnTriggerNodeView，DOM 锚点 section[data-turn-trigger]）：宿主给它一个
-       **专属底色令牌** --dsw-alias-turn-trigger-bg（回退到代码块底色）—— 我们接管它，
-       于是宿主自己那条 background: 直接解析成玻璃（**不是**去改宿主的哈希类名）。
-       ⚠️ 用**全局**那对可读性变量（--we-readability-base / -floor + --we-surface-tint-*）：
-       这一面在登记表里是 tier: 'global'（内容块一类），而对话栏那对是**专属**给气泡/输入框的
-       —— 判据 verify-readability 的 F2c 会按"消费点计数"当场判出用错（实测踩过一次）。
-       配方与上面的 --dsw-alias-bg-layer-1 同形，层权重取 0.9。
-       ⚠️ -hover 必须一起接管：宿主 :hover 会换用它（回退是 --dsw-alias-interactive-bg-hover
-       那种不透明灰）⇒ 不接管的话鼠标一悬停就盖掉玻璃。这里给它**同一配方、权重略高**
-       （1.15，仍远不到不透明）⇒ 既保住玻璃又保留"可点"的悬停反馈。
-       ⚠️ 本文件整份 CSS 是**一个 JS 模板字符串** ⇒ 注释里**不许出现反引号**（会提前终止它，
-       构建的产物语法检查会当场拦住 —— 实测踩过一次）。 */
-    --dsw-alias-turn-trigger-bg: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-thinking-trigger-alpha, var(--we-glass-alpha, 0.5)) * 0.9 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
-    --dsw-alias-turn-trigger-bg-hover: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-thinking-trigger-alpha, var(--we-glass-alpha, 0.5)) * 1.15 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
   }
   body[data-ds-dark-theme][data-we-wallpaper] {
     /* The ×0.4 / ×0.33 factors below only scale the TINT operand; the floor
@@ -539,13 +531,27 @@ const CSS = `
     --dsw-specific-bubble: color-mix(in srgb,
       var(--we-chat-readability-base) calc(var(--we-chat-readability-floor) * 100%),
       rgba(var(--we-chat-surface-tint-rgb-dark, 255, 255, 255), calc(var(--we-glass-alpha, 0.15) * 0.33)) calc((1 - var(--we-chat-readability-floor)) * 100%));
-    /* 思考触发条：与浅色档同形，只是釉色改用深色那一支（--we-surface-tint-dark）。 */
-    --dsw-alias-turn-trigger-bg: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-surface-tint-dark, #000000) calc(var(--we-thinking-trigger-alpha, var(--we-glass-alpha, 0.5)) * 0.9 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
-    --dsw-alias-turn-trigger-bg-hover: color-mix(in srgb,
-      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
-      color-mix(in srgb, var(--we-surface-tint-dark, #000000) calc(var(--we-thinking-trigger-alpha, var(--we-glass-alpha, 0.5)) * 1.15 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+  }
+  /* Chat glass is explicitly transparent: use the user's tint alpha once.
+     Shared host tokens retain their floors for popups and other app surfaces. */
+  body[data-we-wallpaper] {
+    --we-chat-glass-fill: rgba(var(--we-surface-tint-rgb-light, 255, 255, 255), var(--we-glass-alpha, 0.15));
+    --we-capsule-glass-fill: rgba(var(--we-capsule-tint-rgb, 255, 255, 255), var(--we-inline-code-alpha, 0.10));
+    --we-tool-glass-fill: rgba(var(--we-surface-tint-rgb-light, 255, 255, 255), calc(var(--we-glass-alpha, 0.15) + 0.06));
+  }
+  body[data-ds-dark-theme][data-we-wallpaper] {
+    --we-chat-glass-fill: rgba(var(--we-surface-tint-rgb-dark, 13, 21, 36), var(--we-glass-alpha, 0.15));
+    --we-tool-glass-fill: rgba(var(--we-surface-tint-rgb-dark, 13, 21, 36), calc(var(--we-glass-alpha, 0.15) + 0.06));
+  }
+  /* ⚠️ 合并 #134 的口径修正（审计 MAJOR）：这组「气泡直接读 --we-chat-glass-fill」是
+     **思考玻璃功能的一部分**，PR 原稿漏挂 [data-we-thinking-glass] 门 —— 默认态会改掉
+     气泡的底色、并绕开「对话栏玻璃保真度」的令牌契约。补门后：关 = 逐字节现状。
+     ⚠️ 2026-10-04 用户口径：**输入框（[data-composer-card]）退出思考玻璃作用域** ——
+     原稿给输入卡也铺了这层 fill 接管，实测用户不要（开关开 = 输入框必须与关着时逐位相同，
+     输入框只受基础对话栏玻璃与「对话框玻璃·独立配置」管）。守卫：verify-glass-surfaces
+     「思考玻璃门下不得出现 data-composer-card」。 */
+  body[data-we-wallpaper][data-we-thinking-glass] [class*="_bubble"] {
+    background-color: var(--we-chat-glass-fill) !important;
   }
   body[data-we-glass-chat][data-we-wallpaper] [data-composer-card],
   body[data-we-glass-chat][data-we-wallpaper] [class*="_bubble"],
@@ -575,12 +581,46 @@ const CSS = `
       inset 0 0 0 0.5px rgba(255, 255, 255, 0.08),
       0 12px 40px rgba(0, 0, 0, var(--we-glass-shadow, 0.12));
   }
-  /* ── 思考触发条（思考块的入口条）：模糊载体 ──────────────────────────────────
-     宿主组件只有 header/body 两段文字，**不含** position:fixed 后代 ⇒ 模糊可以留在元素本身
-     （与气泡 / 工具弹卡同形；不必像 [data-composer-card] 那样搬到 ::before）。
+  /* ── 思考触发条（TurnTriggerNodeView，DOM 锚点 section[data-turn-trigger]）──────────
+     ⚠️ 门 = 上游 #134 的「思考块液态玻璃」（属性 data-we-thinking-glass，默认关）：这一面是它
+     **门下的**一员 —— 开关关着时下面整组不生效（宿主令牌不被接管、模糊不挂）⇒ 「关 = 逐字节
+     现状」。这也是本次并入上游 #134 的收敛口径：上游把 [data-turn-trigger] 与推理面一起写成
+     「清底 + 无霜」（见上面那组），本面把它从那一组里**摘出来** —— 触发条不清底，而是吃玻璃
+     （用户口径：触发条要玻璃，不要纯透明），并给它自己的「独立配置」。
+     宿主给它一个**专属底色令牌** --dsw-alias-turn-trigger-bg（回退到代码块底色）—— 我们接管它，
+     于是宿主自己那条 background: 直接解析成玻璃（**不是**去改宿主的哈希类名）。
+     ⚠️ 用**全局**那对可读性变量（--we-readability-base / -floor + --we-surface-tint-*）：
+     这一面在登记表里是 tier: 'global'（内容块一类），而对话栏那对是**专属**给气泡/输入框的
+     —— 判据 verify-readability 的 F2c 会按"消费点计数"当场判出用错（实测踩过一次）。
+     配方与上面的 --dsw-alias-bg-layer-1 同形，层权重取 0.9。
+     ⚠️ -hover 必须一起接管：宿主 :hover 会换用它（回退是 --dsw-alias-interactive-bg-hover
+     那种不透明灰）⇒ 不接管的话鼠标一悬停就盖掉玻璃。这里给它**同一配方、权重略高**
+     （1.15，仍远不到不透明）⇒ 既保住玻璃又保留"可点"的悬停反馈。
+     ⚠️ 本文件整份 CSS 是**一个 JS 模板字符串** ⇒ 注释里**不许出现反引号**（会提前终止它，
+     构建的产物语法检查会当场拦住 —— 实测踩过一次）。 */
+  body[data-we-thinking-glass][data-we-wallpaper] {
+    --dsw-alias-turn-trigger-bg: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-thinking-trigger-alpha, var(--we-glass-alpha, 0.5)) * 0.9 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+    --dsw-alias-turn-trigger-bg-hover: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-thinking-trigger-alpha, var(--we-glass-alpha, 0.5)) * 1.15 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+  }
+  /* 深色档同形，只是釉色改用深色那一支（--we-surface-tint-dark）。多一层属性选择器
+     （0,3,1）才顶得掉上面那条浅色定义 —— 与文件里其余「深色孪生」的做法一致。 */
+  body[data-ds-dark-theme][data-we-thinking-glass][data-we-wallpaper] {
+    --dsw-alias-turn-trigger-bg: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-surface-tint-dark, #000000) calc(var(--we-thinking-trigger-alpha, var(--we-glass-alpha, 0.5)) * 0.9 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+    --dsw-alias-turn-trigger-bg-hover: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-surface-tint-dark, #000000) calc(var(--we-thinking-trigger-alpha, var(--we-glass-alpha, 0.5)) * 1.15 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
+  }
+  /* 模糊载体：宿主组件只有 header/body 两段文字，**不含** position:fixed 后代 ⇒ 模糊可以留在
+     元素本身（与气泡 / 工具弹卡同形；不必像 [data-composer-card] 那样搬到 ::before）。
      底色走上面接管的 --dsw-alias-turn-trigger-bg（含 hover 档），所以这里只补
      "釉面高光 + 模糊" 两件事 —— 语法与上面那族逐字相同，读同一批 --we-* 变量。 */
-  body[data-we-glass-chat][data-we-wallpaper] [data-turn-trigger] {
+  body[data-we-thinking-glass][data-we-wallpaper] [data-turn-trigger] {
     background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.05) 38%, rgba(255, 255, 255, 0.02));
     -webkit-backdrop-filter: blur(var(--we-thinking-trigger-blur, var(--we-blur, 16px))) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
     backdrop-filter: blur(var(--we-thinking-trigger-blur, var(--we-blur, 16px))) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
@@ -612,10 +652,207 @@ const CSS = `
     -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
     backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
   }
+  /* ⚠️ 2026-10-04 用户口径：**输入框整族退出思考玻璃** —— 这里原本是「+」按钮的白釉
+     （铺淡白釉让霜透出来，避免深色下限下 28px 圆变黑点）与它消费的
+     「--dsw-specific-selector」令牌改写（两主题 color-mix 配方，#134 审计时统一挪来挂门）。
+     输入框退出后这组全部退役：「+」回到宿主原样（令牌不再被插件改写）。
+     守卫：verify-glass-surfaces「思考玻璃门下不得出现 data-composer-card / _add」。 */
+
+  /* ── 轨迹（trajectory）视图的内容区：补**霜** ──────────────────────────────
+     现场口径："轨迹内容区域也同样做玻璃化"。实测根因**不是**"没映射令牌"：轨迹模块的内容容器
+     读的就是 --dsw-alias-bg-layer-1（.rkta1W_split / _overviewPreview / _programPanel 都是），
+     而那条我们早就映射成玻璃配方了 —— 所以它其实**已经半透明**。真正缺的是**霜**：整个轨迹
+     模块**一条 backdrop-filter 都没有**（实测 289 条规则里零条），于是它在花壁纸上只是
+     "平涂的一层纱"，读起来就是"没玻璃化"（与侧栏面板当初那圈"黑框"同一类问题，只是这次缺霜不缺底）。
+     这里**只补霜 + 镜面釉，不再叠一层底**：父层已经拿到玻璃配方，再叠一层会让两层下限相乘、
+     越叠越不透明 —— 那正好把这次想要的那点通透又收回去。
+     选择器只用**轨迹模块独有**的类名子串（实测 _tablePane / _overviewPreview / _programPanel
+     全宿主只有轨迹模块在用；_details / _split 别的模块也有 ⇒ 不碰：宁可少盖一层，也不误伤别处）。
+     CSS 模块哈希是构建产物，稳定的是 "_<类名>" 这半边（与 [class*="_bubble"] / [class*="_panel"]
+     同一手法）。
+     ⚠️ 实测该模块里没有 position:fixed ⇒ 在这些元素上加 backdrop-filter 不会让 fixed 后代改锚
+     （#89 那类问题）；模糊挂在滚动区上与侧栏面板同一条政策。回退档不需要额外处理：那一条
+     --dsw-alias-bg-layer-1 已经被钉回不透明面板色，底下不再是壁纸。 */
+  body[data-we-wallpaper] [class*="_tablePane"],
+  body[data-we-wallpaper] [class*="_overviewPreview"],
+  body[data-we-wallpaper] [class*="_programPanel"] {
+    /* 与侧栏面板同一档镜面釉（比气泡那档再淡一点：这是大片内容区，太亮会发白）。 */
+    background-image: linear-gradient(180deg,
+      rgba(255, 255, 255, 0.14),
+      rgba(255, 255, 255, 0.04) 38%,
+      rgba(255, 255, 255, 0.01));
+    -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.32),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.08),
+      inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+  }
   /* Note (anti-flicker): the composer/bubbles keep ONLY the backdrop-filter
      glass. Extra always-on layers (transform/will-change/contain) were removed —
      they did not stop the white flash and instead added compositing layers. The
      flash was traced to the rope's permanent CSS filter, which is now gone. */
+
+  /* Reasoning and file bars are fully clear; message fences and tool
+     results use glass plates. Inner bodies never stack another background. */
+  body[data-we-wallpaper][data-we-thinking-glass] {
+    --dsw-alias-markdown-inline-code: var(--we-capsule-glass-fill);
+  }
+  /* ⚠️ [data-turn-trigger]（思考触发条）**不在本组**：本仓把它做成了一个吃玻璃、可独立配置的
+     面（见上面「思考触发条」那一节 —— 接管宿主专属令牌 + 模糊载体，同在 data-we-thinking-glass
+     门下）。上游 #134 原稿把这面与推理面一起清底 + 无霜；两条线在本次追版（v1.3.0）收敛为
+     "门共用、这面例外" ⇒ 推理面清底、触发条吃玻璃。 */
+  body[data-we-wallpaper][data-we-thinking-glass] [data-vcp-reasoning],
+  body[data-we-wallpaper][data-we-thinking-glass] [data-changed-files],
+  body[data-we-wallpaper][data-we-thinking-glass] [data-presented-file] {
+    background: transparent !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  body[data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] .md-code-block,
+  body[data-we-wallpaper][data-we-thinking-glass] [data-vcp-rawhtml] > div > div:has(> pre > code):has(> div > button[title="复制代码"]) {
+    background: var(--we-chat-glass-fill) !important;
+    -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+  }
+  body[data-we-wallpaper][data-we-thinking-glass] [data-vcp-reasoning-body] {
+    background: transparent !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  /* September 24 inline capsules: ten-percent white mist and independent 8px frost.
+     Host padding/radius and text colour stay intact; fences are excluded. */
+  body[data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] :not(pre) > code,
+  body[data-we-wallpaper][data-we-thinking-glass] [data-vcp-rawhtml] :not(pre) > code {
+    background: var(--dsw-alias-markdown-inline-code) !important;
+    background-image: none !important;
+    -webkit-backdrop-filter: blur(var(--we-inline-code-blur, 8px)) saturate(var(--we-saturate, 1.3)) brightness(var(--we-glass-brightness, 1.04));
+    backdrop-filter: blur(var(--we-inline-code-blur, 8px)) saturate(var(--we-saturate, 1.3)) brightness(var(--we-glass-brightness, 1.04));
+    border-color: rgba(255, 255, 255, 0.14) !important;
+  }
+  /* The two chat navigation buttons reuse capsule mist and frost.
+     Local fill tokens preserve native hover/disabled states and hit areas. */
+  body[data-we-wallpaper][data-we-thinking-glass] [data-dsh-navbar] > button[data-vlln-load-older],
+  body[data-we-wallpaper][data-we-thinking-glass] [data-slot="conversation.view"] button[class*="_toBottom"] {
+    --dsw-alias-bg-layer-2: var(--we-capsule-glass-fill);
+    --dsw-alias-interactive-bg-hover: color-mix(in srgb, var(--we-capsule-glass-fill) 96%, white);
+    --dsw-alias-button-floating-fill: var(--we-capsule-glass-fill);
+    --dsw-alias-button-floating-hover: color-mix(in srgb, var(--we-capsule-glass-fill) 96%, white);
+    -webkit-backdrop-filter: blur(var(--we-inline-code-blur, 8px)) saturate(var(--we-saturate, 1.3)) brightness(var(--we-glass-brightness, 1.04));
+    backdrop-filter: blur(var(--we-inline-code-blur, 8px)) saturate(var(--we-saturate, 1.3)) brightness(var(--we-glass-brightness, 1.04));
+  }
+  /* The sidebar's new-session button uses the same thin capsule glass.
+     Scope the expanded button; keep its label, shortcut and collapsed state. */
+  body[data-we-wallpaper][data-we-thinking-glass] [data-slot="sidebar"] :not([class*="_collapsed"]) > button[class*="_newSession"] {
+    background: var(--we-capsule-glass-fill) !important;
+    border-color: rgba(255, 255, 255, 0.14) !important;
+    -webkit-backdrop-filter: blur(var(--we-inline-code-blur, 8px)) saturate(var(--we-saturate, 1.3)) brightness(var(--we-glass-brightness, 1.04));
+    backdrop-filter: blur(var(--we-inline-code-blur, 8px)) saturate(var(--we-saturate, 1.3)) brightness(var(--we-glass-brightness, 1.04));
+  }
+  body[data-we-wallpaper][data-we-thinking-glass] [data-slot="sidebar"] :not([class*="_collapsed"]) > button[class*="_newSession"]:hover {
+    background: color-mix(in srgb, var(--we-capsule-glass-fill) 96%, white) !important;
+  }
+  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-slot="sidebar"] :not([class*="_collapsed"]) > button[class*="_newSession"],
+  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] :not(pre) > code,
+  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-vcp-rawhtml] :not(pre) > code,
+  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-dsh-navbar] > button[data-vlln-load-older],
+  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-slot="conversation.view"] button[class*="_toBottom"] {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  /* Seven inline tool-result bodies: one plate, six percentage points
+     more coverage than a bubble. Root-local tokens clear headers/copy buttons
+     without touching diff line highlights, syntax colours or sidebar tools. */
+  body[data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] [data-chat-flow-kind="context"] [data-context-injection-body],
+  body[data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"]:has([data-sample="bash"]) [data-terminal],
+  body[data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"] [data-tool="read"] [data-read],
+  body[data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"] [data-tool="grep"] [data-search="matches"],
+  body[data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"] [data-variant="others"] [class*="_ioCard"],
+  body[data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"] [data-tool="glob"] [data-search="paths"],
+  body[data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"] [data-tool="write"] [data-diff] {
+    --dsw-alias-markdown-code-block: transparent;
+    --dsw-alias-markdown-code-block-banner: transparent;
+    --dsl-code-block-background: transparent;
+    background-color: var(--we-tool-glass-fill) !important;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.05) 38%, rgba(255, 255, 255, 0.02));
+    -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+  }
+  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] [data-chat-flow-kind="context"] [data-context-injection-body],
+  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"]:has([data-sample="bash"]) [data-terminal],
+  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"] [data-tool="read"] [data-read],
+  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"] [data-tool="grep"] [data-search="matches"],
+  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"] [data-variant="others"] [class*="_ioCard"],
+  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"] [data-tool="glob"] [data-search="paths"],
+  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] [data-slot="tool.call.toolview"] [data-tool="write"] [data-diff] {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  /* Navbar history/message tips share one portal; native turn previews have
+     their own root. Both reuse the tool plate without frosting child text. */
+  body[data-we-wallpaper][data-we-thinking-glass] > [data-vlln-preview],
+  body[data-we-wallpaper][data-we-thinking-glass] [data-slot="conversation.view"] [class*="_preview"]:has(> [class*="_previewPrompt"]) {
+    background: var(--we-tool-glass-fill) !important;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.05) 38%, rgba(255, 255, 255, 0.02)) !important;
+    -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+  }
+  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] > [data-vlln-preview],
+  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-slot="conversation.view"] [class*="_preview"]:has(> [class*="_previewPrompt"]) {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  /* Chromium's native scrollbar does not paint backdrop blur (stripe probe).
+     Tint only this thumb, avoiding inherited tokens on nested scroll areas. */
+  body[data-we-wallpaper][data-we-thinking-glass] [data-conversation-scroll]::-webkit-scrollbar-thumb {
+    background-color: rgba(var(--we-capsule-tint-rgb, 255, 255, 255), var(--we-inline-code-alpha, 0.10));
+  }
+  body[data-we-wallpaper][data-we-thinking-glass] [data-conversation-scroll]::-webkit-scrollbar-thumb:hover,
+  body[data-we-wallpaper][data-we-thinking-glass] [data-conversation-scroll]::-webkit-scrollbar-thumb:active {
+    background-color: rgba(255, 255, 255, calc(var(--we-inline-code-alpha, 0.10) + 0.04));
+  }
+
+  /* Native fences include assistant markdown, not just user bubbles. Keep
+     Shiki token foregrounds and clear all host background painting nodes. */
+  body[data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] .md-code-block {
+    --dsl-code-block-background: transparent;
+    --dsl-code-block-banner-background-color: transparent;
+  }
+  body[data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] .md-code-block > :has(> [data-code-block-banner]),
+  body[data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] .md-code-block [data-code-block-banner],
+  body[data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] .md-code-block pre,
+  body[data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] .md-code-block pre > code {
+    background: transparent !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  /* A user bubble already supplies the single glass plate and frost. */
+  body[data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] [class*="_bubble"] .md-code-block {
+    background: transparent !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  /* VCP uses inline fixed colours; its plain text follows the theme once its
+     opaque canvas is removed. Native Shiki foregrounds above stay untouched. */
+  body[data-we-wallpaper][data-we-thinking-glass] [data-vcp-rawhtml] > div > div:has(> pre > code):has(> div > button[title="复制代码"]) > pre {
+    background: transparent !important;
+    color: var(--dsw-alias-label-primary) !important;
+  }
+  body[data-we-wallpaper][data-we-thinking-glass] [data-vcp-rawhtml] > div > div:has(> pre > code):has(> div > button[title="复制代码"]) > div {
+    background: transparent !important;
+    color: var(--dsw-alias-label-secondary) !important;
+  }
+  body[data-we-wallpaper][data-we-thinking-glass] [data-vcp-rawhtml] > div > div:has(> pre > code):has(> div > button[title="复制代码"]) > div > button {
+    color: inherit !important;
+  }
+  body[data-we-wallpaper][data-we-thinking-glass] [data-changed-files] {
+    --changes-fill: transparent;
+    --changes-hover: rgba(255, 255, 255, 0.05);
+  }
+  body[data-we-wallpaper][data-we-thinking-glass] [data-changed-files] > button {
+    background: transparent !important;
+  }
 
   /* ── 原生左栏在 extended/advanced 窗口模式下的不透明底 ─────────────────────
      harness 的壳层样式表带一条模式门控规则：mode 为 extended/advanced 且
@@ -655,7 +892,7 @@ const CSS = `
     background: transparent !important;
   }
 
-  /* ── 左侧栏覆盖（宿主原生左栏的玻璃接管，默认关）────────────────────────────
+  /* ── 左侧栏液态玻璃（宿主原生左栏的玻璃接管，默认关）────────────────────────────
      原生左栏（会话列表 / 工作区那一列）在壁纸下本来只是**透明的洞**：本插件把
      --dsw-specific-sidebar-fill 置为 transparent，那一列于是直接透出原样壁纸 ——
      没有霜、没有底色，主题那套「配色 / 玻璃颜色 / 玻璃透明度 / 雾化 / 边框」一个都
@@ -702,17 +939,23 @@ const CSS = `
     /* 顶层白光釉：与设置窗口同一道镜面渐变。它同时**顶掉**壳层 darwin 那条
        「淡蓝渐变 + fill 混色」的左栏背景（background-image 是同一长属性）。 */
     background-image: linear-gradient(180deg,
-      rgba(255, 255, 255, 0.10) 0%,
-      rgba(255, 255, 255, 0.03) 38%,
-      rgba(255, 255, 255, 0.05) 100%);
+      rgba(255, 255, 255, var(--we-panel-sheen-a)) 0%,
+      rgba(255, 255, 255, var(--we-panel-sheen-b)) 38%,
+      rgba(255, 255, 255, var(--we-panel-sheen-c)) 100%);
     /* 模糊不在这里：backdrop-filter 会把这列变成 fixed 后代的包含块（见上），
        已移交给本列 ::before 的那条规则。 */
-    /* 边框：这一列的竖分割线（以及「新建会话」按钮描边）读的是 --dsw-alias-border-l3 ——
-       壁纸令牌映射只接管了 l1/l2，这就是「边框」滑杆此前对左栏完全无感的原因。
-       darwin 上壳层把这条边置为 none（原生无分割线），这里显式补回：既然这一列已经被
-       接管成玻璃面板，一条随「边框」变浓淡的发丝线才是与其他面板一致的口径。 */
+    /* 边框：这一列**内部**的描边（「新建会话」按钮、焦点环等）读 --dsw-alias-border-l3 ——
+       壁纸令牌映射只接管了 l1/l2，这就是「边框」滑杆此前对左栏完全无感的原因。这一条**保留**：
+       「边框」滑杆继续管这一列里面的描边。
+       ⚠️ 而这一列**自己的竖分割线改为不画**（现场口径："左侧边栏右边框线不要显示，
+       即使全局设置了边框拉到了90%"）。此前是**刻意补**上去的（darwin 壳层把原生那条置为
+       none，补回来是为了与其余面板口径一致）；现在改成明确的 none：这一列已经是一整块玻璃，
+       再画一条竖线就把它与会话区切成两半。
+       ⚠️ 必须是**显式 none**，不能只是删掉那行声明：非 darwin 壳层自己有一条读
+       --dsw-alias-border-l3 的边框，删声明会让它在别的平台上回来。判据见
+       verify-glass-compositing 的 S2（含"种回发丝线即判红"的负对照）。 */
     --dsw-alias-border-l3: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
-    border-right: 0.5px solid rgba(180, 180, 180, var(--we-border-alpha, 0.35));
+    border-right: none;
     /* 配色：与设置窗口同一组 accent 映射（选中 / 悬停行 = interactive-bg-hover，
        业务状态点 = state-business-primary，链接与强调文字 = brand-*），
        作用域只在这一列 —— 自定义属性沿 DOM 继承，出不去这一列的子树。 */
@@ -741,9 +984,9 @@ const CSS = `
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
       color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) calc(var(--we-left-sidebar-alpha) * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%));
     background-image: linear-gradient(180deg,
-      rgba(255, 255, 255, 0.07) 0%,
-      rgba(255, 255, 255, 0.02) 38%,
-      rgba(255, 255, 255, 0.03) 100%);
+      rgba(255, 255, 255, var(--we-panel-sheen-a)) 0%,
+      rgba(255, 255, 255, var(--we-panel-sheen-b)) 38%,
+      rgba(255, 255, 255, var(--we-panel-sheen-c)) 100%);
     --dsw-alias-interactive-bg-hover: color-mix(in srgb, var(--we-accent, #4f8cff) 14%, rgba(255, 255, 255, 0.04));
   }
   /* 无 backdrop-filter：同一政策 —— 近不透明玻璃，文字绝不直接落在壁纸上
@@ -756,6 +999,20 @@ const CSS = `
     body[data-ds-dark-theme][data-we-wallpaper][data-we-left-sidebar] div:has(> [data-slot="sidebar"]) {
       background-color: color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) 92%, transparent);
     }
+  }
+
+  /* 侧栏的釉取哪一份：跟随全局 ⇒ 与左栏同一道（--we-panel-sheen-*）；
+     自定义 ⇒ 旧的"随透明度衰减"曲线（--we-sidebar-sheen）。两档都只定义变量，
+     面板规则本身不必分叉。 */
+  body[data-we-sidebar-follow] {
+    --we-sidebar-sheen-a: var(--we-panel-sheen-a);
+    --we-sidebar-sheen-b: var(--we-panel-sheen-b);
+    --we-sidebar-sheen-c: var(--we-panel-sheen-c);
+  }
+  body[data-we-sidebar-glass]:not([data-we-sidebar-follow]) {
+    --we-sidebar-sheen-a: calc(var(--we-sidebar-sheen) * 0.14);
+    --we-sidebar-sheen-b: calc(var(--we-sidebar-sheen) * 0.04);
+    --we-sidebar-sheen-c: calc(var(--we-sidebar-sheen) * 0.01);
   }
 
   /* ── dsh-better-sidebar glass ──────────────────────────────────────────────
@@ -789,9 +1046,9 @@ const CSS = `
        0.32/0.08/0.06); only toward transparency does the white glaze fade,
        so 100% is truly near-transparent instead of pale white. */
     background-image: linear-gradient(180deg,
-      rgba(255, 255, 255, calc(var(--we-sidebar-sheen) * 0.14)),
-      rgba(255, 255, 255, calc(var(--we-sidebar-sheen) * 0.04)) 38%,
-      rgba(255, 255, 255, calc(var(--we-sidebar-sheen) * 0.01))) !important;
+      rgba(255, 255, 255, var(--we-sidebar-sheen-a)),
+      rgba(255, 255, 255, var(--we-sidebar-sheen-b)) 38%,
+      rgba(255, 255, 255, var(--we-sidebar-sheen-c))) !important;
     -webkit-backdrop-filter: blur(var(--we-sidebar-blur)) saturate(var(--we-sidebar-saturate)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
     backdrop-filter: blur(var(--we-sidebar-blur)) saturate(var(--we-sidebar-saturate)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
     box-shadow:
@@ -889,9 +1146,9 @@ const CSS = `
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
       color-mix(in srgb, var(--we-sidebar-color) var(--we-sidebar-tint), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
     background-image: linear-gradient(180deg,
-      rgba(255, 255, 255, calc(var(--we-sidebar-sheen) * 0.14)),
-      rgba(255, 255, 255, calc(var(--we-sidebar-sheen) * 0.04)) 38%,
-      rgba(255, 255, 255, calc(var(--we-sidebar-sheen) * 0.01))) !important;
+      rgba(255, 255, 255, var(--we-sidebar-sheen-a)),
+      rgba(255, 255, 255, var(--we-sidebar-sheen-b)) 38%,
+      rgba(255, 255, 255, var(--we-sidebar-sheen-c))) !important;
     -webkit-backdrop-filter: blur(var(--we-sidebar-blur)) saturate(var(--we-sidebar-saturate)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
     backdrop-filter: blur(var(--we-sidebar-blur)) saturate(var(--we-sidebar-saturate)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
     box-shadow:
@@ -1104,6 +1361,23 @@ const CSS = `
       --dsw-alias-bg-layer-2: var(--we-panel-color, #ffffff);
       --dsw-alias-bg-layer-3: var(--we-panel-color, #ffffff);
       --dsw-alias-button-elevated-fill: var(--we-panel-color, #ffffff);
+      /* markdown 代码块 / 行内代码也在这张回退表里：没有模糊时半透明 = 文字直接压在
+         花壁纸上，代码注释／字符串首当其冲（与上面 .cm-editor / .xterm 同一条政策）。 */
+      --dsw-alias-markdown-code-block: var(--we-panel-color, #ffffff);
+      --dsw-alias-markdown-code-block-banner: var(--we-panel-color, #ffffff);
+      --dsw-alias-markdown-inline-code: var(--we-panel-color, #ffffff);
+      --dsw-alias-markdown-tag: var(--we-panel-color, #ffffff);
+      --dsw-alias-markdown-code-segment-unselected: var(--we-panel-color, #ffffff);
+      --dsw-alias-markdown-code-segment-selected: var(--we-panel-color, #ffffff);
+    }
+  }
+
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    body[data-we-wallpaper],
+    body[data-ds-dark-theme][data-we-wallpaper] {
+      --we-chat-glass-fill: color-mix(in srgb, var(--we-readability-base) 92%, transparent);
+      --we-tool-glass-fill: var(--we-chat-glass-fill);
+      --we-capsule-glass-fill: var(--we-chat-glass-fill);
     }
   }
 
@@ -1210,6 +1484,53 @@ const CSS = `
   }
   .we-picker__font-table .we-picker__fontset-confirm .we-picker__hint {
     margin-right: 8px;
+  }
+  /* ── 预设方案：两行四列的圆角表格（2026-10-04 用户口径）──────────────────
+     容器 = 圆角描边"表格"；每格 = 预设名（点击应用，占满）+ 右侧固定删除键。
+     空位画成虚框占位 —— 上限 8（2×4）直接看得见。纯布局规则，不碰玻璃令牌。 */
+  .we-picker__preset-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+    margin-top: 4px;
+    padding: 6px;
+    border: 1px solid var(--we-host-dsw-alias-label-tertiary, rgba(128, 128, 128, 0.28));
+    border-radius: 10px;
+  }
+  .we-picker__preset-cell {
+    display: flex;
+    align-items: stretch;
+    gap: 2px;
+    min-width: 0;
+  }
+  .we-picker__preset-cell--armed {
+    outline: 1px solid var(--we-host-dsw-alias-label-tertiary, rgba(128, 128, 128, 0.45));
+    outline-offset: 1px;
+    border-radius: 6px;
+  }
+  /* ⚠️ 故意用元素选择器而不是按钮类复合选择器：verify-fontset 的按钮盒完整性
+     判据按"第一处按钮类规则"锚定，复合覆盖规则会抢到锚点（它只带布局增量、
+     没有盒子全家桶）⇒ 判据当场假红。 */
+  .we-picker__preset-cell > button {
+    flex: 1;
+    min-width: 0;
+    justify-content: flex-start;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .we-picker__preset-cell > .we-picker__preset-del {
+    flex: 0 0 auto;
+  }
+  .we-picker__preset-cell--empty {
+    align-items: center;
+    justify-content: center;
+    border: 1px dashed var(--we-host-dsw-alias-label-tertiary, rgba(128, 128, 128, 0.30));
+    border-radius: 6px;
+    min-height: 26px;
+  }
+  .we-picker__preset-cell--empty .we-picker__hint {
+    font-size: 11px;
   }
   /* 数字框按内容收纳：面板基础样式给 input 的左右内边距在这里制造了明显的空占位。 */
   .we-picker__font-table input[type="number"] {
@@ -1374,7 +1695,7 @@ const CSS = `
   .we-picker__ctl-side { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
   .we-picker__swatches { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 
-  /* ── 吉祥物形态卡片：立绘即实时预览（随大小滑块缩放）。 ── */
+  /* ── 吉祥物形态卡片：立绘按基础尺寸固定渲染，「吉祥物大小」滑块只作用于主页面吉祥物。 ── */
   .we-picker__mascot-row { display: flex; gap: 10px; flex-wrap: wrap; }
   .we-picker__mascot-card {
     display: flex; flex-direction: column; align-items: center; gap: 6px;
@@ -1891,6 +2212,11 @@ const CSS = `
   }
   /* 网格高度放开（沿用弹框时代的规则：不设内部 280px 滚动，随内容生长）。 */
   .we-picker__modal-body .we-picker__grid { max-height: none; }
+  /* 库视图虚拟滚动的占位行（picker-modal 的 renderVSpacer）：撑出未渲染部分的高度。
+     网格里必须 grid-column 全跨整行，否则会占一个卡位把可见卡片挤错行。行高常量
+     PICKER_CARD_H / PICKER_CARD_GAP 在 src/picker-modal.js 顶层，两边必须同步改。 */
+  .we-picker__vspacer { width: 100%; pointer-events: none; }
+  .we-picker__grid .we-picker__vspacer { grid-column: 1 / -1; }
   .we-picker__modal-foot { display: flex; align-items: center; justify-content: space-between; }
   /* Custom-upload section. */
   .we-picker__uploads {
@@ -2232,6 +2558,14 @@ body[data-we-glass-floaters] .we-repo-panel__body {
      那一行多余；同一枚「收起壁纸属性」就在页签下面，收起路径并没有丢）。 */
   .we-qp__propsview { display: flex; flex-direction: column; min-width: 0; }
   .we-qp__propsview--drill { flex: 1 1 auto; min-height: 0; }
+  /* 属性下钻的滚动：官方档的页签内容区是「固定高 + overflow:hidden」（宿主契约，见上面
+     .we-qp--official 那段），壁纸档还挂 --library 特意不自己滚（滚动交给列表）。而属性
+     下钻这一屏**没有列表** —— 面板必须自带滚动，否则属性多的壁纸下半截被裁掉、任何祖先
+     都滚不动（用户实测：壁纸属性点开时显示不全）。抽屉档的滚动由 .we-repo-panel__body
+     承担，这里不叠第二层滚，故只作用在 --official 档。 */
+  .we-qp--official .we-qp__propsview--drill {
+    overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable;
+  }
   .we-qp__row { display: flex; align-items: center; gap: 8px; }
   .we-qp__group { flex: 1; min-width: 0; }
   .we-qp__search { width: 100%; box-sizing: border-box; }
@@ -2258,6 +2592,12 @@ body[data-we-glass-floaters] .we-repo-panel__body {
     gap: 8px; align-content: start;
   }
   .we-qp__list--cards .we-picker__hint { grid-column: 1 / -1; }
+  /* 虚拟滚动的占位行（quick-panel 的 renderSpacer）：撑出未渲染部分的高度。列表档是
+     flex 列里的普通块（flex:none 防被压缩），卡片档要 grid-column 全跨整行 —— 否则会
+     占一个卡位，把可见卡片整体挤错一行。行高常量在 quick-panel 的 QP_ROW_H / QP_CARD_H，
+     两边必须同步改。 */
+  .we-qp__vspacer { flex: none; width: 100%; pointer-events: none; }
+  .we-qp__list--cards .we-qp__vspacer { grid-column: 1 / -1; }
   .we-qp__card {
     position: relative; overflow: hidden; cursor: pointer;
     /* 固定卡高：网格轨道 sizing 对 aspect-ratio / 百分比 padding 都会塌成内容高
@@ -2314,7 +2654,6 @@ body[data-we-glass-floaters] .we-repo-panel__body {
   .we-qp__item-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .we-qp__item-badge { flex: none; font-size: 0.78em; font-weight: 600; color: var(--we-accent, #4f8cff); }
   .we-qp__item-type { flex: none; font-size: 0.78em; color: var(--we-ink-3, rgba(128, 128, 128, 0.65)); }
-  .we-qp__more { font-size: 0.78em; }
   .we-qp__foot {
     display: flex; padding-top: 10px;
     border-top: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.22));
@@ -2366,7 +2705,7 @@ body[data-we-glass-floaters] .we-repo-panel {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }
-  /* 左侧栏覆盖（leftSidebarGlass）：软件光栅器下模糊被静默忽略 ⇒ 与上面各条同一配方，
+  /* 左侧栏液态玻璃（leftSidebarGlass）：软件光栅器下模糊被静默忽略 ⇒ 与上面各条同一配方，
      钉成 92% 近不透明玻璃并把不会生效的 backdrop-filter 显式关掉。深色那条多一层
      [data-ds-dark-theme]，与浅色声明同特异度时后写者赢（顺序即优先级）。 */
   body[data-we-glass-fallback][data-we-wallpaper][data-we-left-sidebar] div:has(> [data-slot="sidebar"]) {
@@ -2417,10 +2756,16 @@ body[data-we-glass-floaters] .we-repo-panel {
     --dsw-alias-bg-layer-2: var(--we-panel-color, #ffffff);
     --dsw-alias-bg-layer-3: var(--we-panel-color, #ffffff);
     --dsw-alias-button-elevated-fill: var(--we-panel-color, #ffffff);
-    /* 思考触发条：它的底色**本来就**由宿主读那个专属令牌 ⇒ 这里把令牌钉回不透明面板色
-       （--we-panel-color 是主题感知的：浅 #ffffff / 深 #1e1f26），模糊没了也不会"过透"。
-       hover 档一并钉回同色 —— 与上面三个 layer 令牌在回退档统一成同一色的口径一致
-       （降级档不保留悬停反馈，优先保可读）。 */
+    --dsw-specific-selector: var(--we-panel-color, #ffffff);
+  }
+  /* 思考触发条（本仓新增面，见上面「思考触发条」那一节）：它的底色**本来就**由宿主读那个
+     专属令牌 ⇒ 回退档把令牌钉回不透明面板色（--we-panel-color 是主题感知的：浅 #ffffff /
+     深 #1e1f26），模糊没了也不会"过透"。hover 档一并钉回同色 —— 与上面三个 layer 令牌在
+     回退档统一成同一色的口径一致（降级档不保留悬停反馈，优先保可读）。
+     ⚠️ 与主规则同门（data-we-thinking-glass）+ 多一层 fallback 属性：特异性 (0,3,1) 高于
+     主规则的 (0,2,1)（深色档 (0,4,1) 高于深色主规则 (0,3,1)）⇒ 覆盖成立。 */
+  body[data-we-glass-fallback][data-we-thinking-glass][data-we-wallpaper],
+  body[data-ds-dark-theme][data-we-glass-fallback][data-we-thinking-glass][data-we-wallpaper] {
     --dsw-alias-turn-trigger-bg: var(--we-panel-color, #ffffff);
     --dsw-alias-turn-trigger-bg-hover: var(--we-panel-color, #ffffff);
   }
@@ -2435,11 +2780,27 @@ body[data-we-glass-floaters] .we-repo-panel {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }
-  /* 思考触发条：底色已由上面的令牌钉回不透明面板色，这里只需把载体上那条模糊显式关掉
-     （与 composer 的 ::before 同一条政策：模糊不可用时不留"半透明 + 无霜"）。 */
-  body[data-we-glass-fallback][data-we-wallpaper] [data-turn-trigger] {
-    backdrop-filter: none !important;
+  /* A near-opaque canvas is only the no-frost fallback, never normal chat. */
+  body[data-we-glass-fallback][data-we-wallpaper],
+  body[data-ds-dark-theme][data-we-glass-fallback][data-we-wallpaper] {
+    --we-chat-glass-fill: color-mix(in srgb, var(--we-readability-base) 92%, transparent);
+    --we-tool-glass-fill: var(--we-chat-glass-fill);
+    --we-capsule-glass-fill: var(--we-chat-glass-fill);
+  }
+  /* ⚠️ 合并 #134 口径修正（审计 MAJOR 第④组）：这条与上面 92% 不透明的思考玻璃填充配套，
+     挂同一道门；PR 原稿漏门时，关着思考玻璃的 fallback 模式也会被摘掉气泡的 backdrop-filter。 */
+  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [class*="_bubble"] {
     -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-turn-trigger],
+  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-vcp-reasoning],
+  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-changed-files],
+  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-presented-file],
+  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-chat-flow] .md-code-block,
+  body[data-we-glass-fallback][data-we-wallpaper][data-we-thinking-glass] [data-vcp-rawhtml] > div > div:has(> pre > code):has(> div > button[title="复制代码"]) {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
   }
   /* 仓库抽屉：与 @supports 回退逐字相同的 92% 近不透明配方。 */
   body[data-we-glass-fallback] .we-repo-panel {
@@ -2500,6 +2861,150 @@ body[data-we-glass-floaters] .we-repo-panel {
   }
   .we-about__qr-hint { font-size: 0.7em; color: var(--we-ink-3, rgba(128, 128, 128, 0.65)); text-align: center; }
   .we-about__foot { text-align: center; }
+
+  /* ── 「扩展」页签：模块槽位（注册表见 panel-tabs.js 的 extensionModules()）──
+     每个模块一张卡：极薄的玻璃底衬 + 圆角，与「关于」页的二维码卡同一口径
+     （不新造颜色，只取主题墨色 / 边框 token）。表里一张模块都没有时只画空态，
+     所以下面这几条在没有模块的版本里没有渲染对象。 */
+  .we-ext { display: flex; flex-direction: column; gap: 10px; }
+  .we-ext__module {
+    display: flex; flex-direction: column; gap: 6px; padding: 10px;
+    border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.28));
+    border-radius: 12px; background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.08));
+  }
+  .we-ext__module-head { display: flex; align-items: center; gap: 8px; }
+  .we-ext__module-title { font-size: 0.85em; font-weight: 600; color: var(--we-ink, inherit); }
+
+  /* ── 「扩展」一号模块：屏幕下方的资源柱状图（画布层见 src/metrics-layer.js）──
+     它与 .we-layer / .we-scrim 同族：body 级的整屏浮层 ⇒ 必须
+     pointer-events: none + -webkit-app-region: initial !important（后者是上游 #120
+     的硬要求：darwin 壳把 body 下每个非 #root 直接子元素当 no-drag 矩形**几何挖除**，
+     值必须是 initial 而不是 none、且必须带 !important，见 test/verify-host-paint-scope.mjs H3）。
+     ⚠️ 本文件整份 CSS 是一个模板字面量 ⇒ 注释里**不许出现反引号**（会当场截断 CSS，
+     2026-03 那次就是这么把 test/verify-i18n.mjs 的判据 ① 弄红的）。
+     z-index -1 与遮罩层同层、靠文档序压过它 ⇒ 「画在壁纸之上、全部界面之下」。
+     几何是**居中**的：宽高与 left / bottom 都由画布层按设置与视口每帧内联写死
+     （宽 = 格数 × 柱距、高 = 高度，四边各留 20px ⇒ bottom = 20、left 居中），
+     这里的 left: 0 与 height 只是"内联还没写下去"那一瞬的兜底。
+     body 上没有壁纸层标记时整层不画（连空画布都不留）。
+
+     这一族是**三层 + 分段宿主**（同一套类名，各自一个画布，DOM 顺序 = 柱层各段 → 名称层 → 标尺层）：
+       #we-metrics-layer      柱层第 1 段（柱子）；柱层是"一段一条"（自动混色要逐段定档），
+                              其余段是 #we-metrics-layer-2 / -3 …，每段各画自己那一段的像素；
+       #we-metrics-labels     名称层（行名），位置尺寸同步，**混合模式恒为 normal** ——
+                              主题字色接近纯白，跟着正片叠底会被乘没（用户口径"标注文字难以辨别"），
+                              字色亮度另由画布层钳在 20%–80%；
+       #we-metrics-guides     标尺层（细白横线），位置尺寸同步，**混合模式恒为 normal** ——
+                          正片叠底会把白线乘没，而白线在亮背景和暗背景上都要看得见。
+     分开是为了解耦：柱层每秒换帧时名称层与标尺层不用跟着重画；以后做"随光标位置响应的 3D 纵深"
+     时各层也能各自 transform。混合模式必须写在**宿主**上（写在画布上只跟宿主自己的
+     stacking context 混合 = 不生效），所以这里不给 .we-metrics 写死 mix-blend-mode。 */
+  .we-metrics { display: none; }
+  body[data-we-wallpaper="on"] .we-metrics {
+    display: block;
+    position: fixed; left: 0; right: auto; bottom: 0; height: 120px;
+    z-index: -1; overflow: hidden;
+    pointer-events: none; -webkit-app-region: initial !important;
+  }
+  .we-metrics__canvas { display: block; width: 100%; height: 100%; }
+
+  /* ── 「扩展」二号模块：点击效果与拖尾效果（画布层见 src/fx-layer.js）──
+     与 .we-layer / .we-scrim / .we-metrics 同族：body 级的整屏浮层 ⇒ 同样必须
+     pointer-events: none + -webkit-app-region: initial !important（同族的硬要求，
+     见上面 .we-metrics 那段注释与 test/verify-host-paint-scope.mjs H3）。
+     z-index -1、靠文档序插在资源柱状图**之前**（柱状图压在特效之上），
+     所以这一层是"壁纸之上、暗化层之上、柱状图之下、全部界面之下"。
+     宽高恒为整屏：点击/拖尾的坐标直接取指针的视口坐标，不用做偏移换算。
+     opacity（不透明度）与 mix-blend-mode（混合模式）由画布层按设置内联写在宿主上 ——
+     写在画布上只跟宿主自己的 stacking context 混合 = 不生效，这里两者都不写死。
+     body 上没有壁纸层标记时整层不画（连空画布都不留）。 */
+  .we-fx { display: none; }
+  body[data-we-wallpaper="on"] .we-fx {
+    display: block;
+    position: fixed; left: 0; top: 0; width: 100%; height: 100%;
+    z-index: -1; overflow: hidden;
+    pointer-events: none; -webkit-app-region: initial !important;
+  }
+  .we-fx__canvas { display: block; width: 100%; height: 100%; }
+
+  /* ── 侧栏全透明（issue #137，设置键 sidebarFullClear，默认关）──────────────
+     用户口径：其他面都能调透，唯独侧栏被可读性下限锁死 —— 地板（浅 0.45 / 深 0.59）
+     以带 !important 的 color-mix 恒定掺入，侧栏透明度拉满也绕不过；0.7.5 时代侧栏
+     可以全透，之后被地板锁死。本组规则在**壁纸激活**时把插件画在侧栏上的底色层整块
+     撤掉，让用户主动放弃下限换全透：
+       · 第一条按**容器**就地归零六个变量（地板 / 色染 / 釉光三组）：面板规则里的
+         color-mix 与白釉渐变在元素上解析时取到的就是 0 ⇒ 玻璃开着时的全部侧栏上色
+         规则（深浅两色、@supports 无霜兜底、软件渲染兜底 —— 这些都读这几个变量）
+         一起透掉；**以后新增读这些变量的侧栏规则也自动被接管**。自定义属性沿 DOM
+         继承 ⇒ 生效与规则书写顺序无关。
+       · 右栏第二条与左列第三条是**显式接管**：玻璃关着时右栏兜底读插件面板色、左列
+         的浅深与兜底写死 92% 釉色（都不走上面的变量）⇒ 把这两处的底色与釉光直接画
+         透。落盘位置晚于全部既有侧栏规则 ⇒ 同特异度后写者赢（含软件渲染深色那档）。
+     保留：backdrop-filter 照旧 —— 模糊 / 饱和仍由侧栏模糊与全局雾化旋钮管（要彻底
+     清晰就把模糊调 0）；内容面（编辑器 / 终端底板）不归本开关管，仍有自己的透明度
+     旋钮。只在壁纸下生效：无壁纸时侧栏压着的是聊天界面，全透不可读。 */
+  body[data-we-wallpaper][data-we-sidebar-fullclear] [data-dsh-better-sidebar],
+  body[data-we-wallpaper][data-we-sidebar-fullclear] [data-sidebar-right-panel][data-sidebar-right-open] {
+    --we-readability-floor: 0;
+    --we-sidebar-tint: 0%;
+    --we-sidebar-color: transparent;
+    --we-sidebar-sheen: 0;
+    --we-sidebar-sheen-a: 0;
+    --we-sidebar-sheen-b: 0;
+    --we-sidebar-sheen-c: 0;
+  }
+  body[data-we-wallpaper][data-we-sidebar-fullclear] [data-sidebar-right-panel][data-sidebar-right-open] {
+    background-color: transparent !important;
+    background-image: none !important;
+  }
+  body[data-we-wallpaper][data-we-sidebar-fullclear][data-we-left-sidebar] div:has(> [data-slot="sidebar"]),
+  body[data-ds-dark-theme][data-we-wallpaper][data-we-sidebar-fullclear][data-we-left-sidebar] div:has(> [data-slot="sidebar"]) {
+    background-color: transparent !important;
+    background-image: none !important;
+  }
+
+  /* ── 「扩展」三号模块：3D 效果（视差；行为层见 src/parallax-layer.js）──
+     这一层与前面几层刚好相反：**它一个 DOM 节点都不建**。视差层只写自定义属性：5 个"各层要乘的
+     系数"写在 body 上（只在设置变了时写一次），-x / -y 这两个"光标偏离屏幕中心的步长"写在
+     **要动的那几层自己**身上（每帧写 —— 自定义属性是继承的，写在 body 上等于每帧让整棵文档树
+     重算样式），另加一个开关属性 data-we-parallax；位移、放大倍数与"谁跟着动"全在这里用 calc 算。
+     这么写有两个好处：① 不新增节点 ⇒ 不参与 stacking、不会被别的层顺手清掉；
+     ② 关掉总开关时连属性都不在 ⇒ 屏上一点痕迹都没有（下面每条规则都挂在开关属性下）。
+     硬约束：**只能用 CSS 独立属性 translate / scale，不能用 transform** —— 壁纸层的过场
+     （src/live-layer.js 的 resetLayerSwitchStyles）与 .we-layer--repaint 会内联写 / 清
+     transform，独立属性才与它们叠加，而不是互相覆盖。
+     系数口径：光标走完一整条对角线时，该层挪"它那个系数"个百分点的对角线（推导见行为层
+     文件头）。壁纸层同时放大 1 + 系数/100 补边：横向最大位移 = 系数/100 × 半屏宽，
+     放大同样多就不会在边上露出底色。柱状图三层各一个系数（柱层 = 图表系数、行名 +1、
+     白线 +2，见 src/parallax-layer.js 的 parallaxRatios）。
+     兜底都是 0px / 0：变量还没写上时位移为零（例如刚开开关、第一帧还没跑）。
+     **点击与拖尾那一层刻意不参与**（用户口径：特效不跟着偏移）。 */
+  body[data-we-parallax="on"] .we-layer {
+    translate: calc(var(--we-parallax-x, 0px) * var(--we-parallax-bg, 0))
+      calc(var(--we-parallax-y, 0px) * var(--we-parallax-bg, 0));
+    scale: calc(1 + var(--we-parallax-bg, 0) / 100);
+  }
+  body[data-we-parallax="on"] .we-rope {
+    translate: calc(var(--we-parallax-x, 0px) * var(--we-parallax-mascot, 0))
+      calc(var(--we-parallax-y, 0px) * var(--we-parallax-mascot, 0));
+  }
+  body[data-we-parallax="on"] .we-metrics {
+    translate: calc(var(--we-parallax-x, 0px) * var(--we-parallax-metrics, 0))
+      calc(var(--we-parallax-y, 0px) * var(--we-parallax-metrics, 0));
+  }
+  body[data-we-parallax="on"] .we-metrics--labels {
+    translate: calc(var(--we-parallax-x, 0px) * var(--we-parallax-labels, 0))
+      calc(var(--we-parallax-y, 0px) * var(--we-parallax-labels, 0));
+  }
+  body[data-we-parallax="on"] .we-metrics--guides {
+    translate: calc(var(--we-parallax-x, 0px) * var(--we-parallax-guides, 0))
+      calc(var(--we-parallax-y, 0px) * var(--we-parallax-guides, 0));
+  }
+  /* 只有"正在动的那几帧"才把它们提成独立合成层：提上去之后每帧只是挪现成的纹理，
+     合成器直接做，不必把满屏壁纸重绘一遍。类由行为层在起帧时加上、到位收工与关掉总开关时
+     摘掉 —— 本仓刻意不留**常驻**合成层（见 .we-layer--repaint 的两帧微推）。
+     只提示 translate：scale 是静态的，不提它就不会被冻结栅格化倍率。 */
+  body[data-we-parallax="on"] .we-parallax--moving { will-change: translate; }
 `;
 
 export { READABILITY_FLOOR, READABILITY_FLOOR_DARK, CSS };

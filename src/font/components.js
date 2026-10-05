@@ -31,7 +31,8 @@
  *   · 已知代价：面板的"当前默认值"按**第一个命中元素**读，共用前缀的两行会显示同一个值。
  *
  * ══ 契约 ══════════════════════════════════════════════════════════════════════════
- * 需要的外界：**无**（document 由调用方传入，便于单测）。
+ * 需要的外界：**无**（document 由调用方传入，便于单测；族值→CSS 栈的解析函数
+ *            `resolveFamily` 也由调用方传入 —— 本文件不认族键的值域，那是共享内核的事）。
  * 对外提供：COMPONENT_FONT_TARGETS（白名单）/ COMPONENT_FONT_PROPS / componentScopeSelector /
  *          probeComponentTargets / buildComponentCss / buildDslBlocks / selectorFor。
  *
@@ -192,11 +193,15 @@ function probeComponentTargets(doc, targets) {
  * @param config 形如 `{ markdown: { size: 15, weight: 600, family: '...' }, ... }`（键是 id）；
  *               缺项/0/空串 = 不覆盖该项（**初始值即官方值**）。
  * @param available 命中的**组件 id**（来自 probeComponentTargets）；不在其中的不生成规则
+ * @param resolveFamily 族值 → CSS 栈（`fontFamilyStack`；见下方"族值要经解析"一段）。
+ *               缺省视作**原样值** —— 那是给"没有字体上下文的调用点（守卫 / 单测）"的默认，
+ *               真实调用点（src/font/apply.js）**一律传**它，由守卫断言。
  * @returns {string} CSS 文本（空串 = 什么都不做）
  */
-function buildComponentCss(config, available) {
+function buildComponentCss(config, available, resolveFamily) {
   const cfg = config && typeof config === 'object' ? config : {};
   const avail = Array.isArray(available) ? available : [];
+  const resolve = typeof resolveFamily === 'function' ? resolveFamily : (v) => v;
   const blocks = [];
   for (const target of COMPONENT_FONT_TARGETS) {
     // hooks 通道的组件**不在这里出现**：它们的作用域模块名是共用的（代码块/终端块都是
@@ -214,7 +219,9 @@ function buildComponentCss(config, available) {
       decls.push('  font-weight: ' + Math.round(c.weight) + ';');
     }
     if (typeof c.family === 'string' && c.family.trim()) {
-      decls.push('  font-family: ' + c.family.trim() + ';');
+      // 族值自本版起是**族键**（内置键或 `sys:<本机字体>`）⇒ 必须经解析成 CSS 栈；
+      // F3 之前存的是栈本身，解析侧两条都认（见 src/client.js 的 fontFamilyStack）。
+      decls.push('  font-family: ' + resolve(c.family.trim()) + ';');
     }
     if (!decls.length) continue; // 全空 ⇒ 回官方，不生成
     blocks.push(selectorFor(target.id) + ' {\n' + decls.join('\n') + '\n}');
@@ -261,12 +268,14 @@ const DSL_HOOK_NAMES = DSL_FONT_HOOKS.map((h) => h.name);
  * @param available 命中的组件 id（`probeComponentTargets`）
  * @param isAvailable 令牌可用性判定（缺省视作都可用）
  * @param hookScopes 钩子 → 作用域选择器（`scanHookScopes(document)`）
+ * @param resolveFamily 族值 → CSS 栈（同 `buildComponentCss`；缺省原样值，真实调用点一律传）
  */
-function buildDslBlocks(config, available, isAvailable, hookScopes) {
+function buildDslBlocks(config, available, isAvailable, hookScopes, resolveFamily) {
   const cfg = config && typeof config === 'object' ? config : {};
   const avail = Array.isArray(available) ? available : [];
   const ok = typeof isAvailable === 'function' ? isAvailable : () => true;
   const scopes = hookScopes && typeof hookScopes === 'object' ? hookScopes : {};
+  const resolve = typeof resolveFamily === 'function' ? resolveFamily : (v) => v;
   const blocks = [];
   for (const target of COMPONENT_FONT_TARGETS) {
     if (!target.dslHooks || !avail.includes(target.id)) continue;
@@ -287,7 +296,7 @@ function buildDslBlocks(config, available, isAvailable, hookScopes) {
       const size = typeof c.size === 'number' && Number.isFinite(c.size) && c.size > 0
         ? Math.round(c.size) + 'px' : 'var(' + t('font-size') + ')';
       const family = typeof c.family === 'string' && c.family.trim()
-        ? c.family.trim() : 'var(' + t('font-family') + ')';
+        ? resolve(c.family.trim()) : 'var(' + t('font-family') + ')';
       // 字重与行高一律沿用 DSH 自己的令牌 —— 我们只动用户改的那两项。
       decls.push('  ' + hook + ': var(' + t('font-weight') + ') ' + size
         + ' / var(' + t('line-height') + ') ' + family + ';');

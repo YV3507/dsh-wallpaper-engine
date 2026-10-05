@@ -1,4 +1,4 @@
-// Verify the TEXT-SURFACE READABILITY FLOOR (upstream #82).
+// Verify protected host floors and the explicitly transparent chat surfaces.
 //
 // Why this suite exists: the wallpaper may be dimmed/blended so it "does not
 // dominate", but TEXT MUST STAY READABLE. IDEA's background-image feature has a
@@ -22,6 +22,9 @@
 // floor IS a literal max() clamp, which leaves the user's value above the floor
 // byte-identical.
 //
+// Chat element overrides intentionally bypass shared-token floors at the user
+// glass-alpha setting. F2c–F2g check those overrides and their single plate;
+// the remaining floor checks still protect settings, popups, sidebars/editors.
 // Assertions (all derived from the BUILT lib/client.js — nothing re-typed):
 //   F1  the floor is an explicit named constant + CSS token pair, and the
 //       stylesheet copy matches the JS constant (no drift).
@@ -54,6 +57,10 @@
 //       byte-identical to the legacy 2-arg call, 0 passes the raw color
 //       through, and the lerp toward the raw color is monotone + sandwiched —
 //       the stylesheet composes the floor with --we-glass-fidelity (default 1).
+//   F7  侧栏全透明（issue #137，sidebarFullClear）：放弃地板的**显式开关**链路
+//       完整且默认关 —— 默认值 false + boolFalse kind、门控属性成对挂/摘、UI 行
+//       过 weT、规则组逐条带壁纸门（无壁纸不生效）且把地板/色染/釉光归零。
+//       这是地板的**反向判据**：它证明"绕过地板"只能经这一个显式开关发生。
 //
 // Usage: node test/verify-readability.mjs
 import { readFileSync } from 'node:fs';
@@ -343,13 +350,28 @@ function main() {
     ['app surface layer 2 (dark)', '--dsw-alias-bg-layer-2', 'body[data-ds-dark-theme][data-we-wallpaper]'],
     ['app surface layer 3 (dark)', '--dsw-alias-bg-layer-3', 'body[data-ds-dark-theme][data-we-wallpaper]'],
     ['app raised button face (dark)', '--dsw-alias-button-elevated-fill', 'body[data-ds-dark-theme][data-we-wallpaper]'],
+    // markdown 代码块 / 行内代码（用户口径："代码块和重点文字背景也要和对话框一样玻璃化"）：
+    // 它们以前保持宿主实色、因此不在表内；一旦按玻璃配方映射就成了文字面（shiki 前景色
+    // 压在它上面）⇒ 必须与气泡 / 面板同一条下限，明暗两套都要。
+    ['code block token (light)', '--dsw-alias-markdown-code-block', 'body[data-we-wallpaper]'],
+    ['code block banner token (light)', '--dsw-alias-markdown-code-block-banner', 'body[data-we-wallpaper]'],
+    ['inline code token (light)', '--dsw-alias-markdown-inline-code', 'body[data-we-wallpaper]'],
+    ['markdown tag token (light)', '--dsw-alias-markdown-tag', 'body[data-we-wallpaper]'],
+    ['code segment token (light)', '--dsw-alias-markdown-code-segment-unselected', 'body[data-we-wallpaper]'],
+    ['selected code segment token (light)', '--dsw-alias-markdown-code-segment-selected', 'body[data-we-wallpaper]'],
+    ['code block token (dark)', '--dsw-alias-markdown-code-block', 'body[data-ds-dark-theme][data-we-wallpaper]'],
+    ['code block banner token (dark)', '--dsw-alias-markdown-code-block-banner', 'body[data-ds-dark-theme][data-we-wallpaper]'],
+    ['inline code token (dark)', '--dsw-alias-markdown-inline-code', 'body[data-ds-dark-theme][data-we-wallpaper]'],
+    ['markdown tag token (dark)', '--dsw-alias-markdown-tag', 'body[data-ds-dark-theme][data-we-wallpaper]'],
+    ['code segment token (dark)', '--dsw-alias-markdown-code-segment-unselected', 'body[data-ds-dark-theme][data-we-wallpaper]'],
+    ['selected code segment token (dark)', '--dsw-alias-markdown-code-segment-selected', 'body[data-ds-dark-theme][data-we-wallpaper]'],
     ['sidebar panel (light)', 'background-color', 'body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_panel"]'],
     ['sidebar chrome group (light)', 'background-color', 'body[data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_terminalWrap"]'],
     ['sidebar panel (dark)', 'background-color', 'body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_panel"]'],
     ['sidebar chrome group (dark)', 'background-color', 'body[data-ds-dark-theme][data-we-sidebar-glass] [data-dsh-better-sidebar] [class*="_terminalWrap"]'],
     ['native right panel (light)', 'background-color', 'body[data-we-sidebar-glass] [data-sidebar-right-panel]'],
     ['native right panel (dark)', 'background-color', 'body[data-ds-dark-theme][data-we-sidebar-glass] [data-sidebar-right-panel]'],
-    // 左侧栏覆盖（leftSidebarGlass，默认关）：那一列同样是文字面（会话列表 / 工作区），
+    // 左侧栏液态玻璃（leftSidebarGlass，默认关）：那一列同样是文字面（会话列表 / 工作区），
     // 一旦接管成玻璃就必须过同一条下限 —— 而且它是**唯一**能直接看到壁纸的大块区域，
     // 少了这条声明就是"整列文字直接压在花壁纸上"。
     ['native left column (light)', 'background-color', 'body[data-we-wallpaper][data-we-left-sidebar] div:has(> [data-slot="sidebar"])'],
@@ -367,6 +389,114 @@ function main() {
     veilMisses.length === 0,
     surfaceSpecs.length + ' surface(s) checked · missing/broken=' + veilMisses.length
       + (veilMisses.length ? ' · ' + JSON.stringify(veilMisses) : ''));
+
+  // The user's chat surfaces must transmit wallpaper at the slider alpha.
+  // Keep protected host-token floor checks above; test the actual overrides
+  // rather than calling an 88% code canvas "transparent glass".
+  {
+    const clean = CSS.replace(/\/\*[\s\S]*?\*\//g, '');
+    const all = [...clean.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .map((m) => ({ header: m[1].trim(), body: m[2] }));
+    const normal = all.filter((r) => !r.header.includes('data-we-glass-fallback')
+      && !r.header.includes('@supports'));
+    const fill = (value) => /rgba\(var\(--we-surface-tint-rgb-(?:light|dark),/.test(value || '')
+      && /var\(--we-glass-alpha,/.test(value || '')
+      && !/readability-floor|max\(/.test(value || '');
+    const fills = normal.filter((r) => r.header === 'body[data-we-wallpaper]'
+      || r.header === 'body[data-ds-dark-theme][data-we-wallpaper]')
+      .map((r) => declValue(r.body, '--we-chat-glass-fill')).filter(Boolean);
+    check('F2c chat fill uses the slider directly in both themes, no opacity floor',
+      fills.length === 2 && fills.every(fill));
+    check('negative control: the rejected 88% canvas fails the transparency contract',
+      fills.length === 2 && !fill(fills[0].replace(/var\(--we-glass-alpha, [^)]+\)/, '0.88')));
+    // 2026-10-04 用户口径：输入框退出思考玻璃作用域 ⇒ fill 接管的名单只剩
+    // 气泡与两类代码围栏；输入卡在挂门规则里出现一次就算红（双向判据）。
+    const roots = ['[class*="_bubble"]',
+      '[data-chat-flow] .md-code-block', ':has(> pre > code)'];
+    check('F2d bubble and message fences retain their slider fill; composer stays outside the thinking-glass scope',
+      roots.every((anchor) => normal.some((r) => r.header.includes(anchor)
+        && /background(?:-color)?: var\(--we-chat-glass-fill\)/.test(r.body)))
+      && !normal.some((r) => r.header.includes('data-we-thinking-glass')
+        && r.header.includes('[data-composer-card]')));
+    const clear = (body) => /background: transparent !important/.test(body)
+      && /(?:^|[;\s])backdrop-filter: none !important/.test(body)
+      && /-webkit-backdrop-filter: none !important/.test(body)
+      && !/(?:^|[;\s])opacity\s*:/.test(body);
+    check('F2d2 reasoning and both file-card roots have no tint or backdrop blur',
+      ['[data-vcp-reasoning]', '[data-changed-files]', '[data-presented-file]']
+        .every((anchor) => normal.some((r) => r.header.includes(anchor) && clear(r.body))));
+    // ⚠️ v1.3.0 追版（本仓「思考触发条」面与上游 #134 的收敛口径）：`[data-turn-trigger]` **刻意
+    //   不在上面那一组** —— 上游原稿把思考触发条与推理面一起做成"清底 + 无霜"，本仓把它做成
+    //   "吃玻璃、可独立配置"的面（接管宿主专属令牌 `--dsw-alias-turn-trigger-bg` / `-hover`
+    //   + 在锚点元素上挂模糊载体），门与那一组**相同**（`data-we-thinking-glass`，默认关）。
+    //   两头都钉：① 它不得落进"清底 + 无霜"那组（否则我们的玻璃整组被 !important 压掉）；
+    //   ② 它必须真的接了玻璃（令牌 + 模糊），而不是"摘出清底组之后什么都不剩"。
+    check('F2d2b 思考触发条刻意不在清底组，且真的接了玻璃（令牌 + 模糊载体，门同为 thinking-glass）',
+      !normal.some((r) => r.header.includes('[data-turn-trigger]') && clear(r.body))
+      && normal.some((r) => r.header.includes('[data-we-thinking-glass]')
+        && r.header.includes('[data-turn-trigger]')
+        && /var\(--we-thinking-trigger-blur/.test(r.body)
+        && /backdrop-filter: blur\(/.test(r.body))
+      && normal.some((r) => r.header.includes('[data-we-thinking-glass]')
+        && /--dsw-alias-turn-trigger-bg:/.test(r.body)
+        && /var\(--we-thinking-trigger-alpha/.test(r.body)));
+    check('negative control: a tinted reasoning/file bar is not fully transparent',
+      !clear('background: rgba(28, 28, 28, 0.19) !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important;'));
+    const chip = normal.find((r) => r.header.includes('[data-chat-flow] :not(pre) > code')
+      && r.header.includes('[data-vcp-rawhtml] :not(pre) > code'));
+    check('F2d3 inline capsules restore ten-percent white mist and independent 8px frost',
+      normal.some((r) => r.header === 'body[data-we-wallpaper][data-we-thinking-glass]'
+        && declValue(r.body, '--dsw-alias-markdown-inline-code') === 'var(--we-capsule-glass-fill)')
+      && normal.some((r) => r.header === 'body[data-we-wallpaper]'
+        && declValue(r.body, '--we-capsule-glass-fill') === 'rgba(var(--we-capsule-tint-rgb, 255, 255, 255), var(--we-inline-code-alpha, 0.10))')
+      && !!chip && /background: var\(--dsw-alias-markdown-inline-code\) !important/.test(chip.body)
+      && declValue(chip.body, 'backdrop-filter') === 'blur(var(--we-inline-code-blur, 8px)) saturate(var(--we-saturate, 1.3)) brightness(var(--we-glass-brightness, 1.04))'
+      && declValue(chip.body, '-webkit-backdrop-filter') === declValue(chip.body, 'backdrop-filter')
+      && declValue(chip.body, 'background-image') === 'none !important'
+      && declValue(chip.body, 'border-color') === 'rgba(255, 255, 255, 0.14) !important'
+      && !/(?:^|[;\s])(?:color|filter|opacity)\s*:/.test(chip.body));
+    const tools = normal.find((r) => declValue(r.body, 'background-color') === 'var(--we-tool-glass-fill) !important');
+    const toolScope = (header) => header.split(',').every((selector) =>
+      selector.includes('[data-we-wallpaper][data-we-thinking-glass]') && selector.includes('[data-chat-flow]')
+      && (selector.includes('[data-slot="tool.call.toolview"]') || selector.includes('[data-chat-flow-kind="context"]')));
+    check('F2d4 all seven tool result bodies are scoped to their chat slots and gates',
+      !!tools && tools.header.split(',').length === 7 && toolScope(tools.header)
+      && ['[data-context-injection-body]', '[data-terminal]', '[data-read]', '[data-search="matches"]',
+        '[data-variant="others"]', '[data-search="paths"]', '[data-diff]'].every((a) => tools.header.includes(a)));
+    check('F2d4b generic IO glass covers the others family in normal and fallback modes',
+      all.filter((r) => r.header.includes('[class*="_ioCard"]')).length === 2
+      && all.filter((r) => r.header.includes('[class*="_ioCard"]'))
+        .every((r) => r.header.includes('[data-variant="others"]') && !r.header.includes('[data-tool="tool_call"]')));
+    check('negative control: tool glass without its chat-slot boundary is rejected',
+      !!tools && !toolScope(tools.header.replaceAll('[data-slot="tool.call.toolview"]', '')));
+    check('F2d5 tool bodies retain theme tint, add six opacity points and clear nested canvases',
+      ['light', 'dark'].every((theme) => normal.some((r) =>
+        new RegExp('--we-tool-glass-fill: rgba\\(var\\(--we-surface-tint-rgb-' + theme + ',').test(r.body)
+        && /calc\(var\(--we-glass-alpha, 0\.15\) \+ 0\.06\)/.test(r.body)))
+      && !!tools && declValue(tools.body, '--dsw-alias-markdown-code-block') === 'transparent'
+      && declValue(tools.body, '--dsw-alias-markdown-code-block-banner') === 'transparent'
+      && declValue(tools.body, '--dsl-code-block-background') === 'transparent'
+      && !/(?:^|[;\s])(?:color|filter|opacity)\s*:/.test(tools.body));
+    const fences = all.filter((r) => r.header.includes('.md-code-block') || r.header.includes(':has(> pre > code)'));
+    const gated = (h) => h.split(',').every((s) => s.includes('[data-we-wallpaper]') && s.includes('[data-we-thinking-glass]'));
+    check('F2e fence rules are opt-in and message-scoped',
+      fences.length >= 5 && fences.every((r) => gated(r.header))
+      && fences.every((r) => r.header.includes('[data-chat-flow]') || r.header.includes('[data-vcp-rawhtml]')));
+    check('negative control: unguarded fence rules are rejected',
+      !!fences[0] && !gated(fences[0].header.replaceAll('[data-we-thinking-glass]', '')));
+    const native = normal.filter((r) => r.header.includes('.md-code-block') && !r.header.includes('> pre {'));
+    check('F2f native Shiki foregrounds remain untouched; inner canvas is transparent',
+      native.every((r) => !/(?:^|[;\s])(?:color|filter|opacity|mix-blend-mode)\s*:/.test(r.body))
+      && normal.some((r) => r.header.includes('.md-code-block pre')
+        && /background: transparent !important/.test(r.body) && /backdrop-filter: none !important/.test(r.body))
+      && normal.some((r) => r.header.includes('[data-vcp-reasoning-body]')
+        && /background: transparent !important/.test(r.body) && /backdrop-filter: none !important/.test(r.body)));
+    check('F2g VCP plain code follows theme foreground; 92% plate is fallback-only',
+      normal.some((r) => r.header.includes('[data-vcp-rawhtml]') && r.header.endsWith('> pre')
+        && /color: var\(--dsw-alias-label-primary\) !important/.test(r.body))
+      && all.some((r) => r.header.includes('data-we-glass-fallback')
+        && /--we-chat-glass-fill: color-mix\(in srgb, var\(--we-readability-base\) 92%, transparent\)/.test(r.body)));
+  }
 
   // 负对照（DEV-GUIDE §4.7 约定 5：变异输入必须喂进**同一条判据**）：把一条真实声明改坏
   // （把下限那一项换成玻璃色）后，`hasVeil` 必须判不合格 —— 否则 F2a 可能是空转的
@@ -647,6 +777,73 @@ function main() {
       opens === closes && pos === 'fixed' && Number(z) < 0,
       'comments ' + opens + '/' + closes + ' · .we-layer position=' + JSON.stringify(pos)
         + ' z-index=' + JSON.stringify(z));
+  }
+
+  // ── F7: 侧栏全透明（issue #137）—— 放弃地板的显式开关链路（默认关）──────
+  // 与上面所有判据互为反向：F1–F5/C* 钉"地板在"，F7 钉"地板只能被这个开关
+  //（且仅在壁纸下、仅侧栏子树）拿掉"。全部从**产物**取（schema/glass/effects/
+  // panel 都内联在 lib/client.js 里），不重打字。
+  {
+    const clean = CSS.replace(/\/\*[\s\S]*?\*\//g, '');
+    const allRules = [...clean.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .map((m) => ({ header: m[1].trim().replace(/\s+/g, ' '), body: m[2] }));
+    const fcRules = allRules.filter((r) => r.header.includes('data-we-sidebar-fullclear'));
+    check('F7a 全透明规则组在位（≥3 条）且每条都带壁纸门（无壁纸时不生效）',
+      fcRules.length >= 3 && fcRules.every((r) => r.header.includes('data-we-wallpaper')),
+      fcRules.length + ' 条 · 缺壁纸门 ' + fcRules.filter((r) => !r.header.includes('data-we-wallpaper')).length);
+    // 容器覆盖：六变量归零（地板 / 色染 / 釉光三组）—— 面板 color-mix 与渐变靠它透掉。
+    const container = fcRules.find((r) => r.header.includes('[data-dsh-better-sidebar]'));
+    const ZEROS = ['--we-readability-floor: 0', '--we-sidebar-tint: 0%',
+      '--we-sidebar-color: transparent', '--we-sidebar-sheen: 0',
+      '--we-sidebar-sheen-a: 0', '--we-sidebar-sheen-b: 0', '--we-sidebar-sheen-c: 0'];
+    check('F7b 容器覆盖规则把地板/色染/釉光六个变量归零',
+      !!container && ZEROS.every((z) => container.body.includes(z)),
+      container ? ZEROS.filter((z) => !container.body.includes(z)).join(' | ') || '六项齐' : '规则缺失');
+    // 显式接管：右栏那条必须是**画底色**的规则（容器覆盖那条也含 panel 选择器但只写变量）。
+    const rp = fcRules.find((r) => r.header.includes('[data-sidebar-right-panel]')
+      && r.body.includes('background-color'));
+    check('F7c 右栏显式接管：展开态门 + 透明 !important + 釉光关掉',
+      !!rp && rp.header.includes('[data-sidebar-right-open]')
+      && rp.body.includes('background-color: transparent !important')
+      && rp.body.includes('background-image: none !important'),
+      rp ? rp.header.slice(0, 100) : '规则缺失');
+    // 左栏：一条规则两个选择器（浅 + 深）—— 按**选择器**数，不按规则条数。
+    const leftRule = fcRules.find((r) => r.header.includes('data-we-left-sidebar'));
+    const leftSels = leftRule ? leftRule.header.split(',').filter((h) => h.includes('data-we-left-sidebar')) : [];
+    check('F7d 左栏显式接管：浅深两个选择器都在（深色带 data-ds-dark-theme 提权压软件渲染兜底）',
+      leftSels.length === 2 && leftSels.some((h) => h.includes('data-ds-dark-theme'))
+      && leftRule.body.includes('background-color: transparent !important'),
+      '选择器 ' + leftSels.length + ' 个');
+    // 链路：默认关（安全不变量）+ 成对挂摘 + UI 行过 weT。
+    check('F7e 设置键默认关且 kind 为 boolFalse（默认态地板照旧兜底）',
+      /sidebarFullClear:\s*false,/.test(SRC) && /sidebarFullClear:\s*\{\s*kind:\s*'boolFalse'\s*\}/.test(SRC));
+    const sets = (SRC.match(/setAttribute\("data-we-sidebar-fullclear"/g) || []).length;
+    const rems = (SRC.match(/removeAttribute\("data-we-sidebar-fullclear"/g) || []).length;
+    const paired = SRC.includes('else document.body.removeAttribute("data-we-sidebar-fullclear")');
+    check('F7f 门控属性有挂有摘：applyGlass 成对（if/else）+ clearEffects 卸载再摘一次（rem ≥2）',
+      sets >= 1 && paired && rems >= 2, 'set=' + sets + ' rem=' + rems + ' paired=' + paired);
+    check('F7g UI 行存在且文案过 weT（新中文必须进 weT + 词表）',
+      /weT\("侧栏全透明"\)/.test(SRC) && /"侧栏全透明":\s*"/.test(SRC));
+    // 负对照：把上面几条判据各自喂坏输入，必须判出（判据不是恒真）。
+    const gateOk = (r) => r.header.includes('data-we-wallpaper');
+    check('negative control F7-1: 缺壁纸门的全透明规则会被同一条判据判出',
+      !gateOk({ header: 'body[data-we-sidebar-fullclear] [data-dsh-better-sidebar]' })
+      && fcRules.every(gateOk));
+    const defaultOk = (src) => /sidebarFullClear:\s*false,/.test(src)
+      && /sidebarFullClear:\s*\{\s*kind:\s*'boolFalse'\s*\}/.test(src);
+    check('negative control F7-2: 默认 true（地板默认被拿掉）或缺 kind 会被同一条判据判出',
+      !defaultOk('sidebarFullClear: true, sidebarFullClear: { kind: \'boolFalse\' }')
+      && !defaultOk('sidebarFullClear: false,')
+      && defaultOk(SRC));
+    const zerosOk = (body) => ZEROS.every((z) => body.includes(z));
+    check('negative control F7-3: 六变量缺一项会被同一条判据判出',
+      !zerosOk(ZEROS.slice(1).join('; ')) && zerosOk(container ? container.body : ''));
+    const unpairOk = (src) => (src.match(/setAttribute\("data-we-sidebar-fullclear"/g) || []).length >= 1
+      && src.includes('else document.body.removeAttribute("data-we-sidebar-fullclear")')
+      && (src.match(/removeAttribute\("data-we-sidebar-fullclear"/g) || []).length >= 2;
+    check('negative control F7-4: 只挂不摘（漏 clearEffects 那次）会被同一条判据判出',
+      !unpairOk('setAttribute("data-we-sidebar-fullclear","on"); else document.body.removeAttribute("data-we-sidebar-fullclear")')
+      && unpairOk(SRC));
   }
 
   const failed = results.filter((r) => !r.ok);

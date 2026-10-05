@@ -103,18 +103,26 @@ const SURFACES = [
     anchors: ['[data-turn-trigger]'], tier: 'private',
     why: '宿主把它画成不透明代码块底色（锚点已核实：DSH 的 TurnTriggerNodeView 渲染 `section[data-turn-trigger]`，'
       + '且给它**专属底色令牌** `--dsw-alias-turn-trigger-bg` / `-hover`）。本仓的接法 = **接管那两个令牌**'
-      + '（含 hover 档）+ 在锚点元素上加模糊载体，见 styles.js 会话族那一节。'
+      + '（含 hover 档）+ 在锚点元素上加模糊载体，见 styles.js「思考触发条」那一节。'
       + '⚠️ 它现在是**可独立配置的面**：「思考触发条玻璃·独立配置」（注册表 id `thinkingTrigger`，'
-      + '参数 transparency / blur）⇒ `glass.js` 写 `--we-thinking-trigger-blur` / `-alpha` 两个私有变量 ⇒ 档位 private。',
+      + '参数 transparency / blur）⇒ `glass.js` 写 `--we-thinking-trigger-blur` / `-alpha` 两个私有变量 ⇒ 档位 private。'
+      + '⚠️ v1.3.0 追版收敛（本面**兑现了上游登记的 pending 面**）：上游 #134 给同一锚点的口径是'
+      + '「与推理面一起清底 + 无霜」，门是 `data-we-thinking-glass`（默认关）。本次两条线合并为'
+      + '**共用同一道门、本面从"清底"那一组里摘出来**（它吃玻璃而不是变透明）⇒ 关着开关时本面的'
+      + '令牌接管与模糊都不生效（= 逐字节现状），开着时才吃玻璃。面板行也随之只在开关打开时渲染。',
   },
   {
-    id: 'left-sidebar-override', label: '左侧栏覆盖',
+    id: 'left-sidebar-override', label: '左侧栏液态玻璃',
     anchors: ['[data-slot="sidebar"]'], tier: 'private',
     // W3 起它接了自己的按面变量（`--we-left-sidebar-blur` / `-alpha`，CSS 读
     // `var(--we-left-sidebar-<x>, <全局>)`）⇒ 档位 private 并登记进 PRIVATE_VARS
     // （⚠️ 原先标 `global` 是过期的：那两个前缀在产物 CSS 里各有 2 处 var() 消费）。
-    // ⚠️ 它的门控是**两个**：`leftSidebarGlass`（「左侧栏覆盖」本身）**且**
-    //    `glassMode.leftSidebar === 'custom'`（耦合在它下面的那个独立配置开关）。
+    // ⚠️ 标签在 v1.3.0 追版时随上游改名（「左侧栏覆盖」→「左侧栏液态玻璃」，4eafb04）——
+    //    它管的是**宿主原生左栏**，与 dsh-better-sidebar 那套「侧栏液态玻璃」分工不同
+    //    （见 schema 里 leftSidebarGlass 的注释）。
+    // ⚠️ 它的门控是**两个**：`leftSidebarGlass`（「左侧栏液态玻璃」本身）**且**
+    //    `glassMode.leftSidebar === 'custom'`（耦合在它下面的那个独立配置开关；
+    //    布尔表 `glassIndependent` 已在 v3 迁移里改名改形为 `glassMode`）。
     why: '乙类（背景还原）：它的"关"是恢复**背景**而不是恢复纯色，与其余"启用玻璃"方向相反，'
       + '因此不进「启用玻璃」系列 UI —— 见归档的 wip 文档 §2。W3 起模糊 / 透明度可逐面独立。',
   },
@@ -144,6 +152,19 @@ const SURFACES = [
   {
     id: 'plugin-floaters', label: '插件自身浮层（更新提示 / 壁纸仓库抽屉）',
     anchors: ['.we-update-notice', '.we-repo-panel--open'], tier: 'global',
+  },
+  {
+    id: 'thinking-glass', label: '思考块液态玻璃（VCP 推理面）',
+    // ⚠️ 合并 #134（扩展思考玻璃）：新增一批只在 `[data-we-thinking-glass]` 下生效的宿主锚点
+    //（思考区/文件卡/工具结果/代码块/导航按钮…）—— 全部归本面认领；锚点清单取自
+    // 合并后物化 CSS 的枚举输出（认领判据会双向核对）。
+    anchors: ['[data-vcp-reasoning]', '[data-vcp-reasoning-body]', '[data-changed-files]', '[data-presented-file]', '[data-chat-flow]', '[data-chat-flow-kind="context"]', '[data-vcp-rawhtml]', '[data-code-block-banner]', '[data-context-injection-body]', '[data-diff]', '[data-dsh-navbar]', '[data-vlln-load-older]', '[data-vlln-preview]', '[data-read]', '[data-terminal]', '[data-sample="bash"]', '[data-search="matches"]', '[data-search="paths"]', '[data-slot="conversation.view"]', '[data-slot="tool.call.toolview"]', '[data-tool="glob"]', '[data-tool="grep"]', '[data-tool="read"]', '[data-tool="write"]', '[data-variant="others"]'], tier: 'global',
+    // PR #130 的面：门是 `data-we-thinking-glass`（默认关）。⚠️ v1.3.0 追版收敛后它**不再**
+    // 认领 `[data-turn-trigger]`（那一条改由上面的 conversation-thinking-trigger 认领 ——
+    // 触发条吃玻璃，本面只管推理区/文件卡/工具结果等的清底与玻璃）。
+    // 它没有按面私有变量 —— 直接吃全局釉层变量 ⇒ tier global，不进 ④ 组接线对账。
+    why: '思考触发条 / 推理面的玻璃化（默认关，保持黑底可读性）；合并 #132 时随登记表'
+      + ' 补入，因为它的两个 vcp 锚点在 CSS 里已被玻璃声明引用而无人认领。',
   },
 ];
 
@@ -808,7 +829,18 @@ console.log('\n⑥ settings golden 夹具的键集快照（新增键必须逐用
   //    **排除是安全的**：本判据要抓的漂移是"schema 新增键没补进夹具"，
   //    而新增键一定**不在**这个已知可变集里；这两个键自身的**值**另有 `verify-client`
   //    的逐用例值比对管着。
-  const CASE_VARIANT_KEYS = new Set(['rotationInterval', 'sceneFrameUrl']);
+  //    同理（合并 #132 时实测补入）：`componentFonts` / `fontAdvanced` / `fontSetOpen` /
+  //    `themeColors` / `themeDarkSeparate` / `themeFamily` / `themeSize` / `themeTypeOnly` /
+  //    `themeWeight` 这 9 个键只在**非对象输入**那三个用例的 client 侧出现 —— 运行时
+  //    `sanitizeFromSchema(null,'client')` 返回未过白名单的 DEFAULTS_ONLY 全集（81 键），
+  //    而对象输入走白名单过滤（70 键）⇒ 逐用例可变是**运行时事实**，不是漏补。
+  const CASE_VARIANT_KEYS = new Set([
+    'rotationInterval', 'sceneFrameUrl',
+    'componentFonts', 'fontAdvanced', 'fontSetOpen',
+    'themeColors', 'themeDarkSeparate', 'themeFamily', 'themeSize', 'themeTypeOnly', 'themeWeight',
+    // WIP 的 `globalFamily`（familyKey）同属 FONTSET_KEYS ⇒ 只在 DEFAULTS_ONLY 回落里现身。
+    'globalFamily',
+  ]);
 
   /** 判据：给定一个期望对象与快照，报出缺键 / 多键（忽略逐用例可变键）。纯函数。 */
   const keyGaps = (obj, want) => {
@@ -1214,7 +1246,10 @@ console.log('\n⑨ W5：各面的锚点门控覆盖率（防"关掉后还剩一�
     { id: 'settings-window', member: /\[data-slot="settings\.section"\]/, anchor: /data-we-glass-window/, done: true },
     { id: 'left-sidebar-override', member: /:has\(> \[data-slot="sidebar"\]\)/, anchor: /data-we-left-sidebar/, done: true },
     // W5 推广（本轮）：对话栏三条主规则已加 `[data-we-glass-chat]` 锚点。
-    { id: 'glass-child-conversation', member: /data-(composer-card|question-key|plan-review-key|approval-key)|_bubble/, anchor: /data-we-glass-fallback|data-we-glass-chat/, done: true },
+    // ⚠️ 合并 #134：思考玻璃一族在对话面新增了「+」白釉 / 气泡清底等规则，它们的门是
+    //    `data-we-thinking-glass`（默认关）—— 与 chat 门同样满足"关 ⇒ 整组不生效"，
+    //    并入本面的合法锚点集合（回退干净的性质不变）。
+    { id: 'glass-child-conversation', member: /data-(composer-card|question-key|plan-review-key|approval-key)|_bubble/, anchor: /data-we-glass-fallback|data-we-glass-chat|data-we-thinking-glass/, done: true },
     { id: 'plugin-floaters', member: /\.we-(update-notice|repo-panel)/, anchor: /data-we-glass-floaters|data-we-glass-fallback/, done: true },
   ];
 
@@ -1573,10 +1608,10 @@ console.log('\n⑫ 语义表（执行型 · 扰动自证：跟随全局 / 独立
   // 门控属性（wip §10.20 之后分**两类**）：
   //   · **恒挂**（"要不要玻璃"那一层已退役）：设置窗口 / 对话栏 / 插件浮层 —— 任何输入下都必须在，
   //     而且源码里**不许**再有摘除分支（那条路正是被删掉的）。
-  //   · **仍可切**：左侧栏覆盖 / 侧栏液态玻璃 —— 它们各有自己的总开关，开 ⇒ 挂、关 ⇒ 摘。
+  //   · **仍可切**：左侧栏液态玻璃 / 侧栏液态玻璃 —— 它们各有自己的总开关，开 ⇒ 挂、关 ⇒ 摘。
   const CONST_GATES = ['data-we-glass-window', 'data-we-glass-chat', 'data-we-glass-floaters'];
   const SWITCH_GATES = [
-    { gate: 'data-we-left-sidebar', on: { leftSidebarGlass: true }, off: { leftSidebarGlass: false }, label: '左侧栏覆盖' },
+    { gate: 'data-we-left-sidebar', on: { leftSidebarGlass: true }, off: { leftSidebarGlass: false }, label: '左侧栏液态玻璃' },
     { gate: 'data-we-sidebar-glass', on: { sidebarGlass: true }, off: { sidebarGlass: false }, label: '侧栏液态玻璃' },
   ];
   const gateBad = [];
@@ -1848,6 +1883,43 @@ console.log('\n⑭ 三方对账：写出的变量必须有人读（R4 死码清�
   check('negative control: 合成一个只写不读的变量会被同一条判据判出（写且读的不算）',
     dead(new Set(['--we-a', '--we-b']), new Set(['--we-b'])).join() === '--we-a'
       && dead(new Set(['--we-a']), new Set(['--we-a'])).length === 0);
+}
+
+// ═══ ⑪ 思考玻璃门**不碰输入框**（2026-10-04 用户口径）══════════════════════════
+// 口径：思考块液态玻璃开关开着时，输入框（[data-composer-card] 一族，含它内部的
+// 「+」按钮 [class*="_add"]）必须与开关关着时**逐位相同** —— 输入框只受基础对话栏
+// 玻璃（data-we-glass-chat 恒挂层）与「对话框玻璃·独立配置」管。
+// 历史：#134 原稿给输入卡也铺了 fill 接管与「+」白釉（连同 --dsw-specific-selector
+// 令牌改写），审计时补了门；2026-10-04 用户实测口径 = 整族退出，规则已删。
+// 这条判据防的是"哪次改动又把输入框塞回思考玻璃门下"——选择器文本级负向棘轮。
+console.log('\n⑪ 思考玻璃门不碰输入框（用户口径 2026-10-04）');
+{
+  const stylesSrc = readFileSync(join(ROOT, 'src', 'styles.js'), 'utf8');
+  // 剥 CSS 块注释后再逐条规则解析：注释里可以提 data-we-thinking-glass / 输入框
+  //（记录口径的注释必须能写这些词），判据只看**真规则**。
+  const css = stylesSrc.replace(/\/\*[\s\S]*?\*\//g, '');
+  const ruleRe = /([^{}]*data-we-thinking-glass\][^{}]*)\{([^{}]*)\}/g;
+  const bad = [];
+  let tokenWrites = 0;
+  let rules = 0;
+  let m;
+  while ((m = ruleRe.exec(css))) {
+    rules++;
+    if (/data-composer-card|_add\b/.test(m[1])) bad.push(m[1].trim().slice(-90));
+    if (/--dsw-specific-selector\s*:/.test(m[2])) tokenWrites++;
+  }
+  check('挂门规则解析出足够的条数（判据不空转）', rules >= 8, rules + ' 条');
+  check('data-we-thinking-glass 门下的规则不出现 data-composer-card / _add',
+    bad.length === 0, bad.length ? bad.join(' | ') : '零命中');
+  check('思考玻璃门下不再改写 --dsw-specific-selector（「+」令牌回归宿主；'
+    + '无模糊回退路径的降级改写不属于本门，不受本判据管）', tokenWrites === 0,
+    tokenWrites + ' 处');
+  check('negative control: 合成一条挂门的输入卡规则会被同一条判据判出',
+    (() => {
+      const synth = 'body[data-we-wallpaper][data-we-thinking-glass] [data-composer-card] { color: red }';
+      const mm = /([^{}]*data-we-thinking-glass\][^{}]*)\{([^{}]*)\}/.exec(synth);
+      return Boolean(mm) && /data-composer-card/.test(mm[1]);
+    })());
 }
 
 console.log('');

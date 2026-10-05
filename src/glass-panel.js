@@ -28,26 +28,168 @@
  *    实测那个"关"并**不能**如愿恢复原生黑/白纯色（那些面上还有一批不挂门控的令牌改写），
  *    而要做到"关得像样"得连令牌层一起回退 ⇒ 整层退役（见 `src/glass.js` 的退役说明）。
  *    所以这里剩下的**唯一**问题就是"读自己 还是 跟全局"。
- * ⚠️ 「左侧栏覆盖」**不在**本节的子项里：它的"关"是**恢复背景**（那列回到壁纸原样），
+ * ⚠️ 「左侧栏液态玻璃」**不在**本节的子项里：它的"关"是**恢复背景**（那列回到壁纸原样），
  *    语义不同 —— 它是乙类，独立成项留在「细节」，本节的 `panelOff` 过滤就是为它。
  */
+/**
+ * 「预设方案」块（玻璃节顶部的第一行，先于全局四件套）。
+ *
+ * 为什么放在最顶上：这一节的调节粒度太细（全局四件套 + 每面独立配置 + 侧栏族），
+ * 预设是"不想逐项调"的用户的主路 —— 进门第一眼就该是它。它与下面的旋钮**读写同一批键**：
+ * 应用 = 整快照合并（键集见 `GLASS_PRESET_KEYS`），应用完下面所有滑块跟着变（同一 selection）。
+ *
+ * 形态纪律（承 fontset-editor.js，均有守卫）：
+ *   · **出厂预设的名字走词表**（`FACTORY_PRESET_CN` 就地包 weT ⇒ 文本扫描看得见），
+ *     用户预设显示原名 —— 随包文件里的 name 是数据，扫描看不见，所以映射表必须是字面量；
+ *   · **破坏性动作两步确认**且不用原生对话框（复用 client.js 的 armConfirm / renderConfirmRow）；
+ *   · **出厂预设的删除 = 永久删除**（两步确认点明不可恢复；宿主落墓碑遮蔽，无恢复通道）；
+ *   · **读不懂的预设禁用**但保留删除（删掉坏文件是唯一出路）；
+ *   · 失败态给**可判定原因**（selection.glassPresetError，宿主原话 + weT 查英文表）。
+ * 本渲染器**只画**：网络与状态全部经 ctx（store 在 src/preset-store.js，接线在 client.js 的
+ * glassPresetCtx）。
+ */
+function renderGlassPresetsBlock(gp) {
+  const {
+    presets, loading, error, saving, draftName, armedId,
+    onApply, onOpenSave, onDraftName, onSaveCommit, onCancelSave,
+    onArmDelete, onDisarm, onDelete,
+  } = gp || {};
+  if (!presets) return null; // ctx 缺席时不画（渲染器不抛，也不画半个块）
+  const rows = Array.isArray(presets) ? presets : [];
+  // 出厂预设名字的词表：**就地包 weT**（渲染函数内，理由见本文件 CHILD_CN 同款注释 ——
+  // i18n 判据是文本扫描，只认 weT("…") 字面量；数据里的名字扫描看不见）。
+  // 两侧靠 id 对齐；漏了的出厂 id 回落显示文件里的原名（渐进式，不炸）。
+  const FACTORY_PRESET_CN = {
+    "factory-default": weT("出厂默认"),
+    "factory-clear": weT("清透速览"),
+    "factory-frosted": weT("重磨砂"),
+    "factory-night": weT("暗夜釉色"),
+    "factory-vivid": weT("原色直出"),
+    "factory-readable": weT("可读优先"),
+    "factory-author": weT("作者自用"),
+  };
+  const labelOf = (row) => (row.origin === "builtin" && FACTORY_PRESET_CN[row.id])
+    ? FACTORY_PRESET_CN[row.id]
+    : (row.name || row.id);
+  // 两行四列的圆角表格（2026-10-04 用户口径）：每格 = 预设名（点击应用，占满）
+  // + 右侧固定删除键；不足 8 个的格子画虚框空位 —— 上限 8 直接看得见。
+  // ⚠️ armedId 是 **裸 id**（armedIdOf("gpreset") 已把族前缀剥掉，与 fontset-editor
+  //    同一口径）—— 拿它和带前缀的令牌串比较永远不等 ⇒ 确认行永远不渲染
+  //    （2026-10-04 实测："点删除没反应"就是这个）。行为守卫：verify-presets ④。
+  const cells = [];
+  for (let i = 0; i < 8; i++) {
+    const row = rows[i];
+    if (!row) {
+      cells.push(React.createElement("div", {
+        key: "empty-" + i, className: "we-picker__preset-cell we-picker__preset-cell--empty",
+      }, React.createElement("span", { className: "we-picker__hint" }, weT("空预设位"))));
+      continue;
+    }
+    const broken = typeof row.broken === "string" && row.broken;
+    const isUser = row.origin === "user";
+    const armed = armedId === row.id;
+    cells.push(React.createElement("div", {
+      key: row.id,
+      className: "we-picker__preset-cell" + (armed ? " we-picker__preset-cell--armed" : ""),
+    },
+      React.createElement("button", {
+        className: "we-picker__btn", type: "button",
+        disabled: Boolean(broken) || loading === true,
+        title: broken
+          ? weT("这份预设读不出来：{reason}", { reason: broken })
+          : weT("应用「{name}」：整组玻璃观感立即生效，之后可以继续微调", { name: labelOf(row) }),
+        onClick: () => onApply(row.id),
+      }, labelOf(row)),
+      // ⚠️ 删除键对**所有格**都有（2026-10-04 用户口径：出厂预设可删，删除即永久、
+      //    不可恢复），统一固定在每格最右侧；文案按 origin 分。
+      React.createElement("button", {
+        className: "we-picker__btn we-picker__preset-del", type: "button",
+        disabled: loading === true,
+        title: armed
+          ? weT("已经问过你了 —— 在下面那一行选「确认」或「取消」")
+          : (isUser
+            ? weT("删除这个预设（会再问一次）")
+            : weT("删除这个出厂预设（不可恢复）")),
+        onClick: () => { if (!armed) onArmDelete(row.id); },
+      }, "×"),
+    ));
+  }
+  const chipRow = React.createElement("div", { className: "we-picker__preset-grid", key: "gp-grid" }, cells);
+  // 「保存当前为预设」：网格下方的独立行（不在格子里 —— 格子属于预设本身）；
+  // 满 8 个禁用并指路（删除腾位）。
+  const openSaveRow = saving
+    ? null
+    : React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap", key: "gp-save-open" },
+      React.createElement("button", {
+        className: "we-picker__btn", type: "button",
+        disabled: loading === true || rows.length >= 8,
+        title: rows.length >= 8
+          ? weT("已达预设上限（8 个）—— 删除不需要的预设后再存")
+          : weT("把当前这套玻璃观感存成一份你自己的预设（之后从预设行一键取回）"),
+        onClick: () => onOpenSave(),
+      }, weT("保存当前为预设…")));
+  // 删除的两步确认行（令牌族 "gpreset:"；`!token` 退化不渲染 —— renderConfirmRow 的不变量）。
+  const armedRow = armedId ? rows.find((r) => r.id === armedId) : null;
+  const armedQuestion = armedRow && (armedRow.origin === "user"
+    ? weT("删除预设「{name}」？此操作不可恢复。", { name: labelOf(armedRow) })
+    : weT("删除出厂预设「{name}」？此操作不可恢复。", { name: labelOf(armedRow) }));
+  const confirmRow = armedRow && !armedRow.broken
+    ? renderConfirmRow(armedId, armedId, armedQuestion, () => onDelete(armedRow.id), () => onDisarm())
+    : null;
+  // 保存输入行：名字 + 保存/取消。与 fontset 改名行同形（Enter 提交）。
+  const saveRow = saving
+    ? React.createElement("div", { className: "we-picker__ctl", key: "gp-save" },
+      React.createElement("input", {
+        className: "we-picker__file", type: "text", value: draftName || "",
+        placeholder: weT("预设名字，回车保存"),
+        onChange: (e) => onDraftName(e.target.value),
+        onKeyDown: (e) => { if (e && e.key === "Enter") onSaveCommit(); },
+      }),
+      React.createElement("button", {
+        className: "we-picker__btn", type: "button", disabled: loading === true,
+        onClick: () => onSaveCommit(),
+      }, weT("保存")),
+      React.createElement("button", {
+        className: "we-picker__btn", type: "button", onClick: () => onCancelSave(),
+      }, weT("取消")),
+    )
+    : null;
+  return React.createElement(React.Fragment, null,
+    React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
+      ctlText(weT("预设方案"), weT("一键套用一整组玻璃观感（出厂七套 + 你自己存的，上限 8 个），应用后可继续微调")),
+    ),
+    loading ? React.createElement("div", { className: "we-picker__hint" }, weT("正在处理…")) : null,
+    // ⚠️ reason 必须再过一次 weT：它可能来自宿主回包（lib/routes/presets.js 的中文 error），
+    //    原样塞进去会让英文界面露出中文 —— 与 fontset-editor 的 error 行同款纪律。
+    error ? React.createElement("div", { className: "we-picker__hint" }, weT("预设不可用：{reason}", { reason: weT(error) })) : null,
+    rows.length === 0 && !loading
+      ? React.createElement("div", { className: "we-picker__hint" }, weT("还没有任何预设 —— 出厂那几套加载失败或宿主未重挂。"))
+      : null,
+    chipRow,
+    confirmRow,
+    openSaveRow,
+    saveRow,
+  );
+}
+
 function renderAppearanceGlassSection(ctx) {
   const {
     onBlur, onGlassAlpha, onGlassChildParam, onGlassColor, onGlassFidelity,
-    onToggleChildIndependent, childIndependentOn, sel, surface,
+    onToggleChildIndependent, childIndependentOn, sel,
+    onCapsuleBlur, onCapsuleColor,
     onLeftSidebarGlass, onSidebarAlpha, onSidebarBlur, onSidebarColor,
     onSidebarContentAlpha, onSidebarContentColor, onSidebarGlass,
+    onSidebarFollowGlobal, onSidebarFullClear,
+    onThinkingGlass,
   } = ctx;
-  // ⚠️ **简化配置 vs 复杂配置的边界**（wip §3.4 的用户口径 + 本节 §10.22）：
-  //   · **简化配置**（侧边栏那一档）= 全局四件套（颜色 / 透明度 / 雾化 / 保真度）；
-  //   · **复杂配置**（设置菜单那一档）= 上述 + **每个子面的「独立配置」层**。
-  // 判据是"这一层进不进简化配置"，不是"哪一档更好用"：独立配置是**逐面覆盖全局**的高级动作，
-  // 只有设置菜单里才该出现。实测它曾同时出现在两档（用户实测：侧边栏里也有那三个开关）——
-  // 那会让"简化配置"悄悄长出四个高级旋钮，与规划不符。
-  const sidebarSurface = surface === "sidebar";
+  // ⚠️ **两档同内容**（用户口径 2026-10-03，推翻原 §10.22 的"简化配置不进侧栏"边界）：
+  //   侧栏「外观」页与设置页「外观」页**完全同内容** —— 本节所有行（含每个子面的
+  //   「独立配置」层、思考块开关、侧栏族与跟随全局）两档都画；唯一的例外是「全局字体」
+  //   节（用户口径：不进侧栏），那道门留在 panel-tabs，与 quick-panel 的字体占位器
+  //   互为负对照。本节仅存的 surface 差异：无（`surface` 已不再被本渲染器读取）。
   const children = ((typeof GLASS_CHILDREN !== "undefined" && GLASS_CHILDREN) || [])
     // ⚠️ 排除 `panelOff` 的子项：乙类（左侧栏）**不进这一层** ——
-    //    它已有自己的总开关「左侧栏覆盖」，而它的"独立配置"耦合在那一项下面
+    //    它已有自己的总开关「左侧栏液态玻璃」，而它的"独立配置"耦合在那一项下面
     //    （见本文件「细节」节）。它留在登记表里只为生成 schema 键。
     .filter((c) => !c.panelOff);
   // i18n 词表：**就地包 weT(...)** —— 不能用 `weT(cn.label)` 那种属性访问。
@@ -86,6 +228,8 @@ function renderAppearanceGlassSection(ctx) {
     // ⚠️ 这一面只登记了 `transparency` / `blur` 两个参数（无 color / fidelity：共享面纱
     //    ⇒ 保真度不可达；本面 CSS 也不消费颜色）⇒ 标签只给**真正会渲染**的那几个，
     //    不留"参数不存在却有一份翻译"的死文案（R3a 的同一口径）。
+    // ⚠️ 它还挂在 `thinkingGlass` 门下（登记表的 `master`）⇒ 开关关着时这几条文案根本不渲染
+    //    （那正是"门关着 ⇒ 本面不生效"的如实反映）。
     thinkingTrigger: {
       hint: weT("对话里「思考过程」那一行的入口条"),
       indep: weT("思考触发条玻璃·独立配置"),
@@ -103,6 +247,10 @@ function renderAppearanceGlassSection(ctx) {
     const cn = CHILD_CN[c.id];
     // 登记表与词表必须一一对应：漏一个就整项无标签（比 ReferenceError 更隐蔽）。
     if (!cn) { childRows.push(React.createElement("div", { className: "we-picker__hint", key: "gc-missing-" + c.id }, weT("内部错误：这个子界面缺少文案"))); continue; }
+    // ⚠️ `master`：这一面挂在某个**总开关**门下（登记表里声明，如 `thinkingTrigger` → `thinkingGlass`）。
+    //    开关关着时它一行都不画 —— 画了就是"画出来又不生效的旋钮"：那种状态下它的 CSS 整组不匹配
+    //    （令牌不被接管、模糊不挂），滑杆拖了没有任何变化（同一条纪律见本函数上方关于胶囊雾化的注释）。
+    if (c.master && sel[c.master] !== true) continue;
     // 每个子面**直接**一个「独立配置」开关（子面的名字进 `hint`，见词表的 cn.hint）。
     const indep = !!(childIndependentOn && childIndependentOn(c.id));
     childRows.push(switchRow(cn.indep, indep, (e) => onToggleChildIndependent(c.id, e.target.checked), {
@@ -142,6 +290,9 @@ function renderAppearanceGlassSection(ctx) {
     React.createElement("div", { className: "we-picker__section-head" },
       React.createElement("span", { className: "we-picker__section-label" }, weT("玻璃 UI")),
     ),
+    // ── 预设方案（本节第一行，先于一切旋钮）──
+    // ctx 成员由 client.js 的 glassPresetCtx 提供（清单/错误是宿主投影；应用走 settings 通道）。
+    renderGlassPresetsBlock(ctx.glassPresets),
     // ── 全局四件套 ──
     // 玻璃颜色: the settings-window glass BASE tint. Defaults keep the stock
     // look (white light / deep navy dark); picking any preset or a custom
@@ -152,7 +303,7 @@ function renderAppearanceGlassSection(ctx) {
     // 常量材料属性（见 GLASS_SATURATE）。
     // ⚠️ 覆盖面的实测口径（`.test-cache/blur-selectors.mjs` 复算，按规则头归面）：
     //    它喂的 `--we-blur` 被这些面消费 —— 对话栏一族（输入卡片 / 气泡 / 工具弹卡）、
-    //    **左侧栏覆盖**（`data-we-left-sidebar` 那列的 `::before`）、**设置窗口**、
+    //    **左侧栏液态玻璃**（`data-we-left-sidebar` 那列的 `::before`）、**设置窗口**、
     //    插件自身浮层（更新提示 / 仓库面板）。
     //    而**侧栏**（dsh-better-sidebar 与右栏面板）走的是它**自己的** `--we-sidebar-blur`
     //    （由「侧栏模糊」管）—— 那才是唯一不吃本项的面。
@@ -172,24 +323,47 @@ function renderAppearanceGlassSection(ctx) {
     //    入口了 —— 那是两个旋钮控同一件事。现在它**只**由「对话框玻璃·独立配置」下的
     //    「对话框玻璃·玻璃保真度」提供，存储键**复用** `chatGlassFidelity`（D2：不新建
     //    平行键），所以老配置的值不会丢。
+    // 思考块液态玻璃（原「窗口与侧栏」节成员，随 §10.25 并进本节）：默认关 —— 保持宿主
+    // 思考条黑底方便阅读（作者口径）。它与其余面不同：**这是唯一保留的默认关玻璃面开关**，
+    // 因为"关"在这里有明确价值（纯黑底可读性），不是做不到的"回原生"。
+    // ⚠️ 侧栏档不画（与原节同口径：设置档专属）。
+    switchRow(weT("思考块液态玻璃"), sel.thinkingGlass === true, onThinkingGlass, {
+      key: "thinking-glass",
+      hint: weT("思考区与文件卡清底，文字胶囊与七类工具内容玻璃；默认关"),
+      tooltip: weT("打开后，思考区与文件卡底栏百分百透明；文字胶囊、新会话、加载更早历史与回到底部按钮使用10%白色薄雾和胶囊雾化（默认 8px，用下方滑杆调）；上下文注入、运行命令、读取、搜索文件内容、工具调用、查找文件、写入的展开内容使用同款玻璃，底色覆盖度比气泡增加6个百分点。导航与轮次悬浮预览采用工具内容同款玻璃；聊天滚动条使用10%白色薄雾。代码块随玻璃透明度透出壁纸。默认关。"),
+    }),
+    // 胶囊雾化（capsuleBlur，默认 8px）：**只在思考玻璃开着时渲染** —— 消费它的规则
+    // 全部挂在 data-we-thinking-glass 门下，门关着时这个滑杆就是"画出来又不生效的旋钮"
+    //（本仓要防的那类死旋钮，见 glass-panel 文件头 wip §10.12）。
+    sel.thinkingGlass === true && SliderRow(weT("胶囊雾化"), 0, 60, 1,
+      sel.capsuleBlur, onCapsuleBlur, sel.capsuleBlur + "px", "capsule-blur", {
+      tooltip: weT("正文里行内代码胶囊、新会话按钮、导航按钮的模糊半径 —— 越大越像磨砂玻璃。只在这些胶囊吃玻璃（思考块液态玻璃开着）时生效；0 = 关掉雾化。"),
+    }),
+    // 胶囊釉色（capsuleColor，默认白 = 原观感）：与胶囊雾化同族同门。色板行不做
+    // 可读性钳制（10% 雾底不是正文面，理由见 schema 注释）。
+    sel.thinkingGlass === true && swatchRow(weT("胶囊颜色"), GLASS_COLOR_PRESETS,
+      sel.capsuleColor, onCapsuleColor, {
+      key: "capsule-color",
+      tooltip: weT("行内代码胶囊、新会话按钮、导航按钮与聊天滚动条拇指的雾底色相 —— 默认白（原观感）。只在这些胶囊吃玻璃（思考块液态玻璃开着）时生效；浓度档不变（10%）。"),
+    }),
     // ── 既有面的**显示开关**与它们的独立配置（原「窗口与侧栏」/「细节」两节并进本节，§10.25）──
     // ⚠️ 为什么并进来：原先这些控件住在「窗口与侧栏」节，而那节**只在宿主上报
     //    `sidebarPresent`（装了 dsh-better-sidebar）时才画得出内容** —— 没装的机器上它就是一个
-    //    **只有标题的空节**。而「左侧栏覆盖」原先被刻意排除在「玻璃 UI」之外，理由是它与那节的
+    //    **只有标题的空节**。而「左侧栏液态玻璃」原先被刻意排除在「玻璃 UI」之外，理由是它与那节的
     //    "关 = 回原生纯色"（乙类语义）冲突；那一层已在 §10.20 整体退役 ⇒ **冲突消失**，
     //    这些面控件与其余玻璃配置放在一起在语义上更顺（用户口径）。
-    // ⚠️ 门槛一个都没放松：`!sidebarSurface`（独立配置层属复杂配置）与 `sidebarPresent` /
-    //    `sidebarGlass`（宿主能力与总开关）照旧，所以**简化配置那一档的内容与合并前逐行相同**。
-    // 左侧栏覆盖（默认关）：宿主原生左栏在壁纸下只是「透明的洞」，打开后它走同一张配方表。
+    // ⚠️ 门槛只剩宿主能力位：`sidebarPresent` / `sidebarGlass`（装没装 dsh-better-sidebar、
+    //    总开关开没开）—— `!sidebarSurface` 已按 2026-10-03 用户口径拆除（两档同内容）。
+    // 左侧栏液态玻璃（默认关）：宿主原生左栏在壁纸下只是「透明的洞」，打开后它走同一张配方表。
     // ⚠️ 它**不是**"要不要玻璃"那一类：它的「关」是**恢复背景**（那一列回到壁纸原样）——
     //    所以它是唯一保留的**显示开关**（乙类），与其余面"恒吃玻璃"不同。
-    switchRow(weT("左侧栏覆盖"), sel.leftSidebarGlass === true, onLeftSidebarGlass, {
+    switchRow(weT("左侧栏液态玻璃"), sel.leftSidebarGlass === true, onLeftSidebarGlass, {
       key: "left-sidebar-glass",
       hint: weT("左侧栏也跟随玻璃配方（配色 / 玻璃颜色 / 透明度 / 雾化 / 边框）"),
       tooltip: weT("宿主原生左侧栏（会话列表 / 工作区那一列）默认直接透出壁纸、不吃玻璃参数。打开后它变成与其余界面同款的玻璃面板，跟随「配色 / 玻璃颜色 / 玻璃透明度 / 雾化 / 边框」；关闭即恢复原生观感。默认关。"),
     }),
-    // ⚠️ 用户口径：「左侧栏玻璃·独立配置」**与「左侧栏覆盖」耦合** —— 覆盖关着时它不显示。
-    sel.leftSidebarGlass === true && !sidebarSurface && switchRow(weT("左侧栏玻璃·独立配置"),
+    // ⚠️ 用户口径：「左侧栏玻璃·独立配置」**与「左侧栏液态玻璃」耦合** —— 覆盖关着时它不显示。
+    sel.leftSidebarGlass === true && switchRow(weT("左侧栏玻璃·独立配置"),
       !!(childIndependentOn && childIndependentOn("leftSidebar")),
       (e) => onToggleChildIndependent("leftSidebar", e.target.checked), {
       key: "left-sidebar-independent",
@@ -199,7 +373,7 @@ function renderAppearanceGlassSection(ctx) {
     // 独立配置开着才出现它自己的两项（默认关 ⇒ 默认跟随全局）。
     // ⚠️ R3a（§10.12）：这里原本是"四件套"，其中**两个是死的** —— `leftSidebarFidelity` 连 schema
     //    键都不存在、`leftSidebarColor` 无人读取（本面 CSS 只读 `--we-left-sidebar-blur/-alpha`）。
-    sel.leftSidebarGlass === true && !sidebarSurface && !!(childIndependentOn && childIndependentOn("leftSidebar")) && [
+    sel.leftSidebarGlass === true && !!(childIndependentOn && childIndependentOn("leftSidebar")) && [
       SliderRow(weT("左侧栏玻璃·玻璃透明度"), 0, 100, 5,
         sel.leftSidebarTransparency, (v) => onGlassChildParam("leftSidebar", "transparency", v),
         sel.leftSidebarTransparency + "%", "ls-alpha"),
@@ -209,23 +383,40 @@ function renderAppearanceGlassSection(ctx) {
     ],
     // 侧栏玻璃（dsh-better-sidebar 适配）：总开关 + 专用模糊 / 透明度 / 玻璃基底色调，
     // 只作用于 dsh-better-sidebar 子树，不动会话玻璃的设置。仅在宿主检测到该插件时显示。
-    !sidebarSurface && sel.sidebarPresent && switchRow(weT("侧栏液态玻璃"), sel.sidebarGlass, onSidebarGlass, {
+    sel.sidebarPresent && switchRow(weT("侧栏液态玻璃"), sel.sidebarGlass, onSidebarGlass, {
       key: "sidebar-glass-toggle",
       hint: weT("dsh-better-sidebar 侧栏毛玻璃适配"),
       tooltip: weT("dsh-better-sidebar 侧栏（文件 / 终端 / Git 等面板）的毛玻璃适配；关闭则恢复其原生外观"),
     }),
-    !sidebarSurface && sel.sidebarPresent && sel.sidebarGlass && [
+    // 侧栏全透明（issue #137）：放弃可读性下限换全透的显式开关。刻意**不跟在
+    // 侧栏液态玻璃的门后面** —— 玻璃关着时右栏那条原生不透明兜底同样是"透不出来"
+    // 的一极，本开关在两个状态都要可达（issue 里用户正是在玻璃关着的档位打的补丁）。
+    sel.sidebarPresent && switchRow(weT("侧栏全透明"), sel.sidebarFullClear === true, onSidebarFullClear, {
+      key: "sidebar-fullclear",
+      hint: weT("壁纸下撤掉侧栏的可读性底与色染"),
+      tooltip: weT("打开：壁纸激活时侧栏的可读性下限、色染与釉光整块撤掉，壁纸原样透出（文字直接压在壁纸上）；模糊仍由侧栏模糊/全局雾化旋钮管。关闭（默认）：保留可读性下限，最坏壁纸下正文仍 ≥4.5:1"),
+    }),
+    // 跟随全局（sidebarFollowGlobal，默认开，现场口径："我需要侧栏玻璃也跟随全局"）：
+    // 开着 ⇒ 侧栏的釉变量直接指向全局三件套（effects 里写 var() 引用），并把下面
+    // 侧栏那一族的「独立配置」收起 —— 画出来又不生效的旋钮是要防的（WIP 原口径）。
+    // 内容面（可读性旋钮）与跟随无关 ⇒ 不受此门影响，照旧在场。
+    sel.sidebarPresent && sel.sidebarGlass && switchRow(weT("侧栏玻璃跟随全局"), sel.sidebarFollowGlobal === true, onSidebarFollowGlobal, {
+      key: "sidebar-follow-global",
+      hint: weT("模糊 / 透明度 / 底色都跟随全局玻璃"),
+      tooltip: weT("打开：侧栏玻璃跟随「玻璃 / 玻璃透明度 / 玻璃颜色」（与原生左栏同一条配方，两侧栏一致）；关闭：用下面三个旋钮单独调侧栏"),
+    }),
+    sel.sidebarPresent && sel.sidebarGlass && [
       // 这两个面的「独立配置」层（§10.24 补的缺口）：`glassMode` 的唯一写入方是
       // `onToggleChildIndependent`，而 `sidebar` / `sidebarContent` 不在登记表里 ⇒ 没有这两个开关
       // 时它们的 mode 永远停在 `'inherit'` ⇒ 下面那 5 个滑块**全是死的**。判据见第 ⑧ 组的 mode 可达性。
-      switchRow(weT("侧栏玻璃·独立配置"),
+      !sel.sidebarFollowGlobal && switchRow(weT("侧栏玻璃·独立配置"),
         !!(childIndependentOn && childIndependentOn("sidebar")),
         (e) => onToggleChildIndependent("sidebar", e.target.checked), {
           key: "sb-independent",
           hint: weT("用这一项自己的釉层参数覆盖全局"),
           tooltip: weT("打开后**紧接在本行下方**出现这一项自己的独立配置，**完全覆盖**上面的全局配置；关闭则回到继承全局"),
         }),
-      !!(childIndependentOn && childIndependentOn("sidebar")) && [
+      !sel.sidebarFollowGlobal && !!(childIndependentOn && childIndependentOn("sidebar")) && [
         SliderRow(weT("侧栏模糊"), 0, 60, 1, sel.sidebarBlur, onSidebarBlur, sel.sidebarBlur + "px", "sb-blur"),
         SliderRow(weT("侧栏透明度"), 0, 100, 1, sel.sidebarAlpha, onSidebarAlpha, sel.sidebarAlpha + "%", "sb-alpha"),
         swatchRow(weT("侧栏玻璃颜色"), GLASS_COLOR_PRESETS, sel.sidebarColor, onSidebarColor, { key: "sb-color" }),
@@ -257,9 +448,8 @@ function renderAppearanceGlassSection(ctx) {
     // ── 子 UI 独立配置（**复杂配置专属**：侧边栏那一档不画）──
     // 这一节现在是**一层**：每个子面一个「独立配置」开关 —— 开 = 用自己那套参数覆盖全局。
     // ⚠️ 这里**没有**「要不要玻璃」的开关（那一层已退役，见上）：所有子面恒吃玻璃。
-    // ⚠️ `sidebarSurface` 的判据见函数开头：独立配置是逐面覆盖全局的高级动作，
-    //    按规划只出现在设置菜单里 ⇒ 简化配置那一档**一行都不画**（只剩全局四件套）。
-    ...(sidebarSurface ? [] : childRows),
+    // 两档同内容（2026-10-03 用户口径）⇒ childRows 直接展开，不再按 surface 过滤。
+    ...childRows,
   ),
   );
 }

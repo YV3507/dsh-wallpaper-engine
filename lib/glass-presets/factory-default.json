@@ -1,0 +1,6 @@
+{
+  "$schema": "dsh-we/glass-preset@1",
+  "id": "factory-default",
+  "name": "出厂默认",
+  "values": {}
+}

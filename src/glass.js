@@ -146,7 +146,7 @@ function applyGlass(selection, s) {
   //   （守卫 ⑨/⑬ 靠它判断"哪些规则画玻璃"），删属性要动几十条选择器并把两条判据的前提改掉。
   document.body.setAttribute("data-we-glass-window", "on");
 
-  // 左侧栏覆盖：原生左栏（会话列表 / 工作区那一列）默认只是"透明的洞"——壁纸原样
+  // 左侧栏液态玻璃：原生左栏（会话列表 / 工作区那一列）默认只是"透明的洞"——壁纸原样
   // 透出，没有霜、也不吃玻璃参数。打开后 CSS 给那一列刷上与其余面板同一张配方表
   // （配色 / 玻璃颜色 / 玻璃透明度 / 雾化 / 边框），关掉即逐字节恢复。
   // 变量与开关节点的落点同玻璃窗口：body 属性 + 样式表规则，切换不需要重建任何东西。
@@ -155,13 +155,13 @@ function applyGlass(selection, s) {
 
   // ── 左侧栏的**按面**釉层变量（W3 接线）────────────────────────────────────────
   // 该面的 CSS 现在读 `var(--we-left-sidebar-<x>, <原全局表达式>)`（styles.js 的
-  // 「左侧栏覆盖」规则）⇒ 这一组变量就是它的来源。
+  // 「左侧栏液态玻璃」规则）⇒ 这一组变量就是它的来源。
   //
   // ⚠️ 门控与「玻璃 UI」的子项**不同**（这是乙类的特征，见 wip §2）：
   //   · 子项：`glassMode[面] === 'custom'`（"独立配置"开关）
-  //   · 本面：它**自身**就是那个"独立配置" —— 没开 `leftSidebarGlass`（左侧栏覆盖）时它
+  //   · 本面：它**自身**就是那个"独立配置" —— 没开 `leftSidebarGlass`（左侧栏液态玻璃）时它
   //     连玻璃都不吃；开了就是"用自己那套覆盖全局"。所以门控是
-  //     `glassMode.leftSidebar === 'custom'`（耦合在「左侧栏覆盖」下的那个开关）。
+  //     `glassMode.leftSidebar === 'custom'`（耦合在「左侧栏液态玻璃」下的那个开关）。
   //
   // ⚠️ 只写**两项**（模糊 / 透明度）：`--we-saturate` / `--we-glass-brightness` 不是可配置
   //    参数（常量）、`--we-surface-tint-*` 是 E2 配方文本、`--we-readability-*` 被判据锁定
@@ -212,6 +212,12 @@ function applyGlass(selection, s) {
   s.setProperty("--we-sidebar-tint", sidebarTint.toFixed(1) + "%");
   if (selection.sidebarGlass) document.body.setAttribute("data-we-sidebar-glass", "on");
   else document.body.removeAttribute("data-we-sidebar-glass");
+  // 侧栏全透明（issue #137）：独立于「要不要玻璃」的第三态门控 —— 玻璃开着时它把
+  // 地板/色染/釉光三组变量在侧栏子树里就地归零，玻璃关着时它接管右栏那条原生
+  // 不透明兜底。与 data-we-sidebar-glass 一样是"值与门正交"的属性；配对的卸载
+  // 撤除在 effects.js 的 clearEffects（漏撤 ⇒ 插件卸载后规则组照旧生效）。
+  if (selection.sidebarFullClear) document.body.setAttribute("data-we-sidebar-fullclear", "on");
+  else document.body.removeAttribute("data-we-sidebar-fullclear");
 
   // ── 插件自身浮层的**按面**釉层变量（W4 接线）────────────────────────────────
   // 该面的 CSS 现在读 `var(--we-floaters-<x>, <原全局表达式>)`（styles.js 的

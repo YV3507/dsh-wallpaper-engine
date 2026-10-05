@@ -10,46 +10,49 @@
 > 两条注册（渲染页按根路径上报，只挂一条会静默 404）。提及判定带尾边界，`/media` 不会被
 > `/media-info` 误算成已覆盖。
 
-共 **36** 条路由。
+共 **39** 条路由。
 
 | # | 路径 | 来源 | 形态 | 依赖（闭包状态 / `c` 字段） | 守卫提及 |
 |---|---|---|---|---|---|
-| 1 | `/inventory` | lib/index.js:3122 | async 箭头 | webServer buildInventory disposers observeAdapter | 15 |
-| 2 | `/media-info` | lib/index.js:3262 | 箭头 | webServer log mediaMap disposers | 7 |
-| 3 | `/transcode-progress` | lib/index.js:3292 | 箭头 | webServer mediaMap disposers | 2 |
-| 4 | `/transcoded` | lib/index.js:3345 | 箭头 | webServer mediaMap disposers serveFile | 1 |
-| 5 | `/media` | lib/index.js:3401 | 箭头 | webServer log mediaMap disposers serveFile | 17 |
-| 6 | `/preview` | lib/index.js:3401 | 箭头 | webServer log mediaMap disposers serveFile | 8 |
-| 7 | `/video-preview` | lib/index.js:3430 | 箭头 | webServer mediaMap disposers serveFile | 1 |
-| 8 | `/scene-frame` | lib/routes/scene-frame.js:73 | 箭头 | disposers base mediaMap trackStream customFramePath customIdFromAbs …(+3) | 11 |
+| 1 | `/inventory` | lib/index.js:3144 | async 箭头 | webServer buildInventory disposers observeAdapter | 17 |
+| 2 | `/media-info` | lib/index.js:3284 | 箭头 | webServer log mediaMap disposers | 7 |
+| 3 | `/transcode-progress` | lib/index.js:3314 | 箭头 | webServer mediaMap disposers | 2 |
+| 4 | `/transcoded` | lib/index.js:3367 | 箭头 | webServer mediaMap disposers serveFile | 1 |
+| 5 | `/media` | lib/index.js:3423 | 箭头 | webServer log mediaMap disposers serveFile | 17 |
+| 6 | `/preview` | lib/index.js:3423 | 箭头 | webServer log mediaMap disposers serveFile | 8 |
+| 7 | `/video-preview` | lib/index.js:3452 | 箭头 | webServer mediaMap disposers serveFile | 1 |
+| 8 | `/scene-frame` | lib/routes/scene-frame.js:73 | 箭头 | disposers base mediaMap trackStream customFramePath customIdFromAbs …(+3) | 12 |
 | 9 | `/scene-frame-cache` | lib/routes/scene-frame.js:151 | 箭头 | disposers base mediaMap GPU_FRAME_MAX_BYTES GPU_WRITE_INFLIGHT armBodyIdleTimeout …(+4) | 4 |
 | 10 | `/custom-frame` | lib/routes/scene-frame.js:238 | 箭头 | disposers base serveFile CUSTOM_FRAME_EXT CUSTOM_FRAME_MAX_BYTES armBodyIdleTimeout …(+3) | 2 |
 | 11 | `/scene-live` | lib/routes/scene-serve.js:53 | 箭头 | disposers base WEBWALLGL_DIR appendDiagLine traceRequests serveFile …(+1) | 7 |
 | 12 | `/scene-files` | lib/routes/scene-serve.js:91 | 箭头 | disposers base handleSceneFiles | 5 |
 | 13 | `/media-origin` | lib/routes/scene-serve.js:99 | 箭头 | disposers base mediaOriginInfo | 1 |
 | 14 | `/scene-payload-progress` | lib/routes/scene-serve.js:119 | 箭头 | disposers base payloadProgress | 1 |
-| 15 | `/props` | lib/index.js:3781 | 箭头 | webServer mediaMap disposers | 5 |
-| 16 | `/live-frame` | lib/index.js:3827 | 箭头 | webServer mediaMap disposers serveFile | 2 |
+| 15 | `/props` | lib/index.js:3803 | 箭头 | webServer mediaMap disposers | 6 |
+| 16 | `/live-frame` | lib/index.js:3849 | 箭头 | webServer mediaMap disposers serveFile | 2 |
 | 17 | `/media-status` | lib/routes/now-playing.js:76 | 箭头 | disposers base | 2 |
 | 18 | `/audio-spectrum` | lib/routes/now-playing.js:86 | 箭头 | disposers base | 2 |
 | 19 | `/now-playing` | lib/routes/now-playing.js:105 | 箭头 | disposers base | 3 |
 | 20 | `/now-playing/artwork` | lib/routes/now-playing.js:119 | 箭头 | disposers base serveFile | 2 |
 | 21 | `/media-control` | lib/routes/now-playing.js:137 | 箭头 | disposers base | 3 |
-| 22 | `/client-diag` | lib/routes/diag.js:78 | 箭头 | disposers appendDiagLine notice base | 3 |
-| 23 | `/diag` | lib/routes/diag.js:142 | 箭头 | disposers | 9 |
-| 24 | `/diag` | lib/routes/diag.js:143 | 箭头 | disposers base | 9 |
+| 22 | `/client-diag` | lib/routes/diag.js:78 | 箭头 | disposers appendDiagLine notice base | 4 |
+| 23 | `/diag` | lib/routes/diag.js:142 | 箭头 | disposers | 10 |
+| 24 | `/diag` | lib/routes/diag.js:143 | 箭头 | disposers base | 10 |
 | 25 | `/diag-log` | lib/routes/diag.js:144 | 箭头 | disposers log base | 2 |
-| 26 | `/api/local-assets` | lib/index.js:3912 | async 箭头 | webServer disposers serveFile | 1 |
-| 27 | `/we-assets-dir` | lib/index.js:3962 | 箭头 | webServer disposers | 3 |
-| 28 | `/scene-video` | lib/index.js:4028 | 箭头 | webServer mediaMap disposers serveFile SCENE_VIDEO_INFLIGHT | 1 |
-| 29 | `/scene-audio` | lib/index.js:4111 | 箭头 | webServer mediaMap disposers serveFile | 2 |
+| 26 | `/api/local-assets` | lib/index.js:3934 | async 箭头 | webServer disposers serveFile | 1 |
+| 27 | `/we-assets-dir` | lib/index.js:3984 | 箭头 | webServer disposers | 3 |
+| 28 | `/scene-video` | lib/index.js:4050 | 箭头 | webServer mediaMap disposers serveFile SCENE_VIDEO_INFLIGHT | 2 |
+| 29 | `/scene-audio` | lib/index.js:4134 | 箭头 | webServer mediaMap disposers serveFile | 2 |
 | 30 | `/upload` | lib/routes/upload.js:68 | 箭头 | disposers base tokenFor UPLOAD_EXT UPLOAD_MAX_BYTES ensureUploadDir …(+6) | 4 |
 | 31 | `/remove` | lib/routes/upload.js:218 | 箭头 | disposers base CONTROL_JSON_MAX_BYTES ensureUploadDir removeUploadMeta resolveUploadFile …(+1) | 1 |
 | 32 | `/upload-dir` | lib/routes/upload.js:275 | 箭头 | disposers base CONTROL_JSON_MAX_BYTES setUploadDir normalizeUserDir armBodyIdleTimeout | 2 |
-| 33 | `/fontsets` | lib/routes/fontsets.js:251 | async 箭头 | disposers base readFontSetId | 5 |
-| 34 | `/star-count` | lib/routes/github-stars.js:105 | async 箭头 | disposers base repoSlug log | 2 |
-| 35 | `/about-qr` | lib/routes/about-qr.js:62 | 箭头 | disposers base aboutDir serveFile | 3 |
-| 36 | `/settings` | lib/index.js:4180 | 箭头 | webServer disposers adapterFenceSeen adapterOverride observeAdapter adapterDetectedTarget …(+1) | 17 |
+| 33 | `/fontsets` | lib/routes/fontsets.js:251 | async 箭头 | disposers base readFontSetId | 6 |
+| 34 | `/glass-presets` | lib/routes/presets.js:264 | async 箭头 | disposers base | 1 |
+| 35 | `/star-count` | lib/routes/github-stars.js:105 | async 箭头 | disposers base repoSlug log | 2 |
+| 36 | `/system-fonts` | lib/routes/system-fonts.js:455 | async 箭头 | disposers base | 4 |
+| 37 | `/about-qr` | lib/routes/about-qr.js:62 | 箭头 | disposers base aboutDir serveFile | 3 |
+| 38 | `/metrics` | lib/routes/metrics.js:35 | 箭头 | disposers base | 2 |
+| 39 | `/settings` | lib/index.js:4228 | 箭头 | webServer disposers adapterFenceSeen adapterOverride observeAdapter adapterDetectedTarget …(+1) | 19 |
 
 **零提及（拆分前必须先补守卫）**：（无）
 
@@ -65,8 +68,11 @@
 | `lib/routes/diag.js` | `registerDiagRoutes(webServer, c)` | 4 | `disposers` `appendDiagLine` `log` `notice` `base` `onHandleDiag` | — |
 | `lib/routes/fontsets.js` | `registerFontsetsRoutes(webServer, c)` | 1 | `disposers` `base` `readFontSetId` | — |
 | `lib/routes/github-stars.js` | `registerGithubStarsRoutes(webServer, c)` | 1 | `disposers` `base` `repoSlug` `cachePath` `log` `fetchJson` | — |
+| `lib/routes/metrics.js` | `registerMetricsRoutes(webServer, c)` | 1 | `disposers` `base` `log` | — |
 | `lib/routes/now-playing.js` | `registerNowPlayingRoutes(webServer, c)` | 5 | `disposers` `base` `appendDiagLine` `configPath` `readConfig` `serveFile` `log` | — |
+| `lib/routes/presets.js` | `registerGlassPresetsRoutes(webServer, c)` | 1 | `disposers` `base` | — |
 | `lib/routes/scene-frame.js` | `registerSceneFrameRoutes(webServer, c)` | 3 | `disposers` `base` `mediaMap` `trackStream` `serveFile` `GPU_FRAME_MAX_BYTES` `GPU_WRITE_INFLIGHT` `CUSTOM_FRAME_EXT` `CUSTOM_FRAME_MAX_BYTES` `armBodyIdleTimeout` `atomicWriteFileP` `customFrameDir` `customFramePath` `customIdFromAbs` `gpuFrameFileFor` `lingerClose` `looksLikePng` `pngSizeOf` `sceneFrameSlot` | — |
 | `lib/routes/scene-serve.js` | `registerSceneServeRoutes(webServer, c)` | 4 | `disposers` `base` `WEBWALLGL_DIR` `appendDiagLine` `traceRequests` `serveFile` `handleSceneFiles` `mediaOriginInfo` `payloadProgress` `log` | — |
+| `lib/routes/system-fonts.js` | `registerSystemFontsRoutes(webServer, c)` | 1 | `disposers` `base` `cachePath` `log` `platform` `home` `fontDirs` `runFontCommand` | — |
 | `lib/routes/upload.js` | `registerUploadRoutes(webServer, c)` | 3 | `disposers` `base` `tokenFor` `UPLOAD_EXT` `UPLOAD_MAX_BYTES` `CONTROL_JSON_MAX_BYTES` `ensureUploadDir` `readUploadMeta` `metaEntry` `setUploadMeta` `removeUploadMeta` `resolveUploadFile` `setUploadDir` `normalizeUserDir` `armBodyIdleTimeout` `lingerClose` | — |
 

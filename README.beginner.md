@@ -29,7 +29,7 @@
 
 > 没有 Wallpaper Engine？这个插件依赖它来扫描壁纸，没有它就用不了 WE 自带的壁纸。不过你**仍然可以**只用「自定义壁纸」功能上传自己的图片/视频当背景。
 
-> ⚠️ **升级顺序很重要**：更新本插件之前，要先满足**两个前置条件**——① **官方桌面端（DeepSeek Harness）为最新版**（v1.2.0 起要求 ≥ 0.2.0-rc.1；旧 DSH Desktop 2.0.x 装不上新版），② **dsh-better-sidebar 侧边栏插件为最新版**（0.19.0+，装了的话）。两个条件都满足之前，请不要更新本插件；顺序反了也不用怕，把桌面端和侧边栏插件各自更到最新就能恢复正常。
+> ⚠️ **更新本插件前，先把 DSH 内核更到 ≥ 0.1.5**（实测下限）：官方桌面端（DeepSeek Harness）保持最新即可；旧 **DSH Desktop 2.0.7+** 线（内核 0.1.5-rc.1+）也能装新版。**dsh-better-sidebar 侧边栏插件不再有版本要求**（装了的话建议顺手更新到最新）。万一更新后异常，把桌面端和侧边栏插件各自更到最新就能恢复正常。
 
 ### 第一步：安装
 
@@ -202,7 +202,7 @@ In one sentence: **it puts your Steam Wallpaper Engine wallpapers behind the Dee
 
 > No Wallpaper Engine? This plugin relies on it to scan wallpapers, so WE's own wallpapers won't work without it. You **can** still use the **custom wallpaper** feature to upload your own images/videos as a background.
 
-> ⚠️ **The update order matters**: before updating this plugin, satisfy **two prerequisites** — ① **the official desktop (DeepSeek Harness) is up to date** (v1.2.0 requires ≥ 0.2.0-rc.1; old DSH Desktop 2.0.x cannot install the new version), and ② **dsh-better-sidebar is up to date** (0.19.0+, if you have it installed). Do not update this plugin until both are met; if you got the order wrong, don't panic — bringing the desktop and the sidebar plugin each up to their latest versions restores everything.
+> ⚠️ **Before updating this plugin, bring the DSH kernel to ≥ 0.1.5** (tested floor): keeping the official desktop (DeepSeek Harness) up to date is enough, and the old **DSH Desktop 2.0.7+** line (kernel 0.1.5-rc.1+) can install the new version too. **dsh-better-sidebar is no longer version-restricted** (if you have it installed, updating it to the latest is still recommended). If anything breaks after an update, bringing the desktop and the sidebar plugin each up to their latest versions restores everything.
 
 ### Step 1: install
 

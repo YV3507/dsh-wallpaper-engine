@@ -94,9 +94,63 @@ const FONT_FAMILY_LABELS = [
   { v: "STXingkai", get label() { return weT("行楷"); } },
   { v: "monospace", get label() { return weT("等宽"); } },
 ];
-// 依持久化值取应用字体栈（sanitize 已保证值在白名单内）。
+// 依持久化值取应用字体栈。取值域有两类**族键**（都只存键、不存栈）：
+//   · 内置键：FONT_FAMILY_STACKS 里的那些（栈写死在这里，含中文 fallback 链）；
+//   · 本机字体键 `sys:<族名>`：清单来自宿主枚举（src/system-fonts.js），栈在这里现拼。
+// 另有一类**历史值**：组件字体在 F3 之前存的是"解析后的 CSS 栈"（见 onComponentFamily 的注释）
+// —— 那种值原样可用，因此解析侧两条都认（老字体集零迁移）。
+const FONT_FAMILY_BY_STACK = Object.create(null);
+for (const [key, stack] of Object.entries(FONT_FAMILY_STACKS)) FONT_FAMILY_BY_STACK[stack] = key;
+// 本机字体栈的**最后一道**兜底链：只有 `--we-host-font-family`（宿主原字族的快照）也拿不到时
+// 才用到。之所以优先用快照：fallback 链是 DSH 的决定（中文/等宽的退路都在里面），抄一份到这里
+// 就会在下一次 DSH 调整时漏改。
+const FONT_STACK_FALLBACK = 'system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif';
+/**
+ * **每条非 `inherit` 的栈都以它收尾**：先用自己的族名，再退回 **DSH 原来那条字族链的运行时快照**。
+ *
+ * 为什么内置族键也要收尾（**现场教训**）：内置那几条栈是**给 Windows 写的**（`KaiTi` / `SimSun` /
+ * `STXingkai` …）。在 macOS 上它们**一个都不存在**（实测 `KaiTi` / `STXingkai` 都匹配不上）——
+ * 不收尾时 `--dsw-font-family: KaiTi, serif` 会把**整个界面**压到 `serif`（Times），比"没生效"更糟。
+ * 收尾之后，匹配不上的族名只是"这一档不起作用"，后面的 DSH 原链照常接管（中文 / emoji / 等宽都在）。
+ */
+const FONT_STACK_TAIL = ', var(--we-host-font-family, ' + FONT_STACK_FALLBACK + ')';
+/** `sys:` 键 → `"<族名>"`（族名一律加引号：空格、连字符、中文名都安全）。 */
+function systemFontStack(key) {
+  const name = systemFontNameOf(key);
+  return name ? '"' + name + '"' : "";
+}
+/** 族键 / 历史栈 → 可用的 CSS 栈；空、`inherit`、未知一律 `inherit`（= 不覆盖官方外观）。 */
 function fontFamilyStack(v) {
-  return FONT_FAMILY_STACKS[v] || "inherit";
+  const key = typeof v === "string" ? v.trim() : "";
+  if (!key || key === "inherit") return "inherit";
+  const base = FONT_FAMILY_STACKS[key] || (isSystemFontKey(key) ? systemFontStack(key) : (FONT_FAMILY_BY_STACK[key] || ""));
+  if (!base || base === "inherit") return "inherit";
+  return base + FONT_STACK_TAIL;
+}
+/** 反查：存下来的值（族键或历史栈）→ 下拉该选哪一项（空串 = 跟随 / 认不出的历史栈）。 */
+function fontFamilyKeyOf(v) {
+  const key = typeof v === "string" ? v.trim() : "";
+  if (!key) return "";
+  if (FONT_FAMILY_STACKS[key] || isSystemFontKey(key)) return key;
+  return FONT_FAMILY_BY_STACK[key] || "";
+}
+/**
+ * **摊平**成具体字体列表（没有 `var()`）—— 给"会被当成字体名列表**字符串**用掉"的下游。
+ *
+ * 为什么需要它：`fontFamilyStack` 给本机字体拼的是 `"<族名>", var(--we-host-font-family, …)`，
+ * 那是给**CSS 声明**用的（`var()` 由浏览器替换）。但 dsh-ssh 的终端面板是把
+ * `--dsh-ssh-terminal-font` 的值**当字符串读走再交给 xterm 的 `fontFamily` 选项**
+ * （xterm 的 DOM/画布渲染器都不认 `var()`，`ctx.font` 里它就是个字面量 ⇒ 整条字体列表失效）。
+ * 所以喂给它的那一份必须**当场摊平**：快照取不到就退回那条保底链。
+ */
+function fontFamilyStackConcrete(v) {
+  const stack = fontFamilyStack(v);
+  if (stack.indexOf("var(") < 0) return stack;
+  let snapshot = "";
+  // 读的是 documentElement 上的**内联**属性（`snapshotHostFontDefaults` 写在那儿）——
+  // 内联读不触发样式重算（不像 getComputedStyle 那样强制布局）。
+  try { snapshot = document.documentElement.style.getPropertyValue("--we-host-font-family").trim(); } catch { /* 拿不到就用保底 */ }
+  return stack.replace(/var\(--we-host-font-family,\s*([^)]*)\)/, snapshot || "$1");
 }
 // 帧率上限 options (fps); 0 = 无限制. Mirror of the host whitelist.
 // 场景实时渲染（WebWallGL）帧率上限档位。Mirror of lib/index.js.
@@ -156,17 +210,29 @@ const selection = {
   ...readPersisted(),
   // 字体值走**另一条**通道：真源是 `fontsets/<活动 id>.json`。
   // ⚠️ 顺序是承重的，两行都不能少：
-  //   ① `fontValueDefaults()` —— 那六个键已不在 settings 白名单里，`readPersisted()` **不再提供**它们，
+  //   ① `fontValueDefaults()` —— 那些键已不在 settings 白名单里，`readPersisted()` **不再提供**它们，
   //      而字体集是异步载入、还可能失败。缺这份兜底 ⇒ selection 里根本没有 themeColors 等键，
   //      面板「字体自定义」门控的配色区会在打开开关那一刻抛 TypeError（整个面板崩掉）。
   //   ② `readCachedFontSetValues()` —— 有缓存就用缓存那份（首帧即用户字体，不出现默认值→用户值跳变）；
   //      没有时它返回的就是①那份兜底。宿主回了真值再由 loadFontSet() 覆盖。
   ...fontValueDefaults(),
   ...readCachedFontSetValues(),
+  // 本机字体清单（src/system-fonts.js）：**首帧就用缓存那份** —— 否则一个已选中的本机字体
+  // 在下拉里会先显示成"跟随"，等宿主回话才跳回来。`systemFontsAt: 0` 让它照样算过期，
+  // 打开字体设置时该重扫还是会重扫（缓存只是"先有个能显示的名字"）。
+  systemFonts: readCachedSystemFonts(),
   // Transient: becomes true once loadPersisted() has applied the host-side
   // settings (the port-independent source of truth). The one-time notice waits
   // for it so it never flashes before the persisted noticeSeen is known.
   hostLoaded: false,
+  // Transient（本机字体清单）：来源永远是宿主那次进程扫描 ⇒ 不落盘、不进字体集。
+  //   systemFontsAt   上次取到的时刻（TTL 判据）
+  //   systemFontsApproximate  宿主是**按文件名推测**出来的（面板要说出来）
+  //   systemFontsLoading / systemFontsError  在途 / 可判定失败文案
+  systemFontsAt: 0,
+  systemFontsApproximate: false,
+  systemFontsLoading: false,
+  systemFontsError: "",
   // Transient: 活动字体集那一次加载的失败原因（面板据此显示可判定文案；空串 = 没问题）。
   fontSetError: "",
   // Transient（字体集编辑器）：
@@ -181,6 +247,13 @@ const selection = {
   fontSetLoading: false,
   fontSetEditing: "",
   fontSetDraftName: "",
+  // Transient（玻璃预设）：清单与失败原因来自宿主（不落盘）；saving/draftName 是保存
+  // 输入行的视图态；busy 是任何在途动作（应用/保存/删除/清单）。store 见 src/preset-store.js。
+  glassPresets: [],
+  glassPresetError: "",
+  glassPresetBusy: false,
+  glassPresetSaving: false,
+  glassPresetDraftName: "",
   url: null,
   type: null,
   previewUrl: null,
@@ -194,7 +267,7 @@ const selection = {
   // live-backfilled GPU frame / user-imported custom frame / empty state).
   sceneVideo: null,
   // Transient: WebWallGL 实时渲染 token（host /scene-files 路由的 src 参数）。
-  // 场景取 sceneLiveSrc（pkg 主文件），网页取 webLiveSrc（入口 HTML）；
+  // 场景取 sceneLiveSrc（主文件 token：pkg 容器或松散入口 json），网页取 webLiveSrc（入口 HTML）；
   // 存在且开关开启且无失败记忆时以 live iframe 形态播放
   //（buildMedia 最高优先级，见 liveRenderEnabled）。
   sceneLiveSrc: null,
@@ -259,10 +332,10 @@ const selection = {
   modalView: "normal",
   // Transient: picker-modal title search (not persisted).
   search: "",
-  // Transient: 快捷播放面板自己的搜索词与类型筛选（与库视图互不影响；不落盘）。
+  // Transient: 快捷播放面板自己的搜索词（与库视图互不影响；不落盘）。
+  // 类型筛选 2026-10-04 起与设置页共用持久化键 `typeFilter` —— 面板本地的 `qpType`
+  // 瞬态档已退役（"两处同步、不做单独的"是用户口径）。
   qpSearch: "",
-  // "all" | "scene" | "web" | "video" | "image"（面板是快切，档位就这几类 + 全部）
-  qpType: "all",
   // Transient: 侧栏底栏的深链请求 —— "打开设置页后停在哪一页"（`""` = 无请求）。
   // 由 WallpaperPicker 的一个 effect 消费一次即清（见 src/sidebar-right.js 的
   // openSettingsSection 与 client.js 的「侧栏深链」段）。
@@ -291,6 +364,15 @@ const selection = {
 const listeners = new Set();
 function emit() { for (const fn of [...listeners]) fn(); }
 function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
+
+// ── 「终端字体」抢跑一次（**时机问题**，不是优化）────────────────────────────
+// dsh-ssh 的终端面板**只在构造终端的那一刻**读 `--dsh-ssh-terminal-font`，之后只有它自己的设置
+// 变化才重读（见 src/font/apply.js 里 `applyTerminalHostVar` 的注释）。而我们的权威值要等宿主把
+// 设置与字体集**异步**读回来 —— 终端常常在那之前就建好了（现场症状："重启了还是口"）。
+// 这里用**同步可读**的那份缓存（localStorage 里的字体集 + 设置缓存）先把值写上，抢在别的插件
+// 构造终端之前；宿主回话后由 applyEffects → applyComponentFonts 再写一遍权威值。
+// ⚠️ 必须是正文里的**顶层语句**：内联模块被注入在正文之前，模块顶层读 selection 会撞 TDZ。
+applyTerminalHostVar();
 
 // ── 出图来源：场景壁纸「这张画面从哪来」（beta 渲染不参与）───────────────
 // 值域的**真源**在宿主侧 `lib/routes/scene-frame.js`（它把非法值 clamp 掉）——本表要与它一致，
@@ -340,7 +422,7 @@ function useStore() {
 // （"改了不生效 / 刷新后回退"，且没有任何判据会红）。收成三个入口后：
 //   · setSetting(field, value)   改**设置**并落盘（唯一入口）
 //   · setFontValues(patch)       改**字体值**并落盘（唯一入口；真源是 fontsets/<id>.json，
-//     见 src/fontset-store.js —— 这六个键已退出 settings 的持久化白名单）
+//     见 src/fontset-store.js —— 这些键已退出 settings 的持久化白名单）
 //   · setTransient(field, value) 改**瞬态**字段（上传中/编辑中/加载中…），不落盘 ——
 //     它们不在 schema 白名单里，落盘只会白跑一次 debounce。
 // 页签（src/panel-tabs.js）通过 ctx 拿到前两个入口，因此**完全不碰** `selection`。
@@ -451,7 +533,7 @@ function renderConfirmRow(armed, token, question, onConfirm, onDisarm) {
 // 这一族的实现已抽到 **src/persistence.js**（194 行）。构建期内联回本作用域，
 // 调用点（persistSelection / flushPersist / onPageHideFlush / …）无需改动。
 // 契约：8 个出向依赖的清单、入口与不变量 —— 见该文件头。
-// ⚠️ **字体值不走这条通道**：那六个键自 F3 起住 `fontsets/<活动 id>.json`，通道在
+// ⚠️ **字体值不走这条通道**：那些键自 F3 起住 `fontsets/<活动 id>.json`，通道在
 // **src/fontset-store.js**（同形的 debounce + 脏标记 + 重试，但真源、键集与失败语义都不同）。
 
 // Concurrency guard: 刷新 / 上传完成 / 移除 / 改目录 all call loadInventory(),
@@ -518,8 +600,6 @@ async function loadInventory() {
   const nextIds = next.wallpapers.map((w) => w.id).join("\u0001");
   if (prevIds !== nextIds) {
     setTransient("_invIds", nextIds);
-    setTransient("page", 0);
-    setTransient("hiddenPage", 0);
     setTransient("editorPage", 0);
   }
 
@@ -2381,11 +2461,13 @@ function keySegBrief(v) {
 // 因此下面这些 applyEffects() / clearEffects() 调用点无需改动（契约见该文件头）。
 
 // ── Picker tabs ─────────────────────────────────────────────────────────────
-// 调节面板的信息架构：五个页签互斥展示（壁纸库 / 外观 / 播放 / 系统 / 关于）—— 前四个
+// 调节面板的信息架构：六个页签互斥展示（壁纸库 / 外观 / 播放 / 系统 / 扩展 / 关于）—— 前四个
 // 由原六个页签（壁纸/外观/吉祥物/效果/声音/高级）合并而来：效果+声音 → 播放、吉祥物+
 // 高级 → 系统、壁纸 → 壁纸库；「关于」是后加的页面（简介 / 仓库与 Star / 交流群 / 致谢，
 // 不读面板状态、不写设置；外部输入只有两样：那行 star 数与两张二维码 PNG，后者经
-// 宿主路由 /about-qr/<文件名> 直出，客户端只存路径）。最后停留
+// 宿主路由 /about-qr/<文件名> 直出，客户端只存路径）；「扩展」在「关于」**之前**、是后加的
+// **模块容器**（页签栏里它排第 5、致谢仍压尾）：内容是一张注册表，见 src/panel-tabs.js 的
+// extensionModules()。最后停留
 // 的页签记在 localStorage（仅 UI 状态，不进 config.json，也不需要 sanitize / serialize）。
 const PICKER_TAB_KEY = "dsh-wallpaper-engine:picker-tab";
 const PICKER_TABS = [
@@ -2393,6 +2475,7 @@ const PICKER_TABS = [
   { id: "appearance", get label() { return weT("外观"); } },
   { id: "playback", get label() { return weT("播放"); } },
   { id: "system", get label() { return weT("系统"); } },
+  { id: "extensions", get label() { return weT("扩展"); } },
   { id: "about", get label() { return weT("关于"); } },
 ];
 // 旧页签 id → 新 id 的迁移（「字体」更早并入了「外观」）：别把老用户甩回第一页。
@@ -2452,14 +2535,29 @@ function starCountLabel() {
 // ARRAY (the sidebar-glass group) — React requires keys there.
 function SliderRow(label, min, max, step, value, onInput, suffix, key, opts) {
   opts = opts || {};
-  // 拖动期的轨道填充：就地改这一行的 --we-fill（**局部样式写，不触发 React 渲染**）。
-  // 数值文本（.we-picker__value）留给抬手那一次 emit —— 与「壁纸属性」面板同一口径
-  //（拖动中不重渲染，见 src/picker-props-panel.js 的 onPropInput）。
+  const unit = suffix == null ? "" : String(suffix);
+  // ⚠️ 两种调用口径必须并存（合并 #135 时订正）：
+  //   · **裸单位**（"px" / "%" / "s" / "ms"…，#135 新滑杆的口径）⇒ 回显 = 值 + 单位；
+  //   · **已格式化的整串**（旧调用点的口径，如 `sel.glassAlpha + "%"`）⇒ 整串**原样**显示，
+  //     绝不能再去拼值（否则 35 显示成 "3535%"、拖动期还会叠出陈旧单位）。
+  // 判别看串里有没有数字：旧口径传的一定含值，裸单位一定不含。
+  const preformatted = /\d/.test(unit);
+  const readout = (v) => (v == null || v === ""
+    ? ""
+    : (preformatted ? unit : String(v) + unit));
+  // 拖动期的轨道填充与**数值回显**：就地改这一行的 --we-fill 与右侧数值文本
+  //（**局部 DOM 写，不触发 React 渲染**）。抬手那一次仍走完整 emit（含落盘），
+  // 于是慢帧下也不会出现"数字跟不上滑块"的空档。
   const liveFill = (el) => {
     try {
       const lo = Number(el.min); const hi = Number(el.max); const v = Number(el.value);
       const pct = hi > lo ? Math.max(0, Math.min(100, ((v - lo) / (hi - lo)) * 100)) : 0;
       el.style.setProperty("--we-fill", pct + "%");
+      const row = el.parentNode;
+      const out = row && typeof row.querySelector === "function" ? row.querySelector(".we-picker__value") : null;
+      // 预格式化口径（旧调用点）不做拖动期就地改写 —— 保持 main 的既有观感
+      //（值 + 陈旧单位的旧行为当初就不存在；放手后的 emit 重渲染会给出正确文本）。
+      if (out && !preformatted) out.textContent = readout(el.value);
     } catch { /* 回显是增强，失败不影响取值 */ }
   };
   return React.createElement("div", { className: "we-picker__row we-picker__slider-row", key: key },
@@ -2483,7 +2581,10 @@ function SliderRow(label, min, max, step, value, onInput, suffix, key, opts) {
       // on release); onInput above is what makes the knob feedback instant.
       onChange: (e) => onInput(Number(e.target.value), false),
     }),
-    React.createElement("span", { className: "we-picker__hint we-picker__value" }, suffix),
+    // 右侧数值 = 当前值 + 单位（用户口径："滑动条右侧显示数值"）。它是**回显**，
+    // 真值永远在设置里；liveFill 在拖动中就地把这行文本换成同一个格式
+    //（仅裸单位口径；预格式化的旧调用点见上面 readout 的说明）。
+    React.createElement("span", { className: "we-picker__hint we-picker__value" }, readout(value)),
   );
 }
 
@@ -2683,7 +2784,65 @@ function onCancelEditWeAssetsDir() {
 
 // ── 外观 / 播放 / 系统页签的处理器（同上一条：渲染器只读值 + 调这些）────────────
 function onLeftSidebarGlass(e) { setSetting("leftSidebarGlass", e.target.checked); emit(); }
+function onThinkingGlass(e) { setSetting("thinkingGlass", e.target.checked); emit(); }
+// 胶囊雾化（行内代码 / 新会话 / 导航按钮）：与 thinkingGlass 同族 —— 消费它的规则
+// 全部挂在 data-we-thinking-glass 门下，所以滑杆也只在该开关打开时渲染（glass-panel）。
+const onCapsuleBlur = (px, live) =>
+  commitLiveSetting("capsuleBlur", clampNum(px, ...schemaRange("capsuleBlur"), DEFAULTS.capsuleBlur), live);
+// 胶囊釉色：与 onSidebarColor 同形（hex 白名单校验 + live 落效）。
+const onCapsuleColor = (hex, live) => {
+  if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
+  commitLiveSetting("capsuleColor", hex, live);
+};
+
+// ── 以下处理器原在 WallpaperPicker 内（2026-10-03：侧栏「外观」与设置页同内容）
+//    提升到模块级 —— 快捷播放面板（src/quick-panel.js）与设置页共用同一批处理器，
+//    嵌套在组件里的声明它够不着。依赖（setSetting / commitLiveSetting / clampNum /
+//    schemaRange / selection / persistSelection / applyEffects / emit）全部模块级。
+// 侧栏玻璃（dsh-better-sidebar）：独立于会话玻璃的一套细粒度控制，各自立即
+// 生效并持久化（--we-sidebar-blur / --we-sidebar-alpha / --we-sidebar-color）。
+const onSidebarBlur = (px, live) =>
+  commitLiveSetting("sidebarBlur", clampNum(px, ...schemaRange("sidebarBlur"), DEFAULTS.sidebarBlur), live);
+// 跟随全局：只切一个门（body 属性 + 一组变量指向），不重建任何东西。
+function onSidebarFollowGlobal(e) { setSetting("sidebarFollowGlobal", e.target.checked); emit(); }
+const onSidebarAlpha = (pct, live) =>
+  commitLiveSetting("sidebarAlpha", clampNum(pct, ...schemaRange("sidebarAlpha"), DEFAULTS.sidebarAlpha), live);
+const onSidebarColor = (hex, live) => {
+  if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
+  commitLiveSetting("sidebarColor", hex, live);
+};
+
+
+// 内容面（编辑器/终端）近不透明玻璃底：透明度滑块 + 底色（空 = 跟随主题）。
+const onSidebarContentAlpha = (pct, live) =>
+  commitLiveSetting("sidebarContentAlpha", clampNum(pct, ...schemaRange("sidebarContentAlpha"), DEFAULTS.sidebarContentAlpha), live);
+const onSidebarContentColor = (hex, live) => {
+  if (hex === "") {
+    // 跟随主题面板色：清键 + 落盘（拖动档不会走到这里 —— 色盘的「跟随」是按钮）。
+    selection.sidebarContentColor = "";
+    persistSelection();
+    if (live) applyEffects({ live: true }); else emit();
+    return;
+  }
+  if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
+  commitLiveSetting("sidebarContentColor", hex, live);
+};
+
+
+// 输入光标颜色："" = 跟随 dsh 原生（自动档），hex = 立即注入并持久化。
+const onCaretColor = (hex, live) => {
+  if (hex === "") {
+    commitLiveSetting("caretColor", "", live);
+    return;
+  }
+  if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
+  commitLiveSetting("caretColor", hex, live);
+};
+
 function onSidebarGlass(e) { setSetting("sidebarGlass", e.target.checked); emit(); }
+// 侧栏全透明（issue #137）：显式放弃可读性下限。与 onSidebarGlass 同形 —— 门控属性
+//（data-we-sidebar-fullclear）由 applyGlass 挂/摘，CSS 那组规则只认属性。
+function onSidebarFullClear(e) { setSetting("sidebarFullClear", e.target.checked); emit(); }
 
 // ── 「玻璃 UI」各子项的「独立配置」开关（W1；R3b-ii 起写的是**模式**）─────────────
 // ⚠️ R3b-ii 之前这里是"布尔开关 + 一张手抄的能力表"两个键；现在只有 `glassMode` 一个键：
@@ -2728,6 +2887,66 @@ function onPauseOnHidden(e) { setSetting("pauseOnHidden", e.target.checked); emi
 function onPauseOnBlur(e) { setSetting("pauseOnBlur", e.target.checked); emit(); }
 function onPauseOnBattery(e) { setSetting("pauseOnBattery", e.target.checked); emit(); }
 function onToggleLiveDiag() { toggleLiveDiag(); emit(); }
+// ── 「扩展」页签（一号模块：硬件资源监控柱状图）的处理器 ──────────────────────
+// 形状与上面一致：控件只报事件，写设置 + 重渲染都在这里。柱状图的**视觉参数**不受 emit
+// 影响（src/metrics-layer.js 每帧现读设置、画前比一次签名）⇒ 滑块走 commitLiveSetting 的
+// live 档即时可见，抬手时才走完整路径（含落盘与一次 emit）。
+function onMetricsEnabled(e) { setSetting("metricsEnabled", e.target.checked); emit(); }
+function onMetricsColorMode(mode) { setSetting("metricsColorMode", mode); emit(); }
+function onMetricsFill(e) { setSetting("metricsFill", e.target.checked); emit(); }
+function onMetricsLabels(e) { setSetting("metricsLabels", e.target.checked); emit(); }
+// 细白横线（每行 50% 高度一条 + 每两行之间一条，单独一层画，见 src/metrics-layer.js）。
+function onMetricsGuides(e) { setSetting("metricsGuides", e.target.checked); emit(); }
+// 混合模式走下拉（8 档，平铺会挤成一团）：与 onAdapterTarget 同一形状 —— 控件报事件、这里取值。
+function onMetricsBlend(e) { setSetting("metricsBlend", e.target.value); emit(); }
+// 五条序列的显隐开关共用一个处理器：字段名从渲染器传来的（都是 settings-schema 里的键）。
+function onMetricsSeries(key, value) { setSetting(key, value); emit(); }
+// 五条序列各自的颜色（「分色」档的取色器）：与别的视觉参数一样走 live 档，拖动取色时即时可见。
+function onMetricsColor(key, value, live) { commitLiveSetting(key, value, live); }
+function onMetricsHeight(v, live) { commitLiveSetting("metricsHeight", v, live); }
+// 位置（可负）：整块的左右 / 上下偏移，见 src/metrics-layer.js 的 metricsFrame。
+function onMetricsOffsetX(v, live) { commitLiveSetting("metricsOffsetX", v, live); }
+function onMetricsOffsetY(v, live) { commitLiveSetting("metricsOffsetY", v, live); }
+function onMetricsBarWidth(v, live) { commitLiveSetting("metricsBarWidth", v, live); }
+function onMetricsBarGap(v, live) { commitLiveSetting("metricsBarGap", v, live); }
+function onMetricsStackGap(v, live) { commitLiveSetting("metricsStackGap", v, live); }
+function onMetricsThreshold(v, live) { commitLiveSetting("metricsThreshold", v, live); }
+function onMetricsOpacity(v, live) { commitLiveSetting("metricsOpacity", v, live); }
+// 极黑档的倍率（自动档判成极黑背景时柱层再乘这个比例，默认 50%）：与其它视觉参数同一档，
+// 拖动时即时可见（见 src/metrics-layer.js 的 deepAlpha）。
+function onMetricsDeepOpacity(v, live) { commitLiveSetting("metricsDeepOpacity", v, live); }
+function onMetricsLineWidth(v, live) { commitLiveSetting("metricsLineWidth", v, live); }
+function onMetricsGlow(v, live) { commitLiveSetting("metricsGlow", v, live); }
+function onMetricsSmooth(v, live) { commitLiveSetting("metricsSmooth", v, live); }
+function onMetricsWindow(v, live) { commitLiveSetting("metricsWindow", v, live); }
+// ── 「扩展」页签（二号模块：点击效果与拖尾效果）的处理器 ──────────────────────
+// 与上面同形：控件只报事件，写设置 + 重渲染都在这里。那一层没有网络往返、"点了就有反应"是
+// 每帧现读设置 ⇒ 开关与档位走 emit 的完整路径，滑块走 commitLiveSetting 的 live 档
+// （拖动时即时可见，抬手才落盘 + emit）。
+function onFxEnabled(e) { setSetting("fxEnabled", e.target.checked); emit(); }
+function onFxClick(e) { setSetting("fxClick", e.target.checked); emit(); }
+function onFxTrail(e) { setSetting("fxTrail", e.target.checked); emit(); }
+function onFxClickStyle(id) { setSetting("fxClickStyle", id); emit(); }
+function onFxTrailStyle(id) { setSetting("fxTrailStyle", id); emit(); }
+function onFxColorMode(id) { setSetting("fxColorMode", id); emit(); }
+function onFxBlend(e) { setSetting("fxBlend", e.target.value); emit(); }
+function onFxColor(value, live) { commitLiveSetting("fxColor", value, live); }
+function onFxClickSize(v, live) { commitLiveSetting("fxClickSize", v, live); }
+function onFxClickGlow(v, live) { commitLiveSetting("fxClickGlow", v, live); }
+function onFxTrailLength(v, live) { commitLiveSetting("fxTrailLength", v, live); }
+function onFxTrailWidth(v, live) { commitLiveSetting("fxTrailWidth", v, live); }
+function onFxTrailGlow(v, live) { commitLiveSetting("fxTrailGlow", v, live); }
+function onFxOpacity(v, live) { commitLiveSetting("fxOpacity", v, live); }
+// ── 「扩展」页签（三号模块：3D 效果）的处理器 ───────────────────────────────
+// 与上面两组同形：控件只报事件，写设置 + 重渲染都在这里。视差层没有网络往返与画布，
+// 它每帧现读设置 ⇒ 开关走 emit 的完整路径，滑块走 commitLiveSetting 的 live 档
+// （拖动时即时可见，抬手才落盘 + emit）。方向不是设置项（口径是"关于屏幕中心对称"），
+// 要换向改 src/parallax-layer.js 的 PARALLAX_DIRECTION。
+function onParallaxEnabled(e) { setSetting("parallaxEnabled", e.target.checked); emit(); }
+function onParallaxMascot(e) { setSetting("parallaxMascot", e.target.checked); emit(); }
+function onParallaxBg(v, live) { commitLiveSetting("parallaxBg", v, live); }
+function onParallaxMetrics(v, live) { commitLiveSetting("parallaxMetrics", v, live); }
+function onParallaxSmooth(v, live) { commitLiveSetting("parallaxSmooth", v, live); }
 /**
  * 适配方式（覆盖 / 填充 / 居中 / 拉伸）：除写设置外，Edge 的 canvas 渲染路径把 fit 存在
  * `weDrawCtx` 上，而 `syncLayers` 的 same-canvas 守卫不会重建 draw loop ⇒ 这里要直接更新并重绘。
@@ -3093,6 +3312,48 @@ function fontSetCtx() {
   };
 }
 
+// ── 玻璃预设的接线（渲染器只读 ctx、动作经 on*；store 与失败语义见 src/preset-store.js）──
+// 与 fontSetCtx 同形：清单/错误是宿主投影，busy 是在途标记，删除走 armConfirm 两步确认。
+// 应用预设会**整快照覆盖**玻璃键 ⇒ 动作前先清掉挂着的删除确认（上下文切换必清，同字体集）。
+function glassPresetCtx() {
+  const done = () => { setTransient("glassPresetBusy", false); emit(); };
+  const busy = (promise) => { setTransient("glassPresetBusy", true); emit(); promise.then(done, done); };
+  return {
+    presets: selection.glassPresets,
+    loading: selection.glassPresetBusy === true,
+    error: selection.glassPresetError,
+    saving: selection.glassPresetSaving === true,
+    draftName: selection.glassPresetDraftName,
+    armedId: armedIdOf("gpreset"),
+    onApply: (id) => {
+      disarmConfirm();
+      busy(applyGlassPreset(id));
+    },
+    onOpenSave: () => {
+      setTransient("glassPresetSaving", true);
+      setTransient("glassPresetDraftName", "");
+      setTransient("glassPresetError", "");
+      disarmConfirm();
+      emit();
+    },
+    onDraftName: (v) => { setTransient("glassPresetDraftName", String(v == null ? "" : v)); emit(); },
+    onSaveCommit: () => {
+      busy(saveGlassPreset(selection.glassPresetDraftName).then((id) => {
+        if (id) { setTransient("glassPresetSaving", false); setTransient("glassPresetDraftName", ""); }
+        emit(); // 收起输入行的分支写完 store 必须通知（渲染纪律判据）
+      }));
+    },
+    onCancelSave: () => {
+      setTransient("glassPresetSaving", false);
+      setTransient("glassPresetDraftName", "");
+      emit();
+    },
+    onArmDelete: (id) => armConfirm("gpreset:" + id),
+    onDisarm: () => disarmConfirm(),
+    onDelete: (id) => { disarmConfirm(); busy(deleteGlassPreset(id)); },
+  };
+}
+
   // 画面滑块（暗化 / 壁纸透明度 / 壁纸模糊 / 亮度 / 对比度 / 饱和度）与外观细调
   //（配色 / 玻璃颜色 / 玻璃透明度 / 边框 / 雾化）：处理器已提升到模块级 ——
   // 快捷播放面板共用同一份实现，见 cardKeyDown 上方「外观 / 画面处理器」段。
@@ -3110,16 +3371,6 @@ function fontSetCtx() {
     if (!SWITCH_SPEED_VALUES.includes(id)) return;
     setSetting("switchTransitionSpeed", id); emit();
   };
-  // 侧栏玻璃（dsh-better-sidebar）：独立于会话玻璃的一套细粒度控制，各自立即
-  // 生效并持久化（--we-sidebar-blur / --we-sidebar-alpha / --we-sidebar-color）。
-  const onSidebarBlur = (px, live) =>
-    commitLiveSetting("sidebarBlur", clampNum(px, ...schemaRange("sidebarBlur"), DEFAULTS.sidebarBlur), live);
-  const onSidebarAlpha = (pct, live) =>
-    commitLiveSetting("sidebarAlpha", clampNum(pct, ...schemaRange("sidebarAlpha"), DEFAULTS.sidebarAlpha), live);
-  const onSidebarColor = (hex, live) => {
-    if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-    commitLiveSetting("sidebarColor", hex, live);
-  };
   // Mascot pull-cord show/hide, persisted with the other toggles.
   const onRopeVisibilityChange = (e) => {
     setSetting("ropeShown", e.target.checked); emit();
@@ -3132,23 +3383,12 @@ function fontSetCtx() {
   const onRopeScaleChange = (scale) => {
     setSetting("ropeScale", clampNum(scale, ROPE_SCALE_MIN, ROPE_SCALE_MAX, DEFAULTS.ropeScale)); emit();
   };
-  // 内容面（编辑器/终端）近不透明玻璃底：透明度滑块 + 底色（空 = 跟随主题）。
-  const onSidebarContentAlpha = (pct, live) =>
-    commitLiveSetting("sidebarContentAlpha", clampNum(pct, ...schemaRange("sidebarContentAlpha"), DEFAULTS.sidebarContentAlpha), live);
-  const onSidebarContentColor = (hex, live) => {
-    if (hex === "") {
-      // 跟随主题面板色：清键 + 落盘（拖动档不会走到这里 —— 色盘的「跟随」是按钮）。
-      selection.sidebarContentColor = "";
-      persistSelection();
-      if (live) applyEffects({ live: true }); else emit();
-      return;
-    }
-    if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-    commitLiveSetting("sidebarContentColor", hex, live);
-  };
   // 字体自定义：总开关 + 颜色/字重/字体族，各项立即生效并持久化。
+  // 打开开关时**顺手**去要一次本机字体清单（宿主那次扫描很贵，只在用户真的进这一区时才发生；
+  // 清单本身不参与字体值，拿不到也不影响任何别的功能 —— 见 src/system-fonts.js）。
   const onToggleFontCustom = (v) => {
     setSetting("fontCustom", !!v); applyEffects(); emit();
+    if (v) ensureSystemFonts(false);
   };
   // 主题随壁纸的开关处理器已提升到模块级（同「外观 / 画面处理器」段）。
   // F1：角色色。默认「单色」—— 一个色同时写进 light/dark 两套（内部始终存两套，
@@ -3160,6 +3400,18 @@ const onThemeFamily = (role, key) => {
   else next[role] = key;
   setFontValues({ themeFamily: next }); applyEffects(); emit();
 };
+
+// **全局字族**：空 = 跟随 DSH。它是**默认**而不是强制 —— 角色级（themeFamily）与组件级
+// （componentFonts）写在它上面（见 src/font/typography.js 的 buildTypePayload：
+// 「该角色自己设了就用它，否则用全局」），DSH 的字族层次不会被压平。
+// 值是族键（内置键或 `sys:` 键），消毒走共享内核 —— 与本机字体清单同一条值域。
+const onGlobalFamily = (key) => {
+  setFontValues({ globalFamily: sanitizeFamilyKey(key) });
+  applyEffects(); emit();
+};
+
+// 面板上的「重新扫描」：跳过 TTL 再要一次本机字体清单（用户刚装完字体时的出路）。
+const onRefreshSystemFonts = () => { ensureSystemFonts(true); };
 
 // F2/G4 字号（角色级，**绝对值**）：空 = 用 DSH 官方值（角色表的 defaultPx 即面板显示的默认）。
 const onThemeSize = (role, raw) => {
@@ -3218,12 +3470,17 @@ const onThemeDarkSeparate = (v) => {
     setTransient("fontAdvanced", v);
     emit();
   };
-  // 组件字体族：存 **CSS 栈**（模块把它直接写进 font-family），不是族键。
+  // 组件字体族：存 **族键**（内置键或 `sys:<本机字体>`），解析成 CSS 栈是 apply 那一侧的事
+  // （components.js 的 buildComponentCss / buildDslBlocks 经 resolveFamily 拿栈）。
+  // ⚠️ F3 之前这里存的是**解析后的栈** —— 那种历史值解析侧照样认（fontFamilyStack），
+  //    所以老字体集不必迁移；只是"选中项反查"过去会失配（带引号的栈来回一趟会被消毒掉引号），
+  //    现在两条形态都能反查（fontFamilyKeyOf）。
   const onComponentFamily = (prefix, key) => {
     const next = Object.assign({}, selection.componentFonts);
     const one = Object.assign({}, next[prefix]);
-    if (!key) delete one.family;
-    else one.family = fontFamilyStack(key);
+    const family = sanitizeFamilyValue(key);
+    if (!family) delete one.family;
+    else one.family = family;
     if (Object.keys(one).length) next[prefix] = one;
     else delete next[prefix];
     setFontValues({ componentFonts: next }); applyEffects(); emit();
@@ -3250,16 +3507,17 @@ const officialColorOf = (tokens) => {
   return "";
 };
 
-// 「恢复默认」：所有字体自定义项清回 DSH 默认值（空 = 不覆盖；字体族回 inherit）。
-// 这五个容器 + themeDarkSeparate 是**字体集正文**的键 ⇒ 整批赋值后走 persistFontSet()
-//（它们已不在 settings 白名单里，`setSetting` 那条通道不会把它们写出去）。
-// ⚠️ 这是那六个键**唯一**允许出现字面直写的地方（逐键走 `setFontValues` 会发 6 次 PUT）；
+// 「恢复默认」：所有字体自定义项清回 DSH 默认值（空 = 不覆盖；字体族回跟随）。
+// 这些容器 + themeDarkSeparate + globalFamily 是**字体集正文**的键 ⇒ 整批赋值后走
+// persistFontSet()（它们已不在 settings 白名单里，`setSetting` 那条通道不会把它们写出去）。
+// ⚠️ 这是字体键**唯一**允许出现字面直写的地方（逐键走 `setFontValues` 会发一整串 PUT）；
 //    判据：`verify-fontset` ⑦ 的字面直写棘轮 —— 别处的直写会让它变红。
   const onFontResetAll = () => {
     selection.themeColors = {};
     selection.themeSize = {};
     selection.themeWeight = {};
     selection.themeFamily = {};
+    selection.globalFamily = "";
     selection.componentFonts = {};
     selection.themeDarkSeparate = false;
     // 「只看改过的」是**视图**状态，不归"恢复默认"管：它清的是字体值，不该顺手把用户选的筛选
@@ -3414,15 +3672,6 @@ const officialColorOf = (tokens) => {
         persistSelection(); emit();
       }).catch(() => { /* ignore */ });
   };
-  // 输入光标颜色："" = 跟随 dsh 原生（自动档），hex = 立即注入并持久化。
-  const onCaretColor = (hex, live) => {
-    if (hex === "") {
-      commitLiveSetting("caretColor", "", live);
-      return;
-    }
-    if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-    commitLiveSetting("caretColor", hex, live);
-  };
 
   // Close the picker library view (ESC / 返回 button share this path).
   const closePicker = () => {
@@ -3455,8 +3704,8 @@ const officialColorOf = (tokens) => {
     }
   }, []);
 
-  // ── 页签状态：调节面板分五个页签（壁纸库/外观/播放/系统/关于 —— 前四个由原六域
-  //    合并，「关于」后加），每份实例独立记忆（设置页与仓库抽屉互不影响）；只存
+  // ── 页签状态：调节面板分六个页签（壁纸库/外观/播放/系统/扩展/关于 —— 前四个由原六域
+  //    合并，「扩展」「关于」后加），每份实例独立记忆（设置页与仓库抽屉互不影响）；只存
   //    localStorage，不进 config.json。useState 必须在下方早退分支之前调用（Rules of Hooks）。 ──
   const [activeTab, setActiveTab] = React.useState(readSavedPickerTab);
   const switchTab = (id) => {
@@ -3475,6 +3724,12 @@ const officialColorOf = (tokens) => {
   // 用一次订阅式 effect 补上；TTL 同日历口径，重复触发是空操作。
   React.useEffect(() => { if (activeTab === "about") loadStarCount(false); }, [activeTab]);
 
+  // 本机字体清单（同上一条的形状）：停在「外观」页且用户开着「字体自定义」时才去要一次
+  // （宿主那次扫描 macOS 实测 ~10s，不能因为"打开设置页"就付）。TTL 内是空操作。
+  React.useEffect(() => {
+    if (activeTab === "appearance" && selection.fontCustom) ensureSystemFonts(false);
+  }, [activeTab]);
+
   // 侧栏深链（快捷播放面板底栏的「字体与更多外观 ›」/「更多播放设置 ›」）：请求"打开
   // 设置页后停在哪一页"。打开对话框由 src/sidebar-right.js 的 DOM 路径负责，这里只管
   // 落地 —— 走**同一个 switchTab**（清待确认 / 退出下钻 / 写 localStorage 这些副作用
@@ -3489,6 +3744,19 @@ const officialColorOf = (tokens) => {
     }
     switchTab(req);
   }, [sel.settingsTabRequest, activeTab]);
+
+  // 库视图虚拟滚动的窗口（机制与几何见 src/picker-modal.js 顶注）：hooks 必须长在组件
+  // 里（renderPickerModal 是纯渲染器），经 ctx 传下去。classic CD 架不虚拟化 ⇒ 渲染侧
+  // 不把 gridRef 挂到网格上，测量 effect 拿不到元素就整体空转。count 给**上界**（正常 /
+  // 隐藏两个列表 + 关闭卡都 ≤ 库存 + 1；无滚动容器时窗口 = count，渲染侧按真实列表
+  // 长度钳），viewTag 戳这份窗口量自哪个形态 —— 换形态 / 开关下钻的一帧按未测量处理
+  // （首窗 + 零占位），测量 effect 随 tag 进 deps 立刻跟上。
+  const pickerGridRef = React.useRef(null);
+  const pickerViewTag = sel.pickerOpen
+    ? (sel.modalView === "hidden" ? "hidden" : (sel.pickerDraft ? "draft" : "normal"))
+    : "closed";
+  const pickerVwin = qpVirtWindow(pickerGridRef, (sel.inventory.wallpapers || []).length + 1,
+    PICKER_CARD_H, PICKER_CARD_GAP, true, pickerViewTag);
 
   if (!sel.loaded) {
     return React.createElement("div", { className: "we-picker" },
@@ -3510,18 +3778,17 @@ const officialColorOf = (tokens) => {
   // 进去、把结果取出来 —— 组件体不再就地算这些（分级/类型/隐藏的判定也在那边）。
   const {
     query, playableList, basePlayable, ratingCounts, typeCounts, hiddenList,
-    normalPage, hiddenPageView, editorPageView,
+    editorPageView,
   } = pickerModel({
     wallpapers: list,
     hiddenIds: selection.hiddenIds,
     search: sel.search,
     ratingFilter: sel.contentRatingFilter,
     typeFilter: sel.typeFilter,
-    page: sel.page,
-    hiddenPage: sel.hiddenPage,
     editorPage: sel.editorPage,
   });
-  // CD-rack mode: compact one-page grid (no pagination) + stronger overlap.
+  // CD-rack mode: compact one-page grid (no pagination, no virtualization —
+  // aspect-ratio cards with overlapping rows don't fit the fixed-pitch model).
   const cdMode = sel.pickerLayout === "classic";
   const current = list.find((w) => w.id === sel.id) || null;
   const uploadedList = list.filter((w) => isUploadedWallpaper(w) && !isDirWallpaper(w));
@@ -3558,14 +3825,31 @@ const officialColorOf = (tokens) => {
   // 渲染器只拿值 + 回调（同模态框那条契约）。判定就一句：
   // token 变了且不在加载中才重拉。
   // ── 页签面板内容（函数声明提升，renderActiveTab 在 return 里先调用）──────
-  // 五页签 = 两个单渲染器（「外观」「关于」）+ 两个合并渲染器（「播放」= 效果 + 声音，
-  // 「系统」= 吉祥物 + 高级）+ 壁纸库。「关于」不取任何 ctx 字段（静态页）。
+  // 六页签 = 三个单渲染器（「外观」「扩展」「关于」）+ 两个合并渲染器（「播放」= 效果 + 声音，
+  // 「系统」= 吉祥物 + 高级）+ 壁纸库。「关于」不取任何 ctx 字段（静态页）；「扩展」自己也不读
+  // 字段，但要把 ctx **整包转交**给注册表里的模块（每个模块的控件由它自己的渲染器画）。
+  const extensionCtx = () => ({
+    sel: selection,
+    onMetricsEnabled, onMetricsColorMode, onMetricsFill, onMetricsLabels, onMetricsSeries,
+    onMetricsGuides, onMetricsBlend, onMetricsColor,
+    onMetricsHeight, onMetricsOffsetX, onMetricsOffsetY,
+    onMetricsBarWidth, onMetricsBarGap, onMetricsStackGap, onMetricsThreshold,
+    onMetricsOpacity, onMetricsDeepOpacity, onMetricsLineWidth, onMetricsGlow,
+    onMetricsSmooth, onMetricsWindow,
+    onFxEnabled, onFxClick, onFxClickStyle, onFxClickSize, onFxClickGlow,
+    onFxTrail, onFxTrailStyle, onFxTrailLength, onFxTrailWidth, onFxTrailGlow,
+    onFxOpacity, onFxBlend, onFxColorMode, onFxColor,
+    onParallaxEnabled, onParallaxBg, onParallaxMetrics, onParallaxMascot, onParallaxSmooth,
+  });
   const renderActiveTab = () => {
     if (activeTab === "about") return renderAboutTab({});
+    if (activeTab === "extensions") return renderExtensionsTab(extensionCtx());
     if (activeTab === "appearance") return renderAppearanceTab({
       setSetting, setTransient,
       fontSet: fontSetCtx(),
-      officialColorOf, onAccent, onBlur, onBorder, onCaretColor, onChatGlassFidelity, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onGlassFidelity, onLeftSidebarGlass, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarGlass, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onToggleFontCustom, onToggleThemeFollow, sel,
+      glassPresets: glassPresetCtx(),
+      officialColorOf, onAccent, onCapsuleBlur, onCapsuleColor, onBlur, onBorder, onCaretColor, onChatGlassFidelity, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onGlassFidelity, onGlobalFamily, onLeftSidebarGlass, onRefreshSystemFonts, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarFollowGlobal, onSidebarGlass, onSidebarFullClear, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onThinkingGlass, onToggleFontCustom, onToggleThemeFollow, sel,
+      officialColorOf, onAccent, onCapsuleBlur, onCapsuleColor, onBlur, onBorder, onCaretColor, onChatGlassFidelity, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onGlassFidelity, onLeftSidebarGlass, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarGlass, onSidebarFullClear, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onThinkingGlass, onToggleFontCustom, onToggleThemeFollow, sel,
       // 玻璃 UI 子项开关 + 独立配置 + 独立参数（见 onToggleChildIndependent 那段注释）
       onToggleChildIndependent, onGlassChildParam, childIndependentOn,
     });
@@ -3601,8 +3885,6 @@ const officialColorOf = (tokens) => {
   // `onClick: onShowNormalView` 这样的引用。判据是接缝那几条（同 `panel-tabs` / 属性面板口径）。
   const onShowNormalView = () => { disarmConfirm(); setTransient("modalView", "normal"); emit(); };
   const onShowHiddenView = () => { disarmConfirm(); setTransient("modalView", "hidden"); setTransient("batchMode", false); setTransient("batchSelected", []); emit(); };
-  const onHiddenPagePrev = () => { setTransient("hiddenPage", selection.hiddenPage - 1); emit(); };
-  const onHiddenPageNext = () => { setTransient("hiddenPage", selection.hiddenPage + 1); emit(); };
   const onToggleBatchMode = () => { disarmConfirm(); setTransient("batchMode", !selection.batchMode); setTransient("batchSelected", []); emit(); };
   // 「批量隐藏」按钮只置令牌；落地在问句行的「确认」（不变量 2）。
   const onArmBatchHide = () => armConfirm("batchHide");
@@ -3614,7 +3896,7 @@ const officialColorOf = (tokens) => {
     emit();
   };
   const onBatchCancel = () => { disarmConfirm(); setTransient("batchMode", false); setTransient("batchSelected", []); emit(); };
-  const onSearchInput = (e) => { setTransient("search", e.target.value); setTransient("page", 0); emit(); };
+  const onSearchInput = (e) => { setTransient("search", e.target.value); emit(); };
   const onPickCard = (w) => {
     // 轮播编辑器的下钻（pickerDraft）：点卡片 = 加入/移出**草稿**，不切当前壁纸；
     // 草稿对象被就地增删（与 importPlaylistIntoDraft / 面板编辑器同一口径），
@@ -3636,8 +3918,6 @@ const officialColorOf = (tokens) => {
       applySelection(w.id, { fromManual: true });
     }
   };
-  const onNormalPagePrev = () => { setTransient("page", selection.page - 1); emit(); };
-  const onNormalPageNext = () => { setTransient("page", selection.page + 1); emit(); };
   return React.createElement("div", { className: "we-picker", "data-we-cards": sel.pickerLayout },
     // ── Card header (mirrors the skin-center's pluginCard header): plugin
     //    name + live wallpaper count badge + description. ──
@@ -3646,7 +3926,7 @@ const officialColorOf = (tokens) => {
       React.createElement("span", { className: "we-picker__card-badge" }, String(playableList.length)),
       React.createElement("span", { className: "we-picker__card-desc" }, weT("本地 Wallpaper Engine 壁纸 · 液态玻璃主题")),
     ),
-    // ── 页签栏（分段式）：五个页签互斥展示，替代三十控件的单列长滚动。
+    // ── 页签栏（分段式）：六个页签互斥展示，替代三十控件的单列长滚动。
     //    指示胶囊随 activeTab 平移（transform 合成器属性，不引发布局）；宽度按
     //    PICKER_TABS.length 现算 ⇒ 加页签只改那张表，这里零改动。 ──
     React.createElement("div", { className: "we-tabs", role: "tablist", "aria-label": weT("壁纸引擎设置分区") },
@@ -3671,13 +3951,13 @@ const officialColorOf = (tokens) => {
       // 库视图是**页内下钻**：pickerOpen 时页签面板整区切换成
       // 壁纸网格，ESC / 顶部「返回」退出，切页签也会退出（见 switchTab）。
       sel.pickerOpen ? renderPickerModal({
-        sel, closePicker, current, playbackLive, playableList, hiddenList, hiddenPageView, normalPage,
-        cdMode, pagerRow, query, basePlayable, ratingCounts, typeCounts,
+        sel, closePicker, current, playbackLive, playableList, hiddenList,
+        cdMode, query, basePlayable, ratingCounts, typeCounts,
+        gridRef: pickerGridRef, vwin: pickerVwin,
         armedConfirm: sel.armedConfirm, onArmConfirm: armConfirm, onDisarmConfirm: disarmConfirm,
         onClear, onRatingFilterChange, onTypeFilterChange,
-        onShowNormalView, onShowHiddenView, onHiddenPagePrev, onHiddenPageNext,
+        onShowNormalView, onShowHiddenView,
         onToggleBatchMode, onArmBatchHide, onBatchHide, onBatchCancel, onSearchInput, onPickCard,
-        onNormalPagePrev, onNormalPageNext,
       }) : renderActiveTab()),
   );
 }
@@ -4018,10 +4298,10 @@ function RopeDock() {
 // tabs into it) and fixes the right column turning fully transparent there —
 // the native panel paints var(--dsw-alias-bg-base), the exact token WE makes
 // transparent while a wallpaper is active, and it had no frost of its own.
-// Updating to the latest plugin now has TWO PREREQUISITES, announced via this
-// notice: ① the DeepSeek Harness kernel must be the latest (DSH Desktop
-// ≥ 2.0.7 / harness 0.1.5-rc.1+), and ② dsh-better-sidebar must be the latest
-// (0.19.0+; users still on the 0.1.2-rc.1 line keep 0.18.x — no mixing). The
+// The notice also carries the prerequisite statement (final v1.2.0 wording):
+// the DSH kernel must be ≥ 0.1.5 (0.1.5-rc.1+, the tested floor — both the
+// official desktop line and DSH Desktop ≥ 2.0.7 qualify), and dsh-better-sidebar
+// is no longer version-restricted. The
 // dismissal version is stored WITH the settings (host file, port-independent)
 // so it survives DSH Desktop's random --port restarts and never re-shows
 // after being closed. Bump NOTICE_VERSION next release to announce something
@@ -4049,12 +4329,12 @@ function UpdateNotice() {
       React.createElement("p", null,
         weT("自 1.1.0 以来的全部更新：")),
       React.createElement("p", null,
-        "⚠️ ", React.createElement("strong", null, weT("先说重要的：前置条件变更")),
-        weT("：本版起要求"),
-        React.createElement("strong", null, weT("DeepSeek Harness 桌面端（官方桌面端）≥ 0.2.0-rc.1")),
-        weT("；旧 DSH Desktop 2.0.x 内核"),
-        React.createElement("strong", null, weT("装不上本版本")),
-        weT("（插件市场会红标并拒绝安装）。已装 1.1.0 的旧桌面用户可继续使用，升级前请先换官方桌面端。")),
+        "⚠️ ", React.createElement("strong", null, weT("先说重要的：前置条件口径")),
+        weT("：本版要求"),
+        React.createElement("strong", null, weT("DSH 内核 ≥ 0.1.5（0.1.5-rc.1+，实测下限）")),
+        weT("——官方桌面端与 DSH Desktop ≥ 2.0.7 都满足；"),
+        React.createElement("strong", null, weT("dsh-better-sidebar 不再有版本要求")),
+        weT("（装了的话建议更新到最新）。")),
       React.createElement("p", null,
         "① ", React.createElement("strong", null, weT("全新 UI：壁纸调节嵌入官方侧边栏")),
         weT("：壁纸调节的额外窗口没有了——侧栏内三档页签（壁纸 / 外观 / 播放）+ 新增「壁纸属性」入口，与设置页"),
@@ -4063,7 +4343,7 @@ function UpdateNotice() {
       React.createElement("p", null,
         "② ", React.createElement("strong", null, weT("玻璃 UI 颜色可自定义")),
         weT("：玻璃界面颜色随心调；新增"),
-        React.createElement("strong", null, weT("「左侧栏覆盖」开关（默认关）")),
+        React.createElement("strong", null, weT("「左侧栏液态玻璃」开关（默认关）")),
         weT("——打开后宿主原生左栏也套上同一套玻璃效果。所有玻璃配色经亮度钳制，正文对比度始终 ≥ 4.5:1。")),
       React.createElement("p", null,
         "③ ", React.createElement("strong", null, weT("渲染内核更新")),
@@ -4276,6 +4556,19 @@ function apply(ctx) {
     ctx.effect(() => {
       const unsub = subscribe(syncLayers);
       const unsubEffects = subscribe(applyEffects);
+      // 「扩展」页签一号模块（硬件资源监控柱状图）的画布层：它自己读设置、自己轮询宿主，
+      // 所以接法与壁纸层同形 —— 每次 emit 重判一次"该不该活"（启用与否 / 有没有壁纸层 /
+      // 五条序列是不是全关）。参数不在这里传：那一层每帧现读 `selection`。
+      const unsubMetrics = subscribe(syncMetricsLayer);
+      // 「扩展」页签二号模块（点击效果与拖尾效果）的画布层：接法同上。它只在"总开关开着且
+      // 点击或拖尾至少一个没关"时才活，并且**内容驱动**——没有轨迹点、没有存活的特效时
+      // 它自己停下 rAF 并清空画布，光标不动就不耗帧。
+      const unsubFx = subscribe(syncFxLayer);
+      // 「扩展」页签三号模块（3D 效果）的视差层：接法同上，但它是**唯一不建 DOM 的一层** ——
+      // 只写 CSS 变量（各层系数落在 body 上、每帧变的位移步长落在要动的那几层自己身上）与一个
+      // 开关属性，位移由 src/styles.js 的视差段算出来。它只在"总开关开着"时才活，并且
+      // **收敛驱动**——屏上剩下的位移看不出来就停 rAF，光标不动不耗帧（帧率封顶 60Hz）。
+      const unsubParallax = subscribe(syncParallaxLayer);
       // Occlusion pause: re-apply the effective playing state whenever the
       // page hides/shows or the window loses/gains focus (see occlusionActive).
       // Fires syncLayers → play/pause on the video; decode drops to 0 while
@@ -4388,10 +4681,16 @@ function apply(ctx) {
       }
       syncLayers();
       applyEffects();
+      syncMetricsLayer();
+      syncFxLayer();
+      syncParallaxLayer();
       return () => {
         disposed = true;
         unsub();
         unsubEffects();
+        unsubMetrics();
+        unsubFx();
+        unsubParallax();
         if (ocWatch) { try { clearInterval(ocWatch); } catch { /* ignore */ } ocWatch = 0; }
         if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
           for (const t of ocListeners) window.removeEventListener(t, onOcclusionChange);
@@ -4424,6 +4723,15 @@ function apply(ctx) {
         disposePreparedMedia();
         // 预热槽位同一条纪律：留着就是一个没有句柄的解复用器（页面关闭前不会自己走）。
         disposeWarmVideo();
+        // 资源柱状图的画布层：DOM 节点、1 Hz 采样与 rAF 循环都在那一层自己手里
+        // （宿主采样器会因为它不再来取数而在 30 s 后自停）。
+        disposeMetricsLayer();
+        // 点击与拖尾效果的画布层：DOM 节点、指针监听与 rAF 循环同样在那一层自己手里
+        // （它的 rAF 只在自己还有内容时续帧，所以这里主要是摘节点 + 解绑监听）。
+        disposeFxLayer();
+        // 3D 效果的视差层：它没有 DOM 节点与画布，收尾就是把监听、rAF 与 body 上的
+        // 那几个 CSS 变量 / 开关属性一起摘掉（否则换过一次重挂还会残留着上一份位移）。
+        disposeParallaxLayer();
         // 关掉音频闸并退役渐变中的旧层：禁用/重挂时旧层不能被留在屏上等退役定时器
         // （≤1.3s 的可见残留），闸也不该跨过一次重挂活着（准备链的 BGM 起播会被它
         // 推迟到那个定时器触发为止）。这两条收尾本身是正确性要求：跨过一次重挂活着的闸
@@ -4455,7 +4763,7 @@ function apply(ctx) {
         const scrim = document.getElementById(SCRIM_ID);
         if (scrim) scrim.remove();
         clearEffects();
-        document.body.removeAttribute(ACTIVE_ATTR);
+        setWallpaperActive(false);
         // 主样式标签: 之前每个 bundle 求值都注入一次且从不移除 (HMR 后旧 <style>
         // 永久留在 <head>)。只移除本次求值这一代, 重挂载由 ensurePluginCss() 补回。
         if (typeof document !== "undefined" && typeof document.querySelector === "function") {
@@ -4496,7 +4804,7 @@ function apply(ctx) {
               theme,
               // 绑在「字体自定义」总开关下：关闭 = 连颜色一起恢复原生（与面板文案一致）。
               // `|| {}` 是第二道：这几个 getter 会在**订阅回调**里被调到，而订阅回调不在 try 里 ——
-              // 数据侧已有兜底（selection 初始化必带六个键），这里再挡一次，免得"某个键缺失"
+              // 数据侧已有兜底（selection 初始化必带字体键），这里再挡一次，免得"某个键缺失"
               // 升级成"改一下设置整块面板崩"。
               getColors: () => (selection.fontCustom ? (selection.themeColors || {}) : {}),
               isAvailable: hasToken,
@@ -4505,12 +4813,17 @@ function apply(ctx) {
             typeLayer = createThemeLayer({
               theme,
               source: THEME_TYPE_SOURCE,
+              // 全局字族也在这一层生效（作为**每个角色的默认**）。本机字体的栈里要拼
+              // `var(--we-host-font-family, …)`，那是"开写之前"的宿主快照 ⇒ 本层也挂一次
+              // onBeforeFirstWrite（它是幂等的"已快照则跳过"，与颜色层共用同一份快照）。
+              onBeforeFirstWrite: () => { try { snapshotHostFontDefaults(); } catch { /* 基线失败不阻断字体 */ } },
               buildPayload: () => buildTypePayload(
                 selection.fontCustom ? (selection.themeSize || {}) : {},
                 hasToken,
                 selection.fontCustom ? (selection.themeWeight || {}) : {},
                 selection.fontCustom ? (selection.themeFamily || {}) : {},
-                fontFamilyStack),
+                fontFamilyStack,
+                selection.fontCustom ? (selection.globalFamily || "") : ""),
             });
             layer.sync();
             typeLayer.sync();
@@ -4597,7 +4910,7 @@ function apply(ctx) {
   // ⚠️ 终止 `.catch` 是**必须**的：这条链上任何一步 reject，后面的 `loadInventory` 就永不执行 ——
   // 选择器永久停在「扫描 Wallpaper Engine…」，一次性提示也不收敛（用户只能靠刷新或禁用插件自救）。
   // 各步内部已各自消化可预期的失败（宿主不可达 / 存储被拒 / 坏 JSON），这一条兜的是"没预料到的那次抛"。
-  loadPersisted().then(loadFontSet).then(loadInventory).catch((err) => {
+  loadPersisted().then(loadFontSet).then(loadInventory).then(loadGlassPresets).catch((err) => {
     try { reportClientDiag("boot-chain-failed", String((err && err.message) || err)); } catch { /* 诊断本身不许再抛 */ }
   });
 }

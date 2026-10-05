@@ -44,9 +44,8 @@ const check = (name, ok, detail) => {
  */
 const M = (...p) => p.join('/');
 const ZERO_COVERAGE_WHY = {
-  [M('lib', 'scene-manifest.js')]: '已退役（`verify-retired-lines` 盯的是"不许复活"而不是"行为正确"）—— 它的守卫是**反向**探针，不读本文件',
   [M('lib', 'webwallgl', 'assets', 'modulepreload-polyfill-B5Qt9EMX.js')]: 'vendored 第三方副本（不许改；同步走 `test/tools/sync-webwallgl.mjs`）—— 只在 `lib/webwallgl/` 内被引用',
-  [M('lib', 'webwallgl', 'assets', 'renderer-DTLW1Gf0.js')]: '同上（WebWallGL 渲染页的构建产物）',
+  [M('lib', 'webwallgl', 'assets', 'renderer-AJkjEL9i.js')]: '同上（WebWallGL 渲染页的构建产物）',
 };
 
 /**
@@ -61,7 +60,6 @@ const ZERO_COVERAGE_WHY = {
 const NO_MODULE_TARGET_WHY = {
   'verify-dead-declarations.mjs': '管的是**声明孤儿**（跨全部独立脚本面），不针对某个模块',
   'verify-route-families.mjs': '管的是**路由族触发线**（枚举口径经 `test/tools/host-route-index.mjs` 的 `buildIndex()` 重算）',
-  'verify-media-bridge.mjs': '媒体桥端到端自检：产物路径是**运行时算出来**的（下载/校验中间件二进制），不引用任何模块',
   'compat-harness-live.mjs': '真 harness 安装/启动探活（不读源文件）',
   'compat-harness-pages.mjs': '无头浏览器逐页 DOM 断言（不读源文件）',
   'compat-harness-surfaces.mjs': 'UI 面清单棘轮 + sidebar 源码活判据（读的是已安装的 harness 包）',
@@ -96,7 +94,7 @@ console.log('\n① 每个模块都要有守卫碰过它（例外表只许缩小�
   check('negative control: 新模块没守卫时会被同一条判据判出',
     probe.filter((m) => !allowed.has(m)).length === 1);
   check('positive control: 已登记的例外不算未登记',
-    ['lib/scene-manifest.js'].filter((m) => !allowed.has(m)).length === 0);
+    [M('lib', 'webwallgl', 'assets', 'renderer-AJkjEL9i.js')].filter((m) => !allowed.has(m)).length === 0);
 }
 
 // ═══ ② 生成物新鲜 ════════════════════════════════════════════════════════════

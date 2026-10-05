@@ -300,6 +300,12 @@ function main() {
   const REQUIRED = [
     { label: 'composer card / its ::before', token: '[data-composer-card]' },
     { label: 'message bubble', token: '[class*="_bubble"]' },
+    // 轨迹（trajectory）视图的内容区：模块自带零 backdrop-filter（实测 289 条规则里没有一条），
+    // 它的容器只有 --dsw-alias-bg-layer-1 给的**半透明底** ⇒ 在壁纸上是一层平涂的纱。
+    // 这三条选择器是给它补霜的那条规则（用户口径："轨迹内容区域也同样做玻璃化"）。
+    { label: 'trajectory table pane (frost)', token: '[class*="_tablePane"]' },
+    { label: 'trajectory overview preview (frost)', token: '[class*="_overviewPreview"]' },
+    { label: 'trajectory program panel (frost)', token: '[class*="_programPanel"]' },
   ];
   const missing = REQUIRED.filter((req) => ![...carriers.values()]
     .some((c) => c.tokens.some((t) => t === req.token)));
@@ -390,6 +396,135 @@ function main() {
     'mutated: ' + badFlagged.length + ' on-carrier violations [' + badFlagged.map((v) => v.carrier + ':' + v.prop).join(', ') + ']'
       + ' · clean twin: ' + clean.violations.length + ' violations, ' + clean.carriers.size + ' carriers');
 
+  // ── T1: 轨迹的补霜规则**只补霜**，不叠第二层底 ────────────────────────────
+  // 为什么不许叠：那条规则底下的父层已经拿到玻璃配方（--dsw-alias-bg-layer-1）。
+  // 再写一层 background-color = 两层可读性下限相乘（0.494 → 0.744），正好把这次
+  // 想要的通透收回去 —— 这是本改动唯一容易走反的地方，所以钉住。
+  const TRAJ_TOKENS = ['[class*="_tablePane"]', '[class*="_overviewPreview"]', '[class*="_programPanel"]'];
+  /** 返回**叠了底**的轨迹选择器（真判据；负对照共用）。 */
+  const trajVeilStackers = (cssText) => {
+    const parsed = analyze(cssText);
+    const bad = [];
+    for (const r of parsed.rules) {
+      if (r.inSupports) continue;
+      for (const sel of r.selectors) {
+        const cps = compounds(sel);
+        if (!cps.length) continue;
+        const last = cps[cps.length - 1];
+        if (!TRAJ_TOKENS.some((t) => containsToken(last, t))) continue;
+        const bf = declValue(r.body, 'backdrop-filter') || declValue(r.body, '-webkit-backdrop-filter');
+        if (!bf || /^none\b/i.test(bf)) continue;              // 只看 blur carrier 那条
+        if (/background(?:-color)?\s*:/i.test(r.body)) bad.push(sel);
+      }
+    }
+    return bad;
+  };
+  const realStackers = trajVeilStackers(CSS);
+  // 变异按**选择器**定位（不能按声明的空白字面量：产物把内联模块整段缩进过，
+  // 那种锚点在产物上匹配不到 ⇒ 负对照会变成 0 === 0 的假绿）。
+  const mutatedStackers = trajVeilStackers(CSS.replace(
+    /(\[class\*="_tablePane"\][^{]*\{)/,
+    '$1background-color: rgba(255,255,255,0.5);'));
+  check('T1 the trajectory frost rules add ONLY frost (no second background layer: stacking two readability floors would take the transparency back)',
+    realStackers.length === 0 && mutatedStackers.length === 3,
+    'real=' + realStackers.length + ' · mutated(planted background-color)=' + mutatedStackers.length
+      + (realStackers.length ? ' · ' + realStackers.join(', ') : ''));
+
+  // ── S1: 侧栏「跟随全局」⇒ 两侧栏同一条配方 ─────────────────────────────────
+  // 现场口径："我需要侧栏玻璃也跟随全局"（此前左栏中性 63%/10px、右栏青色 76%/37px）。
+  // 跟随的实现**不是把数值抄过去**，而是把侧栏那一套变量**指向**全局三件套（var() 惰性替换）
+  // ⇒ 判据也只能这么判：把跟随映射代进两侧栏的声明里，归一化之后必须**逐字相等**
+  //（同一层下限 + 同一个染色源 + 同一个色染权重）。
+  const followBranch = SRC.match(/if \(selection\.sidebarFollowGlobal\) \{([\s\S]*?)\} else \{/);
+  const followBody = followBranch ? followBranch[1] : '';
+  const FOLLOW_MAP = [
+    ['--we-sidebar-blur', 'var(--we-blur)'],
+    ['--we-sidebar-saturate', 'var(--we-saturate)'],
+    ['--we-sidebar-tint', 'calc(var(--we-glass-alpha) * 100%)'],
+    ['--we-sidebar-color', 'var(--we-follow-tint)'],
+  ];
+  const declaredFollow = FOLLOW_MAP.every(([k, v]) => followBody.includes('setProperty("' + k + '", "' + v + '")'));
+  check('S1a 跟随全局那一支把侧栏变量指向全局三件套（模糊 / 饱和 / 色染权重 / 底色四处，引用而非拷贝）',
+    declaredFollow && /data-we-sidebar-follow/.test(SRC),
+    declaredFollow ? FOLLOW_MAP.map((x) => x[0]).join(' ') + ' · 另有 body 属性' : '跟随分支缺失或不完整');
+
+  /** 把「跟随态」的映射代进声明，再去掉 fallback 与空白 —— 便于逐字比较。 */
+  const normalizedRecipe = (decl) => String(decl || '')
+    .replace(/var\(--we-sidebar-color(?:,\s*[^)]*)?\)/g, 'var(--we-follow-tint)')
+    .replace(/var\(--we-sidebar-tint(?:,\s*[^)]*)?\)/g, 'calc(var(--we-glass-alpha) * 100%)')
+    .replace(/var\(--we-surface-tint-(?:light|dark)(?:,\s*[^)]*)?\)/g, 'var(--we-follow-tint)')
+    .replace(/var\(--we-glass-alpha(?:,\s*[^)]*)?\)/g, 'var(--we-glass-alpha)')
+    // 侧栏那条带 !important（它要顶掉宿主/内层面板的底），左栏那条不带 —— 那是"谁压谁"
+    // 的写法差异，不是配方差异，归一化时抹掉。
+    .replace(/!important/g, '')
+    .replace(/\s+/g, '');
+  const bgOf = (needle, extra) => {
+    const r = rules.find((x) => x.header.includes(needle) && (!extra || x.header.includes(extra))
+      && declValue(x.body, 'background-color'));
+    return r ? declValue(r.body, 'background-color') : '';
+  };
+  const panelBg = bgOf('[class*="_panel"]', 'data-dsh-better-sidebar');
+  const leftBg = bgOf('div:has(> [data-slot="sidebar"])');
+  // ⚠️ 合并 #132 对本判据的口径修正：WIP 原版要求两侧**色染权重**也逐字相等 ——
+  //    那是 WIP 时代左栏读 `--we-glass-alpha` 的实现。#132 把左栏改成按面独立的
+  //    `--we-left-sidebar-alpha`（位置保持迁移、自己的透明度曲线）⇒ "权重相等"的前提
+  //    被推翻。现场口径（"两侧栏别一个中性一个青色"）里仍成立、仍要钉的是：
+  //      ① 下限层 + 染色源两侧逐字同源（两侧各自的色染权重归一后必须相等）；
+  //      ② 右栏跟随态的权重源 = 全局玻璃透明度（写入侧见 S1a；CSS 侧读 --we-sidebar-tint）；
+  //      ③ 左栏权重源 = 按面 --we-left-sidebar-alpha（#132 的契约，不许悄悄换回去）。
+  const bothWeights = (decl) => String(decl || '')
+    .replace(/calc\(var\(--we-glass-alpha(?:,\s*[^)]*)?\)\s*\*\s*100%\)/g, 'W')
+    .replace(/calc\(var\(--we-left-sidebar-alpha(?:,\s*[^)]*)?\)\s*\*\s*100%\)/g, 'W');
+  const normS1b = (decl) => bothWeights(normalizedRecipe(decl));
+  // 负对照的种植点改在**染色源**上（原种植点是色染权重 —— 权重归一后种植不可见 ⇒ 假绿）：
+  // 把右栏的色染源换成一个归一化碰不到的字面量。
+  const plantedPanel = panelBg.replace('var(--we-sidebar-color)', '#010203');
+  check('S1b 跟随全局下两侧栏**同源**（下限层 + 染色源逐字相等；色染权重按 #132 口径各自独立，另见 S1b-w）',
+    Boolean(panelBg) && Boolean(leftBg) && normS1b(panelBg) === normS1b(leftBg),
+    'panel=' + normS1b(panelBg).slice(0, 96) + ' · left=' + normS1b(leftBg).slice(0, 96));
+  check('S1b 负对照：换掉右栏的染色源（字面量种植）就不再相等 —— 判据有牙',
+    plantedPanel !== panelBg && normS1b(plantedPanel) !== normS1b(leftBg));
+  check('S1b-w 权重源各自钉住：右栏跟随态读 --we-sidebar-tint（随全局玻璃透明度走）、左栏读 --we-left-sidebar-alpha（#132 按面独立）',
+    panelBg.includes('var(--we-sidebar-tint)') && !panelBg.includes('var(--we-glass-alpha')
+      && leftBg.includes('var(--we-left-sidebar-alpha)') && !leftBg.includes('var(--we-sidebar-tint)'),
+    'panel 读=' + (panelBg.includes('var(--we-sidebar-tint)') ? 'sidebar-tint' : '?')
+      + ' · left 读=' + (leftBg.includes('var(--we-left-sidebar-alpha)') ? 'left-sidebar-alpha' : '?'));
+
+  const followTint = CSS.match(/--we-follow-tint:\s*var\(--we-surface-tint-(light|dark),\s*#[0-9a-fA-F]{6}\);/g) || [];
+  const baseDecl = CSS.match(/--we-readability-base:\s*var\(--we-surface-tint-(light|dark),\s*#[0-9a-fA-F]{6}\);/g) || [];
+  check('S1c --we-follow-tint 与 --we-readability-base 同源（两侧栏共用一个按主题钳制后的玻璃色）',
+    followTint.length === 2 && baseDecl.length >= 2
+      && followTint.every((d, i) => d.replace('--we-follow-tint', 'X').replace(/\s+/g, '')
+        === baseDecl[i].replace('--we-readability-base', 'X').replace(/\s+/g, '')),
+    'follow-tint=' + followTint.length + ' · base=' + baseDecl.length);
+
+  const sheenFollow = /body\[data-we-sidebar-follow\]\s*\{[^}]*--we-sidebar-sheen-a:\s*var\(--we-panel-sheen-a\)/.test(CSS);
+  const sheenCustom = /body\[data-we-sidebar-glass\]:not\(\[data-we-sidebar-follow\]\)\s*\{[^}]*--we-sidebar-sheen-a:\s*calc\(var\(--we-sidebar-sheen(?:,\s*1)?\) \* 0\.14\)/.test(CSS);
+  const panelUsesSheenVars = /background-image:[^;]*var\(--we-sidebar-sheen-a/.test(CSS);
+  check('S1d 侧栏的釉分两档：跟随态取与左栏同一道（--we-panel-sheen-*），自定义态保留旧曲线；面板声明读新变量',
+    sheenFollow && sheenCustom && panelUsesSheenVars,
+    'follow=' + sheenFollow + ' custom=' + sheenCustom + ' panel=' + panelUsesSheenVars);
+
+  // ── S2: 玻璃面**自己的外沿发丝线**改为不画 ──────────────────────────────────
+  // 现场口径："左侧边栏右边框线不要显示，即使全局设置了边框拉到了90%"。
+  // 那条线此前是**刻意补**的（darwin 壳层把原生竖分割线置 none，补回来图个与其余面板口径一致）；
+  // 现在这一列已是一整块玻璃，再画一条竖线就把它与会话区切成两半 ⇒ 显式 none。
+  // ⚠️ 判据看的是**声明**而不是"有没有那行"：只删声明的话，非 darwin 壳层自己那条读
+  // --dsw-alias-border-l3 的边框会在别的平台上回来 —— 所以必须是 none，且不许再跟滑杆联动。
+  const leftColRule = rules.find((r) => r.header.includes('div:has(> [data-slot="sidebar"])')
+    && declValue(r.body, 'background-color'));
+  const leftBorder = leftColRule ? declValue(leftColRule.body, 'border-right') : null;
+  /** 判据：这一列的 border-right 是不是"明确不画"。 */
+  const hairlineRemoved = (decl) => decl !== null && decl !== undefined && /^none\b/i.test(String(decl).trim());
+  check('S2 左侧栏液态玻璃不再画那一列的竖分割线（显式 none，而不是"删掉声明"）',
+    hairlineRemoved(leftBorder) && !/--we-border-alpha/.test(String(leftBorder)),
+    'border-right=' + String(leftBorder));
+  check('S2 负对照：把随「边框」滑杆变浓淡的那条发丝线种回去，同一条判据必须判红',
+    hairlineRemoved('0.5px solid rgba(180, 180, 180, var(--we-border-alpha, 0.35))') === false
+      && hairlineRemoved(null) === false);
+  check('S2b 只去掉外沿：「边框」滑杆对这一列**内部**的描边仍然生效（--dsw-alias-border-l3 映射保留）',
+    Boolean(leftColRule) && /--dsw-alias-border-l3:\s*rgba\(180, 180, 180, var\(--we-border-alpha/.test(leftColRule.body),
+    leftColRule ? '映射在场' : '取不到左栏规则');
 
   // ── S2c: 左栏的模糊必须在 ::before 上（issue #131：fixed 包含块）────────────
   // CSS 规范：非 none 的 backdrop-filter 会让元素成为**其后代 position:fixed 元素的

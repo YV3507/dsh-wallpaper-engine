@@ -43,12 +43,48 @@
 - **真源 = `fontsets/<活动 id>.json`**：**随包层** `lib/fontsets/`（只读）+ **用户层**
   `<pluginDataDir>/fontsets/`，同 id **用户层胜**；改随包那份会**写时复制**成用户层的一份，
   删掉它即"恢复原样"。
-- `config.json` 里只留根字段（活动字体集 id 与自定义项）—— **六个字体键不在 settings 的持久化
+- `config.json` 里只留根字段（活动字体集 id 与自定义项）—— **字体键不在 settings 的持久化
   白名单里**：它们由 `lib/settings-schema.js` 的 `FONTSET_KEYS` 定义 kind 元数据，
   客户端 [`src/fontset-store.js`](../src/fontset-store.js) 与宿主
   [`lib/routes/fontsets.js`](../lib/routes/fontsets.js) **共用同一份**做消毒。
+  ⚠️ **加键是加性的**（老文件缺键 ⇒ 消毒时回落默认值，`FONTSET_SCHEMA_VERSION` 不随加键升 ——
+  升版本会让所有已导出的 `.json` 变成"读不懂"）。
 - **写回是设计的一部分**：面板里改任何一个字体项都只落到**当前这一套**；导入导出按整份 `.json` 走
   （导出用宿主响应头 + 普通链接 ⇒ 桌面端即系统"另存为"）。
+
+## 字族的两类值与"全局"槽
+
+字族（family）这一项与别的项不同：它的取值域**不是一张固定白名单**。
+
+- **内置族键**：`FONT_FAMILY_VALUES` 里那几个（雅黑 / 楷体 / 宋体 / 黑体 / 行楷 / 等宽 / 默认），
+  CSS 栈写死在客户端 `FONT_FAMILY_STACKS`。
+- **本机字体键 `sys:<族名>`**：清单由**宿主枚举**（[`lib/routes/system-fonts.js`](../lib/routes/system-fonts.js)），
+  客户端通道是 [`src/system-fonts.js`](../src/system-fonts.js)。为什么问操作系统而不是自己解析字体文件，
+  见 [`adr/0009`](./adr/0009-system-fonts-from-the-os.md)。⚠️ **同一个字体可能有两个键**：macOS 上
+  本地化名（`苹方-简`）与规范名（`PingFang SC`）**都在**清单里 —— 两条腿并行、名字取并集，
+  这是刻意的（用户可能只认得其中一种；原生 `<select>` 的首字母跳转按**选项文本**匹配，
+  合成一行反而两边都跳不到）。
+   ⚠️ 而**系统列出的族名 ≠ 浏览器能匹配的族名**：本机实测 309 个里有 64 个取不到
+  （系统保留字体 `Apple Color Emoji` / `Symbol` / `Zapf Dingbats`、以及 `苹方-繁` 这类同一字体的
+  另一种写法）。⇒ 客户端在**渲染下拉时**过一道 `filterUsableSystemFonts`（`src/system-fonts.js`：
+  同名分别配 monospace / serif 量同一段拉丁文字，宽度相同才算能匹配），只把**真的能用**的名字
+  摆出来；量不到（替身 DOM）时**原样放行**。
+- **两类都只存"键"，不存 CSS 栈**：栈（引号 + fallback 链）由客户端的 `fontFamilyStack` 现拼
+  —— 本机字体那条链是 `"<族名>", var(--we-host-font-family, <保底>)`，其中
+  `--we-host-font-family` 是**开写之前**的 DSH 字族快照（`font/apply.js` 取）。
+  历史值（F3 之前组件字体存的就是解析后的栈）解析侧照样认 ⇒ 老字体集零迁移。
+- **全局字族槽**（`globalFamily`）是**默认**而不是强制：它写 DSH 的基准令牌
+  `--dsw-font-family`，并**只**落在"本来就被接管"的角色上（用户改过该角色字号/字重）——
+  见 `typography.js` 的 `buildTypePayload`。**挑一个全局字体不许改动任何角色的字号。**
+  面板上「终端字体」那一行写的就是 `componentFonts.terminal.family` 这个键（两处入口、一份值）。
+  **这一个键投到两个终端上**：① DSH 对话里的终端块 —— 官方 `--dsl-terminal-font` 钩子；
+  ② 侧栏 / SSH 的终端面板（`@linxin666/dsh-ssh` 的 xterm）—— 它给**皮肤**留的
+  `--dsh-ssh-terminal-font`（xterm 的字体只从选项来，普通 CSS 规则改不动）。
+  ⚠️ 后者两个坑都要绕开：① **值必须是摊平过的具体字体列表**（不能含 `var()` —— 它会被当字符串
+  交给 `fontFamily`），走 `fontFamilyStackConcrete`；② **投递时机**——那个插件**只在构造终端的那一刻**
+  读该变量（之后只有它自己的设置变化才重读），而我们的权威值要等宿主异步回话 ⇒ 由
+  `applyTerminalHostVar` 写成 **body 上的内联属性**，并在**正文顶层先抢跑一次**（用同步可读的
+  本地缓存），抢在别的插件构造终端之前。
 
 ## 加一个新角色 / 新组件时要动的地方
 

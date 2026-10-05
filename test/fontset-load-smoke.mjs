@@ -46,19 +46,20 @@ const React = { Fragment: 'Fragment', useState: (init) => [typeof init === 'func
 //（真机的重渲挂在**插件自己那个根组件**的 effect 上，而台子渲染的是 `slots.register` 的渲染器）。
 // 那个契约由 `verify-client` 的 ①f 从源码面钉住（令牌动作必须每次都通知 + 收起分支必须走它）。
 
-/** 宿主那份活动集（六个键齐全 —— 宿主永远给全）。 */
+/** 宿主那份活动集（字体键齐全 —— 宿主永远给全）。 */
 const HOST_VALUES = {
   themeColors: { primary: { light: '#112233', dark: '#aabbcc' } },
   themeDarkSeparate: true,
   themeSize: { 'markdown-h1': 24 },
   themeWeight: { 'markdown-h1': 900 },
   themeFamily: { 'markdown-h1': 'SimSun' },
+  globalFamily: 'sys:PingFang SC',
   componentFonts: { markdown: { size: 15 } },
 };
 /** 本地缓存里"上次那份"（与宿主那份**明显不同**，才能分辨谁赢了）。 */
 const CACHED_VALUES = {
   themeColors: {}, themeDarkSeparate: false, themeSize: { 'markdown-h1': 19 },
-  themeWeight: {}, themeFamily: {}, componentFonts: {},
+  themeWeight: {}, themeFamily: {}, globalFamily: '', componentFonts: {},
 };
 const CACHE_KEY = 'we-fontset-active';
 
@@ -206,16 +207,16 @@ const waitBoot = () => new Promise((r) => setTimeout(r, 50));
   check('顺序 = settings → 字体集清单 → 活动那份 → 库存',
     iSettings >= 0 && iSettings < iList && iList < iOne && iOne < iInv, 'idx=' + [iSettings, iList, iOne, iInv].join(','));
   const cacheA = JSON.parse(shared[CACHE_KEY] || 'null');
-  check('宿主那份被整套采用（本地缓存 = 活动 id + 六个键，与宿主逐键相同）',
+  check('宿主那份被整套采用（本地缓存 = 活动 id + 全部字体键，与宿主逐键相同）',
     cacheA && cacheA.id === 'compact'
     && JSON.stringify(Object.keys(cacheA.values).sort()) === JSON.stringify(Object.keys(HOST_VALUES).sort())
     && JSON.stringify(cacheA.values) === JSON.stringify(HOST_VALUES),
     JSON.stringify(cacheA && { id: cacheA.id, size: cacheA.values && cacheA.values.themeSize }));
   check('启动期不发生任何字体集写入（载入 ≠ 落盘）',
     a.requests.every((r) => !(r.method === 'PUT' && r.url.includes('/fontsets'))), order.filter((x) => x.startsWith('PUT')).join(' | '));
-  check('启动期的 PUT /settings 体里没有字体键（那六个键已不走这条通道）',
+  check('启动期的 PUT /settings 体里没有字体键（字体键已不走这条通道）',
     a.requests.filter((r) => r.method === 'PUT' && r.url.includes('/settings'))
-      .every((r) => !/themeColors|themeSize|themeWeight|themeFamily|componentFonts|themeDarkSeparate/.test(String(r.body || ''))),
+      .every((r) => !/themeColors|themeSize|themeWeight|themeFamily|globalFamily|componentFonts|themeDarkSeparate/.test(String(r.body || ''))),
     a.requests.filter((r) => r.method === 'PUT').map((r) => r.url).join(' | ') || '(无 PUT)');
 
   // ── 场景 B：宿主读不出来 —— 不写回、不编造（缓存保持上次那份）────────────────
@@ -233,7 +234,7 @@ const waitBoot = () => new Promise((r) => setTimeout(r, 50));
 
   // ── 场景 C：全新安装 + 整条通道不可用 —— 不凭空造一份缓存 ────────────────────
   //    ⚠️ 这里刻意带上**设置缓存**（= 升级后的真实状态：localStorage 里有设置、但没有字体集缓存）。
-  //    那正是"点『字体自定义』白屏"复现所需的条件：`readPersisted()` 走消毒分支 ⇒ 不再提供那六个
+  //    那正是"点『字体自定义』白屏"复现所需的条件：`readPersisted()` 走消毒分支 ⇒ 不再提供那些
   //    字体键，而字体集又读不出来 ⇒ 靠 selection 初始化里的兜底顶着。挂载不抛 = 兜底在位。
   console.log('C. 有设置缓存 + 没有字体集缓存 + 清单都拿不到：挂载不抛、不凭空造缓存');
   const fresh = {
@@ -244,7 +245,7 @@ const waitBoot = () => new Promise((r) => setTimeout(r, 50));
   await waitBoot();
   check('没有缓存时不写出任何缓存（也就不会把"默认值"伪装成用户的那份）',
     fresh[CACHE_KEY] === undefined, String(fresh[CACHE_KEY]));
-  check('挂载/启动不抛（六个键的兜底在位 ⇒ 面板与令牌层的取值路径拿到的都是对象）',
+  check('挂载/启动不抛（字体键的兜底在位 ⇒ 面板与令牌层的取值路径拿到的都是对象）',
     mountThrew === '', mountThrew || 'fontCustom=true + 无字体集缓存 + 宿主读不出来');
 
   // ── 共用驱动器：点开「字体集预设」子分支 + 读面板文案（D/E/F/G 都要用）──────────
@@ -481,6 +482,7 @@ const waitBoot = () => new Promise((r) => setTimeout(r, 50));
       themeSize: { 'markdown-h1': 30 },
       themeWeight: {},
       themeFamily: {},
+      globalFamily: '',
       componentFonts: {},
     };
     let active = 'compact';

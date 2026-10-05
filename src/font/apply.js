@@ -14,14 +14,20 @@
  *   componentScopeSelector() ← 同上（id → 作用域选择器；**id→作用域的映射只有那一处**）
  *   buildComponentCss()      ← 同上（tokens 通道：写真实属性）
  *   buildDslBlocks()         ← 同上（hooks 通道：写官方 --dsl-* 钩子）
+ *   fontFamilyStack()        ← src/client.js（族键 → CSS 栈）。本文件把**解析函数**传进上面两个
+ *                              纯计算函数 —— 族键的值域是共享内核的事，components.js 不认它。
+ *   fontFamilyStackConcrete()← src/client.js（**摊平**版：给"值会被当字符串读走"的下游用 ——
+ *                              xterm 把它当 `fontFamily` 字符串，不认 `var()`）
  *   selection                ← src/client.js 的设置/选中项 store（**只读**）
  * 对外提供：componentFontDefaults（面板显示默认值）/ snapshotHostFontDefaults /
- *          removeFontStyles / applyComponentFonts / removeComponentFonts。
+ *          removeFontStyles / applyComponentFonts / removeComponentFonts /
+ *          applyTerminalHostVar（dsh-ssh 终端面板那条钩子；**正文要在顶层先调它一次** —— 时机，见其注释）。
  *
  * 不变量：
  *   · **只读 selection、不写它** —— 写设置是 UI 处理器与 apply(ctx) 的事。
- *   · 只碰两处 DOM：`#we-font-scope` 这个 `<style>`，以及 documentElement 上的 `--we-host-*`；
- *     两者都必须能成对清除（`removeComponentFonts` / `removeFontStyles`）。
+ *   · 只碰三处 DOM：`#we-font-scope` 这个 `<style>`、documentElement 上的 `--we-host-*`、
+ *     以及 **body 上的一个内联属性 `--dsh-ssh-terminal-font`**（所有三处都必须能成对清除：
+ *     `removeComponentFonts` / `removeFontStyles` / `applyTerminalHostVar` 的清除分支）。
  *   · 出错一律咽掉：字体自定义是增强，任何异常都不该影响主路径。
  *   · 本文件必须浏览器安全（无 import / require / Node API），且**不得有顶层可执行语句**
  *     —— 它被内联到 bundle 顶部（早于 client.js 正文），顶层读正文里的 const 会撞 TDZ。
@@ -40,6 +46,19 @@ const WE_HOST_TOKENS = [
   "--dsw-alias-label-tertiary",
   "--dsw-alias-label-dimmed",
 ];
+
+/**
+ * **宿主字族快照**：本机字体（`sys:` 键）解析出的栈是 `"<族名>", var(--we-host-font-family, …)`
+ * —— 也就是"选中的字体在前，DSH 原来那条字族链在后"。这条链必须**在我们写任何字族之前**
+ * 取下来（写完再取就是自己），所以它跟着 `snapshotHostFontDefaults` 一起做（同一个
+ * "已快照则跳过"的幂等门）。
+ *
+ * 为什么不在插件里写死一条 fallback 链：那条链是 DSH 的决定（中文/等宽的退路都在里面），
+ * 抄一份到这里就会在下一次 DSH 调整时漏改。快照取不到（令牌不在 / 样式表读不到）时才用
+ * `FONT_STACK_FALLBACK`（在 src/client.js）—— 那条只是"别让字掉成衬线体"的保底。
+ */
+const WE_HOST_FAMILY_TOKEN = "--we-host-font-family";
+const WE_HOST_FAMILY_SOURCE = "--dsw-font-family";
 
 /**
  * 组件级字体：把 `body [class*="_<模块名>_"]` 的覆盖写进 `#we-font-scope`。
@@ -107,20 +126,53 @@ function fontScopeEl() {
   }
   return st;
 }
+/**
+ * **dsh-ssh 终端面板的字体**：那个插件给皮肤留的官方钩子 `--dsh-ssh-terminal-font`。
+ *
+ * 为什么不能只靠普通 CSS：那个面板是 **xterm**，字体只从构造参数/选项来（它源码原话：
+ * "a plain stylesheet rule cannot retarget it"）。它读的位置是 `getComputedStyle(document.body)`。
+ *
+ * ⚠️ **时机是这一条的全部要害**（现场症状："重启了还是口"）：那个插件**只在构造终端的那一刻**读
+ * 这个变量，之后**只有它自己的设置变化**才重读（源码：`useEffect(…, [fontOverride])`）。而我们的
+ * 样式表要等宿主把设置 / 字体集异步读回来才写得出来 —— 终端往往在那之前就建好了，于是它一辈子
+ * 用着兜底字体。所以本函数有**两个调用点**：
+ *   · **同步的早期一次**：`src/client.js` 正文在 store 建好之后立刻调（值来自 localStorage 里那份
+ *     字体集缓存）—— 抢在别的插件构造终端之前；
+ *   · **宿主回话之后**：`applyComponentFonts()` 里再写一遍权威值。
+ * 写的是 **body 上的内联属性**（不是样式表规则）：内联优先级最高，它读到的就是我们写的那个值。
+ * 值必须是**摊平的具体字体列表**（xterm 把它当 `fontFamily` 字符串用，`var()` 在里面不是函数）。
+ */
+function applyTerminalHostVar() {
+  try {
+    if (typeof document === "undefined" || !document.body || !document.body.style) return;
+    const cfg = selection && selection.componentFonts && typeof selection.componentFonts === "object"
+      ? selection.componentFonts : null;
+    const key = cfg && cfg.terminal && typeof cfg.terminal.family === "string" ? cfg.terminal.family.trim() : "";
+    const stack = selection && selection.fontCustom === true && key ? fontFamilyStackConcrete(key) : "";
+    if (stack && stack !== "inherit") document.body.style.setProperty("--dsh-ssh-terminal-font", stack);
+    else document.body.style.removeProperty("--dsh-ssh-terminal-font");
+  } catch { /* 终端字体是增强：任何异常都不该影响主路径 */ }
+}
 function applyComponentFonts() {
   try {
     const cfg = selection.componentFonts && typeof selection.componentFonts === "object"
       ? selection.componentFonts : {};
     const { ids, hookScopes, hasToken } = componentFontAvailability();
-    const css = buildComponentCss(cfg, ids) + buildDslBlocks(cfg, ids, hasToken, hookScopes);
+    // 族值自本版起是**族键**（内置键或 `sys:` 本机字体键）⇒ 两条通道都要经 fontFamilyStack
+    // 解析成 CSS 栈。解析函数由这里显式传进去：components.js 是纯计算，不认族键值域。
+    const css = buildComponentCss(cfg, ids, fontFamilyStack)
+      + buildDslBlocks(cfg, ids, hasToken, hookScopes, fontFamilyStack);
     const st = fontScopeEl();
     if (st.textContent !== css) st.textContent = css;
+    // dsh-ssh 的终端面板不在上面这张样式表里（xterm 不吃 CSS 规则）—— 它走 body 上的内联变量。
+    applyTerminalHostVar();
   } catch { /* 组件字体是增强：任何异常都不该影响主路径 */ }
 }
 function removeComponentFonts() {
   try {
     const st = document.getElementById("we-font-scope");
     if (st) st.textContent = "";
+    applyTerminalHostVar(); // fontCustom 已关 ⇒ 这里会把它一并撤掉（让位给 dsh-ssh 自己的取值链）
   } catch { /* ignore */ }
 }
 
@@ -132,24 +184,34 @@ function snapshotHostFontDefaults() {
     for (const t of WE_HOST_TOKENS) {
       if (!es.getPropertyValue("--we-host-" + t.slice(2))) { need = true; break; }
     }
-    if (!need) return;
+    if (!need && es.getPropertyValue(WE_HOST_FAMILY_TOKEN)) return;
     const bodyCs = getComputedStyle(document.body);
     for (const t of WE_HOST_TOKENS) {
       const v = bodyCs.getPropertyValue(t).trim();
       if (v) es.setProperty("--we-host-" + t.slice(2), v);
     }
+    // 字族快照单独一门：**取到空值就当没取到**（写一个空的自定义属性会让
+    // `var(--we-host-font-family, 兜底)` 解析成空 ⇒ 整条 font-family 变成坏声明）。
+    if (!es.getPropertyValue(WE_HOST_FAMILY_TOKEN)) {
+      const fam = bodyCs.getPropertyValue(WE_HOST_FAMILY_SOURCE).trim();
+      if (fam) es.setProperty(WE_HOST_FAMILY_TOKEN, fam);
+    }
   } catch { /* ignore */ }
 }
 
 function removeFontStyles() {
-  // 全局字体配置已不存在 ⇒ 这里只清角色色快照（下次开启重新取；期间可能切了主题）。
+  // 全局字体配置已不存在 ⇒ 这里只清宿主快照（下次开启重新取；期间可能切了主题）。
+  // 字族那份必须一起清：留着它，用户换主题/换 DSH 字号后新取的快照就永远不会生效。
   try {
     const es = document.documentElement.style;
     for (const t of WE_HOST_TOKENS) es.removeProperty("--we-host-" + t.slice(2));
+    es.removeProperty(WE_HOST_FAMILY_TOKEN);
   } catch { /* ignore */ }
 }
 
 export {
-  WE_HOST_TOKENS, componentFontAvailability, componentFontDefaults, fontScopeEl,
+  WE_HOST_TOKENS, WE_HOST_FAMILY_TOKEN, WE_HOST_FAMILY_SOURCE,
+  componentFontAvailability, componentFontDefaults, fontScopeEl,
   applyComponentFonts, removeComponentFonts, snapshotHostFontDefaults, removeFontStyles,
+  applyTerminalHostVar,
 };

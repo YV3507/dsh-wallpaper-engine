@@ -24,7 +24,7 @@
  */
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync, readdirSync, symlinkSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Readable, Writable } from 'node:stream';
 import { execFileSync } from 'node:child_process';
@@ -401,12 +401,28 @@ writeFileSync(join(webDir, 'index.html'), [
 writeFileSync(join(webDir, 'style.css'), '#app{color:#fff}');
 writeFileSync(join(webDir, 'app.js'), 'window.__fixtureWeb=true;');
 writeFileSync(join(webDir, 'preview.jpg'), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+// A TRUE loose-directory scene fixture (WebWallGL 2.1.0 松散目录形态)：project.json
+// 声明 .json 入口，入口 json 与同级素材**散放在盘上** —— 整个目录没有任何 scene.pkg。
+// 渲染器 auto 档按 project.json.file 后缀判 loose、拉入口与同级素材；宿主必须给它
+// 发 live token（旧「live render is pkg-only」门把这些壁纸整体关死 = 用户报障形态）。
+const looseDir = join(fixtureRoot, 'steamapps', 'workshop', 'content', '431960', '990005');
+mkdirSync(looseDir, { recursive: true });
+const looseSceneJson = Buffer.from(JSON.stringify({ objects: [{ image: 'main.tex' }] }));
+const looseTexBytes = buildTexRgba(24, 24, noiseRgba(24));
+writeFileSync(join(looseDir, 'scene.json'), looseSceneJson);
+writeFileSync(join(looseDir, 'main.tex'), looseTexBytes);
+writeFileSync(join(looseDir, 'project.json'), JSON.stringify({
+  title: 'Loose Fixture Scene', type: 'scene', file: 'scene.json', preview: 'preview.jpg',
+  contentrating: 'Everyone',
+}));
+writeFileSync(join(looseDir, 'preview.jpg'), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
 process.env.DSH_WE_STEAM_ROOT = fixtureRoot;
 
 const invRoute = routes.find((r) => r.path === '/wallpaper-engine/inventory');
 const filesRoute = routes.find((r) => r.path === '/wallpaper-engine/scene-files');
 check('scene-files route registered', Boolean(filesRoute), filesRoute ? 'kind=' + filesRoute.kind : 'missing');
 let fixture = null;
+let looseFixture = null;
 if (invRoute) {
   const res = await runHandler(invRoute, '/wallpaper-engine/inventory', FENCE_HEADERS);
   const body = JSON.parse(res.__state.body.toString('utf8'));
@@ -420,6 +436,19 @@ if (invRoute) {
   check('inventory 给场景载荷端出宿主自己的源（sceneMediaBase）',
     typeof body.sceneMediaBase === 'string' && /^http:\/\/127\.0\.0\.1:\d+$/.test(body.sceneMediaBase || ''),
     'sceneMediaBase=' + (body.sceneMediaBase || '(空)'));
+  // 松散目录场景（file=scene.json，盘上没有 scene.pkg）：WebWallGL 2.1.0 起渲染器
+  // 自判形态，宿主必须照发 live token —— 这三条就是「松散场景壁纸无法实时渲染」
+  // 的回归闸门（修复前 sceneLive=false / sceneLiveSrc=null，直接判红）。
+  looseFixture = (body.wallpapers || []).find((w) => w.type === 'scene' && w.title === 'Loose Fixture Scene') || null;
+  check('松散目录场景列在 inventory', Boolean(looseFixture), looseFixture ? looseFixture.id : 'not found');
+  check('松散目录场景也标 sceneLive=true + sceneLiveSrc（pkg-only 旧门会把这两项关死）',
+    Boolean(looseFixture && looseFixture.sceneLive === true && typeof looseFixture.sceneLiveSrc === 'string' && looseFixture.sceneLiveSrc),
+    looseFixture ? 'sceneLive=' + looseFixture.sceneLive : '-');
+  check('松散 token 解开 = 入口 json 绝对路径（token 契约：站点根 = 其所在目录，渲染器据此拉 project.json）',
+    Boolean(looseFixture && looseFixture.sceneLiveSrc)
+      && Buffer.from(looseFixture.sceneLiveSrc, 'base64url').toString('utf8').endsWith(sep + 'scene.json'),
+    looseFixture && looseFixture.sceneLiveSrc
+      ? 'token→' + Buffer.from(looseFixture.sceneLiveSrc, 'base64url').toString('utf8') : '-');
 }
 if (filesRoute && fixture && fixture.sceneLiveSrc) {
   const token = fixture.sceneLiveSrc;
@@ -546,6 +575,31 @@ if (filesRoute && fixture && fixture.sceneLiveSrc) {
 
   const nosubRes = await runHandler(filesRoute, `/wallpaper-engine/scene-files/${token}/`);
   check('missing subpath → 404', nosubRes.__state.status === 404, 'status=' + nosubRes.__state.status);
+}
+
+// ── 松散目录场景的 /scene-files 供文件链（WebWallGL 2.1.0 loose 形态）────────────
+// 渲染器 auto 档先试 sceneDir：拉 <root>/project.json → file 以 .json 结尾 ⇒ loose，
+// 再拉 <root>/<file>（入口 json）与同级素材。这里逐件钉 200 + 字节一致，并钉「目录里
+// 没有 scene.pkg ⇒ 404」的负对照 —— 若 token→根 的映射坏了，auto 回退链就可能拿到
+// 假 200，渲染器会按错误口径解析而不是失败。
+if (filesRoute && looseFixture && looseFixture.sceneLiveSrc) {
+  const lt = looseFixture.sceneLiveSrc;
+  const loosePj = await runHandler(filesRoute, `/wallpaper-engine/scene-files/${lt}/project.json`);
+  let loosePjOk = false;
+  try { loosePjOk = loosePj.__state.status === 200 && JSON.parse(loosePj.__state.body.toString('utf8')).file === 'scene.json'; } catch { /* leave false */ }
+  check('松散：project.json 200 + file=scene.json（渲染器的形态判据就在这个字段上）',
+    loosePjOk, 'status=' + loosePj.__state.status);
+  const looseEntry = await runHandler(filesRoute, `/wallpaper-engine/scene-files/${lt}/scene.json`);
+  check('松散：入口 scene.json 200 + 字节一致',
+    looseEntry.__state.status === 200 && looseEntry.__state.body.equals(looseSceneJson),
+    'status=' + looseEntry.__state.status);
+  const looseAsset = await runHandler(filesRoute, `/wallpaper-engine/scene-files/${lt}/main.tex`);
+  check('松散：同级素材 main.tex 200 + 字节一致（sceneDir 的 read 就走这条）',
+    looseAsset.__state.status === 200 && looseAsset.__state.body.equals(looseTexBytes),
+    'status=' + looseAsset.__state.status);
+  const loosePkg404 = await runHandler(filesRoute, `/wallpaper-engine/scene-files/${lt}/scene.pkg`);
+  check('松散负对照：目录里没有 scene.pkg ⇒ 404（不是 200 的假容器）',
+    loosePkg404.__state.status === 404, 'status=' + loosePkg404.__state.status);
 }
 
 // ── Level C3: web wallpapers over /scene-files ──────────────────────────────
@@ -1269,9 +1323,109 @@ for (const [name, ok] of clientChecks) check(name, ok);
     /file:\s*'src\/live-layer\.js'/.test(build)
     && (bundle.match(/function syncLayers\(\)/g) || []).length === 1);
   check('negative control: 未登记的模块名会被判出', !/file:\s*'src\/nope\.js'/.test(build));
+  // ── 资源柱状图（「扩展」一号模块）：两个浏览器侧模块各自的登记与"产物里只有一份" ──
+  // 漏登记 INLINE_MODULES 的失效模式是**静默**的（模块永远不进产物，调用点一到运行期才
+  // ReferenceError，见 §3 的那条警告）⇒ 与 live-layer / panel-tabs 同款判据各来一条。
+  check('metrics-layer.js 已登记进 INLINE_MODULES 且在产物里只有一份',
+    /file:\s*'src\/metrics-layer\.js'/.test(build)
+    && (bundle.match(/function syncMetricsLayer\(\)/g) || []).length === 1
+    // 柱子 / 行名 / 细白横线是**三条独立的绘制路径**（柱子原来那个 metricsPaint 拆成了这三条）——
+    // 混回一份就等于三层又粘上了（正片叠底当场吃掉白字白线），"解耦"这条口径会失效。
+    && (bundle.match(/function metricsPaintBars\(/g) || []).length === 1
+    && (bundle.match(/function metricsPaintLabels\(/g) || []).length === 1
+    && (bundle.match(/function metricsPaintGuides\(/g) || []).length === 1);
+  check('ext-metrics.js 已登记进 INLINE_MODULES 且在产物里只有一份',
+    /file:\s*'src\/ext-metrics\.js'/.test(build)
+    && (bundle.match(/function renderMetricsIsland\(ctx\)/g) || []).length === 1
+    // 描述符与画布层靠 METRICS_SERIES 对接（宿主 SERIES 的同序镜像）⇒ 序列定义的唯一副本
+    // 必须在产物里也在（ext-metrics 拿它画五条显隐开关）。
+    && bundle.includes('const METRICS_SERIES = [')
+    && bundle.includes('metricsShowDisk'));
+  // ── 点击效果与拖尾效果（「扩展」二号模块）：同样两条登记 + "产物里只有一份" ──
+  check('fx-layer.js 已登记进 INLINE_MODULES 且在产物里只有一份',
+    /file:\s*'src\/fx-layer\.js'/.test(build)
+    && (bundle.match(/function syncFxLayer\(\)/g) || []).length === 1
+    && (bundle.match(/function disposeFxLayer\(\)/g) || []).length === 1
+    // 帧循环只有一条：混回两份就是两个 rAF 各画各的、指针各记一份轨迹。
+    && (bundle.match(/function fxFrame\(\)/g) || []).length === 1);
+  check('ext-fx.js 已登记进 INLINE_MODULES 且在产物里只有一份',
+    /file:\s*'src\/ext-fx\.js'/.test(build)
+    && (bundle.match(/function renderFxIsland\(ctx\)/g) || []).length === 1
+    // 两个模块共用**一张**注册表 ⇒ 注册表本身恰好一份、两项都在。漏登记一项的失效模式
+    // 是静默的：屏上就是"这个功能根本不存在"，没有报错、也没有空态提示。
+    && (bundle.match(/function extensionModules\(\)/g) || []).length === 1
+    && bundle.includes('METRICS_EXTENSION_MODULE, FX_EXTENSION_MODULE')
+    && bundle.includes('fxColorMode'));
+  // ── 3D 效果（「扩展」三号模块）：与前两个模块不同 —— 行为层不建 DOM（只写 CSS 变量）──
+  check('parallax-layer.js 已登记进 INLINE_MODULES 且在产物里只有一份',
+    /file:\s*'src\/parallax-layer\.js'/.test(build)
+    && (bundle.match(/function syncParallaxLayer\(\)/g) || []).length === 1
+    && (bundle.match(/function disposeParallaxLayer\(\)/g) || []).length === 1
+    // 位移只有一条帧循环：混回两份就是两个 rAF 各追各的目标，CSS 变量来回打架。
+    && (bundle.match(/function parallaxFrame\(/g) || []).length === 1
+    // 这一层一个节点都不建 —— "顺手 appendChild 一版"是最容易走偏的写法，
+    // 所以在产物层面断言它没有建 DOM 的痕迹（变量型行为层是它的设计要点）。
+    && !bundle.includes('parallaxHost'));
+  check('ext-parallax.js 已登记进 INLINE_MODULES 且在产物里只有一份',
+    /file:\s*'src\/ext-parallax\.js'/.test(build)
+    && (bundle.match(/function renderParallaxIsland\(ctx\)/g) || []).length === 1
+    // 一张注册表、三项都在（漏一版的失效模式是静默的：功能在屏上根本不存在）。
+    && bundle.includes('METRICS_EXTENSION_MODULE, FX_EXTENSION_MODULE, PARALLAX_EXTENSION_MODULE')
+    && bundle.includes('parallaxSmooth'));
+  // ── 宿主取数腿：采样器 + 那一条只读路由（零子进程路径）──────────────────────
+  // 只断言"不拉 PDH 腿"的那条路：测试机不许因为跑守卫而真的起 `typeperf` 常驻进程。
+  const metricsMod = await import(pathToFileURL(join(root, 'lib', 'metrics.js')).href);
+  {
+    const logs = [];
+    const sampler = metricsMod.createMetricsSampler({ log: (m, l) => logs.push([m, l]) });
+    sampler.ensure({ pdh: false }); // 只要 cpu/mem 的客户端不该为 GPU 付一个常驻子进程
+    const body = sampler.payload(5); // n 钳到下限 10
+    const st = sampler.state();
+    sampler.dispose();
+    sampler.ensure({ pdh: false }); // 已废：不许复活
+    check('资源采样器：只要 cpu/mem 时不拉 PDH 腿 · payload 形状与钳位 · dispose 后不复活',
+      body.ok === true && body.intervalMs === metricsMod.SAMPLE_INTERVAL_MS
+      && body.series.map((s) => s.id).join(',') === 'cpu,mem,gpu,net,disk'
+      && body.series.every((s) => s.values.length <= 10)
+      && body.avail.cpu === true && body.avail.mem === true
+      && st.pdh === 'idle' && logs.length === 0
+      && sampler.state().running === false);
+    check('资源采样器负对照：非法 n 不抛错、三条时间常量都在且自停窗口大于采样间隔',
+      Number.isFinite(metricsMod.HISTORY_MAX) && metricsMod.HISTORY_MAX > 0
+      && metricsMod.SAMPLE_INTERVAL_MS > 0
+      && metricsMod.IDLE_STOP_MS > metricsMod.SAMPLE_INTERVAL_MS
+      && metricsMod.createMetricsSampler({}).payload('abc').ok === true);
+  }
+  {
+    const routeMod = await import(pathToFileURL(join(root, 'lib', 'routes', 'metrics.js')).href);
+    const disposers = [];
+    const regs = [];
+    routeMod.registerMetricsRoutes({ register: (r) => { regs.push(r); return () => {}; } },
+      { disposers, base: '/wallpaper-engine', log: () => {} });
+    const res = regs.length === 1 ? await runHandler(regs[0], '/wallpaper-engine/metrics?n=5&s=cpu,mem') : null;
+    let parsed = null;
+    try { parsed = res ? JSON.parse(res.__state.body.toString('utf8')) : null; } catch { parsed = null; }
+    const parts = [
+      ['regs=' + regs.length, regs.length === 1],
+      ['kind=' + (regs[0] && regs[0].kind), Boolean(regs[0]) && regs[0].kind === 'exact'],
+      ['path=' + (regs[0] && regs[0].path), Boolean(regs[0]) && regs[0].path === '/wallpaper-engine/metrics'],
+      ['disposers=' + disposers.length, disposers.length === 2 && typeof disposers[1] === 'function'],
+      ['parsed=' + (parsed ? parsed.series.map((s) => s.id).join(',') : 'null'),
+        Boolean(parsed) && parsed.ok === true && parsed.series.map((s) => s.id).join(',') === 'cpu,mem'],
+      ['clamp=' + (parsed ? parsed.series[0].values.length : '-'),
+        Boolean(parsed) && parsed.series.every((s) => s.values.length <= 10)],
+      // setHeader 的键大小写原样存进 fakeRes ⇒ 这里按路由写的那两个名字取（`h` 只做小写回落）
+      ['ct=' + h(res, 'Content-Type'), h(res, 'Content-Type').indexOf('application/json') === 0],
+      ['cc=' + h(res, 'Cache-Control'), h(res, 'Cache-Control') === 'no-store'],
+    ];
+    check('资源柱状图族：一条 exact 只读路由 · ?s= 过滤序列 · ?n= 钳位 · no-store · 采样器进 disposers',
+      parts.every(([, ok]) => ok), parts.map(([t, ok]) => (ok ? '✓' : '✗') + t).join(' '));
+    disposers.forEach((f) => { try { if (typeof f === 'function') f(); } catch { /* 已收 */ } });
+  }
   // ── 面板页签（C）：渲染器只在 panel-tabs.js，且**只从一个参数取外界** ──
   const TAB_FNS = ['renderWallpaperTab', 'renderAppearanceTab', 'renderAudioTab',
-    'renderMascotTab', 'renderEffectsTab', 'renderAdvancedTab', 'renderAboutTab'];
+    'renderMascotTab', 'renderEffectsTab', 'renderAdvancedTab', 'renderExtensionsTab',
+    'renderAboutTab'];
   check('页签渲染器只在 src/panel-tabs.js（client.js 不留第二份）',
     TAB_FNS.every((n) => !new RegExp('function ' + n + '\\s*\\(').test(src))
     && TAB_FNS.every((n) => tabsSrc.includes('function ' + n + '(ctx) {')));
@@ -1593,24 +1747,27 @@ check('host 侧 /media-control 只收 POST + 动作走 mediaBackend.control（�
     leftoversIn('switchRow("在线歌词", v)').join(',') === '在线歌词'
       && leftoversIn('switchRow("媒体信息", v) && switchRow("系统音频反应", v)').length === 2);
 
-// 用户口径：侧栏壁纸列表支持类型筛选（全部 / 场景 / 网页 / 视频 / 图片）—— 面板本地、
-// **瞬态**（setTransient 不经设置落盘；设置页的「类型」过滤另有一条，筛设置页列表与
-// 轮播候选，两者互不影响、都只筛「列表」）。「图片」是后补的一档（上传的单文件图片
-// 壁纸）：判据按**同一份档位表**逐档核对，再加一条负对照 —— 少一档必须被判红
-//（此前"四档齐全"写的是"这四档都在"，补一档不会红，也就没有覆盖）。
+// 用户口径（2026-10-04 更新）：侧栏壁纸列表的类型档（全部 / 场景 / 网页 / 视频 / 图片）
+// **与设置页是同一个键 `typeFilter`** —— 类型变动两处同步、不做单独的档（原「面板本地
+// 瞬态 qpType + 两层交集空态兜底」整套退役：不再 setTransient("qpType")、不再有默认档
+// 行、空态不再有"没有交集/完整操作链"提示）。「图片」是后补的一档（上传的单文件图片
+// 壁纸）：判据按**同一份档位表**逐档核对，再加一条负对照 —— 少一档必须被判红。
   const QP_TYPE_ROWS = [['all', '全部'], ['scene', '场景'], ['web', '网页'], ['video', '视频'], ['image', '图片']];
   const sideTypeFilterOk = (text) => text.includes('function qpTypes()')
     && QP_TYPE_ROWS.every(([id, label]) => text.includes('id: "' + id + '"')
       && (text.includes('label: weT("' + label + '")') || text.includes('label: weT("' + label + '", null,')))
     && text.includes('w.type !== typeFilter');
-  check('侧栏列表类型筛选：五档齐全（含「图片」）+ 面板本地应用 + 不走设置落盘',
+  check('侧栏列表类型筛选：五档齐全（含「图片」）+ 与设置页同键同步（setSetting typeFilter，单独档已退役）',
   // i18n（中文原文即键）之后：容器从文件顶层常量改成 `qpTypes()`（每次渲染现建，
   // 否则文案会冻在加载期），每档 label 各自走 `weT("…")` —— 判据只认"档位 id 仍绑着
   // 同一句原文"，不认包装形态（认形态的判据会在下一次改写法时静默失效）。
     sideTypeFilterOk(qpSrc)
-    && qpSrc.includes('setTransient("qpType", e.target.value)')
-    && !qpSrc.includes('setSetting("qpType"')
-    && src.includes('qpType: "all"'));
+    && qpSrc.includes('setSetting("typeFilter", e.target.value)')
+    && !qpSrc.includes('setTransient("qpType"')
+    && !qpSrc.includes('sel.qpType')
+    && !src.includes('qpType: "all"')
+    && !qpSrc.includes('没有交集')
+    && !qpSrc.includes('完整操作链'));
   // 负对照：同一条判据喂"少一档"的合成文本，必须被判红（判据不是恒真）。
   check('negative control: 少一档（缺「图片」）会被同一条判据点出',
     !sideTypeFilterOk(qpSrc.replace('{ id: "image", label: weT("图片") },', ''))
@@ -1762,10 +1919,11 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
   // 渲染器的 surface 档：侧栏档只**加门**（少画设置页专属分组），不许改行 ——
   // 缺省（设置页）那一趟一个节点都不少（行为级 golden 在 verify-client.mjs）。
   const gated = (text, label) => new RegExp('!sidebarSurface &&[\\s\\S]{0,240}?weT\\("' + label + '"\\)').test(text);
-  // ⚠️ §10.25 起只剩**两节**：「窗口与侧栏」已撤销（内容并进「玻璃 UI」，而那节本身两档都画
-  //    ⇒ 不再属于"只在设置页档渲染"的集合）。
-  check('外观页两节（字体 / 光标）只在设置页档渲染',
-    ['全局字体', '输入光标'].every((label) => gated(tabsSrc, label)));
+  // ⚠️ 2026-10-03 用户口径：侧栏「外观」与设置页同内容 ⇒ 「输入光标」的门已拆，
+  //    只剩「全局字体」一节带着 `!sidebarSurface` 门（唯一例外）。两个方向都钉：
+  //    全局字体必须有门、输入光标必须没门。
+  check('外观页只有「全局字体」一节只在设置页档渲染（输入光标两档都画）',
+    gated(tabsSrc, '全局字体') && !gated(tabsSrc, '输入光标'));
   check('播放页的准备与诊断行（出图来源 / 实时帧 / 自定义画面 / 帧率上限 / 源信息 / 转码进度）只在设置页档渲染',
     ['出图来源', '实时帧', '自定义画面', '帧率上限'].every((label) => gated(tabsSrc, label))
       && tabsSrc.includes('!sidebarSurface && sel.type === "video" && sel.mediaInfo')
@@ -1966,6 +2124,29 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       Boolean(libraryRule) && sectionFlexRules.every((r) => libraryRule.at > r.at));
     check('negative control: `.we-qp__tabbody--library > .we-qp__section` 那条坏写法会被同一条判据判出',
       weightOf('.we-qp--official .we-qp__tabbody--library > .we-qp__section') > weightOf(baseSel));
+
+    // ── 属性下钻的滚动（真机回归：属性多的壁纸，面板显示不全且滚不动）──────────────
+    // 土壤与「列表滚不动」同一条：宿主页签内容区是固定高 + overflow:hidden（见 styles.js 里
+    // .we-qp--official 那段），壁纸档又挂 --library 特意不自己滚 —— 滚动交给列表。属性下钻
+    // 那一屏**没有列表** ⇒ 面板自己必须是滚动容器，否则内容被裁掉，且从它到 body 之间
+    // **没有任何"用户滚得动"的祖先**（overflow:hidden 的容器程序上也能 scrollTop，但用户
+    // 滚不动 —— 那正是这条 bug 的形态；真浏览器判定台见
+    // test/tools/sidebar-props-scroll-rig.mjs）。判据 = 面板自带滚动 + 前提（内容区裁切）
+    // + 有界高，另配负对照。
+    const ruleOfSel = (sel) => rules.find((r) => r.sel.split(',').some((s) => s.trim() === sel));
+    const userScroll = (body) => /(^|[;\s])overflow(-y)?\s*:\s*(auto|scroll)/.test(body);
+    const drillRule = ruleOfSel('.we-qp--official .we-qp__propsview--drill');
+    check('属性下钻：官方档的面板自带纵向滚动（宿主页签内容区不替它滚）',
+      Boolean(drillRule) && userScroll(drillRule.body),
+      drillRule ? drillRule.body.trim().replace(/\s+/g, ' ') : '找不到 .we-qp--official .we-qp__propsview--drill 规则');
+    check('negative control: 把 overflow-y 去掉后同一条判据判红',
+      Boolean(drillRule) && !userScroll(drillRule.body.replace(/overflow-y\s*:\s*(auto|scroll)\s*;?/, '')));
+    check('属性下钻：面板在 flex 列里有界高（flex: 1 1 auto + min-height: 0，否则滚动条永远不出现）',
+      Boolean(drillRule) && /(^|[;\s])flex\s*:\s*1 1 auto/.test(ruleOfSel('.we-qp__propsview--drill').body)
+        && /(^|[;\s])min-height\s*:\s*0/.test(ruleOfSel('.we-qp__propsview--drill').body));
+    const libTabbody = ruleOfSel('.we-qp--official .we-qp__tabbody--library');
+    check('前提（这条判据的土壤）：壁纸档的页签内容区是裁切而不是滚动',
+      Boolean(libTabbody) && /(^|[;\s])overflow(-y)?\s*:\s*hidden/.test(libTabbody.body));
   }
   // ── 需求④（两边数据一致）：侧栏不持有第二份状态 ──
   // ① 外观 / 画面处理器**提升到模块级**（在 WallpaperPicker 之前声明）—— 两处调的是
@@ -2056,16 +2237,38 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       qpSrc + '\nreturn { sidebarRenderCtx, QP_CTX_SETTINGS_ONLY, QP_TABS };');
     const bag = factory((k) => k, { createElement: () => null }, { getItem: () => null, setItem() {} });
     const ctx = bag.sidebarRenderCtx({ sel: {}, onAccent: () => 'ok' });
-    const called = (() => { try { ctx.onCaretColor(); return 'no-throw'; } catch (e) { return String(e.message); } })();
+    const called = (() => { try { ctx.onFontAdvanced(); return 'no-throw'; } catch (e) { return String(e.message); } })();
     const read = (() => { try { return String(ctx.fontSet.open); } catch (e) { return String(e.message); } })();
     check('侧栏 ctx 的 setting-only 占位器：调用 / 取属性都抛错（响亮且可定位）',
       ctx.surface === 'sidebar' && ctx.onAccent() === 'ok' && bag.QP_TABS.length === 3
-        && called.includes('[we-sidebar]') && called.includes('onCaretColor')
+        && called.includes('[we-sidebar]') && called.includes('onFontAdvanced')
         && read.includes('[we-sidebar]') && read.includes('fontSet'),
       called.slice(0, 48));
     check('负对照：名单外的字段仍是 undefined（判据不是恒真 —— 占位器只覆盖点过名的）',
       ctx.someFieldNeverListed === undefined && bag.QP_CTX_SETTINGS_ONLY.length >= 20);
   }
+}
+
+// ── 字体节的自由变量预置（本机字体 / 思考块玻璃落位后，面板引用的消毒层与清单）──
+// panel-tabs 是 bundle-inline 形态：这些符号在真产物里由 settings-schema / system-fonts
+// 的内联段供给；真模块导入形态下必须当 global 预置，缺一个就是渲染期 ReferenceError。
+{
+  const sysMod = await import(pathToFileURL(join(root, 'src', 'system-fonts.js')).href);
+  const schemaEarly = await import(pathToFileURL(join(root, 'lib', 'settings-schema.js')).href);
+  Object.assign(globalThis, {
+    sanitizeFamilyKey: schemaEarly.sanitizeFamilyKey,
+    systemFontKeyOf: schemaEarly.systemFontKeyOf,
+    systemFontNameOf: schemaEarly.systemFontNameOf,
+    filterUsableSystemFonts: sysMod.filterUsableSystemFonts,
+    // fontFamilyKeyOf 是 client.js 的反查（依赖 FONT_FAMILY_STACKS / BY_STACK，不导出）。
+    // 渲染台只需要"返回字符串"这一契约面；反查正确性归 verify-system-fonts / smoke 管。
+    fontFamilyKeyOf: (v) => (typeof v === 'string' ? v.trim() : ''),
+    FONT_FAMILY_LABELS: [
+      { v: 'inherit', label: '默认' }, { v: 'Microsoft YaHei', label: '雅黑' }, { v: 'KaiTi', label: '楷体' },
+      { v: 'SimSun', label: '宋体' }, { v: 'SimHei', label: '黑体' }, { v: 'STXingkai', label: '行楷' },
+      { v: 'monospace', label: '等宽' },
+    ],
+  });
 }
 
 // ── 渲染回归：三档页签都渲染得出，且各画各的 ────────────────────────────────
@@ -2128,7 +2331,12 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     // 的**自由变量** ⇒ 必须在这里当形参给（漏一个就是 ReferenceError，这正是本判据的设计）。
     // 与 QP_CTX_SETTINGS_ONLY 的分工：**侧栏档真的会画到的**由这里给真值（替身），
     // 设置页专属的（如 onFpsCap —— 帧率上限那行带 `!sidebarSurface` 门）才进占位器名单。
-    'onGlassWindow', 'onLeftSidebarGlass', 'onSidebarGlass',
+    'onGlassWindow', 'onLeftSidebarGlass', 'onSidebarGlass', 'onSidebarFullClear',
+    // 2026-10-03：侧栏「外观」与设置页同内容（唯全局字体除外）⇒ 下列处理器由
+    // quick-panel 的 provided 真传（裸标识符 ⇒ 必须进本名单，否则 vm 求值当场 ReferenceError）。
+    'onCaretColor', 'onSidebarAlpha', 'onSidebarBlur', 'onSidebarColor',
+    'onSidebarContentAlpha', 'onSidebarContentColor', 'onSidebarFollowGlobal', 'onThinkingGlass',
+    'onCapsuleBlur', 'onCapsuleColor',
     // 「玻璃 UI」节的两级子 UI 开关 + 子项独立参数：外观页签（设置页与侧栏档都会画到）。
     'onToggleGlassChild', 'onToggleGlassIndependent', 'onToggleChildIndependent',
     'onGlassChildParam', 'childIndependentOn',
@@ -2447,6 +2655,607 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
   };
   const textKinds = (tree) => [...new Set(treeStrings(tree))].sort();
 
+  // ── 资源柱状图（「扩展」一号模块）的两半：画布层 + 扩展岛 ──────────────────────────
+  // 这两个模块是本轮新增的，此前**一条守卫都碰不到**（docs/GUARD-MAP.md 的零覆盖表点过名）。
+  // 覆盖方式与 panel-tabs 同款：单独 import 真模块 + 真渲染一次 —— 顺带钉住"顶层不许引用
+  // 兄弟模块符号"（ext-metrics 读的 METRICS_SERIES 必须是在**调用时**才取的扁平常量）。
+  const metricsLayerMod = await import(pathToFileURL(join(root, 'src', 'metrics-layer.js')).href);
+  const extMetricsMod = await import(pathToFileURL(join(root, 'src', 'ext-metrics.js')).href);
+  {
+    // 画布层是**基座**：零 ctx、只读扁平符号（`selection`）。本台没有 rAF ⇒ `metricsStart`
+    // 必须**原地返回**：既不许抛，也不许去碰 document（沙箱里没有 document，碰一下即 TypeError）。
+    const PREV_SEL = globalThis.selection;
+    let threw = '';
+    try {
+      // ① 开着且有至少一条序列 ⇒ 走 metricsStart（无 rAF ⇒ 那一行守卫把整段挡回去）
+      globalThis.selection = { metricsEnabled: true, metricsShowCpu: true };
+      metricsLayerMod.syncMetricsLayer();
+      // ② 开着但一条序列都没点 ⇒ 走 metricsStop（不许因为"没数据"就抛）
+      globalThis.selection = { metricsEnabled: true };
+      metricsLayerMod.syncMetricsLayer();
+      // ③ 关掉 ⇒ 仍是 stop 分支；卸载幂等
+      globalThis.selection = { metricsEnabled: false };
+      metricsLayerMod.syncMetricsLayer();
+      metricsLayerMod.disposeMetricsLayer();
+    } catch (e) { threw = String((e && e.message) || e); } finally { globalThis.selection = PREV_SEL; }
+    const series = metricsLayerMod.METRICS_SERIES || [];
+    check('metrics-layer.js 可单独 import · 五条序列与宿主同序同 key 前缀 · 无 rAF 环境零抛错零副作用',
+      Object.keys(metricsLayerMod).sort().join(',') === 'METRICS_SERIES,disposeMetricsLayer,syncMetricsLayer'
+      && series.map((s) => s.id).join(',') === 'cpu,mem,gpu,net,disk'
+      && series.every((s) => typeof s.key === 'string' && s.key.indexOf('metricsShow') === 0
+        && typeof s.hue === 'string' && s.hue[0] === '#')
+      && typeof metricsLayerMod.syncMetricsLayer === 'function'
+      && typeof metricsLayerMod.disposeMetricsLayer === 'function'
+      && !threw, threw || series.map((s) => s.id + ':' + s.key).join(' '));
+    // 几何与绘制口径（m01907 四点优化 + m02235 三点优化 + m02437 四点优化 + m02849 两点优化）
+    // —— 画布层是屏上表现的唯一真源：
+    // ① 整块水平居中 + 四边留白，再叠加可负的位置偏移（left/bottom 内联算出，不再是贴右缘的
+    //    right: 0）；② 柱间距（metricsBarGap）参与 pitch；③ 行名取**英文 tag**（不是 panel 的
+    //    label）、按「外观」的字体/字色画，并且**竖向渐变**（上端 METRICS_LABEL_ALPHA、下端全透明）；
+    // ④ 细白横线画在**另一个宿主**（#we-metrics-guides）里、混合恒为 normal（正片叠底会把白线乘没）；
+    // ⑤ 「分色」档取的是**用户为每条序列选的颜色**（metricsSeriesColor 读 selection[def.colorKey]，
+    //    非法值回落到出厂色相 def.hue）；⑥ 行名搬到**不参与混合的名称层**（#we-metrics-labels）
+    //    并把亮度钳进 20%–80%（metricsClampInk）—— 正片叠底再也吃不掉它（用户口径"标注文字难以辨别"）；
+    // ⑦ `auto` 档**逐段判明暗**：mix-blend-mode 是元素级的 ⇒ 把整块按柱子分组切成 ≤ METRICS_BAND_MAX 段
+    //    （metricsBands，切点取柱间距的中点 ⇒ 永不切到柱子），每段一个宿主、各挂自己那一档
+    //    （metricsBlendPlan 按 metricsSampleLuma 逐段采柱子背后那截画面）。
+    // ⑧ `auto` 档的判据是**实际显示亮度**（不是壁纸原图的像素）：还原本插件自己的背景亮度 /
+    //    对比度、壁纸透明度的淡出底色、暗化 scrim（metricsDisplayLuma）—— 否则"亮壁纸被暗化
+    //    压暗"时会选反档、柱子糊在背景里（用户口径"被背景插件的暗化等效果加暗"）；
+    // ⑨ 三族宿主每帧核对自己是否被 scrim 罩住（metricsRaiseAboveScrim）—— 同 z-index 靠文档序，
+    //    而 scrim 是壁纸激活时才挂的；⑩ 每一层都自己归位画布（只靠 CSS 拉伸 ⇒ 位图仍是默认
+    //    300×150，"白色横条没显示完全"）；⑪ `auto` 档的**极黑**这一档（用户口径"对于极黑的背景，
+    //    自动模式应使用'变亮' + 图柱透明度 -50% 的策略"，随后又要求"该值也允许自定义"）——
+    //    第三档常量 METRICS_BLEND_NIGHT / METRICS_LUMA_DEEP，判定在 metricsBlendForLuma 的最前
+    //    一句，方案项因此是 `{ mode, dim }`（不是裸字符串），只有 **dim** 那几段的柱层不透明度
+    //    按设置键 `metricsDeepOpacity` 压低（默认 50% = 减半；手选「变亮」不带 dim ⇒ 不压低）。
+    const layerSrc = readFileSync(join(root, 'src', 'metrics-layer.js'), 'utf8');
+    check('metrics-layer.js 居中留白几何 + 位置偏移 + 柱间距 + 英文渐变行名 + 三层解耦 + 分段混色 + 显示亮度 + 层级 + 画布归位 + 亮度钳制 + 自定义色 + 极黑变亮减半',
+      layerSrc.includes('const METRICS_EDGE = 20;')
+      && layerSrc.includes('const METRICS_OFFSET_MAX = 400;')
+      && layerSrc.includes('const METRICS_BAR_GAP_MAX = 16;')
+      && layerSrc.includes('const METRICS_LABEL_ALPHA = 0.3;')
+      && layerSrc.includes('const METRICS_GUIDE_HOST_ID = \'we-metrics-guides\';')
+      && layerSrc.includes('const METRICS_LABEL_HOST_ID = \'we-metrics-labels\';')
+      && layerSrc.includes('const METRICS_GUIDE_ALPHA = 0.35;')
+      && layerSrc.includes("const METRICS_BLEND_LIGHT = 'multiply';")
+      && layerSrc.includes("const METRICS_BLEND_DARK = 'overlay';")
+      && layerSrc.includes('const METRICS_LUMA_SPLIT = 0.5;')
+      // ⑪ 极黑档（用户口径"极黑的背景用变亮 + 图柱透明度 -50%"，随后"该值也允许自定义"）：
+      //    第三档常量 + 判定分支 + 只有极黑档才压低（手选「变亮」不带 dim，判据因此不能拿
+      //    mode === 'lighten' 当开关），倍率本身**读设置键 metricsDeepOpacity**（不再是写死常量）。
+      && layerSrc.includes("const METRICS_BLEND_NIGHT = 'lighten';")
+      && layerSrc.includes('const METRICS_LUMA_DEEP = 0.15;')
+      && layerSrc.includes('if (luma < METRICS_LUMA_DEEP) return { mode: METRICS_BLEND_NIGHT, dim: true };')
+      && layerSrc.includes('function metricsBlendFallback()')
+      && layerSrc.includes('if (manual) return [{ mode: manual, dim: false }];')
+      && layerSrc.includes('band.host.style.opacity = entry.dim ? deepOpacity : opacity;')
+      && layerSrc.includes('const deepAlpha = metricsClamp(selection.metricsDeepOpacity, 10, 100, 50) / 100;')
+      && layerSrc.includes('const deepOpacity = String(Number(opacity) * deepAlpha);')
+      && layerSrc.includes('const METRICS_LUMA_SAMPLE_PX = 24;')
+      && layerSrc.includes('const METRICS_BAND_MAX = 8;')
+      && layerSrc.includes('const METRICS_INK_MIN = 0.2;')
+      && layerSrc.includes('const METRICS_INK_MAX = 0.8;')
+      && layerSrc.includes('METRICS_EDGE * 2')
+      && layerSrc.includes('viewportW - box.width')
+      && layerSrc.includes('METRICS_EDGE + offY')
+      && layerSrc.includes('function metricsLayout(height)')
+      && layerSrc.includes('function metricsSeriesColor(def)')
+      && layerSrc.includes('selection[def.colorKey]')
+      && layerSrc.includes('function metricsResolveBlend(fracX, fracW)')
+      && layerSrc.includes('function metricsBlendPlan(segCount, fracX, fracW)')
+      && layerSrc.includes('function metricsBands(width, count, pitch, gap, max)')
+      && layerSrc.includes('function metricsSampleLuma(n, fracX, fracW)')
+      && layerSrc.includes('function metricsClampInk(color)')
+      && layerSrc.includes('function metricsSyncHosts(n)')
+      // "实际显示亮度"：判明暗前必须还原本插件自己的效果（原图亮度 × 背景亮度/对比度 ×
+      // 壁纸透明度的淡出底色 × 暗化 scrim）—— 少一步就会在"亮壁纸被暗化压暗"时选反档。
+      && layerSrc.includes('function metricsDisplayLuma(raw)')
+      && layerSrc.includes('function metricsFadeBaseLuma()')
+      && layerSrc.includes('function metricsDisplaySig()')
+      && layerSrc.includes('selection.backgroundBrightness')
+      && layerSrc.includes('selection.backgroundContrast')
+      && layerSrc.includes('selection.wallpaperOpacity')
+      && layerSrc.includes('selection.scrim')
+      // 三族宿主必须压在暗化层之上（同样是 z-index -1 的 body 级浮层，靠文档序分上下；
+      // scrim 是壁纸激活时才挂的 ⇒ 本层先起就会被它罩住）。
+      && layerSrc.includes('function metricsRaiseAboveScrim()')
+      && layerSrc.includes('metricsRaiseAboveScrim();')
+      // 每一层都必须**自己**把画布归位：只靠 CSS 拉伸的话，位图仍是 300×150 的默认尺寸
+      //（画在 300 以外的部分被裁掉、纵向被拉伸 ⇒ "白色横条没显示完全"）。
+      && layerSrc.includes('if (metricsSizeCanvas(metricsGuideCanvas, box.width, height, dpr)) metricsGuideKey = \'\';')
+      && layerSrc.includes('if (metricsSizeCanvas(metricsLabelCanvas, box.width, height, dpr)) metricsLabelKey = \'\';')
+      // 帧守卫**只能**判数据：柱层的段宿主是本帧稍后由 metricsSyncHosts 建的，把"宿主为空"
+      // 也算进这条守卫就会死锁（永远在宿主建出来之前 return ⇒ 三层全空）。负向断言钉住这个坑
+      //（只匹配**代码**形态：注释里就是靠这句解释死锁的，别把注释也算成违规）。
+      && layerSrc.includes('if (!metricsData) return;')
+      && !layerSrc.includes('if (!metricsHosts.length')
+      && layerSrc.includes("metricsNodeStyle(band.host, 'mix-blend-mode', mode)")
+      && layerSrc.includes('metricsBackdropLeaf()')
+      && layerSrc.includes('function metricsRowLabel(g, text, width, bottom, bandH)')
+      && layerSrc.includes('function metricsPaintBars(g, width, height, layout, barW, barGap)')
+      && layerSrc.includes('function metricsPaintLabels(g, width, height, layout)')
+      && layerSrc.includes('function metricsPaintGuides(g, width, height, layout)')
+      && layerSrc.includes('rows[ri].def.tag')
+      && layerSrc.includes('g.createLinearGradient(0, top, 0, top + size)')
+      && layerSrc.includes('const ink = metricsClampInk(style.color);')
+      && layerSrc.includes('grad.addColorStop(1, metricsRgba(ink, 0));')
+      && layerSrc.includes("font = '700 '"),
+      '居中 = (viewportW - width)/2、留白 = METRICS_EDGE、偏移 = metricsOffsetX/Y、柱间距 = metricsBarGap、'
+      + '行名 = METRICS_SERIES.tag + 竖向渐变（metricsRowLabel）+ 亮度钳制（metricsClampInk）、'
+      + '细白横线 = 独立宿主 metricsPaintGuides + 各层自己归位画布、分段混色 = metricsBlendPlan + metricsBands、'
+      + '自动档判据 = 实际显示亮度（metricsDisplayLuma：背景亮度/对比度 + 淡出底色 + 暗化）、'
+      + '极黑档 = METRICS_LUMA_DEEP → METRICS_BLEND_NIGHT + 柱层 ×metricsDeepOpacity（dim）、'
+      + '层级 = metricsRaiseAboveScrim 压在暗化层之上、自定义色 = metricsSeriesColor');
+  }
+  {
+    // 扩展岛：注册表项形状 + 「关着只画总开关、开着才画 15 个参数 + 5 条序列开关」这条可见行为。
+    const PREV_SERIES = globalThis.METRICS_SERIES;
+    const PREV_BLEND = globalThis.METRICS_BLEND_VALUES;
+    globalThis.METRICS_SERIES = metricsLayerMod.METRICS_SERIES; // 内联后它就是同作用域的扁平常量
+    // 混合档位同理：**唯一真源**是 lib/settings-schema.js，扩展岛直接读它、不复制第二份
+    // （复制一份就等于给"改了 schema 却忘了改岛"留了条静默失效的路）。
+    globalThis.METRICS_BLEND_VALUES = schemaMod.METRICS_BLEND_VALUES;
+    const ctxOf = (sel) => ({
+      sel,
+      onMetricsEnabled: () => {}, onMetricsHeight: () => {},
+      onMetricsOffsetX: () => {}, onMetricsOffsetY: () => {},
+      onMetricsBarWidth: () => {},
+      onMetricsBarGap: () => {}, onMetricsStackGap: () => {}, onMetricsThreshold: () => {},
+      onMetricsGuides: () => {}, onMetricsOpacity: () => {}, onMetricsBlend: () => {},
+      onMetricsDeepOpacity: () => {},
+      onMetricsLineWidth: () => {}, onMetricsGlow: () => {},
+      onMetricsSmooth: () => {}, onMetricsWindow: () => {}, onMetricsFill: () => {},
+      onMetricsColorMode: () => {}, onMetricsLabels: () => {}, onMetricsColor: () => {},
+      onMetricsSeries: () => {},
+    });
+    const PARAMS = ['高度', '水平偏移', '垂直偏移', '柱宽', '柱间距', '指标间隔', '阈值', '细白横线',
+      '不透明度', '混合模式', '极黑柱不透明度', '荧光强度', '平滑', '时间窗',
+      '实心柱', '描边宽度', '柱配色', '序列名称'];
+    // 「关」那一档必须**显式**写 false：默认值现在就是**开**（维护者调好的那套已固化），
+    // 直接拿 DEFAULTS 当"关"的样本会让这一对比变成恒真。
+    const off = labelSeq(extMetricsMod.renderMetricsIsland(
+      ctxOf(Object.assign({}, schemaMod.DEFAULTS, { metricsEnabled: false }))));
+    const on = labelSeq(extMetricsMod.renderMetricsIsland(
+      ctxOf(Object.assign({}, schemaMod.DEFAULTS, { metricsEnabled: true }))));
+    globalThis.METRICS_SERIES = PREV_SERIES;
+    globalThis.METRICS_BLEND_VALUES = PREV_BLEND;
+    const mod = extMetricsMod.METRICS_EXTENSION_MODULE;
+    const extSrc = readFileSync(join(root, 'src', 'ext-metrics.js'), 'utf8');
+    const wantOff = [globalThis.weT('启用资源柱状图')];
+    const wantOn = wantOff
+      .concat(PARAMS.map((k) => globalThis.weT(k)), metricsLayerMod.METRICS_SERIES.map((s) => s.label));
+    check('ext-metrics.js 可单独 import · 注册表项形状 · 关着只画总开关、开着才画 18 参数 + 5 序列开关',
+      Boolean(mod) && mod.id === 'metrics' && mod.render === extMetricsMod.renderMetricsIsland
+      && typeof mod.title === 'string' && mod.title === globalThis.weT('硬件资源监控柱状图')
+      && typeof mod.desc === 'string' && mod.desc.length > 0
+      // 混合档位直接读 lib/settings-schema.js 的常量（唯一真源）⇒ 本文件里不许再有第二份声明。
+      && extSrc.includes('METRICS_BLEND_VALUES') && !extSrc.includes('const METRICS_BLEND_VALUES')
+      && off.join('|') === wantOff.join('|') && on.join('|') === wantOn.join('|'),
+      'off=' + off.length + ' on=' + on.length + ' [' + on.join('|') + ']');
+  }
+  {
+    // 五条序列的自定义颜色：**只在「分色」档出现**，且每条一个、默认值就是它的出厂色相。
+    // swatchRow 在本台是 noop（看不见任何东西）⇒ 换成记录桩，直接钉住"调了谁、给了什么值"。
+    const PREV_SWATCH = globalThis.swatchRow;
+    const PREV_SERIES = globalThis.METRICS_SERIES;
+    const PREV_BLEND = globalThis.METRICS_BLEND_VALUES;
+    globalThis.METRICS_SERIES = metricsLayerMod.METRICS_SERIES;
+    globalThis.METRICS_BLEND_VALUES = schemaMod.METRICS_BLEND_VALUES;
+    const ctxOf = (sel) => ({
+      sel,
+      onMetricsEnabled: () => {}, onMetricsHeight: () => {},
+      onMetricsOffsetX: () => {}, onMetricsOffsetY: () => {},
+      onMetricsBarWidth: () => {},
+      onMetricsBarGap: () => {}, onMetricsStackGap: () => {}, onMetricsThreshold: () => {},
+      onMetricsGuides: () => {}, onMetricsOpacity: () => {}, onMetricsBlend: () => {},
+      onMetricsDeepOpacity: () => {},
+      onMetricsLineWidth: () => {}, onMetricsGlow: () => {},
+      onMetricsSmooth: () => {}, onMetricsWindow: () => {}, onMetricsFill: () => {},
+      onMetricsColorMode: () => {}, onMetricsLabels: () => {}, onMetricsColor: () => {},
+      onMetricsSeries: () => {},
+    });
+    const rows = [];
+    const picked = [];
+    globalThis.swatchRow = (label, presets, value, onPick, opts) => {
+      // 记完就**不调** onPick —— 这里判的是渲染出的默认值，不是回调行为。
+      rows.push([label, value, presets.length, (opts && opts.key) || '', (opts && opts.colorValue) || ''].join('/'));
+      picked.push(typeof onPick);
+      return null;
+    };
+    const accentRows = rows.length;
+    extMetricsMod.renderMetricsIsland(ctxOf(Object.assign({}, schemaMod.DEFAULTS, { metricsEnabled: true })));
+    const accentCount = rows.length - accentRows;
+    extMetricsMod.renderMetricsIsland(ctxOf(Object.assign({}, schemaMod.DEFAULTS,
+      { metricsEnabled: true, metricsColorMode: 'spectrum' })));
+    const specRows = rows.slice(accentCount);
+    globalThis.swatchRow = PREV_SWATCH;
+    globalThis.METRICS_SERIES = PREV_SERIES;
+    globalThis.METRICS_BLEND_VALUES = PREV_BLEND;
+    const wantRows = metricsLayerMod.METRICS_SERIES.map((s) =>
+      [globalThis.weT('{label}颜色', { label: s.label }), s.hue, metricsLayerMod.METRICS_SERIES.length,
+        'metrics-color-' + s.id, s.hue].join('/'));
+    check('ext-metrics.js 五条序列的取色器只在「分色」档出现 · 默认值 = 各自出厂色相',
+      accentCount === 0 && specRows.join('|') === wantRows.join('|')
+      && picked.every((t) => t === 'function'),
+      'accent=' + accentCount + ' spec=' + specRows.length + ' [' + specRows.join('|') + ']');
+  }
+
+  // ── 点击效果与拖尾效果（「扩展」二号模块）的两半：画布层 + 扩展岛 ──────────────────
+  // 与一号模块同款覆盖方式：单独 import 真模块 + 真渲染一次。这一族的驱动源是**输入事件**
+  // 与一个内容驱动的 rAF 循环 —— 沙箱里两者都没有，所以"零副作用"这条比一号模块更要紧：
+  // 没有 rAF 时它连 DOM 都不该建（碰一下 `document` 就是 TypeError）。
+  const fxLayerMod = await import(pathToFileURL(join(root, 'src', 'fx-layer.js')).href);
+  const extFxMod = await import(pathToFileURL(join(root, 'src', 'ext-fx.js')).href);
+  {
+    const PREV_SEL = globalThis.selection;
+    let threw = '';
+    try {
+      // ① 开着 ⇒ 走 fxStart（无 rAF ⇒ 那一行守卫把整段挡回去）
+      globalThis.selection = { fxEnabled: true };
+      fxLayerMod.syncFxLayer();
+      // ② 开着但点击与拖尾都关了 ⇒ 走 fxStop（"两个子开关全关"就不该留一层空画布）
+      globalThis.selection = { fxEnabled: true, fxClick: false, fxTrail: false };
+      fxLayerMod.syncFxLayer();
+      // ③ 关掉 ⇒ 仍是 stop 分支；卸载幂等
+      globalThis.selection = { fxEnabled: false };
+      fxLayerMod.syncFxLayer();
+      fxLayerMod.disposeFxLayer();
+    } catch (e) { threw = String((e && e.message) || e); } finally { globalThis.selection = PREV_SEL; }
+    check('fx-layer.js 可单独 import · 导出只有两枚 · 无 rAF 环境零抛错零副作用',
+      Object.keys(fxLayerMod).sort().join(',') === 'disposeFxLayer,syncFxLayer'
+      && typeof fxLayerMod.syncFxLayer === 'function'
+      && typeof fxLayerMod.disposeFxLayer === 'function'
+      && !threw, threw);
+    // 源码口径：这一层最要紧的几件事都是"看不见的行为"（层级、输入过滤、混合写在宿主、
+    // 空闲零帧），运行期判据在沙箱里够不着 ⇒ 与一号模块同款用源码断言钉住形态。
+    // ⚠️ 归一成 LF 再切片：CI（windows-latest）检出是 CRLF，字面量 \\n 的 includes 在那边恒 miss。
+    const fxSrc = readFileSync(join(root, 'src', 'fx-layer.js'), 'utf8').replace(/\r\n/g, '\n');
+    check('fx-layer.js 内容驱动帧循环 + 层级压在柱状图下 + 不接管输入 + 混合写在宿主 + 死锁负向',
+      fxSrc.includes("const FX_HOST_ID = 'we-fx-layer';")
+      && fxSrc.includes('const FX_UI_SELECTOR = ')
+      && fxSrc.includes('function fxEnsureHost()')
+      && fxSrc.includes('if (fxHost && fxHost.isConnected) return;')
+      && fxSrc.includes('function fxRemoveHost()')
+      && fxSrc.includes("if (typeof requestAnimationFrame !== 'function') return;")
+      && fxSrc.includes('function fxFrame()')
+      // 帧循环是**内容驱动**的：还有活着的点/圈才续帧，画空了就自然收工（空闲零帧）。
+      && fxSrc.includes('const active = fxClicks.length > 0 || fxTrail.length > 1;')
+      && fxSrc.includes('if (active) fxKick();')
+      // ⚠️ 帧头只能判"该不该画"，紧接着就 ensure 宿主 —— 把"宿主还没建"也算进早退条件会死锁
+      // （柱状图那层犯过：`!metricsHosts.length || !metricsData` ⇒ 屏上什么都不显示）。
+      // 这里断言的是**正确形态**本身：那条 return 之后第一句就是幂等的 fxEnsureHost()。
+      && fxSrc.includes('if (!fxOn || !st.on) return;\n  fxEnsureHost();')
+      && fxSrc.includes('function fxPlace()')
+      && fxSrc.includes('compareDocumentPosition')
+      // 层级：本层插在柱状图**之前**（"读数"压在光效之上），没有柱状图时才盯暗化层。
+      && fxSrc.includes('metricsHost.parentNode.insertBefore(fxHost, metricsHost)')
+      && fxSrc.includes('scrim.parentNode.insertBefore(fxHost, scrim.nextSibling)')
+      // 不透明度与混合模式写在**宿主**上（写在画布上只跟宿主自己的 stacking context 混合）。
+      && fxSrc.includes("fxNodeStyle(fxHost, 'mix-blend-mode', st.blend)")
+      && fxSrc.includes("fxNodeStyle(fxHost, 'opacity', String(st.opacity / 100))")
+      && fxSrc.includes("g.globalCompositeOperation = 'lighter'")
+      // 不接管输入：点在自己的控件上不炸光效，监听是 passive 的（绝不拦指针）。
+      && fxSrc.includes('function fxAllowClick(target)')
+      && fxSrc.includes('target.closest(FX_UI_SELECTOR)')
+      && fxSrc.includes('{ passive: true }'),
+      'fx-layer = 内容驱动 rAF + 层级 + 输入过滤 + 宿主混合；死锁形态 = 帧头 ensure 之前不许有别的早退');
+  }
+  {
+    // 二号模块的岛：注册表项形状 + 「关着只画总开关、开着才画 12 个参数」这条可见行为。
+    // 注意它**没有**「自动」档 —— 这一层刻意不采样壁纸像素（见 src/fx-layer.js 文件头）。
+    const PREV_BLEND = globalThis.FX_BLEND_VALUES;
+    // 混合档位同理：**唯一真源**是 lib/settings-schema.js，扩展岛直接读它、不复制第二份
+    //（复制一份就等于给"改了 schema 却忘了改岛"留了条静默失效的路）。
+    globalThis.FX_BLEND_VALUES = schemaMod.FX_BLEND_VALUES;
+    const ctxOf = (sel) => ({
+      sel,
+      onFxEnabled: () => {}, onFxClick: () => {}, onFxClickStyle: () => {},
+      onFxClickSize: () => {}, onFxClickGlow: () => {},
+      onFxTrail: () => {}, onFxTrailStyle: () => {}, onFxTrailLength: () => {},
+      onFxTrailWidth: () => {}, onFxTrailGlow: () => {},
+      onFxOpacity: () => {}, onFxBlend: () => {}, onFxColorMode: () => {}, onFxColor: () => {},
+    });
+    const PARAMS = ['点击效果', '点击样式', '半径', '点击光晕',
+      '拖尾效果', '拖尾样式', '拖尾时长', '拖尾粗细', '拖尾光晕',
+      '不透明度', '混合模式', '效果配色'];
+    const off = labelSeq(extFxMod.renderFxIsland(ctxOf(schemaMod.DEFAULTS)));
+    const on = labelSeq(extFxMod.renderFxIsland(
+      ctxOf(Object.assign({}, schemaMod.DEFAULTS, { fxEnabled: true }))));
+    globalThis.FX_BLEND_VALUES = PREV_BLEND;
+    const mod = extFxMod.FX_EXTENSION_MODULE;
+    const fxSrc = readFileSync(join(root, 'src', 'ext-fx.js'), 'utf8');
+    const wantOff = [globalThis.weT('启用点击与拖尾效果')];
+    const wantOn = wantOff.concat(PARAMS.map((k) => globalThis.weT(k)));
+    check('ext-fx.js 可单独 import · 注册表项形状 · 关着只画总开关、开着才画 12 参数',
+      Boolean(mod) && mod.id === 'fx' && mod.render === extFxMod.renderFxIsland
+      && typeof mod.title === 'string' && mod.title === globalThis.weT('点击效果与拖尾效果')
+      && typeof mod.desc === 'string' && mod.desc.length > 0
+      // 混合档位直接读 lib/settings-schema.js 的常量（唯一真源）⇒ 本文件里不许再有第二份声明。
+      && fxSrc.includes('FX_BLEND_VALUES') && !fxSrc.includes('const FX_BLEND_VALUES')
+      && off.join('|') === wantOff.join('|') && on.join('|') === wantOn.join('|'),
+      'off=' + off.length + ' on=' + on.length + ' [' + on.join('|') + ']');
+  }
+  {
+    // 二号模块的取色器：**只在「自定义」档出现**，恰好一个、默认值就是 fxColor。
+    const PREV_SWATCH = globalThis.swatchRow;
+    const PREV_BLEND = globalThis.FX_BLEND_VALUES;
+    globalThis.FX_BLEND_VALUES = schemaMod.FX_BLEND_VALUES;
+    const ctxOf = (sel) => ({
+      sel,
+      onFxEnabled: () => {}, onFxClick: () => {}, onFxClickStyle: () => {},
+      onFxClickSize: () => {}, onFxClickGlow: () => {},
+      onFxTrail: () => {}, onFxTrailStyle: () => {}, onFxTrailLength: () => {},
+      onFxTrailWidth: () => {}, onFxTrailGlow: () => {},
+      onFxOpacity: () => {}, onFxBlend: () => {}, onFxColorMode: () => {}, onFxColor: () => {},
+    });
+    const rows = [];
+    const picked = [];
+    globalThis.swatchRow = (label, presets, value, onPick, opts) => {
+      rows.push([label, value, presets.length, (opts && opts.key) || '', (opts && opts.colorValue) || ''].join('/'));
+      picked.push(typeof onPick);
+      return null;
+    };
+    const before = rows.length;
+    extFxMod.renderFxIsland(ctxOf(Object.assign({}, schemaMod.DEFAULTS, { fxEnabled: true })));
+    const accentCount = rows.length - before;
+    extFxMod.renderFxIsland(ctxOf(Object.assign({}, schemaMod.DEFAULTS,
+      { fxEnabled: true, fxColorMode: 'custom', fxColor: '#ff00aa' })));
+    const customRows = rows.slice(accentCount);
+    globalThis.swatchRow = PREV_SWATCH;
+    globalThis.FX_BLEND_VALUES = PREV_BLEND;
+    const wantRow = [globalThis.weT('自定义颜色'), '#ff00aa', 7, 'fx-color', '#ff00aa'].join('/');
+    check('ext-fx.js 取色器只在「自定义」档出现 · 默认值 = fxColor（预设 7 色）',
+      accentCount === 0 && customRows.join('|') === wantRow
+      && picked.every((t) => t === 'function'),
+      'accent=' + accentCount + ' custom=' + customRows.length + ' [' + customRows.join('|') + ']');
+  }
+
+  // ── 3D 效果（「扩展」三号模块）的两半：视差行为层 + 扩展岛 ──────────────────────────
+  // 这一层与前两层的关键差别：它**一个 DOM 节点都不建** —— 只往 body 上写 CSS 变量与一个
+  // 开关属性，位移在 src/styles.js 的视差段里算。所以"沙箱里零副作用"这条比前两层更硬：
+  // 碰一下 `document` 就是 TypeError，而运行期判据（真的挪了多少像素）在无头环境够不着
+  // ⇒ 一半靠"零抛错"、一半靠源码口径（下面第二条），与前两层同款。
+  const parallaxLayerMod = await import(pathToFileURL(join(root, 'src', 'parallax-layer.js')).href);
+  const extParallaxMod = await import(pathToFileURL(join(root, 'src', 'ext-parallax.js')).href);
+  {
+    const PREV_SEL = globalThis.selection;
+    let threw = '';
+    try {
+      // ① 开着 ⇒ 走 parallaxStart（无 rAF ⇒ 那一行守卫把整段挡回去，连 body 都不碰）
+      globalThis.selection = { parallaxEnabled: true };
+      parallaxLayerMod.syncParallaxLayer();
+      // ② 越界的设置值 ⇒ 钳位路径（背景 0..10 / 图表 0..20 / 平滑 0..98 之外不许算出天量位移）
+      globalThis.selection = { parallaxEnabled: true, parallaxBg: 999, parallaxMetrics: -5, parallaxSmooth: 100 };
+      parallaxLayerMod.syncParallaxLayer();
+      // ③ 关掉 ⇒ stop 分支；卸载幂等
+      globalThis.selection = { parallaxEnabled: false };
+      parallaxLayerMod.syncParallaxLayer();
+      parallaxLayerMod.disposeParallaxLayer();
+    } catch (e) { threw = String((e && e.message) || e); } finally { globalThis.selection = PREV_SEL; }
+    check('parallax-layer.js 可单独 import · 导出只有两枚 · 无 rAF / 无 DOM 环境零抛错零副作用',
+      Object.keys(parallaxLayerMod).sort().join(',') === 'disposeParallaxLayer,syncParallaxLayer'
+      && typeof parallaxLayerMod.syncParallaxLayer === 'function'
+      && typeof parallaxLayerMod.disposeParallaxLayer === 'function'
+      && !threw, threw);
+    // 源码口径：这一层的要点全是"看不见的形态"（不建 DOM、只用独立属性可用量、中心对称、
+    // 到位就停、系数可配、特效层不参与）。逐条钉住，改坏了当场红。
+    const parSrc = readFileSync(join(root, 'src', 'parallax-layer.js'), 'utf8');
+    check('parallax-layer.js 不建 DOM + 变量与开关属性 + 中心对称(负向) + 收敛驱动 + 三层系数 + 特效不参与 + 低开销',
+      parSrc.includes("const PARALLAX_DIRECTION = -1;")
+      && parSrc.includes("const PARALLAX_ATTR = 'data-we-parallax';")
+      && parSrc.includes("const PARALLAX_VAR_X = '--we-parallax-x';")
+      && parSrc.includes("const PARALLAX_VAR_GUIDES = '--we-parallax-guides';")
+      // 系数就近钳位（范围不引 lib/settings-schema.js：单文件 import 时会 ReferenceError）。
+      && parSrc.includes('const PARALLAX_BG_MIN = 0;') && parSrc.includes('const PARALLAX_BG_MAX = 10;')
+      && parSrc.includes('const PARALLAX_METRICS_MAX = 20;') && parSrc.includes('const PARALLAX_SMOOTH_MAX = 98;')
+      && parSrc.includes('const PARALLAX_LABEL_STEP = 1;') && parSrc.includes('const PARALLAX_GUIDE_STEP = 2;')
+      // 没有 DOM 的环境（无头沙箱 / SSR 探测）一律从这一个入口静默返回。
+      && parSrc.includes('function parallaxBody()')
+      && parSrc.includes("if (typeof document === 'undefined' || !document || !document.body) return null;")
+      && parSrc.includes("if (typeof requestAnimationFrame !== 'function') return;")
+      // ① **不建 DOM**：整份文件里没有 createElement / appendChild / insertBefore。
+      && !parSrc.includes('createElement') && !parSrc.includes('appendChild')
+      && !parSrc.includes('insertBefore') && !parSrc.includes('removeChild')
+      // ② 单位量 = 光标偏离屏幕中心的百分比，方向取负 ⇒ 关于中心对称（光标在右上、整块往左下）。
+      && parSrc.includes('const targetX = PARALLAX_DIRECTION * (cx - vw / 2) / 100;')
+      && parSrc.includes('const targetY = PARALLAX_DIRECTION * (cy - vh / 2) / 100;')
+      // ③ **缓动**：按帧时长做指数逼近（跟手程度 = parallaxSmooth），不是直接赋值。
+      && parSrc.includes('const a = 1 - st.smooth / 100;')
+      && parSrc.includes('1 - Math.pow(1 - a, dt / PARALLAX_FRAME_MS)')
+      // ④ **收敛驱动**：追上目标就收工（空闲零帧），下一次 pointermove 再起一帧。
+      && parSrc.includes('const settle = Math.max(PARALLAX_SETTLE_PX,')
+      && parSrc.includes('const doneX = Math.abs(targetX - parallaxStepX) <= settle;')
+      && parSrc.includes('const doneY = Math.abs(targetY - parallaxStepY) <= settle;')
+      && parSrc.includes('if (!doneX || !doneY) parallaxKick();')
+      && parSrc.includes('else parallaxTargetsSettle();')
+      // ⑤ 被动监听（绝不拦指针、绝不接管输入），并且只有这两条。
+      && parSrc.includes("document.addEventListener('pointermove', parallaxOnPointerMove, { passive: true })")
+      && parSrc.includes("window.addEventListener('resize', parallaxOnResize, { passive: true })")
+      // ⑥ 柱状图三层各自的系数（柱层 + 行名 +1 + 白线 +2）。
+      && parSrc.includes('st.metrics + PARALLAX_LABEL_STEP')
+      && parSrc.includes('st.metrics + PARALLAX_GUIDE_STEP')
+      // ⑦ 点击/拖尾那一层**刻意不参与**（用户口径：特效不跟着偏移）—— 连类名都不该出现。
+      && !parSrc.includes('we-fx')
+      // ⑧ **低开销**（用户口径：动效的性能开销较高）：位移步长只写在要动的那几层自己身上
+      //    （自定义属性是继承的 —— 写在 body 上等于每帧让整棵文档树重算样式），系数才落 body；
+      //    帧率封顶 60Hz（高刷屏隔帧跑）；"到位"按**看得见的位移**折算、光标静下来后放宽；
+      //    系数全 0 时一帧都不排；起帧才提合成层、收工摘掉；视口只在起帧与 resize 时读。
+      && parSrc.includes("const PARALLAX_TARGET_SELECTOR = '.we-layer, .we-rope, .we-metrics';")
+      && parSrc.includes("const PARALLAX_MOVING_CLASS = 'we-parallax--moving';")
+      && parSrc.includes('const PARALLAX_MIN_FRAME_MS = PARALLAX_FRAME_MS * 0.75;')
+      && parSrc.includes('const PARALLAX_SETTLE_VISIBLE_PX = 0.25;')
+      && parSrc.includes('const PARALLAX_IDLE_MS = 180;')
+      && parSrc.includes('const PARALLAX_IDLE_VISIBLE_PX = 1;')
+      && parSrc.includes('function parallaxVarOn(el, prop, value)')
+      && parSrc.includes('function parallaxReadViewport()')
+      && parSrc.includes('function parallaxTargetLift(el, on)')
+      && parSrc.includes('function parallaxTargetsRefresh(now)')
+      && parSrc.includes('function parallaxTargetsSettle()')
+      && parSrc.includes("typeof document.querySelectorAll !== 'function'")
+      && parSrc.includes('if (parallaxLastMs && now - parallaxLastMs < PARALLAX_MIN_FRAME_MS) { parallaxKick(); return; }')
+      && parSrc.includes('const pctMax = Math.max(st.bg, st.metrics + PARALLAX_GUIDE_STEP);')
+      && parSrc.includes('if (pctMax <= 0) {')
+      && parSrc.includes('const idle = parallaxMoveMs > 0 && now - parallaxMoveMs >= PARALLAX_IDLE_MS;')
+      && parSrc.includes('parallaxVarOn(rec.el, PARALLAX_VAR_X, x);')
+      && parSrc.includes('parallaxVarOn(rec.el, PARALLAX_VAR_Y, y);')
+      && parSrc.includes('parallaxTargetLift(rec.el, true);')
+      // 反向：步长**不再**写 body（body 上只剩 5 个系数与开关属性），旧的 body 版写入函数已删。
+      && !parSrc.includes('parallaxVarOn(parallaxBody()')
+      && !parSrc.includes('parallaxVar('),
+      'parallax-layer = 变量型行为层：不建 DOM + 中心对称 + 指数缓动 + 到位就停 + 三层系数 + 特效不参与 + 低开销');
+    // 位移实际落在 CSS 上：那一段必须（a）整段挂在开关属性下、（b）只用独立属性
+    // translate / scale（transform 会被壁纸过场的 resetLayerSwitchStyles 清掉）、
+    // （c）壁纸同时放大补边、（d）特效层不在里面。
+    const stylesSrc = readFileSync(join(root, 'src', 'styles.js'), 'utf8');
+    const parCssAt = stylesSrc.indexOf('「扩展」三号模块');
+    const parCss = parCssAt < 0 ? '' : stylesSrc.slice(parCssAt);
+    check('styles.js 视差段：开关属性下才生效 · 只用 translate/scale · 壁纸放大补边 · 特效层不参与 · 动的那几帧才提合成层',
+      parCssAt > 0
+      && parCss.includes('body[data-we-parallax="on"] .we-layer')
+      && parCss.includes('translate: calc(var(--we-parallax-x, 0px) * var(--we-parallax-bg, 0))')
+      && parCss.includes('scale: calc(1 + var(--we-parallax-bg, 0) / 100)')
+      && parCss.includes('body[data-we-parallax="on"] .we-rope')
+      && parCss.includes('body[data-we-parallax="on"] .we-metrics--labels')
+      && parCss.includes('body[data-we-parallax="on"] .we-metrics--guides')
+      // 低开销：只有"正在动的那几帧"才提合成层（类由行为层加、到位摘），且只提示 translate。
+      && parCss.includes('body[data-we-parallax="on"] .we-parallax--moving { will-change: translate; }')
+      && parCss.includes('will-change: translate;')
+      // 独立属性而不是 transform：壁纸层的过场会内联写 / 清 transform（resetLayerSwitchStyles）。
+      && !parCss.includes('transform:')
+      // 点击 / 拖尾那一层不参与偏移。
+      && !parCss.includes('.we-fx'),
+      'parCss=' + parCss.length + ' 段起始=' + parCssAt);
+  }
+  {
+    // 低开销那几件事里唯一"看得见"的一件：位移步长到底写在谁身上。无头环境本来没有 DOM，
+    // 这里搭一副最小的假 DOM（querySelectorAll 返回三个假元素、假 rAF 由我们手动驱动），
+    // 真跑几帧验证：① 步长落在**那几个元素自己**身上，body 上只有 5 个系数；
+    // ② 起帧时给它们加了合成层提示类、到位收工摘掉（本仓刻意不留常驻合成层）；
+    // ③ 关掉总开关后元素上的变量与类、body 上的系数都收干净。
+    const PREV_SEL = globalThis.selection;
+    const PREV_DOC = globalThis.document;
+    const PREV_WIN = globalThis.window;
+    const PREV_RAF = globalThis.requestAnimationFrame;
+    const PREV_CAF = globalThis.cancelAnimationFrame;
+    const storeOf = () => {
+      const props = {};
+      return {
+        props: props,
+        style: {
+          setProperty: (k, v) => { props[k] = v; },
+          getPropertyValue: (k) => (k in props ? props[k] : ''),
+          removeProperty: (k) => { delete props[k]; },
+        },
+      };
+    };
+    const mkTarget = (cls) => {
+      const store = storeOf();
+      const classes = [];
+      return {
+        className: cls, props: store.props, style: store.style,
+        classList: {
+          add: (c) => { if (classes.indexOf(c) < 0) classes.push(c); },
+          remove: (c) => { const i = classes.indexOf(c); if (i >= 0) classes.splice(i, 1); },
+          contains: (c) => classes.indexOf(c) >= 0,
+        },
+      };
+    };
+    const bodyStore = storeOf();
+    const fakeBody = {
+      style: bodyStore.style, props: bodyStore.props,
+      setAttribute: () => {}, removeAttribute: () => {},
+    };
+    const layerEl = mkTarget('we-layer');
+    const ropeEl = mkTarget('we-rope');
+    const metricsEl = mkTarget('we-metrics');
+    const targets = [layerEl, ropeEl, metricsEl];
+    const listeners = {};
+    let clock = 0;
+    let pending = null;
+    let threw = '';
+    let movedOn = false;
+    let settled = false;
+    let cleared = false;
+    try {
+      globalThis.document = {
+        body: fakeBody,
+        querySelectorAll: () => targets,
+        addEventListener: (type, fn) => { listeners[type] = fn; },
+        removeEventListener: () => {},
+      };
+      globalThis.window = {
+        innerWidth: 1600, innerHeight: 900,
+        addEventListener: () => {}, removeEventListener: () => {},
+        performance: { now: () => clock },
+      };
+      globalThis.requestAnimationFrame = (fn) => { pending = fn; return 1; };
+      globalThis.cancelAnimationFrame = () => { pending = null; };
+      globalThis.selection = {
+        parallaxEnabled: true, parallaxBg: 1, parallaxMetrics: 1,
+        parallaxMascot: true, parallaxSmooth: 85,
+      };
+      const step = (dt) => { clock += dt; const fn = pending; pending = null; if (fn) fn(clock); };
+      parallaxLayerMod.syncParallaxLayer();          // 起帧（假 rAF ⇒ 只排一帧）
+      if (typeof listeners.pointermove === 'function') listeners.pointermove({ clientX: 1600, clientY: 900 });
+      for (let i = 0; i < 6; i += 1) step(20);       // 挪到右下角 ⇒ 目标 = (-8, -4.5)
+      const stepX = layerEl.props['--we-parallax-x'];
+      const stepY = layerEl.props['--we-parallax-y'];
+      const same = targets.every((el) => el.props['--we-parallax-x'] === stepX
+        && el.props['--we-parallax-y'] === stepY);
+      movedOn = same && /^-?\d+\.\d\dpx$/.test(String(stepX)) && /^-?\d+\.\d\dpx$/.test(String(stepY))
+        && targets.every((el) => el.classList.contains('we-parallax--moving'))
+        && !('--we-parallax-x' in bodyStore.props) && !('--we-parallax-y' in bodyStore.props)
+        && bodyStore.props['--we-parallax-bg'] === '1'
+        && bodyStore.props['--we-parallax-labels'] === '2'
+        && bodyStore.props['--we-parallax-guides'] === '3';
+      for (let i = 0; i < 400 && pending; i += 1) step(20);   // 一直跑到收敛
+      settled = pending === null && targets.every((el) => !el.classList.contains('we-parallax--moving'));
+      globalThis.selection = { parallaxEnabled: false };
+      parallaxLayerMod.syncParallaxLayer();
+      cleared = targets.every((el) => !('--we-parallax-x' in el.props)
+        && !el.classList.contains('we-parallax--moving'))
+        && !('--we-parallax-bg' in bodyStore.props)
+        && typeof listeners.pointermove === 'function';
+    } catch (e) { threw = String((e && e.message) || e); } finally {
+      globalThis.selection = PREV_SEL;
+      globalThis.document = PREV_DOC;
+      globalThis.window = PREV_WIN;
+      globalThis.requestAnimationFrame = PREV_RAF;
+      globalThis.cancelAnimationFrame = PREV_CAF;
+    }
+    check('parallax-layer.js 步长写在要动的那几层自己身上 · body 只放系数 · 起帧提合成层到位摘 · 停用全收干净',
+      !threw && movedOn && settled && cleared,
+      threw || ('movedOn=' + movedOn + ' settled=' + settled + ' cleared=' + cleared
+        + ' step=' + layerEl.props['--we-parallax-x'] + '|' + layerEl.props['--we-parallax-y']));
+  }
+  {
+    // 三号模块的岛：注册表项形状 + 「关着只画总开关、开着才画 4 个参数」这条可见行为。
+    // 与另两个模块同一张注册表 ⇒ id 必须唯一（'parallax'），title/desc 取的就是译文。
+    const ctxOf = (sel) => ({
+      sel,
+      onParallaxEnabled: () => {}, onParallaxBg: () => {}, onParallaxMetrics: () => {},
+      onParallaxMascot: () => {}, onParallaxSmooth: () => {},
+    });
+    const PARAMS = ['背景缓动距离', '图表缓动距离', '吉祥物跟随', '缓动平滑'];
+    const off = labelSeq(extParallaxMod.renderParallaxIsland(ctxOf(schemaMod.DEFAULTS)));
+    const on = labelSeq(extParallaxMod.renderParallaxIsland(
+      ctxOf(Object.assign({}, schemaMod.DEFAULTS, { parallaxEnabled: true }))));
+    const mod = extParallaxMod.PARALLAX_EXTENSION_MODULE;
+    const extParSrc = readFileSync(join(root, 'src', 'ext-parallax.js'), 'utf8');
+    const wantOff = [globalThis.weT('启用 3D 效果')];
+    const wantOn = wantOff.concat(PARAMS.map((k) => globalThis.weT(k)));
+    check('ext-parallax.js 可单独 import · 注册表项形状 · 关着只画总开关、开着才画 4 参数',
+      Boolean(mod) && mod.id === 'parallax' && mod.render === extParallaxMod.renderParallaxIsland
+      && typeof mod.title === 'string' && mod.title === globalThis.weT('3D 效果')
+      && typeof mod.desc === 'string' && mod.desc.length > 0
+      // 模块自己不许写设置 / 发通知 / 持有状态：动作一律经 ctx 里的具名处理器。
+      && !extParSrc.includes('setSetting') && !extParSrc.includes('emit(')
+      && !extParSrc.includes('commitLiveSetting')
+      && off.join('|') === wantOff.join('|') && on.join('|') === wantOn.join('|'),
+      'off=' + off.length + ' on=' + on.length + ' [' + on.join('|') + ']');
+  }
+
   const st = Object.assign({}, schemaMod.DEFAULTS, {
     loaded: true, loading: false, id: 'w1', url: '/x', type: 'video', playing: true,
     videoPlaying: true, videoVolume: 0.5, videoAudioEnabled: false, videoError: '',
@@ -2588,19 +3397,18 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       const labels = labelSeq(tree);
       check(t.fn + t.label + ' 的控件标签顺序与集合逐字不变', sameSeq(labels, t.wantLabels),
         'want=[' + t.wantLabels.join(' / ') + '] got=[' + labels.join(' / ') + ']');
-      // ── 简化配置 vs 复杂配置的**边界**（wip §3.4 / §10.22）────────────────────
-      // 规划口径：「独立配置」层是**逐面覆盖全局**的高级动作 ⇒ 只出现在设置菜单那一档；
-      // 简化配置（侧栏档）只留全局四件套。实测它曾同时出现在两档（用户看到侧边栏里
-      // 也有那三个开关）—— 夹具改对只是"碰巧对"，所以这条规则单独判一次。
+      // ── 两档同内容的**边界**（用户口径 2026-10-03，推翻原 §10.22"简化配置不进侧栏"）──
+      // 侧栏「外观」与设置页完全同内容 ⇒ 「独立配置」层两档都必须在；唯一例外是
+      // 「全局字体」节不进侧栏（由 want/wantLabels 的序列钉，这里再补一条**渲染结果**
+      // 级的负断言：侧栏档实际画出的标签里不许出现「字体自定义」）。
       // ⚠️ 只对**带「玻璃 UI」节**的页签判（其它页签本来就没有独立配置层）。
       const indep = labels.filter((l) => l.includes('独立配置'));
       if ((t.want || []).includes('玻璃 UI')) {
+        check(t.fn + t.label + ' 两档都必须有「独立配置」层（同内容口径）',
+          indep.length >= 1, indep.length + ' 个：' + indep.join(' / '));
         if (t.surface === 'sidebar') {
-          check(t.fn + ' 简化配置（侧栏档）里不许出现「独立配置」层',
-            indep.length === 0, indep.length ? '泄漏：' + indep.join(' / ') : '0 个');
-        } else {
-          check(t.fn + ' 复杂配置（设置档）里**必须**有「独立配置」层',
-            indep.length >= 1, indep.length + ' 个：' + indep.join(' / '));
+          check(t.fn + ' 侧栏档实际渲染不许出现「字体自定义」（全局字体是唯一例外）',
+            !labels.includes('字体自定义'), '泄漏：' + labels.filter((l) => l === '字体自定义').join(''));
         }
       }
     }
@@ -2750,23 +3558,39 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
   };
   const MORE_CASES = [
     { fn: 'renderAppearanceTab', label: '（设置页：五节）', surface: 'settings',
-      // 玻璃四件套 + 雾化已归入新节「玻璃 UI」；「左侧栏覆盖」归入「细节」，
-      // 它的「独立配置」紧挂在它下方（用户口径：两者耦合）。
+      // 玻璃四件套 + 雾化已归入新节「玻璃 UI」；「左侧栏液态玻璃」与它的子项也都在本节
+      //（§10.25 起），两档同内容（2026-10-03 口径）。
       // ⚠️ 本批（wip §10.20）起这一节**只剩一层**：「子 UI 玻璃」总开关与每个子面的
       // 「要不要玻璃」开关都已退役（那个"关"并不能如愿回到原生纯色）⇒ 每个子面**直接**
       // 一个「独立配置」。同时「设置窗口液态玻璃」退役（功能由「设置窗口玻璃·独立配置」接管）。
       // ⚠️ `selOver` 打开宿主能力位：`sidebarPresent` + `sidebarGlass` 之后，侧栏家族与内容面
       // 那几行才画得出来（`sidebarPresent` 为假时它们整段不渲染 —— 这正是"窗口与侧栏"那节
       // 在没装 dsh-better-sidebar 的机器上只剩空标题的原因，§10.25 因此把它并进了「玻璃 UI」）。
-      selOver: { sidebarPresent: true, sidebarGlass: true },
+      selOver: { sidebarPresent: true, sidebarGlass: true, thinkingGlass: true },
       want: ['主题', '细节', '玻璃 UI', '全局字体', '输入光标'],
-      wantLabels: ['主题随壁纸', '边框', '玻璃透明度', '雾化', '玻璃保真度', '左侧栏覆盖', '侧栏液态玻璃', '侧栏玻璃·独立配置', '内容面玻璃·独立配置', '设置窗口玻璃·独立配置', '对话框玻璃·独立配置', '思考触发条玻璃·独立配置', '浮层玻璃·独立配置', '字体自定义'] },
-    // 侧栏档：被 `!sidebarSurface` 包住的两节不画 —— 这条门此前只有源码串，没有行为断言。
-    // ⚠️ 「独立配置」层属**复杂配置** ⇒ 侧栏档不画（见下面那条"边界"判据，§10.22）。
-    // ⚠️ §10.25：`左侧栏覆盖` 已从「细节」移入「玻璃 UI」⇒ 它在序列里的位置随节顺序前移。
-    { fn: 'renderAppearanceTab', label: '（侧栏档：设置页专属的两节不画）', surface: 'sidebar',
-      want: ['主题', '细节', '玻璃 UI'],
-      wantLabels: ['主题随壁纸', '边框', '玻璃透明度', '雾化', '玻璃保真度', '左侧栏覆盖'] },
+      // ⚠️ 本档打开 `thinkingGlass`（上游 #134 的「思考块液态玻璃」，默认关）：本仓的
+      //    「思考触发条玻璃·独立配置」是它门下的面 ⇒ 开关关着时那一行**不渲染**。要覆盖它，
+      //    这一档必须把开关打开（顺带覆盖同门的「胶囊雾化」；色板行「胶囊颜色」不进本判据 ——
+      //    `labelSeq` 只收开关 / 滑块标签，色板行从来不在序列里，全局「玻璃颜色」同理）。
+      wantLabels: ['主题随壁纸', '边框', '玻璃透明度', '雾化', '玻璃保真度', '思考块液态玻璃', '胶囊雾化', '左侧栏液态玻璃', '侧栏液态玻璃', '侧栏全透明', '侧栏玻璃跟随全局', '内容面玻璃·独立配置', '设置窗口玻璃·独立配置', '对话框玻璃·独立配置', '思考触发条玻璃·独立配置', '浮层玻璃·独立配置', '字体自定义'] },
+    // 侧栏档：2026-10-03 用户口径 —— 与设置页**同内容**，唯「全局字体」一节不进侧栏
+    //（那道 `!sidebarSurface` 门在 panel-tabs，与 quick-panel 的字体占位器互为负对照；
+    //  原 §10.22"简化配置不进侧栏"边界已被本次口径推翻）。
+    // `selOver` 与设置页用例同位 ⇒ 侧栏家族 / 内容面 / 跟随全局那几行同样画得出来。
+    { fn: 'renderAppearanceTab', label: '（侧栏档：与设置页同内容，唯全局字体除外）', surface: 'sidebar',
+      selOver: { sidebarPresent: true, sidebarGlass: true },
+      want: ['主题', '细节', '玻璃 UI', '输入光标'],
+      wantLabels: ['主题随壁纸', '边框', '玻璃透明度', '雾化', '玻璃保真度', '思考块液态玻璃', '左侧栏液态玻璃', '侧栏液态玻璃', '侧栏全透明', '侧栏玻璃跟随全局', '内容面玻璃·独立配置', '设置窗口玻璃·独立配置', '对话框玻璃·独立配置', '浮层玻璃·独立配置'] },
+    // ⚠️ 这一条是**覆盖缺口**补上的：字体那一节的细节（颜色角色 / 排版角色 / 字体族 / 组件字体 /
+    // 字体集预设，~180 行）被 `sel.fontCustom` 挡着，而它的默认值是关 ⇒ **任何用例都没渲染过它**。
+    // 打开它才能让那些行第一次进入判据的视野（这本身是找缺陷，不只是补锚）。
+    { fn: 'renderAppearanceTab', label: '（设置页 · 字体自定义开）', surface: 'settings',
+      selOver: { fontCustom: true },
+      want: ['主题', '细节', '玻璃 UI', '全局字体', '输入光标'],
+      wantLabels: ['主题随壁纸', '边框', '玻璃透明度', '雾化', '玻璃保真度', '思考块液态玻璃', '左侧栏液态玻璃',
+        '设置窗口玻璃·独立配置', '对话框玻璃·独立配置', '浮层玻璃·独立配置',
+        '字体自定义', '默认字体', '终端字体', '文字颜色角色', '深色单独设置', '正文', '次要文字', '弱化说明', '极小说明', '禁用 / 更弱',
+        '排版角色', '只看改过的', '高级字体设置', '字体集预设'] },
     // 效果页**只有一个节标签** ⇒ 节顺序钉不住它的内部结构。这里用**控件标签的有序序列**作细锚：
     // 它同样是行为级的（对任何重构不变），却细到能看见"某一行的位置被挪了 / 被删了"。
     { fn: 'renderEffectsTab', label: '（画面 · 设置页）', surface: 'settings', want: ['画面'],
@@ -2913,10 +3737,11 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
 
   check('负对照：外观页侧栏档确实渲染出了内容（不是空树 ⇒ 上面的"少三节"才有意义）',
     (() => {
-      // 侧栏档画「主题 / 细节 / 玻璃 UI」三节 —— 比设置页少「全局字体 / 输入光标」。
+      // 侧栏档画「主题 / 细节 / 玻璃 UI / 输入光标」四节 —— 只比设置页少「全局字体」
+      //（2026-10-03 同内容口径，唯一例外）。
       // ⚠️ 这个数字是**随节数变化**的：新增一节就要同步（它自己就是"少几节"那条判据的负对照）。
       try { return sectionSeq(panelMod.renderAppearanceTab(ctxFrom('renderAppearanceTab', st,
-        { surface: 'sidebar', fontSet: undefined }))).length === 3; } catch { return false; }
+        { surface: 'sidebar', fontSet: undefined }))).length === 4; } catch { return false; }
     })());
 
   // ── 拆成"一节一个子渲染器"之后新增的失败模式：**节用了某个 ctx 字段却没解构它** ──
@@ -2938,10 +3763,10 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       'onPauseOnBattery', 'onPauseOnBlur', 'onPauseOnHidden', 'onToggleLiveDiag', 'sel'],
     renderAppearanceTab: ['setSetting', 'officialColorOf', 'onAccent', 'onBlur', 'onBorder',
       'onCaretColor', 'onChatGlassFidelity', 'onComponentFamily', 'onComponentFont', 'onFontAdvanced', 'onFontResetAll',
-      'onGlassAlpha', 'onGlassColor', 'onGlassFidelity', 'onGlassWindow', 'onLeftSidebarGlass', 'onSidebarAlpha',
+      'onGlassAlpha', 'onGlassColor', 'onGlassFidelity', 'onGlassWindow', 'onThinkingGlass', 'onLeftSidebarGlass', 'onSidebarAlpha',
       'onSidebarBlur', 'onSidebarColor', 'onSidebarContentAlpha', 'onSidebarContentColor',
       'onSidebarGlass', 'onThemeColor', 'onThemeColorClear', 'onThemeDarkSeparate', 'onThemeFamily',
-      'onThemeSize', 'onThemeTypeOnly', 'onThemeWeight', 'onToggleFontCustom', 'onToggleThemeFollow',
+      'onThemeSize', 'onThemeTypeOnly', 'onThemeWeight', 'onThinkingGlass', 'onToggleFontCustom', 'onToggleThemeFollow',
       'fontSet', 'sel', 'surface'],
   };
   // ⚠️ `tabsSrcNow` 在本块顶部声明（归一成 LF）—— 这里不再重复声明。

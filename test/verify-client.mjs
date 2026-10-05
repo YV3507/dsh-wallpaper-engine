@@ -659,6 +659,9 @@ setTimeout(async () => {
       return hit;
     };
     const sliderMax = (row) => (row ? JSON.stringify(row).match(/"max":"(\d+)"/)?.[1] : null);
+    // 下限（可负的滑块要用它）：`"min":"-400"` —— 负号必须一起判，否则"范围丢了负半边"
+    // 这种回归在只判 max 的断言下完全看不见（位置偏移就是第一个可负的滑块）。
+    const sliderMin = (row) => (row ? JSON.stringify(row).match(/"min":"(-?\d+)"/)?.[1] : null);
     const findRangeInput = (row) =>
       (Array.isArray(row?.children) ? row.children : [])
         .find((c) => c && typeof c === 'object' && c.type === 'input');
@@ -667,16 +670,17 @@ setTimeout(async () => {
     localStorage.removeItem(TAB_KEY);
     let tree = renderPicker();
     let treeText = JSON.stringify(tree);
-    assert.ok(countMatches(tree, /"role":"tab"/g) === 5, 'tab bar renders (5 tabs):');
+    assert.ok(countMatches(tree, /"role":"tab"/g) === 6, 'tab bar renders (6 tabs):');
     assert.ok(treeText.includes('"we-tabs__tab we-tabs__tab--active"') && treeText.includes('自动轮播'), 'default tab is 壁纸库:');
     assert.ok(treeText.includes('"选择壁纸"'), 'library tab has 选择壁纸:');
     assert.ok(treeText.includes('自定义壁纸'), 'library tab has 自定义壁纸:');
     console.log('other tabs keep their controls out of the tree:',
       !treeText.includes('玻璃透明度') && !treeText.includes('字体自定义') && !treeText.includes('吉祥物大小'));
 
-    // ── 设置页签重组（UI 重构）：五个页签 = 壁纸库 / 外观 / 播放 / 系统 / 关于 ──
+    // ── 设置页签重组（UI 重构）：六个页签 = 壁纸库 / 外观 / 播放 / 系统 / 扩展 / 关于 ──
     //    原六页签合并：壁纸 → 壁纸库；效果+声音 → 播放；吉祥物+高级 → 系统；外观原样；
-    //    「关于」是后加的静态页（**排在最后**，且是唯一不读面板状态的那一个）。
+    //    「扩展」是后加的**模块容器**（注册表在 src/panel-tabs.js 的 extensionModules()，
+    //    排在「关于」之前）；「关于」是后加的静态页（**排在最后**，唯一不读面板状态的那个）。
     {
       const tabButtons = [];
       (function walk(node) {
@@ -686,11 +690,391 @@ setTimeout(async () => {
         if (Array.isArray(node.children)) node.children.forEach(walk);
       })(tree);
       const labels = tabButtons.map((b) => String((b.children || [])[0] || ''));
-      assert.deepEqual(labels, ['壁纸库', '外观', '播放', '系统', '关于'],
-        'tab bar must render exactly 壁纸库/外观/播放/系统/关于');
+      assert.deepEqual(labels, ['壁纸库', '外观', '播放', '系统', '扩展', '关于'],
+        'tab bar must render exactly 壁纸库/外观/播放/系统/扩展/关于');
       // 指示胶囊的宽度按页签数现算 —— 加/减页签忘改这里会当场错位（且只在视觉上错）。
-      assert.ok(JSON.stringify(tree).includes('calc((100% - 6px) / 5)'),
-        'tab pill width must be derived from PICKER_TABS.length (5)');
+      assert.ok(JSON.stringify(tree).includes('calc((100% - 6px) / 6)'),
+        'tab pill width must be derived from PICKER_TABS.length (6)');
+    }
+
+    // ── 「扩展」页签（第六个）：一个**模块容器** —— 表里没模块时只画空态 ──
+    //    它的价值在"容器还在、模块真的按注册表上架、且没跟别的页签串内容"：后续功能都只往
+    //    src/panel-tabs.js 的 extensionModules() 里加一项，页签本身不该再改。
+    //    现有三项：一号 = 硬件资源监控柱状图，二号 = 点击效果与拖尾效果，
+    //    三号 = 3D 效果（三张卡共用本块）。
+    {
+      setTab('extensions');
+      const extTree = renderPicker();
+      const extText = JSON.stringify(extTree);
+      // 容器 + 三个模块的标题与总开关都得在。
+      for (const anchorText of ['扩展模块', '硬件资源监控柱状图', '启用资源柱状图',
+        '点击效果与拖尾效果', '启用点击与拖尾效果', '3D 效果', '启用 3D 效果']) {
+        assert.ok(extText.includes(anchorText), '「扩展」页签必须包含「' + anchorText + '」');
+      }
+      // 模块槽位的类名必须真的在树上（CSS 段与渲染器对不上是肉眼可见的回归）。
+      assert.ok(extText.includes('"we-ext"') && extText.includes('"we-ext__module"'),
+        '「扩展」页签必须画出模块容器 we-ext 与模块卡 we-ext__module');
+      // 注册表**非空** ⇒ 空态不该再画（两者是互斥形态，留着会让用户以为没装上）。
+      assert.ok(!extText.includes('还没有可用的扩展模块'), '注册表非空时不得再画空态');
+      // 三条注册表项 ⇒ 恰好三张模块卡（漏一个模块、或把别的东西当模块画进去都会现形）。
+      assert.equal((extText.match(/"we-ext__module"/g) || []).length, 3,
+        '注册表里三项 ⇒ 「扩展」页签必须画出三张模块卡');
+      // 2026-10-04 用户口径：扩展三模块的出厂开关**全部默认关、按需开启**
+      //（一号模块此前的"默认开"是 v1 固化口径，已按用户测试结论改回）⇒ 三个模块的
+      // 参数控件默认一律不画，否则会给人"关着也生效"的错觉；三条同时钉住默认值没被误改成 true。
+      assert.ok(!extText.includes('荧光强度') && !extText.includes('柱配色'),
+        '一号模块总开关（默认关）下不得画出参数控件');
+      assert.ok(!extText.includes('点击样式') && !extText.includes('拖尾光晕'),
+        '二号模块总开关关闭时不得画出任何参数控件');
+      assert.ok(!extText.includes('背景缓动距离') && !extText.includes('缓动平滑'),
+        '三号模块总开关关闭时不得画出任何参数控件');
+      // 默认关（上面已判）；这里再走一次它自己的 onChange 证明处理器真的接上了 ——
+      // 打开后 位置与大小 + 柱形 + 阈值 + 观感四项 + 柱形/配色 + 序列名称 + 五条序列都得在。
+      const metricsOn = findCtlInput(extTree, '启用资源柱状图');
+      assert.ok(metricsOn, '扩展岛必须画出总开关（findCtlInput 能取到它的 onChange）');
+      assert.equal(metricsOn && metricsOn.props.checked, false, '一号模块的总开关默认必须是关的');
+      if (metricsOn) {
+        metricsOn.props.onChange({ target: { checked: true } });
+        flushPersistWrites();
+        const onTree = renderPicker();
+        const onText = JSON.stringify(onTree);
+        for (const t of ['高度', '水平偏移', '垂直偏移', '柱宽', '柱间距', '指标间隔', '阈值', '细白横线',
+          '不透明度', '混合模式', '极黑柱不透明度', '描边宽度', '荧光强度',
+          '平滑', '时间窗', '实心柱', '柱配色', '跟随主题色', '分色', '单色', '序列名称',
+          '正常', '正片叠底', '叠加', '滤色', '柔光', '变暗', '变亮',
+          '内存', '显卡', '网络', '磁盘']) {
+          assert.ok(onText.includes(t), '打开总开关后「扩展」页签必须有「' + t + '」');
+        }
+        // 滑块上限必须与 lib/settings-schema.js 的 KINDS 一致（改范围要同时改两处）。
+        assert.equal(sliderMax(findSliderRow(onTree, '高度')), '320', '柱状图高度上限必须是 320px');
+        assert.equal(sliderMax(findSliderRow(onTree, '水平偏移')), '400', '水平偏移上限必须是 400px');
+        assert.equal(sliderMax(findSliderRow(onTree, '垂直偏移')), '400', '垂直偏移上限必须是 400px');
+        // 偏移是**可负**的：下限必须真的是负数（只判 max 会让"忘了负号"悄悄溜过去）。
+        assert.equal(sliderMin(findSliderRow(onTree, '水平偏移')), '-400', '水平偏移下限必须是 -400px');
+        assert.equal(sliderMin(findSliderRow(onTree, '垂直偏移')), '-400', '垂直偏移下限必须是 -400px');
+        assert.equal(sliderMax(findSliderRow(onTree, '柱宽')), '16', '柱宽上限必须是 16px');
+        assert.equal(sliderMax(findSliderRow(onTree, '柱间距')), '16', '柱间距上限必须是 16px');
+        assert.equal(sliderMax(findSliderRow(onTree, '指标间隔')), '40', '行间隔上限必须是 40px');
+        assert.equal(sliderMax(findSliderRow(onTree, '阈值')), '100', '阈值上限必须是 100%');
+        assert.equal(sliderMax(findSliderRow(onTree, '时间窗')), '240', '时间窗上限必须是 240s');
+        assert.equal(sliderMax(findSliderRow(onTree, '描边宽度')), '5', '描边宽度上限必须是 5px');
+        // 极黑档的倍率（用户口径："该值也允许自定义"）：范围必须与 KINDS 的 10..100 一致。
+        assert.equal(sliderMax(findSliderRow(onTree, '极黑柱不透明度')), '100', '极黑柱不透明度上限必须是 100%');
+        assert.equal(sliderMin(findSliderRow(onTree, '极黑柱不透明度')), '10', '极黑柱不透明度下限必须是 10%');
+        // 滑块**右侧**要回显"当前值 + 单位"（用户口径："滑动条右侧显示数值"）——
+        // 这是 SliderRow 第三格 .we-picker__value 的文本；拖动期由 liveFill 就地改写，
+        // 这里判的是静态渲染那一份（值来自 sel，格式由 suffix 决定）。
+        const readoutOf = (labelText) => {
+          const row = findSliderRow(onTree, labelText);
+          if (!row) return null;
+          const hits = (row.children || []).filter((c) =>
+            typeof c?.props?.className === 'string' && c.props.className.includes('we-picker__value'));
+          return hits.length === 1 ? String((hits[0].children || [])[0] ?? '') : null;
+        };
+        assert.equal(readoutOf('高度'), '262px', '滑动条右侧必须回显「值 + 单位」：高度默认 262px');
+        assert.equal(readoutOf('水平偏移'), '0px', '偏移默认 0 也必须回显（0px，而不是空白）');
+        assert.equal(readoutOf('垂直偏移'), '286px', '垂直偏移默认 286px 同样回显（固化后的默认值）');
+        assert.equal(readoutOf('柱宽'), '13px', '柱宽默认 13px 必须回显在滑块右侧');
+        assert.equal(readoutOf('柱间距'), '2px', '柱间距默认 2px 必须回显在滑块右侧');
+        assert.equal(readoutOf('阈值'), '82%', '阈值回显带 % 单位（默认 82%）');
+        assert.equal(readoutOf('不透明度'), '100%', '不透明度默认 100% 必须回显在滑块右侧');
+        assert.equal(readoutOf('荧光强度'), '100%', '荧光强度默认 100% 必须回显在滑块右侧');
+        assert.equal(readoutOf('时间窗'), '60s', '时间窗回显带 s 单位（默认 60）');
+        assert.equal(readoutOf('极黑柱不透明度'), '30%', '极黑档倍率默认 30% 必须回显在滑块右侧');
+        // ── 细白横线（标尺）：默认**开**（metricsGuides: true），且是独立一层画的 ──
+        //    它必须由自己的开关控制：关了以后柱子/行名还在（层是分开的，见 src/metrics-layer.js）。
+        const guides = findCtlInput(onTree, '细白横线');
+        assert.ok(guides, '扩展岛必须画出「细白横线」开关（findCtlInput 能取到它的 onChange）');
+        if (guides) assert.equal(guides.props.checked, true, '细白横线默认开（metricsGuides: true）');
+        // ── 混合模式：8 档平铺会被等分宽度的 .we-picker__seg 挤成一团 ⇒ 必须是下拉 ──
+        const findSelect = (root, aria) => {
+          let hit = null;
+          (function walk(node) {
+            if (hit || !node || typeof node !== 'object') return;
+            if (Array.isArray(node)) { node.forEach(walk); return; }
+            if (node.type === 'select' && node.props && node.props['aria-label'] === aria) { hit = node; return; }
+            if (Array.isArray(node.children)) node.children.forEach(walk);
+          })(root);
+          return hit;
+        };
+        const blend = findSelect(onTree, '混合模式');
+        assert.ok(blend, '扩展岛必须画出「混合模式」下拉（8 档不能平铺）');
+        if (blend) {
+          assert.equal(blend.props.value, 'auto', '混合模式默认必须是「自动」');
+          assert.equal(typeof blend.props.onChange, 'function', '混合模式下拉必须接上处理器');
+          const blendText = JSON.stringify(blend);
+          // 档位必须与 lib/settings-schema.js 的 METRICS_BLEND_VALUES 逐字对齐（值 + 条数一起判）。
+          for (const v of ['auto', 'normal', 'multiply', 'overlay', 'screen', 'soft-light', 'darken', 'lighten']) {
+            assert.ok(blendText.includes('"value":"' + v + '"'), '混合模式下拉缺少档位 ' + v);
+          }
+          assert.equal((blendText.match(/"type":"option"/g) || []).length, 8,
+            '混合模式下拉必须恰好 8 个档位（与 METRICS_BLEND_VALUES 对齐）');
+          // ── 极黑档的倍率（用户口径："该值也允许自定义"）：**只在「自动」档出现** ──
+          //    别的档根本不会判极黑 ⇒ 摆着只会让人以为还有用（与「分色」档的取色器同一条理由）。
+          //    这里走控件自己的 onChange 真改一次设置，再重渲染看它消失 / 回来。
+          const deepRow = () => findSliderRow(renderPicker(), '极黑柱不透明度');
+          assert.ok(deepRow(), '混合模式为「自动」时必须画出「极黑柱不透明度」');
+          blend.props.onChange({ target: { value: 'screen' } });
+          flushPersistWrites();
+          assert.ok(!deepRow(), '手选「滤色」后「极黑柱不透明度」必须消失（极黑判定不参与）');
+          const backToAuto = findSelect(renderPicker(), '混合模式');
+          assert.equal(backToAuto && backToAuto.props.value, 'screen', '切档后下拉必须回显手选的那一档');
+          backToAuto.props.onChange({ target: { value: 'auto' } });
+          flushPersistWrites();
+          assert.ok(deepRow(), '切回「自动」后「极黑柱不透明度」必须回来');
+        }
+        // ── 五条序列各自的自定义颜色：**只在「分色」档出现** ──
+        //    别的档一根柱子用什么色由主题/亮度决定，这时候摆五个取色器等于骗人（拖了没反应）。
+        const findButton = (root, label) => {
+          let hit = null;
+          (function walk(node) {
+            if (hit || !node || typeof node !== 'object') return;
+            if (Array.isArray(node)) { node.forEach(walk); return; }
+            if (node.type === 'button' && String((node.children || [])[0]) === label) { hit = node; return; }
+            if (Array.isArray(node.children)) node.children.forEach(walk);
+          })(root);
+          return hit;
+        };
+        const collectColorInputs = (root) => {
+          const out = [];
+          (function walk(node) {
+            if (!node || typeof node !== 'object') return;
+            if (Array.isArray(node)) { node.forEach(walk); return; }
+            if (node.type === 'input' && node.props && node.props.type === 'color') out.push(node);
+            if (Array.isArray(node.children)) node.children.forEach(walk);
+          })(root);
+          return out;
+        };
+        assert.equal(collectColorInputs(onTree).length, 0, '「跟随主题色」档下不得出现自定义取色器');
+        const spectrumBtn = findButton(onTree, '分色');
+        assert.ok(spectrumBtn, '必须画出取色档「分色」');
+        if (spectrumBtn) {
+          spectrumBtn.props.onClick();
+          flushPersistWrites();
+          const specTree = renderPicker();
+          const specText = JSON.stringify(specTree);
+          for (const t of ['CPU颜色', '内存颜色', '显卡颜色', '网络颜色', '磁盘颜色']) {
+            assert.ok(specText.includes(t), '分色档下必须画出「' + t + '」取色行');
+          }
+          const colorInputs = collectColorInputs(specTree);
+          assert.equal(colorInputs.length, 5, '分色档下必须恰好五条序列各一个取色器');
+          // 默认值 = 各序列的出厂色相（用户还没改过时画面逐像素不变）。
+          assert.deepEqual(colorInputs.map((c) => String(c.props.value)),
+            ['#4f8cff', '#35d07f', '#ff5c8a', '#ffb020', '#a06bff'],
+            '五条取色器的默认值必须是各序列的出厂色相');
+          // 拖动色盘走"只写值 + 应用样式、不 emit"的 live 档 ⇒ 两个回调都得挂上。
+          assert.equal(typeof colorInputs[0].props.onInput, 'function', '取色器必须挂上 onInput（拖动期实时）');
+          assert.equal(typeof colorInputs[0].props.onChange, 'function', '取色器必须挂上 onChange（抬手落盘）');
+          // 复位：切回「跟随主题色」，别把"分色"留给后面的判据。
+          const accentBtn = findButton(specTree, '跟随主题色');
+          if (accentBtn) accentBtn.props.onClick();
+          flushPersistWrites();
+          assert.equal(collectColorInputs(renderPicker()).length, 0, '切回「跟随主题色」后取色器必须消失');
+        }
+        // 复位：把总开关关掉（这一版它**默认是开的**，这里只为不把"开着"的姿态留给后面的判据；
+        //        关掉这一下顺带证明那一串参数真的会收起来），flush 掉 debounce 的落盘。
+        const metricsOff = findCtlInput(onTree, '启用资源柱状图');
+        if (metricsOff) metricsOff.props.onChange({ target: { checked: false } });
+        flushPersistWrites();
+        assert.ok(!JSON.stringify(renderPicker()).includes('柱配色'),
+          '关掉一号模块总开关后它那一串参数必须收起来');
+      }
+      // ── 二号模块（点击效果与拖尾效果）：默认关 ⇒ 只画总开关 + 说明；开了才长参数 ──
+      //    它与一号模块共用一个页签，判据的重点是"两张卡各自独立"：一号的参数不该在二号
+      //    的开关下长出来，反之亦然；各自两个子开关（点击 / 拖尾）关掉时只收起自己那一串。
+      const fxOn = findCtlInput(extTree, '启用点击与拖尾效果');
+      assert.ok(fxOn, '二号模块必须画出总开关（findCtlInput 能取到它的 onChange）');
+      if (fxOn) {
+        fxOn.props.onChange({ target: { checked: true } });
+        flushPersistWrites();
+        const fxTree = renderPicker();
+        const fxText = JSON.stringify(fxTree);
+        for (const t of ['点击效果', '在点击处炸开一圈光效', '点击样式', '点击时炸开的样子',
+          '涟漪', '从点击处扩散的圆环', '星火', '向四周飞散的亮点', '两者', '圆环与星火一起',
+          '半径', '点击光晕',
+          '拖尾效果', '光标划过时留下会淡出的轨迹', '拖尾样式', '轨迹的样子',
+          '彗尾', '一条渐隐的光带', '星尘', '留在原地的亮点',
+          '拖尾时长', '拖尾粗细', '拖尾光晕', '不透明度', '混合模式',
+          '正常', '正片叠底', '叠加', '滤色', '变亮',
+          '效果配色', '跟随主题色', '彩虹', '自定义']) {
+          assert.ok(fxText.includes(t), '打开二号模块后「扩展」页签必须有「' + t + '」');
+        }
+        // 一号模块的参数**不得**因为二号模块开着而出现（两个模块各管各的）。
+        assert.ok(!fxText.includes('启用资源柱状图') || !fxText.includes('柱宽'),
+          '一号模块关着时，二号模块开着也不该画出柱状图的参数');
+        // 滑块范围必须与 lib/settings-schema.js 的 KINDS 一致（改范围要同时改两处）。
+        assert.equal(sliderMin(findSliderRow(fxTree, '半径')), '40', '点击半径下限必须是 40px');
+        assert.equal(sliderMax(findSliderRow(fxTree, '半径')), '400', '点击半径上限必须是 400px');
+        assert.equal(sliderMax(findSliderRow(fxTree, '点击光晕')), '100', '点击光晕上限必须是 100%');
+        assert.equal(sliderMin(findSliderRow(fxTree, '拖尾时长')), '80', '拖尾时长下限必须是 80ms');
+        assert.equal(sliderMax(findSliderRow(fxTree, '拖尾时长')), '2000', '拖尾时长上限必须是 2000ms');
+        assert.equal(sliderMin(findSliderRow(fxTree, '拖尾粗细')), '1', '拖尾粗细下限必须是 1px');
+        assert.equal(sliderMax(findSliderRow(fxTree, '拖尾粗细')), '12', '拖尾粗细上限必须是 12px');
+        assert.equal(sliderMax(findSliderRow(fxTree, '拖尾光晕')), '100', '拖尾光晕上限必须是 100%');
+        assert.equal(sliderMin(findSliderRow(fxTree, '不透明度')), '10', '不透明度下限必须是 10%');
+        assert.equal(sliderMax(findSliderRow(fxTree, '不透明度')), '100', '不透明度上限必须是 100%');
+        // 单位回显：ms 是本轮新增的第三种后缀（px / % / s 之外）—— 回显漏了它就会显示成裸数字。
+        const fxReadoutOf = (labelText) => {
+          const row = findSliderRow(fxTree, labelText);
+          if (!row) return null;
+          const hits = (row.children || []).filter((c) =>
+            typeof c?.props?.className === 'string' && c.props.className.includes('we-picker__value'));
+          return hits.length === 1 ? String((hits[0].children || [])[0] ?? '') : null;
+        };
+        assert.equal(fxReadoutOf('半径'), '140px', '半径回显带 px 单位（默认 140）');
+        assert.equal(fxReadoutOf('拖尾时长'), '420ms', '拖尾时长回显带 ms 单位（默认 420）');
+        assert.equal(fxReadoutOf('不透明度'), '85%', '不透明度回显带 % 单位（默认 85）');
+        // ── 混合模式：这一层**没有「自动」档**（它刻意不采样壁纸像素）⇒ 5 档、默认滤色 ──
+        const fxFindSelect = (root, aria) => {
+          let hit = null;
+          (function walk(node) {
+            if (hit || !node || typeof node !== 'object') return;
+            if (Array.isArray(node)) { node.forEach(walk); return; }
+            if (node.type === 'select' && node.props && node.props['aria-label'] === aria) { hit = node; return; }
+            if (Array.isArray(node.children)) node.children.forEach(walk);
+          })(root);
+          return hit;
+        };
+        const fxBlend = fxFindSelect(fxTree, '混合模式');
+        assert.ok(fxBlend, '二号模块必须画出「混合模式」下拉（5 档平铺会挤成一团）');
+        if (fxBlend) {
+          assert.equal(fxBlend.props.value, 'screen', '二号模块的混合模式默认必须是「滤色」');
+          const fxBlendText = JSON.stringify(fxBlend);
+          for (const v of ['screen', 'normal', 'overlay', 'multiply', 'lighten']) {
+            assert.ok(fxBlendText.includes('"value":"' + v + '"'), '二号模块的混合模式缺少档位 ' + v);
+          }
+          assert.equal((fxBlendText.match(/"type":"option"/g) || []).length, 5,
+            '二号模块的混合模式必须恰好 5 个档位（与 FX_BLEND_VALUES 对齐）');
+        }
+        // ── 取色器**只在「自定义」档出现**（别的档颜色由主题或色相决定，摆着就是骗人） ──
+        const fxFindButton = (root, label) => {
+          let hit = null;
+          (function walk(node) {
+            if (hit || !node || typeof node !== 'object') return;
+            if (Array.isArray(node)) { node.forEach(walk); return; }
+            if (node.type === 'button' && String((node.children || [])[0]) === label) { hit = node; return; }
+            if (Array.isArray(node.children)) node.children.forEach(walk);
+          })(root);
+          return hit;
+        };
+        const fxColorInputs = (root) => {
+          const out = [];
+          (function walk(node) {
+            if (!node || typeof node !== 'object') return;
+            if (Array.isArray(node)) { node.forEach(walk); return; }
+            if (node.type === 'input' && node.props && node.props.type === 'color') out.push(node);
+            if (Array.isArray(node.children)) node.children.forEach(walk);
+          })(root);
+          return out;
+        };
+        assert.equal(fxColorInputs(fxTree).length, 0, '「跟随主题色」档下不得出现自定义取色器');
+        const fxCustomBtn = fxFindButton(fxTree, '自定义');
+        assert.ok(fxCustomBtn, '二号模块必须画出配色档「自定义」');
+        if (fxCustomBtn) {
+          fxCustomBtn.props.onClick();
+          flushPersistWrites();
+          const fxCustomTree = renderPicker();
+          const fxCustomText = JSON.stringify(fxCustomTree);
+          assert.ok(fxCustomText.includes('自定义颜色'), '「自定义」档下必须画出「自定义颜色」取色行');
+          const fxColors = fxColorInputs(fxCustomTree);
+          assert.equal(fxColors.length, 1, '「自定义」档下必须恰好一个取色器');
+          assert.equal(String(fxColors[0].props.value), '#4f8cff', '取色器默认值必须是 fxColor 的默认色');
+          assert.equal(typeof fxColors[0].props.onInput, 'function', '取色器必须挂上 onInput（拖动期实时）');
+          assert.equal(typeof fxColors[0].props.onChange, 'function', '取色器必须挂上 onChange（抬手落盘）');
+          const fxAccentBtn = fxFindButton(renderPicker(), '跟随主题色');
+          if (fxAccentBtn) fxAccentBtn.props.onClick();
+          flushPersistWrites();
+          assert.equal(fxColorInputs(renderPicker()).length, 0, '切回「跟随主题色」后取色器必须消失');
+        }
+        // ── 两个子开关各自收起自己那一串参数（"关掉了还能拖它的参数"是错觉） ──
+        const clickOff = findCtlInput(renderPicker(), '在点击处炸开一圈光效');
+        assert.ok(clickOff, '二号模块必须画出「点击效果」子开关');
+        if (clickOff) {
+          clickOff.props.onChange({ target: { checked: false } });
+          flushPersistWrites();
+          const noClickText = JSON.stringify(renderPicker());
+          assert.ok(!noClickText.includes('点击样式') && !noClickText.includes('点击光晕'),
+            '关掉「点击效果」后它自己那一串参数必须收起来');
+          assert.ok(noClickText.includes('拖尾样式') && noClickText.includes('拖尾光晕'),
+            '关掉「点击效果」不该动到拖尾那一串参数');
+        }
+        const trailOff = findCtlInput(renderPicker(), '光标划过时留下会淡出的轨迹');
+        assert.ok(trailOff, '二号模块必须画出「拖尾效果」子开关');
+        if (trailOff) {
+          trailOff.props.onChange({ target: { checked: false } });
+          flushPersistWrites();
+          const noTrailText = JSON.stringify(renderPicker());
+          assert.ok(!noTrailText.includes('拖尾样式') && !noTrailText.includes('拖尾光晕'),
+            '关掉「拖尾效果」后它自己那一串参数必须收起来');
+        }
+        // 复位：总开关关掉（子开关那两条留在关着的档里没关系，总开关关着就都不画）。
+        const fxOff = findCtlInput(renderPicker(), '启用点击与拖尾效果');
+        if (fxOff) fxOff.props.onChange({ target: { checked: false } });
+        flushPersistWrites();
+      }
+      // ── 三号模块（3D 效果）：默认关 ⇒ 只画总开关 + 说明；开了才长四个参数 ──
+      //    它跟另两个模块最大的不同是**它一个 DOM 节点都不建**（行为层只往 body 写 CSS
+      //    变量，位移在 src/styles.js 的视差段里算）⇒ 岛这一侧的判据只盯"控件真的按开关
+      //    长出来、关掉就收起"，屏上真的挪了多少像素由 verify-scene-live 的源码口径与
+      //    样式段判据钉住（无头环境看不见像素）。
+      const parOn = findCtlInput(extTree, '启用 3D 效果');
+      assert.ok(parOn, '三号模块必须画出总开关（findCtlInput 能取到它的 onChange）');
+      assert.equal(parOn && parOn.props.checked, false, '三号模块的总开关默认必须是关的');
+      if (parOn) {
+        parOn.props.onChange({ target: { checked: true } });
+        flushPersistWrites();
+        const parTree = renderPicker();
+        const parText = JSON.stringify(parTree);
+        for (const t of ['3D 效果', '光标移动时，壁纸、吉祥物与柱状图沿屏幕中心的对称方向轻轻偏移：整块界面不动',
+          '背景缓动距离', '图表缓动距离', '吉祥物跟随', '挂件也按「背景缓动距离」一起挪', '缓动平滑']) {
+          assert.ok(parText.includes(t), '打开三号模块后「扩展」页签必须有「' + t + '」');
+        }
+        // 另两个模块的参数**不得**因为三号开着而出现（三张卡各管各的）。
+        assert.ok(!parText.includes('柱宽') && !parText.includes('拖尾粗细'),
+          '另两个模块关着时，三号模块开着也不该画出它们的参数');
+        // 滑块范围必须与 lib/settings-schema.js 的 KINDS 一致（改范围要同时改两处）。
+        assert.equal(sliderMin(findSliderRow(parTree, '背景缓动距离')), '0', '背景缓动距离下限必须是 0%');
+        assert.equal(sliderMax(findSliderRow(parTree, '背景缓动距离')), '10', '背景缓动距离上限必须是 10%');
+        assert.equal(sliderMin(findSliderRow(parTree, '图表缓动距离')), '0', '图表缓动距离下限必须是 0%');
+        assert.equal(sliderMax(findSliderRow(parTree, '图表缓动距离')), '20', '图表缓动距离上限必须是 20%');
+        assert.equal(sliderMin(findSliderRow(parTree, '缓动平滑')), '0', '缓动平滑下限必须是 0%');
+        assert.equal(sliderMax(findSliderRow(parTree, '缓动平滑')), '98', '缓动平滑上限必须是 98%');
+        // 默认回显：背景与图表都是 1%（用户口径里写明的默认值 —— 改大了就是"一开就很晃"）。
+        const parReadoutOf = (labelText) => {
+          const row = findSliderRow(parTree, labelText);
+          if (!row) return null;
+          const hits = (row.children || []).filter((c) =>
+            typeof c?.props?.className === 'string' && c.props.className.includes('we-picker__value'));
+          return hits.length === 1 ? String((hits[0].children || [])[0] ?? '') : null;
+        };
+        assert.equal(parReadoutOf('背景缓动距离'), '1%', '背景缓动距离默认必须是 1%');
+        assert.equal(parReadoutOf('图表缓动距离'), '1%', '图表缓动距离默认必须是 1%');
+        assert.equal(parReadoutOf('缓动平滑'), '85%', '缓动平滑默认必须是 85%');
+        // 吉祥物子开关默认**开**（用户口径第 4 条："如果可以，让吉祥物也参与"）：它只管
+        // "挂件要不要跟着挪"，关掉只是不挪自己，不影响壁纸与柱状图。
+        const parMascot = findCtlInput(parTree, '挂件也按「背景缓动距离」一起挪');
+        assert.ok(parMascot, '三号模块必须画出「吉祥物跟随」子开关');
+        assert.equal(parMascot && parMascot.props.checked, true, '「吉祥物跟随」默认必须是开的');
+        // 复位：总开关关掉（后续判据要的是"默认态"）。
+        const parOff = findCtlInput(renderPicker(), '启用 3D 效果');
+        if (parOff) parOff.props.onChange({ target: { checked: false } });
+        flushPersistWrites();
+        assert.ok(!JSON.stringify(renderPicker()).includes('背景缓动距离'),
+          '关掉三号模块总开关后它那一串参数必须收起来');
+      }
+      // 唯一激活的页签是「扩展」：只数类名不看文案，能同时挡住"没切过去"与"两个都亮"。
+      const activeTabs = [];
+      (function walk(node) {
+        if (!node || typeof node !== 'object') return;
+        if (Array.isArray(node)) { node.forEach(walk); return; }
+        const cls = typeof node.props?.className === 'string' ? node.props.className : '';
+        if (cls.split(/\s+/).includes('we-tabs__tab--active')) activeTabs.push(String((node.children || [])[0] || ''));
+        if (Array.isArray(node.children)) node.children.forEach(walk);
+      })(extTree);
+      assert.deepEqual(activeTabs, ['扩展'], '点开「扩展」后恰好只有它处于激活态');
+      // 负对照：别的页签的控件不得漏进「扩展」（合并渲染器最容易犯的错）。
+      assert.ok(!extText.includes('选择壁纸') && !extText.includes('玻璃透明度') && !extText.includes('吉祥物大小'),
+        '「扩展」页签不得混进别页签的控件');
     }
 
     // ── 「关于」页签：静态页 —— 简介 / 致谢 / 仓库与 Star / 两张交流群二维码 ──
@@ -712,7 +1096,7 @@ setTimeout(async () => {
         return out;
       };
       const tabs = collectByClass(tree, 'we-tabs__tab');
-      assert.ok(tabs.length === 5 && String(String(tabs[4].children[0])) === '关于',
+      assert.ok(tabs.length === 6 && String(String(tabs[5].children[0])) === '关于',
         '「关于」必须是最后一枚页签');
       assert.ok(treeText.includes('"we-tabs__tab we-tabs__tab--active"')
         && collectByClass(tree, 'we-tabs__tab--active').length === 1
@@ -817,7 +1201,27 @@ setTimeout(async () => {
     assert.ok(treeText.includes('自定义玻璃颜色'), 'glass color custom input present:');
     assert.ok(treeText.includes('type":"color"'), 'custom color input present:');
     assert.ok(treeText.includes('玻璃透明度'), 'glass transparency slider row present:');
-    assert.ok(treeText.includes('侧栏液态玻璃'), 'sidebar-glass master switch present:');
+    assert.ok(treeText.includes('"侧栏液态玻璃"'), 'sidebar-glass master switch present:');
+    // ── 跟随全局（sidebarFollowGlobal，默认开；现场口径："我需要侧栏玻璃也跟随全局"）──
+    //    合并 #132 后旋钮住在「侧栏玻璃·独立配置」下 ⇒ 跟随开着时收起的是那个开关本身：
+    //    画出来又不生效的旋钮正是要防的（WIP 原口径）。内容面与跟随无关 ⇒ 独立配置照旧在场。
+    const followSwitch = findCtlInput(tree, '侧栏玻璃跟随全局');
+    assert.ok(followSwitch, 'follow-global switch present:');
+    assert.equal(bodyEl.attributes['data-we-sidebar-follow'], 'on', '默认跟随 ⇒ body 上有跟随属性');
+    assert.equal(findCtlInput(tree, '侧栏玻璃·独立配置'), null, '跟随开着时侧栏「独立配置」收起（不画死旋钮）');
+    assert.equal(findSliderRow(tree, '侧栏模糊'), null, '跟随开着时不得画出「侧栏模糊」（精确标签，防 tooltip 骗过）');
+    assert.equal(findSliderRow(tree, '侧栏透明度'), null, '跟随开着时不得画出「侧栏透明度」');
+    assert.equal((JSON.stringify(tree).match(/"aria-label":"侧栏玻璃颜色 /g) || []).length, 0,
+      '跟随开着时不得画出侧栏玻璃颜色色板');
+    assert.ok(findCtlInput(tree, '内容面玻璃·独立配置'), '内容面独立配置不受跟随开关影响:');
+    // 关掉跟随 ⇒ 侧栏「独立配置」出现（能力没丢），body 属性随之摘掉。
+    followSwitch.props.onChange({ target: { checked: false } });
+    assert.equal(bodyEl.attributes['data-we-sidebar-follow'], undefined,
+      '关掉跟随必须摘掉 body 属性（否则侧栏的釉仍取共享那一份）');
+    tree = renderPicker();
+    treeText = JSON.stringify(tree);
+    assert.ok(findCtlInput(tree, '侧栏玻璃·独立配置'), '关掉跟随 ⇒ 侧栏「独立配置」出现:');
+    // ⚠️ 基线交付给下面 #132 的判据主体：跟随关着 ⇒ 它的开关流/量程/退役判据照原样跑。
     // ⚠️ 本批（wip §10.24）：侧栏家族与内容面的滑块挂在**各自的「独立配置」**下面 ——
     //    登记表那四个子面一直是这个口径（参数只在独立配置打开后才出现），而这两个既有面
     //    原先**没有开关**、滑块是**死的**；补上入口后行为与那四个统一。
@@ -831,12 +1235,12 @@ setTimeout(async () => {
     // The three detail knobs (侧栏模糊 / 侧栏透明度 / 侧栏玻璃颜色) are
     // conditional on the 侧栏液态玻璃 master switch: off → hidden, on →
     // restored, in the SAME render pass (the toggle re-emits synchronously).
-    const sidebarSwitch = findCtlInput(tree, '侧栏液态玻璃');
+    const sidebarSwitch = findCtlInput(tree, '"侧栏液态玻璃"');  // 带引号精确匹配：新标签「左侧栏液态玻璃」是它的超串
     if (sidebarSwitch) {
       sidebarSwitch.props.onChange({ target: { checked: false } });
       assert.equal(bodyEl.attributes['data-we-sidebar-glass'], undefined, 'sidebar master off must restore native surfaces');
       tree = renderPicker();
-      assert.ok(JSON.stringify(tree).includes('侧栏液态玻璃'), 'switch itself stays visible when off:');
+      assert.ok(JSON.stringify(tree).includes('"侧栏液态玻璃"'), 'switch itself stays visible when off:');
       assert.ok(!JSON.stringify(tree).includes('侧栏玻璃·独立配置'), 'master off also hides the independent switch:');
       sidebarSwitch.props.onChange({ target: { checked: true } });
       assert.equal(bodyEl.attributes['data-we-sidebar-glass'], 'on', 'sidebar master on must re-arm sidebar surfaces');
@@ -857,14 +1261,27 @@ setTimeout(async () => {
     tree = renderPicker();
     treeText = JSON.stringify(tree);
     assert.equal(sliderMax(findSliderRow(tree, '内容面透明度')), '100', '内容面透明度上限必须是 100（规范刻度，R4）');
-    // §10.27：新增的「思考触发条玻璃·独立配置」—— 打开后才画它自己的两项，量程同样钉在
-    // 规范刻度上（这正是"拖过 60 跳回 20"那次事故的两侧之一：**面板量程**那一侧）。
+    // §10.27 + v1.3.0 追版：新增的「思考触发条玻璃·独立配置」—— 打开后才画它自己的两项，量程同样
+    // 钉在规范刻度上（这正是"拖过 60 跳回 20"那次事故的两侧之一：**面板量程**那一侧）。
+    // ⚠️ 追版后这一面**挂在「思考块液态玻璃」（上游 #134，默认关）门下**（登记表 `master`）：
+    //    门关着时它一行都不画（画了就是"画出来又不生效"的死旋钮 ⇒ 本仓专门防这一类），
+    //    所以两头都钉 —— 关 ⇒ 找不到；开 ⇒ 出现且量程正确。
+    assert.equal(findCtlInput(tree, '思考触发条玻璃·独立配置'), null,
+      '思考玻璃门关着时「思考触发条玻璃·独立配置」不该画（master 门）');
+    findCtlInput(tree, '思考块液态玻璃').props.onChange({ target: { checked: true } });
+    tree = renderPicker();
+    assert.equal(bodyEl.attributes['data-we-thinking-glass'], 'on', '打开思考玻璃 ⇒ 门控属性挂上');
     findCtlInput(tree, '思考触发条玻璃·独立配置').props.onChange({ target: { checked: true } });
     tree = renderPicker();
     assert.equal(sliderMax(findSliderRow(tree, '思考触发条玻璃·玻璃透明度')), '100',
       '思考触发条透明度上限必须是 100（规范刻度）');
     assert.equal(sliderMax(findSliderRow(tree, '思考触发条玻璃·雾化')), '60',
       '思考触发条雾化上限必须是 60px（与全局雾化同刻度）');
+    // 收尾：关掉思考玻璃 ⇒ 这一行（连同它的滑杆）又收起 —— 往返双向钉住，不留"关着还画"的缺口。
+    findCtlInput(tree, '思考块液态玻璃').props.onChange({ target: { checked: false } });
+    tree = renderPicker();
+    assert.equal(bodyEl.attributes['data-we-thinking-glass'], undefined, '关掉思考玻璃 ⇒ 门控属性摘下');
+    assert.equal(findCtlInput(tree, '思考触发条玻璃·独立配置'), null, '关掉思考玻璃 ⇒ 该行收起');
     // ⚠️ 全局「玻璃透明度」的量程必须与 KINDS 一致（100）。这一条是为一个**真实事故**补的：
     //    处理器里手写的钳制漏改时，面板量程是 100 而钳制是 0–60，`clampNum` 又"越界即回落默认值"
     //    ⇒ 拖过 60 就跳回 20（用户实测"最多只能拉到 20%"）。面板量程 + 处理器取值域**两边都要钉**，
@@ -876,6 +1293,13 @@ setTimeout(async () => {
     assert.ok(!treeText.includes('设置窗口液态玻璃'), 'retired「设置窗口液态玻璃」switch must be gone:');
     assert.ok(treeText.includes('设置窗口玻璃·独立配置'), 'the child independent switch takes over:');
     assert.ok(treeText.includes('整个设置窗口'), 'window glass hint stays (now on the child switch):');
+
+    // 收尾：跟随开回默认态 ⇒ 「独立配置」又收起、属性回来（完整往返双向钉住）。
+    followSwitch.props.onChange({ target: { checked: true } });
+    assert.equal(bodyEl.attributes['data-we-sidebar-follow'], 'on', '重新打开跟随 ⇒ 属性回来');
+    tree = renderPicker();
+    treeText = JSON.stringify(tree);
+    assert.equal(findCtlInput(tree, '侧栏玻璃·独立配置'), null, '重新打开跟随 ⇒ 「独立配置」又收起');
 
     // ── 「字体」已并入「外观」：老的 localStorage 页签值必须迁移过去（不能把用户
     //    甩回「壁纸」），且字体三件套 + 输入光标都在「外观」里。 ──
@@ -993,6 +1417,20 @@ setTimeout(async () => {
       tree = renderPicker();
       const ri2 = findRangeInput(findSliderRow(tree, '吉祥物大小'));
       assert.ok(ri2 && String(ri2.props.value) === '1.5', 'rope size slider updates to 1.5:');
+      // 设置页形态卡片固定基础尺寸（2026-10-04 用户口径）：「吉祥物大小」只作用于
+      // 主页面 RopeDock，卡片不跟着缩放 —— 若有人把 `form.w * sel.ropeScale` 的
+      // 乘法加回去，1.5 倍下小女仆会是 78px、鲸御姐 144px，这里当场红。
+      const artsAtScale = [];
+      (function walkArt(n) {
+        if (!n || typeof n !== 'object') return;
+        if (Array.isArray(n)) { n.forEach(walkArt); return; }
+        const cls = typeof n.props?.className === 'string' ? n.props.className : '';
+        if (cls.includes('we-picker__mascot-art')) artsAtScale.push(n);
+        if (Array.isArray(n.children)) n.children.forEach(walkArt);
+      })(tree);
+      assert.equal(artsAtScale.length, 2, '1.5 倍下形态卡片立绘仍应有 2 个（卡片不消失）');
+      assert.equal(artsAtScale[0] && artsAtScale[0].props.style?.width, '52px', '小女仆卡片宽度固定 52px（不随滑块缩放）');
+      assert.equal(artsAtScale[1] && artsAtScale[1].props.style?.height, '96px', '鲸御姐卡片高度固定 96px（不随滑块缩放）');
       if (ri2) ri2.props.onInput({ target: { value: '1' } });
       tree = renderPicker();
     }
@@ -1071,34 +1509,46 @@ setTimeout(async () => {
       if (hit && typeof hit.props.onClick === 'function') { try { hit.props.onClick(); } catch (e) { console.log('pager click threw:', e && e.message); } }
       return hit;
     };
-    // Page 1: 33 playable wallpapers → 2 pages @ 24; grid = close card + 24.
+    // Virtual window（2026-10-04 用户口径：**库视图不再分页**）：本台 React 是替身 ⇒
+    // qpVirtWindow 的测量 effect 不跑，窗口恒为"未测量首窗" = 关闭卡 + 前 29 张
+    // （PICKER_VP_FIRST = 30 条目）—— 恰好把窗口计算钉成**确定性**断言；滚动出的窗口
+    // 归真浏览器（判定台/真机）。分页器从此不存在于库视图（轮换编辑器仍用它）。
     // 判据必须**真断言**：整块 `console.log` 只在日志里像断言、不判真假（形态规则见
     // docs/DEV-GUIDE.md §4.7 约定 5）。
     let cards = collectCards(tree);
-    rotCheck('分页：第 1 页 25 张卡（关闭卡 + 24）', cards.length === 25);
-    rotCheck('分页：页数 > 1 时渲染分页器', JSON.stringify(tree).includes('we-picker__pager'));
-    const page1Text = JSON.stringify(cards);
-    rotCheck('分页：第 1 页含首张（Wall 0）', page1Text.includes('Wall 0'));
-    rotCheck('分页：第 1 页不含第 2 页的项（Wall 30）', !page1Text.includes('Wall 30'));
-    rotCheck('筛选：无 frameUrl 的场景（Scene D）不进网格', !page1Text.includes('Scene D'));
-    rotCheck('筛选：默认 Everyone 下 PG13 不进网格', !page1Text.includes('PG13 E'));
-    // Flip to page 2 → 33 - 24 = 9 wallpapers + close card = 10.
-    const pagerHit = clickPager(tree, '下一页 ›');
-    rotCheck('分页：找得到「下一页」按钮（找不到时不得静默通过）', !!pagerHit);
+    rotCheck('虚拟首窗：30 张卡（关闭卡 + 29）', cards.length === 30);
+    rotCheck('虚拟首窗：库视图不再渲染分页器', !JSON.stringify(tree).includes('we-picker__pager'));
+    const winText = JSON.stringify(cards);
+    rotCheck('虚拟首窗：含首张（Wall 0）与窗尾（Wall 28）', winText.includes('Wall 0') && winText.includes('Wall 28'));
+    rotCheck('虚拟首窗：窗外条目不渲染（Wall 29 / Video A / Scene C）',
+      !winText.includes('Wall 29') && !winText.includes('Video A') && !winText.includes('Scene C'));
+    rotCheck('筛选：无 frameUrl 的场景（Scene D）不进网格', !winText.includes('Scene D'));
+    rotCheck('筛选：默认 Everyone 下 PG13 不进网格', !winText.includes('PG13 E'));
+    // 窗口外的条目必须**可达**（这是"虚拟"与"砍掉"的分界）：搜索把库收敛进首窗。
+    const findSearchBox = (root) => { let hit = null; (function walkS(n) {
+      if (hit) return;
+      if (Array.isArray(n)) { n.forEach(walkS); return; }
+      if (!n || typeof n !== 'object') return;
+      const c = typeof n.props?.className === 'string' ? n.props.className : '';
+      if (c.split(/\s+/).includes('we-picker__search')) { hit = n; return; }
+      if (Array.isArray(n.children)) n.children.forEach(walkS);
+    })(root); return hit; };
+    const searchBox = findSearchBox(tree);
+    rotCheck('虚拟首窗：搜索框在（窗外条目经它可达）', Boolean(searchBox && searchBox.props.onInput));
+    searchBox.props.onInput({ target: { value: 'Video A' } });
     tree = renderPicker();
     cards = collectCards(tree);
-    rotCheck('分页：第 2 页 10 张卡（关闭卡 + 9）', cards.length === 10);
-    const page2Text = JSON.stringify(cards);
-    rotCheck('分页：第 2 页含末张（Wall 29）', page2Text.includes('Wall 29'));
-    rotCheck('分页：翻页后不再含第 1 页的项（Wall 0）', !page2Text.includes('Wall 0'));
-    rotCheck('筛选：有 frameUrl 的场景（Scene C）进网格', page2Text.includes('Scene C'));
+    rotCheck('虚拟首窗：搜索收敛后远端条目（Video A）落进首窗', cards.length === 2
+      && JSON.stringify(cards).includes('Video A'));
+    searchBox.props.onInput({ target: { value: '' } });
+    tree = renderPicker();
     // 负对照：把**变异输入**喂进**同一条判据**，证明这两条判据真能失败
     const mutated = { props: { className: 'we-picker__card' },
       children: [{ props: { className: 'we-picker__card-wrap' }, children: [] }] };
     rotCheck('负对照：卡片判据不把近似类名算进去（多算一张就会被判出）',
       collectCards(mutated).length === 1 && collectCards({}).length === 0);
-    rotCheck('负对照：两页内容确实不同（否则「翻页换了内容」这条判据恒真）',
-      !page1Text.includes('Wall 29') && page2Text.includes('Wall 29'));
+    rotCheck('负对照：搜索收敛判据两侧都真（清空后 Video A 回到窗外）',
+      collectCards(tree).length === 30 && !JSON.stringify(collectCards(tree)).includes('Video A'));
 
     // ── 0b：搜索 / 类型筛选 / 批量 / 隐藏页 / 卡片头计数 ──────────────────
     // 判据只在**一处**定义，正判据与负对照都调它（形态规则见 docs/DEV-GUIDE.md §4.7 约定 5）。
@@ -1149,13 +1599,12 @@ setTimeout(async () => {
     };
     const persisted = () => JSON.parse(localStorage._store['dsh-wallpaper-engine:selection'] || '{}');
 
-    // 卡片头徽标 = 当前（过滤后）**全量**可播放数；网格只渲染**当页** —— 两者是"全量与分页"
-    // 的关系（上一步翻到了第 2 页，先翻回来让状态确定）。
-    clickPager(tree, '‹ 上一页');
+    // 卡片头徽标 = 当前（过滤后）**全量**可播放数；网格只渲染**虚拟首窗** —— 两者是
+    // "全量与窗口"的关系（分页已退役，这里不再需要先翻回第 1 页）。
     tree = renderPicker();
     assert.equal(badgeOf(tree), '33', '卡片头徽标显示当前可播放数（全量）');
-    assert.equal(collectCards(tree).length, 25, '第 1 页渲染关闭卡 + 24 张（全量 33 ⇒ 分两页）');
-    assert.ok(textOf(tree).includes('1 / 2'), '分页器显示 1 / 2（页数 = ceil(全量 / 24)）');
+    assert.equal(collectCards(tree).length, 30, '首窗渲染关闭卡 + 29 张（未测量首窗 = 30 条目）');
+    assert.ok(!JSON.stringify(tree).includes('we-picker__pager'), '分页器不再出现');
 
     // ── 模态框**标记等价**（搬迁前后逐字未变）────────────────────────────────
     // 模态框那棵子树被 116 个 `.we-picker__*` 选择器按**层级 / 相邻关系**选元素
@@ -1172,6 +1621,12 @@ setTimeout(async () => {
       (function walk(node, depth) {
         if (Array.isArray(node)) { node.forEach((c) => walk(c, depth)); return; }
         if (!node || typeof node !== 'object') return;
+        // Fragment 是透明容器（不产生 DOM）：不记 class、不进深度，子层原样摊平 ——
+        // 否则虚拟窗口的 Fragment 会给卡片一个幻影层级，深度不再忠实于 DOM。
+        if (node.type === 'Fragment') {
+          if (Array.isArray(node.children)) node.children.forEach((c) => walk(c, depth));
+          return;
+        }
         const cls = typeof node.props?.className === 'string' ? node.props.className : '';
         for (const token of cls.split(/\s+/).filter(Boolean)) out.push(depth + ':' + token);
         if (Array.isArray(node.children)) node.children.forEach((c) => walk(c, depth + 1));
@@ -1189,59 +1644,60 @@ setTimeout(async () => {
       return out;
     };
     const EXPECTED_NORMAL = [
-      '0:we-picker__modal 1:we-picker__modal-head 2:we-picker__modal-head-left 3:we-vinyl 3:we-vinyl--playing 3:we-vinyl--sm 4:we-vinyl__cover 5:we-vinyl__empty',
-      '4:we-vinyl__hole 3:we-picker__modal-title 2:we-picker__btn 1:we-picker__modal-tabs 2:we-picker__btn 2:we-picker__tab 2:we-picker__tab--active 2:we-picker__btn',
-      '2:we-picker__tab 1:we-picker__modal-body 2:we-picker__row 3:we-picker__hint 3:we-picker__btn 2:we-picker__row 2:we-picker__filter-row 3:we-picker__text',
-      '3:we-picker__search 3:we-picker__hint 3:we-picker__label 3:we-picker__playlist-select 3:we-picker__hint 3:we-picker__label 3:we-picker__playlist-select 2:we-picker__grid',
-      '3:we-picker__card 4:we-picker__card-close 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card',
-      '4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title',
-      '4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder',
-      '4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide',
-      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type',
-      '4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card',
-      '4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title',
-      '4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder',
-      '4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide',
-      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type',
-      '4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card',
-      '4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title',
-      '4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder',
-      '4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide',
-      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type',
-      '4:we-picker__card-title 4:we-picker__card-hide 2:we-picker__pager 3:we-picker__hint 3:we-picker__btn 3:we-picker__btn 1:we-picker__modal-foot 2:we-picker__hint',
+      '0:we-picker__modal 1:we-picker__modal-head 2:we-picker__modal-head-left 3:we-vinyl 3:we-vinyl--playing 3:we-vinyl--sm 4:we-vinyl__cover 5:we-vinyl__empty 4:we-vinyl__hole',
+      '3:we-picker__modal-title 2:we-picker__btn 1:we-picker__modal-tabs 2:we-picker__btn 2:we-picker__tab 2:we-picker__tab--active 2:we-picker__btn 2:we-picker__tab 1:we-picker__modal-body',
+      '2:we-picker__row 3:we-picker__hint 3:we-picker__btn 2:we-picker__row 2:we-picker__filter-row 3:we-picker__text 3:we-picker__search 3:we-picker__hint 3:we-picker__label',
+      '3:we-picker__playlist-select 3:we-picker__hint 3:we-picker__label 3:we-picker__playlist-select 2:we-picker__grid 3:we-picker__card 4:we-picker__card-close 3:we-picker__card 4:we-picker__card-placeholder',
+      '4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card',
+      '4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide',
+      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title',
+      '4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type',
+      '4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder',
+      '4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card',
+      '4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide',
+      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title',
+      '4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type',
+      '4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder',
+      '4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card',
+      '4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide',
+      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title',
+      '4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type',
+      '4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder',
+      '4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 1:we-picker__modal-foot',
+      '2:we-picker__hint',
     ].join(' ').split(' ');
     const EXPECTED_BATCH = [
-      '0:we-picker__modal 1:we-picker__modal-head 2:we-picker__modal-head-left 3:we-vinyl 3:we-vinyl--playing 3:we-vinyl--sm 4:we-vinyl__cover 5:we-vinyl__empty',
-      '4:we-vinyl__hole 3:we-picker__modal-title 2:we-picker__btn 1:we-picker__modal-tabs 2:we-picker__btn 2:we-picker__tab 2:we-picker__tab--active 2:we-picker__btn',
-      '2:we-picker__tab 1:we-picker__modal-body 2:we-picker__row 3:we-picker__hint 3:we-picker__btn 2:we-picker__row 2:we-picker__batch-bar 3:we-picker__hint',
-      '3:we-picker__btn 3:we-picker__btn 2:we-picker__row 2:we-picker__filter-row 3:we-picker__text 3:we-picker__search 3:we-picker__hint 3:we-picker__label',
-      '3:we-picker__playlist-select 3:we-picker__hint 3:we-picker__label 3:we-picker__playlist-select 2:we-picker__grid 3:we-picker__card 4:we-picker__card-close 3:we-picker__card',
-      '3:we-picker__card--checked 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
-      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
-      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
-      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
-      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
-      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
-      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
-      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
-      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
-      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
-      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
-      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
-      '2:we-picker__pager 3:we-picker__hint 3:we-picker__btn 3:we-picker__btn 1:we-picker__modal-foot 2:we-picker__hint',
+      '0:we-picker__modal 1:we-picker__modal-head 2:we-picker__modal-head-left 3:we-vinyl 3:we-vinyl--playing 3:we-vinyl--sm 4:we-vinyl__cover 5:we-vinyl__empty 4:we-vinyl__hole',
+      '3:we-picker__modal-title 2:we-picker__btn 1:we-picker__modal-tabs 2:we-picker__btn 2:we-picker__tab 2:we-picker__tab--active 2:we-picker__btn 2:we-picker__tab 1:we-picker__modal-body',
+      '2:we-picker__row 3:we-picker__hint 3:we-picker__btn 2:we-picker__row 2:we-picker__batch-bar 3:we-picker__hint 3:we-picker__btn 3:we-picker__btn 2:we-picker__row',
+      '2:we-picker__filter-row 3:we-picker__text 3:we-picker__search 3:we-picker__hint 3:we-picker__label 3:we-picker__playlist-select 3:we-picker__hint 3:we-picker__label 3:we-picker__playlist-select',
+      '2:we-picker__grid 3:we-picker__card 4:we-picker__card-close 3:we-picker__card 3:we-picker__card--checked 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card',
+      '4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder',
+      '4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title',
+      '4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
+      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card',
+      '4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder',
+      '4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title',
+      '4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
+      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card',
+      '4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder',
+      '4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title',
+      '4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check',
+      '3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card 4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 3:we-picker__card',
+      '4:we-picker__card-placeholder 4:we-picker__card-title 4:we-picker__card-check 1:we-picker__modal-foot 2:we-picker__hint',
     ].join(' ').split(' ');
     const EXPECTED_HIDDEN = [
-      '0:we-picker__modal 1:we-picker__modal-head 2:we-picker__modal-head-left 3:we-vinyl 3:we-vinyl--playing 3:we-vinyl--sm 4:we-vinyl__cover 5:we-vinyl__empty',
-      '4:we-vinyl__hole 3:we-picker__modal-title 2:we-picker__btn 1:we-picker__modal-tabs 2:we-picker__btn 2:we-picker__tab 2:we-picker__btn 2:we-picker__tab',
-      '2:we-picker__tab--active 1:we-picker__modal-body 2:we-picker__grid 3:we-picker__row 4:we-picker__hint 4:we-picker__btn 3:we-picker__card 3:we-picker__card--hidden',
-      '4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title 4:we-picker__card-hide 1:we-picker__modal-foot 2:we-picker__hint',
+      '0:we-picker__modal 1:we-picker__modal-head 2:we-picker__modal-head-left 3:we-vinyl 3:we-vinyl--playing 3:we-vinyl--sm 4:we-vinyl__cover 5:we-vinyl__empty 4:we-vinyl__hole',
+      '3:we-picker__modal-title 2:we-picker__btn 1:we-picker__modal-tabs 2:we-picker__btn 2:we-picker__tab 2:we-picker__btn 2:we-picker__tab 2:we-picker__tab--active 1:we-picker__modal-body',
+      '2:we-picker__row 3:we-picker__hint 3:we-picker__btn 2:we-picker__grid 3:we-picker__card 3:we-picker__card--hidden 4:we-picker__card-placeholder 4:we-picker__card-type 4:we-picker__card-title',
+      '4:we-picker__card-hide 1:we-picker__modal-foot 2:we-picker__hint',
     ].join(' ').split(' ');
     const modalRoot = findByClass(tree, 'we-picker__modal');
     const seqNormal = modalClassSequence(tree);
     // 绝对锚点（不读 golden）：否则"两边都空"也算相等。
-    assert.equal(seqNormal.length, 160, '绝对锚点：普通视图的 class 令牌数（空序列不得算通过）');
-    assert.ok(collectCards(modalRoot).length >= 25, '绝对锚点：模态框里的卡片数 ≥ 25（关闭卡 + 当页 24 张）');
-    assert.ok(classSequenceMatches(seqNormal, EXPECTED_NORMAL), '普通视图：模态框标记序列与搬迁前逐字一致');
+    assert.equal(seqNormal.length, 181, '绝对锚点：普通视图的 class 令牌数（空序列不得算通过）');
+      assert.ok(collectCards(modalRoot).length >= 25, '绝对锚点：模态框里的卡片数 ≥ 25（关闭卡 + 首窗 29 张）');
+      assert.ok(classSequenceMatches(seqNormal, EXPECTED_NORMAL), '普通视图：模态框标记序列与下钻改版后逐字一致（golden 录自虚拟窗口形态）');
     // 负对照：把**变异输入**喂进**同一条判据**
     assert.ok(!classSequenceMatches(seqNormal.filter((_, i) => i !== 7), EXPECTED_NORMAL),
       '负对照：删掉一个类名 ⇒ 判据变假');
@@ -1285,7 +1741,7 @@ setTimeout(async () => {
     assert.equal(persisted().typeFilter, 'scene', '类型筛选是持久化设置（setSetting 落盘）');
     typeSel.props.onChange({ target: { value: 'all' } });
     tree = renderPicker();
-    assert.equal(collectCards(tree).length, 25, '类型切回全部 ⇒ 网格恢复满页');
+    assert.equal(collectCards(tree).length, 30, '类型切回全部 ⇒ 网格恢复满窗（关闭卡 + 29）');
 
     // 批量模式：进入/勾选/计数/退出不留痕
     assert.ok(clickPager(tree, '批量'), '批量按钮必须存在');
@@ -1300,7 +1756,7 @@ setTimeout(async () => {
     assert.ok(textOf(findByClass(tree, 'we-picker__batch-bar')).includes('已选 1 张'), '点一张卡 ⇒ 计数变 1');
     const seqBatch = modalClassSequence(tree);
     assert.ok(classSequenceMatches(seqBatch, EXPECTED_BATCH),
-      '批量模式：模态框标记序列与搬迁前逐字一致（多出批量条与勾选标记）');
+      '批量模式：模态框标记序列与下钻改版后逐字一致（多出批量条与勾选标记）');
     // 勾选标记是批量模式下卡片里的 `we-picker__card-check`（选中显示 ✓，未选为空字符串）
     const checkOf = (root, title) => {
       const card = collectCards(root).find((c) => JSON.stringify(c).includes(title));
@@ -1349,7 +1805,7 @@ setTimeout(async () => {
       '隐藏页标题的计数与 hiddenIds 一致（当前 ' + (beforeHidden + 1) + '）');
     const seqHidden = modalClassSequence(tree);
     assert.ok(classSequenceMatches(seqHidden, EXPECTED_HIDDEN),
-      '隐藏页：模态框标记序列与搬迁前逐字一致');
+      '隐藏页：模态框标记序列与下钻改版后逐字一致（头部行/问句行已移出网格）');
     // 负对照：把**变异输入**喂进同一条「计数一致」判据
     assert.ok(!hiddenCountMatches('已隐藏 7 张', 3) && hiddenCountMatches('已隐藏 3 张', 3),
       '负对照：计数对不上号判为假、对得上为真（判据不是恒真）');
@@ -1701,28 +2157,30 @@ setTimeout(async () => {
     };
     let tree3 = reopenPicker();
     // 前置：先点选一张视频壁纸把层建出来（上文「无活动壁纸」用例清掉了层），
-    // 否则 scene C 是首层、无旧层可淡，手动淡出的断言失去对象。Wall 0 在
-    // 第 1 页：往前翻（上一页）找，翻到首页必现。
+    // 否则 scene C 是首层、无旧层可淡，手动淡出的断言失去对象。Wall 0 在虚拟
+    // 首窗里（窗口第 1 个条目），直接可点。
     let seedCard = findCard(tree3, 'Wall 0');
-    for (let i = 0; i < 6 && !seedCard; i++) {
-      const prev = findBtn(tree3, '‹ 上一页');
-      if (!prev || prev.props.disabled) break;
-      prev.props.onClick();
-      tree3 = reopenPicker();
-      seedCard = findCard(tree3, 'Wall 0');
-    }
     assert.ok(seedCard && typeof seedCard.props.onClick === 'function', 'video card (Wall 0) must be clickable');
     seedCard.props.onClick(); // 建首层（existing=null → 本步不淡，正常）
-    // 场景 C 落在第 2 页（上文翻页后 sel.page 就停在那里）——若不在，翻页找。
+    tree3 = reopenPicker();
+    // 场景 C 在窗外（库存第 33 张）—— 分页已退役，窗外条目靠**搜索**收敛进场。
+    // 本回调自己的搜索框查找器（这里不共享外层助手作用域）。
+    const findSearch = (root) => { let hit = null; (function walkS(n) {
+      if (hit) return;
+      if (Array.isArray(n)) { n.forEach(walkS); return; }
+      if (!n || typeof n !== 'object') return;
+      const c = typeof n.props?.className === 'string' ? n.props.className : '';
+      if (c.split(/\s+/).includes('we-picker__search')) { hit = n; return; }
+      if (Array.isArray(n.children)) n.children.forEach(walkS);
+    })(root); return hit; };
+    const search3 = findSearch(tree3);
+    assert.ok(search3 && typeof search3.props.onInput === 'function', 'search box available for out-of-window cards');
+    search3.props.onInput({ target: { value: 'Scene C' } });
+    tree3 = reopenPicker();
     let sceneCard = findCard(tree3, 'Scene C');
-    for (let i = 0; i < 4 && !sceneCard; i++) {
-      const next = findBtn(tree3, '下一页 ›');
-      if (!next || next.props.disabled) break;
-      next.props.onClick();
-      tree3 = reopenPicker();
-      sceneCard = findCard(tree3, 'Scene C');
-    }
     assert.ok(sceneCard && typeof sceneCard.props.onClick === 'function', 'scene C card must be clickable');
+    findSearch(tree3).props.onInput({ target: { value: '' } });
+    tree3 = reopenPicker();
     const manualPreLayer = document.getElementById('dsh-wallpaper-engine-layer');
     sceneCard.props.onClick(); // 选中场景壁纸 → syncLayers → HEAD 探测
     await new Promise((r) => setTimeout(r, 20)); // 等 HEAD 探测的 promise 回来
@@ -1927,7 +2385,7 @@ setTimeout(async () => {
       //    `fontsets/<id>.json`（客户端通道见 src/fontset-store.js，宿主侧见 lib/routes/fontsets.js）。
       //    与下面的 golden 夹具互为印证：这些键一旦回到白名单，宿主输出就会多出它们、夹具当场漂移。
       //    kind 元数据与默认值**仍须在册**：`sanitizeFontset` 按 `KINDS` 的 kind 消毒、按 `DEFAULTS` 兜底。
-      const FONT_KEYS = ['themeColors', 'themeDarkSeparate', 'themeSize', 'themeWeight', 'themeFamily', 'componentFonts'];
+      const FONT_KEYS = ['themeColors', 'themeDarkSeparate', 'themeSize', 'themeWeight', 'themeFamily', 'globalFamily', 'componentFonts'];
       assert.deepEqual(FONT_KEYS.filter((k) => persisted.includes(k) || hostSan.includes(k)), [],
         '字体值自 F3 起住字体集文件，不得回到 settings 白名单');
       assert.ok(FONT_KEYS.every((k) => k in KINDS && k in DEFAULTS),
@@ -1997,6 +2455,9 @@ setTimeout(async () => {
       //      · `src/live-layer.js` ×2 —— `syncLayers` 内部，**本次渲染正由 emit 驱动**（源码注释写明
       //        "这里不 emit：本次 syncLayers 正是由 emit 驱动的"）；
       //      · `src/effects.js` ×3 —— **卸载清理**（禁用 / HMR 后不留上一张壁纸的播放态）。
+      //      · `src/preset-store.js` ×1 —— 通道失败文案的唯一写点（`setPresetError` 助手：
+      //        清单 / 应用 / 保存 / 删除四条路的失败与清空都汇到它，写点收口是一处 ——
+      //        2026-10-04 引入玻璃预设时按本棘轮要求归的类）。
       //      给它们注入入口是**仪式**而不是收口（"禁裸写会逼出任意豁免"那条注记就是这个意思）⇒ 这条
       //      棘轮的作用是**不许变多**：新增一处即红，由人判定它属于哪一类，并顺手把上界按实测下调。
       //
@@ -2005,7 +2466,7 @@ setTimeout(async () => {
       //      `.js` 结尾 ⇒ **`src/font/` 整个目录隐式脱出判据**（实测），且 `lib/settings-schema.js`
       //      这个"两侧共用内核"从来没被扫过。这正是 DEV-GUIDE §4.7 约定 4 禁止的形状 ——
       //      手工清单漏一行，那个文件**静默失去覆盖**。所以扫描面取**真源**：构建脚本里被内联的每一个文件。
-      const REMAINING_CROSS_MODULE_MAX = 11;
+      const REMAINING_CROSS_MODULE_MAX = 12;
       const repoRoot = new URL('../', import.meta.url);
       /** 被内联进 bundle 的每一个文件（真源 = 构建脚本的 INLINE_MODULES）。 */
       const inlineModules = (() => {
@@ -2079,6 +2540,10 @@ setTimeout(async () => {
         'src/fontset-store.js': {
           why: '字体集通道内部的加载态/错误文案/清单；面板经 client.js 的渲染期读取消费（不是每次改动都 emit）',
           fields: ['fontSetActive', 'fontSetError', 'fontSets'],
+        },
+        'src/preset-store.js': {
+          why: '玻璃预设通道内部的清单投影（活跃清单；已删除的出厂不回来，无隐藏形态）；错误文案已收口到 setPresetError 单写点（verify-client ①e 棘轮）',
+          fields: ['glassPresets'],
         },        'src/live-layer.js': {
           why: '实时看护的会话内标志；`startLiveWatch` / `stopLiveWatch` 是它的两个入口',
           fields: ['sceneLiveActive'],
@@ -2092,6 +2557,11 @@ setTimeout(async () => {
         'src/persistence.js': {
           why: '启动加载期的一次性赋值（宿主→本地合并的结果），随后由调用方 emit',
           fields: ['hostLoaded', 'sidebarPresent'],
+        },
+        'src/system-fonts.js': {
+          why: '本机字体清单通道的瞬态（不落盘、不进字体集）：清单 / 在途 / 失败文案 / 取得时刻'
+            + '由 ensureSystemFonts 的取数生命周期写入，面板渲染期读取（client.js selection 初始化处有同段注释）',
+          fields: ['systemFonts', 'systemFontsApproximate', 'systemFontsAt', 'systemFontsError', 'systemFontsLoading'],
         },
         'src/video-layer.js': {
           why: '视频通道拥有这三个字段的写入权（client.js 那段注释写明）；进度由 /transcode-progress 轮询驱动，'
@@ -2611,7 +3081,8 @@ setTimeout(async () => {
     // 同一批"搬出去的渲染器"必须**同一条口径**，否则接缝纪律只对其中两个文件成立。
     { file: '../src/panel-tabs.js', user: '页签',
       anchor: ['function renderWallpaperTab(ctx)', 'function renderAppearanceTab(ctx)',
-        'function renderEffectsTab(ctx)', 'function renderAdvancedTab(ctx)'] },
+        'function renderEffectsTab(ctx)', 'function renderAdvancedTab(ctx)',
+        'function renderExtensionsTab(ctx)'] },
   ];
   for (const r of RENDERERS) {
     const src = readFileSync(new URL(r.file, import.meta.url), 'utf8');
@@ -2758,6 +3229,16 @@ setTimeout(async () => {
     'SliderRow 的 input 必须走拖动档（live=true）并就地更新 --we-fill');
   assert.ok(clientSrc.includes('onChange: (e) => onInput(Number(e.target.value), false),'),
     'SliderRow 的 change 必须是抬手档（live=false）');
+  // 滑块右侧那格必须是**数值回显**（值 + 单位），不是只印一个单位 —— 拖动期由 liveFill
+  // 就地改写同一格（面板全域生效：每个走 SliderRow 的控件都受益）。
+  // ⚠️ 合并 #135 订正：旧调用点传的是**已格式化的"值+单位"整串**（如 `35 + "%"`），
+  // 直接 `String(v) + unit` 会拼成 "3535%"、拖动期还会叠出陈旧单位 —— 现在按
+  // "串里有没有数字"分两口径：裸单位（新滑杆）回显值 + 单位；预格式化整串（旧调用点）原样。
+  assert.ok(clientSrc.includes('const preformatted = /\\d/.test(unit);')
+    && clientSrc.includes('}, readout(value)),'),
+    'SliderRow 第三格必须回显（readout(value)：裸单位 = 值 + 单位；预格式化整串 = 原样）');
+  assert.ok(clientSrc.includes('if (out && !preformatted) out.textContent = readout(el.value);'),
+    'SliderRow 拖动期就地改写右侧数值（仅裸单位口径；预格式化旧口径保持 main 既有观感）');
   assert.ok(clientSrc.includes('onInput: (e) => onPick(e.target.value, true),')
     && clientSrc.includes('onChange: (e) => onPick(e.target.value, false),'),
     'swatchRow 的自定义色盘必须同样分 input / change 两档');

@@ -322,6 +322,43 @@ function applyEffects(opts) {
   //    这里只留**一行调用**；本文件继续负责全局玻璃量（--we-glass-* / --we-surface-tint-*）
   //    与其余非玻璃效果（accent / 可读性 / 光标 / 壁纸 / 字体）。
   applyGlass(selection, s);
+  // 思考块液态玻璃：默认关，保持宿主黑底方便阅读。打开后 CSS 清掉思考条
+  // 与推理面的实心底，切到会话同一套雾化。（原「窗口与侧栏」节随 §10.25 并进「玻璃 UI」，
+  // 本门控仍在 applyEffects 就地写 —— 它不是玻璃量，不进 applyGlass 的取值管线。）
+  if (selection.thinkingGlass) document.body.setAttribute("data-we-thinking-glass", "on");
+  else document.body.removeAttribute("data-we-thinking-glass");
+  // 文字胶囊一族的雾化（行内代码 / 新会话 / 「加载更早历史」「回到底部」）：
+  // #134 落地时是写死的 8px CSS 兜底（--we-inline-code-blur 无生产者 ⇒ 用户实测"调不了"），
+  // 现在接成旋钮（capsuleBlur，默认 8 = 原观感）。与上面的门控属性同处声明 ——
+  // 这族变量只被 data-we-thinking-glass 门下的规则消费（styles.js ⑥ 条）。
+  const capBlurNum = Number(selection.capsuleBlur);
+  s.setProperty("--we-inline-code-blur", String(Number.isFinite(capBlurNum) ? capBlurNum : 8) + "px");
+  // 胶囊釉色：三元组形式给 rgba() 槽位（fill 令牌 + 滚动条拇指）。刻意不过
+  // weClampSurfaceColor —— 10% 雾底不是正文面，不进可读性下限（理由见 schema）。
+  s.setProperty("--we-capsule-tint-rgb", toRgbTriple(
+    /^#[0-9a-f]{6}$/i.test(String(selection.capsuleColor)) ? selection.capsuleColor : "#ffffff"));
+
+  // dsh-better-sidebar 液态玻璃：一套独立于会话玻璃的细粒度控制（侧栏模糊 /
+  // 侧栏透明度 / 侧栏玻璃颜色 + 总开关）。变量只作用于 [data-dsh-better-sidebar]
+  // 子树（CSS 见下），关闭总开关时侧栏恢复原生外观。
+  // 跟随全局（sidebarFollowGlobal，默认开）：把侧栏那一套变量**指向**全局玻璃三件套。
+  // var() 是惰性替换 ⇒ 这里写进去的是引用而不是拷贝：改「玻璃 / 玻璃透明度」两侧栏一起变。
+  // 色相那一份走样式表里的 --we-follow-tint（按主题取钳制后的玻璃色）—— 不能在这里写死，
+  // 内联值会盖掉"按主题"这件事。
+  // ⚠️ 合并 #132 口径：跟随关着时**不覆盖** —— 按面值由 applyGlass 的 glassValue 单一
+  //    取值路径供给（inherit→全局键 / custom→「独立配置」自己的键），WIP 里的旧曲线
+  //    （/200 刻度）已随 R4 规范刻度退役，不许再回来。UI 上跟随开着时「独立配置」收起，
+  //    两套机制不会同时生效。
+  if (selection.sidebarFollowGlobal) {
+    s.setProperty("--we-sidebar-blur", "var(--we-blur)");
+    s.setProperty("--we-sidebar-saturate", "var(--we-saturate)");
+    s.setProperty("--we-sidebar-tint", "calc(var(--we-glass-alpha) * 100%)");
+    s.setProperty("--we-sidebar-color", "var(--we-follow-tint)");
+    s.setProperty("--we-sidebar-sheen", "1");
+  }
+  // 跟随态另挂一个属性：样式表用它决定"侧栏的釉"取共享那一份还是侧栏专用那一份。
+  if (selection.sidebarGlass && selection.sidebarFollowGlobal) document.body.setAttribute("data-we-sidebar-follow", "on");
+  else document.body.removeAttribute("data-we-sidebar-follow");
 
   // 适配目标钩子（src/adapter.js）：把最终目标挂到 <body>，外壳材质类选择器
   // 一律经 [data-we-adapter^="desktop-"] 门控 —— 原生浏览器形态永远不吃桌面壳
@@ -413,18 +450,23 @@ function clearEffects() {
   s.removeProperty("--we-surface-tint-rgb-dark");
   document.body.removeAttribute("data-we-glass-window");
   document.body.removeAttribute("data-we-left-sidebar");
+  // 思考块液态玻璃门（PR #130 引入）：同批的卸载残留口径 —— 漏撤 ⇒ 插件卸载后
+  // 宿主思考条的规则组照旧生效。合并 #132 时补上（第 ⑨ 组清理对称判据的要求）。
+  document.body.removeAttribute("data-we-thinking-glass");
   // ⚠️ W5 新增的三个门控属性**也必须在这里撤掉**（与上面两个同批）：
   //    漏掉它们 ⇒ 插件被禁用 / HMR 卸载后，宿主 DOM 上仍留着 `data-we-glass-chat` /
   //    `data-we-glass-floaters`，而挂在这些属性上的规则组**照旧生效** ——
   //    表现为"插件已卸载，但玻璃还在"。这类残留只有卸载路径才暴露，日常切换看不出来。
   document.body.removeAttribute("data-we-glass-chat");
   document.body.removeAttribute("data-we-glass-floaters");
+  document.body.removeAttribute("data-we-sidebar-follow");
   s.removeProperty("--we-sidebar-blur");
   s.removeProperty("--we-sidebar-saturate");
   s.removeProperty("--we-sidebar-sheen");
   s.removeProperty("--we-sidebar-color");
   s.removeProperty("--we-sidebar-tint");
   document.body.removeAttribute("data-we-sidebar-glass");
+  document.body.removeAttribute("data-we-sidebar-fullclear");
   document.body.removeAttribute("data-we-adapter"); // 适配目标钩子随 fiber 注销
   document.body.removeAttribute("data-we-mica"); // #73 Mica 能力钩子随 fiber 注销
   document.body.removeAttribute("data-we-glass-fallback"); // #95 软件渲染回退钩子同上
