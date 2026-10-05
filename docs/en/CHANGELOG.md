@@ -9,11 +9,11 @@
 > **Version numbers, issue numbers and performance figures live here**, not on the front page
 > (`README.md` / `README.en.md` keep only version-independent highlights).
 >
-> **Current released version: `v1.2.0`** (published on npm); the next version **1.3.0** is in development (`package.json`'s `version`).
+> **Current released version: `v1.3.0`** (published on npm and GitHub Release, 2026-10-06); the next version is in development (`package.json`'s `version`).
 
-### Unreleased (next version)
+### v1.3.0 (2026-10-06)
 
-> Increment after **v1.2.0** (local, unreleased; per-commit):
+> Everything from 1.2.0 through 1.3.0 (published on npm and GitHub Release):
 
 - **New/behavior: the “thinking-block liquid glass” switch becomes three gears — Off / Liquid glass / **Native** (opaque message content, composer keeps its glass)** (user request, settled after two scope passes).
   **What**: new setting key `thinkingNative`, forming three gears with `thinkingGlass`; **Native wins** and the mutual exclusion lives in the gate layer (Native ⇒ the thinking-glass gate attribute is not set; the storage shape is unchanged ⇒ zero migration for existing configs and factory glass presets — the preset key table adopts the new key, missing keys fill as false). The Native gear returns **message content only** — message bubbles and the markdown family (code blocks, inline code, tags, code segments, citations) — to the host’s native opaque surfaces: the 10 taken-over tokens are reverted inside the content subtree (`[data-chat-flow]` / `[data-vcp-rawhtml]`) to values lifted item by item from the host theme package’s design-platform static palette (`var(--dsw-static-*, literal fallback)`, one set per theme); the **conversation canvas and the composer are untouched** — the input card and tool pop-ups keep their glass and the canvas keeps showing the wallpaper. Bubbles drop their frost/sheen in Native; capsule frost/color and thinking-trigger fine-tuning collapse entirely in this gear (the gate CSS does not match ⇒ drawing them would be dead knobs — the standing rule).
