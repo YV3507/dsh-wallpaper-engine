@@ -244,15 +244,26 @@ m02697-③；⚠️ 当初的"默认参与"后来被用户诉求 m03549 改成**
   already allocates space."
 
 ⇒ 本插件的选择是**认 DOM 的槽出口**（本插件本来就在钉 `[data-slot="…"]`，见 §2.2 / §3.1）：行为层扫
-`document.querySelectorAll('[data-slot]')`，跳掉整帧容器（`root` / `main` / `rightbar` / `shell.*`）、原生四组
+`document.querySelectorAll('[data-slot]')`，跳掉整帧容器（`root` / `main` / `rightbar`）、原生三组的出口本身
 （`conversation.view` / `sidebar` / `main.conversation`）与设置、插件管理那几块子树
-（`settings.*` / `plugins.*`），把剩下的出口**当成"别的插件的前端元素组"**；位移落在出口的**元素子节点**上
-（§3.5：出口自己 `display: contents`、没有盒子），距离按槽键存进 `parallaxPluginDepths`（缺键 = 缺省 1%、
-显式 0 = 这一组不缓动）。这一路**由它自己的开关 `parallaxPlugin` 看着**（用户诉求 m03549：独立于
-`parallaxUi`、**默认关** —— 它挪的是别的插件画出来的真实界面）：关着时层**连扫都不扫**（不是把系数算成 0，
-而是连 `querySelectorAll('[data-slot]')` 与那道 fixed 后代子树判定都不跑）、面板那一卡只有开关，那张距离表
-原样留着、开关一开照旧生效。**已知代价**：运行期分不清归属 ⇒ 宿主自己的界面槽也会出现在「插件前端」那一
-栏里，用户把它设 0 即可（面板里每一行就是一个真实槽键，认得出来源的人能自己判断）。
+（前缀 `settings.` / `plugins.` / `shell.` 与子树 `settings.section` / `plugins.bundle.config`），把剩下的出口
+**当成"别的插件的前端元素组"**；位移落在出口的**元素子节点**上（§3.5：出口自己 `display: contents`、没有
+盒子），距离按槽键存进 `parallaxPluginDepths`（缺键 = 缺省 1%、显式 0 = 这一组不缓动）。**还有第二道筛
+（`parallaxPluginEffectiveGroups()`）**：锚点落在**原生四组**（`[data-composer-card]` /
+`[data-slot="conversation.view"]` / `[data-slot="sidebar"]` / `[data-chat-flow-kind="user"|"steering"]`）的盒子
+里、或落在**另一个已认到的插件组**里的，一律不算 —— 外层组的位移本来就会把它带着走，它自己再写一次就是
+两段位移叠起来（重扫那一步"组里套组只留最外侧"的同一条）。⚠️ 第一道筛**只在「界面元素跟随」开着**时才这么
+算：关着时那四组的系数恒为 0、压根不是候选，拿它们去挡插件组会让"只开插件前端"变成一个拖了不动的空开关。
+这一路**由它自己的开关 `parallaxPlugin` 看着**（用户诉求 m03549：独立于 `parallaxUi`、**默认关** —— 它挪的是
+别的插件画出来的真实界面）：关着时层**连扫都不扫**（不是把系数算成 0，而是连 `querySelectorAll('[data-slot]')`
+与那道 fixed 后代子树判定都不跑）、面板那一卡只有开关，那张距离表原样留着、开关一开照旧生效。
+**面板那一栏与屏上同源**：`parallaxDiscoveredGroups()` 与 `parallaxTargetsRefresh()` 共用同一个
+`parallaxPluginEffectiveGroups()` ⇒ 列出来的每一个槽键都有落点；面板回显另按层里那对常量
+（`PARALLAX_GROUP_DEPTH_MIN` / `_MAX`）钳一次范围，存档里的越界值不会显示成域外的数。**已知代价**：① 运行期
+分不清归属 ⇒ 宿主自己的界面槽也会出现在「插件前端」那一栏里，用户把它设 0 即可（面板里每一行就是一个真实
+槽键，认得出来源的人能自己判断）；② 组里有 `position: fixed` 后代时**整组不动**（层的写法是"宁可不动"：
+`translate` 会让该组变成那些后代的包含块，见 §3.5 与 #89 那条）—— 这一条要遍历子树、只在帧外做，面板不筛，
+改成写进每一行的 tooltip 与那一卡上方那句说明里（认到槽位时显示的那一句 hint —— 它同时也说明"槽名就是身份"）。
 
 ⚠️ **§3.5 这四条**都属于 §2.3 说的"低稳定度那一类"：主机重建后**属性名**多半还在，但 `_viewArea` 这类后缀随时可改
 ⇒ 机器判据只能证明"名字还在"（§5），语义仍要靠人复核。最后一条性质不同：它约束的是**我们该用哪种 CSS 形态**

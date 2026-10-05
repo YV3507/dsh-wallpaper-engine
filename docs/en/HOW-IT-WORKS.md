@@ -198,12 +198,17 @@ default**, because it moves the real interface drawn by other plugins): while it
 **not even scan** for them (rather than computing a coefficient of 0) and that panel card shows only the
 switch; once it is on the layer scans the host's slot outlets `[data-slot]` (an outlet itself is
 `display: contents` and generates no box, so the displacement lands on its **element child**), skips
-frame-wide containers / the four native groups / the settings and plugin-management subtrees, and reads
+frame-wide containers / the native groups' own outlets / the settings and plugin-management subtrees, then
+runs a second filter `parallaxPluginEffectiveGroups()`: an outlet that sits **inside one of the four native
+group boxes** or **inside another discovered plugin group** does not count (that filter only applies while
+"Interface follows" is **on**), and reads
 the distance from `parallaxPluginDepths` (slot key -> %, a `map` entry) where **a missing key means the
 1% default and an explicit 0 means that group does not move** (that table only counts while the switch is
 on); the panel's
-  list comes from the layer's `parallaxDiscoveredGroups()` through `ctx` (one source of truth: one row per
-  discovered group), and the panel splits it into three cards ("Background" / "Native front end" /
+  list comes from the layer's `parallaxDiscoveredGroups()` through `ctx` (**same source as what actually
+  moves**: it and the target rescan share the one `parallaxPluginEffectiveGroups()`, so every row has a
+  landing spot; the single exception - a group with a `position: fixed` descendant stays put - is spelled
+  out in that row's tooltip), and the panel splits it into three cards ("Background" / "Native front end" /
   "Plugin front end"). User bubbles stack one more layer on top of the
   text area, and only the 24 most recent ones move; `PARALLAX_UI_SIGN = 1` makes the interface move the
   **same way as** the wallpaper - the near interface travels a little further than the far wallpaper, a

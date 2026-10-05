@@ -19,10 +19,12 @@
  *     不出现任何设置写入 / 通知发送 / `selection` 读取，一个动作一个 `on*` 处理器。
  *   · **只从一个参数取外界**：`renderParallaxIsland(ctx)`，函数体第一行解构。
  *   · 参数的可调范围与默认值**不在这里写死**：`SliderRow` 的 min/max/step 与设置白名单的
- *     KINDS 一致（改范围要同时看 lib/settings-schema.js —— 那份是唯一真源）。**唯一的例外是
- *     插件槽位那一档的缺省值**：它不在 KINDS 里（`parallaxPluginDepths` 是 map 档，宿主不校验
- *     值），真源是 `src/parallax-layer.js` 的 `PARALLAX_PLUGIN_DEFAULT` —— 这里直接读那个常量，
- *     不另外抄一个数（层与面板必须对"没这一行时算多少"给出同一个答案）。
+ *     KINDS 一致（改范围要同时看 lib/settings-schema.js —— 那份是唯一真源）。**例外是插件槽位
+ *     那一档**：它不在 KINDS 里（`parallaxPluginDepths` 是 map 档，宿主不校验值）⇒ 那一档的
+ *     缺省值直接读 `src/parallax-layer.js` 的 `PARALLAX_PLUGIN_DEFAULT`，回显的钳制范围也读层
+ *     同一对常量 `PARALLAX_GROUP_DEPTH_MIN` / `PARALLAX_GROUP_DEPTH_MAX`，不另外抄数（层与面板
+ *     必须对"没这一行时算多少 / 越界值算多少"给出同一个答案；单独 import 本文件的测试要给这
+ *     三枚符号补替身，见 test/verify-scene-live.mjs 的岛那一段）。
  *   · 关掉总开关时只画总开关 + 一句说明（避免"关着还能拖参数"的错觉）；同理，某一类自己的
  *     开关关着时那一类只画它的开关（插件前端那一类关着时连槽位名单都不画 —— 层那时也确实
  *     一个组都不认，见 src/client.js 的 `parallaxPluginSlots`）。
@@ -52,11 +54,14 @@ function parallaxSection(label, key, rows) {
 }
 
 /** 插件槽位那一行的回显值：**没那一行**（或值不是数）时按层的缺省算，显式的 0 要留着显示成 0
- *  （0 = 这一组不缓动，与"没调过"是两件事）。 */
+ *  （0 = 这一组不缓动，与"没调过"是两件事）。越界值按层同一对常量钳制（见下面注释）。 */
 function parallaxPluginPercent(v) {
   const n = Number(v);
   if (v === null || v === undefined || v === "" || !Number.isFinite(n)) return PARALLAX_PLUGIN_DEFAULT;
-  return n;
+  // 与层同源钳制（src/parallax-layer.js 的 parallaxClamp）⇒ 回显的数字就是真正生效的数字。
+  // 触发面很窄：只有手改 settings.json / 跨版本 / 第三方往这个 map 里塞了越界值才会遇上；那时
+  // 层按 [MIN, MAX] 生效，回显要是照原样显示 42% / -5% 就成了"滑杆拖到头、数值在说谎"。
+  return Math.min(PARALLAX_GROUP_DEPTH_MAX, Math.max(PARALLAX_GROUP_DEPTH_MIN, n));
 }
 
 /**
@@ -114,12 +119,12 @@ function renderParallaxIsland(ctx) {
         { key: "parallax-plugin", hint: weT("别的插件注册进来的界面元素组（比如任务看板、市场面板）也跟着挪；默认关 —— 它动的是它们的真实界面") }),
       pluginOn && (slots.length
         ? React.createElement("span", { className: "we-picker__hint", key: "parallax-plugin-hint" },
-          weT("下面是运行期认到的、由别的插件注册进来的前端元素组（槽名就是它的身份）：一行一个，0 = 这一组完全不跟"))
+          weT("下面是运行期认到的、由别的插件注册进来的前端元素组（槽名就是它的身份）：一行一个，0 = 这一组完全不跟。组里出现固定在屏幕上的元素（下拉、浮层一类）时，这一组整组都不跟"))
         : React.createElement("span", { className: "we-picker__hint", key: "parallax-plugin-hint-empty" },
           weT("还没认到别的插件注册的前端元素组：等它们的界面出现后，这里会自动多出对应的行"))),
       pluginOn && slots.map((slot) => SliderRow(slot, 0, 10, 0.1, parallaxPluginPercent(depths[slot]),
         (v, live) => onParallaxPluginDepth(slot, v, live), "%", "parallax-plugin-" + slot,
-        { tooltip: weT("这一组自己的最大位移：光标贴到屏幕角时它最多挪出屏幕最长对角线的百分之几（0 = 这一组不缓动）") })),
+        { tooltip: weT("这一组自己的最大位移：光标贴到屏幕角时它最多挪出屏幕最长对角线的百分之几（0 = 这一组不缓动）。组里出现固定在屏幕上的元素（下拉、浮层一类）时，这一组整组都不跟") })),
     ]),
     on && SliderRow(weT("缓动平滑"), 0, 98, 1, sel.parallaxSmooth, onParallaxSmooth, "%", "parallax-smooth",
       { tooltip: weT("0 = 立刻跟手，越大越柔和（跟得越慢、停下后还会飘一小段才归位）") }),

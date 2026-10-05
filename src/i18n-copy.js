@@ -675,9 +675,9 @@ const WE_I18N_EN = {
   "插件前端": "Plugin interface",
   "插件前端跟随": "Plugin interface follows",
   "别的插件注册进来的界面元素组（比如任务看板、市场面板）也跟着挪；默认关 —— 它动的是它们的真实界面": "Front-end element groups registered by other plugins (a task board, a marketplace panel, and so on) drift along too; off by default, because it moves their real interface",
-  "下面是运行期认到的、由别的插件注册进来的前端元素组（槽名就是它的身份）：一行一个，0 = 这一组完全不跟": "Below are the front-end element groups discovered at runtime that other plugins registered (the slot name is the identity): one row each, 0 = that group does not move at all",
+  "下面是运行期认到的、由别的插件注册进来的前端元素组（槽名就是它的身份）：一行一个，0 = 这一组完全不跟。组里出现固定在屏幕上的元素（下拉、浮层一类）时，这一组整组都不跟": "Below are the front-end element groups discovered at runtime that other plugins registered (the slot name is the identity): one row each, 0 = that group does not move at all. If the group contains a fixed-position element (a dropdown or popover, say), the whole group stays still",
   "还没认到别的插件注册的前端元素组：等它们的界面出现后，这里会自动多出对应的行": "No front-end element groups registered by other plugins have been discovered yet: once their interface shows up, the matching rows appear here automatically",
-  "这一组自己的最大位移：光标贴到屏幕角时它最多挪出屏幕最长对角线的百分之几（0 = 这一组不缓动）": "Maximum travel of this group, on its own: the percentage of the screen's longest diagonal it can move when the cursor reaches a screen corner (0 = this group does not move)",
+  "这一组自己的最大位移：光标贴到屏幕角时它最多挪出屏幕最长对角线的百分之几（0 = 这一组不缓动）。组里出现固定在屏幕上的元素（下拉、浮层一类）时，这一组整组都不跟": "Maximum travel of this group, on its own: the percentage of the screen's longest diagonal it can move when the cursor reaches a screen corner (0 = this group does not move). If the group contains a fixed-position element (a dropdown or popover, say), the whole group stays still",
   "缓动平滑": "Easing smoothness",
   "0 = 立刻跟手，越大越柔和（跟得越慢、停下后还会飘一小段才归位）": "0 = follows the cursor instantly; higher values are softer (it trails behind and keeps drifting a little after the cursor stops)",
 
