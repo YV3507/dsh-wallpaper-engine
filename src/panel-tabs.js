@@ -974,7 +974,20 @@
 
 
   function renderMascotTab(ctx) {
-    const { onRopeFormChange, onRopeScaleChange, onRopeVisibilityChange, sel } = ctx;
+    const { onMascotClear, onMascotPick, onRopeFormChange, onRopeScaleChange, onRopeVisibilityChange, sel } = ctx;
+    // 主页面那只吉祥物**当前用的立绘**（自定义优先 / 否则内置形态）—— 与 RopeDock 共用
+    // 同一条解析（`ropeArtOf`）：设置页看到的盒与主页面那只的盒必须是同一个数。
+    const previewArt = ropeArtOf(sel);
+    const customArt = previewArt.custom;
+    // 自定义立绘卡片的舞台盒 = 内置卡里最高的那张（鲸御姐 64×96）的盒 ——
+    // "同样的卡片大小和样式"（用户口径）在这条链上就落到这两个数上。
+    const boxW = 64, boxH = 96;
+    // 卡面舞台：把当前立绘等比缩进 64×96（与最高的内置卡「鲸御姐」同一个盒）——
+    // 保持宽高比，直接夹住某一边会把长竖图压成方的，看到的就不是那只吉祥物的形状了。
+    const previewFit = Math.min(1, boxW / previewArt.w, boxH / previewArt.h);
+    // 没导入时占位就是整块舞台（虚线框 + 一个加号），导入后图片按自己的比例缩进它。
+    const previewW = customArt ? Math.max(1, Math.round(previewArt.w * previewFit)) : boxW;
+    const previewH = customArt ? Math.max(1, Math.round(previewArt.h * previewFit)) : boxH;
     return React.createElement(React.Fragment, null,
       // ── 吉祥物：形态卡片固定基础尺寸（「吉祥物大小」只作用于主页面），开关总控 ──
       React.createElement("div", { className: "we-picker__section" },
@@ -986,20 +999,29 @@
           hint: weT("关闭后隐藏吉祥物与壁纸仓库抽屉"),
           tooltip: weT("关闭后隐藏吉祥物与壁纸仓库抽屉；可随时在本页重新开启"),
         }),
-        // 吉祥物形态（maid = 默认小女仆 / whale = 鲸御姐）：卡片按基础尺寸固定
-        // 渲染 —— 「吉祥物大小」滑块只作用于主页面上的吉祥物（RopeDock），设置
-        // 页里的卡片不跟着缩放。关闭时仍可先设定，重新开启即生效。
+        // ── 自定义立绘（用户口径：可导入，已导入时下一次导入覆盖上一次）──────────
+        // 它是**形态卡片那一排的第三张卡**（用户口径：导入后显示在「鲸御姐」后面、同样的
+        // 卡片大小和样式）—— 点它导入 / 替换（再导入即覆盖），正在用时是 `--active` 那张，
+        // 两个内置卡片同时禁用（点了也不会变 ⇒ 不许做成"点了没反应"）。
+        // 卡面尺寸口径与内置卡一致（固定，不随「吉祥物大小」缩放）：图片按自己的宽高比
+        // contain 进 64×96 的小舞台（那是最高的内置卡「鲸御姐」的盒）。
+        // 清除入口排在这一排的最后（只在有自定义立绘时出现）。
         React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
-          ctlText(weT("吉祥物形态"), weT("卡片固定大小 · 大小只作用于主页面吉祥物")),
+          ctlText(weT("吉祥物形态"),
+            customArt
+              ? weT("自定义立绘生效中：主页面吉祥物用的是这张图；点卡片可换一张")
+              : weT("卡片固定大小 · 大小只作用于主页面吉祥物；最后一张卡片可导入自定义立绘")),
           React.createElement("div", { className: "we-picker__mascot-row", role: "group", "aria-label": weT("吉祥物形态") },
             ROPE_FORM_VALUES.map((k) => {
               const form = ROPE_FORMS[k];
               return React.createElement("button", {
                 key: k,
                 type: "button",
-                className: "we-picker__mascot-card" + (sel.ropeForm === k ? " we-picker__mascot-card--active" : ""),
-                "aria-pressed": sel.ropeForm === k ? "true" : "false",
-                title: form.label,
+                // 自定义立绘生效时这两张禁用（主页面用的是导入的那张，点了也不会变）。
+                disabled: customArt,
+                className: "we-picker__mascot-card" + (!customArt && sel.ropeForm === k ? " we-picker__mascot-card--active" : ""),
+                "aria-pressed": !customArt && sel.ropeForm === k ? "true" : "false",
+                title: customArt ? weT("自定义立绘生效中：清除后形态才可选") : form.label,
                 onClick: () => onRopeFormChange(k),
               },
                 React.createElement("span", {
@@ -1010,8 +1032,38 @@
                 React.createElement("span", { className: "we-picker__mascot-name" }, form.label),
               );
             }),
+            React.createElement("button", {
+              key: "custom",
+              type: "button",
+              disabled: Boolean(sel.mascotBusy),
+              className: "we-picker__mascot-card" + (customArt ? " we-picker__mascot-card--active" : ""),
+              "aria-pressed": customArt ? "true" : "false",
+              title: customArt ? weT("替换图片…（再导入会覆盖上一次）") : weT("导入图片…"),
+              onClick: onMascotPick,
+            },
+              React.createElement("span", {
+                // ⚠️ 类名与内置卡的艺术框**不同**（`we-picker__mascot-art` 是"那两张内置卡"的
+                //    记号，复用会把"卡片固定基础尺寸"那条判据的计数带偏 —— 实测踩过）。
+                className: "we-picker__mascot-custom-art",
+                style: { width: previewW + "px", height: previewH + "px" },
+              },
+                customArt
+                  ? React.createElement("img", { src: previewArt.img, alt: weT("自定义"), draggable: false })
+                  : React.createElement("span", { className: "we-picker__mascot-empty" }, "+")),
+              React.createElement("span", { className: "we-picker__mascot-name" },
+                sel.mascotBusy ? weT("导入中…") : weT("自定义")),
+            ),
+            customArt && React.createElement("button", {
+              key: "custom-clear",
+              className: "we-picker__btn we-picker__mascot-clear",
+              type: "button",
+              disabled: Boolean(sel.mascotBusy),
+              onClick: onMascotClear,
+            }, weT("清除")),
           ),
         ),
+        sel.mascotError
+          && React.createElement("div", { className: "we-picker__hint we-avatar-error", key: "rope-custom-err" }, sel.mascotError),
         SliderRow(weT("吉祥物大小"), ROPE_SCALE_MIN, ROPE_SCALE_MAX, ROPE_SCALE_STEP,
           sel.ropeScale, onRopeScaleChange, Math.round(sel.ropeScale * 100) + "%", "rope-scale"),
       ),

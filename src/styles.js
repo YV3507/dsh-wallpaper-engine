@@ -1688,6 +1688,11 @@ const CSS = `
     background: color-mix(in srgb, var(--we-accent, #4f8cff) 10%, transparent);
     box-shadow: 0 0 0 1px var(--we-accent, #4f8cff);
   }
+  /* 禁用态（自定义立绘生效时两张内置卡）：要"看得出来点不动" —— 不淡化的禁用按钮
+     和可点的长得一模一样，用户会当成坏了（点击无反应比灰掉更糟）。 */
+  .we-picker__mascot-card:disabled { cursor: default; opacity: 0.45; }
+  .we-picker__mascot-card:disabled:hover { border-color: var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.28)); }
+  .we-picker__mascot-card:disabled:active { transform: none; }
   .we-picker__mascot-art { display: flex; align-items: flex-end; justify-content: center; }
   .we-picker__mascot-art img { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
   .we-picker__mascot-name { font-size: 0.78em; color: var(--we-ink-2, rgba(128, 128, 128, 0.9)); }
@@ -2879,6 +2884,21 @@ body[data-we-glass-floaters] .we-repo-panel {
   .we-avatar-preview__glyph { display: flex; align-items: center; justify-content: center; }
   .we-avatar-preview__glyph svg { width: 62%; height: 62%; }
   .we-avatar-error { font-size: 0.82em; opacity: 0.9; color: #e5534b; }
+  /* 自定义立绘那一格（「系统」页签 · 聊天吉祥物）：与形态卡片同一个画框口径 ——
+     固定尺寸的透明底小舞台，图各自按自己的宽高比 contain 进去。未导入时画一句
+     「未导入」占位（虚线框），导入后画的是**用户那张图**（与主页面那只同一份盒）。 */
+  /* 卡片排里的「清除」：与卡片同排但**不拉伸**（flex 行默认 stretch，按钮会被拉成
+     与卡片一样高）。 */
+  .we-picker__mascot-clear { align-self: center; }
+  .we-picker__mascot-custom-art {
+    display: flex; align-items: center; justify-content: center;
+    border: 1px dashed var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.28)); border-radius: 10px;
+  }
+  .we-picker__mascot-custom-art img { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+  .we-picker__mascot-empty {
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.2em; line-height: 1; color: var(--dsw-alias-label-tertiary, rgba(128, 128, 128, 0.8));
+  }
 
   /* ── 「扩展」二号模块：点击效果与拖尾效果（画布层见 src/fx-layer.js）──
      与 .we-layer / .we-scrim 同族：body 级的整屏浮层 ⇒ 同样必须
@@ -2947,6 +2967,7 @@ body[data-we-glass-floaters] .we-repo-panel {
      transform，独立属性才与它们叠加，而不是互相覆盖。
      系数口径：光标走完一整条对角线时，该层挪"它那个系数"个百分点的对角线（推导见行为层
      文件头）。壁纸层同时放大 1 + 系数/100 补边：横向最大位移 = 系数/100 × 半屏宽，
+     放大同样多就不会在边上露出底色。
      兜底都是 0px / 0：变量还没写上时位移为零（例如刚开开关、第一帧还没跑）。
      **点击与拖尾那一层刻意不参与**（用户口径：特效不跟着偏移）。 */
   body[data-we-parallax="on"] .we-layer {

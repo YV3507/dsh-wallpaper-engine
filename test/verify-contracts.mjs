@@ -152,6 +152,14 @@ const tabsSrc = read('src/panel-tabs.js');
     Boolean(hostAvatar && hostAvatar.length >= 3) && Boolean(avatarMatch),
     'host=' + (hostAvatar || []).join(',') + ' client=' + clientFrame.map((l) => l.join(',')).join(' | '));
 
+  // 自定义吉祥物立绘（「系统」页签 · 聊天吉祥物）同一条判据：客户端那一份 accept 列表
+  // 在 `src/client.js` 的 pickImageFile 里（头像与立绘共用同一条选图腿），宿主那一份是
+  // lib/index.js 的 MASCOT_EXT。
+  const hostMascot = hostMimeKeys(hostSrc, 'MASCOT_EXT');
+  const mascotMatch = clientFrame.find((l) => hostMascot && sameSet(l, hostMascot));
+  check('吉祥物立绘 MIME：客户端有一个 accept 列表与宿主 MASCOT_EXT 键集一致',
+    Boolean(hostMascot && hostMascot.length >= 3) && Boolean(mascotMatch),
+    'host=' + (hostMascot || []).join(',') + ' client=' + clientFrame.map((l) => l.join(',')).join(' | '));
 
   // 负对照：喂给同一个比较
   check('negative control: 上传 MIME 单边加一种类型会被判出',
@@ -190,6 +198,26 @@ const tabsSrc = read('src/panel-tabs.js');
     /function avatarDir\(\) \{ return ensureDirOnce\(join\(pluginDataDir\(\), 'avatars'\)\); \}/.test(hostNow)
     && /AVATAR_MAX_BYTES = 8 \* 1024 \* 1024/.test(hostNow));
 
+  // 吉祥物立绘族（lib/routes/mascot.js）：与头像同形，但**只有一张**（导入即覆盖）。
+  const mascotRouteSrc = read('lib/routes/mascot.js');
+  check('立绘路由：形态与头像同族（共享读体器 + 原子落盘，不是新的流式豁免）',
+    // ⚠️ 与头像那条同一个理由：写成一个带引号的 `from '…/http-body.js'` 会被 verify-package-files
+    //    的 P5 当成裸包名（转义后的 `\.\.` 不以点开头）⇒ 用 `\s+['"]…['"]` 形态描述它。
+    /import\s*\{[^}]*bodyReader[^}]*\}\s+from\s+['"]\.\.\/http-body\.js['"]/.test(mascotRouteSrc)
+    && /bodyReader\(req, \{/.test(mascotRouteSrc) && /maxBytes: MASCOT_MAX_BYTES/.test(mascotRouteSrc)
+    && /atomicWriteFileP\(join\(dir, name\), body\)/.test(mascotRouteSrc));
+  check('立绘路由：**只有一张**（导入前清同族旧文件 ⇒ 再导入即覆盖）',
+    /name\.slice\(0, 'mascot-'\.length\) !== 'mascot-'/.test(mascotRouteSrc)
+    && /unlinkSync\(join\(dir, name\)\)/.test(mascotRouteSrc));
+  check('立绘路由：文件名带时间戳 + 长缓存由文件名担保 · 未导入 404 且 no-store',
+    /mascotStamp\(\)/.test(mascotRouteSrc)
+    && /'Cache-Control', 'private, max-age=31536000, immutable'/.test(mascotRouteSrc)
+    && /json\(404, \{ error: 'not-set' \}\)/.test(mascotRouteSrc)
+    && /'Cache-Control', 'no-store'/.test(mascotRouteSrc));
+  check('立绘落在插件数据目录的 mascot/ 且上限 8MB（不进 overrides / uploads）',
+    /function mascotDir\(\) \{ return ensureDirOnce\(join\(pluginDataDir\(\), 'mascot'\)\); \}/.test(hostNow)
+    && /MASCOT_MAX_BYTES = 8 \* 1024 \* 1024/.test(hostNow)
+    && /const MASCOT_FILE_RE = \/\^mascot-\[a-z0-9\]\{4,16\}/.test(hostNow));
 }
 
 {

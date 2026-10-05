@@ -379,7 +379,10 @@ const WE_I18N_EN = {
   "关闭后隐藏吉祥物与壁纸仓库抽屉": "Hides the mascot and the wallpaper-library drawer when off",
   "关闭后隐藏吉祥物与壁纸仓库抽屉；可随时在本页重新开启": "Hides the mascot and the wallpaper-library drawer when off; turn it back on here anytime",
   "吉祥物形态": "Mascot form",
-  "卡片固定大小 · 大小只作用于主页面吉祥物": "Fixed-size cards; the size slider only affects the mascot on the main page",
+  "自定义立绘生效中：清除后形态才可选": "Custom mascot art is in use: clear it to pick a form again",
+  "自定义立绘生效中：主页面吉祥物用的是这张图；点卡片可换一张": "Custom mascot art is in use: the mascot on the main page is this picture; click the card to swap it",
+  "卡片固定大小 · 大小只作用于主页面吉祥物；最后一张卡片可导入自定义立绘": "Cards keep a fixed size · the size slider only affects the mascot on the main page; the last card imports a custom picture",
+  "替换图片…（再导入会覆盖上一次）": "Replace image… (importing again overwrites the previous one)",
   "吉祥物大小": "Mascot size",
   "还没有启用壁纸": "No wallpaper enabled yet",
   "选择一款壁纸后，可在这里调整模糊、亮度、适配、倍速等效果": "Pick a wallpaper to adjust blur, brightness, fit, speed and other effects here",
@@ -679,6 +682,7 @@ const WE_I18N_EN = {
   "导入失败：{error}": "Import failed: {error}",
   "宿主里没有{what}路由：重启 DSH 后再试（改过宿主代码要重挂，刷新页面不够）": "The host has no {what} route: restart DSH and try again (if you changed host code it must be re-mounted; refreshing the page is not enough)",
   "头像": "avatar",
+  "立绘": "mascot art",
   "清除失败：{error}": "Clear failed: {error}",
 
   // ── src/panel-tabs.js · 「关于」页签（简介 / 致谢 / 仓库 / 交流群）──

@@ -570,7 +570,6 @@ if (token) {
   await new Promise((r) => server.close(r));
 }
 
-
 // ── Level B2: 用户图片资产路由（会话头像 + 吉祥物立绘；真 socket + 隔离的数据目录）──
 // 这两族是用户资产的第三条腿（前两条：上传壁纸 / 自定义画面）：POST 导入（raw body，
 // MIME 白名单）/ GET·HEAD 查看 / DELETE 清除。头像按"一方一张"（user / ai），立绘**只有
@@ -652,12 +651,41 @@ if (token) {
       cleared.status === 200 && /"removed":true/.test(cleared.body) && afterClear.status === 404,
       'status=' + cleared.status + ' then ' + afterClear.status);
 
+    // ── 吉祥物立绘（同一族的第二条腿）：**只有一张**，导入即覆盖（用户口径）──
+    const mEmpty = await call('GET', '/wallpaper-engine/mascot');
+    check('立绘：未导入 ⇒ GET 404（路由不带 side，整族只有一张）',
+      mEmpty.status === 404 && mEmpty.headers['cache-control'] === 'no-store',
+      'status=' + mEmpty.status);
+    const mBad = await call('POST', '/wallpaper-engine/mascot', { 'Content-Type': 'image/gif' }, png);
+    check('立绘：非白名单 MIME ⇒ 415', mBad.status === 415, 'status=' + mBad.status);
+    const m1 = await call('POST', '/wallpaper-engine/mascot', { 'Content-Type': 'image/png' }, png);
+    const m1Name = (/"name":"([^"]+)"/.exec(m1.body) || [])[1] || '';
+    check('立绘：导入 ⇒ 200 + 文件名（mascot-<stamp>.<ext>）',
+      m1.status === 200 && /^mascot-[a-z0-9]{4,16}\.png$/.test(m1Name),
+      'status=' + m1.status + ' name=' + m1Name);
+    const mGot = await call('GET', '/wallpaper-engine/mascot');
+    check('立绘：查看 ⇒ 200 + 字节一致 + 长缓存',
+      mGot.status === 200 && mGot.buf.equals(png) && /max-age=31536000/.test(String(mGot.headers['cache-control'])),
+      'status=' + mGot.status + ' bytes=' + mGot.buf.length + '/' + png.length);
+    // **覆盖**：再导入一次 ⇒ 新名字 + 目录里只剩这一张（旧的正式文件被清掉）。
+    const m2 = await call('POST', '/wallpaper-engine/mascot', { 'Content-Type': 'image/png' }, png2);
+    const m2Name = (/"name":"([^"]+)"/.exec(m2.body) || [])[1] || '';
+    const mFiles = readdirSync(join(dataDir, 'mascot')).filter((f) => f.startsWith('mascot-'));
+    check('立绘：再导入 ⇒ 覆盖（新名字 + 目录里只剩一张，旧文件被清）',
+      m2.status === 200 && m2Name !== m1Name && mFiles.length === 1 && mFiles[0] === m2Name,
+      'files=[' + mFiles.join(',') + '] second=' + m2Name);
+    const mClear = await call('DELETE', '/wallpaper-engine/mascot');
+    const mAfter = await call('GET', '/wallpaper-engine/mascot');
+    check('立绘：清除 ⇒ 200 removed:true，随后 GET 回到 404',
+      mClear.status === 200 && /"removed":true/.test(mClear.body) && mAfter.status === 404,
+      'status=' + mClear.status + ' then ' + mAfter.status);
   } finally {
     await new Promise((r) => server.close(r));
     if (PREV_DATA_DIR === undefined) delete process.env.DSH_WE_DATA_DIR; else process.env.DSH_WE_DATA_DIR = PREV_DATA_DIR;
     rmSync(dataDir, { recursive: true, force: true });
   }
-}// ── Level D2: 中途放弃请求的断开时机（确定性；真 socket 上只能碰运气）──────
+}
+// ── Level D2: 中途放弃请求的断开时机（确定性；真 socket 上只能碰运气）──────
 // 真 socket 用例是**竞态**断言：断开早于应答刷出才失败，而那一刻取决于背压与
 // 事件循环负载。这里用替身把时序钉死，判据是**顺序**，对每条"收到一半就放弃"的
 // 路由都一样：

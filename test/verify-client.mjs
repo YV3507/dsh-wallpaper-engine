@@ -819,6 +819,7 @@ setTimeout(async () => {
           && /res\.status === 404 \|\| res\.status === 405/.test(clientSrcForAvatar)
           && clientSrcForAvatar.includes('宿主里没有{what}路由：重启 DSH 后再试')
           && /postImageAsset\("\/avatar\/" \+ side, img\.blob, weT\("头像"\)\)/.test(clientSrcForAvatar)
+          && /postImageAsset\("\/mascot", img\.blob, weT\("立绘"\)\)/.test(clientSrcForAvatar)
           && (clientSrcForAvatar.match(/parse: "always"/g) || []).length >= 1,
           '用户资产路由的失败文案必须区分"宿主里没有这条路由"（裸 404/405 ⇒ 提示重启 DSH）');
       }
@@ -1312,8 +1313,15 @@ setTimeout(async () => {
     };
     const activeForm = (cards) => cards.find((c) => String(c.props.className).includes('--active'));
     let mascotCards = findMascotCards(tree);
-    assert.ok(mascotCards.length === 2, 'mascot form cards (expect 2):');
+    // 三张卡：两张内置形态 + 一张**自定义立绘**（用户口径：「导入后显示在鲸鱼姐后面、
+    // 同样的卡片大小和样式」⇒ 它排在最后、用的是同一个卡片类/同一套尺寸口径）。
+    assert.ok(mascotCards.length === 3, 'mascot cards (expect 3: maid / whale / custom):');
     assert.ok(!!activeForm(mascotCards) && activeForm(mascotCards).props.title === '小女仆', 'default form is maid:');
+    const customCard0 = mascotCards[2];
+    assert.ok(customCard0 && String(customCard0.children?.[1]?.children?.[0] || '') === '自定义',
+      '第三张卡必须是「自定义」（排在鲸御姐后面）');
+    assert.ok(customCard0 && customCard0.props["aria-pressed"] === 'false',
+      '没导入自定义立绘时它不是 active 的那张');
     const whaleCard = mascotCards.find((c) => c.props.title === '鲸御姐');
     if (whaleCard) { whaleCard.props.onClick(); tree = renderPicker(); }
     mascotCards = findMascotCards(tree);
@@ -1350,6 +1358,51 @@ setTimeout(async () => {
       assert.equal(artsAtScale.length, 2, '1.5 倍下形态卡片立绘仍应有 2 个（卡片不消失）');
       assert.equal(artsAtScale[0] && artsAtScale[0].props.style?.width, '52px', '小女仆卡片宽度固定 52px（不随滑块缩放）');
       assert.equal(artsAtScale[1] && artsAtScale[1].props.style?.height, '96px', '鲸御姐卡片高度固定 96px（不随滑块缩放）');
+      // ── 自定义立绘那张卡（用户口径：吉祥物可自定义导入；已导入时下一次导入覆盖上一次）──
+      //    没导入过 ⇒ 卡片画「+」占位、标题是导入的 tooltip、**不得**出现「清除」；
+      //    两张内置形态卡照旧可点（没有自定义立绘压着）。
+      {
+        const cardsNow = findMascotCards(tree);
+        const custom = cardsNow[2];
+        assert.ok(custom && String(custom.children?.[1]?.children?.[0] || '') === '自定义',
+          '第三张卡必须是「自定义」（排在鲸御姐后面）');
+        assert.equal(custom && custom.props.title, '导入图片…', '没导入过 ⇒ 卡片的提示是「导入图片…」');
+        assert.ok(!JSON.stringify(tree).includes('清除'),
+          '没导入过立绘时不得出现「清除」按钮');
+        assert.ok(cardsNow.every((c) => c.props.disabled !== true), '没有自定义立绘时三张卡都可点');
+        // 卡面舞台与内置卡**同一个盒**（最高的那张 64×96）：占位是该盒，导入后图片等比缩进它。
+        const stageOf = (card) => card && card.children?.[0]?.props?.style;
+        assert.ok(custom && stageOf(custom).width === '64px' && stageOf(custom).height === '96px',
+          '自定义卡的卡面舞台必须与最高的内置卡同一个盒（64×96）');
+      }
+      // 已导入那一档用**源码口径**判（挂载台够不到 store：`selection` 只在 bundle 内部，
+      // 而这个测试驱动的都是"控件 → 处理器 → setSetting"那条路；导入是唯一能把
+      // mascotImage 写进去的动作，而它需要真文件 + 网络）。行为侧那半边由
+      // test/verify-scene.mjs 的真 socket 路由用例（导入 / 覆盖 / 清除）覆盖。
+      {
+        const srcNow = readFileSync(new URL('../src/client.js', import.meta.url), 'utf8');
+        const tabsNow = readFileSync(new URL('../src/panel-tabs.js', import.meta.url), 'utf8');
+        assert.ok(/function ropeArtOf\(selLike\)/.test(srcNow)
+          && /apiUrl\("\/mascot\?v=" \+ encodeURIComponent\(name\)\)/.test(srcNow),
+          '主页面吉祥物必须走 ropeArtOf（自定义优先）这条解析');
+        assert.ok(/const previewArt = ropeArtOf\(sel\);/.test(tabsNow)
+          && /const customArt = previewArt\.custom;/.test(tabsNow),
+          '设置页的自定义立绘那一格必须复用同一条解析（两处各写一遍必然漂）');
+        // 自定义生效时的三件事：明说"主页面用的是这张图"、按钮变「替换图片…」+「清除」、
+        // 形态卡片**禁用**（点了不会变 ⇒ 不许做成"点了没反应"）。
+        assert.ok(tabsNow.includes('自定义立绘生效中：主页面吉祥物用的是这张图；点卡片可换一张')
+          && tabsNow.includes('customArt ? weT("替换图片…（再导入会覆盖上一次）") : weT("导入图片…")')
+          && tabsNow.includes('disabled: customArt,')
+          && tabsNow.includes('customArt && React.createElement("button"')
+          && tabsNow.includes('className: "we-picker__mascot-card" + (customArt ? " we-picker__mascot-card--active" : "")'),
+          '自定义立绘生效时的四个形态（提示 / 卡片 active / 替换提示 / 内置卡禁用）必须在渲染器里逐条在位');
+        // 显示盒的算法在导入处（96×192 等比适配、短边不小于 28），主页面与预览读同一份设置。
+        assert.ok(/MASCOT_BOX_MAX_W = 96, MASCOT_BOX_MAX_H = 192, MASCOT_BOX_MIN_SIDE = 28/.test(srcNow)
+          && /const box = Math\.max\(1, Math\.round\(img\.width \* k\)\) \+ "x" \+ Math\.max\(1, Math\.round\(img\.height \* k\)\);/.test(srcNow)
+          && /setSetting\("mascotImage", posted\.name\);/.test(srcNow)
+          && /setSetting\("mascotImageBox", box\);/.test(srcNow),
+          '立绘导入必须把文件名与显示盒一起记账（盒坏了 ropeArtOf 回落到内置形态）');
+      }
       if (ri2) ri2.props.onInput({ target: { value: '1' } });
       tree = renderPicker();
     }

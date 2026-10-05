@@ -354,6 +354,9 @@ const selection = {
   // 设置白名单没有它们（serialize 时被 schema 过滤掉）。
   avatarBusy: "",
   avatarError: "",
+  // 自定义吉祥物立绘的导入态（transient）：在途标志与最后一条错误（同上面两枚口径）。
+  mascotBusy: false,
+  mascotError: "",
   // Upload-directory editor (transient): open state + draft path.
   editingUploadDir: false,
   uploadDirDraft: "",
@@ -3079,6 +3082,55 @@ function onAvatarClear(side) {
   });
 }
 
+// ── 「系统」页签（自定义吉祥物立绘）的处理器 ──────────────────────────────────
+// 与头像同一条导入链（pickImageFile / downscaleImageFile / postImageAsset），差别只有：
+//   · 路由不带 side（立绘只有一张，再导入即覆盖 —— 宿主那边清同族旧文件）；
+//   · 除文件名外还记一个**显示盒**（`<宽>x<高>`）：立绘按自己的宽高比适配 96×192 的框，
+//     结果存下来给主页面那只吉祥物用（拖动 / 贴边 / 视口钳位都读它）。
+// 立绘的尺寸直接改主页面那只（RopeDock 是 emit 的订阅者）⇒ 全部走完整路径。
+const MASCOT_BOX_MAX_W = 96, MASCOT_BOX_MAX_H = 192, MASCOT_BOX_MIN_SIDE = 28;
+function onMascotPick() { pickImageFile((file) => uploadMascotFile(file)); }
+async function uploadMascotFile(file) {
+  if (!file || !/^image\/(png|jpeg|webp)$/.test(String(file.type || ""))) {
+    setTransient("mascotError", weT("仅支持 JPG / PNG / WebP 图片"));
+    emit();
+    return;
+  }
+  setTransient("mascotError", "");
+  setTransient("mascotBusy", true);
+  emit();
+  try {
+    const img = await downscaleImageFile(file, IMAGE_IMPORT_MAX_EDGE);
+    // 显示盒：等比适配 96×192（大图缩到框内）；小图不放大，只为"太小的图标点不到"
+    // 留一条下限（短边 < 28px 才放大到 28px）。
+    const fit = Math.min(MASCOT_BOX_MAX_W / img.width, MASCOT_BOX_MAX_H / img.height);
+    const lift = Math.max(1, MASCOT_BOX_MIN_SIDE / Math.min(img.width, img.height));
+    const k = Math.min(fit, lift);
+    const box = Math.max(1, Math.round(img.width * k)) + "x" + Math.max(1, Math.round(img.height * k));
+    const posted = await postImageAsset("/mascot", img.blob, weT("立绘"));
+    if (!posted.ok) throw new Error(posted.error);
+    setSetting("mascotImage", posted.name);
+    setSetting("mascotImageBox", box);
+  } catch (err) {
+    setTransient("mascotError", weT("导入失败：{error}", { error: err && err.message ? err.message : String(err) }));
+  } finally {
+    setTransient("mascotBusy", false);
+    emit();
+  }
+}
+function onMascotClear() {
+  setTransient("mascotError", "");
+  apiDelete("/mascot", { parse: "always" }).then((r) => {
+    if (!r.ok) throw new Error(assetRouteFailure(r, weT("立绘")));
+    setSetting("mascotImage", "");
+    setSetting("mascotImageBox", "");
+    emit();
+  }).catch((err) => {
+    setTransient("mascotError", weT("清除失败：{error}", { error: err && err.message ? err.message : String(err) }));
+    emit();
+  });
+}
+
 /**
  * 适配方式（覆盖 / 填充 / 居中 / 拉伸）：除写设置外，Edge 的 canvas 渲染路径把 fit 存在
  * `weDrawCtx` 上，而 `syncLayers` 的 same-canvas 守卫不会重建 draw loop ⇒ 这里要直接更新并重绘。
@@ -3992,7 +4044,7 @@ const officialColorOf = (tokens) => {
     );
     if (activeTab === "system") return React.createElement(React.Fragment, null,
       renderMascotTab({
-        onRopeFormChange, onRopeScaleChange, onRopeVisibilityChange, sel,
+        onMascotClear, onMascotPick, onRopeFormChange, onRopeScaleChange, onRopeVisibilityChange, sel,
       }),
       renderAdvancedTab({
         setSetting, setTransient,
@@ -4137,6 +4189,27 @@ const ROPE_FORMS = {
   whale: { get label() { return weT("鲸御姐"); }, img: ROPE_IMG_WHALE, w: 64, h: 96 },
 };
 
+/**
+ * 主页面那只吉祥物**当前用的立绘**：自定义优先（`mascotImage` 非空且显示盒合法），
+ * 否则用「吉祥物形态」选的内置立绘。返回 `{ img, w, h, custom }` ——
+ * RopeDock 与设置页的预览**共用这一处解析**（两处各写一遍必然漂）。
+ * ⚠️ 显示盒坏掉（空 / 不合法）时整条自定义都作废：宁可回到内置立绘，也不要拿
+ * 一个猜出来的盒子去量一只吉祥物（拖动与视口钳位都读它）。
+ */
+function ropeArtOf(selLike) {
+  const sel = selLike || selection;
+  const form = ROPE_FORMS[sel.ropeForm] || ROPE_FORMS.maid;
+  const name = String(sel.mascotImage || "");
+  const m = /^(\d{1,3})x(\d{1,3})$/.exec(String(sel.mascotImageBox || ""));
+  if (!name || !m) return { img: form.img, w: form.w, h: form.h, custom: false };
+  return {
+    img: apiUrl("/mascot?v=" + encodeURIComponent(name)),
+    w: Math.max(1, Number(m[1])),
+    h: Math.max(1, Number(m[2])),
+    custom: true,
+  };
+}
+
 const ROPE_OPEN_THRESHOLD = 96;   // px of downward/upward drag that commits open/close (less twitchy)
 const ROPE_PREVIEW_START = 32;    // px of pull before the panel preview starts tracking
 const ROPE_EDGE_INSET = 8;        // resting distance below the snapped top edge
@@ -4174,11 +4247,12 @@ function RopeDock() {
   useWeLocale(); // 语言切换 → 吉祥物/抽屉里的文案跟着换（见 src/i18n.js）
   const sel = useStore();
   const hidden = !sel.ropeShown;
-  const form = ROPE_FORMS[sel.ropeForm] || ROPE_FORMS.maid;
+  // 立绘：自定义优先（用户导入的那张），否则当前形态的内置图（同一条解析见 ropeArtOf）。
+  const art = ropeArtOf(sel);
   const scale = clampNum(sel.ropeScale, ROPE_SCALE_MIN, ROPE_SCALE_MAX, 1);
-  // Selected form's base box scaled by the user's size setting (rounded to px);
+  // The artwork's base box scaled by the user's size setting (rounded to px);
   // written inline so the .we-rope CSS box follows it and ropeSize() reads it.
-  const box = { w: Math.round(form.w * scale), h: Math.round(form.h * scale) };
+  const box = { w: Math.round(art.w * scale), h: Math.round(art.h * scale) };
   const [open, setOpen] = React.useState(false);
   const [pos, setPos] = React.useState(() => readRopePos(box));
   const ropeRef = React.useRef(null);
@@ -4387,7 +4461,7 @@ function RopeDock() {
       onKeyDown: onRopeKeyDown,
     },
       React.createElement("div", { className: "we-rope__art", "aria-hidden": "true" },
-        React.createElement("img", { className: "we-rope__img", src: form.img, alt: "", draggable: false }),
+        React.createElement("img", { className: "we-rope__img", src: art.img, alt: "", draggable: false }),
       ),
     ),
     React.createElement("aside", {
