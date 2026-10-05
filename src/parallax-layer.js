@@ -9,9 +9,12 @@
  *
  * ══ 它怎么动 ═════════════════════════════════════════════════════════════════
  *   · **单位量**：光标相对屏幕中心偏移 u = (光标 − 中心)，则该层的目标位移是
- *     `PARALLAX_DIRECTION × u × pct/100`（pct 是这个层的"缓动距离"）。
- *     光标走完整整一条**最长对角线**（Δu = 对角线 d）时，位移正好改变 `pct% × d` ——
- *     这就是用户口径里那个百分比的定义。方向 `PARALLAX_DIRECTION = -1`：**关于屏幕中心
+ *     `PARALLAX_DIRECTION × u × pct/50`（pct 是这个层的"缓动距离"，单位 = 最长对角线的
+ *     百分之几；除数是 PARALLAX_STEP_DIV = 100 / 2）。用户口径 m02697-① 的定义是
+ *     "**能达到的最大位移** = 屏幕对角线的 p%"：光标在屏幕角上时 |u| 最大 = 对角线 d / 2
+ *     ⇒ 位移 = 2 × pct/100 × d/2 = pct% × d ✓（旧口径写成"光标走完一整条对角线时位移改变
+ *     pct% × d"，同一个式子少一个 ×2 ⇒ 所有层的位移都翻倍，这正是那次语义修正要的）。
+ *     方向 `PARALLAX_DIRECTION = -1`：**关于屏幕中心
  *     对称**（光标在右上，整块往左下走）。改成跟随光标只需把它写成 +1。
  *   · **缓动**：位移不直接等于目标，而是按 `parallaxSmooth` 每帧朝目标逼近一截
  *     （指数逼近；按真实 dt 折算 ⇒ 掉帧时跟手程度不变）⇒ 光标停下后影子还会飘一小段才归位。
@@ -47,10 +50,17 @@
  *     （于是输入卡片动的是卡片本体、每条用户气泡各自成为独立的位移目标），一路 `contents`
  *     才往上找；
  *     ④ 四个区域各有**自己的距离**（`parallaxUiChatDepth` / `parallaxUiComposerDepth` /
- *     `parallaxUiSidebarDepth` / `parallaxUiBubbleDepth`，用户口径 m01915-①）：
- *     有效系数 = `parallaxUiDepth` × 该区域值 × `PARALLAX_UI_SIGN`。
+ *     `parallaxUiSidebarDepth` / `parallaxUiBubbleDepth`，用户口径 m01915-①）：每块自己就是
+ *     **绝对的最大位移百分比**（用户裁决 m02697-①/③：总倍率 `parallaxUiDepth` 已退役，
+ *     出厂一律 1%，**0 = 这一块完全不缓动**）；系数 = 该区域值 × `PARALLAX_UI_SIGN`。
  *     嵌套规矩对气泡那一档放开：气泡行本来就长在会话文本区的盒子里，两者都动、位移叠加
  *     （这正是"气泡比文本区再多走一点"的来路），其余组里套组仍只留最外侧那个。
+ *     ⑤ **别的插件注册的前端元素组也参与**（用户裁决 m02697-②/③）：运行期按槽出口
+ *     `[data-slot]` 认（`parallaxPluginGroups()` —— 这一层本来就在 DOM 上工作、不吃 ctx），
+ *     距离从 `parallaxPluginDepths`（槽键 → %，真源 lib/settings-schema.js）里取，
+ *     **缺键 = 参与**（默认 `PARALLAX_PLUGIN_DEFAULT` = 1%），值为 0 = 这一组完全不缓动；
+ *     「扩展」页签里那一段的行与这里**同源**（`parallaxDiscoveredGroups()` ⇒ 会动的组
+ *     一定有开关，有开关的组一定在动）。
  *   · **跟随真实刷新率**：不再人工封顶 60Hz（高刷屏上原来隔帧跑 —— 位移一样但看着不够连贯）。
  *     缓动本来就按真实 dt 折算，所以手感与封顶时一致。
  *   · **帧里零测量**：帧内不读 `window.innerWidth`、不 `querySelectorAll`、更不碰
@@ -63,13 +73,14 @@
  *     放宽到 1px）⇒ 一次手势的帧数大约减半；系数全 0 时一帧都不排；帧循环在跑的这段时间给
  *     那几层加一个类提成合成层（每帧只挪现成的纹理、不整屏重绘），到位收工立刻摘掉
  *     （本仓刻意不留常驻合成层）。视口尺寸只在 resize 时读。
- *   · **壁纸要补边**：位移最大为 `pct/100 × 视口宽 / 2`（横向）、`pct/100 × 视口高 / 2`（纵向），
- *     而 `.we-layer` 正好是视口大小 ⇒ 不补边就会在边上露出底色。所以壁纸层同时放大
- *     `1 + pct/100`（见 src/styles.js 的视差段）—— 恰好多出"最大位移 × 2"那点余量。
+ *   · **壁纸要补边**：位移最大为 `pct/100 × 视口宽`（横向）、`pct/100 × 视口高`（纵向）
+ *     —— 光标贴在屏幕边上时 2 × pct/100 × 半屏 = pct/100 × 整屏，而 `.we-layer` 正好是
+ *     视口大小 ⇒ 不补边就会在边上露出底色。所以壁纸层同时放大 `1 + pct/50`
+ *     （见 src/styles.js 的视差段）—— 恰好多出"最大位移 × 2"那点余量。
  *   · **各层各自的百分比**：壁纸走 `parallaxBg`；吉祥物跟着壁纸（`parallaxMascot` 可关）；
- *     界面那四组共用总倍率 `parallaxUiDepth`，各自再乘**自己的区域倍率**（四个设置项；
- *     出厂值就是下面那四个常量：会话文本区 ×1、输入卡片 ×1.5、左栏 ×0.6、用户气泡
- *     **在会话文本区之上**再加 ×0.4 —— 四层之间因此有一点纵深，见 PARALLAX_GROUP_*）。
+ *     界面那四组各走**自己的距离**（四个设置项，出厂一律 1% —— 用户裁决 m02848：
+ *     「滑动条上限为10%，分度值0.1%，默认1%」；缺值兜底见 PARALLAX_GROUP_*）；
+ *     插件组走 `parallaxPluginDepths[槽键]`（缺键 = 1% 参与，用户裁决 m02697-②）。
  *   · **点击与拖尾效果（`src/fx-layer.js` 那一层）刻意不参与**（用户口径第 3 条）：那层画的是"屏上的笔迹"，
  *     跟着挪会让落点与光效错位。
  *   · **自检开关**：`localStorage.weParallaxDebug = '1'` ⇒ 记每帧的回调耗时、写入次数与帧间隔，
@@ -83,9 +94,10 @@
  *   临时的合成层提示）+ **接口那几个容器**（输入卡片 / 会话文本区 / 左栏 / 用户气泡行；槽出口
  *   没盒子 ⇒ 位移落回有盒子的那一层：只写位移属性，绝不加类、不加 `will-change`；左栏写的是
  *   `position: relative` + `left`/`top`，其余三组写 `translate`）。
- *   对外提供：`syncParallaxLayer()`（设置变了就调一次）、`disposeParallaxLayer()`（卸载清理）。
+ *   对外提供：`syncParallaxLayer()`（设置变了就调一次）、`disposeParallaxLayer()`（卸载清理）、
+ *   `parallaxDiscoveredGroups()`（**只读**：当前认到的"别的插件前端元素组"的槽键，面板画行用）。
  *   设置项（`parallax*`，真源 lib/settings-schema.js）：总开关 / 背景距离 /
- *   吉祥物是否跟随 / 界面整块是否跟随 / 界面距离 / 四个区域的倍率 / 缓动平滑。
+ *   吉祥物是否跟随 / 界面整块是否跟随 / 四个区域的距离 / 插件组的距离表 / 缓动平滑。
  *
  * 不变量：
  *   · **一个 DOM 节点都不建**：屏上那几层（壁纸 / 吉祥物）本来就存在，本层只写样式 ——
@@ -114,14 +126,16 @@
 
 /** 1 = 跟随光标，-1 = 关于屏幕中心对称（用户口径："沿中心对称方向缓动"）。改这一个数就能换向。 */
 const PARALLAX_DIRECTION = -1;
-/** 百分比是"最长对角线的百分之几"：壁纸 0..10（它同时决定补边放大的倍数 1 + pct/100）、
+/** 百分比是"最长对角线的百分之几"：壁纸 0..10（它同时决定补边放大的倍数 1 + pct/50）、
  *  平滑 0..98（100% 等于永远不动）。 */
 const PARALLAX_BG_MIN = 0;
 const PARALLAX_BG_MAX = 10;
-const PARALLAX_UI_DEPTH_MIN = 0;
-const PARALLAX_UI_DEPTH_MAX = 6;
 const PARALLAX_SMOOTH_MIN = 0;
 const PARALLAX_SMOOTH_MAX = 98;
+/** 用户口径 m02697-① 的那条折算：位移 = `PARALLAX_DIRECTION × u × pct / PARALLAX_STEP_DIV`
+ *  （u = 光标 − 屏幕中心）⇒ 光标贴在屏幕角上时 |位移| = pct% × 最长对角线。
+ *  除数是 100 / 2（旧口径没有那个 ×2 ⇒ 语义修正后所有层的位移都翻倍），推导见文件头"单位量"。 */
+const PARALLAX_STEP_DIV = 50;
 /** 位移步长的最小"到位"距离（px / 每 1%）：兜底阈值，常态用的是下面按可见位移折算的那个。 */
 const PARALLAX_SETTLE_PX = 0.02;
 /** 缓动按 60fps 一帧折算；掉帧时最多按 64ms 补（再长就直接到位，别放大成一次跳跃）。
@@ -144,19 +158,38 @@ const PARALLAX_TARGET_SELECTOR = '.we-layer, .we-rope';
  *  ⚠️ 气泡那一档只能按 `data-chat-*` 认：宿主的气泡类名是构建哈希（`cJsG2q_userRow` / `_bubble`），
  *  随版本变；这一排语义属性是宿主写在每个聊天流条目上的，稳。 */
 const PARALLAX_GROUP_SELECTOR = '[data-composer-card], [data-slot="conversation.view"], [data-slot="sidebar"], [data-chat-flow-kind="user"], [data-chat-flow-kind="steering"]';
-/** 四个区域的**出厂倍率**（用户口径 m01915-① 之后它们各自也有设置项：`parallaxUiChatDepth` /
- *  `parallaxUiComposerDepth` / `parallaxUiSidebarDepth` / `parallaxUiBubbleDepth`，真源
- *  lib/settings-schema.js；这里的四个数只作缺值兜底，与出厂默认逐字同值）—— 会话文本区是
- *  基准，输入卡片最靠前、左栏最靠后；用户气泡**在会话文本区之上**再加一档（它俩都动，
- *  位移叠加）。四个数差得不多，纵深才自然。面板按**百分比**呈现这四个倍率（×100，用户口径
- *  m02410-②；存档仍是倍率，见 src/ext-parallax.js）。 */
+/** 四个区域的**出厂 / 兜底距离**（% 对角线；用户裁决 m02697-①/③：总倍率 `parallaxUiDepth`
+ *  退役、每块自己就是绝对距离、0 = 这一块完全不缓动；出厂一律 1% —— 用户裁决 m02848
+ *  「滑动条上限为10%，分度值0.1%，默认1%」）。真源是 lib/settings-schema.js 里那四个
+ *  `parallaxUi*Depth` 键，这里的四个数只作缺值兜底、与出厂默认逐字同值。
+ *  用户气泡那一档长在会话文本区的盒子里、两者都动 ⇒ 位移是**叠加**的（文件头 ④）。 */
 const PARALLAX_GROUP_CHAT = 1;
-const PARALLAX_GROUP_COMPOSER = 1.5;
-const PARALLAX_GROUP_SIDEBAR = 0.6;
-const PARALLAX_GROUP_BUBBLE = 0.4;
-/** 区域倍率的取值范围（与 lib/settings-schema.js 的 KINDS 同值：本文件要能被单独 import）。 */
+const PARALLAX_GROUP_COMPOSER = 1;
+const PARALLAX_GROUP_SIDEBAR = 1;
+const PARALLAX_GROUP_BUBBLE = 1;
+/** 区域距离的取值范围（与 lib/settings-schema.js 的 KINDS 同值：本文件要能被单独 import）。 */
 const PARALLAX_GROUP_DEPTH_MIN = 0;
-const PARALLAX_GROUP_DEPTH_MAX = 3;
+const PARALLAX_GROUP_DEPTH_MAX = 10;
+/** 别的插件注册的前端元素组（用户裁决 m02697-②/③）。**槽出口自己没有盒子**（宿主给每个出口
+ *  写死 `display: contents`，见 docs/DSH-UI-INTERFACES.md 与 parallaxGroupBox()）⇒ 位移落在
+ *  出口的**元素子节点**上：那才是插件自己渲染出来、真有盒子的内容（一个出口可能有多个子节点，
+ *  各有各的位移记录 —— DOM 上一个出口只有槽键、认不出占用它的插件，所以移动单位只能是节点）。
+ *  **不参与的槽**（挪了没有意义或会与别的那一组打架）：
+ *   · 整帧容器（`root` / `main` / `rightbar`）与 shell 各处 —— 挪它们等于整块界面动；
+ *   · 原生四组（`conversation.view` / `sidebar` / `main.conversation`）—— 上面那条选择器在管；
+ *   · 整个设置 / 插件管理界面（`settings.*` / `plugins.*`，连同落在它们子树里的一切）——
+ *     那是一块你正在读的表单，跟着光标晃只会碍事（第三方在插件页里声明的座位也算在内）。 */
+const PARALLAX_PLUGIN_SLOT_ATTR = 'data-slot';
+const PARALLAX_PLUGIN_SELECTOR = '[data-slot]';
+const PARALLAX_PLUGIN_SKIP = [
+  'root', 'main', 'rightbar',
+  'conversation.view', 'sidebar', 'main.conversation',
+];
+const PARALLAX_PLUGIN_SKIP_PREFIX = ['settings.', 'plugins.', 'shell.'];
+const PARALLAX_PLUGIN_SKIP_SCOPE = '[data-slot="settings.section"], [data-slot="plugins.bundle.config"]';
+/** 插件组的缺省距离（%，用户裁决 m02697-②："默认参与缓动，给一个和原生区域相近的默认距离"）
+ *  —— 与四个区域的出道值同一个数；取值范围同 PARALLAX_GROUP_DEPTH_*。 */
+const PARALLAX_PLUGIN_DEFAULT = 1;
 /** 界面组量化的**迟滞带**（单位 = 设备像素）：位移小于 `DEAD` 一律归零；已经非零时小于
  *  `STICK` 不许重新起跳。缓动尾巴会在零点附近来回磨（指数逼近最后那一段永远到不了终点），
  *  没有这条带子就会两帧之间把 0 与 1 个设备像素翻来翻去 —— 用户口径 m01915-②："光标从屏幕
@@ -192,10 +225,9 @@ const PARALLAX_TARGETS_MS = 250;
 /** 光标在屏幕外 / 还没动过时的位移：读不到真实尺寸时的兜底中心，也是"零位移"的那一点。 */
 const PARALLAX_BG_DEFAULT = 1;
 const PARALLAX_SMOOTH_DEFAULT = 85;
-const PARALLAX_UI_DEPTH_DEFAULT = 1;
 /** 每帧写下去的那条 CSS 独立属性（不能用 transform：壁纸过场会内联写 / 清它）。 */
 const PARALLAX_TRANSLATE = 'translate';
-/** 只写一次的那个"壁纸补边系数"（与 src/styles.js 的 `scale: calc(1 + 变量 / 100)` 逐字对应）：
+/** 只写一次的那个"壁纸补边系数"（与 src/styles.js 的 `scale: calc(1 + 变量 / 50)` 逐字对应）：
  *  它落 body，是因为补边放大整层只与总设置有关、与光标无关。 */
 const PARALLAX_VAR_BG = '--we-parallax-bg';
 /** body 上的总开关属性：只有它在时补边那条规则才命中（关掉 ⇒ 壁纸连 scale 都不带）。 */
@@ -258,8 +290,9 @@ function parallaxSettings() {
     bg: parallaxClamp(selection.parallaxBg, PARALLAX_BG_MIN, PARALLAX_BG_MAX, PARALLAX_BG_DEFAULT),
     mascot: selection.parallaxMascot !== false,
     ui: selection.parallaxUi === true,
-    uiDepth: parallaxClamp(selection.parallaxUiDepth, PARALLAX_UI_DEPTH_MIN, PARALLAX_UI_DEPTH_MAX,
-      PARALLAX_UI_DEPTH_DEFAULT),
+    /** 插件组的距离表（槽键 → %）：浅拷贝由 schema 负责，这里只做"不是对象就当空表"的兜底。 */
+    plugin: (selection.parallaxPluginDepths && typeof selection.parallaxPluginDepths === 'object')
+      ? selection.parallaxPluginDepths : {},
     chatDepth: parallaxClamp(selection.parallaxUiChatDepth, PARALLAX_GROUP_DEPTH_MIN,
       PARALLAX_GROUP_DEPTH_MAX, PARALLAX_GROUP_CHAT),
     composerDepth: parallaxClamp(selection.parallaxUiComposerDepth, PARALLAX_GROUP_DEPTH_MIN,
@@ -271,6 +304,26 @@ function parallaxSettings() {
     smooth: parallaxClamp(selection.parallaxSmooth, PARALLAX_SMOOTH_MIN, PARALLAX_SMOOTH_MAX,
       PARALLAX_SMOOTH_DEFAULT),
   };
+}
+
+/** 屏上可能出现的**最大距离百分比**（壁纸、四个区域、插件组里最大的那个）。只在两处用到：
+ *  ① "系数全 0 ⇒ 一次落位、收工"这条短路；② 到位阈值（剩余位移 = 剩余步长 × 最大系数）。
+ *  ⚠️ 不能只看壁纸：用户口径 m02697 之后每块的距离都是**独立的绝对百分比**，界面组或插件组
+ *  完全可能比壁纸走得远（只看壁纸会让那几组的尾巴被过早抹平）。界面整块关着时只有壁纸算数。 */
+function parallaxMaxPercent(st) {
+  let max = st.bg;
+  if (!st.ui) return max;
+  if (st.chatDepth > max) max = st.chatDepth;
+  if (st.composerDepth > max) max = st.composerDepth;
+  if (st.sidebarDepth > max) max = st.sidebarDepth;
+  if (st.bubbleDepth > max) max = st.bubbleDepth;
+  const map = st.plugin;
+  for (const key in map) {
+    if (!Object.prototype.hasOwnProperty.call(map, key)) continue;
+    const v = parallaxClamp(map[key], PARALLAX_GROUP_DEPTH_MIN, PARALLAX_GROUP_DEPTH_MAX, 0);
+    if (v > max) max = v;
+  }
+  return max;
 }
 
 /** 写样式 / 属性的落点。没有 DOM 的环境（无头沙箱、SSR 探测）一律返回 null ⇒ 全链静默。 */
@@ -354,6 +407,59 @@ function parallaxGroupKind(el) {
   const cls = ' ' + String((el && el.className) || '') + ' ';
   if (cls.indexOf(' data-composer-card ') >= 0) return 'composer';
   return 'chat';
+}
+
+/** 这个槽出口算不算"别的插件注册的前端元素组"：是就返回它的槽键，否则返回空串（判据见
+ *  PARALLAX_PLUGIN_SKIP / _SKIP_PREFIX / _SKIP_SCOPE 的注释）。只读宿主写的 `data-slot`。 */
+function parallaxPluginKey(el) {
+  if (!el || typeof el.getAttribute !== 'function') return '';
+  let key = '';
+  try { key = el.getAttribute(PARALLAX_PLUGIN_SLOT_ATTR) || ''; } catch (e) { return ''; }
+  key = String(key);
+  if (!key || PARALLAX_PLUGIN_SKIP.indexOf(key) >= 0) return '';
+  for (let i = 0; i < PARALLAX_PLUGIN_SKIP_PREFIX.length; i += 1) {
+    if (key.indexOf(PARALLAX_PLUGIN_SKIP_PREFIX[i]) === 0) return '';
+  }
+  // 落在设置页 / 插件管理页那块子树里的一律不算（第三方在那里声明的座位也算）——
+  // `closest` 取不到（老宿主 / 假 DOM）时按"不在里面"算，宁可多认一个组也别漏。
+  if (typeof el.closest === 'function') {
+    try { if (el.closest(PARALLAX_PLUGIN_SKIP_SCOPE)) return ''; } catch (e) { /* 只读宿主 */ }
+  }
+  return key;
+}
+
+/** 当前该跟着动的"别的插件前端元素组"：`[{ el, slot }]`（`el` = 出口的**元素子节点** ——
+ *  出口自己 `display: contents`、没有盒子，见常量注释）。只在**重扫路径**上跑（帧里绝不查 DOM）。
+ *  没有 DOM、或出口一个元素子节点都没有的环境一律返回空数组 ⇒ 老环境零影响。 */
+function parallaxPluginGroups() {
+  const out = [];
+  if (typeof document === 'undefined' || !document
+    || typeof document.querySelectorAll !== 'function') return out;
+  let nodes = null;
+  try { nodes = document.querySelectorAll(PARALLAX_PLUGIN_SELECTOR); } catch (e) { return out; }
+  for (let i = 0; i < nodes.length; i += 1) {
+    const slot = parallaxPluginKey(nodes[i]);
+    if (!slot) continue;
+    const kids = nodes[i].children;
+    if (!kids || typeof kids.length !== 'number') continue;
+    for (let j = 0; j < kids.length; j += 1) {
+      if (!kids[j]) continue;
+      out.push({ el: kids[j], slot: slot });
+    }
+  }
+  return out;
+}
+
+/** 对外（「扩展」页签那一段画行用）：**自动发现**到的插件前端元素组的槽键，屏上顺序、去重。
+ *  与屏上表现同源（同一个 `parallaxPluginGroups()`）⇒ "会动的组一定有开关，有开关的组一定在动"。
+ *  纯读 DOM、零副作用；没有 DOM 的环境返回空数组（面板那边退回一句说明）。 */
+function parallaxDiscoveredGroups() {
+  const groups = parallaxPluginGroups();
+  const out = [];
+  for (let i = 0; i < groups.length; i += 1) {
+    if (out.indexOf(groups[i].slot) < 0) out.push(groups[i].slot);
+  }
+  return out;
 }
 
 /**
@@ -456,16 +562,21 @@ function parallaxGroupBlocked(el) {
 }
 
 /** 各层这一帧的系数（**带符号**）：壁纸恒为 `parallaxBg`；吉祥物跟随（`parallaxMascot` 关掉时为 0）；
- *  界面组按 `parallaxUiDepth` × **自己的区域倍率**（四个设置项，出厂值见 PARALLAX_GROUP_*），
- *  符号取与壁纸**同向**（`PARALLAX_UI_SIGN`）。 */
+ *  界面四组各按**自己的距离**（四个设置项，缺值兜底见 PARALLAX_GROUP_*）、插件组按槽键查表
+ *  （缺键 = `PARALLAX_PLUGIN_DEFAULT`），符号都取与壁纸**同向**（`PARALLAX_UI_SIGN`）。 */
 function parallaxTargetRatio(rec, st) {
   if (rec.group) {
     if (!st.ui) return 0;
+    // 别的插件的组：距离按**槽键**从 parallaxPluginDepths 里取（缺键 = 默认参与）。
+    if (rec.kind === 'plugin') {
+      return parallaxClamp(st.plugin[rec.slot], PARALLAX_GROUP_DEPTH_MIN, PARALLAX_GROUP_DEPTH_MAX,
+        PARALLAX_PLUGIN_DEFAULT) * PARALLAX_UI_SIGN;
+    }
     let coef = st.chatDepth;
     if (rec.kind === 'composer') coef = st.composerDepth;
     else if (rec.kind === 'sidebar') coef = st.sidebarDepth;
     else if (rec.kind === 'bubble') coef = st.bubbleDepth;
-    return st.uiDepth * coef * PARALLAX_UI_SIGN;
+    return coef * PARALLAX_UI_SIGN;
   }
   if (rec.kind === 'mascot') return st.mascot ? st.bg : 0;
   return st.bg;
@@ -542,8 +653,9 @@ function parallaxTargetsClear() {
  * （宁可不跟手，也别让一个还没验过的组去当别人的包含块），下一次帧外重扫再放行。
  * 左栏（`sidebar`）走相对偏移、不是 transform ⇒ 那道判定对它一律按"没被挡下"算，
  * 改成问"要不要补一个 `position: relative`"（见 parallaxGroupOffsets / 文件头 ②）。
+ * 插件组额外带 `slot`（槽键）：只用来查 `parallaxPluginDepths` 那张距离表（见 parallaxTargetRatio）。
  */
-function parallaxTargetAdd(next, prev, el, group, inFrame, kind) {
+function parallaxTargetAdd(next, prev, el, group, inFrame, kind, slot) {
   for (let k = 0; k < next.length; k += 1) { if (next[k].el === el) return; }
   let rec = null;
   for (let j = 0; j < prev.length; j += 1) {
@@ -551,6 +663,7 @@ function parallaxTargetAdd(next, prev, el, group, inFrame, kind) {
   }
   if (rec) {
     rec.kept = true;
+    if (slot) rec.slot = String(slot);
     // 判定会随时间变（第三方座位挂上来 / 撤走、宿主换容器实现）⇒ 每次帧外重扫都重验一遍。
     if (group && !inFrame) {
       if (parallaxGroupOffsets(rec.kind)) {
@@ -573,6 +686,8 @@ function parallaxTargetAdd(next, prev, el, group, inFrame, kind) {
     dy: 0,
     group: isGroup,
     kind: recKind,
+    /** 只有插件组用得上（`parallaxPluginDepths` 的键）；其余一律空串。 */
+    slot: slot ? String(slot) : '',
     rel: offsets && !inFrame ? parallaxGroupNeedsRelative(el) : offsets,
     blocked: isGroup && !offsets ? (inFrame ? true : parallaxGroupBlocked(el)) : false,
   });
@@ -588,6 +703,9 @@ function parallaxTargetAdd(next, prev, el, group, inFrame, kind) {
  * 顺序，尾巴上那几条才是屏上的）；③ 命中的锚点先换成**真正要挪的盒子**（槽出口没盒子，见
  * parallaxGroupBox()）；④ "有没有 fixed 后代"这个要遍历子树的判定只在 `inFrame !== true` 时做
  * （帧里那次重扫沿用上一次的结论）。
+ * 第三类来源是**别的插件注册的前端元素组**（parallaxPluginGroups()，用户裁决 m02697-②）：
+ * 它们的盒子并进同一张 `candidates` ⇒ 上面那套挑选（含"组里套组只留最外侧"）对它们一样生效，
+ * 落在原生四组盒子里的插件组因此不会被挪两次（父组一动，子元素本来就跟着走）。
  */
 function parallaxTargetsRefresh(now, inFrame) {
   if (typeof document === 'undefined' || !document
@@ -609,6 +727,15 @@ function parallaxTargetsRefresh(now, inFrame) {
   const from = bubbles.length > PARALLAX_GROUP_BUBBLE_MAX
     ? bubbles.length - PARALLAX_GROUP_BUBBLE_MAX : 0;
   for (let i = from; i < bubbles.length; i += 1) candidates.push(bubbles[i]);
+  // ② 别的插件注册的前端元素组（用户裁决 m02697-②）：**出口的元素子节点**才是要挪的盒子。
+  //    界面那一组关着时一个都不认 —— 那时它们的系数恒为 0，认了只会白跑 fixed 后代那道
+  //    子树判定（每个组最多 400 个 getComputedStyle）。
+  if (parallaxSettings().ui) {
+    const plugins = parallaxPluginGroups();
+    for (let i = 0; i < plugins.length; i += 1) {
+      candidates.push({ el: plugins[i].el, kind: 'plugin', slot: plugins[i].slot });
+    }
+  }
   for (let i = 0; i < candidates.length; i += 1) {
     const el = candidates[i].el;
     let nested = false;
@@ -618,7 +745,8 @@ function parallaxTargetsRefresh(now, inFrame) {
       if (outer && typeof outer.contains === 'function' && outer.contains(el)) { nested = true; break; }
     }
     if (nested && candidates[i].kind !== 'bubble') continue;
-    parallaxTargetAdd(next, prev, parallaxGroupBox(el) || el, true, inFrame, candidates[i].kind);
+    parallaxTargetAdd(next, prev, parallaxGroupBox(el) || el, true, inFrame, candidates[i].kind,
+      candidates[i].slot);
   }
   for (let j = 0; j < prev.length; j += 1) {
     if (prev[j].kept) { prev[j].kept = false; continue; }
@@ -761,10 +889,10 @@ function parallaxDebugFrame(t0, now, writes) {
   parallaxDebugLastMs = now;
 }
 
-/** 清点当前认到的界面组（自检用）：四档各几个、几个被 fixed 后代挡下、几个走相对偏移（左栏）。
- *  纯读数，不碰 DOM —— 记录本来就在手边（自检那条路上一帧都不该多花）。 */
+/** 清点当前认到的界面组（自检用）：四档 + 插件组各几个、几个被 fixed 后代挡下、几个走相对偏移
+ *  （左栏）。纯读数，不碰 DOM —— 记录本来就在手边（自检那条路上一帧都不该多花）。 */
 function parallaxGroupCounts() {
-  const counts = { chat: 0, composer: 0, sidebar: 0, bubble: 0, offset: 0, blocked: 0 };
+  const counts = { chat: 0, composer: 0, sidebar: 0, bubble: 0, plugin: 0, offset: 0, blocked: 0 };
   for (let i = 0; i < parallaxTargets.length; i += 1) {
     const rec = parallaxTargets[i];
     if (!rec.group) continue;
@@ -774,6 +902,7 @@ function parallaxGroupCounts() {
       counts.sidebar += 1;
       if (parallaxTargetIsOffset(rec)) counts.offset += 1;
     } else if (rec.kind === 'bubble') counts.bubble += 1;
+    else if (rec.kind === 'plugin') counts.plugin += 1;
     else counts.chat += 1;
   }
   return counts;
@@ -814,7 +943,8 @@ function parallaxDebugReport() {
         + report.costMs.max + 'ms · 帧间隔 p50/p95/max ' + report.gapMs.p50 + '/'
         + report.gapMs.p95 + '/' + report.gapMs.max + 'ms'
         + ' · 界面组 会话/输入/侧栏/气泡 ' + g.chat + '/' + g.composer + '/' + g.sidebar
-        + '/' + g.bubble + ' · 被 fixed 挡下 ' + g.blocked
+        + '/' + g.bubble + ' · 插件前端 ' + g.plugin
+        + ' · 被 fixed 挡下 ' + g.blocked
         + ' · 侧栏走相对偏移 ' + g.offset);
     }
   } catch (e) { /* 没有控制台 */ }
@@ -894,8 +1024,8 @@ function parallaxKick() {
 
 /**
  * 一帧：把步长朝目标逼近一截、写下去，没到位就再排一帧。
- * 目标只看"光标相对中心的偏移"与视口尺寸 —— 视口就是那条对角线的两端，光标走完对角线时
- * 位移正好改变 pct% 个对角线（用户口径的那个定义）。
+ * 目标只看"光标相对中心的偏移"与视口尺寸 —— 视口就是那条对角线的两端：光标贴在屏幕角上时
+ * 位移正好 = pct% × 最长对角线（用户口径 m02697-① 的那个定义）。
  */
 function parallaxFrame(ms) {
   parallaxRaf = 0;
@@ -910,10 +1040,12 @@ function parallaxFrame(ms) {
   const vh = parallaxVh;
   const cx = parallaxSeen ? parallaxX : vw / 2;
   const cy = parallaxSeen ? parallaxY : vh / 2;
-  const targetX = PARALLAX_DIRECTION * (cx - vw / 2) / 100;
-  const targetY = PARALLAX_DIRECTION * (cy - vh / 2) / 100;
+  // 用户口径 m02697-①：能走到的最大位移 = 屏幕最长对角线的 pct% ⇒ 除数是 100 / 2
+  // （PARALLAX_STEP_DIV；旧口径没有那个 ×2，语义修正后所有层的位移都翻倍）。
+  const targetX = PARALLAX_DIRECTION * (cx - vw / 2) / PARALLAX_STEP_DIV;
+  const targetY = PARALLAX_DIRECTION * (cy - vh / 2) / PARALLAX_STEP_DIV;
   // 一层都不动（系数全 0）⇒ 屏上什么都不会变：一次落位、收工，一帧都不多排。
-  const pctMax = st.bg;
+  const pctMax = parallaxMaxPercent(st);
   let writes = 0;
   if (pctMax <= 0) {
     parallaxStepX = targetX;
@@ -1014,4 +1146,11 @@ function disposeParallaxLayer() {
   parallaxStop();
 }
 
-export { syncParallaxLayer, disposeParallaxLayer };
+export {
+  syncParallaxLayer,
+  disposeParallaxLayer,
+  parallaxDiscoveredGroups,
+  // 插件槽位那一档的缺省距离：面板（src/ext-parallax.js）画行时要显示"缺键时算多少"，
+  // 单一真源在这里 ⇒ 连这个数一起导出，面板直接读（不许自己再抄一个）。
+  PARALLAX_PLUGIN_DEFAULT,
+};

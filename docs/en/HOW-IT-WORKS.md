@@ -178,16 +178,29 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe (no 
   the displacement **never travels through a custom property**: custom properties inherit, so writing one
   would re-resolve styles for a whole subtree. The body keeps a single "wallpaper bleed" multiplier
   `--we-parallax-bg` (written once per settings change, feeding the static
-  `scale: calc(1 + multiplier / 100)` in the parallax section of `src/styles.js`). The wallpaper and the
+  `scale: calc(1 + multiplier / 50)` in the parallax section of `src/styles.js`, i.e. the wallpaper is
+  enlarged by `1 + pct/50` so no base color shows past the edges). **A percentage means "the largest
+  displacement this layer can reach, as a share of the screen's longest diagonal"** (user wording
+  m02697-①: with the cursor in a screen corner |displacement| is exactly p% x diagonal), so the per-frame
+  formula is `displacement = 2 x pct/100 x (cursor - screen center)`, written in the layer as
+  `PARALLAX_STEP_DIV = 50`. The wallpaper and the
   mascot each multiply their own percentage (1% for the wallpaper by default, the mascot sharing the
   wallpaper's value); the interface groups (composer / conversation text area (user bubbles inside
   included) / sidebar) are governed by a
-  separate sub-switch `parallaxUi` (off by default) with the **total factor** `parallaxUiDepth` as the base,
-  plus one factor key per region (`parallaxUiChatDepth` / `parallaxUiComposerDepth` /
-  `parallaxUiSidebarDepth` / `parallaxUiBubbleDepth`, shipping with the four coefficients that used to be
-  hard-coded, and **shown as a percentage in the panel** - the slider domain is the factor x100 and the
-  write-back divides by 100, the same chain as "dim" and "border emphasis", while the stored unit stays a
-  factor, so no migration, no version bump and no host restart), so the effective distance is total x region (user bubbles stack one more layer on top of the
+  separate sub-switch `parallaxUi` (off by default) and the four regions **each store their own absolute
+  percentage** (`parallaxUiChatDepth` / `parallaxUiComposerDepth` / `parallaxUiSidebarDepth` /
+  `parallaxUiBubbleDepth`, KINDS `num 0..10`, step 0.1, shipping at 1% each): the old **total factor**
+  `parallaxUiDepth` and the whole "panel x100 / stored factor" chain are retired, so the panel and the
+  stored value now **share one unit** and setting a region to 0 means that region does not move at all
+  (user ruling m02697-③). **Front-end element groups registered by other plugins join the drift** (user
+  wording m02697-②): the layer scans the host's slot outlets `[data-slot]` (an outlet itself is
+  `display: contents` and generates no box, so the displacement lands on its **element child**), skips
+  frame-wide containers / the four native groups / the settings and plugin-management subtrees, and reads
+  the distance from `parallaxPluginDepths` (slot key -> %, a `map` entry) where **a missing key means the
+  1% default (participating by default) and an explicit 0 means that group does not move**; the panel's
+  list comes from the layer's `parallaxDiscoveredGroups()` through `ctx` (one source of truth: one row per
+  discovered group), and the panel splits it into three cards ("Background" / "Native front end" /
+  "Plugin front end"). User bubbles stack one more layer on top of the
   text area, and only the 24 most recent ones move; `PARALLAX_UI_SIGN = 1` makes the interface move the
   **same way as** the wallpaper - the near interface travels a little further than the far wallpaper, a
   camera pan - and the displacement itself lands on the anchor itself when it owns a box, or else on the
@@ -205,7 +218,7 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe (no 
   `localStorage.weParallaxDebug = '1'` turns on a per-frame self-check (callback cost, write count and
   frame gap p50/p95/max plus a long-frame count, printed once the gesture settles and exposed as
   `window.__weParallaxStats`). The wallpaper layer is also scaled up by the same amount
-  (`1 + pct / 100`) so no base color shows at the edges, and the displacement uses the CSS
+  (`1 + pct / 50`) so no base color shows at the edges, and the displacement uses the CSS
   **independent properties `translate` / `scale`** rather than `transform` — the wallpaper transition's
   `resetLayerSwitchStyles` writes and clears an inline `transform`, so only the independent properties
   compose with it. The click & trail layer deliberately does not move; making the interface drift as whole

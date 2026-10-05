@@ -1002,31 +1002,54 @@ setTimeout(async () => {
         const parUi = findCtlInput(parTree, '输入卡片、会话文本区（连里面的用户气泡一起）与侧栏作为整块跟着挪：文字与底下的玻璃一起动');
         assert.ok(parUi, '三号模块必须画出「界面元素跟随」子开关');
         assert.equal(parUi && parUi.props.checked, false, '「界面元素跟随」默认必须是关的');
-        assert.ok(!JSON.stringify(parTree).includes('界面跟随距离'),
-          '「界面元素跟随」关着时不该画出「界面跟随距离」');
+        assert.equal(findSliderRow(parTree, '会话文本区距离'), null,
+          '「界面元素跟随」关着时不该画出四个区域距离');
         if (parUi) {
           parUi.props.onChange({ target: { checked: true } });
           flushPersistWrites();
           const uiTree = renderPicker();
-          assert.equal(sliderMin(findSliderRow(uiTree, '界面跟随距离')), '0', '界面跟随距离下限必须是 0%');
-          assert.equal(sliderMax(findSliderRow(uiTree, '界面跟随距离')), '6', '界面跟随距离上限必须是 6%');
-          // 默认回显 1%：这个数是**会话文本区**的距离，输入卡片 ×1.5、侧栏 ×0.6 是行为层的常数。
-          assert.equal(parReadoutOf('界面跟随距离', uiTree), '1%', '界面跟随距离默认必须是 1%');
+          // 四个区域距离**各是绝对百分比**（用户裁决 m02697-①③）：面板与存档**同一个单位**
+          // ⇒ 滑杆域 = KINDS 域（0..10、步长 0.1）、出厂一律 1%；老口径的"总倍率 + ×100"整条退役。
+          ['会话文本区距离', '输入卡片距离', '侧栏距离', '用户气泡距离'].forEach((label) => {
+            assert.equal(sliderMin(findSliderRow(uiTree, label)), '0', label + ' 下限必须是 0%');
+            assert.equal(sliderMax(findSliderRow(uiTree, label)), '10', label + ' 上限必须是 10%');
+            assert.equal(parReadoutOf(label, uiTree), '1%', label + ' 默认必须是 1%');
+          });
+          assert.equal(findSliderRow(uiTree, '界面跟随距离'), null,
+            '总倍率退役后不得再画出「界面跟随距离」');
+          // 缓动元素设置分三类（用户裁决 m02697-③）：三张分组卡的标题按序都在树上。
+          const sectionTitles = [];
+          (function walk(node) {
+            if (!node || typeof node !== 'object') return;
+            if (Array.isArray(node)) { node.forEach(walk); return; }
+            if (node.props?.className === 'we-picker__section-label') {
+              sectionTitles.push(String((node.children || [])[0] ?? ''));
+            }
+            if (Array.isArray(node.children)) node.children.forEach(walk);
+          })(uiTree);
+          // （`扩展模块` 是注册表容器自己那张卡，排在本模块各行之前 ⇒ 只取末三张。）
+          assert.deepEqual(sectionTitles.slice(-3), ['背景', '原生前端', '插件前端'],
+            '缓动元素设置必须按 背景 / 原生前端 / 插件前端 三张分组卡排');
+          assert.equal(sectionTitles[0], '扩展模块', '三张分组卡必须落在「扩展模块」容器之内');
+          const uiText = JSON.stringify(uiTree);
+          // 「插件前端」这一段的两态文案（认到槽位 / 一个都没认到）—— 这个夹具里认不到任何槽位。
+          assert.ok(uiText.includes('还没认到别的插件注册的前端元素组'),
+            '一个插件槽位都没认到时，「插件前端」必须给一句说明');
           // 界面组在自己那一行上还挂着一句"整块跟着挪"的说明。
-          assert.ok(JSON.stringify(uiTree).includes('输入卡片、会话文本区（连里面的用户气泡一起）与侧栏作为整块跟着挪'),
+          assert.ok(uiText.includes('输入卡片、会话文本区（连里面的用户气泡一起）与侧栏作为整块跟着挪'),
             '「界面元素跟随」必须带一句说明它是整块一起挪的');
           const uiOff = findCtlInput(renderPicker(), '输入卡片、会话文本区（连里面的用户气泡一起）与侧栏作为整块跟着挪：文字与底下的玻璃一起动');
           if (uiOff) uiOff.props.onChange({ target: { checked: false } });
           flushPersistWrites();
         }
-        // 复位：总开关关掉（后续判据要的是"默认态"）。关掉之后连同界面组那两行一起收干净。
+        // 复位：总开关关掉（后续判据要的是"默认态"）。关掉之后连同界面组那些行一起收干净。
         const parOff = findCtlInput(renderPicker(), '启用 3D 效果');
         if (parOff) parOff.props.onChange({ target: { checked: false } });
         flushPersistWrites();
         assert.ok(!JSON.stringify(renderPicker()).includes('背景缓动距离'),
           '关掉三号模块总开关后它那一串参数必须收起来');
-        assert.ok(!JSON.stringify(renderPicker()).includes('界面跟随距离'),
-          '关掉三号模块总开关后界面组那一行也必须收起来');
+        assert.equal(findSliderRow(renderPicker(), '用户气泡距离'), null,
+          '关掉三号模块总开关后界面组那几行也必须收起来');
       }
       // 唯一激活的页签是「扩展」：只数类名不看文案，能同时挡住"没切过去"与"两个都亮"。
       const activeTabs = [];

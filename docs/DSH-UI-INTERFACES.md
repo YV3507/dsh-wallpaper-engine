@@ -220,7 +220,37 @@ asar 里带着宿主自己的插件编写文档：`@deepseek-ai/dsh-agent-preset
   ⇒ 要动左栏只能走**相对定位**（`position: relative` + `left` / `top`）：它**不**建立包含块，就不会换掉任何
   fixed 后代的锚点。本插件「3D 效果」的界面跟随正是这么做的（`parallaxGroupOffsets()` 里左栏是唯一的相对偏移档）。
 
-⚠️ 四条都属于 §2.3 说的"低稳定度那一类"：主机重建后**属性名**多半还在，但 `_viewArea` 这类后缀随时可改
+### 3.6 想"自动认到别的插件注册的前端元素组"，只能扫 DOM，不能靠槽注册表（同一次核查的第三批补算）
+
+补算动机：用户口径 m02697-② 要求让别的插件注册的前端元素组也参与缓动，并且**默认参与**（面板里逐组可调、
+设 0 = 该组不缓动，m02697-③）。先查的是"运行期能不能问槽注册表"，逐条核实后**否掉**了这条路：
+
+- **注册表在运行期确实可问，但问不出"归属"。** asar 内 `@deepseek-ai/dsh-client-ui-renderer/lib/client.js` 里
+  `var SlotRegistry = class extends Service`（`super(ctx, "slots")`）把服务面方法直接转发给 `SlotCore`：
+  `entries` / `entriesOfSlot` / `snapshot` / `spec` / `subscribe(key, fn)` / `getVersion`（外加 `register` /
+  `registerFactory` / `inject`）⇒ 插件运行期可以调 `ctx.slots.snapshot()` 拿到 `{ name, kind, scope, declaredBy,
+  occupants: [{ registrant, key, id, order, priority, active }], children }` 这棵树。**但**注册时的 `registrant`
+  默认值就是 `options.registrant ?? this.ctx.fiber?.name`，宿主骨架与第三方 bundle 的 fiber 名**都是 `mf`**
+  ⇒ 实况里 `settings.section` 那 10 个占用者（宿主五页 + `bili` / `better-sidebar` / `wallpaper-engine` /
+  `market` / `cost-meter`）**registrant 全是 `mf`**，认不出谁是宿主、谁是插件。能带身份的只有占用者自己的
+  `key` / `id`（常是包名或 section id），而那是**别的插件的自由命名**，不是接口。
+- **子槽的注册不会向上冒泡。** `subscribe(key, fn)` 是按 key 订阅、microtask 批量；`snapshot()` 不给 root 时
+  返回的只是**顶层槽 + factories** ⇒ 订阅 `'root'` 察觉不到某个已挂载插件后来又声明了一个子槽。
+- **宿主自己的文档也把槽信息定位成"开发期工具"**：asar 内
+  `@deepseek-ai/dsh-agent-preset/skills/cordis-plugin-development/references/ui-plugin.md` 写的是"follow the
+  selected slot's props and options from `Slots.listSubTree`"（即 Inspect），并明确要求
+  "Do not read another plugin's DOM, stylesheet, or component source to estimate placement; choose a slot that
+  already allocates space."
+
+⇒ 本插件的选择是**认 DOM 的槽出口**（本插件本来就在钉 `[data-slot="…"]`，见 §2.2 / §3.1）：行为层扫
+`document.querySelectorAll('[data-slot]')`，跳掉整帧容器（`root` / `main` / `rightbar` / `shell.*`）、原生四组
+（`conversation.view` / `sidebar` / `main.conversation`）与设置、插件管理那几块子树
+（`settings.*` / `plugins.*`），把剩下的出口**当成"别的插件的前端元素组"**；位移落在出口的**元素子节点**上
+（§3.5：出口自己 `display: contents`、没有盒子），距离按槽键存进 `parallaxPluginDepths`（缺键 = 缺省 1% 默认
+参与、显式 0 = 这一组不缓动）。**已知代价**：运行期分不清归属 ⇒ 宿主自己的界面槽也会出现在「插件前端」那一
+栏里，用户把它设 0 即可（面板里每一行就是一个真实槽键，认得出来源的人能自己判断）。
+
+⚠️ **§3.5 这四条**都属于 §2.3 说的"低稳定度那一类"：主机重建后**属性名**多半还在，但 `_viewArea` 这类后缀随时可改
 ⇒ 机器判据只能证明"名字还在"（§5），语义仍要靠人复核。最后一条性质不同：它约束的是**我们该用哪种 CSS 形态**
 （不许 `transform`），而不是"宿主某个名字还在不在"。
 

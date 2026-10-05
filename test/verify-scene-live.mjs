@@ -2780,10 +2780,16 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       parallaxLayerMod.syncParallaxLayer();
       parallaxLayerMod.disposeParallaxLayer();
     } catch (e) { threw = String((e && e.message) || e); } finally { globalThis.selection = PREV_SEL; }
-    check('parallax-layer.js 可单独 import · 导出只有两枚 · 无 rAF / 无 DOM 环境零抛错零副作用',
-      Object.keys(parallaxLayerMod).sort().join(',') === 'disposeParallaxLayer,syncParallaxLayer'
+    check('parallax-layer.js 可单独 import · 导出只有四枚 · 无 rAF / 无 DOM 环境零抛错零副作用',
+      Object.keys(parallaxLayerMod).sort().join(',')
+        === 'PARALLAX_PLUGIN_DEFAULT,disposeParallaxLayer,parallaxDiscoveredGroups,syncParallaxLayer'
       && typeof parallaxLayerMod.syncParallaxLayer === 'function'
       && typeof parallaxLayerMod.disposeParallaxLayer === 'function'
+      // 「扩展」面板要按同一份名单画"插件前端"那几行 ⇒ 发现函数必须能从层里单独取到；
+      // 缺省距离（缺键时算多少）也只有层里那一份真源，面板直接读它。
+      && typeof parallaxLayerMod.parallaxDiscoveredGroups === 'function'
+      && Array.isArray(parallaxLayerMod.parallaxDiscoveredGroups())
+      && parallaxLayerMod.PARALLAX_PLUGIN_DEFAULT === 1
       && !threw, threw);
     // 源码口径：这一层的要点全是"看不见的形态"（不建 DOM、只用独立属性可用量、中心对称、
     // 到位就停、系数可配、特效层不参与）。逐条钉住，改坏了当场红。
@@ -2804,9 +2810,12 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       // ① **不建 DOM**：整份文件里没有 createElement / appendChild / insertBefore。
       && !parSrc.includes('createElement') && !parSrc.includes('appendChild')
       && !parSrc.includes('insertBefore') && !parSrc.includes('removeChild')
-      // ② 单位量 = 光标偏离屏幕中心的百分比，方向取负 ⇒ 关于中心对称（光标在右上、整块往左下）。
-      && parSrc.includes('const targetX = PARALLAX_DIRECTION * (cx - vw / 2) / 100;')
-      && parSrc.includes('const targetY = PARALLAX_DIRECTION * (cy - vh / 2) / 100;')
+      // ② 单位量 = 光标偏离屏幕中心的百分之几，方向取负 ⇒ 关于中心对称（光标在右上、整块往左下）。
+      //   用户口径 m02697-①："最大缓动距离占屏幕对角线长度的百分比" ⇒ 除数是 100 / 2 = 50
+      //   （光标贴到屏幕角上时 |u| = 最长对角线的一半 ⇒ |位移| 恰好 = pct% × 对角线）。
+      && parSrc.includes('const PARALLAX_STEP_DIV = 50;')
+      && parSrc.includes('const targetX = PARALLAX_DIRECTION * (cx - vw / 2) / PARALLAX_STEP_DIV;')
+      && parSrc.includes('const targetY = PARALLAX_DIRECTION * (cy - vh / 2) / PARALLAX_STEP_DIV;')
       // ③ **缓动**：按帧时长做指数逼近（跟手程度 = parallaxSmooth），不是直接赋值。
       && parSrc.includes('const a = 1 - st.smooth / 100;')
       && parSrc.includes('1 - Math.pow(1 - a, dt / PARALLAX_FRAME_MS)')
@@ -2843,7 +2852,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       && parSrc.includes('parallaxVarOn(el, PARALLAX_TRANSLATE, value);')
       && parSrc.includes('function parallaxTargetKind(el)')
       // 界面组（用户口径：把 3D 感扩到输入框 / 文本区 / 侧栏与其中的用户气泡，且"文字本体跟着
-      // 玻璃一起动" ⇒ 动的是容器）：四组的倍率**是四个设置项**（常量只作缺值兜底）、与壁纸
+      // 玻璃一起动" ⇒ 动的是容器）：四组各按**自己的绝对距离**（四个设置项，常量只作缺值兜底）、与壁纸
       // **同向**的符号、整设备像素量化 **+ 迟滞**（m01915-② 的抖就是量化在零附近来回翻转）、
       // 静止摘属性、组里有 fixed 后代就整组不动（本仓 #89 的包含块坑），**左栏例外**走
       // `position: relative` + `left`/`top`（m01915-③：那一列里钉着宿主的 fixed 标题栏按钮，
@@ -2851,13 +2860,17 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       // 最近的有盒子的祖先"（asar 里的 `ANCHOR_STYLE = display: contents`；m01915 起改成
       // **从锚点自身起判** ⇒ 输入卡片落到卡片本体、每条用户气泡各自成为一个位移目标）。
       && parSrc.includes('[data-composer-card], [data-slot="conversation.view"], [data-slot="sidebar"], [data-chat-flow-kind="user"], [data-chat-flow-kind="steering"]')
+      // 用户裁决 m02697-①/③：四个区域**自己就是绝对距离**（不再是乘在总倍率上的系数）
+      // ⇒ 出厂一律 1%、上限 10%（"滑动条上限为10%，分度值0.1%，默认1%"）、0 = 这一块不缓动。
       && parSrc.includes('const PARALLAX_GROUP_CHAT = 1;')
-      && parSrc.includes('const PARALLAX_GROUP_COMPOSER = 1.5;')
-      && parSrc.includes('const PARALLAX_GROUP_SIDEBAR = 0.6;')
-      && parSrc.includes('const PARALLAX_GROUP_BUBBLE = 0.4;')
+      && parSrc.includes('const PARALLAX_GROUP_COMPOSER = 1;')
+      && parSrc.includes('const PARALLAX_GROUP_SIDEBAR = 1;')
+      && parSrc.includes('const PARALLAX_GROUP_BUBBLE = 1;')
       && parSrc.includes('const PARALLAX_GROUP_BUBBLE_MAX = 24;')
       && parSrc.includes('const PARALLAX_GROUP_DEPTH_MIN = 0;')
-      && parSrc.includes('const PARALLAX_GROUP_DEPTH_MAX = 3;')
+      && parSrc.includes('const PARALLAX_GROUP_DEPTH_MAX = 10;')
+      // 老口径的"界面跟随距离总倍率"整条退役（键从 lib/settings-schema.js 里删掉）。
+      && !parSrc.includes('PARALLAX_UI_DEPTH') && !parSrc.includes('st.uiDepth')
       && parSrc.includes('const PARALLAX_GROUP_DEAD_PX = 0.25;')
       && parSrc.includes('const PARALLAX_GROUP_STICK_PX = 0.75;')
       && parSrc.includes("const PARALLAX_OFFSET_LEFT = 'left';")
@@ -2865,8 +2878,23 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       && parSrc.includes("const PARALLAX_POSITION = 'position';")
       && parSrc.includes("const PARALLAX_POSITION_RELATIVE = 'relative';")
       && parSrc.includes('const PARALLAX_UI_SIGN = 1;')
-      && parSrc.includes('const PARALLAX_UI_DEPTH_MIN = 0;')
-      && parSrc.includes('const PARALLAX_UI_DEPTH_MAX = 6;')
+      // 插件前端（用户裁决 m02697-②/③）：认别的插件注册的槽出口（出口自身 `display: contents`
+      // ⇒ 位移落在**元素子节点**上）、跳掉整帧容器 / 原生四组 / 设置与插件管理那一整块子树；
+      // 距离住 `parallaxPluginDepths`（槽键 → %），缺键 = 缺省 1%（默认参与）、显式 0 = 这一组不缓动。
+      && parSrc.includes("const PARALLAX_PLUGIN_SLOT_ATTR = 'data-slot';")
+      && parSrc.includes("const PARALLAX_PLUGIN_SELECTOR = '[data-slot]';")
+      && parSrc.includes('const PARALLAX_PLUGIN_SKIP = [')
+      && parSrc.includes("const PARALLAX_PLUGIN_SKIP_PREFIX = ['settings.', 'plugins.', 'shell.'];")
+      && parSrc.includes('const PARALLAX_PLUGIN_SKIP_SCOPE = ')
+      && parSrc.includes('const PARALLAX_PLUGIN_DEFAULT = 1;')
+      && parSrc.includes('selection.parallaxPluginDepths')
+      && parSrc.includes('function parallaxPluginKey(el)')
+      && parSrc.includes('function parallaxPluginGroups()')
+      && parSrc.includes('function parallaxDiscoveredGroups()')
+      && parSrc.includes('out.push({ el: kids[j], slot: slot });')
+      // 到位阈值看的"最大距离"现在是各层里最大的那个（只看壁纸会把界面 / 插件组的尾巴抹平）。
+      && parSrc.includes('function parallaxMaxPercent(st)')
+      && parSrc.includes('const pctMax = parallaxMaxPercent(st);')
       && parSrc.includes('const PARALLAX_GROUP_SCAN_MAX = 400;')
       && parSrc.includes('const PARALLAX_GROUP_BOX_MAX_UP = 3;')
       && parSrc.includes('function parallaxGroupKind(el)')
@@ -2883,7 +2911,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       && parSrc.includes('parallaxVarOn(el, PARALLAX_POSITION, PARALLAX_POSITION_RELATIVE);')
       && parSrc.includes('function parallaxGroupCounts()')
       && parSrc.includes('function parallaxTargetUnset(rec)')
-      && parSrc.includes('function parallaxTargetAdd(next, prev, el, group, inFrame, kind)')
+      && parSrc.includes('function parallaxTargetAdd(next, prev, el, group, inFrame, kind, slot)')
       && parSrc.includes('parallaxTargetUnset(rec);')
       && parSrc.includes('const dx = parallaxSnapAxis(parallaxStepX * ratio, rec.dx);')
       && parSrc.includes('if (dx === 0 && dy === 0) { parallaxTargetUnset(rec); continue; }')
@@ -2899,8 +2927,14 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       && parSrc.includes("else if (rec.kind === 'sidebar') coef = st.sidebarDepth;")
       && parSrc.includes("else if (rec.kind === 'bubble') coef = st.bubbleDepth;")
       && parSrc.includes("cs.position === 'fixed'")
-      && parSrc.includes('return st.uiDepth * coef * PARALLAX_UI_SIGN;')
-      && parSrc.includes('parallaxTargetAdd(next, prev, parallaxGroupBox(el) || el, true, inFrame, candidates[i].kind);')
+      // 系数：原生四组各按自己的距离、插件组按槽键查 `parallaxPluginDepths`（缺键 = 默认参与）。
+      && parSrc.includes('return coef * PARALLAX_UI_SIGN;')
+      && parSrc.includes("if (rec.kind === 'plugin') {")
+      && parSrc.includes('return parallaxClamp(st.plugin[rec.slot], PARALLAX_GROUP_DEPTH_MIN, PARALLAX_GROUP_DEPTH_MAX,')
+      && parSrc.includes('PARALLAX_PLUGIN_DEFAULT) * PARALLAX_UI_SIGN;')
+      // 插件组也要带上槽键（记录的 `slot` 就是查表的键）。
+      && parSrc.includes('parallaxTargetAdd(next, prev, parallaxGroupBox(el) || el, true, inFrame, candidates[i].kind,')
+      && parSrc.includes('candidates[i].slot);')
       && parSrc.includes("if (nested && candidates[i].kind !== 'bubble') continue;")
       && parSrc.includes("const from = bubbles.length > PARALLAX_GROUP_BUBBLE_MAX")
       && parSrc.includes('parallaxTargetsRefresh(now, true);')
@@ -2917,7 +2951,8 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       && parSrc.includes('function parallaxDebugFrame(t0, now, writes)')
       && parSrc.includes('function parallaxDebugReport()')
       && parSrc.includes('win.__weParallaxStats = report;')
-      && parSrc.includes('const pctMax = st.bg;')
+      // 老口径"只看壁纸的系数"整条消失：最大距离现在从各层里取（见上面 parallaxMaxPercent）。
+      && !parSrc.includes('const pctMax = st.bg;')
       && parSrc.includes('if (pctMax <= 0) {')
       && parSrc.includes('const idle = parallaxMoveMs > 0 && now - parallaxMoveMs >= PARALLAX_IDLE_MS;')
       && parSrc.includes('parallaxTargetLift(el, true);')
@@ -2939,7 +2974,8 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       parCssAt > 0
       && parCss.includes('body[data-we-parallax="on"] .we-layer')
       // 位移由行为层直接写 translate ⇒ 样式表这边只剩这个**静态**补边放大（系数在设置变了时写一次）。
-      && parCss.includes('scale: calc(1 + var(--we-parallax-bg, 0) / 100)')
+      // 除数是 50（= 100 / 2）：新口径下最大位移 = pct% × 对角线，补边也得按同一倍率（m02697-①）。
+      && parCss.includes('scale: calc(1 + var(--we-parallax-bg, 0) / 50)')
       // 低开销：只有"正在动的那几帧"才提合成层（类由行为层加、到位摘），且只提示 translate。
       && parCss.includes('body[data-we-parallax="on"] .we-parallax--moving { will-change: translate; }')
       && parCss.includes('will-change: translate;')
@@ -3095,17 +3131,22 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       globalThis.cancelAnimationFrame = () => { pending = null; };
       globalThis.selection = {
         parallaxEnabled: true, parallaxBg: 1, parallaxMascot: true,
-        parallaxSmooth: 85, parallaxUi: true, parallaxUiDepth: 1,
+        parallaxSmooth: 85, parallaxUi: true,
+        // 四个区域**各是绝对距离**（新口径 m02697-①/③：不再乘在总倍率上）⇒ 故意给四个不同的数，
+        // 下面要验"分档各自生效"（侧栏 / 气泡都比会话文本区小；输入卡片被 fixed 后代挡下）。
+        parallaxUiChatDepth: 1, parallaxUiComposerDepth: 1.5,
+        parallaxUiSidebarDepth: 0.6, parallaxUiBubbleDepth: 0.4,
       };
       // 自检开关走 localStorage（宿主可能把它定义成只读访问器 ⇒ 用 defineProperty 覆盖）。
       setLocalStorage({ getItem: (k) => (k === 'weParallaxDebug' ? '1' : null) });
       const step = (dt) => { clock += dt; const fn = pending; pending = null; if (fn) fn(clock); };
       parallaxLayerMod.syncParallaxLayer();          // 起帧（假 rAF ⇒ 只排一帧）
       if (typeof listeners.pointermove === 'function') listeners.pointermove({ clientX: 1600, clientY: 900 });
-      for (let i = 0; i < 6; i += 1) step(20);       // 挪到右下角 ⇒ 目标 = (-8, -4.5)
+      for (let i = 0; i < 6; i += 1) step(20);       // 挪到右下角 ⇒ 目标 = (-16, -9)（bg 1% / 除数 50）
       const moved = String(layerEl.props['translate'] || '');
       const same = targets.every((el) => el.props['translate'] === moved);
-      // 界面组：会话文本区为基准（×1）、输入卡片 ×1.5、侧栏 ×0.6、用户气泡在文本区之上再加 ×0.4；
+      // 界面组：四块各按**自己的绝对距离**（会话文本区 1%、输入卡片 1.5%、侧栏 0.6%、用户气泡
+      // 在文本区之上再叠 0.4% —— 气泡住在文本区的盒子里，两段位移叠加，见文件头 ④）；
       // 位移**与壁纸同向**（用户口径 m01371 第二条："希望输入框和背景同向运动"）；落在**整设备
       // 像素**上（dpr = 1 ⇒ 整数）；落点是**出口的父盒子**（出口是 display: contents，写它没用）；
       // 嵌套的非气泡组一个位移都没有、气泡照拿（两个位移故意叠加）；被 fixed 后代挡住的组不动；
@@ -3171,8 +3212,8 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       for (let i = 0; i < 400 && pending; i += 1) step(20);
       const holdNum = numOf(chatGroup.box);
       hysteresisOk = engaged && !!holdNum && Math.abs(holdNum[0]) === 1 && holdNum[1] === 0;
-      // ① 各区域单独可调（用户口径 m01915-①）：把会话文本区那一档的倍率置 0 ⇒ 它一动不动，
-      // 而侧栏照旧拿自己的偏移 —— 四个倍率真的是各自的，不是共用同一个数。
+      // ① 各区域单独可调（用户口径 m01915-①；0 的语义见 m02697-③）：把会话文本区那一档的距离
+      // 置 0 ⇒ 它一动不动，而侧栏照旧拿自己的偏移 —— 四个距离真的是各自的，不是共用同一个数。
       globalThis.selection.parallaxUiChatDepth = 0;
       if (typeof listeners.pointermove === 'function') listeners.pointermove({ clientX: 1600, clientY: 900 });
       for (let i = 0; i < 400 && pending; i += 1) step(20);
@@ -3212,7 +3253,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       globalThis.getComputedStyle = PREV_GCS;
       setLocalStorage(PREV_LS);
     }
-    check('parallax-layer.js 位移直接写在那几层自己的 translate 上 · body 只放补边系数 · 起帧提合成层到位摘 · 自检出帧统计 · 停用全收干净 · 界面组量化位移(带迟滞)/与壁纸同向/分档(四个区域倍率各自生效)/气泡截尾/静止摘属性/fixed 后代整组不动/左栏走相对偏移不吃那条判定/槽出口没盒子就落父盒子',
+    check('parallax-layer.js 位移直接写在那几层自己的 translate 上 · body 只放补边系数 · 起帧提合成层到位摘 · 自检出帧统计 · 停用全收干净 · 界面组量化位移(带迟滞)/与壁纸同向/分档(四个区域距离各自生效)/气泡截尾/静止摘属性/fixed 后代整组不动/左栏走相对偏移不吃那条判定/槽出口没盒子就落父盒子',
       !threw && movedOn && groupsOk && settled && centerCleared && dbgOk && hysteresisOk
         && regionsOk && cleared,
       threw || ('movedOn=' + movedOn + ' groups=' + groupsOk + ' settled=' + settled
@@ -3226,30 +3267,44 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
   {
     // 三号模块的岛：注册表项形状 + 「关着只画总开关、开着才画 3 个参数」这条可见行为。
     // 与另两个模块同一张注册表 ⇒ id 必须唯一（'parallax'），title/desc 取的就是译文。
-    const ctxOf = (sel) => ({
+    // 单独 import 时 `PARALLAX_PLUGIN_DEFAULT` 在**构建期**是同一作用域的兄弟模块符号
+    // （src/parallax-layer.js 里那一枚）⇒ 按内联规则补替身，值取自层本尊（不抄数）。
+    const PREV_PLUGIN_DEFAULT = globalThis.PARALLAX_PLUGIN_DEFAULT;
+    globalThis.PARALLAX_PLUGIN_DEFAULT = parallaxLayerMod.PARALLAX_PLUGIN_DEFAULT;
+    const ctxOf = (sel, slots) => ({
       sel,
       onParallaxEnabled: () => {}, onParallaxBg: () => {},
       onParallaxMascot: () => {}, onParallaxSmooth: () => {},
-      onParallaxUi: () => {}, onParallaxUiDepth: () => {},
+      onParallaxUi: () => {}, onParallaxPluginDepth: () => {},
       onParallaxUiChatDepth: () => {}, onParallaxUiComposerDepth: () => {},
       onParallaxUiSidebarDepth: () => {}, onParallaxUiBubbleDepth: () => {},
+      // 「插件前端」那一组画什么**完全由运行期名单决定**（src/client.js 从层里取、与层同源）。
+      parallaxPluginSlots: slots,
     });
-    // 界面组那五行（「界面跟随距离」= 总倍率 + 四个区域倍率）只有在「界面元素跟随」开着时
-    // 才长出来 ⇒ 两套期望（用户口径 m01915-①：各区域的缓动距离单独调）。
+    // 原生前端那五行（界面元素跟随 + 四个区域距离）只有在「界面元素跟随」开着时才长出来；
+    // 「插件前端」那几行再多等一个条件：运行期真的认到了别的插件的槽位（认到几个画几行）。
     const PARAMS = ['背景缓动距离', '吉祥物跟随', '界面元素跟随', '缓动平滑'];
-    const UI_PARAMS = ['背景缓动距离', '吉祥物跟随', '界面元素跟随', '界面跟随距离',
+    const UI_PARAMS = ['背景缓动距离', '吉祥物跟随', '界面元素跟随',
       '会话文本区距离', '输入卡片距离', '侧栏距离', '用户气泡距离', '缓动平滑'];
+    const SLOT_A = 'dshmarket.panel';
+    const SLOT_B = '@linxin666/dsh-client-ui-task-board';
     const off = labelSeq(extParallaxMod.renderParallaxIsland(ctxOf(schemaMod.DEFAULTS)));
     const on = labelSeq(extParallaxMod.renderParallaxIsland(
       ctxOf(Object.assign({}, schemaMod.DEFAULTS, { parallaxEnabled: true }))));
     const onUi = labelSeq(extParallaxMod.renderParallaxIsland(
       ctxOf(Object.assign({}, schemaMod.DEFAULTS, { parallaxEnabled: true, parallaxUi: true }))));
+    const onSlots = labelSeq(extParallaxMod.renderParallaxIsland(
+      ctxOf(Object.assign({}, schemaMod.DEFAULTS, { parallaxEnabled: true, parallaxUi: true }),
+        [SLOT_A, SLOT_B])));
     const mod = extParallaxMod.PARALLAX_EXTENSION_MODULE;
     const extParSrc = readFileSync(join(root, 'src', 'ext-parallax.js'), 'utf8');
     const wantOff = [globalThis.weT('启用 3D 效果')];
     const wantOn = wantOff.concat(PARAMS.map((k) => globalThis.weT(k)));
     const wantOnUi = wantOff.concat(UI_PARAMS.map((k) => globalThis.weT(k)));
-    check('ext-parallax.js 可单独 import · 注册表项形状 · 关着只画总开关、开了才画参数（界面组那五行再等一个子开关）',
+    // 插件行用**槽名本身**当标签（那不是译文，原样画）；「缓动平滑」永远排在最后。
+    const wantOnSlots = wantOff.concat(UI_PARAMS.slice(0, UI_PARAMS.length - 1)
+      .map((k) => globalThis.weT(k))).concat([SLOT_A, SLOT_B], [globalThis.weT('缓动平滑')]);
+    check('ext-parallax.js 可单独 import · 注册表项形状 · 关着只画总开关、开了才画参数（原生前端那五行再等一个子开关、插件前端那几行等运行期名单）',
       Boolean(mod) && mod.id === 'parallax' && mod.render === extParallaxMod.renderParallaxIsland
       && typeof mod.title === 'string' && mod.title === globalThis.weT('3D 效果')
       && typeof mod.desc === 'string' && mod.desc.length > 0
@@ -3257,31 +3312,45 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       && !extParSrc.includes('setSetting') && !extParSrc.includes('emit(')
       && !extParSrc.includes('commitLiveSetting')
       && off.join('|') === wantOff.join('|') && on.join('|') === wantOn.join('|')
-      && onUi.join('|') === wantOnUi.join('|'),
+      && onUi.join('|') === wantOnUi.join('|')
+      && onSlots.join('|') === wantOnSlots.join('|'),
       'off=' + off.length + ' on=' + on.length + ' onUi=' + onUi.length
-        + ' [' + on.join('|') + '] [' + onUi.join('|') + ']');
-    // 四个区域距离的**单位口径**（用户口径 m02410-②：面板里所有缓动都以百分比为单位）：
-    // 存档是倍率（KINDS 0..3）⇒ 面板 ×100 上滑杆、单位用**裸** "%"（裸单位才有拖动期就地
-    // 回显；预格式化整串的口径拖动期数字不跟手，见 SliderRow 的 readout/preformatted），
-    // 回写那一侧在 src/client.js 里 ÷100 —— 与「暗化」「边框」同一条链。
+        + ' onSlots=' + onSlots.length
+        + ' [' + on.join('|') + '] [' + onUi.join('|') + '] [' + onSlots.join('|') + ']');
+    // 四个区域距离的**单位口径**（用户裁决 m02697-①："最大缓动距离占屏幕对角线长度的百分比"）：
+    // 存档与面板**从此同一个单位**（0..10 / 步长 0.1，真源 = lib/settings-schema.js 的 KINDS）⇒
+    // 面板不再 ×100、src/client.js 那一侧也不再 ÷100（与「暗化」「边框」那条旧口径分道扬镳）；
+    // 单位仍用**裸** "%"（裸单位才有拖动期就地回显，预格式化整串拖动期数字不跟手）。
     const clientSrcPar = readFileSync(join(root, 'src', 'client.js'), 'utf8');
     const pctRows = ['Chat', 'Composer', 'Sidebar', 'Bubble'].map((name) => ({
-      row: ', 0, 300, 5, Math.round(sel.parallaxUi' + name + 'Depth * 100)',
-      unit: ', "%", "parallax-ui-' + name.toLowerCase() + '-depth"',
-      old: 'sel.parallaxUi' + name + 'Depth, onParallaxUi' + name + 'Depth',
-      write: 'commitLiveSetting("parallaxUi' + name + 'Depth", v / 100, live)',
-      writeOld: 'commitLiveSetting("parallaxUi' + name + 'Depth", v, live)',
+      args: ', 0, 10, 0.1, sel.parallaxUi' + name + 'Depth, onParallaxUi' + name + 'Depth',
+      unit: '"%", "parallax-ui-' + name.toLowerCase() + '-depth"',
+      write: 'commitLiveSetting("parallaxUi' + name + 'Depth", v, live)',
+      writeOld: 'commitLiveSetting("parallaxUi' + name + 'Depth", v / 100, live)',
     }));
-    check('ext-parallax.js 四个区域距离按百分比呈现（×100 + 裸 "%" 单位）· 回写 ÷100（与「暗化」「边框」同一条口径）',
-      pctRows.every((r) => extParSrc.includes(r.row) && extParSrc.includes(r.unit)
-        && clientSrcPar.includes(r.write) && !extParSrc.includes(r.old)
-        && !clientSrcPar.includes(r.writeOld))
-      // 范围也不是随手写的：滑杆域 = KINDS 域（0..3）×100，两头都钉一下。
-      && extParSrc.includes('Math.round(sel.parallaxUiComposerDepth * 100),')
+    check('ext-parallax.js 四个区域距离存的就是百分比（0..10 / 0.1，与 KINDS 同域）· 回写直写 v（不再 ×100 / ÷100）',
+      pctRows.every((r) => extParSrc.includes(r.args) && extParSrc.includes(r.unit)
+        && clientSrcPar.includes(r.write) && !clientSrcPar.includes(r.writeOld))
+      // 老口径整条消失：面板不再拿倍率算百分比，就再没有 ×100 / Math.round 那一层。
+      && !extParSrc.includes('* 100') && !extParSrc.includes('Math.round(sel.parallaxUi')
+      && !clientSrcPar.includes('parallaxUiChatDepth", v / 100')
       && !extParSrc.includes('preformatted'),
-      pctRows.map((r) => (extParSrc.includes(r.row) ? '1' : '0')
+      pctRows.map((r) => (extParSrc.includes(r.args) ? '1' : '0')
         + (extParSrc.includes(r.unit) ? '1' : '0')
         + (clientSrcPar.includes(r.write) ? '1' : '0')).join('/'));
+    // 插件槽位那一行**没存过值**时必须回显层的缺省（1%），显式 0 要显示成 0 —— 0 是"这一组不缓动"，
+    // 与"没调过"是两件事（用户裁决 m02697-③）。这里只钉源码口径（本文件的 SliderRow 替身只留标签、
+    // 吞掉 value；值本身的口径在 test/verify-client.mjs 那边按带 value 的替身判）。
+    check('ext-parallax.js 插件槽位回显按层的缺省走（没存过值 ⇒ PARALLAX_PLUGIN_DEFAULT、显式 0 保留）',
+      extParSrc.includes('function parallaxPluginPercent(v)')
+      && extParSrc.includes('if (v === null || v === undefined || v === "" || !Number.isFinite(n)) return PARALLAX_PLUGIN_DEFAULT;')
+      && extParSrc.includes('parallaxPluginPercent(depths[slot])')
+      // 名单与动作都从 ctx 来（模块自己不查 DOM、不读 selection、不写设置）——注册表契约。
+      && extParSrc.includes('parallaxPluginSlots')
+      && extParSrc.includes('onParallaxPluginDepth(slot, v, live)')
+      && !extParSrc.includes('querySelectorAll'));
+    if (PREV_PLUGIN_DEFAULT === undefined) delete globalThis.PARALLAX_PLUGIN_DEFAULT;
+    else globalThis.PARALLAX_PLUGIN_DEFAULT = PREV_PLUGIN_DEFAULT;
   }
 
   // ── 自定义会话头像（「扩展」页签一号模块）的两半：装饰层 + 扩展岛 ────────────────

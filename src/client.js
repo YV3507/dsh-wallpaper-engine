@@ -3141,15 +3141,24 @@ function onParallaxEnabled(e) { setSetting("parallaxEnabled", e.target.checked);
 function onParallaxMascot(e) { setSetting("parallaxMascot", e.target.checked); emit(); }
 function onParallaxUi(e) { setSetting("parallaxUi", e.target.checked); emit(); }
 function onParallaxBg(v, live) { commitLiveSetting("parallaxBg", v, live); }
-function onParallaxUiDepth(v, live) { commitLiveSetting("parallaxUiDepth", v, live); }
-// 四个区域倍率（用户口径 m01915-①）：与总倍率同形，各自一个具名处理器。
-// **单位口径**（用户口径 m02410-②：设置面板里所有缓动都以百分比呈现）：这四行是唯一
-// "面板说百分比、存档说倍率"的一组 —— 与「暗化」「边框」同一条链（面板 ×100，
-// 写设置时 ÷100，见本文件下面的 onScrim / onBorder）。面板那侧在 src/ext-parallax.js。
-function onParallaxUiChatDepth(v, live) { commitLiveSetting("parallaxUiChatDepth", v / 100, live); }
-function onParallaxUiComposerDepth(v, live) { commitLiveSetting("parallaxUiComposerDepth", v / 100, live); }
-function onParallaxUiSidebarDepth(v, live) { commitLiveSetting("parallaxUiSidebarDepth", v / 100, live); }
-function onParallaxUiBubbleDepth(v, live) { commitLiveSetting("parallaxUiBubbleDepth", v / 100, live); }
+// 四个区域距离（用户口径 m02697-①③）：每行都是**那一组自己的最大位移百分比**，0 = 该组不缓动。
+// 存档与面板从此同一个单位 —— 总倍率（parallaxUiDepth）已退役，×100 / ÷100 那层换算也随之删掉
+// （旧口径：面板百分比 ÷100 存成倍率、再乘在总倍率上）。
+function onParallaxUiChatDepth(v, live) { commitLiveSetting("parallaxUiChatDepth", v, live); }
+function onParallaxUiComposerDepth(v, live) { commitLiveSetting("parallaxUiComposerDepth", v, live); }
+function onParallaxUiSidebarDepth(v, live) { commitLiveSetting("parallaxUiSidebarDepth", v, live); }
+function onParallaxUiBubbleDepth(v, live) { commitLiveSetting("parallaxUiBubbleDepth", v, live); }
+// 别的插件注册的前端元素组（用户口径 m02697-②）：一行一个槽，值是那个槽的最大位移百分比。
+// 存档是一张 slot → 百分比 的表（lib/settings-schema.js 的 map 档，浅拷贝、不校验值），所以每次都
+// 整张克隆再改一个键 —— 就地改就等于把只读的选择对象当草稿纸，别的读者会看到半成品。
+// 0 也照存：0% = 该组不缓动，与"没这一行"（默认参与）是两件事。
+function onParallaxPluginDepth(slot, v, live) {
+  const src = selection && selection.parallaxPluginDepths;
+  const base = (src && typeof src === "object" && !Array.isArray(src)) ? src : {};
+  const next = Object.assign({}, base);
+  next[String(slot)] = v;
+  commitLiveSetting("parallaxPluginDepths", next, live);
+}
 function onParallaxSmooth(v, live) { commitLiveSetting("parallaxSmooth", v, live); }
 // ── 用户图片资产导入的共用腿（会话头像 / 吉祥物立绘）─────────────────────────
 // 两族走的是同一条链：选文件 → 解码 → 按上限缩一遍 → POST 到宿主 → 把返回的文件名记账。
@@ -4236,8 +4245,13 @@ const officialColorOf = (tokens) => {
     onFxEnabled, onFxClick, onFxClickStyle, onFxClickSize, onFxClickGlow,
     onFxTrail, onFxTrailStyle, onFxTrailLength, onFxTrailWidth, onFxTrailGlow,
     onFxOpacity, onFxBlend, onFxColorMode, onFxColor,
-    onParallaxEnabled, onParallaxBg, onParallaxMascot, onParallaxUi, onParallaxUiDepth, onParallaxSmooth,
+    onParallaxEnabled, onParallaxBg, onParallaxMascot, onParallaxUi, onParallaxSmooth,
     onParallaxUiChatDepth, onParallaxUiComposerDepth, onParallaxUiSidebarDepth, onParallaxUiBubbleDepth,
+    onParallaxPluginDepth,
+    // 认到的插件槽位（用户口径 m02697-②）：只给**槽键字符串**（画一行一个）。发现逻辑在
+    // src/parallax-layer.js（与层自己每帧扫的是同一份名单），这里只是转交；界面那一组关着
+    // 时层也不认它们，面板就跟着空 —— 名单与"真的会动"必须同源，否则会出现点了没反应的滑杆。
+    parallaxPluginSlots: sel.parallaxUi === true ? parallaxDiscoveredGroups().sort() : [],
     onAvatarEnabled, onAvatarSize, onAvatarRadius, onAvatarPick, onAvatarClear,
   });
   const renderActiveTab = () => {
