@@ -19,11 +19,14 @@ served through `/wallpaper-engine/scene-files/`. For web wallpapers the host inj
 strict sandbox the renderer page cannot reach into the wallpaper iframe, so the shim must ride along
 with the document.
 
-- **When live rendering is skipped**: the wallpaper switch is off, the wallpaper is in the **failure
+- **When live rendering is skipped**: the wallpaper switch is off, or the wallpaper is in the **failure
   memory** (first-frame timeout, or **no frames for a sustained run** at runtime — the heartbeat ticks
   once per second, auto-`resume()`s once at `LIVE_STALL_TICKS` ticks as a self-rescue, and only declares
-  `stall` at twice that), or the scene is a **loose `scene.json` directory**. It then falls back to the **out-figure
+  `stall` at twice that). It then falls back to the **out-figure
   chain** below (which is allowed to come up honestly empty).
+  ⚠️ **A loose `scene.json` directory is no longer a reason to skip live rendering** (since v1.3.0):
+  WebWallGL 2.1.0 supports the loose form natively — the site root is identical for both forms and the
+  renderer decides from `project.json`'s `file` suffix, so the host only has to answer "is this a scene".
   **The first-frame timeout is not a fixed wall clock**: the first
   frame **cannot exist before the whole package has arrived**, so the budget is computed from the
   **package size** by `liveFirstFrameBudget()` (`src/live-layer.js`) and carries a ceiling; and the host
