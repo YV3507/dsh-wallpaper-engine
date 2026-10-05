@@ -3365,10 +3365,12 @@ setTimeout(async () => {
   assert.ok(clientSrc.includes('ctx.effect(() => installSkinInterop()'),
     '互操作：观察器必须随 fiber 挂载（卸载即摘）');
   // 装入瞬间只认领现状、不当作动作：启动期 enter→清壁纸→设置合并复活→exit 的抖动会把用户的
-  // 壁纸选择抹掉（实测刷新闪烁的放大器）。判据钉死"认领"分支且 install 里不再有 enter。
-  assert.ok(/skinYielded = true;\s*\n\s*skinYieldMemory = \{ id: "", rotationEnabled/.test(clientSrc)
+  // 壁纸选择抹掉（实测刷新闪烁的放大器）。判据钉死"认领"分支且 install 里不再有 enter；
+  // 认领的记忆从**盘上落的那份**拿（enter 写的两枚键），没落过盘才退回空记忆。
+  assert.ok(/skinYielded = true;\s*\n\s*skinYieldMemory = \{\s*\n\s*id: rid,/.test(clientSrc)
+    && /rotationEnabled: rid \? selection\.skinYieldRestoreRotation === true : selection\.rotationEnabled === true/.test(clientSrc)
     && /reportClientDiag\("skin-yield", "adopt · install\/dom"\)/.test(clientSrc),
-    '互操作：install 腿必须只"认领"（id 为空且皮肤在台上），不新建退场');
+    '互操作：install 腿必须只"认领"（id 为空且皮肤在台上；记忆从盘上落的那份拿），不新建退场');
   const installBody = clientSrc.slice(clientSrc.indexOf('function installSkinInterop()'), clientSrc.indexOf('function installSkinInterop()') + 2200);
   assert.ok(!/enterSkinYield\(/.test(installBody) && /adopt · install\/dom/.test(installBody),
     '互操作：install 路径不许再调 enterSkinYield（启动不是用户动作）');
@@ -3428,6 +3430,17 @@ setTimeout(async () => {
     '退场：必须先按停轮播，否则空 id 会被 rotation 自动补位');
   assert.ok(clientSrc.includes('reportClientDiag("skin-yield"'),
     '退场 / 复位要留诊断行（skin-yield），否则现场无法回放是谁触发的');
+  // ⑤ 让路记忆**落盘**（跨重启）：enter 落（skinYieldRestoreId / skinYieldRestoreRotation）、
+  //    exit 消费即清、认领从盘上拿、启动复位按盘上放回（boot-restore 借 exit 的消费路径）。
+  assert.ok(/setSetting\("skinYieldRestoreId", skinYieldMemory\.id\);/.test(clientSrc)
+    && /setSetting\("skinYieldRestoreRotation", skinYieldMemory\.rotationEnabled\);/.test(clientSrc)
+    && /setSetting\("skinYieldRestoreId", ""\);/.test(clientSrc)
+    && /setSetting\("skinYieldRestoreRotation", false\);/.test(clientSrc)
+    && /exitSkinYield\("boot-restore"\)/.test(clientSrc),
+    '让路记忆要落盘（enter 落 / exit 清 / 认领与启动复位读盘），否则重启一次就丢');
+  const noClear = clientSrc.replace('setSetting("skinYieldRestoreId", "");', '/* 漏清 */');
+  assert.ok(!/setSetting\("skinYieldRestoreId", ""\);/.test(noClear),
+    'negative control: 复位漏清落盘记忆即判红');
   // 负对照（喂**同一个**判据）：三处退化都必须判出；轮询腿被加回来也必须判出。
   const stripped = effectsSrc.replace(/&& !skinYield/g, '');
   assert.ok(!/selection\.thinkingGlass && !skinYield/.test(stripped)
@@ -3440,9 +3453,9 @@ setTimeout(async () => {
   assert.ok(!/opts\.fromManual\s*&&\s*typeof skinYieldActive/.test(med),
     'negative control: 手动重选钩子改吃所有调用即判红');
   const noAdopt = clientSrc.replace(
-    /skinYielded = true;\s*\n\s*skinYieldMemory = \{ id: "", rotationEnabled: selection\.rotationEnabled === true \};/,
-    'enterSkinYield("install/dom");');
-  assert.ok(!/skinYielded = true;\s*\n\s*skinYieldMemory = \{ id: "", rotationEnabled/.test(noAdopt),
+    /skinYielded = true;\s*\n\s*skinYieldMemory = \{\s*\n\s*id: rid,/,
+    'enterSkinYield("install/dom"); /*');
+  assert.ok(!/skinYielded = true;\s*\n\s*skinYieldMemory = \{\s*\n\s*id: rid,/.test(noAdopt),
     'negative control: 认领分支退回 enter 即判红');
   const noStageGate = clientSrc.replace('if (!wallMarkerOn && (selection.id || !selection.loaded)) return;',
     '/* 去掉在台前提 */');

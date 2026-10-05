@@ -407,6 +407,11 @@ function enterSkinYield(reason) {
   if (skinYielded) return;
   skinYielded = true;
   skinYieldMemory = { id: String(selection.id || ""), rotationEnabled: selection.rotationEnabled === true };
+  // 记忆**落盘**（skinYieldRestoreId / skinYieldRestoreRotation，schema 两枚无界面键）：
+  // 让路态跨重启后模块记忆归零、盘上只剩"清空后的现状" —— 认领与启动复位要靠这两枚
+  // 键把退场前的选择拿回来，否则重启一次记忆就丢、之后退皮肤永远放不回来。
+  setSetting("skinYieldRestoreId", skinYieldMemory.id);
+  setSetting("skinYieldRestoreRotation", skinYieldMemory.rotationEnabled);
   if (selection.rotationEnabled) setSetting("rotationEnabled", false);
   applySelection("");        // 清层：url=null ⇒ syncLayers 摘层 / 遮罩 / data-we-wallpaper
   persistSelection();
@@ -424,6 +429,9 @@ function exitSkinYield(reason, opts) {
   skinYieldMemory = null;
   if (!skipRestore && !selection.id && mem.id) applySelection(mem.id);
   if (mem.rotationEnabled && selection.rotationEnabled !== true) setSetting("rotationEnabled", true);
+  // 落盘记忆已消费（放回，或被用户新选择取代）⇒ 清掉 —— 别留给下一次启动当陈旧依据。
+  setSetting("skinYieldRestoreId", "");
+  setSetting("skinYieldRestoreRotation", false);
   persistSelection();
   applyEffects();
   emit();
@@ -526,8 +534,11 @@ function installSkinInterop() {
   // 启动期的「认领」：只认领现状，不当作动作（这里曾经调 syncSkinYield("install")，会把
   // 对方的 tap 在文档里画的皮肤当成 #49 的"用户要求上台"）。认定条件：
   //   · 皮肤在台上（文档交付时 tap 已画）+ 我方**没有**选中的壁纸 ⇒ 本来就该在让路态
-  //     （玻璃退场）——认领，不写盘、不清层；
-  //   · 皮肤在台上 + 我方有选中的壁纸 ⇒ 壁纸赢（对方的 withhold 会处理皮肤），不动。
+  //     （玻璃退场）——认领，不清层；记忆从**盘上落的那份**拿（enter 写的
+  //     skinYieldRestoreId / skinYieldRestoreRotation），没落过盘才退回空记忆；
+  //   · 皮肤在台上 + 我方有选中的壁纸 ⇒ 壁纸赢（对方的 withhold 会处理皮肤），不动；
+  //   · 皮肤**已不在**台上 + 我方没有壁纸 + 盘上留着让路记忆 ⇒ 启动复位：按记忆放回
+  //     （应用关闭期间皮肤被移除 / 卸载的那条路 —— 没有它，记忆落了盘也无人消费）。
   // 旧写法在 install 里 enter 会清壁纸并落盘，随后启动期的设置合并又把它复活 ⇒「清 → 复活
   // → 退」的抖动，并把用户的壁纸选择抹掉（实测：刷新时闪一下的放大器，已修）。
   // ⚠️ 认领必须等**宿主设置到位**（`selection.loaded`）：本地缓存可能过期（本窗口缓存空、
@@ -538,10 +549,22 @@ function installSkinInterop() {
     adoptPending = false;
     try {
       if (document.documentElement.hasAttribute("data-dsh-skin") && !selection.id) {
+        const rid = String(selection.skinYieldRestoreId || "");
         skinYielded = true;
-        skinYieldMemory = { id: "", rotationEnabled: selection.rotationEnabled === true };
+        skinYieldMemory = {
+          id: rid,
+          rotationEnabled: rid ? selection.skinYieldRestoreRotation === true : selection.rotationEnabled === true,
+        };
         applyEffects(); // 认领即刻摘玻璃门控（首次 applyEffects 可能已经跑过）
         reportClientDiag("skin-yield", "adopt · install/dom");
+      } else if (!document.documentElement.hasAttribute("data-dsh-skin") && !selection.id
+        && String(selection.skinYieldRestoreId || "")) {
+        skinYielded = true;
+        skinYieldMemory = {
+          id: String(selection.skinYieldRestoreId || ""),
+          rotationEnabled: selection.skinYieldRestoreRotation === true,
+        };
+        exitSkinYield("boot-restore"); // 借 exit 的消费路径：放回 + 清落盘记忆 + 落盘 + 诊断行
       }
     } catch { /* 互操作是增强：任何异常都不波及壁纸主路径 */ }
   };
