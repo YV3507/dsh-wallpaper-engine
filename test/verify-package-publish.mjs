@@ -8,8 +8,7 @@
  *      闭包里的每个相对导入目标还必须**真实存在于磁盘** —— 指向不存在文件的 import 在仓库里是
  *      死路径、没人撞得上，装到用户机器上才炸成 `ERR_MODULE_NOT_FOUND`；
  *   ② **不该进的进了** ⇒ 体积与源码外泄：发布集里不得出现 src/scripts/test/docs 等开发目录；
- *      白名单恰有一条 `scripts/prepare.mjs`：`prepare` 在 git 直装、或把包装成根项目执行时真的会跑，
- *      它不随包 = 一跑就 `MODULE_NOT_FOUND`；
+ *      白名单**为空**（棘轮）：安装期一个仓库脚本都不跑（见 ⑦ 的 #141 不变量），开发面文件一律不随包；
  *   ③ **带了同步机器的东西** ⇒ 不可复现 + 隐私：发布文本里不得出现真实的用户目录路径
  *      （占位符 `<你的用户名>` / `xxx` / `%USERPROFILE%` 不算）；
  *   ④ **白下载的运行时依赖** ⇒ 声明了但**活代码从不加载**：`dependencies` 每一条都必须被
@@ -157,29 +156,26 @@ check('负对照：依赖判据在 Set 与数组两种形态下都成立（防 `
 // ── ② 不该进的进了 ──────────────────────────────────────────────────────────
 section('② 发布集里没有开发目录');
 const DEV = /^(src|scripts|test|docs|node_modules|\.test-cache|\.integration-notes|_refs|\.github|\.git)(\/|$)/;
-/** 恰有一条白名单：`scripts/prepare.mjs` 必须随包 —— `prepare` 在 git 直装、或把包装成
- *  根项目执行时真的会跑，不随包就是执行即 `MODULE_NOT_FOUND`。其余开发面文件一律算泄漏。
- *  正判据（两个 check）与负对照都走 `isDevLeak`。 */
-const SHIPPED_DEV_FILES = new Set(['scripts/prepare.mjs']);
+/** 白名单**为空**（棘轮，只许收紧）—— 安装期一个仓库脚本都不跑（#141：`prepare` 在 git 直装时
+ *  会被 pnpm 的 allowBuilds 闸拦下；构建已改挂 `prepack`，只在打包/发布时于发布者工作区跑），
+ *  所以发布集里**任何**开发面文件都算泄漏。正判据（两个 check）与负对照都走 `isDevLeak`。 */
+const SHIPPED_DEV_FILES = new Set();
 const isDevLeak = (p) => {
   const e = String(p).replace(/^\.\//, '');
   return DEV.test(e) && !SHIPPED_DEV_FILES.has(e);
 };
 const devEntries = files.filter((e) => isDevLeak(e));
-check('`files` 条目本身不指向开发目录（白名单只放行 `scripts/prepare.mjs`）', devEntries.length === 0,
+check('`files` 条目本身不指向开发目录（白名单为空）', devEntries.length === 0,
   devEntries.join(', ') || '无');
 // 展开后的实测清单（防"某条目其实是个通配符/根目录"）
 const published = walk(ROOT).filter(publishSet);
 const devLeak = published.filter((r) => isDevLeak(r));
-check('展开后的发布集里没有开发目录文件（白名单只放行 `scripts/prepare.mjs`）', devLeak.length === 0,
+check('展开后的发布集里没有开发目录文件（白名单为空）', devLeak.length === 0,
   devLeak.length ? devLeak.slice(0, 5).join(', ') + (devLeak.length > 5 ? ` … 共 ${devLeak.length}` : '') : published.length + ' 个文件');
-check('白名单是棘轮（只许这一条，且该文件确实在库）',
-  SHIPPED_DEV_FILES.size === 1 && SHIPPED_DEV_FILES.has('scripts/prepare.mjs')
-  && existsSync(join(ROOT, 'scripts', 'prepare.mjs')),
-  [...SHIPPED_DEV_FILES].join(', ') || '空');
-check('负对照：开发目录判据对 src/ 与 scripts/ 有牙、白名单外的 scripts/ 文件仍被判出',
-  isDevLeak('src/client.js') && isDevLeak('scripts/build-client.mjs') && !isDevLeak('lib/index.js')
-  && !isDevLeak('scripts/prepare.mjs'));
+check('白名单是棘轮（为空，不许回填）', SHIPPED_DEV_FILES.size === 0);
+check('负对照：开发目录判据对 src/ 与 scripts/ 有牙（含 prepare.mjs —— 它已不随包）',
+  isDevLeak('src/client.js') && isDevLeak('scripts/build-client.mjs')
+  && isDevLeak('scripts/prepare.mjs') && !isDevLeak('lib/index.js'));
 
 // ── ③ 同步机器路径（不可复现 + 隐私）────────────────────────────────────────
 section('③ 发布文本里没有真实的用户目录路径');
@@ -256,15 +252,19 @@ check('负对照：语法网对坏产物有牙', (() => {
   catch { return true; }
 })());
 
-// ── ⑦ 安装期脚本不得引用未随包发布的文件（否则每个用户"装完就炸"）──────────────
+// ── ⑦ 安装期不得跑任何仓库脚本（引用未随包文件 = 每个用户"装完就炸"；有构建钩子 = 装不上）──
 // npm 为**依赖**运行 `preinstall` / `install` / `postinstall`；`prepare` 另有两个真的会跑的
 // 时刻 —— git 直装（pnpm/npm 先装它的依赖再跑 prepare），以及把包装成**根项目**执行
-// （解包后 `pnpm install` / 仓库里的 `npm install`）。所以 `prepare` 不算开发期脚本：
-// 它引用的文件必须随包（② 的白名单就是为此开的），而 `prepublishOnly` / `build` /
-// `verify` / `smoke` 只在仓库里跑，引用 `src/` `test/` 是允许的。
-section('⑦ 安装期脚本不得引用未随包发布的文件');
+// （解包后 `pnpm install` / 仓库里的 `npm install`）。**#141 起这四类一律不许出现**：
+// pnpm 11 对 git 依赖的构建脚本有 allowBuilds 安全闸，插件市场默认走 `git+https://…` 直装
+// ⇒ 带 `prepare` 的包被 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` 稳定拒装（复现：本机
+// `dsh plugin --profile <p> add git+https://…`，见 docs/CHANGELOG 的 #141 条目）。
+// 构建改挂 `prepack`（只在打包/发布时、在发布者工作区里跑，引用 `src/`/`scripts/` 合法），
+// 装出来的包直接用随包发布的 `lib/client.js`。`prepublishOnly` / `build` / `verify` / `smoke`
+// 同样只在仓库里跑，引用开发面文件是允许的。
+section('⑦ 安装期不得跑任何仓库脚本（无构建钩子 + 不引用未随包文件）');
 {
-  const INSTALL_HOOKS = ['preinstall', 'install', 'postinstall'];
+  const INSTALL_HOOKS = ['preinstall', 'install', 'postinstall', 'prepare'];
   const DEV_ONLY = ['prepublishOnly', 'prepack', 'postpack', 'prepublish',
     'build', 'verify', 'verify:docs', 'verify:all', 'verify:bridge', 'verify:e2e', 'smoke'];
   const unshippedRefs = (cmd) => [...String(cmd)
@@ -282,9 +282,12 @@ section('⑦ 安装期脚本不得引用未随包发布的文件');
   // 安装期钩子是**用户侧**会跑的：谁把它塞进 DEV_ONLY（为了让上面那条闭嘴）就等于放行"装完就炸"
   check('负对照：安装期钩子不得被 DEV_ONLY 放行',
     INSTALL_HOOKS.every((h) => !DEV_ONLY.includes(h)), INSTALL_HOOKS.join(' '));
-  // `prepare` 同理：它被塞进 DEV_ONLY 就等于放行"git 直装 / 根项目安装时引用一个没随包的文件"
-  check('`prepare` 不在 DEV_ONLY 里（它真的会跑，引用的文件必须随包）',
-    !DEV_ONLY.includes('prepare'));
+  // #141 不变量：这四类钩子在 package.json 里一个都不许有（有 ⇒ git 直装被 pnpm 的安全闸拒）。
+  const bannedHooks = INSTALL_HOOKS.filter((h) => h in (pkg.scripts || {}));
+  check('无安装期构建钩子（prepare / preinstall / install / postinstall）—— git 直装不得要求 allowBuilds（issue #141）',
+    bannedHooks.length === 0, bannedHooks.join(', ') || '无');
+  check('构建挂在 prepack 上（发布前在发布者工作区跑；装出来的包直接用 lib/client.js）',
+    pkg.scripts && pkg.scripts.prepack === 'node scripts/prepare.mjs', String(pkg.scripts && pkg.scripts.prepack));
 }
 
 console.log('');

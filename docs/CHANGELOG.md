@@ -18,6 +18,12 @@
 
 > v1.2.0 之后的增量（本地未发布，逐提交可查）：
 
+- **修复：插件市场 git 直装失败（issue #141）—— 构建钩子 `prepare` 撞上 pnpm 11 的 git 依赖构建闸，改挂 `prepack`**。
+  **现象与复现**：市场默认走 `dsh plugin --profile web add git+https://github.com/elysia395/dsh-wallpaper-engine.git`，pnpm 11 报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`（"needs to execute build scripts but is not in the allowBuilds allowlist"）⇒ 装不上（报障环境 Windows + DSH 0.1.7-rc.2）。本机隔离 profile 一条命令稳定复现；对照验证 npm 渠道（`dsh plugin … add dsh-plugin-wallpaper-engine`）不受影响。
+  **根因**：git 直装会把源码拉下来并跑包的 `prepare`（= 我们的客户端构建），而 pnpm 11 对 **git 依赖的构建脚本**有 `allowBuilds` 安全闸（默认拒跑）⇒ 直接拒装。旧设计（`scripts/prepare.mjs` 随包、文档写明"安装期会跑"）正是与这道安全闸正面相撞的形态。
+  **修法**：构建从 `prepare` 改挂 `prepack`（只在 `npm pack` / `npm publish` 时、在发布者工作区里跑）——安装期**一个脚本都不跑**；装出来的包直接用随包发布的 `lib/client.js`（由 CI 的 build 幂等 + `verify-client-sync` 看着）。`scripts/prepare.mjs` 不再随包（开发面文件零随包），三份 README / CONTRIBUTING / CODE-STRUCTURE 里"包里带什么""安装期脚本"的表述同步。**给仍被拦用户的立即绕法**（已实测有效）：按 CLI 提示把 pnpm 打印的 allowBuilds 键写进 profile 的 `pnpm-workspace.yaml` 再重跑；或改走 npm 渠道。
+  **判据**：`test/verify-package-publish.mjs` ⑦ 换成新不变量 —— **不许出现 `prepare`/`preinstall`/`install`/`postinstall` 四类安装期钩子**，且构建必须挂在 `prepack` 上；② 的随包白名单收成**空**（棘轮，只许收紧），负对照同步（`prepare.mjs` 现在被判为开发面泄漏）。三份 README 的"随包清单"与 `npm pack --dry-run` 实测一致。
+
 - **修复：Edge 里视频壁纸切换"无反应"（旧壁纸永远留在屏上）—— 切层闸门的镜像画布分支从不读画笔留痕**（用户报障；复现＝Edge 打开 web 实例后点任意视频壁纸：`layer-hold` 之后永无 `layer-reveal`）。
   **做了什么**：`layerContentReady` 的视频分支在「Edge 镜像画布」这一档原先写死"有画布 ⇒ `return false`"（本意是"等 `weDrawFrame` 画上第一笔再放行"，随 7a1e60b 的切层闸门一起出生），而画笔的留痕 `canvas.dataset.weDrawn = "1"`（`weDrawFrame` 里已写、并回调 `noteLayerContent(canvas)`）**从来没被读** —— 首笔落下时回调的 `recheck()` 又撞回同一条判据，放行条件永远不成立；`VIDEO_STALL_GIVE_UP_MS`（15s）到点后按"绝不露空层底色"的口径停在旧壁纸上，观感就是"切换无反应"。现在该分支读留痕：`if (mirror) return !!(mirror.dataset && mirror.dataset.weDrawn === "1");`。
   **为什么现在才炸**：该分支只在 **UA 含 `Edg/`** 的浏览器里成立（Edge 档的视频层才带镜像 canvas；桌面端/其它浏览器走原生 `<video>` 档、闸门判 `readyState`，一直是通的）。用户日常跑桌面端不触发；改用 Edge 开 web 实例后必现 —— 与"现在切换无反应"的时点吻合。

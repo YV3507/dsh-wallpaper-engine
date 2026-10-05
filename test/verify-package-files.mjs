@@ -263,9 +263,11 @@ async function main() {
   {
     // 链路外围必须钉住：四个脚本键都在，且**每个键下被引用到的脚本数**不低于实测下限 ——
     // 键被改名 / 条目被删掉时扫描集不能"静默缩小后照旧通过"（空集里没有裸依赖，也就没有
-    // offender，主判据会恒真）。下限取自本轮实测值（build 1 / verify 24 / smoke 5 / prepare 1）：
+    // offender，主判据会恒真）。下限取自本轮实测值（build 1 / verify 24 / smoke 5 / prepack 1）：
     // 新增脚本不受限制，删或改名即判红。
-    const CHAIN_FLOOR = { build: 1, verify: 24, smoke: 5, prepare: 1 };
+    // ⚠️ 打包/发布那一格是 **prepack**（不是 prepare）：#141 起安装期不许有构建钩子
+    //（pnpm 的 allowBuilds 闸会拒掉 git 直装），构建只挂在 prepack 上 —— 见 verify-package-publish ⑦。
+    const CHAIN_FLOOR = { build: 1, verify: 24, smoke: 5, prepack: 1 };
     const chainNames = Object.keys(CHAIN_FLOOR);
     const missingKeys = chainNames.filter((n) => {
       const cmd = (pkg.scripts || {})[n];
@@ -289,7 +291,7 @@ async function main() {
       chainNames.map((n) => n + '=' + refsByKey[n].length + '/' + CHAIN_FLOOR[n]).join(' ')
         + ' · unique scripts=' + scripts.length
         + ' · missing keys=[' + missingKeys.join(', ') + '] below floor=[' + shortKeys.join(', ') + ']');
-    check('P5 build/verify/smoke/prepare chain has NO bare-package import (CI installs nothing)',
+    check('P5 build/verify/smoke/prepack chain has NO bare-package import (CI installs nothing)',
       scripts.length > 0 && offenders.length === 0,
       scripts.length + ' script(s) referenced; offenders=[' + offenders.join(', ') + ']');
     check('P5 negative control: the detector catches a bare import and ignores builtins/relative',
