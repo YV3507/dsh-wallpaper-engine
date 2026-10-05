@@ -4709,20 +4709,32 @@ function RopeDock() {
 }
 
 // ── One-time "what's new" notice ─────────────────────────────────────────────
-// This round: v0.7.2 extends the liquid-glass adaptation to the NATIVE right
-// sidebar that harness 0.1.5 introduced (better-sidebar 0.19 registers its
-// tabs into it) and fixes the right column turning fully transparent there —
-// the native panel paints var(--dsw-alias-bg-base), the exact token WE makes
-// transparent while a wallpaper is active, and it had no frost of its own.
-// The notice also carries the prerequisite statement (final v1.2.0 wording):
-// the DSH kernel must be ≥ 0.1.5 (0.1.5-rc.1+, the tested floor — both the
-// official desktop line and DSH Desktop ≥ 2.0.7 qualify), and dsh-better-sidebar
-// is no longer version-restricted. The
-// dismissal version is stored WITH the settings (host file, port-independent)
-// so it survives DSH Desktop's random --port restarts and never re-shows
-// after being closed. Bump NOTICE_VERSION next release to announce something
-// new again.
-const NOTICE_VERSION = "1.2.0";
+// This round (v1.3.0) carries the version's four user-facing stories:
+//   ① the plugin now coexists with the web-all plugin (skins from web-all or
+//      our dynamic wallpaper — the glass family yields while a skin is on
+//      stage and restores from memory afterwards, across restarts),
+//   ② every glass surface got an「独立配置」switch + glass「预设方案」presets
+//      (factory 7 + user-saved, applying overwrites wholesale, factory ones
+//      are gone forever once deleted), and glass no longer requires a
+//      wallpaper to be set,
+//   ③ the mascot art can be replaced with an imported image (96×192 fit,
+//      re-import overwrites, Clear restores the built-ins),
+//   ④ the Extensions tab gained session avatars (left/right chat layout,
+//      importable images for both sides, default off).
+// The notice art (GitHub star plea, shipped as lib/about/update-notice.jpg and
+// served by the /about-qr whitelist route — same family as the contact QRs,
+// NOT inlined: see src/about-assets.js) sits at the top with a caption
+// pointing at 设置 → 壁纸引擎 → 关于. The dismissal version is stored WITH the
+// settings (host file, port-independent) so it survives DSH Desktop's random
+// --port restarts and never re-shows after being closed. Bump NOTICE_VERSION
+// next release to announce something new again (swap the art bytes in
+// lib/about/, the path stays put — ETag revalidation picks it up).
+const NOTICE_VERSION = "1.3.0";
+
+// ❗ 的字体强制：U+2757 在正文字体栈里落到细杆字形（实测渲染成细红竖线，用户口径
+// 是"红色感叹号"）—— 单包一层 span 强制走 Segoe UI Emoji，出来的才是胖红感叹号。
+const noticeEx = (n) => React.createElement("span",
+  { style: { fontFamily: '"Segoe UI Emoji", "Noto Color Emoji", sans-serif' } }, "❗".repeat(n) + " ");
 
 function UpdateNotice() {
   useWeLocale(); // 更新说明是长文案，语言切换后要跟着换（同一棵 RopeDock 子树）
@@ -4740,51 +4752,57 @@ function UpdateNotice() {
   };
   if (!show) return null;
   return React.createElement("div", { className: "we-update-notice", role: "alert" },
-    React.createElement("div", { className: "we-update-notice__title" }, weT("🎉 v1.2.0 更新：全新侧栏 UI —— 壁纸调节嵌入官方侧边栏")),
+    React.createElement("div", { className: "we-update-notice__title" }, weT("🎉 v1.3.0 更新：玻璃全面自定义 · 自定义吉祥物与会话头像")),
+    React.createElement("img", { className: "we-update-notice__art", src: apiUrl(NOTICE_ART_PATH), alt: weT("求个 star 喵！—— GitHub 求星插画") }),
+    React.createElement("div", { className: "we-update-notice__art-cap" },
+      React.createElement("strong", null, weT("在设置中的壁纸引擎页面中的关于中可一键直达，谢谢喵！"))),
     React.createElement("div", { className: "we-update-notice__body" },
       React.createElement("p", null,
-        weT("自 1.1.0 以来的全部更新：")),
+        weT("自 1.2.0 以来的全部更新：")),
       React.createElement("p", null,
-        "⚠️ ", React.createElement("strong", null, weT("先说重要的：前置条件口径")),
-        weT("：本版要求"),
-        React.createElement("strong", null, weT("DSH 内核 ≥ 0.1.5（0.1.5-rc.1+，实测下限）")),
-        weT("——官方桌面端与 DSH Desktop ≥ 2.0.7 都满足；"),
-        React.createElement("strong", null, weT("dsh-better-sidebar 不再有版本要求")),
-        weT("（装了的话建议更新到最新）。")),
+        "① ", noticeEx(3), React.createElement("strong", null, weT("与 web-all 插件共存")),
+        weT("：本插件与 web-all 插件可以共存了——用 web-all 里下载的皮肤，或用本插件的动态壁纸，随你选，双方互不影响：启用皮肤时，壁纸与玻璃效果自动让路；卸下皮肤后，自动恢复你之前的壁纸与轮播设置（重启也不丢；期间手动换过壁纸也不会被抢回来）。")),
       React.createElement("p", null,
-        "① ", React.createElement("strong", null, weT("全新 UI：壁纸调节嵌入官方侧边栏")),
-        weT("：壁纸调节的额外窗口没有了——侧栏内三档页签（壁纸 / 外观 / 播放）+ 新增「壁纸属性」入口，与设置页"),
-        React.createElement("strong", null, weT("共用同一批渲染器和同一份状态")),
-        weT("，调什么两边即时一致；底栏入口随当前页签深链到设置页对应位置。")),
+        "② ", React.createElement("strong", null, weT("所有 UI 的玻璃效果均可自定义")),
+        weT("：每个玻璃面（对话栏气泡 / 输入框 / 工具弹卡、左侧栏、右栏面板、设置窗口、悬浮层、思考触发条……）都有"),
+        React.createElement("strong", null, weT("「独立配置」开关")),
+        weT("——打开后用自己那套模糊 / 透明度 / 颜色，关闭则跟随全局。"),
+        noticeEx(3), React.createElement("strong", null, weT("不知道怎么调？直接用「预设方案」")),
+        weT("：出厂"),
+        React.createElement("strong", null, weT("七套")),
+        weT("风格一键套用，也可以把自己的配置存成预设（最多 8 套）。注意：应用预设会"),
+        React.createElement("strong", null, weT("整套覆盖")),
+        weT("当前玻璃配置（无撤销）；出厂预设"),
+        React.createElement("strong", null, weT("删除后无法恢复")),
+        weT("。另外修了一个老问题："),
+        React.createElement("strong", null, weT("不设置壁纸也能调玻璃了")),
+        weT("（此前玻璃参数在不设壁纸时全是死旋钮）。")),
       React.createElement("p", null,
-        "② ", React.createElement("strong", null, weT("玻璃 UI 颜色可自定义")),
-        weT("：玻璃界面颜色随心调；新增"),
-        React.createElement("strong", null, weT("「左侧栏液态玻璃」开关（默认关）")),
-        weT("——打开后宿主原生左栏也套上同一套玻璃效果。所有玻璃配色经亮度钳制，正文对比度始终 ≥ 4.5:1。")),
+        "③ ", noticeEx(3), React.createElement("strong", null, weT("吉祥物可自定义立绘")),
+        weT("：设置页「系统」页签 →「吉祥物形态」一排新增第三张卡"),
+        React.createElement("strong", null, weT("「导入图片…」")),
+        weT("，导入后主页面吉祥物换成你的立绘；"),
+        React.createElement("strong", null, weT("再导入即覆盖")),
+        weT("，点「清除」恢复内置形态。图片按 96×192 自动等比适配，太小的图不会强行放大。")),
       React.createElement("p", null,
-        "③ ", React.createElement("strong", null, weT("渲染内核更新")),
-        weT("：同步上游 WebWallGL 2.0.2 最新提交（引擎作者 oneincase）——修复音频检测识别不到专辑封面的问题；壁纸切换动画更加丝滑。")),
+        "④ ", noticeEx(3), React.createElement("strong", null, weT("「扩展」页签新增：自定义会话头像（默认关闭）")),
+        weT("：开启后消息变为好友聊天式"),
+        React.createElement("strong", null, weT("左右分列")),
+        weT("——你的消息靠右、AI 的靠左，双方各带头像；可分别导入你与 AI 的自定义图片（默认头像是内置图标，导入即替换），默认"),
+        React.createElement("strong", null, weT("圆形")),
+        weT("，大小与圆角均可调。"), noticeEx(1),
+        React.createElement("strong", null, weT("导入失败提示「宿主里没有头像路由」时，重启 DSH 后再试")),
+        weT("（刷新页面不够）。")),
       React.createElement("p", null,
-        "④ ", React.createElement("strong", null, weT("修复一批")),
-        weT("：「壁纸引擎设置」入口点了没反应（宿主入口改名）、启动时停在静态垫底图、英文界面下宿主报错露中文、侧栏列表滚不动、拖色板 / 滑块发涩等。")),
+        "⑤ ", React.createElement("strong", null, weT("修复一批")),
+        weT("：松散目录形态的场景壁纸恢复实时渲染（渲染器侧支持来自 WebWallGL 2.1.0，引擎作者 oneincase）；壁纸库"),
+        React.createElement("strong", null, weT("全量加载不再分页")),
+        weT("，列表卡顿也治了；「吉祥物大小」滑块不再把设置页里的形态卡片一起缩放；玻璃配置刻度统一（存量设置自动换算，观感不变）。")),
       React.createElement("p", null,
         React.createElement("strong", null, weT("💡 使用提示："))),
       React.createElement("p", null,
-        "❗❗❗ ", React.createElement("strong", null, weT("记得看看 设置 → 壁纸引擎 → 关于")),
-        weT("：仓库、交流群、致谢都在那里。")),
-      React.createElement("p", null,
-        weT("官方 DSH 桌面端的窗口顶部有一条很宽的上边框——吉祥物不要缩得太小，缩得太小会导致点击无效。")),
-      React.createElement("p", null,
-        React.createElement("strong", null, weT("❗❗❗ 看不清字？按这个顺序调，立竿见影："))),
-      React.createElement("p", null,
-        "❗❗❗ ", React.createElement("strong", null, weT("第一步：先把系统设置切换到深色模式")),
-        weT("——深色模式自带白色文字，在绝大多数壁纸上立刻清楚一截。")),
-      React.createElement("p", null,
-        "❗❗ ", React.createElement("strong", null, weT("第二步：调低壁纸「透明度」、加「暗化」")),
-        weT("——效果最直接，几秒钟见效。")),
-      React.createElement("p", null,
-        weT("第三步："), React.createElement("strong", null, weT("用「字体自定义」系统细调")),
-        weT("——按角色调字号 / 字重 / 字体族，可存成预设随时切换。")),
+        noticeEx(3), React.createElement("strong", null, weT("升级后建议重启一次 DSH")),
+        weT("——玻璃配置管线有迁移，重启后才完整生效。")),
       React.createElement("p", { className: "we-update-notice__hint" },
         weT("本提示每个新版本只出现一次，点下方按钮关闭后不再弹出。")),
     ),

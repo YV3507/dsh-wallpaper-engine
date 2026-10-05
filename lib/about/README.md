@@ -1,6 +1,6 @@
-# 联系方式二维码（随包发布的运行时资源）
+# 联系方式二维码 + 公告配图（随包发布的运行时资源）
 
-「关于」页签里那两张二维码的**运行时字节**。与本目录并列的 `lib/fontsets/`（随包预设）、
+「关于」页签里那两张二维码与「更新公告」配图的**运行时字节**。与本目录并列的 `lib/fontsets/`（随包预设）、
 `lib/webwallgl/`（随包渲染页）同一口径：**随包发布、由插件自己的路由提供**。
 
 - 提供方：`lib/routes/about-qr.js`（`GET/HEAD <BASE>/about-qr/<文件名>`，白名单 + ETag/304）。
@@ -19,6 +19,10 @@
 |---|---|---|
 | `qq-group.png` | QQ 群「DSHWE \| LLM 讨论群」二维码（520×517） | `assets/about/qq-group-dshwe-llm-702x852.png` |
 | `douyin-group.png` | 抖音群「dsh 交流群」（群号 252729465001）二维码（520×520） | `assets/about/douyin-group-dsh-1044x1026.png` |
+| `update-notice.jpg` | v1.3.0 更新公告配图「求个 star 喵！」GitHub 求星插画（720×720） | `assets/about/update-notice-star-1254x1254.png` |
 
 派生口径（只取码区 + 缩到 520px 宽 + 128 色调色板）与验证方式（逐像素比对 + macOS Vision 扫码）
 见 [`assets/about/README.md`](../../assets/about/README.md) —— 那里是**怎么生成**，这里是**发布什么**。
+公告配图另有自己的口径（原图 1254² 缩到 720px、JPEG q88），客户端路径常量 `NOTICE_ART_PATH`
+（`src/about-assets.js`）与路由白名单逐字对账（`verify-about` 盯着）—— 下个版本换公告图时替换
+本文件字节即可，路径与客户端产物都不动。

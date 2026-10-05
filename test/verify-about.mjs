@@ -255,7 +255,7 @@ async function seedCache(count) {
 check('TTL 常量在合理区间（几分钟量级，不是"永不刷新"也不是"每次刷新"）',
   STAR_TTL_MS >= 60 * 1000 && STAR_TTL_MS <= 60 * 60 * 1000, STAR_TTL_MS + 'ms');
 
-// ══ ③ 二维码：随包 PNG + 白名单路由 ═══════════════════════════════════════════
+// ══ ③ 随包图：二维码 PNG + 公告配图 JPEG + 白名单路由 ══════════════════════════
 console.log('\n③ /about-qr 路由行为（白名单 / 304 / 405 / 404）');
 
 const { registerAboutQrRoutes } = await import(pathToFileURL(join(ROOT, 'lib', 'routes', 'about-qr.js')).href);
@@ -279,7 +279,8 @@ function mountQr() {
       if (!existsSync(abs)) { res.statusCode = 404; res.setHeader('Cache-Control', 'no-store'); res.end('not found'); return; }
       const st = statSync(abs);
       const etag = 'W/"' + st.size.toString(16) + '-' + Math.floor(st.mtimeMs).toString(16) + '"';
-      res.setHeader('Content-Type', 'image/png');
+      // 真 serveFile 按**扩展名**给 mime（lib/index.js 的 mimeFor）——替身同口径。
+      res.setHeader('Content-Type', abs.endsWith('.jpg') ? 'image/jpeg' : 'image/png');
       res.setHeader('ETag', etag);
       if (opts && opts.revalidate && String(req.headers['if-none-match'] || '') === etag) {
         res.statusCode = 304; res.end(); return;
@@ -304,10 +305,11 @@ async function runQr(route, pathname, method, headers) {
 {
   const m = mountQr();
   check('路由注册为 prefix + 正确路径', m.route.kind === 'prefix' && m.route.path === '/wallpaper-engine/about-qr');
-  for (const [name, file] of [['qq-group.png', 'qq-group.png'], ['douyin-group.png', 'douyin-group.png']]) {
+  for (const [name, file] of [['qq-group.png', 'qq-group.png'], ['douyin-group.png', 'douyin-group.png'], ['update-notice.jpg', 'update-notice.jpg']]) {
     const st = await runQr(m.route, '/wallpaper-engine/about-qr/' + name);
-    check('白名单命中：' + name + ' 出字节 + image/png',
-      st.status === 200 && st.headers['Content-Type'] === 'image/png' && st.body.length > 1000,
+    const mime = name.endsWith('.jpg') ? 'image/jpeg' : 'image/png';
+    check('白名单命中：' + name + ' 出字节 + ' + mime,
+      st.status === 200 && st.headers['Content-Type'] === mime && st.body.length > 1000,
       'status=' + st.status + ' bytes=' + st.body.length);
     const bytes = readFileSync(join(ABOUT_DIR, file));
     check('出的是**磁盘上那份**字节（不是别处拼的）',
@@ -352,11 +354,11 @@ async function runQr(route, pathname, method, headers) {
   // 打包：lib/about/ 必须随包（checkout 里永远正常，只有发布包会缺）
   check('package.json 的 files 覆盖 lib/about/（否则发布包里没有图）',
     pkgFiles.some((f) => String(f).replace(/\/$/, '') === 'lib/about'));
-  check('lib/about/ 里的每个 PNG 都在路由白名单里（打包了却取不到 = 图白送）',
-    readdirSync(ABOUT_DIR).filter((f) => f.endsWith('.png'))
+  check('lib/about/ 里的每张随包图（PNG/JPEG）都在路由白名单里（打包了却取不到 = 图白送）',
+    readdirSync(ABOUT_DIR).filter((f) => f.endsWith('.png') || f.endsWith('.jpg'))
       .every((f) => aboutSrc.includes("'" + f + "'")));
   check('路由白名单里的每个名字都在磁盘上（白名单不许空转）',
-    ['qq-group.png', 'douyin-group.png'].every((f) => existsSync(join(ABOUT_DIR, f))));
+    ['qq-group.png', 'douyin-group.png', 'update-notice.jpg'].every((f) => existsSync(join(ABOUT_DIR, f))));
   check('negative control: 白名单判据对合成输入有牙',
     !['qq-group.png'].includes('qq-group.png.bak') && ['qq-group.png'].includes('qq-group.png'));
   // **形态判据**（分隔符那条腿只能在 Windows 上真跑出来，故这里认源码形态）：

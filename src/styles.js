@@ -2388,6 +2388,11 @@ body[data-we-glass-floaters] .we-update-notice {
   .we-update-notice__body p { margin: 0 0 6px; }
   .we-update-notice__hint { font-size: 0.78em; opacity: 0.6; }
   .we-update-notice__btn { align-self: flex-end; }
+  /* 公告配图（v1.3.0 起）：随包 JPEG，/about-qr 路由直出。方图不能全宽吃满 600px 面板
+     （正文 ⑤ 条目加起来已经很高，小窗口会顶出视口）——限高 38vh、宽度跟随、居中。
+     发丝边 + 投影让它贴着玻璃面板的既有语言，而不是一块浮贴的截图。 */
+  .we-update-notice__art { display: block; margin: 0 auto; width: auto; max-width: 100%; max-height: 38vh; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.22); box-shadow: 0 10px 26px rgba(0, 0, 0, 0.28); }
+  .we-update-notice__art-cap { font-weight: 600; font-size: 0.85em; text-align: center; }
   @media (prefers-reduced-motion: reduce) { .we-update-notice { animation: none !important; } }
 
   /* Glass library side drawer — docked right, 360px (capped at 92vw), full
