@@ -3170,15 +3170,13 @@ async function downscaleImageFile(file, maxEdge) {
   const g = canvas.getContext("2d");
   if (!g) throw new Error("no canvas");
   g.drawImage(src, 0, 0, tw, th);
-  const srcW = w;
-  const srcH = h;
   if (src.close) { try { src.close(); } catch { /* ignore */ } }
   const toBlob = (type, quality) => new Promise((resolve) => {
     try { canvas.toBlob((b) => resolve(b), type, quality); } catch { resolve(null); }
   });
   const webp = await toBlob("image/webp", 0.92);
   const blob = (webp && webp.type === "image/webp") ? webp : (await toBlob("image/png")) || file;
-  return { blob, width: srcW, height: srcH };
+  return { blob, width: tw, height: th };
 }
 /**
  * 用户资产路由的失败文案。
