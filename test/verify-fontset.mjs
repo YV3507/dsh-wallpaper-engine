@@ -921,6 +921,54 @@ section('⑦ 客户端通道（静态契约：字体值不再经 settings 出去
   check('通道：绝不碰 settings 那条路由（两条通道不交叉）',
     !/\/settings/.test(strip(storeSrc)));
 
+  // 7g. **半对丢弃防线**（2026-10-06 用户反馈"重启后保存的自定义颜色没了"的根因之一）：
+  //     深浅分开只填一边 ⇒ {light:'',dark:'#x'} 半对。半对过不了任何一层消毒
+  //     （readThemeColors / buildTokenPayload 都是"缺一套整角色丢弃"）⇒ 颜色落不了盘、
+  //     也不生效，面板却显示着已选 —— 重启后"没了"。修法 = onThemeColor 在 separate
+  //     分支把空的那一侧补齐（官方色优先、取不到退回同色），pair 永远完整。
+  {
+    const onThemeColorBody = (clientCode.match(/const onThemeColor = \(role, mode, hex, separate\) => \{[\s\S]*?\n\};/) || [''])[0];
+    check('onThemeColor 的 separate 分支把空的另一侧补齐（半对进不了消毒黑洞）',
+      onThemeColorBody.includes('const other = mode === "light" ? "dark" : "light";')
+      && /next\[other\] = \(tokens && officialColorOf\(tokens\)\) \|\| hex;/.test(onThemeColorBody),
+      onThemeColorBody.includes('officialColorOf') ? '已补齐' : '缺补齐分支');
+    check('负对照：补齐分支只挂在 separate 下（不分开的两态同色路径不受影响）',
+      Boolean(onThemeColorBody) && onThemeColorBody.indexOf('if (separate) {') < onThemeColorBody.indexOf('const other =')
+      && /else \{ next\.light = hex; next\.dark = hex; \}/.test(onThemeColorBody));
+    check('行为级：半对确实会被消毒整角色丢弃（这条判据是上面补齐分支存在的理由）',
+      (() => {
+        const half = schema.sanitizeFontset({ themeColors: { primary: { dark: '#112233' } } }).themeColors;
+        const full = schema.sanitizeFontset({ themeColors: { primary: { light: '#112233', dark: '#112233' } } }).themeColors;
+        return !('primary' in half) && ('primary' in full);
+      })());
+  }
+
+  // 7h. **回滚防线**（同一反馈的另一根因）：缓存带跨重启的脏标记 —— 上次落盘失败
+  //     （宿主没重挂 / 退出太快 / 任何非 2xx）时，重启后的加载不得拿宿主旧值把
+  //     "用户屏幕上最后的所见"静默回滚：宿主值 ≠ 脏缓存 ⇒ 采纳缓存并立即补推。
+  {
+    check('缓存形状带 dirty（writeFontSetCache 三参；readCachedFontSet 返回 dirty）',
+      /function writeFontSetCache\(id, values, dirty\)/.test(storeSrc)
+      && /dirty: doc\.dirty === true/.test(storeSrc));
+    check('写缓存即标脏、PUT 成功转净（两个方向的写入点都在）',
+      /writeFontSetCache\(activeFontSetId \|\| FONTSET_MIGRATED_ID, pickFontValues\(\), true\)/.test(storeSrc)
+      && /writeFontSetCache\(id, values, false\)/.test(storeSrc));
+    check('loadFontSet 有回滚防线：脏缓存 ≠ 宿主值 ⇒ 采纳缓存 + 立即补推',
+      /const cachedNewer = Boolean\(cached && cached\.dirty && cached\.id === id/.test(storeSrc)
+      && /Object\.assign\(selection, cached\.values\)/.test(storeSrc)
+      && /activeFontSetValues = canonicalFontValues\(cached\.values\);/.test(storeSrc)
+      && /scheduleFontSet\(\); \/\/ 补推/.test(storeSrc));
+    check('负对照：合成"没有脏标记判定"的加载体会被同一判据判出',
+      (() => {
+        const bad = storeSrc.replace(/const cachedNewer = Boolean\(cached && cached\.dirty && cached\.id === id[\s\S]*?scheduleFontSet\(\); \/\/ 补推/, 'Object.assign(selection, values)');
+        return /const cachedNewer = Boolean\(cached && cached\.dirty && cached\.id === id/.test(bad) === false
+          || !/scheduleFontSet\(\); \/\/ 补推/.test(bad);
+      })());
+    check('负对照 2：缓存不脏（正常关停）时必须走宿主为准的原路径（行为逐字节不变）',
+      /cached\.dirty && cached\.id === id/.test(storeSrc)
+      && !/Object\.assign\(selection, cached\.values\);[^{}]*writeFontSetCache\(id, values\)/.test(storeSrc));
+  }
+
   // 7f. 失败文案：**裸状态码 = 请求没到本族**（**实测**形态：前端是新的、宿主是旧的时，
   // 请求落到 SPA 兜底 —— GET 裸 404 / 非 GET 裸 405、都没有信封）。
   // 两条约定缺一不可：① 请求一律 `parse:'always'`（否则读不到宿主的 `{ error }`）；

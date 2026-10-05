@@ -516,7 +516,7 @@
             // 2026-10-05 口径（ADR-0008 D4 恢复）：侧栏「外观」只画**简化配置** ⇒ 全局四件套、
             // 预设方案与各面**总开关**真放行；**独立配置层与思考块门下的细调行**（胶囊雾化 /
             // 胶囊颜色、侧栏 / 内容面的独立参数）一律进上面的 setting-only 占位器。
-            onCaretColor, onSidebarFollowGlobal, onThinkingGlass,
+            onCaretColor, onSidebarFollowGlobal, onThinkingMode,
           }))
           : qpTab === "playback"
             ? React.createElement(React.Fragment, null,

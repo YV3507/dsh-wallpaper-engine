@@ -328,7 +328,13 @@ function applyEffects(opts) {
   // 让路态（皮肤中心互操作，见 src/client.js）：玻璃整族退场 —— 这里与下面 sidebar-follow
   // 是 applyGlass 之外仅剩的两处玻璃门控点，一并摘。
   const skinYield = typeof skinYieldActive === "function" && skinYieldActive();
-  if (selection.thinkingGlass && !skinYield) document.body.setAttribute("data-we-thinking-glass", "on");
+  // 三挡的第二半：正文原生挡（thinkingNative）。它**赢过**玻璃挡 —— 开着时不挂
+  // data-we-thinking-glass（互斥在门控层保证，UI 的三挡分段只是维持两键一致）。
+  // 原生挡的 CSS 语义见 styles.js「正文原生挡」块：正文子树（气泡 / markdown 家族）
+  // 令牌退回宿主原生值，画布与输入框不碰。
+  if (selection.thinkingNative && !skinYield) document.body.setAttribute("data-we-thinking-native", "on");
+  else document.body.removeAttribute("data-we-thinking-native");
+  if (selection.thinkingGlass && !selection.thinkingNative && !skinYield) document.body.setAttribute("data-we-thinking-glass", "on");
   else document.body.removeAttribute("data-we-thinking-glass");
   // 文字胶囊一族的雾化（行内代码 / 新会话 / 「加载更早历史」「回到底部」）：
   // #134 落地时是写死的 8px CSS 兜底（--we-inline-code-blur 无生产者 ⇒ 用户实测"调不了"），
@@ -458,7 +464,9 @@ function clearEffects() {
   document.body.removeAttribute("data-we-left-sidebar");
   // 思考块液态玻璃门（PR #130 引入）：同批的卸载残留口径 —— 漏撤 ⇒ 插件卸载后
   // 宿主思考条的规则组照旧生效。合并 #132 时补上（第 ⑨ 组清理对称判据的要求）。
+  // 三挡的另一半（对话区原生挡）同批：漏撤 ⇒ 卸载后对话区令牌仍被钉回原生值。
   document.body.removeAttribute("data-we-thinking-glass");
+  document.body.removeAttribute("data-we-thinking-native");
   // ⚠️ W5 新增的三个门控属性**也必须在这里撤掉**（与上面两个同批）：
   //    漏掉它们 ⇒ 插件被禁用 / HMR 卸载后，宿主 DOM 上仍留着 `data-we-glass-chat` /
   //    `data-we-glass-floaters`，而挂在这些属性上的规则组**照旧生效** ——

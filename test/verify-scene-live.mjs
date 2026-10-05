@@ -2304,7 +2304,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     // QP_CTX_SETTINGS_ONLY 占位器（本名单只收**真的会**在侧栏档渲染的那些名字，
     // 裸标识符 ⇒ 不进名单就要么进占位器名单、要么在 vm 求值当场 ReferenceError）。
     'onCaretColor', 'onSidebarAlpha', 'onSidebarBlur', 'onSidebarColor',
-    'onSidebarContentAlpha', 'onSidebarContentColor', 'onSidebarFollowGlobal', 'onThinkingGlass',
+    'onSidebarContentAlpha', 'onSidebarContentColor', 'onSidebarFollowGlobal', 'onThinkingMode',
     'onCapsuleBlur', 'onCapsuleColor',
     // 「玻璃 UI」节的**子项「独立配置」**及其参数处理器。⚠️ 2026-10-05（ADR-0008 D4）后它们
     // 只在设置页画 —— 但它们仍是**渲染器源码里的裸标识符**（glass-panel.js 里 `= ctx` 解构出来的
@@ -3799,7 +3799,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       'onPauseOnBattery', 'onPauseOnBlur', 'onPauseOnHidden', 'onToggleLiveDiag', 'sel'],
     renderAppearanceTab: ['setSetting', 'officialColorOf', 'onAccent', 'onBlur', 'onBorder',
       'onCaretColor', 'onChatGlassFidelity', 'onComponentFamily', 'onComponentFont', 'onFontAdvanced', 'onFontResetAll',
-      'onGlassAlpha', 'onGlassColor', 'onGlassFidelity', 'onThinkingGlass', 'onLeftSidebarGlass', 'onSidebarAlpha',
+      'onGlassAlpha', 'onGlassColor', 'onGlassFidelity', 'onThinkingMode', 'onLeftSidebarGlass', 'onSidebarAlpha',
       'onSidebarBlur', 'onSidebarColor', 'onSidebarContentAlpha', 'onSidebarContentColor',
       'onSidebarGlass', 'onThemeColor', 'onThemeColorClear', 'onThemeDarkSeparate', 'onThemeFamily',
       'onThemeSize', 'onThemeTypeOnly', 'onThemeWeight', 'onToggleFontCustom', 'onToggleThemeFollow',

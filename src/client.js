@@ -3008,7 +3008,14 @@ function onCancelEditWeAssetsDir() {
 
 // ── 外观 / 播放 / 系统页签的处理器（同上一条：渲染器只读值 + 调这些）────────────
 function onLeftSidebarGlass(e) { setSetting("leftSidebarGlass", e.target.checked); emit(); }
-function onThinkingGlass(e) { setSetting("thinkingGlass", e.target.checked); emit(); }
+// 「思考块液态玻璃」三挡分段（关 / 液态玻璃 / 原生）：一次写两键 —— 原生挡赢过玻璃挡的
+// 互斥由 effects.js 的门控属性保证（thinkingNative ⇒ 不挂 data-we-thinking-glass），
+// 这里让存储两键与所选拍始终一致（不留给手改 config 4 种组合里的矛盾态）。
+function onThinkingMode(mode) {
+  setSetting("thinkingGlass", mode === "glass");
+  setSetting("thinkingNative", mode === "native");
+  emit();
+}
 // 胶囊雾化（行内代码 / 新会话 / 导航按钮）：与 thinkingGlass 同族 —— 消费它的规则
 // 全部挂在 data-we-thinking-glass 门下，所以滑杆也只在该开关打开时渲染（glass-panel）。
 const onCapsuleBlur = (px, live) =>
@@ -3841,6 +3848,18 @@ const onThemeColor = (role, mode, hex, separate) => {
   const next = { light: cur.light || "", dark: cur.dark || "" };
   if (separate) next[mode] = hex;
   else { next.light = hex; next.dark = hex; }
+  // ⚠️ 深浅分开只填一边 ⇒ 另一侧留空 = **半对**。半对过不了任何一层消毒
+  //（readThemeColors / buildTokenPayload 都是"缺一套整角色丢弃"）⇒ 颜色**落不了盘、
+  // 也不会生效**，面板却显示着已选 —— 用户重启后看到的就是"保存的颜色没了"（实测反馈）。
+  // 补齐规则：另一侧 = 当前官方色（主题服务不可达时退回同色，与"没分开时两态同色"
+  // 的既有语义一致）—— pair 永远完整，不落消毒黑洞。
+  if (separate) {
+    const other = mode === "light" ? "dark" : "light";
+    if (!next[other]) {
+      const tokens = (THEME_COLOR_ROLES.find((r) => r.id === role) || {}).tokens;
+      next[other] = (tokens && officialColorOf(tokens)) || hex;
+    }
+  }
   setFontValues({ themeColors: Object.assign({}, selection.themeColors, { [role]: next }) }); applyEffects(); emit();
 };
 const onThemeColorClear = (role) => {
@@ -4236,8 +4255,9 @@ const officialColorOf = (tokens) => {
       setSetting, setTransient,
       fontSet: fontSetCtx(),
       glassPresets: glassPresetCtx(),
-      officialColorOf, onAccent, onCapsuleBlur, onCapsuleColor, onBlur, onBorder, onCaretColor, onChatGlassFidelity, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onGlassFidelity, onGlobalFamily, onLeftSidebarGlass, onRefreshSystemFonts, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarFollowGlobal, onSidebarGlass, onSidebarFullClear, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onThinkingGlass, onToggleFontCustom, onToggleThemeFollow, sel,
-      officialColorOf, onAccent, onCapsuleBlur, onCapsuleColor, onBlur, onBorder, onCaretColor, onChatGlassFidelity, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onGlassFidelity, onLeftSidebarGlass, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarGlass, onSidebarFullClear, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onThinkingGlass, onToggleFontCustom, onToggleThemeFollow, sel,
+      // ⚠️ 2026-10-06 审计：这里原本把同一条属性清单**重复写了两遍**（上一会话的编辑
+      //    事故 —— 同名字面量键静默去重所以无行为差异），已合并为一行。
+      officialColorOf, onAccent, onCapsuleBlur, onCapsuleColor, onBlur, onBorder, onCaretColor, onChatGlassFidelity, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onGlassFidelity, onGlobalFamily, onLeftSidebarGlass, onRefreshSystemFonts, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarFollowGlobal, onSidebarGlass, onSidebarFullClear, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onThinkingMode, onToggleFontCustom, onToggleThemeFollow, sel,
       // 玻璃 UI 子项开关 + 独立配置 + 独立参数（见 onToggleChildIndependent 那段注释）
       onToggleChildIndependent, onGlassChildParam, childIndependentOn,
     });

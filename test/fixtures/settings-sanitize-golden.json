@@ -168,6 +168,7 @@
         "chatGlassFidelity": 100,
         "leftSidebarGlass": false,
         "thinkingGlass": false,
+        "thinkingNative": false,
         "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
@@ -785,6 +786,7 @@
         "chatGlassFidelity": 100,
         "leftSidebarGlass": false,
         "thinkingGlass": false,
+        "thinkingNative": false,
         "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
@@ -1072,6 +1074,7 @@
         "chatGlassFidelity": 100,
         "leftSidebarGlass": false,
         "thinkingGlass": false,
+        "thinkingNative": false,
         "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
@@ -1404,6 +1407,7 @@
         "chatGlassFidelity": 100,
         "leftSidebarGlass": false,
         "thinkingGlass": false,
+        "thinkingNative": false,
         "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
@@ -1635,6 +1639,7 @@
         "chatGlassFidelity": 100,
         "leftSidebarGlass": false,
         "thinkingGlass": false,
+        "thinkingNative": false,
         "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
@@ -1880,6 +1885,7 @@
         "chatGlassFidelity": 100,
         "leftSidebarGlass": false,
         "thinkingGlass": false,
+        "thinkingNative": false,
         "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
@@ -2125,6 +2131,7 @@
         "chatGlassFidelity": 100,
         "leftSidebarGlass": false,
         "thinkingGlass": false,
+        "thinkingNative": false,
         "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
@@ -2357,6 +2364,7 @@
         "chatGlassFidelity": 100,
         "leftSidebarGlass": false,
         "thinkingGlass": false,
+        "thinkingNative": false,
         "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
@@ -2594,6 +2602,7 @@
         "chatGlassFidelity": 100,
         "leftSidebarGlass": false,
         "thinkingGlass": false,
+        "thinkingNative": false,
         "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
@@ -2828,6 +2837,7 @@
         "chatGlassFidelity": 100,
         "leftSidebarGlass": false,
         "thinkingGlass": false,
+        "thinkingNative": false,
         "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
@@ -3069,6 +3079,7 @@
         "chatGlassFidelity": 100,
         "leftSidebarGlass": false,
         "thinkingGlass": false,
+        "thinkingNative": false,
         "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
@@ -3394,6 +3405,7 @@
         "chatGlassFidelity": 100,
         "leftSidebarGlass": false,
         "thinkingGlass": false,
+        "thinkingNative": false,
         "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
@@ -3628,6 +3640,7 @@
         "chatGlassFidelity": 100,
         "leftSidebarGlass": false,
         "thinkingGlass": false,
+        "thinkingNative": false,
         "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
@@ -3858,6 +3871,7 @@
         "chatGlassFidelity": 100,
         "leftSidebarGlass": false,
         "thinkingGlass": false,
+        "thinkingNative": false,
         "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
@@ -4089,6 +4103,7 @@
         "chatGlassFidelity": 100,
         "leftSidebarGlass": false,
         "thinkingGlass": false,
+        "thinkingNative": false,
         "settingsVersion": 5,
         "glassMode": {
           "sidebar": "inherit",
