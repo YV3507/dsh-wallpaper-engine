@@ -1397,11 +1397,15 @@ setTimeout(async () => {
           && tabsNow.includes('className: "we-picker__mascot-card" + (customArt ? " we-picker__mascot-card--active" : "")'),
           '自定义立绘生效时的四个形态（提示 / 卡片 active / 替换提示 / 内置卡禁用）必须在渲染器里逐条在位');
         // 显示盒的算法在导入处（96×192 等比适配、短边不小于 28），主页面与预览读同一份设置。
-        assert.ok(/MASCOT_BOX_MAX_W = 96, MASCOT_BOX_MAX_H = 192, MASCOT_BOX_MIN_SIDE = 28/.test(srcNow)
+        // 上限常量的真源在 schema（MASCOT_BOX_MAX_W/H，verify-contracts 的单源判据盯着）——
+        // 这里钉"client 不本地重声明 + 导入记账三件"。
+        assert.ok(!/const\s+MASCOT_BOX_MAX_W/.test(srcNow)
+          && /MASCOT_BOX_MAX_W \/ img\.width/.test(srcNow)
+          && /MASCOT_BOX_MIN_SIDE = 28/.test(srcNow)
           && /const box = Math\.max\(1, Math\.round\(img\.width \* k\)\) \+ "x" \+ Math\.max\(1, Math\.round\(img\.height \* k\)\);/.test(srcNow)
           && /setSetting\("mascotImage", posted\.name\);/.test(srcNow)
           && /setSetting\("mascotImageBox", box\);/.test(srcNow),
-          '立绘导入必须把文件名与显示盒一起记账（盒坏了 ropeArtOf 回落到内置形态）');
+          '立绘导入必须把文件名与显示盒一起记账（上限常量只从 schema 引用；盒坏了 ropeArtOf 回落到内置形态）');
       }
       if (ri2) ri2.props.onInput({ target: { value: '1' } });
       tree = renderPicker();

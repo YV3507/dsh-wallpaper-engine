@@ -161,6 +161,21 @@ const tabsSrc = read('src/panel-tabs.js');
     Boolean(hostMascot && hostMascot.length >= 3) && Boolean(mascotMatch),
     'host=' + (hostMascot || []).join(',') + ' client=' + clientFrame.map((l) => l.join(',')).join(' | '));
 
+  // 吉祥物**显示盒上限**的单源契约：`MASCOT_BOX_MAX_W/H` 只住在 lib/settings-schema.js
+  // （`mascotBox` 档用它限量级），客户端上传腿与 ropeArtOf 经构建期内联引用同一对 ——
+  // 谁要是本地重声明一份，sanitize 拦得住的值渲染层照样画出来 ⇒ 两处迟早漂。
+  const schemaSrc = read('lib/settings-schema.js');
+  const boxSingleSource = (schemaText, clientText) =>
+    [...schemaText.matchAll(/MASCOT_BOX_MAX_[WH]\s*=\s*(\d+)/g)].length === 2
+    && !/const\s+MASCOT_BOX_MAX_W\b/.test(clientText)
+    && /MASCOT_BOX_MAX_W/.test(clientText);
+  check('吉祥物显示盒上限：schema 是唯一真源（一对常量在 schema、client 只引用不重声明）',
+    boxSingleSource(schemaSrc, clientSrc));
+  check('negative control: client 本地重声明盒上限即判红',
+    !boxSingleSource(schemaSrc, clientSrc + '\nconst MASCOT_BOX_MAX_W = 999;'));
+  check('negative control: schema 丢了上限常量即判红',
+    !boxSingleSource(schemaSrc.replace(/MASCOT_BOX_MAX_H\s*=\s*192;/, ''), clientSrc));
+
   // 负对照：喂给同一个比较
   check('negative control: 上传 MIME 单边加一种类型会被判出',
     !sameSet(['image/jpeg', 'image/png', 'video/mp4', 'image/webp'], ['image/jpeg', 'image/png', 'video/mp4']));

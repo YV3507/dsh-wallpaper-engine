@@ -3259,7 +3259,10 @@ function onAvatarClear(side) {
 //   · 除文件名外还记一个**显示盒**（`<宽>x<高>`）：立绘按自己的宽高比适配 96×192 的框，
 //     结果存下来给主页面那只吉祥物用（拖动 / 贴边 / 视口钳位都读它）。
 // 立绘的尺寸直接改主页面那只（RopeDock 是 emit 的订阅者）⇒ 全部走完整路径。
-const MASCOT_BOX_MAX_W = 96, MASCOT_BOX_MAX_H = 192, MASCOT_BOX_MIN_SIDE = 28;
+// 盒的**设计上限**（MASCOT_BOX_MAX_W/H）真源在 lib/settings-schema.js —— `mascotBox`
+// 档限量级与上传腿的适配框同作用域引用这一对常量，两侧永不漂；短边下限是上传腿
+// 自己的口径（"太小的图标点不到"），schema 不知道它。
+const MASCOT_BOX_MIN_SIDE = 28;
 function onMascotPick() { pickImageFile((file) => uploadMascotFile(file)); }
 async function uploadMascotFile(file) {
   if (!file || !/^image\/(png|jpeg|webp)$/.test(String(file.type || ""))) {
@@ -4364,7 +4367,7 @@ const ROPE_FORMS = {
  * 主页面那只吉祥物**当前用的立绘**：自定义优先（`mascotImage` 非空且显示盒合法），
  * 否则用「吉祥物形态」选的内置立绘。返回 `{ img, w, h, custom }` ——
  * RopeDock 与设置页的预览**共用这一处解析**（两处各写一遍必然漂）。
- * ⚠️ 显示盒坏掉（空 / 不合法）时整条自定义都作废：宁可回到内置立绘，也不要拿
+ * ⚠️ 显示盒坏掉（空 / 不合法 / 超设计上限）时整条自定义都作废：宁可回到内置立绘，也不要拿
  * 一个猜出来的盒子去量一只吉祥物（拖动与视口钳位都读它）。
  */
 function ropeArtOf(selLike) {
@@ -4372,11 +4375,17 @@ function ropeArtOf(selLike) {
   const form = ROPE_FORMS[sel.ropeForm] || ROPE_FORMS.maid;
   const name = String(sel.mascotImage || "");
   const m = /^(\d{1,3})x(\d{1,3})$/.exec(String(sel.mascotImageBox || ""));
-  if (!name || !m) return { img: form.img, w: form.w, h: form.h, custom: false };
+  const bw = m ? Number(m[1]) : 0;
+  const bh = m ? Number(m[2]) : 0;
+  // 形状合法之外还要在**设计上限**内：PUT 的 sanitize（mascotBox 档）拦得住超盒值，
+  // 但拦不住直接手改 config.json —— `999x999` 按"盒坏"处理，回落内置，不按它渲染。
+  if (!name || !m || !(bw >= 1 && bw <= MASCOT_BOX_MAX_W && bh >= 1 && bh <= MASCOT_BOX_MAX_H)) {
+    return { img: form.img, w: form.w, h: form.h, custom: false };
+  }
   return {
     img: apiUrl("/mascot?v=" + encodeURIComponent(name)),
-    w: Math.max(1, Number(m[1])),
-    h: Math.max(1, Number(m[2])),
+    w: bw,
+    h: bh,
     custom: true,
   };
 }
