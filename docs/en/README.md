@@ -33,14 +33,14 @@ documentation**; mechanisms do not live here.
 | **Evergreen** — user docs / specifications / reference | the root of `docs/` | describes **current** behaviour or a long-term convention; it moves with versions, not with the end of a work item |
 | **Historical** — retired / finished | `docs/archive/` | exists purely as a record; it does **not** reflect the current implementation, and must carry a status banner at the top |
 
-**`docs/wip/` has been retired** (October 2026 slim-down): its bar was "describes **unfinished** work", and
-the only three documents still there (the refactor ledger / the closing audit / the sidebar-tabs design) had
-all finished ⇒ they moved **wholesale into `docs/archive/wip/`** per the table above.
-**From now on**: a process record may still live temporarily in `docs/wip/`, but **on completion it moves
-into the archive wholesale**, and **do not create "the single source of truth for progress" ledgers again** —
-anything that needs watching becomes a guard (see the writing discipline above and
-[`adr/0007`](../adr/0007-machine-checks-target-code-not-prose.md)); a ledger drifts by itself, and drifting
-never turns anything red.
+**`docs/wip/` stands, and is usually empty** (October 2026 slim-down: everything that was in it had finished, so
+the refactor ledger / the closing audit / the sidebar-tabs design moved **wholesale into `docs/archive/wip/`**
+per the table above). The directory is **kept**: a plan for work that has **not yet become a fact** may live
+there temporarily, and **on completion it moves into the archive wholesale**. What is in it at any moment is
+**not** recorded here — that listing would drift; enumerate the directory itself. Do **not** create "the single
+source of truth for progress" ledgers again — anything that needs watching becomes a guard (see the writing
+discipline above and [`adr/0007`](../adr/0007-machine-checks-target-code-not-prose.md)); a ledger drifts by
+itself, and drifting never turns anything red.
 
 ## Writing discipline (the shared floor for **comments / guards / documents**)
 
@@ -133,12 +133,13 @@ the header format, and **why not to write drifting numbers** (the same conventio
 | [0008](../adr/0008-glass-config-two-state.md) | Glass config collapses into **two states** (the whole "do we want glass?" layer is retired; one "independent configuration" per surface = `inherit` / `custom`) plus a **gating policy**: always-on attributes act as the CSS-side certificate, and the **simple vs advanced** split is decided by `ctx.surface` (D4) |
 | [0009](../adr/0009-system-fonts-from-the-os.md) | The installed-font list is **enumerated by the host asking the OS** (plus caching; the browser side is only a reader) rather than parsing font files in-process or enumerating from the browser; with no authoritative source it honestly reports `approximate` |
 
-## In progress (`wip/`) — retired
+## In progress (`wip/`)
 
-**Nothing lives here.** The three process records that used to be here had all finished, so they moved
-wholesale into [`archive/wip/`](../archive/wip/) per the lifecycle table above: the refactor ledger
-(`OPEN-ITEMS.md`), the closing audit (`POST-REFACTOR-AUDIT.md`) and the sidebar-tabs design
-(`SIDEBAR-TABS-DESIGN.md`). See *Finished audits…* below; the Chinese index
+**Usually empty; kept for plans that are not yet a fact.** The process records that used to be here had all
+finished, so they moved wholesale into [`archive/wip/`](../archive/wip/) per the lifecycle table above: the
+refactor ledger (`OPEN-ITEMS.md`), the closing audit (`POST-REFACTOR-AUDIT.md`) and the sidebar-tabs design
+(`SIDEBAR-TABS-DESIGN.md`). **What is in the directory right now is not listed here** (that listing would
+drift) — enumerate it. See *Finished audits…* below; the Chinese index
 ([`../README.md`](../README.md)) carries the full descriptions.
 
 ## Archived (`archive/`, a record only)
@@ -186,8 +187,8 @@ tail belongs to git history.)
 
 ## Other
 
-- Status / progress: **there is no living ledger** (October 2026 slim-down: `docs/wip/` retired, the
-  refactor ledger archived wholesale) — anything that needs watching is a guard (entry points:
+- Status / progress: **there is no living ledger** (October 2026 slim-down: the `docs/wip/` ledger archived
+  wholesale) — anything that needs watching is a guard (entry points:
   [`DEV-GUIDE.md`](../DEV-GUIDE.md) §4 and §writing discipline in this document); the historical
   assessments are `archive/REFACTOR-ASSESSMENT.md` and `archive/wip/OPEN-ITEMS.md` (**neither reflects the
   current implementation**).
