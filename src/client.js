@@ -1352,14 +1352,27 @@ function resumePendingRotation() {
   liveLog("rotation-resume-pending", "已恢复可见 → 立即补做被推迟的轮换 " + liveStateBrief());
   if (selection.rotationEnabled && selection.id) beginRotationPrepare(new Set());
 }
-try {
-  if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
-    document.addEventListener("visibilitychange", resumePendingRotation);
+// 监听器必须在 **fiber 作用域**里注册（接线见 `apply` 的 2e. 段）：宿主每次 revision 变化都会
+// tearDownEntryFiber 后用新模块体重跑本文件，模块顶层的 addEventListener 永不摘除 ⇒ 每换一次
+// 版本就在同一 document 里再叠一对，一次 visibilitychange/focus 被 N 份实例重复跑。
+function installRotationResumeListeners() {
+  const doc = typeof document === "undefined" ? null : document;
+  const win = typeof window === "undefined" ? null : window;
+  const bound = [];
+  if (doc && typeof doc.addEventListener === "function") {
+    doc.addEventListener("visibilitychange", resumePendingRotation);
+    bound.push(["visibilitychange", doc]);
   }
-  if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
-    window.addEventListener("focus", resumePendingRotation); // 兜底：事件缺失也不会把待命丢掉
+  if (win && typeof win.addEventListener === "function") {
+    win.addEventListener("focus", resumePendingRotation); // 兜底：事件缺失也不会把待命丢掉
+    bound.push(["focus", win]);
   }
-} catch { /* ignore */ }
+  return function () {
+    for (const [type, target] of bound.splice(0)) {
+      try { target.removeEventListener(type, resumePendingRotation); } catch { /* ignore */ }
+    }
+  };
+}
 
 // ── 媒体准备（预准备 / 构建 / 选中项落地）────────────────────────────────────
 // 这一族的实现已抽到 **src/media-prep.js**（642 行，跨三个不相邻区段：预准备与轮换预挂载、
@@ -5407,15 +5420,17 @@ function apply(ctx) {
     ctx.effect(() => installWallSidebarShortcut(ctx) || undefined);
   }
 
-  // 2e. live 层的模块级副作用搬进 fiber：诊断留痕（加载即留痕 / 窗口失焦·隐藏 / 60s 心跳）与
-  //     「重启恢复」档的交互即退出监听（pointerdown/keydown，once）。它们曾经写在
-  //     `src/live-layer.js` 的**模块顶层** —— 宿主每次 revision 变化都会 tearDownEntryFiber
-  //     后用新模块体重跑一遍，模块级副作用不挂 fiber ⇒ 旧实例的定时器与监听器永不释放
-  //     （实测同一 document 214 个页 id、一次 window blur 被 117 份实例各记一条）。搬到这里后
-  //     随 fiber 注销，与官方契约一致（原文与现场见 src/live-layer.js 的 installLiveDiagnostics）。
+  // 2e. 模块级副作用搬进 fiber（第一处：`src/live-layer.js`；第二处：本文件的轮换恢复监听）：
+  //     诊断留痕（加载即留痕 / 窗口失焦·隐藏 / 60s 心跳）与「重启恢复」档的交互即退出监听
+  //     （pointerdown/keydown，once），以及「隐藏期轮换推迟到可见时补做」的
+  //     visibilitychange/focus 两条监听。它们曾经写在**模块顶层** —— 宿主每次 revision 变化
+  //     都会 tearDownEntryFiber 后用新模块体重跑一遍，模块级副作用不挂 fiber ⇒ 旧实例的定时器
+  //     与监听器永不释放（实测同一 document 214 个页 id、一次 window blur 被 117 份实例各记一条）。
+  //     搬到这里后随 fiber 注销，与官方契约一致（原文与现场见 src/live-layer.js 的 installLiveDiagnostics）。
   if (ctx.effect && typeof document !== "undefined") {
     ctx.effect(() => installLiveDiagnostics() || undefined);
     ctx.effect(() => installLiveBootRestore() || undefined);
+    ctx.effect(() => installRotationResumeListeners() || undefined);
   }
 
   // 3b. 皮肤中心互操作（皮肤在台上 ⇒ 我方整族退场）：只读对方两条公开信号，

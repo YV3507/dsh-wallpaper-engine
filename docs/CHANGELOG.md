@@ -13,7 +13,7 @@
 > **归档说明**：本仓库从 **v0.6.8** 起才有 git tag，更早的版本没有独立标签。早于 v0.6.8 的条目
 > 按**原 README 原文的版本标注**归档；原文未标注小版本的条目放进区间桶，不臆造版本号。
 > 完整逐提交历史见 GitHub Commits / Releases；升级前置条件见 [`UPGRADING.md`](./UPGRADING.md)。
-> `test/verify-scene-live.mjs` 这一类判据条数**只记该条写作当时的实测总数**（如 466 / 465），不是现在的总数 —— 后续条目会往上加（现为 480）；照原文保留，好让它与当次提交对得上。
+> `test/verify-scene-live.mjs` 这一类判据条数**只记该条写作当时的实测总数**（如 466 / 465），不是现在的总数 —— 后续条目会往上加（现为 483）；照原文保留，好让它与当次提交对得上。
 
 ### v1.3.0-r2（未发布）
 
@@ -113,6 +113,11 @@
   ③ **语义零变化**：日志文案、60s 拍、`once` 语义、boot 留痕逐字保留，只把注册点从模块顶层挪进 fiber。
   **为什么**：官方插件契约原文（`dsh-agent-preset/skills/cordis-plugin-development/references/ui-plugin.md`）："Keep factories free of side effects. Register styles, timers, listeners and other resources inside `apply` with `ctx.effect`/`ctx.on` and return their cleanup functions."；这条泄漏与 composer 失焦的因果尚未确证，但它本身是一处确证的资源泄漏（每个实例多一对窗口监听 + 一个 60s 定时器，诊断每行还发一个像素请求）—— 至少是「越用越吵」的放大器，且直接违反宿主契约。
   **判据**：`test/verify-scene-live.mjs` ⇒ **`ALL SCENE-LIVE CHECKS PASSED (480)`**（476 → 480）—— 新增 `liveFlagChecks.topLevelText()`（**只挖函数体、不挖普通块**）与两条结构判据：`moduleScopeQuiet`（`src/live-layer.js` 的模块顶层不得出现 `addEventListener`/`setInterval`/`setTimeout` 调用）、`installersWired`（`src/client.js` 必须以两条 `ctx.effect(() => install…() || undefined)` 接入），各配一条负对照：合成的「历史形态」（模块顶层三段副作用）必须判红、装进函数的形态必须收；「裸调用安装器」与「只接一半」必须判红。⚠️ 判据第一版按花括号配平深度判「模块顶层」，而顶层 `try { setTimeout(…) } catch {}` 里的调用深度为 1 ⇒ **恒绿（漏判）**；必须先切出函数体再判。**有牙的独立证明（变异体，`.test-cache/mutate-diag.mjs`）**：A 把 60s 心跳搬回模块顶层 ⇒ 主判据与负对照同时判红（`moduleScopeCalls=1`）；B 把 `ctx.effect` 接线拆成裸调用 ⇒ 接线主判据与负对照判红（`src=false`）；还原后全绿。⚠️ 该脚本的还原一度按**子串**替换，而 `let liveDiagUninstall = null;` 恰好是变异行的前缀 ⇒ 还原把变异又写回文件（还写进了字面量 `{NL}`）；现在一律按**整行 trim 相等**操作并带 `status` 自检。`lib/client.js` 重建（与 `src/**` 同提交，`test/verify-client-sync.mjs` ⇒ `CLIENT SYNC CHECKS PASSED`）：bundle 里 `function installLiveDiagnostics()` 在 `lib/client.js:17628`、`function installLiveBootRestore()` 在 `:18785`、接线在 `:26009-26010`。全链 `build` / `verify` / `verify:docs` / `smoke` / `git diff --check` 全部 exit 0。**纯客户端改动 ⇒ 刷新页面即可**。
+
+- **修复（同类第二处）：「隐藏期轮换推迟到可见时补做」的两条监听也在模块顶层 —— 与上一条同型，一并搬进 `ctx.effect`，判据扩到整个 `src/**/*.js`**（同上：排查上游 issue「播放中 composer 每 0.9–3.6s 失焦、暂停即恢复」时顺出来的确证缺陷；**没有**改出厂开关、**没有**动量纲、**没有**升 `settingsVersion`）。
+  **做了什么**：① 原形态 `src/client.js:1355-1362` 在**模块顶层**的 `try{}catch{}` 里给 `document` 挂 `visibilitychange`、给 `window` 挂 `focus`（兜底，注释原文「事件缺失也不会把待命丢掉」），回调是 `resumePendingRotation()`；每次 revision 重载同样再叠一对、永不摘除。② 抽出 `installRotationResumeListeners()`：两条监听经内层 `bound` 记账，返回值即一次性注销器（逐条 `removeEventListener`）；`apply` 的 "2e." 段加第三条 `ctx.effect(() => installRotationResumeListeners() || undefined)`（该段注释同步写明两处现场）。③ 语义逐字不变：仍是同一个 `resumePendingRotation`、同样两条事件、同样的兜底说明。
+  **为什么**：上一条修完之后，对全 `src/**/*.js`（递归 38 个文件）的模块顶层普查（`.test-cache/scan-toplevel.mjs`）**只剩**这两处 `addEventListener` 还在模块顶层 —— 同型、同因、同后果：模块体每次重跑都多一对监听，一次 `visibilitychange`/`focus` 被 N 份实例各跑一遍（本次实测同一 document 已有 214 个页 id）。只修一处而不把判据铺到整棵树，同样的写法下一次还会长回来。
+  **判据**：`test/verify-scene-live.mjs` ⇒ **`ALL SCENE-LIVE CHECKS PASSED (483)`**（480 → 483）—— 新增主判据「`src/**/*.js` 任何模块顶层的 `addEventListener`/`setInterval`/`setTimeout` 都判红」（`liveFlagChecks.srcTreeOffenders()` 递归全树、返回违规文件清单，空数组才算过）；`installersWired` 从两条接线收紧到**三条**（漏 `installRotationResumeListeners` ⇒ 「隐藏过再回来」不再补做轮换）；负对照加两条：`src/client.js` 的历史形态（模块顶层那对监听）必须判红、只接两个安装器必须判红。**有牙的独立证明（变异体，`.test-cache/mutate-diag.mjs` 扩到 A/B/C/D）**：C 把这对监听搬回模块顶层、D 拆掉第三条接线；四条同时施加 ⇒ **7 条判据判红**（含全树主判据与两条新负对照，`treeOffenders=2`：`src/client.js` + 被 A 变异的 `src/live-layer.js`），`restore` 后 483 全绿、`git diff --check` exit 0。`lib/client.js` 重建（与 `src/**` 同提交，`test/verify-client-sync.mjs` ⇒ `CLIENT SYNC CHECKS PASSED`）。**纯客户端改动 ⇒ 刷新页面即可**。
 
 ### v1.3.0（2026-10-06）
 

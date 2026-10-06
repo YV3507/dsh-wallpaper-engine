@@ -969,6 +969,27 @@ const liveFlagChecks = (() => {
   const prepBody = () => balancedBody(prepSrc, 'applySelection');
   const tickBody = () => balancedBody(liveSrc, 'startLiveWatch');
   const syncBody = () => balancedBody(liveSrc, 'syncLayers');
+  // 模块顶层的"副作用调用"计数（只数这三个：它们是**加载即生效**的那一类；`createElement`
+  // 之类留在顶层也无害，且判据的正则放宽会踩到 `topLevelText` 对解构参数/表达式体箭头的
+  // 已知盲区，见文件内注释）。
+  const trioCalls = (text) => (topLevelText(text).match(/\b(?:addEventListener|setInterval|setTimeout)\s*\(/g) || []).length;
+  // 全 `src/**/*.js` 普查：本轮把同类第二处（`src/client.js` 的轮换恢复监听）也搬进 fiber 后，
+  // 判据覆盖整棵树 —— 任何模块顶层的定时器/监听器都判红，而不是只钉 live-layer 一个文件。
+  // 返回违规清单（空数组 = 干净），失败时能直接点名文件。
+  const srcTreeOffenders = () => {
+    const out = [];
+    const walk = (dir) => {
+      for (const ent of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, ent.name);
+        if (ent.isDirectory()) { walk(full); continue; }
+        if (!ent.name.endsWith('.js')) continue;
+        const n = trioCalls(readFileSync(full, 'utf8'));
+        if (n > 0) out.push(full.slice(root.length + 1).replace(/\\/g, '/') + '×' + n);
+      }
+    };
+    walk(join(root, 'src'));
+    return out;
+  };
   return {
     prepBody,
     tickBody,
@@ -1044,17 +1065,25 @@ const liveFlagChecks = (() => {
         .length === 0;
     },
     // 模块作用域静默（本轮修的契约违规；现场与原文见 `src/live-layer.js` 的
-    // `installLiveDiagnostics` 注释）：`addEventListener` / `setInterval` / `setTimeout`
-    // **不许出现在模块顶层** —— 宿主每次 revision 变化都会 `tearDownEntryFiber` 后用新模块体
-    // 重跑一遍，模块级副作用不挂 fiber ⇒ 旧实例的定时器/监听器永不释放（实测同一 document
-    // 214 个页 id、一次真实的 window blur 被 117 份实例各记一条）。它们必须住在随
-    // `ctx.effect` 注册/注销的安装器里。历史形态与"已搬进函数"的形态在负对照里各喂一遍。
-    moduleScopeQuiet: (body) => !/\b(?:addEventListener|setInterval|setTimeout)\s*\(/.test(topLevelText(body)),
+    // `installLiveDiagnostics` 与 `src/client.js` 的 `installRotationResumeListeners` 注释）：
+    // `addEventListener` / `setInterval` / `setTimeout` **不许出现在模块顶层** —— 宿主每次
+    // revision 变化都会 `tearDownEntryFiber` 后用新模块体重跑一遍，模块级副作用不挂 fiber ⇒
+    // 旧实例的定时器/监听器永不释放（实测同一 document 214 个页 id、一次真实的 window blur
+    // 被 117 份实例各记一条）。它们必须住在随 `ctx.effect` 注册/注销的安装器里。这条判据
+    // 既对单个源文件用（`moduleScopeQuiet`），也由 `srcTreeOffenders` 铺满 `src/**/*.js`：
+    // 现场是**两处同型泄漏**（live-layer 的诊断 + client.js 的轮换恢复监听），只钉一个文件
+    // 就会漏掉另一处。历史形态与"已搬进函数"的形态在负对照里各喂一遍（两处各喂）。
+    moduleScopeQuiet: (body) => trioCalls(body) === 0,
+    // 全树普查的结果（`src/**/*.js`），供主判据用。
+    srcTreeOffenders,
     // 安装器必须真的接进 `apply` 的 `ctx.effect`。否则"搬进函数"只是换个地方永不注销：
     // 没人调用它 ⇒ 连一条留痕都没有、`bootRestore` 也不再被交互翻假，那比模块级更糟。
-    // 只认这一种接线形态（一条 `ctx.effect` 一个安装器）。
+    // 只认这一种接线形态（一条 `ctx.effect` 一个安装器）；三个安装器缺一不可 ——
+    // 漏掉 `installRotationResumeListeners` 会让"隐藏期轮换推迟到可见时补做"永远不触发
+    // （隐藏过再回来就不轮换了），漏掉前两个会让诊断留痕与「重启恢复」整段失效。
     installersWired: (clientSrc) => /ctx\.effect\(\(\) => installLiveDiagnostics\(\) \|\| undefined\)/.test(clientSrc)
-      && /ctx\.effect\(\(\) => installLiveBootRestore\(\) \|\| undefined\)/.test(clientSrc),
+      && /ctx\.effect\(\(\) => installLiveBootRestore\(\) \|\| undefined\)/.test(clientSrc)
+      && /ctx\.effect\(\(\) => installRotationResumeListeners\(\) \|\| undefined\)/.test(clientSrc),
     topLevelText,
     installerBody: () => balancedBody(liveSrc, 'installLiveDiagnostics'),
   };
@@ -1189,7 +1218,12 @@ const clientChecks = [
     })()],
   ['the live-layer installers are wired into apply through ctx.effect',
     liveFlagChecks.installersWired(src),
-    (() => 'installers@client=' + (src.match(/installLiveDiagnostics|installLiveBootRestore/g) || []).length)()],
+    (() => 'installers@client=' + (src.match(/installLiveDiagnostics|installLiveBootRestore|installRotationResumeListeners/g) || []).length)()],
+  // 同类第二处（`src/client.js` 的轮换恢复监听）搬进 fiber 之后的**全树**判据：`src/**/*.js`
+  // 任何模块顶层的定时器/监听器都判红。这条把"只修一个文件"挡住 —— 现场正是两处同型泄漏。
+  ['no src module registers timers or listeners at module scope',
+    liveFlagChecks.srcTreeOffenders().length === 0,
+    (() => { const off = liveFlagChecks.srcTreeOffenders(); return 'offenders=' + (off.length ? off.join(' ') : 'none'); })()],
   // 垫底静态帧是 iframe 的**下层**：只要 iframe 半透明（壁纸透明度一高），它就会以
   // a(1−a) 的强度透出来（实测「壁纸透明度高时显现静态帧」）。首帧点亮后必须整块退场，
   // 且必须**串行**——延迟到 iframe 淡入（1.8s）完成后再快收。若退回与 iframe 同步
@@ -1361,6 +1395,37 @@ for (const [name, ok] of clientChecks) check(name, ok);
     'bare=' + liveFlagChecks.installersWired(bareInstall)
     + ' half=' + liveFlagChecks.installersWired(halfWired)
     + ' src=' + liveFlagChecks.installersWired(src));
+  // ⑦ 同类第二处的负对照：`src/client.js` 历史上那对**模块顶层**的轮换恢复监听（顶层
+  // `try { document.addEventListener("visibilitychange"…); window.addEventListener("focus"…) }`）
+  // 必须被判据拒；同一对监听搬进返回 disposer 的安装器后必须收。只把三个安装器接了两个
+  // （漏 `installRotationResumeListeners`）也必须被接线判据拒。
+  const clientModuleScopeOld = 'let rotationPendingHidden = false;\n'
+    + 'function resumePendingRotation() { rotationPendingHidden = false; }\n'
+    + 'try {\n'
+    + '  document.addEventListener("visibilitychange", resumePendingRotation);\n'
+    + '  window.addEventListener("focus", resumePendingRotation);\n'
+    + '} catch { /* ignore */ }\n'
+    + 'function installRotationResumeListeners() {\n'
+    + '  document.addEventListener("visibilitychange", resumePendingRotation);\n'
+    + '  return function () { document.removeEventListener("visibilitychange", resumePendingRotation); };\n'
+    + '}\n';
+  check('negative control: the rotation-resume listeners are rejected at module scope too',
+    liveFlagChecks.moduleScopeQuiet(clientModuleScopeOld) === false
+    && liveFlagChecks.moduleScopeQuiet(src) === true
+    && liveFlagChecks.srcTreeOffenders().length === 0,
+    'clientOld=' + liveFlagChecks.moduleScopeQuiet(clientModuleScopeOld)
+    + ' clientNow=' + liveFlagChecks.moduleScopeQuiet(src)
+    + ' treeOffenders=' + liveFlagChecks.srcTreeOffenders().length
+    + ' topLevelCalls=' + ((liveFlagChecks.topLevelText(clientModuleScopeOld)
+      .match(/(?:addEventListener|setInterval|setTimeout)\s*\(/g) || []).length));
+  const rotationUnwired = 'ctx.effect(() => installLiveDiagnostics() || undefined);\n'
+    + 'ctx.effect(() => installLiveBootRestore() || undefined);\n';
+  check('negative control: wiring two of the three installers is rejected',
+    liveFlagChecks.installersWired(rotationUnwired) === false
+    && liveFlagChecks.installersWired(src) === true,
+    'two=' + liveFlagChecks.installersWired(rotationUnwired)
+    + ' src=' + liveFlagChecks.installersWired(src)
+    + ' rotationWires=' + (src.match(/ctx\.effect\(\(\) => installRotationResumeListeners\(\) \|\| undefined\)/g) || []).length);
 }
 // ── Level D3: 首帧看护的"按进展判超时" + 载荷延迟/暂停 + 失败分因 ──
 // 现场：320MB/94MB 的 `scene.pkg` 在**三个客户端实例**同时挂载时
