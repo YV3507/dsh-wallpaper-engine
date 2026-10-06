@@ -646,6 +646,13 @@ let mediaEntry = '';   // C4 复用：C3 里从 inventory 拿到的那条入口 
       htmlRes.__state.status === 200 && /text\/html/.test(h(htmlRes, 'Content-Type'))
         && html.indexOf('data-we-shim="host"') !== -1,
       'status=' + htmlRes.__state.status + ' shim=' + (html.indexOf('data-we-shim') !== -1));
+    // 帧级夺焦围栏：与 shim 同门控（就注在这一处），但**必须早于 seed** —— 晚于作者脚本就等于没装。
+    // 这里打的是真响应体：证明 `weFocusGuardInstall.toString()` 取到的源码经 esc() 后原样到达页面。
+    check('HTML entry carries the frame-focus guard (before the seed)',
+      html.indexOf('data-we-focus-guard="host"') !== -1 && html.indexOf('__weFocusGuard') !== -1
+        && html.indexOf('data-we-focus-guard') < html.indexOf('data-we-seed'),
+      'guard=' + (html.indexOf('data-we-focus-guard') !== -1)
+        + ' 顺序=' + html.indexOf('data-we-focus-guard') + '<' + html.indexOf('data-we-seed'));
     // 属性 seed：严格沙箱下渲染页读不到 iframe（无法运行时补推 __weApplyProps），
     // 属性只能由宿主随 HTML 注入 —— 漏掉它依赖属性的壁纸会画成默认（实测黑屏）。
     check('HTML entry carries the property seed from project.json',
@@ -692,9 +699,11 @@ console.log('Level C4 — 壁纸媒体源（真实 loopback 监听）');
       // 不透明源（严格沙箱 iframe）真实发出的请求就长这样：Origin: null。
       const opaque = await fetch(base + entryPath, { headers: { Origin: 'null' }, cache: 'no-store' });
       const opaqueHtml = await opaque.text();
-      check('Origin: null 下入口 HTML 200 + shim/seed 注入 + CORS *',
+      check('Origin: null 下入口 HTML 200 + shim/seed/焦点围栏注入 + CORS *',
         opaque.status === 200 && opaque.headers.get('access-control-allow-origin') === '*'
           && opaqueHtml.indexOf('data-we-shim="host"') !== -1
+          && opaqueHtml.indexOf('data-we-focus-guard="host"') !== -1
+          && opaqueHtml.indexOf('__weFocusGuard') !== -1
           && opaqueHtml.indexOf('data-we-seed="host"') !== -1,
         'status=' + opaque.status + ' acao=' + opaque.headers.get('access-control-allow-origin'));
       // 载荷改成可重验证缓存之后，入口 HTML 必须**仍然** no-store：它带注入的
@@ -1892,6 +1901,89 @@ const sanitizeHost = (raw0) => schemaMod.sanitizeFromSchema(raw0, 'host');
 const hostKeeps = (k, v) => JSON.stringify(sanitizeHost({ [k]: v })[k]) === JSON.stringify(v);
 check('host settings whitelist keeps sceneLiveFailures', hostKeeps('sceneLiveFailures', { w1: 'timeout' }));
 check('host injects the vendored shim into web HTML', /data-we-shim="host"/.test(hostSrc) && /readWebShim\(\)/.test(hostSrc));
+// ── 网页壁纸的**帧级夺焦围栏**（lib/we-focus-guard.js）────────────────────────────
+// 现象：播某些网页类壁纸时，DSH 的输入框 / 下拉选择框 / 左下角账号菜单每点一次就丢焦点 ——
+// 与点击位置无关、与组件类型有关（只有"必须持有键盘焦点才正常"的控件看得出来）。
+// 机制：宿主 window 捕获相把每次真实 mousedown 注入渲染页（src/live-layer.js:1178-1238，且只在
+// `selection.sceneLiveActive` 时发 ⇒ 暂停即停）→ 严格沙箱下经 web-shim 的 op 通道 → shim 用
+// elementFromPoint + dispatchEvent 在壁纸文档里合成 pointer/mouse（isTrusted === false）→ 作者在
+// 捕获相 mousedown 里调 window.focus() 争键盘 ⇒ DSH 的焦点被搬进壁纸帧。
+// 围栏吞掉**帧级** window.focus() 并留计数；元素级 focus 放行（壁纸自己的编辑框照常工作）。
+// 这里钉三件机器可判的事：① 注入体真的能拦（在假 realm 里跑**真源码**）；② 宿主真的把它注进
+// web HTML，且顺序在 shim 与 seed 之间；③ 注入体不含会被 `</script` 截断或被当模块执行的形态。
+const guardPath = join(root, 'lib', 'we-focus-guard.js');
+const guardSrc = readFileSync(guardPath, 'utf8');
+const guardMod = await import(pathToFileURL(guardPath).href);
+const guardSource = guardMod.weFocusGuardSource();
+/** 在只有 `window` 的假 realm 里执行注入体的真源码，返回那个假 window（注入体必须自足）。 */
+const runGuard = (stub) => { new Function('window', guardSource)(stub); return stub; };
+{
+  // ① 赋值腿装上 ⇒ 帧级 focus 被吞、原函数不被调用、计数如实累加。
+  const rawHits = [];
+  const win1 = { focus: function () { rawHits.push('raw'); } };
+  const returned = runGuard(win1);
+  const g1 = win1.__weFocusGuard;
+  const patched1 = win1.focus;
+  win1.focus();
+  check('focus guard blocks frame-level window.focus()',
+    returned === win1 && g1 !== undefined && g1.installed === true
+      && g1.calls === 1 && g1.blocked === 1 && g1.allowed === 0 && rawHits.length === 0
+      && typeof patched1 === 'function',
+    'calls=' + (g1 && g1.calls) + ' blocked=' + (g1 && g1.blocked) + ' raw=' + rawHits.length);
+  // ② 幂等：重复注入不换 guard 对象、不重复计数（同一文档只装一次）。
+  runGuard(win1);
+  win1.focus();
+  check('focus guard install is idempotent',
+    win1.__weFocusGuard === g1 && g1.calls === 2 && g1.blocked === 2, 'calls=' + g1.calls);
+  // ③ 逃生门：allow = true 时转交原函数（给对比测试用，不是用户开关）。
+  g1.allow = true;
+  win1.focus();
+  check('focus guard honours the allow escape hatch',
+    rawHits.length === 1 && g1.allowed === 1 && g1.calls === 3, 'allowed=' + g1.allowed);
+  // ④ 兜底腿：focus 只长在原型上且不可写 ⇒ 赋值静默失败 ⇒ defineProperty 建自有属性顶上。
+  const protoRaw = [];
+  const proto2 = {};
+  Object.defineProperty(proto2, 'focus', { configurable: true, writable: false, value: function () { protoRaw.push('x'); } });
+  const win2 = Object.create(proto2);
+  runGuard(win2);
+  win2.focus();
+  check('focus guard falls back to defineProperty when assignment is ignored',
+    Object.prototype.hasOwnProperty.call(win2, 'focus') === true
+      && win2.__weFocusGuard.installed === true && win2.__weFocusGuard.blocked === 1 && protoRaw.length === 0,
+    'installed=' + win2.__weFocusGuard.installed);
+  // ⑤ 不可补丁：自有且不可写不可配置 ⇒ installed 如实为 false，且**绝不抛**（注入体住在壁纸文档里，
+  //    抛异常会毁掉作者脚本，而那正是要防的事）。
+  const win3 = {};
+  Object.defineProperty(win3, 'focus', { configurable: false, writable: false, value: function () {} });
+  let guardThrew = false;
+  try { runGuard(win3); } catch (e) { guardThrew = true; }
+  check('focus guard reports installed=false when focus is unpatchable (never throws)',
+    guardThrew === false && win3.__weFocusGuard.installed === false && win3.__weFocusGuard.blocked === 0);
+  // ⑥ 负对照：把"吞掉"改回"转交" ⇒ ① 的核心断言（原函数一次都没被调用）必须变假。
+  const mutantHits = [];
+  const winM = { focus: function () { mutantHits.push('raw'); } };
+  new Function('window', guardSource.replace('return undefined;', 'return raw.apply(w, arguments);'))(winM);
+  winM.focus();
+  check('负对照：注入体改成转交 ⇒ 核心断言（原函数不被调用）变假',
+    mutantHits.length === 1 && winM.__weFocusGuard.installed === true);
+}
+check('focus guard source is classic-script and markup safe',
+  guardSource.length > 200 && !/<\/script/i.test(guardSource) && !/^\s*(?:import|export)\b/m.test(guardSource)
+    && guardSrc.includes('weFocusGuardInstall.toString()'),
+  'len=' + guardSource.length + ' via toString=' + guardSrc.includes('weFocusGuardInstall.toString()'));
+// 接线腿：注入点只有一处（/scene-files 的 HTML 分支），顺序必须是 site-root → shim → focus-guard → seed
+//（四段都早于作者脚本 —— 围栏晚于作者脚本就等于没装）。剥注释后判定：自己注释里的标签名会让判据误真。
+const hostCode = stripComments(hostSrc);
+const guardWired = (s) => /data-we-focus-guard="host"/.test(s)
+  && /weFocusGuardSource\(\)/.test(s)
+  && s.indexOf('data-we-focus-guard') > s.indexOf('data-we-site-root')
+  && s.indexOf('data-we-focus-guard') > s.indexOf('data-we-shim')
+  && s.indexOf('data-we-focus-guard') < s.indexOf('data-we-seed');
+check('host injects the focus guard into web HTML (between shim and seed)', guardWired(hostCode));
+check('负对照：拿掉注入腿 ⇒ 同一条判据变假',
+  !guardWired(hostCode.replace('data-we-focus-guard="host"', 'data-we-x')));
+check('focus guard module lives outside the vendored dir (upstream sync rmSyncs it)',
+  existsSync(guardPath) && !existsSync(join(root, 'lib', 'webwallgl', 'we-focus-guard.js')));
 check('host sends CORS for opaque-origin fetches', /Access-Control-Allow-Origin', '\*'/.test(hostSrc));
 check('inventory derives webLive via webFieldsFor', /webFieldsFor\(w, hasMedia, webMediaBase\)/.test(hostSrc));
 // 黑屏的**成因**：Desktop 的能力头栅栏（**外部宿主** `@deepseek-ai/dsh-host-webserver`
