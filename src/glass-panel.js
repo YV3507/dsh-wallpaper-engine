@@ -177,7 +177,7 @@ function renderAppearanceGlassSection(ctx) {
     onBlur, onGlassAlpha, onGlassChildParam, onGlassColor, onGlassFidelity,
     onToggleChildIndependent, childIndependentOn, sel, surface,
     onCapsuleBlur, onCapsuleColor,
-    onLeftSidebarGlass, onSidebarAlpha, onSidebarBlur, onSidebarColor,
+    onLeftSidebarGlass, onTitlebarGlass, onSidebarAlpha, onSidebarBlur, onSidebarColor,
     onSidebarContentAlpha, onSidebarContentColor, onSidebarGlass,
     onSidebarFollowGlobal, onSidebarFullClear,
     onThinkingMode,
@@ -419,6 +419,36 @@ function renderAppearanceGlassSection(ctx) {
       SliderRow(weT("左侧栏玻璃·雾化"), 0, 60, 1,
         sel.leftSidebarBlur, (v) => onGlassChildParam("leftSidebar", "blur", v),
         sel.leftSidebarBlur + "px", "ls-blur"),
+    ],
+    // 标题栏液态玻璃（默认关）：壳层顶栏（拖拽区 / 窗口按钮那一行）是本插件唯一**刻意**
+    // 留成不透明的面（画布被清成透明后，这一层必须保留底色否则标题文字压在壁纸上）。
+    // 打开后它改吃**与其余面板同一张配方表**，且与左侧栏那条**逐条同形** —— 同一组釉层
+    // 变量、同一条可读性下限、同一条玻璃色 ⇒ 两侧栏在同一数值下同观感，不出现色差。
+    // ⚠️ 与左侧栏同为**乙类**（关 = 恢复宿主那条不透明底），所以同为**总开关级**：
+    //    侧栏档也画它，而它的「独立配置」层只在设置页画（ADR-0008 D4 的同一口径）。
+    switchRow(weT("标题栏液态玻璃"), sel.titlebarGlass === true, onTitlebarGlass, {
+      key: "titlebar-glass",
+      hint: weT("标题栏也跟随玻璃配方（配色 / 玻璃颜色 / 透明度 / 雾化 / 边框）"),
+      tooltip: weT("桌面壳顶栏（拖拽区 / 窗口按钮那一行）默认保持不透明底色。打开后它变成与其余界面、**以及左侧栏完全同款**的玻璃面板，跟随「配色 / 玻璃颜色 / 玻璃透明度 / 雾化 / 边框」——两侧栏同一数值下观感一致，不会出现色差；关闭即恢复原生观感。默认关。"),
+    }),
+    // ⚠️ 「标题栏玻璃·独立配置」与「标题栏液态玻璃」耦合 —— 覆盖关着时它不显示（同左栏）。
+    //    它是**独立配置层** ⇒ 高级配置（侧栏档只画上面那个总开关；D4 表见函数头）。
+    sel.titlebarGlass === true && !sidebarSurface && switchRow(weT("标题栏玻璃·独立配置"),
+      !!(childIndependentOn && childIndependentOn("titlebar")),
+      (e) => onToggleChildIndependent("titlebar", e.target.checked), {
+      key: "titlebar-independent",
+      hint: weT("用这一项自己的釉层参数覆盖全局"),
+      tooltip: weT("打开后**紧接在本行下方**出现标题栏自己的两项（玻璃透明度 / 雾化），**完全覆盖**「玻璃 UI」里的全局配置；关闭则回到继承全局（与左侧栏同一数值 ⇒ 同一观感）。"),
+    }),
+    // 独立配置开着才出现它自己的两项。⚠️ 与左栏同：只画**真正接线**的那两个 ——
+    // 本面 CSS 只读 --we-titlebar-blur/-alpha，不消费颜色与保真度 ⇒ 画了就是死旋钮（R3a）。
+    sel.titlebarGlass === true && !sidebarSurface && !!(childIndependentOn && childIndependentOn("titlebar")) && [
+      SliderRow(weT("标题栏玻璃·玻璃透明度"), 0, 100, 5,
+        sel.titlebarTransparency, (v) => onGlassChildParam("titlebar", "transparency", v),
+        sel.titlebarTransparency + "%", "tb-alpha"),
+      SliderRow(weT("标题栏玻璃·雾化"), 0, 60, 1,
+        sel.titlebarBlur, (v) => onGlassChildParam("titlebar", "blur", v),
+        sel.titlebarBlur + "px", "tb-blur"),
     ],
     // 侧栏玻璃（dsh-better-sidebar 适配）：总开关 + 专用模糊 / 透明度 / 玻璃基底色调，
     // 只作用于 dsh-better-sidebar 子树，不动会话玻璃的设置。仅在宿主检测到该插件时显示。

@@ -2299,7 +2299,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     // 的**自由变量** ⇒ 必须在这里当形参给（漏一个就是 ReferenceError，这正是本判据的设计）。
     // 与 QP_CTX_SETTINGS_ONLY 的分工：**侧栏档真的会画到的**由这里给真值（替身），
     // 设置页专属的（如 onFpsCap —— 帧率上限那行带 `!sidebarSurface` 门）才进占位器名单。
-    'onLeftSidebarGlass', 'onSidebarGlass', 'onSidebarFullClear',
+    'onLeftSidebarGlass', 'onTitlebarGlass', 'onSidebarGlass', 'onSidebarFullClear',
     // 2026-10-05（ADR-0008 D4）：侧栏档只画简化配置 ⇒ 高级行的处理器进 quick-panel 的
     // QP_CTX_SETTINGS_ONLY 占位器（本名单只收**真的会**在侧栏档渲染的那些名字，
     // 裸标识符 ⇒ 不进名单就要么进占位器名单、要么在 vm 求值当场 ReferenceError）。
@@ -2357,7 +2357,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       onAccent: noop, onBlur: noop, onBorder: noop, onGlassAlpha: noop, onGlassColor: noop, onGlassFidelity: noop, onChatGlassFidelity: noop,
       onToggleThemeFollow: noop, onScrim: noop, onWallpaperBlur: noop, onWallpaperOpacity: noop,
       onBackgroundBrightness: noop, onBackgroundContrast: noop, onBackgroundSaturate: noop,
-      onLeftSidebarGlass: noop, onSidebarGlass: noop,
+      onLeftSidebarGlass: noop, onTitlebarGlass: noop, onSidebarGlass: noop,
       // 子项「独立配置」及其参数处理器；登记表与键名生成器给**真值**
       //（与 schema 同源，来自被内联的 panel 模块作用域）—— 手抄一份就会漂。
       onToggleChildIndependent: noop,
@@ -3564,21 +3564,21 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       //    「思考触发条玻璃·独立配置」是它门下的面 ⇒ 开关关着时那一行**不渲染**。要覆盖它，
       //    这一档必须把开关打开（顺带覆盖同门的「胶囊雾化」；色板行「胶囊颜色」不进本判据 ——
       //    `labelSeq` 只收开关 / 滑块标签，色板行从来不在序列里，全局「玻璃颜色」同理）。
-      wantLabels: ['主题随壁纸', '边框', '预设方案', '玻璃透明度', '雾化', '玻璃保真度', '思考块液态玻璃', '胶囊雾化', '左侧栏液态玻璃', '侧栏液态玻璃', '侧栏全透明', '侧栏玻璃跟随全局', '内容面玻璃·独立配置', '设置窗口玻璃·独立配置', '对话框玻璃·独立配置', '思考触发条玻璃·独立配置', '浮层玻璃·独立配置', '字体自定义'] },
+      wantLabels: ['主题随壁纸', '边框', '预设方案', '玻璃透明度', '雾化', '玻璃保真度', '思考块液态玻璃', '胶囊雾化', '左侧栏液态玻璃', '标题栏液态玻璃', '侧栏液态玻璃', '侧栏全透明', '侧栏玻璃跟随全局', '内容面玻璃·独立配置', '设置窗口玻璃·独立配置', '对话框玻璃·独立配置', '思考触发条玻璃·独立配置', '浮层玻璃·独立配置', '字体自定义'] },
     // 侧栏档：**简化配置**（ADR-0008 D4）—— 与设置页同内容，但只到"总开关"这一层；
     // 「独立配置」层与思考块门下的细调行属高级配置，不在本档（下面的边界判据再判一次）。
     //  `selOver` 与设置页用例同位 ⇒ 侧栏家族 / 跟随全局那几个**开关**同样画得出来。
     { fn: 'renderAppearanceTab', label: '（侧栏档：简化配置 —— 总开关在，独立配置不在）', surface: 'sidebar',
       selOver: { sidebarPresent: true, sidebarGlass: true },
       want: ['主题', '细节', '玻璃 UI', '输入光标'],
-      wantLabels: ['主题随壁纸', '边框', '玻璃透明度', '雾化', '玻璃保真度', '思考块液态玻璃', '左侧栏液态玻璃', '侧栏液态玻璃', '侧栏全透明', '侧栏玻璃跟随全局'] },
+      wantLabels: ['主题随壁纸', '边框', '玻璃透明度', '雾化', '玻璃保真度', '思考块液态玻璃', '左侧栏液态玻璃', '标题栏液态玻璃', '侧栏液态玻璃', '侧栏全透明', '侧栏玻璃跟随全局'] },
     // ⚠️ 这一条是**覆盖缺口**补上的：字体那一节的细节（颜色角色 / 排版角色 / 字体族 / 组件字体 /
     // 字体集预设，~180 行）被 `sel.fontCustom` 挡着，而它的默认值是关 ⇒ **任何用例都没渲染过它**。
     // 打开它才能让那些行第一次进入判据的视野（这本身是找缺陷，不只是补锚）。
     { fn: 'renderAppearanceTab', label: '（设置页 · 字体自定义开）', surface: 'settings',
       selOver: { fontCustom: true },
       want: ['主题', '细节', '玻璃 UI', '全局字体', '输入光标'],
-      wantLabels: ['主题随壁纸', '边框', '玻璃透明度', '雾化', '玻璃保真度', '思考块液态玻璃', '左侧栏液态玻璃',
+      wantLabels: ['主题随壁纸', '边框', '玻璃透明度', '雾化', '玻璃保真度', '思考块液态玻璃', '左侧栏液态玻璃', '标题栏液态玻璃',
         '设置窗口玻璃·独立配置', '对话框玻璃·独立配置', '浮层玻璃·独立配置',
         '字体自定义', '默认字体', '终端字体', '文字颜色角色', '深色单独设置', '正文', '次要文字', '弱化说明', '极小说明', '禁用 / 更弱',
         '排版角色', '只看改过的', '高级字体设置', '字体集预设'] },
@@ -3799,7 +3799,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       'onPauseOnBattery', 'onPauseOnBlur', 'onPauseOnHidden', 'onToggleLiveDiag', 'sel'],
     renderAppearanceTab: ['setSetting', 'officialColorOf', 'onAccent', 'onBlur', 'onBorder',
       'onCaretColor', 'onChatGlassFidelity', 'onComponentFamily', 'onComponentFont', 'onFontAdvanced', 'onFontResetAll',
-      'onGlassAlpha', 'onGlassColor', 'onGlassFidelity', 'onThinkingMode', 'onLeftSidebarGlass', 'onSidebarAlpha',
+      'onGlassAlpha', 'onGlassColor', 'onGlassFidelity', 'onThinkingMode', 'onLeftSidebarGlass', 'onTitlebarGlass', 'onSidebarAlpha',
       'onSidebarBlur', 'onSidebarColor', 'onSidebarContentAlpha', 'onSidebarContentColor',
       'onSidebarGlass', 'onThemeColor', 'onThemeColorClear', 'onThemeDarkSeparate', 'onThemeFamily',
       'onThemeSize', 'onThemeTypeOnly', 'onThemeWeight', 'onToggleFontCustom', 'onToggleThemeFollow',

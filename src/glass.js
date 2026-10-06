@@ -12,7 +12,7 @@
  *      "撤销"：CSS 的 `var(--x, 兜底)` 只在 `--x` **未定义**时取兜底，而写到 body 上的变量
  *      一直是"已定义"的（§4.26 的病根）。
  *   ② **门控属性恒挂**（`data-we-glass-page` / `-chat` / `-window` / `-floaters` 在 §10.20 之后不再可关；`data-we-left-sidebar`、
- *      `data-we-sidebar-glass`），与"用谁的值"**正交**：关掉只是让那组规则整组不匹配。
+ *      `data-we-titlebar-glass`、`data-we-sidebar-glass`），与"用谁的值"**正交**：关掉只是让那组规则整组不匹配。
  *   ③ **读谁只在这里决定**：`glassValue(面, 参数, 自己的键, 全局的键)`；UI 只翻开关，不动接线。
  *
  * ⚠️ 本文件**不读** `selection` 以外的状态。`norm` / `denorm` / `toRgbTriple` 是本文件内的
@@ -35,7 +35,7 @@ function applyGlass(selection, s) {
   // 与旧「要不要玻璃 = 关」同语义 —— 那层开关退役后，这里是唯一会整族摘门控的路径。
   if (typeof skinYieldActive === "function" && skinYieldActive()) {
     for (const attr of ["data-we-glass-page", "data-we-glass-chat", "data-we-glass-window",
-      "data-we-left-sidebar", "data-we-sidebar-glass", "data-we-sidebar-fullclear", "data-we-glass-floaters"]) {
+      "data-we-left-sidebar", "data-we-titlebar-glass", "data-we-sidebar-glass", "data-we-sidebar-fullclear", "data-we-glass-floaters"]) {
       document.body.removeAttribute(attr);
     }
     return;
@@ -191,6 +191,40 @@ function applyGlass(selection, s) {
     s.setProperty("--we-left-sidebar-blur",
       String(glassValue("leftSidebar", "blur", selection.leftSidebarBlur, selection.blur)) + "px");
     s.setProperty("--we-left-sidebar-alpha", String(Math.max(0.10, 0.25 - pct / 100 * 0.15)));
+  }
+
+  // 标题栏液态玻璃：壳层顶栏（`.dshDesktopFrameTitlebar`）默认只是那条不透明的
+  // `--dsh-desktop-frame-fill` 底（上面 styles.js 的「外壳画布底」把 `.dshDesktopFrame`
+  // 清成 transparent 之后，这一层是唯一必须保留底色的面）。打开后 CSS 把它换成**与其余
+  // 面板同一张配方表**，且与左侧栏那条**逐条同形**（唯一差别是锚点与那条发丝线的方向）。
+  // 变量与开关节点的落点同玻璃窗口：body 属性 + 样式表规则，切换不需要重建任何东西。
+  if (selection.titlebarGlass) document.body.setAttribute("data-we-titlebar-glass", "on");
+  else document.body.removeAttribute("data-we-titlebar-glass");
+
+  // ── 标题栏的**按面**釉层变量 ───────────────────────────────────────────────────
+  // 该面的 CSS 读 `var(--we-titlebar-<x>, …)`（styles.js 的「标题栏液态玻璃」规则）
+  // ⇒ 这一组变量就是它的来源。
+  //
+  // ⚠️ 门控与左侧栏**完全同形**（同是乙类，见 wip §2）：
+  //   · 侧栏：门控属性 = `leftSidebarGlass`（`data-we-left-sidebar`），
+  //     "用谁的值" = `glassMode.leftSidebar`（「左侧栏玻璃·独立配置」）。
+  //   · 本面：门控属性 = `titlebarGlass`（`data-we-titlebar-glass`），
+  //     "用谁的值" = `glassMode.titlebar`（「标题栏玻璃·独立配置」）。
+  //
+  // ⚠️ 只写**两项**（模糊 / 透明度）：`--we-saturate` / `--we-glass-brightness` 不是可配置
+  //    参数（常量）、`--we-surface-tint-*` 是 E2 配方文本、`--we-readability-*` 被判据锁定
+  //     ⇒ 其余项逐面独立在"判据不变"下不可达（§4.14）。
+  // ── R1：同上，**无条件写入**（wip §10.10）─────────────────────────────────────
+  // 本面的"要不要玻璃"是 `titlebarGlass`（门控属性），与"用谁的值"正交 ⇒
+  // 值这一侧不再看任何开关，恒写出解析结果。
+  // ⚠️ **曲线逐字照抄左栏**（`0.25 − pct/100 × 0.15`，下限 0.10）：两条面共用同一把观感
+  //    刻度，用户把左侧栏调到满意的透明度时，标题栏**同一数值**必然是同一观感 ——
+  //    这正是"标题栏与左侧栏不要有色差"在取值侧的保证。
+  {
+    const pct = Number(glassValue("titlebar", "transparency", selection.titlebarTransparency, selection.glassAlpha)) || 0;
+    s.setProperty("--we-titlebar-blur",
+      String(glassValue("titlebar", "blur", selection.titlebarBlur, selection.blur)) + "px");
+    s.setProperty("--we-titlebar-alpha", String(Math.max(0.10, 0.25 - pct / 100 * 0.15)));
   }
 
   // dsh-better-sidebar 液态玻璃：一套独立于会话玻璃的细粒度控制（侧栏模糊 /
