@@ -890,6 +890,89 @@ check('效果应用层已抽成独立模块并被内联',
   effectsSrc.includes('function applyEffects(') && effectsSrc.includes('function clearEffects()')
     && readFileSync(join(root, 'lib', 'client.js'), 'utf8').includes('function applyEffects(')
     && !src.includes('function applyEffects('));
+// live 激活态（`selection.sceneLiveActive`）的判据共用一份"判据实现 + 归一化函数体"：
+// 断言与它下面的负对照必须**跑同一个函数**，否则负对照证明不了断言有牙（本仓纪律）。
+// ⚠️ 两处与既有 `fnBody` 不同的取舍，都是有具体原因踩出来的：
+//   1) 归一化：源码是 CRLF，跨行字面量若写 `\n` 就会与 `\r\n` 错开 ⇒ 判据恒假。
+//   2) `fnBody` 只切到**首个** `\n}` —— 对本文件常见的"函数头先来一行早退"
+//      （`startLiveWatch` 开头就是 `if (!frame.isConnected) { … return; }`）会被截在
+//      早退块上，函数主体根本不在切片里，判据恒假。所以这里用配平大括号取整段函数体，
+//      并显式跳过字符串/模板串/行注释/块注释里的花括号（`'${…}'`、`"{"` 否则会算错深度）。
+const liveFlagChecks = (() => {
+  const norm = (s) => String(s).replace(/\r/g, '');
+  const balancedBody = (source, name) => {
+    const s = norm(source);
+    const start = s.indexOf('function ' + name + '(');
+    if (start < 0) return '';
+    const open = s.indexOf('{', start);
+    if (open < 0) return '';
+    let depth = 0, mode = null;
+    for (let i = open; i < s.length; i++) {
+      const c = s[i], n = s[i + 1];
+      if (mode === 'line') { if (c === '\n') mode = null; continue; }
+      if (mode === 'block') { if (c === '*' && n === '/') { mode = null; i++; } continue; }
+      if (mode === 'single') { if (c === '\\') { i++; continue; } if (c === "'") mode = null; continue; }
+      if (mode === 'double') { if (c === '\\') { i++; continue; } if (c === '"') mode = null; continue; }
+      if (mode === 'tpl') { if (c === '\\') { i++; continue; } if (c === '`') mode = null; continue; }
+      if (c === '/' && n === '/') { mode = 'line'; i++; continue; }
+      if (c === '/' && n === '*') { mode = 'block'; i++; continue; }
+      if (c === "'") { mode = 'single'; continue; }
+      if (c === '"') { mode = 'double'; continue; }
+      if (c === '`') { mode = 'tpl'; continue; }
+      if (c === '{') depth++;
+      else if (c === '}') { depth--; if (depth === 0) return s.slice(open + 1, i); }
+    }
+    return '';
+  };
+  const prepBody = () => balancedBody(prepSrc, 'applySelection');
+  const tickBody = () => balancedBody(liveSrc, 'startLiveWatch');
+  const syncBody = () => balancedBody(liveSrc, 'syncLayers');
+  return {
+    prepBody,
+    tickBody,
+    syncBody,
+    // ① 同 id 重申不得清标志。判据只看**正常路径**（两道早退守卫之后的那一段）：
+    // 两个 early-return 分支（id 为空 / 被过滤或条目消失）里的 `sceneLiveActive = false`
+    // 是**正确**的清理 —— 那种情况下后面不会再同步任何层，清是对的；issue 归因的
+    // `:10009` 就是正常路径那一行。所以：
+    //   · 正常路径的 live 清零必须写成 `if (idChanged) …`；
+    //   · 比较中间量 `idChanged` 必须在 `selection.id` 赋值**之前**声明；
+    //   · 正常路径里**不得**再出现裸清零（旧写法正是此处一句裸赋值）。
+    clearsOnlyOnIdChange: (body) => {
+      const decl = body.indexOf('const idChanged = selection.id !== (id || "")');
+      const assign = body.indexOf('selection.id = id || ""');
+      const normal = body.slice(body.indexOf('if (!w || !keepPlayingWallpaper(w, selection.contentRatingFilter))'));
+      const props = normal.indexOf('selection.propsUrl =');
+      const live = normal.indexOf('selection.sceneLiveActive = false;');
+      const indented = /(^|\n)[ \t]+selection\.sceneLiveActive = false;/.test(normal);
+      return decl >= 0 && assign > decl && props >= 0 && live > props
+        && indented && /if \(idChanged\) selection\.sceneLiveActive = false;/.test(normal);
+    },
+    prepDiagnostic: () => {
+      const body = prepBody();
+      const normal = body.slice(body.indexOf('if (!w || !keepPlayingWallpaper(w, selection.contentRatingFilter))'));
+      return 'decl@' + body.indexOf('const idChanged = selection.id !== (id || "")')
+        + ' assign@' + body.indexOf('selection.id = id || ""')
+        + ' normalBody=' + normal.length
+        + ' bareIndentedClear=' + /(^|\n)[ \t]+selection\.sceneLiveActive = false;/.test(normal)
+        + ' guardedClear=' + /if \(idChanged\) selection\.sceneLiveActive = false;/.test(normal);
+    },
+    // ② 领养路径补挂：一整条**连续语句**必须同时含新 watch 校验、去延迟校验、
+    // 「真的在播」与同源就绪判据，然后才置真 —— 允许换行/缩进，但必须是同一段。
+    // 只断言"文件里出现过这些名字"是没有牙的（它们各自在别处也出现）。
+    adoptRearms: (body) => /if \(!selection\.sceneLiveActive && watchHere && watchHere\.frame === liveFrame\s*\n\s*&& liveFrame\.isConnected && !liveFrameDeferred\(liveFrame\)[\s\S]{0,200}?&& liveFrameReady\(liveFrame, selection\)\) \{\s*\n\s*selection\.sceneLiveActive = true;/.test(body),
+    // ③ 自愈必须挂在 `responsive` 上（真的在出帧才自愈），不能挂原来那个分支条件
+    //（含 `|| !isEffectivelyPlaying()`，暂停期也走它，而暂停中的场景页 fps=0 ⇒
+    // `alive` 恒为假 ⇒ 自愈失能），也不能写成"无条件置真"（暂停期会把**故意暂停**
+    // 的渲染页标成 active，指针注入与媒体桥白热）。置真之后只报一次诊断。
+    tickHeals: (body) => body.includes('if (responsive) {')
+      && !/if \(responsive \|\|/.test(body)
+      && body.includes('if (alive && !selection.sceneLiveActive) {')
+      && /if \(alive && !selection\.sceneLiveActive\) \{\s*\n\s*selection\.sceneLiveActive = true;/.test(body)
+      && /if \(!watch\.rearmed\) \{\s*\n\s*watch\.rearmed = true;/.test(body)
+      && body.includes('liveLog("live-rearm"'),
+  };
+})();
 const clientChecks = [
   // live 优先与 sceneVideo 让位都发生在 **buildMedia** 里（已抽到 media-prep.js）。
   ['live is the top priority for scenes and web', /const isLive = \(sel\.type === "scene" \|\| sel\.type === "web"\) && liveRenderEnabled\(sel\)/.test(prepSrc)],
@@ -920,16 +1003,66 @@ const clientChecks = [
   ['a same-id revalidate does not tear down the pending live mount',
     (() => {
       const body = fnBody(prepSrc, 'applySelection');
-      const guard = body.indexOf('if (selection.id !== (id || "")) cancelLiveMount("selection")');
+      // 判据钉「新旧 id 不等」这个**中间量**，而不是它的内联写法：同一个 `idChanged`
+      // 还守卫着下面的 `sceneLiveActive` 清理（见下一条），两处必须共用一次比较
+      // —— 各写各的迟早会漂移。声明必须在 `selection.id` 赋值**之前**（赋值之后
+      // 两边永远相等，守卫会失效）。
+      const guard = body.indexOf('const idChanged = selection.id !== (id || "")');
+      const use = body.indexOf('if (idChanged) cancelLiveMount("selection")');
       const assign = body.indexOf('selection.id = id || ""');
       const bare = body.includes('\n    cancelLiveMount("selection")');
-      return guard >= 0 && assign > guard && !bare;
+      return guard >= 0 && use > guard && assign > guard && !bare;
     })(),
     (() => {
       const body = fnBody(prepSrc, 'applySelection');
-      return 'guard=' + body.indexOf('if (selection.id !== (id || "")')
+      return 'guard=' + body.indexOf('const idChanged = selection.id !== (id || "")')
+        + ' use=' + body.indexOf('if (idChanged) cancelLiveMount("selection")')
         + ' assign=' + body.indexOf('selection.id = id || ""')
         + ' bareCall=' + body.includes('\n    cancelLiveMount("selection")');
+    })()],
+  // **实测**症状：切换会话（或设置里对**同一张**壁纸重新 apply 一次）之后壁纸照播，
+  // 但不再响应鼠标 —— Scene 的指针视差 / 点击交互、Web 页里的指针效果全部静默失效，
+  // 只有整页重载才恢复；因为画面照动，用户只会觉得「壁纸有时候坏了」。
+  // 机制：`revalidateSelection()` / 设置页重选都会以**同一个 id** 再次进 `applySelection`，
+  // 而这条清零点原来是无条件的。同 id 时层键（`wantKey`，不含版本/时间戳）一字不差
+  // ⇒ `syncLayers` 走 `adopt-live` 领养分支：渲染页不重载、首帧门也不会重走，于是
+  // 标志永久停在 false，而消费点**全是提前 return**（`livePointerFlush` /
+  // `livePointerSample` 挡住指针注入、`startMediaSync` 的 1s 拍挡住音频频谱与
+  // Now Playing），`we-live-on` 类与垫底图早就是终态所以画面看不出异常。
+  // 清零点只保留「真的换图」；同 id 的**真**重建（live 开关 / fps 档 / 媒体源变化
+  // ⇒ 键变化）由 `syncLayers` 的 `layer-rebuild` 分支 `stopLiveWatch()` 负责清。
+  ['the live-active flag is only cleared when the selection id really changes',
+    liveFlagChecks.clearsOnlyOnIdChange(liveFlagChecks.prepBody()),
+    liveFlagChecks.prepDiagnostic()],
+  // 领养那一跳立刻补挂（不等心跳）：同 id 重新 apply 时 `syncLayers` 不重建层，
+  // 但标志可能已被清 —— 这里按**与首帧门同源**的就绪判据（`liveFrameReady` +
+  // `liveFrameDeferred` + `isEffectivelyPlaying`）把语义补回来，否则指针注入与
+  // 媒体桥要等到下一拍（≤1s）才恢复，且若 `responsive` 恰好为假就永远不恢复。
+  // 时序：本块在 `adopt-live` 分支的 `startLiveWatch` **之后** —— 新 watch 的
+  // `firstFrame` 要等一秒后的首拍，所以这里以「这一拍就有帧」直接判定，不等那一拍。
+  ['adopting the same live layer re-arms the active flag',
+    liveFlagChecks.adoptRearms(liveFlagChecks.syncBody()),
+    (() => {
+      const body = liveFlagChecks.syncBody();
+      return 'syncBody=' + body.length
+        + ' guardChain=' + /if \(!selection\.sceneLiveActive && watchHere && watchHere\.frame === liveFrame/.test(body)
+        + ' rearm@' + body.indexOf('selection.sceneLiveActive = true;');
+    })()],
+  // （推荐，兜底）心跳自愈：这个标志的语义就是「渲染页活着且应在播」，而它全文件的
+  // **唯一**置真点是首帧门 —— 那扇门一辈子只走一次。把语义的**唯一权威**放回心跳这
+  // 一层，任何现在或将来漏掉的清零点都会被下一拍纠回来。判据挂在 `responsive` 上、
+  // **不**挂原来的分支条件：分支条件含 `|| !isEffectivelyPlaying()`，暂停期也走它，
+  // 而暂停中的场景页 fps=0 ⇒ `alive` 恒为假（挂分支条件则自愈失能）；反过来「无条件
+  // 置真」又会在暂停期把**故意暂停**的渲染页标成 active（指针注入 / 媒体桥白热）。
+  // 详见该处注释；负对照在下方合成源码上验证这条判据真的会红。
+  ['the heartbeat self-heals the active flag while the frame is really alive',
+    liveFlagChecks.tickHeals(liveFlagChecks.tickBody()),
+    (() => {
+      const body = liveFlagChecks.tickBody();
+      return 'tickBody=' + body.length
+        + ' heal@' + body.indexOf('if (alive && !selection.sceneLiveActive)')
+        + ' rearmed@' + body.indexOf('if (!watch.rearmed)')
+        + ' responsiveBranch=' + body.includes('if (responsive) {');
     })()],
   // 垫底静态帧是 iframe 的**下层**：只要 iframe 半透明（壁纸透明度一高），它就会以
   // a(1−a) 的强度透出来（实测「壁纸透明度高时显现静态帧」）。首帧点亮后必须整块退场，
@@ -999,6 +1132,51 @@ for (const [name, ok] of clientChecks) check(name, ok);
   const ungated = 'if (desktopWindowMode() === "extended" && !liveFrameRebuildTimer) {';
   check('negative control: the ungated extended swap call site is rejected', swapIsOptIn(ungated) === false);
   check('positive control: the current client gates the extended swap', swapIsOptIn(liveSrc) === true);
+}
+// 负对照：live 激活态的三条判据都必须有牙 —— 把**修复前**的写法喂给同一判据
+// （`liveFlagChecks`，与上面三条断言跑的是同一个函数），必须被判不合格；
+// 否则这些断言只是"文件里出现过某个变量名"就通过。
+{
+  // ① 修复前的正常路径：`selection.propsUrl = …` 之后一句**裸**清零（没有 id 守卫）。
+  // 早退分支里的裸清零是**正确**的，不得被这条判据连带判红 —— 所以判据只看正常路径。
+  const oldNormalPath = 'function applySelection(id, opts) {\n'
+    + '  const idChanged = selection.id !== (id || "");\n'
+    + '  if (idChanged) cancelLiveMount("selection");\n'
+    + '  selection.id = id || "";\n'
+    + '  if (!selection.id) { selection.sceneLiveActive = false; return; }\n'
+    + '  const w = selection.inventory.wallpapers.find((x) => x.id === selection.id);\n'
+    + '  if (!w || !keepPlayingWallpaper(w, selection.contentRatingFilter)) {\n'
+    + '    selection.propsUrl = null;\n'
+    + '    selection.sceneLiveActive = false;\n'
+    + '    return;\n'
+    + '  }\n'
+    + '  selection.propsUrl = w.propsUrl;\n'
+    + '  selection.sceneLiveActive = false;\n'
+    + '}';
+  check('negative control: the unguarded normal-path live-flag clear is rejected',
+    liveFlagChecks.clearsOnlyOnIdChange(oldNormalPath) === false
+    && liveFlagChecks.clearsOnlyOnIdChange(liveFlagChecks.prepBody()) === true);
+  // ② 领养补挂：把 `liveFrameReady` / `!liveFrameDeferred` / `isEffectivelyPlaying` 拿掉
+  // 任何一项，或整块挪到 `ensureLivePointer` 之前的旧形态，都必须被拒。
+  const oldAdopt = liveFlagChecks.syncBody().replace(/\n\s*&& liveFrameReady\(liveFrame, selection\)/, '');
+  check('negative control: a readiness-blind re-arm is rejected',
+    liveFlagChecks.adoptRearms(oldAdopt) === false
+    && liveFlagChecks.adoptRearms(liveFlagChecks.syncBody()) === true);
+  // ③ 自愈判据的两种退化形态：退回**分支条件**（含 `|| !isEffectivelyPlaying()`，
+  // 暂停期也走 ⇒ 场景 fps=0 时自愈失能）、以及"无条件置真"（暂停期把故意暂停的
+  // 渲染页标成 active）。两者都必须被拒。
+  const tickHead = '  const responsive = isWeb ? Boolean(wstate || stats) : alive;\n';
+  const oldBranch = tickHead
+    + '  if (responsive || !isEffectivelyPlaying()) {\n'
+    + '    if (alive && !selection.sceneLiveActive) { selection.sceneLiveActive = true; }\n'
+    + '  }';
+  const unconditional = tickHead
+    + '  if (responsive) {\n'
+    + '    selection.sceneLiveActive = true;\n'
+    + '  }';
+  check('negative control: the paused-branch / unconditional self-heal shapes are rejected',
+    liveFlagChecks.tickHeals(oldBranch) === false && liveFlagChecks.tickHeals(unconditional) === false
+    && liveFlagChecks.tickHeals(liveFlagChecks.tickBody()) === true);
 }
 // ── Level D3: 首帧看护的"按进展判超时" + 载荷延迟/暂停 + 失败分因 ──
 // 现场：320MB/94MB 的 `scene.pkg` 在**三个客户端实例**同时挂载时

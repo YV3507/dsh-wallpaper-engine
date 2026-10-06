@@ -431,7 +431,8 @@ function applySelection(id, opts) {
   // 看护器只在挂载成功路径上武装），图层就永久停在垫底图。而 `buildLive` 自己会
   // `scheduleLiveMount()`（它开头就 `cancelLiveMount("replaced")`），上一个 pending 不会泄漏。
   // ⚠️ 比较必须在下面那行赋值**之前** —— 赋值之后两边永远相等，这个守卫会失效。
-  if (selection.id !== (id || "")) cancelLiveMount("selection");
+  const idChanged = selection.id !== (id || "");
+  if (idChanged) cancelLiveMount("selection");
   // 手动切换不走渐变 → 立即放行轮换音频闸（轮换提交由旧层退场放行）。
   if (!opts || !opts.fromRotation) releaseRotationAudioGate();
   selection.id = id || "";
@@ -522,7 +523,20 @@ function applySelection(id, opts) {
   selection.webLiveSrc = w.type === "web" && w.webLive && w.webLiveSrc ? w.webLiveSrc : null;
   // 「壁纸属性」面板：只有场景/网页壁纸的项目目录才有 project.json 用户属性。
   selection.propsUrl = (w.type === "scene" || w.type === "web") && w.propsUrl ? w.propsUrl : null;
-  selection.sceneLiveActive = false;
+  // 实时渲染激活态**只在真的换图时**清。它同时是"渲染页活着"的运行时状态与下游
+  // （指针注入 / 媒体桥 / 属性面板提示）的闸门，而这里的清零点位于层同步**之前**：
+  //   ① 同 id 重申（切会话后的 revalidate / 设置页对同一张再 apply）时 `wantKey`
+  //      一字不差 ⇒ 走 `adopt-live` 领养分支，渲染页不重载、`startLiveWatch` 也可能
+  //      因帧已在出帧（reset 后 `firstFrame` 一 tick 内即被置真）而不再走首帧门
+  //      —— 标志就此永久停在 false，而消费点全是提前 return：`livePointerFlush` /
+  //      `livePointerSample` 挡住指针注入、媒体桥 `startMediaSync` 的 1s 拍挡住
+  //      频谱与 Now Playing。症状 = 壁纸照播但鼠标静默失效（只有整页重载才恢复）。
+  //   ② 换图时仍必须清：旧帧连同它的 watch 一起退场，指针注入的闸门不能在新层
+  //      就绪之前放行（下游还按 `isConnected` 兜底，但语义上这两件事必须同步）。
+  // 同 id 的**真**重建（live 开关 / fps 档 / 媒体源变化 ⇒ 键变化）由 live-layer 的
+  // `layer-rebuild` 分支 `stopLiveWatch()` 负责清，本行不必代劳。
+  // 兜底：`startLiveWatch` 的 1s tick 在真出帧/渲染页可达时无条件校正回真（见 live-layer.js）。
+  if (idChanged) selection.sceneLiveActive = false;
   // 场景包内独立音频（无内嵌 MP4 时播放；内嵌 MP4 场景由视频自带音轨，
   // syncSceneAudio 内部按 sceneVideo 互斥）。sceneHasAudio 经 HEAD 探测得出，
   // 供卡片音乐按钮显示。
