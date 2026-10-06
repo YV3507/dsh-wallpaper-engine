@@ -767,6 +767,8 @@ const WE_I18N_EN = {
   "：每个玻璃面都有「独立配置」开关；不想调就一键套用出厂七套「预设方案」（应用预设会整套覆盖且无法撤销，出厂预设删除后无法恢复）。另外，不设置壁纸也能调玻璃了。": ": every glass surface has an independent-configuration switch; if you’d rather not tune, apply one of the seven factory presets in one click (applying a preset overwrites the whole glass setup with no undo, and factory presets cannot be recovered once deleted). Also, glass is now tunable without a wallpaper set.",
   "：设置 →「系统」→「吉祥物形态」新增「导入图片…」——导入即换、再导即覆盖，点「清除」恢复内置（96×192 等比适配）。": ": Settings → System → Mascot gains an “Import image…” card — import to swap, import again to overwrite, Clear restores the built-ins (fit proportionally into 96×192).",
   "自定义会话头像（默认关闭）": "Custom session avatars (off by default)",
+  "下载了新壁纸后要点「刷新」！": "Downloaded a new wallpaper? Hit Refresh!",
+  "新壁纸要点「刷新」才会出现在壁纸库里——刷新键就在顶栏「暂停」旁。": "New wallpapers only show up in the library after a refresh — the Refresh button is right next to Pause on the top bar.",
   "：在「扩展」页签开启后消息左右分列——你右 AI 左，头像可分别导入自定义图片，形状与大小可调。❗提示「宿主里没有头像路由」时重启 DSH 再试。": ": turn it on under the Extensions tab and messages split left/right — you on the right, the AI on the left, each with an importable avatar, adjustable shape and size. ❗If the import says the host has no avatar route, restart DSH and try again.",
   "：松散目录场景壁纸恢复实时渲染（渲染内核 WebWallGL 2.1.0，作者 oneincase）；壁纸库全量加载不再分页；玻璃配置刻度统一（存量设置自动换算）。": ": loose-directory scene wallpapers render live again (render core WebWallGL 2.1.0 by oneincase); the library loads in full with no pagination; glass scales were unified (existing settings convert automatically).",
   "与 web-all 插件共存": "Coexists with the web-all plugin",
