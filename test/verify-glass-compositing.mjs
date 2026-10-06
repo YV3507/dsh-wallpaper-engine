@@ -558,6 +558,137 @@ function main() {
       && r.header.includes('::before')
       && /backdrop-filter:\s*none\s*!important/.test(r.body)));
 
+  // ── TB: 标题栏玻璃的锚点与两层结构（2026-10-06 回归）──────────────────────────
+  // 三条故障的来龙去脉（死类名锚点 / 嵌套 :has() 让逗号列表**整条**失效 / 底色与模糊同层
+  // 导致的色差）**只写在 src/styles.js 的标题栏注释块**，此处不复述 —— 判据只钉结论：
+  //   TB1 死锚点 · TB2a/TB2b 两层互斥 · TB3 壳层门 · TB4 六条同色声明 · TB4a 恒定釉光 ·
+  //   TB5 禁嵌套 :has() · TB6 不画分割线。各条可独立失败，各自带负对照。
+  const deadAnchor = '.dshDesktopFrameTitlebar';
+  const tbRules = rules.filter((r) => r.header.includes('[data-we-titlebar-glass]'));
+  const tbSelectors = tbRules.flatMap((r) => selectorsOf(r.header));
+  const hasDeadAnchor = (list) => list.length > 0 && !list.some((s) => s.includes(deadAnchor));
+  check('TB1 标题栏玻璃不再挂在已消失的壳层类名上（该类名在当前 app.asar 命中 0 次）',
+    hasDeadAnchor(tbSelectors),
+    'tb selectors=' + tbSelectors.length + ' dead-anchor hits=' + tbSelectors.filter((s) => s.includes(deadAnchor)).length);
+  check('TB1 负对照：死锚点要被判红、正常选择器要放行（判据有牙）',
+    hasDeadAnchor(['html[data-windows-titlebar] body[data-we-titlebar-glass] ' + deadAnchor]) === false
+      && hasDeadAnchor(['html[data-windows-titlebar] div[class*="pI_x6G_frame"]']) === true);
+  const tbLightRule = tbRules.find((r) => r.header.includes('::before')
+    && !r.header.includes('data-ds-dark-theme') && !r.header.includes('glass-fallback')
+    && /background-color\s*:/.test(r.body)); // 排除 @supports not 里那两条 background 简写
+  const tbAfterRule = tbRules.find((r) => r.header.includes('::after')
+    && /blur\(/.test(String(r.body)) && !r.header.includes('glass-fallback'));
+  const tbBeforeBlur = tbLightRule ? declValue(tbLightRule.body, 'backdrop-filter') : null;
+  check('TB2a 底色在 ::before 且该层不带 backdrop-filter（同层 ⇒ 底色不过滤镜 ⇒ 与左栏色差）',
+    Boolean(tbLightRule) && Boolean(declValue(tbLightRule.body, 'background-color'))
+      && !/blur\(/.test(String(tbBeforeBlur)),
+    'bg=' + String(tbLightRule ? declValue(tbLightRule.body, 'background-color') : 'MISSING').slice(0, 34)
+      + ' · ::before-blur=' + String(tbBeforeBlur));
+  check('TB2b 模糊在 ::after，几何与壳层 ::before 对齐（inset:0 0 auto + 标题栏高度），且不挡交互',
+    Boolean(tbAfterRule)
+      && /blur\(/.test(String(declValue(tbAfterRule.body, 'backdrop-filter')))
+      && /absolute/.test(String(declValue(tbAfterRule.body, 'position')))
+      && /0 0 auto/.test(String(declValue(tbAfterRule.body, 'inset')))
+      && /dsh-windows-titlebar-height/.test(String(declValue(tbAfterRule.body, 'height')))
+      && /pointer-events:\s*none/.test(String(tbAfterRule.body))
+      && /:\s*""/.test(String(tbAfterRule.body)),
+    'rule=' + (tbAfterRule ? 'present' : 'MISSING')
+      + ' pos=' + String(tbAfterRule && declValue(tbAfterRule.body, 'position'))
+      + ' inset=' + String(tbAfterRule && declValue(tbAfterRule.body, 'inset'))
+      + ' h=' + String(tbAfterRule && declValue(tbAfterRule.body, 'height')).trim()
+      + ' pe=' + String(tbAfterRule && declValue(tbAfterRule.body, 'pointer-events')).trim());
+  check('TB2c 负对照：把模糊种回 ::before（两层合一），TB2a 必须判红',
+    (/blur\(/.test('backdrop-filter: blur(15px);') === true)
+      && !(/blur\(/.test(String(declValue('background-color: color-mix(in srgb, #fff 10%, transparent);', 'backdrop-filter')))));
+  check('TB3 顶栏选择器带壳层锚 html[data-windows-titlebar]（普通 Web 文档永远拿不到）',
+    tbSelectors.length > 0 && tbSelectors.every((s) => s.includes('html[data-windows-titlebar]'))
+      && tbSelectors.every((s) => !/\[[\w-]*collapsed[\w-]*\]/.test(s)),
+    'every selector gated=' + tbSelectors.every((s) => s.includes('html[data-windows-titlebar]'))
+      + ' no-conditional-attr=' + tbSelectors.every((s) => !/\[[\w-]*collapsed[\w-]*\]/.test(s)));
+  // 「不要有任何色差」是这块的第一约束 ⇒ 只比**决定颜色的**声明：底色 + 五条 accent 映射。
+  // ⚠️ background-image **刻意不在清单里**：釉光停靠点是百分比，装进高度差 27.8 倍的两个
+  //    盒子会算出不同值（算术见 src/styles.js 的 ::before 注释）—— 对**盒子相对**的声明，
+  //    "逐字相同 ⇒ 无色差"不成立。故它由 TB4a 单独钉。position/z-index、分层的模糊同理。
+  const COLOR_DECLS = ['background-color',
+    '--dsw-alias-interactive-bg-hover', '--dsw-alias-interactive-bg-hover-accent',
+    '--dsw-alias-state-business-primary', '--dsw-alias-brand-primary', '--dsw-alias-brand-text'];
+  // 只允许面变量改名（--we-titlebar-alpha ⇄ --we-left-sidebar-alpha）与 !important 权重差异。
+  const tbNorm = (s) => String(s).replace(/--we-titlebar-alpha/g, 'ALPHA')
+    .replace(/--we-left-sidebar-alpha/g, 'ALPHA').replace(/\s*!important/g, '')
+    .replace(/\s+/g, ' ').trim();
+  const tbDiffs = COLOR_DECLS
+    .map((k) => [k, tbNorm(declValue(s2cLeftColRule && s2cLeftColRule.body, k)), tbNorm(declValue(tbLightRule && tbLightRule.body, k))])
+    .filter(([, a, b]) => a !== b);
+  check('TB4 顶栏与左栏**逐条同形**（决定颜色的六条声明逐字相等 ⇒ 不可能有色差）',
+    Boolean(tbLightRule) && Boolean(s2cLeftColRule) && tbDiffs.length === 0,
+    tbDiffs.length ? tbDiffs.map(([k, a, b]) => k + ': ' + a + ' ≠ ' + b).join(' | ')
+      : (COLOR_DECLS.length + ' colour declarations identical'));
+  check('TB4 负对照：给顶栏改一个字面量，同一条判据必须判红',
+    tbNorm('color-mix(in srgb, #fff 50%, transparent)') !== tbNorm('color-mix(in srgb, #eee 50%, transparent)'));
+  // ── TB4a: 釉光必须**恒定** sheen-a —— TB4 测不出这条（它比声明文本，三段渐变两面
+  //   逐字相同却算出不同颜色）。理由与算术见 src/styles.js 的 ::before 注释。
+  const tbSheen = tbLightRule ? String(declValue(tbLightRule.body, 'background-image') || '') : '';
+  const sheenIsConstant = (s) => ((String(s).match(/rgba\(/g) || []).length === 2)
+    && /sheen-a/.test(s) && !/sheen-b/.test(s) && !/sheen-c/.test(s);
+  check('TB4a 标题栏釉光是恒定 sheen-a（百分比停靠点在 40px 与 1111px 两个盒子上算出不同值）',
+    Boolean(tbLightRule) && sheenIsConstant(tbSheen),
+    'decl=' + tbSheen.replace(/\s+/g, ' ').slice(0, 88) || '(MISSING)');
+  check('TB4a 负对照：三段渐变要被判红（判据有牙）',
+    sheenIsConstant('linear-gradient(180deg, rgba(255,255,255,var(--we-panel-sheen-a)) 0%,'
+      + ' rgba(255,255,255,var(--we-panel-sheen-b)) 38%, rgba(255,255,255,var(--we-panel-sheen-c)) 100%)') === false);
+  // ── TB4b: 恒定釉光**暗档也要有** —— 2026-10-06 漏网：暗档照抄左栏那条三段渐变，而 TB4a
+  //    早先的 tbLightRule 显式排除 data-ds-dark-theme ⇒ 那条恰好是 TB4a 定义的失败形态，
+  //    却不在被测集合里（深色主题是日常默认档，这个空白比浅色那条更该钉）。理由与算术同 TB4a。
+  const tbDarkRule = tbRules.find((r) => r.header.includes('::before')
+    && r.header.includes('data-ds-dark-theme') && !r.header.includes('glass-fallback')
+    && /background-color\s*:/.test(r.body));
+  const tbDarkSheen = tbDarkRule ? String(declValue(tbDarkRule.body, 'background-image') || '') : '';
+  check('TB4b 深色标题栏的釉光同样是恒定 sheen-a（暗档不得照抄左栏那条三段渐变）',
+    Boolean(tbDarkRule) && sheenIsConstant(tbDarkSheen),
+    'dark-rule=' + (tbDarkRule ? 'present' : 'MISSING')
+      + ' decl=' + (tbDarkSheen.replace(/\s+/g, ' ').slice(0, 88) || '(MISSING)'));
+  check('TB4b 负对照：暗档写成三段渐变必须判红，且亮/暗两条釉光声明必须同源',
+    sheenIsConstant('linear-gradient(180deg, rgba(255,255,255,var(--we-panel-sheen-a)) 0%,'
+      + ' rgba(255,255,255,var(--we-panel-sheen-b)) 38%, rgba(255,255,255,var(--we-panel-sheen-c)) 100%)') === false
+      && Boolean(tbLightRule) && Boolean(tbDarkRule)
+      && String(declValue(tbDarkRule.body, 'background-image')).replace(/\s+/g, ' ').trim()
+        === String(declValue(tbLightRule.body, 'background-image')).replace(/\s+/g, ' ').trim(),
+    'light=' + (tbSheen.replace(/\s+/g, ' ').slice(0, 52) || '(MISSING)')
+      + ' · dark=' + (tbDarkSheen.replace(/\s+/g, ' ').slice(0, 52) || '(MISSING)'));
+  // ── TB6: 顶栏**不得**画分割线 —— 与左栏 S2 同一条政策（那条线本身就是色差，理由见 styles.js）。
+  const tbBorder = tbLightRule ? String(declValue(tbLightRule.body, 'border-bottom') || '') : '';
+  const tbHasBorder = (v) => /solid|rgb|hsl|color\(/.test(String(v || ''));
+  check('TB6 顶栏不画底分割线（左栏按 S2 已显式不画竖线，画了就是色差）',
+    Boolean(tbLightRule) && !tbHasBorder(tbBorder),
+    'border-bottom=' + (tbBorder ? tbBorder.slice(0, 60) : '(absent)'));
+  check('TB6 负对照：发丝线要被判红（判据有牙）',
+    tbHasBorder('border-bottom: 1px solid rgba(180, 180, 180, 0.6)') === true);
+
+  // ── TB5: 禁止**嵌套** :has()，且标题栏每条规则只许一个元素锚（2026-10-06 回归）──
+  // 这次故障**完全隐形**：文本在、结构对、静态正则也匹配，但壳层 Chromium 拒绝嵌套
+  // :has() ⇒ 逗号列表整条丢弃 ⇒ 与"锚点没选对"现象同形。测试环境没有壳层的 Chromium，
+  // 无法直接验引擎接受度，所以退而钉住**已知会被它拒绝的写法**。完整经过见 styles.js。
+  const isNestedHas = (s) => /:has\([^)]*:has\(/.test(s);
+  const nestedHas = [];
+  const multiAlt = [];
+  for (const r of rules) {
+    if (!r.header.includes('data-we-titlebar-glass')) continue;
+    for (const sel of selectorsOf(r.header)) {
+      if (isNestedHas(sel)) nestedHas.push(sel.replace(/\s+/g, ' ').slice(0, 90));
+    }
+    const alts = selectorsOf(r.header).filter((s) => s.includes('::before'));
+    if (alts.length > 1) multiAlt.push(alts.length + ' 个元素锚：' + alts.map((s) => s.slice(-46)).join(' , '));
+  }
+  check('TB5 标题栏不得用嵌套 :has()（本壳层 Chromium 拒绝 ⇒ 逗号列表一损俱损 ⇒ 整条规则静默失效）',
+    nestedHas.length === 0,
+    nestedHas.length ? nestedHas.length + ' 处：' + nestedHas.join(' | ') : '0 处');
+  check('TB5 标题栏每条规则只许一个元素锚（要并存必须拆成两条独立规则，不得逗号相连）',
+    multiAlt.length === 0,
+    multiAlt.length ? multiAlt.join(' ; ') : 'rules=' + tbRules.length + ' 全部单锚');
+  check('TB5 负对照：嵌套写法要被判红、单层写法要放行（判据有牙）',
+    isNestedHas('div:has(> div:has(> [data-slot="sidebar"]))') === true
+      && isNestedHas('div:has(> [data-slot="sidebar"])') === false);
+
   // ── S3: accent 重映射的两条不变量（issue #127）──────────────────────────────
   // ① 整窗规则里的填充重映射必须配「墨随 accent 亮度」：--dsw-alias-label-primary-foreground
   //    接 --we-accent-ink（宿主 primary 契约 = 填充 × 反色墨成对翻转；任意亮度的用户配色

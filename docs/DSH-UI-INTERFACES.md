@@ -52,11 +52,13 @@ DSH 桌面端把整份客户端 + node 宿主打进 `resources/app.asar`（Elect
 
 | 锚点 | DSH 里 | 归属 | 判定 |
 |---|---|---|---|
-| `data-composer-card` | ✅ | `dsh-client-ui-conversation` 等 | 源码作者写的属性（会话根），**稳**（但注意它不是"气泡"） |
+| `data-composer-card` | ✅ | `dsh-client-ui-conversation` 等 | 源码作者写的属性（会话根），**稳**（但注意它不是"气泡" —— 气泡的锚点是 `data-chat-flow-kind`，见下） |
+| `data-chat-flow-kind`（+ `data-chat-*` 一族） | ✅ | `dsh-client-ui-schedule` | 聊天流条目盒子上的**语义化**锚点；取值来自节点种类（`user` / `steering` / `context` / `turn-trigger` / `turn-process` / `assistant-text` …）⇒ `user` / `steering` 即用户气泡那一行，**稳**（类名是构建哈希，只能兜底） |
 | `data-question-key` / `data-plan-review-key` / `data-approval-key` | ✅ | `dsh-client-ui-user-questions` / `-approval` / `-conversation` | 工具弹卡的**容器**属性，稳 |
 | `data-turn-trigger` | ✅ | `dsh-client-ui-chat`（`TurnTriggerNodeView`） | 思考触发条的锚点，稳 |
 | `data-sidebar-right-panel` / `data-sidebar-right-open` | ✅ | `dsh-client-ui-sidebar-right` | **既有**右栏适配的落点，稳（上游曾改过隐藏机制，见 `test/compat-harness-surfaces.mjs` 的活判据） |
-| `data-slot`（**值由宿主槽注册表决定**） | ✅ 属性存在；`settings.section` ✅ | `dsh-client-ui-renderer` 写出口 | **这是"槽出口"，不是普通属性** —— 见 §3 |
+| `data-slot`（**值由宿主槽注册表决定**） | ✅ 属性存在；`settings.section` ✅ | `dsh-client-ui-renderer` 写出口 | **这是"槽出口"，不是普通属性** —— 见 §3；出口自己写死 `display: contents`（**不生成盒子**），**不能**拿它当位移 / 定位的落点 —— 见 §3.5 |
+| `data-windows-titlebar`（在 `html` 上） | ✅ 桌面壳写 | **桌面壳**（不在客户端产物里） | Windows 标题栏形态门：壳把窗口切到"自绘标题栏"布局（顶栏高度进 CSS 变量 `--dsh-windows-titlebar-height`）时挂在 `html` 上。本插件抄左栏那条玻璃规则时用它当**形态门**，与 `data-we-adapter^="desktop-"` 两道门同时成立才生效 |
 | `data-dsh-desktop-mode` | ❌ 客户端产物 0 命中 | 桌面壳的 **URL 查询参数**，由本插件的 `src/adapter.js` 写到 body | **不是 DSH 客户端接口**（见 §3） |
 | `data-dsh-better-sidebar` / `.dsh-browser-seat-wrap` | ❌ 0 命中 | **第三方插件**（better-sidebar / dsh-webui） | 不在 DSH 保证范围内 |
 
@@ -69,6 +71,14 @@ DSH 桌面端把整份客户端 + node 宿主打进 `resources/app.asar`（Elect
 |---|---|---|
 | `_bubble` / `_card` / `_panel` / `_editorHeader` | ✅ 存在 | 会话 / 卡片族用得上 |
 | `_boundaryError` / `_browserBar` / `_explorerHeader` / `_gitHeader` / `_pane` / `_paneCard` / `_tabBar` / `_terminalWrap` | ❌ 不存在 | 这些是 **dsh-better-sidebar 的类名**（第三方）⇒ 只能随该插件漂移 |
+| `pI_x6G`（写成 `div[class*="pI_x6G_frame"]`） | ✅ **完整哈希子串**（实测命中） | 不是后缀 —— 见下面那条 |
+
+**⚠️ 还有第三种形态：拿完整哈希名当子串**（`div[class*="pI_x6G_frame"]`，标题栏玻璃用）。它是
+`oE-XyW_root` 那种"哈希 + 后缀"里的**整串**（`<hash>_frame`）⇒ 比后缀更窄、更不会误伤，但**每次宿主重建
+哈希都会漂**，最坏结果是"这一块不生效"（锚点失配不会误伤别的元素）。**棘轮有盲区**：
+`test/compat-harness-surfaces.mjs` 的抽取正则只收 `[class*="_xxx"]` 这种**下划线开头**的后缀 ⇒
+`class*="pI_x6G_frame"` 抓不到，`test/fixtures/harness-ui-surfaces.json` 里也就没有它；目前只有
+`test/verify-glass-surfaces.mjs` 的 `anchors: ['[data-windows-titlebar]']` 单独兜一层。
 
 **稳定性判定：低。** 即使后缀存在，哈希前缀每次宿主重建都会变；后缀本身也不是契约（宿主可以把 `_panel` 改名）。
 ⇒ 这类锚点只能当"尽力而为的兜底"，**不能**把用户可见功能挂在它上面。
@@ -173,6 +183,100 @@ asar 里带着宿主自己的插件编写文档：`@deepseek-ai/dsh-agent-preset
 而是渲染面）。`practices.md` 明确不建议"宿主提供 HTML 页 + iframe 嵌"这种做法 —— 我们这么做的理由与
 代价记在 [`adr/0005`](./adr/0005-media-loopback-origin.md)（媒体由宿主自建的独立 loopback 源提供），
 属于**有意的例外**，不是漏看了规则。
+
+### 3.5 槽出口**不生成盒子**，而会话文本区与用户气泡各有自己的盒子（同一次核查的补算）
+
+补算动机：本插件「3D 效果」的**界面跟随**最初只动输入卡片 —— 复算后才发现是"动错了元素"。三条已核实的锚点：
+
+- **槽出口没有盒子。** 宿主槽渲染器（`dsh-client-ui-settings-account/lib/client.js` 的 `SlotOutlet`）给**每个**出口
+  写死 `const ANCHOR_STYLE = { display: "contents" };`（注释原文：*`display:contents` keeps the wrapper out of
+  layout (grid/flex parents see the slot's own children), so the anchor is purely addressable surface.
+  Module-level constant — a stable reference so the wrapper never diffs its style prop.*），渲染形如
+  `jsx("div", { "data-slot": slotKey, style: ANCHOR_STYLE, … })`。
+  ⇒ 出口是**"可寻址的面"，不是"能动的盒子"**：`display: contents` 的元素不生成盒子，往它身上写
+  `transform` / `translate` 屏上**零效果**。要动，得动**最近的有盒子的祖先**（本插件落在
+  `parallaxGroupBox()` 上，最多往上 3 层）。这条同时解释了 §3.1 的"给宿主已有面换皮"为什么只能钉出口属性。
+- **会话文本区的盒子是 `.…_viewArea`。** 会话骨架（`dsh-client-ui-conversation` 一族）：
+  `div[data-conversation-content][data-conversation-region="chat"]`（类后缀 `_body`）>
+  `div[data-conversation-scroll]`（后缀 `_scrollBody`，`overflow-y:auto`）> [`conversation.session` 出口（`display:contents`）] >
+  `div`（后缀 `_viewArea`）> [`conversation.view` 出口（`display:contents`）] > `…_root`。
+  输入卡片（`[data-composer-card]`）是 `Views` 的**兄弟**、同在 scrollBody 里
+  ⇒ 动 `_viewArea` 只挪会话文字，不会连带输入卡片。`[data-conversation-scroll]` 是**宿主自己**写的标记
+  （本插件"侧栏滚动"那条 CSS 已在用它）。`overflow-y:auto` 这一条是**双向**的坑（用户口径 m02410-①）：
+  规范规定一轴不是 `visible` 时另一轴的 `visible` 计算成 `auto` ⇒ 这个容器的 `overflow-x` 实际也是
+  `auto`。本插件界面跟随把**容器里面**的真实元素往右推出它的 inline-end（用户光标在左半边时）就会长出
+  一条**横向滚动条**；它占掉约一条滚动条高的 scrollport，sticky 的输入卡片只能跟着上移 —— 现象正是
+  "输入框底部出现一个黑条、把输入框顶上去"，而光标跨过屏幕中线、位移换向时滚动条出没 ⇒ 文本区与输入框
+  一起抖（本插件早先那条设备像素量化迟滞只是次要项）。⇒ 视差段给这个容器**封了横轴**
+  （`body[data-we-parallax="on"] [data-conversation-scroll] { overflow-x: hidden; }`）：会话内容本来就不
+  横滚（长 token / 宽代码块都在自己的框里滚）；封轴比 `::-webkit-scrollbar:horizontal { display: none }`
+  稳 —— 后者会把该元素切到自定义滚动条、连纵向滚动条的外观一起改。
+- **用户气泡的稳定锚点是 `data-chat-flow-kind`。** 每个聊天流条目的盒子同时挂着
+  `data-chat-anchor-key` / `data-chat-flow-key` / `data-chat-paging-anchor` / `data-chat-node-key` /
+  `data-chat-group-part` / **`data-chat-flow-kind`** / `data-chat-turn` / `data-turn-process-member` …；
+  `data-chat-flow-kind` 的值来自节点种类（`user` / `steering` / `context` / `turn-trigger` / `turn-process` /
+  `assistant-text` …）⇒ **`[data-chat-flow-kind="user"]`（+ `"steering"`）就是用户气泡那一行的锚点**，
+  而 `…_userRow` / `…_bubble` 这类类名是构建哈希、只能兜底。
+- **左栏那一列不能拿 `translate` 动**（"能量形态"的边界，与上面三条同批核实）。`[data-slot="sidebar"]` 出口的
+  **直接父元素**就是左侧栏那一列（本插件自己的 CSS 也这么指它：`div:has(> [data-slot="sidebar"])`，见
+  `src/styles.js` 的液态玻璃那一段），而 Windows 标题栏模式下宿主把「收起侧边栏」按钮做成 `position: fixed`
+  钉在标题栏左上角（逐字证据：`[data-windows-titlebar] ._2H3hWW_toggle{top:calc((var(--dsh-windows-titlebar-height)
+  - 28px) / 2);z-index:30;-webkit-app-region:no-drag;position:fixed;left:12px}`，出自 asar 内
+  `@deepseek-ai/dsh-desktop-host/node_modules/koffi/doc/composites.md`）—— 那个按钮就是这一列的后代
+  ⇒ 给这一列写任何 `transform` / `translate` 都会让它成为按钮的**包含块**，按钮整体下移一个标题栏高
+  （`docs/CHANGELOG.md` 里 #131 是同一类事故；本插件早先给这一列**直接**画 `backdrop-filter` 时也踩过同样的坑，
+  后来改成画 `::before`，见 `src/styles.js` 里那段注释）。
+  ⇒ 要动左栏只能走**相对定位**（`position: relative` + `left` / `top`）：它**不**建立包含块，就不会换掉任何
+  fixed 后代的锚点。本插件「3D 效果」的界面跟随正是这么做的（`parallaxGroupOffsets()` 里左栏是唯一的相对偏移档）。
+
+### 3.6 想"自动认到别的插件注册的前端元素组"，只能扫 DOM，不能靠槽注册表（同一次核查的第三批补算）
+
+补算动机：用户口径 m02697-② 要求让别的插件注册的前端元素组也参与缓动（面板里逐组可调、设 0 = 该组不缓动，
+m02697-③；⚠️ 当初的"默认参与"后来被用户诉求 m03549 改成**独立的开关 `parallaxPlugin`、默认关**，见下面本节的
+结论段与 `HOW-IT-WORKS.md`）。先查的是"运行期能不能问槽注册表"，逐条核实后**否掉**了这条路：
+
+- **注册表在运行期确实可问，但问不出"归属"。** asar 内 `@deepseek-ai/dsh-client-ui-renderer/lib/client.js` 里
+  `var SlotRegistry = class extends Service`（`super(ctx, "slots")`）把服务面方法直接转发给 `SlotCore`：
+  `entries` / `entriesOfSlot` / `snapshot` / `spec` / `subscribe(key, fn)` / `getVersion`（外加 `register` /
+  `registerFactory` / `inject`）⇒ 插件运行期可以调 `ctx.slots.snapshot()` 拿到 `{ name, kind, scope, declaredBy,
+  occupants: [{ registrant, key, id, order, priority, active }], children }` 这棵树。**但**注册时的 `registrant`
+  默认值就是 `options.registrant ?? this.ctx.fiber?.name`，宿主骨架与第三方 bundle 的 fiber 名**都是 `mf`**
+  ⇒ 实况里 `settings.section` 那 10 个占用者（宿主五页 + `bili` / `better-sidebar` / `wallpaper-engine` /
+  `market` / `cost-meter`）**registrant 全是 `mf`**，认不出谁是宿主、谁是插件。能带身份的只有占用者自己的
+  `key` / `id`（常是包名或 section id），而那是**别的插件的自由命名**，不是接口。
+- **子槽的注册不会向上冒泡。** `subscribe(key, fn)` 是按 key 订阅、microtask 批量；`snapshot()` 不给 root 时
+  返回的只是**顶层槽 + factories** ⇒ 订阅 `'root'` 察觉不到某个已挂载插件后来又声明了一个子槽。
+- **宿主自己的文档也把槽信息定位成"开发期工具"**：asar 内
+  `@deepseek-ai/dsh-agent-preset/skills/cordis-plugin-development/references/ui-plugin.md` 写的是"follow the
+  selected slot's props and options from `Slots.listSubTree`"（即 Inspect），并明确要求
+  "Do not read another plugin's DOM, stylesheet, or component source to estimate placement; choose a slot that
+  already allocates space."
+
+⇒ 本插件的选择是**认 DOM 的槽出口**（本插件本来就在钉 `[data-slot="…"]`，见 §2.2 / §3.1）：行为层扫
+`document.querySelectorAll('[data-slot]')`，跳掉整帧容器（`root` / `main` / `rightbar`）、原生三组的出口本身
+（`conversation.view` / `sidebar` / `main.conversation`）与设置、插件管理那几块子树
+（前缀 `settings.` / `plugins.` / `shell.` 与子树 `settings.section` / `plugins.bundle.config`），把剩下的出口
+**当成"别的插件的前端元素组"**；位移落在出口的**元素子节点**上（§3.5：出口自己 `display: contents`、没有
+盒子），距离按槽键存进 `parallaxPluginDepths`（缺键 = 缺省 1%、显式 0 = 这一组不缓动）。**还有第二道筛
+（`parallaxPluginEffectiveGroups()`）**：锚点落在**原生四组**（`[data-composer-card]` /
+`[data-slot="conversation.view"]` / `[data-slot="sidebar"]` / `[data-chat-flow-kind="user"|"steering"]`）的盒子
+里、或落在**另一个已认到的插件组**里的，一律不算 —— 外层组的位移本来就会把它带着走，它自己再写一次就是
+两段位移叠起来（重扫那一步"组里套组只留最外侧"的同一条）。⚠️ 第一道筛**只在「界面元素跟随」开着**时才这么
+算：关着时那四组的系数恒为 0、压根不是候选，拿它们去挡插件组会让"只开插件前端"变成一个拖了不动的空开关。
+这一路**由它自己的开关 `parallaxPlugin` 看着**（用户诉求 m03549：独立于 `parallaxUi`、**默认关** —— 它挪的是
+别的插件画出来的真实界面）：关着时层**连扫都不扫**（不是把系数算成 0，而是连 `querySelectorAll('[data-slot]')`
+与那道 fixed 后代子树判定都不跑）、面板那一卡只有开关，那张距离表原样留着、开关一开照旧生效。
+**面板那一栏与屏上同源**：`parallaxDiscoveredGroups()` 与 `parallaxTargetsRefresh()` 共用同一个
+`parallaxPluginEffectiveGroups()` ⇒ 列出来的每一个槽键都有落点；面板回显另按层里那对常量
+（`PARALLAX_GROUP_DEPTH_MIN` / `_MAX`）钳一次范围，存档里的越界值不会显示成域外的数。**已知代价**：① 运行期
+分不清归属 ⇒ 宿主自己的界面槽也会出现在「插件前端」那一栏里，用户把它设 0 即可（面板里每一行就是一个真实
+槽键，认得出来源的人能自己判断）；② 组里有 `position: fixed` 后代时**整组不动**（层的写法是"宁可不动"：
+`translate` 会让该组变成那些后代的包含块，见 §3.5 与 #89 那条）—— 这一条要遍历子树、只在帧外做，面板不筛，
+改成写进每一行的 tooltip 与那一卡上方那句说明里（认到槽位时显示的那一句 hint —— 它同时也说明"槽名就是身份"）。
+
+⚠️ **§3.5 这四条**都属于 §2.3 说的"低稳定度那一类"：主机重建后**属性名**多半还在，但 `_viewArea` 这类后缀随时可改
+⇒ 机器判据只能证明"名字还在"（§5），语义仍要靠人复核。最后一条性质不同：它约束的是**我们该用哪种 CSS 形态**
+（不许 `transform`），而不是"宿主某个名字还在不在"。
 
 ## 4. 状态与待办
 

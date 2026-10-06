@@ -947,8 +947,12 @@ const CSS = `
      ⚠️ **不加模式门控**：兼容模式的基线样式是 transparent（这条规则因此是无操作），而模式的
      名字与门控集合由壳层自己演进 —— 只认 "extended" 的那一版在壳层给别的模式也加上底色之后
      会整片盖住壁纸。壁纸激活时一律清底，是对模式名漂移免疫的写法。
-     ⚠️ 只清**画布**这一层、不改 --dsh-desktop-frame-fill 变量本身：标题栏
-     （.dshDesktopFrameTitlebar）读同一个变量，必须保留底色，否则标题栏文字直接压在壁纸上。
+     ⚠️ 2026-10-06：这条选择器里的 .dshDesktopFrame 在**当前 DSH Desktop 里不存在**，
+     --dsh-desktop-frame-fill 这个变量同样不存在（对 app.asar 全量字面扫描，两者命中 0 次）
+     —— 它是更早一版壳层的 API。规则保留为无害的兼容项：万一某个形态仍有这个类名，
+     它要的正是"清画布"，语义与今天一致。Windows 形态真正需要让开的那一层是
+     --dsw-specific-sidebar-fill（已由上面那条在壁纸激活时置为 transparent）；
+     顶栏（grid 容器的 ::before）读的正是同一个变量。
      主内容区（.dshDesktopConversationSurface）读的是 --dsw-alias-bg-base，本表已在
      body[data-we-wallpaper] 上把它置为 transparent（见上面那条），因此无需再写。
      同样门控到 [data-we-adapter^="desktop-"]（理由见上一条规则）。 */
@@ -1068,6 +1072,156 @@ const CSS = `
     }
   }
 
+  /* ── 标题栏液态玻璃（壳层顶栏的玻璃接管，默认关）────────────────────────────────
+     开关（body[data-we-titlebar-glass]，设置键 titlebarGlass，默认关）把顶栏改挂**与其余
+     面板同一张配方表**，且与左侧栏那条**逐条同形**。
+
+     ⚠️ **锚点（2026-10-06 实测修正：这一条换过锚）**：本块最初挂在壳层类名
+        .dshDesktopFrameTitlebar 上，那条规则**根本不存在于当前 DSH Desktop** ——
+        对整个 app.asar（281 MB）做过字面扫描，dshDesktopFrameTitlebar / dshDesktopFrame /
+        --dsh-desktop-frame-fill 三个串**命中 0 次**。Windows 形态的顶栏不是元素，
+        而是 AppFrame 那条 grid 容器的**伪元素**：
+
+          [data-windows-titlebar] .pI_x6G_frame:before {
+            content: ""; height: var(--dsh-windows-titlebar-height);
+            background: var(--dsw-specific-sidebar-fill);
+            -webkit-app-region: drag; position: absolute; inset: 0 0 auto;
+          }
+
+        它是**顶栏唯一的那一层**（拖拽区、无边框、无独立盒模型），也是"文字下方那块底"的
+        全部来源。⇒ 玻璃必须画在**这个伪元素**上，直接替换它的 background。
+     ⚠️ **锚点为什么不用 [data-sidebar-collapsed]**：AppFrame 源码写的是
+        "data-sidebar-collapsed": sidebarCollapsed || undefined —— 侧栏**展开**时 React
+        干脆不渲染该属性。把条件属性写进选择器 ⇒ 默认展开态下本块**恒不生效**，是个
+        只在收起时才亮的地雷。data-rightbar-* 三个同理。
+     ⚠️ **锚点只用一条（2026-10-06 运行时证伪后的定论）**：本块最初写的是**两条并集**
+        —— 哈希类名 + 座位锚 div:has(> div:has(> [data-slot="sidebar"]))，用逗号连在
+        同一条规则里。**那次设计是错的，而且错得很隐蔽**：
+        · 现场实测（排查期间的临时诊断，结论已沉淀进判据 TB5）：该嵌套选择器在
+          **本壳层的 Chromium 里 querySelectorAll 直接抛异常**
+          （三条座位锚计数全部返回 -1，而同时刻的哈希锚计数全是 1）；
+        · CSS 的选择器列表是**一损俱损**：逗号列表里只要有一个选择器不被接受，
+          **整条规则（连同那条能命中的）一起被丢弃**。于是四道门全过、变量全设好，
+          却 background-color 与 backdrop-filter **两条都没算出来**
+          （诊断读到 bg=rgba(0,0,0,0) / bf=none）—— 表现就是"开关开了、变量对了、
+          但标题栏还是透明的"，与"锚点没选对"的现象**完全一样**，极易误判。
+        ⇒ 结论一：**绝不把"未经本引擎验证的选择器"与"已验证的"放进同一个逗号列表**；
+          要并存就必须拆成两条独立规则（一条失效只丢它自己）。
+        ⇒ 结论二：座位锚是**嵌套 :has()**（:has() 里再套 :has()），本壳层的
+          Chromium 不接受；左栏那条之所以能用，是因为它是**单层** :has(> [data-slot="sidebar"])。
+          两者的差别只在"套不套第二层"，别把左栏的经验外推到这里。
+        · 现在保留的 div[class*="pI_x6G_frame"] 是 CSS 模块哈希类名的**子串**匹配：
+          哈希跨版本会漂，但漂了的最坏结果是"本块不生效"（失败是安全的），绝不会误伤。
+          运行时实测 n1=1 / n3=1 —— 该锚点在当前壳层确实命中那一个格子容器。
+        · 与版本无关、真正被钉死的两道门是 [data-windows-titlebar]（壳层自己写进
+          <html>，只出现在 Windows Electron 形态 —— 实测 winTB=1）与
+          body[data-we-adapter^="desktop-"]（本插件自己挂 —— 实测 ad=desktop-official）。
+        · 哈希漂移的兜底将来若要加，必须**另起一条规则**，不得并进逗号列表。
+     ⚠️ **本块的结构分工**（各自的理由与判据留在其归属处，这里不重复）：
+        · 底色 / 釉光 / accent 在下面这条 ::before；
+        · 模糊在紧随其后的 ::after —— 为什么必须分两层、绘制顺序为什么是 ::before 先
+          ::after 后、以及 issue #131 的 fixed 包含块，**见那条规则的注释**。
+     ⚠️ **"不要有任何色差"是本块的第一约束**：底色的 color-mix 权重与五条 accent 映射
+        与左侧栏**逐字相同**（判据 TB4）。釉光**刻意不同**（判据 TB4a）—— 停靠点是百分比，
+        装进两个高度差 27.8 倍的盒子会算出不同值，见 ::before 那条注释。
+        两面都**不画分割线**（本面判据 TB6，左栏判据 S2）。
+        ⚠️ 因此任何调色改动都必须**同时**改这两块，否则色差立刻出现。
+     ⚠️ **可覆盖性**：本块用 !important —— 壳层那条 :before 声明同特异度但写在别的
+        样式表里，靠加载顺序取胜不可靠；伪元素只此一层，覆盖它没有副作用。
+     ⚠️ 本注释块不得出现反引号（模板字符串会被提前截断）。 */
+  html[data-windows-titlebar] body[data-we-glass-page][data-we-titlebar-glass][data-we-adapter^="desktop-"] div[class*="pI_x6G_frame"]::before {
+    /* 底色：压掉壳层那条 background: var(--dsw-specific-sidebar-fill)，换成与左侧栏
+       **逐条同形**的配方（只有面变量 --we-titlebar-alpha 替 --we-left-sidebar-alpha）。
+       ⚠️ 必须写成 background-color + background-image 两条**分开的**声明（不是
+       background 简写）——简写会把同名的 background-* 长属性一次性重置，而本块与
+       左侧栏的"逐条同形"判据（verify-glass-compositing）正是按声明对声明比对的。 */
+    background-color: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-titlebar-alpha) * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
+    /* 顶层白光釉 —— **必须是恒定值，不能沿用左栏那条三段渐变**（2026-10-06 实测）：
+       渐变的停靠点是**百分比**（0% / 38% / 100%），同一条声明装进两个高度差 27.8 倍的
+       盒子里会算出**完全不同**的白釉强度 ——
+         · 标题栏 ::before 高 **40px**：0.10 →(15px) 0.03 →(40px) 0.05，整段均值 0.0495；
+         · 侧栏列高 **1111.33px**：0.10 →(422px) 0.03，其顶部 40px 均值 0.0967。
+       交界处台阶 = 0.10 − 0.05 = **0.05 白釉**，整段差 **0.047** ⇒ 肉眼可见的色差。
+       而 TB4 判据比的是**声明文本**（两条逐字相同 ⇒ PASS），完全看不见这个 ——
+       因为差异出在**盒子尺寸**上，不在配方上。"声明逐字相同 ⇒ 无色差"对**盒子相对**的
+       声明（百分比停靠点）是**不成立**的，这条注释就是那个反例。
+       修法：本面只用 sheen-a 一个停靠点（恒定 0.10）。左栏顶部 40px 实际是
+       0.10 → 0.0934（只漂 0.0066，远低于感知阈值），所以恒定值与之等效。
+       ⚠️ 判据见 verify-glass-compositing 的 TB4a（改回三段渐变会被判红）。 */
+    background-image: linear-gradient(180deg,
+      rgba(255, 255, 255, var(--we-panel-sheen-a)) 0%,
+      rgba(255, 255, 255, var(--we-panel-sheen-a)) 100%) !important;
+    /* ⚠️ 模糊**不在这里**，在紧随其后的 ::after 上（理由见那条规则的注释）。 */
+    /* ⚠️ **不画底分割线**（2026-10-06 现场口径）：原先写的是
+       border-bottom: 1px solid rgba(180,180,180, var(--we-border-alpha))，
+       「边框」= 0.6 时是一条 60% 灰的实线，用户直接报"有明显的横线"。
+       左栏按 S2 判据是**显式 border-right: none**（"这一列已经是一整块玻璃，
+       再画一条线就把它切成两半"）—— 同一条政策必须两面一致，否则那条线本身就是色差。
+       ⚠️ 判据见 verify-glass-compositing 的 TB6（把线种回去会被判红）。 */
+    /* 配色：与左栏**同一组** accent 映射（已由上方 CSS-ENGINE 判据验证逐条 SAME）。 */
+    --dsw-alias-interactive-bg-hover: color-mix(in srgb, var(--we-accent, #4f8cff) 14%, transparent);
+    --dsw-alias-interactive-bg-hover-accent: color-mix(in srgb, var(--we-accent, #4f8cff) 18%, transparent);
+    --dsw-alias-state-business-primary: var(--we-accent, #4f8cff);
+    --dsw-alias-brand-primary: var(--we-accent, #4f8cff);
+    --dsw-alias-brand-text: var(--we-accent, #4f8cff);
+  }
+  /* ── 标题栏的**模糊层**：另起一个 ::after（2026-10-06 色差修复）─────────────────
+     为什么必须是两个伪元素：左侧栏的结构是「底色在**元素**、模糊在其 ::before
+     （z-index:-1，绘制在元素底色**之上**）」⇒ 结果 = F(壁纸 ⊕ 底色)，底色**经过**
+     saturate(1.8) / brightness(1.04) 滤镜。
+     标题栏原先把底色与模糊写在**同一个** ::before 上 ⇒ 结果 = 底色 ⊕ F(壁纸)，
+     底色**不经过**滤镜 ⇒ 两面在**数值完全相同**的情况下仍出色差。
+     （现场实测：tbBg 与 natBg 逐字相等、lsA=tbA=0.1、tint/floor/base 全同，
+      更好的侧栏 bsb=0 未挂载 ⇒ 差异只可能来自合成顺序，不是取值。）
+     修法：底色留在壳层的 ::before（上一条规则），模糊另起 ::after。绘制顺序是
+     ::before 先、::after 后 ⇒ ::after 的 backdrop 恰好**含** ::before 的底色
+     ⇒ F(壁纸 ⊕ 底色)，与左栏逐像素同构。
+     ⚠️ 几何必须与壳层那条 ::before 完全一致（inset:0 0 auto + 标题栏高度），否则
+        两层错位会露出边。
+     ⚠️ ::after 没有任何后代 ⇒ 永不成为 position:fixed 元素的包含块（issue #131 的
+        同一个理由）；pointer-events:none ⇒ 不挡壳层 ::before 的 app-region 拖拽区，
+        也不挡壳层 z-index:30 的固定按钮（它们比本层高）。
+     ⚠️ 不写 z-index（保持 auto）：这样才能在 ::before **之上**按树序绘制；
+        写成 -1 会掉到 frame 底色之下，甚至跑到壁纸后面。
+     ⚠️ 本注释块不得出现反引号（模板字符串会被提前截断）。 */
+  html[data-windows-titlebar] body[data-we-glass-page][data-we-titlebar-glass][data-we-adapter^="desktop-"] div[class*="pI_x6G_frame"]::after {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto;
+    height: var(--dsh-windows-titlebar-height, 40px);
+    pointer-events: none;
+    -webkit-backdrop-filter: blur(var(--we-titlebar-blur)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
+    backdrop-filter: blur(var(--we-titlebar-blur)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
+  }
+  /* 深色：同一张表、同一组层权重，只有玻璃色缺省与高亮 mix 不同（与左栏深色那条同形）。
+     ⚠️ 釉光必须**和浅色那条一样恒定**（单停靠点 sheen-a）：暗档若照抄左栏那条三段渐变，
+        就是上面浅色注释里那个"盒尺寸色差"的回归 —— 40px 与 1111px 两个盒子会算出不同白釉
+        强度，而 TB4a 早先只测浅色那条 ⇒ 暗档当时零覆盖（现已对两条都跑）。 */
+  html[data-windows-titlebar] body[data-ds-dark-theme][data-we-glass-page][data-we-titlebar-glass][data-we-adapter^="desktop-"] div[class*="pI_x6G_frame"]::before {
+    background-color: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) calc(var(--we-titlebar-alpha) * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
+    background-image: linear-gradient(180deg,
+      rgba(255, 255, 255, var(--we-panel-sheen-a)) 0%,
+      rgba(255, 255, 255, var(--we-panel-sheen-a)) 100%) !important;
+    --dsw-alias-interactive-bg-hover: color-mix(in srgb, var(--we-accent, #4f8cff) 14%, rgba(255, 255, 255, 0.04));
+  }
+  /* 无 backdrop-filter：同一政策 —— 近不透明玻璃，顶栏文字绝不直接落在壁纸上。 */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    html[data-windows-titlebar] body[data-we-glass-page][data-we-titlebar-glass][data-we-adapter^="desktop-"] div[class*="pI_x6G_frame"]::before {
+      background: color-mix(in srgb, var(--we-surface-tint-light, #ffffff) 92%, transparent) !important;
+    }
+    html[data-windows-titlebar] body[data-ds-dark-theme][data-we-glass-page][data-we-titlebar-glass][data-we-adapter^="desktop-"] div[class*="pI_x6G_frame"]::before {
+      background: color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) 92%, transparent) !important;
+    }
+    /* 模糊层整个不存在：本档不支持 backdrop-filter，留着 ::after 只会多一层
+       什么都画不出来的绝对定位块（含 pointer-events:none 的空层）。 */
+    html[data-windows-titlebar] body[data-we-glass-page][data-we-titlebar-glass][data-we-adapter^="desktop-"] div[class*="pI_x6G_frame"]::after {
+      content: none;
+    }
+  }
   /* 侧栏的釉取哪一份：跟随全局 ⇒ 与左栏同一道（--we-panel-sheen-*）；
      自定义 ⇒ 旧的"随透明度衰减"曲线（--we-sidebar-sheen）。两档都只定义变量，
      面板规则本身不必分叉。 */
@@ -2041,6 +2195,12 @@ const CSS = `
   }
   .we-picker__slider-row { display: flex; align-items: center; gap: 10px; }
   .we-picker__label { min-width: 28px; flex: 0 0 auto; color: var(--we-ink, inherit); font-size: 0.88em; }
+  /* 滑杆行左侧那个标签可能是**第三方自填的槽名**（别的插件注册进来的元素组，槽名就是 data-slot，
+     见 src/parallax-layer.js 的插件组）：超长时不许把滑块与右侧数值挤出卡片 —— 可收缩 + 省略号。
+     只作用于滑杆行内部，其它地方的 .we-picker__label（都是宿主自己的短标签）保持原样。 */
+  .we-picker__slider-row .we-picker__label {
+    flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
   .we-picker__value {
     min-width: 48px; text-align: right; flex: 0 0 auto;
     padding: 2px 8px; border-radius: 999px; font-size: 0.72em;
@@ -2805,6 +2965,23 @@ body[data-we-glass-floaters] .we-repo-panel {
   body[data-ds-dark-theme][data-we-glass-fallback][data-we-glass-page][data-we-left-sidebar] div:has(> [data-slot="sidebar"]) {
     background-color: color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) 92%, transparent) !important;
   }
+  /* 标题栏液态玻璃（titlebarGlass）：与上面左栏那两条**同一政策** —— 软件光栅器下模糊被
+     静默忽略，钉成 92% 近不透明玻璃并把不会生效的 backdrop-filter 显式关掉；深色那条多
+     一层 [data-ds-dark-theme]，与浅色声明同特异度时后写者赢（顺序即优先级）。
+     ⚠️ 锚点与主块同口径（含 html[data-windows-titlebar] 那道门）：软件渲染时壁纸层
+        往往没走 GPU 合成，这条是那批形态唯一的兜底。 */
+  html[data-windows-titlebar] body[data-we-glass-fallback][data-we-glass-page][data-we-titlebar-glass][data-we-adapter^="desktop-"] div[class*="pI_x6G_frame"]::before {
+    background: color-mix(in srgb, var(--we-surface-tint-light, #ffffff) 92%, transparent) !important;
+  }
+  /* ⚠️ 模糊现在住在 ::after 上（见主块的两条规则）⇒ 软件光栅器下要关的是**它**，
+     不是 ::before —— 关错对象就等于没关（不留不会生效的声明）。 */
+  html[data-windows-titlebar] body[data-we-glass-fallback][data-we-glass-page][data-we-titlebar-glass][data-we-adapter^="desktop-"] div[class*="pI_x6G_frame"]::after {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  html[data-windows-titlebar] body[data-ds-dark-theme][data-we-glass-fallback][data-we-glass-page][data-we-titlebar-glass][data-we-adapter^="desktop-"] div[class*="pI_x6G_frame"]::before {
+    background: color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) 92%, transparent) !important;
+  }
   /* 内容面（编辑器/终端）本来就是近不透明底板（--we-content-surface-alpha，默认
      88%），这里把同一条声明再挂一遍，让软件渲染下三块侧栏区域落在同一个规则块里。 */
   body[data-we-glass-fallback][data-we-sidebar-glass] [data-dsh-better-sidebar] .cm-editor,
@@ -3072,34 +3249,44 @@ body[data-we-glass-floaters] .we-repo-panel {
   }
 
   /* ── 「扩展」三号模块：3D 效果（视差；行为层见 src/parallax-layer.js）──
-     这一层与前面几层刚好相反：**它一个 DOM 节点都不建**。视差层只写自定义属性：2 个"各层要乘的
-     系数"写在 body 上（只在设置变了时写一次），-x / -y 这两个"光标偏离屏幕中心的步长"写在
-     **要动的那几层自己**身上（每帧写 —— 自定义属性是继承的，写在 body 上等于每帧让整棵文档树
-     重算样式），另加一个开关属性 data-we-parallax；位移、放大倍数与"谁跟着动"全在这里用 calc 算。
+     这一层与前面几层刚好相反：**它一个 DOM 节点都不建**。位移由行为层每帧**直接写进
+     .we-layer / .we-rope 自己的** translate（CSS 独立属性）—— 每帧一个自定义属性都不写，
+     因为自定义属性是继承的，写一次就会让整棵子树重算样式（口径与前后对比见 docs/CHANGELOG.md
+     的「3D 效果动效开销」一条）。所以样式表这边只剩两件事：
+     ① body 上的一个"壁纸补边系数"（只在设置变了时写一次）算出 .we-layer 的**静态**放大 ——
+        壁纸层正好是视口大小，横向最大位移 = 系数/100 × 整屏宽（用户口径 m02697-①：系数 = 光标在屏幕角上时挪几个百分点的对角线
+         ⇒ 2 × 系数/100 × 半屏宽 = 系数/100 × 屏宽），放大 1 + 系数/50 恰好补上这点余量；
+     ② 一个总开关属性 data-we-parallax：只有它在时**下面那条**补边规则才命中；关掉 ⇒ 屏上一点
+        痕迹都没有（位移由行为层 removeProperty 收干净）。
      这么写有两个好处：① 不新增节点 ⇒ 不参与 stacking、不会被别的层顺手清掉；
-     ② 关掉总开关时连属性都不在 ⇒ 屏上一点痕迹都没有（下面每条规则都挂在开关属性下）。
+     ② 关掉总开关时连属性都不在 ⇒ 补边与位移一起消失。
      硬约束：**只能用 CSS 独立属性 translate / scale，不能用 transform** —— 壁纸层的过场
      （src/live-layer.js 的 resetLayerSwitchStyles）与 .we-layer--repaint 会内联写 / 清
      transform，独立属性才与它们叠加，而不是互相覆盖。
-     系数口径：光标走完一整条对角线时，该层挪"它那个系数"个百分点的对角线（推导见行为层
-     文件头）。壁纸层同时放大 1 + 系数/100 补边：横向最大位移 = 系数/100 × 半屏宽，
-     放大同样多就不会在边上露出底色。
-     兜底都是 0px / 0：变量还没写上时位移为零（例如刚开开关、第一帧还没跑）。
+     系数口径：**光标贴在屏幕角上时，该层挪"它那个系数"个百分点的最长对角线**
+     （推导见行为层文件头）；系数由行为层乘进位移里（壁纸走 parallaxBg、吉祥物走
+     parallaxMascot、界面四组各走自己的 parallaxUi*Depth）。
+     兜底是 0：变量还没写上时放大倍数为 1（例如刚开开关、第一帧还没跑）。
      **点击与拖尾那一层刻意不参与**（用户口径：特效不跟着偏移）。 */
   body[data-we-parallax="on"] .we-layer {
-    translate: calc(var(--we-parallax-x, 0px) * var(--we-parallax-bg, 0))
-      calc(var(--we-parallax-y, 0px) * var(--we-parallax-bg, 0));
-    scale: calc(1 + var(--we-parallax-bg, 0) / 100);
-  }
-  body[data-we-parallax="on"] .we-rope {
-    translate: calc(var(--we-parallax-x, 0px) * var(--we-parallax-mascot, 0))
-      calc(var(--we-parallax-y, 0px) * var(--we-parallax-mascot, 0));
+    scale: calc(1 + var(--we-parallax-bg, 0) / 50);
   }
   /* 只有"正在动的那几帧"才把它们提成独立合成层：提上去之后每帧只是挪现成的纹理，
      合成器直接做，不必把满屏壁纸重绘一遍。类由行为层在起帧时加上、到位收工与关掉总开关时
      摘掉 —— 本仓刻意不留**常驻**合成层（见 .we-layer--repaint 的两帧微推）。
      只提示 translate：scale 是静态的，不提它就不会被冻结栅格化倍率。 */
   body[data-we-parallax="on"] .we-parallax--moving { will-change: translate; }
+  /* 界面跟随那一组挪的是会话滚动容器**里面**的真实元素（见 src/parallax-layer.js 的
+     PARALLAX_GROUP_SELECTOR），于是多出一个副作用：横向位移一旦越出 scroller 的 inline-end，
+     宿主写在它身上的 overflow-y: auto 会把这一轴的 overflow-x: visible 当 auto 用（规范：一轴
+     不是 visible 时另一轴的 visible 计算成 auto）⇒ 长出一条**横向滚动条**。它占掉约一条滚动条高的
+     scrollport——sticky 的输入卡片只能跟着上移，于是"输入框底部出现一个黑条，把输入框顶上去"；
+     光标跨过屏幕中线时位移换向 ⇒ 滚动条出没 ⇒ 输入框与文本区一起抖
+     （用户口径 m02410-①："这就是抖动的来源"）。
+     会话内容本来就不横滚（长 token / 宽代码块都在自己的框里滚）⇒ 开着视差时直接封掉这一轴：
+     滚动条连出现的机会都没有，scrollport 高度一动不动，位移照旧。
+     用 hidden 而不是 clip：两者都只裁不滚，hidden 的支持面更广（clip 是 CSS Overflow 3）。 */
+  body[data-we-parallax="on"] [data-conversation-scroll] { overflow-x: hidden; }
 `;
 
 export { READABILITY_FLOOR, READABILITY_FLOOR_DARK, CSS };

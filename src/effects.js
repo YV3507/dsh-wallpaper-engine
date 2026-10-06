@@ -125,7 +125,7 @@ function weAccentInk(hex) {
 //   深色最坏 = color·(F + 0.10·0.4·(1−F)) + 白·(1 − (F + 0.10·0.4·(1−F)))  （白背衬、最透档，
 //   0.4 = 深色主题的 frost 层因子 —— 与浅色不同，深色的玻璃色份额要先乘 0.4）
 //   浅色最坏 = color·(F + 0.10·(1−F))                               （黑背衬、同 alpha）
-// 其中 0.10 = 玻璃透明度滑杆拉满后的 --we-glass-alpha（见 applyEffects 的曲线），
+// 其中 0.10 = 玻璃透明度滑杆**拉到 100**（满档）后的 --we-glass-alpha（见 applyEffects 的曲线），
 // 两处数字必须同步改。纯函数：verify-readability 会从 bundle 里抽出本函数复算网格。
 //
 // 第三参 fidelity（0–1，缺省 1 = 完整红线）：玻璃保真度滑杆（glassFidelity）
@@ -148,7 +148,7 @@ function weClampSurfaceColor(hex, theme, fidelity) {
   // 地板权重用**满档常量**（不是减薄后的值）：这一步回答的是「这个颜色在完整
   // 地板下能不能直出」，与保真度无关 —— 保真度只影响下一步的回退幅度。
   const F = theme === "dark" ? 0.59 : 0.45;
-  // 最坏 alpha：最透档（滑杆 60 → --we-glass-alpha 0.10）× 深色主题的 0.4 层因子
+  // 最坏 alpha：最透档（滑杆 100 → --we-glass-alpha 0.10）× 深色主题的 0.4 层因子
   //（与样式表深色 composer 卡的 rgba(255,255,255, calc(--we-glass-alpha * 0.4)) 同源）。
   const darkFactor = theme === "dark" ? 0.4 : 1;
   const aMin = F + 0.10 * darkFactor * (1 - F);
@@ -462,6 +462,9 @@ function clearEffects() {
   // 令牌映射与对话栏那一族规则照旧生效（"插件已卸载，玻璃还在"）。与下面三个同批。
   document.body.removeAttribute("data-we-glass-page");
   document.body.removeAttribute("data-we-left-sidebar");
+  // 标题栏液态玻璃门（与上面那个同批）：漏撤 ⇒ 插件卸载 / 禁用后，顶栏仍挂着玻璃底与
+  // 雾化层，而壳层自己的不透明底色被压住 —— 表现为"插件没了，标题栏还是玻璃的"。
+  document.body.removeAttribute("data-we-titlebar-glass");
   // 思考块液态玻璃门（PR #130 引入）：同批的卸载残留口径 —— 漏撤 ⇒ 插件卸载后
   // 宿主思考条的规则组照旧生效。合并 #132 时补上（第 ⑨ 组清理对称判据的要求）。
   // 三挡的另一半（对话区原生挡）同批：漏撤 ⇒ 卸载后对话区令牌仍被钉回原生值。
@@ -492,6 +495,7 @@ function clearEffects() {
   for (const v of [
     "--we-settings-window-blur", "--we-settings-window-alpha",
     "--we-left-sidebar-blur", "--we-left-sidebar-alpha",
+    "--we-titlebar-blur", "--we-titlebar-alpha",
     "--we-floaters-blur", "--we-floaters-alpha",
     // ⚠️ 对话栏那一族（`--we-chat-*`）**提交态就没在撤** —— 既有缺陷，本次一并补上：
     //    它们是对话栏专属釉层变量，卸载后残留同样会被那几条规则读到。
@@ -516,6 +520,7 @@ function clearEffects() {
   selection.videoError = "";
   selection.blockedNote = "";
 }
+
 export {
   applyEffects, clearEffects,
   applyCaretStyles, removeCaretStyles, resolveWallpaperFadeBg,

@@ -11,7 +11,9 @@
  *      的文字），同时**只**把已被接管的角色（用户改过字号/字重）落到全局 —— 见 typography.js
  *      的 `useGlobal && (useSize || useWeight)`：挑一个全局字体不该改动任何角色的字号。
  *
- * 需要的外界：无（纯函数 + mock webServer；`runFontCommand` 是注入的替身，本文件**不 spawn**）。
+ * 需要的外界：几乎无（纯函数 + mock webServer；`runFontCommand` 是注入的替身）。**唯一**一处真起
+ * 进程的是 ② 里那条"多字节字符跨 chunk"的解码判据（它要的是真管道边界，替身给不了）—— 环境禁止建
+ * 管道 stdio 时（受限沙箱）那一条记**环境跳过**并在末尾点名，不静默算过。
  * 扫描期的一切都走 `collectSystemFonts(deps)` 的显式入参（platform / run / home / now）。
  *
  * 不变量（本文件断言的对象）：
@@ -45,6 +47,8 @@ mkdirSync(ISO, { recursive: true });
 
 let passed = 0;
 let failed = 0;
+/** 环境跳过（**不是通过**）：只有"这条判据在本进程所在的环境里根本跑不了"才计数，末尾必须点名。 */
+let skipped = 0;
 const check = (name, ok, detail) => {
   if (ok) passed++; else failed++;
   console.log((ok ? '  ✓ ' : '  ✗ ') + name + (detail ? ' — ' + detail : ''));
@@ -223,8 +227,21 @@ const macRun = async (cmd) => (cmd === 'osascript'
     + 'process.stdout.write(b.slice(0,2));'
     + 'setTimeout(()=>{process.stdout.write(b.slice(2));},20);';
   const raw = await defaultRun(process.execPath, ['-e', childCode, SPLIT]);
-  check('真子进程：多字节字符跨 chunk ⇒ 解码后逐字仍是原文（不插 U+FFFD）',
-    raw.ok === true && raw.stdout === SPLIT && !raw.stdout.includes('\uFFFD'), JSON.stringify(raw.stdout));
+  // ⚠️ 上面那句的 `stdio: ['ignore','pipe','ignore']` 要**真的建一根管道**：受限沙箱（本仓的
+  //    判据进程就跑在里面，见工具说明里的 "programs cannot open named pipes"）会在 spawn 这一
+  //    步直接 EPERM。那是**环境不让这条判据跑**，不是被测实现坏了 ⇒ 记一次显式环境跳过（照
+  //    verify-media-bridge 那条通道的规矩：不静默算过、也不冤枉判红），并在末尾点名。
+  //    CI runner 与普通开发机都建得出管道 ⇒ 那边照旧真跑这条断言。
+  const pipeBlocked = raw.ok === false && /EPERM|EACCES/.test(String(raw.error || ''));
+  if (pipeBlocked) {
+    skipped++;
+    console.log('  ○ ' + '真子进程：多字节字符跨 chunk —— **环境跳过**：本进程所在的环境禁止建管道 stdio'
+      + '（' + raw.error + '），这条只能在允许子进程的环境里真跑（CI runner / 普通开发机）。'
+      + '本次**没有断言覆盖**这一条。');
+  } else {
+    check('真子进程：多字节字符跨 chunk ⇒ 解码后逐字仍是原文（不插 U+FFFD）',
+      raw.ok === true && raw.stdout === SPLIT && !raw.stdout.includes('\uFFFD'), JSON.stringify(raw.stdout));
+  }
   // 负对照：同一串字节按**逐块解码再拼**（修法之前的写法）必须真的坏掉 —— 证明上面那条有牙。
   const naiveBytes = Buffer.from(SPLIT, 'utf8');
   const naiveDecoded = naiveBytes.slice(0, 2).toString('utf8') + naiveBytes.slice(2).toString('utf8');
@@ -788,6 +805,7 @@ section('⑧ 真渲染（构建产物）：内置族键 + 本机字体同列、�
 }
 
 console.log(failed === 0
-  ? `\nSYSTEM-FONT CHECKS PASSED (${passed})`
-  : `\nSYSTEM-FONT CHECKS FAILED — ${failed} failed, ${passed} passed`);
+  ? `\nSYSTEM-FONT CHECKS PASSED (${passed})` + (skipped ? ` —— ⚠️ ${skipped} 条环境跳过（不是通过，见上面的 ○ 行）` : '')
+  : `\nSYSTEM-FONT CHECKS FAILED — ${failed} failed, ${passed} passed`
+    + (skipped ? `, ${skipped} skipped` : ''));
 process.exit(failed === 0 ? 0 : 1);

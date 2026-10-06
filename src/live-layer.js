@@ -615,7 +615,7 @@ function startLiveWatch(frame, wid) {
     payloadStart: null,         // 本看护窗口第一次成功采样的留底 {served, completed}
     payloadPrev: 0, payloadGrew: false, payloadPolling: false,
     loadingTicks: 0,
-    firstFrame: false, stall: 0, resumed: false, heldPaused: 0,
+    firstFrame: false, stall: 0, resumed: false, heldPaused: 0, rearmed: false,
   };
   liveLog("watch-start", "wid=" + watch.wid + " 预算=" + watch.budget + "ms " + liveStateBrief());
   watch.timer = setInterval(() => {
@@ -729,7 +729,30 @@ function startLiveWatch(frame, wid) {
     // 运行期：场景要求持续出帧；网页只要求渲染页可达（能读到 getState / stats，
     // 静止画面本身是正常状态，不是失联）。
     const responsive = isWeb ? Boolean(wstate || stats) : alive;
-    if (responsive || !isEffectivelyPlaying()) {
+    if (responsive) {
+      // 兜底自愈：这个标志的语义就是「渲染页活着且应在播」，看护心跳在这里的判据
+      // （responsive / alive）比任何清零点都权威 —— 而全文件唯一的置真点是上面的
+      // **首帧门**，它一辈子只走一次。于是同键重新 apply（领养分支不重载渲染页、
+      // 也不重新武装首帧门）会把标志永久钉在 false：画面照播（`we-live-on` 类与
+      // 垫底图早就是终态），可消费点全是提前 return —— `livePointerFlush` /
+      // `livePointerSample` 挡住指针注入、`startMediaSync` 的 1s 拍挡住音频频谱与
+      // Now Playing。用户看到的就是"壁纸有时候坏了，动一下鼠标没反应"。
+      // 不在清零点上逐个补，是因为清零点分散（applySelection 三处 / stopLiveWatch）
+      // 且各自都有"看起来正当"的理由；把语义的**唯一权威**放回心跳这一层，任何
+      // 现在或将来漏掉的清零点都会被下一拍（≤1s）纠回来。
+      // ⚠️ 分支进 `responsive`（上面那行），但**自愈本身**挂 `alive && isEffectivelyPlaying()`：
+      // 场景暂停期 fps=0 ⇒ `alive` 恒为假，天然不自愈；**网页**的 `alive` 只问 iframe 加载
+      // 与否（`iframeLoaded`），暂停期照样为真 —— 暂停语义必须由 `isEffectivelyPlaying()`
+      // 补上，否则暂停期会把一个**故意暂停**的渲染页标成 active，指针注入与媒体桥白热。
+      // 两头都对：真的在出帧才自愈，暂停/隐藏期不自愈，恢复播放后的第一拍再自愈
+      // （延迟 ≤1s，用户无感）。
+      if (alive && isEffectivelyPlaying() && !selection.sceneLiveActive) {
+        selection.sceneLiveActive = true;
+        if (!watch.rearmed) {
+          watch.rearmed = true;
+          liveLog("live-rearm", "wid=" + watch.wid + " 心跳自愈（激活态被清后又恢复）", "info");
+        }
+      }
       watch.stall = 0;
       watch.resumed = false;
       // 帧率取证：每 5 秒一条（只上报，不做任何控制）——「限了 30 还卡」时
@@ -738,6 +761,7 @@ function startLiveWatch(frame, wid) {
       if (watch.fpsTick % 5 === 0) reportLiveFps(watch, frame, stats, wstate);
       return;
     }
+    if (!isEffectivelyPlaying()) { watch.stall = 0; watch.resumed = false; return; }
     watch.stall += 1;
     if (watch.stall === LIVE_STALL_TICKS && !watch.resumed) {
       // 单次自救：contextlost 恢复后渲染器可能停摆但未上报，先推一把。
@@ -2091,6 +2115,23 @@ function syncLayers() {
       armDeferredLiveFrame(liveFrame);
       applyLiveControls(liveFrame);
       ensureLivePointer(liveFrame);
+      // 领养路径补挂激活态：这一跳没有重建层（同一张壁纸的再次 apply / revalidate /
+      // stopLiveWatch 之后的那一跳），但 `selection.sceneLiveActive` 可能已被清成 false，
+      // 而它的唯一置真点是**首帧门**——帧已在出帧时那扇门一辈子不会再走（`watch.firstFrame`
+      // 已为真）⇒ 标志永久为假，指针注入与媒体桥（频谱 / Now Playing）双双静默失效，
+      // 画面却照旧在播（用户只看得到"壁纸有时候坏了"）。这里按**同一套就绪判据**把
+      // 语义补回来：心跳在，且这一拍真的在出帧（网页壁纸按"渲染页可达"）。
+      // 时序：本块在心跳起动（上面 adopt-live 分支的 startLiveWatch）之后 —— `liveWatch`
+      // 与刚武装的对象是同一个，`firstFrame` 此刻可能还是 false（首帧要等一拍 tick），
+      // 于是这里以"这一拍就有帧"直接判定，不等那一拍。
+      const watchHere = liveWatch;
+      if (!selection.sceneLiveActive && watchHere && watchHere.frame === liveFrame
+          && liveFrame.isConnected && !liveFrameDeferred(liveFrame)
+          && isEffectivelyPlaying()
+          && liveFrameReady(liveFrame, selection)) {
+        selection.sceneLiveActive = true;
+        liveLog("live-rearm", "wid=" + selection.id + " 领养后补挂激活态（指针注入 / 媒体桥恢复）", "info");
+      }
     }
     // Edge-only: drive the canvas mirror from the hidden decoder video.
     // Incremental guard: every emit (including the 500ms transcode poll) used

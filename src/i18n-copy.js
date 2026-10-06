@@ -308,6 +308,9 @@ const WE_I18N_EN = {
   "左侧栏液态玻璃": "Left sidebar liquid glass",
   "左侧栏也跟随玻璃配方（配色 / 玻璃颜色 / 透明度 / 雾化 / 边框）": "The left sidebar follows the same glass recipe too (accent / glass color / opacity / frost / border)",
   "宿主原生左侧栏（会话列表 / 工作区那一列）默认直接透出壁纸、不吃玻璃参数。打开后它变成与其余界面同款的玻璃面板，跟随「配色 / 玻璃颜色 / 玻璃透明度 / 雾化 / 边框」；关闭即恢复原生观感。默认关。": "The host's native left sidebar (the session / workspace column) shows the raw wallpaper by default and ignores the glass parameters. When on, it becomes a glass panel like the rest of the UI and follows Accent / Glass color / Glass opacity / Frost / Border; turn it off to restore the native look. Off by default.",
+  "标题栏液态玻璃": "Title bar liquid glass",
+  "标题栏也跟随玻璃配方（配色 / 玻璃颜色 / 透明度 / 雾化 / 边框）": "The title bar follows the same glass recipe too (accent / glass color / opacity / frost / border)",
+  "桌面壳顶栏（拖拽区 / 窗口按钮那一行）默认保持不透明底色。打开后它变成与其余界面、**以及左侧栏完全同款**的玻璃面板，跟随「配色 / 玻璃颜色 / 玻璃透明度 / 雾化 / 边框」——两侧栏同一数值下观感一致，不会出现色差；关闭即恢复原生观感。默认关。": "The desktop shell title bar (the drag area / window button row) keeps an opaque base by default. When on, it becomes a glass panel exactly like the rest of the UI — and exactly like the left sidebar — following Accent / Glass color / Glass opacity / Frost / Border, so both surfaces look identical at the same value and no color difference appears; turn it off to restore the native look. Off by default.",
   "细节": "Details",
   "雾化": "Frost",
   "边框": "Border",
@@ -656,17 +659,37 @@ const WE_I18N_EN = {
   "跟随主题色": "Follow theme color",
 
   // ── src/ext-parallax.js · 「扩展」页签三号模块（3D 效果）──
-  //    范围/默认值不在这里写死：真源是 lib/settings-schema.js 的 4 个 `parallax*` 键。
+  //    范围/默认值不在这里写死：真源是 lib/settings-schema.js 的 11 个 `parallax*` 键
+  //    （插件槽位那一档的缺省值是 src/parallax-layer.js 的 PARALLAX_PLUGIN_DEFAULT）。
   //    这一节刻意不登记 `%`（SliderRow 的单位后缀是代码里的字面量，不进词表），
   //    也没有与另两个模块共用的键 —— 文案都是这一个模块自己的。
+  //    距离的口径只有一条（用户口径 m02697-①）：**最大位移 = 屏幕最长对角线的百分比**。
   "3D 效果": "3D effect",
-  "光标移动时，壁纸与吉祥物沿屏幕中心的对称方向轻轻偏移（视差纵深）": "Shifts the wallpaper and the mascot gently along the direction mirrored about the screen center as the cursor moves (parallax depth)",
+  "光标移动时，壁纸与吉祥物沿屏幕中心的对称方向轻轻偏移，界面整块则与壁纸同向轻挪（视差纵深）": "Shifts the wallpaper and the mascot gently along the direction mirrored about the screen center as the cursor moves, while the whole interface drifts the same way as the wallpaper (parallax depth)",
   "启用 3D 效果": "Enable 3D effect",
-  "光标移动时，壁纸与吉祥物沿屏幕中心的对称方向轻轻偏移：整块界面不动": "As the cursor moves, the wallpaper and the mascot drift gently in the direction mirrored about the screen center: the interface itself never moves",
+  "光标移动时，壁纸与吉祥物沿屏幕中心的对称方向轻轻偏移；界面整块默认不动（要一起动就打开下面的「界面元素跟随」）": "As the cursor moves, the wallpaper and the mascot drift gently in the direction mirrored about the screen center; the interface itself stays put unless you turn on Interface follows below",
+  "背景": "Background",
   "背景缓动距离": "Background travel",
-  "光标走完一整条对角线时，壁纸挪动的距离占该对角线的百分比（壁纸会同时放大同样多，免得边上露出底色）": "How far the wallpaper travels, as a percentage of the longest diagonal, when the cursor crosses that whole diagonal (the wallpaper is scaled up by the same amount, so no base color shows at the edges)",
+  "光标贴到屏幕角时，壁纸挪动的距离占屏幕最长对角线的百分比（壁纸会同时放大同样多，免得边上露出底色）": "How far the wallpaper travels, as a percentage of the screen's longest diagonal, when the cursor reaches a screen corner (the wallpaper is scaled up by the same amount, so no base color shows at the edges)",
   "吉祥物跟随": "Mascot follows",
   "挂件也按「背景缓动距离」一起挪": "The mascot drifts along using the background travel distance",
+  "原生前端": "Built-in interface",
+  "界面元素跟随": "Interface follows",
+  "输入卡片、会话文本区（连里面的用户气泡一起）与侧栏作为整块跟着挪：文字与底下的玻璃一起动": "The composer, the conversation text area (user bubbles inside included) and the sidebar drift as whole blocks: the text moves together with the glass underneath it",
+  "会话文本区距离": "Conversation area travel",
+  "长回复所在的整块文本区自己的最大位移：光标贴到屏幕角时它最多挪出屏幕最长对角线的百分之几（0 = 这一组完全不跟）": "Maximum travel of the whole text area that long replies live in, on its own: the percentage of the screen's longest diagonal it can move when the cursor reaches a screen corner (0 = this group does not move at all)",
+  "输入卡片距离": "Composer travel",
+  "底部输入卡片自己的最大位移：默认比文本区大一点，看着更靠前、纵深更明显（0 = 这一组完全不跟）": "Maximum travel of the composer at the bottom, on its own: by default a little larger than the text area, which reads as the nearest layer and makes the depth clearer (0 = this group does not move at all)",
+  "侧栏距离": "Sidebar travel",
+  "左侧栏自己的最大位移：它比文本区更靠后，想让它更沉就调小（0 = 这一组完全不跟）": "Maximum travel of the left sidebar, on its own: it sits further back than the text area, so lower values read as more distant (0 = this group does not move at all)",
+  "用户气泡距离": "User bubble travel",
+  "你的消息气泡在会话文本区之外「再多走」的一份距离：0 = 气泡只跟着文本区一起动，调大就比周围的回复更靠前": "An extra distance your message bubbles add on top of the conversation text area: 0 = bubbles only move with the text area, and higher values put them in front of the replies around them",
+  "插件前端": "Plugin interface",
+  "插件前端跟随": "Plugin interface follows",
+  "别的插件注册进来的界面元素组（比如任务看板、市场面板）也跟着挪；默认关 —— 它动的是它们的真实界面": "Front-end element groups registered by other plugins (a task board, a marketplace panel, and so on) drift along too; off by default, because it moves their real interface",
+  "下面是运行期认到的、由别的插件注册进来的前端元素组（槽名就是它的身份）：一行一个，0 = 这一组完全不跟。组里出现固定在屏幕上的元素（下拉、浮层一类）时，这一组整组都不跟": "Below are the front-end element groups discovered at runtime that other plugins registered (the slot name is the identity): one row each, 0 = that group does not move at all. If the group contains a fixed-position element (a dropdown or popover, say), the whole group stays still",
+  "还没认到别的插件注册的前端元素组：等它们的界面出现后，这里会自动多出对应的行": "No front-end element groups registered by other plugins have been discovered yet: once their interface shows up, the matching rows appear here automatically",
+  "这一组自己的最大位移：光标贴到屏幕角时它最多挪出屏幕最长对角线的百分之几（0 = 这一组不缓动）。组里出现固定在屏幕上的元素（下拉、浮层一类）时，这一组整组都不跟": "Maximum travel of this group, on its own: the percentage of the screen's longest diagonal it can move when the cursor reaches a screen corner (0 = this group does not move). If the group contains a fixed-position element (a dropdown or popover, say), the whole group stays still",
   "缓动平滑": "Easing smoothness",
   "0 = 立刻跟手，越大越柔和（跟得越慢、停下后还会飘一小段才归位）": "0 = follows the cursor instantly; higher values are softer (it trails behind and keeps drifting a little after the cursor stops)",
 
@@ -797,6 +820,9 @@ const WE_I18N_EN = {
   "左侧栏玻璃·玻璃透明度": "Left sidebar glass · glass opacity",
   "左侧栏玻璃·雾化": "Left sidebar glass · blur",
   "左侧栏玻璃·玻璃保真度": "Left sidebar glass · glass fidelity",
+  "标题栏玻璃·独立配置": "Title bar glass · independent config",
+  "标题栏玻璃·玻璃透明度": "Title bar glass · glass opacity",
+  "标题栏玻璃·雾化": "Title bar glass · blur",
   "浮层玻璃·独立配置": "Popover glass · independent config",
   "浮层玻璃·玻璃颜色": "Popover glass · glass color",
   "浮层玻璃·玻璃透明度": "Popover glass · glass opacity",
@@ -809,6 +835,7 @@ const WE_I18N_EN = {
   "内部错误：这个子界面缺少文案": "Internal error: this sub-UI has no copy",
   "打开后**紧接在本行下方**出现这一项自己的独立配置，**完全覆盖**上面的全局配置；关闭则回到继承全局": "When on, this item’s own independent config appears **directly below this row** and **fully overrides** the global config above; when off it goes back to inheriting the global one.",
   "打开后**紧接在本行下方**出现左侧栏自己的两项（玻璃透明度 / 雾化），**完全覆盖**「玻璃 UI」里的全局配置；关闭则回到继承全局。": "When on, the left sidebar’s own two controls (glass opacity / blur) appear **directly below this row** and **fully override** the global config in Glass UI; when off it goes back to inheriting the global one.",
+  "打开后**紧接在本行下方**出现标题栏自己的两项（玻璃透明度 / 雾化），**完全覆盖**「玻璃 UI」里的全局配置；关闭则回到继承全局（与左侧栏同一数值 ⇒ 同一观感）。": "When on, the title bar’s own two controls (glass opacity / blur) appear **directly below this row** and **fully override** the global config in Glass UI; when off it goes back to inheriting the global one — the same value as the left sidebar gives the same look.",
   // ── 本机字体（src/system-fonts.js · panel-tabs 字体节）──
   "侧栏玻璃跟随全局": "Sidebar glass follows the global settings",
   "模糊 / 透明度 / 底色都跟随全局玻璃": "Blur, transparency and base tint all follow the global glass",

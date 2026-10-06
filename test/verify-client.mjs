@@ -969,8 +969,9 @@ setTimeout(async () => {
         flushPersistWrites();
         const parTree = renderPicker();
         const parText = JSON.stringify(parTree);
-        for (const t of ['3D 效果', '光标移动时，壁纸与吉祥物沿屏幕中心的对称方向轻轻偏移：整块界面不动',
-          '背景缓动距离', '吉祥物跟随', '挂件也按「背景缓动距离」一起挪', '缓动平滑']) {
+        for (const t of ['3D 效果', '光标移动时，壁纸与吉祥物沿屏幕中心的对称方向轻轻偏移；界面整块默认不动（要一起动就打开下面的「界面元素跟随」）',
+          '背景缓动距离', '吉祥物跟随', '挂件也按「背景缓动距离」一起挪', '界面元素跟随',
+          '输入卡片、会话文本区（连里面的用户气泡一起）与侧栏作为整块跟着挪：文字与底下的玻璃一起动', '缓动平滑']) {
           assert.ok(parText.includes(t), '打开三号模块后「扩展」页签必须有「' + t + '」');
         }
         // 另两个模块的参数**不得**因为三号开着而出现（三张卡各管各的）。
@@ -982,8 +983,8 @@ setTimeout(async () => {
         assert.equal(sliderMin(findSliderRow(parTree, '缓动平滑')), '0', '缓动平滑下限必须是 0%');
         assert.equal(sliderMax(findSliderRow(parTree, '缓动平滑')), '98', '缓动平滑上限必须是 98%');
         // 默认回显：背景是 1%（用户口径里写明的默认值 —— 改大了就是"一开就很晃"）。
-        const parReadoutOf = (labelText) => {
-          const row = findSliderRow(parTree, labelText);
+        const parReadoutOf = (labelText, tree) => {
+          const row = findSliderRow(tree || parTree, labelText);
           if (!row) return null;
           const hits = (row.children || []).filter((c) =>
             typeof c?.props?.className === 'string' && c.props.className.includes('we-picker__value'));
@@ -996,12 +997,95 @@ setTimeout(async () => {
         const parMascot = findCtlInput(parTree, '挂件也按「背景缓动距离」一起挪');
         assert.ok(parMascot, '三号模块必须画出「吉祥物跟随」子开关');
         assert.equal(parMascot && parMascot.props.checked, true, '「吉祥物跟随」默认必须是开的');
-        // 复位：总开关关掉（后续判据要的是"默认态"）。
+        // 界面组子开关默认**关**（用户口径：它动的是真实界面 —— 输入卡片、会话文本区、侧栏，
+        // 连文字一起挪，绝不能不问自取）：关着时只画它自己那一行，距离滑块连文案都不出现。
+        const parUi = findCtlInput(parTree, '输入卡片、会话文本区（连里面的用户气泡一起）与侧栏作为整块跟着挪：文字与底下的玻璃一起动');
+        assert.ok(parUi, '三号模块必须画出「界面元素跟随」子开关');
+        assert.equal(parUi && parUi.props.checked, false, '「界面元素跟随」默认必须是关的');
+        assert.equal(findSliderRow(parTree, '会话文本区距离'), null,
+          '「界面元素跟随」关着时不该画出四个区域距离');
+        if (parUi) {
+          parUi.props.onChange({ target: { checked: true } });
+          flushPersistWrites();
+          const uiTree = renderPicker();
+          // 四个区域距离**各是绝对百分比**（用户裁决 m02697-①③）：面板与存档**同一个单位**
+          // ⇒ 滑杆域 = KINDS 域（0..10、步长 0.1，没变）；出厂值则是用户实际调好的那一组
+          //（用户诉求 m04159：「修改原生前端在开启时的默认值」⇒ 1.2 / 1.8 / 1.6 / 1.4）。
+          // 真源在 lib/settings-schema.js 的 DEFAULTS，这里按"面板必须照它回显"逐个钉住。
+          const parNativeDefaults = {
+            '会话文本区距离': '1.2%',
+            '输入卡片距离': '1.8%',
+            '侧栏距离': '1.6%',
+            '用户气泡距离': '1.4%',
+          };
+          Object.keys(parNativeDefaults).forEach((label) => {
+            assert.equal(sliderMin(findSliderRow(uiTree, label)), '0', label + ' 下限必须是 0%');
+            assert.equal(sliderMax(findSliderRow(uiTree, label)), '10', label + ' 上限必须是 10%');
+            assert.equal(parReadoutOf(label, uiTree), parNativeDefaults[label],
+              label + ' 的默认回显必须是出厂值 ' + parNativeDefaults[label] + '（真源 = lib/settings-schema.js 的 DEFAULTS）');
+          });
+          assert.equal(findSliderRow(uiTree, '界面跟随距离'), null,
+            '总倍率退役后不得再画出「界面跟随距离」');
+          // 缓动元素设置分三类（用户裁决 m02697-③）：三张分组卡的标题按序都在树上。
+          const sectionTitles = [];
+          (function walk(node) {
+            if (!node || typeof node !== 'object') return;
+            if (Array.isArray(node)) { node.forEach(walk); return; }
+            if (node.props?.className === 'we-picker__section-label') {
+              sectionTitles.push(String((node.children || [])[0] ?? ''));
+            }
+            if (Array.isArray(node.children)) node.children.forEach(walk);
+          })(uiTree);
+          // （`扩展模块` 是注册表容器自己那张卡，排在本模块各行之前 ⇒ 只取末三张。）
+          assert.deepEqual(sectionTitles.slice(-3), ['背景', '原生前端', '插件前端'],
+            '缓动元素设置必须按 背景 / 原生前端 / 插件前端 三张分组卡排');
+          assert.equal(sectionTitles[0], '扩展模块', '三张分组卡必须落在「扩展模块」容器之内');
+          const uiText = JSON.stringify(uiTree);
+          // 界面组在自己那一行上还挂着一句"整块跟着挪"的说明。
+          assert.ok(uiText.includes('输入卡片、会话文本区（连里面的用户气泡一起）与侧栏作为整块跟着挪'),
+            '「界面元素跟随」必须带一句说明它是整块一起挪的');
+          // 「插件前端」那一张卡**有自己的开关**（用户诉求 m03549："把插件前端也单独归类加开关"；
+          // 裁决 = 独立开关、默认关）：界面跟随开着而它关着时，这一卡**只有开关** —— 提示与槽位行
+          // 一行都不许画（"关着还能拖参数"那条不变量在子开关上也照旧）。
+          const parPluginHint = '别的插件注册进来的界面元素组（比如任务看板、市场面板）也跟着挪；默认关 —— 它动的是它们的真实界面';
+          const parPlugin = findCtlInput(uiTree, parPluginHint);
+          assert.ok(parPlugin, '「插件前端」必须画出它自己的开关「插件前端跟随」');
+          assert.equal(parPlugin && parPlugin.props.checked, false,
+            '「插件前端跟随」默认必须是关的（它动的是别的插件画出来的真实界面）');
+          assert.ok(!uiText.includes('还没认到别的插件注册的前端元素组')
+            && !uiText.includes('下面是运行期认到的'),
+            '「插件前端跟随」关着时那一卡不得画出提示或槽位行');
+          if (parPlugin) parPlugin.props.onChange({ target: { checked: true } });
+          flushPersistWrites();
+          const pluginTree = renderPicker();
+          const pluginText = JSON.stringify(pluginTree);
+          // 开了插件开关、而运行期一个槽位都没认到（这个夹具没有 DOM）⇒ 空那一条文案。
+          assert.ok(pluginText.includes('还没认到别的插件注册的前端元素组'),
+            '开了「插件前端跟随」却一个槽位都没认到时，必须给一句说明');
+          // **独立于**「界面元素跟随」：把界面整块关掉，插件这一卡照旧（开关还开着、提示还在），
+          // 而原生那四行跟着界面那一块一起收起来 —— 两张卡、两个开关，谁也不牵谁。
+          const parUiOff = findCtlInput(pluginTree,
+            '输入卡片、会话文本区（连里面的用户气泡一起）与侧栏作为整块跟着挪：文字与底下的玻璃一起动');
+          if (parUiOff) parUiOff.props.onChange({ target: { checked: false } });
+          flushPersistWrites();
+          const pluginOnlyTree = renderPicker();
+          const pluginOnlyText = JSON.stringify(pluginOnlyTree);
+          const parPluginStill = findCtlInput(pluginOnlyTree, parPluginHint);
+          assert.equal(parPluginStill && parPluginStill.props.checked, true,
+            '「界面元素跟随」关掉后「插件前端跟随」必须照旧开着（两个开关互不依赖）');
+          assert.ok(pluginOnlyText.includes('还没认到别的插件注册的前端元素组'),
+            '「界面元素跟随」关掉后插件那一卡的说明必须还在');
+          assert.equal(findSliderRow(pluginOnlyTree, '用户气泡距离'), null,
+            '「界面元素跟随」关掉后原生那四行必须收起来');
+        }
+        // 复位：总开关关掉（后续判据要的是"默认态"）。关掉之后连同界面组那些行一起收干净。
         const parOff = findCtlInput(renderPicker(), '启用 3D 效果');
         if (parOff) parOff.props.onChange({ target: { checked: false } });
         flushPersistWrites();
         assert.ok(!JSON.stringify(renderPicker()).includes('背景缓动距离'),
           '关掉三号模块总开关后它那一串参数必须收起来');
+        assert.equal(findSliderRow(renderPicker(), '用户气泡距离'), null,
+          '关掉三号模块总开关后界面组那几行也必须收起来');
       }
       // 唯一激活的页签是「扩展」：只数类名不看文案，能同时挡住"没切过去"与"两个都亮"。
       const activeTabs = [];
