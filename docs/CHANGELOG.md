@@ -15,6 +15,29 @@
 > 完整逐提交历史见 GitHub Commits / Releases；升级前置条件见 [`UPGRADING.md`](./UPGRADING.md)。
 > `test/verify-scene-live.mjs` 这一类判据条数**只记该条写作当时的实测总数**（如 466 / 465），不是现在的总数 —— 后续条目会往上加（现为 472）；照原文保留，好让它与当次提交对得上。
 
+### v1.3.0-r3（未发布）
+
+> v1.3.0-r2 之后的增量；`NOTICE_VERSION` 哨兵同步 `1.3.0-r3`（公告改版 ⇒ 看过 r2 公告的用户会再看到一次），`package.json` 版本号发布时同步。
+
+- **修复：原生下拉（select）弹出的选项列表「底色与字同色」整列不可读**（用户报告 + 截图：深色主题下弹层白底、选项浅字几乎隐形）。
+  **根因**：Chromium 的下拉弹层是一份**独立文档**——画布底色只在 `<select>` 自身背景**不透明**时才取它的底色，而本插件的 select 是透明玻璃底（`.we-picker select { background: transparent }`，玻璃面板要透出壁纸）⇒ 弹层落到默认**浅色**画布；选项文字却继承 select 的玻璃墨色 `--we-ink`（深色主题 = 宿主浅色 label 令牌）⇒ 浅字落浅底。设置窗内全部下拉（过场动画 / 轮转间隔 / 内容分级 / 类型 / 音源……）都中招；侧栏抽屉与官方右栏的 select 因宿主给它们画了不透明底而幸免——这也是「几乎所有的下拉」但并非全部的形态。
+  **修法**：`src/styles.js` 给选项行显式上不透明面板底 + 玻璃墨色（`.we-picker select option, .we-picker__select option { background-color: var(--we-panel-color, #ffffff); color: var(--we-ink, #1f2328); }`）——Chromium 弹层按 option 的**已解析**计算样式逐行绘制（var 在页面内已解析，弹层文档照抄结果），`--we-panel-color` / `--we-ink` 随明暗主题翻转，两主题都可读；类名作用域（`.we-picker__select`）专门覆盖不在 `.we-picker` 子树内的侧栏 select。
+  **判据**：`test/verify-readability.mjs` 新增 **F8**——option 规则必须在位（剥注释后按选择器匹配）、必须同时声明 `--we-panel-color` 底与 `--we-ink` 墨，配两条负对照（底色改回半透明玻璃 / 丢墨色声明都必须判红）。`lib/client.js` 重建，`npm run verify` / `verify:docs` / `smoke` 全部 exit 0。渲染台（真 Chromium）实测：明主题 option = 白底黑字、暗主题 option = `#1e1f26` 不透明底 + 墨色（真机墨色解析为宿主 label 令牌 #ffffff，对 #232324 底对比度 ≈15.9:1）。**纯客户端改动 ⇒ 冷重启后生效。**
+
+- **修复：官方端（0.2.0-rc.x，dockkit）右栏「全屏」模式下对话列穿透玻璃侧栏叠在侧栏上**（[#150](https://github.com/elysia395/dsh-wallpaper-engine/issues/150)，Citrus-Cat 报，本机 0.2.0-rc.2 复现；插件出厂默认即可触发）。
+  **现象**：右栏收起与半屏（push）都正常，唯独切「全屏」后，会话的 hero 标题与输入卡整块叠在侧栏内容之上；原生（无插件）全屏则是侧栏独占整个工作区。
+  **根因**：宿主 0.2.0-rc.x 的 dockkit 层级体系靠**面板内部的 dock 单元**消费 `--dsh-dockkit-dock-layer`（常态 10 / 右栏全屏 40）取得 z-index，从而盖住会话列（会话侧最高 z=9）。而本插件的右栏玻璃把 `backdrop-filter` 加在**面板元素本身**上 ⇒ 面板自成层叠上下文（z=auto 档），内部 dock 单元的 z 被困在面板里，整个面板作为原子跌回 z=auto，被会话侧同为根层叠上下文 flex 项的更高层内容（hero 输入卡 z=1 / composerSeat z=7）反压。push / 收起态没有空间重叠所以看不出来；全屏面板与对话列空间重叠 ⇒ 穿帮。本机实证链：摘掉插件样式表 ⇒ 叠放立刻恢复正常（面板内容重归顶层）；差分会话 / 面板两条祖先链的层叠上下文 ⇒ 唯一差异就是面板自身的 backdrop-filter；给面板内联 `z-index: var(--dsh-dockkit-dock-layer, 10)`（全屏解析为 40）⇒ 重叠消失。
+  **修法**：`src/styles.js` 右栏玻璃主规则（`body[data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open]`，即声明 backdrop-filter 那条）补一行 `z-index: var(--dsh-dockkit-dock-layer, 10)` —— 把面板抬到宿主为它设计的同一层（var 就声明在面板上，全屏自动 40，与内部 dock 单元原生取得的层完全一致）。玻璃关着（主开关兜底只上不透明底色）与软件光栅回退档（backdrop-filter 显式 none）都不成层叠上下文，保持原生绘制顺序，刻意不动。
+  **判据**：`test/verify-host-paint-scope.mjs` 新增 **H4**——凡对面板声明了 blur 型 backdrop-filter 的规则必须同条声明 `z-index: var(--dsh-dockkit-dock-layer…)`，配双负对照（删真规则的抬层 / 合成「有 blur 没抬层」的规则都必须判红）；H0–H3 原样全绿。`lib/client.js` 重建，`npm run verify` / `verify:docs` / `smoke` 全部 exit 0。官方端 0.2.0-rc.2 冷重启活体复验：全屏面板 computed z-index=40、玻璃模糊仍在、hero 位置 elementFromPoint 回到面板内容（修复前是会话 SPAN），截图 `.test-cache/issue150/issue150-fixed.png`。**纯客户端改动 ⇒ 刷新页面即可**（⚠️ 但见下一条：会话中途换 client.js 的坑）。
+
+- **⚠️ 验证手法勘误：官方端运行中重建 lib/client.js 后，仅 reload 页面可能拉取失败（`net::ERR_ABORTED`），必须重启宿主**（本次 #150 验证实测）。
+  **现象**：宿主运行期间重建 client bundle（内容变化）⇒ 页面 reload 后插件 import 永不落定，启动屏停在「Loading plugins…」，宿主日志报 `web boot: 1 entry did not activate` + `import failed (see console for the import error)`；CDP 网络层可见**只有本插件的** `plugins/??dsh-plugin-wallpaper-engine/client.js&rev=…` 被中止（其它插件全部 NETDONE；同批另一模块第一次也被中止、换 rev 重试成功）。bundle 内容回退到与冷启动完全相同的字节依旧失败 ⇒ 与内容无关，是宿主对「会话中途换文件」的 rev/中继状态 wedge。此前 art-gate 实验的「checkout + reload 即生效」结论对本仓**当前构建节奏**（一次会话多次重建）不可靠。
+  **手法**：改 client bundle 后验证一律 **杀进程冷重启**（`taskkill //F //IM "DeepSeek Harness.exe"` 再启动），不要赌 reload。
+
+- **侧栏顶栏新增「刷新」按钮（「暂停」旁）+ 更新公告改版：配图缩小、「侧边栏只是简略版」用 16pt 大字喊出来**（用户口径三条：①「在暂停的旁边添加一个刷新壁纸仓库的按钮，因为总有用户找不到设置页面的刷新键」；②「缩小一些更新公告中的图片」；③「用 word 文档中的 16 号大小的字体向用户说明侧边栏的调节只是简略版，细致的调节在设置页的壁纸引擎页中，可以用夸张一点的表达效果因为用户总是忽视我的更新公告」）。
+  **做了什么**：① 侧栏当前壁纸行的按钮组从 暂停 / 清除 扩成 **暂停 / 刷新 / 清除**（`src/quick-panel.js`）—— 与设置页「刷新」**同一个动作**（`loadInventory()`）、同一个在途态（`刷新中…` + 禁用），tooltip 写明「重新扫描 Wallpaper Engine 壁纸库（新装 / 已删除的壁纸立即出现）」；抽屉档与官方右栏档共用这一份。② 公告配图限高 38vh → **26vh**（`src/styles.js`；1080p 下约 410px → 280px，方图不再独占半屏）。③ 公告「💡 使用提示」下新增一段大字说明（`we-update-notice__callout`，**`font-size: 16pt` ≈ 21px，约正文两倍** —— pt 是绝对单位，不吃正文 0.82em 的缩放）：「❗❗❗ **侧边栏的调节只是「简略版」！**细致的调节都在「设置 → 壁纸引擎」里！」—— 夸张的只有字号与感叹号，不夸大事实。**`NOTICE_VERSION` 升 `1.3.0-r3`**：公告内容改版而不升哨兵的话，看过 -r2 的用户永远看不到新说明（改了等于没改），故重弹一次。
+  **判据**：`test/verify-i18n.mjs` 双向对账（新增 3 键：tooltip 一条 + 大字说明两句，中英同步）；`verify-about` 第⑤节 art-gate 判据原样全绿（门控结构未动）；`lib/client.js` 重建，`npm run verify` / `verify:docs` / `smoke` 全部 exit 0。浏览器实机渲染台目检：抽屉顶栏三按钮（360px 档）不折行、标题正常截断；16pt 大字与配图缩小符合预期。**纯客户端改动 ⇒ 刷新页面即可**。
+
 ### v1.3.0-r2（未发布）
 
 > v1.3.0 之后的增量（GitHub Release v1.3.0 附件发出后、npm 渠道发布前修掉的三件事）；`package.json` 版本号同步 `1.3.0-r2`。

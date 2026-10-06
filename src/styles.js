@@ -1362,6 +1362,17 @@ const CSS = `
        --dsw-alias-bg-layer-* 在壁纸下已被改写成玻璃配方 ⇒ 这里读插件自己的面板色。 */
     background-color: var(--we-panel-color, #1e1f26);
   }
+  /* #150（官方端 0.2.0-rc.x，dockkit 层级体系）：backdrop-filter 让本面板自成层叠
+     上下文（z=auto 档）。宿主的层级设计是「面板内部的 dock 单元消费
+     --dsh-dockkit-dock-layer（常态 10 / 右栏全屏 40）」——层叠上下文一成，这个 z
+     被困在面板内部，整个面板作为原子跌回 z=auto，被会话列里宿主自己的更高层内容
+     （hero 输入卡 z=1 / composerSeat z=7，同为根层叠上下文里的 flex 项）反压：
+     push / 收起态没有空间重叠所以看不出来，唯独「右栏全屏」面板与对话列重叠时，
+     输入卡与 hero 标题会穿透玻璃面板叠在侧栏上（issue #150 截图形态）。
+     修法 = 玻璃开着时把面板本身抬到宿主为它设计的同一层——该 var 就声明在面板上，
+     全屏时自动解析为 40，与内部 dock 单元原生取得的层完全一致；玻璃关着（主开关
+     兜底只上不透明底色）与软件光栅回退档（backdrop-filter 显式 none）都不成层叠
+     上下文，保持原生绘制顺序，无需此抬升。 */
   body[data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open] {
     background-color: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
@@ -1376,6 +1387,7 @@ const CSS = `
       inset 0 1px 0 rgba(255, 255, 255, calc(var(--we-sidebar-sheen) * 0.32)),
       inset 0 -1px 0 rgba(255, 255, 255, calc(var(--we-sidebar-sheen) * 0.08)),
       inset 0 0 0 0.5px rgba(255, 255, 255, calc(var(--we-sidebar-sheen) * 0.06));
+    z-index: var(--dsh-dockkit-dock-layer, 10);
   }
   body[data-ds-dark-theme][data-we-sidebar-glass] [data-sidebar-right-panel][data-sidebar-right-open] {
     background-color: color-mix(in srgb,
@@ -1819,6 +1831,18 @@ const CSS = `
   }
   .we-picker select:hover { background: var(--dsw-alias-bg-layer-1, rgba(128, 128, 128, 0.12)); }
   .we-picker select:disabled { opacity: 0.45; cursor: default; }
+  /* ── 原生下拉的弹层选项行必须显式上不透明底 + 玻璃墨色（用户报告：下拉全是「底色与
+     字同色」）──Chromium 的弹层是一份独立文档：画布只在 select 自身背景**不透明**时才取
+     它的底色，而我们的 select 是透明玻璃底 ⇒ 弹层落到默认**浅色**画布；选项文字却继承
+     select 的玻璃墨色（深色主题=浅字）⇒ 浅字落浅底，整列不可读。修法 = 给 option 行
+     显式上 --we-panel-color（不透明面板底，随主题翻转）+ --we-ink；Chromium 弹层按
+     option 的**已解析**计算样式逐行绘制（var 在页面内已解析，弹层文档照抄结果），明暗
+     两主题都对。作用域同时钉类名（.we-picker__select —— 侧栏/抽屉的 select 不在
+     .we-picker 子树内，靠类名够到）与后代选择器（设置窗内一切 select，含属性面板）。 */
+  .we-picker select option, .we-picker__select option {
+    background-color: var(--we-panel-color, #ffffff);
+    color: var(--we-ink, #1f2328);
+  }
   .we-picker__hint { font-size: 0.8em; color: var(--we-ink-3, rgba(128, 128, 128, 0.75)); }
   /* 「当前壁纸实时帧」微缩预览：就是切换途中 / live 首帧前显示的那张静帧。
      固定 16:9 小图 + 细边框，居中放在控件行里（行已 --wrap，窄面板会自动折行）。 */
@@ -2597,10 +2621,15 @@ body[data-we-glass-floaters] .we-update-notice {
   .we-update-notice__hint { font-size: 0.78em; opacity: 0.6; }
   .we-update-notice__btn { align-self: flex-end; }
   /* 公告配图（v1.3.0 起）：随包 JPEG，/about-qr 路由直出。方图不能全宽吃满 600px 面板
-     （正文 ⑤ 条目加起来已经很高，小窗口会顶出视口）——限高 38vh、宽度跟随、居中。
+     （正文 ⑤ 条目加起来已经很高，小窗口会顶出视口）——限高 26vh、宽度跟随、居中
+     （2026-10-07 用户口径：38vh 在 1080p 下 ≈410px，几乎独占半屏，压到 26vh 给正文让位）。
      发丝边 + 投影让它贴着玻璃面板的既有语言，而不是一块浮贴的截图。 */
-  .we-update-notice__art { display: block; margin: 0 auto; width: auto; max-width: 100%; max-height: 38vh; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.22); box-shadow: 0 10px 26px rgba(0, 0, 0, 0.28); }
+  .we-update-notice__art { display: block; margin: 0 auto; width: auto; max-width: 100%; max-height: 26vh; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.22); box-shadow: 0 10px 26px rgba(0, 0, 0, 0.28); }
   .we-update-notice__art-cap { font-weight: 600; font-size: 0.85em; text-align: center; }
+  /* 大字提示（2026-10-07 用户口径）：用户总忽略公告 ⇒ 「侧边栏只是简略版」这一段用
+     Word 字号框里敲 16 那一档（16pt ≈ 21px，约正文两倍）放大喊话。pt 是绝对单位，
+     不吃正文 0.82em 的缩放，行高单独给 1.45 免得大字挤成一团。 */
+  .we-update-notice__callout { font-size: 16pt; line-height: 1.45; }
   @media (prefers-reduced-motion: reduce) { .we-update-notice { animation: none !important; } }
 
   /* Glass library side drawer — docked right, 360px (capped at 92vw), full

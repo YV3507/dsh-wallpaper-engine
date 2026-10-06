@@ -4790,7 +4790,9 @@ function RopeDock() {
 // 的 /about-qr 白名单还没有 update-notice.jpg ⇒ 图 404。若照旧立刻弹窗，用户看到
 // 裂图，而「知道了」一关整版公告永久退场，配图等于永远没人看到（v1.3.0 发布当日
 // 的真实事故）。-r2 哨兵让当时已误关公告的用户再看一次（带图版）。
-const NOTICE_VERSION = "1.3.0-r2";
+const NOTICE_VERSION = "1.3.0-r3";
+// -r3（2026-10-07）：公告内容改版（新增「侧边栏只是简略版」大字说明 + 配图缩小）——
+// 不升哨兵的话，看过 -r2 的用户永远看不到新说明，改了等于没改 ⇒ 重弹一次。
 // 配图就绪探针的节奏：HEAD 轮询到新白名单在场（= 后端已重启）才弹；旧后端一直
 // 不在场超过 WAIT 则降级为**无图**弹出（文案信息完整；求星入口在「关于」页常驻，
 // 不靠弹窗这一条命）。探针打在 /about-qr 上是自清洁的：404 响应 no-store、200
@@ -4893,6 +4895,12 @@ function UpdateNotice() {
         weT("，列表卡顿也治了；「吉祥物大小」滑块不再把设置页里的形态卡片一起缩放；玻璃配置刻度统一（存量设置自动换算，观感不变）。")),
       React.createElement("p", null,
         React.createElement("strong", null, weT("💡 使用提示："))),
+      // 大字说明（.we-update-notice__callout，16pt）：用户总在侧边栏调完就走、不知道
+      // 设置页还有全套 ⇒ 用公告里最大的一号字把这句话喊出来（2026-10-07 用户口径，
+      // 允许夸张 —— 夸张的就是字号与感叹号，不夸大事实）。
+      React.createElement("p", { className: "we-update-notice__callout" },
+        noticeEx(3), React.createElement("strong", null, weT("侧边栏的调节只是「简略版」！")),
+        weT("细致的调节都在「设置 → 壁纸引擎」里！")),
       React.createElement("p", null,
         noticeEx(3), React.createElement("strong", null, weT("升级后建议重启一次 DSH")),
         weT("——玻璃配置管线有迁移，重启后才完整生效。")),

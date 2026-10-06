@@ -447,6 +447,14 @@
             className: "we-picker__btn", type: "button",
             onClick: onTogglePlay, disabled: !sel.url,
           }, playbackLive ? weT("暂停") : weT("播放", null, "play")),
+          // 「刷新」（2026-10-07 用户口径）：总有人找不到设置页里的刷新键 ⇒ 在顶栏
+          // 「暂停」旁边给一份同款（与设置页同一动作 loadInventory、同一在途态
+          // 「刷新中…」）。列表的「重试」只在不扫描失败时出现，这里是常态入口。
+          React.createElement("button", {
+            className: "we-picker__btn", type: "button",
+            onClick: () => loadInventory(), disabled: sel.loading,
+            title: weT("重新扫描 Wallpaper Engine 壁纸库（新装 / 已删除的壁纸立即出现）"),
+          }, sel.loading ? weT("刷新中…") : weT("刷新")),
           React.createElement("button", {
             className: "we-picker__btn", type: "button",
             onClick: onClear, disabled: !sel.id,

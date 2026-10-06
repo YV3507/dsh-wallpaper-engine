@@ -846,6 +846,39 @@ function main() {
       && unpairOk(SRC));
   }
 
+  // ── F8：原生 select 弹层的选项行必须显式不透明底 + 玻璃墨色（用户报告：下拉底色与字同色）──
+  // Chromium 的弹层是独立文档：画布只在 select 自身背景不透明时才取它的底色，而我们的
+  // select 是透明玻璃底 ⇒ 弹层落到默认浅色画布；选项文字继承玻璃墨色（深色主题=浅字）
+  // ⇒ 浅字浅底整列不可读。修法 = option 行显式 --we-panel-color + --we-ink（Chromium
+  // 弹层按 option 的已解析计算样式逐行画）。判据钉住：这条 option 规则必须存在、必须
+  // 同时声明两个 var、且底色必须是 --we-panel-color（不透明面板底）——防止将来有人把
+  // 底色改回透明/半透明玻璃形态而弹层再次不可读。
+  {
+    // header 可能带着规则前的整段注释（rulesWithProp 取的是"上一个 } 到 { 之间"的原文）
+    // ⇒ 先剥注释再匹配选择器，避免"注释里出现同名选择器"与"注释吃掉行首锚"两种假判。
+    const optRules = rulesWithProp('background-color')
+      .map((r) => ({ header: r.header.replace(/\/\*[^]*?\*\//g, ' ').trim(), body: r.body }))
+      .filter((r) => /(^|,)\s*(\.we-picker select|\.we-picker__select) option/.test(r.header));
+    const ok = (r) => r.body.includes('background-color: var(--we-panel-color') && r.body.includes('color: var(--we-ink');
+    check('F8 原生下拉弹层选项行：option 规则在位且为不透明面板底 + 玻璃墨色（双作用域：.we-picker select 与 .we-picker__select）',
+      optRules.length >= 1 && optRules.every(ok),
+      optRules.length + ' 条 option 规则' + (optRules.length ? ' · 作用域 ' + optRules.map((r) => r.header.replace(/\s+/g, ' ').trim().slice(0, 60)).join(' | ') : ''));
+    // 负对照 ①：底色改回透明玻璃形态（color-mix 半透明）会被同一条判据判出；
+    // 负对照 ②：丢掉墨色声明也会被判出。
+    const bad = optRules[0] ? {
+      header: optRules[0].header,
+      body: optRules[0].body.replace(/background-color:\s*var\(--we-panel-color[^;]*;/, 'background-color: color-mix(in srgb, var(--we-sidebar-color) 20%, transparent);'),
+    } : null;
+    const badNoInk = optRules[0] ? {
+      header: optRules[0].header,
+      body: optRules[0].body.replace(/\s*color:\s*var\(--we-ink[^;]*;/, ''),
+    } : null;
+    check('negative control F8-1: option 底色改回半透明玻璃（弹层再次浅底浅字）会被判出',
+      bad ? !ok(bad) : false);
+    check('negative control F8-2: option 丢墨色声明会被判出',
+      badNoInk ? !ok(badNoInk) : false);
+  }
+
   const failed = results.filter((r) => !r.ok);
   console.log('\n' + (failed.length === 0
     ? 'ALL READABILITY FLOOR CHECKS PASSED'

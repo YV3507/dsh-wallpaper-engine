@@ -173,5 +173,53 @@ console.log('INFO | H2 其它被上色的宿主容器（需各自核对"关闭�
     ` · 负对照 值改成 none 被抓到 ${negValue ? 1 : 0}/1 · 去掉 !important 被抓到 ${negImportant ? 1 : 0}/1`);
 }
 
+// ── H4：右栏面板的玻璃规则必须把面板抬回 dockkit dock 层（#150）─────────────────
+// 背景：宿主 0.2.0-rc.x 的 dockkit 层级体系是「面板内部的 dock 单元消费
+// --dsh-dockkit-dock-layer（常态 10 / 右栏全屏 40）」拿到 z-index，从而盖住会话列
+// （会话侧最高 z=9）。我们给**面板元素本身**上 backdrop-filter ⇒ 面板自成层叠上下文
+// （z=auto 档），内部 dock 单元的 z 被困在面板里，整个面板作为原子被会话侧的
+// z=1（hero 输入卡）/ z=7（composerSeat）反压 —— push / 收起态没有空间重叠看不出来，
+// 唯独「右栏全屏」面板与对话列重叠时输入卡穿透玻璃面板叠在侧栏上（issue #150）。
+// 修法 = 玻璃规则同时把面板本身抬到同一个 var（var 就声明在面板上，全屏自动 40）。
+// 判据：**凡是对面板声明了非 none 的 backdrop-filter 的规则，必须同条声明
+// z-index: var(--dsh-dockkit-dock-layer, …)**。防的是"类"：将来再往这条规则里加效果、
+// 或新写一条带模糊的右栏规则，忘了抬层就当场红。回退档（backdrop-filter: none）与
+// 主开关兜底（只上不透明底色）不成层叠上下文，刻意不要求。
+{
+  // 取出每条「选择器含面板 + 规则体声明了 blur 型 backdrop-filter」的规则体。
+  // 选择器位置的判定与 panelSelectors 同款（TARGET 后必须先遇 { 而非 }）。
+  const blurRules = [];
+  {
+    let from = 0;
+    for (;;) {
+      const at = CSS.indexOf(TARGET, from);
+      if (at < 0) break;
+      from = at + TARGET.length;
+      const open = CSS.indexOf('{', at);
+      const close = CSS.indexOf('}', at);
+      if (open < 0 || (close >= 0 && close < open)) continue; // 注释/散文里的出现处
+      const selStart = Math.max(CSS.lastIndexOf('{', at), CSS.lastIndexOf('}', at)) + 1;
+      const sel = NORM(CSS.slice(selStart, open));
+      if (!sel.includes(TARGET) || !sel.includes(GATE)) continue;
+      const body = CSS.slice(open + 1, close);
+      if (/backdrop-filter\s*:\s*blur/.test(body)) blurRules.push({ sel, body });
+    }
+  }
+  const lifted = (r) => /z-index\s*:\s*var\(--dsh-dockkit-dock-layer/.test(r.body);
+  // 负对照 ①：把真规则的 z-index 声明删掉，同一条判据必须报出；
+  // 负对照 ②：合成一条「有 blur 没抬层」的规则，也必须报出。
+  const stripped = blurRules[0]
+    ? { sel: blurRules[0].sel, body: blurRules[0].body.replace(/\s*z-index\s*:\s*var\(--dsh-dockkit-dock-layer[^;]*;/, '') }
+    : null;
+  const negStripped = stripped ? lifted(stripped) === false : false;
+  const synthetic = { sel: TARGET, body: 'backdrop-filter: blur(9px);' };
+  const negSynthetic = lifted(synthetic) === false;
+
+  check('H4 右栏面板玻璃规则带 backdrop-filter 就必须抬回 dockkit dock 层（z-index: var(--dsh-dockkit-dock-layer)）',
+    blurRules.length >= 1 && blurRules.every(lifted) && negStripped && negSynthetic,
+    `blur 规则 ${blurRules.length} 条（未抬层 ${blurRules.filter((r) => !lifted(r)).length}）` +
+    ` · 负对照 删真规则抬层被抓到 ${negStripped ? 1 : 0}/1 · 合成无抬层规则被抓到 ${negSynthetic ? 1 : 0}/1`);
+}
+
 console.log(failed === 0 ? '\nverify-host-paint-scope: OK' : `\n${failed} CHECK(S) FAILED`);
 process.exit(failed === 0 ? 0 : 1);

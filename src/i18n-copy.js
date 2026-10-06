@@ -120,6 +120,8 @@ const WE_I18N_EN = {
   "字体集": "font set",
   "修复一批": "A batch of fixes",
   "本提示每个新版本只出现一次，点下方按钮关闭后不再弹出。": "This notice appears once per version — dismiss it with the button below and it won't come back.",
+  "侧边栏的调节只是「简略版」！": "The sidebar controls are only a quick version!",
+  "细致的调节都在「设置 → 壁纸引擎」里！": "Fine-grained tuning lives in Settings → Wallpaper Engine!",
   "知道了": "Got it",
 
   // ── src/font/color-roles.js ──
@@ -555,6 +557,7 @@ const WE_I18N_EN = {
   "场景 · 静态帧": "Scene · static frame",
   "网页 · 实时渲染": "Web · live rendering",
   "网页 · 兼容模式": "Web · compatibility mode",
+  "重新扫描 Wallpaper Engine 壁纸库（新装 / 已删除的壁纸立即出现）": "Rescan the Wallpaper Engine library (newly installed or removed wallpapers show up right away)",
   "当前": "Current",
   "从下面列表挑一张": "Pick one from the list below",
   "切到下一张（轮播开着按活动列表、关着按可播放网格）": "Switch to the next one (uses the active list when rotation is on, the playable grid when off)",
