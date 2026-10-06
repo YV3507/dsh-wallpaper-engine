@@ -1204,25 +1204,58 @@ setTimeout(async () => {
     assert.equal(sliderMax(findSliderRow(tree, '内容面透明度')), '100', '内容面透明度上限必须是 100（规范刻度，R4）');
     // §10.27 + v1.3.0 追版：新增的「思考触发条玻璃·独立配置」—— 打开后才画它自己的两项，量程同样
     // 钉在规范刻度上（这正是"拖过 60 跳回 20"那次事故的两侧之一：**面板量程**那一侧）。
-    // ⚠️ 追版后这一面**挂在「思考块液态玻璃」（上游 #134，默认关）门下**（登记表 `master`）：
-    //    门关着时它一行都不画（画了就是"画出来又不生效"的死旋钮 ⇒ 本仓专门防这一类），
-    //    所以两头都钉 —— 关 ⇒ 找不到；开 ⇒ 出现且量程正确。
+    // ⚠️ 这一面**挂在「思考块液态玻璃」三挡（2026-10-06）的「液态玻璃」挡**门下（登记表 `master`）：
+    //    非"液态玻璃"挡时它一行都不画（画了就是"画出来又不生效"的死旋钮 ⇒ 本仓专门防这一类），
+    //    所以各挡都钉 —— 关/原生 ⇒ 找不到；液态玻璃 ⇒ 出现且量程正确。
+    // 三挡分段的替身驱动：找「思考块液态玻璃」那一行（we-picker__ctl），点其中目标挡位的按钮。
+    const clickThinkGear = (root, label) => {
+      let row = null;
+      (function walk(node) {
+        if (row || !node || typeof node !== 'object') return;
+        if (Array.isArray(node)) { node.forEach(walk); return; }
+        const cls = typeof node.props?.className === 'string' ? node.props.className : '';
+        if (cls.includes('we-picker__ctl') && JSON.stringify(node).includes('思考块液态玻璃')) { row = node; return; }
+        if (Array.isArray(node.children)) node.children.forEach(walk);
+      })(root);
+      assert.ok(row, '找得到「思考块液态玻璃」三挡行');
+      let hit = null;
+      (function findBtn(node) {
+        if (hit || !node || typeof node !== 'object') return;
+        if (Array.isArray(node)) { node.forEach(findBtn); return; }
+        // JSON 包含式而非 children 严格相等：weT 在替身里不保证恒等（词表/回退都可能改写文案），
+        // 按钮级 JSON 含目标挡名即可 —— 行级 hint 不在按钮子树里，三挡按钮互不包含彼此的挡名。
+        if (node.type === 'button' && JSON.stringify(node).includes(label)) { hit = node; return; }
+        if (Array.isArray(node.children)) node.children.forEach(findBtn);
+      })(row);
+      assert.ok(hit, '三挡分段里找得到「' + label + '」按钮');
+      hit.props.onClick();
+    };
     assert.equal(findCtlInput(tree, '思考触发条玻璃·独立配置'), null,
-      '思考玻璃门关着时「思考触发条玻璃·独立配置」不该画（master 门）');
-    findCtlInput(tree, '思考块液态玻璃').props.onChange({ target: { checked: true } });
+      '思考玻璃非"液态玻璃"挡时「思考触发条玻璃·独立配置」不该画（master 门）');
+    clickThinkGear(tree, '液态玻璃');
     tree = renderPicker();
-    assert.equal(bodyEl.attributes['data-we-thinking-glass'], 'on', '打开思考玻璃 ⇒ 门控属性挂上');
+    assert.equal(bodyEl.attributes['data-we-thinking-glass'], 'on', '选液态玻璃挡 ⇒ 玻璃门挂上');
+    assert.equal(bodyEl.attributes['data-we-thinking-native'], undefined, '选液态玻璃挡 ⇒ 原生门不挂');
     findCtlInput(tree, '思考触发条玻璃·独立配置').props.onChange({ target: { checked: true } });
     tree = renderPicker();
     assert.equal(sliderMax(findSliderRow(tree, '思考触发条玻璃·玻璃透明度')), '100',
       '思考触发条透明度上限必须是 100（规范刻度）');
     assert.equal(sliderMax(findSliderRow(tree, '思考触发条玻璃·雾化')), '60',
       '思考触发条雾化上限必须是 60px（与全局雾化同刻度）');
-    // 收尾：关掉思考玻璃 ⇒ 这一行（连同它的滑杆）又收起 —— 往返双向钉住，不留"关着还画"的缺口。
-    findCtlInput(tree, '思考块液态玻璃').props.onChange({ target: { checked: false } });
+    // 原生挡：赢过玻璃挡 —— native 门挂上、玻璃门摘下（互斥在 effects.js 门控层），
+    // 触发条独立配置与胶囊两行整组收起（它们的 CSS 门此时不挂 ⇒ 画了就是死旋钮）。
+    clickThinkGear(tree, '原生');
     tree = renderPicker();
-    assert.equal(bodyEl.attributes['data-we-thinking-glass'], undefined, '关掉思考玻璃 ⇒ 门控属性摘下');
-    assert.equal(findCtlInput(tree, '思考触发条玻璃·独立配置'), null, '关掉思考玻璃 ⇒ 该行收起');
+    assert.equal(bodyEl.attributes['data-we-thinking-native'], 'on', '选原生挡 ⇒ 原生门挂上');
+    assert.equal(bodyEl.attributes['data-we-thinking-glass'], undefined, '选原生挡 ⇒ 玻璃门摘下（互斥）');
+    assert.equal(findCtlInput(tree, '思考触发条玻璃·独立配置'), null, '原生挡 ⇒ 触发条独立配置行收起');
+    assert.equal(findSliderRow(tree, '胶囊雾化'), null, '原生挡 ⇒ 胶囊雾化行收起（死旋钮防线）');
+    // 收尾：关挡 ⇒ 两个门控属性都摘下 —— 三挡往返钉住，不留"关着还挂门"的缺口。
+    clickThinkGear(tree, '关');
+    tree = renderPicker();
+    assert.equal(bodyEl.attributes['data-we-thinking-glass'], undefined, '关挡 ⇒ 玻璃门摘下');
+    assert.equal(bodyEl.attributes['data-we-thinking-native'], undefined, '关挡 ⇒ 原生门摘下');
+    assert.equal(findCtlInput(tree, '思考触发条玻璃·独立配置'), null, '关挡 ⇒ 该行收起');
     // ⚠️ 全局「玻璃透明度」的量程必须与 KINDS 一致（100）。这一条是为一个**真实事故**补的：
     //    处理器里手写的钳制漏改时，面板量程是 100 而钳制是 0–60，`clampNum` 又"越界即回落默认值"
     //    ⇒ 拖过 60 就跳回 20（用户实测"最多只能拉到 20%"）。面板量程 + 处理器取值域**两边都要钉**，
@@ -3429,7 +3462,10 @@ setTimeout(async () => {
   const yieldIdx = glassSrc.indexOf('skinYieldActive()');
   const pageGateIdx = glassSrc.indexOf('setAttribute("data-we-glass-page"');
   assert.ok(yieldIdx >= 0 && pageGateIdx > yieldIdx, '退场必须先于本函数挂任何玻璃面');
-  assert.ok(/selection\.thinkingGlass && !skinYield/.test(effectsSrc), '退场：思考玻璃门控点要带让路守卫');
+  assert.ok(/selection\.thinkingGlass && !selection\.thinkingNative && !skinYield/.test(effectsSrc),
+    '退场：思考玻璃门控点要带让路守卫');
+  assert.ok(/selection\.thinkingNative && !skinYield/.test(effectsSrc),
+    '退场：原生挡门控点要带让路守卫（三挡的第二半，2026-10-06）');
   assert.ok(/selection\.sidebarGlass && selection\.sidebarFollowGlobal && !skinYield/.test(effectsSrc),
     '退场：侧栏跟随门控点要带让路守卫');
   // ③b 复位滞回：对方 refresh 会先摘标记再补回，瞬时摘不许直接复位（现场踩过 0.7s 抢回壁纸）。
@@ -3443,8 +3479,9 @@ setTimeout(async () => {
     && /exitSkinYield\("manual-pick", \{ skipRestore: true \}\)/.test(mediaSrc),
     '让路态里的手动重选要立刻退出让路（只认 fromManual）');
   assert.ok(/function exitSkinYield\(reason, opts\)/.test(clientSrc)
-    && /if \(!skipRestore && !selection\.id && mem\.id\) applySelection\(mem\.id\)/.test(clientSrc),
-    '手动重选退出时不许用记忆里的旧 id 覆盖用户的新选择');
+    && /if \(!skipRestore && !selection\.id && mem\.id\) \{/.test(clientSrc)
+    && /applySelection\(mem\.id, \{ fromSkinRestore: true \}\)/.test(clientSrc),
+    '手动重选退出时不许用记忆里的旧 id 覆盖用户的新选择（放回那次带 fromSkinRestore）');
   // ④ 复位：按记忆放回（在 exitSkinYield 里）；轮播必须一起按停；诊断行留痕。
   assert.ok(/if \(!skinYielded\) return;/.test(clientSrc)
     && clientSrc.includes('if (selection.rotationEnabled) setSetting("rotationEnabled", false)'),
@@ -3501,6 +3538,30 @@ setTimeout(async () => {
     'const SKIN_ACTIVE_URL = "/api/skin-center/v2/active";\nconst SKIN_YIELD_EXIT_GRACE_MS');
   assert.ok(revived.includes('skin-center/v2/active'),
     'negative control: 判据能发现轮询腿被加回来（喂同一份剥注释源码）');
+  // ⑥ 主题维度（用户口径：WE 在台时主题归 WE；退场把**改过的那份**放回；任何外部主题切换
+  //    不硬覆盖回去）：清空路径放回、让路态整族不写、复位那次带 fromSkinRestore（让位标记
+  //    不复位 —— 皮肤窗口里改过的主题不被放回打回）。行为面在 test/verify-theme-follow.mjs ⑧。
+  const themeSrc = readFileSync(new URL('../src/theme-follow.js', import.meta.url), 'utf8');
+  assert.ok(mediaSrc.includes('themeFollowRelease();')
+    && /themeFollowOnWallpaper\(selection, \{ fromSkinRestore: !!\(opts && opts\.fromSkinRestore\) \}\);/.test(mediaSrc),
+    '主题维度：清空路径要放回、评估要透传"皮肤放回"标志（src/media-prep.js）');
+  assert.ok(clientSrc.includes('applySelection(mem.id, { fromSkinRestore: true });'),
+    '主题维度：皮肤退场放回壁纸时带 fromSkinRestore（src/client.js）');
+  assert.ok((themeSrc.match(/\|\| themeFollowSkinYielded\(\)\)|if \(themeFollowSkinYielded\(\)\)/g) || []).length === 5,
+    '主题维度：评估 / 写 / 图源 / 两条帧腿共 5 处写入口都要带皮肤让路门');
+  assert.ok(/function themeFollowRelease\(\)/.test(themeSrc)
+    && /if \(themeFollowYield\) return;/.test(themeSrc)
+    && /if \(current && current !== themeFollowWritten\) return;/.test(themeSrc),
+    '主题维度：放回要带"别人接管过就不碰"的两层判据（让位标记 + 现值比对）');
+  const noRelease = mediaSrc.replace('themeFollowRelease();', '/* 漏放回 */');
+  assert.ok(!/themeFollowRelease\(\);/.test(noRelease), 'negative control: 清空路径漏放回即判红');
+  const gateRe = /\|\| themeFollowSkinYielded\(\)\)|if \(themeFollowSkinYielded\(\)\)/g;
+  const noThemeGate = themeSrc.replace(gateRe, '');
+  assert.ok((noThemeGate.match(gateRe) || []).length !== 5,
+    'negative control: 摘掉主题的皮肤让路门即判红');
+  const stompBack = themeSrc.replace('if (current && current !== themeFollowWritten) return;', '/* 无脑放回 */');
+  assert.ok(!/if \(current && current !== themeFollowWritten\) return;/.test(stompBack),
+    'negative control: 放回变成无脑覆盖（不看现值）即判红');
 }
 
 console.log('\nALL CLIENT CHECKS DONE');

@@ -19,7 +19,9 @@
  *   ⑥ 开关：默认为关（设置模型 + 面板两面）· 关时深/浅两向都不改主题且清掉让位痕迹 ·
  *      开时上游行为仍在 · 键经唯一落盘入口且序列化→重建往返仍是该值
  *   ⑦ 接线（源码形态）：attach 挂在主题层 onReady 上、applySelection 里落 schemeColor
- *      并触发评估、面板开关经落盘入口、模块已登记进内联清单
+ *      并触发评估、面板开关经落盘入口、模块已登记进内联清单、清空路径放回 / 放回带标志
+ *   ⑧ 皮肤互操作：退场放回（改过才放、一次性）· 让路态一律不写 · 外部切换不硬覆盖回去
+ *      （让位标记 + 现值比对两层判据，含 fromSkinRestore 的正负对照）
  *
  * 本模块与 src/adapter.js 一样，按构建期契约以**同作用域**内联（`selection` /
  * `propTokenOf` / `storedUserPropsOf` 都是外部作用域的自由变量）⇒ 这里把这三个名字挂到
@@ -475,7 +477,8 @@ console.log('\n⑦ 接线：服务句柄 / 切换评估 / 面板开关 / 内联�
     liveAssign && liveRead, 'assign=' + liveAssign + ' read=' + liveRead);
   check('清空/被过滤两条早退分支也把实时帧清掉（不留上一张的残值）',
     prepSrc.split('selection.liveFrame = null;').length - 1 >= 2);
-  check('applySelection 触发评估', prepSrc.includes('themeFollowOnWallpaper(selection);'));
+  check('applySelection 触发评估，并把「皮肤放回」标志透传（放回那次不复位让位标记）',
+    prepSrc.includes('themeFollowOnWallpaper(selection, { fromSkinRestore: !!(opts && opts.fromSkinRestore) });'));
   check('清空/被过滤两条早退分支也把配色清掉（不留上一张的残值）',
     prepSrc.split('selection.schemeColor = null;').length - 1 >= 2);
   check('面板开关有文案说明规则与让位条件（关 = 不自动跟随）',
@@ -488,6 +491,154 @@ console.log('\n⑦ 接线：服务句柄 / 切换评估 / 面板开关 / 内联�
   check('两条真实抓帧路径都接上了：场景画布 + 网页 __wp.capture',
     liveSrc.includes('themeFollowOnFrameCanvas(canvas);')
     && liveSrc.includes('themeFollowOnFrameImage(dataUrl);'));
+  // 皮肤互操作（退出清单里的主题那一条）：清空路径放回 + 复位那次走 fromSkinRestore。
+  // 判据认形态（函数名 + 实参形态），负对照在 ⑧ 的行为面（剥掉就不写回）。
+  const themeSrc = read('src/theme-follow.js');
+  // ⚠️ 换行一律写 `\r?\n`：CI 是 CRLF 检出（windows-latest），写死 `\n` 的形态正则在那边恒不匹配
+  //（实测：本批主题放回守卫因此红过一次 CI）。第二条把容忍性本身钉住 —— CRLF 变换不依赖 CI
+  // 环境，所以在本地就能判红"本地绿、CI 红"的复发。
+  // ⚠️ 变换本身要先归一成 LF 再转 CRLF：CI 检出已是 CRLF，直接 replace(/\n/g) 会得到 `\r\r\n`
+  //（第二次实测踩到：这条检查自己在 CI 上红了 —— 先归一 = 幂等）。
+  const releaseThenEmitRe = /themeFollowRelease\(\);\r?\n\s*emit\(\);/;
+  const toCrlf = (s) => s.replace(/\r\n/g, "\n").replace(/\n/g, "\r\n");
+  check('清空路径调用放回（themeFollowRelease）—— 用户「清除」与皮肤让路两条路都汇到那里',
+    releaseThenEmitRe.test(prepSrc));
+  check('CRLF 容忍：同一条判据在 CRLF 检出形态上也命中（防"本地绿、CI 红"复发）',
+    releaseThenEmitRe.test(toCrlf(prepSrc)));
+  check('放回只在 applySelection 的清空路径调（被过滤的早退分支不调 —— 选择还在，主题时代没结束）',
+    prepSrc.split('themeFollowRelease()').length - 1 === 1,
+    'calls=' + (prepSrc.split('themeFollowRelease()').length - 1));
+  check('皮肤退场放回壁纸时带 fromSkinRestore（让位标记随这次放回不复位）',
+    clientSrc.includes('applySelection(mem.id, { fromSkinRestore: true });'));
+  check('主题的写入口全部带皮肤让路门（评估 / 写 / 图源 / 两条帧腿，共 5 处）',
+    (themeSrc.match(/\|\| themeFollowSkinYielded\(\)\)|if \(themeFollowSkinYielded\(\)\)/g) || []).length === 5,
+    'gates=' + (themeSrc.match(/\|\| themeFollowSkinYielded\(\)\)|if \(themeFollowSkinYielded\(\)\)/g) || []).length);
+}
+
+// ═══ ⑧ 皮肤互操作：退场放回 · 让路不写 · 外部切换不硬覆盖回去 ═════════════════════════
+// 三条规则（用户口径）：WE 在台时主题归 WE；我方退场（清空 / 让路给皮肤）把**我方改过的
+// 那一份**原样放回；任何外部主题切换（用户手动 / 皮肤窗口里的改动）永远优先 —— 不放、不写、
+// 不被打回。放回是对自己那次改动的撤销，不是把主题"翻回去"。
+console.log('\n⑧ 皮肤互操作：退场放回 · 让路态不写 · 外部切换不硬覆盖回去');
+{
+  {
+    const m = await freshThemeFollow();
+    const f = makeFake('light');
+    m.themeFollowAttach(f.svc, f.ctx);
+    m.themeFollowOnWallpaper(wallpaper('w1', 'rgb(4, 6, 10)'));   // light → dark
+    const wrote = f.calls.length;
+    m.themeFollowRelease();
+    check('退场放回：我方改过的那份原样归还（dark → light）并留痕',
+      wrote === 1 && JSON.stringify(f.calls) === JSON.stringify(['dark', 'light'])
+      && f.svc.preference === 'light' && diagTraces.some((t) => t.includes('放回')),
+      JSON.stringify(f.calls) + ' pref=' + f.svc.preference);
+    m.themeFollowRelease();
+    check('放回是一次性的（没有改动痕迹后不再写）', f.calls.length === 2, JSON.stringify(f.calls));
+  }
+  {
+    const m = await freshThemeFollow();
+    const f = makeFake('dark');
+    m.themeFollowAttach(f.svc, f.ctx);
+    m.themeFollowOnWallpaper(wallpaper('w1', 'rgb(4, 6, 10)'));   // 已是 dark：从未写
+    m.themeFollowRelease();
+    check('我方没动过主题 ⇒ 退场不放回（一个字节都不写）', f.calls.length === 0, JSON.stringify(f.calls));
+  }
+  {
+    const m = await freshThemeFollow();
+    const f = makeFake('light');
+    m.themeFollowAttach(f.svc, f.ctx);
+    m.themeFollowOnWallpaper(wallpaper('w1', 'rgb(4, 6, 10)'));   // 写 dark（before = light）
+    f.svc.preference = 'light';                                   // 用户改浅色（外部，让位）
+    for (const [ev, cb] of f.handlers) if (ev === 'theme/change') cb();
+    f.svc.preference = 'dark';                                    // 又改回深色：现值回到我方写的那份
+    for (const [ev, cb] of f.handlers) if (ev === 'theme/change') cb();
+    m.themeFollowRelease();
+    check('别人动过手（让位标记在场）⇒ 退场不硬覆盖回去（哪怕现值恰好等于我方写的值）',
+      JSON.stringify(f.calls) === JSON.stringify(['dark']) && f.svc.preference === 'dark',
+      JSON.stringify(f.calls) + ' pref=' + f.svc.preference);
+  }
+  {
+    const m = await freshThemeFollow();
+    const f = makeFake('light');
+    m.themeFollowAttach(f.svc, f.ctx);
+    m.themeFollowOnWallpaper(wallpaper('w1', 'rgb(4, 6, 10)'));   // 写 dark
+    f.svc.preference = 'light';                                   // 直接改服务、不触发事件（最坏形态）
+    m.themeFollowRelease();
+    check('现值已经不是我方写的值 ⇒ 退场也不碰（不硬覆盖回去）',
+      JSON.stringify(f.calls) === JSON.stringify(['dark']) && f.svc.preference === 'light',
+      JSON.stringify(f.calls) + ' pref=' + f.svc.preference);
+  }
+  {
+    const m = await freshThemeFollow();
+    const f = makeFake('light');
+    m.themeFollowAttach(f.svc, f.ctx);
+    m.themeFollowOnWallpaper(wallpaper('w1', 'rgb(4, 6, 10)'));   // before = light，写 dark
+    globalThis.skinYieldActive = () => true;
+    try {
+      m.themeFollowOnWallpaper(wallpaper('w2', 'rgb(240, 244, 250)'));
+      m.themeFollowAcceptImageVerdict([240, 240, 240], 2);
+      const duringYield = f.calls.length;
+      m.themeFollowRelease();
+      check('让路态：评估与图源腿一律空转；放回照常执行（把环境还给皮肤）',
+        duringYield === 1 && JSON.stringify(f.calls) === JSON.stringify(['dark', 'light']),
+        'yield 中写入 ' + duringYield + ' → ' + JSON.stringify(f.calls));
+    } finally { delete globalThis.skinYieldActive; }
+  }
+  {
+    // 重载分裂：本页从未评估过这张壁纸（themeFollowWallpaperId 还是空），皮肤窗口期间
+    // 用户改过主题；放回（fromSkinRestore）必须让那次切换活下来。负对照 = 同序列不带标志。
+    const restoreCase = async (withFlag) => {
+      const m = await freshThemeFollow();
+      const f = makeFake('dark');
+      m.themeFollowAttach(f.svc, f.ctx);
+      f.svc.preference = 'light';                                  // 窗口期：用户把主题切成浅色
+      for (const [ev, cb] of f.handlers) if (ev === 'theme/change') cb();
+      m.themeFollowOnWallpaper(wallpaper('w1', 'rgb(4, 6, 10)'),
+        withFlag ? { fromSkinRestore: true } : undefined);
+      return { calls: f.calls.slice(), pref: f.svc.preference };
+    };
+    const kept = await restoreCase(true);
+    check('放回（fromSkinRestore）不复位让位标记：窗口里改过的主题不被壁纸判决打回',
+      kept.calls.length === 0 && kept.pref === 'light', JSON.stringify(kept));
+    const naive = await restoreCase(false);
+    check('负对照：不带 fromSkinRestore 的普通应用会复位让位标记（同一序列被写回 dark）⇒ 判据能区分',
+      naive.calls.length === 1 && naive.pref === 'dark', JSON.stringify(naive));
+  }
+  {
+    const m = await freshThemeFollow();
+    const f = makeFake('light');
+    m.themeFollowAttach(f.svc, f.ctx);
+    m.themeFollowOnWallpaper(wallpaper('w1', 'rgb(4, 6, 10)'), { fromSkinRestore: true });
+    check('窗口里没人动过主题 ⇒ 放回照常写入壁纸判决（正对照：别把"不硬覆盖"做成"永远不写"）',
+      JSON.stringify(f.calls) === JSON.stringify(['dark']), JSON.stringify(f.calls));
+  }
+  {
+    const m = await freshThemeFollow();
+    const f = makeFake('light');
+    m.themeFollowAttach(f.svc, f.ctx);
+    m.themeFollowOnWallpaper(wallpaper('w1', 'rgb(4, 6, 10)'));
+    m.themeFollowRelease();
+    m.themeFollowOnWallpaper(wallpaper('w1', 'rgb(4, 6, 10)'));
+    check('放回后再选同一张 ⇒ 重新接管（写 dark；before 重新记一份）',
+      JSON.stringify(f.calls) === JSON.stringify(['dark', 'light', 'dark']), JSON.stringify(f.calls));
+    m.themeFollowRelease();
+    check('第二轮退场同样放回（环境每次都能退干净）',
+      JSON.stringify(f.calls) === JSON.stringify(['dark', 'light', 'dark', 'light']), JSON.stringify(f.calls));
+  }
+  {
+    // 放回的自反陷阱：放回自己也会触发一次 theme/change，不许被读成"别人接管"（否则**同一张**
+    // 壁纸的放回会因让位标记被自己锁死）。判据用同一 id + fromSkinRestore（不复位让位标记）——
+    // 那正是"先记再写"纪律唯一能被观察到的路径。
+    const m = await freshThemeFollow();
+    const f = makeFake('light');
+    m.themeFollowAttach(f.svc, f.ctx);
+    m.themeFollowOnWallpaper(wallpaper('w1', 'rgb(4, 6, 10)'));   // 写 dark
+    m.themeFollowRelease();                                       // 放回 light（我方写入）
+    for (const [ev, cb] of f.handlers) if (ev === 'theme/change') cb();   // 这次写入派发的事件
+    m.themeFollowOnWallpaper(wallpaper('w1', 'rgb(4, 6, 10)'), { fromSkinRestore: true });
+    check('放回自触发的 theme/change 不被读成"别人接管"（先记再写）：同张壁纸的放回照常接管',
+      JSON.stringify(f.calls) === JSON.stringify(['dark', 'light', 'dark']), JSON.stringify(f.calls));
+  }
 }
 
 console.log('\n' + (failed ? 'THEME-FOLLOW CHECKS FAILED — ' + failed + ' failed' : 'ALL THEME-FOLLOW CHECKS PASSED'));

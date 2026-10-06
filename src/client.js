@@ -383,10 +383,15 @@ function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 //   （`GET /api/skin-center/v2/active`）已随该契约落地整体删除 —— 纯事件、无网络。
 // 退场 = 清当前壁纸（若设过；层 / 遮罩 / `body[data-we-wallpaper]` 随 `selection.url` 一起退）
 //        + 玻璃整族门控整组不匹配（与旧「要不要玻璃 = 关」同语义；落点在 applyGlass 与
-//        effects 的两个门控点）。没设壁纸时前半条是空操作，但玻璃让路照常 —— 玻璃与壁纸
-//        正交（data-we-glass-page 恒挂），皮肤在台上时它不该盖在皮肤上。
+//        effects 的两个门控点）
+//        + **主题放回**（`themeFollowRelease`，随清空路径自动走到）：我方为这张壁纸改过主题
+//        才放回原值；别人改过（让位标记 / 现值对不上）就一个字节都不碰 —— "退干净"与
+//        "不硬覆盖回去"两条在这里合流。没设壁纸时前半条是空操作，但玻璃让路照常 —— 玻璃与
+//        壁纸正交（data-we-glass-page 恒挂），皮肤在台上时它不该盖在皮肤上。
 // 复位 = 持续不在台上（滞回，见下）才做：按记忆放回壁纸与轮播开关；用户期间手动选过壁纸
-//        就不抢（手动重选那条路会**立刻**退让路，见 src/media-prep.js 的钩子）。
+//        就不抢（手动重选那条路会**立刻**退让路，见 src/media-prep.js 的钩子）。放回壁纸时
+//        主题评估走 `fromSkinRestore`（不复位让位标记）：皮肤在台期间用户改过的主题活过这次
+//        放回，不被打回壁纸判决。
 // ⚠️ 轮播会把"空 id"当信号自动补位（`rotationEnabled && !id` ⇒ 取候选第一张），所以退场
 //    必须连轮播一起按停，否则刚清掉的壁纸会被自己补回来。
 const SKIN_YIELD_EXIT_GRACE_MS = 2600; // 复位宽限：对方 refresh 会先把标记摘掉再补回，瞬时摘不算退场
@@ -427,7 +432,11 @@ function exitSkinYield(reason, opts) {
   skinYielded = false;
   const mem = skinYieldMemory || {};
   skinYieldMemory = null;
-  if (!skipRestore && !selection.id && mem.id) applySelection(mem.id);
+  if (!skipRestore && !selection.id && mem.id) {
+    // `fromSkinRestore`：这次应用是"皮肤退场后的放回"—— 主题评估据此**不复位让位标记**，
+    // 皮肤在台期间用户改过的主题不被这次放回盖掉（"切换过主题不硬覆盖回去"）。
+    applySelection(mem.id, { fromSkinRestore: true });
+  }
   if (mem.rotationEnabled && selection.rotationEnabled !== true) setSetting("rotationEnabled", true);
   // 落盘记忆已消费（放回，或被用户新选择取代）⇒ 清掉 —— 别留给下一次启动当陈旧依据。
   setSetting("skinYieldRestoreId", "");
@@ -2999,7 +3008,14 @@ function onCancelEditWeAssetsDir() {
 
 // ── 外观 / 播放 / 系统页签的处理器（同上一条：渲染器只读值 + 调这些）────────────
 function onLeftSidebarGlass(e) { setSetting("leftSidebarGlass", e.target.checked); emit(); }
-function onThinkingGlass(e) { setSetting("thinkingGlass", e.target.checked); emit(); }
+// 「思考块液态玻璃」三挡分段（关 / 液态玻璃 / 原生）：一次写两键 —— 原生挡赢过玻璃挡的
+// 互斥由 effects.js 的门控属性保证（thinkingNative ⇒ 不挂 data-we-thinking-glass），
+// 这里让存储两键与所选拍始终一致（不留给手改 config 4 种组合里的矛盾态）。
+function onThinkingMode(mode) {
+  setSetting("thinkingGlass", mode === "glass");
+  setSetting("thinkingNative", mode === "native");
+  emit();
+}
 // 胶囊雾化（行内代码 / 新会话 / 导航按钮）：与 thinkingGlass 同族 —— 消费它的规则
 // 全部挂在 data-we-thinking-glass 门下，所以滑杆也只在该开关打开时渲染（glass-panel）。
 const onCapsuleBlur = (px, live) =>
@@ -3832,6 +3848,18 @@ const onThemeColor = (role, mode, hex, separate) => {
   const next = { light: cur.light || "", dark: cur.dark || "" };
   if (separate) next[mode] = hex;
   else { next.light = hex; next.dark = hex; }
+  // ⚠️ 深浅分开只填一边 ⇒ 另一侧留空 = **半对**。半对过不了任何一层消毒
+  //（readThemeColors / buildTokenPayload 都是"缺一套整角色丢弃"）⇒ 颜色**落不了盘、
+  // 也不会生效**，面板却显示着已选 —— 用户重启后看到的就是"保存的颜色没了"（实测反馈）。
+  // 补齐规则：另一侧 = 当前官方色（主题服务不可达时退回同色，与"没分开时两态同色"
+  // 的既有语义一致）—— pair 永远完整，不落消毒黑洞。
+  if (separate) {
+    const other = mode === "light" ? "dark" : "light";
+    if (!next[other]) {
+      const tokens = (THEME_COLOR_ROLES.find((r) => r.id === role) || {}).tokens;
+      next[other] = (tokens && officialColorOf(tokens)) || hex;
+    }
+  }
   setFontValues({ themeColors: Object.assign({}, selection.themeColors, { [role]: next }) }); applyEffects(); emit();
 };
 const onThemeColorClear = (role) => {
@@ -4227,8 +4255,9 @@ const officialColorOf = (tokens) => {
       setSetting, setTransient,
       fontSet: fontSetCtx(),
       glassPresets: glassPresetCtx(),
-      officialColorOf, onAccent, onCapsuleBlur, onCapsuleColor, onBlur, onBorder, onCaretColor, onChatGlassFidelity, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onGlassFidelity, onGlobalFamily, onLeftSidebarGlass, onRefreshSystemFonts, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarFollowGlobal, onSidebarGlass, onSidebarFullClear, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onThinkingGlass, onToggleFontCustom, onToggleThemeFollow, sel,
-      officialColorOf, onAccent, onCapsuleBlur, onCapsuleColor, onBlur, onBorder, onCaretColor, onChatGlassFidelity, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onGlassFidelity, onLeftSidebarGlass, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarGlass, onSidebarFullClear, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onThinkingGlass, onToggleFontCustom, onToggleThemeFollow, sel,
+      // ⚠️ 2026-10-06 审计：这里原本把同一条属性清单**重复写了两遍**（上一会话的编辑
+      //    事故 —— 同名字面量键静默去重所以无行为差异），已合并为一行。
+      officialColorOf, onAccent, onCapsuleBlur, onCapsuleColor, onBlur, onBorder, onCaretColor, onChatGlassFidelity, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onGlassFidelity, onGlobalFamily, onLeftSidebarGlass, onRefreshSystemFonts, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarFollowGlobal, onSidebarGlass, onSidebarFullClear, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onThinkingMode, onToggleFontCustom, onToggleThemeFollow, sel,
       // 玻璃 UI 子项开关 + 独立配置 + 独立参数（见 onToggleChildIndependent 那段注释）
       onToggleChildIndependent, onGlassChildParam, childIndependentOn,
     });
@@ -4700,29 +4729,77 @@ function RopeDock() {
 }
 
 // ── One-time "what's new" notice ─────────────────────────────────────────────
-// This round: v0.7.2 extends the liquid-glass adaptation to the NATIVE right
-// sidebar that harness 0.1.5 introduced (better-sidebar 0.19 registers its
-// tabs into it) and fixes the right column turning fully transparent there —
-// the native panel paints var(--dsw-alias-bg-base), the exact token WE makes
-// transparent while a wallpaper is active, and it had no frost of its own.
-// The notice also carries the prerequisite statement (final v1.2.0 wording):
-// the DSH kernel must be ≥ 0.1.5 (0.1.5-rc.1+, the tested floor — both the
-// official desktop line and DSH Desktop ≥ 2.0.7 qualify), and dsh-better-sidebar
-// is no longer version-restricted. The
-// dismissal version is stored WITH the settings (host file, port-independent)
-// so it survives DSH Desktop's random --port restarts and never re-shows
-// after being closed. Bump NOTICE_VERSION next release to announce something
-// new again.
-const NOTICE_VERSION = "1.2.0";
+// This round (v1.3.0) carries the version's four user-facing stories:
+//   ① the plugin now coexists with the web-all plugin (skins from web-all or
+//      our dynamic wallpaper — the glass family yields while a skin is on
+//      stage and restores from memory afterwards, across restarts),
+//   ② every glass surface got an「独立配置」switch + glass「预设方案」presets
+//      (factory 7 + user-saved, applying overwrites wholesale, factory ones
+//      are gone forever once deleted), and glass no longer requires a
+//      wallpaper to be set,
+//   ③ the mascot art can be replaced with an imported image (96×192 fit,
+//      re-import overwrites, Clear restores the built-ins),
+//   ④ the Extensions tab gained session avatars (left/right chat layout,
+//      importable images for both sides, default off).
+// The notice art (GitHub star plea, shipped as lib/about/update-notice.jpg and
+// served by the /about-qr whitelist route — same family as the contact QRs,
+// NOT inlined: see src/about-assets.js) sits at the top with a caption
+// pointing at 设置 → 壁纸引擎 → 关于. The dismissal version is stored WITH the
+// settings (host file, port-independent) so it survives DSH Desktop's random
+// --port restarts and never re-shows after being closed. Bump NOTICE_VERSION
+// next release to announce something new again (swap the art bytes in
+// lib/about/, the path stays put — ETag revalidation picks it up).
+//
+// ⚠️ 公告**等配图就绪才弹**（art-gate，见 UpdateNotice）：面板 bundle 宿主每次开页
+// 都从磁盘现读，而后端路由只在 DSH 重启时换血 —— 更新后未重启的窗口期里，旧后端
+// 的 /about-qr 白名单还没有 update-notice.jpg ⇒ 图 404。若照旧立刻弹窗，用户看到
+// 裂图，而「知道了」一关整版公告永久退场，配图等于永远没人看到（v1.3.0 发布当日
+// 的真实事故）。-r2 哨兵让当时已误关公告的用户再看一次（带图版）。
+const NOTICE_VERSION = "1.3.0-r2";
+// 配图就绪探针的节奏：HEAD 轮询到新白名单在场（= 后端已重启）才弹；旧后端一直
+// 不在场超过 WAIT 则降级为**无图**弹出（文案信息完整；求星入口在「关于」页常驻，
+// 不靠弹窗这一条命）。探针打在 /about-qr 上是自清洁的：404 响应 no-store、200
+// no-cache（lib/routes/about-qr.js），怎么轮询都不会污染 Electron 缓存。
+const NOTICE_ART_WAIT_MS = 90000;
+const NOTICE_ART_POLL_MS = 1500;
+
+// ❗ 的字体强制：U+2757 在正文字体栈里落到细杆字形（实测渲染成细红竖线，用户口径
+// 是"红色感叹号"）—— 单包一层 span 强制走 Segoe UI Emoji，出来的才是胖红感叹号。
+const noticeEx = (n) => React.createElement("span",
+  { style: { fontFamily: '"Segoe UI Emoji", "Noto Color Emoji", sans-serif' } }, "❗".repeat(n) + " ");
 
 function UpdateNotice() {
   useWeLocale(); // 更新说明是长文案，语言切换后要跟着换（同一棵 RopeDock 子树）
   const sel = useStore();
+  // Art-gate 探针：pending（探测中，什么都不弹）→ ready（新后端在场，带图弹）→
+  // timeout（等满 WAIT 仍 404，降级为无图弹）。用组件本地 state 而不是共享
+  // selection —— 纯视图态，进 store 会平白多一对瞬态字段要过直写棘轮。
+  const [art, setArt] = React.useState("pending");
   // Only render once the host settings (source of truth) are applied, so the
   // persisted noticeSeen is final. On a fresh port/restart the localStorage
   // origin is empty (noticeSeen == "") and would briefly flash the notice before
   // the host GET merges the real value — wait for hostLoaded to avoid that.
-  const show = sel.hostLoaded && sel.noticeSeen !== NOTICE_VERSION;
+  const eligible = sel.hostLoaded && sel.noticeSeen !== NOTICE_VERSION;
+  React.useEffect(() => {
+    // 已关过本版公告的用户一个请求都不发（每次开面板都探一遍是纯浪费）。
+    if (!eligible) return undefined;
+    let alive = true;
+    let timer = 0;
+    const startedAt = Date.now();
+    const probe = () => {
+      // apiHead 不抛（api-client 契约）：404/断网都是 ok:false —— 落到下一拍，
+      // 或者等满 WAIT 降级。
+      apiHead(NOTICE_ART_PATH).then((r) => {
+        if (!alive) return;
+        if (r.ok) { setArt("ready"); return; }
+        if (Date.now() - startedAt >= NOTICE_ART_WAIT_MS) { setArt("timeout"); return; }
+        timer = setTimeout(probe, NOTICE_ART_POLL_MS);
+      });
+    };
+    timer = setTimeout(probe, 0);
+    return () => { alive = false; clearTimeout(timer); };
+  }, [eligible]);
+  const show = eligible && (art === "ready" || art === "timeout");
   const dismiss = () => {
     // Persist the dismissed version through the settings pipeline (localStorage
     // cache + host file). emit() re-renders this component (useStore) to hide it.
@@ -4731,51 +4808,59 @@ function UpdateNotice() {
   };
   if (!show) return null;
   return React.createElement("div", { className: "we-update-notice", role: "alert" },
-    React.createElement("div", { className: "we-update-notice__title" }, weT("🎉 v1.2.0 更新：全新侧栏 UI —— 壁纸调节嵌入官方侧边栏")),
+    React.createElement("div", { className: "we-update-notice__title" }, weT("🎉 v1.3.0 更新：玻璃全面自定义 · 自定义吉祥物与会话头像")),
+    // 只有 ready 才渲染配图与配图说明（timeout 降级态连说明一起藏 —— 那行字在
+    // 说"这张图"，图缺席时它就是无源之水）。
+    art === "ready" ? React.createElement("img", { className: "we-update-notice__art", src: apiUrl(NOTICE_ART_PATH), alt: weT("求个 star 喵！—— GitHub 求星插画") }) : null,
+    art === "ready" ? React.createElement("div", { className: "we-update-notice__art-cap" },
+      React.createElement("strong", null, weT("在设置中的壁纸引擎页面中的关于中可一键直达，谢谢喵！"))) : null,
     React.createElement("div", { className: "we-update-notice__body" },
       React.createElement("p", null,
-        weT("自 1.1.0 以来的全部更新：")),
+        weT("自 1.2.0 以来的全部更新：")),
       React.createElement("p", null,
-        "⚠️ ", React.createElement("strong", null, weT("先说重要的：前置条件口径")),
-        weT("：本版要求"),
-        React.createElement("strong", null, weT("DSH 内核 ≥ 0.1.5（0.1.5-rc.1+，实测下限）")),
-        weT("——官方桌面端与 DSH Desktop ≥ 2.0.7 都满足；"),
-        React.createElement("strong", null, weT("dsh-better-sidebar 不再有版本要求")),
-        weT("（装了的话建议更新到最新）。")),
+        "① ", noticeEx(3), React.createElement("strong", null, weT("与 web-all 插件共存")),
+        weT("：本插件与 web-all 插件可以共存了——用 web-all 里下载的皮肤，或用本插件的动态壁纸，随你选，双方互不影响：启用皮肤时，壁纸与玻璃效果自动让路；卸下皮肤后，自动恢复你之前的壁纸与轮播设置（重启也不丢；期间手动换过壁纸也不会被抢回来）。")),
       React.createElement("p", null,
-        "① ", React.createElement("strong", null, weT("全新 UI：壁纸调节嵌入官方侧边栏")),
-        weT("：壁纸调节的额外窗口没有了——侧栏内三档页签（壁纸 / 外观 / 播放）+ 新增「壁纸属性」入口，与设置页"),
-        React.createElement("strong", null, weT("共用同一批渲染器和同一份状态")),
-        weT("，调什么两边即时一致；底栏入口随当前页签深链到设置页对应位置。")),
+        "② ", React.createElement("strong", null, weT("所有 UI 的玻璃效果均可自定义")),
+        weT("：每个玻璃面（对话栏气泡 / 输入框 / 工具弹卡、左侧栏、右栏面板、设置窗口、悬浮层、思考触发条……）都有"),
+        React.createElement("strong", null, weT("「独立配置」开关")),
+        weT("——打开后用自己那套模糊 / 透明度 / 颜色，关闭则跟随全局。"),
+        noticeEx(3), React.createElement("strong", null, weT("不知道怎么调？直接用「预设方案」")),
+        weT("：出厂"),
+        React.createElement("strong", null, weT("七套")),
+        weT("风格一键套用，也可以把自己的配置存成预设（最多 8 套）。注意：应用预设会"),
+        React.createElement("strong", null, weT("整套覆盖")),
+        weT("当前玻璃配置（无撤销）；出厂预设"),
+        React.createElement("strong", null, weT("删除后无法恢复")),
+        weT("。另外修了一个老问题："),
+        React.createElement("strong", null, weT("不设置壁纸也能调玻璃了")),
+        weT("（此前玻璃参数在不设壁纸时全是死旋钮）。")),
       React.createElement("p", null,
-        "② ", React.createElement("strong", null, weT("玻璃 UI 颜色可自定义")),
-        weT("：玻璃界面颜色随心调；新增"),
-        React.createElement("strong", null, weT("「左侧栏液态玻璃」开关（默认关）")),
-        weT("——打开后宿主原生左栏也套上同一套玻璃效果。所有玻璃配色经亮度钳制，正文对比度始终 ≥ 4.5:1。")),
+        "③ ", noticeEx(3), React.createElement("strong", null, weT("吉祥物可自定义立绘")),
+        weT("：设置页「系统」页签 →「吉祥物形态」一排新增第三张卡"),
+        React.createElement("strong", null, weT("「导入图片…」")),
+        weT("，导入后主页面吉祥物换成你的立绘；"),
+        React.createElement("strong", null, weT("再导入即覆盖")),
+        weT("，点「清除」恢复内置形态。图片按 96×192 自动等比适配，太小的图不会强行放大。")),
       React.createElement("p", null,
-        "③ ", React.createElement("strong", null, weT("渲染内核更新")),
-        weT("：同步上游 WebWallGL 2.0.2 最新提交（引擎作者 oneincase）——修复音频检测识别不到专辑封面的问题；壁纸切换动画更加丝滑。")),
+        "④ ", noticeEx(3), React.createElement("strong", null, weT("「扩展」页签新增：自定义会话头像（默认关闭）")),
+        weT("：开启后消息变为好友聊天式"),
+        React.createElement("strong", null, weT("左右分列")),
+        weT("——你的消息靠右、AI 的靠左，双方各带头像；可分别导入你与 AI 的自定义图片（默认头像是内置图标，导入即替换），默认"),
+        React.createElement("strong", null, weT("圆形")),
+        weT("，大小与圆角均可调。"), noticeEx(1),
+        React.createElement("strong", null, weT("导入失败提示「宿主里没有头像路由」时，重启 DSH 后再试")),
+        weT("（刷新页面不够）。")),
       React.createElement("p", null,
-        "④ ", React.createElement("strong", null, weT("修复一批")),
-        weT("：「壁纸引擎设置」入口点了没反应（宿主入口改名）、启动时停在静态垫底图、英文界面下宿主报错露中文、侧栏列表滚不动、拖色板 / 滑块发涩等。")),
+        "⑤ ", React.createElement("strong", null, weT("修复一批")),
+        weT("：松散目录形态的场景壁纸恢复实时渲染（渲染器侧支持来自 WebWallGL 2.1.0，引擎作者 oneincase）；壁纸库"),
+        React.createElement("strong", null, weT("全量加载不再分页")),
+        weT("，列表卡顿也治了；「吉祥物大小」滑块不再把设置页里的形态卡片一起缩放；玻璃配置刻度统一（存量设置自动换算，观感不变）。")),
       React.createElement("p", null,
         React.createElement("strong", null, weT("💡 使用提示："))),
       React.createElement("p", null,
-        "❗❗❗ ", React.createElement("strong", null, weT("记得看看 设置 → 壁纸引擎 → 关于")),
-        weT("：仓库、交流群、致谢都在那里。")),
-      React.createElement("p", null,
-        weT("官方 DSH 桌面端的窗口顶部有一条很宽的上边框——吉祥物不要缩得太小，缩得太小会导致点击无效。")),
-      React.createElement("p", null,
-        React.createElement("strong", null, weT("❗❗❗ 看不清字？按这个顺序调，立竿见影："))),
-      React.createElement("p", null,
-        "❗❗❗ ", React.createElement("strong", null, weT("第一步：先把系统设置切换到深色模式")),
-        weT("——深色模式自带白色文字，在绝大多数壁纸上立刻清楚一截。")),
-      React.createElement("p", null,
-        "❗❗ ", React.createElement("strong", null, weT("第二步：调低壁纸「透明度」、加「暗化」")),
-        weT("——效果最直接，几秒钟见效。")),
-      React.createElement("p", null,
-        weT("第三步："), React.createElement("strong", null, weT("用「字体自定义」系统细调")),
-        weT("——按角色调字号 / 字重 / 字体族，可存成预设随时切换。")),
+        noticeEx(3), React.createElement("strong", null, weT("升级后建议重启一次 DSH")),
+        weT("——玻璃配置管线有迁移，重启后才完整生效。")),
       React.createElement("p", { className: "we-update-notice__hint" },
         weT("本提示每个新版本只出现一次，点下方按钮关闭后不再弹出。")),
     ),

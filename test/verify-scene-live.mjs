@@ -1272,6 +1272,19 @@ for (const [name, ok] of clientChecks) check(name, ok);
     check('③ 视频档两条腿都挂了类名（we-media--canvas + fitClass / we-media + fitClass）',
       videoFn.includes('canvas.className = \"we-media we-media--canvas\" + fitClass;')
       && videoFn.includes('media.className = \"we-media\" + fitClass;'));
+    // ⚠️ 实测回归（2026-10-05，Edge 里「视频壁纸切换无反应」）：切层闸门的镜像画布分支被写成
+    // "有画布 ⇒ 判否"，本意是"等 weDrawFrame 画上第一笔" —— 但画笔的留痕（canvas.dataset.weDrawn）
+    // 从来没被读，首笔落下时回调的 recheck 又撞回同一条判据 ⇒ Edge 腿的放行条件**永远不成立**，
+    // 15s 停滞上限一到旧壁纸永久留屏。两半必须同时在场且指向同一留痕。
+    const liveSrcForGate = readFileSync(new URL('../src/live-layer.js', import.meta.url), 'utf8');
+    const clientSrcForGate = readFileSync(new URL('../src/client.js', import.meta.url), 'utf8');
+    const canvasGateOk = (src) => /mirror\.dataset && mirror\.dataset\.weDrawn === "1"/.test(src)
+      && !/if \(node\.querySelector\("canvas\.we-media--canvas"\)\) return false;/.test(src);
+    check('③ 镜像画布的放行读画笔留痕（weDrawn）：闸门读它、weDrawFrame 写它，两半同时在场',
+      canvasGateOk(liveSrcForGate) && /canvas\.dataset\.weDrawn = "1";/.test(clientSrcForGate),
+      'gate=' + canvasGateOk(liveSrcForGate) + ' draw=' + /canvas\.dataset\.weDrawn = "1";/.test(clientSrcForGate));
+    check('③ 负对照：退回"有画布就判否"的旧形态（首笔也放不出去），同一条判据必须判红',
+      canvasGateOk(liveSrcForGate.replace('return !!(mirror.dataset && mirror.dataset.weDrawn === "1");', 'return false;')) === false);
     // ── ② 帧率上限的判据是「上限能不能真的降帧」─────────────────────────────────
     // 设计口径：上限存在的唯一目的是压 GPU 解码占用（Video Decode 随帧率上升）。
     // 所以只有"源帧率高于上限"才值得整片重编码；源帧率 ≤ 上限时转码纯属白烧。
@@ -2291,7 +2304,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     // QP_CTX_SETTINGS_ONLY 占位器（本名单只收**真的会**在侧栏档渲染的那些名字，
     // 裸标识符 ⇒ 不进名单就要么进占位器名单、要么在 vm 求值当场 ReferenceError）。
     'onCaretColor', 'onSidebarAlpha', 'onSidebarBlur', 'onSidebarColor',
-    'onSidebarContentAlpha', 'onSidebarContentColor', 'onSidebarFollowGlobal', 'onThinkingGlass',
+    'onSidebarContentAlpha', 'onSidebarContentColor', 'onSidebarFollowGlobal', 'onThinkingMode',
     'onCapsuleBlur', 'onCapsuleColor',
     // 「玻璃 UI」节的**子项「独立配置」**及其参数处理器。⚠️ 2026-10-05（ADR-0008 D4）后它们
     // 只在设置页画 —— 但它们仍是**渲染器源码里的裸标识符**（glass-panel.js 里 `= ctx` 解构出来的
@@ -3786,7 +3799,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       'onPauseOnBattery', 'onPauseOnBlur', 'onPauseOnHidden', 'onToggleLiveDiag', 'sel'],
     renderAppearanceTab: ['setSetting', 'officialColorOf', 'onAccent', 'onBlur', 'onBorder',
       'onCaretColor', 'onChatGlassFidelity', 'onComponentFamily', 'onComponentFont', 'onFontAdvanced', 'onFontResetAll',
-      'onGlassAlpha', 'onGlassColor', 'onGlassFidelity', 'onThinkingGlass', 'onLeftSidebarGlass', 'onSidebarAlpha',
+      'onGlassAlpha', 'onGlassColor', 'onGlassFidelity', 'onThinkingMode', 'onLeftSidebarGlass', 'onSidebarAlpha',
       'onSidebarBlur', 'onSidebarColor', 'onSidebarContentAlpha', 'onSidebarContentColor',
       'onSidebarGlass', 'onThemeColor', 'onThemeColorClear', 'onThemeDarkSeparate', 'onThemeFamily',
       'onThemeSize', 'onThemeTypeOnly', 'onThemeWeight', 'onToggleFontCustom', 'onToggleThemeFollow',

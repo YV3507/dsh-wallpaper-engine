@@ -180,7 +180,7 @@ function renderAppearanceGlassSection(ctx) {
     onLeftSidebarGlass, onSidebarAlpha, onSidebarBlur, onSidebarColor,
     onSidebarContentAlpha, onSidebarContentColor, onSidebarGlass,
     onSidebarFollowGlobal, onSidebarFullClear,
-    onThinkingGlass,
+    onThinkingMode,
   } = ctx;
   // ── 简化配置 vs 高级配置（ADR-0008 的 **D4**，2026-10-05 用户口径细化）────────────────
   //   · **简化配置**（侧栏档 + 设置页都画）：全局四件套（玻璃颜色 / 玻璃透明度 / 雾化 /
@@ -296,6 +296,17 @@ function renderAppearanceGlassSection(ctx) {
         sel[P("color")], (v) => onGlassChildParam(c.id, "color", v), { key: "gc-color-" + c.id }));
     }
   }
+  // 「思考块液态玻璃」三挡的当前值与按钮工厂（必须在 return 之前声明 —— 它们是语句，
+  // 进不了下面的 createElement 实参表）。
+  const thinkMode = sel.thinkingNative === true ? "native" : (sel.thinkingGlass === true ? "glass" : "off");
+  const thinkGear = (id, label, tip) => React.createElement("button", {
+    key: "think-" + id,
+    className: "we-picker__btn we-picker__rate" + (thinkMode === id ? " we-picker__rate--active" : ""),
+    type: "button",
+    title: tip,
+    onClick: () => onThinkingMode(id),
+    "aria-pressed": thinkMode === id ? "true" : "false",
+  }, label);
   return React.createElement(React.Fragment, null,
   React.createElement("div", { className: "we-picker__section" },
     React.createElement("div", { className: "we-picker__section-head" },
@@ -342,26 +353,32 @@ function renderAppearanceGlassSection(ctx) {
     //    入口了 —— 那是两个旋钮控同一件事。现在它**只**由「对话框玻璃·独立配置」下的
     //    「对话框玻璃·玻璃保真度」提供，存储键**复用** `chatGlassFidelity`（D2：不新建
     //    平行键），所以老配置的值不会丢。
-    // 思考块液态玻璃（原「窗口与侧栏」节成员，随 §10.25 并进本节）：默认关 —— 保持宿主
-    // 思考条黑底方便阅读（作者口径）。它与其余面不同：**这是唯一保留的默认关玻璃面开关**，
-    // 因为"关"在这里有明确价值（纯黑底可读性），不是做不到的"回原生"。
-    // ⚠️ 侧栏档不画（与原节同口径：设置档专属）。
-    switchRow(weT("思考块液态玻璃"), sel.thinkingGlass === true, onThinkingGlass, {
-      key: "thinking-glass",
-      hint: weT("思考区与文件卡清底，文字胶囊与七类工具内容玻璃；默认关"),
-      tooltip: weT("打开后，思考区与文件卡底栏百分百透明；文字胶囊、新会话、加载更早历史与回到底部按钮使用10%白色薄雾和胶囊雾化（默认 8px，用下方滑杆调）；上下文注入、运行命令、读取、搜索文件内容、工具调用、查找文件、写入的展开内容使用同款玻璃，底色覆盖度比气泡增加6个百分点。导航与轮次悬浮预览采用工具内容同款玻璃；聊天滚动条使用10%白色薄雾。代码块随玻璃透明度透出壁纸。默认关。"),
-    }),
+    // 思考块液态玻璃 —— **三挡**（2026-10-06 用户口径，二次收窄）：关（对话区半透明透壁纸，
+    // 截图现状）/ 液态玻璃（磨砂，原开关的"开"）/ 原生（**只有正文内容**——气泡 / 代码块 /
+    // 思考区——恢复 DSH 原生不透明实色；输入框与画布保留玻璃）。存储是两个布尔
+    // （thinkingGlass + thinkingNative），**原生挡赢**的互斥在 effects.js 门控层保证，
+    // 本分段只负责把两键写一致。总开关级 ⇒ 两侧都画（D4）。
+    // ⚠️ 原生挡下胶囊两行（门 = thinkingGlass）整组不画 —— 那族 CSS 挂在
+    //    data-we-thinking-glass 门下，原生挡不挂门 ⇒ 画了就是死旋钮。
+    React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap", key: "thinking-mode" },
+      ctlText(weT("思考块液态玻璃"), weT("对话内容的三挡：关（半透明）/ 液态玻璃 / 原生（正文实色、输入框保持玻璃）")),
+      React.createElement("div", { className: "we-picker__seg" },
+        thinkGear("off", weT("关"), weT("对话区保持半透明：壁纸透过面板与代码块显出来（无磨砂）")),
+        thinkGear("glass", weT("液态玻璃"), weT("思考区与文件卡清底，文字胶囊与七类工具内容玻璃；代码块随玻璃透明度透出壁纸")),
+        thinkGear("native", weT("原生"), weT("消息正文（气泡、代码块、思考区）恢复 DSH 原生不透明实色；输入框与对话画布保留玻璃透壁纸；胶囊与思考条的玻璃细调在本挡停用")),
+      ),
+    ),
     // 胶囊雾化（capsuleBlur，默认 8px）：**只在思考玻璃开着时渲染** —— 消费它的规则
     // 全部挂在 data-we-thinking-glass 门下，门关着时这个滑杆就是"画出来又不生效的旋钮"
     //（本仓要防的那类死旋钮，见 glass-panel 文件头 wip §10.12）。
     // ⚠️ 它是**总开关下面的细调行** ⇒ 高级配置（侧栏档不画，见函数头的 D4 那张表）。
-    !sidebarSurface && sel.thinkingGlass === true && SliderRow(weT("胶囊雾化"), 0, 60, 1,
+    !sidebarSurface && sel.thinkingGlass === true && sel.thinkingNative !== true && SliderRow(weT("胶囊雾化"), 0, 60, 1,
       sel.capsuleBlur, onCapsuleBlur, sel.capsuleBlur + "px", "capsule-blur", {
       tooltip: weT("正文里行内代码胶囊、新会话按钮、导航按钮的模糊半径 —— 越大越像磨砂玻璃。只在这些胶囊吃玻璃（思考块液态玻璃开着）时生效；0 = 关掉雾化。"),
     }),
     // 胶囊釉色（capsuleColor，默认白 = 原观感）：与胶囊雾化同族同门。色板行不做
     // 可读性钳制（10% 雾底不是正文面，理由见 schema 注释）。
-    !sidebarSurface && sel.thinkingGlass === true && swatchRow(weT("胶囊颜色"), GLASS_COLOR_PRESETS,
+    !sidebarSurface && sel.thinkingGlass === true && sel.thinkingNative !== true && swatchRow(weT("胶囊颜色"), GLASS_COLOR_PRESETS,
       sel.capsuleColor, onCapsuleColor, {
       key: "capsule-color",
       tooltip: weT("行内代码胶囊、新会话按钮、导航按钮与聊天滚动条拇指的雾底色相 —— 默认白（原观感）。只在这些胶囊吃玻璃（思考块液态玻璃开着）时生效；浓度档不变（10%）。"),

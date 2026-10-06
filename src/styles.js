@@ -569,8 +569,11 @@ const CSS = `
   body[data-we-glass-page][data-we-thinking-glass] [class*="_bubble"] {
     background-color: var(--we-chat-glass-fill) !important;
   }
+  /* ⚠️ 正文原生挡（data-we-thinking-native，见文件下方「正文原生挡」块）：只有**气泡**
+     这一条带 :not() —— 原生挡下气泡退出霜釉（正文原生 = 无玻璃装饰）；**输入卡与工具
+     弹卡不豁免**（2026-10-06 用户口径：输入对话框保留玻璃），照旧吃霜/釉。 */
   body[data-we-glass-chat][data-we-glass-page] [data-composer-card],
-  body[data-we-glass-chat][data-we-glass-page] [class*="_bubble"],
+  body[data-we-glass-chat][data-we-glass-page]:not([data-we-thinking-native]) [class*="_bubble"],
   /* Interactive tool popup cards read the SAME --dsw-specific-input-major
      token as the composer (question / plan-review / approval), so they turn
      translucent along with it — but unlike the composer they had NO
@@ -868,6 +871,51 @@ const CSS = `
   }
   body[data-we-glass-page][data-we-thinking-glass] [data-changed-files] > button {
     background: transparent !important;
+  }
+
+  /* ── 正文原生挡（「思考块液态玻璃」三挡之三：thinkingNative，默认关）────────────
+     用户口径（2026-10-06 二次收窄）：**只有正文内容**（消息气泡 / 代码块与行内代码 /
+     标签 / 分段 / 引用等 markdown 家族）恢复 DSH 原生不透明实色；**输入框与对话画布
+     保留玻璃**（输入卡吃 --dsw-specific-input-major 与霜釉照旧、画布 bg-base 照旧
+     透明透壁纸）——第一版把整列（含画布与输入区）都钉回原生，结果 composerSeat
+     那条「36px 渐变到 bg-base」的装饰底衬在子树里拿到不透明原生值，屏上出现
+     "输入区一条黑楔"，而消息区大底的真正画手（ConversationRoot）反而没被罩住
+     （官方 Harness 壳层没有 .dshDesktopConversationSurface 那个类）——半吊子态。
+     本版把作用域收成**正文子树**：锚点 [data-chat-flow]（消息流，气泡 / markdown /
+     工具结果都在其内）与 [data-vcp-rawhtml]（VCP 直出块，可与 chat-flow 平级）。
+     输入区的 --dsw-specific-input-major、画布的 bg-base、霜/釉元素规则**全部不碰**
+     ⇒ 黑楔消失、输入框保持玻璃（:not() 豁免也随只保留在气泡那条上，见上面那组）。
+     原生值全部是宿主 --dsw-static-* 静态调色板的 var 引用（从
+     @deepseek-ai/dsh-client-ui-theme 的 design-platform 串逐条提取，浅/深两主题
+     各一套）；字面量兜底防宿主改令牌名 —— 缺了它令牌无值会退成透明，正好是
+     原生挡的反面。
+     ⚠️ 门控属性由 effects.js 写/撤（thinkingNative，赢过 thinkingGlass 的互斥见那边）；
+     皮肤让路态整族摘门控时随 effects.js 同批摘除。 */
+  body[data-we-thinking-native] [data-chat-flow],
+  body[data-we-thinking-native] [data-vcp-rawhtml] {
+    --dsw-specific-bubble: var(--dsw-static-deepseek-50, #edf3fe);
+    --dsw-alias-markdown-code-block: var(--dsw-static-neutral-bluish-50, #f9fafb);
+    --dsw-alias-markdown-code-block-banner: var(--dsw-static-neutral-bluish-50, #f9fafb);
+    --dsw-alias-markdown-inline-code: var(--dsw-static-neutral-50, #fafafa);
+    --dsw-alias-markdown-tag: var(--dsw-static-neutral-bluish-75, #f1f3f5);
+    --dsw-alias-markdown-code-segment-unselected: var(--dsw-static-neutral-bluish-75, #f1f3f5);
+    --dsw-alias-markdown-code-segment-selected: var(--dsw-static-neutral-bluish-00, #fff);
+    --dsw-alias-markdown-citation: var(--dsw-static-neutral-bluish-100, #ebeef2);
+    --dsw-alias-markdown-placeholder: var(--dsw-static-neutral-bluish-60, #f5f6f7);
+  }
+  /* 深色档同形（原生值取宿主深色主题那一套；多一层属性选择器顶掉浅色定义，
+     与文件里其余「深色孪生」同一做法）。 */
+  body[data-ds-dark-theme][data-we-thinking-native] [data-chat-flow],
+  body[data-ds-dark-theme][data-we-thinking-native] [data-vcp-rawhtml] {
+    --dsw-specific-bubble: var(--dsw-static-neutral-bluish-850, #2c2c2e);
+    --dsw-alias-markdown-code-block: var(--dsw-static-neutral-bluish-900, #1b1b1c);
+    --dsw-alias-markdown-code-block-banner: var(--dsw-static-neutral-bluish-850, #2c2c2e);
+    --dsw-alias-markdown-inline-code: var(--dsw-static-neutral-800, #292929);
+    --dsw-alias-markdown-tag: var(--dsw-static-neutral-bluish-850, #2c2c2e);
+    --dsw-alias-markdown-code-segment-unselected: var(--dsw-static-neutral-bluish-900, #1b1b1c);
+    --dsw-alias-markdown-code-segment-selected: var(--dsw-static-neutral-bluish-800, #353638);
+    --dsw-alias-markdown-citation: var(--dsw-static-neutral-bluish-800, #353638);
+    --dsw-alias-markdown-placeholder: var(--dsw-static-neutral-bluish-850, #2c2c2e);
   }
 
   /* ── 原生左栏在 extended/advanced 窗口模式下的不透明底 ─────────────────────
@@ -2388,6 +2436,11 @@ body[data-we-glass-floaters] .we-update-notice {
   .we-update-notice__body p { margin: 0 0 6px; }
   .we-update-notice__hint { font-size: 0.78em; opacity: 0.6; }
   .we-update-notice__btn { align-self: flex-end; }
+  /* 公告配图（v1.3.0 起）：随包 JPEG，/about-qr 路由直出。方图不能全宽吃满 600px 面板
+     （正文 ⑤ 条目加起来已经很高，小窗口会顶出视口）——限高 38vh、宽度跟随、居中。
+     发丝边 + 投影让它贴着玻璃面板的既有语言，而不是一块浮贴的截图。 */
+  .we-update-notice__art { display: block; margin: 0 auto; width: auto; max-width: 100%; max-height: 38vh; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.22); box-shadow: 0 10px 26px rgba(0, 0, 0, 0.28); }
+  .we-update-notice__art-cap { font-weight: 600; font-size: 0.85em; text-align: center; }
   @media (prefers-reduced-motion: reduce) { .we-update-notice { animation: none !important; } }
 
   /* Glass library side drawer — docked right, 360px (capped at 92vw), full
@@ -2595,12 +2648,16 @@ body[data-we-glass-floaters] .we-repo-panel__body {
   .we-qp__group { flex: 1; min-width: 0; }
   .we-qp__search { width: 100%; box-sizing: border-box; }
   .we-qp__list { display: flex; flex-direction: column; gap: 2px; }
-  /* 视图切换：搜索 + 类型筛选 + 列表/卡片，**一行排下、最小宽度也不折行**（用户口径）。
-     搜索框 flex-basis 必须钉 0 而不是 auto：换行决策看的是假想主尺寸，auto 基 = 输入框
-     固有宽（~180px），正是它把行撑爆、把后面的控件挤去第二行；基 0 + min-width 0 之后
-     搜索框收缩到"剩余全给"，最窄面板（官方右栏 300 - padding = 276）也稳稳一行。 */
-  .we-qp__viewbar { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
-  .we-qp__viewbar .we-qp__search { flex: 1 1 0; min-width: 0; width: auto; }
+  /* 视图切换：搜索 + 分级筛选 + 类型筛选 + 列表/卡片，**确定性两行**。旧口径「一行
+     排下、最窄不折行」是三控件时代定的（2026-10-04）—— 最窄官方右栏 276px 里第四个
+     控件在结构上放不下（分级最短也要 ~70px，搜索框会被挤到不可用）；而依赖 flex-wrap
+     假想尺寸的折行在中间宽度会碎出"只有页签折下去"的行。故搜索框独占首行（**封顶
+     300px**：用户口径，太长的搜索框没用还占地方；basis 钉 100% 强制换行、行几何处处
+     一致），分级/类型/视图三个控件右对齐成第二行（分级 select 的 margin-left:auto
+     恰是第二行首项，把整组推到右侧）。 */
+  .we-qp__viewbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .we-qp__viewbar .we-qp__search { flex: 1 1 100%; min-width: 0; max-width: 300px; width: auto; }
+  .we-qp__viewbar .we-qp__rating { flex: none; max-width: 110px; margin-left: auto; }
   .we-qp__viewbar .we-qp__type { flex: none; max-width: 84px; }
   /* 列表 / 卡片：标签式切换 —— 复用 .we-tabs 的滑动胶囊做激活指示，但去掉分段底与
      描边（用户口径：不要默认背景）；页签收成内容宽（两枚都是两字，等宽成立，

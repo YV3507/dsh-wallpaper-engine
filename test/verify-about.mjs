@@ -17,6 +17,11 @@
  *      宿主路由（`apiJson("/star-count")`）且**不把 star 数写进设置**；两张码的 src 是**路由
  *      URL**（经 apiUrl）而不是内联 base64 —— 码的字节住在 `lib/about/` 的包里，内联等于把
  *      二进制塞进客户端产物、绕过文件白名单。
+ *   ⑤ **公告配图的 art-gate**（源码形态判据）：更新公告**等配图就绪才弹** —— 面板 bundle
+ *      宿主开页现读、后端路由重启才换血，更新后未重启的窗口期里旧白名单没有
+ *      update-notice.jpg（404）；公告若照旧立刻弹就是裂图，而「知道了」一关永久退场，
+ *      配图等于永远没人看到（v1.3.0 发布当日的真实事故）。钉住：探针在（HEAD
+ *      NOTICE_ART_PATH）、门控在（ready/timeout 才 show）、img 只在 ready 渲染。
  *
  * 为什么必须不联网：GitHub 未认证限流是 **60 次/小时/IP、整机共享**的 —— 守卫若真发请求，
  * CI 上跑几次就把额度用光，而且"网络不通"会让判据变成随机红。故本文件**只**用替身 fetchJson。
@@ -255,7 +260,7 @@ async function seedCache(count) {
 check('TTL 常量在合理区间（几分钟量级，不是"永不刷新"也不是"每次刷新"）',
   STAR_TTL_MS >= 60 * 1000 && STAR_TTL_MS <= 60 * 60 * 1000, STAR_TTL_MS + 'ms');
 
-// ══ ③ 二维码：随包 PNG + 白名单路由 ═══════════════════════════════════════════
+// ══ ③ 随包图：二维码 PNG + 公告配图 JPEG + 白名单路由 ══════════════════════════
 console.log('\n③ /about-qr 路由行为（白名单 / 304 / 405 / 404）');
 
 const { registerAboutQrRoutes } = await import(pathToFileURL(join(ROOT, 'lib', 'routes', 'about-qr.js')).href);
@@ -279,7 +284,8 @@ function mountQr() {
       if (!existsSync(abs)) { res.statusCode = 404; res.setHeader('Cache-Control', 'no-store'); res.end('not found'); return; }
       const st = statSync(abs);
       const etag = 'W/"' + st.size.toString(16) + '-' + Math.floor(st.mtimeMs).toString(16) + '"';
-      res.setHeader('Content-Type', 'image/png');
+      // 真 serveFile 按**扩展名**给 mime（lib/index.js 的 mimeFor）——替身同口径。
+      res.setHeader('Content-Type', abs.endsWith('.jpg') ? 'image/jpeg' : 'image/png');
       res.setHeader('ETag', etag);
       if (opts && opts.revalidate && String(req.headers['if-none-match'] || '') === etag) {
         res.statusCode = 304; res.end(); return;
@@ -304,10 +310,11 @@ async function runQr(route, pathname, method, headers) {
 {
   const m = mountQr();
   check('路由注册为 prefix + 正确路径', m.route.kind === 'prefix' && m.route.path === '/wallpaper-engine/about-qr');
-  for (const [name, file] of [['qq-group.png', 'qq-group.png'], ['douyin-group.png', 'douyin-group.png']]) {
+  for (const [name, file] of [['qq-group.png', 'qq-group.png'], ['douyin-group.png', 'douyin-group.png'], ['update-notice.jpg', 'update-notice.jpg']]) {
     const st = await runQr(m.route, '/wallpaper-engine/about-qr/' + name);
-    check('白名单命中：' + name + ' 出字节 + image/png',
-      st.status === 200 && st.headers['Content-Type'] === 'image/png' && st.body.length > 1000,
+    const mime = name.endsWith('.jpg') ? 'image/jpeg' : 'image/png';
+    check('白名单命中：' + name + ' 出字节 + ' + mime,
+      st.status === 200 && st.headers['Content-Type'] === mime && st.body.length > 1000,
       'status=' + st.status + ' bytes=' + st.body.length);
     const bytes = readFileSync(join(ABOUT_DIR, file));
     check('出的是**磁盘上那份**字节（不是别处拼的）',
@@ -352,11 +359,11 @@ async function runQr(route, pathname, method, headers) {
   // 打包：lib/about/ 必须随包（checkout 里永远正常，只有发布包会缺）
   check('package.json 的 files 覆盖 lib/about/（否则发布包里没有图）',
     pkgFiles.some((f) => String(f).replace(/\/$/, '') === 'lib/about'));
-  check('lib/about/ 里的每个 PNG 都在路由白名单里（打包了却取不到 = 图白送）',
-    readdirSync(ABOUT_DIR).filter((f) => f.endsWith('.png'))
+  check('lib/about/ 里的每张随包图（PNG/JPEG）都在路由白名单里（打包了却取不到 = 图白送）',
+    readdirSync(ABOUT_DIR).filter((f) => f.endsWith('.png') || f.endsWith('.jpg'))
       .every((f) => aboutSrc.includes("'" + f + "'")));
   check('路由白名单里的每个名字都在磁盘上（白名单不许空转）',
-    ['qq-group.png', 'douyin-group.png'].every((f) => existsSync(join(ABOUT_DIR, f))));
+    ['qq-group.png', 'douyin-group.png', 'update-notice.jpg'].every((f) => existsSync(join(ABOUT_DIR, f))));
   check('negative control: 白名单判据对合成输入有牙',
     !['qq-group.png'].includes('qq-group.png.bak') && ['qq-group.png'].includes('qq-group.png'));
   // **形态判据**（分隔符那条腿只能在 Windows 上真跑出来，故这里认源码形态）：
@@ -437,6 +444,25 @@ check('negative control: 渲染器判据对三种越界都有牙',
   !/api(Json|Fetch)\(/.test('const x = apiJson("/star-count");') === false
     && /setSetting\(/.test('renderAboutTab(){ setSetting("a", 1); }')
     && /\bemit\s*\(/.test('renderAboutTab(){ emit(); }'));
+
+// ══ ⑤ 公告配图的 art-gate（更新后未重启的窗口期防裂图）═══════════════════════
+console.log('\n⑤ 更新公告：配图就绪门控（新面板/旧后端劈叉防裂图）');
+// 面板 bundle 宿主每次开页从磁盘现读，后端路由只在 DSH 重启时换血 —— 更新后未重启
+// 的窗口期里旧白名单没有 update-notice.jpg，公告若立刻弹就是裂图，而「知道了」一关
+// 永久退场。三件事缺一不可：探测在（HEAD NOTICE_ART_PATH）、无图不弹（ready 才弹，
+// timeout 是等满超时后的降级）、img 只在 ready 渲染（降级态不得出现裂图）。
+const noticeSrc = clientSrc.slice(clientSrc.indexOf('function UpdateNotice'));
+check('公告组件里有配图就绪探针（HEAD NOTICE_ART_PATH）',
+  noticeSrc.includes('apiHead(NOTICE_ART_PATH)'));
+check('公告等配图就绪才弹（pending 不弹；无图只在等满超时后降级出现）',
+  /art === "ready" \|\| art === "timeout"/.test(noticeSrc));
+check('配图 <img> 只在 ready 态渲染（降级态不得出现裂图）',
+  /art === "ready" \? React\.createElement\("img"/.test(noticeSrc));
+check('探针只在"会弹"时启动（已关公告的用户不发请求）',
+  /if \(!eligible\) return undefined;/.test(noticeSrc));
+check('negative control: 门控判据对无门控的合成组件有牙',
+  !/art === "ready" \? React\.createElement\("img"/.test('function UpdateNotice() { return React.createElement("img", { src: x }); }')
+    && !/art === "ready" \|\| art === "timeout"/.test('function UpdateNotice() { const show = loaded; }'));
 
 console.log('\n' + (failed === 0 ? 'ABOUT (stars + QR) CHECKS PASSED' : 'ABOUT (stars + QR) CHECKS FAILED') + ` (${passed})`);
 process.exit(failed === 0 ? 0 : 1);

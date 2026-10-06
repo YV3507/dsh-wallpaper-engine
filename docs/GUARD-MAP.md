@@ -25,7 +25,7 @@
 | `verify-api-client.mjs` | `src/api-client.js` `src/client.js` `src/effects.js` `src/font/apply.js` `src/font/color-roles.js` `src/font/typography.js` `src/layer-core.js` `src/live-layer.js` `src/media-prep.js` `src/panel-tabs.js` `src/persistence.js` `src/styles.js` `src/video-layer.js` `src/we-cond.js` | ✅ |
 | `verify-body-caps.mjs` | `lib/http-body.js` `lib/routes/upload.js` | ✅ |
 | `verify-client-sync.mjs` | — | ✅ |
-| `verify-client.mjs` | `lib/index.js` `lib/settings-schema.js` `src/client.js` `src/effects.js` `src/font/apply.js` `src/fontset-store.js` `src/glass.js` `src/live-layer.js` `src/media-prep.js` `src/panel-tabs.js` `src/persistence.js` `src/picker-modal.js` `src/picker-props-panel.js` `src/preset-store.js` `src/system-fonts.js` `src/video-layer.js` `src/we-cond.js` | ✅ |
+| `verify-client.mjs` | `lib/index.js` `lib/settings-schema.js` `src/client.js` `src/effects.js` `src/font/apply.js` `src/fontset-store.js` `src/glass.js` `src/live-layer.js` `src/media-prep.js` `src/panel-tabs.js` `src/persistence.js` `src/picker-modal.js` `src/picker-props-panel.js` `src/preset-store.js` `src/system-fonts.js` `src/theme-follow.js` `src/video-layer.js` `src/we-cond.js` | ✅ |
 | `verify-component-fonts.mjs` | `lib/settings-schema.js` `src/client.js` `src/effects.js` `src/font/apply.js` `src/font/components.js` | ✅ |
 | `verify-contracts.mjs` | `lib/index.js` `lib/media/index.js` `lib/media/legacy.js` `lib/media/supervisor.js` `lib/routes/avatar.js` `lib/routes/fontsets.js` `lib/routes/mascot.js` `lib/settings-schema.js` `src/api-client.js` `src/client.js` `src/fontset-editor.js` `src/fontset-store.js` `src/panel-tabs.js` |  |
 | `verify-dead-declarations.mjs` | — |  |
@@ -126,6 +126,6 @@
 | `src/sidebar-right.js` | 2 | `verify-i18n` `verify-scene-live` |
 | `src/styles.js` | 7 | `e2e-web-media-origin` `verify-adapter` `verify-api-client` `verify-fontset` `verify-glass-surfaces` `verify-i18n` `verify-scene-live` |
 | `src/system-fonts.js` | 4 | `verify-client` `verify-fontset` `verify-scene-live` `verify-system-fonts` |
-| `src/theme-follow.js` | 1 | `verify-theme-follow` |
+| `src/theme-follow.js` | 2 | `verify-client` `verify-theme-follow` |
 | `src/video-layer.js` | 4 | `verify-api-client` `verify-client` `verify-scene-live` `verify-transcode-state` |
 | `src/we-cond.js` | 4 | `verify-api-client` `verify-client` `verify-fontset` `verify-scene-live` |

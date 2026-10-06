@@ -1601,8 +1601,12 @@ function layerContentReady(node) {
     //     屏上就是层底色，那正是"十几秒纯色"的成因）｜· 首帧 readyState ≥ 2。
     // 两者都没有 ⇒ 返回 false，旧壁纸继续留屏（绝不露底色）。
     // Edge 把画面画进镜像 canvas，而画布底是写死的 #000：视频有帧还不够，要等
-    // weDrawFrame 真的画上去一笔（那一笔落下时 canvas 会来报）。
-    if (node.querySelector("canvas.we-media--canvas")) return false;
+    // weDrawFrame 真的画上去一笔。判"画过"读**画布上的留痕**（`dataset.weDrawn`，
+    // 见 src/client.js 的 weDrawFrame）——
+    // ⚠️ 不能写成"有画布就判否"：首笔落下时回调的 recheck 会再次撞进那条判据，
+    // 放行条件永远不成立（真机形态：Edge 里切视频壁纸，旧壁纸永远留在屏上）。
+    const mirror = node.querySelector("canvas.we-media--canvas");
+    if (mirror) return !!(mirror.dataset && mirror.dataset.weDrawn === "1");
     return videoContentReady(video);
   }
   const live = node.querySelector("iframe.we-live-iframe");

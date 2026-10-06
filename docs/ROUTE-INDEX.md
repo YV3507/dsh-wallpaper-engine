@@ -50,7 +50,7 @@
 | 34 | `/glass-presets` | lib/routes/presets.js:264 | async 箭头 | disposers base | 1 |
 | 35 | `/star-count` | lib/routes/github-stars.js:105 | async 箭头 | disposers base repoSlug log | 2 |
 | 36 | `/system-fonts` | lib/routes/system-fonts.js:455 | async 箭头 | disposers base | 4 |
-| 37 | `/about-qr` | lib/routes/about-qr.js:62 | 箭头 | disposers base aboutDir serveFile | 3 |
+| 37 | `/about-qr` | lib/routes/about-qr.js:65 | 箭头 | disposers base aboutDir serveFile | 3 |
 | 38 | `/mascot` | lib/routes/mascot.js:48 | 箭头 | disposers base serveFile mascotDir mascotPath MASCOT_EXT …(+4) | 3 |
 | 39 | `/avatar` | lib/routes/avatar.js:52 | 箭头 | disposers base serveFile avatarDir avatarPath AVATAR_SIDES …(+5) | 4 |
 | 40 | `/settings` | lib/index.js:4301 | 箭头 | webServer disposers adapterFenceSeen adapterOverride observeAdapter adapterDetectedTarget …(+1) | 19 |

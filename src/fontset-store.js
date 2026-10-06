@@ -76,14 +76,14 @@ function fontSetFailureReason(res) {
 function fontSetsUrl() { return BASE + "/fontsets"; }
 function fontSetUrl(id) { return fontSetsUrl() + "/" + encodeURIComponent(id); }
 
-/** 读本地缓存那份 → `{ id, values }`（形状不合就当作没有）。 */
+/** 读本地缓存那份 → `{ id, values, dirty }`（形状不合就当作没有；旧形状无 dirty = false）。 */
 function readCachedFontSet() {
   try {
     const raw = localStorage.getItem(FONTSET_CACHE_KEY);
     if (!raw) return null;
     const doc = JSON.parse(raw);
     if (!doc || typeof doc !== "object" || !isFontSetId(doc.id)) return null;
-    return { id: doc.id, values: sanitizeFontset(doc.values) };
+    return { id: doc.id, values: sanitizeFontset(doc.values), dirty: doc.dirty === true };
   } catch {
     return null;
   }
@@ -103,8 +103,11 @@ function readCachedFontSetValues() {
   const doc = readCachedFontSet();
   return doc ? doc.values : fontValueDefaults();
 }
-function writeFontSetCache(id, values) {
-  try { localStorage.setItem(FONTSET_CACHE_KEY, JSON.stringify({ id, values })); } catch { /* 缓存写失败不影响真源 */ }
+function writeFontSetCache(id, values, dirty) {
+  // dirty = 这份缓存**还没被宿主确认**（写缓存先于 PUT；PUT 成功后会写回干净那份）。
+  // 它是跨重启的"上次落盘是否成功"记忆 —— 没有它，重启后的加载分不清
+  // "宿主就是这份"和"宿主是旧的、上次 PUT 失败了"（后者 = 静默回滚）。
+  try { localStorage.setItem(FONTSET_CACHE_KEY, JSON.stringify({ id, values, dirty: dirty === true })); } catch { /* 缓存写失败不影响真源 */ }
 }
 
 // 活动集 id：宿主回的为准；未知时留空，落盘时退回 FONTSET_MIGRATED_ID。
@@ -130,9 +133,11 @@ function pickFontValues() {
   return sanitizeFontset(out);
 }
 
-/** 立即写本地缓存（真源是宿主，缓存只是下次启动的同步起点）。 */
+/** 立即写本地缓存（真源是宿主，缓存只是下次启动的同步起点）。**写缓存即标脏**：
+ *  此刻这份值还没被宿主确认（紧跟着的 PUT 成功后才写回干净那份）——
+ *  页面在 PUT 应答前关闭时，脏标记就是"宿主可能还是旧值"的唯一线索。 */
 function cacheFontValues() {
-  writeFontSetCache(activeFontSetId || FONTSET_MIGRATED_ID, pickFontValues());
+  writeFontSetCache(activeFontSetId || FONTSET_MIGRATED_ID, pickFontValues(), true);
 }
 
 async function pushFontSet() {
@@ -148,7 +153,7 @@ async function pushFontSet() {
     fontSetDirty = !res.ok;
     if (res.ok) {
       activeFontSetId = id;
-      writeFontSetCache(id, values);
+      writeFontSetCache(id, values, false); // 宿主已确认 ⇒ 缓存转净
       selection.fontSetError = "";
     } else {
       selection.fontSetError = fontSetFailureReason(res);
@@ -240,11 +245,30 @@ async function loadFontSet() {
     selection.fontSetActive = id; // 指针（= 宿主那边正在用的那份；能力判定用它）
     // 用户在 GET 在途时改过 ⇒ 他的值更新，别覆盖（但活动 id 必须记下：写目标要对）。
     if (fontSetWrites === writesAtStart) {
-      Object.assign(selection, values); // 字体键一次写完 —— 这就是"整套采用"
-      writeFontSetCache(id, values);
+      // ⚠️ **回滚防线**（2026-10-06 用户反馈"重启后保存的自定义颜色没了"）：上次会话的
+      //    落盘可能没成功（宿主没重挂 / 退出太快 / 任何非 2xx）—— 脏标记随页面死了，
+      //    但缓存里那份就是**用户屏幕上看到的最后状态**。宿主值 ≠ 缓存值且缓存带脏
+      //    ⇒ 采纳缓存并立即补推，不让宿主的旧值把用户的编辑静默回滚。
+      //    取舍：两个桌面端共用同一份数据目录时这是"本窗口最后所见者胜"，
+      //    比"先写者胜"更贴近用户预期（另一个窗口的更新若被顶掉，重推后的差异
+      //    依旧可见；两实例同时编辑字体的场景本就罕见）。缓存不带脏（正常关停）
+      //    ⇒ 宿主为准，行为与之前逐字节相同。
+      const cached = readCachedFontSet();
+      const cachedNewer = Boolean(cached && cached.dirty && cached.id === id
+        && canonicalFontValues(cached.values) !== canonicalFontValues(values));
+      if (cachedNewer) {
+        Object.assign(selection, cached.values);
+        activeFontSetValues = canonicalFontValues(cached.values);
+        scheduleFontSet(); // 补推：让宿主追上用户最后所见
+      } else {
+        Object.assign(selection, values); // 字体键一次写完 —— 这就是"整套采用"
+        writeFontSetCache(id, values);
+        activeFontSetValues = canonicalFontValues(values);
+      }
+    } else {
+      // 快照 = 宿主那份（采用被在途编辑跳过时，selection ≠ 快照 ⇒ 正好判成"已改"）。
+      activeFontSetValues = canonicalFontValues(values);
     }
-    // 快照 = **宿主那份**（不管上面有没有覆盖 selection）：被覆盖时正好判成"已改"。
-    activeFontSetValues = canonicalFontValues(values);
     selection.fontSetError = "";
   } else {
     // 只拿到指针、没拿到正文：能力判定（活动集不可删）仍要准，但**不设快照** ⇒ 不判漂移。

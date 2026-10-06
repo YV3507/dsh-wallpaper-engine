@@ -457,6 +457,9 @@ function applySelection(id, opts) {
     abortTranscodeUpgrade();
     syncSceneAudio(selection);
     syncRotationTimer();
+    // 壁纸退了 ⇒ 主题也退（我方改过才放、别人接管过就不碰；见 src/theme-follow.js 的
+    // themeFollowRelease）。两条清空路径（用户「清除」与皮肤让路）都汇到这里。
+    themeFollowRelease();
     emit();
     return;
   }
@@ -561,7 +564,9 @@ function applySelection(id, opts) {
   // 请求还没发出」的空窗里，换壁纸的建层/起播/过渡全部排在它后面；实测同一条切换路径上
   // 主题真的写入时 apply→建层的中位耗时是 25ms，未写入时是 3ms。异步取色那条腿本来就在
   // 建层之后（要等图解码），这里只是让作者配色那条腿与它同序。
-  themeFollowOnWallpaper(selection);
+  // `fromSkinRestore`：皮肤退场把这张壁纸放回（src/client.js 的 exitSkinYield）——
+  // 让位标记不复位，皮肤在台期间用户改过的主题不被这次放回盖掉。
+  themeFollowOnWallpaper(selection, { fromSkinRestore: !!(opts && opts.fromSkinRestore) });
 }
 function buildMedia(sel) {
   // 壁纸播放形态优先级:

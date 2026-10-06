@@ -1,7 +1,7 @@
-# 「关于」页签的联系方式二维码（源资产）
+# 「关于」页签的联系方式二维码 + 更新公告配图（源资产）
 
-本目录归档设置页**「关于」页签**里两张联系方式二维码的**原始截图**。与 `assets/mascot/` 同一口径：
-它们是**源资产**，不是运行时载荷。
+本目录归档设置页**「关于」页签**里两张联系方式二维码的**原始截图**，以及「更新公告」弹窗
+配图的**原始插画**。与 `assets/mascot/` 同一口径：它们是**源资产**，不是运行时载荷。
 
 - 运行时用的是这两张图**裁到码区**的派生版本，落在 **`lib/about/*.png`**（随包发布），由插件路由
   `GET <BASE>/about-qr/<文件名>` 直出（白名单 + ETag/304，见 `lib/routes/about-qr.js`）；
@@ -16,6 +16,7 @@
 |---|---|---|
 | `qq-group-dshwe-llm-702x852.png` | 702×852 | **QQ 群「DSHWE \| LLM 讨论群」** 群二维码（含图内标题）。对应 `lib/about/qq-group.png` / `ABOUT_QR_QQ_PATH` |
 | `douyin-group-dsh-1044x1026.png` | 1044×1026 | **抖音群「dsh 交流群」**（群号 252729465001）二维码（含图内群名与群号）。对应 `lib/about/douyin-group.png` / `ABOUT_QR_DOUYIN_PATH` |
+| `update-notice-star-1254x1254.png` | 1254×1254 | **v1.3.0 更新公告配图**「求个 star 喵！」GitHub 求星插画（原图）。对应 `lib/about/update-notice.jpg` / `NOTICE_ART_PATH`（缩到 720px + JPEG q88，Pillow LANCZOS） |
 
 > **派生版只取"码"那块**（裁掉图内的标题带 / 群名 / 群号），因为这些文字在页面里由**卡片自己的
 > 标题与说明行**承担（重复两遍没有信息量），而裁掉之后两张码在面板里**尺寸一致、并排对齐**、
@@ -79,3 +80,10 @@ for path in CommandLine.arguments.dropFirst() {
 SWIFT
 swiftc -O /tmp/qrdecode.swift -o /tmp/qrdecode && /tmp/qrdecode lib/about/qq-group.png lib/about/douyin-group.png
 ```
+
+## 公告配图（update-notice-star-1254x1254.png）的派生口径
+
+跟二维码不是一回事：整图**无裁剪**，Pillow LANCZOS 缩到 **720×720**，存 **JPEG q88**
+（progressive + optimize，约 146KB；PNG 同尺寸要 753KB）。派生覆盖 `lib/about/update-notice.jpg`
+—— 路径与客户端产物都不动（`/about-qr` 路由带 ETag/304，换图即生效）。下个版本换公告图时：
+新图存本目录（原始尺寸留着），按同口径重派生覆盖即可，白名单与客户端不用改。
