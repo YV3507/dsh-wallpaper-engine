@@ -740,13 +740,13 @@ function startLiveWatch(frame, wid) {
       // 不在清零点上逐个补，是因为清零点分散（applySelection 三处 / stopLiveWatch）
       // 且各自都有"看起来正当"的理由；把语义的**唯一权威**放回心跳这一层，任何
       // 现在或将来漏掉的清零点都会被下一拍（≤1s）纠回来。
-      // ⚠️ 判据挂 `responsive`、不挂下面那个分支条件：分支条件含 `|| !isEffectivelyPlaying()`
-      // ——「暂停期」也走这条分支，而暂停中的渲染页（场景 fps=0）`alive` 恒为假，
-      // 若挂分支条件就永远进不来（自愈失能）；反过来若把自愈写成"无条件置真"，
-      // 就会在暂停期把一个**故意暂停**的渲染页标成 active，指针注入与媒体桥白热。
-      // 挂在 `responsive` 上恰好两头都对：真的在出帧才自愈，暂停/隐藏期不自愈，
-      // 恢复播放后的第一拍再自愈（延迟 ≤1s，用户无感）。
-      if (alive && !selection.sceneLiveActive) {
+      // ⚠️ 分支进 `responsive`（上面那行），但**自愈本身**挂 `alive && isEffectivelyPlaying()`：
+      // 场景暂停期 fps=0 ⇒ `alive` 恒为假，天然不自愈；**网页**的 `alive` 只问 iframe 加载
+      // 与否（`iframeLoaded`），暂停期照样为真 —— 暂停语义必须由 `isEffectivelyPlaying()`
+      // 补上，否则暂停期会把一个**故意暂停**的渲染页标成 active，指针注入与媒体桥白热。
+      // 两头都对：真的在出帧才自愈，暂停/隐藏期不自愈，恢复播放后的第一拍再自愈
+      // （延迟 ≤1s，用户无感）。
+      if (alive && isEffectivelyPlaying() && !selection.sceneLiveActive) {
         selection.sceneLiveActive = true;
         if (!watch.rearmed) {
           watch.rearmed = true;

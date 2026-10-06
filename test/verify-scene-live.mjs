@@ -964,11 +964,13 @@ const liveFlagChecks = (() => {
     // ③ 自愈必须挂在 `responsive` 上（真的在出帧才自愈），不能挂原来那个分支条件
     //（含 `|| !isEffectivelyPlaying()`，暂停期也走它，而暂停中的场景页 fps=0 ⇒
     // `alive` 恒为假 ⇒ 自愈失能），也不能写成"无条件置真"（暂停期会把**故意暂停**
-    // 的渲染页标成 active，指针注入与媒体桥白热）。置真之后只报一次诊断。
+    // 的渲染页标成 active，指针注入与媒体桥白热）。置真条件本身还必须带
+    // `isEffectivelyPlaying()`：**网页**壁纸的 `alive` 只问 iframe 加载与否
+    //（`iframeLoaded`），暂停期照样为真 —— 暂停语义只能由这一条补上（场景暂停期
+    // `alive` 本就为假，此条对场景零影响）。置真之后只报一次诊断。
     tickHeals: (body) => body.includes('if (responsive) {')
       && !/if \(responsive \|\|/.test(body)
-      && body.includes('if (alive && !selection.sceneLiveActive) {')
-      && /if \(alive && !selection\.sceneLiveActive\) \{\s*\n\s*selection\.sceneLiveActive = true;/.test(body)
+      && /if \(alive && isEffectivelyPlaying\(\) && !selection\.sceneLiveActive\) \{\s*\n\s*selection\.sceneLiveActive = true;/.test(body)
       && /if \(!watch\.rearmed\) \{\s*\n\s*watch\.rearmed = true;/.test(body)
       && body.includes('liveLog("live-rearm"'),
   };
@@ -1050,17 +1052,18 @@ const clientChecks = [
     })()],
   // （推荐，兜底）心跳自愈：这个标志的语义就是「渲染页活着且应在播」，而它全文件的
   // **唯一**置真点是首帧门 —— 那扇门一辈子只走一次。把语义的**唯一权威**放回心跳这
-  // 一层，任何现在或将来漏掉的清零点都会被下一拍纠回来。判据挂在 `responsive` 上、
-  // **不**挂原来的分支条件：分支条件含 `|| !isEffectivelyPlaying()`，暂停期也走它，
-  // 而暂停中的场景页 fps=0 ⇒ `alive` 恒为假（挂分支条件则自愈失能）；反过来「无条件
-  // 置真」又会在暂停期把**故意暂停**的渲染页标成 active（指针注入 / 媒体桥白热）。
+  // 一层，任何现在或将来漏掉的清零点都会被下一拍纠回来。分支进 `responsive`、**不**挂
+  // 原来的分支条件：分支条件含 `|| !isEffectivelyPlaying()`，暂停期也走它，而暂停中的
+  // 场景页 fps=0 ⇒ `alive` 恒为假（挂分支条件则自愈失能）；但**置真本身**必须再带
+  // `isEffectivelyPlaying()` —— 网页壁纸的 `alive` 只问 iframe 加载与否，暂停期也为真，
+  // 不补这条就会在暂停期把**故意暂停**的网页渲染页标成 active（指针注入 / 媒体桥白热）。
   // 详见该处注释；负对照在下方合成源码上验证这条判据真的会红。
   ['the heartbeat self-heals the active flag while the frame is really alive',
     liveFlagChecks.tickHeals(liveFlagChecks.tickBody()),
     (() => {
       const body = liveFlagChecks.tickBody();
       return 'tickBody=' + body.length
-        + ' heal@' + body.indexOf('if (alive && !selection.sceneLiveActive)')
+        + ' heal@' + body.indexOf('if (alive && isEffectivelyPlaying() && !selection.sceneLiveActive)')
         + ' rearmed@' + body.indexOf('if (!watch.rearmed)')
         + ' responsiveBranch=' + body.includes('if (responsive) {');
     })()],

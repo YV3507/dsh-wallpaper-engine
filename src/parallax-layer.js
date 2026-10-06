@@ -958,7 +958,9 @@ function parallaxAttr(on) {
  * 一律当作关。
  */
 function parallaxDebugSync(now) {
-  if (parallaxDebugOn && now - parallaxDebugCheckMs < PARALLAX_DEBUG_REREAD_MS) return;
+  // 节流必须**不看当前状态**：判据里带 `parallaxDebugOn &&` 的话，默认态（关）下一次手势
+  // 的每一起帧都会落到 localStorage 读（60~144 次/秒），"最多每秒重读一次"就只剩开着时成立。
+  if (now - parallaxDebugCheckMs < PARALLAX_DEBUG_REREAD_MS) return;
   parallaxDebugCheckMs = now;
   let on = false;
   try {
