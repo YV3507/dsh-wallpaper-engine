@@ -182,7 +182,8 @@ const PARALLAX_GROUP_DEPTH_MAX = 10;
  *  各有各的位移记录 —— DOM 上一个出口只有槽键、认不出占用它的插件，所以移动单位只能是节点）。
  *  **不参与的槽**（挪了没有意义或会与别的那一组打架）：
  *   · 整帧容器（`root` / `main` / `rightbar`）与 shell 各处 —— 挪它们等于整块界面动；
- *   · 原生四组（`conversation.view` / `sidebar` / `main.conversation`）—— 上面那条选择器在管；
+ *   · 原生四组（`[data-composer-card]` 输入卡片 / `conversation.view` 会话文本区 /
+ *     `sidebar` 左栏 / `main.conversation`）—— 上面那条选择器在管；
  *   · 整个设置 / 插件管理界面（`settings.*` / `plugins.*`，连同落在它们子树里的一切）——
  *     那是一块你正在读的表单，跟着光标晃只会碍事（第三方在插件页里声明的座位也算在内）。 */
 const PARALLAX_PLUGIN_SLOT_ATTR = 'data-slot';
@@ -509,7 +510,19 @@ function parallaxPluginEffectiveGroups() {
     if (nested) continue;
     out.push({ el: parallaxGroupBox(el) || el, slot: groups[i].slot });
   }
-  return out;
+  // 落点去重（**不变量**：面板列出来的每一行都有落点，且一行只对应一个落点）。一个出口有多个
+  // 元素子节点、或两个不同槽键的子节点最终落到**同一个盒子**时，`parallaxTargetAdd()` 只留先
+  // 入列的那一条（它按 `el` 去重）⇒ 后一条的距离其实无处可写。这里按落点先剔掉，让**面板名单
+  // 与屏上同源**这条不变量继续成立（否则「扩展」页签会多出一行永不生效的槽键）。
+  const boxes = [];
+  const kept = [];
+  for (let i = 0; i < out.length; i += 1) {
+    const box = out[i].el;
+    if (!box || boxes.indexOf(box) >= 0) continue;
+    boxes.push(box);
+    kept.push(out[i]);
+  }
+  return kept;
 }
 
 /** 对外（「扩展」页签那一段画行用）：**自动发现**到的插件前端元素组的槽键，屏上顺序、去重。
@@ -612,8 +625,11 @@ function parallaxTargetOffset(rec, x, y) {
  * 为什么：`translate` 只要不是 none，这个元素就成了 fixed 后代的**包含块**，那些后代会从
  * "钉在视口上"变成"钉在这个盒子上"（本仓 #89：第三方插件把座位挂在输入卡片里，包含块一换
  * 就跑到卡片角上、还多出幽灵溢出）。
- * 只在**重扫路径**上跑（帧里绝不碰）：先看节点数，超过 PARALLAX_GROUP_SCAN_MAX 就认作
+ * 只在**重扫路径**上跑（帧里绝不碰）：先看节点数，超过 PARALLAX_GROUP_SCAN_MAX（= 400）就认作
  * "没验完"（照动）—— 会话流动辄几千节点，每 250ms 全量 getComputedStyle 是不行的。
+ * ⚠️ 超限放行的代价不只是"白跑"：这一组里若嵌着 `position: fixed` 后代，也会跟着**照旧被改锚**
+ * （也就是下面那个 return true 根本没机会跑到）。可接受的理由：会话文本区一棵子树本来就常超 400，
+ * 而"输入卡片 / 侧栏"这类真会带固定定位后代的盒子都很小 ⇒ 实际触发面窄。
  * ⚠️ 左栏不由这条判定管：它写的是相对偏移、不是 transform，本来就不建立包含块
  * （调用方 parallaxTargetAdd 对 `sidebar` 直接按"没被挡下"算）。
  * 取不到 `getComputedStyle`（无头 / 测试挂载台）时按"没有"算。
@@ -641,8 +657,9 @@ function parallaxTargetRatio(rec, st) {
     if (rec.kind === 'plugin') {
       if (!st.pluginOn) return 0;
       // 距离按**槽键**从 parallaxPluginDepths 里取（缺键 = PARALLAX_PLUGIN_DEFAULT）。只认这张表
-      // **自己的**键：存档里那个 `__proto__` 会经 schema 的 `Object.assign` 变成表的原型（值是外部
-      // 注入的），直接读就成了原型链取值 —— 与 parallaxMaxPercent 的遍历口径（hasOwnProperty）一致。
+      // **自己的**键：存档里那个 `__proto__` 经 schema 的 `Object.assign` 会被**丢掉**（它只复制自有
+      // 可枚举键），其值改挂成结果的**原型** —— 所以下面的取值一律走 hasOwnProperty，与
+      // parallaxMaxPercent 的遍历口径一致；表里没写过的槽键就是"缺键"。绝不要改成直接读 `st.plugin[rec.slot]`。
       const own = Object.prototype.hasOwnProperty.call(st.plugin, rec.slot) ? st.plugin[rec.slot] : undefined;
       return parallaxClamp(own, PARALLAX_GROUP_DEPTH_MIN, PARALLAX_GROUP_DEPTH_MAX,
         PARALLAX_PLUGIN_DEFAULT) * PARALLAX_UI_SIGN;
@@ -997,15 +1014,16 @@ function parallaxGroupCounts() {
   return counts;
 }
 
-/** 一次手势收工（或停用）时打一行结论，并把同一份对象挂到 `window.__weParallaxStats` 上。 */
-function parallaxDebugReport() {
+/** 一次手势收工（或停用）时打一行结论，并把同一份对象挂到 `window.__weParallaxStats` 上。
+ *  可传入 `groupCounts` 覆盖读数：`parallaxStop()` 必须在**清表之前**先快照组数（否则那行恒为 0）。 */
+function parallaxDebugReport(groupCounts) {
   const stats = parallaxDebugStats;
   if (!parallaxDebugOn || !stats || !stats.frames) return;
   const report = {
     frames: stats.frames,
     writes: stats.writes,
     longFrames: stats.long,
-    groups: parallaxGroupCounts(),
+    groups: groupCounts || parallaxGroupCounts(),
     costMs: {
       p50: parallaxPercentile(stats.costs, 0.5),
       p95: parallaxPercentile(stats.costs, 0.95),
@@ -1199,6 +1217,9 @@ function parallaxStop() {
     parallaxRaf = 0;
   }
   parallaxUnbind();
+  // 先快照组数再清表：报告里那行"界面组 会话/输入/侧栏/气泡/插件"读的就是这张表
+  // （parallaxGroupCounts），清完再报永远是 0 —— 先记下来，交给报告用（见 parallaxDebugReport）。
+  const groupCounts = parallaxDebugOn ? parallaxGroupCounts() : null;
   parallaxTargetsClear();
   parallaxRatioClear();
   parallaxStepX = 0;
@@ -1210,7 +1231,7 @@ function parallaxStop() {
   parallaxVw = 0;
   parallaxVh = 0;
   parallaxDpr = 0;
-  parallaxDebugReport();
+  parallaxDebugReport(groupCounts);
   parallaxDebugOn = false;
   parallaxDebugStats = null;
   parallaxDebugCheckMs = 0;

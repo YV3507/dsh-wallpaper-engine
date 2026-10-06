@@ -172,7 +172,7 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe (no 
   **host element** (on the canvas they would only blend against the host's own stacking context), composites
   with `lighter` inside, and takes its color from the theme accent / rainbow (a hue per instance, drifting
   over time) / custom.
-  The registry also holds a **second module, 3D depth**: behaviour layer `src/parallax-layer.js` plus
+  The registry also holds the **3D depth** module (the **third** entry in that module container, after the avatar and click/trail effects — the ordinal is fixed by the registry order, not by this page): behaviour layer `src/parallax-layer.js` plus
   descriptor `src/ext-parallax.js` — the opposite of the one above, it **builds no DOM node at all**. It
   only listens passively to `pointermove` on `document`, `resize` on `window` and `visibilitychange`,
   turning the cursor's offset from the screen center into a displacement, and each frame writes the
@@ -196,19 +196,18 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe (no 
   `parallaxUiDepth` and the whole "panel x100 / stored factor" chain are retired, so the panel and the
   stored value now **share one unit** and setting a region to 0 means that region does not move at all
   (user ruling m02697-③). **Front-end element groups registered by other plugins** (user wording m02697-②)
-have **their own switch**, `parallaxPlugin` (user request m03549: **independent of `parallaxUi`, off by
-default**, because it moves the real interface drawn by other plugins): while it is off the layer does
-**not even scan** for them (rather than computing a coefficient of 0) and that panel card shows only the
-switch; once it is on the layer scans the host's slot outlets `[data-slot]` (an outlet itself is
-`display: contents` and generates no box, so the displacement lands on its **element child**), skips
-frame-wide containers / the native groups' own outlets / the settings and plugin-management subtrees, then
-runs a second filter `parallaxPluginEffectiveGroups()`: an outlet that sits **inside one of the four native
-group boxes** or **inside another discovered plugin group** does not count (that filter only applies while
-"Interface follows" is **on**), and reads
-the distance from `parallaxPluginDepths` (slot key -> %, a `map` entry) where **a missing key means the
-1% default and an explicit 0 means that group does not move** (that table only counts while the switch is
-on); the panel's
-  list comes from the layer's `parallaxDiscoveredGroups()` through `ctx` (**same source as what actually
+  have **their own switch**, `parallaxPlugin` (user request m03549: **independent of `parallaxUi`, off by
+  default**, because it moves the real interface drawn by other plugins): while it is off the layer does
+  **not even scan** for them (rather than computing a coefficient of 0) and that panel card shows only the
+  switch; once it is on the layer scans the host's slot outlets `[data-slot]` (an outlet itself is
+  `display: contents` and generates no box, so the displacement lands on its **element child**), skips
+  frame-wide containers / the native groups' own outlets / the settings and plugin-management subtrees, then
+  runs a second filter `parallaxPluginEffectiveGroups()`: an outlet that sits **inside one of the four native
+  group boxes** or **inside another discovered plugin group** does not count (that filter only applies while
+  "Interface follows" is **on**), and reads the distance from `parallaxPluginDepths` (slot key -> %, a `map`
+  entry) where **a missing key means the 1% default and an explicit 0 means that group does not move**
+  (that table only counts while the switch is on); the panel's list comes from the layer's
+  `parallaxDiscoveredGroups()` through `ctx` (**same source as what actually
   moves**: it and the target rescan share the one `parallaxPluginEffectiveGroups()`, so every row has a
   landing spot; the single exception - a group with a `position: fixed` descendant stays put - is spelled
   out in that row's tooltip), and the panel splits it into three cards ("Background" / "Native front end" /
@@ -216,7 +215,7 @@ on); the panel's
   text area, and only the 24 most recent ones move; `PARALLAX_UI_SIGN = 1` makes the interface move the
   **same way as** the wallpaper - the near interface travels a little further than the far wallpaper, a
   camera pan - and the displacement itself lands on the anchor itself when it owns a box, or else on the
-  nearest ancestor that does (`parallaxGroupBox()`, at most 3 levels up), because the host's slot outlets hard-code `display: contents` and generate none), the
+  nearest ancestor that does (`parallaxGroupBox()`, at most 3 levels up), because the host's slot outlets hard-code `display: contents` and generate none). The
   direction of the wallpaper leg is negated so the shift is **mirrored about the screen center**
   (cursor to the top right moves everything to the bottom left), the easing is an exponential approach per
   frame (`parallaxSmooth`, 0 = instant), and the loop stops itself as soon as the displacement left on

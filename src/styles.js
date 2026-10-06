@@ -1195,15 +1195,17 @@ const CSS = `
     -webkit-backdrop-filter: blur(var(--we-titlebar-blur)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
     backdrop-filter: blur(var(--we-titlebar-blur)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
   }
-  /* 深色：同一张表、同一组层权重，只有玻璃色缺省与高亮 mix 不同（与左栏深色那条同形）。 */
+  /* 深色：同一张表、同一组层权重，只有玻璃色缺省与高亮 mix 不同（与左栏深色那条同形）。
+     ⚠️ 釉光必须**和浅色那条一样恒定**（单停靠点 sheen-a）：暗档若照抄左栏那条三段渐变，
+        就是上面浅色注释里那个"盒尺寸色差"的回归 —— 40px 与 1111px 两个盒子会算出不同白釉
+        强度，而 TB4a 早先只测浅色那条 ⇒ 暗档当时零覆盖（现已对两条都跑）。 */
   html[data-windows-titlebar] body[data-ds-dark-theme][data-we-glass-page][data-we-titlebar-glass][data-we-adapter^="desktop-"] div[class*="pI_x6G_frame"]::before {
     background-color: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
       color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) calc(var(--we-titlebar-alpha) * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
     background-image: linear-gradient(180deg,
       rgba(255, 255, 255, var(--we-panel-sheen-a)) 0%,
-      rgba(255, 255, 255, var(--we-panel-sheen-b)) 38%,
-      rgba(255, 255, 255, var(--we-panel-sheen-c)) 100%) !important;
+      rgba(255, 255, 255, var(--we-panel-sheen-a)) 100%) !important;
     --dsw-alias-interactive-bg-hover: color-mix(in srgb, var(--we-accent, #4f8cff) 14%, rgba(255, 255, 255, 0.04));
   }
   /* 无 backdrop-filter：同一政策 —— 近不透明玻璃，顶栏文字绝不直接落在壁纸上。 */
@@ -3254,15 +3256,16 @@ body[data-we-glass-floaters] .we-repo-panel {
      ① body 上的一个"壁纸补边系数"（只在设置变了时写一次）算出 .we-layer 的**静态**放大 ——
         壁纸层正好是视口大小，横向最大位移 = 系数/100 × 整屏宽（用户口径 m02697-①：系数 = 光标在屏幕角上时挪几个百分点的对角线
          ⇒ 2 × 系数/100 × 半屏宽 = 系数/100 × 屏宽），放大 1 + 系数/50 恰好补上这点余量；
-     ② 一个总开关属性 data-we-parallax：只有它在时上面那条补边规则才命中；关掉 ⇒ 屏上一点
+     ② 一个总开关属性 data-we-parallax：只有它在时**下面那条**补边规则才命中；关掉 ⇒ 屏上一点
         痕迹都没有（位移由行为层 removeProperty 收干净）。
      这么写有两个好处：① 不新增节点 ⇒ 不参与 stacking、不会被别的层顺手清掉；
      ② 关掉总开关时连属性都不在 ⇒ 补边与位移一起消失。
      硬约束：**只能用 CSS 独立属性 translate / scale，不能用 transform** —— 壁纸层的过场
      （src/live-layer.js 的 resetLayerSwitchStyles）与 .we-layer--repaint 会内联写 / 清
      transform，独立属性才与它们叠加，而不是互相覆盖。
-     系数口径：光标走完一整条对角线时，该层挪"它那个系数"个百分点的对角线（推导见行为层
-     文件头）；系数由行为层乘进位移里（壁纸走 parallaxBg、吉祥物走 parallaxMascot）。
+     系数口径：**光标贴在屏幕角上时，该层挪"它那个系数"个百分点的最长对角线**
+     （推导见行为层文件头）；系数由行为层乘进位移里（壁纸走 parallaxBg、吉祥物走
+     parallaxMascot、界面四组各走自己的 parallaxUi*Depth）。
      兜底是 0：变量还没写上时放大倍数为 1（例如刚开开关、第一帧还没跑）。
      **点击与拖尾那一层刻意不参与**（用户口径：特效不跟着偏移）。 */
   body[data-we-parallax="on"] .we-layer {

@@ -3073,6 +3073,12 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       && parSrc.includes('function parallaxPluginKey(el)')
       && parSrc.includes('function parallaxPluginGroups()')
       && parSrc.includes('function parallaxDiscoveredGroups()')
+      // 审计 A6：出口有多个元素子节点、或两个不同槽键最终落到**同一个盒子**时，`parallaxTargetAdd()`
+      // 只留先入列的那一条（它按 `el` 去重）⇒ 后一条的距离无处可写。名单必须**按落点去重**，
+      // 否则「扩展」页签会多列一行永不生效的槽键（"面板名单与屏上同源"这条硬不变量就破了）。
+      && parSrc.includes('const boxes = [];')
+      && parSrc.includes('if (!box || boxes.indexOf(box) >= 0) continue;')
+      && parSrc.includes('return kept;')
       && parSrc.includes('out.push({ el: kids[j], slot: slot });')
       // 到位阈值看的"最大距离"现在是各层里最大的那个（只看壁纸会把界面 / 插件组的尾巴抹平）。
       && parSrc.includes('function parallaxMaxPercent(st)')
@@ -3163,7 +3169,15 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       && parSrc.includes("const PARALLAX_DEBUG_KEY = 'weParallaxDebug';")
       && parSrc.includes('function parallaxDebugSync(now)')
       && parSrc.includes('function parallaxDebugFrame(t0, now, writes)')
-      && parSrc.includes('function parallaxDebugReport()')
+      && parSrc.includes('function parallaxDebugReport(groupCounts)')
+      // 审计 A1：收工那条自检报告的"界面组 会话/输入/侧栏/气泡/插件"读的是位移目标表，而
+      // `parallaxStop()` 是先清表再报告 ⇒ 这一行**恒为 0**（看着像"界面组一个都没认到"，实测是
+      // 把表清空后才去数）。修法是清表**之前**先快照组数、把它交给报告覆盖读数。两条一起钉：
+      // 快照必须出现在清表那一句之前，报告必须收下这份快照。
+      && parSrc.includes('const groupCounts = parallaxDebugOn ? parallaxGroupCounts() : null;')
+      && parSrc.indexOf('const groupCounts = parallaxDebugOn ? parallaxGroupCounts() : null;')
+        < parSrc.indexOf('parallaxTargetsClear();')
+      && parSrc.includes('parallaxDebugReport(groupCounts);')
       && parSrc.includes('win.__weParallaxStats = report;')
       // 老口径"只看壁纸的系数"整条消失：最大距离现在从各层里取（见上面 parallaxMaxPercent）。
       && !parSrc.includes('const pctMax = st.bg;')

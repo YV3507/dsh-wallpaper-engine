@@ -636,6 +636,25 @@ function main() {
   check('TB4a 负对照：三段渐变要被判红（判据有牙）',
     sheenIsConstant('linear-gradient(180deg, rgba(255,255,255,var(--we-panel-sheen-a)) 0%,'
       + ' rgba(255,255,255,var(--we-panel-sheen-b)) 38%, rgba(255,255,255,var(--we-panel-sheen-c)) 100%)') === false);
+  // ── TB4b: 恒定釉光**暗档也要有** —— 2026-10-06 漏网：暗档照抄左栏那条三段渐变，而 TB4a
+  //    早先的 tbLightRule 显式排除 data-ds-dark-theme ⇒ 那条恰好是 TB4a 定义的失败形态，
+  //    却不在被测集合里（深色主题是日常默认档，这个空白比浅色那条更该钉）。理由与算术同 TB4a。
+  const tbDarkRule = tbRules.find((r) => r.header.includes('::before')
+    && r.header.includes('data-ds-dark-theme') && !r.header.includes('glass-fallback')
+    && /background-color\s*:/.test(r.body));
+  const tbDarkSheen = tbDarkRule ? String(declValue(tbDarkRule.body, 'background-image') || '') : '';
+  check('TB4b 深色标题栏的釉光同样是恒定 sheen-a（暗档不得照抄左栏那条三段渐变）',
+    Boolean(tbDarkRule) && sheenIsConstant(tbDarkSheen),
+    'dark-rule=' + (tbDarkRule ? 'present' : 'MISSING')
+      + ' decl=' + (tbDarkSheen.replace(/\s+/g, ' ').slice(0, 88) || '(MISSING)'));
+  check('TB4b 负对照：暗档写成三段渐变必须判红，且亮/暗两条釉光声明必须同源',
+    sheenIsConstant('linear-gradient(180deg, rgba(255,255,255,var(--we-panel-sheen-a)) 0%,'
+      + ' rgba(255,255,255,var(--we-panel-sheen-b)) 38%, rgba(255,255,255,var(--we-panel-sheen-c)) 100%)') === false
+      && Boolean(tbLightRule) && Boolean(tbDarkRule)
+      && String(declValue(tbDarkRule.body, 'background-image')).replace(/\s+/g, ' ').trim()
+        === String(declValue(tbLightRule.body, 'background-image')).replace(/\s+/g, ' ').trim(),
+    'light=' + (tbSheen.replace(/\s+/g, ' ').slice(0, 52) || '(MISSING)')
+      + ' · dark=' + (tbDarkSheen.replace(/\s+/g, ' ').slice(0, 52) || '(MISSING)'));
   // ── TB6: 顶栏**不得**画分割线 —— 与左栏 S2 同一条政策（那条线本身就是色差，理由见 styles.js）。
   const tbBorder = tbLightRule ? String(declValue(tbLightRule.body, 'border-bottom') || '') : '';
   const tbHasBorder = (v) => /solid|rgb|hsl|color\(/.test(String(v || ''));

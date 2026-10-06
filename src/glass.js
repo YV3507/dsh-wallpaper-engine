@@ -101,7 +101,7 @@ function applyGlass(selection, s) {
   //   等价性由 `.test-cache/r1-equivalence.mjs` 的"有效取值零差异"守着。
   // "要不要玻璃"仍由**门控属性**管（§4.21 的层叠机制），与"用谁的值"正交。
   {
-    // 本面的透明度曲线：与全局**同形**（0–60 → 0.25…0.10，越大越透）。
+    // 本面的透明度曲线：与全局**同形**（滑杆 0–100 → 0.25…0.10，数值越大越透）。
     const pct = Number(glassValue("settingsWindow", "transparency", selection.settingsWindowTransparency, selection.glassAlpha)) || 0;
     s.setProperty("--we-settings-window-blur",
       glassValue("settingsWindow", "blur", selection.settingsWindowBlur, selection.blur) + "px");
@@ -193,10 +193,12 @@ function applyGlass(selection, s) {
     s.setProperty("--we-left-sidebar-alpha", String(Math.max(0.10, 0.25 - pct / 100 * 0.15)));
   }
 
-  // 标题栏液态玻璃：壳层顶栏（`.dshDesktopFrameTitlebar`）默认只是那条不透明的
-  // `--dsh-desktop-frame-fill` 底（上面 styles.js 的「外壳画布底」把 `.dshDesktopFrame`
-  // 清成 transparent 之后，这一层是唯一必须保留底色的面）。打开后 CSS 把它换成**与其余
-  // 面板同一张配方表**，且与左侧栏那条**逐条同形**（唯一差别是锚点与那条发丝线的方向）。
+  // 标题栏液态玻璃：壳层顶栏（AppFrame 那个 grid 容器，锚点是 `div[class*="pI_x6G_frame"]`
+  // 这个**构建哈希子串** —— 旧写法 `.dshDesktopFrameTitlebar` 在当前 app.asar 命中 0 次，
+  // 见 styles.js 的「标题栏液态玻璃」注释）默认只是那条不透明的底色（上面 styles.js 的
+  // 「外壳画布底」把外壳画布清成 transparent 之后，这一层是唯一必须保留底色的面）。
+  // 打开后 CSS 把它换成**与其余面板同一张配方表**，且与左侧栏那条**逐条同形**
+  // （唯一差别是锚点；**不画**底分割线，理由见 styles.js）。
   // 变量与开关节点的落点同玻璃窗口：body 属性 + 样式表规则，切换不需要重建任何东西。
   if (selection.titlebarGlass) document.body.setAttribute("data-we-titlebar-glass", "on");
   else document.body.removeAttribute("data-we-titlebar-glass");

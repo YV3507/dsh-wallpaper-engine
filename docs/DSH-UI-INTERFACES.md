@@ -58,6 +58,7 @@ DSH 桌面端把整份客户端 + node 宿主打进 `resources/app.asar`（Elect
 | `data-turn-trigger` | ✅ | `dsh-client-ui-chat`（`TurnTriggerNodeView`） | 思考触发条的锚点，稳 |
 | `data-sidebar-right-panel` / `data-sidebar-right-open` | ✅ | `dsh-client-ui-sidebar-right` | **既有**右栏适配的落点，稳（上游曾改过隐藏机制，见 `test/compat-harness-surfaces.mjs` 的活判据） |
 | `data-slot`（**值由宿主槽注册表决定**） | ✅ 属性存在；`settings.section` ✅ | `dsh-client-ui-renderer` 写出口 | **这是"槽出口"，不是普通属性** —— 见 §3；出口自己写死 `display: contents`（**不生成盒子**），**不能**拿它当位移 / 定位的落点 —— 见 §3.5 |
+| `data-windows-titlebar`（在 `html` 上） | ✅ 桌面壳写 | **桌面壳**（不在客户端产物里） | Windows 标题栏形态门：壳把窗口切到"自绘标题栏"布局（顶栏高度进 CSS 变量 `--dsh-windows-titlebar-height`）时挂在 `html` 上。本插件抄左栏那条玻璃规则时用它当**形态门**，与 `data-we-adapter^="desktop-"` 两道门同时成立才生效 |
 | `data-dsh-desktop-mode` | ❌ 客户端产物 0 命中 | 桌面壳的 **URL 查询参数**，由本插件的 `src/adapter.js` 写到 body | **不是 DSH 客户端接口**（见 §3） |
 | `data-dsh-better-sidebar` / `.dsh-browser-seat-wrap` | ❌ 0 命中 | **第三方插件**（better-sidebar / dsh-webui） | 不在 DSH 保证范围内 |
 
@@ -70,6 +71,14 @@ DSH 桌面端把整份客户端 + node 宿主打进 `resources/app.asar`（Elect
 |---|---|---|
 | `_bubble` / `_card` / `_panel` / `_editorHeader` | ✅ 存在 | 会话 / 卡片族用得上 |
 | `_boundaryError` / `_browserBar` / `_explorerHeader` / `_gitHeader` / `_pane` / `_paneCard` / `_tabBar` / `_terminalWrap` | ❌ 不存在 | 这些是 **dsh-better-sidebar 的类名**（第三方）⇒ 只能随该插件漂移 |
+| `pI_x6G`（写成 `div[class*="pI_x6G_frame"]`） | ✅ **完整哈希子串**（实测命中） | 不是后缀 —— 见下面那条 |
+
+**⚠️ 还有第三种形态：拿完整哈希名当子串**（`div[class*="pI_x6G_frame"]`，标题栏玻璃用）。它是
+`oE-XyW_root` 那种"哈希 + 后缀"里的**整串**（`<hash>_frame`）⇒ 比后缀更窄、更不会误伤，但**每次宿主重建
+哈希都会漂**，最坏结果是"这一块不生效"（锚点失配不会误伤别的元素）。**棘轮有盲区**：
+`test/compat-harness-surfaces.mjs` 的抽取正则只收 `[class*="_xxx"]` 这种**下划线开头**的后缀 ⇒
+`class*="pI_x6G_frame"` 抓不到，`test/fixtures/harness-ui-surfaces.json` 里也就没有它；目前只有
+`test/verify-glass-surfaces.mjs` 的 `anchors: ['[data-windows-titlebar]']` 单独兜一层。
 
 **稳定性判定：低。** 即使后缀存在，哈希前缀每次宿主重建都会变；后缀本身也不是契约（宿主可以把 `_panel` 改名）。
 ⇒ 这类锚点只能当"尽力而为的兜底"，**不能**把用户可见功能挂在它上面。
