@@ -21,7 +21,9 @@
  *      宿主开页现读、后端路由重启才换血，更新后未重启的窗口期里旧白名单没有
  *      update-notice.jpg（404）；公告若照旧立刻弹就是裂图，而「知道了」一关永久退场，
  *      配图等于永远没人看到（v1.3.0 发布当日的真实事故）。钉住：探针在（HEAD
- *      NOTICE_ART_PATH）、门控在（ready/timeout 才 show）、img 只在 ready 渲染。
+ *      NOTICE_ART_PATH）、门控在（ready/timeout 才 show）、img 只在 ready 渲染、
+ *      **一个时限内的请求数 ≤10**（退避表 + 跑真函数算时刻表，旧固定 1.5s 轮询是 61 拍
+ *      —— 上线当日的实测反馈就是"一屏 404 红字"）、**结论按页面加载缓存**（多开面板不复探）。
  *
  * 为什么必须不联网：GitHub 未认证限流是 **60 次/小时/IP、整机共享**的 —— 守卫若真发请求，
  * CI 上跑几次就把额度用光，而且"网络不通"会让判据变成随机红。故本文件**只**用替身 fetchJson。
@@ -463,6 +465,64 @@ check('探针只在"会弹"时启动（已关公告的用户不发请求）',
 check('negative control: 门控判据对无门控的合成组件有牙',
   !/art === "ready" \? React\.createElement\("img"/.test('function UpdateNotice() { return React.createElement("img", { src: x }); }')
     && !/art === "ready" \|\| art === "timeout"/.test('function UpdateNotice() { const show = loaded; }'));
+
+// ── ⑤b 请求数上限 + 页面级结论缓存 ─────────────────────────────────────────
+// 缘起：未重启的后端 + 面板多开几次 ⇒ 约 150 行 404 红字（用户实测反馈）。请求本身是
+// 自清洁的（no-store/200 no-cache），但刷屏不是。两条腿都不读第二份字面量：退避表与
+// 时限从源码现取，然后**跑真函数** —— "一个时限里到底发几个请求"是可以直接算出来的
+// 事实，不是形态猜测；正负对照喂进**同一条**判据（docs/DEV-GUIDE.md §4.7 约定 5）。
+// 形态判据一律只看**剥了注释的代码**：下面这些说明文字里就写着 `NOTICE_ART_POLL_MS`
+// 和"固定间隔"之类的词，拿原文比会被自己误伤成真阳性。
+const clientCode = stripComments(clientSrc);
+const noticeCode = stripComments(noticeSrc);
+const noticeTableSrc = (clientCode.match(/const NOTICE_ART_BACKOFF_MS = \[[^\]]*\];/) || [])[0] || '';
+const noticeWaitSrc = (clientCode.match(/const NOTICE_ART_WAIT_MS = \d+;/) || [])[0] || '';
+const noticeFnSrc = (clientCode.match(/function noticeArtSchedule\([\s\S]*?\r?\n\}/) || [])[0] || '';
+check('判据前置：退避表 / 时限 / 时刻表函数都能从源码取到（否则下面几条是空转）',
+  noticeTableSrc !== '' && noticeWaitSrc !== '' && noticeFnSrc !== '');
+const noticePure = new Function(noticeTableSrc + noticeWaitSrc + noticeFnSrc
+  + ' return { noticeArtSchedule, NOTICE_ART_BACKOFF_MS, NOTICE_ART_WAIT_MS };')();
+const artSchedule = noticePure.noticeArtSchedule(noticePure.NOTICE_ART_WAIT_MS, noticePure.NOTICE_ART_BACKOFF_MS);
+const artScheduleFixed = noticePure.noticeArtSchedule(noticePure.NOTICE_ART_WAIT_MS, [1500]);
+check('退避表单调不降且真的退避（首拍仍与旧口径同 1.5s，末档 ≥12s）',
+  noticePure.NOTICE_ART_BACKOFF_MS.length >= 3
+    && noticePure.NOTICE_ART_BACKOFF_MS.every((v, i, a) => v > 0 && (i === 0 || v >= a[i - 1]))
+    && noticePure.NOTICE_ART_BACKOFF_MS[0] === 1500
+    && noticePure.NOTICE_ART_BACKOFF_MS[noticePure.NOTICE_ART_BACKOFF_MS.length - 1] >= 12000,
+  JSON.stringify(noticePure.NOTICE_ART_BACKOFF_MS));
+check('一个时限内的请求数 ≤10（旧固定 1.5s 轮询是 61 拍）',
+  artSchedule[0] === 0 && artSchedule.length >= 4 && artSchedule.length <= 10,
+  artSchedule.length + ' 拍：' + artSchedule.join(', '));
+check('末拍仍落在时限上（"等满时限"那一拍真的发出，降级紧跟其后）',
+  Math.abs(artSchedule[artSchedule.length - 1] - noticePure.NOTICE_ART_WAIT_MS) <= 1,
+  artSchedule[artSchedule.length - 1] + ' vs ' + noticePure.NOTICE_ART_WAIT_MS);
+check('negative control: 同一判据对旧的固定 1.5s 轮询有牙',
+  artScheduleFixed.length > 10, artScheduleFixed.length + ' 拍');
+// 接线上真的换了退避：只测纯函数是不够的 —— 表建了而组件仍按固定间隔排拍，上面全绿。
+// 所以这里同时钉"按时刻表差值排拍"与"没有固定节奏的 setTimeout(probe, …)"（后者连
+// 换成裸字面量 1500 也照样判红 —— 判据不该只认那个已退役的常量名）。
+const noticeBackoffWired = (s) => s.includes('noticeArtSchedule(NOTICE_ART_WAIT_MS, NOTICE_ART_BACKOFF_MS)')
+  && s.includes('schedule[i + 1] - schedule[i]') && !/setTimeout\(probe, /.test(s);
+const noticeWiredOk = 'const schedule = noticeArtSchedule(NOTICE_ART_WAIT_MS, NOTICE_ART_BACKOFF_MS);'
+  + ' timers.push(setTimeout(() => probe(i + 1), schedule[i + 1] - schedule[i]));';
+check('组件按时刻表排拍，旧的固定间隔常量已整体退场',
+  noticeBackoffWired(noticeCode) && !clientCode.includes('NOTICE_ART_POLL_MS'));
+check('negative control: 接线判据对"退避表建了但组件仍按固定间隔排拍"有牙',
+  noticeBackoffWired(noticeWiredOk)
+    && !noticeBackoffWired(noticeWiredOk + ' timers.push(setTimeout(probe, 1500));')
+    && !noticeBackoffWired(noticeWiredOk + ' timers.push(setTimeout(probe, NOTICE_ART_POLL_MS));'));
+// 页面级结论缓存：面板可反复开关，但"这个后端有没有那张图"是页面级事实 ⇒ 第二轮起
+// 一个请求都不发。判据要求**读**与**写**同时在（只写不读 = 缓存白建）。
+const noticeVerdictCached = (s) => /let noticeArtVerdict\b/.test(s)
+  && /if \(noticeArtVerdict\) \{ setArt\(noticeArtVerdict\); return undefined; \}/.test(s)
+  && s.includes('noticeArtVerdict = "ready"') && s.includes('noticeArtVerdict = "timeout"');
+const noticeCacheOnlyWrite = 'let noticeArtVerdict = ""; noticeArtVerdict = "ready"; noticeArtVerdict = "timeout";';
+const noticeCacheOk = 'let noticeArtVerdict = "";'
+  + ' if (noticeArtVerdict) { setArt(noticeArtVerdict); return undefined; }'
+  + ' noticeArtVerdict = "ready"; noticeArtVerdict = "timeout";';
+check('探针有页面级结论缓存（读在、两个终态都在：多开面板不复探）', noticeVerdictCached(clientCode));
+check('negative control: 缓存判据对"只写不读"的形态有牙',
+  !noticeVerdictCached(noticeCacheOnlyWrite) && noticeVerdictCached(noticeCacheOk));
 
 console.log('\n' + (failed === 0 ? 'ABOUT (stars + QR) CHECKS PASSED' : 'ABOUT (stars + QR) CHECKS FAILED') + ` (${passed})`);
 process.exit(failed === 0 ? 0 : 1);
