@@ -174,27 +174,93 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe (no 
   over time) / custom.
   The registry also holds a **second module, 3D depth**: behaviour layer `src/parallax-layer.js` plus
   descriptor `src/ext-parallax.js` — the opposite of the one above, it **builds no DOM node at all**. It
-  only listens passively to `pointermove` on `document` and `resize` on `window`, turning the cursor's
-  offset from the screen center into a few CSS variables: the two per-layer multipliers plus a
-  `data-we-parallax` switch attribute go on the body (written once per settings change), while the
-  per-frame displacement step goes on **the layers that actually move** (custom properties inherit, so
-  writing it on the body would re-resolve styles for the whole document every frame) — the displacement,
-  the up-scaling and the multipliers themselves are computed by the parallax section of `src/styles.js`
-  with `calc()`. The wallpaper and the mascot each multiply their own
-  percentage (1% for the wallpaper by default, the mascot sharing the wallpaper's value), the direction is negated so the shift is **mirrored about
-  the screen center** (cursor to the top right moves everything to the bottom left), the easing is an
-  exponential approach per frame (`parallaxSmooth`, 0 = instant), and the loop stops itself as soon as the
-  displacement left on screen no longer shows (zero frames while idle; frames are capped at 60Hz so a
-  high-refresh display runs every other frame, "arrived" is judged from the remaining step times the
-  largest multiplier and loosened to 1px once the cursor has been still for 180ms, no frame is scheduled
-  at all when every multiplier is 0, and the moving layers are promoted to compositor layers only while
-  the loop runs, the hint being dropped the moment it settles — this repo deliberately keeps no always-on
-  compositor layer). The wallpaper layer is also scaled up by the same amount
-  (`1 + pct / 100`) so no base color shows at the edges, and the displacement uses the CSS
+  only listens passively to `pointermove` on `document`, `resize` on `window` and `visibilitychange`,
+  turning the cursor's offset from the screen center into a displacement, and each frame writes the
+  **final, fully multiplied displacement** straight onto **the layers that actually move** as the CSS
+  **independent property `translate`** (two decimals; nothing is written when the value did not change) —
+  the displacement **never travels through a custom property**: custom properties inherit, so writing one
+  would re-resolve styles for a whole subtree. The body keeps a single "wallpaper bleed" multiplier
+  `--we-parallax-bg` (written once per settings change, feeding the static
+  `scale: calc(1 + multiplier / 50)` in the parallax section of `src/styles.js`, i.e. the wallpaper is
+  enlarged by `1 + pct/50` so no base color shows past the edges). **A percentage means "the largest
+  displacement this layer can reach, as a share of the screen's longest diagonal"** (user wording
+  m02697-①: with the cursor in a screen corner |displacement| is exactly p% x diagonal), so the per-frame
+  formula is `displacement = 2 x pct/100 x (cursor - screen center)`, written in the layer as
+  `PARALLAX_STEP_DIV = 50`. The wallpaper and the
+  mascot each multiply their own percentage (1% for the wallpaper by default, the mascot sharing the
+  wallpaper's value); the interface groups (composer / conversation text area (user bubbles inside
+  included) / sidebar) are governed by a
+  separate sub-switch `parallaxUi` (off by default) and the four regions **each store their own absolute
+  percentage** (`parallaxUiChatDepth` / `parallaxUiComposerDepth` / `parallaxUiSidebarDepth` /
+  `parallaxUiBubbleDepth`, KINDS `num 0..10`, step 0.1, shipping at 1.2 / 1.8 / 1.6 / 1.4 (user request m04159 pinned those four to the values he had tuned; source of truth = `lib/settings-schema.js`)): the old **total factor**
+  `parallaxUiDepth` and the whole "panel x100 / stored factor" chain are retired, so the panel and the
+  stored value now **share one unit** and setting a region to 0 means that region does not move at all
+  (user ruling m02697-③). **Front-end element groups registered by other plugins** (user wording m02697-②)
+have **their own switch**, `parallaxPlugin` (user request m03549: **independent of `parallaxUi`, off by
+default**, because it moves the real interface drawn by other plugins): while it is off the layer does
+**not even scan** for them (rather than computing a coefficient of 0) and that panel card shows only the
+switch; once it is on the layer scans the host's slot outlets `[data-slot]` (an outlet itself is
+`display: contents` and generates no box, so the displacement lands on its **element child**), skips
+frame-wide containers / the native groups' own outlets / the settings and plugin-management subtrees, then
+runs a second filter `parallaxPluginEffectiveGroups()`: an outlet that sits **inside one of the four native
+group boxes** or **inside another discovered plugin group** does not count (that filter only applies while
+"Interface follows" is **on**), and reads
+the distance from `parallaxPluginDepths` (slot key -> %, a `map` entry) where **a missing key means the
+1% default and an explicit 0 means that group does not move** (that table only counts while the switch is
+on); the panel's
+  list comes from the layer's `parallaxDiscoveredGroups()` through `ctx` (**same source as what actually
+  moves**: it and the target rescan share the one `parallaxPluginEffectiveGroups()`, so every row has a
+  landing spot; the single exception - a group with a `position: fixed` descendant stays put - is spelled
+  out in that row's tooltip), and the panel splits it into three cards ("Background" / "Native front end" /
+  "Plugin front end"). User bubbles stack one more layer on top of the
+  text area, and only the 24 most recent ones move; `PARALLAX_UI_SIGN = 1` makes the interface move the
+  **same way as** the wallpaper - the near interface travels a little further than the far wallpaper, a
+  camera pan - and the displacement itself lands on the anchor itself when it owns a box, or else on the
+  nearest ancestor that does (`parallaxGroupBox()`, at most 3 levels up), because the host's slot outlets hard-code `display: contents` and generate none), the
+  direction of the wallpaper leg is negated so the shift is **mirrored about the screen center**
+  (cursor to the top right moves everything to the bottom left), the easing is an exponential approach per
+  frame (`parallaxSmooth`, 0 = instant), and the loop stops itself as soon as the displacement left on
+  screen no longer shows (zero frames while idle; frames now follow the display's real refresh rate, since
+  the old 60Hz cap is gone, "arrived" is judged from the remaining step times the largest multiplier and
+  loosened to 1px once the cursor has been still for 180ms, no frame is scheduled at all when every
+  multiplier is 0, nothing is scheduled while the page is hidden, and the moving layers are promoted to
+  compositor layers only while the loop runs, the hint being dropped the moment it settles — this repo
+  deliberately keeps no always-on compositor layer). Frames take **zero measurements** (the viewport is
+  read when the loop starts and on resize, and targets are re-scanned outside the frame as well), and
+  `localStorage.weParallaxDebug = '1'` turns on a per-frame self-check (callback cost, write count and
+  frame gap p50/p95/max plus a long-frame count, printed once the gesture settles and exposed as
+  `window.__weParallaxStats`). The wallpaper layer is also scaled up by the same amount
+  (`1 + pct / 50`) so no base color shows at the edges, and the displacement uses the CSS
   **independent properties `translate` / `scale`** rather than `transform` — the wallpaper transition's
   `resetLayerSwitchStyles` writes and clears an inline `transform`, so only the independent properties
-  compose with it. The click & trail layer deliberately does not move, and neither does any of the
-  interface (drawer, panels).
+  compose with it. The click & trail layer deliberately does not move; making the interface drift as whole
+  blocks is **another sub-switch** (`parallaxUi`, off by default) whose displacement is **snapped to whole
+  device pixels** (so text is never pushed onto half pixels) with **hysteresis** on that snapping (the
+  easing tail lingers around zero, so an already written pixel is kept until the value leaves the hysteresis
+  band - without it the interface flips 0<->1 device pixel between frames, which on its own would already
+  read as a shiver across the middle) and whose `translate` is **removed entirely** once
+  it settles (the property alone establishes a containing block, which would re-anchor fixed descendants);
+  a group that contains any `position: fixed` descendant stays put, and nested groups keep only the
+  outermost one (user bubbles are the deliberate exception: they live inside the conversation text area's
+  box, so their displacement stacks on top of it). **The left column is the one different shape**: it is
+  displaced with **relative positioning** (`position: relative` plus `left`/`top`) and **never** with
+  `translate` - in Windows titlebar mode the host renders the "collapse sidebar" button as a
+  `position: fixed` descendant of that very column, so any `transform` on it would become the button's
+  containing block and push it down by a whole titlebar height (the class of accident #131 was); relative
+  positioning establishes no containing block, so the left column is both safe and exempt from the
+  `fixed`-descendant rule above. One more host fact the parallax section has to work around: the interface
+  groups move **real elements that live inside the conversation scroll container**, so that section seals
+  the container's horizontal axis (`body[data-we-parallax="on"] [data-conversation-scroll] { overflow-x:
+  hidden; }`). The host writes `overflow-y: auto` there, and per spec a non-`visible` axis makes the other
+  axis' `visible` compute to `auto`, so a horizontal displacement that crossed the container's inline-end
+  grew a **horizontal scrollbar** - it ate a scrollbar's worth of scrollport and pushed the sticky composer
+  card up (user report m02410-①: "a black bar shows up at the bottom of the composer and pushes it up").
+  That scrollbar appearing and disappearing as the displacement reversed across the screen centre was the
+  dominant part of the reported shiver, with the snapping hysteresis above only a secondary contributor.
+  `hidden` is used rather than `clip` for wider support, and sealing the axis is preferred over
+  `::-webkit-scrollbar:horizontal { display: none }`, which would switch that container to custom scrollbars
+  and change the look of the vertical one too; conversation content never scrolls sideways anyway (long
+  tokens and wide code blocks scroll inside their own boxes).
   On the settings
   page that hosts it,
   picking wallpapers is an in-panel drill-in view (no modals) alongside hide/restore, transitions /

@@ -2193,6 +2193,12 @@ const CSS = `
   }
   .we-picker__slider-row { display: flex; align-items: center; gap: 10px; }
   .we-picker__label { min-width: 28px; flex: 0 0 auto; color: var(--we-ink, inherit); font-size: 0.88em; }
+  /* 滑杆行左侧那个标签可能是**第三方自填的槽名**（别的插件注册进来的元素组，槽名就是 data-slot，
+     见 src/parallax-layer.js 的插件组）：超长时不许把滑块与右侧数值挤出卡片 —— 可收缩 + 省略号。
+     只作用于滑杆行内部，其它地方的 .we-picker__label（都是宿主自己的短标签）保持原样。 */
+  .we-picker__slider-row .we-picker__label {
+    flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
   .we-picker__value {
     min-width: 48px; text-align: right; flex: 0 0 auto;
     padding: 2px 8px; border-radius: 999px; font-size: 0.72em;
@@ -3241,34 +3247,43 @@ body[data-we-glass-floaters] .we-repo-panel {
   }
 
   /* ── 「扩展」三号模块：3D 效果（视差；行为层见 src/parallax-layer.js）──
-     这一层与前面几层刚好相反：**它一个 DOM 节点都不建**。视差层只写自定义属性：2 个"各层要乘的
-     系数"写在 body 上（只在设置变了时写一次），-x / -y 这两个"光标偏离屏幕中心的步长"写在
-     **要动的那几层自己**身上（每帧写 —— 自定义属性是继承的，写在 body 上等于每帧让整棵文档树
-     重算样式），另加一个开关属性 data-we-parallax；位移、放大倍数与"谁跟着动"全在这里用 calc 算。
+     这一层与前面几层刚好相反：**它一个 DOM 节点都不建**。位移由行为层每帧**直接写进
+     .we-layer / .we-rope 自己的** translate（CSS 独立属性）—— 每帧一个自定义属性都不写，
+     因为自定义属性是继承的，写一次就会让整棵子树重算样式（口径与前后对比见 docs/CHANGELOG.md
+     的「3D 效果动效开销」一条）。所以样式表这边只剩两件事：
+     ① body 上的一个"壁纸补边系数"（只在设置变了时写一次）算出 .we-layer 的**静态**放大 ——
+        壁纸层正好是视口大小，横向最大位移 = 系数/100 × 整屏宽（用户口径 m02697-①：系数 = 光标在屏幕角上时挪几个百分点的对角线
+         ⇒ 2 × 系数/100 × 半屏宽 = 系数/100 × 屏宽），放大 1 + 系数/50 恰好补上这点余量；
+     ② 一个总开关属性 data-we-parallax：只有它在时上面那条补边规则才命中；关掉 ⇒ 屏上一点
+        痕迹都没有（位移由行为层 removeProperty 收干净）。
      这么写有两个好处：① 不新增节点 ⇒ 不参与 stacking、不会被别的层顺手清掉；
-     ② 关掉总开关时连属性都不在 ⇒ 屏上一点痕迹都没有（下面每条规则都挂在开关属性下）。
+     ② 关掉总开关时连属性都不在 ⇒ 补边与位移一起消失。
      硬约束：**只能用 CSS 独立属性 translate / scale，不能用 transform** —— 壁纸层的过场
      （src/live-layer.js 的 resetLayerSwitchStyles）与 .we-layer--repaint 会内联写 / 清
      transform，独立属性才与它们叠加，而不是互相覆盖。
      系数口径：光标走完一整条对角线时，该层挪"它那个系数"个百分点的对角线（推导见行为层
-     文件头）。壁纸层同时放大 1 + 系数/100 补边：横向最大位移 = 系数/100 × 半屏宽，
-     放大同样多就不会在边上露出底色。
-     兜底都是 0px / 0：变量还没写上时位移为零（例如刚开开关、第一帧还没跑）。
+     文件头）；系数由行为层乘进位移里（壁纸走 parallaxBg、吉祥物走 parallaxMascot）。
+     兜底是 0：变量还没写上时放大倍数为 1（例如刚开开关、第一帧还没跑）。
      **点击与拖尾那一层刻意不参与**（用户口径：特效不跟着偏移）。 */
   body[data-we-parallax="on"] .we-layer {
-    translate: calc(var(--we-parallax-x, 0px) * var(--we-parallax-bg, 0))
-      calc(var(--we-parallax-y, 0px) * var(--we-parallax-bg, 0));
-    scale: calc(1 + var(--we-parallax-bg, 0) / 100);
-  }
-  body[data-we-parallax="on"] .we-rope {
-    translate: calc(var(--we-parallax-x, 0px) * var(--we-parallax-mascot, 0))
-      calc(var(--we-parallax-y, 0px) * var(--we-parallax-mascot, 0));
+    scale: calc(1 + var(--we-parallax-bg, 0) / 50);
   }
   /* 只有"正在动的那几帧"才把它们提成独立合成层：提上去之后每帧只是挪现成的纹理，
      合成器直接做，不必把满屏壁纸重绘一遍。类由行为层在起帧时加上、到位收工与关掉总开关时
      摘掉 —— 本仓刻意不留**常驻**合成层（见 .we-layer--repaint 的两帧微推）。
      只提示 translate：scale 是静态的，不提它就不会被冻结栅格化倍率。 */
   body[data-we-parallax="on"] .we-parallax--moving { will-change: translate; }
+  /* 界面跟随那一组挪的是会话滚动容器**里面**的真实元素（见 src/parallax-layer.js 的
+     PARALLAX_GROUP_SELECTOR），于是多出一个副作用：横向位移一旦越出 scroller 的 inline-end，
+     宿主写在它身上的 overflow-y: auto 会把这一轴的 overflow-x: visible 当 auto 用（规范：一轴
+     不是 visible 时另一轴的 visible 计算成 auto）⇒ 长出一条**横向滚动条**。它占掉约一条滚动条高的
+     scrollport——sticky 的输入卡片只能跟着上移，于是"输入框底部出现一个黑条，把输入框顶上去"；
+     光标跨过屏幕中线时位移换向 ⇒ 滚动条出没 ⇒ 输入框与文本区一起抖
+     （用户口径 m02410-①："这就是抖动的来源"）。
+     会话内容本来就不横滚（长 token / 宽代码块都在自己的框里滚）⇒ 开着视差时直接封掉这一轴：
+     滚动条连出现的机会都没有，scrollport 高度一动不动，位移照旧。
+     用 hidden 而不是 clip：两者都只裁不滚，hidden 的支持面更广（clip 是 CSS Overflow 3）。 */
+  body[data-we-parallax="on"] [data-conversation-scroll] { overflow-x: hidden; }
 `;
 
 export { READABILITY_FLOOR, READABILITY_FLOOR_DARK, CSS };
