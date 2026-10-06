@@ -924,6 +924,48 @@ const liveFlagChecks = (() => {
     }
     return '';
   };
+  // "模块顶层代码"提取器：把字符串/模板串/注释整段挖空，再把**函数体内部**（`function`
+  // 关键字与块体箭头 `=> { }` 两种形态，本文件没有 class/方法简写）一并挖空 —— 留下的就是
+  // "模块求值时就会跑"的那几行。判据用它回答「这条副作用是不是挂在模块作用域」。
+  // ⚠️ 只挖**函数体**，不挖普通块：模块级的 `try { … } catch {}` / `if (…) { … }` 里的
+  // 代码照样在模块求值时执行（历史上那三段模块级副作用正是包在顶层 `try{}catch{}` 里的，
+  // 只按花括号配平深度会**漏判**，负对照就是钉这一点的）。
+  const topLevelText = (source) => {
+    const s = norm(source);
+    let out = '', code = '', fnDepth = 0, mode = null;
+    const stack = [];
+    for (let i = 0; i < s.length; i++) {
+      const c = s[i], n = s[i + 1];
+      if (mode === 'line') { if (c === '\n') { mode = null; if (fnDepth === 0) out += '\n'; } continue; }
+      if (mode === 'block') { if (c === '*' && n === '/') { mode = null; i++; } continue; }
+      if (mode === 'single' || mode === 'double' || mode === 'tpl') {
+        const close = mode === 'single' ? "'" : (mode === 'double' ? '"' : '`');
+        if (c === '\\') { i++; continue; }
+        if (c === close) mode = null;
+        continue;
+      }
+      if (c === '/' && n === '/') { mode = 'line'; i++; continue; }
+      if (c === '/' && n === '*') { mode = 'block'; i++; continue; }
+      if (c === "'") { mode = 'single'; code = (code + ' ').slice(-300); continue; }
+      if (c === '"') { mode = 'double'; code = (code + ' ').slice(-300); continue; }
+      if (c === '`') { mode = 'tpl'; code = (code + ' ').slice(-300); continue; }
+      if (c === '{') {
+        const isFn = /(?:function\b[^{};]*|=>)\s*$/.test(code);
+        stack.push(isFn);
+        if (isFn) fnDepth++;
+        code = (code + '{').slice(-300);
+        continue;
+      }
+      if (c === '}') {
+        if (stack.pop() === true) fnDepth--;
+        code = (code + '}').slice(-300);
+        continue;
+      }
+      code = (code + c).slice(-300);
+      if (fnDepth === 0) out += c;
+    }
+    return out;
+  };
   const prepBody = () => balancedBody(prepSrc, 'applySelection');
   const tickBody = () => balancedBody(liveSrc, 'startLiveWatch');
   const syncBody = () => balancedBody(liveSrc, 'syncLayers');
@@ -1001,6 +1043,20 @@ const liveFlagChecks = (() => {
         .filter((n) => !(new RegExp('(^|\\s)(?:function|async\\s+function|const|let|var|class)\\s+' + n + '\\b')).test(body))
         .length === 0;
     },
+    // 模块作用域静默（本轮修的契约违规；现场与原文见 `src/live-layer.js` 的
+    // `installLiveDiagnostics` 注释）：`addEventListener` / `setInterval` / `setTimeout`
+    // **不许出现在模块顶层** —— 宿主每次 revision 变化都会 `tearDownEntryFiber` 后用新模块体
+    // 重跑一遍，模块级副作用不挂 fiber ⇒ 旧实例的定时器/监听器永不释放（实测同一 document
+    // 214 个页 id、一次真实的 window blur 被 117 份实例各记一条）。它们必须住在随
+    // `ctx.effect` 注册/注销的安装器里。历史形态与"已搬进函数"的形态在负对照里各喂一遍。
+    moduleScopeQuiet: (body) => !/\b(?:addEventListener|setInterval|setTimeout)\s*\(/.test(topLevelText(body)),
+    // 安装器必须真的接进 `apply` 的 `ctx.effect`。否则"搬进函数"只是换个地方永不注销：
+    // 没人调用它 ⇒ 连一条留痕都没有、`bootRestore` 也不再被交互翻假，那比模块级更糟。
+    // 只认这一种接线形态（一条 `ctx.effect` 一个安装器）。
+    installersWired: (clientSrc) => /ctx\.effect\(\(\) => installLiveDiagnostics\(\) \|\| undefined\)/.test(clientSrc)
+      && /ctx\.effect\(\(\) => installLiveBootRestore\(\) \|\| undefined\)/.test(clientSrc),
+    topLevelText,
+    installerBody: () => balancedBody(liveSrc, 'installLiveDiagnostics'),
   };
 })();
 const clientChecks = [
@@ -1118,6 +1174,22 @@ const clientChecks = [
       const names = block ? block[1].split(',').map((s) => s.trim()).filter(Boolean).length : -1;
       return 'exportedNames=' + names;
     })()],
+  // 诊断留痕的安装面（本轮修复）：`src/live-layer.js` 的**模块顶层**不许有定时器/监听器
+  // 副作用，且安装器必须经 `apply` 的 `ctx.effect` 接线 —— 两条缺一不可（只有前者 ⇒ 留痕
+  // 永不启动；只有后者 ⇒ 旧实例的定时器照旧留在页面里）。判据与负对照见 `moduleScopeQuiet`。
+  ['live diagnostics install with the fiber, not at module scope',
+    liveFlagChecks.moduleScopeQuiet(liveSrc),
+    (() => {
+      const top = liveFlagChecks.topLevelText(liveSrc);
+      const hits = (top.match(/(?:addEventListener|setInterval|setTimeout)\s*\(/g) || []).length;
+      const body = liveFlagChecks.installerBody();
+      return 'moduleScopeCalls=' + hits + ' installerBody=' + body.length
+        + ' unregisters=' + (body.match(/removeEventListener\(/g) || []).length
+        + ' clears=' + (body.match(/clear(?:Timeout|Interval)\(/g) || []).length;
+    })()],
+  ['the live-layer installers are wired into apply through ctx.effect',
+    liveFlagChecks.installersWired(src),
+    (() => 'installers@client=' + (src.match(/installLiveDiagnostics|installLiveBootRestore/g) || []).length)()],
   // 垫底静态帧是 iframe 的**下层**：只要 iframe 半透明（壁纸透明度一高），它就会以
   // a(1−a) 的强度透出来（实测「壁纸透明度高时显现静态帧」）。首帧点亮后必须整块退场，
   // 且必须**串行**——延迟到 iframe 淡入（1.8s）完成后再快收。若退回与 iframe 同步
@@ -1250,6 +1322,45 @@ for (const [name, ok] of clientChecks) check(name, ok);
     && liveFlagChecks.exportListHonest(ghostExportHistorical) === false
     && liveFlagChecks.exportListHonest('function realOne() {}\nexport {\n  realOne,\n};\n') === true
     && liveFlagChecks.exportListHonest(liveSrc) === true);
+  // ⑥ 模块级副作用（本轮修复）的负对照：把历史上那三段**模块级**副作用造回来（boot 记时的
+  // `setTimeout` / `window` 的 focus·blur 监听 / 60s `setInterval`），`moduleScopeQuiet` 必须拒；
+  // 同时喂"同样三个调用但住在函数里"的形态必须收 —— 否则判据只是"文件里没有这三个词"。
+  const moduleScopeOld = 'function liveLog(tag) { /* 留痕 */ }\n'
+    + 'try {\n'
+    + '  setTimeout(function () { liveLog("client-boot"); }, 0);\n'
+    + '} catch { /* ignore */ }\n'
+    + 'try {\n'
+    + '  window.addEventListener("focus", function () { liveLog("window-focus"); });\n'
+    + '  window.addEventListener("blur", function () { liveLog("window-blur"); });\n'
+    + '  document.addEventListener("visibilitychange", function () { liveLog("tab-hidden"); });\n'
+    + '  window.setInterval(function () { liveLog("beat"); }, 60000);\n'
+    + '} catch { /* ignore */ }\n';
+  const moduleScopeInstalled = 'function installLiveDiagnostics() {\n'
+    + '  const bootTimer = setTimeout(function () {}, 0);\n'
+    + '  const beatTimer = setInterval(function () {}, 60000);\n'
+    + '  window.addEventListener("blur", function () {});\n'
+    + '  return function () { clearTimeout(bootTimer); clearInterval(beatTimer); };\n'
+    + '}\n';
+  check('negative control: module-scope timers/listeners are rejected while the installed shape passes',
+    liveFlagChecks.moduleScopeQuiet(moduleScopeOld) === false
+    && liveFlagChecks.moduleScopeQuiet(moduleScopeInstalled) === true
+    && liveFlagChecks.moduleScopeQuiet(liveSrc) === true,
+    'old=' + liveFlagChecks.moduleScopeQuiet(moduleScopeOld)
+    + ' installed=' + liveFlagChecks.moduleScopeQuiet(moduleScopeInstalled)
+    + ' live=' + liveFlagChecks.moduleScopeQuiet(liveSrc)
+    + ' moduleScopeCalls=' + ((liveFlagChecks.topLevelText(liveSrc)
+      .match(/(?:addEventListener|setInterval|setTimeout)\s*\(/g) || []).length));
+  // 接线判据的负对照：模块级直调安装器（没进 ctx.effect）必须被拒 —— 那正是"搬进函数却
+  // 永不注销"的形态；只接一个、漏掉 `bootRestore` 那个也必须被拒。喂真源码必须收。
+  const bareInstall = 'if (typeof document !== "undefined") { installLiveDiagnostics(); installLiveBootRestore(); }';
+  const halfWired = 'ctx.effect(() => installLiveDiagnostics() || undefined);';
+  check('negative control: calling the installers outside ctx.effect is rejected',
+    liveFlagChecks.installersWired(bareInstall) === false
+    && liveFlagChecks.installersWired(halfWired) === false
+    && liveFlagChecks.installersWired(src) === true,
+    'bare=' + liveFlagChecks.installersWired(bareInstall)
+    + ' half=' + liveFlagChecks.installersWired(halfWired)
+    + ' src=' + liveFlagChecks.installersWired(src));
 }
 // ── Level D3: 首帧看护的"按进展判超时" + 载荷延迟/暂停 + 失败分因 ──
 // 现场：320MB/94MB 的 `scene.pkg` 在**三个客户端实例**同时挂载时

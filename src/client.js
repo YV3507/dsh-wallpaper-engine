@@ -5407,6 +5407,17 @@ function apply(ctx) {
     ctx.effect(() => installWallSidebarShortcut(ctx) || undefined);
   }
 
+  // 2e. live 层的模块级副作用搬进 fiber：诊断留痕（加载即留痕 / 窗口失焦·隐藏 / 60s 心跳）与
+  //     「重启恢复」档的交互即退出监听（pointerdown/keydown，once）。它们曾经写在
+  //     `src/live-layer.js` 的**模块顶层** —— 宿主每次 revision 变化都会 tearDownEntryFiber
+  //     后用新模块体重跑一遍，模块级副作用不挂 fiber ⇒ 旧实例的定时器与监听器永不释放
+  //     （实测同一 document 214 个页 id、一次 window blur 被 117 份实例各记一条）。搬到这里后
+  //     随 fiber 注销，与官方契约一致（原文与现场见 src/live-layer.js 的 installLiveDiagnostics）。
+  if (ctx.effect && typeof document !== "undefined") {
+    ctx.effect(() => installLiveDiagnostics() || undefined);
+    ctx.effect(() => installLiveBootRestore() || undefined);
+  }
+
   // 3b. 皮肤中心互操作（皮肤在台上 ⇒ 我方整族退场）：只读对方两条公开信号，
   //     见文件顶部互操作块。随 fiber 注销（卸载即摘下观察器与轮询）。
   if (ctx.effect && typeof document !== "undefined") {
