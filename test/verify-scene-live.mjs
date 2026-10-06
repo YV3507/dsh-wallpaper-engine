@@ -960,7 +960,7 @@ const liveFlagChecks = (() => {
     // ② 领养路径补挂：一整条**连续语句**必须同时含新 watch 校验、去延迟校验、
     // 「真的在播」与同源就绪判据，然后才置真 —— 允许换行/缩进，但必须是同一段。
     // 只断言"文件里出现过这些名字"是没有牙的（它们各自在别处也出现）。
-    adoptRearms: (body) => /if \(!selection\.sceneLiveActive && watchHere && watchHere\.frame === liveFrame\s*\n\s*&& liveFrame\.isConnected && !liveFrameDeferred\(liveFrame\)[\s\S]{0,200}?&& liveFrameReady\(liveFrame, selection\)\) \{\s*\n\s*selection\.sceneLiveActive = true;/.test(body),
+    adoptRearms: (body) => /if \(!selection\.sceneLiveActive && watchHere && watchHere\.frame === liveFrame\s*\n\s*&& liveFrame\.isConnected && !liveFrameDeferred\(liveFrame\)[\s\S]{0,200}?&& liveHeartbeatReady\(liveFrame, liveStats\(liveFrame\), liveStateOf\(liveFrame\), selection\.type === "web"\)\) \{\s*\n\s*selection\.sceneLiveActive = true;/.test(body),
     // ③ 自愈必须挂在 `responsive` 上（真的在出帧才自愈），不能挂原来那个分支条件
     //（含 `|| !isEffectivelyPlaying()`，暂停期也走它，而暂停中的场景页 fps=0 ⇒
     // `alive` 恒为假 ⇒ 自愈失能），也不能写成"无条件置真"（暂停期会把**故意暂停**
@@ -968,11 +968,39 @@ const liveFlagChecks = (() => {
     // `isEffectivelyPlaying()`：**网页**壁纸的 `alive` 只问 iframe 加载与否
     //（`iframeLoaded`），暂停期照样为真 —— 暂停语义只能由这一条补上（场景暂停期
     // `alive` 本就为假，此条对场景零影响）。置真之后只报一次诊断。
+    // P3-5：这一条与领养补挂（②）共用**同一个类型判据**（`liveHeartbeatReady`），
+    // 于是顺手钉住"唯一来源"——函数体只能有一份、两个调用点都必须过它。
     tickHeals: (body) => body.includes('if (responsive) {')
       && !/if \(responsive \|\|/.test(body)
-      && /if \(alive && isEffectivelyPlaying\(\) && !selection\.sceneLiveActive\) \{\s*\n\s*selection\.sceneLiveActive = true;/.test(body)
+      && /if \(alive && isEffectivelyPlaying\(\) && liveHeartbeatReady\(frame, stats, wstate\) && !selection\.sceneLiveActive\) \{\s*\n\s*selection\.sceneLiveActive = true;/.test(body)
       && /if \(!watch\.rearmed\) \{\s*\n\s*watch\.rearmed = true;/.test(body)
       && body.includes('liveLog("live-rearm"'),
+    // ④ P3-5 唯一来源：类型判据只有一份函数体（`function liveHeartbeatAlive(...)`），
+    // 别名 `liveHeartbeatReady` 指向它，两个看护点（心跳自愈 / 领养补挂）都必须过它。
+    // 若谁日后把条件内联回去（两只眼睛各写各的），这里立刻判红 —— 那正是这条缝的复发形态。
+    // 计数取 2 调用点（心跳自愈 + 领养补挂）；本判据要喂**全文件**源码（`liveSrc`），
+    // 只喂 `tickBody()` 会把领养那处漏在窗口外、等于半个判据。
+    heartbeatSingle: (body) => (body.match(/function liveHeartbeatAlive\s*\(/g) || []).length === 1
+      && /const liveHeartbeatReady = liveHeartbeatAlive;/.test(body)
+      && (body.match(/liveHeartbeatReady\(/g) || []).length === 2
+      && !/function\s+liveHeartbeatReady/.test(body),
+    // `src/live-layer.js` 的 `export { … }` 块里**只许出现本文件真的声明过的名字**。
+    // 背景（本轮顺手发现的既存缺陷）：`retireFadingLayer` / `nudgeWallpaperRepaint` 两个名字
+    // 其实住在 `src/layer-core.js`，却被抄进了这张导出表 —— 内联构建把整块 `export` 剥掉、
+    // 又把两个文件并进同一个作用域，所以调用点照样解析、`lib/client.js` 一切正常；
+    // 但"导出自己没声明的名字"在任何**真** ESM 语境下都是链接期错误
+    // （`node --check src/live-layer.js` 报 `Export 'nudgeWallpaperRepaint' is not defined in module`）。
+    exportListHonest: (body) => {
+      const block = body.match(/export\s*\{([\s\S]*?)\};/);
+      if (!block) return false;
+      // 注释先剥掉再按逗号切 —— 否则块内一行 `// …` 注释会把后面的名字连成一块，
+      // 拼进 `new RegExp` 就是一条非法正则（写这条判据时踩过）。
+      return block[1].replace(/\/\/[^\n]*/g, ' ').split(',').map((s) => s.trim()).filter(Boolean)
+        .map((s) => s.split(/\s+as\s+/)[0].trim())
+        .filter((n) => /^[A-Za-z_$][\w$]*$/.test(n))
+        .filter((n) => !(new RegExp('(^|\\s)(?:function|async\\s+function|const|let|var|class)\\s+' + n + '\\b')).test(body))
+        .length === 0;
+    },
   };
 })();
 const clientChecks = [
@@ -1037,9 +1065,12 @@ const clientChecks = [
     liveFlagChecks.clearsOnlyOnIdChange(liveFlagChecks.prepBody()),
     liveFlagChecks.prepDiagnostic()],
   // 领养那一跳立刻补挂（不等心跳）：同 id 重新 apply 时 `syncLayers` 不重建层，
-  // 但标志可能已被清 —— 这里按**与首帧门同源**的就绪判据（`liveFrameReady` +
-  // `liveFrameDeferred` + `isEffectivelyPlaying`）把语义补回来，否则指针注入与
-  // 媒体桥要等到下一拍（≤1s）才恢复，且若 `responsive` 恰好为假就永远不恢复。
+  // 但标志可能已被清 —— 这里按**与心跳自愈逐字同源**的就绪判据（`liveHeartbeatReady`，
+  // 类型分型住在 `liveHeartbeatAlive`）把语义补回来，否则指针注入与媒体桥要等到下一拍
+  //（≤1s）才恢复，且若 `responsive` 恰好为假就永远不恢复。
+  // P3-5 修正：原先这里用 `liveFrameReady`，它对**网页**要求 `getState` 可读 ⇒ 可达到底
+  // 但还没 load 完的窗口恒 false，而心跳那边早在认这帧 —— 两只眼睛答案不同，缝就出在
+  // 那里。合成一处后两边对同一帧答案逐字相同。
   // 时序：本块在 `adopt-live` 分支的 `startLiveWatch` **之后** —— 新 watch 的
   // `firstFrame` 要等一秒后的首拍，所以这里以「这一拍就有帧」直接判定，不等那一拍。
   ['adopting the same live layer re-arms the active flag',
@@ -1063,9 +1094,29 @@ const clientChecks = [
     (() => {
       const body = liveFlagChecks.tickBody();
       return 'tickBody=' + body.length
-        + ' heal@' + body.indexOf('if (alive && isEffectivelyPlaying() && !selection.sceneLiveActive)')
+        + ' heal@' + body.indexOf('if (alive && isEffectivelyPlaying() && liveHeartbeatReady(')
         + ' rearmed@' + body.indexOf('if (!watch.rearmed)')
         + ' responsiveBranch=' + body.includes('if (responsive) {');
+    })()],
+  // P3-5 唯一来源：类型判据只能有一份函数体，两个看护点（心跳自愈 / 领养补挂）都必须
+  // 过别名 `liveHeartbeatReady`。若谁日后把条件内联回去（两只眼睛各写各的），这里立刻
+  // 判红 —— 那正是这条缝的复发形态。
+  ['both live guards share one aliveness predicate',
+    liveFlagChecks.heartbeatSingle(liveSrc),
+    (() => {
+      const body = liveFlagChecks.tickBody();
+      return 'aliveBodies=' + (liveSrc.match(/function liveHeartbeatAlive\s*\(/g) || []).length
+        + ' alias=' + liveSrc.includes('const liveHeartbeatReady = liveHeartbeatAlive;')
+        + ' callSites=' + (liveSrc.match(/liveHeartbeatReady\(/g) || []).length;
+    })()],
+  // 导出表只列自己声明过的名字（见 `exportListHonest` 的注释）。历史形态
+  // （把 `layer-core.js` 的 `retireFadingLayer` 抄进来）也在负对照里钉一遍。
+  ['live-layer exports only names it declares',
+    liveFlagChecks.exportListHonest(liveSrc),
+    (() => {
+      const block = liveSrc.match(/export\s*\{([\s\S]*?)\};/);
+      const names = block ? block[1].split(',').map((s) => s.trim()).filter(Boolean).length : -1;
+      return 'exportedNames=' + names;
     })()],
   // 垫底静态帧是 iframe 的**下层**：只要 iframe 半透明（壁纸透明度一高），它就会以
   // a(1−a) 的强度透出来（实测「壁纸透明度高时显现静态帧」）。首帧点亮后必须整块退场，
@@ -1159,9 +1210,11 @@ for (const [name, ok] of clientChecks) check(name, ok);
   check('negative control: the unguarded normal-path live-flag clear is rejected',
     liveFlagChecks.clearsOnlyOnIdChange(oldNormalPath) === false
     && liveFlagChecks.clearsOnlyOnIdChange(liveFlagChecks.prepBody()) === true);
-  // ② 领养补挂：把 `liveFrameReady` / `!liveFrameDeferred` / `isEffectivelyPlaying` 拿掉
-  // 任何一项，或整块挪到 `ensureLivePointer` 之前的旧形态，都必须被拒。
-  const oldAdopt = liveFlagChecks.syncBody().replace(/\n\s*&& liveFrameReady\(liveFrame, selection\)/, '');
+  // ② 领养补挂：把同源就绪判据（`liveHeartbeatReady`）/ `!liveFrameDeferred` /
+  // `isEffectivelyPlaying` 拿掉任何一项，或整块挪到 `ensureLivePointer` 之前的旧形态，
+  // 都必须被拒。这里拿掉的是"这一拍真的就绪"那一项。
+  const oldAdopt = liveFlagChecks.syncBody()
+    .replace(/\n\s*&& liveHeartbeatReady\(liveFrame, liveStats\(liveFrame\), liveStateOf\(liveFrame\), selection\.type === "web"\)/, '');
   check('negative control: a readiness-blind re-arm is rejected',
     liveFlagChecks.adoptRearms(oldAdopt) === false
     && liveFlagChecks.adoptRearms(liveFlagChecks.syncBody()) === true);
@@ -1180,6 +1233,23 @@ for (const [name, ok] of clientChecks) check(name, ok);
   check('negative control: the paused-branch / unconditional self-heal shapes are rejected',
     liveFlagChecks.tickHeals(oldBranch) === false && liveFlagChecks.tickHeals(unconditional) === false
     && liveFlagChecks.tickHeals(liveFlagChecks.tickBody()) === true);
+  // ④ P3-5 唯一来源：把两处看护判据**各自内联回各自的写法**（心跳那拍不看 fps 是否
+  // 真的在出帧、领养那跳退回 `liveFrameReady` 的可达性口径），正是这条缝的复发形态 ——
+  // 必须被 `heartbeatSingle` 拒。
+  const splitEyes = liveSrc
+    .replace(/const liveHeartbeatReady = liveHeartbeatAlive;/, 'const liveHeartbeatReady = () => true;');
+  check('negative control: two guards with their own aliveness predicate are rejected',
+    liveFlagChecks.heartbeatSingle(splitEyes) === false
+    && liveFlagChecks.heartbeatSingle(liveSrc) === true);
+  // ⑤ 导出表诚实性的负对照：造两份"抄了别人名字"的合成源码，`exportListHonest` 必须拒；
+  // 喂真源码必须收（否则这条判据只会恒真）。
+  const ghostExport = 'function realOne() {}\nexport {\n  realOne, notDeclaredAnywhere,\n};\n';
+  const ghostExportHistorical = 'function realOne() {}\nexport {\n  realOne, retireFadingLayer, nudgeWallpaperRepaint,\n};\n';
+  check('negative control: an export list naming undeclared symbols is rejected',
+    liveFlagChecks.exportListHonest(ghostExport) === false
+    && liveFlagChecks.exportListHonest(ghostExportHistorical) === false
+    && liveFlagChecks.exportListHonest('function realOne() {}\nexport {\n  realOne,\n};\n') === true
+    && liveFlagChecks.exportListHonest(liveSrc) === true);
 }
 // ── Level D3: 首帧看护的"按进展判超时" + 载荷延迟/暂停 + 失败分因 ──
 // 现场：320MB/94MB 的 `scene.pkg` 在**三个客户端实例**同时挂载时
@@ -3125,9 +3195,24 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       // 查表只认**自己的键**（审计 M4：存档里的 `__proto__` 会经 schema 的 `Object.assign({}, v)` 变成
       // 那张表的原型，直接 `st.plugin[rec.slot]` 就把原型链上的东西当成了设置 —— 与 parallaxMaxPercent
       // 的 `hasOwnProperty` 遍历口径也要一致）。
-      && parSrc.includes('const own = Object.prototype.hasOwnProperty.call(st.plugin, rec.slot) ? st.plugin[rec.slot] : undefined;')
-      && parSrc.includes('return parallaxClamp(own, PARALLAX_GROUP_DEPTH_MIN, PARALLAX_GROUP_DEPTH_MAX,')
-      && parSrc.includes('PARALLAX_PLUGIN_DEFAULT) * PARALLAX_UI_SIGN;')
+      // P3-2：两条取数路径（最大距离的遍历 / 这一组的系数）现共用**同一个取值器**
+      // `parallaxPluginDepth(st, slot)`，非有限值 / 超范围 / 缺键从此同一个结果 ⇒ 再也不会有
+      // "max 算 0、系数算 1" 那种一半信 clamp 一半信直读的错位（维护者 review P3-2）。
+      && parSrc.includes('const own = Object.prototype.hasOwnProperty.call(map, slot) ? map[slot] : undefined;')
+      && parSrc.includes('return parallaxClamp(own, PARALLAX_GROUP_DEPTH_MIN, PARALLAX_GROUP_DEPTH_MAX, PARALLAX_PLUGIN_DEFAULT);')
+      && parSrc.includes('function parallaxPluginDepth(st, slot) {')
+      && parSrc.includes('const v = parallaxPluginDepth(st, key);')
+      && parSrc.includes('return parallaxPluginDepth(st, rec.slot) * PARALLAX_UI_SIGN;')
+      // 反向：老的两套内联取数必须整条消失 —— ① `parallaxMaxPercent` 那遍把非有限值钳成
+      // **0**（P3-2 那条缝的来源）；② `parallaxTargetRatio` 自己 hasOwnProperty + 自己 clamp。
+      // 注意：不能拿"`parallaxClamp(own, …)` 不再出现"当反证 —— 那串现在正是共用取值器自己
+      // 的那一行，写了等于把正面判据反着再说一遍（恒假）。
+      && !parSrc.includes('if (parallaxClamp(map[key], PARALLAX_GROUP_DEPTH_MIN, PARALLAX_GROUP_DEPTH_MAX, 0) > max)')
+      && !parSrc.includes('PARALLAX_PLUGIN_DEFAULT) * PARALLAX_UI_SIGN;')
+      // P3-3：`parallaxGroupKind()` 里那条"在 **className** 里找 `data-composer-card`"的分支已删。
+      // 它永远不成立（属性名不会长在类名里）⇒ 行为腿抓不到它（复活它不改变任何可达形态），
+      // 只能靠这条**结构**反证钉住：一旦有人把它写回来，判据必须判红（变异体 B 实测如此）。
+      && !parSrc.includes("cls.indexOf(' data-composer-card ')")
       // 插件前端那一块**有自己的开关**（用户诉求 m03549；裁决 = 独立于界面跟随、默认关）：
       // 关着时层连扫都不扫（不是"系数算成 0"），最大距离与系数这两条路也都不看那张表。
       && parSrc.includes('pluginOn: selection.parallaxPlugin === true,')
@@ -3346,8 +3431,19 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     pluginNestedChild.parentElement = pluginNestedOutlet;
     pluginNestedOutlet.children = [pluginNestedChild];
     pluginNestedOutlet.querySelectorAll = () => pluginNestedOutlet.children;
+    // P3 三条行为腿的现场值（只在报错串里用）；`docGroups` 是假 DOM 里那个组数组的别名 ——
+    // 腿里要往台上**新增**假组件，只能推这个同一个引用（文档假 DOM 的组选择器就返回它）。
+    // 声明必须排在 `groups` 之前：`docGroups = groups` 那行在 TDZ 里就会抛（踩过）。
+    let docGroups = null;
+    let composerAttrOk = false;
+    let overScanOk = false;
+    let badDepthOk = false;
+    let overScanOut = null;
+    let legacyDepthOut = null;
     const groups = [chatGroup.outlet, composerGroup.outlet, sidebarGroup.outlet, nestedGroup.outlet,
       pluginOutlet, pluginNestedOutlet].concat(bubbles.map((b) => b.outlet));
+    // 假 DOM 的组选择器就返回**这个**数组 ⇒ P3 的腿要新增假组件，推它即可（同一引用）。
+    docGroups = groups;
     const listeners = {};
     let clock = 0;
     let pending = null;
@@ -3629,6 +3725,152 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
         && !('left' in sidebarGroup.box.props) && !('top' in sidebarGroup.box.props)
         && !('translate' in pluginChild.props) && !('translate' in pluginOutlet.props)
         && typeof listeners.pointermove === 'function';
+      // ── P3 三条行为腿（都在最尾部：这一段会把假组件的形态改掉，前面那批断言要看到的是
+      //    旧形态=输入卡片被 fixed 后代挡下、自检里"被 fixed 挡下 1"）。────────────────────
+      // 视觉系数：光标在最右下时 `u = (1600−800)/50 = 16`、`(900−450)/50 = 9`（PARALLAX_DIRECTION
+      // = −1）⇒ 位移 = `u × ratio / 50`；1% 档 = −16、1.5% 档 = −24（Y 侧 −9 / −13.5 之后再量化）。
+      // 断言一律**与同台的基准组（会话文本区 = 1% 档）相对**比，不抄绝对值 —— 绝对值属于另一条
+      // 腿（`chatNowOut` 那里已经钉过），这里要钉的是"谁的档位是谁的档位"。
+      // `cleared` 那一步会把 `globalThis.selection` 换成只带 `parallaxEnabled:false` 的新对象
+      // ⇒ 这里**只能**就地改那个新对象（需要哪些字段就从它身上补齐），**不能**换引用：换掉之后
+      // `parallaxSettings()` 读到缺字段，整族候选都不再建（踩过：所有位移都成了 undefined）。
+      globalThis.selection.parallaxEnabled = true;
+      globalThis.selection.parallaxUi = true;
+      globalThis.selection.parallaxPlugin = false;
+      globalThis.selection.parallaxPluginDepths = {};
+      // ⚠️ 四个区域距离必须**显式补齐**：`cleared` 那一步换掉的对象只剩 `parallaxEnabled`
+      // ⇒ `parallaxSettings()` 的四条 `parallaxClamp(...)` 全部落到各自的**兜底常数**
+      // （`PARALLAX_GROUP_CHAT` 1.2 / `COMPOSER` 1.8 / `SIDEBAR` 1.6 / `BUBBLE` 1.4，见
+      // `src/parallax-layer.js:172-175` 与 `:317-324`）—— 那样"会话基准"就不是 1.0 档、
+      // "输入卡片"也不是 1.5 档，下面所有分档断言全部对着错的档位（踩过：composer 读成 1.8 档
+      // = −29，而判据在等 1.5 档 = −24）。
+      globalThis.selection.parallaxUiChatDepth = 1;
+      globalThis.selection.parallaxUiComposerDepth = 1.5;
+      globalThis.selection.parallaxUiSidebarDepth = 0.6;
+      globalThis.selection.parallaxUiBubbleDepth = 0.4;
+      // 停用那一跳把监听器与 rAF 一起解绑了 ⇒ 光改字段再派事件没人听。真驱动方是
+      // `subscribe(syncParallaxLayer)`（设置一变就调一次），台里没有那条总线 ⇒ 手动补这一跳。
+      parallaxLayerMod.syncParallaxLayer();
+      rescan(1600, 900);
+      const chatRef = (numOf(chatGroup.box) || []).slice();
+      // 先备一个"扫两个来回"的助手：新加的组第一次只在帧里被记下来（`blocked` 直接置 true，
+      // **不做**子树判定），只有帧外的重扫才真去数它 ⇒ 想让一个新组被认出来，至少要跑过两次
+      // 重扫窗（节流 `PARALLAX_TARGETS_MS` = 250ms 一轮）。
+      const rescanTwice = (x, y) => { rescan(x, y); rescan(x, y); };
+      // 视口 1600×900、指针停在右下角 ⇒ **1% 档**位移就是 (±16, ±9)：`targetX = -(cx - vw/2)/50`。
+      // 分档位移都按它折算：会话文本区 1.2% ⇒ -19.2（量化 -19）、输入卡片 1.5% ⇒ -24 / -13.5、
+      // 侧栏 0.6% ⇒ -9.6（-10）。**别拿 1.2% 档当"1%"的基准**（踩过：`chatRef * 1.5` = -28.5，
+      // 永远不等于任何量化后的整数，判据恒假）。
+      const unitX = (1600 - 1600 / 2) / 50;
+      const unitY = (900 - 900 / 2) / 50;
+      // ── P3-3：① 组件身份只认 `data-composer-card` **属性**，且它只吃**自己的**距离（1.5%），
+      //    与基准档（会话文本区 1.2%）不同 —— 这条是"输入卡片被当成会话文本区"那种回归的哨兵。
+      //    （老写法里那条"在 className 里找 data-composer-card"的分支已按 P3-3 删掉；它永远
+      //    不成立，删掉不改变任何可达形态 ⇒ 那个方向由源码结构那条判据钉。）
+      //    ⚠️ 位移落在哪一层：`mkGroup` 给的出口已经是 `display: contents`（照宿主 ANCHOR_STYLE），
+      //    所以 `parallaxGroupBox()` 会走过出口、把记录与位移都落在**父盒子上**
+      //    （`src/parallax-layer.js:589-614`）⇒ 读数一律读 `.box` 的 `translate`，出口那份 props
+      //    永远没有 translate（老腿里"出口无 translate"那条断言因此是恒真的，改读盒子才有牙）。
+      const composerAttr = mkGroup({ 'data-composer-card': '' });
+      docGroups.push(composerAttr.outlet);
+      rescanTwice(1600, 900);
+      const composerAttrNum = numOf(composerAttr.box);
+      // ② 整组不动是"组里有 fixed 后代"这一条的功劳，**不是**"没认出组件身份"：同一个锚点先记下
+      //    "确实一个位移都没有"，撤掉那个 fixed 后代后必须立刻拿到它自己的 1.5% 档。
+      const composerBeforeNum = numOf(composerGroup.box);
+      composerGroup.box.children = [];
+      rescanTwice(1600, 900);
+      const composerFixedGoneNum = numOf(composerGroup.box);
+      // ── P3-1：超限组（>400 节点）在冷却窗内**一次都不再枚举**。老写法是"先整棵枚举、再看
+      //    长度" ⇒ 每 250ms 一轮重扫都为一句"没验完"白付一次全量 `querySelectorAll('*')`。
+      //    ⚠️ 假桩要挂在**盒子**上（真语义：`box.querySelectorAll('*')` 返回后代节点）。挂在出口上
+      //    是挂错元素 ⇒ 计数恒 0、判据失去意义（踩过）。
+      //    ⚠️ 锚点数组必须**真的超过** 400：没数出"太大"之前缓存写的是 `big:false`，那种组不会走
+      //    冷却（踩过：喂 1 个节点 ⇒ 缓存 `big:false` ⇒ 冷却那侧恒 0）。
+      const overNode = mkGroup({ 'data-composer-card': '' });
+      const overKids = new Array(401).fill(null);
+      let overCalls = 0;
+      overNode.box.querySelectorAll = () => { overCalls += 1; return overKids; };
+      docGroups.push(overNode.outlet);
+      rescanTwice(1600, 900);
+      const overCallsFirst = overCalls;
+      const overClockFirst = clock;
+      // 冷却窗（1000ms）内再推**一轮**重扫（+320ms）—— 一次都不许多数。这里的界是**保守**的：
+      // 计数发生在"第一段重扫"里的某一刻，最坏情况距 `overClockFirst` 还有 640ms
+      // （`rescan` = 16 × step(20) = 320ms，第一段 `rescanTwice` 有两轮）⇒ 这一刻距上次计数的
+      // 最坏间隔 = 640 + 320 = 960ms < 1000ms，仍然落在冷却窗里。
+      rescan(1601, 899);
+      const overCallsSecond = overCalls;
+      const overElapsedWithin = clock - overClockFirst;
+      // 空转越过 1000ms 冷却后**必须**重新数一次（"子树缩回可验范围"要靠这一下被重新认到）。
+      for (let i = 0; i < 53; i += 1) step(20);
+      rescanTwice(1600, 900);
+      const overCallsAfterCooldown = overCalls;
+      const overElapsed = clock - overClockFirst;
+      // ── P3-2：槽里的值必须走**同一个**取值器（`parallaxPluginDepth`）—— 缺键、非有限值、
+      //    超范围三种形态各回一个确定结果，且"算屏上最大距离"与"算这一组系数"必须是**同一个**数。
+      //    修复前的两个坑：① 非有限值一边算 0、一边算缺省 1 ⇒ `pctMax` 落到 0 触发"一次落位、
+      //    收工"短路，整组缓动静默失效（屏上表现为瞬移）；② 超范围值只在一侧被钳到 10 的路径
+      //    上表现不一致。这里三种形态并排比：非有限 = 缺键（都 = 缺省 1% = 基准组同距），
+      //    超范围的 42 钳到 `PARALLAX_GROUP_DEPTH_MAX`(10%) ⇒ 位移正好是基准组的 10 倍。
+      globalThis.selection.parallaxPlugin = true;
+      globalThis.selection.parallaxPluginDepths = { '@audit/styled': 'not-a-number' };
+      const styledNode = mkGroup({ 'data-slot': '@audit/styled' });
+      const styledChild = mkTarget('we-plugin-card');
+      styledChild.display = 'block';
+      styledChild.children = [];
+      styledChild.querySelectorAll = () => styledChild.children;
+      styledChild.contains = () => false;
+      styledChild.parentElement = styledNode.outlet;
+      styledNode.outlet.children = [styledChild];
+      styledNode.outlet.closest = () => null;
+      docGroups.push(styledNode.outlet);
+      const badDepthNode = mkGroup({ 'data-slot': 'audit.clamped' });
+      const badDepthChild = mkTarget('we-plugin-card');
+      badDepthChild.display = 'block';
+      badDepthChild.children = [];
+      badDepthChild.querySelectorAll = () => badDepthChild.children;
+      badDepthChild.contains = () => false;
+      badDepthChild.parentElement = badDepthNode.outlet;
+      badDepthNode.outlet.children = [badDepthChild];
+      badDepthNode.outlet.closest = () => null;
+      docGroups.push(badDepthNode.outlet);
+      globalThis.selection.parallaxPluginDepths['audit.clamped'] = 42;
+      rescan(1600, 900);
+      const badDepthNum = numOf(badDepthChild);
+      const styledNum = numOf(styledChild);
+      const badDepthListed = parallaxLayerMod.parallaxDiscoveredGroups();
+      legacyDepthOut = { bad: badDepthNum, styled: styledNum, listed: badDepthListed };
+      // 基准组必须还在动、且**真的是 1.2% 那一档**（`-19.2` 量化成 -19）—— 否则下面所有
+      // "倍率"断言都会因为 `chatRef` 是 null 而落空。
+      const baseOk = !!chatRef && chatRef.length === 2
+        && chatRef[0] < 0 && chatRef[1] < 0
+        && chatRef[0] === chatRef[1] * 16 / 9;
+      // 钳制上界从层源码现读（`10`）—— 台上那份 `__src` 是模块源码，直接正则取，别抄常数。
+      const depthMaxMatch = readFileSync(join(root, 'src', 'parallax-layer.js'), 'utf8')
+        .match(/const PARALLAX_GROUP_DEPTH_MAX = (\d+);/);
+      const depthMax = depthMaxMatch ? Number(depthMaxMatch[1]) : 10;
+      composerAttrOk = baseOk && !!composerAttrNum
+        && composerAttrNum[0] === -unitX * 1.5              // 自己的 1.5% 档（-24，精确）
+        && Math.abs(composerAttrNum[1] + unitY * 1.5) <= 1  // -13.5 量化后 ±1
+        && composerAttrNum[0] !== chatRef[0]                // ≠ 会话文本区那一档（1.2% ⇒ -19）
+        && !composerBeforeNum                               // 带 fixed 后代时一个位移都没有
+        && !!composerFixedGoneNum
+        && composerFixedGoneNum[0] === -unitX * 1.5;         // 撤掉后立刻拿到 1.5% 档
+      overScanOk = overCallsFirst >= 1 && overElapsedWithin < 1000
+        && overCallsSecond === overCallsFirst
+        && overCallsAfterCooldown > overCallsSecond && overElapsed > 1000;
+      overScanOut = { first: overCallsFirst, second: overCallsSecond,
+        after: overCallsAfterCooldown, within: overElapsedWithin, elapsed: overElapsed };
+      badDepthOk = baseOk && !!badDepthNum && !!styledNum
+        && styledNum[0] === -unitX && styledNum[1] === -unitY  // 非有限值 ⇒ 与缺键同距（1% 档）
+        && badDepthNum[0] === -unitX * depthMax                // 超范围的 42 ⇒ 钳到上界
+        && badDepthNum[1] === -unitY * depthMax
+        && badDepthListed.indexOf('@audit/styled') >= 0
+        && badDepthListed.indexOf('audit.clamped') >= 0;
+      legacyDepthOut = { bad: badDepthNum, styled: styledNum, listed: badDepthListed,
+        unit: [unitX, unitY], base: chatRef, depthMax: depthMax,
+        before: composerBeforeNum, attr: composerAttrNum, gone: composerFixedGoneNum };
     } catch (e) { threw = String((e && e.message) || e); } finally {
       globalThis.selection = PREV_SEL;
       globalThis.document = PREV_DOC;
@@ -3638,9 +3880,10 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       globalThis.getComputedStyle = PREV_GCS;
       setLocalStorage(PREV_LS);
     }
-    check('parallax-layer.js 位移直接写在那几层自己的 translate 上 · body 只放补边系数 · 起帧提合成层到位摘 · 自检出帧统计 · 停用全收干净 · 界面组量化位移(带迟滞)/与壁纸同向/分档(四个区域距离各自生效)/气泡截尾/静止摘属性/fixed 后代整组不动/左栏走相对偏移不吃那条判定/槽出口没盒子就落父盒子/插件前端独立开关(默认关 · 只开它也能动)/嵌在原生组里的插件槽跟「界面元素跟随」那道闸走/插件槽没存过值也照样缓动/跨中线不跳变',
+    check('parallax-layer.js 位移直接写在那几层自己的 translate 上 · body 只放补边系数 · 起帧提合成层到位摘 · 自检出帧统计 · 停用全收干净 · 界面组量化位移(带迟滞)/与壁纸同向/分档(四个区域距离各自生效)/气泡截尾/静止摘属性/fixed 后代整组不动/左栏走相对偏移不吃那条判定/槽出口没盒子就落父盒子/插件前端独立开关(默认关 · 只开它也能动)/嵌在原生组里的插件槽跟「界面元素跟随」那道闸走/插件槽没存过值也照样缓动/跨中线不跳变 · P3 三条:组件只认属性且吃自己的距离(撤掉 fixed 后代立刻拿到)/超限组冷却窗内一次都不重数/非有限槽值与缺键同距',
       !threw && movedOn && groupsOk && settled && centerCleared && dbgOk && hysteresisOk
-        && regionsOk && pluginOk && pluginNestedOk && pluginSmoothOk && crossZeroOk && cleared,
+        && regionsOk && pluginOk && pluginNestedOk && pluginSmoothOk && crossZeroOk && cleared
+        && composerAttrOk && overScanOk && badDepthOk,
       threw || ('movedOn=' + movedOn + ' groups=' + groupsOk + ' settled=' + settled
         + ' center=' + centerCleared + ' dbg=' + dbgOk + ' hysteresis=' + hysteresisOk
         + ' regions=' + regionsOk + ' plugin=' + pluginOk + ' cleared=' + cleared
@@ -3655,7 +3898,10 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
         + ' 嵌进原生=' + pluginNestedOk + ' 插件缓动=' + pluginSmoothOk + ' 跨中线=' + crossZeroOk
         + ' 嵌套child=' + pluginNestedChild.props['translate'] + ' 插槽=' + pluginNestedOut
         + ' 首帧=' + firstFrameOut + ' 过零=' + crossSeqOut + ' 槽名单(关界面)=' + slotsOut
-        + ' 槽名单(开界面)=' + slotsOutOn));
+        + ' 槽名单(开界面)=' + slotsOutOn
+        // P3 三条腿：组件身份认属性 + 只吃自己的距离 / 超限组冷却窗内不重数 / 非有限槽值同一兜底。
+        + ' 组件档位=' + composerAttrOk + ' 超限组重数=' + overScanOk + JSON.stringify(overScanOut)
+        + ' 槽值一致=' + badDepthOk + JSON.stringify(legacyDepthOut)));
   }
   {
     // 三号模块的岛：注册表项形状 + 「关着只画总开关、开着才画 3 个参数」这条可见行为。

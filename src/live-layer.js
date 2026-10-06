@@ -626,12 +626,7 @@ function startLiveWatch(frame, wid) {
     applyLiveControls(frame);
     const isWeb = selection.type === "web";
     const wstate = isWeb ? liveStateOf(frame) : null;
-    // 就绪判定分类型：场景每帧都有 GL 提交 → 要求真出帧；网页壁纸很多没有 rAF
-    // 打点（setTimeout 主循环 / 纯静态），只要渲染页可达（或 iframe 已 load）即算
-    // 就绪 —— 按 fps 判定会把它们误判失败并降级（实测：一直停在占位图，15 秒后黑屏）。
-    const alive = isWeb
-      ? (wstate ? wstate.iframeLoaded === true : Boolean(stats))
-      : Boolean(stats && stats.running && stats.fps > 0);
+    const alive = liveHeartbeatAlive(frame, stats, wstate, isWeb);
     // 渲染页明确记录了 iframe 加载错误 → 立即降级，不必等 15 秒超时。
     if (isWeb && wstate && wstate.iframeLoaded === false && wstate.webError) {
       liveFail("load");
@@ -746,7 +741,11 @@ function startLiveWatch(frame, wid) {
       // 补上，否则暂停期会把一个**故意暂停**的渲染页标成 active，指针注入与媒体桥白热。
       // 两头都对：真的在出帧才自愈，暂停/隐藏期不自愈，恢复播放后的第一拍再自愈
       // （延迟 ≤1s，用户无感）。
-      if (alive && isEffectivelyPlaying() && !selection.sceneLiveActive) {
+      // 判据里那第二个 `alive` 是**领养补挂那一跳的同名量**（审计 P3-5）：只看本拍的本地
+      // 读数（不读 `__wpStats`）⇒ 心跳这一层不依赖渲染页是否已 load 完。对可达但还没 load
+      // 完的网页窗口，它与领养那边（`liveHeartbeatReady`）给出**同一个答案**，于是"标志被清
+      // 了但没等到下一次 emit"的缝没有了：最迟下一拍补上。
+      if (alive && isEffectivelyPlaying() && liveHeartbeatReady(frame, stats, wstate) && !selection.sceneLiveActive) {
         selection.sceneLiveActive = true;
         if (!watch.rearmed) {
           watch.rearmed = true;
@@ -1462,6 +1461,31 @@ function liveFrameReady(frame, sel) {
   const st = liveStats(frame);
   return Boolean(st && st.running && st.fps > 0);
 }
+// ── 看护器「活着」的唯一判据（审计 P3-5）──────────────────────────────────────
+// 就绪分型（**两处看护**必须逐字共用，否则两只眼睛会对同一帧给出不同答案）：
+//   · 场景：每帧都有 GL 提交 ⇒ 要求真出帧（`running && fps > 0`）；
+//   · 网页：很多没有 rAF 打点（setTimeout 主循环 / 纯静态）⇒ 只要渲染页**可达**
+//     （`getState` 可读，退一步信 `__wpStats`）就算活着 —— 按 fps 判定会把它们
+//     误判失败并降级（实测：一直停在占位图，15 秒后黑屏）。
+// 参数是**本拍的本地读数**（心跳 tick 与领养补挂都在手上），不是 frame：
+// 于是它一次碰渲染页都不碰，调用方也不会为了问一句话多读一遍 `__wpStats`。
+// 为什么抽出来：心跳自愈（startLiveWatch 的 tick）与领养补挂（syncLayers 的 adopt 分支）
+// 原本各写各的等价判据 —— 心跳那边问 `alive`（只看 `iframeLoaded`），领养那边问
+// `liveFrameReady`。对**可达但还没 load 完**的网页窗口两者答案不同：领养那一跳放行、
+// 心跳那一拍却不算自愈，于是"清零点把标志清了、而自愈偏不认这帧"会一直悬着，直到
+// 下一次 emit 才被补挂（可能永远等不到）。合成一处后，两边对同一帧的答案逐字相同。
+function liveHeartbeatAlive(frame, stats, wstate, isWeb) {
+  return isWeb
+    ? (wstate ? wstate.iframeLoaded === true : Boolean(stats))
+    : Boolean(stats && stats.running && stats.fps > 0);
+}
+/**
+ * 领养补挂那一跳的类型就绪判据（与 `liveHeartbeatAlive` 同一函数体 —— 同名同义，
+ * 别名只为在调用点读出自证）：它手上只有本拍的心跳读数，而 `liveFrameReady` 对网页
+ * 要求 `getState` 可读 ⇒ 可达到底、但还没 load 完的窗口会恒判 false，自愈也就永远
+ * 不认这帧。场景那边两者本来就同源（`running && fps > 0`），零行为差异。
+ */
+const liveHeartbeatReady = liveHeartbeatAlive;
 function scheduleLiveMount(sel, frame, delayMs) {
   cancelLiveMount("replaced"); // 同一时刻只允许一个未上屏的预热页
   const entry = { sel, frame, timer: 0, deadline: Date.now() + delayMs };
@@ -2121,6 +2145,10 @@ function syncLayers() {
       // 已为真）⇒ 标志永久为假，指针注入与媒体桥（频谱 / Now Playing）双双静默失效，
       // 画面却照旧在播（用户只看得到"壁纸有时候坏了"）。这里按**同一套就绪判据**把
       // 语义补回来：心跳在，且这一拍真的在出帧（网页壁纸按"渲染页可达"）。
+      // 判据与心跳自愈共用**同一个函数体**（`liveHeartbeatReady`，见 :1477 的注释）：
+      // 原先这里问 `liveFrameReady`，它要求网页窗口的 `getState` 可读 ⇒ 可达到底但还没
+      // load 完的窗口恒 false，而心跳那边早在认这帧 —— 两边对同一帧答案不同，缝就出在
+      // 那里。现在两处逐字同源，`liveFrameReady` 只留给 `scheduleLiveMount` 的预热页。
       // 时序：本块在心跳起动（上面 adopt-live 分支的 startLiveWatch）之后 —— `liveWatch`
       // 与刚武装的对象是同一个，`firstFrame` 此刻可能还是 false（首帧要等一拍 tick），
       // 于是这里以"这一拍就有帧"直接判定，不等那一拍。
@@ -2128,7 +2156,7 @@ function syncLayers() {
       if (!selection.sceneLiveActive && watchHere && watchHere.frame === liveFrame
           && liveFrame.isConnected && !liveFrameDeferred(liveFrame)
           && isEffectivelyPlaying()
-          && liveFrameReady(liveFrame, selection)) {
+          && liveHeartbeatReady(liveFrame, liveStats(liveFrame), liveStateOf(liveFrame), selection.type === "web")) {
         selection.sceneLiveActive = true;
         liveLog("live-rearm", "wid=" + selection.id + " 领养后补挂激活态（指针注入 / 媒体桥恢复）", "info");
       }
@@ -2255,12 +2283,16 @@ function toggleLiveDiag() {
     liveDiagOn ? "逐秒心跳日志已开启（本会话有效，刷新后失效）" : "逐秒心跳日志已关闭");
   return liveDiagOn;
 }
+// ⚠️ 这张表只许列**本文件真的声明过**的名字。`retireFadingLayer` / `nudgeWallpaperRepaint`
+// 住在 `src/layer-core.js`（内联构建把整块 `export` 剥掉、两个文件并进同一作用域 ⇒ 抄错了
+// 也照样解析），但"导出自己没声明的名字"在任何真 ESM 语境下都是链接期错误
+// （`node --check` 报 `Export '…' is not defined in module`），故不列于此。
 export {
   syncLayers, startLiveWatch, stopLiveWatch, liveFail, liveRenderEnabled, liveRenderUrl,
   liveFailReasonOf, liveLog, liveStateBrief, liveDiagVerbose, liveStats, applyLiveControls,
   scheduleLiveFrameBackfill, cancelLiveFrameBackfill, liveFrameEl, buildLivePoster,
-  scheduleLiveMount, cancelLiveMount, createLiveFrame, retireFadingLayer, toggleLiveDiag,
+  scheduleLiveMount, cancelLiveMount, createLiveFrame, toggleLiveDiag,
   clearLiveSessionFailures,
-  refreshUnderlayColor, clearUnderlayColor, nudgeWallpaperRepaint, probeWallpaperOnScreen,
+  refreshUnderlayColor, clearUnderlayColor, probeWallpaperOnScreen,
   liveWatch, livePointerFrame, liveApplied, liveDiagOn, LIVE_FIRST_FRAME_MS, bootRestore,
 };
