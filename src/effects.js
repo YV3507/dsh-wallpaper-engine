@@ -462,6 +462,9 @@ function clearEffects() {
   // 令牌映射与对话栏那一族规则照旧生效（"插件已卸载，玻璃还在"）。与下面三个同批。
   document.body.removeAttribute("data-we-glass-page");
   document.body.removeAttribute("data-we-left-sidebar");
+  // 标题栏液态玻璃门（与上面那个同批）：漏撤 ⇒ 插件卸载 / 禁用后，顶栏仍挂着玻璃底与
+  // 雾化层，而壳层自己的不透明底色被压住 —— 表现为"插件没了，标题栏还是玻璃的"。
+  document.body.removeAttribute("data-we-titlebar-glass");
   // 思考块液态玻璃门（PR #130 引入）：同批的卸载残留口径 —— 漏撤 ⇒ 插件卸载后
   // 宿主思考条的规则组照旧生效。合并 #132 时补上（第 ⑨ 组清理对称判据的要求）。
   // 三挡的另一半（对话区原生挡）同批：漏撤 ⇒ 卸载后对话区令牌仍被钉回原生值。
@@ -492,6 +495,7 @@ function clearEffects() {
   for (const v of [
     "--we-settings-window-blur", "--we-settings-window-alpha",
     "--we-left-sidebar-blur", "--we-left-sidebar-alpha",
+    "--we-titlebar-blur", "--we-titlebar-alpha",
     "--we-floaters-blur", "--we-floaters-alpha",
     // ⚠️ 对话栏那一族（`--we-chat-*`）**提交态就没在撤** —— 既有缺陷，本次一并补上：
     //    它们是对话栏专属釉层变量，卸载后残留同样会被那几条规则读到。
@@ -516,6 +520,7 @@ function clearEffects() {
   selection.videoError = "";
   selection.blockedNote = "";
 }
+
 export {
   applyEffects, clearEffects,
   applyCaretStyles, removeCaretStyles, resolveWallpaperFadeBg,

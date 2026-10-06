@@ -127,6 +127,17 @@ const SURFACES = [
       + '因此不进「启用玻璃」系列 UI —— 见归档的 wip 文档 §2。W3 起模糊 / 透明度可逐面独立。',
   },
   {
+    id: 'titlebar-override', label: '标题栏液态玻璃',
+    // ⚠️ 锚点登记的是**宿主壳层自己的属性**，不是本插件的 body 门：
+    //   data-windows-titlebar 只由壳层在 Windows Electron 形态写进 <html>
+    //   （app.asar：AppFrame 的顶栏伪元素规则就是 [data-windows-titlebar] <frame>:before）。
+    //   本插件的 body[data-we-titlebar-glass] 是开关门，不是面锚点。
+    anchors: ['[data-windows-titlebar]'], tier: 'private',
+    // 与左侧栏同构：接了自己的按面变量（--we-titlebar-blur / -alpha）。
+    why: '乙类（背景还原）：关掉时恢复壳层自己的实心底色（--dsw-specific-sidebar-fill），'
+      + '与左侧栏同一族；同样不进「启用玻璃」系列 UI。',
+  },
+  {
     id: 'settings-window', label: '设置窗口',
     anchors: ['[data-slot="settings.section"]'], tier: 'global',
     // ⚠️ P3 曾试过给它建"按面变量间接层"（那次尝试已撤回，原因见文件末尾 ⑤ 段）——
@@ -195,6 +206,8 @@ const PRIVATE_VARS = {
   'glass-child-settings-window': ['--we-settings-window-blur', '--we-settings-window-alpha'],
   'glass-child-floaters': ['--we-floaters-blur', '--we-floaters-alpha'],
   'left-sidebar-override': ['--we-left-sidebar-blur', '--we-left-sidebar-alpha'],
+  // 标题栏（2026-10-06）：与左栏完全同构的一组按面变量（glass.js 写、CSS 读）。
+  'titlebar-override': ['--we-titlebar-blur', '--we-titlebar-alpha'],
   'conversation-thinking-trigger': ['--we-thinking-trigger-blur', '--we-thinking-trigger-alpha'],
 };
 
@@ -1248,7 +1261,14 @@ console.log('\n⑨ W5：各面的锚点门控覆盖率（防"关掉后还剩一�
   //    登记它们是为了让"哪些面回退干净、哪些没有"这件事**在判据里可见**，而不是靠记忆。
   const GATE = [
     { id: 'settings-window', member: /\[data-slot="settings\.section"\]/, anchor: /data-we-glass-window/, done: true },
-    { id: 'left-sidebar-override', member: /:has\(> \[data-slot="sidebar"\]\)/, anchor: /data-we-left-sidebar/, done: true },
+    // ⚠️ member 的前瞻 (?!\)) 是**必需**的：顶栏那一族的选择器里也含同一个
+    //    `[data-slot="sidebar"]` 座位锚（它是 div:has(> div:has(> [data-slot="sidebar"]))），
+    //    不加前瞻会被算进左栏的覆盖统计里，而它们带的是 data-we-titlebar-glass 门 ⇒ 假红。
+    //    判据：左栏那条以 `)` 收尾（选择器到此为止），顶栏那条后面还跟着外层的 `)`。
+    { id: 'left-sidebar-override', member: /:has\(> \[data-slot="sidebar"\]\)(?!\))/, anchor: /data-we-left-sidebar/, done: true },
+    // 标题栏（2026-10-06）：与左栏同族的"乙类"面，门是 body[data-we-titlebar-glass]
+    // （开关），另加 html[data-windows-titlebar]（壳层形态锚，只出现在 Windows Electron）。
+    { id: 'titlebar-override', member: /data-we-titlebar-glass/, anchor: /data-we-titlebar-glass/, done: true },
     // W5 推广（本轮）：对话栏三条主规则已加 `[data-we-glass-chat]` 锚点。
     // ⚠️ 合并 #134：思考玻璃一族在对话面新增了「+」白釉 / 气泡清底等规则，它们的门是
     //    `data-we-thinking-glass`（默认关）—— 与 chat 门同样满足"关 ⇒ 整组不生效"，

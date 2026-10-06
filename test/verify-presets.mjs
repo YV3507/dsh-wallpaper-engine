@@ -64,7 +64,7 @@ const schema = await import(pathToFileURL(join(root, 'lib', 'settings-schema.js'
   const { GLASS_PRESET_KEYS, KINDS, GLASS_CHILDREN, childGlassKey } = schema;
   const generated = [...new Set(GLASS_CHILDREN.flatMap((c) => Object.keys(c.params).map((p) => childGlassKey(c.id, p))))];
   const fixed = ['glassColor', 'glassAlpha', 'blur', 'glassFidelity', 'glassMode',
-    'leftSidebarGlass', 'thinkingGlass', 'thinkingNative', 'capsuleBlur', 'capsuleColor', 'sidebarGlass', 'sidebarFullClear', 'sidebarFollowGlobal',
+    'leftSidebarGlass', 'titlebarGlass', 'thinkingGlass', 'thinkingNative', 'capsuleBlur', 'capsuleColor', 'sidebarGlass', 'sidebarFullClear', 'sidebarFollowGlobal',
     'sidebarBlur', 'sidebarAlpha', 'sidebarColor', 'sidebarContentAlpha', 'sidebarContentColor'];
   check('键集 = 固定键 ∪ 登记表生成键（无缺无余）',
     GLASS_PRESET_KEYS.length === new Set([...fixed, ...generated]).size
