@@ -228,8 +228,8 @@ runtime the wallpaper is remembered and degrades to the legacy plain iframe (no 
   read when the loop starts and on resize, and targets are re-scanned outside the frame as well), and
   `localStorage.weParallaxDebug = '1'` turns on a per-frame self-check (callback cost, write count and
   frame gap p50/p95/max plus a long-frame count, printed once the gesture settles and exposed as
-  `window.__weParallaxStats`). The wallpaper layer is also scaled up by the same amount
-  (`1 + pct / 50`) so no base color shows at the edges, and the displacement uses the CSS
+  `window.__weParallaxStats`). The wallpaper's bleed scaling is the one above (the static `scale`
+  in `src/styles.js`), and the displacement uses the CSS
   **independent properties `translate` / `scale`** rather than `transform` — the wallpaper transition's
   `resetLayerSwitchStyles` writes and clears an inline `transform`, so only the independent properties
   compose with it. The click & trail layer deliberately does not move; making the interface drift as whole
