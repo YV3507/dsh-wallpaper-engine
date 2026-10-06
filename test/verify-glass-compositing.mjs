@@ -597,9 +597,16 @@ function main() {
       + ' inset=' + String(tbAfterRule && declValue(tbAfterRule.body, 'inset'))
       + ' h=' + String(tbAfterRule && declValue(tbAfterRule.body, 'height')).trim()
       + ' pe=' + String(tbAfterRule && declValue(tbAfterRule.body, 'pointer-events')).trim());
-  check('TB2c 负对照：把模糊种回 ::before（两层合一），TB2a 必须判红',
-    (/blur\(/.test('backdrop-filter: blur(15px);') === true)
-      && !(/blur\(/.test(String(declValue('background-color: color-mix(in srgb, #fff 10%, transparent);', 'backdrop-filter')))));
+  // TB2c 的谓词必须与 TB2a **同一个**（拿真规则喂它），否则负对照只是在数正则：老写法
+  // `/blur\(/.test('backdrop-filter: blur(15px);')` 拿字面量测字面量 ⇒ 恒真，等于没测。
+  const tbBeforeHasBlur = (body) => /blur\(/.test(String(declValue(body, 'backdrop-filter')));
+  const tbBeforeMutated = tbLightRule ? tbLightRule.body + ';backdrop-filter: blur(var(--we-titlebar-blur));' : '';
+  check('TB2c 负对照：把模糊种回 ::before（两层合一），TB2a 的谓词必须判红',
+    Boolean(tbLightRule) && tbBeforeHasBlur(tbBeforeMutated) === true
+      && tbBeforeHasBlur(tbLightRule.body) === false
+      && tbBeforeHasBlur('background-color: color-mix(in srgb, #fff 10%, transparent);') === false,
+    'tb2a-predicate(真规则)=' + (tbLightRule ? tbBeforeHasBlur(tbLightRule.body) : 'MISSING')
+      + ' · 变异后=' + (tbLightRule ? tbBeforeHasBlur(tbBeforeMutated) : 'MISSING'));
   check('TB3 顶栏选择器带壳层锚 html[data-windows-titlebar]（普通 Web 文档永远拿不到）',
     tbSelectors.length > 0 && tbSelectors.every((s) => s.includes('html[data-windows-titlebar]'))
       && tbSelectors.every((s) => !/\[[\w-]*collapsed[\w-]*\]/.test(s)),
@@ -655,6 +662,39 @@ function main() {
         === String(declValue(tbLightRule.body, 'background-image')).replace(/\s+/g, ' ').trim(),
     'light=' + (tbSheen.replace(/\s+/g, ' ').slice(0, 52) || '(MISSING)')
       + ' · dark=' + (tbDarkSheen.replace(/\s+/g, ' ').slice(0, 52) || '(MISSING)'));
+  // ── TB4d: 暗档也要有 TB4 —— 2026-10-06 缺口：TB4 只比了**浅档**顶栏与浅档左栏，
+  //    TB4b 只管釉光（background-image），暗档的底色与 accent 映射一度无人钉。
+  // 暗档与浅档**有意不同**的地方只有两处（此处归一掉、算"同形"，不是放过）：
+  //   ① 面底色 --we-surface-tint-light ⇄ -dark
+  //   ② 两条 accent 映射的"透明"基底 transparent ⇄ rgba(255,255,255,0.04)
+  // 清单里**不含** background-image（釉光停靠点是盒子相对的声明，由 TB4a/TB4b 单独钉）。
+  // ⚠️ 另外三条 accent（state-business-primary / brand-primary / brand-text）在**暗档
+  //    两边都不重映射**（落回宿主）——"都没写"也要计入六条清单的比对：将来只给暗档顶栏
+  //    补上其中一条就会与暗档左栏产生色差，本判据立刻抓到。
+  const s2cLeftColDarkRule = rules.find((r) => r.header.includes('div:has(> [data-slot="sidebar"])')
+    && r.header.includes('data-ds-dark-theme') && declValue(r.body, 'background-color'));
+  const tbDarkColorDecls = COLOR_DECLS.filter((k) => k !== 'background-image');
+  const tbDarkNorm = (s) => tbNorm(s)
+    .replace(/--we-surface-tint-light/g, 'TINT').replace(/--we-surface-tint-dark/g, 'TINT')
+    .replace(/rgba\(255,\s*255,\s*255,\s*0?\.04\)/g, 'INK');
+  // 差异清单的**唯一**算法：给两条声明体，返回不一致的键。主判据与负对照共用它
+  // （负对照不再另写一套比较 —— 那就成了"用另一条判据证明这条判据有牙"）。
+  const darkDiffsOf = (leftBody, tbBody) => tbDarkColorDecls
+    .map((k) => [k, tbDarkNorm(declValue(leftBody, k)), tbDarkNorm(declValue(tbBody, k))])
+    .filter(([, a, b]) => a !== b);
+  const tbDarkDiffs = darkDiffsOf(s2cLeftColDarkRule && s2cLeftColDarkRule.body,
+    tbDarkRule && tbDarkRule.body);
+  check('TB4d 暗档顶栏与暗档左栏**逐条同形**（底色 + accent 映射；TB4 只覆盖浅档）',
+    Boolean(tbDarkRule) && Boolean(s2cLeftColDarkRule) && tbDarkDiffs.length === 0,
+    'dark left-col rule=' + (s2cLeftColDarkRule ? 'present' : 'MISSING')
+      + ' dark tb rule=' + (tbDarkRule ? 'present' : 'MISSING')
+      + ' · ' + (tbDarkDiffs.length
+        ? tbDarkDiffs.map(([k, a, b]) => k + ': ' + a + ' ≠ ' + b).join(' | ')
+        : (tbDarkColorDecls.length + ' colour declarations identical')));
+  check('TB4d 负对照：只给暗档顶栏补一条 accent 映射、左栏留空，清单比对必须报差异',
+    darkDiffsOf('', '--dsw-alias-brand-primary: var(--we-accent, #4f8cff);').length === 1
+      && darkDiffsOf('--dsw-alias-brand-primary: var(--we-accent, #abc);',
+        '--dsw-alias-brand-primary: var(--we-accent, #4f8cff);').length === 1);
   // ── TB6: 顶栏**不得**画分割线 —— 与左栏 S2 同一条政策（那条线本身就是色差，理由见 styles.js）。
   const tbBorder = tbLightRule ? String(declValue(tbLightRule.body, 'border-bottom') || '') : '';
   const tbHasBorder = (v) => /solid|rgb|hsl|color\(/.test(String(v || ''));

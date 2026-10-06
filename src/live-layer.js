@@ -278,51 +278,80 @@ function liveStateBrief(extra) {
     + " focus=" + (typeof document !== "undefined" && typeof document.hasFocus === "function" && document.hasFocus() ? 1 : 0)
     + (extra ? " " + extra : "");
 }
-// 加载即留痕：确认「哪次刷新、哪个 bundle、哪个页面」真的生效了（用户这台机器
-// 打不开 DevTools，唯一取证通道是宿主诊断缓冲）。
-//
-// **必须延迟一拍**：本文件被内联在 bundle 顶部，而 `liveStateBrief()` 经
-// `livePauseReason()` → `occlusionReason()` 读 `src/client.js` 的 `selection`
-//（`const`，此刻仍在 TDZ）⇒ 顶层直接调会被外层 `try{}catch{}` **静默吞掉**。
-// 实测代价：两份诊断文件 2495 行里 `client-boot` 出现 **0 次** —— 唯一带页 id /
-// 窗口模式、能回答"同一时刻有几个客户端实例在跑"的那一行从来没落过盘。
-// `setTimeout(0)` 在整个工厂作用域求值完成之后才跑，那时 `selection` 已就绪。
-try {
-  if (typeof document !== "undefined" && typeof setTimeout === "function") {
-    setTimeout(function () {
-      try {
-        liveLog("client-boot", "build=" + LIVE_DIAG_BUILD + " page=p" + LIVE_PAGE_ID
-          + " mode=" + desktopWindowMode() + " extSwap=" + (useExtendedFrameSwap() ? 1 : 0)
-          + " " + liveStateBrief());
-      } catch { /* ignore */ }
-    }, 0);
+// ── 诊断留痕的安装（随 fiber 活、随 fiber 死）────────────────────────────────
+// 下面这四条（加载即留痕 / 窗口失焦·隐藏的事件留痕 / 60s 心跳）**曾经是模块级副作用**。
+// DSH 的客户端装载契约（`dsh-client-modules`）是：bundle 只注册 factory，模块体（含一切
+// 副作用）在 materialize 时求值一次并被 `loadCache` 记忆化；而**每次 revision 变化**
+//（产物 mtime/ctime/size 一变就算，内容相同也算）宿主都会 `tearDownEntryFiber` 再用新模块体
+// 重跑一遍。模块级副作用不挂在 fiber 上 ⇒ 每次重载，旧实例的定时器与监听器都留在原地：
+// 实测同一个 document 里 **214 个页 id、64 个存活**，一次真实的 window blur 被 **117 份
+// 实例各记一条**（每行还发一个 /diag 像素请求 ⇒ 日志与请求双双 100× 噪声）。
+// 官方文档原文："Keep factories free of side effects. Register styles, timers, listeners and
+// other resources inside `apply` with `ctx.effect`/`ctx.on` and return their cleanup functions."
+// ⇒ 四条一律在这里注册、由返回值一次性注销；`liveDiagUninstall` 只记"上一份装到哪"，万一
+// 宿主重复 apply 也先拆旧的再装新的（不叠加）。
+let liveDiagUninstall = null;
+function installLiveDiagnostics() {
+  if (typeof liveDiagUninstall === "function") {
+    try { liveDiagUninstall(); } catch { /* ignore */ }
   }
-} catch { /* ignore */ }
-// 失焦/隐藏是「首帧看护为什么不计时」的直接证据 —— 事件级留痕（只在变化时触发）。
-try {
-  if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
-    window.addEventListener("focus", function () { liveLog("play-state", liveStateBrief("window-focus")); });
-    window.addEventListener("blur", function () { liveLog("play-state", liveStateBrief("window-blur")); });
-  }
-  if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
-    document.addEventListener("visibilitychange", function () {
-      liveLog("play-state", liveStateBrief(document.hidden ? "tab-hidden" : "tab-visible"));
-    });
-  }
-} catch { /* ignore */ }
-// 心跳留痕（60s 一条，常开）：任何时候事后回看，都能知道「页面在跑吗 / 哪张壁纸 /
-// 什么播放态 / 看护进行到哪一步」，不必依赖复现时机。
-try {
-  if (typeof window !== "undefined" && typeof window.setInterval === "function") {
-    window.setInterval(function () {
-      const w = liveWatch;
-      liveLog("beat", liveStateBrief("id=" + (selection.id || "-")
-        + " liveOn=" + (selection.sceneLiveActive ? 1 : 0)
-        + (w ? " watch=" + w.wid + " first=" + (w.firstFrame ? 1 : 0) + " held=" + w.heldPaused + " stall=" + w.stall : " watch=-")
-        + " fails=" + Object.keys(selection.sceneLiveFailures || {}).length));
-    }, 60000);
-  }
-} catch { /* ignore */ }
+  const cleanups = [];
+  // 监听器一律记账：注销时逐条摘掉（本仓 `src/client.js` 的 apply 里是同一套写法）。
+  const listen = (target, type, fn) => {
+    if (!target || typeof target.addEventListener !== "function") return;
+    try {
+      target.addEventListener(type, fn);
+      cleanups.push(function () { try { target.removeEventListener(type, fn); } catch { /* ignore */ } });
+    } catch { /* ignore */ }
+  };
+  // 加载即留痕：确认「哪次刷新、哪个 bundle、哪个页面」真的生效了（用户这台机器
+  // 打不开 DevTools，唯一取证通道是宿主诊断缓冲）。
+  //
+  // **仍然延迟一拍**：`liveStateBrief()` 经 `livePauseReason()` → `occlusionReason()` 读
+  // `src/client.js` 的 `selection`；在 apply 里它已过 TDZ，但延迟一拍还顺带保证这一行落在
+  // 本 fiber 的其余安装之后（旧口径下这里是硬要求：顶层直调会被外层 `try{}catch{}` 静默吞掉，
+  // 实测两份诊断文件 2495 行里 `client-boot` 出现 **0 次**）。注销时把它一起清掉。
+  try {
+    if (typeof setTimeout === "function") {
+      const bootTimer = setTimeout(function () {
+        try {
+          liveLog("client-boot", "build=" + LIVE_DIAG_BUILD + " page=p" + LIVE_PAGE_ID
+            + " mode=" + desktopWindowMode() + " extSwap=" + (useExtendedFrameSwap() ? 1 : 0)
+            + " " + liveStateBrief());
+        } catch { /* ignore */ }
+      }, 0);
+      cleanups.push(function () { try { clearTimeout(bootTimer); } catch { /* ignore */ } });
+    }
+  } catch { /* ignore */ }
+  // 失焦/隐藏是「首帧看护为什么不计时」的直接证据 —— 事件级留痕（只在变化时触发）。
+  const win = typeof window === "undefined" ? null : window;
+  const doc = typeof document === "undefined" ? null : document;
+  listen(win, "focus", function () { liveLog("play-state", liveStateBrief("window-focus")); });
+  listen(win, "blur", function () { liveLog("play-state", liveStateBrief("window-blur")); });
+  listen(doc, "visibilitychange", function () {
+    liveLog("play-state", liveStateBrief(doc.hidden ? "tab-hidden" : "tab-visible"));
+  });
+  // 心跳留痕（60s 一条，常开）：任何时候事后回看，都能知道「页面在跑吗 / 哪张壁纸 /
+  // 什么播放态 / 看护进行到哪一步」，不必依赖复现时机。
+  try {
+    if (typeof setInterval === "function") {
+      const beatTimer = setInterval(function () {
+        const w = liveWatch;
+        liveLog("beat", liveStateBrief("id=" + (selection.id || "-")
+          + " liveOn=" + (selection.sceneLiveActive ? 1 : 0)
+          + (w ? " watch=" + w.wid + " first=" + (w.firstFrame ? 1 : 0) + " held=" + w.heldPaused + " stall=" + w.stall : " watch=-")
+          + " fails=" + Object.keys(selection.sceneLiveFailures || {}).length));
+      }, 60000);
+      cleanups.push(function () { try { clearInterval(beatTimer); } catch { /* ignore */ } });
+    }
+  } catch { /* ignore */ }
+  const dispose = function () {
+    if (liveDiagUninstall === dispose) liveDiagUninstall = null;
+    for (const fn of cleanups.splice(0)) { try { fn(); } catch { /* ignore */ } }
+  };
+  liveDiagUninstall = dispose;
+  return dispose;
+}
 
 // ── live 心跳 ───────────────────────────────────────────────────────────────
 // 1s tick 读渲染页 __wpStats.frame()（{fps, running}，最近 500ms 实测窗口）：
@@ -626,12 +655,7 @@ function startLiveWatch(frame, wid) {
     applyLiveControls(frame);
     const isWeb = selection.type === "web";
     const wstate = isWeb ? liveStateOf(frame) : null;
-    // 就绪判定分类型：场景每帧都有 GL 提交 → 要求真出帧；网页壁纸很多没有 rAF
-    // 打点（setTimeout 主循环 / 纯静态），只要渲染页可达（或 iframe 已 load）即算
-    // 就绪 —— 按 fps 判定会把它们误判失败并降级（实测：一直停在占位图，15 秒后黑屏）。
-    const alive = isWeb
-      ? (wstate ? wstate.iframeLoaded === true : Boolean(stats))
-      : Boolean(stats && stats.running && stats.fps > 0);
+    const alive = liveHeartbeatAlive(frame, stats, wstate, isWeb);
     // 渲染页明确记录了 iframe 加载错误 → 立即降级，不必等 15 秒超时。
     if (isWeb && wstate && wstate.iframeLoaded === false && wstate.webError) {
       liveFail("load");
@@ -746,7 +770,11 @@ function startLiveWatch(frame, wid) {
       // 补上，否则暂停期会把一个**故意暂停**的渲染页标成 active，指针注入与媒体桥白热。
       // 两头都对：真的在出帧才自愈，暂停/隐藏期不自愈，恢复播放后的第一拍再自愈
       // （延迟 ≤1s，用户无感）。
-      if (alive && isEffectivelyPlaying() && !selection.sceneLiveActive) {
+      // 判据里那第二个 `alive` 是**领养补挂那一跳的同名量**（审计 P3-5）：只看本拍的本地
+      // 读数（不读 `__wpStats`）⇒ 心跳这一层不依赖渲染页是否已 load 完。对可达但还没 load
+      // 完的网页窗口，它与领养那边（`liveHeartbeatReady`）给出**同一个答案**，于是"标志被清
+      // 了但没等到下一次 emit"的缝没有了：最迟下一拍补上。
+      if (alive && isEffectivelyPlaying() && liveHeartbeatReady(frame, stats, wstate) && !selection.sceneLiveActive) {
         selection.sceneLiveActive = true;
         if (!watch.rearmed) {
           watch.rearmed = true;
@@ -1417,10 +1445,23 @@ function buildLivePoster(sel) {
 // buildMedia 的 liveBootDelay）；用户一旦有交互（点击/按键）立即置 false ——
 // 手动切换壁纸必须即时反馈，不延迟。
 let bootRestore = true;
-if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
-  for (const ev of ["pointerdown", "keydown"]) {
-    window.addEventListener(ev, () => { bootRestore = false; }, { capture: true, passive: true, once: true });
+// 两条一次性监听**随 fiber 注册/注销**（曾经也是模块级副作用：模块体每次 revision 变化都会
+// 重跑一遍，而模块级监听器不挂 fiber —— 用户一直没交互时它们就一直叠着；见上方
+// `installLiveDiagnostics` 的整段说明）。`once: true` 让它们在首次交互后自摘，注销时再兜一次。
+function installLiveBootRestore() {
+  const drop = () => { bootRestore = false; };
+  const opts = { capture: true, passive: true, once: true };
+  const target = typeof window === "undefined" ? null : window;
+  let bound = [];
+  if (target && typeof target.addEventListener === "function") {
+    for (const ev of ["pointerdown", "keydown"]) {
+      try { target.addEventListener(ev, drop, opts); bound.push(ev); } catch { /* ignore */ }
+    }
   }
+  return function () {
+    for (const ev of bound) { try { target.removeEventListener(ev, drop, opts); } catch { /* ignore */ } }
+    bound = [];
+  };
 }
 // 延迟挂载（只作用于「重启恢复上次壁纸」那一档）：**延迟期照常开始加载** —— iframe 一赋
 // `src` 就已经在拉 pkg / 解码纹理 / 编译 shader，这正是这一档存在的理由（让首帧先热起来，
@@ -1462,6 +1503,31 @@ function liveFrameReady(frame, sel) {
   const st = liveStats(frame);
   return Boolean(st && st.running && st.fps > 0);
 }
+// ── 看护器「活着」的唯一判据（审计 P3-5）──────────────────────────────────────
+// 就绪分型（**两处看护**必须逐字共用，否则两只眼睛会对同一帧给出不同答案）：
+//   · 场景：每帧都有 GL 提交 ⇒ 要求真出帧（`running && fps > 0`）；
+//   · 网页：很多没有 rAF 打点（setTimeout 主循环 / 纯静态）⇒ 只要渲染页**可达**
+//     （`getState` 可读，退一步信 `__wpStats`）就算活着 —— 按 fps 判定会把它们
+//     误判失败并降级（实测：一直停在占位图，15 秒后黑屏）。
+// 参数是**本拍的本地读数**（心跳 tick 与领养补挂都在手上），不是 frame：
+// 于是它一次碰渲染页都不碰，调用方也不会为了问一句话多读一遍 `__wpStats`。
+// 为什么抽出来：心跳自愈（startLiveWatch 的 tick）与领养补挂（syncLayers 的 adopt 分支）
+// 原本各写各的等价判据 —— 心跳那边问 `alive`（只看 `iframeLoaded`），领养那边问
+// `liveFrameReady`。对**可达但还没 load 完**的网页窗口两者答案不同：领养那一跳放行、
+// 心跳那一拍却不算自愈，于是"清零点把标志清了、而自愈偏不认这帧"会一直悬着，直到
+// 下一次 emit 才被补挂（可能永远等不到）。合成一处后，两边对同一帧的答案逐字相同。
+function liveHeartbeatAlive(frame, stats, wstate, isWeb) {
+  return isWeb
+    ? (wstate ? wstate.iframeLoaded === true : Boolean(stats))
+    : Boolean(stats && stats.running && stats.fps > 0);
+}
+/**
+ * 领养补挂那一跳的类型就绪判据（与 `liveHeartbeatAlive` 同一函数体 —— 同名同义，
+ * 别名只为在调用点读出自证）：它手上只有本拍的心跳读数，而 `liveFrameReady` 对网页
+ * 要求 `getState` 可读 ⇒ 可达到底、但还没 load 完的窗口会恒判 false，自愈也就永远
+ * 不认这帧。场景那边两者本来就同源（`running && fps > 0`），零行为差异。
+ */
+const liveHeartbeatReady = liveHeartbeatAlive;
 function scheduleLiveMount(sel, frame, delayMs) {
   cancelLiveMount("replaced"); // 同一时刻只允许一个未上屏的预热页
   const entry = { sel, frame, timer: 0, deadline: Date.now() + delayMs };
@@ -2121,6 +2187,10 @@ function syncLayers() {
       // 已为真）⇒ 标志永久为假，指针注入与媒体桥（频谱 / Now Playing）双双静默失效，
       // 画面却照旧在播（用户只看得到"壁纸有时候坏了"）。这里按**同一套就绪判据**把
       // 语义补回来：心跳在，且这一拍真的在出帧（网页壁纸按"渲染页可达"）。
+      // 判据与心跳自愈共用**同一个函数体**（`liveHeartbeatReady`，见 :1477 的注释）：
+      // 原先这里问 `liveFrameReady`，它要求网页窗口的 `getState` 可读 ⇒ 可达到底但还没
+      // load 完的窗口恒 false，而心跳那边早在认这帧 —— 两边对同一帧答案不同，缝就出在
+      // 那里。现在两处逐字同源，`liveFrameReady` 只留给 `scheduleLiveMount` 的预热页。
       // 时序：本块在心跳起动（上面 adopt-live 分支的 startLiveWatch）之后 —— `liveWatch`
       // 与刚武装的对象是同一个，`firstFrame` 此刻可能还是 false（首帧要等一拍 tick），
       // 于是这里以"这一拍就有帧"直接判定，不等那一拍。
@@ -2128,7 +2198,7 @@ function syncLayers() {
       if (!selection.sceneLiveActive && watchHere && watchHere.frame === liveFrame
           && liveFrame.isConnected && !liveFrameDeferred(liveFrame)
           && isEffectivelyPlaying()
-          && liveFrameReady(liveFrame, selection)) {
+          && liveHeartbeatReady(liveFrame, liveStats(liveFrame), liveStateOf(liveFrame), selection.type === "web")) {
         selection.sceneLiveActive = true;
         liveLog("live-rearm", "wid=" + selection.id + " 领养后补挂激活态（指针注入 / 媒体桥恢复）", "info");
       }
@@ -2255,12 +2325,17 @@ function toggleLiveDiag() {
     liveDiagOn ? "逐秒心跳日志已开启（本会话有效，刷新后失效）" : "逐秒心跳日志已关闭");
   return liveDiagOn;
 }
+// ⚠️ 这张表只许列**本文件真的声明过**的名字。`retireFadingLayer` / `nudgeWallpaperRepaint`
+// 住在 `src/layer-core.js`（内联构建把整块 `export` 剥掉、两个文件并进同一作用域 ⇒ 抄错了
+// 也照样解析），但"导出自己没声明的名字"在任何真 ESM 语境下都是链接期错误
+// （`node --check` 报 `Export '…' is not defined in module`），故不列于此。
 export {
   syncLayers, startLiveWatch, stopLiveWatch, liveFail, liveRenderEnabled, liveRenderUrl,
   liveFailReasonOf, liveLog, liveStateBrief, liveDiagVerbose, liveStats, applyLiveControls,
   scheduleLiveFrameBackfill, cancelLiveFrameBackfill, liveFrameEl, buildLivePoster,
-  scheduleLiveMount, cancelLiveMount, createLiveFrame, retireFadingLayer, toggleLiveDiag,
+  scheduleLiveMount, cancelLiveMount, createLiveFrame, toggleLiveDiag,
   clearLiveSessionFailures,
-  refreshUnderlayColor, clearUnderlayColor, nudgeWallpaperRepaint, probeWallpaperOnScreen,
+  installLiveDiagnostics, installLiveBootRestore,
+  refreshUnderlayColor, clearUnderlayColor, probeWallpaperOnScreen,
   liveWatch, livePointerFrame, liveApplied, liveDiagOn, LIVE_FIRST_FRAME_MS, bootRestore,
 };

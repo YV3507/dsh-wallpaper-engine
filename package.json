@@ -53,6 +53,7 @@
     "lib/media/",
     "lib/webwallgl/",
     "lib/we-props.js",
+    "lib/we-focus-guard.js",
     "lib/audio-tap.swift",
     "lib/types/index.d.ts",
     "lib/types/client.d.ts",

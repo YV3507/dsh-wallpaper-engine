@@ -225,6 +225,12 @@ const PARALLAX_UI_SIGN = 1;
  *  m01915-③ 的来路：侧栏展开时子树超过这个上限 ⇒ 判定放行 ⇒ `translate` 落上那一列 ⇒
  *  宿主的 fixed 标题栏按钮被改锚、整块下移。 */
 const PARALLAX_GROUP_SCAN_MAX = 400;
+/** "这一组太大、不验了"这个结论的**有效期**（ms）：超限组在这段时间内**连枚举都不做**
+ *  （见 parallaxGroupBig）。取 1s 的理由：重扫本身是 250ms 一次，过期后重验一次 ⇒ 一组最多
+ *  每秒付一次 `querySelectorAll('*')`，而"子树从超限缩回可验范围、且里面有 fixed 后代"这种
+ *  变化晚 ≤1s 被认到 —— 这个量级对着色延迟无关痛痒，却把"超限组每 250ms 白枚举一遍整棵子树"
+ *  那笔账（审计 P3-1）整个抹掉。 */
+const PARALLAX_GROUP_SCAN_COOLDOWN_MS = 1000;
 /** 从槽出口往上找"有盒子的祖先"最多走这么多层：`display: contents` 连着套是极端情况，兜底用。 */
 const PARALLAX_GROUP_BOX_MAX_UP = 3;
 /** 帧循环在跑的这段时间加在目标上的类（样式段只在开关属性下给它 will-change）—— 收工即摘。 */
@@ -257,6 +263,9 @@ let parallaxSeen = false;
 /** 当前位移步长（px / 每 1% 的百分比）与上一帧的时间戳。 */
 let parallaxStepX = 0;
 let parallaxStepY = 0;
+/** 重扫期量过大小的界面组：`el` → `{ n, at, big }`（`n` = 上次枚举到的节点数）。只有**超限**
+ *  的那些会被当真缓存（见 parallaxGroupBig）—— 组元素来了又走，所以是 WeakMap 而不是 Map。 */
+const parallaxGroupSizes = typeof WeakMap === 'function' ? new WeakMap() : null;
 let parallaxLastMs = 0;
 let parallaxRatioKey = '';
 /** 视口尺寸（只在起帧、resize 与"冷路径补读"时读一次：帧里不再问 window，省掉每帧那次布局查询）。 */
@@ -318,6 +327,26 @@ function parallaxSettings() {
   };
 }
 
+/**
+ * 插件槽的**距离取值器**（唯一真源）：`parallaxPluginDepths[slot]` 经钳制后的数字。
+ * 缺键、非数字、`NaN` / `Infinity`、超范围 —— **一律**回同一个结果（钳到 `0..10` 里）。
+ * 为什么要一个共用取值器（审计 P3-2）：算"屏上最大距离"的 `parallaxMaxPercent` 与算系数的
+ * `parallaxTargetRatio` 各写了一套兜底，而两套的**非有限值**分支不一样（一个回 0、一个回
+ * `PARALLAX_PLUGIN_DEFAULT`）⇒ 存档里手写一个 `null` / `"abc"` 就能让"最大距离算 0"而"系数算 1"，
+ * 于是 `pctMax === 0` 触发"一次落位、收工"那条短路，整组缓动静默失效（屏上表现为瞬移）。
+ * 表里只认**自己的键**：存档里那个 `__proto__` 经 schema 的 `Object.assign({}, v)` 会变成结果的
+ * **原型**（属性名不进 `data-slot`，值是对象）⇒ 取值一律走 `hasOwnProperty`，绝不直接读
+ * `st.plugin[slot]`（否则原型链上的东西会被当成设置）。表里没写过的槽键 = "缺键" ⇒ 走缺省。
+ */
+function parallaxPluginDepth(st, slot) {
+  const map = st && st.plugin;
+  if (!map) return PARALLAX_PLUGIN_DEFAULT;
+  const own = Object.prototype.hasOwnProperty.call(map, slot) ? map[slot] : undefined;
+  // 一行写完，别换行：`test/verify-scene-live.mjs` 的结构判据按**整行子串**钉这条取值器
+  //（两行会让 `includes` 落空 —— 审计 P3-2 时就踩过一次）。
+  return parallaxClamp(own, PARALLAX_GROUP_DEPTH_MIN, PARALLAX_GROUP_DEPTH_MAX, PARALLAX_PLUGIN_DEFAULT);
+}
+
 /** 屏上可能出现的**最大距离百分比**（壁纸、四个区域、插件组里最大的那个）。只在两处用到：
  *  ① "系数全 0 ⇒ 一次落位、收工"这条短路；② 到位阈值（剩余位移 = 剩余步长 × 最大系数）。
  *  ⚠️ 不能只看壁纸：用户口径 m02697 之后每块的距离都是**独立的绝对百分比**，界面组或插件组
@@ -341,7 +370,9 @@ function parallaxMaxPercent(st) {
   const map = st.plugin;
   for (const key in map) {
     if (!Object.prototype.hasOwnProperty.call(map, key)) continue;
-    const v = parallaxClamp(map[key], PARALLAX_GROUP_DEPTH_MIN, PARALLAX_GROUP_DEPTH_MAX, 0);
+    // 与 parallaxTargetRatio 走**同一个**取值器（审计 P3-2：非有限值过去在这里算 0、在那里算
+    // 缺省 1 ⇒ 手改存档能让"最大距离"与真实系数打架，`pctMax === 0` 把缓动短路掉）。
+    const v = parallaxPluginDepth(st, key);
     if (v > max) max = v;
   }
   return max;
@@ -410,7 +441,11 @@ function parallaxTargetKind(el) {
 
 /** 界面组的种类：按宿主锚点认（`parallaxTargetsRefresh` 只把组查询命中的节点交进来）。
  *  `data-chat-flow-kind` → `data-slot` → `data-composer-card` 依次认 —— 都是宿主写的**语义**属性，
- *  比构建哈希类名稳；认不出来按基准档（会话文本区）算。 */
+ *  比构建哈希类名稳；认不出来按基准档（会话文本区）算。
+ *  ⚠️ composer 只认 `data-composer-card` **属性**（`hasAttribute`）。曾经在旁边多一条
+ *  `className` 里找 `' data-composer-card '` 的分支：属性名不会长在类名里，那条**永远不成立**
+ *  （审计 P3-3，维护者在 PR #147 review 里点名），删掉它不改变任何可达形态 —— 类名那条路本来
+ *  也认不出宿主（真实 composer 卡片的类名是构建哈希，语义只在属性上）。 */
 function parallaxGroupKind(el) {
   if (!el) return 'chat';
   let flow = null;
@@ -425,8 +460,6 @@ function parallaxGroupKind(el) {
   if (typeof el.hasAttribute === 'function') {
     try { if (el.hasAttribute('data-composer-card')) return 'composer'; } catch (e) { /* 只读宿主 */ }
   }
-  const cls = ' ' + String((el && el.className) || '') + ' ';
-  if (cls.indexOf(' data-composer-card ') >= 0) return 'composer';
   return 'chat';
 }
 
@@ -621,12 +654,45 @@ function parallaxTargetOffset(rec, x, y) {
 }
 
 /**
+ * 这个界面组的子树**此刻有哪些节点**（`el.querySelectorAll('*')`，问不到返回 `null`）。
+ * 顺带把"太大"这个结论按 `PARALLAX_GROUP_SCAN_COOLDOWN_MS` 缓存住（审计 P3-1）。
+ * 为什么值得缓存：`parallaxGroupBlocked` 的老写法是"先整棵枚举、再看长度" ⇒ 超限组每一次重扫
+ * （250ms 一轮）都为了一句"没验完"白付一次全量 `querySelectorAll('*')`；会话流动辄几千节点，
+ * 这比它想省掉的 `getComputedStyle` 那一段还贵。
+ * 缓存口径（`big` 只在**这次真的数出来**才更新）：
+ *   · `big === true`（上次数出来就超限）且还没过期 ⇒ 不再枚举，返回 `null`（调用方一律按"没验完"
+ *     算 ⇒ 照动，与老口径逐字相同）；
+ *   · 其余一律现数，并把这次的结果记进 `big` —— 于是"子树缩回可验范围"后第一次调用就会重验，
+ *     不会因为上一次的结论一直放行（过期只是给"组的情况不再变化"兜底）。
+ * ⚠️ 只在重扫路径（帧外）调用，与 parallaxGroupBlocked 同一批调用方。
+ */
+function parallaxGroupNodes(el) {
+  if (!el || typeof el.querySelectorAll !== 'function') return null;
+  const now = parallaxNow();
+  const slot = parallaxGroupSizes ? parallaxGroupSizes.get(el) : null;
+  if (slot && slot.big === true && now - slot.at < PARALLAX_GROUP_SCAN_COOLDOWN_MS) return null;
+  let nodes = null;
+  try { nodes = el.querySelectorAll('*'); } catch (e) { return null; }
+  if (!nodes) return null;
+  const n = nodes.length;
+  if (parallaxGroupSizes) {
+    try { parallaxGroupSizes.set(el, { n: n, at: now, big: n > PARALLAX_GROUP_SCAN_MAX }); }
+    catch (e) { /* 只读宿主 / 不是对象键 */ }
+  }
+  return nodes;
+}
+
+/**
  * 这个界面组里有没有 `position: fixed` 的后代 —— 有就**整组不动**。
  * 为什么：`translate` 只要不是 none，这个元素就成了 fixed 后代的**包含块**，那些后代会从
  * "钉在视口上"变成"钉在这个盒子上"（本仓 #89：第三方插件把座位挂在输入卡片里，包含块一换
  * 就跑到卡片角上、还多出幽灵溢出）。
- * 只在**重扫路径**上跑（帧里绝不碰）：先看节点数，超过 PARALLAX_GROUP_SCAN_MAX（= 400）就认作
- * "没验完"（照动）—— 会话流动辄几千节点，每 250ms 全量 getComputedStyle 是不行的。
+ * 只在**重扫路径**上跑（帧里绝不碰），而且**只枚举一次子树**：节点数超过
+ * PARALLAX_GROUP_SCAN_MAX（= 400）就认作"没验完"（照动）—— 会话流动辄几千节点，每 250ms 全量
+ * getComputedStyle 是不行的。
+ * ⚠️ 超限那一步自己也有成本：枚举整棵子树不比 `getComputedStyle` 便宜多少 ⇒ 枚举走
+ * parallaxGroupNodes 的缓存（超限的组合在 1s 内**连数都不数**，审计 P3-1）；要验的那些组直接
+ * 拿它数出来的那张表来遍历，不再为 `length` 白枚举第二遍。
  * ⚠️ 超限放行的代价不只是"白跑"：这一组里若嵌着 `position: fixed` 后代，也会跟着**照旧被改锚**
  * （也就是下面那个 return true 根本没机会跑到）。可接受的理由：会话文本区一棵子树本来就常超 400，
  * 而"输入卡片 / 侧栏"这类真会带固定定位后代的盒子都很小 ⇒ 实际触发面窄。
@@ -637,8 +703,7 @@ function parallaxTargetOffset(rec, x, y) {
 function parallaxGroupBlocked(el) {
   if (!el || typeof el.querySelectorAll !== 'function') return false;
   if (typeof getComputedStyle !== 'function') return false;
-  let nodes = null;
-  try { nodes = el.querySelectorAll('*'); } catch (e) { return false; }
+  const nodes = parallaxGroupNodes(el);
   if (!nodes || nodes.length > PARALLAX_GROUP_SCAN_MAX) return false;
   for (let i = 0; i < nodes.length; i += 1) {
     let cs = null;
@@ -656,13 +721,10 @@ function parallaxTargetRatio(rec, st) {
     // 别的插件的组：走**自己那一块的开关**（用户诉求 m03549），与界面整块互不依赖。
     if (rec.kind === 'plugin') {
       if (!st.pluginOn) return 0;
-      // 距离按**槽键**从 parallaxPluginDepths 里取（缺键 = PARALLAX_PLUGIN_DEFAULT）。只认这张表
-      // **自己的**键：存档里那个 `__proto__` 经 schema 的 `Object.assign` 会被**丢掉**（它只复制自有
-      // 可枚举键），其值改挂成结果的**原型** —— 所以下面的取值一律走 hasOwnProperty，与
-      // parallaxMaxPercent 的遍历口径一致；表里没写过的槽键就是"缺键"。绝不要改成直接读 `st.plugin[rec.slot]`。
-      const own = Object.prototype.hasOwnProperty.call(st.plugin, rec.slot) ? st.plugin[rec.slot] : undefined;
-      return parallaxClamp(own, PARALLAX_GROUP_DEPTH_MIN, PARALLAX_GROUP_DEPTH_MAX,
-        PARALLAX_PLUGIN_DEFAULT) * PARALLAX_UI_SIGN;
+      // 距离按**槽键**从 parallaxPluginDepths 里取（缺键 = PARALLAX_PLUGIN_DEFAULT）—— 取值口径
+      // 与"最大距离"共用 parallaxPluginDepth()：表里只认自己的键（`__proto__` 那件事见那里），
+      // 非有限值 / 超范围与缺键一律同一个结果（审计 P3-2）。
+      return parallaxPluginDepth(st, rec.slot) * PARALLAX_UI_SIGN;
     }
     if (!st.ui) return 0;
     let coef = st.chatDepth;
