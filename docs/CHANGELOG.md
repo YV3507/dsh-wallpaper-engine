@@ -19,6 +19,11 @@
 
 > v1.3.0-r2 之后的增量；`NOTICE_VERSION` 哨兵同步 `1.3.1`（公告改版 ⇒ 看过 r2 公告的用户会再看到一次），；`package.json` 版本号已同步 `1.3.1`。
 
+- **侧栏开始页（guide）的「壁纸引擎」入口图标改成官方 artwork 家族同款彩色**（用户口径：「把壁纸引擎的图标做成和其他功能一致的彩色图标」）。
+  **根因**：官方 guide 卡的图标全是**固定调色板** artwork——文件＝琥珀 `#FFBC4D` 实底、终端＝`#679EFE` 描边、浏览器＝`#539CFA` 描边（36 网格）；而我们的 React 面图标用 `currentColor`，从 guide 容器拿到的是灰墨（`--dsw-alias-label-secondary`）⇒ 整页唯一显灰的入口。
+  **修法**：`src/nav-icon.js` 的 React 面（guide 卡消费的那面）改固定家族色 `#A797FC`（取自官方 `PluginArtworkLoop` 的紫，与琥珀/蓝两个邻居错开色相），几何与描边宽度不动（26px 实渲染约 2.3px，恰在终端 2.5px 与浏览器 1.4px 之间）；设置 nav 的 DOM 补丁面（`weIconSvgString`）**保持 `currentColor`**——官方设置 nav 本就是单色线条图标族，跟着上彩反而突兀。
+  **验证**：`npm run verify` 全绿（`verify-i18n` 对 nav-icon 的锚点判据原样过）；渲染台 mock（浅/深主题 × 26/22px）目检：紫色「画框＋太阳＋山峦」两主题都读得清、与邻居色相错开。**纯客户端改动 ⇒ 刷新页面即可**（⚠️ 但见下方勘误：官方端运行中换 bundle 可能拉取失败，冷重启最稳）。
+
 - **修复：原生下拉（select）弹出的选项列表「底色与字同色」整列不可读**（用户报告 + 截图：深色主题下弹层白底、选项浅字几乎隐形）。
   **根因**：Chromium 的下拉弹层是一份**独立文档**——画布底色只在 `<select>` 自身背景**不透明**时才取它的底色，而本插件的 select 是透明玻璃底（`.we-picker select { background: transparent }`，玻璃面板要透出壁纸）⇒ 弹层落到默认**浅色**画布；选项文字却继承 select 的玻璃墨色 `--we-ink`（深色主题 = 宿主浅色 label 令牌）⇒ 浅字落浅底。设置窗内全部下拉（过场动画 / 轮转间隔 / 内容分级 / 类型 / 音源……）都中招；侧栏抽屉与官方右栏的 select 因宿主给它们画了不透明底而幸免——这也是「几乎所有的下拉」但并非全部的形态。
   **修法**：`src/styles.js` 给选项行显式上不透明面板底 + 玻璃墨色（`.we-picker select option, .we-picker__select option { background-color: var(--we-panel-color, #ffffff); color: var(--we-ink, #1f2328); }`）——Chromium 弹层按 option 的**已解析**计算样式逐行绘制（var 在页面内已解析，弹层文档照抄结果），`--we-panel-color` / `--we-ink` 随明暗主题翻转，两主题都可读；类名作用域（`.we-picker__select`）专门覆盖不在 `.we-picker` 子树内的侧栏 select。

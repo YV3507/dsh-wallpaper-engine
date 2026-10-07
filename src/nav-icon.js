@@ -10,7 +10,8 @@
  * 契约（构建期由 scripts/build-client.mjs 内联进 bundle 的工厂作用域，"外部作用域" =
  * 同一 prelude / src/client.js 的顶层）：
  *   · `WE_ICON_PARTS` 是图标几何的**唯一真源**（零件表）；`renderWeIcon`（React 元素）
- *     与 `weIconSvgString`（DOM innerHTML 字符串）都由它现算 —— 改图标只动那张表。
+ *     与 `weIconSvgString`（DOM innerHTML 字符串）都由它现算 —— 改图标只动那张表；
+ *     颜色不进零件表，两 face 各自定（React 面固定家族色、DOM 面跟随文本色，见下）。
  *   · `renderWeIcon` 在**调用时**才读 React（同 panel-tabs.js 的口径）：本模块被内联到
  *     prelude，而 `const React = require("react")` 在 client.js 正文顶部，顶层读会撞 TDZ。
  *   · `installWeNavIcon()` 是纯 DOM 补丁：失败（结构变了 / 找不到按钮）的语义是
@@ -21,8 +22,14 @@
 
 // ── 图标几何（唯一真源）──────────────────────────────────────────────────────
 // 设计：画框 + 太阳 + 山峦（壁纸 = 一张画），线条风格对齐官方图标族（16px 网格、
-// 描边、圆角线帽线接、currentColor 跟随文本色）。描边宽度 1.4：nav 里 16px 实渲染
-// 时 1.5 偏糊、1.25 偏弱，1.4 与官方 OutlineMedium 族视觉重量最接近。
+// 描边、圆角线帽线接）。描边宽度 1.4：nav 里 16px 实渲染时 1.5 偏糊、1.25 偏弱，
+// 1.4 与官方 OutlineMedium 族视觉重量最接近。
+// 颜色分两 face：React 面（右侧栏 guide 卡片）用**固定家族色** WE_ICON_GUIDE_INK ——
+// 官方 guide artwork 全是固定调色板（Files 琥珀 #FFBC4D、Terminal #679EFE、
+// Browser #539CFA，36 网格），跟随文本色会拿到容器的灰墨（--dsw-alias-label-secondary）
+// 而显灰；#A797FC 取自官方 PluginArtworkLoop 的紫，与琥珀/蓝两个邻居错开色相。
+// DOM 面（设置 nav 补丁）保持 currentColor —— 官方设置 nav 就是单色线条图标族。
+const WE_ICON_GUIDE_INK = "#A797FC";
 const WE_ICON_PARTS = [
   ["rect", { x: "1.7", y: "2.7", width: "12.6", height: "10.6", rx: "2.2" }],
   ["circle", { cx: "5.4", cy: "6.1", r: "1.05" }],
@@ -38,7 +45,7 @@ function renderWeIcon(props) {
     width: size,
     height: size,
     fill: "none",
-    stroke: "currentColor",
+    stroke: WE_ICON_GUIDE_INK,
     "stroke-width": "1.4",
     "stroke-linecap": "round",
     "stroke-linejoin": "round",
