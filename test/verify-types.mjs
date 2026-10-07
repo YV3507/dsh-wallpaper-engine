@@ -149,6 +149,7 @@ const WALLPAPER_REQUIRED = [
 const INVENTORY_REQUIRED = [
   { name: 'installDir', why: 'top-level payload shorthand from locateWallpaperEngineP()' },
   { name: 'uploadDir', why: 'UPLOAD_DIR; the settings UI moves it (buildInventory payload)' },
+  { name: 'cacheDir', why: 'cacheBaseDir() in effect (env → config.json cacheDir → default); the settings UI moves it (buildInventory payload)' },
   { name: 'weAssetsDir', why: 'WE_ASSETS_DIR; the client derives localAssets=1 from it' },
   { name: 'weAssetsAvailable', why: 'weAssetsAvailable() probe gates the official-assets UI' },
   { name: 'sceneMediaBase', why: 'media source origin the live renderer uses as mediaBase for Scenes (buildInventory payload)' },

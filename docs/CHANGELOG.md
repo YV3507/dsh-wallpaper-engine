@@ -13,11 +13,27 @@
 > **归档说明**：本仓库从 **v0.6.8** 起才有 git tag，更早的版本没有独立标签。早于 v0.6.8 的条目
 > 按**原 README 原文的版本标注**归档；原文未标注小版本的条目放进区间桶，不臆造版本号。
 > 完整逐提交历史见 GitHub Commits / Releases；升级前置条件见 [`UPGRADING.md`](./UPGRADING.md)。
-> `test/verify-scene-live.mjs` 这一类判据条数**只记该条写作当时的实测总数**（如 466 / 465），不是现在的总数 —— 后续条目会往上加（现为 494）；照原文保留，好让它与当次提交对得上。
+> `test/verify-scene-live.mjs` 这一类判据条数**只记该条写作当时的实测总数**（如 466 / 465），不是现在的总数 —— 后续条目会往上加（现为 502）；照原文保留，好让它与当次提交对得上。
 
 ### v1.3.1（未发布）
 
 > v1.3.0-r2 之后的增量；`NOTICE_VERSION` 哨兵同步 `1.3.1`（公告改版 ⇒ 看过 r2 公告的用户会再看到一次），；`package.json` 版本号已同步 `1.3.1`。
+
+- **修复：Wallpaper Engine 安装目录探测失败 —— 当前版本把可执行文件放进了 `distribution/` 子目录（依赖方报告：非默认 Steam 盘上的安装被判「未安装」）**。
+  **根因**：`locateWallpaperEngineP()` 唯一的"已安装"判据是顶层 `<dir>\wallpaper32.exe` 存在。当前版本 WE 顶层只剩 `ChromaAppInfo.xml` / `installer.exe` / `launcher.exe`，`wallpaper32.exe` / `wallpaper64.exe` 下移到 `distribution\`（旁边有稳定的 `version.json`）⇒ 已安装被判未安装。**而这不是降级是功能消失**：portable 项目（`<安装根>/projects/defaultprojects|myprojects`）整批不扫，WE 播放列表读不到（`readPlaylistsP` 要 `<安装根>/config.json`）⇒ 轮换 / playlist 失效。（报告里「完全跳过创意工坊扫描」不是这条 bug 的机制：`libraryDirs` → `<库>/steamapps/workshop/content/431960` 本来就不挂 installDir。）本机 `E:\SteamLibrary` 上的真安装恰是**经典布局**（顶层 `wallpaper32.exe`）—— 所以经典那条判据必须继续认。
+  **修法（宿主，全在 `lib/index.js`）**：新增 `WE_INSTALL_MARKERS`（顶层 `wallpaper32.exe` / `wallpaper64.exe` + `distribution/` 的 `wallpaper32.exe` / `wallpaper64.exe` / `version.json`）与 `isWallpaperEngineRootP(dir)`（逐标记探存在性）——**两种布局都认**（官方 CLI 文档至今只描述经典布局，故不撤经典那条；`version.json` 是"万一 exe 再改名"的稳定标记）；`locateWallpaperEngineP()` 的判据换成它。**返回的始终是安装根本身**（`projects/` 与 `config.json` 所在处），绝不返回 `distribution\` —— 消费面要的是根，不是 exe 所在的那层。
+  顺带修同一条链上两个会造成「用户设了也不生效」的形状：① `owningLibrariesP()` 改探**真正被扫描的那个目录**（`<根>/steamapps/workshop/content/431960`），不再是 `steamapps/common/wallpaper_engine` 这个**目录名** —— 卸载残留空壳夹不再被当成库（本机就有一个只剩 `ui/` 与 `log.txt` 的真空壳），安装夹被改名 / 不存在但工坊内容在的库不再被漏掉；② `steamProbeDirsP()` 的 **`DSH_WE_STEAM_ROOT` 覆盖排到注册表与常见目录之前**（`locate` 返回**第一个**命中，注册表在前时显式 override 永远指不走 Steam 已知的安装，且夹具型自检在开发者机器上会静默读到真安装），并让 **env 参与 60s 探测缓存键**（否则改过的 override 会被上一次探测的 TTL 掩盖）。
+  **判据**：新守卫 `test/verify-we-install-probe.mjs`（**20 条**）——行为面用四个合成 Steam 根夹具（classic / modern / stale / 只带工坊内容）各 `apply()` 一次真宿主、走 `GET /wallpaper-engine/inventory`：`distribution/` 布局必须被认出来（旧判据在此返回 null，= 本 issue 的回归门）且 installDir 是根而非 `distribution\`、portable 项目被扫到、WE 播放列表解析出壁纸 id；经典布局不许被丢；卸载残留空壳不算安装（容忍开发者机器上的真安装）；只带工坊内容的根仍是壁纸来源。夹具自带形状负对照（modern 顶层**确实没有** exe —— 否则 B 组会假绿）；另有一组源码棘轮 + 负对照（标记表、`isWallpaperEngineRootP`、`'workshop', 'content', WE_APPID` 探针、probe 顺序、缓存键）。已接进 `npm run verify`（36 → **37** 条）。
+  **验证**：`npm run verify`（37 条）/ `verify:docs` exit 0；`docs/ROUTE-INDEX.md` 与 `docs/GUARD-MAP.md` 已重算（宿主行号变了）。**宿主半改了 ⇒ 需重启 `dsh web`**（本次无客户端改动，无需重建 `lib/client.js`）。
+  **判据坑（记给下一次）**：`DSH_WE_STEAM_ROOT` 的语义是 **Steam 根**（含 `steamapps/` 的那一层），不是 WE 安装夹 —— 传成安装夹，候选会变成 `<…>/wallpaper_engine/steamapps/common/wallpaper_engine` 而**全部 miss**（写守卫时实测踩过：四个 case 全掉到开发者机器上的真安装，看起来像"env 覆盖失效"）。
+
+- **新设置「缓存位置」：把几 GB 缓存挪出系统盘（用户反馈：Windows 用户的「C 盘洁癖」）；顺带修掉两处绕过数据目录的硬编码**。方案口径：**只让缓存可自定义 + 补齐覆盖**，不改数据目录本身 —— 改存 `$DSH_HOME` 只是把散落目录收进 DSH 单根，默认仍在同一个系统盘，不解决占盘。
+  **根因**：缓存根此前只能靠 `DSH_WE_CACHE_DIR` 环境变量改 —— 对普通用户**不可发现、不可持久化**；实测本机 `~/.dsh-wallpaper-engine` ≈ **4.94 GB**，其中 `cache` 一项 **4.84 GB**（transcodes 2.86 / faststart 1.57 / frames 0.41），是唯一真实的占盘痛点（设置、头像、字体等加起来 0 MB —— 挪它们没有意义）。另有两处**绕开 `pluginDataDir()`**：`DEFAULT_UPLOAD_DIR = join(homedir(), '.dsh-wallpaper-engine', 'uploads')` 与 `customFrameDir()` 的同形写法 ⇒ 用户即便设了 `DSH_WE_DATA_DIR` 也搬不走这两处（`DSH_WE_UPLOAD_DIR` 只覆盖前者）。
+  **修法（宿主）**：新增 `lib/routes/cache-dir.js`（`GET` 回 `{ dir, effective, same }`、`POST { dir, migrate }` 解析 → 校验 → 迁移 → 落 config；相对路径 / 目标被文件占位 ⇒ 400）与 `cacheBaseDir()` **访问器**（解析链 `DSH_WE_CACHE_DIR` → `config.json` 根字段 `cacheDir` → 默认 `<数据目录>/cache`，**每次现问、不留值快照** —— 理由同 `getUploadDir()`）；`effective` 是**实际生效**的那条，界面据此照实显示"被环境变量覆盖"。六个缓存子目录（transcodes / faststart / frames / video-previews / media-bridge / artwork）全部改走 `join(cacheBaseDir(), <n>)` —— 其中媒体中间件与封面缓存那条链起初是把缓存根**当值传进工厂**（起动时的快照），改完设置后新的封面 / 中间件缓存会又写回旧盘；现已改成**传访问器、每次现问**（`now-playing.js` 把 `cacheBaseDir` 本身交给 `createMediaBackend`，两个工厂内部统一用 `cacheRoot()` 解析，字符串调用点行为不变 —— 与 `cacheBaseDir()` 不收快照同一个理由），判据 D3/D3b 钉住这个形状并有负对照。；迁移复用上传目录那套 `moveFileP`（rename 撞 EXDEV ⇒ copy + unlink，**跨盘搬得动**），**只搬插件自己那几个缓存子目录**、不认识的条目原地不动、旧目录**只留空壳不删**；两处硬编码缺口收敛回 `pluginDataDir()`（`DEFAULT_UPLOAD_DIR` 常量删除，换成 `defaultUploadDir()`）。
+  **修法（客户端）**：「高级」页签新增「缓存位置」节（生效路径 / 更改 / 输入框 / 迁移结果「已迁移 N 个缓存文件，M 个跳过」），**排在「实时渲染诊断」之前**（设置行排在排查开关之前）；9 条 i18n 词条；`Inventory` 载荷新增 `cacheDir` 字段（`.d.ts` 同步）。
+  **判据**：新守卫 `test/verify-cache-dir.mjs`（**31 条**：端点形状 —— GET 405 / 相对路径 400 / 目标是文件 400；解析链正负对照 —— env 覆盖、指回当前目录短路不重写、删 `config.json` 后仍问得出默认值且**不会被重建**、`/inventory` 与之对账；迁移 6 个子目录 + 「不认识的条目不动」+ `migrate:false` 只换根；派生棘轮 + 两处旧写法的**负对照**，`lib/**/*.js` 全域零命中），已接进 `npm run verify`（35 → **36** 条）；`verify-scene-live` 的节顺序行为判据同步加「缓存位置」；`verify-types` 的 Inventory 钉住字段表同步加 `cacheDir`。
+  **验证**：`npm run verify`（36 条）/ `verify:docs` / `npm run build` exit 0。**宿主半改了 ⇒ 需重启 `dsh web`**（客户端半刷新页面即可）。
+  **判据坑（记给下一次）**：`/inventory` 有 3s TTL（`lib/inventory.js` 的 `INVENTORY_TTL_MS = 3000`）⇒ 拿界面读数判"改完立刻生效"会读到**上一态**，判据必须过 TTL 或改问不受 TTL 影响的 `effective`。
 
 - **重构（零行为改动）：宿主上帝函数与客户端深嵌套收官 + 两处冗余收敛**（做法=**纯搬移优先**：先只改声明住在哪，再单独改语义）。
   **规模**：`apply()` 1541 → 333 行（`lib/index.js` 4411 → 2955 行，搬出 4 个宿主工厂与 7 个路由族）；`WallpaperPicker()` 796 → 364 行；

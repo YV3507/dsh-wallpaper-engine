@@ -1503,6 +1503,66 @@
     );
   }
 
+  function renderAdvancedCacheSection(ctx) {
+    const { onCacheDirDraft, onCancelEditCacheDir, onStartEditCacheDir, sel } = ctx;
+    return React.createElement(React.Fragment, null,
+    // ── 缓存位置：转码产物 / faststart 变体 / 静态帧 / 预览图 / 媒体桥缓存都是**可再生**的
+    //    大块文件（本机实测到 GB 级），默认落在插件数据目录 —— Windows 上那个目录仍在 C 盘
+    //    用户目录下，这正是「C 盘洁癖」的触发点。持久化在宿主 config.json 的 cacheDir，
+    //    经 /cache-dir 端点读写；显示值一律取宿主返回的**解析链答案**（设了
+    //    `DSH_WE_CACHE_DIR` 时它与用户填的值不同 —— 那是环境变量覆盖，不是保存失败）。──
+    React.createElement("div", { className: "we-picker__section" },
+      React.createElement("div", { className: "we-picker__section-head" },
+        React.createElement("span", { className: "we-picker__section-label" }, weT("缓存位置")),
+      ),
+      React.createElement("div", { className: "we-picker__uploads" },
+      React.createElement("div", { className: "we-picker__row" },
+        React.createElement("span", { className: "we-picker__hint we-picker__label" }, weT("缓存目录")),
+        React.createElement("span", {
+          className: "we-picker__uploads-path",
+        }, sel.inventory.cacheDir || "—"),
+        React.createElement("button", {
+          className: "we-picker__btn", type: "button",
+          disabled: sel.cacheDirBusy,
+          onClick: onStartEditCacheDir,
+        }, weT("更改")),
+      ),
+      sel.editingCacheDir && React.createElement("div", { className: "we-picker__row" },
+        React.createElement("input", {
+          className: "we-picker__text", type: "text",
+          value: sel.cacheDirDraft,
+          placeholder: weT("绝对路径，如 D:\\WallpaperEngineCache"),
+          onInput: onCacheDirDraft,
+          onKeyDown: (e) => {
+            if (e.key === "Enter") changeCacheDir(sel.cacheDirDraft, true);
+            if (e.key === "Escape") onCancelEditCacheDir();
+          },
+        }),
+        React.createElement("button", {
+          className: "we-picker__btn", type: "button",
+          disabled: sel.cacheDirBusy,
+          onClick: () => changeCacheDir(sel.cacheDirDraft, true),
+        }, weT("保存")),
+        React.createElement("button", {
+          className: "we-picker__btn", type: "button",
+          onClick: onCancelEditCacheDir,
+        }, weT("取消")),
+      ),
+      React.createElement("div", { className: "we-picker__row" },
+        React.createElement("span", { className: "we-picker__hint" },
+          weT("已有缓存会迁移到新位置")),
+        React.createElement("span", { className: "we-picker__hint" },
+          weT("缓存可再生，随时可删")),
+      ),
+      sel.cacheDirNote && React.createElement("div", { className: "we-picker__hint" },
+        sel.cacheDirNote),
+      sel.cacheDirError && React.createElement("div", { className: "we-picker__error" },
+        sel.cacheDirError),
+      ),
+    ),
+    );
+  }
+
   function renderAdvancedDiagSection(ctx) {
     const { onToggleLiveDiag, sel } = ctx;
     return React.createElement(React.Fragment, null,
@@ -1535,6 +1595,7 @@
       renderAdvancedCompatSection(ctx),
       renderAdvancedAdapterSection(ctx),
       renderAdvancedPowerSection(ctx),
+      renderAdvancedCacheSection(ctx),
       renderAdvancedDiagSection(ctx),
     );
   }

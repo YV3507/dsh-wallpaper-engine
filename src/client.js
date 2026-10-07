@@ -348,12 +348,20 @@ const selection = {
   // Upload-directory editor (transient): open state + draft path.
   editingUploadDir: false,
   uploadDirDraft: "",
+  // 缓存位置编辑器（transient）：开态 + 草稿路径 + 上次错误。**生效值由 inventory.cacheDir
+  // 携带**（host 是唯一真相）—— 它给的是解析链的答案，设了 `DSH_WE_CACHE_DIR` 时这个答案
+  // 和用户填的值不同，界面据此提示"当前由环境变量覆盖"。
+  editingCacheDir: false,
+  cacheDirDraft: "",
+  cacheDirBusy: false,
+  cacheDirError: "",
+  cacheDirNote: "",
   // WE 官方资源路径编辑器（transient）：开态 + 草稿路径 + 上次错误。
   // 生效状态（目录/可用性）由 inventory 携带（host 是唯一真相）。
   editingWeAssetsDir: false,
   weAssetsDirDraft: "",
   weAssetsError: "",
-  inventory: { installDir: null, uploadDir: null, weAssetsDir: null, weAssetsAvailable: false, sceneMediaBase: "", wallpapers: [], total: 0, portableCount: 0, playlists: [], error: null },
+  inventory: { installDir: null, uploadDir: null, cacheDir: null, weAssetsDir: null, weAssetsAvailable: false, sceneMediaBase: "", wallpapers: [], total: 0, portableCount: 0, playlists: [], error: null },
   loaded: false,
 };
 
@@ -774,6 +782,7 @@ async function loadInventory() {
     next = {
       installDir: data.installDir,
       uploadDir: data.uploadDir || null,
+      cacheDir: data.cacheDir || null,
       weAssetsDir: data.weAssetsDir || null,
       weAssetsAvailable: Boolean(data.weAssetsAvailable),
       // 场景载荷的源（独立壁纸媒体源的 origin；空串 = 回落应用源，见 live-layer 的 liveRenderUrl）。
@@ -788,6 +797,7 @@ async function loadInventory() {
     next = {
       installDir: null,
       uploadDir: null,
+      cacheDir: null,
       weAssetsDir: null,
       weAssetsAvailable: false,
       sceneMediaBase: "",
@@ -1609,6 +1619,45 @@ async function changeUploadDir(dir, migrate) {
     setTransient("uploadError", weT("更改失败：{error}", { error: weT(err && err.message ? err.message : err) }));
   }
   setTransient("uploading", false);
+  emit();
+}
+
+const CACHE_DIR_URL = "/wallpaper-engine/cache-dir";
+
+// Change where regenerable caches live (transcoded wallpapers / faststart variants /
+// scene frames / video previews / media-bridge). The host persists the choice to its
+// config file (survives restarts) and moves the known cache subdirectories by default —
+// the point is not making users edit config files, and not letting a multi-GB cache
+// pile up on the system drive. Nothing here is user-authored data: worst case the
+// moved-away cache is rebuilt on demand.
+async function changeCacheDir(dir, migrate) {
+  if (!dir || !String(dir).trim()) {
+    setTransient("cacheDirError", weT("请输入缓存位置路径"));
+    emit();
+    return;
+  }
+  setTransient("cacheDirError", "");
+  setTransient("cacheDirNote", "");
+  setTransient("cacheDirBusy", true);
+  emit();
+  try {
+    const res = await apiPostJson(CACHE_DIR_URL,
+      { dir: String(dir).trim(), migrate: migrate !== false }, { parse: "always" });
+    if (!res.ok) throw new Error(hostFailureReason(res));
+    const moved = Number((res.data && res.data.migrated) || 0);
+    const skipped = Number((res.data && res.data.skipped) || 0);
+    setTransient("editingCacheDir", false);
+    setTransient("cacheDirDraft", "");
+    // 生效值一律以 host 的解析链为准（重新拉清单回显）—— 设了 DSH_WE_CACHE_DIR 时
+    // 保存成功但生效值仍是环境变量那个目录，这条提示就是给那种情形看的。
+    setTransient("cacheDirNote", skipped > 0
+      ? weT("已迁移 {moved} 个缓存文件，{skipped} 个跳过", { moved, skipped })
+      : weT("已迁移 {moved} 个缓存文件", { moved }));
+    await loadInventory();
+  } catch (err) {
+    setTransient("cacheDirError", weT("更改失败：{error}", { error: weT(err && err.message ? err.message : err) }));
+  }
+  setTransient("cacheDirBusy", false);
   emit();
 }
 
@@ -2984,6 +3033,20 @@ function onStartEditUploadDir() {
 }
 function onUploadDirDraft(e) { setTransient("uploadDirDraft", e.target.value); emit(); }
 function onCancelEditUploadDir() { setTransient("editingUploadDir", false); emit(); }
+// 缓存位置（高级页签）的草稿态 —— 与上传目录同口径：生效值从 inventory 取。
+function onStartEditCacheDir() {
+  setTransient("editingCacheDir", true);
+  setTransient("cacheDirDraft", selection.inventory.cacheDir || "");
+  setTransient("cacheDirError", "");
+  setTransient("cacheDirNote", "");
+  emit();
+}
+function onCacheDirDraft(e) { setTransient("cacheDirDraft", e.target.value); emit(); }
+function onCancelEditCacheDir() {
+  setTransient("editingCacheDir", false);
+  setTransient("cacheDirError", "");
+  emit();
+}
 function onStartEditWeAssetsDir() {
   setTransient("editingWeAssetsDir", true);
   setTransient("weAssetsDirDraft", selection.inventory.weAssetsDir || "");
@@ -4355,6 +4418,7 @@ function WallpaperPicker() {
       renderAdvancedTab({
         setSetting, setTransient,
         onAdapterTarget, onEdgeCompatChange, onLayoutChange, onPauseOnBattery, onPauseOnBlur, onPauseOnHidden, onToggleLiveDiag, sel,
+        onStartEditCacheDir, onCancelEditCacheDir, onCacheDirDraft,
       }),
     );
     return renderWallpaperTab({

@@ -83,7 +83,7 @@ DSH 0.1.5 的官方原生侧栏；仍停留在 0.1.2-rc.1 旧内核的用户请�
 
 **你的全部设置（已选壁纸、配色、透明度、布局、轮播、隐藏、倍速/翻转等）从 v0.4.0 起保存在宿主端文件里，不再依赖浏览器 localStorage。**
 
-- **存在哪里**：`~/.dsh-wallpaper-engine/config.json`（与「上传目录」的配置是同一个文件）。
+- **存在哪里**：`~/.dsh-wallpaper-engine/config.json`（与「上传目录」「缓存位置」的配置是同一个文件）。
   Windows：`C:\Users\<你的用户名>\.dsh-wallpaper-engine\config.json`；WSL / Linux / macOS：`~/.dsh-wallpaper-engine/config.json`。
 - **为什么改**：localStorage 按「地址 + 端口」隔离，而 **DSH Desktop 每次启动用随机端口** ⇒ 每次都是全新的存储空间，配置全部恢复默认（Web 端固定端口无此问题）。改存宿主端文件后与端口无关。
 - **好处**：重启 / 换端口 / 清浏览器数据 / 换浏览器 / 无痕模式都不再丢失配置。
@@ -132,3 +132,20 @@ DSH 0.1.5 的官方原生侧栏；仍停留在 0.1.2-rc.1 旧内核的用户请�
   关 = 跟随全局（与另外几个面同一口径）。
 
 ⚠️ 以上改动在宿主端与浏览器端都有 ⇒ **重启 DSH**（或重载插件）后生效。
+
+---
+
+### 新版 Wallpaper Engine 的安装目录现在认得出来了（未发布）
+
+**如果你升级前打开壁纸库看到的是一片空白，这一版就是修它的。** Wallpaper Engine 把可执行文件从安装根
+挪进了 `distribution\` 子目录，而 1.3.0 及更早只认安装根下的 `wallpaper32.exe` / `wallpaper64.exe`
+⇒ 探测判成"没装"，**库直接是空的**（不报错，只是看起来像一张壁纸都没有）。1.3.1 起两种布局都认，
+另外安装根下的 portable 项目与 Wallpaper Engine 自己的播放列表也随之回来了（它们本来就挂在安装根上）。
+
+- **怎么确认**：看 `GET /wallpaper-engine/inventory` 或诊断文件里的 `installDir`。升级后它应当是
+  **安装根**（`projects/` 与 `config.json` 所在的那一层，**不是** `distribution\`），而不是 `null`。
+- **不需要你改任何东西**：Wallpaper Engine 装在 Steam 的常规位置（含注册表记下的库）时自动就能认到。
+- **实在认不出**：把 `DSH_WE_STEAM_ROOT` 指到**含 `steamapps\` 的那一层**（Steam 根，不是 Wallpaper Engine
+  安装夹），再重启宿主。该变量现在**排在注册表与自动探测之前**——列出的根里没有安装会继续往后找，
+  想固定到某一处时用它。
+- ⚠️ 改动在宿主端 ⇒ **重启 `dsh web`** 后生效。

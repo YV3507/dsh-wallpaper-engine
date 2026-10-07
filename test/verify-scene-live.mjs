@@ -2166,7 +2166,7 @@ check('门面：中间件优先，失败回落 legacy 并留下原因',
   facadeSrc.includes('fallBackTo(') && facadeSrc.includes("backend: live ? 'bridge'"));
 check('门面支持 DSH_WE_MEDIA_LEGACY=1 强制走 legacy 回落', facadeSrc.includes('DSH_WE_MEDIA_LEGACY'));
 check('门面把「音频已关」传给回落实现（不让回落偷偷开采集）',
-  facadeSrc.includes('createLegacy({ dataDir, log, audio: optsRef.audio })'));
+  facadeSrc.includes('createLegacy({ dataDir, cacheBaseDir: cacheRoot, log, audio: optsRef.audio })'));
 // 媒体状态族已搬到 lib/routes/now-playing.js（P2-11）。判据按 diag 族的同一形态翻成三条：
 // ① URL 形状由**真实注册表**（mock webServer 跑一遍 apply 的结果）断言 —— 与代码住在哪个文件无关；
 // ② 该路由的实现契约在**它现在所在的文件**里断言；③ 正文侧钉住"已搬走"（零路径字面量 + 一次调用）。
@@ -4809,16 +4809,16 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       fn: 'renderAdvancedTab',
       label: '（视频壁纸：诊断节按门不画）',
       mk: () => st,
-      want: ['浏览方式', '兼容性', '适配', '省电'],
+      want: ['浏览方式', '兼容性', '适配', '省电', '缓存位置'],
       wantLabels: ['紧凑布局', 'Edge 兼容', '适配目标', '最小化/切页时暂停', '使用电池时暂停'],
       adv: true,
     },
     {
-      // 场景壁纸：诊断节出现，且**在最后**。
+      // 场景壁纸：诊断节出现，且**在最后**（缓存位置是设置行，排在诊断这类排查开关之前）。
       fn: 'renderAdvancedTab',
       label: '（场景壁纸：诊断节出现且在最后）',
       mk: () => Object.assign({}, st, { type: 'scene', sceneLive: true, sceneLiveSrc: '/x' }),
-      want: ['浏览方式', '兼容性', '适配', '省电', '实时渲染诊断'],
+      want: ['浏览方式', '兼容性', '适配', '省电', '缓存位置', '实时渲染诊断'],
       wantLabels: ['紧凑布局', 'Edge 兼容', '适配目标', '最小化/切页时暂停', '使用电池时暂停', 'live 诊断日志'],
       adv: true,
     },

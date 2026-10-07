@@ -154,6 +154,16 @@ The **帧率上限 (fps cap)** control in **Playback → Effects** (selectable s
 
 > ffmpeg is provisioned in three tiers: **explicit** (`DSH_WE_FFMPEG`, or an `ffmpeg/` folder inside the plugin) → **auto-download** (npmmirror vs GitHub dual-source race, cached after verification) → **system PATH**. The encoder prefers **NVENC** (`av1_nvenc` → `h264_nvenc`) and falls back to **libx264 software encoding** when there is no NVIDIA GPU (slower, but it still produces the file); only a total lack of ffmpeg auto-disables the feature, leaving the wallpaper on the original with nothing else affected.
 
+### Cache location (moving a few GB off the system drive)
+
+Extracted frames, transcodes, faststart variants and video thumbnails are **regenerable artefacts** and default to `~/.dsh-wallpaper-engine/cache` — your **system drive**. Over time that adds up to **several GB**. **System → Advanced → 缓存位置 (cache location)** moves it to a folder on any drive (absolute path, `~` supported): existing cache is **migrated automatically** (file by file, so it also works across drives) and the old directory is left behind as empty shells — **never deleted**.
+
+The migration **only moves the plugin's own cache subdirectories**; anything it does not recognise stays where it is. So the target may be an existing folder of yours (say `D:\WallpaperEngineCache`) without the plugin touching anything else inside it. All of it is regenerable (hence the "safe to delete any time" hint in the settings page): the worst case is one extra transcode, never a lost wallpaper or setting.
+
+Precedence: `DSH_WE_CACHE_DIR` → the **cache location** setting → the `~/.dsh-wallpaper-engine/cache` default. The environment variable wins when present, and the settings page always shows the path that is **actually in effect** (a mismatch means it is being overridden).
+
+> Stored as the root field `cacheDir` in `config.json`. **Custom wallpapers** have their own storage location (default `~/.dsh-wallpaper-engine/uploads`), changed on the **Library** tab and migrated by the same logic (see above); to move the **entire data directory** (settings plus avatars / fonts / mascot), use the `DSH_WE_DATA_DIR` environment variable — see the environment table under **Configuration**.
+
 ### Picture adjustments
 
 Six sliders live under **Playback → Effects** (available while a wallpaper is active): **壁纸模糊** · **亮度 / 对比度 / 饱和度** (wallpaper media filter) · **壁纸透明度** (fades the whole layer toward the page base colour, complementing **暗化**) · **暗化** (scrim between wallpaper and text); two more live under the **外观** tab: **边框** (the **细节** group — border / divider contrast) and **雾化** (the **glass UI** section — glass-panel blur radius). All apply instantly and persist — **no page refresh needed**; every control shows its own range and default.
@@ -235,7 +245,7 @@ Three controls under **Playback → 声音** (the first two on by default, the t
 
 ## Configuration
 
-This plugin exposes no model-visible tools or prompt text — **zero token cost** for the agent — and writes no DSH settings of its own. Only three things land on disk: the host-side config file `~/.dsh-wallpaper-engine/config.json` (every setting — selection, hidden list, rotation, accent, typography, … — plus your chosen upload directory), the **custom wallpaper files** themselves, and the **caches plus on-demand runtimes** under `~/.dsh-wallpaper-engine/` (transcode / live-frame / video-thumbnail caches, the ffmpeg and media-middleware binaries).
+This plugin exposes no model-visible tools or prompt text — **zero token cost** for the agent — and writes no DSH settings of its own. Only three things land on disk: the host-side config file `~/.dsh-wallpaper-engine/config.json` (every setting — selection, hidden list, rotation, accent, typography, … — plus your chosen upload directory and cache location), the **custom wallpaper files** themselves, and the **caches plus on-demand runtimes** under `~/.dsh-wallpaper-engine/` (transcode / live-frame / video-thumbnail caches, the ffmpeg and media-middleware binaries). The two disk-heavy parts — the **cache root** and the **upload directory** — can both be moved to another drive in the settings page (see **Cache location** above), and the whole data directory moves with `DSH_WE_DATA_DIR`.
 
 **Environment variables**:
 
@@ -243,8 +253,8 @@ This plugin exposes no model-visible tools or prompt text — **zero token cost*
 |---|---|
 | `DSH_WE_FFMPEG` | explicit ffmpeg executable path (highest priority in the resolution chain) |
 | `DSH_WE_FFMPEG_URL` | replaces the auto-download source (self-hosted mirror / proxy) |
-| `DSH_WE_CACHE_DIR` | overrides the cache root (transcode cache / faststart-variant cache / live-frame cache) |
-| `DSH_WE_STEAM_ROOT` | explicit Steam root(s) (comma/semicolon separated, Windows or /mnt paths; fallback when registry/auto-detection misses) |
+| `DSH_WE_CACHE_DIR` | overrides the **cache root** (transcode / faststart-variant / live-frame / video-thumbnail caches; wins over the **cache location** setting, see above) |
+| `DSH_WE_STEAM_ROOT` | explicit Steam root(s) (comma/semicolon separated, Windows or /mnt paths). Probed **before** the registry and the built-in auto-detection — use it to pin one location; a root with no install falls through to the next candidate |
 | `DSH_WE_MEDIA_BRIDGE` | explicit media-middleware executable (dev/self-built artifact; highest priority) |
 | `DSH_WE_MEDIA_BRIDGE_URL` | replaces the middleware download source (`{tag}` / `{asset}` placeholders supported) |
 | `DSH_WE_MEDIA_BRIDGE_TAG` / `DSH_WE_MEDIA_BRIDGE_SHA256` | use another middleware version (an unpinned tag is refused unless you supply its sha256) |

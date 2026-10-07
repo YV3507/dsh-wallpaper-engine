@@ -110,7 +110,7 @@ HTML 里注入 WE API shim（`lib/webwallgl/web-shim.js`）与 `project.json` �
 ### 宿主 / 客户端分工
 
 - **Host 端**（`lib/index.js` + `lib/routes/*.js`）：一个 Cordis 插件，负责
-  1. 通过读取 Steam 的 `libraryfolders.vdf` 定位 Wallpaper Engine 安装位置（所以 Steam 装在非默认盘也能用）；
+  1. 先定出 **Steam 根**（`DSH_WE_STEAM_ROOT` 显式覆盖 → 注册表 → 常见安装目录 → WSL 的 `/mnt`；显式覆盖排在最前，且列出的根没命中时会继续往后找），再从 `libraryfolders.vdf` 取库列表，最后在各库与默认位置里找 Wallpaper Engine（所以 Steam 装在非默认盘也能用）。**"已安装"的判据是标记文件、不是某一个 exe 的位置**：经典布局看顶层 `wallpaper32.exe` / `wallpaper64.exe`，当前版本把 exe 放进 `distribution\`（旁边有稳定的 `version.json`），两种都认；无论命中哪个标记，返回的始终是**安装根**（`projects/` 与 `config.json` 所在处，因为 portable 项目扫描与 WE 播放列表都挂在这层）。Steam 库的判据同理只认**真正会被扫描的那个目录** `<库>/steamapps/workshop/content/431960`，不以安装夹是否存在为准；
   2. 从 `projects/defaultprojects`、`projects/myprojects` 以及 `steamapps/workshop/content/431960/*` 枚举壁纸；
   3. 在 DSH webserver 上注册同源 HTTP 路由，让浏览器端直接获取数据和流式加载媒体。按职责分五族：
      **素材** · **转码** · **实时渲染** · **出图与抓帧** · **设置与系统**。

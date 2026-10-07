@@ -33,10 +33,12 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const readHostHalf = () => ['lib/index.js',
   ...readdirSync(resolve(root, 'lib', 'routes')).filter((f) => f.endsWith('.js')).map((f) => 'lib/routes/' + f)]
   .map((f) => readFileSync(resolve(root, f), 'utf8')).join('\n');
-// Point the frame cache at a workspace-relative dir so the suite passes under
+// Point the cache **root** at a workspace-relative dir so the suite passes under
 // sandboxes that cannot write outside the workspace (the real host has no
-// such restriction).
-const TEST_CACHE_DIR = join(root, '.test-cache', 'frames');
+// such restriction). ⚠️ `DSH_WE_CACHE_DIR` 是缓存**根**（帧缓存落在 `<root>/frames`）——
+// 把 env 值直接当帧目录用，下面"没有落盘"的断言会恒真、静默假通过。
+const TEST_CACHE_DIR = join(root, '.test-cache', 'cache');
+const TEST_FRAMES_DIR = join(TEST_CACHE_DIR, 'frames');
 process.env.DSH_WE_CACHE_DIR = TEST_CACHE_DIR;
 
 let passed = 0;
@@ -233,7 +235,7 @@ if (token) {
   // ── 出图来源链头（账本 §6.6/§6.7）：这个 fixture 既没有实时抓帧、也没有自定义画面 ⇒ 必须
   //    **诚实留空**（404），而不是"替作者猜一张图" —— 猜图来源一律不许回落
   //    （§6.4 的静默回落陷阱：合成路径还在，"找最大图片"就仍活在自动链上）。
-  const beforeList = existsSync(TEST_CACHE_DIR) ? readdirSync(TEST_CACHE_DIR).slice() : [];
+  const beforeList = existsSync(TEST_FRAMES_DIR) ? readdirSync(TEST_FRAMES_DIR).slice() : [];
   const firstRes = await runHandler(sceneRoute, '/wallpaper-engine/scene-frame/' + token);
   check('无抓帧且无自定义画面 ⇒ 404 空态（不回落任何猜图来源）',
     firstRes.__state.status === 404,
@@ -244,7 +246,7 @@ if (token) {
     check('空态给出可判定原因（no-frame）', err === 'no-frame', String(err));
   }
   // cache file written under the plugin data dir (env-overridden for tests)
-  const cacheDir = TEST_CACHE_DIR;
+  const cacheDir = TEST_FRAMES_DIR;
   // 缓存键版本从源码读（别写死：升版本时这里会静默测到旧文件，等于假通过）
   const keyVersion = (/LIVE_FRAME_KEY_VERSION = '([^']+)'/.exec(
     readFileSync(resolve(root, 'lib', 'index.js'), 'utf8')) || [])[1] || 'sf';

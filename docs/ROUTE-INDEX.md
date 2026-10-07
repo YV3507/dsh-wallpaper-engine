@@ -10,11 +10,11 @@
 > 两条注册（渲染页按根路径上报，只挂一条会静默 404）。提及判定带尾边界，`/media` 不会被
 > `/media-info` 误算成已覆盖。
 
-共 **40** 条路由。
+共 **41** 条路由。
 
 | # | 路径 | 来源 | 形态 | 依赖（闭包状态 / `c` 字段） | 守卫提及 |
 |---|---|---|---|---|---|
-| 1 | `/inventory` | lib/index.js:2731 | async 箭头 | webServer disposers mediaOriginApi buildInventory | 18 |
+| 1 | `/inventory` | lib/index.js:2891 | async 箭头 | webServer disposers mediaOriginApi buildInventory | 20 |
 | 2 | `/media-info` | lib/routes/media-derived.js:50 | 箭头 | disposers base mediaMap log getMediaInfo faststartVariant | 8 |
 | 3 | `/transcode-progress` | lib/routes/media-derived.js:80 | 箭头 | disposers base mediaMap transcodeJobs | 2 |
 | 4 | `/transcoded` | lib/routes/media-derived.js:133 | 箭头 | disposers base mediaMap serveFile transcodeToFps registerTranscodeWaiter | 1 |
@@ -30,11 +30,11 @@
 | 14 | `/scene-payload-progress` | lib/routes/scene-serve.js:119 | 箭头 | disposers base payloadProgress | 1 |
 | 15 | `/props` | lib/routes/props.js:42 | 箭头 | disposers base mediaMap userPropsFor | 7 |
 | 16 | `/live-frame` | lib/routes/live-frame.js:41 | 箭头 | disposers base mediaMap serveFile traceRequests liveFrameFile …(+2) | 2 |
-| 17 | `/media-status` | lib/routes/now-playing.js:78 | 箭头 | disposers base | 2 |
-| 18 | `/audio-spectrum` | lib/routes/now-playing.js:88 | 箭头 | disposers base | 2 |
-| 19 | `/now-playing` | lib/routes/now-playing.js:107 | 箭头 | disposers base | 3 |
-| 20 | `/now-playing/artwork` | lib/routes/now-playing.js:121 | 箭头 | disposers base serveFile | 2 |
-| 21 | `/media-control` | lib/routes/now-playing.js:139 | 箭头 | disposers base | 3 |
+| 17 | `/media-status` | lib/routes/now-playing.js:82 | 箭头 | disposers base | 2 |
+| 18 | `/audio-spectrum` | lib/routes/now-playing.js:92 | 箭头 | disposers base | 2 |
+| 19 | `/now-playing` | lib/routes/now-playing.js:111 | 箭头 | disposers base | 3 |
+| 20 | `/now-playing/artwork` | lib/routes/now-playing.js:125 | 箭头 | disposers base serveFile | 2 |
+| 21 | `/media-control` | lib/routes/now-playing.js:143 | 箭头 | disposers base | 3 |
 | 22 | `/client-diag` | lib/routes/diag.js:78 | 箭头 | disposers appendDiagLine notice base | 4 |
 | 23 | `/diag` | lib/routes/diag.js:142 | 箭头 | disposers | 10 |
 | 24 | `/diag` | lib/routes/diag.js:143 | 箭头 | disposers base | 10 |
@@ -54,6 +54,7 @@
 | 38 | `/mascot` | lib/routes/mascot.js:50 | 箭头 | disposers base serveFile mascotDir mascotPath MASCOT_EXT …(+4) | 3 |
 | 39 | `/avatar` | lib/routes/avatar.js:54 | 箭头 | disposers base serveFile avatarDir avatarPath AVATAR_SIDES …(+5) | 4 |
 | 40 | `/settings` | lib/routes/settings.js:50 | 箭头 | disposers base ctx mediaOriginApi readSettings isBetterSidebarLoaded …(+5) | 19 |
+| 41 | `/cache-dir` | lib/routes/cache-dir.js:36 | 箭头 | disposers base CONTROL_JSON_MAX_BYTES normalizeUserDir cacheBaseDir setCacheDir …(+1) | 1 |
 
 **零提及（拆分前必须先补守卫）**：（无）
 
@@ -67,6 +68,7 @@
 |---|---|---|---|---|
 | `lib/routes/about-qr.js` | `registerAboutQrRoutes(webServer, c)` | 1 | `disposers` `base` `aboutDir` `serveFile` | — |
 | `lib/routes/avatar.js` | `registerAvatarRoutes(webServer, c)` | 1 | `disposers` `base` `serveFile` `avatarDir` `avatarPath` `AVATAR_SIDES` `AVATAR_EXT` `AVATAR_MAX_BYTES` `atomicWriteFileP` `armBodyIdleTimeout` `lingerClose` | — |
+| `lib/routes/cache-dir.js` | `registerCacheDirRoutes(webServer, c)` | 1 | `disposers` `base` `CONTROL_JSON_MAX_BYTES` `normalizeUserDir` `cacheBaseDir` `setCacheDir` `armBodyIdleTimeout` | — |
 | `lib/routes/diag.js` | `registerDiagRoutes(webServer, c)` | 4 | `disposers` `appendDiagLine` `log` `notice` `base` `onHandleDiag` | — |
 | `lib/routes/fontsets.js` | `registerFontsetsRoutes(webServer, c)` | 1 | `disposers` `base` `readFontSetId` | — |
 | `lib/routes/github-stars.js` | `registerGithubStarsRoutes(webServer, c)` | 1 | `disposers` `base` `repoSlug` `cachePath` `log` `fetchJson` | — |
@@ -74,7 +76,7 @@
 | `lib/routes/mascot.js` | `registerMascotRoutes(webServer, c)` | 1 | `disposers` `base` `serveFile` `mascotDir` `mascotPath` `MASCOT_EXT` `MASCOT_MAX_BYTES` `atomicWriteFileP` `armBodyIdleTimeout` `lingerClose` | — |
 | `lib/routes/media-bytes.js` | `registerMediaBytesRoutes(webServer, c)` | 2 | `disposers` `base` `serveFile` `mediaMap` `log` `pinnedFaststartVariant` | — |
 | `lib/routes/media-derived.js` | `registerMediaDerivedRoutes(webServer, c)` | 4 | `disposers` `base` `mediaMap` `serveFile` `log` `getMediaInfo` `faststartVariant` `transcodeJobs` `transcodeToFps` `registerTranscodeWaiter` `generateVideoPreview` | — |
-| `lib/routes/now-playing.js` | `registerNowPlayingRoutes(webServer, c)` | 5 | `disposers` `base` `appendDiagLine` `configPath` `readConfig` `serveFile` `log` | — |
+| `lib/routes/now-playing.js` | `registerNowPlayingRoutes(webServer, c)` | 5 | `disposers` `base` `appendDiagLine` `configPath` `cacheBaseDir` `readConfig` `serveFile` `log` | — |
 | `lib/routes/presets.js` | `registerGlassPresetsRoutes(webServer, c)` | 1 | `disposers` `base` | — |
 | `lib/routes/props.js` | `registerPropsRoutes(webServer, c)` | 1 | `disposers` `base` `mediaMap` `userPropsFor` | — |
 | `lib/routes/scene-frame.js` | `registerSceneFrameRoutes(webServer, c)` | 3 | `disposers` `base` `mediaMap` `trackStream` `serveFile` `GPU_FRAME_MAX_BYTES` `GPU_WRITE_INFLIGHT` `CUSTOM_FRAME_EXT` `CUSTOM_FRAME_MAX_BYTES` `armBodyIdleTimeout` `atomicWriteFileP` `customFrameDir` `customFramePath` `customIdFromAbs` `gpuFrameFileFor` `lingerClose` `looksLikePng` `pngSizeOf` `sceneFrameSlot` | — |
