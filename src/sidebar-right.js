@@ -384,7 +384,7 @@ let openSettingsBusy = false;
  */
 function openSettingsSection(tabId) {
   if (typeof document === "undefined" || openSettingsBusy) return;
-  openSettingsBusy = true; // 重入锁：误点自己/连点不再递归（实测曾递归自点 5 次）
+  openSettingsBusy = true; // 重入锁：误点自己/连点不再递归（实测会递归自点 5 次）
   const release = () => { openSettingsBusy = false; };
   if (tabId) setTransient("settingsTabRequest", String(tabId));
 

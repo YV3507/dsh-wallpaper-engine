@@ -6,29 +6,19 @@
  *
  * The plugin:
  *   1. Fetches the wallpaper inventory from the host half's same-origin route
- *      (GET /wallpaper-engine/inventory). A "刷新" button refetches on demand so
- *      newly downloaded Wallpaper Engine wallpapers appear without a page reload.
+ *      (GET /wallpaper-engine/inventory); "刷新" refetches on demand.
  *   2. Renders the selected wallpaper BEHIND the DSH GUI: a `position:fixed;
- *      z-index:-1` child of `document.body`, plus a scrim (darkened overlay). The
- *      app frame + sidebar backgrounds are made transparent so the wallpaper
- *      shows through the whole frame while the scrim keeps text readable.
+ *      z-index:-1` child of `document.body` + a readability scrim (frame + sidebar transparent).
  *   3. Applies four user-adjustable effects, each with its own slider:
  *      - 壁纸模糊 (wallpaper blur) → `--we-media-filter`（blur() 项）
  *      - 暗化 (scrim strength)      → `--we-scrim-color`
  *      - 边框 (border emphasis)     → `--dsw-alias-border-l1/l2` alpha
  *      - 玻璃 (glass blur on panels)→ `--we-blur` + frosted-glass backgrounds
- *      The "glass" effect turns the opaque conversation surfaces (composer card,
- *      message bubbles, raised panels) into translucent frosted glass backed by
- *      `backdrop-filter`, so the wallpaper shows through them softly.
- *   4. Automatic rotation over USER-DEFINED carousel lists (轮播列表): the user
- *      can create any number of lists, pick wallpapers into each from the
- *      inventory, and give each list its own switch interval and order. Lists
- *      are persisted with the rest of the settings (schema key `rotationGroups`
- *      → the host's own ~/.dsh-wallpaper-engine/config.json; localStorage is
- *      only the client-side cache), so rotation never depends on Wallpaper
- *      Engine's own config.json playlist paths — WE playlists are an import
- *      source only. A playable WE playlist is imported as the first list on
- *      first run so the feature starts working out of the box.
+ *   4. Automatic rotation over USER-DEFINED carousel lists (轮播列表): any number
+ *      of lists, each with its own interval and order, persisted with the rest of
+ *      the settings (schema key `rotationGroups` → the host's config.json) — never
+ *      depends on WE's own config.json playlist paths (an import source only). An
+ *      imported playable WE playlist seeds the first list on first run.
  */
 
 const React = require("react");
@@ -97,7 +87,7 @@ const FONT_FAMILY_LABELS = [
 // 依持久化值取应用字体栈。取值域有两类**族键**（都只存键、不存栈）：
 //   · 内置键：FONT_FAMILY_STACKS 里的那些（栈写死在这里，含中文 fallback 链）；
 //   · 本机字体键 `sys:<族名>`：清单来自宿主枚举（src/system-fonts.js），栈在这里现拼。
-// 另有一类**历史值**：组件字体在 F3 之前存的是"解析后的 CSS 栈"（见 onComponentFamily 的注释）
+// 另有一类**历史值**：组件字体可能存的是"解析后的 CSS 栈"（见 onComponentFamily 的注释）
 // —— 那种值原样可用，因此解析侧两条都认（老字体集零迁移）。
 const FONT_FAMILY_BY_STACK = Object.create(null);
 for (const [key, stack] of Object.entries(FONT_FAMILY_STACKS)) FONT_FAMILY_BY_STACK[stack] = key;
@@ -307,8 +297,7 @@ const selection = {
   // 可读原因，提示用户重试或换编码。
   videoError: "",
   // 选择被拒原因（transient）: applySelection 没能应用该 id（被内容分级 /
-  // 类型过滤排除，或文件已消失）。过去是「静默空白」——壁纸层直接消失、播放
-  // 按钮变灰，用户完全不知为何；现在卡片上给出一句可操作的说明。
+  // 类型过滤排除，或文件已消失）—— 卡片上给出一句可操作的说明。
   blockedNote: "",
   loading: false,
   rotationTimer: null,
@@ -333,8 +322,7 @@ const selection = {
   // Transient: picker-modal title search (not persisted).
   search: "",
   // Transient: 快捷播放面板自己的搜索词（与库视图互不影响；不落盘）。
-  // 类型筛选 2026-10-04 起与设置页共用持久化键 `typeFilter` —— 面板本地的 `qpType`
-  // 瞬态档已退役（"两处同步、不做单独的"是用户口径）。
+  // 类型筛选与设置页共用持久化键 `typeFilter`（"两处同步、不做单独的"是用户口径）。
   qpSearch: "",
   // Transient: 侧栏底栏的深链请求 —— "打开设置页后停在哪一页"（`""` = 无请求）。
   // 由 WallpaperPicker 的一个 effect 消费一次即清（见 src/sidebar-right.js 的
@@ -540,16 +528,13 @@ function installSkinInterop() {
     observer = new MutationObserver(() => syncSkinYield("dom"));
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-dsh-skin"] });
   } catch { observer = null; }
-  // 启动期的「认领」：只认领现状，不当作动作（这里曾经调 syncSkinYield("install")，会把
-  // 对方的 tap 在文档里画的皮肤当成 #49 的"用户要求上台"）。认定条件：
+  // 启动期的「认领」：只认领现状，不当作动作。认定条件：
   //   · 皮肤在台上（文档交付时 tap 已画）+ 我方**没有**选中的壁纸 ⇒ 本来就该在让路态
   //     （玻璃退场）——认领，不清层；记忆从**盘上落的那份**拿（enter 写的
   //     skinYieldRestoreId / skinYieldRestoreRotation），没落过盘才退回空记忆；
   //   · 皮肤在台上 + 我方有选中的壁纸 ⇒ 壁纸赢（对方的 withhold 会处理皮肤），不动；
   //   · 皮肤**已不在**台上 + 我方没有壁纸 + 盘上留着让路记忆 ⇒ 启动复位：按记忆放回
   //     （应用关闭期间皮肤被移除 / 卸载的那条路 —— 没有它，记忆落了盘也无人消费）。
-  // 旧写法在 install 里 enter 会清壁纸并落盘，随后启动期的设置合并又把它复活 ⇒「清 → 复活
-  // → 退」的抖动，并把用户的壁纸选择抹掉（实测：刷新时闪一下的放大器，已修）。
   // ⚠️ 认领必须等**宿主设置到位**（`selection.loaded`）：本地缓存可能过期（本窗口缓存空、
   //    宿主却有壁纸）——那时认领会留下"壁纸在画 + 我们却在让路态"的错位。
   let adoptPending = true;
@@ -666,9 +651,9 @@ function setTransient(field, value) {
 }
 // ── 拖动期的「看得见的那部分」（live）──────────────────────────────────────
 // 拖动类控件（色板 / 滑块）在 input 上**每格**都发事件 —— 原生颜色轮盘一次拖动可以上百次。
-// 老口径每格都 `setSetting + emit()`：emit 让整棵面板（设置页那棵最重）重渲染，而 emit 的
+// 若每格都 `setSetting + emit()`：emit 让整棵面板（设置页那棵最重）重渲染，而 emit 的
 // 订阅者里那次全量 applyEffects 还会重建字体样式表、同步场景音频、并读出一次**强制同步
-// 样式计算**（壁纸透明度 > 0 时）—— 拖动因此发涩（用户实测）。现在分两档：
+// 样式计算**（壁纸透明度 > 0 时）—— 拖动因此发涩（用户实测）。故分两档：
 //   · live（input / 拖动中）：写值 + `applyEffects({ live: true })`（跳过与本次改动无关的
 //     重活，样式变量照旧全量写），**不 emit** —— 面板不重渲染，数值回显由控件自己就地更新
 //     （SliderRow 的 --we-fill / 原生色块的自身外观）；
@@ -754,10 +739,10 @@ function renderConfirmRow(armed, token, question, onConfirm, onDisarm) {
 }
 
 // ── 设置持久化（debounce / 迁移 / 重试 / 启动加载）────────────────────────────
-// 这一族的实现已抽到 **src/persistence.js**（194 行）。构建期内联回本作用域，
+// 这一族的实现已抽到 **src/persistence.js**。构建期内联回本作用域，
 // 调用点（persistSelection / flushPersist / onPageHideFlush / …）无需改动。
 // 契约：8 个出向依赖的清单、入口与不变量 —— 见该文件头。
-// ⚠️ **字体值不走这条通道**：那些键自 F3 起住 `fontsets/<活动 id>.json`，通道在
+// ⚠️ **字体值不走这条通道**：那些键住 `fontsets/<活动 id>.json`，通道在
 // **src/fontset-store.js**（同形的 debounce + 脏标记 + 重试，但真源、键集与失败语义都不同）。
 
 // Concurrency guard: 刷新 / 上传完成 / 移除 / 改目录 all call loadInventory(),
@@ -861,8 +846,8 @@ async function loadInventory() {
 }
 
 // ── sceneVideo 诚实化的时序补拉 ────────────────────────────────────────────────
-// 宿主侧 sceneVideo 现在是**真探测**的结果（遍历 .tex 找内嵌 MP4）：未命中缓存时
-// 先给 null（不猜）并把探测投到后台（整库约 1–3 秒出定论），绝不再用 hasFrame
+// 宿主侧 sceneVideo 是**真探测**的结果（遍历 .tex 找内嵌 MP4）：未命中缓存时
+// 先给 null（不猜）并把探测投到后台（整库约 1–3 秒出定论），不用 hasFrame
 // 冒充。而客户端只在启动 / 手动刷新 / 目录变更后重拉 inventory ⇒ **首次加载**时
 // 真正内嵌 MP4 的场景会先落到静态帧（本机实测 3/35 个场景，探测本身 ~0.9s）。
 // 这里对每一批「新的场景集合」补拉一次，把窗口收掉：只在库里有场景壁纸时补、
@@ -895,11 +880,9 @@ function scheduleSceneVideoResync() {
 // 同一份判定，判定留在本文件就会长出第二个真源。这里是**调用点**：两个过滤档从
 // `selection` 显式传入，模型自己不读任何模块级状态。
 
-// 选择被拒 / 被丢弃时的可读原因。过去这条路径是「静默空白」：壁纸层
-// 不渲染、播放按钮因 !sel.url 变灰，用户只看到一片空白，既不知道原因也没有
-// 可点的控制（自上传壁纸被默认的内容分级过滤掉时正是如此）。返回 "" 表示
-// 没有可解释的原因（正常应用）。类型档不在原因表里：它只筛列表与轮播候选、
-// 不拦播放（keepPlayingWallpaper）。
+// 选择被拒 / 被丢弃时的可读原因（`""` = 没有可解释的原因，正常应用）：壁纸层不渲染、
+// 播放按钮因 !sel.url 变灰时，卡片上至少给出原因。类型档不在原因表里：它只筛列表与
+// 轮播候选、不拦播放（keepPlayingWallpaper）。
 function selectionBlockedNote(w) {
   if (!w) return weT("当前壁纸已不在列表里（可能已被移除或隐藏）");
   if (!isPlayableType(w)) return weT("这张壁纸没有可播放的媒体文件");
@@ -1154,9 +1137,9 @@ function wipeInset(dir) {
 }
 
 /**
- * 条带 / 百叶窗：N 块**独立的板**从「进入侧」一起长出来，板间留缝 —— 这才看得出
- * 是条带。之前那版是「锯齿扫过」（齿宽只有 7% 且两端收拢成直边），实测肉眼与
- * 「擦除」分不出来，等于白做。
+ * 条带 / 百叶窗：N 块**独立的板**从「进入侧」一起长出来，板间留缝 —— 这才看得出是条带。
+ * ⚠️ 必须是独立板（有缝、两端不收拢）：实测做成连续锯齿扫过时，肉眼与「擦除」
+ * 分不出来，等于白做。
  *
  * 记法：outer = 进入侧（left/up 取 1，right/down 取 0），t 轴是与扫过方向垂直的轴
  * （left/right 时板是**横板**，up/down 时是竖板）。每块板厚 slat = p/N，深度
@@ -1541,7 +1524,7 @@ const UPLOAD_URL = "/wallpaper-engine/upload";
 const REMOVE_URL = "/wallpaper-engine/remove";
 const UPLOAD_TYPES = ["image/jpeg", "image/png", "video/mp4"];
 
-// `isUploadedWallpaper(w)` / `isDirWallpaper(w)`（id 前缀判定）现在住在
+// `isUploadedWallpaper(w)` / `isDirWallpaper(w)`（id 前缀判定）住在
 // **src/picker-model.js** —— ratingOf 的宽松分级与上传管理列表共用同一对判定。
 
 async function uploadWallpaperFile(file) {
@@ -1846,9 +1829,9 @@ let mediaArtTries = 0;
 // 已上报过终态诊断的曲目 key（media-art* 诊断每曲最多一条，见 scheduleArtworkFetch）。
 // 封面诊断的每曲一次性标记（{fail, slow, ok} 各最多一条）。
 let mediaArtDiag = { fail: "", slow: "", ok: "" };
-// 封面就绪可能滞后换曲（桥要抽帧/下载封面）：4 次×0.7s 的旧窗口会在「桥还没出封面」
-// 时放弃整整一首歌。改为 12 次 + 退避（0.7s×次数，封顶 4s）—— 覆盖 ~40s，足够等到
-// 桥把封面备好；仍旧「换曲即重置」，放弃后到下一曲为止不再空转。
+// 封面就绪可能滞后换曲（桥要抽帧/下载封面）：窗口太短会在「桥还没出封面」时放弃整整
+// 一首歌。故取 12 次 + 退避（0.7s×次数，封顶 4s）—— 覆盖 ~40s，足够等到
+// 桥把封面备好；「换曲即重置」，放弃后到下一曲为止不再空转。
 const MEDIA_ART_MAX_TRIES = 12;
 
 /** 取封面并按 MEDIA_THUMB_MAX 降采样成 JPEG data URL（失败返回空串）。 */
@@ -1902,7 +1885,7 @@ function pushMediaSnapshot(frame, m) {
       albumArtist: m.albumArtist || "",
       playing: Boolean(m.playing),
       // 宿主给的是 0/1/2（停/播/暂停），比「playing?1:2」更准（能表达停止）；
-      // 老宿主不给 state 时回落到旧口径。
+      // 老宿主不给 state 时按 playing 回落到 1/2。
       state: Number.isFinite(Number(m.state)) ? Number(m.state) : (m.playing ? 1 : 2),
       position: Number(m.position) || 0,
       duration: Number(m.duration) || 0,
@@ -2230,8 +2213,7 @@ function userPropsStateOf() {
  *  （在 `apply()` 之前求值），它注册的渲染回调引用不到 apply 的作用域：写成闭包时真机上
  *  抛 `ReferenceError: renderUserPropsPanel is not defined`，React 随即卸载整棵树 ⇒
  *  **整个页面空白**（实测复现；不是"这里不画"那种局部问题）。
- *  它只读模块级的 `propsState` 与三个模块级函数，选中态从 `selection` 现取 —— 因此
- *  提升到模块级**不需要**任何上下文搬运。 */
+ *  它只读模块级的 `propsState` 与三个模块级函数，选中态从 `selection` 现取。 */
 function renderUserPropsPanel() {
   const st = userPropsStateOf();
   const sel = selection;
@@ -2439,9 +2421,8 @@ function isEffectivelyPlaying() {
 // ── 真实播放态回写────────────────────────────────────────────────────
 // `selection.playing` 是用户意图；<video> 是否真的在播是另一回事 —— 自动播放
 // 策略可能拒绝、浏览器可能解不了自上传视频的编码（HEVC / 10-bit 等）、play()
-// 也可能被紧接着的 src 切换打断（AbortError）。旧代码把 play() 的 rejection
-// 整个吞掉（.catch(() => {})），意图就永远停在 true：面板写着「播放中」，卡片
-// 上唯一的按钮是「暂停」，而壁纸冻在首帧（看上去就是空白）—— 用户没有任何
+// 也可能被紧接着的 src 切换打断（AbortError）。只信意图的话面板会一直写「播放中」，
+// 卡片上唯一的按钮是「暂停」，而壁纸冻在首帧（看上去就是空白）—— 用户没有任何
 // 「继续」可点。这里把元素的真实状态同步进 store：按钮于是总能回到「播放」
 // （可点的继续），失败时还附带一句原因；播放成功后原因自动清掉。
 function videoPlaybackError(video) {
@@ -2698,12 +2679,10 @@ function keySegBrief(v) {
 // 因此下面这些 applyEffects() / clearEffects() 调用点无需改动（契约见该文件头）。
 
 // ── Picker tabs ─────────────────────────────────────────────────────────────
-// 调节面板的信息架构：六个页签互斥展示（壁纸库 / 外观 / 播放 / 系统 / 扩展 / 关于）—— 前四个
-// 由原六个页签（壁纸/外观/吉祥物/效果/声音/高级）合并而来：效果+声音 → 播放、吉祥物+
-// 高级 → 系统、壁纸 → 壁纸库；「关于」是后加的页面（简介 / 仓库与 Star / 交流群 / 致谢，
-// 不读面板状态、不写设置；外部输入只有两样：那行 star 数与两张二维码 PNG，后者经
-// 宿主路由 /about-qr/<文件名> 直出，客户端只存路径）；「扩展」在「关于」**之前**、是后加的
-// **模块容器**（页签栏里它排第 5、致谢仍压尾）：内容是一张注册表，见 src/panel-tabs.js 的
+// 调节面板的信息架构：六个页签互斥展示（壁纸库 / 外观 / 播放 / 系统 / 扩展 / 关于）。
+// 「关于」不读面板状态、不写设置；外部输入只有两样：那行 star 数与两张二维码 PNG，后者经
+// 宿主路由 /about-qr/<文件名> 直出，客户端只存路径。「扩展」在「关于」**之前**、是**模块
+// 容器**（页签栏里它排第 5、致谢仍压尾）：内容是一张注册表，见 src/panel-tabs.js 的
 // extensionModules()。最后停留
 // 的页签记在 localStorage（仅 UI 状态，不进 config.json，也不需要 sanitize / serialize）。
 const PICKER_TAB_KEY = "dsh-wallpaper-engine:picker-tab";
@@ -2715,7 +2694,7 @@ const PICKER_TABS = [
   { id: "extensions", get label() { return weT("扩展"); } },
   { id: "about", get label() { return weT("关于"); } },
 ];
-// 旧页签 id → 新 id 的迁移（「字体」更早并入了「外观」）：别把老用户甩回第一页。
+// 旧页签 id → 新 id 的迁移（「字体」并入「外观」）：别把老用户甩回第一页。
 const PICKER_TAB_LEGACY = {
   wallpaper: "library", font: "appearance", effects: "playback",
   audio: "playback", mascot: "system", advanced: "system",
@@ -2773,11 +2752,11 @@ function starCountLabel() {
 function SliderRow(label, min, max, step, value, onInput, suffix, key, opts) {
   opts = opts || {};
   const unit = suffix == null ? "" : String(suffix);
-  // ⚠️ 两种调用口径必须并存（合并 #135 时订正）：
+  // ⚠️ 两种调用口径必须并存：
   //   · **裸单位**（"px" / "%" / "s" / "ms"…，#135 新滑杆的口径）⇒ 回显 = 值 + 单位；
-  //   · **已格式化的整串**（旧调用点的口径，如 `sel.glassAlpha + "%"`）⇒ 整串**原样**显示，
+  //   · **预格式化整串**（如 `sel.glassAlpha + "%"`）⇒ 整串**原样**显示，
   //     绝不能再去拼值（否则 35 显示成 "3535%"、拖动期还会叠出陈旧单位）。
-  // 判别看串里有没有数字：旧口径传的一定含值，裸单位一定不含。
+  // 判别看串里有没有数字：预格式化口径传的一定含值，裸单位一定不含。
   const preformatted = /\d/.test(unit);
   const readout = (v) => (v == null || v === ""
     ? ""
@@ -2792,8 +2771,8 @@ function SliderRow(label, min, max, step, value, onInput, suffix, key, opts) {
       el.style.setProperty("--we-fill", pct + "%");
       const row = el.parentNode;
       const out = row && typeof row.querySelector === "function" ? row.querySelector(".we-picker__value") : null;
-      // 预格式化口径（旧调用点）不做拖动期就地改写 —— 保持 main 的既有观感
-      //（值 + 陈旧单位的旧行为当初就不存在；放手后的 emit 重渲染会给出正确文本）。
+      // 预格式化口径不做拖动期就地改写 —— 保持原有的既有观感
+      //（放手后的 emit 重渲染会给出正确文本）。
       if (out && !preformatted) out.textContent = readout(el.value);
     } catch { /* 回显是增强，失败不影响取值 */ }
   };
@@ -2820,7 +2799,7 @@ function SliderRow(label, min, max, step, value, onInput, suffix, key, opts) {
     }),
     // 右侧数值 = 当前值 + 单位（用户口径："滑动条右侧显示数值"）。它是**回显**，
     // 真值永远在设置里；liveFill 在拖动中就地把这行文本换成同一个格式
-    //（仅裸单位口径；预格式化的旧调用点见上面 readout 的说明）。
+    //（仅裸单位口径；预格式化口径见上面 readout 的说明）。
     React.createElement("span", { className: "we-picker__hint we-picker__value" }, readout(value)),
   );
 }
@@ -2965,10 +2944,9 @@ function markGpuFrameProbed(wid, pinned) {
 
 // ── 壁纸库页签的处理器（渲染器只读值 + 调这些）────────────────────────────────
 // `src/panel-tabs.js` 的契约是「只读 + 组装 React 树」：**写设置 / 改状态 / 发通知都归这里**。
-// 下面这些此前是内联在渲染树里的箭头（`onClick: () => { setTransient(…); emit(); }`），
-// 于是渲染器同时成了"状态的写入方" —— 它甚至在写本文件模块作用域的 `propsPanelOpen` /
-// `pickerFocusPending` / `pickerOpener`（**别人的状态**）。收口到这里之后：状态与处理器是
-// ctx 的**供给方**（同模态框 / 属性面板那条契约），渲染器不再引用 `selection` / `emit`。
+// 下面这些处理器是 ctx 的**供给方**（同模态框 / 属性面板那条契约）：渲染器只读值 + 调它们，
+// 本身不引用 `selection` / `emit`，也不写本文件模块作用域的 `propsPanelOpen` /
+// `pickerFocusPending` / `pickerOpener`（**别人的状态**）。
 // 判据：`test/verify-client.mjs` 的接缝判据（页签与那两个渲染器同一条口径）。
 function setPickerOpener(el) { pickerOpener = el; }
 function onTogglePropsPanel() {
@@ -3042,9 +3020,8 @@ const onCapsuleColor = (hex, live) => {
   commitLiveSetting("capsuleColor", hex, live);
 };
 
-// ── 以下处理器原在 WallpaperPicker 内，2026-10-03 提升到模块级 —— 快捷播放面板
-//    （src/quick-panel.js）与设置页**共用同一批渲染器**，嵌套在组件里的声明它够不着。
-//    ⚠️ 分档（ADR-0008 D4，2026-10-05 口径）：侧栏档只画**简化配置**（全局四件套 + 各面总开关），
+// ── 以下处理器模块级 —— 快捷播放面板（src/quick-panel.js）与设置页**共用同一批处理器**。
+//    ⚠️ 分档（ADR-0008 D4）：侧栏档只画**简化配置**（全局四件套 + 各面总开关），
 //    高级行的处理器在那份 ctx 里是"取用即抛错"的占位器 —— 所以这里给的是**全量**模块级处理器，
 //    "哪一档真的用到哪些"由 quick-panel 的 provided 对象与 QP_CTX_SETTINGS_ONLY 名单决定。
 //    依赖（setSetting / commitLiveSetting / clampNum / schemaRange / selection /
@@ -3094,9 +3071,9 @@ function onSidebarGlass(e) { setSetting("sidebarGlass", e.target.checked); emit(
 //（data-we-sidebar-fullclear）由 applyGlass 挂/摘，CSS 那组规则只认属性。
 function onSidebarFullClear(e) { setSetting("sidebarFullClear", e.target.checked); emit(); }
 
-// ── 「玻璃 UI」各子项的「独立配置」开关（W1；R3b-ii 起写的是**模式**）─────────────
-// ⚠️ R3b-ii 之前这里是"布尔开关 + 一张手抄的能力表"两个键；现在只有 `glassMode` 一个键：
-//    能读自己的值这件事，由"注册表 params ↔ 接线点"（守卫 ④）与"写了必须被 CSS 读到"（⑬）保证。
+// ── 「玻璃 UI」各子项的「独立配置」开关（写的是**模式**）───────────────────
+// ⚠️ 只有 `glassMode` 一个键：能读自己的值这件事，由"注册表 params ↔ 接线点"（守卫 ④）
+//    与"写了必须被 CSS 读到"（⑬）保证。
 function onToggleChildIndependent(id, on) {
   const next = Object.assign({}, selection.glassMode);
   if (on) next[id] = "custom"; else delete next[id];
@@ -3169,8 +3146,7 @@ function onParallaxUi(e) { setSetting("parallaxUi", e.target.checked); emit(); }
 function onParallaxPlugin(e) { setSetting("parallaxPlugin", e.target.checked); emit(); }
 function onParallaxBg(v, live) { commitLiveSetting("parallaxBg", v, live); }
 // 四个区域距离（用户口径 m02697-①③）：每行都是**那一组自己的最大位移百分比**，0 = 该组不缓动。
-// 存档与面板从此同一个单位 —— 总倍率（parallaxUiDepth）已退役，×100 / ÷100 那层换算也随之删掉
-// （旧口径：面板百分比 ÷100 存成倍率、再乘在总倍率上）。
+// 存档与面板是同一个单位 —— 面板百分比直接就是存的位移百分比，无总倍率换算。
 function onParallaxUiChatDepth(v, live) { commitLiveSetting("parallaxUiChatDepth", v, live); }
 function onParallaxUiComposerDepth(v, live) { commitLiveSetting("parallaxUiComposerDepth", v, live); }
 function onParallaxUiSidebarDepth(v, live) { commitLiveSetting("parallaxUiSidebarDepth", v, live); }
@@ -3450,9 +3426,8 @@ function cardKeyDown(e) {
 }
 
 // ── 播放控制处理器（模块级）─────────────────────────────────────────────────
-// 这些原本是 WallpaperPicker 的组件闭包；快捷播放面板（quick-panel.js，官方侧栏
-// tab 与低版本抽屉共用）不在那棵组件树里，改的也是同一批设置键 —— 提升到模块级
-// 后**设置页与快捷面板调用的是同一份实现**（语义唯一真源，不是两份手抄）。
+// 设置页与快捷播放面板（quick-panel.js，官方侧栏 tab 与低版本抽屉共用）调用**同一份实现**
+// （语义唯一真源，不是两份手抄）—— 它们改的也是同一批设置键。
 function playbackIsVideoLike(selLike) {
   const isLiveScene = (selLike.type === "scene" || selLike.type === "web") && liveRenderEnabled(selLike);
   return !isLiveScene && (selLike.type === "video"
@@ -3621,70 +3596,12 @@ const onToggleThemeFollow = (v) => {
   setSetting("themeFollow", !!v); themeFollowOnWallpaper(selection); emit();
 };
 
-function WallpaperPicker() {
-  useWeLocale(); // 设置页壁纸库：语言切换 → 整棵选择器（含 render* 渲染器）重渲染
-  const sel = useStore();
-  // 视频类壁纸（原生视频 + 内嵌 MP4 场景）: 只有它们有
-  // 「真实播放态」的概念。实时渲染（live iframe）形态必须排除在外：它没有
-  // <video> 元素可回写真实状态，且 sceneVideo 在 live 形态下非空（降级备用），
-  // 沿用视频类判定会让 playbackLive 恒为 videoPlaying=true —— 「暂停」后按钮
-  // 永不变「播放」（实测）。
-  const isLiveScene = (sel.type === "scene" || sel.type === "web") && liveRenderEnabled(sel);
-  const isVideoLike = !isLiveScene && (sel.type === "video"
-    || (sel.type === "scene" && Boolean(sel.sceneVideo)));
-  // 卡片上显示/按钮用的播放态: 视频类壁纸以 <video> 元素的真实状态为准。
-  // 意图为「播放」但元素被拒/解码失败时，面板必须说「已暂停」并把按钮显示成
-  // 「播放」，否则用户面对一张冻住的壁纸却只有「暂停」可点 —— 没有「继续」。
-  const playbackLive = isVideoLike ? sel.videoPlaying : sel.playing;
-  // 播放/暂停 / 音轨 / 音量 / 关闭 / 轮播切换 / 换列表：处理器已提升到模块级
-  //（快捷播放面板共用同一份实现，见 cardKeyDown 上方「播放控制处理器」段）。
-  const onRefresh = () => loadInventory();
-  // Filter changes: persist + re-validate so wallpapers outside the selected
-  // categories drop out of the grid/rotation immediately.
-  const onRatingFilterChange = (e) => {
-    setSetting("contentRatingFilter", e.target.value);
-    revalidateSelection();
-  };
-  const onTypeFilterChange = (e) => {
-    setSetting("typeFilter", e.target.value);
-    revalidateSelection();
-  };
-  // Card style: classic (CD-rack) vs fixed (overlap-proof).
-  const onLayoutChange = (value) => {
-    setSetting("pickerLayout", value);
-    emit();
-  };
-  // Edge 兼容渲染开关：关闭后任何浏览器都走原生 <video>。改的是渲染模式，
-  // syncLayers 的 wantKey 已并入模式，emit 会重建壁纸层并立即按新路径生效。
-  const onEdgeCompatChange = (checked) => {
-    setSetting("edgeCompat", checked);
-    emit();
-  };
-  // Per-group interval: writes straight into the active group so each rotation
-  // list keeps its own switch cadence.
-  const onGroupInterval = (e) => {
-    const group = activeRotationGroup();
-    if (!group) return;
-    group.interval = clampNum(Number(e.target.value), ...schemaRange("rotationInterval"), DEFAULTS.rotationInterval);
-    persistSelection();
-    syncRotationTimer();
-    emit();
-  };
-  // 「删除」按钮**只置令牌**；真正的删除在问句行的「确认」里（不变量 2）。两件事分开的
-  // 好处：守卫可以分别断言"第一下不删"与"确认才删"，而不是只验一个 if。
-  const onArmDeleteGroup = () => {
-    const group = activeRotationGroup();
-    if (!group) return;
-    armConfirm("group:" + group.id);
-  };
-  const onDeleteGroup = () => {
-    const group = activeRotationGroup();
-    if (!group) return;
-    disarmConfirm();
-    deleteGroup(group.id);
-  };
-
-  /**
+// ── 字体 / 主题处理器 + 三个 ctx 构造器 ──────────────────────────────────────
+// 它们只读模块级单例 `selection`、只调模块级函数（setFontValues / applyEffects / emit /
+// ensureSystemFonts / fontset-store 与 preset-store 一族），**不需要组件作用域** ——
+// 声明在模块级即可，不必随每次渲染重建一份（身份会变）。
+// 与上面「播放控制处理器」「外观 / 画面处理器」两段同源：渲染器只读值 + 调这些。
+/**
  * 新集的**默认名字**（面板不再让用户先取名 —— 名字之后随时能用「重命名」改）：
  * 「我的字体集」/「我的字体集 2」… 取第一个没被占用的后缀。**确定性**（同样的清单给同样的名字），
  * 因此可以当判据断言；碰撞只可能发生在 999 个同名前缀之后，那时退回时间戳。
@@ -3794,44 +3711,7 @@ function glassPresetCtx() {
   };
 }
 
-  // 画面滑块（暗化 / 壁纸透明度 / 壁纸模糊 / 亮度 / 对比度 / 饱和度）与外观细调
-  //（配色 / 玻璃颜色 / 玻璃透明度 / 边框 / 雾化）：处理器已提升到模块级 ——
-  // 快捷播放面板共用同一份实现，见 cardKeyDown 上方「外观 / 画面处理器」段。
-  // 切换过场（类型 / 方向 / 速度）：只写选择 —— 下一次换壁纸（手动点选或轮换提交）
-  // 生效，不需要重建当前层。
-  const onSwitchTransition = (id) => {
-    if (!SWITCH_TRANSITION_VALUES.includes(id)) return;
-    setSetting("switchTransition", id); emit();
-  };
-  const onSwitchTransitionDir = (dir) => {
-    if (!SWITCH_DIRS.includes(dir)) return;
-    setSetting("switchTransitionDir", dir); emit();
-  };
-  const onSwitchTransitionSpeed = (id) => {
-    if (!SWITCH_SPEED_VALUES.includes(id)) return;
-    setSetting("switchTransitionSpeed", id); emit();
-  };
-  // Mascot pull-cord show/hide, persisted with the other toggles.
-  const onRopeVisibilityChange = (e) => {
-    setSetting("ropeShown", e.target.checked); emit();
-  };
-  // Mascot form (maid / whale) + scale, persisted with the other rope settings.
-  const onRopeFormChange = (form) => {
-    if (!ROPE_FORM_VALUES.includes(form)) return;
-    setSetting("ropeForm", form); emit();
-  };
-  const onRopeScaleChange = (scale) => {
-    setSetting("ropeScale", clampNum(scale, ROPE_SCALE_MIN, ROPE_SCALE_MAX, DEFAULTS.ropeScale)); emit();
-  };
-  // 字体自定义：总开关 + 颜色/字重/字体族，各项立即生效并持久化。
-  // 打开开关时**顺手**去要一次本机字体清单（宿主那次扫描很贵，只在用户真的进这一区时才发生；
-  // 清单本身不参与字体值，拿不到也不影响任何别的功能 —— 见 src/system-fonts.js）。
-  const onToggleFontCustom = (v) => {
-    setSetting("fontCustom", !!v); applyEffects(); emit();
-    if (v) ensureSystemFonts(false);
-  };
-  // 主题随壁纸的开关处理器已提升到模块级（同「外观 / 画面处理器」段）。
-  // F1：角色色。默认「单色」—— 一个色同时写进 light/dark 两套（内部始终存两套，
+// F1：角色色。默认「单色」—— 一个色同时写进 light/dark 两套（内部始终存两套，
 // 因为令牌服务的值必须是 {light,dark} 对，缺一套在另一套配色下会不可读）。
 // G4 字族（角色级）：空 = 回官方字族。存**族键**（CSS 栈由 fontFamilyStack 在模块侧解析）。
 const onThemeFamily = (role, key) => {
@@ -3916,28 +3796,7 @@ const onThemeTypeOnly = (v) => {
 const onThemeDarkSeparate = (v) => {
   setFontValues({ themeDarkSeparate: v }); applyEffects(); emit();
 };
-  // 全局字重与全局字体族都已移除：字重/字族都按角色与按组件细化（见 src/font/）。
-  // 「高级字体设置」视图开关（defaults-only，不持久化）。
-  const onFontAdvanced = (v) => {
-    setTransient("fontAdvanced", v);
-    emit();
-  };
-  // 组件字体族：存 **族键**（内置键或 `sys:<本机字体>`），解析成 CSS 栈是 apply 那一侧的事
-  // （components.js 的 buildComponentCss / buildDslBlocks 经 resolveFamily 拿栈）。
-  // ⚠️ F3 之前这里存的是**解析后的栈** —— 那种历史值解析侧照样认（fontFamilyStack），
-  //    所以老字体集不必迁移；只是"选中项反查"过去会失配（带引号的栈来回一趟会被消毒掉引号），
-  //    现在两条形态都能反查（fontFamilyKeyOf）。
-  const onComponentFamily = (prefix, key) => {
-    const next = Object.assign({}, selection.componentFonts);
-    const one = Object.assign({}, next[prefix]);
-    const family = sanitizeFamilyValue(key);
-    if (!family) delete one.family;
-    else one.family = family;
-    if (Object.keys(one).length) next[prefix] = one;
-    else delete next[prefix];
-    setFontValues({ componentFonts: next }); applyEffects(); emit();
-  };
-  // 颜色角色的「当前 DSH 默认值」：宿主墨色快照（snapshotHostFontDefaults 写在 documentElement
+// 颜色角色的「当前 DSH 默认值」：宿主墨色快照（snapshotHostFontDefaults 写在 documentElement
 // 上）转为 #rrggbb 供 <input type="color"> 用。取不到就返回空串 —— 面板会退回显示"跟随"，
 // 不影响覆盖能力。这样色块本身显示的就是当前实际生效的颜色，而不是占位字样。
 const toHexColor = (v) => {
@@ -3959,27 +3818,254 @@ const officialColorOf = (tokens) => {
   return "";
 };
 
+// 字体自定义：总开关 + 颜色/字重/字体族，各项立即生效并持久化。
+// 打开开关时**顺手**去要一次本机字体清单（宿主那次扫描很贵，只在用户真的进这一区时才发生；
+// 清单本身不参与字体值，拿不到也不影响任何别的功能 —— 见 src/system-fonts.js）。
+const onToggleFontCustom = (v) => {
+  setSetting("fontCustom", !!v); applyEffects(); emit();
+  if (v) ensureSystemFonts(false);
+};
+
+// 全局字重与全局字体族都已移除：字重/字族都按角色与按组件细化（见 src/font/）。
+// 「高级字体设置」视图开关（defaults-only，不持久化）。
+const onFontAdvanced = (v) => {
+  setTransient("fontAdvanced", v);
+  emit();
+};
+
+// 组件字体族：存 **族键**（内置键或 `sys:<本机字体>`），解析成 CSS 栈是 apply 那一侧的事
+// （components.js 的 buildComponentCss / buildDslBlocks 经 resolveFamily 拿栈）。
+// ⚠️ 另一种历史值是**解析后的栈**（fontFamilyStack）—— 解析侧照样认，故老字体集不必迁移；
+//    "选中项反查"两种形态都能处理（fontFamilyKeyOf）。
+const onComponentFamily = (prefix, key) => {
+  const next = Object.assign({}, selection.componentFonts);
+  const one = Object.assign({}, next[prefix]);
+  const family = sanitizeFamilyValue(key);
+  if (!family) delete one.family;
+  else one.family = family;
+  if (Object.keys(one).length) next[prefix] = one;
+  else delete next[prefix];
+  setFontValues({ componentFonts: next }); applyEffects(); emit();
+};
+
 // 「恢复默认」：所有字体自定义项清回 DSH 默认值（空 = 不覆盖；字体族回跟随）。
 // 这些容器 + themeDarkSeparate + globalFamily 是**字体集正文**的键 ⇒ 整批赋值后走
 // persistFontSet()（它们已不在 settings 白名单里，`setSetting` 那条通道不会把它们写出去）。
 // ⚠️ 这是字体键**唯一**允许出现字面直写的地方（逐键走 `setFontValues` 会发一整串 PUT）；
 //    判据：`verify-fontset` ⑦ 的字面直写棘轮 —— 别处的直写会让它变红。
-  const onFontResetAll = () => {
-    selection.themeColors = {};
-    selection.themeSize = {};
-    selection.themeWeight = {};
-    selection.themeFamily = {};
-    selection.globalFamily = "";
-    selection.componentFonts = {};
-    selection.themeDarkSeparate = false;
-    // 「只看改过的」是**视图**状态，不归"恢复默认"管：它清的是字体值，不该顺手把用户选的筛选
-    // 也翻掉（那会让"恢复默认"改掉界面的看法）。判据钉住这一点。
-    persistFontSet();
-    // `fontAdvanced` 是**仅默认值**键（不在持久化白名单里）⇒ 走**瞬态**入口。走 `setSetting` 会顺手
-    // `persistSelection()`，把一个永远不会被写出去的键送进 debounce 队列 —— 白跑一次宿主 PUT。
-    // 判据：`verify-client` ⑤d ①c（DEFAULTS_ONLY 键不得经落盘通道写，键集从 schema 派生）。
-    setTransient("fontAdvanced", false); applyEffects(); emit();
-  };
+const onFontResetAll = () => {
+  selection.themeColors = {};
+  selection.themeSize = {};
+  selection.themeWeight = {};
+  selection.themeFamily = {};
+  selection.globalFamily = "";
+  selection.componentFonts = {};
+  selection.themeDarkSeparate = false;
+  // 「只看改过的」是**视图**状态，不归"恢复默认"管：它清的是字体值，不该顺手把用户选的筛选
+  // 也翻掉（那会让"恢复默认"改掉界面的看法）。判据钉住这一点。
+  persistFontSet();
+  // `fontAdvanced` 是**仅默认值**键（不在持久化白名单里）⇒ 走**瞬态**入口。走 `setSetting` 会顺手
+  // `persistSelection()`，把一个永远不会被写出去的键送进 debounce 队列 —— 白跑一次宿主 PUT。
+  // 判据：`verify-client` ⑤d ①c（DEFAULTS_ONLY 键不得经落盘通道写，键集从 schema 派生）。
+  setTransient("fontAdvanced", false); applyEffects(); emit();
+};
+
+// ── 壁纸库 / 库视图处理器 ────────────────────────────────────────────────────
+const onRefresh = () => loadInventory();
+// Filter changes: persist + re-validate so wallpapers outside the selected
+// categories drop out of the grid/rotation immediately.
+const onRatingFilterChange = (e) => {
+  setSetting("contentRatingFilter", e.target.value);
+  revalidateSelection();
+};
+const onTypeFilterChange = (e) => {
+  setSetting("typeFilter", e.target.value);
+  revalidateSelection();
+};
+// Card style: classic (CD-rack) vs fixed (overlap-proof).
+const onLayoutChange = (value) => {
+  setSetting("pickerLayout", value);
+  emit();
+};
+// Edge 兼容渲染开关：关闭后任何浏览器都走原生 <video>。改的是渲染模式，
+// syncLayers 的 wantKey 已并入模式，emit 会重建壁纸层并立即按新路径生效。
+const onEdgeCompatChange = (checked) => {
+  setSetting("edgeCompat", checked);
+  emit();
+};
+// Per-group interval: writes straight into the active group so each rotation
+// list keeps its own switch cadence.
+const onGroupInterval = (e) => {
+  const group = activeRotationGroup();
+  if (!group) return;
+  group.interval = clampNum(Number(e.target.value), ...schemaRange("rotationInterval"), DEFAULTS.rotationInterval);
+  persistSelection();
+  syncRotationTimer();
+  emit();
+};
+// 「删除」按钮**只置令牌**；真正的删除在问句行的「确认」里（不变量 2）。两件事分开的
+// 好处：守卫可以分别断言"第一下不删"与"确认才删"，而不是只验一个 if。
+const onArmDeleteGroup = () => {
+  const group = activeRotationGroup();
+  if (!group) return;
+  armConfirm("group:" + group.id);
+};
+const onDeleteGroup = () => {
+  const group = activeRotationGroup();
+  if (!group) return;
+  disarmConfirm();
+  deleteGroup(group.id);
+};
+
+// 切换过场（类型 / 方向 / 速度）：只写选择 —— 下一次换壁纸（手动点选或轮换提交）
+// 生效，不需要重建当前层。
+const onSwitchTransition = (id) => {
+  if (!SWITCH_TRANSITION_VALUES.includes(id)) return;
+  setSetting("switchTransition", id); emit();
+};
+const onSwitchTransitionDir = (dir) => {
+  if (!SWITCH_DIRS.includes(dir)) return;
+  setSetting("switchTransitionDir", dir); emit();
+};
+const onSwitchTransitionSpeed = (id) => {
+  if (!SWITCH_SPEED_VALUES.includes(id)) return;
+  setSetting("switchTransitionSpeed", id); emit();
+};
+// Mascot pull-cord show/hide, persisted with the other toggles.
+const onRopeVisibilityChange = (e) => {
+  setSetting("ropeShown", e.target.checked); emit();
+};
+// Mascot form (maid / whale) + scale, persisted with the other rope settings.
+const onRopeFormChange = (form) => {
+  if (!ROPE_FORM_VALUES.includes(form)) return;
+  setSetting("ropeForm", form); emit();
+};
+const onRopeScaleChange = (scale) => {
+  setSetting("ropeScale", clampNum(scale, ROPE_SCALE_MIN, ROPE_SCALE_MAX, DEFAULTS.ropeScale)); emit();
+};
+
+// 当前 live 渲染页的 iframe（面板「重新截」的抓帧源）。
+// livePointerFrame 由 syncLayers 每次挂上 live 层时更新；切到非 live 壁纸后它可能
+// 仍指向已移除的旧元素，所以再用 DOM 查一次兜底。
+const currentLiveFrame = () => {
+  const ref = livePointerFrame;
+  if (ref && (!("isConnected" in ref) || ref.isConnected)) return ref;
+  try {
+    const node = document.getElementById(LAYER_ID);
+    const f = node && typeof node.querySelector === "function" ? node.querySelector("iframe.we-live-iframe") : null;
+    if (f) return f;
+  } catch { /* ignore */ }
+  return null;
+};
+
+// 自定义画面（截屏导入）：从 WE 等处截图后导入，成为该壁纸的「自定义画面」档
+// （?v=4）显示源。
+const setCustomFrameLocal = (wid, on) => {
+  const m = Object.assign({}, selection.customFrames || {});
+  if (on) m[wid] = true; else delete m[wid];
+  selection.customFrames = m;
+};
+
+// Close the picker library view (ESC / 返回 button share this path).
+const closePicker = () => {
+  // 关库视图 ⇒ 清掉待确认（不变量 3）：否则重新打开时会看到一个针对上次那个对象的问句。
+  disarmConfirm();
+  setTransient("pickerOpen", false);
+  setTransient("pickerDraft", false);
+  setTransient("batchMode", false);
+  setTransient("batchSelected", []);
+  emit();
+  // Focus restore: return focus to the「选择壁纸」button that opened the
+  // view (WCAG focus management).
+  if (pickerOpener && pickerOpener.isConnected) {
+    try { pickerOpener.focus(); } catch { /* ignore */ }
+  }
+};
+
+const INTERVALS = [1, 5, 10, 30, 60, 120];
+
+// ── Pagination row: big libraries must not render every card at once (hundreds
+//    of thumbnails per emit make the picker lag). The slicing itself is the
+//    model's (`pageSlice` in src/picker-model.js); 这里只画「上一页 / 下一页」。──
+const pagerRow = (count, page, pages, onPrev, onNext) =>
+  React.createElement("div", { className: "we-picker__pager" },
+    React.createElement("span", { className: "we-picker__hint" },
+      weT("共 {count} 个 · 第 {page} / {pages} 页", { count, page: page + 1, pages })),
+    React.createElement("button", {
+      className: "we-picker__btn", type: "button",
+      disabled: page <= 0,
+      onClick: onPrev,
+    }, weT("‹ 上一页")),
+    React.createElement("button", {
+      className: "we-picker__btn", type: "button",
+      disabled: page >= pages - 1,
+      onClick: onNext,
+    }, weT("下一页 ›")),
+  );
+
+// ── 模态框交互的接线 ───────────────────────────────────────────────────────
+// 契约：渲染器（`src/picker-modal.js`）**不写 `selection`、不自己发通知** ⇒
+// 「改状态 + 发通知」的动作一律留在这里（模块级），经 `ctx` 交给渲染器；标记里只剩
+// `onClick: onShowNormalView` 这样的引用。判据是接缝那几条（同 `panel-tabs` / 属性面板口径）。
+const onShowNormalView = () => { disarmConfirm(); setTransient("modalView", "normal"); emit(); };
+const onShowHiddenView = () => { disarmConfirm(); setTransient("modalView", "hidden"); setTransient("batchMode", false); setTransient("batchSelected", []); emit(); };
+const onToggleBatchMode = () => { disarmConfirm(); setTransient("batchMode", !selection.batchMode); setTransient("batchSelected", []); emit(); };
+// 「批量隐藏」按钮只置令牌；落地在问句行的「确认」（不变量 2）。
+const onArmBatchHide = () => armConfirm("batchHide");
+const onBatchHide = () => {
+  disarmConfirm();
+  hideWallpapers(selection.batchSelected.slice());
+  setTransient("batchMode", false);
+  setTransient("batchSelected", []);
+  emit();
+};
+const onBatchCancel = () => { disarmConfirm(); setTransient("batchMode", false); setTransient("batchSelected", []); emit(); };
+const onSearchInput = (e) => { setTransient("search", e.target.value); emit(); };
+const onPickCard = (w) => {
+  // 轮播编辑器的下钻（pickerDraft）：点卡片 = 加入/移出**草稿**，不切当前壁纸；
+  // 草稿对象被就地增删（与 importPlaylistIntoDraft / 面板编辑器同一口径），
+  // 「保存」时才由 saveEditingGroup 落盘。
+  if (selection.pickerDraft && selection.editing) {
+    const ids = selection.editing.wallpaperIds;
+    const i = ids.indexOf(w.id);
+    if (i >= 0) ids.splice(i, 1);
+    else ids.push(w.id);
+    emit();
+    return;
+  }
+  if (selection.batchMode) {
+    const i = selection.batchSelected.indexOf(w.id);
+    if (i >= 0) selection.batchSelected.splice(i, 1);
+    else selection.batchSelected.push(w.id);
+    emit();
+  } else {
+    applySelection(w.id, { fromManual: true });
+  }
+};
+
+function WallpaperPicker() {
+  useWeLocale(); // 设置页壁纸库：语言切换 → 整棵选择器（含 render* 渲染器）重渲染
+  const sel = useStore();
+  // 视频类壁纸（原生视频 + 内嵌 MP4 场景）: 只有它们有
+  // 「真实播放态」的概念。实时渲染（live iframe）形态必须排除在外：它没有
+  // <video> 元素可回写真实状态，且 sceneVideo 在 live 形态下非空（降级备用），
+  // 沿用视频类判定会让 playbackLive 恒为 videoPlaying=true —— 「暂停」后按钮
+  // 永不变「播放」（实测）。
+  const isLiveScene = (sel.type === "scene" || sel.type === "web") && liveRenderEnabled(sel);
+  const isVideoLike = !isLiveScene && (sel.type === "video"
+    || (sel.type === "scene" && Boolean(sel.sceneVideo)));
+  // 卡片上显示/按钮用的播放态: 视频类壁纸以 <video> 元素的真实状态为准。
+  // 意图为「播放」但元素被拒/解码失败时，面板必须说「已暂停」并把按钮显示成
+  // 「播放」，否则用户面对一张冻住的壁纸却只有「暂停」可点 —— 没有「继续」。
+  const playbackLive = isVideoLike ? sel.videoPlaying : sel.playing;
+  // 播放/暂停 / 音轨 / 音量 / 关闭 / 轮播切换 / 换列表：处理器见「播放控制处理器」段
+  //（快捷播放面板共用同一份实现）。
+
+  // 画面滑块（暗化 / 壁纸透明度 / 壁纸模糊 / 亮度 / 对比度 / 饱和度）与外观细调
+  //（配色 / 玻璃颜色 / 玻璃透明度 / 边框 / 雾化）：处理器见「外观 / 画面处理器」段
+  //（快捷播放面板共用同一份实现）。
+  // 主题随壁纸的开关处理器同「外观 / 画面处理器」段。
+
   // 出图来源：当前场景壁纸在「自动 ⇄ 自定义画面」之间切换（按壁纸记忆）。
   // 只有一档可切（没导入自定义画面）时**不动** —— 避免"点了没反应"。
   const onRefreshFrame = () => {
@@ -4043,19 +4129,6 @@ const officialColorOf = (tokens) => {
   // 能立刻重抓，而不是先关掉实时渲染再回来。
   // 走的是自动回填那条同一条安全路径（先抓帧 + 内容门禁 → 成功后才清旧帧 → PUT），
   // 所以抓不到时**不会**把原来那张删掉；失败原因直接显示在面板上。
-  // 当前 live 渲染页的 iframe（面板「重新截」的抓帧源）。
-  // livePointerFrame 由 syncLayers 每次挂上 live 层时更新；切到非 live 壁纸后它可能
-  // 仍指向已移除的旧元素，所以再用 DOM 查一次兜底。
-  const currentLiveFrame = () => {
-    const ref = livePointerFrame;
-    if (ref && (!("isConnected" in ref) || ref.isConnected)) return ref;
-    try {
-      const node = document.getElementById(LAYER_ID);
-      const f = node && typeof node.querySelector === "function" ? node.querySelector("iframe.we-live-iframe") : null;
-      if (f) return f;
-    } catch { /* ignore */ }
-    return null;
-  };
   const onRecaptureGpuFrame = () => {
     if (sel.type !== "scene" || !sel.sceneFrameUrl || gpuFrameUi.recapturing) return;
     const live = currentLiveFrame();
@@ -4069,13 +4142,6 @@ const officialColorOf = (tokens) => {
     emit();
     // force：即使槽里已有 GPU 帧也重抓一张（用户显式要求换一张）。
     scheduleLiveFrameBackfill(live, { force: true });
-  };
-  // 自定义画面（截屏导入）：从 WE 等处截图后导入，成为该壁纸的「自定义画面」档
-  // （?v=4）显示源。
-  const setCustomFrameLocal = (wid, on) => {
-    const m = Object.assign({}, selection.customFrames || {});
-    if (on) m[wid] = true; else delete m[wid];
-    selection.customFrames = m;
   };
   const onCustomFrameFile = (e) => {
     const file = e.target.files && e.target.files[0];
@@ -4125,21 +4191,6 @@ const officialColorOf = (tokens) => {
       }).catch(() => { /* ignore */ });
   };
 
-  // Close the picker library view (ESC / 返回 button share this path).
-  const closePicker = () => {
-    // 关库视图 ⇒ 清掉待确认（不变量 3）：否则重新打开时会看到一个针对上次那个对象的问句。
-    disarmConfirm();
-    setTransient("pickerOpen", false);
-    setTransient("pickerDraft", false);
-    setTransient("batchMode", false);
-    setTransient("batchSelected", []);
-    emit();
-    // Focus restore: return focus to the「选择壁纸」button that opened the
-    // view (WCAG focus management).
-    if (pickerOpener && pickerOpener.isConnected) {
-      try { pickerOpener.focus(); } catch { /* ignore */ }
-    }
-  };
   // ESC anywhere closes the library view. Capture phase + stopPropagation so the
   // shell's own ESC handling (which may close the whole settings panel) never
   // sees the key while the view is open.
@@ -4249,26 +4300,6 @@ const officialColorOf = (tokens) => {
   const candidates = rotationCandidates();
   const playableCount = candidates.length;
   const editing = sel.editing;
-  const INTERVALS = [1, 5, 10, 30, 60, 120];
-
-  // ── Pagination row: big libraries must not render every card at once (hundreds
-  //    of thumbnails per emit make the picker lag). The slicing itself is the
-  //    model's (`pageSlice` in src/picker-model.js); 这里只画「上一页 / 下一页」。──
-  const pagerRow = (count, page, pages, onPrev, onNext) =>
-    React.createElement("div", { className: "we-picker__pager" },
-      React.createElement("span", { className: "we-picker__hint" },
-        weT("共 {count} 个 · 第 {page} / {pages} 页", { count, page: page + 1, pages })),
-      React.createElement("button", {
-        className: "we-picker__btn", type: "button",
-        disabled: page <= 0,
-        onClick: onPrev,
-      }, weT("‹ 上一页")),
-      React.createElement("button", {
-        className: "we-picker__btn", type: "button",
-        disabled: page >= pages - 1,
-        onClick: onNext,
-      }, weT("下一页 ›")),
-    );
 
   // ── 壁纸属性面板的接线────────────────────────────────────
   // 面板标记搬去了 `src/picker-props-panel.js`（构建期内联回本作用域）。这里只做**组装**：
@@ -4303,8 +4334,6 @@ const officialColorOf = (tokens) => {
       setSetting, setTransient,
       fontSet: fontSetCtx(),
       glassPresets: glassPresetCtx(),
-      // ⚠️ 2026-10-06 审计：这里原本把同一条属性清单**重复写了两遍**（上一会话的编辑
-      //    事故 —— 同名字面量键静默去重所以无行为差异），已合并为一行。
       officialColorOf, onAccent, onCapsuleBlur, onCapsuleColor, onBlur, onBorder, onCaretColor, onChatGlassFidelity, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onGlassFidelity, onGlobalFamily, onLeftSidebarGlass, onTitlebarGlass, onRefreshSystemFonts, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarFollowGlobal, onSidebarGlass, onSidebarFullClear, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onThinkingMode, onToggleFontCustom, onToggleThemeFollow, sel,
       // 玻璃 UI 子项开关 + 独立配置 + 独立参数（见 onToggleChildIndependent 那段注释）
       onToggleChildIndependent, onGlassChildParam, childIndependentOn,
@@ -4335,45 +4364,6 @@ const officialColorOf = (tokens) => {
   };
   const tabIdx = Math.max(0, PICKER_TABS.findIndex((t) => t.id === activeTab));
 
-  // ── 模态框交互的接线 ───────────────────────────────────────────────────────
-  // 契约：渲染器（`src/picker-modal.js`）**不写 `selection`、不自己发通知** ⇒
-  // 「改状态 + 发通知」的动作一律留在组件里，经 `ctx` 交给渲染器；标记里只剩
-  // `onClick: onShowNormalView` 这样的引用。判据是接缝那几条（同 `panel-tabs` / 属性面板口径）。
-  const onShowNormalView = () => { disarmConfirm(); setTransient("modalView", "normal"); emit(); };
-  const onShowHiddenView = () => { disarmConfirm(); setTransient("modalView", "hidden"); setTransient("batchMode", false); setTransient("batchSelected", []); emit(); };
-  const onToggleBatchMode = () => { disarmConfirm(); setTransient("batchMode", !selection.batchMode); setTransient("batchSelected", []); emit(); };
-  // 「批量隐藏」按钮只置令牌；落地在问句行的「确认」（不变量 2）。
-  const onArmBatchHide = () => armConfirm("batchHide");
-  const onBatchHide = () => {
-    disarmConfirm();
-    hideWallpapers(selection.batchSelected.slice());
-    setTransient("batchMode", false);
-    setTransient("batchSelected", []);
-    emit();
-  };
-  const onBatchCancel = () => { disarmConfirm(); setTransient("batchMode", false); setTransient("batchSelected", []); emit(); };
-  const onSearchInput = (e) => { setTransient("search", e.target.value); emit(); };
-  const onPickCard = (w) => {
-    // 轮播编辑器的下钻（pickerDraft）：点卡片 = 加入/移出**草稿**，不切当前壁纸；
-    // 草稿对象被就地增删（与 importPlaylistIntoDraft / 面板编辑器同一口径），
-    // 「保存」时才由 saveEditingGroup 落盘。
-    if (selection.pickerDraft && selection.editing) {
-      const ids = selection.editing.wallpaperIds;
-      const i = ids.indexOf(w.id);
-      if (i >= 0) ids.splice(i, 1);
-      else ids.push(w.id);
-      emit();
-      return;
-    }
-    if (selection.batchMode) {
-      const i = selection.batchSelected.indexOf(w.id);
-      if (i >= 0) selection.batchSelected.splice(i, 1);
-      else selection.batchSelected.push(w.id);
-      emit();
-    } else {
-      applySelection(w.id, { fromManual: true });
-    }
-  };
   return React.createElement("div", { className: "we-picker", "data-we-cards": sel.pickerLayout },
     // ── Card header (mirrors the skin-center's pluginCard header): plugin
     //    name + live wallpaper count badge + description. ──
@@ -4777,7 +4767,7 @@ function RopeDock() {
 }
 
 // ── One-time "what's new" notice ─────────────────────────────────────────────
-// This round (v1.3.0) carries the version's four user-facing stories:
+// The notice carries four user-facing stories:
 //   ① the plugin now coexists with the web-all plugin (skins from web-all or
 //      our dynamic wallpaper — the glass family yields while a skin is on
 //      stage and restores from memory afterwards, across restarts),
@@ -4801,11 +4791,10 @@ function RopeDock() {
 // ⚠️ 公告**等配图就绪才弹**（art-gate，见 UpdateNotice）：面板 bundle 宿主每次开页
 // 都从磁盘现读，而后端路由只在 DSH 重启时换血 —— 更新后未重启的窗口期里，旧后端
 // 的 /about-qr 白名单还没有 update-notice.jpg ⇒ 图 404。若照旧立刻弹窗，用户看到
-// 裂图，而「知道了」一关整版公告永久退场，配图等于永远没人看到（v1.3.0 发布当日
-// 的真实事故）。-r2 哨兵让当时已误关公告的用户再看一次（带图版）。
+// 裂图，而「知道了」一关整版公告永久退场，配图等于永远没人看到。
 const NOTICE_VERSION = "1.3.1";
-// -r3（2026-10-07）：公告内容改版（新增「侧边栏只是简略版」大字说明 + 配图缩小）——
-// 不升哨兵的话，看过 -r2 的用户永远看不到新说明，改了等于没改 ⇒ 重弹一次。
+// 公告内容改版（新增「侧边栏只是简略版」大字说明 + 配图缩小）必须升哨兵：
+// 否则看过旧版的用户永远看不到新说明，改了等于没改 ⇒ 重弹一次是设计意图。
 // 配图就绪探针的节奏：HEAD 轮询到新白名单在场（= 后端已重启）才弹；旧后端一直
 // 不在场超过 WAIT 则降级为**无图**弹出（文案信息完整；求星入口在「关于」页常驻，
 // 不靠弹窗这一条命）。探针打在 /about-qr 上是自清洁的：404 响应 no-store、200
@@ -4813,7 +4802,7 @@ const NOTICE_VERSION = "1.3.1";
 const NOTICE_ART_WAIT_MS = 90000;
 // 探针的**退避表**（不是固定间隔）：旧后端在场时，1.5s 一拍的固定轮询在一个时限里就是
 // 60 个 HEAD，而每个 404 都会在 DevTools 控制台留下一行 —— 用户看到的是"一屏红字"
-// （v1.3.0-r2 上线当日的真实反馈：未重启的后端 + 面板多开几次 ≈150 行 404）。
+// （实测：未重启的后端 + 面板多开几次 ≈150 行 404）。
 // 请求本身是自清洁的，但刷屏不是。换成 1.5→3→6→12→30（表尾封顶）后，同一时限内
 // 总请求数 **≤10**（见 noticeArtSchedule），而"新后端一上线就带图弹"的灵敏度几乎不变
 // —— 第一拍仍在挂载瞬间，最坏情况只是晚一拍发现。
@@ -4831,7 +4820,7 @@ let noticeArtVerdict = "";
  * @param {number[]} backoff 退避表（ms，表尾持续复用 = 封顶）
  * @returns {number[]} 每次请求的相对时刻（ms），首个恒为 0（挂载即探）
  * 末拍允许被时限**截短**（`min(step, left)`）：这样"等满时限"那一拍仍然真的发出，
- * 降级判定紧跟其后 —— 与旧口径（失败回来时看是否超时）同义。
+ * 降级判定紧跟其后（失败回来时看是否超时）。
  */
 function noticeArtSchedule(waits, backoff) {
   const out = [0];
@@ -4904,21 +4893,21 @@ function UpdateNotice() {
     art === "ready" ? React.createElement("div", { className: "we-update-notice__art-cap" },
       React.createElement("strong", null, weT("在设置中的壁纸引擎页面中的关于中可一键直达，谢谢喵！"))) : null,
     React.createElement("div", { className: "we-update-notice__body" },
-      // 大字说明（.we-update-notice__callout，16pt）放在**正文第一段**（2026-10-07 用户
-      // 口径：上移到公告上半部分，别让它在文末被忽略）：用户总在侧边栏调完就走、不知道
+      // 大字说明（.we-update-notice__callout，16pt）放在**正文第一段**（用户口径：
+      // 别让它在文末被忽略）：用户总在侧边栏调完就走、不知道
       // 设置页还有全套 ⇒ 用公告里最大的一号字把这句话喊出来（允许夸张 —— 夸张的就是
       // 字号与感叹号，不夸大事实）。
       React.createElement("p", { className: "we-update-notice__callout" },
         noticeEx(3), React.createElement("strong", null, weT("侧边栏的调节只是「简略版」！")),
         weT("细致的调节都在「设置 → 壁纸引擎」里！")),
-      // ① 同样用 16pt 大字（2026-10-07 用户口径）：新下载的壁纸要点「刷新」才会进库
+      // ① 同样用 16pt 大字（用户口径）：新下载的壁纸要点「刷新」才会进库
       // —— 被问得最多的一件事，而刷新键正是本次版本刚加在顶栏的。
       React.createElement("p", { className: "we-update-notice__callout" },
         "① ", noticeEx(3), React.createElement("strong", null, weT("下载了新壁纸后要点「刷新」！")),
         weT("新壁纸要点「刷新」才会出现在壁纸库里——刷新键就在顶栏「暂停」旁。")),
       React.createElement("p", null,
         weT("自 1.2.0 以来的全部更新：")),
-      // ①–⑤ 已按用户口径简化（2026-10-07）：每条压成一两句，保留 ❗ 强调层级、
+      // ①–⑧ 每条压成一两句：保留 ❗ 强调层级、
       // 破坏性操作的警示与 oneincase 归属；被删细节（8 套上限 / 头像内置图标 /
       // 卡顿治理等）在设置页与 CHANGELOG 里都有。
       React.createElement("p", null,
@@ -4936,7 +4925,7 @@ function UpdateNotice() {
       React.createElement("p", null,
         "⑥ ", React.createElement("strong", null, weT("修复一批")),
         weT("：松散目录场景壁纸恢复实时渲染（渲染内核 WebWallGL 2.1.0，作者 oneincase）；壁纸库全量加载不再分页；玻璃配置刻度统一（存量设置自动换算）。")),
-      // ⑥⑦ 是 1.3.1 的增量（2026-10-07 用户口径：公告正文转 1.3.1，别让看过的 r2 用户
+      // ⑥⑦ 是 1.3.1 的增量（用户口径：公告正文转 1.3.1，别让看过旧版的用户
       // 重弹一次却只看到旧内容）。
       React.createElement("p", null,
         "⑦ ", noticeEx(3), React.createElement("strong", null, weT("侧栏顶栏新增「刷新」键")),
@@ -5059,7 +5048,7 @@ function useLegacySaturateCoupling() {
 // ── 软件光栅化探测 ─────────────────────────────────────────────────────────
 // 某些第三方桌面外壳（增强 / 扩展窗口模式，通常是软件合成）里 `backdrop-filter`
 // 被静默忽略：属性语法仍然被接受，所以 `@supports not (backdrop-filter: …)`
-// 永远为真 —— 那条回退根本不会启用，玻璃面板就变成「过透」（全透）。这里改为
+// 永远为真 —— 那条回退根本不会启用，玻璃面板就变成「过透」（全透）。因此这里做
 // 运行时探测：真的去建一个 WebGL 上下文并读渲染器字符串，如果它是软件光栅器
 // （或连上下文都建不出来），就把 body[data-we-glass-fallback] 挂上，让 CSS 用
 // 既有的近不透明配方接管（见 CSS 里那一段）。
@@ -5345,8 +5334,8 @@ function apply(ctx) {
         if (scrim) scrim.remove();
         clearEffects();
         setWallpaperActive(false);
-        // 主样式标签: 之前每个 bundle 求值都注入一次且从不移除 (HMR 后旧 <style>
-        // 永久留在 <head>)。只移除本次求值这一代, 重挂载由 ensurePluginCss() 补回。
+        // 主样式标签: 每次 bundle 求值都会注入一份 (HMR 后旧 <style>
+        // 永久留在 <head>), 故只移除本次求值这一代, 重挂载由 ensurePluginCss() 补回。
         if (typeof document !== "undefined" && typeof document.querySelector === "function") {
           const cssTag = document.querySelector("style[data-plugin-css=" + JSON.stringify(TAG_ID) + "]");
           if (cssTag && cssTag.dataset && cssTag.dataset.pluginCssGen === CSS_GEN
@@ -5460,13 +5449,13 @@ function apply(ctx) {
     ctx.effect(() => installWallSidebarShortcut(ctx) || undefined);
   }
 
-  // 2e. 模块级副作用搬进 fiber（第一处：`src/live-layer.js`；第二处：本文件的轮换恢复监听）：
+  // 2e. 这些副作用**必须挂 fiber**（已在 `src/live-layer.js` 与本文件的轮换恢复监听两处收口）：
   //     诊断留痕（加载即留痕 / 窗口失焦·隐藏 / 60s 心跳）与「重启恢复」档的交互即退出监听
   //     （pointerdown/keydown，once），以及「隐藏期轮换推迟到可见时补做」的
-  //     visibilitychange/focus 两条监听。它们曾经写在**模块顶层** —— 宿主每次 revision 变化
-  //     都会 tearDownEntryFiber 后用新模块体重跑一遍，模块级副作用不挂 fiber ⇒ 旧实例的定时器
+  //     visibilitychange/focus 两条监听。理由：宿主每次 revision 变化
+  //     都会 tearDownEntryFiber 后用新模块体重跑一遍，不挂 fiber ⇒ 旧实例的定时器
   //     与监听器永不释放（实测同一 document 214 个页 id、一次 window blur 被 117 份实例各记一条）。
-  //     搬到这里后随 fiber 注销，与官方契约一致（原文与现场见 src/live-layer.js 的 installLiveDiagnostics）。
+  //     与官方契约一致（原文与现场见 src/live-layer.js 的 installLiveDiagnostics）。
   if (ctx.effect && typeof document !== "undefined") {
     ctx.effect(() => installLiveDiagnostics() || undefined);
     ctx.effect(() => installLiveBootRestore() || undefined);

@@ -20,9 +20,8 @@
  *     `avatarGlyphSvgString(side, size)` / `renderAvatarGlyph(side, size)`（内置默认头像的几何，
  *     字符串版给 DOM 用、React 版给面板用 —— 同一张零件表，见下）。
  *   设置项（`avatar*`，真源 lib/settings-schema.js）：总开关 / 大小 / 圆角强度 / 两张文件名。
- *   ⚠️ **没有自定义名字行**：早先那条"头像上方的称呼"（含"助手取当前模型名"）已按用户口径
- *      整体移除（"加了它太丑了"）—— 不要再把它加回来：读模型名要挂在官方输入框的选择器槽位上，
- *      是一整条额外的 DOM 依赖，而这层装饰的职责只是"配一张脸"。
+ *   ⚠️ **没有自定义名字行**（用户口径："加了它太丑了"）—— 不要加回来：读模型名要挂在官方输入框
+ *      的选择器槽位上，是一整条额外的 DOM 依赖，而这层装饰的职责只是"配一张脸"。
  *
  * 不变量：
  *   · **只读 `selection`**：一个字节都不写（写设置只发生在 src/client.js 的具名处理器里）。
@@ -88,15 +87,7 @@ const AVATAR_GLYPH_VIEW_BOX = '0 0 16 16';
 let avatarObserver = null;
 let avatarActive = false;
 
-function avatarBody() {
-  if (typeof document === 'undefined' || !document || !document.body) return null;
-  return document.body;
-}
-function avatarClamp(v, lo, hi, fallback) {
-  const n = typeof v === 'number' && isFinite(v) ? v : Number(v);
-  if (!isFinite(n)) return fallback;
-  return Math.min(hi, Math.max(lo, n));
-}
+/* `weBody()` / `weClampTo()` 的唯一实现见 src/we-base.js（内联后同作用域）。 */
 
 /**
  * 头像图的 URL：`/avatar/<side>?v=<文件名>`。
@@ -249,7 +240,7 @@ function avatarStop() {
     avatarObserver = null;
   }
   if (typeof document === 'undefined' || !document) return;
-  const body = avatarBody();
+  const body = weBody();
   if (body) {
     body.removeAttribute(AVATAR_ATTR);
     body.style.removeProperty(AVATAR_VAR_SIZE);
@@ -275,14 +266,14 @@ function avatarStop() {
  */
 function syncAvatarLayer() {
   const on = selection.avatarEnabled === true;
-  const body = avatarBody();
+  const body = weBody();
   if (!on || !body || typeof MutationObserver !== 'function') {
     if (avatarActive || avatarObserver) avatarStop();
     else if (body) { body.removeAttribute(AVATAR_ATTR); body.style.removeProperty(AVATAR_VAR_SIZE); body.style.removeProperty(AVATAR_VAR_ROUND); }
     return;
   }
-  const size = avatarClamp(selection.avatarSize, AVATAR_CLAMP_SIZE.min, AVATAR_CLAMP_SIZE.max, AVATAR_CLAMP_SIZE.def);
-  const round = avatarClamp(selection.avatarRadius, AVATAR_CLAMP_RADIUS.min, AVATAR_CLAMP_RADIUS.max, AVATAR_CLAMP_RADIUS.def);
+  const size = weClampTo(selection.avatarSize, AVATAR_CLAMP_SIZE.min, AVATAR_CLAMP_SIZE.max, AVATAR_CLAMP_SIZE.def);
+  const round = weClampTo(selection.avatarRadius, AVATAR_CLAMP_RADIUS.min, AVATAR_CLAMP_RADIUS.max, AVATAR_CLAMP_RADIUS.def);
   body.setAttribute(AVATAR_ATTR, 'on');
   body.style.setProperty(AVATAR_VAR_SIZE, Math.round(size) + 'px');
   body.style.setProperty(AVATAR_VAR_ROUND, String(Math.round(round)));

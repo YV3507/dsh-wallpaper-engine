@@ -57,13 +57,15 @@ for (const [k, v] of [...fam.entries()].sort((a, b) => b[1].length - a[1].length
 console.log(`\n== ③ 闭包状态 ${stateNames.length} 个（拆分时要显式传的东西）==`);
 console.log('   ' + stateNames.join(' '));
 
-// 巨石：尺寸由索引按**配花括号**算出（按"到下一个同级声明的距离"量会把整个嵌套体算成巨石）
+// 非路由工厂：从 apply() 拆出的模块各吃哪些 `c` 字段（尺寸由索引按**配花括号**算出 ——
+// 按"到下一个同级声明的距离"量会把整个嵌套体算成巨石）。原先这里量的是"apply() 内的四大巨石"，
+// 四者已全部搬出 apply()（见索引的「前置 3」注释）。
 if (giants.some((g) => g.lines)) {
-  console.log('\n   apply 内的巨石（索引按配花括号计）：');
+  console.log('\n   非路由工厂模块的 `c` 字段（原『apply 内巨石』已全部搬出 apply()）：');
   for (const g of giants) {
     if (!g.lines) { console.log('     ?? ' + g.name + '（没找到声明）'); continue; }
-    console.log('     ' + String(g.lines).padStart(5) + ' 行  行' + g.from + '  ' + g.name
-      + '  捕获 ' + g.deps.length + ' 个');
+    console.log('     ' + String(g.lines).padStart(5) + ' 行  ' + g.file + '  ' + g.name
+      + '  吃 ' + g.deps.length + ' 个: ' + g.deps.join(' '));
   }
 }
 

@@ -1,10 +1,9 @@
 /**
  * glass-panel.js — 「玻璃 UI」节的**渲染器**（纯渲染 + 显式 ctx）。
  *
- * 为什么单开一个文件（wip §10.13）：这一段原在 `src/panel-tabs.js`（1700+ 行、七个页签）里，
- * 而它与其余页签**只共享模块级纯助手** —— `React` / `SliderRow` / `switchRow` / `swatchRow` /
- * `weT` / `GLASS_COLOR_PRESETS` 都是**顶层声明**（`src/client.js` 等），构建期内联进同一工厂
- * 作用域 ⇒ 抽出来**不需要任何 ctx 传参样板**，`renderAppearanceTab` 照旧按名字调用即可。
+ * 为什么单开一个文件：它与其它页签**只共享模块级纯助手** —— `React` / `SliderRow` / `switchRow` /
+ * `swatchRow` / `weT` / `GLASS_COLOR_PRESETS` 都是**顶层声明**（`src/client.js` 等），构建期内联进
+ * 同一工厂作用域 ⇒ **不需要任何 ctx 传参样板**，`renderAppearanceTab` 按名字调用即可。
  *
  * 契约（与 `src/panel-tabs.js` 文件头同一条，不在此重复解释）：
  *   · **只读** ctx —— 不得写 `selection` / ctx 别名指向的东西 / 模块级状态；
@@ -13,21 +12,20 @@
  *
  * 渲染源是**注册表驱动**的：`GLASS_CHILDREN`（`lib/settings-schema.js` 的登记表）+ `childGlassKey()`
  * 决定每个子项有哪些参数、叫什么 ⇒ 这里**不硬编码四项**（硬编码正是"面板渲染死旋钮"的来源，
- * 见 wip §10.12：四个子项曾多出 5 个没人读的键、左侧栏那节还多一行连 schema 键都不存在的滑杆）。
+ * 见 wip §10.12）。
  */
 /**
  * 「玻璃 UI」节 —— 全局四件套 + 每个子面的「独立配置」开关（高级配置）。
  *
- * 结构（wip §10.20 之后）：
+ * 结构：
  *   玻璃 UI
  *   ├─ 全局：玻璃颜色 · 玻璃透明度 · 雾化 · 玻璃保真度
  *   └─ 子 UI 独立配置（不进简化配置）
  *      └─ 每个子面一个开关：[独立配置] ⇒ 打开后展开它自己的参数行
  *
- * ⚠️ **没有"要不要玻璃"的开关**（用户口径）：原先是两级（「子 UI 玻璃」总开关 + 每项开关），
- *    实测那个"关"并**不能**如愿恢复原生黑/白纯色（那些面上还有一批不挂门控的令牌改写），
- *    而要做到"关得像样"得连令牌层一起回退 ⇒ 整层退役（见 `src/glass.js` 的退役说明）。
- *    所以这里剩下的**唯一**问题就是"读自己 还是 跟全局"。
+ * ⚠️ **没有"要不要玻璃"的开关**（用户口径）：玻璃是恒要的 —— 实测一个"关"并**不能**如愿恢复
+ *    原生黑/白纯色（那些面上还有一批不挂门控的令牌改写，见 `src/glass.js` 的退役说明）⇒ 这一节
+ *    剩下的**唯一**问题就是"读自己 还是 跟全局"。
  * ⚠️ 「左侧栏液态玻璃」**不在**本节的子项里：它的"关"是**恢复背景**（那列回到壁纸原样），
  *    语义不同 —— 它是乙类，独立成项留在「细节」，本节的 `panelOff` 过滤就是为它。
  */
@@ -71,11 +69,11 @@ function renderGlassPresetsBlock(gp) {
   const labelOf = (row) => (row.origin === "builtin" && FACTORY_PRESET_CN[row.id])
     ? FACTORY_PRESET_CN[row.id]
     : (row.name || row.id);
-  // 两行四列的圆角表格（2026-10-04 用户口径）：每格 = 预设名（点击应用，占满）
+  // 两行四列的圆角表格（用户口径）：每格 = 预设名（点击应用，占满）
   // + 右侧固定删除键；不足 8 个的格子画虚框空位 —— 上限 8 直接看得见。
   // ⚠️ armedId 是 **裸 id**（armedIdOf("gpreset") 已把族前缀剥掉，与 fontset-editor
   //    同一口径）—— 拿它和带前缀的令牌串比较永远不等 ⇒ 确认行永远不渲染
-  //    （2026-10-04 实测："点删除没反应"就是这个）。行为守卫：verify-presets ④。
+  //    （实测："点删除没反应"就是这个）。行为守卫：verify-presets ④。
   const cells = [];
   for (let i = 0; i < 8; i++) {
     const row = rows[i];
@@ -100,7 +98,7 @@ function renderGlassPresetsBlock(gp) {
           : weT("应用「{name}」：整组玻璃观感立即生效，之后可以继续微调", { name: labelOf(row) }),
         onClick: () => onApply(row.id),
       }, labelOf(row)),
-      // ⚠️ 删除键对**所有格**都有（2026-10-04 用户口径：出厂预设可删，删除即永久、
+      // ⚠️ 删除键对**所有格**都有（用户口径：出厂预设可删，删除即永久、
       //    不可恢复），统一固定在每格最右侧；文案按 origin 分。
       React.createElement("button", {
         className: "we-picker__btn we-picker__preset-del", type: "button",
@@ -182,15 +180,14 @@ function renderAppearanceGlassSection(ctx) {
     onSidebarFollowGlobal, onSidebarFullClear,
     onThinkingMode,
   } = ctx;
-  // ── 简化配置 vs 高级配置（ADR-0008 的 **D4**，2026-10-05 用户口径细化）────────────────
+  // ── 简化配置 vs 高级配置（ADR-0008 的 **D4**，用户口径细化）────────────────────
   //   · **简化配置**（侧栏档 + 设置页都画）：全局四件套（玻璃颜色 / 玻璃透明度 / 雾化 /
   //     玻璃保真度）、预设方案、"要不要这一面吃玻璃"的**总开关**（思考块液态玻璃 /
   //     侧栏液态玻璃 / 侧栏全透明 / 侧栏玻璃跟随全局 / 左侧栏液态玻璃）；
   //   · **高级配置**（**只在设置页画**）：每个面的「独立配置」层**及其子项参数**，
   //     以及挂在总开关下面的**细调行**（思考块门下的胶囊雾化 / 胶囊颜色）。
   //   判定一律走 `ctx.surface`（quick-panel 传 "sidebar"）—— 这就是 D4 的实现口径。
-  //   ⚠️ 历史：2026-10-03 曾按当时口径把这道门整体拆掉（"两档同内容"），但 **ADR-0008 D4
-  //   没有随之修订** ⇒ 文档与实现自那天起不一致；本次按 D4 恢复，并把它细化成上面这张表。
+  //   ⚠️ 分档口径以 **ADR-0008 D4** 为准，上面这张表就是它的实现。
   //   ⚠️ 与 D4 配套的是 quick-panel 的 **setting-only 占位器**：侧栏不再画的那些处理器进了
   //   占位器名单（取用即抛错）⇒ 将来某次编辑把高级行挪回侧栏档会**当场炸**，而不是静默
   //   变成"点了没反应"的旋钮。判据见 verify-scene-live 的「侧栏 ctx 覆盖」与两档标签序列。
@@ -205,9 +202,8 @@ function renderAppearanceGlassSection(ctx) {
   // 词条会全成孤儿、文本也进不了"裸中文"检查。所以词表每一项都直接过 weT。
   // （放在渲染函数内而非模块级：weT 依赖当前语言，必须每次渲染重取。）
   // 两侧靠 `id` 对齐；下面有兜底把"漏了哪个 id"当场画出来（比静默无标签好）。
-  // ⚠️ 只有 `hint`（子面的**身份**，挂在「独立配置」那一行上）与各参数文案 ∶
-  //    原先还有一个 `label`（子面的开关标签）—— 那个开关随"要不要玻璃"一起退役，
-  //    字段随之变成**死数据**，已删（对应的 4 条 i18n 词条也一并清掉，wip §10.23）。
+  // ⚠️ 词表只有 `hint`（子面的**身份**，挂在「独立配置」那一行上）与各参数文案 —— 子面的
+  //    `label`（开关标签）随"要不要玻璃"那一层一起不存在（对应的 i18n 词条同批清掉）。
   const CHILD_CN = {
     settingsWindow: {
       hint: weT("整个设置窗口（含全部原生分区）"),
@@ -244,12 +240,10 @@ function renderAppearanceGlassSection(ctx) {
       alpha: weT("思考触发条玻璃·玻璃透明度"), blur: weT("思考触发条玻璃·雾化"),
     },
   };
-  // ⚠️ 用户口径（wip §10.20）：**"要不要玻璃"这一层退役了** ——
-  //   原设计里每个子面先有一个「玻璃」开关（关 = 回到原生不透明纯色），实测那个"关"
-  //   并不能如愿恢复原生（那些面上还有一批不挂门控的令牌改写，见 glass.js 的退役说明），
-  //   而两级耦合（总开关 + 子开关）本身也让这一节很难读。
-  // ⇒ 现在这一节**只剩一层**：每个子面一个「独立配置」开关 —— 它回答的是
-  //   "读自己那套参数 还是 跟全局"。要不要玻璃是恒定的（恒要），不再是用户选项。
+  // ⚠️ 用户口径：**"要不要玻璃"这一层不存在** —— 所有子面**恒吃玻璃**。实测一个"关"并不能
+  //   如愿恢复原生不透明纯色（那些面上还有一批不挂门控的令牌改写，见 glass.js 的退役说明）。
+  // ⇒ 这一节只剩一层：每个子面一个「独立配置」开关 —— 它回答的是
+  //   "读自己那套参数 还是 跟全局"。
   const childRows = [];
   // ⚠️ 高级配置（D4）：侧栏档连**构建**都不做 —— `childIndependentOn` / `onToggleChildIndependent`
   //    在侧栏 ctx 里是"取用即抛错"的占位器，构建这些行会在渲染期当场抛错。这正是那道门该有的
@@ -314,11 +308,9 @@ function renderAppearanceGlassSection(ctx) {
     ),
     // ── 预设方案（本节第一行，先于一切旋钮；**高级配置：只在设置页画**，ADR-0008 D4）──
     // ctx 成员由 client.js 的 glassPresetCtx 提供（清单/错误是宿主投影；应用走 settings 通道）。
-    // ⚠️ 这道门此前是**隐式**的 —— 侧栏档只是"没传 glassPresets"，靠渲染器入口守卫
-    //    `if (!presets) return null` 顺带不画 ⇒ 谁把那个字段补进侧栏 ctx，整块就会**静默**
-    //    出现在侧栏，且当时没有任何判据对着预设块判过。现在显式化：
-    //    ① 门在这里；② `glassPresets` 已进 quick-panel 的 setting-only 占位器（误补 ⇒ 当场炸）；
-    //    ③ verify-scene-live 两档都钉住预设块（标签序列 + 整树文本锚：侧栏档不许有、设置档必须有）。
+    // ⚠️ 这道门是**显式**的，三处对齐：① 门在这里；② `glassPresets` 已进 quick-panel 的
+    //    setting-only 占位器（误补 ⇒ 当场炸）；③ verify-scene-live 两档都钉住预设块
+    //    （标签序列 + 整树文本锚：侧栏档不许有、设置档必须有）。
     //    分类理由：它不是"总开关"也不是"逐面覆盖"，而是**跨面批量覆盖**（一份预设 = 玻璃子系统
     //    完整快照，应用即 Object.assign 整套覆盖、**无确认无撤销**），且出厂预设**删除即永久** ——
     //    这类动作按 D4 的取向属高阶；侧栏是窄面板 + 随手调的场合。
@@ -329,8 +321,7 @@ function renderAppearanceGlassSection(ctx) {
     // color tints the whole window glass in BOTH themes.
     swatchRow(weT("玻璃颜色"), GLASS_COLOR_PRESETS, sel.glassColor, onGlassColor, { key: "glass-color" }),
     SliderRow(weT("玻璃透明度"), 0, 100, 5, sel.glassAlpha, onGlassAlpha, sel.glassAlpha + "%"),
-    // 「雾化」= 原「玻璃」滑块：控制的只有**模糊半径**（雾面深度），饱和度是解耦的
-    // 常量材料属性（见 GLASS_SATURATE）。
+    // 「雾化」控制的只有**模糊半径**（雾面深度），饱和度是解耦的常量材料属性（见 GLASS_SATURATE）。
     // ⚠️ 覆盖面的实测口径（`.test-cache/blur-selectors.mjs` 复算，按规则头归面）：
     //    它喂的 `--we-blur` 被这些面消费 —— 对话栏一族（输入卡片 / 气泡 / 工具弹卡）、
     //    **左侧栏液态玻璃**（`data-we-left-sidebar` 那列的 `::before`）、**设置窗口**、
@@ -348,16 +339,13 @@ function renderAppearanceGlassSection(ctx) {
     SliderRow(weT("玻璃保真度"), 0, 100, 5, sel.glassFidelity, onGlassFidelity, sel.glassFidelity + "%", "glass-fidelity", {
       tooltip: weT("100 = 完整可读性红线（默认）：自定义玻璃色经亮度钳制，正文对比度始终 ≥4.5:1 —— 深色主题下颜色被压暗、浅色主题下被提亮。拉低后颜色更贴你选的原色，但正文在极端明暗的壁纸上可能看不清；看不清字时把本项拉回 100，或按「看不清字三步」调节。"),
     }),
-    // ⚠️ 这里原本有独立的「对话栏玻璃保真度」旋钮（`chatGlassFidelity`）。**已撤除**
-    //    （用户口径）：既然有了「对话框玻璃·独立配置」，同一个"对话栏的保真度"就有两个
-    //    入口了 —— 那是两个旋钮控同一件事。现在它**只**由「对话框玻璃·独立配置」下的
-    //    「对话框玻璃·玻璃保真度」提供，存储键**复用** `chatGlassFidelity`（D2：不新建
-    //    平行键），所以老配置的值不会丢。
-    // 思考块液态玻璃 —— **三挡**（2026-10-06 用户口径，二次收窄）：关（对话区半透明透壁纸，
-    // 截图现状）/ 液态玻璃（磨砂，原开关的"开"）/ 原生（**只有正文内容**——气泡 / 代码块 /
-    // 思考区——恢复 DSH 原生不透明实色；输入框与画布保留玻璃）。存储是两个布尔
-    // （thinkingGlass + thinkingNative），**原生挡赢**的互斥在 effects.js 门控层保证，
-    // 本分段只负责把两键写一致。总开关级 ⇒ 两侧都画（D4）。
+    // ⚠️ 「对话栏的保真度」**只有**「对话框玻璃·独立配置」下的「对话框玻璃·玻璃保真度」一个入口
+    //    （两个旋钮控同一件事是要防的）；存储键复用 `chatGlassFidelity`（D2：不新建平行键），
+    //    老配置值不丢。
+    // 思考块液态玻璃 —— **三挡**（用户口径）：关（对话区半透明透壁纸）/ 液态玻璃（磨砂）/
+    // 原生（**只有正文内容** —— 气泡 / 代码块 / 思考区 —— 恢复 DSH 原生不透明实色；输入框与画布
+    // 保留玻璃）。存储是两个布尔（thinkingGlass + thinkingNative），**原生挡赢**的互斥在 effects.js
+    // 门控层保证，本分段只负责把两键写一致。总开关级 ⇒ 两侧都画（D4）。
     // ⚠️ 原生挡下胶囊两行（门 = thinkingGlass）整组不画 —— 那族 CSS 挂在
     //    data-we-thinking-glass 门下，原生挡不挂门 ⇒ 画了就是死旋钮。
     React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap", key: "thinking-mode" },
@@ -383,15 +371,10 @@ function renderAppearanceGlassSection(ctx) {
       key: "capsule-color",
       tooltip: weT("行内代码胶囊、新会话按钮、导航按钮与聊天滚动条拇指的雾底色相 —— 默认白（原观感）。只在这些胶囊吃玻璃（思考块液态玻璃开着）时生效；浓度档不变（10%）。"),
     }),
-    // ── 既有面的**显示开关**与它们的独立配置（原「窗口与侧栏」/「细节」两节并进本节，§10.25）──
-    // ⚠️ 为什么并进来：原先这些控件住在「窗口与侧栏」节，而那节**只在宿主上报
-    //    `sidebarPresent`（装了 dsh-better-sidebar）时才画得出内容** —— 没装的机器上它就是一个
-    //    **只有标题的空节**。而「左侧栏液态玻璃」原先被刻意排除在「玻璃 UI」之外，理由是它与那节的
-    //    "关 = 回原生纯色"（乙类语义）冲突；那一层已在 §10.20 整体退役 ⇒ **冲突消失**，
-    //    这些面控件与其余玻璃配置放在一起在语义上更顺（用户口径）。
+    // ── 既有面的**显示开关**与它们的独立配置 ──
     // ⚠️ 门槛分两层：宿主能力位（`sidebarPresent` / `sidebarGlass`：装没装 dsh-better-sidebar、
     //    总开关开没开）**与**档位门（`!sidebarSurface`）—— 下面这一段里，**总开关**两档都画，
-    //    挂在它们下面的**独立配置层**只在设置页画（ADR-0008 D4，2026-10-05 口径）。
+    //    挂在它们下面的**独立配置层**只在设置页画（见 ADR-0008 D4）。
     // 左侧栏液态玻璃（默认关）：宿主原生左栏在壁纸下只是「透明的洞」，打开后它走同一张配方表。
     // ⚠️ 它**不是**"要不要玻璃"那一类：它的「关」是**恢复背景**（那一列回到壁纸原样）——
     //    所以它是唯一保留的**显示开关**（乙类），与其余面"恒吃玻璃"不同。
@@ -410,8 +393,8 @@ function renderAppearanceGlassSection(ctx) {
       tooltip: weT("打开后**紧接在本行下方**出现左侧栏自己的两项（玻璃透明度 / 雾化），**完全覆盖**「玻璃 UI」里的全局配置；关闭则回到继承全局。"),
     }),
     // 独立配置开着才出现它自己的两项（默认关 ⇒ 默认跟随全局）。
-    // ⚠️ R3a（§10.12）：这里原本是"四件套"，其中**两个是死的** —— `leftSidebarFidelity` 连 schema
-    //    键都不存在、`leftSidebarColor` 无人读取（本面 CSS 只读 `--we-left-sidebar-blur/-alpha`）。
+    // ⚠️ 只画**真正接线**的那两个 —— 本面 CSS 只读 `--we-left-sidebar-blur/-alpha`，
+    //    不消费颜色与保真度 ⇒ 画了就是死旋钮（R3a）。
     sel.leftSidebarGlass === true && !sidebarSurface && !!(childIndependentOn && childIndependentOn("leftSidebar")) && [
       SliderRow(weT("左侧栏玻璃·玻璃透明度"), 0, 100, 5,
         sel.leftSidebarTransparency, (v) => onGlassChildParam("leftSidebar", "transparency", v),
@@ -467,7 +450,7 @@ function renderAppearanceGlassSection(ctx) {
     }),
     // 跟随全局（sidebarFollowGlobal，默认开，现场口径："我需要侧栏玻璃也跟随全局"）：
     // 开着 ⇒ 侧栏的釉变量直接指向全局三件套（effects 里写 var() 引用），并把下面
-    // 侧栏那一族的「独立配置」收起 —— 画出来又不生效的旋钮是要防的（WIP 原口径）。
+    // 侧栏那一族的「独立配置」收起 —— 画出来又不生效的旋钮是要防的。
     // 内容面（可读性旋钮）与跟随无关 ⇒ 不受此门影响，照旧在场。
     sel.sidebarPresent && sel.sidebarGlass && switchRow(weT("侧栏玻璃跟随全局"), sel.sidebarFollowGlobal === true, onSidebarFollowGlobal, {
       key: "sidebar-follow-global",
@@ -475,9 +458,9 @@ function renderAppearanceGlassSection(ctx) {
       tooltip: weT("打开：侧栏玻璃跟随「玻璃 / 玻璃透明度 / 玻璃颜色」（与原生左栏同一条配方，两侧栏一致）；关闭：用下面三个旋钮单独调侧栏"),
     }),
     sel.sidebarPresent && sel.sidebarGlass && !sidebarSurface && [
-      // 这两个面的「独立配置」层（§10.24 补的缺口）：`glassMode` 的唯一写入方是
-      // `onToggleChildIndependent`，而 `sidebar` / `sidebarContent` 不在登记表里 ⇒ 没有这两个开关
-      // 时它们的 mode 永远停在 `'inherit'` ⇒ 下面那 5 个滑块**全是死的**。判据见第 ⑧ 组的 mode 可达性。
+      // 这两个面的「独立配置」层：`glassMode` 的唯一写入方是 `onToggleChildIndependent`，
+      // 而 `sidebar` / `sidebarContent` 不在登记表里 ⇒ 没有这两个开关时它们的 mode 永远停在
+      // `'inherit'` ⇒ 下面那 5 个滑块**全是死的**。判据见第 ⑧ 组的 mode 可达性。
       // ⚠️ 整块是**独立配置层** ⇒ 高级配置：侧栏档不画（D4 表见函数头；侧栏那几个总开关照画）。
       !sel.sidebarFollowGlobal && switchRow(weT("侧栏玻璃·独立配置"),
         !!(childIndependentOn && childIndependentOn("sidebar")),
@@ -516,8 +499,8 @@ function renderAppearanceGlassSection(ctx) {
       ],
     ],
     // ── 子 UI 独立配置（**高级配置专属**：侧栏档不画 —— ADR-0008 D4）──
-    // 这一节现在是**一层**：每个子面一个「独立配置」开关 —— 开 = 用自己那套参数覆盖全局。
-    // ⚠️ 这里**没有**「要不要玻璃」的开关（那一层已退役，见上）：所有子面恒吃玻璃。
+    // 这一节只有**一层**：每个子面一个「独立配置」开关 —— 开 = 用自己那套参数覆盖全局。
+    // ⚠️ 这里**没有**「要不要玻璃」的开关（见上）：所有子面恒吃玻璃。
     // ⚠️ 侧栏档只画到上面的总开关为止；这些行与它们展开的参数都在设置页（判定走 ctx.surface）。
     ...(sidebarSurface ? [] : childRows),
   ),

@@ -2,8 +2,8 @@
  * font/apply.js — 字体自定义的**落地点**（设置 → DOM）：宿主默认值快照 + 组件作用域样式表。
  *
  * 为什么单独一个文件：字体系统的其它三个模块都是**纯计算**（角色表 / 令牌 / 钩子生成），
- * 只有这里碰 DOM。把它从 src/effects.js 里分出来，"效果应用层"（scrim / 玻璃 / 光标 / 淡出底色）
- * 就不再夹带字体代码 —— 读一处就够。
+ * 只有这里碰 DOM。独立出来，**效果应用层**（scrim / 玻璃 / 光标 / 淡出底色）
+ * 就不夹带字体代码 —— 读一处就够。
  *
  * ══ 契约（本文件是客户端程序的一部分，构建期由 scripts/build-client.mjs 内联进 bundle 的
  * 工厂作用域，因此"外部作用域"= 同一 prelude / src/client.js 的顶层）══════════════════════
@@ -37,7 +37,7 @@
 // ── 宿主角色色快照（面板要显示「当前默认色」）──────────────────────────────
 // 这个数组与 snapshotHostFontDefaults 只服务一件事：把**宿主此刻的角色色**记进 --we-host-*，
 // 供面板显示「当前默认色」。它不注入任何规则，也没有"还原契约"
-//（[data-we-font-ignore] 全仓没有消费者，已随全局字体层一起删除）。
+//（`[data-we-font-ignore]` 全仓没有消费者）。
 // 白闪红线（v0.6.4 起）：不要引入 :has() 或祖先相关选择器 —— 祖先失效集会把点击/输入的
 // 样式重算扩大到整棵 DOM，是 kiosk 窗口整屏刷白的点火条件。
 const WE_HOST_TOKENS = [
@@ -158,7 +158,7 @@ function applyComponentFonts() {
     const cfg = selection.componentFonts && typeof selection.componentFonts === "object"
       ? selection.componentFonts : {};
     const { ids, hookScopes, hasToken } = componentFontAvailability();
-    // 族值自本版起是**族键**（内置键或 `sys:` 本机字体键）⇒ 两条通道都要经 fontFamilyStack
+    // 族值是**族键**（内置键或 `sys:` 本机字体键）⇒ 两条通道都要经 fontFamilyStack
     // 解析成 CSS 栈。解析函数由这里显式传进去：components.js 是纯计算，不认族键值域。
     const css = buildComponentCss(cfg, ids, fontFamilyStack)
       + buildDslBlocks(cfg, ids, hasToken, hookScopes, fontFamilyStack);

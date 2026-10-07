@@ -69,7 +69,7 @@ DSH 0.1.5 的官方原生侧栏；仍停留在 0.1.2-rc.1 旧内核的用户请�
 - 本插件依赖的 slots / webserver / 主题变量等 API 在 0.1.2-rc.1 → 0.1.5-rc.1 之间经实测同样稳定。
 - v0.7.2 起官方原生右侧栏纳入「侧栏液态玻璃」适配（修复升级 better-sidebar 0.19 后右侧栏整体透明的
   回归），细节见 [`CHANGELOG.md`](./CHANGELOG.md) 的 v0.7.2 条目。
-- **当前版本 1.3.0**（`package.json` 的 `version`；npm 上最新发布为 v1.2.0）：本文件的端到端实测记录停在 v0.7.1/v0.7.2；
+- **当前版本以 `package.json` 的 `version` 为准，已发布版本见 npm 包页 / GitHub Releases**：本文件的端到端实测记录停在 v0.7.1/v0.7.2；
   v0.7.5 及之后的实时渲染链路另有离线验收（`test/verify-scene-live.mjs` 等，跑 `npm run verify`；
   **链条由哪些守卫组成以 `package.json` 的 `verify` 脚本为准**，本文不列条数）。
 

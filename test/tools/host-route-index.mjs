@@ -274,22 +274,37 @@ export function buildIndex() {
     md.push('');
   }
 
-  // ── 前置 3：四大巨石的闭包状态清单 ──────────────────────────────────────────
-  // ⚠️ 必须在**整份剥好的源码**（stripped）里找声明与配花括号：逐行剥字符串会把跨行模板
-  //    字面量里的花括号算进深度，巨石会被切成几十行。
-  const GIANTS = ['ensureMediaOrigin', 'serveFile', 'buildInventory', 'handleSceneFiles'];
-  const giants = GIANTS.map((g) => {
-    let at = -1;
-    for (let i = main.scope.start + 1; i <= main.scope.end; i++) {
-      const s = main.st[i - 1] || '';
-      if (new RegExp('(^|\\s)(?:async\\s+)?function\\s+' + g + '\\s*\\(').test(s)
-        || new RegExp('(^|\\s)(?:const|let|var)\\s+' + g + '\\s*=').test(s)) { at = i; break; }
-    }
-    if (at < 0) return { name: g, from: 0, to: 0, lines: 0, deps: [] };
-    const end = braceEnd(main.L, main.st, at);
-    const body = main.st.slice(at - 1, end).join('\n');
-    const deps = main.scope.names.filter((n) => n !== g && new RegExp('(^|[^.\\w$])' + n + '\\b').test(body));
-    return { name: g, from: at, to: end, lines: end - at + 1, deps };
+  // ── 前置 3：从 apply() 拆出的**非路由工厂**的上下文契约 ─────────────────────
+  // ⚠️ 这里原先列的是"apply() 内的四大巨石"（`ensureMediaOrigin` / `serveFile` / `buildInventory`
+  //    / `handleSceneFiles`）与它们捕获的 apply 作用域状态。B1 落地后四者**全部搬出** apply()
+  //    ⇒ 旧判据只剩"没找到声明"，外加一处把 `const buildInventory = createInventoryBuilder({…})`
+  //    误当声明的 9 行假匹配。改成列这几个工厂模块**声明的 `c` 字段** —— 语义等价
+  //    （"这个模块吃外面哪些东西"就是那份 context 设计稿），且拆分后仍然成立。
+  //    ⚠️ 必须在**整份剥好的源码**（stripped）里配花括号：逐行剥字符串会把跨行模板字面量里的
+  //    花括号算进深度。工厂的 `c` 有两种写法，都要认：形参解构 `({ a, b })` 与 `(c)` ＋
+  //    `const { a, b } = c;`。`deps` 键名沿用 `giants`（analyze-host-apply 按同口径读）。
+  const FACTORY_MODULES = [
+    ['lib/media-origin.js', 'createMediaOrigin'],
+    ['lib/inventory.js', 'createInventoryBuilder'],
+    ['lib/serve.js', 'createServeKit'],
+    ['lib/faststart.js', 'createFaststartKit'],
+  ];
+  const fieldsOf = (headLine, body) => {
+    const pick = (s) => s.split(',').map((p) => p.trim().split(':')[0].trim()).filter(Boolean);
+    const inline = /\{([^}]*)\}\s*\)\s*\{?\s*$/.exec(headLine);
+    if (inline) return pick(inline[1]);
+    const dm = /const\s*\{([^}]*)\}\s*=\s*c\s*;/.exec(body);
+    return dm ? pick(dm[1]) : [];
+  };
+  const giants = FACTORY_MODULES.map(([rel, fn]) => {
+    const raw = readFileSync(join(ROOT, rel), 'utf8');
+    const L = raw.split('\n');
+    const st = stripSource(raw);
+    const at = L.findIndex((l) => new RegExp('export\\s+function\\s+' + fn + '\\s*\\(').test(l)) + 1;
+    if (!at) return { name: fn, file: rel, from: 0, to: 0, lines: 0, deps: [] };
+    const end = braceEnd(L, st, at);
+    const body = L.slice(at - 1, end).join('\n');
+    return { name: fn, file: rel, from: at, to: end, lines: end - at + 1, deps: fieldsOf(L[at - 1], body) };
   });
 
   return {
@@ -309,10 +324,10 @@ const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv
 if (isMain) {
   const { text, routes, modules, orphanModules, giants } = buildIndex();
   if (process.argv.includes('--deps')) {
-    console.log('\n== 四个巨石的闭包状态清单（前置 3）==');
+    console.log('\n== 非路由工厂模块的上下文契约（前置 3）==');
     for (const g of giants) {
       if (!g.lines) { console.log('  ?? ' + g.name + '（没找到声明）'); continue; }
-      console.log(`  ${g.name}  ${g.from}-${g.to}（${g.lines} 行）捕获 ${g.deps.length} 个: ${g.deps.join(' ')}`);
+      console.log(`  ${g.file} → ${g.name}  ${g.from}-${g.to}（${g.lines} 行）吃 ${g.deps.length} 个: ${g.deps.join(' ')}`);
     }
     console.log('\n== 路由模块的 context 契约 ==');
     for (const m of modules) {

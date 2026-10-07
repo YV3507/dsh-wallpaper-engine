@@ -14,52 +14,52 @@
 
 | # | 路径 | 来源 | 形态 | 依赖（闭包状态 / `c` 字段） | 守卫提及 |
 |---|---|---|---|---|---|
-| 1 | `/inventory` | lib/index.js:3206 | async 箭头 | webServer buildInventory disposers observeAdapter | 17 |
-| 2 | `/media-info` | lib/index.js:3346 | 箭头 | webServer log mediaMap disposers | 7 |
-| 3 | `/transcode-progress` | lib/index.js:3376 | 箭头 | webServer mediaMap disposers | 2 |
-| 4 | `/transcoded` | lib/index.js:3429 | 箭头 | webServer mediaMap disposers serveFile | 1 |
-| 5 | `/media` | lib/index.js:3485 | 箭头 | webServer log mediaMap disposers serveFile | 17 |
-| 6 | `/preview` | lib/index.js:3485 | 箭头 | webServer log mediaMap disposers serveFile | 8 |
-| 7 | `/video-preview` | lib/index.js:3514 | 箭头 | webServer mediaMap disposers serveFile | 1 |
-| 8 | `/scene-frame` | lib/routes/scene-frame.js:73 | 箭头 | disposers base mediaMap trackStream customFramePath customIdFromAbs …(+3) | 12 |
-| 9 | `/scene-frame-cache` | lib/routes/scene-frame.js:151 | 箭头 | disposers base mediaMap GPU_FRAME_MAX_BYTES GPU_WRITE_INFLIGHT armBodyIdleTimeout …(+4) | 4 |
-| 10 | `/custom-frame` | lib/routes/scene-frame.js:238 | 箭头 | disposers base serveFile CUSTOM_FRAME_EXT CUSTOM_FRAME_MAX_BYTES armBodyIdleTimeout …(+3) | 2 |
+| 1 | `/inventory` | lib/index.js:2731 | async 箭头 | webServer disposers mediaOriginApi buildInventory | 18 |
+| 2 | `/media-info` | lib/routes/media-derived.js:50 | 箭头 | disposers base mediaMap log getMediaInfo faststartVariant | 8 |
+| 3 | `/transcode-progress` | lib/routes/media-derived.js:80 | 箭头 | disposers base mediaMap transcodeJobs | 2 |
+| 4 | `/transcoded` | lib/routes/media-derived.js:133 | 箭头 | disposers base mediaMap serveFile transcodeToFps registerTranscodeWaiter | 1 |
+| 5 | `/video-preview` | lib/routes/media-derived.js:192 | 箭头 | disposers base mediaMap serveFile generateVideoPreview | 2 |
+| 6 | `/media` | lib/routes/media-bytes.js:33 | 箭头 | disposers base serveFile mediaMap log pinnedFaststartVariant | 18 |
+| 7 | `/preview` | lib/routes/media-bytes.js:33 | 箭头 | disposers base serveFile mediaMap log pinnedFaststartVariant | 9 |
+| 8 | `/scene-frame` | lib/routes/scene-frame.js:74 | 箭头 | disposers base mediaMap trackStream customFramePath customIdFromAbs …(+3) | 12 |
+| 9 | `/scene-frame-cache` | lib/routes/scene-frame.js:152 | 箭头 | disposers base mediaMap GPU_FRAME_MAX_BYTES GPU_WRITE_INFLIGHT armBodyIdleTimeout …(+4) | 4 |
+| 10 | `/custom-frame` | lib/routes/scene-frame.js:237 | 箭头 | disposers base serveFile CUSTOM_FRAME_EXT CUSTOM_FRAME_MAX_BYTES armBodyIdleTimeout …(+3) | 3 |
 | 11 | `/scene-live` | lib/routes/scene-serve.js:53 | 箭头 | disposers base WEBWALLGL_DIR appendDiagLine traceRequests serveFile …(+1) | 7 |
 | 12 | `/scene-files` | lib/routes/scene-serve.js:91 | 箭头 | disposers base handleSceneFiles | 5 |
 | 13 | `/media-origin` | lib/routes/scene-serve.js:99 | 箭头 | disposers base mediaOriginInfo | 1 |
 | 14 | `/scene-payload-progress` | lib/routes/scene-serve.js:119 | 箭头 | disposers base payloadProgress | 1 |
-| 15 | `/props` | lib/index.js:3868 | 箭头 | webServer mediaMap disposers | 6 |
-| 16 | `/live-frame` | lib/index.js:3914 | 箭头 | webServer mediaMap disposers serveFile | 2 |
-| 17 | `/media-status` | lib/routes/now-playing.js:76 | 箭头 | disposers base | 2 |
-| 18 | `/audio-spectrum` | lib/routes/now-playing.js:86 | 箭头 | disposers base | 2 |
-| 19 | `/now-playing` | lib/routes/now-playing.js:105 | 箭头 | disposers base | 3 |
-| 20 | `/now-playing/artwork` | lib/routes/now-playing.js:119 | 箭头 | disposers base serveFile | 2 |
-| 21 | `/media-control` | lib/routes/now-playing.js:137 | 箭头 | disposers base | 3 |
+| 15 | `/props` | lib/routes/props.js:42 | 箭头 | disposers base mediaMap userPropsFor | 7 |
+| 16 | `/live-frame` | lib/routes/live-frame.js:41 | 箭头 | disposers base mediaMap serveFile traceRequests liveFrameFile …(+2) | 2 |
+| 17 | `/media-status` | lib/routes/now-playing.js:78 | 箭头 | disposers base | 2 |
+| 18 | `/audio-spectrum` | lib/routes/now-playing.js:88 | 箭头 | disposers base | 2 |
+| 19 | `/now-playing` | lib/routes/now-playing.js:107 | 箭头 | disposers base | 3 |
+| 20 | `/now-playing/artwork` | lib/routes/now-playing.js:121 | 箭头 | disposers base serveFile | 2 |
+| 21 | `/media-control` | lib/routes/now-playing.js:139 | 箭头 | disposers base | 3 |
 | 22 | `/client-diag` | lib/routes/diag.js:78 | 箭头 | disposers appendDiagLine notice base | 4 |
 | 23 | `/diag` | lib/routes/diag.js:142 | 箭头 | disposers | 10 |
 | 24 | `/diag` | lib/routes/diag.js:143 | 箭头 | disposers base | 10 |
 | 25 | `/diag-log` | lib/routes/diag.js:144 | 箭头 | disposers log base | 2 |
-| 26 | `/api/local-assets` | lib/index.js:3999 | async 箭头 | webServer disposers serveFile | 1 |
-| 27 | `/we-assets-dir` | lib/index.js:4049 | 箭头 | webServer disposers | 3 |
-| 28 | `/scene-video` | lib/index.js:4115 | 箭头 | webServer mediaMap disposers serveFile SCENE_VIDEO_INFLIGHT | 2 |
-| 29 | `/scene-audio` | lib/index.js:4199 | 箭头 | webServer mediaMap disposers serveFile | 2 |
+| 26 | `/api/local-assets` | lib/routes/we-assets.js:66 | async 箭头 | disposers serveFile listWeAssetNames weAssetsAvailable WE_ASSETS_SOURCE_ID getWeAssetsDir | 1 |
+| 27 | `/we-assets-dir` | lib/routes/we-assets.js:113 | 箭头 | disposers base CONTROL_JSON_MAX_BYTES normalizeUserDir setWeAssetsDir listWeAssetNames …(+2) | 3 |
+| 28 | `/scene-video` | lib/routes/scene-media.js:51 | 箭头 | disposers base mediaMap serveFile ensureFrameCacheDir sceneVideoProbeKey …(+3) | 2 |
+| 29 | `/scene-audio` | lib/routes/scene-media.js:135 | 箭头 | disposers base mediaMap serveFile ensureSceneAudio | 3 |
 | 30 | `/upload` | lib/routes/upload.js:68 | 箭头 | disposers base tokenFor UPLOAD_EXT UPLOAD_MAX_BYTES ensureUploadDir …(+6) | 4 |
 | 31 | `/remove` | lib/routes/upload.js:218 | 箭头 | disposers base CONTROL_JSON_MAX_BYTES ensureUploadDir removeUploadMeta resolveUploadFile …(+1) | 1 |
 | 32 | `/upload-dir` | lib/routes/upload.js:275 | 箭头 | disposers base CONTROL_JSON_MAX_BYTES setUploadDir normalizeUserDir armBodyIdleTimeout | 2 |
-| 33 | `/fontsets` | lib/routes/fontsets.js:251 | async 箭头 | disposers base readFontSetId | 6 |
-| 34 | `/glass-presets` | lib/routes/presets.js:264 | async 箭头 | disposers base | 1 |
-| 35 | `/star-count` | lib/routes/github-stars.js:105 | async 箭头 | disposers base repoSlug log | 2 |
-| 36 | `/system-fonts` | lib/routes/system-fonts.js:455 | async 箭头 | disposers base | 4 |
+| 33 | `/fontsets` | lib/routes/fontsets.js:245 | async 箭头 | disposers base readFontSetId | 6 |
+| 34 | `/glass-presets` | lib/routes/presets.js:259 | async 箭头 | disposers base | 1 |
+| 35 | `/star-count` | lib/routes/github-stars.js:107 | async 箭头 | disposers base repoSlug log | 2 |
+| 36 | `/system-fonts` | lib/routes/system-fonts.js:457 | async 箭头 | disposers base | 4 |
 | 37 | `/about-qr` | lib/routes/about-qr.js:65 | 箭头 | disposers base aboutDir serveFile | 3 |
-| 38 | `/mascot` | lib/routes/mascot.js:48 | 箭头 | disposers base serveFile mascotDir mascotPath MASCOT_EXT …(+4) | 3 |
-| 39 | `/avatar` | lib/routes/avatar.js:52 | 箭头 | disposers base serveFile avatarDir avatarPath AVATAR_SIDES …(+5) | 4 |
-| 40 | `/settings` | lib/index.js:4307 | 箭头 | webServer disposers adapterFenceSeen adapterOverride observeAdapter adapterDetectedTarget …(+1) | 19 |
+| 38 | `/mascot` | lib/routes/mascot.js:50 | 箭头 | disposers base serveFile mascotDir mascotPath MASCOT_EXT …(+4) | 3 |
+| 39 | `/avatar` | lib/routes/avatar.js:54 | 箭头 | disposers base serveFile avatarDir avatarPath AVATAR_SIDES …(+5) | 4 |
+| 40 | `/settings` | lib/routes/settings.js:50 | 箭头 | disposers base ctx mediaOriginApi readSettings isBetterSidebarLoaded …(+5) | 19 |
 
 **零提及（拆分前必须先补守卫）**：（无）
 
 **被最多路由引用的闭包状态（context 字段优先级，仅 `lib/index.js` 内的路由）**：
 
-`webServer`×14 · `disposers`×14 · `mediaMap`×10 · `serveFile`×8 · `log`×3 · `observeAdapter`×2 · `buildInventory`×1 · `SCENE_VIDEO_INFLIGHT`×1 · `adapterFenceSeen`×1 · `adapterOverride`×1 · `adapterDetectedTarget`×1 · `SETTINGS_MAX_BYTES`×1
+`webServer`×1 · `disposers`×1 · `mediaOriginApi`×1 · `buildInventory`×1
 
 **路由模块的 context 契约**（声明了却没用到的字段单独标出 —— 那是死声明）：
 
@@ -70,11 +70,18 @@
 | `lib/routes/diag.js` | `registerDiagRoutes(webServer, c)` | 4 | `disposers` `appendDiagLine` `log` `notice` `base` `onHandleDiag` | — |
 | `lib/routes/fontsets.js` | `registerFontsetsRoutes(webServer, c)` | 1 | `disposers` `base` `readFontSetId` | — |
 | `lib/routes/github-stars.js` | `registerGithubStarsRoutes(webServer, c)` | 1 | `disposers` `base` `repoSlug` `cachePath` `log` `fetchJson` | — |
+| `lib/routes/live-frame.js` | `registerLiveFrameRoutes(webServer, c)` | 1 | `disposers` `base` `mediaMap` `serveFile` `traceRequests` `liveFrameFile` `atomicWriteFileSync` `lingerClose` | — |
 | `lib/routes/mascot.js` | `registerMascotRoutes(webServer, c)` | 1 | `disposers` `base` `serveFile` `mascotDir` `mascotPath` `MASCOT_EXT` `MASCOT_MAX_BYTES` `atomicWriteFileP` `armBodyIdleTimeout` `lingerClose` | — |
+| `lib/routes/media-bytes.js` | `registerMediaBytesRoutes(webServer, c)` | 2 | `disposers` `base` `serveFile` `mediaMap` `log` `pinnedFaststartVariant` | — |
+| `lib/routes/media-derived.js` | `registerMediaDerivedRoutes(webServer, c)` | 4 | `disposers` `base` `mediaMap` `serveFile` `log` `getMediaInfo` `faststartVariant` `transcodeJobs` `transcodeToFps` `registerTranscodeWaiter` `generateVideoPreview` | — |
 | `lib/routes/now-playing.js` | `registerNowPlayingRoutes(webServer, c)` | 5 | `disposers` `base` `appendDiagLine` `configPath` `readConfig` `serveFile` `log` | — |
 | `lib/routes/presets.js` | `registerGlassPresetsRoutes(webServer, c)` | 1 | `disposers` `base` | — |
+| `lib/routes/props.js` | `registerPropsRoutes(webServer, c)` | 1 | `disposers` `base` `mediaMap` `userPropsFor` | — |
 | `lib/routes/scene-frame.js` | `registerSceneFrameRoutes(webServer, c)` | 3 | `disposers` `base` `mediaMap` `trackStream` `serveFile` `GPU_FRAME_MAX_BYTES` `GPU_WRITE_INFLIGHT` `CUSTOM_FRAME_EXT` `CUSTOM_FRAME_MAX_BYTES` `armBodyIdleTimeout` `atomicWriteFileP` `customFrameDir` `customFramePath` `customIdFromAbs` `gpuFrameFileFor` `lingerClose` `looksLikePng` `pngSizeOf` `sceneFrameSlot` | — |
+| `lib/routes/scene-media.js` | `registerSceneMediaRoutes(webServer, c)` | 2 | `disposers` `base` `mediaMap` `serveFile` `ensureFrameCacheDir` `sceneVideoProbeKey` `sceneVideoProbeSet` `atomicWriteFileP` `ensureSceneAudio` `SCENE_VIDEO_INFLIGHT` | — |
 | `lib/routes/scene-serve.js` | `registerSceneServeRoutes(webServer, c)` | 4 | `disposers` `base` `WEBWALLGL_DIR` `appendDiagLine` `traceRequests` `serveFile` `handleSceneFiles` `mediaOriginInfo` `payloadProgress` `log` | — |
+| `lib/routes/settings.js` | `registerSettingsRoutes(webServer, c)` | 1 | `disposers` `base` `ctx` `mediaOriginApi` `readSettings` `isBetterSidebarLoaded` `sanitizeSettings` `withLegacyFontValues` `writeSettings` `armBodyIdleTimeout` `lingerClose` | — |
 | `lib/routes/system-fonts.js` | `registerSystemFontsRoutes(webServer, c)` | 1 | `disposers` `base` `cachePath` `log` `platform` `home` `fontDirs` `runFontCommand` | — |
 | `lib/routes/upload.js` | `registerUploadRoutes(webServer, c)` | 3 | `disposers` `base` `tokenFor` `UPLOAD_EXT` `UPLOAD_MAX_BYTES` `CONTROL_JSON_MAX_BYTES` `ensureUploadDir` `readUploadMeta` `metaEntry` `setUploadMeta` `removeUploadMeta` `resolveUploadFile` `setUploadDir` `normalizeUserDir` `armBodyIdleTimeout` `lingerClose` | — |
+| `lib/routes/we-assets.js` | `registerWeAssetsRoutes(webServer, c)` | 2 | `disposers` `base` `serveFile` `CONTROL_JSON_MAX_BYTES` `normalizeUserDir` `setWeAssetsDir` `listWeAssetNames` `weAssetsAvailable` `WE_ASSETS_SOURCE_ID` `getWeAssetsDir` | — |
 

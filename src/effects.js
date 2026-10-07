@@ -3,8 +3,7 @@
  *
  * 为什么单独一个文件：这是"设置 → 界面"的落地层，同一层里同时有 scrim 即时性优化、
  * 玻璃/雾化合成、光标注入、壁纸淡出底色选择四件事（**字体自定义不在这里**，见
- * src/font/apply.js）。它与设置表、求值器一样属于"看得懂的单元"，放在这里就不必在
- * client.js 那一大片正文里定位。
+ * src/font/apply.js）；抽成单元就不必在 client.js 那一大片正文里定位。
  *
  * 契约（本文件是客户端程序的一部分，构建期由 scripts/build-client.mjs 内联进 bundle 的
  * 工厂作用域，因此"外部作用域"= 同一 prelude / src/client.js 的顶层。依赖是**机械清点**
@@ -40,9 +39,9 @@
  */
 
 // Scrim immediacy tracking: the inline-write + forced reflow below only runs
-// when the scrim value ACTUALLY changed. It used to run unconditionally on
-// every emit — i.e. twice per slider tick (handler + subscribed applyEffects)
-// and on every 500ms transcode poll — a forced synchronous layout storm.
+// when the scrim value ACTUALLY changed. Running it unconditionally on every
+// emit — twice per slider tick (handler + subscribed applyEffects) and on every
+// 500ms transcode poll — would be a forced synchronous layout storm.
 let lastScrimCss = "";
 // 壁纸淡出底色的**缓存**（拖动期用；见 applyEffects 的 live 说明）。空串 = 还没算过 /
 // 已失效（壁纸透明度归零时清掉）。
@@ -200,17 +199,15 @@ function applyEffects(opts) {
   s.setProperty("--we-blur", selection.blur + "px");
   // iOS liquid glass: the backdrop "colour melt" (saturation) is a CONSTANT
   // material property, DECOUPLED from the blur radius — the 玻璃 slider now
-  // drives ONE thing (frost depth, --we-blur) instead of two semantically
-  // unrelated ones. Rationale: --we-saturate amplifies whatever chroma the
-  // backdrop still carries, and blur is what smears the residual wallpaper text
-  // into that chroma. The old coupled ramp therefore magnified exactly the
-  // signal the owner reads as 荧光/彩色鬼影 (a fluorescent colour ghost) instead
-  // of a neutral haze, worst at the top of the slider where the amplification
-  // met the most smearing. A flat value kills the runaway at high radii while
-  // keeping the "wet glass" chroma lift at every radius. GLASS_SATURATE is
-  // deliberately BELOW the stylesheet's own 1.8 fallback (what applies before
-  // this variable is first written), so the steady-state glass is milder than
-  // the pre-write default rather than stronger.
+  // drives ONE thing (frost depth, --we-blur). Rationale: --we-saturate amplifies
+  // whatever chroma the backdrop still carries, and blur is what smears the
+  // residual wallpaper text into that chroma; the coupled ramp therefore
+  // magnified exactly the signal the owner reads as 荧光/彩色鬼影, worst at the
+  // top of the slider where the amplification met the most smearing. A flat value
+  // kills the runaway at high radii while keeping the "wet glass" chroma lift at
+  // every radius. GLASS_SATURATE is deliberately BELOW the stylesheet's own 1.8
+  // fallback (what applies before this variable is first written), so the
+  // steady-state glass is milder than the pre-write default rather than stronger.
   //   blur px:     0      15     30     45     60
   //   old:       1.15   1.57   1.99   2.41   2.83   (1.15 + blur*0.028)
   //   new:       1.30   1.30   1.30   1.30   1.30   (constant; 6.1x less chroma
@@ -221,11 +218,10 @@ function applyEffects(opts) {
     ? String(1.15 + selection.blur * 0.028)
     : String(GLASS_SATURATE));
   s.setProperty("--we-glass-brightness", "1.04");
-  // ── R4 死码清理：这里曾写 `--we-wallpaper-blur` / `--we-wallpaper-scale` /
-  //   `--we-wallpaper-flip` 三个变量 —— 整份样式表**没有任何 var() 消费者**
-  //   （模糊真的落在下面的 `--we-media-filter` 上，scale+flip 真的落在
-  //   `--we-wallpaper-transform` 上）。三个都是那次重构留下的中间量，已删
-  //   （守卫第 ⑭ 组："经 setProperty 写出的变量必须有人读"）。
+  // ── ⚠️ 这三个变量**不许写**：`--we-wallpaper-blur` / `--we-wallpaper-scale` /
+  //   `--we-wallpaper-flip` 整份样式表**没有任何 var() 消费者**（模糊真的落在下面的
+  //   `--we-media-filter` 上，scale+flip 真的落在 `--we-wallpaper-transform` 上）。
+  //   守卫第 ⑭ 组："经 setProperty 写出的变量必须有人读"。
   // Background media filter: blur() plus the brightness/contrast/saturate
   // knobs, omitting untouched terms. Kept "none" while every knob is at its
   // default (see .we-media above) so no offscreen filter layer is forced on
@@ -241,7 +237,7 @@ function applyEffects(opts) {
   // Single transform var, "none" when identity (no blur, no flip): an identity
   // scale(1) scaleX(1) still forces the full-screen wallpaper <video> onto a
   // transform compositing layer at default — one less always-on layer for the
-  // kiosk window to glitch on (the previous anti-flicker pass left this).
+  // kiosk window to glitch on.
   s.setProperty("--we-wallpaper-transform",
     (selection.wallpaperBlur > 0 || selection.flip)
       ? ("scale(" + scale + ") scaleX(" + (selection.flip ? "-1" : "1") + ")")
@@ -294,13 +290,12 @@ function applyEffects(opts) {
   //   玻璃色份额塌到 ~1%、只剩主题底色 = 用户报的"拉满变黑/变白")。
   const glassAlpha = Math.max(0.10, 0.25 - (selection.glassAlpha / 100) * 0.15);
   s.setProperty("--we-glass-alpha", String(glassAlpha));
-  // ── R4：这个变量**曾被列入死码清理**，最后决定**保留**（wip §10.18）─────────────
-  // 它确实没有 CSS 消费者（配方早改读下面钳制出来的 `--we-surface-tint-light/dark`），
-  // 但 `test/compat-harness-pages.mjs` 把它当**页面观察量**断言（`getComputedStyle(body)`
-  // 读它、并要求非空 + DSH 的设置窗口 token 与之同源）。那个 harness 不在任何 npm 脚本里
-  // （要浏览器页面），所以我**无法在此验证**改动它之后的结局 —— 先删写入 = 静默破坏一个
-  // 未经验证的观察者。正确顺序是：先把 harness 的观察点改成 `--we-surface-tint-light`，
-  // 再删这里的写入。在那之前它由守卫第 ⑭ 组的 `OBSERVED_ONLY` 登记表**显式豁免**。
+  // ── ⚠️ 这个变量**不许删**：它没有 CSS 消费者（配方早改读下面钳制出来的
+  // `--we-surface-tint-light/dark`），但 `test/compat-harness-pages.mjs` 把它当**页面观察量**
+  // 断言（`getComputedStyle(body)` 读它、要求非空 + DSH 的设置窗口 token 与之同源）。那个
+  // harness 不在任何 npm 脚本里（要浏览器页面）⇒ 无法在此验证改动它的结局 —— 先删写入 = 静默
+  // 破坏一个未经验证的观察者。正确顺序：先把 harness 的观察点改成 `--we-surface-tint-light`，
+  // 再删这里的写入；在那之前它由守卫第 ⑭ 组的 `OBSERVED_ONLY` 登记表**显式豁免**。
   s.setProperty("--we-glass-color", selection.glassColor);
   // - 玻璃保真度（0–100，默认 100 = 完整红线）：同一标量喂两处消费 —— styles.js
   //   的 --we-readability-floor（地板覆盖度）与 weClampSurfaceColor（釉色向原色
@@ -318,13 +313,13 @@ function applyEffects(opts) {
   s.setProperty("--we-surface-tint-rgb-light", toRgbTriple(weClampSurfaceColor(selection.glassColor, "light", glassFidelity)));
   s.setProperty("--we-surface-tint-rgb-dark", toRgbTriple(weClampSurfaceColor(selection.glassColor, "dark", glassFidelity)));
 
-  // ── 玻璃管线已抽到 src/glass.js（wip §10.13）：取值解析 / 各面釉层变量 / 门控属性 ──
-  //    这里只留**一行调用**；本文件继续负责全局玻璃量（--we-glass-* / --we-surface-tint-*）
-  //    与其余非玻璃效果（accent / 可读性 / 光标 / 壁纸 / 字体）。
+  // ── 玻璃管线在 src/glass.js（wip §10.13）：取值解析 / 各面釉层变量 / 门控属性；这里只留
+  //    **一行调用**。本文件继续负责全局玻璃量（--we-glass-* / --we-surface-tint-*）与其余
+  //    非玻璃效果（accent / 可读性 / 光标 / 壁纸 / 字体）。
   applyGlass(selection, s);
   // 思考块液态玻璃：默认关，保持宿主黑底方便阅读。打开后 CSS 清掉思考条
-  // 与推理面的实心底，切到会话同一套雾化。（原「窗口与侧栏」节随 §10.25 并进「玻璃 UI」，
-  // 本门控仍在 applyEffects 就地写 —— 它不是玻璃量，不进 applyGlass 的取值管线。）
+  // 与推理面的实心底，切到会话同一套雾化。本门控仍在 applyEffects 就地写 ——
+  // 它不是玻璃量，不进 applyGlass 的取值管线。
   // 让路态（皮肤中心互操作，见 src/client.js）：玻璃整族退场 —— 这里与下面 sidebar-follow
   // 是 applyGlass 之外仅剩的两处玻璃门控点，一并摘。
   const skinYield = typeof skinYieldActive === "function" && skinYieldActive();

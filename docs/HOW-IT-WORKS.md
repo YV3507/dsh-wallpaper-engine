@@ -240,7 +240,7 @@ Windows PowerShell 的 `InstalledFontCollection` / Linux `fc-list`）；都拿�
 ### 测试
 
 `npm run verify`（含 client / 转码 / 播放控制 / scene / scene-live 等）+ `npm run smoke`
-（轮换、轮换-live 节点级领养、轮换准备期零驻留、GPU 回填抓帧、抓帧身份校验五套冒烟）—— 所有断言都有
+（轮换、实时帧回填与身份校验、字体集加载等节点级冒烟）—— 所有断言都有
 失败通道（不通过即非零退出），`npm run verify:all` = 构建 + 两套全跑 + 软档。
 **链上有多少条别写在这里**：真源是 `package.json` 的 `verify` / `smoke` / `verify:docs` 三个脚本，
 读它们即得 —— 写死一个数字就会漂。

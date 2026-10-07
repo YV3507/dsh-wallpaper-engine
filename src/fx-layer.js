@@ -97,17 +97,7 @@ let fxTrail = [];
 /** 活着的点击效果：{ x, y, t0, seed, hue }。 */
 let fxClicks = [];
 
-/** 单调时钟（没有 performance 就退到 Date.now）；只用来算"这点多老了"。 */
-function fxNow() {
-  return window.performance && typeof window.performance.now === 'function'
-    ? window.performance.now() : Date.now();
-}
-
-function fxClamp(v, lo, hi, fallback) {
-  const n = typeof v === 'number' && isFinite(v) ? v : Number(v);
-  if (!isFinite(n)) return fallback;
-  return Math.min(hi, Math.max(lo, n));
-}
+/* `weNow()` / `weClampTo()` 的唯一实现见 src/we-base.js（内联后同作用域）。 */
 
 /** 每个新效果实例取一个色相（rainbow 档用）：逐个错开，同屏几个效果颜色不撞。 */
 function fxNextHue() {
@@ -143,14 +133,14 @@ function fxSettings() {
     on: on,
     click: selection.fxClick !== false,
     clickStyle: clickStyle === 'spark' || clickStyle === 'both' ? clickStyle : 'ripple',
-    size: fxClamp(selection.fxClickSize, FX_CLICK_SIZE_MIN, FX_CLICK_SIZE_MAX, 140),
-    clickGlow: fxClamp(selection.fxClickGlow, 0, 100, 60),
+    size: weClampTo(selection.fxClickSize, FX_CLICK_SIZE_MIN, FX_CLICK_SIZE_MAX, 140),
+    clickGlow: weClampTo(selection.fxClickGlow, 0, 100, 60),
     trail: selection.fxTrail !== false,
     trailStyle: trailStyle === 'dust' ? 'dust' : 'comet',
-    lifeMs: fxClamp(selection.fxTrailLength, FX_TRAIL_MS_MIN, FX_TRAIL_MS_MAX, 420),
-    width: fxClamp(selection.fxTrailWidth, FX_TRAIL_W_MIN, FX_TRAIL_W_MAX, 3),
-    trailGlow: fxClamp(selection.fxTrailGlow, 0, 100, 60),
-    opacity: fxClamp(selection.fxOpacity, FX_OPACITY_MIN, FX_OPACITY_MAX, 85),
+    lifeMs: weClampTo(selection.fxTrailLength, FX_TRAIL_MS_MIN, FX_TRAIL_MS_MAX, 420),
+    width: weClampTo(selection.fxTrailWidth, FX_TRAIL_W_MIN, FX_TRAIL_W_MAX, 3),
+    trailGlow: weClampTo(selection.fxTrailGlow, 0, 100, 60),
+    opacity: weClampTo(selection.fxOpacity, FX_OPACITY_MIN, FX_OPACITY_MAX, 85),
     // 混合模式是 CSS 字面量：非法值交给浏览器忽略，不做白名单（见文件头"不读壁纸像素"）。
     blend: typeof selection.fxBlend === 'string' && selection.fxBlend ? selection.fxBlend : 'screen',
     colorMode: colorMode === 'rainbow' || colorMode === 'custom' ? colorMode : 'accent',
@@ -234,7 +224,7 @@ function fxPushTrail(x, y) {
     const dy = y - last.y;
     if (Math.sqrt(dx * dx + dy * dy) < FX_TRAIL_STEP_PX) return;
   }
-  fxTrail.push({ x: x, y: y, t: fxNow(), hue: fxNextHue() });
+  fxTrail.push({ x: x, y: y, t: weNow(), hue: fxNextHue() });
   if (fxTrail.length > FX_POINT_MAX) fxTrail.splice(0, fxTrail.length - FX_POINT_MAX);
 }
 
@@ -252,7 +242,7 @@ function fxOnPointerDown(e) {
   if (!st.on || !st.click) return;
   if (!fxAllowClick(e.target)) return;
   fxSeed += 1;
-  fxClicks.push({ x: e.clientX, y: e.clientY, t0: fxNow(), seed: fxSeed, hue: fxNextHue() });
+  fxClicks.push({ x: e.clientX, y: e.clientY, t0: weNow(), seed: fxSeed, hue: fxNextHue() });
   if (fxClicks.length > FX_CLICK_MAX) fxClicks.splice(0, fxClicks.length - FX_CLICK_MAX);
   fxKick();
 }
@@ -436,7 +426,7 @@ function fxFrame() {
   if (!fxOn || !st.on) return;
   fxEnsureHost();
   if (!fxCanvas) return; // 宿主被外力摘走了（不是"还没建"：上一行刚 ensure 过）
-  const now = fxNow();
+  const now = weNow();
   const life = st.trail ? st.lifeMs : 0;
   fxTrail = fxTrail.filter((p) => now - p.t <= life);
   fxClicks = fxClicks.filter((c) => now - c.t0 <= FX_CLICK_LIFE_MS);

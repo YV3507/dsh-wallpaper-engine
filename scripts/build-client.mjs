@@ -54,6 +54,13 @@ const INLINE_MODULES = [
       'const NOTICE_ART_PATH = "/about-qr/update-notice.jpg"'],
   },
   {
+    // 零依赖的纯工具 ⇒ 紧随纯数据之后：三个层模块（fx / parallax / avatar）都要读，
+    // 排在它们之前即可（本身无依赖，何处都无 TDZ 交互）。
+    file: 'src/we-base.js',
+    why: '浏览器半边的最小地基：三枚到处都用的纯工具（唯一实现）—— 钳位 `weClampTo` · 单调时钟 `weNow` · body 根 `weBody`；零依赖 + 零顶层可执行语句，故可排在内联清单最前',
+    markers: ['function weClampTo(', 'function weNow(', 'function weBody('],
+  },
+  {
     file: 'src/i18n-copy.js',
     why: '英文词表（中文原文即键）：客户端表 + 宿主显示表（两张表的键集各由 verify-i18n 双向对账）',
     markers: ['const WE_I18N_EN = {', 'const WE_I18N_HOST_EN = {'],

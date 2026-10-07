@@ -1,8 +1,8 @@
 /*
  * video-layer.js — **视频壁纸通道**：视频档的"有画面了吗" + 它的切换放行策略。
  *
- * 为什么单开一条通道：视频档此前走的是为**实时渲染**设计的那条路（`live-layer.js` 里
- * 的切层内容闸门、垫底图、心跳、载荷、GPU 抓帧…），而这条路上**只有一部分对视频有意义**。
+ * 为什么单开一条通道：为**实时渲染**设计的那条路（`live-layer.js` 里的切层内容闸门、垫底图、
+ * 心跳、载荷、GPU 抓帧…）对视频**只有一部分有意义**。
  * 实测后果：闸门的视频判据是"手上已有一帧"（`readyState ≥ 2`），而视频档**故意不设 poster**
  *（WE 的动图预览当 poster 会先播预览）⇒ 整次切换（含过场）被推迟到首个可解码帧：
  * 源越大越久、帧率上限越高越久，从秒级退化到十几秒。
@@ -11,9 +11,9 @@
  *   ① **放行 ⇔ 屏上真的有画面**：海报图**已加载**（不是"属性存在"）｜首帧 `readyState ≥ 2`｜
  *      预算到期（兜底，避免拿不到海报就永远换不下去）。
  *   ② **没画面时旧壁纸留在屏上**：绝不露出这一层的底色。
- *      ⚠️ 这条是踩出来的：曾经改成"poster 属性存在即放行"，结果海报是按需抽帧生成的
- *      （与 4K 抽帧转码抢 CPU，十几秒才到）⇒ 那十几秒屏上是一块**纯色**（层底色），
- *      观感比"旧壁纸多留十几秒"更糟。
+ *      ⚠️ 不许改成"poster 属性存在即放行"：海报是按需抽帧生成的（与 4K 抽帧转码抢
+ *      CPU，十几秒才到）⇒ 那十几秒屏上是一块**纯色**（层底色），观感比"旧壁纸多留
+ *      十几秒"更糟。
  *
  * 本文件拥有：就绪判据（`videoContentReady` / `probeVideoPoster` / `VIDEO_POSTER_BUDGET_MS`）、
  * 媒体构建（`buildVideoMedia`：`<video>` / Edge 镜像画布 / poster / 音轨与 `playbackRate` / `object-fit`）、
@@ -36,7 +36,7 @@ const VIDEO_POSTER_BUDGET_MS = 1200;
  * 停滞上限：到这里仍然没有画面 ⇒ **停止等待，但也不放行空层**（不变量 ②：绝不露出这一层
  * 的底色）。旧壁纸继续留在屏上，只留一条 warn 日志。
  *
- * 为什么要这条：旧行为是"预算到期就放行"，而视频档通常**没有 poster**（只认
+ * 为什么要这条：预算到期就放行不行 —— 视频档通常**没有 poster**（只认
  * `/video-preview/`）⇒ 放行那一刻屏上只有这一层的底色（=壁纸主色）。真机日志（桌面壳）
  * 抓到的正是这一幕：
  *   `gate-open … held=1201ms out=1 rs=0 ns=1 vw=0x0` → `loadedmetadata +2053ms` →
@@ -50,7 +50,7 @@ const VIDEO_STALL_GIVE_UP_MS = 15000;
 // ── 提交前预热：把"取数"挪出切换的关键路径 ────────────────────────────────────
 // 切换那一下真正要等的是**媒体元素的启动**：资源选择 → 取 moov → 解复用器初始化 →
 // 首帧解码。本机实测：宿主+磁盘 ~4ms、`loadedmetadata → presented` ~110ms，其余时间都是
-// "还没开始取数"。视频档此前**刻意不跑准备链**（`prepareVideoProbe` 会 `play()` ⇒ 第二个
+// "还没开始取数"。视频档**刻意不跑准备链**（`prepareVideoProbe` 会 `play()` ⇒ 第二个
 // 4K 解码器在跑，实测双解码卡顿），于是整段启动成本都压在关键路径上。
 //
 // 这里的折中：只预热到 **HAVE_METADATA**（`preload="metadata"`、**绝不 play()**、muted）——
@@ -204,13 +204,10 @@ function layerStillPending() {
 }
 
 /**
- * 视频档的媒体构建（③：从 src/media-prep.js 迁进视频通道）。
+ * 视频档的媒体构建（③：自 src/media-prep.js 迁入）。
  *
- * 与原分支**逐行等价**，两处必要的语义改写（所以它不是"纯移动"）：
- *   ① 原来写外层函数的 `media` 变量 ⇒ 这里改成局部 `const media` 并**返回**它；
- *   ② Edge 那条腿（镜像画布）原来 `return [media, canvas]` 是**从媒体构建函数**返回的，
- *      这里同样返回该数组，由调用点用 `Array.isArray` 识别。
- * `fitClass` 是调用点所在函数的局部量 ⇒ 作为参数传入（用法原样）。
+ * 返回 `media`；Edge 那条腿（镜像画布）返回 `[media, canvas]`，由调用点用 `Array.isArray`
+ * 识别。`fitClass` 是调用点所在函数的局部量 ⇒ 作为参数传入。
  */
 function buildVideoMedia(sel, fitClass) {
   // 轮换领养：就绪元素（已 canplay/预播中）直接进层，绝不重赋 src（重赋
@@ -222,9 +219,9 @@ function buildVideoMedia(sel, fitClass) {
   if (!prepared && !warmed) {
     // 已经转好的抽帧版（上一次在"已上屏"状态下就绪、刻意没换源的那一份）：
     // **建层时就用它当 src** —— 这样整个生命周期里一次换源都不发生（换源 = 清掉当前帧 = 纯色）。
-    // 判据只看"这份抽帧版是不是当前上限的"：**不再看原生可解性** —— 帧率上限的意义就是压解码
-    // 占用，原生可解的源照样可能帧率超标（4K120 的 H.264）；曾经把原生可解当免转条件，
-    // 结果是上限在实际在用的 mp4 上完全失效（见 capNeedsTranscode 的注释）。
+    // 判据只看"这份抽帧版是不是当前上限的"：**不看原生可解性** —— 帧率上限的意义就是压解码
+    // 占用，原生可解的源照样可能帧率超标（4K120 的 H.264），拿它当免转条件会让上限在实际
+    // 在用的 mp4 上完全失效（见 capNeedsTranscode 的注释）。
     const tok = String(sel.url || "").split("/").pop();
     const rc = selection.transcodeReady;
     const useCached = Boolean(rc && rc.url && rc.fps === selection.fpsCap && rc.token === tok);
@@ -235,18 +232,14 @@ function buildVideoMedia(sel, fitClass) {
       selection.transcodeProgress = null;
     }
     // poster=预览图：覆盖初始加载与抽帧转码 swap 的空窗（原黑屏闪烁点）。
-    // 视频类壁纸不设 —— WE 视频壁纸的预览常是动图（preview.gif），当 poster
-    // 会先播一段预览、再停在视频首帧、最后才进正片，用户看到的是「跑完整
-    // 加载流程」；0.7.5 是选中即播（加载期黑帧，由交叉渐变盖住）。场景内嵌
-    // MP4 的 poster 是静态帧，是「先静帧后动态」的既有设计，保留。
-    // 视频档**只认插件自己的静态缩略图**（`/video-preview/…` 是 ffmpeg 抽的一帧 JPEG，
-    // 见宿主 videoPreviewCachePath 的 `pv_*.jpg`）。挂上它有两重收益：
+    // 视频类壁纸**不设 WE 自带的 `preview.gif`** —— 动图当 poster 会"先播预览、再停首帧、
+    // 最后进正片"；改为**只认插件自己抽的静态缩略图**（`/video-preview/…` 是 ffmpeg 抽的一帧
+    // JPEG，见宿主 videoPreviewCachePath 的 `pv_*.jpg`）。挂上它有两重收益：
     //   ① 切层内容闸门把 `video[poster]` 直接算作"有画面" ⇒ **立即放行**，不再等首帧
     //     （等首帧实测会把整次切换推到十几秒：源越大 / 帧率上限越高越久）；
     //   ② 加载窗口里屏上是**真缩略图**，而不是无帧 <video> 那块空/黑 ⇒ 闸门要防的
     //     "露出底色"照旧不发生。
-    // WE 自带的 `preview.gif` 仍然不设（作者原意：动图当 poster 会"先播预览再进正片"）；
-    // 上面那条 URL 是插件自己抽的静态帧，与该顾虑无关 —— 判据见
+    // 场景内嵌 MP4 的 poster 是静态帧，是「先静帧后动态」的既有设计，保留 —— 判据见
     // rotation-prepared-leak-smoke.mjs 的 T2 / T2b（无静态缩略图仍必须等帧）。
     const stillPreview = !!sel.previewUrl
       && (sel.type !== "video" || /\/video-preview\//.test(sel.previewUrl));
@@ -260,8 +253,7 @@ function buildVideoMedia(sel, fitClass) {
   // 里"rs=0 停 2 秒"正是这一段空窗；而元素从 loadedmetadata 到 presented 实测只要 ~110ms。
   // auto 让元素**建层即开始取数据**（本地文件，代价可忽略）。
   media.preload = "auto";
-  // 音轨按用户设置应用（见 weApplyAudio）：默认 0 音量 → 行为与原来的
-  // muted 一致；调高音量后才有声音。
+  // 音轨按用户设置应用（见 weApplyAudio）：默认 0 音量 ⇒ 等价 muted；调高音量后才有声音。
   media.setAttribute("playsinline", "");
   // Native playbackRate — hardware-decoded, instant, no reload.
   try { media.playbackRate = sel.playbackRate; } catch { /* ignore */ }
@@ -358,7 +350,7 @@ async function refreshMediaInfo(force) {
   if (!token || (!force && token === mediaInfoToken)) return;
   // 旧探测的结果一定没用了 (token 变了, 或被 force 重刷取代) → 立刻断开
   if (mediaInfoAbort) { try { mediaInfoAbort.abort(); } catch { /* ignore */ } mediaInfoAbort = null; }
-  // AbortController 可能不存在 (无计时器/无 fetch 设施的验证环境): 为 null 时退化为旧行为
+  // AbortController 可能不存在 (无计时器/无 fetch 设施的验证环境): 为 null 时走无 abort 的退化路径
   const ctrl = typeof AbortController === "function" ? new AbortController() : null;
   mediaInfoAbort = ctrl;
   mediaInfoToken = token;
@@ -481,9 +473,9 @@ function isNativelyPlayableSource(mi, url, ext) {
  * 返回三态：`true` = 该抽帧；`false` = 不必抽帧（源帧率已知且不高于上限）；
  * `null` = **源帧率未知**（探测失败 / 还没回来）—— 这时才轮到"原生可解就别盲转"那条成本护栏。
  *
- * ⚠️ 曾经的错误口径（2026-10-02 修）：把"原生可解"当成"不抽帧"的充分条件。容器原生可解
- * 不代表帧率不超上限（4K120 的 H.264 既原生可解、又比上限高得多），于是帧率上限在你实际
- * 在用的这些 mp4 上一律失效、只剩一句面板文案 —— 而它的全部意义就是压解码占用。
+ * ⚠️ **不许把"原生可解"当成"不抽帧"的充分条件**：容器原生可解不代表帧率不超上限
+ * （4K120 的 H.264 既原生可解、又比上限高得多），照此判会让帧率上限在你实际在用的这些 mp4
+ * 上一律失效、只剩一句面板文案 —— 而它的全部意义就是压解码占用。
  */
 const FPS_CAP_TOLERANCE = 1;
 function capNeedsTranscode(mi, cap) {
@@ -493,25 +485,19 @@ function capNeedsTranscode(mi, cap) {
 }
 
 /**
- * ⑤ 视频通道的"建层之后"入口：**转码触发归视频通道**（原来这 3 行在 live-layer 的
- * syncLayers 里，是视频档在那条实时管线里唯一的类型专属逻辑）。
- *
- * 语义与原处**逐字一致**：只负责"要不要起一次抽帧升级"，不做别的。
+ * ⑤ 视频通道的"建层之后"入口：**转码触发归视频通道**（视频档在实时管线里唯一的类型专属
+ * 逻辑）。只负责"要不要起一次抽帧升级"，不做别的。
  */
 /**
- * ⑥ 视频档的"押住 → 放行"执行器：**视频通道自己的机器**。
- *
- * 这段原来散在实时管线的 armLayerContentReveal 里，却靠本通道的两个符号工作
- * （probeVideoPoster / VIDEO_POSTER_BUDGET_MS）⇒ 现在把它整段收进来，实时管线只留
- * 一次委托。放行条件与原处逐字一致：海报图**加载出来** / 首帧（loadeddata·canplay）/
- * 出错放行 / 停滞到上限留旧壁纸。返回两个句柄供调用点随待放行状态一起收。
+ * ⑥ 视频档的"押住 → 放行"执行器：**视频通道自己的机器**（实时管线只留一次委托）。
+ * 放行条件：海报图**加载出来** / 首帧（loadeddata·canplay）/ 出错放行 / 停滞到上限留旧壁纸。
+ * 返回两个句柄供调用点随待放行状态一起收。
  */
 function armVideoChannelReveal(video, recheck, giveUp) {
   let cancelPosterProbe = null;
-  // 停滞自续期链的取消句柄必须**读得到最新的定时器 id**：返回首跳 id 快照的话（2026-10-02
-  // 审计），forgetPendingReveal 清的是早已触发过的旧 id，链会在本层已放行/已被替换后继续走
-  // —— 连切时遗留 tick 会把下一层的空层推上屏（纯色帧回归）。dead 标记让链条在任何收口
-  // 路径上一次性终结。
+  // 停滞自续期链的取消句柄必须**读得到最新的定时器 id**：返回首跳 id 快照的话，
+  // forgetPendingReveal 清的是早已触发过的旧 id，链会在本层已放行/已被替换后继续走 —— 连切
+  // 时遗留 tick 会把下一层的空层推上屏（纯色帧回归）。dead 标记让链条在任何收口路径上一次性终结。
   const stall = { id: 0, dead: false };
   const cancelStall = () => {
     stall.dead = true;

@@ -39,6 +39,26 @@ const results = [];
   check('negative control: 旧的 NVENC-only 写法被拒',
     !(decoy.includes('ENC_TUNE') || decoy.includes('libx264')));
 }
+/** 派生媒体族（`/media-info` · `/transcode-progress` · `/transcoded` · `/video-preview`）
+ *  已搬到 lib/routes/media-derived.js（逐条理由见该文件头）。这里钉两件事：
+ *  ① 门面里零残留、四条注册都在族文件里；② **调用点早于 `/media` 字节族** —— 后者的
+ *  `prefix` 匹配器会把 `…/media-info/…` 一并吞掉（搬迁前那条注释就是为此而写）。
+ *  ⚠️ `/media` 循环本身也已搬到 `lib/routes/media-bytes.js`，所以这条对比现在是"两个
+ *  **门面里的调用点**先后"（两族都不在门面里注册路由字面量）。 */
+{
+  const host = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8');
+  const derived = readFileSync(new URL('../lib/routes/media-derived.js', import.meta.url), 'utf8');
+  const stale = /path: `\$\{BASE\}\/(media-info|transcode-progress|transcoded|video-preview)`/;
+  const PATHS = ['media-info', 'transcode-progress', 'transcoded', 'video-preview'];
+  check('派生媒体族：四条路由已搬进 lib/routes/media-derived.js（门面里零残留）',
+    !stale.test(host) && PATHS.every((p) => derived.includes('path: `${BASE}/' + p + '`')));
+  const callAt = host.indexOf('registerMediaDerivedRoutes(webServer, {');
+  const bytesAt = host.indexOf('registerMediaBytesRoutes(webServer, {');
+  check('派生媒体族：调用点在门面里，且早于 /media 字节族（晚注册会被 prefix 吞掉）',
+    callAt > 0 && bytesAt > 0 && callAt < bytesAt);
+  check('negative control: 门面里重新出现被搬走的路由字面量会被这条判据拒掉',
+    stale.test(host + '\n  path: `${BASE}/media-info`,'));
+}
 function check(name, ok, detail) {
   results.push({ name, ok });
   console.log((ok ? 'PASS' : 'FAIL') + ' | ' + name + (detail ? ' | ' + detail : ''));

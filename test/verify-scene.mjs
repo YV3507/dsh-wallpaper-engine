@@ -818,7 +818,10 @@ if (token) {
 // 缓存永不命中、白烧 CPU）。这里把「每种缓存各只有一个派生点」钉死；
 // 新增第 4 种缓存时本断言会红 —— 那是**有意的**棘轮，请连同这里一起改。
 {
-  const hostSrc = readFileSync(join(root, 'lib', 'index.js'), 'utf8');
+  // ⚠️ 读**宿主半**（`lib/index.js` + `lib/routes/*.js`）：场景视频那一份键派生点已随族
+  //    搬进 `lib/routes/scene-media.js`。本判据守的是"每种缓存各只有一个派生点"这个
+  //    **宿主级**不变量，不是"三个派生点都在主文件里"（本文件头 30–31 行的约定）。
+  const hostSrc = readHostHalf();
   const derivations = hostSrc.match(/Buffer\.from\(abs, 'utf8'\)\.toString\('base64url'\)/g) || [];
   /**
    * 取一个顶层函数的函数体：起点锚 `function <name>(`，终点锚 `function <nextName>(`。
@@ -1047,15 +1050,96 @@ console.log('Level F — sceneVideo 文件版探测（issue #136）等价 / 读�
     check('F negative control: 整包读（=文件体积）必撞上界，判据有牙', big.length >= 80 * 1024,
       'file=' + big.length + ' ≥ 80KB ⇒ 若整读必红');
   }
-  // ③ 结构：宿主两处调用点必须走文件版。
+  // ③ 结构：宿主两处调用点必须走文件版。**读宿主半**（`lib/index.js` + `lib/routes/*.js`）——
+  //     `/scene-video` 已搬进 `lib/routes/scene-media.js`，只读主文件会把"已搬走"误报成
+  //     "契约丢了"（本文件头第 30–31 行的那条约定：断言"仍实现某契约"要覆盖族目录）。
   {
-    const hostSrc = stripComments(readFileSync(join(root, 'lib', 'index.js'), 'utf8'));
-    check('F 后台探测泵走文件版', /probeSceneVideoFromPkgFile\(job\.abs\)/.test(hostSrc));
-    check('F /scene-video 走文件版提取', /await extractSceneVideoFromPkgFile\(abs\)/.test(hostSrc));
+    const hostHalfSrc = stripComments(readHostHalf());
+    check('F 后台探测泵走文件版', /probeSceneVideoFromPkgFile\(job\.abs\)/.test(hostHalfSrc));
+    check('F /scene-video 走文件版提取', /await extractSceneVideoFromPkgFile\(abs\)/.test(hostHalfSrc));
     check('F 宿主零残留：readFile(整包) → extractSceneVideo 旧形态',
-      !/extractSceneVideo\(new Uint8Array\(/.test(hostSrc));
+      !/extractSceneVideo\(new Uint8Array\(/.test(hostHalfSrc));
     check('F negative control: 旧形态会被同一判据判出',
       /extractSceneVideo\(new Uint8Array\(/.test('extractSceneVideo(new Uint8Array(await readFile(abs)))'));
+  }
+  // ③b 族文件归属：场景内嵌媒资族（`/scene-video` + `/scene-audio`）已搬进
+  //     `lib/routes/scene-media.js`（逐条理由见该文件头）。判据钉两件事：
+  //     ① 门面里零残留、两条注册都在族文件里；
+  //     ② 去重账本 `SCENE_VIDEO_INFLIGHT` **只以引用进 `c`**（声明仍在门面的 `apply()` 里）
+  //        ⇒ 搬文件不改变它"本 fiber 单例"的生命周期（这是纯搬移、不是行为改动）。
+  {
+    const hostSrc = stripComments(readFileSync(join(root, 'lib', 'index.js'), 'utf8'));
+    const famSrc = stripComments(readFileSync(join(root, 'lib', 'routes', 'scene-media.js'), 'utf8'));
+    const stale = /path:\s*`\$\{BASE\}\/(scene-video|scene-audio)`/;
+    check('G 场景内嵌媒资族已搬进 lib/routes/scene-media.js（门面里零残留）',
+      !stale.test(hostSrc)
+        && famSrc.includes('path: `${BASE}/scene-video`')
+        && famSrc.includes('path: `${BASE}/scene-audio`'));
+    check('G 去重账本只以引用进 c（声明仍在 apply()，生命周期未改）',
+      /const SCENE_VIDEO_INFLIGHT = new Map\(\);/.test(hostSrc)
+        && /SCENE_VIDEO_INFLIGHT/.test(famSrc)
+        && /registerSceneMediaRoutes\(webServer, \{/.test(hostSrc));
+    check('G negative control: 门面里重新出现被搬走的路由字面量会被同一条判据拒掉',
+      stale.test(hostSrc + '\n  path: `${BASE}/scene-audio`,'));
+  }
+  // ③c 族文件归属：属性族（`/props`）、首帧缓存族（`/live-frame`）、设置族（`/settings`）已分别
+  //     搬进 `lib/routes/props.js` / `lib/routes/live-frame.js` / `lib/routes/settings.js`。
+  //     判据钉两件事（与 ③b 同形）：
+  //     ① 门面里三条路由字面量零残留，且改成"一次调用"的调用点形态；
+  //     ② 各族的**关键不变量**随文件一起落地（不是只剩空壳路由）——
+  //        · props：覆盖值只认 project.json 仍声明着的属性（`filterKnownOverrides`）；
+  //        · live-frame：只收 JPEG（`FF D8` 头校验）＋ 4MB 上限；
+  //        · settings：写路径只认 PUT，落盘前必过 `sanitizeSettings` 与迁移护栏 `withLegacyFontValues`。
+  {
+    const hostSrc = stripComments(readFileSync(join(root, 'lib', 'index.js'), 'utf8'));
+    const propsSrc = stripComments(readFileSync(join(root, 'lib', 'routes', 'props.js'), 'utf8'));
+    const frameSrc = stripComments(readFileSync(join(root, 'lib', 'routes', 'live-frame.js'), 'utf8'));
+    const settingsSrc = stripComments(readFileSync(join(root, 'lib', 'routes', 'settings.js'), 'utf8'));
+    const stale = /path:\s*`\$\{BASE\}\/(props|live-frame|settings)`/;
+    check('H 三条路由族已搬出 apply()（门面里零残留，族文件各持一条注册）',
+      !stale.test(hostSrc)
+        && propsSrc.includes('path: `${BASE}/props`')
+        && frameSrc.includes('path: `${BASE}/live-frame`')
+        && settingsSrc.includes('path: `${BASE}/settings`'));
+    check('H 门面里改为一次调用（三条调用点形态正确）',
+      /registerPropsRoutes\(webServer, \{/.test(hostSrc)
+        && /registerLiveFrameRoutes\(webServer, \{/.test(hostSrc)
+        && /registerSettingsRoutes\(webServer, \{/.test(hostSrc));
+    check('H 各族的关键不变量随文件落地（不是空壳路由）',
+      /filterKnownOverrides\(pj, userPropsFor\(token\)\)/.test(propsSrc)
+        && /buf\[0\] !== 0xff \|\| buf\[1\] !== 0xd8/.test(frameSrc)
+        && /maxBytes: 4 \* 1024 \* 1024/.test(frameSrc)
+        && /method !== 'PUT'/.test(settingsSrc)
+        && /sanitizeSettings\(parsed\)/.test(settingsSrc)
+        && /withLegacyFontValues\(sanitized\)/.test(settingsSrc));
+    check('H negative control: 门面里重新出现被搬走的路由字面量会被同一条判据拒掉',
+      stale.test(hostSrc + '\n  path: `${BASE}/settings`,'));
+  }
+  // ③d 媒体字节族：`/media` + `/preview`（原始字节直出）已搬进 `lib/routes/media-bytes.js`。
+  //     判据与 ③c 同形，钉三件事：
+  //     ① 门面里两条路由字面量与那个循环零残留（`for (const seg of ['media','preview'])` 也搬走了）；
+  //     ② 改成"一次调用"，且**调用点必须排在 media-derived 之后** —— `/media-info` 与 `/media`
+  //        同前缀，晚注册会被 prefix 匹配吞掉（本族唯一会静默出错的地方）；
+  //     ③ 关键不变量落地：`/media` 经 `pinnedFaststartVariant` 定音（同一次播放一份字节布局）、
+  //        `/preview` 不定音、非 GET/HEAD 出 405。
+  {
+    const hostSrc = stripComments(readFileSync(join(root, 'lib', 'index.js'), 'utf8'));
+    const bytesSrc = stripComments(readFileSync(join(root, 'lib', 'routes', 'media-bytes.js'), 'utf8'));
+    const stale = /path:\s*`\$\{BASE\}\/\$\{seg\}`/;
+    check('I 媒体字节族已搬出 apply()（门面里零残留，族文件持循环注册）',
+      !stale.test(hostSrc)
+        && !/for \(const seg of \['media', 'preview'\]\)/.test(hostSrc)
+        && /for \(const seg of \['media', 'preview'\]\)/.test(bytesSrc)
+        && bytesSrc.includes('path: `${BASE}/${seg}`'));
+    check('I 调用点形态正确，且排在 media-derived 之后（前缀吞噬防线）',
+      /registerMediaBytesRoutes\(webServer, \{/.test(hostSrc)
+        && hostSrc.indexOf('registerMediaDerivedRoutes(webServer, {') < hostSrc.indexOf('registerMediaBytesRoutes(webServer, {'));
+    check('I 关键不变量随文件落地：/media 定音、/preview 不定音、非 GET/HEAD 出 405',
+      /seg === 'media' \? pinnedFaststartVariant\(abs, token, log\) : null/.test(bytesSrc)
+        && /serveFile\(fast \|\| abs, req, res, method === 'HEAD'\)/.test(bytesSrc)
+        && /res\.statusCode = 405/.test(bytesSrc));
+    check('I negative control: 门面里重新出现被搬走的循环字面量会被同一条判据拒掉',
+      stale.test(hostSrc + '\n      path: `${BASE}/${seg}`,'));
   }
   rmSync(eqDir, { recursive: true, force: true });
 }

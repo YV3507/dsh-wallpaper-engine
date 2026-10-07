@@ -1,10 +1,8 @@
 /**
- * font/color-roles.js — 用 DSH 的 `theme` 服务给「文字颜色角色」分角色上色（F1 · 首期只做颜色）。
+ * font/color-roles.js — 用 DSH 的 `theme` 服务给「文字颜色角色」分角色上色（只做颜色）。
  *
- * 为什么需要它：原「字体颜色」把四个文字角色压成**同一个**用户色（`#we-font-patch` 里那四条
- * `--dsw-alias-label-*` 覆盖），把 DSH 的四级文字层次**压平**了 —— 那条全局折叠路径已随全局
- * 字体层一起删除（见 src/font/apply.js 的 removeFontStyles）。本模块用官方令牌层取代它：
- * 每个角色一个色，原生层次保留。
+ * 为什么需要它：把四个文字角色压成**同一个**用户色会把 DSH 的四级文字层次**压平** ——
+ * 本模块改用官方令牌层：每个角色一个色，原生层次保留。
  *
  * 契约（本文件是客户端程序的一部分，构建期由 scripts/build-client.mjs 内联进 bundle 的工厂
  * 作用域；依赖少到可以列全）：
@@ -31,7 +29,7 @@ const THEME_LAYER_SOURCE = 'wallpaper-engine';
 
 /**
  * 开放的 5 个角色（对应 6 个令牌）。`label-error` **不开放**（错误色有语义）。
- * （原记的用量数字没有可复算的出处，已撤；需要时按 token 在 DSH 样式表里重新统计。）
+ * （角色用量数字没有可复算的出处 ⇒ 不在此记录；需要时按 token 在 DSH 样式表里重新统计。）
  */
 const THEME_COLOR_ROLES = [
   { id: 'primary', get label() { return weT('正文'); }, tokens: ['--dsw-alias-label-primary'] },
@@ -50,7 +48,7 @@ function isThemeHex(v) {
 /**
  * 层当前接管的角色，**按 source 分别记账**：颜色层与排版层（THEME_TYPE_SOURCE）的角色集合
  * 必须分开 —— 若两层共用一份记账，后同步的那层会把前者的列表覆盖掉。
- * ⚠️ `themeLayerOwnedRoles()` 目前**没有消费者**（原消费者是已删的全局字体折叠行）。
+ * ⚠️ `themeLayerOwnedRoles()` 目前**没有消费者**。
  */
 const themeLayerRolesBySource = Object.create(null);
 function themeLayerOwnedRoles() { return (themeLayerRolesBySource[THEME_LAYER_SOURCE] || []).slice(); }
@@ -111,7 +109,7 @@ function buildTokenPayload(colors, isAvailable) {
 
 /**
  * 后台轮询 `ctx.get('theme')`，**拿到即停**。
- * 启动竞态是实测的：7ms 时 `get` 为 null，325ms 才有（F0 B1）。拿不到就什么都不做，
+ * 启动竞态是实测的：7ms 时 `get` 为 null，325ms 才有。拿不到就什么都不做，
  * `/style` 回落路径照旧可用（红线 7 的双通道）。
  * @returns {() => void} 取消轮询
  */
@@ -152,7 +150,7 @@ function createThemeLayer(opts) {
   const source = o.source || THEME_LAYER_SOURCE;
   const getColors = o.getColors || (() => ({}));
   const isAvailable = o.isAvailable || (() => true);
-  // 载荷构建可注入（排版层传自己的）：默认是颜色角色那一套，保持 F1 的调用面不变。
+  // 载荷构建可注入（排版层传自己的）：默认是颜色角色那一套，保持默认调用面不变。
   const build = o.buildPayload || (() => buildTokenPayload(getColors(), isAvailable));
   let dispose = null;
   let owned = [];
@@ -174,7 +172,7 @@ function createThemeLayer(opts) {
     if (!theme || typeof theme.overrideTokens !== 'function') return { ok: false, reason: 'no-theme' };
     const { payload, roles } = build();
     if (!Object.keys(payload).length) {
-      // 没有可用角色 ⇒ 撤层（用户清空颜色时回到原生层次），并让 effects.js 恢复折叠行
+      // 没有可用角色 ⇒ 撤层（用户清空颜色时回到原生层次）
       releaseLayer();
       return { ok: false, reason: 'empty' };
     }

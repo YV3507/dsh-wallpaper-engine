@@ -1,48 +1,32 @@
 /**
- * font/typography.js — 按角色调整**排版**（字号绝对值 px + 字重/字族），走 DSH theme 令牌层（F2）。
+ * font/typography.js — 按角色调整**排版**（字号绝对值 px + 字重/字族），走 DSH theme 令牌层。
  *
  * ══ 为什么是这套令牌（静态分析结论；不是猜的）══════════════════════════
  *
- * ① **组件消费的是 shorthand，不是细粒度令牌。**
- *    DSH 组件里 `font:` 用的全是简写，例如
- *      node_modules/@deepseek-ai/dsh-client-ui-primitives/lib/markdown/MarkdownText.module.css:17
- *        font: var(--dsw-font-markdown-h1);
- *    组件 module.css 扫下来：`font: var(--dsw-font-<角色>)` 共 **21 处**（MarkdownText 9 /
- *    WebBlock 4 / SearchBlock 4 / CodeCard 2 / TerminalBlock 1 / DiffBlock 1；打包产物里的
- *    index CSS 另有一份重复，不计入）；而细粒度里**只有** `-font-family` 有 1 处消费者
- *    （user-text.module.css:31），`-font-size` / `-font-weight` / `-font-style` **零消费者**。
+ * ① **组件消费的是 shorthand，不是细粒度令牌**：组件 module.css 的 `font:` 全是简写
+ *    （`font: var(--dsw-font-<角色>)` 共 **21 处**）；细粒度里**只有** `-font-family` 有 1 处
+ *    消费者（user-text.module.css），`-font-size` / `-font-weight` / `-font-style` **零消费者**
  *    ⇒ 只改 `--dsw-font-<角色>-font-size` **必然无效**（那条路是诱饵）。
  *
- * ② **shorthand 是字面量、不由细粒度令牌组合。**
- *    定义在 @deepseek-ai/dsh-client-ui-theme/lib/client.js 的 design-platform CSS 串里，三种形态：
- *      A. 带 delta 的基准：  `markdown-h1: 700 calc(21px + var(--dsh-content-font-delta)) / calc(30px + …) var(--dsw-font-family)`
- *      B. 用 DSH 正文字号：  `markdown-base: var(--dsh-content-font-size,14px) / calc(24px + var(--dsh-content-font-delta)) …`
- *      C. 纯字面量（不随 DSH 字号缩放）：`markdown-small: 12px/20px …`、`markdown-code: 12px/19px …`
- *    ⇒ 本模块**照抄 DSH 的角色表达式**（角色表里的 size/lh 字段，不"统一化"）；未设字号的角色
- *      继续引用 DSH 令牌（C 类照旧不缩放、B 类继续跟随 DSH 字号），设了绝对值的角色用该 px。
+ * ② **shorthand 是字面量、不由细粒度令牌组合**（定义在
+ *    @deepseek-ai/dsh-client-ui-theme/lib/client.js 的 design-platform CSS 串），三种形态：
+ *    A. 带 delta 的基准 / B. 用 DSH 正文字号 / C. 纯字面量（不随 DSH 字号缩放）。
+ *    ⇒ 本模块**照抄 DSH 的角色表达式**（角色表 size/lh 字段，不"统一化"）：未设字号的角色继续
+ *      引用 DSH 令牌（C 类不缩放、B 类跟随 DSH 字号），设了绝对值的角色用该 px。
  *
- * ③ **DSH 自己的「通用 → 字号」是这么进来的**：宿主半
- *    (dsh-client-ui-theme/lib/index.js:56) 往 body 写 `--dsh-content-font-size`；CSS 里定义
- *      `--dsh-content-font-delta: calc(var(--dsh-content-font-size,14px) - 14px)`
- *    （自带 14px 兜底，所以 shorthand 不会 invalid）。**本模块从不写 `--dsh-content-font-size`**
- *    —— 那是 DSH 自己的设置（红线 3），我们只在角色级写该角色自己的令牌（未设的角色不动），
- *    用户的 DSH 字号照常生效。
+ * ③ **DSH 的「通用 → 字号」经 `--dsh-content-font-delta` 进来**（CSS 侧自带 14px 兜底
+ *    ⇒ shorthand 不会 invalid）。**本模块从不写 `--dsh-content-font-size`** —— 那是 DSH
+ *    自己的设置（红线 3），只在角色级写该角色自己的令牌，用户的 DSH 字号照常生效。
  *
  * ④ **重取角色表的方法**（DSH 升级后基准值变了就重跑这一条，然后核对下表）：
  *    node -e "const s=require('fs').readFileSync(process.argv[1],'utf8');for(const m of s.matchAll(/--dsw-font-([a-z0-9-]+?):([^;{}\\"]+)/g))if(!/-font-|-line-height$|-font$/.test(m[1]))console.log(m[1],'=',m[2].trim().slice(0,90))"
  *      "D:/DSH Desktop/resources/app/node_modules/@deepseek-ai/dsh-client-ui-theme/lib/client.js"
  *
- * ⑤ **字重同样可细化（静态盘点 ，比字号更简单）**：
- *    39 个组件 CSS 里 `font-weight` 写死 **71 处、`!important` 零处**
- *    （值分布 500×24 / 400×19 / 600×12 / 700×11 / 300×1 / inherit×4），
- *    且每个角色在 design-platform 里都有细粒度令牌 `--dsw-font-<角色>-font-weight`
- *    （本表的 `prefix` 就是它的值）⇒ 两条路径：
- *      · **角色级**：把下面组合式里的字重前缀换成 `var(--dsw-font-<角色>-font-weight)`
- *        再覆盖该令牌即可（字号/行高/字族机制完全不变）；
- *      · **组件级**：与字号同一条 `[class*="_<模块>_"]` 通道（零 `!important` ⇒ 等特异性即可压过）。
- *    官方默认值：角色级取自细粒度令牌；组件级取组件自己的声明（写前先 getComputedStyle
- *    取基线 —— 与令牌层 `onBeforeFirstWrite` 同一套"先取基线再写"手法）。
- *    ⚠️ katex（数学排版自带度量）与 `@font-face` 不碰。
+ * ⑤ **字重同样可细化**：39 个组件 CSS 里 `font-weight` 写死 **71 处、`!important` 零处**，每个
+ *    角色在 design-platform 里都有细粒度令牌 `--dsw-font-<角色>-font-weight`（= 本表 `prefix`）
+ *    ⇒ 角色级（组合式的字重前缀换成该令牌再覆盖）与组件级（与字号同一条 `[class*="_<模块>_"]`
+ *    通道，零 `!important` ⇒ 等特异性即可压过）两条路径；官方值：角色级取自细粒度令牌，组件级取
+ *    组件声明（写前先 getComputedStyle 取基线，与令牌层 `onBeforeFirstWrite` 同法）。⚠️ katex 与 `@font-face` 不碰。
  *
  * ══ 契约 ══════════════════════════════════════════════════════════════════════════
  * 需要的外界：**无**（纯计算；令牌可用性由调用方给的判据决定，族键 → CSS 栈的解析函数

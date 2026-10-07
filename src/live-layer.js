@@ -2,10 +2,9 @@
  * live-layer.js — **实时渲染管线**：live 渲染与控制、看护心跳、判失败、抓帧回填、指针转发、
  * poster/挂载/抓首帧，以及壁纸层的构建（syncLayers）与过场过渡。
  *
- * 为什么单独一个文件：这是"壁纸层从建到退"的整条链路，横跨 live 渲染、看护心跳、判失败、
- * 抓帧回填、指针转发、poster/挂载/抓首帧与过场过渡。留在 client.js 里，它会被**别的域**
- * （媒体集成、GPU 帧槽助手、用户属性、diag 上报）切开成若干不相邻区段 ⇒
- * "画面为什么没出来"要跨几段读完。放在这里，这类问题只需读一个文件。
+ * 为什么单独一个文件：这是"壁纸层从建到退"的整条链路。留在 client.js 里会被**别的域**
+ * （媒体集成、GPU 帧槽助手、用户属性、diag 上报）切开成若干不相邻区段 ⇒ "画面为什么没出来"
+ * 要跨几段读完；放在这里只需读一个文件。
  *
  * 契约（本文件是客户端程序的一部分，构建期由 scripts/build-client.mjs 内联进 bundle 的
  * 工厂作用域，"外部作用域"= 同一 prelude / src/client.js 的顶层。依赖见下表分组
@@ -279,7 +278,7 @@ function liveStateBrief(extra) {
     + (extra ? " " + extra : "");
 }
 // ── 诊断留痕的安装（随 fiber 活、随 fiber 死）────────────────────────────────
-// 下面这四条（加载即留痕 / 窗口失焦·隐藏的事件留痕 / 60s 心跳）**曾经是模块级副作用**。
+// 下面这四条（加载即留痕 / 窗口失焦·隐藏的事件留痕 / 60s 心跳）**不能是模块级副作用**。
 // DSH 的客户端装载契约（`dsh-client-modules`）是：bundle 只注册 factory，模块体（含一切
 // 副作用）在 materialize 时求值一次并被 `loadCache` 记忆化；而**每次 revision 变化**
 //（产物 mtime/ctime/size 一变就算，内容相同也算）宿主都会 `tearDownEntryFiber` 再用新模块体
@@ -309,8 +308,8 @@ function installLiveDiagnostics() {
   //
   // **仍然延迟一拍**：`liveStateBrief()` 经 `livePauseReason()` → `occlusionReason()` 读
   // `src/client.js` 的 `selection`；在 apply 里它已过 TDZ，但延迟一拍还顺带保证这一行落在
-  // 本 fiber 的其余安装之后（旧口径下这里是硬要求：顶层直调会被外层 `try{}catch{}` 静默吞掉，
-  // 实测两份诊断文件 2495 行里 `client-boot` 出现 **0 次**）。注销时把它一起清掉。
+  // 本 fiber 的其余安装之后（顶层直调会被外层 `try{}catch{}` 静默吞掉 —— 实测两份诊断文件
+  // 2495 行里 `client-boot` 出现 **0 次**）。注销时把它一起清掉。
   try {
     if (typeof setTimeout === "function") {
       const bootTimer = setTimeout(function () {
@@ -369,7 +368,7 @@ function installLiveDiagnostics() {
 //     ⇒ 每拍重置计时（与"暂停期不计时"同一条纪律：无帧有正当理由就不算失败）。
 //     无进展且超过预算 → 失败，并按"传输未完成"归类（软失败，见 liveFail）。
 // 实测依据：同一份 336MB 包，媒体源上 0.6s 到齐；应用源上出现过 15–74s 与永不返回，
-// 而当时 6 次 `liveFail reason=timeout` 的 `stats` 全是"一帧都没出"。
+// 而 6 次 `liveFail reason=timeout` 的 `stats` 全是"一帧都没出"。
 // ⚠️ `LIVE_FIRST_FRAME_MS` 与 `LIVE_STALL_TICKS` 的声明在文件更上方（`LIVE_FAIL_LABELS` 之前）——
 //    用户可见的失败文案从它们插值，顶层模板字符串不能引用后面声明的 `const`（TDZ）。
 // 预算放大用的吞吐下限（8MB/s）：比实测（媒体源上 ~500MB/s）低两个量级，只用来
@@ -1445,9 +1444,9 @@ function buildLivePoster(sel) {
 // buildMedia 的 liveBootDelay）；用户一旦有交互（点击/按键）立即置 false ——
 // 手动切换壁纸必须即时反馈，不延迟。
 let bootRestore = true;
-// 两条一次性监听**随 fiber 注册/注销**（曾经也是模块级副作用：模块体每次 revision 变化都会
-// 重跑一遍，而模块级监听器不挂 fiber —— 用户一直没交互时它们就一直叠着；见上方
-// `installLiveDiagnostics` 的整段说明）。`once: true` 让它们在首次交互后自摘，注销时再兜一次。
+// 两条一次性监听**随 fiber 注册/注销**（模块级监听器不挂 fiber ⇒ 会随 revision 重跑叠加，
+// 用户一直没交互时它们就一直叠着；见上方 `installLiveDiagnostics` 的整段说明）。
+// `once: true` 让它们在首次交互后自摘，注销时再兜一次。
 function installLiveBootRestore() {
   const drop = () => { bootRestore = false; };
   const opts = { capture: true, passive: true, once: true };
@@ -1483,7 +1482,7 @@ function cancelLiveMount(reason) {
   if (p.timer) { try { clearTimeout(p.timer); } catch { /* ignore */ } }
   // 未挂载 ⇒ 显式中止在途加载并拆掉那个渲染页（WebGL context / rAF / 定时器一起消失）。
   // ⚠️ **分离态** iframe 上赋 `src` 不会提交导航（实测：预热页带着整个引擎常驻到
-  // 会话结束 —— 本机曾一次泄漏 9 个 4K 引擎，把后续所有大包首帧拖到超时）——
+  // 会话结束 —— 本机一次泄漏 9 个 4K 引擎，把后续所有大包首帧拖到超时）——
   // 先隐身挂进文档让导航真实发生，提交后再把空壳移除。已连接的帧可能是别的路径
   // 刚领养的 live 层（见 mount 的轮换领养分支），保持原样绝不动它。
   try {
@@ -1684,7 +1683,7 @@ function layerContentReady(node) {
   const video = node.querySelector("video");
   if (video) {
     // ⚠️ 这里**不再认 `video.__weReady`**：它只由 loadeddata/canplay 打上，而 rs≥2 是同一件
-    // 事的判据；留一个"曾经就绪过"的纪念标记，只会让"这一刻屏上没有帧"的层被放行（真机
+    // 事的判据；留一个"就绪过"的纪念标记，只会让"这一刻屏上没有帧"的层被放行（真机
     // 日志：放行时 rs=0，屏上就是这一层的底色）。画面判据只认「当下这一帧」。
     // 视频档的"有画面"判据**归视频通道**（见 src/video-layer.js 的文件头）：
     //   · 海报图**已加载**（不是"属性存在" —— 属性刚设上时 <video> 还是透明，
@@ -1712,7 +1711,7 @@ function forgetPendingReveal() {
   for (const el of p.hooks) { try { el.__weContent = null; } catch { /* ignore */ } }
   // 海报探针与它的预算必须一起收：否则它们会在这一层已经放行之后触发（下一次切换时
   // 误放行新层）。停滞链每次续期都换新 id，清"快照 id"清不掉在途的下一跳 —— 通道返回的
-  // cancelStall 闭包（读最新 id + dead 标记）才是完整收口（2026-10-02 审计）。
+  // cancelStall 闭包（读最新 id + dead 标记）才是完整收口。
   try { if (p.stopPosterProbe) p.stopPosterProbe(); } catch { /* ignore */ }
   try { if (p.cancelStall) p.cancelStall(); } catch { /* ignore */ }
   return p;
@@ -2016,6 +2015,142 @@ function setWallpaperActive(active) {
   }
 }
 
+// ── syncLayers 的分段助手：抽出的每一段都只读模块级单例 `selection` / 只调模块级函数
+//（`selection` 与 `IS_EDGE` 在本模块内是自由变量 —— 构建期与 client.js 同一作用域）
+// ⇒ syncLayers 只留编排。
+
+function layerWantKey(layerLive) {
+  return selection.type + "\u0000" + selection.url + "\u0000"
+    + (IS_EDGE && selection.edgeCompat !== false ? "canvas" : "video")
+    // Scene wallpapers: the media kind depends on sceneVideo (MP4 <video> vs
+    // static-frame <img>), and the 404 fallback nulls sceneVideo — the key
+    // must reflect it so the fallback rebuilds the layer.
+    // ⚠️ live 生效期间不算它：buildMedia 的 isSceneVideo 已被 isLive 短路，此时
+    // sceneVideo 只影响「live 失败后的回退」，进 key 只会白白冷启动渲染页 ——
+    // 「sceneVideo 诚实化」的时序补拉（scheduleSceneVideoResync）落地时正好会
+    // 触发这种无意义重建。live 一失效，下面的 live 段就变化 → 仍会重建，且那一次
+    // 会用上当时的 sceneVideo 值（回退路径因此照旧正确）。
+    + "\u0000" + (layerLive ? "" : (selection.sceneVideo || ""))
+    + "\u0000" + (selection.sceneAudioUrl || "")
+    // Scene live render: entering/leaving live（开关切换、按壁纸失败记忆、
+    // 帧率档变更 → iframe query 变化）都必须重建层；fit/音量不进 key ——
+    // 它们经 __wp.setFit/setVolume 热切，无需重载渲染页。
+    + "\u0000" + ((selection.type === "scene" || selection.type === "web")
+      ? (layerLive
+        // weAssetsAvailable 进 key：素材目录开关切换时 live iframe URL 的
+        // localAssets 参数变化，必须重建渲染页才生效。
+        // **sceneMediaBase 也进 key**：它决定渲染页从哪个源拉 `scene.pkg`
+        //（空串 = 回落应用源，那条路在大包上会饿死）。宿主把媒体源端出来之后
+        //（可能晚于本实例启动，见 client 的 loadInventory），这一格变化即触发
+        // 一次重建 —— 否则旧渲染页会一直用着 URL 里那份陈旧的 mediaBase。
+        ? "live\u0000" + (selection.sceneLiveSrc || selection.webLiveSrc) + "\u0000" + selection.sceneLiveFps
+          + "\u0000" + (selection.inventory && selection.inventory.weAssetsAvailable ? "la1" : "")
+          + "\u0000" + ((selection.inventory && selection.inventory.sceneMediaBase) || "")
+        : "nolive")
+      : "");
+}
+
+function obtainLayerNode(wantKey) {
+  let node = document.getElementById(LAYER_ID);
+  // 渐变路径旧层已让出 LAYER_ID；mock 环境的 stale byId 命中按 weFading 排除。
+  if (node && node.dataset && node.dataset.weFading === "1") node = null;
+  if (!node && pendingStagedLayerNode) {
+    // live/web 轮换的节点级领养：staging 容器整体转为新层 —— iframe 全程不
+    // 移动（同文档 reparent 会重载文档），渲染/加载状态零扰动。
+    node = pendingStagedLayerNode;
+    pendingStagedLayerNode = null;
+    node.id = LAYER_ID;
+    node.dataset.weKey = wantKey;
+    node.dataset.weWid = String(selection.id || "");
+    node.className = "we-layer";
+    const adoptedLive = node.querySelector && node.querySelector("iframe.we-live-iframe");
+    if (adoptedLive) {
+      // 首帧已在准备期确认：立即点亮 + 心跳续跑运行期看护。
+      try { adoptedLive.classList.add("we-live-on"); } catch { /* ignore */ }
+      // 领养路径的渲染页是**已经在出帧**的热页：紧接着的 applyLiveControls
+      // （syncLayers 后段）若判定「非有效播放」会把它 pause 掉，而暂停中的渲染页
+      // __wpStats.frame() 恒为 {fps:0,running:false} —— 首帧看护必须据此暂停
+      // 计时（见 startLiveWatch），否则 15s 后误判首帧超时并永久降级。
+      liveLog("adopt-live", "wid=" + selection.id + " 节点级领养（渲染页不重载）");
+      if (!liveFrameDeferred(adoptedLive)) { try { startLiveWatch(adoptedLive, selection.id); } catch { /* ignore */ } }
+    }
+  }
+  if (!node) {
+    node = document.createElement("div");
+    node.id = LAYER_ID;
+    node.className = "we-layer";
+    node.dataset.weKey = wantKey;
+    node.dataset.weWid = String(selection.id || "");
+    const built = buildMedia(selection);
+    if (Array.isArray(built)) for (const el of built) node.appendChild(el);
+    else node.appendChild(built);
+    document.body.appendChild(node);
+  }
+  return node;
+}
+
+function disposeOutgoingLayer(node, outgoing, switchTr, startFade) {
+  if (outgoing) {
+    if (layerContentReady(node)) {
+      if (startFade) startLayerTransition(node, outgoing, switchTr);
+      else {
+        // 硬切：旧层一次性退场（释放媒体 + 放行新层音频），再停掉旧的镜像绘制循环。
+        // Release the previous draw loop: without this, switching from an Edge
+        // canvas video to a non-canvas wallpaper (image/web/scene, or Edge 兼容
+        // turned off) would keep the old hidden <video> referenced and playing
+        // forever — CPU/GPU/battery + memory leak per switch (rotation mixes
+        // types). weStartDraw() re-initialises when a canvas exists again.
+        retireFadingLayer();
+        weStopDraw();
+      }
+    } else {
+      armLayerContentReveal(node, outgoing, switchTr, startFade);
+    }
+  }
+}
+
+function syncScrimElement() {
+  // 2. Scrim element (always present while a wallpaper is active).
+  const scrim = document.getElementById(SCRIM_ID);
+  if (selection.url) {
+    if (!scrim) {
+      const s = document.createElement("div");
+      s.id = SCRIM_ID;
+      s.className = "we-scrim";
+      document.body.appendChild(s);
+    }
+    setWallpaperActive(true);
+  } else {
+    if (scrim) scrim.remove();
+    setWallpaperActive(false);
+  }
+}
+
+function syncSceneFrameProbe() {
+  // 3. GPU 抓帧缓存状态（面板提示 + 清除入口）：场景壁纸才可能被抓帧。
+  // 带 TTL 去重，syncLayers 调用频繁也不会打爆 HEAD。
+  if (selection.type === "scene" && selection.sceneFrameUrl) {
+    try { probeGpuFrameState(selection.sceneFrameUrl, false); } catch { /* ignore */ }
+  }
+}
+
+function reclaimLayerAdoptionSlot() {
+  // 4. 元素级领养槽位收尾不变量：槽位寿命 = 一次建层。
+  // buildMedia 只在 video / sceneVideo / 静态帧 img 三条分支里收编它，而：
+  // ① live 分支自建 iframe（`return frame` / `return [poster, frame]`）——
+  //    准备期 live 首帧探测超时会回退出视频/静态帧探针并写进槽位（见
+  //    prepareSceneLiveStage 注释：探测放弃刻意不簿记 sceneLiveFailures，因此
+  //    随后 buildMedia 的 isLive 仍为 true），两者不一致时槽里那个元素既不上
+  //    屏、也没有任何路径能释放它：detached 的 <video> 是解码器根，失去句柄后
+  //    仍满速解码到页面关闭（实测 4K ≈35% 单核/个，gc() 收不走），且它属于
+  //    **上一张壁纸** —— 之后的非提交重建（liveFail / fps 档位切换等）会按 tag
+  //    命中并把它领养进当前层 → 画面串味；
+  // ② 节点级领养（pendingStagedLayerNode）整条绕过 buildMedia，同样不收编。
+  // 放在 syncLayers 收尾（该函数无提前 return，故本助手只做释放）：无论走哪条
+  // 建层/领养路径、无论 buildMedia 是否被调用，退出时槽位必空。空槽位调用是 no-op。
+  disposePreparedMedia();
+}
+
 function syncLayers() {
   // 失败记忆的管线核对放在最前：它可能把 `sceneLiveFailures` 清掉，而本函数下面就要用它
   // 算层键（清掉 ⇒ 这一跳直接重建回 live，用户不必手动重开开关）。
@@ -2033,34 +2168,7 @@ function syncLayers() {
     const layerLive = (selection.type === "scene" || selection.type === "web") && liveRenderEnabled(selection);
     // 本次切换用的过场（类型 + 方向 + 毫秒）也只算一次：startFade 判定与两处调用点共用。
     const switchTr = switchTransitionOf(selection);
-    const wantKey = selection.type + "\u0000" + selection.url + "\u0000"
-      + (IS_EDGE && selection.edgeCompat !== false ? "canvas" : "video")
-      // Scene wallpapers: the media kind depends on sceneVideo (MP4 <video> vs
-      // static-frame <img>), and the 404 fallback nulls sceneVideo — the key
-      // must reflect it so the fallback rebuilds the layer.
-      // ⚠️ live 生效期间不算它：buildMedia 的 isSceneVideo 已被 isLive 短路，此时
-      // sceneVideo 只影响「live 失败后的回退」，进 key 只会白白冷启动渲染页 ——
-      // 「sceneVideo 诚实化」的时序补拉（scheduleSceneVideoResync）落地时正好会
-      // 触发这种无意义重建。live 一失效，下面的 live 段就变化 → 仍会重建，且那一次
-      // 会用上当时的 sceneVideo 值（回退路径因此照旧正确）。
-      + "\u0000" + (layerLive ? "" : (selection.sceneVideo || ""))
-      + "\u0000" + (selection.sceneAudioUrl || "")
-      // Scene live render: entering/leaving live（开关切换、按壁纸失败记忆、
-      // 帧率档变更 → iframe query 变化）都必须重建层；fit/音量不进 key ——
-      // 它们经 __wp.setFit/setVolume 热切，无需重载渲染页。
-      + "\u0000" + ((selection.type === "scene" || selection.type === "web")
-        ? (layerLive
-          // weAssetsAvailable 进 key：素材目录开关切换时 live iframe URL 的
-          // localAssets 参数变化，必须重建渲染页才生效。
-          // **sceneMediaBase 也进 key**：它决定渲染页从哪个源拉 `scene.pkg`
-          //（空串 = 回落应用源，那条路在大包上会饿死）。宿主把媒体源端出来之后
-          //（可能晚于本实例启动，见 client 的 loadInventory），这一格变化即触发
-          // 一次重建 —— 否则旧渲染页会一直用着 URL 里那份陈旧的 mediaBase。
-          ? "live\u0000" + (selection.sceneLiveSrc || selection.webLiveSrc) + "\u0000" + selection.sceneLiveFps
-            + "\u0000" + (selection.inventory && selection.inventory.weAssetsAvailable ? "la1" : "")
-            + "\u0000" + ((selection.inventory && selection.inventory.sceneMediaBase) || "")
-          : "nolive")
-        : "");
+    const wantKey = layerWantKey(layerLive);
     let gotKey = existing && existing.dataset.weKey;
     // 上一跳停在"等新层画面"上、而这一跳要换层：LAYER_ID 在**还没有画面**的那个层手里，
     // 屏上其实是它守着的旧层。那个空层从未上屏，就地拆掉；这一跳的旧层取守着的那个 ——
@@ -2109,62 +2217,12 @@ function syncLayers() {
       // （fresh load 或领养路径）重启。
       stopLiveWatch();
     }
-    let node = document.getElementById(LAYER_ID);
-    // 渐变路径旧层已让出 LAYER_ID；mock 环境的 stale byId 命中按 weFading 排除。
-    if (node && node.dataset && node.dataset.weFading === "1") node = null;
-    if (!node && pendingStagedLayerNode) {
-      // live/web 轮换的节点级领养：staging 容器整体转为新层 —— iframe 全程不
-      // 移动（同文档 reparent 会重载文档），渲染/加载状态零扰动。
-      node = pendingStagedLayerNode;
-      pendingStagedLayerNode = null;
-      node.id = LAYER_ID;
-      node.dataset.weKey = wantKey;
-      node.dataset.weWid = String(selection.id || "");
-      node.className = "we-layer";
-      const adoptedLive = node.querySelector && node.querySelector("iframe.we-live-iframe");
-      if (adoptedLive) {
-        // 首帧已在准备期确认：立即点亮 + 心跳续跑运行期看护。
-        try { adoptedLive.classList.add("we-live-on"); } catch { /* ignore */ }
-        // 领养路径的渲染页是**已经在出帧**的热页：紧接着的 applyLiveControls
-        // （本函数末尾）若判定「非有效播放」会把它 pause 掉，而暂停中的渲染页
-        // __wpStats.frame() 恒为 {fps:0,running:false} —— 首帧看护必须据此暂停
-        // 计时（见 startLiveWatch），否则 15s 后误判首帧超时并永久降级。
-        liveLog("adopt-live", "wid=" + selection.id + " 节点级领养（渲染页不重载）");
-        if (!liveFrameDeferred(adoptedLive)) { try { startLiveWatch(adoptedLive, selection.id); } catch { /* ignore */ } }
-      }
-    }
-    if (!node) {
-      node = document.createElement("div");
-      node.id = LAYER_ID;
-      node.className = "we-layer";
-      node.dataset.weKey = wantKey;
-      node.dataset.weWid = String(selection.id || "");
-      const built = buildMedia(selection);
-      if (Array.isArray(built)) for (const el of built) node.appendChild(el);
-      else node.appendChild(built);
-      document.body.appendChild(node);
-    }
+    const node = obtainLayerNode(wantKey);
     // ── 旧层处置：新层有画面 ⇒ 立刻按过场 / 硬切换；还没有画面 ⇒ 旧层留在屏上，
     //    新层先不参与绘制，画面一到就放行（见本文件上方的切层内容闸门）。─────────
     //    过场：新层在旧层之上入场（旧层保持不透明垫着，玻璃 backdrop-filter 依赖
     //    不透明背景）；旧层退场 / 音频放行 / 收尾清理都在 startLayerTransition 里统一处理。
-    if (outgoing) {
-      if (layerContentReady(node)) {
-        if (startFade) startLayerTransition(node, outgoing, switchTr);
-        else {
-          // 硬切：旧层一次性退场（释放媒体 + 放行新层音频），再停掉旧的镜像绘制循环。
-          // Release the previous draw loop: without this, switching from an Edge
-          // canvas video to a non-canvas wallpaper (image/web/scene, or Edge 兼容
-          // turned off) would keep the old hidden <video> referenced and playing
-          // forever — CPU/GPU/battery + memory leak per switch (rotation mixes
-          // types). weStartDraw() re-initialises when a canvas exists again.
-          retireFadingLayer();
-          weStopDraw();
-        }
-      } else {
-        armLayerContentReveal(node, outgoing, switchTr, startFade);
-      }
-    }
+    disposeOutgoingLayer(node, outgoing, switchTr, startFade);
     const canvas = node.querySelector("canvas.we-media--canvas");
     const video = node.querySelector("video");
     // 画布兜底色（见本文件上方的 refreshUnderlayColor / scheduleUnderlaySample）：
@@ -2187,10 +2245,10 @@ function syncLayers() {
       // 已为真）⇒ 标志永久为假，指针注入与媒体桥（频谱 / Now Playing）双双静默失效，
       // 画面却照旧在播（用户只看得到"壁纸有时候坏了"）。这里按**同一套就绪判据**把
       // 语义补回来：心跳在，且这一拍真的在出帧（网页壁纸按"渲染页可达"）。
-      // 判据与心跳自愈共用**同一个函数体**（`liveHeartbeatReady`，见 :1477 的注释）：
-      // 原先这里问 `liveFrameReady`，它要求网页窗口的 `getState` 可读 ⇒ 可达到底但还没
-      // load 完的窗口恒 false，而心跳那边早在认这帧 —— 两边对同一帧答案不同，缝就出在
-      // 那里。现在两处逐字同源，`liveFrameReady` 只留给 `scheduleLiveMount` 的预热页。
+      // 判据与心跳自愈共用**同一个函数体**（`liveHeartbeatReady`，见它自己的注释）：它要求
+      // 网页窗口的 `getState` 可读 ⇒ 可达到底但还没 load 完的窗口恒 false，而心跳那边早在
+      // 认这帧 —— 两边对同一帧答案不同，缝就出在那里。现在两处逐字同源；`liveFrameReady`
+      // 只留给 `scheduleLiveMount` 的预热页。
       // 时序：本块在心跳起动（上面 adopt-live 分支的 startLiveWatch）之后 —— `liveWatch`
       // 与刚武装的对象是同一个，`firstFrame` 此刻可能还是 false（首帧要等一拍 tick），
       // 于是这里以"这一拍就有帧"直接判定，不等那一拍。
@@ -2256,41 +2314,11 @@ function syncLayers() {
     }
   }
 
-  // 2. Scrim element (always present while a wallpaper is active).
-  const scrim = document.getElementById(SCRIM_ID);
-  if (selection.url) {
-    if (!scrim) {
-      const s = document.createElement("div");
-      s.id = SCRIM_ID;
-      s.className = "we-scrim";
-      document.body.appendChild(s);
-    }
-    setWallpaperActive(true);
-  } else {
-    if (scrim) scrim.remove();
-    setWallpaperActive(false);
-  }
+  syncScrimElement();
 
-  // 3. GPU 抓帧缓存状态（面板提示 + 清除入口）：场景壁纸才可能被抓帧。
-  // 带 TTL 去重，syncLayers 调用频繁也不会打爆 HEAD。
-  if (selection.type === "scene" && selection.sceneFrameUrl) {
-    try { probeGpuFrameState(selection.sceneFrameUrl, false); } catch { /* ignore */ }
-  }
+  syncSceneFrameProbe();
 
-  // 4. 元素级领养槽位收尾不变量：槽位寿命 = 一次建层。
-  // buildMedia 只在 video / sceneVideo / 静态帧 img 三条分支里收编它，而：
-  // ① live 分支自建 iframe（`return frame` / `return [poster, frame]`）——
-  //    准备期 live 首帧探测超时会回退出视频/静态帧探针并写进槽位（见
-  //    prepareSceneLiveStage 注释：探测放弃刻意不簿记 sceneLiveFailures，因此
-  //    随后 buildMedia 的 isLive 仍为 true），两者不一致时槽里那个元素既不上
-  //    屏、也没有任何路径能释放它：detached 的 <video> 是解码器根，失去句柄后
-  //    仍满速解码到页面关闭（实测 4K ≈35% 单核/个，gc() 收不走），且它属于
-  //    **上一张壁纸** —— 之后的非提交重建（liveFail / fps 档位切换等）会按 tag
-  //    命中并把它领养进当前层 → 画面串味；
-  // ② 节点级领养（pendingStagedLayerNode）整条绕过 buildMedia，同样不收编。
-  // 放在函数收尾（本函数无提前 return）：无论走哪条建层/领养路径、无论
-  // buildMedia 是否被调用，退出时槽位必空。空槽位调用是 no-op。
-  disposePreparedMedia();
+  reclaimLayerAdoptionSlot();
 }
 
 // ── 轮换渐变：旧层退役 ───────────────────────────────────────────────────────
@@ -2317,7 +2345,7 @@ function resetLayerSwitchStyles(node) {
 /**
  * 开关"逐秒心跳"诊断日志（面板「live 诊断日志」开关）。
  * 留痕也归本函数：**开关本身必须留痕**（强制档不受该开关影响），否则事后无法判断
- * 当时是否在记。返回翻转后的值。
+ * 那一刻是否在记。返回翻转后的值。
  */
 function toggleLiveDiag() {
   liveDiagOn = !liveDiagVerbose();

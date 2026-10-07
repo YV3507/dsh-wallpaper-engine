@@ -189,7 +189,7 @@ node test/tools/host-route-index.mjs --write   # 重算并写入 docs/ROUTE-INDE
 | 层 | 内容 | 谁跑 |
 |---|---|---|
 | **`test/*.mjs`（守门）** | `verify-*.mjs` —— 结构性守卫：断言**代码**与声明一致，**正负对照成对**（守散文的守卫已按 ADR-0006 撤除） | 见 §4.2「两档」 |
-| **`test/*-smoke.mjs`（冒烟）** | 节点级行为冒烟：轮换、实时帧回填、身份校验 | `npm run smoke`（在 `verify:all` 里） |
+| **`test/*-smoke.mjs`（冒烟）** | 节点级行为冒烟：轮换、实时帧回填与身份校验、字体集加载 | `npm run smoke`（在 `verify:all` 里） |
 | **`test/e2e-*.mjs`（端到端）** | 真浏览器路径（需本机 Chromium 系浏览器） | `npm run verify:e2e`（不进 verify 链） |
 | **`test/compat-*.mjs`（适配）** | 真 harness 集成面，三个入口：`compat-harness-live` —— 插件进真实 `@deepseek-ai/dsh` 并启动，断言宿主路由注册可达 / 落盘诊断出现探活标记 / 插件树无加载失败（自带 HOME 隔离与 `DSH_WE_MEDIA_LEGACY=1`，媒体桥等第三方全程不拉起）。**两条安装通道**：`--channel link`（默认，软链工作区）与 `--channel tarball`（先 `npm pack`、再把 **.tgz** 装进去）+ `--fresh` —— **tarball 通道是 `peerDependencies` 能否在安装闭包里解析的唯一判据**（软链不参与依赖解析，结构性地看不见这一类）；它还带"通道自证"（装进去的是真目录而非软链）与两条针对性的失败串断言（`peer validation failed` / `does not resolve from the installation closure`）。CI 里两条通道各跑一步；`compat-harness-surfaces` —— UI 面清单棘轮（已装 harness 的 `dsh-client-ui-*` 与 `test/fixtures/harness-ui-surfaces.json` 做差，**新表面未登记即红**）+ sidebar 源码活判据；`compat-harness-pages` —— 无头浏览器**逐页 DOM/样式断言**（零依赖 CDP 走计算样式探针；`--dump` 为探查模式） | `.github/workflows/harness-compat.yml`（需网络、`dsh` CLI 与 Chromium 系浏览器，不进 verify 链） |
 | **`test/tools/`（工具）** | 诊断 / 分析 / 生成 —— **没有 CI 消费者**，靠手敲（清单见 §4.6） | 手动 |

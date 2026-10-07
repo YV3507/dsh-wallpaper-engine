@@ -1,9 +1,9 @@
 /**
  * about-assets.js — 「关于」页签与「更新公告」用到的**静态数据**（仓库地址 + 随包图的路径）。
  *
- * 二维码**不再内联 base64**（2026-10-01 用户要求改成 PNG 引入）：那版把两张图压进
- * `lib/client.js`（+240KB，每次冷启动都要连同 bundle 一起解析），而它们与面板逻辑毫无关系。
- * 现在图是随包资源 `lib/about/*.png`，由宿主路由 `GET <BASE>/about-qr/<文件名>` 直出
+ * 二维码用随包 PNG（用户要求），**不内联 base64** —— 内联会把两张图压进 `lib/client.js`
+ * （+240KB，每次冷启动随 bundle 一起解析），而它们与面板逻辑毫无关系。图是随包资源
+ * `lib/about/*.png`，由宿主路由 `GET <BASE>/about-qr/<文件名>` 直出
  * （白名单 + ETag/304，见 lib/routes/about-qr.js）；本文件只留**路径**，`<img src>` 经
  * `apiUrl()` 拼前缀，换码只要替换那两个 PNG，不必重建客户端产物。
  *
