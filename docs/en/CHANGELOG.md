@@ -17,6 +17,15 @@
 
 > Increments after v1.3.0-r2; the `NOTICE_VERSION` sentinel moves to `1.3.1` in step (the notice content changed ⇒ users who saw the r2 notice will see it once more), and `package.json`'s `version` is bumped to `1.3.1` in step.
 
+- **Refactor (no behaviour change): host god-function and client deep-nesting cleanup + two redundancy merges** (move-first: change *where* a declaration lives, then change what it does in a separate pass).
+  **Scale**: `apply()` 1541 → 333 lines (`lib/index.js` 4411 → 2955, four host factories + seven route families extracted); `WallpaperPicker()` 796 → 364 lines;
+  `syncLayers()` 276 → 169; `renderPickerModal()` 311 → 63; `QuickPanel()` 431 → 135; deep nesting (indent ≥22) in `picker-modal` 77 → 3 lines and `quick-panel` 59 → 2 lines.
+  **Deduplication**: host JSON-response boilerplate 10 → 1 (`lib/json-response.js`; 16 call sites across 11 files keep their local alias, behaviour preserved verbatim — two endpoints never sent `Cache-Control`, kept via the 4th argument `null`);
+  client clamp / monotonic clock / body-root copies 7 → 1 (`src/we-base.js`'s `weClampTo` / `weNow` / `weBody`; deliberately *not* merged with the settings-side `clampNum`, which has the opposite semantics).
+  **Comments & docs**: dated comments 50 → 0 in `src/`, 12 → 0 in `lib/`; chronicle framing 57 → 9 and 14 → 1; drift-prone version numbers / counts in evergreen docs replaced by symbol references.
+  **Guards**: new `verify-json-response` (sole implementation + call-site ratchet + 6 positive/negative controls); two-way assertions (with negative controls) added to `verify-client` / `verify-scene-live` and friends.
+  **Verification**: `npm run verify` (35 guards) / `verify:docs` / `smoke` (6 suites) exit 0; rebuilt `lib/client.js` is byte-identical to the committed artifact. No new dependencies, no setting or protocol changes.
+
 - **The Wallpaper Engine entry icon on the sidebar start page (guide) now uses the same fixed-palette color as the official artwork family** (user request: "make the wallpaper engine icon a colored icon consistent with the other features").
   **Root cause**: every official guide icon is **fixed-palette** artwork — Files = amber `#FFBC4D` fill, Terminal = `#679EFE` stroke, Browser = `#539CFA` stroke (36-unit grid); our React-side icon used `currentColor`, which resolves to the guide container's gray ink (`--dsw-alias-label-secondary`) ⇒ the only gray entry on the page.
   **Fix**: the React face of the icon in `src/nav-icon.js` (the face the guide card consumes) now uses the fixed family color `#A797FC` (the purple from the official `PluginArtworkLoop`, keeping the hue distinct from the amber and blue neighbors); geometry and stroke width unchanged (≈2.3px at 26px, right between Terminal's 2.5px and Browser's 1.4px). The settings-nav DOM patch face (`weIconSvgString`) **keeps `currentColor`** — the official settings nav is a monochrome line-icon family by design.

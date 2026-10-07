@@ -19,6 +19,15 @@
 
 > v1.3.0-r2 之后的增量；`NOTICE_VERSION` 哨兵同步 `1.3.1`（公告改版 ⇒ 看过 r2 公告的用户会再看到一次），；`package.json` 版本号已同步 `1.3.1`。
 
+- **重构（零行为改动）：宿主上帝函数与客户端深嵌套收官 + 两处冗余收敛**（做法=**纯搬移优先**：先只改声明住在哪，再单独改语义）。
+  **规模**：`apply()` 1541 → 333 行（`lib/index.js` 4411 → 2955 行，搬出 4 个宿主工厂与 7 个路由族）；`WallpaperPicker()` 796 → 364 行；
+  `syncLayers()` 276 → 169 行；`renderPickerModal()` 311 → 63 行；`QuickPanel()` 431 → 135 行；深嵌套（缩进 ≥22）`picker-modal` 77 → 3 行、`quick-panel` 59 → 2 行。
+  **冗余收敛**：宿主 JSON 应答样板 10 份 → 1（`lib/json-response.js`；16 处调用点 / 11 个文件走薄别名，逐字保行为 —— 有 2 处原本不写 `Cache-Control`，以第 4 参 `null` 保留）；
+  客户端钳位 / 单调时钟 / body 根 7 份 → 1（`src/we-base.js` 的 `weClampTo` / `weNow` / `weBody`；与设置侧的 `clampNum` 语义相反，**刻意不合并**）。
+  **注释与文档**：`src/` 日期戳注释 50 → 0 处、`lib/` 12 → 0 处；编年史框定语 `src/` 57 → 9、`lib/` 14 → 1；常青文档里会漂的版本号 / 条数改成符号引用。
+  **判据**：新守卫 `verify-json-response`（唯一实现 + 调用点棘轮 + 6 条正负对照）；`verify-client` / `verify-scene-live` 等新增「子渲染器已拆成派生 + 装配」的双向断言（含负对照）。
+  **验证**：`npm run verify`（35 条）/ `verify:docs` / `smoke`（6 套）exit 0；`lib/client.js` 重建与提交内容逐字节一致。无新增依赖、无设置项与协议变化。
+
 - **侧栏开始页（guide）的「壁纸引擎」入口图标改成官方 artwork 家族同款彩色**（用户口径：「把壁纸引擎的图标做成和其他功能一致的彩色图标」）。
   **根因**：官方 guide 卡的图标全是**固定调色板** artwork——文件＝琥珀 `#FFBC4D` 实底、终端＝`#679EFE` 描边、浏览器＝`#539CFA` 描边（36 网格）；而我们的 React 面图标用 `currentColor`，从 guide 容器拿到的是灰墨（`--dsw-alias-label-secondary`）⇒ 整页唯一显灰的入口。
   **修法**：`src/nav-icon.js` 的 React 面（guide 卡消费的那面）改固定家族色 `#A797FC`（取自官方 `PluginArtworkLoop` 的紫，与琥珀/蓝两个邻居错开色相），几何与描边宽度不动（26px 实渲染约 2.3px，恰在终端 2.5px 与浏览器 1.4px 之间）；设置 nav 的 DOM 补丁面（`weIconSvgString`）**保持 `currentColor`**——官方设置 nav 本就是单色线条图标族，跟着上彩反而突兀。
