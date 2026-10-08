@@ -258,12 +258,14 @@ You will see a **liquid-glass card** holding every wallpaper-related control.
 
 ### How do I tune the picture sliders?
 
-With a wallpaper active, the **「效果」 (effects)** tab has the picture sliders; **边框 (border)** and **雾化 (conversation glass blur)** live in the **「外观」 (appearance)** tab's 「细节」 group. **All of them apply instantly — no page refresh**:
+With a wallpaper active, the **「效果」 (effects)** tab has the picture sliders; **边框 (border)** and **雾化 (conversation glass blur)** live in the **「外观」 (appearance)** tab's 「细节」 group. **All of them apply instantly — no page refresh**. The three framing sliders (水平 / 垂直 / 缩放) also accept a **typed value** in the box on their right, and **double-clicking their label** puts them back to the default:
 
 | Slider | What it does | Default |
 |---|---|---|
 | **壁纸模糊** (wallpaper blur) | Blurs the wallpaper itself | see the control |
 | **亮度 / 对比度 / 饱和度** (brightness / contrast / saturation) | The wallpaper picture's brightness and richness | see the control |
+| **水平 / 垂直** (horizontal / vertical) | Slides the whole wallpaper layer across the screen — `50` is dead centre, the same scale as Wallpaper Engine's own sliders of these names. **Double-click the label** to snap back to centre | see the control |
+| **缩放** (scale) | Zooms the wallpaper layer in or out — `100` is the original size, and below that a little of the page base color shows around the edges | see the control |
 | **壁纸透明度** (wallpaper opacity) | Fades the whole wallpaper layer toward the page base color | see the control |
 | **暗化** (scrim) | Darkens the overlay between wallpaper and text | see the control |
 | **边框** (border, Appearance → Details) | Makes borders / dividers stand out | see the control |

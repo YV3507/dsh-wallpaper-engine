@@ -58,6 +58,11 @@ const WE_I18N_EN = {
   "擦除": "Wipe",
   "光圈": "Iris",
   "缩放": "Zoom",
+  // 壁纸层取景（位置）两行的标签：与 WE 壁纸属性面板里的同名滑条同词。
+  "水平": "Horizontal",
+  "垂直": "Vertical",
+  "整屏百分比偏移：50 = 中心，0/100 = 两端（与 Wallpaper Engine 自带的同名滑条同义）；双击标签回中心。": "Whole-screen percentage offset: 50 = centered, 0/100 = the two ends (same meaning as Wallpaper Engine's slider of the same name); double-click the label to re-center.",
+  "100 = 原大小；95 = 缩到 95%（四周露出页面底色）；105 = 放大到 105%；双击标签回 100%。": "100 = original size; 95 = scaled to 95% (the page base colour shows around the edges); 105 = enlarged to 105%; double-click the label to reset to 100%.",
   "条带": "Stripes",
   "快": "Fast",
   "标准": "Normal",

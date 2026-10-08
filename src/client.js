@@ -2795,6 +2795,43 @@ function starCountLabel() {
   return "";
 }
 
+// 滑杆右侧那格「数值区」的可输入形态（SliderRow 的 opts.numberEdit 用它）。
+//
+// 为什么单独一个组件、并且**编辑期不受控**：受控写法（value 由设置渲染、每敲一键就写设置）
+// 在"删空重打"这一路会自锁 —— 退格把框清成空串，空串不是合法值 ⇒ 不写设置 ⇒ React 又把旧值
+// 渲回去，用户看到的是"数字删不掉"（实测反馈原话：「我在输入框里不能删除已有数字」）。所以：
+//   · 未编辑（聚焦前）：value = 设置值，跟着滑杆拖动 / 别处改动同步显示；
+//   · 编辑中：自己管自己（defaultValue + 本地 draft），**空串也是合法中间态**，随便删；
+//   · 回车 / 失焦：夹取到 [min, max] 后交给同一个处理器（第二参 false = 完整路径），并收起
+//     draft 回到受控 —— 值真被拒（越界回落默认）时也能立刻看到真实值。
+// draft 只在编辑期覆盖显示，"删空 + 回车"于是回落设置值，而不是把 0 写进去。
+function NumberValueInput(props) {
+  const { label, min, max, step, unit, value, onCommit, title } = props;
+  const [draft, setDraft] = React.useState(null);
+  const editing = draft !== null;
+  const commit = (raw) => {
+    setDraft(null);
+    const s = String(raw == null ? "" : raw).trim();
+    if (s === "") return;                       // 空 = 放弃这次编辑，保留原值
+    const n = Number(s);
+    if (!Number.isFinite(n)) return;
+    onCommit(Math.max(Number(min), Math.min(Number(max), n)));
+  };
+  return React.createElement("input", {
+    className: "we-picker__value-input", type: "number",
+    min: String(min), max: String(max), step: String(step),
+    title: title || undefined,
+    "aria-label": label + " " + unit,
+    ...(editing ? { defaultValue: draft } : { value: String(value) }),
+    onFocus: () => { if (!editing) setDraft(String(value)); },
+    onInput: (e) => setDraft(e.currentTarget.value),
+    onBlur: (e) => commit(e.currentTarget.value),
+    onKeyDown: (e) => {
+      if (e.key === "Enter") { commit(e.currentTarget.value); e.currentTarget.blur(); }
+    },
+  });
+}
+
 // ── Settings picker ─────────────────────────────────────────────────────────
 // `key` is only needed when a SliderRow sits inside a conditionally-rendered
 // ARRAY (the sidebar-glass group) — React requires keys there.
@@ -2810,6 +2847,11 @@ function SliderRow(label, min, max, step, value, onInput, suffix, key, opts) {
   const readout = (v) => (v == null || v === ""
     ? ""
     : (preformatted ? unit : String(v) + unit));
+  // `opts.numberEdit`：右侧数值区改成**可取数**的输入框（数值 + 单位同处一个胶囊）。
+  // 与滑块走同一个处理器：键入即时生效，回车 / 失焦提交并夹取到本控件的 min..max；
+  // 打字中途的空串**不写值**（`Number("") === 0` 会让退格那一下把画面弹到最小值）。
+  // 旧调用点不传它就还是原来的只读回显。
+  const numberEdit = Boolean(opts.numberEdit) && !preformatted;
   // 拖动期的轨道填充与**数值回显**：就地改这一行的 --we-fill 与右侧数值文本
   //（**局部 DOM 写，不触发 React 渲染**）。抬手那一次仍走完整 emit（含落盘），
   // 于是慢帧下也不会出现"数字跟不上滑块"的空档。
@@ -2822,13 +2864,24 @@ function SliderRow(label, min, max, step, value, onInput, suffix, key, opts) {
       const out = row && typeof row.querySelector === "function" ? row.querySelector(".we-picker__value") : null;
       // 预格式化口径不做拖动期就地改写 —— 保持原有的既有观感
       //（放手后的 emit 重渲染会给出正确文本）。
+      // 缺元素 / 预格式化整串：什么都不做。
       if (out && !preformatted) out.textContent = readout(el.value);
+      else return;
+      // numberEdit 口径下右侧是 <input>：它有**自己的 value 属性** ⇒ 改走 value，
+      // 且必须在上面那次 textContent 之后**判形态再覆盖**（写 textContent 会把
+      // React 的子节点删掉，下一次 emit 就崩）。非输入框元素没有 value，无害。
+      if (typeof out.value === "string") out.value = String(el.value);
     } catch { /* 回显是增强，失败不影响取值 */ }
   };
+  // 键入提交住在 NumberValueInput 里（编辑期不受控 + 回车 / 失焦提交），这里只剩滑杆。
   return React.createElement("div", { className: "we-picker__row we-picker__slider-row", key: key },
     React.createElement("span", {
       className: "we-picker__hint we-picker__label",
       title: opts.tooltip || undefined,
+      // 可选手势：双击标签回默认（位置行回中心、缩放行回 100%）。只有传了它的行会挂，
+      // 且挂上时禁掉文字选择 —— 双击否则会先把标签选中，"回默认"看着像没反应。
+      onDoubleClick: opts.onLabelDoubleClick || undefined,
+      style: opts.onLabelDoubleClick ? { userSelect: "none" } : undefined,
     }, label),
     React.createElement("input", {
       className: "we-picker__slider", type: "range",
@@ -2849,7 +2902,18 @@ function SliderRow(label, min, max, step, value, onInput, suffix, key, opts) {
     // 右侧数值 = 当前值 + 单位（用户口径："滑动条右侧显示数值"）。它是**回显**，
     // 真值永远在设置里；liveFill 在拖动中就地把这行文本换成同一个格式
     //（仅裸单位口径；预格式化口径见上面 readout 的说明）。
-    React.createElement("span", { className: "we-picker__hint we-picker__value" }, readout(value)),
+    numberEdit
+      ? React.createElement("span", { className: "we-picker__hint we-picker__value" },
+        React.createElement(NumberValueInput, {
+          label, min, max, step, unit,
+          value,
+          title: opts.valueTooltip || undefined,
+          // 完整路径（第二参 false）：与滑杆抬手同一条口径 —— 写值 + emit。
+          onCommit: (n) => onInput(n, false),
+        }),
+        React.createElement("span", { className: "we-picker__value-unit" }, unit),
+      )
+      : React.createElement("span", { className: "we-picker__hint we-picker__value" }, readout(value)),
   );
 }
 
@@ -3631,6 +3695,22 @@ const onWallpaperBlur = (px, live) => commitLiveSetting("wallpaperBlur", px, liv
 const onBackgroundBrightness = (pct, live) => commitLiveSetting("backgroundBrightness", pct, live);
 const onBackgroundContrast = (pct, live) => commitLiveSetting("backgroundContrast", pct, live);
 const onBackgroundSaturate = (pct, live) => commitLiveSetting("backgroundSaturate", pct, live);
+// 壁纸层取景（位置 / 缩放，对应 WE 壁纸属性面板的 水平 / 垂直 / 缩放）：整屏百分比偏移
+// （50 = 居中）与缩放百分比（100 = 原大小）。量程一律走 schemaRange，不在这里写数字 ——
+// 手写那对数字会与 KINDS 漂移，而 clampNum 越界即回落默认值（用户实测过"拉到头跳回默认"）。
+const onLayerPositionX = (pct, live) =>
+  commitLiveSetting("layerPositionX", clampNum(pct, ...schemaRange("layerPositionX"), DEFAULTS.layerPositionX), live);
+const onLayerPositionY = (pct, live) =>
+  commitLiveSetting("layerPositionY", clampNum(pct, ...schemaRange("layerPositionY"), DEFAULTS.layerPositionY), live);
+const onLayerScale = (pct, live) =>
+  commitLiveSetting("layerScale", clampNum(pct, ...schemaRange("layerScale"), DEFAULTS.layerScale), live);
+// 三条行的"回到默认"手势（双击标签）：面板没有通用的恢复默认行，而把滑块精确拖回
+// 50 / 100 很难。走完整 emit（含落盘），一步到位。
+const onLayerReset = (key) => {
+  const field = key === "x" ? "layerPositionX" : key === "y" ? "layerPositionY" : "layerScale";
+  setSetting(field, DEFAULTS[field]);
+  emit();
+};
 // 配色 (accent color) + 玻璃透明度 (glass transparency) + 玻璃颜色 (glass base
 // tint): applied instantly through applyEffects() (--we-accent /
 // --we-glass-alpha / --we-surface-tint-light/dark), persisted so the settings page keeps
@@ -4404,7 +4484,7 @@ function WallpaperPicker() {
     if (activeTab === "playback") return React.createElement(React.Fragment, null,
       renderEffectsTab({
         setSetting, setTransient,
-        onBackgroundBrightness, onBackgroundContrast, onBackgroundSaturate, onClearCustomFrame, onClearGpuFrame, onCustomFrameFile, onFlip, onFpsCap, onLiveBootDelay, onObjectFit, onOpenPicker, onPlaybackRate, onRecaptureGpuFrame, onRefreshFrame, onSceneLiveFps, onScrim, onToggleSceneLive, onWallpaperBlur, onWallpaperOpacity, sel, setPickerOpener,
+        onBackgroundBrightness, onBackgroundContrast, onBackgroundSaturate, onClearCustomFrame, onClearGpuFrame, onCustomFrameFile, onFlip, onFpsCap, onLayerPositionX, onLayerPositionY, onLayerReset, onLayerScale, onLiveBootDelay, onObjectFit, onOpenPicker, onPlaybackRate, onRecaptureGpuFrame, onRefreshFrame, onSceneLiveFps, onScrim, onToggleSceneLive, onWallpaperBlur, onWallpaperOpacity, sel, setPickerOpener,
       }),
       renderAudioTab({
         setSetting, setTransient,

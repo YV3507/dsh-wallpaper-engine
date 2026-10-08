@@ -2936,6 +2936,9 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     'onAccent', 'onBlur', 'onBorder', 'onGlassAlpha', 'onGlassColor', 'onGlassFidelity', 'onChatGlassFidelity', 'onToggleThemeFollow',
     'onScrim', 'onWallpaperBlur', 'onWallpaperOpacity',
     'onBackgroundBrightness', 'onBackgroundContrast', 'onBackgroundSaturate',
+    // 壁纸层取景（位置 / 缩放）：侧栏「播放」档同样画这三行 ⇒ 它们也是 quick-panel.js 的
+    // 自由变量（与上面同一纪律：漏一个就是渲染期 ReferenceError）。
+    'onLayerPositionX', 'onLayerPositionY', 'onLayerScale', 'onLayerReset',
     // P4-15 从 panel-tabs.js 抽出的具名处理器：侧栏档也画到它们，于是它们成了 quick-panel.js
     // 的**自由变量** ⇒ 必须在这里当形参给（漏一个就是 ReferenceError，这正是本判据的设计）。
     // 与 QP_CTX_SETTINGS_ONLY 的分工：**侧栏档真的会画到的**由这里给真值（替身），
@@ -2998,6 +3001,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       onAccent: noop, onBlur: noop, onBorder: noop, onGlassAlpha: noop, onGlassColor: noop, onGlassFidelity: noop, onChatGlassFidelity: noop,
       onToggleThemeFollow: noop, onScrim: noop, onWallpaperBlur: noop, onWallpaperOpacity: noop,
       onBackgroundBrightness: noop, onBackgroundContrast: noop, onBackgroundSaturate: noop,
+      onLayerPositionX: noop, onLayerPositionY: noop, onLayerScale: noop, onLayerReset: noop,
       onLeftSidebarGlass: noop, onTitlebarGlass: noop, onSidebarGlass: noop,
       // 子项「独立配置」及其参数处理器；登记表与键名生成器给**真值**
       //（与 schema 同源，来自被内联的 panel 模块作用域）—— 手抄一份就会漂。
@@ -5109,9 +5113,9 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     // 效果页**只有一个节标签** ⇒ 节顺序钉不住它的内部结构。这里用**控件标签的有序序列**作细锚：
     // 它同样是行为级的（对任何重构不变），却细到能看见"某一行的位置被挪了 / 被删了"。
     { fn: 'renderEffectsTab', label: '（画面 · 设置页）', surface: 'settings', want: ['画面'],
-      wantLabels: ['壁纸模糊', '亮度', '对比度', '饱和度', '壁纸透明度', '暗化', '倍速', '帧率上限', '适配', '水平翻转'] },
+      wantLabels: ['壁纸模糊', '亮度', '对比度', '饱和度', '水平', '垂直', '缩放', '壁纸透明度', '暗化', '倍速', '帧率上限', '适配', '水平翻转'] },
     { fn: 'renderEffectsTab', label: '（画面 · 侧栏档）', surface: 'sidebar', want: ['画面'],
-      wantLabels: ['壁纸模糊', '亮度', '对比度', '饱和度', '壁纸透明度', '暗化', '倍速', '适配', '水平翻转'] },
+      wantLabels: ['壁纸模糊', '亮度', '对比度', '饱和度', '水平', '垂直', '缩放', '壁纸透明度', '暗化', '倍速', '适配', '水平翻转'] },
     // 第 4 门：**效果页的实时渲染组**（`sel.type` 为场景/网页时才画；视频档一个都不出）。
     // 这一组的标签走 `switchRow` / `ctlText` ⇒ **标签锚这次看得见**（与墙纸档的门后裸控件不同）。
     { fn: 'renderEffectsTab', label: '（画面 · 场景壁纸：实时渲染组出现）', surface: 'settings',
@@ -5119,12 +5123,12 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       want: ['画面'],
       // 实测：13 个标签 —— 比网页档多的两个（`出图来源` / `自定义画面`）正是**场景专属**那两行
       // （网页壁纸没有"出图来源"这一说）。标签锚是**精确序列**判定 ⇒ 两个方向都钉住了。
-      wantLabels: ['壁纸模糊', '亮度', '对比度', '饱和度', '壁纸透明度', '暗化', '场景实时渲染',
+      wantLabels: ['壁纸模糊', '亮度', '对比度', '饱和度', '水平', '垂直', '缩放', '壁纸透明度', '暗化', '场景实时渲染',
         '启动最长等待时间', '实时渲染帧率', '出图来源', '自定义画面', '适配', '水平翻转'] },
     { fn: 'renderEffectsTab', label: '（画面 · 网页壁纸：实时渲染组出现）', surface: 'settings',
       selOver: { type: 'web', webLive: true, webLiveSrc: '/x' },
       want: ['画面'],
-      wantLabels: ['壁纸模糊', '亮度', '对比度', '饱和度', '壁纸透明度', '暗化', '网页实时渲染',
+      wantLabels: ['壁纸模糊', '亮度', '对比度', '饱和度', '水平', '垂直', '缩放', '壁纸透明度', '暗化', '网页实时渲染',
         '启动最长等待时间', '实时渲染帧率', '适配', '水平翻转'] },
     // 目标③ 余项 1：「实时帧」那一段（门 = gpuFrameUi.wid === sel.id && pinned —— 这一张壁纸的槽里真有帧）。
     // 它有几行随 w/h/error/recapturing/busy 显隐的分支，全在模块级替身里，故用 globals。
@@ -5133,7 +5137,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       globals: { gpuFrameUi: { wid: 'w1', pinned: true, w: 1920, h: 1080, busy: false, recapturing: false, error: '' } },
       want: ['画面'],
       // 实测 14 个：门打开后多出 `实时帧`（正好夹在 `出图来源` 与 `自定义画面` 之间）。
-      wantLabels: ['壁纸模糊', '亮度', '对比度', '饱和度', '壁纸透明度', '暗化', '场景实时渲染',
+      wantLabels: ['壁纸模糊', '亮度', '对比度', '饱和度', '水平', '垂直', '缩放', '壁纸透明度', '暗化', '场景实时渲染',
         '启动最长等待时间', '实时渲染帧率', '出图来源', '实时帧', '自定义画面', '适配', '水平翻转'] },
     // 目标③ 余项 2：转码进度行的 done 态（另一态由「进行中」覆盖）。
     { fn: 'renderEffectsTab', label: '（画面 · 转码进度 done）', surface: 'settings',

@@ -94,6 +94,16 @@ const CSS = `
   html { background-color: var(--we-wallpaper-underlay, transparent); }
 
   .we-layer { position: fixed; inset: 0; z-index: -2; overflow: hidden; pointer-events: none; opacity: 1; background-color: var(--we-wallpaper-fade-bg, transparent); --dsw-alias-bg-layer-1: var(--we-panel-color, #101418); -webkit-app-region: initial !important; }
+  /* 壁纸层取景（位置 / 缩放）：投影自 WE 壁纸属性面板的 水平 / 垂直 / 缩放
+     （free alignment 的 alignmentx / alignmenty / alignmentz）。写的是**独立属性**
+     translate / scale，**不是** transform —— 层切换过渡与 .we-layer--repaint
+     都写 transform，独立属性与它叠加而不是互相清掉（与下面视差段同一条纪律）。
+     变量缺省即恒等（不位移、不缩放）：等于默认值时 applyEffects **不写变量**，
+     免得一条 translate: 0px 0px 把整屏 <video> 逼上常驻合成层。 */
+  .we-layer {
+    translate: var(--we-layer-x, 0px) var(--we-layer-y, 0px);
+    scale: var(--we-layer-scale, 1);
+  }
 /* Blurring via CSS filter darkens/thins the edges, so the layer is scaled up
    (the scale term is folded into --we-wallpaper-transform, beside the flip) to hide
    the transparent fringe the blur would otherwise reveal at the viewport edges. */
@@ -2153,6 +2163,18 @@ const CSS = `
     background: var(--dsw-alias-bg-layer-2, rgba(128, 128, 128, 0.14));
     color: var(--we-ink-2, rgba(128, 128, 128, 0.9));
   }
+  /* 可取数的数值区（SliderRow 的 numberEdit 行）：数值框与单位共用一个胶囊 ——
+     框本身去边框/底色、宽度按内容、去掉 spinner，数值与单位同色同字号；
+     键盘可达（回车 / 失焦提交）。 */
+  .we-picker__value-input {
+    width: 3.6em; min-width: 0; padding: 0 2px; margin: 0;
+    border: 0; background: transparent; text-align: right;
+    color: inherit; font: inherit; line-height: 1.2;
+  }
+  .we-picker__value-input:focus { outline: none; }
+  .we-picker__value-input::-webkit-inner-spin-button,
+  .we-picker__value-input::-webkit-outer-spin-button { -webkit-appearance: none; appearance: none; margin: 0; }
+  .we-picker__value-unit { opacity: 0.9; }
   .we-picker__text { flex: 1; min-width: 0; }
   .we-picker__editor {
     display: flex; flex-direction: column; gap: 6px;

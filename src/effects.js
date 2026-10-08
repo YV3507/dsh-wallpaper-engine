@@ -244,6 +244,24 @@ function applyEffects(opts) {
       : "none");
   // Fit mode for the current wallpaper (consumed by .we-media--fit).
   s.setProperty("--we-object-fit", selection.objectFit);
+  // 壁纸层取景（位置 / 缩放，对应 WE 的 水平 / 垂直 / 缩放）：0..100 映射到层自身
+  // 尺寸的 -25%..+25%（50 = 居中），缩放 100 = 100%。
+  // ⚠️ 等于默认值时**不写变量**：`translate: 0px 0px` / `scale: 1` 同样是一条真实声明，
+  // 会把整屏壁纸 <video> 逼上一个常驻合成层（与 --we-wallpaper-transform 回落 "none" 同因）。
+  {
+    const lpx = Number(selection.layerPositionX);
+    const lpy = Number(selection.layerPositionY);
+    const lsc = Number(selection.layerScale);
+    const offX = Number.isFinite(lpx) && lpx !== 50;
+    const offY = Number.isFinite(lpy) && lpy !== 50;
+    const zoomed = Number.isFinite(lsc) && lsc !== 100;
+    if (offX) s.setProperty("--we-layer-x", ((lpx - 50) / 2).toFixed(4) + "%");
+    else s.removeProperty("--we-layer-x");
+    if (offY) s.setProperty("--we-layer-y", ((lpy - 50) / 2).toFixed(4) + "%");
+    else s.removeProperty("--we-layer-y");
+    if (zoomed) s.setProperty("--we-layer-scale", String(lsc / 100));
+    else s.removeProperty("--we-layer-scale");
+  }
   // 壁纸透明度（#82）：越大越透 —— 0% 时不设变量，保持 identity opacity
   // （Blink 对 opacity:1 不建合成层，设置了反而给 kiosk 窗口多一层常驻合成）。
   // 渲染引擎约束（实测）：DSH 页面底色是透明的，壁纸层一旦整体
@@ -441,6 +459,10 @@ function clearEffects() {
   s.removeProperty("--we-glass-brightness");
   s.removeProperty("--we-media-filter");
   s.removeProperty("--we-object-fit");
+  // 壁纸层取景（与上面那组写入成对）：卸载 / 禁用后 DOM 上不留变量。
+  s.removeProperty("--we-layer-x");
+  s.removeProperty("--we-layer-y");
+  s.removeProperty("--we-layer-scale");
   s.removeProperty("--we-wallpaper-opacity");
   s.removeProperty("--we-wallpaper-fade-bg");
   s.removeProperty("--we-accent");
