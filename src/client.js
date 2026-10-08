@@ -4936,7 +4936,7 @@ function RopeDock() {
 // 都从磁盘现读，而后端路由只在 DSH 重启时换血 —— 更新后未重启的窗口期里，旧后端
 // 的 /about-qr 白名单还没有 update-notice.jpg ⇒ 图 404。若照旧立刻弹窗，用户看到
 // 裂图，而「知道了」一关整版公告永久退场，配图等于永远没人看到。
-const NOTICE_VERSION = "1.3.1";
+const NOTICE_VERSION = "1.3.2";
 // 公告内容改版（新增「侧边栏只是简略版」大字说明 + 配图缩小）必须升哨兵：
 // 否则看过旧版的用户永远看不到新说明，改了等于没改 ⇒ 重弹一次是设计意图。
 // 配图就绪探针的节奏：HEAD 轮询到新白名单在场（= 后端已重启）才弹；旧后端一直
@@ -5030,7 +5030,7 @@ function UpdateNotice() {
   };
   if (!show) return null;
   return React.createElement("div", { className: "we-update-notice", role: "alert" },
-    React.createElement("div", { className: "we-update-notice__title" }, weT("🎉 v1.3.1 更新：侧栏顶栏刷新键 · 修复一批")),
+    React.createElement("div", { className: "we-update-notice__title" }, weT("🎉 v1.3.2 更新：视频秒开 · 壁纸取景 · 缓存搬家")),
     // 只有 ready 才渲染配图与配图说明（timeout 降级态连说明一起藏 —— 那行字在
     // 说"这张图"，图缺席时它就是无源之水）。
     art === "ready" ? React.createElement("img", { className: "we-update-notice__art", src: apiUrl(NOTICE_ART_PATH), alt: weT("求个 star 喵！—— GitHub 求星插画") }) : null,
@@ -5050,38 +5050,35 @@ function UpdateNotice() {
         "① ", noticeEx(3), React.createElement("strong", null, weT("下载了新壁纸后要点「刷新」！")),
         weT("新壁纸要点「刷新」才会出现在壁纸库里——刷新键就在顶栏「暂停」旁。")),
       React.createElement("p", null,
-        weT("自 1.2.0 以来的全部更新：")),
-      // ①–⑧ 每条压成一两句：保留 ❗ 强调层级、
-      // 破坏性操作的警示与 oneincase 归属；被删细节（8 套上限 / 头像内置图标 /
-      // 卡顿治理等）在设置页与 CHANGELOG 里都有。
+        weT("自 1.3.1 以来的全部更新：")),
+      // ①–⑦ 每条压成一两句：保留 ❗ 强调层级、
+      // 破坏性操作的警示与 oneincase 归属；被删细节在设置页与 CHANGELOG 里都有。
       React.createElement("p", null,
-        "② ", noticeEx(3), React.createElement("strong", null, weT("与 web-all 插件共存")),
-        weT("：用 web-all 里下载的皮肤，或用本插件的动态壁纸，随你选——启用皮肤时壁纸与玻璃自动让路，卸下后自动恢复你之前的设置（重启也不丢）。")),
+        "① ", noticeEx(3), React.createElement("strong", null, weT("视频壁纸秒开")),
+        weT("：大体积视频不再等整份文件读完才出首帧（实测 765MB 的壁纸从 1.8 秒缩到 0.2 秒级）；缓存里那 1.5GB 的整片副本也清掉了，磁盘零占用。")),
       React.createElement("p", null,
-        "③ ", React.createElement("strong", null, weT("所有 UI 的玻璃效果均可自定义")),
-        weT("：每个玻璃面都有「独立配置」开关；不想调就一键套用出厂七套「预设方案」（应用预设会整套覆盖且无法撤销，出厂预设删除后无法恢复）。另外，不设置壁纸也能调玻璃了。")),
+        "② ", noticeEx(3), React.createElement("strong", null, weT("壁纸取景三件套")),
+        weT("：「播放 → 效果」新增 水平 / 垂直 / 缩放 —— 对齐 Wallpaper Engine 壁纸属性面板的同名滑条，右侧数值可直接键入，双击标签回默认。")),
       React.createElement("p", null,
-        "④ ", noticeEx(3), React.createElement("strong", null, weT("吉祥物可自定义立绘")),
-        weT("：设置 →「系统」→「吉祥物形态」新增「导入图片…」——导入即换、再导即覆盖，点「清除」恢复内置（96×192 等比适配）。")),
+        "③ ", noticeEx(3), React.createElement("strong", null, weT("缓存位置可自定义")),
+        weT("：「高级」页签新增「缓存位置」—— 几 GB 的视频缓存可一键搬到别的盘，不再挤占系统盘。")),
       React.createElement("p", null,
-        "⑤ ", noticeEx(3), React.createElement("strong", null, weT("自定义会话头像（默认关闭）")),
-        weT("：在「扩展」页签开启后消息左右分列——你右 AI 左，头像可分别导入自定义图片，形状与大小可调。❗提示「宿主里没有头像路由」时重启 DSH 再试。")),
+        "④ ", React.createElement("strong", null, weT("新版 Wallpaper Engine 不再被判「未安装」")),
+        weT("：当前版本 WE 把可执行文件挪进了 distribution/ 子目录，旧判据认不出——现已两种布局都认，非默认 Steam 盘的安装恢复正常。")),
       React.createElement("p", null,
-        "⑥ ", React.createElement("strong", null, weT("修复一批")),
-        weT("：松散目录场景壁纸恢复实时渲染（渲染内核 WebWallGL 2.1.0，作者 oneincase）；壁纸库全量加载不再分页；玻璃配置刻度统一（存量设置自动换算）。")),
-      // ⑥⑦ 是 1.3.1 的增量（用户口径：公告正文转 1.3.1，别让看过旧版的用户
-      // 重弹一次却只看到旧内容）。
+        "⑤ ", noticeEx(3), React.createElement("strong", null, weT("打开「会话头像」后思考行不再消失")),
+        weT("：#154——收起的思考行宽度塌成 0、连「思考」入口一起不见，现已修复。")),
       React.createElement("p", null,
-        "⑦ ", noticeEx(3), React.createElement("strong", null, weT("侧栏顶栏新增「刷新」键")),
-        weT("：当前壁纸行的按钮组变成 暂停 / 刷新 / 清除——总找不到设置页刷新键的，点它就重新扫描 Wallpaper Engine 壁纸库，新装 / 已删除的壁纸立即出现。")),
+        "⑥ ", React.createElement("strong", null, weT("界面细节一批")),
+        weT("：侧栏开始页「壁纸引擎」入口图标换成官方 artwork 家族同款彩色（不再显灰）；原生下拉弹层在深色主题下「底色与字同色」整列不可读的问题已修。")),
       React.createElement("p", null,
-        "⑧ ", React.createElement("strong", null, weT("修复一批")),
-        weT("：右栏「全屏」时对话不再穿透玻璃侧栏（#150）；下拉列表的选项不再「底色与字同色」；网页壁纸抢输入框焦点加了围栏（宿主半改动，重启 DSH 生效）；公告配图探针不再反复探测；另含 #147 审阅的六项清账。")),
+        "⑦ ", React.createElement("strong", null, weT("内部重构（零行为改动）")),
+        weT("：宿主上帝函数与客户端深嵌套收官——纯搬移，无新增依赖、无设置项与协议变化。")),
       React.createElement("p", null,
         React.createElement("strong", null, weT("💡 使用提示："))),
       React.createElement("p", null,
         noticeEx(3), React.createElement("strong", null, weT("升级后建议重启一次 DSH")),
-        weT("——玻璃配置管线有迁移，重启后才完整生效。")),
+        weT("——视频起播与缓存路径的改动要重启 dsh web 后完整生效。")),
       React.createElement("p", { className: "we-update-notice__hint" },
         weT("本提示每个新版本只出现一次，点下方按钮关闭后不再弹出。")),
     ),
