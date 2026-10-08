@@ -4610,11 +4610,25 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     const stylesSrcAv = readFileSync(join(root, 'src', 'styles.js'), 'utf8');
     const avCssAt = stylesSrcAv.indexOf('「扩展」页签一号模块');
     const avCss = avCssAt < 0 ? '' : stylesSrcAv.slice(avCssAt, stylesSrcAv.indexOf('「扩展」二号模块', avCssAt));
-    check('styles.js 头像段：开关属性下才生效 · 用户行反过来 · 消息格可伸缩 · 无昵称残留',
+    // 断言一律打在**剥注释**的样式文本上：注释里写着锚点与 display: contents 这些词，
+    // 不剥的话注释本身就能把这几个 includes 喂饱（判据会假绿）。
+    const avCssBare = avCss.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\s+/g, ' ');
+    // 「消息格可伸缩」那条规则必须**同时**覆盖直挂内容与槽出口锚点后面那一层：宿主给
+    // `div[data-slot="conversation.chat.node"]` 写死内联 `display: contents`（没有盒子 ⇒
+    // 既不是 flex item 也不接受 flex 属性），只写直挂那一半就是打在空气上——内容根退回
+    // 默认 flex item、主轴尺寸按 max-content 算；宿主给收起态的思考行写死 `contain: size layout`
+    // （固有尺寸 = 0）⇒ 一行只剩"思考"折叠行时整条消息宽 0px（issue #154）。
+    // 这条钉法故意要求"两条选择器、一条声明块"：少写锚点那半条就红。
+    const AV_GROW_RULE = /body\[data-we-avatar="on"\] \[data-we-avatar-row\] > :not\(\.we-avatar\), body\[data-we-avatar="on"\] \[data-we-avatar-row\] > \[data-slot\] > :not\(\.we-avatar\) \{ flex: 1 1 auto; min-width: 0; \}/;
+    check('styles.js 头像段：开关属性下才生效 · 用户行反过来 · 消息格穿透槽出口锚点可伸缩 · 无昵称残留',
       avCssAt > 0
-      && avCss.includes('body[data-we-avatar="on"] [data-we-avatar-row] { display: flex;')
-      && avCss.includes('body[data-we-avatar="on"] [data-we-avatar-row="user"] { flex-direction: row-reverse; }')
-      && avCss.includes('body[data-we-avatar="on"] [data-we-avatar-row] > :not(.we-avatar) { flex: 1 1 auto; min-width: 0; }')
+      && avCssBare.includes('body[data-we-avatar="on"] [data-we-avatar-row] { display: flex; align-items: flex-start; gap: 8px; }')
+      && avCssBare.includes('body[data-we-avatar="on"] [data-we-avatar-row="user"] { flex-direction: row-reverse; }')
+      && AV_GROW_RULE.test(avCssBare)
+      // 负对照：不许去改锚点自己的 display —— 宿主契约明写它靠 `display:contents` 让 flex/grid
+      // 父级"看见槽的孩子"（renderer 的 ANCHOR_STYLE）；改成 block/flex 会把宿主自己的
+      // 列间距与空条目判据（`.xz4KEq_column > :not([hidden]) ~ …` / `:has(> [data-slot]:empty)`）带歪。
+      && !/\[data-we-avatar-row\][^{}]*\[data-slot\][^{}]*\{[^}]*display:/.test(avCssBare)
       && avCss.includes('border-radius: calc(var(--we-avatar-round, 100) * 0.5%)')
       // 头像就是一个节点（不是"圆脸 + 名字"的两段列）：昵称整条已移除。
       && !avCss.includes('__name') && !avCss.includes('we-avatar-col')
@@ -4663,10 +4677,28 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       const PREV = { document: globalThis.document, MutationObserver: globalThis.MutationObserver, selection: globalThis.selection };
       const restoreWeBase = stubWeBase();
       const body = new El('body');
-      const mkRow = (kind) => { const el = new El('div'); el.setAttribute('data-chat-flow-kind', kind); rows.push(el); body.appendChild(el); return el; };
-      const userRow = mkRow('user');
-      const aiRow = mkRow('assistant-step');
-      const toolRow = mkRow('tool-call');
+      // 行照**宿主真实形态**造（asar 复算）：消息内容不直接挂在行下，而是裹在**槽出口锚点**
+      // 里（`div[data-slot="conversation.chat.node"]`，宿主给它写死内联 `display: contents`
+      // ⇒ 没有盒子、不吃 flex 属性、真正的 flex item 是锚点的孩子）。省掉这层的假 DOM 会让
+      // "内容格撑满行"的规则**看起来**生效 —— issue #154 就是这样躲过判据的（真实屏上那条
+      // 规则打在空气上，内容根按 max-content 定宽，收起态思考行的固有宽为 0 ⇒ 整条消息 0px）。
+      const mkRow = (kind) => {
+        const el = new El('div'); el.setAttribute('data-chat-flow-kind', kind);
+        const outlet = new El('div');
+        outlet.setAttribute('data-slot', 'conversation.chat.node');
+        outlet.style.display = 'contents';
+        const content = new El('div'); content.className = 'v5IAXa_root';
+        outlet.appendChild(content);
+        el.appendChild(outlet);
+        rows.push(el); body.appendChild(el);
+        return { el, outlet, content };
+      };
+      const userBox = mkRow('user');
+      const aiBox = mkRow('assistant-step');
+      const toolBox = mkRow('tool-call');
+      const userRow = userBox.el;
+      const aiRow = aiBox.el;
+      const toolRow = toolBox.el;
       let observed = 0;
       let disconnected = 0;
       class MO { constructor() { observed += 0; } observe() { observed++; } disconnect() { disconnected++; } }
@@ -4684,18 +4716,25 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
         const uNode = userRow.firstElementChild;
         const aNode = aiRow.firstElementChild;
         // ① 开关属性与两个变量落在 body 上；② 两类消息行各补了一个头像节点、工具行没补；
-        // ③ 节点就是一个圆脸（只有一个 .we-avatar__glyph 子节点 —— 没有名字节点）；④ 40px / 100。
+        // ③ 节点就是一个圆脸（只有一个 .we-avatar__glyph 子节点 —— 没有名字节点）；④ 40px / 100；
+        // ⑤ 头像补在**锚点前面**（行 = [头像, 槽出口锚点]），锚点里只有内容根、装饰层不往里插东西
+        //    （否则锚点的 `display: contents` 语义被改，宿主自己的列间距 / 空条目判据会跟着歪）。
         if (body.getAttribute('data-we-avatar') !== 'on'
           || body.style.props['--we-avatar-size'] !== '40px' || body.style.props['--we-avatar-round'] !== '100'
           || !uNode || uNode.className.indexOf('we-avatar--user') < 0
           || !aNode || aNode.className.indexOf('we-avatar--ai') < 0
-          || toolRow.getAttribute('data-we-avatar-row') !== null || toolRow.children.length !== 0
+          || toolRow.getAttribute('data-we-avatar-row') !== null || toolRow.children.length !== 1
+          || toolRow.firstElementChild !== toolBox.outlet
           || uNode.children.length !== 1 || uNode.children[0].className !== 'we-avatar__glyph'
+          || userRow.children.length !== 2 || userRow.children[1] !== userBox.outlet
+          || userBox.outlet.children.length !== 1 || userBox.outlet.children[0] !== userBox.content
           || userRow.getAttribute('data-we-avatar-row') !== 'user' || aiRow.getAttribute('data-we-avatar-row') !== 'ai') {
           behavior = '补节点不对：' + JSON.stringify({
             attr: body.getAttribute('data-we-avatar'),
             vars: body.style.props,
             u: uNode && [uNode.className, uNode.children.map((c) => c.className)],
+            row: userRow.children.map((c) => c.getAttribute('data-slot') || c.className),
+            outlet: userBox.outlet.children.map((c) => c.className),
             tool: toolRow.getAttribute('data-we-avatar-row'),
           });
         }
@@ -4710,13 +4749,19 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
           });
         }
         // 关掉：节点摘掉、行标记抹掉、开关属性与两个变量撤掉、观察者断开。
+        // 行要**逐字节回原生** —— 只剩那层槽出口锚点（内容根还在它里面、原位未被重建）。
         globalThis.selection = { avatarEnabled: false };
         avatarLayerMod.syncAvatarLayer();
-        if (userRow.children.length !== 0 || userRow.getAttribute('data-we-avatar-row') !== null
-          || aiRow.children.length !== 0 || body.getAttribute('data-we-avatar') !== null
+        if (userRow.children.length !== 1 || userRow.firstElementChild !== userBox.outlet
+          || aiRow.children.length !== 1 || aiRow.firstElementChild !== aiBox.outlet
+          || userBox.outlet.children.length !== 1 || userBox.outlet.children[0] !== userBox.content
+          || aiBox.outlet.children[0] !== aiBox.content
+          || userRow.getAttribute('data-we-avatar-row') !== null
+          || body.getAttribute('data-we-avatar') !== null
           || body.style.props['--we-avatar-size'] !== undefined || observed !== 1 || disconnected !== 1) {
           behavior = behavior || '关掉没回原生：' + JSON.stringify({
-            userKids: userRow.children.length, rowAttr: userRow.getAttribute('data-we-avatar-row'),
+            userKids: userRow.children.map((c) => c.getAttribute('data-slot') || c.className),
+            rowAttr: userRow.getAttribute('data-we-avatar-row'),
             bodyAttr: body.getAttribute('data-we-avatar'), vars: body.style.props,
             observed, disconnected,
           });

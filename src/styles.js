@@ -3090,10 +3090,25 @@ body[data-we-glass-floaters] .we-repo-panel {
      与思考块玻璃 / 视差同一条门控纪律）。
      尺寸与圆角来自 body 上的两个变量（装饰层按设置写）⇒ 拖滑块只是**变量替换**，不重建节点；
      头像是**一个圆脸**（没导入图就画内置的默认头像 SVG），宽度固定为边长 ⇒ 长消息不会被挤。
-     ⚠️ **没有自定义名字行**（用户口径）：这里不要再加名字。 */
+     ⚠️ **没有自定义名字行**（用户口径）：这里不要再加名字。
+
+     ⚠️⚠️ 内容那一格必须**穿透槽出口锚点**（issue #154）：宿主把节点渲染包在
+     div[data-slot="conversation.chat.node"] 里，并给它写死内联 style="display: contents"
+     （宿主 renderer 的 ANCHOR_STYLE，注释明说要让 flex/grid 父级"看见槽自己的孩子"）⇒ 这层
+     **没有盒子**：它既不是 flex item，也不接受 flex 属性。所以只写 > :not(.we-avatar) 是
+     **打在空气上**——真正成为 flex item 的是锚点的孩子（助手消息的内容根 div.v5IAXa_root），
+     它会退回默认 flex: 0 1 auto、主轴尺寸按自身 max-content 算，不再"填满行"；而宿主给
+     **收起**状态的思考行写死 contain: size layout（固有尺寸 = 0）⇒ 一行可见内容只剩
+     "思考"折叠行时 max-content = 0 ⇒ 该 item 宽 0px，整条消息连着入口一起消失（展开时
+     contain:size 失效才可见，再收起又归零 = "关掉后找不到重新打开位置"）。
+     故两条选择器都写：直挂内容 + 锚点后面那一层；flex-grow: 1 是这里的要害
+     （固有宽为 0 的内容也靠 grow 撑满行）。判据见 test/verify-scene-live.mjs（头像段 CSS 钉法
+     + 假 DOM 照宿主真实形态造锚点）。**这一段不许出现反引号**：整套样式文本是被塞进产物里的
+     模板字符串，一个反引号就能把 JS 拼断（build-client 会当场报"产物语法错误"）。 */
   body[data-we-avatar="on"] [data-we-avatar-row] { display: flex; align-items: flex-start; gap: 8px; }
   body[data-we-avatar="on"] [data-we-avatar-row="user"] { flex-direction: row-reverse; }
-  body[data-we-avatar="on"] [data-we-avatar-row] > :not(.we-avatar) { flex: 1 1 auto; min-width: 0; }
+  body[data-we-avatar="on"] [data-we-avatar-row] > :not(.we-avatar),
+  body[data-we-avatar="on"] [data-we-avatar-row] > [data-slot] > :not(.we-avatar) { flex: 1 1 auto; min-width: 0; }
   .we-avatar {
     box-sizing: border-box; flex: 0 0 auto; display: flex; align-items: center; justify-content: center;
     width: var(--we-avatar-size, 40px); height: var(--we-avatar-size, 40px);
