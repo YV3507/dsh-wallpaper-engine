@@ -120,6 +120,11 @@ function mount({ fetchImpl, store }) {
   };
   const code = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8');
   const cap = { handoff: null };
+  // 2026-10-09 字体节迁侧栏：这台的面板渲染器必须把**官方侧栏 body** 也注册出来（字体 UI
+  // 现在只画在侧栏外观页），且要把「外观页 + 字体节展开」的 UI 状态播进 store ——
+  // 与 verify-client / verify-system-fonts 同一套手法（qp-* 键仅 UI 状态，不进 config.json）。
+  store['dsh-wallpaper-engine:qp-tab'] = 'appearance';
+  store['dsh-wallpaper-engine:qp-font-open'] = '1';
   // 定时器登记表 + 面板渲染器：写路径的判据要"重渲一次面板（= 真机里 emit() 做的事）
   // → 点滑块 → 跑 200ms debounce → 看发了什么请求"。
   const timers = [];
@@ -150,6 +155,9 @@ function mount({ fetchImpl, store }) {
       inject: (k, cb) => { try { cb(); } catch { /* 首帧渲染失败不影响后续重渲 */ } },
       register: (meta, render) => { if (typeof render === 'function') renderers.push(render); return null; },
     },
+    // 侧栏官方档的两个可选服务桩（见上面注释：字体 UI 的新家在这里注册出来）。
+    get: (name) => (name === 'sidebarRightTabs' ? { register: () => () => {} }
+      : name === 'sidebarRight' ? { openTab: () => {} } : null),
     effect(fn) { fn(); return fn; },
   });
   return {

@@ -347,7 +347,18 @@ const slots = {
   inject: (key, cb) => cb(),
   register: (opts, render) => { registrations.push({ key: opts.name, id: opts.id, label: opts.label, order: opts.order }); pickerRenders.push(render); },
 };
-const ctx = { slots, effect(fn) { effects.push(fn); fn(); return fn; } };
+// 侧栏官方档（2026-10-09 字体节 / 玻璃高级行迁入侧栏后，它们的行为断言必须打在
+// **侧栏 body 渲染台**上）：给 installSidebarRight 需要的两个可选服务桩 ——
+// register 返回 disposer、openTab 空转即可；其余服务名（locale / theme / shortcuts）
+// 一律 null ⇒ 各轮询路径停在第一次尝试（不 fire 它们的 250ms 定时器就不动）。
+const sidebarRightTabsStub = { register: () => () => {} };
+const sidebarRightStub = { openTab: () => {} };
+const ctx = {
+  slots,
+  effect(fn) { effects.push(fn); fn(); return fn; },
+  get: (name) => (name === 'sidebarRightTabs' ? sidebarRightTabsStub
+    : name === 'sidebarRight' ? sidebarRightStub : null),
+};
 
 // apply(ctx) 在这个夹具里必须跑通：ctx 已提供 slots / effect / document / fetch，任何抛出都会
 // 让后面的注册与层断言在"什么都没挂上"的空跑上继续绿下去（throw 只打印的话仍然 exit 0）。
@@ -646,6 +657,20 @@ setTimeout(async () => {
     const setTab = (id) => localStorage.setItem(TAB_KEY, id);
     const renderPicker = () => {
       try { return pickerRenders[0](); } catch (e) { console.log('picker render threw:', e && e.message); return null; }
+    };
+    // ── 侧栏 body 渲染台（2026-10-09 字体节 / 玻璃高级行迁入侧栏后的行为断言落点）──
+    // 注册路径真跑（installSidebarRight 经 ctx.get 桩拿到两个可选服务）⇒ registrations
+    // 里 `sidebar.right.pane.tab` 与 pickerRenders **同一次 register 推入** ⇒ 按 key 定位。
+    // 页签与两块折叠块的展开态都住 localStorage（qp-tab / qp-font-open / qp-glass-detail，
+    // 同"仅 UI 状态不进 config.json"口径）⇒ 渲染前播种，渲染即为「外观页 · 两块展开」。
+    const renderSidePane = () => {
+      localStorage.setItem('dsh-wallpaper-engine:qp-tab', 'appearance');
+      localStorage.setItem('dsh-wallpaper-engine:qp-font-open', '1');
+      localStorage.setItem('dsh-wallpaper-engine:qp-glass-detail', '1');
+      const i = registrations.findIndex((r) => r.key === 'sidebar.right.pane.tab');
+      assert.ok(i >= 0 && i < pickerRenders.length,
+        '侧栏 body 必须已注册（installSidebarRight 真跑 —— ctx.get 桩缺了先红这里）');
+      try { return pickerRenders[i](); } catch (e) { console.log('sidebar render threw:', e && e.message); return null; }
     };
     const countMatches = (root, re) => (JSON.stringify(root).match(re) || []).length;
     // Find the .we-picker__ctl row whose subtree mentions `text`, then the
@@ -1217,6 +1242,10 @@ setTimeout(async () => {
     }
 
     // ── 外观 tab: swatches / sliders / sidebar-glass group. ──
+    // ⚠️ 2026-10-09 真迁移后**两棵渲染台分工**：设置页渲染台（renderPicker）钉简化配置与
+    //    页签行为 + 迁移负断言（独立配置 / 字体节不再画）；侧栏渲染台（renderSidePane，
+    //    qp-tab=appearance + 两块折叠块展开）钉高级行为（独立配置往返 / 胶囊 / 触发条 /
+    //    字体开关）。两边的 handler 是同一份模块级实现，bodyEl 属性断言与哪棵树无关。
     setTab('appearance');
     tree = renderPicker();
     treeText = JSON.stringify(tree);
@@ -1233,17 +1262,23 @@ setTimeout(async () => {
     const followSwitch = findCtlInput(tree, '侧栏玻璃跟随全局');
     assert.ok(followSwitch, 'follow-global switch present:');
     assert.equal(bodyEl.attributes['data-we-sidebar-follow'], 'on', '默认跟随 ⇒ body 上有跟随属性');
-    assert.equal(findCtlInput(tree, '侧栏玻璃·独立配置'), null, '跟随开着时侧栏「独立配置」收起（不画死旋钮）');
-    assert.equal(findSliderRow(tree, '侧栏模糊'), null, '跟随开着时不得画出「侧栏模糊」（精确标签，防 tooltip 骗过）');
-    assert.equal(findSliderRow(tree, '侧栏透明度'), null, '跟随开着时不得画出「侧栏透明度」');
+    // ── 迁移负断言（真迁移的"设置页那一侧"）：高级行与字体节搬进侧栏折叠块后，设置页
+    //    一个都不许再画 —— 两个方向都钉：这里判"设置页没有"，renderSidePane 那侧判"侧栏有"。 ──
+    assert.equal(findCtlInput(tree, '侧栏玻璃·独立配置'), null, '设置页不画「侧栏玻璃·独立配置」（已迁侧栏折叠块）');
+    assert.equal(findCtlInput(tree, '内容面玻璃·独立配置'), null, '设置页不画「内容面玻璃·独立配置」（已迁侧栏折叠块）');
+    assert.equal(findSliderRow(tree, '侧栏模糊'), null, '设置页不画「侧栏模糊」（精确标签，防 tooltip 骗过）');
     assert.equal((JSON.stringify(tree).match(/"aria-label":"侧栏玻璃颜色 /g) || []).length, 0,
-      '跟随开着时不得画出侧栏玻璃颜色色板');
+      '设置页不画侧栏玻璃颜色色板（已迁侧栏折叠块）');
+    assert.equal(findCtlInput(tree, '字体自定义'), null, '设置页不画「字体自定义」（字体节已迁侧栏）');
+    // ── 切侧栏渲染台（外观页 · 字体节与详细玻璃都展开）：从这里起高级行断言。 ──
+    tree = renderSidePane();
+    treeText = JSON.stringify(tree);
     assert.ok(findCtlInput(tree, '内容面玻璃·独立配置'), '内容面独立配置不受跟随开关影响:');
     // 关掉跟随 ⇒ 侧栏「独立配置」出现（能力没丢），body 属性随之摘掉。
     followSwitch.props.onChange({ target: { checked: false } });
     assert.equal(bodyEl.attributes['data-we-sidebar-follow'], undefined,
       '关掉跟随必须摘掉 body 属性（否则侧栏的釉仍取共享那一份）');
-    tree = renderPicker();
+    tree = renderSidePane();
     treeText = JSON.stringify(tree);
     assert.ok(findCtlInput(tree, '侧栏玻璃·独立配置'), '关掉跟随 ⇒ 侧栏「独立配置」出现:');
     // ⚠️ 基线交付给下面 #132 的判据主体：跟随关着 ⇒ 它的开关流/量程/退役判据照原样跑。
@@ -1264,26 +1299,26 @@ setTimeout(async () => {
     if (sidebarSwitch) {
       sidebarSwitch.props.onChange({ target: { checked: false } });
       assert.equal(bodyEl.attributes['data-we-sidebar-glass'], undefined, 'sidebar master off must restore native surfaces');
-      tree = renderPicker();
+      tree = renderSidePane();
       assert.ok(JSON.stringify(tree).includes('"侧栏液态玻璃"'), 'switch itself stays visible when off:');
       assert.ok(!JSON.stringify(tree).includes('侧栏玻璃·独立配置'), 'master off also hides the independent switch:');
       sidebarSwitch.props.onChange({ target: { checked: true } });
       assert.equal(bodyEl.attributes['data-we-sidebar-glass'], 'on', 'sidebar master on must re-arm sidebar surfaces');
-      tree = renderPicker();
+      tree = renderSidePane();
       assert.ok(findCtlInput(tree, '侧栏玻璃·独立配置'), 'master on restores the independent switch:');
     }
     // 打开「侧栏玻璃·独立配置」⇒ 它自己的三个滑块出现，且量程与 KINDS 一致。
     // R4 量纲统一（wip §10.19）：侧栏家族的量程从 0–200 收到**规范刻度**
     //（模糊 0–60 px 与全局雾化同刻度；透明度 0–100 %）。这里钉住"面板与规范刻度一致"。
     findCtlInput(tree, '侧栏玻璃·独立配置').props.onChange({ target: { checked: true } });
-    tree = renderPicker();
+    tree = renderSidePane();
     assert.equal(sliderMax(findSliderRow(tree, '侧栏模糊')), '60', '侧栏模糊上限必须是 60px（与全局雾化同刻度，R4）');
     assert.equal(sliderMax(findSliderRow(tree, '侧栏透明度')), '100', '侧栏透明度上限必须是 100（规范刻度，R4）');
     assert.equal((JSON.stringify(tree).match(/"aria-label":"侧栏玻璃颜色 /g) || []).length, 6, '侧栏玻璃颜色预设应有 6 个色板');
     assert.ok(JSON.stringify(tree).includes('自定义侧栏玻璃颜色'), 'sidebar glass color custom input present:');
     // 内容面同样：它的开关打开后才画透明度 / 底色两行。
     findCtlInput(tree, '内容面玻璃·独立配置').props.onChange({ target: { checked: true } });
-    tree = renderPicker();
+    tree = renderSidePane();
     treeText = JSON.stringify(tree);
     assert.equal(sliderMax(findSliderRow(tree, '内容面透明度')), '100', '内容面透明度上限必须是 100（规范刻度，R4）');
     // §10.27 + v1.3.0 追版：新增的「思考触发条玻璃·独立配置」—— 打开后才画它自己的两项，量程同样
@@ -1317,11 +1352,11 @@ setTimeout(async () => {
     assert.equal(findCtlInput(tree, '思考触发条玻璃·独立配置'), null,
       '思考玻璃非"液态玻璃"挡时「思考触发条玻璃·独立配置」不该画（master 门）');
     clickThinkGear(tree, '液态玻璃');
-    tree = renderPicker();
+    tree = renderSidePane();
     assert.equal(bodyEl.attributes['data-we-thinking-glass'], 'on', '选液态玻璃挡 ⇒ 玻璃门挂上');
     assert.equal(bodyEl.attributes['data-we-thinking-native'], undefined, '选液态玻璃挡 ⇒ 原生门不挂');
     findCtlInput(tree, '思考触发条玻璃·独立配置').props.onChange({ target: { checked: true } });
-    tree = renderPicker();
+    tree = renderSidePane();
     assert.equal(sliderMax(findSliderRow(tree, '思考触发条玻璃·玻璃透明度')), '100',
       '思考触发条透明度上限必须是 100（规范刻度）');
     assert.equal(sliderMax(findSliderRow(tree, '思考触发条玻璃·雾化')), '60',
@@ -1329,14 +1364,15 @@ setTimeout(async () => {
     // 原生挡：赢过玻璃挡 —— native 门挂上、玻璃门摘下（互斥在 effects.js 门控层），
     // 触发条独立配置与胶囊两行整组收起（它们的 CSS 门此时不挂 ⇒ 画了就是死旋钮）。
     clickThinkGear(tree, '原生');
-    tree = renderPicker();
+    tree = renderSidePane();
     assert.equal(bodyEl.attributes['data-we-thinking-native'], 'on', '选原生挡 ⇒ 原生门挂上');
     assert.equal(bodyEl.attributes['data-we-thinking-glass'], undefined, '选原生挡 ⇒ 玻璃门摘下（互斥）');
     assert.equal(findCtlInput(tree, '思考触发条玻璃·独立配置'), null, '原生挡 ⇒ 触发条独立配置行收起');
     assert.equal(findSliderRow(tree, '胶囊雾化'), null, '原生挡 ⇒ 胶囊雾化行收起（死旋钮防线）');
     // 收尾：关挡 ⇒ 两个门控属性都摘下 —— 三挡往返钉住，不留"关着还挂门"的缺口。
     clickThinkGear(tree, '关');
-    tree = renderPicker();
+    tree = renderSidePane();
+    treeText = JSON.stringify(tree);
     assert.equal(bodyEl.attributes['data-we-thinking-glass'], undefined, '关挡 ⇒ 玻璃门摘下');
     assert.equal(bodyEl.attributes['data-we-thinking-native'], undefined, '关挡 ⇒ 原生门摘下');
     assert.equal(findCtlInput(tree, '思考触发条玻璃·独立配置'), null, '关挡 ⇒ 该行收起');
@@ -1355,28 +1391,35 @@ setTimeout(async () => {
     // 收尾：跟随开回默认态 ⇒ 「独立配置」又收起、属性回来（完整往返双向钉住）。
     followSwitch.props.onChange({ target: { checked: true } });
     assert.equal(bodyEl.attributes['data-we-sidebar-follow'], 'on', '重新打开跟随 ⇒ 属性回来');
-    tree = renderPicker();
+    tree = renderSidePane();
     treeText = JSON.stringify(tree);
     assert.equal(findCtlInput(tree, '侧栏玻璃·独立配置'), null, '重新打开跟随 ⇒ 「独立配置」又收起');
 
     // ── 「字体」已并入「外观」：老的 localStorage 页签值必须迁移过去（不能把用户
-    //    甩回「壁纸」），且字体三件套 + 输入光标都在「外观」里。 ──
+    //    甩回「壁纸」）。2026-10-09 真迁移后**设置页外观不再画字体节** —— 页签迁移行为
+    //    用设置页台钉（玻璃透明度在场 ⇒ 落点对了），字体开关与它的行为用侧栏台钉。 ──
     setTab('font');
     tree = renderPicker();
     treeText = JSON.stringify(tree);
     assert.ok(treeText.includes('玻璃透明度'),
       'legacy "font" tab value must migrate to 外观 (its own rows must be on screen)');
-    assert.ok(treeText.includes('字体自定义'), '外观 must host the 字体自定义 switch');
-    assert.ok(treeText.includes('玻璃透明度') && treeText.includes('字体自定义'), 'legacy font tab migrates into 外观:');
+    assert.ok(!treeText.includes('字体自定义'),
+      '设置页外观不再画「字体自定义」（字体节已迁侧栏 —— 真迁移的另一侧）');
+    // 侧栏渲染台：字体节默认收起 ⇒ renderSidePane 已播种 qp-font-open=1（展开）。
+    tree = renderSidePane();
+    treeText = JSON.stringify(tree);
+    assert.ok(treeText.includes('字体自定义'), '侧栏外观必须画「字体自定义」（迁移目的地）');
     const fontSwitch = findCtlInput(tree, '字体自定义');
+    assert.ok(fontSwitch, '侧栏字体自定义开关必须找得到（缺则后面断言零覆盖）');
     if (fontSwitch) {
       fontSwitch.props.onChange({ target: { checked: true } });
-      tree = renderPicker();
+      tree = renderSidePane();
       treeText = JSON.stringify(tree);
       assert.ok(/文字颜色角色/.test(code) && /排版角色/.test(code) && /恢复默认/.test(code),
-    '外观 tab 必须揭示字体控件组（角色色组 + 排版角色组 + 恢复默认）—— 单一「字体颜色」行与全局字重/字族都已移除');
+    '字体节必须揭示字体控件组（角色色组 + 排版角色组 + 恢复默认）—— 单一「字体颜色」行与全局字重/字族都已移除');
+      assert.ok(treeText.includes('默认字体'), '展开态下字体族两行（默认字体 / 终端字体）必须在场');
       fontSwitch.props.onChange({ target: { checked: false } });
-      tree = renderPicker();
+      tree = renderSidePane();
       treeText = JSON.stringify(tree);
     }
 

@@ -1818,6 +1818,30 @@ const CSS = `
     /* 分组标题是「找路」信息而非装饰：次级墨色保证暗玻璃上可读。 */
     color: var(--we-ink-2, rgba(128, 128, 128, 0.9));
   }
+  /* ── 可折叠节头（侧栏「外观」页默认收起的整节，如「全局字体」）：
+     整行可点（role=button + aria-expanded 挂在头上），箭头随开合旋转；
+     旋转走 transform（合成器属性），150ms 只动这一枚小箭头。
+     ⚠️ 不用负 margin 扩底色（侧栏 tabbody 是 overflow 容器，负 margin 会把
+     scrollWidth 撑出横向滚动条 —— 实测 320 → 332）；左右 padding 收紧即可。 ── */
+  .we-picker__section-head--toggle {
+    cursor: pointer; user-select: none;
+    border-radius: 6px; padding: 2px 4px;
+    transition: background-color 0.15s ease;
+  }
+  .we-picker__section-head--toggle:hover {
+    background: var(--we-hover-bg, rgba(128, 128, 128, 0.1));
+  }
+  .we-picker__section-head--toggle:focus-visible {
+    outline: 2px solid var(--we-accent, #4f8cff); outline-offset: 1px;
+  }
+  .we-picker__section-caret {
+    margin-left: auto; font-size: 0.72em;
+    color: var(--we-ink-2, rgba(128, 128, 128, 0.9));
+    transition: transform 0.15s ease;
+  }
+  .we-picker__section-caret.is-open { transform: rotate(180deg); }
+  /* ── 侧栏窄栏兜底：展开「全局字体」后的排版角色表比栏宽，横向滚动而不是撑破面板。 ── */
+  .we-qp__tabbody .we-picker__font-table { max-width: 100%; overflow-x: auto; }
 
   /* ── 页签栏（分段式）：玻璃轨道 + 滑动指示胶囊。窄抽屉里六枚等宽页签
      恰好放下两至三字标签；指示胶囊平移走 transform（合成器属性）。 ── */

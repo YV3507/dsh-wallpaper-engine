@@ -292,9 +292,13 @@ section('④ 客户端形态棘轮：应用走设置通道 / 无第二持久化 
       handlers.length + ' 个');
     const clientAll = stripComments(readFileSync(join(root, 'src', 'client.js'), 'utf8'));
     const qpAll = stripComments(readFileSync(join(root, 'src', 'quick-panel.js'), 'utf8'));
-    const missingClient = handlers.filter((h) => !new RegExp('\\b' + h + '\\b').test(clientAll));
+    // 侧栏专属处理器（2026-10-09 折叠块）：**设置页不画那一行** ⇒ 设置页 ctx 不接它是
+    // 对的（接了反而是死字段）。它们必须出现在 quick-panel；设置页那份检查豁免。
+    const SIDEBAR_ONLY = ['onToggleGlassDetail'];
+    const missingClient = handlers.filter((h) => !SIDEBAR_ONLY.includes(h)
+      && !new RegExp('\\b' + h + '\\b').test(clientAll));
     const missingQp = handlers.filter((h) => !new RegExp('\\b' + h + '\\b').test(qpAll));
-    check('每个玻璃节处理器都在设置页 ctx 里', missingClient.length === 0, missingClient.join(',') || '全在');
+    check('每个玻璃节处理器都在设置页 ctx 里（侧栏专属豁免）', missingClient.length === 0, missingClient.join(',') || '全在');
     check('每个玻璃节处理器都在侧栏快捷面板 ctx 里（漏接 = 该档滑杆全死）',
       missingQp.length === 0, missingQp.join(',') || '全在');
     check('negative control: 解构里造一个不存在的处理器会被判出',

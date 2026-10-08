@@ -4370,13 +4370,11 @@ function WallpaperPicker() {
   // 用一次订阅式 effect 补上；TTL 同日历口径，重复触发是空操作。
   React.useEffect(() => { if (activeTab === "about") loadStarCount(false); }, [activeTab]);
 
-  // 本机字体清单（同上一条的形状）：停在「外观」页且用户开着「字体自定义」时才去要一次
-  // （宿主那次扫描 macOS 实测 ~10s，不能因为"打开设置页"就付）。TTL 内是空操作。
-  React.useEffect(() => {
-    if (activeTab === "appearance" && selection.fontCustom) ensureSystemFonts(false);
-  }, [activeTab]);
+  // 本机字体清单的触发点**随字体节迁到侧栏**（2026-10-09 真迁移）：设置页外观已没有字体
+  // UI，在这里拉清单是白付宿主扫描（macOS 实测 ~10s）。新家在 QuickPanel 的 effect
+  //（停在外观页 + 字体节展开 + 字体自定义打开 ⇒ 才去要一次；TTL 内是空操作）。
 
-  // 侧栏深链（快捷播放面板底栏的「字体与更多外观 ›」/「更多播放设置 ›」）：请求"打开
+  // 侧栏深链（快捷播放面板底栏的「更多外观设置 ›」/「更多播放设置 ›」）：请求"打开
   // 设置页后停在哪一页"。打开对话框由 src/sidebar-right.js 的 DOM 路径负责，这里只管
   // 落地 —— 走**同一个 switchTab**（清待确认 / 退出下钻 / 写 localStorage 这些副作用
   // 一处不落），落地后把请求清掉（一次性；否则用户几分钟后自己开设置会被旧请求劫持）。

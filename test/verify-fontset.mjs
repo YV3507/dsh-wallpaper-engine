@@ -1087,8 +1087,12 @@ section('⑧ 面板渲染回归（配色区在总开关打开时必须渲染得�
       'onThemeWeight', 'onToggleFontCustom']) c[k] = noop;
     return c;
   };
+  // 2026-10-09 真迁移：字体节**只在侧栏档渲染**（设置页对话框挡主页面、看不到实时效果 ⇒
+  // 迁侧栏），且默认收起 ⇒ 字体内容的渲染回归必须打在 `surface: 'sidebar'` + `fontOpen: true`
+  // （展开）上 —— 打在缺省档上这些行根本不进树，判据会空转。
+  const panelSideCtx = (sel) => Object.assign(panelCtx(sel), { surface: 'sidebar', fontOpen: true });
   const renderThrew = (sel) => {
-    try { panelMod.renderAppearanceTab(panelCtx(sel)); return ''; } catch (e) { return String((e && e.message) || e); }
+    try { panelMod.renderAppearanceTab(panelSideCtx(sel)); return ''; } catch (e) { return String((e && e.message) || e); }
   };
   /** 面板整棵树里的文本（结构判据用）。 */
   const panelText = (sel) => {
@@ -1100,7 +1104,7 @@ section('⑧ 面板渲染回归（配色区在总开关打开时必须渲染得�
         out.push(...n.children.filter((c) => typeof c === 'string'));
         n.children.forEach(walk);
       }
-    })(panelMod.renderAppearanceTab(panelCtx(sel)));
+    })(panelMod.renderAppearanceTab(panelSideCtx(sel)));
     return out.join(' | ');
   };
   const panelTables = (sel) => (function walk(n, acc = []) {
@@ -1109,7 +1113,7 @@ section('⑧ 面板渲染回归（配色区在总开关打开时必须渲染得�
     if (n.type === 'table') acc.push(n);
     if (Array.isArray(n.children)) n.children.forEach((x) => walk(x, acc));
     return acc;
-  })(panelMod.renderAppearanceTab(panelCtx(sel)), []);
+  })(panelMod.renderAppearanceTab(panelSideCtx(sel)), []);
   check('总开关打开 + 客户端那份兜底值 ⇒ 外观页签渲染得出（修复前这里是崩溃点）',
     renderThrew(panelSel()) === '', renderThrew(panelSel()) || 'ok');
   const missing = renderThrew(panelSel({ themeColors: undefined }));
@@ -1180,12 +1184,13 @@ section('⑧ 面板渲染回归（配色区在总开关打开时必须渲染得�
     })(), '判据非空转（拿改动前那份函数体试过）');
 
   // ── surface 档（设置页 / 侧栏共用同一批渲染器）──────────────────────────────
-  // 快捷播放面板的「外观」页用的就是这个渲染器。分档口径（ADR-0008 D4，2026-10-05）：
-  // **节**层面只有「全局字体」不进侧栏（面板太窄、字体是低频深配）；**行**层面侧栏档还少画
-  // 每个面的「独立配置」层、思考块门下的细调行与预设方案（那些由 glass-panel 的 `!sidebarSurface`
-  // 门与 quick-panel 的占位器管，判据见 verify-scene-live）。本块两件事必须
-  // 同时成立：① **缺省档（设置页）一个节点不少** —— 属性打错时设置页会静默少节，
-  // 源码级判据看不出来；② 侧栏档确实只少那一节。
+  // 快捷播放面板的「外观」页用的就是这个渲染器。分档口径（ADR-0008 D4，2026-10-09 修订）：
+  // **节**层面「全局字体」**只在侧栏档画**（真迁移：设置页对话框挡主页面、调完看不到实时
+  // 效果；侧栏里它默认收起 —— 节头在、内容收，见 panelSideCtx 的展开态判据）；**行**层面
+  // 侧栏档还少画预设方案（由 glass-panel 的 `!sidebarSurface` 门与 quick-panel 的占位器管，
+  // 玻璃高级行则收在侧栏「详细玻璃调节」折叠块 —— 判据见 verify-scene-live）。本块两件事
+  // 必须同时成立：① **缺省档（设置页）与显式 "settings" 逐字相同** —— 属性打错时设置页会
+  // 静默变形，源码级判据看不出来；② 两档的节集合各就各位（设置页无字体节、侧栏有）。
   // 判据取**节标题**（那些 span 是真渲染的）：本 harness 的 switchRow / ctlText 是 noop，
   // 行标签拿不到，拿它判会空转。
   const pickSurface = (sel, s) => {
@@ -1204,12 +1209,14 @@ section('⑧ 面板渲染回归（配色区在总开关打开时必须渲染得�
     shapeOf(pickSurface(panelSel())).join('|') === shapeOf(pickSurface(panelSel(), 'settings')).join('|'));
   const sideText = treeText(pickSurface(panelSel(), 'sidebar'));
   const setText = treeText(pickSurface(panelSel(), 'settings'));
-  check('侧栏档只少画「全局字体」一节（主题 / 细节 / 玻璃 UI / 输入光标照旧）',
-    sideText.includes('主题') && sideText.includes('细节') && sideText.includes('玻璃 UI')
-      && sideText.includes('输入光标')
-      && !sideText.includes('全局字体') && !sideText.includes('窗口与侧栏'));
-  check('负对照：设置页档「全局字体」必须在（证明上一条不是空转）',
-    setText.includes('全局字体') && setText.includes('输入光标') && !setText.includes('窗口与侧栏'));
+  // ⚠️ 侧栏档的「全局字体」**节头**始终在（折叠只收内容、不收节 —— 收起时它就是"展开入口"）。
+  //    所以这里判的是节**集合**；"收起时内容不进树"由上面 panelSideCtx 的展开态判据负对照。
+  check('设置页档不画「全局字体」一节（2026-10-09 真迁移；主题 / 细节 / 玻璃 UI / 输入光标照旧）',
+    !setText.includes('全局字体') && setText.includes('主题') && setText.includes('细节')
+      && setText.includes('玻璃 UI') && setText.includes('输入光标')
+      && !setText.includes('窗口与侧栏'));
+  check('负对照：侧栏档「全局字体」必须在（节头 —— 证明上一条不是空转）',
+    sideText.includes('全局字体') && sideText.includes('输入光标') && !sideText.includes('窗口与侧栏'));
 
   // 播放页（renderEffectsTab）同理：侧栏档少画「准备与诊断」那一组。
   // 本 harness 里 ctlText / SliderRow / switchRow 是 noop ⇒ 只有**直接 createElement 出来的
