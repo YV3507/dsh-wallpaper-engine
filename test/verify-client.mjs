@@ -3357,6 +3357,20 @@ setTimeout(async () => {
     'SliderRow 第三格必须回显（readout(value)：裸单位 = 值 + 单位；预格式化整串 = 原样）');
   assert.ok(clientSrc.includes('if (out && !preformatted) out.textContent = readout(el.value);'),
     'SliderRow 拖动期就地改写右侧数值（仅裸单位口径；预格式化旧口径保持 main 既有观感）');
+  // 可输入数值区（SliderRow 的 numberEdit）：编辑期**必须不受控**。
+  // 为什么钉这条：受控写法（value 由设置渲染 + 每敲一键写设置）在"删空重打"这一路会自锁 ——
+  // 退格把框清成空串，空串不是合法值 ⇒ 不写设置 ⇒ React 把旧值渲回去 ⇒ 用户看到"数字删不掉"
+  // （实测报回来的原话：「我在输入框里不能删除已有数字」）。修法 = 本地 draft + 回车 / 失焦提交：
+  //   · 正向：编辑期给 defaultValue（不受控）、提交走 onCommit、空串直接放弃编辑；
+  //   · 负向对照：**不许**再出现"每键写设置"的那种受控 input（onInput 里直接调 onInput(…, true)）。
+  assert.ok(clientSrc.includes('function NumberValueInput(props)')
+    && clientSrc.includes('...(editing ? { defaultValue: draft } : { value: String(value) }),'),
+    '可输入数值区必须走 NumberValueInput（编辑期 defaultValue 不受控）');
+  assert.ok(clientSrc.includes('if (s === "") return;'),
+    '可输入数值区的空串必须是"放弃编辑"（否则删空会被当成 0 写进去）');
+  // 负向对照：受控 + 每键写设置的那种写法不许回来。
+  assert.ok(!/we-picker__value-input[\s\S]{0,900}?onInput: \(e\) => \{[\s\S]{0,300}?onInput\(Number\(raw\), true\)/.test(clientSrc),
+    '可输入数值区不得每敲一键就写设置（那正是"数字删不掉"的成因）');
   assert.ok(clientSrc.includes('onInput: (e) => onPick(e.target.value, true),')
     && clientSrc.includes('onChange: (e) => onPick(e.target.value, false),'),
     'swatchRow 的自定义色盘必须同样分 input / change 两档');
