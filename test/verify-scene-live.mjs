@@ -4611,8 +4611,14 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     const avCssAt = stylesSrcAv.indexOf('「扩展」页签一号模块');
     const avCss = avCssAt < 0 ? '' : stylesSrcAv.slice(avCssAt, stylesSrcAv.indexOf('「扩展」二号模块', avCssAt));
     // 断言一律打在**剥注释**的样式文本上：注释里写着锚点与 display: contents 这些词，
-    // 不剥的话注释本身就能把这几个 includes 喂饱（判据会假绿）。
-    const avCssBare = avCss.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\s+/g, ' ');
+    // 不剥的话注释本身就能把这几个 includes 喂饱（判据会假绿）。剥注释走共享的**字符串感知**
+    // 实现（`test/tools/js-text.mjs`），不用朴素块注释正则 —— 本仓 ADR-0006 规则 ⑦ 由
+    // test/verify-module-layout.mjs 钉住（那份判据扫 test/** 与 src/** 里的源码文本）。
+    // 切片从段头**注释**中间开始（锚点是「扩展」页签一号模块 这行注释），所以先从第一条真规则
+    // 起切：否则注释里那些 CSS 词会以"代码"身份活着，负对照（不许给锚点写 display:）会被自己的
+    // 说明喂饱。（尾部那段未闭合的注释由共享实现照未终止块注释处理。）
+    const avRulesAt = avCss.indexOf('body[data-we-avatar="on"]');
+    const avCssBare = stripComments(avRulesAt < 0 ? avCss : avCss.slice(avRulesAt)).replace(/\s+/g, ' ');
     // 「消息格可伸缩」那条规则必须**同时**覆盖直挂内容与槽出口锚点后面那一层：宿主给
     // `div[data-slot="conversation.chat.node"]` 写死内联 `display: contents`（没有盒子 ⇒
     // 既不是 flex item 也不接受 flex 属性），只写直挂那一半就是打在空气上——内容根退回
