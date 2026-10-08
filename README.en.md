@@ -299,7 +299,12 @@ near-opaque fill:
 > Sidebar glass is a separate set of knobs from the settings-window glass: the
 > conversation 「玻璃」slider only drives the composer / bubbles, while the sidebar
 > sliders drive the sidebar. Turning **侧栏液态玻璃** off restores the native
-> sidebar, including its editor / terminal content surfaces. The sidebar defaults
+> sidebar, including its editor / terminal content surfaces (the frost / blur this
+> plugin paints directly retreats as a family); **the page-level token recipe is
+> not governed by this switch** — surfaces that colour themselves by the host spec
+> via `--dsw-alias-*` (third-party plugins included) still receive the glass recipe,
+> and that layer waits for the glass master switch (current state, self-checks and
+> the four coexistence modes: [`docs/COEXISTENCE.md`](docs/COEXISTENCE.md)). The sidebar defaults
 > to a fairly clear glass (so it matches the background instead of glowing
 > white); editor / terminal content surfaces have their own near-opaque fill +
 > transparency controls to keep text readable in the narrow panels.
