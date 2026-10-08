@@ -1186,6 +1186,11 @@ let livePointerFrame = null;
 let livePointerPending = null; // { u, v, buttons }
 let livePointerRaf = 0;
 let livePointerDownAt = 0;
+// 最近一次**真的**把指针推给渲染页的墙钟毫秒（0 = 本会话从未推过）。只被被动探针读（见
+// `livePointerInjectAt` 与 src/client.js 的 `installFocusProbe`）：#148「播放中 composer 周期性
+// 失焦」里，"失焦紧跟一次合成 mousedown"（点击耦合 = 老机制）与"完全没有指针输入"（定时器驱动）
+// 是两条完全不同的归因，而这个时间戳就是区分它们的那一个读数。
+let lastPointerInjectAt = 0;
 function livePointerFlush() {
   livePointerRaf = 0;
   const p = livePointerPending;
@@ -1193,8 +1198,15 @@ function livePointerFlush() {
   if (!p || !frame || !frame.isConnected || !selection.sceneLiveActive) return;
   try {
     const wp = frame.contentWindow && frame.contentWindow.__wp;
-    if (wp && typeof wp.pushPointer === "function") wp.pushPointer(p.u, p.v, p.buttons);
+    if (wp && typeof wp.pushPointer === "function") {
+      wp.pushPointer(p.u, p.v, p.buttons);
+      lastPointerInjectAt = Date.now();
+    }
   } catch { /* ignore */ }
+}
+/** 最近一次合成指针注入的墙钟毫秒（0 = 从未）；`Date.now() - 它` 就是"距上次点击耦合多久"。 */
+function livePointerInjectAt() {
+  return lastPointerInjectAt;
 }
 function livePointerSample(e, buttons) {
   if (!livePointerFrame || !selection.sceneLiveActive) return;
@@ -2366,4 +2378,5 @@ export {
   installLiveDiagnostics, installLiveBootRestore,
   refreshUnderlayColor, clearUnderlayColor, probeWallpaperOnScreen,
   liveWatch, livePointerFrame, liveApplied, liveDiagOn, LIVE_FIRST_FRAME_MS, bootRestore,
+  livePointerInjectAt,
 };

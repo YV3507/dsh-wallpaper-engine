@@ -5,19 +5,29 @@
 > 本文件承接原先堆在 README 首页的**版本公告与功能清单**。门面（`../README.md` / `../README.en.md`）
 > 只保留与版本无关的亮点；带版本号、issue 号、性能数字的内容一律记在这里。
 >
-> **当前发布版本：`v1.3.0`**（npm 与 GitHub Release 已发，2026-10-06）；下一版开发中（`package.json` 的 `version`）。
-> **`### v1.3.0（2026-10-06）`** 一节收拢的是 **1.2.0 之后至 1.3.0** 的全部内容；`### v1.3.0-r2` 与 `### v1.3.1`（都标「未发布」）记的是 **v1.3.0 之后**的增量；**`### v1.2.0`** 一节收拢的是 **1.1.0 之后至 1.2.0**
+> **当前发布版本：`v1.3.1`**（npm 与 GitHub Release 均已发，2026-10-06；tag `v1.3.1` = `1b82995`）；`package.json` 的 `version` 仍是 `1.3.1`，下一版号待定。
+> **`### v1.3.0（2026-10-06）`** 一节收拢的是 **1.2.0 之后至 1.3.0** 的全部内容；`### v1.3.0-r2` 与 `### v1.3.1`（后者**已发布**）记的是 **v1.3.0 之后**的增量；**`### v1.2.0`** 一节收拢的是 **1.1.0 之后至 1.2.0**
 > 的全部内容（侧栏工作台：外观 / 播放进侧栏与「壁纸属性」；玻璃染色地板与「左侧栏覆盖」；前置基线切换到官方桌面端 ≥ 0.2.0-rc.1）；
 > **`### v1.1.0`** 一节收拢的是 **1.0.1 之后至 1.1.0** 的全部内容。
 >
 > **归档说明**：本仓库从 **v0.6.8** 起才有 git tag，更早的版本没有独立标签。早于 v0.6.8 的条目
 > 按**原 README 原文的版本标注**归档；原文未标注小版本的条目放进区间桶，不臆造版本号。
 > 完整逐提交历史见 GitHub Commits / Releases；升级前置条件见 [`UPGRADING.md`](./UPGRADING.md)。
-> `test/verify-scene-live.mjs` 这一类判据条数**只记该条写作当时的实测总数**（如 466 / 465），不是现在的总数 —— 后续条目会往上加（现为 502）；照原文保留，好让它与当次提交对得上。
+> `test/verify-scene-live.mjs` 这一类判据条数**只记该条写作当时的实测总数**（如 466 / 465），不是现在的总数 —— 后续条目会往上加（现为 512）；照原文保留，好让它与当次提交对得上。
 
-### v1.3.1（未发布）
+### v1.3.1（2026-10-06）
 
-> v1.3.0-r2 之后的增量；`NOTICE_VERSION` 哨兵同步 `1.3.1`（公告改版 ⇒ 看过 r2 公告的用户会再看到一次），；`package.json` 版本号已同步 `1.3.1`。
+> v1.3.0-r2 之后的增量；**已发布**（npm 与 GitHub Release 均在 2026-10-06 发出，tag `v1.3.1` = `1b82995`）；`NOTICE_VERSION` 哨兵同步 `1.3.1`（公告改版 ⇒ 看过 r2 公告的用户会再看到一次），；`package.json` 版本号已同步 `1.3.1`。
+
+- **#148 失焦归因：宿主侧被动探针（失焦后一拍记下 `document.activeElement` 是谁）+ 围栏把「帧级 / 元素级」调用分开记账**。
+  **动机**：issue [#148](https://github.com/elysia395/dsh-wallpaper-engine/issues/148)（播放中会话输入框每 0.9–3.6 s 掉一次键盘焦点、**暂停即恢复**）里，报告者给出的两条读数是 `focusout` 的 `relatedTarget === null`、失焦元素仍 `isConnected` / `visibility: visible` —— 这两条**同时兼容两族成因**：焦点被搬进壁纸帧（本插件的围栏管得着）与宿主侧把 composer 重排 / 重挂或瞬时翻转 `contenteditable` / `inert`（不归本插件）。分开它们只差**一个读数**：失焦那一刻 `document.activeElement` 是谁。报告者用的是 `dsh-plugin-wallpaper-engine` **1.3.0-r2**（帧级夺焦围栏**之前**的版本），而围栏已随 **1.3.1** 发布 ⇒ 先请对方升级复测，同时把归因做进**既有诊断通道**，让下一次报告不必再开 DevTools 手抄。
+  **修法（客户端探针 + 围栏记账，两处都不改行为）**：
+  ① `src/client.js` 新增 `installFocusProbe()`（接在 `apply` 的 `ctx.effect` 上，与另三个安装器同形，注销器一次性、可重跑）：在 `document` 上 capture 装 `focusin` / `focusout`、在 `window` 上装 `mousedown`；只在「丢焦点的是宿主输入域（`[data-composer-input]` / `[contenteditable="true"]` / `input` / `textarea`）**且** `relatedTarget` 为空**且**距上次上报 ≥250 ms」时，**推迟一拍**（`setTimeout(…, 0)`）再读 `document.activeElement` —— `focusout` 先于 `focusin`，当场读到的永远是旧值。
+  ② 经 `reportClientDiag("focus-lost", detail)` 落进既有 `~/.dsh-wallpaper-engine/diag/http.jsonl`，`detail` 形如 `tgt=div active=iframe:we-layer same=1 win=1 play=1 pp=none click=-@-1`：`active=` 区分 `iframe:we-layer`（壁纸帧）/ `iframe:other` / `body` / `div#id`；`same=` 看 composer 节点是否被换掉；`win=` 取 `document.hasFocus()`（分开"OS 窗口失焦"）；`play=` 取 `isEffectivelyPlaying()`（分开暂停 / 遮挡）；`pp=` 是距最近一次**合成指针注入**的毫秒（`src/live-layer.js` 新增 `livePointerInjectAt()`，在 `livePointerFlush()` 成功注入处记账 —— 老机制"点击耦合"与定时器驱动的分水岭），`click=` 是最近一次真实 mousedown 的时刻。
+  ③ `lib/we-focus-guard.js` 的注入体除了原有的帧级 `window.focus` 拦截，再对 `HTMLElement.prototype.focus` 记一笔 `elCalls` / `elLast` / `elAt`（**照旧放行**、不改行为）⇒ 壁纸侧究竟是被"帧级点名"还是被"元素级定时器"点名，现在分别读 `window.__weFocusGuard.blocked` 与 `elCalls` 即可分开；`allow = true` 逃生门语义不变。
+  **判据**：`test/verify-scene-live.mjs` ⇒ **`ALL SCENE-LIVE CHECKS PASSED (512)`**（502 → 512）。围栏段 +2：元素级放行 + 计数腿（`elCalls/elLast/elAt` 与"原函数拿到同一 `this` 被调用一次"）、负对照（把元素级也改成吞掉 ⇒ 放行断言必须变假）。探针段 +8，全部在只有探针真正用到的那几个名字的**假 realm 里跑真源码**（切片自 `src/client.js` 的 `const FOCUS_PROBE_SELECTOR` 到下一节注释；`setTimeout` 传**同步执行**的函数 ⇒ 判据没有 async 竞态）：壁纸帧归因（`active=iframe:we-layer`）、宿主侧归因（`active=body`，并断言**与前者读数不同** —— 探针就是为分开这两族而生）、指针耦合（`pp=<ms>`）、静默（`relatedTarget` 非空 / 丢焦点的不是输入域 ⇒ 0 条）、250 ms 去重（连开两枪 ⇒ 1 条）、摘除（注销后 0 条且三条监听都真被摘）、负对照（拿掉 `if (e.relatedTarget) return;` ⇒ 静默断言变假）、形态与接线（`installersWired` 现在认**四条** `ctx.effect` 接线）。
+  **验证**：`npm run verify`（38 条）/ `verify:docs` / `npm run build` / `verify:all` exit 0；`lib/client.js` 已重建。**围栏注入体与客户端都动过 ⇒ 需重启 `dsh web`**。
+  **现状**：issue #148 **未结**（真因仍需对方的一份读数：升级到 ≥1.3.1 后的复测 + 实测那张 Web 壁纸的 Workshop id）。
 
 - **「播放」→「效果」新增壁纸层取景三件套：水平 / 垂直 / 缩放**（社区 PR [#155](https://github.com/elysia395/dsh-wallpaper-engine/pull/155) · wwexplorer）；顺带让这三行的**右侧数值可直接键入**、**双击标签回默认**。
   **动机**：WE 壁纸属性面板里「对齐方式 = 自由」那一组的 水平 / 垂直 / 缩放（`alignmentx` / `alignmenty` / `alignmentz`）是 WE 引擎内置属性，存在 WE 自己的 `config.json`（`<user>.wproperties.<壁纸路径>.MonitorN.*`）里、**不在 `project.json`**；本插件的「壁纸属性」面板只读作者在编辑器里定义的 `general.properties`，场景适配又只有 cover / contain / center / fill（`SCENE_LIVE_FIT`）⇒ 想把 WE 的取景搬进来只能在插件里重设一遍。三条刻度**与 WE 同名滑条同量程**（便于对拷数值）：位置 0..100（50 = 居中，0 / 100 = 两端），缩放 50..150（100 = 原大小，95 = 缩到 95%、四周露出页面底色）。
@@ -208,10 +218,10 @@
 - **修复：某些网页壁纸每点一下就把 DSH 的键盘焦点抢走（输入框 / 下拉选择框 / 左下角账号菜单失焦）—— 给壁纸文档注入一段「帧级夺焦围栏」，吞掉 `window.focus()` 并留计数**（来源：用户实测可复现 —— 壁纸「鲸鱼计划表」workshopid `3800777313`）。
   **现象**：播放中在宿主界面任意位置点一下，DSH 自己的输入框 / 下拉选择框 / 左下角「设置-意见反馈-退出登录」菜单就失焦（窗口仍在焦点、`relatedTarget` 为 null ⇒ 焦点被搬进了**另一个文档**）；**与点击位置无关、与组件类型有关** —— 只有"必须持有键盘焦点才正常"的那类控件看得出来，其它组件看起来一切正常；**暂停即恢复**。
   **机制（静态闭合，三步）**：① 壁纸层 `pointer-events:none`，鼠标事件由 DSH UI 消费；客户端在 window 捕获相把每次真实 mousedown 注入渲染页（`src/live-layer.js:1178-1238`），且只在 `selection.sceneLiveActive` 时发（`src/live-layer.js:1194` 的门槛）⇒ 暂停就停止注入，这正是「暂停即恢复」。② 网页壁纸走严格沙箱（`&webSandbox=strict`，`src/live-layer.js:178`），渲染页够不到壁纸文档，控制只能经 web-shim 的 op 通道落到壁纸一侧；shim 用 `elementFromPoint` 命中元素后 `dispatchEvent` **合成** pointer/mouse 事件（`lib/webwallgl/web-shim.js`：`pushPointer` / `elementFromPoint` / `dispatchEvent`），合成事件的 `isTrusted === false`。③ 作者为了让 WE 桌面模式下「键盘有处可去」，在**捕获相 mousedown** 里调 `window.focus()`（该壁纸 `index.html:4615-4619`，全文件唯一的 `window.focus` 调用点）⇒ 宿主里任何位置点一下，壁纸帧就抢走键盘。
-  **修法**：新增 `lib/we-focus-guard.js` —— 注入体以**源码文本**下发（`weFocusGuardSource()` 用 `Function.prototype.toString()` 取同一份函数原文，单一真源，不抄第二份字符串），由 `lib/index.js` 的 `/scene-files` HTML 注入块插在 shim 之后、seed 之前（`<script data-we-focus-guard="host">`，与 shim **同门控**：没有 shim 就没有注入通道）。围栏把 `window` 上的**帧级** `focus` 换成「计数 + 吞掉」，两条腿装机（赋值 ⇒ 不生效则 `Object.defineProperty` 建自有属性），失败只体现为 `window.__weFocusGuard.installed === false`，**绝不抛**（注入体住在壁纸文档里，抛异常会毁掉作者脚本）；`window.__weFocusGuard = { calls, blocked, allowed, installed, allow }` 是围栏唯一的自证手段（壁纸帧控制台一眼可见拦了多少次），`allow = true` 是给对比测试用的逃生门。`package.json` 的 `files` 收录新模块。
+  **修法**：新增 `lib/we-focus-guard.js` —— 注入体以**源码文本**下发（`weFocusGuardSource()` 用 `Function.prototype.toString()` 取同一份函数原文，单一真源，不抄第二份字符串），由 `lib/serve.js` 的 `/scene-files` HTML 分支注入块插在 shim 之后、seed 之前（`lib/serve.js:485`；重构前在 `lib/index.js`，随 `346586f` 搬走），`<script data-we-focus-guard="host">`，与 shim **同门控**：没有 shim 就没有注入通道）。围栏把 `window` 上的**帧级** `focus` 换成「计数 + 吞掉」，两条腿装机（赋值 ⇒ 不生效则 `Object.defineProperty` 建自有属性），失败只体现为 `window.__weFocusGuard.installed === false`，**绝不抛**（注入体住在壁纸文档里，抛异常会毁掉作者脚本）；`window.__weFocusGuard = { calls, blocked, allowed, installed, allow }` 是围栏唯一的自证手段（壁纸帧控制台一眼可见拦了多少次），`allow = true` 是给对比测试用的逃生门。`package.json` 的 `files` 收录新模块。
   **为什么可以整条废掉，以及为什么只拦帧级**：本插件从不把键盘送进壁纸帧 —— web-shim 里 `keydown`/`keyup`/`keypress`/`KeyboardEvent` **零命中**，渲染页的 keydown 只用于音频解锁。所以壁纸抢到帧级焦点，唯一效果就是**从 DSH 手里把键盘拿走**（作者为此内置软键盘）。**元素级** `HTMLElement.prototype.focus()` 有意放行：壁纸自己的单元格编辑框 / 模态输入框照常工作，那是它真正需要的焦点。同样**不**用 `inert` / `pointer-events:none` 去砸壁纸交互。围栏也**不**放进 `lib/webwallgl/`（`test/tools/sync-webwallgl.mjs` 每次上游同步都 `rmSync` 整个目录）—— 必须是插件自己的字节，才不会被上游覆盖。
   **判据**：`test/verify-scene-live.mjs` ⇒ **`ALL SCENE-LIVE CHECKS PASSED (494)`**（483 → 494）—— 新增：① **行为腿**（`await import` 真模块取注入体，`new Function('window', src)` 在只有 `window` 的假 realm 里跑**真源码**）六条：拦住且原函数一次都没被调用、重复注入幂等、`allow` 转交并累加、**原型上不可写 ⇒ `defineProperty` 兜底**、自有不可写不可配置 ⇒ `installed === false` 且**不抛**、以及负对照（把「吞掉」改回「转交」⇒ 核心断言变假）；② **接线腿**（剥注释后：标签名 + `weFocusGuardSource()` + 顺序 site-root < shim < **guard** < seed）+ 负对照；③ 形态腿（无 `</script`、无 `import`/`export`、经 `toString()` 取源）；④ 两条 e2e 扩面（C3 打真响应体断言围栏注入且**早于 seed**；C4 对真实 socket 的 `Origin: null` 请求同样断言围栏在响应里）。**有牙的独立证明（变异体，`.test-cache/mutate-guard.mjs`）**：A 拿掉注入腿 ⇒ **3 条红**（C3 e2e + C4 e2e + 接线腿，`491 passed`）；B 把「吞掉」改回「转交」 ⇒ **3 条红**（行为腿 + `allow` 腿 + 兜底腿，`491 passed`；它自己的负对照此时仍绿，因为**被变异的树就是那条负对照想合成的形态**）；C 把围栏与 seed 的顺序对调 ⇒ **2 条红**（接线顺序腿 + C3 顺序腿，`492 passed`）；D 拆掉幂等守卫 ⇒ **2 条红**（幂等腿 + `allow` 腿 —— 没有幂等守卫时二次注入换了 guard 对象，旧引用成了死对象，`492 passed`）；B+C+D 同施 ⇒ **5 条红**（`489 passed`），`restore` 后 494 全绿、`status` 各锚点 ok/0。⚠️ 变异体锚点必须写成**盘上整行原文**：幂等那条行尾带注释，用 `if (w.__weFocusGuard) return;` 当锚点会 `found 0`（脚本按整行 trim 相等操作，这是刻意的）。
-  **已知残留**：跨源 WindowProxy 上的 `top.focus()` / `parent.focus()` 无法从壁纸文档侧改写（同源策略允许调用、禁止改写）；真有这类壁纸时 `__weFocusGuard.blocked` 不涨而症状仍在 —— 那就是这个残留，届时再谈宿主半拦截（代价是与作者页拉锯，本仓不做）。**这是宿主半的改动 ⇒ 重启 DSH 生效。**
+  **已知残留**：跨源 WindowProxy 上的 `top.focus()` / `parent.focus()` 无法从壁纸文档侧改写（同源策略允许调用、禁止改写）；真有这类壁纸时 `__weFocusGuard.blocked` 不涨而症状仍在 —— 那就是这个残留，届时再谈宿主半拦截（代价是与作者页拉锯，本仓不做）。**归因办法**（#148 那轮补的）：`blocked` 与 `elCalls` **都不涨**才是跨源残留；只涨 `blocked` = 帧级点名；只涨 `elCalls` = 元素级（壁纸自己的定时器 / 刷新周期）。**这是宿主半的改动 ⇒ 重启 DSH 生效。**
 
 ### v1.3.0（2026-10-06）
 

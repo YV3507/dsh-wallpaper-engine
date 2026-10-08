@@ -1087,14 +1087,28 @@ const liveFlagChecks = (() => {
     srcTreeOffenders,
     // 安装器必须真的接进 `apply` 的 `ctx.effect`。否则"搬进函数"只是换个地方永不注销：
     // 没人调用它 ⇒ 连一条留痕都没有、`bootRestore` 也不再被交互翻假，那比模块级更糟。
-    // 只认这一种接线形态（一条 `ctx.effect` 一个安装器）；三个安装器缺一不可 ——
+    // 只认这一种接线形态（一条 `ctx.effect` 一个安装器）；四个安装器缺一不可 ——
     // 漏掉 `installRotationResumeListeners` 会让"隐藏期轮换推迟到可见时补做"永远不触发
-    // （隐藏过再回来就不轮换了），漏掉前两个会让诊断留痕与「重启恢复」整段失效。
+    // （隐藏过再回来就不轮换了），漏掉前两个会让诊断留痕与「重启恢复」整段失效，
+    // 漏掉 `installFocusProbe` 会让 #148 的失焦归因（`focus-lost`）永远没有留痕 ——
+    // 而这正是本轮加它的**唯一**目的：没有留痕就等于没有读数。
     installersWired: (clientSrc) => /ctx\.effect\(\(\) => installLiveDiagnostics\(\) \|\| undefined\)/.test(clientSrc)
       && /ctx\.effect\(\(\) => installLiveBootRestore\(\) \|\| undefined\)/.test(clientSrc)
-      && /ctx\.effect\(\(\) => installRotationResumeListeners\(\) \|\| undefined\)/.test(clientSrc),
+      && /ctx\.effect\(\(\) => installRotationResumeListeners\(\) \|\| undefined\)/.test(clientSrc)
+      && /ctx\.effect\(\(\) => installFocusProbe\(\) \|\| undefined\)/.test(clientSrc),
     topLevelText,
     installerBody: () => balancedBody(liveSrc, 'installLiveDiagnostics'),
+    // #148 的被动夺焦探针（`src/client.js` 的 `installFocusProbe`）：切片取**真源码**喂进假 realm
+    // 去跑。起点锚 `const FOCUS_PROBE_SELECTOR`、终点锚下一节的 `// ── 壁纸属性` —— 两端都在探针段
+    // 之外，所以切片自足（探针用到的模块级状态与两个辅助函数全在这一段里）。锚点被搬走就返回空串：
+    // 让判据失败，而不是让 `new Function` 把整轮跑挂掉。
+    focusProbeSrc: () => {
+      const s = norm(src);
+      const start = s.indexOf('const FOCUS_PROBE_SELECTOR');
+      const end = s.indexOf('// ── 壁纸属性', start);
+      if (start < 0 || end <= start) return '';
+      return s.slice(start, end);
+    },
   };
 })();
 const clientChecks = [
@@ -2007,6 +2021,26 @@ const runGuard = (stub) => { new Function('window', guardSource)(stub); return s
   winM.focus();
   check('负对照：注入体改成转交 ⇒ 核心断言（原函数不被调用）变假',
     mutantHits.length === 1 && winM.__weFocusGuard.installed === true);
+  // ⑦ 元素级（#148 的周期性失焦要能归因）：**照旧放行**（原函数拿到同一 this 与参数），
+  //    只记账 elCalls / elLast / elAt / elInstalled。放行是刻意的：壁纸自己的单元格编辑框
+  //    与模态输入框靠它工作，围栏只该拦"帧级把 DSH 的键盘拿走"。
+  const elHits = [];
+  const win4 = { focus: function () {}, HTMLElement: { prototype: { focus: function () { elHits.push(this && this.tagName); } } } };
+  runGuard(win4);
+  const g4 = win4.__weFocusGuard;
+  const cell = { tagName: 'INPUT' };
+  win4.HTMLElement.prototype.focus.call(cell);
+  check('focus guard counts element-level focus() without changing behaviour',
+    g4.elInstalled === true && g4.elCalls === 1 && g4.elLast === 'INPUT' && g4.elAt > 0
+      && elHits.length === 1 && elHits[0] === 'INPUT' && g4.calls === 0 && g4.blocked === 0,
+    'elCalls=' + g4.elCalls + ' elLast=' + g4.elLast + ' raw=' + elHits.length);
+  // ⑧ 负对照：把元素级也改成"吞掉" ⇒ ⑦ 的核心断言（原函数被放行一次）必须变假。
+  const elMutantHits = [];
+  const win5 = { focus: function () {}, HTMLElement: { prototype: { focus: function () { elMutantHits.push('raw'); } } } };
+  new Function('window', guardSource.replace('return rawEl.apply(this, arguments);', 'return undefined;'))(win5);
+  win5.HTMLElement.prototype.focus.call({ tagName: 'INPUT' });
+  check('负对照：元素级改成吞掉 ⇒ 核心断言（放行）变假',
+    elMutantHits.length === 0 && win5.__weFocusGuard.elCalls === 1);
 }
 check('focus guard source is classic-script and markup safe',
   guardSource.length > 200 && !/<\/script/i.test(guardSource) && !/^\s*(?:import|export)\b/m.test(guardSource)
@@ -2025,6 +2059,134 @@ check('负对照：拿掉注入腿 ⇒ 同一条判据变假',
   !guardWired(hostCode.replace('data-we-focus-guard="host"', 'data-we-x')));
 check('focus guard module lives outside the vendored dir (upstream sync rmSyncs it)',
   existsSync(guardPath) && !existsSync(join(root, 'lib', 'webwallgl', 'we-focus-guard.js')));
+
+// ── #148 的**被动夺焦探针**（`src/client.js` 的 `installFocusProbe`）─────────────────────
+// 判据只钉一件事：失焦之后那一拍，探针能不能把 `document.activeElement` 是谁**如实采下来**。
+// 那正是 #148 唯一缺的读数 —— 报告者手上的 `relatedTarget === null` 与"节点仍 isConnected /
+// visibility: visible"同时兼容两族成因（焦点进了壁纸帧 / 宿主侧把 composer 重排或重挂），
+// 只有"那一刻 activeElement 是谁"能一刀切开。假 realm 里 `setTimeout` **同步执行**：真实时序是
+// "下一拍再读 activeElement"（focusout 先于 focusin，当场读到的永远是旧值），同步跑等价于把
+// 那一拍立刻跑掉 ⇒ 判据没有 async 竞态。
+const probeSource = liveFlagChecks.focusProbeSrc();
+const probeStubs = (() => {
+  const composer = { tagName: 'DIV', id: '', matches: (sel) => String(sel).indexOf('data-composer-input') >= 0 };
+  const other = { tagName: 'DIV', id: '', matches: () => false };
+  const frame = { tagName: 'IFRAME', id: '' };
+  const body = { tagName: 'BODY', id: '' };
+  return { composer, other, frame, body };
+})();
+/** 在只有探针真正用到的那些名字的假 realm 里跑**真源码**。 */
+const focusProbeRealm = (opts, source) => {
+  const o = opts || {};
+  const reports = [];
+  const listeners = [];
+  const removed = [];
+  const layer = { contains: (el) => el === probeStubs.frame };
+  const doc = {
+    activeElement: o.active === undefined ? probeStubs.body : o.active,
+    body: probeStubs.body,
+    addEventListener: (type, fn) => { listeners.push({ type, fn }); },
+    removeEventListener: (type, fn) => {
+      removed.push(type);
+      const i = listeners.findIndex((l) => l.type === type && l.fn === fn);
+      if (i >= 0) listeners.splice(i, 1);
+    },
+    getElementById: (id) => (id === 'we-layer' ? layer : null),
+    hasFocus: () => o.windowFocused !== false,
+  };
+  const win = {
+    addEventListener: (type, fn) => { listeners.push({ type, fn }); },
+    removeEventListener: (type, fn) => {
+      removed.push(type);
+      const i = listeners.findIndex((l) => l.type === type && l.fn === fn);
+      if (i >= 0) listeners.splice(i, 1);
+    },
+  };
+  const install = new Function('document', 'window', 'reportClientDiag', 'isEffectivelyPlaying',
+    'LAYER_ID', 'livePointerInjectAt', 'setTimeout',
+    String(source || probeSource) + '\nreturn installFocusProbe;')(
+    doc, win, (event, detail) => reports.push({ event, detail }),
+    () => o.playing !== false, 'we-layer',
+    () => (o.injectedAt === undefined ? 0 : o.injectedAt), (fn) => fn());
+  const uninstall = install();
+  const fire = (type, event) => { for (const l of listeners.slice()) if (l.type === type) l.fn(event); };
+  return { reports, fire, uninstall, listeners, removed };
+};
+/** 探针跑不起来（锚点被搬走等）时返回 null —— 让判据失败，而不是把整轮跑挂掉。 */
+const probeCase = (opts, source) => {
+  if (!probeSource) return null;
+  try { return focusProbeRealm(opts, source); } catch { return null; }
+};
+{
+  const loss = (r) => { r.fire('focusout', { target: probeStubs.composer, relatedTarget: null, }); return (r.reports[0] || {}).detail || ''; };
+  // ① 主腿：焦点进了**壁纸帧** ⇒ 归因必须写成 `active=iframe:we-layer`（壁纸侧那一族）。
+  const rFrame = probeCase({ active: probeStubs.frame });
+  let frameDetail = '';
+  if (rFrame) {
+    rFrame.fire('focusin', { target: probeStubs.composer });
+    frameDetail = loss(rFrame);
+  }
+  check('#148 probe attributes the loss to the wallpaper frame (activeElement = our iframe)',
+    rFrame !== null && rFrame.reports.length === 1 && rFrame.reports[0].event === 'focus-lost'
+      && frameDetail.indexOf('tgt=div') === 0 && frameDetail.indexOf('active=iframe:we-layer') > 0
+      && frameDetail.indexOf('same=1') > 0 && frameDetail.indexOf('win=1') > 0
+      && frameDetail.indexOf('play=1') > 0 && frameDetail.indexOf('pp=none') > 0
+      && frameDetail.indexOf('click=-@-1') > 0,
+    'n=' + (rFrame ? rFrame.reports.length : 'null') + ' ' + frameDetail);
+  // ② 宿主侧那一腿：焦点落回宿主 `body`（重排/重挂/瞬时 hidden·inert·contenteditable 翻转都长这样）
+  //    ⇒ 必须写成 `active=body`。**这条与 ① 的读数不同**才是探针的全部意义（它就为分开这两族而生）。
+  const rBody = probeCase({ active: probeStubs.body });
+  let bodyDetail = '';
+  if (rBody) bodyDetail = loss(rBody);
+  check('#148 probe separates a host-side loss (activeElement back to body) from the wallpaper frame',
+    rBody !== null && bodyDetail.indexOf('active=body') > 0 && bodyDetail.indexOf('same=0') > 0
+      && bodyDetail !== frameDetail,
+    'body=' + bodyDetail + ' frame=' + frameDetail);
+  // ③ 指针耦合腿：最近一次合成注入存在时记 `pp=<ms>` —— 老机制（点击耦合）与定时器驱动的分水岭。
+  const injectedAt = Date.now() - 700;
+  const rClick = probeCase({ active: probeStubs.frame, injectedAt });
+  const clickDetail = rClick ? loss(rClick) : '';
+  check('#148 probe reports ms since the last synthesized pointer injection (pp=<ms>)',
+    rClick !== null && /pp=\d+ms/.test(clickDetail) && clickDetail.indexOf('pp=none') < 0, clickDetail);
+  // ④ 静默腿：焦点交给明确的下一个元素（relatedTarget 非空）或丢掉焦点的根本不是宿主输入域 ⇒
+  //    一条都不许报。缺这两条，探针会在用户每次正常点走时刷屏，diag 文件里就再也看不出模式。
+  const rQuiet = probeCase({ active: probeStubs.other });
+  if (rQuiet) {
+    rQuiet.fire('focusout', { target: probeStubs.composer, relatedTarget: probeStubs.other });
+    rQuiet.fire('focusout', { target: probeStubs.other, relatedTarget: null });
+  }
+  check('#148 probe stays silent when focus went to a known target or left a non-input',
+    rQuiet !== null && rQuiet.reports.length === 0, 'n=' + (rQuiet ? rQuiet.reports.length : 'null'));
+  // ⑤ 去重腿：focusin/focusout 会成对爆发 ⇒ 250ms 内只报第一条（否则一次失焦被记成好几条）。
+  const rDup = probeCase({ active: probeStubs.frame });
+  if (rDup) { loss(rDup); loss(rDup); }
+  check('#148 probe dedupes the focusin/focusout burst', rDup !== null && rDup.reports.length === 1,
+    'n=' + (rDup ? rDup.reports.length : 'null'));
+  // ⑥ 摘除腿：注销后不得再上报，且三条监听都要真的摘（挂 fiber 的意义就在这里）。
+  const rOff = probeCase({ active: probeStubs.frame });
+  let offCount = -1;
+  if (rOff) {
+    rOff.uninstall();
+    loss(rOff);
+    offCount = rOff.reports.length;
+  }
+  check('#148 probe uninstalls all three listeners and stops reporting',
+    rOff !== null && offCount === 0
+      && rOff.removed.indexOf('focusin') >= 0 && rOff.removed.indexOf('focusout') >= 0
+      && rOff.removed.indexOf('mousedown') >= 0,
+    'n=' + offCount + ' removed=' + (rOff ? rOff.removed.join(',') : 'null'));
+  // ⑦ 负对照：拿掉"relatedTarget 非空就放过"这条守卫 ⇒ ④ 的静默断言必须变假
+  //    （这条守卫是探针不刷屏的唯一原因，判据必须证明它真的在起作用）。
+  const mutated = probeSource.replace('if (e.relatedTarget) return;', '');
+  const rMut = mutated !== probeSource ? probeCase({ active: probeStubs.other }, mutated) : null;
+  if (rMut) rMut.fire('focusout', { target: probeStubs.composer, relatedTarget: probeStubs.other });
+  check('负对照：拿掉 relatedTarget 守卫 ⇒ 静默断言变假',
+    rMut !== null && rMut.reports.length === 1, 'n=' + (rMut ? rMut.reports.length : 'null'));
+  check('#148 probe source is extractable and wired through ctx.effect',
+    probeSource.length > 400 && probeSource.indexOf('installFocusProbe') > 0
+      && liveFlagChecks.installersWired(src) === true,
+    'len=' + probeSource.length + ' wired=' + liveFlagChecks.installersWired(src));
+}
 check('host sends CORS for opaque-origin fetches', /Access-Control-Allow-Origin', '\*'/.test(serveSrc));
 // ⚠️ 下面这条读**宿主半**：`buildInventory` 已搬进 `lib/inventory.js`（§★ W-B B1）。
 check('inventory derives webLive via webFieldsFor', /webFieldsFor\(w, hasMedia, webMediaBase\)/.test(hostHalfSrc));
