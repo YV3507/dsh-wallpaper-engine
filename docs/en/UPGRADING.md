@@ -74,7 +74,7 @@ The plugin shows a one-time in-app notice per release; missing it is harmless.
   fully-transparent right column after upgrading better-sidebar to 0.19) — see the v0.7.2 entry in
   [`CHANGELOG.md`](../CHANGELOG.md) (Chinese only).
 
-- **Current version 1.3.0** (`package.json`; the latest published npm release is v1.2.0): the end-to-end record in this file stops
+- **The current version is whatever `package.json`'s `version` says (published versions: see the npm package page / GitHub Releases)**: the end-to-end record in this file stops
   at v0.7.1/v0.7.2; the live-rendering chain from v0.7.5 on has offline verification only
   (`test/verify-scene-live.mjs` and more, `npm run verify`). **Recommended pairing: `dsh-desktop` ≥ 2.0.14** —
   that release fixed plugin load failures, the right-sidebar glass grey plate when collapsed, and the

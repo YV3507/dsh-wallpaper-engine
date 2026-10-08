@@ -427,8 +427,8 @@ never changes what the user sees, and it is the same ring the host's own `diag` 
 ### Tests
 
 `npm run verify` (the client / transcode / playback-control / scene / scene-live entries among others) plus
-`npm run smoke` (rotation, rotation live node-level adoption, zero leftovers during rotation preparation,
-GPU frame backfill, capture identity). Every assertion has a failure channel (a non-zero exit when it does
-not hold); `npm run verify:all` = build + both suites + the soft tier.
+`npm run smoke` (node-level behaviour: rotation, live-frame backfill and identity, font-set loading, and more).
+Every assertion has a failure channel (a non-zero exit when it does not hold);
+`npm run verify:all` = build + both suites + the soft tier.
 **How many entries each chain has is not written here**: the source of truth is the `verify` / `smoke` /
 `verify:docs` scripts in `package.json` — hard-coding a number here makes it drift.

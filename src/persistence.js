@@ -1,10 +1,10 @@
 /**
  * persistence.js — 设置持久化层：**宿主文件是真源，localStorage 是同步缓存 + 迁移源 + 回滚**。
  *
- * 为什么单独一个文件：这一族是"用户改了设置之后到底存到哪、什么时候存、失败了怎么办"的**全部答案**
- * （194 行）：debounce 写、脏标记与重试、页面隐藏时 flush、启动时的宿主→本地迁移、以及
- * "用户在这次 GET 在途时改了设置 ⇒ 宿主的答案已过期，不许覆盖"的竞态守卫。这些助手原本
- * 分散在 store 定义前后两处，读的时候要跳两处；集中在这里，"设置为什么丢了"只需读一个文件。
+ * 为什么单独一个文件：这一族是"用户改了设置之后到底存到哪、什么时候存、失败了怎么办"的**全部答案**：
+ * debounce 写、脏标记与重试、页面隐藏时 flush、启动时的宿主→本地迁移、以及
+ * "用户在这次 GET 在途时改了设置 ⇒ 宿主的答案已过期，不许覆盖"的竞态守卫。集中在这里，
+ * "设置为什么丢了"只需读一个文件。
  *
  * 契约（构建期由 scripts/build-client.mjs 内联进 bundle 的工厂作用域，"外部作用域"=
  * 同一 prelude / src/client.js 的顶层。依赖见下方逐条列举，此处不写死数量）：
@@ -52,10 +52,9 @@ function readPersisted() {
  * 迁移分支要靠它决定是否把本地副本 PUT 上去（见 `loadPersisted`）。
  *
  * ⚠️ 不变量：**`localStorage` 的每一次访问都必须在 try 里**。站点数据被禁 / 不透明源嵌入时，
- * 连 `getItem` 本身都会抛 `SecurityError`（不只是 `JSON.parse` 会抛坏数据）。迁移分支此前把
- * `JSON.parse` 包进了 try，却把 `getItem` 留在 try **外面** ⇒ 一次被拒的存储让 `loadPersisted()`
- * 整体 reject，启动链（loadPersisted → loadFontSet → loadInventory）随之断掉，选择器永久卡在
- * 「扫描 Wallpaper Engine…」且一次性提示不收敛。这里与 `readPersisted()` 同口径。
+ * 连 `getItem` 本身都会抛 `SecurityError`（不只是 `JSON.parse` 会抛坏数据）—— 裸露它会让
+ * `loadPersisted()` 整体 reject，启动链（loadPersisted → loadFontSet → loadInventory）随之断掉，
+ * 选择器永久卡在「扫描 Wallpaper Engine…」且一次性提示不收敛。这里与 `readPersisted()` 同口径。
  */
 function readPersistedRaw() {
   try {
@@ -75,8 +74,8 @@ function serializeSelection() {
 // the host writes ~/.dsh-wallpaper-engine/config.json — port-independent).
 // localStorage stays a synchronous-read cache + migration source + rollback,
 // never the source of truth — and its WRITE is debounced together with the
-// PUT: slider drags used to trigger a full JSON.stringify + synchronous
-// localStorage write on every input tick (dozens per drag). Timers go through
+// PUT: a full JSON.stringify + synchronous localStorage write on every input
+// tick (dozens per drag) would tank slider dragging. Timers go through
 // window.* (guarded) like the rotation timer below, so headless verify
 // environments without a timer facility fall back to an immediate write.
 let persistTimer = null;

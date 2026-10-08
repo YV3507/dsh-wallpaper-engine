@@ -17,6 +17,7 @@
  * 两边可以一起错。**实测**形态：`for (const seg of ['media','preview']) { … register(…) }`
  * 一个字面量产出**两条**路由，索引若把它折成一行 `(动态路径)` 就记 30 条、运行时实际 31 条，
  * 而字面量比对（30 == 30）永远绿 —— /media 与 /preview 就这样从设计稿里消失。
+ * （该循环后来已搬进 `lib/routes/media-bytes.js`，本判据的 ② 节相应改成**按文件**对账。）
  * ⑤ 用 mock webServer 真的跑一遍 `apply()` 数注册条数，是唯一能发现这类折叠的判据。
  */
 import { readFileSync } from 'node:fs';
@@ -58,12 +59,20 @@ check('负对照：零提及行被改动会被判不一致', !zeroLine.replace(e
 
 console.log('\n② 循环注册：一个 register 字面量产出多条路由时必须逐条列出');
 {
-  // 负对照：字面量条数与路由条数**不相等**是正常的（循环展开），相等才说明没展开
+  // 负对照：字面量条数与路由条数**不相等**是正常的（循环展开），相等才说明没展开。
+  // ⚠️ 拆分后 `/media` 循环不在门面里了（已搬进 `lib/routes/media-bytes.js`）⇒ 这条对账
+  //    必须**按文件**做：门面"路由数 == 字面量数"，循环所在的那个模块"路由数 > 字面量数"。
   const host = readFileSync(join(ROOT, 'lib', 'index.js'), 'utf8');
   const literals = (host.match(/webServer\.register\(\{/g) || []).length;
   const fromMain = routes.filter((r) => r.src === 'lib/index.js').length;
-  check('lib/index.js 的循环注册已展开（路由数 = 字面量数 + 循环额外条数）',
-    fromMain === literals + 1, `字面量 ${literals} + 1（media/preview 循环）= 路由 ${fromMain}`);
+  check('门面里的注册字面量逐条列出（门面已无循环注册）',
+    fromMain === literals, `字面量 ${literals} = 路由 ${fromMain}`);
+  const bytesSrc = readFileSync(join(ROOT, 'lib', 'routes', 'media-bytes.js'), 'utf8');
+  const bytesLiterals = (bytesSrc.match(/webServer\.register\(\{/g) || []).length;
+  const fromBytes = routes.filter((r) => r.src === 'lib/routes/media-bytes.js').length;
+  check('媒体字节族的循环注册已展开（1 个字面量 ⇒ 2 条路由）',
+    bytesLiterals === 1 && fromBytes === bytesLiterals + 1,
+    `字面量 ${bytesLiterals} + 1（media/preview 循环）= 路由 ${fromBytes}`);
   check('负对照：索引里同时有 /media 与 /preview（折叠成一行时这条会红）',
     routes.some((r) => r.path === '/media') && routes.some((r) => r.path === '/preview'));
 }

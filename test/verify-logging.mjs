@@ -196,11 +196,11 @@ function noticeSuccessSilent(src) {
   // 逐请求 / 逐帧的代码段（"热路径"在这里是可定位的代码，不是一句形容）：
   //   ① `lib/routes/scene-serve.js` 整个文件（每条语句都在请求路径上）；
   //   ② `src/live-layer.js` 整个文件（客户端半边：成功提示只能经 /client-diag 上行）；
-  //   ③ `lib/index.js` 的 handleSceneFiles 函数体（每个壁纸子资源请求都过它）。
+  //   ③ `lib/serve.js` 的 handleSceneFiles 函数体（每个壁纸子资源请求都过它）。
   const hot = [
     ['lib/routes/scene-serve.js', read('lib/routes/scene-serve.js')],
     ['src/live-layer.js', read('src/live-layer.js')],
-    ['lib/index.js:handleSceneFiles', functionBody(read('lib/index.js'), 'function handleSceneFiles(req, res, mount)')],
+    ['lib/serve.js:handleSceneFiles', functionBody(read('lib/serve.js'), 'function handleSceneFiles(req, res, mount)')],
   ];
   const missing = hot.filter(([, body]) => body === null).map(([n]) => n);
   const hits = hot.filter(([, body]) => body !== null && noticeCallCount(body) > 0).map(([n]) => n);

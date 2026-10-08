@@ -2,7 +2,7 @@
  * dsh-wallpaper-engine — host half type surface.
  *
  * The host plugin contributes no public Cordis services and registers no model
- * tool. It serves 40 same-origin HTTP routes through `ctx.webServer` and unwinds
+ * tool. It serves 41 same-origin HTTP routes through `ctx.webServer` and unwinds
  * them on unload; `docs/ROUTE-INDEX.md` is the generated table of those routes
  * and stays authoritative for their paths and handlers.
  *
@@ -94,10 +94,23 @@ export interface PlaylistDescriptor {
 
 /** Shape returned by GET /wallpaper-engine/inventory. */
 export interface Inventory {
-  /** Absolute Wallpaper Engine install dir, or null when not found. */
+  /**
+   * Absolute Wallpaper Engine **install root**, or null when not found. This is the directory
+   * holding `projects/` and `config.json` — **not** wherever the executables happen to live:
+   * classic builds keep `wallpaper32.exe` at the root, current builds ship it one level down in
+   * `distribution\` (next to `version.json`), and the probe accepts both layouts.
+   */
   installDir: string | null;
   /** Absolute upload directory (env → config.json → default); always a path. */
   uploadDir: string;
+  /**
+   * Absolute **cache root** in effect (env `DSH_WE_CACHE_DIR` → config.json `cacheDir` →
+   * `<data dir>/cache`); always a path. Transcodes / faststart variants / scene frames /
+   * video previews / media-bridge caches all live under it. Change it via
+   * `POST /wallpaper-engine/cache-dir`; when an env override is set this differs from the
+   * persisted value, which is how the UI knows to say "overridden by environment".
+   */
+  cacheDir: string;
   /** Absolute WE official-assets directory (env / config.json), or null when unset. */
   weAssetsDir: string | null;
   /** Whether `weAssetsDir` currently holds a usable `materials/` tree. */

@@ -147,9 +147,19 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 
 > ffmpeg 三档供给：**显式指定**（`DSH_WE_FFMPEG` 或插件目录下的 `ffmpeg/`）→ **自动下载**（npmmirror + GitHub 双源竞速，校验后缓存）→ **系统 PATH**。编码器优先 **NVENC**（`av1_nvenc` → `h264_nvenc`），无 NVIDIA 显卡时回落 **libx264 软件编码**（慢，但能出片）；只有**连 ffmpeg 都拿不到**时该功能才自动关闭，壁纸保持原片，不影响其它任何功能。
 
+### 缓存位置（把几个 GB 挪出系统盘）
+
+抽帧 / 转码 / 实时抓帧 / 视频缩略图这些**可再生产物**默认落在 `~/.dsh-wallpaper-engine/cache`，也就是**系统盘** —— 用得久了能堆到**几个 GB**。**「系统」→「高级」→「缓存位置」**可以把它改到任意盘符的目录（绝对路径，支持 `~`）：改完**已有缓存自动迁移**过去（逐文件搬，跨盘也搬得动），旧目录**只留空壳、不删**。
+
+迁移**只搬插件自己的那几个缓存子目录**，不认识的文件原地不动 —— 目标可以是你已有的任意目录（例如 `D:\WallpaperEngineCache`），插件不会去动里面的别的东西。缓存全是可再生的（所以设置页的提示是"随时可删"），最坏情况只是重跑一次转码，不会丢你的壁纸或设置。
+
+优先级：`DSH_WE_CACHE_DIR` 环境变量 → 设置里的「缓存位置」→ 默认 `~/.dsh-wallpaper-engine/cache`。环境变量在场时它优先，设置页显示的是**实际生效**的那条路径（两者不一致就是它被覆盖了）。
+
+> 设置存在 `config.json` 的根字段 `cacheDir`。**自定义壁纸**的存储位置（默认 `~/.dsh-wallpaper-engine/uploads`）在「壁纸库」页签改，同一条迁移逻辑（见上）；要把**整个数据目录**（含设置与头像 / 字体 / 吉祥物这些）挪走，用环境变量 `DSH_WE_DATA_DIR` —— 见「配置」的环境变量表。
+
 ### 画面调节
 
-画面相关的八个滑动条分居两处：「播放」→「效果」（壁纸激活后）六个 —— **壁纸模糊** · **亮度 / 对比度 / 饱和度**（壁纸媒体滤镜）· **壁纸透明度**（整层淡出、融向页面底色，与**暗化**互补）· **暗化**（加深壁纸与文字之间的遮罩）；「外观」页签两个 —— **边框**（「细节」段，边框 / 分割线对比度）与**雾化**（「玻璃 UI」节，玻璃面板模糊半径）。全部即时生效、持久保存，**无需刷新页面**；每个控件的取值范围与默认值直接看控件本身。
+画面相关的十一个滑动条分居两处：「播放」→「效果」（壁纸激活后）九个 —— **壁纸模糊** · **亮度 / 对比度 / 饱和度**（壁纸媒体滤镜）· **水平 / 垂直 / 缩放**（壁纸**层取景**：位移与缩放，与 WE 壁纸属性面板那三条同名滑条**同量程**，右侧数值可直接键入、双击标签回默认）· **壁纸透明度**（整层淡出、融向页面底色，与**暗化**互补）· **暗化**（加深壁纸与文字之间的遮罩）；「外观」页签两个 —— **边框**（「细节」段，边框 / 分割线对比度）与**雾化**（「玻璃 UI」节，玻璃面板模糊半径）。全部即时生效、持久保存，**无需刷新页面**；每个控件的取值范围与默认值直接看控件本身。
 
 > **浅色 / 深色由壁纸自己决定** —— 换壁纸后插件会自动切到与壁纸相配的那一侧（取色顺序：作者的 `schemecolor` → 画面占比最大色（作者预览图与真实渲染帧**各判一次，不一致时取深色**）→ 取不到就保持不动；判定按颜色深浅，**只有明显偏亮**才用浅色。作者填的**恰好纯黑**算"没填"，会改用画面主色）。你也可以随时在 DSH 里手动改主题 —— 改过之后**本张壁纸不再自动**，换下一张恢复。偏亮或花纹复杂的壁纸看不清字时调高 **暗化 / 边框**（必要时加一点 **壁纸模糊**），嫌壁纸抢眼则调高 **壁纸透明度**。滑条再怎么调也不会把正文压到看不清 —— 承载文字的面都有**可读性下限**（见上）。
 
@@ -228,7 +238,7 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 
 ## 配置
 
-本插件不会向模型暴露任何工具或提示文本，对 agent **零 token 开销**，也不写入任何 DSH 自身的设置。本地落盘只有三类：宿主端配置文件 `~/.dsh-wallpaper-engine/config.json`（选择、隐藏、轮播、配色、字体等全部设置，以及你选的上传目录）、**自定义壁纸文件**本身，以及 `~/.dsh-wallpaper-engine/` 下的**缓存与按需下载的运行时**（抽帧转码 / 实时抓帧 / 视频缩略图缓存、ffmpeg 与媒体中间件的二进制）。
+本插件不会向模型暴露任何工具或提示文本，对 agent **零 token 开销**，也不写入任何 DSH 自身的设置。本地落盘只有三类：宿主端配置文件 `~/.dsh-wallpaper-engine/config.json`（选择、隐藏、轮播、配色、字体等全部设置，以及你选的上传目录与缓存位置）、**自定义壁纸文件**本身，以及 `~/.dsh-wallpaper-engine/` 下的**缓存与按需下载的运行时**（抽帧转码 / 实时抓帧 / 视频缩略图缓存、ffmpeg 与媒体中间件的二进制）。其中占盘的**缓存根**与**上传目录**都能在设置里改到别的盘（见上「缓存位置」），整个数据目录也能用 `DSH_WE_DATA_DIR` 一次挪走。
 
 **环境变量**：
 
@@ -236,8 +246,8 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 |---|---|
 | `DSH_WE_FFMPEG` | 指定 ffmpeg 可执行文件（解析链最高优先） |
 | `DSH_WE_FFMPEG_URL` | 替换自动下载源（自建镜像 / 代理加速） |
-| `DSH_WE_CACHE_DIR` | 覆盖缓存根目录（抽帧转码缓存 / faststart 变体缓存 / 实时抓帧缓存） |
-| `DSH_WE_STEAM_ROOT` | 显式指定 Steam 根目录（逗号/分号分隔，Windows 或 `/mnt` 路径；注册表/自动探测失效时的兜底） |
+| `DSH_WE_CACHE_DIR` | 覆盖**缓存根目录**（抽帧转码 / 实时抓帧 / 视频缩略图缓存；优先于设置里的「缓存位置」，见上） |
+| `DSH_WE_STEAM_ROOT` | 显式指定 Steam 根目录（逗号/分号分隔，Windows 或 `/mnt` 路径）。**排在注册表与自动探测之前**，想固定到某一处时用它；列出的根里没有安装会自动往后找 |
 | `DSH_WE_MEDIA_BRIDGE` | 指定媒体中间件的可执行文件（开发/自备产物；解析链最高优先） |
 | `DSH_WE_MEDIA_BRIDGE_URL` | 替换中间件下载源（自建镜像 / 代理加速；支持 `{tag}` / `{asset}` 占位符） |
 | `DSH_WE_MEDIA_BRIDGE_TAG` / `DSH_WE_MEDIA_BRIDGE_SHA256` | 换用其它版本的中间件（自定义版本必须同时给出 sha256，否则拒绝执行） |
@@ -309,4 +319,4 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 - **[YV3507](https://github.com/YV3507)** —— 提交量最大的贡献者：从早期场景渲染器起步，到静态帧系列修复、液态玻璃令牌体系、live 帧链路与多轮大型重构与文档 / 守卫体系，几乎每个里程碑都有他。
 - **[yuxilao](https://github.com/yuxilao)** —— scene-gl Linux 实时渲染管线（WebGL2 官方 shader 驱动 + 多轮性能优化）与轮换交接 / GPU 帧回填 / 官方资源路径（[#65](https://github.com/elysia395/dsh-wallpaper-engine/pull/65)、[#108](https://github.com/elysia395/dsh-wallpaper-engine/pull/108)）。
 - **[Jerry](https://github.com/ruijiaang-lab)** —— 在三平台原生支持落地之前，macOS 侧的适配与贡献路径由他维护（WaifuX 工坊目录扫描、黑胶缩略图兜底、上游移植与 macOS 贡献路径梳理，[#44](https://github.com/elysia395/dsh-wallpaper-engine/pull/44)、[#45](https://github.com/elysia395/dsh-wallpaper-engine/pull/45)、[#52](https://github.com/elysia395/dsh-wallpaper-engine/pull/52)、[#54](https://github.com/elysia395/dsh-wallpaper-engine/pull/54)）。
-- 还有 [SiriLee](https://github.com/SiriLee)（壁纸亮度 / 对比度 / 饱和度调节、吉祥物拉绳开关、WSL 下探测 Steam 根目录）、[libiwolve](https://github.com/libiwolve)（内容分级与类型过滤）、[0-007pro](https://github.com/0-007pro)（自动轮播）、[jujubaoj646-star](https://github.com/jujubaoj646-star)（字体与气泡样式自定义面板）、[xiahou001](https://github.com/xiahou001)（壁纸音轨音量控制）、[wilianyichen](https://github.com/wilianyichen)（MP4 按需缩略图与自上传内容分级）、[hecoococ](https://github.com/hecoococ)（侧栏玻璃与活动壁纸解耦）、[ShamSky88](https://github.com/ShamSky88)（玻璃模糊定位修复）、[Rekk0](https://github.com/Rekk0)（玻璃透明度令牌化、注册表定位 Steam）、[Y1X1n](https://github.com/Y1X1n)（小白向使用指南），以及所有通过 issue 反馈与 PR 参与改进的朋友 —— 谢谢你们！
+- 还有 [SiriLee](https://github.com/SiriLee)（壁纸亮度 / 对比度 / 饱和度调节、吉祥物拉绳开关、WSL 下探测 Steam 根目录）、[libiwolve](https://github.com/libiwolve)（内容分级与类型过滤）、[0-007pro](https://github.com/0-007pro)（自动轮播）、[jujubaoj646-star](https://github.com/jujubaoj646-star)（字体与气泡样式自定义面板）、[xiahou001](https://github.com/xiahou001)（壁纸音轨音量控制）、[wilianyichen](https://github.com/wilianyichen)（MP4 按需缩略图与自上传内容分级）、[hecoococ](https://github.com/hecoococ)（侧栏玻璃与活动壁纸解耦）、[ShamSky88](https://github.com/ShamSky88)（玻璃模糊定位修复）、[Rekk0](https://github.com/Rekk0)（玻璃透明度令牌化、注册表定位 Steam）、[Y1X1n](https://github.com/Y1X1n)（小白向使用指南）、[wwexplorer](https://github.com/wwexplorer)（壁纸层取景：水平 / 垂直 / 缩放，数值可直接键入），以及所有通过 issue 反馈与 PR 参与改进的朋友 —— 谢谢你们！

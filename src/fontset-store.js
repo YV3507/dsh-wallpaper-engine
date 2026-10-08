@@ -76,7 +76,7 @@ function fontSetFailureReason(res) {
 function fontSetsUrl() { return BASE + "/fontsets"; }
 function fontSetUrl(id) { return fontSetsUrl() + "/" + encodeURIComponent(id); }
 
-/** 读本地缓存那份 → `{ id, values, dirty }`（形状不合就当作没有；旧形状无 dirty = false）。 */
+/** 读本地缓存那份 → `{ id, values, dirty }`（形状不合就当作没有；无 `dirty` 字段 = false）。 */
 function readCachedFontSet() {
   try {
     const raw = localStorage.getItem(FONTSET_CACHE_KEY);
@@ -245,14 +245,14 @@ async function loadFontSet() {
     selection.fontSetActive = id; // 指针（= 宿主那边正在用的那份；能力判定用它）
     // 用户在 GET 在途时改过 ⇒ 他的值更新，别覆盖（但活动 id 必须记下：写目标要对）。
     if (fontSetWrites === writesAtStart) {
-      // ⚠️ **回滚防线**（2026-10-06 用户反馈"重启后保存的自定义颜色没了"）：上次会话的
+      // ⚠️ **回滚防线**（用户反馈"重启后保存的自定义颜色没了"）：上次会话的
       //    落盘可能没成功（宿主没重挂 / 退出太快 / 任何非 2xx）—— 脏标记随页面死了，
       //    但缓存里那份就是**用户屏幕上看到的最后状态**。宿主值 ≠ 缓存值且缓存带脏
       //    ⇒ 采纳缓存并立即补推，不让宿主的旧值把用户的编辑静默回滚。
       //    取舍：两个桌面端共用同一份数据目录时这是"本窗口最后所见者胜"，
       //    比"先写者胜"更贴近用户预期（另一个窗口的更新若被顶掉，重推后的差异
       //    依旧可见；两实例同时编辑字体的场景本就罕见）。缓存不带脏（正常关停）
-      //    ⇒ 宿主为准，行为与之前逐字节相同。
+      //    ⇒ 宿主为准。
       const cached = readCachedFontSet();
       const cachedNewer = Boolean(cached && cached.dirty && cached.id === id
         && canonicalFontValues(cached.values) !== canonicalFontValues(values));

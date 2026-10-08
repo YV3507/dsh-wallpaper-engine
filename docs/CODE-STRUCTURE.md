@@ -212,7 +212,7 @@ graph LR
 |---|---|---|
 | **状态真源 + 装配（门面）** | `src/client.js`（正文） | 自己持有：设置 store（`selection`）、持久化、`apiFetch`、`weT` 接线、React 根、`ctx` 的组装点 |
 | **接收 `ctx` 的渲染 / 行为层** | `live-layer` · `panel-tabs` · **`glass-panel`** · `ext-fx` · `ext-parallax` · `ext-avatar` · `sidebar-right` · `picker-modal` · `picker-props-panel` · `theme-follow` · `fontset-editor` · `font/apply` · `font/color-roles` | **门面在调用点组装 `ctx` 传进来** —— 这一层里**不**直接读 `selection` |
-| **基座（无 `ctx`，读扁平符号）** | `media-prep` · `picker-model` · `video-layer` · `fx-layer` · `parallax-layer` · `avatar-layer` · **`glass`** · `effects` · `quick-panel` · `i18n` · `api-client` · `adapter` · `we-cond` · `persistence` · `fontset-store` | 直接读**同作用域**的符号；自己的符号反过来被正文读 |
+| **基座（无 `ctx`，读扁平符号）** | **`we-base`**（最小地基：`weClampTo` / `weNow` / `weBody` 的唯一实现，零依赖） · `media-prep` · `picker-model` · `video-layer` · `fx-layer` · `parallax-layer` · `avatar-layer` · **`glass`** · `effects` · `quick-panel` · `i18n` · `api-client` · `adapter` · `we-cond` · `persistence` · `fontset-store` | 直接读**同作用域**的符号；自己的符号反过来被正文读 |
 | **纯数据 / 常量表** | `styles.js`（整份样式表）· `i18n-copy.js`（词表）· `about-assets.js` · `font/typography.js` · `font/components.js` | 无外界 |
 | **通道 / 工具** | `layer-core`（两条通道共用的切换核心） · `nav-icon` · `persistence` · `fontset-store` · **`preset-store`**（玻璃预设的客户端通道：清单与正文住宿主文件 `glass-presets/<id>.json`，应用走 settings 通道） | 见各自文件头 |
 
@@ -355,6 +355,36 @@ graph LR
 
 逐步配方（含"改错了会怎样"）见 [`DEV-GUIDE.md`](./DEV-GUIDE.md)。
 
+### 4.2 拆分既有代码：先纯搬移（零行为改动）、再改
+
+拆一个上帝函数 / 大文件时，**分两相做，不混在同一次改动里**：
+
+1. **纯搬移**（默认这一相）：只改声明**住在哪**，不改它**做什么**。搬完行为必须**等价**
+   —— 靠 `npm run verify:all`（含 `verify-client-sync` 真跑构建、逐字节比对）兜底。
+2. **行为改动**（可选的独立一刀）：真要改语义 / 加参数，也在纯搬移**之后另起一次**做，
+   别和搬移缠在一起 —— 否则一旦回归，分不清是"搬错了"还是"改错了"。
+
+**纯搬移的判据**（一个声明能不能提到**外层作用域**）：
+
+- **能搬** —— 它只读**模块级单例**（`selection` 一族）、只调**模块级函数**，不引用原作用域的局部名
+  （`src/` 模块间"同一作用域"⇒ 这些是自由变量，可以解析）。提到模块级后身份反而**稳定**
+  （原先跟着渲染每次重建一份 ⇒ 函数 / 对象身份每次都变）。
+- **不能搬（反判据）** —— 读**可变** store 算出的**派生值**（例：`group` / `candidates`）。
+  提到模块级会退化成"只在模块初始化时算一次"的**冻结快照**，必须留在消费点每次重算。
+- 同一条界线要能**双向**判：守卫既断言"该在模块级的名字在组件 / 函数**之前**声明"，也带一条
+  **负对照**证明"仍住原处的名字会被同一条判据判出"（否则判据可能恒真）。
+
+**机制（本仓踩过的坑，照做即可）**：内容锚定（精确行 + 唯一性断言）→ **行索引 splice** →
+逐行保留**行尾**（`src/` 多为纯 CRLF：`split('\r\n')` 留下的尾随空元素**不得**再补一个 `'\r\n'`，
+否则每跑一次文件尾多一个空行）→ 搬完 **`npm run build` + `npm run verify:all`** →
+一次性脚本**用完即删**（不留在仓库）。
+⚠️ **按函数名取体**的守卫（如 `balancedBody(liveSrc, 'syncLayers')`）不受搬移影响；但**按名字切片**的
+守卫（如 `verify-windows-caption` 取 `setWallpaperActive` → `syncLayers` 之间那段）会把落在两者之间的
+新声明一并切进去 —— 纯函数声明（无顶层副作用）安全，仍要留神。
+
+> 本小节是**约定**，不对文档措辞设守卫（[`adr/0006`](./adr/0006-comment-discipline-as-written-convention.md)）；
+> 对**代码**的判据（"某声明在模块级 / 在前"）可以机器守，且鼓励带负对照。
+
 ---
 
 ## 5. 硬约束（都由构建期/打包期断言兜住，不是建议）
@@ -454,9 +484,9 @@ graph LR
 > **本表与 §8 用同一口径**：`localStorage` 里既有"设置的缓存"，也有**只属于这台设备**的字段
 > （见上表第 2 行）—— 后者不是任何宿主状态的回声，因此**不能**被"清缓存即可重建"这句话覆盖。
 >
-> **派生缓存不在此表**：GPU 帧 / 静态帧、转码产物（`tc_*.mp4`，按大小 LRU）、**faststart 变体
-> （`fs_*.mp4`，另一条 8GB LRU；成因与口径见 `lib/index.js` 的 `faststartVariant` 注释与
-> CHANGELOG 的未发布段）**、视频预览、
+> **派生缓存不在此表**：GPU 帧 / 静态帧、转码产物（`tc_*.mp4`，按大小 LRU）、**虚拟 faststart 布局
+> （不落盘：`lib/mp4-vfs.js` 只读源算出「moov 前置 + chunk 偏移整体平移」的段表，`lib/serve.js`
+> 在服务期按段表合成字节；成因与口径见 CHANGELOG 的未发布段）**、视频预览、
 > live 帧、诊断目录、inventory（秒级 TTL）、Steam / 内嵌 MP4 探测（后者未命中一律
 > **未知 → null，绝不猜**）。它们的真源都是**壁纸源文件本身**，全部可删、可重建。
 

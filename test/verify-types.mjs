@@ -149,6 +149,7 @@ const WALLPAPER_REQUIRED = [
 const INVENTORY_REQUIRED = [
   { name: 'installDir', why: 'top-level payload shorthand from locateWallpaperEngineP()' },
   { name: 'uploadDir', why: 'UPLOAD_DIR; the settings UI moves it (buildInventory payload)' },
+  { name: 'cacheDir', why: 'cacheBaseDir() in effect (env → config.json cacheDir → default); the settings UI moves it (buildInventory payload)' },
   { name: 'weAssetsDir', why: 'WE_ASSETS_DIR; the client derives localAssets=1 from it' },
   { name: 'weAssetsAvailable', why: 'weAssetsAvailable() probe gates the official-assets UI' },
   { name: 'sceneMediaBase', why: 'media source origin the live renderer uses as mediaBase for Scenes (buildInventory payload)' },
@@ -182,12 +183,14 @@ function whyFor(required, names) {
 // ── 输入 ──────────────────────────────────────────────────────────────────────
 const hostDts = readFileSync(join(ROOT, 'lib', 'types', 'index.d.ts'), 'utf8');
 const clientDts = readFileSync(join(ROOT, 'lib', 'types', 'client.d.ts'), 'utf8');
-const hostCode = readFileSync(join(ROOT, 'lib', 'index.js'), 'utf8');
+// ⚠️ 清单构建代码已从 `apply()` 搬进 `lib/inventory.js`（§★ W-B B1）⇒ 解析面读该模块，
+//    不再是 `lib/index.js`。`sceneFieldsFor`/`webFieldsFor`/`buildInventory` 三个函数都在这里。
+const inventorySrc = readFileSync(join(ROOT, 'lib', 'inventory.js'), 'utf8');
 const clientCode = readFileSync(join(ROOT, 'src', 'client.js'), 'utf8');
 
-const inventoryCode = INVENTORY_FUNCS.map((n) => functionBody(hostCode, n)).join('\n');
+const inventoryCode = INVENTORY_FUNCS.map((n) => functionBody(inventorySrc, n)).join('\n');
 const sourcesOk = INVENTORY_FUNCS.every((n) => {
-  const b = functionBody(hostCode, n);
+  const b = functionBody(inventorySrc, n);
   return typeof b === 'string' && b.length > 200 && b.includes('return');
 });
 
@@ -240,7 +243,7 @@ console.log('\nP4  负对照：漏掉必需字段的 .d.ts 必须被判缺');
 console.log('\nP5  负对照：字段不再被代码赋值时必须被判缺');
 {
   const renamed = 'liveFrame';
-  const mutatedCode = hostCode.split(renamed).join(renamed + 'Renamed');
+  const mutatedCode = inventorySrc.split(renamed).join(renamed + 'Renamed');
   const control = auditSurface({ dts: hostDts, code: mutatedCode, iface: 'WallpaperDescriptor', required: WALLPAPER_REQUIRED });
   const baseline = auditSurface({ dts: hostDts, code: inventoryCode, iface: 'WallpaperDescriptor', required: WALLPAPER_REQUIRED });
   check('同一判据：把代码里的 ' + renamed + ' 改名后恰好报它无生产者（且基线为 0）',

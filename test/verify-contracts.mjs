@@ -191,6 +191,10 @@ const tabsSrc = read('src/panel-tabs.js');
   // 原子落盘，内联收集器那条棘轮因此不增（见 test/verify-body-caps.mjs 的两条棘轮）。
   const routeSrc = read('lib/routes/avatar.js');
   const hostNow = read('lib/index.js');
+  // `const json = (code, payload) => sendJson(res, code, payload);` —— 恰好**三个**实参 ⇒ 走共享实现的
+  // 默认 `no-store`。四参形态（`sendJson(res, code, payload, null)` 之类）**不**匹配：那等于把这条
+  // 错误路径改回可缓存，正是本判据要挡的（`no-store` 的唯一落点是 lib/json-response.js）。
+  const THIN_JSON_ALIAS = /=>\s*sendJson\(res,\s*[^,()]+,\s*[^,()]+\)\s*;/;
   check('头像路由：只认两个 side（路径段当白名单查，不拼进文件名）',
     /AVATAR_SIDES\.includes\(side\)/.test(routeSrc) && /AVATAR_SIDES = \['user', 'ai'\]/.test(hostNow));
   check('头像路由：收体走共享读体器 + 原子落盘（不是第三个流式豁免）',
@@ -207,7 +211,7 @@ const tabsSrc = read('src/panel-tabs.js');
     /avatarStamp\(\)/.test(routeSrc)
     && /'Cache-Control', 'private, max-age=31536000, immutable'/.test(routeSrc)
     && /json\(404, \{ error: 'not-set' \}\)/.test(routeSrc)
-    && /'Cache-Control', 'no-store'/.test(routeSrc));
+    && THIN_JSON_ALIAS.test(routeSrc));
   // 头像目录与壁纸资产分家：不写 overrides（那是"某个壁纸的画面"）、不写 uploads（会污染库存）。
   check('头像落在插件数据目录的 avatars/ 且上限 8MB（不进 overrides / uploads）',
     /function avatarDir\(\) \{ return ensureDirOnce\(join\(pluginDataDir\(\), 'avatars'\)\); \}/.test(hostNow)
@@ -228,7 +232,7 @@ const tabsSrc = read('src/panel-tabs.js');
     /mascotStamp\(\)/.test(mascotRouteSrc)
     && /'Cache-Control', 'private, max-age=31536000, immutable'/.test(mascotRouteSrc)
     && /json\(404, \{ error: 'not-set' \}\)/.test(mascotRouteSrc)
-    && /'Cache-Control', 'no-store'/.test(mascotRouteSrc));
+    && THIN_JSON_ALIAS.test(mascotRouteSrc));
   check('立绘落在插件数据目录的 mascot/ 且上限 8MB（不进 overrides / uploads）',
     /function mascotDir\(\) \{ return ensureDirOnce\(join\(pluginDataDir\(\), 'mascot'\)\); \}/.test(hostNow)
     && /MASCOT_MAX_BYTES = 8 \* 1024 \* 1024/.test(hostNow)

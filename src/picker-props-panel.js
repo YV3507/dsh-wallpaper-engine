@@ -3,14 +3,15 @@
  *
  * 为什么单独一个文件：这块面板是选择器里**控件分支最多**的一处标记 —— 一个 ptype 一条分支
  * （`text`/`group` 分组标题、bool、color、slider、combo、file/directory、兜底文本输入），
- * 另有 `condition` 显隐与「已改」圆点。它原住在 `WallpaperPicker` 的组件体里，与 53 个
- * 处理器挤在同一屏；搬出后组件体只剩「状态 + 处理器 + 装配」，面板怎么画看这里。
+ * 另有 `condition` 显隐与「已改」圆点。与 `WallpaperPicker` 的处理器分离之后，组件体只剩
+ * 「状态 + 处理器 + 装配」，面板怎么画看这里。
  *
  * 契约（构建期由 scripts/build-client.mjs 内联进 bundle 的工厂作用域，"外部作用域" =
  * 同一 prelude / src/client.js 的顶层）：
- *   · 渲染器**只从一个参数取外界**：`(ctx)`。标记逐字搬入 —— 唯一改动是开头那段解构、
- *     `propsState.props/loading/error` 换成 ctx 的同名字段，以及三处原本直呼的模块级函数
- *     （`loadUserPropDefs` / `onUserPropInput` / `resetUserProps`）换成 ctx 的名字。
+ *   · 渲染器**只从一个参数取外界**：`(ctx)` —— 解构出 `open/token/loading/error/props/…`
+ *     （对应组件侧的 `propsState.props/loading/error`）与三个回调
+ *     （`ensureDefs` / `onPropInput` / `onReset`，对应 `loadUserPropDefs` / `onUserPropInput`
+ *     / `resetUserProps`）。
  *   · ctx 由 src/client.js 在**调用点**就地组装（见那里那次 `renderPickerPropsPanel({...})`）：
  *     面板状态（开关 / token / 加载态 / 错误 / 属性表 / 实时渲染是否接管）+ 三个回调。
  *     **多传字段无害，漏传会当场 ReferenceError**（守卫会抓住）—— 刻意选的失败方式：
@@ -23,7 +24,7 @@
  *   · 本文件必须保持浏览器安全（无 import / require / Node API），且**不得有顶层可执行语句**
  *     读 client.js 的 const（会被内联到 bundle 顶部，撞 TDZ）。
  *
- * **标记等价**是这一项的验收核心：搬迁前后这棵子树的 class 序列（深度优先 + 深度前缀）必须
+ * **标记等价**是这一项的验收核心：这棵子树的 class 序列（深度优先 + 深度前缀）必须
  * 逐字相同 —— 判据在 `test/verify-picker-props.mjs`（golden + 负对照 + 字面量绝对锚点），
  * 那里同时钉住每个 ptype 的控件分支、`condition` 显隐与改动落盘。
  */

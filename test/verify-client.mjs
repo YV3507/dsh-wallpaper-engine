@@ -3264,6 +3264,125 @@ setTimeout(async () => {
     '负对照：注释里提到这些形态不得被误伤（注释先剥掉）');
 }
 
+// ── B4-a：库视图渲染器已拆成"派生 + 装配"，那棵层级契约最重的标记移进了子渲染器 ──────
+// `renderPickerModal` 只应"派生窗口 + 装配"，不再内联 `we-picker__modal*` 标记（标记按层级 /
+// 相邻关系绑定 116 个选择器，见文件头注）。判据盯**代码**：装配函数体内不得再出现标记，
+// 且必须调用子渲染器；负对照证明同一条判据能判出"标记确实在子渲染器里"（否则是个恒真判据）。
+{
+  const src = readFileSync(new URL('../src/picker-modal.js', import.meta.url), 'utf8');
+  // 取"函数体"：从声明处到下一个同级声明（`\n  function `/`\n  export {`）—— 不靠行号。
+  const bodyOf = (name) => {
+    const i = src.indexOf('function ' + name + '(');
+    assert.ok(i >= 0, '找不到 ' + name + '（判据不得空转）');
+    const j = src.indexOf('\n  function ', i + 1);
+    return src.slice(i, j === -1 ? src.indexOf('\n  export {', i) : j);
+  };
+  const SUB_RENDERERS = ['renderPickerVSpacer', 'renderPickerCloseCard', 'renderPickerPickCard',
+    'renderPickerHiddenBody', 'renderPickerNormalBody', 'renderPickerModalHead', 'renderPickerModalTabs',
+    'renderPickerModalFoot', 'renderPickerBatchBar', 'renderPickerFilterRow'];
+  for (const n of SUB_RENDERERS) {
+    assert.ok(src.includes('function ' + n + '(') && src.includes(n + '('),
+      '库视图子渲染器 ' + n + ' 必须存在（工厂作用域声明）且有调用点');
+  }
+  const assy = bodyOf('renderPickerModal');
+  assert.ok(assy.includes('renderPickerModalHead(ctx)') && assy.includes('renderPickerHiddenBody(ctx, hiddenWin)')
+    && assy.includes('renderPickerNormalBody(ctx, draft, draftIdSet, normalWin)'),
+    'renderPickerModal 必须是"派生 + 装配"：直接调子渲染器');
+  assert.ok(!assy.includes('we-picker__modal-head') && !assy.includes('we-picker__modal-body'),
+    'renderPickerModal 体内不得再内联 modal-head / modal-body 标记（已移入子渲染器）');
+  // 负对照：同一条判据对子渲染器本身必须判得出（标记确实在子渲染器里）——证明判据有牙。
+  assert.ok(bodyOf('renderPickerModalHead').includes('we-picker__modal-head')
+    && bodyOf('renderPickerHiddenBody').includes('we-picker__modal-body'),
+    '负对照：modal-head / modal-body 标记必须落在子渲染器体内');
+}
+
+// ── B4-b：快捷面板渲染器已拆成"派生 + 装配"，标记移进了 qpRender* 子渲染器 ────────
+// `QuickPanel` 只应"hooks + 派生 + 装配"，不再内联列表行 / 卡片 / 当前壁纸 / 视图栏 /
+// 底栏 / 库区这几棵子树的标记（`.we-qp__*` 按层级与相邻关系绑定样式，见文件头注）。
+// 判据盯**代码**：装配函数体内不得再出现那批标记，且必须调子渲染器；负对照证明同一条
+// 判据能判出"标记确实在子渲染器里"（否则是个恒真判据）。
+{
+  const src = readFileSync(new URL('../src/quick-panel.js', import.meta.url), 'utf8');
+  const bodyOf = (name) => {
+    const i = src.indexOf('function ' + name + '(');
+    assert.ok(i >= 0, '找不到 ' + name + '（判据不得空转）');
+    const j = src.indexOf('\n  function ', i + 1);
+    return src.slice(i, j === -1 ? src.indexOf('\n  export {', i) : j);
+  };
+  const SUB_RENDERERS = ['qpRenderRow', 'qpRenderCard', 'qpRenderSpacer', 'qpRenderCurrent',
+    'qpRenderRotation', 'qpRenderTabs', 'qpRenderPropsButton', 'qpRenderAppearancePane',
+    'qpRenderPlaybackPane', 'qpRenderViewBar', 'qpRenderList', 'qpRenderFoot',
+    'qpRenderLibrarySection'];
+  const qpStart = src.indexOf('function QuickPanel(');
+  assert.ok(qpStart > 0, '找不到 QuickPanel（判据不得空转）');
+  for (const n of SUB_RENDERERS) {
+    const at = src.indexOf('function ' + n + '(');
+    assert.ok(at >= 0 && at < qpStart && src.includes(n + '('),
+      '快捷面板子渲染器 ' + n + ' 必须在 QuickPanel 之前声明（工厂作用域）且有调用点');
+  }
+  const assy = bodyOf('QuickPanel');
+  assert.ok(assy.includes('qpRenderCurrent(sel, current, playbackLive)')
+    && assy.includes('qpRenderRotation(sel, groups, playable)')
+    && assy.includes('qpRenderTabs(qpTab, switchQpTab)')
+    && assy.includes('qpRenderLibrarySection(') && assy.includes('qpRenderFoot(foot)'),
+    'QuickPanel 必须是"派生 + 装配"：直接调子渲染器');
+  assert.ok(!assy.includes('we-qp__item') && !assy.includes('we-qp__card') && !assy.includes('we-qp__current')
+    && !assy.includes('we-qp__viewbar') && !assy.includes('we-qp__foot') && !assy.includes('we-qp__library'),
+    'QuickPanel 体内不得再内联那批子树标记（已移入 qpRender* 子渲染器）');
+  // 负对照：同一条判据对子渲染器本身必须判得出（标记确实在子渲染器里）——证明判据有牙。
+  assert.ok(bodyOf('qpRenderRow').includes('we-qp__item') && bodyOf('qpRenderFoot').includes('we-qp__foot')
+    && bodyOf('qpRenderViewBar').includes('we-qp__viewbar'),
+    '负对照：item / foot / viewbar 标记必须落在对应的 qpRender* 子渲染器体内');
+}
+
+// ── B4-c：设置页「外观 / 播放」两节也已拆成"派生 + 装配"，标记移进了子渲染器 ──────────
+// `renderAppearanceFontSection` / `renderMascotTab` / `renderEffectsPlaybackSection` 不再内联
+// 那几棵子树（字体角色 / 组件表、吉祥物卡片一排、转码进度条）的标记。判据盯**代码**：
+// 装配函数体内不得再出现那批标记，且必须调子渲染器；负对照证明同一条判据能判出
+// "标记确实在子渲染器里"（否则是个恒真判据）。
+{
+  const src = readFileSync(new URL('../src/panel-tabs.js', import.meta.url), 'utf8');
+  const bodyOf = (name) => {
+    const i = src.indexOf('function ' + name + '(');
+    assert.ok(i >= 0, '找不到 ' + name + '（判据不得空转）');
+    const j = src.indexOf('\n  function ', i + 1);
+    return src.slice(i, j === -1 ? src.length : j);
+  };
+  const HELPERS = ['renderFontGlobalFamily', 'renderFontColorRoles', 'renderFontTypeRoles',
+    'renderFontComponents', 'renderFontSet', 'renderMascotFormCards', 'renderTranscodeProgress'];
+  for (const n of HELPERS) {
+    assert.ok(src.includes('function ' + n + '(') && src.includes(n + '('),
+      '设置页子渲染器 ' + n + ' 必须存在（工厂作用域声明）且有调用点');
+  }
+  const GROUPS = [
+    { consumer: 'renderAppearanceFontSection', calls: ['renderFontGlobalFamily(sel, onGlobalFamily',
+      'renderFontColorRoles(sel, officialColorOf', 'renderFontTypeRoles(sel, typeRoles',
+      'renderFontComponents(sel, onFontAdvanced', 'renderFontSet(fontSet)'] },
+    { consumer: 'renderMascotTab', calls: ['renderMascotFormCards(sel, previewArt, previewW, previewH'] },
+    { consumer: 'renderEffectsPlaybackSection', calls: ['renderTranscodeProgress(sel)'] },
+  ];
+  for (const g of GROUPS) {
+    const ci = src.indexOf('function ' + g.consumer + '(');
+    assert.ok(ci > 0, '找不到 ' + g.consumer + '（判据不得空转）');
+    for (const c of g.calls) {
+      const h = c.slice(0, c.indexOf('('));
+      assert.ok(src.indexOf('function ' + h + '(') < ci,
+        h + ' 必须在 ' + g.consumer + ' 之前声明（工厂作用域）');
+      assert.ok(bodyOf(g.consumer).includes(c),
+        g.consumer + ' 必须是"派生 + 装配"：直接调 ' + h);
+    }
+  }
+  assert.ok(!bodyOf('renderMascotTab').includes('we-picker__mascot-row')
+    && !bodyOf('renderEffectsPlaybackSection').includes('we-picker__prog-track')
+    && !bodyOf('renderAppearanceFontSection').includes('we-picker__font-table'),
+    '装配函数体内不得再内联那批子树标记（已移入子渲染器）');
+  // 负对照：同一条判据对子渲染器本身必须判得出（标记确实在子渲染器里）——证明判据有牙。
+  assert.ok(bodyOf('renderMascotFormCards').includes('we-picker__mascot-row')
+    && bodyOf('renderTranscodeProgress').includes('we-picker__prog-track')
+    && bodyOf('renderFontTypeRoles').includes('we-picker__font-table'),
+    '负对照：mascot-row / prog-track / font-table 标记必须落在对应的子渲染器体内');
+}
+
 // ── 判据纪律：本文件不许有"log 形式的伪判据" ─────────────────────────────────
 // `console.log('x (expect 1):', n === 1)` 在日志里**像**断言，实际不判真假 —— 产品改坏了
 // 它照样 exit 0。棘轮**基线 0**：本文件必须一处都没有；
@@ -3357,6 +3476,20 @@ setTimeout(async () => {
     'SliderRow 第三格必须回显（readout(value)：裸单位 = 值 + 单位；预格式化整串 = 原样）');
   assert.ok(clientSrc.includes('if (out && !preformatted) out.textContent = readout(el.value);'),
     'SliderRow 拖动期就地改写右侧数值（仅裸单位口径；预格式化旧口径保持 main 既有观感）');
+  // 可输入数值区（SliderRow 的 numberEdit）：编辑期**必须不受控**。
+  // 为什么钉这条：受控写法（value 由设置渲染 + 每敲一键写设置）在"删空重打"这一路会自锁 ——
+  // 退格把框清成空串，空串不是合法值 ⇒ 不写设置 ⇒ React 把旧值渲回去 ⇒ 用户看到"数字删不掉"
+  // （实测报回来的原话：「我在输入框里不能删除已有数字」）。修法 = 本地 draft + 回车 / 失焦提交：
+  //   · 正向：编辑期给 defaultValue（不受控）、提交走 onCommit、空串直接放弃编辑；
+  //   · 负向对照：**不许**再出现"每键写设置"的那种受控 input（onInput 里直接调 onInput(…, true)）。
+  assert.ok(clientSrc.includes('function NumberValueInput(props)')
+    && clientSrc.includes('...(editing ? { defaultValue: draft } : { value: String(value) }),'),
+    '可输入数值区必须走 NumberValueInput（编辑期 defaultValue 不受控）');
+  assert.ok(clientSrc.includes('if (s === "") return;'),
+    '可输入数值区的空串必须是"放弃编辑"（否则删空会被当成 0 写进去）');
+  // 负向对照：受控 + 每键写设置的那种写法不许回来。
+  assert.ok(!/we-picker__value-input[\s\S]{0,900}?onInput: \(e\) => \{[\s\S]{0,300}?onInput\(Number\(raw\), true\)/.test(clientSrc),
+    '可输入数值区不得每敲一键就写设置（那正是"数字删不掉"的成因）');
   assert.ok(clientSrc.includes('onInput: (e) => onPick(e.target.value, true),')
     && clientSrc.includes('onChange: (e) => onPick(e.target.value, false),'),
     'swatchRow 的自定义色盘必须同样分 input / change 两档');

@@ -103,6 +103,8 @@ Mac / Linux：`~/.dsh-wallpaper-engine/config.json`）—— 重启、换端口�
 
 > 为什么改、多设备共享同一份设置、读写与防抖行为见 [`docs/UPGRADING.md`](docs/UPGRADING.md) 的「设置持久化」。
 
+> 💾 **怕占系统盘（C 盘）？** 这个目录里真正占地方的是**缓存**（抽帧 / 转码 / 缩略图，用久了有几个 GB）。在 **「系统」→「高级」→「缓存位置」** 里填一个别的盘的目录（例如 `D:\WallpaperEngineCache`，绝对路径）并保存，插件会**把已有缓存自己搬过去**，旧目录只留空壳不删；缓存随时可以删（删了下次重跑一次就好）。同理，**自定义壁纸**的「存储位置」在「壁纸库」页签里改。
+
 ### 常见问题（FAQ）
 
 > **装不上怎么办？** 本节的条目是**使用**层面的问题。安装失败（pnpm 报错，如 `ERR_PNPM_UNEXPECTED_VIRTUAL_STORE` / `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`）先试这一条：**用已发布版本安装**（`dsh plugin --profile web add dsh-plugin-wallpaper-engine`，就是本页第 1 步的写法），它不涉及 `github:` / `link:` 来源的构建脚本与虚拟存储差异。逐步处置见 [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md)（**在 GitHub 源码仓库里**，npm 包不带 `docs/`）。
@@ -110,6 +112,8 @@ Mac / Linux：`~/.dsh-wallpaper-engine/config.json`）—— 重启、换端口�
 **1. 打开选择壁纸，里面是空的 / 一张都没有？**
 - 确认 Wallpaper Engine 装好并至少下载过一张壁纸。
 - 确认 Steam 没装在特别奇怪的位置（一般默认位置没问题；非默认盘插件也会自动找）。
+- 确认装好了却还是空：看一眼 `installDir`（插件诊断文件里，或直接访问 `GET /wallpaper-engine/inventory`）—— 它是 `null` 就说明**安装目录没被认出来**。1.3.1 起同时支持新旧两种安装布局（新版本把 `wallpaper32.exe` 放进了 `distribution\` 子目录），旧版本遇到新布局会一律判成"没装"、界面只显示空库。
+- 实在认不出来时：用环境变量 `DSH_WE_STEAM_ROOT` 指到**含 `steamapps\` 的那一层**（Steam 根目录，**不是** WE 的安装文件夹），再重启一次 `dsh web`。
 - 重启一次 `dsh web`。
 
 **2. 视频壁纸不播放 / 是黑的？**
@@ -254,12 +258,14 @@ You will see a **liquid-glass card** holding every wallpaper-related control.
 
 ### How do I tune the picture sliders?
 
-With a wallpaper active, the **「效果」 (effects)** tab has the picture sliders; **边框 (border)** and **雾化 (conversation glass blur)** live in the **「外观」 (appearance)** tab's 「细节」 group. **All of them apply instantly — no page refresh**:
+With a wallpaper active, the **「效果」 (effects)** tab has the picture sliders; **边框 (border)** and **雾化 (conversation glass blur)** live in the **「外观」 (appearance)** tab's 「细节」 group. **All of them apply instantly — no page refresh**. The three framing sliders (水平 / 垂直 / 缩放) also accept a **typed value** in the box on their right, and **double-clicking their label** puts them back to the default:
 
 | Slider | What it does | Default |
 |---|---|---|
 | **壁纸模糊** (wallpaper blur) | Blurs the wallpaper itself | see the control |
 | **亮度 / 对比度 / 饱和度** (brightness / contrast / saturation) | The wallpaper picture's brightness and richness | see the control |
+| **水平 / 垂直** (horizontal / vertical) | Slides the whole wallpaper layer across the screen — `50` is dead centre, the same scale as Wallpaper Engine's own sliders of these names. **Double-click the label** to snap back to centre | see the control |
+| **缩放** (scale) | Zooms the wallpaper layer in or out — `100` is the original size, and below that a little of the page base color shows around the edges | see the control |
 | **壁纸透明度** (wallpaper opacity) | Fades the whole wallpaper layer toward the page base color | see the control |
 | **暗化** (scrim) | Darkens the overlay between wallpaper and text | see the control |
 | **边框** (border, Appearance → Details) | Makes borders / dividers stand out | see the control |
@@ -281,6 +287,8 @@ macOS / Linux: `~/.dsh-wallpaper-engine/config.json`) — restarts, port changes
 **1. The wallpaper picker is empty — not a single wallpaper?**
 - Make sure Wallpaper Engine is installed and you have downloaded at least one wallpaper.
 - Make sure Steam is not installed somewhere truly unusual (the default location is fine; the plugin also auto-detects non-default drives).
+- Still empty once you know it is installed? Check `installDir` (in the plugin diagnostics, or `GET /wallpaper-engine/inventory`): `null` means the **install directory was not recognised**. Since 1.3.1 both install layouts are supported (current releases keep `wallpaper32.exe` inside a `distribution\` subfolder); older versions judged such an install "not installed" and simply showed an empty library.
+- If it still cannot find it, point `DSH_WE_STEAM_ROOT` at the level **containing `steamapps\`** (the Steam root, **not** the WE install folder) and restart `dsh web`.
 - Restart `dsh web` once.
 
 **2. A video wallpaper does not play / is black?**

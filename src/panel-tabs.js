@@ -63,11 +63,10 @@
           // 失败/被过滤的原因说明包一层：抽屉里该层用 display:contents 展开成
           // grid 项（标题已独走第一行），靠这个包裹层保证「一行一项」。
           React.createElement("div", { className: "we-picker__current-sub" },
-          // 播放失败原因（#84）: 浏览器解不了的编码 / 解码失败等，过去是
-          // 「静默空白」，现在给出可读原因，配合下面的「播放」按钮重试。
+          // 播放失败原因（#84）: 浏览器解不了的编码 / 解码失败等 —— 给出可读原因，
+          // 配合下面的「播放」按钮重试（不是静默空白）。
           sel.videoError && React.createElement("div", { className: "we-picker__current-error" }, sel.videoError),
-          // 选择被过滤条件排除（#84）: 过去壁纸层直接空白、按钮变灰且无任何
-          // 说明，现在明确指出是哪一项过滤挡住了、怎么恢复。
+          // 选择被过滤条件排除（#84）: 明确指出是哪一项过滤挡住了、怎么恢复
           sel.blockedNote && React.createElement("div", { className: "we-picker__current-error" }, sel.blockedNote),
           // 实时渲染失败原因（自动回退到旧链时显示）：让「为什么黑」可见 ——
           // 用户反馈时能直接说明，也提示了重试入口（重开「实时渲染」开关）。
@@ -75,8 +74,8 @@
             weT("实时渲染失败（{reason}），已自动回退；重新打开「实时渲染」开关可重试", { reason: weT(liveFailReasonOf(sel)) }))
           ),
         ),
-        // 主操作区：选择壁纸（下钻库视图）。壁纸属性入口移到下面那排播放控制里、
-        // 排在「暂停」之前（同排同级、同款式），见下方的控件行。
+        // 主操作区：选择壁纸（下钻库视图）。壁纸属性入口在下面那排播放控制里、
+        // 排在「暂停」之前（同排同级、同款式）。
         React.createElement("div", { className: "we-picker__current-actions" },
           React.createElement("button", {
             className: "we-picker__btn we-picker__btn--primary", type: "button",
@@ -108,10 +107,8 @@
         // 关掉后画面继续播放。仅对含音轨的壁纸类型显示（视频 / 场景内嵌 MP4）。
         //
         // ⚠️ 高亮判据必须与**按钮自己的状态**（也就是下面文案那个判据）**逐字同一个**：
-        // 这颗按钮切的是 `videoAudioEnabled`，所以「亮」= 该开关为开。此前写的是
-        // `weAudioVolume() > 0 || disabled`（化简后 = 只有"开着且音量为 0"时才亮），于是
-        // 出厂默认（`videoVolume: 0` + `videoAudioEnabled: true`）下按钮亮着而壁纸是哑的，
-        // 用户一点（音轨关掉）高亮反而消失 —— 文案与高亮互相矛盾，且点击没有任何视觉反馈。
+        // 这颗按钮切的是 `videoAudioEnabled`，所以「亮」= 该开关为开。按别的量（如音量）判亮
+        // 会让文案与高亮互相矛盾、点击没有任何视觉反馈。
         // 音量是**另一颗**控件，不参与这颗按钮的开关状态。
         (sel.type === "video" || (sel.type === "scene" && (sel.sceneVideo || sel.sceneHasAudio)))
           && React.createElement("button", {
@@ -142,8 +139,8 @@
     const switchTr = switchTransitionOf(sel);
     return React.createElement(React.Fragment, null,
     // ── 切换过场（手动点选与自动轮播共用）：类型 / 方向 / 速度 ──
-    // 默认「硬切」（零成本、零风险）；等「最帅的」讨论定下来，改 DEFAULTS 一处
-    // 即可换默认。每种过场只动 transform / opacity / clip-path（见 switchFrames）。
+    // 默认「硬切」（零成本、零风险）；换默认改 DEFAULTS 一处即可。
+    // 每种过场只动 transform / opacity / clip-path（见 switchFrames）。
     React.createElement("div", { className: "we-picker__section" },
       React.createElement("div", { className: "we-picker__section-head" },
         React.createElement("span", { className: "we-picker__section-label" }, weT("切换过场")),
@@ -202,7 +199,7 @@
     const { INTERVALS, armedConfirm, editing, group, groups, onArmDeleteGroup, onDeleteGroup, onDisarmConfirm, onEditInterval, onEditName, onEditOrder, onGroupChange, onGroupInterval, onOpenPickerDraft, onToggleRotation, playableCount, sel } = ctx;
     const groupToken = group ? "group:" + group.id : "";
     return React.createElement(React.Fragment, null,
-    // ── 自动轮播（原「轮播列表」）: user-defined carousel lists, each with its own
+    // ── 自动轮播: user-defined carousel lists, each with its own
     //    wallpaper set, interval and order. Persisted as `rotationGroups` (host config.json). ──
     React.createElement("div", { className: "we-picker__section" },
       React.createElement("div", { className: "we-picker__section-head" },
@@ -507,7 +504,7 @@
     ),
     );
   }
-  // 这一层不再自己画，只**按顺序组装**各节（"有哪几节、什么顺序"一眼可读；
+  // 这一层只**按顺序组装**各节（"有哪几节、什么顺序"一眼可读；
   // 判据按真渲染的节序列钉住，见 verify-scene-live 的节顺序一节）。
   function renderWallpaperTab(ctx) {
     const { } = ctx;
@@ -523,7 +520,7 @@
   function renderAppearanceThemeSection(ctx) {
     const { onAccent, onToggleThemeFollow, sel } = ctx;
     return React.createElement(React.Fragment, null,
-    // ── 主题：配色（accent）**只留配色** —— 玻璃四件套已归入「玻璃 UI」节 ──
+    // ── 主题：本节点只有配色（accent）—— 玻璃配置在「玻璃 UI」节 ──
     React.createElement("div", { className: "we-picker__section" },
       React.createElement("div", { className: "we-picker__section-head" },
         React.createElement("span", { className: "we-picker__section-label" }, weT("主题")),
@@ -546,14 +543,11 @@
 
   function renderAppearanceDetailSection(ctx) {
     const { onBorder, sel } = ctx;
-    // （2026-10-05：简化/高级边界按 ADR-0008 **D4** 恢复并细化 —— 全局四件套、预设方案与各面
-    //  总开关属简化配置（侧栏档也画）；「独立配置」层及其子项属高级配置，只在设置页画。
-    //  这道门住在 `src/glass-panel.js`（它按 `ctx.surface` 判定），与 quick-panel 的
-    //  setting-only 占位器互为负对照。）
+    // 简化 / 高级分档见 ADR-0008 **D4**（实现口径在 `src/glass-panel.js`，按 `ctx.surface` 判定）：
+    // 全局四件套、预设方案与各面总开关属简化配置（侧栏档也画）；本节的「独立配置」层及其子项
+    // 属高级配置 ⇒ 只在设置页画。它与 quick-panel 的 setting-only 占位器互为负对照。
     return React.createElement(React.Fragment, null,
-    // ── 细节：边框强调 + 左侧栏液态玻璃（原「效果」页签的材质细调项与本页的左侧栏项）──
-    // 玻璃四件套与「雾化」已归入「玻璃 UI」节；本节的「边框」是**非釉层**参数
-    //（边框 / 分割线对比度），不属于玻璃配方，故留在细节。
+    // ── 细节：只剩**非釉层**的「边框」（边框 / 分割线对比度）—— 不属于玻璃配方 ──
     React.createElement("div", { className: "we-picker__section" },
       React.createElement("div", { className: "we-picker__section-head" },
         React.createElement("span", { className: "we-picker__section-label" }, weT("细节")),
@@ -561,12 +555,8 @@
       SliderRow(weT("边框"), 0, 90, 5, Math.round(sel.border * 100), onBorder, Math.round(sel.border * 100) + "%", "border-emphasis", {
         tooltip: weT("提高边框 / 分割线的对比度（浅色与深色主题通用）"),
       }),
-      // ── 「左侧栏液态玻璃」及其子项**已搬进「玻璃 UI」节**（用户口径，见 §10.25）──
-      // 为什么现在可以并进去：它当初被排除，是因为「玻璃 UI」那节里有"关 = 回原生纯色"的显示开关
-      // （乙类语义冲突）；那一层已在 §10.20 整体退役 ⇒ 冲突消失，面控件与其余玻璃配置同处更顺。
-      // 门槛照旧（`leftSidebarGlass` 前提），见 `src/glass-panel.js`；总开关两档都画，
-      // 挂在它下面的「独立配置」层只在设置页画（ADR-0008 D4，2026-10-05 口径）。
-      // 本节只剩「边框」——它是**非釉层**参数（边框 / 分割线对比度），不属于玻璃配方，故留在细节。
+      // ── 「左侧栏液态玻璃」及其子项在「玻璃 UI」节（门槛 `leftSidebarGlass`，见
+      //    `src/glass-panel.js`）：总开关两档都画，其下「独立配置」层属高级配置、只在设置页画。──
     ),
     );
   }
@@ -636,6 +626,259 @@
     }, weT("重新扫描"));
   }
 
+  // ── 全局 / 终端字体两行 + 本机字体状态行 ──
+  function renderFontGlobalFamily(sel, onGlobalFamily, onComponentFamily, onRefreshSystemFonts) {
+    return React.createElement(React.Fragment, null,
+    // ── 全局字体 / 终端字体：本机字体的两个入口 ──────────────────────────────
+    // 两行一个形状。**全局**是"默认"不是"强制"：角色表与组件表里单独设过的仍以那里为准
+    // （解析在 src/font/typography.js 的 buildTypePayload —— 角色没设才落到全局）。
+    // **终端**写的就是「高级字体设置 → 终端」那一行的同一个键
+    // （`componentFonts.terminal.family`）：两处是同一个值的两个入口，不会漂。
+    React.createElement("div", { className: "we-picker__ctl", key: "global-family" },
+      ctlText(weT("默认字体"), weT("整套界面的默认字族（全局）；角色 / 组件里单独设过的仍以那里为准")),
+      React.createElement("select", {
+        value: sanitizeFamilyKey(sel.globalFamily),
+        style: { width: "150px" },
+        onChange: (e) => onGlobalFamily(e.target.value),
+        title: weT("整套界面（含角色表覆盖不到的文字）的默认字体；任意角色 / 组件单独设了字族，那里优先"),
+      },
+        React.createElement("option", { value: "" }, weT("跟随 DSH")),
+        familyOptions(sel, { skipInherit: true, current: sanitizeFamilyKey(sel.globalFamily) }),
+      ),
+    ),
+    React.createElement("div", { className: "we-picker__ctl", key: "terminal-family" },
+      ctlText(weT("终端字体"), weT("对话里的终端块 + 侧栏终端面板（dsh-ssh）；与「高级字体设置 → 终端」同一项")),
+      React.createElement("select", {
+        value: fontFamilyKeyOf((sel.componentFonts.terminal || {}).family),
+        style: { width: "150px" },
+        onChange: (e) => onComponentFamily("terminal", e.target.value),
+        title: weT("终端字体：① 对话里的终端块（走官方 --dsl-terminal-font 钩子）② 侧栏 / SSH 终端面板（走 dsh-ssh 给皮肤留的 --dsh-ssh-terminal-font 钩子）；「跟随」= 都不覆盖，各用它们自己的默认。⚠️ 若在 dsh-ssh 的设置里填过 terminalFontFamily，那个值优先级更高"),
+      },
+        React.createElement("option", { value: "" }, weT("跟随")),
+        familyOptions(sel, { current: fontFamilyKeyOf((sel.componentFonts.terminal || {}).family) }),
+      ),
+    ),
+    // 「本机字体」那一组的状态行 + 重新扫描：在途 / 取不到 / 按文件名推测都要说出来
+    //（后两种用户会以为坏了；推测那种不说的话，用户会以为系统里真有那个族名）。
+    React.createElement("div", { className: "we-picker__row", key: "sys-font-note" },
+      React.createElement("span", { className: "we-picker__hint" }, sysFontNote(sel)),
+      sysFontRefresh(sel, onRefreshSystemFonts),
+    ),
+    );
+  }
+
+  // ── 文字颜色角色（F1）：逐角色上色 + 深色单独设置 ──
+  function renderFontColorRoles(sel, officialColorOf, onThemeDarkSeparate, onThemeColor, onThemeColorClear) {
+    return React.createElement(React.Fragment, null,
+    // F1：分角色上色 —— 每个角色独立放开（不把四个角色压成同一个色而压平 DSH 的四级层次），
+    // 留空 = 跟随原生。经 theme 令牌层生效：body 内联、免 !important、{light,dark} 随配色自动换值。
+    React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
+      ctlText(weT("文字颜色角色"), weT("未设置 = 用 DSH 默认色（色块显示当前值）")),
+    ),
+    switchRow(weT("深色单独设置"), sel.themeDarkSeparate, (e) => onThemeDarkSeparate(e.target.checked), {
+      tooltip: weT("关闭时一个颜色同时用于浅色与深色两套（内部仍存两套值）；开启后浅色/深色分别设置"),
+    }),
+    THEME_COLOR_ROLES.map((role) => {
+      const v = sel.themeColors[role.id] || { light: "", dark: "" };
+      return React.createElement("div", { className: "we-picker__ctl", key: role.id },
+        ctlText(role.label),
+        React.createElement("label", { className: "we-picker__swatch-custom" },
+          React.createElement("input", {
+            type: "color",
+            value: v.light || officialColorOf(role.tokens) || "#ffffff",
+            onInput: (e) => onThemeColor(role.id, "light", e.target.value, sel.themeDarkSeparate),
+            onChange: (e) => onThemeColor(role.id, "light", e.target.value, sel.themeDarkSeparate),
+            title: weT("{role} · 浅色配色", { role: weT(role.label) }),
+          }),
+          React.createElement("span", { className: "we-picker__hint we-picker__value" },
+            v.light ? weT("浅 {color}", { color: v.light }) : (officialColorOf(role.tokens) || weT("跟随"))),
+        ),
+        sel.themeDarkSeparate && React.createElement("label", { className: "we-picker__swatch-custom" },
+          React.createElement("input", {
+            type: "color",
+            value: v.dark || officialColorOf(role.tokens) || "#000000",
+            onInput: (e) => onThemeColor(role.id, "dark", e.target.value, true),
+            onChange: (e) => onThemeColor(role.id, "dark", e.target.value, true),
+            title: weT("{role} · 深色配色", { role: weT(role.label) }),
+          }),
+          React.createElement("span", { className: "we-picker__hint we-picker__value" },
+            v.dark ? weT("深 {color}", { color: v.dark }) : (officialColorOf(role.tokens) || weT("跟随"))),
+        ),
+        (v.light || v.dark) && React.createElement("button", {
+          type: "button",
+          className: "we-picker__chip",
+          onClick: () => onThemeColorClear(role.id),
+          title: weT("清除该角色，回到原生层次"),
+        }, weT("清除")),
+      );
+    }),
+    );
+  }
+
+  // ── 排版角色（F2/G4）：字号 / 字重 / 字族表 ──
+  function renderFontTypeRoles(sel, typeRoles, onThemeTypeOnly, onThemeSize, onThemeWeight, onThemeFamily) {
+    return React.createElement(React.Fragment, null,
+    // F2/G4：排版角色（**绝对字号**）。用户口径：字号用绝对值、默认值可见 ——
+    // 未填时输入框显示 DSH 官方字号（角色表的 defaultPx），清空即回它。
+    // 已确认接受的副作用：设过绝对值的角色不再随 DSH「通用 → 字号」缩放（未设的照旧跟随）；
+    // 行高一律沿用 DSH 的令牌，不随绝对值缩放。我们始终**不写** --dsh-content-font-size（红线 3）。
+    React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
+      ctlText(weT("排版角色"), weT("字号 px；留空 = 不改（字号/字重显示 DSH 当前值，字族选「跟随」）")),
+    ),
+    switchRow(weT("只看改过的"), sel.themeTypeOnly, (e) => onThemeTypeOnly(e.target.checked), {
+      tooltip: weT("只列出改过字号/字重/字族的角色，便于收尾核对"),
+    }),
+    // 表格化：表头放「字号 / 字重 / 字体」，一行一个角色 —— 三项在固定列上对齐，
+    // 比每行重复三个无标签控件好扫读（颜色角色那张形状不同，仍用行式）。
+    // 「只看改过的」**默认开** ⇒ 一行都没改过时表是空的：那种"空表"必须有话说，
+    // 否则看着像坏了（这也是把默认值翻成开之后必须同时补的一件事）。
+    typeRoles.length === 0
+      ? React.createElement("div", { className: "we-picker__hint" },
+        weT("没有改过的角色 —— 「只看改过的」正开着（共 {count} 个角色）。关掉它就能看到全部。", { count: THEME_TYPE_ROLES.length }))
+      : null,
+    React.createElement("table", { className: "we-picker__font-table" },
+      React.createElement("thead", null,
+        React.createElement("tr", null,
+          React.createElement("th", null, weT("角色")),
+          React.createElement("th", null, weT("字号")),
+          React.createElement("th", null, weT("字重")),
+          React.createElement("th", null, weT("字体")),
+        ),
+      ),
+      React.createElement("tbody", null,
+    typeRoles
+      .map((role) => {
+        const size = sel.themeSize[role.id];
+        return React.createElement("tr", { key: role.id },
+          React.createElement("td", null, ctlText(role.label)),
+          React.createElement("td", null, React.createElement("input", {
+            type: "number",
+            value: size === undefined ? role.defaultPx : size,
+            min: THEME_SIZE_MIN,
+            max: THEME_SIZE_MAX,
+            step: 1,
+            style: { width: "46px" },
+            onChange: (e) => onThemeSize(role.id, e.target.value),
+            title: weT("{role}：字号 px（清空即回 DSH 默认 {px}px）", { role: weT(role.label), px: role.defaultPx }),
+          })),
+          React.createElement("td", null, React.createElement("input", {
+            type: "number",
+            value: sel.themeWeight[role.id] === undefined
+              ? (role.prefix ? Number(role.prefix) : 400)
+              : sel.themeWeight[role.id],
+            min: 100,
+            max: 900,
+            step: 100,
+            style: { width: "54px" },
+            onChange: (e) => onThemeWeight(role.id, e.target.value),
+            title: weT("{role}：字重 100–900（清空即回默认）", { role: weT(role.label) }),
+          })),
+          React.createElement("td", null, React.createElement("select", {
+            value: sel.themeFamily[role.id] === undefined ? "" : sel.themeFamily[role.id],
+            style: { width: "92px" },
+            onChange: (e) => onThemeFamily(role.id, e.target.value),
+            title: weT("{role}：字族（跟随 = 不覆盖，用 DSH 该角色的字族）", { role: weT(role.label) }),
+          },
+            React.createElement("option", { value: "" }, weT("跟随")),
+            familyOptions(sel, { current: sel.themeFamily[role.id] || "" }),
+          )),
+        );
+      }),
+      ),
+    ),
+    );
+  }
+
+  // ── 组件字体（G3/G4，高级）：按组件细化表 ──
+  function renderFontComponents(sel, onFontAdvanced, onComponentFont, onComponentFamily) {
+    return React.createElement(React.Fragment, null,
+    // G3/G4：组件字体 —— 属"高级"，收进本区内的「高级字体设置」子分支
+    //（是"字体"的子分支，**不是**「高级」页签）。三条来自静态分析的纪律：
+    //   ① 命中靠启动自探测（未命中的组件整条不生效，改名即降级、不误伤）；
+    //   ② 代码块/终端的字体来自后代 `font:` 简写 ⇒ 只有官方 `--dsl-*` 钩子这条腿有效；
+    //   ③ 不填 = 不生成规则（DSH 官方值）。
+    switchRow(weT("高级字体设置"), sel.fontAdvanced, (e) => onFontAdvanced(e.target.checked), {
+      tooltip: weT("按组件细化（模块前缀通道 + 官方 --dsl-* 钩子）：只对探测到的组件生效；不填即用 DSH 默认值"),
+    }),
+    sel.fontAdvanced && React.createElement(React.Fragment, null,
+      React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
+        ctlText(weT("组件字体"), weT("未填时显示该组件当前的 DSH 默认值（— = 此刻不在页面上）；清空即回默认")),
+      ),
+      // 表格化：与「排版角色」表同构 —— 表头放「字号 / 字重 / 字体」，一行一个组件。
+      React.createElement("table", { className: "we-picker__font-table" },
+        React.createElement("thead", null,
+          React.createElement("tr", null,
+            React.createElement("th", null, weT("组件")),
+            React.createElement("th", null, weT("字号")),
+            React.createElement("th", null, weT("字重")),
+            React.createElement("th", null, weT("字体")),
+          ),
+        ),
+        React.createElement("tbody", null,
+      COMPONENT_FONT_TARGETS.map((target) => {
+        const c = sel.componentFonts[target.id] || {};
+        // 未填时**直接显示 DSH 当前默认值**（启动自探测时顺带读回的 computed 值）。
+        const d = (typeof componentFontDefaults === "function"
+          ? componentFontDefaults()[target.id] : null) || {};
+        const famKey = fontFamilyKeyOf(c.family);
+        return React.createElement("tr", { key: target.id },
+          React.createElement("td", null, ctlText(weT(target.label), weT("{group} · 走 {route}", { group: weT(target.group), route: target.route }))),
+          React.createElement("td", null, React.createElement("input", {
+            type: "number",
+            value: c.size === undefined ? (d.size || "") : c.size,
+            placeholder: d.size ? "" : "—",
+            min: 6,
+            max: 40,
+            style: { width: "44px" },
+            onChange: (e) => onComponentFont(target.id, "size", e.target.value),
+            title: weT("{target}：字号 px（清空即回 DSH 默认{suffix}）", { target: weT(target.label), suffix: d.size ? " " + d.size + "px" : "" }),
+          })),
+          React.createElement("td", null, React.createElement("input", {
+            type: "number",
+            value: c.weight === undefined ? (d.weight || "") : c.weight,
+            placeholder: d.weight ? "" : "—",
+            min: 100,
+            max: 900,
+            step: 100,
+            style: { width: "54px" },
+            onChange: (e) => onComponentFont(target.id, "weight", e.target.value),
+            title: weT("{target}：字重 100–900（清空即回 DSH 默认{suffix}）", { target: weT(target.label), suffix: d.weight ? " " + d.weight : "" }),
+          })),
+          React.createElement("td", null, React.createElement("select", {
+            value: famKey,
+            style: { width: "96px" },
+            onChange: (e) => onComponentFamily(target.id, e.target.value),
+            title: weT("{target}：字体族（跟随 = 不覆盖，用 DSH 默认）", { target: weT(target.label) }),
+          },
+            React.createElement("option", { value: "" }, weT("跟随")),
+            familyOptions(sel, { current: famKey }),
+          )),
+        );
+      }),
+        ),
+      ),
+    ),
+    );
+  }
+
+  // ── 字体集预设：总开关 + 编辑器 ──
+  function renderFontSet(fontSet) {
+    return React.createElement(React.Fragment, null,
+    // 字重**没有全局值**（一个全局值会把 DSH 的粗细层次压成一档）：按角色（下面「排版角色」
+    // 每行一个输入框）与按组件（「高级字体设置」里每组件一项）细化，都能填任意值；
+    // 留空 /「恢复默认」即回 DSH 官方字重。
+    // 字族同样无全局值：按角色（「排版角色」每行的字族下拉）与按组件（「高级字体设置」里每项
+    // 的下拉）设置 —— 全局字族只经 body 继承，既压平 DSH 的字体栈层次，又够不到用 `font:` 简写的标题/表格/代码。
+    // ── 字体集（**「字体自定义」的附属**）：总开关管"要不要自定义"，这里管"用哪一整套"。
+    //    放在 `sel.fontCustom` 这一支**里面** —— 关掉自定义就整块收起（那时这一整套并不
+    //    生效，摆出来只会让人以为它在起作用）。
+    switchRow(weT("字体集预设"), fontSet.open, (e) => fontSet.onOpen(e.target.checked), {
+      tooltip: weT("预设 = 一整套字体外观；改动只落到当前这一套，随时可以恢复原样"),
+    }),
+    fontSet.open && renderFontSetEditor(fontSet),
+    );
+  }
+
   function renderAppearanceFontSection(ctx) {
     const { officialColorOf, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlobalFamily, onRefreshSystemFonts, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onToggleFontCustom, fontSet, sel, surface } = ctx;
     const sidebarSurface = surface === "sidebar";
@@ -648,13 +891,10 @@
       || sel.themeWeight[role.id] !== undefined
       || sel.themeFamily[role.id] !== undefined);
     return React.createElement(React.Fragment, null,
-    // ── 字体 (custom typography)：原「字体」页签并入「外观」——总开关（关 =
-    //    恢复 dsh 原生字体）+ 颜色角色 / 排版角色 / 字体族 / 组件字体（高级），
-    //    开启时才渲染细节控件。字重不设全局值：按角色与按组件细化。
-    //    ⚠️ 分档（ADR-0008 D4，2026-10-05 口径）：侧栏档只画**简化配置**（全局四件套 + 各面
-    //    总开关）—— 这一节属**高级配置**（面板太窄、字体是低频深配），与每个面的「独立配置」层、
-    //    思考块门下的细调行、预设方案一样**只在设置页**画；它与 quick-panel 的字体占位器互为
-    //    负对照。（"只有这一节不进侧栏"是 2026-10-03 的旧口径，早已不成立。） ──
+    // ── 字体 (custom typography)：总开关（关 = 恢复 dsh 原生字体）+ 颜色角色 / 排版角色 /
+    //    字体族 / 组件字体（高级），开启时才渲染细节控件。字重不设全局值：按角色与按组件细化。
+    //    ⚠️ 这一节属**高级配置**（面板太窄、字体是低频深配）⇒ 侧栏档不画；
+    //    分档见 ADR-0008 D4。它与 quick-panel 的字体占位器互为负对照。 ──
     !sidebarSurface && React.createElement("div", { className: "we-picker__section" },
       React.createElement("div", { className: "we-picker__section-head" },
         React.createElement("span", { className: "we-picker__section-label" }, weT("全局字体")),
@@ -673,231 +913,11 @@
         }, weT("恢复默认")),
       ),
       sel.fontCustom && React.createElement(React.Fragment, null,
-        // ── 全局字体 / 终端字体：本机字体的两个入口 ──────────────────────────────
-        // 两行一个形状。**全局**是"默认"不是"强制"：角色表与组件表里单独设过的仍以那里为准
-        // （解析在 src/font/typography.js 的 buildTypePayload —— 角色没设才落到全局）。
-        // **终端**写的就是「高级字体设置 → 终端」那一行的同一个键
-        // （`componentFonts.terminal.family`）：两处是同一个值的两个入口，不会漂。
-        React.createElement("div", { className: "we-picker__ctl", key: "global-family" },
-          ctlText(weT("默认字体"), weT("整套界面的默认字族（全局）；角色 / 组件里单独设过的仍以那里为准")),
-          React.createElement("select", {
-            value: sanitizeFamilyKey(sel.globalFamily),
-            style: { width: "150px" },
-            onChange: (e) => onGlobalFamily(e.target.value),
-            title: weT("整套界面（含角色表覆盖不到的文字）的默认字体；任意角色 / 组件单独设了字族，那里优先"),
-          },
-            React.createElement("option", { value: "" }, weT("跟随 DSH")),
-            familyOptions(sel, { skipInherit: true, current: sanitizeFamilyKey(sel.globalFamily) }),
-          ),
-        ),
-        React.createElement("div", { className: "we-picker__ctl", key: "terminal-family" },
-          ctlText(weT("终端字体"), weT("对话里的终端块 + 侧栏终端面板（dsh-ssh）；与「高级字体设置 → 终端」同一项")),
-          React.createElement("select", {
-            value: fontFamilyKeyOf((sel.componentFonts.terminal || {}).family),
-            style: { width: "150px" },
-            onChange: (e) => onComponentFamily("terminal", e.target.value),
-            title: weT("终端字体：① 对话里的终端块（走官方 --dsl-terminal-font 钩子）② 侧栏 / SSH 终端面板（走 dsh-ssh 给皮肤留的 --dsh-ssh-terminal-font 钩子）；「跟随」= 都不覆盖，各用它们自己的默认。⚠️ 若在 dsh-ssh 的设置里填过 terminalFontFamily，那个值优先级更高"),
-          },
-            React.createElement("option", { value: "" }, weT("跟随")),
-            familyOptions(sel, { current: fontFamilyKeyOf((sel.componentFonts.terminal || {}).family) }),
-          ),
-        ),
-        // 「本机字体」那一组的状态行 + 重新扫描：在途 / 取不到 / 按文件名推测都要说出来
-        //（后两种用户会以为坏了；推测那种不说的话，用户会以为系统里真有那个族名）。
-        React.createElement("div", { className: "we-picker__row", key: "sys-font-note" },
-          React.createElement("span", { className: "we-picker__hint" }, sysFontNote(sel)),
-          sysFontRefresh(sel, onRefreshSystemFonts),
-        ),
-        // F1：分角色上色。原「字体颜色」把四个角色压成同一个色（把 DSH 的四级文字层次
-        // 压平）—— 那条全局折叠路径已随全局字体层删除；这里逐个角色放开，留空 = 跟随
-        // 原生。经 theme 令牌层生效：body 内联、免 !important、{light,dark} 随配色自动换值。
-        React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
-          ctlText(weT("文字颜色角色"), weT("未设置 = 用 DSH 默认色（色块显示当前值）")),
-        ),
-        switchRow(weT("深色单独设置"), sel.themeDarkSeparate, (e) => onThemeDarkSeparate(e.target.checked), {
-          tooltip: weT("关闭时一个颜色同时用于浅色与深色两套（内部仍存两套值）；开启后浅色/深色分别设置"),
-        }),
-        THEME_COLOR_ROLES.map((role) => {
-          const v = sel.themeColors[role.id] || { light: "", dark: "" };
-          return React.createElement("div", { className: "we-picker__ctl", key: role.id },
-            ctlText(role.label),
-            React.createElement("label", { className: "we-picker__swatch-custom" },
-              React.createElement("input", {
-                type: "color",
-                value: v.light || officialColorOf(role.tokens) || "#ffffff",
-                onInput: (e) => onThemeColor(role.id, "light", e.target.value, sel.themeDarkSeparate),
-                onChange: (e) => onThemeColor(role.id, "light", e.target.value, sel.themeDarkSeparate),
-                title: weT("{role} · 浅色配色", { role: weT(role.label) }),
-              }),
-              React.createElement("span", { className: "we-picker__hint we-picker__value" },
-                v.light ? weT("浅 {color}", { color: v.light }) : (officialColorOf(role.tokens) || weT("跟随"))),
-            ),
-            sel.themeDarkSeparate && React.createElement("label", { className: "we-picker__swatch-custom" },
-              React.createElement("input", {
-                type: "color",
-                value: v.dark || officialColorOf(role.tokens) || "#000000",
-                onInput: (e) => onThemeColor(role.id, "dark", e.target.value, true),
-                onChange: (e) => onThemeColor(role.id, "dark", e.target.value, true),
-                title: weT("{role} · 深色配色", { role: weT(role.label) }),
-              }),
-              React.createElement("span", { className: "we-picker__hint we-picker__value" },
-                v.dark ? weT("深 {color}", { color: v.dark }) : (officialColorOf(role.tokens) || weT("跟随"))),
-            ),
-            (v.light || v.dark) && React.createElement("button", {
-              type: "button",
-              className: "we-picker__chip",
-              onClick: () => onThemeColorClear(role.id),
-              title: weT("清除该角色，回到原生层次"),
-            }, weT("清除")),
-          );
-        }),
-        // F2/G4：排版角色（**绝对字号**）。用户口径：字号用绝对值、默认值可见 ——
-        // 未填时输入框显示 DSH 官方字号（角色表的 defaultPx），清空即回它。
-        // 已确认接受的副作用：设过绝对值的角色不再随 DSH「通用 → 字号」缩放（未设的照旧跟随）；
-        // 行高一律沿用 DSH 的令牌，不随绝对值缩放。我们始终**不写** --dsh-content-font-size（红线 3）。
-        React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
-          ctlText(weT("排版角色"), weT("字号 px；留空 = 不改（字号/字重显示 DSH 当前值，字族选「跟随」）")),
-        ),
-        switchRow(weT("只看改过的"), sel.themeTypeOnly, (e) => onThemeTypeOnly(e.target.checked), {
-          tooltip: weT("只列出改过字号/字重/字族的角色，便于收尾核对"),
-        }),
-        // 表格化：表头放「字号 / 字重 / 字体」，一行一个角色 —— 三项在固定列上对齐，
-        // 比每行重复三个无标签控件好扫读（颜色角色那张形状不同，仍用行式）。
-        // 「只看改过的」**默认开** ⇒ 一行都没改过时表是空的：那种"空表"必须有话说，
-        // 否则看着像坏了（这也是把默认值翻成开之后必须同时补的一件事）。
-        typeRoles.length === 0
-          ? React.createElement("div", { className: "we-picker__hint" },
-            weT("没有改过的角色 —— 「只看改过的」正开着（共 {count} 个角色）。关掉它就能看到全部。", { count: THEME_TYPE_ROLES.length }))
-          : null,
-        React.createElement("table", { className: "we-picker__font-table" },
-          React.createElement("thead", null,
-            React.createElement("tr", null,
-              React.createElement("th", null, weT("角色")),
-              React.createElement("th", null, weT("字号")),
-              React.createElement("th", null, weT("字重")),
-              React.createElement("th", null, weT("字体")),
-            ),
-          ),
-          React.createElement("tbody", null,
-        typeRoles
-          .map((role) => {
-            const size = sel.themeSize[role.id];
-            return React.createElement("tr", { key: role.id },
-              React.createElement("td", null, ctlText(role.label)),
-              React.createElement("td", null, React.createElement("input", {
-                type: "number",
-                value: size === undefined ? role.defaultPx : size,
-                min: THEME_SIZE_MIN,
-                max: THEME_SIZE_MAX,
-                step: 1,
-                style: { width: "46px" },
-                onChange: (e) => onThemeSize(role.id, e.target.value),
-                title: weT("{role}：字号 px（清空即回 DSH 默认 {px}px）", { role: weT(role.label), px: role.defaultPx }),
-              })),
-              React.createElement("td", null, React.createElement("input", {
-                type: "number",
-                value: sel.themeWeight[role.id] === undefined
-                  ? (role.prefix ? Number(role.prefix) : 400)
-                  : sel.themeWeight[role.id],
-                min: 100,
-                max: 900,
-                step: 100,
-                style: { width: "54px" },
-                onChange: (e) => onThemeWeight(role.id, e.target.value),
-                title: weT("{role}：字重 100–900（清空即回默认）", { role: weT(role.label) }),
-              })),
-              React.createElement("td", null, React.createElement("select", {
-                value: sel.themeFamily[role.id] === undefined ? "" : sel.themeFamily[role.id],
-                style: { width: "92px" },
-                onChange: (e) => onThemeFamily(role.id, e.target.value),
-                title: weT("{role}：字族（跟随 = 不覆盖，用 DSH 该角色的字族）", { role: weT(role.label) }),
-              },
-                React.createElement("option", { value: "" }, weT("跟随")),
-                familyOptions(sel, { current: sel.themeFamily[role.id] || "" }),
-              )),
-            );
-          }),
-          ),
-        ),
-        // G3/G4：组件字体 —— 属"高级"，收进本区内的「高级字体设置」子分支
-        //（是"字体"的子分支，**不是**「高级」页签）。三条来自静态分析的纪律：
-        //   ① 命中靠启动自探测（未命中的组件整条不生效，改名即降级、不误伤）；
-        //   ② 代码块/终端的字体来自后代 `font:` 简写 ⇒ 只有官方 `--dsl-*` 钩子这条腿有效；
-        //   ③ 不填 = 不生成规则（DSH 官方值）。
-        switchRow(weT("高级字体设置"), sel.fontAdvanced, (e) => onFontAdvanced(e.target.checked), {
-          tooltip: weT("按组件细化（模块前缀通道 + 官方 --dsl-* 钩子）：只对探测到的组件生效；不填即用 DSH 默认值"),
-        }),
-        sel.fontAdvanced && React.createElement(React.Fragment, null,
-          React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
-            ctlText(weT("组件字体"), weT("未填时显示该组件当前的 DSH 默认值（— = 此刻不在页面上）；清空即回默认")),
-          ),
-          // 表格化：与「排版角色」表同构 —— 表头放「字号 / 字重 / 字体」，一行一个组件。
-          React.createElement("table", { className: "we-picker__font-table" },
-            React.createElement("thead", null,
-              React.createElement("tr", null,
-                React.createElement("th", null, weT("组件")),
-                React.createElement("th", null, weT("字号")),
-                React.createElement("th", null, weT("字重")),
-                React.createElement("th", null, weT("字体")),
-              ),
-            ),
-            React.createElement("tbody", null,
-          COMPONENT_FONT_TARGETS.map((target) => {
-            const c = sel.componentFonts[target.id] || {};
-            // 未填时**直接显示 DSH 当前默认值**（启动自探测时顺带读回的 computed 值）。
-            const d = (typeof componentFontDefaults === "function"
-              ? componentFontDefaults()[target.id] : null) || {};
-            const famKey = fontFamilyKeyOf(c.family);
-            return React.createElement("tr", { key: target.id },
-              React.createElement("td", null, ctlText(weT(target.label), weT("{group} · 走 {route}", { group: weT(target.group), route: target.route }))),
-              React.createElement("td", null, React.createElement("input", {
-                type: "number",
-                value: c.size === undefined ? (d.size || "") : c.size,
-                placeholder: d.size ? "" : "—",
-                min: 6,
-                max: 40,
-                style: { width: "44px" },
-                onChange: (e) => onComponentFont(target.id, "size", e.target.value),
-                title: weT("{target}：字号 px（清空即回 DSH 默认{suffix}）", { target: weT(target.label), suffix: d.size ? " " + d.size + "px" : "" }),
-              })),
-              React.createElement("td", null, React.createElement("input", {
-                type: "number",
-                value: c.weight === undefined ? (d.weight || "") : c.weight,
-                placeholder: d.weight ? "" : "—",
-                min: 100,
-                max: 900,
-                step: 100,
-                style: { width: "54px" },
-                onChange: (e) => onComponentFont(target.id, "weight", e.target.value),
-                title: weT("{target}：字重 100–900（清空即回 DSH 默认{suffix}）", { target: weT(target.label), suffix: d.weight ? " " + d.weight : "" }),
-              })),
-              React.createElement("td", null, React.createElement("select", {
-                value: famKey,
-                style: { width: "96px" },
-                onChange: (e) => onComponentFamily(target.id, e.target.value),
-                title: weT("{target}：字体族（跟随 = 不覆盖，用 DSH 默认）", { target: weT(target.label) }),
-              },
-                React.createElement("option", { value: "" }, weT("跟随")),
-                familyOptions(sel, { current: famKey }),
-              )),
-            );
-          }),
-            ),
-          ),
-        ),
-        // 全局字重已移除（与「字体颜色」同一类问题：一个全局值会把 DSH 的粗细层次压成
-        // 一档）。字重改**按角色**细化（下面「排版角色」每行一个输入框）与**按组件**细化
-        // （「高级字体设置」里每组件一项），都能填任意值；留空/「恢复默认」即回 DSH 官方字重。
-        // 全局字体族已移除：字族改按角色（「排版角色」每行的字族下拉）
-        // 与按组件（「高级字体设置」里每项的下拉）设置 —— 全局字族只经 body 继承，
-        // 既压平 DSH 的字体栈层次，又够不到用 `font:` 简写的标题/表格/代码。
-        // ── 字体集（**「字体自定义」的附属**）：总开关管"要不要自定义"，这里管"用哪一整套"。
-        //    放在 `sel.fontCustom` 这一支**里面** —— 关掉自定义就整块收起（那时这一整套并不
-        //    生效，摆出来只会让人以为它在起作用）。
-        switchRow(weT("字体集预设"), fontSet.open, (e) => fontSet.onOpen(e.target.checked), {
-          tooltip: weT("预设 = 一整套字体外观；改动只落到当前这一套，随时可以恢复原样"),
-        }),
-        fontSet.open && renderFontSetEditor(fontSet),
+        renderFontGlobalFamily(sel, onGlobalFamily, onComponentFamily, onRefreshSystemFonts),
+        renderFontColorRoles(sel, officialColorOf, onThemeDarkSeparate, onThemeColor, onThemeColorClear),
+        renderFontTypeRoles(sel, typeRoles, onThemeTypeOnly, onThemeSize, onThemeWeight, onThemeFamily),
+        renderFontComponents(sel, onFontAdvanced, onComponentFont, onComponentFamily),
+        renderFontSet(fontSet),
       ),
     ),
     );
@@ -930,17 +950,11 @@
     );
   }
 
-  // ── 「窗口与侧栏」节**已撤销**（§10.25）：它的内容全部并进「玻璃 UI」节 ──
-  // 原委：那节**只在宿主上报 `sidebarPresent`（装了 dsh-better-sidebar）时才画得出内容**，
-  // 没装的机器上它就是一个**只有标题的空节**；而它同时是侧栏家族唯一的家 ⇒ 单纯删掉会让那些
-  // 控件无处可去。并进「玻璃 UI」之后：所有玻璃配置同处一节，空节消失，
-  // 且「左侧栏液态玻璃」终于与其余面控件放在一起（它当初被排除的理由——与那节"关即回原生纯色"
-  // 的乙类语义冲突——已随 §10.20 的退役消失）。
-  // 实现见 `src/glass-panel.js` 的 renderAppearanceGlassSection（门槛一个都没放松）。
-  // ── 「玻璃 UI」节的渲染器已抽到 src/glass-panel.js（wip §10.13）：
-  //    它与其余页签只共享模块级纯助手 ⇒ 抽出去不需要 ctx 样板，这里按名字调用即可。
+  // ── 「玻璃 UI」节：所有玻璃配置（含「左侧栏液态玻璃」及其子项）同处一节。渲染器在
+  //    `src/glass-panel.js` 的 renderAppearanceGlassSection（门槛一个都没放松）—— 它与其余页签
+  //    只共享模块级纯助手 ⇒ 不需要 ctx 样板，这里按名字调用即可。
 
-  // 这一层不再自己画，只**按顺序组装**各节（"有哪几节、什么顺序"一眼可读；
+  // 这一层只**按顺序组装**各节（"有哪几节、什么顺序"一眼可读；
   // 判据按真渲染的节序列钉住，见 verify-scene-live 的节顺序一节）。
   function renderAppearanceTab(ctx) {
     const { } = ctx;
@@ -950,7 +964,6 @@
       renderAppearanceGlassSection(ctx),
       renderAppearanceFontSection(ctx),
       renderAppearanceCaretSection(ctx),
-      // 「窗口与侧栏」节已撤销（内容并进「玻璃 UI」，见上面的说明与 §10.25）。
     );
   }
 
@@ -958,8 +971,8 @@
   function renderAudioTab(ctx) {
     const { onToggleAudio, onVideoVolume, sel } = ctx;
     // 声音：壁纸音轨（视频 / 场景内嵌 MP4 / 场景包内音频共用一套设置）。
-    // 系统音频反应 / 媒体信息 / 在线歌词三键已**退役为常开**（schema kind 'const'）：
-    // 面板不再提供页面定义，运行时两侧一律按默认接入读值。
+    // 系统音频反应 / 媒体信息 / 在线歌词三键**恒为常开**（schema kind 'const'）：
+    // 面板不提供页面定义，运行时两侧一律按默认接入读值。
     return React.createElement(React.Fragment, null,
       React.createElement("div", { className: "we-picker__section" },
         React.createElement("div", { className: "we-picker__section-head" },
@@ -977,8 +990,69 @@
   }
 
 
+  // ── 吉祥物形态卡片一排 ──
+  function renderMascotFormCards(sel, previewArt, previewW, previewH, onRopeFormChange, onMascotPick, onMascotClear) {
+    const customArt = previewArt.custom;
+    return React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
+      ctlText(weT("吉祥物形态"),
+        customArt
+          ? weT("自定义立绘生效中：主页面吉祥物用的是这张图；点卡片可换一张")
+          : weT("卡片固定大小 · 大小只作用于主页面吉祥物；最后一张卡片可导入自定义立绘")),
+      React.createElement("div", { className: "we-picker__mascot-row", role: "group", "aria-label": weT("吉祥物形态") },
+        ROPE_FORM_VALUES.map((k) => {
+          const form = ROPE_FORMS[k];
+          return React.createElement("button", {
+            key: k,
+            type: "button",
+            // 自定义立绘生效时这两张禁用（主页面用的是导入的那张，点了也不会变）。
+            disabled: customArt,
+            className: "we-picker__mascot-card" + (!customArt && sel.ropeForm === k ? " we-picker__mascot-card--active" : ""),
+            "aria-pressed": !customArt && sel.ropeForm === k ? "true" : "false",
+            title: customArt ? weT("自定义立绘生效中：清除后形态才可选") : form.label,
+            onClick: () => onRopeFormChange(k),
+          },
+            React.createElement("span", {
+              className: "we-picker__mascot-art",
+              style: { width: form.w + "px", height: form.h + "px" },
+            },
+              React.createElement("img", { src: form.img, alt: form.label, draggable: false })),
+            React.createElement("span", { className: "we-picker__mascot-name" }, form.label),
+          );
+        }),
+        React.createElement("button", {
+          key: "custom",
+          type: "button",
+          disabled: Boolean(sel.mascotBusy),
+          className: "we-picker__mascot-card" + (customArt ? " we-picker__mascot-card--active" : ""),
+          "aria-pressed": customArt ? "true" : "false",
+          title: customArt ? weT("替换图片…（再导入会覆盖上一次）") : weT("导入图片…"),
+          onClick: onMascotPick,
+        },
+          React.createElement("span", {
+            // ⚠️ 类名与内置卡的艺术框**不同**（`we-picker__mascot-art` 是"那两张内置卡"的
+            //    记号，复用会把"卡片固定基础尺寸"那条判据的计数带偏 —— 实测踩过）。
+            className: "we-picker__mascot-custom-art",
+            style: { width: previewW + "px", height: previewH + "px" },
+          },
+            customArt
+              ? React.createElement("img", { src: previewArt.img, alt: weT("自定义"), draggable: false })
+              : React.createElement("span", { className: "we-picker__mascot-empty" }, "+")),
+          React.createElement("span", { className: "we-picker__mascot-name" },
+            sel.mascotBusy ? weT("导入中…") : weT("自定义")),
+        ),
+        customArt && React.createElement("button", {
+          key: "custom-clear",
+          className: "we-picker__btn we-picker__mascot-clear",
+          type: "button",
+          disabled: Boolean(sel.mascotBusy),
+          onClick: onMascotClear,
+        }, weT("清除")),
+      ),
+    );
+  }
+
   function renderMascotTab(ctx) {
-    const { onMascotClear, onMascotPick, onRopeFormChange, onRopeScaleChange, onRopeVisibilityChange, sel } = ctx;
+    const { onRopeScaleChange, onRopeVisibilityChange, sel } = ctx;
     // 主页面那只吉祥物**当前用的立绘**（自定义优先 / 否则内置形态）—— 与 RopeDock 共用
     // 同一条解析（`ropeArtOf`）：设置页看到的盒与主页面那只的盒必须是同一个数。
     const previewArt = ropeArtOf(sel);
@@ -1010,62 +1084,7 @@
         // 卡面尺寸口径与内置卡一致（固定，不随「吉祥物大小」缩放）：图片按自己的宽高比
         // contain 进 64×96 的小舞台（那是最高的内置卡「鲸御姐」的盒）。
         // 清除入口排在这一排的最后（只在有自定义立绘时出现）。
-        React.createElement("div", { className: "we-picker__ctl we-picker__ctl--wrap" },
-          ctlText(weT("吉祥物形态"),
-            customArt
-              ? weT("自定义立绘生效中：主页面吉祥物用的是这张图；点卡片可换一张")
-              : weT("卡片固定大小 · 大小只作用于主页面吉祥物；最后一张卡片可导入自定义立绘")),
-          React.createElement("div", { className: "we-picker__mascot-row", role: "group", "aria-label": weT("吉祥物形态") },
-            ROPE_FORM_VALUES.map((k) => {
-              const form = ROPE_FORMS[k];
-              return React.createElement("button", {
-                key: k,
-                type: "button",
-                // 自定义立绘生效时这两张禁用（主页面用的是导入的那张，点了也不会变）。
-                disabled: customArt,
-                className: "we-picker__mascot-card" + (!customArt && sel.ropeForm === k ? " we-picker__mascot-card--active" : ""),
-                "aria-pressed": !customArt && sel.ropeForm === k ? "true" : "false",
-                title: customArt ? weT("自定义立绘生效中：清除后形态才可选") : form.label,
-                onClick: () => onRopeFormChange(k),
-              },
-                React.createElement("span", {
-                  className: "we-picker__mascot-art",
-                  style: { width: form.w + "px", height: form.h + "px" },
-                },
-                  React.createElement("img", { src: form.img, alt: form.label, draggable: false })),
-                React.createElement("span", { className: "we-picker__mascot-name" }, form.label),
-              );
-            }),
-            React.createElement("button", {
-              key: "custom",
-              type: "button",
-              disabled: Boolean(sel.mascotBusy),
-              className: "we-picker__mascot-card" + (customArt ? " we-picker__mascot-card--active" : ""),
-              "aria-pressed": customArt ? "true" : "false",
-              title: customArt ? weT("替换图片…（再导入会覆盖上一次）") : weT("导入图片…"),
-              onClick: onMascotPick,
-            },
-              React.createElement("span", {
-                // ⚠️ 类名与内置卡的艺术框**不同**（`we-picker__mascot-art` 是"那两张内置卡"的
-                //    记号，复用会把"卡片固定基础尺寸"那条判据的计数带偏 —— 实测踩过）。
-                className: "we-picker__mascot-custom-art",
-                style: { width: previewW + "px", height: previewH + "px" },
-              },
-                customArt
-                  ? React.createElement("img", { src: previewArt.img, alt: weT("自定义"), draggable: false })
-                  : React.createElement("span", { className: "we-picker__mascot-empty" }, "+")),
-              React.createElement("span", { className: "we-picker__mascot-name" },
-                sel.mascotBusy ? weT("导入中…") : weT("自定义")),
-            ),
-            customArt && React.createElement("button", {
-              key: "custom-clear",
-              className: "we-picker__btn we-picker__mascot-clear",
-              type: "button",
-              disabled: Boolean(sel.mascotBusy),
-              onClick: onMascotClear,
-            }, weT("清除")),
-          ),
-        ),
+        renderMascotFormCards(sel, previewArt, previewW, previewH, onRopeFormChange, onMascotPick, onMascotClear),
         sel.mascotError
           && React.createElement("div", { className: "we-picker__hint we-avatar-error", key: "rope-custom-err" }, sel.mascotError),
         SliderRow(weT("吉祥物大小"), ROPE_SCALE_MIN, ROPE_SCALE_MAX, ROPE_SCALE_STEP,
@@ -1076,12 +1095,33 @@
 
 
   function renderEffectsSlidersSection(ctx) {
-    const { onBackgroundBrightness, onBackgroundContrast, onBackgroundSaturate, onScrim, onWallpaperBlur, onWallpaperOpacity, sel } = ctx;
+    const { onBackgroundBrightness, onBackgroundContrast, onBackgroundSaturate, onLayerPositionX, onLayerPositionY, onLayerReset, onLayerScale, onScrim, onWallpaperBlur, onWallpaperOpacity, sel } = ctx;
     return React.createElement(React.Fragment, null,
       SliderRow(weT("壁纸模糊"), 0, 60, 1, sel.wallpaperBlur, onWallpaperBlur, sel.wallpaperBlur + "px"),
       SliderRow(weT("亮度"), 40, 160, 5, sel.backgroundBrightness, onBackgroundBrightness, sel.backgroundBrightness + "%"),
       SliderRow(weT("对比度"), 40, 200, 5, sel.backgroundContrast, onBackgroundContrast, sel.backgroundContrast + "%"),
       SliderRow(weT("饱和度"), 0, 200, 5, sel.backgroundSaturate, onBackgroundSaturate, sel.backgroundSaturate + "%"),
+      // 壁纸层取景（位置 / 缩放）：WE 壁纸属性面板那三项（对齐方式 = 自由 时的 水平 / 垂直 /
+      // 缩放，即 alignmentx / alignmenty / alignmentz）是 WE 引擎内置属性，存在 WE 自己的
+      // config.json 里、本插件读不到；场景层的适配也只有 cover / contain / center / fill
+      // ⇒ 想搬 WE 的取景只能在这里重设一遍。刻度与 WE 那三条滑条**同量程**（便于对拷）：
+      // 位置 0..100（50 = 居中，整屏百分比偏移），缩放 50..150（100 = 原大小）。
+      // `numberEdit` 让右侧数值区可直接键入；双击标签回默认（位置回 50、缩放回 100%）。
+      SliderRow(weT("水平"), 0, 100, 1, sel.layerPositionX, onLayerPositionX, "%", "layer-pos-x", {
+        tooltip: weT("整屏百分比偏移：50 = 中心，0/100 = 两端（与 Wallpaper Engine 自带的同名滑条同义）；双击标签回中心。"),
+        numberEdit: true,
+        onLabelDoubleClick: () => onLayerReset("x"),
+      }),
+      SliderRow(weT("垂直"), 0, 100, 1, sel.layerPositionY, onLayerPositionY, "%", "layer-pos-y", {
+        tooltip: weT("整屏百分比偏移：50 = 中心，0/100 = 两端（与 Wallpaper Engine 自带的同名滑条同义）；双击标签回中心。"),
+        numberEdit: true,
+        onLabelDoubleClick: () => onLayerReset("y"),
+      }),
+      SliderRow(weT("缩放"), 50, 150, 1, sel.layerScale, onLayerScale, "%", "layer-scale", {
+        tooltip: weT("100 = 原大小；95 = 缩到 95%（四周露出页面底色）；105 = 放大到 105%；双击标签回 100%。"),
+        numberEdit: true,
+        onLabelDoubleClick: () => onLayerReset("s"),
+      }),
       // 壁纸透明度（#82）：越大越透，淡出后壁纸融向**原生外观**（浅色纯白 /
       // 深色纯黑，IDEA 背景图式）。与暗化互补 —— 一个减淡壁纸本身，一个压暗
       // 整体画面；上限 90% 避免调到「壁纸完全不可见但暗化还在」的诡异状态
@@ -1230,6 +1270,37 @@
     );
   }
 
+  // ── 转码进度行 ──
+  function renderTranscodeProgress(sel) {
+    return React.createElement("div", { className: "we-picker__row we-picker__prog", key: "transcode-prog" },
+      React.createElement("div", {
+        className: "we-picker__prog-track",
+        role: "progressbar",
+        "aria-label": weT("转码进度"),
+        "aria-valuemin": 0,
+        "aria-valuemax": 100,
+        "aria-valuenow": Math.max(0, Math.min(100, sel.transcodeProgress.percent || 0)),
+      },
+        React.createElement("div", {
+          className: "we-picker__prog-bar",
+          style: { width: Math.max(2, Math.min(100, sel.transcodeProgress.percent || 0)) + "%" },
+        }),
+      ),
+      React.createElement("span", { className: "we-picker__hint" },
+        sel.transcodeProgress.phase === "download"
+          ? weT("下载 ffmpeg {percent}%", { percent: sel.transcodeProgress.percent || 0 })
+          : sel.transcodeProgress.phase === "transcode" && sel.transcodeProgress.finalizing ? weT("收尾中…")
+          : sel.transcodeProgress.phase === "transcode"
+            ? weT("转码中 {percent}%{eta}", {
+              percent: sel.transcodeProgress.percent || 0,
+              eta: sel.transcodeProgress.eta ? weT(" · 约剩 {sec} 秒", { sec: sel.transcodeProgress.eta }) : "",
+            })
+          : sel.transcodeProgress.phase === "done" ? weT("即将完成…")
+          : weT("准备中…"),
+      ),
+    );
+  }
+
   function renderEffectsPlaybackSection(ctx) {
     const { onFpsCap, onPlaybackRate, sel, surface } = ctx;
     const sidebarSurface = surface === "sidebar";
@@ -1287,33 +1358,7 @@
       ),
       // Download / transcode progress bar (polled from /transcode-progress).
       !sidebarSurface && sel.type === "video" && sel.transcodeState === "working" && sel.transcodeProgress
-        && React.createElement("div", { className: "we-picker__row we-picker__prog", key: "transcode-prog" },
-          React.createElement("div", {
-            className: "we-picker__prog-track",
-            role: "progressbar",
-            "aria-label": weT("转码进度"),
-            "aria-valuemin": 0,
-            "aria-valuemax": 100,
-            "aria-valuenow": Math.max(0, Math.min(100, sel.transcodeProgress.percent || 0)),
-          },
-            React.createElement("div", {
-              className: "we-picker__prog-bar",
-              style: { width: Math.max(2, Math.min(100, sel.transcodeProgress.percent || 0)) + "%" },
-            }),
-          ),
-          React.createElement("span", { className: "we-picker__hint" },
-            sel.transcodeProgress.phase === "download"
-              ? weT("下载 ffmpeg {percent}%", { percent: sel.transcodeProgress.percent || 0 })
-              : sel.transcodeProgress.phase === "transcode" && sel.transcodeProgress.finalizing ? weT("收尾中…")
-              : sel.transcodeProgress.phase === "transcode"
-                ? weT("转码中 {percent}%{eta}", {
-                  percent: sel.transcodeProgress.percent || 0,
-                  eta: sel.transcodeProgress.eta ? weT(" · 约剩 {sec} 秒", { sec: sel.transcodeProgress.eta }) : "",
-                })
-              : sel.transcodeProgress.phase === "done" ? weT("即将完成…")
-              : weT("准备中…"),
-          ),
-        ),
+        && renderTranscodeProgress(sel),
     );
   }
 
@@ -1479,10 +1524,70 @@
     );
   }
 
+  function renderAdvancedCacheSection(ctx) {
+    const { onCacheDirDraft, onCancelEditCacheDir, onStartEditCacheDir, sel } = ctx;
+    return React.createElement(React.Fragment, null,
+    // ── 缓存位置：转码产物 / faststart 变体 / 静态帧 / 预览图 / 媒体桥缓存都是**可再生**的
+    //    大块文件（本机实测到 GB 级），默认落在插件数据目录 —— Windows 上那个目录仍在 C 盘
+    //    用户目录下，这正是「C 盘洁癖」的触发点。持久化在宿主 config.json 的 cacheDir，
+    //    经 /cache-dir 端点读写；显示值一律取宿主返回的**解析链答案**（设了
+    //    `DSH_WE_CACHE_DIR` 时它与用户填的值不同 —— 那是环境变量覆盖，不是保存失败）。──
+    React.createElement("div", { className: "we-picker__section" },
+      React.createElement("div", { className: "we-picker__section-head" },
+        React.createElement("span", { className: "we-picker__section-label" }, weT("缓存位置")),
+      ),
+      React.createElement("div", { className: "we-picker__uploads" },
+      React.createElement("div", { className: "we-picker__row" },
+        React.createElement("span", { className: "we-picker__hint we-picker__label" }, weT("缓存目录")),
+        React.createElement("span", {
+          className: "we-picker__uploads-path",
+        }, sel.inventory.cacheDir || "—"),
+        React.createElement("button", {
+          className: "we-picker__btn", type: "button",
+          disabled: sel.cacheDirBusy,
+          onClick: onStartEditCacheDir,
+        }, weT("更改")),
+      ),
+      sel.editingCacheDir && React.createElement("div", { className: "we-picker__row" },
+        React.createElement("input", {
+          className: "we-picker__text", type: "text",
+          value: sel.cacheDirDraft,
+          placeholder: weT("绝对路径，如 D:\\WallpaperEngineCache"),
+          onInput: onCacheDirDraft,
+          onKeyDown: (e) => {
+            if (e.key === "Enter") changeCacheDir(sel.cacheDirDraft, true);
+            if (e.key === "Escape") onCancelEditCacheDir();
+          },
+        }),
+        React.createElement("button", {
+          className: "we-picker__btn", type: "button",
+          disabled: sel.cacheDirBusy,
+          onClick: () => changeCacheDir(sel.cacheDirDraft, true),
+        }, weT("保存")),
+        React.createElement("button", {
+          className: "we-picker__btn", type: "button",
+          onClick: onCancelEditCacheDir,
+        }, weT("取消")),
+      ),
+      React.createElement("div", { className: "we-picker__row" },
+        React.createElement("span", { className: "we-picker__hint" },
+          weT("已有缓存会迁移到新位置")),
+        React.createElement("span", { className: "we-picker__hint" },
+          weT("缓存可再生，随时可删")),
+      ),
+      sel.cacheDirNote && React.createElement("div", { className: "we-picker__hint" },
+        sel.cacheDirNote),
+      sel.cacheDirError && React.createElement("div", { className: "we-picker__error" },
+        sel.cacheDirError),
+      ),
+    ),
+    );
+  }
+
   function renderAdvancedDiagSection(ctx) {
     const { onToggleLiveDiag, sel } = ctx;
     return React.createElement(React.Fragment, null,
-    // ── 实时渲染诊断（本会话有效，不落盘；从「效果」页签移来）：只对**能走实时
+    // ── 实时渲染诊断（本会话有效，不落盘）：只对**能走实时
     //    渲染**的壁纸（场景 / 网页）显示 —— 视频、图片壁纸没有渲染页，摆出来是空的。──
     (sel.type === "scene" || sel.type === "web") && sel.sceneLive !== false
       && React.createElement("div", { className: "we-picker__section" },
@@ -1502,7 +1607,7 @@
       ),
     );
   }
-  // 这一层不再自己画，只**按顺序组装**各节 —— 于是"这个页签有哪几节、什么顺序"
+  // 这一层只**按顺序组装**各节 —— 于是"这个页签有哪几节、什么顺序"
   // 一眼可读（判据按真渲染的节序列钉住，见 verify-scene-live 的节顺序一节）。
   function renderAdvancedTab(ctx) {
     const { } = ctx;
@@ -1511,6 +1616,7 @@
       renderAdvancedCompatSection(ctx),
       renderAdvancedAdapterSection(ctx),
       renderAdvancedPowerSection(ctx),
+      renderAdvancedCacheSection(ctx),
       renderAdvancedDiagSection(ctx),
     );
   }
@@ -1524,7 +1630,7 @@
   // **惰性**函数：顶层直接写 `const EXTENSION_MODULES = [SYMBOL]` 会踩两个坑 ——
   //   ① 内联后 prelude 求值期就要读兄弟模块的常量，模块顺序成了隐式契约；
   //   ② test/verify-scene-live.mjs 是**单独 import 本文件**、再喂 `globalThis` 的，
-  //      顶层一引用别处的符号就当场 ReferenceError（第一版写法就是被这条判据咬住的）。
+  //      顶层一引用别处的符号就当场 ReferenceError。
   // 写成函数后两个坑都没了：求值发生在"画这一页"的时候，那时兄弟模块早就内联好了。
   //
   // 模块形状（给未来加功能的自己）：
@@ -1545,7 +1651,7 @@
   // 现有三项：一号 = 自定义会话头像（src/ext-avatar.js + src/avatar-layer.js，会话界面上的
   // DOM 补丁）、二号 = 点击效果与拖尾效果（src/ext-fx.js + src/fx-layer.js）、
   // 三号 = 3D 效果（src/ext-parallax.js + src/parallax-layer.js，只有变量与事件、不建 DOM）。
-  // ⚠️ **顺序即屏上顺序**（数组第 0 项在最上面）：头像那一项是后加的、按用户口径排在**第一**。
+  // ⚠️ **顺序即屏上顺序**（数组第 0 项在最上面）：头像那一项排在**第一**（用户口径）。
   // 加第四项照抄这三份。
   function extensionModules() {
     return [AVATAR_EXTENSION_MODULE, FX_EXTENSION_MODULE, PARALLAX_EXTENSION_MODULE];

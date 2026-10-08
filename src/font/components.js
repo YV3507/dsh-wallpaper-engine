@@ -1,5 +1,5 @@
 /**
- * font/components.js — 按**组件**细化字体（G4）：模块前缀通道 + 启动自探测 + 白名单。
+ * font/components.js — 按**组件**细化字体：模块前缀通道 + 启动自探测 + 白名单。
  *
  * ══ 为什么是这条通道（静态分析结论）══════════════════════════════════
  * DSH 组件 CSS 里字体绝大多数是**写死**的：39 个 CSS 文件中 `font-size` 走令牌仅 8 处、
@@ -11,13 +11,13 @@
  * 哈希每次构建都变，但**模块名前缀不变** ⇒ `[class*="_<模块名>_"]` 可以稳定命中。
  *
  * ⚠️ 模块名**必须实测**，不能按"组件叫什么"猜：`codeBlock` / `table` / `sidebar` 这三个
- * 按名字想当然写下的前缀，在 DSH 产物里**一个都不存在** ⇒ 那三行曾是"看得见、填了没用"。
+ * 按名字想当然写下的前缀，在 DSH 产物里**一个都不存在** ⇒ 那些行是"看得见、填了没用"。
  * 实测口径（在 DSH 产物里数 CSS-module 类名）：
  *   · 代码块与终端块的模块名**都是 `block`**（同名字、不同哈希）—— 同名的还有搜索块 / 网页块，
  *     它们共用 `--dsw-font-markdown-code-block` 这一个角色；
  *   · 表格的模块名是 `tableScroll`（与 `markdown` 同属一个 CSS 模块文件）；
  *   · **侧栏没有任何 CSS-module 类名**（它的插件包里连 `.css` 都没有）⇒ 没有可命中的前缀，
- *     已移出白名单（面板那一行随之消失）。
+ *     不在白名单内（面板那一行随之消失）。
  *
  * ⚠️ 这是打包器产物，不是官方 API：DSH 换打包器/命名策略会一次性失效。所以本模块
  * **启动时自探测**（按 prefix 采样，命中才启用该组件），而不是写死选择器当契约 ——
@@ -61,7 +61,7 @@ const COMPONENT_FONT_TARGETS = [
   { id: 'markdown', get label() { return weT('对话正文'); }, get group() { return weT('markdown 容器'); }, prefix: 'markdown',
     source: '@deepseek-ai/dsh-client-ui-primitives/lib/markdown/MarkdownText.module.css',
     // markdown 的字号由各元素自己的 `font: var(--dsw-font-markdown-h1)` 决定 ⇒ 直接在容器上
-    // 写 font-size 会被那些简写盖掉；这里的正解是 F2 的角色令牌（已实现）。
+    // 写 font-size 会被那些简写盖掉；这里的正解是角色令牌（见 src/font/typography.js）。
     route: 'tokens' },
   { id: 'codeBlock', get label() { return weT('代码块'); }, get group() { return weT('代码'); }, prefix: 'block',
     source: '@deepseek-ai/dsh-client-ui-primitives/lib/markdown/CodeBlock.module.css',
@@ -105,7 +105,7 @@ function targetById(id) {
  * `.block`），按模块名生成的作用域会把它们一起命中：改"代码块"会连带改终端正文，面板的
  * "当前默认值"也只能读到同一个元素。而钩子的**定义点**天然区分它们 ——
  * `--dsl-code-block-*` 只写在代码块的规则上、`--dsl-terminal-font` 只写在终端的规则上。
- * 这与 F1 取令牌清单的口径一致：**样式表是权威来源**。
+ * 这与取令牌清单（src/font/color-roles.js）的口径一致：**样式表是权威来源**。
  *
  * 代价：跨域样式表读 cssRules 会抛（跳过即可）；DSH 换写法导致钩子不再出现在样式表里时，
  * 对应的那条钩子整条不生效（降级，不误伤）—— 这正是我们要的方向。
@@ -219,8 +219,8 @@ function buildComponentCss(config, available, resolveFamily) {
       decls.push('  font-weight: ' + Math.round(c.weight) + ';');
     }
     if (typeof c.family === 'string' && c.family.trim()) {
-      // 族值自本版起是**族键**（内置键或 `sys:<本机字体>`）⇒ 必须经解析成 CSS 栈；
-      // F3 之前存的是栈本身，解析侧两条都认（见 src/client.js 的 fontFamilyStack）。
+      // 族值是**族键**（内置键或 `sys:<本机字体>`）⇒ 必须经解析成 CSS 栈；
+      // 解析侧两条都认（见 src/client.js 的 fontFamilyStack）。
       decls.push('  font-family: ' + resolve(c.family.trim()) + ';');
     }
     if (!decls.length) continue; // 全空 ⇒ 回官方，不生成
@@ -230,7 +230,7 @@ function buildComponentCss(config, available, resolveFamily) {
 }
 
 /**
- * G3：官方的**组件级字体钩子**（`--dsl-*`）—— 全仓只有 13 个，其中与字体相关的就这三个。
+ * 官方的**组件级字体钩子**（`--dsl-*`）—— 全仓只有 13 个，其中与字体相关的就这三个。
  *
  * ⚠️ 关键结论：它们**不是全局覆盖点**。
  *   定义在组件**自己的根类**上（源码 CSS 的 `.block`），由后代消费（`.banner` / `pre` 等）。
@@ -253,7 +253,7 @@ const DSL_HOOK_NAMES = DSL_FONT_HOOKS.map((h) => h.name);
 /**
  * 用官方钩子生成覆盖：把钩子值重新组合成 `<字重> <字号>/<行高> <字族>`，
  * 其中字重/行高/字族**取自 DSH 自己的细粒度令牌**（不重写），只把字号按配置调整 ——
- * 与 F2 的组合式同构，区别只是**写在组件作用域**而非角色令牌上。
+ * 与角色令牌的组合式（见 src/font/typography.js）同构，区别只是**写在组件作用域**而非角色令牌上。
  *
  * 钩子的原值形如 `var(--dsw-font-markdown-code-block)`（指回角色令牌）或
  * `11px/18px var(--dsw-font-family)`（字面量）。两种形态都用同一种组合方式覆盖：
@@ -290,7 +290,7 @@ function buildDslBlocks(config, available, isAvailable, hookScopes, resolveFamil
       // 没有定义点（扫不到 / 形态不合规）⇒ 该钩子不生成；一条都没剩下就整条跳过。
       if (!sel || !HOOK_SCOPE_RE.test(sel)) continue;
       const t = (n) => '--dsw-font-' + meta.role + '-' + n;
-      // 四个细粒度令牌缺一就跳过该钩子 —— 与 F2 同一条规则：组合式缺项会写出坏 font
+      // 四个细粒度令牌缺一就跳过该钩子 —— 与角色令牌的组合式同一条规则：缺项会写出坏 font
       //（整条字体失效），宁可不覆盖（保持官方值）。
       if (![t('font-size'), t('line-height'), t('font-family'), t('font-weight')].every((n) => ok(n))) continue;
       const size = typeof c.size === 'number' && Number.isFinite(c.size) && c.size > 0
