@@ -14,13 +14,13 @@
 
 | # | 路径 | 来源 | 形态 | 依赖（闭包状态 / `c` 字段） | 守卫提及 |
 |---|---|---|---|---|---|
-| 1 | `/inventory` | lib/index.js:2891 | async 箭头 | webServer disposers mediaOriginApi buildInventory | 20 |
-| 2 | `/media-info` | lib/routes/media-derived.js:50 | 箭头 | disposers base mediaMap log getMediaInfo faststartVariant | 8 |
-| 3 | `/transcode-progress` | lib/routes/media-derived.js:80 | 箭头 | disposers base mediaMap transcodeJobs | 2 |
-| 4 | `/transcoded` | lib/routes/media-derived.js:133 | 箭头 | disposers base mediaMap serveFile transcodeToFps registerTranscodeWaiter | 1 |
-| 5 | `/video-preview` | lib/routes/media-derived.js:192 | 箭头 | disposers base mediaMap serveFile generateVideoPreview | 2 |
-| 6 | `/media` | lib/routes/media-bytes.js:33 | 箭头 | disposers base serveFile mediaMap log pinnedFaststartVariant | 18 |
-| 7 | `/preview` | lib/routes/media-bytes.js:33 | 箭头 | disposers base serveFile mediaMap log pinnedFaststartVariant | 9 |
+| 1 | `/inventory` | lib/index.js:2925 | async 箭头 | webServer disposers mediaOriginApi buildInventory | 21 |
+| 2 | `/media-info` | lib/routes/media-derived.js:57 | 箭头 | disposers base mediaMap log getMediaInfo faststartVariant …(+1) | 9 |
+| 3 | `/transcode-progress` | lib/routes/media-derived.js:100 | 箭头 | disposers base mediaMap transcodeJobs | 2 |
+| 4 | `/transcoded` | lib/routes/media-derived.js:153 | 箭头 | disposers base mediaMap serveFile transcodeToFps registerTranscodeWaiter | 1 |
+| 5 | `/video-preview` | lib/routes/media-derived.js:212 | 箭头 | disposers base mediaMap serveFile generateVideoPreview | 2 |
+| 6 | `/media` | lib/routes/media-bytes.js:36 | 箭头 | disposers base serveFile serveLayout mediaMap log …(+1) | 19 |
+| 7 | `/preview` | lib/routes/media-bytes.js:36 | 箭头 | disposers base serveFile serveLayout mediaMap log …(+1) | 10 |
 | 8 | `/scene-frame` | lib/routes/scene-frame.js:74 | 箭头 | disposers base mediaMap trackStream customFramePath customIdFromAbs …(+3) | 12 |
 | 9 | `/scene-frame-cache` | lib/routes/scene-frame.js:152 | 箭头 | disposers base mediaMap GPU_FRAME_MAX_BYTES GPU_WRITE_INFLIGHT armBodyIdleTimeout …(+4) | 4 |
 | 10 | `/custom-frame` | lib/routes/scene-frame.js:237 | 箭头 | disposers base serveFile CUSTOM_FRAME_EXT CUSTOM_FRAME_MAX_BYTES armBodyIdleTimeout …(+3) | 3 |
@@ -74,8 +74,8 @@
 | `lib/routes/github-stars.js` | `registerGithubStarsRoutes(webServer, c)` | 1 | `disposers` `base` `repoSlug` `cachePath` `log` `fetchJson` | — |
 | `lib/routes/live-frame.js` | `registerLiveFrameRoutes(webServer, c)` | 1 | `disposers` `base` `mediaMap` `serveFile` `traceRequests` `liveFrameFile` `atomicWriteFileSync` `lingerClose` | — |
 | `lib/routes/mascot.js` | `registerMascotRoutes(webServer, c)` | 1 | `disposers` `base` `serveFile` `mascotDir` `mascotPath` `MASCOT_EXT` `MASCOT_MAX_BYTES` `atomicWriteFileP` `armBodyIdleTimeout` `lingerClose` | — |
-| `lib/routes/media-bytes.js` | `registerMediaBytesRoutes(webServer, c)` | 2 | `disposers` `base` `serveFile` `mediaMap` `log` `pinnedFaststartVariant` | — |
-| `lib/routes/media-derived.js` | `registerMediaDerivedRoutes(webServer, c)` | 4 | `disposers` `base` `mediaMap` `serveFile` `log` `getMediaInfo` `faststartVariant` `transcodeJobs` `transcodeToFps` `registerTranscodeWaiter` `generateVideoPreview` | — |
+| `lib/routes/media-bytes.js` | `registerMediaBytesRoutes(webServer, c)` | 2 | `disposers` `base` `serveFile` `serveLayout` `mediaMap` `log` `pinnedFaststartVariant` | — |
+| `lib/routes/media-derived.js` | `registerMediaDerivedRoutes(webServer, c)` | 4 | `disposers` `base` `mediaMap` `serveFile` `log` `getMediaInfo` `faststartVariant` `transcodeJobs` `transcodeToFps` `registerTranscodeWaiter` `generateVideoPreview` `transcodeCached` | — |
 | `lib/routes/now-playing.js` | `registerNowPlayingRoutes(webServer, c)` | 5 | `disposers` `base` `appendDiagLine` `configPath` `cacheBaseDir` `readConfig` `serveFile` `log` | — |
 | `lib/routes/presets.js` | `registerGlassPresetsRoutes(webServer, c)` | 1 | `disposers` `base` | — |
 | `lib/routes/props.js` | `registerPropsRoutes(webServer, c)` | 1 | `disposers` `base` `mediaMap` `userPropsFor` | — |

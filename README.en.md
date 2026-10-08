@@ -156,7 +156,7 @@ The **帧率上限 (fps cap)** control in **Playback → Effects** (selectable s
 
 ### Cache location (moving a few GB off the system drive)
 
-Extracted frames, transcodes, faststart variants and video thumbnails are **regenerable artefacts** and default to `~/.dsh-wallpaper-engine/cache` — your **system drive**. Over time that adds up to **several GB**. **System → Advanced → 缓存位置 (cache location)** moves it to a folder on any drive (absolute path, `~` supported): existing cache is **migrated automatically** (file by file, so it also works across drives) and the old directory is left behind as empty shells — **never deleted**.
+Extracted frames, transcodes, live frames and video thumbnails are **regenerable artefacts** and default to `~/.dsh-wallpaper-engine/cache` — your **system drive**. Over time that adds up to **several GB**. **System → Advanced → 缓存位置 (cache location)** moves it to a folder on any drive (absolute path, `~` supported): existing cache is **migrated automatically** (file by file, so it also works across drives) and the old directory is left behind as empty shells — **never deleted**.
 
 The migration **only moves the plugin's own cache subdirectories**; anything it does not recognise stays where it is. So the target may be an existing folder of yours (say `D:\WallpaperEngineCache`) without the plugin touching anything else inside it. All of it is regenerable (hence the "safe to delete any time" hint in the settings page): the worst case is one extra transcode, never a lost wallpaper or setting.
 
@@ -253,7 +253,7 @@ This plugin exposes no model-visible tools or prompt text — **zero token cost*
 |---|---|
 | `DSH_WE_FFMPEG` | explicit ffmpeg executable path (highest priority in the resolution chain) |
 | `DSH_WE_FFMPEG_URL` | replaces the auto-download source (self-hosted mirror / proxy) |
-| `DSH_WE_CACHE_DIR` | overrides the **cache root** (transcode / faststart-variant / live-frame / video-thumbnail caches; wins over the **cache location** setting, see above) |
+| `DSH_WE_CACHE_DIR` | overrides the **cache root** (transcode / live-frame / video-thumbnail caches; wins over the **cache location** setting, see above) |
 | `DSH_WE_STEAM_ROOT` | explicit Steam root(s) (comma/semicolon separated, Windows or /mnt paths). Probed **before** the registry and the built-in auto-detection — use it to pin one location; a root with no install falls through to the next candidate |
 | `DSH_WE_MEDIA_BRIDGE` | explicit media-middleware executable (dev/self-built artifact; highest priority) |
 | `DSH_WE_MEDIA_BRIDGE_URL` | replaces the middleware download source (`{tag}` / `{asset}` placeholders supported) |

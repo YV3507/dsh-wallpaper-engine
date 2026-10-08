@@ -59,6 +59,48 @@ const results = [];
   check('negative control: 门面里重新出现被搬走的路由字面量会被这条判据拒掉',
     stale.test(host + '\n  path: `${BASE}/media-info`,'));
 }
+
+/** 「有缓存转码就直接播转码」（m01627 的第二半）：宿主**只读**回答"这个上限的抽帧版在不在
+ *  盘上"，客户端据此在**建层之前**就把抽帧版当 src，而不是先取原片再等探针回来换源。
+ *  这里钉三件事：① 键只有一份（转码落盘与只读判定共用 `transcodeCacheKey`）；② `/media-info`
+ *  的回答必须来自只读的 `transcodeCached`，**顺手起转码**要被拒；③ 客户端确实带着当前上限去问，
+ *  并把这个回答记成 `selection.transcodeReady`。 */
+{
+  const host = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8');
+  const derived = readFileSync(new URL('../lib/routes/media-derived.js', import.meta.url), 'utf8');
+  const layer = readFileSync(new URL('../src/video-layer.js', import.meta.url), 'utf8');
+  check('抽帧缓存键只有一份：落盘与"有没有缓存"共用 transcodeCacheKey(abs, mtimeMs, fps)',
+    /function transcodeCacheKey\(abs, mtimeMs, fps\)/.test(host)
+      && /const key = transcodeCacheKey\(abs, st\.mtimeMs, fps\);/.test(host)
+      && /join\(transcodeCacheDir\(\), 'tc_' \+ transcodeCacheKey\(abs, st\.mtimeMs, fps\) \+ '\.mp4'\)/.test(host));
+  check('门面把只读判定 transcodeCached 接给派生媒体族（且它就是 existsSync + 同一个路径函数）',
+    /transcodeCached: \(abs, fps\) => \{/.test(host)
+      && /transcodeCachePathFor\(abs, fps\)/.test(host)
+      && /return Boolean\(p && existsSync\(p\)\);/.test(host));
+  // `/media-info` 处理器体：从它的注册字面量到下一个 disposers.push
+  const at = derived.indexOf('path: `${BASE}/media-info`');
+  const body = at < 0 ? '' : derived.slice(at, derived.indexOf('disposers.push', at + 1));
+  check('/media-info 只读回答（transcode 来自 transcodeCached，处理器体里没有转码调用）',
+    /transcode = \{ fps, cached: transcodeCached\(abs, fps\) === true \}/.test(body)
+      && !body.includes('transcodeToFps(') && !body.includes('await '));
+  check('negative control: 把这条只读回答换成"顺手转一次"会被同一条判据拒掉',
+    (() => {
+      const bad = derived.replace('transcode = { fps, cached: transcodeCached(abs, fps) === true }',
+        'transcode = await transcodeToFps(abs, fps)');
+      const at2 = bad.indexOf('path: `${BASE}/media-info`');
+      const b = at2 < 0 ? '' : bad.slice(at2, bad.indexOf('disposers.push', at2 + 1));
+      return b.includes('transcodeToFps(') && b.includes('await ')
+        && /transcode = \{ fps, cached: transcodeCached\(abs, fps\) === true \}/.test(b) === false;
+    })());
+  check('客户端带着**当前上限**问 /media-info，并把"已缓存"记成 transcodeReady（唯一 URL 构造点）',
+    /\?fps=" \+ encodeURIComponent\(String\(selection\.fpsCap \|\| 0\)\)/.test(layer)
+      && /data\.transcode\.cached === true/.test(layer)
+      && /selection\.transcodeReady = \{ token, fps: selection\.fpsCap, url: transcodedUrlFor\(token, selection\.fpsCap\) \};/.test(layer)
+      && /function transcodedUrlFor\(token, fps\)/.test(layer));
+  check('negative control: 客户端各处自己拼 transcoded URL 的形态已被唯一构造点取代',
+    !layer.includes('"/wallpaper-engine/transcoded/" + encodeURIComponent(token) + "?fps=" + cap')
+      && !layer.includes('"/media-info/" + encodeURIComponent(token), '));
+}
 function check(name, ok, detail) {
   results.push({ name, ok });
   console.log((ok ? 'PASS' : 'FAIL') + ' | ' + name + (detail ? ' | ' + detail : ''));

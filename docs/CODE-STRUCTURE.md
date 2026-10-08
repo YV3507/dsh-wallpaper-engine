@@ -484,9 +484,9 @@ graph LR
 > **本表与 §8 用同一口径**：`localStorage` 里既有"设置的缓存"，也有**只属于这台设备**的字段
 > （见上表第 2 行）—— 后者不是任何宿主状态的回声，因此**不能**被"清缓存即可重建"这句话覆盖。
 >
-> **派生缓存不在此表**：GPU 帧 / 静态帧、转码产物（`tc_*.mp4`，按大小 LRU）、**faststart 变体
-> （`fs_*.mp4`，另一条 8GB LRU；成因与口径见 `lib/index.js` 的 `faststartVariant` 注释与
-> CHANGELOG 的未发布段）**、视频预览、
+> **派生缓存不在此表**：GPU 帧 / 静态帧、转码产物（`tc_*.mp4`，按大小 LRU）、**虚拟 faststart 布局
+> （不落盘：`lib/mp4-vfs.js` 只读源算出「moov 前置 + chunk 偏移整体平移」的段表，`lib/serve.js`
+> 在服务期按段表合成字节；成因与口径见 CHANGELOG 的未发布段）**、视频预览、
 > live 帧、诊断目录、inventory（秒级 TTL）、Steam / 内嵌 MP4 探测（后者未命中一律
 > **未知 → null，绝不猜**）。它们的真源都是**壁纸源文件本身**，全部可删、可重建。
 

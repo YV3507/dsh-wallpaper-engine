@@ -1138,7 +1138,10 @@ console.log('Level F — sceneVideo 文件版探测（issue #136）等价 / 读�
         && hostSrc.indexOf('registerMediaDerivedRoutes(webServer, {') < hostSrc.indexOf('registerMediaBytesRoutes(webServer, {'));
     check('I 关键不变量随文件落地：/media 定音、/preview 不定音、非 GET/HEAD 出 405',
       /seg === 'media' \? pinnedFaststartVariant\(abs, token, log\) : null/.test(bytesSrc)
-        && /serveFile\(fast \|\| abs, req, res, method === 'HEAD'\)/.test(bytesSrc)
+        && /serveLayout\(pick\.layout, pick\.abs, req, res, method === 'HEAD'\)/.test(bytesSrc)
+        && /serveFile\(abs, req, res, method === 'HEAD'\)/.test(bytesSrc)
+        // 负对照：旧的"选一份落盘副本"形态不许复活（已换成服务期虚拟布局）。
+        && !/serveFile\(fast \|\| abs/.test(bytesSrc)
         && /res\.statusCode = 405/.test(bytesSrc));
     check('I negative control: 门面里重新出现被搬走的循环字面量会被同一条判据拒掉',
       stale.test(hostSrc + '\n      path: `${BASE}/${seg}`,'));

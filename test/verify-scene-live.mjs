@@ -1621,29 +1621,54 @@ for (const [name, ok] of clientChecks) check(name, ok);
       && src.includes('disposeWarmVideo();')
       && readFileSync(join(root, 'src', 'picker-modal.js'), 'utf8').includes('"data-we-id": String(w.id)')
       && readFileSync(join(root, 'src', 'quick-panel.js'), 'utf8').includes('"data-we-id": String(w.id)'));
-    // faststart 变体与"字节布局不得中途改换"（真机根因 + 我在自查里发现的隐患）：
-    //   · 真机取证（当时加的临时插桩，已随本次提交删除）：播放器对 `Range: bytes=0-` 会
+    // faststart：从"落盘变体"改成"服务期虚拟布局"（磁盘 0），以及"字节布局不得中途改换"。
+    //   · 真机取证（当时加的临时插桩，已随该次提交删除）：播放器对 `Range: bytes=0-` 会
     //     **顺流整读**，moov 在尾部的源于是要读到文件末尾才报元数据，耗时 ∝ 文件大小
-    //     （764MB/1761ms … 97MB/324ms）。变体把 moov 挪到头部即解 —— 但原片与变体的
-    //     **字节偏移不同**，同一次播放里绝不能前半段读原片、后半段读变体（解复用器会按旧
-    //     偏移读新布局 ⇒ 花屏/解码失败）。
-    //   · 所以 /media 的选片必须经 `pinnedFaststartVariant`（第一次请求定音），而不是直接问缓存。
-    //     ⚠️ 拆分后这条判据跨两个文件：**定音机制**在 `lib/faststart.js`（模块级 `MEDIA_CHOICE_PIN`
-    //     ＋ `pin.at = now` 续期），**消费点**在 `lib/routes/media-bytes.js`（`/media` 族已搬出
-    //     apply()）。这里就**就地读** faststart 模块 —— 模块级的 `faststartSrc` 在本块之后才声明。
+    //     （764MB/1761ms … 97MB/324ms）—— 把 moov 挪到头部即解。
+    //   · 旧做法 = 用 ffmpeg `-c copy -movflags +faststart` 落一份**与源等大**的副本
+    //     （本机实测 5 张 = 1570MB；卡在 8GB 上限之下永不淘汰）。新做法 = 只把 moov 搬到
+    //     mdat 之前、并给每条 `stco`/`co64` 整体 `+len(moov)`，字节**在服务期按段表合成**
+    //     （lib/mp4-vfs.js）：总长不变、内容逐字节等价（真机 framemd5 视频+音频与源全等），
+    //     磁盘 0，且这条路上不再需要 ffmpeg。
+    //   · 原片与虚拟布局的**字节偏移不同**，同一次播放里绝不能前半段读原片、后半段读虚拟
+    //     布局（解复用器会按旧偏移读新布局 ⇒ 花屏/解码失败）。所以 /media 的选片必须经
+    //     `pinnedFaststartVariant`（第一次请求定音）——它现在钉的是"这一份播放用不用虚拟布局"。
+    //     ⚠️ 这条判据跨四个文件：**定音机制**在 `lib/faststart.js`（模块级 `MEDIA_CHOICE_PIN`
+    //     ＋ `pin.at = now` 续期），**布局数学**在 `lib/mp4-vfs.js`，**服务期合成**在
+    //     `lib/serve.js`，**消费点**在 `lib/routes/media-bytes.js`。
     const faststartLib = readFileSync(join(root, 'lib', 'faststart.js'), 'utf8');
+    const vfsLib = readFileSync(join(root, 'lib', 'mp4-vfs.js'), 'utf8');
     const mediaBytesFam = readFileSync(join(root, 'lib', 'routes', 'media-bytes.js'), 'utf8');
-    check('① faststart 变体：同一 token 在运行期内钉住同一份字节布局（不许播放中途换文件）',
+    // 服务面与接线面的源文本就地读：本文件别处的同名常量声明在更后面（TDZ）。
+    const serveLib = readFileSync(join(root, 'lib', 'serve.js'), 'utf8');
+    const hostLib = readFileSync(join(root, 'lib', 'index.js'), 'utf8');
+    check('① 视频字节布局：同一 token 钉住同一份布局，且"搬家"改为服务期合成（磁盘 0、不跑 ffmpeg）',
       faststartLib.includes('function pinnedFaststartVariant(')
       && faststartLib.includes('const MEDIA_CHOICE_PIN = new Map();')
-      && /pinnedFaststartVariant\(abs, token, log\)/.test(mediaBytesFam)
-      && /serveFile\(fast \|\| abs/.test(mediaBytesFam)
       // 钉子命中必须**续期**（审计 2026-10-02）：循环壁纸一次播放远超 TTL，固定窗口会在
       // 会话中途（seek/重缓冲触发新 Range 请求时）换字节布局。
       && faststartLib.includes('pin.at = now;')
-      // 生成命令必须是"只搬盒子"的复制（不得重编码），并且缓存预算有上限、命中会顶 mtime。
-      && /'-c', 'copy', '-movflags', '\+faststart'/.test(faststartLib)
-      && faststartLib.includes('FASTSTART_CACHE_MAX_BYTES') && faststartLib.includes('touchFaststart('));
+      && /pinnedFaststartVariant\(abs, token, log\)/.test(mediaBytesFam)
+      && /serveLayout\(pick\.layout, pick\.abs, req, res, method === 'HEAD'\)/.test(mediaBytesFam)
+      // 布局数学：moov 搬 mdat 前 + 两条 chunk 偏移表整体平移（缺一条就不是"等价搬家"）。
+      && vfsLib.includes('export function analyzeMp4Layout(')
+      && vfsLib.includes('export const MP4_VFS_MAX_MOOV_BYTES')
+      && vfsLib.includes("'stco'") && vfsLib.includes("'co64'")
+      && vfsLib.includes('mdat.start')
+      // 服务期合成：段表 → Range 切片（单段文件/内存段/跨段三条路都要在）。
+      && serveLib.includes('function serveLayout(')
+      && serveLib.includes('function layoutRangeStream(')
+      // 接线：分析器先建、喂给 faststart；启动时一次性回收旧版落盘副本。
+      && hostLib.includes('createMp4VfsKit({ appendDiagLine })')
+      && hostLib.includes('sweepLegacyFaststartVariants()')
+      // 负对照（防止旧实现留着让上面判据蒙过去）：落盘副本那条路整条消失。
+      && !/'-c', 'copy', '-movflags', '\+faststart'/.test(faststartLib)
+      && !faststartLib.includes('FASTSTART_CACHE_MAX_BYTES')
+      && !faststartLib.includes('touchFaststart(')
+      && !/serveFile\(fast \|\| abs/.test(mediaBytesFam)
+      // 虚拟布局这条路**只读不写**：不落盘、不起进程（磁盘 0 与"CI 无 ffmpeg 也能跑"都靠这条）。
+      && !/\bffmpeg\b/i.test(stripComments(vfsLib))
+      && !/writeFileSync|createWriteStream|spawn\(/.test(stripComments(vfsLib)));
     check('实时管线的视频分支委托给通道，而不是自己下判据',
       LIVE.includes('return videoContentReady(video);'));
     // ── 视频通道的**符号围栏**（目标 ①：先造判据再搬家）──────────────────────────

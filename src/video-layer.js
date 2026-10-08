@@ -305,6 +305,8 @@ function buildVideoMedia(sel, fitClass) {
  *   apiJson(path) / apiFetch(path)  ← src/api-client.js（宿主 API 唯一出入口；探测带 signal 透传）
  * 提供的入口：
  *   refreshMediaInfo(force)              读 /media-info，写 selection.mediaInfo（含"源 fps ≤ 上限 ⇒ 无需转码"）
+ *                                        以及宿主只读回答的"该上限的抽帧版已在盘上"
+ *                                        ⇒ 预置 selection.transcodeReady（下一次建层直接播抽帧版）
  *   maybeUpgradeToTranscoded(video, token) 决策并启动/落地抽帧转码（syncLayers 调用）
  *   transcodeUpgradeFailed(video, token)   转码失败回退（含 UI 文案）
  *   abortTranscodeUpgrade()              打断升级：清轮询 + 清兜底 timer + abort 请求
@@ -343,6 +345,13 @@ let mediaInfoInFlight = "";
 // 在途探测的 AbortController: token 变更或强制刷新时终止上一次 fetch — 否则被
 // 取代的探测会一直跑 (结果只靠 mediaInfoToken 检查丢弃), fiber 卸载时也要 abort。
 let mediaInfoAbort = null;
+/**
+ * 抽帧版的 URL（唯一构造点）：`maybeUpgradeToTranscoded` 的探针/换源与
+ * `refreshMediaInfo` 采纳宿主"已有缓存"的回答都走它 —— 两处各拼一次字符串迟早漂移。
+ */
+function transcodedUrlFor(token, fps) {
+  return "/wallpaper-engine/transcoded/" + encodeURIComponent(token) + "?fps=" + fps;
+}
 async function refreshMediaInfo(force) {
   const token = selection.type === "video" && selection.url
     ? selection.url.split("/").pop()
@@ -357,7 +366,10 @@ async function refreshMediaInfo(force) {
   mediaInfoInFlight = token;
   try {
     // 探测带 abort：`apiJson` 透传 signal，被取代的探测不写状态（下方 mediaInfoToken 校验）。
-    const res = await apiJson("/media-info/" + encodeURIComponent(token), { signal: ctrl ? ctrl.signal : undefined });
+    // `?fps=` 是**当前上限**：宿主据此只读地回答"这个上限的抽帧版在不在盘上"（见下）。
+    const res = await apiJson(
+      "/media-info/" + encodeURIComponent(token) + "?fps=" + encodeURIComponent(String(selection.fpsCap || 0)),
+      { signal: ctrl ? ctrl.signal : undefined });
     const data = res.data || {};
     if (mediaInfoToken === token) {
       selection.mediaInfo = (data && data.info) || null;
@@ -371,6 +383,14 @@ async function refreshMediaInfo(force) {
         const video = layer && layer.querySelector("video");
         if (video && video.dataset.weTranscoded) revertTranscodedVideo(video);
         selection.transcodeState = "skipped";
+      } else if (data.transcode && data.transcode.cached === true
+        && Number(data.transcode.fps) === Number(selection.fpsCap)) {
+        // 宿主确认这个上限的抽帧版**已经在盘上**（它只会做一次 existsSync，不会起转码）。
+        // 记进 `transcodeReady` ⇒ **下一次建层直接用抽帧版当 src**（buildVideoMedia 的
+        // useCached 分支），既不再先取原片、也不用等 `/transcoded` 探针回来才换源。
+        // 不在这里动 `<video>`：换源会清掉已上屏的那一帧，落地时机只由建层与
+        // maybeUpgradeToTranscoded 决定（真机"纯色帧"根因，见 layerStillPending 的注释）。
+        selection.transcodeReady = { token, fps: selection.fpsCap, url: transcodedUrlFor(token, selection.fpsCap) };
       }
     }
   } catch {
@@ -628,7 +648,7 @@ function maybeUpgradeToTranscoded(video, token) {
   const pollTimer = setInterval(pollProgress, 500);
   upgradePollTimer = pollTimer;
   pollProgress();
-  const transcodedUrl = "/wallpaper-engine/transcoded/" + encodeURIComponent(token) + "?fps=" + cap;
+  const transcodedUrl = transcodedUrlFor(token, cap);
   // Trigger + completion probe: a tiny Range request that blocks until the host
   // has the transcode cached, then answers 206 with one byte (discarded). The
   // <video> then streams the SAME url via range requests — no full-file blob is
