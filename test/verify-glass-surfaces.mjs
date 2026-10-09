@@ -1952,6 +1952,82 @@ console.log('\n⑪ 思考玻璃门不碰输入框（用户口径 2026-10-04）')
     })());
 }
 
+// ═══ ⑮ 滚动条拇指并入插件取色（#157）══════════════════════════════════════════
+// 口径：宿主把滚动条拇指色写成四个 `--dsw-alias-scrollbar-*` 令牌，取的是**静态中性色**
+// （浅色 neutral-200/300、深色 neutral-700/600/550/500），与插件的玻璃色相无关 ⇒
+// 压在玻璃面板上显得突兀（#157）。修法：在两个页面玻璃令牌块里重声明这四个令牌，
+// 取值必须掺入用户选的玻璃底色（`--we-surface-tint-light/dark`）。
+// 为什么一处就够：宿主各处滚动容器的局部重声明写的都是 `var(--dsw-alias-scrollbar-bg-l2)`
+// 这一层**间接**，自定义属性**按元素**解析（不是按声明处），所以在 body 上换掉底层令牌，
+// 全部局部重声明都会解析到插件的值 —— 不需要逐个锚点补，也不碰任何类名哈希。
+// 本组判据只看「有没有掺玻璃底色」，不判颜色好看与否（观感不可自动判定）。
+{
+  const SCROLLBAR_TOKENS = ['--dsw-alias-scrollbar-bg-l1', '--dsw-alias-scrollbar-bg-l2',
+    '--dsw-alias-scrollbar-hover-l1', '--dsw-alias-scrollbar-hover-l2'];
+  const NOT_MIX = '不是 color-mix';
+  const NO_TINT = '未掺玻璃底色';
+  // 与主判据**共用**的这一条：空 / 非 color-mix / 没掺底色 各自给出理由，合规返回 ''
+  const badScrollbarDecl = (value, tintVar) => {
+    if (!value) return '缺声明';
+    if (!/^color-mix\(/.test(value)) return NOT_MIX;
+    if (!value.includes(tintVar)) return NO_TINT;
+    return '';
+  };
+  // 块体抽取：同一个 header 可能出现多次（第一个 body[data-we-glass-page] 是主令牌映射），
+  // 取**含 marker 的那一块**，否则会读到不相干的块。
+  const blockWith = (cssText, header, marker) => {
+    for (let from = 0; ;) {
+      const i = cssText.indexOf(header, from);
+      if (i < 0) return '';
+      const open = cssText.indexOf('{', i);
+      const close = cssText.indexOf('}', open);
+      const body = cssText.slice(open + 1, close);
+      if (body.includes(marker)) return body;
+      from = i + 1;
+    }
+  };
+  // 块内声明表：先剥注释（注释里也会提到这些令牌名，直接正则找会先抓到注释），再按 ';'
+  // 切段解析。⚠️ 不能用「前面必须是 ; 或字符串开头」的正则 —— 块内第一条声明前面是注释的
+  // `*/`，那样会漏掉第一条（本组首版就是这么漏了 --dsw-alias-scrollbar-bg-l1）。
+  const declsOf = (body) => {
+    const out = new Map();
+    for (const part of stripCssComments(body).split(';')) {
+      const m = /^\s*(--[a-z0-9-]+)\s*:\s*([\s\S]+)$/.exec(part);
+      if (m) out.set(m[1], m[2].trim().replace(/\s+/g, ' '));
+    }
+    return out;
+  };
+  const MARKER = '--we-composer-seat-fill';
+  const TARGETS = [
+    ['浅色', 'body[data-we-glass-page] {', 'var(--we-surface-tint-light'],
+    ['深色', 'body[data-ds-dark-theme][data-we-glass-page] {', 'var(--we-surface-tint-dark'],
+  ];
+  const problems = [];
+  let declared = 0;
+  for (const [label, header, tintVar] of TARGETS) {
+    const body = blockWith(STYLES_TEXT, header, MARKER);
+    if (!body) problems.push(label + ' 找不到页面玻璃令牌块（marker ' + MARKER + '）');
+    const decls = body ? declsOf(body) : new Map();
+    for (const token of SCROLLBAR_TOKENS) {
+      const value = decls.get(token) || '';
+      if (value) declared++;
+      const bad = badScrollbarDecl(value, tintVar);
+      if (bad) problems.push(label + ' ' + token + '：' + bad);
+    }
+  }
+  check('滚动条拇指的四个宿主令牌在两个页面玻璃块里都重声明、且都掺了该主题的玻璃底色（#157）',
+    problems.length === 0,
+    problems.length ? problems.join(' | ')
+      : declared + ' 条声明全部掺了玻璃底色（' + TARGETS.length + ' 个主题块 × '
+        + SCROLLBAR_TOKENS.length + ' 个令牌）');
+  check('negative control: 静态中性色 / 无 color-mix / 缺声明三种形态都会被同一条判据判出',
+    badScrollbarDecl('var(--dsw-static-neutral-300, #d4d4d4)', 'var(--we-surface-tint-light') === NOT_MIX
+      && badScrollbarDecl('color-mix(in srgb, #d4d4d4 40%, #a2a4a6)', 'var(--we-surface-tint-light') === NO_TINT
+      && badScrollbarDecl('', 'var(--we-surface-tint-light') === '缺声明'
+      && badScrollbarDecl('color-mix(in srgb, var(--we-surface-tint-light, #ffffff) 40%, var(--dsw-static-neutral-300, #d4d4d4))',
+        'var(--we-surface-tint-light') === '');
+}
+
 console.log('');
 if (failed) {
   console.log('GLASS SURFACE CHECKS FAILED — ' + failed + ' failed');

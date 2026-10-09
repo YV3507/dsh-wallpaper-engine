@@ -577,6 +577,18 @@ const CSS = `
        （设置对话框、图片灯箱、各类 role=dialog 面板），不必逐个选择器补。
        这是宿主**自有**的模糊通道，不是去猜它的 CSS 模块哈希。 */
     --dsw-mask-blur: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    /* #157 滚动条拇指并入插件取色：宿主把拇指色写成四个**静态中性色**
+       （浅色 neutral-200/300、深色 neutral-700/600/550），与插件的玻璃色相无关，
+       压在玻璃面板上就显得突兀。这里在 body[data-we-glass-page] 上重声明底层四个
+       --dsw-alias-scrollbar-* 令牌 —— 宿主各处滚动容器的局部重声明写的都是
+       var(--dsw-alias-scrollbar-bg-l2) 这一层间接（自定义属性按元素解析，不是按
+       声明处解析），所以一次覆盖全应用，不需要逐个锚点补，也不碰任何类名哈希。
+       色阶仍沿用宿主那一级（可视性不变），只把中性色的**色相**换成用户选的玻璃
+       底色；浅色下取更暗一级的静态中性色，抵掉混色带来的提亮。 */
+    --dsw-alias-scrollbar-bg-l1: color-mix(in srgb, var(--we-surface-tint-light, #ffffff) 40%, var(--dsw-static-neutral-300, #d4d4d4));
+    --dsw-alias-scrollbar-bg-l2: color-mix(in srgb, var(--we-surface-tint-light, #ffffff) 40%, var(--dsw-static-neutral-300, #d4d4d4));
+    --dsw-alias-scrollbar-hover-l1: color-mix(in srgb, var(--we-surface-tint-light, #ffffff) 40%, var(--dsw-static-neutral-400, #a2a4a6));
+    --dsw-alias-scrollbar-hover-l2: color-mix(in srgb, var(--we-surface-tint-light, #ffffff) 40%, var(--dsw-static-neutral-400, #a2a4a6));
   }
   body[data-ds-dark-theme][data-we-glass-page] {
     --we-chat-glass-fill: rgba(var(--we-surface-tint-rgb-dark, 13, 21, 36), var(--we-glass-alpha, 0.15));
@@ -584,6 +596,13 @@ const CSS = `
     --we-composer-seat-fill: color-mix(in srgb,
       var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
       rgba(var(--we-surface-tint-rgb-dark, 13, 21, 36), var(--we-glass-alpha, 0.15)) calc((1 - var(--we-readability-floor)) * 100%));
+    /* 滚动条（#157）：暗主题宿主取 neutral-700/600（静态）与 600/550（悬停），混色会把整体
+       压暗，所以每档都往亮一级取，混完仍落在宿主原来的亮度台阶上（宿主 l2 与 hover-l1 同值，
+       这里同样同值）。 */
+    --dsw-alias-scrollbar-bg-l1: color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) 40%, var(--dsw-static-neutral-600, #545557));
+    --dsw-alias-scrollbar-bg-l2: color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) 40%, var(--dsw-static-neutral-500, #7f8287));
+    --dsw-alias-scrollbar-hover-l1: color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) 40%, var(--dsw-static-neutral-500, #7f8287));
+    --dsw-alias-scrollbar-hover-l2: color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) 40%, var(--dsw-static-neutral-400, #a2a4a6));
   }
   /* ⚠️ 这组「气泡直接读 --we-chat-glass-fill」是**思考玻璃功能的一部分**，必须挂
      [data-we-thinking-glass] 门 —— 否则默认态会改掉气泡的底色、并绕开「对话栏玻璃保真度」
