@@ -3626,6 +3626,93 @@ setTimeout(async () => {
   assert.ok(full.named.includes('removeWallpaperFadeBg') === false, '（防呆：名字记录器本身工作正常）');
 }
 
+// ── #159①：宿主切深浅主题后，淡出底色缓存必须被清掉（行为级）────────────────────
+// 事故：`--we-wallpaper-fade-bg` 是 .we-layer 那块 z-index −2 衬底的底色（透明底色会让
+// backdrop-filter 失效，所以必须垫一个实色），而它的解析结果缓存在 effects.js 的
+// `lastFadeBg` 里、**只在 applyEffects 被调用时**重算。宿主切主题（翻转 body 的
+// data-ds-dark-theme）不会调用我们，本仓唯一的主题订阅（theme-follow）由开关门控、
+// 默认关 ⇒ 缓存停在旧主题的底色上，而它给**每一面玻璃**当衬底 ⇒ 整页被染成过期色。
+// 判据走真 src/effects.js（与上面那条拖动档判据同一个 with 挂载台），四件：
+//   ① 观察者真的挂在 body 上、只认 data-ds-dark-theme、且幂等（只挂一个）；
+//   ② 负对照：翻转属性但**不派发** ⇒ 拖动档仍旧值（证明缓存确实是黏的，判据不是空转）；
+//   ③ 派发之后拖动档必须拿到新主题的底色；
+//   ④ clearEffects 必须断开（否则卸载后观察者留在宿主 DOM 上）。
+{
+  const fxSrc = readFileSync(new URL('../src/effects.js', import.meta.url), 'utf8');
+  const fxProps = [];
+  const fxBody = {
+    style: { setProperty: (k, v) => fxProps.push(k + '=' + v), removeProperty: (k) => fxProps.push('-' + k) },
+    _attrs: new Set(),
+    setAttribute(k) { this._attrs.add(k); },
+    removeAttribute(k) { this._attrs.delete(k); },
+    hasAttribute(k) { return this._attrs.has(k); },
+    offsetHeight: 1,
+  };
+  const fxObservers = [];
+  class FakeMutationObserver {
+    constructor(cb) { this.cb = cb; this.disconnected = false; fxObservers.push(this); }
+    observe(target, opts) { this.target = target; this.opts = opts; }
+    disconnect() { this.disconnected = true; }
+  }
+  const fxTarget = {
+    selection: {
+      scrim: 0, wallpaperOpacity: 40, accent: '#4f8cff', glassColor: '#ffffff', glassAlpha: 0,
+      blur: 0, border: 0, fontCustom: false, caretColor: '', sidebarBlur: 0, sidebarAlpha: 0,
+      sidebarColor: '#ffffff', sidebarContentAlpha: 0, sidebarContentColor: '', sidebarGlass: true,
+      glassWindow: false, wallpaperBlur: 0, backgroundBrightness: 100, backgroundContrast: 100,
+      backgroundSaturate: 100, objectFit: 'cover', flip: false,
+    },
+    document: {
+      body: fxBody,
+      getElementById: () => null,
+      createElement: () => ({ style: {}, dataset: {} }),
+      head: { appendChild: () => {} },
+    },
+    getComputedStyle: () => ({ getPropertyValue: () => '' }),
+    MutationObserver: FakeMutationObserver,
+    GLASS_SATURATE: 1.3, SCRIM_ID: 'we-scrim', LAYER_ID: 'we-layer',
+    adapterCaps: () => ({ target: 'plain-browser' }),
+    detectMicaSupport: () => true, detectSoftwareRender: () => false,
+    useLegacySaturateCoupling: () => false,
+    weClampSurfaceColor: (hex) => hex,
+    snapshotHostFontDefaults: () => {}, applyComponentFonts: () => {}, removeFontStyles: () => {},
+    removeComponentFonts: () => {}, applyCaretStyles: () => {}, removeCaretStyles: () => {},
+    syncSceneAudio: () => {},
+  };
+  const fxScope = new Proxy(fxTarget, {
+    has: (t, k) => (k in t) || !(k in globalThis),
+    get: (t, k) => (k in t ? t[k] : () => undefined),
+    set: () => true,
+  });
+  const fxMod = new Function('__scope',
+    'with (__scope) { ' + stripExportBlocks(fxSrc) + '\nreturn { applyEffects, clearEffects }; }')(fxScope);
+  // 只走**拖动档**：那是唯一读缓存的路径（抬手档无论如何都会重算）。
+  const liveFadeBg = () => {
+    fxProps.length = 0;
+    fxMod.applyEffects({ live: true });
+    return fxProps.filter((p) => p.startsWith('--we-wallpaper-fade-bg=')).pop();
+  };
+  assert.equal(liveFadeBg(), '--we-wallpaper-fade-bg=#ffffff', '冷启动（无暗色属性）的衬底 = 纯白');
+  const watch = fxObservers[0];
+  assert.ok(fxObservers.length === 1 && watch && watch.target === fxBody
+    && JSON.stringify(watch.opts) === JSON.stringify({ attributes: true, attributeFilter: ['data-ds-dark-theme'] }),
+    '#159①：切主题的失效观察者必须挂在 body 上且只认 data-ds-dark-theme —— 实测 '
+    + fxObservers.length + ' 个 / ' + JSON.stringify(watch && watch.opts));
+  fxBody.setAttribute('data-ds-dark-theme');
+  assert.equal(liveFadeBg(), '--we-wallpaper-fade-bg=#ffffff',
+    '负对照：属性翻转但观察者没回调时，拖动档必须仍拿旧值（否则这条判据测的就不是缓存失效）');
+  assert.equal(fxObservers.length, 1, '观察者只许挂一次（幂等）：实测 ' + fxObservers.length);
+  watch.cb([{ type: 'attributes' }]);
+  assert.equal(liveFadeBg(), '--we-wallpaper-fade-bg=#000000',
+    '#159①：切到深色后拖动档必须重算到 #000000（缓存被失效）');
+  fxMod.clearEffects();
+  assert.ok(watch.disconnected, '#159①：clearEffects 必须断开主题观察者（否则卸载后它还挂在宿主 DOM 上）');
+  const neverDisconnected = new FakeMutationObserver(() => {});
+  neverDisconnected.observe(fxBody, {});
+  assert.ok(neverDisconnected.disconnected === false,
+    'negative control: 没调 disconnect 的观察者不许判成已断开');
+}
+
 // ── 滑块的取值域必须**同源于 schema**（为一个真实事故补的判据）────────────────────
 // 事故（用户实测）：R4 把刻度改成 0–100 时改了 `KINDS` 与面板量程，**漏了处理器里手写的四处**；
 // 而 `clampNum` 是"**越界即回落到默认值**"（不是截断）⇒ 拖过旧上限的瞬间滑块**跳回默认值**

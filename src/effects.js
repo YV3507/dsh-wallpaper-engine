@@ -46,6 +46,8 @@ let lastScrimCss = "";
 // 壁纸淡出底色的**缓存**（拖动期用；见 applyEffects 的 live 说明）。空串 = 还没算过 /
 // 已失效（壁纸透明度归零时清掉）。
 let lastFadeBg = "";
+// #159①：让上面那份缓存在宿主切深浅主题时失效的观察者（见 armFadeBgThemeWatch）。
+let fadeBgThemeWatch = null;
 
 // ── 输入光标颜色注入（#83）──────────────────────────────────────────────────
 // <style id="we-caret-patch"> 把 body 上的 --we-caret-color 应用到所有文本
@@ -97,6 +99,35 @@ function resolveWallpaperFadeBg() {
   try {
     return document.body.hasAttribute("data-ds-dark-theme") ? "#000000" : "#ffffff";
   } catch { return "#000000"; }
+}
+
+// ── #159①：宿主切深浅主题 ⇒ 让淡出底色缓存失效 ─────────────────────────────────
+// 事故：`lastFadeBg` 只在 applyEffects 里重算，而宿主切主题（翻转 body 的
+// `data-ds-dark-theme`）**不会**调用我们；本仓唯一的主题订阅在 src/theme-follow.js，
+// 由 `themeFollow` 开关门控、默认关 ⇒ 缓存会一直停在旧主题的底色上。它的消费者是
+// `.we-layer` 那块 z-index −2 的衬底（给 backdrop-filter 提供底色）⇒ 过期值会给
+// **每一面玻璃**上色（浅色主题配深色衬底 = 整页发灰）。
+// 这里只做**失效**、不做重算：把 lastFadeBg 清空，等下一次 applyEffects 自己算。
+// ⚠️ 刻意不在这里直接调 applyEffects —— 那会与 theme-follow 的主题订阅抢职责
+//（"跟随主题换配色"是那个开关的事，默认不接管）。
+// 幂等：observer 只挂一次；环境里没有 MutationObserver（Node 沙箱 / 极老宿主）时
+// 静默退化成"没有这条失效通道"，不抛错、不改变既有行为。
+function armFadeBgThemeWatch() {
+  if (fadeBgThemeWatch || typeof MutationObserver !== "function") return;
+  try {
+    fadeBgThemeWatch = new MutationObserver(() => { lastFadeBg = ""; });
+    fadeBgThemeWatch.observe(document.body, { attributes: true, attributeFilter: ["data-ds-dark-theme"] });
+  } catch {
+    // 观察者建不起来（假 DOM 没有 observe / body 不在）⇒ 不留半个句柄。
+    try { if (fadeBgThemeWatch) fadeBgThemeWatch.disconnect(); } catch { /* ignore */ }
+    fadeBgThemeWatch = null;
+  }
+}
+// 与 arm 成对（clearEffects / 壁纸透明度归零时调用）：断开并丢句柄。
+function disarmFadeBgThemeWatch() {
+  if (!fadeBgThemeWatch) return;
+  try { fadeBgThemeWatch.disconnect(); } catch { /* ignore */ }
+  fadeBgThemeWatch = null;
 }
 
 // ── accent 墨色：任意用户配色上的可读前景（黑/白）────────────────────────────
@@ -275,11 +306,15 @@ function applyEffects(opts) {
     s.setProperty("--we-wallpaper-opacity", String((100 - selection.wallpaperOpacity) / 100));
     // 拖动期沿用缓存（见函数头的 live 说明）：resolveWallpaperFadeBg 里那次
     // getComputedStyle 是**强制同步样式计算**，每格一次会把拖动拖垮。
+    // 缓存会在宿主切深浅主题时由 armFadeBgThemeWatch 的观察者清空（#159①）；
+    // 观察者只挂一次，挂在"这个变量真的在用"的分支里。
+    armFadeBgThemeWatch();
     if (!live || !lastFadeBg) lastFadeBg = resolveWallpaperFadeBg();
     s.setProperty("--we-wallpaper-fade-bg", lastFadeBg);
   } else {
     s.removeProperty("--we-wallpaper-opacity");
     s.removeProperty("--we-wallpaper-fade-bg");
+    disarmFadeBgThemeWatch();
     lastFadeBg = "";
   }
 
@@ -451,6 +486,8 @@ function applyEffects(opts) {
 
 function clearEffects() {
   const s = document.body.style;
+  // #159①：主题观察者与缓存同生共死（与下面的内联属性成对清理）。
+  disarmFadeBgThemeWatch();
   lastFadeBg = "";
   s.removeProperty("--we-scrim-color");
   s.removeProperty("--we-border-alpha");
