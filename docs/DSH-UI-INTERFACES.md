@@ -57,6 +57,8 @@ DSH 桌面端把整份客户端 + node 宿主打进 `resources/app.asar`（Elect
 | `data-chat-flow-kind`（+ `data-chat-*` 一族） | ✅ | `dsh-client-ui-schedule` | 聊天流条目盒子上的**语义化**锚点；取值来自节点种类（`user` / `steering` / `context` / `turn-trigger` / `turn-process` / `assistant-text` …）⇒ `user` / `steering` 即用户气泡那一行，**稳**（类名是构建哈希，只能兜底） |
 | `data-question-key` / `data-plan-review-key` / `data-approval-key` | ✅ | `dsh-client-ui-user-questions` / `-approval` / `-conversation` | 工具弹卡的**容器**属性，稳 |
 | `data-turn-trigger` | ✅ | `dsh-client-ui-chat`（`TurnTriggerNodeView`） | 思考触发条的锚点，稳 |
+| `data-composer-seat`（+ `data-conversation-region="composer"`、`data-content-phase`、`data-phase`） | ✅ | `dsh-client-ui-conversation` | 输入**座位**（sticky 底板）的锚点，稳。⚠️ 它和 `[data-chat-flow]` **不在同一棵子树**里（座位是 ChatView 那一列在 `[data-conversation-scroll]` 里的兄弟）⇒ 会话流作用域在这一面用不了（#156③） |
+| `data-composer-stats`（+ `data-composer-card` / `data-composer-input` … 一族） | ✅ | `dsh-client-ui-chat` | 底部统计行 / 输入卡片的锚点，稳 |
 | `data-sidebar-right-panel` / `data-sidebar-right-open` | ✅ | `dsh-client-ui-sidebar-right` | **既有**右栏适配的落点，稳（上游曾改过隐藏机制，见 `test/compat-harness-surfaces.mjs` 的活判据） |
 | `data-slot`（**值由宿主槽注册表决定**） | ✅ 属性存在；`settings.section` ✅ | `dsh-client-ui-renderer` 写出口 | **这是"槽出口"，不是普通属性** —— 见 §3；出口自己写死 `display: contents`（**不生成盒子**），**不能**拿它当位移 / 定位的落点 —— 见 §3.5 |
 | `data-windows-titlebar`（在 `html` 上） | ✅ 桌面壳写 | **桌面壳**（不在客户端产物里） | Windows 标题栏形态门：壳把窗口切到"自绘标题栏"布局（顶栏高度进 CSS 变量 `--dsh-windows-titlebar-height`）时挂在 `html` 上。本插件抄左栏那条玻璃规则时用它当**形态门**，与 `data-we-adapter^="desktop-"` 两道门同时成立才生效 |
