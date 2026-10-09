@@ -16,14 +16,14 @@ documentation**; mechanisms do not live here.
 - **Every paired document starts with a language-switch link**; when you change one side, change the other
   (each header says so).
 - **Deliberate exceptions (not translated)**: `adr/` (decision records; Chinese is the authoritative
-  version), `ROUTE-INDEX.md` (a generated artifact), `archive/` (history — `dev-notes-bom-and-dsh-boot.md`
+  version), `ROUTE-INDEX.md` and `TOKEN-CONTRACT.md` (generated artifacts), `archive/` (history — `dev-notes-bom-and-dsh-boot.md`
   and `awesome-dsh-plugin-pr-guide.md`, previously listed separately, now live under `archive/`).
   `CHANGELOG.md` **has been split into two files** (English at
   [`CHANGELOG.md`](./CHANGELOG.md)), so it is no longer an exception.
 - **Maintainer-facing documents are Chinese-only** (October 2026 documentation slim-down): the English
   mirrors of `CODE-STRUCTURE.md` / `DEV-GUIDE.md` / `FONT-SYSTEM.md` were removed — their reader is the
   maintainer, and bilanguage was pure double maintenance. User-facing docs
-  (`README` / `UPGRADING` / `HOW-IT-WORKS` / `TROUBLESHOOTING` / `CHANGELOG`) are still paired.
+  (`README` / `UPGRADING` / `HOW-IT-WORKS` / `TROUBLESHOOTING` / `COEXISTENCE` / `CHANGELOG`) are still paired.
   (Precedent: `UPGRADING.md` here already said "CHANGELOG (Chinese only)".)
 
 ## Document lifecycle rules (read this before adding a document)
@@ -85,6 +85,7 @@ does not reflect the current implementation) and its evidence trails.
 | [`CHANGELOG.md`](./CHANGELOG.md) | **Per-version changes** — features and fixes, newest first (its Chinese counterpart is [`../CHANGELOG.md`](../CHANGELOG.md), same basename) |
 | [`HOW-IT-WORKS.md`](./HOW-IT-WORKS.md) | **How it works** — the out-figure chain (live render → embedded MP4 → live capture → custom frame → empty state), the host/client split, **the font-set channels**, occlusion pause and client-error traces, the HTTP route table |
 | [`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md) | **Troubleshooting** — install-failure diagnosis and a "symptom → where to look first" quick table |
+| [`COEXISTENCE.md`](./COEXISTENCE.md) | **Coexistence** — the conflict matrix for running alongside the skin centre / sidebar plugin / other UI plugins (symptom → suspect mechanism → three-step self-check), the truth about "glass cannot be turned off", and the four-mode target shape |
 
 **Layering convention**: the facade `README.md` / `README.en.md` carries only facts that **do not change
 with versions and that a new visitor needs in order to decide**; anything with a version number, an issue
@@ -101,6 +102,7 @@ went false together** after a persistence rework — that is exactly where §wri
 | [`FONT-SYSTEM.md`](../FONT-SYSTEM.md) | The font system's channel split, invariants, extension steps and the constraints on entering the browser bundle |
 | `ROUTE-INDEX.md` (Chinese) | The host route table — a **generated index** (recomputed and byte-compared by `test/tools/host-route-index.mjs`; hand-writing always rots) |
 | `GUARD-MAP.md` (Chinese) | The **two-way guard ↔ module map** ("which guards to run after touching module X"): guard→module and module→guard tables, derived from the guards' **own code** by `test/tools/guard-targets.mjs` (`--write` recomputes it and it is byte-compared; generated, never hand-edited) |
+| `TOKEN-CONTRACT.md` (Chinese) | The **generated index of `--dsw-*` token rewrites** (which host design tokens we rewrite, under which gates, and the closed allowlist of ungated rewrites) — recomputed and byte-compared by `test/tools/token-contract.mjs` (`test/verify-token-contract.mjs` guards it; generated, never hand-edited) — the ledger of the coexistence coupling surface, see [`COEXISTENCE.md`](./COEXISTENCE.md) |
 
 > **The English mirrors of the table above were removed** (maintainer-facing documents are Chinese-only; see
 > §Language layout above — `ROUTE-INDEX.md` / `GUARD-MAP.md` are generated and Chinese-only too). User-facing documents are still paired.
@@ -132,6 +134,7 @@ the header format, and **why not to write drifting numbers** (the same conventio
 | [0007](../adr/0007-machine-checks-target-code-not-prose.md) | Machine checks target **code and disk, not prose** (a four-question test plus keep/remove lists) |
 | [0008](../adr/0008-glass-config-two-state.md) | Glass config collapses into **two states** (the whole "do we want glass?" layer is retired; one "independent configuration" per surface = `inherit` / `custom`) plus a **gating policy**: always-on attributes act as the CSS-side certificate, and the **simple vs advanced** split is decided by `ctx.surface` (D4) |
 | [0009](../adr/0009-system-fonts-from-the-os.md) | The installed-font list is **enumerated by the host asking the OS** (plus caching; the browser side is only a reader) rather than parsing font files in-process or enumerating from the browser; with no authoritative source it honestly reports `approximate` |
+| [0010](../adr/0010-glass-off-revisit-four-states.md) | **Amends ADR-0008's "giving up on glass-off"**: the precondition that the token layer can retreat as a whole now holds (ledger [`TOKEN-CONTRACT.md`](../TOKEN-CONTRACT.md) + the closed-allowlist guard); the target shape is **one mode key, four states** (full / glass-only / wallpaper-only / off), landing in three batches with the master switch last (Chinese only) |
 
 ## In progress (`wip/`)
 

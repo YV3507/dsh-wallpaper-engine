@@ -421,10 +421,13 @@ section('⑤ 客户端通道：登记进产物 / 浏览器安全 / 只碰自己�
     && writtenFields('selection.systemFonts = [];').every((k) => allowed.includes(k)));
 
   const client = stripComments(read('src/client.js'));
+  const qp = stripComments(read('src/quick-panel.js'));
   check('清单初始化**先吃本地缓存**（否则已选中的本机字体首帧显示成"跟随"）',
     /systemFonts:\s*readCachedSystemFonts\(\)/.test(client));
-  check('清单只在「外观」页 + 字体自定义打开时才去要（宿主那次扫描很贵）',
-    /activeTab === "appearance" && selection\.fontCustom/.test(client)
+  // ⚠️ 触发点 2026-10-09 随字体节迁到侧栏（设置页外观已没有字体 UI，在那边拉是白付
+  //    宿主扫描）：新口径 = 侧栏外观页 + 字体节**展开** + 字体自定义打开。
+  check('清单只在「侧栏外观页 + 字体节展开 + 字体自定义打开」时才去要（宿主那次扫描很贵）',
+    /qpTab === "appearance" && fontOpen && sel\.fontCustom/.test(qp)
     && /if \(v\) ensureSystemFonts\(false\)/.test(client));
   check('面板拿到了全局字族与重新扫描两个入口（ctx 少一个就是"点了没反应"）',
     /onGlobalFamily, onRefreshSystemFonts/.test(read('src/panel-tabs.js')));
@@ -666,14 +669,32 @@ section('⑧ 真渲染（构建产物）：内置族键 + 本机字体同列、�
 
   const renders = [];
   const slots = { inject: (key, cb) => cb(), register: (opts, render) => { renders.push({ opts, render }); } };
-  const ctx = { slots, effect(fn) { fn(); return fn; } };
+  // 侧栏官方档注册需要的两个可选服务桩（2026-10-09 字体节迁侧栏后，字体下拉的行为台
+  // 从设置页渲染器改成侧栏 body 渲染器 —— 与 verify-client 同一套手法）。
+  const sidebarRightTabsStub = { register: () => () => {} };
+  const sidebarRightStub = { openTab: () => {} };
+  const ctx = {
+    slots,
+    effect(fn) { fn(); return fn; },
+    get: (name) => (name === 'sidebarRightTabs' ? sidebarRightTabsStub
+      : name === 'sidebarRight' ? sidebarRightStub : null),
+  };
   let applyThrew = null;
-  try { exportsObj.apply(ctx); } catch (e) { applyThrew = (e && e.stack) || String(e); }
+  try { exportsObj.apply(ctx); } catch (e) { applyThrew = (e && (e.stack || e.message)) || String(e); }
   check('apply(ctx) 不抛（夹具给全了 slots/effect/document/fetch）', applyThrew === null, applyThrew || '');
   await new Promise((r) => setTimeout(r, 150)); // 等 loadPersisted → loadFontSet → loadInventory → system-fonts
 
   const settings = renders.find((r) => r.opts && r.opts.name === 'settings.section');
   check('设置页渲染器已注册（跑的是真注册路径）', Boolean(settings));
+  // 字体节的新家：官方侧栏 body（qp-tab=appearance + 字体节展开 的播种在调用点）。
+  const sideBody = renders.find((r) => r.opts && r.opts.name === 'sidebar.right.pane.tab');
+  check('侧栏 body 渲染器已注册（字体节迁移目的地 —— installSidebarRight 走了 ctx.get 桩）',
+    Boolean(sideBody));
+  const renderSide = () => {
+    cache['dsh-wallpaper-engine:qp-tab'] = 'appearance';
+    cache['dsh-wallpaper-engine:qp-font-open'] = '1';
+    return sideBody.render();
+  };
 
   /** 枚举一棵渲染树里的全部节点（数组 / 元素两种形态）。 */
   const allNodes = (n, out = []) => {
@@ -690,18 +711,20 @@ section('⑧ 真渲染（构建产物）：内置族键 + 本机字体同列、�
 
   // **走真实触发路径**：字体自定义默认关 ⇒ 面板上没有那两个下拉；打开总开关时顺手去要一次
   // 本机字体清单（`onToggleFontCustom` 里那一句）——这一条本身就是被测行为之一。
-  const before = settings.render();
+  // ⚠️ 2026-10-09 字体节迁侧栏 ⇒ 行为台从设置页渲染器改为侧栏 body（renderSide，
+  //    播种 qp-tab=appearance + qp-font-open=1 ⇒ 外观页且字体节展开）。
+  const before = renderSide();
   check('总开关关着时**没有**这两行（那一整块是 `fontCustom` 的门控）',
     !allNodes(before).some((n) => n.type === 'span'
       && String((n.props || {}).className || '').includes('we-picker__ctl-label')
       && n.children && n.children[0] === '默认字体'));
   const quickRow = rowsOf(before).find((r) => rowLabelled(r, '字体自定义'));
   const quickSwitch = quickRow ? allNodes(quickRow).find((n) => n.type === 'input') : null;
-  check('面板里找得到「字体自定义」总开关', Boolean(quickSwitch));
-  quickSwitch.props.onChange({ target: { checked: true } });
+  check('面板里找得到「字体自定义」总开关（侧栏外观页 · 字体节展开）', Boolean(quickSwitch));
+  quickSwitch && quickSwitch.props.onChange({ target: { checked: true } });
   await new Promise((r) => setTimeout(r, 80)); // 开关 ⇒ ensureSystemFonts ⇒ 宿主回话
 
-  const tree = settings.render();
+  const tree = renderSide();
   const nodes = allNodes(tree);
   const optionsOf = (sel) => allNodes(sel.children).filter((n) => n.type === 'option');
   const optgroupsOf = (sel) => allNodes(sel.children).filter((n) => n.type === 'optgroup');
