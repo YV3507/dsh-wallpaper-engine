@@ -620,6 +620,119 @@ npm run verify:all      # = build → verify(35) → verify:docs(4) → smoke(6)
 - **判据 / 门禁**：第 ⑯ 组 + `REAPED_VARS`（见上）；`npm run verify:all` 全绿；`docs/TOKEN-CONTRACT.md` 因删掉两条声明重算。
 - 对应提交：`fix(玻璃): 撤回输入座位底板（#156③ 经用户口径否定）`（`split/p0-p2` 第 12 个提交）。
 
+## 11. 未推送代码整体审计（三路只读子代理 + 我方复核）
+
+### 11.0 范围、方法与边界
+
+- **对象**：`origin/main..split/p0-p2`（审计时 18 个提交；`git diff --shortstat` = 55 files / +4993 / −716）。审计主体**冻结在 `0ac53b5`**；`a123f82`（座位底板整条撤回）在它**之后**，只覆盖 §11 里"座位底板"那一条的结论（见 A1-6）。
+- **方法**：三路**只读**子代理各自 `git archive 0ac53b5` 导出冻结副本、在副本里做变异验证（明令禁跑 `npm run verify:all`）；每条关键结论由我**在真仓重做一遍**（变异 → 看红绿 → `git checkout` 复原 → `git status` 回干净）。**以下标"复核✓"的结论都是我自己跑出来的**，不是照抄子代理。
+- **分路**：A1 = C1–C6（`src/styles.js` / `src/effects.js` / `src/glass.js` / `src/client.js` + readability/glass-surfaces/client 三条守卫）；A2 = C7（玻璃色分主题）；A3 = C9（磁盘索引）+ C148（焦点围栏/交还）+ 打包与派生产物。
+- **边界（三路共同，也是本次审计的能力上限）**：**没有浏览器/渲染验证** —— 全部结论来自 stub-DOM 台架与源码/产物阅读，任何"观感强度"结论都未证；宿主事实以本机已装 asar（Sep-29 构建）为准；未跑 `verify:bridge` / `verify:e2e` / `verify-package-publish` / smoke（审计子代理被禁跑 `verify:all`；我方在 `a123f82` 上单独跑过 `verify:all`，绿）。
+
+### 11.1 结论速览
+
+| 编号 | 档 | 一句话 | 复核 |
+|---|---|---|---|
+| A1-1 | **major** | #156①（`--dsw-mask-blur`）零守卫覆盖：把值改回宿主默认 `none`（= 整条修复的语义回退）三条相关守卫**全绿** | 复核✓ |
+| A1-2 | **major** | #156② / #156④ 的效果**整块删掉** `verify-glass-surfaces` 仍全绿（锚点只判"字符串出现过"） | 复核✓ |
+| A3-F1 | **high** | `src/focus-handback.js` 五条判定里删掉四条都不红（假绿），且提交信息与本文档把这条判据写成"有牙" | 复核✓ |
+| A3-F2 | medium | 被手势窗口跳过的交还**永不重试**；而"手势"里包含宿主按键 ⇒ 打字期间被偷的焦点永久掉地 | 复核✓ |
+| A3-F3 | medium | `we:[null]` 这样的畸形索引让 `/inventory` **跨重启永久 500**（无修复路径） | 复核✓ |
+| A2-F1 | medium | 预设把"深浅两套"带回来、开关状态却不跟着走 ⇒ 开关关着而两侧不同 | 复核✓ |
+| A2-F2 | medium-low | 侧栏档那一行写"当前配色那一侧"，而侧栏只吃浅色那一侧 | 口径 |
+| A1-3 | minor | `token-contract` 生成器的门控计数**结构性恒 0**，产物被字节守卫永久冻结成 0 | 复核✓ |
+| A1-4 | minor | 新守卫 F2dN 有 `[data-chat-flow]` 逃生口 ⇒ 四条 #161 规则里一条未被真管 | 复核✓ |
+| A1-5 | minor | ⑮ 只判前缀 + 子串 ⇒ 把 tint 权重清零仍绿（正是 #157 要保证的那条） | 复核✓ |
+| A1-6 | minor | 座位底板没有 fallback 孪生、⑯ 也看不到 —— **已被 `a123f82` 整条撤回，本条仅作历史记录** | 已失效 |
+| A3-F4/F5/F6 · A2-F3/F4/F5 · A1-7 | 记录级 | 见 11.3；都不改行为或不值得单独开提交 | — |
+| M-1 | minor | **我方独立发现**：C 系列（#148/#156/#157/#158/#159/#161）没有进 CHANGELOG | 复核✓ |
+
+### 11.2 值得动手的条目（含复现与建议）
+
+**A1-1 · #156① 的修复可被静默回退（major）**
+`--dsw-mask-blur` 的声明（HEAD `src/styles.js:572`；`0ac53b5` 在 `:579`）**就是** #156① 的全部内容，而 `grep -rn -- '--dsw-mask-blur' test/` 零命中 —— 没有任何测试读它的**值**。我的复现：把该声明改成宿主默认 `none` → `npm run build` → `verify-token-contract` / `verify-glass-surfaces` / `verify-readability` **三条全 exit 0**。唯一会红的是"整行删掉"触发 token 契约的**字节普查**（`docs/TOKEN-CONTRACT.md` 只记条数与行号，不记值），跑一次 `--write` 即恢复 ⇒ 这条修复**从构造上就是可回退的**。
+→ 建议：在 `verify-glass-surfaces` 加**值判据**（声明的值必须含 `blur(` 且引用 `--we-blur`），负对照 = 改成 `none` / `none !important` / 删掉 `blur(` 都必须红。
+
+**A1-2 · #156② / #156④ 可整块删除而守卫全绿（major）**
+`test/verify-glass-surfaces.mjs:345` 的 `anchorPresent = (text, anchor) => text.includes(anchor)`（用在 `:534`）只判"锚点字符串在 CSS 文本里出现过"。0ac53b5 给两个新面登记了锚点（`[data-install-registry]`、`[data-code-block-banner]`），但**出现**就够了 —— 包括把效果关掉的规则、以及 fallback 孪生里的同名锚点。我的复现：整块删掉 `body[data-we-glass-floaters] [data-install-registry]`（HEAD `src/styles.js:1657-1662`）与 `[data-code-block-banner]` 的浅色重绘规则（HEAD `src/styles.js:926-932`）⇒ `verify-glass-surfaces` **全绿**（`verify-token-contract` 只因字节普查变红，同样 `--write` 即恢复）。
+根因里有一条是**可操作的**：W5 门控棘轮 `GATE` 名单（`test/verify-glass-surfaces.mjs:1266-1280`）没有随这两个新面扩 —— 两条 `member` 正则都匹配不到这两个选择器。两条规则**今天的门是对的**（挂着 `data-we-glass-floaters` / `data-we-glass-page][data-we-thinking-glass]`），所以这是**执行覆盖缺口，不是现行泄漏**。
+→ 建议：① 把两个新面带进 `GATE` 棘轮；② 把"锚点在场"升级为"该锚点下存在**带门**的有效声明"（能看见"效果被删"与"门丢了"两种回退）。
+
+**A3-F1 · 焦点交还的守卫是假绿（high）**
+`src/focus-handback.js` 的五条判定里，删掉手势跳过（`:72`）、"焦点真在壁纸帧里"（`:70`）、"只认记住的那个元素"（`:86`）、`el.isConnected`（`:75`）**任意一条**，`node test/verify-client.mjs` 仍 **exit 0**；只有删 `STALE_MS`（`:73`）/ `MIN_GAP_MS`（`:74`）才红。机制：首次交还就在 `:76` 写了闭包 `lastHandBackAt`，而三个负对照（`test/verify-client.mjs:3926-3953`）都在 ~5 ms 内跑完 ⇒ `now - lastHandBackAt < 300` 先返回；三条 `handbacks === 1` 与那条 `skipped >= 1` 都是**靠同一次 MIN_GAP 跳过**成立的。会揭穿它的 `await sleep(320)` 排在 `:3958`（三条之后）。`lastHandBackAt` 是局部量、不在 `state` 上 ⇒ 台架无法复位。
+我的复现：备份后删掉 `:72` ⇒ `verify-client` exit 0；随后按字节还原。⇒ `8bcbcd5` 提交信息第 38–39 行"宿主半摘掉手势/落点判定 ⇒ verify-client 红（判据不是恒真）"与本文档 `:501` 的同一句**都不成立**（本文档 `:499` 刚写过"带时间下限的判据必须让前置间隔明确"的教训，那次只补在踩红的那一步）。
+→ 建议：把 `lastHandBackAt` 暴露成可复位状态（或注入时钟），把三条负对照挪到 `sleep(320)` 之后，并**逐条**加负对照（四类判定各一条）；提交信息/文档里那句一并改正。
+
+**A3-F2 · 跳过的交还永不重试（medium）**
+`src/focus-handback.js:72` 跳过时什么都不挂，而 `:88 setTimeout(handBack, 0)` 是唯一触发路径；`:97` 又把宿主 `keydown` 算作手势 ⇒ 用户打字期间被偷焦点后：焦点进 iframe、宿主不再收 `keydown`、被记住的元素已 blur、`gestureAt` 冻结 ⇒ 永远不回。子代理实测：`[A] theft 100ms after a host keystroke: handbacks=0 skipped=1 focused=[]`，+1.5 s 仍无重试；`[B]` 把手势放过就正常交还一次（因果清楚）。对手正是 `lib/we-focus-guard.js:28` 记的 `setInterval(() => input.focus(), 2000)` vs 1000 ms 窗口 ⇒ **约一半偷焦点永久掉地**。
+→ 建议：跳过时改成 `setTimeout(handBack, gestureAt + GESTURE_WINDOW_MS - now)` 重挂一次；并在守卫里加一条"手势窗口内的偷焦点最终仍会交还"的判据（用假时钟/注入 now）。
+
+**A3-F3 · 畸形索引让 `/inventory` 永久 500（medium）**
+`lib/inventory.js:179-180` 的验收只看 `Array.isArray(raw.we)`、不查元素；`we: [null]`（稀疏槽位 `JSON.stringify` 的形状）能过，随后 `lib/inventory.js:231` / `:238` 的 `w.fileAbs` 抛 `TypeError: Cannot read properties of null (reading 'fileAbs')`。`loadIndex()` 已在 `:173-174` 把 `indexLoaded = true` 锁死、全文件**没有任何复位/修复路径** ⇒ `lib/index.js:2971-2984` 的 `/inventory` 每次都走 catch 返回 500，**重启也一样**，直到用户手删 `cacheBaseDir()/inventory-index.json`。这与 `lib/inventory.js:170`"任何异常都只是『没有索引』，绝不冒泡"的约定相反；坏 JSON 与版本不符是有兜底的（守卫 ⑤ 只覆盖这两种形状）。
+→ 建议：`assembleInventory` 的循环里加 `if (!w || typeof w !== 'object') continue;`（或在 `loadIndex` 过滤 `raw.we`），并补一条"元素畸形 ⇒ 当没有索引"的判据。
+
+**A2-F1 · 预设带回"两套色"而开关不跟着走（medium）**
+`GLASS_PRESET_FIXED_KEYS`（`lib/settings-schema.js:312-323`）**不含 `glassDarkSeparate`** ⇒ `pickGlassPresetValues()`（`src/preset-store.js:79-83`）不收集它，`applyGlassPreset()`（`:125-126`）又是 `Object.assign(selection, values)` 直接合并；全仓唯一"关掉就把两侧收敛"的地方是开关处理器（`src/client.js:3746`）。复现路径：开「深色单独设置」→ 浅 `#ffffff` / 深 `#DD8FAC` → 存预设 → **关开关** → 应用该预设 ⇒ 开关是关的、两侧却不同；而 `src/glass-panel.js:488` 的工具提示承诺"关闭时一个颜色同时用于浅色与深色两套"，且深色面真的按 `.dark` 取色（`src/effects.js:391-396`）⇒ 色板与渲染不一致，除了再开关一次没有别的同步路径。我的复现（用仓里自己的消毒器）：`glassDarkSeparate 在预设键里? false`；存下的玻璃色 `{light:#ffffff,dark:#DD8FAC}`；应用后 `{glassDarkSeparate:false, glassColor:{light:#ffffff,dark:#DD8FAC}}` ⇒ 不变量被破坏。顺带确认 `sanitizeFromSchema` 同形状直读也原样保留分歧 —— **这道不变量目前只活在开关处理器里**。
+→ 建议（一行改动）：把 `glassDarkSeparate` 加进预设快照键集，让"开关 + 一对色"整体进出。已查耦合：`test/verify-presets.mjs:191` 的键数是**按 `GLASS_PRESET_KEYS.length` 现算**的，加键不会撞死断言。
+
+**A2-F2 · 侧栏档那一行写哪一半（medium-low，需要口径决定）**
+`src/glass-panel.js:490-492` 的 `singleGlassOnDark = sidebarSurface && panelThemeIsDark()` ⇒ 深色主题下这一行写 `.dark`；但侧栏取色是 `src/glass.js:252` 的 `glassValue("sidebar","color", selection.sidebarColor, glassColorOf(selection,"light"))`，默认 `glassMode.sidebar === 'inherit'` 时用的正是**浅色那一半**（消费点 `src/styles.js:1320` 一带）。于是"深色主题 + 开关开着 + 快捷面板侧栏档"会出现：色板显示深色那一半、也只写深色那一半，**侧栏本身不动**。我判它是**口径问题而不是纯 bug**（这一行本就是"全局四件套"的玻璃颜色行，写当前配色的那一半是有意的），但既然它画在侧栏档、注释又写了"所见即所改"，就得选一个口径：侧栏档强制写浅色那一半（贴合侧栏真正吃的那一半），或把标签写清它改的是全局配色。
+附带一条小的：`panelThemeIsDark()`（`src/glass-panel.js:203-207`）是渲染时采样，而 `theme/change` 的唯一订阅者（`src/theme-follow.js:446`）只置标志、不触发面板重渲染 ⇒ 现场切深浅后第一次点击会写到上一档那一半，点下去自己 emit 一次即纠正。
+
+**A1-3 · 契约文档里的门控计数全是 0（minor，但产物永久错）**
+`test/tools/token-contract.mjs:190` 的 `const cnt = (set, b) => [...set].filter((x) => x === b).length;` 在 `:225` 被当成 `cnt(t.decls, b)` 调用 —— `t.decls` 是**声明对象**数组、`b` 是桶名**字符串** ⇒ `x === b` 永不成立。产物直方图：`46 玻璃(0)` / `10 无门控(0)` / `8 壁纸(0)`，**一个非零都没有**；每一格都自相矛盾（标签会出现只因为 `t.buckets.has(b)`，计数却印 0），例如 `docs/TOKEN-CONTRACT.md:49` / `:86` / `:93`。`verify-token-contract` 做字节比对 ⇒ 这些 0 被**永久冻结且永远绿**。**执行**不受影响（无门控白名单走 `buckets.ungated` / `ungatedReason`，不用 `cnt`），所以这不是假阴性，而是**给人看的书面记录错了**。
+→ 建议：`cnt` 改成 `t.decls.filter((d) => d.bucket === b).length`，重跑 `--write`，并在守卫里补一条"标签在场 ⇒ 计数必须 > 0"的不变量。
+
+**A1-4 · F2dN 的逃生口（minor）**
+`test/verify-readability.mjs:414-435` 的条件是 `r.header.includes('[data-chat-flow]') || r.header.includes(':not([role="tooltip"])')`，且没有负对照。`[data-chat-flow]` 这一句放过了 HEAD `src/styles.js:945` 那条规则 ⇒ 我把它的 `:not([role="tooltip"])` 去掉、重建、跑 `verify-readability` ⇒ **exit 0**（同组 M1 `:623` / M2 `:632` / M4 `:3166` 三条回退都会红）。⇒ 四条 #161 规则里 **3 条真管、1 条不管**。
+→ 建议：去掉 `[data-chat-flow]` 那条豁免（或改成"必须同时满足"），并给 F2dN 配一个负对照。
+
+**A1-5 · ⑮ 看不到 tint 权重被清零（minor）**
+`test/verify-glass-surfaces.mjs` 第 ⑮ 组的 `badScrollbarDecl` 只判"非空 + `^color-mix(` + 值里含 tint 令牌名"。我把 HEAD `src/styles.js:581` 的权重从 `40%` 改成 `0%`（= #157 要保证的那条性质被抽掉）⇒ **exit 0**。（原始静态值、删声明两种回退会红。）
+→ 建议：解析 `color-mix` 的百分比并断言 `0 < 权重 ≤ 100`（负对照：0% / 101% / 缺百分比都必须红）。
+
+### 11.3 只记录、不建议现在动手的条目
+
+- **A1-6**：座位底板（0ac53b5 时 `src/styles.js:730-735`）没有 `body[data-we-glass-fallback]` 孪生，`@supports not (backdrop-filter)` 块也只重声明了另三条 `--we-*-glass-fill`；⑯ 只看 `[data-phase="active"]` 规则体 ⇒ 看不到这个不对称。**但 `a123f82` 已把整块底板撤回**，这一面现在是"什么都不铺"，本条只作历史记录（若将来重开这一面，记得连 fallback 孪生一起给）。
+- **A1-7 / A2-F3**：注释与提交信息里的**行号/文件名漂移**。`src/styles.js:611` 写"另三条在 `:581 / :849 / :3021`"（实际 `613 / 622 / 945 / 3166`）；`src/styles.js:1678` 的注释说 `--we-floaters-blur` 接在 `glass.js:271`（实际 `src/glass.js:279-281`）；`bd9ef33` 提交信息说"侧栏不分深浅"记在 `docs/DSH-UI-INTERFACES.md`，但该文件自那时起没被改过、也零命中（真实记录在本文档 §9 与 `src/glass.js:248-251` / `src/effects.js:369-376`）。口径不实，无代码影响 —— 顺手改注释即可。
+- **A3-F4**：手势窗口只靠"事件类型 + capture"打开（`lib/we-focus-guard.js:100-105` / `:110`，无 `isTrusted`/来源判定）⇒ 壁纸自己可以 `dispatchEvent(new PointerEvent('pointerdown'))` 再 `focus()` 被放行（`:98-99` 注释自认是有意取舍）；`:95` 只补 `w.HTMLElement` ⇒ `SVGElement.prototype.focus` 未守。
+- **A3-F5**：`state.active` 在 `src/focus-handback.js:54` / `:101` 只写不读，而 `test/verify-client.mjs:3906` / `:3989` 断言它 ⇒ 装饰性断言；`:88` 的 `setTimeout(handBack, 0)` 未被 `dispose`（`:100-109`）清掉。
+- **A3-F6**：`test/verify-guard-map.mjs` 经 `verify:docs` 挂在 `test/warn-only.mjs` 后面（非致命），而 ROUTE-INDEX / TOKEN-CONTRACT 是致命的 —— 既有设计。**更正一条容易搞错的**：`test/tools/{guard-targets,host-route-index,token-contract}.mjs` **不加 `--write` 并不检测漂移**（只打印 + exit 0）；真正判漂移的是 `verify-guard-map` / `verify-route-index` / `verify-token-contract`。
+- **A2-F4**：`test/verify-client.mjs:3132-3150`（③c）是**纯文本棘轮**（`if (false && …)` 也能过，行为由 ③b 承担 —— 提交与 §9 已自认）；`src/client.js:3732` 的 `|| hex` 回填**行为上不可达**（`panelGlassPair` 已补齐两侧），删掉也全绿。
+- **A2-F5**：v5 老包读 v6 设置会把 `glassColor` 读成自己的标量默认并回盖版本号；混合版本标签页静默丢色（不炸不坏）。同版本往返无损。
+
+### 11.4 我方独立发现（不来自子代理）
+
+- **M-1（minor）**：**C 系列修复没有 CHANGELOG 条目**。未推送 diff 只给 `docs/CHANGELOG.md` / `docs/en/CHANGELOG.md` 各 +8 行（来自 `14a7115` 的侧栏迁移），而 `#148 / #156 / #157 / #158 / #159 / #161` 在两个 CHANGELOG 里命中 **0 次**（`origin/main` 也是 0；`#89` 4 次）。依据 `docs/README.md:76`"任何带版本号 / issue 号 / 性能数字 / 排障步骤 / 实现细节的内容一律进上表或 `CHANGELOG.md`"，而实施记录只住在 `docs/wip/**`（wip 有寿命规则）⇒ release 面向的记录缺口。
+- **M-2（环境，不是本轮引入）**：`node test/compat-harness-surfaces.mjs` 本机红 2/16 条（"依赖的数据属性锚点已消失" 7 个、"钉的槽名不再是槽" 6 个）。归因实测：这些锚点在 `origin/main` 与 HEAD 逐文件计数**完全相同**（`src/styles.js` 17/17、`src/client.js` 8/8、`lib/settings-schema.js` 1/1），未推送 diff 新增提及 **0** ⇒ 是已装全局 harness 版本漂移。该守卫**不在** `npm run verify:all` 里（只在 `.github/workflows/harness-compat.yml`）。
+- **卫生**：tracked docs / 根 README 零临时路径；未推送 diff 新增的临时路径行 0；忽略目录（`.test-cache/ .v2c/ .video_agent/ .zcode/`）都在 `.gitignore`；工作树在每次变异后按字节复原（`git status` 干净）。
+
+### 11.5 复核为真（三路共同的"没白改"结论）
+
+- **合并面**：两处 merge（`504a1d2` / `2268fc6`）的 tree 与其父的自动 `git merge-tree` 结果**逐字节相同**、全树零冲突标记 ⇒ 合并里**没有手工解冲突**，不存在丢改动。
+- **夹具诚实性**：`test/fixtures/settings-sanitize-golden.json` 的重录逐用例递归比对，18 个用例里**只有** `glassColor` / `glassDarkSeparate` / `settingsVersion` 三个键（host/client 两侧）变化，其余逐字节零漂移；嵌套键序 `light→dark` 与 `readGlassColors` 的构造顺序一致（`canon()` 只排顶层键，所以这一条必须单独查）。
+- **产物一致**：`verify-client-sync` 4/4（重建 exit 0、`lib/client.js` 与重建逐字节一致、1 字节负对照会咬、只有 CRLF 差异不算过期）；三份生成物文档（TOKEN-CONTRACT / GUARD-MAP / ROUTE-INDEX）与冻结源码一致（A1-3 让其中一**列**自洽地错）。`package.json` 只多两条 verify 条目、40 条 node 命令都可解析且无重复、无重复 JSON 键。
+- **共存/级联**：未推送 diff **没有**新增无门控 `--dsw-*`（#156①/②/④ 的新声明都挂在玻璃门下）；宿主把滚动条族声明在裸 `body`(0,0,1) 与 `body[data-ds-dark-theme]`(0,1,1)，插件的 `body[data-we-glass-page]`(0,1,1) / 深色孪生(0,2,1) 恒赢、无顺序依赖；`--dsw-mask-blur` 宿主全局只声明一次（裸 `body`，asar 里无深色孪生）。
+- **宿主前提**：#157 的滚动条路径成立（宿主容器重声明的是**间接层** `--dsh-scrollbar-thumb*`，所以一处 body 级别名覆盖能全应用生效；`--dsw-static-neutral-*` 是与主题无关的字面量，深色悬停色标定 ≈ `#666a72` vs 宿主 `#65676b`）；#161 的 `role="tooltip"` 与 `_bubble_<hash>` 在**同一个 DOM 元素**上、宿主 Tooltip 无 `role` 选择器、tooltip 内无 `.md-code-block` ⇒ 豁免精确且不会过度豁免；#156① 宿主 `.mask{backdrop-filter:var(--dsw-mask-blur)}` 与文档化的 `backdropBlur=false` 内联逃生都真实存在；#156② 宿主 `.registry` 无 `backdrop-filter` 且其底色令牌在玻璃门内是半透明 ⇒ 加的霜看得见；#156④ 重绘规则与"清空"组同选择器同特异度但更靠后 ⇒ `background-color !important` 长手赢过前面的 `background: transparent !important` 简写；#156③ 插件特异度 (0,4,1) 赢宿主 (0,3,0) 且宿主 sticky/z-index 未动、座位上刻意不挂霜（保护 #89 的 fixed 后代）；#159① `lastFadeBg` 只在 live 路径被读、非 live 每次重算、观察者只失效不重跑，新守卫跑的是真 `src/effects.js` + 假 MutationObserver 且带两个负对照。
+- **焦点面读证**：`src/focus-handback.js:43-49` 的能力检测、teardown 摘 6 个监听、`weIsWallpaperFrame` 的判据、`.we-layer` 的 `pointer-events:none`（`src/styles.js:96`）与 `ensureLivePointer` 中继都在位。
+- **#159② 其余**：`readGlassColors` 永远返回完整一对且永不抛（8 种形态有断言，弄死标量分支就红）；`--we-glass-color` 仍是浅色标量、无 `[object Object]` 泄漏（`grep '\.glassColor' src/` 只剩两个新助手）；分主题取色真实且两侧经各自钳制后仍可见地不同；出厂 7 份预设是标量且无版本号，走 `sanitizeGlassPresetValues` 盖版本号 → 标量分支 → 成对；i18n 41 项通过、无死键；新增行零 TODO/debugger。
+
+### 11.6 覆盖盲区（下次要接着做的）
+
+1. **无渲染验证**：所有"观感强度"结论未证 —— 包括 `--dsw-mask-blur` 覆盖后 `dsh-client-ui-settings-account` 的 `.ntilia_blurred{filter:var(--dsw-mask-blur)}`（宿主设计但被 `none` 关掉的全页模糊）现在被插件全局打开后的实际效果；以及 #156③ 那条贴底带的可见度（该面已在 `a123f82` 撤回，不必再验）。
+2. **无真宿主交互**：主题翻转、滚动条取色、对话框遮罩都只在源码/产物层读过。
+3. **索引生成器没有真跑**：`test/verify-inventory-index.mjs:86` 全是桩，**没有任何测试跑真的 `scanSignatureP` / `scanRootsP`** ⇒ 签名合成（`lib/index.js:556-572`）只有读证。
+4. **平台矩阵**：Windows/Linux 的 mtime 与 `pathKey` 小写化未验。
+5. **engine-compat**：`color-mix` / `:has()` 的支持未验（现有 `@supports` 族只覆盖"缺 backdrop-filter"）。
+6. 宿主事实全部**版本作用域**（本机 asar = Sep-29 构建）。
+
+### 11.7 建议动作（分档）
+
+- **建议现在就修**：A1-1（`--dsw-mask-blur` 值判据）、A1-2（`GATE` 棘轮扩两个新面 + 锚点判据升级）、A1-3（`cnt` 修好 + 重跑 `--write` + 计数不变量）、A1-4（去掉 F2dN 的 `[data-chat-flow]` 豁免 + 负对照）、A1-5（⑮ 解析 tint 权重）、A3-F1（焦点台架可复位 + 三条负对照挪位 + 逐条负对照，并改正提交信息/§7 那句）、A3-F2（跳过时重挂交还）、A3-F3（索引元素兜底）、A2-F1（预设带开关）。
+- **需要口径决定**：A2-F2（侧栏档那一行写浅色那一半，还是把标签写清它改的是全局配色）。
+- **只记录**：A1-6 / A1-7 / A2-F3 / A2-F4 / A2-F5 / A3-F4 / A3-F5 / A3-F6。
+- **文档**：把 C 系列（#148/#156/#157/#158/#159/#161）补进 `docs/CHANGELOG.md` 与 `docs/en/CHANGELOG.md`（依据 `docs/README.md:76`）。
+
 
 
 
