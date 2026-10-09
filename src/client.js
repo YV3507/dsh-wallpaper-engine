@@ -5619,10 +5619,12 @@ function apply(ctx) {
   //     都会 tearDownEntryFiber 后用新模块体重跑一遍，不挂 fiber ⇒ 旧实例的定时器
   //     与监听器永不释放（实测同一 document 214 个页 id、一次 window blur 被 117 份实例各记一条）。
   //     与官方契约一致（原文与现场见 src/live-layer.js 的 installLiveDiagnostics）。
+  //     焦点交还（#148 宿主半）同理由同形态：document/window 级监听器，拆除函数交给 fiber。
   if (ctx.effect && typeof document !== "undefined") {
     ctx.effect(() => installLiveDiagnostics() || undefined);
     ctx.effect(() => installLiveBootRestore() || undefined);
     ctx.effect(() => installRotationResumeListeners() || undefined);
+    ctx.effect(() => installFocusHandback() || undefined);
   }
 
   // 3b. 皮肤中心互操作（皮肤在台上 ⇒ 我方整族退场）：只读对方两条公开信号，

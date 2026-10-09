@@ -3851,6 +3851,182 @@ setTimeout(async () => {
     'negative control: 没调 disconnect 的观察者不许判成已断开');
 }
 
+// ── #148 宿主半：焦点被**无手势地**搬进壁纸帧时必须交还给用户本来在用的元素 ──────────
+// 事故：壁纸（WE 场景 / 网页）每 0.9–3.6 s 调一次 `element.focus()`，把键盘从 DSH 手里拿走 ——
+// 用户在输入框打字、输入法候选到一半就断。壁纸帧那一半在 `lib/we-focus-guard.js`（手势窗口），
+// 这里钉**宿主文档**那一半：帧内改不到的路径（跨源 `top.focus()`、`autofocus`、`showModal()`、
+// `label` 转发）把焦点搬走后，由宿主把它搬回来。判据四件：
+//   ① 装上的监听器清单 + 自证对象（真机可核）；
+//   ② 三条判据**同时**成立才交还，每条都配一条负对照（焦点落在宿主元素上 / 有真实手势 /
+//      focusout 来自别的元素）；
+//   ③ 两道保险（记住项过期 / 交还频率）各自负对照；
+//   ④ 拆除函数摘干净、可重装，且重复安装不叠加。
+// 全部走**真 src/focus-handback.js**（`with` + Proxy 的同一套挂载台；未知自由名直接抛，
+// 漏抄依赖清单会响亮地红）。
+{
+  const fhSrc = readFileSync(new URL('../src/focus-handback.js', import.meta.url), 'utf8');
+  const buildFh = (source) => {
+    const listeners = [];
+    const focused = [];
+    const drop = (l) => { const i = listeners.indexOf(l); if (i >= 0) listeners.splice(i, 1); };
+    const win = {
+      addEventListener: (t, fn) => { listeners.push({ on: 'window', t, fn }); },
+      removeEventListener: (t, fn) => { drop(listeners.find((l) => l.on === 'window' && l.t === t && l.fn === fn)); },
+    };
+    const doc = {
+      body: { tagName: 'BODY' }, documentElement: { tagName: 'HTML' }, activeElement: null,
+      addEventListener: (t, fn) => { listeners.push({ on: 'document', t, fn }); },
+      removeEventListener: (t, fn) => { drop(listeners.find((l) => l.on === 'document' && l.t === t && l.fn === fn)); },
+    };
+    const scope = new Proxy({ document: doc, window: win }, {
+      has: (t, k) => (k in t) || !(k in globalThis),
+      // 未知自由名直接抛：漏抄依赖清单要响亮地红，而不是悄悄拿到一个返回 undefined 的替身。
+      get: (t, k) => (k in t ? t[k] : () => { throw new Error('focus-handback 引用了未预期的自由名 ' + String(k)); }),
+      set: (t, k, v) => { t[k] = v; return true; },
+    });
+    const mod = new Function('__scope',
+      'with (__scope) { ' + stripExportBlocks(source) + '\nreturn { installFocusHandback }; }')(scope);
+    const hostInput = { tagName: 'INPUT', isConnected: true, focus: () => { focused.push('input'); } };
+    const hostButton = { tagName: 'BUTTON', isConnected: true, focus: () => { focused.push('button'); } };
+    const frame = { tagName: 'IFRAME', className: 'we-media we-iframe', isConnected: true };
+    // 事件派发：同类型全部监听器都跑一遍（真实 DOM 里也是这样，我们只挂一份）。
+    const fire = (type, target) => { for (const l of listeners.slice()) if (l.t === type) l.fn({ type, target }); };
+    return { mod, listeners, focused, win, doc, hostInput, hostButton, frame, fire };
+  };
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+  // 交还频率下限是 300ms ⇒ 需要"确实过了间隔"的判据就得真等过去（睡一段比造假时钟诚实）。
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const A = buildFh(fhSrc);
+  const disposeA = A.mod.installFocusHandback();
+  assert.ok(typeof disposeA === 'function', '#148 宿主半：installFocusHandback 必须返回拆除函数（挂 ctx.effect）');
+  assert.ok(A.listeners.filter((l) => l.on === 'document').length === 2
+    && A.listeners.filter((l) => l.on === 'window').length === 4,
+    '#148 宿主半：监听器清单 = document 上 focusin/focusout + window 上 pointerdown/mousedown/touchstart/keydown，实测 '
+    + JSON.stringify(A.listeners.map((l) => l.on + ':' + l.t)));
+  assert.ok(A.win.__weFocusHandback && A.win.__weFocusHandback.active === true,
+    '#148 宿主半：状态必须挂到 window.__weFocusHandback 上（真机控制台自证"交还了几次"）');
+  assert.equal(A.mod.installFocusHandback(), disposeA, '#148 宿主半：重复安装必须幂等（返回同一个拆除函数）');
+  assert.equal(A.listeners.length, 6, '#148 宿主半：重复安装不许叠加第二套监听器，实测 ' + A.listeners.length);
+
+  // ② 正常交还：用户在输入框里 → 焦点被搬进壁纸帧 → 搬回来。
+  A.fire('focusin', A.hostInput);
+  assert.equal(A.win.__weFocusHandback.lastEl, A.hostInput,
+    '#148 宿主半：focusin 必须记住用户最后在用的那个元素');
+  A.doc.activeElement = A.frame;
+  A.fire('focusout', A.hostInput);
+  await tick();
+  assert.deepEqual(A.focused, ['input'],
+    '#148 宿主半：焦点被搬进壁纸帧 ⇒ 必须交还给用户本来在用的元素（实测 ' + JSON.stringify(A.focused) + '）');
+  assert.equal(A.win.__weFocusHandback.handbacks, 1, '#148 宿主半：交还次数必须如实记账');
+  // 壁纸帧自己拿到 focusin 时不许覆盖"记住的元素"（覆盖了 = 下一轮就没得交还，整条机制空转）。
+  A.fire('focusin', A.frame);
+  assert.equal(A.win.__weFocusHandback.lastEl, A.hostInput,
+    '#148 宿主半：壁纸帧自己拿到 focusin 时不许覆盖记住的宿主元素');
+
+  // ②负对照之一：焦点落进**宿主元素**（不是壁纸帧）⇒ 不交还（否则会和用户正常切焦点拉锯）。
+  A.doc.activeElement = A.hostButton;
+  A.fire('focusin', A.hostInput);
+  A.fire('focusout', A.hostInput);
+  await tick();
+  assert.equal(A.win.__weFocusHandback.handbacks, 1,
+    '负对照①：焦点落到宿主元素上时不许交还（否则用户每次点别处都被拽回来）');
+
+  // ②负对照之二：有**真实手势**（用户自己去点壁纸）⇒ 不交还，照他点的来。
+  A.fire('pointerdown', null);
+  assert.ok(A.win.__weFocusHandback.gestureAt > 0,
+    '#148 宿主半：window 上的四类手势必须刷新"最近真实交互"时间戳');
+  A.doc.activeElement = A.frame;
+  A.fire('focusin', A.hostInput);
+  A.fire('focusout', A.hostInput);
+  await tick();
+  assert.equal(A.win.__weFocusHandback.handbacks, 1,
+    '负对照②：最近 1000ms 内有真实手势时不许交还（用户点壁纸是正当操作）');
+  assert.ok(A.win.__weFocusHandback.skipped >= 1, '#148 宿主半：跳过也要计数（真机据此判断是"没触发"还是"没装上"）');
+
+  // ②负对照之三：focusout 来自**别的**元素 ⇒ 连判断都不进（否则每次 blur 都要走一轮）。
+  A.win.__weFocusHandback.gestureAt = 0;
+  A.doc.activeElement = A.frame;
+  A.fire('focusin', A.hostButton);
+  A.fire('focusout', A.hostInput);
+  await tick();
+  assert.equal(A.win.__weFocusHandback.handbacks, 1,
+    '负对照③：focusout 的 target 不是记住的那个元素时不交还（只认"刚从它离开"）');
+
+  // ③ 保险一：记住项过期（半天前点过的输入框不许被翻出来抢焦点）。
+  //    ⚠️ 先睡过 MIN_GAP 再测：否则"没交还"可能是频率下限拦的，判据就不精确了（首版正是
+  //    这样"看着绿、其实测的不是这条"—— 它掩盖了下面那条阳性对照的失败）。
+  await sleep(320);
+  A.win.__weFocusHandback.lastAt = Date.now() - 200000;
+  A.doc.activeElement = A.frame;
+  const skippedBefore = A.win.__weFocusHandback.skipped;
+  A.fire('focusout', A.hostButton);
+  await tick();
+  assert.ok(A.win.__weFocusHandback.handbacks === 1 && A.win.__weFocusHandback.skipped === skippedBefore + 1,
+    '#148 宿主半：记住项超过 STALE_MS 就不交还（且要记一次 skipped，真机据此区分"没触发"与"没装上"）');
+
+  // ③ 阳性对照：间隔够、记住项新鲜 ⇒ 交还成立（同时也是下一条负对照的前提）。
+  A.win.__weFocusHandback.lastAt = Date.now();
+  A.fire('focusout', A.hostButton);
+  await tick();
+  assert.equal(A.win.__weFocusHandback.handbacks, 2,
+    '#148 宿主半：正常条件下交还成立（为下一条负对照提供前提）');
+
+  // ③ 保险二：交还频率下限（壁纸高频夺焦时不至于把主线程拖成焦点乒乓）。
+  A.doc.activeElement = A.frame;
+  A.fire('focusout', A.hostButton);
+  await tick();
+  assert.equal(A.win.__weFocusHandback.handbacks, 2,
+    '#148 宿主半：两次交还之间必须隔 MIN_GAP_MS（紧随其后的第二次不许再交还）');
+  await sleep(320);
+  A.fire('focusout', A.hostButton);
+  await tick();
+  assert.equal(A.win.__weFocusHandback.handbacks, 3,
+    '负对照：间隔够了（320ms > MIN_GAP_MS）就必须恢复交还 ⇒ 上一条判的不是别的东西');
+
+  // ④ 拆除：摘干净、标记 inactive、拆完不再交还。
+  disposeA();
+  assert.equal(A.listeners.length, 0, '#148 宿主半：拆除函数必须摘掉全部监听器，残留 ' + A.listeners.length);
+  assert.equal(A.win.__weFocusHandback.active, false, '#148 宿主半：拆除后状态必须标记 inactive');
+  A.doc.activeElement = A.frame;
+  A.fire('focusout', A.hostButton);
+  await tick();
+  assert.equal(A.win.__weFocusHandback.handbacks, 3, '负对照：拆除后不许再交还');
+  assert.ok(typeof A.mod.installFocusHandback() === 'function', '#148 宿主半：拆除后必须能重新装上');
+
+  // ④' 环境能力：本仓的 verify 挂载台用 stub `document`（只有 body / style，没有 addEventListener）
+  //     ⇒ 必须安静退场（返回 null、不抛、不留半个监听器）。实测 verify-transcode-state 的挂载台
+  //     就是这种 document，`ctx.effect` 里抛会中断整条 apply（首版正是这样红的）。
+  const bare = buildFh(fhSrc);
+  bare.doc.addEventListener = undefined;
+  let bareThrew = false;
+  let bareRet = 'unset';
+  try { bareRet = bare.mod.installFocusHandback(); } catch (err) { bareThrew = true; }
+  assert.ok(bareThrew === false && bareRet === null,
+    '#148 宿主半：宿主 DOM 能力不全时必须安静退场（返回 null 且不抛），实测 ret=' + String(bareRet));
+  assert.equal(bare.listeners.length, 0, '#148 宿主半：退场时不许留下半个监听器');
+
+  // 变异负对照（判据真的在判"手势"与"落点"）：喂同一份源码的两个改写版，各拆掉一条判据。
+  const mutGesture = buildFh(fhSrc.replace(
+    'if (now - state.gestureAt <= GESTURE_WINDOW_MS) { state.skipped += 1; return; }', '/* 去掉手势判定 */'));
+  mutGesture.mod.installFocusHandback();
+  mutGesture.fire('pointerdown', null);
+  mutGesture.fire('focusin', mutGesture.hostInput);
+  mutGesture.doc.activeElement = mutGesture.frame;
+  mutGesture.fire('focusout', mutGesture.hostInput);
+  await tick();
+  assert.deepEqual(mutGesture.focused, ['input'],
+    'negative control: 摘掉"最近真实交互"判定 ⇒ 有手势也会交还 ⇒ 上面那条负对照不是空转');
+  const mutTarget = buildFh(fhSrc.replace('if (!weIsWallpaperFrame(active) || !active.isConnected) return;',
+    '/* 不看落点 */'));
+  mutTarget.mod.installFocusHandback();
+  mutTarget.fire('focusin', mutTarget.hostInput);
+  mutTarget.doc.activeElement = mutTarget.hostButton;
+  mutTarget.fire('focusout', mutTarget.hostInput);
+  await tick();
+  assert.deepEqual(mutTarget.focused, ['input'],
+    'negative control: 摘掉"焦点得在壁纸帧里"判定 ⇒ 落到宿主元素也交还 ⇒ 上面那条负对照不是空转');
+}
+
 // ── 滑块的取值域必须**同源于 schema**（为一个真实事故补的判据）────────────────────
 // 事故（用户实测）：R4 把刻度改成 0–100 时改了 `KINDS` 与面板量程，**漏了处理器里手写的四处**；
 // 而 `clampNum` 是"**越界即回落到默认值**"（不是截断）⇒ 拖过旧上限的瞬间滑块**跳回默认值**

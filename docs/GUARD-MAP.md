@@ -4,7 +4,7 @@
 > **怎么用**：改了 `src/` 或 `lib/` 的某个模块，在「模块 → 守卫」那张表里查该跑哪几条。
 > 口径：只统计守卫**代码**里真正碰到的模块（先剥注释），并区分"直接读源文件"与"隔着产物 `lib/client.js`"。
 
-模块面 82 个 · 守卫 54 个
+模块面 83 个 · 守卫 54 个
 
 ## 守卫 → 模块
 
@@ -26,7 +26,7 @@
 | `verify-body-caps.mjs` | `lib/http-body.js` `lib/routes/upload.js` | ✅ |
 | `verify-cache-dir.mjs` | `lib/faststart.js` `lib/index.js` `lib/media/index.js` `lib/media/legacy.js` `lib/routes/cache-dir.js` `lib/routes/now-playing.js` |  |
 | `verify-client-sync.mjs` | — | ✅ |
-| `verify-client.mjs` | `lib/index.js` `lib/settings-schema.js` `src/client.js` `src/effects.js` `src/font/apply.js` `src/fontset-store.js` `src/glass.js` `src/live-layer.js` `src/media-prep.js` `src/panel-tabs.js` `src/persistence.js` `src/picker-modal.js` `src/picker-props-panel.js` `src/preset-store.js` `src/quick-panel.js` `src/system-fonts.js` `src/theme-follow.js` `src/video-layer.js` `src/we-cond.js` | ✅ |
+| `verify-client.mjs` | `lib/index.js` `lib/settings-schema.js` `src/client.js` `src/effects.js` `src/focus-handback.js` `src/font/apply.js` `src/fontset-store.js` `src/glass.js` `src/live-layer.js` `src/media-prep.js` `src/panel-tabs.js` `src/persistence.js` `src/picker-modal.js` `src/picker-props-panel.js` `src/preset-store.js` `src/quick-panel.js` `src/system-fonts.js` `src/theme-follow.js` `src/video-layer.js` `src/we-cond.js` | ✅ |
 | `verify-component-fonts.mjs` | `lib/settings-schema.js` `src/client.js` `src/effects.js` `src/font/apply.js` `src/font/components.js` | ✅ |
 | `verify-contracts.mjs` | `lib/index.js` `lib/media/index.js` `lib/media/legacy.js` `lib/media/supervisor.js` `lib/routes/avatar.js` `lib/routes/fontsets.js` `lib/routes/mascot.js` `lib/settings-schema.js` `src/api-client.js` `src/client.js` `src/fontset-editor.js` `src/fontset-store.js` `src/panel-tabs.js` |  |
 | `verify-dead-declarations.mjs` | — |  |
@@ -121,6 +121,7 @@
 | `src/ext-avatar.js` | 1 | `verify-scene-live` |
 | `src/ext-fx.js` | 1 | `verify-scene-live` |
 | `src/ext-parallax.js` | 1 | `verify-scene-live` |
+| `src/focus-handback.js` | 1 | `verify-client` |
 | `src/font/apply.js` | 5 | `verify-api-client` `verify-client` `verify-component-fonts` `verify-fontset` `verify-theme-layer` |
 | `src/font/color-roles.js` | 4 | `verify-api-client` `verify-fontset` `verify-scene-live` `verify-theme-layer` |
 | `src/font/components.js` | 2 | `verify-component-fonts` `verify-fontset` |

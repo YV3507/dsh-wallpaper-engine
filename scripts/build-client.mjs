@@ -269,6 +269,11 @@ const INLINE_MODULES = [
     markers: ['function retireFadingLayer(', 'function scheduleFadingLayerRemoval(', 'function nudgeWallpaperRepaint('],
   },
   {
+    file: 'src/focus-handback.js',
+    why: '#148 宿主侧：焦点被（无手势地）搬进壁纸帧时交还给用户本来在用的元素 —— 与 lib/we-focus-guard.js 分工的另一半',
+    markers: ['function installFocusHandback(', 'function weIsWallpaperFrame(', 'GESTURE_WINDOW_MS', 'window.__weFocusHandback'],
+  },
+  {
     file: 'src/live-layer.js',
     why: '实时渲染管线：live 看护/判失败/抓帧回填/指针/poster 与壁纸层构建（syncLayers）与过场',
     markers: ['const LIVE_FIRST_FRAME_MS = ', 'function liveLog(', 'function startLiveWatch(',

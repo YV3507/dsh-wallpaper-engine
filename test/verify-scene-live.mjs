@@ -1949,9 +1949,12 @@ check('host injects the vendored shim into web HTML', /data-we-shim="host"/.test
 // `selection.sceneLiveActive` 时发 ⇒ 暂停即停）→ 严格沙箱下经 web-shim 的 op 通道 → shim 用
 // elementFromPoint + dispatchEvent 在壁纸文档里合成 pointer/mouse（isTrusted === false）→ 作者在
 // 捕获相 mousedown 里调 window.focus() 争键盘 ⇒ DSH 的焦点被搬进壁纸帧。
-// 围栏吞掉**帧级** window.focus() 并留计数；元素级 focus 放行（壁纸自己的编辑框照常工作）。
-// 这里钉三件机器可判的事：① 注入体真的能拦（在假 realm 里跑**真源码**）；② 宿主真的把它注进
-// web HTML，且顺序在 shim 与 seed 之间；③ 注入体不含会被 `</script` 截断或被当模块执行的形态。
+// 围栏吞掉**帧级** window.focus() 并留计数；**元素级** focus（#148 第二步）只在"最近一次
+// 真实交互"的 1000 ms 窗口内放行 —— 窗口外吞掉（`setInterval(()=>input.focus(),2000)` 这类
+// 无手势的周期性夺焦由此被拦，而用户真点壁纸时作者页的编辑框照常拿焦点）。
+// 这里钉四件机器可判的事：① 注入体真的能拦（在假 realm 里跑**真源码**）；② 元素级围栏的两侧
+// （窗口内放行 / 窗口外吞掉）都成立且逃生门同时放开两条；③ 宿主真的把它注进
+// web HTML，且顺序在 shim 与 seed 之间；④ 注入体不含会被 `</script` 截断或被当模块执行的形态。
 const guardPath = join(root, 'lib', 'we-focus-guard.js');
 const guardSrc = readFileSync(guardPath, 'utf8');
 const guardMod = await import(pathToFileURL(guardPath).href);
@@ -2007,6 +2010,74 @@ const runGuard = (stub) => { new Function('window', guardSource)(stub); return s
   winM.focus();
   check('负对照：注入体改成转交 ⇒ 核心断言（原函数不被调用）变假',
     mutantHits.length === 1 && winM.__weFocusGuard.installed === true);
+  // ⚠️ 上面那条负对照 `String.replace` **只换第一处** `return undefined;` ⇒ 那句字面量必须唯一，
+  //    否则它可能被换到别的分支上（负对照会变成"看着绿、其实没测到"）。
+  check('负对照的前提：注入体里 `return undefined;` 只有一处（帧级那一处）',
+    guardSource.split('return undefined;').length === 2,
+    '出现 ' + (guardSource.split('return undefined;').length - 1) + ' 次');
+}
+{
+  // ⑦ 元素级围栏（#148 第二步）：无手势吞掉、手势窗口内放行、窗口过期重新拦住、逃生门放开两条。
+  const elRaw = [];
+  const FakeHTMLElement = function () {};
+  FakeHTMLElement.prototype.focus = function () { elRaw.push('el'); };
+  const gestureHandlers = [];
+  const win4 = {
+    focus: function () {},
+    document: {},
+    HTMLElement: FakeHTMLElement,
+    addEventListener: function (t, fn) { gestureHandlers.push({ t: t, fn: fn }); },
+  };
+  runGuard(win4);
+  const g4 = win4.__weFocusGuard;
+  const input4 = new FakeHTMLElement();
+  input4.focus();
+  check('元素级围栏：没有用户手势时 element.focus() 被吞（计数 + 不转交原函数 + 两个原型腿都装了）',
+    g4.elInstalled === true && g4.elCalls === 1 && g4.elBlocked === 1 && g4.elAllowed === 0
+      && elRaw.length === 0 && gestureHandlers.length === 4
+      && gestureHandlers.every((h) => ['pointerdown', 'mousedown', 'touchstart', 'keydown'].includes(h.t)),
+    'elCalls=' + g4.elCalls + ' elBlocked=' + g4.elBlocked + ' raw=' + elRaw.length
+      + ' 手势源=' + gestureHandlers.map((h) => h.t).join('/'));
+  check('元素级围栏：最近一次被拦的调用点留下时间戳与栈头（壁纸帧控制台可自证）',
+    g4.elLastBlockedAt > 0 && typeof g4.elLastBlockedStack === 'string' && g4.elLastBlockedStack.length > 0,
+    'at=' + g4.elLastBlockedAt + ' stack=' + String(g4.elLastBlockedStack).slice(0, 40));
+  // 手势窗口内：shim 合成的 pointer/mouse 也算（isTrusted === false 也正是那一类）。
+  gestureHandlers.forEach((h) => h.fn({ type: h.t, isTrusted: false }));
+  input4.focus();
+  check('元素级围栏：真实交互后的窗口内放行（用户点壁纸自己的编辑框照常拿焦点）',
+    g4.gestureAt > 0 && g4.elCalls === 2 && g4.elAllowed === 1 && g4.elBlocked === 1 && elRaw.length === 1,
+    'elAllowed=' + g4.elAllowed + ' raw=' + elRaw.length);
+  // 窗口过期：定时器式夺焦（报告里的 0.9–3.6 s 周期）走这条。
+  g4.gestureAt = Date.now() - 5000;
+  input4.focus();
+  check('元素级围栏：窗口过期后重新拦住（无手势的周期性 element.focus() 在这里被吞）',
+    g4.elCalls === 3 && g4.elBlocked === 2 && g4.elAllowed === 1 && elRaw.length === 1,
+    'elBlocked=' + g4.elBlocked + ' raw=' + elRaw.length);
+  // 逃生门：与帧级同一个开关。
+  g4.allow = true;
+  input4.focus();
+  check('元素级围栏：allow 逃生门同时放开元素级那一半', g4.elAllowed === 2 && elRaw.length === 2);
+  // ⑧ 负对照：把"窗口判定"改成恒真 ⇒ "窗口过期后重新拦住"必须变假（判据真的在判手势）。
+  const elRawM = [];
+  const ElM = function () {};
+  ElM.prototype.focus = function () { elRawM.push('el'); };
+  const winM2 = { focus: function () {}, document: {}, HTMLElement: ElM,
+    addEventListener: function () {} };
+  new Function('window', guardSource.replace('guard.allow || fresh', 'true'))(winM2);
+  const gM = winM2.__weFocusGuard;
+  new ElM().focus();
+  check('负对照：窗口判定恒真 ⇒ 元素级围栏失效（无手势不再被吞）',
+    gM.elBlocked === 0 && gM.elAllowed === 1 && elRawM.length === 1,
+    'elBlocked=' + gM.elBlocked + ' raw=' + elRawM.length);
+  // ⑨ 元素级补丁装不上时如实记账，且绝不抛（注入体住在壁纸文档里）。
+  const ElFrozen = function () {};
+  Object.defineProperty(ElFrozen.prototype, 'focus', { configurable: false, writable: false, value: function () {} });
+  const win5 = { focus: function () {}, document: {}, HTMLElement: ElFrozen, addEventListener: function () {} };
+  let elGuardThrew = false;
+  try { runGuard(win5); } catch (e) { elGuardThrew = true; }
+  check('元素级围栏：补丁装不上时 elInstalled=false 且绝不抛（帧级那一半仍有效）',
+    elGuardThrew === false && win5.__weFocusGuard.elInstalled === false
+      && win5.__weFocusGuard.installed === true && win5.__weFocusGuard.elBlocked === 0);
 }
 check('focus guard source is classic-script and markup safe',
   guardSource.length > 200 && !/<\/script/i.test(guardSource) && !/^\s*(?:import|export)\b/m.test(guardSource)
