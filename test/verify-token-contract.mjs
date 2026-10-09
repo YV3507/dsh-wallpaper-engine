@@ -16,6 +16,9 @@
  *      （审计 §三.3：这是玻璃/壁纸解耦能干净落地的既成事实，钉死防回退）；
  *   ⑤ 解析口径的负对照（注释掩蔽 / var() 读不计 / 跨行声明 / 归桶正确性）——
  *      每条判据都配一个"能失败"的探针，防止判据本身空转。
+ *   ⑥ **门控计数自洽**：产物里每个 `标签(N)` 的 N 必须 > 0、N 之和 = 该令牌条数、
+ *      组数 = 归并出的桶数。旧版工具拿声明对象比桶名字符串 ⇒ 每格恒 0，而 ① 的逐字节
+ *      比对把这个 0 永久冻绿（见 §11 A1-3）。
  *
  * 红了怎么办：令牌集合的**有意**变更跑 `node test/tools/token-contract.mjs --write`
  * 重新生成契约并随代码提交；③ ④ 变红说明出现**新的无门控改写**或 bg-base 挪了门控 ——
@@ -124,6 +127,50 @@ console.log('\n⑤ 口径完整性：CSS 模板外不许有漏网的属性位声
   const pStrays = probe.match(/--dsw-[a-z0-9-]+/g) || [];
   check('负对照：模板外的 `--dsw-` 会被这条判据判出',
     pStrays.length === 1 && pStrays[0] === '--dsw-probe-outside', '实测 ' + pStrays.length + ' 处');
+}
+
+console.log('\n⑥ 门控计数自洽（A1-3：工具曾把每格算成 0，而被 ① 冻绿）');
+{
+  // 从**产物文本**反解每行：第二格 = 条数，第三格 = `标签(N) [+ 标签(N)]`。判据不认标签，
+  // 只认括号里的数 —— 这样工具改了归并口径也不会和这条守卫串通。
+  const rowsOf = (docText) => {
+    const rows = new Map();
+    for (const line of docText.split('\n')) {
+      const m = /^\|\s*`([^`]+)`\s*\|\s*(\d+)\s*\|\s*([^|]*?)\s*\|/.exec(line);
+      if (m) rows.set(m[1], { count: Number(m[2]), gates: m[3] });
+    }
+    return rows;
+  };
+  const gateProblems = (docText, tokenList) => {
+    const problems = [];
+    const rows = rowsOf(docText);
+    for (const t of tokenList) {
+      const row = rows.get(t.token);
+      if (!row) { problems.push(t.token + ': 全量表里没有它'); continue; }
+      if (row.count !== t.decls.length) {
+        problems.push(t.token + ': 条数 ' + row.count + ' ≠ 归并出的 ' + t.decls.length);
+      }
+      const nums = [...row.gates.matchAll(/\((\d+)\)/g)].map((m) => Number(m[1]));
+      if (nums.length !== t.buckets.size) {
+        problems.push(t.token + ': 门控组数 ' + nums.length + ' ≠ 归并桶数 ' + t.buckets.size);
+      }
+      if (nums.some((n) => n <= 0)) problems.push(t.token + ': 出现 0 计数（' + row.gates + '）');
+      const sum = nums.reduce((a, b) => a + b, 0);
+      if (sum !== t.decls.length) {
+        problems.push(t.token + ': 门控计数之和 ' + sum + ' ≠ 条数 ' + t.decls.length);
+      }
+    }
+    return problems;
+  };
+  const problems = gateProblems(text, tokens);
+  check('产物里每格门控计数 > 0、之和 = 条数、组数 = 桶数', problems.length === 0,
+    problems.length ? problems.slice(0, 3).join(' | ') : tokens.length + ' 个令牌全部自洽');
+  // 负对照：把某一格改成 0 —— 同一条判据必须判出（否则它只是"恒真的空转"）
+  const nonzero = text.match(/\(([1-9]\d*)\)/);
+  const doctored = nonzero ? text.replace(nonzero[0], '(0)') : text;
+  check('负对照：某一格计数被改成 0 会被判出自洽性失败',
+    nonzero !== null && gateProblems(doctored, tokens).length > 0,
+    nonzero ? '探针 ' + nonzero[0] + ' → 判出 ' + gateProblems(doctored, tokens).length + ' 处' : '产物里找不到非零计数');
 }
 
 console.log('');

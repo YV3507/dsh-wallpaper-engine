@@ -187,7 +187,10 @@ export function buildContract() {
     e.decls.push(d); e.buckets.add(d.bucket); e.lines.push(d.line);
   }
   const tokens = [...byToken.values()].sort((a, b) => a.token.localeCompare(b.token));
-  const cnt = (set, b) => [...set].filter((x) => x === b).length;
+  // `t.decls` 是**声明对象**数组（每个对象自带 `.bucket`）。旧版写成 `[...set].filter(x => x === b)`
+  // 拿对象比桶名字符串 ⇒ 恒为 0，而且这个 0 被 verify-token-contract 的逐字节比对永久冻住
+  //（产物里 46 玻璃(0) / 10 无门控(0) / 8 壁纸(0)，见 §11 A1-3）。
+  const cnt = (declList, b) => declList.filter((x) => x.bucket === b).length;
 
   const L = [];
   L.push('# `--dsw-*` 令牌契约（自动生成，勿手改）');

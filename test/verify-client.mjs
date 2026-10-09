@@ -1370,6 +1370,57 @@ setTimeout(async () => {
     assert.equal(sliderMax(findSliderRow(tree, '侧栏透明度')), '100', '侧栏透明度上限必须是 100（规范刻度，R4）');
     assert.equal((JSON.stringify(tree).match(/"aria-label":"侧栏玻璃颜色 /g) || []).length, 6, '侧栏玻璃颜色预设应有 6 个色板');
     assert.ok(JSON.stringify(tree).includes('自定义侧栏玻璃颜色'), 'sidebar glass color custom input present:');
+    // ── §11 A2-F2：侧栏档那个**单**色板固定写浅色那一半 ────────────────────────────
+    //    侧栏的玻璃色变量只消费浅色半（src/glass.js / src/effects.js 的 sidebar 分支都取
+    //    `glassColorOf(sel,"light")` —— 侧栏没有 `data-ds-dark-theme` 孪生，有意不分深浅）。
+    //    所以侧栏面板①只画一行、②显示与写入都是**浅色半**，不是"当前配色那一侧"：否则深色
+    //    主题下用户点一下改的是他在这块面板上看不到的那个值（面板还不许自己采样主题）。
+    //    断言用"两半不同"的状态来钉：浅色=白釉、深色=玫瑰粉 ⇒ 显示哪一半、点一下改哪一半都无处可藏。
+    setTab('appearance');
+    let sepTree = renderPicker();
+    findCtlInput(sepTree, '深色单独设置').props.onChange({ target: { checked: true } });
+    sepTree = renderPicker();
+    findGlassSwatch(sepTree, '玻璃颜色 · 深色 #DD8FAC').props.onClick(); // 深色半 = 玫瑰粉
+    sepTree = renderPicker();
+    assert.ok(swatchActive(findGlassSwatch(sepTree, '玻璃颜色 #ffffff')),
+      'A2-F2 前提：浅色半仍是白釉（与深色半不同 —— 否则下面两条判不出"取错了一半"）');
+    assert.ok(swatchActive(findGlassSwatch(sepTree, '玻璃颜色 · 深色 #DD8FAC')),
+      'A2-F2 前提：深色半已设为玫瑰粉');
+    tree = renderSidePane();
+    treeText = JSON.stringify(tree);
+    assert.equal((treeText.match(/"aria-label":"玻璃颜色 /g) || []).length, 6,
+      'A2-F2：侧栏档只画一行玻璃颜色（「玻璃颜色 · 深色」行不发到侧栏 —— 侧栏不消费深色半）');
+    assert.ok(swatchActive(findGlassSwatch(tree, '玻璃颜色 #ffffff')),
+      'A2-F2：侧栏档色板显示的是**浅色半**（显示深色半 = 用户看到的值不是他改的那个）');
+    findGlassSwatch(tree, '玻璃颜色 #0d1524').props.onClick(); // 侧栏这一个色板点「深夜蓝」
+    setTab('appearance');
+    sepTree = renderPicker();
+    assert.ok(swatchActive(findGlassSwatch(sepTree, '玻璃颜色 #0d1524')),
+      'A2-F2：侧栏档点一个颜色 ⇒ 浅色半跟着变');
+    assert.ok(swatchActive(findGlassSwatch(sepTree, '玻璃颜色 · 深色 #DD8FAC')),
+      'A2-F2：侧栏档点色**不得**碰深色半（写当前配色那一侧的实现会在这里红）');
+    // 结构半边：旧实现是按主题选一侧（`singleGlassOnDark = sidebarSurface && panelThemeIsDark()`）。
+    // 挂载台里 `document.body` 没有能力齐全的 hasAttribute ⇒ 只靠上面的行为断言抓不到"条件选侧"
+    // 那一种回退，所以再钉一条源码判据 + 一条证明该判据真能抓到的负对照。
+    const glassPanelSrc = readFileSync(new URL('../src/glass-panel.js', import.meta.url), 'utf8');
+    // 只判**代码**：注释里正好写着"panelThemeIsDark 已随之删除"这句（第一版被自己的注释判红）。
+    // 剥注释走共享的**字符串感知**实现（`test/tools/js-text.mjs`）—— 手写"块注释一条正则 +
+    // 行注释一条正则"不认字符串与行注释，注释里出现那两个字符就会静默吃掉中间的真实代码，
+    // 而判据照样报绿（`verify-module-layout` ⑦ 专抓这个，别在这里再写一遍）。
+    const glassPanelCode = stripComments(glassPanelSrc);
+    const themeSampler = /panelThemeIsDark|singleGlassOnDark/;
+    assert.ok(themeSampler.test('const singleGlassOnDark = sidebarSurface && panelThemeIsDark();'),
+      '负对照：被删掉的"按主题选侧"实现确实会命中下面这条源码判据');
+    assert.ok(!themeSampler.test(glassPanelCode),
+      'A2-F2：面板不许自己采样主题来决定写哪一侧（侧栏那一行固定写浅色半）');
+    // 复原出厂：关开关（深色半收敛到浅色）+ 浅色半回白釉，别把状态留给后面的判据。
+    sepTree = renderPicker();
+    findCtlInput(sepTree, '深色单独设置').props.onChange({ target: { checked: false } });
+    sepTree = renderPicker();
+    findGlassSwatch(sepTree, '玻璃颜色 #ffffff').props.onClick();
+    tree = renderSidePane();
+    treeText = JSON.stringify(tree);
+    assert.ok(swatchActive(findGlassSwatch(tree, '玻璃颜色 #ffffff')), 'A2-F2 复原：侧栏档回白釉');
     // 内容面同样：它的开关打开后才画透明度 / 底色两行。
     findCtlInput(tree, '内容面玻璃·独立配置').props.onChange({ target: { checked: true } });
     tree = renderSidePane();
@@ -3923,7 +3974,13 @@ setTimeout(async () => {
   assert.equal(A.win.__weFocusHandback.lastEl, A.hostInput,
     '#148 宿主半：壁纸帧自己拿到 focusin 时不许覆盖记住的宿主元素');
 
+  // §11 A3-F1：`lastHandBackAt` 现在挂在 state 上（不再是闭包局部）⇒ 每条负对照前**清零**。
+  // 否则"刚刚交还过（< MIN_GAP_MS）"会抢在②③⑤任何一条判定之前 return，把负对照全变成假绿
+  // —— 实测删掉 ②/③/⑤ 里任意一条判据，verify-client 仍然是 EXIT 0。
+  const resetGap = () => { A.win.__weFocusHandback.lastHandBackAt = 0; };
+
   // ②负对照之一：焦点落进**宿主元素**（不是壁纸帧）⇒ 不交还（否则会和用户正常切焦点拉锯）。
+  resetGap();
   A.doc.activeElement = A.hostButton;
   A.fire('focusin', A.hostInput);
   A.fire('focusout', A.hostInput);
@@ -3931,31 +3988,29 @@ setTimeout(async () => {
   assert.equal(A.win.__weFocusHandback.handbacks, 1,
     '负对照①：焦点落到宿主元素上时不许交还（否则用户每次点别处都被拽回来）');
 
-  // ②负对照之二：有**真实手势**（用户自己去点壁纸）⇒ 不交还，照他点的来。
-  A.fire('pointerdown', null);
-  assert.ok(A.win.__weFocusHandback.gestureAt > 0,
-    '#148 宿主半：window 上的四类手势必须刷新"最近真实交互"时间戳');
-  A.doc.activeElement = A.frame;
-  A.fire('focusin', A.hostInput);
+  // ②负对照之二：`activeElement` 是壁纸帧但**已断开** ⇒ 不交还（聚焦一个不在文档里的元素毫无意义）。
+  resetGap();
+  A.doc.activeElement = { tagName: 'IFRAME', className: 'we-iframe', isConnected: false };
   A.fire('focusout', A.hostInput);
   await tick();
   assert.equal(A.win.__weFocusHandback.handbacks, 1,
-    '负对照②：最近 1000ms 内有真实手势时不许交还（用户点壁纸是正当操作）');
-  assert.ok(A.win.__weFocusHandback.skipped >= 1, '#148 宿主半：跳过也要计数（真机据此判断是"没触发"还是"没装上"）');
+    '负对照②：壁纸帧已断开时不许交还');
 
   // ②负对照之三：focusout 来自**别的**元素 ⇒ 连判断都不进（否则每次 blur 都要走一轮）。
-  A.win.__weFocusHandback.gestureAt = 0;
+  resetGap();
   A.doc.activeElement = A.frame;
   A.fire('focusin', A.hostButton);
+  const skipBefore = A.win.__weFocusHandback.skipped;
   A.fire('focusout', A.hostInput);
   await tick();
-  assert.equal(A.win.__weFocusHandback.handbacks, 1,
-    '负对照③：focusout 的 target 不是记住的那个元素时不交还（只认"刚从它离开"）');
+  assert.ok(A.win.__weFocusHandback.handbacks === 1 && A.win.__weFocusHandback.skipped === skipBefore,
+    '负对照③：focusout 的 target 不是记住的那个元素时不交还、也不记 skipped（只认"刚从它离开"）');
 
   // ③ 保险一：记住项过期（半天前点过的输入框不许被翻出来抢焦点）。
-  //    ⚠️ 先睡过 MIN_GAP 再测：否则"没交还"可能是频率下限拦的，判据就不精确了（首版正是
-  //    这样"看着绿、其实测的不是这条"—— 它掩盖了下面那条阳性对照的失败）。
+  //    ⚠️ 先睡过 MIN_GAP、并**清零 lastHandBackAt** 再测：否则"没交还"可能是频率下限拦的，
+  //    判据就不精确了（首版正是这样"看着绿、其实测的不是这条"—— 它掩盖了阳性对照的失败）。
   await sleep(320);
+  resetGap();
   A.win.__weFocusHandback.lastAt = Date.now() - 200000;
   A.doc.activeElement = A.frame;
   const skippedBefore = A.win.__weFocusHandback.skipped;
@@ -3965,6 +4020,7 @@ setTimeout(async () => {
     '#148 宿主半：记住项超过 STALE_MS 就不交还（且要记一次 skipped，真机据此区分"没触发"与"没装上"）');
 
   // ③ 阳性对照：间隔够、记住项新鲜 ⇒ 交还成立（同时也是下一条负对照的前提）。
+  resetGap();
   A.win.__weFocusHandback.lastAt = Date.now();
   A.fire('focusout', A.hostButton);
   await tick();
@@ -3993,6 +4049,48 @@ setTimeout(async () => {
   assert.equal(A.win.__weFocusHandback.handbacks, 3, '负对照：拆除后不许再交还');
   assert.ok(typeof A.mod.installFocusHandback() === 'function', '#148 宿主半：拆除后必须能重新装上');
 
+  // ④'' §11 A3-F2：手势窗口里跳过的交还**不永久丢失** —— 窗口关闭时自动补交一次。
+  //    没有这一步：焦点进壁纸帧之后宿主收不到 keydown（`gestureAt` 就此冻结），唯一的触发
+  //    路径（focusout 的那个 setTimeout）也不会再来 ⇒ 打字期间被夺走的焦点永久掉地。
+  //    用**独立实例**，免得补交定时器插入上面那串计量序列。
+  const R = buildFh(fhSrc);
+  const disposeR = R.mod.installFocusHandback();
+  R.fire('focusin', R.hostInput);
+  R.fire('pointerdown', null); // 用户自己去点了壁纸 ⇒ 这一轮先跳过
+  assert.ok(R.win.__weFocusHandback.gestureAt > 0,
+    '#148 宿主半：window 上的四类手势必须刷新"最近真实交互"时间戳');
+  R.doc.activeElement = R.frame;
+  R.fire('focusout', R.hostInput);
+  await tick();
+  assert.ok(R.win.__weFocusHandback.handbacks === 0 && R.win.__weFocusHandback.skipped === 1
+    && R.focused.length === 0,
+    'A3-F2 前提：手势窗口内先跳过（不许立刻交还，且要记一次 skipped），实测 '
+    + JSON.stringify({ handbacks: R.win.__weFocusHandback.handbacks, skipped: R.win.__weFocusHandback.skipped, focused: R.focused }));
+  await sleep(1150); // 窗口 1000ms 关闭 ⇒ 无需新的 focusout，补交自己发生
+  assert.deepEqual(R.focused, ['input'],
+    'A3-F2：手势窗口里跳过的交还必须在窗口关闭后补一次（实测 ' + JSON.stringify(R.focused) + '）');
+  assert.equal(R.win.__weFocusHandback.handbacks, 1, 'A3-F2：补交也要如实记账');
+  // 补交只有**一个在途定时器**：窗口里再来几次 focusout 不叠加、也不立刻交还。
+  R.fire('pointerdown', null);
+  R.doc.activeElement = R.frame;
+  R.fire('focusout', R.hostInput);
+  R.fire('focusout', R.hostInput);
+  await tick();
+  assert.ok(R.win.__weFocusHandback.handbacks === 1 && R.win.__weFocusHandback.skipped === 3,
+    'A3-F2：窗口内重复 focusout 不立刻补交、每次跳过都记账，实测 '
+    + JSON.stringify({ handbacks: R.win.__weFocusHandback.handbacks, skipped: R.win.__weFocusHandback.skipped }));
+  // 拆除必须清掉在途的补交定时器（否则拆完还有异步动静，真机上则是永远醒着的空定时器）。
+  // 观测点 = `state.retrying`（自证面里就带着"有没有一个在途的补交定时器"）：只看 handbacks
+  // 是抓不到的 —— 定时器即使活着也会被 handBack 首行的 `!active` 挡住，交还计数不变。
+  assert.equal(R.win.__weFocusHandback.retrying, true,
+    'A3-F2 前提：窗口内跳过一次之后必须真的挂着一个在途补交定时器（否则下一条判据没在判它）');
+  disposeR();
+  assert.equal(R.win.__weFocusHandback.retrying, false,
+    'A3-F2/F5：拆除必须清掉在途的补交定时器（`retrying` 仍为 true = 定时器泄漏，实测被清掉后才是 false）');
+  await sleep(1150);
+  assert.equal(R.win.__weFocusHandback.handbacks, 1,
+    'A3-F2：拆除后补交不许再发生（实测补交又在拆除后发生了）');
+
   // ④' 环境能力：本仓的 verify 挂载台用 stub `document`（只有 body / style，没有 addEventListener）
   //     ⇒ 必须安静退场（返回 null、不抛、不留半个监听器）。实测 verify-transcode-state 的挂载台
   //     就是这种 document，`ctx.effect` 里抛会中断整条 apply（首版正是这样红的）。
@@ -4006,8 +4104,13 @@ setTimeout(async () => {
   assert.equal(bare.listeners.length, 0, '#148 宿主半：退场时不许留下半个监听器');
 
   // 变异负对照（判据真的在判"手势"与"落点"）：喂同一份源码的两个改写版，各拆掉一条判据。
-  const mutGesture = buildFh(fhSrc.replace(
-    'if (now - state.gestureAt <= GESTURE_WINDOW_MS) { state.skipped += 1; return; }', '/* 去掉手势判定 */'));
+  // ⚠️ A3-F2 之后手势分支的正文变了（里面多了一段补交）⇒ 这里只替换**判断头**；并且断言
+  // 改写确实生效（`replace` 落空会得到一个和原版逐字相同的"变异体"，那种绿是假绿）。
+  const mutGestureSrc = fhSrc.replace(
+    'if (now - state.gestureAt <= GESTURE_WINDOW_MS) {', 'if (false) { /* 去掉手势判定 */');
+  assert.ok(mutGestureSrc !== fhSrc,
+    'negative control 的改写必须真的命中源码（否则变异体 = 原版，绿是假的）');
+  const mutGesture = buildFh(mutGestureSrc);
   mutGesture.mod.installFocusHandback();
   mutGesture.fire('pointerdown', null);
   mutGesture.fire('focusin', mutGesture.hostInput);
@@ -4016,8 +4119,10 @@ setTimeout(async () => {
   await tick();
   assert.deepEqual(mutGesture.focused, ['input'],
     'negative control: 摘掉"最近真实交互"判定 ⇒ 有手势也会交还 ⇒ 上面那条负对照不是空转');
-  const mutTarget = buildFh(fhSrc.replace('if (!weIsWallpaperFrame(active) || !active.isConnected) return;',
-    '/* 不看落点 */'));
+  const mutTargetSrc = fhSrc.replace('if (!weIsWallpaperFrame(active) || !active.isConnected) return;',
+    '/* 不看落点 */');
+  assert.ok(mutTargetSrc !== fhSrc, 'negative control 的改写必须真的命中源码');
+  const mutTarget = buildFh(mutTargetSrc);
   mutTarget.mod.installFocusHandback();
   mutTarget.fire('focusin', mutTarget.hostInput);
   mutTarget.doc.activeElement = mutTarget.hostButton;

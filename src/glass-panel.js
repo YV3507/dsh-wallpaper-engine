@@ -191,22 +191,6 @@ function panelGlassPair(sel) {
   return { light, dark };
 }
 
-/**
- * 当前配色是不是深色（#159②）。
- *
- * ⚠️ **只用来决定"侧栏那个单色板写哪一侧"** —— 取样/渲染一律按主题成对写变量（effects.js /
- * glass.js 各取一半），面板不参与取值渲染。带 `document` 守卫是因为本文件在沙箱里被直接渲染
- * （test/verify-scene-live.mjs 的 labelStub 台架没有真 document），而 `test/verify-fontset.mjs`
- * 给的是**能力不全的 stub document**（有 `body`、没有 `hasAttribute`）⇒ 能力要逐个查，
- * 缺一个就当"不是深色"（渲染期抛会打断整条 apply，同一类坑见 wip §7 踩红 1）。
- */
-function panelThemeIsDark() {
-  if (typeof document === "undefined") return false;
-  const body = document.body;
-  if (!body || typeof body.hasAttribute !== "function") return false;
-  return !!body.hasAttribute("data-ds-dark-theme");
-}
-
 function renderAppearanceGlassSection(ctx) {
   const {
     onBlur, onGlassAlpha, onGlassChildParam, onGlassColor, onGlassDarkSeparate, onGlassFidelity,
@@ -338,8 +322,6 @@ function renderAppearanceGlassSection(ctx) {
   // #159②：玻璃色那一对（内部永远是一对；标量/残缺由本文件的 panelGlassPair 归一 ——
   // 这里**不能**调 client.js / effects.js 的兄弟函数，见 panelGlassPair 的注释）。
   const glassPair = panelGlassPair(sel);
-  // 侧栏档只有一个色板：它写的是**当前配色那一侧**，所以显示也得跟着那一侧（所见即所改）。
-  const singleGlassOnDark = sidebarSurface && panelThemeIsDark();
   const thinkGear = (id, label, tip) => React.createElement("button", {
     key: "think-" + id,
     className: "we-picker__btn we-picker__rate" + (thinkMode === id ? " we-picker__rate--active" : ""),
@@ -482,14 +464,17 @@ function renderAppearanceGlassSection(ctx) {
     // #159② 分主题：色板行的"一个颜色"是**浅色那一侧**；开了「深色单独设置」再多一行专写深色。
     // `sel.glassDarkSeparate` 只是面板开关，不改渲染 —— 取色在 effects.js / glass.js 按主题各取一半。
     // 侧栏档（窄面板 + 随手调）**不给这个开关**（D4 同向：独立/分套属配置层）；它只有一个色板，
-    // 写**当前配色那一侧**（所见即所改，不会顺手抹掉另一侧的值）。
+    // 只写**浅色那一侧** —— 侧栏的玻璃色变量就只消费浅色半（`src/glass.js` / `src/effects.js`
+    // 的 sidebar 分支都取 `glassColorOf(sel,"light")`：侧栏没有 `data-ds-dark-theme` 孪生，
+    // 有意不分深浅）。**不要**改回"写当前配色那一侧"：深色主题下那等于让用户改一个他看不到的
+    // 值（§11 A2-F2）；面板也不许自己采样主题（`panelThemeIsDark` 已随之删除）。
     !sidebarSurface && switchRow(weT("深色单独设置"), sel.glassDarkSeparate === true, (e) => onGlassDarkSeparate(e.target.checked), {
       key: "glass-dark-separate",
       tooltip: weT("关闭时一个颜色同时用于浅色与深色两套（内部仍存两套值）；开启后浅色/深色分别设置"),
     }),
     swatchRow(weT("玻璃颜色"), GLASS_COLOR_PRESETS,
-      singleGlassOnDark ? (glassPair.dark || glassPair.light) : glassPair.light,
-      (hex, live) => onGlassColor(singleGlassOnDark ? "dark" : "light", hex, live), { key: "glass-color" }),
+      glassPair.light,
+      (hex, live) => onGlassColor("light", hex, live), { key: "glass-color" }),
     !sidebarSurface && sel.glassDarkSeparate === true && swatchRow(weT("玻璃颜色 · 深色"), GLASS_COLOR_PRESETS, glassPair.dark,
       (hex, live) => onGlassColor("dark", hex, live), { key: "glass-color-dark" }),
     SliderRow(weT("玻璃透明度"), 0, 100, 5, sel.glassAlpha, onGlassAlpha, sel.glassAlpha + "%"),

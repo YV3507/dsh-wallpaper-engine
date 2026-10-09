@@ -176,6 +176,36 @@ resetIoCalls();
 const p5b = await buildFresh();
 check('老版本索引被忽略（形状变了不能当命中的）', probes.exists === 8 && p5b.wallpapers.length === 4,
   'exists=' + probes.exists);
+// ── ⑤b §11 A3-F3：形状合法但**元素是垃圾**（`we: [null]`）───────────────────
+//    顶层形状检查（v / sig / Array.isArray(we) / probes）全过，旧实现于是把它当命中索引用，
+//    一路走到 `assembleInventory` 里的 `w.fileAbs` 并抛 TypeError；调用方 catch 成 500，
+//    而索引一旦锁存就不再重读 ⇒ **跨重启永久 500**（只能手动删索引文件）。现在按"没有索引"
+//    处理：照旧全扫，重扫后 `saveIndex` 重写一份干净的（自愈）。
+//    写法上从**当前**索引里抠出 `v`（版本号没导出：手写常量会在版本一动后变成"其实没走到
+//    元素检查"，判据看着绿其实在测别的事）。
+const goodNow = JSON.parse(readFileSync(INDEX_FILE, 'utf8'));
+writeFileSync(INDEX_FILE, JSON.stringify(Object.assign({}, goodNow, { we: [null] })));
+resetIoCalls();
+const p5c = await buildFresh();
+check('A3-F3：we:[null] 的索引当"没有索引"（不抛、照常全扫）',
+  p5c.wallpapers.length === 4 && probes.exists === 8,
+  'wallpapers=' + p5c.wallpapers.length + ' exists=' + probes.exists);
+const idx5c = readIndex();
+check('A3-F3：重扫后索引自愈（逐元素形状合法、不再含 null）',
+  !!idx5c && Array.isArray(idx5c.we) && idx5c.we.length === 4
+    && idx5c.we.every((w) => w && typeof w === 'object'),
+  'we=' + JSON.stringify((idx5c && idx5c.we) || null));
+// ── ⑤c §11 A3-F3 的另一半：扫描原料本身混进非对象元素 ──────────────────────
+//    `assembleInventory` 是**另一个入口**（冷启动 / 重扫直接把原料喂进去，不经过索引）⇒ 它也
+//    逐元素兜一道，否则 `w.fileAbs` 同样抛 TypeError 变 500。签名换掉以便真的走 enumerate 那一支。
+sig = 'sig-5';
+const savedEntries = entries;
+entries = [null, ...savedEntries];
+resetIoCalls();
+const p5d = await buildFresh();
+check('A3-F3：扫描原料含 null 元素 ⇒ 跳过它、其余照常返回（不抛）',
+  p5d.wallpapers.length === 4, 'wallpapers=' + p5d.wallpapers.length);
+entries = savedEntries;
 
 // ── ⑥ 索引不随删除无限长 ───────────────────────────────────────────────────
 section('⑥ 已删除的项目从索引里消失');

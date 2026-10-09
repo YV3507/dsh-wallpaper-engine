@@ -63,7 +63,7 @@ const schema = await import(pathToFileURL(join(root, 'lib', 'settings-schema.js'
 {
   const { GLASS_PRESET_KEYS, KINDS, GLASS_CHILDREN, childGlassKey } = schema;
   const generated = [...new Set(GLASS_CHILDREN.flatMap((c) => Object.keys(c.params).map((p) => childGlassKey(c.id, p))))];
-  const fixed = ['glassColor', 'glassAlpha', 'blur', 'glassFidelity', 'glassMode',
+  const fixed = ['glassColor', 'glassAlpha', 'blur', 'glassFidelity', 'glassMode', 'glassDarkSeparate',
     'leftSidebarGlass', 'titlebarGlass', 'thinkingGlass', 'thinkingNative', 'capsuleBlur', 'capsuleColor', 'sidebarGlass', 'sidebarFullClear', 'sidebarFollowGlobal',
     'sidebarBlur', 'sidebarAlpha', 'sidebarColor', 'sidebarContentAlpha', 'sidebarContentColor'];
   check('键集 = 固定键 ∪ 登记表生成键（无缺无余）',
@@ -93,6 +93,17 @@ section('② 快照消毒：补齐 / 丢弃 / 回落默认 / 迁移短路（回�
   check('越界值回落默认（clampNum 语义：不是截断）',
     over.glassAlpha === DEFAULTS.glassAlpha && over.blur === DEFAULTS.blur,
     'glassAlpha=' + over.glassAlpha);
+  // §11 A2-F1：`glassColor` 是一对、开关决定两半是否独立。开关不进快照的话，恢复一个
+  // "两半不同"的预设会把开关留在 OFF ⇒ 面板从此只认浅色半，深色半的设置静默失效。
+  check('A2-F1：glassDarkSeparate 进快照、玻璃色按一对归一',
+    sanitizeGlassPresetValues({}).glassDarkSeparate === false
+      && sanitizeGlassPresetValues({ glassDarkSeparate: true }).glassDarkSeparate === true
+      && sanitizeGlassPresetValues({ glassDarkSeparate: 'yes' }).glassDarkSeparate === false
+      && JSON.stringify(sanitizeGlassPresetValues({ glassColor: { light: '#123456', dark: '#654321' } }).glassColor)
+        === JSON.stringify({ light: '#123456', dark: '#654321' })
+      && JSON.stringify(sanitizeGlassPresetValues({ glassColor: '#123456' }).glassColor)
+        === JSON.stringify({ light: '#123456', dark: '#123456' }),
+    JSON.stringify({ off: sanitizeGlassPresetValues({}).glassDarkSeparate, on: sanitizeGlassPresetValues({ glassDarkSeparate: true }).glassDarkSeparate }));
   // 回归钉：2026-10-04 实测 —— 不盖 settingsVersion 时 sanitizeFromSchema 入口的
   // migrateSettings 会把快照当旧档做 v4 换算（70 → 100）。
   const noVersion = sanitizeGlassPresetValues({ glassAlpha: 70, sidebarAlpha: 85, sidebarContentAlpha: 30 });

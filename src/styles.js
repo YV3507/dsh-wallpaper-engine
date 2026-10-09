@@ -608,8 +608,10 @@ const CSS = `
      深底变浅底、白字不变 ⇒ 白字压浅底（实测 1.07–1.13:1，见 #161）。
      判据取宿主自己写在气泡上的 role="tooltip"（全 asar 仅出现一次，就是这一处），
      它同时免疫类名哈希漂移与浮层 DOM 位置，比 [data-chat-flow] 作用域更可靠。
-     ⇒ **本文件所有 [class*="_bubble"] 规则都必须带这道豁免**（:581 / :849 / :3021 同办），
-     守卫：verify-readability「F2dN 每条 _bubble 规则要么 chat-flow 作用域、要么带豁免」。 */
+     ⇒ **本文件所有 [class*="_bubble"] 规则都必须带这道豁免**（当前 :613 / :622 / :945 / :3166 四条），
+     守卫：verify-readability「F2dN 每条 _bubble 规则都必须带 role="tooltip" 豁免」—— §11 A1-4：
+     这条判据以前还接受"头里有 [data-chat-flow] 就放行"，于是把某条的 :not(...) 摘掉仍全绿；
+     作用域（在对话流里）与豁免（不是宿主 Tooltip 那个 _bubble）是两件事，现在分别钉住。 */
   body[data-we-glass-page][data-we-thinking-glass] [class*="_bubble"]:not([role="tooltip"]) {
     background-color: var(--we-chat-glass-fill) !important;
   }
@@ -1652,7 +1654,7 @@ const CSS = `
      [data-menu-material] 元素选择器上，子树里裸读 var() 会在 computed-value 阶段整条失效。
      于是玻璃开着时它仍是一块不透明板。这里只补霜，底色仍归宿主（不重声明
      --dsw-alias-bg-layer-2，免得与注册表内部那些面板色打架）。
-     模糊半径读「浮层玻璃」这条子项的私有量 --we-floaters-blur（glass.js:271 无条件接线，
+     模糊半径读「浮层玻璃」这条子项的私有量 --we-floaters-blur（src/glass.js:279 无条件接线，
      取不到时退回全局模糊），与 .we-update-notice / .we-repo-panel 同档。 */
   body[data-we-glass-floaters] [data-install-registry] {
     -webkit-backdrop-filter: blur(var(--we-floaters-blur)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);

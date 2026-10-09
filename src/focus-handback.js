@@ -12,14 +12,18 @@
  *  ② 它落进了**壁纸帧**（`document.activeElement` 是 `iframe.we-iframe`），
  *  ③ 这件事**不是用户手势引起的**：最近 `GESTURE_WINDOW_MS` 内没有真实 pointer/mouse/key/touch
  *     按下。用户真去点壁纸（或壁纸自己的编辑框）时窗口刚被刷新 ⇒ 不交还，照他点的来。
+ *  跳过的交还**不会永久丢失**：手势窗口里跳过时按窗口剩余时间补一次（`retryTimer`）。没有这一步，
+ *  打字期间被夺走的焦点就永久掉地 —— 焦点进壁纸帧之后宿主不再收到 keydown，`gestureAt` 就此冻结，
+ *  唯一的触发路径（focusout 的那个 `setTimeout`）再也不会来（见 §11 A3-F2）。
  *
  * 另外两道保险：记住的元素超过 `STALE_MS` 没被打过焦点就不交还（否则半天前点过的输入框会被
  * 翻出来抢焦点）；两次交还之间至少隔 `MIN_GAP_MS`（壁纸若以极高频率夺焦，不至于把主线程拖成
  * 焦点乒乓）。
  *
- * 自证手段：`window.__weFocusHandback = { lastEl, lastAt, gestureAt, handbacks, skipped, active }`
+ * 自证手段：`window.__weFocusHandback = { lastEl, lastAt, gestureAt, handbacks, skipped, lastHandBackAt, active }`
  * —— 在 DSH 控制台里一眼能看到"交还了几次、跳过了几次"，与 `__weFocusGuard` 同一套纪律。
  * `handbacks` 一直不涨而症状仍在 ⇒ 夺焦路径不在本模块射程内（见上）。
+ * `lastHandBackAt` 是**可复位的**：台架每条负对照前把它清零，否则"刚交还过"会替它挡判断（§11 A3-F1）。
  *
  * 与 `lib/we-focus-guard.js` 的分工：那一半住在**壁纸文档**里、负责"别让它是主动作恶的一方"；
  * 这一半住在**宿主文档**里、负责"就算被搬走了也把它搬回来"。两侧的手势窗口取同一个 1000 ms。
@@ -51,8 +55,11 @@ function installFocusHandback() {
   const GESTURE_WINDOW_MS = 1000; // 与 lib/we-focus-guard.js 的 gestureWindowMs 同值
   const STALE_MS = 120000;
   const MIN_GAP_MS = 300;
-  const state = { lastEl: null, lastAt: 0, gestureAt: 0, handbacks: 0, skipped: 0, active: true };
-  let lastHandBackAt = 0;
+  // `lastHandBackAt` 与 `retrying`（有没有一个在途的补交定时器）都在 state 上（不是闭包局部）：
+  // 台架要能读/清零。否则"刚刚交还过（< MIN_GAP_MS）"会抢在②③⑤任何一条判定之前返回，把每条
+  // 负对照都变成假绿；`retrying` 则让"拆除是否真的清掉了定时器"可以被观测（见 §11 A3-F1/F5）。
+  const state = { lastEl: null, lastAt: 0, gestureAt: 0, handbacks: 0, skipped: 0, lastHandBackAt: 0, active: true, retrying: false };
+  let retryTimer = null;
 
   const onFocusIn = (e) => {
     const el = e.target;
@@ -64,16 +71,27 @@ function installFocusHandback() {
   };
   const onGesture = () => { state.gestureAt = Date.now(); };
   const handBack = () => {
+    if (!state.active) return; // 拆除之后一次都不许再交还（包括手势窗口到点后的补交）
     const el = state.lastEl;
     if (!el) return;
     const active = document.activeElement;
     if (!weIsWallpaperFrame(active) || !active.isConnected) return; // ② 焦点得真的在壁纸帧里
     const now = Date.now();
-    if (now - state.gestureAt <= GESTURE_WINDOW_MS) { state.skipped += 1; return; } // ③ 是用户自己点的
+    if (now - state.gestureAt <= GESTURE_WINDOW_MS) { // ③ 是用户自己点的
+      state.skipped += 1;
+      // 跳过一次 ≠ 放弃这一轮：手势窗口关闭时补交一次（见文件头 §11 A3-F2）。只有一个在途
+      // 定时器：窗口里再来几次 focusout 都共用它，到点重判（那时可能已被新的手势刷新窗口）。
+      if (retryTimer === null) {
+        state.retrying = true;
+        retryTimer = setTimeout(() => { retryTimer = null; state.retrying = false; handBack(); },
+          Math.max(state.gestureAt + GESTURE_WINDOW_MS - now, 0) + 1);
+      }
+      return;
+    }
     if (now - state.lastAt > STALE_MS) { state.skipped += 1; return; }
-    if (now - lastHandBackAt < MIN_GAP_MS) { state.skipped += 1; return; }
+    if (now - state.lastHandBackAt < MIN_GAP_MS) { state.skipped += 1; return; }
     if (!el.isConnected) { state.skipped += 1; return; }
-    lastHandBackAt = now;
+    state.lastHandBackAt = now;
     state.handbacks += 1;
     try {
       el.focus({ preventScroll: true });
@@ -99,6 +117,9 @@ function installFocusHandback() {
 
   focusHandbackDispose = () => {
     state.active = false;
+    // 补交定时器也要摘掉：否则拆除之后它仍会醒来（handBack 里的 active 检查兜住交还，
+    // 但留一个活着的定时器是泄漏，也会让台架"拆完还有异步动静"）。
+    if (retryTimer !== null) { clearTimeout(retryTimer); retryTimer = null; state.retrying = false; }
     document.removeEventListener("focusin", onFocusIn, true);
     document.removeEventListener("focusout", onFocusOut, true);
     window.removeEventListener("pointerdown", onGesture, true);

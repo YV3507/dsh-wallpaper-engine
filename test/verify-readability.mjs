@@ -426,10 +426,21 @@ function main() {
     // 数下界 4 = 现有四条（fill / 霜釉 / 气泡内代码块清底 / fallback 摘霜），少一条即红。
     const bubbleRules = all.filter((r) => r.header.includes('[class*="_bubble"]')
       && !r.header.includes('@supports'));
+    // ⚠️ §11 A1-4：这里原先允许"头里有 [data-chat-flow] 就放行"，于是把
+    //    `… [data-chat-flow] [class*="_bubble"]:not([role="tooltip"]) .md-code-block`（当前
+    //    `src/styles.js:945`）的 `:not(...)` 摘掉仍全绿。作用域与豁免是**两件事**：
+    //    `[data-chat-flow]` 只说"在对话流里"，不说"不是宿主 Tooltip 那个 _bubble"。
+    //    今天四条 `_bubble` 规则（`src/styles.js:613` / `:622` / `:945` / `:3166`）都同时有两者
+    //    ⇒ 收紧成"每条都必须带 role 豁免"：语义不放松，判据才有牙。
+    const bubbleExempt = (r) => (r.header || '').includes(':not([role="tooltip"])');
     check('F2dN every [class*="_bubble"] rule excludes the host Tooltip (role="tooltip")',
       bubbleRules.length >= 4
-      && bubbleRules.every((r) => r.header.includes('[data-chat-flow]')
-        || r.header.includes(':not([role="tooltip"])')));
+      && bubbleRules.every(bubbleExempt),
+      bubbleRules.filter((r) => !bubbleExempt(r)).map((r) => r.header).join(' | ')
+        || bubbleRules.length + ' 条 _bubble 规则全部带 role 豁免');
+    check('negative control: chat-flow 作用域不能代替 role="tooltip" 豁免（A1-4）',
+      bubbleExempt({ header: 'body[data-we-glass-page] [data-chat-flow] [class*="_bubble"] .md-code-block' }) === false
+        && bubbleExempt({ header: 'body[data-we-glass-page] [class*="_bubble"]:not([role="tooltip"]) .md-code-block' }) === true);
     const clear = (body) => /background: transparent !important/.test(body)
       && /(?:^|[;\s])backdrop-filter: none !important/.test(body)
       && /-webkit-backdrop-filter: none !important/.test(body)
