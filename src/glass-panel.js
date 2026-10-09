@@ -170,9 +170,46 @@ function renderGlassPresetsBlock(gp) {
   );
 }
 
+/**
+ * 面板侧读「玻璃颜色」那一对（#159②）。
+ *
+ * 为什么本文件**自带**一份归一而不复用 effects.js 的 `glassColorOf` / client.js 的助手：
+ * `test/verify-scene-live.mjs` 把本文件当**真模块 `import`**（与 `panel-tabs.js` 各在自己的模块
+ * 作用域里，只有全局那几个替身可用）⇒ 引用工厂作用域里的兄弟名字就是渲染期 ReferenceError。
+ * 这里只用局部逻辑 ⇒ 不依赖任何外部绑定，也不依赖 `document`。
+ *
+ * 形态：内部永远是一对 `{light, dark}`；标量（老预设定档直传）两侧同值；缺一侧用另一侧补；
+ * 两侧都没有就回空串 —— 空串只让色板行没有选中项，**不猜颜色**（猜错的代价是面板显示与实际不符）。
+ */
+function panelGlassPair(sel) {
+  const clean = (v) => (typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v.trim()) ? v.trim() : "");
+  const raw = sel && sel.glassColor;
+  if (typeof raw === "string") { const v = clean(raw); return { light: v, dark: v }; }
+  if (!raw || typeof raw !== "object") return { light: "", dark: "" };
+  const light = clean(raw.light) || clean(raw.dark);
+  const dark = clean(raw.dark) || light;
+  return { light, dark };
+}
+
+/**
+ * 当前配色是不是深色（#159②）。
+ *
+ * ⚠️ **只用来决定"侧栏那个单色板写哪一侧"** —— 取样/渲染一律按主题成对写变量（effects.js /
+ * glass.js 各取一半），面板不参与取值渲染。带 `document` 守卫是因为本文件在沙箱里被直接渲染
+ * （test/verify-scene-live.mjs 的 labelStub 台架没有真 document），而 `test/verify-fontset.mjs`
+ * 给的是**能力不全的 stub document**（有 `body`、没有 `hasAttribute`）⇒ 能力要逐个查，
+ * 缺一个就当"不是深色"（渲染期抛会打断整条 apply，同一类坑见 wip §7 踩红 1）。
+ */
+function panelThemeIsDark() {
+  if (typeof document === "undefined") return false;
+  const body = document.body;
+  if (!body || typeof body.hasAttribute !== "function") return false;
+  return !!body.hasAttribute("data-ds-dark-theme");
+}
+
 function renderAppearanceGlassSection(ctx) {
   const {
-    onBlur, onGlassAlpha, onGlassChildParam, onGlassColor, onGlassFidelity,
+    onBlur, onGlassAlpha, onGlassChildParam, onGlassColor, onGlassDarkSeparate, onGlassFidelity,
     onToggleChildIndependent, childIndependentOn, sel, surface,
     onCapsuleBlur, onCapsuleColor,
     onLeftSidebarGlass, onTitlebarGlass, onSidebarAlpha, onSidebarBlur, onSidebarColor,
@@ -298,6 +335,11 @@ function renderAppearanceGlassSection(ctx) {
   // 「思考块液态玻璃」三挡的当前值与按钮工厂（必须在 return 之前声明 —— 它们是语句，
   // 进不了下面的 createElement 实参表）。
   const thinkMode = sel.thinkingNative === true ? "native" : (sel.thinkingGlass === true ? "glass" : "off");
+  // #159②：玻璃色那一对（内部永远是一对；标量/残缺由本文件的 panelGlassPair 归一 ——
+  // 这里**不能**调 client.js / effects.js 的兄弟函数，见 panelGlassPair 的注释）。
+  const glassPair = panelGlassPair(sel);
+  // 侧栏档只有一个色板：它写的是**当前配色那一侧**，所以显示也得跟着那一侧（所见即所改）。
+  const singleGlassOnDark = sidebarSurface && panelThemeIsDark();
   const thinkGear = (id, label, tip) => React.createElement("button", {
     key: "think-" + id,
     className: "we-picker__btn we-picker__rate" + (thinkMode === id ? " we-picker__rate--active" : ""),
@@ -437,7 +479,19 @@ function renderAppearanceGlassSection(ctx) {
     // 玻璃颜色: the settings-window glass BASE tint. Defaults keep the stock
     // look (white light / deep navy dark); picking any preset or a custom
     // color tints the whole window glass in BOTH themes.
-    swatchRow(weT("玻璃颜色"), GLASS_COLOR_PRESETS, sel.glassColor, onGlassColor, { key: "glass-color" }),
+    // #159② 分主题：色板行的"一个颜色"是**浅色那一侧**；开了「深色单独设置」再多一行专写深色。
+    // `sel.glassDarkSeparate` 只是面板开关，不改渲染 —— 取色在 effects.js / glass.js 按主题各取一半。
+    // 侧栏档（窄面板 + 随手调）**不给这个开关**（D4 同向：独立/分套属配置层）；它只有一个色板，
+    // 写**当前配色那一侧**（所见即所改，不会顺手抹掉另一侧的值）。
+    !sidebarSurface && switchRow(weT("深色单独设置"), sel.glassDarkSeparate === true, (e) => onGlassDarkSeparate(e.target.checked), {
+      key: "glass-dark-separate",
+      tooltip: weT("关闭时一个颜色同时用于浅色与深色两套（内部仍存两套值）；开启后浅色/深色分别设置"),
+    }),
+    swatchRow(weT("玻璃颜色"), GLASS_COLOR_PRESETS,
+      singleGlassOnDark ? (glassPair.dark || glassPair.light) : glassPair.light,
+      (hex, live) => onGlassColor(singleGlassOnDark ? "dark" : "light", hex, live), { key: "glass-color" }),
+    !sidebarSurface && sel.glassDarkSeparate === true && swatchRow(weT("玻璃颜色 · 深色"), GLASS_COLOR_PRESETS, glassPair.dark,
+      (hex, live) => onGlassColor("dark", hex, live), { key: "glass-color-dark" }),
     SliderRow(weT("玻璃透明度"), 0, 100, 5, sel.glassAlpha, onGlassAlpha, sel.glassAlpha + "%"),
     // 「雾化」控制的只有**模糊半径**（雾面深度），饱和度是解耦的常量材料属性（见 GLASS_SATURATE）。
     // ⚠️ 覆盖面的实测口径（`.test-cache/blur-selectors.mjs` 复算，按规则头归面）：

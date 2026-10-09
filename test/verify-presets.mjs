@@ -189,8 +189,11 @@ const del = (id) => callRoute(route, fakeReq('/wallpaper-engine/glass-presets/' 
   check('创建 200，id 用客户端给的，values 缺键补齐成完整快照', created.__state.status === 200
     && createdData.id === 'preset-test-1'
     && Object.keys(createdData.values || {}).length === schema.GLASS_PRESET_KEYS.length
-    && createdData.values.glassColor === '#123456',
-    'glassColor=' + (createdData.values && createdData.values.glassColor));
+    // #159②：玻璃色在存储里是**一对** `{light, dark}`；旧式标量进快照也要归一成一对同值
+    //（出厂预设正文、手工编辑的档都走这条 —— 它们盖了版本号、不过迁移段）。
+    && (createdData.values.glassColor || {}).light === '#123456'
+    && (createdData.values.glassColor || {}).dark === '#123456',
+    'glassColor=' + JSON.stringify(createdData.values && createdData.values.glassColor));
 
   // 重名三条（归一化口径：字面 / 空白变体 / 与出厂撞名）
   const dup = await create('我的夜色');

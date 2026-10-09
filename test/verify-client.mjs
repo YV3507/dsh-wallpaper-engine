@@ -1254,6 +1254,60 @@ setTimeout(async () => {
     assert.equal((treeText.match(/"aria-label":"玻璃颜色 /g) || []).length, 6, '玻璃颜色预设应有 6 个色板');
     assert.ok(treeText.includes('自定义玻璃颜色'), 'glass color custom input present:');
     assert.ok(treeText.includes('type":"color"'), 'custom color input present:');
+    // ── #159② 玻璃色分主题（面板 + 写入口径的完整往返）────
+    //    判据不是"控件在不在"，而是**两个颜色各自独立**：默认关 ⇒ 只有浅色一行；打开 ⇒ 多出
+    //    深色那一行；点浅色只改浅色、点深色只改深色；关掉 ⇒ 深色侧收敛到浅色（"一个颜色同时
+    //    用于两套"的字面含义，而不是留下一个看不见的旧值下次又冒出来）。
+    const findGlassSwatch = (root, ariaLabel) => {
+      let hit = null;
+      (function walk(node) {
+        if (hit || !node || typeof node !== 'object') return;
+        if (Array.isArray(node)) { node.forEach(walk); return; }
+        if (node.type === 'button' && node.props && node.props['aria-label'] === ariaLabel) { hit = node; return; }
+        if (Array.isArray(node.children)) node.children.forEach(walk);
+      })(root);
+      return hit;
+    };
+    const swatchActive = (el) => !!el && String(el.props.className).includes('we-picker__swatch--active');
+    assert.equal((treeText.match(/"aria-label":"玻璃颜色 · 深色 /g) || []).length, 0,
+      '「深色单独设置」默认关 ⇒ 不得画出深色色板行');
+    assert.ok(swatchActive(findGlassSwatch(tree, '玻璃颜色 #ffffff')),
+      '默认白釉在浅色那一行是选中项');
+    const glassSepSwitch = findCtlInput(tree, '深色单独设置');
+    assert.ok(glassSepSwitch, '玻璃色的「深色单独设置」开关在场（外观页）');
+    glassSepSwitch.props.onChange({ target: { checked: true } });
+    tree = renderPicker();
+    treeText = JSON.stringify(tree);
+    assert.equal((treeText.match(/"aria-label":"玻璃颜色 · 深色 /g) || []).length, 6,
+      '打开「深色单独设置」⇒ 深色那一行有 6 个色板');
+    // 点浅色那行的「深夜蓝」：只该改浅色那一侧（深色那行不动）
+    findGlassSwatch(tree, '玻璃颜色 #0d1524').props.onClick();
+    tree = renderPicker();
+    assert.ok(swatchActive(findGlassSwatch(tree, '玻璃颜色 #0d1524')), '点了浅色 ⇒ 浅色那行选中深夜蓝');
+    assert.ok(swatchActive(findGlassSwatch(tree, '玻璃颜色 · 深色 #ffffff')),
+      '⚠️ 分主题开着时点浅色**不得**顺手改掉深色那一侧（否则"分开设置"是假的）');
+    // 再点深色那行的「玫瑰粉」：只该改深色那一侧
+    findGlassSwatch(tree, '玻璃颜色 · 深色 #DD8FAC').props.onClick();
+    tree = renderPicker();
+    assert.ok(swatchActive(findGlassSwatch(tree, '玻璃颜色 · 深色 #DD8FAC')), '点了深色 ⇒ 深色那行选中玫瑰粉');
+    assert.ok(swatchActive(findGlassSwatch(tree, '玻璃颜色 #0d1524')), '点深色时浅色那一侧不受影响');
+    // 关掉开关 ⇒ 深色行消失，且深色侧收敛到浅色那一侧（内部仍存两套值，但值相同）
+    findCtlInput(tree, '深色单独设置').props.onChange({ target: { checked: false } });
+    tree = renderPicker();
+    treeText = JSON.stringify(tree);
+    assert.equal((treeText.match(/"aria-label":"玻璃颜色 · 深色 /g) || []).length, 0,
+      '关掉「深色单独设置」⇒ 深色色板行消失');
+    findCtlInput(tree, '深色单独设置').props.onChange({ target: { checked: true } });
+    tree = renderPicker();
+    assert.ok(swatchActive(findGlassSwatch(tree, '玻璃颜色 · 深色 #0d1524')),
+      '关掉再打开 ⇒ 深色那一侧已收敛到浅色（不得跳回关掉前的玫瑰粉）');
+    // 复原出厂：关开关 + 浅色那行回白釉（关着时写两侧 ⇒ 两套都回白釉）
+    findCtlInput(tree, '深色单独设置').props.onChange({ target: { checked: false } });
+    tree = renderPicker();
+    findGlassSwatch(tree, '玻璃颜色 #ffffff').props.onClick();
+    tree = renderPicker();
+    treeText = JSON.stringify(tree);
+    assert.ok(swatchActive(findGlassSwatch(tree, '玻璃颜色 #ffffff')), '复原：浅色那行回白釉');
     assert.ok(treeText.includes('玻璃透明度'), 'glass transparency slider row present:');
     assert.ok(treeText.includes('"侧栏液态玻璃"'), 'sidebar-glass master switch present:');
     // ── 跟随全局（sidebarFollowGlobal，默认开；现场口径："我需要侧栏玻璃也跟随全局"）──
@@ -3010,6 +3064,90 @@ setTimeout(async () => {
       }
       assert.deepEqual(goldenDrift, [],
         '宿主设置规范化必须与 P1-5 前的实现逐键一致（漂移用例：' + goldenDrift.join(', ') + '）');
+
+      // ③b #159② 玻璃色的形状规则（迁移 + 读容忍 + 半对补齐）。每条各钉一条真实的
+      //     静默失败路径，而不是"函数返回了个对象"：
+      //     · v5 及更早的存档是**标量** hex —— 不认它，用户存了半天的颜色升级后变白釉；
+      //     · 出厂预设正文（`lib/glass-presets/*.json`，night 是 #0d1524）走
+      //       `sanitizeGlassPresetValues`（直接盖当前版本号、**不过迁移段**）⇒ 读侧必须认标量；
+      //     · 只写一侧（历史形态 / 手改文件）⇒ 另一侧要跟着那一侧，不能掉回白釉（保住色相）。
+      //     反过来"半对补齐"也意味着**不允许**再产出半对：`{light}` 那种入参进来必须成对出去
+      //     （面板的选中态与"关掉开关收敛"都靠这个等式）。
+      const glassPairOf = (input) => (sanitizeFromSchema(input, 'host') || {}).glassColor;
+      assert.deepEqual(glassPairOf({ glassColor: '#123456' }),
+        { light: '#123456', dark: '#123456' }, '老式标量玻璃色 ⇒ 迁移成两侧同值');
+      assert.deepEqual(glassPairOf({ glassColor: { light: '#010203', dark: '#040506' } }),
+        { light: '#010203', dark: '#040506' }, '显式一对 ⇒ 原样保留（两套不再被压成一套）');
+      assert.deepEqual(glassPairOf({ glassColor: { dark: '#040506' } }),
+        { light: '#040506', dark: '#040506' }, '只剩深色一侧 ⇒ 浅色跟着它（不回白釉）');
+      assert.deepEqual(glassPairOf({ glassColor: { light: '#010203' } }),
+        { light: '#010203', dark: '#010203' }, '只剩浅色一侧 ⇒ 深色跟着它');
+      assert.deepEqual(glassPairOf({ glassColor: { light: 'nope', dark: '#040506' } }),
+        { light: '#040506', dark: '#040506' }, '坏的那一侧由好的一侧补齐（不是整对丢掉）');
+      assert.deepEqual(glassPairOf({ glassColor: { light: 'nope', dark: 'also-nope' } }),
+        { light: '#ffffff', dark: '#ffffff' }, '两侧都非法 ⇒ 回白釉一对');
+      assert.deepEqual(glassPairOf({ glassColor: 42 }),
+        { light: '#ffffff', dark: '#ffffff' }, '非字符串非对象 ⇒ 回白釉一对（永不抛）');
+      assert.deepEqual(glassPairOf({ glassColor: ' #0d1524 ' }),
+        { light: '#0d1524', dark: '#0d1524' }, '标量周围带空白 ⇒ 去空白后认它');
+      // 迁移不是"读容忍"的替代品：老存档（输入带旧版本号）走完迁移也必须是一对，
+      // 且版本号被盖成当前值（夹具 ③ 里 18 个用例的这次漂移就是这么被发现的）。
+      const migratedV5 = sanitizeFromSchema({ settingsVersion: 5, glassColor: '#0d1524' }, 'host') || {};
+      assert.deepEqual(migratedV5.glassColor, { light: '#0d1524', dark: '#0d1524' },
+        'v5 老存档 ⇒ 迁移后玻璃色是一对');
+      assert.equal(migratedV5.settingsVersion, 6, '规范化后版本号盖成当前值');
+      // 读容忍的**真实入口**：带当前版本的档**不过迁移**（出厂预设正文就是"标量 hex + 当前版本号"，
+      // 走 sanitizeGlassPresetValues 盖号短路）⇒ 标量只能由 `readGlassColors` 自己认。
+      // ⚠️ 上面那条"老式标量"其实是被**迁移**接住的（不过版本号或版本号更老），走不到标量分支；
+      //    这一条才是钉住读容忍的那条（删掉标量分支 ⇒ 出厂预设/手改档静默变白釉）。
+      assert.deepEqual(sanitizeFromSchema({ settingsVersion: 6, glassColor: ' #0d1524 ' }, 'host').glassColor,
+        { light: '#0d1524', dark: '#0d1524' },
+        '当前版本号的档（出厂预设形态）：标量玻璃色必须由读容忍认下（迁移被版本闸短路）');
+      // 出厂默认：开关默认关 = "一个颜色管两套"。深色那侧的出厂观感来自 src/effects.js
+      // 按主题钳制，不是"存了一个深色值"。
+      assert.deepEqual(glassPairOf({}), { light: '#ffffff', dark: '#ffffff' },
+        '玻璃色默认白釉一对');
+      assert.equal((sanitizeFromSchema({}, 'host') || {}).glassDarkSeparate, false,
+        '「深色单独设置」默认关（出厂就是一个颜色管两套）');
+      assert.ok(KINDS.glassColor && KINDS.glassColor.kind === 'glassColors',
+        'glassColor 必须走 glassColors 归一（旧的 hex 只认单个色 ⇒ 一对根本进不来）');
+
+      // ③c 两层**各自在场**（#159② 的 v5→v6 迁移 + 读容忍）。这里是**结构**判据，不是行为判据 ——
+      //     理由必须写清楚，否则以后有人会"顺手"把它换成行为断言：两层对**读出来的值**等价
+      //     （`readGlassColors` 对任何入参都产出完整一对 ⇒ `sanitizeFromSchema` 的输入输出逐字节
+      //     不变），实测删掉 `migrateSettings` 里 v6 那一步，③b 的每一条**照样全绿**。
+      //     两层要保的是两件不同的事，各有一条静默失败路径：
+      //       · 读容忍：出厂预设正文 `lib/glass-presets/*.json`、手改过的档、测试台架的 selection
+      //         **不过迁移**（预设那条路还显式盖当前版本号短路）⇒ 删它，预设与老档立刻变白釉。
+      //         这一层**有行为判据**（③b 里"当前版本号的档 + 标量"那条）；下面再补一条结构判据当保险。
+      //       · 一次性迁移：让**存档形状**收敛到当前刻度。形状本身没有行为可观测，所以只能
+      //         钉"那一步在场"，并在下面配负对照证明这条判据不是恒真。
+      const schemaSrc = readFileSync(new URL('../lib/settings-schema.js', import.meta.url), 'utf8');
+      const bodyOf = (text, name) => {
+        const at = text.indexOf('function ' + name + '(');
+        if (at < 0) return '';
+        const open = text.indexOf('{', at);
+        let depth = 0;
+        for (let i = open; i < text.length; i += 1) {
+          if (text[i] === '{') depth += 1;
+          else if (text[i] === '}' && (depth -= 1) === 0) return text.slice(open, i + 1);
+        }
+        return '';
+      };
+      const migrationHasV6 = (text) => /out\.glassColor\s*=\s*\{\s*light:\s*out\.glassColor\s*,\s*dark:\s*out\.glassColor\s*\}/.test(bodyOf(text, 'migrateSettings'));
+      const readerHasScalar = (text) => /typeof\s+raw\s*===\s*'string'/.test(bodyOf(text, 'readGlassColors'));
+      assert.ok(migrationHasV6(schemaSrc),
+        'v5→v6 迁移必须在场：`migrateSettings` 里要有「标量 ⇒ 两侧同值」那一步（消掉旧存档的标量形状）');
+      assert.ok(readerHasScalar(schemaSrc),
+        '读容忍必须在场：`readGlassColors` 要认标量（出厂预设 / 手改档不过迁移段）');
+      // 负对照：把同一套抽取 + 正则用在"删掉那一层"的文本上必须判 false（否则上面两条是恒真的）。
+      const noV6 = schemaSrc.replace(
+        /if \(typeof out\.glassColor === 'string'\) \{\s*out\.glassColor = \{ light: out\.glassColor, dark: out\.glassColor \};\s*\}/, '');
+      const noScalar = schemaSrc.replace(/if \(typeof raw === 'string'\) \{/, 'if (false) {');
+      assert.notEqual(noV6, schemaSrc, 'negative control: 抽取用到的迁移形态必须真能匹配到（否则负对照是空的）');
+      assert.notEqual(noScalar, schemaSrc, 'negative control: 抽取用到的读容忍形态必须真能匹配到（否则负对照是空的）');
+      assert.ok(!migrationHasV6(noV6), 'negative control: 删掉迁移那一步后，③c 的迁移判据必须判红');
+      assert.ok(!readerHasScalar(noScalar), 'negative control: 删掉读容忍那一步后，③c 的读容忍判据必须判红');
 
       // ④ 共有键上 client 与 host 必须逐键相同 —— 这就是"两侧不会再漂"的定义。
       //    （历史差异只剩非对象输入：host 返回 null、client 返回默认值，见 schema 头注释。）

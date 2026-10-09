@@ -49,7 +49,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 20,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "capsuleBlur": 8,
         "capsuleColor": "#ffffff",
@@ -58,7 +62,7 @@
         "titlebarGlass": false,
         "thinkingGlass": false,
         "thinkingNative": false,
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -172,7 +176,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 20,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "capsuleBlur": 8,
         "capsuleColor": "#ffffff",
@@ -181,7 +189,7 @@
         "titlebarGlass": false,
         "thinkingGlass": false,
         "thinkingNative": false,
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -300,7 +308,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 20,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
         "capsuleBlur": 8,
@@ -317,7 +329,7 @@
           "thinkingTrigger": "inherit",
           "floaters": "inherit"
         },
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
         "conversationColor": "#ffffff",
@@ -440,7 +452,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 20,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
         "capsuleBlur": 8,
@@ -457,7 +473,7 @@
           "thinkingTrigger": "inherit",
           "floaters": "inherit"
         },
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
         "conversationColor": "#ffffff",
@@ -580,7 +596,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 20,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "chatGlassFidelity": 100,
         "capsuleBlur": 8,
@@ -597,7 +617,7 @@
           "thinkingTrigger": "inherit",
           "floaters": "inherit"
         },
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "settingsWindowTransparency": 100,
         "settingsWindowBlur": 60,
         "conversationColor": "#ffffff",
@@ -724,7 +744,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 20,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "capsuleBlur": 8,
         "capsuleColor": "#ffffff",
@@ -733,7 +757,7 @@
         "titlebarGlass": false,
         "thinkingGlass": false,
         "thinkingNative": false,
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -847,7 +871,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 20,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "capsuleBlur": 8,
         "capsuleColor": "#ffffff",
@@ -856,7 +884,7 @@
         "titlebarGlass": false,
         "thinkingGlass": false,
         "thinkingNative": false,
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -1036,7 +1064,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 20,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "capsuleBlur": 8,
         "capsuleColor": "#ffffff",
@@ -1045,7 +1077,7 @@
         "titlebarGlass": false,
         "thinkingGlass": false,
         "thinkingNative": false,
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -1159,7 +1191,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 20,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "capsuleBlur": 8,
         "capsuleColor": "#ffffff",
@@ -1168,7 +1204,7 @@
         "titlebarGlass": false,
         "thinkingGlass": false,
         "thinkingNative": false,
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -1393,7 +1429,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 20,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "capsuleBlur": 8,
         "capsuleColor": "#ffffff",
@@ -1402,7 +1442,7 @@
         "titlebarGlass": false,
         "thinkingGlass": false,
         "thinkingNative": false,
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -1516,7 +1556,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 20,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "capsuleBlur": 8,
         "capsuleColor": "#ffffff",
@@ -1525,7 +1569,7 @@
         "titlebarGlass": false,
         "thinkingGlass": false,
         "thinkingNative": false,
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -1649,7 +1693,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 20,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "capsuleBlur": 8,
         "capsuleColor": "#ffffff",
@@ -1658,7 +1706,7 @@
         "titlebarGlass": false,
         "thinkingGlass": false,
         "thinkingNative": false,
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -1772,7 +1820,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 20,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "capsuleBlur": 8,
         "capsuleColor": "#ffffff",
@@ -1781,7 +1833,7 @@
         "titlebarGlass": false,
         "thinkingGlass": false,
         "thinkingNative": false,
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -1919,7 +1971,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 100,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "capsuleBlur": 8,
         "capsuleColor": "#ffffff",
@@ -1928,7 +1984,7 @@
         "titlebarGlass": false,
         "thinkingGlass": false,
         "thinkingNative": false,
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -2042,7 +2098,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 100,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "capsuleBlur": 8,
         "capsuleColor": "#ffffff",
@@ -2051,7 +2111,7 @@
         "titlebarGlass": false,
         "thinkingGlass": false,
         "thinkingNative": false,
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -2189,7 +2249,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 100,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "capsuleBlur": 8,
         "capsuleColor": "#ffffff",
@@ -2198,7 +2262,7 @@
         "titlebarGlass": false,
         "thinkingGlass": false,
         "thinkingNative": false,
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -2312,7 +2376,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 100,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "capsuleBlur": 8,
         "capsuleColor": "#ffffff",
@@ -2321,7 +2389,7 @@
         "titlebarGlass": false,
         "thinkingGlass": false,
         "thinkingNative": false,
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -2446,7 +2514,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 20,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "capsuleBlur": 8,
         "capsuleColor": "#ffffff",
@@ -2455,7 +2527,7 @@
         "titlebarGlass": false,
         "thinkingGlass": false,
         "thinkingNative": false,
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -2569,7 +2641,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 20,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "capsuleBlur": 8,
         "capsuleColor": "#ffffff",
@@ -2578,7 +2654,7 @@
         "titlebarGlass": false,
         "thinkingGlass": false,
         "thinkingNative": false,
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -2708,7 +2784,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 20,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "capsuleBlur": 8,
         "capsuleColor": "#ffffff",
@@ -2717,7 +2797,7 @@
         "titlebarGlass": false,
         "thinkingGlass": false,
         "thinkingNative": false,
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -2831,7 +2911,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 20,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "capsuleBlur": 8,
         "capsuleColor": "#ffffff",
@@ -2840,7 +2924,7 @@
         "titlebarGlass": false,
         "thinkingGlass": false,
         "thinkingNative": false,
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -2967,7 +3051,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 20,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "capsuleBlur": 8,
         "capsuleColor": "#ffffff",
@@ -2976,7 +3064,7 @@
         "titlebarGlass": false,
         "thinkingGlass": false,
         "thinkingNative": false,
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -3090,7 +3178,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 20,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "capsuleBlur": 8,
         "capsuleColor": "#ffffff",
@@ -3099,7 +3191,7 @@
         "titlebarGlass": false,
         "thinkingGlass": false,
         "thinkingNative": false,
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -3233,7 +3325,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 20,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "capsuleBlur": 8,
         "capsuleColor": "#ffffff",
@@ -3242,7 +3338,7 @@
         "titlebarGlass": false,
         "thinkingGlass": false,
         "thinkingNative": false,
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -3356,7 +3452,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 20,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "capsuleBlur": 8,
         "capsuleColor": "#ffffff",
@@ -3365,7 +3465,7 @@
         "titlebarGlass": false,
         "thinkingGlass": false,
         "thinkingNative": false,
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -3555,7 +3655,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 20,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "capsuleBlur": 8,
         "capsuleColor": "#ffffff",
@@ -3564,7 +3668,7 @@
         "titlebarGlass": false,
         "thinkingGlass": false,
         "thinkingNative": false,
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -3706,7 +3810,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 20,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "capsuleBlur": 8,
         "capsuleColor": "#ffffff",
@@ -3715,7 +3823,7 @@
         "titlebarGlass": false,
         "thinkingGlass": false,
         "thinkingNative": false,
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -3842,7 +3950,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 20,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "capsuleBlur": 8,
         "capsuleColor": "#ffffff",
@@ -3851,7 +3963,7 @@
         "titlebarGlass": false,
         "thinkingGlass": false,
         "thinkingNative": false,
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -3965,7 +4077,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 20,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "capsuleBlur": 8,
         "capsuleColor": "#ffffff",
@@ -3974,7 +4090,7 @@
         "titlebarGlass": false,
         "thinkingGlass": false,
         "thinkingNative": false,
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -4097,7 +4213,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 20,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "capsuleBlur": 8,
         "capsuleColor": "#ffffff",
@@ -4106,7 +4226,7 @@
         "titlebarGlass": false,
         "thinkingGlass": false,
         "thinkingNative": false,
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -4220,7 +4340,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 20,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "capsuleBlur": 8,
         "capsuleColor": "#ffffff",
@@ -4229,7 +4353,7 @@
         "titlebarGlass": false,
         "thinkingGlass": false,
         "thinkingNative": false,
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -4353,7 +4477,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 20,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "capsuleBlur": 8,
         "capsuleColor": "#ffffff",
@@ -4362,7 +4490,7 @@
         "titlebarGlass": false,
         "thinkingGlass": false,
         "thinkingNative": false,
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",
@@ -4476,7 +4604,11 @@
         "edgeCompat": true,
         "accent": "#4f8cff",
         "glassAlpha": 20,
-        "glassColor": "#ffffff",
+        "glassColor": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "glassDarkSeparate": false,
         "glassFidelity": 100,
         "capsuleBlur": 8,
         "capsuleColor": "#ffffff",
@@ -4485,7 +4617,7 @@
         "titlebarGlass": false,
         "thinkingGlass": false,
         "thinkingNative": false,
-        "settingsVersion": 5,
+        "settingsVersion": 6,
         "glassMode": {
           "sidebar": "inherit",
           "sidebarContent": "inherit",

@@ -1713,6 +1713,77 @@ console.log('\n⑫ 语义表（执行型 · 扰动自证：跟随全局 / 独立
     eff(sOwn, '--we-floaters-blur') === eff(sBase, '--we-floaters-blur'));
 }
 
+// ═══ ⑫b 玻璃色分主题（#159②）════════════════════════════════════════════════
+// #159② 的交付物是"**同一份设置**在两套配色下取到**两个**釉色"。上面 ⑫ 组证不了它：
+// 那里 `glassColor` 是**标量**（`#0000ff` / `#ffff00`），两侧必然同值 ⇒ 把 dark 那一侧
+// 误读成 light，⑫ 组全绿，而用户在深色下看到的还是浅色釉（正是本项要修的那件事）。
+// 所以这里喂一对**跨色相**的颜色，判四个变量两两分开；再判 `--we-glass-color` 仍是
+// 浅色那一侧的**标量**（它是 `test/compat-harness-pages.mjs` 的页面观察量，不能变形）。
+console.log('\n⑫b 玻璃色分主题（#159②：一对颜色 ⇒ 两套配色两个釉色）');
+{
+  const PAIR = { light: '#0000ff', dark: '#ffff00' };  // 跨色相（亮度钳制不吃色相，见 ⑫ 组开头的教训）
+  const fx = { glassColor: PAIR, glassFidelity: 100, chatGlassFidelity: 100 };
+  // 判据形态：**因果**而不是"两个值不相等"。把 dark 那一侧误读成 light 时，两个变量会经过
+  // 不同的两道亮度钳制，输出**仍然不相等** ⇒ "不相等"型判据对这种走样是假绿。所以判
+  // "浅色输出只由 light 那一半决定、深色输出只由 dark 那一半决定"：拿**两侧同色**的两份
+  // 设置当基准，再要求交叉的那一份各自等于对应的基准。
+  const judgesBothHalves = (body, seed) => {
+    const both = run(body, seed);
+    const soloL = run(body, Object.assign({}, seed, { glassColor: { light: PAIR.light, dark: PAIR.light } }));
+    const soloD = run(body, Object.assign({}, seed, { glassColor: { light: PAIR.dark, dark: PAIR.dark } }));
+    const l = (n) => eff(both, n);
+    const wl = eff(soloL, '--we-surface-tint-light');
+    const wd = eff(soloD, '--we-surface-tint-dark');
+    return l('--we-surface-tint-light') === wl && l('--we-surface-tint-dark') === wd && wl !== wd;
+  };
+  const judgesBothHalvesChat = (body, seed) => {
+    const both = run(body, seed);
+    const soloL = run(body, Object.assign({}, seed, { glassColor: { light: PAIR.light, dark: PAIR.light } }));
+    const soloD = run(body, Object.assign({}, seed, { glassColor: { light: PAIR.dark, dark: PAIR.dark } }));
+    const l = (n) => eff(both, n);
+    const wl = eff(soloL, '--we-chat-surface-tint-light');
+    const wd = eff(soloD, '--we-chat-surface-tint-dark');
+    return l('--we-chat-surface-tint-light') === wl && l('--we-chat-surface-tint-dark') === wd && wl !== wd;
+  };
+  const box = run(effectsBody, Object.assign({}, mode(true), fx));
+  const chat = run(effectsBody, Object.assign({}, mode(false), fx));
+  // ❶ 全局釉色（`src/effects.js`）：两侧各自只随自己那一半变
+  check('分主题：--we-surface-tint-{light,dark} 各自只随自己那一半变（浅色输出不受 dark 影响，反之亦然）',
+    judgesBothHalves(effectsBody, Object.assign({}, mode(true), fx)),
+    'light=' + eff(box, '--we-surface-tint-light') + ' · dark=' + eff(box, '--we-surface-tint-dark'));
+  // ❷ 同上，RGB 三元组那一对（消息气泡 / 输入框的 rgba() 槽位走它）
+  check('分主题：--we-surface-tint-rgb-{light,dark} 也分开（两个变量都得写，不能只写一个）',
+    box.wrote.has('--we-surface-tint-rgb-light') && box.wrote.has('--we-surface-tint-rgb-dark')
+      && eff(box, '--we-surface-tint-rgb-light') !== eff(box, '--we-surface-tint-rgb-dark'),
+    'rgb-light=' + eff(box, '--we-surface-tint-rgb-light') + ' · rgb-dark=' + eff(box, '--we-surface-tint-rgb-dark'));
+  // ❸ 对话栏那一面（`src/glass.js` 的 applyGlass）同样要分开 —— 只在**跟随全局**那一档
+  //    （custom 档读自己的 conversationColor，与玻璃色无关）
+  check('分主题：对话栏的 --we-chat-surface-tint-{light,dark} 在跟随全局时也各自只随自己那一半变',
+    judgesBothHalvesChat(effectsBody, Object.assign({}, mode(false), fx)),
+    'light=' + eff(chat, '--we-chat-surface-tint-light') + ' · dark=' + eff(chat, '--we-chat-surface-tint-dark'));
+  check('分主题：对话栏的 rgb 三元组同理分开',
+    eff(chat, '--we-chat-surface-tint-rgb-light') !== eff(chat, '--we-chat-surface-tint-rgb-dark'));
+  // ❹ `--we-glass-color` = 页面观察量：仍是**浅色那一侧**的标量（形状不许变）
+  check('--we-glass-color 仍取浅色那一侧的标量（观察量只要求非空，形状不变）',
+    eff(box, '--we-glass-color') === PAIR.light,
+    '实际 ' + eff(box, '--we-glass-color'));
+  // ❺ 侧栏那面**有意不分主题**（`--we-sidebar-color` 是 body 行内样式，压不过样式表；
+  //    且它的消费者没有 `data-ds-dark-theme` 孪生）⇒ 取浅色那一侧。把它钉住，
+  //    免得以后"顺手也分一下"（那会让深色下的侧栏在浅色主题里不可读）。
+  check('侧栏玻璃色有意只跟浅色那一侧（分主题的例外，写在这里免得被当成漏做）',
+    eff(chat, '--we-sidebar-color') === PAIR.light,
+    '实际 ' + eff(chat, '--we-sidebar-color'));
+  // ❻ 负对照：把 dark 那一侧误读成 light（#159② 最可能出现的实现走样）⇒ ❶❸ 必须判出
+  const DARK_READ = /glassColorOf\(selection, "dark"\)/g;
+  const darkReads = (effectsBody.match(DARK_READ) || []).length;
+  if (darkReads === 0) throw new Error('负对照没找到 dark 取色点（判据会变成假绿）');
+  const mutated = effectsBody.split(DARK_READ).join('glassColorOf(selection, "light")');
+  check('negative control: 把 dark 那一侧误读成 light（共 ' + darkReads + ' 处）后，❶❸ 必须判出',
+    !judgesBothHalves(mutated, Object.assign({}, mode(true), fx))
+      && !judgesBothHalvesChat(mutated, Object.assign({}, mode(false), fx)));
+}
+
+
 // ═══ ⑬ CSS 契约：按面变量**零兜底** + 门控许可证 + 双向对账（R2 起）═══════════
 // R2 去掉了样式表里 62 处按面变量的**内层兜底**（`var(--we-<面>-x, <兜底>)` → `var(--we-<面>-x)`）。
 // 为什么可以去掉（**许可证**，本组要把它判住）：那些规则（至少）挂在

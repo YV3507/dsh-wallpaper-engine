@@ -3719,9 +3719,33 @@ const onAccent = (hex, live) => {
   if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
   commitLiveSetting("accent", hex, live);
 };
-const onGlassColor = (hex, live) => {
+// #159②：玻璃颜色**内部永远是一对** `{light, dark}`（见 lib/settings-schema.js 的 readGlassColors）。
+// 色板行只写"当前在设的那一侧"；开关关着时两侧写同一个色 —— 与颜色角色的 onThemeColor 同构。
+// 读那一对用 `panelGlassPair`（住在 src/glass-panel.js）：它**自带归一、不引用工厂作用域里的兄弟**，
+// 因为 test/verify-scene-live.mjs 把 glass-panel.js 当真模块 import；这里不另存一份口径，
+// 免得"读的一侧"和"画的一侧"漂开（走到这儿的值可能仍是标量：老预设定档直传 / 台架 selection）。
+const onGlassColor = (mode, hex, live) => {
   if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-  commitLiveSetting("glassColor", hex, live);
+  const cur = panelGlassPair(selection);
+  // 缺的那一侧用本次选的色补上 —— **绝不写半对**：半对在另一配色下会退化成兜底色，
+  // 用户的观感就是"没染上"（readGlassColors 也会把它补回另一侧，但那要等下一次 sanitize）。
+  const next = { light: cur.light || hex, dark: cur.dark || hex };
+  if (selection.glassDarkSeparate === true) next[mode === "dark" ? "dark" : "light"] = hex;
+  else { next.light = hex; next.dark = hex; }
+  commitLiveSetting("glassColor", next, live);
+};
+// 「深色单独设置」开关（玻璃色那一行）：关掉时把两侧**收敛到浅色那一侧** —— 这就是"一个颜色
+// 同时用于两套"的字面含义。不做收敛的话，关掉后深色还留着上一次的深色值，再打开会突然跳回旧值。
+// 与 onThemeDarkSeparate（字体角色那一个）同构：开关本身不改任何渲染，只是面板的显隐 + 写入口径。
+const onGlassDarkSeparate = (v) => {
+  const on = v === true;
+  setSetting("glassDarkSeparate", on);
+  if (!on) {
+    const cur = panelGlassPair(selection);
+    const light = cur.light || cur.dark;
+    if (light) setSetting("glassColor", { light, dark: light });
+  }
+  applyEffects(); emit();
 };
 const onGlassAlpha = (pct, live) =>
   commitLiveSetting("glassAlpha", clampNum(pct, ...schemaRange("glassAlpha"), DEFAULTS.glassAlpha), live);
@@ -4475,7 +4499,7 @@ function WallpaperPicker() {
       setSetting, setTransient,
       fontSet: fontSetCtx(),
       glassPresets: glassPresetCtx(),
-      officialColorOf, onAccent, onCapsuleBlur, onCapsuleColor, onBlur, onBorder, onCaretColor, onChatGlassFidelity, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onGlassFidelity, onGlobalFamily, onLeftSidebarGlass, onTitlebarGlass, onRefreshSystemFonts, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarFollowGlobal, onSidebarGlass, onSidebarFullClear, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onThinkingMode, onToggleFontCustom, onToggleThemeFollow, sel,
+      officialColorOf, onAccent, onCapsuleBlur, onCapsuleColor, onBlur, onBorder, onCaretColor, onChatGlassFidelity, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onGlassDarkSeparate, onGlassFidelity, onGlobalFamily, onLeftSidebarGlass, onTitlebarGlass, onRefreshSystemFonts, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarFollowGlobal, onSidebarGlass, onSidebarFullClear, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onThinkingMode, onToggleFontCustom, onToggleThemeFollow, sel,
       // 玻璃 UI 子项开关 + 独立配置 + 独立参数（见 onToggleChildIndependent 那段注释）
       onToggleChildIndependent, onGlassChildParam, childIndependentOn,
     });
