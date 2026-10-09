@@ -1814,7 +1814,9 @@ const CSS = `
   }
   .we-picker__section-head { display: flex; align-items: center; }
   .we-picker__section-label {
-    font-size: 0.72em; font-weight: 600; letter-spacing: 0.04em;
+    /* 节标题必须**大于**行标签（ctl-label 0.88em）—— 0.72em 那版反而比正文小，
+       「找路」层级倒挂（2026-10-09 用户口径：红圈那批标题要一眼跳出来）。 */
+    font-size: 1.1em; font-weight: 600; letter-spacing: 0.04em;
     /* 分组标题是「找路」信息而非装饰：次级墨色保证暗玻璃上可读。 */
     color: var(--we-ink-2, rgba(128, 128, 128, 0.9));
   }
