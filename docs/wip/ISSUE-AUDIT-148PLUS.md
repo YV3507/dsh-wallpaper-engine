@@ -500,6 +500,8 @@ npm run verify:all      # = build → verify(35) → verify:docs(4) → smoke(6)
 
 **门禁**：`npm run build`、`npm run verify`（35 脚本）、`npm run verify:docs`（含重算后的 `docs/GUARD-MAP.md`）、`npm run smoke` 全部 exit 0。变异验证：元素级围栏删掉手势判定/落点判定 ⇒ `verify-scene-live` 对应判据红；宿主半摘掉手势判定/落点判定 ⇒ `verify-client` 对应判据红。
 
+> **更正（A3-F1，2026-10-06 后补）**：上面那句"宿主半摘掉手势判定/落点判定 ⇒ `verify-client` 对应判据红"**不成立**。审计在冻结副本上实测：`src/focus-handback.js` 五条判定里删掉手势跳过（`:72`）、"焦点真在壁纸帧里"（`:70`）、"只认记住的那个元素"（`:86`）、`el.isConnected`（`:75`）**任意一条**，`node test/verify-client.mjs` 仍 exit 0 —— 只有删 `STALE_MS` / `MIN_GAP_MS` 才红。机制：首次交还就在闭包局部量 `lastHandBackAt` 上写了时间，而三条负对照都在 ~5 ms 内跑完 ⇒ 全被 `MIN_GAP_MS` 先挡下，`handbacks === 1` / `skipped >= 1` 看着成立、测的不是那几条。`8bcbcd5` 提交信息第 38–39 行同款断言也不成立（历史提交信息不改，故只在此更正）。**该问题已在修复轮里根治**（状态移到 `state`、台架可清零、逐条判定配负对照），见 §12。
+
 **未做**：P1-3（#158 的 C8/C9/C10）与 P2；`C6` 与 `C11+C12` 均**尚未提交**（建议 `C6` 单独一个提交、`C11+C12` 合成一个，理由见上）。
 
 ---
@@ -732,6 +734,34 @@ npm run verify:all      # = build → verify(35) → verify:docs(4) → smoke(6)
 - **需要口径决定**：A2-F2（侧栏档那一行写浅色那一半，还是把标签写清它改的是全局配色）。
 - **只记录**：A1-6 / A1-7 / A2-F3 / A2-F4 / A2-F5 / A3-F4 / A3-F5 / A3-F6。
 - **文档**：把 C 系列（#148/#156/#157/#158/#159/#161）补进 `docs/CHANGELOG.md` 与 `docs/en/CHANGELOG.md`（依据 `docs/README.md:76`）。
+
+---
+
+## 12. A 系列审计条目的修复轮（已落盘）
+
+§11 是冻结在 `0ac53b5` 的审计**快照**，不回头改写；本节记录 §11.7「建议现在就修 / 需要口径决定 / 文档」那一批的落地结果与证据。行号以本节写作时的工作树为准。
+
+| 条目 | 处置 | 落点 | 证据（实测） |
+|---|---|---|---|
+| A1-1 | 新增**值判据** ⑱ | `test/verify-glass-surfaces.mjs:2308-2325`（`maskBlurDecls` / `maskBlurOk`，读 `src/styles.js`） | `src/styles.js:572` 的值改成 `none` ⇒ exit 1（`✗ --dsw-mask-blur 在玻璃门内被覆盖成真的 blur()… — none`）；负对照含 `none` / `none !important` / 不引用 `--we-blur` / 门外的声明 |
+| A1-2 | 「锚点在场」升级为「**同一条规则内的有效声明**」⑰ + `GATE` 棘轮扩两个新面 | ⑰ `test/verify-glass-surfaces.mjs:2266-2292`（`ruleWith`）；门控棘轮 `:1307` | 产物里摘掉 #156② 的霜 ⇒ 红（`anchor+门内 2 条规则`）；#156④ 浅 / 深两条重绘各摘一条 ⇒ 各自红（另一条仍绿，判据不串） |
+| A1-3 | `cnt` 读对字段 + 重跑 `--write` + 新判据 ⑥「门控计数自洽」 | `test/tools/token-contract.mjs:193`；`test/verify-token-contract.mjs` ⑥ 段；`docs/TOKEN-CONTRACT.md` 重算（`46 玻璃(0)` 那批 0 全变成真实计数） | ⑥ 从产物文本反解每行、只认括号里的数（不认标签，免得与工具串通）：标签在场而计数为 0 ⇒ 红 |
+| A1-4 | 去掉 F2dN 的 `[data-chat-flow]` 豁免 + 负对照 | `test/verify-readability.mjs:436-443`（`bubbleExempt` **只认** `:not([role="tooltip"])`） | 负对照：只带 `[data-chat-flow]` 作用域 ⇒ false；带 `:not(...)` ⇒ true。四条 #161 规则现在条条真管 |
+| A1-5 | ⑮ 解析 `color-mix` 的 tint 停靠点权重并断言 `0 < w ≤ 100` | `test/verify-glass-surfaces.mjs:2085-2128` + 负对照 `:2188-2192` | `src/styles.js:581` 权重 `40% → 0%` ⇒ exit 1（`玻璃底色权重 0% 不在 (0, 100]`）；不写权重 ⇒ `玻璃底色没给权重` |
+| A3-F1 | `lastHandBackAt` / `retrying` 从闭包局部移到 `state`（可复位）+ 台架每条负对照前清零 + 逐条判定配负对照 | `src/focus-handback.js:58-61`；`test/verify-client.mjs:3974-4090` | 删任一条判定 ⇒ 对应负对照红（不再全绿）；§7 那句已在上面更正 |
+| A3-F2 | 跳过时按手势窗口**重挂一次**补交（`retrying` 在途标记） | `src/focus-handback.js` 的补交路径；`test/verify-client.mjs:4057-4088` | `handbacks` / `skipped` / `retrying` 三者的过渡都被断言（含"重挂后仍失败"的负对照） |
+| A3-F3 | `loadIndex` 逐元素校验（坏索引当"没有索引"）+ 工厂级 `liveEntries(list)` 形状过滤（两个入口都过） | `lib/inventory.js:186`（`raw.we.every(...)`）、`:241-250`（`liveEntries`）、`:432`（`rescan` 入口） | `we:[null]` 索引 ⇒ 当"没有索引"全扫并在 `saveIndex` 自愈；守卫**第一次跑就抓出 `rescan()` 里的第三处解引用**（`lib/inventory.js:428` 的 `TypeError: Cannot read properties of null (reading 'fileAbs')`），一并修掉 |
+| A2-F1 | `glassDarkSeparate` 进预设快照键集 —— 开关与"一对色"整体进出 | `lib/settings-schema.js:317`（`GLASS_PRESET_FIXED_KEYS`） | 预设应用后不再出现"开关关着、两侧却不同"；`test/verify-presets.mjs` 的键数按 `length` 现算，加键不撞断言 |
+| A2-F2 | **口径已定**：侧栏档固定写**浅色那一半**（贴合侧栏真正消费的那半），不再按当前主题采样 | `test/verify-client.mjs:1373-1420`（侧栏台）；`src/glass-panel.js` 的 `sidebarSurface` 分支 | 侧栏档只画一行玻璃颜色、点色只动浅色半；点深色半 / 面板自己采样主题 ⇒ 红（结构判据 + 负对照） |
+| M-1 | C 系列六 issue 补进两份 CHANGELOG | `docs/CHANGELOG.md` / `docs/en/CHANGELOG.md` 的 `### v1.3.1（未发布）` / `### v1.3.1 (unreleased)` 节最前（`#148` / `#158` / `#159②` / `#157` / `#159①` / `#156` / `#161` 七条，中文主本 + 英本同源） | `grep -c` 从 0 变为各 issue 命中 |
+
+**本轮最有价值的一条根因（记给下一次）**：`test/verify-glass-surfaces.mjs` 的 ①/⑰ 组读的是**产物 `lib/client.js` 里求值出来的 `CSS`**（`:50` 的 `CLIENT = process.argv[2] || …`、`:266` 起取 `const CSS = \`…\`` 求值），而 ⑮（`STYLES_TEXT`）/⑱（`maskBlurDecls(STYLES_TEXT)`）读 **`src/styles.js`**。同一份改动因此会"一红一绿"：只改源码不重建，⑰ 永远绿。**变异验证必须先 `npm run build`，或者直接变异产物**（临时探针 `/tmp/gs-lib-mut.mjs` 走 `node test/verify-glass-surfaces.mjs /tmp/gs-lib-<which>.js` 这条路，非仓内文件）。别手抄 header —— 曾经因为 `indexOf(header, a)` 在锚点已经落在 header 之后时返回 −1、`indexOf('{', -1)` 又退回**文件开头**，把 JS bundle 代码当成"规则体"，白跑一轮。
+
+**⑰ 假绿的真因是正则假牙，不是解析器配对错**：`FROST = /backdrop-filter\s*:\s*(?!none)[^;]+/` 在真文件写的 `backdrop-filter: none !important` 上**会命中** —— `\s*` 可以回溯成空串、lookahead 落在那个空格上，于是 `none` 被当成"非 none 的霜"；而负对照夹具当时写的是冒号后不带空格的 `backdrop-filter:none`，正好把这条假牙藏住。已修成 `(?![\s!]*none\b)`（`:2273`），负对照同时钉住带空格与带 `!important` 两种形态。**教训：否定式 lookahead 前面带 `\s*` 时必须把空白与 `!` 一起纳入。**
+
+**⑱ 顺手加固**：`maskBlurOk` 的"不是 none"由 `/^\s*none\s*$/`（锚尾）改成 `/^none\b/`，负对照补 `--dsw-mask-blur: none !important`。
+
+**仍未做（与 §11.6 一致）**：无渲染 / 截图验证、无真宿主交互、索引生成器 `scanSignatureP` 仍只有桩（`test/verify-inventory-index.mjs:86` 一带）、平台矩阵与 `color-mix` / `:has()` 的 engine-compat 未验。
 
 
 

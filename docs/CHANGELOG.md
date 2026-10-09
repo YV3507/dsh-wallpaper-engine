@@ -19,6 +19,53 @@
 
 > v1.3.0-r2 之后的增量；`NOTICE_VERSION` 哨兵同步 `1.3.1`（公告改版 ⇒ 看过 r2 公告的用户会再看到一次），；`package.json` 版本号已同步 `1.3.1`。
 
+- **修复：网页壁纸周期性抢走输入焦点（issue [#148](https://github.com/elysia395/dsh-wallpaper-engine/issues/148)）—— 元素级焦点围栏 + 宿主侧焦点交还（C11 + C12 合并）**。
+  **根因**：网页 / 场景壁纸里的脚本会反复 `focus()`，把输入光标从对话输入框搬走。插件原有的围栏只做**帧级**判定（壁纸帧整体拿不到键盘焦点），拦不住两类抢焦：壁纸文档里元素级的 `el.focus()`，以及**跨源 WindowProxy** 的 `top.focus()` / `parent.focus()` 与宿主文档内部的 `autofocus` / `dialog.showModal()` / `label` 转发 —— 壁纸文档里的守卫根本够不到这些路径。
+  **修法**：① `lib/we-focus-guard.js` 保留帧级判定不变，新增**元素级围栏**：`HTMLElement.prototype.focus` 只在"最近一次真实交互"后的 `gestureWindowMs`（**1000 ms**）窗口内放行，窗口外吞掉并计数（`window.__weFocusGuard` 的 `elCalls` / `elAllowed` / `elBlocked` / `elLastBlockedAt` / `elLastBlockedStack`，便于作者页复现时取证）。**手势窗口不能省**：壁纸层是 `pointer-events: none`，用户真点壁纸时由 shim 合成 `isTrusted === false` 的 pointer / mouse 事件 —— 壁纸自带编辑框靠这次点击拿焦点是正当行为，一刀切会把它毁掉（总计划 §3.5 明列"不要做"）。② 新增 `src/focus-handback.js`，跑在**宿主文档**里把被搬走的焦点交还：`focusout` 来自被记住的元素、`document.activeElement` 是 `iframe.we-iframe`、且最近 1000 ms 无真实手势 ⇒ 交还；另有 `STALE_MS` / `MIN_GAP_MS` 两道保险，`window.__weFocusHandback.{handbacks,skipped}` 可观测。③ `scripts/build-client.mjs` 登记新模块、`src/client.js` 的 2e 段挂 `ctx.effect`。宿主半不能省：壁纸文档里的守卫改不了跨源 WindowProxy，也拦不住 `autofocus` / `dialog.showModal()` / `label` 转发。
+  **判据**：`test/verify-scene-live.mjs` 第 ⑦–⑨ 组（帧级仍无条件吞掉 + 元素级窗口内放行 / 窗口外吞掉 + 宿主侧交还）与 `test/verify-client.mjs` 的宿主半行为判据（真 `src/focus-handback.js` + `with(__scope)` 挂载台），各配负 / 阳性对照。
+  **验证**：`npm run verify` / `verify:docs` / `npm run build` / `smoke` exit 0；`lib/client.js` 随本轮重建。**宿主与客户端都改了 ⇒ 需重启 `dsh web`**（真机作者页复现仍待作者侧确认）。
+  **判据坑（记给下一次）**：`src/focus-handback.js` 首版只判 `typeof document === "undefined"`，而 `test/verify-transcode-state.mjs` 喂的是能力不全的 stub document ⇒ `TypeError: document.addEventListener is not a function` 打断整条 `apply`；改成逐方法能力检查。`verify-client` 宿主半首版**假绿**（交还频率下限 300 ms，而判据块跑完远不到 300 ms，断言其实是被 `MIN_GAP_MS` 拦下的）⇒ 前置真睡 320 ms + 补"睡够必须恢复交还"的负对照。
+
+- **性能：壁纸库扫描落盘索引 + 签名快路径 —— 重启后库没变就零 I/O（issue [#158](https://github.com/elysia395/dsh-wallpaper-engine/issues/158) (b)）**。
+  **根因**：冷启动 / 重启后每次请求都要把整个壁纸库重新 `stat` 一遍（本机合成 2600 条载荷 ≈ 1.57 MB，扫描是唯一真实的 TTFB 大头），而库在绝大多数重启之间根本没变；扫描结果只住在进程内存里，重启即失。
+  **修法（宿主）**：`cacheBaseDir()` 下落盘 `inventory-index.json`（`INDEX_VERSION` + `sig` + `builtAt` + **扫描原料** `we` + 逐条目探测记忆 `probes`）；签名 = `sha1(版本 + installDir + 排序后的 libraryDirs + 各扫描根 mtimeMs:size)`。四条纪律是本条的全部难点：① 索引存**扫描原料、不存载荷** —— `media` / `preview` / `frameUrl` 是 `tokenFor()` 的绝对路径 base64url、`mediaMap` 是进程内的，回放旧载荷会让重启后每个 URL 404，回放必须走 `assembleInventory` 重组；② 签名命中 ⇒ 零 fs（含零 `stat`）；③ 签名对不上**不等**（库本身变了，回旧载荷会把上一个库的清单端给用户），并发请求共用同一次在途扫描 `rescanOnce`；stale-while-revalidate 只服务"签名没变、内容可能变了"这一种情况（索引老过 `INVENTORY_REVALIDATE_MS`）；④ 逐条目失效键 = 项目目录 mtime（`enumerateWallpapersAsync` 新增 `dirAbs`），另加索引 GC。索引损坏 / 版本不符 / 元素形状不对 ⇒ 当"没有索引"，退回冷启动并自愈，绝不抛。
+  **判据**：新守卫 `test/verify-inventory-index.mjs`（**23 条**）六组 —— 冷启动（4 次存在性探测 + 落盘 + 只存扫描原料）/ 重启库没动（**探测 0 次、stat 0 次**）/ 库新增一条（只探新增，`exists=2`、`stat=3`）/ 只有一个项目目录变了（负对照）/ 索引容错（坏 JSON、老版本、`we:[null]`、条目列表混入 `null`）/ GC。
+  **验证**：`npm run verify`（含新守卫）/ `verify:docs` → `npm run verify:all` exit 0。**宿主半改了 ⇒ 需重启 `dsh web`**。
+  **顺带修掉的第三个洞**：`rescan()` 里对原始列表解引用 `w.fileAbs`，条目为 `null` 时抛 `TypeError: Cannot read properties of null (reading 'fileAbs')`（`lib/inventory.js:428`）—— 这个洞正是被新守卫第一次跑出来的；修法是工厂级 `liveEntries(list)` 形状过滤，`assembleInventory` 与 `rescan` 两个入口都过它。（响应压缩 C8 与启动路径 C10 本轮**刻意不做**：本机 2600 条载荷 identity 6.8 ms / gzip-6 11.1 ms（101,682 B）/ brotli-4 9.1 ms（78,799 B）⇒ 回环上压缩净亏、且压缩发生在扫描之后不影响 TTFB；C10 的产物成本实测 ≈ 12 ms（读 0.4 + gunzip 4.7 + 解析 6.9），拆"关键 CSS 同步 + 余量首帧后注入"有可见闪动风险，需真机 A/B。）
+
+- **新能力：玻璃色分主题 —— 一个颜色管两套、深色可单独设（issue [#159](https://github.com/elysia395/dsh-wallpaper-engine/issues/159) ②）**。
+  **动机**：`glassColor` 此前是一个标量 hex，浅色与深色主题只能共用同一种玻璃染色，深色下常见偏亮或偏脏；形态上也与既有的 `themeColors` + `themeDarkSeparate` 不一致，用户没法表达"深色单独设"。
+  **修法**：`glassColor` 从标量升级成 `{ light, dark }` 一对（`lib/settings-schema.js` 的 `KINDS.glassColor.kind = 'glassColors'`、`DEFAULTS.glassColor = GLASS_COLOR_DEFAULTS`），新增 `glassDarkSeparate` 布尔开关（默认关、两侧同值 ⇒ 出厂仍是"一个颜色管两套"）；`SETTINGS_VERSION` **5 → 6**，`migrateSettings` 末尾把标量迁成两侧同值，`readGlassColors(raw)` 永远返回完整一对（对象坏侧由好侧补齐、字符串两侧同值）—— 读容忍与迁移是两层：预设 JSON 带的是标量且盖当前版本号、不过迁移段，删读容忍会让出厂预设变白釉。`src/effects.js` 新增模块级 `glassColorOf(selection, theme)`，四条 `--we-surface-tint-{light,dark}` / `-rgb-{light,dark}` 各取自己那一半，`--we-glass-color` 仍是**浅色**标量；`src/glass.js` 的对话栏按主题各取一半。设置页与侧栏「外观」页只有开关开着才画第二行「玻璃颜色 · 深色」（`src/glass-panel.js` 的 `panelGlassPair(sel)` / `panelThemeIsDark()` + `switchRow("深色单独设置")`）。**侧栏有意不分主题**：`--we-sidebar-color` 是 body 行内样式、压不过样式表里的重声明，且消费者没有 `data-ds-dark-theme` 孪生 ⇒ 侧栏档只有一个色板、写当前主题那一侧（所见即所改），判据里显式钉成"分主题的例外"。
+  **判据**：`test/verify-presets.mjs` 金夹具补齐 18 例（`glassColor` 一对 + `glassDarkSeparate` + `settingsVersion: 6`）、`test/verify-scene-live.mjs` 面板归一与侧栏档行为、`test/verify-client.mjs` 行为台（浅 / 深两侧取值 + 开关默认关时两侧同值）。
+  **验证**：`npm run verify` / `verify:docs` / `npm run build` / `smoke` → `npm run verify:all` exit 0；`lib/client.js` 随本轮重建。**宿主设置表与客户端都改了 ⇒ 需重启 `dsh web`**（`config.json` 首次启动自动迁到 v6）。
+  **判据坑（记给下一次）**：写"两侧取值不相等"型分主题判据是**假绿** —— 两侧各经一次亮度钳制，输出本来就不会相等 ⇒ 必须做**因果**判据（两侧同色的两份基准比）；`--we-surface-tint-light === PAIR.light` 会**假红**（沙箱里真 `weClampSurfaceColor` 遮蔽恒等 stub）；迁移守卫第一版假绿（读容忍盖住了读出口）；`panelThemeIsDark()` 对 stub document（有 body、无 `hasAttribute`）要逐能力检查。
+
+- **修复：滚动条观感与插件取色脱节（issue [#157](https://github.com/elysia395/dsh-wallpaper-engine/issues/157)）—— 四个宿主滚动条令牌并入插件玻璃色**。
+  **根因**：宿主滚动条族走 `--dsw-alias-scrollbar-{bg,hover}-l{1,2}` 四个底层令牌，而宿主自身约 17 处局部重声明写的都是**间接层** `var(--dsw-alias-scrollbar-bg-l2)`；这四个令牌在插件玻璃页里仍是宿主原生中性色 ⇒ 滚动条在染色玻璃上显得脏、与页面不在一个色系。
+  **修法**：不逐锚点补样式，而是**在 `body` 上换掉这四个底层令牌**（自定义属性按元素解析 ⇒ 一处覆盖全应用、零锚点耦合）：两个页面玻璃令牌块（浅 / 深）各追加 4 条重声明，值 `color-mix(in srgb, var(--we-surface-tint-light|dark) 40%, var(--dsw-static-neutral-XXX) 60%)`。**与审计方案的偏离**：方案里的"逐锚点补 `--dsh-scrollbar-thumb`"没做（宿主 ~17 处局部重声明都指向间接层，逐锚点补不可能覆盖完）；`--dsh-scrollbar-width` / `-thumb-border` / `-track-margin` 也一个没动。
+  **判据**：`test/verify-glass-surfaces.mjs` 第 ⑮ 组（8 条声明都要"存在 + `color-mix(` + 掺该主题玻璃底色"，配三形态负对照）。
+  **验证**：`npm run verify` → `npm run verify:all` exit 0（实测把权重 `40%` 改成 `0%` 当场红）；`lib/client.js` 随本轮重建。**纯客户端样式 ⇒ 刷新页面即可**。
+
+- **修复：宿主切换浅 / 深主题后，壁纸淡出底色不重算（issue [#159](https://github.com/elysia395/dsh-wallpaper-engine/issues/159) ①）**。
+  **根因**：淡出底色（`lastFadeBg`）只在直播（live）时读一次，宿主翻转 `data-ds-dark-theme` 后没有任何东西通知它失效 ⇒ 深色下仍用浅色主题算出来的底色。
+  **修法**：`src/effects.js` 新增 `armFadeBgThemeWatch()` / `disarmFadeBgThemeWatch()`（MutationObserver **只认 `data-ds-dark-theme`**、幂等、无 `MutationObserver` 时静默退化），在 `wallpaperOpacity > 0` 的分支挂上、归零分支与 `clearEffects` 断开。
+  **判据**：`test/verify-client.mjs` 行为台（冷启动底色 `#ffffff` → 只翻属性不派发事件仍 `#ffffff`（负对照）→ 派发后才翻到 `#000000` → `clearEffects` 后观察者已断开）。
+  **验证**：`npm run verify` → `npm run verify:all` exit 0；`lib/client.js` 随本轮重建。**纯客户端 ⇒ 刷新页面即可**。
+  **判据坑（记给下一次）**：样式文本是塞进产物里的**模板字符串** ⇒ 在 `src/styles.js` 注释里写 markdown 反引号会让 `build-client` 报「产物语法错误：Unexpected identifier 'background'」（本轮真踩；同理 `src/effects.js` 的注入脚本也是模板字符串）。
+
+- **修复：四处玻璃面失去底板（issue [#156](https://github.com/elysia395/dsh-wallpaper-engine/issues/156) ①②③④）**。
+  **根因**：插件把页面换成壁纸后，宿主原本"靠页面底色垫着"的几处浮层 / 底板一起失去了视觉底板 —— ① 宿主 Modal 的遮罩本来自己画 `backdrop-filter: var(--dsw-mask-blur)`，而宿主主题在**裸 body** 上把这个令牌写成 `none`，插件玻璃页没有把它改回来；② 插件管理器的注册表浮层（`[data-install-registry]`）在宿主源码里**没有** `backdrop-filter`，其底色令牌 `--dsw-alias-bg-layer-2` 在插件门内是半透明的 ⇒ 一块没有霜的玻璃；④ 代码块吸顶条被插件的"清底"规则连底板一起抹掉（真正的 sticky 载体是外层 `.bannerWrap`，它的底板读 `--dsw-alias-bg-base`，被插件置成 `transparent`）；③ 输入座位那条"底衬"则是插件自己**多铺**的。
+  **修法**：① 玻璃门块内重声明 `--dsw-mask-blur: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01)`（`src/styles.js:572`），宿主遮罩自己就会把霜画回来；② 新增 `body[data-we-glass-floaters] [data-install-registry] { -webkit-backdrop-filter / backdrop-filter: blur(var(--we-floaters-blur)) … }` 并配无模糊内核的 fallback 孪生（`--we-floaters-blur` **不带内层兜底** —— 否则撞 `verify-glass-surfaces` 的零兜底消费族判据）；④ 在既有清底规则**之后**、同特异度同 `!important` 地对 `:has(> [data-code-block-banner])` 重铺 `background-color`（宿主 `MarkdownText.module.css:399` 认可这个 `:has`），并配深色与无模糊内核两条孪生；③ **先加后撤**：输入座位底衬先收窄成贴底一条、再由用户口径整条撤回 —— 最终态是 `[data-composer-seat]` 上**什么都不铺**（那块底板本来只是宿主顺手画的页面底色 `--dsw-alias-bg-base`，插件把页面换成壁纸后没有东西需要它垫；dock 直接压壁纸正是宿主原生观感），令牌 `--we-composer-seat-fill` 删除并进 `verify-glass-surfaces` 的 `REAPED_VARS`，第 ⑯ 组从几何棘轮改成**反向棘轮**「输入座位不铺底板」（命中 `background` / `background-image` / `background-color` / `backdrop-filter` 即判出，配三种旧形态负对照）；`docs/DSH-UI-INTERFACES.md` 的 `data-composer-seat` 台账行改注"已撤回使用"。
+  **判据**：`test/verify-glass-surfaces.mjs` 新增 / 加固 ①（玻璃门内 `--dsw-mask-blur` 必须是真的 blur）、⑯（反向棘轮）、⑰（新登记面的**有效声明**：同一条规则内 anchor + 门 + 真 `backdrop-filter` / 真 `!important` 釉色，两条负 / 正对照）、⑱（`--dsw-mask-blur` 覆盖是否有效）。
+  **验证**：`npm run verify` → `npm run verify:all` exit 0；变异验证逐条做过（产物里摘掉 #156② 的霜、#156④ 浅 / 深两条重绘各摘一条、源码里 `--dsw-mask-blur` 改 `none`、滚动条权重改 `0%` —— 五种变异分别让对应判据变红）；`lib/client.js` 随本轮重建。**纯客户端样式 ⇒ 刷新页面即可**。
+  **判据坑（记给下一次）**：① 第 ①/⑰ 组读的是**产物**里求值出来的 `CSS`（`test/verify-glass-surfaces.mjs:266` 起），只改 `src/styles.js` 不会红 —— 变异验证必须改产物或先 `npm run build`（本轮踩过假绿）；② `(?!none)` 这种写法是**假牙**：真文件写的是 `backdrop-filter: none !important`，`\s*` 可以回溯成空串、lookahead 落在空格上 ⇒ `none` 被当成"非 none 的霜"，负对照夹具必须写上带空格的形态；已修成 `(?![\s!]*none\b)`。
+
+- **修复：宿主 Tooltip 被气泡玻璃误伤（issue [#161](https://github.com/elysia395/dsh-wallpaper-engine/issues/161)）**。
+  **根因**：宿主的气泡类名是内容哈希（`_bubble_<hash>`），插件的玻璃规则按 `[class*="_bubble"]` 认消息气泡；而宿主的 Tooltip 元素同时带 `role="tooltip"` 与 `_bubble_<hash>` 两个标记（`dsh-client-ui-primitives/lib/index.js:4841`）⇒ 被当成气泡接管底色、恒挂霜釉。
+  **修法**：四条 `[class*="_bubble"]` 规则（fill 接管 / 恒挂霜釉 / 气泡内代码块 / 无模糊内核 fallback 摘霜）统一加 `:not([role="tooltip"])`。
+  **判据**：`test/verify-readability.mjs` 的 F2dN 组收紧成"下界 4 条、且每条必须带 `:not([role="tooltip"])` 排除式（`[data-chat-flow]` 作用域不能代替）"，并配负对照。
+  **验证**：`npm run verify` / `verify:docs` / `npm run build` → `npm run verify:all` exit 0；`lib/client.js` 随本轮重建。**纯客户端样式 ⇒ 刷新页面即可**。
+
 - **字体与玻璃细调节出设置页、迁进侧栏「外观」页，两块默认收起（ADR-0008 D4 二次修订）**。
   **动机**：设置页是**模态对话框**，调字体 / 玻璃细调时它挡住主页面、调完看不到实时效果；而这两块的调节项又太多，默认全开会把侧栏外观页挤得杂乱。⇒ 真迁移：**全局字体整节**与**玻璃高级行**（每个面的「独立配置」层及子项、思考块门下的胶囊雾化 / 胶囊颜色）一起搬进侧栏「外观」页，**默认收起**；设置页外观只留 主题 / 细节 / 玻璃 UI（简化配置 + 预设方案）/ 输入光标。
   **形态**：字体节的节头变成可点的折叠头（`role=button` + `aria-expanded` + 旋转箭头，`we-picker__section-head--toggle`），收起时只画节头；玻璃高级行收进「玻璃 UI」**节尾**的「详细玻璃调节」开关行后面（`advRows` 一次构建，设置页连构建都不做）。每行的**内在门**（思考玻璃挡 / 各面总开关 / 宿主能力位 / 跟随全局）原样保留 —— 折叠只是整体挪位，不改任何一行的生效条件。**预设方案反向不动**：仍只在设置页画（整快照覆盖、无撤销的动作不进随手可点的窄面板）——它现在是唯一"设置页专属"的行。
