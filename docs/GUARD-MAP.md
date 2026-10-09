@@ -4,7 +4,7 @@
 > **怎么用**：改了 `src/` 或 `lib/` 的某个模块，在「模块 → 守卫」那张表里查该跑哪几条。
 > 口径：只统计守卫**代码**里真正碰到的模块（先剥注释），并区分"直接读源文件"与"隔着产物 `lib/client.js`"。
 
-模块面 82 个 · 守卫 53 个
+模块面 82 个 · 守卫 54 个
 
 ## 守卫 → 模块
 
@@ -35,6 +35,7 @@
 | `verify-glass-surfaces.mjs` | `lib/settings-schema.js` `src/client.js` `src/effects.js` `src/glass-panel.js` `src/glass.js` `src/live-layer.js` `src/panel-tabs.js` `src/styles.js` | ✅ |
 | `verify-host-paint-scope.mjs` | — | ✅ |
 | `verify-i18n.mjs` | `src/client.js` `src/i18n-copy.js` `src/i18n.js` `src/nav-icon.js` `src/quick-panel.js` `src/sidebar-right.js` `src/styles.js` | ✅ |
+| `verify-inventory-index.mjs` | `lib/inventory.js` |  |
 | `verify-json-response.mjs` | `lib/json-response.js` | ✅ |
 | `verify-logging.mjs` | `lib/index.js` `lib/log.js` `lib/notice.js` `lib/routes/diag.js` `lib/routes/scene-serve.js` `lib/serve.js` `src/live-layer.js` |  |
 | `verify-media-bridge.mjs` | `lib/media/index.js` `lib/media/provision.js` `lib/media/supervisor.js` |  |
@@ -72,7 +73,7 @@
 | `lib/faststart.js` | 3 | `verify-cache-dir` `verify-mp4-vfs` `verify-scene-live` |
 | `lib/http-body.js` | 2 | `verify-body-caps` `verify-package-files` |
 | `lib/index.js` | 18 | `e2e-web-media-origin` `verify-about` `verify-adapter` `verify-cache-dir` `verify-client` `verify-contracts` `verify-fontset` `verify-logging` `verify-module-layout` `verify-package-files` `verify-package-publish` `verify-presets` `verify-reachability` `verify-route-index` `verify-scene-live` `verify-scene` `verify-transcode-state` `verify-we-install-probe` |
-| `lib/inventory.js` | 2 | `verify-scene-live` `verify-types` |
+| `lib/inventory.js` | 3 | `verify-inventory-index` `verify-scene-live` `verify-types` |
 | `lib/json-response.js` | 1 | `verify-json-response` |
 | `lib/log.js` | 1 | `verify-logging` |
 | `lib/media-origin.js` | 1 | `verify-scene-live` |

@@ -159,8 +159,11 @@ const INVENTORY_REQUIRED = [
   { name: 'playlists', why: 'scoped-rotation source (payload shorthand)' },
 ];
 
-/** inventory 构造代码 = 基础条目 + 两个字段提供者（它们经 spread 进入每条）。 */
-const INVENTORY_FUNCS = ['sceneFieldsFor', 'webFieldsFor', 'buildInventory'];
+/** inventory 构造代码 = 基础条目 + 两个字段提供者（它们经 spread 进入每条）。
+ *  ⚠️ `assembleInventory` 是**字段的唯一产出点**（#158 引入三级缓存时把组装从
+ *  `buildInventory` 里提出来，好让"签名快路径"与"真扫描"共用同一段字段代码）——
+ *  它必须在这张名单里，否则"声明的字段都能在构造代码里找到赋值"这条会失去覆盖。 */
+const INVENTORY_FUNCS = ['sceneFieldsFor', 'webFieldsFor', 'assembleInventory', 'buildInventory'];
 
 function auditSurface({ dts, code, iface, required }) {
   const declared = interfaceFields(dts, iface);

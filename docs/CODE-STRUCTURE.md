@@ -487,7 +487,8 @@ graph LR
 > **派生缓存不在此表**：GPU 帧 / 静态帧、转码产物（`tc_*.mp4`，按大小 LRU）、**虚拟 faststart 布局
 > （不落盘：`lib/mp4-vfs.js` 只读源算出「moov 前置 + chunk 偏移整体平移」的段表，`lib/serve.js`
 > 在服务期按段表合成字节；成因与口径见 CHANGELOG 的未发布段）**、视频预览、
-> live 帧、诊断目录、inventory（秒级 TTL）、Steam / 内嵌 MP4 探测（后者未命中一律
+> live 帧、诊断目录、inventory 的扫描索引（`inventory-index.json`：扫描签名 + 扫描原料 +
+> 逐条目探测记忆，见 `lib/inventory.js` 的文件头）、Steam / 内嵌 MP4 探测（后者未命中一律
 > **未知 → null，绝不猜**）。它们的真源都是**壁纸源文件本身**，全部可删、可重建。
 
 ---
