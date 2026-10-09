@@ -183,35 +183,27 @@
   }
 
   // ── 侧栏档的渲染 ctx（与设置页共用同一批渲染器）────────────────────────────
-  // 侧栏「外观」只画**简化配置**：全局四件套、预设方案与各面的**总开关**。分档见 ADR-0008 **D4**。
-  // 于是外观渲染器里那些只为高级行（**「独立配置」层及其子项**，含思考块门下的胶囊雾化 /
-  // 胶囊颜色）存在的处理器全部指向"取用即抛错"的占位器 —— 将来某次编辑把高级行挪回侧栏档，
-  // 会当场炸而不是静默变成"点了没反应"（同"漏传 ctx 字段 = 当场 ReferenceError"
-  // 那条纪律：刻意选的失败方式，响亮且可定位）。
+  // 侧栏「外观」画**简化配置**（全局四件套与各面的**总开关**）+ 两块**默认收起的折叠块**
+  // （全局字体节、「详细玻璃调节」门后的高级行）。分档见 ADR-0008 **D4**（2026-10-09 修订）。
+  // 折叠态住 localStorage（qp-font-open / qp-glass-detail），经 `qpRenderAppearancePane`
+  // 作为 `fontOpen` / `glassDetailOpen` 两个布尔传进渲染器。
   //
-  // 仍指向占位器的还有两类：全局字体节（用户口径不进侧栏，panel-tabs 的 `!sidebarSurface`
-  // 门与其互为负对照）与播放/画面页专属（出图来源 / 实时帧 / 自定义画面 / 帧率上限）。
+  // 仍指向占位器的只有两类（取用即抛错，与门互为负对照）：预设方案（跨面批量快照覆盖、
+  // 无撤销 ⇒ 只在设置页画）与播放/画面页专属（出图来源 / 实时帧 / 自定义画面 / 帧率上限）。
+  // ⚠️ 字体节与玻璃高级行的处理器**已随 2026-10-09 的迁移移出本名单**（改传真值）——
+  //    若有人把它们挪回设置页专属，记得同时改回占位器，否则渲染器解构到 undefined
+  //    会静默画出死旋钮。
   function sidebarCtxStub(name) {
     const boom = () => { throw new Error("[we-sidebar] ctx." + name + " 属于设置页，侧栏档不提供"); };
     return new Proxy(function () {}, { get: boom, apply: boom });
   }
   const QP_CTX_SETTINGS_ONLY = [
-    // ── 全局字体节（用户口径：**唯独这一节不进侧栏**；
-    //    panel-tabs 里那道 `!sidebarSurface` 门还挂着 ⇒ 渲染到这里之前就会被下面的占位器
-    //    当场炸（解构即触发 get trap），门与占位器互为负对照）──
-    "officialColorOf", "fontSet", "onComponentFamily", "onComponentFont",
-    "onFontAdvanced", "onFontResetAll", "onGlobalFamily", "onRefreshSystemFonts",
-    "onToggleFontCustom", "onThemeColor",
-    "onThemeColorClear", "onThemeDarkSeparate", "onThemeFamily", "onThemeSize", "onThemeTypeOnly",
-    "onThemeWeight",
-    // ── 高级配置：各面的「独立配置」层（ADR-0008 D4）──
-    //    侧栏档只画总开关，这些行与它们展开的参数都在设置页。
-    "onToggleChildIndependent", "onGlassChildParam", "childIndependentOn",
-    "onSidebarAlpha", "onSidebarBlur", "onSidebarColor",
-    "onSidebarContentAlpha", "onSidebarContentColor",
-    //    思考块总开关下面的细调行（门开着才画，同样只在设置页）。
-    "onCapsuleBlur", "onCapsuleColor",
-    // ── 预设方案（ADR-0008 D4：高级配置，只在设置页画）──
+    // ── #159② 玻璃颜色的「分套设置」（门在 `src/glass-panel.js` 的 `!sidebarSurface`）──
+    //    「深色单独设置」开关与「玻璃颜色 · 深色」那一行都只在设置页画；侧栏档只画
+    //    "写当前配色那一侧"的一个色板（`onGlassColor` 走真值，不在这里）。列这个处理器
+    //    进来是给那道门上牙：哪天它在侧栏档被取用 = 渲染时当场抛错，而不是静默冒出深色行。
+    "onGlassDarkSeparate",
+    // ── 预设方案（ADR-0008 D4：跨面批量覆盖 + 无撤销，只在设置页画）──
     //    门在 `src/glass-panel.js`（`!sidebarSurface`）。列它进来是给"预设块只在设置页"这件事上牙：
     //    补上这个字段 = 渲染时**当场抛错**（替身取用即炸），而不是静默让预设块冒到侧栏 ——
     //    那些"整块快照覆盖且不可撤销"的动作不该随手可达。
@@ -238,6 +230,19 @@
     try {
       return localStorage.getItem(QP_VIEW_KEY) === "list" ? "list" : "cards";
     } catch { return "cards"; }
+  }
+
+  // ── 外观页两块折叠块的展开态（同 qp-view 口径：仅 UI 状态，localStorage，不进 config.json）。
+  //    默认**收起**（调节项太多，默认展开太杂乱）；两块各自独立、各自记忆。
+  const QP_FONT_OPEN_KEY = "dsh-wallpaper-engine:qp-font-open";
+  const QP_GLASS_DETAIL_KEY = "dsh-wallpaper-engine:qp-glass-detail";
+  /** 读展开态；缺失 / 非法回落 `false`（**默认收起**）。 */
+  function readQpOpen(key) {
+    try { return localStorage.getItem(key) === "1"; } catch { return false; }
+  }
+  /** 写展开态（localStorage 独享；与 view / tab 同一条"不进 config.json"的纪律）。 */
+  function writeQpOpen(key, open) {
+    try { localStorage.setItem(key, open ? "1" : "0"); } catch { /* ignore */ }
   }
 
   /** 类型 + live 形态的一句话徽标（与设置页当前壁纸卡同口径，去掉播放态）。 */
@@ -447,14 +452,24 @@
     }, userPropsPanelOpen() ? weT("收起壁纸属性") : weT("壁纸属性"));
   }
 
-  function qpRenderAppearancePane(sel) {
+  function qpRenderAppearancePane(sel, ui) {
+    // `ui` = QuickPanel 传下来的两块折叠态与开关（localStorage 记忆，见 QP_FONT_OPEN_KEY）。
+    // 渲染器保持纯读：状态在组件里、写在 handler 里，这里只装配进 ctx。
     return renderAppearanceTab(sidebarRenderCtx({
       setSetting, setTransient, sel,
       onAccent, onBlur, onBorder, onChatGlassFidelity, onGlassAlpha, onGlassColor, onGlassFidelity, onLeftSidebarGlass, onTitlebarGlass, onSidebarGlass, onSidebarFullClear, onToggleThemeFollow,
-      // 侧栏「外观」只画**简化配置**（全局四件套、预设方案与各面总开关）⇒ 这里只放行那批处理器；
-      // **独立配置层与思考块门下的细调行**（胶囊雾化 / 胶囊颜色、侧栏 / 内容面的独立参数）一律
-      // 进上面的 setting-only 占位器。分档见 ADR-0008 D4。
       onCaretColor, onSidebarFollowGlobal, onThinkingMode,
+      // ── 全局字体节（2026-10-09 迁入侧栏，默认收起；原 setting-only 占位器已摘）──
+      fontOpen: ui.fontOpen, onToggleFontSection: ui.onToggleFontSection,
+      fontSet: fontSetCtx(), officialColorOf,
+      onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlobalFamily,
+      onRefreshSystemFonts, onToggleFontCustom, onThemeColor, onThemeColorClear,
+      onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight,
+      // ── 玻璃高级行（「详细玻璃调节」折叠块，同批迁出占位器）──
+      glassDetailOpen: ui.glassDetailOpen, onToggleGlassDetail: ui.onToggleGlassDetail,
+      onToggleChildIndependent, onGlassChildParam, childIndependentOn,
+      onSidebarAlpha, onSidebarBlur, onSidebarColor,
+      onSidebarContentAlpha, onSidebarContentColor, onCapsuleBlur, onCapsuleColor,
     }));
   }
 
@@ -611,6 +626,25 @@
     // 视图偏好（列表 / 卡片）与页签：useState 必须在早退分支之前（Rules of Hooks）。
     const [view, setView] = React.useState(readQpView);
     const [qpTab, setQpTab] = React.useState(readQpTab);
+    // 外观页两块折叠块的展开态（默认收起，localStorage 记忆；两块各自独立）。
+    // 同 view / qpTab 一条纪律：useState 在早退分支之前，写状态即写 localStorage（不 emit、
+    // 不进 config.json）—— 面板重渲染由 React 状态驱动。
+    const [fontOpen, setFontOpen] = React.useState(() => readQpOpen(QP_FONT_OPEN_KEY));
+    const [glassDetailOpen, setGlassDetailOpen] = React.useState(() => readQpOpen(QP_GLASS_DETAIL_KEY));
+    const toggleFontSection = () => {
+      setFontOpen((prev) => { const next = !prev; writeQpOpen(QP_FONT_OPEN_KEY, next); return next; });
+    };
+    const toggleGlassDetail = (open) => {
+      const next = open === true;
+      setGlassDetailOpen(next);
+      writeQpOpen(QP_GLASS_DETAIL_KEY, next);
+    };
+    // ── 本机字体清单（触发点随字体节 2026-10-09 迁入侧栏）──
+    // 停在外观页 + 字体节**展开** + 「字体自定义」开着 ⇒ 才去要一次（宿主那次扫描
+    // macOS 实测 ~10s，收起态下拉根本不可见，不付）。TTL 内是空操作。
+    React.useEffect(() => {
+      if (qpTab === "appearance" && fontOpen && sel.fontCustom) ensureSystemFonts(false);
+    }, [qpTab, fontOpen, sel.fontCustom]);
     const switchView = (v) => {
       if (v === view) return;
       setView(v);
@@ -680,12 +714,13 @@
     // 滚动必须自管）。壁纸页另挂 --library：列表自己滚，viewbar / 声音组常驻。
     const tabBodyClass = "we-qp__tabbody" + (qpTab === "wallpaper" ? " we-qp__tabbody--library" : "");
     // 底栏入口随页签：壁纸页=打开设置（落在它自己记住的那页）；外观 / 播放页=深链到
-    // 设置页同名页签 —— 侧栏这两页只放"调完立刻看得见"的行，字体 / 出图来源等仍住设置页。
+    // 设置页同名页签 —— 字体与玻璃详细调节已迁入侧栏（本页，折叠块），设置页那边留
+    // 玻璃预设与全量配置；播放页的出图来源 / 实时帧仍住设置页。
     const foot = qpTab === "appearance"
       ? {
-        label: weT("字体与更多外观 ›"),
+        label: weT("更多外观设置 ›"),
         target: "appearance",
-        title: weT("在设置页打开「外观」页签 —— 字体 / 光标 / 窗口与侧栏在那里"),
+        title: weT("在设置页打开「外观」页签 —— 玻璃预设与全部外观配置在那里"),
       }
       : qpTab === "playback"
         ? {
@@ -714,7 +749,10 @@
         qpTab === "wallpaper" && userPropsPanelOpen() && propsAvailable
           && React.createElement("div", { className: "we-qp__propsview we-qp__propsview--drill" }, renderUserPropsPanel()),
         !(qpTab === "wallpaper" && userPropsPanelOpen() && propsAvailable) && (qpTab === "appearance"
-          ? qpRenderAppearancePane(sel)
+          ? qpRenderAppearancePane(sel, {
+            fontOpen, onToggleFontSection: toggleFontSection,
+            glassDetailOpen, onToggleGlassDetail: toggleGlassDetail,
+          })
           : qpTab === "playback"
             ? qpRenderPlaybackPane(sel, switchQpTab)
             : null),

@@ -3719,9 +3719,33 @@ const onAccent = (hex, live) => {
   if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
   commitLiveSetting("accent", hex, live);
 };
-const onGlassColor = (hex, live) => {
+// #159②：玻璃颜色**内部永远是一对** `{light, dark}`（见 lib/settings-schema.js 的 readGlassColors）。
+// 色板行只写"当前在设的那一侧"；开关关着时两侧写同一个色 —— 与颜色角色的 onThemeColor 同构。
+// 读那一对用 `panelGlassPair`（住在 src/glass-panel.js）：它**自带归一、不引用工厂作用域里的兄弟**，
+// 因为 test/verify-scene-live.mjs 把 glass-panel.js 当真模块 import；这里不另存一份口径，
+// 免得"读的一侧"和"画的一侧"漂开（走到这儿的值可能仍是标量：老预设定档直传 / 台架 selection）。
+const onGlassColor = (mode, hex, live) => {
   if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-  commitLiveSetting("glassColor", hex, live);
+  const cur = panelGlassPair(selection);
+  // 缺的那一侧用本次选的色补上 —— **绝不写半对**：半对在另一配色下会退化成兜底色，
+  // 用户的观感就是"没染上"（readGlassColors 也会把它补回另一侧，但那要等下一次 sanitize）。
+  const next = { light: cur.light || hex, dark: cur.dark || hex };
+  if (selection.glassDarkSeparate === true) next[mode === "dark" ? "dark" : "light"] = hex;
+  else { next.light = hex; next.dark = hex; }
+  commitLiveSetting("glassColor", next, live);
+};
+// 「深色单独设置」开关（玻璃色那一行）：关掉时把两侧**收敛到浅色那一侧** —— 这就是"一个颜色
+// 同时用于两套"的字面含义。不做收敛的话，关掉后深色还留着上一次的深色值，再打开会突然跳回旧值。
+// 与 onThemeDarkSeparate（字体角色那一个）同构：开关本身不改任何渲染，只是面板的显隐 + 写入口径。
+const onGlassDarkSeparate = (v) => {
+  const on = v === true;
+  setSetting("glassDarkSeparate", on);
+  if (!on) {
+    const cur = panelGlassPair(selection);
+    const light = cur.light || cur.dark;
+    if (light) setSetting("glassColor", { light, dark: light });
+  }
+  applyEffects(); emit();
 };
 const onGlassAlpha = (pct, live) =>
   commitLiveSetting("glassAlpha", clampNum(pct, ...schemaRange("glassAlpha"), DEFAULTS.glassAlpha), live);
@@ -4370,13 +4394,11 @@ function WallpaperPicker() {
   // 用一次订阅式 effect 补上；TTL 同日历口径，重复触发是空操作。
   React.useEffect(() => { if (activeTab === "about") loadStarCount(false); }, [activeTab]);
 
-  // 本机字体清单（同上一条的形状）：停在「外观」页且用户开着「字体自定义」时才去要一次
-  // （宿主那次扫描 macOS 实测 ~10s，不能因为"打开设置页"就付）。TTL 内是空操作。
-  React.useEffect(() => {
-    if (activeTab === "appearance" && selection.fontCustom) ensureSystemFonts(false);
-  }, [activeTab]);
+  // 本机字体清单的触发点**随字体节迁到侧栏**（2026-10-09 真迁移）：设置页外观已没有字体
+  // UI，在这里拉清单是白付宿主扫描（macOS 实测 ~10s）。新家在 QuickPanel 的 effect
+  //（停在外观页 + 字体节展开 + 字体自定义打开 ⇒ 才去要一次；TTL 内是空操作）。
 
-  // 侧栏深链（快捷播放面板底栏的「字体与更多外观 ›」/「更多播放设置 ›」）：请求"打开
+  // 侧栏深链（快捷播放面板底栏的「更多外观设置 ›」/「更多播放设置 ›」）：请求"打开
   // 设置页后停在哪一页"。打开对话框由 src/sidebar-right.js 的 DOM 路径负责，这里只管
   // 落地 —— 走**同一个 switchTab**（清待确认 / 退出下钻 / 写 localStorage 这些副作用
   // 一处不落），落地后把请求清掉（一次性；否则用户几分钟后自己开设置会被旧请求劫持）。
@@ -4477,7 +4499,7 @@ function WallpaperPicker() {
       setSetting, setTransient,
       fontSet: fontSetCtx(),
       glassPresets: glassPresetCtx(),
-      officialColorOf, onAccent, onCapsuleBlur, onCapsuleColor, onBlur, onBorder, onCaretColor, onChatGlassFidelity, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onGlassFidelity, onGlobalFamily, onLeftSidebarGlass, onTitlebarGlass, onRefreshSystemFonts, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarFollowGlobal, onSidebarGlass, onSidebarFullClear, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onThinkingMode, onToggleFontCustom, onToggleThemeFollow, sel,
+      officialColorOf, onAccent, onCapsuleBlur, onCapsuleColor, onBlur, onBorder, onCaretColor, onChatGlassFidelity, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlassAlpha, onGlassColor, onGlassDarkSeparate, onGlassFidelity, onGlobalFamily, onLeftSidebarGlass, onTitlebarGlass, onRefreshSystemFonts, onSidebarAlpha, onSidebarBlur, onSidebarColor, onSidebarContentAlpha, onSidebarContentColor, onSidebarFollowGlobal, onSidebarGlass, onSidebarFullClear, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onThinkingMode, onToggleFontCustom, onToggleThemeFollow, sel,
       // 玻璃 UI 子项开关 + 独立配置 + 独立参数（见 onToggleChildIndependent 那段注释）
       onToggleChildIndependent, onGlassChildParam, childIndependentOn,
     });
@@ -5597,10 +5619,12 @@ function apply(ctx) {
   //     都会 tearDownEntryFiber 后用新模块体重跑一遍，不挂 fiber ⇒ 旧实例的定时器
   //     与监听器永不释放（实测同一 document 214 个页 id、一次 window blur 被 117 份实例各记一条）。
   //     与官方契约一致（原文与现场见 src/live-layer.js 的 installLiveDiagnostics）。
+  //     焦点交还（#148 宿主半）同理由同形态：document/window 级监听器，拆除函数交给 fiber。
   if (ctx.effect && typeof document !== "undefined") {
     ctx.effect(() => installLiveDiagnostics() || undefined);
     ctx.effect(() => installLiveBootRestore() || undefined);
     ctx.effect(() => installRotationResumeListeners() || undefined);
+    ctx.effect(() => installFocusHandback() || undefined);
   }
 
   // 3b. 皮肤中心互操作（皮肤在台上 ⇒ 我方整族退场）：只读对方两条公开信号，

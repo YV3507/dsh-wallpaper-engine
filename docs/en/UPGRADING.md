@@ -76,11 +76,12 @@ The plugin shows a one-time in-app notice per release; missing it is harmless.
 
 - **The current version is whatever `package.json`'s `version` says (published versions: see the npm package page / GitHub Releases)**: the end-to-end record in this file stops
   at v0.7.1/v0.7.2; the live-rendering chain from v0.7.5 on has offline verification only
-  (`test/verify-scene-live.mjs` and more, `npm run verify`). **Recommended pairing: `dsh-desktop` ≥ 2.0.14** —
+  (`test/verify-scene-live.mjs` and more, `npm run verify`). **The pairing recommended at v1.0.1 (historical): `dsh-desktop` ≥ 2.0.14** —
   that release fixed plugin load failures, the right-sidebar glass grey plate when collapsed, and the
   enhanced-mode left grey panel covering the wallpaper; from v1.0.1 wallpapers and every effect work in all
   three window modes (compatibility / enhanced / extended). See the v1.0.1 and v0.7.6–v0.7.8 entries in
-  [`CHANGELOG.md`](../CHANGELOG.md) (Chinese only).
+  [`CHANGELOG.md`](../CHANGELOG.md) (Chinese only). **Current kernel / desktop requirements are governed by
+  the "prerequisites from v1.3.0" section above** — this file no longer maintains a per-version pairing table.
 
 ### Settings persistence: moved to a host-side file (v0.4.0)
 

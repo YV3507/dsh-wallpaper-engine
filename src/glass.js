@@ -116,11 +116,15 @@ function applyGlass(selection, s) {
   const chatGlassFidelity = Number.isFinite(chatFidNum) ? Math.min(1, Math.max(0, chatFidNum / 100)) : 1;
   s.setProperty("--we-chat-glass-fidelity", String(chatGlassFidelity));
   // 釉色也按同一判定：开了独立配置就用它**自己**的颜色，否则用全局玻璃色。
-  const chatColor = glassValue("conversation", "color", selection.conversationColor, selection.glassColor);
-  s.setProperty("--we-chat-surface-tint-light", weClampSurfaceColor(chatColor, "light", chatGlassFidelity));
-  s.setProperty("--we-chat-surface-tint-dark", weClampSurfaceColor(chatColor, "dark", chatGlassFidelity));
-  s.setProperty("--we-chat-surface-tint-rgb-light", toRgbTriple(weClampSurfaceColor(chatColor, "light", chatGlassFidelity)));
-  s.setProperty("--we-chat-surface-tint-rgb-dark", toRgbTriple(weClampSurfaceColor(chatColor, "dark", chatGlassFidelity)));
+  // #159②：全局那一侧**分主题取** —— 「玻璃颜色」存的是 `{light, dark}` 一对（见
+  // lib/settings-schema.js 的 readGlassColors），这里按主题各取一半；`conversationColor`
+  // 是「对话栏玻璃·独立配置」的单值，不分主题（与保真度那条同构）。
+  const chatColorLight = glassValue("conversation", "color", selection.conversationColor, glassColorOf(selection, "light"));
+  const chatColorDark = glassValue("conversation", "color", selection.conversationColor, glassColorOf(selection, "dark"));
+  s.setProperty("--we-chat-surface-tint-light", weClampSurfaceColor(chatColorLight, "light", chatGlassFidelity));
+  s.setProperty("--we-chat-surface-tint-dark", weClampSurfaceColor(chatColorDark, "dark", chatGlassFidelity));
+  s.setProperty("--we-chat-surface-tint-rgb-light", toRgbTriple(weClampSurfaceColor(chatColorLight, "light", chatGlassFidelity)));
+  s.setProperty("--we-chat-surface-tint-rgb-dark", toRgbTriple(weClampSurfaceColor(chatColorDark, "dark", chatGlassFidelity)));
 
   // ── 思考触发条的**按面**釉层变量（见 wip §10.27）──────────────────────────────
   // 该面的 CSS 读 `var(--we-thinking-trigger-<x>, <原全局表达式>)`（styles.js 里那条
@@ -241,7 +245,11 @@ function applyGlass(selection, s) {
   //   派生物 —— `--we-sidebar-sheen`（釉光，12 处消费）与 `--we-sidebar-tint`
   //   （染色权重，6 处）—— 两者都在下面写出。
   s.setProperty("--we-sidebar-sheen", String(Math.min(1, sidebarAlpha / 0.2236)));
-  s.setProperty("--we-sidebar-color", glassValue("sidebar", "color", selection.sidebarColor, selection.glassColor));
+  // #159②：这里**只取浅色那一侧**，侧栏不做深浅分离（有意取舍，见 wip 审计 §9）——
+  // 侧栏的消费者把颜色混进**主题解析出来的底**上（color-mix … var(--we-readability-base)），
+  // 规则里没有 data-ds-dark-theme 孪生；要分两套得给那批声明加暗色孪生，而 --we-sidebar-color
+  // 是 body 行内样式、样式表重声明压不过它。等侧栏有了暗色孪生再把这一半也分主题。
+  s.setProperty("--we-sidebar-color", glassValue("sidebar", "color", selection.sidebarColor, glassColorOf(selection, "light")));
   // 侧栏玻璃颜色的混入强度（%）：**独立于 alpha 的可见性曲线** —— alpha 在高透档
   // 趋近 0，混色若跟着 alpha 走，颜色滑杆在最高档就等于失效（低于可感知阈值）。
   // 因此随透明度滑杆线性映射 20%–48%：最透档也有可感知色染，往实调颜色越来越浓。

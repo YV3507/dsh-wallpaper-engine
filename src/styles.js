@@ -560,25 +560,68 @@ const CSS = `
     --we-chat-glass-fill: rgba(var(--we-surface-tint-rgb-light, 255, 255, 255), var(--we-glass-alpha, 0.15));
     --we-capsule-glass-fill: rgba(var(--we-capsule-tint-rgb, 255, 255, 255), var(--we-inline-code-alpha, 0.10));
     --we-tool-glass-fill: rgba(var(--we-surface-tint-rgb-light, 255, 255, 255), calc(var(--we-glass-alpha, 0.15) + 0.06));
+    /* 历史上这里还有一条 #156③ 的 --we-composer-seat-fill（输入座位底板）；该底板已按
+       用户口径**整条撤回**（见下面 seat 那段的注释），令牌一并清掉 —— 不留死声明。
+       它进了 test/verify-glass-surfaces.mjs 的 REAPED_VARS 名单，被重新消费即红。 */
+    /* #156① 宿主 Modal 的遮罩本来就自己画 backdrop-filter: var(--dsw-mask-blur)，
+       但主题把这条令牌定义成**裸 body** 上的 none（即宿主默认无霜）⇒ 玻璃面板背后是
+       一张没被模糊的壁纸。这里在特异度更高的 body[data-we-glass-page] 上重声明它，
+       宿主自己的遮罩规则就会取到插件的霜 —— 一次覆盖该通道上的**所有**宿主浮层
+       （设置对话框、图片灯箱、各类 role=dialog 面板），不必逐个选择器补。
+       这是宿主**自有**的模糊通道，不是去猜它的 CSS 模块哈希。 */
+    --dsw-mask-blur: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    /* #157 滚动条拇指并入插件取色：宿主把拇指色写成四个**静态中性色**
+       （浅色 neutral-200/300、深色 neutral-700/600/550），与插件的玻璃色相无关，
+       压在玻璃面板上就显得突兀。这里在 body[data-we-glass-page] 上重声明底层四个
+       --dsw-alias-scrollbar-* 令牌 —— 宿主各处滚动容器的局部重声明写的都是
+       var(--dsw-alias-scrollbar-bg-l2) 这一层间接（自定义属性按元素解析，不是按
+       声明处解析），所以一次覆盖全应用，不需要逐个锚点补，也不碰任何类名哈希。
+       色阶仍沿用宿主那一级（可视性不变），只把中性色的**色相**换成用户选的玻璃
+       底色；浅色下取更暗一级的静态中性色，抵掉混色带来的提亮。 */
+    --dsw-alias-scrollbar-bg-l1: color-mix(in srgb, var(--we-surface-tint-light, #ffffff) 40%, var(--dsw-static-neutral-300, #d4d4d4));
+    --dsw-alias-scrollbar-bg-l2: color-mix(in srgb, var(--we-surface-tint-light, #ffffff) 40%, var(--dsw-static-neutral-300, #d4d4d4));
+    --dsw-alias-scrollbar-hover-l1: color-mix(in srgb, var(--we-surface-tint-light, #ffffff) 40%, var(--dsw-static-neutral-400, #a2a4a6));
+    --dsw-alias-scrollbar-hover-l2: color-mix(in srgb, var(--we-surface-tint-light, #ffffff) 40%, var(--dsw-static-neutral-400, #a2a4a6));
   }
   body[data-ds-dark-theme][data-we-glass-page] {
     --we-chat-glass-fill: rgba(var(--we-surface-tint-rgb-dark, 13, 21, 36), var(--we-glass-alpha, 0.15));
     --we-tool-glass-fill: rgba(var(--we-surface-tint-rgb-dark, 13, 21, 36), calc(var(--we-glass-alpha, 0.15) + 0.06));
+    /* 滚动条（#157）：暗主题宿主取 neutral-700/600（静态）与 600/550（悬停），混色会把整体
+       压暗，所以每档都往亮一级取，混完仍落在宿主原来的亮度台阶上（宿主 l2 与 hover-l1 同值，
+       这里同样同值）。 */
+    --dsw-alias-scrollbar-bg-l1: color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) 40%, var(--dsw-static-neutral-600, #545557));
+    --dsw-alias-scrollbar-bg-l2: color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) 40%, var(--dsw-static-neutral-500, #7f8287));
+    --dsw-alias-scrollbar-hover-l1: color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) 40%, var(--dsw-static-neutral-500, #7f8287));
+    --dsw-alias-scrollbar-hover-l2: color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) 40%, var(--dsw-static-neutral-400, #a2a4a6));
   }
   /* ⚠️ 这组「气泡直接读 --we-chat-glass-fill」是**思考玻璃功能的一部分**，必须挂
      [data-we-thinking-glass] 门 —— 否则默认态会改掉气泡的底色、并绕开「对话栏玻璃保真度」
      的令牌契约。关 = 逐字节现状。
      ⚠️ **输入框（[data-composer-card]）退出思考玻璃作用域**：输入卡不铺这层 fill 接管，
      开关开 = 输入框与关着时逐位相同（只受基础对话栏玻璃与「对话框玻璃·独立配置」管）。
-     守卫：verify-glass-surfaces「思考玻璃门下不得出现 data-composer-card」。 */
-  body[data-we-glass-page][data-we-thinking-glass] [class*="_bubble"] {
+     守卫：verify-glass-surfaces「思考玻璃门下不得出现 data-composer-card」。
+     ⚠️ **宿主 Tooltip 也是 *_bubble**（issue #161）：宿主把悬浮提示的元素类名编译成
+     _bubble_ + 哈希 + 序号（dsh-client-ui-primitives 的 Tooltip），与对话气泡共享
+     [class*="_bubble"] 这个后缀约定，但它是**独立浮层**：底色读 --dsw-alias-tooltip-bg
+     （浅色 #2c2c2e 实色，深色 #43454a），文字固定 --dsw-static-neutral-bluish-00（近白），
+     且**位置不受 [data-chat-flow] 约束**（可能渲染在触发元素旁）。这层 fill 覆盖上去后
+     深底变浅底、白字不变 ⇒ 白字压浅底（实测 1.07–1.13:1，见 #161）。
+     判据取宿主自己写在气泡上的 role="tooltip"（全 asar 仅出现一次，就是这一处），
+     它同时免疫类名哈希漂移与浮层 DOM 位置，比 [data-chat-flow] 作用域更可靠。
+     ⇒ **本文件所有 [class*="_bubble"] 规则都必须带这道豁免**（当前 :613 / :622 / :945 / :3166 四条），
+     守卫：verify-readability「F2dN 每条 _bubble 规则都必须带 role="tooltip" 豁免」—— §11 A1-4：
+     这条判据以前还接受"头里有 [data-chat-flow] 就放行"，于是把某条的 :not(...) 摘掉仍全绿；
+     作用域（在对话流里）与豁免（不是宿主 Tooltip 那个 _bubble）是两件事，现在分别钉住。 */
+  body[data-we-glass-page][data-we-thinking-glass] [class*="_bubble"]:not([role="tooltip"]) {
     background-color: var(--we-chat-glass-fill) !important;
   }
   /* ⚠️ 正文原生挡（data-we-thinking-native，见文件下方「正文原生挡」块）：只有**气泡**
      这一条带 :not() —— 原生挡下气泡退出霜釉（正文原生 = 无玻璃装饰）；**输入卡与工具
-     弹卡不豁免**（用户口径：输入对话框保留玻璃），照旧吃霜/釉。 */
+     弹卡不豁免**（用户口径：输入对话框保留玻璃），照旧吃霜/釉。
+     气泡这条还带第二道 :not([role="tooltip"])：这一组是**恒挂**的（默认就生效），
+     不加豁免就会给宿主 Tooltip 抹上白釉 + 模糊（#161），详见上面那条注释。 */
   body[data-we-glass-chat][data-we-glass-page] [data-composer-card],
-  body[data-we-glass-chat][data-we-glass-page]:not([data-we-thinking-native]) [class*="_bubble"],
+  body[data-we-glass-chat][data-we-glass-page]:not([data-we-thinking-native]) [class*="_bubble"]:not([role="tooltip"]),
   /* Interactive tool popup cards read the SAME --dsw-specific-input-major
      token as the composer (question / plan-review / approval), so they turn
      translucent along with it — but unlike the composer they had NO
@@ -646,6 +689,29 @@ const CSS = `
     -webkit-backdrop-filter: blur(var(--we-thinking-trigger-blur, var(--we-blur, 16px))) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
     backdrop-filter: blur(var(--we-thinking-trigger-blur, var(--we-blur, 16px))) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
   }
+  /* ── 输入座位（composer seat）：**不铺底板**（#156③ 于启用后撤回）─────────────
+     宿主把「输入卡 + dock 行（统计行 / 模型按钮 / ContextMeter）」一起装进
+     [data-composer-seat] 这条**整宽**的 sticky 座位（实测 110–130px 高），并给它画一条
+     「透明 → --dsw-alias-bg-base」的渐变当底板。宿主那块之所以看不出来，是因为它的
+     颜色就是**页面底色**（原生不透明 ⇒ 与整页同色、天然隐形）；插件把
+     --dsw-alias-bg-base 置成 transparent（好让壁纸透出来）之后，同一块面积就不再隐形
+     ⇒ #156③ 曾在这里补一条插件配方（独立令牌 --we-composer-seat-fill），但**几何照抄
+     宿主**（0px 渐显之后铺满整个座位）在壁纸上读成「一条很高的灰色遮罩条」（用户口径）；
+     收窄成"只铺贴底 48px 的渐隐 + 按 70% 稀释"之后，用户仍认为那一条多余 ⇒ **整条撤回**，
+     座位回到无底板（宿主那条渐变继续因为令牌被置成 transparent 而画不出东西）。
+     代价（有意接受）：最下面那条 dock 带自己没有底色，直接压在壁纸上 —— 撤回后的用户
+     口径优先于 #156③ 的"统计行需要底板"，而且这正是宿主原生模式下的观感（那边只是
+     恰好与页面同色）。
+     ⚠️ 撤回之后**不许**再把底板加回来：verify-glass-surfaces 第 ⑯ 组钉住"座位不铺任何
+     背景、也不挂霜"，已清理的 --we-composer-seat-fill 同时进了同文件的 REAPED_VARS
+     名单（被重新消费即红）。要重开这个话题，先回到用户口径确认，而不是回到 #156③ 的
+     原文（它的"症状"在这个产品口径下不算症状）。
+     ⚠️ 座位也**不许挂霜**：座位里就有 [data-composer-card]，而它内部有 position:fixed
+     后代（AI 浏览器座位，#89，见下面那段）—— 在座位上挂 backdrop-filter 会把那些
+     fixed 后代重新锚到座位上（掉约 522px）。输入卡自己那层 ::before 霜照旧。
+     ⚠️ 锚点取宿主源码里写死的 data-composer-seat / data-conversation-region
+     （conversation 包 composerSeat 的 JSX），不猜 CSS 模块哈希；[data-chat-flow] 在这
+     一面**不可用**（座位是 ChatView 那一列的兄弟节点，不在会话流里）。 */
   /* ── composer card: the blur must not live on the card itself ─────────────
      [data-composer-card] contains position:fixed descendants: @dsh-external/
      dsh-webui mounts the "AI 浏览器" seat (.dsh-browser-seat-wrap) inside it with a
@@ -845,8 +911,40 @@ const CSS = `
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
   }
+  /* ── 吸顶条（宿主 .bannerWrap）重铺底板（#156④）──────────────────────────────
+     宿主 CodeBlock.module.css 里真正的 sticky 载体是 .bannerWrap
+     （position: sticky; top: 0; z-index: 6），它的底板写成
+     background-color: var(--dsw-alias-bg-base)；本插件把 --dsw-alias-bg-base 置成
+     transparent（好让壁纸透出来），上面那条清底规则又给同一个载体写了
+     background: transparent !important ⇒ 代码块一滚动，吸顶的 header / 复制按钮
+     就直接压在正文上，连一块板都没有（症状④）。
+     修法：在清底规则**之后**再声明一次 background-color + 霜（同特异度、同为
+     !important、后写胜），配方与工具面同族、同样压可读性下限；几何（sticky/top/
+     z-index/圆角）全部归宿主，一个字不改。
+     ⚠️ 只重铺 sticky 载体，不动 .banner 内部的 --dsl-code-block-banner-background-color
+     （那条仍是 transparent）：板只有一层，正文里不出现第二条吸顶带。
+     判据锚点仍是 [data-code-block-banner]（宿主源码写死的属性，已在登记册
+     「会话流面」那一行里认领），作用域留在 [data-chat-flow] 内。 */
+  body[data-we-glass-page][data-we-thinking-glass] [data-chat-flow] .md-code-block > :has(> [data-code-block-banner]) {
+    background-color: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-glass-alpha, 0.15) * 0.6 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
+    -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
+    backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
+  }
+  body[data-ds-dark-theme][data-we-glass-page][data-we-thinking-glass] [data-chat-flow] .md-code-block > :has(> [data-code-block-banner]) {
+    background-color: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) calc(var(--we-glass-alpha, 0.15) * 0.6 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
+  }
+  /* 无模糊内核：同一条「近不透明 + 摘霜」政策也要落到这条吸顶带上。 */
+  body[data-we-glass-fallback][data-we-glass-page][data-we-thinking-glass] [data-chat-flow] .md-code-block > :has(> [data-code-block-banner]) {
+    background-color: color-mix(in srgb, var(--we-readability-base) 92%, transparent) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
   /* A user bubble already supplies the single glass plate and frost. */
-  body[data-we-glass-page][data-we-thinking-glass] [data-chat-flow] [class*="_bubble"] .md-code-block {
+  body[data-we-glass-page][data-we-thinking-glass] [data-chat-flow] [class*="_bubble"]:not([role="tooltip"]) .md-code-block {
     background: transparent !important;
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
@@ -1548,6 +1646,27 @@ const CSS = `
     }
   }
 
+  /* ── 插件源浮层（plugin-manager · 宿主自己的浮层）→ 补霜 ─────────────────────
+     #156②：data-install-registry 是 dsh-client-ui-plugin-manager 写在 fieldset 上的
+     源码级布尔属性（「插件源」注册表视图）。宿主把它 portal 到 body（是 body 的直接
+     子节点，不在 [data-chat-flow] 里），宿主规则本身是实底色 --dsw-alias-bg-layer-2 +
+     大阴影，**没有 backdrop-filter**，也不走宿主的半透明菜单通道 —— 那套菜单令牌声明在
+     [data-menu-material] 元素选择器上，子树里裸读 var() 会在 computed-value 阶段整条失效。
+     于是玻璃开着时它仍是一块不透明板。这里只补霜，底色仍归宿主（不重声明
+     --dsw-alias-bg-layer-2，免得与注册表内部那些面板色打架）。
+     模糊半径读「浮层玻璃」这条子项的私有量 --we-floaters-blur（src/glass.js:279 无条件接线，
+     取不到时退回全局模糊），与 .we-update-notice / .we-repo-panel 同档。 */
+  body[data-we-glass-floaters] [data-install-registry] {
+    -webkit-backdrop-filter: blur(var(--we-floaters-blur)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    backdrop-filter: blur(var(--we-floaters-blur)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+  }
+  /* 无模糊内核：同一条「近不透明 / 摘霜」政策在这里也要收口，否则浮层是半透明无霜，
+     文字直接压在壁纸上。 */
+  body[data-we-glass-fallback][data-we-glass-floaters] [data-install-registry] {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
   /* Section wrapper：融合官方设置页（官方分区没有外壳卡），内容直接落在设置对话框的面层上。
      注意类名与 DOM 结构是**契约**，守卫按结构断言 —— 拍平的是外观，不是这层壳的存在。 */
   .we-picker__card-shell { display: block; }
@@ -1814,10 +1933,36 @@ const CSS = `
   }
   .we-picker__section-head { display: flex; align-items: center; }
   .we-picker__section-label {
-    font-size: 0.72em; font-weight: 600; letter-spacing: 0.04em;
+    /* 节标题必须**大于**行标签（ctl-label 0.88em）—— 0.72em 那版反而比正文小，
+       「找路」层级倒挂（2026-10-09 用户口径：红圈那批标题要一眼跳出来）。 */
+    font-size: 1.1em; font-weight: 600; letter-spacing: 0.04em;
     /* 分组标题是「找路」信息而非装饰：次级墨色保证暗玻璃上可读。 */
     color: var(--we-ink-2, rgba(128, 128, 128, 0.9));
   }
+  /* ── 可折叠节头（侧栏「外观」页默认收起的整节，如「全局字体」）：
+     整行可点（role=button + aria-expanded 挂在头上），箭头随开合旋转；
+     旋转走 transform（合成器属性），150ms 只动这一枚小箭头。
+     ⚠️ 不用负 margin 扩底色（侧栏 tabbody 是 overflow 容器，负 margin 会把
+     scrollWidth 撑出横向滚动条 —— 实测 320 → 332）；左右 padding 收紧即可。 ── */
+  .we-picker__section-head--toggle {
+    cursor: pointer; user-select: none;
+    border-radius: 6px; padding: 2px 4px;
+    transition: background-color 0.15s ease;
+  }
+  .we-picker__section-head--toggle:hover {
+    background: var(--we-hover-bg, rgba(128, 128, 128, 0.1));
+  }
+  .we-picker__section-head--toggle:focus-visible {
+    outline: 2px solid var(--we-accent, #4f8cff); outline-offset: 1px;
+  }
+  .we-picker__section-caret {
+    margin-left: auto; font-size: 0.72em;
+    color: var(--we-ink-2, rgba(128, 128, 128, 0.9));
+    transition: transform 0.15s ease;
+  }
+  .we-picker__section-caret.is-open { transform: rotate(180deg); }
+  /* ── 侧栏窄栏兜底：展开「全局字体」后的排版角色表比栏宽，横向滚动而不是撑破面板。 ── */
+  .we-qp__tabbody .we-picker__font-table { max-width: 100%; overflow-x: auto; }
 
   /* ── 页签栏（分段式）：玻璃轨道 + 滑动指示胶囊。窄抽屉里六枚等宽页签
      恰好放下两至三字标签；指示胶囊平移走 transform（合成器属性）。 ── */
@@ -3017,8 +3162,10 @@ body[data-we-glass-floaters] .we-repo-panel {
     --we-capsule-glass-fill: var(--we-chat-glass-fill);
   }
   /* ⚠️ 这条与上面 92% 不透明的思考玻璃填充配套，挂同一道门 —— 否则关着思考玻璃的
-     fallback 模式也会被摘掉气泡的 backdrop-filter。 */
-  body[data-we-glass-fallback][data-we-glass-page][data-we-thinking-glass] [class*="_bubble"] {
+     fallback 模式也会被摘掉气泡的 backdrop-filter。
+     带 :not([role="tooltip"]) 与上面三条同办（#161）：宿主 Tooltip 从来不吃插件霜釉，
+     清它不是修 bug 而是保持「一条规则只谈气泡」的可读性 + 让守卫按同一判据数。 */
+  body[data-we-glass-fallback][data-we-glass-page][data-we-thinking-glass] [class*="_bubble"]:not([role="tooltip"]) {
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
   }

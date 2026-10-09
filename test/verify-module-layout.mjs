@@ -523,12 +523,13 @@ console.log('⑥ `src/` 子目录成员数 ≥3');
 // 注释或字符串里出现"块注释起始"那两个字符（把 `scripts/**`、`test/**`、`docs/*.md` 写进一句
 // 注释就够了）就会开一个"块注释"，一路吃到下一个结束标记，把中间的真实代码**静默删掉**，
 // 而那些判据照样报绿 —— 这正是本仓最不想要的失败形态（单文件最长一段被吃掉 331 行）。
-// 白名单**只许缩小**：CSS 侧那三处保留自己的朴素剥法（CSS 没有行注释，套 JS 词法会误删
+// 白名单**只许缩小**：CSS 侧那几处保留自己的朴素剥法（CSS 没有行注释，套 JS 词法会误删
 // `url(//host/x)` 这类内容），另两处是"反面参照 / 检测器"本身，不是生产路径。
 {
   const NAIVE_ALLOWED = [
     'test/tools/js-text.mjs',             // 共享实现内含一条**反面参照**（证明缺陷真实存在）
     'test/tools/audit-guard-teeth.mjs',    // 判据 F 的**检测器**：就是靠这个正则找可疑区间
+    'test/tools/token-contract.mjs',       // CSS 专用（`stripCssComments`：剥 `src/styles.js` 的 CSS 模板体）
     'test/verify-glass-compositing.mjs',   // CSS 专用
     'test/verify-glass-surfaces.mjs',      // CSS 专用（玻璃面登记表：同样从产物取样式表并剥注释）
     'test/verify-readability.mjs',         // CSS 专用

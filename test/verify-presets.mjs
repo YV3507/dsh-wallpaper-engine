@@ -63,7 +63,7 @@ const schema = await import(pathToFileURL(join(root, 'lib', 'settings-schema.js'
 {
   const { GLASS_PRESET_KEYS, KINDS, GLASS_CHILDREN, childGlassKey } = schema;
   const generated = [...new Set(GLASS_CHILDREN.flatMap((c) => Object.keys(c.params).map((p) => childGlassKey(c.id, p))))];
-  const fixed = ['glassColor', 'glassAlpha', 'blur', 'glassFidelity', 'glassMode',
+  const fixed = ['glassColor', 'glassAlpha', 'blur', 'glassFidelity', 'glassMode', 'glassDarkSeparate',
     'leftSidebarGlass', 'titlebarGlass', 'thinkingGlass', 'thinkingNative', 'capsuleBlur', 'capsuleColor', 'sidebarGlass', 'sidebarFullClear', 'sidebarFollowGlobal',
     'sidebarBlur', 'sidebarAlpha', 'sidebarColor', 'sidebarContentAlpha', 'sidebarContentColor'];
   check('键集 = 固定键 ∪ 登记表生成键（无缺无余）',
@@ -93,6 +93,17 @@ section('② 快照消毒：补齐 / 丢弃 / 回落默认 / 迁移短路（回�
   check('越界值回落默认（clampNum 语义：不是截断）',
     over.glassAlpha === DEFAULTS.glassAlpha && over.blur === DEFAULTS.blur,
     'glassAlpha=' + over.glassAlpha);
+  // §11 A2-F1：`glassColor` 是一对、开关决定两半是否独立。开关不进快照的话，恢复一个
+  // "两半不同"的预设会把开关留在 OFF ⇒ 面板从此只认浅色半，深色半的设置静默失效。
+  check('A2-F1：glassDarkSeparate 进快照、玻璃色按一对归一',
+    sanitizeGlassPresetValues({}).glassDarkSeparate === false
+      && sanitizeGlassPresetValues({ glassDarkSeparate: true }).glassDarkSeparate === true
+      && sanitizeGlassPresetValues({ glassDarkSeparate: 'yes' }).glassDarkSeparate === false
+      && JSON.stringify(sanitizeGlassPresetValues({ glassColor: { light: '#123456', dark: '#654321' } }).glassColor)
+        === JSON.stringify({ light: '#123456', dark: '#654321' })
+      && JSON.stringify(sanitizeGlassPresetValues({ glassColor: '#123456' }).glassColor)
+        === JSON.stringify({ light: '#123456', dark: '#123456' }),
+    JSON.stringify({ off: sanitizeGlassPresetValues({}).glassDarkSeparate, on: sanitizeGlassPresetValues({ glassDarkSeparate: true }).glassDarkSeparate }));
   // 回归钉：2026-10-04 实测 —— 不盖 settingsVersion 时 sanitizeFromSchema 入口的
   // migrateSettings 会把快照当旧档做 v4 换算（70 → 100）。
   const noVersion = sanitizeGlassPresetValues({ glassAlpha: 70, sidebarAlpha: 85, sidebarContentAlpha: 30 });
@@ -189,8 +200,11 @@ const del = (id) => callRoute(route, fakeReq('/wallpaper-engine/glass-presets/' 
   check('创建 200，id 用客户端给的，values 缺键补齐成完整快照', created.__state.status === 200
     && createdData.id === 'preset-test-1'
     && Object.keys(createdData.values || {}).length === schema.GLASS_PRESET_KEYS.length
-    && createdData.values.glassColor === '#123456',
-    'glassColor=' + (createdData.values && createdData.values.glassColor));
+    // #159②：玻璃色在存储里是**一对** `{light, dark}`；旧式标量进快照也要归一成一对同值
+    //（出厂预设正文、手工编辑的档都走这条 —— 它们盖了版本号、不过迁移段）。
+    && (createdData.values.glassColor || {}).light === '#123456'
+    && (createdData.values.glassColor || {}).dark === '#123456',
+    'glassColor=' + JSON.stringify(createdData.values && createdData.values.glassColor));
 
   // 重名三条（归一化口径：字面 / 空白变体 / 与出厂撞名）
   const dup = await create('我的夜色');
@@ -292,9 +306,13 @@ section('④ 客户端形态棘轮：应用走设置通道 / 无第二持久化 
       handlers.length + ' 个');
     const clientAll = stripComments(readFileSync(join(root, 'src', 'client.js'), 'utf8'));
     const qpAll = stripComments(readFileSync(join(root, 'src', 'quick-panel.js'), 'utf8'));
-    const missingClient = handlers.filter((h) => !new RegExp('\\b' + h + '\\b').test(clientAll));
+    // 侧栏专属处理器（2026-10-09 折叠块）：**设置页不画那一行** ⇒ 设置页 ctx 不接它是
+    // 对的（接了反而是死字段）。它们必须出现在 quick-panel；设置页那份检查豁免。
+    const SIDEBAR_ONLY = ['onToggleGlassDetail'];
+    const missingClient = handlers.filter((h) => !SIDEBAR_ONLY.includes(h)
+      && !new RegExp('\\b' + h + '\\b').test(clientAll));
     const missingQp = handlers.filter((h) => !new RegExp('\\b' + h + '\\b').test(qpAll));
-    check('每个玻璃节处理器都在设置页 ctx 里', missingClient.length === 0, missingClient.join(',') || '全在');
+    check('每个玻璃节处理器都在设置页 ctx 里（侧栏专属豁免）', missingClient.length === 0, missingClient.join(',') || '全在');
     check('每个玻璃节处理器都在侧栏快捷面板 ctx 里（漏接 = 该档滑杆全死）',
       missingQp.length === 0, missingQp.join(',') || '全在');
     check('negative control: 解构里造一个不存在的处理器会被判出',

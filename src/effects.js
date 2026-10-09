@@ -46,6 +46,8 @@ let lastScrimCss = "";
 // 壁纸淡出底色的**缓存**（拖动期用；见 applyEffects 的 live 说明）。空串 = 还没算过 /
 // 已失效（壁纸透明度归零时清掉）。
 let lastFadeBg = "";
+// #159①：让上面那份缓存在宿主切深浅主题时失效的观察者（见 armFadeBgThemeWatch）。
+let fadeBgThemeWatch = null;
 
 // ── 输入光标颜色注入（#83）──────────────────────────────────────────────────
 // <style id="we-caret-patch"> 把 body 上的 --we-caret-color 应用到所有文本
@@ -97,6 +99,35 @@ function resolveWallpaperFadeBg() {
   try {
     return document.body.hasAttribute("data-ds-dark-theme") ? "#000000" : "#ffffff";
   } catch { return "#000000"; }
+}
+
+// ── #159①：宿主切深浅主题 ⇒ 让淡出底色缓存失效 ─────────────────────────────────
+// 事故：`lastFadeBg` 只在 applyEffects 里重算，而宿主切主题（翻转 body 的
+// `data-ds-dark-theme`）**不会**调用我们；本仓唯一的主题订阅在 src/theme-follow.js，
+// 由 `themeFollow` 开关门控、默认关 ⇒ 缓存会一直停在旧主题的底色上。它的消费者是
+// `.we-layer` 那块 z-index −2 的衬底（给 backdrop-filter 提供底色）⇒ 过期值会给
+// **每一面玻璃**上色（浅色主题配深色衬底 = 整页发灰）。
+// 这里只做**失效**、不做重算：把 lastFadeBg 清空，等下一次 applyEffects 自己算。
+// ⚠️ 刻意不在这里直接调 applyEffects —— 那会与 theme-follow 的主题订阅抢职责
+//（"跟随主题换配色"是那个开关的事，默认不接管）。
+// 幂等：observer 只挂一次；环境里没有 MutationObserver（Node 沙箱 / 极老宿主）时
+// 静默退化成"没有这条失效通道"，不抛错、不改变既有行为。
+function armFadeBgThemeWatch() {
+  if (fadeBgThemeWatch || typeof MutationObserver !== "function") return;
+  try {
+    fadeBgThemeWatch = new MutationObserver(() => { lastFadeBg = ""; });
+    fadeBgThemeWatch.observe(document.body, { attributes: true, attributeFilter: ["data-ds-dark-theme"] });
+  } catch {
+    // 观察者建不起来（假 DOM 没有 observe / body 不在）⇒ 不留半个句柄。
+    try { if (fadeBgThemeWatch) fadeBgThemeWatch.disconnect(); } catch { /* ignore */ }
+    fadeBgThemeWatch = null;
+  }
+}
+// 与 arm 成对（clearEffects / 壁纸透明度归零时调用）：断开并丢句柄。
+function disarmFadeBgThemeWatch() {
+  if (!fadeBgThemeWatch) return;
+  try { fadeBgThemeWatch.disconnect(); } catch { /* ignore */ }
+  fadeBgThemeWatch = null;
 }
 
 // ── accent 墨色：任意用户配色上的可读前景（黑/白）────────────────────────────
@@ -178,6 +209,29 @@ function weClampSurfaceColor(hex, theme, fidelity) {
   // 改善，中间档严格夹在两端之间（verify-readability C0f 钉死单调性与夹逼）。
   if (f >= 1) return toHex(clamped);
   return toHex(clamped.map((v, j) => v * f + rgb[j] * (1 - f)));
+}
+
+/**
+ * 按主题取「玻璃颜色」（#159② 分主题玻璃色）。
+ *
+ * 存储形态永远是一对 `{light, dark}`（见 lib/settings-schema.js 的 readGlassColors），但开关
+ * 「深色单独设置」关着时两侧同值（面板就是那么写的）⇒ 取色只要按主题挑一侧。这里**刻意再兜一层**：
+ * 走到这儿的值不保证来自 schema —— 老预设定档直传、`test/verify-client.mjs` 的台架 selection
+ * 就是标量 `'#ffffff'`。返回空串 = "没有可用的颜色"，让 weClampSurfaceColor 落到它**按主题**的
+ * 兜底常量（深色 #0d1524 / 浅色 #ffffff）上 —— 比在这里再抄一份主题常量更稳，也就不会与钳制函数漂。
+ *
+ * ⚠️ 不许在这里引用 lib/settings-schema.js 的任何常量：`test/verify-client.mjs` 用
+ * `with(__scope)` + Proxy 跑本文件，未知名只会拿到记录替身 ⇒ 拿不到真值。
+ */
+function glassColorOf(selection, theme) {
+  const raw = selection && selection.glassColor;
+  if (typeof raw === "string") return raw;
+  if (!raw || typeof raw !== "object") return "";
+  const own = theme === "dark" ? raw.dark : raw.light;
+  if (typeof own === "string") return own;
+  // 缺这一侧就借另一侧 —— 宁可用错一半的色相，也不要整个染色消失。
+  const other = theme === "dark" ? raw.light : raw.dark;
+  return typeof other === "string" ? other : "";
 }
 
 function applyEffects(opts) {
@@ -275,11 +329,15 @@ function applyEffects(opts) {
     s.setProperty("--we-wallpaper-opacity", String((100 - selection.wallpaperOpacity) / 100));
     // 拖动期沿用缓存（见函数头的 live 说明）：resolveWallpaperFadeBg 里那次
     // getComputedStyle 是**强制同步样式计算**，每格一次会把拖动拖垮。
+    // 缓存会在宿主切深浅主题时由 armFadeBgThemeWatch 的观察者清空（#159①）；
+    // 观察者只挂一次，挂在"这个变量真的在用"的分支里。
+    armFadeBgThemeWatch();
     if (!live || !lastFadeBg) lastFadeBg = resolveWallpaperFadeBg();
     s.setProperty("--we-wallpaper-fade-bg", lastFadeBg);
   } else {
     s.removeProperty("--we-wallpaper-opacity");
     s.removeProperty("--we-wallpaper-fade-bg");
+    disarmFadeBgThemeWatch();
     lastFadeBg = "";
   }
 
@@ -314,7 +372,9 @@ function applyEffects(opts) {
   // harness 不在任何 npm 脚本里（要浏览器页面）⇒ 无法在此验证改动它的结局 —— 先删写入 = 静默
   // 破坏一个未经验证的观察者。正确顺序：先把 harness 的观察点改成 `--we-surface-tint-light`，
   // 再删这里的写入；在那之前它由守卫第 ⑭ 组的 `OBSERVED_ONLY` 登记表**显式豁免**。
-  s.setProperty("--we-glass-color", selection.glassColor);
+  //   那行注释说明了它为何暂时不能删。这里写**浅色那一侧**：它是这个色板的"基准色"，
+  //   而观察者只要求非空。（改分主题取色后它仍是标量 —— 观察量的形状没变。）
+  s.setProperty("--we-glass-color", glassColorOf(selection, "light"));
   // - 玻璃保真度（0–100，默认 100 = 完整红线）：同一标量喂两处消费 —— styles.js
   //   的 --we-readability-floor（地板覆盖度）与 weClampSurfaceColor（釉色向原色
   //   的回退幅度）。两处必须同源，滑杆才是一个旋钮。
@@ -325,11 +385,15 @@ function applyEffects(opts) {
   //   --we-readability-base（地板层）与全部 frost 槽位消费 —— 对话框/侧栏等
   //   宿主表面由此拿到**用户的色相**而非主题白/黑，正文对比度判据不变。
   //   保真度 < 100 时釉色向原色线性回退（见 weClampSurfaceColor 第三参）。
-  s.setProperty("--we-surface-tint-light", weClampSurfaceColor(selection.glassColor, "light", glassFidelity));
-  s.setProperty("--we-surface-tint-dark", weClampSurfaceColor(selection.glassColor, "dark", glassFidelity));
+  //   #159②：两侧各取自己那一半（glassColorOf），于是「深色单独设置」一开，
+  //   同一份 settings 在浅/深两套配色下给出两个不同的釉色 —— 这正是本项的交付。
+  const glassTintLight = glassColorOf(selection, "light");
+  const glassTintDark = glassColorOf(selection, "dark");
+  s.setProperty("--we-surface-tint-light", weClampSurfaceColor(glassTintLight, "light", glassFidelity));
+  s.setProperty("--we-surface-tint-dark", weClampSurfaceColor(glassTintDark, "dark", glassFidelity));
   // RGB 三元组形式：给 rgba() 槽位用（消息气泡 / 输入框的白釉染色）。
-  s.setProperty("--we-surface-tint-rgb-light", toRgbTriple(weClampSurfaceColor(selection.glassColor, "light", glassFidelity)));
-  s.setProperty("--we-surface-tint-rgb-dark", toRgbTriple(weClampSurfaceColor(selection.glassColor, "dark", glassFidelity)));
+  s.setProperty("--we-surface-tint-rgb-light", toRgbTriple(weClampSurfaceColor(glassTintLight, "light", glassFidelity)));
+  s.setProperty("--we-surface-tint-rgb-dark", toRgbTriple(weClampSurfaceColor(glassTintDark, "dark", glassFidelity)));
 
   // ── 玻璃管线在 src/glass.js（wip §10.13）：取值解析 / 各面釉层变量 / 门控属性；这里只留
   //    **一行调用**。本文件继续负责全局玻璃量（--we-glass-* / --we-surface-tint-*）与其余
@@ -451,6 +515,8 @@ function applyEffects(opts) {
 
 function clearEffects() {
   const s = document.body.style;
+  // #159①：主题观察者与缓存同生共死（与下面的内联属性成对清理）。
+  disarmFadeBgThemeWatch();
   lastFadeBg = "";
   s.removeProperty("--we-scrim-color");
   s.removeProperty("--we-border-alpha");

@@ -1949,9 +1949,12 @@ check('host injects the vendored shim into web HTML', /data-we-shim="host"/.test
 // `selection.sceneLiveActive` 时发 ⇒ 暂停即停）→ 严格沙箱下经 web-shim 的 op 通道 → shim 用
 // elementFromPoint + dispatchEvent 在壁纸文档里合成 pointer/mouse（isTrusted === false）→ 作者在
 // 捕获相 mousedown 里调 window.focus() 争键盘 ⇒ DSH 的焦点被搬进壁纸帧。
-// 围栏吞掉**帧级** window.focus() 并留计数；元素级 focus 放行（壁纸自己的编辑框照常工作）。
-// 这里钉三件机器可判的事：① 注入体真的能拦（在假 realm 里跑**真源码**）；② 宿主真的把它注进
-// web HTML，且顺序在 shim 与 seed 之间；③ 注入体不含会被 `</script` 截断或被当模块执行的形态。
+// 围栏吞掉**帧级** window.focus() 并留计数；**元素级** focus（#148 第二步）只在"最近一次
+// 真实交互"的 1000 ms 窗口内放行 —— 窗口外吞掉（`setInterval(()=>input.focus(),2000)` 这类
+// 无手势的周期性夺焦由此被拦，而用户真点壁纸时作者页的编辑框照常拿焦点）。
+// 这里钉四件机器可判的事：① 注入体真的能拦（在假 realm 里跑**真源码**）；② 元素级围栏的两侧
+// （窗口内放行 / 窗口外吞掉）都成立且逃生门同时放开两条；③ 宿主真的把它注进
+// web HTML，且顺序在 shim 与 seed 之间；④ 注入体不含会被 `</script` 截断或被当模块执行的形态。
 const guardPath = join(root, 'lib', 'we-focus-guard.js');
 const guardSrc = readFileSync(guardPath, 'utf8');
 const guardMod = await import(pathToFileURL(guardPath).href);
@@ -2007,6 +2010,74 @@ const runGuard = (stub) => { new Function('window', guardSource)(stub); return s
   winM.focus();
   check('负对照：注入体改成转交 ⇒ 核心断言（原函数不被调用）变假',
     mutantHits.length === 1 && winM.__weFocusGuard.installed === true);
+  // ⚠️ 上面那条负对照 `String.replace` **只换第一处** `return undefined;` ⇒ 那句字面量必须唯一，
+  //    否则它可能被换到别的分支上（负对照会变成"看着绿、其实没测到"）。
+  check('负对照的前提：注入体里 `return undefined;` 只有一处（帧级那一处）',
+    guardSource.split('return undefined;').length === 2,
+    '出现 ' + (guardSource.split('return undefined;').length - 1) + ' 次');
+}
+{
+  // ⑦ 元素级围栏（#148 第二步）：无手势吞掉、手势窗口内放行、窗口过期重新拦住、逃生门放开两条。
+  const elRaw = [];
+  const FakeHTMLElement = function () {};
+  FakeHTMLElement.prototype.focus = function () { elRaw.push('el'); };
+  const gestureHandlers = [];
+  const win4 = {
+    focus: function () {},
+    document: {},
+    HTMLElement: FakeHTMLElement,
+    addEventListener: function (t, fn) { gestureHandlers.push({ t: t, fn: fn }); },
+  };
+  runGuard(win4);
+  const g4 = win4.__weFocusGuard;
+  const input4 = new FakeHTMLElement();
+  input4.focus();
+  check('元素级围栏：没有用户手势时 element.focus() 被吞（计数 + 不转交原函数 + 两个原型腿都装了）',
+    g4.elInstalled === true && g4.elCalls === 1 && g4.elBlocked === 1 && g4.elAllowed === 0
+      && elRaw.length === 0 && gestureHandlers.length === 4
+      && gestureHandlers.every((h) => ['pointerdown', 'mousedown', 'touchstart', 'keydown'].includes(h.t)),
+    'elCalls=' + g4.elCalls + ' elBlocked=' + g4.elBlocked + ' raw=' + elRaw.length
+      + ' 手势源=' + gestureHandlers.map((h) => h.t).join('/'));
+  check('元素级围栏：最近一次被拦的调用点留下时间戳与栈头（壁纸帧控制台可自证）',
+    g4.elLastBlockedAt > 0 && typeof g4.elLastBlockedStack === 'string' && g4.elLastBlockedStack.length > 0,
+    'at=' + g4.elLastBlockedAt + ' stack=' + String(g4.elLastBlockedStack).slice(0, 40));
+  // 手势窗口内：shim 合成的 pointer/mouse 也算（isTrusted === false 也正是那一类）。
+  gestureHandlers.forEach((h) => h.fn({ type: h.t, isTrusted: false }));
+  input4.focus();
+  check('元素级围栏：真实交互后的窗口内放行（用户点壁纸自己的编辑框照常拿焦点）',
+    g4.gestureAt > 0 && g4.elCalls === 2 && g4.elAllowed === 1 && g4.elBlocked === 1 && elRaw.length === 1,
+    'elAllowed=' + g4.elAllowed + ' raw=' + elRaw.length);
+  // 窗口过期：定时器式夺焦（报告里的 0.9–3.6 s 周期）走这条。
+  g4.gestureAt = Date.now() - 5000;
+  input4.focus();
+  check('元素级围栏：窗口过期后重新拦住（无手势的周期性 element.focus() 在这里被吞）',
+    g4.elCalls === 3 && g4.elBlocked === 2 && g4.elAllowed === 1 && elRaw.length === 1,
+    'elBlocked=' + g4.elBlocked + ' raw=' + elRaw.length);
+  // 逃生门：与帧级同一个开关。
+  g4.allow = true;
+  input4.focus();
+  check('元素级围栏：allow 逃生门同时放开元素级那一半', g4.elAllowed === 2 && elRaw.length === 2);
+  // ⑧ 负对照：把"窗口判定"改成恒真 ⇒ "窗口过期后重新拦住"必须变假（判据真的在判手势）。
+  const elRawM = [];
+  const ElM = function () {};
+  ElM.prototype.focus = function () { elRawM.push('el'); };
+  const winM2 = { focus: function () {}, document: {}, HTMLElement: ElM,
+    addEventListener: function () {} };
+  new Function('window', guardSource.replace('guard.allow || fresh', 'true'))(winM2);
+  const gM = winM2.__weFocusGuard;
+  new ElM().focus();
+  check('负对照：窗口判定恒真 ⇒ 元素级围栏失效（无手势不再被吞）',
+    gM.elBlocked === 0 && gM.elAllowed === 1 && elRawM.length === 1,
+    'elBlocked=' + gM.elBlocked + ' raw=' + elRawM.length);
+  // ⑨ 元素级补丁装不上时如实记账，且绝不抛（注入体住在壁纸文档里）。
+  const ElFrozen = function () {};
+  Object.defineProperty(ElFrozen.prototype, 'focus', { configurable: false, writable: false, value: function () {} });
+  const win5 = { focus: function () {}, document: {}, HTMLElement: ElFrozen, addEventListener: function () {} };
+  let elGuardThrew = false;
+  try { runGuard(win5); } catch (e) { elGuardThrew = true; }
+  check('元素级围栏：补丁装不上时 elInstalled=false 且绝不抛（帧级那一半仍有效）',
+    elGuardThrew === false && win5.__weFocusGuard.elInstalled === false
+      && win5.__weFocusGuard.installed === true && win5.__weFocusGuard.elBlocked === 0);
 }
 check('focus guard source is classic-script and markup safe',
   guardSource.length > 200 && !/<\/script/i.test(guardSource) && !/^\s*(?:import|export)\b/m.test(guardSource)
@@ -2440,23 +2511,31 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     sharedRenderers(qpSrc));
   check('negative control: 在侧栏自写一份音量行会被同一条判据判出',
     !sharedRenderers(qpSrc + '\nswitchRow(weT("壁纸音轨"), true, () => {});\n'));
-  // 渲染器的 surface 档：侧栏档只**加门**（少画设置页专属分组），不许改行 ——
-  // 缺省（设置页）那一趟一个节点都不少（行为级 golden 在 verify-client.mjs）。
+  // 渲染器的 surface 档：侧栏档与设置页共用渲染器，差异一律走 `surface` 门 ——
+  // 行为级 golden 在 verify-client.mjs。
   const gated = (text, label) => new RegExp('!sidebarSurface &&[\\s\\S]{0,240}?weT\\("' + label + '"\\)').test(text);
-  // ⚠️ 分档（ADR-0008 D4，2026-10-05）：侧栏档与设置页共用渲染器，但**只画简化配置** ——
-  //    **节**层面只有「全局字体」不进侧栏（属高级配置），「输入光标」照旧两档都画。
-  //    （行层面的差异 —— 各面「独立配置」层 / 思考块细调行 / 预设方案 —— 由下面 MORE_CASES
-  //    的两档断言钉，不在本块。）两个方向都钉：全局字体必须有门、输入光标必须没门。
-  check('外观页只有「全局字体」这一**节**只在设置页档渲染（输入光标两档都画）',
-    gated(tabsSrc, '全局字体') && !gated(tabsSrc, '输入光标'));
+  // ⚠️ 分档（ADR-0008 D4，2026-10-09 用户口径二次修订）：**「全局字体」只在侧栏档画**
+  //    （真迁移 —— 设置页对话框挡住主页面、调完看不到实时效果），且带默认收起的折叠门
+  //    （`fontOpen`）；「输入光标」照旧两档都画、无门。
+  //    （行层面的差异 —— 玻璃高级行收在侧栏「详细玻璃调节」折叠块 / 预设方案只在设置页
+  //    —— 由下面 MORE_CASES 的两档断言钉，不在本块。）
+  // ⚠️ 负向后顾 `(?<!!)`：不加它的话 `!sidebarSurface &&` 也含 `sidebarSurface &&`
+  //    子串 ⇒ "门方向反了"的文本照样判绿（负对照会失效）。窗口 800 覆盖折叠头到节标签
+  //    的 656 字符。
+  const gatedSidebar = (text, label) => new RegExp('(?<!!)sidebarSurface &&[\\s\\S]{0,800}?weT\\("' + label + '"\\)').test(text);
+  check('外观页只有「全局字体」这一**节**只在侧栏档渲染（带折叠门；输入光标两档都画）',
+    gatedSidebar(tabsSrc, '全局字体') && tabsSrc.includes('open && switchRow(weT("字体自定义"')
+      && !gated(tabsSrc, '全局字体') && !gated(tabsSrc, '输入光标'));
   check('播放页的准备与诊断行（出图来源 / 实时帧 / 自定义画面 / 帧率上限 / 源信息 / 转码进度）只在设置页档渲染',
     ['出图来源', '实时帧', '自定义画面', '帧率上限'].every((label) => gated(tabsSrc, label))
       && tabsSrc.includes('!sidebarSurface && sel.type === "video" && sel.mediaInfo')
       && tabsSrc.includes('!sidebarSurface && sel.type === "video" && sel.transcodeState === "working"'));
-  check('negative control: 去掉一扇门（外观少画一节）会被同一条判据判出',
-    !gated('React.createElement("div", { className: "we-picker__section" },\n'
+  check('negative control: 把字体节改回设置页专属（反向门）会被同一条判据判出',
+    !gatedSidebar('React.createElement("div", { className: "we-picker__section" },\n'
       + '  React.createElement("span", { className: "we-picker__section-label" }, weT("全局字体")),', '全局字体')
-      && gated(tabsSrc, '全局字体'));
+      && gatedSidebar(tabsSrc.replace(/(?<!!)sidebarSurface && React\.createElement\("div", \{ className: "we-picker__section" \}/,
+        '!sidebarSurface && React.createElement("div", { className: "we-picker__section" }'), '全局字体') === false
+      && gatedSidebar(tabsSrc, '全局字体'));
   check('侧栏档空态 CTA 切回壁纸页（不是设置页的库下钻）',
     tabsSrc.includes('sidebarSurface ? onPickWallpaper : onOpenPicker')
       && tabsSrc.includes('sidebarSurface ? weT("去挑一张 ›") : weT("选择壁纸")')
@@ -2825,7 +2904,7 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     && clientText.includes('settingsTabRequest: ""')
     && clientText.includes('const req = selection.settingsTabRequest')
     && qpText.includes('openSettingsSection(foot.target)')
-    && qpText.includes('label: weT("字体与更多外观 ›")')
+    && qpText.includes('label: weT("更多外观设置 ›")')
     && qpText.includes('label: weT("更多播放设置 ›")');
   check('底栏深链：外观 / 播放页各带自己的 tabId（瞬态请求 + 超时清理）',
     deepLinkOk(src, sidebarSrc, qpSrc));
@@ -2840,12 +2919,19 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       qpSrc + '\nreturn { sidebarRenderCtx, QP_CTX_SETTINGS_ONLY, QP_TABS };');
     const bag = factory((k) => k, { createElement: () => null }, { getItem: () => null, setItem() {} });
     const ctx = bag.sidebarRenderCtx({ sel: {}, onAccent: () => 'ok' });
-    const called = (() => { try { ctx.onFontAdvanced(); return 'no-throw'; } catch (e) { return String(e.message); } })();
-    const read = (() => { try { return String(ctx.fontSet.open); } catch (e) { return String(e.message); } })();
+    // 牙改钉**仍在名单里**的字段（2026-10-09 迁移后字体与玻璃高级行已移出占位器、
+    // 改传真值 ⇒ 拿它们戳会得到 "not a function" 而不是 [we-sidebar]，那是**预期**）：
+    // 播放页专属的 onFpsCap（调用）与预设 glassPresets（取属性，单独那条也判）。
+    const called = (() => { try { ctx.onFpsCap(); return 'no-throw'; } catch (e) { return String(e.message); } })();
+    const read = (() => { try { return String(ctx.glassPresets.presets); } catch (e) { return String(e.message); } })();
     check('侧栏 ctx 的 setting-only 占位器：调用 / 取属性都抛错（响亮且可定位）',
       ctx.surface === 'sidebar' && ctx.onAccent() === 'ok' && bag.QP_TABS.length === 3
-        && called.includes('[we-sidebar]') && called.includes('onFontAdvanced')
-        && read.includes('[we-sidebar]') && read.includes('fontSet'),
+        && called.includes('[we-sidebar]') && called.includes('onFpsCap')
+        && read.includes('[we-sidebar]') && read.includes('glassPresets')
+        // 迁移的另一半：字体与玻璃高级行**必须已移出**名单（否则它们在侧栏是替身 ⇒ 死旋钮）。
+        && !bag.QP_CTX_SETTINGS_ONLY.includes('onFontAdvanced')
+        && !bag.QP_CTX_SETTINGS_ONLY.includes('fontSet')
+        && !bag.QP_CTX_SETTINGS_ONLY.includes('onGlassChildParam'),
       called.slice(0, 48));
     // 预设块那道门也有牙：`glassPresets` 是高级配置的 ctx 字段（ADR-0008 D4），侧栏档指向替身 ⇒
     // 谁把 `src/glass-panel.js` 里那道 `!sidebarSurface` 门拆掉，渲染器**解构它的第一下就炸**
@@ -2854,7 +2940,9 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     check('侧栏 ctx 的 `glassPresets` 也是占位器（拆掉预设块的门 ⇒ 解构即抛错）',
       presetTeeth.includes('[we-sidebar]') && presetTeeth.includes('glassPresets'), presetTeeth.slice(0, 48));
     check('负对照：名单外的字段仍是 undefined（判据不是恒真 —— 占位器只覆盖点过名的）',
-      ctx.someFieldNeverListed === undefined && bag.QP_CTX_SETTINGS_ONLY.length >= 20);
+      ctx.someFieldNeverListed === undefined && bag.QP_CTX_SETTINGS_ONLY.length >= 5
+        // 迁移后名单=预设 + 播放 6 项；字段被清空成 [] 的形态同样判红。
+        && bag.QP_CTX_SETTINGS_ONLY.includes('glassPresets') && bag.QP_CTX_SETTINGS_ONLY.includes('onFpsCap'));
   }
 }
 
@@ -2944,19 +3032,26 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     // 与 QP_CTX_SETTINGS_ONLY 的分工：**侧栏档真的会画到的**由这里给真值（替身），
     // 设置页专属的（如 onFpsCap —— 帧率上限那行带 `!sidebarSurface` 门）才进占位器名单。
     'onLeftSidebarGlass', 'onTitlebarGlass', 'onSidebarGlass', 'onSidebarFullClear',
-    // 2026-10-05（ADR-0008 D4）：侧栏档只画简化配置 ⇒ 高级行的处理器进 quick-panel 的
-    // QP_CTX_SETTINGS_ONLY 占位器（本名单只收**真的会**在侧栏档渲染的那些名字，
-    // 裸标识符 ⇒ 不进名单就要么进占位器名单、要么在 vm 求值当场 ReferenceError）。
+    // 2026-10-09（ADR-0008 D4 二次修订）：字体节与玻璃高级行**迁入侧栏**（折叠块）⇒ 它们
+    // 从 QP_CTX_SETTINGS_ONLY 占位器名单移出、由 quick-panel 真值接线 ⇒ 这些名字现在是
+    // **quick-panel 源码里的裸标识符** ⇒ 必须在这里当形参给（漏一个就是 vm 求值 ReferenceError）。
     'onCaretColor', 'onSidebarAlpha', 'onSidebarBlur', 'onSidebarColor',
     'onSidebarContentAlpha', 'onSidebarContentColor', 'onSidebarFollowGlobal', 'onThinkingMode',
     'onCapsuleBlur', 'onCapsuleColor',
-    // 「玻璃 UI」节的**子项「独立配置」**及其参数处理器。⚠️ 2026-10-05（ADR-0008 D4）后它们
-    // 只在设置页画 —— 但它们仍是**渲染器源码里的裸标识符**（glass-panel.js 里 `= ctx` 解构出来的
-    // 绑定不是自由变量，真正需要这里给的是 panel 模块作用域里的那些名字）⇒ 名单照旧保留；
+    // 「玻璃 UI」节的**子项「独立配置」**及其参数处理器（glass-panel.js 里 `= ctx` 解构出的
+    // 绑定不是自由变量，真正需要这里给的是 panel 模块作用域里的那些名字）；
     // 两级子 UI 开关那两个名字（`onToggleGlassChild` / `onToggleGlassIndependent`）随
-    // 「要不要玻璃」整层退役，已在本次清掉（src 里零出现 = 死数据）。
+    // 「要不要玻璃」整层退役，已清掉（src 里零出现 = 死数据）。
     'onToggleChildIndependent',
     'onGlassChildParam', 'childIndependentOn',
+    // ── 全局字体节（2026-10-09 迁入侧栏）：渲染器与 ctx 构造器都是 quick-panel 的
+    //    自由变量 —— 与上面同一条纪律。`ensureSystemFonts` 是清单触发点随迁带来的
+    //    （effect 在 QuickPanel 里调它）。
+    'fontSetCtx', 'officialColorOf', 'ensureSystemFonts',
+    'onComponentFamily', 'onComponentFont', 'onFontAdvanced', 'onFontResetAll',
+    'onGlobalFamily', 'onRefreshSystemFonts', 'onToggleFontCustom',
+    'onThemeColor', 'onThemeColorClear', 'onThemeDarkSeparate', 'onThemeFamily',
+    'onThemeSize', 'onThemeTypeOnly', 'onThemeWeight',
     // 子 UI 登记表：renderAppearanceGlassSection 按它逐项渲染。替身必须给**与 schema 同源**
     // 的那份（不能手抄），否则夹具渲染的项数与真实面板不同，等于假绿。
     'GLASS_CHILDREN', 'childGlassKey',
@@ -3007,6 +3102,11 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       //（与 schema 同源，来自被内联的 panel 模块作用域）—— 手抄一份就会漂。
       onToggleChildIndependent: noop,
       onGlassChildParam: noop, childIndependentOn: () => false,
+      // 字体节（2026-10-09 迁入侧栏）：ctx 构造器给真形状的替身 —— `fontSetCtx()` 会被
+      // qpRenderAppearancePane 无条件调用（noop 返回 undefined 也不炸，但给真形状更接近
+      // 运行期：`fontSet.open` 若被读到就是布尔而不是 undefined 属性错）。
+      fontSetCtx: () => ({ open: false, fontSets: [], activeId: '', loading: false, error: '' }),
+      officialColorOf: () => '#ffffff',
       onToggleSceneLive: noop, onLiveBootDelay: noop, onSceneLiveFps: noop,
       onPlaybackRate: noop, onObjectFit: noop, onFlip: noop, onOpenPicker: noop, setPickerOpener: noop,
       userPropsPanelOpen: () => SEL.userPropsPanelOpen === true,
@@ -3014,9 +3114,11 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       closeUserPropsPanel: () => { SEL.userPropsPanelOpen = false; },
       renderUserPropsPanel: propsPanelStub,
     })[n] || noop));
-  const renderTab = (tab, sel) => {
+  const renderTab = (tab, sel, ...extraState) => {
     SEL = sel || selBase;
-    STATE.length = 0; STATE.push('cards', tab);
+    // useState 取值顺序 = view / qpTab / fontOpen / glassDetailOpen（QuickPanel 内的声明序）
+    // ⇒ extraState 顺位追加：['cards', tab, fontOpen, glassDetailOpen]。
+    STATE.length = 0; STATE.push('cards', tab, ...extraState);
     // 面板渲染器替身由 FREE 注入（模块级自由变量形态，见上面 FREE 表）—— 与真产物的
     // 作用域形态一致：`apply()` 里的闭包在真机上会抛 ReferenceError（见 repro-*.mjs）。
     const tree = bag.QuickPanel({ dock: 'official' });
@@ -3036,13 +3138,24 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     wp.shape.includes('we-qp__library') && wp.shape.includes('we-qp__list')
       && wp.shape.includes('we-qp__viewtabs') // 列表/卡片视图切换也只在壁纸档（标签式，非页签栏成员）
       && !ap.shape.includes('we-qp__library') && !pb.shape.includes('we-qp__library'));
-  check('外观档 = 主题 + 细节两节（设置页专属的字体那节不画）',
-    ap.text.includes('主题') && ap.text.includes('细节') && !ap.text.includes('全局字体'));
+  // ── 外观档的字体节（2026-10-09 迁入侧栏，默认收起）────────────────────────────
+  //    ⚠️ 本台的 switchRow / ctlText 是 noop ⇒ 标签文字不进 text，行级判据用**类名锚**
+  //    （字体表 `we-picker__font-table` 是直接 createElement，收起/展开两态都看得见）。
+  //    收起态：节头「全局字体」在、字体表不在；展开态（extraState 第三位 = true）+ 总开关开
+  //    ⇒ 字体表回来。两头都钉 ⇒ "收起"不是"整节没了"，判据也不是恒真。
+  check('外观档含字体节（迁移后只有侧栏有），主题 / 细节照旧',
+    ap.text.includes('主题') && ap.text.includes('细节') && ap.text.includes('全局字体')
+      && ap.shape.includes('we-picker__section-head--toggle'));
+  check('默认收起：字体节只有节头，字体表不渲染',
+    !ap.shape.includes('we-picker__font-table'));
+  const apOpen = renderTab('appearance', Object.assign({}, selBase, { fontCustom: true }), true);
+  check('展开态 + 字体自定义开 ⇒ 字体表回来（负对照 —— 收起判据不是恒真）',
+    apOpen.shape.includes('we-picker__font-table'));
   check('播放档 = 画面 + 声音两组；准备与诊断（帧率上限档位）不画，倍速 / 适配照旧在',
     pb.text.includes('画面') && pb.text.includes('声音')
       && !pb.text.includes('无限制') && pb.text.includes('2x') && pb.text.includes('覆盖'));
   check('底栏入口随页签换文案（壁纸 / 外观 / 播放三档各一）',
-    wp.text.includes('壁纸引擎设置 ›') && ap.text.includes('字体与更多外观 ›')
+    wp.text.includes('壁纸引擎设置 ›') && ap.text.includes('更多外观设置 ›')
       && pb.text.includes('更多播放设置 ›'));
   check('播放档的空态 CTA =「去挑一张 ›」（拿走当前壁纸再渲染一次）',
     renderTab('playback', Object.assign({}, selBase, { id: '', url: '' })).text.includes('去挑一张 ›'));
@@ -5074,12 +5187,11 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
     onDraftName: noop, onRenameCommit: noop, onCancelEdit: noop, onCreate: noop,
   };
   const MORE_CASES = [
-    { fn: 'renderAppearanceTab', label: '（设置页：五节）', surface: 'settings',
+    { fn: 'renderAppearanceTab', label: '（设置页：四节 —— 简化玻璃 + 预设，字体与高级行已迁侧栏）', surface: 'settings',
       // 玻璃四件套 + 雾化已归入新节「玻璃 UI」；「左侧栏液态玻璃」与它的子项也都在本节
-      //（§10.25 起）。⚠️ 本档是**设置页**：简化配置与高级配置都画（侧栏档的对照见下面那条用例）。
-      // ⚠️ 本批（wip §10.20）起这一节**只剩一层**：「子 UI 玻璃」总开关与每个子面的
-      // 「要不要玻璃」开关都已退役（那个"关"并不能如愿回到原生纯色）⇒ 每个子面**直接**
-      // 一个「独立配置」。同时「设置窗口液态玻璃」退役（功能由「设置窗口玻璃·独立配置」接管）。
+      //（§10.25 起）。⚠️ 本档是**设置页**：2026-10-09 真迁移后只画**简化配置 + 预设方案** ——
+      //    字体节与玻璃高级行（独立配置层 / 胶囊细调）都住侧栏折叠块（下面的边界判据翻转后
+      //    双向钉住：设置档一个「独立配置」都不许有）。
       // ⚠️ `selOver` 打开宿主能力位：`sidebarPresent` + `sidebarGlass` 之后，侧栏家族与内容面
       // 那几行才画得出来（`sidebarPresent` 为假时它们整段不渲染 —— 这正是"窗口与侧栏"那节
       // 在没装 dsh-better-sidebar 的机器上只剩空标题的原因，§10.25 因此把它并进了「玻璃 UI」）。
@@ -5087,27 +5199,36 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       // 预设块的 ctx 替身：只给 `presets`（空清单）就够把它画出来 —— 空位虚框 + 保存行是
       // 渲染期就存在的构件，其余处理器只在点击时才用（本用例不点）。
       ctxOver: { glassPresets: { presets: [] } },
-      want: ['主题', '细节', '玻璃 UI', '全局字体', '输入光标'],
-      // ⚠️ 本档打开 `thinkingGlass`（上游 #134 的「思考块液态玻璃」，默认关）：本仓的
-      //    「思考触发条玻璃·独立配置」是它门下的面 ⇒ 开关关着时那一行**不渲染**。要覆盖它，
-      //    这一档必须把开关打开（顺带覆盖同门的「胶囊雾化」；色板行「胶囊颜色」不进本判据 ——
-      //    `labelSeq` 只收开关 / 滑块标签，色板行从来不在序列里，全局「玻璃颜色」同理）。
-      wantLabels: ['主题随壁纸', '边框', '预设方案', '玻璃透明度', '雾化', '玻璃保真度', '思考块液态玻璃', '胶囊雾化', '左侧栏液态玻璃', '标题栏液态玻璃', '侧栏液态玻璃', '侧栏全透明', '侧栏玻璃跟随全局', '内容面玻璃·独立配置', '设置窗口玻璃·独立配置', '对话框玻璃·独立配置', '思考触发条玻璃·独立配置', '浮层玻璃·独立配置', '字体自定义'] },
-    // 侧栏档：**简化配置**（ADR-0008 D4）—— 与设置页同内容，但只到"总开关"这一层；
-    // 「独立配置」层与思考块门下的细调行属高级配置，不在本档（下面的边界判据再判一次）。
-    //  `selOver` 与设置页用例同位 ⇒ 侧栏家族 / 跟随全局那几个**开关**同样画得出来。
-    { fn: 'renderAppearanceTab', label: '（侧栏档：简化配置 —— 总开关在，独立配置不在）', surface: 'sidebar',
-      selOver: { sidebarPresent: true, sidebarGlass: true },
       want: ['主题', '细节', '玻璃 UI', '输入光标'],
-      wantLabels: ['主题随壁纸', '边框', '玻璃透明度', '雾化', '玻璃保真度', '思考块液态玻璃', '左侧栏液态玻璃', '标题栏液态玻璃', '侧栏液态玻璃', '侧栏全透明', '侧栏玻璃跟随全局'] },
+      // ⚠️ 本档打开 `thinkingGlass`（上游 #134 的「思考块液态玻璃」，默认关）：原属本档的
+      //    「胶囊雾化」与「思考触发条玻璃·独立配置」都迁进侧栏折叠块了（本档不再画它们 ——
+      //    这正是"真迁移"的字面含义；侧栏展开档在下面钉它们）。
+      wantLabels: ['主题随壁纸', '边框', '预设方案', '深色单独设置', '玻璃透明度', '雾化', '玻璃保真度', '思考块液态玻璃', '左侧栏液态玻璃', '标题栏液态玻璃', '侧栏液态玻璃', '侧栏全透明', '侧栏玻璃跟随全局'] },
+    // 侧栏档（默认收起）：**简化配置 + 两块折叠块的头**（ADR-0008 D4，2026-10-09）——
+    // 「详细玻璃调节」开关在（收起 ⇒ 它后面的独立配置层一行都不画）；「全局字体」节头在
+    // （收起 ⇒ 字体内容不画）。`selOver` 与设置页用例同位 ⇒ 侧栏家族开关同样画得出来。
+    { fn: 'renderAppearanceTab', label: '（侧栏档：简化配置 —— 两块折叠块默认收起）', surface: 'sidebar',
+      selOver: { sidebarPresent: true, sidebarGlass: true },
+      want: ['主题', '细节', '玻璃 UI', '全局字体', '输入光标'],
+      wantLabels: ['主题随壁纸', '边框', '玻璃透明度', '雾化', '玻璃保真度', '思考块液态玻璃', '左侧栏液态玻璃', '标题栏液态玻璃', '侧栏液态玻璃', '侧栏全透明', '侧栏玻璃跟随全局', '详细玻璃调节'] },
+    // 侧栏档 · 「详细玻璃调节」展开（ctxOver.glassDetailOpen）：高级行全部回来 ——
+    // 胶囊细调（thinkingGlass 开 ⇒ 同门）、内容面与登记表各面的「独立配置」。
+    // `sidebarFollowGlobal` 默认开 ⇒ 「侧栏玻璃·独立配置」被跟随门收起（画出来又不生效的
+    // 旋钮是要防的），序列里没有它；内容面与跟随无关 ⇒ 照旧在场。
+    { fn: 'renderAppearanceTab', label: '（侧栏档 · 详细玻璃调节展开：高级行全部回来）', surface: 'sidebar',
+      selOver: { sidebarPresent: true, sidebarGlass: true, thinkingGlass: true },
+      ctxOver: { glassDetailOpen: true },
+      want: ['主题', '细节', '玻璃 UI', '全局字体', '输入光标'],
+      wantLabels: ['主题随壁纸', '边框', '玻璃透明度', '雾化', '玻璃保真度', '思考块液态玻璃', '左侧栏液态玻璃', '标题栏液态玻璃', '侧栏液态玻璃', '侧栏全透明', '侧栏玻璃跟随全局', '详细玻璃调节', '胶囊雾化', '内容面玻璃·独立配置', '设置窗口玻璃·独立配置', '对话框玻璃·独立配置', '思考触发条玻璃·独立配置', '浮层玻璃·独立配置'] },
     // ⚠️ 这一条是**覆盖缺口**补上的：字体那一节的细节（颜色角色 / 排版角色 / 字体族 / 组件字体 /
     // 字体集预设，~180 行）被 `sel.fontCustom` 挡着，而它的默认值是关 ⇒ **任何用例都没渲染过它**。
     // 打开它才能让那些行第一次进入判据的视野（这本身是找缺陷，不只是补锚）。
-    { fn: 'renderAppearanceTab', label: '（设置页 · 字体自定义开）', surface: 'settings',
-      selOver: { fontCustom: true },
+    // 2026-10-09 迁移后这节只在侧栏档渲染 ⇒ 本档同步改 surface + `fontOpen: true`（展开）。
+    { fn: 'renderAppearanceTab', label: '（侧栏档 · 字体节展开 · 字体自定义开）', surface: 'sidebar',
+      selOver: { fontCustom: true, sidebarPresent: true, sidebarGlass: true },
+      ctxOver: { fontOpen: true, fontSet: FONTSET_STUB },
       want: ['主题', '细节', '玻璃 UI', '全局字体', '输入光标'],
-      wantLabels: ['主题随壁纸', '边框', '玻璃透明度', '雾化', '玻璃保真度', '思考块液态玻璃', '左侧栏液态玻璃', '标题栏液态玻璃',
-        '设置窗口玻璃·独立配置', '对话框玻璃·独立配置', '浮层玻璃·独立配置',
+      wantLabels: ['主题随壁纸', '边框', '玻璃透明度', '雾化', '玻璃保真度', '思考块液态玻璃', '左侧栏液态玻璃', '标题栏液态玻璃', '侧栏液态玻璃', '侧栏全透明', '侧栏玻璃跟随全局', '详细玻璃调节',
         '字体自定义', '默认字体', '终端字体', '文字颜色角色', '深色单独设置', '正文', '次要文字', '弱化说明', '极小说明', '禁用 / 更弱',
         '排版角色', '只看改过的', '高级字体设置', '字体集预设'] },
     // 效果页**只有一个节标签** ⇒ 节顺序钉不住它的内部结构。这里用**控件标签的有序序列**作细锚：
@@ -5203,14 +5324,15 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       check(t.fn + t.label + ' 的控件标签顺序与集合逐字不变',
         sameSeq(labels, t.wantLabels),
         'want=[' + t.wantLabels.join(' / ') + '] got=[' + labels.join(' / ') + ']');
-      // ── 简化配置 / 高级配置的**边界**（ADR-0008 **D4**；2026-10-05 用户口径细化）──
+      // ── 简化配置 / 高级配置的**边界**（ADR-0008 **D4**；2026-10-09 二次修订）──
       //   简化配置（两档都画）= 全局四件套 + 各面**总开关**（思考块液态玻璃 / 左侧栏液态玻璃 /
-      //   侧栏那三个开关）；高级配置（**只在设置页画**）= 预设方案、每个面的「独立配置」层
-      //   **及其子项**、思考块门下的细调行（胶囊雾化 / 胶囊颜色）。
-      //   判定走 `ctx.surface`；配套的是 quick-panel 的 setting-only 占位器（高级行的处理器
-      //   与 `glassPresets` 在侧栏 ctx 里是"取用即抛错"的替身）⇒ 门被拆掉会**当场炸**，
-      //   不是静默死旋钮 / 静默出现。
-      //   两个方向都钉：侧栏档一个「独立配置」都不许有、预设块也不许有，但总开关**必须还在**
+      //   侧栏那三个开关）；**预设方案**只在设置档（跨面快照覆盖 + 无撤销 ⇒ 不进窄面板）；
+      //   高级配置 = 每个面的「独立配置」层**及其子项**、思考块门下的细调行（胶囊雾化 /
+      //   胶囊颜色）—— 2026-10-09 起**迁入侧栏「详细玻璃调节」折叠块**（默认收起；
+      //   设置页对话框挡住主页面、调完看不到实时效果是迁移动因），设置档一个都不许有。
+      //   判定走 `ctx.surface` + `ctxOver.glassDetailOpen`（折叠态）；配套的 quick-panel
+      //   占位器现在只剩 `glassPresets` 与播放页字段（高级行处理器已改传真值）。
+      //   两个方向都钉：侧栏默认收起 ⇒ 独立配置 = 0；展开 ⇒ ≥ 1；设置档恒 0；总开关**必须还在**
       //   （防"一刀切藏整节"）。
       // ⚠️ 这道判据只对**带「玻璃 UI」节**的档判（其它页签本来就没有独立配置层）；
       //    它必须住在**跑得到外观用例的那个循环**里 —— 上一版住在旧的 `CASES` 循环、
@@ -5223,23 +5345,47 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
       const PRESET_MARK = '保存当前为预设';
       const presetLeak = [PRESET_MARK, '预设方案'].filter((s) => flat.includes(s));
       if ((t.want || []).includes('玻璃 UI')) {
+        // 2026-10-09 真迁移后的 D4：**高级行（独立配置层 / 胶囊细调）只在侧栏档、且
+        // 「详细玻璃调节」展开时画**；设置档一个都不许有（它们搬走了）。预设方案相反 ——
+        // 仍只在设置档（跨面快照覆盖 + 无撤销，不进随手可点的窄面板）。
+        // 折叠态用 `ctxOver.glassDetailOpen` / `ctxOver.fontOpen` 认（默认收起 ⇒ 用例不给 = 收起）。
+        const detailOpen = !!(t.ctxOver && t.ctxOver.glassDetailOpen);
+        const fontOpen = !!(t.ctxOver && t.ctxOver.fontOpen);
         if (t.surface === 'sidebar') {
-          check(t.fn + t.label + ' 侧栏档不许出现任何「独立配置」层（高级配置，D4）',
-            indep.length === 0, indep.length + ' 个：' + indep.join(' / '));
-          check(t.fn + t.label + ' 侧栏档不许出现预设块（高级配置，D4）',
+          if (detailOpen) {
+            check(t.fn + t.label + ' 侧栏档 · 详细玻璃调节展开 ⇒ 必须有「独立配置」层（D4 迁移的目的地）',
+              indep.length >= 1, indep.length + ' 个：' + indep.join(' / '));
+          } else {
+            check(t.fn + t.label + ' 侧栏档（默认收起）不许出现「独立配置」层（折叠门，D4）',
+              indep.length === 0, indep.length + ' 个：' + indep.join(' / '));
+          }
+          check(t.fn + t.label + ' 侧栏档不许出现预设块（预设仍设置页专属，D4）',
             presetLeak.length === 0, presetLeak.length ? '泄漏：' + presetLeak.join(' / ') : '无泄漏');
           for (const sw of ['思考块液态玻璃', '左侧栏液态玻璃']) {
             check(t.fn + t.label + ' 侧栏档仍画总开关「' + sw + '」（简化配置，D4）',
               labels.includes(sw), labels.includes(sw) ? '在' : '缺：' + sw);
           }
-          check(t.fn + ' 侧栏档实际渲染不许出现「字体自定义」（全局字体不进侧栏）',
-            !labels.includes('字体自定义'), '泄漏：' + labels.filter((l) => l === '字体自定义').join(''));
+          // 「详细玻璃调节」开关本身两态都画（它是收起时唯一的入口）。
+          check(t.fn + t.label + ' 侧栏档画「详细玻璃调节」开关（折叠块的入口）',
+            labels.includes('详细玻璃调节'), labels.includes('详细玻璃调节') ? '在' : '缺：详细玻璃调节');
+          if (fontOpen) {
+            check(t.fn + ' 侧栏档 · 字体节展开 + 总开关开 ⇒ 字体行必须在（迁移目的地）',
+              labels.includes('字体自定义'), '缺：字体自定义');
+          } else {
+            check(t.fn + ' 侧栏档（字体节默认收起）不许出现「字体自定义」（折叠门，D4）',
+              !labels.includes('字体自定义'), '泄漏：' + labels.filter((l) => l === '字体自定义').join(''));
+          }
         } else {
-          check(t.fn + t.label + ' 设置档必须有「独立配置」层（高级配置，D4）',
-            indep.length >= 1, indep.length + ' 个：' + indep.join(' / '));
+          // 设置档：真迁移后**反向**钉 —— 高级行与字体节都不许再出现。
+          check(t.fn + t.label + ' 设置档不许出现任何「独立配置」层（已迁侧栏折叠块，D4）',
+            indep.length === 0, indep.length + ' 个：' + indep.join(' / '));
+          check(t.fn + t.label + ' 设置档不许出现「字体自定义」（字体节已迁侧栏，D4）',
+            !labels.includes('字体自定义'), '泄漏：' + labels.filter((l) => l === '字体自定义').join(''));
+          check(t.fn + t.label + ' 设置档不许出现「详细玻璃调节」开关（那是侧栏折叠块的入口）',
+            !labels.includes('详细玻璃调节'), '泄漏：' + labels.filter((l) => l === '详细玻璃调节').join(''));
           // 门的另一侧：能画出来的时候才判（用例给了 `presets` 替身）—— 否则这条会恒假。
           if (t.ctxOver && t.ctxOver.glassPresets) {
-            check(t.fn + t.label + ' 设置档必须画预设块（高级配置，D4）',
+            check(t.fn + t.label + ' 设置档必须画预设块（预设仍住设置页，D4）',
               labels.includes('预设方案') && flat.includes(PRESET_MARK),
               labels.includes('预设方案') ? '标签与按钮都在' : '缺：预设方案 / ' + PRESET_MARK);
           }
@@ -5299,13 +5445,13 @@ check('官方侧栏接入用能力门 + 可选服务（不写进 inject，低版
         { wantLabels: [] }, { wantLabels: [] }].filter((c) => c.wantClasses).length >= 4));
   }
 
-  check('负对照：外观页侧栏档确实渲染出了内容（不是空树 ⇒ 上面的"少三节"才有意义）',
+  check('负对照：外观页侧栏档确实渲染出了内容（不是空树 ⇒ 上面的"少节数"才有意义）',
     (() => {
-      // 侧栏档画「主题 / 细节 / 玻璃 UI / 输入光标」四节 —— **节**层面只比设置页少「全局字体」
-      //（ADR-0008 D4：行层面另少高级配置，由上面那条两档断言钉）。
-      // ⚠️ 这个数字是**随节数变化**的：新增一节就要同步（它自己就是"少几节"那条判据的负对照）。
+      // 侧栏档画「主题 / 细节 / 玻璃 UI / 全局字体 / 输入光标」**五节** —— 2026-10-09 迁移后
+      // 字体节的**节头**进侧栏（折叠门只收内容不收节）；设置档反而只剩四节（字体节整节不在）。
+      // ⚠️ 这个数字是**随节数变化**的：新增一节就要同步（它自己就是"节数"那条判据的负对照）。
       try { return sectionSeq(panelMod.renderAppearanceTab(ctxFrom('renderAppearanceTab', st,
-        { surface: 'sidebar', fontSet: undefined }))).length === 4; } catch { return false; }
+        { surface: 'sidebar', fontSet: undefined }))).length === 5; } catch { return false; }
     })());
 
   // ── 拆成"一节一个子渲染器"之后新增的失败模式：**节用了某个 ctx 字段却没解构它** ──

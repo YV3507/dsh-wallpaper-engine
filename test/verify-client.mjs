@@ -347,7 +347,18 @@ const slots = {
   inject: (key, cb) => cb(),
   register: (opts, render) => { registrations.push({ key: opts.name, id: opts.id, label: opts.label, order: opts.order }); pickerRenders.push(render); },
 };
-const ctx = { slots, effect(fn) { effects.push(fn); fn(); return fn; } };
+// 侧栏官方档（2026-10-09 字体节 / 玻璃高级行迁入侧栏后，它们的行为断言必须打在
+// **侧栏 body 渲染台**上）：给 installSidebarRight 需要的两个可选服务桩 ——
+// register 返回 disposer、openTab 空转即可；其余服务名（locale / theme / shortcuts）
+// 一律 null ⇒ 各轮询路径停在第一次尝试（不 fire 它们的 250ms 定时器就不动）。
+const sidebarRightTabsStub = { register: () => () => {} };
+const sidebarRightStub = { openTab: () => {} };
+const ctx = {
+  slots,
+  effect(fn) { effects.push(fn); fn(); return fn; },
+  get: (name) => (name === 'sidebarRightTabs' ? sidebarRightTabsStub
+    : name === 'sidebarRight' ? sidebarRightStub : null),
+};
 
 // apply(ctx) 在这个夹具里必须跑通：ctx 已提供 slots / effect / document / fetch，任何抛出都会
 // 让后面的注册与层断言在"什么都没挂上"的空跑上继续绿下去（throw 只打印的话仍然 exit 0）。
@@ -646,6 +657,20 @@ setTimeout(async () => {
     const setTab = (id) => localStorage.setItem(TAB_KEY, id);
     const renderPicker = () => {
       try { return pickerRenders[0](); } catch (e) { console.log('picker render threw:', e && e.message); return null; }
+    };
+    // ── 侧栏 body 渲染台（2026-10-09 字体节 / 玻璃高级行迁入侧栏后的行为断言落点）──
+    // 注册路径真跑（installSidebarRight 经 ctx.get 桩拿到两个可选服务）⇒ registrations
+    // 里 `sidebar.right.pane.tab` 与 pickerRenders **同一次 register 推入** ⇒ 按 key 定位。
+    // 页签与两块折叠块的展开态都住 localStorage（qp-tab / qp-font-open / qp-glass-detail，
+    // 同"仅 UI 状态不进 config.json"口径）⇒ 渲染前播种，渲染即为「外观页 · 两块展开」。
+    const renderSidePane = () => {
+      localStorage.setItem('dsh-wallpaper-engine:qp-tab', 'appearance');
+      localStorage.setItem('dsh-wallpaper-engine:qp-font-open', '1');
+      localStorage.setItem('dsh-wallpaper-engine:qp-glass-detail', '1');
+      const i = registrations.findIndex((r) => r.key === 'sidebar.right.pane.tab');
+      assert.ok(i >= 0 && i < pickerRenders.length,
+        '侧栏 body 必须已注册（installSidebarRight 真跑 —— ctx.get 桩缺了先红这里）');
+      try { return pickerRenders[i](); } catch (e) { console.log('sidebar render threw:', e && e.message); return null; }
     };
     const countMatches = (root, re) => (JSON.stringify(root).match(re) || []).length;
     // Find the .we-picker__ctl row whose subtree mentions `text`, then the
@@ -1217,6 +1242,10 @@ setTimeout(async () => {
     }
 
     // ── 外观 tab: swatches / sliders / sidebar-glass group. ──
+    // ⚠️ 2026-10-09 真迁移后**两棵渲染台分工**：设置页渲染台（renderPicker）钉简化配置与
+    //    页签行为 + 迁移负断言（独立配置 / 字体节不再画）；侧栏渲染台（renderSidePane，
+    //    qp-tab=appearance + 两块折叠块展开）钉高级行为（独立配置往返 / 胶囊 / 触发条 /
+    //    字体开关）。两边的 handler 是同一份模块级实现，bodyEl 属性断言与哪棵树无关。
     setTab('appearance');
     tree = renderPicker();
     treeText = JSON.stringify(tree);
@@ -1225,6 +1254,60 @@ setTimeout(async () => {
     assert.equal((treeText.match(/"aria-label":"玻璃颜色 /g) || []).length, 6, '玻璃颜色预设应有 6 个色板');
     assert.ok(treeText.includes('自定义玻璃颜色'), 'glass color custom input present:');
     assert.ok(treeText.includes('type":"color"'), 'custom color input present:');
+    // ── #159② 玻璃色分主题（面板 + 写入口径的完整往返）────
+    //    判据不是"控件在不在"，而是**两个颜色各自独立**：默认关 ⇒ 只有浅色一行；打开 ⇒ 多出
+    //    深色那一行；点浅色只改浅色、点深色只改深色；关掉 ⇒ 深色侧收敛到浅色（"一个颜色同时
+    //    用于两套"的字面含义，而不是留下一个看不见的旧值下次又冒出来）。
+    const findGlassSwatch = (root, ariaLabel) => {
+      let hit = null;
+      (function walk(node) {
+        if (hit || !node || typeof node !== 'object') return;
+        if (Array.isArray(node)) { node.forEach(walk); return; }
+        if (node.type === 'button' && node.props && node.props['aria-label'] === ariaLabel) { hit = node; return; }
+        if (Array.isArray(node.children)) node.children.forEach(walk);
+      })(root);
+      return hit;
+    };
+    const swatchActive = (el) => !!el && String(el.props.className).includes('we-picker__swatch--active');
+    assert.equal((treeText.match(/"aria-label":"玻璃颜色 · 深色 /g) || []).length, 0,
+      '「深色单独设置」默认关 ⇒ 不得画出深色色板行');
+    assert.ok(swatchActive(findGlassSwatch(tree, '玻璃颜色 #ffffff')),
+      '默认白釉在浅色那一行是选中项');
+    const glassSepSwitch = findCtlInput(tree, '深色单独设置');
+    assert.ok(glassSepSwitch, '玻璃色的「深色单独设置」开关在场（外观页）');
+    glassSepSwitch.props.onChange({ target: { checked: true } });
+    tree = renderPicker();
+    treeText = JSON.stringify(tree);
+    assert.equal((treeText.match(/"aria-label":"玻璃颜色 · 深色 /g) || []).length, 6,
+      '打开「深色单独设置」⇒ 深色那一行有 6 个色板');
+    // 点浅色那行的「深夜蓝」：只该改浅色那一侧（深色那行不动）
+    findGlassSwatch(tree, '玻璃颜色 #0d1524').props.onClick();
+    tree = renderPicker();
+    assert.ok(swatchActive(findGlassSwatch(tree, '玻璃颜色 #0d1524')), '点了浅色 ⇒ 浅色那行选中深夜蓝');
+    assert.ok(swatchActive(findGlassSwatch(tree, '玻璃颜色 · 深色 #ffffff')),
+      '⚠️ 分主题开着时点浅色**不得**顺手改掉深色那一侧（否则"分开设置"是假的）');
+    // 再点深色那行的「玫瑰粉」：只该改深色那一侧
+    findGlassSwatch(tree, '玻璃颜色 · 深色 #DD8FAC').props.onClick();
+    tree = renderPicker();
+    assert.ok(swatchActive(findGlassSwatch(tree, '玻璃颜色 · 深色 #DD8FAC')), '点了深色 ⇒ 深色那行选中玫瑰粉');
+    assert.ok(swatchActive(findGlassSwatch(tree, '玻璃颜色 #0d1524')), '点深色时浅色那一侧不受影响');
+    // 关掉开关 ⇒ 深色行消失，且深色侧收敛到浅色那一侧（内部仍存两套值，但值相同）
+    findCtlInput(tree, '深色单独设置').props.onChange({ target: { checked: false } });
+    tree = renderPicker();
+    treeText = JSON.stringify(tree);
+    assert.equal((treeText.match(/"aria-label":"玻璃颜色 · 深色 /g) || []).length, 0,
+      '关掉「深色单独设置」⇒ 深色色板行消失');
+    findCtlInput(tree, '深色单独设置').props.onChange({ target: { checked: true } });
+    tree = renderPicker();
+    assert.ok(swatchActive(findGlassSwatch(tree, '玻璃颜色 · 深色 #0d1524')),
+      '关掉再打开 ⇒ 深色那一侧已收敛到浅色（不得跳回关掉前的玫瑰粉）');
+    // 复原出厂：关开关 + 浅色那行回白釉（关着时写两侧 ⇒ 两套都回白釉）
+    findCtlInput(tree, '深色单独设置').props.onChange({ target: { checked: false } });
+    tree = renderPicker();
+    findGlassSwatch(tree, '玻璃颜色 #ffffff').props.onClick();
+    tree = renderPicker();
+    treeText = JSON.stringify(tree);
+    assert.ok(swatchActive(findGlassSwatch(tree, '玻璃颜色 #ffffff')), '复原：浅色那行回白釉');
     assert.ok(treeText.includes('玻璃透明度'), 'glass transparency slider row present:');
     assert.ok(treeText.includes('"侧栏液态玻璃"'), 'sidebar-glass master switch present:');
     // ── 跟随全局（sidebarFollowGlobal，默认开；现场口径："我需要侧栏玻璃也跟随全局"）──
@@ -1233,17 +1316,23 @@ setTimeout(async () => {
     const followSwitch = findCtlInput(tree, '侧栏玻璃跟随全局');
     assert.ok(followSwitch, 'follow-global switch present:');
     assert.equal(bodyEl.attributes['data-we-sidebar-follow'], 'on', '默认跟随 ⇒ body 上有跟随属性');
-    assert.equal(findCtlInput(tree, '侧栏玻璃·独立配置'), null, '跟随开着时侧栏「独立配置」收起（不画死旋钮）');
-    assert.equal(findSliderRow(tree, '侧栏模糊'), null, '跟随开着时不得画出「侧栏模糊」（精确标签，防 tooltip 骗过）');
-    assert.equal(findSliderRow(tree, '侧栏透明度'), null, '跟随开着时不得画出「侧栏透明度」');
+    // ── 迁移负断言（真迁移的"设置页那一侧"）：高级行与字体节搬进侧栏折叠块后，设置页
+    //    一个都不许再画 —— 两个方向都钉：这里判"设置页没有"，renderSidePane 那侧判"侧栏有"。 ──
+    assert.equal(findCtlInput(tree, '侧栏玻璃·独立配置'), null, '设置页不画「侧栏玻璃·独立配置」（已迁侧栏折叠块）');
+    assert.equal(findCtlInput(tree, '内容面玻璃·独立配置'), null, '设置页不画「内容面玻璃·独立配置」（已迁侧栏折叠块）');
+    assert.equal(findSliderRow(tree, '侧栏模糊'), null, '设置页不画「侧栏模糊」（精确标签，防 tooltip 骗过）');
     assert.equal((JSON.stringify(tree).match(/"aria-label":"侧栏玻璃颜色 /g) || []).length, 0,
-      '跟随开着时不得画出侧栏玻璃颜色色板');
+      '设置页不画侧栏玻璃颜色色板（已迁侧栏折叠块）');
+    assert.equal(findCtlInput(tree, '字体自定义'), null, '设置页不画「字体自定义」（字体节已迁侧栏）');
+    // ── 切侧栏渲染台（外观页 · 字体节与详细玻璃都展开）：从这里起高级行断言。 ──
+    tree = renderSidePane();
+    treeText = JSON.stringify(tree);
     assert.ok(findCtlInput(tree, '内容面玻璃·独立配置'), '内容面独立配置不受跟随开关影响:');
     // 关掉跟随 ⇒ 侧栏「独立配置」出现（能力没丢），body 属性随之摘掉。
     followSwitch.props.onChange({ target: { checked: false } });
     assert.equal(bodyEl.attributes['data-we-sidebar-follow'], undefined,
       '关掉跟随必须摘掉 body 属性（否则侧栏的釉仍取共享那一份）');
-    tree = renderPicker();
+    tree = renderSidePane();
     treeText = JSON.stringify(tree);
     assert.ok(findCtlInput(tree, '侧栏玻璃·独立配置'), '关掉跟随 ⇒ 侧栏「独立配置」出现:');
     // ⚠️ 基线交付给下面 #132 的判据主体：跟随关着 ⇒ 它的开关流/量程/退役判据照原样跑。
@@ -1264,26 +1353,77 @@ setTimeout(async () => {
     if (sidebarSwitch) {
       sidebarSwitch.props.onChange({ target: { checked: false } });
       assert.equal(bodyEl.attributes['data-we-sidebar-glass'], undefined, 'sidebar master off must restore native surfaces');
-      tree = renderPicker();
+      tree = renderSidePane();
       assert.ok(JSON.stringify(tree).includes('"侧栏液态玻璃"'), 'switch itself stays visible when off:');
       assert.ok(!JSON.stringify(tree).includes('侧栏玻璃·独立配置'), 'master off also hides the independent switch:');
       sidebarSwitch.props.onChange({ target: { checked: true } });
       assert.equal(bodyEl.attributes['data-we-sidebar-glass'], 'on', 'sidebar master on must re-arm sidebar surfaces');
-      tree = renderPicker();
+      tree = renderSidePane();
       assert.ok(findCtlInput(tree, '侧栏玻璃·独立配置'), 'master on restores the independent switch:');
     }
     // 打开「侧栏玻璃·独立配置」⇒ 它自己的三个滑块出现，且量程与 KINDS 一致。
     // R4 量纲统一（wip §10.19）：侧栏家族的量程从 0–200 收到**规范刻度**
     //（模糊 0–60 px 与全局雾化同刻度；透明度 0–100 %）。这里钉住"面板与规范刻度一致"。
     findCtlInput(tree, '侧栏玻璃·独立配置').props.onChange({ target: { checked: true } });
-    tree = renderPicker();
+    tree = renderSidePane();
     assert.equal(sliderMax(findSliderRow(tree, '侧栏模糊')), '60', '侧栏模糊上限必须是 60px（与全局雾化同刻度，R4）');
     assert.equal(sliderMax(findSliderRow(tree, '侧栏透明度')), '100', '侧栏透明度上限必须是 100（规范刻度，R4）');
     assert.equal((JSON.stringify(tree).match(/"aria-label":"侧栏玻璃颜色 /g) || []).length, 6, '侧栏玻璃颜色预设应有 6 个色板');
     assert.ok(JSON.stringify(tree).includes('自定义侧栏玻璃颜色'), 'sidebar glass color custom input present:');
+    // ── §11 A2-F2：侧栏档那个**单**色板固定写浅色那一半 ────────────────────────────
+    //    侧栏的玻璃色变量只消费浅色半（src/glass.js / src/effects.js 的 sidebar 分支都取
+    //    `glassColorOf(sel,"light")` —— 侧栏没有 `data-ds-dark-theme` 孪生，有意不分深浅）。
+    //    所以侧栏面板①只画一行、②显示与写入都是**浅色半**，不是"当前配色那一侧"：否则深色
+    //    主题下用户点一下改的是他在这块面板上看不到的那个值（面板还不许自己采样主题）。
+    //    断言用"两半不同"的状态来钉：浅色=白釉、深色=玫瑰粉 ⇒ 显示哪一半、点一下改哪一半都无处可藏。
+    setTab('appearance');
+    let sepTree = renderPicker();
+    findCtlInput(sepTree, '深色单独设置').props.onChange({ target: { checked: true } });
+    sepTree = renderPicker();
+    findGlassSwatch(sepTree, '玻璃颜色 · 深色 #DD8FAC').props.onClick(); // 深色半 = 玫瑰粉
+    sepTree = renderPicker();
+    assert.ok(swatchActive(findGlassSwatch(sepTree, '玻璃颜色 #ffffff')),
+      'A2-F2 前提：浅色半仍是白釉（与深色半不同 —— 否则下面两条判不出"取错了一半"）');
+    assert.ok(swatchActive(findGlassSwatch(sepTree, '玻璃颜色 · 深色 #DD8FAC')),
+      'A2-F2 前提：深色半已设为玫瑰粉');
+    tree = renderSidePane();
+    treeText = JSON.stringify(tree);
+    assert.equal((treeText.match(/"aria-label":"玻璃颜色 /g) || []).length, 6,
+      'A2-F2：侧栏档只画一行玻璃颜色（「玻璃颜色 · 深色」行不发到侧栏 —— 侧栏不消费深色半）');
+    assert.ok(swatchActive(findGlassSwatch(tree, '玻璃颜色 #ffffff')),
+      'A2-F2：侧栏档色板显示的是**浅色半**（显示深色半 = 用户看到的值不是他改的那个）');
+    findGlassSwatch(tree, '玻璃颜色 #0d1524').props.onClick(); // 侧栏这一个色板点「深夜蓝」
+    setTab('appearance');
+    sepTree = renderPicker();
+    assert.ok(swatchActive(findGlassSwatch(sepTree, '玻璃颜色 #0d1524')),
+      'A2-F2：侧栏档点一个颜色 ⇒ 浅色半跟着变');
+    assert.ok(swatchActive(findGlassSwatch(sepTree, '玻璃颜色 · 深色 #DD8FAC')),
+      'A2-F2：侧栏档点色**不得**碰深色半（写当前配色那一侧的实现会在这里红）');
+    // 结构半边：旧实现是按主题选一侧（`singleGlassOnDark = sidebarSurface && panelThemeIsDark()`）。
+    // 挂载台里 `document.body` 没有能力齐全的 hasAttribute ⇒ 只靠上面的行为断言抓不到"条件选侧"
+    // 那一种回退，所以再钉一条源码判据 + 一条证明该判据真能抓到的负对照。
+    const glassPanelSrc = readFileSync(new URL('../src/glass-panel.js', import.meta.url), 'utf8');
+    // 只判**代码**：注释里正好写着"panelThemeIsDark 已随之删除"这句（第一版被自己的注释判红）。
+    // 剥注释走共享的**字符串感知**实现（`test/tools/js-text.mjs`）—— 手写"块注释一条正则 +
+    // 行注释一条正则"不认字符串与行注释，注释里出现那两个字符就会静默吃掉中间的真实代码，
+    // 而判据照样报绿（`verify-module-layout` ⑦ 专抓这个，别在这里再写一遍）。
+    const glassPanelCode = stripComments(glassPanelSrc);
+    const themeSampler = /panelThemeIsDark|singleGlassOnDark/;
+    assert.ok(themeSampler.test('const singleGlassOnDark = sidebarSurface && panelThemeIsDark();'),
+      '负对照：被删掉的"按主题选侧"实现确实会命中下面这条源码判据');
+    assert.ok(!themeSampler.test(glassPanelCode),
+      'A2-F2：面板不许自己采样主题来决定写哪一侧（侧栏那一行固定写浅色半）');
+    // 复原出厂：关开关（深色半收敛到浅色）+ 浅色半回白釉，别把状态留给后面的判据。
+    sepTree = renderPicker();
+    findCtlInput(sepTree, '深色单独设置').props.onChange({ target: { checked: false } });
+    sepTree = renderPicker();
+    findGlassSwatch(sepTree, '玻璃颜色 #ffffff').props.onClick();
+    tree = renderSidePane();
+    treeText = JSON.stringify(tree);
+    assert.ok(swatchActive(findGlassSwatch(tree, '玻璃颜色 #ffffff')), 'A2-F2 复原：侧栏档回白釉');
     // 内容面同样：它的开关打开后才画透明度 / 底色两行。
     findCtlInput(tree, '内容面玻璃·独立配置').props.onChange({ target: { checked: true } });
-    tree = renderPicker();
+    tree = renderSidePane();
     treeText = JSON.stringify(tree);
     assert.equal(sliderMax(findSliderRow(tree, '内容面透明度')), '100', '内容面透明度上限必须是 100（规范刻度，R4）');
     // §10.27 + v1.3.0 追版：新增的「思考触发条玻璃·独立配置」—— 打开后才画它自己的两项，量程同样
@@ -1317,11 +1457,11 @@ setTimeout(async () => {
     assert.equal(findCtlInput(tree, '思考触发条玻璃·独立配置'), null,
       '思考玻璃非"液态玻璃"挡时「思考触发条玻璃·独立配置」不该画（master 门）');
     clickThinkGear(tree, '液态玻璃');
-    tree = renderPicker();
+    tree = renderSidePane();
     assert.equal(bodyEl.attributes['data-we-thinking-glass'], 'on', '选液态玻璃挡 ⇒ 玻璃门挂上');
     assert.equal(bodyEl.attributes['data-we-thinking-native'], undefined, '选液态玻璃挡 ⇒ 原生门不挂');
     findCtlInput(tree, '思考触发条玻璃·独立配置').props.onChange({ target: { checked: true } });
-    tree = renderPicker();
+    tree = renderSidePane();
     assert.equal(sliderMax(findSliderRow(tree, '思考触发条玻璃·玻璃透明度')), '100',
       '思考触发条透明度上限必须是 100（规范刻度）');
     assert.equal(sliderMax(findSliderRow(tree, '思考触发条玻璃·雾化')), '60',
@@ -1329,14 +1469,15 @@ setTimeout(async () => {
     // 原生挡：赢过玻璃挡 —— native 门挂上、玻璃门摘下（互斥在 effects.js 门控层），
     // 触发条独立配置与胶囊两行整组收起（它们的 CSS 门此时不挂 ⇒ 画了就是死旋钮）。
     clickThinkGear(tree, '原生');
-    tree = renderPicker();
+    tree = renderSidePane();
     assert.equal(bodyEl.attributes['data-we-thinking-native'], 'on', '选原生挡 ⇒ 原生门挂上');
     assert.equal(bodyEl.attributes['data-we-thinking-glass'], undefined, '选原生挡 ⇒ 玻璃门摘下（互斥）');
     assert.equal(findCtlInput(tree, '思考触发条玻璃·独立配置'), null, '原生挡 ⇒ 触发条独立配置行收起');
     assert.equal(findSliderRow(tree, '胶囊雾化'), null, '原生挡 ⇒ 胶囊雾化行收起（死旋钮防线）');
     // 收尾：关挡 ⇒ 两个门控属性都摘下 —— 三挡往返钉住，不留"关着还挂门"的缺口。
     clickThinkGear(tree, '关');
-    tree = renderPicker();
+    tree = renderSidePane();
+    treeText = JSON.stringify(tree);
     assert.equal(bodyEl.attributes['data-we-thinking-glass'], undefined, '关挡 ⇒ 玻璃门摘下');
     assert.equal(bodyEl.attributes['data-we-thinking-native'], undefined, '关挡 ⇒ 原生门摘下');
     assert.equal(findCtlInput(tree, '思考触发条玻璃·独立配置'), null, '关挡 ⇒ 该行收起');
@@ -1355,28 +1496,35 @@ setTimeout(async () => {
     // 收尾：跟随开回默认态 ⇒ 「独立配置」又收起、属性回来（完整往返双向钉住）。
     followSwitch.props.onChange({ target: { checked: true } });
     assert.equal(bodyEl.attributes['data-we-sidebar-follow'], 'on', '重新打开跟随 ⇒ 属性回来');
-    tree = renderPicker();
+    tree = renderSidePane();
     treeText = JSON.stringify(tree);
     assert.equal(findCtlInput(tree, '侧栏玻璃·独立配置'), null, '重新打开跟随 ⇒ 「独立配置」又收起');
 
     // ── 「字体」已并入「外观」：老的 localStorage 页签值必须迁移过去（不能把用户
-    //    甩回「壁纸」），且字体三件套 + 输入光标都在「外观」里。 ──
+    //    甩回「壁纸」）。2026-10-09 真迁移后**设置页外观不再画字体节** —— 页签迁移行为
+    //    用设置页台钉（玻璃透明度在场 ⇒ 落点对了），字体开关与它的行为用侧栏台钉。 ──
     setTab('font');
     tree = renderPicker();
     treeText = JSON.stringify(tree);
     assert.ok(treeText.includes('玻璃透明度'),
       'legacy "font" tab value must migrate to 外观 (its own rows must be on screen)');
-    assert.ok(treeText.includes('字体自定义'), '外观 must host the 字体自定义 switch');
-    assert.ok(treeText.includes('玻璃透明度') && treeText.includes('字体自定义'), 'legacy font tab migrates into 外观:');
+    assert.ok(!treeText.includes('字体自定义'),
+      '设置页外观不再画「字体自定义」（字体节已迁侧栏 —— 真迁移的另一侧）');
+    // 侧栏渲染台：字体节默认收起 ⇒ renderSidePane 已播种 qp-font-open=1（展开）。
+    tree = renderSidePane();
+    treeText = JSON.stringify(tree);
+    assert.ok(treeText.includes('字体自定义'), '侧栏外观必须画「字体自定义」（迁移目的地）');
     const fontSwitch = findCtlInput(tree, '字体自定义');
+    assert.ok(fontSwitch, '侧栏字体自定义开关必须找得到（缺则后面断言零覆盖）');
     if (fontSwitch) {
       fontSwitch.props.onChange({ target: { checked: true } });
-      tree = renderPicker();
+      tree = renderSidePane();
       treeText = JSON.stringify(tree);
       assert.ok(/文字颜色角色/.test(code) && /排版角色/.test(code) && /恢复默认/.test(code),
-    '外观 tab 必须揭示字体控件组（角色色组 + 排版角色组 + 恢复默认）—— 单一「字体颜色」行与全局字重/字族都已移除');
+    '字体节必须揭示字体控件组（角色色组 + 排版角色组 + 恢复默认）—— 单一「字体颜色」行与全局字重/字族都已移除');
+      assert.ok(treeText.includes('默认字体'), '展开态下字体族两行（默认字体 / 终端字体）必须在场');
       fontSwitch.props.onChange({ target: { checked: false } });
-      tree = renderPicker();
+      tree = renderSidePane();
       treeText = JSON.stringify(tree);
     }
 
@@ -2968,6 +3116,90 @@ setTimeout(async () => {
       assert.deepEqual(goldenDrift, [],
         '宿主设置规范化必须与 P1-5 前的实现逐键一致（漂移用例：' + goldenDrift.join(', ') + '）');
 
+      // ③b #159② 玻璃色的形状规则（迁移 + 读容忍 + 半对补齐）。每条各钉一条真实的
+      //     静默失败路径，而不是"函数返回了个对象"：
+      //     · v5 及更早的存档是**标量** hex —— 不认它，用户存了半天的颜色升级后变白釉；
+      //     · 出厂预设正文（`lib/glass-presets/*.json`，night 是 #0d1524）走
+      //       `sanitizeGlassPresetValues`（直接盖当前版本号、**不过迁移段**）⇒ 读侧必须认标量；
+      //     · 只写一侧（历史形态 / 手改文件）⇒ 另一侧要跟着那一侧，不能掉回白釉（保住色相）。
+      //     反过来"半对补齐"也意味着**不允许**再产出半对：`{light}` 那种入参进来必须成对出去
+      //     （面板的选中态与"关掉开关收敛"都靠这个等式）。
+      const glassPairOf = (input) => (sanitizeFromSchema(input, 'host') || {}).glassColor;
+      assert.deepEqual(glassPairOf({ glassColor: '#123456' }),
+        { light: '#123456', dark: '#123456' }, '老式标量玻璃色 ⇒ 迁移成两侧同值');
+      assert.deepEqual(glassPairOf({ glassColor: { light: '#010203', dark: '#040506' } }),
+        { light: '#010203', dark: '#040506' }, '显式一对 ⇒ 原样保留（两套不再被压成一套）');
+      assert.deepEqual(glassPairOf({ glassColor: { dark: '#040506' } }),
+        { light: '#040506', dark: '#040506' }, '只剩深色一侧 ⇒ 浅色跟着它（不回白釉）');
+      assert.deepEqual(glassPairOf({ glassColor: { light: '#010203' } }),
+        { light: '#010203', dark: '#010203' }, '只剩浅色一侧 ⇒ 深色跟着它');
+      assert.deepEqual(glassPairOf({ glassColor: { light: 'nope', dark: '#040506' } }),
+        { light: '#040506', dark: '#040506' }, '坏的那一侧由好的一侧补齐（不是整对丢掉）');
+      assert.deepEqual(glassPairOf({ glassColor: { light: 'nope', dark: 'also-nope' } }),
+        { light: '#ffffff', dark: '#ffffff' }, '两侧都非法 ⇒ 回白釉一对');
+      assert.deepEqual(glassPairOf({ glassColor: 42 }),
+        { light: '#ffffff', dark: '#ffffff' }, '非字符串非对象 ⇒ 回白釉一对（永不抛）');
+      assert.deepEqual(glassPairOf({ glassColor: ' #0d1524 ' }),
+        { light: '#0d1524', dark: '#0d1524' }, '标量周围带空白 ⇒ 去空白后认它');
+      // 迁移不是"读容忍"的替代品：老存档（输入带旧版本号）走完迁移也必须是一对，
+      // 且版本号被盖成当前值（夹具 ③ 里 18 个用例的这次漂移就是这么被发现的）。
+      const migratedV5 = sanitizeFromSchema({ settingsVersion: 5, glassColor: '#0d1524' }, 'host') || {};
+      assert.deepEqual(migratedV5.glassColor, { light: '#0d1524', dark: '#0d1524' },
+        'v5 老存档 ⇒ 迁移后玻璃色是一对');
+      assert.equal(migratedV5.settingsVersion, 6, '规范化后版本号盖成当前值');
+      // 读容忍的**真实入口**：带当前版本的档**不过迁移**（出厂预设正文就是"标量 hex + 当前版本号"，
+      // 走 sanitizeGlassPresetValues 盖号短路）⇒ 标量只能由 `readGlassColors` 自己认。
+      // ⚠️ 上面那条"老式标量"其实是被**迁移**接住的（不过版本号或版本号更老），走不到标量分支；
+      //    这一条才是钉住读容忍的那条（删掉标量分支 ⇒ 出厂预设/手改档静默变白釉）。
+      assert.deepEqual(sanitizeFromSchema({ settingsVersion: 6, glassColor: ' #0d1524 ' }, 'host').glassColor,
+        { light: '#0d1524', dark: '#0d1524' },
+        '当前版本号的档（出厂预设形态）：标量玻璃色必须由读容忍认下（迁移被版本闸短路）');
+      // 出厂默认：开关默认关 = "一个颜色管两套"。深色那侧的出厂观感来自 src/effects.js
+      // 按主题钳制，不是"存了一个深色值"。
+      assert.deepEqual(glassPairOf({}), { light: '#ffffff', dark: '#ffffff' },
+        '玻璃色默认白釉一对');
+      assert.equal((sanitizeFromSchema({}, 'host') || {}).glassDarkSeparate, false,
+        '「深色单独设置」默认关（出厂就是一个颜色管两套）');
+      assert.ok(KINDS.glassColor && KINDS.glassColor.kind === 'glassColors',
+        'glassColor 必须走 glassColors 归一（旧的 hex 只认单个色 ⇒ 一对根本进不来）');
+
+      // ③c 两层**各自在场**（#159② 的 v5→v6 迁移 + 读容忍）。这里是**结构**判据，不是行为判据 ——
+      //     理由必须写清楚，否则以后有人会"顺手"把它换成行为断言：两层对**读出来的值**等价
+      //     （`readGlassColors` 对任何入参都产出完整一对 ⇒ `sanitizeFromSchema` 的输入输出逐字节
+      //     不变），实测删掉 `migrateSettings` 里 v6 那一步，③b 的每一条**照样全绿**。
+      //     两层要保的是两件不同的事，各有一条静默失败路径：
+      //       · 读容忍：出厂预设正文 `lib/glass-presets/*.json`、手改过的档、测试台架的 selection
+      //         **不过迁移**（预设那条路还显式盖当前版本号短路）⇒ 删它，预设与老档立刻变白釉。
+      //         这一层**有行为判据**（③b 里"当前版本号的档 + 标量"那条）；下面再补一条结构判据当保险。
+      //       · 一次性迁移：让**存档形状**收敛到当前刻度。形状本身没有行为可观测，所以只能
+      //         钉"那一步在场"，并在下面配负对照证明这条判据不是恒真。
+      const schemaSrc = readFileSync(new URL('../lib/settings-schema.js', import.meta.url), 'utf8');
+      const bodyOf = (text, name) => {
+        const at = text.indexOf('function ' + name + '(');
+        if (at < 0) return '';
+        const open = text.indexOf('{', at);
+        let depth = 0;
+        for (let i = open; i < text.length; i += 1) {
+          if (text[i] === '{') depth += 1;
+          else if (text[i] === '}' && (depth -= 1) === 0) return text.slice(open, i + 1);
+        }
+        return '';
+      };
+      const migrationHasV6 = (text) => /out\.glassColor\s*=\s*\{\s*light:\s*out\.glassColor\s*,\s*dark:\s*out\.glassColor\s*\}/.test(bodyOf(text, 'migrateSettings'));
+      const readerHasScalar = (text) => /typeof\s+raw\s*===\s*'string'/.test(bodyOf(text, 'readGlassColors'));
+      assert.ok(migrationHasV6(schemaSrc),
+        'v5→v6 迁移必须在场：`migrateSettings` 里要有「标量 ⇒ 两侧同值」那一步（消掉旧存档的标量形状）');
+      assert.ok(readerHasScalar(schemaSrc),
+        '读容忍必须在场：`readGlassColors` 要认标量（出厂预设 / 手改档不过迁移段）');
+      // 负对照：把同一套抽取 + 正则用在"删掉那一层"的文本上必须判 false（否则上面两条是恒真的）。
+      const noV6 = schemaSrc.replace(
+        /if \(typeof out\.glassColor === 'string'\) \{\s*out\.glassColor = \{ light: out\.glassColor, dark: out\.glassColor \};\s*\}/, '');
+      const noScalar = schemaSrc.replace(/if \(typeof raw === 'string'\) \{/, 'if (false) {');
+      assert.notEqual(noV6, schemaSrc, 'negative control: 抽取用到的迁移形态必须真能匹配到（否则负对照是空的）');
+      assert.notEqual(noScalar, schemaSrc, 'negative control: 抽取用到的读容忍形态必须真能匹配到（否则负对照是空的）');
+      assert.ok(!migrationHasV6(noV6), 'negative control: 删掉迁移那一步后，③c 的迁移判据必须判红');
+      assert.ok(!readerHasScalar(noScalar), 'negative control: 删掉读容忍那一步后，③c 的读容忍判据必须判红');
+
       // ④ 共有键上 client 与 host 必须逐键相同 —— 这就是"两侧不会再漂"的定义。
       //    （历史差异只剩非对象输入：host 返回 null、client 返回默认值，见 schema 头注释。）
       const sharedDrift = [];
@@ -3581,6 +3813,323 @@ setTimeout(async () => {
     '负对照：抬手档必须重建字体样式表（fontCustom=true ⇒ snapshot + apply）');
   assert.ok(full.named.includes('syncSceneAudio'), '负对照：抬手档必须同步场景音频');
   assert.ok(full.named.includes('removeWallpaperFadeBg') === false, '（防呆：名字记录器本身工作正常）');
+}
+
+// ── #159①：宿主切深浅主题后，淡出底色缓存必须被清掉（行为级）────────────────────
+// 事故：`--we-wallpaper-fade-bg` 是 .we-layer 那块 z-index −2 衬底的底色（透明底色会让
+// backdrop-filter 失效，所以必须垫一个实色），而它的解析结果缓存在 effects.js 的
+// `lastFadeBg` 里、**只在 applyEffects 被调用时**重算。宿主切主题（翻转 body 的
+// data-ds-dark-theme）不会调用我们，本仓唯一的主题订阅（theme-follow）由开关门控、
+// 默认关 ⇒ 缓存停在旧主题的底色上，而它给**每一面玻璃**当衬底 ⇒ 整页被染成过期色。
+// 判据走真 src/effects.js（与上面那条拖动档判据同一个 with 挂载台），四件：
+//   ① 观察者真的挂在 body 上、只认 data-ds-dark-theme、且幂等（只挂一个）；
+//   ② 负对照：翻转属性但**不派发** ⇒ 拖动档仍旧值（证明缓存确实是黏的，判据不是空转）；
+//   ③ 派发之后拖动档必须拿到新主题的底色；
+//   ④ clearEffects 必须断开（否则卸载后观察者留在宿主 DOM 上）。
+{
+  const fxSrc = readFileSync(new URL('../src/effects.js', import.meta.url), 'utf8');
+  const fxProps = [];
+  const fxBody = {
+    style: { setProperty: (k, v) => fxProps.push(k + '=' + v), removeProperty: (k) => fxProps.push('-' + k) },
+    _attrs: new Set(),
+    setAttribute(k) { this._attrs.add(k); },
+    removeAttribute(k) { this._attrs.delete(k); },
+    hasAttribute(k) { return this._attrs.has(k); },
+    offsetHeight: 1,
+  };
+  const fxObservers = [];
+  class FakeMutationObserver {
+    constructor(cb) { this.cb = cb; this.disconnected = false; fxObservers.push(this); }
+    observe(target, opts) { this.target = target; this.opts = opts; }
+    disconnect() { this.disconnected = true; }
+  }
+  const fxTarget = {
+    selection: {
+      scrim: 0, wallpaperOpacity: 40, accent: '#4f8cff', glassColor: '#ffffff', glassAlpha: 0,
+      blur: 0, border: 0, fontCustom: false, caretColor: '', sidebarBlur: 0, sidebarAlpha: 0,
+      sidebarColor: '#ffffff', sidebarContentAlpha: 0, sidebarContentColor: '', sidebarGlass: true,
+      glassWindow: false, wallpaperBlur: 0, backgroundBrightness: 100, backgroundContrast: 100,
+      backgroundSaturate: 100, objectFit: 'cover', flip: false,
+    },
+    document: {
+      body: fxBody,
+      getElementById: () => null,
+      createElement: () => ({ style: {}, dataset: {} }),
+      head: { appendChild: () => {} },
+    },
+    getComputedStyle: () => ({ getPropertyValue: () => '' }),
+    MutationObserver: FakeMutationObserver,
+    GLASS_SATURATE: 1.3, SCRIM_ID: 'we-scrim', LAYER_ID: 'we-layer',
+    adapterCaps: () => ({ target: 'plain-browser' }),
+    detectMicaSupport: () => true, detectSoftwareRender: () => false,
+    useLegacySaturateCoupling: () => false,
+    weClampSurfaceColor: (hex) => hex,
+    snapshotHostFontDefaults: () => {}, applyComponentFonts: () => {}, removeFontStyles: () => {},
+    removeComponentFonts: () => {}, applyCaretStyles: () => {}, removeCaretStyles: () => {},
+    syncSceneAudio: () => {},
+  };
+  const fxScope = new Proxy(fxTarget, {
+    has: (t, k) => (k in t) || !(k in globalThis),
+    get: (t, k) => (k in t ? t[k] : () => undefined),
+    set: () => true,
+  });
+  const fxMod = new Function('__scope',
+    'with (__scope) { ' + stripExportBlocks(fxSrc) + '\nreturn { applyEffects, clearEffects }; }')(fxScope);
+  // 只走**拖动档**：那是唯一读缓存的路径（抬手档无论如何都会重算）。
+  const liveFadeBg = () => {
+    fxProps.length = 0;
+    fxMod.applyEffects({ live: true });
+    return fxProps.filter((p) => p.startsWith('--we-wallpaper-fade-bg=')).pop();
+  };
+  assert.equal(liveFadeBg(), '--we-wallpaper-fade-bg=#ffffff', '冷启动（无暗色属性）的衬底 = 纯白');
+  const watch = fxObservers[0];
+  assert.ok(fxObservers.length === 1 && watch && watch.target === fxBody
+    && JSON.stringify(watch.opts) === JSON.stringify({ attributes: true, attributeFilter: ['data-ds-dark-theme'] }),
+    '#159①：切主题的失效观察者必须挂在 body 上且只认 data-ds-dark-theme —— 实测 '
+    + fxObservers.length + ' 个 / ' + JSON.stringify(watch && watch.opts));
+  fxBody.setAttribute('data-ds-dark-theme');
+  assert.equal(liveFadeBg(), '--we-wallpaper-fade-bg=#ffffff',
+    '负对照：属性翻转但观察者没回调时，拖动档必须仍拿旧值（否则这条判据测的就不是缓存失效）');
+  assert.equal(fxObservers.length, 1, '观察者只许挂一次（幂等）：实测 ' + fxObservers.length);
+  watch.cb([{ type: 'attributes' }]);
+  assert.equal(liveFadeBg(), '--we-wallpaper-fade-bg=#000000',
+    '#159①：切到深色后拖动档必须重算到 #000000（缓存被失效）');
+  fxMod.clearEffects();
+  assert.ok(watch.disconnected, '#159①：clearEffects 必须断开主题观察者（否则卸载后它还挂在宿主 DOM 上）');
+  const neverDisconnected = new FakeMutationObserver(() => {});
+  neverDisconnected.observe(fxBody, {});
+  assert.ok(neverDisconnected.disconnected === false,
+    'negative control: 没调 disconnect 的观察者不许判成已断开');
+}
+
+// ── #148 宿主半：焦点被**无手势地**搬进壁纸帧时必须交还给用户本来在用的元素 ──────────
+// 事故：壁纸（WE 场景 / 网页）每 0.9–3.6 s 调一次 `element.focus()`，把键盘从 DSH 手里拿走 ——
+// 用户在输入框打字、输入法候选到一半就断。壁纸帧那一半在 `lib/we-focus-guard.js`（手势窗口），
+// 这里钉**宿主文档**那一半：帧内改不到的路径（跨源 `top.focus()`、`autofocus`、`showModal()`、
+// `label` 转发）把焦点搬走后，由宿主把它搬回来。判据四件：
+//   ① 装上的监听器清单 + 自证对象（真机可核）；
+//   ② 三条判据**同时**成立才交还，每条都配一条负对照（焦点落在宿主元素上 / 有真实手势 /
+//      focusout 来自别的元素）；
+//   ③ 两道保险（记住项过期 / 交还频率）各自负对照；
+//   ④ 拆除函数摘干净、可重装，且重复安装不叠加。
+// 全部走**真 src/focus-handback.js**（`with` + Proxy 的同一套挂载台；未知自由名直接抛，
+// 漏抄依赖清单会响亮地红）。
+{
+  const fhSrc = readFileSync(new URL('../src/focus-handback.js', import.meta.url), 'utf8');
+  const buildFh = (source) => {
+    const listeners = [];
+    const focused = [];
+    const drop = (l) => { const i = listeners.indexOf(l); if (i >= 0) listeners.splice(i, 1); };
+    const win = {
+      addEventListener: (t, fn) => { listeners.push({ on: 'window', t, fn }); },
+      removeEventListener: (t, fn) => { drop(listeners.find((l) => l.on === 'window' && l.t === t && l.fn === fn)); },
+    };
+    const doc = {
+      body: { tagName: 'BODY' }, documentElement: { tagName: 'HTML' }, activeElement: null,
+      addEventListener: (t, fn) => { listeners.push({ on: 'document', t, fn }); },
+      removeEventListener: (t, fn) => { drop(listeners.find((l) => l.on === 'document' && l.t === t && l.fn === fn)); },
+    };
+    const scope = new Proxy({ document: doc, window: win }, {
+      has: (t, k) => (k in t) || !(k in globalThis),
+      // 未知自由名直接抛：漏抄依赖清单要响亮地红，而不是悄悄拿到一个返回 undefined 的替身。
+      get: (t, k) => (k in t ? t[k] : () => { throw new Error('focus-handback 引用了未预期的自由名 ' + String(k)); }),
+      set: (t, k, v) => { t[k] = v; return true; },
+    });
+    const mod = new Function('__scope',
+      'with (__scope) { ' + stripExportBlocks(source) + '\nreturn { installFocusHandback }; }')(scope);
+    const hostInput = { tagName: 'INPUT', isConnected: true, focus: () => { focused.push('input'); } };
+    const hostButton = { tagName: 'BUTTON', isConnected: true, focus: () => { focused.push('button'); } };
+    const frame = { tagName: 'IFRAME', className: 'we-media we-iframe', isConnected: true };
+    // 事件派发：同类型全部监听器都跑一遍（真实 DOM 里也是这样，我们只挂一份）。
+    const fire = (type, target) => { for (const l of listeners.slice()) if (l.t === type) l.fn({ type, target }); };
+    return { mod, listeners, focused, win, doc, hostInput, hostButton, frame, fire };
+  };
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+  // 交还频率下限是 300ms ⇒ 需要"确实过了间隔"的判据就得真等过去（睡一段比造假时钟诚实）。
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const A = buildFh(fhSrc);
+  const disposeA = A.mod.installFocusHandback();
+  assert.ok(typeof disposeA === 'function', '#148 宿主半：installFocusHandback 必须返回拆除函数（挂 ctx.effect）');
+  assert.ok(A.listeners.filter((l) => l.on === 'document').length === 2
+    && A.listeners.filter((l) => l.on === 'window').length === 4,
+    '#148 宿主半：监听器清单 = document 上 focusin/focusout + window 上 pointerdown/mousedown/touchstart/keydown，实测 '
+    + JSON.stringify(A.listeners.map((l) => l.on + ':' + l.t)));
+  assert.ok(A.win.__weFocusHandback && A.win.__weFocusHandback.active === true,
+    '#148 宿主半：状态必须挂到 window.__weFocusHandback 上（真机控制台自证"交还了几次"）');
+  assert.equal(A.mod.installFocusHandback(), disposeA, '#148 宿主半：重复安装必须幂等（返回同一个拆除函数）');
+  assert.equal(A.listeners.length, 6, '#148 宿主半：重复安装不许叠加第二套监听器，实测 ' + A.listeners.length);
+
+  // ② 正常交还：用户在输入框里 → 焦点被搬进壁纸帧 → 搬回来。
+  A.fire('focusin', A.hostInput);
+  assert.equal(A.win.__weFocusHandback.lastEl, A.hostInput,
+    '#148 宿主半：focusin 必须记住用户最后在用的那个元素');
+  A.doc.activeElement = A.frame;
+  A.fire('focusout', A.hostInput);
+  await tick();
+  assert.deepEqual(A.focused, ['input'],
+    '#148 宿主半：焦点被搬进壁纸帧 ⇒ 必须交还给用户本来在用的元素（实测 ' + JSON.stringify(A.focused) + '）');
+  assert.equal(A.win.__weFocusHandback.handbacks, 1, '#148 宿主半：交还次数必须如实记账');
+  // 壁纸帧自己拿到 focusin 时不许覆盖"记住的元素"（覆盖了 = 下一轮就没得交还，整条机制空转）。
+  A.fire('focusin', A.frame);
+  assert.equal(A.win.__weFocusHandback.lastEl, A.hostInput,
+    '#148 宿主半：壁纸帧自己拿到 focusin 时不许覆盖记住的宿主元素');
+
+  // §11 A3-F1：`lastHandBackAt` 现在挂在 state 上（不再是闭包局部）⇒ 每条负对照前**清零**。
+  // 否则"刚刚交还过（< MIN_GAP_MS）"会抢在②③⑤任何一条判定之前 return，把负对照全变成假绿
+  // —— 实测删掉 ②/③/⑤ 里任意一条判据，verify-client 仍然是 EXIT 0。
+  const resetGap = () => { A.win.__weFocusHandback.lastHandBackAt = 0; };
+
+  // ②负对照之一：焦点落进**宿主元素**（不是壁纸帧）⇒ 不交还（否则会和用户正常切焦点拉锯）。
+  resetGap();
+  A.doc.activeElement = A.hostButton;
+  A.fire('focusin', A.hostInput);
+  A.fire('focusout', A.hostInput);
+  await tick();
+  assert.equal(A.win.__weFocusHandback.handbacks, 1,
+    '负对照①：焦点落到宿主元素上时不许交还（否则用户每次点别处都被拽回来）');
+
+  // ②负对照之二：`activeElement` 是壁纸帧但**已断开** ⇒ 不交还（聚焦一个不在文档里的元素毫无意义）。
+  resetGap();
+  A.doc.activeElement = { tagName: 'IFRAME', className: 'we-iframe', isConnected: false };
+  A.fire('focusout', A.hostInput);
+  await tick();
+  assert.equal(A.win.__weFocusHandback.handbacks, 1,
+    '负对照②：壁纸帧已断开时不许交还');
+
+  // ②负对照之三：focusout 来自**别的**元素 ⇒ 连判断都不进（否则每次 blur 都要走一轮）。
+  resetGap();
+  A.doc.activeElement = A.frame;
+  A.fire('focusin', A.hostButton);
+  const skipBefore = A.win.__weFocusHandback.skipped;
+  A.fire('focusout', A.hostInput);
+  await tick();
+  assert.ok(A.win.__weFocusHandback.handbacks === 1 && A.win.__weFocusHandback.skipped === skipBefore,
+    '负对照③：focusout 的 target 不是记住的那个元素时不交还、也不记 skipped（只认"刚从它离开"）');
+
+  // ③ 保险一：记住项过期（半天前点过的输入框不许被翻出来抢焦点）。
+  //    ⚠️ 先睡过 MIN_GAP、并**清零 lastHandBackAt** 再测：否则"没交还"可能是频率下限拦的，
+  //    判据就不精确了（首版正是这样"看着绿、其实测的不是这条"—— 它掩盖了阳性对照的失败）。
+  await sleep(320);
+  resetGap();
+  A.win.__weFocusHandback.lastAt = Date.now() - 200000;
+  A.doc.activeElement = A.frame;
+  const skippedBefore = A.win.__weFocusHandback.skipped;
+  A.fire('focusout', A.hostButton);
+  await tick();
+  assert.ok(A.win.__weFocusHandback.handbacks === 1 && A.win.__weFocusHandback.skipped === skippedBefore + 1,
+    '#148 宿主半：记住项超过 STALE_MS 就不交还（且要记一次 skipped，真机据此区分"没触发"与"没装上"）');
+
+  // ③ 阳性对照：间隔够、记住项新鲜 ⇒ 交还成立（同时也是下一条负对照的前提）。
+  resetGap();
+  A.win.__weFocusHandback.lastAt = Date.now();
+  A.fire('focusout', A.hostButton);
+  await tick();
+  assert.equal(A.win.__weFocusHandback.handbacks, 2,
+    '#148 宿主半：正常条件下交还成立（为下一条负对照提供前提）');
+
+  // ③ 保险二：交还频率下限（壁纸高频夺焦时不至于把主线程拖成焦点乒乓）。
+  A.doc.activeElement = A.frame;
+  A.fire('focusout', A.hostButton);
+  await tick();
+  assert.equal(A.win.__weFocusHandback.handbacks, 2,
+    '#148 宿主半：两次交还之间必须隔 MIN_GAP_MS（紧随其后的第二次不许再交还）');
+  await sleep(320);
+  A.fire('focusout', A.hostButton);
+  await tick();
+  assert.equal(A.win.__weFocusHandback.handbacks, 3,
+    '负对照：间隔够了（320ms > MIN_GAP_MS）就必须恢复交还 ⇒ 上一条判的不是别的东西');
+
+  // ④ 拆除：摘干净、标记 inactive、拆完不再交还。
+  disposeA();
+  assert.equal(A.listeners.length, 0, '#148 宿主半：拆除函数必须摘掉全部监听器，残留 ' + A.listeners.length);
+  assert.equal(A.win.__weFocusHandback.active, false, '#148 宿主半：拆除后状态必须标记 inactive');
+  A.doc.activeElement = A.frame;
+  A.fire('focusout', A.hostButton);
+  await tick();
+  assert.equal(A.win.__weFocusHandback.handbacks, 3, '负对照：拆除后不许再交还');
+  assert.ok(typeof A.mod.installFocusHandback() === 'function', '#148 宿主半：拆除后必须能重新装上');
+
+  // ④'' §11 A3-F2：手势窗口里跳过的交还**不永久丢失** —— 窗口关闭时自动补交一次。
+  //    没有这一步：焦点进壁纸帧之后宿主收不到 keydown（`gestureAt` 就此冻结），唯一的触发
+  //    路径（focusout 的那个 setTimeout）也不会再来 ⇒ 打字期间被夺走的焦点永久掉地。
+  //    用**独立实例**，免得补交定时器插入上面那串计量序列。
+  const R = buildFh(fhSrc);
+  const disposeR = R.mod.installFocusHandback();
+  R.fire('focusin', R.hostInput);
+  R.fire('pointerdown', null); // 用户自己去点了壁纸 ⇒ 这一轮先跳过
+  assert.ok(R.win.__weFocusHandback.gestureAt > 0,
+    '#148 宿主半：window 上的四类手势必须刷新"最近真实交互"时间戳');
+  R.doc.activeElement = R.frame;
+  R.fire('focusout', R.hostInput);
+  await tick();
+  assert.ok(R.win.__weFocusHandback.handbacks === 0 && R.win.__weFocusHandback.skipped === 1
+    && R.focused.length === 0,
+    'A3-F2 前提：手势窗口内先跳过（不许立刻交还，且要记一次 skipped），实测 '
+    + JSON.stringify({ handbacks: R.win.__weFocusHandback.handbacks, skipped: R.win.__weFocusHandback.skipped, focused: R.focused }));
+  await sleep(1150); // 窗口 1000ms 关闭 ⇒ 无需新的 focusout，补交自己发生
+  assert.deepEqual(R.focused, ['input'],
+    'A3-F2：手势窗口里跳过的交还必须在窗口关闭后补一次（实测 ' + JSON.stringify(R.focused) + '）');
+  assert.equal(R.win.__weFocusHandback.handbacks, 1, 'A3-F2：补交也要如实记账');
+  // 补交只有**一个在途定时器**：窗口里再来几次 focusout 不叠加、也不立刻交还。
+  R.fire('pointerdown', null);
+  R.doc.activeElement = R.frame;
+  R.fire('focusout', R.hostInput);
+  R.fire('focusout', R.hostInput);
+  await tick();
+  assert.ok(R.win.__weFocusHandback.handbacks === 1 && R.win.__weFocusHandback.skipped === 3,
+    'A3-F2：窗口内重复 focusout 不立刻补交、每次跳过都记账，实测 '
+    + JSON.stringify({ handbacks: R.win.__weFocusHandback.handbacks, skipped: R.win.__weFocusHandback.skipped }));
+  // 拆除必须清掉在途的补交定时器（否则拆完还有异步动静，真机上则是永远醒着的空定时器）。
+  // 观测点 = `state.retrying`（自证面里就带着"有没有一个在途的补交定时器"）：只看 handbacks
+  // 是抓不到的 —— 定时器即使活着也会被 handBack 首行的 `!active` 挡住，交还计数不变。
+  assert.equal(R.win.__weFocusHandback.retrying, true,
+    'A3-F2 前提：窗口内跳过一次之后必须真的挂着一个在途补交定时器（否则下一条判据没在判它）');
+  disposeR();
+  assert.equal(R.win.__weFocusHandback.retrying, false,
+    'A3-F2/F5：拆除必须清掉在途的补交定时器（`retrying` 仍为 true = 定时器泄漏，实测被清掉后才是 false）');
+  await sleep(1150);
+  assert.equal(R.win.__weFocusHandback.handbacks, 1,
+    'A3-F2：拆除后补交不许再发生（实测补交又在拆除后发生了）');
+
+  // ④' 环境能力：本仓的 verify 挂载台用 stub `document`（只有 body / style，没有 addEventListener）
+  //     ⇒ 必须安静退场（返回 null、不抛、不留半个监听器）。实测 verify-transcode-state 的挂载台
+  //     就是这种 document，`ctx.effect` 里抛会中断整条 apply（首版正是这样红的）。
+  const bare = buildFh(fhSrc);
+  bare.doc.addEventListener = undefined;
+  let bareThrew = false;
+  let bareRet = 'unset';
+  try { bareRet = bare.mod.installFocusHandback(); } catch (err) { bareThrew = true; }
+  assert.ok(bareThrew === false && bareRet === null,
+    '#148 宿主半：宿主 DOM 能力不全时必须安静退场（返回 null 且不抛），实测 ret=' + String(bareRet));
+  assert.equal(bare.listeners.length, 0, '#148 宿主半：退场时不许留下半个监听器');
+
+  // 变异负对照（判据真的在判"手势"与"落点"）：喂同一份源码的两个改写版，各拆掉一条判据。
+  // ⚠️ A3-F2 之后手势分支的正文变了（里面多了一段补交）⇒ 这里只替换**判断头**；并且断言
+  // 改写确实生效（`replace` 落空会得到一个和原版逐字相同的"变异体"，那种绿是假绿）。
+  const mutGestureSrc = fhSrc.replace(
+    'if (now - state.gestureAt <= GESTURE_WINDOW_MS) {', 'if (false) { /* 去掉手势判定 */');
+  assert.ok(mutGestureSrc !== fhSrc,
+    'negative control 的改写必须真的命中源码（否则变异体 = 原版，绿是假的）');
+  const mutGesture = buildFh(mutGestureSrc);
+  mutGesture.mod.installFocusHandback();
+  mutGesture.fire('pointerdown', null);
+  mutGesture.fire('focusin', mutGesture.hostInput);
+  mutGesture.doc.activeElement = mutGesture.frame;
+  mutGesture.fire('focusout', mutGesture.hostInput);
+  await tick();
+  assert.deepEqual(mutGesture.focused, ['input'],
+    'negative control: 摘掉"最近真实交互"判定 ⇒ 有手势也会交还 ⇒ 上面那条负对照不是空转');
+  const mutTargetSrc = fhSrc.replace('if (!weIsWallpaperFrame(active) || !active.isConnected) return;',
+    '/* 不看落点 */');
+  assert.ok(mutTargetSrc !== fhSrc, 'negative control 的改写必须真的命中源码');
+  const mutTarget = buildFh(mutTargetSrc);
+  mutTarget.mod.installFocusHandback();
+  mutTarget.fire('focusin', mutTarget.hostInput);
+  mutTarget.doc.activeElement = mutTarget.hostButton;
+  mutTarget.fire('focusout', mutTarget.hostInput);
+  await tick();
+  assert.deepEqual(mutTarget.focused, ['input'],
+    'negative control: 摘掉"焦点得在壁纸帧里"判定 ⇒ 落到宿主元素也交还 ⇒ 上面那条负对照不是空转');
 }
 
 // ── 滑块的取值域必须**同源于 schema**（为一个真实事故补的判据）────────────────────

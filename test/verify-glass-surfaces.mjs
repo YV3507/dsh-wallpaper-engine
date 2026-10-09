@@ -84,9 +84,12 @@ const SURFACES = [
       + '⚠️ 这里原先写的是"接线未完成"且档位 `global` —— 那条 why 在 W2 之后**已过期**，本次按事实改判 private。',
   },
   {
-    id: 'glass-child-floaters', label: '浮层玻璃（子项）', anchors: ['.we-update-notice', '.we-repo-panel--open'], tier: 'private',
+    id: 'glass-child-floaters', label: '浮层玻璃（子项）', anchors: ['.we-update-notice', '.we-repo-panel--open', '[data-install-registry]'], tier: 'private',
     why: '同 `settingsWindow`：W4 起**已接线**（`--we-floaters-blur` / `-alpha`，产物里 4 处 var() 消费）'
-      + '⇒ 原 why 的"接线未完成"过期，改判 private。',
+      + '⇒ 原 why 的"接线未完成"过期，改判 private。'
+      + ' 2026-10 追加入 `[data-install-registry]`：宿主 plugin-manager 的「插件源」注册表浮层'
+      + '（issue #156②，宿主自己 portal 到 body、本身不带 backdrop-filter）也归这一子项，读同一条'
+      + ' `--we-floaters-blur` ⇒ 与上面两个自有浮层同档，故并进本行而不是新开一条。',
   },
   {
     id: 'conversation-bubbles', label: '消息气泡', anchors: ['[class*="_bubble"]'], tier: 'private',
@@ -340,6 +343,35 @@ function enumerateGlassAnchors(cssText) {
 
 /** 判据：某个登记锚点的字面形态是否在给定文本里找得到。纯函数。 */
 const anchorPresent = (text, anchor) => text.includes(anchor);
+/** 规则头（选择器）清单：先剥注释，只收 `… {` 之前那段。
+ *  用来把 ① 组的"锚点在场"从**任意位置的字符串**升级成"真的出现在某条规则的选择器里"——
+ *  注释里、声明值里的提及都不算。§11 A1-2：`text.includes` 曾被 fallback 孪生里的同名锚点满足，
+ *  于是删掉效果规则仍然全绿。 */
+const ruleHeadersOf = (cssText) => {
+  const headers = [];
+  let buf = '';
+  for (const ch of stripCssComments(cssText)) {
+    if (ch === '{') { headers.push(buf.replace(/\s+/g, ' ').trim()); buf = ''; }
+    else if (ch === '}') buf = '';
+    else buf += ch;
+  }
+  return headers;
+};
+/** 规则清单：剥注释后收 `{header, body}`。⑰/⑱ 用它做"同一条规则里同时成立"的判据。 */
+const rulesOf = (cssText) => {
+  const rules = [];
+  const stack = [];
+  let buf = '';
+  for (const ch of stripCssComments(cssText)) {
+    if (ch === '{') { stack.push({ header: buf.replace(/\s+/g, ' ').trim(), body: '' }); buf = ''; }
+    else if (ch === '}') { const r = stack.pop(); if (r) rules.push(r); buf = ''; }
+    else { buf += ch; if (stack.length) stack[stack.length - 1].body += ch; }
+  }
+  return rules;
+};
+/** 存在一条规则：头含 anchor、头匹配 gateRe、且 body 同时匹配 bodyReqs 里每一条。 */
+const ruleWith = (cssText, anchor, gateRe, bodyReqs) => rulesOf(cssText).some((r) =>
+  r.header.includes(anchor) && gateRe.test(r.header) && bodyReqs.every((re) => re.test(r.body)));
 
 /** 剥 CSS 注释（与本文件顶部对整份样式表用的是同一口径；抽出来给负对照用，
  *  避免出现第二份"剥注释"实现）。CSS 没有行注释，所以朴素块注释正则是安全的。 */
@@ -526,9 +558,12 @@ function switchSemantics(srcText) {
 console.log('\n① 登记面必须真实存在（防僵尸登记；pending 面豁免"必须已存在"）');
 {
   const missing = [];
+  // ⚠️ 判据是"锚点出现在**规则头**里"（不是 CSS 文本任意位置）：效果规则被删掉后，fallback
+  // 孪生里的同名锚点以前会让这条判据继续绿（§11 A1-2）。注释/声明值里的提及同样不算。
+  const RULE_HEADERS = ruleHeadersOf(CSS);
   for (const s of SURFACES) {
     for (const a of s.anchors) {
-      if (anchorPresent(CSS, a)) continue;
+      if (RULE_HEADERS.some((h) => h.includes(a))) continue;
       if (s.pending) continue;                 // 登记在先、实现在后
       missing.push(s.id + ' → ' + a);
     }
@@ -536,13 +571,20 @@ console.log('\n① 登记面必须真实存在（防僵尸登记；pending 面�
   check('覆盖面：登记面 ≥ 5 且样式表非空（防解析器返回空表而恒真）',
     SURFACES.length >= 5 && CSS.length > 1000,
     SURFACES.length + ' 个登记面 · stylesheet ' + CSS.length + ' chars');
-  check('每条已实现登记（非 pending）的锚点都在样式表里找得到', missing.length === 0,
+  check('每条已实现登记（非 pending）的锚点都出现在**规则头**里', missing.length === 0,
     missing.length ? '找不到：' + missing.join(', ')
       : (SURFACES.length - SURFACES.filter((s) => s.pending).length) + ' 个已实现面的锚点全部在位');
   check('negative control: 一个不存在的锚点会被同一条判据判出',
-    anchorPresent(CSS, '[data-zzz-synthetic-anchor]') === false);
+    anchorPresent(CSS, '[data-zzz-synthetic-anchor]') === false
+      && RULE_HEADERS.every((h) => !h.includes('[data-zzz-synthetic-anchor]')));
   check('positive control: 一个真实锚点不会被误报',
-    anchorPresent(CSS, '[data-composer-card]') === true);
+    anchorPresent(CSS, '[data-composer-card]') === true
+      && RULE_HEADERS.some((h) => h.includes('[data-composer-card]')));
+  // 新增判据的负/正对照：只在注释里、只在声明值里出现的锚点都**不算**"面存在"。
+  check('negative control: 只在注释 / 声明值里出现的锚点不算面存在',
+    ruleHeadersOf('/* [data-zzz-comment-only] */ body{color:red}').some((h) => h.includes('[data-zzz-comment-only]')) === false
+      && ruleHeadersOf('body[data-we-glass-page]{--x:"[data-zzz-value-only]"}').some((h) => h.includes('[data-zzz-value-only]')) === false
+      && ruleHeadersOf('body[data-we-glass-page]{--x:"[data-zzz-value-only]"}\n[data-zzz-real]{color:red}').some((h) => h.includes('[data-zzz-real]')) === true);
   const noWhy = SURFACES.filter((s) => (s.tier !== 'global' || s.pending) && (!s.why || s.why.trim().length < 10));
   check('非 global 档 / pending 的每条登记都有非空理由',
     noWhy.length === 0, noWhy.map((s) => s.id).join(', ') || '全部已注明');
@@ -654,9 +696,12 @@ console.log('\n③ 档位声明与私有变量组一致（private 必须真接�
 
   // (e) 已清理的死变量**不许回来**。P4 删掉了 `--we-sidebar-alpha`（整份样式表零消费者），
   //     删掉一个死变量之后必须有东西拦着它被"顺手"加回来 —— 否则这次清理就是一次性的。
+  //     同一条棘轮也接住了 `--we-composer-seat-fill`：#156③ 的输入座位底板按用户口径整条
+  //     撤回（见第 ⑯ 组）时令牌一并清掉，留着它会变成一条谁都不读的死声明 —— 而"不再
+  //     写它"这件事本身要有机器证据，否则下一次"顺手"就会把它连着底板一起加回来。
   //     判据：这些名字不得在样式表里被**消费**（`var(--x` 形式）。写在注释里是允许的
   //     （说明"这里为什么不再写它"正是我们想要的文档）。
-  const REAPED_VARS = ['--we-sidebar-alpha'];
+  const REAPED_VARS = ['--we-sidebar-alpha', '--we-composer-seat-fill'];
   const resurrectionHits = (cssText) => REAPED_VARS
     .filter((v) => new RegExp('var\\(\\s*' + v.replace(/[-]/g, '\\-') + '\\s*[,)]').test(cssText));
   const resurrected = resurrectionHits(CSS);
@@ -1273,8 +1318,11 @@ console.log('\n⑨ W5：各面的锚点门控覆盖率（防"关掉后还剩一�
     // ⚠️ 合并 #134：思考玻璃一族在对话面新增了「+」白釉 / 气泡清底等规则，它们的门是
     //    `data-we-thinking-glass`（默认关）—— 与 chat 门同样满足"关 ⇒ 整组不生效"，
     //    并入本面的合法锚点集合（回退干净的性质不变）。
-    { id: 'glass-child-conversation', member: /data-(composer-card|question-key|plan-review-key|approval-key)|_bubble/, anchor: /data-we-glass-fallback|data-we-glass-chat|data-we-thinking-glass/, done: true },
-    { id: 'plugin-floaters', member: /\.we-(update-notice|repo-panel)/, anchor: /data-we-glass-floaters|data-we-glass-fallback/, done: true },
+    { id: 'glass-child-conversation', member: /data-(composer-card|question-key|plan-review-key|approval-key)|_bubble|data-code-block-banner/, anchor: /data-we-glass-fallback|data-we-glass-chat|data-we-thinking-glass/, done: true },
+    // ⚠️ 新登记面必须同步进 member：`[data-install-registry]`（#156② 注册表浮层的霜）当年
+    //    只进了 SURFACES 的锚点清单、没进这里，于是"删掉效果规则"在这条棘轮上无感
+    //    （§11 A1-2）。member 与 SURFACES[].anchors 是**两套**登记，新增面时两处都要动。
+    { id: 'plugin-floaters', member: /\.we-(update-notice|repo-panel)|\[data-install-registry\]/, anchor: /data-we-glass-floaters|data-we-glass-fallback/, done: true },
   ];
 
   const results = GATE.map((g) => ({ ...g, cov: anchorGateCoverageGlaze(CSS, g.member, g.anchor) }));
@@ -1710,6 +1758,77 @@ console.log('\n⑫ 语义表（执行型 · 扰动自证：跟随全局 / 独立
     eff(sOwn, '--we-floaters-blur') === eff(sBase, '--we-floaters-blur'));
 }
 
+// ═══ ⑫b 玻璃色分主题（#159②）════════════════════════════════════════════════
+// #159② 的交付物是"**同一份设置**在两套配色下取到**两个**釉色"。上面 ⑫ 组证不了它：
+// 那里 `glassColor` 是**标量**（`#0000ff` / `#ffff00`），两侧必然同值 ⇒ 把 dark 那一侧
+// 误读成 light，⑫ 组全绿，而用户在深色下看到的还是浅色釉（正是本项要修的那件事）。
+// 所以这里喂一对**跨色相**的颜色，判四个变量两两分开；再判 `--we-glass-color` 仍是
+// 浅色那一侧的**标量**（它是 `test/compat-harness-pages.mjs` 的页面观察量，不能变形）。
+console.log('\n⑫b 玻璃色分主题（#159②：一对颜色 ⇒ 两套配色两个釉色）');
+{
+  const PAIR = { light: '#0000ff', dark: '#ffff00' };  // 跨色相（亮度钳制不吃色相，见 ⑫ 组开头的教训）
+  const fx = { glassColor: PAIR, glassFidelity: 100, chatGlassFidelity: 100 };
+  // 判据形态：**因果**而不是"两个值不相等"。把 dark 那一侧误读成 light 时，两个变量会经过
+  // 不同的两道亮度钳制，输出**仍然不相等** ⇒ "不相等"型判据对这种走样是假绿。所以判
+  // "浅色输出只由 light 那一半决定、深色输出只由 dark 那一半决定"：拿**两侧同色**的两份
+  // 设置当基准，再要求交叉的那一份各自等于对应的基准。
+  const judgesBothHalves = (body, seed) => {
+    const both = run(body, seed);
+    const soloL = run(body, Object.assign({}, seed, { glassColor: { light: PAIR.light, dark: PAIR.light } }));
+    const soloD = run(body, Object.assign({}, seed, { glassColor: { light: PAIR.dark, dark: PAIR.dark } }));
+    const l = (n) => eff(both, n);
+    const wl = eff(soloL, '--we-surface-tint-light');
+    const wd = eff(soloD, '--we-surface-tint-dark');
+    return l('--we-surface-tint-light') === wl && l('--we-surface-tint-dark') === wd && wl !== wd;
+  };
+  const judgesBothHalvesChat = (body, seed) => {
+    const both = run(body, seed);
+    const soloL = run(body, Object.assign({}, seed, { glassColor: { light: PAIR.light, dark: PAIR.light } }));
+    const soloD = run(body, Object.assign({}, seed, { glassColor: { light: PAIR.dark, dark: PAIR.dark } }));
+    const l = (n) => eff(both, n);
+    const wl = eff(soloL, '--we-chat-surface-tint-light');
+    const wd = eff(soloD, '--we-chat-surface-tint-dark');
+    return l('--we-chat-surface-tint-light') === wl && l('--we-chat-surface-tint-dark') === wd && wl !== wd;
+  };
+  const box = run(effectsBody, Object.assign({}, mode(true), fx));
+  const chat = run(effectsBody, Object.assign({}, mode(false), fx));
+  // ❶ 全局釉色（`src/effects.js`）：两侧各自只随自己那一半变
+  check('分主题：--we-surface-tint-{light,dark} 各自只随自己那一半变（浅色输出不受 dark 影响，反之亦然）',
+    judgesBothHalves(effectsBody, Object.assign({}, mode(true), fx)),
+    'light=' + eff(box, '--we-surface-tint-light') + ' · dark=' + eff(box, '--we-surface-tint-dark'));
+  // ❷ 同上，RGB 三元组那一对（消息气泡 / 输入框的 rgba() 槽位走它）
+  check('分主题：--we-surface-tint-rgb-{light,dark} 也分开（两个变量都得写，不能只写一个）',
+    box.wrote.has('--we-surface-tint-rgb-light') && box.wrote.has('--we-surface-tint-rgb-dark')
+      && eff(box, '--we-surface-tint-rgb-light') !== eff(box, '--we-surface-tint-rgb-dark'),
+    'rgb-light=' + eff(box, '--we-surface-tint-rgb-light') + ' · rgb-dark=' + eff(box, '--we-surface-tint-rgb-dark'));
+  // ❸ 对话栏那一面（`src/glass.js` 的 applyGlass）同样要分开 —— 只在**跟随全局**那一档
+  //    （custom 档读自己的 conversationColor，与玻璃色无关）
+  check('分主题：对话栏的 --we-chat-surface-tint-{light,dark} 在跟随全局时也各自只随自己那一半变',
+    judgesBothHalvesChat(effectsBody, Object.assign({}, mode(false), fx)),
+    'light=' + eff(chat, '--we-chat-surface-tint-light') + ' · dark=' + eff(chat, '--we-chat-surface-tint-dark'));
+  check('分主题：对话栏的 rgb 三元组同理分开',
+    eff(chat, '--we-chat-surface-tint-rgb-light') !== eff(chat, '--we-chat-surface-tint-rgb-dark'));
+  // ❹ `--we-glass-color` = 页面观察量：仍是**浅色那一侧**的标量（形状不许变）
+  check('--we-glass-color 仍取浅色那一侧的标量（观察量只要求非空，形状不变）',
+    eff(box, '--we-glass-color') === PAIR.light,
+    '实际 ' + eff(box, '--we-glass-color'));
+  // ❺ 侧栏那面**有意不分主题**（`--we-sidebar-color` 是 body 行内样式，压不过样式表；
+  //    且它的消费者没有 `data-ds-dark-theme` 孪生）⇒ 取浅色那一侧。把它钉住，
+  //    免得以后"顺手也分一下"（那会让深色下的侧栏在浅色主题里不可读）。
+  check('侧栏玻璃色有意只跟浅色那一侧（分主题的例外，写在这里免得被当成漏做）',
+    eff(chat, '--we-sidebar-color') === PAIR.light,
+    '实际 ' + eff(chat, '--we-sidebar-color'));
+  // ❻ 负对照：把 dark 那一侧误读成 light（#159② 最可能出现的实现走样）⇒ ❶❸ 必须判出
+  const DARK_READ = /glassColorOf\(selection, "dark"\)/g;
+  const darkReads = (effectsBody.match(DARK_READ) || []).length;
+  if (darkReads === 0) throw new Error('负对照没找到 dark 取色点（判据会变成假绿）');
+  const mutated = effectsBody.split(DARK_READ).join('glassColorOf(selection, "light")');
+  check('negative control: 把 dark 那一侧误读成 light（共 ' + darkReads + ' 处）后，❶❸ 必须判出',
+    !judgesBothHalves(mutated, Object.assign({}, mode(true), fx))
+      && !judgesBothHalvesChat(mutated, Object.assign({}, mode(false), fx)));
+}
+
+
 // ═══ ⑬ CSS 契约：按面变量**零兜底** + 门控许可证 + 双向对账（R2 起）═══════════
 // R2 去掉了样式表里 62 处按面变量的**内层兜底**（`var(--we-<面>-x, <兜底>)` → `var(--we-<面>-x)`）。
 // 为什么可以去掉（**许可证**，本组要把它判住）：那些规则（至少）挂在
@@ -1947,6 +2066,263 @@ console.log('\n⑪ 思考玻璃门不碰输入框（用户口径 2026-10-04）')
       const mm = /([^{}]*data-we-thinking-glass\][^{}]*)\{([^{}]*)\}/.exec(synth);
       return Boolean(mm) && /data-composer-card/.test(mm[1]);
     })());
+}
+
+// ═══ ⑮ 滚动条拇指并入插件取色（#157）══════════════════════════════════════════
+// 口径：宿主把滚动条拇指色写成四个 `--dsw-alias-scrollbar-*` 令牌，取的是**静态中性色**
+// （浅色 neutral-200/300、深色 neutral-700/600/550/500），与插件的玻璃色相无关 ⇒
+// 压在玻璃面板上显得突兀（#157）。修法：在两个页面玻璃令牌块里重声明这四个令牌，
+// 取值必须掺入用户选的玻璃底色（`--we-surface-tint-light/dark`）。
+// 为什么一处就够：宿主各处滚动容器的局部重声明写的都是 `var(--dsw-alias-scrollbar-bg-l2)`
+// 这一层**间接**，自定义属性**按元素**解析（不是按声明处），所以在 body 上换掉底层令牌，
+// 全部局部重声明都会解析到插件的值 —— 不需要逐个锚点补，也不碰任何类名哈希。
+// 本组判据只看「有没有掺玻璃底色」，不判颜色好看与否（观感不可自动判定）。
+{
+  const SCROLLBAR_TOKENS = ['--dsw-alias-scrollbar-bg-l1', '--dsw-alias-scrollbar-bg-l2',
+    '--dsw-alias-scrollbar-hover-l1', '--dsw-alias-scrollbar-hover-l2'];
+  const NOT_MIX = '不是 color-mix';
+  const NO_TINT = '未掺玻璃底色';
+  // 与主判据**共用**的这一条：空 / 非 color-mix / 没掺底色 / **权重被摘成 0** 各自给出理由，合规返回 ''。
+  // ⚠️ 最后一条是 §11 A1-5：以前只判 `^color-mix(` + 含 tint 令牌名，于是把权重改成 `0%`
+  // （= 这道 #157 的成果被静默抹掉）仍然全绿。权重必须落在 (0, 100]。
+  const splitTopCommas = (s) => {
+    const out = [];
+    let depth = 0;
+    let buf = '';
+    for (const ch of s) {
+      if (ch === '(') depth++;
+      else if (ch === ')') depth--;
+      if (ch === ',' && depth === 0) { out.push(buf); buf = ''; }
+      else buf += ch;
+    }
+    out.push(buf);
+    return out;
+  };
+  // 返回：undefined = 没有以该 tint 令牌为色的停靠点；null = 有停靠点但没写权重；否则是权重数字。
+  // ⚠️ 必须先剥掉最外层 `color-mix(...)`：不剥的话外层括号让"顶层逗号"永远在 depth 1，
+  // 整个值被当成一个停靠点，结尾是 `))` 而不是 `%` ⇒ 每条合规声明都被误判成"没给权重"。
+  const colorMixBody = (value) => {
+    const i = value.indexOf('(');
+    if (i < 0) return value;
+    let depth = 0;
+    for (let j = i; j < value.length; j++) {
+      if (value[j] === '(') depth++;
+      else if (value[j] === ')') { depth--; if (depth === 0) return value.slice(i + 1, j); }
+    }
+    return value.slice(i + 1);
+  };
+  const tintWeightOf = (value, tintVar) => {
+    for (const stop of splitTopCommas(colorMixBody(value))) {
+      if (!stop.includes(tintVar)) continue;
+      const m = /([\d.]+)\s*%\s*$/.exec(stop.trim());
+      return m ? Number(m[1]) : null;
+    }
+    return undefined;
+  };
+  const badScrollbarDecl = (value, tintVar) => {
+    if (!value) return '缺声明';
+    if (!/^color-mix\(/.test(value)) return NOT_MIX;
+    const w = tintWeightOf(value, tintVar);
+    if (w === undefined) return NO_TINT;
+    if (w === null) return '玻璃底色没给权重';
+    if (!(w > 0 && w <= 100)) return '玻璃底色权重 ' + w + '% 不在 (0, 100]';
+    return '';
+  };
+  // 块体抽取：同一个 header 可能出现多次（第一个 body[data-we-glass-page] 是主令牌映射），
+  // 取**含 marker 的那一块**，否则会读到不相干的块。
+  const blockWith = (cssText, header, marker) => {
+    for (let from = 0; ;) {
+      const i = cssText.indexOf(header, from);
+      if (i < 0) return '';
+      const open = cssText.indexOf('{', i);
+      const close = cssText.indexOf('}', open);
+      const body = cssText.slice(open + 1, close);
+      if (body.includes(marker)) return body;
+      from = i + 1;
+    }
+  };
+  // 块内声明表：先剥注释（注释里也会提到这些令牌名，直接正则找会先抓到注释），再按 ';'
+  // 切段解析。⚠️ 不能用「前面必须是 ; 或字符串开头」的正则 —— 块内第一条声明前面是注释的
+  // `*/`，那样会漏掉第一条（本组首版就是这么漏了 --dsw-alias-scrollbar-bg-l1）。
+  const declsOf = (body) => {
+    const out = new Map();
+    for (const part of stripCssComments(body).split(';')) {
+      const m = /^\s*(--[a-z0-9-]+)\s*:\s*([\s\S]+)$/.exec(part);
+      if (m) out.set(m[1], m[2].trim().replace(/\s+/g, ' '));
+    }
+    return out;
+  };
+  // ⚠️ MARKER 只用来"认块"：必须**同时**出现在浅/深两个页面玻璃令牌块里、且别处不出现。
+  // 曾经用 --we-composer-seat-fill，它随 #156③ 座位底板一起被清理（见第 ⑯ 组与 REAPED_VARS）
+  // ⇒ 换成这两个块里真正的正文令牌 --dsw-alias-scrollbar-bg-l1（本组要判的就是它）。
+  const MARKER = '--dsw-alias-scrollbar-bg-l1';
+  const TARGETS = [
+    ['浅色', 'body[data-we-glass-page] {', 'var(--we-surface-tint-light'],
+    ['深色', 'body[data-ds-dark-theme][data-we-glass-page] {', 'var(--we-surface-tint-dark'],
+  ];
+  const problems = [];
+  let declared = 0;
+  for (const [label, header, tintVar] of TARGETS) {
+    const body = blockWith(STYLES_TEXT, header, MARKER);
+    if (!body) problems.push(label + ' 找不到页面玻璃令牌块（marker ' + MARKER + '）');
+    const decls = body ? declsOf(body) : new Map();
+    for (const token of SCROLLBAR_TOKENS) {
+      const value = decls.get(token) || '';
+      if (value) declared++;
+      const bad = badScrollbarDecl(value, tintVar);
+      if (bad) problems.push(label + ' ' + token + '：' + bad);
+    }
+  }
+  check('滚动条拇指的四个宿主令牌在两个页面玻璃块里都重声明、且都掺了该主题的玻璃底色（#157）',
+    problems.length === 0,
+    problems.length ? problems.join(' | ')
+      : declared + ' 条声明全部掺了玻璃底色（' + TARGETS.length + ' 个主题块 × '
+        + SCROLLBAR_TOKENS.length + ' 个令牌）');
+  check('negative control: 静态中性色 / 无 color-mix / 缺声明三种形态都会被同一条判据判出',
+    badScrollbarDecl('var(--dsw-static-neutral-300, #d4d4d4)', 'var(--we-surface-tint-light') === NOT_MIX
+      && badScrollbarDecl('color-mix(in srgb, #d4d4d4 40%, #a2a4a6)', 'var(--we-surface-tint-light') === NO_TINT
+      && badScrollbarDecl('', 'var(--we-surface-tint-light') === '缺声明'
+      && badScrollbarDecl('color-mix(in srgb, var(--we-surface-tint-light, #ffffff) 40%, var(--dsw-static-neutral-300, #d4d4d4))',
+        'var(--we-surface-tint-light') === '');
+  // §11 A1-5：把权重摘掉（0% / 不写权重）必须判出，否则 #157 的成果可以静默归零。
+  check('negative control: 玻璃底色权重 0% / 未写权重都会被同一条判据判出（A1-5）',
+    badScrollbarDecl('color-mix(in srgb, var(--we-surface-tint-light, #ffffff) 0%, var(--dsw-static-neutral-300, #d4d4d4))',
+      'var(--we-surface-tint-light') === '玻璃底色权重 0% 不在 (0, 100]'
+      && badScrollbarDecl('color-mix(in srgb, var(--we-surface-tint-light, #ffffff), var(--dsw-static-neutral-300, #d4d4d4))',
+        'var(--we-surface-tint-light') === '玻璃底色没给权重'
+      && badScrollbarDecl('color-mix(in srgb, var(--dsw-static-neutral-300, #d4d4d4) 60%, var(--we-surface-tint-light, #ffffff) 40%)',
+        'var(--we-surface-tint-light') === '');
+}
+
+// ═══ ⑯ 输入座位不铺底板（#156③ 整条撤回）═════════════════════════════════════
+// 事实：宿主把「输入卡 + dock 行（统计行 / 模型按钮 / ContextMeter）」一起装进
+// [data-composer-seat] 这条**整宽**的 sticky 座位（实测 110–130px 高），并给它画一条
+// 「透明 → --dsw-alias-bg-base」的渐变当底板。宿主那块为什么看不出来：该令牌就是
+// **页面底色**（原生不透明 ⇒ 与整页同色，天然隐形）。插件把页面换成壁纸后，同一块面积
+// 不再隐形 ⇒ #156③ 曾让插件接管这条底衬，但**几何照抄宿主**（0px 渐显后铺满整座位）
+// ⇒ 壁纸上出现一条整宽、约 120px 的半透明奶白带，用户口径：「主页面底部出现很高的一条
+// 灰色遮罩条」。收窄成"只铺贴底 48px 的渐隐 + 按 70% 稀释"之后，用户仍认为那一条多余
+// ⇒ **整条撤回**（令牌与规则一起删，`--we-composer-seat-fill` 进了本文件的 REAPED_VARS）。
+// 代价（有意接受）：最下面那条 dock 带自己没有底色，直接压在壁纸上 —— 撤回后的用户口径
+// 优先于 #156③ 的"统计行需要底板"，这也是宿主在原生模式下的观感（那边恰好与页面同色）。
+// 本组把撤回钉成机器事实（反向棘轮）：座位相关规则里不许再出现 background /
+// background-image / background-color（底板回归 = 灰条回归，用户已两次否定这个方向），
+// 也不许出现 backdrop-filter（#89：座位内含 position:fixed 后代，挂霜会把它们重新锚定，
+// 掉约 522px）。判据必须能对**旧形态**判出 —— 见下面的负对照，否则"零命中"没有证据力。
+console.log('\n⑯ 输入座位不铺底板（#156③ 已撤回）');
+{
+  const SEAT_SEL = '[data-composer-seat]';
+  // 取"选择器里提到座位锚点"的所有规则体。先剥注释：样式表里的说明文字也会提到这个属性，
+  // 直接找会把注释当成规则（首版就是这么踩的 —— 注释里第一个 `}` 还会截断后面的真规则）。
+  const seatBodiesOf = (cssText) => {
+    const text = stripCssComments(cssText);
+    const out = [];
+    for (let from = 0; ;) {
+      const i = text.indexOf(SEAT_SEL, from);
+      if (i < 0) break;
+      const open = text.indexOf('{', i);
+      const close = open < 0 ? -1 : text.indexOf('}', open);
+      if (close < 0) break;
+      out.push(text.slice(open + 1, close));
+      from = close + 1;
+    }
+    return out;
+  };
+  const PLATE_DECLS = ['background', 'background-image', 'background-color', 'backdrop-filter'];
+  const seatPlateOffenders = (cssText) => {
+    const hits = [];
+    for (const body of seatBodiesOf(cssText)) {
+      for (const part of body.split(';')) {
+        const m = /^\s*([a-z-]+)\s*:/.exec(part);
+        if (m && PLATE_DECLS.includes(m[1])) hits.push(m[1]);
+      }
+    }
+    return hits;
+  };
+  const bodies = seatBodiesOf(STYLES_TEXT);
+  const offenders = seatPlateOffenders(STYLES_TEXT);
+  check('座位锚点下不再铺底板、也不挂霜（#156③ 整条撤回后的棘轮）',
+    offenders.length === 0,
+    offenders.length ? '座位规则里仍有：' + offenders.join(', ')
+      : '座位相关规则 ' + bodies.length + ' 块，零 background / 零 backdrop-filter');
+  // 负对照：喂**同一个**判据函数，三种旧形态（渐变底衬 / 实色底衬 / 挂霜）都必须判出；
+  // 正对照：座位规则只剩定位声明（真规则）与"只在注释里提到"两种形态**不许**误报。
+  check('negative control: 旧底板（渐变 / 实色 / 挂霜）判出；只剩 z-index 的座位规则与注释提及不误报',
+    seatPlateOffenders('x[data-composer-seat]{background-image: linear-gradient(180deg, transparent calc(100% - 48px), color-mix(in srgb, var(--we-x) 70%, transparent) 100%) !important}').length === 1
+      && seatPlateOffenders('x[data-composer-seat]{background: var(--we-y) !important}').length === 1
+      && seatPlateOffenders('x[data-composer-seat]{background-color: rgba(255, 255, 255, 0.56)}').length === 1
+      && seatPlateOffenders('x[data-composer-seat]{z-index: 7; position: sticky; bottom: 0}').length === 0
+      && seatPlateOffenders('/* 座位 [data-composer-seat] 不再写 background-image（#156③ 已撤回） */').length === 0);
+}
+
+console.log('\n⑰ 新登记面的有效声明（A1-2：锚点在场 ≠ 效果在场）');
+{
+  // ① 组的"锚点在场"曾是纯 `text.includes(anchor)`：把效果规则整块删掉，**fallback 孪生**
+  // 里的同名锚点仍让判据绿（§11 A1-2 实测：删 #156② 的霜、删 #156④ 的重绘都全绿）。
+  // 这两条新面的效果不是选择器，而是**声明**：
+  //   · #156② 插件源注册表的霜 = `backdrop-filter`（fallback 孪生写的是 `none`，不算效果）；
+  //   · #156④ 吸顶条重绘 = `background-color … !important` **且**带主题釉色变量（浅/深各一条）。
+  // 判据要求所有这些条件在**同一条规则**里成立，不做跨规则拼凑 —— 否则 fallback 的 `none`
+  // 或近不透明板会替真规则顶包。（rulesOf / ruleWith 在文件上方模块级。）
+  // ⚠️ 本组（与 ① 组）读的是 `CSS`：由**产物** `lib/client.js` 里 `const CSS = \`…\`` 求值而来
+  //   （argv[2] 可换产物路径）。所以**只改 `src/styles.js` 不会红** —— 做变异验证必须改产物，
+  //   或先 `npm run build`；否则会拿到"看着绿其实没测到"的假绿（实测踩过）。
+  // ⚠️ `(?!none)` 这种写法是假牙：真文件写的是 `backdrop-filter: none !important`，`\s*` 可以
+  //   回退成空串，于是 lookahead 落在空格上 ⇒ `none` 被当成"非 none 的霜"。必须把空白/`!`
+  //   一起纳入 lookahead（负对照里专门钉了带空格的 `: none !important` 这一形态）。
+  const FROST = /backdrop-filter\s*:\s*(?![\s!]*none\b)[^;]+/;   // `none` 是"摘霜"，不是霜
+  const REAL_BG = /background-color\s*:[^;]*!important/;  // 清底那条是 `background: transparent`（简写），不算
+
+  check('#156② 注册表浮层的霜真在（[data-install-registry] 的玻璃门内、backdrop-filter 非 none）',
+    ruleWith(CSS, '[data-install-registry]', /data-we-glass-floaters/, [FROST]),
+    'anchor+门内 ' + rulesOf(CSS).filter((r) => r.header.includes('[data-install-registry]')).length + ' 条规则');
+  check('#156④ 吸顶条浅色重绘真在（[data-code-block-banner] 门内 + 浅色釉 + !important）',
+    ruleWith(CSS, '[data-code-block-banner]', /data-we-thinking-glass/, [REAL_BG, /--we-surface-tint-light/]));
+  check('#156④ 吸顶条深色重绘真在（同门 + 深色釉 + !important）',
+    ruleWith(CSS, '[data-code-block-banner]', /data-we-thinking-glass/, [REAL_BG, /--we-surface-tint-dark/]));
+  // 负/正对照：喂**同一个** ruleWith —— 只留 fallback 的 `none`、只有清底的简写 transparent、
+  // 只有近不透明板（无釉色）都必须判 false；补上真声明才成立。
+  check('negative control: 只留 fallback 的 `backdrop-filter: none` 不算霜',
+    ruleWith('body[data-we-glass-floaters] [data-install-registry]{-webkit-backdrop-filter:none;backdrop-filter:none}', '[data-install-registry]', /data-we-glass-floaters/, [FROST]) === false
+      && ruleWith('body[data-we-glass-floaters] [data-install-registry]{-webkit-backdrop-filter: none !important;backdrop-filter: none !important}', '[data-install-registry]', /data-we-glass-floaters/, [FROST]) === false
+      && ruleWith('body[data-we-glass-floaters] [data-install-registry]{backdrop-filter: blur(2px)}', '[data-install-registry]', /data-we-glass-floaters/, [FROST]) === true);
+  check('negative control: 清底简写 / 无釉色的近不透明板都不算重绘',
+    ruleWith('body[data-we-glass-page][data-we-thinking-glass] [x] > :has(> [data-code-block-banner]){background: transparent !important}', '[data-code-block-banner]', /data-we-thinking-glass/, [REAL_BG, /--we-surface-tint-light/]) === false
+      && ruleWith('body[data-we-glass-page][data-we-thinking-glass] [x] > :has(> [data-code-block-banner]){background-color: color-mix(in srgb, var(--we-readability-base) 92%, transparent) !important}', '[data-code-block-banner]', /data-we-thinking-glass/, [REAL_BG, /--we-surface-tint-light/]) === false
+      && ruleWith('body[data-we-glass-page][data-we-thinking-glass] [x] > :has(> [data-code-block-banner]){background-color: color-mix(in srgb, var(--we-surface-tint-light, #fff) 20%, transparent) !important}', '[data-code-block-banner]', /data-we-thinking-glass/, [REAL_BG, /--we-surface-tint-light/]) === true);
+}
+
+console.log('\n⑱ 宿主模糊令牌覆盖（#156①：值本身必须真的模糊）');
+{
+  // §11 A1-1：这条修复的**全部效果**就是那条声明的值。`grep -rn -- '--dsw-mask-blur' test/`
+  // 曾经是空的 ⇒ 把值改回宿主默认 `none`（语义上= 整条回退）时 token-contract /
+  // glass-surfaces / readability **三条全绿**；只有整行删掉才被 TOKEN-CONTRACT 的字节普查
+  // 抓到（而它只记条数/行号，重跑 `--write` 就消失）。这里钉住"值"：
+  //   · 必须在玻璃门 `body[data-we-glass-page]` 内（否则非玻璃页面也被改写宿主遮罩）；
+  //   · 值必须引用插件的 --we-blur（宿主只声明一次、无深色孪生 ⇒ 一处覆盖全主题）。
+  const maskBlurDecls = (cssText) => {
+    const out = [];
+    for (const r of rulesOf(cssText)) {
+      for (const m of r.body.matchAll(/--dsw-mask-blur\s*:\s*([^;]+)/g)) out.push({ header: r.header, value: m[1].trim().replace(/\s+/g, ' ') });
+    }
+    return out;
+  };
+  const maskBlurOk = (cssText) => maskBlurDecls(cssText).some((d) =>
+    /data-we-glass-page/.test(d.header)
+      && /--we-blur/.test(d.value)
+      && /(^|[^-\w])blur\(\s*var\(\s*--we-blur/.test(d.value)
+      && !/^none\b/.test(d.value));
+  const real = maskBlurDecls(STYLES_TEXT);
+  check('--dsw-mask-blur 在玻璃门内被覆盖成真的 blur()（非 none、引用 --we-blur）',
+    maskBlurOk(STYLES_TEXT),
+    real.length ? real.map((d) => d.value).join(' | ') : '声明不存在');
+  check('negative control: none / 不引用 --we-blur / 门外的声明都不算有效覆盖',
+    maskBlurOk('body[data-we-glass-page]{--dsw-mask-blur: none}') === false
+      && maskBlurOk('body[data-we-glass-page]{--dsw-mask-blur: none !important}') === false
+      && maskBlurOk('body[data-we-glass-page]{--dsw-mask-blur: blur(16px) saturate(1.8)}') === false
+      && maskBlurOk('body{--dsw-mask-blur: blur(var(--we-blur, 16px))}') === false
+      && maskBlurOk('body[data-we-glass-page]{color:red}') === false
+      && maskBlurOk('body[data-we-glass-page]{--dsw-mask-blur: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01)}') === true);
 }
 
 console.log('');

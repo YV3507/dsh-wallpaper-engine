@@ -2,7 +2,7 @@
 /**
  * verify-retired-lines.mjs —— 已退役的技术线**不许复活、也不许蔓延**（结构性反向探针）。
  *
- * 三条线的状态各不相同，所以探针形态也必须不同 —— 这是本脚本最重要的一处区分：
+ * 四条线的状态各不相同，所以探针形态也必须不同 —— 这是本脚本最重要的一处区分：
  *
  * ① 旧场景播放器线（P0-3 **已下线**）：`/scene-runtime`、`/scene-manifest`、`/scene-resource`
  *    三条路由 + `lib/scene-player.js` + `inventory.sceneUrl` 均已移除 ⇒ 断言**零残留**。
@@ -10,6 +10,8 @@
  *    `SF_BASELINE` 里 —— 而名单**只剩检验者**（守卫必须点名退役词才能断言"它没了"），
  *    产品侧零残留 ⇒ 判据是**不蔓延 + 基线只许缩小**。
  * ③ UI 笔误「秡」（P0-4 **已修**）：断言状态行用的是「档」。
+ * ④ 退役设置键（旧设置面的名字，见文末词表）：`docs/TROUBLESHOOTING.md` 世系标注声称它们在代码里
+ *    **零命中** ⇒ 断言零命中（docs 不在扫描面内 ⇒ 排障页可继续点名它们做核对）。
  *
  * ②为什么基线里留着检验者：它必须拼出退役词才能搜它们，否则本节一条都搜不到（假绿）。
  * 除它之外的任何文件命中退役词 = 有人把这条线接回了主线，必须失败。
@@ -221,6 +223,39 @@ const TEX_EXTRACT_VOCAB = [
 //
 // 两条都按 [`docs/adr/0007`](../docs/adr/0007-machine-checks-target-code-not-prose.md)
 // 撤除；那篇文章里记着"为什么当时会写它"与"为什么现在不留"。
+
+// ── ④ 退役设置键（「空闲预热 / 有损路线 / GPU 渲染加速 / 帧渲染」四个旧设置面的名字）────
+//
+// `docs/TROUBLESHOOTING.md`（中英两版）页首的世系标注声称这四个键在代码里**零命中** ——
+// 这条让那个声称有牙（此前没有任何判据对着它，标注等于空口）。扫描面 = 上方 FILES
+// （lib/src/scripts/test 的源码；**docs 不在扫描面内** ⇒ 排障页继续合法地点名它们做核对）。
+// 检验者必须拼出退役词才能搜它们 ⇒ 本文件被 FILES 过滤器整体排除（否则它一上来就命中自己）。
+const RETIRED_SETTINGS_KEYS = [
+  'sceneFrameRender',
+  'scenePrewarmScope',
+  'sceneLossyRoute',
+  'sceneGpuAccel',
+];
+{
+  const keyHit = (s) => RETIRED_SETTINGS_KEYS.filter((k) => s.includes(k));
+  const hits = [];
+  for (const f of FILES) {
+    const hit = keyHit(read(f));
+    if (hit.length) hits.push(f + '[' + hit.join('|') + ']');
+  }
+  check('退役设置键在代码中零命中（TROUBLESHOOTING 世系标注的凭据）',
+    hits.length === 0,
+    hits.slice(0, 4).join(', ')
+      || '零命中（' + RETIRED_SETTINGS_KEYS.length + ' 键 × ' + FILES.length + ' 文件）');
+  // 负对照 1：走**同一个** needle 判据 —— 词表空了或判据写反时，这条会替"零命中"兜底。
+  check('negative control: 退役键会被同一判据判出',
+    keyHit('settings.sceneFrameRender = 1').join(',') === 'sceneFrameRender'
+    && keyHit('settings.frameRateCap = 1').length === 0);
+  // 负对照 2：needle 非空且本文件确实点名它们 —— 自排除是**承重**的（不排除就必然自命中）。
+  check('needle 非空且本文件确实点名它们（自排除承重）',
+    RETIRED_SETTINGS_KEYS.length >= 4
+    && RETIRED_SETTINGS_KEYS.every((k) => read('test/verify-retired-lines.mjs').includes(k)));
+}
 
 const failed = results.filter((r) => !r).length;
 console.log('\n' + (failed ? 'RETIRED-LINE CHECKS FAILED — ' + failed + ' failed' : 'ALL RETIRED-LINE CHECKS PASSED') + ' (' + results.length + ')');

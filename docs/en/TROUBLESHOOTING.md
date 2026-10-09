@@ -7,9 +7,11 @@
 > reference switches that **do not exist on the current branch** — "空闲预热 / 预热整个库"
 > (idle prewarm / prewarm the whole library), "有损路线" (lossy route) and "GPU 渲染加速"
 > (GPU render acceleration). Verify it yourself: in the code, `sceneFrameRender` /
-> `scenePrewarmScope` / `sceneLossyRoute` / `sceneGpuAccel` **all have zero hits**.
+> `scenePrewarmScope` / `sceneLossyRoute` / `sceneGpuAccel` **all have zero hits** — that zero-hit
+> claim is reconciled by `test/verify-retired-lines.mjs`; if any of the four keys reappears in the
+> code, that check reports a failure.
 > So those entries' "expected behaviour" describes **only versions that still have those switches**;
-> on the current branch trust the actual panel (a script checks this note against the facts above).
+> on the current branch trust the actual panel.
 
 ## "I changed the plugin and nothing happens at all" — separate the **client half** from the **host half** first
 

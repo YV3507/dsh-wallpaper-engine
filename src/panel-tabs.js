@@ -880,7 +880,7 @@
   }
 
   function renderAppearanceFontSection(ctx) {
-    const { officialColorOf, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlobalFamily, onRefreshSystemFonts, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onToggleFontCustom, fontSet, sel, surface } = ctx;
+    const { officialColorOf, onComponentFamily, onComponentFont, onFontAdvanced, onFontResetAll, onGlobalFamily, onRefreshSystemFonts, onThemeColor, onThemeColorClear, onThemeDarkSeparate, onThemeFamily, onThemeSize, onThemeTypeOnly, onThemeWeight, onToggleFontCustom, fontOpen, onToggleFontSection, fontSet, sel, surface } = ctx;
     const sidebarSurface = surface === "sidebar";
     // 「排版角色」表要按「只看改过的」筛，而**筛完是空**时要单独给一行提示 ⇒ 先算出来再渲染表。
     // ⚠️ 必须在 `React.createElement(...)` **之前**算（写成参数位置上的赋值表达式 ——
@@ -890,21 +890,42 @@
       || sel.themeSize[role.id] !== undefined
       || sel.themeWeight[role.id] !== undefined
       || sel.themeFamily[role.id] !== undefined);
+    // ── 折叠态：整节一个开关（`fontOpen`，默认收起 —— 调节项太多，默认全开太杂乱）。
+    //    开合状态住 localStorage（quick-panel 的 qp-font-open），渲染器只经 ctx 读它 + 调
+    //    onToggleFontSection，保持纯读契约。设置页档**整节不画**（门在下面）。
+    const open = fontOpen === true;
     return React.createElement(React.Fragment, null,
     // ── 字体 (custom typography)：总开关（关 = 恢复 dsh 原生字体）+ 颜色角色 / 排版角色 /
     //    字体族 / 组件字体（高级），开启时才渲染细节控件。字重不设全局值：按角色与按组件细化。
-    //    ⚠️ 这一节属**高级配置**（面板太窄、字体是低频深配）⇒ 侧栏档不画；
-    //    分档见 ADR-0008 D4。它与 quick-panel 的字体占位器互为负对照。 ──
-    !sidebarSurface && React.createElement("div", { className: "we-picker__section" },
-      React.createElement("div", { className: "we-picker__section-head" },
+    //    ⚠️ 分档（ADR-0008 D4，2026-10-09 用户口径）：这一节**只在侧栏档画**，且**默认收起**
+    //    （节头点击展开）。原「设置页对话框挡住主页面、调完看不到实时效果」是迁移动因；
+    //    设置页侧的门与 quick-panel 提供的真值互为对照（见下面的 sidebarSurface 门）。 ──
+    sidebarSurface && React.createElement("div", { className: "we-picker__section" },
+      React.createElement("div", {
+        className: "we-picker__section-head we-picker__section-head--toggle",
+        role: "button",
+        tabIndex: 0,
+        "aria-expanded": open ? "true" : "false",
+        onClick: () => onToggleFontSection && onToggleFontSection(),
+        onKeyDown: (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            if (onToggleFontSection) onToggleFontSection();
+          }
+        },
+      },
         React.createElement("span", { className: "we-picker__section-label" }, weT("全局字体")),
+        React.createElement("span", {
+          className: "we-picker__section-caret" + (open ? " is-open" : ""),
+          "aria-hidden": "true",
+        }, "▾"),
       ),
-      switchRow(weT("字体自定义"), sel.fontCustom, (e) => onToggleFontCustom(e.target.checked), {
+      open && switchRow(weT("字体自定义"), sel.fontCustom, (e) => onToggleFontCustom(e.target.checked), {
         tooltip: weT("关闭后恢复 dsh 默认字体外观；开启后可调颜色角色、排版角色（字号/字重/字族）与组件字体"),
       }),
       // 「恢复默认」只在总开关开启时出现：关闭时字体本就是 DSH 默认值，摆一个"恢复默认"
       // 没有意义（也会让人以为关掉开关还残留了什么自定义）。
-      sel.fontCustom && React.createElement("div", { className: "we-picker__ctl" },
+      open && sel.fontCustom && React.createElement("div", { className: "we-picker__ctl" },
         React.createElement("button", {
           type: "button",
           className: "we-picker__chip",
@@ -912,7 +933,7 @@
           title: weT("清空所有字体自定义项（颜色角色 / 排版 / 字重 / 字族 / 组件字体），回到 DSH 默认"),
         }, weT("恢复默认")),
       ),
-      sel.fontCustom && React.createElement(React.Fragment, null,
+      open && sel.fontCustom && React.createElement(React.Fragment, null,
         renderFontGlobalFamily(sel, onGlobalFamily, onComponentFamily, onRefreshSystemFonts),
         renderFontColorRoles(sel, officialColorOf, onThemeDarkSeparate, onThemeColor, onThemeColorClear),
         renderFontTypeRoles(sel, typeRoles, onThemeTypeOnly, onThemeSize, onThemeWeight, onThemeFamily),

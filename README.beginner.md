@@ -67,6 +67,7 @@ dsh plugin --profile web add dsh-plugin-wallpaper-engine
 |---|---|---|
 | **换壁纸** | 选择壁纸 → 库视图里点一张 | Video / Web / 上传的图视频都行 |
 | **关掉壁纸** | 当前壁纸卡片 → 「关闭」 | 壁纸消失，但设置还在 |
+| **关掉玻璃** | 各面各有开关：侧栏 / 思考块 / 左侧栏的「液态玻璃」（侧栏「外观」页签与设置页玻璃区） | 目前**没有**「关掉全部玻璃」的总开关 —— 现状与原因见 `docs/COEXISTENCE.md` |
 | **暂停视频** | 当前壁纸卡片 → ⏸ 按钮 | 只对视频壁纸有用 |
 | **调玻璃透明度** | 顶部「外观」→ 玻璃透明度滑条 | 越高越透，越低越实；文字面有可读性下限压底，调不糊 |
 | **换主题色** | 顶部「外观」→ 配色 | 6 种预设 + 自定义取色 |
@@ -244,6 +245,7 @@ You will see a **liquid-glass card** holding every wallpaper-related control.
 |---|---|---|
 | **Change the wallpaper** | 选择壁纸 → click one in the library view | Video / Web / your own uploaded image or video all work |
 | **Turn the wallpaper off** | current-wallpaper card → 「关闭」 | The wallpaper disappears, the setting is kept |
+| **Turn the glass off** | Per-surface 「liquid glass」 switches (sidebar / thinking block / left sidebar) in the 「外观」 tab or the settings glass section | There is **no** "turn all glass off" master switch yet — current state and why: `docs/COEXISTENCE.md` |
 | **Pause a video** | current-wallpaper card → ⏸ | Video wallpapers only |
 | **Tune glass transparency** | 「外观」 tab → the glass-transparency slider | Higher = clearer, lower = more solid; text surfaces carry a readability floor, so it never becomes unreadable |
 | **Change the accent color** | 「外观」 tab → 配色 | 6 presets + a custom color picker |
