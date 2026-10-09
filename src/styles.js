@@ -697,24 +697,41 @@ const CSS = `
     -webkit-backdrop-filter: blur(var(--we-thinking-trigger-blur, var(--we-blur, 16px))) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
     backdrop-filter: blur(var(--we-thinking-trigger-blur, var(--we-blur, 16px))) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
   }
-  /* ── 输入座位（composer seat）：底部那条 sticky 玻璃底板 ─────────────────────
+  /* ── 输入座位（composer seat）：**贴底那一条**玻璃底衬 ───────────────────────
      #156③：宿主把底部统计行 + 输入卡包在 [data-composer-seat] 这条 sticky 座位里，
      并给座位画一条「透明 → --dsw-alias-bg-base」的渐变当底板。本插件把
      --dsw-alias-bg-base 置成 transparent（好让壁纸透出来），于是宿主那条渐变在座位
      高度上**什么也没画** —— 统计行、滚到座位底下的正文直接压在壁纸上，既无底板也无霜。
      修法：不碰那条共享令牌（整个会话子树都读它，就地抬高 = 把会话重新变实），
      只把**座位自己的背景**换成插件配方（--we-composer-seat-fill，与气泡同一条
-     可读性下限公式），几何照抄宿主（0px → 36px 的竖向渐变），用 !important 压过
-     宿主那条 shorthand（宿主 (0,3,0)，我们 (0,4,1)）。
-     ⚠️ 座位**只给底色、不给霜**：座位里就有 [data-composer-card]，而它内部有
-     position:fixed 后代（AI 浏览器座位，#89，见下面那段）—— 在座位上挂 backdrop-filter
-     会把那些 fixed 后代重新锚到座位上。输入卡自己那层 ::before 霜照旧。
+     可读性下限公式），用 !important 压过宿主那条 shorthand（宿主 (0,3,0)，我们 (0,4,1)）。
+
+     ⚠️⚠️ 几何**只留贴底一条**，不许再铺满整个座位（回归修正在此，勿改回去）：
+     座位高的不是 36px，而是「输入卡 + dock 行 + 内边距」，实测约 110–130px
+     （InputBar 根节点无顶距 + 卡 + .dock{padding-top:4px} + padding-bottom:4px）。
+     首版把插件配方铺满整个座位 ⇒ 在壁纸上就是一条**整宽、约 120px 高的半透明奶白
+     色带**，而且窗口越宽越难看：卡宽 = --dsh-chat-content-width + 32px，
+     座位却是整宽，卡的左右还各留一条空白 gutter。用户口径：「主页面底部出现
+     很高的一条灰色遮罩条」。宿主那条渐变之所以看不出，是因为它的颜色就是
+     **页面底色**（原生不透明 ⇒ 与整页同色、天然隐形）；插件把页面换成壁纸后，
+     同一块面积不再隐形，只能铺在真有东西需要垫底的地方。
+     现在需要垫底的只有**最下面那一条 dock 带**：统计行 / 模型按钮 / ContextMeter
+     自己没有底色；输入卡那片已经自带玻璃底 + ::before 霜 + 描边，而会话流正文列
+     比卡窄 32px（--dsh-composer-card-max-width = --dsh-chat-content-width + 32px）
+     ⇒ 卡的 gutter 里本来就不该有内容，不需要整块底板。
+     颜色再按 70% 稀释一次：铺满整座位时 56% 的奶白读作"遮罩"，缩到 48px 后
+     约 40% 才是"贴底渐隐"。
+     ⚠️ 座位**不给霜**：座位里就有 [data-composer-card]，而它内部有 position:fixed
+     后代（AI 浏览器座位，#89，见下面那段）—— 在座位上挂 backdrop-filter 会把那些
+     fixed 后代重新锚到座位上。输入卡自己那层 ::before 霜照旧。
      ⚠️ 锚点全部取宿主源码里写死的 data-composer-seat / data-conversation-region
      （conversation 包 composerSeat 的 JSX），不猜 CSS 模块哈希；[data-chat-flow] 在这
      一面**不可用**（座位是 ChatView 那一列的兄弟节点，不在会话流里）。 */
   body[data-we-glass-page] [data-phase="active"] [data-composer-seat][data-conversation-region="composer"],
   body[data-we-glass-page] [data-conversation-content][data-content-phase="active"] [data-composer-seat][data-conversation-region="composer"] {
-    background-image: linear-gradient(180deg, color-mix(in srgb, var(--we-composer-seat-fill) 0%, transparent) 0px, var(--we-composer-seat-fill) 36px) !important;
+    background-image: linear-gradient(180deg,
+      transparent calc(100% - 48px),
+      color-mix(in srgb, var(--we-composer-seat-fill) 70%, transparent) 100%) !important;
   }
   /* ── composer card: the blur must not live on the card itself ─────────────
      [data-composer-card] contains position:fixed descendants: @dsh-external/

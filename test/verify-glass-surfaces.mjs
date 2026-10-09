@@ -2099,6 +2099,90 @@ console.log('\n⑪ 思考玻璃门不碰输入框（用户口径 2026-10-04）')
         'var(--we-surface-tint-light') === '');
 }
 
+// ═══ ⑯ 输入座位底衬：几何棘轮（#156③ 的回归修正）═════════════════════════════
+// 事实：宿主把「输入卡 + dock 行」一起装进 [data-composer-seat] 这条**整宽**的 sticky
+// 座位（实测 110–130px 高），并给它画一条「透明 → --dsw-alias-bg-base」的渐变当底板。
+// 宿主那块为什么看不出来：`--dsw-alias-bg-base` 就是**页面底色**（原生不透明 ⇒ 与整页
+// 同色，天然隐形）。插件把页面换成壁纸后，同一块面积不再隐形 ⇒ #156③ 让插件接管这条
+// 底衬。**首版把插件配方铺满整个座位** ⇒ 壁纸上出现一条整宽、约 120px 的半透明奶白带，
+// 用户口径：「主页面底部出现很高的一条灰色遮罩条」。
+// 现在只有**贴底那一条**（dock 行：统计行 / 模型按钮 / ContextMeter，它们自己没有底色）
+// 需要垫底：输入卡自带玻璃底 + ::before 霜 + 描边，且卡比会话流正文列宽 32px
+// （--dsh-composer-card-max-width = --dsh-chat-content-width + 32px）⇒ 卡的左右 gutter
+// 里本来就不该有内容。颜色再按 <100% 稀释一次（铺满整座位时 56% 的奶白读作"遮罩"，
+// 缩到贴底一条后约 40% 才是"贴底渐隐"）。
+// 本判据把这件事钉成机器事实：几何必须**从 calc(100% - Npx) 起**（不许 0px 起铺满）、
+// 颜色必须按比例稀释、底衬必须还在（不然 #156③ 的统计行又浮在壁纸上）、座位上不许有
+// backdrop-filter（#89：座位内含 position:fixed 后代，挂霜会把它们重新锚定）。
+console.log('\n⑯ 输入座位底衬（几何只许贴底一条）');
+{
+  const SEAT_SEL = '[data-composer-seat][data-conversation-region="composer"]';
+  const seatBodyOf = (cssText) => {
+    for (let from = 0; ;) {
+      const i = cssText.indexOf(SEAT_SEL, from);
+      if (i < 0) return '';
+      const open = cssText.indexOf('{', i);
+      if (open < 0) return '';
+      const close = cssText.indexOf('}', open);
+      if (close < 0) return '';
+      const body = cssText.slice(open + 1, close);
+      // 注释里也会提到锚点 ⇒ 取"含声明"的那一块（首版读注释会拿到空块）。
+      if (body.includes('background-image')) return body;
+      from = i + 1;
+    }
+  };
+  const seatDeclsOf = (body) => {
+    const out = new Map();
+    for (const part of stripCssComments(body).split(';')) {
+      const m = /^\s*(--[a-z0-9-]+|[a-z-]+)\s*:\s*([\s\S]+)$/.exec(part);
+      if (m) out.set(m[1], m[2].trim().replace(/\s+/g, ' '));
+    }
+    return out;
+  };
+  const BAND_MAX_PX = 64; // 贴底一条的上限：超过就不是"贴底"而是"半块座位"
+  const seatGeometryProblem = (body) => {
+    const decls = seatDeclsOf(body);
+    const bg = decls.get('background-image') || '';
+    if (!bg) return '缺 background-image（#156③ 的贴底底衬会消失）';
+    const m = /transparent\s+calc\(\s*100%\s*-\s*(\d+)px\s*\)/.exec(bg);
+    if (!m) return '渐变不是贴底一条（找不到 transparent calc(100% - Npx) 的起点）';
+    const band = Number(m[1]);
+    if (!(band >= 1 && band <= BAND_MAX_PX)) return '贴底带宽 ' + band + 'px 超出 1–' + BAND_MAX_PX + 'px';
+    if (/(?:^|[\s,(])0px(?=[\s,)])/.test(bg)) return '渐变从 0px 起铺（会重新盖满整个座位 = 灰条回归）';
+    const fill = /color-mix\(\s*in srgb\s*,\s*var\(--we-composer-seat-fill\)\s+(\d+)%\s*,\s*transparent\s*\)/.exec(bg);
+    if (!fill) return '底衬颜色没按比例稀释（要 color-mix(in srgb, var(--we-composer-seat-fill) N%, transparent)）';
+    if (Number(fill[1]) >= 100) return '底衬颜色按 ' + fill[1] + '% 原样用（整块铺满时的浓奶白）';
+    if (decls.has('backdrop-filter')) return '座位上有 backdrop-filter（#89 的 position:fixed 后代会被重新锚定）';
+    return '';
+  };
+  const seatBody = seatBodyOf(STYLES_TEXT);
+  check('能定位到座位底衬规则（覆盖面地板：不是空对空）',
+    !!seatBody && seatBody.includes('--we-composer-seat-fill'),
+    seatBody ? '规则体 ' + seatBody.replace(/\s+/g, ' ').trim().length + ' 字符' : '没找到座位规则');
+  const seatProblem = seatBody ? seatGeometryProblem(seatBody) : '没找到座位规则';
+  check('座位底衬只铺贴底一条（≤' + BAND_MAX_PX + 'px 渐隐 / 颜色稀释 / 无霜）',
+    seatProblem === '',
+    seatProblem || (seatDeclsOf(seatBody).get('background-image') || ''));
+  // 负对照：喂给**同一个**判据函数，四种坏形态都必须判出。
+  const seatNeg = (bg, extra) => 'background-image: ' + bg + ';' + (extra || '');
+  const NEG_CASES = [
+    ['首版整块铺满（0px 起 + 36px 实色）',
+      seatNeg('linear-gradient(180deg, color-mix(in srgb, var(--we-composer-seat-fill) 0%, transparent) 0px, var(--we-composer-seat-fill) 36px) !important')],
+    ['贴底但不稀释（100% 浓奶白）',
+      seatNeg('linear-gradient(180deg, transparent calc(100% - 48px), var(--we-composer-seat-fill) 100%) !important')],
+    ['贴底带过宽（半块座位）',
+      seatNeg('linear-gradient(180deg, transparent calc(100% - 200px), color-mix(in srgb, var(--we-composer-seat-fill) 70%, transparent) 100%) !important')],
+    ['贴底一条但底衬整个删掉',
+      seatNeg('none')],
+    ['贴底一条却给座位挂了霜（#89）',
+      seatNeg('linear-gradient(180deg, transparent calc(100% - 48px), color-mix(in srgb, var(--we-composer-seat-fill) 70%, transparent) 100%) !important', 'backdrop-filter: blur(16px)')],
+  ];
+  const missed = NEG_CASES.filter(([, css]) => seatGeometryProblem(css) === '').map(([n]) => n);
+  check('negative control: 五种坏几何（铺满 / 不稀释 / 带过宽 / 删底衬 / 挂霜）都被同一条判据判出',
+    missed.length === 0,
+    missed.length ? '漏判：' + missed.join(' · ') : NEG_CASES.length + ' 种形态全部判出');
+}
+
 console.log('');
 if (failed) {
   console.log('GLASS SURFACE CHECKS FAILED — ' + failed + ' failed');

@@ -455,7 +455,7 @@ npm run verify:all      # = build → verify(35) → verify:docs(4) → smoke(6)
 |---|---|---|
 | C1 #161 | 四条 `[class*="_bubble"]` 规则（fill 接管 / 恒挂霜釉 / 气泡内代码块 / fallback 摘霜）统一加 `:not([role="tooltip"])` | `verify-readability` F2dN（下界 4 条 + 每条带排除式或 chat-flow 作用域） |
 | C2 #156① | `body[data-we-glass-page]` 令牌块重声明 `--dsw-mask-blur`（宿主 `.mask{backdrop-filter:var(--dsw-mask-blur)}`；主题只在裸 `body` 上写 `none`） | 现有令牌层判据（不新增锚点） |
-| C3 #156③ | 两个令牌块各加 `--we-composer-seat-fill`（走**全局** `--we-readability-base`/`--we-readability-floor`，避开 `chatBaseUses === 4`）+ 座位 `background-image` 规则（只给底色、不给霜） | `verify-readability` / `verify-glass-surfaces`（该规则体不匹配 `isGlassCarrier` ⇒ 不是玻璃面，无需登记） |
+| C3 #156③ | 两个令牌块各加 `--we-composer-seat-fill`（走**全局** `--we-readability-base`/`--we-readability-floor`，避开 `chatBaseUses === 4`）+ 座位 `background-image` 规则（只给底色、不给霜）——⚠️ 几何在 §10 修正（只留贴底一条） | `verify-readability` / `verify-glass-surfaces`（该规则体不匹配 `isGlassCarrier` ⇒ 不是玻璃面，无需登记；§10 新增第 ⑯ 组几何棘轮） |
 | C4a #156② | `[data-install-registry]` 霜 + 同一锚点的无模糊内核孪生；`SURFACES` 的 `glass-child-floaters` 行补认领 | `verify-glass-surfaces`（未登记锚点会被第②组抓出） |
 | C4b #156④ | `.md-code-block > :has(> [data-code-block-banner])` 在**既有清底规则之后**重铺底板（+ 深色 / 无模糊内核孪生） | `verify-readability` F2e（作用域与门控）+ 接口棘轮（该锚点已在册） |
 | C5 #159① | `src/effects.js`：`armFadeBgThemeWatch()` / `disarmFadeBgThemeWatch()`（MutationObserver 只认 `data-ds-dark-theme`、幂等、无 `MutationObserver` 时静默退化），在 `wallpaperOpacity > 0` 分支挂、归零分支与 `clearEffects` 断 | `verify-client` 行为判据（真 `src/effects.js` + `with(__scope)` 挂载台）：冷启动 `#ffffff` → 属性翻转但不派发仍 `#ffffff`（负对照）→ 派发后 `#000000` → `clearEffects` 已断开 |
@@ -587,5 +587,27 @@ npm run verify:all      # = build → verify(35) → verify:docs(4) → smoke(6)
 **门禁**：`npm run build`、`npm run verify`（36 脚本）、`npm run verify:docs`、`npm run smoke` 全部 exit 0。变异验证四条：删 v6 迁移步 ⇒ `verify-client` 红；删 `readGlassColors` 标量分支 ⇒ `verify-client` 红；`glassColorOf(selection, "dark")` 两处全替换成 `"light"` ⇒ `verify-glass-surfaces` ⑫b 红；面板开关不生效/深浅行联动错 ⇒ `verify-client` 面板判据红。
 
 **未做（有意）**：C8（响应压缩）与 C10（启动路径 / (a)）继续推迟，理由与实测数据见 §8；`#148` 的真机部分仍待作者页复现。本轮改动**尚未提交**（按 §5 切分，`C7` 单独一个提交）。
+
+---
+
+## 10. 启用后回归修正：座位底衬只留贴底一条（#156③）
+
+- **症状（用户口径）**：「主页面底部出现很高的一条灰色遮罩条」；追问确认位置 = 输入框那一片（含底部统计行 / 模型按钮）、整宽、贴底。
+- **真因**：§6 的 `C3` 只换了**配方**，**几何照抄宿主**（`0px → 36px` 渐显之后整块实色）。宿主那条之所以看不出来，是因为它的颜色就是 `--dsw-alias-bg-base` = **页面底色**（原生不透明 ⇒ 与整页同色、天然隐形）；插件把 `--dsw-alias-bg-base` 置成 `transparent`（好让壁纸透出来）之后，同一块面积就变成一块半透明奶白。而座位根本不是 36px 高 —— 它装的是「输入卡 + dock 行 + 内边距」，实测 **110–130px** ⇒ 壁纸上就是一条整宽、约 120px 高的灰条。
+- **修法**（`src/styles.js` 座位规则体，令牌与可读性下限口径**未动**）：
+
+  ```
+  background-image: linear-gradient(180deg,
+    transparent calc(100% - 48px),
+    color-mix(in srgb, var(--we-composer-seat-fill) 70%, transparent) 100%) !important;
+  ```
+
+  只铺**贴底 48px** 的渐隐，颜色再按 70% 稀释 —— 铺满整个座位时 56% 的奶白读作"遮罩"，缩到贴底一条后约 40% 才是"贴底渐隐"。
+- **为什么不是整块撤掉**：需要垫底的只有最下面那条 **dock 带**（统计行 / 模型按钮 / ContextMeter，它们自己没有底色，正是 #156③ 的原症状）；输入卡那片已经自带玻璃底 + `::before` 霜 + 描边，而卡的左右 gutter 里本来就不该有内容（`--dsh-composer-card-max-width = --dsh-chat-content-width + 32px`，会话流正文列比卡窄 32px）⇒ 整块撤掉等于把 #156③ 退回去。
+- **为什么还是不给霜**：座位内含 `position:fixed` 后代（AI 浏览器座位，#89）⇒ 在座位上挂 `backdrop-filter` 会把那些后代重新锚到座位上（既有结论，未变）。
+- **判据（新增）**：`verify-glass-surfaces` 第 ⑯ 组 —— ① 能定位到座位规则（覆盖面地板，防"空对空"）；② 几何契约：起点必须是 `transparent calc(100% - Npx)`、`N ≤ 64`、**不许出现 `0px` 停点**、颜色必须 `color-mix(… <100%, transparent)`、座位上不许有 `backdrop-filter`；③ 负对照五种坏形态（首版铺满 / 不稀释 / 带过宽 / 删底衬 / 挂霜）都必须被**同一条**判据判出。
+- **变异验证**：把规则体改回首版整块铺满 ⇒ ⑯ 立刻红（`渐变不是贴底一条（找不到 transparent calc(100% - Npx) 的起点）`），随后按字节还原。
+- **门禁**：`npm run verify:all` 全绿；`docs/TOKEN-CONTRACT.md` 因规则体行数变化重算（162 decls / 54 tokens 不变，玻璃仍 131）。
+- 对应提交：`fix(玻璃): 座位底衬只留贴底一条（#156③ 回归）`（`split/p0-p2` 的第 11 个提交，位于 `C7`…`DOCS` 之后）。
 
 
