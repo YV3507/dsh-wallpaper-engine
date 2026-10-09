@@ -418,6 +418,18 @@ function main() {
         && /background(?:-color)?: var\(--we-chat-glass-fill\)/.test(r.body)))
       && !normal.some((r) => r.header.includes('data-we-thinking-glass')
         && r.header.includes('[data-composer-card]')));
+    // #161：宿主 Tooltip（dsh-client-ui-primitives）也编译成 *_bubble —— 但它是独立
+    // 浮层：底色读 --dsw-alias-tooltip-bg（浅色 #2c2c2e 实色）、文字固定 bluish-00
+    // （近白），位置不由 [data-chat-flow] 约束。气泡的 fill/霜釉盖上去就是白字压浅底。
+    // 判据取宿主写在气泡元素上的 role="tooltip"（全 asar 唯一一处），它同时免疫类名
+    // 哈希漂移与浮层 DOM 位置 ⇒ 每一条 _bubble 规则要么 chat-flow 作用域、要么带豁免。
+    // 数下界 4 = 现有四条（fill / 霜釉 / 气泡内代码块清底 / fallback 摘霜），少一条即红。
+    const bubbleRules = all.filter((r) => r.header.includes('[class*="_bubble"]')
+      && !r.header.includes('@supports'));
+    check('F2dN every [class*="_bubble"] rule excludes the host Tooltip (role="tooltip")',
+      bubbleRules.length >= 4
+      && bubbleRules.every((r) => r.header.includes('[data-chat-flow]')
+        || r.header.includes(':not([role="tooltip"])')));
     const clear = (body) => /background: transparent !important/.test(body)
       && /(?:^|[;\s])backdrop-filter: none !important/.test(body)
       && /-webkit-backdrop-filter: none !important/.test(body)

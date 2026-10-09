@@ -570,15 +570,27 @@ const CSS = `
      的令牌契约。关 = 逐字节现状。
      ⚠️ **输入框（[data-composer-card]）退出思考玻璃作用域**：输入卡不铺这层 fill 接管，
      开关开 = 输入框与关着时逐位相同（只受基础对话栏玻璃与「对话框玻璃·独立配置」管）。
-     守卫：verify-glass-surfaces「思考玻璃门下不得出现 data-composer-card」。 */
-  body[data-we-glass-page][data-we-thinking-glass] [class*="_bubble"] {
+     守卫：verify-glass-surfaces「思考玻璃门下不得出现 data-composer-card」。
+     ⚠️ **宿主 Tooltip 也是 *_bubble**（issue #161）：宿主把悬浮提示的元素类名编译成
+     _bubble_ + 哈希 + 序号（dsh-client-ui-primitives 的 Tooltip），与对话气泡共享
+     [class*="_bubble"] 这个后缀约定，但它是**独立浮层**：底色读 --dsw-alias-tooltip-bg
+     （浅色 #2c2c2e 实色，深色 #43454a），文字固定 --dsw-static-neutral-bluish-00（近白），
+     且**位置不受 [data-chat-flow] 约束**（可能渲染在触发元素旁）。这层 fill 覆盖上去后
+     深底变浅底、白字不变 ⇒ 白字压浅底（实测 1.07–1.13:1，见 #161）。
+     判据取宿主自己写在气泡上的 role="tooltip"（全 asar 仅出现一次，就是这一处），
+     它同时免疫类名哈希漂移与浮层 DOM 位置，比 [data-chat-flow] 作用域更可靠。
+     ⇒ **本文件所有 [class*="_bubble"] 规则都必须带这道豁免**（:581 / :849 / :3021 同办），
+     守卫：verify-readability「F2dN 每条 _bubble 规则要么 chat-flow 作用域、要么带豁免」。 */
+  body[data-we-glass-page][data-we-thinking-glass] [class*="_bubble"]:not([role="tooltip"]) {
     background-color: var(--we-chat-glass-fill) !important;
   }
   /* ⚠️ 正文原生挡（data-we-thinking-native，见文件下方「正文原生挡」块）：只有**气泡**
      这一条带 :not() —— 原生挡下气泡退出霜釉（正文原生 = 无玻璃装饰）；**输入卡与工具
-     弹卡不豁免**（用户口径：输入对话框保留玻璃），照旧吃霜/釉。 */
+     弹卡不豁免**（用户口径：输入对话框保留玻璃），照旧吃霜/釉。
+     气泡这条还带第二道 :not([role="tooltip"])：这一组是**恒挂**的（默认就生效），
+     不加豁免就会给宿主 Tooltip 抹上白釉 + 模糊（#161），详见上面那条注释。 */
   body[data-we-glass-chat][data-we-glass-page] [data-composer-card],
-  body[data-we-glass-chat][data-we-glass-page]:not([data-we-thinking-native]) [class*="_bubble"],
+  body[data-we-glass-chat][data-we-glass-page]:not([data-we-thinking-native]) [class*="_bubble"]:not([role="tooltip"]),
   /* Interactive tool popup cards read the SAME --dsw-specific-input-major
      token as the composer (question / plan-review / approval), so they turn
      translucent along with it — but unlike the composer they had NO
@@ -846,7 +858,7 @@ const CSS = `
     backdrop-filter: none !important;
   }
   /* A user bubble already supplies the single glass plate and frost. */
-  body[data-we-glass-page][data-we-thinking-glass] [data-chat-flow] [class*="_bubble"] .md-code-block {
+  body[data-we-glass-page][data-we-thinking-glass] [data-chat-flow] [class*="_bubble"]:not([role="tooltip"]) .md-code-block {
     background: transparent !important;
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
@@ -3043,8 +3055,10 @@ body[data-we-glass-floaters] .we-repo-panel {
     --we-capsule-glass-fill: var(--we-chat-glass-fill);
   }
   /* ⚠️ 这条与上面 92% 不透明的思考玻璃填充配套，挂同一道门 —— 否则关着思考玻璃的
-     fallback 模式也会被摘掉气泡的 backdrop-filter。 */
-  body[data-we-glass-fallback][data-we-glass-page][data-we-thinking-glass] [class*="_bubble"] {
+     fallback 模式也会被摘掉气泡的 backdrop-filter。
+     带 :not([role="tooltip"]) 与上面三条同办（#161）：宿主 Tooltip 从来不吃插件霜釉，
+     清它不是修 bug 而是保持「一条规则只谈气泡」的可读性 + 让守卫按同一判据数。 */
+  body[data-we-glass-fallback][data-we-glass-page][data-we-thinking-glass] [class*="_bubble"]:not([role="tooltip"]) {
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
   }
