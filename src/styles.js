@@ -896,6 +896,38 @@ const CSS = `
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
   }
+  /* ── 吸顶条（宿主 .bannerWrap）重铺底板（#156④）──────────────────────────────
+     宿主 CodeBlock.module.css 里真正的 sticky 载体是 .bannerWrap
+     （position: sticky; top: 0; z-index: 6），它的底板写成
+     background-color: var(--dsw-alias-bg-base)；本插件把 --dsw-alias-bg-base 置成
+     transparent（好让壁纸透出来），上面那条清底规则又给同一个载体写了
+     background: transparent !important ⇒ 代码块一滚动，吸顶的 header / 复制按钮
+     就直接压在正文上，连一块板都没有（症状④）。
+     修法：在清底规则**之后**再声明一次 background-color + 霜（同特异度、同为
+     !important、后写胜），配方与工具面同族、同样压可读性下限；几何（sticky/top/
+     z-index/圆角）全部归宿主，一个字不改。
+     ⚠️ 只重铺 sticky 载体，不动 .banner 内部的 --dsl-code-block-banner-background-color
+     （那条仍是 transparent）：板只有一层，正文里不出现第二条吸顶带。
+     判据锚点仍是 [data-code-block-banner]（宿主源码写死的属性，已在登记册
+     「会话流面」那一行里认领），作用域留在 [data-chat-flow] 内。 */
+  body[data-we-glass-page][data-we-thinking-glass] [data-chat-flow] .md-code-block > :has(> [data-code-block-banner]) {
+    background-color: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-surface-tint-light, #ffffff) calc(var(--we-glass-alpha, 0.15) * 0.6 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
+    -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
+    backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
+  }
+  body[data-ds-dark-theme][data-we-glass-page][data-we-thinking-glass] [data-chat-flow] .md-code-block > :has(> [data-code-block-banner]) {
+    background-color: color-mix(in srgb,
+      var(--we-readability-base) calc(var(--we-readability-floor) * 100%),
+      color-mix(in srgb, var(--we-surface-tint-dark, #0d1524) calc(var(--we-glass-alpha, 0.15) * 0.6 * 100%), transparent) calc((1 - var(--we-readability-floor)) * 100%)) !important;
+  }
+  /* 无模糊内核：同一条「近不透明 + 摘霜」政策也要落到这条吸顶带上。 */
+  body[data-we-glass-fallback][data-we-glass-page][data-we-thinking-glass] [data-chat-flow] .md-code-block > :has(> [data-code-block-banner]) {
+    background-color: color-mix(in srgb, var(--we-readability-base) 92%, transparent) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
   /* A user bubble already supplies the single glass plate and frost. */
   body[data-we-glass-page][data-we-thinking-glass] [data-chat-flow] [class*="_bubble"]:not([role="tooltip"]) .md-code-block {
     background: transparent !important;
@@ -1597,6 +1629,27 @@ const CSS = `
       --we-tool-glass-fill: var(--we-chat-glass-fill);
       --we-capsule-glass-fill: var(--we-chat-glass-fill);
     }
+  }
+
+  /* ── 插件源浮层（plugin-manager · 宿主自己的浮层）→ 补霜 ─────────────────────
+     #156②：data-install-registry 是 dsh-client-ui-plugin-manager 写在 fieldset 上的
+     源码级布尔属性（「插件源」注册表视图）。宿主把它 portal 到 body（是 body 的直接
+     子节点，不在 [data-chat-flow] 里），宿主规则本身是实底色 --dsw-alias-bg-layer-2 +
+     大阴影，**没有 backdrop-filter**，也不走宿主的半透明菜单通道 —— 那套菜单令牌声明在
+     [data-menu-material] 元素选择器上，子树里裸读 var() 会在 computed-value 阶段整条失效。
+     于是玻璃开着时它仍是一块不透明板。这里只补霜，底色仍归宿主（不重声明
+     --dsw-alias-bg-layer-2，免得与注册表内部那些面板色打架）。
+     模糊半径读「浮层玻璃」这条子项的私有量 --we-floaters-blur（glass.js:271 无条件接线，
+     取不到时退回全局模糊），与 .we-update-notice / .we-repo-panel 同档。 */
+  body[data-we-glass-floaters] [data-install-registry] {
+    -webkit-backdrop-filter: blur(var(--we-floaters-blur)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+    backdrop-filter: blur(var(--we-floaters-blur)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01);
+  }
+  /* 无模糊内核：同一条「近不透明 / 摘霜」政策在这里也要收口，否则浮层是半透明无霜，
+     文字直接压在壁纸上。 */
+  body[data-we-glass-fallback][data-we-glass-floaters] [data-install-registry] {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
   }
 
   /* Section wrapper：融合官方设置页（官方分区没有外壳卡），内容直接落在设置对话框的面层上。

@@ -84,9 +84,12 @@ const SURFACES = [
       + '⚠️ 这里原先写的是"接线未完成"且档位 `global` —— 那条 why 在 W2 之后**已过期**，本次按事实改判 private。',
   },
   {
-    id: 'glass-child-floaters', label: '浮层玻璃（子项）', anchors: ['.we-update-notice', '.we-repo-panel--open'], tier: 'private',
+    id: 'glass-child-floaters', label: '浮层玻璃（子项）', anchors: ['.we-update-notice', '.we-repo-panel--open', '[data-install-registry]'], tier: 'private',
     why: '同 `settingsWindow`：W4 起**已接线**（`--we-floaters-blur` / `-alpha`，产物里 4 处 var() 消费）'
-      + '⇒ 原 why 的"接线未完成"过期，改判 private。',
+      + '⇒ 原 why 的"接线未完成"过期，改判 private。'
+      + ' 2026-10 追加入 `[data-install-registry]`：宿主 plugin-manager 的「插件源」注册表浮层'
+      + '（issue #156②，宿主自己 portal 到 body、本身不带 backdrop-filter）也归这一子项，读同一条'
+      + ' `--we-floaters-blur` ⇒ 与上面两个自有浮层同档，故并进本行而不是新开一条。',
   },
   {
     id: 'conversation-bubbles', label: '消息气泡', anchors: ['[class*="_bubble"]'], tier: 'private',
