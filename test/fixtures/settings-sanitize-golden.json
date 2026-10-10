@@ -1,5 +1,5 @@
 {
-  "note": "【定位】本夹具是**漂移棘轮**，不是正确性判据：只证明「宿主/客户端两侧的规范化输出没有无理由地变化」，**不证明这些取值本身正确**；取值该不该是这样，看 lib/settings-schema.js 的 DEFAULTS / KINDS 与各键的设计意图。\n期望值录自录制当时实现的实际输出；补键时按「引入时行为」重钉。\n重录脚本 .test-cache/regen-golden-*.mjs **不在仓库里**（.test-cache/ 被 .gitignore 排除）⇒ 补键只能人工比对 diff 后改本文件，并且必须由人确认「除新键外零漂移」。\n消费点：test/verify-client.mjs 的 golden 段（逐用例值比对 cases）。键的**存在性**由 test/verify-glass-surfaces.mjs 的 ⑥ 键集快照管（漏补键会在那里红）。",
+  "note": "【定位】本夹具是**漂移棘轮**，不是正确性判据：期望值录自录制当时实现的实际输出 ⇒ 只证明「输出没有无理由地变化」，**不证明这些取值本身正确**；取值该不该是这样，看 lib/settings-schema.js 的 DEFAULTS / KINDS 与各键的设计意图。\n【哪一侧真被守着】只有 **host 侧的「值」**被 test/verify-client.mjs 的 golden 段逐用例比对（漂移 ⇒ verify 红）。**client 侧的值没有任何判据比对**：verify-client ④ 在活值上钉住 client == host，verify-glass-surfaces ⑥ 只用键集 ⇒ client 值与当前 schema 的差异是**提示**、不是失败。\n【怎么重录】node test/tools/regen-golden.mjs（只报告）· 加 --write --intend <host|client>:<键> 才写入，且除声明键外任何漂移会被拒绝写入；本段文字不由脚本生成、也不会被追加流水。重录 = 承认漂移，提交信息里必须写明意图。\n【键的存在性】由 test/verify-glass-surfaces.mjs ⑥ 的键集快照管 —— 它比对的是**夹具自身逐用例的自洽**：某个用例漏补键会红，但一个键在**所有**用例里都没补则抓不到（那一类只有 test/tools/regen-golden.mjs 报）。",
   "generatedFrom": {
     "client": "src/client.js sanitizeSettings",
     "host": "lib/index.js sanitizeSettings"

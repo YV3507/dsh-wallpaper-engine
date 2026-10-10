@@ -3124,10 +3124,14 @@ setTimeout(async () => {
       //    输出**（补键时按「引入时行为」重钉），
       //    所以它只证明「输出没有无理由地变化」，**不证明这些取值本身正确** —— 取值该不该
       //    是这样，看 `lib/settings-schema.js` 的 DEFAULTS / KINDS 与各键的设计意图。
-      //    重录脚本 `.test-cache/regen-golden-*.mjs` **不在仓库里**（`.test-cache/` 被
-      //    `.gitignore` 排除）⇒ 补键时只能人工比对 diff 后改夹具，并且必须由人确认
-      //    「除新键外零漂移」；键的**存在性**另有 `test/verify-glass-surfaces.mjs` 的
-      //    ⑥ 键集快照管（漏补键会在那里红）。
+      //    ⚠️ 本段只比对 **host** 侧的值；夹具里 `client` 侧的值**没有任何判据比对**
+      //    （④ 在活值上钉住 client == host、⑥ 只用键集）⇒ client 侧与当前 schema 的差异
+      //    是提示、不是失败。重录走 `node test/tools/regen-golden.mjs`：不带
+      //    `--write --intend <侧>:<键>` 只能报告，且除声明键外的漂移会被拒绝写入
+      //    （期望值不许与被测对象同源 —— 重录 = 承认漂移，提交信息里要写明意图）。
+      //    键的**存在性**另有 `test/verify-glass-surfaces.mjs` 的 ⑥ 键集快照管：它比的是
+      //    夹具自身逐用例的自洽（某用例漏补会红），**一个键在所有用例里都没补则抓不到**
+      //    —— 那一类只有 `test/tools/regen-golden.mjs` 报。
       const golden = JSON.parse(readFileSync(
         new URL('../test/fixtures/settings-sanitize-golden.json', import.meta.url), 'utf8'));
       const canon = (o) => JSON.stringify(o && typeof o === 'object' && !Array.isArray(o)
@@ -3923,6 +3927,8 @@ setTimeout(async () => {
     '#159①：切到深色后拖动档必须重算到 #000000（缓存被失效）');
   fxMod.clearEffects();
   assert.ok(watch.disconnected, '#159①：clearEffects 必须断开主题观察者（否则卸载后它还挂在宿主 DOM 上）');
+  // 装置自检（**不是**产品判据）：上一条断言的是桩的标志位，只有先证明"没调过 disconnect 的
+  // 观察者不会被判成已断开"，上一条才可能是假的（DEV-GUIDE §4.7 约定 8：判据被中和时必须变红）。
   const neverDisconnected = new FakeMutationObserver(() => {});
   neverDisconnected.observe(fxBody, {});
   assert.ok(neverDisconnected.disconnected === false,
