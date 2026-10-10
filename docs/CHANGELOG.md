@@ -19,6 +19,12 @@
 
 > v1.3.0-r2 之后的增量；`NOTICE_VERSION` 哨兵同步 `1.3.1`（公告改版 ⇒ 看过 r2 公告的用户会再看到一次），；`package.json` 版本号已同步 `1.3.1`。
 
+- **测试框架反模式审计与加固（纯测试与文档改动，产品行为不变）**。
+  **范围**：`test/` 全部 72 个 `.mjs`（顶层 57 + `test/tools/` 15）与 `test/fixtures/` 两份夹具，按三类反模式（面向结果编程 A1–A4 / 无意义测试 B1–B4 / 自欺欺人 C1–C6）逐条审出 **106 处**并全部定案：重写 47 / 加固 33 / 删除 19 / 不改·声明 5 / 取消 2，未决 0。
+  **修法**：① **重写** —— 判据的被测对象从测试自己的字面量、桩或镜像挪回产品真源码（`test/verify-fontset.mjs` 的字体集默认名改为从 `src/client.js` 提取实现真跑；`test/e2e-web-media-origin.mjs` 的库视图判据改读 `src/panel-tabs.js`）；② **加固** —— 覆盖面地板一律写在 `if (x) { … }` **外面**，静默吞掉的失败改成可见失败（`test/compat-harness-pages.mjs` 的 `SKIP_MIN_CHECKS`、`test/verify-media-bridge.mjs` 的就绪判据）；③ **删除** —— 任何输入都真、且该失效模式已被别处覆盖的恒真判据。
+  **判据**：`npm run verify` / `npm run verify:docs` / `npm run smoke` exit 0（`test/verify-fontset.mjs` 157 条）；口径与逐条现状见 [`archive/audits/TEST-ANTIPATTERN-AUDIT.md`](./archive/audits/TEST-ANTIPATTERN-AUDIT.md)，遗留与风险见 [`archive/audits/TEST-ANTIPATTERN-FIX-PLAN.md`](./archive/audits/TEST-ANTIPATTERN-FIX-PLAN.md)；`docs/DEV-GUIDE.md` §4.7 新增约定 9（期望值不许与被测对象同源）与约定 10（逃生门必须带覆盖面地板，且跳过不得与通过同形）。
+  **范围说明**：只动 `test/`、`docs/` 与夹具 `note`，`src/` / `lib/` / `scripts/` / `package.json` 零改动 ⇒ 不需要重启 `dsh web`。
+
 - **修复：网页壁纸周期性抢走输入焦点（issue [#148](https://github.com/elysia395/dsh-wallpaper-engine/issues/148)）—— 元素级焦点围栏 + 宿主侧焦点交还（C11 + C12 合并）**。
   **根因**：网页 / 场景壁纸里的脚本会反复 `focus()`，把输入光标从对话输入框搬走。插件原有的围栏只做**帧级**判定（壁纸帧整体拿不到键盘焦点），拦不住两类抢焦：壁纸文档里元素级的 `el.focus()`，以及**跨源 WindowProxy** 的 `top.focus()` / `parent.focus()` 与宿主文档内部的 `autofocus` / `dialog.showModal()` / `label` 转发 —— 壁纸文档里的守卫根本够不到这些路径。
   **修法**：① `lib/we-focus-guard.js` 保留帧级判定不变，新增**元素级围栏**：`HTMLElement.prototype.focus` 只在"最近一次真实交互"后的 `gestureWindowMs`（**1000 ms**）窗口内放行，窗口外吞掉并计数（`window.__weFocusGuard` 的 `elCalls` / `elAllowed` / `elBlocked` / `elLastBlockedAt` / `elLastBlockedStack`，便于作者页复现时取证）。**手势窗口不能省**：壁纸层是 `pointer-events: none`，用户真点壁纸时由 shim 合成 `isTrusted === false` 的 pointer / mouse 事件 —— 壁纸自带编辑框靠这次点击拿焦点是正当行为，一刀切会把它毁掉（总计划 §3.5 明列"不要做"）。② 新增 `src/focus-handback.js`，跑在**宿主文档**里把被搬走的焦点交还：`focusout` 来自被记住的元素、`document.activeElement` 是 `iframe.we-iframe`、且最近 1000 ms 无真实手势 ⇒ 交还；另有 `STALE_MS` / `MIN_GAP_MS` 两道保险，`window.__weFocusHandback.{handbacks,skipped}` 可观测。③ `scripts/build-client.mjs` 登记新模块、`src/client.js` 的 2e 段挂 `ctx.effect`。宿主半不能省：壁纸文档里的守卫改不了跨源 WindowProxy，也拦不住 `autofocus` / `dialog.showModal()` / `label` 转发。
