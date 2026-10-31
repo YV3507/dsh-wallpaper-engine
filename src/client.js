@@ -287,6 +287,12 @@ const selection = {
   // The media URL is token-shaped (`/media/<base64url>`) with no extension, so the
   // "browser can play this natively" decision (see src/video-layer.js) needs this field.
   mediaExt: null,
+  // Transient: 图片 / 幻灯片壁纸的图集入口（host inventory `slidesUrl`，形如
+  // `/wallpaper-engine/slides/<token>`；只有图集 ≥2 张时才给）。`buildMedia` 据此在底层
+  // 封面图上叠交叉淡化层；`slideIntervalMs` 是 WE 项目里声明的那一档（`imageswitchtimes`），
+  // 用户设置 `pictureSlideSeconds` 非 0 时以用户为准。两者都不落盘 —— 它们随壁纸变。
+  slidesUrl: null,
+  slideIntervalMs: null,
   // Transient: scene wallpaper animation MP4 URL (host /scene-video route).
   // When present the scene plays as a hardware-decoded <video>; on load error
   // it is nulled and the layer rebuilds as a still image (the frame URL:
@@ -4080,6 +4086,15 @@ const onGroupTrigger = (e) => {
   }
   emit();
 };
+// 图内过场周期（图片 / 幻灯片壁纸内部多张图之间的切换间隔）。单位是**秒**，0 = 跟随 WE
+// 项目里声明的 `imageswitchtimes`；与 rotationInterval（壁纸之间、分钟）是两件事。
+// 改完原地重装过场层：图片档的层键只有 type+url，改设置不会触发 syncLayers 重建。
+const onPictureSlideSeconds = (e) => {
+  const seconds = clampNum(Number(e.target.value), ...schemaRange("pictureSlideSeconds"), DEFAULTS.pictureSlideSeconds);
+  setSetting("pictureSlideSeconds", seconds);
+  if (selection.type === "image") refreshImageSlideshow(selection);
+  emit();
+};
 // 「删除」按钮**只置令牌**；真正的删除在问句行的「确认」里（不变量 2）。两件事分开的
 // 好处：守卫可以分别断言"第一下不删"与"确认才删"，而不是只验一个 if。
 const onArmDeleteGroup = () => {
@@ -4714,7 +4729,7 @@ function WallpaperPicker() {
     );
     return renderWallpaperTab({
       setSetting, setTransient,
-      INTERVALS, armedConfirm: sel.armedConfirm, cdMode, current, editing, editorPageView, group, groups, isLiveScene, onArmConfirm: armConfirm, onArmDeleteGroup, onCancelEditUploadDir, onCancelEditWeAssetsDir, onClear, onDeleteGroup, onDisarmConfirm: disarmConfirm, onEditInterval, onEditName, onEditOrder, onEditTrigger, onGroupChange, onGroupInterval, onGroupTrigger, onOpenPicker, onOpenPickerDraft, onRefresh, onStartEditUploadDir, onStartEditWeAssetsDir, onSwitchTransition, onSwitchTransitionDir, onSwitchTransitionSpeed, onToggleAudio, onTogglePlay, onTogglePropsPanel, onToggleRotation, onUploadDirDraft, onWeAssetsDirDraft, pagerRow, playableCount, playableList, playbackLive, propsPanelOpen, renderUserPropsPanel, sel, setPickerOpener, uploadedList,
+      INTERVALS, armedConfirm: sel.armedConfirm, cdMode, current, editing, editorPageView, group, groups, isLiveScene, onArmConfirm: armConfirm, onArmDeleteGroup, onCancelEditUploadDir, onCancelEditWeAssetsDir, onClear, onDeleteGroup, onDisarmConfirm: disarmConfirm, onEditInterval, onEditName, onEditOrder, onEditTrigger, onGroupChange, onGroupInterval, onGroupTrigger, onPictureSlideSeconds, onOpenPicker, onOpenPickerDraft, onRefresh, onStartEditUploadDir, onStartEditWeAssetsDir, onSwitchTransition, onSwitchTransitionDir, onSwitchTransitionSpeed, onToggleAudio, onTogglePlay, onTogglePropsPanel, onToggleRotation, onUploadDirDraft, onWeAssetsDirDraft, pagerRow, playableCount, playableList, playbackLive, propsPanelOpen, renderUserPropsPanel, sel, setPickerOpener, uploadedList,
     });
   };
   const tabIdx = Math.max(0, visibleTabs.findIndex((t) => t.id === activeTab));
