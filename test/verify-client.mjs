@@ -4349,6 +4349,25 @@ setTimeout(async () => {
       'CPU 动画渲染已删除：全流程不得出现任何 /scene-anim 请求');
     console.log('CPU 动画渲染路线已删除（源码钉死 + 行为级零请求）: ok');
 
+    // ── #295：库存失败态必须早退 ──────────────────────────────────────────────
+    // 一次「宿主不可达」不等于「库空了」：失败分支造的是全空 next，只够让面板显示错误态。
+    // 若继续往下跑播种 / 轮播校验，就会烧掉 rotationSeeded 并把 rotationEnabled 置 false 落盘
+    // （用户看到的是"自动轮播莫名其妙关了，重启也还关着"）。断在被测产物（code）上 ⇒
+    // DSH_MUT_LIB 变异也能验到；负对照用同一个函数对变异文本判假。
+    const hasInventoryFailureEarlyReturn = (src) => {
+      const at = src.indexOf('if (next.error) {');
+      const seed = src.indexOf('selection.rotationSeeded = true;');
+      const disable = src.indexOf('selection.rotationEnabled = false;');
+      if (at < 0 || seed < 0 || disable < 0) return false;
+      if (!(at < seed && at < disable)) return false;
+      return /emit\(\);\s*return;/.test(src.slice(at, seed));
+    };
+    assert.ok(hasInventoryFailureEarlyReturn(code),
+      '#295：库存加载失败必须早退（emit 一次 + return），不许拿全空 next 继续跑播种 / 轮播校验');
+    assert.ok(!hasInventoryFailureEarlyReturn(code.replace('if (next.error) {', 'if (false) {')),
+      '负对照：去掉早退条件后同一条判据必须判假（判据有牙）');
+    console.log('#295 库存失败早退: ok');
+
     // ── sceneVideo 诚实化的时序补拉 ────────────────────────────────────────
     // 宿主对 sceneVideo 是「按 pkg 真探测」：未命中缓存时先给 null（不猜）并把探测
     // 投到后台，而客户端启动时那次 inventory 必然早于定论 ⇒ 必须有一次延迟补拉，

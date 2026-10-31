@@ -899,6 +899,17 @@ async function loadInventory() {
   setTransient("inventory", next);
   setTransient("loading", false);
   setTransient("loaded", true);
+  // 宿主一次不可达 ≠ 库空了（#295）：上面 catch 造的是一份**全空**的 next，只够让面板显示
+  // 「未检测到…」+「重试」。拿它继续跑下面的播种 / 列表校验 / 轮播开关，等于把"这次没读到"
+  // 当成"用户把壁纸全删了"——首载失败会先烧掉 `rotationSeeded` 再播种（下次真加载反而不播种），
+  // 并把 `rotationEnabled` 永久置 false 落盘（重启后仍是关着的）。轮播那一组状态因此整块跳过；
+  // 仍需 `revalidateSelection()` 按这一版库存重算「当前壁纸还在不在」（空库落到未选择态，
+  // 重试成功后会被再校验回填），然后只刷一次 UI，把错误态交给面板。
+  if (next.error) {
+    revalidateSelection();
+    emit();
+    return;
+  }
   // Fresh inventory → reset pagination, but ONLY when the wallpaper id set
   // actually changed: an upload/remove/refresh that keeps the same list must
   // not kick the user back to page 1.
