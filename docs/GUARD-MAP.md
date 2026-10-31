@@ -58,7 +58,7 @@
 | `verify-host-teardown.mjs` | `lib/index.js` `lib/media-origin.js` `packages/media-bridge/lib/legacy.js` `packages/media-bridge/lib/occlusion/index.js` `packages/media-bridge/lib/supervisor.js` `packages/pet-link/lib/routes/official-pet.js` |  |
 | `verify-i18n.mjs` | `packages/glass/src/glass-css.js` `src/client.js` `src/i18n-copy.js` `src/i18n.js` `src/nav-icon.js` `src/quick-panel.js` `src/sidebar-right.js` `src/styles-base.js` `src/styles-chrome.js` `src/styles-ext.js` `src/styles-panel.js` `src/styles-quick.js` `src/styles-settings.js` `src/styles-shell.js` `src/styles.js` | ✅ |
 | `verify-inject-contracts.mjs` | `lib/subpackage-boot.js` |  |
-| `verify-inventory-index.mjs` | `lib/inventory.js` |  |
+| `verify-inventory-index.mjs` | `lib/inventory.js` `packages/media-bridge/lib/routes/inventory.js` |  |
 | `verify-issue-claim-policy.mjs` | — |  |
 | `verify-json-response.mjs` | `lib/json-response.js` `lib/subpackage-boot.js` | ✅ |
 | `verify-layer-ownership.mjs` | `lib/routes/diag.js` `packages/fx/src/fx-layer.js` `src/client-audio-playback.js` `src/client.js` `src/layer-core.js` `src/live-layer-pointer.js` `src/live-layer-watch.js` `src/live-layer.js` `src/media-prep.js` `src/video-layer.js` |  |
@@ -223,7 +223,7 @@
 | `packages/media-bridge/lib/legacy.js` | 5 | `verify-cache-dir` `verify-child-kill` `verify-contracts` `verify-host-teardown` `verify-scene-live` |
 | `packages/media-bridge/lib/occlusion/index.js` | 2 | `verify-host-teardown` `verify-occlusion-hub` |
 | `packages/media-bridge/lib/provision.js` | 3 | `e2e-web-media-origin` `verify-media-bridge` `verify-scene-live` |
-| `packages/media-bridge/lib/routes/inventory.js` | 3 | `verify-avatar-interval-and-rotation` `verify-component-visibility` `verify-route-index` |
+| `packages/media-bridge/lib/routes/inventory.js` | 4 | `verify-avatar-interval-and-rotation` `verify-component-visibility` `verify-inventory-index` `verify-route-index` |
 | `packages/media-bridge/lib/routes/live-frame.js` | 1 | `verify-scene` |
 | `packages/media-bridge/lib/routes/media-bytes.js` | 4 | `verify-avatar-interval-and-rotation` `verify-route-index` `verify-scene-live` `verify-scene` |
 | `packages/media-bridge/lib/routes/media-derived.js` | 1 | `verify-transcode-state` |
