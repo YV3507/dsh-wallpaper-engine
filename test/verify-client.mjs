@@ -4368,6 +4368,23 @@ setTimeout(async () => {
       '负对照：去掉早退条件后同一条判据必须判假（判据有牙）');
     console.log('#295 库存失败早退: ok');
 
+    // ── #253：设置面板三条布局口径 ─────────────────────────────────────────────
+    // 作者的复现是「左说明 + 右控件」行在 564px 内容宽下的取宽问题：
+    //   ① 分段控件用 flex:1（basis 0）⇒ 长说明吃满整行后只剩几十像素，按钮被压成窄格；
+    //   ② 「吉祥物 · 指向」那行 11 个键在同一行里互相截断（basis 0 的项不参与换行计算）；
+    //   ③ 色板行与说明同排 ⇒ 短说明的行把色板推到右端、长说明的行把它挤下一行，右侧「自定义」顶出面板。
+    // 修法全在 CSS 口径 + 一处类名，断在产物 code 上任一回归都能看住。
+    const hasCtlWrapSegLayout = (src) => /\.we-picker__ctl--wrap > \.we-picker__seg \{[^}]*grid-auto-flow: column[^}]*grid-auto-columns: 1fr/.test(src)
+      && /\.we-picker__ctl--wrap > \.we-picker__seg\.we-picker__seg--chips \{[^}]*flex-wrap: wrap/.test(src)
+      && /\.we-picker__ctl--wrap > \.we-picker__swatches \{ flex: 1 0 100%; \}/.test(src);
+    assert.ok(hasCtlWrapSegLayout(code), '#253：分段控件与色板行必须落三条取宽口径（不许再被长说明压扁）');
+    // 那行 11 键的「吉祥物 · 指向」住在玻璃包产物里（ADR-0016 第四刀后壁纸节按包出户）⇒ 扫 writeFace。
+    assert.ok(/we-picker__seg we-picker__seg--chips/.test(writeFace),
+      '#253：「吉祥物 · 指向」那行必须挂 chips 段类名（11 键换行 + 每键取内容宽）');
+    assert.ok(!hasCtlWrapSegLayout(code.replace('  .we-picker__ctl--wrap > .we-picker__swatches { flex: 1 0 100%; }', '')),
+      '负对照：删掉「色板独占整行」那条口径后同一条判据必须判假（判据有牙）');
+    console.log('#253 设置面板取宽口径: ok');
+
     // ── sceneVideo 诚实化的时序补拉 ────────────────────────────────────────
     // 宿主对 sceneVideo 是「按 pkg 真探测」：未命中缓存时先给 null（不猜）并把探测
     // 投到后台，而客户端启动时那次 inventory 必然早于定论 ⇒ 必须有一次延迟补拉，
